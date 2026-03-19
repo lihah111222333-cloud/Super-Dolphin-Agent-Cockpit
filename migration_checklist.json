@@ -6,7 +6,9 @@
   "summary": {
     "total_v2_guards": "700+",
     "must_migrate": "~150-200 (contract + core guard + golden)",
-    "can_skip": "~500+ (split guards, duplicate coverage, metric guards)"
+    "can_skip": "~500+ (split guards, duplicate coverage, metric guards)",
+    "v3_total_target": "≤40,000 行（收敛后进一步压缩）",
+    "provider_convergence_savings": "~6,286 行"
   },
   "batches": [
     {
@@ -46,20 +48,34 @@
     },
     {
       "id": "P2",
-      "name": "核心引擎",
+      "name": "核心引擎（Provider 收敛版）",
       "status": "pending",
       "packages": [
         "internal/runner",
         "pkg/agentsdk"
       ],
       "v2_source_lines": 14272,
-      "v3_target_lines": "≤10000",
+      "v3_target_lines": "≤7000（收敛后减半）",
       "guards_to_migrate": [
         "internal/runner/manager_contract_test.go (必迁 - 1824行 状态机合同)",
         "internal/runner/state_matrix_guard_test.go (必迁)",
-        "internal/runner/ — 42 guards → 精简到 ~12 核心",
-        "pkg/agentsdk/agentcore/phase1_contract_test.go (必迁)",
-        "pkg/agentsdk/service/runtime/turn_runtime_logic_contract_test.go (必迁)"
+        "pkg/agentsdk/agentcore/phase1_contract_test.go (必迁 - 接口兼容性)",
+        "pkg/agentsdk/service/runtime/turn_runtime_logic_contract_test.go (必迁)",
+        "claude/injection_chain_test.go → provider/mcp_bridge_test.go (迁移+重写)"
+      ],
+      "migration_strategy": "双端收敛为统一 Provider + MCP 工具路径",
+      "sub_phases": [
+        "P2a: 新建 pkg/agentsdk/provider/ — 统一 Provider 核心 + MCP bridge",
+        "P2b: 精简 pkg/agentsdk/claude/ — 只保留 CLI 传输层",
+        "P2c: 精简 pkg/agentsdk/codex/ — 只保留 AppServer 传输层 + MCP client",
+        "P2d: 迁移 internal/runner/ — 使用统一 Provider，不再传 dynamicTools"
+      ],
+      "deleted_code_paths": [
+        "codex/client_appserver_protocol.go → ThreadStart.DynamicTools 字段",
+        "codexadapter/adapter.go → Deps.AllSchemas",
+        "codexadapter/adapter_submit.go → AllDynamicToolSchemas 接线",
+        "turn_runtime_logic.go → dynamicTools 参数传递",
+        "turn_runtime_adapters.go → RuntimeAdapter.AllDynamicToolSchemas"
       ]
     },
     {
@@ -170,6 +186,17 @@
       "file": "pkg/agentsdk/service/archive/thread_archive_core.go",
       "issue": "509 lines (limit 500)",
       "migration_action": "提取 helper 到 archive_helpers.go"
+    }
+  ],
+  "architecture_decisions": [
+    {
+      "id": "ADR-001",
+      "date": "2026-03-19",
+      "title": "双端 Provider 收敛 + 统一 MCP 工具路径",
+      "status": "approved",
+      "decision": "Codex 不再系统内注入工具，改为和 Claude 一样通过 MCP Server 提供工具",
+      "impact": "净减少 ~6,286 行代码",
+      "detail_doc": "docs/plans/2026-03-19-provider-convergence.md"
     }
   ]
 }

@@ -2,7 +2,7 @@
   "version": 1,
   "created": "2026-03-19",
   "description": "V3 包行数预算。迁移时逐步填入实际行数和上限。",
-  "total_budget": 45000,
+  "total_budget": 40000,
   "packages": {
     "cmd/agent-terminal": {
       "lines": 0,
@@ -54,7 +54,7 @@
     },
     "pkg/agentsdk": {
       "lines": 0,
-      "frozen_max": 8000
+      "frozen_max": 5000
     },
     "pkg/errors": {
       "lines": 0,
@@ -79,6 +79,22 @@
     "pkg/util": {
       "lines": 0,
       "frozen_max": 300
+    },
+    "pkg/agentsdk/provider": {
+      "lines": 0,
+      "frozen_max": 1500,
+      "note": "新建：统一 Provider"
+    },
+    "pkg/agentsdk/claude": {
+      "lines": 0,
+      "frozen_max": 1000,
+      "note": "精简：只保留 CLI 传输"
+    },
+    "pkg/agentsdk/codex": {
+      "lines": 0,
+      "frozen_max": 800,
+      "note": "精简：只保留 AppServer 传输"
     }
-  }
+  },
+  "convergence_note": "ADR-001: 双端 Provider 收敛后，agentsdk 总预算从 8000 降至 5000"
 }
