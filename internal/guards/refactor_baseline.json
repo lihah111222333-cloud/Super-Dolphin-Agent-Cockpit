@@ -2,7 +2,7 @@
   "version": 1,
   "created": "2026-03-19",
   "description": "V3 包行数预算。迁移时逐步填入实际行数和上限。",
-  "total_budget": 40000,
+  "total_budget": 38000,
   "packages": {
     "cmd/agent-terminal": {
       "lines": 0,
@@ -14,7 +14,8 @@
     },
     "internal/apiserver": {
       "lines": 0,
-      "frozen_max": 8000
+      "frozen_max": 5500,
+      "note": "jrpc2 框架后大幅降低"
     },
     "internal/bus": {
       "lines": 0,

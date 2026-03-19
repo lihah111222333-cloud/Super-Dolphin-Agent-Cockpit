@@ -7,8 +7,9 @@
     "total_v2_guards": "700+",
     "must_migrate": "~150-200 (contract + core guard + golden)",
     "can_skip": "~500+ (split guards, duplicate coverage, metric guards)",
-    "v3_total_target": "≤40,000 行（收敛后进一步压缩）",
-    "provider_convergence_savings": "~6,286 行"
+    "v3_total_target": "≤38,000 行（ADR-001 + ADR-002 双重压缩）",
+    "provider_convergence_savings": "~6,286 行",
+    "jrpc2_savings": "~2,000-2,770 行 RPC 样板"
   },
   "batches": [
     {
@@ -113,19 +114,27 @@
     },
     {
       "id": "P5",
-      "name": "服务层",
+      "name": "服务层（jrpc2 框架版）",
       "status": "pending",
       "packages": [
         "internal/apiserver",
         "internal/dashboard"
       ],
       "v2_source_lines": 17977,
-      "v3_target_lines": "≤12000",
+      "v3_target_lines": "≤9,500（jrpc2 砍样板后）",
       "guards_to_migrate": [
         "internal/apiserver/methods_ui_state_contract_test.go (必迁 - 689行)",
         "internal/apiserver/server_split_guard_test.go (必迁 - 1100行)",
         "internal/apiserver/p1_event_payload_guard_test.go (必迁)",
         "internal/apiserver/ — 43 guards → 精简到 ~15 核心"
+      ],
+      "migration_strategy": "handler → jrpc2 typed Service，零手写分发",
+      "sub_phases": [
+        "P5a: jrpc2 Server 骨架 + jhttp 桥接 ✅ 已完成",
+        "P5b: 中间件层（logging, metrics, auth） ✅ 已完成",
+        "P5c: SSE 通知桥接 ✅ 已完成",
+        "P5d: 逐模块迁移 methods_*.go → service_*.go",
+        "P5e: 验证全部 RPC contract test 通过"
       ]
     },
     {
@@ -197,6 +206,15 @@
       "decision": "Codex 不再系统内注入工具，改为和 Claude 一样通过 MCP Server 提供工具",
       "impact": "净减少 ~6,286 行代码",
       "detail_doc": "docs/plans/2026-03-19-provider-convergence.md"
+    },
+    {
+      "id": "ADR-002",
+      "date": "2026-03-19",
+      "title": "引入 creachadair/jrpc2 替代手写 RPC 分发",
+      "status": "approved",
+      "decision": "使用 jrpc2 框架自动处理参数解析、方法路由、错误码、批量请求",
+      "impact": "净减少 ~2,000-2,770 行 RPC 样板代码",
+      "detail_doc": "docs/plans/2026-03-19-jrpc2-framework.md"
     }
   ]
 }
