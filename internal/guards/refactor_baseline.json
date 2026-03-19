@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "created": "2026-03-19",
+  "description": "V3 包行数预算。迁移时逐步填入实际行数和上限。",
+  "total_budget": 45000,
+  "packages": {
+    "cmd/agent-terminal": {
+      "lines": 0,
+      "frozen_max": 2500
+    },
+    "cmd/mcp-server": {
+      "lines": 0,
+      "frozen_max": 200
+    },
+    "internal/apiserver": {
+      "lines": 0,
+      "frozen_max": 8000
+    },
+    "internal/bus": {
+      "lines": 0,
+      "frozen_max": 600
+    },
+    "internal/config": {
+      "lines": 0,
+      "frozen_max": 150
+    },
+    "internal/dashboard": {
+      "lines": 0,
+      "frozen_max": 1500
+    },
+    "internal/executor": {
+      "lines": 0,
+      "frozen_max": 900
+    },
+    "internal/guards": {
+      "lines": 0,
+      "frozen_max": 500
+    },
+    "internal/mcp": {
+      "lines": 0,
+      "frozen_max": 1500
+    },
+    "internal/runner": {
+      "lines": 0,
+      "frozen_max": 2500
+    },
+    "internal/store": {
+      "lines": 0,
+      "frozen_max": 3000
+    },
+    "internal/uistate": {
+      "lines": 0,
+      "frozen_max": 3000
+    },
+    "pkg/agentsdk": {
+      "lines": 0,
+      "frozen_max": 8000
+    },
+    "pkg/errors": {
+      "lines": 0,
+      "frozen_max": 100
+    },
+    "pkg/factory": {
+      "lines": 0,
+      "frozen_max": 2000
+    },
+    "pkg/idamcp": {
+      "lines": 0,
+      "frozen_max": 8000
+    },
+    "pkg/logger": {
+      "lines": 0,
+      "frozen_max": 1000
+    },
+    "pkg/toolsdk": {
+      "lines": 0,
+      "frozen_max": 10000
+    },
+    "pkg/util": {
+      "lines": 0,
+      "frozen_max": 300
+    }
+  }
+}
