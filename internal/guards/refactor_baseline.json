@@ -2,7 +2,7 @@
   "version": 1,
   "created": "2026-03-19",
   "description": "V3 包行数预算。迁移时逐步填入实际行数和上限。",
-  "total_budget": 38000,
+  "total_budget": 35000,
   "packages": {
     "cmd/agent-terminal": {
       "lines": 0,
@@ -19,7 +19,8 @@
     },
     "internal/bus": {
       "lines": 0,
-      "frozen_max": 600
+      "frozen_max": 300,
+      "note": "kelindar/event 替代后精简"
     },
     "internal/config": {
       "lines": 0,
@@ -43,7 +44,8 @@
     },
     "internal/runner": {
       "lines": 0,
-      "frozen_max": 2500
+      "frozen_max": 1500,
+      "note": "stateless FSM 后大幅降低"
     },
     "internal/store": {
       "lines": 0,
@@ -51,7 +53,8 @@
     },
     "internal/uistate": {
       "lines": 0,
-      "frozen_max": 3000
+      "frozen_max": 2000,
+      "note": "统一状态机 + 类型安全事件后精简"
     },
     "pkg/agentsdk": {
       "lines": 0,
