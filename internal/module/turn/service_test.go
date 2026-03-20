@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -70,6 +72,43 @@ func TestPrepareTurnTruncatesInputCount(t *testing.T) {
 	}
 	if got := len(req.Inputs); got != maxTurnInputItems {
 		t.Fatalf("len(req.Inputs) = %d, want %d", got, maxTurnInputItems)
+	}
+}
+
+func TestPrepareTurnUsesExecutableBinaryDirForManifest(t *testing.T) {
+	t.Parallel()
+
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable() error = %v", err)
+	}
+
+	svc := NewService(silentLogger())
+	session := &stubSession{threadID: "thread-1"}
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{})
+	if err != nil {
+		t.Fatalf("PrepareTurn() error = %v", err)
+	}
+
+	want := filepath.Join(filepath.Dir(exe), "go-agent-mcp-lsp")
+	if got := commandForBinary(req.MCP, "go-agent-mcp-lsp"); got != want {
+		t.Fatalf("lsp command = %q, want %q", got, want)
+	}
+}
+
+func TestPrepareTurnPrefersExplicitBinaryDir(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger())
+	session := &stubSession{threadID: "thread-1"}
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{BinaryDir: "/tmp/turn-bin"})
+	if err != nil {
+		t.Fatalf("PrepareTurn() error = %v", err)
+	}
+
+	want := filepath.Join("/tmp/turn-bin", "go-agent-mcp-lsp")
+	if got := commandForBinary(req.MCP, "go-agent-mcp-lsp"); got != want {
+		t.Fatalf("lsp command = %q, want %q", got, want)
 	}
 }
 
@@ -254,6 +293,15 @@ func (h *stubTurnHandle) complete(err error) {
 
 func silentLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func commandForBinary(manifest dto.MCPManifest, name string) string {
+	for _, binary := range manifest.Binaries {
+		if binary.Name == name && len(binary.Command) > 0 {
+			return binary.Command[0]
+		}
+	}
+	return ""
 }
 
 func skillNames(refs []dto.SkillRef) []string {

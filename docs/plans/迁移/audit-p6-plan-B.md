@@ -1,0 +1,53 @@
+# P6 计划审查 — Agent B
+
+## 1. fx × Wails lifecycle
+
+- Blocker。当前 V3 的外层入口只有 `Run()`：`NewApp()` -> `app.Start(context.Background())` -> `<-app.Done()` -> `app.Stop(context.Background())`，而 `NewApp()` 只装配 `Module` 与 `BindRuntime`。P6 计划只写“`RunDesktop()` 在 `NewApp()` 的 fx.Options 中加入 `wails.Module`”与“`lifecycle.go` 桥接 `ShouldQuit / OnShutdown`”，没有给出谁在 `fx.Start` 之后、`fx.Stop` 之前负责执行阻塞式的 Wails 主循环。证据：`internal/app/app.go:17-30`，`docs/plans/迁移/p6-execution-plan.md:61`，`docs/plans/迁移/p6-execution-plan.md:104-106`。
+- Blocker。计划定义的是单向 `Wails -> fx` 桥接，不是双向 shutdown 协调。P6 的 shutdown 描述只有 `ShouldQuit -> 活跃 agent 检查 -> quit overlay -> fx.Shutdowner`；当前 V2 在 `requestQuit` 中显式调用 `wailsApp.Quit()`，`OnShutdown` 再执行真正的清理链。若 V3 只保留 `ShouldQuit -> fx.Shutdowner`，则 `fx` / `run.Group` 侧触发的停机没有对称的 `Wails.Quit()` 路径。证据：`docs/plans/迁移/p6-execution-plan.md:114-115`，`go-agent-v2/cmd/agent-terminal/main_setup.go:392-399`，`go-agent-v2/cmd/agent-terminal/main_setup.go:428-429`。
+
+## 2. run.Group 协调
+
+- Blocker。计划写明 `runner.go` 不变且 “Wails runner 通过 `group:"runners"` 自动加入 `run.Group`”。但当前 `BindRuntime` 在 `OnStart` 中起 goroutine 执行 `platformrunner.RunGroup`，并且只有当 `RunGroup` 返回“非 `context.Canceled` 的 error”时才会调用 `fx.Shutdowner`。因此在 `runner.go` 不改的前提下，Wails runner 若把“正常关窗”表示为 `nil` 或 `context.Canceled`，`fx` 不会被停止；若把“正常关窗”编码成 error，日志又会被记录为 `runtime exited`。证据：`internal/app/runner.go:30-43`，`internal/platform/runner/group.go:49-58`，`docs/plans/迁移/p6-execution-plan.md:106`。
+- Blocker。反向路径同样缺失。当前任一 runner 以非取消错误退出时，`BindRuntime` 只会记录 `runtime exited` 并调用 `fx.Shutdowner`；P6 没有定义 `fx.Stop` / `run.Group` 失败如何通知 Wails 退出。按现有文案，`ShouldQuit` 只是 UI 发起停机，不是后台失败发起 UI 关闭。证据：`internal/app/runner.go:36-43`，`docs/plans/迁移/p6-execution-plan.md:61`，`docs/plans/迁移/p6-execution-plan.md:114-115`。
+- Warning。`agent` 进程崩溃不等于 `runner` 退出。当前 `orchestration.runnerActor` 在子进程 `Wait()` 返回后只是把结果送回 `handleProcessExit(...)` 并继续循环；真正的 runner 只在 `ctx.Done()` 时返回。P6 如果把“任一 runner 退出，例如进程崩溃”当成统一语义，会把 agent 级故障和 runtime 级故障混为一谈。证据：`internal/module/orchestration/runner_actor.go:26-45`，`internal/module/orchestration/service.go:342-381`。
+
+## 3. 信号处理冲突
+
+- Warning。当前 V3 已经存在两层 shutdown authority：`Run()` 等待 `app.Done()`，而 `platformrunner.RunGroup` 自己又注册了 `signal.Notify(SIGINT, SIGTERM)`。P6 计划再写 “Signal -> fx graceful shutdown”，如果不先裁掉 `RunGroup` 的 signal actor 或明确唯一信号入口，desktop 模式会形成至少三方竞争退出：`fx.Done`、`run.Group`、Wails lifecycle。证据：`internal/app/app.go:24-30`，`internal/platform/runner/group.go:34-47`，`docs/plans/迁移/p6-execution-plan.md:115`。
+- Warning。V2 的信号链不是只有 `signal.NotifyContext`，还单独维护了 `sigCh`、`shutdownReason` 和 `cancelWithReason`，用于记录退出原因并驱动后续 `OnShutdown` 日志/清理。P6 计划把 V3 概括成 “用 fx 的 signal handling” 过于简化，至少没有回答是否保留 `shutdownReason` 这一类诊断语义。证据：`go-agent-v2/cmd/agent-terminal/main_setup.go:137-183`，`go-agent-v2/cmd/agent-terminal/main.go:145-171`。
+
+## 4. Headless vs Desktop
+
+- OK。针对现有三个 MCP headless binary，build tag 不是隔离 Wails 的硬性前提。这三个入口当前都只构造 `fx.New(fx.NopLogger)`，没有导入 `internal/app`；唯一导入 `internal/app` 的是桌面入口 `cmd/agent-terminal/main.go`。因此只要 Wails 依赖停留在 `cmd/agent-terminal` / `internal/app` 的 desktop 装配层，MCP 二进制不会被直接污染。证据：`cmd/agent-terminal/main.go:7-14`，`cmd/mcp-lsp/fx.go:5-12`，`cmd/mcp-orch/fx.go:5-12`，`cmd/mcp-ida/fx.go:5-12`。
+- Warning。不能把 desktop 依赖无差别塞进 `app.Module`。当前 `internal/archtest/fx_graph_test.go` 直接校验 `fx.ValidateApp(app.Module)`，而现有 `app.Module` 是纯 headless 组装。若把 `app.Module` 自身做成带 Wails 的条件模块，headless 验证和 app 级测试都会跟着变成 desktop 图。更稳妥的形状是保留 `app.Module` 为 headless baseline，再由 `RunDesktop()` 或单独 `DesktopModule` 在 `internal/app` 叠加 Wails。证据：`internal/app/modules.go:23-44`，`internal/archtest/fx_graph_test.go:11-14`，`docs/plans/迁移/p6-execution-plan.md:104-105`。
+- Warning。`internal/ui/wails/lifecycle.go` 如果直接 import `go.uber.org/fx`，会撞现有 archtest。规则 10 只允许 `fx` 出现在 `cmd/`、`internal/app/` 或文件名为 `module.go` 的文件；计划却把 lifecycle 桥接拆到 `internal/ui/wails/lifecycle.go`。这意味着所有 `fx` 相关装配必须留在 `internal/ui/wails/module.go` 或 `internal/app`，`lifecycle.go` 只能拿普通函数/接口。证据：`internal/archtest/dependency_direction_test.go:164-175`，`docs/plans/迁移/p6-execution-plan.md:58-62`。
+- Warning。根模块 `go.mod` 目前没有 `github.com/wailsapp/wails/v3` 依赖；计划自己也把这件事列为待确认项。P6 不是纯装配，还包含依赖面变化。证据：`go.mod:5-27`，`docs/plans/迁移/p6-execution-plan.md:166-167`。
+
+## 5. V2 shutdown 映射
+
+- Warning。V2 shutdown 由两段组成，不是单一 `OnShutdown`。`ShouldQuit` 先检测活跃 agent、发 `app-will-quit` overlay、延迟 320ms 后再调用 `Quit()`；`OnShutdown` 才真正执行清理链。P6 计划把 shutdown 一行压成 `ShouldQuit -> ... -> fx.Shutdowner`，遗漏了这两段的职责分离。证据：`go-agent-v2/cmd/agent-terminal/main.go:92-123`，`go-agent-v2/cmd/agent-terminal/main_setup.go:388-430`，`docs/plans/迁移/p6-execution-plan.md:114-115`。
+- Warning。V2 `OnShutdown` 的清理链至少包含：`cancelWithReason("wails_on_shutdown")`、`appSvc.shutdown()`、`flushCoverage("wails_on_shutdown")`、`ShutdownDBHandler()`、`ShutdownFileHandler()`、`pool.Close()`，并且在 `app.Run()` 不返回时还有 safety exit。证据：`go-agent-v2/cmd/agent-terminal/main.go:134-156`，`go-agent-v2/cmd/agent-terminal/main.go:189-219`，`go-agent-v2/cmd/agent-terminal/main.go:277-291`。
+- Warning。V2 `appSvc.shutdown()` 还会停止全部 agent、超时后 force kill、清理 diff tracker、关闭 LSP manager。P6 计划目前只显式提到活跃 agent 检查与 overlay，没有回答这些子步骤分别落到哪条 V3 lifecycle。证据：`go-agent-v2/cmd/agent-terminal/app_helpers.go:289-336`，`docs/plans/迁移/p6-execution-plan.md:108-116`。
+- Warning。V3 现有 lifecycle 只覆盖了其中一部分：agent stop 由 `runnerActor.Run()` 在 `ctx.Done()` 时触发 `stopAll()`，session close 由 `SessionManager.CloseAll()` 挂在 `OnStop`，DB pool close 由 `db.Module` 的 `OnStop` 完成，bus/rpc subscription 也有各自 `OnStop`。因此“DB close / agent stop”已有映射，但 `quit overlay`、`shutdownReason`、`coverage flush`、`logger Shutdown*Handler`、`safety exit` 还没有在计划里落具体归属。证据：`internal/module/orchestration/runner_actor.go:36-39`，`internal/module/orchestration/runner_actor.go:79-80`，`internal/module/orchestration/service.go:134-144`，`internal/provider/unified/module.go:32-40`，`internal/provider/unified/session.go:84-101`，`internal/platform/db/module.go:28-39`，`internal/platform/rpc/module.go:51-69`，`internal/platform/bus/module.go:25-35`，`docs/plans/迁移/p6-execution-plan.md:114-115`。
+
+## 结论（Blocker / Warning / OK）
+
+- Blocker。当前计划最大的问题不是 Wails API 细节，而是 shutdown authority 未定型：`RunDesktop()` 的外层顺序未定义，且 `runner.go` 不变 + Wails runner 进 `run.Group` 与现有 `BindRuntime` 的 `Shutdowner` 触发条件不兼容。证据：`internal/app/app.go:17-30`，`internal/app/runner.go:30-43`，`internal/platform/runner/group.go:49-58`，`docs/plans/迁移/p6-execution-plan.md:104-106`。
+- Warning。Signal 路径已有重复控制面；P6 若不指定唯一信号源，会把 `fx.Done`、`run.Group`、Wails lifecycle 混在一起。证据：`internal/app/app.go:24-30`，`internal/platform/runner/group.go:34-47`，`docs/plans/迁移/p6-execution-plan.md:115`。
+- Warning。Headless binary 本身不需要 build tag 才能隔离 Wails，但 `app.Module`、`internal/ui/wails/lifecycle.go` 和根 `go.mod` 都有明确装配/约束风险。证据：`cmd/mcp-lsp/fx.go:5-12`，`internal/app/modules.go:23-44`，`internal/archtest/dependency_direction_test.go:164-175`，`go.mod:5-27`。
+
+## 互辩
+
+### 对 audit-p6-plan-A 的批判
+
+1. `Blocker` 排序不准。A 在结论里把 `go.mod` 缺依赖放成唯一 `Blocker`，但当前更硬的阻塞点是 desktop outer control flow 根本没有设计完成：`cmd/agent-terminal/main.go` 只会调用 `app.Run()`，`internal/app/app.go` 只有 headless 的 `Start -> Done -> Stop`，`BindRuntime` 也只在 `RunGroup` 返回非 `context.Canceled` error 时才触发 `fx.Shutdowner`。这意味着即使今天补上 Wails 依赖，`RunDesktop()` 的顺序与正常关窗/后台失败的退出语义仍然无解。证据：`docs/plans/迁移/audit-p6-plan-A.md:40-46`，`cmd/agent-terminal/main.go:10-14`，`internal/app/app.go:17-30`，`internal/app/runner.go:30-43`，`docs/plans/迁移/p6-execution-plan.md:104-106`，`docs/plans/迁移/p6-execution-plan.md:114-115`。
+2. dispatch 改动面说过头。A 断言“至少需要改 `internal/platform/rpc/module.go` 暴露可注入函数或直接注入 `*rpc.Server`”，但 `rpc.Module` 已经 `fx.Provide(NewServer, ...)`，`app.Module` 也已经包含 `rpc.Module`，所以 `*rpc.Server` 现在就是可注入对象。真正缺的不是 DI wiring，而是 `Server` 对外没有公开的本地 `Invoke/Dispatch` API。把问题表述成“module.go 也必须改”没有直接代码证据。证据：`docs/plans/迁移/audit-p6-plan-A.md:10-13`，`internal/platform/rpc/module.go:14-24`，`internal/app/modules.go:23-44`。
+3. `OpenNewWindow` 被降格成“方法覆盖偏窄”的普通 warning，严重度偏低。V2 的 `handleUIOpenNewWindow()` 不是简单绑定缺口；它会编码 snapshot/cwd，并最终调用 `OpenNewWindow()` 用 `exec.Command(exe, args...).Start()` 拉起新进程。这是桌面生命周期/多进程模型问题，不是和 `SaveClipboardImage` 同级的表层 API 覆盖。若 P6 不明确 de-scope，多窗口应单列高优先级项。证据：`docs/plans/迁移/audit-p6-plan-A.md:24-32`，`go-agent-v2/cmd/agent-terminal/app_handlers.go:332-352`，`go-agent-v2/cmd/agent-terminal/app.go:270-300`，`docs/plans/迁移/p6-execution-plan.md:12`。
+4. event bridge 批判只打到 API 形状，没有继续追到更严重的 reverse shutdown 缺口。A 正确指出 `PushBridge` 只认识 `*jrpc2.Server`，但没有接着验证 `BindRuntime` 的退出条件，因此没有回答“后台 runner 失败时谁负责让 Wails 退场”。这个遗漏比“是否独立 bridge”更先决定 P6 能不能跑起来。证据：`docs/plans/迁移/audit-p6-plan-A.md:17-20`，`internal/platform/rpc/server.go:16-23`，`internal/platform/rpc/server.go:42-50`，`internal/app/runner.go:35-43`，`docs/plans/迁移/p6-execution-plan.md:114-115`。
+
+### 对 audit-p6-plan-C 的批判
+
+1. `Blocker` 定位偏了。C 的 3 个 `Blocker` 全压在体量、守卫预算和并行切片上，但当前更硬的 blocker 是 desktop 启停顺序与 `Shutdowner` 语义：`cmd/agent-terminal/main.go` 只有 `app.Run()`，`internal/app/app.go` 只有 headless `Run()`，而 `BindRuntime` 只对非取消错误触发 shutdown。C 的结论没有把这组 runtime control-flow 风险单列出来，优先级明显低估。证据：`docs/plans/迁移/audit-p6-plan-C.md:78-88`，`cmd/agent-terminal/main.go:10-14`，`internal/app/app.go:17-30`，`internal/app/runner.go:30-43`，`docs/plans/迁移/p6-execution-plan.md:104-106`，`docs/plans/迁移/p6-execution-plan.md:114-115`。
+2. 用 `3421` 行包总量当 blocker 证据过粗。调用链上，V2 桌面关键路径是 `main -> runMainDesktopApplication`，而 V3 已经把 `db/rpc/run-group` 这类后端装配收敛进 `internal/app.Module` 与 `BindRuntime`。把 `debug_server.go`、dialogs、`doc.go` 等整个包总量直接投影到 P6 预算，会高估必须迁移的 runtime-critical surface；C 自己在中段也承认后端骨架已被 V3 吸收，结论前后并不一致。证据：`docs/plans/迁移/audit-p6-plan-C.md:20-24`，`docs/plans/迁移/audit-p6-plan-C.md:42-48`，`go-agent-v2/cmd/agent-terminal/main.go:61-77`，`go-agent-v2/cmd/agent-terminal/main_setup.go:372-490`，`internal/app/modules.go:23-44`，`internal/app/runner.go:26-61`。
+3. 对 Batch B 的复杂度判断偏轻。C 认为 B 主要是“desktop entry 和 option 结构准备，最后接 `wails.Module` import”，但当前 B 需要改写的是唯一入口 `cmd/agent-terminal/main.go` 和唯一 headless orchestration `internal/app/app.go`。这不是末端 wiring，而是新的 outer control flow 和 desktop/headless 模块分叉；如果这一层不先定，A/C 的文件切片都没有稳定边界。证据：`docs/plans/迁移/audit-p6-plan-C.md:60-66`，`cmd/agent-terminal/main.go:10-14`，`internal/app/app.go:17-30`，`internal/app/modules.go:23-44`。
+4. `debug_server.go` 被提升为遗漏项，但优先级仍然排高了。代码上它已经被 `runtimeCfg.debug` 和 `startMainDebugServer()` 明确隔离，属于可单独 de-scope 的 sidecar；在 `RunDesktop()` sequencing、`run.Group` 退出语义、Wails reverse quit path 还没有闭合前，把 debug server 与主 lifecycle 问题并列，会错配修订顺序。证据：`docs/plans/迁移/audit-p6-plan-C.md:28-28`，`go-agent-v2/cmd/agent-terminal/main.go:73-76`，`go-agent-v2/cmd/agent-terminal/main_setup.go:362-370`，`internal/app/runner.go:30-43`。

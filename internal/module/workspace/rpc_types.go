@@ -2,8 +2,21 @@ package workspace
 
 type createRunParams = CreateRunRequest
 
+type mergeRunParams struct {
+	RunKey        string `json:"runKey"`
+	UpdatedBy     string `json:"updatedBy,omitempty"`
+	DryRun        bool   `json:"dryRun,omitempty"`
+	DeleteRemoved bool   `json:"deleteRemoved,omitempty"`
+}
+
 type runKeyParams struct {
 	RunKey string `json:"runKey"`
+}
+
+type abortRunParams struct {
+	RunKey    string `json:"runKey"`
+	UpdatedBy string `json:"updatedBy,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 type listRunsParams struct {
@@ -17,6 +30,11 @@ type updateRunStatusParams struct {
 	Status string `json:"status"`
 }
 
+type listRunFilesParams struct {
+	RunKey string `json:"runKey"`
+	State  string `json:"state,omitempty"`
+}
+
 type runFileParams struct {
 	RunKey string `json:"runKey"`
 	Path   string `json:"path"`
@@ -24,6 +42,10 @@ type runFileParams struct {
 
 type runResult struct {
 	Run *Run `json:"run"`
+}
+
+type mergeResult struct {
+	Result *MergeRunResult `json:"result"`
 }
 
 type runsResult struct {

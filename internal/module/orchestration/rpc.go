@@ -46,15 +46,32 @@ func NewOrchestrationHandlers(svc Service) rpc.HandlerMapResult {
 		"agent.snapshot": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return svc.Snapshot(ctx, p.AgentID)
 		}),
-		"task/dag/create":  newNotImplementedHandler[createDAGParams]("task/dag/create"),
-		"task/dag/get":     newNotImplementedHandler[dagKeyParams]("task/dag/get"),
-		"task/dag/list":    newNotImplementedHandler[listDAGsParams]("task/dag/list"),
-		"task/node/update": newNotImplementedHandler[updateNodeParams]("task/node/update"),
+		"agent.getState": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
+			return svc.GetState(ctx, p.AgentID)
+		}),
+		"agent.getReport": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
+			return svc.GetReport(ctx, p.AgentID)
+		}),
+		"agent.rememberReportRequest": rpc.StrictHandler(func(ctx context.Context, p rememberReportRequestParams) (any, error) {
+			return svc.RememberReportRequest(ctx, rememberReportRequestFromParams(p))
+		}),
+		"agent.reportEvent": rpc.StrictHandler(func(ctx context.Context, p reportEventParams) (any, error) {
+			return svc.HandleReportEvent(ctx, reportEventFromParams(p))
+		}),
+		"task/dag/create": rpc.StrictHandler(func(ctx context.Context, p createDAGParams) (any, error) {
+			return svc.CreateDAG(ctx, createDAGRequestFromParams(p))
+		}),
+		"task/dag/get": rpc.StrictHandler(func(ctx context.Context, p dagKeyParams) (any, error) {
+			return svc.GetDAG(ctx, p.DagKey)
+		}),
+		"task/dag/list": rpc.StrictHandler(func(ctx context.Context, p listDAGsParams) (any, error) {
+			return svc.ListDAGs(ctx, listDAGsFilterFromParams(p))
+		}),
+		"task/node/update": rpc.StrictHandler(func(ctx context.Context, p updateNodeParams) (any, error) {
+			return svc.UpdateNodeStatus(ctx, updateNodeRequestFromParams(p))
+		}),
 		"orchestration/report": rpc.StrictHandler(func(ctx context.Context, p reportParams) (any, error) {
-			if err := svc.SetReport(ctx, p.AgentID, p.Report); err != nil {
-				return nil, err
-			}
-			return map[string]any{"success": true}, nil
+			return svc.GetReport(ctx, p.AgentID)
 		}),
 	}}
 }
@@ -140,8 +157,58 @@ func envList(env map[string]string) []string {
 	return values
 }
 
-func newNotImplementedHandler[Req any](method string) handler.Func {
-	return rpc.StrictHandler(func(context.Context, Req) (any, error) {
-		return nil, rpc.ErrNotImplemented(method + " is not yet implemented")
-	})
+func rememberReportRequestFromParams(p rememberReportRequestParams) RememberReportRequest {
+	return RememberReportRequest{
+		AgentID:     p.AgentID,
+		RequesterID: p.RequesterID,
+	}
+}
+
+func reportEventFromParams(p reportEventParams) ReportEvent {
+	return ReportEvent{
+		AgentID:   p.AgentID,
+		Report:    p.Report,
+		EventType: p.EventType,
+		EventData: append(json.RawMessage(nil), p.EventData...),
+	}
+}
+
+func createDAGRequestFromParams(p createDAGParams) CreateDAGRequest {
+	return CreateDAGRequest{
+		DagKey:      p.DagKey,
+		Title:       p.Title,
+		Description: p.Description,
+		CreatedBy:   p.CreatedBy,
+		Metadata:    append(json.RawMessage(nil), p.Metadata...),
+		Nodes:       createDAGNodesFromParams(p.Nodes),
+	}
+}
+
+func createDAGNodesFromParams(nodes []createDAGNodeParams) []CreateDAGNodeRequest {
+	mapped := make([]CreateDAGNodeRequest, 0, len(nodes))
+	for _, node := range nodes {
+		mapped = append(mapped, CreateDAGNodeRequest{
+			NodeKey:    node.NodeKey,
+			Title:      node.Title,
+			NodeType:   node.NodeType,
+			AssignedTo: node.AssignedTo,
+			DependsOn:  append([]string(nil), node.DependsOn...),
+			CommandRef: node.CommandRef,
+			Config:     append(json.RawMessage(nil), node.Config...),
+		})
+	}
+	return mapped
+}
+
+func listDAGsFilterFromParams(p listDAGsParams) ListDAGsFilter {
+	return ListDAGsFilter{Status: p.Status, Keyword: p.Keyword, Limit: p.Limit}
+}
+
+func updateNodeRequestFromParams(p updateNodeParams) UpdateNodeStatusRequest {
+	return UpdateNodeStatusRequest{
+		DagKey:  p.DagKey,
+		NodeKey: p.NodeKey,
+		Status:  p.Status,
+		Result:  append(json.RawMessage(nil), p.Result...),
+	}
 }

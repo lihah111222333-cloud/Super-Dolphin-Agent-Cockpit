@@ -27,6 +27,26 @@ type WorkspaceRunMerged struct {
 	UpdatedBy       string `json:"updatedBy,omitempty"`
 }
 
+// WorkspaceRunAborted reports a workspace run abort request.
+type WorkspaceRunAborted struct {
+	shared.WorkspaceRunHeader
+	Reason    string `json:"reason,omitempty"`
+	UpdatedBy string `json:"updatedBy,omitempty"`
+}
+
+// WorkspaceRunMergeError reports a merge attempt that could not complete cleanly.
+type WorkspaceRunMergeError struct {
+	shared.WorkspaceRunHeader
+	SourceRoot    string `json:"sourceRoot"`
+	WorkspacePath string `json:"workspacePath"`
+	Conflicts     int    `json:"conflicts,omitempty"`
+	Errors        int    `json:"errors,omitempty"`
+	Message       string `json:"message,omitempty"`
+	UpdatedBy     string `json:"updatedBy,omitempty"`
+}
+
 func (WorkspaceRunCreated) Type() uint32       { return shared.EventTypeWorkspaceRunCreated }
 func (WorkspaceRunStatusChanged) Type() uint32 { return shared.EventTypeWorkspaceRunStatusChanged }
 func (WorkspaceRunMerged) Type() uint32        { return shared.EventTypeWorkspaceRunMerged }
+func (WorkspaceRunAborted) Type() uint32       { return shared.EventTypeWorkspaceRunAborted }
+func (WorkspaceRunMergeError) Type() uint32    { return shared.EventTypeWorkspaceRunMergeError }

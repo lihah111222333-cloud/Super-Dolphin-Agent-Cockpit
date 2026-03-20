@@ -240,9 +240,17 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 }
 
 func (s *session) dispatch(raw dto.RawProviderEvent) {
-	if s.dispatcher != nil {
-		s.dispatcher.Dispatch(raw)
+	if s.dispatcher == nil {
+		return
 	}
+	payload := decodeAnyPayload(raw.Data)
+	if len(payload) > 0 && stringValue(payload, "agentId", "agent_id") == "" {
+		if agentID := strings.TrimSpace(s.agentID); agentID != "" {
+			payload["agentId"] = agentID
+			raw.Data = payload
+		}
+	}
+	s.dispatcher.Dispatch(raw)
 }
 
 func (s *session) finishTurn(params json.RawMessage, optimistic bool) {

@@ -12,6 +12,12 @@ type store struct {
 
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
+func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
+	return s.q.WithTx(ctx, func(txq *sqlc.Queries) error {
+		return fn(&store{q: txq})
+	})
+}
+
 func (s *store) UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun, error) {
 	row, err := s.q.UpsertWorkspaceRun(ctx, sqlc.UpsertWorkspaceRunParams{
 		RunKey:        run.RunKey,

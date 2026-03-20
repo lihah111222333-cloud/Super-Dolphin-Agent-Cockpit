@@ -9,28 +9,50 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+func cardByKeyHandler(fn func(context.Context, string) (any, error)) handler.Func {
+	return rpc.StrictHandler(func(ctx context.Context, p cardKeyParams) (any, error) {
+		return fn(ctx, p.Key)
+	})
+}
+
+func cardCreateHandler(fn func(context.Context, Card) (*Card, error)) handler.Func {
+	return rpc.StrictHandler(func(ctx context.Context, p createCardParams) (any, error) {
+		return fn(ctx, buildCard(cardPayload(p)))
+	})
+}
+
+func cardUpdateHandler(fn func(context.Context, Card) (*Card, error)) handler.Func {
+	return rpc.StrictHandler(func(ctx context.Context, p updateCardParams) (any, error) {
+		return fn(ctx, buildCard(cardPayload(p)))
+	})
+}
+
+func cardRunHandler(fn func(context.Context, string, map[string]any) (CardRunResult, error)) handler.Func {
+	return rpc.StrictHandler(func(ctx context.Context, p runCardParams) (any, error) {
+		return fn(ctx, p.Key, p.Args)
+	})
+}
+
+func namedContentHandler(fn func(context.Context, string, string) (any, error)) handler.Func {
+	return rpc.StrictHandler(func(ctx context.Context, p skillNamedContentParams) (any, error) {
+		return fn(ctx, p.Name, p.Content)
+	})
+}
+
 func NewSkillHandlers(svc Service) rpc.HandlerMapResult {
-	cardByKey := func(fn func(context.Context, string) (any, error)) handler.Func {
-		return rpc.StrictHandler(func(ctx context.Context, p cardKeyParams) (any, error) { return fn(ctx, p.Key) })
-	}
-	namedContent := func(fn func(context.Context, string, string) (any, error)) handler.Func {
-		return rpc.StrictHandler(func(ctx context.Context, p skillNamedContentParams) (any, error) { return fn(ctx, p.Name, p.Content) })
-	}
 	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"command/card/list": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) { return svc.ListCards(ctx) }),
-		"command/card/get":  cardByKey(func(ctx context.Context, key string) (any, error) { return svc.GetCard(ctx, key) }),
-		"command/card/create": rpc.StrictHandler(func(ctx context.Context, p createCardParams) (any, error) {
-			return svc.CreateCard(ctx, buildCard(cardPayload(p)))
-		}),
-		"command/card/update": rpc.StrictHandler(func(ctx context.Context, p updateCardParams) (any, error) {
-			return svc.UpdateCard(ctx, buildCard(cardPayload(p)))
-		}),
-		"command/card/delete":   cardByKey(func(ctx context.Context, key string) (any, error) { return nil, svc.DeleteCard(ctx, key) }),
-		"command/card/run":      rpc.StrictHandler(func(ctx context.Context, p runCardParams) (any, error) { return svc.RunCard(ctx, p.Key, p.Args) }),
-		"command/card/versions": cardByKey(func(ctx context.Context, key string) (any, error) { return svc.ListCardVersions(ctx, key) }),
+		"command/card/list":     rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) { return svc.ListCards(ctx) }),
+		"command/card/get":      cardByKeyHandler(func(ctx context.Context, key string) (any, error) { return svc.GetCard(ctx, key) }),
+		"command/card/create":   cardCreateHandler(svc.CreateCard),
+		"command/card/update":   cardUpdateHandler(svc.UpdateCard),
+		"command/card/delete":   cardByKeyHandler(func(ctx context.Context, key string) (any, error) { return nil, svc.DeleteCard(ctx, key) }),
+		"command/card/run":      cardRunHandler(svc.RunCard),
+		"command/card/versions": cardByKeyHandler(func(ctx context.Context, key string) (any, error) { return svc.ListCardVersions(ctx, key) }),
 		"command/exec": rpc.StrictHandler(func(ctx context.Context, p execParams) (any, error) {
 			return svc.ExecCommand(ctx, p.Command, p.Args, p.CWD)
 		}),
+		// skills/list: 扫描本地 skill 目录，返回所有已安装的 skill 元信息。
+		// 与 thread/skills/list 不同：后者走 thread 命令通道，返回 thread 绑定的 active skills。
 		"skills/list": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			list, err := svc.ListSkills(ctx)
 			if err != nil {
@@ -44,16 +66,16 @@ func NewSkillHandlers(svc Service) rpc.HandlerMapResult {
 		"skills/local/importDir": rpc.StrictHandler(func(ctx context.Context, p importSkillDirParams) (any, error) { return svc.ImportLocalDir(ctx, p) }),
 		"skills/local/delete":    rpc.StrictHandler(func(ctx context.Context, p deleteLocalSkillParams) (any, error) { return svc.DeleteLocal(ctx, p.Name) }),
 		"skills/remote/list":     rpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) { return svc.ReadRemote(ctx, p.URL) }),
-		"skills/remote/export": namedContent(func(ctx context.Context, name, content string) (any, error) {
+		"skills/remote/export": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
 			return svc.WriteRemote(ctx, name, content)
 		}),
 		"skills/remote/read": rpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) { return svc.ReadRemote(ctx, p.URL) }),
-		"skills/remote/write": namedContent(func(ctx context.Context, name, content string) (any, error) {
+		"skills/remote/write": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
 			return svc.WriteRemote(ctx, name, content)
 		}),
 		"skills/config/read": rpc.StrictHandler(func(ctx context.Context, p skillConfigReadParams) (any, error) { return svc.ReadConfig(ctx, p.AgentID) }),
 		// Legacy RPC key: V2 uses skills/config/write for saving the main skill file content.
-		"skills/config/write": namedContent(func(ctx context.Context, name, content string) (any, error) {
+		"skills/config/write": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
 			return svc.WriteSkillContent(ctx, name, content)
 		}),
 		"skills/summary/write": rpc.StrictHandler(func(ctx context.Context, p skillSummaryWriteParams) (any, error) {

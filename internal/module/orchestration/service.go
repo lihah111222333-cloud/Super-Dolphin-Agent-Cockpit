@@ -17,6 +17,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/taskdag"
 )
 
 var (
@@ -29,6 +30,7 @@ type service struct {
 	logger         *slog.Logger
 	eventBus       *event.Dispatcher
 	sessionCleaner SessionCleaner
+	dagStore       taskdag.Store
 	machineCfg     platformstatemachine.Config
 	mu             sync.RWMutex
 	agents         map[string]*agentRuntime
@@ -36,28 +38,29 @@ type service struct {
 }
 
 type agentRuntime struct {
-	id            string
-	name          string
-	parentID      string
-	cwd           string
-	command       []string
-	env           []string
-	port          int
-	provider      string
-	state         string
-	threadID      string
-	activeTurnID  string
-	lastReport    string
-	lastError     string
-	startedAt     time.Time
-	updatedAt     time.Time
-	exitedAt      *time.Time
-	launchSeq     uint64
-	monitoredSeq  uint64
-	stopRequested bool
-	cmd           *exec.Cmd
-	queue         *SubmissionQueue
-	sm            *stateless.StateMachine
+	id               string
+	name             string
+	parentID         string
+	cwd              string
+	command          []string
+	env              []string
+	port             int
+	provider         string
+	state            string
+	threadID         string
+	activeTurnID     string
+	lastReport       string
+	reportRequesters []string
+	lastError        string
+	startedAt        time.Time
+	updatedAt        time.Time
+	exitedAt         *time.Time
+	launchSeq        uint64
+	monitoredSeq     uint64
+	stopRequested    bool
+	cmd              *exec.Cmd
+	queue            *SubmissionQueue
+	sm               *stateless.StateMachine
 }
 
 type monitorTarget struct {
@@ -72,7 +75,7 @@ type turnWork struct {
 	turnID   string
 }
 
-func NewService(logger *slog.Logger, eventBus *event.Dispatcher, sessionCleaner SessionCleaner) *service {
+func NewService(logger *slog.Logger, eventBus *event.Dispatcher, sessionCleaner SessionCleaner, dagStore taskdag.Store) *service {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -80,6 +83,7 @@ func NewService(logger *slog.Logger, eventBus *event.Dispatcher, sessionCleaner 
 		logger:         logger,
 		eventBus:       eventBus,
 		sessionCleaner: sessionCleaner,
+		dagStore:       dagStore,
 		machineCfg: platformstatemachine.Config{
 			Initial: agentdto.StateProvisioning,
 			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions),
@@ -202,19 +206,6 @@ func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, 
 		return AgentSnapshot{}, err
 	}
 	return s.snapshotLocked(ctx, agent), nil
-}
-
-func (s *service) SetReport(_ context.Context, agentID, report string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return err
-	}
-	agent.lastReport = strings.TrimSpace(report)
-	agent.updatedAt = time.Now()
-	return nil
 }
 
 func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSnapshot {

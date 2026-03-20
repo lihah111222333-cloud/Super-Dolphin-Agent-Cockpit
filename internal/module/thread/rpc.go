@@ -65,7 +65,9 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 		"thread/undo":                      newThreadCommandHandler(svc, "/undo"),
 		"thread/backgroundTerminals/clean": newThreadCommandHandler(svc, "/clean"),
 		"thread/mcp/list":                  newThreadCommandHandler(svc, "/mcp"),
-		"thread/skills/list":               newThreadCommandHandler(svc, "/skills"),
+		// thread/skills/list: 走 thread 命令通道，语义上返回 thread 绑定的 active skills。
+		// 与 skills/list 不同：后者扫描本地 skill 目录，返回所有已安装的 skill 元信息。
+		"thread/skills/list": newThreadCommandHandler(svc, "/skills"),
 
 		// thread/debugMemory 当前返回 Go runtime.MemStats。
 		// TODO(P7): V2 返回的是 agent 进程内存快照（通过 provider），不是宿主进程 stats。

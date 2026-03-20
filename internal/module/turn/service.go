@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,9 +31,17 @@ func NewService(logger *slog.Logger) Service {
 		logger:    logger,
 		assembler: &inputAssembler{},
 		skills:    &skillResolver{},
-		manifest:  &manifestBuilder{},
+		manifest:  newManifestBuilder(resolveBinaryDir()),
 		tracker:   newTurnTracker(),
 	}
+}
+
+func resolveBinaryDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(exe)
 }
 
 func (s *service) PrepareTurn(ctx context.Context, session contract.Session, input PrepareInput) (dto.TurnRequest, error) {

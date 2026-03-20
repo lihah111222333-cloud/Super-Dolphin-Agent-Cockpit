@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 const (
 	TurnTimeout            = 10 * time.Minute
@@ -12,3 +15,7 @@ const (
 	RPCRequestTimeout      = 30 * time.Second
 	InterruptSettleTimeout = 6 * time.Second
 )
+
+func WithRPCRequestTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, RPCRequestTimeout)
+}

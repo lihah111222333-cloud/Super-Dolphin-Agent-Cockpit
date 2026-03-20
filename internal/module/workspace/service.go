@@ -2,53 +2,88 @@ package workspace
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	workspacedto "github.com/anthropic-ai/super-agent-v3/internal/dto/workspace"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/internal/store/workspace"
 	"github.com/jackc/pgx/v5"
 )
 
 const (
 	defaultListLimit = 200
+	mergeListLimit   = 5000
 	fileStateSynced  = "synced"
 	fileStateTracked = "tracked"
+	fileStateMerged  = "merged"
+	fileStateConflict = "conflict"
+	fileStateError   = "error"
+	fileStateUnchanged = "unchanged"
 	statusAborted    = "aborted"
 	statusActive     = "active"
 	statusMerged     = "merged"
 )
 
-type service struct{ store storeworkspace.Store }
+type service struct {
+	store            storeworkspace.Store
+	emitCreated      func(workspacedto.WorkspaceRunCreated)
+	emitMerged       func(workspacedto.WorkspaceRunMerged)
+	emitAborted      func(workspacedto.WorkspaceRunAborted)
+	emitMergeError   func(workspacedto.WorkspaceRunMergeError)
+	emitStatusChange func(workspacedto.WorkspaceRunStatusChanged)
+}
 
-func NewService(store storeworkspace.Store) Service { return &service{store: store} }
+func NewService(store storeworkspace.Store, emitters *bus.WorkspaceEmitters) Service {
+	dispatcher := emitters.Dispatcher()
+	return &service{
+		store:            store,
+		emitCreated:      bus.NewEmitter[workspacedto.WorkspaceRunCreated](dispatcher),
+		emitMerged:       bus.NewEmitter[workspacedto.WorkspaceRunMerged](dispatcher),
+		emitAborted:      bus.NewEmitter[workspacedto.WorkspaceRunAborted](dispatcher),
+		emitMergeError:   bus.NewEmitter[workspacedto.WorkspaceRunMergeError](dispatcher),
+		emitStatusChange: bus.NewEmitter[workspacedto.WorkspaceRunStatusChanged](dispatcher),
+	}
+}
 
 func (s *service) CreateRun(ctx context.Context, req CreateRunRequest) (*Run, error) {
-	run := buildRun(req)
-	if run.SourceRoot == "" {
-		return nil, errors.New("sourceRoot is required")
-	}
-	saved, err := s.store.UpsertRun(ctx, run)
+	run, err := buildRun(req)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.upsertRunFiles(ctx, saved, req.Files); err != nil {
+	if err := os.MkdirAll(run.WorkspacePath, 0o755); err != nil {
+		return nil, fmt.Errorf("create workspace dir: %w", err)
+	}
+	files, err := bootstrapFiles(run, req.Files)
+	if err != nil {
 		return nil, err
 	}
+	saved, err := s.persistRun(ctx, run, files)
+	if err != nil {
+		return nil, err
+	}
+	s.emitRunCreated(saved)
 	return saved, nil
 }
 
-func buildRun(req CreateRunRequest) storeworkspace.WorkspaceRun {
+func buildRun(req CreateRunRequest) (storeworkspace.WorkspaceRun, error) {
 	runKey := strings.TrimSpace(req.RunKey)
 	if runKey == "" {
 		runKey = "run-" + strconv.FormatInt(time.Now().UnixMilli(), 10)
+	}
+	sourceRoot, err := resolveSourceRoot(req.SourceRoot, req.CWD)
+	if err != nil {
+		return storeworkspace.WorkspaceRun{}, err
+	}
+	workspacePath, err := resolveWorkspacePath(req, runKey, sourceRoot)
+	if err != nil {
+		return storeworkspace.WorkspaceRun{}, err
 	}
 	createdBy := strings.TrimSpace(req.CreatedBy)
 	updatedBy := strings.TrimSpace(req.UpdatedBy)
@@ -58,11 +93,6 @@ func buildRun(req CreateRunRequest) storeworkspace.WorkspaceRun {
 	status := strings.TrimSpace(req.Status)
 	if status == "" {
 		status = statusActive
-	}
-	workspacePath := strings.TrimSpace(req.WorkspacePath)
-	sourceRoot := strings.TrimSpace(req.SourceRoot)
-	if workspacePath == "" {
-		workspacePath = sourceRoot
 	}
 	return storeworkspace.WorkspaceRun{
 		RunKey:        runKey,
@@ -74,7 +104,71 @@ func buildRun(req CreateRunRequest) storeworkspace.WorkspaceRun {
 		UpdatedBy:     updatedBy,
 		Metadata:      append([]byte(nil), req.Metadata...),
 		FinishedAt:    req.FinishedAt,
+	}, nil
+}
+
+func resolveSourceRoot(raw, cwd string) (string, error) {
+	sourceRoot, err := resolveAbsolutePath(raw, cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolve sourceRoot: %w", err)
 	}
+	if sourceRoot == "" {
+		return "", errors.New("sourceRoot is required")
+	}
+	info, err := os.Stat(sourceRoot)
+	if err != nil {
+		return "", fmt.Errorf("stat sourceRoot: %w", err)
+	}
+	if !info.IsDir() {
+		return "", errors.New("sourceRoot must be directory")
+	}
+	return sourceRoot, nil
+}
+
+func resolveWorkspacePath(req CreateRunRequest, runKey, sourceRoot string) (string, error) {
+	workspacePath, err := resolveAbsolutePath(req.WorkspacePath, req.CWD)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspacePath: %w", err)
+	}
+	if workspacePath == "" {
+		base := strings.TrimSpace(req.CWD)
+		if base == "" {
+			base = sourceRoot
+		}
+		workspacePath = filepath.Join(base, ".workspace", runKey)
+	}
+	workspacePath, err = filepath.Abs(workspacePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspacePath: %w", err)
+	}
+	if workspacePath == sourceRoot {
+		return "", errors.New("workspacePath must be distinct from sourceRoot")
+	}
+	return workspacePath, nil
+}
+
+func resolveAbsolutePath(raw, base string) (string, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(path) && strings.TrimSpace(base) != "" {
+		path = filepath.Join(strings.TrimSpace(base), path)
+	}
+	return filepath.Abs(path)
+}
+
+func bootstrapFiles(run storeworkspace.WorkspaceRun, files []string) ([]string, error) {
+	relativeFiles, err := dedupeRelativePaths(files)
+	if err != nil {
+		return nil, err
+	}
+	for _, rel := range relativeFiles {
+		if err := copyRunFile(run, rel); err != nil {
+			return nil, err
+		}
+	}
+	return relativeFiles, nil
 }
 
 func (s *service) GetRun(ctx context.Context, runKey string) (*Run, error) {
@@ -93,25 +187,93 @@ func (s *service) ListRuns(ctx context.Context, status, dagKey string, limit int
 }
 
 func (s *service) UpdateRunStatus(ctx context.Context, runKey, status string) (*Run, error) {
-	return s.store.UpdateRunStatus(ctx, storeworkspace.UpdateRunStatusInput{
+	current, err := s.store.GetRun(ctx, strings.TrimSpace(runKey))
+	if err != nil {
+		return nil, err
+	}
+	run, err := s.store.UpdateRunStatus(ctx, storeworkspace.UpdateRunStatusInput{
 		RunKey: strings.TrimSpace(runKey),
 		Status: strings.TrimSpace(status),
 	})
+	if err != nil {
+		return nil, err
+	}
+	s.emitRunStatusChanged(current.Status, run)
+	return run, nil
 }
 
-// TODO: persist merge file state when full merge semantics is implemented.
-func (s *service) MergeRun(ctx context.Context, runKey string) (*Run, error) {
-	return s.transitionRunStatus(ctx, runKey, statusActive, statusMerged)
+func (s *service) MergeRun(ctx context.Context, req MergeRunRequest) (*MergeRunResult, error) {
+	run, err := s.requireRun(ctx, req.RunKey, statusActive)
+	if err != nil {
+		return nil, err
+	}
+	files, err := s.store.ListFiles(ctx, storeworkspace.ListFilesFilter{RunKey: run.RunKey, Limit: mergeListLimit})
+	if err != nil {
+		return nil, err
+	}
+	updatedBy := strings.TrimSpace(req.UpdatedBy)
+	result, updates := s.planMerge(run, files)
+	result.DryRun = req.DryRun
+	if req.DeleteRemoved {
+		// TODO(p2-r2): restore full V2 deleteRemoved semantics once merge walks the workspace tree again.
+	}
+	if req.DryRun {
+		result.Status = run.Status
+		return result, nil
+	}
+	if err := s.applyFileUpdates(ctx, updates); err != nil {
+		s.emitRunMergeErrorEvent(run, result, updatedBy, err.Error())
+		return nil, s.rollbackMergeState(ctx, files, err)
+	}
+	if result.Conflicts > 0 || result.Errors > 0 {
+		result.Status = statusActive
+		s.emitRunMergeErrorEvent(run, result, updatedBy, mergeIssueMessage(result, ""))
+		return result, nil
+	}
+	mergedRun, err := s.transitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
+		RunKey:     run.RunKey,
+		FromStatus: statusActive,
+		Status:     statusMerged,
+		UpdatedBy:  updatedBy,
+		Metadata: marshalMetadata(map[string]any{
+			"merged":        result.Merged,
+			"conflicts":     result.Conflicts,
+			"unchanged":     result.Unchanged,
+			"errors":        result.Errors,
+			"dryRun":        req.DryRun,
+			"deleteRemoved": req.DeleteRemoved,
+		}),
+	})
+	if err != nil {
+		s.emitRunMergeErrorEvent(run, result, updatedBy, err.Error())
+		return nil, s.rollbackMergeState(ctx, files, err)
+	}
+	result.Status = mergedRun.Status
+	s.emitRunStatusChanged(run.Status, mergedRun)
+	s.emitRunMergedEvent(mergedRun, result.Merged)
+	return result, nil
 }
 
-func (s *service) AbortRun(ctx context.Context, runKey string) error {
-	_, err := s.transitionRunStatus(ctx, runKey, statusActive, statusAborted)
-	return err
+func (s *service) AbortRun(ctx context.Context, runKey, updatedBy, reason string) error {
+	run, err := s.transitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
+		RunKey:     strings.TrimSpace(runKey),
+		FromStatus: statusActive,
+		Status:     statusAborted,
+		UpdatedBy:  strings.TrimSpace(updatedBy),
+		Metadata:   marshalMetadata(map[string]any{"reason": reason}),
+	})
+	if err != nil {
+		return err
+	}
+	s.emitRunStatusChanged(statusActive, run)
+	s.emitRunAbortedEvent(run, reason)
+	return nil
 }
 
-func (s *service) ListRunFiles(ctx context.Context, runKey string) ([]RunFile, error) {
+func (s *service) ListRunFiles(ctx context.Context, runKey, state string) ([]RunFile, error) {
 	return s.store.ListFiles(ctx, storeworkspace.ListFilesFilter{
 		RunKey: strings.TrimSpace(runKey),
+		State:  strings.TrimSpace(state),
 		Limit:  defaultListLimit,
 	})
 }
@@ -120,115 +282,57 @@ func (s *service) GetRunFile(ctx context.Context, runKey, path string) (*RunFile
 	return s.store.GetFile(ctx, strings.TrimSpace(runKey), strings.TrimSpace(path))
 }
 
-func (s *service) transitionRunStatus(ctx context.Context, runKey, fromStatus, toStatus string) (*Run, error) {
+func (s *service) requireRun(ctx context.Context, runKey, expectedStatus string) (*Run, error) {
 	key := strings.TrimSpace(runKey)
 	if key == "" {
 		return nil, errors.New("runKey is required")
 	}
-	run, err := s.store.TransitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
-		RunKey:     key,
-		FromStatus: fromStatus,
-		Status:     toStatus,
-	})
+	run, err := s.store.GetRun(ctx, key)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("run %q not found", key)
+		}
+		return nil, err
+	}
+	if run.Status != expectedStatus {
+		return nil, fmt.Errorf("run %q status is %s, expected %s", key, run.Status, expectedStatus)
+	}
+	return run, nil
+}
+
+func (s *service) transitionRunStatus(ctx context.Context, input storeworkspace.TransitionRunStatusInput) (*Run, error) {
+	input.RunKey = strings.TrimSpace(input.RunKey)
+	input.FromStatus = strings.TrimSpace(input.FromStatus)
+	input.Status = strings.TrimSpace(input.Status)
+	input.UpdatedBy = strings.TrimSpace(input.UpdatedBy)
+	if input.RunKey == "" {
+		return nil, errors.New("runKey is required")
+	}
+	run, err := s.store.TransitionRunStatus(ctx, input)
 	if err == nil {
 		return run, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	current, getErr := s.store.GetRun(ctx, key)
+	current, getErr := s.store.GetRun(ctx, input.RunKey)
 	if getErr != nil {
 		if errors.Is(getErr, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("run %q not found", key)
+			return nil, fmt.Errorf("run %q not found", input.RunKey)
 		}
 		return nil, getErr
 	}
-	return nil, fmt.Errorf("run %q status is %s, expected %s", key, current.Status, fromStatus)
+	return nil, fmt.Errorf("run %q status is %s, expected %s", input.RunKey, current.Status, input.FromStatus)
 }
 
-func (s *service) upsertRunFiles(ctx context.Context, run *Run, files []string) error {
-	if len(files) == 0 {
+func marshalMetadata(metadata map[string]any) json.RawMessage {
+	if len(metadata) == 0 {
 		return nil
 	}
-	seen := make(map[string]struct{}, len(files))
-	for _, raw := range files {
-		rel, err := normalizeRelativePath(raw)
-		if err != nil {
-			return err
-		}
-		if _, ok := seen[rel]; ok {
-			continue
-		}
-		seen[rel] = struct{}{}
-		file, err := buildRunFile(run, rel)
-		if err != nil {
-			return fmt.Errorf("prepare run file %q: %w", rel, err)
-		}
-		if _, err := s.store.UpsertFile(ctx, file); err != nil {
-			return fmt.Errorf("upsert run file %q: %w", rel, err)
-		}
-	}
-	return nil
-}
-
-func buildRunFile(run *Run, rel string) (storeworkspace.WorkspaceRunFile, error) {
-	sourcePath := filepath.Join(run.SourceRoot, rel)
-	sourceHash, err := hashFile(sourcePath)
+	data, err := json.Marshal(metadata)
 	if err != nil {
-		return storeworkspace.WorkspaceRunFile{}, fmt.Errorf("hash source file: %w", err)
+		return nil
 	}
-	workspaceHash, err := hashFileIfExists(filepath.Join(run.WorkspacePath, rel))
-	if err != nil {
-		return storeworkspace.WorkspaceRunFile{}, fmt.Errorf("hash workspace file: %w", err)
-	}
-	state := fileStateTracked
-	if workspaceHash != "" && workspaceHash == sourceHash {
-		state = fileStateSynced
-	}
-	return storeworkspace.WorkspaceRunFile{
-		RunKey:             run.RunKey,
-		RelativePath:       rel,
-		BaselineSHA256:     sourceHash,
-		WorkspaceSHA256:    workspaceHash,
-		SourceSHA256Before: sourceHash,
-		SourceSHA256After:  sourceHash,
-		State:              state,
-	}, nil
+	return data
 }
 
-func normalizeRelativePath(raw string) (string, error) {
-	path := filepath.Clean(strings.TrimSpace(raw))
-	if path == "." {
-		return "", errors.New("file path is required")
-	}
-	if filepath.IsAbs(path) {
-		return "", fmt.Errorf("file path %q must be relative", raw)
-	}
-	if path == ".." || strings.HasPrefix(path, ".."+string(os.PathSeparator)) {
-		return "", fmt.Errorf("file path %q escapes sourceRoot", raw)
-	}
-	return path, nil
-}
-
-func hashFile(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = file.Close() }()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-func hashFileIfExists(path string) (string, error) {
-	if _, err := os.Stat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
-		return "", err
-	}
-	return hashFile(path)
-}

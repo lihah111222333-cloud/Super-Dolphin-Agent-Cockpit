@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 )
@@ -18,17 +19,19 @@ const (
 type service struct {
 	cards           commandcardstore.Store
 	root            string
+	projectRoot     string
 	http            *http.Client
 	readConfigState func(context.Context, string) (any, error)
 }
 
 var _ Service = (*service)(nil)
 
-func NewService(cards commandcardstore.Store) Service {
+func NewService(cards commandcardstore.Store, projectRoot string) Service {
 	return &service{
-		cards: cards,
-		root:  defaultSkillsRoot(),
-		http:  &http.Client{},
+		cards:       cards,
+		root:        defaultSkillsRoot(),
+		projectRoot: strings.TrimSpace(projectRoot),
+		http:        &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
