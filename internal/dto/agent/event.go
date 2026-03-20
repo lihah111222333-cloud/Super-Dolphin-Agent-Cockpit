@@ -5,8 +5,8 @@ import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 // StateChanged reports an agent lifecycle state transition.
 type StateChanged struct {
 	shared.AgentSessionHeader
-	OldState string `json:"oldState"`
-	NewState string `json:"newState"`
+	OldState string `json:"old_state"`
+	NewState string `json:"new_state"`
 	Trigger  string `json:"trigger"`
 }
 

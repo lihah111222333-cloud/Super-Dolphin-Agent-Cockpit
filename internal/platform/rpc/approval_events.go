@@ -10,7 +10,12 @@ import (
 	"github.com/kelindar/event"
 )
 
-const DefaultApprovalCallbackMethod = "tool/approval/request"
+const (
+	DefaultApprovalCallbackMethod          = "approval/request"
+	approvalCallbackMethodCommandExecution = "item/commandExecution/requestApproval"
+	legacyApprovalCallbackMethod           = "tool/approval/request"
+	legacyApprovalEventMethod              = "tool.approval.requested"
+)
 
 func (m *ApprovalManager) publishRequested(bridge *PushBridge, pending *pendingApproval) {
 	if bridge == nil || bridge.dispatcher == nil || pending == nil {
@@ -35,7 +40,34 @@ func (m *ApprovalManager) publishResolved(pending *pendingApproval, decision con
 }
 
 func callbackMethod(req ApprovalRequest) string {
-	return firstNonEmpty(strings.TrimSpace(req.CallbackMethod), DefaultApprovalCallbackMethod)
+	for _, candidate := range []string{req.CallbackMethod, req.SourceMethod} {
+		if method := normalizeApprovalCallbackMethod(candidate); method != "" {
+			return method
+		}
+	}
+	if isRequestUserInputKind(req.Kind) {
+		return approvalCallbackMethodCommandExecution
+	}
+	return DefaultApprovalCallbackMethod
+}
+
+func normalizeApprovalCallbackMethod(method string) string {
+	switch strings.TrimSpace(method) {
+	case "":
+		return ""
+	case legacyApprovalCallbackMethod:
+		return DefaultApprovalCallbackMethod
+	case legacyApprovalEventMethod:
+		return approvalCallbackMethodCommandExecution
+	case "codex/event/request_user_input", "item/tool/request_user_input", "item/tool/requestUserInput", "request_user_input":
+		return approvalCallbackMethodCommandExecution
+	default:
+		return strings.TrimSpace(method)
+	}
+}
+
+func isRequestUserInputKind(kind string) bool {
+	return strings.EqualFold(strings.TrimSpace(kind), "request_user_input")
 }
 
 func callbackParams(pending *pendingApproval) map[string]any {
@@ -66,11 +98,13 @@ func approvalHeader(req ApprovalRequest) shared.ToolApprovalHeader {
 		ToolCallHeader: shared.ToolCallHeader{
 			TurnHeader: shared.TurnHeader{
 				AgentHeader: shared.AgentHeader{
-					EventHeader: shared.EventHeader{Timestamp: time.Now()},
-					AgentID:     req.AgentID,
-					ThreadID:    req.ThreadID,
+					ThreadHeader: shared.ThreadHeader{
+						EventHeader: shared.EventHeader{Timestamp: time.Now()},
+						ThreadID:    req.ThreadID,
+					},
+					AgentID: req.AgentID,
 				},
-				TurnID: req.TurnID,
+				TurnIDHeader: shared.TurnIDHeader{TurnID: req.TurnID},
 			},
 			CallID:   req.CallID,
 			ToolName: req.ToolName,

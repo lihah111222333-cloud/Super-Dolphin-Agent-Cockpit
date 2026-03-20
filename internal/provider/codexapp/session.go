@@ -28,6 +28,7 @@ type session struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	mu         sync.Mutex
+	recoveryMu sync.Mutex
 	turns      map[string]*turnHandle
 }
 
@@ -107,7 +108,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	}
 	callCtx, cancel := withTimeout(ctx, 30*time.Second)
 	defer cancel()
-	raw, err := s.transport.Call(callCtx, "turn/start", buildTurnStartParams(threadID, req))
+	raw, err := s.callTransport(callCtx, "turn/start", buildTurnStartParams(threadID, req))
 	if err != nil {
 		return nil, err
 	}
@@ -134,14 +135,14 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	}
 	callCtx, cancel := withTimeout(ctx, 10*time.Second)
 	defer cancel()
-	_, err := s.transport.Call(callCtx, "turn/interrupt", params)
+	_, err := s.callTransport(callCtx, "turn/interrupt", params)
 	return err
 }
 
 func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
 	callCtx, cancel := withTimeout(ctx, 10*time.Second)
 	defer cancel()
-	raw, err := s.transport.Call(callCtx, "thread/list", map[string]any{})
+	raw, err := s.callTransport(callCtx, "thread/list", map[string]any{})
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +172,7 @@ func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.Fork
 	}
 	callCtx, cancel := withTimeout(ctx, 10*time.Second)
 	defer cancel()
-	raw, err := s.transport.Call(callCtx, "thread/fork", map[string]any{"threadId": threadID})
+	raw, err := s.callTransport(callCtx, "thread/fork", map[string]any{"threadId": threadID})
 	if err != nil {
 		return dto.ForkResult{}, err
 	}
@@ -190,7 +191,7 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 	if patch.Model != nil {
 		callCtx, cancel := withTimeout(ctx, 10*time.Second)
 		defer cancel()
-		_, err := s.transport.Call(callCtx, "thread/config/set", map[string]any{"threadId": threadID, "model": strings.TrimSpace(*patch.Model)})
+		_, err := s.callTransport(callCtx, "thread/config/set", map[string]any{"threadId": threadID, "model": strings.TrimSpace(*patch.Model)})
 		if err != nil {
 			return err
 		}
@@ -223,7 +224,7 @@ func (s *session) applySlashConfig(ctx context.Context, threadID, method, key st
 	}
 	callCtx, cancel := withTimeout(ctx, 10*time.Second)
 	defer cancel()
-	_, err := s.transport.Call(callCtx, method, map[string]any{"threadId": threadID, key: arg, "args": arg})
+	_, err := s.callTransport(callCtx, method, map[string]any{"threadId": threadID, key: arg, "args": arg})
 	return err
 }
 
@@ -235,7 +236,7 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 	case "turn/completed", "turn/aborted":
 		s.finishTurn(params, method == "turn/completed")
 	case "connection.dead":
-		s.failTurns(errors.New("codexapp: connection lost"))
+		s.handleConnectionDead(params)
 	}
 }
 
@@ -340,7 +341,7 @@ func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams 
 		ThreadID:             threadID,
 		Input:                inputs,
 		SelectedSkills:       selectedSkills,
-		ManualSkillSelection: len(selectedSkills) > 0,
+		ManualSkillSelection: req.ManualSkillSelection,
 		Model:                strings.TrimSpace(req.Overrides.Model),
 		Effort:               strings.TrimSpace(req.Overrides.Effort),
 		OutputSchema:         req.OutputSchema,

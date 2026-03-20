@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -38,10 +39,22 @@ func toProviderHistory(messages []Message) []dto.Message {
 		out = append(out, dto.Message{
 			Role:      msg.Role,
 			Content:   msg.Content,
+			Metadata:  decodeClaudeHistoryMetadata(msg.Metadata),
 			Timestamp: parseClaudeHistoryTime(msg.Timestamp),
 		})
 	}
 	return out
+}
+
+func decodeClaudeHistoryMetadata(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil || len(payload) == 0 {
+		return nil
+	}
+	return payload
 }
 
 func parseClaudeHistoryTime(raw string) time.Time {

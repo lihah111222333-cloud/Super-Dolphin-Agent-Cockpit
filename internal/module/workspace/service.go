@@ -13,22 +13,24 @@ import (
 
 	workspacedto "github.com/anthropic-ai/super-agent-v3/internal/dto/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/internal/store/workspace"
-	"github.com/jackc/pgx/v5"
 )
 
 const (
-	defaultListLimit = 200
-	mergeListLimit   = 5000
-	fileStateSynced  = "synced"
-	fileStateTracked = "tracked"
-	fileStateMerged  = "merged"
-	fileStateConflict = "conflict"
-	fileStateError   = "error"
+	defaultListLimit   = 200
+	mergeListLimit     = 5000
+	fileStateSynced    = "synced"
+	fileStateTracked   = "tracked"
+	fileStateMerged    = "merged"
+	fileStateConflict  = "conflict"
+	fileStateError     = "error"
 	fileStateUnchanged = "unchanged"
-	statusAborted    = "aborted"
-	statusActive     = "active"
-	statusMerged     = "merged"
+	statusAborted      = "aborted"
+	statusActive       = "active"
+	statusFailed       = "failed"
+	statusMerging      = "merging"
+	statusMerged       = "merged"
 )
 
 type service struct {
@@ -77,6 +79,9 @@ func buildRun(req CreateRunRequest) (storeworkspace.WorkspaceRun, error) {
 	if runKey == "" {
 		runKey = "run-" + strconv.FormatInt(time.Now().UnixMilli(), 10)
 	}
+	if err := validateRunKey(runKey); err != nil {
+		return storeworkspace.WorkspaceRun{}, err
+	}
 	sourceRoot, err := resolveSourceRoot(req.SourceRoot, req.CWD)
 	if err != nil {
 		return storeworkspace.WorkspaceRun{}, err
@@ -105,6 +110,16 @@ func buildRun(req CreateRunRequest) (storeworkspace.WorkspaceRun, error) {
 		Metadata:      append([]byte(nil), req.Metadata...),
 		FinishedAt:    req.FinishedAt,
 	}, nil
+}
+
+func validateRunKey(runKey string) error {
+	if runKey == "" {
+		return errors.New("workspace: invalid run key")
+	}
+	if strings.Contains(runKey, "..") || strings.ContainsAny(runKey, `/\`) {
+		return errors.New("workspace: invalid run key")
+	}
+	return nil
 }
 
 func resolveSourceRoot(raw, cwd string) (string, error) {
@@ -207,51 +222,22 @@ func (s *service) MergeRun(ctx context.Context, req MergeRunRequest) (*MergeRunR
 	if err != nil {
 		return nil, err
 	}
-	files, err := s.store.ListFiles(ctx, storeworkspace.ListFilesFilter{RunKey: run.RunKey, Limit: mergeListLimit})
+	if req.DryRun {
+		return s.dryRunMerge(ctx, run, req)
+	}
+	updatedBy := strings.TrimSpace(req.UpdatedBy)
+	mergingRun, err := s.transitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
+		RunKey:     run.RunKey,
+		FromStatus: statusActive,
+		Status:     statusMerging,
+		UpdatedBy:  updatedBy,
+		Metadata:   mergeMetadata(nil, req, ""),
+	})
 	if err != nil {
 		return nil, err
 	}
-	updatedBy := strings.TrimSpace(req.UpdatedBy)
-	result, updates := s.planMerge(run, files)
-	result.DryRun = req.DryRun
-	if req.DeleteRemoved {
-		// TODO(p2-r2): restore full V2 deleteRemoved semantics once merge walks the workspace tree again.
-	}
-	if req.DryRun {
-		result.Status = run.Status
-		return result, nil
-	}
-	if err := s.applyFileUpdates(ctx, updates); err != nil {
-		s.emitRunMergeErrorEvent(run, result, updatedBy, err.Error())
-		return nil, s.rollbackMergeState(ctx, files, err)
-	}
-	if result.Conflicts > 0 || result.Errors > 0 {
-		result.Status = statusActive
-		s.emitRunMergeErrorEvent(run, result, updatedBy, mergeIssueMessage(result, ""))
-		return result, nil
-	}
-	mergedRun, err := s.transitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
-		RunKey:     run.RunKey,
-		FromStatus: statusActive,
-		Status:     statusMerged,
-		UpdatedBy:  updatedBy,
-		Metadata: marshalMetadata(map[string]any{
-			"merged":        result.Merged,
-			"conflicts":     result.Conflicts,
-			"unchanged":     result.Unchanged,
-			"errors":        result.Errors,
-			"dryRun":        req.DryRun,
-			"deleteRemoved": req.DeleteRemoved,
-		}),
-	})
-	if err != nil {
-		s.emitRunMergeErrorEvent(run, result, updatedBy, err.Error())
-		return nil, s.rollbackMergeState(ctx, files, err)
-	}
-	result.Status = mergedRun.Status
-	s.emitRunStatusChanged(run.Status, mergedRun)
-	s.emitRunMergedEvent(mergedRun, result.Merged)
-	return result, nil
+	s.emitRunStatusChanged(run.Status, mergingRun)
+	return s.executeMerge(ctx, mergingRun, req, updatedBy)
 }
 
 func (s *service) AbortRun(ctx context.Context, runKey, updatedBy, reason string) error {
@@ -289,7 +275,7 @@ func (s *service) requireRun(ctx context.Context, runKey, expectedStatus string)
 	}
 	run, err := s.store.GetRun(ctx, key)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if platformdb.IsNotFound(err) {
 			return nil, fmt.Errorf("run %q not found", key)
 		}
 		return nil, err
@@ -312,12 +298,12 @@ func (s *service) transitionRunStatus(ctx context.Context, input storeworkspace.
 	if err == nil {
 		return run, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !platformdb.IsNotFound(err) {
 		return nil, err
 	}
 	current, getErr := s.store.GetRun(ctx, input.RunKey)
 	if getErr != nil {
-		if errors.Is(getErr, pgx.ErrNoRows) {
+		if platformdb.IsNotFound(getErr) {
 			return nil, fmt.Errorf("run %q not found", input.RunKey)
 		}
 		return nil, getErr
@@ -336,3 +322,36 @@ func marshalMetadata(metadata map[string]any) json.RawMessage {
 	return data
 }
 
+func (s *service) dryRunMerge(ctx context.Context, run *Run, req MergeRunRequest) (*MergeRunResult, error) {
+	files, err := s.store.ListFiles(ctx, storeworkspace.ListFilesFilter{
+		RunKey: run.RunKey,
+		Limit:  mergeListLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result, _ := s.planMerge(run, files)
+	result.DryRun = req.DryRun
+	if req.DeleteRemoved {
+		// TODO(p2-r2): restore full V2 deleteRemoved semantics once merge walks the workspace tree again.
+	}
+	result.Status = run.Status
+	return result, nil
+}
+
+func mergeMetadata(result *MergeRunResult, req MergeRunRequest, message string) json.RawMessage {
+	metadata := map[string]any{
+		"dryRun":        req.DryRun,
+		"deleteRemoved": req.DeleteRemoved,
+	}
+	if result != nil {
+		metadata["merged"] = result.Merged
+		metadata["conflicts"] = result.Conflicts
+		metadata["unchanged"] = result.Unchanged
+		metadata["errors"] = result.Errors
+	}
+	if text := strings.TrimSpace(message); text != "" {
+		metadata["message"] = text
+	}
+	return marshalMetadata(metadata)
+}

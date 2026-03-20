@@ -11,9 +11,9 @@ import (
 )
 
 var claudeCapabilities = dto.CapabilitySet{
-	dto.CapMessageSend:    true,
-	dto.CapModelSwitch:    true,
-	dto.CapContextCompact: true,
+	dto.CapMessageSend:  true,
+	dto.CapModelSwitch:  true,
+	dto.CapTurnOverride: true,
 }
 
 type driver struct {

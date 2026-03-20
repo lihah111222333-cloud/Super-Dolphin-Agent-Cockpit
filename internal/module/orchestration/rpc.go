@@ -94,9 +94,12 @@ func submissionFromParams(ctx context.Context, svc Service, p submitParams) (Tur
 		return TurnSubmission{}, err
 	}
 	return TurnSubmission{
-		AgentID:  agentID,
-		ThreadID: submissionThreadID(ctx, svc, agentID),
-		Inputs:   items,
+		AgentID:              agentID,
+		ThreadID:             submissionThreadID(ctx, svc, agentID),
+		Inputs:               items,
+		SelectedSkills:       append([]string(nil), p.SelectedSkills...),
+		ManualSkillSelection: p.ManualSkillSelection,
+		OutputSchema:         append(json.RawMessage(nil), p.OutputSchema...),
 	}, nil
 }
 

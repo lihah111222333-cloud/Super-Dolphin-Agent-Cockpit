@@ -16,7 +16,7 @@ func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 		if pending.createdAt.After(cutoff) {
 			continue
 		}
-		m.failPending(pending.callID, pending, ErrApprovalTimeout("approval timed out"))
+		m.failPending(pending, ErrApprovalTimeout("approval timed out"))
 	}
 }
 

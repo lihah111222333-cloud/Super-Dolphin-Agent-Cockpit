@@ -17,12 +17,15 @@ type rolloutLine struct {
 }
 
 type rolloutPayload struct {
-	Type    string `json:"type"`
-	Role    string `json:"role"`
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text,omitempty"`
-	} `json:"content"`
+	Type    string               `json:"type"`
+	Role    string               `json:"role"`
+	Content []rolloutContentItem `json:"content"`
+}
+
+type rolloutContentItem struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
 }
 
 func readLocalRollout(threadID string, limit int) ([]Message, error) {
@@ -58,18 +61,51 @@ func parseRolloutLine(raw []byte) (Message, bool) {
 	if err := json.Unmarshal(line.Payload, &payload); err != nil || payload.Type != "message" {
 		return Message{}, false
 	}
+	text := strings.TrimSpace(extractRolloutText(payload.Content))
+	metadata := extractRolloutMetadata(payload.Role, payload.Content)
+	if (payload.Role != "user" && payload.Role != "assistant") || (text == "" && len(metadata) == 0) {
+		return Message{}, false
+	}
+	return Message{
+		Role:      payload.Role,
+		Content:   text,
+		Metadata:  metadata,
+		Timestamp: line.Timestamp,
+	}, true
+}
+
+func extractRolloutText(content []rolloutContentItem) string {
 	var b strings.Builder
-	for _, item := range payload.Content {
+	for _, item := range content {
 		switch strings.ToLower(strings.TrimSpace(item.Type)) {
 		case "text", "input_text", "output_text":
 			b.WriteString(item.Text)
 		}
 	}
-	text := strings.TrimSpace(b.String())
-	if text == "" || (payload.Role != "user" && payload.Role != "assistant") {
-		return Message{}, false
+	return b.String()
+}
+
+func extractRolloutMetadata(role string, content []rolloutContentItem) json.RawMessage {
+	if !strings.EqualFold(strings.TrimSpace(role), "user") {
+		return nil
 	}
-	return Message{Role: payload.Role, Content: text, Timestamp: line.Timestamp}, true
+	inputs := make([]map[string]any, 0, len(content))
+	for _, item := range content {
+		if strings.EqualFold(strings.TrimSpace(item.Type), "input_image") {
+			if imageURL := strings.TrimSpace(item.ImageURL); imageURL != "" {
+				inputs = append(inputs, map[string]any{"type": "image", "url": imageURL})
+			}
+		}
+	}
+	if len(inputs) == 0 {
+		// TODO(P7): local rollout artifacts do not currently persist non-image attachment metadata.
+		return nil
+	}
+	raw, err := json.Marshal(map[string]any{"input": inputs})
+	if err != nil {
+		return nil
+	}
+	return raw
 }
 
 func findRolloutPath(threadID string) (string, error) {

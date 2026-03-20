@@ -15,7 +15,11 @@ type Runner interface {
 	Run(ctx context.Context) error
 }
 
-func RunGroup(ctx context.Context, runners []Runner) error {
+type GroupOptions struct {
+	EnableSignals bool
+}
+
+func RunGroup(ctx context.Context, runners []Runner, options GroupOptions) error {
 	if len(runners) == 0 {
 		return errors.New("no runners registered")
 	}
@@ -24,13 +28,25 @@ func RunGroup(ctx context.Context, runners []Runner) error {
 	defer cancel()
 
 	var group run.Group
+	addContextActor(&group, rootCtx, cancel)
+	if options.EnableSignals {
+		addSignalActor(&group, rootCtx, cancel)
+	}
+	addRunnerActors(&group, rootCtx, cancel, runners)
+
+	return group.Run()
+}
+
+func addContextActor(group *run.Group, rootCtx context.Context, cancel context.CancelFunc) {
 	group.Add(func() error {
 		<-rootCtx.Done()
 		return nil
 	}, func(error) {
 		cancel()
 	})
+}
 
+func addSignalActor(group *run.Group, rootCtx context.Context, cancel context.CancelFunc) {
 	group.Add(func() error {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
@@ -45,7 +61,9 @@ func RunGroup(ctx context.Context, runners []Runner) error {
 	}, func(error) {
 		cancel()
 	})
+}
 
+func addRunnerActors(group *run.Group, rootCtx context.Context, cancel context.CancelFunc, runners []Runner) {
 	for _, runner := range runners {
 		current := runner
 		group.Add(func() error {
@@ -54,6 +72,4 @@ func RunGroup(ctx context.Context, runners []Runner) error {
 			cancel()
 		})
 	}
-
-	return group.Run()
 }

@@ -141,6 +141,17 @@ func approvalCallID(callID string, requestID *int64) string {
 	return ""
 }
 
+func pendingStorageKey(callID string, requestID *int64) string {
+	callID = strings.TrimSpace(callID)
+	if callID == "" {
+		return ""
+	}
+	if requestID == nil || *requestID <= 0 {
+		return callID
+	}
+	return callID + ":" + strconv.FormatInt(*requestID, 10)
+}
+
 func cloneApprovalRequest(req ApprovalRequest, requestID *int64) ApprovalRequest {
 	req.RequestID = cloneInt64Ptr(requestID)
 	req.Payload = cloneMap(req.Payload)

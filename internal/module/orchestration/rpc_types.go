@@ -73,6 +73,10 @@ type submitParams struct {
 	Images  []string `json:"images"`
 	Files   []string `json:"files"`
 
+	SelectedSkills       []string        `json:"selected_skills,omitempty"`
+	ManualSkillSelection bool            `json:"manual_skill_selection,omitempty"`
+	OutputSchema         json.RawMessage `json:"output_schema,omitempty"`
+
 	legacyInput json.RawMessage
 }
 
@@ -86,14 +90,26 @@ func (p *submitParams) UnmarshalJSON(data []byte) error {
 	}
 	*p = submitParams(current)
 	var legacy struct {
-		AgentID string          `json:"agentId"`
-		Input   json.RawMessage `json:"input"`
+		AgentID              string          `json:"agentId"`
+		Input                json.RawMessage `json:"input"`
+		SelectedSkills       []string        `json:"selectedSkills"`
+		ManualSkillSelection *bool           `json:"manualSkillSelection"`
+		OutputSchema         json.RawMessage `json:"outputSchema"`
 	}
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		return err
 	}
 	if strings.TrimSpace(p.AgentID) == "" {
 		p.AgentID = strings.TrimSpace(legacy.AgentID)
+	}
+	if len(p.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
+		p.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
+	}
+	if !p.ManualSkillSelection && legacy.ManualSkillSelection != nil {
+		p.ManualSkillSelection = *legacy.ManualSkillSelection
+	}
+	if len(p.OutputSchema) == 0 {
+		p.OutputSchema = append(json.RawMessage(nil), legacy.OutputSchema...)
 	}
 	p.legacyInput = append([]byte(nil), legacy.Input...)
 	return nil

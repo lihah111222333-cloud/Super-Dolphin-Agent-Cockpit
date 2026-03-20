@@ -228,6 +228,41 @@ func TestReportParamCompatibility(t *testing.T) {
 	}
 }
 
+func TestSubmitParamsCarryOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	var snake submitParams
+	if err := json.Unmarshal([]byte(`{"agent_id":"agent-1","selected_skills":["debug"],"manual_skill_selection":true,"output_schema":{"type":"object"}}`), &snake); err != nil {
+		t.Fatalf("submitParams snake_case err = %v", err)
+	}
+	if len(snake.SelectedSkills) != 1 || snake.SelectedSkills[0] != "debug" {
+		t.Fatalf("snake SelectedSkills = %#v, want [debug]", snake.SelectedSkills)
+	}
+	if !snake.ManualSkillSelection {
+		t.Fatal("snake ManualSkillSelection = false, want true")
+	}
+	if string(snake.OutputSchema) != `{"type":"object"}` {
+		t.Fatalf("snake OutputSchema = %s, want object schema", string(snake.OutputSchema))
+	}
+
+	var camel submitParams
+	if err := json.Unmarshal([]byte(`{"agentId":"agent-2","selectedSkills":["review"],"manualSkillSelection":true,"outputSchema":{"type":"array"}}`), &camel); err != nil {
+		t.Fatalf("submitParams camelCase err = %v", err)
+	}
+	if camel.AgentID != "agent-2" {
+		t.Fatalf("camel AgentID = %q, want agent-2", camel.AgentID)
+	}
+	if len(camel.SelectedSkills) != 1 || camel.SelectedSkills[0] != "review" {
+		t.Fatalf("camel SelectedSkills = %#v, want [review]", camel.SelectedSkills)
+	}
+	if !camel.ManualSkillSelection {
+		t.Fatal("camel ManualSkillSelection = false, want true")
+	}
+	if string(camel.OutputSchema) != `{"type":"array"}` {
+		t.Fatalf("camel OutputSchema = %s, want array schema", string(camel.OutputSchema))
+	}
+}
+
 func TestDAGDetailJSONUsesSnakeCase(t *testing.T) {
 	t.Parallel()
 

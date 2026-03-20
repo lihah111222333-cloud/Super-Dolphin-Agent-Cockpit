@@ -105,9 +105,11 @@ func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 func agentSessionHeader(data any) shared.AgentSessionHeader {
 	return shared.AgentSessionHeader{
 		AgentHeader: shared.AgentHeader{
-			EventHeader: shared.EventHeader{Timestamp: time.Now()},
-			AgentID:     dataString(data, "agent_id"),
-			ThreadID:    dataString(data, "thread_id"),
+			ThreadHeader: shared.ThreadHeader{
+				EventHeader: shared.EventHeader{Timestamp: time.Now()},
+				ThreadID:    dataString(data, "thread_id"),
+			},
+			AgentID: dataString(data, "agent_id"),
 		},
 		SessionID: dataString(data, "session_id"),
 	}
@@ -116,8 +118,8 @@ func agentSessionHeader(data any) shared.AgentSessionHeader {
 func turnHeader(data any) shared.TurnHeader {
 	header := agentSessionHeader(data).AgentHeader
 	return shared.TurnHeader{
-		AgentHeader: header,
-		TurnID:      dataString(data, "turn_id"),
+		AgentHeader:  header,
+		TurnIDHeader: shared.TurnIDHeader{TurnID: dataString(data, "turn_id")},
 	}
 }
 
