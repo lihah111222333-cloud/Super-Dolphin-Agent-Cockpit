@@ -4,13 +4,39 @@
 *.dll
 *.so
 *.dylib
-bin/
-build/
 
-# Test
+# Project Specific Binaries
+/agent-terminal
+/mcp-server
+/app-server
+/mcp-ida
+/mcp-lsp
+/mcp-orch
+
+# Build directories
+/bin/
+/build/
+/dist/
+cmd/agent-terminal/frontend/node_modules/
+**/node_modules/
+cmd/agent-terminal/frontend/dist/
+!cmd/agent-terminal/frontend/dist/.gitkeep
+
+# Keep App Bundle packaging resources (Info.plist, icons) tracked
+!bin/agent-terminal.app/
+!bin/agent-terminal.app/Contents/
+!bin/agent-terminal.app/Contents/Info.plist
+!bin/agent-terminal.app/Contents/Resources/
+!bin/agent-terminal.app/Contents/Resources/AppIcon.icns
+
+# Test binary
 *.test
 *.out
 coverage.html
+test-results/
+
+# Go build cache
+/vendor/
 
 # IDE
 .idea/
@@ -22,5 +48,23 @@ coverage.html
 .DS_Store
 Thumbs.db
 
-# Go
-vendor/
+# Environment
+.env
+.env.local
+
+# Agent workspace / tmp
+/.agent/
+# Keep agent workflows tracked for team collaboration
+!/.agent/workflows/
+!/.agent/workflows/**
+/.code_exec/
+/.tmp/
+/tmp/
+__pycache__/
+*.pyc
+
+# Logs
+/logs/
+
+# Worktrees
+/.worktrees/
