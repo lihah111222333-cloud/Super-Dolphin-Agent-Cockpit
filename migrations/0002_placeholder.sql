@@ -1,0 +1,2 @@
+-- Placeholder migration to fix version gap (0001 → 0003).
+-- No schema changes required for version 2.

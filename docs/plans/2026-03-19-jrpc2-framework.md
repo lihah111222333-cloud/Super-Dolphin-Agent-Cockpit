@@ -196,7 +196,7 @@ func (s *Server) ThreadStart(ctx context.Context, req ThreadStartReq) (ThreadSta
 }
 
 // 自定义错误码
-var ErrThreadNotFound = code.Register(-32001, "thread not found")
+var ErrThreadNotFound = code.Register(-31001, "thread not found")
 ```
 
 ### 3.3 通知推送

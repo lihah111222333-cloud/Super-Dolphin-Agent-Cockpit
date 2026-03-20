@@ -1,0 +1,130 @@
+package claudecli
+
+import (
+	"time"
+
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+)
+
+func RegisterTranslators(dispatcher *unified.EventDispatcher) {
+	if dispatcher == nil {
+		return
+	}
+	dispatcher.Register(translateClaudeEvent)
+}
+
+func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+	if ev, ok := translateAgentEvent(raw); ok {
+		publish(ev)
+		return
+	}
+	if ev, ok := translateTurnEvent(raw); ok {
+		publish(ev)
+		return
+	}
+	if ev, ok := translateToolEvent(raw); ok {
+		publish(ev)
+	}
+}
+
+func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
+	switch raw.Type {
+	case "agent:launched", "system:init":
+		return agentdto.AgentLaunched{
+			AgentSessionHeader: agentSessionHeader(raw.Data),
+			Model:              dataString(raw.Data, "model"),
+			CWD:                dataString(raw.Data, "cwd"),
+		}, true
+	case "agent:stopped":
+		return agentdto.AgentStopped{AgentSessionHeader: agentSessionHeader(raw.Data)}, true
+	case "agent:failed":
+		return agentdto.AgentFailed{
+			AgentSessionHeader: agentSessionHeader(raw.Data),
+			Error:              dataString(raw.Data, "error"),
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
+	switch raw.Type {
+	case "turn:started":
+		return turndto.TurnStarted{TurnHeader: turnHeader(raw.Data)}, true
+	case "turn:input_received":
+		return turndto.TurnInputReceived{
+			TurnHeader: turnHeader(raw.Data),
+			InputType:  dataString(raw.Data, "input_type"),
+			Source:     dataString(raw.Data, "source"),
+		}, true
+	case "assistant:message_delta":
+		return turndto.TurnOutputDelta{
+			TurnHeader: turnHeader(raw.Data),
+			Stream:     dataString(raw.Data, "stream"),
+			Delta:      dataString(raw.Data, "delta"),
+		}, true
+	case "turn:interrupted":
+		return turndto.TurnInterrupted{
+			TurnHeader: turnHeader(raw.Data),
+			Reason:     dataString(raw.Data, "reason"),
+		}, true
+	case "turn:complete":
+		return turndto.TurnCompleted{
+			TurnHeader: turnHeader(raw.Data),
+			Success:    dataBool(raw.Data, "success"),
+			Error:      dataString(raw.Data, "error"),
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
+	switch raw.Type {
+	case "tool:use_begin":
+		return tooldto.ToolCallBegin{
+			ToolCallHeader:   toolHeader(raw.Data),
+			ArgumentsPreview: dataString(raw.Data, "arguments_preview"),
+		}, true
+	case "tool:use_end":
+		return tooldto.ToolCallEnd{
+			ToolCallHeader: toolHeader(raw.Data),
+			Success:        dataBool(raw.Data, "success"),
+			Error:          dataString(raw.Data, "error"),
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+func agentSessionHeader(data any) shared.AgentSessionHeader {
+	return shared.AgentSessionHeader{
+		AgentHeader: shared.AgentHeader{
+			EventHeader: shared.EventHeader{Timestamp: time.Now()},
+			AgentID:     dataString(data, "agent_id"),
+			ThreadID:    dataString(data, "thread_id"),
+		},
+		SessionID: dataString(data, "session_id"),
+	}
+}
+
+func turnHeader(data any) shared.TurnHeader {
+	header := agentSessionHeader(data).AgentHeader
+	return shared.TurnHeader{
+		AgentHeader: header,
+		TurnID:      dataString(data, "turn_id"),
+	}
+}
+
+func toolHeader(data any) shared.ToolCallHeader {
+	return shared.ToolCallHeader{
+		TurnHeader: turnHeader(data),
+		CallID:     dataString(data, "call_id"),
+		ToolName:   dataString(data, "tool_name"),
+	}
+}
