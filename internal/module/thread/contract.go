@@ -26,11 +26,15 @@ type Service interface {
 }
 
 type StartRequest struct {
-	Provider string
-	AgentID  string
-	CWD      string
-	Model    string
-	Prompt   string
+	Provider       string
+	AgentID        string
+	CWD            string
+	Model          string
+	Prompt         string
+	ApprovalPolicy string
+	Instructions   string
+	Effort         string
+	Personality    string
 }
 
 type StartResult struct {

@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/creachadair/jrpc2/handler"
@@ -19,6 +20,7 @@ var Module = fx.Module("rpc",
 		func(m *ApprovalManager) contract.ApprovalResponder { return m },
 	),
 	fx.Invoke(registerAllHandlers),
+	fx.Invoke(bindEventBridge),
 )
 
 type Params struct {
@@ -44,4 +46,24 @@ type serverParams struct {
 
 func registerAllHandlers(server *Server, p serverParams) {
 	server.Register(p.Handlers...)
+}
+
+func bindEventBridge(lc fx.Lifecycle, bridge *PushBridge, server *Server, logger *slog.Logger) {
+	var cancels []context.CancelFunc
+
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			cancels = subscribeCoreEventPushes(bridge, server, logger)
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			for _, cancel := range cancels {
+				if cancel != nil {
+					cancel()
+				}
+			}
+			cancels = nil
+			return nil
+		},
+	})
 }

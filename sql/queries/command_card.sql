@@ -3,11 +3,22 @@ SELECT id, card_key, title, description, command_template, args_schema, risk_lev
 FROM command_cards
 WHERE card_key = $1;
 
+-- name: DeleteCommandCard :execrows
+DELETE FROM command_cards
+WHERE card_key = $1;
+
 -- name: InsertCommandCardVersion :exec
 INSERT INTO command_card_versions (
     card_key, title, description, command_template, args_schema,
     risk_level, enabled, created_by, updated_by, source_updated_at
 ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10);
+
+-- name: ListCommandCardVersions :many
+SELECT id, card_key, title, description, command_template, args_schema, risk_level, enabled,
+       created_by, updated_by, source_updated_at, created_at, archived_at
+FROM command_card_versions
+WHERE card_key = $1
+ORDER BY id DESC;
 
 -- name: UpsertCommandCard :one
 INSERT INTO command_cards (

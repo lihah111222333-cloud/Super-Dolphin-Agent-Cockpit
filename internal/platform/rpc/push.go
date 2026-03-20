@@ -7,6 +7,16 @@ import (
 
 	"github.com/creachadair/jrpc2"
 	"github.com/kelindar/event"
+
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+)
+
+const (
+	methodEventAgentStateChanged = "event/agent/stateChanged"
+	methodEventTurnStarted       = "event/turn/started"
+	methodEventTurnCompleted     = "event/turn/completed"
 )
 
 // PushBridge bridges internal events into jrpc2 server push APIs.
@@ -60,4 +70,23 @@ func BindEventToNotify[T event.Event](bridge *PushBridge, server *jrpc2.Server, 
 			logger.Warn("rpc push notify failed", "method", method, "error", err)
 		}
 	})
+}
+
+func subscribeCoreEventPushes(bridge *PushBridge, server *Server, logger *slog.Logger) []context.CancelFunc {
+	if bridge == nil || bridge.dispatcher == nil || server == nil {
+		return nil
+	}
+
+	dispatcher := bridge.dispatcher
+	return []context.CancelFunc{
+		bus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {
+			server.NotifyAll(context.Background(), bridge, methodEventAgentStateChanged, ev)
+		}, logger),
+		bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnStarted) {
+			server.NotifyAll(context.Background(), bridge, methodEventTurnStarted, ev)
+		}, logger),
+		bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
+			server.NotifyAll(context.Background(), bridge, methodEventTurnCompleted, ev)
+		}, logger),
+	}
 }

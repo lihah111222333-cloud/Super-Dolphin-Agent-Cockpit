@@ -1,0 +1,89 @@
+package skill
+
+import (
+	"context"
+	"net/http"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestMatchPreviewFallsBackToAgentID(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	writeTestSkill(t, svc.root, "demo", "---\ntrigger_words: hello\n---\n# demo\n")
+
+	out, err := svc.MatchPreview(context.Background(), " agent-42 ", "   ", "hello world", nil)
+	if err != nil {
+		t.Fatalf("MatchPreview returned error: %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("MatchPreview result type mismatch: %T", out)
+	}
+	if got, _ := result["thread_id"].(string); got != "agent-42" {
+		t.Fatalf("thread_id mismatch: got %q", got)
+	}
+	matches, ok := result["matches"].([]matchItem)
+	if !ok {
+		t.Fatalf("matches type mismatch: %T", result["matches"])
+	}
+	if len(matches) != 1 {
+		t.Fatalf("matches len mismatch: got %d", len(matches))
+	}
+	if matches[0].Name != "demo" {
+		t.Fatalf("match name mismatch: got %q", matches[0].Name)
+	}
+}
+
+func TestMatchPreviewUsesResolvedIDForConfiguredSkills(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	var capturedID string
+	svc.readConfigState = func(_ context.Context, resolvedID string) (any, error) {
+		capturedID = resolvedID
+		return map[string]any{"agent_id": resolvedID, "skills": []any{"configured-skill", "configured-skill", " "}}, nil
+	}
+
+	out, err := svc.MatchPreview(context.Background(), " agent-7 ", "   ", "", nil)
+	if err != nil {
+		t.Fatalf("MatchPreview returned error: %v", err)
+	}
+	if capturedID != "agent-7" {
+		t.Fatalf("configured matcher ID mismatch: got %q", capturedID)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("MatchPreview result type mismatch: %T", out)
+	}
+	matches, ok := result["matches"].([]matchItem)
+	if !ok {
+		t.Fatalf("matches type mismatch: %T", result["matches"])
+	}
+	if len(matches) != 1 {
+		t.Fatalf("matches len mismatch: got %d", len(matches))
+	}
+	if matches[0].Name != "configured-skill" || matches[0].MatchedBy != "configured" {
+		t.Fatalf("configured match mismatch: %+v", matches[0])
+	}
+}
+
+func newTestSkillService(t *testing.T) *service {
+	t.Helper()
+	return &service{root: t.TempDir(), http: &http.Client{}}
+}
+
+func writeTestSkill(t *testing.T, root, name, content string) string {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	path := filepath.Join(dir, skillMainFile)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	return path
+}

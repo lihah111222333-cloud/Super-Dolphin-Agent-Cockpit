@@ -8,7 +8,9 @@ import (
 
 type Store interface {
 	Get(ctx context.Context, cardKey string) (*CommandCard, error)
+	Delete(ctx context.Context, cardKey string) error
 	InsertVersion(ctx context.Context, version CommandCardVersion) error
+	ListVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error)
 	Upsert(ctx context.Context, card CommandCard) (*CommandCard, error)
 	List(ctx context.Context, filter ListFilter) ([]CommandCard, error)
 }

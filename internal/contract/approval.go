@@ -1,5 +1,7 @@
 package contract
 
+import "encoding/json"
+
 // ApprovalResponder handles tool call approval responses.
 // Implemented by platform/rpc.ApprovalManager so module/turn depends only on this contract.
 type ApprovalResponder interface {
@@ -8,6 +10,7 @@ type ApprovalResponder interface {
 
 // ApprovalDecision captures the result of a tool-call approval.
 type ApprovalDecision struct {
-	Approved bool
-	Reason   string
+	Approved *bool           `json:"approved,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
+	Detail   json.RawMessage `json:"detail,omitempty"`
 }

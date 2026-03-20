@@ -60,7 +60,7 @@ Server 基础设施拆分：
 
 ### 波次 2：skill + workspace + orchestration RPC
 - R3: `module/skill` 新建（≤300）
-- R4: `module/workspace/rpc.go`（≤150）
+- R4: `module/workspace/rpc.go`（≤300）
 - R5: `module/orchestration/rpc.go`（≤200）
 
 ### 波次 3：UI + dashboard

@@ -67,6 +67,9 @@ func (m *SessionManager) Remove(agentID string) {
 }
 
 func (m *SessionManager) CloseAll(ctx context.Context) {
+	if m == nil {
+		return
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}

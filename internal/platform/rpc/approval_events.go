@@ -29,7 +29,7 @@ func (m *ApprovalManager) publishResolved(pending *pendingApproval, decision con
 	}
 	event.Publish(pending.dispatcher, tooldto.ToolApprovalResolved{
 		ToolApprovalHeader: approvalHeader(pending.request),
-		Approved:           decision.Approved,
+		Approved:           decisionApproved(decision),
 		Decision:           decisionReason(decision, err),
 	})
 }

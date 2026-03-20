@@ -11,6 +11,7 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -18,6 +19,7 @@ type driver struct {
 	logger          *slog.Logger
 	serverURL       string
 	eventDispatcher *unified.EventDispatcher
+	approvals       *rpc.ApprovalManager
 }
 
 var _ contract.Driver = (*driver)(nil)
@@ -55,11 +57,11 @@ type threadResumeParams struct {
 	Model    string `json:"model,omitempty"`
 }
 
-func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher) contract.Driver {
-	return newDriver(logger, eventDispatcher)
+func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager) contract.Driver {
+	return newDriver(logger, eventDispatcher, approvals)
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager) contract.Driver {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -67,13 +69,14 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher) co
 		logger:          logger,
 		serverURL:       strings.TrimSpace(os.Getenv("CODEX_APP_SERVER_URL")),
 		eventDispatcher: eventDispatcher,
+		approvals:       approvals,
 	}
 }
 
 func (d *driver) Name() string { return "codex" }
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-	s, err := newSession(d.logger, d.serverURL, req.AgentID, d.eventDispatcher)
+	s, err := newSession(d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +94,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-	s, err := newSession(d.logger, d.serverURL, req.AgentID, d.eventDispatcher)
+	s, err := newSession(d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals)
 	if err != nil {
 		return nil, err
 	}

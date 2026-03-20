@@ -97,7 +97,9 @@ type Querier interface {
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (PromptTemplate, error)
 	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]PromptTemplate, error)
 	GetCommandCard(ctx context.Context, cardKey string) (CommandCard, error)
+	DeleteCommandCard(ctx context.Context, cardKey string) (int64, error)
 	InsertCommandCardVersion(ctx context.Context, arg InsertCommandCardVersionParams) error
+	ListCommandCardVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error)
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (CommandCard, error)
 	ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error)
 	CreateInteraction(ctx context.Context, arg CreateInteractionParams) (AgentInteraction, error)

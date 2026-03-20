@@ -5,10 +5,14 @@ type threadIDParams struct {
 }
 
 type startParams struct {
-	Provider string `json:"provider"`
-	CWD      string `json:"cwd,omitempty"`
-	Model    string `json:"model,omitempty"`
-	Prompt   string `json:"prompt,omitempty"`
+	Provider       string `json:"provider"`
+	CWD            string `json:"cwd,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Prompt         string `json:"prompt,omitempty"`
+	ApprovalPolicy string `json:"approvalPolicy,omitempty"`
+	Instructions   string `json:"instructions,omitempty"`
+	Effort         string `json:"effort,omitempty"`
+	Personality    string `json:"personality,omitempty"`
 }
 
 type resumeParams struct {

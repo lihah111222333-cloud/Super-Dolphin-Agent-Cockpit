@@ -1,5 +1,7 @@
 package turn
 
+import "encoding/json"
+
 type turnStartParams struct {
 	ThreadID string   `json:"threadId"`
 	Prompt   string   `json:"prompt,omitempty"`
@@ -24,10 +26,10 @@ type threadIDOnlyParams struct {
 }
 
 type approvalRespondParams struct {
-	CallID    string `json:"callId"`
-	RequestID *int64 `json:"requestId,omitempty"`
-	Approved  bool   `json:"approved"`
-	Decision  string `json:"decision,omitempty"`
+	CallID    string          `json:"callId"`
+	RequestID *int64          `json:"requestId,omitempty"`
+	Approved  *bool           `json:"approved,omitempty"`
+	Decision  json.RawMessage `json:"decision,omitempty"`
 }
 
 type turnStartResult struct {

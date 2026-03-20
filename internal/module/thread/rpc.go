@@ -19,10 +19,14 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"thread/start": rpc.StrictHandler(func(ctx context.Context, p startParams) (any, error) {
 			return svc.Start(ctx, StartRequest{
-				Provider: p.Provider,
-				CWD:      p.CWD,
-				Model:    p.Model,
-				Prompt:   p.Prompt,
+				Provider:       p.Provider,
+				CWD:            p.CWD,
+				Model:          p.Model,
+				Prompt:         p.Prompt,
+				ApprovalPolicy: p.ApprovalPolicy,
+				Instructions:   p.Instructions,
+				Effort:         p.Effort,
+				Personality:    p.Personality,
 			})
 		}),
 		"thread/resume": newResumeHandler(svc),
@@ -63,6 +67,9 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 		"thread/mcp/list":                  newThreadCommandHandler(svc, "/mcp"),
 		"thread/skills/list":               newThreadCommandHandler(svc, "/skills"),
 
+		// thread/debugMemory 当前返回 Go runtime.MemStats。
+		// TODO(P7): V2 返回的是 agent 进程内存快照（通过 provider），不是宿主进程 stats。
+		// P7 补齐 provider-level memory stats 后替换此实现。
 		"thread/debugMemory": newThreadCall(func(context.Context, string) (any, error) {
 			return runtimeMemoryStats(), nil
 		}),
@@ -86,6 +93,9 @@ func newThreadEffect(fn func(context.Context, string) error) handler.Func {
 	})
 }
 
+// cmd 构造 SendCommand handler。当前所有命令统一用 string args。
+// TODO(P7): 按命令类型定义具体 param struct，消除 Args 压平问题。
+// 当前只有 /model, /personality, /approvals 真正闭环，其余走骨架通道。
 func newThreadCommandHandler(svc Service, command string) handler.Func {
 	return rpc.ThreadHandler(func(ctx context.Context, p commandParams) (any, error) {
 		return svc.SendCommand(ctx, rpc.ThreadIDFrom(ctx), command, p.Args)

@@ -11,6 +11,7 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -23,6 +24,7 @@ type session struct {
 	history    *rolloutReader
 	logger     *slog.Logger
 	dispatcher *unified.EventDispatcher
+	approvals  *rpc.ApprovalManager
 	ctx        context.Context
 	cancel     context.CancelFunc
 	mu         sync.Mutex
@@ -65,7 +67,13 @@ type turnRPCResult struct {
 	} `json:"turn"`
 }
 
-func newSession(logger *slog.Logger, serverURL, agentID string, dispatcher *unified.EventDispatcher) (*session, error) {
+func newSession(
+	logger *slog.Logger,
+	serverURL string,
+	agentID string,
+	dispatcher *unified.EventDispatcher,
+	approvals *rpc.ApprovalManager,
+) (*session, error) {
 	transport, err := newTransport(serverURL)
 	if err != nil {
 		return nil, err
@@ -79,6 +87,7 @@ func newSession(logger *slog.Logger, serverURL, agentID string, dispatcher *unif
 		history:    &rolloutReader{transport: transport},
 		logger:     logger,
 		dispatcher: dispatcher,
+		approvals:  approvals,
 		ctx:        ctx,
 		cancel:     cancel,
 		turns:      map[string]*turnHandle{},
@@ -221,6 +230,8 @@ func (s *session) applySlashConfig(ctx context.Context, threadID, method, key st
 func (s *session) onNotification(method string, params json.RawMessage) {
 	s.dispatch(dto.RawProviderEvent{Type: method, Data: params})
 	switch strings.TrimSpace(method) {
+	case "item/commandExecution/requestApproval", "tool.approval.requested":
+		s.handleApprovalRequest(method, params)
 	case "turn/completed", "turn/aborted":
 		s.finishTurn(params, method == "turn/completed")
 	case "connection.dead":

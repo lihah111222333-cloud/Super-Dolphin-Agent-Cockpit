@@ -47,28 +47,32 @@ func waitForApproval(ctx context.Context, pending *pendingApproval) (contract.Ap
 }
 
 func decodeApprovalDecision(raw json.RawMessage) (contract.ApprovalDecision, error) {
+	raw = cloneRawMessage(raw)
 	var approved bool
 	if err := json.Unmarshal(raw, &approved); err == nil {
-		return contract.ApprovalDecision{Approved: approved}, nil
+		return contract.ApprovalDecision{Approved: boolPtr(approved), Detail: raw}, nil
 	}
 	var decisionText string
 	if err := json.Unmarshal(raw, &decisionText); err == nil {
+		decision := contract.ApprovalDecision{Reason: strings.TrimSpace(decisionText), Detail: raw}
 		if approved, ok := normalizeDecisionString(decisionText); ok {
-			return contract.ApprovalDecision{Approved: approved, Reason: decisionText}, nil
+			decision.Approved = boolPtr(approved)
 		}
+		return decision, nil
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return contract.ApprovalDecision{}, ErrInvalidState("approval callback returned invalid payload")
 	}
+	decision := contract.ApprovalDecision{Reason: stringFromMap(payload, "reason", "decision"), Detail: raw}
 	if value, ok := payload["approved"].(bool); ok {
-		return contract.ApprovalDecision{Approved: value, Reason: stringFromMap(payload, "reason", "decision")}, nil
+		decision.Approved = boolPtr(value)
+		return decision, nil
 	}
-	decision, ok := normalizeDecisionString(stringFromMap(payload, "decision", "reason"))
-	if !ok {
-		return contract.ApprovalDecision{}, ErrInvalidState("approval decision is required")
+	if approved, ok := normalizeDecisionString(stringFromMap(payload, "decision", "reason")); ok {
+		decision.Approved = boolPtr(approved)
 	}
-	return contract.ApprovalDecision{Approved: decision, Reason: stringFromMap(payload, "decision", "reason")}, nil
+	return decision, nil
 }
 
 func normalizeDecisionString(value string) (bool, bool) {
@@ -110,13 +114,20 @@ func decisionReason(decision contract.ApprovalDecision, err error) string {
 	if decision.Reason != "" {
 		return decision.Reason
 	}
+	if reason := detailReason(decision.Detail); reason != "" {
+		return reason
+	}
 	if err != nil {
 		return err.Error()
 	}
-	if decision.Approved {
+	switch {
+	case decision.Approved == nil:
+		return ""
+	case *decision.Approved:
 		return "approved"
+	default:
+		return "declined"
 	}
-	return "declined"
 }
 
 func approvalCallID(callID string, requestID *int64) string {
@@ -155,6 +166,17 @@ func cloneInt64Ptr(value *int64) *int64 {
 	return &copy
 }
 
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func cloneRawMessage(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	return append(json.RawMessage(nil), raw...)
+}
+
 func int64Value(value *int64) int64 {
 	if value == nil {
 		return 0
@@ -169,6 +191,22 @@ func stringFromMap(values map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func decisionApproved(decision contract.ApprovalDecision) bool {
+	return decision.Approved != nil && *decision.Approved
+}
+
+func detailReason(raw json.RawMessage) string {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return strings.TrimSpace(text)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	return stringFromMap(payload, "reason", "decision")
 }
 
 func firstNonEmpty(values ...string) string {
