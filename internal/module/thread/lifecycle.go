@@ -174,6 +174,10 @@ func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 	req.CWD = strings.TrimSpace(req.CWD)
 	req.Model = strings.TrimSpace(req.Model)
 	req.Prompt = strings.TrimSpace(req.Prompt)
+	req.ApprovalPolicy = strings.TrimSpace(req.ApprovalPolicy)
+	req.Instructions = strings.TrimSpace(req.Instructions)
+	req.Effort = strings.TrimSpace(req.Effort)
+	req.Personality = strings.TrimSpace(req.Personality)
 	if req.Provider == "" {
 		return StartRequest{}, "", errors.New("provider is required")
 	}
@@ -182,7 +186,6 @@ func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 	}
 	return req, req.AgentID, nil
 }
-
 func normalizeResumeRequest(req ResumeRequest) (ResumeRequest, error) {
 	req.Provider = strings.TrimSpace(req.Provider)
 	req.AgentID = strings.TrimSpace(req.AgentID)
@@ -198,7 +201,6 @@ func normalizeResumeRequest(req ResumeRequest) (ResumeRequest, error) {
 		return req, nil
 	}
 }
-
 func (s *service) startSession(ctx context.Context, req StartRequest, agentID string) (contract.Session, error) {
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
@@ -208,10 +210,14 @@ func (s *service) startSession(ctx context.Context, req StartRequest, agentID st
 		AgentID:      agentID,
 		CWD:          req.CWD,
 		Model:        req.Model,
-		Instructions: req.Prompt,
+		Instructions: firstNonEmpty(req.Instructions, req.Prompt),
+		Config: map[string]any{
+			"approvalPolicy": req.ApprovalPolicy,
+			"effort":         req.Effort,
+			"personality":    req.Personality,
+		},
 	})
 }
-
 func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contract.Session, error) {
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
@@ -222,7 +228,6 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 		ThreadID: req.ThreadID,
 	})
 }
-
 func (s *service) lookupSession(agentID string) (contract.Session, error) {
 	if s.sessions == nil {
 		return nil, errors.New("session provider is not configured")
@@ -330,18 +335,15 @@ func buildLaunchRequest(agentID, cwd, name string) (LaunchAgentRequest, error) {
 		Command: []string{exe},
 	}, nil
 }
-
 func resolveStartedThreadID(threadID, fallback string) string {
 	return firstNonEmpty(threadID, fallback)
 }
-
 func normalizeThreadContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
 	}
 	return ctx
 }
-
 func firstNonZero(values ...int64) int64 {
 	for _, value := range values {
 		if value > 0 {
@@ -350,7 +352,6 @@ func firstNonZero(values ...int64) int64 {
 	}
 	return time.Now().Unix()
 }
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -359,7 +360,6 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
-
 func (s *service) rememberBinding(binding *bindingstore.Binding) {
 	if binding == nil {
 		return
@@ -369,7 +369,6 @@ func (s *service) rememberBinding(binding *bindingstore.Binding) {
 		s.rememberThreadAgent(threadID, agentID)
 	}
 }
-
 func (s *service) rememberThreadAgent(threadID, agentID string) {
 	threadID = strings.TrimSpace(threadID)
 	agentID = strings.TrimSpace(agentID)
@@ -380,7 +379,6 @@ func (s *service) rememberThreadAgent(threadID, agentID string) {
 	defer s.threadAgentsMu.Unlock()
 	s.threadAgents[threadID] = agentID
 }
-
 func (s *service) lookupThreadAgent(threadID string) string {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -390,7 +388,6 @@ func (s *service) lookupThreadAgent(threadID string) string {
 	defer s.threadAgentsMu.RUnlock()
 	return s.threadAgents[threadID]
 }
-
 func (s *service) forgetThreadAgent(threadID string) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {

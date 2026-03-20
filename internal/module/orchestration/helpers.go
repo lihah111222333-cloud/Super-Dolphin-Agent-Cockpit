@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +42,8 @@ func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
 	agent.cwd = req.Cwd
 	agent.command = append([]string(nil), req.Command...)
 	agent.env = append([]string(nil), req.Env...)
+	agent.port = launchPort(req)
+	agent.provider = launchProvider(req)
 	agent.lastError = ""
 	agent.stopRequested = false
 	return agent
@@ -53,9 +56,7 @@ func (s *service) prepareLaunchStateLocked(agent *agentRuntime) {
 	agent.threadID = ""
 	agent.exitedAt = nil
 	agent.updatedAt = time.Now()
-	if agent.state != agentdto.StateStopped {
-		agent.state = agentdto.StateProvisioning
-	}
+	agent.state = agentdto.StateProvisioning
 }
 
 func (s *service) newAgentLocked(agentID string) *agentRuntime {
@@ -73,7 +74,30 @@ func (s *service) newAgentLocked(agentID string) *agentRuntime {
 	return agent
 }
 
-func (s *service) claimMonitorTargetsLocked() []monitorTarget {
+func (s *service) BindActiveTurnID(_ context.Context, agentID, turnID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
+	if err != nil {
+		return err
+	}
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return errors.New("turn id is required")
+	}
+	if agent.activeTurnID == "" {
+		return fmt.Errorf("%w: agent %q has no active turn", errTurnNotActive, agent.id)
+	}
+	if agent.activeTurnID == turnID {
+		return nil
+	}
+	agent.activeTurnID = turnID
+	agent.updatedAt = time.Now()
+	return nil
+}
+
+func (s *service) claimMonitorTargetsLocked() []monitorTarget { 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -97,15 +121,19 @@ func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRun
 		return
 	}
 	if agent.activeTurnID == "" && agent.state == agentdto.StateIdle && agent.queue.Len() > 0 {
-		s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued, agentdto.StateTurnQueued)
+		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
+			s.logger.Warn("orchestration: failed to mark queued turn", "agent_id", agent.id, "error", err)
+		}
 		return
 	}
 	if agent.activeTurnID != "" {
 		return
 	}
 	switch agent.state {
-	case agentdto.StateTurnStarting, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput:
-		s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnCompleted, agentdto.StateIdle)
+	case agentdto.StateTurnStarting, agentdto.StateTurnRunning:
+		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnCompleted); err != nil {
+			s.logger.Warn("orchestration: failed to reconcile ready state", "agent_id", agent.id, "state", agent.state, "error", err)
+		}
 	}
 }
 
@@ -117,7 +145,9 @@ func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
 	if err != nil || agent.activeTurnID != work.turnID {
 		return
 	}
-	s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted, agentdto.StateTurnRunning)
+	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+		s.logger.Warn("orchestration: failed to mark turn running", "agent_id", agent.id, "turn_id", work.turnID, "error", err)
+	}
 }
 
 func (s *service) listAgents() []agentRuntime {
@@ -150,6 +180,66 @@ func (s *service) turnIDFor(sub TurnSubmission) string {
 	}
 	s.nextTurnSeq++
 	return fmt.Sprintf("%s-turn-%d", sub.ThreadID, s.nextTurnSeq)
+}
+
+func launchPort(req LaunchRequest) int {
+	if port := parsePositiveInt(envValue(req.Env, "PORT")); port > 0 {
+		return port
+	}
+	args := launchCommandArgs(req.Command)
+	for _, flag := range []string{"--port", "-p"} {
+		if port := parsePositiveInt(commandFlagValue(args, flag)); port > 0 {
+			return port
+		}
+	}
+	return 0
+}
+
+func launchProvider(req LaunchRequest) string {
+	for _, key := range []string{"AGENT_PROVIDER", "CODEX_PROVIDER", "PROVIDER"} {
+		if value := envValue(req.Env, key); value != "" {
+			return value
+		}
+	}
+	return commandFlagValue(launchCommandArgs(req.Command), "--provider")
+}
+
+func launchCommandArgs(command []string) []string {
+	if len(command) <= 1 {
+		return nil
+	}
+	return command[1:]
+}
+
+func envValue(env []string, key string) string {
+	for _, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(strings.TrimSpace(name), key) {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func commandFlagValue(args []string, flag string) string {
+	for idx, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == flag && idx+1 < len(args) {
+			return strings.TrimSpace(args[idx+1])
+		}
+		if value, ok := strings.CutPrefix(arg, flag+"="); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func parsePositiveInt(raw string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return value
 }
 
 func validateLaunchRequest(req LaunchRequest) error {

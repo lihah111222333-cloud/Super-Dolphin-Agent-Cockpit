@@ -6,14 +6,19 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
-func NewDriverFactory(logger *slog.Logger, dispatcher *unified.EventDispatcher) contract.DriverFactory {
+func NewDriverFactory(
+	logger *slog.Logger,
+	dispatcher *unified.EventDispatcher,
+	approvals *rpc.ApprovalManager,
+) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher)
+			return newDriver(logger, dispatcher, approvals)
 		},
 	}
 }

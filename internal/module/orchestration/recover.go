@@ -47,10 +47,12 @@ func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) error {
 	agent.stopRequested = false
 	agent.activeTurnID = ""
 	agent.monitoredSeq = 0
-	normalizeRecoveryState(ctx, s, agent)
+	if err := normalizeRecoveryState(ctx, s, agent); err != nil {
+		return err
+	}
 	return s.startProcessLocked(ctx, agent)
 }
 
-func normalizeRecoveryState(ctx context.Context, s *service, agent *agentRuntime) {
-	s.fireOrForceLocked(ctx, agent, agentdto.TriggerRecoverRequested, agentdto.StateRecovering)
+func normalizeRecoveryState(ctx context.Context, s *service, agent *agentRuntime) error {
+	return s.fireOrForceLocked(ctx, agent, agentdto.TriggerRecoverRequested)
 }

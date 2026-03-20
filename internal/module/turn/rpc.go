@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/creachadair/jrpc2/handler"
@@ -80,9 +81,12 @@ func NewTurnHandlers(
 				if approver == nil {
 					return nil, errors.New("turn rpc: approval responder is not configured")
 				}
+				if p.Approved == nil && len(p.Decision) == 0 {
+					return nil, errors.New("turn rpc: approval decision is required")
+				}
 				return nil, approver.Respond(p.CallID, p.RequestID, contract.ApprovalDecision{
 					Approved: p.Approved,
-					Reason:   p.Decision,
+					Detail:   append(json.RawMessage(nil), p.Decision...),
 				})
 			}),
 	}}

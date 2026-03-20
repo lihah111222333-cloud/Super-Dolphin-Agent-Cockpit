@@ -117,7 +117,7 @@ func (m *ApprovalManager) Respond(callID string, requestID *int64, decision cont
 
 func (m *ApprovalManager) AutoApprove(callID string) error {
 	return m.Respond(callID, nil, contract.ApprovalDecision{
-		Approved: true,
+		Approved: boolPtr(true),
 		Reason:   "auto_approved",
 	})
 }
@@ -147,6 +147,11 @@ func (m *ApprovalManager) registerPending(req ApprovalRequest) (*pendingApproval
 }
 
 func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Server, pending *pendingApproval) error {
+	// Provider-side approvals may rely on a later approval/respond RPC when
+	// there is no live callback-capable jrpc2 server for direct dispatch.
+	if bridge == nil || server == nil {
+		return nil
+	}
 	ctx, method, params, err := m.beginDispatch(bridge, server, pending)
 	if err != nil {
 		return err

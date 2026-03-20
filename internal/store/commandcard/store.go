@@ -22,6 +22,11 @@ func (s *store) Get(ctx context.Context, cardKey string) (*CommandCard, error) {
 	return &mapped, nil
 }
 
+func (s *store) Delete(ctx context.Context, cardKey string) error {
+	_, err := s.q.DeleteCommandCard(ctx, cardKey)
+	return err
+}
+
 func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) error {
 	return s.q.InsertCommandCardVersion(ctx, sqlc.InsertCommandCardVersionParams{
 		CardKey:         version.CardKey,
@@ -35,6 +40,18 @@ func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) e
 		UpdatedBy:       version.UpdatedBy,
 		SourceUpdatedAt: sourceUpdatedAt(version.SourceUpdatedAt),
 	})
+}
+
+func (s *store) ListVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error) {
+	rows, err := s.q.ListCommandCardVersions(ctx, cardKey)
+	if err != nil {
+		return nil, err
+	}
+	versions := make([]CommandCardVersion, 0, len(rows))
+	for _, row := range rows {
+		versions = append(versions, fromVersion(row))
+	}
+	return versions, nil
 }
 
 func (s *store) Upsert(ctx context.Context, card CommandCard) (*CommandCard, error) {
@@ -101,6 +118,24 @@ func fromListRow(row sqlc.ListCommandCardsRow) CommandCard {
 		UpdatedAt:       row.UpdatedAt,
 		LastRunAt:       row.LastRunAt,
 		RunCount:        row.RunCount,
+	}
+}
+
+func fromVersion(row sqlc.CommandCardVersion) CommandCardVersion {
+	return CommandCardVersion{
+		ID:              row.ID,
+		CardKey:         row.CardKey,
+		Title:           row.Title,
+		Description:     row.Description,
+		CommandTemplate: row.CommandTemplate,
+		ArgsSchema:      row.ArgsSchema,
+		RiskLevel:       row.RiskLevel,
+		Enabled:         row.Enabled,
+		CreatedBy:       row.CreatedBy,
+		UpdatedBy:       row.UpdatedBy,
+		SourceUpdatedAt: row.SourceUpdatedAt,
+		CreatedAt:       row.CreatedAt,
+		ArchivedAt:      row.ArchivedAt,
 	}
 }
 

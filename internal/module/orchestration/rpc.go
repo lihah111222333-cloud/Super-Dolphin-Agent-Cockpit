@@ -1,0 +1,147 @@
+package orchestration
+
+import (
+	"context"
+	"encoding/json"
+	"sort"
+	"strings"
+
+	"github.com/creachadair/jrpc2/handler"
+
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+)
+
+func NewOrchestrationHandlers(svc Service) rpc.HandlerMapResult {
+	return rpc.HandlerMapResult{Handlers: handler.Map{
+		"agent.launch": rpc.StrictHandler(func(ctx context.Context, p launchParams) (any, error) {
+			return nil, svc.LaunchAgent(ctx, launchRequestFromParams(p))
+		}),
+		"agent.submit": rpc.StrictHandler(func(ctx context.Context, p submitParams) (any, error) {
+			req, err := submissionFromParams(ctx, svc, p)
+			if err != nil {
+				return nil, err
+			}
+			if err := svc.SubmitTurn(ctx, req); err != nil {
+				return nil, err
+			}
+			return map[string]any{"success": true}, nil
+		}),
+		"agent.submitPrompt": rpc.StrictHandler(func(ctx context.Context, p submitPromptParams) (any, error) {
+			req, err := submissionFromParams(ctx, svc, submitParams(p))
+			if err != nil {
+				return nil, err
+			}
+			if err := svc.SubmitTurn(ctx, req); err != nil {
+				return nil, err
+			}
+			return map[string]any{"success": true}, nil
+		}),
+		"agent.stop": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
+			return nil, svc.StopAgent(ctx, p.AgentID)
+		}),
+		"agent.list": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+			return svc.ListAgents(ctx)
+		}),
+		"agent.snapshot": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
+			return svc.Snapshot(ctx, p.AgentID)
+		}),
+		"task/dag/create":  newNotImplementedHandler[createDAGParams]("task/dag/create"),
+		"task/dag/get":     newNotImplementedHandler[dagKeyParams]("task/dag/get"),
+		"task/dag/list":    newNotImplementedHandler[listDAGsParams]("task/dag/list"),
+		"task/node/update": newNotImplementedHandler[updateNodeParams]("task/node/update"),
+		"orchestration/report": rpc.StrictHandler(func(ctx context.Context, p reportParams) (any, error) {
+			if err := svc.SetReport(ctx, p.AgentID, p.Report); err != nil {
+				return nil, err
+			}
+			return map[string]any{"success": true}, nil
+		}),
+	}}
+}
+
+func launchRequestFromParams(p launchParams) LaunchRequest {
+	return LaunchRequest{
+		AgentID:  p.AgentID,
+		Name:     p.Name,
+		ParentID: p.ParentID,
+		Cwd:      p.CWD,
+		Command:  append([]string(nil), p.Command...),
+		Env:      envList(p.Env),
+	}
+}
+
+func submissionFromParams(ctx context.Context, svc Service, p submitParams) (TurnSubmission, error) {
+	agentID := strings.TrimSpace(p.AgentID)
+	items, err := inputItemsFromSubmitParams(p)
+	if err != nil {
+		return TurnSubmission{}, err
+	}
+	return TurnSubmission{
+		AgentID:  agentID,
+		ThreadID: submissionThreadID(ctx, svc, agentID),
+		Inputs:   items,
+	}, nil
+}
+
+func inputItemsFromSubmitParams(p submitParams) ([]shareddto.InputItem, error) {
+	if len(p.legacyInput) > 0 && strings.TrimSpace(p.Prompt) == "" && len(p.Images) == 0 && len(p.Files) == 0 {
+		return decodeInputItems(p.legacyInput)
+	}
+	items := make([]shareddto.InputItem, 0, 1+len(p.Images)+len(p.Files))
+	if prompt := strings.TrimSpace(p.Prompt); prompt != "" {
+		items = append(items, shareddto.InputItem{Type: "text", Content: prompt})
+	}
+	for _, raw := range p.Images {
+		if path := strings.TrimSpace(raw); path != "" {
+			items = append(items, shareddto.InputItem{Type: "image", Path: path})
+		}
+	}
+	for _, raw := range p.Files {
+		if path := strings.TrimSpace(raw); path != "" {
+			items = append(items, shareddto.InputItem{Type: "mention", Path: path})
+		}
+	}
+	return items, nil
+}
+
+func decodeInputItems(raw json.RawMessage) ([]shareddto.InputItem, error) {
+	var items []shareddto.InputItem
+	if err := json.Unmarshal(raw, &items); err == nil {
+		return items, nil
+	}
+	var item shareddto.InputItem
+	if err := json.Unmarshal(raw, &item); err != nil {
+		return nil, err
+	}
+	return []shareddto.InputItem{item}, nil
+}
+
+func submissionThreadID(ctx context.Context, svc Service, agentID string) string {
+	snapshot, err := svc.Snapshot(ctx, agentID)
+	if err == nil && strings.TrimSpace(snapshot.ThreadID) != "" {
+		return snapshot.ThreadID
+	}
+	return strings.TrimSpace(agentID)
+}
+
+func envList(env map[string]string) []string {
+	if len(env) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	values := make([]string, 0, len(keys))
+	for _, key := range keys {
+		values = append(values, key+"="+env[key])
+	}
+	return values
+}
+
+func newNotImplementedHandler[Req any](method string) handler.Func {
+	return rpc.StrictHandler(func(context.Context, Req) (any, error) {
+		return nil, rpc.ErrNotImplemented(method + " is not yet implemented")
+	})
+}
