@@ -146,15 +146,16 @@ type UpdateAgentProviderBindingArchivedParams struct {
 }
 
 type UpsertAgentThreadParams struct {
-	ThreadID  string `json:"thread_id"`
-	Prompt    string `json:"prompt"`
-	Model     string `json:"model"`
-	Cwd       string `json:"cwd"`
-	Status    string `json:"status"`
-	Port      int32  `json:"port"`
-	PID       int32  `json:"pid"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	ThreadID      string `json:"thread_id"`
+	Prompt        string `json:"prompt"`
+	Model         string `json:"model"`
+	Cwd           string `json:"cwd"`
+	Status        string `json:"status"`
+	Port          int32  `json:"port"`
+	PID           int32  `json:"pid"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+	OwnerThreadID string `json:"owner_thread_id"`
 }
 
 type UpdateAgentThreadStatusParams struct {

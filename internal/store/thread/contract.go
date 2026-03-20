@@ -22,15 +22,16 @@ type Store interface {
 }
 
 type UpsertParams struct {
-	ThreadID  string
-	Prompt    string
-	Model     string
-	Cwd       string
-	Status    string
-	Port      int32
-	PID       int32
-	CreatedAt int64
-	UpdatedAt int64
+	ThreadID      string
+	Prompt        string
+	Model         string
+	Cwd           string
+	Status        string
+	Port          int32
+	PID           int32
+	CreatedAt     int64
+	UpdatedAt     int64
+	OwnerThreadID string
 }
 
 type UpdateStatusParams struct {
@@ -46,6 +47,7 @@ type ExpireStaleParams struct {
 
 type Thread struct {
 	ThreadID        string
+	AgentID         string
 	Prompt          string
 	Model           string
 	Cwd             string

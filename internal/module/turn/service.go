@@ -91,6 +91,14 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	return handle, nil
 }
 
+func (s *service) SteerTurn(ctx context.Context, session contract.Session, prompt string) (contract.TurnHandle, error) {
+	req, err := s.PrepareTurn(ctx, session, PrepareInput{Prompt: prompt})
+	if err != nil {
+		return nil, err
+	}
+	return s.StartTurn(ctx, session, req)
+}
+
 func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) error {
 	ctx = normalizeContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -115,6 +123,24 @@ func (s *service) InterruptTurn(ctx context.Context, session contract.Session, s
 		return nil
 	}
 	return s.waitForTurnSettle(ctx, active.localID, active.handle)
+}
+
+func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Session) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := requireSession(session); err != nil {
+		return err
+	}
+	threadID, err := resolveThreadID(session, "")
+	if err != nil {
+		return err
+	}
+	return session.Interrupt(ctx, dto.InterruptRequest{
+		ThreadID: threadID,
+		Source:   "force_complete",
+	})
 }
 
 func (s *service) TrackTurn(ctx context.Context, localID string) (TurnStatus, error) {

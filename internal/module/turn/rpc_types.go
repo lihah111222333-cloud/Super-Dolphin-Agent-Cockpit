@@ -1,0 +1,35 @@
+package turn
+
+type turnStartParams struct {
+	ThreadID string   `json:"threadId"`
+	Prompt   string   `json:"prompt,omitempty"`
+	Images   []string `json:"images,omitempty"`
+	Files    []string `json:"files,omitempty"`
+	Model    string   `json:"model,omitempty"`
+	Effort   string   `json:"effort,omitempty"`
+}
+
+type turnSteerParams struct {
+	ThreadID string `json:"threadId"`
+	Prompt   string `json:"prompt"`
+}
+
+type turnInterruptParams struct {
+	ThreadID string `json:"threadId"`
+	Source   string `json:"source,omitempty"`
+}
+
+type threadIDOnlyParams struct {
+	ThreadID string `json:"threadId"`
+}
+
+type approvalRespondParams struct {
+	CallID    string `json:"callId"`
+	RequestID *int64 `json:"requestId,omitempty"`
+	Approved  bool   `json:"approved"`
+	Decision  string `json:"decision,omitempty"`
+}
+
+type turnStartResult struct {
+	TurnID string `json:"turnId"`
+}

@@ -12,7 +12,9 @@ import (
 type Service interface {
 	PrepareTurn(ctx context.Context, session contract.Session, input PrepareInput) (dto.TurnRequest, error)
 	StartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error)
+	SteerTurn(ctx context.Context, session contract.Session, prompt string) (contract.TurnHandle, error)
 	InterruptTurn(ctx context.Context, session contract.Session, source string) error
+	ForceCompleteTurn(ctx context.Context, session contract.Session) error
 	TrackTurn(ctx context.Context, localID string) (TurnStatus, error)
 }
 

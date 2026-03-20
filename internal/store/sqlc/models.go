@@ -59,6 +59,7 @@ type AgentStatus struct {
 
 type AgentThread struct {
 	ThreadID        string `json:"thread_id"`
+	AgentID         string `json:"agent_id"`
 	Prompt          string `json:"prompt"`
 	Model           string `json:"model"`
 	Cwd             string `json:"cwd"`

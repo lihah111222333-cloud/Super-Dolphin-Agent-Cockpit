@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -23,10 +24,15 @@ type SessionProvider interface {
 }
 
 type service struct {
-	logger       *slog.Logger
-	threadStore  threadstore.Store
-	bindingStore bindingstore.Store
-	sessions     SessionProvider
+	logger        *slog.Logger
+	threadStore   threadstore.Store
+	bindingStore  bindingstore.Store
+	sessions      SessionProvider
+	starter       SessionStarter
+	orchestration OrchestrationFacade
+
+	threadAgentsMu sync.RWMutex
+	threadAgents   map[string]string
 }
 
 var _ Service = (*service)(nil)
@@ -36,15 +42,20 @@ func NewService(
 	threadStore threadstore.Store,
 	bindingStore bindingstore.Store,
 	sessions SessionProvider,
+	starter SessionStarter,
+	orchestration OrchestrationFacade,
 ) Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &service{
-		logger:       logger,
-		threadStore:  threadStore,
-		bindingStore: bindingStore,
-		sessions:     sessions,
+		logger:        logger,
+		threadStore:   threadStore,
+		bindingStore:  bindingStore,
+		sessions:      sessions,
+		starter:       starter,
+		orchestration: orchestration,
+		threadAgents:  make(map[string]string),
 	}
 }
 
@@ -93,12 +104,14 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 	if err != nil {
 		return err
 	}
+	binding, _ := s.resolveBinding(ctx, id)
 	_ = s.closeSessionIfActive(ctx, id)
-	if s.bindingStore != nil {
-		if err := s.bindingStore.DeleteByAgentID(ctx, id); err != nil {
+	if s.bindingStore != nil && binding != nil {
+		if err := s.bindingStore.DeleteByAgentID(ctx, strings.TrimSpace(binding.AgentID)); err != nil {
 			return err
 		}
 	}
+	s.forgetThreadAgent(id)
 	if s.threadStore == nil {
 		return errors.New("thread store is not configured")
 	}
@@ -139,15 +152,16 @@ func (s *service) upsertThread(ctx context.Context, thread threadstore.Thread) e
 		return errors.New("thread store is not configured")
 	}
 	return s.threadStore.Upsert(ctx, threadstore.UpsertParams{
-		ThreadID:  thread.ThreadID,
-		Prompt:    thread.Prompt,
-		Model:     thread.Model,
-		Cwd:       thread.Cwd,
-		Status:    thread.Status,
-		Port:      thread.Port,
-		PID:       thread.PID,
-		CreatedAt: thread.CreatedAt,
-		UpdatedAt: thread.UpdatedAt,
+		ThreadID:      thread.ThreadID,
+		Prompt:        thread.Prompt,
+		Model:         thread.Model,
+		Cwd:           thread.Cwd,
+		Status:        thread.Status,
+		Port:          thread.Port,
+		PID:           thread.PID,
+		CreatedAt:     thread.CreatedAt,
+		UpdatedAt:     thread.UpdatedAt,
+		OwnerThreadID: thread.OwnerThreadID,
 	})
 }
 
@@ -174,7 +188,26 @@ func (s *service) resolveBinding(ctx context.Context, threadID string) (*binding
 	if s.bindingStore == nil {
 		return nil, errors.New("binding store is not configured")
 	}
-	return s.bindingStore.GetByAgentID(ctx, id)
+	binding, err := s.bindingStore.GetByAgentID(ctx, id)
+	if err == nil {
+		s.rememberBinding(binding)
+		return binding, nil
+	}
+	if agentID := s.lookupThreadAgent(id); agentID != "" && agentID != id {
+		binding, agentErr := s.bindingStore.GetByAgentID(ctx, agentID)
+		if agentErr == nil {
+			s.rememberBinding(binding)
+			return binding, nil
+		}
+	}
+	for _, provider := range []string{"codex", "claude"} {
+		binding, providerErr := s.bindingStore.GetByProviderThread(ctx, provider, id)
+		if providerErr == nil {
+			s.rememberBinding(binding)
+			return binding, nil
+		}
+	}
+	return nil, err
 }
 
 func (s *service) resolveSession(ctx context.Context, threadID string) (contract.Session, *bindingstore.Binding, error) {
@@ -211,12 +244,12 @@ func (s *service) setBindingArchived(ctx context.Context, threadID string, archi
 	if s.bindingStore == nil {
 		return nil
 	}
-	id, err := normalizeThreadID(threadID)
+	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
 		return err
 	}
 	return s.bindingStore.SetArchived(ctx, bindingstore.SetArchivedParams{
-		AgentID:   id,
+		AgentID:   strings.TrimSpace(binding.AgentID),
 		Archived:  archived,
 		UpdatedAt: time.Now().Unix(),
 	})
@@ -227,10 +260,10 @@ func historyTargetID(binding *bindingstore.Binding, threadID string) string {
 		return strings.TrimSpace(threadID)
 	}
 	for _, candidate := range []string{
+		threadID,
 		binding.ProviderThreadID,
 		binding.CodexThreadID,
 		binding.AgentID,
-		threadID,
 	} {
 		if candidate = strings.TrimSpace(candidate); candidate != "" {
 			return candidate
@@ -245,8 +278,9 @@ func toRef(thread threadstore.Thread) Ref {
 		name = strings.TrimSpace(thread.ThreadID)
 	}
 	return Ref{
-		ID:   strings.TrimSpace(thread.ThreadID),
-		Name: name,
+		ID:      strings.TrimSpace(thread.ThreadID),
+		Name:    name,
+		AgentID: strings.TrimSpace(thread.AgentID),
 	}
 }
 

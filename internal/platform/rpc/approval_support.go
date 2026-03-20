@@ -9,19 +9,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 )
 
 func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
-	callID := strings.TrimSpace(req.CallID)
-	if callID == "" {
-		callID = strings.TrimSpace(req.ApprovalID)
-	}
-	if callID == "" && req.RequestID != nil && *req.RequestID > 0 {
-		callID = strconv.FormatInt(*req.RequestID, 10)
-	}
+	callID := approvalCallID(firstNonEmpty(req.CallID, req.ApprovalID), req.RequestID)
 	if callID == "" {
 		return ApprovalRequest{}, ErrInvalidState("approval call id is required")
 	}
@@ -36,44 +31,44 @@ func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
 	return req, nil
 }
 
-func waitForApproval(ctx context.Context, pending *pendingApproval) (ApprovalDecision, error) {
+func waitForApproval(ctx context.Context, pending *pendingApproval) (contract.ApprovalDecision, error) {
 	if pending == nil {
-		return ApprovalDecision{}, ErrInvalidState("approval pending state is nil")
+		return contract.ApprovalDecision{}, ErrInvalidState("approval pending state is nil")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	select {
 	case <-ctx.Done():
-		return ApprovalDecision{}, ctx.Err()
+		return contract.ApprovalDecision{}, ctx.Err()
 	case <-pending.done:
 		return pending.decision, pending.err
 	}
 }
 
-func decodeApprovalDecision(raw json.RawMessage) (ApprovalDecision, error) {
+func decodeApprovalDecision(raw json.RawMessage) (contract.ApprovalDecision, error) {
 	var approved bool
 	if err := json.Unmarshal(raw, &approved); err == nil {
-		return ApprovalDecision{Approved: approved}, nil
+		return contract.ApprovalDecision{Approved: approved}, nil
 	}
 	var decisionText string
 	if err := json.Unmarshal(raw, &decisionText); err == nil {
 		if approved, ok := normalizeDecisionString(decisionText); ok {
-			return ApprovalDecision{Approved: approved, Reason: decisionText}, nil
+			return contract.ApprovalDecision{Approved: approved, Reason: decisionText}, nil
 		}
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return ApprovalDecision{}, ErrInvalidState("approval callback returned invalid payload")
+		return contract.ApprovalDecision{}, ErrInvalidState("approval callback returned invalid payload")
 	}
 	if value, ok := payload["approved"].(bool); ok {
-		return ApprovalDecision{Approved: value, Reason: stringFromMap(payload, "reason", "decision")}, nil
+		return contract.ApprovalDecision{Approved: value, Reason: stringFromMap(payload, "reason", "decision")}, nil
 	}
 	decision, ok := normalizeDecisionString(stringFromMap(payload, "decision", "reason"))
 	if !ok {
-		return ApprovalDecision{}, ErrInvalidState("approval decision is required")
+		return contract.ApprovalDecision{}, ErrInvalidState("approval decision is required")
 	}
-	return ApprovalDecision{Approved: decision, Reason: stringFromMap(payload, "decision", "reason")}, nil
+	return contract.ApprovalDecision{Approved: decision, Reason: stringFromMap(payload, "decision", "reason")}, nil
 }
 
 func normalizeDecisionString(value string) (bool, bool) {
@@ -111,7 +106,7 @@ func isApprovalNotFound(err error) bool {
 	return errors.As(err, &rpcErr) && rpcErr.Code == jrpc2.Code(CodeNotFound)
 }
 
-func decisionReason(decision ApprovalDecision, err error) string {
+func decisionReason(decision contract.ApprovalDecision, err error) string {
 	if decision.Reason != "" {
 		return decision.Reason
 	}
@@ -122,6 +117,17 @@ func decisionReason(decision ApprovalDecision, err error) string {
 		return "approved"
 	}
 	return "declined"
+}
+
+func approvalCallID(callID string, requestID *int64) string {
+	callID = strings.TrimSpace(callID)
+	if callID != "" {
+		return callID
+	}
+	if requestID != nil && *requestID > 0 {
+		return strconv.FormatInt(*requestID, 10)
+	}
+	return ""
 }
 
 func cloneApprovalRequest(req ApprovalRequest, requestID *int64) ApprovalRequest {
