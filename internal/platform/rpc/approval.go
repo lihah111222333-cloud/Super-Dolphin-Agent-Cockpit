@@ -17,15 +17,17 @@ import (
 
 // ApprovalManager manages tool-call approvals and their client callbacks.
 type ApprovalManager struct {
-	mu            sync.Mutex
-	pending       map[string]*pendingApproval
-	nextRequestID atomic.Int64
-	logger        *slog.Logger
+	mu                 sync.Mutex
+	pending            map[string]*pendingApproval
+	pendingByRequestID map[int64]map[string]*pendingApproval
+	nextRequestID      atomic.Int64
+	logger             *slog.Logger
 }
 
 var _ contract.ApprovalResponder = (*ApprovalManager)(nil)
 
 type pendingApproval struct {
+	key       string
 	callID    string
 	requestID *int64
 	toolName  string
@@ -63,8 +65,9 @@ func NewApprovalManager(logger *slog.Logger) *ApprovalManager {
 		logger = slog.Default()
 	}
 	return &ApprovalManager{
-		pending: make(map[string]*pendingApproval),
-		logger:  logger,
+		pending:            make(map[string]*pendingApproval),
+		pendingByRequestID: make(map[int64]map[string]*pendingApproval),
+		logger:             logger,
 	}
 }
 
@@ -82,7 +85,7 @@ func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridg
 	}
 	if err := m.ensureDispatch(bridge, server, pending); err != nil {
 		if owner {
-			m.failPending(pending.callID, pending, err)
+			m.failPending(pending, err)
 		}
 		return contract.ApprovalDecision{}, err
 	}
@@ -91,7 +94,7 @@ func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridg
 		return decision, err
 	}
 	err = mapApprovalWaitErr(err, pending.callID)
-	m.failPending(pending.callID, pending, err)
+	m.failPending(pending, err)
 	return contract.ApprovalDecision{}, err
 }
 
@@ -103,15 +106,14 @@ func (m *ApprovalManager) RequestUserInput(ctx context.Context, bridge *PushBrid
 }
 
 func (m *ApprovalManager) Respond(callID string, requestID *int64, decision contract.ApprovalDecision) error {
-	callID = approvalCallID(callID, requestID)
-	if callID == "" {
-		return ErrInvalidState("approval call id is required")
-	}
-	pending := m.lookupPending(callID)
+	pending := m.lookupPending(callID, requestID)
 	if pending == nil {
+		if approvalCallID(callID, requestID) == "" {
+			return ErrInvalidState("approval call id is required")
+		}
 		return ErrNotFound("approval is not pending")
 	}
-	m.finishPending(callID, pending, decision, nil)
+	m.finishPending(pending, decision, nil)
 	return nil
 }
 
@@ -125,7 +127,8 @@ func (m *ApprovalManager) AutoApprove(callID string) error {
 func (m *ApprovalManager) registerPending(req ApprovalRequest) (*pendingApproval, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if pending := m.pending[req.CallID]; pending != nil {
+	key := pendingStorageKey(req.CallID, req.RequestID)
+	if pending := m.pending[key]; pending != nil {
 		return pending, false
 	}
 	requestID := cloneInt64Ptr(req.RequestID)
@@ -134,6 +137,7 @@ func (m *ApprovalManager) registerPending(req ApprovalRequest) (*pendingApproval
 		requestID = &next
 	}
 	pending := &pendingApproval{
+		key:       key,
 		callID:    req.CallID,
 		requestID: requestID,
 		toolName:  req.ToolName,
@@ -142,7 +146,8 @@ func (m *ApprovalManager) registerPending(req ApprovalRequest) (*pendingApproval
 		done:      make(chan struct{}),
 		request:   cloneApprovalRequest(req, requestID),
 	}
-	m.pending[req.CallID] = pending
+	m.pending[key] = pending
+	m.indexPendingLocked(pending)
 	return pending, true
 }
 
@@ -159,7 +164,7 @@ func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Serve
 	if ctx == nil {
 		return nil
 	}
-	go m.dispatchApproval(ctx, bridge, server, pending.callID, method, params)
+	go m.dispatchApproval(ctx, bridge, server, pending, method, params)
 	return nil
 }
 
@@ -169,7 +174,7 @@ func (m *ApprovalManager) beginDispatch(bridge *PushBridge, server *jrpc2.Server
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	current := m.pending[pending.callID]
+	current := m.pending[pending.key]
 	if current != pending || pending.dispatching || isPendingDone(pending) {
 		return nil, "", nil, nil
 	}
@@ -185,43 +190,40 @@ func (m *ApprovalManager) beginDispatch(bridge *PushBridge, server *jrpc2.Server
 	return ctx, callbackMethod(pending.request), callbackParams(pending), nil
 }
 
-func (m *ApprovalManager) dispatchApproval(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, callID string, paramsMethod string, params map[string]any) {
+func (m *ApprovalManager) dispatchApproval(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, pending *pendingApproval, paramsMethod string, params map[string]any) {
 	raw, err := bridge.CallbackClient(ctx, server, paramsMethod, params)
 	if err != nil {
-		m.handleDispatchErr(callID, err)
+		m.handleDispatchErr(pending, err)
 		return
 	}
 	decision, err := decodeApprovalDecision(raw)
 	if err != nil {
-		m.failPending(callID, m.lookupPending(callID), err)
+		m.failPending(pending, err)
 		return
 	}
-	if err := m.Respond(callID, m.lookupRequestID(callID), decision); err != nil && !isApprovalNotFound(err) {
-		m.failPending(callID, m.lookupPending(callID), err)
-	}
+	m.finishPending(pending, decision, nil)
 }
 
-func (m *ApprovalManager) handleDispatchErr(callID string, err error) {
-	pending := m.lookupPending(callID)
+func (m *ApprovalManager) handleDispatchErr(pending *pendingApproval, err error) {
 	if pending == nil || errors.Is(err, context.Canceled) {
-		m.resetDispatch(callID, pending)
+		m.resetDispatch(pending)
 		return
 	}
 	if isRecoverableDispatchErr(err) {
-		m.logger.Warn("approval callback interrupted; pending request kept for restore", "call_id", callID, "error", err)
-		m.resetDispatch(callID, pending)
+		m.logger.Warn("approval callback interrupted; pending request kept for restore", "call_id", pending.callID, "error", err)
+		m.resetDispatch(pending)
 		return
 	}
-	m.failPending(callID, pending, err)
+	m.failPending(pending, err)
 }
 
-func (m *ApprovalManager) resetDispatch(callID string, pending *pendingApproval) {
+func (m *ApprovalManager) resetDispatch(pending *pendingApproval) {
 	if pending == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	current := m.pending[callID]
+	current := m.pending[pending.key]
 	if current != pending {
 		return
 	}
@@ -232,14 +234,15 @@ func (m *ApprovalManager) resetDispatch(callID string, pending *pendingApproval)
 	pending.dispatching = false
 }
 
-func (m *ApprovalManager) finishPending(callID string, pending *pendingApproval, decision contract.ApprovalDecision, err error) {
+func (m *ApprovalManager) finishPending(pending *pendingApproval, decision contract.ApprovalDecision, err error) {
 	if pending == nil {
 		return
 	}
 	pending.once.Do(func() {
 		m.mu.Lock()
-		if current := m.pending[callID]; current == pending {
-			delete(m.pending, callID)
+		if current := m.pending[pending.key]; current == pending {
+			delete(m.pending, pending.key)
+			m.removePendingLocked(pending)
 		}
 		cancel := pending.cancel
 		pending.cancel = nil
@@ -261,27 +264,79 @@ func (m *ApprovalManager) finishPending(callID string, pending *pendingApproval,
 	})
 }
 
-func (m *ApprovalManager) failPending(callID string, pending *pendingApproval, err error) {
+func (m *ApprovalManager) failPending(pending *pendingApproval, err error) {
 	decision := contract.ApprovalDecision{Reason: decisionReason(contract.ApprovalDecision{}, err)}
-	m.finishPending(callID, pending, decision, err)
+	m.finishPending(pending, decision, err)
 }
 
-func (m *ApprovalManager) lookupPending(callID string) *pendingApproval {
+func (m *ApprovalManager) lookupPending(callID string, requestID *int64) *pendingApproval {
 	callID = strings.TrimSpace(callID)
-	if callID == "" {
+	if callID == "" && int64Value(requestID) <= 0 {
 		return nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.pending[callID]
-}
-
-func (m *ApprovalManager) lookupRequestID(callID string) *int64 {
-	pending := m.lookupPending(callID)
-	if pending == nil {
+	if reqID := int64Value(requestID); reqID > 0 {
+		if callID != "" {
+			if pending := m.pending[pendingStorageKey(callID, requestID)]; pending != nil {
+				return pending
+			}
+		}
+		if pending := m.lookupPendingByRequestIDLocked(reqID, callID); pending != nil {
+			return pending
+		}
+	}
+	if callID == "" {
 		return nil
 	}
-	return cloneInt64Ptr(pending.requestID)
+	return m.pending[pendingStorageKey(callID, nil)]
+}
+
+func (m *ApprovalManager) lookupPendingByRequestIDLocked(requestID int64, callID string) *pendingApproval {
+	entries := m.pendingByRequestID[requestID]
+	if len(entries) == 0 {
+		return nil
+	}
+	for _, pending := range entries {
+		if callID != "" && pending.callID == callID {
+			return pending
+		}
+	}
+	if len(entries) != 1 {
+		return nil
+	}
+	for _, pending := range entries {
+		return pending
+	}
+	return nil
+}
+
+func (m *ApprovalManager) indexPendingLocked(pending *pendingApproval) {
+	requestID := int64Value(pending.requestID)
+	if requestID <= 0 {
+		return
+	}
+	entries := m.pendingByRequestID[requestID]
+	if entries == nil {
+		entries = make(map[string]*pendingApproval)
+		m.pendingByRequestID[requestID] = entries
+	}
+	entries[pending.key] = pending
+}
+
+func (m *ApprovalManager) removePendingLocked(pending *pendingApproval) {
+	requestID := int64Value(pending.requestID)
+	if requestID <= 0 {
+		return
+	}
+	entries := m.pendingByRequestID[requestID]
+	if len(entries) == 0 {
+		return
+	}
+	delete(entries, pending.key)
+	if len(entries) == 0 {
+		delete(m.pendingByRequestID, requestID)
+	}
 }
 
 func (m *ApprovalManager) snapshotPending() []*pendingApproval {

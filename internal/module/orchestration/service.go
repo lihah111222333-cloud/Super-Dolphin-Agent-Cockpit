@@ -30,6 +30,7 @@ type service struct {
 	logger         *slog.Logger
 	eventBus       *event.Dispatcher
 	sessionCleaner SessionCleaner
+	turnStarter    TurnStarter
 	dagStore       taskdag.Store
 	machineCfg     platformstatemachine.Config
 	mu             sync.RWMutex
@@ -70,12 +71,19 @@ type monitorTarget struct {
 }
 
 type turnWork struct {
-	agentID  string
-	threadID string
-	turnID   string
+	agentID    string
+	threadID   string
+	turnID     string
+	submission TurnSubmission
 }
 
-func NewService(logger *slog.Logger, eventBus *event.Dispatcher, sessionCleaner SessionCleaner, dagStore taskdag.Store) *service {
+func NewService(
+	logger *slog.Logger,
+	eventBus *event.Dispatcher,
+	sessionCleaner SessionCleaner,
+	turnStarter TurnStarter,
+	dagStore taskdag.Store,
+) *service {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -83,6 +91,7 @@ func NewService(logger *slog.Logger, eventBus *event.Dispatcher, sessionCleaner 
 		logger:         logger,
 		eventBus:       eventBus,
 		sessionCleaner: sessionCleaner,
+		turnStarter:    turnStarter,
 		dagStore:       dagStore,
 		machineCfg: platformstatemachine.Config{
 			Initial: agentdto.StateProvisioning,
@@ -299,12 +308,16 @@ func (s *service) claimTurnWork(ctx context.Context) []turnWork {
 			continue
 		}
 		turnID := s.turnIDFor(submission)
-		agent.threadID = submission.ThreadID
+		submission.ExpectedTurnID = turnID
+		if threadID := strings.TrimSpace(submission.ThreadID); threadID != "" {
+			agent.threadID = threadID
+		}
 		agent.activeTurnID = turnID
 		work = append(work, turnWork{
-			agentID:  agent.id,
-			threadID: submission.ThreadID,
-			turnID:   turnID,
+			agentID:    agent.id,
+			threadID:   submission.ThreadID,
+			turnID:     turnID,
+			submission: submission,
 		})
 	}
 	return work

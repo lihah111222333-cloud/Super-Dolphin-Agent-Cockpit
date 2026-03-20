@@ -151,9 +151,11 @@ func agentSessionHeader(payload map[string]any) shared.AgentSessionHeader {
 	threadID := firstNonEmpty(stringValue(payload, "threadId", "thread_id"), stringValue(nestedValue(payload, "thread"), "id"))
 	return shared.AgentSessionHeader{
 		AgentHeader: shared.AgentHeader{
-			EventHeader: shared.EventHeader{Timestamp: eventTime(payload)},
-			AgentID:     stringValue(payload, "agentId", "agent_id"),
-			ThreadID:    threadID,
+			ThreadHeader: shared.ThreadHeader{
+				EventHeader: shared.EventHeader{Timestamp: eventTime(payload)},
+				ThreadID:    threadID,
+			},
+			AgentID: stringValue(payload, "agentId", "agent_id"),
 		},
 		SessionID: firstNonEmpty(stringValue(payload, "sessionId", "session_id"), threadID),
 	}
@@ -162,7 +164,12 @@ func agentSessionHeader(payload map[string]any) shared.AgentSessionHeader {
 func turnHeader(payload map[string]any) shared.TurnHeader {
 	return shared.TurnHeader{
 		AgentHeader: agentSessionHeader(payload).AgentHeader,
-		TurnID:      firstNonEmpty(stringValue(payload, "turnId", "turn_id"), stringValue(nestedValue(payload, "turn"), "id")),
+		TurnIDHeader: shared.TurnIDHeader{
+			TurnID: firstNonEmpty(
+				stringValue(payload, "turnId", "turn_id"),
+				stringValue(nestedValue(payload, "turn"), "id"),
+			),
+		},
 	}
 }
 

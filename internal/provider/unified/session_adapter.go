@@ -3,6 +3,7 @@ package unified
 import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 )
 
 // sessionProviderAdapter adapts SessionManager to the thread module's narrow lookup contract.
@@ -15,6 +16,10 @@ type sessionCleanerAdapter struct {
 }
 
 func NewSessionProvider(manager *SessionManager) *sessionProviderAdapter {
+	return &sessionProviderAdapter{manager: manager}
+}
+
+func NewTurnSessionProvider(manager *SessionManager) turn.SessionProvider {
 	return &sessionProviderAdapter{manager: manager}
 }
 

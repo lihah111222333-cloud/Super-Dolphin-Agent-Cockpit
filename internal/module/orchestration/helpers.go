@@ -97,7 +97,7 @@ func (s *service) BindActiveTurnID(_ context.Context, agentID, turnID string) er
 	return nil
 }
 
-func (s *service) claimMonitorTargetsLocked() []monitorTarget { 
+func (s *service) claimMonitorTargetsLocked() []monitorTarget {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -138,6 +138,42 @@ func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRun
 }
 
 func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
+	if s.turnStarter == nil {
+		s.finishTurnStartFailure(ctx, work, errors.New("turn starter is not configured"))
+		return
+	}
+	startedTurnID, err := s.turnStarter.StartTurn(ctx, work.submission)
+	if err != nil {
+		s.finishTurnStartFailure(ctx, work, err)
+		return
+	}
+	s.finishTurnStartSuccess(ctx, work, startedTurnID)
+}
+
+func (s *service) finishTurnStartSuccess(ctx context.Context, work turnWork, startedTurnID string) {
+	currentTurnID := strings.TrimSpace(startedTurnID)
+	if currentTurnID == "" {
+		currentTurnID = work.turnID
+	}
+	if currentTurnID != work.turnID {
+		if err := s.BindActiveTurnID(ctx, work.agentID, currentTurnID); err != nil {
+			s.logger.Warn("orchestration: failed to bind started turn id", "agent_id", work.agentID, "turn_id", currentTurnID, "error", err)
+			return
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	agent, err := s.lookupAgentLocked(work.agentID)
+	if err != nil || agent.activeTurnID != currentTurnID {
+		return
+	}
+	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+		s.logger.Warn("orchestration: failed to mark turn running", "agent_id", agent.id, "turn_id", currentTurnID, "error", err)
+	}
+}
+
+func (s *service) finishTurnStartFailure(ctx context.Context, work turnWork, startErr error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -145,8 +181,13 @@ func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
 	if err != nil || agent.activeTurnID != work.turnID {
 		return
 	}
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
-		s.logger.Warn("orchestration: failed to mark turn running", "agent_id", agent.id, "turn_id", work.turnID, "error", err)
+	agent.lastError = startErr.Error()
+	agent.activeTurnID = ""
+	if agent.state != agentdto.StateTurnStarting {
+		return
+	}
+	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnCompleted); err != nil {
+		s.logger.Warn("orchestration: failed to reset turn after start error", "agent_id", agent.id, "turn_id", work.turnID, "error", err)
 	}
 }
 
@@ -178,8 +219,15 @@ func (s *service) turnIDFor(sub TurnSubmission) string {
 	if turnID := strings.TrimSpace(sub.ExpectedTurnID); turnID != "" {
 		return turnID
 	}
+	baseID := strings.TrimSpace(sub.ThreadID)
+	if baseID == "" {
+		baseID = strings.TrimSpace(sub.AgentID)
+	}
+	if baseID == "" {
+		baseID = "turn"
+	}
 	s.nextTurnSeq++
-	return fmt.Sprintf("%s-turn-%d", sub.ThreadID, s.nextTurnSeq)
+	return fmt.Sprintf("%s-turn-%d", baseID, s.nextTurnSeq)
 }
 
 func launchPort(req LaunchRequest) int {

@@ -26,10 +26,14 @@ type threadIDOnlyParams struct {
 }
 
 type approvalRespondParams struct {
-	CallID    string          `json:"callId"`
+	CallID    string          `json:"callId,omitempty"`
 	RequestID *int64          `json:"requestId,omitempty"`
 	Approved  *bool           `json:"approved,omitempty"`
 	Decision  json.RawMessage `json:"decision,omitempty"`
+}
+
+type turnInterruptResult struct {
+	OK bool `json:"ok"`
 }
 
 type turnStartResult struct {

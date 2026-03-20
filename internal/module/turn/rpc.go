@@ -60,7 +60,10 @@ func NewTurnHandlers(
 		"turn/interrupt": rpc.ThreadHandler(
 			func(ctx context.Context, p turnInterruptParams) (any, error) {
 				return withSession(ctx, func(ctx context.Context, session contract.Session) (any, error) {
-					return nil, svc.InterruptTurn(ctx, session, p.Source)
+					if err := svc.InterruptTurn(ctx, session, p.Source); err != nil {
+						return nil, err
+					}
+					return turnInterruptResult{OK: true}, nil
 				})
 			}),
 

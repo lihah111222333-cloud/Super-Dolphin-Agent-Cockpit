@@ -7,32 +7,32 @@ type TaskDagCreated struct {
 	shared.TaskDAGHeader
 	Title     string `json:"title,omitempty"`
 	Status    string `json:"status,omitempty"`
-	CreatedBy string `json:"createdBy,omitempty"`
+	CreatedBy string `json:"created_by,omitempty"`
 }
 
 // TaskNodeStatusChanged reports a DAG node status transition.
 type TaskNodeStatusChanged struct {
 	shared.TaskNodeHeader
-	AssignedTo     string `json:"assignedTo,omitempty"`
-	OldStatus      string `json:"oldStatus,omitempty"`
-	NewStatus      string `json:"newStatus"`
-	ActiveTurnID   string `json:"activeTurnId,omitempty"`
-	ActiveWakeupID int64  `json:"activeWakeupId,omitempty"`
+	AssignedTo     string `json:"assigned_to,omitempty"`
+	OldStatus      string `json:"old_status,omitempty"`
+	NewStatus      string `json:"new_status"`
+	ActiveTurnID   string `json:"active_turn_id,omitempty"`
+	ActiveWakeupID int64  `json:"active_wakeup_id,omitempty"`
 }
 
 // TaskWakeupDispatched reports a wakeup being sent to a target agent.
 type TaskWakeupDispatched struct {
 	shared.TaskWakeupHeader
-	WakeupKind    string `json:"wakeupKind,omitempty"`
-	TargetAgentID string `json:"targetAgentId"`
+	WakeupKind    string `json:"wakeup_kind,omitempty"`
+	TargetAgentID string `json:"target_agent_id"`
 }
 
 // TaskWakeupCompleted reports a wakeup finishing its dispatch lifecycle.
 type TaskWakeupCompleted struct {
 	shared.TaskWakeupHeader
-	TargetAgentID string `json:"targetAgentId"`
+	TargetAgentID string `json:"target_agent_id"`
 	Status        string `json:"status"`
-	BoundTurnID   string `json:"boundTurnId,omitempty"`
+	BoundTurnID   string `json:"bound_turn_id,omitempty"`
 }
 
 func (TaskDagCreated) Type() uint32        { return shared.EventTypeTaskDagCreated }

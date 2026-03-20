@@ -1,6 +1,7 @@
 package unified_test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -32,7 +33,23 @@ func TestBuildManifest_WithIDA(t *testing.T) {
 
 func TestBuildManifest_BinaryPaths(t *testing.T) {
 	got := dto.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
-	want := []string{"/tmp/bin/go-agent-mcp-lsp", "/tmp/bin/go-agent-mcp-orch"}
+	want := []string{
+		filepath.Join("/tmp/bin", "go-agent-mcp-lsp"),
+		filepath.Join("/tmp/bin", "go-agent-mcp-orch"),
+	}
+	for i, binary := range got.Binaries {
+		if len(binary.Command) != 1 || binary.Command[0] != want[i] {
+			t.Fatalf("unexpected binary command: %+v", got.Binaries)
+		}
+	}
+}
+
+func TestBuildManifest_EmptyBinaryDirUsesRelativeCommands(t *testing.T) {
+	got := dto.BuildManifest(dto.ManifestContext{})
+	want := []string{
+		filepath.Join("", "go-agent-mcp-lsp"),
+		filepath.Join("", "go-agent-mcp-orch"),
+	}
 	for i, binary := range got.Binaries {
 		if len(binary.Command) != 1 || binary.Command[0] != want[i] {
 			t.Fatalf("unexpected binary command: %+v", got.Binaries)

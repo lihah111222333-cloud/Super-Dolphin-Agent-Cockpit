@@ -72,9 +72,11 @@ func (s *service) agentSessionHeader(agent *agentRuntime) shared.AgentSessionHea
 
 func agentHeader(agentID, threadID string) shared.AgentHeader {
 	return shared.AgentHeader{
-		EventHeader: shared.EventHeader{Timestamp: time.Now()},
-		AgentID:     agentID,
-		ThreadID:    threadID,
+		ThreadHeader: shared.ThreadHeader{
+			EventHeader: shared.EventHeader{Timestamp: time.Now()},
+			ThreadID:    threadID,
+		},
+		AgentID: agentID,
 	}
 }
 

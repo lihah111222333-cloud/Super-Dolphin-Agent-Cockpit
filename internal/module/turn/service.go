@@ -56,15 +56,20 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	if err != nil {
 		return dto.TurnRequest{}, err
 	}
-	resolvedSkills := s.skills.Resolve(input.Skills, input.CandidateSkills, s.assembler.PromptText(input))
+	candidateSkills := input.CandidateSkills
+	if input.ManualSkillSelection {
+		candidateSkills = nil
+	}
+	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, s.assembler.PromptText(input))
 	return dto.TurnRequest{
-		LocalID:      shareddto.NewID("turn"),
-		ThreadID:     threadID,
-		Inputs:       s.assembler.Assemble(input),
-		Skills:       resolvedSkills,
-		OutputSchema: input.OutputSchema,
-		Overrides:    s.buildOverrides(session.Capabilities(), input),
-		MCP:          s.manifest.Build(input),
+		LocalID:              shareddto.NewID("turn"),
+		ThreadID:             threadID,
+		Inputs:               s.assembler.Assemble(input),
+		Skills:               resolvedSkills,
+		ManualSkillSelection: input.ManualSkillSelection,
+		OutputSchema:         input.OutputSchema,
+		Overrides:            s.buildOverrides(session.Capabilities(), input),
+		MCP:                  s.manifest.Build(input),
 	}, nil
 }
 

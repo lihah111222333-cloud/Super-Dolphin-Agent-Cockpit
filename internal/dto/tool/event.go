@@ -5,8 +5,8 @@ import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 // ToolCallBegin reports the start of a tool invocation.
 type ToolCallBegin struct {
 	shared.ToolCallHeader
-	RequestID        int64  `json:"requestId,omitempty"`
-	ArgumentsPreview string `json:"argumentsPreview,omitempty"`
+	RequestID        int64  `json:"request_id,omitempty"`
+	ArgumentsPreview string `json:"arguments_preview,omitempty"`
 }
 
 // ToolCallEnd reports the end of a tool invocation.
@@ -14,13 +14,13 @@ type ToolCallEnd struct {
 	shared.ToolCallHeader
 	Success   bool   `json:"success"`
 	Error     string `json:"error,omitempty"`
-	ElapsedMS int64  `json:"elapsedMs,omitempty"`
+	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
 }
 
 // ToolApprovalRequested reports a tool call waiting for approval.
 type ToolApprovalRequested struct {
 	shared.ToolApprovalHeader
-	RequestID int64  `json:"requestId,omitempty"`
+	RequestID int64  `json:"request_id,omitempty"`
 	Reason    string `json:"reason,omitempty"`
 }
 
@@ -29,7 +29,7 @@ type ToolApprovalResolved struct {
 	shared.ToolApprovalHeader
 	Approved   bool   `json:"approved"`
 	Decision   string `json:"decision,omitempty"`
-	ReviewedBy string `json:"reviewedBy,omitempty"`
+	ReviewedBy string `json:"reviewed_by,omitempty"`
 }
 
 func (ToolCallBegin) Type() uint32         { return shared.EventTypeToolCallBegin }

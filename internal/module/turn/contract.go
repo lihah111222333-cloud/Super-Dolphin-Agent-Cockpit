@@ -18,22 +18,27 @@ type Service interface {
 	TrackTurn(ctx context.Context, localID string) (TurnStatus, error)
 }
 
+type SessionProvider interface {
+	GetSession(agentID string) (contract.Session, error)
+}
+
 type InputItem = shareddto.InputItem
 
 type PrepareInput struct {
-	Inputs          []InputItem
-	Prompt          string
-	Images          []string
-	Files           []string
-	Skills          []dto.SkillRef
-	CandidateSkills []dto.SkillRef
-	Model           string
-	Effort          string
-	OutputSchema    json.RawMessage
-	AgentID         string
-	CWD             string
-	ThreadCaps      dto.CapabilitySet
-	BinaryDir       string
+	Inputs               []InputItem
+	Prompt               string
+	Images               []string
+	Files                []string
+	Skills               []dto.SkillRef
+	CandidateSkills      []dto.SkillRef
+	ManualSkillSelection bool
+	Model                string
+	Effort               string
+	OutputSchema         json.RawMessage
+	AgentID              string
+	CWD                  string
+	ThreadCaps           dto.CapabilitySet
+	BinaryDir            string
 }
 
 type TurnStatus struct {

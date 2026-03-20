@@ -24,7 +24,7 @@ type TurnInterrupted struct {
 type TurnStalled struct {
 	shared.TurnHeader
 	Reason    string `json:"reason,omitempty"`
-	StalledMS int64  `json:"stalledMs,omitempty"`
+	StalledMS int64  `json:"stalled_ms,omitempty"`
 }
 
 // TurnResumed reports a stalled or paused turn resuming execution.
@@ -36,8 +36,8 @@ type TurnResumed struct {
 // TurnInputReceived reports new input accepted into an existing turn.
 type TurnInputReceived struct {
 	shared.TurnHeader
-	InputType string `json:"inputType"`
-	RequestID int64  `json:"requestId,omitempty"`
+	InputType string `json:"input_type"`
+	RequestID int64  `json:"request_id,omitempty"`
 	Source    string `json:"source,omitempty"`
 }
 

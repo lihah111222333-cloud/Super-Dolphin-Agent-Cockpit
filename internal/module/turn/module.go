@@ -7,6 +7,7 @@ import (
 var Module = fx.Module("turn",
 	fx.Provide(
 		NewService,
+		NewOrchestrationTurnStarter,
 		fx.Annotate(
 			NewTurnHandlers,
 			fx.ParamTags("", `optional:"true"`, "", `optional:"true"`),

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"net"
 	"sync"
 
@@ -32,11 +33,9 @@ func NewServer(p Params) *Server {
 	}
 }
 
-func (s *Server) Register(maps ...handler.Map) {
-	for _, current := range maps {
-		for name, handlerFunc := range current {
-			s.methods[name] = handlerFunc
-		}
+func (s *Server) Register(handlerMaps ...handler.Map) {
+	for _, current := range handlerMaps {
+		maps.Copy(s.methods, current)
 	}
 }
 

@@ -91,13 +91,19 @@ func parseHistoryLine(raw []byte) (Message, bool) {
 		return Message{}, false
 	}
 	text := extractHistoryText(line.Message.Content)
+	metadata := json.RawMessage(nil)
 	if role == "user" {
-		text = trimInjectedUserContent(text)
+		text, metadata = normalizeHistoryUserContent(text)
 	}
-	if strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(text) == "" && len(metadata) == 0 {
 		return Message{}, false
 	}
-	return Message{Role: role, Content: text, Timestamp: line.Timestamp}, true
+	return Message{
+		Role:      role,
+		Content:   text,
+		Metadata:  metadata,
+		Timestamp: line.Timestamp,
+	}, true
 }
 
 func extractHistoryText(items []historyContentItem) string {
@@ -110,25 +116,73 @@ func extractHistoryText(items []historyContentItem) string {
 	return builder.String()
 }
 
-func trimInjectedUserContent(text string) string {
+func normalizeHistoryUserContent(text string) (string, json.RawMessage) {
+	text, metadata := extractInjectedAttachmentMetadata(text)
+	return strings.TrimSpace(text), metadata
+}
+
+func extractInjectedAttachmentMetadata(text string) (string, json.RawMessage) {
 	trimmed := strings.TrimLeft(text, "\ufeff \t\r\n")
 	if !strings.HasPrefix(trimmed, injectedFileHintsHeader) {
-		return strings.TrimSpace(text)
+		// TODO(P7): recover structured attachment metadata directly if Claude history adds non-text items.
+		return text, nil
 	}
 	remainder := strings.TrimLeft(trimmed[len(injectedFileHintsHeader):], "\r\n")
 	lines := strings.Split(remainder, "\n")
-	cut := 0
-	for cut < len(lines) {
-		line := strings.TrimSpace(lines[cut])
+	inputs := make([]map[string]any, 0, len(lines))
+	consumed := 0
+	for consumed < len(lines) {
+		line := strings.TrimSpace(lines[consumed])
 		if line == "" {
-			cut++
+			consumed++
 			break
 		}
-		lower := strings.ToLower(line)
-		if !strings.HasPrefix(lower, "[image:") && !strings.HasPrefix(lower, "[file:") {
+		input, ok := parseInjectedAttachmentHintLine(line)
+		if !ok {
 			break
 		}
-		cut++
+		inputs = append(inputs, input)
+		consumed++
 	}
-	return strings.TrimSpace(strings.Join(lines[cut:], "\n"))
+	if len(inputs) == 0 {
+		return text, nil
+	}
+	cleaned := strings.TrimLeft(strings.Join(lines[consumed:], "\n"), "\r\n")
+	raw, err := json.Marshal(map[string]any{"input": inputs})
+	if err != nil {
+		return cleaned, nil
+	}
+	return cleaned, raw
+}
+
+func parseInjectedAttachmentHintLine(line string) (map[string]any, bool) {
+	trimmed := strings.TrimSpace(line)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(lower, "[image:"):
+		value, ok := parseInjectedAttachmentHintValue(trimmed, "[image:")
+		if !ok {
+			return nil, false
+		}
+		return map[string]any{"type": "image", "url": value}, true
+	case strings.HasPrefix(lower, "[file:"):
+		value, ok := parseInjectedAttachmentHintValue(trimmed, "[file:")
+		if !ok {
+			return nil, false
+		}
+		return map[string]any{"type": "mention", "path": value}, true
+	default:
+		return nil, false
+	}
+}
+
+func parseInjectedAttachmentHintValue(line, prefix string) (string, bool) {
+	if !strings.HasSuffix(line, "]") {
+		return "", false
+	}
+	value := strings.TrimSpace(line[len(prefix) : len(line)-1])
+	if value == "" {
+		return "", false
+	}
+	return value, true
 }

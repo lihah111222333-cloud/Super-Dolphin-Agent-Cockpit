@@ -285,9 +285,11 @@ func (s *service) emitRunAbortedEvent(run *Run, reason string) {
 
 func workspaceRunHeader(run *Run) sharedto.WorkspaceRunHeader {
 	return sharedto.WorkspaceRunHeader{
-		EventHeader: sharedto.EventHeader{Timestamp: time.Now()},
-		RunKey:      run.RunKey,
-		DagKey:      run.DagKey,
+		DAGHeader: sharedto.DAGHeader{
+			EventHeader: sharedto.EventHeader{Timestamp: time.Now()},
+			DagKey:      run.DagKey,
+		},
+		RunKey: run.RunKey,
 	}
 }
 

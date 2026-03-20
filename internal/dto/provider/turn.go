@@ -7,13 +7,14 @@ import (
 )
 
 type TurnRequest struct {
-	LocalID      string          `json:"localId,omitempty"`
-	ThreadID     string          `json:"threadId"`
-	Inputs       []InputItem     `json:"inputs"`
-	Skills       []SkillRef      `json:"skills,omitempty"`
-	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
-	Overrides    TurnOverrides   `json:"overrides,omitempty"`
-	MCP          MCPManifest     `json:"mcp,omitempty"`
+	LocalID              string          `json:"localId,omitempty"`
+	ThreadID             string          `json:"threadId"`
+	Inputs               []InputItem     `json:"inputs"`
+	Skills               []SkillRef      `json:"skills,omitempty"`
+	ManualSkillSelection bool            `json:"manualSkillSelection,omitempty"`
+	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
+	Overrides            TurnOverrides   `json:"overrides,omitempty"`
+	MCP                  MCPManifest     `json:"mcp,omitempty"`
 }
 
 type TurnOverrides struct {

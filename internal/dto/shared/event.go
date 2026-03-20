@@ -43,72 +43,85 @@ type EventHeader struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// ThreadHeader identifies a thread-scoped event.
+type ThreadHeader struct {
+	EventHeader
+	ThreadID string `json:"thread_id,omitempty"`
+}
+
 // AgentHeader identifies an agent-scoped event.
 type AgentHeader struct {
-	EventHeader
-	AgentID  string `json:"agentId"`
-	ThreadID string `json:"threadId"`
+	ThreadHeader
+	AgentID string `json:"agent_id"`
 }
 
 // AgentSessionHeader identifies an event tied to an agent session.
 type AgentSessionHeader struct {
 	AgentHeader
-	SessionID string `json:"sessionId,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// TurnIDHeader identifies a turn within an existing event scope.
+type TurnIDHeader struct {
+	TurnID string `json:"turn_id,omitempty"`
 }
 
 // TurnHeader identifies a turn-scoped event.
 type TurnHeader struct {
 	AgentHeader
-	TurnID string `json:"turnId"`
+	TurnIDHeader
 }
 
 // ToolCallHeader identifies a tool call within a turn.
 type ToolCallHeader struct {
 	TurnHeader
-	CallID   string `json:"callId"`
-	ToolName string `json:"toolName"`
+	CallID   string `json:"call_id"`
+	ToolName string `json:"tool_name"`
 }
 
 // ToolApprovalHeader identifies an approval decision for a tool call.
 type ToolApprovalHeader struct {
 	ToolCallHeader
-	ApprovalID string `json:"approvalId,omitempty"`
+	ApprovalID string `json:"approval_id,omitempty"`
+}
+
+// DAGHeader identifies an event tied to a DAG.
+type DAGHeader struct {
+	EventHeader
+	DagKey string `json:"dag_key,omitempty"`
 }
 
 // TaskDAGHeader identifies a DAG-scoped task event.
 type TaskDAGHeader struct {
-	EventHeader
-	DagKey string `json:"dagKey"`
+	DAGHeader
 }
 
 // TaskNodeHeader identifies a DAG node-scoped task event.
 type TaskNodeHeader struct {
 	TaskDAGHeader
-	NodeKey string `json:"nodeKey"`
+	NodeKey string `json:"node_key"`
 }
 
 // TaskWakeupHeader identifies a DAG wakeup-scoped task event.
 type TaskWakeupHeader struct {
 	TaskNodeHeader
-	WakeupID int64 `json:"wakeupId"`
+	WakeupID int64 `json:"wakeup_id"`
 }
 
 // WorkspaceRunHeader identifies a workspace run event.
 type WorkspaceRunHeader struct {
-	EventHeader
-	RunKey string `json:"runKey"`
-	DagKey string `json:"dagKey,omitempty"`
+	DAGHeader
+	RunKey string `json:"run_key"`
 }
 
 // UIProjectionHeader identifies a UI projection event.
 type UIProjectionHeader struct {
-	EventHeader
+	ThreadHeader
 	Projection string `json:"projection"`
-	ThreadID   string `json:"threadId,omitempty"`
 }
 
 // UITurnHeader identifies a turn-scoped UI projection event.
 type UITurnHeader struct {
 	UIProjectionHeader
-	TurnID string `json:"turnId,omitempty"`
+	TurnIDHeader
 }

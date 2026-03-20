@@ -21,7 +21,7 @@ func (s *store) GetByProviderThread(ctx context.Context, provider, providerThrea
 		ProviderThreadID: providerThreadID,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapBindingError(err, "get_by_provider_thread")
 	}
 	result := mapBinding(row)
 	return &result, nil
@@ -38,8 +38,11 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		CreatedAt:        params.CreatedAt,
 		UpdatedAt:        params.UpdatedAt,
 	})
-	if err == nil || !platformdb.IsUniqueViolation(err) {
-		return err
+	if err == nil {
+		return nil
+	}
+	if !platformdb.IsUniqueViolation(err) {
+		return wrapBindingError(err, "upsert")
 	}
 	existing, lookupErr := s.q.GetAgentProviderBindingByProviderThread(ctx, sqlc.GetAgentProviderBindingByProviderThreadParams{
 		Provider:         params.Provider,
@@ -48,33 +51,36 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	if lookupErr == nil && existing.AgentID == params.AgentID {
 		return nil
 	}
-	return err
+	if lookupErr != nil {
+		return wrapBindingError(lookupErr, "get_by_provider_thread")
+	}
+	return wrapBindingError(err, "upsert")
 }
 
 func (s *store) DeleteByAgentID(ctx context.Context, agentID string) error {
-	return s.q.DeleteAgentProviderBindingByAgentID(ctx, agentID)
+	return wrapBindingError(s.q.DeleteAgentProviderBindingByAgentID(ctx, agentID), "delete_by_agent_id")
 }
 
 func (s *store) UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDParams) error {
-	return s.q.UpdateAgentProviderBindingSessionUUID(ctx, sqlc.UpdateAgentProviderBindingSessionUUIDParams{
+	return wrapBindingError(s.q.UpdateAgentProviderBindingSessionUUID(ctx, sqlc.UpdateAgentProviderBindingSessionUUIDParams{
 		SessionUUID: params.SessionUUID,
 		UpdatedAt:   params.UpdatedAt,
 		AgentID:     params.AgentID,
-	})
+	}), "update_session_uuid")
 }
 
 func (s *store) SetArchived(ctx context.Context, params SetArchivedParams) error {
-	return s.q.UpdateAgentProviderBindingArchived(ctx, sqlc.UpdateAgentProviderBindingArchivedParams{
+	return wrapBindingError(s.q.UpdateAgentProviderBindingArchived(ctx, sqlc.UpdateAgentProviderBindingArchivedParams{
 		Archived:  params.Archived,
 		UpdatedAt: params.UpdatedAt,
 		AgentID:   params.AgentID,
-	})
+	}), "set_archived")
 }
 
 func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, error) {
 	row, err := s.q.GetAgentProviderBindingByAgentID(ctx, agentID)
 	if err != nil {
-		return nil, err
+		return nil, wrapBindingError(err, "get_by_agent_id")
 	}
 	result := mapBinding(row)
 	return &result, nil
@@ -93,4 +99,8 @@ func mapBinding(row sqlc.AgentProviderBinding) Binding {
 		UpdatedAt:        row.UpdatedAt,
 		SessionUUID:      row.SessionUUID,
 	}
+}
+
+func wrapBindingError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "binding")
 }

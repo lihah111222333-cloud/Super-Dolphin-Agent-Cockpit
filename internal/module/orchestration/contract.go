@@ -33,6 +33,10 @@ type SessionCleaner interface {
 
 type TurnSubmission = turndto.TurnSubmission
 
+type TurnStarter interface {
+	StartTurn(ctx context.Context, submission TurnSubmission) (string, error)
+}
+
 type LaunchRequest struct {
 	AgentID  string
 	Name     string

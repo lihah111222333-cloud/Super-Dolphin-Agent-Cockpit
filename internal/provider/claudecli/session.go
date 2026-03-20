@@ -234,27 +234,6 @@ func (s *session) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, 
 	return dto.ForkResult{}, dto.NewCapabilityError(dto.CapThreadFork, "claude")
 }
 
-func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if patch.Model != nil {
-		s.model = strings.TrimSpace(*patch.Model)
-	}
-	if patch.Personality != nil {
-		s.config.Personality = strings.TrimSpace(*patch.Personality)
-	}
-	if patch.Approvals != nil {
-		s.config.ApprovalPolicy = strings.TrimSpace(*patch.Approvals)
-	}
-	return nil
-}
-
 func (s *session) Close(context.Context) error {
 	return s.stop(false)
 }

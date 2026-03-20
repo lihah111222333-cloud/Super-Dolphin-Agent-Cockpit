@@ -1,9 +1,12 @@
 package claudecli
 
+import "encoding/json"
+
 type Message struct {
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	Timestamp string `json:"timestamp,omitempty"`
+	Role      string          `json:"role"`
+	Content   string          `json:"content"`
+	Metadata  json.RawMessage `json:"metadata,omitempty"`
+	Timestamp string          `json:"timestamp,omitempty"`
 }
 
 type historyLine struct {

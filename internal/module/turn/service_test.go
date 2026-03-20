@@ -56,6 +56,27 @@ func TestPrepareTurnKeepsSkillPromptsAndNormalizesInputs(t *testing.T) {
 	}
 }
 
+func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger())
+	session := &stubSession{threadID: "thread-1"}
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+		Prompt:               "Please use @debug on this issue.",
+		ManualSkillSelection: true,
+		CandidateSkills:      []dto.SkillRef{{Name: "debug", Prompt: "debug guidance"}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareTurn() error = %v", err)
+	}
+	if req.ManualSkillSelection != true {
+		t.Fatal("ManualSkillSelection = false, want true")
+	}
+	if len(req.Skills) != 0 {
+		t.Fatalf("Skills = %#v, want no auto-matched skills in manual mode", req.Skills)
+	}
+}
+
 func TestPrepareTurnTruncatesInputCount(t *testing.T) {
 	t.Parallel()
 

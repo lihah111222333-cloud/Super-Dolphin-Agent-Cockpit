@@ -5,44 +5,44 @@ import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 // WorkspaceRunCreated reports a new workspace run.
 type WorkspaceRunCreated struct {
 	shared.WorkspaceRunHeader
-	SourceRoot    string `json:"sourceRoot"`
-	WorkspacePath string `json:"workspacePath"`
-	CreatedBy     string `json:"createdBy,omitempty"`
+	SourceRoot    string `json:"source_root"`
+	WorkspacePath string `json:"workspace_path"`
+	CreatedBy     string `json:"created_by,omitempty"`
 }
 
 // WorkspaceRunStatusChanged reports a workspace run status transition.
 type WorkspaceRunStatusChanged struct {
 	shared.WorkspaceRunHeader
-	OldStatus string `json:"oldStatus,omitempty"`
-	NewStatus string `json:"newStatus"`
-	UpdatedBy string `json:"updatedBy,omitempty"`
+	OldStatus string `json:"old_status,omitempty"`
+	NewStatus string `json:"new_status"`
+	UpdatedBy string `json:"updated_by,omitempty"`
 }
 
 // WorkspaceRunMerged reports a workspace run merging back to source.
 type WorkspaceRunMerged struct {
 	shared.WorkspaceRunHeader
-	SourceRoot      string `json:"sourceRoot"`
-	WorkspacePath   string `json:"workspacePath"`
-	MergedFileCount int    `json:"mergedFileCount,omitempty"`
-	UpdatedBy       string `json:"updatedBy,omitempty"`
+	SourceRoot      string `json:"source_root"`
+	WorkspacePath   string `json:"workspace_path"`
+	MergedFileCount int    `json:"merged_file_count,omitempty"`
+	UpdatedBy       string `json:"updated_by,omitempty"`
 }
 
 // WorkspaceRunAborted reports a workspace run abort request.
 type WorkspaceRunAborted struct {
 	shared.WorkspaceRunHeader
 	Reason    string `json:"reason,omitempty"`
-	UpdatedBy string `json:"updatedBy,omitempty"`
+	UpdatedBy string `json:"updated_by,omitempty"`
 }
 
 // WorkspaceRunMergeError reports a merge attempt that could not complete cleanly.
 type WorkspaceRunMergeError struct {
 	shared.WorkspaceRunHeader
-	SourceRoot    string `json:"sourceRoot"`
-	WorkspacePath string `json:"workspacePath"`
+	SourceRoot    string `json:"source_root"`
+	WorkspacePath string `json:"workspace_path"`
 	Conflicts     int    `json:"conflicts,omitempty"`
 	Errors        int    `json:"errors,omitempty"`
 	Message       string `json:"message,omitempty"`
-	UpdatedBy     string `json:"updatedBy,omitempty"`
+	UpdatedBy     string `json:"updated_by,omitempty"`
 }
 
 func (WorkspaceRunCreated) Type() uint32       { return shared.EventTypeWorkspaceRunCreated }
