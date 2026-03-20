@@ -31,7 +31,10 @@ var Module = fx.Options(
 	unified.Module,
 	claudecli.Module,
 	codexapp.Module,
-	fx.Provide(AsRPCRunner),
+	fx.Provide(
+		AsRPCRunner,
+		newThreadOrchestrationFacade,
+	),
 )
 
 func AsRPCRunner(server *rpc.Server) RunnerResult {

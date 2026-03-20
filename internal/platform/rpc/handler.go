@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
@@ -15,6 +16,19 @@ type Middleware func(handler.Func) handler.Func
 
 // CapabilityResolver from context returns the active provider capabilities.
 type CapabilityResolver func(ctx context.Context) dto.CapabilitySet
+
+func NewCapabilityResolver(resolver contract.SessionResolver) CapabilityResolver {
+	return func(ctx context.Context) dto.CapabilitySet {
+		if resolver == nil {
+			return nil
+		}
+		session, err := resolver.ResolveSession(ctx, ThreadIDFrom(ctx))
+		if err != nil || session == nil {
+			return nil
+		}
+		return session.Capabilities()
+	}
+}
 
 func Wrap(mws ...Middleware) func(handler.Func) handler.Func {
 	return func(next handler.Func) handler.Func {
@@ -69,6 +83,16 @@ func CapabilityGate(cap string, resolver CapabilityResolver) Middleware {
 			return next(ctx, req)
 		})
 	}
+}
+
+// ThreadHandler composes ThreadScope and StrictHandler for thread-scoped handlers.
+func ThreadHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error)) handler.Func {
+	return Wrap(ThreadScope())(StrictHandler(fn))
+}
+
+// CapabilityThreadHandler composes ThreadScope, CapabilityGate, and StrictHandler.
+func CapabilityThreadHandler[Req, Resp any](cap string, resolver CapabilityResolver, fn func(context.Context, Req) (Resp, error)) handler.Func {
+	return Wrap(ThreadScope(), CapabilityGate(cap, resolver))(StrictHandler(fn))
 }
 
 func ThreadIDFrom(ctx context.Context) string {

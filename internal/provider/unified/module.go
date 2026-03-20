@@ -17,8 +17,9 @@ var Module = fx.Module("provider.unified",
 	fx.Provide(
 		NewEventDispatcher,
 		NewRegistry,
-		NewClient,
+		fx.Annotate(NewClient, fx.As(new(thread.SessionStarter))),
 		NewSessionManager,
 		fx.Annotate(NewSessionProvider, fx.As(new(thread.SessionProvider))),
+		NewSessionResolver,
 	),
 )

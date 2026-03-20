@@ -75,15 +75,16 @@ func (s *store) ListRunningAgents(ctx context.Context) ([]RunningAgent, error) {
 
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	return s.q.UpsertAgentThread(ctx, sqlc.UpsertAgentThreadParams{
-		ThreadID:  params.ThreadID,
-		Prompt:    params.Prompt,
-		Model:     params.Model,
-		Cwd:       params.Cwd,
-		Status:    params.Status,
-		Port:      params.Port,
-		PID:       params.PID,
-		CreatedAt: params.CreatedAt,
-		UpdatedAt: params.UpdatedAt,
+		ThreadID:      params.ThreadID,
+		Prompt:        params.Prompt,
+		Model:         params.Model,
+		Cwd:           params.Cwd,
+		Status:        params.Status,
+		Port:          params.Port,
+		PID:           params.PID,
+		CreatedAt:     params.CreatedAt,
+		UpdatedAt:     params.UpdatedAt,
+		OwnerThreadID: params.OwnerThreadID,
 	})
 }
 
@@ -135,6 +136,7 @@ func (s *store) ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCw
 func mapThread(row sqlc.AgentThread) Thread {
 	return Thread{
 		ThreadID:        row.ThreadID,
+		AgentID:         row.AgentID,
 		Prompt:          row.Prompt,
 		Model:           row.Model,
 		Cwd:             row.Cwd,

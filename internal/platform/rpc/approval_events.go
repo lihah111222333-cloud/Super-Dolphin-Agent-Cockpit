@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/kelindar/event"
@@ -22,7 +23,7 @@ func (m *ApprovalManager) publishRequested(bridge *PushBridge, pending *pendingA
 	})
 }
 
-func (m *ApprovalManager) publishResolved(pending *pendingApproval, decision ApprovalDecision, err error) {
+func (m *ApprovalManager) publishResolved(pending *pendingApproval, decision contract.ApprovalDecision, err error) {
 	if pending == nil || pending.dispatcher == nil {
 		return
 	}

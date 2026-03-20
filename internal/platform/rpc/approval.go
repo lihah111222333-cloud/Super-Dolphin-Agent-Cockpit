@@ -11,6 +11,8 @@ import (
 
 	"github.com/creachadair/jrpc2"
 	"github.com/kelindar/event"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // ApprovalManager manages tool-call approvals and their client callbacks.
@@ -21,11 +23,13 @@ type ApprovalManager struct {
 	logger        *slog.Logger
 }
 
+var _ contract.ApprovalResponder = (*ApprovalManager)(nil)
+
 type pendingApproval struct {
 	callID    string
 	requestID *int64
 	toolName  string
-	result    chan ApprovalDecision
+	result    chan contract.ApprovalDecision
 	createdAt time.Time
 
 	done        chan struct{}
@@ -33,14 +37,9 @@ type pendingApproval struct {
 	dispatcher  *event.Dispatcher
 	dispatching bool
 	request     ApprovalRequest
-	decision    ApprovalDecision
+	decision    contract.ApprovalDecision
 	err         error
 	once        sync.Once
-}
-
-type ApprovalDecision struct {
-	Approved bool   `json:"approved"`
-	Reason   string `json:"reason,omitempty"`
 }
 
 type ApprovalRequest struct {
@@ -69,10 +68,10 @@ func NewApprovalManager(logger *slog.Logger) *ApprovalManager {
 	}
 }
 
-func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (ApprovalDecision, error) {
+func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (contract.ApprovalDecision, error) {
 	req, err := normalizeApprovalRequest(req)
 	if err != nil {
-		return ApprovalDecision{}, err
+		return contract.ApprovalDecision{}, err
 	}
 	pending, owner := m.registerPending(req)
 	if owner && bridge != nil {
@@ -85,7 +84,7 @@ func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridg
 		if owner {
 			m.failPending(pending.callID, pending, err)
 		}
-		return ApprovalDecision{}, err
+		return contract.ApprovalDecision{}, err
 	}
 	decision, err := waitForApproval(ctx, pending)
 	if err == nil || !owner {
@@ -93,18 +92,18 @@ func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridg
 	}
 	err = mapApprovalWaitErr(err, pending.callID)
 	m.failPending(pending.callID, pending, err)
-	return ApprovalDecision{}, err
+	return contract.ApprovalDecision{}, err
 }
 
-func (m *ApprovalManager) RequestUserInput(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (ApprovalDecision, error) {
+func (m *ApprovalManager) RequestUserInput(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (contract.ApprovalDecision, error) {
 	if strings.TrimSpace(req.Kind) == "" {
 		req.Kind = "request_user_input"
 	}
 	return m.RequestApproval(ctx, bridge, server, req)
 }
 
-func (m *ApprovalManager) Respond(callID string, decision ApprovalDecision) error {
-	callID = strings.TrimSpace(callID)
+func (m *ApprovalManager) Respond(callID string, requestID *int64, decision contract.ApprovalDecision) error {
+	callID = approvalCallID(callID, requestID)
 	if callID == "" {
 		return ErrInvalidState("approval call id is required")
 	}
@@ -117,7 +116,7 @@ func (m *ApprovalManager) Respond(callID string, decision ApprovalDecision) erro
 }
 
 func (m *ApprovalManager) AutoApprove(callID string) error {
-	return m.Respond(callID, ApprovalDecision{
+	return m.Respond(callID, nil, contract.ApprovalDecision{
 		Approved: true,
 		Reason:   "auto_approved",
 	})
@@ -138,7 +137,7 @@ func (m *ApprovalManager) registerPending(req ApprovalRequest) (*pendingApproval
 		callID:    req.CallID,
 		requestID: requestID,
 		toolName:  req.ToolName,
-		result:    make(chan ApprovalDecision, 1),
+		result:    make(chan contract.ApprovalDecision, 1),
 		createdAt: time.Now(),
 		done:      make(chan struct{}),
 		request:   cloneApprovalRequest(req, requestID),
@@ -192,7 +191,7 @@ func (m *ApprovalManager) dispatchApproval(ctx context.Context, bridge *PushBrid
 		m.failPending(callID, m.lookupPending(callID), err)
 		return
 	}
-	if err := m.Respond(callID, decision); err != nil && !isApprovalNotFound(err) {
+	if err := m.Respond(callID, m.lookupRequestID(callID), decision); err != nil && !isApprovalNotFound(err) {
 		m.failPending(callID, m.lookupPending(callID), err)
 	}
 }
@@ -228,7 +227,7 @@ func (m *ApprovalManager) resetDispatch(callID string, pending *pendingApproval)
 	pending.dispatching = false
 }
 
-func (m *ApprovalManager) finishPending(callID string, pending *pendingApproval, decision ApprovalDecision, err error) {
+func (m *ApprovalManager) finishPending(callID string, pending *pendingApproval, decision contract.ApprovalDecision, err error) {
 	if pending == nil {
 		return
 	}
@@ -258,7 +257,7 @@ func (m *ApprovalManager) finishPending(callID string, pending *pendingApproval,
 }
 
 func (m *ApprovalManager) failPending(callID string, pending *pendingApproval, err error) {
-	decision := ApprovalDecision{Reason: decisionReason(ApprovalDecision{}, err)}
+	decision := contract.ApprovalDecision{Reason: decisionReason(contract.ApprovalDecision{}, err)}
 	m.finishPending(callID, pending, decision, err)
 }
 
@@ -270,6 +269,14 @@ func (m *ApprovalManager) lookupPending(callID string) *pendingApproval {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.pending[callID]
+}
+
+func (m *ApprovalManager) lookupRequestID(callID string) *int64 {
+	pending := m.lookupPending(callID)
+	if pending == nil {
+		return nil
+	}
+	return cloneInt64Ptr(pending.requestID)
 }
 
 func (m *ApprovalManager) snapshotPending() []*pendingApproval {

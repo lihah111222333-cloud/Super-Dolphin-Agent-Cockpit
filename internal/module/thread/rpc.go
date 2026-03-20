@@ -1,0 +1,131 @@
+package thread
+
+import (
+	"context"
+	"runtime"
+
+	"github.com/creachadair/jrpc2/handler"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+)
+
+const (
+	capabilityContextCompact = "context_compact"
+	capabilityModelSwitch    = "model_switch"
+	capabilityRealtime       = "realtime"
+)
+
+func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.HandlerMapResult {
+	return rpc.HandlerMapResult{Handlers: handler.Map{
+		"thread/start": rpc.StrictHandler(func(ctx context.Context, p startParams) (any, error) {
+			return svc.Start(ctx, StartRequest{
+				Provider: p.Provider,
+				CWD:      p.CWD,
+				Model:    p.Model,
+				Prompt:   p.Prompt,
+			})
+		}),
+		"thread/resume": newResumeHandler(svc),
+		"thread/fork": newThreadCall(func(ctx context.Context, id string) (any, error) {
+			return svc.Fork(ctx, id)
+		}),
+		"thread/recover":   newThreadEffect(svc.Recover),
+		"thread/archive":   newThreadEffect(svc.Archive),
+		"thread/unarchive": newThreadEffect(svc.Unarchive),
+		"thread/delete":    newThreadEffect(svc.Delete),
+
+		"thread/list": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+			return svc.List(ctx)
+		}),
+		"thread/loaded/list": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+			return svc.ListByStatus(ctx, statusCreated)
+		}),
+		"thread/read": newThreadGetHandler(svc),
+		"thread/resolve": newThreadCall(func(ctx context.Context, id string) (any, error) {
+			return svc.Get(ctx, id)
+		}),
+		"thread/messages": rpc.ThreadHandler(func(ctx context.Context, p messagesParams) (any, error) {
+			return svc.ReadMessages(ctx, rpc.ThreadIDFrom(ctx), p.Limit, p.Before)
+		}),
+
+		"thread/name/set": rpc.ThreadHandler(func(ctx context.Context, p nameSetParams) (any, error) {
+			return nil, svc.SetName(ctx, rpc.ThreadIDFrom(ctx), p.Name)
+		}),
+		"thread/config/get":                newThreadCommandHandler(svc, "config/get"),
+		"thread/config/set":                newThreadCommandHandler(svc, "config/set"),
+		"thread/model/set":                 newCapabilityThreadCommandHandler(svc, capResolver, capabilityModelSwitch, "/model"),
+		"thread/personality/set":           newThreadCommandHandler(svc, "/personality"),
+		"thread/approvals/set":             newThreadCommandHandler(svc, "/approvals"),
+		"thread/compact/start":             newCapabilityThreadCommandHandler(svc, capResolver, capabilityContextCompact, "/compact"),
+		"thread/rollback":                  newThreadCommandHandler(svc, "/rollback"),
+		"thread/undo":                      newThreadCommandHandler(svc, "/undo"),
+		"thread/backgroundTerminals/clean": newThreadCommandHandler(svc, "/clean"),
+		"thread/mcp/list":                  newThreadCommandHandler(svc, "/mcp"),
+		"thread/skills/list":               newThreadCommandHandler(svc, "/skills"),
+
+		"thread/debugMemory": newThreadCall(func(context.Context, string) (any, error) {
+			return runtimeMemoryStats(), nil
+		}),
+
+		"thread/realtime/start":       newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/start"),
+		"thread/realtime/appendAudio": newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/appendAudio"),
+		"thread/realtime/appendText":  newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/appendText"),
+		"thread/realtime/stop":        newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/stop"),
+	}}
+}
+
+func newThreadCall(fn func(context.Context, string) (any, error)) handler.Func {
+	return rpc.ThreadHandler(func(ctx context.Context, _ threadIDParams) (any, error) {
+		return fn(ctx, rpc.ThreadIDFrom(ctx))
+	})
+}
+
+func newThreadEffect(fn func(context.Context, string) error) handler.Func {
+	return newThreadCall(func(ctx context.Context, id string) (any, error) {
+		return nil, fn(ctx, id)
+	})
+}
+
+func newThreadCommandHandler(svc Service, command string) handler.Func {
+	return rpc.ThreadHandler(func(ctx context.Context, p commandParams) (any, error) {
+		return svc.SendCommand(ctx, rpc.ThreadIDFrom(ctx), command, p.Args)
+	})
+}
+
+func newCapabilityThreadCommandHandler(
+	svc Service,
+	capResolver rpc.CapabilityResolver,
+	cap string,
+	command string,
+) handler.Func {
+	return rpc.CapabilityThreadHandler(cap, capResolver, func(ctx context.Context, p commandParams) (any, error) {
+		return svc.SendCommand(ctx, rpc.ThreadIDFrom(ctx), command, p.Args)
+	})
+}
+
+func newResumeHandler(svc Service) handler.Func {
+	return rpc.ThreadHandler(func(ctx context.Context, p resumeParams) (any, error) {
+		threadID := rpc.ThreadIDFrom(ctx)
+		ref, err := svc.Get(ctx, threadID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.Resume(ctx, ResumeRequest{
+			ThreadID: threadID,
+			Provider: p.Provider,
+			AgentID:  ref.AgentID,
+		})
+	})
+}
+
+func newThreadGetHandler(svc Service) handler.Func {
+	return newThreadCall(func(ctx context.Context, id string) (any, error) {
+		return svc.Get(ctx, id)
+	})
+}
+
+func runtimeMemoryStats() runtime.MemStats {
+	var stats runtime.MemStats
+	runtime.ReadMemStats(&stats)
+	return stats
+}

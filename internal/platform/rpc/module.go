@@ -6,6 +6,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
@@ -14,6 +15,8 @@ var Module = fx.Module("rpc",
 		NewServer,
 		NewPushBridge,
 		NewApprovalManager,
+		NewCapabilityResolver,
+		func(m *ApprovalManager) contract.ApprovalResponder { return m },
 	),
 	fx.Invoke(registerAllHandlers),
 )

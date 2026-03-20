@@ -116,6 +116,74 @@ func TestInterruptTurnWaitsForSettle(t *testing.T) {
 	}
 }
 
+func TestSteerTurnStartsPromptAsNewTurn(t *testing.T) {
+	t.Parallel()
+
+	session := &stubSession{
+		threadID: "thread-1",
+		startTurn: func(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
+			if len(req.Inputs) != 1 || req.Inputs[0].Type != "text" || req.Inputs[0].Content != "steer this" {
+				t.Fatalf("SteerTurn request = %#v", req)
+			}
+			handle := newStubTurnHandle(req.LocalID, "provider-2")
+			handle.complete(nil)
+			return handle, nil
+		},
+	}
+
+	svc := NewService(silentLogger())
+	handle, err := svc.SteerTurn(context.Background(), session, "steer this")
+	if err != nil {
+		t.Fatalf("SteerTurn() error = %v", err)
+	}
+	if handle == nil {
+		t.Fatal("SteerTurn() returned nil handle")
+	}
+}
+
+func TestForceCompleteTurnLeavesFinalStateToWatcher(t *testing.T) {
+	t.Parallel()
+
+	handle := newStubTurnHandle("local-2", "provider-2")
+	session := &stubSession{
+		threadID: "thread-2",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			return handle, nil
+		},
+	}
+
+	svc := NewService(silentLogger())
+	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
+		LocalID:  "local-2",
+		ThreadID: "thread-2",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+	if err := svc.ForceCompleteTurn(context.Background(), session); err != nil {
+		t.Fatalf("ForceCompleteTurn() error = %v", err)
+	}
+	handle.complete(context.Canceled)
+	if session.lastInterrupt.Source != "force_complete" {
+		t.Fatalf("ForceCompleteTurn source = %q, want force_complete", session.lastInterrupt.Source)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		status, err := svc.TrackTurn(context.Background(), "local-2")
+		if err != nil {
+			t.Fatalf("TrackTurn() error = %v", err)
+		}
+		if status.State == "interrupted" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("status.State = %q, want interrupted", status.State)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 type stubSession struct {
 	threadID      string
 	caps          dto.CapabilitySet
