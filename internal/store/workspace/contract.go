@@ -7,6 +7,7 @@ import (
 )
 
 type Store interface {
+	WithTx(ctx context.Context, fn func(txStore Store) error) error
 	UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun, error)
 	GetRun(ctx context.Context, runKey string) (*WorkspaceRun, error)
 	ListRuns(ctx context.Context, filter ListRunsFilter) ([]WorkspaceRun, error)

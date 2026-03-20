@@ -43,9 +43,3 @@ type TurnHandle interface {
 	Done() <-chan struct{}
 	Err() error
 }
-
-// ToolCallResponder handles dynamic tool call responses.
-type ToolCallResponder interface {
-	RespondResult(ctx context.Context, callID string, requestID *int64, output string) error
-	RespondError(ctx context.Context, callID string, requestID *int64, code int, message string) error
-}

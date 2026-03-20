@@ -72,25 +72,34 @@ func handleUpdateRunStatus(svc Service) func(context.Context, updateRunStatusPar
 	}
 }
 
-func handleMergeRun(svc Service) func(context.Context, runKeyParams) (runResult, error) {
-	return func(ctx context.Context, p runKeyParams) (runResult, error) {
+func handleMergeRun(svc Service) func(context.Context, mergeRunParams) (mergeResult, error) {
+	return func(ctx context.Context, p mergeRunParams) (mergeResult, error) {
 		if err := required(p.RunKey, "runKey"); err != nil {
-			return runResult{}, err
+			return mergeResult{}, err
 		}
-		run, err := svc.MergeRun(ctx, p.RunKey)
+		result, err := svc.MergeRun(ctx, mergeRunRequestFromParams(p))
 		if err != nil {
-			return runResult{}, err
+			return mergeResult{}, err
 		}
-		return runResult{Run: run}, nil
+		return mergeResult{Result: result}, nil
 	}
 }
 
-func handleAbortRun(svc Service) func(context.Context, runKeyParams) (runResult, error) {
-	return func(ctx context.Context, p runKeyParams) (runResult, error) {
+func mergeRunRequestFromParams(p mergeRunParams) MergeRunRequest {
+	return MergeRunRequest{
+		RunKey:        p.RunKey,
+		UpdatedBy:     p.UpdatedBy,
+		DryRun:        p.DryRun,
+		DeleteRemoved: p.DeleteRemoved,
+	}
+}
+
+func handleAbortRun(svc Service) func(context.Context, abortRunParams) (runResult, error) {
+	return func(ctx context.Context, p abortRunParams) (runResult, error) {
 		if err := required(p.RunKey, "runKey"); err != nil {
 			return runResult{}, err
 		}
-		if err := svc.AbortRun(ctx, p.RunKey); err != nil {
+		if err := svc.AbortRun(ctx, p.RunKey, p.UpdatedBy, p.Reason); err != nil {
 			return runResult{}, err
 		}
 		run, err := svc.GetRun(ctx, p.RunKey)
@@ -101,12 +110,12 @@ func handleAbortRun(svc Service) func(context.Context, runKeyParams) (runResult,
 	}
 }
 
-func handleListRunFiles(svc Service) func(context.Context, runKeyParams) (runFilesResult, error) {
-	return func(ctx context.Context, p runKeyParams) (runFilesResult, error) {
+func handleListRunFiles(svc Service) func(context.Context, listRunFilesParams) (runFilesResult, error) {
+	return func(ctx context.Context, p listRunFilesParams) (runFilesResult, error) {
 		if err := required(p.RunKey, "runKey"); err != nil {
 			return runFilesResult{}, err
 		}
-		files, err := svc.ListRunFiles(ctx, p.RunKey)
+		files, err := svc.ListRunFiles(ctx, p.RunKey, p.State)
 		if err != nil {
 			return runFilesResult{}, err
 		}

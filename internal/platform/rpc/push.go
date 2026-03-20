@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	methodEventAgentStateChanged = "event/agent/stateChanged"
-	methodEventTurnStarted       = "event/turn/started"
-	methodEventTurnCompleted     = "event/turn/completed"
+	methodEventAgentStateChanged = "ui/state/changed"
+	methodEventTurnStarted       = "turn/started"
+	methodEventTurnCompleted     = "turn/completed"
 )
 
 // PushBridge bridges internal events into jrpc2 server push APIs.

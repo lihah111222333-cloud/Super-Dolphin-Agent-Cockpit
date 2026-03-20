@@ -1,5 +1,7 @@
 package provider
 
+import "path/filepath"
+
 type ToolFamily string
 
 const (
@@ -33,9 +35,10 @@ func BuildManifest(ctx ManifestContext) MCPManifest {
 
 	bins := make([]MCPBinary, 0, len(families))
 	for _, fam := range families {
+		name := "go-agent-mcp-" + string(fam)
 		bins = append(bins, MCPBinary{
-			Name:    "go-agent-mcp-" + string(fam),
-			Command: []string{ctx.BinaryDir + "/go-agent-mcp-" + string(fam)},
+			Name:    name,
+			Command: []string{filepath.Join(ctx.BinaryDir, name)},
 		})
 	}
 	return MCPManifest{Binaries: bins}

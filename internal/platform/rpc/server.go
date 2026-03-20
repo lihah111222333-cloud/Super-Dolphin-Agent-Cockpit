@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
@@ -37,6 +38,30 @@ func (s *Server) Register(maps ...handler.Map) {
 			s.methods[name] = handlerFunc
 		}
 	}
+}
+
+// Dispatch executes a registered handler locally without using the network.
+// It is used by the Wails binding layer to bridge CallAPI requests.
+func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	local := jrpcserver.NewLocal(s.methods, &jrpcserver.LocalOptions{
+		Server: prepareServerOptions(nil),
+	})
+	defer local.Close()
+
+	var callParams any
+	if len(params) != 0 {
+		callParams = append(json.RawMessage(nil), params...)
+	}
+
+	var result json.RawMessage
+	if err := local.Client.CallResult(ctx, method, callParams, &result); err != nil {
+		return nil, err
+	}
+	return append(json.RawMessage(nil), result...), nil
 }
 
 func (s *Server) NotifyAll(ctx context.Context, bridge *PushBridge, method string, params any) {

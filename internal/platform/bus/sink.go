@@ -76,6 +76,8 @@ func (s *LogSink) bindWorkspace(dispatcher *event.Dispatcher, logger *slog.Logge
 	s.subs.Add(logEvent[workspacedto.WorkspaceRunCreated](dispatcher, logger))
 	s.subs.Add(logEvent[workspacedto.WorkspaceRunStatusChanged](dispatcher, logger))
 	s.subs.Add(logEvent[workspacedto.WorkspaceRunMerged](dispatcher, logger))
+	s.subs.Add(logEvent[workspacedto.WorkspaceRunAborted](dispatcher, logger))
+	s.subs.Add(logEvent[workspacedto.WorkspaceRunMergeError](dispatcher, logger))
 }
 
 func (s *LogSink) bindUI(dispatcher *event.Dispatcher, logger *slog.Logger) {

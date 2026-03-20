@@ -57,13 +57,28 @@ func (m *SessionManager) Get(agentID string) (contract.Session, error) {
 }
 
 func (m *SessionManager) Remove(agentID string) {
+	if m == nil {
+		return
+	}
 	id := normalizeAgentID(agentID)
 	if id == "" {
 		return
 	}
+
 	m.mu.Lock()
+	session, ok := m.sessions[id]
 	delete(m.sessions, id)
 	m.mu.Unlock()
+
+	if !ok || session == nil {
+		return
+	}
+	if err := session.Close(context.Background()); err != nil {
+		m.logger.Warn("failed to close removed session", "agent_id", id, "error", err)
+		if stopErr := session.ForceStop(); stopErr != nil {
+			m.logger.Warn("failed to force stop removed session", "agent_id", id, "error", stopErr)
+		}
+	}
 }
 
 func (m *SessionManager) CloseAll(ctx context.Context) {

@@ -20,6 +20,25 @@ type agentIDParams struct {
 	AgentID string `json:"agentId"`
 }
 
+func (p *agentIDParams) UnmarshalJSON(data []byte) error {
+	type raw agentIDParams
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = agentIDParams(current)
+	var legacy struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.AgentID) == "" {
+		p.AgentID = strings.TrimSpace(legacy.AgentID)
+	}
+	return nil
+}
+
 type dagKeyParams struct {
 	DagKey string `json:"dagKey"`
 }
@@ -81,8 +100,91 @@ func (p *submitParams) UnmarshalJSON(data []byte) error {
 }
 
 type reportParams struct {
-	AgentID string `json:"agentId"`
-	Report  string `json:"report"`
+	AgentID string `json:"agent_id"`
+	Report  string `json:"report,omitempty"`
+}
+
+func (p *reportParams) UnmarshalJSON(data []byte) error {
+	type raw reportParams
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = reportParams(current)
+	var legacy struct {
+		AgentID string `json:"agentId"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.AgentID) == "" {
+		p.AgentID = strings.TrimSpace(legacy.AgentID)
+	}
+	return nil
+}
+
+type rememberReportRequestParams struct {
+	AgentID     string `json:"worker_id"`
+	RequesterID string `json:"sender_id"`
+}
+
+func (p *rememberReportRequestParams) UnmarshalJSON(data []byte) error {
+	type raw rememberReportRequestParams
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = rememberReportRequestParams(current)
+	var legacy struct {
+		AgentID          string `json:"agentId"`
+		RequesterID      string `json:"requesterId"`
+		AgentIDSnake     string `json:"agent_id"`
+		RequesterIDSnake string `json:"requester_id"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.AgentID) == "" {
+		p.AgentID = firstTrimmed(legacy.AgentID, legacy.AgentIDSnake)
+	}
+	if strings.TrimSpace(p.RequesterID) == "" {
+		p.RequesterID = firstTrimmed(legacy.RequesterID, legacy.RequesterIDSnake)
+	}
+	return nil
+}
+
+type reportEventParams struct {
+	AgentID   string          `json:"agent_id"`
+	Report    string          `json:"report,omitempty"`
+	EventType string          `json:"event_type,omitempty"`
+	EventData json.RawMessage `json:"event_data,omitempty"`
+}
+
+func (p *reportEventParams) UnmarshalJSON(data []byte) error {
+	type raw reportEventParams
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = reportEventParams(current)
+	var legacy struct {
+		AgentID   string          `json:"agentId"`
+		EventType string          `json:"eventType"`
+		EventData json.RawMessage `json:"eventData"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.AgentID) == "" {
+		p.AgentID = strings.TrimSpace(legacy.AgentID)
+	}
+	if strings.TrimSpace(p.EventType) == "" {
+		p.EventType = strings.TrimSpace(legacy.EventType)
+	}
+	if len(p.EventData) == 0 {
+		p.EventData = append([]byte(nil), legacy.EventData...)
+	}
+	return nil
 }
 
 type listDAGsParams struct {
@@ -95,4 +197,13 @@ type updateNodeParams struct {
 	dagNodeParams
 	Status string          `json:"status"`
 	Result json.RawMessage `json:"result,omitempty"`
+}
+
+func firstTrimmed(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

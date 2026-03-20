@@ -1,11 +1,15 @@
 package orchestration
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
@@ -165,3 +169,97 @@ func assertUniqueResults(t *testing.T, results <-chan string, want int) {
 		t.Fatalf("dequeue count = %d, want %d", count, want)
 	}
 }
+
+func TestHandleReportEventRequiresEventType(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{agents: map[string]*agentRuntime{"agent-1": {id: "agent-1"}}}
+	_, err := svc.HandleReportEvent(context.Background(), ReportEvent{AgentID: "agent-1"})
+	if err == nil || !strings.Contains(err.Error(), "event type is required") {
+		t.Fatalf("HandleReportEvent() error = %v, want event type validation", err)
+	}
+}
+
+func TestHandleReportEventTreatsCompletionAsTerminal(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{agents: map[string]*agentRuntime{"agent-1": {
+		id:               "agent-1",
+		lastReport:       "done",
+		reportRequesters: []string{"req-1"},
+	}}}
+	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{AgentID: "agent-1", EventType: "completion"})
+	if err != nil {
+		t.Fatalf("HandleReportEvent() error = %v", err)
+	}
+	if len(got.NotifiedRequesterIDs) != 1 || got.NotifiedRequesterIDs[0] != "req-1" {
+		t.Fatalf("NotifiedRequesterIDs = %#v, want [req-1]", got.NotifiedRequesterIDs)
+	}
+	if got.Report != "done" {
+		t.Fatalf("Report = %q, want done", got.Report)
+	}
+}
+
+func TestReportParamCompatibility(t *testing.T) {
+	t.Parallel()
+
+	var report reportParams
+	if err := json.Unmarshal([]byte(`{"agent_id":"agent-1"}`), &report); err != nil || report.AgentID != "agent-1" {
+		t.Fatalf("reportParams snake_case = %#v, err=%v", report, err)
+	}
+	if err := json.Unmarshal([]byte(`{"agentId":"agent-2"}`), &report); err != nil || report.AgentID != "agent-2" {
+		t.Fatalf("reportParams camelCase = %#v, err=%v", report, err)
+	}
+
+	var remember rememberReportRequestParams
+	if err := json.Unmarshal([]byte(`{"sender_id":"sender","worker_id":"worker"}`), &remember); err != nil || remember.RequesterID != "sender" || remember.AgentID != "worker" {
+		t.Fatalf("rememberReportRequestParams V2 = %#v, err=%v", remember, err)
+	}
+	if err := json.Unmarshal([]byte(`{"requesterId":"sender-2","agentId":"worker-2"}`), &remember); err != nil || remember.RequesterID != "sender-2" || remember.AgentID != "worker-2" {
+		t.Fatalf("rememberReportRequestParams camelCase = %#v, err=%v", remember, err)
+	}
+
+	var event reportEventParams
+	if err := json.Unmarshal([]byte(`{"agent_id":"agent-3","event_type":"error","event_data":{"message":"x"}}`), &event); err != nil || event.AgentID != "agent-3" || event.EventType != "error" {
+		t.Fatalf("reportEventParams snake_case = %#v, err=%v", event, err)
+	}
+	if err := json.Unmarshal([]byte(`{"agentId":"agent-4","eventType":"completion","eventData":{"message":"y"}}`), &event); err != nil || event.AgentID != "agent-4" || event.EventType != "completion" {
+		t.Fatalf("reportEventParams camelCase = %#v, err=%v", event, err)
+	}
+}
+
+func TestDAGDetailJSONUsesSnakeCase(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1700000000, 0).UTC()
+	payload, err := json.Marshal(DAGDetail{
+		DAG: DAGSummary{DagKey: "dag-1", CreatedBy: "tester", CreatedAt: now, UpdatedAt: now},
+		Nodes: []DAGNode{{
+			DagKey:         "dag-1",
+			NodeKey:        "node-1",
+			CommandRef:     "cmd.demo",
+			ActiveTurnID:   stringPtr("turn-1"),
+			ActiveWakeupID: int64Ptr(7),
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	text := string(payload)
+	for _, forbidden := range []string{"dagKey", "nodeKey", "commandRef", "createdBy", "activeTurnId", "activeWakeupId"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("payload contains camelCase key %q: %s", forbidden, text)
+		}
+	}
+	for _, required := range []string{"dag_key", "node_key", "command_ref", "created_by", "active_turn_id", "active_wakeup_id"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("payload missing snake_case key %q: %s", required, text)
+		}
+	}
+}
+
+func stringPtr(v string) *string { return &v }
+
+func int64Ptr(v int64) *int64 { return &v }

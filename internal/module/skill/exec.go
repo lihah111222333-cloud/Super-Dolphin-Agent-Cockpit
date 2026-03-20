@@ -5,9 +5,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 var blockedCommands = map[string]bool{
@@ -20,6 +23,14 @@ var blockedCommands = map[string]bool{
 var readCommands = map[string]bool{
 	"ag": true, "awk": true, "bat": true, "cat": true, "fd": true, "find": true, "grep": true,
 	"head": true, "less": true, "more": true, "rg": true, "sed": true, "tail": true, "tree": true, "wc": true,
+}
+
+var execBaseEnvKeys = []string{
+	"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TERM",
+}
+
+var execAllowedEnvPrefixes = []string{
+	"OPENAI_", "ANTHROPIC_", "CODEX_", "DYN_TOOL_", "MODEL", "LOG_LEVEL", "AGENT_", "MCP_", "APP_", "STRESS_TEST_", "TEST_E2E_",
 }
 
 const lspPreferenceHint = "[LSP提示] 优先用 LSP 工具读代码：lsp_file lsp_inspect lsp_xref lsp_grep lsp_structure lsp_edit lsp_completion。\n"
@@ -42,7 +53,10 @@ func (s *service) execCommand(ctx context.Context, command string, args []string
 			return ExecResult{}, err
 		}
 	}
-	return runExecCommand(ctx, name, base, args, cwd)
+	dir := resolveExecCWD(cwd, s.projectRoot)
+	execCtx, cancel := platformconfig.WithRPCRequestTimeout(ctx)
+	defer cancel()
+	return runExecCommand(execCtx, name, base, args, dir, buildExecEnv(dir))
 }
 
 func validateExecCommand(command string) (string, string, error) {
@@ -67,9 +81,10 @@ func validateExecArgs(args []string) error {
 	return nil
 }
 
-func runExecCommand(ctx context.Context, name, base string, args []string, cwd string) (ExecResult, error) {
+func runExecCommand(ctx context.Context, name, base string, args []string, cwd string, env []string) (ExecResult, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = strings.TrimSpace(cwd)
+	cmd.Env = env
 	stdout, stderr := &limitedBuffer{limit: maxSkillFileBytes}, &limitedBuffer{limit: maxSkillFileBytes}
 	cmd.Stdout, cmd.Stderr = io.MultiWriter(stdout), io.MultiWriter(stderr)
 	result := ExecResult{Command: name, CWD: cmd.Dir}
@@ -87,6 +102,52 @@ func runExecCommand(ctx context.Context, name, base string, args []string, cwd s
 		return result, nil
 	}
 	return ExecResult{}, err
+}
+
+func resolveExecCWD(cwd, projectRoot string) string {
+	if dir := strings.TrimSpace(cwd); dir != "" {
+		return dir
+	}
+	return strings.TrimSpace(projectRoot)
+}
+
+func buildExecEnv(cwd string) []string {
+	env := baseExecEnv()
+	if dir := strings.TrimSpace(cwd); dir != "" {
+		env = append(env, "PWD="+dir)
+	}
+	return append(env, allowedPrefixedExecEnv()...)
+}
+
+func baseExecEnv() []string {
+	env := make([]string, 0, len(execBaseEnvKeys))
+	for _, key := range execBaseEnvKeys {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
+	}
+	return env
+}
+
+func allowedPrefixedExecEnv() []string {
+	env := make([]string, 0, 8)
+	for _, entry := range os.Environ() {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && isAllowedExecEnvKey(key) {
+			env = append(env, entry)
+		}
+	}
+	return env
+}
+
+func isAllowedExecEnvKey(key string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(key))
+	for _, prefix := range execAllowedEnvPrefixes {
+		if strings.HasPrefix(upper, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func shellQuote(value string) string {

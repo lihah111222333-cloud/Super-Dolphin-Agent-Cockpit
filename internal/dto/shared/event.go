@@ -30,6 +30,8 @@ const (
 	EventTypeWorkspaceRunCreated       uint32 = 1400
 	EventTypeWorkspaceRunStatusChanged uint32 = 1401
 	EventTypeWorkspaceRunMerged        uint32 = 1402
+	EventTypeWorkspaceRunAborted       uint32 = 1403
+	EventTypeWorkspaceRunMergeError    uint32 = 1404
 
 	EventTypeUIProjectionUpdated uint32 = 1500
 	EventTypeUITimelineAppended  uint32 = 1501

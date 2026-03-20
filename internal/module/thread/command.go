@@ -9,6 +9,8 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
+// thread/skills/list 通过这里的 thread 命令通道下沉，语义上返回 thread 绑定的 active skills。
+// 与 skills/list 不同：后者扫描本地 skill 目录，返回所有已安装的 skill 元信息。
 func (s *service) SendCommand(ctx context.Context, threadID, command, args string) (any, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
