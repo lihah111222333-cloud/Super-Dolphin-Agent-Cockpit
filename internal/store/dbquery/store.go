@@ -3,22 +3,31 @@ package dbquery
 import (
 	"context"
 	"errors"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+const defaultQueryTimeout = 10 * time.Second
+
 type store struct {
-	q *sqlc.Queries
+	q       *sqlc.Queries
+	timeout time.Duration
 }
 
-func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+func NewStore(q *sqlc.Queries, timeout time.Duration) Store {
+	if timeout <= 0 {
+		timeout = defaultQueryTimeout
+	}
+	return &store{q: q, timeout: timeout}
+}
 
 func (s *store) Query(ctx context.Context, query string, args ...any) ([]map[string]any, error) {
 	if s == nil || s.q == nil {
 		return nil, wrapDBQueryError(errors.New("dbquery store is not initialized"), "query")
 	}
-	rows, err := executeQuery(ctx, s.q.Queryable(), query, args...)
+	rows, err := executeQuery(ctx, s.q.Queryable(), s.timeout, query, args...)
 	if err != nil {
 		return nil, wrapDBQueryError(err, "query")
 	}

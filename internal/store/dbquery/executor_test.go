@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -138,7 +137,7 @@ func TestExecuteQueryNormalizesArgs(t *testing.T) {
 	t.Parallel()
 
 	queryer := &captureQueryer{rows: emptyRows()}
-	_, err := executeQuery(context.Background(), queryer, "SELECT * FROM agent_threads WHERE thread_id = $1 AND score > $2", float64(7), float64(1.5))
+	_, err := executeQuery(context.Background(), queryer, defaultQueryTimeout, "SELECT * FROM agent_threads WHERE thread_id = $1 AND score > $2", float64(7), float64(1.5))
 	if err != nil {
 		t.Fatalf("executeQuery() error = %v", err)
 	}
@@ -153,7 +152,7 @@ func TestExecuteQueryNormalizesArgs(t *testing.T) {
 func TestExecuteQueryAppliesDBQueryTimeout(t *testing.T) {
 	t.Parallel()
 
-	_, err := executeQuery(context.Background(), timeoutQueryer{t: t}, "SELECT * FROM agent_threads")
+	_, err := executeQuery(context.Background(), timeoutQueryer{t: t}, defaultQueryTimeout, "SELECT * FROM agent_threads")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("executeQuery() error = %v, want %v", err, context.DeadlineExceeded)
 	}
@@ -166,7 +165,7 @@ func TestQueryRowLimit(t *testing.T) {
 	for i := range rows {
 		rows[i] = []any{fmt.Sprintf("thread-%d", i)}
 	}
-	_, err := executeQuery(context.Background(), &captureQueryer{rows: &stubRows{fields: defaultFields(), values: rows}}, "SELECT * FROM agent_threads")
+	_, err := executeQuery(context.Background(), &captureQueryer{rows: &stubRows{fields: defaultFields(), values: rows}}, defaultQueryTimeout, "SELECT * FROM agent_threads")
 	if err == nil || !strings.Contains(err.Error(), "row limit") {
 		t.Fatalf("executeQuery() error = %v", err)
 	}
@@ -183,16 +182,26 @@ func (q timeoutQueryer) Query(ctx context.Context, _ string, _ ...any) (pgx.Rows
 		q.t.Fatal("Query() context missing deadline")
 	}
 	remaining := time.Until(deadline)
-	if remaining <= 0 || remaining > platformconfig.DBQueryTimeout+time.Second {
+	if remaining <= 0 || remaining > defaultQueryTimeout+time.Second {
 		q.t.Fatalf("Query() deadline = %v, remaining = %v", deadline, remaining)
 	}
 	return nil, context.DeadlineExceeded
 }
 
+func (timeoutQueryer) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New("timeoutQueryer: exec not implemented")
+}
+
+func (timeoutQueryer) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
+
 type captureQueryer struct {
 	args []any
 	rows pgx.Rows
 	err  error
+}
+
+func (*captureQueryer) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New("captureQueryer: exec not implemented")
 }
 
 func (q *captureQueryer) Query(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
@@ -205,6 +214,8 @@ func (q *captureQueryer) Query(_ context.Context, _ string, args ...any) (pgx.Ro
 	}
 	return emptyRows(), nil
 }
+
+func (*captureQueryer) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
 
 type stubRows struct {
 	fields []pgconn.FieldDescription

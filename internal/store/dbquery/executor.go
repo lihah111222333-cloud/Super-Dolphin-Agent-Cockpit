@@ -8,15 +8,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
-
-type rowQueryer interface {
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}
 
 const maxQueryRows = 10000
 
@@ -51,9 +46,10 @@ var (
 	dangerousFunctionPattern = regexp.MustCompile(`(?i)\b(pg_sleep|pg_terminate_backend|pg_cancel_backend|set_config|version|current_setting|current_user|inet_server_addr|inet_server_port|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_\w+|lo_import|lo_export)\b(?:\s*\(|\b)`)
 	placeholderPattern       = regexp.MustCompile(`\$(\d+)`)
 	tableReferencePattern    = regexp.MustCompile(`(?i)\b(?:from|join)\s+(?:only\s+|lateral\s+)?((?:"[^"]+"|\w+)(?:\.(?:"[^"]+"|\w+))?)`)
+	errInvalidCTESyntax      = errors.New("dbquery query has invalid CTE syntax")
 )
 
-func executeQuery(ctx context.Context, queryer rowQueryer, query string, args ...any) ([]map[string]any, error) {
+func executeQuery(ctx context.Context, queryer sqlc.Queryable, timeout time.Duration, query string, args ...any) ([]map[string]any, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -63,14 +59,14 @@ func executeQuery(ctx context.Context, queryer rowQueryer, query string, args ..
 	if err := validateQuery(query, len(args)); err != nil {
 		return nil, err
 	}
-	queryCtx, cancel := platformconfig.WithDBQueryTimeout(ctx)
+	queryCtx, cancel := withQueryTimeout(ctx, timeout)
 	defer cancel()
 	rows, err := queryer.Query(queryCtx, query, normalizeArgs(args)...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	fields := rows.FieldDescriptions()
+	fields := sqlc.RowsFieldNames(rows)
 	result := make([]map[string]any, 0)
 	for rows.Next() {
 		if len(result) >= maxQueryRows {
@@ -86,6 +82,13 @@ func executeQuery(ctx context.Context, queryer rowQueryer, query string, args ..
 		return nil, err
 	}
 	return result, nil
+}
+
+func withQueryTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		timeout = defaultQueryTimeout
+	}
+	return context.WithTimeout(ctx, timeout)
 }
 
 func validateQuery(query string, argCount int) error {
@@ -207,71 +210,6 @@ func hasTableReference(query string) bool {
 	return tableReferencePattern.MatchString(strings.ToLower(query))
 }
 
-func collectCTEInfo(query string) (map[string]struct{}, string, error) {
-	names := make(map[string]struct{})
-	trimmed := strings.TrimSpace(query)
-	lower := strings.ToLower(trimmed)
-	if !strings.HasPrefix(lower, "with") {
-		return names, trimmed, nil
-	}
-	index := len("with")
-	index = skipSpaces(trimmed, index)
-	if strings.HasPrefix(strings.ToLower(trimmed[index:]), "recursive") {
-		index += len("recursive")
-	}
-	for {
-		var ok bool
-		index = skipSpaces(trimmed, index)
-		name, next, ok := readIdentifier(trimmed, index)
-		if !ok {
-			return nil, "", errors.New("dbquery query has invalid CTE syntax")
-		}
-		names[normalizeIdentifier(name)] = struct{}{}
-		index = skipSpaces(trimmed, next)
-		if index < len(trimmed) && trimmed[index] == '(' {
-			var err error
-			index, err = skipBalanced(trimmed, index)
-			if err != nil {
-				return nil, "", err
-			}
-			index = skipSpaces(trimmed, index)
-		}
-		if !strings.HasPrefix(strings.ToLower(trimmed[index:]), "as") {
-			return nil, "", errors.New("dbquery query has invalid CTE syntax")
-		}
-		index += len("as")
-		index = skipSpaces(trimmed, index)
-		index = skipMaterialized(trimmed, index)
-		if index >= len(trimmed) || trimmed[index] != '(' {
-			return nil, "", errors.New("dbquery query has invalid CTE syntax")
-		}
-		var err error
-		index, err = skipBalanced(trimmed, index)
-		if err != nil {
-			return nil, "", err
-		}
-		index = skipSpaces(trimmed, index)
-		if index >= len(trimmed) {
-			return nil, "", errors.New("dbquery query has invalid CTE syntax")
-		}
-		if trimmed[index] != ',' {
-			return names, strings.TrimSpace(trimmed[index:]), nil
-		}
-		index++
-	}
-}
-
-func rowValues(fields []pgconn.FieldDescription, values []any) map[string]any {
-	row := make(map[string]any, len(fields))
-	for index, field := range fields {
-		if index >= len(values) {
-			break
-		}
-		row[string(field.Name)] = values[index]
-	}
-	return row
-}
-
 func maskQuotedStrings(query string) string {
 	var builder strings.Builder
 	builder.Grow(len(query))
@@ -295,99 +233,4 @@ func maskQuotedStrings(query string) string {
 		builder.WriteByte(ch)
 	}
 	return builder.String()
-}
-
-func skipSpaces(value string, index int) int {
-	for index < len(value) {
-		switch value[index] {
-		case ' ', '\t', '\n', '\r':
-			index++
-		default:
-			return index
-		}
-	}
-	return index
-}
-
-func skipMaterialized(value string, index int) int {
-	lower := strings.ToLower(value[index:])
-	switch {
-	case strings.HasPrefix(lower, "not materialized"):
-		return skipSpaces(value, index+len("not materialized"))
-	case strings.HasPrefix(lower, "materialized"):
-		return skipSpaces(value, index+len("materialized"))
-	default:
-		return index
-	}
-}
-
-func readIdentifier(value string, index int) (string, int, bool) {
-	if index >= len(value) {
-		return "", index, false
-	}
-	if value[index] == '"' {
-		for next := index + 1; next < len(value); next++ {
-			if value[next] == '"' {
-				return value[index : next+1], next + 1, true
-			}
-		}
-		return "", index, false
-	}
-	if !isIdentifierStart(value[index]) {
-		return "", index, false
-	}
-	next := index + 1
-	for next < len(value) && isIdentifierPart(value[next]) {
-		next++
-	}
-	return value[index:next], next, true
-}
-
-func skipBalanced(value string, index int) (int, error) {
-	depth := 0
-	inSingleQuote := false
-	inDoubleQuote := false
-	for ; index < len(value); index++ {
-		ch := value[index]
-		switch {
-		case inSingleQuote:
-			if ch == '\'' {
-				if index+1 < len(value) && value[index+1] == '\'' {
-					index++
-					continue
-				}
-				inSingleQuote = false
-			}
-		case inDoubleQuote:
-			if ch == '"' {
-				inDoubleQuote = false
-			}
-		case ch == '\'':
-			inSingleQuote = true
-		case ch == '"':
-			inDoubleQuote = true
-		case ch == '(':
-			depth++
-		case ch == ')':
-			depth--
-			if depth == 0 {
-				return index + 1, nil
-			}
-		}
-	}
-	return 0, errors.New("dbquery query has unbalanced parentheses")
-}
-
-func normalizeIdentifier(value string) string {
-	parts := strings.Split(strings.TrimSpace(value), ".")
-	name := parts[len(parts)-1]
-	return strings.ToLower(strings.Trim(name, `"`))
-}
-
-func isIdentifierStart(ch byte) bool {
-	return ch == '_' || ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z'
-}
-
-func isIdentifierPart(ch byte) bool {
-	return isIdentifierStart(ch) || ch >= '0' && ch <= '9'
 }
