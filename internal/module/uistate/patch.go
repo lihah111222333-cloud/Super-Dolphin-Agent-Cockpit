@@ -72,6 +72,9 @@ func (s *service) projectionUpdatedLocked(projection string) uidto.UIProjectionU
 	projection = strings.TrimSpace(projection)
 	return uidto.UIProjectionUpdated{
 		UIProjectionHeader: sharedto.UIProjectionHeader{
+			ThreadHeader: sharedto.ThreadHeader{
+				EventHeader: sharedto.EventHeader{Timestamp: time.Now()},
+			},
 			Projection: projection,
 		},
 		Revision: s.nextProjectionRevisionLocked(projection),
@@ -107,6 +110,9 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 	if id == "" {
 		return uidto.UIThreadPatch{}
 	}
+	// Forward-compatible fields. The backend publishes them now; frontend
+	// thread-live-patch.js can start consuming activeThreadId/mainAgentId/partial
+	// once that bridge path is upgraded.
 	patch := uidto.UIThreadPatch{
 		ThreadID:          id,
 		Source:            strings.TrimSpace(source),
@@ -136,6 +142,22 @@ func (s *service) nextPatchSequenceLocked(threadID string) int64 {
 	}
 	s.patchSeq[threadID]++
 	return s.patchSeq[threadID]
+}
+
+func (s *service) currentDiffRevisionLocked(threadID string) int64 {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" || s.projectionSeq == nil {
+		return 0
+	}
+	return s.projectionSeq["diff:"+threadID]
+}
+
+func (s *service) bumpDiffRevisionLocked(threadID string) int64 {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return 0
+	}
+	return s.nextProjectionRevisionLocked("diff:" + threadID)
 }
 
 func (s *service) threadSummaryLocked(threadID string) (ThreadSummary, bool) {

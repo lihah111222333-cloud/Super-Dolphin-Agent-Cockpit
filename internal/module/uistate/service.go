@@ -120,18 +120,13 @@ func summarizeAgents(items []orchestration.AgentSnapshot) []AgentSummary {
 }
 
 func (s *service) GetState(ctx context.Context) (*UIState, error) {
-	if known := knownDiffRevisionFromContext(ctx); known > 0 {
-		// TODO(P8): UIState snapshots do not expose diff payload/revision maps yet.
-		// Consume the forward-compatible hint here so incremental diff elision can
-		// land in this method without changing the RPC boundary again.
-		_ = known
-	}
 	prefs, err := s.GetPreferences(ctx)
 	if err != nil {
 		return nil, err
 	}
 	snapshot := s.stateSnapshot()
 	applyPreferencesToState(snapshot, prefs)
+	applyDiffStateSnapshot(ctx, snapshot, s.diffStateSnapshot(ctx))
 	return snapshot, nil
 }
 

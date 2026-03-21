@@ -26,28 +26,28 @@ type UIState struct {
 }
 
 type ThreadSummary struct {
-	ID          string `json:"id"`
-	Name        string `json:"name,omitempty"`
-	AgentID     string `json:"agent_id,omitempty"`
-	State       string `json:"state,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name,omitempty"`
+	AgentID      string `json:"agent_id,omitempty"`
+	State        string `json:"state,omitempty"`
 	ThreadStatus string `json:"threadStatus,omitempty"`
-	AgentState  string `json:"agentState,omitempty"`
-	LastMessage string `json:"lastMessage,omitempty"`
+	AgentState   string `json:"agentState,omitempty"`
+	LastMessage  string `json:"lastMessage,omitempty"`
 }
 
 type AgentSummary struct {
-	ID          string `json:"id"`
-	Name        string `json:"name,omitempty"`
-	ThreadID    string `json:"thread_id,omitempty"`
-	ParentID    string `json:"parent_id,omitempty"`
-	State       string `json:"state,omitempty"`
-	Provider    string `json:"provider,omitempty"`
-	CWD         string `json:"cwd,omitempty"`
-	Port        int    `json:"port,omitempty"`
-	LastReport  string `json:"last_report,omitempty"`
-	AgentState  string `json:"agentState,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name,omitempty"`
+	ThreadID     string `json:"thread_id,omitempty"`
+	ParentID     string `json:"parent_id,omitempty"`
+	State        string `json:"state,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	CWD          string `json:"cwd,omitempty"`
+	Port         int    `json:"port,omitempty"`
+	LastReport   string `json:"last_report,omitempty"`
+	AgentState   string `json:"agentState,omitempty"`
 	ThreadStatus string `json:"threadStatus,omitempty"`
-	LastMessage string `json:"lastMessage,omitempty"`
+	LastMessage  string `json:"lastMessage,omitempty"`
 }
 
 type TurnSummary struct {
@@ -70,25 +70,25 @@ type TokenUsage struct {
 }
 
 type Sidebar struct {
-	Threads               []ThreadSummary        `json:"threads"`
-	Agents                []AgentSummary         `json:"agents"`
-	ActiveTurn            *TurnSummary           `json:"active_turn,omitempty"`
-	RecentTurns           []TurnSummary          `json:"recent_turns,omitempty"`
-	Workspace             WorkspacePanel         `json:"workspace"`
-	TokenUsage            TokenUsage             `json:"token_usage"`
-	Statuses              map[string]string      `json:"statuses,omitempty"`
-	InterruptibleByThread map[string]bool        `json:"interruptibleByThread,omitempty"`
-	StatusHeadersByThread map[string]string      `json:"statusHeadersByThread,omitempty"`
-	StatusDetailsByThread map[string]string      `json:"statusDetailsByThread,omitempty"`
+	Threads               []ThreadSummary           `json:"threads"`
+	Agents                []AgentSummary            `json:"agents"`
+	ActiveTurn            *TurnSummary              `json:"active_turn,omitempty"`
+	RecentTurns           []TurnSummary             `json:"recent_turns,omitempty"`
+	Workspace             WorkspacePanel            `json:"workspace"`
+	TokenUsage            TokenUsage                `json:"token_usage"`
+	Statuses              map[string]string         `json:"statuses,omitempty"`
+	InterruptibleByThread map[string]bool           `json:"interruptibleByThread,omitempty"`
+	StatusHeadersByThread map[string]string         `json:"statusHeadersByThread,omitempty"`
+	StatusDetailsByThread map[string]string         `json:"statusDetailsByThread,omitempty"`
 	AgentRuntimeByID      map[string]map[string]any `json:"agentRuntimeById,omitempty"`
-	ActiveThreadID        string                 `json:"activeThreadId,omitempty"`
-	ActiveCmdThreadID     string                 `json:"activeCmdThreadId,omitempty"`
-	MainAgentID           string                 `json:"mainAgentId,omitempty"`
-	ViewPrefsChat         map[string]any         `json:"viewPrefs.chat,omitempty"`
-	ViewPrefsCmd          map[string]any         `json:"viewPrefs.cmd,omitempty"`
-	ThreadPinsChat        map[string]int64       `json:"threadPins.chat,omitempty"`
-	ThreadArchivesChat    map[string]int64       `json:"threadArchives.chat,omitempty"`
-	Groups                []ThreadGroup          `json:"groups,omitempty"`
+	ActiveThreadID        string                    `json:"activeThreadId,omitempty"`
+	ActiveCmdThreadID     string                    `json:"activeCmdThreadId,omitempty"`
+	MainAgentID           string                    `json:"mainAgentId,omitempty"`
+	ViewPrefsChat         map[string]any            `json:"viewPrefs.chat,omitempty"`
+	ViewPrefsCmd          map[string]any            `json:"viewPrefs.cmd,omitempty"`
+	ThreadPinsChat        map[string]int64          `json:"threadPins.chat,omitempty"`
+	ThreadArchivesChat    map[string]int64          `json:"threadArchives.chat,omitempty"`
+	Groups                []ThreadGroup             `json:"groups,omitempty"`
 }
 
 type WorkspacePanel struct {
