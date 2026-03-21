@@ -7,7 +7,6 @@ import (
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type store struct {
@@ -18,17 +17,17 @@ func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 func (s *store) Insert(ctx context.Context, trace TaskTrace) (*TaskTrace, error) {
 	row, err := s.q.InsertTaskTrace(ctx, sqlc.InsertTaskTraceParams{
-		TraceID:       trace.TraceID,
-		SpanID:        trace.SpanID,
-		ParentSpanID:  trace.ParentSpanID,
-		SpanName:      trace.SpanName,
-		Component:     trace.Component,
-		Column6:       trace.InputPayload,
-		Column7:       trace.OutputPayload,
-		Status:        trace.Status,
-		ErrorText:     trace.ErrorText,
-		DurationMs:    trace.DurationMs,
-		Column11:      trace.Metadata,
+		TraceID:      trace.TraceID,
+		SpanID:       trace.SpanID,
+		ParentSpanID: trace.ParentSpanID,
+		SpanName:     trace.SpanName,
+		Component:    trace.Component,
+		Column6:      trace.InputPayload,
+		Column7:      trace.OutputPayload,
+		Status:       trace.Status,
+		ErrorText:    trace.ErrorText,
+		DurationMs:   trace.DurationMs,
+		Column11:     trace.Metadata,
 	})
 	if err != nil {
 		return nil, wrapTaskTraceError(err, "insert")
@@ -73,11 +72,11 @@ func fromSQLC(row sqlc.TaskTrace) TaskTrace {
 	}
 }
 
-func toTraceSince(ts *time.Time) pgtype.Timestamptz {
+func toTraceSince(ts *time.Time) sqlc.Timestamptz {
 	if ts == nil {
-		return pgtype.Timestamptz{}
+		return sqlc.Timestamptz{}
 	}
-	return pgtype.Timestamptz{Time: *ts, Valid: true}
+	return sqlc.Timestamptz{Time: *ts, Valid: true}
 }
 
 func wrapTaskTraceError(err error, operation string) error {
