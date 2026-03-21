@@ -3,6 +3,7 @@ package unified
 import (
 	"encoding/json"
 	"log/slog"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -18,6 +19,55 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
+
+type typedEventPublisher func(*event.Dispatcher, any) bool
+
+var typedEventPublishers = map[reflect.Type]typedEventPublisher{
+	typedEventType[agentdto.StateChanged]():                  publishEvent[agentdto.StateChanged],
+	typedEventType[agentdto.AgentLaunched]():                 publishEvent[agentdto.AgentLaunched],
+	typedEventType[agentdto.AgentStopped]():                  publishEvent[agentdto.AgentStopped],
+	typedEventType[agentdto.AgentRecovering]():               publishEvent[agentdto.AgentRecovering],
+	typedEventType[agentdto.AgentFailed]():                   publishEvent[agentdto.AgentFailed],
+	typedEventType[agentdto.AgentRuntimeReported]():          publishEvent[agentdto.AgentRuntimeReported],
+	typedEventType[agentdto.AgentWarning]():                  publishEvent[agentdto.AgentWarning],
+	typedEventType[agentdto.AgentError]():                    publishEvent[agentdto.AgentError],
+	typedEventType[dto.RawProviderEvent]():                   publishEvent[dto.RawProviderEvent],
+	typedEventType[dto.BusRawProviderEvent]():                publishEvent[dto.BusRawProviderEvent],
+	typedEventType[taskdto.TaskDagCreated]():                 publishEvent[taskdto.TaskDagCreated],
+	typedEventType[taskdto.TaskNodeStatusChanged]():          publishEvent[taskdto.TaskNodeStatusChanged],
+	typedEventType[taskdto.TaskWakeupDispatched]():           publishEvent[taskdto.TaskWakeupDispatched],
+	typedEventType[taskdto.TaskWakeupCompleted]():            publishEvent[taskdto.TaskWakeupCompleted],
+	typedEventType[threaddto.Started]():                      publishEvent[threaddto.Started],
+	typedEventType[threaddto.Stopped]():                      publishEvent[threaddto.Stopped],
+	typedEventType[threaddto.MessagesPage]():                 publishEvent[threaddto.MessagesPage],
+	typedEventType[threaddto.Compacted]():                    publishEvent[threaddto.Compacted],
+	typedEventType[tooldto.ToolCallBegin]():                  publishEvent[tooldto.ToolCallBegin],
+	typedEventType[tooldto.ToolCallEnd]():                    publishEvent[tooldto.ToolCallEnd],
+	typedEventType[tooldto.ToolApprovalRequested]():          publishEvent[tooldto.ToolApprovalRequested],
+	typedEventType[tooldto.ToolApprovalResolved]():           publishEvent[tooldto.ToolApprovalResolved],
+	typedEventType[turndto.TurnStarted]():                    publishEvent[turndto.TurnStarted],
+	typedEventType[turndto.TurnCompleted]():                  publishEvent[turndto.TurnCompleted],
+	typedEventType[turndto.TurnInterrupted]():                publishEvent[turndto.TurnInterrupted],
+	typedEventType[turndto.TurnStalled]():                    publishEvent[turndto.TurnStalled],
+	typedEventType[turndto.TurnResumed]():                    publishEvent[turndto.TurnResumed],
+	typedEventType[turndto.TurnInputReceived]():              publishEvent[turndto.TurnInputReceived],
+	typedEventType[turndto.TurnOutputDelta]():                publishEvent[turndto.TurnOutputDelta],
+	typedEventType[turndto.PlanDelta]():                      publishEvent[turndto.PlanDelta],
+	typedEventType[turndto.PlanUpdated]():                    publishEvent[turndto.PlanUpdated],
+	typedEventType[turndto.ItemStarted]():                    publishEvent[turndto.ItemStarted],
+	typedEventType[turndto.ItemCompleted]():                  publishEvent[turndto.ItemCompleted],
+	typedEventType[uidto.UIProjectionUpdated]():              publishEvent[uidto.UIProjectionUpdated],
+	typedEventType[uidto.UITimelineAppended]():               publishEvent[uidto.UITimelineAppended],
+	typedEventType[uidto.UITokensUpdated]():                  publishEvent[uidto.UITokensUpdated],
+	typedEventType[uidto.SkillsChanged]():                    publishEvent[uidto.SkillsChanged],
+	typedEventType[uidto.UIThreadPatch]():                    publishEvent[uidto.UIThreadPatch],
+	typedEventType[uidto.UIPreferencesChanged]():             publishEvent[uidto.UIPreferencesChanged],
+	typedEventType[workspacedto.WorkspaceRunCreated]():       publishEvent[workspacedto.WorkspaceRunCreated],
+	typedEventType[workspacedto.WorkspaceRunStatusChanged](): publishEvent[workspacedto.WorkspaceRunStatusChanged],
+	typedEventType[workspacedto.WorkspaceRunMerged]():        publishEvent[workspacedto.WorkspaceRunMerged],
+	typedEventType[workspacedto.WorkspaceRunAborted]():       publishEvent[workspacedto.WorkspaceRunAborted],
+	typedEventType[workspacedto.WorkspaceRunMergeError]():    publishEvent[workspacedto.WorkspaceRunMergeError],
+}
 
 // EventDispatcher manages raw driver events and republishes translated typed events.
 type EventDispatcher struct {
@@ -78,98 +128,24 @@ func publishTypedEvent(bus *event.Dispatcher, ev any) bool {
 	if bus == nil {
 		return true
 	}
-	switch typed := ev.(type) {
-	case agentdto.StateChanged:
-		event.Publish(bus, typed)
-	case agentdto.AgentLaunched:
-		event.Publish(bus, typed)
-	case agentdto.AgentStopped:
-		event.Publish(bus, typed)
-	case agentdto.AgentRecovering:
-		event.Publish(bus, typed)
-	case agentdto.AgentFailed:
-		event.Publish(bus, typed)
-	case agentdto.AgentRuntimeReported:
-		event.Publish(bus, typed)
-	case agentdto.AgentWarning:
-		event.Publish(bus, typed)
-	case agentdto.AgentError:
-		event.Publish(bus, typed)
-	case dto.RawProviderEvent:
-		event.Publish(bus, typed)
-	case dto.BusRawProviderEvent:
-		event.Publish(bus, typed)
-	case taskdto.TaskDagCreated:
-		event.Publish(bus, typed)
-	case taskdto.TaskNodeStatusChanged:
-		event.Publish(bus, typed)
-	case taskdto.TaskWakeupDispatched:
-		event.Publish(bus, typed)
-	case taskdto.TaskWakeupCompleted:
-		event.Publish(bus, typed)
-	case threaddto.Started:
-		event.Publish(bus, typed)
-	case threaddto.Stopped:
-		event.Publish(bus, typed)
-	case threaddto.MessagesPage:
-		event.Publish(bus, typed)
-	case threaddto.Compacted:
-		event.Publish(bus, typed)
-	case tooldto.ToolCallBegin:
-		event.Publish(bus, typed)
-	case tooldto.ToolCallEnd:
-		event.Publish(bus, typed)
-	case tooldto.ToolApprovalRequested:
-		event.Publish(bus, typed)
-	case tooldto.ToolApprovalResolved:
-		event.Publish(bus, typed)
-	case turndto.TurnStarted:
-		event.Publish(bus, typed)
-	case turndto.TurnCompleted:
-		event.Publish(bus, typed)
-	case turndto.TurnInterrupted:
-		event.Publish(bus, typed)
-	case turndto.TurnStalled:
-		event.Publish(bus, typed)
-	case turndto.TurnResumed:
-		event.Publish(bus, typed)
-	case turndto.TurnInputReceived:
-		event.Publish(bus, typed)
-	case turndto.TurnOutputDelta:
-		event.Publish(bus, typed)
-	case turndto.PlanDelta:
-		event.Publish(bus, typed)
-	case turndto.PlanUpdated:
-		event.Publish(bus, typed)
-	case turndto.ItemStarted:
-		event.Publish(bus, typed)
-	case turndto.ItemCompleted:
-		event.Publish(bus, typed)
-	case uidto.UIProjectionUpdated:
-		event.Publish(bus, typed)
-	case uidto.UITimelineAppended:
-		event.Publish(bus, typed)
-	case uidto.UITokensUpdated:
-		event.Publish(bus, typed)
-	case uidto.SkillsChanged:
-		event.Publish(bus, typed)
-	case uidto.UIThreadPatch:
-		event.Publish(bus, typed)
-	case uidto.UIPreferencesChanged:
-		event.Publish(bus, typed)
-	case workspacedto.WorkspaceRunCreated:
-		event.Publish(bus, typed)
-	case workspacedto.WorkspaceRunStatusChanged:
-		event.Publish(bus, typed)
-	case workspacedto.WorkspaceRunMerged:
-		event.Publish(bus, typed)
-	case workspacedto.WorkspaceRunAborted:
-		event.Publish(bus, typed)
-	case workspacedto.WorkspaceRunMergeError:
-		event.Publish(bus, typed)
-	default:
+	publisher, ok := typedEventPublishers[reflect.TypeOf(ev)]
+	if !ok {
 		return false
 	}
+	return publisher(bus, ev)
+}
+
+func typedEventType[T event.Event]() reflect.Type {
+	var zero T
+	return reflect.TypeOf(zero)
+}
+
+func publishEvent[T event.Event](bus *event.Dispatcher, ev any) bool {
+	typed, ok := ev.(T)
+	if !ok {
+		return false
+	}
+	event.Publish(bus, typed)
 	return true
 }
 
