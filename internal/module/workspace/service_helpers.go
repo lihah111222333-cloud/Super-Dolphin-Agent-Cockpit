@@ -70,7 +70,12 @@ func dedupeRelativePaths(files []string) ([]string, error) {
 	return out, nil
 }
 
-func (s *service) planMerge(run *Run, files []RunFile) (*MergeRunResult, []storeworkspace.WorkspaceRunFile) {
+func (s *service) planMerge(
+	run *Run,
+	files []RunFile,
+	removed map[string]removedWorkspaceFile,
+	dryRun bool,
+) (*MergeRunResult, []storeworkspace.WorkspaceRunFile) {
 	result := &MergeRunResult{
 		RunKey:        run.RunKey,
 		Status:        run.Status,
@@ -80,21 +85,40 @@ func (s *service) planMerge(run *Run, files []RunFile) (*MergeRunResult, []store
 	}
 	updates := make([]storeworkspace.WorkspaceRunFile, 0, len(files))
 	for _, file := range files {
-		updated, item := evaluateMergeFile(run, file)
+		updated, item := evaluateTrackedMergeFile(run, file, removed, dryRun)
 		updates = append(updates, updated)
-		result.Files = append(result.Files, item)
-		switch item.Action {
-		case "merged":
-			result.Merged++
-		case "conflict":
-			result.Conflicts++
-		case "unchanged":
-			result.Unchanged++
-		case "error":
-			result.Errors++
-		}
+		recordMergeItem(result, item)
 	}
 	return result, updates
+}
+
+func evaluateTrackedMergeFile(
+	run *Run,
+	file RunFile,
+	removed map[string]removedWorkspaceFile,
+	dryRun bool,
+) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
+	if candidate, ok := removed[file.RelativePath]; ok {
+		return evaluateRemovedMergeFile(storeworkspace.WorkspaceRunFile(file), candidate, dryRun)
+	}
+	return evaluateMergeFile(run, file)
+}
+
+func evaluateRemovedMergeFile(
+	file storeworkspace.WorkspaceRunFile,
+	candidate removedWorkspaceFile,
+	dryRun bool,
+) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
+	file.WorkspaceSHA256 = candidate.WorkspaceSHA256
+	file.SourceSHA256Before = ""
+	file.SourceSHA256After = ""
+	file.State = fileStateRemoved
+	file.LastError = ""
+	action := "removed"
+	if dryRun {
+		action = "would_remove"
+	}
+	return file, MergeFileResult{Path: candidate.RelativePath, Action: action}
 }
 
 func evaluateMergeFile(run *Run, file RunFile) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
@@ -129,6 +153,22 @@ func evaluateMergeFile(run *Run, file RunFile) (storeworkspace.WorkspaceRunFile,
 	updated.State = fileStateMerged
 	updated.SourceSHA256After = workspaceHash
 	return updated, MergeFileResult{Path: file.RelativePath, Action: "merged"}
+}
+
+func recordMergeItem(result *MergeRunResult, item MergeFileResult) {
+	result.Files = append(result.Files, item)
+	switch item.Action {
+	case "merged":
+		result.Merged++
+	case "removed", "would_remove":
+		result.Removed++
+	case "conflict":
+		result.Conflicts++
+	case "unchanged":
+		result.Unchanged++
+	case "error":
+		result.Errors++
+	}
 }
 
 func mergeFileError(file storeworkspace.WorkspaceRunFile, reason string) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
@@ -222,7 +262,9 @@ func (s *service) emitRunCreated(run *Run) {
 		WorkspaceRunHeader: workspaceRunHeader(run),
 		SourceRoot:         run.SourceRoot,
 		WorkspacePath:      run.WorkspacePath,
+		Status:             run.Status,
 		CreatedBy:          run.CreatedBy,
+		UpdatedBy:          run.UpdatedBy,
 	})
 }
 
@@ -235,12 +277,18 @@ func (s *service) emitRunStatusChanged(oldStatus string, run *Run) {
 	})
 }
 
-func (s *service) emitRunMergedEvent(run *Run, mergedCount int) {
+func (s *service) emitRunMergedEvent(run *Run, result *MergeRunResult) {
 	s.emitMerged(workspacedto.WorkspaceRunMerged{
 		WorkspaceRunHeader: workspaceRunHeader(run),
 		SourceRoot:         run.SourceRoot,
 		WorkspacePath:      run.WorkspacePath,
-		MergedFileCount:    mergedCount,
+		Status:             run.Status,
+		DryRun:             result.DryRun,
+		MergedFileCount:    result.Merged,
+		Removed:            result.Removed,
+		Conflicts:          result.Conflicts,
+		Unchanged:          result.Unchanged,
+		Errors:             result.Errors,
 		UpdatedBy:          run.UpdatedBy,
 	})
 }
@@ -278,6 +326,9 @@ func mergeIssueMessage(result *MergeRunResult, fallback string) string {
 func (s *service) emitRunAbortedEvent(run *Run, reason string) {
 	s.emitAborted(workspacedto.WorkspaceRunAborted{
 		WorkspaceRunHeader: workspaceRunHeader(run),
+		SourceRoot:         run.SourceRoot,
+		WorkspacePath:      run.WorkspacePath,
+		Status:             run.Status,
 		Reason:             strings.TrimSpace(reason),
 		UpdatedBy:          run.UpdatedBy,
 	})

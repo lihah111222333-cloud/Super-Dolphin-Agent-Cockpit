@@ -89,23 +89,53 @@ func extractRolloutMetadata(role string, content []rolloutContentItem) json.RawM
 	if !strings.EqualFold(strings.TrimSpace(role), "user") {
 		return nil
 	}
-	inputs := make([]map[string]any, 0, len(content))
-	for _, item := range content {
-		if strings.EqualFold(strings.TrimSpace(item.Type), "input_image") {
-			if imageURL := strings.TrimSpace(item.ImageURL); imageURL != "" {
-				inputs = append(inputs, map[string]any{"type": "image", "url": imageURL})
-			}
-		}
-	}
+	inputs := collectRolloutMetadata(content)
 	if len(inputs) == 0 {
-		// TODO(P7): local rollout artifacts do not currently persist non-image attachment metadata.
 		return nil
 	}
+	return marshalRolloutMetadata(inputs)
+}
+
+func collectRolloutMetadata(content []rolloutContentItem) []map[string]any {
+	inputs := make([]map[string]any, 0, len(content))
+	for _, item := range content {
+		input, _ := rolloutMetadataItem(item)
+		if len(input) != 0 {
+			inputs = append(inputs, input)
+		}
+	}
+	return inputs
+}
+
+func rolloutMetadataItem(item rolloutContentItem) (map[string]any, bool) {
+	kind := strings.ToLower(strings.TrimSpace(item.Type))
+	if kind == "input_image" {
+		imageURL := strings.TrimSpace(item.ImageURL)
+		if imageURL == "" {
+			return map[string]any{"type": "image"}, true
+		}
+		return map[string]any{"type": "image", "url": imageURL}, true
+	}
+	if strings.HasPrefix(kind, "input_") && kind != "input_text" {
+		return map[string]any{"type": normalizeRolloutInputType(kind)}, true
+	}
+	return nil, false
+}
+
+func marshalRolloutMetadata(inputs []map[string]any) json.RawMessage {
 	raw, err := json.Marshal(map[string]any{"input": inputs})
 	if err != nil {
 		return nil
 	}
 	return raw
+}
+
+func normalizeRolloutInputType(kind string) string {
+	kind = strings.TrimSpace(strings.TrimPrefix(kind, "input_"))
+	if kind == "" {
+		return "unknown"
+	}
+	return kind
 }
 
 func findRolloutPath(threadID string) (string, error) {

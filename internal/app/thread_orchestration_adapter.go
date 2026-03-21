@@ -33,3 +33,7 @@ func (a threadOrchestrationAdapter) StopAgent(ctx context.Context, agentID strin
 func (a threadOrchestrationAdapter) Recover(ctx context.Context, agentID string) error {
 	return a.svc.Recover(ctx, agentID)
 }
+
+func (a threadOrchestrationAdapter) BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error {
+	return a.svc.BindSessionGeneration(ctx, agentID, generation)
+}

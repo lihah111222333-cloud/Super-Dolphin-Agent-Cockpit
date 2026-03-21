@@ -29,7 +29,7 @@ func NewWithTx(tx pgx.Tx) *Queries {
 
 var _ Querier = (*Queries)(nil)
 
-type queryable interface {
+type Queryable interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
@@ -41,9 +41,19 @@ func scanValue[T any](row rowScanner) (T, error) {
 	return item, err
 }
 
-func (q *Queries) queryable() queryable {
+func (q *Queries) Queryable() Queryable {
+	return q.queryable()
+}
+
+func (q *Queries) queryable() Queryable {
+	if q == nil {
+		return nil
+	}
 	if q.tx != nil {
 		return q.tx
+	}
+	if q.pool == nil {
+		return nil
 	}
 	return q.pool
 }

@@ -228,6 +228,51 @@ func TestReportParamCompatibility(t *testing.T) {
 	}
 }
 
+func TestLaunchParamsCompatibility(t *testing.T) {
+	t.Parallel()
+
+	var legacy launchParams
+	input := []byte(`{"id":"agent-1","name":"demo","prompt":"hello","cwd":"/tmp","instructions":"follow","config":{"parentID":"parent-1"}}`)
+	if err := json.Unmarshal(input, &legacy); err != nil {
+		t.Fatalf("legacy launchParams err = %v", err)
+	}
+	if legacy.AgentID != "agent-1" || legacy.Prompt != "hello" || legacy.Instructions != "follow" {
+		t.Fatalf("legacy launchParams = %#v", legacy)
+	}
+	if legacy.ParentID != "parent-1" {
+		t.Fatalf("legacy ParentID = %q, want parent-1", legacy.ParentID)
+	}
+
+	var current launchParams
+	input = []byte(`{"agentId":"agent-2","parentId":"parent-2","prompt":"hi","instructions":"careful"}`)
+	if err := json.Unmarshal(input, &current); err != nil {
+		t.Fatalf("current launchParams err = %v", err)
+	}
+	if current.AgentID != "agent-2" || current.ParentID != "parent-2" {
+		t.Fatalf("current launchParams = %#v", current)
+	}
+}
+
+func TestLaunchRequestFromParamsCarriesPromptAndInstructions(t *testing.T) {
+	t.Parallel()
+
+	req := launchRequestFromParams(launchParams{
+		AgentID:      "agent-1",
+		Prompt:       "hello",
+		Instructions: "follow",
+		Env: map[string]string{
+			"B": "2",
+			"A": "1",
+		},
+	})
+	if req.Prompt != "hello" || req.Instructions != "follow" {
+		t.Fatalf("launchRequestFromParams() = %#v", req)
+	}
+	if !reflect.DeepEqual(req.Env, []string{"A=1", "B=2"}) {
+		t.Fatalf("launchRequestFromParams() env = %#v, want sorted env", req.Env)
+	}
+}
+
 func TestSubmitParamsCarryOptionalFields(t *testing.T) {
 	t.Parallel()
 

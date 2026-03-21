@@ -9,7 +9,11 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 	if err := s.setBindingArchived(ctx, threadID, true); err != nil {
 		return err
 	}
-	return s.closeSessionIfActive(ctx, threadID)
+	if err := s.closeSessionIfActive(ctx, threadID); err != nil {
+		return err
+	}
+	s.publishThreadStopped(threadID, s.lookupThreadAgent(threadID), statusArchived, "archived")
+	return nil
 }
 
 func (s *service) Unarchive(ctx context.Context, threadID string) error {

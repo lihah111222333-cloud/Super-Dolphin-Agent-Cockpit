@@ -24,6 +24,9 @@ func (d *StallDetector) CheckStall(agent *agentRuntime) bool {
 	return stalled
 }
 
+// Recover currently implements stop-and-restart semantics only. It does not
+// replay active turns or hydrate in-memory state from persisted runtime state.
+// TODO(P8): add turn replay and state hydration semantics.
 func (s *service) Recover(ctx context.Context, agentID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

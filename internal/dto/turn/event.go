@@ -12,6 +12,8 @@ type TurnCompleted struct {
 	shared.TurnHeader
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // TurnInterrupted reports an interrupt applied to a running turn.

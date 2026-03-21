@@ -3,10 +3,12 @@ package app
 import (
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -29,10 +31,12 @@ var Module = fx.Options(
 	platformrunner.Module,
 	statemachine.Module,
 	store.Module,
+	dashboard.Module,
 	skill.Module,
 	thread.Module,
 	turn.Module,
 	orchestration.Module,
+	uistate.Module,
 	workspace.Module,
 	unified.Module,
 	claudecli.Module,

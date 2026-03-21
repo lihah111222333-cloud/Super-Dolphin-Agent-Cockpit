@@ -22,6 +22,7 @@ type ApprovalManager struct {
 	pendingByRequestID map[int64]map[string]*pendingApproval
 	nextRequestID      atomic.Int64
 	logger             *slog.Logger
+	dispatcher         *event.Dispatcher
 }
 
 var _ contract.ApprovalResponder = (*ApprovalManager)(nil)
@@ -60,7 +61,7 @@ type ApprovalRequest struct {
 	Payload        map[string]any `json:"payload,omitempty"`
 }
 
-func NewApprovalManager(logger *slog.Logger) *ApprovalManager {
+func NewApprovalManager(logger *slog.Logger, dispatcher *event.Dispatcher) *ApprovalManager {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -68,7 +69,15 @@ func NewApprovalManager(logger *slog.Logger) *ApprovalManager {
 		pending:            make(map[string]*pendingApproval),
 		pendingByRequestID: make(map[int64]map[string]*pendingApproval),
 		logger:             logger,
+		dispatcher:         dispatcher,
 	}
+}
+
+func bridgeDispatcher(bridge *PushBridge) *event.Dispatcher {
+	if bridge == nil {
+		return nil
+	}
+	return bridge.dispatcher
 }
 
 func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (contract.ApprovalDecision, error) {
@@ -76,12 +85,9 @@ func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridg
 	if err != nil {
 		return contract.ApprovalDecision{}, err
 	}
-	pending, owner := m.registerPending(req)
-	if owner && bridge != nil {
-		pending.dispatcher = bridge.dispatcher
-	}
+	pending, owner := m.registerPending(req, bridgeDispatcher(bridge))
 	if owner {
-		m.publishRequested(bridge, pending)
+		m.publishRequested(pending)
 	}
 	if err := m.ensureDispatch(bridge, server, pending); err != nil {
 		if owner {
@@ -124,27 +130,31 @@ func (m *ApprovalManager) AutoApprove(callID string) error {
 	})
 }
 
-func (m *ApprovalManager) registerPending(req ApprovalRequest) (*pendingApproval, bool) {
+func (m *ApprovalManager) registerPending(req ApprovalRequest, dispatcher *event.Dispatcher) (*pendingApproval, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	key := pendingStorageKey(req.CallID, req.RequestID)
-	if pending := m.pending[key]; pending != nil {
-		return pending, false
+	if dispatcher == nil {
+		dispatcher = m.dispatcher
 	}
 	requestID := cloneInt64Ptr(req.RequestID)
 	if requestID == nil || *requestID <= 0 {
 		next := m.nextRequestID.Add(1)
 		requestID = &next
 	}
+	key := pendingStorageKey(req.CallID, requestID)
+	if pending := m.pending[key]; pending != nil {
+		return pending, false
+	}
 	pending := &pendingApproval{
-		key:       key,
-		callID:    req.CallID,
-		requestID: requestID,
-		toolName:  req.ToolName,
-		result:    make(chan contract.ApprovalDecision, 1),
-		createdAt: time.Now(),
-		done:      make(chan struct{}),
-		request:   cloneApprovalRequest(req, requestID),
+		key:        key,
+		callID:     req.CallID,
+		requestID:  requestID,
+		toolName:   req.ToolName,
+		result:     make(chan contract.ApprovalDecision, 1),
+		createdAt:  time.Now(),
+		done:       make(chan struct{}),
+		dispatcher: dispatcher,
+		request:    cloneApprovalRequest(req, requestID),
 	}
 	m.pending[key] = pending
 	m.indexPendingLocked(pending)

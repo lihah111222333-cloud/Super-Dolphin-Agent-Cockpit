@@ -45,12 +45,10 @@ func (s *session) rawBase() rawBase {
 
 func (s *session) applyRaw(raw dto.RawProviderEvent) {
 	if raw.Type == "system:init" {
-		if threadID := dataString(raw.Data, "thread_id", "session_id"); threadID != "" {
-			s.mu.Lock()
-			s.threadID = threadID
-			s.sessionID = threadID
-			s.mu.Unlock()
-		}
+		s.setResolvedThreadID(dataString(raw.Data, "thread_id", "session_id"))
+	}
+	if s.shouldSuppressTurn(raw) {
+		return
 	}
 	s.dispatch(raw)
 	if raw.Type == "turn:complete" || raw.Type == "turn:interrupted" {
@@ -100,6 +98,15 @@ func (s *session) finishTurnFromRaw(raw dto.RawProviderEvent) {
 	handle.finish(errors.New(dataString(raw.Data, "error")))
 }
 
+func (s *session) shouldSuppressTurn(raw dto.RawProviderEvent) bool {
+	switch raw.Type {
+	case "turn:complete", "turn:interrupted":
+		return s.consumeSuppressedTurn(dataString(raw.Data, "turn_id"))
+	default:
+		return false
+	}
+}
+
 type rawBase struct {
 	AgentID   string
 	ThreadID  string
@@ -114,6 +121,7 @@ type streamEvent struct {
 	Subtype    string          `json:"subtype"`
 	Message    json.RawMessage `json:"message"`
 	SessionID  string          `json:"session_id"`
+	Timestamp  string          `json:"timestamp"`
 	Result     string          `json:"result"`
 	StopReason string          `json:"stop_reason"`
 	IsError    bool            `json:"is_error"`
@@ -152,7 +160,7 @@ func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error)
 }
 
 func decodeSystemEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
-	data := baseData(base, raw.SessionID)
+	data := baseData(base, raw.SessionID, raw.Timestamp)
 	data["cwd"] = base.CWD
 	data["model"] = base.Model
 	return []dto.RawProviderEvent{{Type: "system:" + strings.TrimSpace(raw.Subtype), Data: data}}
@@ -167,7 +175,7 @@ func decodeAssistantEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent
 	}
 	out := make([]dto.RawProviderEvent, 0, len(msg.Content))
 	for _, block := range msg.Content {
-		data := baseData(base, raw.SessionID)
+		data := baseData(base, raw.SessionID, raw.Timestamp)
 		switch strings.TrimSpace(block.Type) {
 		case "text":
 			if strings.TrimSpace(block.Text) != "" {
@@ -203,7 +211,7 @@ func decodeUserEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, err
 		if dataString(block, "type") != "tool_result" {
 			continue
 		}
-		data := baseData(base, raw.SessionID)
+		data := baseData(base, raw.SessionID, raw.Timestamp)
 		data["call_id"] = dataString(block, "tool_use_id")
 		data["tool_name"] = dataString(block, "tool_name")
 		data["success"] = true
@@ -213,20 +221,24 @@ func decodeUserEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, err
 }
 
 func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
-	data := baseData(base, raw.SessionID)
+	data := baseData(base, raw.SessionID, raw.Timestamp)
 	data["success"] = !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
 	data["error"] = strings.TrimSpace(firstNonEmpty(raw.Result, raw.StopReason))
 	return []dto.RawProviderEvent{{Type: "turn:complete", Data: data}}
 }
 
-func baseData(base rawBase, sessionID string) map[string]any {
+func baseData(base rawBase, sessionID, timestamp string) map[string]any {
 	threadID := strings.TrimSpace(firstNonEmpty(sessionID, base.ThreadID))
-	return map[string]any{
+	data := map[string]any{
 		"agent_id":   strings.TrimSpace(base.AgentID),
 		"thread_id":  threadID,
 		"session_id": threadID,
 		"turn_id":    strings.TrimSpace(base.TurnID),
 	}
+	if timestamp = strings.TrimSpace(timestamp); timestamp != "" {
+		data["timestamp"] = timestamp
+	}
+	return data
 }
 
 func firstNonEmpty(values ...string) string {

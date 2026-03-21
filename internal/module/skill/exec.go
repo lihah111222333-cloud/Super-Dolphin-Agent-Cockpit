@@ -35,15 +35,15 @@ var execAllowedEnvPrefixes = []string{
 
 const lspPreferenceHint = "[LSP提示] 优先用 LSP 工具读代码：lsp_file lsp_inspect lsp_xref lsp_grep lsp_structure lsp_edit lsp_completion。\n"
 
-func (s *service) ExecCommand(ctx context.Context, command string, args []string, cwd string) (ExecResult, error) {
-	return s.execCommand(ctx, command, args, cwd, false)
-}
-
 func (s *service) execShell(ctx context.Context, shellCmd, cwd string) (ExecResult, error) {
-	return s.execCommand(ctx, "sh", []string{"-lc", shellCmd}, cwd, true)
+	return s.execCommand(ctx, "sh", []string{"-lc", shellCmd}, cwd, nil, true)
 }
 
-func (s *service) execCommand(ctx context.Context, command string, args []string, cwd string, allowShell bool) (ExecResult, error) {
+func (s *service) ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error) {
+	return s.execCommand(ctx, command, args, cwd, env, false)
+}
+
+func (s *service) execCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string, allowShell bool) (ExecResult, error) {
 	name, base, err := validateExecCommand(command)
 	if err != nil {
 		return ExecResult{}, err
@@ -56,7 +56,7 @@ func (s *service) execCommand(ctx context.Context, command string, args []string
 	dir := resolveExecCWD(cwd, s.projectRoot)
 	execCtx, cancel := platformconfig.WithRPCRequestTimeout(ctx)
 	defer cancel()
-	return runExecCommand(execCtx, name, base, args, dir, buildExecEnv(dir))
+	return runExecCommand(execCtx, name, base, args, dir, buildExecEnv(dir, env))
 }
 
 func validateExecCommand(command string) (string, string, error) {
@@ -111,12 +111,13 @@ func resolveExecCWD(cwd, projectRoot string) string {
 	return strings.TrimSpace(projectRoot)
 }
 
-func buildExecEnv(cwd string) []string {
+func buildExecEnv(cwd string, overlay map[string]string) []string {
 	env := baseExecEnv()
 	if dir := strings.TrimSpace(cwd); dir != "" {
-		env = append(env, "PWD="+dir)
+		env = mergeExecEnv(env, map[string]string{"PWD": dir})
 	}
-	return append(env, allowedPrefixedExecEnv()...)
+	env = append(env, allowedPrefixedExecEnv()...)
+	return mergeExecEnv(env, overlay)
 }
 
 func baseExecEnv() []string {
@@ -138,6 +139,39 @@ func allowedPrefixedExecEnv() []string {
 		}
 	}
 	return env
+}
+
+func mergeExecEnv(base []string, overlay map[string]string) []string {
+	if len(overlay) == 0 {
+		return base
+	}
+	index := execEnvIndex(base)
+	for key, value := range overlay {
+		name := strings.TrimSpace(key)
+		if name == "" || (name != "PWD" && !isAllowedExecEnvKey(name)) {
+			continue
+		}
+		entry := name + "=" + value
+		upper := strings.ToUpper(name)
+		if pos, ok := index[upper]; ok {
+			base[pos] = entry
+			continue
+		}
+		index[upper] = len(base)
+		base = append(base, entry)
+	}
+	return base
+}
+
+func execEnvIndex(env []string) map[string]int {
+	index := make(map[string]int, len(env))
+	for i, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok {
+			index[strings.ToUpper(strings.TrimSpace(key))] = i
+		}
+	}
+	return index
 }
 
 func isAllowedExecEnvKey(key string) bool {

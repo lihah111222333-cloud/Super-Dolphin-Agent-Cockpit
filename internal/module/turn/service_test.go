@@ -210,6 +210,12 @@ func TestForceCompleteTurnLeavesFinalStateToWatcher(t *testing.T) {
 		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
 			return handle, nil
 		},
+		forceComplete: func(context.Context, dto.ForceCompleteRequest) error {
+			time.AfterFunc(20*time.Millisecond, func() {
+				handle.complete(nil)
+			})
+			return nil
+		},
 	}
 
 	svc := NewService(silentLogger())
@@ -224,9 +230,11 @@ func TestForceCompleteTurnLeavesFinalStateToWatcher(t *testing.T) {
 	if err := svc.ForceCompleteTurn(context.Background(), session); err != nil {
 		t.Fatalf("ForceCompleteTurn() error = %v", err)
 	}
-	handle.complete(context.Canceled)
-	if session.lastInterrupt.Source != "force_complete" {
-		t.Fatalf("ForceCompleteTurn source = %q, want force_complete", session.lastInterrupt.Source)
+	if session.lastForceComplete.ThreadID != "thread-2" {
+		t.Fatalf("ForceCompleteTurn thread id = %q, want thread-2", session.lastForceComplete.ThreadID)
+	}
+	if session.lastForceComplete.ProviderID != "provider-2" {
+		t.Fatalf("ForceCompleteTurn provider id = %q, want provider-2", session.lastForceComplete.ProviderID)
 	}
 	deadline := time.Now().Add(time.Second)
 	for {
@@ -234,22 +242,24 @@ func TestForceCompleteTurnLeavesFinalStateToWatcher(t *testing.T) {
 		if err != nil {
 			t.Fatalf("TrackTurn() error = %v", err)
 		}
-		if status.State == "interrupted" {
+		if status.State == "completed" {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("status.State = %q, want interrupted", status.State)
+			t.Fatalf("status.State = %q, want completed", status.State)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
 type stubSession struct {
-	threadID      string
-	caps          dto.CapabilitySet
-	startTurn     func(context.Context, dto.TurnRequest) (contract.TurnHandle, error)
-	interrupt     func(context.Context, dto.InterruptRequest) error
-	lastInterrupt dto.InterruptRequest
+	threadID          string
+	caps              dto.CapabilitySet
+	startTurn         func(context.Context, dto.TurnRequest) (contract.TurnHandle, error)
+	interrupt         func(context.Context, dto.InterruptRequest) error
+	forceComplete     func(context.Context, dto.ForceCompleteRequest) error
+	lastInterrupt     dto.InterruptRequest
+	lastForceComplete dto.ForceCompleteRequest
 }
 
 func (s *stubSession) ThreadID() string { return s.threadID }
@@ -267,6 +277,14 @@ func (s *stubSession) Interrupt(ctx context.Context, req dto.InterruptRequest) e
 	s.lastInterrupt = req
 	if s.interrupt != nil {
 		return s.interrupt(ctx, req)
+	}
+	return nil
+}
+
+func (s *stubSession) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
+	s.lastForceComplete = req
+	if s.forceComplete != nil {
+		return s.forceComplete(ctx, req)
 	}
 	return nil
 }

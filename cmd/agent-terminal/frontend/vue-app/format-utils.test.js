@@ -1,0 +1,171 @@
+// @ts-nocheck
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const composerStoreMock = vi.hoisted(() => ({
+  state: {
+    text: '',
+    attachments: [],
+  },
+  attachByPaths: vi.fn(() => 0),
+  clearComposer: vi.fn(),
+}));
+
+vi.mock('../lib/vue.esm-browser.prod.js', async () => {
+  const actual = await vi.importActual('../lib/vue.esm-browser.prod.js');
+  return {
+    ...actual,
+    onMounted: () => {},
+    onBeforeUnmount: () => {},
+  };
+});
+
+import { reactive, ref } from '../lib/vue.esm-browser.prod.js';
+
+vi.mock('./stores/composer.js', () => ({
+  useComposerStore: () => composerStoreMock,
+}));
+
+vi.mock('./services/api.js', () => ({
+  callAPI: vi.fn(async () => ({})),
+  copyTextToClipboard: vi.fn(async () => true),
+  onFilesDropped: vi.fn(() => () => {}),
+  resolveThreadIdentity: vi.fn(async () => ({})),
+}));
+
+vi.mock('./services/log.js', () => ({
+  logDebug: vi.fn(),
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
+}));
+
+vi.mock('./composables/useAutoScroll.js', () => ({
+  useAutoScroll: () => ({
+    scheduleScrollToBottom: vi.fn(),
+  }),
+}));
+
+import { UnifiedChatPage } from './pages/UnifiedChatPage.js';
+
+beforeEach(() => {
+  composerStoreMock.state.text = '';
+  composerStoreMock.state.attachments = [];
+  composerStoreMock.attachByPaths.mockReset();
+  composerStoreMock.attachByPaths.mockImplementation(() => 0);
+  composerStoreMock.clearComposer.mockReset();
+  composerStoreMock.clearComposer.mockImplementation(() => {
+    composerStoreMock.state.text = '';
+    composerStoreMock.state.attachments = [];
+  });
+
+  globalThis.window = {
+    ...(globalThis.window || {}),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    setTimeout: vi.fn(() => 1),
+    clearTimeout: vi.fn(),
+    setInterval: vi.fn(() => 1),
+    clearInterval: vi.fn(),
+  };
+  globalThis.document = {
+    ...(globalThis.document || {}),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    querySelector: vi.fn(() => null),
+    activeElement: null,
+  };
+});
+
+function makeProjectStore() {
+  return {
+    state: reactive({ active: '.', showModal: false, projects: ['.'] }),
+    projectOptions: { value: [] },
+    setActive: () => {},
+  };
+}
+
+function makeThreadStore(options = {}) {
+  const currentThreadId = ref('thread-active');
+  const timelinesByThread = reactive({ 'thread-active': options.timeline || [] });
+  const statusDetail = (options.statusDetail || '').toString();
+  return {
+    state: reactive({
+
+      pinnedThreadAtById: {},
+      archivedThreadAtById: {},
+      agentRuntimeById: {},
+      skillRevision: 0,
+    }),
+    getLayout: () => 'focus',
+    setLayout: () => {},
+    getCmdCardCols: () => 3,
+    setCmdCardCols: () => {},
+    getSplitRatio: () => 60,
+    setSplitRatio: () => {},
+    getThreadRailWidth: () => 232,
+    setThreadRailWidth: () => {},
+    getCurrentThreadId: () => currentThreadId.value,
+    saveActiveThread: (value) => { currentThreadId.value = value || ''; },
+    saveActiveCmdThread: (value) => { currentThreadId.value = value || ''; },
+    getThreadsByMode: () => [{ id: 'thread-active', name: 'Active' }],
+    displayName: (thread) => thread.name,
+    getThreadStatus: () => options.status || 'running',
+    getThreadStatusHeader: () => options.statusHeader || '处理中',
+    getThreadInterruptible: () => options.interruptible !== false,
+    getThreadPinnedAt: () => 0,
+    getThreadArchivedAt: () => 0,
+    getThreadTimeline: (threadId) => timelinesByThread[threadId] || [],
+    loadMessages: async () => ({}),
+    stopThread: vi.fn(async () => ({ confirmed: true, settled: true, mode: 'interrupt_confirmed' })),
+    getThreadDiff: () => '',
+    getThreadStatusDetails: () => statusDetail,
+    getThreadTokenUsage: () => options.tokenUsage || null,
+    getThreadCompacting: () => false,
+    getThreadCompactResult: () => null,
+    getThreadCompactSuccessCount: () => 0,
+    getThreadActivityStats: () => ({}),
+    getThreadAlerts: () => [],
+    startThread: vi.fn(async () => 'thread-active'),
+    sendMessage: vi.fn(async () => ({})),
+  };
+}
+
+describe('format split barrier via UnifiedChatPage public outputs', () => {
+  it('formats activity timeline items and truncates long command output', () => {
+    const threadStore = makeThreadStore({
+      timeline: [
+        { id: 'thinking-1', kind: 'thinking', ts: '2026-03-09T10:00:00Z', done: false },
+        { id: 'cmd-1', kind: 'command', ts: '2026-03-09T10:01:00Z', status: 'failed', command: 'npm test', output: 'x'.repeat(500), exitCode: 3 },
+      ],
+    });
+    const vm = UnifiedChatPage.setup({ threadStore, projectStore: makeProjectStore(), mode: 'chat' });
+
+    expect(vm.activeProcessActivity.value[0].message).toBe('$ npm test');
+    expect(vm.activeProcessActivity.value[0].output).toContain('...[truncated]');
+    expect(vm.activeProcessActivity.value[0].time).toMatch(/^\d{2}:\d{2}/);
+    expect(vm.activeProcessActivity.value[1].message).toBe('思考中');
+  });
+
+  it('formats token inline text and tooltip from token usage', () => {
+    const threadStore = makeThreadStore({ tokenUsage: { usedTokens: 1530, contextWindowTokens: 8192, usedPercent: 18.7 } });
+    const vm = UnifiedChatPage.setup({ threadStore, projectStore: makeProjectStore(), mode: 'chat' });
+
+    expect(vm.activeTokenInline.value).toBe('19% · 1.5k / 8.2k');
+    expect(vm.activeTokenTooltip.value).toBe('Context window:\n19% used (81% left)\n1.5k / 8.2k tokens used');
+  });
+
+  it('formats long elapsed status text through activeStatusMeta', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-09T00:00:00Z'));
+    let tick = () => {};
+    globalThis.window.setInterval = vi.fn((cb) => { tick = cb; return 1; });
+    try {
+      const threadStore = makeThreadStore({ status: 'running', statusHeader: '处理中' });
+      const vm = UnifiedChatPage.setup({ threadStore, projectStore: makeProjectStore(), mode: 'chat' });
+      vi.setSystemTime(new Date('2026-03-09T01:01:01Z'));
+      tick();
+      expect(vm.activeStatusMeta.value).toContain('1h 01m 01s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

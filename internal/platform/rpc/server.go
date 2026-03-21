@@ -20,8 +20,9 @@ type Server struct {
 	addr    string
 	methods handler.Map
 
-	mu     sync.RWMutex
-	active map[*jrpc2.Server]struct{}
+	mu         sync.RWMutex
+	active     map[*jrpc2.Server]struct{}
+	onConnects []func(*jrpc2.Server)
 }
 
 func NewServer(p Params) *Server {
@@ -113,6 +114,7 @@ func (s *Server) serveConn(ctx context.Context, ch channel.Channel, opts *jrpc2.
 	srv := jrpc2.NewServer(s.methods, opts).Start(ch)
 	s.addActive(srv)
 	defer s.removeActive(srv)
+	s.notifyConnected(srv)
 
 	go func() {
 		<-connCtx.Done()
@@ -143,10 +145,43 @@ func (s *Server) removeActive(srv *jrpc2.Server) {
 	delete(s.active, srv)
 }
 
+func (s *Server) OnConnect(fn func(*jrpc2.Server)) {
+	if s == nil || fn == nil {
+		return
+	}
+	for _, current := range s.addOnConnect(fn) {
+		fn(current)
+	}
+}
+
+func (s *Server) notifyConnected(srv *jrpc2.Server) {
+	for _, hook := range s.snapshotOnConnects() {
+		hook(srv)
+	}
+}
+
 func (s *Server) snapshotActive() []*jrpc2.Server {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	out := make([]*jrpc2.Server, 0, len(s.active))
+	for current := range s.active {
+		out = append(out, current)
+	}
+	return out
+}
+
+func (s *Server) snapshotOnConnects() []func(*jrpc2.Server) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]func(*jrpc2.Server){}, s.onConnects...)
+}
+
+func (s *Server) addOnConnect(fn func(*jrpc2.Server)) []*jrpc2.Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.onConnects = append(s.onConnects, fn)
 	out := make([]*jrpc2.Server, 0, len(s.active))
 	for current := range s.active {
 		out = append(out, current)

@@ -63,21 +63,54 @@ func (s *service) publishAgentFailed(agent *agentRuntime, err string, recoverabl
 	})
 }
 
+func (s *service) publishAgentRuntimeReported(agent *agentRuntime) {
+	if s.eventBus == nil {
+		return
+	}
+	event.Publish(s.eventBus, agentdto.AgentRuntimeReported{
+		AgentSessionHeader: s.agentSessionHeader(agent),
+		Port:               agent.runtimePort,
+		Provider:           agent.runtimeProvider,
+	})
+}
+
 func (s *service) agentSessionHeader(agent *agentRuntime) shared.AgentSessionHeader {
 	return shared.AgentSessionHeader{
-		AgentHeader: agentHeader(agent.id, agent.threadID),
+		AgentHeader: agentHeader(agent),
 		SessionID:   agentSessionID(agent),
 	}
 }
 
-func agentHeader(agentID, threadID string) shared.AgentHeader {
+func agentHeader(agent *agentRuntime) shared.AgentHeader {
+	agentID := ""
+	threadID := ""
+	if agent != nil {
+		agentID = agent.id
+		threadID = agent.threadID
+	}
 	return shared.AgentHeader{
 		ThreadHeader: shared.ThreadHeader{
-			EventHeader: shared.EventHeader{Timestamp: time.Now()},
+			EventHeader: shared.EventHeader{Timestamp: agentEventTime(agent)},
 			ThreadID:    threadID,
 		},
 		AgentID: agentID,
 	}
+}
+
+func agentEventTime(agent *agentRuntime) time.Time {
+	if agent == nil {
+		return shared.FirstEventTime()
+	}
+	if !agent.updatedAt.IsZero() {
+		return agent.updatedAt
+	}
+	if !agent.startedAt.IsZero() {
+		return agent.startedAt
+	}
+	if agent.exitedAt != nil && !agent.exitedAt.IsZero() {
+		return *agent.exitedAt
+	}
+	return shared.FirstEventTime()
 }
 
 func agentSessionID(agent *agentRuntime) string {

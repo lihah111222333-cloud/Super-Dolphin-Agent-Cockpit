@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -38,12 +39,53 @@ func (a *App) CallAPI(method string, paramsJSON string) (any, error) {
 	return decodeAPIResult(result)
 }
 
+// LaunchAgent preserves the legacy desktop entrypoint while routing creation
+// through the typed V3 thread/start RPC using the V2 baseInstructions field.
+// The legacy name is deferred until a first-class thread naming flow is restored.
+func (a *App) LaunchAgent(name, prompt, cwd string) (any, error) {
+	_ = name
+	return a.callAPIObject("thread/start", map[string]string{
+		"cwd":              strings.TrimSpace(cwd),
+		"baseInstructions": prompt,
+	})
+}
+
+// StopAgent keeps the V2 method name while delegating execution to thread/stop.
+func (a *App) StopAgent(threadID string) error {
+	_, err := a.callAPIObject("thread/stop", map[string]string{
+		"threadId": strings.TrimSpace(threadID),
+	})
+	return err
+}
+
+func (a *App) ListAgents() (any, error) {
+	return a.callAPIObject("agent.list", struct{}{})
+}
+
 func (a *App) GetBuildInfo() map[string]string {
 	return currentBuildInfo()
 }
 
 func (a *App) GetGroup() string {
 	return defaultGroup
+}
+
+// TODO(P9): Defer multi-window desktop support until the V3 window lifecycle
+// and cross-window routing contracts are settled.
+func (a *App) OpenNewWindow(group string, n int, uiBootstrap, cwd string) error {
+	return deferredBindingError("OpenNewWindow", "multi-window desktop flow is deferred")
+}
+
+// TODO(P9): Restore desktop LSP convenience bindings after the typed LSP tool
+// family lands.
+func (a *App) GetLSPDiagnostics(filePath string) (string, error) {
+	return "", deferredBindingError("GetLSPDiagnostics", "desktop LSP helpers move to the P9 LSP tool family")
+}
+
+// TODO(P9): Restore desktop LSP convenience bindings after the typed LSP tool
+// family lands.
+func (a *App) GetLSPStatus() (any, error) {
+	return nil, deferredBindingError("GetLSPStatus", "desktop LSP helpers move to the P9 LSP tool family")
 }
 
 func (a *App) bindRuntime(wailsApp *application.App) {
@@ -72,6 +114,14 @@ func (a *App) callContext() context.Context {
 	return context.Background()
 }
 
+func (a *App) callAPIObject(method string, params any) (any, error) {
+	paramsJSON, err := encodeParamsJSON(params)
+	if err != nil {
+		return nil, err
+	}
+	return a.CallAPI(method, paramsJSON)
+}
+
 func parseParamsJSON(raw string) (json.RawMessage, error) {
 	text := strings.TrimSpace(raw)
 	if text == "" {
@@ -84,6 +134,17 @@ func parseParamsJSON(raw string) (json.RawMessage, error) {
 	return payload, nil
 }
 
+func encodeParamsJSON(params any) (string, error) {
+	if params == nil {
+		return "{}", nil
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 func decodeAPIResult(result json.RawMessage) (any, error) {
 	if len(result) == 0 || string(result) == "null" {
 		return nil, nil
@@ -93,6 +154,10 @@ func decodeAPIResult(result json.RawMessage) (any, error) {
 		return nil, err
 	}
 	return value, nil
+}
+
+func deferredBindingError(method, reason string) error {
+	return fmt.Errorf("wails binding: %s is not implemented: %s", method, reason)
 }
 
 func currentBuildInfo() map[string]string {

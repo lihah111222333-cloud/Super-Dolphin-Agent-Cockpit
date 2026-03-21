@@ -3,6 +3,7 @@ package tasktrace
 import (
 	"context"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -27,7 +28,7 @@ func (s *store) Insert(ctx context.Context, trace TaskTrace) (*TaskTrace, error)
 		Metadata:      trace.Metadata,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapTaskTraceError(err, "insert")
 	}
 	mapped := fromSQLC(row)
 	return &mapped, nil
@@ -41,7 +42,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]TaskTrace, error
 		Limit:     filter.Limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapTaskTraceError(err, "list")
 	}
 	traces := make([]TaskTrace, 0, len(rows))
 	for _, row := range rows {
@@ -67,4 +68,8 @@ func fromSQLC(row sqlc.TaskTrace) TaskTrace {
 		FinishedAt:    row.FinishedAt,
 		DurationMs:    row.DurationMs,
 	}
+}
+
+func wrapTaskTraceError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "task_trace")
 }

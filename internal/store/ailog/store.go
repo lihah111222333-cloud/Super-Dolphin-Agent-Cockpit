@@ -3,6 +3,7 @@ package ailog
 import (
 	"context"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -20,7 +21,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]AILog, error) {
 		Limit:   filter.Limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapAILogError(err, "list")
 	}
 	result := make([]AILog, len(rows))
 	for i, row := range rows {
@@ -47,4 +48,8 @@ func mapAILog(row sqlc.SystemLog) AILog {
 		DurationMs: row.DurationMs,
 		Extra:      row.Extra,
 	}
+}
+
+func wrapAILogError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "ai_log")
 }

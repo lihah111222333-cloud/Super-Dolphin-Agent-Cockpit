@@ -26,6 +26,7 @@ type Session interface {
 
 	StartTurn(ctx context.Context, req dto.TurnRequest) (TurnHandle, error)
 	Interrupt(ctx context.Context, req dto.InterruptRequest) error
+	ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error
 
 	ListThreads(ctx context.Context) ([]dto.ThreadRef, error)
 	ForkThread(ctx context.Context, req dto.ForkRequest) (dto.ForkResult, error)

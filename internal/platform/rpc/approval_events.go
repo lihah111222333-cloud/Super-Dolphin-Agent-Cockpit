@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -13,18 +14,21 @@ import (
 const (
 	DefaultApprovalCallbackMethod          = "approval/request"
 	approvalCallbackMethodCommandExecution = "item/commandExecution/requestApproval"
+	approvalCallbackMethodFileChange       = "item/fileChange/requestApproval"
+	approvalCallbackMethodSkillRequest     = "skill/requestApproval"
 	legacyApprovalCallbackMethod           = "tool/approval/request"
 	legacyApprovalEventMethod              = "tool.approval.requested"
 )
 
-func (m *ApprovalManager) publishRequested(bridge *PushBridge, pending *pendingApproval) {
-	if bridge == nil || bridge.dispatcher == nil || pending == nil {
+func (m *ApprovalManager) publishRequested(pending *pendingApproval) {
+	if pending == nil || pending.dispatcher == nil {
 		return
 	}
-	event.Publish(bridge.dispatcher, tooldto.ToolApprovalRequested{
-		ToolApprovalHeader: approvalHeader(pending.request),
+	event.Publish(pending.dispatcher, tooldto.ToolApprovalRequested{
+		ToolApprovalHeader: approvalHeader(pending.request, approvalRequestedAt(pending)),
 		RequestID:          int64Value(pending.requestID),
 		Reason:             pending.request.Reason,
+		Kind:               strings.TrimSpace(pending.request.Kind),
 	})
 }
 
@@ -33,9 +37,10 @@ func (m *ApprovalManager) publishResolved(pending *pendingApproval, decision con
 		return
 	}
 	event.Publish(pending.dispatcher, tooldto.ToolApprovalResolved{
-		ToolApprovalHeader: approvalHeader(pending.request),
+		ToolApprovalHeader: approvalHeader(pending.request, approvalResolvedAt(decision)),
 		Approved:           decisionApproved(decision),
 		Decision:           decisionReason(decision, err),
+		Kind:               strings.TrimSpace(pending.request.Kind),
 	})
 }
 
@@ -57,6 +62,10 @@ func normalizeApprovalCallbackMethod(method string) string {
 		return ""
 	case legacyApprovalCallbackMethod:
 		return DefaultApprovalCallbackMethod
+	case approvalCallbackMethodCommandExecution,
+		approvalCallbackMethodFileChange,
+		approvalCallbackMethodSkillRequest:
+		return strings.TrimSpace(method)
 	case legacyApprovalEventMethod:
 		return approvalCallbackMethodCommandExecution
 	case "codex/event/request_user_input", "item/tool/request_user_input", "item/tool/requestUserInput", "request_user_input":
@@ -93,13 +102,13 @@ func callbackParams(pending *pendingApproval) map[string]any {
 	return params
 }
 
-func approvalHeader(req ApprovalRequest) shared.ToolApprovalHeader {
+func approvalHeader(req ApprovalRequest, timestamp time.Time) shared.ToolApprovalHeader {
 	return shared.ToolApprovalHeader{
 		ToolCallHeader: shared.ToolCallHeader{
 			TurnHeader: shared.TurnHeader{
 				AgentHeader: shared.AgentHeader{
 					ThreadHeader: shared.ThreadHeader{
-						EventHeader: shared.EventHeader{Timestamp: time.Now()},
+						EventHeader: shared.EventHeader{Timestamp: timestamp},
 						ThreadID:    req.ThreadID,
 					},
 					AgentID: req.AgentID,
@@ -111,4 +120,34 @@ func approvalHeader(req ApprovalRequest) shared.ToolApprovalHeader {
 		},
 		ApprovalID: firstNonEmpty(req.ApprovalID, req.CallID),
 	}
+}
+
+func approvalRequestedAt(pending *pendingApproval) time.Time {
+	if pending == nil {
+		return shared.FirstEventTime()
+	}
+	return shared.ResolveEventTime(nil, pending.request.Payload, pending.createdAt)
+}
+
+func approvalResolvedAt(decision contract.ApprovalDecision) time.Time {
+	return shared.ResolveEventTime(nil, approvalDecisionPayload(decision))
+}
+
+func approvalRequestTime(req ApprovalRequest) time.Time {
+	return shared.EventTimeFromPayload(req.Payload)
+}
+
+func approvalDecisionTime(decision contract.ApprovalDecision) time.Time {
+	return shared.EventTimeFromPayload(approvalDecisionPayload(decision))
+}
+
+func approvalDecisionPayload(decision contract.ApprovalDecision) map[string]any {
+	if len(decision.Detail) == 0 {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(decision.Detail, &payload); err != nil {
+		return nil
+	}
+	return payload
 }

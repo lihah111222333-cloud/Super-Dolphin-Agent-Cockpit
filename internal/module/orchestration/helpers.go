@@ -7,9 +7,11 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 )
 
@@ -43,25 +45,32 @@ func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
 	agent.command = append([]string(nil), req.Command...)
 	agent.env = append([]string(nil), req.Env...)
 	agent.port = launchPort(req)
+	agent.portSource = inferredLaunchSource(agent.port)
 	agent.provider = launchProvider(req)
+	agent.providerSource = inferredLaunchSourceString(agent.provider)
 	agent.lastError = ""
 	agent.stopRequested = false
 	return agent
 }
 
-func (s *service) prepareLaunchStateLocked(agent *agentRuntime) {
+func (s *service) prepareLaunchStateLocked(ctx context.Context, agent *agentRuntime) error {
+	if err := s.normalizeLaunchStateLocked(ctx, agent); err != nil {
+		return err
+	}
+	resetRuntimeStateLocked(agent)
 	agent.lastError = ""
 	agent.stopRequested = false
 	agent.activeTurnID = ""
 	agent.threadID = ""
 	agent.exitedAt = nil
-	agent.updatedAt = time.Now()
-	agent.state = agentdto.StateProvisioning
+	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+	return nil
 }
 
 func (s *service) newAgentLocked(agentID string) *agentRuntime {
 	agent := &agentRuntime{
-		id:        agentID,
+		id: agentID,
+		// Initial construction starts in the machine's configured initial state.
 		state:     agentdto.StateProvisioning,
 		updatedAt: time.Now(),
 		queue:     &SubmissionQueue{},
@@ -69,12 +78,22 @@ func (s *service) newAgentLocked(agentID string) *agentRuntime {
 	agent.sm = platformstatemachine.New(s.machineCfg, func() string {
 		return agent.state
 	}, func(next string) {
+		// The state machine owns subsequent transitions through this sink.
 		agent.state = next
 	})
 	return agent
 }
 
-func (s *service) BindActiveTurnID(_ context.Context, agentID, turnID string) error {
+func (s *service) normalizeLaunchStateLocked(ctx context.Context, agent *agentRuntime) error {
+	switch agent.state {
+	case "", agentdto.StateProvisioning, agentdto.StateRecovering:
+		return nil
+	default:
+		return s.fireOrForceLocked(ctx, agent, agentdto.TriggerRecoverRequested)
+	}
+}
+
+func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -93,7 +112,7 @@ func (s *service) BindActiveTurnID(_ context.Context, agentID, turnID string) er
 		return nil
 	}
 	agent.activeTurnID = turnID
-	agent.updatedAt = time.Now()
+	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 	return nil
 }
 
@@ -252,6 +271,20 @@ func launchProvider(req LaunchRequest) string {
 	return commandFlagValue(launchCommandArgs(req.Command), "--provider")
 }
 
+func inferredLaunchSource(value int) string {
+	if value <= 0 {
+		return ""
+	}
+	return "inferred"
+}
+
+func inferredLaunchSourceString(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return "inferred"
+}
+
 func launchCommandArgs(command []string) []string {
 	if len(command) <= 1 {
 		return nil
@@ -305,4 +338,47 @@ func stopProcess(cmd *exec.Cmd) error {
 		return nil
 	}
 	return cmd.Process.Kill()
+}
+
+type SubmissionQueue struct {
+	mu    sync.Mutex
+	items []turndto.TurnSubmission
+}
+
+func (q *SubmissionQueue) Enqueue(s turndto.TurnSubmission) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.items = append(q.items, s)
+}
+
+func (q *SubmissionQueue) Dequeue() (turndto.TurnSubmission, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) == 0 {
+		return turndto.TurnSubmission{}, false
+	}
+	s := q.items[0]
+	q.items = q.items[1:]
+	return s, true
+}
+
+func (q *SubmissionQueue) Peek() (turndto.TurnSubmission, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) == 0 {
+		return turndto.TurnSubmission{}, false
+	}
+	return q.items[0], true
+}
+
+func (q *SubmissionQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.items)
+}
+
+func (q *SubmissionQueue) Clear() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.items = nil
 }

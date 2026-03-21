@@ -1,13 +1,18 @@
 package shared
 
-import "time"
+import (
+	"context"
+	"strings"
+	"time"
+)
 
 const (
-	EventTypeAgentStateChanged uint32 = 1000
-	EventTypeAgentLaunched     uint32 = 1001
-	EventTypeAgentStopped      uint32 = 1002
-	EventTypeAgentRecovering   uint32 = 1003
-	EventTypeAgentFailed       uint32 = 1004
+	EventTypeAgentStateChanged    uint32 = 1000
+	EventTypeAgentLaunched        uint32 = 1001
+	EventTypeAgentStopped         uint32 = 1002
+	EventTypeAgentRecovering      uint32 = 1003
+	EventTypeAgentFailed          uint32 = 1004
+	EventTypeAgentRuntimeReported uint32 = 1005
 
 	EventTypeTurnStarted       uint32 = 1100
 	EventTypeTurnCompleted     uint32 = 1101
@@ -26,6 +31,10 @@ const (
 	EventTypeTaskNodeStatusChanged uint32 = 1301
 	EventTypeTaskWakeupDispatched  uint32 = 1302
 	EventTypeTaskWakeupCompleted   uint32 = 1303
+
+	EventTypeThreadStarted      uint32 = 1350
+	EventTypeThreadStopped      uint32 = 1351
+	EventTypeThreadMessagesPage uint32 = 1352
 
 	EventTypeWorkspaceRunCreated       uint32 = 1400
 	EventTypeWorkspaceRunStatusChanged uint32 = 1401
@@ -124,4 +133,78 @@ type UIProjectionHeader struct {
 type UITurnHeader struct {
 	UIProjectionHeader
 	TurnIDHeader
+}
+
+type eventTimeKey struct{}
+
+func WithEventTime(ctx context.Context, timestamp time.Time) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timestamp.IsZero() {
+		return ctx
+	}
+	return context.WithValue(ctx, eventTimeKey{}, timestamp)
+}
+
+func ResolveEventTime(ctx context.Context, payload map[string]any, fallbacks ...time.Time) time.Time {
+	if timestamp := eventTimeFromContext(ctx); !timestamp.IsZero() {
+		return timestamp
+	}
+	if timestamp := EventTimeFromPayload(payload); !timestamp.IsZero() {
+		return timestamp
+	}
+	return FirstEventTime(fallbacks...)
+}
+
+func FirstEventTime(fallbacks ...time.Time) time.Time {
+	for _, timestamp := range fallbacks {
+		if !timestamp.IsZero() {
+			return timestamp
+		}
+	}
+	return time.Now()
+}
+
+func EventTimeFromPayload(payload map[string]any) time.Time {
+	if len(payload) == 0 {
+		return time.Time{}
+	}
+	return ParseEventTime(strings.TrimSpace(firstPayloadString(
+		payload,
+		"timestamp",
+		"ts",
+		"createdAt",
+		"created_at",
+		"updatedAt",
+		"updated_at",
+	)))
+}
+
+func ParseEventTime(raw string) time.Time {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed
+		}
+	}
+	return time.Time{}
+}
+
+func eventTimeFromContext(ctx context.Context) time.Time {
+	if ctx == nil {
+		return time.Time{}
+	}
+	timestamp, _ := ctx.Value(eventTimeKey{}).(time.Time)
+	return timestamp
+}
+
+func firstPayloadString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := payload[key].(string); ok {
+			if value = strings.TrimSpace(value); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
 }

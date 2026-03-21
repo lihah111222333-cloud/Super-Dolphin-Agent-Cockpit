@@ -152,10 +152,21 @@ func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Sessio
 	if err != nil {
 		return err
 	}
-	return session.Interrupt(ctx, dto.InterruptRequest{
-		ThreadID: threadID,
-		Source:   "force_complete",
-	})
+	active, tracked := s.tracker.ActiveByThread(threadID)
+	req := dto.ForceCompleteRequest{ThreadID: threadID}
+	if tracked {
+		s.tracker.Update(active.localID, "force_completing")
+		if active.handle != nil {
+			req.ProviderID = strings.TrimSpace(active.handle.ProviderID())
+		}
+	}
+	if err := session.ForceComplete(ctx, req); err != nil {
+		return err
+	}
+	if !tracked {
+		return nil
+	}
+	return s.waitForTurnSettle(ctx, active.localID, active.handle)
 }
 
 func (s *service) TrackTurn(ctx context.Context, localID string) (TurnStatus, error) {

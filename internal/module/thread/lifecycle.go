@@ -9,7 +9,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -23,6 +22,7 @@ type OrchestrationFacade interface {
 	LaunchAgent(ctx context.Context, req LaunchAgentRequest) error
 	StopAgent(ctx context.Context, agentID string) error
 	Recover(ctx context.Context, agentID string) error
+	BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error
 }
 type threadState struct {
 	ThreadID      string
@@ -54,6 +54,10 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
+	if err := s.bindSessionGeneration(ctx, agentID); err != nil {
+		s.stopAgent(ctx, agentID)
+		return StartResult{}, err
+	}
 	session, err := s.lookupSession(agentID)
 	if err != nil {
 		s.stopAgent(ctx, agentID)
@@ -74,36 +78,46 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	}
 	return StartResult{ThreadID: threadID, AgentID: agentID}, nil
 }
-func (s *service) Resume(ctx context.Context, req ResumeRequest) error {
+func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
 	ctx = normalizeThreadContext(ctx)
-	req, err := normalizeResumeRequest(req)
+	req, state, err := s.resolveResumeRequest(ctx, req)
 	if err != nil {
-		return err
+		return ResumeResult{}, err
 	}
-	meta := s.lookupThreadMeta(ctx, req.ThreadID)
-	cwd := firstNonEmpty(meta.CWD, s.lookupBindingCWD(ctx, req.AgentID))
-	if err := s.launchAgent(ctx, req.AgentID, cwd, meta.Prompt); err != nil {
-		return err
+	cwd := firstNonEmpty(req.CWD, s.lookupBindingCWD(ctx, req.AgentID))
+	if s.sessions != nil {
+		s.sessions.RemoveSession(req.AgentID)
+	}
+	if err := s.launchAgent(ctx, req.AgentID, cwd, state.Prompt); err != nil {
+		return ResumeResult{}, err
 	}
 	if _, err := s.resumeSession(ctx, req); err != nil {
 		s.stopAgent(ctx, req.AgentID)
-		return err
+		return ResumeResult{}, err
+	}
+	if err := s.bindSessionGeneration(ctx, req.AgentID); err != nil {
+		s.stopAgent(ctx, req.AgentID)
+		return ResumeResult{}, err
 	}
 	session, err := s.lookupSession(req.AgentID)
 	if err != nil {
 		s.stopAgent(ctx, req.AgentID)
-		return err
+		return ResumeResult{}, err
 	}
 	threadID := resolveStartedThreadID(session.ThreadID(), req.ThreadID)
-	return s.persistThreadState(ctx, threadState{
+	model := firstNonEmpty(req.Model, state.Model)
+	if err := s.persistThreadState(ctx, threadState{
 		ThreadID:  threadID,
 		AgentID:   req.AgentID,
 		Provider:  req.Provider,
 		CWD:       cwd,
-		Model:     meta.Model,
-		Prompt:    meta.Prompt,
-		CreatedAt: firstNonZero(meta.CreatedAt, time.Now().Unix()),
-	}, true)
+		Model:     model,
+		Prompt:    state.Prompt,
+		CreatedAt: firstNonZero(state.CreatedAt, time.Now().Unix()),
+	}, true); err != nil {
+		return ResumeResult{}, err
+	}
+	return ResumeResult{ThreadID: threadID, Status: "resumed", Model: model}, nil
 }
 func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
@@ -152,6 +166,10 @@ func (s *service) Recover(ctx context.Context, threadID string) error {
 		}); err != nil {
 			return err
 		}
+		if err := s.bindSessionGeneration(ctx, binding.AgentID); err != nil {
+			s.stopAgent(ctx, binding.AgentID)
+			return err
+		}
 	}
 	session, err := s.lookupSession(strings.TrimSpace(binding.AgentID))
 	if err != nil {
@@ -166,73 +184,6 @@ func (s *service) Recover(ctx context.Context, threadID string) error {
 		Prompt:    meta.Prompt,
 		CreatedAt: firstNonZero(meta.CreatedAt, time.Now().Unix()),
 	}, true)
-}
-
-func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
-	req.Provider = strings.TrimSpace(req.Provider)
-	req.AgentID = strings.TrimSpace(req.AgentID)
-	req.CWD = strings.TrimSpace(req.CWD)
-	req.Model = strings.TrimSpace(req.Model)
-	req.Prompt = strings.TrimSpace(req.Prompt)
-	req.ApprovalPolicy = strings.TrimSpace(req.ApprovalPolicy)
-	req.Instructions = strings.TrimSpace(req.Instructions)
-	req.Effort = strings.TrimSpace(req.Effort)
-	req.Personality = strings.TrimSpace(req.Personality)
-	if req.Provider == "" {
-		return StartRequest{}, "", errors.New("provider is required")
-	}
-	if req.AgentID == "" {
-		req.AgentID = shareddto.NewID("agent")
-	}
-	return req, req.AgentID, nil
-}
-func normalizeResumeRequest(req ResumeRequest) (ResumeRequest, error) {
-	req.Provider = strings.TrimSpace(req.Provider)
-	req.AgentID = strings.TrimSpace(req.AgentID)
-	req.ThreadID = strings.TrimSpace(req.ThreadID)
-	switch {
-	case req.Provider == "":
-		return ResumeRequest{}, errors.New("provider is required")
-	case req.AgentID == "":
-		return ResumeRequest{}, errors.New("agent id is required")
-	case req.ThreadID == "":
-		return ResumeRequest{}, errors.New("thread id is required")
-	default:
-		return req, nil
-	}
-}
-func (s *service) startSession(ctx context.Context, req StartRequest, agentID string) (contract.Session, error) {
-	if s.starter == nil {
-		return nil, errors.New("session starter is not configured")
-	}
-	return s.starter.StartSession(ctx, dto.StartSessionRequest{
-		Provider:     req.Provider,
-		AgentID:      agentID,
-		CWD:          req.CWD,
-		Model:        req.Model,
-		Instructions: firstNonEmpty(req.Instructions, req.Prompt),
-		Config: map[string]any{
-			"approvalPolicy": req.ApprovalPolicy,
-			"effort":         req.Effort,
-			"personality":    req.Personality,
-		},
-	})
-}
-func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contract.Session, error) {
-	if s.starter == nil {
-		return nil, errors.New("session starter is not configured")
-	}
-	return s.starter.ResumeSession(ctx, dto.ResumeSessionRequest{
-		Provider: req.Provider,
-		AgentID:  req.AgentID,
-		ThreadID: req.ThreadID,
-	})
-}
-func (s *service) lookupSession(agentID string) (contract.Session, error) {
-	if s.sessions == nil {
-		return nil, errors.New("session provider is not configured")
-	}
-	return s.sessions.GetSession(strings.TrimSpace(agentID))
 }
 
 func (s *service) persistThreadState(ctx context.Context, state threadState, updateBinding bool) error {
@@ -257,9 +208,10 @@ func (s *service) persistThreadState(ctx context.Context, state threadState, upd
 		}
 	}
 	if !updateBinding || s.bindingStore == nil {
+		s.publishThreadStarted(state)
 		return nil
 	}
-	return s.bindingStore.Upsert(ctx, bindingstore.UpsertParams{
+	if err := s.bindingStore.Upsert(ctx, bindingstore.UpsertParams{
 		AgentID:          state.AgentID,
 		Provider:         state.Provider,
 		ProviderThreadID: state.ThreadID,
@@ -267,7 +219,11 @@ func (s *service) persistThreadState(ctx context.Context, state threadState, upd
 		Cwd:              state.CWD,
 		CreatedAt:        state.CreatedAt,
 		UpdatedAt:        time.Now().Unix(),
-	})
+	}); err != nil {
+		return err
+	}
+	s.publishThreadStarted(state)
+	return nil
 }
 
 func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadMeta {
@@ -335,31 +291,6 @@ func buildLaunchRequest(agentID, cwd, name string) (LaunchAgentRequest, error) {
 		Command: []string{exe},
 	}, nil
 }
-func resolveStartedThreadID(threadID, fallback string) string {
-	return firstNonEmpty(threadID, fallback)
-}
-func normalizeThreadContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
-}
-func firstNonZero(values ...int64) int64 {
-	for _, value := range values {
-		if value > 0 {
-			return value
-		}
-	}
-	return time.Now().Unix()
-}
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
-}
 func (s *service) rememberBinding(binding *bindingstore.Binding) {
 	if binding == nil {
 		return
@@ -377,6 +308,9 @@ func (s *service) rememberThreadAgent(threadID, agentID string) {
 	}
 	s.threadAgentsMu.Lock()
 	defer s.threadAgentsMu.Unlock()
+	if s.threadAgents == nil {
+		s.threadAgents = make(map[string]string)
+	}
 	s.threadAgents[threadID] = agentID
 }
 func (s *service) lookupThreadAgent(threadID string) string {

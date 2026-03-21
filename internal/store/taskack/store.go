@@ -3,6 +3,7 @@ package taskack
 import (
 	"context"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -28,7 +29,7 @@ func (s *store) Upsert(ctx context.Context, ack TaskAck) (*TaskAck, error) {
 		DueAt:         ack.DueAt,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapTaskAckError(err, "upsert")
 	}
 	mapped := fromSQLC(row)
 	return &mapped, nil
@@ -43,7 +44,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]TaskAck, error) 
 		Limit:      filter.Limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapTaskAckError(err, "list")
 	}
 	acks := make([]TaskAck, 0, len(rows))
 	for _, row := range rows {
@@ -73,4 +74,8 @@ func fromSQLC(row sqlc.TaskAck) TaskAck {
 		CreatedAt:     row.CreatedAt,
 		UpdatedAt:     row.UpdatedAt,
 	}
+}
+
+func wrapTaskAckError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "task_ack")
 }

@@ -6,17 +6,8 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
 	"github.com/kelindar/event"
-
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-)
-
-const (
-	methodEventAgentStateChanged = "ui/state/changed"
-	methodEventTurnStarted       = "turn/started"
-	methodEventTurnCompleted     = "turn/completed"
 )
 
 type EventBridge struct {
@@ -49,18 +40,7 @@ func (b *EventBridge) Start() {
 	if len(b.cancels) > 0 {
 		return
 	}
-
-	b.cancels = []context.CancelFunc{
-		platformbus.ResilientSubscribe(b.dispatcher, func(ev agentdto.StateChanged) {
-			b.publish(methodEventAgentStateChanged, ev)
-		}, b.logger),
-		platformbus.ResilientSubscribe(b.dispatcher, func(ev turndto.TurnStarted) {
-			b.publish(methodEventTurnStarted, ev)
-		}, b.logger),
-		platformbus.ResilientSubscribe(b.dispatcher, func(ev turndto.TurnCompleted) {
-			b.publish(methodEventTurnCompleted, ev)
-		}, b.logger),
-	}
+	b.cancels = eventsurface.Bind(b.dispatcher, b.logger, b.publish)
 }
 
 func (b *EventBridge) Stop() {
@@ -82,10 +62,12 @@ func (b *EventBridge) publish(method string, payload any) {
 	if b == nil || b.lifecycle == nil {
 		return
 	}
-	b.lifecycle.EmitEvent(bridgeEventName, map[string]any{
-		"type":    method,
-		"payload": payloadToMap(payload),
-	})
+	for _, notification := range eventsurface.ExpandNotifications(method, payload) {
+		b.lifecycle.EmitEvent(bridgeEventName, map[string]any{
+			"type":    notification.Method,
+			"payload": payloadToMap(notification.Payload),
+		})
+	}
 }
 
 func payloadToMap(payload any) map[string]any {

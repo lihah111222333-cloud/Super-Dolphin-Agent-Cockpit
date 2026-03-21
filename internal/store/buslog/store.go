@@ -3,6 +3,7 @@ package buslog
 import (
 	"context"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -22,7 +23,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]BusExceptionLog,
 		Limit:    filter.Limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapBusLogError(err, "list")
 	}
 	result := make([]BusExceptionLog, len(rows))
 	for i, row := range rows {
@@ -43,4 +44,8 @@ func mapBusExceptionLog(row sqlc.BusExceptionLog) BusExceptionLog {
 		Traceback: row.Traceback,
 		Extra:     row.Extra,
 	}
+}
+
+func wrapBusLogError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "bus_exception_log")
 }

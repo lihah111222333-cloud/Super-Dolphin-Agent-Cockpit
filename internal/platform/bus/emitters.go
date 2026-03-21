@@ -19,6 +19,8 @@ func (e *domainEmitters) Dispatcher() *event.Dispatcher {
 
 type AgentEmitters struct{ *domainEmitters }
 
+type ThreadEmitters struct{ *domainEmitters }
+
 type TurnEmitters struct{ *domainEmitters }
 
 type ToolEmitters struct{ *domainEmitters }
@@ -41,6 +43,10 @@ func NewEmitter[T event.Event](dispatcher *event.Dispatcher) func(T) {
 
 func NewAgentEmitters(dispatcher *event.Dispatcher) *AgentEmitters {
 	return &AgentEmitters{domainEmitters: newDomainEmitters(dispatcher)}
+}
+
+func NewThreadEmitters(dispatcher *event.Dispatcher) *ThreadEmitters {
+	return &ThreadEmitters{domainEmitters: newDomainEmitters(dispatcher)}
 }
 
 func NewTurnEmitters(dispatcher *event.Dispatcher) *TurnEmitters {

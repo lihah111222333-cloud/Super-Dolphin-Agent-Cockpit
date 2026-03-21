@@ -3,6 +3,7 @@ package topologyapproval
 import (
 	"context"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -23,24 +24,32 @@ func (s *store) Create(ctx context.Context, approval TopologyApproval) (*Topolog
 		ProposedArchitecture: approval.ProposedArchitecture,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapTopologyApprovalError(err, "create")
 	}
 	mapped := fromSQLC(row)
 	return &mapped, nil
 }
 
 func (s *store) Approve(ctx context.Context, reviewer, id string) (int64, error) {
-	return s.q.ApproveTopologyApproval(ctx, reviewer, id)
+	count, err := s.q.ApproveTopologyApproval(ctx, reviewer, id)
+	if err != nil {
+		return 0, wrapTopologyApprovalError(err, "approve")
+	}
+	return count, nil
 }
 
 func (s *store) Reject(ctx context.Context, reviewer, id string) (int64, error) {
-	return s.q.RejectTopologyApproval(ctx, reviewer, id)
+	count, err := s.q.RejectTopologyApproval(ctx, reviewer, id)
+	if err != nil {
+		return 0, wrapTopologyApprovalError(err, "reject")
+	}
+	return count, nil
 }
 
 func (s *store) ListPending(ctx context.Context) ([]TopologyApproval, error) {
 	rows, err := s.q.ListPendingTopologyApprovals(ctx)
 	if err != nil {
-		return nil, err
+		return nil, wrapTopologyApprovalError(err, "list_pending")
 	}
 	approvals := make([]TopologyApproval, 0, len(rows))
 	for _, row := range rows {
@@ -63,4 +72,8 @@ func fromSQLC(row sqlc.TopologyApproval) TopologyApproval {
 		ArchHash:             row.ArchHash,
 		ProposedArchitecture: row.ProposedArchitecture,
 	}
+}
+
+func wrapTopologyApprovalError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "topology_approval")
 }

@@ -3,6 +3,7 @@ package systemlog
 import (
 	"context"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -28,7 +29,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SystemLog, error
 		Limit:     filter.Limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapSystemLogError(err, "list")
 	}
 	result := make([]SystemLog, len(rows))
 	for i, row := range rows {
@@ -38,12 +39,12 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SystemLog, error
 }
 
 func (s *store) Insert(ctx context.Context, params InsertParams) error {
-	return s.q.InsertSystemLog(ctx, sqlc.InsertSystemLogParams{
+	return wrapSystemLogError(s.q.InsertSystemLog(ctx, sqlc.InsertSystemLogParams{
 		Level:   params.Level,
 		Logger:  params.Logger,
 		Message: params.Message,
 		Raw:     params.Raw,
-	})
+	}), "insert")
 }
 
 func mapSystemLog(row sqlc.SystemLog) SystemLog {
@@ -64,4 +65,8 @@ func mapSystemLog(row sqlc.SystemLog) SystemLog {
 		DurationMs: row.DurationMs,
 		Extra:      row.Extra,
 	}
+}
+
+func wrapSystemLogError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "system_log")
 }

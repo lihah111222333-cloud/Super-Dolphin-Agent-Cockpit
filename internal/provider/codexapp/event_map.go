@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -23,6 +24,7 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	eventType := strings.TrimSpace(raw.Type)
 	payload := decodeAnyPayload(raw.Data)
+	unified.PublishUITokensUpdated(payload, publish)
 	if ev, ok := translateAgentEvent(eventType, payload); ok {
 		publish(ev)
 		return
@@ -82,6 +84,8 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 			TurnHeader: turnHeader(payload),
 			Success:    completionSuccess(eventType, payload),
 			Error:      stringValue(payload, "error", "message", "reason"),
+			Status:     stringValue(payload, "status"),
+			Reason:     stringValue(payload, "reason"),
 		}, true
 	case "turn/interrupted", "turn.interrupted":
 		return turndto.TurnInterrupted{
@@ -129,7 +133,12 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			Error:          stringValue(payload, "error", "message", "reason"),
 			ElapsedMS:      int64Value(payload, "elapsedMs", "elapsed_ms"),
 		}, true
-	case "item/commandExecution/requestApproval", "tool.approval.requested":
+	case rpc.DefaultApprovalCallbackMethod,
+		"tool/approval/request",
+		"item/commandExecution/requestApproval",
+		"item/fileChange/requestApproval",
+		"skill/requestApproval",
+		"tool.approval.requested":
 		return tooldto.ToolApprovalRequested{
 			ToolApprovalHeader: toolApprovalHeader(payload),
 			RequestID:          int64Value(payload, "requestId"),
@@ -294,9 +303,11 @@ func looksLikeToolCall(payload map[string]any) bool {
 }
 
 func eventTime(payload map[string]any) time.Time {
-	if raw := stringValue(payload, "timestamp", "ts"); raw != "" {
-		if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-			return parsed
+	if raw := stringValue(payload, "timestamp", "ts", "createdAt", "created_at"); raw != "" {
+		for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+			if parsed, err := time.Parse(layout, raw); err == nil {
+				return parsed
+			}
 		}
 	}
 	return time.Now()

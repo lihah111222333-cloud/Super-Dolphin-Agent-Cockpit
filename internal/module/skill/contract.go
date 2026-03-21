@@ -10,7 +10,7 @@ type Service interface {
 	DeleteCard(ctx context.Context, key string) error
 	RunCard(ctx context.Context, key string, args map[string]any) (CardRunResult, error)
 	ListCardVersions(ctx context.Context, key string) ([]CardVersion, error)
-	ExecCommand(ctx context.Context, command string, args []string, cwd string) (ExecResult, error)
+	ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error)
 	ListSkills(ctx context.Context) ([]SkillInfo, error)
 	ReadLocal(ctx context.Context, path string) (any, error)
 	ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error)

@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/internal/store/workspace"
@@ -12,7 +13,6 @@ type Service interface {
 	CreateRun(ctx context.Context, req CreateRunRequest) (*Run, error)
 	GetRun(ctx context.Context, runKey string) (*Run, error)
 	ListRuns(ctx context.Context, status, dagKey string, limit int) ([]Run, error)
-	UpdateRunStatus(ctx context.Context, runKey, status string) (*Run, error)
 	MergeRun(ctx context.Context, req MergeRunRequest) (*MergeRunResult, error)
 	AbortRun(ctx context.Context, runKey, updatedBy, reason string) error
 	ListRunFiles(ctx context.Context, runKey, state string) ([]RunFile, error)
@@ -23,24 +23,24 @@ type Run = storeworkspace.WorkspaceRun
 type RunFile = storeworkspace.WorkspaceRunFile
 
 type CreateRunRequest struct {
-	RunKey        string          `json:"runKey,omitempty"`
-	DagKey        string          `json:"dagKey,omitempty"`
-	SourceRoot    string          `json:"sourceRoot"`
-	WorkspacePath string          `json:"workspacePath,omitempty"`
+	RunKey        string          `json:"run_key,omitempty"`
+	DagKey        string          `json:"dag_key,omitempty"`
+	SourceRoot    string          `json:"source_root"`
+	WorkspacePath string          `json:"workspace_path,omitempty"`
 	CWD           string          `json:"cwd,omitempty"`
 	Status        string          `json:"status,omitempty"`
-	CreatedBy     string          `json:"createdBy,omitempty"`
-	UpdatedBy     string          `json:"updatedBy,omitempty"`
+	CreatedBy     string          `json:"created_by,omitempty"`
+	UpdatedBy     string          `json:"updated_by,omitempty"`
 	Files         []string        `json:"files,omitempty"`
 	Metadata      json.RawMessage `json:"metadata,omitempty"`
-	FinishedAt    *time.Time      `json:"finishedAt,omitempty"`
+	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
 }
 
 type MergeRunRequest struct {
-	RunKey        string `json:"runKey"`
-	UpdatedBy     string `json:"updatedBy,omitempty"`
-	DryRun        bool   `json:"dryRun,omitempty"`
-	DeleteRemoved bool   `json:"deleteRemoved,omitempty"`
+	RunKey        string `json:"run_key"`
+	UpdatedBy     string `json:"updated_by,omitempty"`
+	DryRun        bool   `json:"dry_run,omitempty"`
+	DeleteRemoved bool   `json:"delete_removed,omitempty"`
 }
 
 type MergeFileResult struct {
@@ -50,14 +50,66 @@ type MergeFileResult struct {
 }
 
 type MergeRunResult struct {
-	RunKey        string            `json:"runKey"`
+	RunKey        string            `json:"run_key"`
 	Status        string            `json:"status"`
-	SourceRoot    string            `json:"sourceRoot"`
-	WorkspacePath string            `json:"workspacePath"`
-	DryRun        bool              `json:"dryRun"`
+	SourceRoot    string            `json:"source_root"`
+	WorkspacePath string            `json:"workspace_path"`
+	DryRun        bool              `json:"dry_run"`
 	Merged        int               `json:"merged"`
+	Removed       int               `json:"removed"`
 	Conflicts     int               `json:"conflicts"`
 	Unchanged     int               `json:"unchanged"`
 	Errors        int               `json:"errors"`
 	Files         []MergeFileResult `json:"files,omitempty"`
+}
+
+func (r *CreateRunRequest) UnmarshalJSON(data []byte) error {
+	type raw CreateRunRequest
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*r = CreateRunRequest(current)
+	var legacy struct {
+		RunKey        string     `json:"runKey"`
+		DagKey        string     `json:"dagKey"`
+		SourceRoot    string     `json:"sourceRoot"`
+		WorkspacePath string     `json:"workspacePath"`
+		CreatedBy     string     `json:"createdBy"`
+		UpdatedBy     string     `json:"updatedBy"`
+		FinishedAt    *time.Time `json:"finishedAt"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	mergeLegacyCreateRunRequest(r, legacy)
+	return nil
+}
+
+func mergeLegacyCreateRunRequest(r *CreateRunRequest, legacy struct {
+	RunKey        string     `json:"runKey"`
+	DagKey        string     `json:"dagKey"`
+	SourceRoot    string     `json:"sourceRoot"`
+	WorkspacePath string     `json:"workspacePath"`
+	CreatedBy     string     `json:"createdBy"`
+	UpdatedBy     string     `json:"updatedBy"`
+	FinishedAt    *time.Time `json:"finishedAt"`
+}) {
+	r.RunKey = coalesceString(r.RunKey, legacy.RunKey)
+	r.DagKey = coalesceString(r.DagKey, legacy.DagKey)
+	r.SourceRoot = coalesceString(r.SourceRoot, legacy.SourceRoot)
+	r.WorkspacePath = coalesceString(r.WorkspacePath, legacy.WorkspacePath)
+	r.CreatedBy = coalesceString(r.CreatedBy, legacy.CreatedBy)
+	r.UpdatedBy = coalesceString(r.UpdatedBy, legacy.UpdatedBy)
+	if r.FinishedAt == nil && legacy.FinishedAt != nil {
+		value := *legacy.FinishedAt
+		r.FinishedAt = &value
+	}
+}
+
+func coalesceString(current, legacy string) string {
+	if strings.TrimSpace(current) != "" {
+		return current
+	}
+	return strings.TrimSpace(legacy)
 }

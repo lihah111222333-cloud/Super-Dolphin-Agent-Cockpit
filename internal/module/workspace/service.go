@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -20,9 +21,11 @@ import (
 const (
 	defaultListLimit   = 200
 	mergeListLimit     = 5000
+	maxRunKeyLength    = 128
 	fileStateSynced    = "synced"
 	fileStateTracked   = "tracked"
 	fileStateMerged    = "merged"
+	fileStateRemoved   = "removed"
 	fileStateConflict  = "conflict"
 	fileStateError     = "error"
 	fileStateUnchanged = "unchanged"
@@ -32,6 +35,8 @@ const (
 	statusMerging      = "merging"
 	statusMerged       = "merged"
 )
+
+var runKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 type service struct {
 	store            storeworkspace.Store
@@ -116,7 +121,7 @@ func validateRunKey(runKey string) error {
 	if runKey == "" {
 		return errors.New("workspace: invalid run key")
 	}
-	if strings.Contains(runKey, "..") || strings.ContainsAny(runKey, `/\`) {
+	if len(runKey) > maxRunKeyLength || !runKeyPattern.MatchString(runKey) {
 		return errors.New("workspace: invalid run key")
 	}
 	return nil
@@ -201,20 +206,20 @@ func (s *service) ListRuns(ctx context.Context, status, dagKey string, limit int
 	})
 }
 
-func (s *service) UpdateRunStatus(ctx context.Context, runKey, status string) (*Run, error) {
-	current, err := s.store.GetRun(ctx, strings.TrimSpace(runKey))
+func (s *service) UpdateRunStatus(ctx context.Context, input storeworkspace.UpdateRunStatusInput) (*Run, error) {
+	input.RunKey = strings.TrimSpace(input.RunKey)
+	before, err := s.store.GetRun(ctx, input.RunKey)
 	if err != nil {
 		return nil, err
 	}
-	run, err := s.store.UpdateRunStatus(ctx, storeworkspace.UpdateRunStatusInput{
-		RunKey: strings.TrimSpace(runKey),
-		Status: strings.TrimSpace(status),
-	})
+	updated, err := s.store.UpdateRunStatus(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-	s.emitRunStatusChanged(current.Status, run)
-	return run, nil
+	if before != nil && before.Status != updated.Status {
+		s.emitRunStatusChanged(before.Status, updated)
+	}
+	return updated, nil
 }
 
 func (s *service) MergeRun(ctx context.Context, req MergeRunRequest) (*MergeRunResult, error) {
@@ -330,11 +335,11 @@ func (s *service) dryRunMerge(ctx context.Context, run *Run, req MergeRunRequest
 	if err != nil {
 		return nil, err
 	}
-	result, _ := s.planMerge(run, files)
-	result.DryRun = req.DryRun
-	if req.DeleteRemoved {
-		// TODO(p2-r2): restore full V2 deleteRemoved semantics once merge walks the workspace tree again.
+	result, _, err := s.buildMergePlan(run, files, req)
+	if err != nil {
+		return nil, err
 	}
+	result.DryRun = req.DryRun
 	result.Status = run.Status
 	return result, nil
 }
@@ -346,6 +351,7 @@ func mergeMetadata(result *MergeRunResult, req MergeRunRequest, message string) 
 	}
 	if result != nil {
 		metadata["merged"] = result.Merged
+		metadata["removed"] = result.Removed
 		metadata["conflicts"] = result.Conflicts
 		metadata["unchanged"] = result.Unchanged
 		metadata["errors"] = result.Errors

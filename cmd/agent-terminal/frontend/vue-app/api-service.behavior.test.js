@@ -1,0 +1,67 @@
+// @ts-nocheck
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('./services/log.js', () => ({
+  logDebug: vi.fn(),
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
+  logError: vi.fn(),
+  registerLogBridgeSink: vi.fn(),
+}));
+
+import {
+  callAPI,
+  copyTextToClipboard,
+  normalizeRuntimeEventEnvelope,
+  resolveThreadIdentity,
+} from './services/api.js';
+
+beforeEach(() => {
+  vi.stubGlobal('window', { __WAILS_SHIM_DEBUG__: true, location: { pathname: '/test' } });
+  vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+  vi.stubGlobal('document', {
+    body: {
+      appendChild: vi.fn(),
+      removeChild: vi.fn(),
+    },
+    createElement: vi.fn(() => ({
+      style: {},
+      select: vi.fn(),
+    })),
+    execCommand: vi.fn(() => true),
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+
+describe('api service behavior', () => {
+  it('normalizes raw and Wails-style runtime event envelopes', () => {
+    expect(normalizeRuntimeEventEnvelope({ type: 'raw' })).toEqual({ type: 'raw' });
+    expect(normalizeRuntimeEventEnvelope({ name: 'evt', data: '{"type":"bridge"}' })).toEqual({ type: 'bridge' });
+    expect(normalizeRuntimeEventEnvelope({ name: 'evt', data: { type: 'agent' } })).toEqual({ type: 'agent' });
+    expect(normalizeRuntimeEventEnvelope({ name: 'evt', data: '' })).toEqual({});
+  });
+
+  it('rejects non-object RPC params before touching the runtime bridge', async () => {
+    await expect(callAPI('thread/list', [])).rejects.toThrow('callAPI params must be an object');
+    await expect(callAPI('thread/list', 'bad')).rejects.toThrow('callAPI params must be an object');
+  });
+
+  it('copies text through browser clipboard in debug shim mode', async () => {
+    await expect(copyTextToClipboard('hello')).resolves.toBe(true);
+    expect(globalThis.navigator.clipboard.writeText).toHaveBeenCalledWith('hello');
+  });
+  it('falls back to execCommand when clipboard api is unavailable', async () => {
+    vi.stubGlobal('navigator', {});
+    await expect(copyTextToClipboard('fallback')).resolves.toBe(true);
+    expect(globalThis.document.execCommand).toHaveBeenCalledWith('copy');
+  });
+
+
+  it('returns an empty identity object for blank thread ids', async () => {
+    await expect(resolveThreadIdentity('   ')).resolves.toEqual({});
+  });
+});

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -16,24 +17,28 @@ func NewStore(q *sqlc.Queries) Store {
 }
 
 func (s *store) GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error) {
-	return s.q.GetUIPreferenceValue(ctx, sqlc.GetUIPreferenceValueParams{
+	value, err := s.q.GetUIPreferenceValue(ctx, sqlc.GetUIPreferenceValueParams{
 		Cwd: cwd,
 		Key: key,
 	})
+	if err != nil {
+		return nil, wrapUIPreferenceError(err, "get")
+	}
+	return value, nil
 }
 
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
-	return s.q.UpsertUIPreference(ctx, sqlc.UpsertUIPreferenceParams{
+	return wrapUIPreferenceError(s.q.UpsertUIPreference(ctx, sqlc.UpsertUIPreferenceParams{
 		Cwd:   params.Cwd,
 		Key:   params.Key,
 		Value: params.Value,
-	})
+	}), "upsert")
 }
 
 func (s *store) List(ctx context.Context, cwd string) ([]UIPreference, error) {
 	rows, err := s.q.ListUIPreferences(ctx, cwd)
 	if err != nil {
-		return nil, err
+		return nil, wrapUIPreferenceError(err, "list")
 	}
 	result := make([]UIPreference, len(rows))
 	for i, row := range rows {
@@ -45,4 +50,8 @@ func (s *store) List(ctx context.Context, cwd string) ([]UIPreference, error) {
 		}
 	}
 	return result, nil
+}
+
+func wrapUIPreferenceError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "ui_preference")
 }

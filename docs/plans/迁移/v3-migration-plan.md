@@ -189,58 +189,57 @@ V3 的包结构必须满足 7 条硬约束：
 ```text
 cmd/
 ├── agent-terminal/
-│   ├── main.go
-│   ├── fx.go
-│   ├── app.go
-│   ├── shutdown.go
-│   └── wails_bindings.go
+│   └── main.go
 ├── mcp-lsp/
 │   ├── main.go
 │   └── fx.go
 ├── mcp-orch/
 │   ├── main.go
 │   └── fx.go
-├── mcp-ida/
-│   ├── main.go
-│   └── fx.go
-└── migrate/
-    └── main.go
+└── mcp-ida/
+    ├── main.go
+    └── fx.go
 
 internal/
-├── app/                 ← fx 聚合 + bootstrap
+├── app/                 ← fx 聚合 + desktop/bootstrap
 │   ├── app.go
 │   ├── modules.go
-│   ├── lifecycle.go
-│   ├── logging.go
-│   └── runner.go
-├── contract/            ← 纯接口（零依赖）
+│   ├── runner.go
+│   └── thread_orchestration_adapter.go
+├── contract/            ← 当前纯接口合同
+│   ├── approval.go
 │   ├── provider.go
-│   ├── repositories.go
-│   ├── eventbus.go
-│   └── rpc.go
-├── dto/                 ← 纯数据结构
+│   └── session_resolver.go
+├── dto/                 ← 当前已落地的数据结构
 │   ├── agent/
-│   │   ├── model.go
-│   │   ├── state.go
-│   │   └── event.go
-│   ├── thread/
-│   │   ├── model.go
-│   │   └── config.go
-│   ├── turn/
-│   │   ├── model.go
+│   │   ├── event.go
+│   │   ├── guard.go
+│   │   └── state.go
+│   ├── provider/
+│   │   ├── capability.go
+│   │   ├── event.go
+│   │   ├── manifest.go
+│   │   ├── message.go
+│   │   ├── session.go
+│   │   ├── thread.go
+│   │   ├── thread_config.go
+│   │   └── turn.go
+│   ├── shared/
+│   │   ├── errors.go
+│   │   ├── event.go
+│   │   ├── ids.go
 │   │   └── input.go
 │   ├── task/
-│   │   ├── dag.go
-│   │   └── wakeup.go
-│   ├── workspace/
-│   │   └── run.go
-│   ├── skill/
-│   │   └── skill.go
-│   └── shared/
-│       ├── errors.go
-│       ├── ids.go
-│       ├── path.go
-│       └── typeutil.go
+│   │   └── event.go
+│   ├── tool/
+│   │   └── event.go
+│   ├── turn/
+│   │   ├── event.go
+│   │   └── model.go
+│   ├── ui/
+│   │   └── event.go
+│   └── workspace/
+│       └── event.go
 ├── platform/            ← 基础设施层（原 infra/）
 │   ├── config/
 │   │   ├── module.go

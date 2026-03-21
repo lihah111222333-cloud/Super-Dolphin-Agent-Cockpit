@@ -41,6 +41,11 @@ type InterruptRequest struct {
 	Source   string `json:"source,omitempty"`
 }
 
+type ForceCompleteRequest struct {
+	ThreadID   string `json:"threadId"`
+	ProviderID string `json:"providerId,omitempty"`
+}
+
 type ForkRequest struct {
 	ThreadID string `json:"threadId"`
 }

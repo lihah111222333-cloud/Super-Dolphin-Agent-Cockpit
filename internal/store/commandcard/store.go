@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -16,7 +17,7 @@ func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 func (s *store) Get(ctx context.Context, cardKey string) (*CommandCard, error) {
 	row, err := s.q.GetCommandCard(ctx, cardKey)
 	if err != nil {
-		return nil, err
+		return nil, wrapCommandCardError(err, "get", "command_card")
 	}
 	mapped := fromCard(row)
 	return &mapped, nil
@@ -24,11 +25,11 @@ func (s *store) Get(ctx context.Context, cardKey string) (*CommandCard, error) {
 
 func (s *store) Delete(ctx context.Context, cardKey string) error {
 	_, err := s.q.DeleteCommandCard(ctx, cardKey)
-	return err
+	return wrapCommandCardError(err, "delete", "command_card")
 }
 
 func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) error {
-	return s.q.InsertCommandCardVersion(ctx, sqlc.InsertCommandCardVersionParams{
+	return wrapCommandCardError(s.q.InsertCommandCardVersion(ctx, sqlc.InsertCommandCardVersionParams{
 		CardKey:         version.CardKey,
 		Title:           version.Title,
 		Description:     version.Description,
@@ -39,13 +40,13 @@ func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) e
 		CreatedBy:       version.CreatedBy,
 		UpdatedBy:       version.UpdatedBy,
 		SourceUpdatedAt: sourceUpdatedAt(version.SourceUpdatedAt),
-	})
+	}), "insert_version", "command_card_version")
 }
 
 func (s *store) ListVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error) {
 	rows, err := s.q.ListCommandCardVersions(ctx, cardKey)
 	if err != nil {
-		return nil, err
+		return nil, wrapCommandCardError(err, "list_versions", "command_card_version")
 	}
 	versions := make([]CommandCardVersion, 0, len(rows))
 	for _, row := range rows {
@@ -67,7 +68,7 @@ func (s *store) Upsert(ctx context.Context, card CommandCard) (*CommandCard, err
 		UpdatedBy:       card.UpdatedBy,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapCommandCardError(err, "upsert", "command_card")
 	}
 	mapped := fromCard(row)
 	return &mapped, nil
@@ -76,7 +77,7 @@ func (s *store) Upsert(ctx context.Context, card CommandCard) (*CommandCard, err
 func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, error) {
 	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{Keyword: filter.Keyword, Limit: filter.Limit})
 	if err != nil {
-		return nil, err
+		return nil, wrapCommandCardError(err, "list", "command_card")
 	}
 	cards := make([]CommandCard, 0, len(rows))
 	for _, row := range rows {
@@ -144,4 +145,8 @@ func sourceUpdatedAt(ts *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *ts
+}
+
+func wrapCommandCardError(err error, operation, entity string) error {
+	return platformdb.WrapStoreError(err, operation, entity)
 }

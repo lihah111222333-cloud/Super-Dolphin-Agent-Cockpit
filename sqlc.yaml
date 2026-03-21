@@ -2,7 +2,10 @@ version: "2"
 sql:
   - engine: "postgresql"
     queries: "sql/queries/"
-    schema: "migrations/"
+    schema:
+      - "migrations/001_baseline.sql"
+      - "migrations/0022_binding_session_uuid.sql"
+      - "migrations/0023_dag_watcher_phase1.sql"
     gen:
       go:
         package: "sqlc"

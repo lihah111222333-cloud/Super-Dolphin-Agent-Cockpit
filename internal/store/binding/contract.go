@@ -4,6 +4,8 @@ import (
 	"context"
 )
 
+// TODO(p7w2): migrate the remaining legacy threadbinding query surface into
+// sql/queries once the compatibility shape is finalized.
 type Store interface {
 	GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*Binding, error)
 	Upsert(ctx context.Context, params UpsertParams) error

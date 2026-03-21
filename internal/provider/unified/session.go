@@ -8,13 +8,20 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 // SessionManager manages active sessions by agent ID.
 type SessionManager struct {
-	mu       sync.RWMutex
-	sessions map[string]contract.Session
-	logger   *slog.Logger
+	mu             sync.RWMutex
+	sessions       map[string]sessionEntry
+	nextGeneration uint64
+	logger         *slog.Logger
+}
+
+type sessionEntry struct {
+	generation uint64
+	session    contract.Session
 }
 
 func NewSessionManager(logger *slog.Logger) *SessionManager {
@@ -22,41 +29,68 @@ func NewSessionManager(logger *slog.Logger) *SessionManager {
 		logger = slog.Default()
 	}
 	return &SessionManager{
-		sessions: make(map[string]contract.Session),
+		sessions: make(map[string]sessionEntry),
 		logger:   logger,
 	}
 }
 
-func (m *SessionManager) Register(agentID string, session contract.Session) {
+func (m *SessionManager) Register(agentID string, session contract.Session) uint64 {
 	id := normalizeAgentID(agentID)
 	if id == "" || session == nil {
-		return
+		return 0
 	}
 
 	m.mu.Lock()
 	previous := m.sessions[id]
-	m.sessions[id] = session
+	generation := m.nextGenerationLocked()
+	m.sessions[id] = sessionEntry{generation: generation, session: session}
 	m.mu.Unlock()
 
-	if previous != nil && previous != session {
-		if err := previous.ForceStop(); err != nil {
+	if previous.session != nil && previous.session != session {
+		if err := previous.session.ForceStop(); err != nil {
 			m.logger.Warn("failed to stop replaced session", "agent_id", id, "error", err)
 		}
 	}
+	return generation
 }
 
 func (m *SessionManager) Get(agentID string) (contract.Session, error) {
 	id := normalizeAgentID(agentID)
 	m.mu.RLock()
-	session, ok := m.sessions[id]
+	entry, ok := m.sessions[id]
 	m.mu.RUnlock()
-	if ok {
-		return session, nil
+	if ok && entry.session != nil {
+		return entry.session, nil
 	}
-	return nil, fmt.Errorf("session not found for agent %q", agentID)
+	return nil, fmt.Errorf("%w for agent %q", contract.ErrSessionNotFound, agentID)
 }
 
-func (m *SessionManager) Remove(agentID string) {
+func (m *SessionManager) SessionGeneration(agentID string) uint64 {
+	id := normalizeAgentID(agentID)
+	if id == "" {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sessions[id].generation
+}
+
+func (m *SessionManager) Remove(agentID string, generation uint64) {
+	if m == nil {
+		return
+	}
+	id := normalizeAgentID(agentID)
+	if id == "" || generation == 0 {
+		return
+	}
+	session, ok := m.removeEntry(id, generation, true)
+	if !ok {
+		return
+	}
+	m.closeRemovedSession(id, session)
+}
+
+func (m *SessionManager) RemoveCurrent(agentID string) {
 	if m == nil {
 		return
 	}
@@ -64,21 +98,11 @@ func (m *SessionManager) Remove(agentID string) {
 	if id == "" {
 		return
 	}
-
-	m.mu.Lock()
-	session, ok := m.sessions[id]
-	delete(m.sessions, id)
-	m.mu.Unlock()
-
-	if !ok || session == nil {
+	session, ok := m.removeEntry(id, 0, false)
+	if !ok {
 		return
 	}
-	if err := session.Close(context.Background()); err != nil {
-		m.logger.Warn("failed to close removed session", "agent_id", id, "error", err)
-		if stopErr := session.ForceStop(); stopErr != nil {
-			m.logger.Warn("failed to force stop removed session", "agent_id", id, "error", stopErr)
-		}
-	}
+	m.closeRemovedSession(id, session)
 }
 
 func (m *SessionManager) CloseAll(ctx context.Context) {
@@ -88,28 +112,78 @@ func (m *SessionManager) CloseAll(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	for agentID, session := range m.drain() {
-		err := session.Close(ctx)
+	for agentID, entry := range m.drain() {
+		err := closeSession(ctx, entry.session)
 		if err == nil {
 			continue
 		}
 		m.logger.Warn("failed to close session", "agent_id", agentID, "error", err)
-		if stopErr := session.ForceStop(); stopErr != nil {
+		if stopErr := entry.session.ForceStop(); stopErr != nil {
 			m.logger.Warn("failed to force stop session", "agent_id", agentID, "error", stopErr)
 		}
 	}
 }
 
-func (m *SessionManager) drain() map[string]contract.Session {
+func (m *SessionManager) drain() map[string]sessionEntry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	out := make(map[string]contract.Session, len(m.sessions))
-	for agentID, session := range m.sessions {
-		out[agentID] = session
+	out := make(map[string]sessionEntry, len(m.sessions))
+	for agentID, entry := range m.sessions {
+		out[agentID] = entry
 	}
-	m.sessions = make(map[string]contract.Session)
+	m.sessions = make(map[string]sessionEntry)
 	return out
+}
+
+func (m *SessionManager) removeEntry(agentID string, generation uint64, requireMatch bool) (contract.Session, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	entry, ok := m.sessions[agentID]
+	if !ok || entry.session == nil {
+		return nil, false
+	}
+	if requireMatch && entry.generation != generation {
+		return nil, false
+	}
+	delete(m.sessions, agentID)
+	return entry.session, true
+}
+
+func (m *SessionManager) closeRemovedSession(agentID string, session contract.Session) {
+	closeCtx, cancel := platformconfig.WithSessionCloseTimeout(context.Background())
+	defer cancel()
+	if err := closeSession(closeCtx, session); err != nil {
+		m.logger.Warn("failed to close removed session", "agent_id", agentID, "error", err)
+		if stopErr := session.ForceStop(); stopErr != nil {
+			m.logger.Warn("failed to force stop removed session", "agent_id", agentID, "error", stopErr)
+		}
+	}
+}
+
+func (m *SessionManager) nextGenerationLocked() uint64 {
+	m.nextGeneration++
+	if m.nextGeneration == 0 {
+		m.nextGeneration++
+	}
+	return m.nextGeneration
+}
+
+func closeSession(ctx context.Context, session contract.Session) error {
+	if session == nil {
+		return nil
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- session.Close(ctx)
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func normalizeAgentID(agentID string) string {

@@ -3,6 +3,7 @@ package agentstatus
 import (
 	"context"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -25,7 +26,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, 
 		OutputTail:  params.OutputTail,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapAgentStatusError(err, "upsert")
 	}
 	result := mapAgentStatus(row)
 	return &result, nil
@@ -34,7 +35,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, 
 func (s *store) Get(ctx context.Context, agentID string) (*AgentStatus, error) {
 	row, err := s.q.GetAgentStatus(ctx, agentID)
 	if err != nil {
-		return nil, err
+		return nil, wrapAgentStatusError(err, "get")
 	}
 	result := mapAgentStatus(row)
 	return &result, nil
@@ -43,7 +44,7 @@ func (s *store) Get(ctx context.Context, agentID string) (*AgentStatus, error) {
 func (s *store) List(ctx context.Context, status string) ([]AgentStatus, error) {
 	rows, err := s.q.ListAgentStatuses(ctx, status)
 	if err != nil {
-		return nil, err
+		return nil, wrapAgentStatusError(err, "list")
 	}
 	result := make([]AgentStatus, len(rows))
 	for i, row := range rows {
@@ -64,4 +65,8 @@ func mapAgentStatus(row sqlc.AgentStatus) AgentStatus {
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 	}
+}
+
+func wrapAgentStatusError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "agent_status")
 }
