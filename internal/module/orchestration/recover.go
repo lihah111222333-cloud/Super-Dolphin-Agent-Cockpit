@@ -84,11 +84,8 @@ func normalizeRecoveryState(ctx context.Context, s *service, agent *agentRuntime
 // Replay is currently supported only when the active turn can be reconstructed
 // from persisted DAG wakeup payloads.
 func loadRecoveredTurnSubmission(ctx context.Context, s *service, agent *agentRuntime) (TurnSubmission, bool, error) {
-	if s == nil || agent == nil {
-		return TurnSubmission{}, false, nil
-	}
-	activeTurnID := strings.TrimSpace(agent.activeTurnID)
-	if activeTurnID == "" || s.recoveryStore == nil {
+	activeTurnID, ok := validateRecoveryContext(s, agent)
+	if !ok {
 		return TurnSubmission{}, false, nil
 	}
 	nodes, err := s.recoveryStore.ListRunningNodesByAssignee(ctx, agent.id)
@@ -113,6 +110,17 @@ func loadRecoveredTurnSubmission(ctx context.Context, s *service, agent *agentRu
 		return submission, true, nil
 	}
 	return TurnSubmission{}, false, nil
+}
+
+func validateRecoveryContext(s *service, agent *agentRuntime) (string, bool) {
+	if s == nil || agent == nil {
+		return "", false
+	}
+	activeTurnID := strings.TrimSpace(agent.activeTurnID)
+	if activeTurnID == "" || s.recoveryStore == nil {
+		return "", false
+	}
+	return activeTurnID, true
 }
 
 func decodeRecoveredTurnSubmission(raw json.RawMessage, agent *agentRuntime, activeTurnID string) (TurnSubmission, error) {
