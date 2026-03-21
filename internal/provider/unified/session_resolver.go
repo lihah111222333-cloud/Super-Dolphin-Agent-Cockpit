@@ -55,32 +55,34 @@ func (r *sessionResolver) ResolveSession(ctx context.Context, threadID string) (
 	if r.sessions == nil {
 		return nil, fmt.Errorf("resolve session: session manager is not configured")
 	}
-	if session, ok := r.tryExisting(threadID); ok {
+	if session, ok := r.tryExistingSession(threadID); ok {
 		return session, nil
 	}
-	session, errs := r.tryLookup(ctx, threadID)
+	session, errs := r.tryCreateSession(ctx, threadID)
 	if session != nil {
 		return session, nil
 	}
 	return nil, r.resolveLookupError(threadID, errs)
 }
 
-func (r *sessionResolver) tryExisting(threadID string) (contract.Session, bool) {
+func (r *sessionResolver) tryExistingSession(threadID string) (contract.Session, bool) {
 	// Preserve V2's cheapest reuse path when the caller already passes agent_id.
 	session, err := r.sessions.Get(threadID)
 	return session, err == nil
 }
 
-func (r *sessionResolver) tryLookup(ctx context.Context, threadID string) (contract.Session, []error) {
+// "Create" here means recovering the active session through durable thread bindings
+// after the direct agent-ID lookup misses; it does not construct a new runtime session.
+func (r *sessionResolver) tryCreateSession(ctx context.Context, threadID string) (contract.Session, []error) {
 	errs := make([]error, 0, 2)
 	if session, err := r.resolveThreadSession(ctx, threadID); err == nil {
 		return session, nil
-	} else if err != nil && !platformdb.IsNotFound(err) {
+	} else if !platformdb.IsNotFound(err) {
 		errs = append(errs, err)
 	}
 	if session, err := r.resolveProviderThreadSession(ctx, threadID); err == nil {
 		return session, nil
-	} else if err != nil && !platformdb.IsNotFound(err) && !errors.Is(err, contract.ErrSessionNotFound) {
+	} else if !platformdb.IsNotFound(err) && !errors.Is(err, contract.ErrSessionNotFound) {
 		errs = append(errs, err)
 	}
 	return nil, errs
