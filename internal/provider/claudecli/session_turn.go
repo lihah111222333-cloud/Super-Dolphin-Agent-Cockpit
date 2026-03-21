@@ -145,6 +145,45 @@ func buildTurnText(req dto.TurnRequest) string {
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 
+func buildSkillSection(skills []dto.SkillRef) string {
+	sections := make([]string, 0, 2)
+	if list := buildSkillList(skills); list != "" {
+		sections = append(sections, list)
+	}
+	if prompt := buildSkillPromptText(skills); prompt != "" {
+		sections = append(sections, prompt)
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+func buildSkillList(skills []dto.SkillRef) string {
+	lines := []string{"skills:"}
+	for _, skill := range skills {
+		if name := strings.TrimSpace(skill.Name); name != "" {
+			lines = append(lines, "- "+name)
+		}
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildSkillPromptText(skills []dto.SkillRef) string {
+	sections := make([]string, 0, len(skills))
+	for _, skill := range skills {
+		section := strings.TrimSpace(skill.Prompt)
+		if section == "" {
+			continue
+		}
+		if name := strings.TrimSpace(skill.Name); name != "" {
+			section = "[skill:" + name + "]\n" + section
+		}
+		sections = append(sections, section)
+	}
+	return strings.Join(sections, "\n\n")
+}
+
 func appendTurnInput(parts *[]string, attachmentHints *[]string, input dto.InputItem) {
 	if text := strings.TrimSpace(input.Content); text != "" {
 		*parts = append(*parts, text)
