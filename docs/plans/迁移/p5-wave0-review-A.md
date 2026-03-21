@@ -86,7 +86,7 @@
 ### 当前仓内缺失的端口
 
 - `internal/contract/provider.go:22-50` 的 `Session`/`ToolCallResponder` 没有审批响应接口，只有 tool call result/error responder，无法承载 `request_user_input` 的 approval resolve。
-- `internal/module/orchestration/contract.go:10-17` 没有 `UserInputRequested` / `UserInputResolved` 之类状态推进方法。
+- `cmd/mcp-orch/orchestration/contract.go:10-17` 没有 `UserInputRequested` / `UserInputResolved` 之类状态推进方法。
 - `internal/dto/agent/state.go:28-29,90-95` 已经定义了 `user_input_requested` / `user_input_resolved` 触发器，但仓内没有任何使用点。
 - 结论：R0c 不只是一个 `platform/rpc/approval.go` 文件问题，还缺一条“审批结果 -> orchestration 状态恢复”的接口链。
 

@@ -54,7 +54,7 @@
 
 扫描包：
 
-- `internal/module/orchestration`
+- `cmd/mcp-orch/orchestration`
 - `internal/module/skill`
 - `internal/module/thread`
 - `internal/module/turn`
@@ -150,7 +150,7 @@
 
 | 文件 | 行 | import | 说明 |
 | --- | ---: | --- | --- |
-| `internal/ui/wails/module.go` | 9 | `internal/module/orchestration` | `ui/wails` 直接依赖 `module/`，违反“只经 `rpc.Server.Dispatch`”约束 |
+| `internal/ui/wails/module.go` | 9 | `cmd/mcp-orch/orchestration` | `ui/wails` 直接依赖 `module/`，违反“只经 `rpc.Server.Dispatch`”约束 |
 
 补充说明：
 
