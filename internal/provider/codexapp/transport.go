@@ -171,53 +171,102 @@ func (t *transport) connect(ctx context.Context) error {
 }
 
 func (t *transport) initialize(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
+	ctx = normalizeTransportContext(ctx)
+	ws, err := t.initializeSocket(ctx)
+	if err != nil {
 		return err
+	}
+	id, key, pc := t.registerInitializeCall()
+	defer t.pending.Delete(key)
+	if err := t.sendInitializeRequest(id); err != nil {
+		return err
+	}
+	return t.awaitInitialize(ctx, ws, pc)
+}
+
+func normalizeTransportContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func (t *transport) initializeSocket(ctx context.Context) (*xwebsocket.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	ws := t.currentWS()
 	if ws == nil {
-		return errors.New("codexapp: websocket not connected")
+		return nil, errors.New("codexapp: websocket not connected")
 	}
+	return ws, nil
+}
+
+func (t *transport) registerInitializeCall() (int64, string, *pendingCall) {
 	id := t.nextID.Add(1)
 	key := strconv.FormatInt(id, 10)
 	pc := &pendingCall{done: make(chan struct{})}
 	t.pending.Store(key, pc)
-	defer t.pending.Delete(key)
-	if err := t.writeJSON(jsonRPCRequest{
+	return id, key, pc
+}
+
+func (t *transport) sendInitializeRequest(id int64) error {
+	return t.writeJSON(jsonRPCRequest{
 		JSONRPC: "2.0",
 		ID:      id,
 		Method:  "initialize",
 		Params:  initializeParams(),
-	}); err != nil {
-		return err
-	}
+	})
+}
+
+func (t *transport) awaitInitialize(ctx context.Context, ws *xwebsocket.Conn, pc *pendingCall) error {
 	defer func() { _ = ws.SetReadDeadline(time.Time{}) }()
 	for {
-		select {
-		case <-pc.done:
-			return pc.err
-		default:
+		if done, err := initializeDone(pc); done {
+			return err
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		deadline := time.Now().Add(200 * time.Millisecond)
-		if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-			deadline = d
-		}
-		_ = ws.SetReadDeadline(deadline)
-		var data string
-		if err := xwebsocket.Message.Receive(ws, &data); err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		if err := t.readInitializeMessage(ctx, ws); err != nil {
+			if isTimeoutNetError(err) {
 				continue
 			}
 			return err
 		}
-		t.dispatchReadMessage([]byte(data), nil)
 	}
+}
+
+func initializeDone(pc *pendingCall) (bool, error) {
+	select {
+	case <-pc.done:
+		return true, pc.err
+	default:
+		return false, nil
+	}
+}
+
+func (t *transport) readInitializeMessage(ctx context.Context, ws *xwebsocket.Conn) error {
+	_ = ws.SetReadDeadline(initializeReadDeadline(ctx))
+	var data string
+	if err := xwebsocket.Message.Receive(ws, &data); err != nil {
+		return err
+	}
+	t.dispatchReadMessage([]byte(data), nil)
+	return nil
+}
+
+func initializeReadDeadline(ctx context.Context) time.Time {
+	deadline := time.Now().Add(200 * time.Millisecond)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	return deadline
+}
+
+func isTimeoutNetError(err error) bool {
+	netErr, ok := err.(net.Error)
+	return ok && netErr.Timeout()
 }
 
 func (t *transport) spawnLocal() error {
