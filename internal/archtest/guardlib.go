@@ -209,6 +209,11 @@ func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*pac
 			if skip[d.Name()] {
 				return filepath.SkipDir
 			}
+			// sqlc 生成代码豁免所有守卫检查
+			rel, _ := filepath.Rel(repoRoot, path)
+			if filepath.ToSlash(rel) == "internal/store/sqlc" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
