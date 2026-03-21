@@ -27,6 +27,7 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 }
 
 func trimClaudeHistory(messages []Message, limit int) []Message {
+	messages = normalizeClaudeHistory(messages)
 	if limit <= 0 || len(messages) <= limit {
 		return messages
 	}

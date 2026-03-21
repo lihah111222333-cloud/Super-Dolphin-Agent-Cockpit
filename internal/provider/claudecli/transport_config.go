@@ -209,6 +209,12 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 	if len(bin.Command) > 1 {
 		server["args"] = bin.Command[1:]
 	}
+	if len(bin.Env) > 0 {
+		server["env"] = bin.Env
+	}
+	if len(bin.AutoApprove) > 0 {
+		server["autoApprove"] = append([]string(nil), bin.AutoApprove...)
+	}
 	if cwd != "" {
 		server["cwd"] = cwd
 	}

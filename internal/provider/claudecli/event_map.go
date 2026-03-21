@@ -34,7 +34,7 @@ func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 }
 
 func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
-	switch raw.Type {
+	switch raw.EventType {
 	case "agent:launched", "system:init":
 		return agentdto.AgentLaunched{
 			AgentSessionHeader: agentSessionHeader(raw.Data),
@@ -54,7 +54,7 @@ func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
 }
 
 func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
-	switch raw.Type {
+	switch raw.EventType {
 	case "turn:started":
 		return turndto.TurnStarted{TurnHeader: turnHeader(raw.Data)}, true
 	case "turn:input_received":
@@ -88,7 +88,7 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 }
 
 func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
-	switch raw.Type {
+	switch raw.EventType {
 	case "tool:use_begin":
 		return tooldto.ToolCallBegin{
 			ToolCallHeader:   toolHeader(raw.Data),

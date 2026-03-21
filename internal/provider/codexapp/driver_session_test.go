@@ -7,15 +7,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"golang.org/x/net/websocket"
 )
 
+type stubRuntimeReporter struct {
+	last  contract.RuntimeReport
+	calls int
+	err   error
+}
+
+func (s *stubRuntimeReporter) ReportRuntime(_ context.Context, report contract.RuntimeReport) error {
+	s.calls++
+	s.last = report
+	return s.err
+}
+
 func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123 ")
-	got, ok := newDriver(nil, nil, nil).(*driver)
+	got, ok := newDriver(nil, nil, nil, nil).(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil))
+		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil))
 	}
 	if got.logger == nil {
 		t.Fatal("newDriver() logger = nil")
@@ -31,7 +44,7 @@ func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 	t.Parallel()
 
-	factory := NewDriverFactory(nil, nil, nil)
+	factory := NewDriverFactory(nil, nil, nil, nil)
 	if factory.Name != "codex" {
 		t.Fatalf("factory.Name = %q, want codex", factory.Name)
 	}
@@ -41,6 +54,25 @@ func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 	}
 	if got.Name() != "codex" {
 		t.Fatalf("created driver Name() = %q, want codex", got.Name())
+	}
+}
+
+func TestDriverReportRuntimeUsesParsedServerURLPort(t *testing.T) {
+	reporter := &stubRuntimeReporter{}
+	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123/ws ")
+	got := newDriver(nil, nil, nil, reporter).(*driver)
+	got.reportRuntime(" agent-1 ")
+	if reporter.calls != 1 {
+		t.Fatalf("ReportRuntime() calls = %d, want 1", reporter.calls)
+	}
+	if reporter.last.AgentID != "agent-1" {
+		t.Fatalf("AgentID = %q, want agent-1", reporter.last.AgentID)
+	}
+	if reporter.last.Provider != "codex" {
+		t.Fatalf("Provider = %q, want codex", reporter.last.Provider)
+	}
+	if reporter.last.Port != 9123 {
+		t.Fatalf("Port = %d, want 9123", reporter.last.Port)
 	}
 }
 
@@ -79,7 +111,6 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 		t.Fatal("Capabilities() returned aliased map")
 	}
 }
-
 
 func startCodexTestServer(t *testing.T) string {
 	t.Helper()

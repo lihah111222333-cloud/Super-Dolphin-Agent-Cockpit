@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +22,7 @@ type driver struct {
 	serverURL       string
 	eventDispatcher *unified.EventDispatcher
 	approvals       *rpc.ApprovalManager
+	reporter        contract.RuntimeReporter
 }
 
 var _ contract.Driver = (*driver)(nil)
@@ -58,11 +61,11 @@ type threadResumeParams struct {
 	Model    string `json:"model,omitempty"`
 }
 
-func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager) contract.Driver {
-	return newDriver(logger, eventDispatcher, approvals)
+func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter) contract.Driver {
+	return newDriver(logger, eventDispatcher, approvals, reporter)
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter) contract.Driver {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -71,6 +74,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		serverURL:       strings.TrimSpace(os.Getenv("CODEX_APP_SERVER_URL")),
 		eventDispatcher: eventDispatcher,
 		approvals:       approvals,
+		reporter:        reporter,
 	}
 }
 
@@ -91,6 +95,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		return nil, err
 	}
 	s.setThreadID(threadID)
+	d.reportRuntime(s.agentID)
 	return s, nil
 }
 
@@ -109,16 +114,49 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		return nil, err
 	}
 	s.setThreadID(threadID)
+	d.reportRuntime(s.agentID)
 	return s, nil
+}
+
+func (d *driver) reportRuntime(agentID string) {
+	if d == nil || d.reporter == nil {
+		return
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// TODO: Prefer a provider-reported control/runtime port once the Codex App
+	// protocol exposes one explicitly; for now we fall back to the configured
+	// app-server endpoint port after session startup succeeds.
+	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
+		AgentID:  agentID,
+		Port:     runtimePortFromServerURL(d.serverURL),
+		Provider: d.Name(),
+	}); err != nil {
+		d.logger.Warn("codexapp: report runtime failed", "agent_id", agentID, "error", err)
+	}
+}
+
+func runtimePortFromServerURL(raw string) int {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return 0
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(parsed.Port()))
+	if err != nil || port <= 0 {
+		return 0
+	}
+	return port
 }
 
 func initializeSession(ctx context.Context, t *transport) error {
 	callCtx, cancel := withTimeout(ctx, 10*time.Second)
 	defer cancel()
-	_, err := t.Call(callCtx, "initialize", map[string]any{
-		"clientInfo":   map[string]any{"name": "super-agent-v3", "version": "1.0"},
-		"capabilities": map[string]any{"experimentalApi": true},
-	})
+	_, err := t.Call(callCtx, "initialize", initializeParams())
 	return err
 }
 

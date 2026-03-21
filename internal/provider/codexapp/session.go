@@ -35,6 +35,7 @@ type session struct {
 	lastReadAt   atomic.Int64
 	turns        map[string]*turnHandle
 	activeTurnID string
+	pendingTurn  *turnReplayState
 	suppressed   map[string]struct{}
 }
 
@@ -112,9 +113,10 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if threadID == "" {
 		return nil, errors.New("codexapp: thread id is required")
 	}
+	params := buildTurnStartParams(threadID, req)
 	callCtx, cancel := withTimeout(ctx, 30*time.Second)
 	defer cancel()
-	raw, err := s.callTransport(callCtx, "turn/start", buildTurnStartParams(threadID, req))
+	raw, err := s.callTransport(callCtx, "turn/start", params)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +130,23 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	s.turns[providerID] = h
 	s.activeTurnID = providerID
 	s.mu.Unlock()
+	s.rememberPendingTurn(h, params)
 	return h, nil
+}
+
+func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
+	threadID := s.resolveThreadID(req.ThreadID)
+	if threadID == "" {
+		return errors.New("codexapp: thread id is required")
+	}
+	expectedTurnID := strings.TrimSpace(req.ExpectedTurnID)
+	if expectedTurnID == "" {
+		return errors.New("codexapp: expected turn id is required")
+	}
+	callCtx, cancel := withTimeout(ctx, 30*time.Second)
+	defer cancel()
+	_, err := s.callTransport(callCtx, "turn/steer", buildTurnSteerParams(threadID, req))
+	return err
 }
 
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
@@ -209,10 +227,17 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 	if threadID == "" {
 		return errors.New("codexapp: thread id is required")
 	}
-	if patch.Model != nil {
+	if patch.Model != nil || patch.Effort != nil {
+		params := map[string]any{"threadId": threadID}
+		if patch.Model != nil {
+			params["model"] = strings.TrimSpace(*patch.Model)
+		}
+		if patch.Effort != nil {
+			params["effort"] = strings.TrimSpace(*patch.Effort)
+		}
 		callCtx, cancel := withTimeout(ctx, 10*time.Second)
 		defer cancel()
-		_, err := s.callTransport(callCtx, "thread/config/set", map[string]any{"threadId": threadID, "model": strings.TrimSpace(*patch.Model)})
+		_, err := s.callTransport(callCtx, "thread/config/set", params)
 		if err != nil {
 			return err
 		}
@@ -254,8 +279,11 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 	if s.shouldSuppressTurnEvent(method, params) {
 		return
 	}
-	s.dispatch(dto.RawProviderEvent{Type: method, Data: params})
+	raw := dto.RawProviderEvent{EventType: method, Data: params}
 	method = strings.TrimSpace(method)
+	if !isApprovalBridgeMethod(method) || s.approvals == nil {
+		s.dispatch(raw)
+	}
 	switch {
 	case isApprovalBridgeMethod(method):
 		s.handleApprovalRequest(method, params)
@@ -315,6 +343,9 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	if turnID == s.activeTurnID {
 		s.activeTurnID = ""
 	}
+	if s.pendingTurn != nil && s.pendingTurn.handle == h {
+		s.pendingTurn = nil
+	}
 	return h
 }
 
@@ -326,7 +357,7 @@ func (s *session) forceCompleteTurn(turnID string) {
 		return
 	}
 	s.suppressTurn(turnID)
-	s.dispatch(dto.RawProviderEvent{Type: "turn/completed", Data: map[string]any{
+	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: map[string]any{
 		"turnId":  turnID,
 		"success": true,
 		"status":  "completed",
@@ -369,6 +400,8 @@ func (s *session) failTurns(err error) {
 	s.mu.Lock()
 	turns := s.turns
 	s.turns = map[string]*turnHandle{}
+	s.activeTurnID = ""
+	s.pendingTurn = nil
 	s.mu.Unlock()
 	for _, h := range turns {
 		h.complete(err)
@@ -397,4 +430,32 @@ func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams 
 		Effort:               strings.TrimSpace(req.Overrides.Effort),
 		OutputSchema:         req.OutputSchema,
 	}
+}
+
+func buildTurnSteerParams(threadID string, req dto.SteerRequest) map[string]any {
+	selectedSkills := make([]string, 0, len(req.Skills))
+	for _, skill := range req.Skills {
+		if name := strings.TrimSpace(skill.Name); name != "" {
+			selectedSkills = append(selectedSkills, name)
+		}
+	}
+	inputs := make([]turnInputItem, 0, len(req.Inputs))
+	if skillPrompt, ok := buildSkillPromptInput(req.Skills); ok {
+		inputs = append(inputs, skillPrompt)
+	}
+	for _, item := range req.Inputs {
+		inputs = append(inputs, mapTurnInput(item))
+	}
+	params := map[string]any{
+		"threadId":       threadID,
+		"expectedTurnId": strings.TrimSpace(req.ExpectedTurnID),
+		"input":          inputs,
+	}
+	if len(selectedSkills) > 0 {
+		params["selectedSkills"] = selectedSkills
+	}
+	if req.ManualSkillSelection {
+		params["manualSkillSelection"] = true
+	}
+	return params
 }

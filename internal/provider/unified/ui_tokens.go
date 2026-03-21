@@ -66,6 +66,11 @@ func payloadMap(data any) map[string]any {
 		if json.Unmarshal(typed, &payload) == nil {
 			return payload
 		}
+	case []byte:
+		var payload map[string]any
+		if json.Unmarshal(typed, &payload) == nil {
+			return payload
+		}
 	}
 	return nil
 }

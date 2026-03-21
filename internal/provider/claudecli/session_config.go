@@ -30,6 +30,7 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 
 func configurePatchEmpty(patch dto.ThreadConfigPatch) bool {
 	return strings.TrimSpace(configureValue(patch.Model)) == "" &&
+		strings.TrimSpace(configureValue(patch.Effort)) == "" &&
 		strings.TrimSpace(configureValue(patch.Personality)) == "" &&
 		strings.TrimSpace(configureValue(patch.Approvals)) == ""
 }

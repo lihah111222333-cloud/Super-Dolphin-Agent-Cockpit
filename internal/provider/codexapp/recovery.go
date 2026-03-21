@@ -77,7 +77,7 @@ func (s *session) attemptRecovery(reason string) error {
 	s.recoveryMu.Lock()
 	defer s.recoveryMu.Unlock()
 	s.dispatch(dto.RawProviderEvent{
-		Type: "recovery.attempt",
+		EventType: "recovery.attempt",
 		Data: map[string]any{
 			"agentId":  strings.TrimSpace(s.agentID),
 			"threadId": s.ThreadID(),
@@ -96,6 +96,10 @@ func (s *session) attemptRecovery(reason string) error {
 		return err
 	}
 	s.startReadLoop()
+	if err := s.replayPendingTurn(s.ctx); err != nil {
+		s.failTurns(errors.New("codexapp: " + reason))
+		return err
+	}
 	return nil
 }
 

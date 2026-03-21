@@ -52,6 +52,38 @@ func configString(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
+func configStringSlice(cfg map[string]any, keys ...string) []string {
+	for _, key := range keys {
+		values, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		switch typed := values.(type) {
+		case []string:
+			return trimStrings(typed)
+		case []any:
+			out := make([]string, 0, len(typed))
+			for _, value := range typed {
+				text, ok := value.(string)
+				if !ok {
+					continue
+				}
+				if text = strings.TrimSpace(text); text != "" {
+					out = append(out, text)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		case string:
+			if typed = strings.TrimSpace(typed); typed != "" {
+				return trimStrings(strings.Split(typed, ","))
+			}
+		}
+	}
+	return nil
+}
+
 func stringMap(raw any) map[string]string {
 	input, _ := raw.(map[string]any)
 	if len(input) == 0 {
@@ -70,6 +102,19 @@ func stringMap(raw any) map[string]string {
 			continue
 		}
 		out[key] = text
+	}
+	return out
+}
+
+func trimStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

@@ -14,11 +14,12 @@ func NewDriverFactory(
 	logger *slog.Logger,
 	dispatcher *unified.EventDispatcher,
 	approvals *rpc.ApprovalManager,
+	reporter contract.RuntimeReporter,
 ) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals)
+			return newDriver(logger, dispatcher, approvals, reporter)
 		},
 	}
 }

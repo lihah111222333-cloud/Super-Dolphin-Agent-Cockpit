@@ -26,6 +26,13 @@ func mustJSON(v any) json.RawMessage {
 	return raw
 }
 
+func initializeParams() map[string]any {
+	return map[string]any{
+		"clientInfo":   map[string]any{"name": "super-agent-v3", "version": "1.0"},
+		"capabilities": map[string]any{"experimentalApi": true},
+	}
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -44,13 +51,24 @@ func newTurnHandle(localID, providerID string) *turnHandle {
 }
 
 func (h *turnHandle) LocalID() string       { return h.localID }
-func (h *turnHandle) ProviderID() string    { return h.providerID }
 func (h *turnHandle) Done() <-chan struct{} { return h.done }
+
+func (h *turnHandle) ProviderID() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.providerID
+}
 
 func (h *turnHandle) Err() error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.err
+}
+
+func (h *turnHandle) setProviderID(providerID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.providerID = strings.TrimSpace(providerID)
 }
 
 func (h *turnHandle) complete(err error) {
