@@ -18,6 +18,7 @@ func (s *generationTestSession) Capabilities() dto.CapabilitySet                
 func (s *generationTestSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, nil
 }
+func (s *generationTestSession) Steer(context.Context, dto.SteerRequest) error { return nil }
 func (s *generationTestSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
 func (s *generationTestSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
 	return nil

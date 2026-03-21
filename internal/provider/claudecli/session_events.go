@@ -44,21 +44,22 @@ func (s *session) rawBase() rawBase {
 }
 
 func (s *session) applyRaw(raw dto.RawProviderEvent) {
-	if raw.Type == "system:init" {
+	if raw.EventType == "system:init" {
 		s.setResolvedThreadID(dataString(raw.Data, "thread_id", "session_id"))
 	}
 	if s.shouldSuppressTurn(raw) {
 		return
 	}
 	s.dispatch(raw)
-	if raw.Type == "turn:complete" || raw.Type == "turn:interrupted" {
+	if raw.EventType == "turn:complete" || raw.EventType == "turn:interrupted" {
 		s.finishTurnFromRaw(raw)
 	}
 }
 
 func (s *session) handleReceiveExit(tr *transport, err error) {
-	if err == nil || errors.Is(err, io.EOF) {
-		return
+	finishErr := err
+	if finishErr == nil || errors.Is(finishErr, io.EOF) {
+		finishErr = io.EOF
 	}
 	s.mu.Lock()
 	if s.transport != tr {
@@ -72,10 +73,10 @@ func (s *session) handleReceiveExit(tr *transport, err error) {
 		return
 	}
 	turnID := currentTurnID(handle)
-	handle.finish(err)
+	handle.finish(finishErr)
 	s.dispatch(s.turnRawEvent("turn:complete", turnID, map[string]any{
 		"success": false,
-		"error":   err.Error(),
+		"error":   finishErr.Error(),
 	}))
 }
 
@@ -87,7 +88,7 @@ func (s *session) finishTurnFromRaw(raw dto.RawProviderEvent) {
 	if handle == nil {
 		return
 	}
-	if raw.Type == "turn:interrupted" {
+	if raw.EventType == "turn:interrupted" {
 		handle.finish(context.Canceled)
 		return
 	}
@@ -99,7 +100,7 @@ func (s *session) finishTurnFromRaw(raw dto.RawProviderEvent) {
 }
 
 func (s *session) shouldSuppressTurn(raw dto.RawProviderEvent) bool {
-	switch raw.Type {
+	switch raw.EventType {
 	case "turn:complete", "turn:interrupted":
 		return s.consumeSuppressedTurn(dataString(raw.Data, "turn_id"))
 	default:
@@ -163,7 +164,7 @@ func decodeSystemEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data := baseData(base, raw.SessionID, raw.Timestamp)
 	data["cwd"] = base.CWD
 	data["model"] = base.Model
-	return []dto.RawProviderEvent{{Type: "system:" + strings.TrimSpace(raw.Subtype), Data: data}}
+	return []dto.RawProviderEvent{{EventType: "system:" + strings.TrimSpace(raw.Subtype), Data: data}}
 }
 
 func decodeAssistantEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, error) {
@@ -180,18 +181,18 @@ func decodeAssistantEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent
 		case "text":
 			if strings.TrimSpace(block.Text) != "" {
 				data["stream"], data["delta"] = "message", block.Text
-				out = append(out, dto.RawProviderEvent{Type: "assistant:message_delta", Data: data})
+				out = append(out, dto.RawProviderEvent{EventType: "assistant:message_delta", Data: data})
 			}
 		case "thinking":
 			if strings.TrimSpace(block.Thinking) != "" {
 				data["stream"], data["delta"] = "reasoning", block.Thinking
-				out = append(out, dto.RawProviderEvent{Type: "assistant:message_delta", Data: data})
+				out = append(out, dto.RawProviderEvent{EventType: "assistant:message_delta", Data: data})
 			}
 		case "tool_use":
 			data["call_id"] = strings.TrimSpace(block.ID)
 			data["tool_name"] = strings.TrimSpace(block.Name)
 			data["arguments_preview"] = strings.TrimSpace(string(block.Input))
-			out = append(out, dto.RawProviderEvent{Type: "tool:use_begin", Data: data})
+			out = append(out, dto.RawProviderEvent{EventType: "tool:use_begin", Data: data})
 		}
 	}
 	return out, nil
@@ -215,7 +216,7 @@ func decodeUserEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, err
 		data["call_id"] = dataString(block, "tool_use_id")
 		data["tool_name"] = dataString(block, "tool_name")
 		data["success"] = true
-		out = append(out, dto.RawProviderEvent{Type: "tool:use_end", Data: data})
+		out = append(out, dto.RawProviderEvent{EventType: "tool:use_end", Data: data})
 	}
 	return out, nil
 }
@@ -224,7 +225,7 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data := baseData(base, raw.SessionID, raw.Timestamp)
 	data["success"] = !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
 	data["error"] = strings.TrimSpace(firstNonEmpty(raw.Result, raw.StopReason))
-	return []dto.RawProviderEvent{{Type: "turn:complete", Data: data}}
+	return []dto.RawProviderEvent{{EventType: "turn:complete", Data: data}}
 }
 
 func baseData(base rawBase, sessionID, timestamp string) map[string]any {

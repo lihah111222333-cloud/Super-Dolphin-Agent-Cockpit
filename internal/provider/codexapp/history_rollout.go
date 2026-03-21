@@ -63,7 +63,14 @@ func parseRolloutLine(raw []byte) (Message, bool) {
 	}
 	text := strings.TrimSpace(extractRolloutText(payload.Content))
 	metadata := extractRolloutMetadata(payload.Role, payload.Content)
-	if (payload.Role != "user" && payload.Role != "assistant") || (text == "" && len(metadata) == 0) {
+	if payload.Role == "user" {
+		var ok bool
+		text, ok = normalizeRolloutUserContent(text, metadata)
+		if !ok {
+			return Message{}, false
+		}
+	}
+	if (payload.Role != "user" && payload.Role != "assistant") || !rolloutMessageHasContent(text, metadata) {
 		return Message{}, false
 	}
 	return Message{
@@ -128,6 +135,143 @@ func marshalRolloutMetadata(inputs []map[string]any) json.RawMessage {
 		return nil
 	}
 	return raw
+}
+
+func rolloutMessageHasContent(text string, metadata json.RawMessage) bool {
+	return strings.TrimSpace(text) != "" || len(metadata) > 0
+}
+
+func normalizeRolloutUserContent(text string, metadata json.RawMessage) (string, bool) {
+	text = stripLeadingSystemNoise(text)
+	text = trimInjectedLSPHint(trimInjectedSkillBlock(text))
+	if !rolloutMessageHasContent(text, metadata) {
+		return text, false
+	}
+	if strings.TrimSpace(text) != "" && isSystemNoiseText(text) {
+		return text, false
+	}
+	return strings.TrimSpace(text), true
+}
+
+const rolloutSystemNoiseTrimLeftCutset = "\ufeff \t\r\n"
+
+var rolloutSystemNoiseTagPairs = []struct {
+	open  string
+	close string
+}{
+	{open: "<environment_context>", close: "</environment_context>"},
+	{open: "<instructions>", close: "</instructions>"},
+	{open: "<permissions instructions>", close: "</permissions instructions>"},
+}
+
+func isSystemNoiseText(text string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(text))
+	if strings.HasPrefix(trimmed, "# agents.md") {
+		return true
+	}
+	for _, pair := range rolloutSystemNoiseTagPairs {
+		if strings.HasPrefix(trimmed, pair.open) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripLeadingSystemNoise(text string) string {
+	for current := text; ; {
+		next, stripped := stripOneLeadingSystemNoise(current)
+		if !stripped {
+			return current
+		}
+		current = next
+		if strings.TrimSpace(current) == "" {
+			return ""
+		}
+	}
+}
+
+func stripOneLeadingSystemNoise(text string) (string, bool) {
+	trimmed := strings.TrimLeft(text, rolloutSystemNoiseTrimLeftCutset)
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "# agents.md") {
+		return stripAgentsMDBlock(trimmed), true
+	}
+	for _, pair := range rolloutSystemNoiseTagPairs {
+		if strings.HasPrefix(lower, pair.open) {
+			return stripTagBlock(trimmed, pair.close), true
+		}
+	}
+	return text, false
+}
+
+func stripTagBlock(text, closeTag string) string {
+	if idx := strings.Index(strings.ToLower(text), closeTag); idx >= 0 {
+		return strings.TrimLeft(text[idx+len(closeTag):], rolloutSystemNoiseTrimLeftCutset)
+	}
+	return ""
+}
+
+func stripAgentsMDBlock(text string) string {
+	const closeInstructions = "</instructions>"
+	lower := strings.ToLower(text)
+	if idx := strings.Index(lower, closeInstructions); idx >= 0 {
+		return strings.TrimLeft(text[idx+len(closeInstructions):], rolloutSystemNoiseTrimLeftCutset)
+	}
+	idx, width := strings.Index(text, "\n\n"), 2
+	if crlf := strings.Index(text, "\r\n\r\n"); idx < 0 || (crlf >= 0 && crlf < idx) {
+		idx, width = crlf, 4
+	}
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimLeft(text[idx+width:], rolloutSystemNoiseTrimLeftCutset)
+}
+
+func trimInjectedLSPHint(text string) string {
+	if idx := strings.Index(text, "\n已注入"); idx >= 0 {
+		return text[:idx]
+	}
+	return text
+}
+
+func trimInjectedSkillBlock(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "[skill:") && strings.Contains(line, "]") && looksLikeInjectedSkillBlock(lines, i) {
+			return strings.TrimRight(strings.Join(lines[:i], "\n"), "\n")
+		}
+	}
+	return text
+}
+
+func looksLikeInjectedSkillBlock(lines []string, start int) bool {
+	if start < 0 || start >= len(lines) {
+		return false
+	}
+	const (
+		lookahead     = 8
+		summaryPrefix = "摘要:"
+		usagePrefix   = "使用方式: "
+	)
+	current := strings.TrimSpace(lines[start])
+	hasSummary := strings.Contains(current, summaryPrefix)
+	hasUsage := strings.Contains(current, usagePrefix)
+	for i := start + 1; i < len(lines) && i <= start+lookahead; i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[skill:") {
+			break
+		}
+		hasSummary = hasSummary || strings.HasPrefix(line, summaryPrefix)
+		hasUsage = hasUsage || strings.HasPrefix(line, usagePrefix)
+		if hasSummary && hasUsage {
+			return true
+		}
+	}
+	return hasSummary && hasUsage
 }
 
 func normalizeRolloutInputType(kind string) string {

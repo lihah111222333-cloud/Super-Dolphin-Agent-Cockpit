@@ -1,6 +1,7 @@
 package codexapp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -36,11 +37,17 @@ func (s *session) requestToolApproval(method string, params json.RawMessage) err
 }
 
 func (s *session) requestApprovalDecision(req rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+	ctx, cancel := approvalDecisionContext(s.ctx)
+	defer cancel()
 	if isRequestUserInputMethod(req.SourceMethod) {
 		req.Kind = "request_user_input"
-		return s.approvals.RequestUserInput(s.ctx, nil, nil, req)
+		return s.approvals.RequestUserInput(ctx, nil, nil, req)
 	}
-	return s.approvals.RequestApproval(s.ctx, nil, nil, req)
+	return s.approvals.RequestApproval(ctx, nil, nil, req)
+}
+
+func approvalDecisionContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return rpc.WithApprovalDeadline(ctx)
 }
 
 func (s *session) buildApprovalRequest(method string, payload map[string]any) (rpc.ApprovalRequest, int64, bool) {

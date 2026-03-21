@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -114,6 +115,62 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 		"source":     "user",
 	}))
 	return handle, nil
+}
+
+func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	text := buildTurnText(dto.TurnRequest{
+		ThreadID:             req.ThreadID,
+		Inputs:               req.Inputs,
+		Skills:               req.Skills,
+		ManualSkillSelection: req.ManualSkillSelection,
+		OutputSchema:         req.OutputSchema,
+		Overrides:            req.Overrides,
+	})
+	if text == "" {
+		return errors.New("claudecli: empty steer input")
+	}
+	payload, err := marshalTurnPayload(text)
+	if err != nil {
+		return err
+	}
+	var turnID string
+	s.mu.Lock()
+	if s.activeTurn == nil {
+		s.mu.Unlock()
+		return errors.New("claudecli: no active turn")
+	}
+	select {
+	case <-s.activeTurn.Done():
+		s.mu.Unlock()
+		return errors.New("claudecli: no active turn")
+	default:
+	}
+	if expectedTurnID := strings.TrimSpace(req.ExpectedTurnID); expectedTurnID != "" && !strings.EqualFold(expectedTurnID, s.activeTurn.ProviderID()) {
+		activeTurnID := s.activeTurn.ProviderID()
+		s.mu.Unlock()
+		return fmt.Errorf("claudecli: expected turn %s, active %s", expectedTurnID, activeTurnID)
+	}
+	if s.transport == nil {
+		s.mu.Unlock()
+		return errors.New("claudecli: session transport is closed")
+	}
+	turnID = currentTurnID(s.activeTurn)
+	err = s.transport.Send(payload)
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	s.dispatch(s.turnRawEvent("turn:input_received", turnID, map[string]any{
+		"input_type": "message",
+		"source":     "user",
+	}))
+	return nil
 }
 
 func (s *session) prepareTurn(req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
@@ -280,7 +337,7 @@ func (s *session) stop(force bool) error {
 		eventType = "agent:failed"
 		data["error"] = "session stopped"
 	}
-	s.dispatch(dto.RawProviderEvent{Type: eventType, Data: data})
+	s.dispatch(dto.RawProviderEvent{EventType: eventType, Data: data})
 	return err
 }
 
@@ -362,7 +419,7 @@ func (s *session) turnRawEvent(eventType, turnID string, extras map[string]any) 
 	for key, value := range extras {
 		data[key] = value
 	}
-	return dto.RawProviderEvent{Type: eventType, Data: data}
+	return dto.RawProviderEvent{EventType: eventType, Data: data}
 }
 
 func currentTurnID(handle *turnHandle) string {

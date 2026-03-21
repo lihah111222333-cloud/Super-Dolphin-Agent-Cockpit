@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"encoding/json"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -22,7 +23,7 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 }
 
 func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
-	eventType := strings.TrimSpace(raw.Type)
+	eventType := strings.TrimSpace(raw.EventType)
 	payload := decodeAnyPayload(raw.Data)
 	unified.PublishUITokensUpdated(payload, publish)
 	if ev, ok := translateAgentEvent(eventType, payload); ok {
@@ -35,7 +36,42 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	}
 	if ev, ok := translateToolEvent(eventType, payload); ok {
 		publish(ev)
+		return
 	}
+	if shouldWarnUnknownRawEvent(payload) {
+		slog.Warn("codexapp: unknown raw event", "raw_type", eventType, "payload", payload)
+	}
+}
+
+func shouldWarnUnknownRawEvent(payload map[string]any) bool {
+	if len(payload) == 0 {
+		return true
+	}
+	usage := nestedValue(payload, "usage")
+	return !hasAnyKey(usage,
+		"inputTokens", "input_tokens",
+		"promptTokens", "prompt_tokens",
+		"outputTokens", "output_tokens",
+		"completionTokens", "completion_tokens",
+		"totalTokens", "total_tokens",
+		"contextWindowTokens", "context_window_tokens",
+	) && !hasAnyKey(payload,
+		"inputTokens", "input_tokens",
+		"promptTokens", "prompt_tokens",
+		"outputTokens", "output_tokens",
+		"completionTokens", "completion_tokens",
+		"totalTokens", "total_tokens",
+		"contextWindowTokens", "context_window_tokens",
+	)
+}
+
+func hasAnyKey(payload map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, ok := payload[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
@@ -47,12 +83,7 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 			CWD:                stringValue(payload, "cwd"),
 		}, true
 	case "thread/status/changed":
-		return agentdto.StateChanged{
-			AgentSessionHeader: agentSessionHeader(payload),
-			OldState:           stringValue(payload, "oldState", "old_state"),
-			NewState:           stringValue(payload, "newState", "new_state", "status"),
-			Trigger:            stringValue(payload, "trigger"),
-		}, true
+		return validatedStateChangedEvent(payload)
 	case "shutdown.complete", "shutdown_complete":
 		return agentdto.AgentStopped{
 			AgentSessionHeader: agentSessionHeader(payload),
@@ -113,6 +144,36 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func validatedStateChangedEvent(payload map[string]any) (any, bool) {
+	newState := stringValue(payload, "newState", "new_state", "status")
+	if !isKnownAgentState(newState) {
+		return nil, false
+	}
+	oldState := stringValue(payload, "oldState", "old_state")
+	if oldState != "" && !isKnownAgentState(oldState) {
+		return nil, false
+	}
+	return agentdto.StateChanged{
+		AgentSessionHeader: agentSessionHeader(payload),
+		OldState:           oldState,
+		NewState:           newState,
+		Trigger:            stringValue(payload, "trigger"),
+	}, true
+}
+
+func isKnownAgentState(state string) bool {
+	state = strings.TrimSpace(state)
+	if state == "" {
+		return false
+	}
+	for _, candidate := range agentdto.StateDefinitions {
+		if candidate.Name == state {
+			return true
+		}
+	}
+	return false
 }
 
 func translateToolEvent(eventType string, payload map[string]any) (any, bool) {

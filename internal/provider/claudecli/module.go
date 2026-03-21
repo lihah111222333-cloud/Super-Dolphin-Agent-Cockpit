@@ -9,11 +9,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
-func NewDriverFactory(logger *slog.Logger, dispatcher *unified.EventDispatcher) contract.DriverFactory {
+func NewDriverFactory(logger *slog.Logger, dispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher)
+			return newDriver(logger, dispatcher, reporter)
 		},
 	}
 }

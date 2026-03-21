@@ -21,6 +21,7 @@ type driver struct {
 	logger          *slog.Logger
 	binaryPath      string
 	eventDispatcher *unified.EventDispatcher
+	reporter        contract.RuntimeReporter
 }
 
 type startSpec struct {
@@ -34,11 +35,11 @@ type startSpec struct {
 	historyDir   string
 }
 
-func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher) contract.Driver {
-	return newDriver(logger, eventDispatcher)
+func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter) contract.Driver {
+	return newDriver(logger, eventDispatcher, reporter)
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter) contract.Driver {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -46,6 +47,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher) co
 		logger:          logger,
 		binaryPath:      resolveBinaryPath(),
 		eventDispatcher: eventDispatcher,
+		reporter:        reporter,
 	}
 }
 
@@ -56,11 +58,12 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		ctx = context.Background()
 	}
 	manifest := dto.BuildManifest(dto.ManifestContext{
-		AgentID:    strings.TrimSpace(req.AgentID),
-		CWD:        strings.TrimSpace(req.CWD),
-		ThreadCaps: copyCapabilities(claudeCapabilities),
-		BinaryDir:  resolveBinaryDir(req.CWD, req.Config),
-		Env:        stringMap(req.Config["env"]),
+		AgentID:     strings.TrimSpace(req.AgentID),
+		CWD:         strings.TrimSpace(req.CWD),
+		ThreadCaps:  copyCapabilities(claudeCapabilities),
+		BinaryDir:   resolveBinaryDir(req.CWD, req.Config),
+		Env:         stringMap(req.Config["env"]),
+		AutoApprove: configStringSlice(req.Config, "auto_approve", "autoApprove"),
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
@@ -130,7 +133,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 	}
 	resolvedThreadID := s.ThreadID()
 	s.dispatch(dto.RawProviderEvent{
-		Type: "agent:launched",
+		EventType: "agent:launched",
 		Data: map[string]any{
 			"agent_id":   s.agentID,
 			"thread_id":  resolvedThreadID,
@@ -140,7 +143,29 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 			"model":      s.model,
 		},
 	})
+	d.reportRuntime(s.agentID)
 	return s, nil
+}
+
+func (d *driver) reportRuntime(agentID string) {
+	if d == nil || d.reporter == nil {
+		return
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// TODO: Claude CLI is stdio-backed today. Report the real runtime/control
+	// port once the provider protocol exposes a stable port or side channel.
+	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
+		AgentID:  agentID,
+		Provider: d.Name(),
+	}); err != nil {
+		d.logger.Warn("claudecli: report runtime failed", "agent_id", agentID, "error", err)
+	}
 }
 
 var _ contract.Driver = (*driver)(nil)
