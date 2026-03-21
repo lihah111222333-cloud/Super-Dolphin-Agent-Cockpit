@@ -131,42 +131,63 @@ func copyFileAtomic(source, target string, perm os.FileMode) error {
 		return err
 	}
 	defer func() { _ = in.Close() }()
+	tmp, tmpPath, err := prepareAtomicTarget(target)
+	if err != nil {
+		return err
+	}
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}
+	defer func() {
+		cleanup()
+	}()
+	if err := writeAtomicTempFile(tmp, in); err != nil {
+		return err
+	}
+	if err := finishAtomicCopy(tmp, tmpPath, target, perm); err != nil {
+		return err
+	}
+	cleanup = func() {}
+	return nil
+}
+
+func prepareAtomicTarget(target string) (*os.File, string, error) {
+	if err := ensureAtomicTarget(target); err != nil {
+		return nil, "", err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".workspace-merge-*")
+	if err != nil {
+		return nil, "", err
+	}
+	return tmp, tmp.Name(), nil
+}
+
+func ensureAtomicTarget(target string) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
 	if stat, err := os.Lstat(target); err == nil && stat.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("target is symlink: %s", target)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(target), ".workspace-merge-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
+	return nil
+}
+
+func writeAtomicTempFile(tmp *os.File, in io.Reader) error {
 	if _, err := io.Copy(tmp, in); err != nil {
-		_ = tmp.Close()
 		return err
 	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
+	return tmp.Sync()
+}
+
+func finishAtomicCopy(tmp *os.File, tmpPath, target string, perm os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
 	if err := os.Chmod(tmpPath, perm); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, target); err != nil {
-		return err
-	}
-	cleanup = false
-	return nil
+	return os.Rename(tmpPath, target)
 }
 
 func (s *service) transitionMergeFailed(
