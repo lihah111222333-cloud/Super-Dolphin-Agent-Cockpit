@@ -2,9 +2,7 @@ package claudecli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -14,7 +12,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -124,45 +121,11 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	text := buildTurnText(dto.TurnRequest{
-		ThreadID:             req.ThreadID,
-		Inputs:               req.Inputs,
-		Skills:               req.Skills,
-		ManualSkillSelection: req.ManualSkillSelection,
-		OutputSchema:         req.OutputSchema,
-		Overrides:            req.Overrides,
-	})
-	if text == "" {
-		return errors.New("claudecli: empty steer input")
-	}
-	payload, err := marshalTurnPayload(text)
+	payload, err := buildSteerPayload(req)
 	if err != nil {
 		return err
 	}
-	var turnID string
-	s.mu.Lock()
-	if s.activeTurn == nil {
-		s.mu.Unlock()
-		return errors.New("claudecli: no active turn")
-	}
-	select {
-	case <-s.activeTurn.Done():
-		s.mu.Unlock()
-		return errors.New("claudecli: no active turn")
-	default:
-	}
-	if expectedTurnID := strings.TrimSpace(req.ExpectedTurnID); expectedTurnID != "" && !strings.EqualFold(expectedTurnID, s.activeTurn.ProviderID()) {
-		activeTurnID := s.activeTurn.ProviderID()
-		s.mu.Unlock()
-		return fmt.Errorf("claudecli: expected turn %s, active %s", expectedTurnID, activeTurnID)
-	}
-	if s.transport == nil {
-		s.mu.Unlock()
-		return errors.New("claudecli: session transport is closed")
-	}
-	turnID = currentTurnID(s.activeTurn)
-	err = s.transport.Send(payload)
-	s.mu.Unlock()
+	turnID, err := s.sendSteer(payload, req.ExpectedTurnID)
 	if err != nil {
 		return err
 	}
@@ -171,96 +134,6 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 		"source":     "user",
 	}))
 	return nil
-}
-
-func (s *session) prepareTurn(req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
-	text := buildTurnText(req)
-	if text == "" {
-		return nil, "", nil, errors.New("claudecli: empty turn input")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.activeTurn != nil {
-		select {
-		case <-s.activeTurn.Done():
-		default:
-			return nil, "", nil, errors.New("claudecli: turn already running")
-		}
-	}
-	if err := s.restartIfNeededLocked(req); err != nil {
-		return nil, "", nil, err
-	}
-	if s.transport == nil {
-		return nil, "", nil, errors.New("claudecli: session transport is closed")
-	}
-	localID := strings.TrimSpace(req.LocalID)
-	if localID == "" {
-		localID = shared.NewID("turn")
-	}
-	handle := newTurnHandle(localID, localID)
-	s.activeTurn = handle
-	payload, err := marshalTurnPayload(text)
-	if err != nil {
-		s.activeTurn = nil
-		return nil, "", nil, err
-	}
-	return payload, currentTurnID(handle), handle, nil
-}
-
-func marshalTurnPayload(text string) ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"type": "user",
-		"message": map[string]any{
-			"role": "user",
-			"content": []map[string]any{{
-				"type": "text",
-				"text": text,
-			}},
-		},
-	})
-}
-
-func buildTurnText(req dto.TurnRequest) string {
-	parts := make([]string, 0, len(req.Inputs)+len(req.Skills)+2)
-	attachmentHints := make([]string, 0, len(req.Inputs))
-	for _, input := range req.Inputs {
-		appendTurnInput(&parts, &attachmentHints, input)
-	}
-	if len(attachmentHints) > 0 {
-		parts = append([]string{
-			"The user has attached the following files. Use the Read tool to view them:\n" +
-				strings.Join(attachmentHints, "\n"),
-		}, parts...)
-	}
-	if section := buildSkillSection(req.Skills); section != "" {
-		parts = append(parts, section)
-	}
-	if len(req.OutputSchema) > 0 {
-		parts = append(parts, "output_schema:\n"+strings.TrimSpace(string(req.OutputSchema)))
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n\n"))
-}
-
-func appendTurnInput(parts *[]string, attachmentHints *[]string, input dto.InputItem) {
-	if text := strings.TrimSpace(input.Content); text != "" {
-		*parts = append(*parts, text)
-	}
-	target := strings.TrimSpace(input.Path)
-	if target == "" {
-		target = strings.TrimSpace(input.URL)
-	}
-	if target == "" {
-		return
-	}
-	label := "File"
-	if strings.EqualFold(strings.TrimSpace(input.Type), "image") {
-		label = "Image"
-	}
-	name := strings.TrimSpace(input.Name)
-	if name != "" && name != target {
-		target = name + " -> " + target
-	}
-	*attachmentHints = append(*attachmentHints, "["+label+": "+target+"]")
 }
 
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
