@@ -71,3 +71,17 @@ V2 最重的生产文件：
 
 ## 6. 代码守卫
 每文件 ≤ 400 行，每函数 ≤ 80 行，CC ≤ 10
+
+## 附：V2↔V3 / P7.5 核对发现的 P9 相关问题
+
+| # | 问题 | 来源 | 影响 |
+|---|---|---|---|
+| V-6 | lsp/gui_structure、gui_inspect、gui_xref 仍是 stub | p7.5-lsp-gui | P9 GUI LSP 工具缺口 |
+| V-7 | lsp/gui_grep ast_search 空实现 | p7.5-lsp-gui | P9 AST 搜索缺口 |
+| V-8 | diagnostics stub | p7.5-wails-binding | P9 LSP diagnostics 缺口 |
+| V-9 | provider reconnect/recovery 弱化 | v2v3-provider-reconnect | MCP session 恢复韧性 |
+| V-10 | lsp/gui_structure、gui_inspect、gui_xref stub 标记前端不消费 | p7.5-r2-lsp-gui | 真实 LSP 后端 + 前端 stub 判断 |
+| V-11 | lsp/gui_grep ast_search 空实现且返回空结果无标记 | p7.5-r2-lsp-gui | AST 搜索引擎 |
+| V-12 | lsp/gui_file diagnostics 是空 stub | p7.5-r2-lsp-gui | gopls diagnostics 接入 |
+| V-13 | gui_grep glob 只匹配 basename 不匹配路径 | p7.5-r2-lsp-grep | 路径级 glob |
+| V-14 | gui_grep 手搓 WalkDir 非 LSP 索引 | p7.5-r2-lsp-grep | 真实 LSP 索引查询 |
