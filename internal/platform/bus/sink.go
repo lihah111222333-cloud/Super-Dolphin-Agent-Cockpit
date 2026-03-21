@@ -6,6 +6,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
@@ -24,6 +25,7 @@ func NewLogSink(dispatcher *event.Dispatcher, logger *slog.Logger) *LogSink {
 		return sink
 	}
 	sink.bindAgent(dispatcher, logger)
+	sink.bindThread(dispatcher, logger)
 	sink.bindTurn(dispatcher, logger)
 	sink.bindTool(dispatcher, logger)
 	sink.bindTask(dispatcher, logger)
@@ -46,6 +48,13 @@ func (s *LogSink) bindAgent(dispatcher *event.Dispatcher, logger *slog.Logger) {
 	s.subs.Add(logEvent[agentdto.AgentStopped](dispatcher, logger))
 	s.subs.Add(logEvent[agentdto.AgentRecovering](dispatcher, logger))
 	s.subs.Add(logEvent[agentdto.AgentFailed](dispatcher, logger))
+	s.subs.Add(logEvent[agentdto.AgentRuntimeReported](dispatcher, logger))
+}
+
+func (s *LogSink) bindThread(dispatcher *event.Dispatcher, logger *slog.Logger) {
+	s.subs.Add(logEvent[threaddto.Started](dispatcher, logger))
+	s.subs.Add(logEvent[threaddto.Stopped](dispatcher, logger))
+	s.subs.Add(logEvent[threaddto.MessagesPage](dispatcher, logger))
 }
 
 func (s *LogSink) bindTurn(dispatcher *event.Dispatcher, logger *slog.Logger) {

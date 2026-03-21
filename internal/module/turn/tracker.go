@@ -187,6 +187,16 @@ func (t *turnTracker) ActiveByThread(threadID string) (activeTurn, bool) {
 	return activeTurn{localID: current.localID, handle: current.handle}, true
 }
 
+func (t *turnTracker) AbortThread(threadID, errMsg string) bool {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return abortTrackedTurns(t.turns, threadID, errMsg, time.Now())
+}
+
 func (t *turnTracker) Get(localID string) (TurnStatus, bool) {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
@@ -231,4 +241,20 @@ func (t *trackedTurn) isTerminal() bool {
 		return true
 	}
 	return false
+}
+
+func abortTrackedTurns(turns map[string]*trackedTurn, threadID, errMsg string, now time.Time) bool {
+	updated := false
+	for _, turn := range turns {
+		if turn.threadID != threadID || turn.isTerminal() {
+			continue
+		}
+		turn.handle = nil
+		turn.interruptRequested = true
+		turn.state = "interrupted"
+		turn.lastError = strings.TrimSpace(errMsg)
+		turn.updatedAt = now
+		updated = true
+	}
+	return updated
 }

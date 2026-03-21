@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -16,14 +17,14 @@ func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, error) {
 	row, err := s.q.GetPromptTemplate(ctx, promptKey)
 	if err != nil {
-		return nil, err
+		return nil, wrapPromptError(err, "get", "prompt_template")
 	}
 	mapped := fromTemplate(row)
 	return &mapped, nil
 }
 
 func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) error {
-	return s.q.InsertPromptVersion(ctx, sqlc.InsertPromptVersionParams{
+	return wrapPromptError(s.q.InsertPromptVersion(ctx, sqlc.InsertPromptVersionParams{
 		PromptKey:       version.PromptKey,
 		Title:           version.Title,
 		AgentKey:        version.AgentKey,
@@ -35,7 +36,7 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 		CreatedBy:       version.CreatedBy,
 		UpdatedBy:       version.UpdatedBy,
 		SourceUpdatedAt: sourceUpdatedAt(version.SourceUpdatedAt),
-	})
+	}), "insert_version", "prompt_template_version")
 }
 
 func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
@@ -53,7 +54,7 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 		UpdatedBy:   template.UpdatedBy,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapPromptError(err, "upsert", "prompt_template")
 	}
 	mapped := fromTemplate(row)
 	return &mapped, nil
@@ -62,7 +63,7 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error) {
 	rows, err := s.q.ListPromptTemplates(ctx, sqlc.ListPromptTemplatesParams{AgentKey: filter.AgentKey, Keyword: filter.Keyword, Limit: filter.Limit})
 	if err != nil {
-		return nil, err
+		return nil, wrapPromptError(err, "list", "prompt_template")
 	}
 	templates := make([]PromptTemplate, 0, len(rows))
 	for _, row := range rows {
@@ -95,4 +96,8 @@ func sourceUpdatedAt(ts *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *ts
+}
+
+func wrapPromptError(err error, operation, entity string) error {
+	return platformdb.WrapStoreError(err, operation, entity)
 }

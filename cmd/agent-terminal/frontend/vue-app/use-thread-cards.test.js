@@ -1,0 +1,171 @@
+// @ts-nocheck
+import { describe, expect, it, vi } from 'vitest';
+import { ref } from '../lib/vue.esm-browser.prod.js';
+
+import { useThreadCards } from './composables/useThreadCards.js';
+
+function createThreadCards(overrides = {}) {
+  const baseThreads = overrides.threads ?? [
+    { id: 'thread-1', name: 'Thread One', state: 'running' },
+    { id: 'thread-2', name: 'Thread Two', state: 'error' },
+  ];
+  const statusMap = overrides.statusMap ?? Object.fromEntries(baseThreads.map((thread) => [thread.id, thread.state || 'idle']));
+  const headerMap = overrides.headerMap ?? {};
+  const threadStore = {
+    state: {
+      pinnedThreadAtById: overrides.pinnedMap ?? {},
+      archivedThreadAtById: overrides.archivedMap ?? {},
+      agentRuntimeById: overrides.runtimeById ?? {},
+      agentMetaById: overrides.metaById ?? {},
+    },
+    displayName: vi.fn((thread) => thread?.name || thread?.id || ''),
+    getThreadStatus: vi.fn((threadId) => statusMap[threadId] || 'idle'),
+  };
+  const props = {
+    threadStore,
+  };
+  const deps = {
+    threads: ref(baseThreads),
+    chatThreadOptions: ref(overrides.chatThreadOptions ?? baseThreads),
+    selectedThreadId: ref(overrides.selectedThreadId ?? 'thread-1'),
+
+    showArchivedThreadList: ref(overrides.showArchived ?? false),
+    activeTimeline: ref(overrides.activeTimeline ?? []),
+    isCmd: ref(overrides.isCmd ?? false),
+    layoutMode: ref(overrides.layoutMode ?? 'mix'),
+    timelinePreview: overrides.timelinePreview ?? vi.fn(() => []),
+    diffPreview: overrides.diffPreview ?? vi.fn(() => ''),
+    getThreadStatusHeader: overrides.getThreadStatusHeader ?? vi.fn((threadId) => headerMap[threadId] || ''),
+    isThreadInterruptible: overrides.isThreadInterruptible ?? vi.fn(() => false),
+    buildVisibleChatThreadCards: overrides.buildVisibleChatThreadCards ?? vi.fn(() => ({
+      cards: baseThreads.map((thread) => ({ id: thread.id, name: thread.name })),
+      activeCount: baseThreads.length,
+      archivedCount: 0,
+    })),
+  };
+  const vm = useThreadCards(props, deps);
+  return {
+    props,
+    deps,
+    threadStore,
+    ...vm,
+  };
+}
+
+describe('useThreadCards', () => {
+  it('derives stats from thread ids and normalized statuses', () => {
+    const vm = createThreadCards({
+      statusMap: {
+        'thread-1': 'running',
+        'thread-2': 'error',
+      },
+    });
+
+    expect(vm.stats.value).toEqual({ total: 2, running: 1, thinking: 0, editing: 0, error: 1 });
+  });
+
+  it('shows overview only in chat mode with mix layout', () => {
+    const vm = createThreadCards({ isCmd: false, layoutMode: 'mix' });
+    const cmdVm = createThreadCards({ isCmd: true, layoutMode: 'mix' });
+
+    expect(vm.showOverview.value).toBe(true);
+    expect(cmdVm.showOverview.value).toBe(false);
+  });
+
+  it('returns the latest active pinned plan and hides it after dismissal', () => {
+    const vm = createThreadCards({
+      activeTimeline: [
+        { id: 'plan-1', kind: 'plan', text: '先分析', done: false },
+        { id: 'plan-2', kind: 'plan', text: '再执行', done: true },
+      ],
+    });
+
+    expect(vm.activePinnedPlan.value).toEqual({
+      id: 'plan-2',
+      key: 'id:plan-2',
+      threadId: 'thread-1',
+      done: true,
+      statusText: '完成',
+      text: '再执行',
+    });
+
+    vm.dismissPinnedPlan();
+    expect(vm.activePinnedPlan.value).toBeNull();
+
+    // Distinct new plans should be shown again
+    vm.deps.activeTimeline.value = [
+      { id: 'plan-rebuilt-1', kind: 'plan', text: '重建后的新计划', done: false },
+    ];
+    expect(vm.activePinnedPlan.value).not.toBeNull();
+  });
+
+  it('builds cmd cards with preview, diff, provider and cwd mismatch state', () => {
+    const timelinePreview = vi.fn(() => ['preview-item']);
+    const diffPreview = vi.fn(() => 'diff-preview');
+    const vm = createThreadCards({
+      isCmd: true,
+      selectedThreadId: 'thread-1',
+      layoutMode: 'mix',
+      runtimeById: {
+        'thread-1': {
+          cwdMismatch: true,
+          cwdMismatchReason: 'selected cwd differs',
+          provider: 'claude',
+        },
+      },
+      headerMap: {
+        'thread-1': '处理中',
+        'thread-2': '等待中',
+      },
+      isThreadInterruptible: vi.fn((threadId) => threadId === 'thread-1'),
+      timelinePreview,
+      diffPreview,
+    });
+
+    expect(vm.cmdCards.value[0]).toEqual(expect.objectContaining({
+      id: 'thread-1',
+      selected: true,
+      preview: ['preview-item'],
+      diff: 'diff-preview',
+      cwdMismatch: true,
+      cwdMismatchReason: 'selected cwd differs',
+      provider: 'claude',
+      interruptible: true,
+    }));
+    expect(vm.cmdCards.value[1]).toEqual(expect.objectContaining({
+      id: 'thread-2',
+      selected: false,
+      preview: [],
+      diff: '',
+      interruptible: false,
+    }));
+  });
+
+  it('reports there is no active thread when selection is empty', () => {
+    const vm = createThreadCards({ selectedThreadId: '' });
+    expect(vm.noActiveThread.value).toBe(true);
+  });
+
+  it('re-evaluates cmd card preview when activeTimeline changes (streaming regression)', () => {
+    let previewContent = [{ key: 'i-0', text: '助手: 初始内容' }];
+    const timelinePreview = vi.fn(() => previewContent);
+    const vm = createThreadCards({
+      isCmd: true,
+      selectedThreadId: 'thread-1',
+      layoutMode: 'mix',
+      timelinePreview,
+      diffPreview: vi.fn(() => ''),
+    });
+
+    expect(vm.cmdCards.value[0].preview).toEqual([{ key: 'i-0', text: '助手: 初始内容' }]);
+    const initialCallCount = timelinePreview.mock.calls.length;
+
+    previewContent = [{ key: 'i-0', text: '助手: 流式更新后的内容' }];
+    vm.deps.activeTimeline.value = [
+      { id: '1', kind: 'assistant', text: '流式更新后的内容' },
+    ];
+
+    expect(vm.cmdCards.value[0].preview).toEqual([{ key: 'i-0', text: '助手: 流式更新后的内容' }]);
+    expect(timelinePreview.mock.calls.length).toBeGreaterThan(initialCallCount);
+  });
+});

@@ -28,11 +28,19 @@ func (s *session) requestToolApproval(method string, params json.RawMessage) err
 	if !ok {
 		return nil
 	}
-	decision, err := s.approvals.RequestApproval(s.ctx, nil, nil, req)
+	decision, err := s.requestApprovalDecision(req)
 	if err != nil {
 		return err
 	}
 	return s.sendApprovalDecision(requestID, decision)
+}
+
+func (s *session) requestApprovalDecision(req rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+	if isRequestUserInputMethod(req.SourceMethod) {
+		req.Kind = "request_user_input"
+		return s.approvals.RequestUserInput(s.ctx, nil, nil, req)
+	}
+	return s.approvals.RequestApproval(s.ctx, nil, nil, req)
 }
 
 func (s *session) buildApprovalRequest(method string, payload map[string]any) (rpc.ApprovalRequest, int64, bool) {
@@ -54,7 +62,7 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 		ApprovalID:   stringValue(payload, "approvalId", "approval_id"),
 		ToolName:     firstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedValue(payload, "item"), "toolName", "tool")),
 		AgentID:      s.agentID,
-		ThreadID:     firstNonEmpty(stringValue(payload, "threadId", "thread_id"), s.threadID),
+		ThreadID:     firstNonEmpty(stringValue(payload, "threadId", "thread_id"), s.ThreadID()),
 		TurnID:       firstNonEmpty(stringValue(payload, "turnId", "turn_id"), stringValue(nestedValue(payload, "turn"), "id")),
 		Reason:       stringValue(payload, "reason", "message"),
 		SourceMethod: method,
@@ -78,6 +86,31 @@ func (s *session) sendApprovalDecision(requestID int64, decision contract.Approv
 	}
 	callCtx, cancel := withTimeout(s.ctx, 10*time.Second)
 	defer cancel()
-	_, err := s.transport.Call(callCtx, "approval/respond", params)
+	_, err := s.callTransport(callCtx, "approval/respond", params)
 	return err
+}
+
+func isApprovalBridgeMethod(method string) bool {
+	method = strings.TrimSpace(method)
+	return method == rpc.DefaultApprovalCallbackMethod ||
+		method == "tool/approval/request" ||
+		method == "item/commandExecution/requestApproval" ||
+		method == "item/fileChange/requestApproval" ||
+		method == "skill/requestApproval" ||
+		method == "tool.approval.requested" ||
+		isRequestUserInputMethod(method)
+}
+
+func isRequestUserInputMethod(method string) bool {
+	switch strings.TrimSpace(method) {
+	case "request_user_input",
+		"codex/event/request_user_input",
+		"item/commandExecution/requestUserInput",
+		"item/commandExecution/request_user_input",
+		"item/tool/requestUserInput",
+		"item/tool/request_user_input":
+		return true
+	default:
+		return false
+	}
 }

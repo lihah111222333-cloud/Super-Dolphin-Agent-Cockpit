@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
 
@@ -15,7 +16,9 @@ type Service interface {
 	SubmitTurn(ctx context.Context, req TurnSubmission) error
 	CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error
 	Recover(ctx context.Context, agentID string) error
+	BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error
 	Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error)
+	UpdateRuntime(ctx context.Context, report RuntimeReport) error
 	SetReport(ctx context.Context, agentID, report string) error
 	GetState(ctx context.Context, agentID string) (AgentStateResult, error)
 	GetReport(ctx context.Context, agentID string) (AgentReportResult, error)
@@ -32,30 +35,37 @@ type SessionCleaner interface {
 }
 
 type TurnSubmission = turndto.TurnSubmission
+type RuntimeReport = agentdto.RuntimeReport
 
 type TurnStarter interface {
 	StartTurn(ctx context.Context, submission TurnSubmission) (string, error)
 }
 
 type LaunchRequest struct {
-	AgentID  string
-	Name     string
-	ParentID string
-	Cwd      string
-	Command  []string
-	Env      []string
+	AgentID      string
+	Name         string
+	Prompt       string
+	Instructions string
+	ParentID     string
+	Cwd          string
+	Command      []string
+	Env          []string
 }
 
 type AgentSnapshot struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	ParentID   string `json:"parent_id,omitempty"`
-	Port       int    `json:"port"`
-	ThreadID   string `json:"thread_id"`
-	Cwd        string `json:"cwd"`
-	State      string `json:"state"`
-	Provider   string `json:"provider,omitempty"`
-	LastReport string `json:"last_report,omitempty"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	ParentID       string    `json:"parent_id,omitempty"`
+	Port           int       `json:"port"`
+	PortSource     string    `json:"port_source,omitempty"`
+	ThreadID       string    `json:"thread_id"`
+	ActiveTurnID   string    `json:"active_turn_id,omitempty"`
+	Cwd            string    `json:"cwd"`
+	State          string    `json:"state"`
+	Provider       string    `json:"provider,omitempty"`
+	ProviderSource string    `json:"provider_source,omitempty"`
+	LastReport     string    `json:"last_report,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type AgentStateResult struct {

@@ -3,8 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"time"
+	"log/slog"
 )
 
 type Message struct {
@@ -14,26 +13,19 @@ type Message struct {
 	Timestamp string          `json:"timestamp,omitempty"`
 }
 
-type rolloutReader struct{ transport *transport }
+type rolloutReader struct {
+	logger    *slog.Logger
+	transport *transport
+}
 
 func (r *rolloutReader) ReadHistory(ctx context.Context, threadID string, limit int) ([]Message, error) {
 	if messages, err := readLocalRollout(threadID, limit); err == nil && len(messages) > 0 {
 		return messages, nil
+	} else if err != nil && r.logger != nil {
+		r.logger.Warn("codexapp: local rollout history unavailable", "thread_id", threadID, "error", err)
 	}
-	if r.transport == nil {
-		return nil, fmt.Errorf("codexapp: no history source for %s", threadID)
+	if r.logger != nil {
+		r.logger.Warn("codexapp: remote history API unavailable; returning empty history", "thread_id", threadID)
 	}
-	callCtx, cancel := withTimeout(ctx, 5*time.Second)
-	defer cancel()
-	raw, err := r.transport.Call(callCtx, "thread/read", map[string]any{"threadId": threadID})
-	if err != nil {
-		return nil, err
-	}
-	var resp struct {
-		History []Message `json:"history"`
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, err
-	}
-	return trimMessages(resp.History, limit), nil
+	return []Message{}, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -99,10 +100,12 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 	if err != nil {
 		return nil, err
 	}
+	initialThreadID := fallbackThreadID(spec.agentID, spec.threadID)
 	s := &session{
 		agentID:         strings.TrimSpace(spec.agentID),
-		threadID:        fallbackThreadID(spec.agentID, spec.threadID),
-		sessionID:       strings.TrimSpace(spec.threadID),
+		threadID:        initialThreadID,
+		sessionID:       initialThreadID,
+		threadReady:     make(chan struct{}),
 		transport:       tr,
 		caps:            copyCapabilities(claudeCapabilities),
 		history:         &historyBackend{sessionDir: spec.historyDir},
@@ -115,14 +118,24 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		config:          spec.config,
 		manifest:        spec.manifest,
 		cleanup:         cleanup,
+		suppressedTurns: map[string]struct{}{},
+	}
+	if !requiresResolvedThreadID(spec.threadID) {
+		s.markThreadReady()
 	}
 	s.startReadLoop(tr)
+	if err := s.awaitResolvedThreadID(ctx); err != nil {
+		_ = s.stop(true)
+		return nil, err
+	}
+	resolvedThreadID := s.ThreadID()
 	s.dispatch(dto.RawProviderEvent{
 		Type: "agent:launched",
 		Data: map[string]any{
 			"agent_id":   s.agentID,
-			"thread_id":  s.threadID,
-			"session_id": s.sessionID,
+			"thread_id":  resolvedThreadID,
+			"session_id": resolvedThreadID,
+			"timestamp":  time.Now().Format(time.RFC3339Nano),
 			"cwd":        s.cwd,
 			"model":      s.model,
 		},

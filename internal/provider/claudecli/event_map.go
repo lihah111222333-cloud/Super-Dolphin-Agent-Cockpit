@@ -19,6 +19,7 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 }
 
 func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+	unified.PublishUITokensUpdated(raw.Data, publish)
 	if ev, ok := translateAgentEvent(raw); ok {
 		publish(ev)
 		return
@@ -78,6 +79,8 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			TurnHeader: turnHeader(raw.Data),
 			Success:    dataBool(raw.Data, "success"),
 			Error:      dataString(raw.Data, "error"),
+			Status:     dataString(raw.Data, "status"),
+			Reason:     dataString(raw.Data, "reason"),
 		}, true
 	default:
 		return nil, false
@@ -106,7 +109,7 @@ func agentSessionHeader(data any) shared.AgentSessionHeader {
 	return shared.AgentSessionHeader{
 		AgentHeader: shared.AgentHeader{
 			ThreadHeader: shared.ThreadHeader{
-				EventHeader: shared.EventHeader{Timestamp: time.Now()},
+				EventHeader: shared.EventHeader{Timestamp: eventTime(data)},
 				ThreadID:    dataString(data, "thread_id"),
 			},
 			AgentID: dataString(data, "agent_id"),
@@ -129,4 +132,14 @@ func toolHeader(data any) shared.ToolCallHeader {
 		CallID:     dataString(data, "call_id"),
 		ToolName:   dataString(data, "tool_name"),
 	}
+}
+
+func eventTime(data any) time.Time {
+	raw := dataString(data, "timestamp", "ts")
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed
+		}
+	}
+	return time.Now()
 }

@@ -1,0 +1,365 @@
+package dashboard
+
+import (
+	"context"
+	"errors"
+	"runtime"
+	"runtime/debug"
+	"strings"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
+	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
+	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
+	taskackstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskack"
+	taskdagstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskdag"
+	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
+)
+
+const (
+	defaultLogLimit = 100
+	maxLogLimit     = 500
+	logSourceAll    = "all"
+	logSourceAI     = "ai"
+	logSourceSystem = "system"
+)
+
+type service struct {
+	orchestration orchestration.Service
+	systemLogs    systemlogstore.Store
+	aiLogs        ailogstore.Store
+	taskAcks      taskackstore.Store
+	taskDAGs      taskdagstore.Store
+	taskTraces    tasktracestore.Store
+	sharedFiles   sharedfilestore.Store
+	commandCards  commandcardstore.Store
+	prompts       promptstore.Store
+	skills        skillmodule.Service
+	startedAt     time.Time
+}
+
+type buildMetadata struct {
+	version   string
+	commit    string
+	buildTime string
+	dirty     bool
+	goVersion string
+	runtime   string
+}
+
+var _ Service = (*service)(nil)
+
+func NewService(
+	orchestrationSvc orchestration.Service,
+	systemLogs systemlogstore.Store,
+	aiLogs ailogstore.Store,
+	taskAcks taskackstore.Store,
+	taskDAGs taskdagstore.Store,
+	taskTraces tasktracestore.Store,
+	sharedFiles sharedfilestore.Store,
+	commandCards commandcardstore.Store,
+	prompts promptstore.Store,
+	skills skillmodule.Service,
+) Service {
+	return &service{
+		orchestration: orchestrationSvc,
+		systemLogs:    systemLogs,
+		aiLogs:        aiLogs,
+		taskAcks:      taskAcks,
+		taskDAGs:      taskDAGs,
+		taskTraces:    taskTraces,
+		sharedFiles:   sharedFiles,
+		commandCards:  commandCards,
+		prompts:       prompts,
+		skills:        skills,
+		startedAt:     time.Now(),
+	}
+}
+
+func (s *service) GetDashboard(ctx context.Context) (*Dashboard, error) {
+	agents, err := s.listAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &Dashboard{
+		Agents:     agents,
+		System:     s.buildSystemInfo(len(agents)),
+		TokenUsage: TokenUsage{},
+		Uptime:     time.Since(s.startedAt),
+	}, nil
+}
+
+func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDetail, error) {
+	if s.orchestration == nil {
+		return nil, errors.New("dashboard: orchestration service is not configured")
+	}
+	id := strings.TrimSpace(agentID)
+	if id == "" {
+		return nil, errors.New("dashboard: agent id is required")
+	}
+	snapshot, err := s.orchestration.Snapshot(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	report := strings.TrimSpace(snapshot.LastReport)
+	if result, err := s.orchestration.GetReport(ctx, id); err == nil {
+		report = firstNonEmpty(strings.TrimSpace(result.Report), report)
+	}
+	snapshot.LastReport = report
+	return &AgentDetail{
+		Snapshot:    snapshot,
+		TurnHistory: turnHistoryFromSnapshot(snapshot),
+		LastReport:  report,
+	}, nil
+}
+
+func (s *service) GetSystemInfo(ctx context.Context) (*SystemInfo, error) {
+	agentCount := 0
+	if s.orchestration != nil {
+		agents, err := s.orchestration.ListAgents(ctx)
+		if err != nil {
+			return nil, err
+		}
+		agentCount = len(agents)
+	}
+	info := s.buildSystemInfo(agentCount)
+	return &info, nil
+}
+
+func (s *service) GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, error) {
+	mode, err := resolveLogSource(filter.Source)
+	if err != nil {
+		return nil, err
+	}
+	limit := clampLogLimit(filter.Limit)
+	filter.Limit = limit
+	entries := make([]LogEntry, 0, limit)
+	if mode.includeSystem {
+		entries, err = s.appendSystemLogs(ctx, entries, filter)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if mode.includeAI {
+		entries, err = s.appendAILogs(ctx, entries, filter)
+		if err != nil {
+			return nil, err
+		}
+	}
+	sortLogEntries(entries)
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+	return entries, nil
+}
+
+func (s *service) listAgents(ctx context.Context) ([]AgentOverview, error) {
+	if s.orchestration == nil {
+		return nil, errors.New("dashboard: orchestration service is not configured")
+	}
+	agents, err := s.orchestration.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return agents, nil
+}
+
+func (s *service) buildSystemInfo(agentCount int) SystemInfo {
+	stats := runtimeMemoryStats()
+	build := loadBuildMetadata()
+	return SystemInfo{
+		StartedAt:        s.startedAt,
+		BuildVersion:     build.version,
+		BuildCommit:      build.commit,
+		BuildTime:        build.buildTime,
+		Dirty:            build.dirty,
+		GoVersion:        build.goVersion,
+		Runtime:          build.runtime,
+		NumCPU:           runtime.NumCPU(),
+		NumGoroutine:     runtime.NumGoroutine(),
+		MemoryAllocBytes: stats.Alloc,
+		MemorySysBytes:   stats.Sys,
+		AgentCount:       agentCount,
+	}
+}
+
+func loadBuildMetadata() buildMetadata {
+	meta := buildMetadata{
+		version:   "dev",
+		commit:    "unknown",
+		goVersion: runtime.Version(),
+		runtime:   runtime.GOOS + "/" + runtime.GOARCH,
+	}
+	buildInfo, ok := debug.ReadBuildInfo()
+	if !ok {
+		return meta
+	}
+	if version := strings.TrimSpace(buildInfo.Main.Version); version != "" && version != "(devel)" {
+		meta.version = version
+	}
+	if goVersion := strings.TrimSpace(buildInfo.GoVersion); goVersion != "" {
+		meta.goVersion = goVersion
+	}
+	for _, setting := range buildInfo.Settings {
+		applyBuildSetting(&meta, setting.Key, setting.Value)
+	}
+	return meta
+}
+
+func applyBuildSetting(meta *buildMetadata, key, value string) {
+	if meta == nil {
+		return
+	}
+	switch key {
+	case "vcs.revision":
+		if commit := shortCommit(value); commit != "" {
+			meta.commit = commit
+		}
+	case "vcs.time":
+		meta.buildTime = strings.TrimSpace(value)
+	case "vcs.modified":
+		meta.dirty = strings.EqualFold(strings.TrimSpace(value), "true")
+	}
+}
+
+func shortCommit(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) <= 12 {
+		return trimmed
+	}
+	return trimmed[:12]
+}
+
+func runtimeMemoryStats() runtime.MemStats {
+	var stats runtime.MemStats
+	runtime.ReadMemStats(&stats)
+	return stats
+}
+
+func clampLogLimit(limit int) int {
+	if limit <= 0 {
+		return defaultLogLimit
+	}
+	if limit > maxLogLimit {
+		return maxLogLimit
+	}
+	return limit
+}
+
+type logSourceMode struct {
+	includeSystem bool
+	includeAI     bool
+}
+
+func resolveLogSource(source string) (logSourceMode, error) {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "", logSourceAll:
+		return logSourceMode{includeSystem: true, includeAI: true}, nil
+	case logSourceSystem, "systemlog":
+		return logSourceMode{includeSystem: true}, nil
+	case logSourceAI, "ailog":
+		return logSourceMode{includeAI: true}, nil
+	default:
+		return logSourceMode{}, errors.New("dashboard: unsupported log source")
+	}
+}
+
+func (s *service) appendSystemLogs(ctx context.Context, entries []LogEntry, filter LogFilter) ([]LogEntry, error) {
+	if s.systemLogs == nil {
+		return entries, nil
+	}
+	rows, err := s.systemLogs.List(ctx, systemlogstore.ListFilter{
+		Level:     strings.TrimSpace(filter.Level),
+		Logger:    strings.TrimSpace(filter.Logger),
+		Component: strings.TrimSpace(filter.Component),
+		AgentID:   strings.TrimSpace(filter.AgentID),
+		ThreadID:  strings.TrimSpace(filter.ThreadID),
+		EventType: strings.TrimSpace(filter.EventType),
+		ToolName:  strings.TrimSpace(filter.ToolName),
+		Keyword:   strings.TrimSpace(filter.Keyword),
+		Limit:     int32(filter.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		entry := mapSystemLogEntry(row)
+		if matchesLogFilter(entry, filter) {
+			entries = append(entries, entry)
+		}
+	}
+	return entries, nil
+}
+
+func (s *service) appendAILogs(ctx context.Context, entries []LogEntry, filter LogFilter) ([]LogEntry, error) {
+	if s.aiLogs == nil {
+		return entries, nil
+	}
+	rows, err := s.aiLogs.List(ctx, ailogstore.ListFilter{
+		Keyword: strings.TrimSpace(filter.Keyword),
+		Limit:   int32(filter.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		entry := mapAILogEntry(row)
+		if matchesLogFilter(entry, filter) {
+			entries = append(entries, entry)
+		}
+	}
+	return entries, nil
+}
+
+func mapSystemLogEntry(row systemlogstore.SystemLog) LogEntry {
+	return LogEntry{
+		Source:     logSourceSystem,
+		ID:         row.ID,
+		Timestamp:  row.Ts,
+		Level:      row.Level,
+		Logger:     row.Logger,
+		Message:    row.Message,
+		Raw:        row.Raw,
+		Component:  row.Component,
+		AgentID:    row.AgentID,
+		ThreadID:   row.ThreadID,
+		TraceID:    row.TraceID,
+		EventType:  row.EventType,
+		ToolName:   row.ToolName,
+		DurationMs: row.DurationMs,
+		Extra:      row.Extra,
+	}
+}
+
+func mapAILogEntry(row ailogstore.AILog) LogEntry {
+	return LogEntry{
+		Source:     logSourceAI,
+		ID:         row.ID,
+		Timestamp:  row.Ts,
+		Level:      row.Level,
+		Logger:     row.Logger,
+		Message:    row.Message,
+		Raw:        row.Raw,
+		Component:  row.Component,
+		AgentID:    row.AgentID,
+		ThreadID:   row.ThreadID,
+		TraceID:    row.TraceID,
+		EventType:  row.EventType,
+		ToolName:   row.ToolName,
+		DurationMs: row.DurationMs,
+		Extra:      row.Extra,
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}

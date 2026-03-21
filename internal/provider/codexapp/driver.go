@@ -25,11 +25,12 @@ type driver struct {
 var _ contract.Driver = (*driver)(nil)
 
 var codexCapabilities = dto.CapabilitySet{
-	dto.CapMessageSend:  true,
-	dto.CapThreadList:   true,
-	dto.CapThreadFork:   true,
-	dto.CapTurnOverride: true,
-	dto.CapModelSwitch:  true,
+	dto.CapMessageSend:    true,
+	dto.CapThreadList:     true,
+	dto.CapThreadFork:     true,
+	dto.CapContextCompact: true,
+	dto.CapTurnOverride:   true,
+	dto.CapModelSwitch:    true,
 }
 
 type threadRPCResult struct {
@@ -89,7 +90,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		_ = s.ForceStop()
 		return nil, err
 	}
-	s.threadID = threadID
+	s.setThreadID(threadID)
 	return s, nil
 }
 
@@ -107,7 +108,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		_ = s.ForceStop()
 		return nil, err
 	}
-	s.threadID = threadID
+	s.setThreadID(threadID)
 	return s, nil
 }
 
@@ -119,6 +120,52 @@ func initializeSession(ctx context.Context, t *transport) error {
 		"capabilities": map[string]any{"experimentalApi": true},
 	})
 	return err
+}
+
+func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
+	callCtx, cancel := withTimeout(ctx, 10*time.Second)
+	defer cancel()
+	raw, err := s.callTransport(callCtx, "model/list", map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+	return decodeAllowedModels(raw)
+}
+
+func decodeAllowedModels(raw []byte) ([]string, error) {
+	var top map[string]any
+	if err := json.Unmarshal(raw, &top); err == nil {
+		if models := modelIDs(top["models"]); len(models) > 0 {
+			return models, nil
+		}
+	}
+	var list []any
+	if err := json.Unmarshal(raw, &list); err == nil {
+		if models := modelIDs(list); len(models) > 0 {
+			return models, nil
+		}
+	}
+	return nil, errors.New("codexapp: invalid model/list response")
+}
+
+func modelIDs(raw any) []string {
+	list, _ := raw.([]any)
+	out := make([]string, 0, len(list))
+	seen := make(map[string]struct{}, len(list))
+	for _, item := range list {
+		entry, _ := item.(map[string]any)
+		id, _ := entry["id"].(string)
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRequest) (string, error) {

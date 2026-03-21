@@ -13,7 +13,7 @@ func (s *service) executeMerge(
 	req MergeRunRequest,
 	updatedBy string,
 ) (*MergeRunResult, error) {
-	emptyResult, _ := s.planMerge(run, nil)
+	emptyResult, _ := s.planMerge(run, nil, nil, req.DryRun)
 	files, err := s.store.ListFiles(ctx, storeworkspace.ListFilesFilter{
 		RunKey: run.RunKey,
 		Limit:  mergeListLimit,
@@ -21,11 +21,11 @@ func (s *service) executeMerge(
 	if err != nil {
 		return nil, s.failMergeRun(ctx, run, req, emptyResult, nil, updatedBy, err)
 	}
-	result, updates := s.planMerge(run, files)
-	result.DryRun = req.DryRun
-	if req.DeleteRemoved {
-		// TODO(p2-r2): restore full V2 deleteRemoved semantics once merge walks the workspace tree again.
+	result, updates, err := s.buildMergePlan(run, files, req)
+	if err != nil {
+		return nil, s.failMergeRun(ctx, run, req, emptyResult, nil, updatedBy, err)
 	}
+	result.DryRun = req.DryRun
 	if err := s.applyFileUpdates(ctx, updates); err != nil {
 		return nil, s.failMergeRun(ctx, run, req, result, files, updatedBy, err)
 	}
@@ -51,7 +51,7 @@ func (s *service) executeMerge(
 	}
 	result.Status = mergedRun.Status
 	s.emitRunStatusChanged(run.Status, mergedRun)
-	s.emitRunMergedEvent(mergedRun, result.Merged)
+	s.emitRunMergedEvent(mergedRun, result)
 	return result, nil
 }
 

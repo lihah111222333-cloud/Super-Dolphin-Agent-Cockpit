@@ -12,6 +12,7 @@ var Module = fx.Module(
 	fx.Provide(
 		NewDispatcher,
 		NewAgentEmitters,
+		NewThreadEmitters,
 		NewTurnEmitters,
 		NewToolEmitters,
 		NewTaskEmitters,

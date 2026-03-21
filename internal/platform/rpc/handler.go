@@ -3,7 +3,9 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -15,18 +17,25 @@ import (
 type Middleware func(handler.Func) handler.Func
 
 // CapabilityResolver from context returns the active provider capabilities.
-type CapabilityResolver func(ctx context.Context) dto.CapabilitySet
+type CapabilityResolver func(ctx context.Context) (dto.CapabilitySet, error)
 
 func NewCapabilityResolver(resolver contract.SessionResolver) CapabilityResolver {
-	return func(ctx context.Context) dto.CapabilitySet {
+	return func(ctx context.Context) (dto.CapabilitySet, error) {
 		if resolver == nil {
-			return nil
+			return nil, errors.New("thread session resolver is not configured")
 		}
-		session, err := resolver.ResolveSession(ctx, ThreadIDFrom(ctx))
-		if err != nil || session == nil {
-			return nil
+		threadID := strings.TrimSpace(ThreadIDFrom(ctx))
+		if threadID == "" {
+			return nil, errors.New("thread id is required")
 		}
-		return session.Capabilities()
+		session, err := resolver.ResolveSession(ctx, threadID)
+		if err != nil {
+			return nil, err
+		}
+		if session == nil {
+			return nil, errors.New("thread session is not available")
+		}
+		return session.Capabilities(), nil
 	}
 }
 
@@ -71,9 +80,9 @@ func ThreadScope(fields ...string) Middleware {
 func CapabilityGate(cap string, resolver CapabilityResolver) Middleware {
 	return func(next handler.Func) handler.Func {
 		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
-			var caps dto.CapabilitySet
-			if resolver != nil {
-				caps = resolver(ctx)
+			caps, err := resolveCapabilities(ctx, resolver)
+			if err != nil {
+				return nil, capabilityResolverError(ctx, err)
 			}
 			if !caps.Has(cap) {
 				return nil, jrpc2.Errorf(jrpc2.Code(CodeCapabilityGate), "capability not supported by active provider").WithData(map[string]any{
@@ -83,6 +92,32 @@ func CapabilityGate(cap string, resolver CapabilityResolver) Middleware {
 			return next(ctx, req)
 		})
 	}
+}
+
+func resolveCapabilities(ctx context.Context, resolver CapabilityResolver) (dto.CapabilitySet, error) {
+	if resolver == nil {
+		return nil, errors.New("thread capability resolver is not configured")
+	}
+	return resolver(ctx)
+}
+
+func capabilityResolverError(ctx context.Context, err error) error {
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		msg = "thread session is not available; start or resume the thread first"
+	}
+	rpcErr := jrpc2.Errorf(jrpc2.Code(CodeInvalidState), "%s", msg)
+	data := map[string]any{}
+	if threadID := strings.TrimSpace(ThreadIDFrom(ctx)); threadID != "" {
+		data["threadId"] = threadID
+	}
+	if detail := strings.TrimSpace(err.Error()); detail != "" {
+		data["detail"] = detail
+	}
+	if len(data) == 0 {
+		return rpcErr
+	}
+	return rpcErr.WithData(data)
 }
 
 // ThreadHandler composes ThreadScope and StrictHandler for thread-scoped handlers.

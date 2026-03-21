@@ -2,13 +2,15 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 type Service interface {
 	Start(ctx context.Context, req StartRequest) (StartResult, error)
-	Resume(ctx context.Context, req ResumeRequest) error
+	Stop(ctx context.Context, threadID string) error
+	Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error)
 	Fork(ctx context.Context, threadID string) (ForkResult, error)
 	Recover(ctx context.Context, threadID string) error
 
@@ -16,6 +18,9 @@ type Service interface {
 	Get(ctx context.Context, id string) (*Ref, error)
 	ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error)
 	ReadMessages(ctx context.Context, threadID string, limit int, before string) ([]dto.Message, error)
+	GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error)
+	SetModel(ctx context.Context, threadID, model string) (dto.ThreadConfig, error)
+	Compact(ctx context.Context, threadID, args string) (dto.ThreadCompactResult, error)
 	Archive(ctx context.Context, threadID string) error
 	Unarchive(ctx context.Context, threadID string) error
 	ListByStatus(ctx context.Context, status string) ([]Ref, error)
@@ -26,30 +31,43 @@ type Service interface {
 }
 
 type StartRequest struct {
-	Provider       string
-	AgentID        string
-	CWD            string
-	Model          string
-	Prompt         string
-	ApprovalPolicy string
-	Instructions   string
-	Effort         string
-	Personality    string
+	Provider              string
+	AgentID               string
+	CWD                   string
+	Model                 string
+	ModelProvider         string
+	Prompt                string
+	BaseInstructions      string
+	DeveloperInstructions string
+	ApprovalPolicy        string
+	Sandbox               json.RawMessage
+	Summary               string
+	Effort                string
+	Personality           string
 }
 
 type StartResult struct {
-	ThreadID string
-	AgentID  string
+	ThreadID string `json:"thread_id"`
+	AgentID  string `json:"agent_id,omitempty"`
 }
 
 type ResumeRequest struct {
 	Provider string
 	AgentID  string
 	ThreadID string
+	Path     string
+	CWD      string
+	Model    string
+}
+
+type ResumeResult struct {
+	ThreadID string `json:"thread_id"`
+	Status   string `json:"status"`
+	Model    string `json:"model,omitempty"`
 }
 
 type ForkResult struct {
-	NewThreadID string
+	NewThreadID string `json:"new_thread_id"`
 }
 
 type LaunchAgentRequest struct {
@@ -62,7 +80,7 @@ type LaunchAgentRequest struct {
 }
 
 type Ref struct {
-	ID      string
-	Name    string
-	AgentID string
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	AgentID string `json:"agent_id,omitempty"`
 }

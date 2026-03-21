@@ -46,6 +46,12 @@ func NewOrchestrationHandlers(svc Service) rpc.HandlerMapResult {
 		"agent.snapshot": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return svc.Snapshot(ctx, p.AgentID)
 		}),
+		"orchestration.reportRuntime": rpc.StrictHandler(func(ctx context.Context, p runtimeReportParams) (any, error) {
+			if err := svc.UpdateRuntime(ctx, runtimeReportFromParams(p)); err != nil {
+				return nil, err
+			}
+			return map[string]any{"success": true}, nil
+		}),
 		"agent.getState": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return svc.GetState(ctx, p.AgentID)
 		}),
@@ -78,12 +84,14 @@ func NewOrchestrationHandlers(svc Service) rpc.HandlerMapResult {
 
 func launchRequestFromParams(p launchParams) LaunchRequest {
 	return LaunchRequest{
-		AgentID:  p.AgentID,
-		Name:     p.Name,
-		ParentID: p.ParentID,
-		Cwd:      p.CWD,
-		Command:  append([]string(nil), p.Command...),
-		Env:      envList(p.Env),
+		AgentID:      p.AgentID,
+		Name:         p.Name,
+		Prompt:       p.Prompt,
+		Instructions: p.Instructions,
+		ParentID:     p.ParentID,
+		Cwd:          p.CWD,
+		Command:      append([]string(nil), p.Command...),
+		Env:          envList(p.Env),
 	}
 }
 
@@ -173,6 +181,14 @@ func reportEventFromParams(p reportEventParams) ReportEvent {
 		Report:    p.Report,
 		EventType: p.EventType,
 		EventData: append(json.RawMessage(nil), p.EventData...),
+	}
+}
+
+func runtimeReportFromParams(p runtimeReportParams) RuntimeReport {
+	return RuntimeReport{
+		AgentID:  p.AgentID,
+		Port:     p.Port,
+		Provider: p.Provider,
 	}
 }
 

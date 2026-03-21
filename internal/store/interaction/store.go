@@ -3,6 +3,7 @@ package interaction
 import (
 	"context"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -24,7 +25,7 @@ func (s *store) Create(ctx context.Context, interaction Interaction) (*Interacti
 		Payload:        interaction.Payload,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapInteractionError(err, "create")
 	}
 	mapped := fromSQLC(row)
 	return &mapped, nil
@@ -33,7 +34,7 @@ func (s *store) Create(ctx context.Context, interaction Interaction) (*Interacti
 func (s *store) Get(ctx context.Context, id int64) (*Interaction, error) {
 	row, err := s.q.GetInteraction(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, wrapInteractionError(err, "get")
 	}
 	mapped := fromSQLC(row)
 	return &mapped, nil
@@ -42,7 +43,7 @@ func (s *store) Get(ctx context.Context, id int64) (*Interaction, error) {
 func (s *store) List(ctx context.Context, filter ListFilter) ([]Interaction, error) {
 	rows, err := s.q.ListInteractions(ctx, sqlc.ListInteractionsParams{ThreadID: filter.ThreadID, Keyword: filter.Keyword, Limit: filter.Limit})
 	if err != nil {
-		return nil, err
+		return nil, wrapInteractionError(err, "list")
 	}
 	interactions := make([]Interaction, 0, len(rows))
 	for _, row := range rows {
@@ -54,7 +55,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]Interaction, err
 func (s *store) Review(ctx context.Context, input ReviewInput) (*Interaction, error) {
 	row, err := s.q.ReviewInteraction(ctx, sqlc.ReviewInteractionParams{Status: input.Status, ReviewedBy: input.ReviewedBy, ReviewNote: input.ReviewNote, ID: input.ID})
 	if err != nil {
-		return nil, err
+		return nil, wrapInteractionError(err, "review")
 	}
 	mapped := fromSQLC(row)
 	return &mapped, nil
@@ -77,4 +78,8 @@ func fromSQLC(row sqlc.AgentInteraction) Interaction {
 		CreatedAt:      row.CreatedAt,
 		UpdatedAt:      row.UpdatedAt,
 	}
+}
+
+func wrapInteractionError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "interaction")
 }

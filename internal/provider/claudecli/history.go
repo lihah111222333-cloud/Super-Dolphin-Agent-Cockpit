@@ -160,20 +160,25 @@ func parseInjectedAttachmentHintLine(line string) (map[string]any, bool) {
 	lower := strings.ToLower(trimmed)
 	switch {
 	case strings.HasPrefix(lower, "[image:"):
-		value, ok := parseInjectedAttachmentHintValue(trimmed, "[image:")
-		if !ok {
-			return nil, false
-		}
-		return map[string]any{"type": "image", "url": value}, true
+		return buildInjectedAttachmentItem(trimmed, "[image:", "image", "url")
 	case strings.HasPrefix(lower, "[file:"):
-		value, ok := parseInjectedAttachmentHintValue(trimmed, "[file:")
-		if !ok {
-			return nil, false
-		}
-		return map[string]any{"type": "mention", "path": value}, true
+		return buildInjectedAttachmentItem(trimmed, "[file:", "mention", "path")
 	default:
 		return nil, false
 	}
+}
+
+func buildInjectedAttachmentItem(line, prefix, inputType, targetKey string) (map[string]any, bool) {
+	value, ok := parseInjectedAttachmentHintValue(line, prefix)
+	if !ok {
+		return nil, false
+	}
+	name, target := splitInjectedAttachmentValue(value)
+	item := map[string]any{"type": inputType, targetKey: target}
+	if name != "" {
+		item["name"] = name
+	}
+	return item, true
 }
 
 func parseInjectedAttachmentHintValue(line, prefix string) (string, bool) {
@@ -185,4 +190,17 @@ func parseInjectedAttachmentHintValue(line, prefix string) (string, bool) {
 		return "", false
 	}
 	return value, true
+}
+
+func splitInjectedAttachmentValue(value string) (string, string) {
+	parts := strings.SplitN(value, " -> ", 2)
+	if len(parts) != 2 {
+		return "", value
+	}
+	name := strings.TrimSpace(parts[0])
+	target := strings.TrimSpace(parts[1])
+	if name == "" || target == "" {
+		return "", value
+	}
+	return name, target
 }

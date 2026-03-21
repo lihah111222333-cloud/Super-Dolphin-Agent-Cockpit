@@ -22,6 +22,7 @@ type ToolApprovalRequested struct {
 	shared.ToolApprovalHeader
 	RequestID int64  `json:"request_id,omitempty"`
 	Reason    string `json:"reason,omitempty"`
+	Kind      string `json:"kind,omitempty"`
 }
 
 // ToolApprovalResolved reports a final approval decision for a tool call.
@@ -30,6 +31,7 @@ type ToolApprovalResolved struct {
 	Approved   bool   `json:"approved"`
 	Decision   string `json:"decision,omitempty"`
 	ReviewedBy string `json:"reviewed_by,omitempty"`
+	Kind       string `json:"kind,omitempty"`
 }
 
 func (ToolCallBegin) Type() uint32         { return shared.EventTypeToolCallBegin }

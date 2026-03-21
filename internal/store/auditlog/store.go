@@ -3,6 +3,7 @@ package auditlog
 import (
 	"context"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -23,7 +24,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]AuditEvent, erro
 		Limit:     filter.Limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapAuditLogError(err, "list")
 	}
 	result := make([]AuditEvent, len(rows))
 	for i, row := range rows {
@@ -33,7 +34,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]AuditEvent, erro
 }
 
 func (s *store) Insert(ctx context.Context, params InsertParams) error {
-	return s.q.InsertAuditEvent(ctx, sqlc.InsertAuditEventParams{
+	return wrapAuditLogError(s.q.InsertAuditEvent(ctx, sqlc.InsertAuditEventParams{
 		EventType: params.EventType,
 		Action:    params.Action,
 		Result:    params.Result,
@@ -42,7 +43,7 @@ func (s *store) Insert(ctx context.Context, params InsertParams) error {
 		Detail:    params.Detail,
 		Level:     params.Level,
 		Extra:     params.Extra,
-	})
+	}), "insert")
 }
 
 func mapAuditEvent(row sqlc.AuditEvent) AuditEvent {
@@ -58,4 +59,8 @@ func mapAuditEvent(row sqlc.AuditEvent) AuditEvent {
 		Level:     row.Level,
 		Extra:     row.Extra,
 	}
+}
+
+func wrapAuditLogError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "audit_event")
 }

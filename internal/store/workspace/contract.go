@@ -46,30 +46,30 @@ type ListFilesFilter struct {
 }
 
 type WorkspaceRun struct {
-	ID            int64
-	RunKey        string
-	DagKey        string
-	SourceRoot    string
-	WorkspacePath string
-	Status        string
-	CreatedBy     string
-	UpdatedBy     string
-	Metadata      json.RawMessage
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	FinishedAt    *time.Time
+	ID            int64           `json:"id"`
+	RunKey        string          `json:"run_key"`
+	DagKey        string          `json:"dag_key,omitempty"`
+	SourceRoot    string          `json:"source_root"`
+	WorkspacePath string          `json:"workspace_path"`
+	Status        string          `json:"status"`
+	CreatedBy     string          `json:"created_by,omitempty"`
+	UpdatedBy     string          `json:"updated_by,omitempty"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
 }
 
 type WorkspaceRunFile struct {
-	ID                 int64
-	RunKey             string
-	RelativePath       string
-	BaselineSHA256     string
-	WorkspaceSHA256    string
-	SourceSHA256Before string
-	SourceSHA256After  string
-	State              string
-	LastError          string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                 int64     `json:"id"`
+	RunKey             string    `json:"run_key"`
+	RelativePath       string    `json:"relative_path"`
+	BaselineSHA256     string    `json:"baseline_sha256,omitempty"`
+	WorkspaceSHA256    string    `json:"workspace_sha256,omitempty"`
+	SourceSHA256Before string    `json:"source_sha256_before,omitempty"`
+	SourceSHA256After  string    `json:"source_sha256_after,omitempty"`
+	State              string    `json:"state"`
+	LastError          string    `json:"last_error,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -20,6 +21,8 @@ type session struct {
 	agentID         string
 	threadID        string
 	sessionID       string
+	threadReady     chan struct{}
+	threadReadyOnce sync.Once
 	transport       *transport
 	caps            dto.CapabilitySet
 	history         *historyBackend
@@ -34,6 +37,7 @@ type session struct {
 	cleanup         func()
 	mu              sync.Mutex
 	activeTurn      *turnHandle
+	suppressedTurns map[string]struct{}
 }
 
 type turnHandle struct {
@@ -270,6 +274,7 @@ func (s *session) stop(force bool) error {
 		"agent_id":   s.agentID,
 		"thread_id":  s.ThreadID(),
 		"session_id": s.sessionID,
+		"timestamp":  time.Now().Format(time.RFC3339Nano),
 	}
 	if force {
 		eventType = "agent:failed"
@@ -352,6 +357,7 @@ func (s *session) turnRawEvent(eventType, turnID string, extras map[string]any) 
 		"thread_id":  s.ThreadID(),
 		"session_id": s.sessionID,
 		"turn_id":    strings.TrimSpace(turnID),
+		"timestamp":  time.Now().Format(time.RFC3339Nano),
 	}
 	for key, value := range extras {
 		data[key] = value

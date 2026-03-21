@@ -46,6 +46,7 @@ func (m *mockSession) Interrupt(_ context.Context, req dto.InterruptRequest) err
 	m.lastInterrupt = req
 	return nil
 }
+func (m *mockSession) ForceComplete(_ context.Context, _ dto.ForceCompleteRequest) error { return nil }
 func (m *mockSession) StartTurn(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
 	m.lastTurn = req
 	return newMockTurnHandle(req.LocalID, "provider-"+m.threadID, nil), nil

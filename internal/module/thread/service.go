@@ -9,8 +9,13 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/kelindar/event"
 )
 
 const (
@@ -21,6 +26,7 @@ const (
 // SessionProvider narrows session lookup to keep thread module provider-neutral.
 type SessionProvider interface {
 	GetSession(agentID string) (contract.Session, error)
+	RemoveSession(agentID string)
 }
 
 type service struct {
@@ -29,7 +35,12 @@ type service struct {
 	bindingStore  bindingstore.Store
 	sessions      SessionProvider
 	starter       SessionStarter
+	turns         turn.Service
 	orchestration OrchestrationFacade
+
+	emitStarted      func(threaddto.Started)
+	emitStopped      func(threaddto.Stopped)
+	emitMessagesPage func(threaddto.MessagesPage)
 
 	threadAgentsMu sync.RWMutex
 	threadAgents   map[string]string
@@ -43,19 +54,29 @@ func NewService(
 	bindingStore bindingstore.Store,
 	sessions SessionProvider,
 	starter SessionStarter,
+	turns turn.Service,
 	orchestration OrchestrationFacade,
+	threadEvents *bus.ThreadEmitters,
 ) Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	var dispatcher *event.Dispatcher
+	if threadEvents != nil {
+		dispatcher = threadEvents.Dispatcher()
+	}
 	return &service{
-		logger:        logger,
-		threadStore:   threadStore,
-		bindingStore:  bindingStore,
-		sessions:      sessions,
-		starter:       starter,
-		orchestration: orchestration,
-		threadAgents:  make(map[string]string),
+		logger:           logger,
+		threadStore:      threadStore,
+		bindingStore:     bindingStore,
+		sessions:         sessions,
+		starter:          starter,
+		turns:            turns,
+		orchestration:    orchestration,
+		emitStarted:      bus.NewEmitter[threaddto.Started](dispatcher),
+		emitStopped:      bus.NewEmitter[threaddto.Stopped](dispatcher),
+		emitMessagesPage: bus.NewEmitter[threaddto.MessagesPage](dispatcher),
+		threadAgents:     make(map[string]string),
 	}
 }
 
@@ -115,7 +136,11 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 	if s.threadStore == nil {
 		return errors.New("thread store is not configured")
 	}
-	return s.threadStore.DeleteByThreadID(ctx, id)
+	if err := s.threadStore.DeleteByThreadID(ctx, id); err != nil {
+		return err
+	}
+	s.publishThreadStopped(id, agentIDFromBinding(binding, id), "deleted", "deleted")
+	return nil
 }
 
 func (s *service) listThreads(ctx context.Context, filter func(threadstore.Thread) bool) ([]Ref, error) {
@@ -290,4 +315,68 @@ func normalizeThreadID(threadID string) (string, error) {
 		return "", errors.New("thread id is required")
 	}
 	return id, nil
+}
+
+func (s *service) publishThreadStarted(state threadState) {
+	if s == nil || s.emitStarted == nil {
+		return
+	}
+	s.emitStarted(threaddto.Started{
+		EventHeader:      shared.EventHeader{Timestamp: time.Now()},
+		ThreadID:         strings.TrimSpace(state.ThreadID),
+		AgentID:          strings.TrimSpace(state.AgentID),
+		Provider:         strings.TrimSpace(state.Provider),
+		ProviderThreadID: strings.TrimSpace(firstNonEmpty(state.ThreadID, state.OwnerThreadID)),
+		CWD:              strings.TrimSpace(state.CWD),
+		Model:            strings.TrimSpace(state.Model),
+	})
+}
+
+func (s *service) publishThreadStopped(threadID, agentID, status, reason string) {
+	if s == nil || s.emitStopped == nil {
+		return
+	}
+	s.emitStopped(threaddto.Stopped{
+		EventHeader: shared.EventHeader{Timestamp: time.Now()},
+		ThreadID:    strings.TrimSpace(threadID),
+		AgentID:     strings.TrimSpace(agentID),
+		Status:      strings.TrimSpace(status),
+		Reason:      strings.TrimSpace(reason),
+	})
+}
+
+func (s *service) publishMessagesPage(threadID string, totalCount, pages int) {
+	if s == nil || s.emitMessagesPage == nil || strings.TrimSpace(threadID) == "" {
+		return
+	}
+	s.emitMessagesPage(threaddto.MessagesPage{
+		EventHeader: shared.EventHeader{Timestamp: time.Now()},
+		ThreadID:    strings.TrimSpace(threadID),
+		TotalCount:  totalCount,
+		Pages:       pages,
+	})
+}
+
+func agentIDFromBinding(binding *bindingstore.Binding, fallback string) string {
+	if binding == nil {
+		return strings.TrimSpace(fallback)
+	}
+	if agentID := strings.TrimSpace(binding.AgentID); agentID != "" {
+		return agentID
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func pageCount(totalCount, limit int) int {
+	if totalCount <= 0 {
+		return 0
+	}
+	if limit <= 0 || totalCount <= limit {
+		return 1
+	}
+	pages := totalCount / limit
+	if totalCount%limit != 0 {
+		pages++
+	}
+	return pages
 }

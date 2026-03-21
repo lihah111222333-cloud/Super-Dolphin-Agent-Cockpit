@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -16,20 +17,25 @@ import (
 )
 
 type session struct {
-	agentID    string
-	threadID   string
-	transport  *transport
-	caps       dto.CapabilitySet
-	recovery   *recoveryManager
-	history    *rolloutReader
-	logger     *slog.Logger
-	dispatcher *unified.EventDispatcher
-	approvals  *rpc.ApprovalManager
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-	recoveryMu sync.Mutex
-	turns      map[string]*turnHandle
+	agentID      string
+	threadID     atomic.Value
+	transport    *transport
+	caps         dto.CapabilitySet
+	recovery     *recoveryManager
+	history      *rolloutReader
+	logger       *slog.Logger
+	dispatcher   *unified.EventDispatcher
+	approvals    *rpc.ApprovalManager
+	ctx          context.Context
+	cancel       context.CancelFunc
+	mu           sync.Mutex
+	recoveryMu   sync.Mutex
+	readLoopMu   sync.Mutex
+	readLoopDone chan struct{}
+	lastReadAt   atomic.Int64
+	turns        map[string]*turnHandle
+	activeTurnID string
+	suppressed   map[string]struct{}
 }
 
 var _ contract.Session = (*session)(nil)
@@ -85,24 +91,24 @@ func newSession(
 		transport:  transport,
 		caps:       cloneCaps(codexCapabilities),
 		recovery:   &recoveryManager{transport: transport, logger: logger, maxRetry: 3},
-		history:    &rolloutReader{transport: transport},
+		history:    &rolloutReader{logger: logger, transport: transport},
 		logger:     logger,
 		dispatcher: dispatcher,
 		approvals:  approvals,
 		ctx:        ctx,
 		cancel:     cancel,
 		turns:      map[string]*turnHandle{},
+		suppressed: map[string]struct{}{},
 	}
-	go transport.ReadLoop(ctx, s.onNotification)
+	s.noteReadActivity()
+	s.startReadLoop()
+	s.startHealthLoop()
 	return s, nil
 }
-
-func (s *session) ThreadID() string { return s.threadID }
-
 func (s *session) Capabilities() dto.CapabilitySet { return cloneCaps(s.caps) }
 
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
-	threadID := strings.TrimSpace(firstNonEmpty(req.ThreadID, s.threadID))
+	threadID := s.resolveThreadID(req.ThreadID)
 	if threadID == "" {
 		return nil, errors.New("codexapp: thread id is required")
 	}
@@ -120,12 +126,13 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	h := newTurnHandle(resolveLocalTurnID(req.LocalID, providerID), providerID)
 	s.mu.Lock()
 	s.turns[providerID] = h
+	s.activeTurnID = providerID
 	s.mu.Unlock()
 	return h, nil
 }
 
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
-	threadID := strings.TrimSpace(firstNonEmpty(req.ThreadID, s.threadID))
+	threadID := s.resolveThreadID(req.ThreadID)
 	if threadID == "" {
 		return errors.New("codexapp: thread id is required")
 	}
@@ -137,6 +144,20 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	defer cancel()
 	_, err := s.callTransport(callCtx, "turn/interrupt", params)
 	return err
+}
+
+func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
+	threadID := s.resolveThreadID(req.ThreadID)
+	if threadID == "" {
+		return errors.New("codexapp: thread id is required")
+	}
+	callCtx, cancel := withTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if _, err := s.callTransport(callCtx, "turn/forceComplete", map[string]any{"threadId": threadID}); err != nil {
+		return err
+	}
+	s.forceCompleteTurn(strings.TrimSpace(req.ProviderID))
+	return nil
 }
 
 func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
@@ -166,7 +187,7 @@ func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
 }
 
 func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.ForkResult, error) {
-	threadID := strings.TrimSpace(firstNonEmpty(req.ThreadID, s.threadID))
+	threadID := s.resolveThreadID(req.ThreadID)
 	if threadID == "" {
 		return dto.ForkResult{}, errors.New("codexapp: thread id is required")
 	}
@@ -184,7 +205,7 @@ func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.Fork
 }
 
 func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) error {
-	threadID := strings.TrimSpace(s.threadID)
+	threadID := s.ThreadID()
 	if threadID == "" {
 		return errors.New("codexapp: thread id is required")
 	}
@@ -229,13 +250,18 @@ func (s *session) applySlashConfig(ctx context.Context, threadID, method, key st
 }
 
 func (s *session) onNotification(method string, params json.RawMessage) {
+	s.noteReadActivity()
+	if s.shouldSuppressTurnEvent(method, params) {
+		return
+	}
 	s.dispatch(dto.RawProviderEvent{Type: method, Data: params})
-	switch strings.TrimSpace(method) {
-	case "item/commandExecution/requestApproval", "tool.approval.requested":
+	method = strings.TrimSpace(method)
+	switch {
+	case isApprovalBridgeMethod(method):
 		s.handleApprovalRequest(method, params)
-	case "turn/completed", "turn/aborted":
+	case method == "turn/completed" || method == "turn/aborted":
 		s.finishTurn(params, method == "turn/completed")
-	case "connection.dead":
+	case method == "connection.dead":
 		s.handleConnectionDead(params)
 	}
 }
@@ -281,9 +307,62 @@ func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 func (s *session) takeTurn(turnID string) *turnHandle {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if turnID == "" {
+		turnID = s.activeTurnID
+	}
 	h := s.turns[turnID]
 	delete(s.turns, turnID)
+	if turnID == s.activeTurnID {
+		s.activeTurnID = ""
+	}
 	return h
+}
+
+func (s *session) forceCompleteTurn(turnID string) {
+	if turnID == "" {
+		turnID = strings.TrimSpace(s.activeTurnID)
+	}
+	if turnID == "" {
+		return
+	}
+	s.suppressTurn(turnID)
+	s.dispatch(dto.RawProviderEvent{Type: "turn/completed", Data: map[string]any{
+		"turnId":  turnID,
+		"success": true,
+		"status":  "completed",
+		"reason":  "force_complete",
+	}})
+	if h := s.takeTurn(turnID); h != nil {
+		h.complete(nil)
+	}
+}
+
+func (s *session) shouldSuppressTurnEvent(method string, params json.RawMessage) bool {
+	method = strings.TrimSpace(method)
+	if method != "turn/completed" && method != "turn/aborted" {
+		return false
+	}
+	turnID := strings.TrimSpace(stringValue(decodeEventPayload(params), "turnId", "turn_id"))
+	return s.consumeSuppressedTurn(turnID)
+}
+
+func (s *session) suppressTurn(turnID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suppressed[turnID] = struct{}{}
+}
+
+func (s *session) consumeSuppressedTurn(turnID string) bool {
+	if turnID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.suppressed[turnID]; !ok {
+		return false
+	}
+	delete(s.suppressed, turnID)
+	return true
 }
 
 func (s *session) failTurns(err error) {
@@ -295,34 +374,6 @@ func (s *session) failTurns(err error) {
 		h.complete(err)
 	}
 }
-
-func newTurnHandle(localID, providerID string) *turnHandle {
-	return &turnHandle{
-		localID:    strings.TrimSpace(localID),
-		providerID: strings.TrimSpace(providerID),
-		done:       make(chan struct{}),
-	}
-}
-
-func (h *turnHandle) LocalID() string       { return h.localID }
-func (h *turnHandle) ProviderID() string    { return h.providerID }
-func (h *turnHandle) Done() <-chan struct{} { return h.done }
-
-func (h *turnHandle) Err() error {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.err
-}
-
-func (h *turnHandle) complete(err error) {
-	h.once.Do(func() {
-		h.mu.Lock()
-		h.err = err
-		h.mu.Unlock()
-		close(h.done)
-	})
-}
-
 func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams {
 	selectedSkills := make([]string, 0, len(req.Skills))
 	for _, skill := range req.Skills {
@@ -346,12 +397,4 @@ func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams 
 		Effort:               strings.TrimSpace(req.Overrides.Effort),
 		OutputSchema:         req.OutputSchema,
 	}
-}
-
-func cloneCaps(src dto.CapabilitySet) dto.CapabilitySet {
-	out := make(dto.CapabilitySet, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
 }

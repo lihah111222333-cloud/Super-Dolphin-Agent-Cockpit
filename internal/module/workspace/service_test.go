@@ -20,6 +20,9 @@ func TestBuildRunRejectsInvalidRunKey(t *testing.T) {
 		"nested/escape",
 		`nested\escape`,
 		"run..key",
+		"run.key",
+		"run key",
+		strings.Repeat("a", 129),
 	}
 	for _, runKey := range cases {
 		t.Run(runKey, func(t *testing.T) {
@@ -128,6 +131,64 @@ func TestMergeRunRejectsConcurrentMerge(t *testing.T) {
 	}
 	if got := transitionPairs(store.transitions); !equalStrings(got, []string{"active->merging"}) {
 		t.Fatalf("MergeRun() transitions = %#v", got)
+	}
+}
+
+func TestMergeRunMarksDeleteRemovedFiles(t *testing.T) {
+	store, filePath := newRemovedFileStore(t, "run-removed")
+	svc := newTestService(store)
+
+	result, err := svc.MergeRun(context.Background(), MergeRunRequest{
+		RunKey:        "run-removed",
+		UpdatedBy:     "worker-removed",
+		DeleteRemoved: true,
+	})
+	if err != nil {
+		t.Fatalf("MergeRun() error = %v, want nil", err)
+	}
+	if result.Status != statusMerged {
+		t.Fatalf("MergeRun() status = %q, want %q", result.Status, statusMerged)
+	}
+	if result.Removed != 1 {
+		t.Fatalf("MergeRun() removed = %d, want 1", result.Removed)
+	}
+	if result.Merged != 0 {
+		t.Fatalf("MergeRun() merged = %d, want 0", result.Merged)
+	}
+	if got := result.Files[0].Action; got != "removed" {
+		t.Fatalf("MergeRun() action = %q, want %q", got, "removed")
+	}
+	if got := store.files[0].State; got != fileStateRemoved {
+		t.Fatalf("MergeRun() file state = %q, want %q", got, fileStateRemoved)
+	}
+	if got := store.files[0].RelativePath; got != filePath {
+		t.Fatalf("MergeRun() relative path = %q, want %q", got, filePath)
+	}
+}
+
+func TestDryRunMergeReportsDeleteRemovedFiles(t *testing.T) {
+	store, _ := newRemovedFileStore(t, "run-dry-remove")
+	svc := newTestService(store)
+
+	result, err := svc.MergeRun(context.Background(), MergeRunRequest{
+		RunKey:        "run-dry-remove",
+		DryRun:        true,
+		DeleteRemoved: true,
+	})
+	if err != nil {
+		t.Fatalf("MergeRun() error = %v, want nil", err)
+	}
+	if result.Status != statusActive {
+		t.Fatalf("MergeRun() status = %q, want %q", result.Status, statusActive)
+	}
+	if result.Removed != 1 {
+		t.Fatalf("MergeRun() removed = %d, want 1", result.Removed)
+	}
+	if got := result.Files[0].Action; got != "would_remove" {
+		t.Fatalf("MergeRun() action = %q, want %q", got, "would_remove")
+	}
+	if got := store.files[0].State; got != fileStateTracked {
+		t.Fatalf("MergeRun() file state = %q, want %q", got, fileStateTracked)
 	}
 }
 
@@ -248,6 +309,31 @@ func cloneFile(file storeworkspace.WorkspaceRunFile) storeworkspace.WorkspaceRun
 func cloneFilePtr(file storeworkspace.WorkspaceRunFile) *storeworkspace.WorkspaceRunFile {
 	cloned := cloneFile(file)
 	return &cloned
+}
+
+func newRemovedFileStore(t *testing.T, runKey string) (*testWorkspaceStore, string) {
+	t.Helper()
+	sourceRoot := t.TempDir()
+	workspacePath := t.TempDir()
+	filePath := "removed.txt"
+	if err := os.WriteFile(workspacePath+"/"+filePath, []byte("workspace"), 0o644); err != nil {
+		t.Fatalf("WriteFile(workspace) error = %v", err)
+	}
+	store := &testWorkspaceStore{
+		run: storeworkspace.WorkspaceRun{
+			RunKey:        runKey,
+			SourceRoot:    sourceRoot,
+			WorkspacePath: workspacePath,
+			Status:        statusActive,
+		},
+		files: []storeworkspace.WorkspaceRunFile{{
+			RunKey:         runKey,
+			RelativePath:   filePath,
+			BaselineSHA256: sha256Hex("source"),
+			State:          fileStateTracked,
+		}},
+	}
+	return store, filePath
 }
 
 func sha256Hex(text string) string {

@@ -12,20 +12,19 @@ import (
 
 func NewWorkspaceHandlers(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"workspace/run/create":        rpc.StrictHandler(handleCreateRun(svc)),
-		"workspace/run/get":           rpc.StrictHandler(handleGetRun(svc)),
-		"workspace/run/list":          rpc.StrictHandler(handleListRuns(svc)),
-		"workspace/run/status/update": rpc.StrictHandler(handleUpdateRunStatus(svc)),
-		"workspace/run/merge":         rpc.StrictHandler(handleMergeRun(svc)),
-		"workspace/run/abort":         rpc.StrictHandler(handleAbortRun(svc)),
-		"workspace/run/files/list":    rpc.StrictHandler(handleListRunFiles(svc)),
-		"workspace/run/file/get":      rpc.StrictHandler(handleGetRunFile(svc)),
+		"workspace/run/create":     rpc.StrictHandler(handleCreateRun(svc)),
+		"workspace/run/get":        rpc.StrictHandler(handleGetRun(svc)),
+		"workspace/run/list":       rpc.StrictHandler(handleListRuns(svc)),
+		"workspace/run/merge":      rpc.StrictHandler(handleMergeRun(svc)),
+		"workspace/run/abort":      rpc.StrictHandler(handleAbortRun(svc)),
+		"workspace/run/files/list": rpc.StrictHandler(handleListRunFiles(svc)),
+		"workspace/run/file/get":   rpc.StrictHandler(handleGetRunFile(svc)),
 	}}
 }
 
 func handleCreateRun(svc Service) func(context.Context, createRunParams) (runResult, error) {
 	return func(ctx context.Context, p createRunParams) (runResult, error) {
-		if err := required(p.SourceRoot, "sourceRoot"); err != nil {
+		if err := required(p.SourceRoot, "source_root"); err != nil {
 			return runResult{}, err
 		}
 		run, err := svc.CreateRun(ctx, p)
@@ -38,7 +37,7 @@ func handleCreateRun(svc Service) func(context.Context, createRunParams) (runRes
 
 func handleGetRun(svc Service) func(context.Context, runKeyParams) (runResult, error) {
 	return func(ctx context.Context, p runKeyParams) (runResult, error) {
-		if err := required(p.RunKey, "runKey"); err != nil {
+		if err := required(p.RunKey, "run_key"); err != nil {
 			return runResult{}, err
 		}
 		run, err := svc.GetRun(ctx, p.RunKey)
@@ -59,22 +58,9 @@ func handleListRuns(svc Service) func(context.Context, listRunsParams) (runsResu
 	}
 }
 
-func handleUpdateRunStatus(svc Service) func(context.Context, updateRunStatusParams) (runResult, error) {
-	return func(ctx context.Context, p updateRunStatusParams) (runResult, error) {
-		if err := required2(p.RunKey, "runKey", p.Status, "status"); err != nil {
-			return runResult{}, err
-		}
-		run, err := svc.UpdateRunStatus(ctx, p.RunKey, p.Status)
-		if err != nil {
-			return runResult{}, err
-		}
-		return runResult{Run: run}, nil
-	}
-}
-
 func handleMergeRun(svc Service) func(context.Context, mergeRunParams) (mergeResult, error) {
 	return func(ctx context.Context, p mergeRunParams) (mergeResult, error) {
-		if err := required(p.RunKey, "runKey"); err != nil {
+		if err := required(p.RunKey, "run_key"); err != nil {
 			return mergeResult{}, err
 		}
 		result, err := svc.MergeRun(ctx, mergeRunRequestFromParams(p))
@@ -96,7 +82,7 @@ func mergeRunRequestFromParams(p mergeRunParams) MergeRunRequest {
 
 func handleAbortRun(svc Service) func(context.Context, abortRunParams) (runResult, error) {
 	return func(ctx context.Context, p abortRunParams) (runResult, error) {
-		if err := required(p.RunKey, "runKey"); err != nil {
+		if err := required(p.RunKey, "run_key"); err != nil {
 			return runResult{}, err
 		}
 		if err := svc.AbortRun(ctx, p.RunKey, p.UpdatedBy, p.Reason); err != nil {
@@ -112,7 +98,7 @@ func handleAbortRun(svc Service) func(context.Context, abortRunParams) (runResul
 
 func handleListRunFiles(svc Service) func(context.Context, listRunFilesParams) (runFilesResult, error) {
 	return func(ctx context.Context, p listRunFilesParams) (runFilesResult, error) {
-		if err := required(p.RunKey, "runKey"); err != nil {
+		if err := required(p.RunKey, "run_key"); err != nil {
 			return runFilesResult{}, err
 		}
 		files, err := svc.ListRunFiles(ctx, p.RunKey, p.State)
@@ -125,7 +111,7 @@ func handleListRunFiles(svc Service) func(context.Context, listRunFilesParams) (
 
 func handleGetRunFile(svc Service) func(context.Context, runFileParams) (runFileResult, error) {
 	return func(ctx context.Context, p runFileParams) (runFileResult, error) {
-		if err := required2(p.RunKey, "runKey", p.Path, "path"); err != nil {
+		if err := required2(p.RunKey, "run_key", p.Path, "path"); err != nil {
 			return runFileResult{}, err
 		}
 		file, err := svc.GetRunFile(ctx, p.RunKey, p.Path)

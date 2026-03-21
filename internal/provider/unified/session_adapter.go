@@ -31,9 +31,30 @@ func (a *sessionProviderAdapter) GetSession(agentID string) (contract.Session, e
 	return a.manager.Get(agentID)
 }
 
+func (a *sessionProviderAdapter) RemoveSession(agentID string) {
+	if a == nil || a.manager == nil {
+		return
+	}
+	a.manager.RemoveCurrent(agentID)
+}
+
+func (a *sessionProviderAdapter) SessionGeneration(agentID string) uint64 {
+	if a == nil || a.manager == nil {
+		return 0
+	}
+	return a.manager.SessionGeneration(agentID)
+}
+
 func (a *sessionCleanerAdapter) RemoveSession(agentID string) {
 	if a == nil || a.manager == nil {
 		return
 	}
-	a.manager.Remove(agentID)
+	a.manager.RemoveCurrent(agentID)
+}
+
+func (a *sessionCleanerAdapter) RemoveSessionGeneration(agentID string, generation uint64) {
+	if a == nil || a.manager == nil {
+		return
+	}
+	a.manager.Remove(agentID, generation)
 }

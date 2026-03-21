@@ -49,7 +49,7 @@ func NewSkillHandlers(svc Service) rpc.HandlerMapResult {
 		"command/card/run":      cardRunHandler(svc.RunCard),
 		"command/card/versions": cardByKeyHandler(func(ctx context.Context, key string) (any, error) { return svc.ListCardVersions(ctx, key) }),
 		"command/exec": rpc.StrictHandler(func(ctx context.Context, p execParams) (any, error) {
-			return svc.ExecCommand(ctx, p.Command, p.Args, p.CWD)
+			return svc.ExecCommand(ctx, p.Command, p.Args, p.CWD, p.Env)
 		}),
 		// skills/list: 扫描本地 skill 目录，返回所有已安装的 skill 元信息。
 		// 与 thread/skills/list 不同：后者走 thread 命令通道，返回 thread 绑定的 active skills。

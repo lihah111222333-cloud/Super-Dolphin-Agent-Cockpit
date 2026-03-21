@@ -3,6 +3,7 @@ package sharedfile
 import (
 	"context"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -21,7 +22,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 		UpdatedBy: params.UpdatedBy,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapSharedFileError(err, "upsert")
 	}
 	result := mapSharedFile(row)
 	return &result, nil
@@ -30,7 +31,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	row, err := s.q.GetSharedFile(ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, wrapSharedFileError(err, "get")
 	}
 	result := mapSharedFile(row)
 	return &result, nil
@@ -42,7 +43,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, erro
 		Limit:  filter.Limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapSharedFileError(err, "list")
 	}
 	result := make([]SharedFile, len(rows))
 	for i, row := range rows {
@@ -52,7 +53,11 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, erro
 }
 
 func (s *store) Delete(ctx context.Context, path string) (int64, error) {
-	return s.q.DeleteSharedFile(ctx, path)
+	count, err := s.q.DeleteSharedFile(ctx, path)
+	if err != nil {
+		return 0, wrapSharedFileError(err, "delete")
+	}
+	return count, nil
 }
 
 func mapSharedFile(row sqlc.SharedFile) SharedFile {
@@ -63,4 +68,8 @@ func mapSharedFile(row sqlc.SharedFile) SharedFile {
 		CreatedAt: row.CreatedAt,
 		UpdatedAt: row.UpdatedAt,
 	}
+}
+
+func wrapSharedFileError(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "shared_file")
 }

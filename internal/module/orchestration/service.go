@@ -39,29 +39,34 @@ type service struct {
 }
 
 type agentRuntime struct {
-	id               string
-	name             string
-	parentID         string
-	cwd              string
-	command          []string
-	env              []string
-	port             int
-	provider         string
-	state            string
-	threadID         string
-	activeTurnID     string
-	lastReport       string
-	reportRequesters []string
-	lastError        string
-	startedAt        time.Time
-	updatedAt        time.Time
-	exitedAt         *time.Time
-	launchSeq        uint64
-	monitoredSeq     uint64
-	stopRequested    bool
-	cmd              *exec.Cmd
-	queue            *SubmissionQueue
-	sm               *stateless.StateMachine
+	id                string
+	name              string
+	parentID          string
+	cwd               string
+	command           []string
+	env               []string
+	port              int
+	runtimePort       int
+	portSource        string
+	provider          string
+	runtimeProvider   string
+	providerSource    string
+	state             string
+	threadID          string
+	activeTurnID      string
+	lastReport        string
+	reportRequesters  []string
+	lastError         string
+	startedAt         time.Time
+	updatedAt         time.Time
+	exitedAt          *time.Time
+	launchSeq         uint64
+	monitoredSeq      uint64
+	sessionGeneration uint64
+	stopRequested     bool
+	cmd               *exec.Cmd
+	queue             *SubmissionQueue
+	sm                *stateless.StateMachine
 }
 
 type monitorTarget struct {
@@ -101,12 +106,6 @@ func NewService(
 	}
 }
 
-func (s *service) removeSession(agentID string) {
-	if s.sessionCleaner != nil {
-		s.sessionCleaner.RemoveSession(agentID)
-	}
-}
-
 func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error {
 	if err := validateLaunchRequest(req); err != nil {
 		return err
@@ -120,7 +119,9 @@ func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error {
 		return fmt.Errorf("agent %q already launched", agent.id)
 	}
 	agent.queue.Clear()
-	s.prepareLaunchStateLocked(agent)
+	if err := s.prepareLaunchStateLocked(ctx, agent); err != nil {
+		return err
+	}
 	return s.startProcessLocked(ctx, agent)
 }
 
@@ -135,7 +136,7 @@ func (s *service) StopAgent(ctx context.Context, agentID string) error {
 	if err := s.stopAgentLocked(ctx, agent); err != nil {
 		return err
 	}
-	s.removeSession(agent.id)
+	s.removeSession(agent)
 	s.publishAgentStopped(agent, "user_requested")
 	return nil
 }
@@ -146,7 +147,7 @@ func (s *service) StopAllAgents() {
 
 	for _, agent := range s.agents {
 		if err := s.stopAgentLocked(context.Background(), agent); err == nil {
-			s.removeSession(agent.id)
+			s.removeSession(agent)
 			s.publishAgentStopped(agent, "shutdown")
 		}
 	}
@@ -217,20 +218,6 @@ func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, 
 	return s.snapshotLocked(ctx, agent), nil
 }
 
-func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSnapshot {
-	return AgentSnapshot{
-		ID:         agent.id,
-		Name:       agent.name,
-		ParentID:   agent.parentID,
-		Port:       agent.port,
-		ThreadID:   agent.threadID,
-		Cwd:        agent.cwd,
-		State:      agent.state,
-		Provider:   agent.provider,
-		LastReport: agent.lastReport,
-	}
-}
-
 func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
 	cmd := exec.Command(agent.command[0], agent.command[1:]...)
 	cmd.Dir = agent.cwd
@@ -242,7 +229,7 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 		}
 		return err
 	}
-	now := time.Now()
+	now := resolveEventTime(ctx, agent.updatedAt)
 	agent.cmd = cmd
 	agent.launchSeq++
 	agent.monitoredSeq = 0
@@ -283,7 +270,7 @@ func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime,
 	if err := agent.sm.FireCtx(ctx, stateless.Trigger(trigger)); err != nil {
 		return err
 	}
-	agent.updatedAt = time.Now()
+	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	s.publishStateChanged(agent, before, trigger)
 	return nil
 }
@@ -360,11 +347,11 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	if lookupErr != nil || agent.launchSeq != launchSeq {
 		return
 	}
-	now := time.Now()
+	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	agent.cmd = nil
 	agent.exitedAt = &now
 	agent.updatedAt = now
-	s.removeSession(agent.id)
+	s.removeSession(agent)
 	s.recordProcessExitError(agent, err)
 	s.handleProcessExitTransition(ctx, agent)
 }

@@ -8,7 +8,7 @@ var Module = fx.Module("thread",
 	fx.Provide(
 		fx.Annotate(
 			NewService,
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
 		),
 		fx.Annotate(
 			NewThreadHandlers,

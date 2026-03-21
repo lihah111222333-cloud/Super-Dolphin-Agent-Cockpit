@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
 )
@@ -32,7 +33,7 @@ func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission orch
 	}
 	session, err := s.sessions.GetSession(agentID)
 	if err != nil {
-		return "", err
+		return "", sessionLookupError(err)
 	}
 	req, err := s.turns.PrepareTurn(ctx, session, prepareQueuedTurnInput(session, submission))
 	if err != nil {
@@ -49,6 +50,13 @@ func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission orch
 		return "", err
 	}
 	return strings.TrimSpace(handle.LocalID()), nil
+}
+
+func sessionLookupError(err error) error {
+	if errors.Is(err, contract.ErrSessionNotFound) {
+		return errors.New("agent session not ready, ensure agent.launch completed")
+	}
+	return err
 }
 
 func prepareQueuedTurnInput(session sessionCaps, submission orchestration.TurnSubmission) PrepareInput {

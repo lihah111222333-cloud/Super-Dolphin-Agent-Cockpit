@@ -14,7 +14,7 @@ func TestExecCommandRejectsShellMetacharacters(t *testing.T) {
 	t.Parallel()
 
 	svc := &service{}
-	if _, err := svc.ExecCommand(context.Background(), "printf", []string{"a|b"}, ""); err == nil {
+	if _, err := svc.ExecCommand(context.Background(), "printf", []string{"a|b"}, "", nil); err == nil {
 		t.Fatal("ExecCommand expected shell metacharacter validation error")
 	}
 }
@@ -24,7 +24,7 @@ func TestExecCommandFallsBackToProjectRoot(t *testing.T) {
 
 	root := t.TempDir()
 	svc := &service{projectRoot: root}
-	out, err := svc.ExecCommand(context.Background(), "pwd", nil, "")
+	out, err := svc.ExecCommand(context.Background(), "pwd", nil, "", nil)
 	if err != nil {
 		t.Fatalf("ExecCommand returned error: %v", err)
 	}
@@ -41,19 +41,45 @@ func TestExecCommandInjectsWhitelistedEnv(t *testing.T) {
 	t.Setenv("UNRELATED_SKILL_ENV", "blocked")
 
 	svc := &service{}
-	allowed, err := svc.ExecCommand(context.Background(), "printenv", []string{"TEST_E2E_SKILL_ENV"}, "")
+	allowed, err := svc.ExecCommand(context.Background(), "printenv", []string{"TEST_E2E_SKILL_ENV"}, "", nil)
 	if err != nil {
 		t.Fatalf("ExecCommand allowed env returned error: %v", err)
 	}
 	if got := strings.TrimSpace(allowed.Stdout); got != "allowed" {
 		t.Fatalf("allowed env mismatch: got %q", got)
 	}
-	blocked, err := svc.ExecCommand(context.Background(), "printenv", []string{"UNRELATED_SKILL_ENV"}, "")
+	blocked, err := svc.ExecCommand(context.Background(), "printenv", []string{"UNRELATED_SKILL_ENV"}, "", nil)
 	if err != nil {
 		t.Fatalf("ExecCommand blocked env returned error: %v", err)
 	}
 	if blocked.ExitCode == 0 || strings.TrimSpace(blocked.Stdout) != "" {
 		t.Fatalf("blocked env leaked: exit=%d stdout=%q", blocked.ExitCode, blocked.Stdout)
+	}
+}
+
+func TestExecCommandOverlaysAllowedEnv(t *testing.T) {
+	t.Setenv("TEST_E2E_SKILL_ENV", "base")
+	svc := &service{}
+
+	allowed, err := svc.ExecCommand(context.Background(), "printenv", []string{"TEST_E2E_SKILL_ENV"}, "", map[string]string{
+		"TEST_E2E_SKILL_ENV":  "override",
+		"UNRELATED_SKILL_ENV": "blocked",
+	})
+	if err != nil {
+		t.Fatalf("ExecCommand override env returned error: %v", err)
+	}
+	if got := strings.TrimSpace(allowed.Stdout); got != "override" {
+		t.Fatalf("override env mismatch: got %q", got)
+	}
+
+	blocked, err := svc.ExecCommand(context.Background(), "printenv", []string{"UNRELATED_SKILL_ENV"}, "", map[string]string{
+		"UNRELATED_SKILL_ENV": "blocked",
+	})
+	if err != nil {
+		t.Fatalf("ExecCommand blocked overlay returned error: %v", err)
+	}
+	if blocked.ExitCode == 0 || strings.TrimSpace(blocked.Stdout) != "" {
+		t.Fatalf("blocked overlay leaked: exit=%d stdout=%q", blocked.ExitCode, blocked.Stdout)
 	}
 }
 
