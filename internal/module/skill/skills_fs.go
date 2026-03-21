@@ -327,30 +327,51 @@ func (s *service) resolveProjectPath(target string) (string, error) {
 	if root == "" {
 		return "", errors.New("project root is not configured")
 	}
-	rootPath, err := filepath.Abs(root)
+	rootPath, err := canonicalProjectPath(root)
 	if err != nil {
 		return "", err
 	}
-	if resolvedRoot, err := filepath.EvalSymlinks(rootPath); err == nil {
-		rootPath = resolvedRoot
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-	targetPath, err := filepath.Abs(target)
+	targetPath, err := canonicalProjectPath(target)
 	if err != nil {
 		return "", err
 	}
-	if resolvedTarget, err := filepath.EvalSymlinks(targetPath); err == nil {
-		targetPath = resolvedTarget
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-	rel, err := filepath.Rel(rootPath, targetPath)
+	outside, err := pathEscapesRoot(rootPath, targetPath)
 	if err != nil {
 		return "", err
 	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if outside {
 		return "", fmt.Errorf("path escapes project root: %s", target)
 	}
 	return targetPath, nil
+}
+
+func canonicalProjectPath(path string) (string, error) {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return resolveExistingPath(absolutePath)
+}
+
+func resolveExistingPath(path string) (string, error) {
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	switch {
+	case err == nil:
+		return resolvedPath, nil
+	case errors.Is(err, os.ErrNotExist):
+		return path, nil
+	default:
+		return "", err
+	}
+}
+
+func pathEscapesRoot(rootPath, targetPath string) (bool, error) {
+	relativePath, err := filepath.Rel(rootPath, targetPath)
+	if err != nil {
+		return false, err
+	}
+	if relativePath == ".." {
+		return true, nil
+	}
+	return strings.HasPrefix(relativePath, ".."+string(filepath.Separator)), nil
 }
