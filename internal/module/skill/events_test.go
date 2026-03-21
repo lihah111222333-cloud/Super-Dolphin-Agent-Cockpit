@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -25,7 +26,10 @@ func TestWriteSkillContentPublishesSkillsChanged(t *testing.T) {
 	}
 
 	ev := mustReceiveSkillsChanged(t, got)
-	if ev.Name != "demo-skill" || ev.Action != "config_write" || ev.SkillsDir == "" {
+	if ev.Name != "demo-skill" || ev.Action != "write" || ev.SkillsDir == "" || ev.Count != 1 {
+		t.Fatalf("skills changed event = %#v", ev)
+	}
+	if !reflect.DeepEqual(ev.Actions, []string{"write"}) {
 		t.Fatalf("skills changed event = %#v", ev)
 	}
 }
@@ -41,11 +45,42 @@ func TestPublishSkillsChangedDebouncesBurst(t *testing.T) {
 	svc := NewService(nil, "").(*service)
 	svc.bindDispatcher(dispatcher)
 	svc.publishSkillsChanged("local_write", "first")
-	svc.publishSkillsChanged("summary_write", "second")
+	svc.publishSkillsChanged("import_dir", "second")
 
 	ev := mustReceiveSkillsChanged(t, got)
-	if ev.Action != "summary_write" || ev.Name != "second" {
+	if ev.Action != "" || ev.Name != "" || ev.Count != 2 {
 		t.Fatalf("debounced event = %#v", ev)
+	}
+	if !reflect.DeepEqual(ev.Actions, []string{"write", "import"}) {
+		t.Fatalf("debounced event = %#v", ev)
+	}
+
+	select {
+	case extra := <-got:
+		t.Fatalf("unexpected extra skills changed event = %#v", extra)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestPublishSkillsChangedDedupesRepeatedActions(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	got := make(chan uidto.SkillsChanged, 2)
+	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
+	defer cancel()
+
+	svc := NewService(nil, "").(*service)
+	svc.bindDispatcher(dispatcher)
+	svc.publishSkillsChanged("local_write", "first")
+	svc.publishSkillsChanged("write", "second")
+
+	ev := mustReceiveSkillsChanged(t, got)
+	if ev.Action != "write" || ev.Count != 1 {
+		t.Fatalf("deduped event = %#v", ev)
+	}
+	if !reflect.DeepEqual(ev.Actions, []string{"write"}) {
+		t.Fatalf("deduped event = %#v", ev)
 	}
 
 	select {

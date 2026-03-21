@@ -148,12 +148,14 @@ func sidebarThreadStatus(thread *ThreadSummary, agent *AgentSummary, active *Tur
 		return normalizeSidebarStatus(firstNonEmptyString(active.Status, "running"))
 	}
 	if thread != nil {
-		if status := normalizeSidebarStatus(firstNonEmptyString(thread.ThreadStatus, thread.State)); status != "" {
-			return status
+		if raw := firstNonEmptyString(thread.ThreadStatus, thread.State); raw != "" {
+			return normalizeSidebarStatus(raw)
 		}
 	}
 	if agent != nil {
-		return normalizeSidebarStatus(firstNonEmptyString(agent.ThreadStatus, agent.AgentState, agent.State))
+		if raw := firstNonEmptyString(agent.ThreadStatus, agent.AgentState, agent.State); raw != "" {
+			return normalizeSidebarStatus(raw)
+		}
 	}
 	return "idle"
 }

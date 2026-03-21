@@ -178,6 +178,7 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 		},
 		Reason: "user_requested",
 	})
+	time.Sleep(20 * time.Millisecond)
 
 	sidebar, err := svc.GetSidebar(context.Background())
 	if err != nil {

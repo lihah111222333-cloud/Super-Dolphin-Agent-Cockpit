@@ -264,7 +264,7 @@ func TestBindPublishesRecoveryAndToolSurface(t *testing.T) {
 	})
 
 	seen := map[string]map[string]any{}
-	for range 6 {
+	for range 7 {
 		ev := mustReceivePublished(t, got)
 		seen[ev.method] = payloadMap(ev.payload)
 	}

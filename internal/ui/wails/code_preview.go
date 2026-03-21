@@ -1,12 +1,12 @@
 package wails
 
 import (
-	"bytes"
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -283,8 +283,14 @@ func previewMediaType(path string) string {
 		return "image/png"
 	case ".jpg", ".jpeg":
 		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
 	case ".svg":
 		return "image/svg+xml"
+	case ".webp":
+		return "image/webp"
+	case ".ico":
+		return "image/x-icon"
 	default:
 		return ""
 	}
