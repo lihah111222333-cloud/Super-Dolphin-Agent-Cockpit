@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -91,6 +93,60 @@ func withTurnSession(ctx context.Context, resolver contract.SessionResolver, fn 
 	return fn(ctx, session)
 }
 
+func resolveReadyTurnSession(ctx context.Context, resolver contract.SessionResolver) (contract.Session, error) {
+	if resolver == nil {
+		return nil, errors.New("turn rpc: session resolver is not configured")
+	}
+	threadID := rpc.ThreadIDFrom(ctx)
+	lookup := func(callCtx context.Context) (contract.Session, error) {
+		session, err := resolver.ResolveSession(callCtx, threadID)
+		if err != nil {
+			return nil, err
+		}
+		if session == nil {
+			return nil, contract.ErrSessionNotFound
+		}
+		return session, nil
+	}
+	session, err := lookup(ctx)
+	if err == nil {
+		return session, nil
+	}
+	if !errors.Is(err, contract.ErrSessionNotFound) {
+		return nil, err
+	}
+	waitCtx := ctx
+	cancel := func() {}
+	if _, ok := ctx.Deadline(); !ok {
+		waitCtx, cancel = context.WithTimeout(ctx, config.LaunchTimeout)
+	}
+	defer cancel()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-waitCtx.Done():
+			return nil, rpc.ErrInvalidState("thread session is not available; start or resume the thread first")
+		case <-ticker.C:
+			session, err := lookup(waitCtx)
+			if err == nil {
+				return session, nil
+			}
+			if !errors.Is(err, contract.ErrSessionNotFound) {
+				return nil, err
+			}
+		}
+	}
+}
+
+func withReadyTurnSession(ctx context.Context, resolver contract.SessionResolver, fn func(context.Context, contract.Session) (any, error)) (any, error) {
+	session, err := resolveReadyTurnSession(ctx, resolver)
+	if err != nil {
+		return nil, err
+	}
+	return fn(ctx, session)
+}
+
 func applyTurnStartConfig(ctx context.Context, session contract.Session, p turnStartParams) error {
 	policy := strings.TrimSpace(p.ApprovalPolicy)
 	if policy == "" {
@@ -100,46 +156,58 @@ func applyTurnStartConfig(ctx context.Context, session contract.Session, p turnS
 }
 
 func turnStartHandler(svc Service, resolver contract.SessionResolver, capResolver rpc.CapabilityResolver) handler.Func {
-	return rpc.CapabilityThreadHandler("message_send", capResolver,
-		func(ctx context.Context, p turnStartParams) (any, error) {
-			return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
-				input := buildPrepareInput(p, session)
-				if err := applyTurnStartConfig(ctx, session, p); err != nil {
-					return nil, err
-				}
-				req, err := svc.PrepareTurn(ctx, session, input)
-				if err != nil {
-					return nil, err
-				}
-				handle, err := svc.StartTurn(ctx, session, req)
-				if err != nil {
-					return nil, err
-				}
-				return turnStartResult{TurnID: handle.LocalID()}, nil
-			})
+	_ = capResolver
+	return rpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
+		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
+			if !session.Capabilities().Has(dto.CapMessageSend) {
+				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")
+			}
+			input := buildPrepareInput(p, session)
+			if err := applyTurnStartConfig(ctx, session, p); err != nil {
+				return nil, err
+			}
+			req, err := svc.PrepareTurn(ctx, session, input)
+			if err != nil {
+				return nil, err
+			}
+			handle, err := svc.StartTurn(ctx, session, req)
+			if err != nil {
+				return nil, err
+			}
+			return turnStartResult{TurnID: handle.LocalID()}, nil
 		})
+	})
 }
 
 func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolver rpc.CapabilityResolver) handler.Func {
-	return rpc.CapabilityThreadHandler("message_send", capResolver,
-		func(ctx context.Context, p turnSteerParams) (any, error) {
-			return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
-				handle, err := svc.SteerTurn(ctx, session, p.Prompt)
-				if err != nil {
-					return nil, err
-				}
-				return turnStartResult{TurnID: handle.LocalID()}, nil
-			})
+	_ = capResolver
+	return rpc.ThreadHandler(func(ctx context.Context, p turnSteerParams) (any, error) {
+		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
+			if !session.Capabilities().Has(dto.CapMessageSend) {
+				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")
+			}
+			handle, err := svc.SteerTurn(ctx, session, p.ExpectedTurnID, buildPrepareInput(turnStartParams{
+				Prompt:               p.Prompt,
+				Input:                p.Input,
+				SelectedSkills:       p.SelectedSkills,
+				ManualSkillSelection: p.ManualSkillSelection,
+			}, session))
+			if err != nil {
+				return nil, err
+			}
+			return turnStartResult{TurnID: handle.LocalID()}, nil
 		})
+	})
 }
 
 func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handler.Func {
 	return rpc.ThreadHandler(func(ctx context.Context, p turnInterruptParams) (any, error) {
 		return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
-			if err := svc.InterruptTurn(ctx, session, p.Source); err != nil {
+			status, err := svc.InterruptTurn(ctx, session, p.Source)
+			if err != nil {
 				return nil, err
 			}
-			return turnInterruptResult{OK: true}, nil
+			return turnInterruptResult{OK: true, TurnID: status.LocalID, Status: status.State}, nil
 		})
 	})
 }

@@ -1,13 +1,16 @@
 package dashboard
 
+import "strings"
+
 func turnHistoryFromSnapshot(snapshot AgentSnapshot) []TurnRef {
-	if snapshot.ActiveTurnID == "" && snapshot.ThreadID == "" {
+	turnID := strings.TrimSpace(snapshot.ActiveTurnID)
+	if turnID == "" {
 		return []TurnRef{}
 	}
 	return []TurnRef{{
-		TurnID:   snapshot.ActiveTurnID,
-		ThreadID: snapshot.ThreadID,
-		AgentID:  snapshot.ID,
-		Status:   snapshot.State,
+		TurnID:   turnID,
+		ThreadID: strings.TrimSpace(snapshot.ThreadID),
+		AgentID:  strings.TrimSpace(snapshot.ID),
+		Status:   strings.TrimSpace(snapshot.State),
 	}}
 }

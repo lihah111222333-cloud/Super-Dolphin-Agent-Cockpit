@@ -17,10 +17,17 @@ import (
 func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service) []context.CancelFunc {
 	return []context.CancelFunc{
 		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentStateChanged, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentLaunched, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentStopped, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentRecovering, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentFailed, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentRuntimeReported, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyThreadStarted, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyThreadStopped, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnStarted, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnInterrupted, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnCompleted, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnOutputDelta, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunCreated, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunStatusChanged, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunMerged, svc.logger),
@@ -34,13 +41,110 @@ func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:         strings.TrimSpace(ev.ThreadID),
+		AgentID:    strings.TrimSpace(ev.AgentID),
+		AgentState: strings.TrimSpace(ev.NewState),
+	})
+	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
+		ID:         strings.TrimSpace(ev.AgentID),
+		ThreadID:   strings.TrimSpace(ev.ThreadID),
+		State:      strings.TrimSpace(ev.NewState),
+		AgentState: strings.TrimSpace(ev.NewState),
+	})
+	sortThreads(s.state.Threads)
+	sortAgents(s.state.Agents)
+}
+
+func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:         strings.TrimSpace(ev.ThreadID),
+		AgentID:    strings.TrimSpace(ev.AgentID),
+		AgentState: "starting",
+	})
+	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
+		ID:         strings.TrimSpace(ev.AgentID),
+		ThreadID:   strings.TrimSpace(ev.ThreadID),
+		State:      "starting",
+		CWD:        strings.TrimSpace(ev.CWD),
+		AgentState: "starting",
+	})
+	sortThreads(s.state.Threads)
+	sortAgents(s.state.Agents)
+}
+
+func (s *service) applyAgentStopped(ev agentdto.AgentStopped) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:         strings.TrimSpace(ev.ThreadID),
+		AgentID:    strings.TrimSpace(ev.AgentID),
+		AgentState: "stopped",
+	})
+	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
+		ID:         strings.TrimSpace(ev.AgentID),
+		ThreadID:   strings.TrimSpace(ev.ThreadID),
+		State:      "stopped",
+		AgentState: "stopped",
+	})
+	sortThreads(s.state.Threads)
+	sortAgents(s.state.Agents)
+}
+
+func (s *service) applyAgentRecovering(ev agentdto.AgentRecovering) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:         strings.TrimSpace(ev.ThreadID),
+		AgentID:    strings.TrimSpace(ev.AgentID),
+		AgentState: "recovering",
+	})
+	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
+		ID:         strings.TrimSpace(ev.AgentID),
+		ThreadID:   strings.TrimSpace(ev.ThreadID),
+		State:      "recovering",
+		AgentState: "recovering",
+	})
+	sortThreads(s.state.Threads)
+	sortAgents(s.state.Agents)
+}
+
+func (s *service) applyAgentFailed(ev agentdto.AgentFailed) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:         strings.TrimSpace(ev.ThreadID),
+		AgentID:    strings.TrimSpace(ev.AgentID),
+		State:      "error",
+		ThreadStatus: "error",
+		AgentState: "error",
+		LastMessage: strings.TrimSpace(ev.Error),
+	})
+	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
+		ID:          strings.TrimSpace(ev.AgentID),
+		ThreadID:    strings.TrimSpace(ev.ThreadID),
+		State:       "error",
+		AgentState:  "error",
+		LastReport:  strings.TrimSpace(ev.Error),
+		LastMessage: strings.TrimSpace(ev.Error),
+	})
+	sortThreads(s.state.Threads)
+	sortAgents(s.state.Agents)
+}
+
+func (s *service) applyAgentRuntimeReported(ev agentdto.AgentRuntimeReported) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
 		ID:      strings.TrimSpace(ev.ThreadID),
 		AgentID: strings.TrimSpace(ev.AgentID),
 	})
 	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
 		ID:       strings.TrimSpace(ev.AgentID),
 		ThreadID: strings.TrimSpace(ev.ThreadID),
-		State:    strings.TrimSpace(ev.NewState),
+		Provider: strings.TrimSpace(ev.Provider),
+		Port:     ev.Port,
 	})
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
@@ -48,29 +152,39 @@ func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 
 func (s *service) applyThreadStarted(ev threaddto.Started) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:      strings.TrimSpace(ev.ThreadID),
-		AgentID: strings.TrimSpace(ev.AgentID),
-		State:   "running",
+		ID:           strings.TrimSpace(ev.ThreadID),
+		AgentID:      strings.TrimSpace(ev.AgentID),
+		State:        "running",
+		ThreadStatus: "running",
 	})
 	sortThreads(s.state.Threads)
+	patch := s.threadPatchLocked(ev.ThreadID, "thread/started")
+	applyPatchStatus(&patch, "running")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
 }
 
 func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	status := strings.TrimSpace(ev.Status)
 	if status == "" {
 		status = "stopped"
 	}
 	s.state.Threads = markThreadStopped(s.state.Threads, ev.ThreadID, status)
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:           strings.TrimSpace(ev.ThreadID),
+		ThreadStatus: patchStatus(status),
+	})
 	sortThreads(s.state.Threads)
+	patch := s.threadPatchLocked(ev.ThreadID, "thread/stopped")
+	applyPatchStatus(&patch, status)
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
 }
 
 func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	startedAt := cloneTime(&ev.Timestamp)
 	s.state.ActiveTurn = &TurnSummary{
 		ID:        strings.TrimSpace(ev.TurnID),
@@ -79,16 +193,69 @@ func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 		Status:    "running",
 		StartedAt: startedAt,
 	}
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:           strings.TrimSpace(ev.ThreadID),
+		AgentID:      strings.TrimSpace(ev.AgentID),
+		State:        "running",
+		ThreadStatus: "running",
+	})
+	sortThreads(s.state.Threads)
+	patch := s.threadPatchLocked(ev.ThreadID, "turn/started")
+	applyPatchStatus(&patch, "running")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
+
+func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
+	s.mu.Lock()
+	if s.state.ActiveTurn != nil && strings.TrimSpace(s.state.ActiveTurn.ID) == strings.TrimSpace(ev.TurnID) {
+		s.state.ActiveTurn = nil
+	}
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:           strings.TrimSpace(ev.ThreadID),
+		AgentID:      strings.TrimSpace(ev.AgentID),
+		State:        "idle",
+		ThreadStatus: "idle",
+	})
+	sortThreads(s.state.Threads)
+	patch := s.threadPatchLocked(ev.ThreadID, "turn/interrupted")
+	applyPatchStatus(&patch, "idle")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
 }
 
 func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	completed := completedTurnSummary(s.state.ActiveTurn, ev)
 	s.state.RecentTurns = pushRecentTurn(s.state.RecentTurns, completed, recentTurnLimit)
 	if s.state.ActiveTurn != nil && s.state.ActiveTurn.ID == completed.ID {
 		s.state.ActiveTurn = nil
 	}
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:           strings.TrimSpace(ev.ThreadID),
+		AgentID:      strings.TrimSpace(ev.AgentID),
+		State:        patchStatus(completionStatus(ev)),
+		ThreadStatus: patchStatus(completionStatus(ev)),
+	})
+	sortThreads(s.state.Threads)
+	patch := s.threadPatchLocked(ev.ThreadID, "turn/completed")
+	applyPatchStatus(&patch, completionStatus(ev))
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
+
+func (s *service) applyTurnOutputDelta(ev turndto.TurnOutputDelta) {
+	if !strings.EqualFold(strings.TrimSpace(ev.Stream), "message") {
+		return
+	}
+	delta := strings.TrimSpace(ev.Delta)
+	if delta == "" {
+		return
+	}
+	s.mu.Lock()
+	appendLastMessageLocked(&s.state.Threads, strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.AgentID), delta)
+	appendAgentMessageLocked(&s.state.Agents, strings.TrimSpace(ev.AgentID), strings.TrimSpace(ev.ThreadID), delta)
+	s.mu.Unlock()
 }
 
 func (s *service) applyWorkspaceRunCreated(ev workspacedto.WorkspaceRunCreated) {
@@ -164,13 +331,16 @@ func (s *service) applyWorkspaceRunMergeError(ev workspacedto.WorkspaceRunMergeE
 
 func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.state.TokenUsage = TokenUsage{
 		InputTokens:         ev.InputTokens,
 		OutputTokens:        ev.OutputTokens,
 		TotalTokens:         ev.TotalTokens,
 		ContextWindowTokens: ev.ContextWindowTokens,
 	}
+	patch := s.threadPatchLocked(ev.ThreadID, "thread/tokenusage/updated")
+	patch.TokenUsage = tokenUsagePatch(ev)
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
 }
 
 func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted) TurnSummary {
@@ -244,4 +414,66 @@ func choosePositiveInt(next, current int) int {
 		return next
 	}
 	return current
+}
+
+func appendLastMessageLocked(items *[]ThreadSummary, threadID, agentID, delta string) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" || items == nil {
+		return
+	}
+	nextMessage := strings.TrimSpace(delta)
+	for i := range *items {
+		if strings.TrimSpace((*items)[i].ID) != threadID {
+			continue
+		}
+		(*items)[i].AgentID = chooseString(strings.TrimSpace(agentID), (*items)[i].AgentID)
+		(*items)[i].LastMessage = mergeLastMessage((*items)[i].LastMessage, nextMessage)
+		return
+	}
+	*items = append(*items, ThreadSummary{
+		ID:          threadID,
+		AgentID:     strings.TrimSpace(agentID),
+		LastMessage: nextMessage,
+	})
+}
+
+func appendAgentMessageLocked(items *[]AgentSummary, agentID, threadID, delta string) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" || items == nil {
+		return
+	}
+	nextMessage := strings.TrimSpace(delta)
+	for i := range *items {
+		if strings.TrimSpace((*items)[i].ID) != agentID {
+			continue
+		}
+		(*items)[i].ThreadID = chooseString(strings.TrimSpace(threadID), (*items)[i].ThreadID)
+		(*items)[i].LastMessage = mergeLastMessage((*items)[i].LastMessage, nextMessage)
+		return
+	}
+	*items = append(*items, AgentSummary{
+		ID:          agentID,
+		ThreadID:    strings.TrimSpace(threadID),
+		LastMessage: nextMessage,
+	})
+}
+
+func mergeLastMessage(current, delta string) string {
+	current = strings.TrimSpace(current)
+	delta = strings.TrimSpace(delta)
+	if current == "" {
+		return clipLastMessage(delta)
+	}
+	if delta == "" {
+		return clipLastMessage(current)
+	}
+	return clipLastMessage(current + delta)
+}
+
+func clipLastMessage(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 240 {
+		return value
+	}
+	return value[len(value)-240:]
 }

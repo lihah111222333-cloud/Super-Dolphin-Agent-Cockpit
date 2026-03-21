@@ -19,6 +19,24 @@ func TestExecCommandRejectsShellMetacharacters(t *testing.T) {
 	}
 }
 
+func TestExecCommandRejectsWrappedDangerousCommand(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{}
+	if _, err := svc.ExecCommand(context.Background(), "env", []string{"SAFE=1", "rm", "-rf", "/"}, "", nil); err == nil {
+		t.Fatal("ExecCommand expected wrapped dangerous command validation error")
+	}
+}
+
+func TestExecCommandRejectsShellInterpreter(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{}
+	if _, err := svc.ExecCommand(context.Background(), "sh", []string{"-lc", "printf ok"}, "", nil); err == nil {
+		t.Fatal("ExecCommand expected shell interpreter validation error")
+	}
+}
+
 func TestExecCommandFallsBackToProjectRoot(t *testing.T) {
 	t.Parallel()
 
@@ -116,6 +134,40 @@ func TestRunCardAllowsShellSyntaxViaInternalShellPath(t *testing.T) {
 	}
 	if got := strings.TrimSpace(out.Exec.Stdout); got != "faa" {
 		t.Fatalf("RunCard stdout mismatch: got %q", got)
+	}
+}
+
+func TestRunCardRejectsDangerousShellCommand(t *testing.T) {
+	t.Parallel()
+
+	card := commandcardstore.CommandCard{
+		CardKey:         "danger",
+		Title:           "danger",
+		CommandTemplate: `r\m -rf /tmp/danger`,
+		ArgsSchema:      json.RawMessage("{}"),
+		Enabled:         true,
+	}
+	svc := &service{cards: stubCardStore{card: card}}
+
+	if _, err := svc.RunCard(context.Background(), "danger", map[string]any{}); err == nil {
+		t.Fatal("RunCard expected dangerous command validation error")
+	}
+}
+
+func TestRunCardRejectsDangerousCommandSubstitution(t *testing.T) {
+	t.Parallel()
+
+	card := commandcardstore.CommandCard{
+		CardKey:         "subshell",
+		Title:           "subshell",
+		CommandTemplate: `printf '%s' "$(chmod 600 /tmp/danger)"`,
+		ArgsSchema:      json.RawMessage("{}"),
+		Enabled:         true,
+	}
+	svc := &service{cards: stubCardStore{card: card}}
+
+	if _, err := svc.RunCard(context.Background(), "subshell", map[string]any{}); err == nil {
+		t.Fatal("RunCard expected dangerous command substitution validation error")
 	}
 }
 

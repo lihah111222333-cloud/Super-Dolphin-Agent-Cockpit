@@ -3,6 +3,10 @@ package workspace
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/internal/store/workspace"
 )
@@ -26,6 +30,7 @@ func (s *service) executeMerge(
 		return nil, s.failMergeRun(ctx, run, req, emptyResult, nil, updatedBy, err)
 	}
 	result.DryRun = req.DryRun
+	updates = s.applyMergeFilesystem(run, result, updates)
 	if err := s.applyFileUpdates(ctx, updates); err != nil {
 		return nil, s.failMergeRun(ctx, run, req, result, files, updatedBy, err)
 	}
@@ -53,6 +58,115 @@ func (s *service) executeMerge(
 	s.emitRunStatusChanged(run.Status, mergedRun)
 	s.emitRunMergedEvent(mergedRun, result)
 	return result, nil
+}
+
+func (s *service) applyMergeFilesystem(
+	run *Run,
+	result *MergeRunResult,
+	files []storeworkspace.WorkspaceRunFile,
+) []storeworkspace.WorkspaceRunFile {
+	updated := append([]storeworkspace.WorkspaceRunFile(nil), files...)
+	for i := range updated {
+		updated[i], result.Files[i] = applyMergeFilesystemFile(run, updated[i], result.Files[i])
+	}
+	recountMergeResult(result)
+	return updated
+}
+
+func applyMergeFilesystemFile(
+	run *Run,
+	file storeworkspace.WorkspaceRunFile,
+	item MergeFileResult,
+) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
+	switch file.State {
+	case fileStateMerged:
+		return writeMergedSourceFile(run, file, item)
+	case fileStateRemoved:
+		return removeMergedSourceFile(run, file, item)
+	default:
+		return file, item
+	}
+}
+
+func writeMergedSourceFile(
+	run *Run,
+	file storeworkspace.WorkspaceRunFile,
+	item MergeFileResult,
+) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
+	workspacePath := filepath.Join(run.WorkspacePath, file.RelativePath)
+	info, err := os.Stat(workspacePath)
+	if err != nil {
+		return mergeFileError(file, fmt.Errorf("stat workspace file %q: %w", file.RelativePath, err).Error())
+	}
+	sourcePath := filepath.Join(run.SourceRoot, file.RelativePath)
+	if err := copyFileAtomic(workspacePath, sourcePath, info.Mode().Perm()); err != nil {
+		return mergeFileError(file, fmt.Errorf("write source file %q: %w", file.RelativePath, err).Error())
+	}
+	sourceAfter, err := hashFile(sourcePath)
+	if err != nil {
+		return mergeFileError(file, fmt.Errorf("hash source file %q: %w", file.RelativePath, err).Error())
+	}
+	file.SourceSHA256After = sourceAfter
+	file.LastError = ""
+	return file, item
+}
+
+func removeMergedSourceFile(
+	run *Run,
+	file storeworkspace.WorkspaceRunFile,
+	item MergeFileResult,
+) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
+	sourcePath := filepath.Join(run.SourceRoot, file.RelativePath)
+	if err := os.Remove(sourcePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return mergeFileError(file, fmt.Errorf("remove source file %q: %w", file.RelativePath, err).Error())
+	}
+	file.SourceSHA256After = ""
+	file.LastError = ""
+	return file, item
+}
+
+func copyFileAtomic(source, target string, perm os.FileMode) error {
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	if stat, err := os.Lstat(target); err == nil && stat.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("target is symlink: %s", target)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".workspace-merge-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, perm); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, target); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 func (s *service) transitionMergeFailed(

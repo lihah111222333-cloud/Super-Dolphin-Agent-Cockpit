@@ -25,7 +25,11 @@ func (s *service) ListSkills(context.Context) ([]SkillInfo, error) {
 }
 
 func (s *service) ReadLocal(_ context.Context, path string) (any, error) {
-	info, err := os.Stat(strings.TrimSpace(path))
+	path, err := s.resolveProjectPath(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +54,10 @@ func (s *service) ListLocalFiles(_ context.Context, p listSkillFilesParams) (any
 	if dir == "" {
 		return nil, errors.New("dir or path is required")
 	}
+	dir, err := s.resolveProjectPath(dir)
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -59,7 +67,11 @@ func (s *service) ListLocalFiles(_ context.Context, p listSkillFilesParams) (any
 }
 
 func (s *service) WriteLocal(_ context.Context, path, content string) (any, error) {
-	info, err := os.Stat(strings.TrimSpace(path))
+	path, err := s.resolveProjectPath(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +84,7 @@ func (s *service) WriteLocal(_ context.Context, path, content string) (any, erro
 	if err := os.WriteFile(path, []byte(content), info.Mode().Perm()); err != nil {
 		return nil, err
 	}
+	s.publishSkillsChanged("local_write", filepath.Base(filepath.Dir(path)))
 	return map[string]any{"ok": true, "path": path, "bytes": len(content)}, nil
 }
 
@@ -94,6 +107,13 @@ func (s *service) ImportLocalDir(_ context.Context, p importSkillDirParams) (any
 	if len(results) == 1 {
 		response["skill"] = results[0]
 	}
+	if len(results) > 0 {
+		name := strings.TrimSpace(p.Name)
+		if name == "" && len(results) == 1 {
+			name, _ = results[0]["name"].(string)
+		}
+		s.publishSkillsChanged("import_dir", name)
+	}
 	return response, nil
 }
 
@@ -105,6 +125,7 @@ func (s *service) DeleteLocal(_ context.Context, name string) (any, error) {
 	if err := os.RemoveAll(record.info.Dir); err != nil {
 		return nil, err
 	}
+	s.publishSkillsChanged("delete_local", record.info.Name)
 	return map[string]any{"ok": true, "name": record.info.Name, "dir": record.info.Dir, "removed_agent_bindings": 0}, nil
 }
 
@@ -137,6 +158,7 @@ func (s *service) WriteRemote(_ context.Context, name, content string) (any, err
 	if err != nil {
 		return nil, err
 	}
+	s.publishSkillsChanged("remote_write", name)
 	return map[string]any{"ok": true, "path": path}, nil
 }
 
@@ -147,11 +169,11 @@ func (s *service) ReadConfig(_ context.Context, agentID string) (any, error) {
 		return nil, errors.New("agent_id is required")
 	}
 	return map[string]any{
-		"agent_id":      agentID,
-		"skills":        []string{},
-		"session_bound": false,
-		"configured":    false,
-		"binding_count": 0,
+		"agent_id":       agentID,
+		"skills":         []string{},
+		"session_bound":  false,
+		"configured":     false,
+		"binding_count":  0,
 		"binding_source": "stub",
 	}, nil
 }
@@ -164,6 +186,7 @@ func (s *service) WriteSkillContent(_ context.Context, name, content string) (an
 	if err != nil {
 		return nil, err
 	}
+	s.publishSkillsChanged("config_write", name)
 	return map[string]any{"ok": true, "path": path}, nil
 }
 
@@ -175,6 +198,7 @@ func (s *service) WriteSummary(_ context.Context, name, summary string) (any, er
 	if err != nil {
 		return nil, err
 	}
+	s.publishSkillsChanged("summary_write", resolvedName)
 	return map[string]any{"ok": true, "path": path, "name": resolvedName, "summary": strings.TrimSpace(summary)}, nil
 }
 
@@ -232,6 +256,10 @@ func (s *service) importSources(sources []string, singleName string) ([]map[stri
 }
 
 func (s *service) importSource(source, name string) (map[string]any, error) {
+	source, err := s.resolveProjectPath(source)
+	if err != nil {
+		return nil, err
+	}
 	info, err := os.Stat(source)
 	if err != nil {
 		return nil, err
@@ -243,7 +271,16 @@ func (s *service) importSource(source, name string) (map[string]any, error) {
 	if targetName == "" {
 		targetName = filepath.Base(source)
 	}
-	targetDir := filepath.Join(strings.TrimSpace(s.root), skillSlug(targetName))
+	root := strings.TrimSpace(s.root)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, err
+	}
+	targetDir := filepath.Join(root, skillSlug(targetName))
+	if _, err := os.Stat(targetDir); err == nil {
+		return nil, fmt.Errorf("skill already exists: %s", targetName)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
 	files, bytes, err := copySkillDir(source, targetDir)
 	if err != nil {
 		return nil, err
@@ -252,7 +289,6 @@ func (s *service) importSource(source, name string) (map[string]any, error) {
 }
 
 func copySkillDir(source, target string) (int, int64, error) {
-	_ = os.RemoveAll(target)
 	files, total := 0, int64(0)
 	err := filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -263,7 +299,7 @@ func copySkillDir(source, target string) (int, int64, error) {
 			return err
 		}
 		if rel == "." {
-			return os.MkdirAll(target, 0o755)
+			return os.Mkdir(target, 0o755)
 		}
 		dst := filepath.Join(target, rel)
 		if entry.IsDir() {
@@ -280,4 +316,41 @@ func copySkillDir(source, target string) (int, int64, error) {
 		return os.WriteFile(dst, data, 0o644)
 	})
 	return files, total, err
+}
+
+func (s *service) resolveProjectPath(target string) (string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", errors.New("path is required")
+	}
+	root := strings.TrimSpace(s.projectRoot)
+	if root == "" {
+		return "", errors.New("project root is not configured")
+	}
+	rootPath, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	if resolvedRoot, err := filepath.EvalSymlinks(rootPath); err == nil {
+		rootPath = resolvedRoot
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	targetPath, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	if resolvedTarget, err := filepath.EvalSymlinks(targetPath); err == nil {
+		targetPath = resolvedTarget
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	rel, err := filepath.Rel(rootPath, targetPath)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes project root: %s", target)
+	}
+	return targetPath, nil
 }

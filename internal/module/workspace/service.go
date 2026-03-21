@@ -246,17 +246,32 @@ func (s *service) MergeRun(ctx context.Context, req MergeRunRequest) (*MergeRunR
 }
 
 func (s *service) AbortRun(ctx context.Context, runKey, updatedBy, reason string) error {
-	run, err := s.transitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
-		RunKey:     strings.TrimSpace(runKey),
-		FromStatus: statusActive,
-		Status:     statusAborted,
-		UpdatedBy:  strings.TrimSpace(updatedBy),
-		Metadata:   marshalMetadata(map[string]any{"reason": reason}),
-	})
+	key := strings.TrimSpace(runKey)
+	if key == "" {
+		return errors.New("runKey is required")
+	}
+	before, err := s.store.GetRun(ctx, key)
 	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return fmt.Errorf("run %q not found", key)
+		}
 		return err
 	}
-	s.emitRunStatusChanged(statusActive, run)
+	run, err := s.store.UpdateRunStatus(ctx, storeworkspace.UpdateRunStatusInput{
+		RunKey:    key,
+		Status:    statusAborted,
+		UpdatedBy: strings.TrimSpace(updatedBy),
+		Metadata:  marshalMetadata(map[string]any{"reason": strings.TrimSpace(reason)}),
+	})
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return fmt.Errorf("run %q not found", key)
+		}
+		return err
+	}
+	if before != nil && before.Status != run.Status {
+		s.emitRunStatusChanged(before.Status, run)
+	}
 	s.emitRunAbortedEvent(run, reason)
 	return nil
 }

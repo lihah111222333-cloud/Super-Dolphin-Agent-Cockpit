@@ -30,9 +30,11 @@ func (s *service) removeSession(agent *agentRuntime) {
 	if s.sessionCleaner == nil || agent == nil {
 		return
 	}
-	if cleaner, ok := s.sessionCleaner.(generationAwareSessionCleaner); ok && agent.sessionGeneration != 0 {
-		cleaner.RemoveSessionGeneration(agent.id, agent.sessionGeneration)
-		agent.sessionGeneration = 0
+	if cleaner, ok := s.sessionCleaner.(generationAwareSessionCleaner); ok {
+		if agent.sessionGeneration != 0 {
+			cleaner.RemoveSessionGeneration(agent.id, agent.sessionGeneration)
+			agent.sessionGeneration = 0
+		}
 		return
 	}
 	s.sessionCleaner.RemoveSession(agent.id)

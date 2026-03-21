@@ -10,6 +10,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
@@ -22,6 +23,11 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			ProviderThreadID: "thread-1",
+		}},
+		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID: "thread-1",
+			AgentID:  "agent-1",
+			Status:   statusCreated,
 		}},
 		sessions: &stubThreadSessions{
 			agentID: "agent-1",
@@ -39,6 +45,18 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 	if orch.stoppedAgentID != "agent-1" {
 		t.Fatalf("stopped agent = %q, want %q", orch.stoppedAgentID, "agent-1")
 	}
+	bindingStore := svc.bindingStore.(*stubThreadBindingStore)
+	if len(bindingStore.sessionUpdates) != 1 || bindingStore.sessionUpdates[0].AgentID != "agent-1" || bindingStore.sessionUpdates[0].SessionUUID != "" {
+		t.Fatalf("binding cleanup = %#v", bindingStore.sessionUpdates)
+	}
+	threadStore := svc.threadStore.(*stubThreadStore)
+	if threadStore.status.ThreadID != "thread-1" || threadStore.status.Status != statusStopped {
+		t.Fatalf("thread status update = %#v", threadStore.status)
+	}
+	session := svc.sessions.(*stubThreadSessions).session.(*stubThreadSession)
+	if session.closeCalls != 1 {
+		t.Fatalf("session close calls = %d, want 1", session.closeCalls)
+	}
 	wantCleanup := map[string]struct{}{
 		"agent-1:thread_stopped":  {},
 		"thread-1:thread_stopped": {},
@@ -54,7 +72,8 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 }
 
 type stubThreadBindingStore struct {
-	binding *bindingstore.Binding
+	binding        *bindingstore.Binding
+	sessionUpdates []bindingstore.UpdateSessionUUIDParams
 }
 
 func (s *stubThreadBindingStore) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
@@ -62,7 +81,8 @@ func (s *stubThreadBindingStore) GetByProviderThread(context.Context, string, st
 }
 func (s *stubThreadBindingStore) Upsert(context.Context, bindingstore.UpsertParams) error { return nil }
 func (s *stubThreadBindingStore) DeleteByAgentID(context.Context, string) error           { return nil }
-func (s *stubThreadBindingStore) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
+func (s *stubThreadBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
+	s.sessionUpdates = append(s.sessionUpdates, params)
 	return nil
 }
 func (s *stubThreadBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
@@ -73,6 +93,25 @@ func (s *stubThreadBindingStore) GetByAgentID(_ context.Context, agentID string)
 		return s.binding, nil
 	}
 	return nil, errors.New("not found")
+}
+func (s *stubThreadBindingStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
+	return nil
+}
+func (s *stubThreadBindingStore) UnbindAgentThread(context.Context, string) error { return nil }
+func (s *stubThreadBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
+	if s.binding == nil {
+		return nil, nil
+	}
+	return []bindingstore.Binding{*s.binding}, nil
+}
+func (s *stubThreadBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
+	if s.binding == nil {
+		return "", errors.New("not found")
+	}
+	return s.binding.ProviderThreadID, nil
+}
+func (s *stubThreadBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
+	return nil
 }
 
 type stubThreadSessions struct {
@@ -89,7 +128,8 @@ func (s *stubThreadSessions) GetSession(agentID string) (contract.Session, error
 func (s *stubThreadSessions) RemoveSession(string) {}
 
 type stubThreadSession struct {
-	threadID string
+	threadID   string
+	closeCalls int
 }
 
 func (s *stubThreadSession) ThreadID() string { return s.threadID }
@@ -113,8 +153,11 @@ func (s *stubThreadSession) ReadHistory(context.Context, string, int) ([]dto.Mes
 	return nil, nil
 }
 func (s *stubThreadSession) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
-func (s *stubThreadSession) Close(context.Context) error                            { return nil }
-func (s *stubThreadSession) ForceStop() error                                       { return nil }
+func (s *stubThreadSession) Close(context.Context) error {
+	s.closeCalls++
+	return nil
+}
+func (s *stubThreadSession) ForceStop() error { return nil }
 
 type stubTurnService struct {
 	interruptCalls []string
@@ -127,11 +170,11 @@ func (s *stubTurnService) PrepareTurn(context.Context, contract.Session, turn.Pr
 func (s *stubTurnService) StartTurn(context.Context, contract.Session, dto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, nil
 }
-func (s *stubTurnService) SteerTurn(context.Context, contract.Session, string) (contract.TurnHandle, error) {
+func (s *stubTurnService) SteerTurn(context.Context, contract.Session, string, turn.PrepareInput) (contract.TurnHandle, error) {
 	return nil, nil
 }
-func (s *stubTurnService) InterruptTurn(context.Context, contract.Session, string) error {
-	return nil
+func (s *stubTurnService) InterruptTurn(context.Context, contract.Session, string) (turn.TurnStatus, error) {
+	return turn.TurnStatus{}, nil
 }
 func (s *stubTurnService) InterruptActiveTurn(_ context.Context, session contract.Session, source string) error {
 	s.interruptCalls = append(s.interruptCalls, session.ThreadID()+":"+source)
@@ -147,10 +190,14 @@ func (s *stubTurnService) TrackTurn(context.Context, string) (turn.TurnStatus, e
 }
 
 type stubThreadOrchestration struct {
+	launchReq      LaunchAgentRequest
 	stoppedAgentID string
 }
 
-func (s *stubThreadOrchestration) LaunchAgent(context.Context, LaunchAgentRequest) error { return nil }
+func (s *stubThreadOrchestration) LaunchAgent(_ context.Context, req LaunchAgentRequest) error {
+	s.launchReq = req
+	return nil
+}
 func (s *stubThreadOrchestration) StopAgent(_ context.Context, agentID string) error {
 	s.stoppedAgentID = agentID
 	return nil

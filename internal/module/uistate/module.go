@@ -10,10 +10,14 @@ import (
 var Module = fx.Options(
 	fx.Provide(NewService),
 	fx.Provide(NewUIStateHandlers),
+	fx.Provide(NewConfigHandlers),
 	fx.Invoke(registerProjections),
 )
 
 func registerProjections(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service) {
+	if svc != nil {
+		svc.bindDispatcher(dispatcher)
+	}
 	var cancels []context.CancelFunc
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {

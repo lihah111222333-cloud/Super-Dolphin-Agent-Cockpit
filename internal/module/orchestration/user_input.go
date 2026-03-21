@@ -31,7 +31,7 @@ func (s *service) markAwaitingUserInput(ctx context.Context, agentID, turnID str
 	return s.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputRequested)
 }
 
-func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID string) error {
+func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -42,10 +42,24 @@ func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID 
 	if !userInputMatchesActiveTurn(agent, turnID) {
 		return errTurnNotActive
 	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "reject"
+	}
+	resolvedTurnID := strings.TrimSpace(turnID)
+	if resolvedTurnID == "" {
+		resolvedTurnID = strings.TrimSpace(agent.activeTurnID)
+	}
+	logger := userInputLogger(s.logger)
 	switch agent.state {
 	case agentdto.StateAwaitingUserInput:
-		return s.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputResolved)
+		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputResolved); err != nil {
+			return err
+		}
+		logger.Info("orchestration: resolved awaiting user input", "agent_id", agent.id, "turn_id", resolvedTurnID, "reason", reason)
+		return nil
 	case agentdto.StateTurnRunning:
+		logger.Info("orchestration: awaiting user input already resolved", "agent_id", agent.id, "turn_id", resolvedTurnID, "reason", reason)
 		return nil
 	default:
 		return fmt.Errorf("%w for agent %q: state=%s trigger=%s", errIllegalStateTransition, agent.id, agent.state, agentdto.TriggerUserInputResolved)
@@ -90,10 +104,25 @@ func handleToolApprovalResolvedEvent(svc *service, logger *slog.Logger, ev toold
 	if svc == nil || !isRequestUserInputEvent(ev.Kind) {
 		return
 	}
-	if err := svc.resolveAwaitingUserInput(withEventTime(context.Background(), ev.Timestamp), ev.AgentID, ev.TurnID); shouldIgnoreUserInputErr(err) {
+	if err := svc.resolveAwaitingUserInput(withEventTime(context.Background(), ev.Timestamp), ev.AgentID, ev.TurnID, approvalResolveReason(ev)); shouldIgnoreUserInputErr(err) {
 		return
 	} else if err != nil {
 		userInputLogger(logger).Warn("orchestration: failed to resolve awaiting user input", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
+	}
+}
+
+func approvalResolveReason(ev tooldto.ToolApprovalResolved) string {
+	if ev.Approved {
+		return "approve"
+	}
+	decision := strings.ToLower(strings.TrimSpace(ev.Decision))
+	switch {
+	case strings.Contains(decision, "timed out"), strings.Contains(decision, "timeout"):
+		return "timeout"
+	case strings.Contains(decision, "cancel"):
+		return "cancel"
+	default:
+		return "reject"
 	}
 }
 

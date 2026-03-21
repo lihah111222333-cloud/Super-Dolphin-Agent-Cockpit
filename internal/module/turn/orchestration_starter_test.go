@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -64,9 +65,13 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 type stubSessionProvider struct {
 	session contract.Session
 	err     error
+	get     func(string) (contract.Session, error)
 }
 
-func (p stubSessionProvider) GetSession(string) (contract.Session, error) {
+func (p stubSessionProvider) GetSession(agentID string) (contract.Session, error) {
+	if p.get != nil {
+		return p.get(agentID)
+	}
 	if p.err != nil {
 		return nil, p.err
 	}
@@ -106,5 +111,55 @@ func TestOrchestrationTurnStarterPreservesNonSessionLookupErrors(t *testing.T) {
 	})
 	if !errors.Is(err, want) {
 		t.Fatalf("StartTurn() error = %v, want %v", err, want)
+	}
+}
+
+func TestOrchestrationTurnStarterWaitForSessionReadyEventuallySucceeds(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	starter := NewOrchestrationTurnStarter(
+		NewService(silentLogger()),
+		stubSessionProvider{get: func(string) (contract.Session, error) {
+			calls++
+			if calls < 3 {
+				return nil, contract.ErrSessionNotFound
+			}
+			return &stubSession{}, nil
+		}},
+	)
+	waiter, ok := starter.(interface {
+		WaitForSessionReady(context.Context, string, time.Duration) error
+	})
+	if !ok {
+		t.Fatal("turn starter does not implement session wait contract")
+	}
+	if err := waiter.WaitForSessionReady(context.Background(), "agent-1", 200*time.Millisecond); err != nil {
+		t.Fatalf("WaitForSessionReady() error = %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("GetSession() calls = %d, want 3", calls)
+	}
+}
+
+func TestOrchestrationTurnStarterWaitForSessionReadyTimeout(t *testing.T) {
+	t.Parallel()
+
+	starter := NewOrchestrationTurnStarter(
+		NewService(silentLogger()),
+		stubSessionProvider{err: contract.ErrSessionNotFound},
+	)
+	waiter, ok := starter.(interface {
+		WaitForSessionReady(context.Context, string, time.Duration) error
+	})
+	if !ok {
+		t.Fatal("turn starter does not implement session wait contract")
+	}
+	err := waiter.WaitForSessionReady(context.Background(), "agent-1", 20*time.Millisecond)
+	if err == nil {
+		t.Fatal("WaitForSessionReady() error = nil, want session-not-ready error")
+	}
+	if got := err.Error(); got != "agent session not ready, ensure agent.launch completed" {
+		t.Fatalf("WaitForSessionReady() error = %q, want session-not-ready error", got)
 	}
 }

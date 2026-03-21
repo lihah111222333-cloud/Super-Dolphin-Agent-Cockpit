@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -43,6 +44,8 @@ func TestHandleToolApprovalResolvedEventReturnsToTurnRunning(t *testing.T) {
 	}
 }
 
+// Intentional: timeout/cancel resolve awaiting_user_input back to turn_running;
+// approval outcome handling stays above the state machine.
 func TestHandleToolApprovalResolvedEventClosesAwaitingUserInputOnTimeoutOrCancel(t *testing.T) {
 	t.Parallel()
 
@@ -80,7 +83,7 @@ func TestForceIdleAfterCompletionErrorRecoversAwaitingUserInput(t *testing.T) {
 	agent.activeTurnID = "turn-1"
 	svc.agents[agent.id] = agent
 
-	recovered, err := svc.forceIdleAfterCompletionError(withEventTime(nil, time.Now()), "agent-1", "turn-1", true, "")
+	recovered, err := svc.forceIdleAfterCompletionError(withEventTime(context.Background(), time.Now()), "agent-1", "turn-1", true, "")
 	if err != nil {
 		t.Fatalf("forceIdleAfterCompletionError() error = %v", err)
 	}

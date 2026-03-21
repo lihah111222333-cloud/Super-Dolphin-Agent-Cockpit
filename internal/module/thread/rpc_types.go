@@ -152,6 +152,22 @@ func (p *commandParams) UnmarshalJSON(data []byte) error {
 	return fillLegacyThreadID(data, &p.ThreadID)
 }
 
+type approvalsSetParams struct {
+	ThreadID string `json:"thread_id"`
+	Args     string `json:"args,omitempty"`
+	Policy   string `json:"policy,omitempty"`
+}
+
+func (p *approvalsSetParams) UnmarshalJSON(data []byte) error {
+	type raw approvalsSetParams
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = approvalsSetParams(current)
+	return fillLegacyThreadID(data, &p.ThreadID)
+}
+
 type configGetParams struct {
 	ThreadID string `json:"thread_id"`
 }
@@ -163,6 +179,22 @@ func (p *configGetParams) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*p = configGetParams(current)
+	return fillLegacyThreadID(data, &p.ThreadID)
+}
+
+type configSetParams struct {
+	ThreadID string  `json:"thread_id"`
+	Model    *string `json:"model,omitempty"`
+	Effort   *string `json:"effort,omitempty"`
+}
+
+func (p *configSetParams) UnmarshalJSON(data []byte) error {
+	type raw configSetParams
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = configSetParams(current)
 	return fillLegacyThreadID(data, &p.ThreadID)
 }
 

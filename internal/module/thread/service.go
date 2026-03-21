@@ -21,12 +21,17 @@ import (
 const (
 	statusArchived = "archived"
 	statusCreated  = "created"
+	statusStopped  = "stopped"
 )
 
 // SessionProvider narrows session lookup to keep thread module provider-neutral.
 type SessionProvider interface {
 	GetSession(agentID string) (contract.Session, error)
 	RemoveSession(agentID string)
+}
+
+type providerThreadNameSetter interface {
+	SetThreadName(ctx context.Context, threadID, name string) error
 }
 
 type service struct {
@@ -41,6 +46,7 @@ type service struct {
 	emitStarted      func(threaddto.Started)
 	emitStopped      func(threaddto.Stopped)
 	emitMessagesPage func(threaddto.MessagesPage)
+	emitCompacted    func(threaddto.Compacted)
 
 	threadAgentsMu sync.RWMutex
 	threadAgents   map[string]string
@@ -76,6 +82,7 @@ func NewService(
 		emitStarted:      bus.NewEmitter[threaddto.Started](dispatcher),
 		emitStopped:      bus.NewEmitter[threaddto.Stopped](dispatcher),
 		emitMessagesPage: bus.NewEmitter[threaddto.MessagesPage](dispatcher),
+		emitCompacted:    bus.NewEmitter[threaddto.Compacted](dispatcher),
 		threadAgents:     make(map[string]string),
 	}
 }
@@ -115,9 +122,26 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 	if err != nil {
 		return err
 	}
-	thread.Prompt = strings.TrimSpace(name)
+	name = strings.TrimSpace(name)
+	thread.Prompt = name
 	thread.UpdatedAt = time.Now().Unix()
-	return s.upsertThread(ctx, *thread)
+	if err := s.upsertThread(ctx, *thread); err != nil {
+		return err
+	}
+	session, binding, err := s.resolveSession(ctx, threadID)
+	if err != nil {
+		return nil
+	}
+	syncer, ok := session.(providerThreadNameSetter)
+	if !ok {
+		return nil
+	}
+	// TODO(P8): promote provider-backed thread rename into the unified Session
+	// contract once at least one provider exposes a stable rename surface.
+	if err := syncer.SetThreadName(ctx, historyTargetID(binding, threadID), name); err != nil && s.logger != nil {
+		s.logger.Warn("thread/name/set: provider sync failed", "thread_id", threadID, "error", err)
+	}
+	return nil
 }
 
 func (s *service) Delete(ctx context.Context, threadID string) error {
@@ -284,6 +308,9 @@ func historyTargetID(binding *bindingstore.Binding, threadID string) string {
 	if binding == nil {
 		return strings.TrimSpace(threadID)
 	}
+	// Prefer the concrete thread ID first. Forked threads can temporarily share
+	// the source agent's binding, but their history and future turns must stay
+	// attached to the fork thread ID rather than fall back to the source thread.
 	for _, candidate := range []string{
 		threadID,
 		binding.ProviderThreadID,

@@ -29,15 +29,11 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	}
 	targetID := historyTargetID(binding, threadID)
 	cursor := strings.TrimSpace(before)
-	historyLimit := normalizeHistoryLimit(limit)
-	if cursor != "" {
-		historyLimit = 0
-	}
-	messages, err := session.ReadHistory(ctx, targetID, historyLimit)
-	if err != nil {
-		return nil, err
-	}
 	if cursor == "" {
+		messages, err := session.ReadHistory(ctx, targetID, normalizeHistoryLimit(limit))
+		if err != nil {
+			return nil, err
+		}
 		s.publishMessagesPage(threadID, len(messages), pageCount(len(messages), limit))
 		return messages, nil
 	}
@@ -45,9 +41,48 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	if err != nil {
 		return nil, err
 	}
-	filtered := filterMessagesBefore(messages, limit, cutoff)
+	filtered, err := readMessagesBeforeCursor(ctx, session, targetID, limit, cutoff)
+	if err != nil {
+		return nil, err
+	}
 	s.publishMessagesPage(threadID, len(filtered), pageCount(len(filtered), limit))
 	return filtered, nil
+}
+
+func readMessagesBeforeCursor(
+	ctx context.Context,
+	session contract.Session,
+	threadID string,
+	limit int,
+	cutoff time.Time,
+) ([]dto.Message, error) {
+	pageLimit := normalizeHistoryLimit(limit)
+	if pageLimit == 0 {
+		// Preserve the "all messages before cursor" behavior when limit is unset.
+		messages, err := session.ReadHistory(ctx, threadID, 0)
+		if err != nil {
+			return nil, err
+		}
+		return filterMessagesBefore(messages, 0, cutoff), nil
+	}
+	window := pageLimit
+	prevCount := -1
+	for {
+		messages, err := session.ReadHistory(ctx, threadID, window)
+		if err != nil {
+			return nil, err
+		}
+		filtered := filterMessagesBefore(messages, pageLimit, cutoff)
+		if len(filtered) >= pageLimit || len(messages) < window || len(messages) == prevCount {
+			return filtered, nil
+		}
+		next := growHistoryWindow(window)
+		if next <= window {
+			return filtered, nil
+		}
+		prevCount = len(messages)
+		window = next
+	}
 }
 
 func normalizeHistoryLimit(limit int) int {
@@ -55,6 +90,17 @@ func normalizeHistoryLimit(limit int) int {
 		return 0
 	}
 	return limit
+}
+
+func growHistoryWindow(current int) int {
+	if current <= 0 {
+		return 1
+	}
+	next := current * 2
+	if next <= current {
+		return current
+	}
+	return next
 }
 
 func parseBeforeCursor(raw string) (time.Time, error) {
@@ -128,14 +174,16 @@ func (s *service) Compact(ctx context.Context, threadID, args string) (dto.Threa
 	if err != nil {
 		return dto.ThreadCompactResult{}, err
 	}
-	return dto.ThreadCompactResult{
+	result := dto.ThreadCompactResult{
 		ThreadID:     strings.TrimSpace(threadID),
 		Command:      "/compact",
 		BeforeTokens: beforeTokens,
 		AfterTokens:  afterTokens,
 		Compacted:    afterTokens < beforeTokens,
 		Estimated:    true,
-	}, nil
+	}
+	s.publishThreadCompacted(result)
+	return result, nil
 }
 
 func estimateThreadTokens(ctx context.Context, session contract.Session, threadID string) (int, error) {

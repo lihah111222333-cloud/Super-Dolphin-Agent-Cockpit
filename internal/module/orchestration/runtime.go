@@ -8,10 +8,12 @@ import (
 
 func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error {
 	agentID := strings.TrimSpace(report.AgentID)
-	provider := strings.TrimSpace(report.Provider)
+	provider := normalizeRuntimeProvider(report.Provider)
 	if agentID == "" {
 		return errors.New("agent id is required")
 	}
+	// TODO: add explicit clear semantics for runtime port updates instead of
+	// treating port<=0 as "not provided" for backward compatibility.
 	if report.Port <= 0 && provider == "" {
 		return errors.New("runtime report must include port or provider")
 	}
@@ -23,9 +25,19 @@ func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error
 	if err != nil {
 		return err
 	}
+	if provider != "" && !isKnownRuntimeProvider(provider) {
+		loggerOrDefault(s.logger).Warn("orchestration: unknown runtime provider", "agent_id", agent.id, "provider", provider)
+	}
+	beforePort, beforePortSource := snapshotPort(agent)
+	beforeProvider, beforeProviderSource := snapshotProvider(agent)
 	applyRuntimeReportLocked(agent, report.Port, provider)
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
-	s.publishAgentRuntimeReported(agent)
+	afterPort, afterPortSource := snapshotPort(agent)
+	afterProvider, afterProviderSource := snapshotProvider(agent)
+	if beforePort != afterPort || beforePortSource != afterPortSource ||
+		beforeProvider != afterProvider || beforeProviderSource != afterProviderSource {
+		s.publishAgentRuntimeReported(agent)
+	}
 	return nil
 }
 
@@ -56,7 +68,29 @@ func applyRuntimeReportLocked(agent *agentRuntime, port int, provider string) {
 	}
 	if provider != "" {
 		agent.runtimeProvider = provider
-		agent.providerSource = "runtime"
+		agent.providerSource = runtimeProviderSource(provider)
+	}
+}
+
+func runtimeProviderSource(provider string) string {
+	// Keep forward compatibility for new providers while exposing that the
+	// runtime-reported value has not been verified against the known registry.
+	if isKnownRuntimeProvider(provider) {
+		return "runtime"
+	}
+	return "runtime-unverified"
+}
+
+func normalizeRuntimeProvider(provider string) string {
+	return strings.ToLower(strings.TrimSpace(provider))
+}
+
+func isKnownRuntimeProvider(provider string) bool {
+	switch provider {
+	case "claude", "codex":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -70,7 +104,11 @@ func resetRuntimeStateLocked(agent *agentRuntime) {
 
 func snapshotPort(agent *agentRuntime) (int, string) {
 	if agent != nil && agent.runtimePort > 0 {
-		return agent.runtimePort, "runtime"
+		source := strings.TrimSpace(agent.portSource)
+		if source == "" || source == "inferred" {
+			source = "runtime"
+		}
+		return agent.runtimePort, source
 	}
 	if agent == nil {
 		return 0, ""
@@ -80,7 +118,11 @@ func snapshotPort(agent *agentRuntime) (int, string) {
 
 func snapshotProvider(agent *agentRuntime) (string, string) {
 	if agent != nil && strings.TrimSpace(agent.runtimeProvider) != "" {
-		return agent.runtimeProvider, "runtime"
+		source := strings.TrimSpace(agent.providerSource)
+		if source == "" || source == "inferred" {
+			source = "runtime"
+		}
+		return agent.runtimeProvider, source
 	}
 	if agent == nil {
 		return "", ""

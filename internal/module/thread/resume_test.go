@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"reflect"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -17,13 +18,13 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:   "thread-1",
-		AgentID:    "agent-1",
-		Prompt:     "resume",
-		Model:      "stored-model",
-		Cwd:        "/repo",
-		CreatedAt:  123,
-		Status:     statusCreated,
+		ThreadID:      "thread-1",
+		AgentID:       "agent-1",
+		Prompt:        "resume",
+		Model:         "stored-model",
+		Cwd:           "/repo",
+		CreatedAt:     123,
+		Status:        statusCreated,
 		LastEventType: "",
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
@@ -54,7 +55,8 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 		},
 	}
 
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
 	result, err := svc.Resume(context.Background(), ResumeRequest{
 		ThreadID: "thread-1",
 		Model:    "override-model",
@@ -68,6 +70,9 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	if result.ThreadID != "thread-1-resumed" {
 		t.Fatalf("ThreadID = %q, want thread-1-resumed", result.ThreadID)
 	}
+	if result.SessionID != "thread-1-resumed" {
+		t.Fatalf("SessionID = %q, want thread-1-resumed", result.SessionID)
+	}
 	if result.Status != "resumed" {
 		t.Fatalf("Status = %q, want resumed", result.Status)
 	}
@@ -79,6 +84,43 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	}
 	if bindings.upsert.Provider != "codex" {
 		t.Fatalf("persisted provider = %q, want codex", bindings.upsert.Provider)
+	}
+	if orch.launchReq.Cwd != "/repo" {
+		t.Fatalf("launch cwd = %q, want /repo", orch.launchReq.Cwd)
+	}
+	if !reflect.DeepEqual(orch.launchReq.Env, []string{"AGENT_PROVIDER=codex", "AGENT_MODEL=override-model"}) {
+		t.Fatalf("launch env = %#v", orch.launchReq.Env)
+	}
+}
+
+func TestSetNameSyncsProviderWhenSupported(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		AgentID:   "agent-1",
+		Prompt:    "before",
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+	session := &stubSession{threadID: "thread-1"}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "thread-1",
+		CodexThreadID:    "thread-1",
+	}}
+	sessions := &stubSessionProvider{session: session}
+	svc := NewService(silentLogger(), threads, bindings, sessions, nil, nil, nil, nil)
+
+	if err := svc.SetName(context.Background(), "thread-1", "after"); err != nil {
+		t.Fatalf("SetName() error = %v", err)
+	}
+	if threads.upsert.Prompt != "after" {
+		t.Fatalf("persisted prompt = %q, want after", threads.upsert.Prompt)
+	}
+	if !reflect.DeepEqual(session.setThreadNameCalls, []string{"thread-1:after"}) {
+		t.Fatalf("provider rename calls = %#v", session.setThreadNameCalls)
 	}
 }
 
@@ -172,10 +214,16 @@ func (p *stubSessionProvider) RemoveSession(agentID string) {
 }
 
 type stubSession struct {
-	threadID      string
-	allowedModels []string
-	configureErr  error
-	caps          dto.CapabilitySet
+	threadID           string
+	allowedModels      []string
+	configureErr       error
+	configurePatch     dto.ThreadConfigPatch
+	configureCalls     int
+	readConfigResult   dto.ThreadConfig
+	forkResult         dto.ForkResult
+	forkRequest        dto.ForkRequest
+	caps               dto.CapabilitySet
+	setThreadNameCalls []string
 }
 
 func (s *stubSession) ThreadID() string { return s.threadID }
@@ -186,19 +234,32 @@ func (s *stubSession) StartTurn(context.Context, dto.TurnRequest) (contract.Turn
 	return nil, errors.New("not implemented")
 }
 
+func (s *stubSession) Steer(context.Context, dto.SteerRequest) error { return nil }
+
 func (s *stubSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
 
 func (s *stubSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error { return nil }
 
 func (s *stubSession) ListThreads(context.Context) ([]dto.ThreadRef, error) { return nil, nil }
 
-func (s *stubSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
-	return dto.ForkResult{}, nil
+func (s *stubSession) ForkThread(_ context.Context, req dto.ForkRequest) (dto.ForkResult, error) {
+	s.forkRequest = req
+	return s.forkResult, nil
 }
 
-func (s *stubSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) { return nil, nil }
+func (s *stubSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
+	return nil, nil
+}
 
-func (s *stubSession) Configure(context.Context, dto.ThreadConfigPatch) error { return s.configureErr }
+func (s *stubSession) ReadConfig(context.Context, string) (dto.ThreadConfig, error) {
+	return s.readConfigResult, nil
+}
+
+func (s *stubSession) Configure(_ context.Context, patch dto.ThreadConfigPatch) error {
+	s.configureCalls++
+	s.configurePatch = patch
+	return s.configureErr
+}
 
 func (s *stubSession) AllowedModels(context.Context) ([]string, error) { return s.allowedModels, nil }
 
@@ -206,10 +267,15 @@ func (s *stubSession) Close(context.Context) error { return nil }
 
 func (s *stubSession) ForceStop() error { return nil }
 
+func (s *stubSession) SetThreadName(_ context.Context, threadID, name string) error {
+	s.setThreadNameCalls = append(s.setThreadNameCalls, threadID+":"+name)
+	return nil
+}
+
 type stubThreadStore struct {
-	thread  *threadstore.Thread
-	upsert  threadstore.UpsertParams
-	status  threadstore.UpdateStatusParams
+	thread *threadstore.Thread
+	upsert threadstore.UpsertParams
+	status threadstore.UpdateStatusParams
 }
 
 func (s *stubThreadStore) GetByThreadID(context.Context, string) (*threadstore.Thread, error) {
@@ -228,7 +294,9 @@ func (s *stubThreadStore) ListAll(context.Context) ([]threadstore.Thread, error)
 
 func (s *stubThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) { return nil, nil }
 
-func (s *stubThreadStore) ListRecoverable(context.Context) ([]threadstore.Thread, error) { return nil, nil }
+func (s *stubThreadStore) ListRecoverable(context.Context) ([]threadstore.Thread, error) {
+	return nil, nil
+}
 
 func (s *stubThreadStore) ListRunningAgents(context.Context) ([]threadstore.RunningAgent, error) {
 	return nil, nil
@@ -284,7 +352,9 @@ func (s *stubBindingStore) UpdateSessionUUID(context.Context, bindingstore.Updat
 	return nil
 }
 
-func (s *stubBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error { return nil }
+func (s *stubBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
+	return nil
+}
 
 func (s *stubBindingStore) GetByAgentID(context.Context, string) (*bindingstore.Binding, error) {
 	if s.binding == nil {
@@ -292,6 +362,30 @@ func (s *stubBindingStore) GetByAgentID(context.Context, string) (*bindingstore.
 	}
 	binding := *s.binding
 	return &binding, nil
+}
+
+func (s *stubBindingStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
+	return nil
+}
+
+func (s *stubBindingStore) UnbindAgentThread(context.Context, string) error { return nil }
+
+func (s *stubBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
+	if s.binding == nil {
+		return nil, nil
+	}
+	return []bindingstore.Binding{*s.binding}, nil
+}
+
+func (s *stubBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
+	if s.binding == nil {
+		return "", errors.New("binding not found")
+	}
+	return s.binding.ProviderThreadID, nil
+}
+
+func (s *stubBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
+	return nil
 }
 
 func silentLogger() *slog.Logger {

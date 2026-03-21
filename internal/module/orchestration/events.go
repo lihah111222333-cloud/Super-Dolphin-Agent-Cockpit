@@ -67,10 +67,12 @@ func (s *service) publishAgentRuntimeReported(agent *agentRuntime) {
 	if s.eventBus == nil {
 		return
 	}
+	port, _ := snapshotPort(agent)
+	provider, _ := snapshotProvider(agent)
 	event.Publish(s.eventBus, agentdto.AgentRuntimeReported{
 		AgentSessionHeader: s.agentSessionHeader(agent),
-		Port:               agent.runtimePort,
-		Provider:           agent.runtimeProvider,
+		Port:               port,
+		Provider:           provider,
 	})
 }
 

@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"strings"
+	"time"
 
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
@@ -15,11 +16,25 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	}
 	agentID := strings.TrimSpace(binding.AgentID)
 	targets := stopThreadTargets(binding, threadID)
+	stoppedID := stoppedThreadID(binding, threadID)
 	s.interruptStoppingThread(ctx, agentID)
+	if err := s.closeSessionIfActive(ctx, stoppedID); err != nil {
+		return err
+	}
 	if err := s.stopManagedAgent(ctx, agentID); err != nil {
 		return err
 	}
+	if err := s.updateThreadStatus(ctx, stoppedID, statusStopped); err != nil {
+		return err
+	}
+	if err := s.cleanupStoppedBinding(ctx, binding); err != nil {
+		return err
+	}
+	for _, id := range uniqueThreadIDs(targets...) {
+		s.forgetThreadAgent(id)
+	}
 	s.cleanupThreadTurns(ctx, "thread_stopped", targets...)
+	s.publishThreadStopped(stoppedID, agentID, statusStopped, "stopped")
 	return nil
 }
 
@@ -66,6 +81,33 @@ func stopThreadTargets(binding *bindingstore.Binding, threadID string) []string 
 		binding.CodexThreadID,
 		binding.AgentID,
 	)
+}
+
+func stoppedThreadID(binding *bindingstore.Binding, threadID string) string {
+	if binding == nil {
+		return strings.TrimSpace(threadID)
+	}
+	return firstNonEmpty(
+		binding.ProviderThreadID,
+		binding.CodexThreadID,
+		threadID,
+		binding.AgentID,
+	)
+}
+
+func (s *service) cleanupStoppedBinding(ctx context.Context, binding *bindingstore.Binding) error {
+	if s.bindingStore == nil || binding == nil {
+		return nil
+	}
+	agentID := strings.TrimSpace(binding.AgentID)
+	if agentID == "" {
+		return nil
+	}
+	return s.bindingStore.UpdateSessionUUID(ctx, bindingstore.UpdateSessionUUIDParams{
+		AgentID:     agentID,
+		SessionUUID: "",
+		UpdatedAt:   time.Now().Unix(),
+	})
 }
 
 func uniqueThreadIDs(values ...string) []string {

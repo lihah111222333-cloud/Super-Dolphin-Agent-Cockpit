@@ -8,18 +8,25 @@ import (
 	"strings"
 	"sync"
 
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 type service struct {
-	logger         *slog.Logger
-	preferences    uipreference.Store
-	mu             sync.RWMutex
-	state          UIState
-	workspaceByKey map[string]WorkspaceRunSummary
-	fallbackPrefs  map[string]json.RawMessage
+	logger                *slog.Logger
+	preferences           uipreference.Store
+	mu                    sync.RWMutex
+	projectsMu            sync.Mutex
+	state                 UIState
+	workspaceByKey        map[string]WorkspaceRunSummary
+	fallbackPrefs         map[string]json.RawMessage
+	patchSeq              map[string]int64
+	projectionSeq         map[string]int64
+	emitThreadPatch       threadPatchEmitter
+	emitProjectionUpdated projectionUpdatedEmitter
+	emitPreferenceChange  preferenceChangedEmitter
 }
 
 type preferenceScopeKey struct{}
@@ -47,6 +54,8 @@ func NewService(
 		state:          state,
 		workspaceByKey: map[string]WorkspaceRunSummary{},
 		fallbackPrefs:  map[string]json.RawMessage{},
+		patchSeq:       map[string]int64{},
+		projectionSeq:  map[string]int64{},
 	}
 	return svc, svc, nil
 }
@@ -94,21 +103,29 @@ func summarizeAgents(items []orchestration.AgentSnapshot) []AgentSummary {
 	out := make([]AgentSummary, 0, len(items))
 	for _, item := range items {
 		out = append(out, AgentSummary{
-			ID:         strings.TrimSpace(item.ID),
-			Name:       strings.TrimSpace(item.Name),
-			ThreadID:   strings.TrimSpace(item.ThreadID),
-			ParentID:   strings.TrimSpace(item.ParentID),
-			State:      strings.TrimSpace(item.State),
-			Provider:   strings.TrimSpace(item.Provider),
-			CWD:        strings.TrimSpace(item.Cwd),
-			Port:       item.Port,
-			LastReport: strings.TrimSpace(item.LastReport),
+			ID:          strings.TrimSpace(item.ID),
+			Name:        strings.TrimSpace(item.Name),
+			ThreadID:    strings.TrimSpace(item.ThreadID),
+			ParentID:    strings.TrimSpace(item.ParentID),
+			State:       strings.TrimSpace(item.State),
+			Provider:    strings.TrimSpace(item.Provider),
+			CWD:         strings.TrimSpace(item.Cwd),
+			Port:        item.Port,
+			LastReport:  strings.TrimSpace(item.LastReport),
+			AgentState:  strings.TrimSpace(item.State),
+			LastMessage: strings.TrimSpace(item.LastReport),
 		})
 	}
 	return out
 }
 
 func (s *service) GetState(ctx context.Context) (*UIState, error) {
+	if known := knownDiffRevisionFromContext(ctx); known > 0 {
+		// TODO(P8): UIState snapshots do not expose diff payload/revision maps yet.
+		// Consume the forward-compatible hint here so incremental diff elision can
+		// land in this method without changing the RPC boundary again.
+		_ = known
+	}
 	prefs, err := s.GetPreferences(ctx)
 	if err != nil {
 		return nil, err
@@ -153,21 +170,35 @@ func (s *service) SetPreference(ctx context.Context, key string, value any) erro
 		return errPreferenceKeyRequired
 	}
 	scope := preferenceScopeFromContext(ctx)
+	var projectionUpdates []uidto.UIProjectionUpdated
 	if s.preferences != nil {
-		return storePreference(ctx, s.preferences, scope, key, value)
+		if err := storePreference(ctx, s.preferences, scope, key, value); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		s.applyRuntimePreferenceLocked(key, value)
+		projectionUpdates = s.preferenceProjectionUpdatesLocked(key)
+		s.mu.Unlock()
+		s.emitPreferenceChangedEvent(scope, key, value)
+		s.emitProjectionUpdatedEvents(projectionUpdates...)
+		return nil
 	}
 	raw, err := marshalPreferenceValue(value)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.fallbackPrefs[fallbackPreferenceKey(scope, key)] = raw
+	s.applyRuntimePreferenceLocked(key, value)
+	projectionUpdates = s.preferenceProjectionUpdatesLocked(key)
+	s.mu.Unlock()
+	s.emitPreferenceChangedEvent(scope, key, value)
+	s.emitProjectionUpdatedEvents(projectionUpdates...)
 	return nil
 }
 
 func (s *service) sidebarLocked() Sidebar {
-	return Sidebar{
+	sidebar := Sidebar{
 		Threads:     cloneThreads(s.state.Threads),
 		Agents:      cloneAgents(s.state.Agents),
 		ActiveTurn:  cloneTurn(s.state.ActiveTurn),
@@ -175,6 +206,8 @@ func (s *service) sidebarLocked() Sidebar {
 		Workspace:   WorkspacePanel{Runs: s.workspaceRunsLocked()},
 		TokenUsage:  s.state.TokenUsage,
 	}
+	s.fillSidebarDerivedLocked(&sidebar)
+	return sidebar
 }
 
 func (s *service) workspaceRunsLocked() []WorkspaceRunSummary {

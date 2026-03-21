@@ -3,6 +3,7 @@ package skill
 import (
 	"strings"
 
+	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -17,10 +18,14 @@ var Module = fx.Module("skill",
 	fx.Provide(NewSkillHandlers),
 )
 
-func newService(cards commandcardstore.Store, cfg *platformconfig.Config) Service {
+func newService(cards commandcardstore.Store, cfg *platformconfig.Config, dispatcher *event.Dispatcher) Service {
 	projectRoot := ""
 	if cfg != nil {
 		projectRoot = strings.TrimSpace(cfg.ProjectRoot)
 	}
-	return NewService(cards, projectRoot)
+	svc := NewService(cards, projectRoot)
+	if impl, ok := svc.(*service); ok {
+		impl.bindDispatcher(dispatcher)
+	}
+	return svc
 }

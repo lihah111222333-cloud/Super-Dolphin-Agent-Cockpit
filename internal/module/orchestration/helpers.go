@@ -48,8 +48,10 @@ func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
 	agent.portSource = inferredLaunchSource(agent.port)
 	agent.provider = launchProvider(req)
 	agent.providerSource = inferredLaunchSourceString(agent.provider)
+	resetRuntimeStateLocked(agent)
 	agent.lastError = ""
 	agent.stopRequested = false
+	agent.stopReason = ""
 	return agent
 }
 
@@ -340,6 +342,14 @@ func stopProcess(cmd *exec.Cmd) error {
 	return cmd.Process.Kill()
 }
 
+func cloneTurnSubmission(sub turndto.TurnSubmission) turndto.TurnSubmission {
+	cloned := sub
+	cloned.Inputs = append([]turndto.InputItem(nil), sub.Inputs...)
+	cloned.SelectedSkills = append([]string(nil), sub.SelectedSkills...)
+	cloned.OutputSchema = append([]byte(nil), sub.OutputSchema...)
+	return cloned
+}
+
 type SubmissionQueue struct {
 	mu    sync.Mutex
 	items []turndto.TurnSubmission
@@ -348,7 +358,13 @@ type SubmissionQueue struct {
 func (q *SubmissionQueue) Enqueue(s turndto.TurnSubmission) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.items = append(q.items, s)
+	q.items = append(q.items, cloneTurnSubmission(s))
+}
+
+func (q *SubmissionQueue) Prepend(s turndto.TurnSubmission) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.items = append([]turndto.TurnSubmission{cloneTurnSubmission(s)}, q.items...)
 }
 
 func (q *SubmissionQueue) Dequeue() (turndto.TurnSubmission, bool) {
@@ -359,7 +375,7 @@ func (q *SubmissionQueue) Dequeue() (turndto.TurnSubmission, bool) {
 	}
 	s := q.items[0]
 	q.items = q.items[1:]
-	return s, true
+	return cloneTurnSubmission(s), true
 }
 
 func (q *SubmissionQueue) Peek() (turndto.TurnSubmission, bool) {
@@ -368,7 +384,7 @@ func (q *SubmissionQueue) Peek() (turndto.TurnSubmission, bool) {
 	if len(q.items) == 0 {
 		return turndto.TurnSubmission{}, false
 	}
-	return q.items[0], true
+	return cloneTurnSubmission(q.items[0]), true
 }
 
 func (q *SubmissionQueue) Len() int {

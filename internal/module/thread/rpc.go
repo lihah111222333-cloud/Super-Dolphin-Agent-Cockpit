@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"strings"
 
 	"github.com/creachadair/jrpc2/handler"
 
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
 const (
 	capabilityContextCompact = "context_compact"
-	capabilityModelSwitch    = "model_switch"
 	capabilityRealtime       = "realtime"
 )
 
@@ -35,6 +36,15 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 		"thread/loaded/list": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return svc.ListByStatus(ctx, statusCreated)
 		}),
+		// thread/read and thread/resolve intentionally remain separate RPC names.
+		// Today they both surface the persisted thread ref; keep the split so
+		// thread/resolve can grow richer runtime/provider identity semantics later
+		// without changing thread/read callers.
+		// Compatibility note: V2 exposed distinct read/resolve payloads.
+		// `thread/read` returned a history-shaped payload, while `thread/resolve`
+		// resolved runtime identity. V3 currently folds both onto `svc.Get`
+		// until dedicated compatibility DTOs are restored; `thread/messages`
+		// remains the message-history API.
 		"thread/read": newThreadGetHandler(svc),
 		"thread/resolve": newThreadCall(func(ctx context.Context, id string) (any, error) {
 			return svc.Get(ctx, id)
@@ -48,13 +58,12 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 		}),
 		"thread/config/get": newThreadConfigGetHandler(svc),
 		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
-		"thread/config/set": newThreadCommandHandler(svc, "config/set"),
-		"thread/model/set":  newModelSetHandler(svc, capResolver),
+		"thread/config/set": newThreadConfigSetHandler(svc),
+		"thread/model/set":  newModelSetHandler(svc),
 		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
 		"thread/personality/set": newThreadCommandHandler(svc, "/personality"),
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
-		"thread/approvals/set": newThreadCommandHandler(svc, "/approvals"),
-		"thread/compact/start": newCompactStartHandler(svc, capResolver),
+		"thread/approvals/set":   newApprovalsSetHandler(svc),
+		"thread/compact/start":   newCompactStartHandler(svc, capResolver),
 		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
 		"thread/rollback": newThreadCommandHandler(svc, "/rollback"),
 		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
@@ -88,7 +97,7 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 
 func newStartHandler(svc Service) handler.Func {
 	return rpc.StrictHandler(func(ctx context.Context, p startParams) (any, error) {
-		return svc.Start(ctx, StartRequest{
+		result, err := svc.Start(ctx, StartRequest{
 			Provider:              p.Provider,
 			CWD:                   p.CWD,
 			Model:                 p.Model,
@@ -102,6 +111,21 @@ func newStartHandler(svc Service) handler.Func {
 			Effort:                p.Effort,
 			Personality:           p.Personality,
 		})
+		if err != nil {
+			return nil, err
+		}
+		status := firstNonEmpty(result.Status, "running")
+		sessionID := firstNonEmpty(result.SessionID, result.ThreadID)
+		return map[string]any{
+			"thread":     threadInfo{ID: result.ThreadID, Status: status},
+			"threadId":   result.ThreadID,
+			"thread_id":  result.ThreadID,
+			"sessionId":  sessionID,
+			"session_id": sessionID,
+			"status":     status,
+			"agentId":    result.AgentID,
+			"agent_id":   result.AgentID,
+		}, nil
 	})
 }
 
@@ -125,9 +149,30 @@ func newThreadCommandHandler(svc Service, command string) handler.Func {
 	})
 }
 
+// V2 compatibility: accept both `policy` and `args`, while keeping V3's
+// explicit thread-scoped routing requirement.
+func newApprovalsSetHandler(svc Service) handler.Func {
+	return rpc.ThreadHandler(func(ctx context.Context, p approvalsSetParams) (any, error) {
+		args, err := resolveApprovalsSetArgs(p)
+		if err != nil {
+			return nil, err
+		}
+		return svc.SendCommand(ctx, rpc.ThreadIDFrom(ctx), "/approvals", args)
+	})
+}
+
 func newThreadConfigGetHandler(svc Service) handler.Func {
 	return rpc.ThreadHandler(func(ctx context.Context, _ configGetParams) (any, error) {
 		return svc.GetConfig(ctx, rpc.ThreadIDFrom(ctx))
+	})
+}
+
+func newThreadConfigSetHandler(svc Service) handler.Func {
+	return rpc.ThreadHandler(func(ctx context.Context, p configSetParams) (any, error) {
+		return svc.SetConfig(ctx, rpc.ThreadIDFrom(ctx), dto.ThreadConfigPatch{
+			Model:  p.Model,
+			Effort: p.Effort,
+		})
 	})
 }
 
@@ -142,8 +187,8 @@ func newCapabilityThreadCommandHandler(
 	})
 }
 
-func newModelSetHandler(svc Service, capResolver rpc.CapabilityResolver) handler.Func {
-	return rpc.CapabilityThreadHandler(capabilityModelSwitch, capResolver, func(ctx context.Context, p modelSetParams) (any, error) {
+func newModelSetHandler(svc Service) handler.Func {
+	return rpc.ThreadHandler(func(ctx context.Context, p modelSetParams) (any, error) {
 		args, err := resolveModelSetArgs(p)
 		if err != nil {
 			return nil, err
@@ -171,6 +216,20 @@ func resolveModelSetArgs(p modelSetParams) (string, error) {
 }
 
 var errModelSetArgsConflict = errors.New("thread/model/set: model and args must match when both are provided")
+
+func resolveApprovalsSetArgs(p approvalsSetParams) (string, error) {
+	policy := strings.TrimSpace(p.Policy)
+	args := strings.TrimSpace(p.Args)
+	if policy != "" && args != "" && policy != args {
+		return "", errApprovalsSetArgsConflict
+	}
+	if policy != "" {
+		return policy, nil
+	}
+	return args, nil
+}
+
+var errApprovalsSetArgsConflict = errors.New("thread/approvals/set: policy and args must match when both are provided")
 
 func newResumeHandler(svc Service) handler.Func {
 	return rpc.ThreadHandler(func(ctx context.Context, p resumeParams) (any, error) {

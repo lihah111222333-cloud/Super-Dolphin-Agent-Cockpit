@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/kelindar/event"
@@ -19,6 +20,7 @@ var Module = fx.Module("orchestration",
 	fx.Provide(
 		NewService,
 		func(s *service) Service { return s },
+		func(s Service) contract.RuntimeReporter { return NewRuntimeReporter(s) },
 		NewOrchestrationHandlers,
 		fx.Annotate(NewRunnerActor, fx.ResultTags(`group:"runners"`)),
 	),
