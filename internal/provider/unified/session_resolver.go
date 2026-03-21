@@ -55,32 +55,45 @@ func (r *sessionResolver) ResolveSession(ctx context.Context, threadID string) (
 	if r.sessions == nil {
 		return nil, fmt.Errorf("resolve session: session manager is not configured")
 	}
-
-	// Preserve V2's cheapest reuse path when the caller already passes agent_id.
-	if session, err := r.sessions.Get(threadID); err == nil {
+	if session, ok := r.tryExisting(threadID); ok {
 		return session, nil
 	}
+	session, errs := r.tryLookup(ctx, threadID)
+	if session != nil {
+		return session, nil
+	}
+	return nil, r.resolveLookupError(threadID, errs)
+}
 
-	var errs []error
+func (r *sessionResolver) tryExisting(threadID string) (contract.Session, bool) {
+	// Preserve V2's cheapest reuse path when the caller already passes agent_id.
+	session, err := r.sessions.Get(threadID)
+	return session, err == nil
+}
+
+func (r *sessionResolver) tryLookup(ctx context.Context, threadID string) (contract.Session, []error) {
+	errs := make([]error, 0, 2)
 	if session, err := r.resolveThreadSession(ctx, threadID); err == nil {
 		return session, nil
 	} else if err != nil && !platformdb.IsNotFound(err) {
 		errs = append(errs, err)
 	}
-
 	if session, err := r.resolveProviderThreadSession(ctx, threadID); err == nil {
 		return session, nil
 	} else if err != nil && !platformdb.IsNotFound(err) && !errors.Is(err, contract.ErrSessionNotFound) {
 		errs = append(errs, err)
 	}
+	return nil, errs
+}
 
+func (r *sessionResolver) resolveLookupError(threadID string, errs []error) error {
 	if r.threadStore == nil && r.bindingStore == nil {
-		return nil, fmt.Errorf("resolve session: no thread lookup backend is configured")
+		return fmt.Errorf("resolve session: no thread lookup backend is configured")
 	}
 	if len(errs) > 0 {
-		return nil, fmt.Errorf("resolve session: thread %q: %w", threadID, errors.Join(errs...))
+		return fmt.Errorf("resolve session: thread %q: %w", threadID, errors.Join(errs...))
 	}
-	return nil, fmt.Errorf("resolve session: thread %q not found", threadID)
+	return fmt.Errorf("resolve session: thread %q not found", threadID)
 }
 
 func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
