@@ -101,39 +101,65 @@ func bindApprovalLifecycle(lc fx.Lifecycle, approvals *ApprovalManager, bridge *
 	if logger == nil {
 		logger = slog.Default()
 	}
+	registerApprovalRestoreOnConnect(approvals, bridge, server, logger)
 	cleanupCancel := func() {}
-	if server != nil {
-		server.OnConnect(func(current *jrpc2.Server) {
-			if approvals == nil || current == nil {
-				return
-			}
-			if err := approvals.RestorePending(context.Background(), bridge, current); err != nil {
-				logger.Warn("rpc: restore pending approvals on connect failed", "error", err)
-			}
-		})
-	}
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			if approvals != nil {
-				cleanupCtx, cancel := context.WithCancel(context.Background())
-				cleanupCancel = cancel
-				go startApprovalCleanupLoop(cleanupCtx, approvals, approvalCleanupInterval, DefaultApprovalTimeout, logger)
-			}
-			if approvals == nil || server == nil {
-				return nil
-			}
-			for _, current := range server.snapshotActive() {
-				if err := approvals.RestorePending(ctx, bridge, current); err != nil {
-					return err
-				}
-			}
-			return nil
+			var err error
+			cleanupCancel, err = startApprovalLifecycle(ctx, approvals, bridge, server, logger)
+			return err
 		},
 		OnStop: func(ctx context.Context) error {
 			cleanupCancel()
 			return shutdownPendingApprovals(ctx, approvals, logger)
 		},
 	})
+}
+
+func registerApprovalRestoreOnConnect(approvals *ApprovalManager, bridge *PushBridge, server *Server, logger *slog.Logger) {
+	if server == nil {
+		return
+	}
+	server.OnConnect(func(current *jrpc2.Server) {
+		if err := restorePendingApprovals(context.Background(), approvals, bridge, current); err != nil {
+			logger.Warn("rpc: restore pending approvals on connect failed", "error", err)
+		}
+	})
+}
+
+func startApprovalLifecycle(
+	ctx context.Context,
+	approvals *ApprovalManager,
+	bridge *PushBridge,
+	server *Server,
+	logger *slog.Logger,
+) (context.CancelFunc, error) {
+	cleanupCancel := func() {}
+	if approvals != nil {
+		cleanupCtx, cancel := context.WithCancel(context.Background())
+		cleanupCancel = cancel
+		go startApprovalCleanupLoop(cleanupCtx, approvals, approvalCleanupInterval, DefaultApprovalTimeout, logger)
+	}
+	return cleanupCancel, restoreActiveApprovals(ctx, approvals, bridge, server)
+}
+
+func restoreActiveApprovals(ctx context.Context, approvals *ApprovalManager, bridge *PushBridge, server *Server) error {
+	if approvals == nil || server == nil {
+		return nil
+	}
+	for _, current := range server.snapshotActive() {
+		if err := restorePendingApprovals(ctx, approvals, bridge, current); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func restorePendingApprovals(ctx context.Context, approvals *ApprovalManager, bridge *PushBridge, current *jrpc2.Server) error {
+	if approvals == nil || current == nil {
+		return nil
+	}
+	return approvals.RestorePending(ctx, bridge, current)
 }
 
 func shutdownPendingApprovals(ctx context.Context, approvals *ApprovalManager, logger *slog.Logger) error {
