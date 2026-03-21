@@ -55,7 +55,7 @@ V3 的核心原则只有一句：
 3. 构造阶段只能用 `fx.Provide`，启动副作用只能放在 `fx.Invoke` 或 `fx.Lifecycle`。
 4. 禁止任何形式的 mutation 注入，例如 `initStores(s, db)`、`s.xxx = newXxx(...)`。
 5. 禁止把 `*Server`、`*App`、`*Container` 作为服务定位器继续向下传。
-6. 纯叶子包例外：`dto`、`contract`、`sqlcgen`、常量包可以不导出 `Module`，但它们不能承载运行时行为。
+6. 纯叶子包例外：`dto`、`contract`、`internal/store/sqlc` 这类生成/承载数据的包可以不导出 `Module`，但它们不能承载运行时行为。
 7. 一个模块只拥有自己的状态，不拥有别的模块的内部状态。
 
 ### 1.2 包的边界定义
@@ -67,36 +67,31 @@ V3 的核心原则只有一句：
 - `internal/platform/bus`
 - `internal/platform/runner`
 - `internal/platform/rpc`
-- `internal/platform/provider`
 - `internal/platform/statemachine`
-- `internal/platform/monitor`
+- `internal/platform/eventsurface`
 - `internal/provider/unified`
 - `internal/provider/claudecli`
 - `internal/provider/codexapp`
-- `internal/tool/registry`
-- `internal/tool/lsp`
-- `internal/tool/orchestration`
-- `internal/tool/ida`
+- `internal/store/*`
 - `internal/mcpserver/common`
-- `internal/mcpserver/lsp`
-- `internal/mcpserver/orch`
-- `internal/mcpserver/ida`
 - `internal/module/thread`
+- `internal/module/turn`
 - `internal/module/skill`
 - `internal/module/workspace`
-- `internal/module/orchestration`
 - `internal/module/uistate`
-- `internal/module/ida`
-- `internal/module/coderun`
+- `internal/module/lspgui`
 - `internal/module/dashboard`
+- `internal/app`
 - `internal/ui/runtime`
 - `internal/ui/dashboard`
+
+`cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 是独立服务二进制入口，不计入 `internal/*` 模块名录；其中 P8 的 `cmd/mcp-orch` 终态要求本地自持 runtime / store / sqlc / manifest / stdio server，只共享 config/db/contract/dto。
 
 下面这些不是模块，而是叶子依赖：
 
 - `internal/contract/...`
 - `internal/dto/...`
-- `internal/store/sqlcgen/...`
+- `internal/store/sqlc/...`
 - `internal/proto/...`
 
 ### 1.3 强制约束
@@ -156,69 +151,73 @@ var Module = fx.Module(
 ```text
 super-agent-v3/
 ├── cmd/
-│   ├── super-agent/     ← 主桌面应用
+│   ├── agent-terminal/  ← 主桌面应用
 │   │   └── main.go
-│   ├── mcp-lsp/         ← LSP + RUN 工具家族
-│   │   └── main.go
-│   ├── mcp-orch/        ← 编排 + DAG 工具家族
-│   │   └── main.go
-│   ├── mcp-ida/         ← IDA 工具家族
-│   │   └── main.go
-│   └── migrate/         ← 数据库迁移
-│       └── main.go
+│   ├── mcp-lsp/         ← LSP + RUN 工具独立服务
+│   │   ├── main.go
+│   │   └── fx.go
+│   ├── mcp-orch/        ← 编排 + DAG 工具独立服务
+│   │   ├── main.go
+│   │   └── fx.go
+│   ├── mcp-ida/         ← IDA 工具独立服务
+│   │   ├── main.go
+│   │   └── fx.go
 ├── internal/
 │   ├── app/
-│   │   ├── module.go
-│   │   └── bootstrap.go
+│   │   ├── app.go
+│   │   ├── modules.go
+│   │   ├── runner.go
+│   │   └── thread_orchestration_adapter.go
 │   ├── contract/
-│   │   ├── rpc/
-│   │   ├── event/
-│   │   ├── runner/
-│   │   ├── store/
-│   │   └── provider/
+│   │   ├── approval.go
+│   │   ├── errors.go
+│   │   └── runtime_reporter.go
 │   ├── dto/
-│   │   ├── rpc/
-│   │   ├── event/
-│   │   └── config/
+│   │   ├── agent/
+│   │   ├── provider/
+│   │   ├── shared/
+│   │   ├── task/
+│   │   ├── tool/
+│   │   ├── turn/
+│   │   ├── ui/
+│   │   └── workspace/
 │   ├── platform/
 │   │   ├── config/
 │   │   │   ├── module.go
-│   │   │   ├── load.go
-│   │   │   └── types.go
+│   │   │   ├── config.go
+│   │   │   ├── provider.go
+│   │   │   └── timeouts.go
 │   │   ├── db/
 │   │   │   ├── module.go
 │   │   │   ├── pool.go
-│   │   │   └── queries.go
+│   │   │   ├── tx.go
+│   │   │   └── errors.go
 │   │   ├── bus/
 │   │   │   ├── module.go
-│   │   │   ├── publisher.go
-│   │   │   ├── subscriber.go
-│   │   │   └── registry.go
+│   │   │   ├── emitters.go
+│   │   │   ├── events.go
+│   │   │   └── dispatcher.go
+│   │   ├── eventsurface/
+│   │   │   └── adapter.go
 │   │   ├── runner/
 │   │   │   ├── module.go
-│   │   │   ├── actor.go
 │   │   │   ├── group.go
 │   │   │   └── lifecycle.go
 │   │   ├── rpc/
 │   │   │   ├── module.go
 │   │   │   ├── server.go
-│   │   │   ├── method.go
-│   │   │   └── lifecycle.go
-│   │   ├── provider/
-│   │   │   ├── module.go
 │   │   │   ├── registry.go
-│   │   │   ├── codex/
-│   │   │   └── claude/
+│   │   │   └── push.go
 │   │   ├── statemachine/
 │   │   │   ├── module.go
 │   │   │   └── factory.go
-│   │   └── monitor/
-│   │       ├── module.go
-│   │       └── memory.go
+│   │   └── shared/
+│   │       └── validation.go
 │   ├── provider/            ← Provider 收敛层
-│   │   ├── unified/         ← 统一语义：session/turn/capability/manifest
+│   │   ├── unified/         ← 统一语义：session/capability/manifest
 │   │   │   ├── module.go
-│   │   │   ├── contract.go
+│   │   │   ├── client.go
+│   │   │   ├── registry.go
 │   │   │   ├── session.go
 │   │   │   └── manifest.go
 │   │   ├── claudecli/       ← Claude CLI transport driver
@@ -229,65 +228,25 @@ super-agent-v3/
 │   │       ├── module.go
 │   │       ├── driver.go
 │   │       └── transport.go
-│   ├── tool/                ← 工具实现（按家族编译）
-│   │   ├── registry/        ← 统一 tool registry + schema
-│   │   │   ├── module.go
-│   │   │   ├── schema.go
-│   │   │   └── registry.go
-│   │   ├── lsp/             ← → cmd/mcp-lsp
-│   │   │   ├── module.go
-│   │   │   ├── toolset.go
-│   │   │   └── manifest.go
-│   │   ├── orchestration/   ← → cmd/mcp-orch
-│   │   │   ├── module.go
-│   │   │   ├── toolset.go
-│   │   │   └── manifest.go
-│   │   └── ida/             ← → cmd/mcp-ida
-│   │       ├── module.go
-│   │       ├── toolset.go
-│   │       └── manifest.go
-│   ├── mcpserver/           ← 三家族 MCP binary
-│   │   ├── common/          ← stdio loop + manifest
-│   │   │   ├── module.go
+│   ├── mcpserver/           ← MCP binary 共享协议层
+│   │   └── common/          ← stdio loop + manifest helper
 │   │   │   ├── stdio.go
+│   │   │   ├── server.go
 │   │   │   └── manifest.go
-│   │   ├── lsp/
-│   │   │   ├── module.go
-│   │   │   ├── server.go
-│   │   │   └── compose.go
-│   │   ├── orch/
-│   │   │   ├── module.go
-│   │   │   ├── server.go
-│   │   │   └── compose.go
-│   │   └── ida/
-│   │       ├── module.go
-│   │       ├── server.go
-│   │       └── compose.go
 │   ├── store/
-│   │   ├── sqlcgen/
+│   │   ├── sqlc/
 │   │   │   ├── models.go
 │   │   │   ├── querier.go
 │   │   │   └── *.sql.go
-│   │   ├── dag/
-│   │   │   ├── module.go
-│   │   │   ├── contract.go
-│   │   │   └── store.go
+│   │   ├── agentstatus/
+│   │   ├── auditlog/
+│   │   ├── commandcard/
 │   │   ├── prompt/
-│   │   │   ├── module.go
-│   │   │   ├── contract.go
-│   │   │   └── store.go
 │   │   ├── sharedfile/
-│   │   │   ├── module.go
-│   │   │   ├── contract.go
-│   │   │   └── store.go
+│   │   ├── taskdag/
+│   │   ├── thread/
+│   │   ├── uipreference/
 │   │   ├── workspace/
-│   │   │   ├── module.go
-│   │   │   ├── contract.go
-│   │   │   └── store.go
-│   │   ├── binding/
-│   │   │   ├── module.go
-│   │   │   ├── contract.go
-│   │   │   └── store.go
 │   │   └── ...
 │   ├── module/
 │   │   ├── thread/
@@ -353,14 +312,14 @@ super-agent-v3/
 
 | 层 | 目录 | 职责 | 允许依赖 |
 |---|---|---|---|
-| 入口层 | `cmd/*` | 只组装 `fx.New(...)` 并选择目标 binary，不写业务逻辑 | `internal/app`、`internal/mcpserver/*` |
-| 应用层 | `internal/app` | 聚合桌面应用模块，定义启动顺序 | `platform`、`provider`、`tool`、`store`、`module`、`ui` |
+| 桌面入口层 | `cmd/agent-terminal` | 只组装桌面应用 `fx.New(...)`，不写业务逻辑 | `internal/app` |
+| MCP 服务入口层 | `cmd/mcp-*` | 组装独立 MCP binary，通过 stdio JSON-RPC 对外提供工具能力；MCP tool 的 schema + handler 壳只允许定义在这里 | `internal/contract/*`、`internal/dto/*`、`internal/platform/{config,db}`、各自本地包 |
+| 应用层 | `internal/app` | 聚合桌面应用模块，定义启动顺序 | `platform`、`provider`、`store`、`module`、`ui` |
 | 平台层 | `internal/platform/*` | 提供基础设施能力 | 标准库、第三方库 |
-| Provider 收敛层 | `internal/provider/*` | 统一 provider 语义，屏蔽 Claude CLI / Codex transport 差异，对上暴露 session / turn / capability / manifest | `contract`、`dto`、`platform`、`tool/registry` |
-| Tool 层 | `internal/tool/*` | 统一 tool schema / registry，并按家族实现 LSP / orchestration / IDA 工具集 | `contract`、`dto`、`platform`、`store`、`module` |
-| MCP Server 层 | `internal/mcpserver/*` | 组装 stdio loop、manifest 和工具家族，服务 `cmd/mcp-*` 二进制 | `platform`、`provider`、`tool` |
-| 存储层 | `internal/store/*` | 包装 `sqlc` 和 DB 访问，对外暴露 store 接口 | `platform/db`、`sqlcgen` |
-| 业务层 | `internal/module/*` | 承载领域逻辑、RPC 注册、事件处理 | `contract`、`dto`、`platform`、`provider/unified`、`store` |
+| Provider 收敛层 | `internal/provider/*` | 统一 provider 语义，屏蔽 Claude CLI / Codex transport 差异，对上暴露 session / capability / manifest | `contract`、`dto`、`platform` |
+| MCP 公共层 | `internal/mcpserver/common` | 历史共享协议层；不再是 P8 `cmd/mcp-orch` 的目标态依赖 | `contract`、`dto`、`platform/{config,db}` |
+| 存储层 | `internal/store/*` | 包装 `sqlc` 和 DB 访问，对外暴露 store 接口 | `platform/db`、`internal/store/sqlc` |
+| 业务层 | `internal/module/*` | 承载前端 UI 所需领域逻辑、核心 RPC 注册、事件处理；不再内嵌 MCP stdio tool binary | `contract`、`dto`、`platform`、`provider/unified`、`store` |
 | UI 视图层 | `internal/ui/*` | 运行时事件投影、timeline、dashboard SSE / code_open 等视图适配 | `contract`、`dto`、`platform`、`provider`、`module` |
 | 契约层 | `internal/contract/*` | 纯接口、事件、常量 | 无运行时依赖 |
 | DTO 层 | `internal/dto/*` | 纯数据结构 | 无运行时依赖 |
@@ -375,7 +334,25 @@ super-agent-v3/
 - `service.go`：核心领域逻辑
 - `rpc.go` / `events.go` / `lifecycle.go`：按需要拆分
 
-`provider/*`、`tool/*`、`mcpserver/*`、`ui/*` 也遵守同一原则，只是文件名会按职责替换成 `driver.go`、`registry.go`、`server.go`、`projector.go`、`timeline.go`、`sse.go` 等更贴近语义的名字。
+`provider/*`、`mcpserver/common`、`ui/*` 和 `cmd/mcp-*` 也遵守同一原则，只是文件名会按职责替换成 `driver.go`、`registry.go`、`server.go`、`projector.go`、`timeline.go`、`sse.go` 等更贴近语义的名字。
+
+### 2.4 MCP 服务边界
+
+- `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 是独立二进制入口，不属于 `internal/module/*`。
+- 它们通过 stdio JSON-RPC 与宿主通信；桌面/UI 宿主 RPC 仍由 `internal/platform/rpc` 承担。
+- `cmd/` 与 `internal/` 同属模块根 `github.com/anthropic-ai/super-agent-v3`，因此 `cmd/mcp-*` 合法 import `internal/*`；这符合 Go `internal` 包规则。
+- `cmd/mcp-orch` 只允许 import `internal/contract/*`、`internal/dto/*`、`internal/platform/{config,db}` 与 `cmd/mcp-orch/*` 本地包；不得 import `internal/module/*`、`internal/store/*`、`internal/store/sqlc/*`。
+- 其他 MCP binary 也应优先把 runtime / store / transport 保持在各自入口层，本地化依赖优先于反向复用宿主层。
+- `cmd/mcp-*` 不可以 import 其他 `cmd/*` 下的代码，也禁止 import `internal/app`、`internal/ui/*`。
+- `internal/module/*` 不可以 import `cmd/mcp-*`；这是严格单向依赖，MCP binary 只能下游复用核心层。
+- `cmd/mcp-*` 禁止调用 `New*Handlers`、禁止依赖 `rpc.go` 中的 `handler.Map`、禁止 import `Module` 做整包装配。
+- MCP 工具定义中的 schema、manifest 组装和 handler 壳只允许出现在 `cmd/mcp-*`；核心层禁止放置这些协议面定义。
+- `cmd/mcp-*` 自身代码必须遵守单文件 `<=400`、函数 `<=80`、CC `<=10`、包非测试文件 `<=15` 的守卫标准。
+- `cmd/mcp-orch/orchestration/*` 是迁移后的本地编排组件；P8 完成后 `cmd/mcp-orch/orchestration/*` 必须删除，`orchestration_*` 与 `task_*` 都在 `cmd/mcp-orch` 内部执行。
+- `cmd/mcp-orch/store/*` 与 `cmd/mcp-orch/store/sqlc/*` 是迁移后的本地数据层；P8 完成后 `cmd/mcp-orch` 运行时不得继续依赖 `internal/store/*` 或 `internal/store/sqlc/*`。
+- LSP、orchestration、IDA 家族逻辑必须留在各自工具层或二进制装配层。
+
+说明：文中的 `service` / `store` 是语义分层，不代表 `cmd/mcp-*` 可以回头 import `internal/module/*`；MCP 入口层只能依赖允许集合与各自本地包。
 
 `module.go` 只做装配，不写业务逻辑。
 
@@ -842,8 +819,8 @@ type Runner interface {
 
 补充约束：
 
-- `tool.handlers` 由 `internal/tool/*` 家族输出，不再混在 provider concrete package 中
-- provider driver 只依赖统一语义与 tool registry，不直接依赖 UI 层
+- MCP tool registry 由 `cmd/mcp-*` 本地输出，不混在 provider concrete package 中
+- provider driver 只依赖统一语义与 manifest/binary 挂载信息，不直接依赖 UI 层
 
 ### 7.6 分组示例
 
@@ -903,7 +880,7 @@ var Module = fx.Module(
 | `rpc.handlers` | jrpc2 方法处理器 |
 | `runner.actors` | oklog/run actor |
 | `bus.subscribers` | 事件订阅器 |
-| `tool.handlers` | 动态工具处理器 |
+| `mcp.tool.handlers` | `cmd/mcp-*` 本地 MCP 工具处理器 |
 | `provider.adapters` | provider 适配器 |
 | `state.machines` | `stateless` 状态机工厂 |
 
@@ -1226,7 +1203,7 @@ V3 必须同时用两层机制强制边界：
 
 - `contract` / `dto` 不依赖任何业务模块
 - `platform/*` 不依赖 `module/*`
-- `store/*` 只依赖 `platform/db`、`sqlcgen`、`contract`、`dto`
+- `store/*` 只依赖 `platform/db`、`internal/store/sqlc`、`contract`、`dto`
 - `module/*` 可以依赖 `platform/*`、`store/*`、`contract`、`dto`
 - `module/*` 之间不允许互相依赖 concrete package
 
@@ -1303,9 +1280,10 @@ func TestThreadModuleMustNotDependOnRPCModule(t *testing.T) {
 
 ### 11.5 额外强制点
 
-- `sqlcgen` 只允许被 `store/*` import
+- `internal/store/sqlc` 只允许被 `store/*` import
 - `provider` concrete driver 只允许被 `internal/provider/*` 内部包 import
-- `tool/*` concrete family 只允许被 `internal/tool/*` 与 `internal/mcpserver/*` 组装层引用
+- MCP schema、manifest 组装和 handler 壳只允许出现在 `cmd/mcp-*`，不得落在 `internal/module/*`、`internal/store/*`、`internal/platform/*`、`internal/contract/*` 或其他 `internal/*` 核心层
+- `cmd/mcp-orch` 本地持有 orchestration runtime、store 层与 sqlc 层；不得把执行面重新挂回宿主，也不得继续依赖 `cmd/mcp-orch/orchestration/*`、`internal/store/*`、`internal/store/sqlc/*`
 - `module/*` 对外暴露接口，不暴露实现
 - 不允许在 `cmd/` 里临时手工 new service 绕过 `fx`
 
@@ -1324,13 +1302,13 @@ V3 的拆法不是把 `Server` 切成几个更小的 `ServerXxx`，而是把字�
 | V2 字段/状态组 | V3 归属模块 | 对外暴露 |
 |---|---|---|
 | `mgr` | `platform/runner` 或 `module/orchestration` | `runner.Manager` 接口 |
-| `lsp`、`lspTools` | `tool/lsp` / `mcpserver/lsp` / `module/coderun` | `LSPToolSet` 接口 |
+| `lsp`、`lspTools` | `cmd/mcp-lsp` / `module/lspgui` | `LSPToolSet` 接口 |
 | `cfg` | `platform/config` | 配置切片 |
 | `db` | `platform/db` | `DBTX` / `Pool` |
-| `codeRunner` | `module/coderun` | `CodeRunner` 接口 |
+| `codeRunner` | `cmd/mcp-lsp` / `module/lspgui` | `CodeRunner` 接口 |
 | `providerAdapter` | `provider/unified` / `provider/claudecli` / `provider/codexapp` | `ProviderAdapter` 接口 |
 | `methods` | `platform/rpc` | `[]RPCHandler` group |
-| `dynTools` | `tool/registry` / `tool/*` | `[]ToolHandler` group |
+| `dynTools` | `cmd/mcp-*` 本地 registry / manifest | `[]ToolHandler` group |
 | `storeBundle` | `store/*` 各模块 | 各自 store interface |
 | `workspaceMgr` | `module/workspace` | `WorkspaceService` |
 | `prefManager` | `module/uistate` / `ui/runtime` | `PreferenceStore` / `PreferenceService` |
@@ -1338,9 +1316,9 @@ V3 的拆法不是把 `Server` 切成几个更小的 `ServerXxx`，而是把字�
 | `projectScopeState` | `ui/runtime` / `module/workspace` | `ProjectScope` |
 | `threadAliasState` | `module/thread` | `AliasRegistry` |
 | `connManagerState`、`sseClients`、`transportState` | `platform/rpc` / `ui/dashboard` | `TransportHub` |
-| `diagnosticsCacheState` | `module/coderun` 或 `tool/lsp` | `DiagnosticsCache` |
-| `toolCallState` | `provider/unified` / `tool/registry` | `ToolCallCounter` |
-| `codeRunState` | `module/coderun` | `WorkDirRegistry`、`RunRegistry` |
+| `diagnosticsCacheState` | `module/lspgui` | `DiagnosticsCache` |
+| `toolCallState` | `provider/unified` / `cmd/mcp-*` | `ToolCallCounter` |
+| `codeRunState` | `cmd/mcp-lsp` / `module/lspgui` | `WorkDirRegistry`、`RunRegistry` |
 | `turnTrackingState` | `module/thread` / `module/orchestration` / `provider/unified` | `TurnTracker` |
 | `notifyHookState` | `platform/bus` / `platform/rpc` | `Notifier` |
 | `uiThrottleState`、`legacyMirrorDelayState` | `ui/runtime` | 不外露 |
@@ -1576,13 +1554,13 @@ V2 当前主链路是：
 | `registerMethods` | RPC 方法表注册 | `platform/rpc` + 各业务模块 | handler group `fx.Out` + `fx.Invoke(RegisterHandlers)` |
 | `applyStallConfig` | 静态配置作用到 provider adapter | `platform/config` + `provider/unified` | `fx.Invoke(ApplyStallPolicy)` |
 | `ensureStallPreferenceFromDB` | 从偏好 store 恢复 runtime timeout | `module/uistate`、`ui/runtime` 或 `module/preferences` | `fx.Invoke(RestoreRuntimePreferences)` |
-| `initCodeRunner` | 创建 code runner | `module/coderun` | `fx.Provide(NewCodeRunner)` |
-| `initIDAClient` | 启动 IDA gateway | `module/ida` + `tool/ida` | `fx.Provide(NewGateway)` + `Lifecycle` |
-| `recoverSubAgents` | 启动期恢复子 agent | `module/orchestration` | `fx.Invoke(RecoverSubAgents)` |
+| `initCodeRunner` | 创建 code runner | `cmd/mcp-lsp` / `module/lspgui` | `fx.Provide(NewCodeRunner)` |
+| `initIDAClient` | 启动 IDA gateway | `cmd/mcp-ida` | `fx.Provide(NewGateway)` + `Lifecycle` |
+| `recoverSubAgents` | 启动期恢复子 agent | `cmd/mcp-orch/orchestration` | `fx.Invoke(RecoverSubAgents)` |
 | `applyInjectedPromptVisibilityPreference` | 恢复 UI 注入提示词可见性 | `module/uistate` + `ui/runtime` | `fx.Invoke(ApplyUIPreferences)` |
-| `registerDynamicTools` | 动态工具注册表聚合 | `tool/registry` + `tool/*` | tool group `fx.Out` + `fx.Invoke(BuildToolRegistry)` |
+| `registerDynamicTools` | MCP manifest / 本地 registry 聚合 | `cmd/mcp-*` 本地包 | package-local registry + `fx.Invoke(BuildManifest)` |
 | `setNotifyHookState` | 统一通知桥接 | `platform/bus` + `platform/rpc` + `ui/dashboard` | `fx.Invoke(BindNotifierBridge)` |
-| `startMemoryStatsTicker` | 内存状态监控后台任务 | `platform/monitor` | `fx.Provide` + `Lifecycle` |
+| `startMemoryStatsTicker` | 内存状态监控后台任务 | `internal/app` + `platform/runner` | `fx.Invoke` + `Lifecycle` |
 
 ### 14.2 V2 store 分解到 V3
 
@@ -1661,7 +1639,7 @@ func main() {
 }
 ```
 
-`cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 也遵循同一入口原则，但它们组装的是 `internal/mcpserver/common` 加对应家族模块，而不是桌面 UI 模块。
+`cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 也遵循同一入口原则，但它们是独立服务二进制：优先把 transport、registry、manifest、runtime 保持在各自入口层；无论采用哪种装配方式，都不能把 MCP transport 重新塞回 `internal/module/*`。
 
 ---
 
@@ -1689,10 +1667,10 @@ func main() {
 建议按下面顺序从 V2 迁到 V3：
 
 1. 先引入 `platform/config`、`platform/db`、`store/*`，把 `initStores` 全部替换成 `fx.Provide`。
-2. 再把 `provider/unified`、`tool/registry`、`codeRunner`、`workspaceMgr`、`prefManager`、`uiRuntime` 单独模块化。
+2. 再把 `provider/unified`、`workspace`、`uistate` 等共享能力单独模块化。
 3. 再把 `registerMethods` 改成 `rpc.handlers` group 聚合。
-4. 再把 `registerDynamicTools` 改成 `tool.handlers` group 聚合，并拆到 `internal/tool/*` 家族。
-5. 再把 `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 从桌面主入口中剥离成独立 `mcpserver/*` 组合。
+4. 再把动态工具接入改成 `cmd/mcp-*` 本地 registry + manifest 聚合，不再下沉到 `internal/*` 的工具家族包。
+5. 再把 `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 从桌面主入口中剥离成独立 MCP 服务二进制，并把 transport 逻辑固定在各自入口层。
 6. 再把 `recoverSubAgents`、timeout 恢复、UI 偏好恢复改成 `Invoke`。
 7. 最后删除 `Server` 上残存的状态聚合职责，让顶层只剩 `fx.App` 入口。
 

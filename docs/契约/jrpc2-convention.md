@@ -25,6 +25,13 @@ V3 的总原则只有五条：
 - 通用横切逻辑放到装饰器，不再分散到每个 handler
 - 错误必须映射成 JSON-RPC 语义明确的 `*jrpc2.Error`
 
+适用范围补充：
+
+- 本文默认约束的是宿主内核心 RPC，也就是 `internal/platform/rpc` 承担的桌面 / UI RPC。
+- `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 也使用 JSON-RPC 2.0 over stdio，但它们是独立 MCP 服务二进制；binary 边界、manifest 和 stdio 生命周期另见 `docs/契约/mcp-service-convention.md`。
+- 同一份领域能力如果同时暴露给核心 RPC 和 MCP，只共享 service contract、store contract 和 DTO，不共享 handler registry、notification bridge 或方法命名空间。
+- `cmd/` 与 `internal/` 同属模块根 `github.com/anthropic-ai/super-agent-v3`，因此 `cmd/mcp-*` 合法 import `internal/*`；这属于 Go `internal` 包规则允许的正常用法。
+
 ---
 
 ## 1. 框架概述
@@ -659,7 +666,9 @@ func ErrorExample(ctx context.Context) error {
 
 ### 推荐分层
 
-- stdio / pipe / TCP:
+- stdio / pipe:
+  优先用于 `cmd/mcp-*` 这类独立 MCP 服务二进制，或本地进程桥接
+- TCP:
   用 `channel.Line`、`channel.LSP` 或其他 framing
 - HTTP:
   用 `jhttp.NewBridge` 暴露服务
@@ -743,8 +752,10 @@ func NewWebSocketChannel(conn websocketConn) channel.Channel {
 ### V3 契约结论
 
 - handler 不关心 transport
+- 核心 `platform/rpc` 与 `cmd/mcp-*` 是两套独立装配根；前者服务宿主 UI，后者服务外部 MCP 宿主
 - HTTP 只负责桥接，不承担实时双向推送契约
 - WebSocket 适配层是 transport 代码，不是业务代码
+- stdio transport 出现在本文时，默认指独立 MCP binary 的通信通道；manifest、tool family 装配和 stdio loop 规则不在核心 RPC 契约里定义
 
 ---
 
