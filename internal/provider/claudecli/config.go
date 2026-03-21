@@ -58,30 +58,49 @@ func configStringSlice(cfg map[string]any, keys ...string) []string {
 		if !ok {
 			continue
 		}
-		switch typed := values.(type) {
-		case []string:
-			return trimStrings(typed)
-		case []any:
-			out := make([]string, 0, len(typed))
-			for _, value := range typed {
-				text, ok := value.(string)
-				if !ok {
-					continue
-				}
-				if text = strings.TrimSpace(text); text != "" {
-					out = append(out, text)
-				}
-			}
-			if len(out) > 0 {
-				return out
-			}
-		case string:
-			if typed = strings.TrimSpace(typed); typed != "" {
-				return trimStrings(strings.Split(typed, ","))
-			}
+		if out := normalizeConfigStringSlice(values); len(out) > 0 {
+			return out
 		}
 	}
 	return nil
+}
+
+func normalizeConfigStringSlice(values any) []string {
+	switch typed := values.(type) {
+	case []string:
+		return trimStrings(typed)
+	case []any:
+		return trimConfigStringValues(typed)
+	case string:
+		return splitConfigStringSlice(typed)
+	default:
+		return nil
+	}
+}
+
+func trimConfigStringValues(values []any) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			continue
+		}
+		if text = strings.TrimSpace(text); text != "" {
+			out = append(out, text)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func splitConfigStringSlice(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return trimStrings(strings.Split(value, ","))
 }
 
 func stringMap(raw any) map[string]string {
