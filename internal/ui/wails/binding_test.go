@@ -87,18 +87,23 @@ func TestListAgentsUsesAgentList(t *testing.T) {
 	}
 }
 
+func TestOpenNewWindowRequiresApplication(t *testing.T) {
+	app := &App{}
+	err := app.OpenNewWindow("group", 1, "bootstrap", "/tmp")
+	if err == nil {
+		t.Fatal("OpenNewWindow() error = nil, want application readiness error")
+	}
+	if !strings.Contains(err.Error(), "application is not ready") {
+		t.Fatalf("OpenNewWindow() error = %q, want application readiness marker", err)
+	}
+}
+
 func TestDeferredBindingsReturnNotImplemented(t *testing.T) {
 	app := &App{}
 	cases := []struct {
 		name string
 		call func() error
 	}{
-		{
-			name: "OpenNewWindow",
-			call: func() error {
-				return app.OpenNewWindow("group", 1, "bootstrap", "/tmp")
-			},
-		},
 		{
 			name: "GetLSPDiagnostics",
 			call: func() error {
@@ -114,7 +119,6 @@ func TestDeferredBindingsReturnNotImplemented(t *testing.T) {
 			},
 		},
 	}
-
 	for _, tc := range cases {
 		err := tc.call()
 		if err == nil {

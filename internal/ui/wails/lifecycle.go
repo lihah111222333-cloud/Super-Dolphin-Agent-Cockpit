@@ -9,10 +9,20 @@ import (
 )
 
 const (
-	bridgeEventName = "bridge-event"
-	quitOverlayName = "app-will-quit"
-	quitGraceDelay  = 320 * time.Millisecond
+	bridgeEventName      = "bridge-event"
+	agentEventName       = "agent-event"
+	quitOverlayName      = "app-will-quit"
+	quitGraceDelay       = 320 * time.Millisecond
+	shutdownHardDeadline = 15 * time.Second
 )
+
+type lifecycleTimer interface {
+	Stop() bool
+}
+
+var lifecycleAfterFunc = func(delay time.Duration, fn func()) lifecycleTimer {
+	return time.AfterFunc(delay, fn)
+}
 
 type ActiveAgentCounter interface {
 	ActiveAgentCount(context.Context) (int, error)
@@ -32,6 +42,7 @@ type WailsLifecycle struct {
 	quitFunc       func()
 	shutdownerFunc func()
 	emitFunc       func(string, any)
+	shutdownTimer  lifecycleTimer
 
 	quitIntercepted atomic.Bool
 	quitAllowed     atomic.Bool
@@ -90,7 +101,7 @@ func (l *WailsLifecycle) ShouldQuit() bool {
 	activeCount := l.activeAgentCount()
 	if activeCount > 0 {
 		l.emitQuitOverlay(activeCount)
-		time.AfterFunc(quitGraceDelay, l.requestBackendShutdown)
+		lifecycleAfterFunc(quitGraceDelay, l.requestBackendShutdown)
 		return false
 	}
 
@@ -103,6 +114,7 @@ func (l *WailsLifecycle) OnShutdown() {
 }
 
 func (l *WailsLifecycle) NotifyBackendFailed() {
+	l.stopShutdownTimer()
 	l.quitAllowed.Store(true)
 	if !l.frontendReady.Load() {
 		l.pendingQuit.Store(true)
@@ -146,6 +158,7 @@ func (l *WailsLifecycle) requestBackendShutdown() {
 	if l == nil || !l.shutdownStarted.CompareAndSwap(false, true) {
 		return
 	}
+	l.armShutdownTimer()
 	shutdown := l.loadShutdowner()
 	if shutdown == nil {
 		l.NotifyBackendFailed()
@@ -164,6 +177,7 @@ func (l *WailsLifecycle) flushPendingQuit() {
 }
 
 func (l *WailsLifecycle) invokeQuit() {
+	l.stopShutdownTimer()
 	quit := l.loadQuit()
 	if quit == nil {
 		l.pendingQuit.Store(true)
@@ -188,4 +202,36 @@ func (l *WailsLifecycle) loadEmitter() func(string, any) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.emitFunc
+}
+
+func (l *WailsLifecycle) armShutdownTimer() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.shutdownTimer != nil {
+		l.shutdownTimer.Stop()
+	}
+	l.shutdownTimer = lifecycleAfterFunc(shutdownHardDeadline, func() {
+		l.logger.Warn("wails: shutdown hard deadline exceeded", "deadline", shutdownHardDeadline.String())
+		l.NotifyBackendFailed()
+	})
+}
+
+func (l *WailsLifecycle) stopShutdownTimer() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.shutdownTimer == nil {
+		return
+	}
+	l.shutdownTimer.Stop()
+	l.shutdownTimer = nil
+}
+
+func ShutdownHardDeadline() time.Duration {
+	return shutdownHardDeadline
 }

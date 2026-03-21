@@ -15,9 +15,11 @@ import (
 const defaultGroup = ""
 
 type App struct {
-	dispatch func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
-	emitter  func(event string, data any)
-	wailsApp *application.App
+	dispatch    func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
+	emitter     func(event string, data any)
+	wailsApp    *application.App
+	windowTitle string
+	debug       bool
 }
 
 func (a *App) CallAPI(method string, paramsJSON string) (any, error) {
@@ -70,10 +72,27 @@ func (a *App) GetGroup() string {
 	return defaultGroup
 }
 
-// TODO(P9): Defer multi-window desktop support until the V3 window lifecycle
-// and cross-window routing contracts are settled.
 func (a *App) OpenNewWindow(group string, n int, uiBootstrap, cwd string) error {
-	return deferredBindingError("OpenNewWindow", "multi-window desktop flow is deferred")
+	_, err := a.openNewWindow(group, n, uiBootstrap, cwd)
+	return err
+}
+
+func (a *App) openNewWindow(group string, n int, uiBootstrap, cwd string) (string, error) {
+	app, err := a.requireWailsApp()
+	if err != nil {
+		return "", err
+	}
+	title := strings.TrimSpace(a.windowTitle)
+	if title == "" {
+		title = applicationTitle()
+	}
+	// TODO(P7.5): Frontend still needs to read ao_ui_bootstrap/ao_window_cwd
+	// from window.location.search before these query params affect runtime state.
+	window := createWindow(app, title, a.debug, buildWindowName(group, n), uiBootstrap, cwd)
+	if window == nil {
+		return "", errors.New("wails binding: failed to create window")
+	}
+	return fmt.Sprintf("%d", window.ID()), nil
 }
 
 // TODO(P9): Restore desktop LSP convenience bindings after the typed LSP tool

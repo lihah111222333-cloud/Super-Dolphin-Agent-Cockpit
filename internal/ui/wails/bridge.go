@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
@@ -63,11 +64,28 @@ func (b *EventBridge) publish(method string, payload any) {
 		return
 	}
 	for _, notification := range eventsurface.ExpandNotifications(method, payload) {
+		normalized := payloadToMap(notification.Payload)
 		b.lifecycle.EmitEvent(bridgeEventName, map[string]any{
 			"type":    notification.Method,
-			"payload": payloadToMap(notification.Payload),
+			"payload": normalized,
 		})
+		b.emitCompatAgentEvent(notification.Method, normalized)
 	}
+}
+
+func (b *EventBridge) emitCompatAgentEvent(method string, payload map[string]any) {
+	if b == nil || b.lifecycle == nil {
+		return
+	}
+	threadID := firstNonEmptyPayloadString(payload, "threadId", "thread_id", "agent_id", "agentId")
+	if threadID == "" {
+		return
+	}
+	b.lifecycle.EmitEvent(agentEventName, map[string]any{
+		"agent_id": threadID,
+		"type":     strings.TrimSpace(method),
+		"payload":  payload,
+	})
 }
 
 func payloadToMap(payload any) map[string]any {
@@ -88,4 +106,14 @@ func payloadToMap(payload any) map[string]any {
 		return map[string]any{"error": err.Error()}
 	}
 	return result
+}
+
+func firstNonEmptyPayloadString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, _ := payload[key].(string)
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
