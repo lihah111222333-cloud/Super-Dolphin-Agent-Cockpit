@@ -98,29 +98,45 @@ func resolveReadyTurnSession(ctx context.Context, resolver contract.SessionResol
 		return nil, errors.New("turn rpc: session resolver is not configured")
 	}
 	threadID := rpc.ThreadIDFrom(ctx)
-	lookup := func(callCtx context.Context) (contract.Session, error) {
-		session, err := resolver.ResolveSession(callCtx, threadID)
-		if err != nil {
-			return nil, err
-		}
-		if session == nil {
-			return nil, contract.ErrSessionNotFound
-		}
-		return session, nil
-	}
-	session, err := lookup(ctx)
+	session, err := lookupReadyTurnSession(ctx, resolver, threadID)
 	if err == nil {
 		return session, nil
 	}
 	if !errors.Is(err, contract.ErrSessionNotFound) {
 		return nil, err
 	}
-	waitCtx := ctx
-	cancel := func() {}
-	if _, ok := ctx.Deadline(); !ok {
-		waitCtx, cancel = context.WithTimeout(ctx, config.LaunchTimeout)
-	}
+	waitCtx, cancel := readyTurnWaitContext(ctx)
 	defer cancel()
+	return waitForReadyTurnSession(waitCtx, resolver, threadID)
+}
+
+func lookupReadyTurnSession(
+	ctx context.Context,
+	resolver contract.SessionResolver,
+	threadID string,
+) (contract.Session, error) {
+	session, err := resolver.ResolveSession(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, contract.ErrSessionNotFound
+	}
+	return session, nil
+}
+
+func readyTurnWaitContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, config.LaunchTimeout)
+}
+
+func waitForReadyTurnSession(
+	waitCtx context.Context,
+	resolver contract.SessionResolver,
+	threadID string,
+) (contract.Session, error) {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -128,7 +144,7 @@ func resolveReadyTurnSession(ctx context.Context, resolver contract.SessionResol
 		case <-waitCtx.Done():
 			return nil, rpc.ErrInvalidState("thread session is not available; start or resume the thread first")
 		case <-ticker.C:
-			session, err := lookup(waitCtx)
+			session, err := lookupReadyTurnSession(waitCtx, resolver, threadID)
 			if err == nil {
 				return session, nil
 			}
