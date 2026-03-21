@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/kelindar/event"
@@ -20,7 +21,7 @@ var Module = fx.Module("orchestration",
 	fx.Provide(
 		NewService,
 		func(s *service) Service { return s },
-		func(s Service) contract.RuntimeReporter { return NewRuntimeReporter(s) },
+		func(s Service) contract.RuntimeReporter { return runtimeReporter{svc: s} },
 		NewOrchestrationHandlers,
 		fx.Annotate(NewRunnerActor, fx.ResultTags(`group:"runners"`)),
 	),
@@ -89,4 +90,16 @@ func withEventTime(ctx context.Context, timestamp time.Time) context.Context {
 
 func resolveEventTime(ctx context.Context, fallbacks ...time.Time) time.Time {
 	return sharedto.ResolveEventTime(ctx, nil, fallbacks...)
+}
+
+type runtimeReporter struct {
+	svc Service
+}
+
+func (r runtimeReporter) ReportRuntime(ctx context.Context, report contract.RuntimeReport) error {
+	return r.svc.UpdateRuntime(ctx, agentdto.RuntimeReport{
+		AgentID:  report.AgentID,
+		Port:     report.Port,
+		Provider: report.Provider,
+	})
 }
