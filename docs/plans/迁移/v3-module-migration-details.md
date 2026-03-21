@@ -260,14 +260,14 @@
 - `go-agent-v2/internal/apiserver/tool_provider_adapters.go`
 
 #### V3 目标文件结构
-- `internal/module/orchestration/module.go`
-- `internal/module/orchestration/contract.go`
-- `internal/module/orchestration/service.go`
-- `internal/module/orchestration/phase1_watcher.go`
-- `internal/module/orchestration/runner_actor.go`
-- `internal/module/orchestration/recover.go`
-- `internal/module/orchestration/events.go`
-- `internal/module/orchestration/patterns.go`
+- `cmd/mcp-orch/orchestration/module.go`
+- `cmd/mcp-orch/orchestration/contract.go`
+- `cmd/mcp-orch/orchestration/service.go`
+- `cmd/mcp-orch/orchestration/phase1_watcher.go`
+- `cmd/mcp-orch/orchestration/runner_actor.go`
+- `cmd/mcp-orch/orchestration/recover.go`
+- `cmd/mcp-orch/orchestration/events.go`
+- `cmd/mcp-orch/orchestration/patterns.go`
 
 #### 6 框架使用方式
 - fx：`orchestration.Module` 提供 DAG service、phase1 watcher、recovery service、tool-facing facade、`Runner` 适配输出。

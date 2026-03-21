@@ -24,14 +24,14 @@ V3 直接继承 V2 的测量口径，不重新定义统计语义：
 | 嵌套深度 | 5 | 4 | 进一步压低认知复杂度，迫使早返回和子函数提取。 |
 | 圈复杂度 | 13 | 10 | V3 的分支密度必须低于 V2，复杂分支应改成表驱动或状态机。 |
 | 标识符下划线数 | 3 | 3 | 该规则已足够严格，继续收紧只会制造无意义重命名。 |
-| 包内文件数 | 仅对少数目录冻结上限 | 默认 12 | V2 只有 `packageFileCountLimits` 冻结目录；V3 改成默认硬限，防止包膨胀。 |
-| 包有效行数 | 冻结基线，无统一硬限 | 默认 2500 | V2 通过 `refactor_baseline.json` 冻结包行数；V3 改成默认包预算，不再接受无限增长。 |
+| 包内文件数 | 仅对少数目录冻结上限 | 默认 15 | 与仓库当前 guardlib 常量一致；V3 仍保留默认硬限，防止包膨胀。 |
+| 包有效行数 | 冻结基线，无统一硬限 | 默认 3000 | V2 通过 `refactor_baseline.json` 冻结包行数；V3 改成默认包预算，不再接受无限增长。 |
 
 补充说明：
 - V2 的包有效行数守卫不是脚本常量，而是 `guardlib/package_lines.go` 中的冻结基线机制：总产品代码、factory 预算、单包 `FrozenMax` 都只允许下降。
 - V3 取消 `factory` 特殊预算，改为显式包预算和 `platform/shared` 目录预算。
-- V3 的 `2500` 是默认包有效行数上限；只有迁移主文档明确标注的高复杂边界包，才允许在子文档中声明 `3200-3500` 的迁移期显式例外，并且必须配套更早的拆分触发阈值和架构测试。
-- 当前明确允许突破默认 `2500` 的迁移期例外只有 `module/orchestration`、`module/ida`、`tool/lsp`。
+- V3 的 `3000` 是默认包有效行数上限；只有迁移主文档明确标注的高复杂边界包，才允许在子文档中声明 `3200-3500` 的迁移期显式例外，并且必须配套更早的拆分触发阈值和架构测试。
+- 当前明确允许突破默认 `3000` 的迁移期例外只有 `module/orchestration`、`module/ida`、`tool/lsp`。
 
 ## 第 2 章：V3 守卫类型完整清单
 
@@ -58,7 +58,7 @@ V3 直接继承 V2 的测量口径，不重新定义统计语义：
 | `stateless` 业务枚举隔离守卫 | `platform/statemachine/` 只承接技术骨架，禁止 import `module/*` 或业务枚举。 | `internal/archtest/dependency_direction_test.go` |
 | `platform/shared` 预算守卫 | `internal/platform/shared/` 总行数 `<= 2000`，单文件 `<= 500`。 | `internal/archtest/shared_budget_test.go` |
 | 依赖方向守卫 | 按主文档 §2.5 的 11 条 import 规则校验所有边界。 | `internal/archtest/dependency_direction_test.go` |
-| MCP 家族交叉 import 守卫 | `internal/mcpserver/lsp`、`internal/mcpserver/orch`、`internal/mcpserver/ida` 互不 import。 | `internal/archtest/mcp_family_isolation_test.go` |
+| MCP 家族交叉 import 守卫 | `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 互不 import；`internal/mcpserver/common` 作为共享协议层不计入家族身份。 | `internal/archtest/mcp_family_isolation_test.go` |
 | `context.WithTimeout` 散落守卫 | 只有 `internal/platform/config/timeouts.go` 可以直接出现 `context.WithTimeout`。 | `internal/archtest/timeout_locality_test.go` |
 
 ### 2.3 依赖方向 11 条规则
@@ -69,11 +69,17 @@ V3 直接继承 V2 的测量口径，不重新定义统计语义：
 4. `internal/platform/*` 不能 import `internal/module/*`。
 5. `internal/store/*` 只能依赖 `internal/platform/db`、`internal/store/sqlcgen`、`internal/contract`、`internal/dto`。
 6. `internal/tool/*` 不能直接改 UI state；只能通过 typed event 或 `module/*` facade。
-7. `internal/mcpserver/lsp` 不能 import `internal/tool/ida` 或 `internal/tool/orchestration`。
-8. `internal/mcpserver/orch` 不能 import `internal/tool/lsp` 或 `internal/tool/ida`。
-9. `internal/mcpserver/ida` 不能 import `internal/tool/lsp` 或 `internal/tool/orchestration`。
+7. `cmd/mcp-lsp` 不能 import `internal/tool/ida` 或 `internal/tool/orchestration`，也不能 import `internal/app`、`internal/ui/*`。
+8. `cmd/mcp-orch` 不能 import `internal/tool/lsp` 或 `internal/tool/ida`，也不能 import `internal/app`、`internal/ui/*`。
+9. `cmd/mcp-ida` 不能 import `internal/tool/lsp` 或 `internal/tool/orchestration`，也不能 import `internal/app`、`internal/ui/*`。
 10. 只有 `internal/app`、`internal/platform/*/module.go`、`internal/store/*/module.go`、`internal/module/*/module.go` 和 `cmd/*` 可以 import `fx` 模块清单。
 11. 所有 timeout 常量统一定义在 `internal/platform/config/timeouts.go`。
+
+补充口径：
+
+- `cmd/mcp-*` 不得 import 其他 `cmd/*` 下的代码；MCP binary 之间只允许通过进程协议协作，不允许源码级复用。
+- `internal/module/*` 不得 import `cmd/mcp-*`；核心层只能被 MCP binary 下游复用，不能反向依赖入口层。
+- MCP schema、manifest 组装和 handler 壳只允许出现在 `cmd/mcp-*`；核心层不得承载这些协议面定义。
 
 ## 第 3 章：V3 专项行为守卫清单
 
@@ -90,7 +96,7 @@ V2 的 D1-D7 维度已在 `guard_manifest_contract_guard_test.go` 中冻结为�
 | D7_error_path | 错误路径守卫 | `store/*` + `module/turn` |
 
 补充要求：
-- `module/ida`、`tool/lsp`、`mcpserver/*` 仍需各自保留 D4/D5/D6/D7 本地守卫，但不再复制另一套维度命名。
+- `module/ida`、`tool/lsp`、`cmd/mcp-*` 仍需各自保留 D4/D5/D6/D7 本地守卫，但不再复制另一套维度命名。
 - `platform/bus` 和 `provider/*` 的事件守卫必须锁定 route、payload shape 和订阅取消行为，不能只测 happy path。
 - `module/workspace`、`module/dashboard`、`tool/orchestration` 这类 facade 层必须保留响应 shape 与错误 envelope 守卫，避免接口漂移。
 
@@ -104,7 +110,7 @@ internal/archtest/
 ├── fx_graph_test.go                — fx.ValidateApp + fx import 范围
 ├── shared_budget_test.go           — platform/shared 行数预算
 ├── sqlc_boundary_test.go           — sqlc import 边界
-├── mcp_family_isolation_test.go    — 三家族交叉 import
+├── mcp_family_isolation_test.go    — `cmd/mcp-*` 家族交叉 import
 ├── timeout_locality_test.go        — context.WithTimeout 散落
 ├── code_size_guard_test.go         — 文件/函数/嵌套/CC 守卫
 └── identifier_guard_test.go        — 标识符规范
@@ -123,3 +129,5 @@ internal/archtest/
 - allowlist 只允许冻结当前值，只减不增；任何上调都视为新增技术债，直接拒绝。
 - allowlist 一旦存在，死键守卫必须开启；找不到真实文件或函数的冻结项一律失败。
 - 业务包不得用 allowlist 规避拆分；迁移期例外只接受协议表、生成适配层或极少数必须保形的兼容文件。
+- `cmd/mcp-orch`、`cmd/mcp-lsp`、`cmd/mcp-ida` 与 `internal/mcpserver/common` 默认纳入同一组守卫；新写 hand-written 代码必须直接满足单文件 `<=400`、函数 `<=80`、CC `<=10`、包非测试文件 `<=15`。
+- 从 V2 直接复制到 MCP 服务的协议镜像 / 兼容文件允许迁移期临时豁免，但必须显式写入 allowlist、冻结当前值、标注来源文件与删除条件；任何新逻辑不得继续堆进豁免文件。

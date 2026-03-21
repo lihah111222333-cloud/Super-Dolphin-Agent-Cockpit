@@ -248,7 +248,7 @@ store 层的事务入口只有两处：
 
 实际调用点只有两处：
 
-- `internal/module/orchestration/dag.go:20-34`
+- `cmd/mcp-orch/orchestration/dag.go:20-34`
 - `internal/module/workspace/service_helpers.go:168-178`
 
 `workspace.persistRun` 结论：
@@ -259,7 +259,7 @@ store 层的事务入口只有两处：
 
 补充：
 
-- `internal/module/orchestration/dag.go:14-39` 的 `CreateDAG` 也是通过 `taskdag.Store.WithTx`，把 DAG 主记录、节点和明细装载放在同一事务内。
+- `cmd/mcp-orch/orchestration/dag.go:14-39` 的 `CreateDAG` 也是通过 `taskdag.Store.WithTx`，把 DAG 主记录、节点和明细装载放在同一事务内。
 
 ## 9. 错误处理
 

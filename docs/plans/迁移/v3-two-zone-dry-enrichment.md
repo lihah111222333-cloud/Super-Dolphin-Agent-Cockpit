@@ -119,6 +119,13 @@ internal/module/<name>/
 
 原因不是“简单”，而是重复样板主要由框架承接，过早拆文件只会制造假抽象。
 
+### 3.4 MCP 独立服务不属于 Zone B 模块
+
+- `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 是独立二进制装配根，不属于 `internal/module/*` 的 Zone B 自治模块。
+- MCP 工具家族的 transport、manifest、stdio loop 只允许放在 `cmd/mcp-*` 或 `internal/mcpserver/common` 这类协议胶水层，不能回流到 `module/orchestration`、`module/coderun` 等核心模块。
+- Zone B 模块只保留前端 UI / 核心宿主需要的 service、store facade、RPC handler、事件桥；如果 MCP 服务要复用这些能力，只能面向窄接口消费。
+- 因此，MCP 独立服务与两级工厂的关系是：复用 Zone A 的平台/共享能力，消费 Zone B 暴露的 service contract，但自身不成为新的 Zone B 模块。
+
 ## 4. Rule of Two 候选清单
 
 下表列出跨模块复用的候选抽象及当前处理建议。
@@ -187,7 +194,7 @@ internal/archtest/
 ├── fx_graph_test.go                — fx.ValidateApp + fx import 范围
 ├── shared_budget_test.go           — platform/shared 行数预算
 ├── sqlc_boundary_test.go           — sqlc import 边界
-├── mcp_family_isolation_test.go    — 三家族交叉 import
+├── mcp_family_isolation_test.go    — `cmd/mcp-*` 三家族交叉 import
 ├── timeout_locality_test.go        — context.WithTimeout 散落
 ├── code_size_guard_test.go         — 文件/函数/嵌套/CC 守卫
 └── identifier_guard_test.go        — 标识符规范
@@ -204,4 +211,5 @@ internal/archtest/
 - Zone A 的核心不是新建“大工厂包”，而是把 V2 的跨包样板拆到六个框架和明确的平台专包里。
 - `internal/platform/shared/` 只能装“最后剩下、且已稳定复用”的纯 helper，不接受预判式抽象。
 - Zone B 的核心不是多文件，而是单模块单真相：一块业务的重复只在自己的包里收敛。
+- MCP 独立服务只复用 Zone A / Zone B 暴露的能力，不占用 `internal/module/*` 的模块席位，也不把 stdio tool transport 带回核心层。
 - `pkg/factory` 在 V3 只能作为过渡遗留，不应成为最终落点。

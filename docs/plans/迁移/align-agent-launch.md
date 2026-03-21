@@ -11,12 +11,12 @@
   - `go-agent-v2/pkg/agentsdk/claude/client.go`
   - `go-agent-v2/pkg/agentsdk/agentcore/types.go`
 - V3：
-  - `internal/module/orchestration/rpc.go`
-  - `internal/module/orchestration/rpc_types.go`
-  - `internal/module/orchestration/contract.go`
-  - `internal/module/orchestration/service.go`
-  - `internal/module/orchestration/helpers.go`
-  - `internal/module/orchestration/runner_actor.go`
+  - `cmd/mcp-orch/orchestration/rpc.go`
+  - `cmd/mcp-orch/orchestration/rpc_types.go`
+  - `cmd/mcp-orch/orchestration/contract.go`
+  - `cmd/mcp-orch/orchestration/service.go`
+  - `cmd/mcp-orch/orchestration/helpers.go`
+  - `cmd/mcp-orch/orchestration/runner_actor.go`
   - `internal/module/thread/lifecycle.go`（仅用于核对 session 创建职责边界）
 
 ## 总结

@@ -10,12 +10,12 @@
   - `go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go`
   - `go-agent-v2/pkg/agentsdk/codex/client_appserver_helpers.go`
 - V3 取证文件：
-  - `internal/module/orchestration/rpc.go`
-  - `internal/module/orchestration/rpc_types.go`
-  - `internal/module/orchestration/service.go`
-  - `internal/module/orchestration/helpers.go`
-  - `internal/module/orchestration/submission.go`
-  - `internal/module/orchestration/runner_actor.go`
+  - `cmd/mcp-orch/orchestration/rpc.go`
+  - `cmd/mcp-orch/orchestration/rpc_types.go`
+  - `cmd/mcp-orch/orchestration/service.go`
+  - `cmd/mcp-orch/orchestration/helpers.go`
+  - `cmd/mcp-orch/orchestration/submission.go`
+  - `cmd/mcp-orch/orchestration/runner_actor.go`
   - `internal/dto/turn/model.go`
   - `internal/module/turn/orchestration_starter.go`
   - `internal/module/turn/service.go`
@@ -104,9 +104,9 @@
 
 ### 2.1 RPC 参数与兼容层
 
-- `internal/module/orchestration/rpc.go:20-39`
+- `cmd/mcp-orch/orchestration/rpc.go:20-39`
   - `agent.submit` 与 `agent.submitPrompt` 都走 `submissionFromParams(...) -> svc.SubmitTurn(...)`
-- `internal/module/orchestration/rpc_types.go:70-83`
+- `cmd/mcp-orch/orchestration/rpc_types.go:70-83`
   - V3 仍保留 V2 风格字段：
     - `agent_id`
     - `prompt`
@@ -116,7 +116,7 @@
     - `selected_skills`
     - `manual_skill_selection`
     - `output_schema`
-- `internal/module/orchestration/rpc_types.go:85-115`
+- `cmd/mcp-orch/orchestration/rpc_types.go:85-115`
   - `UnmarshalJSON` 还兼容 camelCase / 新面：
     - `agentId`
     - `input`
@@ -132,10 +132,10 @@
 
 ### 2.2 V3 如何把旧参数折成统一 submission
 
-- `internal/module/orchestration/rpc.go:90-103`
+- `cmd/mcp-orch/orchestration/rpc.go:90-103`
   - `submissionFromParams(...)` 构造 `TurnSubmission`
   - 把 `SelectedSkills / ManualSkillSelection / OutputSchema` 直接复制进 submission
-- `internal/module/orchestration/rpc.go:106-124`
+- `cmd/mcp-orch/orchestration/rpc.go:106-124`
   - `prompt -> {type:"text"}`
   - `images -> {type:"image"}`
   - `files -> {type:"mention"}`
@@ -159,17 +159,17 @@
 
 ### 3.1 queue
 
-- `internal/module/orchestration/service.go:166-187`
+- `cmd/mcp-orch/orchestration/service.go:166-187`
   - `SubmitTurn(...)` 校验 agent 运行态后，把 submission 放进 `agent.queue.Enqueue(req)`
   - 如果 agent 当前 `idle`，还会把状态推进到 `turn_queued`
-- `internal/module/orchestration/submission.go:9-29`
+- `cmd/mcp-orch/orchestration/submission.go:9-29`
   - `SubmissionQueue` 是简单 FIFO：`Enqueue` append，`Dequeue` 取头
 
 ### 3.2 claim
 
-- `internal/module/orchestration/runner_actor.go:62-65`
+- `cmd/mcp-orch/orchestration/runner_actor.go:62-65`
   - runner 每轮调用 `claimTurnWork(ctx)`，随后立刻 `startTurnExecution(ctx, work)`
-- `internal/module/orchestration/service.go:291-324`
+- `cmd/mcp-orch/orchestration/service.go:291-324`
   - `claimTurnWork(...)` 会：
     - 只挑 `state == turn_queued` 的 agent
     - `Dequeue()` 取出 submission
@@ -185,7 +185,7 @@
 
 ### 3.3 TurnStarter
 
-- `internal/module/orchestration/helpers.go:140-150`
+- `cmd/mcp-orch/orchestration/helpers.go:140-150`
   - `startTurnExecution(...)` 直接调用 `s.turnStarter.StartTurn(ctx, work.submission)`
 - `internal/module/turn/orchestration_starter.go:22-52`
   - `StartTurn(...)` 顺序是：
@@ -244,9 +244,9 @@
 
 ### 5.1 `SelectedSkills`
 
-- `internal/module/orchestration/rpc.go:96-102`
+- `cmd/mcp-orch/orchestration/rpc.go:96-102`
   - RPC 入 `TurnSubmission.SelectedSkills`
-- `internal/module/orchestration/service.go:316-320`
+- `cmd/mcp-orch/orchestration/service.go:316-320`
   - `claimTurnWork(...)` 把完整 submission 带进 `turnWork`
 - `internal/module/turn/orchestration_starter.go:54-63,82-91`
   - 变成 `PrepareInput.Skills []dto.SkillRef{Name}`
@@ -263,7 +263,7 @@
 
 ### 5.2 `ManualSkillSelection`
 
-- `internal/module/orchestration/rpc.go:100-102`
+- `cmd/mcp-orch/orchestration/rpc.go:100-102`
   - RPC 入 `TurnSubmission.ManualSkillSelection`
 - `internal/module/turn/orchestration_starter.go:57-59`
   - 入 `PrepareInput.ManualSkillSelection`
@@ -278,7 +278,7 @@
 
 ### 5.3 `OutputSchema`
 
-- `internal/module/orchestration/rpc.go:100-102`
+- `cmd/mcp-orch/orchestration/rpc.go:100-102`
   - RPC 入 `TurnSubmission.OutputSchema`
 - `internal/module/turn/orchestration_starter.go:57-60`
   - 入 `PrepareInput.OutputSchema`
