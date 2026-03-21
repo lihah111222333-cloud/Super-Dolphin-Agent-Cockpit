@@ -46,63 +46,88 @@ func cloneRuntimeMap(input map[string]map[string]any) map[string]map[string]any 
 	return out
 }
 
+type sidebarAgentLookup struct {
+	byID     map[string]*AgentSummary
+	byThread map[string]*AgentSummary
+}
+
 func (s *service) fillSidebarDerivedLocked(sidebar *Sidebar) {
 	if s == nil || sidebar == nil {
 		return
 	}
+	resetSidebarDerived(sidebar)
+	agents := deriveAgentRuntime(sidebar)
+	recentByThread := latestTurnsByThread(sidebar.ActiveTurn, sidebar.RecentTurns)
+	deriveThreadStatuses(sidebar, agents, recentByThread)
+	deriveInterruptible(sidebar)
+	deriveStatusHeaders(sidebar)
+}
 
+func resetSidebarDerived(sidebar *Sidebar) {
 	sidebar.Statuses = map[string]string{}
 	sidebar.InterruptibleByThread = map[string]bool{}
 	sidebar.StatusHeadersByThread = map[string]string{}
 	sidebar.StatusDetailsByThread = map[string]string{}
 	sidebar.AgentRuntimeByID = map[string]map[string]any{}
+}
 
-	agentsByID := make(map[string]*AgentSummary, len(sidebar.Agents))
-	agentsByThread := make(map[string]*AgentSummary, len(sidebar.Agents))
+func deriveAgentRuntime(sidebar *Sidebar) sidebarAgentLookup {
+	agents := sidebarAgentLookup{
+		byID:     make(map[string]*AgentSummary, len(sidebar.Agents)),
+		byThread: make(map[string]*AgentSummary, len(sidebar.Agents)),
+	}
 	for i := range sidebar.Agents {
 		agent := &sidebar.Agents[i]
-		if agent.AgentState == "" {
-			agent.AgentState = strings.TrimSpace(agent.State)
-		}
-		if agent.LastMessage == "" {
-			agent.LastMessage = strings.TrimSpace(agent.LastReport)
-		}
+		normalizeSidebarAgent(agent)
 		agentID := strings.TrimSpace(agent.ID)
 		threadID := strings.TrimSpace(agent.ThreadID)
 		if agentID != "" {
-			agentsByID[agentID] = agent
+			agents.byID[agentID] = agent
 		}
-		if threadID != "" {
-			agentsByThread[threadID] = agent
-			runtimeEntry := map[string]any{
-				"agentId":          agentID,
-				"state":            agent.AgentState,
-				"providerThreadId": threadID,
-			}
-			if agent.Provider != "" {
-				runtimeEntry["provider"] = agent.Provider
-			}
-			if agent.CWD != "" {
-				runtimeEntry["cwd"] = agent.CWD
-			}
-			if agent.Port > 0 {
-				runtimeEntry["port"] = agent.Port
-			}
-			if agent.LastMessage != "" {
-				runtimeEntry["lastMessage"] = agent.LastMessage
-			}
-			sidebar.AgentRuntimeByID[threadID] = runtimeEntry
+		if threadID == "" {
+			continue
 		}
+		agents.byThread[threadID] = agent
+		sidebar.AgentRuntimeByID[threadID] = buildAgentRuntimeEntry(agent, agentID, threadID)
 	}
+	return agents
+}
 
-	recentByThread := latestTurnsByThread(sidebar.ActiveTurn, sidebar.RecentTurns)
+func normalizeSidebarAgent(agent *AgentSummary) {
+	if agent.AgentState == "" {
+		agent.AgentState = strings.TrimSpace(agent.State)
+	}
+	if agent.LastMessage == "" {
+		agent.LastMessage = strings.TrimSpace(agent.LastReport)
+	}
+}
+
+func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[string]any {
+	runtimeEntry := map[string]any{
+		"agentId":          agentID,
+		"state":            agent.AgentState,
+		"providerThreadId": threadID,
+	}
+	if agent.Provider != "" {
+		runtimeEntry["provider"] = agent.Provider
+	}
+	if agent.CWD != "" {
+		runtimeEntry["cwd"] = agent.CWD
+	}
+	if agent.Port > 0 {
+		runtimeEntry["port"] = agent.Port
+	}
+	if agent.LastMessage != "" {
+		runtimeEntry["lastMessage"] = agent.LastMessage
+	}
+	return runtimeEntry
+}
+
+func deriveThreadStatuses(sidebar *Sidebar, agents sidebarAgentLookup, recentByThread map[string]TurnSummary) {
 	for i := range sidebar.Threads {
 		thread := &sidebar.Threads[i]
 		threadID := strings.TrimSpace(thread.ID)
-		agent := agentsByThread[threadID]
-		if agent == nil && strings.TrimSpace(thread.AgentID) != "" {
-			agent = agentsByID[strings.TrimSpace(thread.AgentID)]
-		}
+		agent := resolveSidebarAgent(thread, agents)
 		if thread.AgentID == "" && agent != nil {
 			thread.AgentID = strings.TrimSpace(agent.ID)
 		}
@@ -117,9 +142,33 @@ func (s *service) fillSidebarDerivedLocked(sidebar *Sidebar) {
 		if turn, ok := recentByThread[threadID]; ok {
 			thread.LastMessage = firstNonEmptyString(thread.LastMessage, turn.Error, turn.Reason)
 		}
-		header, details := sidebarStatusText(status, thread.LastMessage)
 		sidebar.Statuses[threadID] = status
+	}
+}
+
+func resolveSidebarAgent(thread *ThreadSummary, agents sidebarAgentLookup) *AgentSummary {
+	threadID := strings.TrimSpace(thread.ID)
+	if agent := agents.byThread[threadID]; agent != nil {
+		return agent
+	}
+	agentID := strings.TrimSpace(thread.AgentID)
+	if agentID == "" {
+		return nil
+	}
+	return agents.byID[agentID]
+}
+
+func deriveInterruptible(sidebar *Sidebar) {
+	for threadID, status := range sidebar.Statuses {
 		sidebar.InterruptibleByThread[threadID] = sidebarInterruptible(status)
+	}
+}
+
+func deriveStatusHeaders(sidebar *Sidebar) {
+	for i := range sidebar.Threads {
+		thread := &sidebar.Threads[i]
+		threadID := strings.TrimSpace(thread.ID)
+		header, details := sidebarStatusText(sidebar.Statuses[threadID], thread.LastMessage)
 		sidebar.StatusHeadersByThread[threadID] = header
 		sidebar.StatusDetailsByThread[threadID] = details
 	}
