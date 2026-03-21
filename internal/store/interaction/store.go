@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	"encoding/json"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -22,7 +23,7 @@ func (s *store) Create(ctx context.Context, interaction Interaction) (*Interacti
 		MsgType:        interaction.MsgType,
 		Status:         interaction.Status,
 		RequiresReview: interaction.RequiresReview,
-		Payload:        interaction.Payload,
+		Column8:        interaction.Payload,
 	})
 	if err != nil {
 		return nil, wrapInteractionError(err, "create")
@@ -41,7 +42,7 @@ func (s *store) Get(ctx context.Context, id int64) (*Interaction, error) {
 }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]Interaction, error) {
-	rows, err := s.q.ListInteractions(ctx, sqlc.ListInteractionsParams{ThreadID: filter.ThreadID, Keyword: filter.Keyword, Limit: filter.Limit})
+	rows, err := s.q.ListInteractions(ctx, sqlc.ListInteractionsParams{Column1: filter.ThreadID, Column2: filter.Keyword, Limit: filter.Limit})
 	if err != nil {
 		return nil, wrapInteractionError(err, "list")
 	}
@@ -74,7 +75,7 @@ func fromSQLC(row sqlc.AgentInteraction) Interaction {
 		ReviewedBy:     row.ReviewedBy,
 		ReviewNote:     row.ReviewNote,
 		ReviewedAt:     row.ReviewedAt,
-		Payload:        row.Payload,
+		Payload:        json.RawMessage(row.Payload),
 		CreatedAt:      row.CreatedAt,
 		UpdatedAt:      row.UpdatedAt,
 	}

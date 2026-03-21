@@ -39,8 +39,8 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {
 	rows, err := s.q.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{
-		Prefix: filter.Prefix,
-		Limit:  filter.Limit,
+		Column1: filter.Prefix,
+		Limit:   filter.Limit,
 	})
 	if err != nil {
 		return nil, wrapSharedFileError(err, "list")

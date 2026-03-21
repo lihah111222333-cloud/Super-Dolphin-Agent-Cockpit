@@ -2,6 +2,7 @@ package auditlog
 
 import (
 	"context"
+	"encoding/json"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -17,11 +18,11 @@ func NewStore(q *sqlc.Queries) Store {
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]AuditEvent, error) {
 	rows, err := s.q.ListAuditEvents(ctx, sqlc.ListAuditEventsParams{
-		EventType: filter.EventType,
-		Action:    filter.Action,
-		Actor:     filter.Actor,
-		Keyword:   filter.Keyword,
-		Limit:     filter.Limit,
+		Column1: filter.EventType,
+		Column2: filter.Action,
+		Column3: filter.Actor,
+		Column4: filter.Keyword,
+		Limit:   filter.Limit,
 	})
 	if err != nil {
 		return nil, wrapAuditLogError(err, "list")
@@ -42,13 +43,12 @@ func (s *store) Insert(ctx context.Context, params InsertParams) error {
 		Target:    params.Target,
 		Detail:    params.Detail,
 		Level:     params.Level,
-		Extra:     params.Extra,
+		Column8:   params.Extra,
 	}), "insert")
 }
 
-func mapAuditEvent(row sqlc.AuditEvent) AuditEvent {
+func mapAuditEvent(row sqlc.ListAuditEventsRow) AuditEvent {
 	return AuditEvent{
-		ID:        row.ID,
 		Ts:        row.Ts,
 		EventType: row.EventType,
 		Action:    row.Action,
@@ -57,7 +57,7 @@ func mapAuditEvent(row sqlc.AuditEvent) AuditEvent {
 		Target:    row.Target,
 		Detail:    row.Detail,
 		Level:     row.Level,
-		Extra:     row.Extra,
+		Extra:     json.RawMessage(row.Extra),
 	}
 }
 

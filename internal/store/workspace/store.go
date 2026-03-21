@@ -14,7 +14,7 @@ type store struct {
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
-	return wrapWorkspaceError(s.q.WithTx(ctx, func(txq *sqlc.Queries) error {
+	return wrapWorkspaceError(sqlc.WithTx(ctx, s.q, func(txq *sqlc.Queries) error {
 		return fn(&store{q: txq})
 	}), "with_tx", "workspace")
 }
@@ -28,7 +28,7 @@ func (s *store) UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun,
 		Status:        run.Status,
 		CreatedBy:     run.CreatedBy,
 		UpdatedBy:     run.UpdatedBy,
-		Metadata:      run.Metadata,
+		Column8:       run.Metadata,
 		FinishedAt:    run.FinishedAt,
 	})
 	if err != nil {
@@ -48,7 +48,11 @@ func (s *store) GetRun(ctx context.Context, runKey string) (*WorkspaceRun, error
 }
 
 func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]WorkspaceRun, error) {
-	rows, err := s.q.ListWorkspaceRuns(ctx, sqlc.ListWorkspaceRunsParams{Status: filter.Status, DagKey: filter.DagKey, Limit: filter.Limit})
+	rows, err := s.q.ListWorkspaceRuns(ctx, sqlc.ListWorkspaceRunsParams{
+		Column1: filter.Status,
+		Column2: filter.DagKey,
+		Limit:   filter.Limit,
+	})
 	if err != nil {
 		return nil, wrapWorkspaceError(err, "list", "workspace_run")
 	}
@@ -60,7 +64,12 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Workspac
 }
 
 func (s *store) UpdateRunStatus(ctx context.Context, input UpdateRunStatusInput) (*WorkspaceRun, error) {
-	row, err := s.q.UpdateWorkspaceRunStatus(ctx, sqlc.UpdateWorkspaceRunStatusParams{Status: input.Status, UpdatedBy: input.UpdatedBy, Metadata: input.Metadata, RunKey: input.RunKey})
+	row, err := s.q.UpdateWorkspaceRunStatus(ctx, sqlc.UpdateWorkspaceRunStatusParams{
+		Status:    input.Status,
+		UpdatedBy: input.UpdatedBy,
+		Column3:   input.Metadata,
+		RunKey:    input.RunKey,
+	})
 	if err != nil {
 		return nil, wrapWorkspaceError(err, "update_status", "workspace_run")
 	}
@@ -69,7 +78,13 @@ func (s *store) UpdateRunStatus(ctx context.Context, input UpdateRunStatusInput)
 }
 
 func (s *store) TransitionRunStatus(ctx context.Context, input TransitionRunStatusInput) (*WorkspaceRun, error) {
-	row, err := s.q.TransitionWorkspaceRunStatus(ctx, sqlc.TransitionWorkspaceRunStatusParams{Status: input.Status, UpdatedBy: input.UpdatedBy, Metadata: input.Metadata, RunKey: input.RunKey, FromStatus: input.FromStatus})
+	row, err := s.q.TransitionWorkspaceRunStatus(ctx, sqlc.TransitionWorkspaceRunStatusParams{
+		Status:    input.Status,
+		UpdatedBy: input.UpdatedBy,
+		Column3:   input.Metadata,
+		RunKey:    input.RunKey,
+		Status_2:  input.FromStatus,
+	})
 	if err != nil {
 		return nil, wrapWorkspaceError(err, "transition_status", "workspace_run")
 	}
@@ -81,10 +96,10 @@ func (s *store) UpsertFile(ctx context.Context, file WorkspaceRunFile) (*Workspa
 	row, err := s.q.UpsertWorkspaceRunFile(ctx, sqlc.UpsertWorkspaceRunFileParams{
 		RunKey:             file.RunKey,
 		RelativePath:       file.RelativePath,
-		BaselineSHA256:     file.BaselineSHA256,
-		WorkspaceSHA256:    file.WorkspaceSHA256,
-		SourceSHA256Before: file.SourceSHA256Before,
-		SourceSHA256After:  file.SourceSHA256After,
+		BaselineSha256:     file.BaselineSHA256,
+		WorkspaceSha256:    file.WorkspaceSHA256,
+		SourceSha256Before: file.SourceSHA256Before,
+		SourceSha256After:  file.SourceSHA256After,
 		State:              file.State,
 		LastError:          file.LastError,
 	})
@@ -105,7 +120,11 @@ func (s *store) GetFile(ctx context.Context, runKey, relativePath string) (*Work
 }
 
 func (s *store) ListFiles(ctx context.Context, filter ListFilesFilter) ([]WorkspaceRunFile, error) {
-	rows, err := s.q.ListWorkspaceRunFiles(ctx, sqlc.ListWorkspaceRunFilesParams{RunKey: filter.RunKey, State: filter.State, Limit: filter.Limit})
+	rows, err := s.q.ListWorkspaceRunFiles(ctx, sqlc.ListWorkspaceRunFilesParams{
+		Column1: filter.RunKey,
+		Column2: filter.State,
+		Limit:   filter.Limit,
+	})
 	if err != nil {
 		return nil, wrapWorkspaceError(err, "list", "workspace_run_file")
 	}
@@ -138,10 +157,10 @@ func fromSQLCFile(row sqlc.WorkspaceRunFile) WorkspaceRunFile {
 		ID:                 row.ID,
 		RunKey:             row.RunKey,
 		RelativePath:       row.RelativePath,
-		BaselineSHA256:     row.BaselineSHA256,
-		WorkspaceSHA256:    row.WorkspaceSHA256,
-		SourceSHA256Before: row.SourceSHA256Before,
-		SourceSHA256After:  row.SourceSHA256After,
+		BaselineSHA256:     row.BaselineSha256,
+		WorkspaceSHA256:    row.WorkspaceSha256,
+		SourceSHA256Before: row.SourceSha256Before,
+		SourceSHA256After:  row.SourceSha256After,
 		State:              row.State,
 		LastError:          row.LastError,
 		CreatedAt:          row.CreatedAt,

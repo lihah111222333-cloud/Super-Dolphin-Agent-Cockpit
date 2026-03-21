@@ -8,6 +8,7 @@ import (
 
 type Store interface {
 	Get(ctx context.Context, promptKey string) (*PromptTemplate, error)
+	Delete(ctx context.Context, promptKey string) error
 	InsertVersion(ctx context.Context, version PromptTemplateVersion) error
 	Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error)
 	List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)
@@ -45,6 +46,7 @@ type PromptTemplateVersion struct {
 	PromptText      string
 	Variables       json.RawMessage
 	Tags            json.RawMessage
+	Description     string
 	Enabled         bool
 	CreatedBy       string
 	UpdatedBy       string

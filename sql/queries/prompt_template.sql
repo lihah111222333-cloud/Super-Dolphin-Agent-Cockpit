@@ -3,11 +3,15 @@ SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags
 FROM prompt_templates
 WHERE prompt_key = $1;
 
+-- name: DeletePromptTemplate :execrows
+DELETE FROM prompt_templates
+WHERE prompt_key = $1;
+
 -- name: InsertPromptVersion :exec
 INSERT INTO prompt_versions (
     prompt_key, title, agent_key, tool_name, prompt_text,
-    variables, tags, enabled, created_by, updated_by, source_updated_at
-) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11);
+    variables, tags, description, enabled, created_by, updated_by, source_updated_at
+) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12);
 
 -- name: UpsertPromptTemplate :one
 INSERT INTO prompt_templates (

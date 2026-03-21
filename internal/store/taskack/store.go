@@ -2,9 +2,12 @@ package taskack
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type store struct {
@@ -22,11 +25,11 @@ func (s *store) Upsert(ctx context.Context, ack TaskAck) (*TaskAck, error) {
 		RequestedBy:   ack.RequestedBy,
 		Priority:      ack.Priority,
 		Status:        ack.Status,
-		Progress:      ack.Progress,
+		Column8:       ack.Progress,
 		AckMessage:    ack.AckMessage,
 		ResultSummary: ack.ResultSummary,
-		Metadata:      ack.Metadata,
-		DueAt:         ack.DueAt,
+		Column11:      ack.Metadata,
+		Column12:      toTimestamptz(ack.DueAt),
 	})
 	if err != nil {
 		return nil, wrapTaskAckError(err, "upsert")
@@ -37,11 +40,11 @@ func (s *store) Upsert(ctx context.Context, ack TaskAck) (*TaskAck, error) {
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]TaskAck, error) {
 	rows, err := s.q.ListTaskAcks(ctx, sqlc.ListTaskAcksParams{
-		Status:     filter.Status,
-		Priority:   filter.Priority,
-		AssignedTo: filter.AssignedTo,
-		Keyword:    filter.Keyword,
-		Limit:      filter.Limit,
+		Column1: filter.Status,
+		Column2: filter.Priority,
+		Column3: filter.AssignedTo,
+		Column4: filter.Keyword,
+		Limit:   filter.Limit,
 	})
 	if err != nil {
 		return nil, wrapTaskAckError(err, "list")
@@ -66,7 +69,7 @@ func fromSQLC(row sqlc.TaskAck) TaskAck {
 		Progress:      row.Progress,
 		AckMessage:    row.AckMessage,
 		ResultSummary: row.ResultSummary,
-		Metadata:      row.Metadata,
+		Metadata:      json.RawMessage(row.Metadata),
 		DueAt:         row.DueAt,
 		AckedAt:       row.AckedAt,
 		StartedAt:     row.StartedAt,
@@ -74,6 +77,13 @@ func fromSQLC(row sqlc.TaskAck) TaskAck {
 		CreatedAt:     row.CreatedAt,
 		UpdatedAt:     row.UpdatedAt,
 	}
+}
+
+func toTimestamptz(ts *time.Time) pgtype.Timestamptz {
+	if ts == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *ts, Valid: true}
 }
 
 func wrapTaskAckError(err error, operation string) error {

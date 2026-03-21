@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -16,6 +17,8 @@ import (
 type rowQueryer interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
+
+const maxQueryRows = 10000
 
 var (
 	allowedTables = map[string]struct{}{
@@ -44,9 +47,10 @@ var (
 		"workspace_run_files":    {},
 		"workspace_runs":         {},
 	}
-	dangerousKeywordPattern = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|comment|vacuum|analyze|copy|merge|call|do)\b`)
-	placeholderPattern      = regexp.MustCompile(`\$(\d+)`)
-	tableReferencePattern   = regexp.MustCompile(`(?i)\b(?:from|join)\s+(?:only\s+|lateral\s+)?((?:"[^"]+"|\w+)(?:\.(?:"[^"]+"|\w+))?)`)
+	dangerousKeywordPattern  = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|comment|vacuum|analyze|copy|merge|call|do)\b`)
+	dangerousFunctionPattern = regexp.MustCompile(`(?i)\b(pg_sleep|pg_terminate_backend|pg_cancel_backend|set_config|version|current_setting|current_user|inet_server_addr|inet_server_port|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_\w+|lo_import|lo_export)\b(?:\s*\(|\b)`)
+	placeholderPattern       = regexp.MustCompile(`\$(\d+)`)
+	tableReferencePattern    = regexp.MustCompile(`(?i)\b(?:from|join)\s+(?:only\s+|lateral\s+)?((?:"[^"]+"|\w+)(?:\.(?:"[^"]+"|\w+))?)`)
 )
 
 func executeQuery(ctx context.Context, queryer rowQueryer, query string, args ...any) ([]map[string]any, error) {
@@ -59,7 +63,9 @@ func executeQuery(ctx context.Context, queryer rowQueryer, query string, args ..
 	if err := validateQuery(query, len(args)); err != nil {
 		return nil, err
 	}
-	rows, err := queryer.Query(ctx, query, args...)
+	queryCtx, cancel := platformconfig.WithDBQueryTimeout(ctx)
+	defer cancel()
+	rows, err := queryer.Query(queryCtx, query, normalizeArgs(args)...)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +73,9 @@ func executeQuery(ctx context.Context, queryer rowQueryer, query string, args ..
 	fields := rows.FieldDescriptions()
 	result := make([]map[string]any, 0)
 	for rows.Next() {
+		if len(result) >= maxQueryRows {
+			return nil, fmt.Errorf("dbquery query exceeded row limit %d", maxQueryRows)
+		}
 		values, err := rows.Values()
 		if err != nil {
 			return nil, err
@@ -141,11 +150,39 @@ func validatePlaceholders(query string, argCount int) error {
 }
 
 func validateAllowedTables(query string) error {
-	cteNames, err := collectCTENames(query)
+	masked := strings.ToLower(maskQuotedStrings(query))
+	if name := disallowedFunctionName(masked); name != "" {
+		return fmt.Errorf("dbquery query calls disallowed function %q", name)
+	}
+	cteNames, outerQuery, err := collectCTEInfo(query)
 	if err != nil {
 		return err
 	}
-	matches := tableReferencePattern.FindAllStringSubmatch(maskQuotedStrings(query), -1)
+	allowedRefs, disallowed := tableReferences(masked, cteNames)
+	if len(disallowed) > 0 {
+		slices.Sort(disallowed)
+		return fmt.Errorf("dbquery query references disallowed tables: %s", strings.Join(disallowed, ", "))
+	}
+	if allowedRefs == 0 {
+		return errors.New("dbquery query must reference at least one allowed table")
+	}
+	if len(cteNames) > 0 && !hasTableReference(maskQuotedStrings(outerQuery)) {
+		return errors.New("dbquery query outer SELECT must reference a table")
+	}
+	return nil
+}
+
+func disallowedFunctionName(query string) string {
+	match := dangerousFunctionPattern.FindStringSubmatch(query)
+	if len(match) < 2 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(match[1]))
+}
+
+func tableReferences(query string, cteNames map[string]struct{}) (int, []string) {
+	matches := tableReferencePattern.FindAllStringSubmatch(query, -1)
+	allowedRefs := 0
 	disallowed := make([]string, 0)
 	for _, match := range matches {
 		name := normalizeIdentifier(match[1])
@@ -156,25 +193,26 @@ func validateAllowedTables(query string) error {
 			continue
 		}
 		if _, ok := allowedTables[name]; ok {
+			allowedRefs++
 			continue
 		}
 		if !slices.Contains(disallowed, name) {
 			disallowed = append(disallowed, name)
 		}
 	}
-	if len(disallowed) == 0 {
-		return nil
-	}
-	slices.Sort(disallowed)
-	return fmt.Errorf("dbquery query references disallowed tables: %s", strings.Join(disallowed, ", "))
+	return allowedRefs, disallowed
 }
 
-func collectCTENames(query string) (map[string]struct{}, error) {
+func hasTableReference(query string) bool {
+	return tableReferencePattern.MatchString(strings.ToLower(query))
+}
+
+func collectCTEInfo(query string) (map[string]struct{}, string, error) {
 	names := make(map[string]struct{})
 	trimmed := strings.TrimSpace(query)
 	lower := strings.ToLower(trimmed)
 	if !strings.HasPrefix(lower, "with") {
-		return names, nil
+		return names, trimmed, nil
 	}
 	index := len("with")
 	index = skipSpaces(trimmed, index)
@@ -186,7 +224,7 @@ func collectCTENames(query string) (map[string]struct{}, error) {
 		index = skipSpaces(trimmed, index)
 		name, next, ok := readIdentifier(trimmed, index)
 		if !ok {
-			return nil, errors.New("dbquery query has invalid CTE syntax")
+			return nil, "", errors.New("dbquery query has invalid CTE syntax")
 		}
 		names[normalizeIdentifier(name)] = struct{}{}
 		index = skipSpaces(trimmed, next)
@@ -194,27 +232,30 @@ func collectCTENames(query string) (map[string]struct{}, error) {
 			var err error
 			index, err = skipBalanced(trimmed, index)
 			if err != nil {
-				return nil, err
+				return nil, "", err
 			}
 			index = skipSpaces(trimmed, index)
 		}
 		if !strings.HasPrefix(strings.ToLower(trimmed[index:]), "as") {
-			return nil, errors.New("dbquery query has invalid CTE syntax")
+			return nil, "", errors.New("dbquery query has invalid CTE syntax")
 		}
 		index += len("as")
 		index = skipSpaces(trimmed, index)
 		index = skipMaterialized(trimmed, index)
 		if index >= len(trimmed) || trimmed[index] != '(' {
-			return nil, errors.New("dbquery query has invalid CTE syntax")
+			return nil, "", errors.New("dbquery query has invalid CTE syntax")
 		}
 		var err error
 		index, err = skipBalanced(trimmed, index)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		index = skipSpaces(trimmed, index)
-		if index >= len(trimmed) || trimmed[index] != ',' {
-			return names, nil
+		if index >= len(trimmed) {
+			return nil, "", errors.New("dbquery query has invalid CTE syntax")
+		}
+		if trimmed[index] != ',' {
+			return names, strings.TrimSpace(trimmed[index:]), nil
 		}
 		index++
 	}

@@ -11,15 +11,15 @@ INSERT INTO agent_provider_binding (
     updated_at,
     session_uuid
 ) VALUES (
-    $1,
+    sqlc.arg(agent_id),
     'codex',
-    $2,
-    $2,
+    sqlc.arg(thread_id),
+    sqlc.arg(thread_id),
     '',
-    $3,
+    sqlc.arg(cwd),
     false,
-    $4,
-    $5,
+    sqlc.arg(created_at),
+    sqlc.arg(updated_at),
     ''
 )
 ON CONFLICT (agent_id) DO UPDATE

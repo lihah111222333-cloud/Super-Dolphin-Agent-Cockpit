@@ -2,6 +2,7 @@ package agentstatus
 
 import (
 	"context"
+	"encoding/json"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -23,7 +24,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, 
 		Status:      params.Status,
 		StagnantSec: params.StagnantSec,
 		Error:       params.Error,
-		OutputTail:  params.OutputTail,
+		Column7:     params.OutputTail,
 	})
 	if err != nil {
 		return nil, wrapAgentStatusError(err, "upsert")
@@ -61,7 +62,7 @@ func mapAgentStatus(row sqlc.AgentStatus) AgentStatus {
 		Status:      row.Status,
 		StagnantSec: row.StagnantSec,
 		Error:       row.Error,
-		OutputTail:  row.OutputTail,
+		OutputTail:  json.RawMessage(row.OutputTail),
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 	}
