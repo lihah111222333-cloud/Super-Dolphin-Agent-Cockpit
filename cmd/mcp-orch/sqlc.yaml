@@ -1,0 +1,60 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "sql/queries/"
+    schema:
+      - "../../migrations/001_baseline.sql"
+      - "../../migrations/0022_binding_session_uuid.sql"
+      - "../../migrations/0023_dag_watcher_phase1.sql"
+      - "../../migrations/0024_prompt_versions_description.sql"
+    gen:
+      go:
+        package: "sqlc"
+        out: "store/sqlc"
+        sql_package: "pgx/v5"
+        sql_driver: "github.com/jackc/pgx/v5"
+        emit_json_tags: true
+        emit_db_tags: true
+        emit_empty_slices: true
+        emit_interface: true
+        omit_unused_structs: true
+        emit_pointers_for_null_types: true
+        initialisms:
+          - id
+          - ui
+          - uuid
+        overrides:
+          - db_type: "pg_catalog.timestamptz"
+            go_type: "time.Time"
+          - db_type: "pg_catalog.timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+          - db_type: "pg_catalog.timestamp"
+            go_type: "time.Time"
+          - db_type: "pg_catalog.timestamp"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+          - db_type: "pg_catalog.jsonb"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - db_type: "pg_catalog.jsonb"
+            nullable: true
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - db_type: "pg_catalog.json"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - db_type: "pg_catalog.json"
+            nullable: true
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"

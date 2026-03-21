@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
@@ -17,7 +17,6 @@ import (
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
 	taskackstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskack"
-	taskdagstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskdag"
 	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"golang.org/x/sync/errgroup"
 )
@@ -31,12 +30,11 @@ const (
 )
 
 type service struct {
-	orchestration orchestration.Service
+	orchestration contract.OrchestrationService
 	systemLogs    systemlogstore.Store
 	aiLogs        ailogstore.Store
 	dbQueries     dbquerystore.Store
 	taskAcks      taskackstore.Store
-	taskDAGs      taskdagstore.Store
 	taskTraces    tasktracestore.Store
 	sharedFiles   sharedfilestore.Store
 	commandCards  commandcardstore.Store
@@ -57,12 +55,11 @@ type buildMetadata struct {
 var _ Service = (*service)(nil)
 
 func NewService(
-	orchestrationSvc orchestration.Service,
+	orchestrationSvc contract.OrchestrationService,
 	systemLogs systemlogstore.Store,
 	aiLogs ailogstore.Store,
 	dbQueries dbquerystore.Store,
 	taskAcks taskackstore.Store,
-	taskDAGs taskdagstore.Store,
 	taskTraces tasktracestore.Store,
 	sharedFiles sharedfilestore.Store,
 	commandCards commandcardstore.Store,
@@ -75,7 +72,6 @@ func NewService(
 		aiLogs:        aiLogs,
 		dbQueries:     dbQueries,
 		taskAcks:      taskAcks,
-		taskDAGs:      taskDAGs,
 		taskTraces:    taskTraces,
 		sharedFiles:   sharedFiles,
 		commandCards:  commandCards,
@@ -107,14 +103,14 @@ func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDet
 		return nil, errors.New("dashboard: agent id is required")
 	}
 	var (
-		snapshot   orchestration.AgentSnapshot
-		reportResp orchestration.AgentReportResult
-		reportErr  error
+		rawSnapshot contract.AgentSnapshot
+		reportResp  contract.AgentReportResult
+		reportErr   error
 	)
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
 		var err error
-		snapshot, err = s.orchestration.Snapshot(groupCtx, id)
+		rawSnapshot, err = s.orchestration.Snapshot(groupCtx, id)
 		return err
 	})
 	group.Go(func() error {
@@ -127,6 +123,7 @@ func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDet
 	if err := group.Wait(); err != nil {
 		return nil, err
 	}
+	snapshot := AgentSnapshot(rawSnapshot)
 	report := strings.TrimSpace(snapshot.LastReport)
 	if reportErr == nil {
 		report = firstNonEmpty(strings.TrimSpace(reportResp.Report), report)
@@ -198,7 +195,11 @@ func (s *service) listAgents(ctx context.Context) ([]AgentOverview, error) {
 	if err != nil {
 		return nil, err
 	}
-	return agents, nil
+	items := make([]AgentOverview, 0, len(agents))
+	for _, agent := range agents {
+		items = append(items, AgentOverview(agent))
+	}
+	return items, nil
 }
 
 func (s *service) buildSystemInfo(agentCount int) SystemInfo {

@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -41,7 +41,7 @@ func NewService(app *App) application.Service {
 	return application.NewService(app)
 }
 
-func NewActiveAgentCounter(svc orchestration.Service) ActiveAgentCounter {
+func NewActiveAgentCounter(svc contract.OrchestrationService) ActiveAgentCounter {
 	if svc == nil {
 		return ActiveAgentCounterFunc(func(context.Context) (int, error) {
 			return 0, nil

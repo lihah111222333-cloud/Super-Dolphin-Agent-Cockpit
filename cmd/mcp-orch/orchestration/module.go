@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/kelindar/event"
@@ -97,9 +96,5 @@ type runtimeReporter struct {
 }
 
 func (r runtimeReporter) ReportRuntime(ctx context.Context, report contract.RuntimeReport) error {
-	return r.svc.UpdateRuntime(ctx, agentdto.RuntimeReport{
-		AgentID:  report.AgentID,
-		Port:     report.Port,
-		Provider: report.Provider,
-	})
+	return r.svc.UpdateRuntime(ctx, report)
 }

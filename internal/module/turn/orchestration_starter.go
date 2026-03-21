@@ -9,7 +9,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
 )
 
 type orchestrationTurnStarter struct {
@@ -19,7 +18,7 @@ type orchestrationTurnStarter struct {
 
 const sessionReadyPollInterval = 50 * time.Millisecond
 
-func NewOrchestrationTurnStarter(turns Service, sessions SessionProvider) orchestration.TurnStarter {
+func NewOrchestrationTurnStarter(turns Service, sessions SessionProvider) contract.OrchestrationTurnStarter {
 	return orchestrationTurnStarter{turns: turns, sessions: sessions}
 }
 
@@ -57,7 +56,7 @@ func (s orchestrationTurnStarter) WaitForSessionReady(ctx context.Context, agent
 	}
 }
 
-func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission orchestration.TurnSubmission) (string, error) {
+func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission contract.TurnSubmission) (string, error) {
 	if s.turns == nil {
 		return "", errors.New("turn service is not configured")
 	}
@@ -96,7 +95,7 @@ func sessionLookupError(err error) error {
 	return err
 }
 
-func prepareQueuedTurnInput(session sessionCaps, submission orchestration.TurnSubmission) PrepareInput {
+func prepareQueuedTurnInput(session sessionCaps, submission contract.TurnSubmission) PrepareInput {
 	return PrepareInput{
 		Inputs:               append([]InputItem(nil), submission.Inputs...),
 		Skills:               selectedSkillRefs(submission.SelectedSkills),
@@ -112,7 +111,7 @@ type sessionCaps interface {
 	ThreadID() string
 }
 
-func queuedThreadID(session sessionCaps, submission orchestration.TurnSubmission) string {
+func queuedThreadID(session sessionCaps, submission contract.TurnSubmission) string {
 	threadID := strings.TrimSpace(submission.ThreadID)
 	if threadID == "" {
 		return strings.TrimSpace(session.ThreadID())

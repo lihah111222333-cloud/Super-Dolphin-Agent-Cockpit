@@ -3,20 +3,20 @@ package app
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 )
 
 type threadOrchestrationAdapter struct {
-	svc orchestration.Service
+	svc contract.OrchestrationService
 }
 
-func newThreadOrchestrationFacade(svc orchestration.Service) thread.OrchestrationFacade {
+func newThreadOrchestrationFacade(svc contract.OrchestrationService) thread.OrchestrationFacade {
 	return threadOrchestrationAdapter{svc: svc}
 }
 
 func (a threadOrchestrationAdapter) LaunchAgent(ctx context.Context, req thread.LaunchAgentRequest) error {
-	return a.svc.LaunchAgent(ctx, orchestration.LaunchRequest{
+	return a.svc.LaunchAgent(ctx, contract.LaunchRequest{
 		AgentID:  req.AgentID,
 		Name:     req.Name,
 		ParentID: req.ParentID,

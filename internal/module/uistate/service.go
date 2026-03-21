@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
@@ -38,7 +38,7 @@ var _ Service = (*service)(nil)
 func NewService(
 	logger *slog.Logger,
 	threads thread.Service,
-	agents orchestration.Service,
+	agents contract.OrchestrationService,
 	preferences uipreference.Store,
 ) (*service, Service, error) {
 	if logger == nil {
@@ -60,7 +60,7 @@ func NewService(
 	return svc, svc, nil
 }
 
-func buildInitialState(ctx context.Context, threads thread.Service, agents orchestration.Service) (UIState, error) {
+func buildInitialState(ctx context.Context, threads thread.Service, agents contract.OrchestrationService) (UIState, error) {
 	state := UIState{}
 	if threads != nil {
 		items, err := threads.List(ctx)
@@ -99,7 +99,7 @@ func summarizeThreads(items []thread.Ref) []ThreadSummary {
 	return out
 }
 
-func summarizeAgents(items []orchestration.AgentSnapshot) []AgentSummary {
+func summarizeAgents(items []contract.AgentSnapshot) []AgentSummary {
 	out := make([]AgentSummary, 0, len(items))
 	for _, item := range items {
 		out = append(out, AgentSummary{

@@ -9,7 +9,6 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	taskackstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskack"
-	taskdagstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskdag"
 	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"golang.org/x/sync/errgroup"
 )
@@ -21,7 +20,6 @@ const (
 
 type DashboardPage struct {
 	Agents       []AgentOverview                `json:"agents"`
-	Dags         []taskdagstore.DAG             `json:"dags"`
 	TaskAcks     []taskackstore.TaskAck         `json:"taskAcks"`
 	TaskTraces   []tasktracestore.TaskTrace     `json:"taskTraces"`
 	Skills       []skillmodule.SkillInfo        `json:"skills"`
@@ -43,7 +41,6 @@ func (s *service) GetDashboardPage(ctx context.Context, page string) (*Dashboard
 func newDashboardPage() *DashboardPage {
 	return &DashboardPage{
 		Agents:       []AgentOverview{},
-		Dags:         []taskdagstore.DAG{},
 		TaskAcks:     []taskackstore.TaskAck{},
 		TaskTraces:   []tasktracestore.TaskTrace{},
 		Skills:       []skillmodule.SkillInfo{},
@@ -74,10 +71,6 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashbo
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardAgents(ctx, out) },
 		}
-	case "dags":
-		return []dashboardPageLoader{
-			func(ctx context.Context) error { return s.populateDashboardDAGs(ctx, out) },
-		}
 	case "tasks":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardTaskAcks(ctx, out) },
@@ -104,12 +97,6 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashbo
 func (s *service) populateDashboardAgents(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listAgents(ctx)
 	out.Agents = items
-	return err
-}
-
-func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage) error {
-	items, err := s.listDashboardDAGs(ctx)
-	out.Dags = items
 	return err
 }
 
@@ -147,13 +134,6 @@ func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPag
 	items, err := s.listDashboardMemory(ctx)
 	out.Memory = items
 	return err
-}
-
-func (s *service) listDashboardDAGs(ctx context.Context) ([]taskdagstore.DAG, error) {
-	if s.taskDAGs == nil {
-		return []taskdagstore.DAG{}, nil
-	}
-	return s.taskDAGs.ListDAGs(ctx, taskdagstore.ListDAGsFilter{Limit: dashboardPageDefaultLimit})
 }
 
 func (s *service) listDashboardTaskAcks(ctx context.Context) ([]taskackstore.TaskAck, error) {
