@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/fx"
 
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -46,14 +47,17 @@ func RunDesktop() error {
 	runErr := wailsApp.Run()
 	close(stopWatch)
 
-	stopErr := app.Stop(ctx)
+	stopErr := stopFXApp(ctx, app)
 	return errors.Join(runErr, stopErr)
 }
 
 func newFXApp(options ...fx.Option) *fx.App {
-	base := []fx.Option{Module}
+	base := []fx.Option{
+		Module,
+		fx.Invoke(BindRuntime),
+		fx.StopTimeout(platformconfig.ShutdownTimeout),
+	}
 	base = append(base, options...)
-	base = append(base, fx.Invoke(BindRuntime))
 	return fx.New(base...)
 }
 
@@ -62,7 +66,7 @@ func runApp(app *fx.App) error {
 		return err
 	}
 	<-app.Done()
-	return app.Stop(context.Background())
+	return stopFXApp(context.Background(), app)
 }
 
 func newDesktopFXApp(options ...fx.Option) *fx.App {
@@ -70,9 +74,21 @@ func newDesktopFXApp(options ...fx.Option) *fx.App {
 		Module,
 		uiwails.Module,
 		fx.Invoke(BindRuntime),
+		fx.StopTimeout(platformconfig.ShutdownTimeout),
 	}
 	base = append(base, options...)
 	return fx.New(base...)
+}
+
+func stopFXApp(parent context.Context, app *fx.App) error {
+	if parent == nil {
+		parent = context.Background()
+	}
+	// Keep the caller-side hard stop aligned with fx.StopTimeout so shutdown
+	// cannot hang indefinitely outside the lifecycle hook deadline.
+	ctx, cancel := context.WithTimeout(parent, platformconfig.ShutdownTimeout)
+	defer cancel()
+	return app.Stop(ctx)
 }
 
 func watchFXShutdown(app *fx.App, lifecycle *uiwails.WailsLifecycle) chan struct{} {

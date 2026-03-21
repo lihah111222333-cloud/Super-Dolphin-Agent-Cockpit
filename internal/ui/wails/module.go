@@ -17,6 +17,7 @@ import (
 var Module = fx.Module("ui.wails",
 	fx.Provide(
 		NewApp,
+		NewRPCHandlers,
 		NewService,
 		NewActiveAgentCounter,
 		NewWailsLifecycle,
@@ -27,10 +28,12 @@ var Module = fx.Module("ui.wails",
 	fx.Invoke(bindEventBridge),
 )
 
-func NewApp(server *rpc.Server) *App {
+func NewApp(server *rpc.Server, cfg *config.Config) *App {
 	return &App{
-		dispatch: server.Dispatch,
-		emitter:  func(string, any) {},
+		dispatch:    server.Dispatch,
+		emitter:     func(string, any) {},
+		windowTitle: applicationTitle(),
+		debug:       isDebug(cfg),
 	}
 }
 
@@ -63,7 +66,6 @@ type applicationParams struct {
 	fx.In
 
 	Logger    *slog.Logger
-	Config    *config.Config
 	Binding   *App
 	Service   application.Service
 	Lifecycle *WailsLifecycle
@@ -71,6 +73,13 @@ type applicationParams struct {
 
 func NewWailsApplication(p applicationParams) *application.App {
 	title := applicationTitle()
+	debug := false
+	if p.Binding != nil {
+		if value := strings.TrimSpace(p.Binding.windowTitle); value != "" {
+			title = value
+		}
+		debug = p.Binding.debug
+	}
 	wailsApp := application.New(application.Options{
 		Name:        title,
 		Description: "Super Agent desktop",
@@ -93,7 +102,7 @@ func NewWailsApplication(p applicationParams) *application.App {
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		p.Lifecycle.MarkFrontendReady()
 	})
-	CreateMainWindow(wailsApp, title, isDebug(p.Config))
+	CreateMainWindow(wailsApp, title, debug)
 	return wailsApp
 }
 

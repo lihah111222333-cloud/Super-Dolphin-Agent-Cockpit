@@ -24,6 +24,10 @@ func (a *App) SaveClipboardImage(filename string) (string, error) {
 }
 
 func (a *App) SelectProjectDir() (string, error) {
+	return a.selectProjectDir("")
+}
+
+func (a *App) selectProjectDir(defaultPath string) (string, error) {
 	dialog, err := a.newDialog()
 	if err != nil {
 		return "", err
@@ -32,7 +36,7 @@ func (a *App) SelectProjectDir() (string, error) {
 		SetTitle("Select Project Directory").
 		SetMessage("Choose a project directory").
 		SetButtonText("Select").
-		SetDirectory(defaultDialogDirectory()).
+		SetDirectory(resolveDialogDirectory(defaultPath)).
 		CanChooseDirectories(true).
 		CanChooseFiles(false).
 		CanCreateDirectories(true).
@@ -44,7 +48,32 @@ func (a *App) SelectProjectDir() (string, error) {
 	return path, err
 }
 
+func (a *App) SelectProjectDirs(defaultPath string) ([]string, error) {
+	dialog, err := a.newDialog()
+	if err != nil {
+		return nil, err
+	}
+	dialog = dialog.
+		SetTitle("Select Project Directories").
+		SetMessage("Choose one or more project directories").
+		SetButtonText("Select").
+		SetDirectory(resolveDialogDirectory(defaultPath)).
+		CanChooseDirectories(true).
+		CanChooseFiles(false).
+		CanCreateDirectories(true).
+		ShowHiddenFiles(true)
+	paths, err := dialog.PromptForMultipleSelection()
+	if isDialogCancelError(err) || len(paths) == 0 {
+		return []string{}, nil
+	}
+	return paths, err
+}
+
 func (a *App) SelectFiles() ([]string, error) {
+	return a.selectFiles("")
+}
+
+func (a *App) selectFiles(defaultPath string) ([]string, error) {
 	dialog, err := a.newDialog()
 	if err != nil {
 		return nil, err
@@ -53,7 +82,7 @@ func (a *App) SelectFiles() ([]string, error) {
 		SetTitle("Select Files").
 		SetMessage("Choose one or more files").
 		SetButtonText("Select").
-		SetDirectory(defaultDialogDirectory()).
+		SetDirectory(resolveDialogDirectory(defaultPath)).
 		CanChooseDirectories(false).
 		CanChooseFiles(true).
 		ShowHiddenFiles(true)
@@ -91,11 +120,35 @@ func defaultDialogDirectory() string {
 	return dir
 }
 
+func resolveDialogDirectory(defaultPath string) string {
+	path := strings.TrimSpace(defaultPath)
+	if path == "" {
+		return defaultDialogDirectory()
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return defaultDialogDirectory()
+	}
+	info, err := os.Stat(absPath)
+	if err != nil || !info.IsDir() {
+		return defaultDialogDirectory()
+	}
+	return absPath
+}
+
 func isDialogCancelError(err error) bool {
 	if err == nil {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "cancel")
+}
+
+func (a *App) CopyText(text string) (bool, error) {
+	app, err := a.requireWailsApp()
+	if err != nil {
+		return false, err
+	}
+	return app.Clipboard.SetText(text), nil
 }
 
 func resolveClipboardPath(name string) (string, error) {

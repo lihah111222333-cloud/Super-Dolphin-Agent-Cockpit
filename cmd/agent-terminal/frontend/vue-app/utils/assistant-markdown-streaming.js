@@ -83,8 +83,21 @@ function shouldPromoteTrailingLine(line) {
 function buildStreamingMarkdownState(text, renderAssistantBody, emptyState) {
   if (!text) return emptyState;
   const parts = splitStreamingMarkdownForDisplay(text);
+  const html = parts.stableText ? renderAssistantBody(parts.stableText) : '';
+  // [DIAG] trace streaming split behavior
+  if (text.length > 50) {
+    console.warn('[DIAG:streaming-split]', {
+      fullLen: text.length,
+      stableLen: (parts.stableText || '').length,
+      tailLen: (parts.tailText || '').length,
+      stableEqualsFullText: parts.stableText === text,
+      hasTail: !!(parts.tailText || '').trim(),
+      tailHead: (parts.tailText || '').slice(0, 60),
+      htmlLen: html.length,
+    });
+  }
   return Object.freeze({
-    html: parts.stableText ? renderAssistantBody(parts.stableText) : '',
+    html,
     tailText: parts.tailText || '',
   });
 }

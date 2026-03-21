@@ -1879,13 +1879,16 @@
   display: block;
 }
 
-.chat-item-markdown>*,
-.chat-item-markdown .chat-item-markdown-stream-wrap>* {
+.chat-item-markdown-stream-wrap,
+.chat-item-markdown-static-wrap {
+  display: contents;
+}
+
+.chat-item-markdown>* {
   margin: 0;
 }
 
-.chat-item-markdown>*+*,
-.chat-item-markdown .chat-item-markdown-stream-wrap>*+* {
+.chat-item-markdown>*+* {
   margin-top: 6px;
 }
 

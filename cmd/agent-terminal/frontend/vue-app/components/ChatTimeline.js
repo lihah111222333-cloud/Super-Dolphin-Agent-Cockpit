@@ -195,6 +195,38 @@ export const ChatTimeline = {
       if (typeof window !== 'undefined') {
         window.addEventListener('keydown', onAttachmentLightboxKeydown);
       }
+      // [DIAG] track height changes on assistant body elements
+      if (typeof MutationObserver !== 'undefined') {
+        const heightMap = new WeakMap();
+        const diagObserver = new MutationObserver(() => {
+          const container = document.querySelector('.chat-messages-vue');
+          if (!container) return;
+          const bodies = container.querySelectorAll('.chat-item-body.chat-item-markdown');
+          for (const el of bodies) {
+            const h = el.offsetHeight;
+            const prev = heightMap.get(el) || 0;
+            if (prev > 0 && Math.abs(h - prev) > 4) {
+              const article = el.closest('article[data-chat-item-id]');
+              const itemId = article ? article.getAttribute('data-chat-item-id') : '?';
+              const childTags = Array.from(el.children).map(c => `${c.tagName}.${c.className.split(' ').slice(0, 2).join('.')}`).join(', ');
+              console.warn('[DIAG:height-change]', {
+                itemId,
+                prevHeight: prev,
+                newHeight: h,
+                delta: h - prev,
+                childCount: el.children.length,
+                childTags,
+                hasStreamWrap: !!el.querySelector('.chat-item-markdown-stream-wrap'),
+                hasStaticWrap: !!el.querySelector('.chat-item-markdown-static-wrap'),
+              });
+            }
+            heightMap.set(el, h);
+          }
+        });
+        const root = document.querySelector('.chat-messages-vue') || document.body;
+        diagObserver.observe(root, { childList: true, subtree: true, characterData: true });
+        onBeforeUnmount(() => diagObserver.disconnect());
+      }
     });
     onBeforeUnmount(() => {
       if (typeof window !== 'undefined') {
@@ -329,24 +361,20 @@ export const ChatTimeline = {
             </header>
             <template v-if="item.kind === 'assistant'">
               <div
-                v-if="item.done === false"
-                key="streaming"
+                v-if="!itemHasSpec(item.text)"
+                key="assistant-body"
                 class="chat-item-body chat-item-markdown agent-markdown-root"
-                :data-stream-version="streamingFrameVersion"
+                :data-stream-version="item.done === false ? streamingFrameVersion : undefined"
                 @click="onAssistantBodyClick"
               >
-                <template v-for="s in [streamingAssistantState(item)]" :key="0">
-                  <div v-if="s.html" class="chat-item-markdown-stream-wrap" v-html="s.html"></div>
-                  <pre v-if="s.tailText" class="chat-item-plain chat-item-streaming">{{ s.tailText }}</pre>
+                <template v-if="item.done === false">
+                  <template v-for="s in [streamingAssistantState(item)]" :key="0">
+                    <div v-if="s.html" class="chat-item-markdown-stream-wrap" v-html="s.html"></div>
+                    <pre v-if="s.tailText" class="chat-item-plain chat-item-streaming">{{ s.tailText }}</pre>
+                  </template>
                 </template>
+                <div v-else class="chat-item-markdown-static-wrap" v-html="renderAssistantBody(item.text)"></div>
               </div>
-              <div
-                v-else-if="!itemHasSpec(item.text)"
-                key="static"
-                class="chat-item-body chat-item-markdown agent-markdown-root"
-                v-html="renderAssistantBody(item.text)"
-                @click="onAssistantBodyClick"
-              ></div>
               <div v-else key="mixed" class="chat-item-body chat-item-markdown agent-markdown-root jr-mixed" @click="onAssistantBodyClick">
                 <template v-for="(part, pIdx) in splitBySpec(item.text)" :key="pIdx">
                   <div v-if="part.type === 'text'" v-html="renderAssistantBody(part.content)"></div>
