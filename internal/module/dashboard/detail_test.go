@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 )
 
 func TestGetAgentDetailIncludesDerivedFields(t *testing.T) {

@@ -17,7 +17,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/taskack"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/topologyapproval"
@@ -40,7 +39,6 @@ var Module = fx.Module("store",
 	sharedfile.Module,
 	systemlog.Module,
 	taskack.Module,
-	taskdag.Module,
 	tasktrace.Module,
 	thread.Module,
 	topologyapproval.Module,

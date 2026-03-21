@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/taskdag"
 )
 
 func TestRecoverReplaysStoreBackedActiveTurnAheadOfQueuedWork(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 )
 
@@ -24,7 +23,7 @@ var Module = fx.Module("provider.unified",
 		NewSessionManager,
 		fx.Annotate(NewSessionProvider, fx.As(new(thread.SessionProvider))),
 		NewTurnSessionProvider,
-		fx.Annotate(NewSessionCleaner, fx.As(new(orchestration.SessionCleaner))),
+		fx.Annotate(NewSessionCleaner, fx.As(new(contract.OrchestrationSessionCleaner))),
 		NewSessionResolver,
 	),
 	fx.Invoke(registerSessionShutdown),

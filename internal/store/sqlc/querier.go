@@ -10,14 +10,9 @@ import (
 
 type Querier interface {
 	AcquireCwdLock(ctx context.Context, arg AcquireCwdLockParams) (int64, error)
-	AcquireTaskDagWorkerLease(ctx context.Context, arg AcquireTaskDagWorkerLeaseParams) (int64, error)
 	AgentThreadRunningExists(ctx context.Context, threadID string) (bool, error)
 	ApproveTopologyApproval(ctx context.Context, arg ApproveTopologyApprovalParams) (int64, error)
 	BindAgentThread(ctx context.Context, arg BindAgentThreadParams) error
-	BindRunningTaskDagNodeTurn(ctx context.Context, arg BindRunningTaskDagNodeTurnParams) (TaskDagNode, error)
-	BindTaskDagWakeupTurn(ctx context.Context, arg BindTaskDagWakeupTurnParams) (int64, error)
-	ClaimDueTaskDagWakeups(ctx context.Context, arg ClaimDueTaskDagWakeupsParams) ([]TaskDagWakeup, error)
-	CompleteTaskDagNode(ctx context.Context, arg CompleteTaskDagNodeParams) (TaskDagNode, error)
 	CountAILogsByStatus(ctx context.Context) ([]CountAILogsByStatusRow, error)
 	CreateInteraction(ctx context.Context, arg CreateInteractionParams) (AgentInteraction, error)
 	// Legacy V2 store SQL used proposal_hash/proposal_json columns.
@@ -29,9 +24,7 @@ type Querier interface {
 	DeletePromptTemplate(ctx context.Context, promptKey string) (int64, error)
 	DeleteSharedFile(ctx context.Context, path string) (int64, error)
 	DeleteStaleCwdLocks(ctx context.Context) (int64, error)
-	EnqueueTaskDagWakeup(ctx context.Context, arg EnqueueTaskDagWakeupParams) (int64, error)
 	ExpireStaleAgentThreads(ctx context.Context, arg ExpireStaleAgentThreadsParams) (int64, error)
-	FailTaskDagWakeup(ctx context.Context, arg FailTaskDagWakeupParams) (int64, error)
 	ForceAcquireCwdLock(ctx context.Context, arg ForceAcquireCwdLockParams) (int64, error)
 	GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (AgentProviderBinding, error)
 	GetAgentProviderBindingByProviderThread(ctx context.Context, arg GetAgentProviderBindingByProviderThreadParams) (AgentProviderBinding, error)
@@ -43,10 +36,6 @@ type Querier interface {
 	GetInteraction(ctx context.Context, id int64) (AgentInteraction, error)
 	GetPromptTemplate(ctx context.Context, promptKey string) (GetPromptTemplateRow, error)
 	GetSharedFile(ctx context.Context, path string) (SharedFile, error)
-	GetTaskDag(ctx context.Context, dagKey string) (TaskDag, error)
-	GetTaskDagForUpdate(ctx context.Context, dagKey string) (TaskDag, error)
-	GetTaskDagNodesForUpdate(ctx context.Context, dagKey string) ([]TaskDagNode, error)
-	GetTaskDagWakeup(ctx context.Context, id int64) (TaskDagWakeup, error)
 	GetThreadByAgent(ctx context.Context, agentID string) (string, error)
 	GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) ([]byte, error)
 	GetWorkspaceRun(ctx context.Context, runKey string) (WorkspaceRun, error)
@@ -69,49 +58,34 @@ type Querier interface {
 	ListCommandCardVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error)
 	ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
-	ListPendingOrDispatchingTaskDagWakeups(ctx context.Context) ([]TaskDagWakeup, error)
 	ListPendingTopologyApprovals(ctx context.Context) ([]TopologyApproval, error)
 	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error)
 	ListRecentAILogs(ctx context.Context, limit int32) ([]ListRecentAILogsRow, error)
 	ListRecoverableAgentThreads(ctx context.Context) ([]ListRecoverableAgentThreadsRow, error)
 	ListRunningAgentThreads(ctx context.Context) ([]ListRunningAgentThreadsRow, error)
 	ListRunningAgents(ctx context.Context) ([]ListRunningAgentsRow, error)
-	ListRunningTaskDagNodesByAssignee(ctx context.Context, assignedTo string) ([]TaskDagNode, error)
-	ListSentUnboundTaskDagWakeups(ctx context.Context, targetAgentID string) ([]TaskDagWakeup, error)
 	ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error)
 	ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]SystemLog, error)
 	ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]TaskAck, error)
-	ListTaskDagNodes(ctx context.Context, dagKey string) ([]TaskDagNode, error)
-	ListTaskDags(ctx context.Context, arg ListTaskDagsParams) ([]TaskDag, error)
 	ListTaskTraces(ctx context.Context, arg ListTaskTracesParams) ([]TaskTrace, error)
 	ListUIPreferences(ctx context.Context, dollar_1 string) ([]ListUIPreferencesRow, error)
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
 	ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error)
-	MarkTaskDagWakeupSent(ctx context.Context, arg MarkTaskDagWakeupSentParams) (int64, error)
 	// Runtime SQL template from V2 DBQueryStore.Query:
 	// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT $1;
 	// A true sqlc query cannot represent a runtime-supplied SELECT shape, so this
 	// file keeps a typed placeholder until sqlc generation is introduced.
 	PlaceholderDBQuery(ctx context.Context) ([]*string, error)
-	ReclaimStaleDispatchingTaskDagWakeups(ctx context.Context) (int64, error)
 	RejectTopologyApproval(ctx context.Context, arg RejectTopologyApprovalParams) (int64, error)
 	ReleaseCwdLock(ctx context.Context, arg ReleaseCwdLockParams) (int64, error)
-	ReleaseTaskDagWorkerLease(ctx context.Context, arg ReleaseTaskDagWorkerLeaseParams) error
-	RenewTaskDagWorkerLease(ctx context.Context, arg RenewTaskDagWorkerLeaseParams) (int64, error)
 	ResetRunningAgentThreads(ctx context.Context) error
-	RetryTaskDagWakeup(ctx context.Context, arg RetryTaskDagWakeupParams) (int64, error)
 	ReviewInteraction(ctx context.Context, arg ReviewInteractionParams) (AgentInteraction, error)
-	TouchRunningTaskDagNodeEvent(ctx context.Context, arg TouchRunningTaskDagNodeEventParams) (TaskDagNode, error)
 	TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (WorkspaceRun, error)
 	UnbindAgentThread(ctx context.Context, agentID string) error
 	UpdateAgentCwd(ctx context.Context, arg UpdateAgentCwdParams) error
 	UpdateAgentProviderBindingArchived(ctx context.Context, arg UpdateAgentProviderBindingArchivedParams) error
 	UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg UpdateAgentProviderBindingSessionUUIDParams) error
 	UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) error
-	UpdateAwaitingVerifyTaskDagNodeStatus(ctx context.Context, arg UpdateAwaitingVerifyTaskDagNodeStatusParams) (TaskDagNode, error)
-	UpdateRunningTaskDagNodeStatus(ctx context.Context, arg UpdateRunningTaskDagNodeStatusParams) (TaskDagNode, error)
-	UpdateTaskDagNodeStatus(ctx context.Context, arg UpdateTaskDagNodeStatusParams) (TaskDagNode, error)
-	UpdateTaskDagNodeStatusFlexible(ctx context.Context, arg UpdateTaskDagNodeStatusFlexibleParams) (TaskDagNode, error)
 	UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (WorkspaceRun, error)
 	UpsertAgentProviderBinding(ctx context.Context, arg UpsertAgentProviderBindingParams) error
 	UpsertAgentStatus(ctx context.Context, arg UpsertAgentStatusParams) (AgentStatus, error)
@@ -120,8 +94,6 @@ type Querier interface {
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)
 	UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error)
 	UpsertTaskAck(ctx context.Context, arg UpsertTaskAckParams) (TaskAck, error)
-	UpsertTaskDag(ctx context.Context, arg UpsertTaskDagParams) (TaskDag, error)
-	UpsertTaskDagNode(ctx context.Context, arg UpsertTaskDagNodeParams) (TaskDagNode, error)
 	UpsertUIPreference(ctx context.Context, arg UpsertUIPreferenceParams) error
 	UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRunParams) (WorkspaceRun, error)
 	UpsertWorkspaceRunFile(ctx context.Context, arg UpsertWorkspaceRunFileParams) (WorkspaceRunFile, error)

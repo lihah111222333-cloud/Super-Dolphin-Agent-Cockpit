@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-type AgentSnapshot = orchestration.AgentSnapshot
+type AgentSnapshot = contract.AgentSnapshot
 type AgentOverview = AgentSnapshot
 
 type Dashboard struct {

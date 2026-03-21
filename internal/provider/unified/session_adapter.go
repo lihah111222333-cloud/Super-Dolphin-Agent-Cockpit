@@ -2,7 +2,6 @@ package unified
 
 import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 )
 
@@ -23,7 +22,7 @@ func NewTurnSessionProvider(manager *SessionManager) turn.SessionProvider {
 	return &sessionProviderAdapter{manager: manager}
 }
 
-func NewSessionCleaner(manager *SessionManager) orchestration.SessionCleaner {
+func NewSessionCleaner(manager *SessionManager) contract.OrchestrationSessionCleaner {
 	return &sessionCleanerAdapter{manager: manager}
 }
 
