@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -22,7 +23,7 @@ func TestServiceQueryPassesThroughAndNormalizesArgs(t *testing.T) {
 		fields: []pgconn.FieldDescription{{Name: "thread_id"}},
 		values: [][]any{{"thread-1"}},
 	}}
-	svc := NewService(nil, nil, nil, dbquerystore.NewStore(sqlc.New(db)), nil, nil, nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, dbquerystore.NewStore(sqlc.New(db), time.Second), nil, nil, nil, nil, nil, nil, nil)
 
 	rows, err := svc.Query(context.Background(), "SELECT * FROM agent_threads WHERE thread_id = $1 AND score > $2", float64(7), float64(1.5))
 	if err != nil {
@@ -43,7 +44,7 @@ func TestServiceQueryRejectsDangerousSQL(t *testing.T) {
 	t.Parallel()
 
 	db := &queryDBTXStub{}
-	svc := NewService(nil, nil, nil, dbquerystore.NewStore(sqlc.New(db)), nil, nil, nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, dbquerystore.NewStore(sqlc.New(db), time.Second), nil, nil, nil, nil, nil, nil, nil)
 
 	_, err := svc.Query(context.Background(), "SELECT version() FROM agent_threads")
 	if err == nil || !strings.Contains(err.Error(), "disallowed function") {
@@ -134,7 +135,7 @@ func TestDashboardQueryHandlerFloat64Normalization(t *testing.T) {
 func newDashboardQueryTestServer(t *testing.T, db *queryDBTXStub) *platformrpc.Server {
 	t.Helper()
 
-	svc := NewService(nil, nil, nil, dbquerystore.NewStore(sqlc.New(db)), nil, nil, nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, dbquerystore.NewStore(sqlc.New(db), time.Second), nil, nil, nil, nil, nil, nil, nil)
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewDashboardHandlers(svc).Handlers)
 	return server
