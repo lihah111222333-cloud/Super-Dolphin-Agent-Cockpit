@@ -176,6 +176,10 @@ func TestDependencyDirection(t *testing.T) {
 	})
 }
 
+func TestMCPOrchDependencyDirection(t *testing.T) {
+	assertMCPOrchDependencyDirection(t, repoRoot(t))
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
