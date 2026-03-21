@@ -1,39 +1,29 @@
 package unified
 
 import (
+	"encoding/json"
 	"testing"
-	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/kelindar/event"
 )
 
 func TestEventDispatcherDispatchesCommonPlanAndItemEvents(t *testing.T) {
-	bus := event.NewDispatcher()
-	defer func() { _ = bus.Close() }()
-
-	dispatcher := NewEventDispatcher(bus, nil)
-	planCh := make(chan turndto.PlanDelta, 1)
-	itemCh := make(chan turndto.ItemCompleted, 1)
-	cancelPlan := event.Subscribe(bus, func(ev turndto.PlanDelta) { planCh <- ev })
-	cancelItem := event.Subscribe(bus, func(ev turndto.ItemCompleted) { itemCh <- ev })
-	defer cancelPlan()
-	defer cancelItem()
-
-	dispatcher.Dispatch(dto.RawProviderEvent{
-		Type: "item/plan/delta",
+	var published []any
+	translateCommonRawEvent(dto.RawProviderEvent{
+		EventType: "item/plan/delta",
 		Data: map[string]any{
-			"agentId":   "agent-1",
-			"threadId":  "thread-1",
-			"turnId":    "turn-1",
-			"delta":     "step 1",
-			"timestamp": time.Now().Format(time.RFC3339Nano),
+			"agentId":  "agent-1",
+			"threadId": "thread-1",
+			"turnId":   "turn-1",
+			"delta":    "step 1",
 		},
+	}, func(ev any) {
+		published = append(published, ev)
 	})
-	dispatcher.Dispatch(dto.RawProviderEvent{
-		Type: "item/completed",
+	translateCommonRawEvent(dto.RawProviderEvent{
+		EventType: "item/completed",
 		Data: map[string]any{
 			"agentId":   "agent-1",
 			"threadId":  "thread-1",
@@ -41,74 +31,57 @@ func TestEventDispatcherDispatchesCommonPlanAndItemEvents(t *testing.T) {
 			"type":      "command_execution",
 			"command":   "ls",
 			"exit_code": 0,
-			"timestamp": time.Now().Format(time.RFC3339Nano),
 		},
+	}, func(ev any) {
+		published = append(published, ev)
 	})
 
-	select {
-	case got := <-planCh:
-		if got.ThreadID != "thread-1" || got.TurnID != "turn-1" || got.Delta != "step 1" {
-			t.Fatalf("plan delta = %#v", got)
-		}
-	default:
-		t.Fatal("expected plan delta event")
+	if len(published) != 2 {
+		t.Fatalf("published events = %#v", published)
 	}
-
-	select {
-	case got := <-itemCh:
-		if got.ThreadID != "thread-1" || got.Command != "ls" || got.ExitCode != 0 {
-			t.Fatalf("item completed = %#v", got)
-		}
-	default:
-		t.Fatal("expected item completed event")
+	plan, ok := published[0].(turndto.PlanDelta)
+	if !ok || plan.ThreadID != "thread-1" || plan.TurnID != "turn-1" || plan.Delta != "step 1" {
+		t.Fatalf("plan delta = %#v", published[0])
+	}
+	item, ok := published[1].(turndto.ItemCompleted)
+	if !ok || item.ThreadID != "thread-1" || item.Command != "ls" || item.ExitCode != 0 {
+		t.Fatalf("item completed = %#v", published[1])
 	}
 }
 
 func TestEventDispatcherDispatchesCommonErrorEvents(t *testing.T) {
-	bus := event.NewDispatcher()
-	defer func() { _ = bus.Close() }()
-
-	dispatcher := NewEventDispatcher(bus, nil)
-	errCh := make(chan agentdto.AgentError, 1)
-	warnCh := make(chan agentdto.AgentWarning, 1)
-	cancelErr := event.Subscribe(bus, func(ev agentdto.AgentError) { errCh <- ev })
-	cancelWarn := event.Subscribe(bus, func(ev agentdto.AgentWarning) { warnCh <- ev })
-	defer cancelErr()
-	defer cancelWarn()
-
-	dispatcher.Dispatch(dto.RawProviderEvent{
-		Type: "error",
+	var (
+		gotErr  agentdto.AgentError
+		gotWarn agentdto.AgentWarning
+	)
+	translateCommonRawEvent(dto.RawProviderEvent{
+		EventType: "error",
 		Data: map[string]any{
 			"agentId":     "agent-1",
 			"threadId":    "thread-1",
 			"message":     "boom",
 			"recoverable": true,
 		},
+	}, func(ev any) {
+		gotErr = ev.(agentdto.AgentError)
 	})
-	dispatcher.Dispatch(dto.RawProviderEvent{
-		Type: "configWarning",
+	translateCommonRawEvent(dto.RawProviderEvent{
+		EventType: "configWarning",
 		Data: map[string]any{
 			"agentId":  "agent-1",
 			"threadId": "thread-1",
 			"message":  "heads up",
 		},
+	}, func(ev any) {
+		gotWarn = ev.(agentdto.AgentWarning)
 	})
 
-	select {
-	case got := <-errCh:
-		if got.AgentID != "agent-1" || got.Message != "boom" || !got.Recoverable {
-			t.Fatalf("agent error = %#v", got)
-		}
-	default:
-		t.Fatal("expected agent error event")
+	if gotErr.AgentID != "agent-1" || gotErr.Message != "boom" || !gotErr.Recoverable {
+		raw, _ := json.Marshal(gotErr)
+		t.Fatalf("agent error = %s", raw)
 	}
-
-	select {
-	case got := <-warnCh:
-		if got.AgentID != "agent-1" || got.Message != "heads up" {
-			t.Fatalf("agent warning = %#v", got)
-		}
-	default:
-		t.Fatal("expected agent warning event")
+	if gotWarn.AgentID != "agent-1" || gotWarn.Message != "heads up" {
+		raw, _ := json.Marshal(gotWarn)
+		t.Fatalf("agent warning = %s", raw)
 	}
 }

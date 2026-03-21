@@ -167,18 +167,20 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 
 func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 	s.mu.Lock()
+	threadID := strings.TrimSpace(ev.ThreadID)
 	status := strings.TrimSpace(ev.Status)
 	if status == "" {
 		status = "stopped"
 	}
-	s.state.Threads = markThreadStopped(s.state.Threads, ev.ThreadID, status)
+	s.state.Threads = markThreadStopped(s.state.Threads, threadID, status)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:           strings.TrimSpace(ev.ThreadID),
+		ID:           threadID,
 		ThreadStatus: patchStatus(status),
 	})
 	sortThreads(s.state.Threads)
-	patch := s.threadPatchLocked(ev.ThreadID, "thread/stopped")
+	patch := s.threadPatchLocked(threadID, "thread/stopped")
 	applyPatchStatus(&patch, status)
+	delete(s.patchSeq, threadID)
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }

@@ -145,6 +145,17 @@ func TestPromptWriteRejectsOversizedPayload(t *testing.T) {
 	}
 }
 
+func TestPromptWriteRejectsOversizedDescription(t *testing.T) {
+	t.Parallel()
+
+	store := newPromptStoreStub()
+	server := newPromptTestServer(store, promptStubTxRunner{base: store})
+	err := dispatchPromptErr(t, server, "prompts/write", `{"name":"Big","content":"ok","description":"`+strings.Repeat("d", promptMaxDescriptionBytes+1)+`"}`)
+	if err == nil {
+		t.Fatal("Dispatch(prompts/write oversized description) error = nil")
+	}
+}
+
 func TestPromptDeleteRejectsEmptyID(t *testing.T) {
 	t.Parallel()
 

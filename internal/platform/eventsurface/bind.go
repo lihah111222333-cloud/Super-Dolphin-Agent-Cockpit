@@ -39,6 +39,7 @@ const (
 	MethodThreadStopped            = "thread/stopped"
 	MethodThreadMessages           = "thread/messages/page"
 	MethodThreadCompacted          = "thread/compacted"
+	// Deprecated: token usage now rides on ui/thread/patch; kept for reference only
 	MethodThreadTokenUsage         = "thread/tokenusage/updated"
 	MethodSkillsChanged            = "skills/changed"
 	MethodUIPreferencesChanged     = "ui/preferences/changed"

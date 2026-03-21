@@ -19,7 +19,10 @@ const (
 	codeSearchTimeout  = 2 * time.Second
 )
 
-var errSearchLimit = errors.New("wails ui code search limit")
+var (
+	errSearchLimit           = errors.New("wails ui code search limit")
+	errCodeSaveFileMustExist = errors.New("file does not exist; saving new files is not supported via this API")
+)
 
 type scopedPath struct {
 	Root     string
@@ -59,21 +62,25 @@ func scopeEntries(project string, projects []string) []string {
 	return entries
 }
 
-func resolveSaveTarget(raw string, roots []string, createNew bool) (scopedPath, error) {
+func resolveSaveTarget(raw string, roots []string, _ bool) (scopedPath, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return scopedPath{}, errors.New("ui/code/save: filePath is required")
 	}
 	if filepath.IsAbs(value) {
-		return matchAbsoluteTarget(value, roots, createNew)
+		target, err := matchAbsoluteTarget(value, roots, false)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return scopedPath{}, errCodeSaveFileMustExist
+			}
+			return scopedPath{}, err
+		}
+		return target, nil
 	}
 	if target, ok := firstExistingRelativeTarget(value, roots); ok {
 		return target, nil
 	}
-	if !createNew {
-		return scopedPath{}, fmt.Errorf("ui/code/save: file %q does not exist; pass createNew=true to create it", value)
-	}
-	return scopedCandidate(roots[0], filepath.Join(roots[0], value), true)
+	return scopedPath{}, errCodeSaveFileMustExist
 }
 
 func resolveOpenTarget(ctx context.Context, raw string, roots []string) (scopedPath, error) {
@@ -97,14 +104,14 @@ func resolveOpenTarget(ctx context.Context, raw string, roots []string) (scopedP
 	return matches[0], nil
 }
 
-func matchAbsoluteTarget(raw string, roots []string, allowMissing bool) (scopedPath, error) {
+func matchAbsoluteTarget(raw string, roots []string, createNew bool) (scopedPath, error) {
 	absPath, err := filepath.Abs(strings.TrimSpace(raw))
 	if err != nil {
 		return scopedPath{}, err
 	}
 	var lastErr error
 	for _, root := range roots {
-		target, err := scopedCandidate(root, absPath, allowMissing)
+		target, err := scopedCandidate(root, absPath, createNew)
 		if err == nil {
 			return target, nil
 		}
@@ -274,13 +281,13 @@ func sortScopedPaths(items []scopedPath) {
 	})
 }
 
-func scopedCandidate(root, candidate string, allowMissing bool) (scopedPath, error) {
+func scopedCandidate(root, candidate string, allowCreate bool) (scopedPath, error) {
 	absPath, err := filepath.Abs(candidate)
 	if err != nil {
 		return scopedPath{}, err
 	}
 	info, err := os.Stat(absPath)
-	if err != nil && (!allowMissing || !errors.Is(err, os.ErrNotExist)) {
+	if err != nil && (!allowCreate || !errors.Is(err, os.ErrNotExist)) {
 		return scopedPath{}, err
 	}
 	if err == nil && info.IsDir() {

@@ -2,6 +2,7 @@ package wails
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -57,20 +58,26 @@ func TestSaveScopedFileRejectsMissingFileWithoutCreateNew(t *testing.T) {
 
 	_, err := saveScopedFile(target, "body", []string{root}, false)
 	if err == nil {
-		t.Fatal("saveScopedFile() error = nil, want createNew validation error")
+		t.Fatal("saveScopedFile() error = nil, want missing-file validation error")
+	}
+	if !errors.Is(err, errCodeSaveFileMustExist) {
+		t.Fatalf("saveScopedFile() error = %v, want %v", err, errCodeSaveFileMustExist)
 	}
 }
 
-func TestSaveScopedFileAllowsMissingFileWithCreateNew(t *testing.T) {
+func TestSaveScopedFileRejectsMissingFileWithCreateNew(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "docs", "new.md")
 
-	result, err := saveScopedFile(target, "body", []string{root}, true)
-	if err != nil {
-		t.Fatalf("saveScopedFile() error = %v", err)
+	_, err := saveScopedFile(target, "body", []string{root}, true)
+	if err == nil {
+		t.Fatal("saveScopedFile() error = nil, want missing-file validation error")
 	}
-	if !result.Ok {
-		t.Fatal("saveScopedFile() ok = false, want true")
+	if !errors.Is(err, errCodeSaveFileMustExist) {
+		t.Fatalf("saveScopedFile() error = %v, want %v", err, errCodeSaveFileMustExist)
+	}
+	if _, statErr := os.Stat(target); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Stat() error = %v, want not exist", statErr)
 	}
 }
 
@@ -169,15 +176,20 @@ func TestBuildCodeOpenResultRejectsLargeFiles(t *testing.T) {
 
 func TestBuildCodeOpenResultAllowsLargeImageFiles(t *testing.T) {
 	root := t.TempDir()
-	target := filepath.Join(root, "assets", "large.png")
-	writeTestFile(t, target, strings.Repeat("a", int(maxCodeOpenFileBytes)+1))
+	for _, ext := range []string{".png", ".jpg", ".gif", ".svg", ".webp", ".ico"} {
+		ext := ext
+		t.Run(ext, func(t *testing.T) {
+			target := filepath.Join(root, "assets", "large"+ext)
+			writeTestFile(t, target, strings.Repeat("a", int(maxCodeOpenFileBytes)+1))
 
-	result, err := buildCodeOpenResult(scopedPath{Root: root, Abs: target, Relative: "assets/large.png"}, 1)
-	if err != nil {
-		t.Fatalf("buildCodeOpenResult() error = %v", err)
-	}
-	if !result.Image || result.Type != "image" || result.Path != target {
-		t.Fatalf("buildCodeOpenResult() = %#v", result)
+			result, err := buildCodeOpenResult(scopedPath{Root: root, Abs: target, Relative: "assets/large" + ext}, 1)
+			if err != nil {
+				t.Fatalf("buildCodeOpenResult() error = %v", err)
+			}
+			if !result.Image || result.Type != "image" || result.Path != target {
+				t.Fatalf("buildCodeOpenResult() = %#v", result)
+			}
+		})
 	}
 }
 

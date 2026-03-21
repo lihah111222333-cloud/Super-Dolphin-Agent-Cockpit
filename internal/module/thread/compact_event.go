@@ -13,6 +13,7 @@ func (s *service) publishThreadCompacted(result dto.ThreadCompactResult) {
 	if s == nil || s.emitCompacted == nil || strings.TrimSpace(result.ThreadID) == "" {
 		return
 	}
+	// NOTE: currently only triggered by explicit Compact(); provider-side compact completion needs separate integration
 	s.emitCompacted(threaddto.Compacted{
 		EventHeader:  shared.EventHeader{Timestamp: time.Now()},
 		ThreadID:     strings.TrimSpace(result.ThreadID),

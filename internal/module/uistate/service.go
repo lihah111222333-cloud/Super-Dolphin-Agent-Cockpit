@@ -126,6 +126,8 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	}
 	snapshot := s.stateSnapshot()
 	applyPreferencesToState(snapshot, prefs)
+	// TODO(P8): knownDiffRevision only short-circuits unchanged snapshots here.
+	// Real known diff consumption still needs projector/live patch integration.
 	applyDiffStateSnapshot(ctx, snapshot, s.diffStateSnapshot(ctx))
 	return snapshot, nil
 }

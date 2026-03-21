@@ -66,7 +66,7 @@ func configCWD(cfg *platformconfig.Config) string {
 	if value == "" {
 		return ""
 	}
-	// Intentional: desktop frontend needs the normalized window cwd for scope-aware UI state.
+	// Intentional: frontend needs cwd for project context and scope-aware UI state.
 	return filepath.Clean(value)
 }
 
