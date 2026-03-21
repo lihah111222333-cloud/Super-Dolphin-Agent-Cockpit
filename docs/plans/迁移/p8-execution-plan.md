@@ -73,3 +73,16 @@
 | D-1 | sqlc 生成层漂移：threadbinding 缺席、dbquery placeholder、ailog 挂 system_log | verify-align-store-sm | 需新增 migration SQL + regenerate sqlc |
 | D-2 | AgentSnapshot port/provider 仅推断非实测 | verify-align-agent | 需 runtime 上报机制 |
 | D-3 | 状态机外直写路径封堵 + awaiting_user_input 闭环 | verify-align-store-sm | orchestration+approval+provider 三方联动 |
+
+## 附：V2↔V3 / P7.5 核对发现的 P8 相关问题
+
+| # | 问题 | 来源 | 影响 |
+|---|---|---|---|
+| V-1 | rpc push 面缩小 | v2v3-rpc-push | MCP 工具前端通知缺失 |
+| V-2 | WSHandler 未接线 | v2v3-rpc-push | MCP WS 支持 |
+| V-3 | TaskWakeup 未接调度 | v2v3-dashboard | DAG 唤醒 |
+| V-4 | DAG 锁模型变弱 | v2v3-orch-submit | DAG 事务 |
+| V-5 | tool schema enum builder 缺失 | v2v3-rule-of-two | tool/registry |
+| V-6 | ui/thread/patch 新字段前端不消费 | p7.5-r2-thread-patch | thread-live-patch.js 适配 |
+| V-7 | thread/tokenusage/updated 常量保留但不绑定 | p7.5-r2-event-surface | 独立 token 推送恢复 |
+| V-8 | knownDiffRevision 消费仍是 no-op | p7.5-r2-known-diff | 增量 diff 优化闭环 |
