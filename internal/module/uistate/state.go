@@ -300,39 +300,29 @@ func upsertAgentSummary(items []AgentSummary, next AgentSummary) []AgentSummary 
 }
 
 func mergeAgentSummary(dst *AgentSummary, src AgentSummary) {
-	if src.Name != "" {
-		dst.Name = src.Name
-	}
-	if src.ThreadID != "" {
-		dst.ThreadID = src.ThreadID
-	}
-	if src.ParentID != "" {
-		dst.ParentID = src.ParentID
-	}
-	if src.State != "" {
-		dst.State = src.State
-	}
-	if src.Provider != "" {
-		dst.Provider = src.Provider
-	}
-	if src.CWD != "" {
-		dst.CWD = src.CWD
-	}
-	if src.Port > 0 {
-		dst.Port = src.Port
-	}
-	if src.LastReport != "" {
-		dst.LastReport = src.LastReport
-	}
-	if src.AgentState != "" {
-		dst.AgentState = src.AgentState
-	}
-	if src.ThreadStatus != "" {
-		dst.ThreadStatus = src.ThreadStatus
-	}
-	if src.LastMessage != "" {
-		dst.LastMessage = src.LastMessage
-	}
+	mergeAgentIdentity(dst, src)
+	mergeAgentRuntime(dst, src)
+	mergeAgentTurnInfo(dst, src)
+}
+
+func mergeAgentIdentity(dst *AgentSummary, src AgentSummary) {
+	dst.Name = chooseString(src.Name, dst.Name)
+	dst.ThreadID = chooseString(src.ThreadID, dst.ThreadID)
+	dst.ParentID = chooseString(src.ParentID, dst.ParentID)
+}
+
+func mergeAgentRuntime(dst *AgentSummary, src AgentSummary) {
+	dst.State = chooseString(src.State, dst.State)
+	dst.Provider = chooseString(src.Provider, dst.Provider)
+	dst.CWD = chooseString(src.CWD, dst.CWD)
+	dst.Port = choosePositiveInt(src.Port, dst.Port)
+}
+
+func mergeAgentTurnInfo(dst *AgentSummary, src AgentSummary) {
+	dst.LastReport = chooseString(src.LastReport, dst.LastReport)
+	dst.AgentState = chooseString(src.AgentState, dst.AgentState)
+	dst.ThreadStatus = chooseString(src.ThreadStatus, dst.ThreadStatus)
+	dst.LastMessage = chooseString(src.LastMessage, dst.LastMessage)
 }
 
 func sortThreads(items []ThreadSummary) {
