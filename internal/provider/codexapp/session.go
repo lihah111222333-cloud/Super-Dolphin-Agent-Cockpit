@@ -50,31 +50,6 @@ type turnHandle struct {
 	once       sync.Once
 }
 
-type turnStartParams struct {
-	ThreadID             string          `json:"threadId"`
-	Input                []turnInputItem `json:"input"`
-	SelectedSkills       []string        `json:"selectedSkills,omitempty"`
-	ManualSkillSelection bool            `json:"manualSkillSelection,omitempty"`
-	Model                string          `json:"model,omitempty"`
-	Effort               string          `json:"effort,omitempty"`
-	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
-}
-
-type turnInputItem struct {
-	Type    string `json:"type"`
-	Text    string `json:"text,omitempty"`
-	URL     string `json:"url,omitempty"`
-	Path    string `json:"path,omitempty"`
-	Name    string `json:"name,omitempty"`
-	Content string `json:"content,omitempty"`
-}
-
-type turnRPCResult struct {
-	Turn struct {
-		ID string `json:"id"`
-	} `json:"turn"`
-}
-
 func newSession(
 	logger *slog.Logger,
 	serverURL string,
@@ -406,56 +381,4 @@ func (s *session) failTurns(err error) {
 	for _, h := range turns {
 		h.complete(err)
 	}
-}
-func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams {
-	selectedSkills := make([]string, 0, len(req.Skills))
-	for _, skill := range req.Skills {
-		if name := strings.TrimSpace(skill.Name); name != "" {
-			selectedSkills = append(selectedSkills, name)
-		}
-	}
-	inputs := make([]turnInputItem, 0, len(req.Inputs))
-	if skillPrompt, ok := buildSkillPromptInput(req.Skills); ok {
-		inputs = append(inputs, skillPrompt)
-	}
-	for _, item := range req.Inputs {
-		inputs = append(inputs, mapTurnInput(item))
-	}
-	return turnStartParams{
-		ThreadID:             threadID,
-		Input:                inputs,
-		SelectedSkills:       selectedSkills,
-		ManualSkillSelection: req.ManualSkillSelection,
-		Model:                strings.TrimSpace(req.Overrides.Model),
-		Effort:               strings.TrimSpace(req.Overrides.Effort),
-		OutputSchema:         req.OutputSchema,
-	}
-}
-
-func buildTurnSteerParams(threadID string, req dto.SteerRequest) map[string]any {
-	selectedSkills := make([]string, 0, len(req.Skills))
-	for _, skill := range req.Skills {
-		if name := strings.TrimSpace(skill.Name); name != "" {
-			selectedSkills = append(selectedSkills, name)
-		}
-	}
-	inputs := make([]turnInputItem, 0, len(req.Inputs))
-	if skillPrompt, ok := buildSkillPromptInput(req.Skills); ok {
-		inputs = append(inputs, skillPrompt)
-	}
-	for _, item := range req.Inputs {
-		inputs = append(inputs, mapTurnInput(item))
-	}
-	params := map[string]any{
-		"threadId":       threadID,
-		"expectedTurnId": strings.TrimSpace(req.ExpectedTurnID),
-		"input":          inputs,
-	}
-	if len(selectedSkills) > 0 {
-		params["selectedSkills"] = selectedSkills
-	}
-	if req.ManualSkillSelection {
-		params["manualSkillSelection"] = true
-	}
-	return params
 }
