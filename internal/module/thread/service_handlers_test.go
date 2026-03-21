@@ -3,6 +3,8 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -66,22 +68,108 @@ func TestNewThreadHandlersDispatchStart(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubThreadService{
-		startResult: StartResult{ThreadID: "thread-7", AgentID: "agent-7"},
+		startResult: StartResult{ThreadID: "thread-7", AgentID: "agent-7", SessionID: "session-7", Status: "running"},
 	}
 	server := newThreadTestServer(stub)
 	raw, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(`{"provider":"codex","cwd":"/tmp/demo","prompt":"hello"}`))
 	if err != nil {
 		t.Fatalf("Dispatch(thread/start) error = %v", err)
 	}
-	var got StartResult
+	var got map[string]any
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("Unmarshal(thread/start) error = %v", err)
 	}
-	if got.ThreadID != "thread-7" || got.AgentID != "agent-7" {
+	if got["threadId"] != "thread-7" || got["sessionId"] != "session-7" || got["status"] != "running" {
 		t.Fatalf("Dispatch(thread/start) = %#v", got)
+	}
+	thread, _ := got["thread"].(map[string]any)
+	if thread["id"] != "thread-7" || thread["status"] != "running" {
+		t.Fatalf("Dispatch(thread/start).thread = %#v", thread)
 	}
 	if stub.startReq.Provider != "codex" || stub.startReq.CWD != "/tmp/demo" || stub.startReq.Prompt != "hello" {
 		t.Fatalf("StartRequest = %#v", stub.startReq)
+	}
+}
+
+func TestNewThreadHandlersDispatchConfigSet(t *testing.T) {
+	t.Parallel()
+
+	high := "high"
+	empty := ""
+	stub := &stubThreadService{
+		setConfigResp: dto.ThreadConfig{
+			ThreadID: "thread-1",
+			Effective: dto.ThreadConfigValues{
+				Model:  "gpt-5.4",
+				Effort: "high",
+			},
+		},
+	}
+	server := newThreadTestServer(stub)
+	raw, err := server.Dispatch(context.Background(), "thread/config/set", json.RawMessage(`{"threadId":"thread-1","model":"","effort":"high"}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/config/set) error = %v", err)
+	}
+	var got dto.ThreadConfig
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/config/set) error = %v", err)
+	}
+	if got.Effective.Model != "gpt-5.4" || got.Effective.Effort != "high" {
+		t.Fatalf("Dispatch(thread/config/set) = %#v", got)
+	}
+	if stub.setConfigID != "thread-1" {
+		t.Fatalf("setConfigID = %q, want thread-1", stub.setConfigID)
+	}
+	if stub.setConfigPatch.Model == nil || *stub.setConfigPatch.Model != empty {
+		t.Fatalf("setConfigPatch.Model = %#v, want explicit empty string", stub.setConfigPatch.Model)
+	}
+	if stub.setConfigPatch.Effort == nil || *stub.setConfigPatch.Effort != high {
+		t.Fatalf("setConfigPatch.Effort = %#v, want %q", stub.setConfigPatch.Effort, high)
+	}
+}
+
+func TestNewThreadHandlersDispatchModelSetReturnsServiceCapabilityError(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{
+		setModelErr: newFriendlyCapabilityError(dto.CapModelSwitch, "claude", errRuntimeModelSwitchUnsupported),
+	}
+	server := newThreadTestServer(stub)
+	_, err := server.Dispatch(context.Background(), "thread/model/set", json.RawMessage(`{"threadId":"thread-1","model":"sonnet"}`))
+	if err == nil {
+		t.Fatal("Dispatch(thread/model/set) error = nil, want capability error")
+	}
+	if stub.setModelID != "thread-1" || stub.setModelArg != "sonnet" {
+		t.Fatalf("SetModel call = %q/%q", stub.setModelID, stub.setModelArg)
+	}
+	if !strings.Contains(err.Error(), errRuntimeModelSwitchUnsupported) {
+		t.Fatalf("Dispatch(thread/model/set) error = %v, want contains %q", err, errRuntimeModelSwitchUnsupported)
+	}
+	if errors.Is(err, rpcpkg.ErrCapabilityGate("capability not supported by active provider")) {
+		t.Fatalf("Dispatch(thread/model/set) error = %v, want service capability error", err)
+	}
+}
+
+func TestNewThreadHandlersDispatchApprovalsSetAcceptsPolicyAlias(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{sendCommandResult: map[string]any{"ok": true}}
+	server := newThreadTestServer(stub)
+	if _, err := server.Dispatch(context.Background(), "thread/approvals/set", json.RawMessage(`{"threadId":"thread-3","policy":"on-request"}`)); err != nil {
+		t.Fatalf("Dispatch(thread/approvals/set) error = %v", err)
+	}
+	if stub.sendCommandThread != "thread-3" || stub.sendCommandName != "/approvals" || stub.sendCommandArgs != "on-request" {
+		t.Fatalf("SendCommand(thread/approvals/set) = (%q, %q, %q)", stub.sendCommandThread, stub.sendCommandName, stub.sendCommandArgs)
+	}
+}
+
+func TestNewThreadHandlersDispatchApprovalsSetRejectsConflictingArgs(t *testing.T) {
+	t.Parallel()
+
+	server := newThreadTestServer(&stubThreadService{})
+	_, err := server.Dispatch(context.Background(), "thread/approvals/set", json.RawMessage(`{"threadId":"thread-3","policy":"never","args":"always"}`))
+	if err == nil || !strings.Contains(err.Error(), errApprovalsSetArgsConflict.Error()) {
+		t.Fatalf("Dispatch(thread/approvals/set) error = %v", err)
 	}
 }
 
@@ -92,10 +180,20 @@ func newThreadTestServer(svc Service) *rpcpkg.Server {
 }
 
 type stubThreadService struct {
-	startReq    StartRequest
-	startResult StartResult
-	listResult  []Ref
-	listCalls   int
+	startReq          StartRequest
+	startResult       StartResult
+	listResult        []Ref
+	listCalls         int
+	setConfigPatch    dto.ThreadConfigPatch
+	setConfigID       string
+	setConfigResp     dto.ThreadConfig
+	setModelID        string
+	setModelArg       string
+	setModelErr       error
+	sendCommandThread string
+	sendCommandName   string
+	sendCommandArgs   string
+	sendCommandResult any
 }
 
 func (s *stubThreadService) Start(_ context.Context, req StartRequest) (StartResult, error) {
@@ -122,8 +220,15 @@ func (s *stubThreadService) ReadMessages(context.Context, string, int, string) (
 func (s *stubThreadService) GetConfig(context.Context, string) (dto.ThreadConfig, error) {
 	return dto.ThreadConfig{}, nil
 }
-func (s *stubThreadService) SetModel(context.Context, string, string) (dto.ThreadConfig, error) {
-	return dto.ThreadConfig{}, nil
+func (s *stubThreadService) SetConfig(_ context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error) {
+	s.setConfigID = threadID
+	s.setConfigPatch = patch
+	return s.setConfigResp, nil
+}
+func (s *stubThreadService) SetModel(_ context.Context, threadID, model string) (dto.ThreadConfig, error) {
+	s.setModelID = threadID
+	s.setModelArg = model
+	return dto.ThreadConfig{}, s.setModelErr
 }
 func (s *stubThreadService) Compact(context.Context, string, string) (dto.ThreadCompactResult, error) {
 	return dto.ThreadCompactResult{}, nil
@@ -132,8 +237,11 @@ func (s *stubThreadService) Archive(context.Context, string) error              
 func (s *stubThreadService) Unarchive(context.Context, string) error             { return nil }
 func (s *stubThreadService) ListByStatus(context.Context, string) ([]Ref, error) { return nil, nil }
 func (s *stubThreadService) ListByCWD(context.Context, string) ([]Ref, error)    { return nil, nil }
-func (s *stubThreadService) SendCommand(context.Context, string, string, string) (any, error) {
-	return nil, nil
+func (s *stubThreadService) SendCommand(_ context.Context, threadID, command, args string) (any, error) {
+	s.sendCommandThread = threadID
+	s.sendCommandName = command
+	s.sendCommandArgs = args
+	return s.sendCommandResult, nil
 }
 func (s *stubThreadService) SetName(context.Context, string, string) error { return nil }
 func (s *stubThreadService) Delete(context.Context, string) error          { return nil }

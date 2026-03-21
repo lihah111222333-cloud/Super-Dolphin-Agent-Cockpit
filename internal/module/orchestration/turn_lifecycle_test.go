@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func TestForceIdleAfterCompletionErrorKeepsDifferentActiveTurn(t *testing.T) {
 	svc.agents[agent.id] = agent
 
 	recovered, err := svc.forceIdleAfterCompletionError(
-		withEventTime(nil, time.Now()),
+		withEventTime(context.TODO(), time.Now()),
 		"agent-1",
 		"turn-finished",
 		false,

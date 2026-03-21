@@ -12,12 +12,14 @@ import (
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
+	dbquerystore "github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
 	taskackstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskack"
 	taskdagstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskdag"
 	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -32,6 +34,7 @@ type service struct {
 	orchestration orchestration.Service
 	systemLogs    systemlogstore.Store
 	aiLogs        ailogstore.Store
+	dbQueries     dbquerystore.Store
 	taskAcks      taskackstore.Store
 	taskDAGs      taskdagstore.Store
 	taskTraces    tasktracestore.Store
@@ -57,6 +60,7 @@ func NewService(
 	orchestrationSvc orchestration.Service,
 	systemLogs systemlogstore.Store,
 	aiLogs ailogstore.Store,
+	dbQueries dbquerystore.Store,
 	taskAcks taskackstore.Store,
 	taskDAGs taskdagstore.Store,
 	taskTraces tasktracestore.Store,
@@ -69,6 +73,7 @@ func NewService(
 		orchestration: orchestrationSvc,
 		systemLogs:    systemLogs,
 		aiLogs:        aiLogs,
+		dbQueries:     dbQueries,
 		taskAcks:      taskAcks,
 		taskDAGs:      taskDAGs,
 		taskTraces:    taskTraces,
@@ -101,17 +106,38 @@ func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDet
 	if id == "" {
 		return nil, errors.New("dashboard: agent id is required")
 	}
-	snapshot, err := s.orchestration.Snapshot(ctx, id)
-	if err != nil {
+	var (
+		snapshot   orchestration.AgentSnapshot
+		reportResp orchestration.AgentReportResult
+		reportErr  error
+	)
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		var err error
+		snapshot, err = s.orchestration.Snapshot(groupCtx, id)
+		return err
+	})
+	group.Go(func() error {
+		reportResp, reportErr = s.orchestration.GetReport(groupCtx, id)
+		if reportErr != nil {
+			return nil
+		}
+		return nil
+	})
+	if err := group.Wait(); err != nil {
 		return nil, err
 	}
 	report := strings.TrimSpace(snapshot.LastReport)
-	if result, err := s.orchestration.GetReport(ctx, id); err == nil {
-		report = firstNonEmpty(strings.TrimSpace(result.Report), report)
+	if reportErr == nil {
+		report = firstNonEmpty(strings.TrimSpace(reportResp.Report), report)
 	}
 	snapshot.LastReport = report
 	return &AgentDetail{
+		AgentID:     snapshot.ID,
+		Name:        snapshot.Name,
 		Snapshot:    snapshot,
+		ThreadID:    snapshot.ThreadID,
+		Status:      snapshot.State,
 		TurnHistory: turnHistoryFromSnapshot(snapshot),
 		LastReport:  report,
 	}, nil
@@ -155,6 +181,13 @@ func (s *service) GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, er
 		entries = entries[:limit]
 	}
 	return entries, nil
+}
+
+func (s *service) Query(ctx context.Context, query string, args ...any) ([]map[string]any, error) {
+	if s.dbQueries == nil {
+		return nil, errors.New("dashboard: dbquery store is not configured")
+	}
+	return s.dbQueries.Query(ctx, query, args...)
 }
 
 func (s *service) listAgents(ctx context.Context) ([]AgentOverview, error) {

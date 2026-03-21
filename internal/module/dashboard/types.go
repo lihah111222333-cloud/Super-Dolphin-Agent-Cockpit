@@ -18,7 +18,11 @@ type Dashboard struct {
 }
 
 type AgentDetail struct {
+	AgentID     string        `json:"agent_id,omitempty"`
+	Name        string        `json:"name,omitempty"`
 	Snapshot    AgentSnapshot `json:"snapshot"`
+	ThreadID    string        `json:"thread_id,omitempty"`
+	Status      string        `json:"status,omitempty"`
 	TurnHistory []TurnRef     `json:"turn_history"`
 	LastReport  string        `json:"last_report"`
 }

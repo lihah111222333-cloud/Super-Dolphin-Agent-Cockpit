@@ -110,6 +110,61 @@ func TestClearQueue(t *testing.T) {
 	}
 }
 
+func TestQueueClonesSubmissionOnEnqueue(t *testing.T) {
+	t.Parallel()
+
+	var q SubmissionQueue
+	original := makeSubmission(1)
+	q.Enqueue(original)
+
+	original.Inputs[0].Content = "mutated"
+	original.SelectedSkills[0] = "mutated"
+	original.OutputSchema[0] = '['
+
+	got, ok := q.Peek()
+	if !ok {
+		t.Fatal("Peek() ok = false, want true")
+	}
+	if got.Inputs[0].Content != "text-1" {
+		t.Fatalf("peeked input content = %q, want original text", got.Inputs[0].Content)
+	}
+	if got.SelectedSkills[0] != "skill-1" {
+		t.Fatalf("peeked selected skill = %q, want original skill", got.SelectedSkills[0])
+	}
+	if string(got.OutputSchema) != `{"id":1}` {
+		t.Fatalf("peeked output schema = %s, want original schema", string(got.OutputSchema))
+	}
+}
+
+func TestPeekReturnsSubmissionClone(t *testing.T) {
+	t.Parallel()
+
+	var q SubmissionQueue
+	q.Enqueue(makeSubmission(2))
+
+	first, ok := q.Peek()
+	if !ok {
+		t.Fatal("first Peek() ok = false, want true")
+	}
+	first.Inputs[0].Content = "mutated"
+	first.SelectedSkills[0] = "mutated"
+	first.OutputSchema[0] = '['
+
+	second, ok := q.Peek()
+	if !ok {
+		t.Fatal("second Peek() ok = false, want true")
+	}
+	if second.Inputs[0].Content != "text-2" {
+		t.Fatalf("second peek input content = %q, want original text", second.Inputs[0].Content)
+	}
+	if second.SelectedSkills[0] != "skill-2" {
+		t.Fatalf("second peek selected skill = %q, want original skill", second.SelectedSkills[0])
+	}
+	if string(second.OutputSchema) != `{"id":2}` {
+		t.Fatalf("second peek output schema = %s, want original schema", string(second.OutputSchema))
+	}
+}
+
 func makeSubmission(id int) turn.TurnSubmission {
 	return turn.TurnSubmission{
 		ThreadID:             fmt.Sprintf("thread-%d", id),

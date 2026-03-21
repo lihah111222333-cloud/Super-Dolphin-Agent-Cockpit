@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -21,6 +22,10 @@ type service struct {
 	skills    *skillResolver
 	manifest  *manifestBuilder
 	tracker   *turnTracker
+}
+
+type steerableSession interface {
+	Steer(ctx context.Context, req dto.SteerRequest) error
 }
 
 func NewService(logger *slog.Logger) Service {
@@ -106,25 +111,66 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	return handle, nil
 }
 
-func (s *service) SteerTurn(ctx context.Context, session contract.Session, prompt string) (contract.TurnHandle, error) {
-	req, err := s.PrepareTurn(ctx, session, PrepareInput{Prompt: prompt})
-	if err != nil {
-		return nil, err
-	}
-	return s.StartTurn(ctx, session, req)
-}
-
-func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) error {
+func (s *service) SteerTurn(ctx context.Context, session contract.Session, expectedTurnID string, input PrepareInput) (contract.TurnHandle, error) {
 	ctx = normalizeContext(ctx)
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := requireSession(session); err != nil {
-		return err
+		return nil, err
 	}
 	threadID, err := resolveThreadID(session, "")
 	if err != nil {
-		return err
+		return nil, err
+	}
+	active, tracked := s.tracker.ActiveByThread(threadID)
+	if !tracked {
+		return nil, errors.New("no active turn to steer")
+	}
+	if active.handle == nil {
+		return nil, errors.New("active turn handle is nil")
+	}
+	expectedTurnID = strings.TrimSpace(expectedTurnID)
+	if expectedTurnID != "" && !strings.EqualFold(expectedTurnID, active.localID) {
+		return nil, fmt.Errorf("expectedTurnId mismatch: expected %s, active %s", expectedTurnID, active.localID)
+	}
+	req, err := s.PrepareTurn(ctx, session, input)
+	if err != nil {
+		return nil, err
+	}
+	steerer, ok := session.(steerableSession)
+	if !ok {
+		return nil, errors.New("turn steer is not supported by session")
+	}
+	if err := steerer.Steer(ctx, buildSteerRequest(req, active.handle.ProviderID())); err != nil {
+		return nil, err
+	}
+	return active.handle, nil
+}
+
+func buildSteerRequest(req dto.TurnRequest, expectedTurnID string) dto.SteerRequest {
+	return dto.SteerRequest{
+		ThreadID:             req.ThreadID,
+		ExpectedTurnID:       strings.TrimSpace(expectedTurnID),
+		Inputs:               append([]dto.InputItem(nil), req.Inputs...),
+		Skills:               append([]dto.SkillRef(nil), req.Skills...),
+		ManualSkillSelection: req.ManualSkillSelection,
+		OutputSchema:         append([]byte(nil), req.OutputSchema...),
+		Overrides:            req.Overrides,
+	}
+}
+
+func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (TurnStatus, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return TurnStatus{}, err
+	}
+	if err := requireSession(session); err != nil {
+		return TurnStatus{}, err
+	}
+	threadID, err := resolveThreadID(session, "")
+	if err != nil {
+		return TurnStatus{}, err
 	}
 	active, tracked := s.tracker.ActiveByThread(threadID)
 	err = session.Interrupt(ctx, dto.InterruptRequest{
@@ -132,12 +178,18 @@ func (s *service) InterruptTurn(ctx context.Context, session contract.Session, s
 		Source:   strings.TrimSpace(source),
 	})
 	if err != nil {
-		return err
+		return TurnStatus{}, err
 	}
 	if !tracked || !s.tracker.MarkInterruptRequested(active.localID) {
-		return nil
+		return TurnStatus{}, nil
 	}
-	return s.waitForTurnSettle(ctx, active.localID, active.handle)
+	if err := s.waitForTurnSettle(ctx, active.localID, active.handle); err != nil {
+		return TurnStatus{}, err
+	}
+	if status, ok := s.tracker.Get(active.localID); ok {
+		return status, nil
+	}
+	return TurnStatus{LocalID: active.localID, ProviderID: strings.TrimSpace(active.handle.ProviderID()), State: "interrupted"}, nil
 }
 
 func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Session) error {

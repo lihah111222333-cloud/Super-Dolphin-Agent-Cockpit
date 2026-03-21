@@ -66,8 +66,12 @@ type turnInputItemParams struct {
 }
 
 type turnSteerParams struct {
-	ThreadID string `json:"thread_id"`
-	Prompt   string `json:"prompt"`
+	ThreadID             string                `json:"thread_id"`
+	ExpectedTurnID       string                `json:"expected_turn_id,omitempty"`
+	Prompt               string                `json:"prompt,omitempty"`
+	Input                []turnInputItemParams `json:"input,omitempty"`
+	SelectedSkills       []string              `json:"selected_skills,omitempty"`
+	ManualSkillSelection bool                  `json:"manual_skill_selection,omitempty"`
 }
 
 func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
@@ -77,7 +81,28 @@ func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*p = turnSteerParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	var legacy struct {
+		ThreadID             string   `json:"threadId"`
+		ExpectedTurnID       string   `json:"expectedTurnId"`
+		SelectedSkills       []string `json:"selectedSkills"`
+		ManualSkillSelection *bool    `json:"manualSkillSelection"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if err := fillLegacyThreadID(data, &p.ThreadID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.ExpectedTurnID) == "" {
+		p.ExpectedTurnID = strings.TrimSpace(legacy.ExpectedTurnID)
+	}
+	if len(p.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
+		p.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
+	}
+	if !p.ManualSkillSelection && legacy.ManualSkillSelection != nil {
+		p.ManualSkillSelection = *legacy.ManualSkillSelection
+	}
+	return nil
 }
 
 type turnInterruptParams struct {
@@ -150,7 +175,9 @@ func (p *approvalRespondParams) UnmarshalJSON(data []byte) error {
 }
 
 type turnInterruptResult struct {
-	OK bool `json:"ok"`
+	OK     bool   `json:"ok"`
+	TurnID string `json:"turnId,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 type turnForceCompleteResult struct {

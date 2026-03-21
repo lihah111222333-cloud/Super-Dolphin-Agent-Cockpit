@@ -160,8 +160,12 @@ func TestInterruptTurnWaitsForSettle(t *testing.T) {
 		t.Fatalf("StartTurn() error = %v", err)
 	}
 
-	if err := svc.InterruptTurn(context.Background(), session, "user"); err != nil {
+	interruptStatus, err := svc.InterruptTurn(context.Background(), session, "user")
+	if err != nil {
 		t.Fatalf("InterruptTurn() error = %v", err)
+	}
+	if interruptStatus.LocalID != "local-1" || interruptStatus.State != "interrupted" {
+		t.Fatalf("InterruptTurn() status = %#v, want local-1/interrupted", interruptStatus)
 	}
 	if session.lastInterrupt.ThreadID != "thread-1" {
 		t.Fatalf("InterruptTurn thread id = %q, want thread-1", session.lastInterrupt.ThreadID)
@@ -176,28 +180,41 @@ func TestInterruptTurnWaitsForSettle(t *testing.T) {
 	}
 }
 
-func TestSteerTurnStartsPromptAsNewTurn(t *testing.T) {
+func TestSteerTurnAppendsToActiveTurn(t *testing.T) {
 	t.Parallel()
 
 	session := &stubSession{
 		threadID: "thread-1",
 		startTurn: func(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
+			handle := newStubTurnHandle(req.LocalID, "provider-2")
+			return handle, nil
+		},
+		steer: func(_ context.Context, req dto.SteerRequest) error {
+			if req.ExpectedTurnID != "provider-2" {
+				t.Fatalf("SteerTurn expected turn id = %q, want provider-2", req.ExpectedTurnID)
+			}
 			if len(req.Inputs) != 1 || req.Inputs[0].Type != "text" || req.Inputs[0].Content != "steer this" {
 				t.Fatalf("SteerTurn request = %#v", req)
 			}
-			handle := newStubTurnHandle(req.LocalID, "provider-2")
-			handle.complete(nil)
-			return handle, nil
+			return nil
 		},
 	}
 
 	svc := NewService(silentLogger())
-	handle, err := svc.SteerTurn(context.Background(), session, "steer this")
+	started, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
+		LocalID:  "local-2",
+		ThreadID: "thread-1",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+	handle, err := svc.SteerTurn(context.Background(), session, "local-2", PrepareInput{Prompt: "steer this"})
 	if err != nil {
 		t.Fatalf("SteerTurn() error = %v", err)
 	}
-	if handle == nil {
-		t.Fatal("SteerTurn() returned nil handle")
+	if handle != started {
+		t.Fatalf("SteerTurn() handle = %#v, want active handle %#v", handle, started)
 	}
 }
 
@@ -256,9 +273,11 @@ type stubSession struct {
 	threadID          string
 	caps              dto.CapabilitySet
 	startTurn         func(context.Context, dto.TurnRequest) (contract.TurnHandle, error)
+	steer             func(context.Context, dto.SteerRequest) error
 	interrupt         func(context.Context, dto.InterruptRequest) error
 	forceComplete     func(context.Context, dto.ForceCompleteRequest) error
 	lastInterrupt     dto.InterruptRequest
+	lastSteer         dto.SteerRequest
 	lastForceComplete dto.ForceCompleteRequest
 }
 
@@ -277,6 +296,14 @@ func (s *stubSession) Interrupt(ctx context.Context, req dto.InterruptRequest) e
 	s.lastInterrupt = req
 	if s.interrupt != nil {
 		return s.interrupt(ctx, req)
+	}
+	return nil
+}
+
+func (s *stubSession) Steer(ctx context.Context, req dto.SteerRequest) error {
+	s.lastSteer = req
+	if s.steer != nil {
+		return s.steer(ctx, req)
 	}
 	return nil
 }

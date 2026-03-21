@@ -187,6 +187,28 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 	return s.normalizeThreadConfig(ctx, threadID, binding, cfg), nil
 }
 
+func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error) {
+	session, binding, err := s.resolveSession(ctx, threadID)
+	if err != nil {
+		return dto.ThreadConfig{}, err
+	}
+	provider := bindingProvider(binding)
+	patch, err = normalizeThreadConfigPatch(ctx, session, provider, patch)
+	if err != nil {
+		return dto.ThreadConfig{}, err
+	}
+	if threadConfigPatchNoop(patch) {
+		return s.GetConfig(ctx, threadID)
+	}
+	if err := session.Configure(ctx, patch); err != nil {
+		return dto.ThreadConfig{}, wrapThreadConfigPatchError(err, provider, patch)
+	}
+	if model := threadConfigPatchValue(patch.Model); model != "" {
+		s.recordThreadModel(ctx, threadID, model)
+	}
+	return s.GetConfig(ctx, threadID)
+}
+
 func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -212,12 +234,57 @@ func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.
 	return s.GetConfig(ctx, threadID)
 }
 
+func normalizeThreadConfigPatch(
+	ctx context.Context,
+	session contract.Session,
+	provider string,
+	patch dto.ThreadConfigPatch,
+) (dto.ThreadConfigPatch, error) {
+	patch.Model = trimThreadConfigPatchValue(patch.Model)
+	patch.Effort = trimThreadConfigPatchValue(patch.Effort)
+	patch.Personality = trimThreadConfigPatchValue(patch.Personality)
+	patch.Approvals = trimThreadConfigPatchValue(patch.Approvals)
+	if model := threadConfigPatchValue(patch.Model); model != "" {
+		validated, err := validateModelName(model)
+		if err != nil {
+			return dto.ThreadConfigPatch{}, err
+		}
+		patch.Model = &validated
+		if err := ensureAllowedModel(ctx, session, validated, provider); err != nil {
+			return dto.ThreadConfigPatch{}, err
+		}
+	}
+	if err := validateThreadConfigEffort(threadConfigPatchValue(patch.Effort)); err != nil {
+		return dto.ThreadConfigPatch{}, err
+	}
+	return patch, nil
+}
+
 func readThreadConfig(ctx context.Context, session contract.Session, threadID string) (dto.ThreadConfig, error) {
 	reader, ok := session.(configReaderSession)
 	if !ok {
 		return dto.ThreadConfig{}, errors.New("thread config reader is not available")
 	}
 	return reader.ReadConfig(ctx, threadID)
+}
+
+func threadConfigPatchNoop(patch dto.ThreadConfigPatch) bool {
+	return patch.Model == nil &&
+		patch.Effort == nil &&
+		patch.Personality == nil &&
+		patch.Approvals == nil
+}
+
+func wrapThreadConfigPatchError(err error, provider string, patch dto.ThreadConfigPatch) error {
+	if patch.Model != nil {
+		return wrapFriendlyCapabilityError(
+			err,
+			dto.CapModelSwitch,
+			provider,
+			errRuntimeModelSwitchUnsupported,
+		)
+	}
+	return err
 }
 
 func (s *service) normalizeThreadConfig(
@@ -277,6 +344,21 @@ func modelAllowed(model string, allowed []string) bool {
 	return false
 }
 
+func trimThreadConfigPatchValue(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	return &trimmed
+}
+
+func threadConfigPatchValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
 func (s *service) storedThreadModel(ctx context.Context, threadID string) string {
 	thread, err := s.getThread(ctx, threadID)
 	if err != nil || thread == nil {
@@ -310,6 +392,15 @@ func validateModelName(value string) (string, error) {
 		return "", fmt.Errorf("invalid model name %q", model)
 	}
 	return model, nil
+}
+
+func validateThreadConfigEffort(value string) error {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "none", "minimal", "low", "medium", "high", "xhigh":
+		return nil
+	default:
+		return fmt.Errorf("invalid effort %q", value)
+	}
 }
 
 func isModelRuneAllowed(r rune) bool {

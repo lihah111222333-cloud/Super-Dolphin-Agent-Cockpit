@@ -10,9 +10,10 @@ import (
 )
 
 type scopeParams struct {
-	Cwd         string `json:"cwd,omitempty"`
-	ThreadID    string `json:"threadId,omitempty"`
-	IncludeDiff bool   `json:"includeDiff,omitempty"`
+	Cwd               string `json:"cwd,omitempty"`
+	ThreadID          string `json:"threadId,omitempty"`
+	IncludeDiff       bool   `json:"includeDiff,omitempty"`
+	KnownDiffRevision int    `json:"knownDiffRevision,omitempty"`
 }
 
 type preferenceGetParams struct {
@@ -26,10 +27,15 @@ type preferenceSetParams struct {
 	Cwd   string `json:"cwd,omitempty"`
 }
 
+type projectPathParams struct {
+	Path string `json:"path,omitempty"`
+	Cwd  string `json:"cwd,omitempty"`
+}
+
 func NewUIStateHandlers(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"ui/state/get": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
-			return svc.GetState(withPreferenceScope(ctx, p.Cwd))
+			return svc.GetState(withKnownDiffRevision(withPreferenceScope(ctx, p.Cwd), p.KnownDiffRevision))
 		}),
 		"ui/sidebar/get": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			return svc.GetSidebar(withPreferenceScope(ctx, p.Cwd))
@@ -52,6 +58,18 @@ func NewUIStateHandlers(svc Service) rpc.HandlerMapResult {
 				return nil, err
 			}
 			return map[string]any{"ok": true}, nil
+		}),
+		"ui/projects/get": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
+			return svc.GetProjects(withPreferenceScope(ctx, p.Cwd))
+		}),
+		"ui/projects/setActive": rpc.StrictHandler(func(ctx context.Context, p projectPathParams) (any, error) {
+			return svc.SetActiveProject(withPreferenceScope(ctx, p.Cwd), p.Path)
+		}),
+		"ui/projects/add": rpc.StrictHandler(func(ctx context.Context, p projectPathParams) (any, error) {
+			return svc.AddProject(withPreferenceScope(ctx, p.Cwd), p.Path)
+		}),
+		"ui/projects/remove": rpc.StrictHandler(func(ctx context.Context, p projectPathParams) (any, error) {
+			return svc.RemoveProject(withPreferenceScope(ctx, p.Cwd), p.Path)
 		}),
 	}}
 }

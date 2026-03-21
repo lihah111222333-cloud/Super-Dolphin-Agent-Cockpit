@@ -13,6 +13,11 @@ type uiDashboardGetParams struct {
 	Page string `json:"page,omitempty"`
 }
 
+type dashboardQueryParams struct {
+	Query string `json:"query"`
+	Args  []any  `json:"args,omitempty"`
+}
+
 type agentDetailParams struct {
 	AgentID      string `json:"agentId,omitempty"`
 	AgentIDSnake string `json:"agent_id,omitempty"`
@@ -20,6 +25,7 @@ type agentDetailParams struct {
 
 type logsParams struct {
 	Source         string `json:"source,omitempty"`
+	Category       string `json:"category,omitempty"`
 	Keyword        string `json:"keyword,omitempty"`
 	Level          string `json:"level,omitempty"`
 	Logger         string `json:"logger,omitempty"`
@@ -33,6 +39,10 @@ type logsParams struct {
 	ToolName       string `json:"toolName,omitempty"`
 	ToolNameSnake  string `json:"tool_name,omitempty"`
 	Limit          int    `json:"limit,omitempty"`
+}
+
+type limitParams struct {
+	Limit int `json:"limit,omitempty"`
 }
 
 func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
@@ -70,11 +80,20 @@ func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
 		"dashboard/system/info": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return svc.GetSystemInfo(ctx)
 		}),
+		"dashboard/query": rpc.StrictHandler(func(ctx context.Context, p dashboardQueryParams) ([]map[string]any, error) {
+			return svc.Query(ctx, p.Query, p.Args...)
+		}),
 		"dashboard/aiLogs": rpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
-			return dashboardLogField(ctx, svc, p, logSourceAI)
+			return dashboardAILogField(ctx, svc, p)
+		}),
+		"dashboard/aiLogs/recent": rpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
+			return dashboardRecentAILogField(ctx, svc, p.Limit)
+		}),
+		"dashboard/aiLogs/stats": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+			return dashboardAILogStatsField(ctx, svc)
 		}),
 		"dashboard/logs": rpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
-			return svc.GetLogs(ctx, p.filter())
+			return dashboardLogField(ctx, svc, p, p.Source)
 		}),
 	}}
 }
@@ -105,6 +124,30 @@ func dashboardLogField(ctx context.Context, svc Service, p logsParams, source st
 		return nil, err
 	}
 	return map[string]any{"logs": logs}, nil
+}
+
+func dashboardAILogField(ctx context.Context, svc Service, p logsParams) (map[string]any, error) {
+	logs, err := svc.GetAILogsByCategory(ctx, p.Category, p.Keyword, p.Limit)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"logs": logs}, nil
+}
+
+func dashboardRecentAILogField(ctx context.Context, svc Service, limit int) (map[string]any, error) {
+	logs, err := svc.GetRecentAILogs(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"logs": logs}, nil
+}
+
+func dashboardAILogStatsField(ctx context.Context, svc Service) (map[string]any, error) {
+	stats, err := svc.GetAILogStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"stats": stats}, nil
 }
 
 func (p agentDetailParams) agentID() string {

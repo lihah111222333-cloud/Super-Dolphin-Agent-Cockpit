@@ -11,6 +11,7 @@ import (
 	taskackstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskack"
 	taskdagstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskdag"
 	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -19,15 +20,17 @@ const (
 )
 
 type DashboardPage struct {
-	Agents       []AgentOverview              `json:"agents"`
-	Dags         []taskdagstore.DAG           `json:"dags"`
-	TaskAcks     []taskackstore.TaskAck       `json:"taskAcks"`
-	TaskTraces   []tasktracestore.TaskTrace   `json:"taskTraces"`
-	Skills       []skillmodule.SkillInfo      `json:"skills"`
+	Agents       []AgentOverview                `json:"agents"`
+	Dags         []taskdagstore.DAG             `json:"dags"`
+	TaskAcks     []taskackstore.TaskAck         `json:"taskAcks"`
+	TaskTraces   []tasktracestore.TaskTrace     `json:"taskTraces"`
+	Skills       []skillmodule.SkillInfo        `json:"skills"`
 	CommandCards []commandcardstore.CommandCard `json:"commandCards"`
-	Prompts      []promptstore.PromptTemplate `json:"prompts"`
-	Memory       []sharedfilestore.SharedFile `json:"memory"`
+	Prompts      []promptstore.PromptTemplate   `json:"prompts"`
+	Memory       []sharedfilestore.SharedFile   `json:"memory"`
 }
+
+type dashboardPageLoader func(context.Context) error
 
 func (s *service) GetDashboardPage(ctx context.Context, page string) (*DashboardPage, error) {
 	out := newDashboardPage()
@@ -51,42 +54,99 @@ func newDashboardPage() *DashboardPage {
 }
 
 func (s *service) populateDashboardPage(ctx context.Context, out *DashboardPage, page string) error {
-	switch strings.ToLower(strings.TrimSpace(page)) {
+	loaders := s.dashboardPageLoaders(out, strings.ToLower(strings.TrimSpace(page)))
+	if len(loaders) == 0 {
+		return nil
+	}
+	group, groupCtx := errgroup.WithContext(ctx)
+	for _, load := range loaders {
+		load := load
+		group.Go(func() error {
+			return load(groupCtx)
+		})
+	}
+	return group.Wait()
+}
+
+func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashboardPageLoader {
+	switch page {
 	case "agents":
-		items, err := s.listAgents(ctx)
-		out.Agents = items
-		return err
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardAgents(ctx, out) },
+		}
 	case "dags":
-		items, err := s.listDashboardDAGs(ctx)
-		out.Dags = items
-		return err
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardDAGs(ctx, out) },
+		}
 	case "tasks":
-		acks, err := s.listDashboardTaskAcks(ctx)
-		if err != nil {
-			return err
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardTaskAcks(ctx, out) },
+			func(ctx context.Context) error { return s.populateDashboardTaskTraces(ctx, out) },
 		}
-		traces, err := s.listDashboardTaskTraces(ctx)
-		out.TaskAcks, out.TaskTraces = acks, traces
-		return err
 	case "skills":
-		items, err := s.listDashboardSkills(ctx)
-		out.Skills = items
-		return err
-	case "commands":
-		cards, err := s.listDashboardCommandCards(ctx)
-		if err != nil {
-			return err
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardSkills(ctx, out) },
 		}
-		prompts, err := s.listDashboardPrompts(ctx)
-		out.CommandCards, out.Prompts = cards, prompts
-		return err
+	case "commands":
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardCommandCards(ctx, out) },
+			func(ctx context.Context) error { return s.populateDashboardPrompts(ctx, out) },
+		}
 	case "memory":
-		items, err := s.listDashboardMemory(ctx)
-		out.Memory = items
-		return err
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardMemory(ctx, out) },
+		}
 	default:
 		return nil
 	}
+}
+
+func (s *service) populateDashboardAgents(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listAgents(ctx)
+	out.Agents = items
+	return err
+}
+
+func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardDAGs(ctx)
+	out.Dags = items
+	return err
+}
+
+func (s *service) populateDashboardTaskAcks(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardTaskAcks(ctx)
+	out.TaskAcks = items
+	return err
+}
+
+func (s *service) populateDashboardTaskTraces(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardTaskTraces(ctx)
+	out.TaskTraces = items
+	return err
+}
+
+func (s *service) populateDashboardSkills(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardSkills(ctx)
+	out.Skills = items
+	return err
+}
+
+func (s *service) populateDashboardCommandCards(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardCommandCards(ctx)
+	out.CommandCards = items
+	return err
+}
+
+func (s *service) populateDashboardPrompts(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardPrompts(ctx)
+	out.Prompts = items
+	return err
+}
+
+func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardMemory(ctx)
+	out.Memory = items
+	return err
 }
 
 func (s *service) listDashboardDAGs(ctx context.Context) ([]taskdagstore.DAG, error) {

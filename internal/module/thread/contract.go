@@ -19,6 +19,7 @@ type Service interface {
 	ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error)
 	ReadMessages(ctx context.Context, threadID string, limit int, before string) ([]dto.Message, error)
 	GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error)
+	SetConfig(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error)
 	SetModel(ctx context.Context, threadID, model string) (dto.ThreadConfig, error)
 	Compact(ctx context.Context, threadID, args string) (dto.ThreadCompactResult, error)
 	Archive(ctx context.Context, threadID string) error
@@ -47,8 +48,10 @@ type StartRequest struct {
 }
 
 type StartResult struct {
-	ThreadID string `json:"thread_id"`
-	AgentID  string `json:"agent_id,omitempty"`
+	ThreadID  string `json:"thread_id"`
+	AgentID   string `json:"agent_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Status    string `json:"status,omitempty"`
 }
 
 type ResumeRequest struct {
@@ -61,9 +64,10 @@ type ResumeRequest struct {
 }
 
 type ResumeResult struct {
-	ThreadID string `json:"thread_id"`
-	Status   string `json:"status"`
-	Model    string `json:"model,omitempty"`
+	ThreadID  string `json:"thread_id"`
+	SessionID string `json:"session_id,omitempty"`
+	Status    string `json:"status"`
+	Model     string `json:"model,omitempty"`
 }
 
 type ForkResult struct {

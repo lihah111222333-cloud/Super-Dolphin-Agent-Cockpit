@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -16,8 +17,44 @@ type orchestrationTurnStarter struct {
 	sessions SessionProvider
 }
 
+const sessionReadyPollInterval = 50 * time.Millisecond
+
 func NewOrchestrationTurnStarter(turns Service, sessions SessionProvider) orchestration.TurnStarter {
 	return orchestrationTurnStarter{turns: turns, sessions: sessions}
+}
+
+func (s orchestrationTurnStarter) WaitForSessionReady(ctx context.Context, agentID string, timeout time.Duration) error {
+	if s.sessions == nil {
+		return errors.New("turn session provider is not configured")
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return errors.New("agent id is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	ticker := time.NewTicker(sessionReadyPollInterval)
+	defer ticker.Stop()
+	for {
+		_, err := s.sessions.GetSession(agentID)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, contract.ErrSessionNotFound) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return sessionLookupError(err)
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission orchestration.TurnSubmission) (string, error) {

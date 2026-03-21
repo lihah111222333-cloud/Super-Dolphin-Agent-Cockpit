@@ -47,7 +47,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	if err != nil {
 		return StartResult{}, err
 	}
-	if err := s.launchAgent(ctx, agentID, req.CWD, req.Prompt); err != nil {
+	if err := s.launchAgent(ctx, agentID, req.CWD, req.Prompt, req.Provider, req.Model); err != nil {
 		return StartResult{}, err
 	}
 	if _, err := s.startSession(ctx, req, agentID); err != nil {
@@ -63,7 +63,8 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
-	threadID := resolveStartedThreadID(session.ThreadID(), agentID)
+	sessionID := strings.TrimSpace(session.ThreadID())
+	threadID := resolveStartedThreadID(sessionID, agentID)
 	if err := s.persistThreadState(ctx, threadState{
 		ThreadID:  threadID,
 		AgentID:   agentID,
@@ -76,7 +77,12 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
-	return StartResult{ThreadID: threadID, AgentID: agentID}, nil
+	return StartResult{
+		ThreadID:  threadID,
+		AgentID:   agentID,
+		SessionID: firstNonEmpty(sessionID, threadID),
+		Status:    "running",
+	}, nil
 }
 func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
 	ctx = normalizeThreadContext(ctx)
@@ -84,11 +90,13 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	if err != nil {
 		return ResumeResult{}, err
 	}
-	cwd := firstNonEmpty(req.CWD, s.lookupBindingCWD(ctx, req.AgentID))
+	req.Provider = firstNonEmpty(req.Provider, state.Provider)
+	req.Model = firstNonEmpty(req.Model, state.Model)
+	req.CWD = firstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
 	if s.sessions != nil {
 		s.sessions.RemoveSession(req.AgentID)
 	}
-	if err := s.launchAgent(ctx, req.AgentID, cwd, state.Prompt); err != nil {
+	if err := s.launchAgent(ctx, req.AgentID, req.CWD, state.Prompt, req.Provider, req.Model); err != nil {
 		return ResumeResult{}, err
 	}
 	if _, err := s.resumeSession(ctx, req); err != nil {
@@ -104,22 +112,30 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 		s.stopAgent(ctx, req.AgentID)
 		return ResumeResult{}, err
 	}
-	threadID := resolveStartedThreadID(session.ThreadID(), req.ThreadID)
+	sessionID := strings.TrimSpace(session.ThreadID())
+	threadID := resolveStartedThreadID(sessionID, req.ThreadID)
 	model := firstNonEmpty(req.Model, state.Model)
 	if err := s.persistThreadState(ctx, threadState{
 		ThreadID:  threadID,
 		AgentID:   req.AgentID,
 		Provider:  req.Provider,
-		CWD:       cwd,
+		CWD:       req.CWD,
 		Model:     model,
 		Prompt:    state.Prompt,
 		CreatedAt: firstNonZero(state.CreatedAt, time.Now().Unix()),
 	}, true); err != nil {
+		s.stopAgent(ctx, req.AgentID)
 		return ResumeResult{}, err
 	}
-	return ResumeResult{ThreadID: threadID, Status: "resumed", Model: model}, nil
+	return ResumeResult{
+		ThreadID:  threadID,
+		SessionID: firstNonEmpty(sessionID, threadID),
+		Status:    "resumed",
+		Model:     model,
+	}, nil
 }
 func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error) {
+	ctx = normalizeThreadContext(ctx)
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
 		return ForkResult{}, err
@@ -133,19 +149,45 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if newThreadID == "" {
 		return ForkResult{}, errors.New("fork thread id is required")
 	}
+	provider := strings.TrimSpace(binding.Provider)
+	if provider == "" {
+		return ForkResult{}, errors.New("fork provider is required")
+	}
+	agentID := newThreadID
+	cwd := firstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
+	if err := s.launchAgent(ctx, agentID, cwd, meta.Prompt, provider, meta.Model); err != nil {
+		return ForkResult{}, err
+	}
+	forkedSession, err := s.resumeSession(ctx, ResumeRequest{
+		Provider: provider,
+		AgentID:  agentID,
+		ThreadID: newThreadID,
+		CWD:      cwd,
+		Model:    meta.Model,
+	})
+	if err != nil {
+		s.stopAgent(ctx, agentID)
+		return ForkResult{}, err
+	}
+	if err := s.bindSessionGeneration(ctx, agentID); err != nil {
+		s.stopAgent(ctx, agentID)
+		return ForkResult{}, err
+	}
+	resolvedThreadID := resolveStartedThreadID(forkedSession.ThreadID(), newThreadID)
 	if err := s.persistThreadState(ctx, threadState{
-		ThreadID:      newThreadID,
+		ThreadID:      resolvedThreadID,
 		OwnerThreadID: historyTargetID(binding, threadID),
-		AgentID:       strings.TrimSpace(binding.AgentID),
-		Provider:      strings.TrimSpace(binding.Provider),
-		CWD:           firstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
+		AgentID:       agentID,
+		Provider:      provider,
+		CWD:           cwd,
 		Model:         meta.Model,
 		Prompt:        meta.Prompt,
 		CreatedAt:     time.Now().Unix(),
-	}, false); err != nil {
+	}, true); err != nil {
+		s.stopAgent(ctx, agentID)
 		return ForkResult{}, err
 	}
-	return ForkResult{NewThreadID: newThreadID}, nil
+	return ForkResult{NewThreadID: resolvedThreadID}, nil
 }
 
 func (s *service) Recover(ctx context.Context, threadID string) error {
@@ -251,11 +293,11 @@ func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
 	return strings.TrimSpace(binding.Cwd)
 }
 
-func (s *service) launchAgent(ctx context.Context, agentID, cwd, name string) error {
+func (s *service) launchAgent(ctx context.Context, agentID, cwd, name, provider, model string) error {
 	if s.orchestration == nil {
 		return nil
 	}
-	req, err := buildLaunchRequest(agentID, cwd, name)
+	req, err := buildLaunchRequest(agentID, cwd, name, provider, model)
 	if err != nil {
 		return err
 	}
@@ -276,10 +318,10 @@ func (s *service) recoverAgent(ctx context.Context, agentID, cwd, name string) e
 	if err := s.orchestration.Recover(ctx, agentID); err == nil {
 		return nil
 	}
-	return s.launchAgent(ctx, agentID, cwd, name)
+	return s.launchAgent(ctx, agentID, cwd, name, "", "")
 }
 
-func buildLaunchRequest(agentID, cwd, name string) (LaunchAgentRequest, error) {
+func buildLaunchRequest(agentID, cwd, name, provider, model string) (LaunchAgentRequest, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return LaunchAgentRequest{}, err
@@ -289,7 +331,22 @@ func buildLaunchRequest(agentID, cwd, name string) (LaunchAgentRequest, error) {
 		Name:    strings.TrimSpace(name),
 		Cwd:     strings.TrimSpace(cwd),
 		Command: []string{exe},
+		Env:     launchConfigEnv(provider, model),
 	}, nil
+}
+
+func launchConfigEnv(provider, model string) []string {
+	env := make([]string, 0, 2)
+	if provider = strings.TrimSpace(provider); provider != "" {
+		env = append(env, "AGENT_PROVIDER="+provider)
+	}
+	if model = strings.TrimSpace(model); model != "" {
+		env = append(env, "AGENT_MODEL="+model)
+	}
+	if len(env) == 0 {
+		return nil
+	}
+	return env
 }
 func (s *service) rememberBinding(binding *bindingstore.Binding) {
 	if binding == nil {

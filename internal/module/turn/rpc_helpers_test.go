@@ -93,6 +93,8 @@ func (s rpcHelperSession) StartTurn(context.Context, dto.TurnRequest) (contract.
 	return nil, errors.New("unexpected StartTurn call")
 }
 
+func (s rpcHelperSession) Steer(context.Context, dto.SteerRequest) error { return nil }
+
 func (s rpcHelperSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
 
 func (s rpcHelperSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error { return nil }

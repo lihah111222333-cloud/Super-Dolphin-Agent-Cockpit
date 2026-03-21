@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -109,11 +110,17 @@ func evaluateRemovedMergeFile(
 	candidate removedWorkspaceFile,
 	dryRun bool,
 ) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
-	file.WorkspaceSHA256 = candidate.WorkspaceSHA256
-	file.SourceSHA256Before = ""
+	file.WorkspaceSHA256 = ""
+	file.SourceSHA256Before = candidate.SourceSHA256Before
 	file.SourceSHA256After = ""
-	file.State = fileStateRemoved
 	file.LastError = ""
+	if file.BaselineSHA256 != "" && candidate.SourceSHA256Before != "" && candidate.SourceSHA256Before != file.BaselineSHA256 {
+		reason := "delete conflict: source changed since baseline"
+		file.State = fileStateConflict
+		file.LastError = reason
+		return file, MergeFileResult{Path: candidate.RelativePath, Action: "conflict", Reason: reason}
+	}
+	file.State = fileStateRemoved
 	action := "removed"
 	if dryRun {
 		action = "would_remove"
@@ -157,6 +164,10 @@ func evaluateMergeFile(run *Run, file RunFile) (storeworkspace.WorkspaceRunFile,
 
 func recordMergeItem(result *MergeRunResult, item MergeFileResult) {
 	result.Files = append(result.Files, item)
+	countMergeItem(result, item)
+}
+
+func countMergeItem(result *MergeRunResult, item MergeFileResult) {
 	switch item.Action {
 	case "merged":
 		result.Merged++
@@ -168,6 +179,17 @@ func recordMergeItem(result *MergeRunResult, item MergeFileResult) {
 		result.Unchanged++
 	case "error":
 		result.Errors++
+	}
+}
+
+func recountMergeResult(result *MergeRunResult) {
+	result.Merged = 0
+	result.Removed = 0
+	result.Conflicts = 0
+	result.Unchanged = 0
+	result.Errors = 0
+	for _, item := range result.Files {
+		countMergeItem(result, item)
 	}
 }
 
@@ -260,11 +282,16 @@ func buildRunFile(run *Run, rel string) (storeworkspace.WorkspaceRunFile, error)
 func (s *service) emitRunCreated(run *Run) {
 	s.emitCreated(workspacedto.WorkspaceRunCreated{
 		WorkspaceRunHeader: workspaceRunHeader(run),
+		ID:                 run.ID,
 		SourceRoot:         run.SourceRoot,
 		WorkspacePath:      run.WorkspacePath,
 		Status:             run.Status,
 		CreatedBy:          run.CreatedBy,
 		UpdatedBy:          run.UpdatedBy,
+		Metadata:           append(json.RawMessage(nil), run.Metadata...),
+		CreatedAt:          run.CreatedAt,
+		UpdatedAt:          run.UpdatedAt,
+		FinishedAt:         cloneTimePtr(run.FinishedAt),
 	})
 }
 
@@ -342,6 +369,14 @@ func workspaceRunHeader(run *Run) sharedto.WorkspaceRunHeader {
 		},
 		RunKey: run.RunKey,
 	}
+}
+
+func cloneTimePtr(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func normalizeRelativePath(raw string) (string, error) {

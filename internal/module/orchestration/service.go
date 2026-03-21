@@ -26,16 +26,28 @@ var (
 	errTurnNotActive          = errors.New("turn is not active")
 )
 
+const submitSessionReadyTimeout = 5 * time.Second
+
+type sessionReadyWaiter interface {
+	WaitForSessionReady(ctx context.Context, agentID string, timeout time.Duration) error
+}
+
 type service struct {
 	logger         *slog.Logger
 	eventBus       *event.Dispatcher
 	sessionCleaner SessionCleaner
 	turnStarter    TurnStarter
 	dagStore       taskdag.Store
+	recoveryStore  recoveryTurnStore
 	machineCfg     platformstatemachine.Config
 	mu             sync.RWMutex
 	agents         map[string]*agentRuntime
 	nextTurnSeq    int64
+}
+
+type recoveryTurnStore interface {
+	ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]taskdag.Node, error)
+	GetWakeup(ctx context.Context, id int64) (*taskdag.Wakeup, error)
 }
 
 type agentRuntime struct {
@@ -61,9 +73,11 @@ type agentRuntime struct {
 	updatedAt         time.Time
 	exitedAt          *time.Time
 	launchSeq         uint64
+	lastExitedSeq     uint64
 	monitoredSeq      uint64
 	sessionGeneration uint64
 	stopRequested     bool
+	stopReason        string
 	cmd               *exec.Cmd
 	queue             *SubmissionQueue
 	sm                *stateless.StateMachine
@@ -98,6 +112,7 @@ func NewService(
 		sessionCleaner: sessionCleaner,
 		turnStarter:    turnStarter,
 		dagStore:       dagStore,
+		recoveryStore:  dagStore,
 		machineCfg: platformstatemachine.Config{
 			Initial: agentdto.StateProvisioning,
 			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions),
@@ -127,18 +142,20 @@ func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error {
 
 func (s *service) StopAgent(ctx context.Context, agentID string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	agent, err := s.lookupAgentLocked(agentID)
 	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
-	if err := s.stopAgentLocked(ctx, agent); err != nil {
+	launchSeq := agent.launchSeq
+	if err := s.stopAgentLocked(ctx, agent, "user_requested"); err != nil {
+		s.mu.Unlock()
 		return err
 	}
-	s.removeSession(agent)
-	s.publishAgentStopped(agent, "user_requested")
-	return nil
+	s.mu.Unlock()
+
+	return s.waitForProcessExit(ctx, agent.id, launchSeq)
 }
 
 func (s *service) StopAllAgents() {
@@ -146,18 +163,20 @@ func (s *service) StopAllAgents() {
 	defer s.mu.Unlock()
 
 	for _, agent := range s.agents {
-		if err := s.stopAgentLocked(context.Background(), agent); err == nil {
+		if err := s.stopAgentLocked(context.Background(), agent, "shutdown"); err == nil {
 			s.removeSession(agent)
 			s.publishAgentStopped(agent, "shutdown")
+			agent.stopReason = ""
 		}
 	}
 }
 
-func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime) error {
+func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime, reason string) error {
 	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerStopRequested); err != nil {
 		return err
 	}
 	agent.stopRequested = true
+	agent.stopReason = strings.TrimSpace(reason)
 	agent.queue.Clear()
 	agent.activeTurnID = ""
 	agent.threadID = ""
@@ -165,10 +184,20 @@ func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime) erro
 }
 
 func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
+	agentID := strings.TrimSpace(req.AgentID)
+	waitForSession, err := s.submitAgentReadyState(agentID)
+	if err != nil {
+		return err
+	}
+	if waitForSession {
+		if err := s.waitForSubmitSessionReady(ctx, agentID); err != nil {
+			return err
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(req.AgentID))
+	agent, err := s.lookupAgentLocked(agentID)
 	if err != nil {
 		return err
 	}
@@ -178,6 +207,7 @@ func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 	if agent.stopRequested {
 		return fmt.Errorf("agent %q is stopping", agent.id)
 	}
+	req.AgentID = agentID
 	agent.queue.Enqueue(req)
 	if agent.state == agentdto.StateIdle {
 		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
@@ -185,6 +215,34 @@ func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 		}
 	}
 	return nil
+}
+
+func (s *service) submitAgentReadyState(agentID string) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	agent, err := s.lookupAgentLocked(agentID)
+	if err != nil {
+		return false, err
+	}
+	if agent.cmd == nil {
+		return false, fmt.Errorf("agent %q is not running", agent.id)
+	}
+	if agent.stopRequested {
+		return false, fmt.Errorf("agent %q is stopping", agent.id)
+	}
+	return agent.state == agentdto.StateIdle && agent.activeTurnID == "" && agent.queue.Len() == 0, nil
+}
+
+func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string) error {
+	if s == nil || s.turnStarter == nil {
+		return nil
+	}
+	waiter, ok := s.turnStarter.(sessionReadyWaiter)
+	if !ok {
+		return nil
+	}
+	return waiter.WaitForSessionReady(ctx, agentID, submitSessionReadyTimeout)
 }
 
 func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
@@ -254,15 +312,41 @@ func (s *service) fireOrForceLocked(ctx context.Context, agent *agentRuntime, tr
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if agent == nil || agent.sm == nil {
-		return fmt.Errorf("%w: state machine is not initialized", errIllegalStateTransition)
+	before := ""
+	if agent != nil {
+		before = agent.state
 	}
-	before := agent.state
+	if agent == nil || agent.sm == nil {
+		return formatIllegalTransitionError(ctx, agent, before, trigger, errors.New("state machine is not initialized"))
+	}
 	if err := s.fireAndPublishLocked(ctx, agent, trigger); err != nil {
-		allowed := platformstatemachine.AllowedTriggers(agent.sm, ctx)
-		return fmt.Errorf("%w for agent %q: state=%s trigger=%s allowed=%v: %w", errIllegalStateTransition, agent.id, before, trigger, allowed, err)
+		return formatIllegalTransitionError(ctx, agent, before, trigger, err)
 	}
 	return nil
+}
+
+func formatIllegalTransitionError(ctx context.Context, agent *agentRuntime, before, trigger string, err error) error {
+	allowed := allowedTriggersForState(ctx, agent, before)
+	agentID := ""
+	if agent != nil {
+		agentID = agent.id
+	}
+	return fmt.Errorf("%w for agent %q: state=%s trigger=%s allowed=%v: %w", errIllegalStateTransition, agentID, before, trigger, allowed, err)
+}
+
+func allowedTriggersForState(ctx context.Context, agent *agentRuntime, state string) []string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if agent != nil && agent.sm != nil {
+		if allowed := platformstatemachine.AllowedTriggers(agent.sm, ctx); allowed != nil {
+			return allowed
+		}
+	}
+	if strings.TrimSpace(state) == "" {
+		return nil
+	}
+	return agentdto.AllowedTriggers(state)
 }
 
 func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime, trigger string) error {
@@ -350,10 +434,16 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	agent.cmd = nil
 	agent.exitedAt = &now
+	agent.lastExitedSeq = launchSeq
 	agent.updatedAt = now
+	resetRuntimeStateLocked(agent)
 	s.removeSession(agent)
 	s.recordProcessExitError(agent, err)
 	s.handleProcessExitTransition(ctx, agent)
+	if agent.stopRequested && agent.stopReason == "user_requested" {
+		s.publishAgentStopped(agent, agent.stopReason)
+	}
+	agent.stopReason = ""
 }
 
 func (s *service) recordProcessExitError(agent *agentRuntime, err error) {
@@ -377,5 +467,31 @@ func (s *service) handleProcessExitTransition(ctx context.Context, agent *agentR
 	}
 	if fireErr := s.fireOrForceLocked(ctx, agent, trigger); fireErr != nil {
 		s.logger.Warn(message, "agent_id", agent.id, "error", fireErr)
+	}
+}
+
+func (s *service) waitForProcessExit(ctx context.Context, agentID string, launchSeq uint64) error {
+	if launchSeq == 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		s.mu.RLock()
+		agent, ok := s.agents[agentID]
+		exited := ok && agent.lastExitedSeq >= launchSeq
+		s.mu.RUnlock()
+		if exited {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }

@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 )
 
@@ -17,11 +19,15 @@ const (
 )
 
 type service struct {
-	cards           commandcardstore.Store
-	root            string
-	projectRoot     string
-	http            *http.Client
-	readConfigState func(context.Context, string) (any, error)
+	cards             commandcardstore.Store
+	root              string
+	projectRoot       string
+	http              *http.Client
+	readConfigState   func(context.Context, string) (any, error)
+	emitSkillsChanged skillsChangedEmitter
+	skillsChangedMu   sync.Mutex
+	skillsChangedNext uidto.SkillsChanged
+	skillsChangedSeq  uint64
 }
 
 var _ Service = (*service)(nil)
