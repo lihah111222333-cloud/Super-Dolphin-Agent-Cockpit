@@ -14,7 +14,7 @@ func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error
 	}
 	// TODO: add explicit clear semantics for runtime port updates instead of
 	// treating port<=0 as "not provided" for backward compatibility.
-	if report.Port <= 0 && provider == "" {
+	if !shouldUpdatePort(report.Port) && !shouldUpdateProvider(provider) {
 		return errors.New("runtime report must include port or provider")
 	}
 
@@ -25,7 +25,7 @@ func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error
 	if err != nil {
 		return err
 	}
-	if provider != "" && !isKnownRuntimeProvider(provider) {
+	if shouldUpdateProvider(provider) && !isKnownRuntimeProvider(provider) {
 		loggerOrDefault(s.logger).Warn("orchestration: unknown runtime provider", "agent_id", agent.id, "provider", provider)
 	}
 	beforePort, beforePortSource := snapshotPort(agent)
@@ -34,8 +34,16 @@ func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	afterPort, afterPortSource := snapshotPort(agent)
 	afterProvider, afterProviderSource := snapshotProvider(agent)
-	if beforePort != afterPort || beforePortSource != afterPortSource ||
-		beforeProvider != afterProvider || beforeProviderSource != afterProviderSource {
+	if runtimeSnapshotChanged(
+		beforePort,
+		beforePortSource,
+		beforeProvider,
+		beforeProviderSource,
+		afterPort,
+		afterPortSource,
+		afterProvider,
+		afterProviderSource,
+	) {
 		s.publishAgentRuntimeReported(agent)
 	}
 	return nil
@@ -62,14 +70,38 @@ func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSn
 }
 
 func applyRuntimeReportLocked(agent *agentRuntime, port int, provider string) {
-	if port > 0 {
+	if shouldUpdatePort(port) {
 		agent.runtimePort = port
 		agent.portSource = "runtime"
 	}
-	if provider != "" {
+	if shouldUpdateProvider(provider) {
 		agent.runtimeProvider = provider
 		agent.providerSource = runtimeProviderSource(provider)
 	}
+}
+
+func shouldUpdatePort(port int) bool {
+	return port > 0
+}
+
+func shouldUpdateProvider(provider string) bool {
+	return provider != ""
+}
+
+func runtimeSnapshotChanged(
+	beforePort int,
+	beforePortSource string,
+	beforeProvider string,
+	beforeProviderSource string,
+	afterPort int,
+	afterPortSource string,
+	afterProvider string,
+	afterProviderSource string,
+) bool {
+	return beforePort != afterPort ||
+		beforePortSource != afterPortSource ||
+		beforeProvider != afterProvider ||
+		beforeProviderSource != afterProviderSource
 }
 
 func runtimeProviderSource(provider string) string {
