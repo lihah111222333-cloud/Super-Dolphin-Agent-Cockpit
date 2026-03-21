@@ -6,7 +6,6 @@ import (
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type store struct {
@@ -143,7 +142,7 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 
 func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNodeEventInput) (*Node, error) {
 	row, err := s.q.TouchRunningTaskDagNodeEvent(ctx, sqlc.TouchRunningTaskDagNodeEventParams{
-		LastEventAt:  pgtype.Timestamptz{Time: input.ObservedAt, Valid: !input.ObservedAt.IsZero()},
+		LastEventAt:  sqlc.Timestamptz{Time: input.ObservedAt, Valid: !input.ObservedAt.IsZero()},
 		DagKey:       input.DagKey,
 		NodeKey:      input.NodeKey,
 		ActiveTurnID: stringPtr(input.TurnID),
@@ -412,22 +411,22 @@ func wrapTaskDAGError(err error, operation, entity string) error {
 }
 
 // intervalValue converts textual interval input into the pgtype shape expected by sqlc.
-func intervalValue(value string) (pgtype.Interval, error) {
-	var interval pgtype.Interval
+func intervalValue(value string) (sqlc.Interval, error) {
+	var interval sqlc.Interval
 	if err := interval.Scan(value); err != nil {
-		return pgtype.Interval{}, err
+		return sqlc.Interval{}, err
 	}
 	return interval, nil
 }
 
-func timeValue(value pgtype.Timestamptz) time.Time {
+func timeValue(value sqlc.Timestamptz) time.Time {
 	if !value.Valid {
 		return time.Time{}
 	}
 	return value.Time
 }
 
-func timestampPtr(value pgtype.Timestamptz) *time.Time {
+func timestampPtr(value sqlc.Timestamptz) *time.Time {
 	if !value.Valid {
 		return nil
 	}
@@ -435,6 +434,6 @@ func timestampPtr(value pgtype.Timestamptz) *time.Time {
 	return &copy
 }
 
-func timestampValue(value time.Time) pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: value, Valid: !value.IsZero()}
+func timestampValue(value time.Time) sqlc.Timestamptz {
+	return sqlc.Timestamptz{Time: value, Valid: !value.IsZero()}
 }
