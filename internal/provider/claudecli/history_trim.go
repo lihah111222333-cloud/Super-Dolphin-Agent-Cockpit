@@ -13,6 +13,14 @@ var claudeSystemNoiseTagPairs = []struct {
 	{open: "<permissions instructions>", close: "</permissions instructions>"},
 }
 
+var claudeInjectedSkillMarkers = []struct {
+	label         string
+	allowContains bool
+}{
+	{label: "摘要:", allowContains: true},
+	{label: "使用方式: ", allowContains: false},
+}
+
 func normalizeClaudeHistory(messages []Message) []Message {
 	out := make([]Message, 0, len(messages))
 	for _, msg := range messages {
@@ -75,14 +83,9 @@ func looksLikeInjectedClaudeSkillBlock(lines []string, start int) bool {
 	if start < 0 || start >= len(lines) {
 		return false
 	}
-	const (
-		lookahead     = 8
-		summaryPrefix = "摘要:"
-		usagePrefix   = "使用方式: "
-	)
-	current := strings.TrimSpace(lines[start])
-	hasSummary := strings.Contains(current, summaryPrefix)
-	hasUsage := strings.Contains(current, usagePrefix)
+	const lookahead = 8
+	matched := map[string]bool{}
+	markInjectedSkillMarkers(strings.TrimSpace(lines[start]), matched)
 	for i := start + 1; i < len(lines) && i <= start+lookahead; i++ {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
@@ -91,13 +94,27 @@ func looksLikeInjectedClaudeSkillBlock(lines []string, start int) bool {
 		if strings.HasPrefix(line, "[skill:") {
 			break
 		}
-		hasSummary = hasSummary || strings.HasPrefix(line, summaryPrefix)
-		hasUsage = hasUsage || strings.HasPrefix(line, usagePrefix)
-		if hasSummary && hasUsage {
+		markInjectedSkillMarkers(line, matched)
+		if len(matched) == len(claudeInjectedSkillMarkers) {
 			return true
 		}
 	}
-	return hasSummary && hasUsage
+	return len(matched) == len(claudeInjectedSkillMarkers)
+}
+
+func markInjectedSkillMarkers(line string, matched map[string]bool) {
+	for _, marker := range claudeInjectedSkillMarkers {
+		if matchClaudeInjectedSkillMarker(line, marker.label, marker.allowContains) {
+			matched[marker.label] = true
+		}
+	}
+}
+
+func matchClaudeInjectedSkillMarker(line, marker string, allowContains bool) bool {
+	if allowContains {
+		return strings.Contains(line, marker)
+	}
+	return strings.HasPrefix(line, marker)
 }
 
 func isClaudeSystemNoiseText(text string) bool {

@@ -28,6 +28,14 @@ type rolloutContentItem struct {
 	ImageURL string `json:"image_url,omitempty"`
 }
 
+var rolloutInjectedSkillMarkers = []struct {
+	label         string
+	allowContains bool
+}{
+	{label: "摘要:", allowContains: true},
+	{label: "使用方式: ", allowContains: false},
+}
+
 func readLocalRollout(threadID string, limit int) ([]Message, error) {
 	path, err := findRolloutPath(threadID)
 	if err != nil {
@@ -249,14 +257,9 @@ func looksLikeInjectedSkillBlock(lines []string, start int) bool {
 	if start < 0 || start >= len(lines) {
 		return false
 	}
-	const (
-		lookahead     = 8
-		summaryPrefix = "摘要:"
-		usagePrefix   = "使用方式: "
-	)
-	current := strings.TrimSpace(lines[start])
-	hasSummary := strings.Contains(current, summaryPrefix)
-	hasUsage := strings.Contains(current, usagePrefix)
+	const lookahead = 8
+	matched := map[string]bool{}
+	markRolloutInjectedSkillMarkers(strings.TrimSpace(lines[start]), matched)
 	for i := start + 1; i < len(lines) && i <= start+lookahead; i++ {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
@@ -265,13 +268,27 @@ func looksLikeInjectedSkillBlock(lines []string, start int) bool {
 		if strings.HasPrefix(line, "[skill:") {
 			break
 		}
-		hasSummary = hasSummary || strings.HasPrefix(line, summaryPrefix)
-		hasUsage = hasUsage || strings.HasPrefix(line, usagePrefix)
-		if hasSummary && hasUsage {
+		markRolloutInjectedSkillMarkers(line, matched)
+		if len(matched) == len(rolloutInjectedSkillMarkers) {
 			return true
 		}
 	}
-	return hasSummary && hasUsage
+	return len(matched) == len(rolloutInjectedSkillMarkers)
+}
+
+func markRolloutInjectedSkillMarkers(line string, matched map[string]bool) {
+	for _, marker := range rolloutInjectedSkillMarkers {
+		if matchRolloutInjectedSkillMarker(line, marker.label, marker.allowContains) {
+			matched[marker.label] = true
+		}
+	}
+}
+
+func matchRolloutInjectedSkillMarker(line, marker string, allowContains bool) bool {
+	if allowContains {
+		return strings.Contains(line, marker)
+	}
+	return strings.HasPrefix(line, marker)
 }
 
 func normalizeRolloutInputType(kind string) string {
