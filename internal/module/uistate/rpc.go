@@ -35,7 +35,10 @@ type projectPathParams struct {
 func NewUIStateHandlers(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"ui/state/get": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
-			return svc.GetState(withKnownDiffRevision(withPreferenceScope(ctx, p.Cwd), p.KnownDiffRevision))
+			ctx = withPreferenceScope(ctx, p.Cwd)
+			ctx = withKnownDiffRevision(ctx, p.KnownDiffRevision)
+			ctx = withDiffStateRequest(ctx, strings.TrimSpace(p.ThreadID), p.IncludeDiff, p.KnownDiffRevision)
+			return svc.GetState(ctx)
 		}),
 		"ui/sidebar/get": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			return svc.GetSidebar(withPreferenceScope(ctx, p.Cwd))

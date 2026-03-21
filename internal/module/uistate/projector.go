@@ -114,12 +114,12 @@ func (s *service) applyAgentFailed(ev agentdto.AgentFailed) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:         strings.TrimSpace(ev.ThreadID),
-		AgentID:    strings.TrimSpace(ev.AgentID),
-		State:      "error",
+		ID:           strings.TrimSpace(ev.ThreadID),
+		AgentID:      strings.TrimSpace(ev.AgentID),
+		State:        "error",
 		ThreadStatus: "error",
-		AgentState: "error",
-		LastMessage: strings.TrimSpace(ev.Error),
+		AgentState:   "error",
+		LastMessage:  strings.TrimSpace(ev.Error),
 	})
 	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
 		ID:          strings.TrimSpace(ev.AgentID),
