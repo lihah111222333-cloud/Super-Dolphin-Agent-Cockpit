@@ -202,4 +202,56 @@ describe('normalizeReasoningText', () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+
+  // ── Flicker-fix tests ──────────────────────────────────────────────
+
+  it('done=true streaming HTML exactly equals static renderAssistantBody HTML', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', undefined);
+    vi.stubGlobal('cancelAnimationFrame', undefined);
+    const render = (text) => renderAssistantMarkdown(text);
+    const resolve = createStreamingMarkdownStateResolver(render);
+    const text = '# Title\n\nParagraph one.\n\n- item 1\n- item 2\n\nTrailing line';
+    const result = resolve({ id: 'flicker-1', kind: 'assistant', text, done: true });
+    const staticHtml = render(text);
+    expect(result.html).toBe(staticHtml);
+    resolve.dispose?.();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('done=true produces empty tailText', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', undefined);
+    vi.stubGlobal('cancelAnimationFrame', undefined);
+    const render = (text) => renderAssistantMarkdown(text);
+    const resolve = createStreamingMarkdownStateResolver(render);
+    const text = '# Title\n\nSome content with a trailing incomplete';
+    const result = resolve({ id: 'flicker-2', kind: 'assistant', text, done: true });
+    expect(result.tailText).toBe('');
+    resolve.dispose?.();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('streaming→done transition: final HTML matches static render (no lost frame)', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', undefined);
+    vi.stubGlobal('cancelAnimationFrame', undefined);
+    const render = (text) => renderAssistantMarkdown(text);
+    const resolve = createStreamingMarkdownStateResolver(render, () => {});
+    // Simulate streaming chunks
+    resolve({ id: 'flicker-3', kind: 'assistant', text: '# Title\n', done: false });
+    resolve({ id: 'flicker-3', kind: 'assistant', text: '# Title\n\nBody text.', done: false });
+    // Don't flush — go straight to done
+    const finalText = '# Title\n\nBody text.\n\n```js\nconst x = 1;\n```\n\nEnd.';
+    const result = resolve({ id: 'flicker-3', kind: 'assistant', text: finalText, done: true });
+    const staticHtml = render(finalText);
+    expect(result.html).toBe(staticHtml);
+    expect(result.tailText).toBe('');
+    resolve.dispose?.();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 });
+

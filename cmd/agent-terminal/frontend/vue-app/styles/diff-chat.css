@@ -1879,8 +1879,7 @@
   display: block;
 }
 
-.chat-item-markdown-stream-wrap,
-.chat-item-markdown-static-wrap {
+.chat-item-markdown-body-wrap {
   display: contents;
 }
 

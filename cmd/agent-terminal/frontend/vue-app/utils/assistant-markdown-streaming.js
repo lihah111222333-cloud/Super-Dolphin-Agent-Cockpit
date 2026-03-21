@@ -80,22 +80,12 @@ function shouldPromoteTrailingLine(line) {
   return INLINE_BALANCED_MARKDOWN_RE.test(normalized);
 }
 
-function buildStreamingMarkdownState(text, renderAssistantBody, emptyState) {
+function buildStreamingMarkdownState(text, renderAssistantBody, emptyState, done = false) {
   if (!text) return emptyState;
-  const parts = splitStreamingMarkdownForDisplay(text);
+  const parts = done
+    ? { stableText: text, tailText: '' }
+    : splitStreamingMarkdownForDisplay(text);
   const html = parts.stableText ? renderAssistantBody(parts.stableText) : '';
-  // [DIAG] trace streaming split behavior
-  if (text.length > 50) {
-    console.warn('[DIAG:streaming-split]', {
-      fullLen: text.length,
-      stableLen: (parts.stableText || '').length,
-      tailLen: (parts.tailText || '').length,
-      stableEqualsFullText: parts.stableText === text,
-      hasTail: !!(parts.tailText || '').trim(),
-      tailHead: (parts.tailText || '').slice(0, 60),
-      htmlLen: html.length,
-    });
-  }
   return Object.freeze({
     html,
     tailText: parts.tailText || '',
@@ -198,10 +188,13 @@ export function createStreamingMarkdownStateResolver(renderAssistantBody, onStat
     }
   }
 
-  function getStateByText(text) {
+  function getStateByText(text, done = false) {
     if (!text) return emptyState;
+    if (done) {
+      return buildStreamingMarkdownState(text, renderAssistantBody, emptyState, true);
+    }
     if (cache.has(text)) return cache.get(text) || emptyState;
-    const next = buildStreamingMarkdownState(text, renderAssistantBody, emptyState);
+    const next = buildStreamingMarkdownState(text, renderAssistantBody, emptyState, false);
     cache.set(text, next);
     if (cache.size > 280) cache.delete(cache.keys().next().value);
     return next;
@@ -267,7 +260,7 @@ export function createStreamingMarkdownStateResolver(renderAssistantBody, onStat
         displayedByItemId.delete(itemId);
         pendingByItemId.delete(itemId);
       }
-      return getStateByText(text);
+      return getStateByText(text, true);
     }
 
     const displayed = displayedByItemId.get(itemId);

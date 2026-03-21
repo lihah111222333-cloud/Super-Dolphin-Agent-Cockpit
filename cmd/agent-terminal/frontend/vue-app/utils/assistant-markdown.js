@@ -505,22 +505,5 @@ export function renderAssistantMarkdown(rawText) {
   const normalized = preprocessCodexMarkdown(reasoningNormalized);
   const fixed = fixBrokenBoldMarkers(normalized);
   const html = postprocessCodexHtml(markdown.render(fixed));
-  // [DIAG] trace rendering pipeline differences
-  if (text.length > 50) {
-    const reasoningChanged = reasoningNormalized !== withBreaks;
-    const breaksChanged = withBreaks !== text;
-    console.warn('[DIAG:md-render]', {
-      inputLen: text.length,
-      inputHead: text.slice(0, 80),
-      breaksChanged,
-      breaksLen: withBreaks.length,
-      reasoningChanged,
-      reasoningLen: reasoningNormalized.length,
-      codexLen: normalized.length,
-      fixedLen: fixed.length,
-      htmlLen: html.length,
-      htmlHead: html.slice(0, 120),
-    });
-  }
   return html;
 }
