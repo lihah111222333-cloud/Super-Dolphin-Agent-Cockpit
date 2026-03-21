@@ -85,8 +85,8 @@ func TestCleanupPublishesResolvedTimeoutEvent(t *testing.T) {
 	if event.CallID != "call-1" {
 		t.Fatalf("resolved callID = %q, want %q", event.CallID, "call-1")
 	}
-	if event.Decision != "approval timed out" {
-		t.Fatalf("resolved decision = %q, want %q", event.Decision, "approval timed out")
+	if event.Decision != ErrApprovalTimeout("approval timed out").Error() {
+		t.Fatalf("resolved decision = %q, want %q", event.Decision, ErrApprovalTimeout("approval timed out").Error())
 	}
 	if len(manager.PendingSnapshot()) != 0 {
 		t.Fatal("Cleanup left pending approvals behind")

@@ -30,6 +30,18 @@ type MessagesPage struct {
 	Pages      int    `json:"pages"`
 }
 
+// Compacted reports a thread compact lifecycle completion.
+type Compacted struct {
+	shared.EventHeader
+	ThreadID     string `json:"thread_id"`
+	Command      string `json:"command,omitempty"`
+	BeforeTokens int    `json:"before_tokens,omitempty"`
+	AfterTokens  int    `json:"after_tokens,omitempty"`
+	Compacted    bool   `json:"compacted"`
+	Estimated    bool   `json:"estimated,omitempty"`
+}
+
 func (Started) Type() uint32      { return shared.EventTypeThreadStarted }
 func (Stopped) Type() uint32      { return shared.EventTypeThreadStopped }
 func (MessagesPage) Type() uint32 { return shared.EventTypeThreadMessagesPage }
+func (Compacted) Type() uint32    { return shared.EventTypeThreadCompacted }

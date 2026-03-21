@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/creachadair/jrpc2"
@@ -19,6 +20,7 @@ var Module = fx.Module("rpc",
 		NewPushBridge,
 		NewApprovalManager,
 		NewCapabilityResolver,
+		provideWSRoute,
 		func(m *ApprovalManager) contract.ApprovalResponder { return m },
 	),
 	fx.Invoke(registerAllHandlers),
@@ -39,6 +41,18 @@ type HandlerMapResult struct {
 	Handlers handler.Map `group:"rpc_handlers"`
 }
 
+// HTTPRoute advertises an optional HTTP binding that an external router may mount.
+type HTTPRoute struct {
+	Path    string
+	Handler http.Handler
+}
+
+type HTTPRouteResult struct {
+	fx.Out
+
+	Route HTTPRoute `group:"rpc_http_routes"`
+}
+
 type serverParams struct {
 	fx.In
 
@@ -49,6 +63,18 @@ type serverParams struct {
 
 func registerAllHandlers(server *Server, p serverParams) {
 	server.Register(p.Handlers...)
+}
+
+func provideWSRoute(server *Server) HTTPRouteResult {
+	if server == nil {
+		return HTTPRouteResult{}
+	}
+	return HTTPRouteResult{
+		Route: HTTPRoute{
+			Path:    "/ws",
+			Handler: WSHandler(server.methods, nil),
+		},
+	}
 }
 
 func bindEventBridge(lc fx.Lifecycle, bridge *PushBridge, server *Server, logger *slog.Logger) {
@@ -75,6 +101,7 @@ func bindApprovalLifecycle(lc fx.Lifecycle, approvals *ApprovalManager, bridge *
 	if logger == nil {
 		logger = slog.Default()
 	}
+	cleanupCancel := func() {}
 	if server != nil {
 		server.OnConnect(func(current *jrpc2.Server) {
 			if approvals == nil || current == nil {
@@ -87,6 +114,11 @@ func bindApprovalLifecycle(lc fx.Lifecycle, approvals *ApprovalManager, bridge *
 	}
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
+			if approvals != nil {
+				cleanupCtx, cancel := context.WithCancel(context.Background())
+				cleanupCancel = cancel
+				go startApprovalCleanupLoop(cleanupCtx, approvals, approvalCleanupInterval, DefaultApprovalTimeout, logger)
+			}
 			if approvals == nil || server == nil {
 				return nil
 			}
@@ -98,6 +130,7 @@ func bindApprovalLifecycle(lc fx.Lifecycle, approvals *ApprovalManager, bridge *
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
+			cleanupCancel()
 			return shutdownPendingApprovals(ctx, approvals, logger)
 		},
 	})

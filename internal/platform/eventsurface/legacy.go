@@ -42,6 +42,9 @@ func legacyRefreshNotifications(method string, payload map[string]any) []Notific
 }
 
 func shouldEmitThreadRefresh(method string, payload map[string]any) bool {
+	if suppressLegacyRefresh(method) {
+		return false
+	}
 	if isWorkspaceRunMethod(method) {
 		return false
 	}
@@ -49,6 +52,9 @@ func shouldEmitThreadRefresh(method string, payload map[string]any) bool {
 }
 
 func shouldEmitSidebarRefresh(method string, payload map[string]any) bool {
+	if suppressLegacyRefresh(method) {
+		return false
+	}
 	if isWorkspaceRunMethod(method) {
 		return true
 	}
@@ -58,6 +64,21 @@ func shouldEmitSidebarRefresh(method string, payload map[string]any) bool {
 func isWorkspaceRunMethod(method string) bool {
 	method = strings.ToLower(strings.TrimSpace(method))
 	return strings.HasPrefix(method, "workspace/run/")
+}
+
+func suppressLegacyRefresh(method string) bool {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case MethodThreadTokenUsage,
+		MethodThreadCompacted,
+		MethodUIThreadPatch,
+		"item/agentmessage/delta",
+		"item/reasoning/textdelta",
+		"item/commandexecution/outputdelta",
+		"turn/output/delta":
+		return true
+	default:
+		return false
+	}
 }
 
 func buildRefreshPayload(method string, payload map[string]any) map[string]any {

@@ -41,6 +41,16 @@ type InterruptRequest struct {
 	Source   string `json:"source,omitempty"`
 }
 
+type SteerRequest struct {
+	ThreadID             string          `json:"threadId"`
+	ExpectedTurnID       string          `json:"expectedTurnId,omitempty"`
+	Inputs               []InputItem     `json:"inputs"`
+	Skills               []SkillRef      `json:"skills,omitempty"`
+	ManualSkillSelection bool            `json:"manualSkillSelection,omitempty"`
+	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
+	Overrides            TurnOverrides   `json:"overrides,omitempty"`
+}
+
 type ForceCompleteRequest struct {
 	ThreadID   string `json:"threadId"`
 	ProviderID string `json:"providerId,omitempty"`

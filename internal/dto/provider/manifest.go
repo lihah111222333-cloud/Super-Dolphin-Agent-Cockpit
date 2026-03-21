@@ -11,8 +11,10 @@ const (
 )
 
 type MCPBinary struct {
-	Name    string   `json:"name"`
-	Command []string `json:"command"`
+	Name        string            `json:"name"`
+	Command     []string          `json:"command"`
+	Env         map[string]string `json:"env,omitempty"`
+	AutoApprove []string          `json:"autoApprove,omitempty"`
 }
 
 type MCPManifest struct {
@@ -20,11 +22,12 @@ type MCPManifest struct {
 }
 
 type ManifestContext struct {
-	AgentID    string
-	CWD        string
-	ThreadCaps CapabilitySet
-	BinaryDir  string
-	Env        map[string]string
+	AgentID     string
+	CWD         string
+	ThreadCaps  CapabilitySet
+	BinaryDir   string
+	Env         map[string]string
+	AutoApprove []string
 }
 
 func BuildManifest(ctx ManifestContext) MCPManifest {
@@ -33,13 +36,32 @@ func BuildManifest(ctx ManifestContext) MCPManifest {
 		families = append(families, FamilyIDA)
 	}
 
+	env := cloneManifestEnv(ctx.Env)
+	if agentID := filepath.Clean(ctx.AgentID); agentID != "." && agentID != "" {
+		env["GO_AGENT_MCP_AGENT_ID"] = agentID
+	}
+	autoApprove := append([]string(nil), ctx.AutoApprove...)
+
 	bins := make([]MCPBinary, 0, len(families))
 	for _, fam := range families {
 		name := "go-agent-mcp-" + string(fam)
 		bins = append(bins, MCPBinary{
-			Name:    name,
-			Command: []string{filepath.Join(ctx.BinaryDir, name)},
+			Name:        name,
+			Command:     []string{filepath.Join(ctx.BinaryDir, name)},
+			Env:         cloneManifestEnv(env),
+			AutoApprove: append([]string(nil), autoApprove...),
 		})
 	}
 	return MCPManifest{Binaries: bins}
+}
+
+func cloneManifestEnv(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }

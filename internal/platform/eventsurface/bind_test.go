@@ -2,12 +2,16 @@ package eventsurface
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	workspacedto "github.com/anthropic-ai/super-agent-v3/internal/dto/workspace"
 	"github.com/kelindar/event"
 )
@@ -88,15 +92,25 @@ func TestWorkspacePayloadShapes(t *testing.T) {
 			},
 			RunKey: "run-2",
 		},
+		ID:            42,
 		SourceRoot:    "/src",
 		WorkspacePath: "/workspace/run-2",
 		Status:        "active",
 		CreatedBy:     "bob",
 		UpdatedBy:     "bob",
+		Metadata:      json.RawMessage(`{"owner":"bob"}`),
+		CreatedAt:     now.Add(-time.Minute),
+		UpdatedAt:     now,
 	})
 	run, _ := created["run"].(map[string]any)
-	if created["runKey"] != "run-2" || run["status"] != "active" {
+	if created["runKey"] != "run-2" || run["status"] != "active" || run["id"] != int64(42) {
 		t.Fatalf("created payload = %#v", created)
+	}
+	if got, ok := run["createdAt"].(time.Time); !ok || !got.Equal(now.Add(-time.Minute)) {
+		t.Fatalf("created payload createdAt = %#v", run["createdAt"])
+	}
+	if got, ok := run["metadata"].(json.RawMessage); !ok || string(got) != `{"owner":"bob"}` {
+		t.Fatalf("created payload metadata = %#v", run["metadata"])
 	}
 
 	merged := workspaceMergedPayload(workspacedto.WorkspaceRunMerged{
@@ -110,6 +124,203 @@ func TestWorkspacePayloadShapes(t *testing.T) {
 	result, _ := merged["result"].(map[string]any)
 	if result["merged"] != 3 || result["removed"] != 1 {
 		t.Fatalf("merged payload = %#v", merged)
+	}
+}
+
+func TestBindPublishesRealtimeBridgeEvents(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	got := make(chan publishedEvent, 4)
+	cancels := Bind(dispatcher, nil, func(method string, payload any) {
+		got <- publishedEvent{method: method, payload: payload}
+	})
+	defer cancelAll(cancels)
+
+	now := time.Unix(1710000000, 0).UTC()
+	event.Publish(dispatcher, threaddto.Compacted{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1", Compacted: true})
+	event.Publish(dispatcher, uidto.UITokensUpdated{UITurnHeader: shared.UITurnHeader{UIProjectionHeader: shared.UIProjectionHeader{ThreadHeader: shared.ThreadHeader{ThreadID: "thread-1"}, Projection: "thread"}}, TotalTokens: 42, ContextWindowTokens: 128})
+	event.Publish(dispatcher, uidto.SkillsChanged{EventHeader: shared.EventHeader{Timestamp: now}, SkillsDir: "/tmp/skills"})
+	event.Publish(dispatcher, uidto.UIThreadPatch{ThreadID: "thread-1", Source: "turn/completed", Sequence: 3, Partial: true})
+
+	seen := map[string]map[string]any{}
+	for range 4 {
+		ev := mustReceivePublished(t, got)
+		seen[ev.method] = payloadMap(ev.payload)
+	}
+	if seen[MethodThreadCompacted]["threadId"] != "thread-1" {
+		t.Fatalf("thread compacted payload = %#v", seen[MethodThreadCompacted])
+	}
+	if seen[MethodThreadTokenUsage]["contextWindowTokens"] != 128 {
+		t.Fatalf("token usage payload = %#v", seen[MethodThreadTokenUsage])
+	}
+	if seen[MethodSkillsChanged]["skillsDir"] != "/tmp/skills" {
+		t.Fatalf("skills changed payload = %#v", seen[MethodSkillsChanged])
+	}
+	if seen[MethodUIThreadPatch]["sequence"] != float64(3) || seen[MethodUIThreadPatch]["partial"] != true {
+		t.Fatalf("thread patch payload = %#v", seen[MethodUIThreadPatch])
+	}
+}
+
+func TestBindPublishesRecoveryAndToolSurface(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	got := make(chan publishedEvent, 7)
+	cancels := Bind(dispatcher, nil, func(method string, payload any) {
+		got <- publishedEvent{method: method, payload: payload}
+	})
+	defer cancelAll(cancels)
+
+	now := time.Unix(1710000000, 0).UTC()
+	event.Publish(dispatcher, agentdto.AgentRecovering{
+		AgentSessionHeader: shared.AgentSessionHeader{
+			AgentHeader: shared.AgentHeader{
+				ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"},
+				AgentID:      "agent-1",
+			},
+			SessionID: "session-1",
+		},
+		Reason:  "reconnecting",
+		Attempt: 2,
+	})
+	event.Publish(dispatcher, agentdto.AgentFailed{
+		AgentSessionHeader: shared.AgentSessionHeader{
+			AgentHeader: shared.AgentHeader{
+				ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"},
+				AgentID:      "agent-1",
+			},
+			SessionID: "session-1",
+		},
+		Error:       "boom",
+		Recoverable: true,
+	})
+	event.Publish(dispatcher, turndto.TurnInterrupted{
+		TurnHeader: shared.TurnHeader{
+			AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"}, AgentID: "agent-1"},
+			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
+		},
+		Reason: "cancelled",
+	})
+	event.Publish(dispatcher, tooldto.ToolCallBegin{
+		ToolCallHeader: shared.ToolCallHeader{
+			TurnHeader: shared.TurnHeader{
+				AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"}, AgentID: "agent-1"},
+				TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
+			},
+			CallID:   "call-1",
+			ToolName: "search",
+		},
+		RequestID:        11,
+		ArgumentsPreview: "{}",
+	})
+	event.Publish(dispatcher, tooldto.ToolCallEnd{
+		ToolCallHeader: shared.ToolCallHeader{
+			TurnHeader: shared.TurnHeader{
+				AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"}, AgentID: "agent-1"},
+				TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
+			},
+			CallID:   "call-1",
+			ToolName: "search",
+		},
+		Success:   true,
+		ElapsedMS: 25,
+	})
+	event.Publish(dispatcher, tooldto.ToolApprovalRequested{
+		ToolApprovalHeader: shared.ToolApprovalHeader{
+			ToolCallHeader: shared.ToolCallHeader{
+				TurnHeader: shared.TurnHeader{
+					AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"}, AgentID: "agent-1"},
+					TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
+				},
+				CallID:   "call-2",
+				ToolName: "shell",
+			},
+			ApprovalID: "approval-1",
+		},
+		RequestID: 99,
+		Reason:    "needs review",
+		Kind:      "request_user_input",
+	})
+	event.Publish(dispatcher, tooldto.ToolApprovalResolved{
+		ToolApprovalHeader: shared.ToolApprovalHeader{
+			ToolCallHeader: shared.ToolCallHeader{
+				TurnHeader: shared.TurnHeader{
+					AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"}, AgentID: "agent-1"},
+					TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
+				},
+				CallID:   "call-2",
+				ToolName: "shell",
+			},
+			ApprovalID: "approval-1",
+		},
+		Approved: true,
+		Decision: "accept",
+		Kind:     "request_user_input",
+	})
+
+	seen := map[string]map[string]any{}
+	for range 6 {
+		ev := mustReceivePublished(t, got)
+		seen[ev.method] = payloadMap(ev.payload)
+	}
+	if seen[MethodAgentRecovering]["attempt"] != 2 {
+		t.Fatalf("agent recovering payload = %#v", seen[MethodAgentRecovering])
+	}
+	if seen[MethodAgentFailed]["recoverable"] != true {
+		t.Fatalf("agent failed payload = %#v", seen[MethodAgentFailed])
+	}
+	if seen[MethodTurnInterrupted]["turnId"] != "turn-1" {
+		t.Fatalf("turn interrupted payload = %#v", seen[MethodTurnInterrupted])
+	}
+	if seen[MethodToolCall]["callId"] != "call-1" {
+		t.Fatalf("tool call payload = %#v", seen[MethodToolCall])
+	}
+	if seen[MethodItemCompleted]["elapsedMs"] != int64(25) {
+		t.Fatalf("tool completion payload = %#v", seen[MethodItemCompleted])
+	}
+	if seen[MethodCommandApprovalRequested]["requestId"] != int64(99) {
+		t.Fatalf("approval requested payload = %#v", seen[MethodCommandApprovalRequested])
+	}
+	if seen[MethodApprovalResolved]["decision"] != "accept" {
+		t.Fatalf("approval resolved payload = %#v", seen[MethodApprovalResolved])
+	}
+}
+
+func TestBindPublishesTurnOutputMethods(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	got := make(chan publishedEvent, 3)
+	cancels := Bind(dispatcher, nil, func(method string, payload any) {
+		got <- publishedEvent{method: method, payload: payload}
+	})
+	defer cancelAll(cancels)
+
+	header := shared.TurnHeader{
+		AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"},
+		TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
+	}
+	event.Publish(dispatcher, turndto.TurnOutputDelta{TurnHeader: header, Stream: "message", Delta: "hello"})
+	event.Publish(dispatcher, turndto.TurnOutputDelta{TurnHeader: header, Stream: "reasoning", Delta: "thinking"})
+	event.Publish(dispatcher, turndto.TurnOutputDelta{TurnHeader: header, Stream: "stdout", Delta: "out"})
+
+	gotMethods := []string{
+		mustReceivePublished(t, got).method,
+		mustReceivePublished(t, got).method,
+		mustReceivePublished(t, got).method,
+	}
+	wantMethods := []string{MethodAgentMessageDelta, MethodReasoningTextDelta, MethodCommandOutputDelta}
+	for i, want := range wantMethods {
+		if gotMethods[i] != want {
+			t.Fatalf("method[%d] = %q, want %q; all=%#v", i, gotMethods[i], want, gotMethods)
+		}
 	}
 }
 

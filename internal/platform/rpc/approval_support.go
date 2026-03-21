@@ -8,12 +8,17 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 )
+
+// DefaultApprovalTimeout bounds approvals that do not carry an explicit deadline.
+// Tests may override it with a shorter duration.
+var DefaultApprovalTimeout = 5 * time.Minute
 
 func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
 	callID := approvalCallID(firstNonEmpty(req.CallID, req.ApprovalID), req.RequestID)
@@ -29,6 +34,21 @@ func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
 	req.Reason = strings.TrimSpace(req.Reason)
 	req.Payload = cloneMap(req.Payload)
 	return req, nil
+}
+
+// WithApprovalDeadline applies the default approval timeout when the caller did
+// not already provide an explicit deadline.
+func WithApprovalDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if DefaultApprovalTimeout <= 0 {
+		return ctx, func() {}
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, DefaultApprovalTimeout)
 }
 
 func waitForApproval(ctx context.Context, pending *pendingApproval) (contract.ApprovalDecision, error) {

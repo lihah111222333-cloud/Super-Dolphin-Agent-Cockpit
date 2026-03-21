@@ -2,10 +2,12 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/creachadair/jrpc2"
+	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -87,6 +89,8 @@ func (s stubRPCSession) StartTurn(context.Context, dto.TurnRequest) (contract.Tu
 	return nil, nil
 }
 
+func (s stubRPCSession) Steer(context.Context, dto.SteerRequest) error { return nil }
+
 func (s stubRPCSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
 
 func (s stubRPCSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error { return nil }
@@ -106,3 +110,130 @@ func (s stubRPCSession) Configure(context.Context, dto.ThreadConfigPatch) error 
 func (s stubRPCSession) Close(context.Context) error { return nil }
 
 func (s stubRPCSession) ForceStop() error { return nil }
+
+type threadAliasParams struct {
+	ThreadID      string `json:"threadId,omitempty"`
+	ThreadIDAlt   string `json:"threadID,omitempty"`
+	ThreadIDSnake string `json:"thread_id,omitempty"`
+}
+
+func TestStrictHandlerRejectsArrayParams(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer()
+	server.Register(handler.Map{"echo": StrictHandler(func(context.Context, struct {
+		Value string `json:"value"`
+	}) (string, error) {
+		return "ok", nil
+	})})
+
+	_, err := server.Dispatch(context.Background(), "echo", json.RawMessage(`[{"value":"ok"}]`))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
+	}
+	if rpcErr.Code != jrpc2.InvalidParams {
+		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.InvalidParams)
+	}
+}
+
+func TestThreadHandlerExtractsThreadIDFromAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		`{"threadId":"thread-1"}`,
+		`{"threadID":"thread-1"}`,
+		`{"thread_id":"thread-1"}`,
+	}
+
+	for _, rawParams := range tests {
+		rawParams := rawParams
+		t.Run(rawParams, func(t *testing.T) {
+			t.Parallel()
+
+			server := newTestServer()
+			server.Register(handler.Map{"thread/echo": ThreadHandler(func(ctx context.Context, _ threadAliasParams) (map[string]string, error) {
+				return map[string]string{"threadId": ThreadIDFrom(ctx)}, nil
+			})})
+
+			raw, err := server.Dispatch(context.Background(), "thread/echo", json.RawMessage(rawParams))
+			if err != nil {
+				t.Fatalf("Dispatch() error = %v", err)
+			}
+
+			var got map[string]string
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+			if got["threadId"] != "thread-1" {
+				t.Fatalf("threadId = %q, want %q", got["threadId"], "thread-1")
+			}
+		})
+	}
+}
+
+func TestThreadHandlerRejectsMissingThreadID(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer()
+	server.Register(handler.Map{"thread/echo": ThreadHandler(func(context.Context, threadAliasParams) (map[string]string, error) {
+		return map[string]string{"ok": "true"}, nil
+	})})
+
+	_, err := server.Dispatch(context.Background(), "thread/echo", json.RawMessage(`{}`))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
+	}
+	if rpcErr.Code != jrpc2.InvalidParams {
+		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.InvalidParams)
+	}
+}
+
+func TestCapabilityThreadHandlerUsesResolverAndThreadScope(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer()
+	resolver := func(ctx context.Context) (dto.CapabilitySet, error) {
+		if got := ThreadIDFrom(ctx); got != "thread-1" {
+			t.Fatalf("ThreadIDFrom(ctx) = %q, want %q", got, "thread-1")
+		}
+		return dto.CapabilitySet{dto.CapMessageSend: true}, nil
+	}
+	server.Register(handler.Map{"turn/start": CapabilityThreadHandler(dto.CapMessageSend, resolver, func(ctx context.Context, _ threadAliasParams) (map[string]string, error) {
+		return map[string]string{"threadId": ThreadIDFrom(ctx)}, nil
+	})})
+
+	raw, err := server.Dispatch(context.Background(), "turn/start", json.RawMessage(`{"threadId":"thread-1"}`))
+	if err != nil {
+		t.Fatalf("Dispatch() error = %v", err)
+	}
+
+	var got map[string]string
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got["threadId"] != "thread-1" {
+		t.Fatalf("threadId = %q, want %q", got["threadId"], "thread-1")
+	}
+}
+
+func TestCapabilityThreadHandlerRejectsUnsupportedCapability(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer()
+	server.Register(handler.Map{"turn/start": CapabilityThreadHandler(dto.CapMessageSend, func(context.Context) (dto.CapabilitySet, error) {
+		return dto.CapabilitySet{}, nil
+	}, func(context.Context, threadAliasParams) (map[string]string, error) {
+		return map[string]string{"ok": "true"}, nil
+	})})
+
+	_, err := server.Dispatch(context.Background(), "turn/start", json.RawMessage(`{"threadId":"thread-1"}`))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
+	}
+	if rpcErr.Code != jrpc2.Code(CodeCapabilityGate) {
+		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.Code(CodeCapabilityGate))
+	}
+}
