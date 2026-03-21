@@ -81,6 +81,8 @@ func bridgeDispatcher(bridge *PushBridge) *event.Dispatcher {
 }
 
 func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (contract.ApprovalDecision, error) {
+	ctx, cancel := WithApprovalDeadline(ctx)
+	defer cancel()
 	req, err := normalizeApprovalRequest(req)
 	if err != nil {
 		return contract.ApprovalDecision{}, err

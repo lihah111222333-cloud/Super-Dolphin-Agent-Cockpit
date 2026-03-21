@@ -49,6 +49,9 @@ func Wrap(mws ...Middleware) func(handler.Func) handler.Func {
 	}
 }
 
+// ThreadScope is part of the default V3 handler chain. Unlike V2's HTTP mux
+// middleware stack, recovery remains a transport/server boundary concern while
+// handler middleware here focuses on request-scoped context enrichment.
 // ThreadScope supports multiple parameter field names for thread id lookup.
 func ThreadScope(fields ...string) Middleware {
 	if len(fields) == 0 {
@@ -120,14 +123,17 @@ func capabilityResolverError(ctx context.Context, err error) error {
 	return rpcErr.WithData(data)
 }
 
-// ThreadHandler composes ThreadScope and StrictHandler for thread-scoped handlers.
+// ThreadHandler keeps the default per-method stack narrow: strict decoding,
+// placeholder validation, and thread scoping. Transport-level logging/recovery
+// should be layered outside handler helpers when parity with V2's outer HTTP
+// middleware is required.
 func ThreadHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error)) handler.Func {
-	return Wrap(ThreadScope())(StrictHandler(fn))
+	return Wrap(Validate(), ThreadScope())(StrictHandler(fn))
 }
 
 // CapabilityThreadHandler composes ThreadScope, CapabilityGate, and StrictHandler.
 func CapabilityThreadHandler[Req, Resp any](cap string, resolver CapabilityResolver, fn func(context.Context, Req) (Resp, error)) handler.Func {
-	return Wrap(ThreadScope(), CapabilityGate(cap, resolver))(StrictHandler(fn))
+	return Wrap(Validate(), ThreadScope(), CapabilityGate(cap, resolver))(StrictHandler(fn))
 }
 
 func ThreadIDFrom(ctx context.Context) string {
@@ -152,6 +158,9 @@ func Logging(logger *slog.Logger) Middleware {
 	}
 }
 
+// Validate is intentionally a no-op hook today. Keeping it in the default chain
+// documents where structured request validation/metrics parity with V2 should be
+// added once the RPC surface and labels are stable.
 func Validate() Middleware {
 	return func(next handler.Func) handler.Func {
 		return next

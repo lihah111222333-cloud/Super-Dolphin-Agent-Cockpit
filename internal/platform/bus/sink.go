@@ -49,6 +49,8 @@ func (s *LogSink) bindAgent(dispatcher *event.Dispatcher, logger *slog.Logger) {
 	s.subs.Add(logEvent[agentdto.AgentRecovering](dispatcher, logger))
 	s.subs.Add(logEvent[agentdto.AgentFailed](dispatcher, logger))
 	s.subs.Add(logEvent[agentdto.AgentRuntimeReported](dispatcher, logger))
+	s.subs.Add(logEvent[agentdto.AgentWarning](dispatcher, logger))
+	s.subs.Add(logEvent[agentdto.AgentError](dispatcher, logger))
 }
 
 func (s *LogSink) bindThread(dispatcher *event.Dispatcher, logger *slog.Logger) {
@@ -65,6 +67,10 @@ func (s *LogSink) bindTurn(dispatcher *event.Dispatcher, logger *slog.Logger) {
 	s.subs.Add(logEvent[turndto.TurnResumed](dispatcher, logger))
 	s.subs.Add(logEvent[turndto.TurnInputReceived](dispatcher, logger))
 	s.subs.Add(logEvent[turndto.TurnOutputDelta](dispatcher, logger))
+	s.subs.Add(logEvent[turndto.PlanDelta](dispatcher, logger))
+	s.subs.Add(logEvent[turndto.PlanUpdated](dispatcher, logger))
+	s.subs.Add(logEvent[turndto.ItemStarted](dispatcher, logger))
+	s.subs.Add(logEvent[turndto.ItemCompleted](dispatcher, logger))
 }
 
 func (s *LogSink) bindTool(dispatcher *event.Dispatcher, logger *slog.Logger) {

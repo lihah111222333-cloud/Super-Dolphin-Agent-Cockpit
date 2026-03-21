@@ -2,6 +2,7 @@ package provider
 
 type ThreadConfigPatch struct {
 	Model       *string `json:"model,omitempty"`
+	Effort      *string `json:"effort,omitempty"`
 	Personality *string `json:"personality,omitempty"`
 	Approvals   *string `json:"approvals,omitempty"`
 }

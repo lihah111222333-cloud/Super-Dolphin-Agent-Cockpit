@@ -26,6 +26,10 @@ func WithSessionCloseTimeout(ctx context.Context) (context.Context, context.Canc
 	return context.WithTimeout(ctx, SessionCloseTimeout)
 }
 
+func WithDBQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, DBQueryTimeout)
+}
+
 func WithRPCRequestTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, RPCRequestTimeout)
 }

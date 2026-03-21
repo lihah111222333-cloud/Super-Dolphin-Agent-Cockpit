@@ -26,6 +26,54 @@ type UITokensUpdated struct {
 	ContextWindowTokens int `json:"context_window_tokens,omitempty"`
 }
 
-func (UIProjectionUpdated) Type() uint32 { return shared.EventTypeUIProjectionUpdated }
-func (UITimelineAppended) Type() uint32  { return shared.EventTypeUITimelineAppended }
-func (UITokensUpdated) Type() uint32     { return shared.EventTypeUITokensUpdated }
+// SkillsChanged reports local skill inventory mutations.
+type SkillsChanged struct {
+	shared.EventHeader
+	SkillsDir string `json:"skillsDir,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Action    string `json:"action,omitempty"`
+	Actions   []string `json:"actions,omitempty"`
+	Count     int      `json:"count,omitempty"`
+}
+
+// UIPreferencesChanged reports a persisted preference mutation.
+type UIPreferencesChanged struct {
+	shared.EventHeader
+	Cwd   string `json:"cwd,omitempty"`
+	Key   string `json:"key"`
+	Value any    `json:"value,omitempty"`
+}
+
+type ThreadPatchThread struct {
+	ID    string `json:"id"`
+	Name  string `json:"name,omitempty"`
+	State string `json:"state,omitempty"`
+}
+
+type ThreadPatchTokenUsage struct {
+	UsedTokens          int     `json:"usedTokens,omitempty"`
+	ContextWindowTokens int     `json:"contextWindowTokens,omitempty"`
+	UsedPercent         float64 `json:"usedPercent,omitempty"`
+}
+
+// UIThreadPatch reports a targeted incremental runtime patch for a thread.
+type UIThreadPatch struct {
+	ThreadID          string                 `json:"threadId"`
+	Source            string                 `json:"source,omitempty"`
+	Sequence          int64                  `json:"sequence,omitempty"`
+	Thread            *ThreadPatchThread     `json:"thread,omitempty"`
+	Status            string                 `json:"status,omitempty"`
+	TokenUsage        *ThreadPatchTokenUsage `json:"tokenUsage,omitempty"`
+	ActiveThreadID    string                 `json:"activeThreadId,omitempty"`
+	ActiveCmdThreadID string                 `json:"activeCmdThreadId,omitempty"`
+	MainAgentID       string                 `json:"mainAgentId,omitempty"`
+	MainAgentState    string                 `json:"mainAgentState,omitempty"`
+	Partial           bool                   `json:"partial,omitempty"`
+}
+
+func (UIProjectionUpdated) Type() uint32  { return shared.EventTypeUIProjectionUpdated }
+func (UITimelineAppended) Type() uint32   { return shared.EventTypeUITimelineAppended }
+func (UITokensUpdated) Type() uint32      { return shared.EventTypeUITokensUpdated }
+func (SkillsChanged) Type() uint32        { return shared.EventTypeUISkillsChanged }
+func (UIThreadPatch) Type() uint32        { return shared.EventTypeUIThreadPatch }
+func (UIPreferencesChanged) Type() uint32 { return shared.EventTypeUIPreferencesChanged }

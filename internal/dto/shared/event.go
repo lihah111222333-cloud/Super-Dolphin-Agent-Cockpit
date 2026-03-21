@@ -13,6 +13,8 @@ const (
 	EventTypeAgentRecovering      uint32 = 1003
 	EventTypeAgentFailed          uint32 = 1004
 	EventTypeAgentRuntimeReported uint32 = 1005
+	EventTypeAgentWarning         uint32 = 1006
+	EventTypeAgentError           uint32 = 1007
 
 	EventTypeTurnStarted       uint32 = 1100
 	EventTypeTurnCompleted     uint32 = 1101
@@ -21,6 +23,10 @@ const (
 	EventTypeTurnResumed       uint32 = 1104
 	EventTypeTurnInputReceived uint32 = 1105
 	EventTypeTurnOutputDelta   uint32 = 1106
+	EventTypeTurnPlanDelta     uint32 = 1107
+	EventTypeTurnPlanUpdated   uint32 = 1108
+	EventTypeTurnItemStarted   uint32 = 1109
+	EventTypeTurnItemCompleted uint32 = 1110
 
 	EventTypeToolCallBegin         uint32 = 1200
 	EventTypeToolCallEnd           uint32 = 1201
@@ -35,6 +41,7 @@ const (
 	EventTypeThreadStarted      uint32 = 1350
 	EventTypeThreadStopped      uint32 = 1351
 	EventTypeThreadMessagesPage uint32 = 1352
+	EventTypeThreadCompacted    uint32 = 1353
 
 	EventTypeWorkspaceRunCreated       uint32 = 1400
 	EventTypeWorkspaceRunStatusChanged uint32 = 1401
@@ -42,9 +49,14 @@ const (
 	EventTypeWorkspaceRunAborted       uint32 = 1403
 	EventTypeWorkspaceRunMergeError    uint32 = 1404
 
-	EventTypeUIProjectionUpdated uint32 = 1500
-	EventTypeUITimelineAppended  uint32 = 1501
-	EventTypeUITokensUpdated     uint32 = 1502
+	EventTypeUIProjectionUpdated  uint32 = 1500
+	EventTypeUITimelineAppended   uint32 = 1501
+	EventTypeUITokensUpdated      uint32 = 1502
+	EventTypeUISkillsChanged      uint32 = 1503
+	EventTypeUIThreadPatch        uint32 = 1504
+	EventTypeUIPreferencesChanged uint32 = 1505
+
+	EventTypeProviderRaw uint32 = 1600
 )
 
 // EventHeader carries fields shared by all typed events.

@@ -1,15 +1,25 @@
 package workspace
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+)
 
 // WorkspaceRunCreated reports a new workspace run.
 type WorkspaceRunCreated struct {
 	shared.WorkspaceRunHeader
-	SourceRoot    string `json:"source_root"`
-	WorkspacePath string `json:"workspace_path"`
-	Status        string `json:"status,omitempty"`
-	CreatedBy     string `json:"created_by,omitempty"`
-	UpdatedBy     string `json:"updated_by,omitempty"`
+	ID            int64           `json:"id,omitempty"`
+	SourceRoot    string          `json:"source_root"`
+	WorkspacePath string          `json:"workspace_path"`
+	Status        string          `json:"status,omitempty"`
+	CreatedBy     string          `json:"created_by,omitempty"`
+	UpdatedBy     string          `json:"updated_by,omitempty"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt     time.Time       `json:"created_at,omitempty"`
+	UpdatedAt     time.Time       `json:"updated_at,omitempty"`
+	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
 }
 
 // WorkspaceRunStatusChanged reports a workspace run status transition.

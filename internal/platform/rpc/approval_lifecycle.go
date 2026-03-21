@@ -2,10 +2,13 @@ package rpc
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/creachadair/jrpc2"
 )
+
+var approvalCleanupInterval = time.Minute
 
 func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 	if timeout <= 0 {
@@ -17,6 +20,28 @@ func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 			continue
 		}
 		m.failPending(pending, ErrApprovalTimeout("approval timed out"))
+	}
+}
+
+func startApprovalCleanupLoop(ctx context.Context, approvals *ApprovalManager, interval, timeout time.Duration, logger *slog.Logger) {
+	if approvals == nil || interval <= 0 || timeout <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			before := len(approvals.PendingSnapshot())
+			approvals.Cleanup(timeout)
+			if logger != nil {
+				if after := len(approvals.PendingSnapshot()); after < before {
+					logger.Warn("rpc: cleaned expired pending approvals", "removed", before-after, "timeout", timeout.String())
+				}
+			}
+		}
 	}
 }
 

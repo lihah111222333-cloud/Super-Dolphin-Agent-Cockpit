@@ -41,6 +41,26 @@ func TestExpandNotificationsAddsWorkspaceSidebarRefresh(t *testing.T) {
 	})
 }
 
+func TestExpandNotificationsSkipsLegacyRefreshForDirectThreadPushes(t *testing.T) {
+	t.Parallel()
+
+	for _, method := range []string{
+		MethodThreadTokenUsage,
+		MethodThreadCompacted,
+		MethodUIThreadPatch,
+		MethodAgentMessageDelta,
+		MethodReasoningTextDelta,
+		MethodCommandOutputDelta,
+		MethodTurnOutputDelta,
+	} {
+		got := ExpandNotifications(method, map[string]any{"threadId": "thread-1"})
+		if len(got) != 1 {
+			t.Fatalf("len(ExpandNotifications(%q)) = %d, want 1", method, len(got))
+		}
+		assertNotification(t, got[0], method, map[string]any{"threadId": "thread-1"})
+	}
+}
+
 func assertNotification(t *testing.T, got Notification, wantMethod string, wantPayload map[string]any) {
 	t.Helper()
 
