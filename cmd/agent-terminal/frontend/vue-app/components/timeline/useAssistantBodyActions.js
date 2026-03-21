@@ -210,27 +210,7 @@ export function useAssistantBodyActions(props, emit, { copyTextToClipboard }) {
 
   function streamingAssistantState(item) {
     streamingFrameVersion.value;
-    const result = rawStreamingAssistantState(item);
-    // [DIAG] trace streaming→static transition
-    const itemId = (item?.id || '').toString().trim();
-    const isDone = item?.done !== false;
-    const textLen = (item?.text || '').length;
-    if (isDone && textLen > 50) {
-      const staticHtml = renderAssistantBody(item.text);
-      const streamHtml = result.html || '';
-      console.warn('[DIAG:stream-done-compare]', {
-        itemId,
-        done: item?.done,
-        textLen,
-        streamHtmlLen: streamHtml.length,
-        staticHtmlLen: staticHtml.length,
-        htmlMatch: streamHtml === staticHtml,
-        streamHead: streamHtml.slice(0, 120),
-        staticHead: staticHtml.slice(0, 120),
-        tailText: (result.tailText || '').slice(0, 60),
-      });
-    }
-    return result;
+    return rawStreamingAssistantState(item);
   }
 
   function isCitationTarget(item) {
