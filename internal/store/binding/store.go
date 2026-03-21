@@ -2,13 +2,28 @@ package binding
 
 import (
 	"context"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+type querier interface {
+	BindAgentThread(ctx context.Context, arg sqlc.BindAgentThreadParams) error
+	DeleteAgentProviderBindingByAgentID(ctx context.Context, agentID string) error
+	GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (sqlc.AgentProviderBinding, error)
+	GetAgentProviderBindingByProviderThread(ctx context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error)
+	GetThreadByAgent(ctx context.Context, agentID string) (string, error)
+	ListAgentThreadBindings(ctx context.Context) ([]sqlc.AgentProviderBinding, error)
+	UnbindAgentThread(ctx context.Context, agentID string) error
+	UpdateAgentCwd(ctx context.Context, arg sqlc.UpdateAgentCwdParams) error
+	UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error
+	UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg sqlc.UpdateAgentProviderBindingSessionUUIDParams) error
+	UpsertAgentProviderBinding(ctx context.Context, arg sqlc.UpsertAgentProviderBindingParams) error
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Store {
@@ -84,6 +99,59 @@ func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, err
 	}
 	result := mapBinding(row)
 	return &result, nil
+}
+
+func (s *store) BindAgentThread(ctx context.Context, params BindAgentThreadParams) error {
+	now := time.Now().Unix()
+	if params.CreatedAt == 0 {
+		params.CreatedAt = now
+	}
+	if params.UpdatedAt == 0 {
+		params.UpdatedAt = now
+	}
+	return wrapBindingError(s.q.BindAgentThread(ctx, sqlc.BindAgentThreadParams{
+		AgentID:   params.AgentID,
+		ThreadID:  params.ThreadID,
+		Cwd:       params.Cwd,
+		CreatedAt: params.CreatedAt,
+		UpdatedAt: params.UpdatedAt,
+	}), "bind_agent_thread")
+}
+
+func (s *store) UnbindAgentThread(ctx context.Context, agentID string) error {
+	return wrapBindingError(s.q.UnbindAgentThread(ctx, agentID), "unbind_agent_thread")
+}
+
+func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) {
+	rows, err := s.q.ListAgentThreadBindings(ctx)
+	if err != nil {
+		return nil, wrapBindingError(err, "list_agent_thread_bindings")
+	}
+	result := make([]Binding, len(rows))
+	for i, row := range rows {
+		result[i] = mapBinding(row)
+	}
+	return result, nil
+}
+
+func (s *store) GetThreadByAgent(ctx context.Context, agentID string) (string, error) {
+	threadID, err := s.q.GetThreadByAgent(ctx, agentID)
+	if err != nil {
+		return "", wrapBindingError(err, "get_thread_by_agent")
+	}
+	return threadID, nil
+}
+
+func (s *store) UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams) error {
+	updatedAt := params.UpdatedAt
+	if updatedAt == 0 {
+		updatedAt = time.Now().Unix()
+	}
+	return wrapBindingError(s.q.UpdateAgentCwd(ctx, sqlc.UpdateAgentCwdParams{
+		Cwd:       params.Cwd,
+		UpdatedAt: updatedAt,
+		AgentID:   params.AgentID,
+	}), "update_agent_cwd")
 }
 
 func mapBinding(row sqlc.AgentProviderBinding) Binding {

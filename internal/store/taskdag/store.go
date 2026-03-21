@@ -2,9 +2,11 @@ package taskdag
 
 import (
 	"context"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type store struct {
@@ -13,14 +15,25 @@ type store struct {
 
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
+// WithTx only scopes a pool-backed SQL transaction and rebinds sqlc queries.
+// Unlike V2's DAG-specific WithDAGTx helper, it does not pre-lock the DAG row
+// or node rows with FOR UPDATE; callers must explicitly use the *_ForUpdate
+// accessors inside the transaction when they need serialized DAG mutation.
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
-	return wrapTaskDAGError(s.q.WithTx(ctx, func(txq *sqlc.Queries) error {
+	return wrapTaskDAGError(sqlc.WithTx(ctx, s.q, func(txq *sqlc.Queries) error {
 		return fn(&store{q: txq})
 	}), "with_tx", "task_dag")
 }
 
 func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
-	row, err := s.q.UpsertTaskDag(ctx, sqlc.UpsertTaskDagParams{DagKey: dag.DagKey, Title: dag.Title, Description: dag.Description, Status: dag.Status, CreatedBy: dag.CreatedBy, Metadata: dag.Metadata})
+	row, err := s.q.UpsertTaskDag(ctx, sqlc.UpsertTaskDagParams{
+		DagKey:      dag.DagKey,
+		Title:       dag.Title,
+		Description: dag.Description,
+		Status:      dag.Status,
+		CreatedBy:   dag.CreatedBy,
+		Column6:     dag.Metadata,
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "upsert", "task_dag")
 	}
@@ -29,7 +42,11 @@ func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 }
 
 func (s *store) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, error) {
-	rows, err := s.q.ListTaskDags(ctx, sqlc.ListTaskDagsParams{Status: filter.Status, Keyword: filter.Keyword, Limit: filter.Limit})
+	rows, err := s.q.ListTaskDags(ctx, sqlc.ListTaskDagsParams{
+		Column1: filter.Status,
+		Column2: filter.Keyword,
+		Limit:   filter.Limit,
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "list", "task_dag")
 	}
@@ -46,7 +63,16 @@ func (s *store) GetDAG(ctx context.Context, dagKey string) (*DAG, error) {
 }
 
 func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
-	row, err := s.q.UpsertTaskDagNode(ctx, sqlc.UpsertTaskDagNodeParams{DagKey: node.DagKey, NodeKey: node.NodeKey, Title: node.Title, NodeType: node.NodeType, AssignedTo: node.AssignedTo, DependsOn: node.DependsOn, CommandRef: node.CommandRef, Config: node.Config})
+	row, err := s.q.UpsertTaskDagNode(ctx, sqlc.UpsertTaskDagNodeParams{
+		DagKey:     node.DagKey,
+		NodeKey:    node.NodeKey,
+		Title:      node.Title,
+		NodeType:   node.NodeType,
+		AssignedTo: node.AssignedTo,
+		Column6:    node.DependsOn,
+		CommandRef: node.CommandRef,
+		Column8:    node.Config,
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "upsert", "task_dag_node")
 	}
@@ -55,7 +81,12 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 }
 
 func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error) {
-	row, err := s.q.UpdateTaskDagNodeStatus(ctx, sqlc.UpdateTaskDagNodeStatusParams{Status: input.Status, Result: input.Result, DagKey: input.DagKey, NodeKey: input.NodeKey})
+	row, err := s.q.UpdateTaskDagNodeStatus(ctx, sqlc.UpdateTaskDagNodeStatusParams{
+		Status:  input.Status,
+		Column2: input.Result,
+		DagKey:  input.DagKey,
+		NodeKey: input.NodeKey,
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "update_status", "task_dag_node")
 	}
@@ -97,7 +128,12 @@ func (s *store) GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, e
 }
 
 func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error) {
-	row, err := s.q.BindRunningTaskDagNodeTurn(ctx, sqlc.BindRunningTaskDagNodeTurnParams{TurnID: input.TurnID, DagKey: input.DagKey, NodeKey: input.NodeKey, WakeupID: input.WakeupID})
+	row, err := s.q.BindRunningTaskDagNodeTurn(ctx, sqlc.BindRunningTaskDagNodeTurnParams{
+		ActiveTurnID:   stringPtr(input.TurnID),
+		DagKey:         input.DagKey,
+		NodeKey:        input.NodeKey,
+		ActiveWakeupID: int64Ptr(input.WakeupID),
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "bind_running_turn", "task_dag_node")
 	}
@@ -106,7 +142,12 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 }
 
 func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNodeEventInput) (*Node, error) {
-	row, err := s.q.TouchRunningTaskDagNodeEvent(ctx, sqlc.TouchRunningTaskDagNodeEventParams{ObservedAt: input.ObservedAt, DagKey: input.DagKey, NodeKey: input.NodeKey, TurnID: input.TurnID})
+	row, err := s.q.TouchRunningTaskDagNodeEvent(ctx, sqlc.TouchRunningTaskDagNodeEventParams{
+		LastEventAt:  pgtype.Timestamptz{Time: input.ObservedAt, Valid: !input.ObservedAt.IsZero()},
+		DagKey:       input.DagKey,
+		NodeKey:      input.NodeKey,
+		ActiveTurnID: stringPtr(input.TurnID),
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "touch_running_event", "task_dag_node")
 	}
@@ -115,7 +156,13 @@ func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNod
 }
 
 func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error) {
-	row, err := s.q.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{Status: input.Status, Result: input.Result, WakeupID: input.WakeupID, DagKey: input.DagKey, NodeKey: input.NodeKey})
+	row, err := s.q.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{
+		Status:         input.Status,
+		Column2:        input.Result,
+		ActiveWakeupID: int64Ptr(input.WakeupID),
+		DagKey:         input.DagKey,
+		NodeKey:        input.NodeKey,
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "update_running_status", "task_dag_node")
 	}
@@ -124,7 +171,12 @@ func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeSt
 }
 
 func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error) {
-	row, err := s.q.UpdateAwaitingVerifyTaskDagNodeStatus(ctx, sqlc.UpdateAwaitingVerifyTaskDagNodeStatusParams{Status: input.Status, Result: input.Result, DagKey: input.DagKey, NodeKey: input.NodeKey})
+	row, err := s.q.UpdateAwaitingVerifyTaskDagNodeStatus(ctx, sqlc.UpdateAwaitingVerifyTaskDagNodeStatusParams{
+		Status:  input.Status,
+		Column2: input.Result,
+		DagKey:  input.DagKey,
+		NodeKey: input.NodeKey,
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "update_awaiting_verify_status", "task_dag_node")
 	}
@@ -133,7 +185,12 @@ func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input Awaiti
 }
 
 func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error) {
-	row, err := s.q.CompleteTaskDagNode(ctx, sqlc.CompleteTaskDagNodeParams{Status: input.Status, Result: input.Result, DagKey: input.DagKey, NodeKey: input.NodeKey})
+	row, err := s.q.CompleteTaskDagNode(ctx, sqlc.CompleteTaskDagNodeParams{
+		Status:  input.Status,
+		Column2: input.Result,
+		DagKey:  input.DagKey,
+		NodeKey: input.NodeKey,
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "complete", "task_dag_node")
 	}
@@ -142,7 +199,12 @@ func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Nod
 }
 
 func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error) {
-	row, err := s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{Status: input.Status, Result: input.Result, DagKey: input.DagKey, NodeKey: input.NodeKey})
+	row, err := s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{
+		Status:  input.Status,
+		Column2: input.Result,
+		DagKey:  input.DagKey,
+		NodeKey: input.NodeKey,
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "update_status_flexible", "task_dag_node")
 	}
@@ -151,15 +213,38 @@ func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNode
 }
 
 func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error) {
-	id, err := s.q.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{DagKey: input.DagKey, NodeKey: input.NodeKey, WakeupKind: input.WakeupKind, TargetAgentID: input.TargetAgentID, PromptPayload: input.PromptPayload, IdempotencyKey: input.IdempotencyKey})
+	id, err := s.q.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{
+		DagKey:         input.DagKey,
+		NodeKey:        input.NodeKey,
+		WakeupKind:     input.WakeupKind,
+		TargetAgentID:  input.TargetAgentID,
+		Column5:        input.PromptPayload,
+		IdempotencyKey: input.IdempotencyKey,
+	})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "enqueue", "task_dag_wakeup")
 	}
 	return id, nil
 }
 
+func int64Ptr(value int64) *int64 {
+	return &value
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
 func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error) {
-	rows, err := s.q.ClaimDueTaskDagWakeups(ctx, sqlc.ClaimDueTaskDagWakeupsParams{ClaimedBy: input.ClaimedBy, LeaseInterval: input.LeaseInterval, Limit: input.Limit})
+	leaseInterval, err := intervalValue(input.LeaseInterval)
+	if err != nil {
+		return nil, wrapTaskDAGError(err, "claim_due", "task_dag_wakeup")
+	}
+	rows, err := s.q.ClaimDueTaskDagWakeups(ctx, sqlc.ClaimDueTaskDagWakeupsParams{
+		ClaimedBy: input.ClaimedBy,
+		Column2:   leaseInterval,
+		Limit:     input.Limit,
+	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "claim_due", "task_dag_wakeup")
 	}
@@ -167,7 +252,10 @@ func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput)
 }
 
 func (s *store) MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (int64, error) {
-	count, err := s.q.MarkTaskDagWakeupSent(ctx, sqlc.MarkTaskDagWakeupSentParams{ID: input.ID, ClaimedAt: input.ClaimedAt})
+	count, err := s.q.MarkTaskDagWakeupSent(ctx, sqlc.MarkTaskDagWakeupSentParams{
+		ID:        input.ID,
+		ClaimedAt: timestampValue(input.ClaimedAt),
+	})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "mark_sent", "task_dag_wakeup")
 	}
@@ -175,7 +263,10 @@ func (s *store) MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (
 }
 
 func (s *store) BindWakeupTurn(ctx context.Context, input BindWakeupTurnInput) (int64, error) {
-	count, err := s.q.BindTaskDagWakeupTurn(ctx, sqlc.BindTaskDagWakeupTurnParams{TurnID: input.TurnID, ID: input.ID})
+	count, err := s.q.BindTaskDagWakeupTurn(ctx, sqlc.BindTaskDagWakeupTurnParams{
+		BoundTurnID: stringPtr(input.TurnID),
+		ID:          input.ID,
+	})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "bind_turn", "task_dag_wakeup")
 	}
@@ -183,7 +274,16 @@ func (s *store) BindWakeupTurn(ctx context.Context, input BindWakeupTurnInput) (
 }
 
 func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64, error) {
-	count, err := s.q.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{RetryInterval: input.RetryInterval, LastError: input.LastError, ID: input.ID, ClaimedAt: input.ClaimedAt})
+	retryInterval, err := intervalValue(input.RetryInterval)
+	if err != nil {
+		return 0, wrapTaskDAGError(err, "retry", "task_dag_wakeup")
+	}
+	count, err := s.q.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{
+		Column1:   retryInterval,
+		LastError: input.LastError,
+		ID:        input.ID,
+		ClaimedAt: timestampValue(input.ClaimedAt),
+	})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "retry", "task_dag_wakeup")
 	}
@@ -191,7 +291,11 @@ func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64,
 }
 
 func (s *store) FailWakeup(ctx context.Context, input FailWakeupInput) (int64, error) {
-	count, err := s.q.FailTaskDagWakeup(ctx, sqlc.FailTaskDagWakeupParams{LastError: input.LastError, ID: input.ID, ClaimedAt: input.ClaimedAt})
+	count, err := s.q.FailTaskDagWakeup(ctx, sqlc.FailTaskDagWakeupParams{
+		LastError: input.LastError,
+		ID:        input.ID,
+		ClaimedAt: timestampValue(input.ClaimedAt),
+	})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "fail", "task_dag_wakeup")
 	}
@@ -199,7 +303,15 @@ func (s *store) FailWakeup(ctx context.Context, input FailWakeupInput) (int64, e
 }
 
 func (s *store) AcquireWorkerLease(ctx context.Context, input AcquireWorkerLeaseInput) (int64, error) {
-	count, err := s.q.AcquireTaskDagWorkerLease(ctx, sqlc.AcquireTaskDagWorkerLeaseParams{TargetAgentID: input.TargetAgentID, OwnerID: input.OwnerID, LeaseInterval: input.LeaseInterval})
+	leaseInterval, err := intervalValue(input.LeaseInterval)
+	if err != nil {
+		return 0, wrapTaskDAGError(err, "acquire", "task_dag_worker_lease")
+	}
+	count, err := s.q.AcquireTaskDagWorkerLease(ctx, sqlc.AcquireTaskDagWorkerLeaseParams{
+		TargetAgentID: input.TargetAgentID,
+		OwnerID:       input.OwnerID,
+		Column3:       leaseInterval,
+	})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "acquire", "task_dag_worker_lease")
 	}
@@ -207,7 +319,15 @@ func (s *store) AcquireWorkerLease(ctx context.Context, input AcquireWorkerLease
 }
 
 func (s *store) RenewWorkerLease(ctx context.Context, input RenewWorkerLeaseInput) (int64, error) {
-	count, err := s.q.RenewTaskDagWorkerLease(ctx, sqlc.RenewTaskDagWorkerLeaseParams{LeaseInterval: input.LeaseInterval, TargetAgentID: input.TargetAgentID, OwnerID: input.OwnerID})
+	leaseInterval, err := intervalValue(input.LeaseInterval)
+	if err != nil {
+		return 0, wrapTaskDAGError(err, "renew", "task_dag_worker_lease")
+	}
+	count, err := s.q.RenewTaskDagWorkerLease(ctx, sqlc.RenewTaskDagWorkerLeaseParams{
+		Column1:       leaseInterval,
+		TargetAgentID: input.TargetAgentID,
+		OwnerID:       input.OwnerID,
+	})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "renew", "task_dag_worker_lease")
 	}
@@ -280,13 +400,41 @@ func fromDAG(row sqlc.TaskDag) DAG {
 }
 
 func fromNode(row sqlc.TaskDagNode) Node {
-	return Node{ID: row.ID, DagKey: row.DagKey, NodeKey: row.NodeKey, Title: row.Title, NodeType: row.NodeType, AssignedTo: row.AssignedTo, DependsOn: row.DependsOn, Status: row.Status, CommandRef: row.CommandRef, Config: row.Config, Result: row.Result, StartedAt: row.StartedAt, FinishedAt: row.FinishedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, ActiveTurnID: row.ActiveTurnID, ActiveWakeupID: row.ActiveWakeupID, LastEventAt: row.LastEventAt}
+	return Node{ID: row.ID, DagKey: row.DagKey, NodeKey: row.NodeKey, Title: row.Title, NodeType: row.NodeType, AssignedTo: row.AssignedTo, DependsOn: row.DependsOn, Status: row.Status, CommandRef: row.CommandRef, Config: row.Config, Result: row.Result, StartedAt: row.StartedAt, FinishedAt: row.FinishedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, ActiveTurnID: row.ActiveTurnID, ActiveWakeupID: row.ActiveWakeupID, LastEventAt: timestampPtr(row.LastEventAt)}
 }
 
 func fromWakeup(row sqlc.TaskDagWakeup) Wakeup {
-	return Wakeup{ID: row.ID, DagKey: row.DagKey, NodeKey: row.NodeKey, WakeupKind: row.WakeupKind, TargetAgentID: row.TargetAgentID, PromptPayload: row.PromptPayload, IdempotencyKey: row.IdempotencyKey, Status: row.Status, AttemptCount: row.AttemptCount, NextRetryAt: row.NextRetryAt, ClaimedAt: row.ClaimedAt, ClaimedBy: row.ClaimedBy, LeaseExpiresAt: row.LeaseExpiresAt, SentAt: row.SentAt, BoundTurnID: row.BoundTurnID, TurnBoundAt: row.TurnBoundAt, LastError: row.LastError, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	return Wakeup{ID: row.ID, DagKey: row.DagKey, NodeKey: row.NodeKey, WakeupKind: row.WakeupKind, TargetAgentID: row.TargetAgentID, PromptPayload: row.PromptPayload, IdempotencyKey: row.IdempotencyKey, Status: row.Status, AttemptCount: row.AttemptCount, NextRetryAt: timeValue(row.NextRetryAt), ClaimedAt: timestampPtr(row.ClaimedAt), ClaimedBy: row.ClaimedBy, LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt), SentAt: timestampPtr(row.SentAt), BoundTurnID: row.BoundTurnID, TurnBoundAt: timestampPtr(row.TurnBoundAt), LastError: row.LastError, CreatedAt: timeValue(row.CreatedAt), UpdatedAt: timeValue(row.UpdatedAt)}
 }
 
 func wrapTaskDAGError(err error, operation, entity string) error {
 	return platformdb.WrapStoreError(err, operation, entity)
+}
+
+// intervalValue converts textual interval input into the pgtype shape expected by sqlc.
+func intervalValue(value string) (pgtype.Interval, error) {
+	var interval pgtype.Interval
+	if err := interval.Scan(value); err != nil {
+		return pgtype.Interval{}, err
+	}
+	return interval, nil
+}
+
+func timeValue(value pgtype.Timestamptz) time.Time {
+	if !value.Valid {
+		return time.Time{}
+	}
+	return value.Time
+}
+
+func timestampPtr(value pgtype.Timestamptz) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	copy := value.Time
+	return &copy
+}
+
+func timestampValue(value time.Time) pgtype.Timestamptz {
+	return pgtype.Timestamptz{Time: value, Valid: !value.IsZero()}
 }

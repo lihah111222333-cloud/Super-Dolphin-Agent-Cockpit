@@ -2,6 +2,7 @@ package systemlog
 
 import (
 	"context"
+	"encoding/json"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -17,16 +18,16 @@ func NewStore(q *sqlc.Queries) Store {
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SystemLog, error) {
 	rows, err := s.q.ListSystemLogs(ctx, sqlc.ListSystemLogsParams{
-		Level:     filter.Level,
-		Logger:    filter.Logger,
-		Source:    filter.Source,
-		Component: filter.Component,
-		AgentID:   filter.AgentID,
-		ThreadID:  filter.ThreadID,
-		EventType: filter.EventType,
-		ToolName:  filter.ToolName,
-		Keyword:   filter.Keyword,
-		Limit:     filter.Limit,
+		Column1: filter.Level,
+		Column2: filter.Logger,
+		Column3: filter.Source,
+		Column4: filter.Component,
+		Column5: filter.AgentID,
+		Column6: filter.ThreadID,
+		Column7: filter.EventType,
+		Column8: filter.ToolName,
+		Column9: filter.Keyword,
+		Limit:   filter.Limit,
 	})
 	if err != nil {
 		return nil, wrapSystemLogError(err, "list")
@@ -63,7 +64,7 @@ func mapSystemLog(row sqlc.SystemLog) SystemLog {
 		EventType:  row.EventType,
 		ToolName:   row.ToolName,
 		DurationMs: row.DurationMs,
-		Extra:      row.Extra,
+		Extra:      json.RawMessage(row.Extra),
 	}
 }
 

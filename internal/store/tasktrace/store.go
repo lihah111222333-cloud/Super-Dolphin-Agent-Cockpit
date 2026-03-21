@@ -2,9 +2,12 @@ package tasktrace
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type store struct {
@@ -20,12 +23,12 @@ func (s *store) Insert(ctx context.Context, trace TaskTrace) (*TaskTrace, error)
 		ParentSpanID:  trace.ParentSpanID,
 		SpanName:      trace.SpanName,
 		Component:     trace.Component,
-		InputPayload:  trace.InputPayload,
-		OutputPayload: trace.OutputPayload,
+		Column6:       trace.InputPayload,
+		Column7:       trace.OutputPayload,
 		Status:        trace.Status,
 		ErrorText:     trace.ErrorText,
 		DurationMs:    trace.DurationMs,
-		Metadata:      trace.Metadata,
+		Column11:      trace.Metadata,
 	})
 	if err != nil {
 		return nil, wrapTaskTraceError(err, "insert")
@@ -36,10 +39,10 @@ func (s *store) Insert(ctx context.Context, trace TaskTrace) (*TaskTrace, error)
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]TaskTrace, error) {
 	rows, err := s.q.ListTaskTraces(ctx, sqlc.ListTaskTracesParams{
-		Component: filter.Component,
-		Since:     filter.Since,
-		Keyword:   filter.Keyword,
-		Limit:     filter.Limit,
+		Column1: filter.Component,
+		Column2: toTraceSince(filter.Since),
+		Column3: filter.Keyword,
+		Limit:   filter.Limit,
 	})
 	if err != nil {
 		return nil, wrapTaskTraceError(err, "list")
@@ -60,14 +63,21 @@ func fromSQLC(row sqlc.TaskTrace) TaskTrace {
 		SpanName:      row.SpanName,
 		Component:     row.Component,
 		Status:        row.Status,
-		InputPayload:  row.InputPayload,
-		OutputPayload: row.OutputPayload,
+		InputPayload:  json.RawMessage(row.InputPayload),
+		OutputPayload: json.RawMessage(row.OutputPayload),
 		ErrorText:     row.ErrorText,
-		Metadata:      row.Metadata,
+		Metadata:      json.RawMessage(row.Metadata),
 		StartedAt:     row.StartedAt,
 		FinishedAt:    row.FinishedAt,
 		DurationMs:    row.DurationMs,
 	}
+}
+
+func toTraceSince(ts *time.Time) pgtype.Timestamptz {
+	if ts == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *ts, Valid: true}
 }
 
 func wrapTaskTraceError(err error, operation string) error {

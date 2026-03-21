@@ -19,7 +19,7 @@ func (s *store) Acquire(ctx context.Context, params AcquireParams) (int64, error
 	count, err := s.q.AcquireCwdLock(ctx, sqlc.AcquireCwdLockParams{
 		Cwd:        params.Cwd,
 		InstanceID: params.InstanceID,
-		PID:        params.PID,
+		Pid:        params.PID,
 	})
 	if err != nil {
 		return 0, wrapCwdLockError(err, "acquire", "cwd_lock")
@@ -31,8 +31,8 @@ func (s *store) ForceAcquire(ctx context.Context, params ForceAcquireParams) (in
 	count, err := s.q.ForceAcquireCwdLock(ctx, sqlc.ForceAcquireCwdLockParams{
 		Cwd:        params.Cwd,
 		InstanceID: params.InstanceID,
-		PID:        params.PID,
-		HolderPID:  params.HolderPID,
+		Pid:        params.PID,
+		Pid_2:      params.HolderPID,
 	})
 	if err != nil {
 		return 0, wrapCwdLockError(err, "force_acquire", "cwd_lock")
@@ -55,7 +55,7 @@ func (s *store) Heartbeat(ctx context.Context, params HeartbeatParams) error {
 	return wrapCwdLockError(s.q.HeartbeatCwdLock(ctx, sqlc.HeartbeatCwdLockParams{
 		Cwd:        params.Cwd,
 		InstanceID: params.InstanceID,
-		PID:        params.PID,
+		Pid:        params.PID,
 	}), "heartbeat", "cwd_lock")
 }
 
@@ -74,7 +74,7 @@ func (s *store) GetHolder(ctx context.Context, cwd string) (*LockHolder, error) 
 	}
 	result := LockHolder{
 		InstanceID:  row.InstanceID,
-		PID:         row.PID,
+		PID:         row.Pid,
 		HeartbeatAt: row.HeartbeatAt,
 	}
 	return &result, nil

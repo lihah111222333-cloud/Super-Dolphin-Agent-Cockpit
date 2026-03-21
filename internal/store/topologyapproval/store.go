@@ -2,6 +2,7 @@ package topologyapproval
 
 import (
 	"context"
+	"encoding/json"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -21,7 +22,7 @@ func (s *store) Create(ctx context.Context, approval TopologyApproval) (*Topolog
 		CreatedAt:            approval.CreatedAt,
 		ExpireAt:             approval.ExpireAt,
 		ArchHash:             approval.ArchHash,
-		ProposedArchitecture: approval.ProposedArchitecture,
+		Column7:              approval.ProposedArchitecture,
 	})
 	if err != nil {
 		return nil, wrapTopologyApprovalError(err, "create")
@@ -31,7 +32,7 @@ func (s *store) Create(ctx context.Context, approval TopologyApproval) (*Topolog
 }
 
 func (s *store) Approve(ctx context.Context, reviewer, id string) (int64, error) {
-	count, err := s.q.ApproveTopologyApproval(ctx, reviewer, id)
+	count, err := s.q.ApproveTopologyApproval(ctx, sqlc.ApproveTopologyApprovalParams{Reviewer: reviewer, ID: id})
 	if err != nil {
 		return 0, wrapTopologyApprovalError(err, "approve")
 	}
@@ -39,7 +40,7 @@ func (s *store) Approve(ctx context.Context, reviewer, id string) (int64, error)
 }
 
 func (s *store) Reject(ctx context.Context, reviewer, id string) (int64, error) {
-	count, err := s.q.RejectTopologyApproval(ctx, reviewer, id)
+	count, err := s.q.RejectTopologyApproval(ctx, sqlc.RejectTopologyApprovalParams{Reviewer: reviewer, ID: id})
 	if err != nil {
 		return 0, wrapTopologyApprovalError(err, "reject")
 	}
@@ -70,7 +71,7 @@ func fromSQLC(row sqlc.TopologyApproval) TopologyApproval {
 		Reviewer:             row.Reviewer,
 		ReviewNote:           row.ReviewNote,
 		ArchHash:             row.ArchHash,
-		ProposedArchitecture: row.ProposedArchitecture,
+		ProposedArchitecture: json.RawMessage(row.ProposedArchitecture),
 	}
 }
 

@@ -8,6 +8,9 @@ import (
 
 type Store interface {
 	List(ctx context.Context, filter ListFilter) ([]AILog, error)
+	ListByCategory(ctx context.Context, category string, limit int32) ([]AILog, error)
+	CountByStatus(ctx context.Context) ([]StatusCount, error)
+	ListRecent(ctx context.Context, limit int32) ([]AILog, error)
 }
 
 type ListFilter struct {
@@ -31,4 +34,16 @@ type AILog struct {
 	ToolName   string
 	DurationMs *int32
 	Extra      json.RawMessage
+	Category   string
+	Method     string
+	URL        string
+	Endpoint   string
+	Status     string
+	StatusText string
+	Model      string
+}
+
+type StatusCount struct {
+	Status string
+	Count  int64
 }

@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"fmt"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -20,7 +21,7 @@ func (s *store) GetByThreadID(ctx context.Context, threadID string) (*Thread, er
 	if err != nil {
 		return nil, wrapThreadError(err, "get_by_thread_id")
 	}
-	result := mapThread(row)
+	result := mapThreadByID(row)
 	return &result, nil
 }
 
@@ -29,7 +30,7 @@ func (s *store) GetByPort(ctx context.Context, port int32) (*Thread, error) {
 	if err != nil {
 		return nil, wrapThreadError(err, "get_by_port")
 	}
-	result := mapThread(row)
+	result := mapThreadByPort(row)
 	return &result, nil
 }
 
@@ -38,7 +39,7 @@ func (s *store) ListAll(ctx context.Context) ([]Thread, error) {
 	if err != nil {
 		return nil, wrapThreadError(err, "list_all")
 	}
-	return mapThreads(rows), nil
+	return mapThreadList(rows), nil
 }
 
 func (s *store) ListRunning(ctx context.Context) ([]Thread, error) {
@@ -46,7 +47,7 @@ func (s *store) ListRunning(ctx context.Context) ([]Thread, error) {
 	if err != nil {
 		return nil, wrapThreadError(err, "list_running")
 	}
-	return mapThreads(rows), nil
+	return mapRunningThreadList(rows), nil
 }
 
 func (s *store) ListRecoverable(ctx context.Context) ([]Thread, error) {
@@ -54,7 +55,7 @@ func (s *store) ListRecoverable(ctx context.Context) ([]Thread, error) {
 	if err != nil {
 		return nil, wrapThreadError(err, "list_recoverable")
 	}
-	return mapThreads(rows), nil
+	return mapRecoverableThreadList(rows), nil
 }
 
 func (s *store) ListRunningAgents(ctx context.Context) ([]RunningAgent, error) {
@@ -67,7 +68,7 @@ func (s *store) ListRunningAgents(ctx context.Context) ([]RunningAgent, error) {
 		result[i] = RunningAgent{
 			ThreadID: row.ThreadID,
 			Port:     row.Port,
-			PID:      row.PID,
+			PID:      row.Pid,
 			Status:   row.Status,
 		}
 	}
@@ -82,7 +83,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		Cwd:           params.Cwd,
 		Status:        params.Status,
 		Port:          params.Port,
-		PID:           params.PID,
+		Pid:           params.PID,
 		CreatedAt:     params.CreatedAt,
 		UpdatedAt:     params.UpdatedAt,
 		OwnerThreadID: params.OwnerThreadID,
@@ -98,9 +99,7 @@ func (s *store) UpdateStatus(ctx context.Context, params UpdateStatusParams) err
 }
 
 func (s *store) DeleteByThreadID(ctx context.Context, threadID string) error {
-	return wrapThreadError(s.q.DeleteAgentThreadByID(ctx, sqlc.DeleteAgentThreadByIDParams{
-		ThreadID: threadID,
-	}), "delete_by_thread_id")
+	return wrapThreadError(s.q.DeleteAgentThreadByID(ctx, threadID), "delete_by_thread_id")
 }
 
 func (s *store) ResetRunning(ctx context.Context) error {
@@ -109,8 +108,8 @@ func (s *store) ResetRunning(ctx context.Context) error {
 
 func (s *store) ExpireStale(ctx context.Context, params ExpireStaleParams) (int64, error) {
 	count, err := s.q.ExpireStaleAgentThreads(ctx, sqlc.ExpireStaleAgentThreadsParams{
-		UpdatedAt: params.UpdatedAt,
-		Cutoff:    params.Cutoff,
+		UpdatedAt:   params.UpdatedAt,
+		UpdatedAt_2: params.Cutoff,
 	})
 	if err != nil {
 		return 0, wrapThreadError(err, "expire_stale")
@@ -135,27 +134,27 @@ func (s *store) ListCwds(ctx context.Context) ([]ThreadCwd, error) {
 }
 
 func (s *store) ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCwd, error) {
-	rows, err := s.q.ListAgentThreadCwdsByPrefix(ctx, prefix)
+	rows, err := s.q.ListAgentThreadCwdsByPrefix(ctx, &prefix)
 	if err != nil {
 		return nil, wrapThreadError(err, "list_cwds_by_prefix")
 	}
-	return mapThreadCwds(rows), nil
+	return mapThreadCwdsByPrefix(rows), nil
 }
 
 func wrapThreadError(err error, operation string) error {
 	return platformdb.WrapStoreError(err, operation, "thread")
 }
 
-func mapThread(row sqlc.AgentThread) Thread {
+func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 	return Thread{
 		ThreadID:        row.ThreadID,
-		AgentID:         row.AgentID,
+		AgentID:         stringFromAny(row.AgentID),
 		Prompt:          row.Prompt,
 		Model:           row.Model,
 		Cwd:             row.Cwd,
 		Status:          row.Status,
 		Port:            row.Port,
-		PID:             row.PID,
+		PID:             row.Pid,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 		FinishedAt:      row.FinishedAt,
@@ -166,15 +165,99 @@ func mapThread(row sqlc.AgentThread) Thread {
 	}
 }
 
-func mapThreads(rows []sqlc.AgentThread) []Thread {
+func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
+	return Thread{
+		ThreadID:        row.ThreadID,
+		AgentID:         stringFromAny(row.AgentID),
+		Prompt:          row.Prompt,
+		Model:           row.Model,
+		Cwd:             row.Cwd,
+		Status:          row.Status,
+		Port:            row.Port,
+		PID:             row.Pid,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
+		FinishedAt:      row.FinishedAt,
+		LastEventType:   row.LastEventType,
+		ErrorMessage:    row.ErrorMessage,
+		WorkspaceRunKey: row.WorkspaceRunKey,
+		OwnerThreadID:   row.OwnerThreadID,
+	}
+}
+
+func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 	result := make([]Thread, len(rows))
 	for i, row := range rows {
-		result[i] = mapThread(row)
+		result[i] = Thread{
+			ThreadID:        row.ThreadID,
+			AgentID:         stringFromAny(row.AgentID),
+			Prompt:          row.Prompt,
+			Model:           row.Model,
+			Cwd:             row.Cwd,
+			Status:          row.Status,
+			Port:            row.Port,
+			PID:             row.Pid,
+			CreatedAt:       row.CreatedAt,
+			UpdatedAt:       row.UpdatedAt,
+			FinishedAt:      row.FinishedAt,
+			LastEventType:   row.LastEventType,
+			ErrorMessage:    row.ErrorMessage,
+			WorkspaceRunKey: row.WorkspaceRunKey,
+			OwnerThreadID:   row.OwnerThreadID,
+		}
 	}
 	return result
 }
 
-func mapThreadCwds(rows []sqlc.AgentThreadCwdRow) []ThreadCwd {
+func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
+	result := make([]Thread, len(rows))
+	for i, row := range rows {
+		result[i] = Thread{
+			ThreadID:        row.ThreadID,
+			AgentID:         stringFromAny(row.AgentID),
+			Prompt:          row.Prompt,
+			Model:           row.Model,
+			Cwd:             row.Cwd,
+			Status:          row.Status,
+			Port:            row.Port,
+			PID:             row.Pid,
+			CreatedAt:       row.CreatedAt,
+			UpdatedAt:       row.UpdatedAt,
+			FinishedAt:      row.FinishedAt,
+			LastEventType:   row.LastEventType,
+			ErrorMessage:    row.ErrorMessage,
+			WorkspaceRunKey: row.WorkspaceRunKey,
+			OwnerThreadID:   row.OwnerThreadID,
+		}
+	}
+	return result
+}
+
+func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thread {
+	result := make([]Thread, len(rows))
+	for i, row := range rows {
+		result[i] = Thread{
+			ThreadID:        row.ThreadID,
+			AgentID:         stringFromAny(row.AgentID),
+			Prompt:          row.Prompt,
+			Model:           row.Model,
+			Cwd:             row.Cwd,
+			Status:          row.Status,
+			Port:            row.Port,
+			PID:             row.Pid,
+			CreatedAt:       row.CreatedAt,
+			UpdatedAt:       row.UpdatedAt,
+			FinishedAt:      row.FinishedAt,
+			LastEventType:   row.LastEventType,
+			ErrorMessage:    row.ErrorMessage,
+			WorkspaceRunKey: row.WorkspaceRunKey,
+			OwnerThreadID:   row.OwnerThreadID,
+		}
+	}
+	return result
+}
+
+func mapThreadCwds(rows []sqlc.ListAgentThreadCwdsRow) []ThreadCwd {
 	result := make([]ThreadCwd, len(rows))
 	for i, row := range rows {
 		result[i] = ThreadCwd{
@@ -183,4 +266,32 @@ func mapThreadCwds(rows []sqlc.AgentThreadCwdRow) []ThreadCwd {
 		}
 	}
 	return result
+}
+
+func mapThreadCwdsByPrefix(rows []sqlc.ListAgentThreadCwdsByPrefixRow) []ThreadCwd {
+	result := make([]ThreadCwd, len(rows))
+	for i, row := range rows {
+		result[i] = ThreadCwd{
+			ThreadID: row.ThreadID,
+			Cwd:      row.Cwd,
+		}
+	}
+	return result
+}
+
+func stringFromAny(value any) string {
+	if value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case *string:
+		if typed == nil {
+			return ""
+		}
+		return *typed
+	default:
+		return fmt.Sprint(typed)
+	}
 }

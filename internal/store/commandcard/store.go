@@ -2,6 +2,7 @@ package commandcard
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -34,12 +35,12 @@ func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) e
 		Title:           version.Title,
 		Description:     version.Description,
 		CommandTemplate: version.CommandTemplate,
-		ArgsSchema:      version.ArgsSchema,
+		Column5:         version.ArgsSchema,
 		RiskLevel:       version.RiskLevel,
 		Enabled:         version.Enabled,
 		CreatedBy:       version.CreatedBy,
 		UpdatedBy:       version.UpdatedBy,
-		SourceUpdatedAt: sourceUpdatedAt(version.SourceUpdatedAt),
+		SourceUpdatedAt: version.SourceUpdatedAt,
 	}), "insert_version", "command_card_version")
 }
 
@@ -61,7 +62,7 @@ func (s *store) Upsert(ctx context.Context, card CommandCard) (*CommandCard, err
 		Title:           card.Title,
 		Description:     card.Description,
 		CommandTemplate: card.CommandTemplate,
-		ArgsSchema:      card.ArgsSchema,
+		Column5:         card.ArgsSchema,
 		RiskLevel:       card.RiskLevel,
 		Enabled:         card.Enabled,
 		CreatedBy:       card.CreatedBy,
@@ -75,7 +76,7 @@ func (s *store) Upsert(ctx context.Context, card CommandCard) (*CommandCard, err
 }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, error) {
-	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{Keyword: filter.Keyword, Limit: filter.Limit})
+	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{Column1: filter.Keyword, Limit: filter.Limit})
 	if err != nil {
 		return nil, wrapCommandCardError(err, "list", "command_card")
 	}
@@ -93,7 +94,7 @@ func fromCard(row sqlc.CommandCard) CommandCard {
 		Title:           row.Title,
 		Description:     row.Description,
 		CommandTemplate: row.CommandTemplate,
-		ArgsSchema:      row.ArgsSchema,
+		ArgsSchema:      json.RawMessage(row.ArgsSchema),
 		RiskLevel:       row.RiskLevel,
 		Enabled:         row.Enabled,
 		CreatedBy:       row.CreatedBy,
@@ -110,14 +111,14 @@ func fromListRow(row sqlc.ListCommandCardsRow) CommandCard {
 		Title:           row.Title,
 		Description:     row.Description,
 		CommandTemplate: row.CommandTemplate,
-		ArgsSchema:      row.ArgsSchema,
+		ArgsSchema:      json.RawMessage(row.ArgsSchema),
 		RiskLevel:       row.RiskLevel,
 		Enabled:         row.Enabled,
 		CreatedBy:       row.CreatedBy,
 		UpdatedBy:       row.UpdatedBy,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
-		LastRunAt:       row.LastRunAt,
+		LastRunAt:       timePtr(row.LastRunAt),
 		RunCount:        row.RunCount,
 	}
 }
@@ -129,7 +130,7 @@ func fromVersion(row sqlc.CommandCardVersion) CommandCardVersion {
 		Title:           row.Title,
 		Description:     row.Description,
 		CommandTemplate: row.CommandTemplate,
-		ArgsSchema:      row.ArgsSchema,
+		ArgsSchema:      json.RawMessage(row.ArgsSchema),
 		RiskLevel:       row.RiskLevel,
 		Enabled:         row.Enabled,
 		CreatedBy:       row.CreatedBy,
@@ -140,11 +141,12 @@ func fromVersion(row sqlc.CommandCardVersion) CommandCardVersion {
 	}
 }
 
-func sourceUpdatedAt(ts *time.Time) time.Time {
-	if ts == nil {
-		return time.Time{}
+func timePtr(value any) *time.Time {
+	ts, ok := value.(time.Time)
+	if !ok {
+		return nil
 	}
-	return *ts
+	return &ts
 }
 
 func wrapCommandCardError(err error, operation, entity string) error {
