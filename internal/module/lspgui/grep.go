@@ -118,32 +118,44 @@ func searchPath(
 	}
 	results := make([]searchMatch, 0, maxResults)
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if walkErr != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if shouldSkipDir(d.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		found, err := searchFile(ctx, root, path, glob, maxResults-len(results), matcher)
-		if err != nil {
-			return nil
-		}
-		results = append(results, found...)
-		if len(results) >= maxResults {
-			return errStopSearch
-		}
-		return nil
+		return searchWalkEntry(ctx, root, path, glob, maxResults, matcher, &results, d, walkErr)
 	})
 	if errors.Is(err, errStopSearch) {
 		return results, nil
 	}
 	return results, err
+}
+
+func searchWalkEntry(
+	ctx context.Context,
+	root, path, glob string,
+	maxResults int,
+	matcher lineMatcher,
+	results *[]searchMatch,
+	entry fs.DirEntry,
+	walkErr error,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if walkErr != nil || entry == nil {
+		return nil
+	}
+	if shouldSkipEntry(entry) {
+		return filepath.SkipDir
+	}
+	if entry.IsDir() {
+		return nil
+	}
+	found, err := searchFile(ctx, root, path, glob, maxResults-len(*results), matcher)
+	if err != nil {
+		return nil
+	}
+	*results = append(*results, found...)
+	if len(*results) >= maxResults {
+		return errStopSearch
+	}
+	return nil
 }
 
 func searchFile(
@@ -216,4 +228,8 @@ func shouldSkipDir(name string) bool {
 	default:
 		return false
 	}
+}
+
+func shouldSkipEntry(entry fs.DirEntry) bool {
+	return entry.IsDir() && shouldSkipDir(entry.Name())
 }
