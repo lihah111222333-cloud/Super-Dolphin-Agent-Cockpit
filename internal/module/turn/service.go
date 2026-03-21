@@ -123,29 +123,45 @@ func (s *service) SteerTurn(ctx context.Context, session contract.Session, expec
 	if err != nil {
 		return nil, err
 	}
-	active, tracked := s.tracker.ActiveByThread(threadID)
-	if !tracked {
-		return nil, errors.New("no active turn to steer")
-	}
-	if active.handle == nil {
-		return nil, errors.New("active turn handle is nil")
-	}
-	expectedTurnID = strings.TrimSpace(expectedTurnID)
-	if expectedTurnID != "" && !strings.EqualFold(expectedTurnID, active.localID) {
-		return nil, fmt.Errorf("expectedTurnId mismatch: expected %s, active %s", expectedTurnID, active.localID)
+	active, err := s.resolveActiveSteerTurn(threadID, expectedTurnID)
+	if err != nil {
+		return nil, err
 	}
 	req, err := s.PrepareTurn(ctx, session, input)
 	if err != nil {
 		return nil, err
 	}
-	steerer, ok := session.(steerableSession)
-	if !ok {
-		return nil, errors.New("turn steer is not supported by session")
+	steerer, err := requireSteerableSession(session)
+	if err != nil {
+		return nil, err
 	}
 	if err := steerer.Steer(ctx, buildSteerRequest(req, active.handle.ProviderID())); err != nil {
 		return nil, err
 	}
 	return active.handle, nil
+}
+
+func (s *service) resolveActiveSteerTurn(threadID, expectedTurnID string) (activeTurn, error) {
+	active, tracked := s.tracker.ActiveByThread(threadID)
+	if !tracked {
+		return activeTurn{}, errors.New("no active turn to steer")
+	}
+	if active.handle == nil {
+		return activeTurn{}, errors.New("active turn handle is nil")
+	}
+	expectedTurnID = strings.TrimSpace(expectedTurnID)
+	if expectedTurnID != "" && !strings.EqualFold(expectedTurnID, active.localID) {
+		return activeTurn{}, fmt.Errorf("expectedTurnId mismatch: expected %s, active %s", expectedTurnID, active.localID)
+	}
+	return active, nil
+}
+
+func requireSteerableSession(session contract.Session) (steerableSession, error) {
+	steerer, ok := session.(steerableSession)
+	if !ok {
+		return nil, errors.New("turn steer is not supported by session")
+	}
+	return steerer, nil
 }
 
 func buildSteerRequest(req dto.TurnRequest, expectedTurnID string) dto.SteerRequest {
