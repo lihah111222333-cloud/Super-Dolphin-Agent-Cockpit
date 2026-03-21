@@ -35,9 +35,9 @@
 | **P7.5 桥接校准** | ✅ | **~24 handler 补建 + 4 事件桥接 + knownDiffRevision + 安全加固** |
 | **P8 前置** | ✅ | **D-1 sqlc 漂移 + D-2 runtime 上报 + D-3 状态机封堵 + dbquery 执行器** |
 | **V2↔V3 核对** | ✅ | **21 模块 1:1 核对 + 修复 + 互审，排除 MCP 后残留归零** |
-| **archtest 收官** | ✅ | **35+6 项违规全部修复，守卫全绿** |
-| P8 编排工具 | ⏳ | MCP 编排工具族 20 个，~1,200 行，计划已出 |
-| P9 LSP 工具 | ⏳ | MCP LSP 工具族 9 个，~12,500 行，计划已出 |
+| **archtest 收官** | ✅ | **35+6 项违规全部修复；现有守卫全绿，但尚未覆盖 MCP 新依赖方向规则** |
+| P8 编排工具 | ⏳ | 把 `cmd/mcp-orch/orchestration/*`、相关 `internal/store/*` 和依赖的 `internal/store/sqlc/*` / `sql/queries/*.sql` 迁到独立 `cmd/mcp-orch` 服务；19 个可交付 + 1 个延后（`task_start_node`），计划已出 |
+| P9 LSP 工具 | ⏳ | MCP LSP 工具独立服务（`cmd/mcp-lsp`），9 个工具，计划已出 |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→目标 60%，计划已出 |
 
 ---
@@ -49,6 +49,10 @@
 - D-2：AgentSnapshot runtime 上报（DTO + UpdateRuntime + strict decode + 变更检测 + 事件去重）
 - D-3：状态机封堵 + dbquery 安全执行器（白名单 24 表 + 危险函数 15+ + CTE 防绕过 + float64 归一化 + 10s timeout + 10000 行上限）
 - 经历 3 轮：实现 → 互辩 → 互审修复 → 终检
+- P8 交接 1：`cmd/mcp-orch/orchestration/*` 将整体迁到 `cmd/mcp-orch/orchestration/*`；MCP binary 自己持有 agent runtime、report、runtime snapshot 与 DAG
+- P8 交接 2：相关 `store/*` 与 `store/sqlc/*` 也要本地化到 `cmd/mcp-orch`；运行时只共享 `config/db/contract/dto`
+- P8 交接 3：候选 store 包必须先做 xref 审计再决定删除；当前基线下 `taskdag`、`binding`、`workspace`、`prompt`、`commandcard`、`sharedfile` 都是 copy+keep
+- P8 交接 4：`prompts/list|write|delete` 仍被前端页面直接使用，P8 不能为迁 MCP 把 prompt UI surface 搬空
 
 ### 2.2 P7.5 前后端桥接校准
 - 补建 ~24 个 RPC handler：config/read, lspPromptHint, prompts/*, ui/code/*, ui/copyText, ui/selectProjectDir(s), ui/openNewWindow, ui/projects/*, lsp/gui_*
@@ -74,7 +78,10 @@
   - 第三轮：1 Agent 修最后 5 项
 - sqlc 生成代码豁免（guardlib.go SkipDir）
 - unified/event_map.go CC=46 → table-driven dispatch
-- 最终状态：0 violations + PASS
+- 最终状态：现有规则下 0 violations + PASS
+- 待补守卫 1：`cmd/mcp-* -> internal/*` 单向依赖检查
+- 待补守卫 2：`cmd/mcp-*` 之间禁止交叉 import
+- 待补守卫 3：`internal/*` 禁止反向 import `cmd/mcp-*`
 
 ### 2.5 基础设施
 - run-debug.sh 适配 V3（4 二进制、archtest 替代 code_size_guard、去除 Frida）
@@ -89,7 +96,8 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | MCP 问题写入 P8/P9 | ⏳ | V2↔V3 + P7.5 发现的 MCP 相关问题需归档到 p8/p9-execution-plan.md |
-| **P8 编排工具族** | ⏳ | 20 个工具，4 Agent 并行，~1,200 行 |
+| **P8 编排工具族** | ⏳ | 整体迁移 `cmd/mcp-orch/orchestration/*`、相关 `internal/store/*` 与依赖 sqlc/query 到独立 `cmd/mcp-orch` 服务；候选 host store 先 xref 决定 copy+keep 还是迁移+删除；19 个可交付 + 1 个延后（`task_start_node`），按 copy/cleanup/adapt/server-wire 推进 |
+| MCP 新依赖方向守卫 | ⏳ | 需补 `cmd/mcp-* -> internal/*` 单向、`cmd/mcp-*` 禁止互相 import、`internal/*` 禁止反向 import `cmd/mcp-*` |
 | **P9 LSP 工具族** | ⏳ | 9 个工具，6+1 Agent，~12,500 行 |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→60%，3 波次 |
 | IDA 工具族 | ⏳ | 82 个工具，暂缓 |
@@ -101,7 +109,7 @@
 
 1. **MCP 问题归档** — 把 V2↔V3 和 P7.5 发现的 MCP 相关问题写入 P8/P9 文档
 2. **手动启动测试** — 用 `./run-debug.sh` 选项 6（快速编译 agent-terminal）启动，验证 UI 可用性
-3. **P8 编排工具族开工** — 读 p8-execution-plan.md，拉 4 Agent 并行
+3. **P8 编排工具族开工** — 读 p8-execution-plan.md，按“整体迁移 orchestration + store + sqlc，本地化后对 `internal/store/*` 零运行时依赖 + 19 个可交付 + 1 个延后（`task_start_node`）”推进
 4. **P9 LSP 工具族开工** — 读 p9-execution-plan.md，拉 6+1 Agent
 5. **P10 工厂丰满**（P8/P9 后）
 
@@ -112,12 +120,13 @@
 | # | 问题 | 严重度 | 归期 |
 |---|---|---|---|
 | 1 | MCP 相关 V2↔V3 差异未归档 P8/P9 | P2 | 下一会话首任务 |
-| 2 | lsp/gui_structure/inspect/xref 仍是 stub | P3 | P9 |
-| 3 | knownDiffRevision 仍是 no-op（有 TODO P8） | P3 | P8 |
-| 4 | ui/thread/patch 新字段前端不消费 | P3 | P8 前端适配 |
-| 5 | thread/name/set provider 未接（有 TODO P8） | P3 | P8 |
-| 6 | Claude reconnect 无生产路径（有 TODO P8） | P3 | P8 |
-| 7 | sidebar_test 异步投影已修但 projector 仍偏重 | P3 | P10 |
+| 2 | MCP 新依赖方向 archtest 尚未落地 | P2 | P8/P9 前置 |
+| 3 | lsp/gui_structure/inspect/xref 仍是 stub | P3 | P9 |
+| 4 | knownDiffRevision 仍是 no-op（有 TODO P8） | P3 | P8 |
+| 5 | ui/thread/patch 新字段前端不消费 | P3 | P8 前端适配 |
+| 6 | thread/name/set provider 未接（有 TODO P8） | P3 | P8 |
+| 7 | Claude reconnect 无生产路径（有 TODO P8） | P3 | P8 |
+| 8 | sidebar_test 异步投影已修但 projector 仍偏重 | P3 | P10 |
 
 ---
 
