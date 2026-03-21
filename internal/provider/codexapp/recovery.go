@@ -23,6 +23,13 @@ const (
 	healthCheckIdleThreshold = 30 * time.Second
 )
 
+type turnReplayState struct {
+	localID    string
+	providerID string
+	params     turnStartParams
+	handle     *turnHandle
+}
+
 func (r *recoveryManager) CheckHealth(ctx context.Context) error {
 	if r.transport == nil || !r.transport.Running() {
 		return errors.New("codexapp: transport not running")
@@ -49,6 +56,34 @@ func (r *recoveryManager) Reconnect(ctx context.Context) error {
 		defer cancel()
 		return r.transport.reconnect(callCtx)
 	})
+}
+
+func cloneTurnStartParams(params turnStartParams) turnStartParams {
+	cloned := params
+	if len(params.Input) > 0 {
+		cloned.Input = append([]turnInputItem(nil), params.Input...)
+	}
+	if len(params.SelectedSkills) > 0 {
+		cloned.SelectedSkills = append([]string(nil), params.SelectedSkills...)
+	}
+	if len(params.OutputSchema) > 0 {
+		cloned.OutputSchema = append(json.RawMessage(nil), params.OutputSchema...)
+	}
+	return cloned
+}
+
+func (s *session) rememberPendingTurn(handle *turnHandle, params turnStartParams) {
+	if s == nil || handle == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pendingTurn = &turnReplayState{
+		localID:    strings.TrimSpace(handle.LocalID()),
+		providerID: strings.TrimSpace(handle.ProviderID()),
+		params:     cloneTurnStartParams(params),
+		handle:     handle,
+	}
 }
 
 func (s *session) callTransport(ctx context.Context, method string, params any) (json.RawMessage, error) {
@@ -101,6 +136,113 @@ func (s *session) attemptRecovery(reason string) error {
 		return err
 	}
 	return nil
+}
+
+func (s *session) replayPendingTurn(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	snapshot := s.pendingTurnSnapshot()
+	if snapshot == nil || replayTurnDone(snapshot.handle) {
+		return nil
+	}
+	if err := validatePendingTurnSnapshot(snapshot); err != nil {
+		return err
+	}
+	s.logReplayPendingTurn(snapshot)
+	newProviderID, err := s.replayTurnStart(ctx, snapshot.params)
+	if err != nil {
+		return err
+	}
+	s.applyReplayedTurn(snapshot, newProviderID)
+	s.logReplayedTurn(snapshot, newProviderID)
+	return nil
+}
+
+func (s *session) pendingTurnSnapshot() *turnReplayState {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pendingTurn == nil || s.pendingTurn.handle == nil {
+		return nil
+	}
+	snapshot := *s.pendingTurn
+	snapshot.params = cloneTurnStartParams(snapshot.params)
+	return &snapshot
+}
+
+func replayTurnDone(handle *turnHandle) bool {
+	if handle == nil {
+		return true
+	}
+	select {
+	case <-handle.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+func validatePendingTurnSnapshot(snapshot *turnReplayState) error {
+	if snapshot == nil || strings.TrimSpace(snapshot.params.ThreadID) == "" {
+		return errors.New("codexapp: replay thread id is required")
+	}
+	return nil
+}
+
+func (s *session) replayTurnStart(ctx context.Context, params turnStartParams) (string, error) {
+	callCtx, cancel := withTimeout(ctx, 30*time.Second)
+	defer cancel()
+	raw, err := s.transport.Call(callCtx, "turn/start", params)
+	if err != nil {
+		return "", err
+	}
+	var resp turnRPCResult
+	if err := json.Unmarshal(raw, &resp); err != nil || strings.TrimSpace(resp.Turn.ID) == "" {
+		return "", errors.New("codexapp: invalid turn/start response")
+	}
+	return strings.TrimSpace(resp.Turn.ID), nil
+}
+
+func (s *session) applyReplayedTurn(snapshot *turnReplayState, newProviderID string) {
+	snapshot.handle.setProviderID(newProviderID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if snapshot.providerID != "" {
+		delete(s.turns, snapshot.providerID)
+	}
+	s.turns[newProviderID] = snapshot.handle
+	s.activeTurnID = newProviderID
+	if s.pendingTurn != nil && s.pendingTurn.handle == snapshot.handle {
+		s.pendingTurn.providerID = newProviderID
+		s.pendingTurn.params = cloneTurnStartParams(snapshot.params)
+	}
+}
+
+func (s *session) logReplayPendingTurn(snapshot *turnReplayState) {
+	if s.logger == nil || snapshot == nil {
+		return
+	}
+	s.logger.Info("codexapp: replaying unfinished turn after recovery",
+		"thread_id", snapshot.params.ThreadID,
+		"local_turn_id", snapshot.localID,
+		"provider_turn_id", snapshot.providerID,
+	)
+}
+
+func (s *session) logReplayedTurn(snapshot *turnReplayState, newProviderID string) {
+	if s.logger == nil || snapshot == nil {
+		return
+	}
+	s.logger.Info("codexapp: unfinished turn replayed after recovery",
+		"thread_id", snapshot.params.ThreadID,
+		"local_turn_id", snapshot.localID,
+		"old_provider_turn_id", snapshot.providerID,
+		"new_provider_turn_id", newProviderID,
+		"replayed_at", time.Now().UTC().Format(time.RFC3339Nano),
+	)
 }
 
 func shouldReconnect(err error) bool {
