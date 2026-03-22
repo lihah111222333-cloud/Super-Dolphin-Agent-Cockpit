@@ -42,7 +42,7 @@ const controlEventType uint32 = 0xC7100001
 
 func (controlEvent) Type() uint32 { return controlEventType }
 
-func NewHandlers(p handlerDeps) rpc.HandlerMapResult {
+func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 	contextProvider := p.Context
 	if contextProvider == nil {
 		contextProvider = registryContextProvider{}

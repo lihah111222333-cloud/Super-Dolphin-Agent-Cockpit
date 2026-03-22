@@ -21,7 +21,7 @@ var Module = fx.Module("mcpcontrol",
 	fx.Invoke(registerSweeperLifecycle),
 )
 
-type handlerDeps struct {
+type HandlerDeps struct {
 	Registry          *ToolRegistry
 	Approvals         *rpc.ApprovalManager          `optional:"true"`
 	Bridge            *rpc.PushBridge               `optional:"true"`
@@ -37,11 +37,34 @@ type handlerDeps struct {
 
 type handlerIn struct {
 	fx.In
-	handlerDeps
+
+	Registry          *ToolRegistry
+	Approvals         *rpc.ApprovalManager          `optional:"true"`
+	Bridge            *rpc.PushBridge               `optional:"true"`
+	Logger            *slog.Logger                  `optional:"true"`
+	Dispatcher        *event.Dispatcher             `optional:"true"`
+	Orchestration     contract.OrchestrationService `optional:"true"`
+	Context           ContextProvider               `optional:"true"`
+	Events            EventSink                     `optional:"true"`
+	Logs              LogSink                       `optional:"true"`
+	RuntimeReports    RuntimeReportHandler          `optional:"true"`
+	CompletionReports CompletionReportHandler       `optional:"true"`
 }
 
 func provideHandlers(in handlerIn) rpc.HandlerMapResult {
-	return NewHandlers(in.handlerDeps)
+	return NewHandlers(HandlerDeps{
+		Registry:          in.Registry,
+		Approvals:         in.Approvals,
+		Bridge:            in.Bridge,
+		Logger:            in.Logger,
+		Dispatcher:        in.Dispatcher,
+		Orchestration:     in.Orchestration,
+		Context:           in.Context,
+		Events:            in.Events,
+		Logs:              in.Logs,
+		RuntimeReports:    in.RuntimeReports,
+		CompletionReports: in.CompletionReports,
+	})
 }
 
 func registerSweeperLifecycle(lc fx.Lifecycle, sweeper *Sweeper) {
