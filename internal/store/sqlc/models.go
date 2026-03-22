@@ -6,19 +6,7 @@ package sqlc
 
 import (
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
-
-type AgentCodexBinding struct {
-	AgentID       string `db:"agent_id" json:"agent_id"`
-	CodexThreadID string `db:"codex_thread_id" json:"codex_thread_id"`
-	RolloutPath   string `db:"rollout_path" json:"rollout_path"`
-	CreatedAt     int64  `db:"created_at" json:"created_at"`
-	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
-	Cwd           string `db:"cwd" json:"cwd"`
-	Archived      bool   `db:"archived" json:"archived"`
-}
 
 type AgentInteraction struct {
 	ID             int64      `db:"id" json:"id"`
@@ -62,48 +50,6 @@ type AgentStatus struct {
 	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
 }
 
-type AgentThread struct {
-	ThreadID        string `db:"thread_id" json:"thread_id"`
-	Prompt          string `db:"prompt" json:"prompt"`
-	Model           string `db:"model" json:"model"`
-	Cwd             string `db:"cwd" json:"cwd"`
-	Status          string `db:"status" json:"status"`
-	Port            int32  `db:"port" json:"port"`
-	Pid             int32  `db:"pid" json:"pid"`
-	CreatedAt       int64  `db:"created_at" json:"created_at"`
-	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
-	FinishedAt      *int64 `db:"finished_at" json:"finished_at"`
-	LastEventType   string `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage    string `db:"error_message" json:"error_message"`
-	WorkspaceRunKey string `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID   string `db:"owner_thread_id" json:"owner_thread_id"`
-}
-
-type AuditEvent struct {
-	ID        int64     `db:"id" json:"id"`
-	Ts        time.Time `db:"ts" json:"ts"`
-	EventType string    `db:"event_type" json:"event_type"`
-	Action    string    `db:"action" json:"action"`
-	Result    string    `db:"result" json:"result"`
-	Actor     string    `db:"actor" json:"actor"`
-	Target    string    `db:"target" json:"target"`
-	Detail    string    `db:"detail" json:"detail"`
-	Level     string    `db:"level" json:"level"`
-	Extra     []byte    `db:"extra" json:"extra"`
-}
-
-type BusExceptionLog struct {
-	ID        int64     `db:"id" json:"id"`
-	Ts        time.Time `db:"ts" json:"ts"`
-	Category  string    `db:"category" json:"category"`
-	Severity  string    `db:"severity" json:"severity"`
-	Source    string    `db:"source" json:"source"`
-	ToolName  string    `db:"tool_name" json:"tool_name"`
-	Message   string    `db:"message" json:"message"`
-	Traceback string    `db:"traceback" json:"traceback"`
-	Extra     []byte    `db:"extra" json:"extra"`
-}
-
 type CommandCard struct {
 	ID              int64     `db:"id" json:"id"`
 	CardKey         string    `db:"card_key" json:"card_key"`
@@ -117,24 +63,6 @@ type CommandCard struct {
 	UpdatedBy       string    `db:"updated_by" json:"updated_by"`
 	CreatedAt       time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
-}
-
-type CommandCardRun struct {
-	ID              int64      `db:"id" json:"id"`
-	CardKey         string     `db:"card_key" json:"card_key"`
-	RequestedBy     string     `db:"requested_by" json:"requested_by"`
-	Params          []byte     `db:"params" json:"params"`
-	RenderedCommand string     `db:"rendered_command" json:"rendered_command"`
-	RiskLevel       string     `db:"risk_level" json:"risk_level"`
-	Status          string     `db:"status" json:"status"`
-	RequiresReview  bool       `db:"requires_review" json:"requires_review"`
-	InteractionID   *int64     `db:"interaction_id" json:"interaction_id"`
-	Output          string     `db:"output" json:"output"`
-	Error           string     `db:"error" json:"error"`
-	ExitCode        *int32     `db:"exit_code" json:"exit_code"`
-	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt       time.Time  `db:"updated_at" json:"updated_at"`
-	ExecutedAt      *time.Time `db:"executed_at" json:"executed_at"`
 }
 
 type CommandCardVersion struct {
@@ -151,84 +79,6 @@ type CommandCardVersion struct {
 	SourceUpdatedAt *time.Time `db:"source_updated_at" json:"source_updated_at"`
 	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
 	ArchivedAt      time.Time  `db:"archived_at" json:"archived_at"`
-}
-
-type CwdInstanceLock struct {
-	Cwd         string    `db:"cwd" json:"cwd"`
-	InstanceID  string    `db:"instance_id" json:"instance_id"`
-	Pid         int32     `db:"pid" json:"pid"`
-	AcquiredAt  time.Time `db:"acquired_at" json:"acquired_at"`
-	HeartbeatAt time.Time `db:"heartbeat_at" json:"heartbeat_at"`
-}
-
-type Prompt struct {
-	ID         int64     `db:"id" json:"id"`
-	AgentKey   string    `db:"agent_key" json:"agent_key"`
-	ToolName   string    `db:"tool_name" json:"tool_name"`
-	PromptText string    `db:"prompt_text" json:"prompt_text"`
-	IsPinned   bool      `db:"is_pinned" json:"is_pinned"`
-	SortOrder  int32     `db:"sort_order" json:"sort_order"`
-	CreatedAt  time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
-}
-
-type PromptTemplate struct {
-	ID          int64     `db:"id" json:"id"`
-	PromptKey   string    `db:"prompt_key" json:"prompt_key"`
-	Title       string    `db:"title" json:"title"`
-	AgentKey    string    `db:"agent_key" json:"agent_key"`
-	ToolName    string    `db:"tool_name" json:"tool_name"`
-	PromptText  string    `db:"prompt_text" json:"prompt_text"`
-	Variables   []byte    `db:"variables" json:"variables"`
-	Tags        []byte    `db:"tags" json:"tags"`
-	Enabled     bool      `db:"enabled" json:"enabled"`
-	CreatedBy   string    `db:"created_by" json:"created_by"`
-	UpdatedBy   string    `db:"updated_by" json:"updated_by"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
-	Description string    `db:"description" json:"description"`
-}
-
-type PromptTemplateVersion struct {
-	ID              int64      `db:"id" json:"id"`
-	PromptKey       string     `db:"prompt_key" json:"prompt_key"`
-	Title           string     `db:"title" json:"title"`
-	AgentKey        string     `db:"agent_key" json:"agent_key"`
-	ToolName        string     `db:"tool_name" json:"tool_name"`
-	PromptText      string     `db:"prompt_text" json:"prompt_text"`
-	Variables       []byte     `db:"variables" json:"variables"`
-	Tags            []byte     `db:"tags" json:"tags"`
-	Enabled         bool       `db:"enabled" json:"enabled"`
-	CreatedBy       string     `db:"created_by" json:"created_by"`
-	UpdatedBy       string     `db:"updated_by" json:"updated_by"`
-	SourceUpdatedAt *time.Time `db:"source_updated_at" json:"source_updated_at"`
-	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
-	ArchivedAt      time.Time  `db:"archived_at" json:"archived_at"`
-}
-
-type PromptVersion struct {
-	ID              int64      `db:"id" json:"id"`
-	PromptKey       string     `db:"prompt_key" json:"prompt_key"`
-	Title           string     `db:"title" json:"title"`
-	AgentKey        string     `db:"agent_key" json:"agent_key"`
-	ToolName        string     `db:"tool_name" json:"tool_name"`
-	PromptText      string     `db:"prompt_text" json:"prompt_text"`
-	Variables       []byte     `db:"variables" json:"variables"`
-	Tags            []byte     `db:"tags" json:"tags"`
-	Enabled         bool       `db:"enabled" json:"enabled"`
-	CreatedBy       string     `db:"created_by" json:"created_by"`
-	UpdatedBy       string     `db:"updated_by" json:"updated_by"`
-	SourceUpdatedAt *time.Time `db:"source_updated_at" json:"source_updated_at"`
-	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
-	ArchivedAt      time.Time  `db:"archived_at" json:"archived_at"`
-	Description     string     `db:"description" json:"description"`
-}
-
-type SchemaMigration struct {
-	Version   int32     `db:"version" json:"version"`
-	Name      string    `db:"name" json:"name"`
-	Filename  string    `db:"filename" json:"filename"`
-	AppliedAt time.Time `db:"applied_at" json:"applied_at"`
 }
 
 type SharedFile struct {
@@ -255,91 +105,6 @@ type SystemLog struct {
 	ToolName   string    `db:"tool_name" json:"tool_name"`
 	DurationMs *int32    `db:"duration_ms" json:"duration_ms"`
 	Extra      []byte    `db:"extra" json:"extra"`
-}
-
-type TaskAck struct {
-	ID            int64      `db:"id" json:"id"`
-	AckKey        string     `db:"ack_key" json:"ack_key"`
-	Title         string     `db:"title" json:"title"`
-	Description   string     `db:"description" json:"description"`
-	AssignedTo    string     `db:"assigned_to" json:"assigned_to"`
-	RequestedBy   string     `db:"requested_by" json:"requested_by"`
-	Priority      string     `db:"priority" json:"priority"`
-	Status        string     `db:"status" json:"status"`
-	Progress      int32      `db:"progress" json:"progress"`
-	AckMessage    string     `db:"ack_message" json:"ack_message"`
-	ResultSummary string     `db:"result_summary" json:"result_summary"`
-	Metadata      []byte     `db:"metadata" json:"metadata"`
-	DueAt         *time.Time `db:"due_at" json:"due_at"`
-	AckedAt       *time.Time `db:"acked_at" json:"acked_at"`
-	StartedAt     *time.Time `db:"started_at" json:"started_at"`
-	FinishedAt    *time.Time `db:"finished_at" json:"finished_at"`
-	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
-}
-
-type TaskDag struct {
-	ID          int64      `db:"id" json:"id"`
-	DagKey      string     `db:"dag_key" json:"dag_key"`
-	Title       string     `db:"title" json:"title"`
-	Description string     `db:"description" json:"description"`
-	Status      string     `db:"status" json:"status"`
-	CreatedBy   string     `db:"created_by" json:"created_by"`
-	Metadata    []byte     `db:"metadata" json:"metadata"`
-	StartedAt   *time.Time `db:"started_at" json:"started_at"`
-	FinishedAt  *time.Time `db:"finished_at" json:"finished_at"`
-	CreatedAt   time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time  `db:"updated_at" json:"updated_at"`
-}
-
-type TaskDagNode struct {
-	ID             int64              `db:"id" json:"id"`
-	DagKey         string             `db:"dag_key" json:"dag_key"`
-	NodeKey        string             `db:"node_key" json:"node_key"`
-	Title          string             `db:"title" json:"title"`
-	NodeType       string             `db:"node_type" json:"node_type"`
-	AssignedTo     string             `db:"assigned_to" json:"assigned_to"`
-	DependsOn      []byte             `db:"depends_on" json:"depends_on"`
-	Status         string             `db:"status" json:"status"`
-	CommandRef     string             `db:"command_ref" json:"command_ref"`
-	Config         []byte             `db:"config" json:"config"`
-	Result         []byte             `db:"result" json:"result"`
-	StartedAt      *time.Time         `db:"started_at" json:"started_at"`
-	FinishedAt     *time.Time         `db:"finished_at" json:"finished_at"`
-	CreatedAt      time.Time          `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time          `db:"updated_at" json:"updated_at"`
-	ActiveTurnID   *string            `db:"active_turn_id" json:"active_turn_id"`
-	ActiveWakeupID *int64             `db:"active_wakeup_id" json:"active_wakeup_id"`
-	LastEventAt    pgtype.Timestamptz `db:"last_event_at" json:"last_event_at"`
-}
-
-type TaskDagWakeup struct {
-	ID             int64              `db:"id" json:"id"`
-	DagKey         string             `db:"dag_key" json:"dag_key"`
-	NodeKey        string             `db:"node_key" json:"node_key"`
-	WakeupKind     string             `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string             `db:"target_agent_id" json:"target_agent_id"`
-	PromptPayload  []byte             `db:"prompt_payload" json:"prompt_payload"`
-	IdempotencyKey string             `db:"idempotency_key" json:"idempotency_key"`
-	Status         string             `db:"status" json:"status"`
-	AttemptCount   int32              `db:"attempt_count" json:"attempt_count"`
-	NextRetryAt    pgtype.Timestamptz `db:"next_retry_at" json:"next_retry_at"`
-	ClaimedAt      pgtype.Timestamptz `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string             `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt pgtype.Timestamptz `db:"lease_expires_at" json:"lease_expires_at"`
-	SentAt         pgtype.Timestamptz `db:"sent_at" json:"sent_at"`
-	BoundTurnID    *string            `db:"bound_turn_id" json:"bound_turn_id"`
-	TurnBoundAt    pgtype.Timestamptz `db:"turn_bound_at" json:"turn_bound_at"`
-	LastError      string             `db:"last_error" json:"last_error"`
-	CreatedAt      pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
-}
-
-type TaskDagWorkerLease struct {
-	TargetAgentID  string             `db:"target_agent_id" json:"target_agent_id"`
-	OwnerID        string             `db:"owner_id" json:"owner_id"`
-	LeaseExpiresAt pgtype.Timestamptz `db:"lease_expires_at" json:"lease_expires_at"`
-	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }
 
 type TaskTrace struct {
@@ -371,28 +136,6 @@ type TopologyApproval struct {
 	ReviewNote           string     `db:"review_note" json:"review_note"`
 	ArchHash             string     `db:"arch_hash" json:"arch_hash"`
 	ProposedArchitecture []byte     `db:"proposed_architecture" json:"proposed_architecture"`
-}
-
-type TopologyApprovalArchive struct {
-	ID                   string     `db:"id" json:"id"`
-	Status               string     `db:"status" json:"status"`
-	RequestedBy          string     `db:"requested_by" json:"requested_by"`
-	Reason               string     `db:"reason" json:"reason"`
-	CreatedAt            time.Time  `db:"created_at" json:"created_at"`
-	ExpireAt             time.Time  `db:"expire_at" json:"expire_at"`
-	ReviewedAt           *time.Time `db:"reviewed_at" json:"reviewed_at"`
-	Reviewer             string     `db:"reviewer" json:"reviewer"`
-	ReviewNote           string     `db:"review_note" json:"review_note"`
-	ArchHash             string     `db:"arch_hash" json:"arch_hash"`
-	ProposedArchitecture []byte     `db:"proposed_architecture" json:"proposed_architecture"`
-	ArchivedAt           time.Time  `db:"archived_at" json:"archived_at"`
-}
-
-type UIPreference struct {
-	Key       string    `db:"key" json:"key"`
-	Value     []byte    `db:"value" json:"value"`
-	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
-	Cwd       string    `db:"cwd" json:"cwd"`
 }
 
 type WorkspaceRun struct {
