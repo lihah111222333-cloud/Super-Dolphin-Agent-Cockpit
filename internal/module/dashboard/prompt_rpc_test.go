@@ -19,7 +19,7 @@ func TestPromptHandlersWriteListDelete(t *testing.T) {
 	t.Parallel()
 
 	store := newPromptStoreStub()
-	server := newPromptTestServer(store, promptStubTxRunner{base: store})
+	server := newPromptTestServer(store)
 
 	createRes := dispatchPrompt[promptWriteResponse](t, server, "prompts/write", `{"name":"Main Prompt","content":"hello","description":"first","agentType":"main","cwd":"/repo"}`)
 	if createRes.Prompt.ID == "" || createRes.Prompt.Name != "Main Prompt" {
@@ -93,7 +93,7 @@ func TestPromptListFiltersByCWDAndKeepsLegacyGlobal(t *testing.T) {
 		Tags:        withPromptScopeTag(json.RawMessage("[]"), "/other"),
 		Enabled:     true,
 	})
-	server := newPromptTestServer(store, promptStubTxRunner{base: store})
+	server := newPromptTestServer(store)
 
 	listRes := dispatchPrompt[promptListResponse](t, server, "prompts/list", `{"cwd":"/repo"}`)
 	if len(listRes.Prompts) != 2 {
@@ -116,7 +116,7 @@ type promptDeleteResponse struct {
 func TestPromptWriteRejectsNilStore(t *testing.T) {
 	t.Parallel()
 
-	server := newPromptTestServer(nil, nil)
+	server := newPromptTestServer(nil)
 	err := dispatchPromptErr(t, server, "prompts/write", `{"name":"Missing Store","content":"hello"}`)
 	if err == nil {
 		t.Fatal("Dispatch(prompts/write) error = nil, want missing store")
@@ -127,7 +127,7 @@ func TestPromptWriteRejectsEmptyName(t *testing.T) {
 	t.Parallel()
 
 	store := newPromptStoreStub()
-	server := newPromptTestServer(store, promptStubTxRunner{base: store})
+	server := newPromptTestServer(store)
 	err := dispatchPromptErr(t, server, "prompts/write", `{"name":"","content":"hello"}`)
 	if err == nil {
 		t.Fatal("Dispatch(prompts/write) error = nil, want name validation error")
@@ -138,7 +138,7 @@ func TestPromptWriteRejectsOversizedPayload(t *testing.T) {
 	t.Parallel()
 
 	store := newPromptStoreStub()
-	server := newPromptTestServer(store, promptStubTxRunner{base: store})
+	server := newPromptTestServer(store)
 	err := dispatchPromptErr(t, server, "prompts/write", `{"name":"Big","content":"`+strings.Repeat("a", promptMaxContentBytes+1)+`"}`)
 	if err == nil {
 		t.Fatal("Dispatch(prompts/write oversized content) error = nil")
@@ -149,7 +149,7 @@ func TestPromptWriteRejectsOversizedDescription(t *testing.T) {
 	t.Parallel()
 
 	store := newPromptStoreStub()
-	server := newPromptTestServer(store, promptStubTxRunner{base: store})
+	server := newPromptTestServer(store)
 	err := dispatchPromptErr(t, server, "prompts/write", `{"name":"Big","content":"ok","description":"`+strings.Repeat("d", promptMaxDescriptionBytes+1)+`"}`)
 	if err == nil {
 		t.Fatal("Dispatch(prompts/write oversized description) error = nil")
@@ -160,7 +160,7 @@ func TestPromptDeleteRejectsEmptyID(t *testing.T) {
 	t.Parallel()
 
 	store := newPromptStoreStub()
-	server := newPromptTestServer(store, promptStubTxRunner{base: store})
+	server := newPromptTestServer(store)
 	err := dispatchPromptErr(t, server, "prompts/delete", `{"id":""}`)
 	if err == nil {
 		t.Fatal("Dispatch(prompts/delete) error = nil, want id validation error")
@@ -182,7 +182,7 @@ func TestPromptWriteRollsBackOnUpsertFailure(t *testing.T) {
 		Enabled:     true,
 	})
 	store.failUpsert = errors.New("upsert failed")
-	server := newPromptTestServer(store, promptStubTxRunner{base: store})
+	server := newPromptTestServer(store)
 
 	err := dispatchPromptErr(t, server, "prompts/write", `{"id":"`+current.PromptKey+`","name":"After","content":"next","description":"after","cwd":"/repo"}`)
 	if err == nil {
@@ -215,7 +215,7 @@ func TestPromptDeleteReturnsArchiveFailure(t *testing.T) {
 		Enabled:     true,
 	})
 	store.failInsertVersion = errors.New("archive failed")
-	server := newPromptTestServer(store, promptStubTxRunner{base: store})
+	server := newPromptTestServer(store)
 
 	err := dispatchPromptErr(t, server, "prompts/delete", `{"id":"main/archive-fail"}`)
 	if err == nil {
@@ -244,7 +244,7 @@ func TestPromptDeleteRollsBackOnDeleteFailure(t *testing.T) {
 		Enabled:     true,
 	})
 	store.failDelete = errors.New("delete failed")
-	server := newPromptTestServer(store, promptStubTxRunner{base: store})
+	server := newPromptTestServer(store)
 
 	err := dispatchPromptErr(t, server, "prompts/delete", `{"id":"main/delete-fail"}`)
 	if err == nil {
@@ -258,11 +258,11 @@ func TestPromptDeleteRollsBackOnDeleteFailure(t *testing.T) {
 	}
 }
 
-func newPromptTestServer(store promptstore.Store, txRunner promptTxRunner) *platformrpc.Server {
+func newPromptTestServer(store promptstore.Store) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{
 		Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"},
 	})
-	server.Register(buildPromptHandlers(store, txRunner).Handlers)
+	server.Register(buildPromptHandlers(store).Handlers)
 	return server
 }
 
@@ -312,6 +312,18 @@ func (s *promptStoreStub) Get(_ context.Context, promptKey string) (*promptstore
 	}
 	out := item
 	return &out, nil
+}
+
+func (s *promptStoreStub) WithTx(_ context.Context, fn func(txStore promptstore.Store) error) error {
+	if s == nil {
+		return errPromptStoreRequired
+	}
+	txStore := s.clone()
+	if err := fn(txStore); err != nil {
+		return err
+	}
+	s.commitFrom(txStore)
+	return nil
 }
 
 func (s *promptStoreStub) Delete(_ context.Context, promptKey string) error {
@@ -390,20 +402,4 @@ func (s *promptStoreStub) commitFrom(txStore *promptStoreStub) {
 	s.versions = txStore.versions
 	s.nextID = txStore.nextID
 	s.now = txStore.now
-}
-
-type promptStubTxRunner struct {
-	base *promptStoreStub
-}
-
-func (r promptStubTxRunner) WithStore(_ context.Context, fn func(promptstore.Store) error) error {
-	if r.base == nil {
-		return errPromptTxRequired
-	}
-	txStore := r.base.clone()
-	if err := fn(txStore); err != nil {
-		return err
-	}
-	r.base.commitFrom(txStore)
-	return nil
 }

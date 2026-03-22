@@ -7,6 +7,7 @@ import (
 )
 
 type Store interface {
+	WithTx(ctx context.Context, fn func(txStore Store) error) error
 	Get(ctx context.Context, promptKey string) (*PromptTemplate, error)
 	Delete(ctx context.Context, promptKey string) error
 	InsertVersion(ctx context.Context, version PromptTemplateVersion) error

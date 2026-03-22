@@ -54,7 +54,7 @@ func TestPromptServiceListPromptsFiltersVisibility(t *testing.T) {
 		Enabled:     false,
 	})
 
-	svc := newPromptService(store, promptStubTxRunner{base: store})
+	svc := newPromptService(store)
 	prompts, err := svc.ListPrompts(context.Background(), "/repo", "")
 	if err != nil {
 		t.Fatalf("ListPrompts() error = %v", err)
@@ -102,7 +102,7 @@ func TestPromptServiceGetPromptAppliesVisibility(t *testing.T) {
 		Enabled:     false,
 	})
 
-	svc := newPromptService(store, promptStubTxRunner{base: store})
+	svc := newPromptService(store)
 
 	got, err := svc.GetPrompt(context.Background(), "/repo", "main/repo")
 	if err != nil {
