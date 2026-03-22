@@ -5,14 +5,26 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
+	"go.uber.org/fx"
 )
+
+type threadOrchestrationParams struct {
+	fx.In
+
+	Service contract.OrchestrationService `optional:"true"`
+}
 
 type threadOrchestrationAdapter struct {
 	svc contract.OrchestrationService
 }
 
-func newThreadOrchestrationFacade(svc contract.OrchestrationService) thread.OrchestrationFacade {
-	return threadOrchestrationAdapter{svc: svc}
+type noopThreadOrchestrationFacade struct{}
+
+func newThreadOrchestrationFacade(p threadOrchestrationParams) thread.OrchestrationFacade {
+	if p.Service == nil {
+		return noopThreadOrchestrationFacade{}
+	}
+	return threadOrchestrationAdapter{svc: p.Service}
 }
 
 func (a threadOrchestrationAdapter) LaunchAgent(ctx context.Context, req thread.LaunchAgentRequest) error {
@@ -36,4 +48,20 @@ func (a threadOrchestrationAdapter) Recover(ctx context.Context, agentID string)
 
 func (a threadOrchestrationAdapter) BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error {
 	return a.svc.BindSessionGeneration(ctx, agentID, generation)
+}
+
+func (noopThreadOrchestrationFacade) LaunchAgent(context.Context, thread.LaunchAgentRequest) error {
+	return nil
+}
+
+func (noopThreadOrchestrationFacade) StopAgent(context.Context, string) error {
+	return nil
+}
+
+func (noopThreadOrchestrationFacade) Recover(context.Context, string) error {
+	return nil
+}
+
+func (noopThreadOrchestrationFacade) BindSessionGeneration(context.Context, string, uint64) error {
+	return nil
 }

@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
@@ -45,7 +44,7 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 		stubSessionProvider{session: session},
 	)
 
-	turnID, err := starter.StartTurn(context.Background(), orchestration.TurnSubmission{
+	turnID, err := starter.StartTurn(context.Background(), contract.TurnSubmission{
 		AgentID:              "agent-1",
 		ThreadID:             "agent-1",
 		ExpectedTurnID:       "turn-1",
@@ -86,7 +85,7 @@ func TestOrchestrationTurnStarterReportsSessionNotReady(t *testing.T) {
 		stubSessionProvider{err: contract.ErrSessionNotFound},
 	)
 
-	_, err := starter.StartTurn(context.Background(), orchestration.TurnSubmission{
+	_, err := starter.StartTurn(context.Background(), contract.TurnSubmission{
 		AgentID: "agent-1",
 	})
 	if err == nil {
@@ -106,7 +105,7 @@ func TestOrchestrationTurnStarterPreservesNonSessionLookupErrors(t *testing.T) {
 		stubSessionProvider{err: want},
 	)
 
-	_, err := starter.StartTurn(context.Background(), orchestration.TurnSubmission{
+	_, err := starter.StartTurn(context.Background(), contract.TurnSubmission{
 		AgentID: "agent-1",
 	})
 	if !errors.Is(err, want) {

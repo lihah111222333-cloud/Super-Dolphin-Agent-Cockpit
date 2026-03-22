@@ -3,9 +3,6 @@ package app
 import (
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
-	orchsqlc "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
-	orchtaskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/lspgui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
@@ -16,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
@@ -31,17 +29,15 @@ var Module = fx.Options(
 	db.Module,
 	bus.Module,
 	rpc.Module,
+	mcpcontrol.Module,
 	platformrunner.Module,
 	statemachine.Module,
 	store.Module,
-	fx.Provide(orchsqlc.New),
-	orchtaskdag.Module,
 	dashboard.Module,
 	lspgui.Module,
 	skill.Module,
 	thread.Module,
 	turn.Module,
-	orchestration.Module,
 	uistate.Module,
 	workspace.Module,
 	unified.Module,

@@ -41,14 +41,20 @@ func NewService(app *App) application.Service {
 	return application.NewService(app)
 }
 
-func NewActiveAgentCounter(svc contract.OrchestrationService) ActiveAgentCounter {
-	if svc == nil {
+type activeAgentCounterParams struct {
+	fx.In
+
+	Service contract.OrchestrationService `optional:"true"`
+}
+
+func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
+	if p.Service == nil {
 		return ActiveAgentCounterFunc(func(context.Context) (int, error) {
 			return 0, nil
 		})
 	}
 	return ActiveAgentCounterFunc(func(ctx context.Context) (int, error) {
-		snapshots, err := svc.ListAgents(ctx)
+		snapshots, err := p.Service.ListAgents(ctx)
 		if err != nil {
 			return 0, err
 		}
