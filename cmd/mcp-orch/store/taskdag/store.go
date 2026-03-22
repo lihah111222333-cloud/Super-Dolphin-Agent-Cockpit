@@ -226,12 +226,12 @@ func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (in
 	return id, nil
 }
 
-func int64Ptr(value int64) *int64 {
-	return &value
+func int64Ptr(value int64) sqlc.Int8 {
+	return sqlc.Int8ValuePtr(&value)
 }
 
-func stringPtr(value string) *string {
-	return &value
+func stringPtr(value string) sqlc.Text {
+	return sqlc.TextValuePtr(&value)
 }
 
 func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error) {
@@ -395,15 +395,66 @@ func mapWakeups(rows []sqlc.TaskDagWakeup) []Wakeup {
 }
 
 func fromDAG(row sqlc.TaskDag) DAG {
-	return DAG{ID: row.ID, DagKey: row.DagKey, Title: row.Title, Description: row.Description, Status: row.Status, CreatedBy: row.CreatedBy, Metadata: row.Metadata, StartedAt: row.StartedAt, FinishedAt: row.FinishedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+	return DAG{
+		ID:          row.ID,
+		DagKey:      row.DagKey,
+		Title:       row.Title,
+		Description: row.Description,
+		Status:      row.Status,
+		CreatedBy:   row.CreatedBy,
+		Metadata:    row.Metadata,
+		StartedAt:   timestampPtr(row.StartedAt),
+		FinishedAt:  timestampPtr(row.FinishedAt),
+		CreatedAt:   timeValue(row.CreatedAt),
+		UpdatedAt:   timeValue(row.UpdatedAt),
+	}
 }
 
 func fromNode(row sqlc.TaskDagNode) Node {
-	return Node{ID: row.ID, DagKey: row.DagKey, NodeKey: row.NodeKey, Title: row.Title, NodeType: row.NodeType, AssignedTo: row.AssignedTo, DependsOn: row.DependsOn, Status: row.Status, CommandRef: row.CommandRef, Config: row.Config, Result: row.Result, StartedAt: row.StartedAt, FinishedAt: row.FinishedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, ActiveTurnID: row.ActiveTurnID, ActiveWakeupID: row.ActiveWakeupID, LastEventAt: timestampPtr(row.LastEventAt)}
+	return Node{
+		ID:             row.ID,
+		DagKey:         row.DagKey,
+		NodeKey:        row.NodeKey,
+		Title:          row.Title,
+		NodeType:       row.NodeType,
+		AssignedTo:     row.AssignedTo,
+		DependsOn:      row.DependsOn,
+		Status:         row.Status,
+		CommandRef:     row.CommandRef,
+		Config:         row.Config,
+		Result:         row.Result,
+		StartedAt:      timestampPtr(row.StartedAt),
+		FinishedAt:     timestampPtr(row.FinishedAt),
+		CreatedAt:      timeValue(row.CreatedAt),
+		UpdatedAt:      timeValue(row.UpdatedAt),
+		ActiveTurnID:   sqlc.TextPtr(row.ActiveTurnID),
+		ActiveWakeupID: sqlc.Int8Ptr(row.ActiveWakeupID),
+		LastEventAt:    timestampPtr(row.LastEventAt),
+	}
 }
 
 func fromWakeup(row sqlc.TaskDagWakeup) Wakeup {
-	return Wakeup{ID: row.ID, DagKey: row.DagKey, NodeKey: row.NodeKey, WakeupKind: row.WakeupKind, TargetAgentID: row.TargetAgentID, PromptPayload: row.PromptPayload, IdempotencyKey: row.IdempotencyKey, Status: row.Status, AttemptCount: row.AttemptCount, NextRetryAt: timeValue(row.NextRetryAt), ClaimedAt: timestampPtr(row.ClaimedAt), ClaimedBy: row.ClaimedBy, LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt), SentAt: timestampPtr(row.SentAt), BoundTurnID: row.BoundTurnID, TurnBoundAt: timestampPtr(row.TurnBoundAt), LastError: row.LastError, CreatedAt: timeValue(row.CreatedAt), UpdatedAt: timeValue(row.UpdatedAt)}
+	return Wakeup{
+		ID:             row.ID,
+		DagKey:         row.DagKey,
+		NodeKey:        row.NodeKey,
+		WakeupKind:     row.WakeupKind,
+		TargetAgentID:  row.TargetAgentID,
+		PromptPayload:  row.PromptPayload,
+		IdempotencyKey: row.IdempotencyKey,
+		Status:         row.Status,
+		AttemptCount:   row.AttemptCount,
+		NextRetryAt:    timeValue(row.NextRetryAt),
+		ClaimedAt:      timestampPtr(row.ClaimedAt),
+		ClaimedBy:      row.ClaimedBy,
+		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
+		SentAt:         timestampPtr(row.SentAt),
+		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
+		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
+		LastError:      row.LastError,
+		CreatedAt:      timeValue(row.CreatedAt),
+		UpdatedAt:      timeValue(row.UpdatedAt),
+	}
 }
 
 func wrapTaskDAGError(err error, operation, entity string) error {
@@ -420,18 +471,11 @@ func intervalValue(value string) (sqlc.Interval, error) {
 }
 
 func timeValue(value sqlc.Timestamptz) time.Time {
-	if !value.Valid {
-		return time.Time{}
-	}
-	return value.Time
+	return sqlc.TimeValue(value)
 }
 
 func timestampPtr(value sqlc.Timestamptz) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	copy := value.Time
-	return &copy
+	return sqlc.TimePtr(value)
 }
 
 func timestampValue(value time.Time) sqlc.Timestamptz {

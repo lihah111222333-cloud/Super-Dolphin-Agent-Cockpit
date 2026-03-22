@@ -29,7 +29,7 @@ func (s *store) UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun,
 		CreatedBy:     run.CreatedBy,
 		UpdatedBy:     run.UpdatedBy,
 		Column8:       run.Metadata,
-		FinishedAt:    run.FinishedAt,
+		FinishedAt:    sqlc.TimeValuePtr(run.FinishedAt),
 	})
 	if err != nil {
 		return nil, wrapWorkspaceError(err, "upsert", "workspace_run")
@@ -146,9 +146,9 @@ func fromSQLCRun(row sqlc.WorkspaceRun) WorkspaceRun {
 		CreatedBy:     row.CreatedBy,
 		UpdatedBy:     row.UpdatedBy,
 		Metadata:      row.Metadata,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
-		FinishedAt:    row.FinishedAt,
+		CreatedAt:     sqlc.TimeValue(row.CreatedAt),
+		UpdatedAt:     sqlc.TimeValue(row.UpdatedAt),
+		FinishedAt:    sqlc.TimePtr(row.FinishedAt),
 	}
 }
 
@@ -163,8 +163,8 @@ func fromSQLCFile(row sqlc.WorkspaceRunFile) WorkspaceRunFile {
 		SourceSHA256After:  row.SourceSha256After,
 		State:              row.State,
 		LastError:          row.LastError,
-		CreatedAt:          row.CreatedAt,
-		UpdatedAt:          row.UpdatedAt,
+		CreatedAt:          sqlc.TimeValue(row.CreatedAt),
+		UpdatedAt:          sqlc.TimeValue(row.UpdatedAt),
 	}
 }
 

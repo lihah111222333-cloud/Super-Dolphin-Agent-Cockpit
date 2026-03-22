@@ -42,7 +42,7 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 		Enabled:         version.Enabled,
 		CreatedBy:       version.CreatedBy,
 		UpdatedBy:       version.UpdatedBy,
-		SourceUpdatedAt: version.SourceUpdatedAt,
+		SourceUpdatedAt: sqlc.TimeValuePtr(version.SourceUpdatedAt),
 	}), "insert_version", "prompt_template_version")
 }
 
@@ -92,8 +92,8 @@ func fromGetTemplate(row sqlc.GetPromptTemplateRow) PromptTemplate {
 		Enabled:     row.Enabled,
 		CreatedBy:   row.CreatedBy,
 		UpdatedBy:   row.UpdatedBy,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		CreatedAt:   sqlc.TimeValue(row.CreatedAt),
+		UpdatedAt:   sqlc.TimeValue(row.UpdatedAt),
 		Description: row.Description,
 	}
 }
@@ -111,8 +111,8 @@ func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
 		Enabled:     row.Enabled,
 		CreatedBy:   row.CreatedBy,
 		UpdatedBy:   row.UpdatedBy,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		CreatedAt:   sqlc.TimeValue(row.CreatedAt),
+		UpdatedAt:   sqlc.TimeValue(row.UpdatedAt),
 		Description: row.Description,
 	}
 }
@@ -130,8 +130,8 @@ func fromListTemplate(row sqlc.ListPromptTemplatesRow) PromptTemplate {
 		Enabled:     row.Enabled,
 		CreatedBy:   row.CreatedBy,
 		UpdatedBy:   row.UpdatedBy,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		CreatedAt:   sqlc.TimeValue(row.CreatedAt),
+		UpdatedAt:   sqlc.TimeValue(row.UpdatedAt),
 		Description: row.Description,
 	}
 }

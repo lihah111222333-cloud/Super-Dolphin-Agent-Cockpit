@@ -65,8 +65,8 @@ func mapSharedFile(row sqlc.SharedFile) SharedFile {
 		Path:      row.Path,
 		Content:   row.Content,
 		UpdatedBy: row.UpdatedBy,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+		CreatedAt: sqlc.TimeValue(row.CreatedAt),
+		UpdatedAt: sqlc.TimeValue(row.UpdatedAt),
 	}
 }
 
