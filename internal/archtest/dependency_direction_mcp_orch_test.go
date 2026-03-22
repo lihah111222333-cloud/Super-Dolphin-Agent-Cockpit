@@ -11,10 +11,11 @@ import (
 )
 
 const mcpOrchRPCHostSymbols = ",ApprovalManager,BindEventToNotify,CallbackClient,Dispatch,HTTPRoute,HTTPRouteResult,Module,NewApprovalManager,NewPushBridge,NewServer,NotifyAll,NotifyClient,OnConnect,Params,PushBridge,Register,Run,Server,WSHandler,"
+const mcpOrchPkg = "cmd/" + "mcp-orch"
 
 func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 	t.Helper()
-	files := parseImportFiles(t, root, "cmd/mcp-orch")
+	files := parseImportFiles(t, root, mcpOrchPkg)
 	if len(files) == 0 {
 		t.Skip("directory not yet created")
 	}
@@ -29,12 +30,12 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 			internalPrefix("internal/platform/rpc/server"), internalPrefix("internal/platform/rpc/push"), internalPrefix("internal/platform/rpc/notification"),
 		}
 		var violations []string
-		for _, dep := range goListDeps(t, root, "cmd/mcp-orch") {
-			if (!strings.HasPrefix(dep, modulePath+"/internal/") && !strings.HasPrefix(dep, modulePath+"/cmd/")) || strings.HasPrefix(dep, modulePath+"/cmd/mcp-orch") {
+		for _, dep := range goListDeps(t, root, mcpOrchPkg) {
+			if (!strings.HasPrefix(dep, modulePath+"/internal/") && !strings.HasPrefix(dep, modulePath+"/cmd/")) || strings.HasPrefix(dep, modulePath+"/"+mcpOrchPkg) {
 				continue
 			}
 			if hasAllowedPrefix(dep, forbidden) || !hasAllowedPrefix(dep, allowed) {
-				violations = append(violations, fmt.Sprintf("cmd/mcp-orch depends on %s outside allowed boundary", dep))
+				violations = append(violations, fmt.Sprintf("%s depends on %s outside allowed boundary", mcpOrchPkg, dep))
 			}
 		}
 		failIfViolations(t, violations)
@@ -47,7 +48,7 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 		if !dirExists(root, "internal/module") {
 			t.Skip("directory not yet created")
 		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/module"), []string{modulePath + "/cmd/mcp-orch", modulePath + "/cmd/mcp-lsp", modulePath + "/cmd/mcp-ida"})
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/module"), []string{modulePath + "/" + mcpOrchPkg, modulePath + "/cmd/mcp-lsp", modulePath + "/cmd/mcp-ida"})
 	})
 }
 
