@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
@@ -25,20 +24,6 @@ type EventSink interface {
 
 type LogSink interface {
 	HandleLog(ctx context.Context, instance *ToolInstance, req dto.LogNotify) error
-}
-
-type handlerDeps struct {
-	Registry          *ToolRegistry
-	Approvals         *rpc.ApprovalManager          `optional:"true"`
-	Bridge            *rpc.PushBridge               `optional:"true"`
-	Logger            *slog.Logger                  `optional:"true"`
-	Dispatcher        *event.Dispatcher             `optional:"true"`
-	Orchestration     contract.OrchestrationService `optional:"true"`
-	Context           ContextProvider               `optional:"true"`
-	Events            EventSink                     `optional:"true"`
-	Logs              LogSink                       `optional:"true"`
-	RuntimeReports    RuntimeReportHandler          `optional:"true"`
-	CompletionReports CompletionReportHandler       `optional:"true"`
 }
 
 type ackResponse struct {
@@ -166,7 +151,11 @@ func requestApproval(
 type registryContextProvider struct{}
 
 func (registryContextProvider) GetContext(_ context.Context, instance *ToolInstance, req dto.ContextRequest) (dto.ContextResponse, error) {
-	payload, err := contextPayload(req.Scope, instance)
+	target := cloneInstance(instance)
+	if agentID := strings.TrimSpace(req.AgentID); agentID != "" {
+		target.AgentID = agentID
+	}
+	payload, err := contextPayload(req.Scope, target)
 	if err != nil {
 		return dto.ContextResponse{}, err
 	}

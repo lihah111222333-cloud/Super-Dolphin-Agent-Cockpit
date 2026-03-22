@@ -10,6 +10,8 @@ import (
 	"go.uber.org/fx"
 )
 
+// Module wires the ctl/* registry, handlers, and sweeper only. MCP binaries are
+// started outside the core process and self-register through the control plane.
 var Module = fx.Module("mcpcontrol",
 	fx.Provide(
 		NewRegistry,
@@ -19,9 +21,7 @@ var Module = fx.Module("mcpcontrol",
 	fx.Invoke(registerSweeperLifecycle),
 )
 
-type handlerIn struct {
-	fx.In
-
+type handlerDeps struct {
 	Registry          *ToolRegistry
 	Approvals         *rpc.ApprovalManager          `optional:"true"`
 	Bridge            *rpc.PushBridge               `optional:"true"`
@@ -35,20 +35,13 @@ type handlerIn struct {
 	CompletionReports CompletionReportHandler       `optional:"true"`
 }
 
+type handlerIn struct {
+	fx.In
+	handlerDeps
+}
+
 func provideHandlers(in handlerIn) rpc.HandlerMapResult {
-	return NewHandlers(handlerDeps{
-		Registry:          in.Registry,
-		Approvals:         in.Approvals,
-		Bridge:            in.Bridge,
-		Logger:            in.Logger,
-		Dispatcher:        in.Dispatcher,
-		Orchestration:     in.Orchestration,
-		Context:           in.Context,
-		Events:            in.Events,
-		Logs:              in.Logs,
-		RuntimeReports:    in.RuntimeReports,
-		CompletionReports: in.CompletionReports,
-	})
+	return NewHandlers(in.handlerDeps)
 }
 
 func registerSweeperLifecycle(lc fx.Lifecycle, sweeper *Sweeper) {
