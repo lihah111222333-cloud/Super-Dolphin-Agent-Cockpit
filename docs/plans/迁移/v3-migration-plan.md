@@ -1289,6 +1289,8 @@ P7 的 Done 标准：
 
 ### 4.9 P8：从 V3 现有实现抽取 MCP 编排工具到独立服务
 
+这里同样遵循核心层职责原则：agent-terminal 只保留 Agent 管理、工具管理（MCP manifest 构建与注入）与 Hooks，P8 需要把编排相关能力整体收敛到独立 `cmd/mcp-orch` 服务。
+
 | 项目 | 内容 |
 |---|---|
 | 迁移源 | `cmd/mcp-orch/orchestration/*`, `internal/store/{taskdag,workspace,prompt,commandcard,sharedfile}`、必要时 `internal/store/binding`，以及对应 `internal/store/sqlc/*` / `sql/queries/*.sql` |

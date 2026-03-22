@@ -327,6 +327,9 @@ func skipPackageFileCountLimit(pkgDir string) bool {
 	case "internal/store/sqlc":
 		// sqlc 输出按查询源文件拆分，包文件数对生成层噪声较大；仍保留包总行数与单文件/函数守卫。
 		return true
+	case "cmd/mcp-orch/store/sqlc":
+		// sqlc 输出按查询源文件拆分，包文件数对生成层噪声较大；仍保留包总行数与单文件/函数守卫。
+		return true
 	default:
 		return false
 	}

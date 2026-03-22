@@ -8,6 +8,8 @@
 
 ## 0. 策略
 
+本节引用核心层职责原则：agent-terminal 只负责 Agent 管理、工具管理（MCP manifest 构建与注入）与 Hooks，编排、DAG、Task、Workspace、Prompt、Command Card、Shared File 等能力必须下沉到独立 `cmd/mcp-orch` binary。
+
 ### 0.1 结论
 
 P8 不再走“从 V2 直接复制 5k 行工具代码”的路线。

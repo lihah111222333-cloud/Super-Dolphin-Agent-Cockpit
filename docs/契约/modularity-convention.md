@@ -338,6 +338,16 @@ super-agent-v3/
 
 ### 2.4 MCP 服务边界
 
+补充原则：agent-terminal（核心层）只承担三项职责：
+1. **Agent 管理** — 进程生命周期（启动、停止、监控）
+2. **工具管理** — MCP manifest 构建与注入（决定 agent 使用哪些 MCP 工具）
+3. **Hooks** — 生命周期钩子、事件桥接、UI 通知
+
+除上述三项外，能力必须下沉到独立 MCP binary，不继续留在核心层：
+- `cmd/mcp-orch` — 编排、DAG、Task、Workspace、Prompt、Command Card、Shared File
+- `cmd/mcp-lsp` — LSP 代码工具
+- `cmd/mcp-ida` — IDA 逆向工具
+
 - `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 是独立二进制入口，不属于 `internal/module/*`。
 - 它们通过 stdio JSON-RPC 与宿主通信；桌面/UI 宿主 RPC 仍由 `internal/platform/rpc` 承担。
 - `cmd/` 与 `internal/` 同属模块根 `github.com/anthropic-ai/super-agent-v3`，因此 `cmd/mcp-*` 合法 import `internal/*`；这符合 Go `internal` 包规则。
