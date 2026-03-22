@@ -8,7 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 type promptListParams struct {
@@ -39,12 +38,12 @@ type promptRPCItem struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-func NewPromptHandlers(store promptstore.Store, queries *sqlc.Queries) rpc.HandlerMapResult {
-	return buildPromptHandlers(store, newPromptTxRunner(queries))
+func NewPromptHandlers(store promptstore.Store) rpc.HandlerMapResult {
+	return buildPromptHandlers(store)
 }
 
-func buildPromptHandlers(store promptstore.Store, txRunner promptTxRunner) rpc.HandlerMapResult {
-	return buildPromptHandlersWithService(newPromptService(store, txRunner))
+func buildPromptHandlers(store promptstore.Store) rpc.HandlerMapResult {
+	return buildPromptHandlersWithService(newPromptService(store))
 }
 
 func buildPromptHandlersWithService(promptSvc PromptService) rpc.HandlerMapResult {

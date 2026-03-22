@@ -14,6 +14,12 @@ type store struct {
 
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
+func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
+	return wrapPromptError(sqlc.WithTx(ctx, s.q, func(txq *sqlc.Queries) error {
+		return fn(&store{q: txq})
+	}), "with_tx", "prompt_template")
+}
+
 func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, error) {
 	row, err := s.q.GetPromptTemplate(ctx, promptKey)
 	if err != nil {

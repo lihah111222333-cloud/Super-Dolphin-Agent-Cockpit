@@ -11,7 +11,6 @@ import (
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 const (
@@ -25,7 +24,6 @@ const (
 
 var (
 	errPromptStoreRequired = errors.New("dashboard: prompt store is not configured")
-	errPromptTxRequired    = errors.New("dashboard: prompt transaction runner is not configured")
 	promptSlugPattern      = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
@@ -41,41 +39,18 @@ type PromptWriteRequest struct {
 	ID, Name, Content, Description, AgentType string
 }
 
-type promptTxRunner interface {
-	WithStore(ctx context.Context, fn func(promptstore.Store) error) error
-}
-
-type sqlcPromptTxRunner struct{ queries *sqlc.Queries }
-
 type promptService struct {
-	store    promptstore.Store
-	txRunner promptTxRunner
+	store promptstore.Store
 }
 
 var _ PromptService = (*promptService)(nil)
 
-func NewPromptService(store promptstore.Store, queries *sqlc.Queries) PromptService {
-	return newPromptService(store, newPromptTxRunner(queries))
+func NewPromptService(store promptstore.Store) PromptService {
+	return newPromptService(store)
 }
 
-func newPromptService(store promptstore.Store, txRunner promptTxRunner) PromptService {
-	return &promptService{store: store, txRunner: txRunner}
-}
-
-func newPromptTxRunner(queries *sqlc.Queries) promptTxRunner {
-	if queries == nil {
-		return nil
-	}
-	return sqlcPromptTxRunner{queries: queries}
-}
-
-func (r sqlcPromptTxRunner) WithStore(ctx context.Context, fn func(promptstore.Store) error) error {
-	if r.queries == nil {
-		return errPromptTxRequired
-	}
-	return sqlc.WithTx(ctx, r.queries, func(txq *sqlc.Queries) error {
-		return fn(promptstore.NewStore(txq))
-	})
+func newPromptService(store promptstore.Store) PromptService {
+	return &promptService{store: store}
 }
 
 func (s *promptService) ListPrompts(
@@ -124,11 +99,8 @@ func (s *promptService) WritePrompt(
 	if s.store == nil {
 		return nil, errPromptStoreRequired
 	}
-	if s.txRunner == nil {
-		return nil, errPromptTxRequired
-	}
 	var template *promptstore.PromptTemplate
-	err := s.txRunner.WithStore(ctx, func(txStore promptstore.Store) error {
+	err := s.store.WithTx(ctx, func(txStore promptstore.Store) error {
 		next, err := upsertPrompt(ctx, txStore, cwd, prompt)
 		if err != nil {
 			return err
@@ -150,10 +122,7 @@ func (s *promptService) DeletePrompt(ctx context.Context, cwd, key string) error
 	if promptKey == "" {
 		return errors.New("dashboard: prompt id is required")
 	}
-	if s.txRunner == nil {
-		return errPromptTxRequired
-	}
-	return s.txRunner.WithStore(ctx, func(txStore promptstore.Store) error {
+	return s.store.WithTx(ctx, func(txStore promptstore.Store) error {
 		current, err := txStore.Get(ctx, promptKey)
 		if err != nil {
 			return err
