@@ -1,0 +1,173 @@
+package bootstrap
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log"
+	"time"
+
+	"github.com/creachadair/jrpc2"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+)
+
+const heartbeatWarnAfter = 3
+
+func (c *Client) startHeartbeatLocked() {
+	if c.rootCtx == nil {
+		return
+	}
+	if c.hbCancel != nil {
+		c.hbCancel()
+	}
+	hbCtx, cancel := context.WithCancel(c.rootCtx)
+	c.hbCancel = cancel
+	go c.runHeartbeat(hbCtx)
+}
+
+func (c *Client) runHeartbeat(ctx context.Context) {
+	failures := 0
+	for {
+		interval, timeout := c.heartbeatTiming()
+		if !waitForHeartbeat(ctx, interval) {
+			return
+		}
+		rejected, next, err := c.sendHeartbeat(ctx, timeout)
+		if err != nil {
+			failures++
+			if failures >= heartbeatWarnAfter {
+				log.Printf("bootstrap heartbeat failed: instance=%s failures=%d err=%v", c.instanceID, failures, err)
+			}
+			continue
+		}
+		failures = 0
+		if next > 0 {
+			c.setHeartbeatInterval(next)
+		}
+		if rejected {
+			if err := c.refreshLease(ctx); err != nil {
+				log.Printf("bootstrap heartbeat lease refresh failed: instance=%s err=%v", c.instanceID, err)
+			}
+		}
+	}
+}
+
+func (c *Client) heartbeatTiming() (time.Duration, time.Duration) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	interval := c.heartbeatInterval
+	timeout := c.heartbeatTimeout
+	if interval <= 0 {
+		interval = defaultHeartbeatInterval
+	}
+	if timeout <= 0 {
+		timeout = defaultHeartbeatTimeout
+	}
+	return interval, timeout
+}
+
+func waitForHeartbeat(ctx context.Context, interval time.Duration) bool {
+	timer := time.NewTimer(jitterDuration(interval))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func (c *Client) sendHeartbeat(ctx context.Context, timeout time.Duration) (bool, time.Duration, error) {
+	conn, lease := c.callTarget()
+	if conn == nil || lease.Generation == 0 {
+		return false, 0, errors.New("bootstrap: heartbeat without active lease")
+	}
+	callCtx, cancel := withTimeoutIfNone(ctx, timeout)
+	defer cancel()
+	req := mcp.HeartbeatRequest{
+		Lease:                 lease,
+		HeartbeatSeq:          c.nextHeartbeatSeq(),
+		Status:                mcp.StatusActive,
+		Metrics:               c.heartbeatMetrics(),
+		ObservedConfigVersion: c.currentConfigVersion(),
+	}
+	var resp mcp.HeartbeatResponse
+	if err := conn.CallResult(callCtx, mcp.MethodHeartbeat, req, &resp); err != nil {
+		if isLeaseRejectedErr(err) {
+			return true, 0, nil
+		}
+		return false, 0, err
+	}
+	c.mu.Lock()
+	c.configVersion = resp.ConfigVersion
+	c.mu.Unlock()
+	if !resp.OK {
+		return true, durationOrDefault(resp.NextHeartbeatMs, 0), nil
+	}
+	return false, durationOrDefault(resp.NextHeartbeatMs, 0), nil
+}
+
+func (c *Client) refreshLease(ctx context.Context) error {
+	conn, _ := c.currentConn()
+	if conn == nil {
+		return errors.New("bootstrap: reconnect required")
+	}
+	reg, err := c.registerConn(ctx, conn)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	if c.conn != conn {
+		c.mu.Unlock()
+		return nil
+	}
+	c.applyRegisterLocked(reg)
+	c.startHeartbeatLocked()
+	c.mu.Unlock()
+	c.flushQueuedReports(context.Background())
+	return nil
+}
+
+func (c *Client) currentConfigVersion() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.configVersion
+}
+
+func (c *Client) setHeartbeatInterval(interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	c.mu.Lock()
+	c.heartbeatInterval = interval
+	c.mu.Unlock()
+}
+
+func (c *Client) heartbeatMetrics() json.RawMessage {
+	c.mu.RLock()
+	payload := map[string]any{
+		"queued_reports": len(c.reportQueue),
+		"client_kind":    c.cfg.ClientKind,
+	}
+	c.mu.RUnlock()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func isLeaseRejectedErr(err error) bool {
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+	switch rpcErr.Code {
+	case jrpc2.Code(mcp.ErrCodeLeaseNotFound),
+		jrpc2.Code(mcp.ErrCodeLeaseStale):
+		return true
+	default:
+		return false
+	}
+}
