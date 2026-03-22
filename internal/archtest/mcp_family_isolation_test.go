@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+const mcpOrchRelPkg = "cmd/" + "mcp-orch"
+
 func TestMCPFamilyIsolation(t *testing.T) {
 	root := repoRoot(t)
 	cases := []struct {
@@ -14,7 +16,7 @@ func TestMCPFamilyIsolation(t *testing.T) {
 		forbidden []string
 	}{
 		{name: "mcp_lsp", relPkg: "cmd/mcp-lsp", forbidden: []string{"internal/tool/ida", "internal/tool/orchestration"}},
-		{name: "mcp_orch", relPkg: "cmd/mcp-orch", forbidden: []string{"internal/tool/lsp", "internal/tool/ida"}},
+		{name: "mcp_orch", relPkg: mcpOrchRelPkg, forbidden: []string{"internal/tool/lsp", "internal/tool/ida"}},
 		{name: "mcp_ida", relPkg: "cmd/mcp-ida", forbidden: []string{"internal/tool/lsp", "internal/tool/orchestration"}},
 	}
 	for _, tc := range cases {
