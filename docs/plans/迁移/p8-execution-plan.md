@@ -8,7 +8,7 @@
 
 ## 0. 策略
 
-本节引用核心层职责原则：agent-terminal 只负责 Agent 管理、工具管理（MCP manifest 构建与注入）与 Hooks，编排、DAG、Task、Workspace、Prompt、Command Card、Shared File 等能力必须下沉到独立 `cmd/mcp-orch` binary。
+本节引用核心层职责原则：agent-terminal 只负责 Agent 管理、工具管理（MCP manifest 构建与注入）、Hooks，以及暴露 `ctl/*` RPC 接口；核心层不启动 MCP 进程。编排、DAG、Task、Workspace、Prompt、Command Card、Shared File 等能力必须下沉到独立 `cmd/mcp-orch` binary。MCP 进程是共享服务，`agent_id` 必须从 tool call 参数传入，而不是在 bootstrap 阶段绑定固定 agent。
 
 ### 0.1 结论
 

@@ -338,18 +338,21 @@ super-agent-v3/
 
 ### 2.4 MCP 服务边界
 
-补充原则：agent-terminal（核心层）只承担三项职责：
+补充原则：agent-terminal（核心层）只承担四项职责：
 1. **Agent 管理** — 进程生命周期（启动、停止、监控）
 2. **工具管理** — MCP manifest 构建与注入（决定 agent 使用哪些 MCP 工具）
 3. **Hooks** — 生命周期钩子、事件桥接、UI 通知
+4. **控制面接口** — 暴露 `ctl/*` RPC 接口，等待外部启动的 MCP binary 自行 register / heartbeat / shutdown
 
-除上述三项外，能力必须下沉到独立 MCP binary，不继续留在核心层：
+核心层不负责启动、托管或计数 MCP binary；manifest 只提供给 Claude CLI 等外部执行器使用的启动描述。
+
+除上述四项外，能力必须下沉到独立 MCP binary，不继续留在核心层：
 - `cmd/mcp-orch` — 编排、DAG、Task、Workspace、Prompt、Command Card、Shared File
 - `cmd/mcp-lsp` — LSP 代码工具
 - `cmd/mcp-ida` — IDA 逆向工具
 
 - `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 是独立二进制入口，不属于 `internal/module/*`。
-- 它们通过 stdio JSON-RPC 与宿主通信；桌面/UI 宿主 RPC 仍由 `internal/platform/rpc` 承担。
+- 它们通过 stdio JSON-RPC 与宿主通信，并可通过 `ctl/*` 控制面自举回连核心；桌面/UI 宿主 RPC 仍由 `internal/platform/rpc` 承担。
 - `cmd/` 与 `internal/` 同属模块根 `github.com/anthropic-ai/super-agent-v3`，因此 `cmd/mcp-*` 合法 import `internal/*`；这符合 Go `internal` 包规则。
 - `cmd/mcp-orch` 只允许 import `internal/contract/*`、`internal/dto/*`、`internal/platform/{config,db}` 与 `cmd/mcp-orch/*` 本地包；不得 import `internal/module/*`、`internal/store/*`、`internal/store/sqlc/*`。
 - 其他 MCP binary 也应优先把 runtime / store / transport 保持在各自入口层，本地化依赖优先于反向复用宿主层。

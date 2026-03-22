@@ -36,7 +36,7 @@
 | **P8 前置** | ✅ | **D-1 sqlc 漂移 + D-2 runtime 上报 + D-3 状态机封堵 + dbquery 执行器** |
 | **V2↔V3 核对** | ✅ | **21 模块 1:1 核对 + 修复 + 互审，排除 MCP 后残留归零** |
 | **archtest 收官** | ✅ | **35+6 项违规全部修复；现有守卫全绿，但尚未覆盖 MCP 新依赖方向规则** |
-| P8 编排工具 | ⏳ | 把 `cmd/mcp-orch/orchestration/*`、相关 `internal/store/*` 和依赖的 `internal/store/sqlc/*` / `sql/queries/*.sql` 迁到独立 `cmd/mcp-orch` 服务；19 个可交付 + 1 个延后（`task_start_node`），计划已出 |
+| P8 编排工具 | ⏳ | 把 `cmd/mcp-orch/orchestration/*`、相关 `internal/store/*` 和依赖的 `internal/store/sqlc/*` / `sql/queries/*.sql` 迁到独立 `cmd/mcp-orch` 服务；19 个可交付 + 1 个延后（`task_start_node`），计划已出；MCP 进程按共享服务建模，`agent_id` 从 tool call 参数传入 |
 | P9 LSP 工具 | ⏳ | MCP LSP 工具独立服务（`cmd/mcp-lsp`），9 个工具，计划已出 |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→目标 60%，计划已出 |
 
