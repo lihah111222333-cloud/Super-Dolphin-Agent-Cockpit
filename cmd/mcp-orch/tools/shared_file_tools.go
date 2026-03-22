@@ -4,12 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
-const sharedFileUpdatedBy = "agent"
+const (
+	sharedFileUpdatedBy       = "agent"
+	maxSharedFileContentBytes = 10 << 20
+)
 
 type sharedFileReadInput struct {
 	Path string `json:"path"`
@@ -34,6 +41,7 @@ func HandleSharedFileRead(store sharedfilestore.Store) ToolHandler {
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
+		in.Path = normalizePath(in.Path)
 		return readSharedFile(ctx, store, in)
 	}
 }
@@ -44,6 +52,7 @@ func HandleSharedFileWrite(store sharedfilestore.Store) ToolHandler {
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
+		in.Path = normalizePath(in.Path)
 		return writeSharedFile(ctx, store, in)
 	}
 }
@@ -80,10 +89,13 @@ func readSharedFile(ctx context.Context, store sharedfilestore.Store, input shar
 	}
 	file, err := store.Get(ctx, path)
 	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return sharedFileDTO{}, fmt.Errorf("file %s not found", path)
+		}
 		return sharedFileDTO{}, err
 	}
 	if file == nil {
-		return sharedFileDTO{}, errors.New("shared file not found")
+		return sharedFileDTO{}, fmt.Errorf("file %s not found", path)
 	}
 	return sharedFileFromStore(*file), nil
 }
@@ -95,6 +107,9 @@ func writeSharedFile(ctx context.Context, store sharedfilestore.Store, input sha
 	path, err := requireTrimmed(input.Path, "path")
 	if err != nil {
 		return sharedFileDTO{}, err
+	}
+	if len(input.Content) > maxSharedFileContentBytes {
+		return sharedFileDTO{}, fmt.Errorf("content exceeds %d byte limit", maxSharedFileContentBytes)
 	}
 	file, err := store.Upsert(ctx, sharedfilestore.UpsertParams{
 		Path:      path,
@@ -118,4 +133,14 @@ func sharedFileFromStore(file sharedfilestore.SharedFile) sharedFileDTO {
 		CreatedAt: file.CreatedAt,
 		UpdatedAt: file.UpdatedAt,
 	}
+}
+
+func normalizePath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	p = strings.ReplaceAll(p, "\\", "/")
+	p = path.Clean(p)
+	return strings.TrimPrefix(p, "/")
 }
