@@ -5,22 +5,15 @@ import (
 	"testing"
 	"time"
 
-	taskackstore "github.com/anthropic-ai/super-agent-v3/internal/store/taskack"
 	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 )
 
-func TestGetDashboardPageLoadsTaskBucketsInParallel(t *testing.T) {
+func TestGetDashboardPageLoadsTaskTraces(t *testing.T) {
 	t.Parallel()
 
 	release := make(chan struct{})
-	ackStarted := make(chan struct{}, 1)
 	traceStarted := make(chan struct{}, 1)
 	svc := &service{
-		taskAcks: &blockingTaskAckStore{
-			started: ackStarted,
-			release: release,
-			result:  []taskackstore.TaskAck{{AckKey: "ack-1"}},
-		},
 		taskTraces: &blockingTaskTraceStore{
 			started: traceStarted,
 			release: release,
@@ -38,7 +31,6 @@ func TestGetDashboardPageLoadsTaskBucketsInParallel(t *testing.T) {
 		done <- result{page: page, err: err}
 	}()
 
-	waitForSignal(t, ackStarted, "task ack list")
 	waitForSignal(t, traceStarted, "task trace list")
 	close(release)
 
@@ -46,7 +38,7 @@ func TestGetDashboardPageLoadsTaskBucketsInParallel(t *testing.T) {
 	if got.err != nil {
 		t.Fatalf("GetDashboardPage(tasks) error = %v", got.err)
 	}
-	if got.page == nil || len(got.page.TaskAcks) != 1 || len(got.page.TaskTraces) != 1 {
+	if got.page == nil || len(got.page.TaskTraces) != 1 {
 		t.Fatalf("GetDashboardPage(tasks) = %#v", got.page)
 	}
 }
@@ -58,22 +50,6 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, label string) {
 	case <-time.After(time.Second):
 		t.Fatalf("%s did not start", label)
 	}
-}
-
-type blockingTaskAckStore struct {
-	started chan<- struct{}
-	release <-chan struct{}
-	result  []taskackstore.TaskAck
-}
-
-func (s *blockingTaskAckStore) Upsert(context.Context, taskackstore.TaskAck) (*taskackstore.TaskAck, error) {
-	return nil, nil
-}
-
-func (s *blockingTaskAckStore) List(context.Context, taskackstore.ListFilter) ([]taskackstore.TaskAck, error) {
-	notifySignal(s.started)
-	<-s.release
-	return s.result, nil
 }
 
 type blockingTaskTraceStore struct {

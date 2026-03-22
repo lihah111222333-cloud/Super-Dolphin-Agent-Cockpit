@@ -18,7 +18,7 @@ func TestGetDashboardPageReturnsStructuredPage(t *testing.T) {
 	if got == nil {
 		t.Fatal("GetDashboardPage() = nil")
 	}
-	if got.Agents == nil || got.TaskAcks == nil || got.TaskTraces == nil {
+	if got.Agents == nil || got.TaskTraces == nil {
 		t.Fatalf("GetDashboardPage() missing core slices: %#v", got)
 	}
 	if got.Skills == nil || got.CommandCards == nil || got.Prompts == nil || got.Memory == nil {
