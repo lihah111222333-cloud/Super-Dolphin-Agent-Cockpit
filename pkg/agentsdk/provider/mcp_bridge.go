@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // MCPBridge generates MCP configuration for tool injection.
@@ -36,10 +37,12 @@ type MCPConfig struct {
 // This replaces the provider-specific buildDynamicToolsMCPConfig() from V2.
 func (b *MCPBridge) GenerateConfig(cwd string) (string, error) {
 	env := map[string]string{
-		"GO_AGENT_DYNAMIC_TOOLS_JSON":  b.ToolsJSON,
-		"GO_AGENT_DYNAMIC_TOOL_NAMES":  joinNames(b.ToolNames),
-		"GO_AGENT_MCP_AGENT_ID":        b.AgentID,
-		"AGENT_APISERVER_URL":           b.APIServerURL,
+		"GO_AGENT_DYNAMIC_TOOLS_JSON": b.ToolsJSON,
+		"GO_AGENT_DYNAMIC_TOOL_NAMES": joinNames(b.ToolNames),
+		"AGENT_APISERVER_URL":         b.APIServerURL,
+	}
+	if agentID := strings.TrimSpace(b.AgentID); agentID != "" {
+		env["GO_AGENT_MCP_AGENT_ID"] = agentID
 	}
 
 	cfg := MCPConfig{
@@ -59,12 +62,23 @@ func (b *MCPBridge) GenerateConfig(cwd string) (string, error) {
 		return "", err
 	}
 
-	tmpFile := filepath.Join(os.TempDir(), "mcp-config-"+b.AgentID+".json")
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+	pattern := "mcp-config-*.json"
+	if agentID := strings.TrimSpace(b.AgentID); agentID != "" {
+		pattern = "mcp-config-" + agentID + "-*.json"
+	}
+	tmpFile, err := os.CreateTemp(os.TempDir(), pattern)
+	if err != nil {
+		return "", err
+	}
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return "", err
+	}
+	if err := tmpFile.Close(); err != nil {
 		return "", err
 	}
 
-	return tmpFile, nil
+	return filepath.Clean(tmpFile.Name()), nil
 }
 
 func joinNames(names []string) string {

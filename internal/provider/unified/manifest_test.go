@@ -78,3 +78,20 @@ func TestBuildManifest_PreservesEnvAgentIDAndAutoApprove(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildManifest_OmitsAgentIDEnvWhenEmpty(t *testing.T) {
+	got := dto.BuildManifest(dto.ManifestContext{
+		Env: map[string]string{"FOO": "bar"},
+	})
+	if len(got.Binaries) == 0 {
+		t.Fatal("expected manifest binaries")
+	}
+	for _, bin := range got.Binaries {
+		if _, ok := bin.Env["GO_AGENT_MCP_AGENT_ID"]; ok {
+			t.Fatalf("binary %q env = %#v, want no GO_AGENT_MCP_AGENT_ID", bin.Name, bin.Env)
+		}
+		if bin.Env["FOO"] != "bar" {
+			t.Fatalf("binary %q env = %#v, want propagated env", bin.Name, bin.Env)
+		}
+	}
+}
