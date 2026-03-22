@@ -214,6 +214,8 @@ func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*pac
 			switch filepath.ToSlash(rel) {
 			case "internal/store/sqlc":
 				return filepath.SkipDir
+			case "cmd/mcp-orch/store/sqlc":
+				return filepath.SkipDir
 			}
 			return nil
 		}

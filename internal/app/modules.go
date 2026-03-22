@@ -23,6 +23,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store"
 )
 
+// Module wires the core app surface. It intentionally exposes the ctl control plane
+// for externally started MCP binaries, but does not launch or supervise MCP processes.
 var Module = fx.Options(
 	fx.Provide(NewLogger),
 	config.Module,
