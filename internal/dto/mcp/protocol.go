@@ -65,6 +65,7 @@ type ContextRequest struct {
 	Lease LeaseKey `json:"lease"`
 	// Deprecated compatibility mirror.
 	InstanceID string   `json:"instance_id,omitempty"`
+	AgentID    string   `json:"agent_id,omitempty"`
 	Scope      string   `json:"scope"` // agent.runtime / thread.binding / workspace.run / config.snapshot
 	Keys       []string `json:"keys,omitempty"`
 }
