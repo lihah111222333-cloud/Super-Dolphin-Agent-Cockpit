@@ -7,7 +7,8 @@ package sqlc
 
 import (
 	"context"
-	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteCommandCard = `-- name: DeleteCommandCard :execrows
@@ -57,16 +58,16 @@ INSERT INTO command_card_versions (
 `
 
 type InsertCommandCardVersionParams struct {
-	CardKey         string     `db:"card_key" json:"card_key"`
-	Title           string     `db:"title" json:"title"`
-	Description     string     `db:"description" json:"description"`
-	CommandTemplate string     `db:"command_template" json:"command_template"`
-	Column5         []byte     `db:"column_5" json:"column_5"`
-	RiskLevel       string     `db:"risk_level" json:"risk_level"`
-	Enabled         bool       `db:"enabled" json:"enabled"`
-	CreatedBy       string     `db:"created_by" json:"created_by"`
-	UpdatedBy       string     `db:"updated_by" json:"updated_by"`
-	SourceUpdatedAt *time.Time `db:"source_updated_at" json:"source_updated_at"`
+	CardKey         string             `json:"card_key"`
+	Title           string             `json:"title"`
+	Description     string             `json:"description"`
+	CommandTemplate string             `json:"command_template"`
+	Column5         []byte             `json:"column_5"`
+	RiskLevel       string             `json:"risk_level"`
+	Enabled         bool               `json:"enabled"`
+	CreatedBy       string             `json:"created_by"`
+	UpdatedBy       string             `json:"updated_by"`
+	SourceUpdatedAt pgtype.Timestamptz `json:"source_updated_at"`
 }
 
 func (q *Queries) InsertCommandCardVersion(ctx context.Context, arg InsertCommandCardVersionParams) error {
@@ -146,25 +147,25 @@ LIMIT $2
 `
 
 type ListCommandCardsParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Column1 string `json:"column_1"`
+	Limit   int32  `json:"limit"`
 }
 
 type ListCommandCardsRow struct {
-	ID              int64       `db:"id" json:"id"`
-	CardKey         string      `db:"card_key" json:"card_key"`
-	Title           string      `db:"title" json:"title"`
-	Description     string      `db:"description" json:"description"`
-	CommandTemplate string      `db:"command_template" json:"command_template"`
-	ArgsSchema      []byte      `db:"args_schema" json:"args_schema"`
-	RiskLevel       string      `db:"risk_level" json:"risk_level"`
-	Enabled         bool        `db:"enabled" json:"enabled"`
-	CreatedBy       string      `db:"created_by" json:"created_by"`
-	UpdatedBy       string      `db:"updated_by" json:"updated_by"`
-	CreatedAt       time.Time   `db:"created_at" json:"created_at"`
-	UpdatedAt       time.Time   `db:"updated_at" json:"updated_at"`
-	LastRunAt       interface{} `db:"last_run_at" json:"last_run_at"`
-	RunCount        int64       `db:"run_count" json:"run_count"`
+	ID              int64              `json:"id"`
+	CardKey         string             `json:"card_key"`
+	Title           string             `json:"title"`
+	Description     string             `json:"description"`
+	CommandTemplate string             `json:"command_template"`
+	ArgsSchema      []byte             `json:"args_schema"`
+	RiskLevel       string             `json:"risk_level"`
+	Enabled         bool               `json:"enabled"`
+	CreatedBy       string             `json:"created_by"`
+	UpdatedBy       string             `json:"updated_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	LastRunAt       interface{}        `json:"last_run_at"`
+	RunCount        int64              `json:"run_count"`
 }
 
 func (q *Queries) ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error) {
@@ -220,15 +221,15 @@ RETURNING id, card_key, title, description, command_template, args_schema, risk_
 `
 
 type UpsertCommandCardParams struct {
-	CardKey         string `db:"card_key" json:"card_key"`
-	Title           string `db:"title" json:"title"`
-	Description     string `db:"description" json:"description"`
-	CommandTemplate string `db:"command_template" json:"command_template"`
-	Column5         []byte `db:"column_5" json:"column_5"`
-	RiskLevel       string `db:"risk_level" json:"risk_level"`
-	Enabled         bool   `db:"enabled" json:"enabled"`
-	CreatedBy       string `db:"created_by" json:"created_by"`
-	UpdatedBy       string `db:"updated_by" json:"updated_by"`
+	CardKey         string `json:"card_key"`
+	Title           string `json:"title"`
+	Description     string `json:"description"`
+	CommandTemplate string `json:"command_template"`
+	Column5         []byte `json:"column_5"`
+	RiskLevel       string `json:"risk_level"`
+	Enabled         bool   `json:"enabled"`
+	CreatedBy       string `json:"created_by"`
+	UpdatedBy       string `json:"updated_by"`
 }
 
 func (q *Queries) UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (CommandCard, error) {

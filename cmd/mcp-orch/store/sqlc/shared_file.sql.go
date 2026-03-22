@@ -50,8 +50,8 @@ LIMIT $2
 `
 
 type ListSharedFilesParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Column1 string `json:"column_1"`
+	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error) {
@@ -91,9 +91,9 @@ RETURNING path, content, updated_by, created_at, updated_at
 `
 
 type UpsertSharedFileParams struct {
-	Path      string `db:"path" json:"path"`
-	Content   string `db:"content" json:"content"`
-	UpdatedBy string `db:"updated_by" json:"updated_by"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	UpdatedBy string `json:"updated_by"`
 }
 
 func (q *Queries) UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error) {

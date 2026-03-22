@@ -26,11 +26,11 @@ LIMIT $5
 `
 
 type ListTaskAcksParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Column2 string `db:"column_2" json:"column_2"`
-	Column3 string `db:"column_3" json:"column_3"`
-	Column4 string `db:"column_4" json:"column_4"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Column1 string `json:"column_1"`
+	Column2 string `json:"column_2"`
+	Column3 string `json:"column_3"`
+	Column4 string `json:"column_4"`
+	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]TaskAck, error) {
@@ -100,18 +100,18 @@ RETURNING id, ack_key, title, description, assigned_to, requested_by, priority, 
 `
 
 type UpsertTaskAckParams struct {
-	AckKey        string             `db:"ack_key" json:"ack_key"`
-	Title         string             `db:"title" json:"title"`
-	Description   string             `db:"description" json:"description"`
-	AssignedTo    string             `db:"assigned_to" json:"assigned_to"`
-	RequestedBy   string             `db:"requested_by" json:"requested_by"`
-	Priority      string             `db:"priority" json:"priority"`
-	Status        string             `db:"status" json:"status"`
-	Column8       interface{}        `db:"column_8" json:"column_8"`
-	AckMessage    string             `db:"ack_message" json:"ack_message"`
-	ResultSummary string             `db:"result_summary" json:"result_summary"`
-	Column11      []byte             `db:"column_11" json:"column_11"`
-	Column12      pgtype.Timestamptz `db:"column_12" json:"column_12"`
+	AckKey        string             `json:"ack_key"`
+	Title         string             `json:"title"`
+	Description   string             `json:"description"`
+	AssignedTo    string             `json:"assigned_to"`
+	RequestedBy   string             `json:"requested_by"`
+	Priority      string             `json:"priority"`
+	Status        string             `json:"status"`
+	Column8       interface{}        `json:"column_8"`
+	AckMessage    string             `json:"ack_message"`
+	ResultSummary string             `json:"result_summary"`
+	Column11      []byte             `json:"column_11"`
+	Column12      pgtype.Timestamptz `json:"column_12"`
 }
 
 func (q *Queries) UpsertTaskAck(ctx context.Context, arg UpsertTaskAckParams) (TaskAck, error) {
