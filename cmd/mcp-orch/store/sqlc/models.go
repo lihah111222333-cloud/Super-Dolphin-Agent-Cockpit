@@ -10,6 +10,66 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type CommandCard struct {
+	ID              int64     `db:"id" json:"id"`
+	CardKey         string    `db:"card_key" json:"card_key"`
+	Title           string    `db:"title" json:"title"`
+	Description     string    `db:"description" json:"description"`
+	CommandTemplate string    `db:"command_template" json:"command_template"`
+	ArgsSchema      []byte    `db:"args_schema" json:"args_schema"`
+	RiskLevel       string    `db:"risk_level" json:"risk_level"`
+	Enabled         bool      `db:"enabled" json:"enabled"`
+	CreatedBy       string    `db:"created_by" json:"created_by"`
+	UpdatedBy       string    `db:"updated_by" json:"updated_by"`
+	CreatedAt       time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type CommandCardVersion struct {
+	ID              int64      `db:"id" json:"id"`
+	CardKey         string     `db:"card_key" json:"card_key"`
+	Title           string     `db:"title" json:"title"`
+	Description     string     `db:"description" json:"description"`
+	CommandTemplate string     `db:"command_template" json:"command_template"`
+	ArgsSchema      []byte     `db:"args_schema" json:"args_schema"`
+	RiskLevel       string     `db:"risk_level" json:"risk_level"`
+	Enabled         bool       `db:"enabled" json:"enabled"`
+	CreatedBy       string     `db:"created_by" json:"created_by"`
+	UpdatedBy       string     `db:"updated_by" json:"updated_by"`
+	SourceUpdatedAt *time.Time `db:"source_updated_at" json:"source_updated_at"`
+	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
+	ArchivedAt      time.Time  `db:"archived_at" json:"archived_at"`
+}
+
+type SharedFile struct {
+	Path      string    `db:"path" json:"path"`
+	Content   string    `db:"content" json:"content"`
+	UpdatedBy string    `db:"updated_by" json:"updated_by"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+}
+
+type TaskAck struct {
+	ID            int64      `db:"id" json:"id"`
+	AckKey        string     `db:"ack_key" json:"ack_key"`
+	Title         string     `db:"title" json:"title"`
+	Description   string     `db:"description" json:"description"`
+	AssignedTo    string     `db:"assigned_to" json:"assigned_to"`
+	RequestedBy   string     `db:"requested_by" json:"requested_by"`
+	Priority      string     `db:"priority" json:"priority"`
+	Status        string     `db:"status" json:"status"`
+	Progress      int32      `db:"progress" json:"progress"`
+	AckMessage    string     `db:"ack_message" json:"ack_message"`
+	ResultSummary string     `db:"result_summary" json:"result_summary"`
+	Metadata      []byte     `db:"metadata" json:"metadata"`
+	DueAt         *time.Time `db:"due_at" json:"due_at"`
+	AckedAt       *time.Time `db:"acked_at" json:"acked_at"`
+	StartedAt     *time.Time `db:"started_at" json:"started_at"`
+	FinishedAt    *time.Time `db:"finished_at" json:"finished_at"`
+	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
+}
+
 type TaskDag struct {
 	ID          int64      `db:"id" json:"id"`
 	DagKey      string     `db:"dag_key" json:"dag_key"`
@@ -65,4 +125,33 @@ type TaskDagWakeup struct {
 	LastError      string             `db:"last_error" json:"last_error"`
 	CreatedAt      pgtype.Timestamptz `db:"created_at" json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
+type WorkspaceRun struct {
+	ID            int64      `db:"id" json:"id"`
+	RunKey        string     `db:"run_key" json:"run_key"`
+	DagKey        string     `db:"dag_key" json:"dag_key"`
+	SourceRoot    string     `db:"source_root" json:"source_root"`
+	WorkspacePath string     `db:"workspace_path" json:"workspace_path"`
+	Status        string     `db:"status" json:"status"`
+	CreatedBy     string     `db:"created_by" json:"created_by"`
+	UpdatedBy     string     `db:"updated_by" json:"updated_by"`
+	Metadata      []byte     `db:"metadata" json:"metadata"`
+	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
+	FinishedAt    *time.Time `db:"finished_at" json:"finished_at"`
+}
+
+type WorkspaceRunFile struct {
+	ID                 int64     `db:"id" json:"id"`
+	RunKey             string    `db:"run_key" json:"run_key"`
+	RelativePath       string    `db:"relative_path" json:"relative_path"`
+	BaselineSha256     string    `db:"baseline_sha256" json:"baseline_sha256"`
+	WorkspaceSha256    string    `db:"workspace_sha256" json:"workspace_sha256"`
+	SourceSha256Before string    `db:"source_sha256_before" json:"source_sha256_before"`
+	SourceSha256After  string    `db:"source_sha256_after" json:"source_sha256_after"`
+	State              string    `db:"state" json:"state"`
+	LastError          string    `db:"last_error" json:"last_error"`
+	CreatedAt          time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt          time.Time `db:"updated_at" json:"updated_at"`
 }
