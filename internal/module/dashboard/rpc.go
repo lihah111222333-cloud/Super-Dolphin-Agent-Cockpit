@@ -53,9 +53,6 @@ func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
 		"dashboard/agentStatus": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardPageField(ctx, svc, "agents", func(page *DashboardPage) any { return page.Agents })
 		}),
-		"dashboard/taskAcks": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return dashboardPageField(ctx, svc, "tasks", func(page *DashboardPage) any { return page.TaskAcks }, "acks")
-		}),
 		"dashboard/taskTraces": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardPageField(ctx, svc, "tasks", func(page *DashboardPage) any { return page.TaskTraces }, "traces")
 		}),
