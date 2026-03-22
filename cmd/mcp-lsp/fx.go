@@ -6,6 +6,7 @@ import (
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"go.uber.org/fx"
 )
 
@@ -50,13 +51,13 @@ func run() error {
 	if err := app.Err(); err != nil {
 		return err
 	}
-	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+	startCtx, startCancel := platformconfig.WithRPCRequestTimeout(context.Background())
 	defer startCancel()
 	if err := app.Start(startCtx); err != nil {
 		return err
 	}
 	<-app.Wait()
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+	stopCtx, stopCancel := platformconfig.WithRPCRequestTimeout(context.Background())
 	defer stopCancel()
 	return app.Stop(stopCtx)
 }
