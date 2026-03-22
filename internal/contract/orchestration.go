@@ -9,7 +9,7 @@ import (
 )
 
 // OrchestrationService defines the shared orchestration boundary used by
-// internal modules and the cmd/mcp-orch runtime.
+// internal modules and the MCP orchestration runtime.
 type OrchestrationService interface {
 	LaunchAgent(ctx context.Context, req LaunchRequest) error
 	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
