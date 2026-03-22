@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 type promptListInput struct {
@@ -101,10 +103,13 @@ func getPromptTemplate(ctx context.Context, store promptstore.Store, input promp
 	}
 	template, err := store.Get(ctx, promptKey)
 	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return promptTemplateDTO{}, fmt.Errorf("prompt %s not found", promptKey)
+		}
 		return promptTemplateDTO{}, err
 	}
 	if template == nil {
-		return promptTemplateDTO{}, errors.New("prompt template not found")
+		return promptTemplateDTO{}, fmt.Errorf("prompt %s not found", promptKey)
 	}
 	return promptTemplateFromStore(*template), nil
 }

@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	workspacestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 const (
@@ -14,6 +17,10 @@ const (
 	maxWorkspaceListLimit     = 5000
 )
 
+// Workspace tool schemas inherit ObjectSchema's additionalProperties=false.
+// V3 adds handler-level input validation, while V2 relied on downstream
+// workspace services for the same validation.
+// Path sandboxing remains the responsibility of the injected WorkspaceStore.
 type WorkspaceStore interface {
 	workspacestore.Store
 	CreateRun(ctx context.Context, req WorkspaceCreateRunRequest) (*workspacestore.WorkspaceRun, error)
@@ -70,7 +77,23 @@ type WorkspaceMergeRunResult struct {
 	Conflicts     int                        `json:"conflicts"`
 	Unchanged     int                        `json:"unchanged"`
 	Errors        int                        `json:"errors"`
+	FinishedAt    *time.Time                 `json:"finished_at,omitempty"`
 	Files         []WorkspaceMergeFileResult `json:"files,omitempty"`
+}
+
+type workspaceRunDTO struct {
+	ID            int64           `json:"id"`
+	RunKey        string          `json:"run_key"`
+	DagKey        string          `json:"dag_key,omitempty"`
+	SourceRoot    string          `json:"source_root"`
+	WorkspacePath string          `json:"workspace_path"`
+	Status        string          `json:"status"`
+	CreatedBy     string          `json:"created_by,omitempty"`
+	UpdatedBy     string          `json:"updated_by,omitempty"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
 }
 
 func HandleWorkspaceCreateRun(store WorkspaceStore) ToolHandler {
@@ -180,7 +203,9 @@ func workspaceToolDefinitions(store WorkspaceStore) []ToolDefinition {
 	}
 }
 
-func createWorkspaceRun(ctx context.Context, store WorkspaceStore, input WorkspaceCreateRunRequest) (*workspacestore.WorkspaceRun, error) {
+// V3 validates source_root and trims optional fields at the handler boundary.
+// V2 relied on downstream workspace services to enforce the same constraints.
+func createWorkspaceRun(ctx context.Context, store WorkspaceStore, input WorkspaceCreateRunRequest) (*workspaceRunDTO, error) {
 	if store == nil {
 		return nil, errors.New("workspace store is not configured")
 	}
@@ -194,10 +219,14 @@ func createWorkspaceRun(ctx context.Context, store WorkspaceStore, input Workspa
 	req.DagKey = strings.TrimSpace(req.DagKey)
 	req.CreatedBy = strings.TrimSpace(req.CreatedBy)
 	req.Files = trimNonEmpty(req.Files)
-	return store.CreateRun(ctx, req)
+	run, err := store.CreateRun(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return workspaceRunDTOFromStore(run), nil
 }
 
-func getWorkspaceRun(ctx context.Context, store WorkspaceStore, input workspaceGetRunInput) (*workspacestore.WorkspaceRun, error) {
+func getWorkspaceRun(ctx context.Context, store WorkspaceStore, input workspaceGetRunInput) (*workspaceRunDTO, error) {
 	if store == nil {
 		return nil, errors.New("workspace store is not configured")
 	}
@@ -205,18 +234,32 @@ func getWorkspaceRun(ctx context.Context, store WorkspaceStore, input workspaceG
 	if err != nil {
 		return nil, err
 	}
-	return store.GetRun(ctx, runKey)
+	run, err := store.GetRun(ctx, runKey)
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return nil, fmt.Errorf("workspace run %s not found", runKey)
+		}
+		return nil, err
+	}
+	if run == nil {
+		return nil, fmt.Errorf("workspace run %s not found", runKey)
+	}
+	return workspaceRunDTOFromStore(run), nil
 }
 
-func listWorkspaceRuns(ctx context.Context, store WorkspaceStore, input workspaceListRunsInput) ([]workspacestore.WorkspaceRun, error) {
+func listWorkspaceRuns(ctx context.Context, store WorkspaceStore, input workspaceListRunsInput) ([]workspaceRunDTO, error) {
 	if store == nil {
 		return nil, errors.New("workspace store is not configured")
 	}
-	return store.ListRuns(ctx, workspacestore.ListRunsFilter{
+	runs, err := store.ListRuns(ctx, workspacestore.ListRunsFilter{
 		Status: strings.TrimSpace(input.Status),
 		DagKey: strings.TrimSpace(input.DagKey),
 		Limit:  normalizeWorkspaceListLimit(input.Limit),
 	})
+	if err != nil {
+		return nil, err
+	}
+	return mapWorkspaceRuns(runs), nil
 }
 
 func mergeWorkspaceRun(ctx context.Context, store WorkspaceStore, input WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
@@ -233,7 +276,7 @@ func mergeWorkspaceRun(ctx context.Context, store WorkspaceStore, input Workspac
 	return store.MergeRun(ctx, req)
 }
 
-func abortWorkspaceRun(ctx context.Context, store WorkspaceStore, input workspaceAbortRunInput) (*workspacestore.WorkspaceRun, error) {
+func abortWorkspaceRun(ctx context.Context, store WorkspaceStore, input workspaceAbortRunInput) (*workspaceRunDTO, error) {
 	if store == nil {
 		return nil, errors.New("workspace store is not configured")
 	}
@@ -241,7 +284,11 @@ func abortWorkspaceRun(ctx context.Context, store WorkspaceStore, input workspac
 	if err != nil {
 		return nil, err
 	}
-	return store.AbortRun(ctx, runKey, strings.TrimSpace(input.UpdatedBy), strings.TrimSpace(input.Reason))
+	run, err := store.AbortRun(ctx, runKey, strings.TrimSpace(input.UpdatedBy), strings.TrimSpace(input.Reason))
+	if err != nil {
+		return nil, err
+	}
+	return workspaceRunDTOFromStore(run), nil
 }
 
 func normalizeWorkspaceListLimit(limit int) int32 {
@@ -265,4 +312,36 @@ func trimNonEmpty(values []string) []string {
 		return nil
 	}
 	return trimmed
+}
+
+func workspaceRunDTOFromStore(run *workspacestore.WorkspaceRun) *workspaceRunDTO {
+	if run == nil {
+		return nil
+	}
+	mapped := workspaceRunDTO{
+		ID:            run.ID,
+		RunKey:        run.RunKey,
+		DagKey:        run.DagKey,
+		SourceRoot:    run.SourceRoot,
+		WorkspacePath: run.WorkspacePath,
+		Status:        run.Status,
+		CreatedBy:     run.CreatedBy,
+		UpdatedBy:     run.UpdatedBy,
+		Metadata:      cloneRawMessage(run.Metadata),
+		CreatedAt:     run.CreatedAt,
+		UpdatedAt:     run.UpdatedAt,
+		FinishedAt:    cloneTime(run.FinishedAt),
+	}
+	return &mapped
+}
+
+func mapWorkspaceRuns(runs []workspacestore.WorkspaceRun) []workspaceRunDTO {
+	if len(runs) == 0 {
+		return nil
+	}
+	mapped := make([]workspaceRunDTO, 0, len(runs))
+	for i := range runs {
+		mapped = append(mapped, *workspaceRunDTOFromStore(&runs[i]))
+	}
+	return mapped
 }

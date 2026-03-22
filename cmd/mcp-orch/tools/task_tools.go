@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -61,6 +63,9 @@ type UpdateNodeInput struct {
 
 func HandleCreateDAG(svc contract.OrchestrationService) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
+		if svc == nil {
+			return nil, errors.New("orchestration service is not configured")
+		}
 		var in CreateDAGInput
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
@@ -75,16 +80,26 @@ func HandleCreateDAG(svc contract.OrchestrationService) ToolHandler {
 
 func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
+		if svc == nil {
+			return nil, errors.New("orchestration service is not configured")
+		}
 		var in DAGKeyInput
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
-		return svc.GetDAG(ctx, in.DagKey)
+		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+		if err != nil {
+			return nil, err
+		}
+		return svc.GetDAG(ctx, dagKey)
 	}
 }
 
 func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
+		if svc == nil {
+			return nil, errors.New("orchestration service is not configured")
+		}
 		var in UpdateNodeInput
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
@@ -164,6 +179,14 @@ func createDAGSchema() Schema {
 func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, error) {
 	// Preserve schedule in DAG metadata until the service contract grows a
 	// first-class schedule field.
+	dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	title, err := requireTrimmed(in.Title, "title")
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
 	metadata, err := encodeJSONRaw(createDAGMetadata(in.Metadata, in.Schedule))
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
@@ -173,8 +196,8 @@ func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, er
 		return contract.CreateDAGRequest{}, err
 	}
 	return contract.CreateDAGRequest{
-		DagKey:      strings.TrimSpace(in.DagKey),
-		Title:       strings.TrimSpace(in.Title),
+		DagKey:      dagKey,
+		Title:       title,
 		Description: strings.TrimSpace(in.Description),
 		Metadata:    metadata,
 		Nodes:       nodes,
@@ -183,15 +206,23 @@ func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, er
 
 func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNodeRequest, error) {
 	mapped := make([]contract.CreateDAGNodeRequest, 0, len(nodes))
-	for _, node := range nodes {
+	for i, node := range nodes {
+		nodeKey, err := requireTrimmed(node.NodeKey, fmt.Sprintf("nodes[%d].node_key", i))
+		if err != nil {
+			return nil, err
+		}
+		title, err := requireTrimmed(node.Title, fmt.Sprintf("nodes[%d].title", i))
+		if err != nil {
+			return nil, err
+		}
 		// Preserve node-level execution overrides in Config for the same reason.
 		config, err := encodeJSONRaw(nodeConfig(node.Execution))
 		if err != nil {
 			return nil, err
 		}
 		mapped = append(mapped, contract.CreateDAGNodeRequest{
-			NodeKey:    strings.TrimSpace(node.NodeKey),
-			Title:      strings.TrimSpace(node.Title),
+			NodeKey:    nodeKey,
+			Title:      title,
 			NodeType:   strings.TrimSpace(node.NodeType),
 			AssignedTo: strings.TrimSpace(node.AssignedTo),
 			DependsOn:  append([]string(nil), node.DependsOn...),
@@ -203,14 +234,26 @@ func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNo
 }
 
 func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRequest, error) {
+	dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+	if err != nil {
+		return contract.UpdateNodeStatusRequest{}, err
+	}
+	nodeKey, err := requireTrimmed(in.NodeKey, "node_key")
+	if err != nil {
+		return contract.UpdateNodeStatusRequest{}, err
+	}
+	status, err := requireTrimmed(in.Status, "status")
+	if err != nil {
+		return contract.UpdateNodeStatusRequest{}, err
+	}
 	result, err := encodeOptionalString(strings.TrimSpace(in.Result))
 	if err != nil {
 		return contract.UpdateNodeStatusRequest{}, err
 	}
 	return contract.UpdateNodeStatusRequest{
-		DagKey:  strings.TrimSpace(in.DagKey),
-		NodeKey: strings.TrimSpace(in.NodeKey),
-		Status:  strings.TrimSpace(in.Status),
+		DagKey:  dagKey,
+		NodeKey: nodeKey,
+		Status:  status,
 		Result:  result,
 	}, nil
 }

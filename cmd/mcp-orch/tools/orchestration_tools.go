@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 
@@ -28,6 +29,9 @@ type AgentIDInput struct {
 
 func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
+		if svc == nil {
+			return nil, errors.New("orchestration service is not configured")
+		}
 		var in LaunchAgentInput
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
@@ -45,32 +49,49 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 
 func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
+		if svc == nil {
+			return nil, errors.New("orchestration service is not configured")
+		}
 		var in SendMessageInput
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
-		if err := svc.SubmitTurn(ctx, submissionFromMessage(ctx, svc, in)); err != nil {
+		submission, err := submissionFromMessage(ctx, svc, in)
+		if err != nil {
 			return nil, err
 		}
-		return successResult(map[string]any{"agent_id": strings.TrimSpace(in.AgentID)}), nil
+		if err := svc.SubmitTurn(ctx, submission); err != nil {
+			return nil, err
+		}
+		return successResult(map[string]any{"agent_id": submission.AgentID}), nil
 	}
 }
 
 func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
+		if svc == nil {
+			return nil, errors.New("orchestration service is not configured")
+		}
 		var in AgentIDInput
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
-		if err := svc.StopAgent(ctx, in.AgentID); err != nil {
+		agentID, err := requireTrimmed(in.AgentID, "agent_id")
+		if err != nil {
 			return nil, err
 		}
-		return successResult(map[string]any{"agent_id": strings.TrimSpace(in.AgentID)}), nil
+		if err := svc.StopAgent(ctx, agentID); err != nil {
+			return nil, err
+		}
+		return successResult(map[string]any{"agent_id": agentID}), nil
 	}
 }
 
 func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
+		if svc == nil {
+			return nil, errors.New("orchestration service is not configured")
+		}
 		var in struct{}
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
@@ -81,11 +102,18 @@ func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 
 func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
+		if svc == nil {
+			return nil, errors.New("orchestration service is not configured")
+		}
 		var in AgentIDInput
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
-		return svc.GetReport(ctx, in.AgentID)
+		agentID, err := requireTrimmed(in.AgentID, "agent_id")
+		if err != nil {
+			return nil, err
+		}
+		return svc.GetReport(ctx, agentID)
 	}
 }
 
@@ -95,7 +123,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			Name:        "orchestration_launch_agent",
 			Description: "Launch a managed orchestration agent.",
 			InputSchema: ObjectSchema(map[string]Schema{
-				"name":     StringSchema("Agent name. Used as the orchestration agent ID."),
+				"name":     StringSchema("Agent name. Used as the orchestration agent ID; no separate agent_id field is required."),
 				"prompt":   StringSchema("Optional initial prompt to persist on the launch request."),
 				"cwd":      StringSchema("Optional working directory for the launched agent."),
 				"provider": StringSchema("Optional provider name. Passed via AGENT_PROVIDER."),
@@ -141,7 +169,10 @@ func launchRequestFromInput(in LaunchAgentInput) (contract.LaunchRequest, error)
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
-	name := strings.TrimSpace(in.Name)
+	name, err := requireTrimmed(in.Name, "name")
+	if err != nil {
+		return contract.LaunchRequest{}, err
+	}
 	// The MCP launch tool does not expose agent_id/command, so mirror the thread
 	// module's launch path by using the current binary and the provided name as ID.
 	return contract.LaunchRequest{
@@ -165,16 +196,23 @@ func submissionFromMessage(
 	ctx context.Context,
 	svc contract.OrchestrationService,
 	in SendMessageInput,
-) contract.TurnSubmission {
-	agentID := strings.TrimSpace(in.AgentID)
+) (contract.TurnSubmission, error) {
+	agentID, err := requireTrimmed(in.AgentID, "agent_id")
+	if err != nil {
+		return contract.TurnSubmission{}, err
+	}
+	message, err := requireTrimmed(in.Message, "message")
+	if err != nil {
+		return contract.TurnSubmission{}, err
+	}
 	return contract.TurnSubmission{
 		AgentID:  agentID,
 		ThreadID: submissionThreadID(ctx, svc, agentID),
 		Inputs: []shareddto.InputItem{{
 			Type:    "text",
-			Content: strings.TrimSpace(in.Message),
+			Content: message,
 		}},
-	}
+	}, nil
 }
 
 func submissionThreadID(ctx context.Context, svc contract.OrchestrationService, agentID string) string {

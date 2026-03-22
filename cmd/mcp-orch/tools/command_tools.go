@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 const resourceListLimit int32 = 50
@@ -102,10 +104,13 @@ func getCommandCard(ctx context.Context, store commandcardstore.Store, input com
 	}
 	card, err := store.Get(ctx, cardKey)
 	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return commandCardDTO{}, fmt.Errorf("command %s not found", cardKey)
+		}
 		return commandCardDTO{}, err
 	}
 	if card == nil {
-		return commandCardDTO{}, errors.New("command card not found")
+		return commandCardDTO{}, fmt.Errorf("command %s not found", cardKey)
 	}
 	return commandCardFromStore(*card), nil
 }
