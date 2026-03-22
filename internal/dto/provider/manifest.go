@@ -30,6 +30,9 @@ type ManifestContext struct {
 	AutoApprove []string
 }
 
+// BuildManifest returns declarative MCP binary metadata for external executors
+// such as Claude CLI. The core process builds this manifest but never launches
+// MCP binaries itself.
 func BuildManifest(ctx ManifestContext) MCPManifest {
 	families := []ToolFamily{FamilyLSP, FamilyOrch}
 	if ctx.ThreadCaps.Has("ida") {
