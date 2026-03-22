@@ -22,7 +22,7 @@ import (
 type bootSnapshot struct {
 	InstanceID      string   `json:"instance_id"`
 	BootID          string   `json:"boot_id"`
-	AgentID         string   `json:"agent_id"`
+	AgentID         string   `json:"agent_id"` // optional shared-service hint
 	ThreadID        string   `json:"thread_id"`
 	BinaryName      string   `json:"binary_name"`
 	ClientKind      string   `json:"client_kind"`
@@ -35,7 +35,7 @@ type bootSnapshot struct {
 
 func ReadBootConfig() Config {
 	return Config{
-		RPCAddr:      firstEnv("RPC_ADDR"),
+		RPCAddr:      firstEnv("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR"),
 		InstanceID:   firstEnv("GO_AGENT_CTL_INSTANCE_ID", "GO_AGENT_MCP_INSTANCE_ID"),
 		BootID:       firstEnv("GO_AGENT_CTL_BOOT_ID", "GO_AGENT_MCP_BOOT_ID"),
 		BinaryName:   firstEnv("GO_AGENT_CTL_BINARY_NAME", "GO_AGENT_MCP_BINARY_NAME"),

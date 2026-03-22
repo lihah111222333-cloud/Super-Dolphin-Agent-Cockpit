@@ -56,7 +56,7 @@ type Config struct {
 	BootID               string
 	BinaryName           string
 	ClientKind           string
-	AgentID              string
+	AgentID              string // optional; empty means this MCP process is a shared service
 	ThreadID             string
 	SessionToken         string
 	Capabilities         []string
@@ -85,7 +85,7 @@ func New(cfg Config) *Client {
 
 func (c *Client) Start(ctx context.Context) error {
 	if strings.TrimSpace(c.cfg.RPCAddr) == "" {
-		return errors.New("bootstrap: RPC_ADDR is required")
+		return errors.New("bootstrap: GO_AGENT_CTL_RPC_ADDR is required")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -117,6 +117,9 @@ func (c *Client) Context(ctx context.Context, scope string, keys []string) (*mcp
 		Lease: c.currentLease(),
 		Scope: strings.TrimSpace(scope),
 		Keys:  cloneStrings(keys),
+	}
+	if agentID := strings.TrimSpace(c.cfg.AgentID); agentID != "" {
+		req.AgentID = agentID
 	}
 	callCtx, cancel := withTimeoutIfNone(ctx, c.currentSendTimeout())
 	defer cancel()
