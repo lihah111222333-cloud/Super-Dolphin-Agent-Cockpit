@@ -7,7 +7,8 @@ package sqlc
 
 import (
 	"context"
-	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getWorkspaceRun = `-- name: GetWorkspaceRun :one
@@ -43,8 +44,8 @@ WHERE run_key = $1 AND relative_path = $2
 `
 
 type GetWorkspaceRunFileParams struct {
-	RunKey       string `db:"run_key" json:"run_key"`
-	RelativePath string `db:"relative_path" json:"relative_path"`
+	RunKey       string `json:"run_key"`
+	RelativePath string `json:"relative_path"`
 }
 
 func (q *Queries) GetWorkspaceRunFile(ctx context.Context, arg GetWorkspaceRunFileParams) (WorkspaceRunFile, error) {
@@ -76,9 +77,9 @@ LIMIT $3
 `
 
 type ListWorkspaceRunFilesParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Column2 string `db:"column_2" json:"column_2"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Column1 string `json:"column_1"`
+	Column2 string `json:"column_2"`
+	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error) {
@@ -123,9 +124,9 @@ LIMIT $3
 `
 
 type ListWorkspaceRunsParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Column2 string `db:"column_2" json:"column_2"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Column1 string `json:"column_1"`
+	Column2 string `json:"column_2"`
+	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error) {
@@ -177,11 +178,11 @@ RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by,
 `
 
 type TransitionWorkspaceRunStatusParams struct {
-	Status    string `db:"status" json:"status"`
-	UpdatedBy string `db:"updated_by" json:"updated_by"`
-	Column3   []byte `db:"column_3" json:"column_3"`
-	RunKey    string `db:"run_key" json:"run_key"`
-	Status_2  string `db:"status_2" json:"status_2"`
+	Status    string `json:"status"`
+	UpdatedBy string `json:"updated_by"`
+	Column3   []byte `json:"column_3"`
+	RunKey    string `json:"run_key"`
+	Status_2  string `json:"status_2"`
 }
 
 func (q *Queries) TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (WorkspaceRun, error) {
@@ -226,10 +227,10 @@ RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by,
 `
 
 type UpdateWorkspaceRunStatusParams struct {
-	Status    string `db:"status" json:"status"`
-	UpdatedBy string `db:"updated_by" json:"updated_by"`
-	Column3   []byte `db:"column_3" json:"column_3"`
-	RunKey    string `db:"run_key" json:"run_key"`
+	Status    string `json:"status"`
+	UpdatedBy string `json:"updated_by"`
+	Column3   []byte `json:"column_3"`
+	RunKey    string `json:"run_key"`
 }
 
 func (q *Queries) UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (WorkspaceRun, error) {
@@ -275,15 +276,15 @@ RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by,
 `
 
 type UpsertWorkspaceRunParams struct {
-	RunKey        string     `db:"run_key" json:"run_key"`
-	DagKey        string     `db:"dag_key" json:"dag_key"`
-	SourceRoot    string     `db:"source_root" json:"source_root"`
-	WorkspacePath string     `db:"workspace_path" json:"workspace_path"`
-	Status        string     `db:"status" json:"status"`
-	CreatedBy     string     `db:"created_by" json:"created_by"`
-	UpdatedBy     string     `db:"updated_by" json:"updated_by"`
-	Column8       []byte     `db:"column_8" json:"column_8"`
-	FinishedAt    *time.Time `db:"finished_at" json:"finished_at"`
+	RunKey        string             `json:"run_key"`
+	DagKey        string             `json:"dag_key"`
+	SourceRoot    string             `json:"source_root"`
+	WorkspacePath string             `json:"workspace_path"`
+	Status        string             `json:"status"`
+	CreatedBy     string             `json:"created_by"`
+	UpdatedBy     string             `json:"updated_by"`
+	Column8       []byte             `json:"column_8"`
+	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
 }
 
 func (q *Queries) UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRunParams) (WorkspaceRun, error) {
@@ -333,14 +334,14 @@ RETURNING id, run_key, relative_path, baseline_sha256, workspace_sha256, source_
 `
 
 type UpsertWorkspaceRunFileParams struct {
-	RunKey             string `db:"run_key" json:"run_key"`
-	RelativePath       string `db:"relative_path" json:"relative_path"`
-	BaselineSha256     string `db:"baseline_sha256" json:"baseline_sha256"`
-	WorkspaceSha256    string `db:"workspace_sha256" json:"workspace_sha256"`
-	SourceSha256Before string `db:"source_sha256_before" json:"source_sha256_before"`
-	SourceSha256After  string `db:"source_sha256_after" json:"source_sha256_after"`
-	State              string `db:"state" json:"state"`
-	LastError          string `db:"last_error" json:"last_error"`
+	RunKey             string `json:"run_key"`
+	RelativePath       string `json:"relative_path"`
+	BaselineSha256     string `json:"baseline_sha256"`
+	WorkspaceSha256    string `json:"workspace_sha256"`
+	SourceSha256Before string `json:"source_sha256_before"`
+	SourceSha256After  string `json:"source_sha256_after"`
+	State              string `json:"state"`
+	LastError          string `json:"last_error"`
 }
 
 func (q *Queries) UpsertWorkspaceRunFile(ctx context.Context, arg UpsertWorkspaceRunFileParams) (WorkspaceRunFile, error) {

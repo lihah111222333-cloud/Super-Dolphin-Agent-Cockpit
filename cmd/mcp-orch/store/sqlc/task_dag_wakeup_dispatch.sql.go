@@ -18,8 +18,8 @@ WHERE id = $2 AND status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS N
 `
 
 type BindTaskDagWakeupTurnParams struct {
-	BoundTurnID *string `db:"bound_turn_id" json:"bound_turn_id"`
-	ID          int64   `db:"id" json:"id"`
+	BoundTurnID pgtype.Text `json:"bound_turn_id"`
+	ID          int64       `json:"id"`
 }
 
 func (q *Queries) BindTaskDagWakeupTurn(ctx context.Context, arg BindTaskDagWakeupTurnParams) (int64, error) {
@@ -46,9 +46,9 @@ RETURNING id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload, i
 `
 
 type ClaimDueTaskDagWakeupsParams struct {
-	ClaimedBy string          `db:"claimed_by" json:"claimed_by"`
-	Column2   pgtype.Interval `db:"column_2" json:"column_2"`
-	Limit     int32           `db:"limit" json:"limit"`
+	ClaimedBy string          `json:"claimed_by"`
+	Column2   pgtype.Interval `json:"column_2"`
+	Limit     int32           `json:"limit"`
 }
 
 func (q *Queries) ClaimDueTaskDagWakeups(ctx context.Context, arg ClaimDueTaskDagWakeupsParams) ([]TaskDagWakeup, error) {
@@ -98,12 +98,12 @@ ON CONFLICT (idempotency_key) DO NOTHING
 `
 
 type EnqueueTaskDagWakeupParams struct {
-	DagKey         string `db:"dag_key" json:"dag_key"`
-	NodeKey        string `db:"node_key" json:"node_key"`
-	WakeupKind     string `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string `db:"target_agent_id" json:"target_agent_id"`
-	Column5        []byte `db:"column_5" json:"column_5"`
-	IdempotencyKey string `db:"idempotency_key" json:"idempotency_key"`
+	DagKey         string `json:"dag_key"`
+	NodeKey        string `json:"node_key"`
+	WakeupKind     string `json:"wakeup_kind"`
+	TargetAgentID  string `json:"target_agent_id"`
+	Column5        []byte `json:"column_5"`
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 func (q *Queries) EnqueueTaskDagWakeup(ctx context.Context, arg EnqueueTaskDagWakeupParams) (int64, error) {
@@ -128,9 +128,9 @@ WHERE id = $2 AND status = 'dispatching' AND claimed_at = $3
 `
 
 type FailTaskDagWakeupParams struct {
-	LastError string             `db:"last_error" json:"last_error"`
-	ID        int64              `db:"id" json:"id"`
-	ClaimedAt pgtype.Timestamptz `db:"claimed_at" json:"claimed_at"`
+	LastError string             `json:"last_error"`
+	ID        int64              `json:"id"`
+	ClaimedAt pgtype.Timestamptz `json:"claimed_at"`
 }
 
 func (q *Queries) FailTaskDagWakeup(ctx context.Context, arg FailTaskDagWakeupParams) (int64, error) {
@@ -148,8 +148,8 @@ WHERE id = $1 AND status = 'dispatching' AND claimed_at = $2
 `
 
 type MarkTaskDagWakeupSentParams struct {
-	ID        int64              `db:"id" json:"id"`
-	ClaimedAt pgtype.Timestamptz `db:"claimed_at" json:"claimed_at"`
+	ID        int64              `json:"id"`
+	ClaimedAt pgtype.Timestamptz `json:"claimed_at"`
 }
 
 func (q *Queries) MarkTaskDagWakeupSent(ctx context.Context, arg MarkTaskDagWakeupSentParams) (int64, error) {
@@ -168,10 +168,10 @@ WHERE id = $3 AND status = 'dispatching' AND claimed_at = $4 AND attempt_count <
 `
 
 type RetryTaskDagWakeupParams struct {
-	Column1   pgtype.Interval    `db:"column_1" json:"column_1"`
-	LastError string             `db:"last_error" json:"last_error"`
-	ID        int64              `db:"id" json:"id"`
-	ClaimedAt pgtype.Timestamptz `db:"claimed_at" json:"claimed_at"`
+	Column1   pgtype.Interval    `json:"column_1"`
+	LastError string             `json:"last_error"`
+	ID        int64              `json:"id"`
+	ClaimedAt pgtype.Timestamptz `json:"claimed_at"`
 }
 
 func (q *Queries) RetryTaskDagWakeup(ctx context.Context, arg RetryTaskDagWakeupParams) (int64, error) {

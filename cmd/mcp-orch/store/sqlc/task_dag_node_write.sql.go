@@ -19,10 +19,10 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, stat
 `
 
 type UpdateTaskDagNodeStatusParams struct {
-	Status  string `db:"status" json:"status"`
-	Column2 []byte `db:"column_2" json:"column_2"`
-	DagKey  string `db:"dag_key" json:"dag_key"`
-	NodeKey string `db:"node_key" json:"node_key"`
+	Status  string `json:"status"`
+	Column2 []byte `json:"column_2"`
+	DagKey  string `json:"dag_key"`
+	NodeKey string `json:"node_key"`
 }
 
 func (q *Queries) UpdateTaskDagNodeStatus(ctx context.Context, arg UpdateTaskDagNodeStatusParams) (TaskDagNode, error) {
@@ -64,10 +64,10 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, stat
 `
 
 type UpdateTaskDagNodeStatusFlexibleParams struct {
-	Status  string `db:"status" json:"status"`
-	Column2 []byte `db:"column_2" json:"column_2"`
-	DagKey  string `db:"dag_key" json:"dag_key"`
-	NodeKey string `db:"node_key" json:"node_key"`
+	Status  string `json:"status"`
+	Column2 []byte `json:"column_2"`
+	DagKey  string `json:"dag_key"`
+	NodeKey string `json:"node_key"`
 }
 
 func (q *Queries) UpdateTaskDagNodeStatusFlexible(ctx context.Context, arg UpdateTaskDagNodeStatusFlexibleParams) (TaskDagNode, error) {
@@ -116,14 +116,14 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, stat
 `
 
 type UpsertTaskDagNodeParams struct {
-	DagKey     string `db:"dag_key" json:"dag_key"`
-	NodeKey    string `db:"node_key" json:"node_key"`
-	Title      string `db:"title" json:"title"`
-	NodeType   string `db:"node_type" json:"node_type"`
-	AssignedTo string `db:"assigned_to" json:"assigned_to"`
-	Column6    []byte `db:"column_6" json:"column_6"`
-	CommandRef string `db:"command_ref" json:"command_ref"`
-	Column8    []byte `db:"column_8" json:"column_8"`
+	DagKey     string `json:"dag_key"`
+	NodeKey    string `json:"node_key"`
+	Title      string `json:"title"`
+	NodeType   string `json:"node_type"`
+	AssignedTo string `json:"assigned_to"`
+	Column6    []byte `json:"column_6"`
+	CommandRef string `json:"command_ref"`
+	Column8    []byte `json:"column_8"`
 }
 
 func (q *Queries) UpsertTaskDagNode(ctx context.Context, arg UpsertTaskDagNodeParams) (TaskDagNode, error) {

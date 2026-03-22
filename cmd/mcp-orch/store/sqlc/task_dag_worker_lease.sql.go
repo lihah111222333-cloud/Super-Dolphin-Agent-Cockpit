@@ -23,9 +23,9 @@ WHERE task_dag_worker_leases.lease_expires_at < NOW()
 `
 
 type AcquireTaskDagWorkerLeaseParams struct {
-	TargetAgentID string          `db:"target_agent_id" json:"target_agent_id"`
-	OwnerID       string          `db:"owner_id" json:"owner_id"`
-	Column3       pgtype.Interval `db:"column_3" json:"column_3"`
+	TargetAgentID string          `json:"target_agent_id"`
+	OwnerID       string          `json:"owner_id"`
+	Column3       pgtype.Interval `json:"column_3"`
 }
 
 func (q *Queries) AcquireTaskDagWorkerLease(ctx context.Context, arg AcquireTaskDagWorkerLeaseParams) (int64, error) {
@@ -42,8 +42,8 @@ WHERE target_agent_id = $1 AND owner_id = $2
 `
 
 type ReleaseTaskDagWorkerLeaseParams struct {
-	TargetAgentID string `db:"target_agent_id" json:"target_agent_id"`
-	OwnerID       string `db:"owner_id" json:"owner_id"`
+	TargetAgentID string `json:"target_agent_id"`
+	OwnerID       string `json:"owner_id"`
 }
 
 func (q *Queries) ReleaseTaskDagWorkerLease(ctx context.Context, arg ReleaseTaskDagWorkerLeaseParams) error {
@@ -59,9 +59,9 @@ WHERE target_agent_id = $2 AND owner_id = $3 AND lease_expires_at >= NOW()
 `
 
 type RenewTaskDagWorkerLeaseParams struct {
-	Column1       pgtype.Interval `db:"column_1" json:"column_1"`
-	TargetAgentID string          `db:"target_agent_id" json:"target_agent_id"`
-	OwnerID       string          `db:"owner_id" json:"owner_id"`
+	Column1       pgtype.Interval `json:"column_1"`
+	TargetAgentID string          `json:"target_agent_id"`
+	OwnerID       string          `json:"owner_id"`
 }
 
 func (q *Queries) RenewTaskDagWorkerLease(ctx context.Context, arg RenewTaskDagWorkerLeaseParams) (int64, error) {

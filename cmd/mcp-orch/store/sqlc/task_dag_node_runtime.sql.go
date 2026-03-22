@@ -25,10 +25,10 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, stat
 `
 
 type BindRunningTaskDagNodeTurnParams struct {
-	ActiveTurnID   *string `db:"active_turn_id" json:"active_turn_id"`
-	DagKey         string  `db:"dag_key" json:"dag_key"`
-	NodeKey        string  `db:"node_key" json:"node_key"`
-	ActiveWakeupID *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
+	ActiveTurnID   pgtype.Text `json:"active_turn_id"`
+	DagKey         string      `json:"dag_key"`
+	NodeKey        string      `json:"node_key"`
+	ActiveWakeupID pgtype.Int8 `json:"active_wakeup_id"`
 }
 
 func (q *Queries) BindRunningTaskDagNodeTurn(ctx context.Context, arg BindRunningTaskDagNodeTurnParams) (TaskDagNode, error) {
@@ -71,10 +71,10 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, stat
 `
 
 type CompleteTaskDagNodeParams struct {
-	Status  string `db:"status" json:"status"`
-	Column2 []byte `db:"column_2" json:"column_2"`
-	DagKey  string `db:"dag_key" json:"dag_key"`
-	NodeKey string `db:"node_key" json:"node_key"`
+	Status  string `json:"status"`
+	Column2 []byte `json:"column_2"`
+	DagKey  string `json:"dag_key"`
+	NodeKey string `json:"node_key"`
 }
 
 func (q *Queries) CompleteTaskDagNode(ctx context.Context, arg CompleteTaskDagNodeParams) (TaskDagNode, error) {
@@ -121,10 +121,10 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, stat
 `
 
 type TouchRunningTaskDagNodeEventParams struct {
-	LastEventAt  pgtype.Timestamptz `db:"last_event_at" json:"last_event_at"`
-	DagKey       string             `db:"dag_key" json:"dag_key"`
-	NodeKey      string             `db:"node_key" json:"node_key"`
-	ActiveTurnID *string            `db:"active_turn_id" json:"active_turn_id"`
+	LastEventAt  pgtype.Timestamptz `json:"last_event_at"`
+	DagKey       string             `json:"dag_key"`
+	NodeKey      string             `json:"node_key"`
+	ActiveTurnID pgtype.Text        `json:"active_turn_id"`
 }
 
 func (q *Queries) TouchRunningTaskDagNodeEvent(ctx context.Context, arg TouchRunningTaskDagNodeEventParams) (TaskDagNode, error) {
@@ -166,10 +166,10 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, stat
 `
 
 type UpdateAwaitingVerifyTaskDagNodeStatusParams struct {
-	Status  string `db:"status" json:"status"`
-	Column2 []byte `db:"column_2" json:"column_2"`
-	DagKey  string `db:"dag_key" json:"dag_key"`
-	NodeKey string `db:"node_key" json:"node_key"`
+	Status  string `json:"status"`
+	Column2 []byte `json:"column_2"`
+	DagKey  string `json:"dag_key"`
+	NodeKey string `json:"node_key"`
 }
 
 func (q *Queries) UpdateAwaitingVerifyTaskDagNodeStatus(ctx context.Context, arg UpdateAwaitingVerifyTaskDagNodeStatusParams) (TaskDagNode, error) {
@@ -212,11 +212,11 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, stat
 `
 
 type UpdateRunningTaskDagNodeStatusParams struct {
-	Status         string `db:"status" json:"status"`
-	Column2        []byte `db:"column_2" json:"column_2"`
-	ActiveWakeupID *int64 `db:"active_wakeup_id" json:"active_wakeup_id"`
-	DagKey         string `db:"dag_key" json:"dag_key"`
-	NodeKey        string `db:"node_key" json:"node_key"`
+	Status         string      `json:"status"`
+	Column2        []byte      `json:"column_2"`
+	ActiveWakeupID pgtype.Int8 `json:"active_wakeup_id"`
+	DagKey         string      `json:"dag_key"`
+	NodeKey        string      `json:"node_key"`
 }
 
 func (q *Queries) UpdateRunningTaskDagNodeStatus(ctx context.Context, arg UpdateRunningTaskDagNodeStatusParams) (TaskDagNode, error) {

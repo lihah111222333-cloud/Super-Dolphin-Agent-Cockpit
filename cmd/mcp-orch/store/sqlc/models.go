@@ -5,153 +5,151 @@
 package sqlc
 
 import (
-	"time"
-
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type CommandCard struct {
-	ID              int64     `db:"id" json:"id"`
-	CardKey         string    `db:"card_key" json:"card_key"`
-	Title           string    `db:"title" json:"title"`
-	Description     string    `db:"description" json:"description"`
-	CommandTemplate string    `db:"command_template" json:"command_template"`
-	ArgsSchema      []byte    `db:"args_schema" json:"args_schema"`
-	RiskLevel       string    `db:"risk_level" json:"risk_level"`
-	Enabled         bool      `db:"enabled" json:"enabled"`
-	CreatedBy       string    `db:"created_by" json:"created_by"`
-	UpdatedBy       string    `db:"updated_by" json:"updated_by"`
-	CreatedAt       time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
+	ID              int64              `json:"id"`
+	CardKey         string             `json:"card_key"`
+	Title           string             `json:"title"`
+	Description     string             `json:"description"`
+	CommandTemplate string             `json:"command_template"`
+	ArgsSchema      []byte             `json:"args_schema"`
+	RiskLevel       string             `json:"risk_level"`
+	Enabled         bool               `json:"enabled"`
+	CreatedBy       string             `json:"created_by"`
+	UpdatedBy       string             `json:"updated_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
 type CommandCardVersion struct {
-	ID              int64      `db:"id" json:"id"`
-	CardKey         string     `db:"card_key" json:"card_key"`
-	Title           string     `db:"title" json:"title"`
-	Description     string     `db:"description" json:"description"`
-	CommandTemplate string     `db:"command_template" json:"command_template"`
-	ArgsSchema      []byte     `db:"args_schema" json:"args_schema"`
-	RiskLevel       string     `db:"risk_level" json:"risk_level"`
-	Enabled         bool       `db:"enabled" json:"enabled"`
-	CreatedBy       string     `db:"created_by" json:"created_by"`
-	UpdatedBy       string     `db:"updated_by" json:"updated_by"`
-	SourceUpdatedAt *time.Time `db:"source_updated_at" json:"source_updated_at"`
-	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
-	ArchivedAt      time.Time  `db:"archived_at" json:"archived_at"`
+	ID              int64              `json:"id"`
+	CardKey         string             `json:"card_key"`
+	Title           string             `json:"title"`
+	Description     string             `json:"description"`
+	CommandTemplate string             `json:"command_template"`
+	ArgsSchema      []byte             `json:"args_schema"`
+	RiskLevel       string             `json:"risk_level"`
+	Enabled         bool               `json:"enabled"`
+	CreatedBy       string             `json:"created_by"`
+	UpdatedBy       string             `json:"updated_by"`
+	SourceUpdatedAt pgtype.Timestamptz `json:"source_updated_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ArchivedAt      pgtype.Timestamptz `json:"archived_at"`
 }
 
 type SharedFile struct {
-	Path      string    `db:"path" json:"path"`
-	Content   string    `db:"content" json:"content"`
-	UpdatedBy string    `db:"updated_by" json:"updated_by"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+	Path      string             `json:"path"`
+	Content   string             `json:"content"`
+	UpdatedBy string             `json:"updated_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type TaskAck struct {
-	ID            int64      `db:"id" json:"id"`
-	AckKey        string     `db:"ack_key" json:"ack_key"`
-	Title         string     `db:"title" json:"title"`
-	Description   string     `db:"description" json:"description"`
-	AssignedTo    string     `db:"assigned_to" json:"assigned_to"`
-	RequestedBy   string     `db:"requested_by" json:"requested_by"`
-	Priority      string     `db:"priority" json:"priority"`
-	Status        string     `db:"status" json:"status"`
-	Progress      int32      `db:"progress" json:"progress"`
-	AckMessage    string     `db:"ack_message" json:"ack_message"`
-	ResultSummary string     `db:"result_summary" json:"result_summary"`
-	Metadata      []byte     `db:"metadata" json:"metadata"`
-	DueAt         *time.Time `db:"due_at" json:"due_at"`
-	AckedAt       *time.Time `db:"acked_at" json:"acked_at"`
-	StartedAt     *time.Time `db:"started_at" json:"started_at"`
-	FinishedAt    *time.Time `db:"finished_at" json:"finished_at"`
-	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
+	ID            int64              `json:"id"`
+	AckKey        string             `json:"ack_key"`
+	Title         string             `json:"title"`
+	Description   string             `json:"description"`
+	AssignedTo    string             `json:"assigned_to"`
+	RequestedBy   string             `json:"requested_by"`
+	Priority      string             `json:"priority"`
+	Status        string             `json:"status"`
+	Progress      int32              `json:"progress"`
+	AckMessage    string             `json:"ack_message"`
+	ResultSummary string             `json:"result_summary"`
+	Metadata      []byte             `json:"metadata"`
+	DueAt         pgtype.Timestamptz `json:"due_at"`
+	AckedAt       pgtype.Timestamptz `json:"acked_at"`
+	StartedAt     pgtype.Timestamptz `json:"started_at"`
+	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 type TaskDag struct {
-	ID          int64      `db:"id" json:"id"`
-	DagKey      string     `db:"dag_key" json:"dag_key"`
-	Title       string     `db:"title" json:"title"`
-	Description string     `db:"description" json:"description"`
-	Status      string     `db:"status" json:"status"`
-	CreatedBy   string     `db:"created_by" json:"created_by"`
-	Metadata    []byte     `db:"metadata" json:"metadata"`
-	StartedAt   *time.Time `db:"started_at" json:"started_at"`
-	FinishedAt  *time.Time `db:"finished_at" json:"finished_at"`
-	CreatedAt   time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time  `db:"updated_at" json:"updated_at"`
+	ID          int64              `json:"id"`
+	DagKey      string             `json:"dag_key"`
+	Title       string             `json:"title"`
+	Description string             `json:"description"`
+	Status      string             `json:"status"`
+	CreatedBy   string             `json:"created_by"`
+	Metadata    []byte             `json:"metadata"`
+	StartedAt   pgtype.Timestamptz `json:"started_at"`
+	FinishedAt  pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type TaskDagNode struct {
-	ID             int64              `db:"id" json:"id"`
-	DagKey         string             `db:"dag_key" json:"dag_key"`
-	NodeKey        string             `db:"node_key" json:"node_key"`
-	Title          string             `db:"title" json:"title"`
-	NodeType       string             `db:"node_type" json:"node_type"`
-	AssignedTo     string             `db:"assigned_to" json:"assigned_to"`
-	DependsOn      []byte             `db:"depends_on" json:"depends_on"`
-	Status         string             `db:"status" json:"status"`
-	CommandRef     string             `db:"command_ref" json:"command_ref"`
-	Config         []byte             `db:"config" json:"config"`
-	Result         []byte             `db:"result" json:"result"`
-	StartedAt      *time.Time         `db:"started_at" json:"started_at"`
-	FinishedAt     *time.Time         `db:"finished_at" json:"finished_at"`
-	CreatedAt      time.Time          `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time          `db:"updated_at" json:"updated_at"`
-	ActiveTurnID   *string            `db:"active_turn_id" json:"active_turn_id"`
-	ActiveWakeupID *int64             `db:"active_wakeup_id" json:"active_wakeup_id"`
-	LastEventAt    pgtype.Timestamptz `db:"last_event_at" json:"last_event_at"`
+	ID             int64              `json:"id"`
+	DagKey         string             `json:"dag_key"`
+	NodeKey        string             `json:"node_key"`
+	Title          string             `json:"title"`
+	NodeType       string             `json:"node_type"`
+	AssignedTo     string             `json:"assigned_to"`
+	DependsOn      []byte             `json:"depends_on"`
+	Status         string             `json:"status"`
+	CommandRef     string             `json:"command_ref"`
+	Config         []byte             `json:"config"`
+	Result         []byte             `json:"result"`
+	StartedAt      pgtype.Timestamptz `json:"started_at"`
+	FinishedAt     pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ActiveTurnID   pgtype.Text        `json:"active_turn_id"`
+	ActiveWakeupID pgtype.Int8        `json:"active_wakeup_id"`
+	LastEventAt    pgtype.Timestamptz `json:"last_event_at"`
 }
 
 type TaskDagWakeup struct {
-	ID             int64              `db:"id" json:"id"`
-	DagKey         string             `db:"dag_key" json:"dag_key"`
-	NodeKey        string             `db:"node_key" json:"node_key"`
-	WakeupKind     string             `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string             `db:"target_agent_id" json:"target_agent_id"`
-	PromptPayload  []byte             `db:"prompt_payload" json:"prompt_payload"`
-	IdempotencyKey string             `db:"idempotency_key" json:"idempotency_key"`
-	Status         string             `db:"status" json:"status"`
-	AttemptCount   int32              `db:"attempt_count" json:"attempt_count"`
-	NextRetryAt    pgtype.Timestamptz `db:"next_retry_at" json:"next_retry_at"`
-	ClaimedAt      pgtype.Timestamptz `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string             `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt pgtype.Timestamptz `db:"lease_expires_at" json:"lease_expires_at"`
-	SentAt         pgtype.Timestamptz `db:"sent_at" json:"sent_at"`
-	BoundTurnID    *string            `db:"bound_turn_id" json:"bound_turn_id"`
-	TurnBoundAt    pgtype.Timestamptz `db:"turn_bound_at" json:"turn_bound_at"`
-	LastError      string             `db:"last_error" json:"last_error"`
-	CreatedAt      pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	ID             int64              `json:"id"`
+	DagKey         string             `json:"dag_key"`
+	NodeKey        string             `json:"node_key"`
+	WakeupKind     string             `json:"wakeup_kind"`
+	TargetAgentID  string             `json:"target_agent_id"`
+	PromptPayload  []byte             `json:"prompt_payload"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	Status         string             `json:"status"`
+	AttemptCount   int32              `json:"attempt_count"`
+	NextRetryAt    pgtype.Timestamptz `json:"next_retry_at"`
+	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
+	ClaimedBy      string             `json:"claimed_by"`
+	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
+	SentAt         pgtype.Timestamptz `json:"sent_at"`
+	BoundTurnID    pgtype.Text        `json:"bound_turn_id"`
+	TurnBoundAt    pgtype.Timestamptz `json:"turn_bound_at"`
+	LastError      string             `json:"last_error"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type WorkspaceRun struct {
-	ID            int64      `db:"id" json:"id"`
-	RunKey        string     `db:"run_key" json:"run_key"`
-	DagKey        string     `db:"dag_key" json:"dag_key"`
-	SourceRoot    string     `db:"source_root" json:"source_root"`
-	WorkspacePath string     `db:"workspace_path" json:"workspace_path"`
-	Status        string     `db:"status" json:"status"`
-	CreatedBy     string     `db:"created_by" json:"created_by"`
-	UpdatedBy     string     `db:"updated_by" json:"updated_by"`
-	Metadata      []byte     `db:"metadata" json:"metadata"`
-	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
-	FinishedAt    *time.Time `db:"finished_at" json:"finished_at"`
+	ID            int64              `json:"id"`
+	RunKey        string             `json:"run_key"`
+	DagKey        string             `json:"dag_key"`
+	SourceRoot    string             `json:"source_root"`
+	WorkspacePath string             `json:"workspace_path"`
+	Status        string             `json:"status"`
+	CreatedBy     string             `json:"created_by"`
+	UpdatedBy     string             `json:"updated_by"`
+	Metadata      []byte             `json:"metadata"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
 }
 
 type WorkspaceRunFile struct {
-	ID                 int64     `db:"id" json:"id"`
-	RunKey             string    `db:"run_key" json:"run_key"`
-	RelativePath       string    `db:"relative_path" json:"relative_path"`
-	BaselineSha256     string    `db:"baseline_sha256" json:"baseline_sha256"`
-	WorkspaceSha256    string    `db:"workspace_sha256" json:"workspace_sha256"`
-	SourceSha256Before string    `db:"source_sha256_before" json:"source_sha256_before"`
-	SourceSha256After  string    `db:"source_sha256_after" json:"source_sha256_after"`
-	State              string    `db:"state" json:"state"`
-	LastError          string    `db:"last_error" json:"last_error"`
-	CreatedAt          time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt          time.Time `db:"updated_at" json:"updated_at"`
+	ID                 int64              `json:"id"`
+	RunKey             string             `json:"run_key"`
+	RelativePath       string             `json:"relative_path"`
+	BaselineSha256     string             `json:"baseline_sha256"`
+	WorkspaceSha256    string             `json:"workspace_sha256"`
+	SourceSha256Before string             `json:"source_sha256_before"`
+	SourceSha256After  string             `json:"source_sha256_after"`
+	State              string             `json:"state"`
+	LastError          string             `json:"last_error"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }

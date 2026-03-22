@@ -73,9 +73,9 @@ LIMIT $3
 `
 
 type ListTaskDagsParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Column2 string `db:"column_2" json:"column_2"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Column1 string `json:"column_1"`
+	Column2 string `json:"column_2"`
+	Limit   int32  `json:"limit"`
 }
 
 func (q *Queries) ListTaskDags(ctx context.Context, arg ListTaskDagsParams) ([]TaskDag, error) {
@@ -124,12 +124,12 @@ RETURNING id, dag_key, title, description, status, created_by, metadata, started
 `
 
 type UpsertTaskDagParams struct {
-	DagKey      string `db:"dag_key" json:"dag_key"`
-	Title       string `db:"title" json:"title"`
-	Description string `db:"description" json:"description"`
-	Status      string `db:"status" json:"status"`
-	CreatedBy   string `db:"created_by" json:"created_by"`
-	Column6     []byte `db:"column_6" json:"column_6"`
+	DagKey      string `json:"dag_key"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	CreatedBy   string `json:"created_by"`
+	Column6     []byte `json:"column_6"`
 }
 
 func (q *Queries) UpsertTaskDag(ctx context.Context, arg UpsertTaskDagParams) (TaskDag, error) {
