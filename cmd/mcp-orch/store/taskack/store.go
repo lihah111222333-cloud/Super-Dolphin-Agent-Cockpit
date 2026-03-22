@@ -69,21 +69,16 @@ func fromSQLC(row sqlc.TaskAck) TaskAck {
 		AckMessage:    row.AckMessage,
 		ResultSummary: row.ResultSummary,
 		Metadata:      json.RawMessage(row.Metadata),
-		DueAt:         row.DueAt,
-		AckedAt:       row.AckedAt,
-		StartedAt:     row.StartedAt,
-		FinishedAt:    row.FinishedAt,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
+		DueAt:         sqlc.TimePtr(row.DueAt),
+		AckedAt:       sqlc.TimePtr(row.AckedAt),
+		StartedAt:     sqlc.TimePtr(row.StartedAt),
+		FinishedAt:    sqlc.TimePtr(row.FinishedAt),
+		CreatedAt:     sqlc.TimeValue(row.CreatedAt),
+		UpdatedAt:     sqlc.TimeValue(row.UpdatedAt),
 	}
 }
 
-func toTimestamptz(ts *time.Time) sqlc.Timestamptz {
-	if ts == nil {
-		return sqlc.Timestamptz{}
-	}
-	return sqlc.Timestamptz{Time: *ts, Valid: true}
-}
+func toTimestamptz(ts *time.Time) sqlc.Timestamptz { return sqlc.TimeValuePtr(ts) }
 
 func wrapTaskAckError(err error, operation string) error {
 	return platformdb.WrapStoreError(err, operation, "task_ack")

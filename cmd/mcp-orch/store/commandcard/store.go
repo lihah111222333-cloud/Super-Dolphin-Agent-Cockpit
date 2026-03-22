@@ -40,7 +40,7 @@ func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) e
 		Enabled:         version.Enabled,
 		CreatedBy:       version.CreatedBy,
 		UpdatedBy:       version.UpdatedBy,
-		SourceUpdatedAt: version.SourceUpdatedAt,
+		SourceUpdatedAt: sqlc.TimeValuePtr(version.SourceUpdatedAt),
 	}), "insert_version", "command_card_version")
 }
 
@@ -99,8 +99,8 @@ func fromCard(row sqlc.CommandCard) CommandCard {
 		Enabled:         row.Enabled,
 		CreatedBy:       row.CreatedBy,
 		UpdatedBy:       row.UpdatedBy,
-		CreatedAt:       row.CreatedAt,
-		UpdatedAt:       row.UpdatedAt,
+		CreatedAt:       sqlc.TimeValue(row.CreatedAt),
+		UpdatedAt:       sqlc.TimeValue(row.UpdatedAt),
 	}
 }
 
@@ -116,8 +116,8 @@ func fromListRow(row sqlc.ListCommandCardsRow) CommandCard {
 		Enabled:         row.Enabled,
 		CreatedBy:       row.CreatedBy,
 		UpdatedBy:       row.UpdatedBy,
-		CreatedAt:       row.CreatedAt,
-		UpdatedAt:       row.UpdatedAt,
+		CreatedAt:       sqlc.TimeValue(row.CreatedAt),
+		UpdatedAt:       sqlc.TimeValue(row.UpdatedAt),
 		LastRunAt:       timePtr(row.LastRunAt),
 		RunCount:        row.RunCount,
 	}
@@ -135,18 +135,25 @@ func fromVersion(row sqlc.CommandCardVersion) CommandCardVersion {
 		Enabled:         row.Enabled,
 		CreatedBy:       row.CreatedBy,
 		UpdatedBy:       row.UpdatedBy,
-		SourceUpdatedAt: row.SourceUpdatedAt,
-		CreatedAt:       row.CreatedAt,
-		ArchivedAt:      row.ArchivedAt,
+		SourceUpdatedAt: sqlc.TimePtr(row.SourceUpdatedAt),
+		CreatedAt:       sqlc.TimeValue(row.CreatedAt),
+		ArchivedAt:      sqlc.TimeValue(row.ArchivedAt),
 	}
 }
 
 func timePtr(value any) *time.Time {
-	ts, ok := value.(time.Time)
-	if !ok {
+	switch ts := value.(type) {
+	case nil:
+		return nil
+	case time.Time:
+		return &ts
+	case *time.Time:
+		return ts
+	case sqlc.Timestamptz:
+		return sqlc.TimePtr(ts)
+	default:
 		return nil
 	}
-	return &ts
 }
 
 func wrapCommandCardError(err error, operation, entity string) error {
