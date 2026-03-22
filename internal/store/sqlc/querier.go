@@ -66,7 +66,6 @@ type Querier interface {
 	ListRunningAgents(ctx context.Context) ([]ListRunningAgentsRow, error)
 	ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error)
 	ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]SystemLog, error)
-	ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]TaskAck, error)
 	ListTaskTraces(ctx context.Context, arg ListTaskTracesParams) ([]TaskTrace, error)
 	ListUIPreferences(ctx context.Context, dollar_1 string) ([]ListUIPreferencesRow, error)
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
@@ -93,7 +92,6 @@ type Querier interface {
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (CommandCard, error)
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)
 	UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error)
-	UpsertTaskAck(ctx context.Context, arg UpsertTaskAckParams) (TaskAck, error)
 	UpsertUIPreference(ctx context.Context, arg UpsertUIPreferenceParams) error
 	UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRunParams) (WorkspaceRun, error)
 	UpsertWorkspaceRunFile(ctx context.Context, arg UpsertWorkspaceRunFileParams) (WorkspaceRunFile, error)

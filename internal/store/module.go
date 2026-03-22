@@ -16,16 +16,16 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/taskack"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/topologyapproval"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/workspace"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var Module = fx.Module("store",
-	fx.Provide(sqlc.New),
+	fx.Provide(func(pool *pgxpool.Pool) *sqlc.Queries { return sqlc.New(pool) }),
 	agentstatus.Module,
 	ailog.Module,
 	auditlog.Module,
@@ -38,7 +38,6 @@ var Module = fx.Module("store",
 	prompt.Module,
 	sharedfile.Module,
 	systemlog.Module,
-	taskack.Module,
 	tasktrace.Module,
 	thread.Module,
 	topologyapproval.Module,

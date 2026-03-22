@@ -31,7 +31,6 @@ var (
 		"prompt_versions":        {},
 		"shared_files":           {},
 		"system_logs":            {},
-		"task_acks":              {},
 		"task_traces":            {},
 		"topology_approvals":     {},
 		"ui_preferences":         {},
