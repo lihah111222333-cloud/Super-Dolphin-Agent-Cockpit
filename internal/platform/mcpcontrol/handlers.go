@@ -7,12 +7,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
 )
+
+type AgentContextSource interface {
+	GetAgentSnapshot(agentID string) (*contract.AgentSnapshot, error)
+}
 
 type ContextProvider interface {
 	GetContext(ctx context.Context, instance *ToolInstance, req dto.ContextRequest) (dto.ContextResponse, error)
@@ -45,7 +50,9 @@ func (controlEvent) Type() uint32 { return controlEventType }
 func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 	contextProvider := p.Context
 	if contextProvider == nil {
-		contextProvider = registryContextProvider{}
+		contextProvider = registryContextProvider{
+			agents: resolveAgentContextSource(p.AgentSource, p.Orchestration),
+		}
 	}
 	eventSink := p.Events
 	if eventSink == nil {
@@ -148,18 +155,46 @@ func requestApproval(
 	}, nil
 }
 
-type registryContextProvider struct{}
+type registryContextProvider struct {
+	agents AgentContextSource
+}
 
-func (registryContextProvider) GetContext(_ context.Context, instance *ToolInstance, req dto.ContextRequest) (dto.ContextResponse, error) {
-	target := cloneInstance(instance)
-	if agentID := strings.TrimSpace(req.AgentID); agentID != "" {
-		target.AgentID = agentID
+func (p registryContextProvider) GetContext(_ context.Context, instance *ToolInstance, req dto.ContextRequest) (dto.ContextResponse, error) {
+	snapshot, err := p.lookupAgentSnapshot(req.AgentID)
+	if err != nil {
+		return dto.ContextResponse{}, err
 	}
-	payload, err := contextPayload(req.Scope, target)
+	payload, err := contextPayload(req.Scope, instance, snapshot)
 	if err != nil {
 		return dto.ContextResponse{}, err
 	}
 	return buildContextResponse(req.Scope, filterKeys(payload, req.Keys))
+}
+
+func (p registryContextProvider) lookupAgentSnapshot(agentID string) (*contract.AgentSnapshot, error) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil, nil
+	}
+	if p.agents == nil {
+		return nil, errInvalidParams("agent not found")
+	}
+	snapshot, err := p.agents.GetAgentSnapshot(agentID)
+	if err != nil || snapshot == nil {
+		return nil, errInvalidParams("agent not found")
+	}
+	return snapshot, nil
+}
+
+func resolveAgentContextSource(explicit AgentContextSource, orchestration contract.OrchestrationService) AgentContextSource {
+	if explicit != nil {
+		return explicit
+	}
+	if orchestration == nil {
+		return nil
+	}
+	source, _ := orchestration.(AgentContextSource)
+	return source
 }
 
 type defaultEventSink struct {

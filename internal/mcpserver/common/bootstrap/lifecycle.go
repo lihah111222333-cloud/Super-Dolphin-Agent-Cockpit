@@ -61,7 +61,7 @@ func (c *Client) registerConn(ctx context.Context, conn *jrpc2.Client) (*mcp.Reg
 	req := mcp.RegisterRequest{
 		InstanceID:           c.instanceID,
 		BinaryName:           c.cfg.BinaryName,
-		AgentID:              c.cfg.AgentID,
+		AgentID:              "",
 		ThreadID:             c.cfg.ThreadID,
 		PID:                  os.Getpid(),
 		SessionToken:         c.cfg.SessionToken,

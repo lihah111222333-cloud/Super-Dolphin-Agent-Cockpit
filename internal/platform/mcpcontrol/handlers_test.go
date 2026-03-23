@@ -3,13 +3,42 @@ package mcpcontrol
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
-func TestRegistryContextProvider_UsesRequestedAgentIDHint(t *testing.T) {
-	resp, err := (registryContextProvider{}).GetContext(context.Background(), &ToolInstance{
+type stubAgentContextSource struct {
+	snapshot *contract.AgentSnapshot
+	err      error
+	gotID    string
+}
+
+func (s *stubAgentContextSource) GetAgentSnapshot(agentID string) (*contract.AgentSnapshot, error) {
+	s.gotID = agentID
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.snapshot == nil {
+		return nil, errors.New("missing snapshot")
+	}
+	cloned := *s.snapshot
+	return &cloned, nil
+}
+
+func TestRegistryContextProvider_UsesRequestedAgentSnapshotForRuntimeScope(t *testing.T) {
+	source := &stubAgentContextSource{
+		snapshot: &contract.AgentSnapshot{
+			ID:       "agent-42",
+			ThreadID: "thread-42",
+			PID:      4242,
+			State:    "running",
+		},
+	}
+	resp, err := (registryContextProvider{agents: source}).GetContext(context.Background(), &ToolInstance{
 		AgentID:    "shared",
 		BinaryName: "go-agent-mcp-orch",
 		ClientKind: "orch",
@@ -30,6 +59,15 @@ func TestRegistryContextProvider_UsesRequestedAgentIDHint(t *testing.T) {
 	}
 	if got := payload["agent_id"]; got != "agent-42" {
 		t.Fatalf("payload.agent_id = %#v, want agent-42", got)
+	}
+	if got := payload["pid"]; got != float64(4242) {
+		t.Fatalf("payload.pid = %#v, want 4242", got)
+	}
+	if got := payload["status"]; got != "running" {
+		t.Fatalf("payload.status = %#v, want running", got)
+	}
+	if source.gotID != "agent-42" {
+		t.Fatalf("GetAgentSnapshot() agent_id = %q, want agent-42", source.gotID)
 	}
 }
 
@@ -54,5 +92,54 @@ func TestRegistryContextProvider_UsesLeaseScopedAgentIDWhenHintMissing(t *testin
 	}
 	if got := payload["agent_id"]; got != "lease-agent" {
 		t.Fatalf("payload.agent_id = %#v, want lease-agent", got)
+	}
+}
+
+func TestRegistryContextProvider_UsesRequestedAgentSnapshotForThreadBinding(t *testing.T) {
+	resp, err := (registryContextProvider{agents: &stubAgentContextSource{
+		snapshot: &contract.AgentSnapshot{
+			ID:       "agent-42",
+			ThreadID: "thread-42",
+			State:    "running",
+		},
+	}}).GetContext(context.Background(), &ToolInstance{
+		AgentID:  "shared",
+		ThreadID: "thread-shared",
+		Lease: dto.LeaseKey{
+			InstanceID: "instance-1",
+			Generation: 7,
+		},
+	}, dto.ContextRequest{
+		AgentID: "agent-42",
+		Scope:   dto.ScopeThreadBinding,
+	})
+	if err != nil {
+		t.Fatalf("GetContext() error = %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got := payload["agent_id"]; got != "agent-42" {
+		t.Fatalf("payload.agent_id = %#v, want agent-42", got)
+	}
+	if got := payload["thread_id"]; got != "thread-42" {
+		t.Fatalf("payload.thread_id = %#v, want thread-42", got)
+	}
+	if got := payload["instance_id"]; got != "instance-1" {
+		t.Fatalf("payload.instance_id = %#v, want instance-1", got)
+	}
+}
+
+func TestRegistryContextProvider_ReturnsAgentNotFoundWhenSourceMissing(t *testing.T) {
+	_, err := (registryContextProvider{}).GetContext(context.Background(), &ToolInstance{
+		AgentID: "shared",
+	}, dto.ContextRequest{
+		AgentID: "agent-42",
+		Scope:   dto.ScopeAgentRuntime,
+	})
+	if err == nil || !strings.Contains(err.Error(), "agent not found") {
+		t.Fatalf("GetContext() error = %v, want agent not found", err)
 	}
 }

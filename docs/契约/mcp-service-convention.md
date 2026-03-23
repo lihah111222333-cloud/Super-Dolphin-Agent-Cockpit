@@ -102,7 +102,7 @@ V3 的目标契约是：
 - 核心层 hooks = 拦截点 + `ctl/hook/*` transport；MCP 侧 lifecycle adapter = 消费这些 hooks 的领域逻辑；两层抽象必须分开
 - turn 相关事件进入 MCP 的唯一路径是核心主动发起 `ctl/hook/before` / `ctl/hook/check` / `ctl/hook/after` 回调；不新增旁路推送
 - `SubmitTurn` 是核心内部 orchestration 动作；MCP 只能在 hook 返回里给出 `dispatch_intent`，由核心验证、持久化并执行
-- `LeaseKey` 是 binary 身份与路由主键；hook payload 中的 `agent_id` / `thread_id` / `turn_id` 才是逻辑对象身份；bootstrap env 的 `agent_id` 只是 hint
+- `LeaseKey` 是 binary 身份与路由主键；hook payload 中的 `agent_id` / `thread_id` / `turn_id` 才是逻辑对象身份；MCP 进程是共享服务，`agent_id` 只从 tool call 参数传入
 - `agent.process.exit` / `process_exited` 类 hook topic 只能由核心进程管理模块在检测到子进程退出后生成，不接受 MCP 工具自报
 
 ## 3. 依赖方向
@@ -183,7 +183,6 @@ bootstrap env 主命名固定为：
 
 - `GO_AGENT_CTL_RPC_ADDR`
 - `GO_AGENT_CTL_INSTANCE_ID`
-- `GO_AGENT_CTL_AGENT_ID`
 - `GO_AGENT_CTL_THREAD_ID`
 - `GO_AGENT_CTL_BINARY_NAME`
 - `GO_AGENT_CTL_BOOTSTRAP_JSON`
@@ -192,7 +191,6 @@ bootstrap env 主命名固定为：
 
 - `RPC_ADDR`
 - `GO_AGENT_MCP_INSTANCE_ID`
-- `GO_AGENT_MCP_AGENT_ID`
 - `GO_AGENT_MCP_THREAD_ID`
 - `GO_AGENT_MCP_BINARY_NAME`
 - `GO_AGENT_MCP_BOOT_CONTEXT`

@@ -109,8 +109,6 @@ func (s *stubDashboardOrchestration) UpdateRuntime(context.Context, contract.Run
 	return nil
 }
 
-func (s *stubDashboardOrchestration) SetReport(context.Context, string, string) error { return nil }
-
 func (s *stubDashboardOrchestration) GetState(context.Context, string) (contract.AgentStateResult, error) {
 	return contract.AgentStateResult{}, nil
 }

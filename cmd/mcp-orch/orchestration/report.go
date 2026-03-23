@@ -36,18 +36,6 @@ var terminalThreadStatuses = map[string]struct{}{
 	"systemerror":  {},
 }
 
-func (s *service) SetReport(_ context.Context, agentID, report string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return err
-	}
-	setReportLocked(agent, report)
-	return nil
-}
-
 func (s *service) GetState(_ context.Context, agentID string) (AgentStateResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

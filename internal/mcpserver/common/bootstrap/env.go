@@ -54,7 +54,7 @@ func normalizeConfig(cfg Config) (Config, bootSnapshot) {
 	cfg.BootID = firstNonEmpty(strings.TrimSpace(cfg.BootID), strings.TrimSpace(boot.BootID), generateID("boot"))
 	cfg.BinaryName = firstNonEmpty(strings.TrimSpace(cfg.BinaryName), strings.TrimSpace(boot.BinaryName), filepath.Base(os.Args[0]))
 	cfg.ClientKind = firstNonEmpty(strings.TrimSpace(cfg.ClientKind), strings.TrimSpace(boot.ClientKind), deriveClientKind(cfg.BinaryName))
-	cfg.AgentID = firstNonEmpty(strings.TrimSpace(cfg.AgentID), strings.TrimSpace(boot.AgentID))
+	cfg.AgentID = strings.TrimSpace(cfg.AgentID)
 	cfg.ThreadID = firstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(boot.ThreadID))
 	cfg.SessionToken = strings.TrimSpace(cfg.SessionToken)
 	cfg.Capabilities = cloneStrings(cfg.Capabilities)
@@ -102,7 +102,7 @@ func (c *Client) envContext(scope string, keys []string) (*mcp.ContextResponse, 
 func contextPayloadFromSnapshot(c *Client, scope string) map[string]any {
 	clientKind := firstNonEmpty(c.boot.ClientKind, c.cfg.ClientKind)
 	binaryName := firstNonEmpty(c.boot.BinaryName, c.cfg.BinaryName)
-	agentID := firstNonEmpty(c.boot.AgentID, c.cfg.AgentID)
+	agentID := strings.TrimSpace(c.cfg.AgentID)
 	threadID := firstNonEmpty(c.boot.ThreadID, c.cfg.ThreadID)
 	switch strings.TrimSpace(scope) {
 	case mcp.ScopeAgentRuntime:

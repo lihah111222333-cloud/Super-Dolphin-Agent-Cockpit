@@ -28,6 +28,7 @@ type HandlerDeps struct {
 	Logger            *slog.Logger                  `optional:"true"`
 	Dispatcher        *event.Dispatcher             `optional:"true"`
 	Orchestration     contract.OrchestrationService `optional:"true"`
+	AgentSource       AgentContextSource            `optional:"true"`
 	Context           ContextProvider               `optional:"true"`
 	Events            EventSink                     `optional:"true"`
 	Logs              LogSink                       `optional:"true"`
@@ -44,6 +45,7 @@ type handlerIn struct {
 	Logger            *slog.Logger                  `optional:"true"`
 	Dispatcher        *event.Dispatcher             `optional:"true"`
 	Orchestration     contract.OrchestrationService `optional:"true"`
+	AgentSource       AgentContextSource            `optional:"true"`
 	Context           ContextProvider               `optional:"true"`
 	Events            EventSink                     `optional:"true"`
 	Logs              LogSink                       `optional:"true"`
@@ -59,6 +61,7 @@ func provideHandlers(in handlerIn) rpc.HandlerMapResult {
 		Logger:            in.Logger,
 		Dispatcher:        in.Dispatcher,
 		Orchestration:     in.Orchestration,
+		AgentSource:       in.AgentSource,
 		Context:           in.Context,
 		Events:            in.Events,
 		Logs:              in.Logs,

@@ -211,163 +211,12 @@ func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNode
 	return &mapped, nil
 }
 
-func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error) {
-	id, err := s.q.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{
-		DagKey:         input.DagKey,
-		NodeKey:        input.NodeKey,
-		WakeupKind:     input.WakeupKind,
-		TargetAgentID:  input.TargetAgentID,
-		Column5:        input.PromptPayload,
-		IdempotencyKey: input.IdempotencyKey,
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "enqueue", "task_dag_wakeup")
-	}
-	return id, nil
-}
-
 func int64Ptr(value int64) sqlc.Int8 {
 	return sqlc.Int8ValuePtr(&value)
 }
 
 func stringPtr(value string) sqlc.Text {
 	return sqlc.TextValuePtr(&value)
-}
-
-func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error) {
-	leaseInterval, err := intervalValue(input.LeaseInterval)
-	if err != nil {
-		return nil, wrapTaskDAGError(err, "claim_due", "task_dag_wakeup")
-	}
-	rows, err := s.q.ClaimDueTaskDagWakeups(ctx, sqlc.ClaimDueTaskDagWakeupsParams{
-		ClaimedBy: input.ClaimedBy,
-		Column2:   leaseInterval,
-		Limit:     input.Limit,
-	})
-	if err != nil {
-		return nil, wrapTaskDAGError(err, "claim_due", "task_dag_wakeup")
-	}
-	return mapWakeups(rows), nil
-}
-
-func (s *store) MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (int64, error) {
-	count, err := s.q.MarkTaskDagWakeupSent(ctx, sqlc.MarkTaskDagWakeupSentParams{
-		ID:        input.ID,
-		ClaimedAt: timestampValue(input.ClaimedAt),
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "mark_sent", "task_dag_wakeup")
-	}
-	return count, nil
-}
-
-func (s *store) BindWakeupTurn(ctx context.Context, input BindWakeupTurnInput) (int64, error) {
-	count, err := s.q.BindTaskDagWakeupTurn(ctx, sqlc.BindTaskDagWakeupTurnParams{
-		BoundTurnID: stringPtr(input.TurnID),
-		ID:          input.ID,
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "bind_turn", "task_dag_wakeup")
-	}
-	return count, nil
-}
-
-func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64, error) {
-	retryInterval, err := intervalValue(input.RetryInterval)
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "retry", "task_dag_wakeup")
-	}
-	count, err := s.q.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{
-		Column1:   retryInterval,
-		LastError: input.LastError,
-		ID:        input.ID,
-		ClaimedAt: timestampValue(input.ClaimedAt),
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "retry", "task_dag_wakeup")
-	}
-	return count, nil
-}
-
-func (s *store) FailWakeup(ctx context.Context, input FailWakeupInput) (int64, error) {
-	count, err := s.q.FailTaskDagWakeup(ctx, sqlc.FailTaskDagWakeupParams{
-		LastError: input.LastError,
-		ID:        input.ID,
-		ClaimedAt: timestampValue(input.ClaimedAt),
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "fail", "task_dag_wakeup")
-	}
-	return count, nil
-}
-
-func (s *store) AcquireWorkerLease(ctx context.Context, input AcquireWorkerLeaseInput) (int64, error) {
-	leaseInterval, err := intervalValue(input.LeaseInterval)
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "acquire", "task_dag_worker_lease")
-	}
-	count, err := s.q.AcquireTaskDagWorkerLease(ctx, sqlc.AcquireTaskDagWorkerLeaseParams{
-		TargetAgentID: input.TargetAgentID,
-		OwnerID:       input.OwnerID,
-		Column3:       leaseInterval,
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "acquire", "task_dag_worker_lease")
-	}
-	return count, nil
-}
-
-func (s *store) RenewWorkerLease(ctx context.Context, input RenewWorkerLeaseInput) (int64, error) {
-	leaseInterval, err := intervalValue(input.LeaseInterval)
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "renew", "task_dag_worker_lease")
-	}
-	count, err := s.q.RenewTaskDagWorkerLease(ctx, sqlc.RenewTaskDagWorkerLeaseParams{
-		Column1:       leaseInterval,
-		TargetAgentID: input.TargetAgentID,
-		OwnerID:       input.OwnerID,
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "renew", "task_dag_worker_lease")
-	}
-	return count, nil
-}
-
-func (s *store) ReleaseWorkerLease(ctx context.Context, input ReleaseWorkerLeaseInput) error {
-	return wrapTaskDAGError(s.q.ReleaseTaskDagWorkerLease(ctx, sqlc.ReleaseTaskDagWorkerLeaseParams{TargetAgentID: input.TargetAgentID, OwnerID: input.OwnerID}), "release", "task_dag_worker_lease")
-}
-
-func (s *store) ReclaimStaleDispatchingWakeups(ctx context.Context) (int64, error) {
-	count, err := s.q.ReclaimStaleDispatchingTaskDagWakeups(ctx)
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "reclaim_stale_dispatching", "task_dag_wakeup")
-	}
-	return count, nil
-}
-
-func (s *store) ListSentUnboundWakeups(ctx context.Context, targetAgentID string) ([]Wakeup, error) {
-	rows, err := s.q.ListSentUnboundTaskDagWakeups(ctx, targetAgentID)
-	if err != nil {
-		return nil, wrapTaskDAGError(err, "list_sent_unbound", "task_dag_wakeup")
-	}
-	return mapWakeups(rows), nil
-}
-
-func (s *store) ListPendingOrDispatchingWakeups(ctx context.Context) ([]Wakeup, error) {
-	rows, err := s.q.ListPendingOrDispatchingTaskDagWakeups(ctx)
-	if err != nil {
-		return nil, wrapTaskDAGError(err, "list_pending_or_dispatching", "task_dag_wakeup")
-	}
-	return mapWakeups(rows), nil
-}
-
-func (s *store) GetWakeup(ctx context.Context, id int64) (*Wakeup, error) {
-	row, err := s.q.GetTaskDagWakeup(ctx, id)
-	if err != nil {
-		return nil, wrapTaskDAGError(err, "get", "task_dag_wakeup")
-	}
-	mapped := fromWakeup(row)
-	return &mapped, nil
 }
 
 func mapDAGs(rows []sqlc.TaskDag) []DAG {
@@ -382,14 +231,6 @@ func mapNodes(rows []sqlc.TaskDagNode) []Node {
 	out := make([]Node, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, fromNode(row))
-	}
-	return out
-}
-
-func mapWakeups(rows []sqlc.TaskDagWakeup) []Wakeup {
-	out := make([]Wakeup, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, fromWakeup(row))
 	}
 	return out
 }
@@ -430,30 +271,6 @@ func fromNode(row sqlc.TaskDagNode) Node {
 		ActiveTurnID:   sqlc.TextPtr(row.ActiveTurnID),
 		ActiveWakeupID: sqlc.Int8Ptr(row.ActiveWakeupID),
 		LastEventAt:    timestampPtr(row.LastEventAt),
-	}
-}
-
-func fromWakeup(row sqlc.TaskDagWakeup) Wakeup {
-	return Wakeup{
-		ID:             row.ID,
-		DagKey:         row.DagKey,
-		NodeKey:        row.NodeKey,
-		WakeupKind:     row.WakeupKind,
-		TargetAgentID:  row.TargetAgentID,
-		PromptPayload:  row.PromptPayload,
-		IdempotencyKey: row.IdempotencyKey,
-		Status:         row.Status,
-		AttemptCount:   row.AttemptCount,
-		NextRetryAt:    timeValue(row.NextRetryAt),
-		ClaimedAt:      timestampPtr(row.ClaimedAt),
-		ClaimedBy:      row.ClaimedBy,
-		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
-		SentAt:         timestampPtr(row.SentAt),
-		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
-		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
-		LastError:      row.LastError,
-		CreatedAt:      timeValue(row.CreatedAt),
-		UpdatedAt:      timeValue(row.UpdatedAt),
 	}
 }
 

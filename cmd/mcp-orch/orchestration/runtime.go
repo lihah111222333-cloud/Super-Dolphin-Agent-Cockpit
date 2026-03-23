@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"strings"
 )
 
@@ -58,6 +59,7 @@ func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSn
 		ParentID:       agent.parentID,
 		Port:           port,
 		PortSource:     portSource,
+		PID:            processPID(agent.cmd),
 		ThreadID:       agent.threadID,
 		ActiveTurnID:   agent.activeTurnID,
 		Cwd:            agent.cwd,
@@ -78,6 +80,13 @@ func applyRuntimeReportLocked(agent *agentRuntime, port int, provider string) {
 		agent.runtimeProvider = provider
 		agent.providerSource = runtimeProviderSource(provider)
 	}
+}
+
+func processPID(cmd *exec.Cmd) int {
+	if cmd == nil || cmd.Process == nil {
+		return 0
+	}
+	return cmd.Process.Pid
 }
 
 func shouldUpdatePort(port int) bool {
