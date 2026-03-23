@@ -174,6 +174,20 @@ func TestDependencyDirection(t *testing.T) {
 		}
 		failIfViolations(t, violations)
 	})
+
+	t.Run("rule13_hooks_no_mcpcontrol", func(t *testing.T) {
+		if !dirExists(root, "internal/platform/hooks") {
+			t.Skip("directory not yet created")
+		}
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform/hooks"), []string{internalPrefix("internal/platform/mcpcontrol")})
+	})
+
+	t.Run("rule14_mcpcontrol_no_hooks", func(t *testing.T) {
+		if !dirExists(root, "internal/platform/mcpcontrol") {
+			t.Skip("directory not yet created")
+		}
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform/mcpcontrol"), []string{internalPrefix("internal/platform/hooks")})
+	})
 }
 
 func TestMCPOrchDependencyDirection(t *testing.T) {

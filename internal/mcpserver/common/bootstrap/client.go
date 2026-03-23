@@ -48,6 +48,7 @@ type Client struct {
 	reportQueue            []mcp.ReportRequest
 	reportQueueLimit       int
 	boot                   bootSnapshot
+	hooks                  hookState
 }
 
 type Config struct {
@@ -68,6 +69,7 @@ type Config struct {
 	FinalReport          func() *mcp.ReportRequest
 	OnShutdown           func(mcp.ShutdownRequest)
 	OnConfigChanged      func(mcp.ConfigChangedNotify)
+	Hooks                HookConfig
 }
 
 func New(cfg Config) *Client {

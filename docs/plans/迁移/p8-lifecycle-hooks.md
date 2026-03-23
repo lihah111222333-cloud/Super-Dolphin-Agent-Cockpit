@@ -125,8 +125,12 @@ Before hook 是开始前的 gate，核心层在动作尚未提交前同步拦截
   - tool 调用前拦截
   - 适合做命令审批、路径白名单、资源额度检查、白名单外工具阻断
 - `agent.task.starting`
-  - 语义化任务启动入口
+  - 语义化任务启动入口，面向外部控制器（如 DAG 编排器、任务调度器）
+  - 关注任务级生命周期：依赖就绪检查、任务级审批、跨 agent 协调
   - 可映射到 `agent.turn.before`，但保留独立 topic 供外部控制器消费
+  - **与 `agent.turn.before` 的区分**：`task.starting` 在任务首次启动时触发一次，
+    由外部控制器消费，决定"是否允许该任务开始"；`turn.before` 在每次 turn
+    迭代前触发，由 agent 执行引擎消费，决定"本次 turn 是否放行及工具可见性"
 
 `BeforeHookResponse` 扩展为：
 
@@ -256,7 +260,7 @@ After 返回值：
 | `agent.session.start` | Before | 会话/进程启动前的环境初始化 gate |
 | `agent.turn.before` | Before | turn 开始前 gate，也可返回工具白名单/黑名单 |
 | `agent.tool.before` | Before | tool 调用前 gate，也负责对白名单外工具做二次拦截 |
-| `agent.task.starting` | Before | 语义化任务启动入口 |
+| `agent.task.starting` | Before | 语义化任务启动入口，面向外部控制器（DAG），关注任务级生命周期 |
 | `agent.turn.progress` | During | 周期进度 / 关键里程碑检查 |
 | `agent.state.change` | During | 状态跃迁检查 |
 | `agent.tool.after` | During | 单次工具调用后的局部检查 |

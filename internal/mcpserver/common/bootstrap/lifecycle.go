@@ -90,7 +90,10 @@ func (c *Client) handleNotify(req *jrpc2.Request) {
 	}
 }
 
-func (c *Client) handleCallback(_ context.Context, req *jrpc2.Request) (any, error) {
+func (c *Client) handleCallback(ctx context.Context, req *jrpc2.Request) (any, error) {
+	if resp, handled, err := c.dispatchHookCallback(ctx, req); handled {
+		return resp, err
+	}
 	if err := c.dispatchRequest(req); err != nil {
 		return nil, err
 	}

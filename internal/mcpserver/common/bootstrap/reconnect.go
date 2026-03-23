@@ -57,6 +57,7 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 			c.activateLocked(conn, reg)
 			c.mu.Unlock()
 			c.flushQueuedReports(context.Background())
+			c.replayHookSubscriptions(ctx)
 			log.Printf("bootstrap reconnected: instance=%s generation=%d", c.instanceID, reg.Lease.Generation)
 			return
 		}

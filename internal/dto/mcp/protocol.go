@@ -28,6 +28,7 @@ type RegisterRequest struct {
 // RegisterResponse is the response for ctl/register.
 type RegisterResponse struct {
 	Lease                  LeaseKey `json:"lease"`
+	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
 	LeaseID                string   `json:"lease_id,omitempty"`
 	AcceptedGeneration     uint64   `json:"accepted_generation,omitempty"`
 	PeerKind               string   `json:"peer_kind,omitempty"`
@@ -49,6 +50,7 @@ type HeartbeatRequest struct {
 	Metrics               json.RawMessage `json:"metrics,omitempty"`
 	ObservedConfigVersion int64           `json:"observed_config_version,omitempty"`
 	InstanceID            string          `json:"instance_id,omitempty"`
+	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
 	LeaseID               string          `json:"lease_id,omitempty"`
 }
 
@@ -107,6 +109,7 @@ type ApprovalRequest struct {
 	Lease LeaseKey `json:"lease"`
 	// Deprecated compatibility mirrors.
 	InstanceID string          `json:"instance_id,omitempty"`
+	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
 	LeaseID    string          `json:"lease_id,omitempty"`
 	CallID     string          `json:"call_id"`
 	ToolName   string          `json:"tool_name"`
@@ -160,6 +163,7 @@ type ReportRequest struct {
 	Lease LeaseKey `json:"lease"`
 	// Deprecated compatibility mirrors.
 	InstanceID string         `json:"instance_id,omitempty"`
+	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
 	LeaseID    string         `json:"lease_id,omitempty"`
 	ReportID   string         `json:"report_id"` // idempotency key
 	Report     ReportEnvelope `json:"report"`

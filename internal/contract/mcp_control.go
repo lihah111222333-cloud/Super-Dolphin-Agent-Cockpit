@@ -10,6 +10,7 @@ import (
 // ToolInstance is a registry snapshot for a connected MCP peer.
 type ToolInstance struct {
 	Lease         mcp.LeaseKey
+	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
 	LeaseID       string
 	BinaryName    string
 	AgentID       string
