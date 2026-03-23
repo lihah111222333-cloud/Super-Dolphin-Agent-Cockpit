@@ -11,6 +11,7 @@ import (
 )
 
 type CreateDAGInput struct {
+	AgentID     string               `json:"agent_id"`
 	DagKey      string               `json:"dag_key"`
 	Title       string               `json:"title"`
 	Description string               `json:"description,omitempty"`
@@ -144,6 +145,7 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 
 func createDAGSchema() Schema {
 	return ObjectSchema(map[string]Schema{
+		"agent_id":    StringSchema("Creator orchestration agent ID."),
 		"dag_key":     StringSchema("Unique DAG key."),
 		"title":       StringSchema("DAG title."),
 		"description": StringSchema("Optional DAG description."),
@@ -173,12 +175,16 @@ func createDAGSchema() Schema {
 				"timeout_sec": IntegerSchema("Timeout override in seconds."),
 			}),
 		}, "node_key", "title"), "Optional DAG nodes."),
-	}, "dag_key", "title", "schedule")
+	}, "agent_id", "dag_key", "title", "schedule")
 }
 
 func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, error) {
 	// Preserve schedule in DAG metadata until the service contract grows a
 	// first-class schedule field.
+	agentID, err := requireTrimmed(in.AgentID, "agent_id")
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
 	dagKey, err := requireTrimmed(in.DagKey, "dag_key")
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
@@ -199,6 +205,7 @@ func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, er
 		DagKey:      dagKey,
 		Title:       title,
 		Description: strings.TrimSpace(in.Description),
+		CreatedBy:   agentID,
 		Metadata:    metadata,
 		Nodes:       nodes,
 	}, nil

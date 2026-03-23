@@ -9,15 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Queryable = DBTX
-
-func (q *Queries) Queryable() Queryable {
-	if q == nil {
-		return nil
-	}
-	return q.db
-}
-
 // WithTx rebinds the current query set onto a pool-backed transaction.
 func WithTx(ctx context.Context, q *Queries, fn func(txq *Queries) error) error {
 	if q == nil {

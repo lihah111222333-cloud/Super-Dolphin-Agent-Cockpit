@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	workspacestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
+	workspace "github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
@@ -20,13 +20,7 @@ const (
 // Workspace tool schemas inherit ObjectSchema's additionalProperties=false.
 // V3 adds handler-level input validation, while V2 relied on downstream
 // workspace services for the same validation.
-// Path sandboxing remains the responsibility of the injected WorkspaceStore.
-type WorkspaceStore interface {
-	workspacestore.Store
-	CreateRun(ctx context.Context, req WorkspaceCreateRunRequest) (*workspacestore.WorkspaceRun, error)
-	MergeRun(ctx context.Context, req WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error)
-	AbortRun(ctx context.Context, runKey, updatedBy, reason string) (*workspacestore.WorkspaceRun, error)
-}
+// Path sandboxing remains the responsibility of the injected workspace.Service.
 
 type WorkspaceCreateRunRequest struct {
 	RunKey     string         `json:"run_key,omitempty"`
@@ -96,57 +90,57 @@ type workspaceRunDTO struct {
 	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
 }
 
-func HandleWorkspaceCreateRun(store WorkspaceStore) ToolHandler {
+func HandleWorkspaceCreateRun(svc workspace.Service) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var in WorkspaceCreateRunRequest
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
-		return createWorkspaceRun(ctx, store, in)
+		return createWorkspaceRun(ctx, svc, in)
 	}
 }
 
-func HandleWorkspaceGetRun(store WorkspaceStore) ToolHandler {
+func HandleWorkspaceGetRun(svc workspace.Service) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var in workspaceGetRunInput
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
-		return getWorkspaceRun(ctx, store, in)
+		return getWorkspaceRun(ctx, svc, in)
 	}
 }
 
-func HandleWorkspaceListRuns(store WorkspaceStore) ToolHandler {
+func HandleWorkspaceListRuns(svc workspace.Service) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var in workspaceListRunsInput
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
-		return listWorkspaceRuns(ctx, store, in)
+		return listWorkspaceRuns(ctx, svc, in)
 	}
 }
 
-func HandleWorkspaceMergeRun(store WorkspaceStore) ToolHandler {
+func HandleWorkspaceMergeRun(svc workspace.Service) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var in WorkspaceMergeRunRequest
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
-		return mergeWorkspaceRun(ctx, store, in)
+		return mergeWorkspaceRun(ctx, svc, in)
 	}
 }
 
-func HandleWorkspaceAbortRun(store WorkspaceStore) ToolHandler {
+func HandleWorkspaceAbortRun(svc workspace.Service) ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var in workspaceAbortRunInput
 		if err := decodeInput(input, &in); err != nil {
 			return nil, err
 		}
-		return abortWorkspaceRun(ctx, store, in)
+		return abortWorkspaceRun(ctx, svc, in)
 	}
 }
 
-func workspaceToolDefinitions(store WorkspaceStore) []ToolDefinition {
+func workspaceToolDefinitions(svc workspace.Service) []ToolDefinition {
 	return []ToolDefinition{
 		{
 			Name:        "workspace_create_run",
@@ -159,7 +153,7 @@ func workspaceToolDefinitions(store WorkspaceStore) []ToolDefinition {
 				"files":       ArraySchema(StringSchema("Relative file path to copy into the workspace."), "Optional bootstrap files to copy from source root to workspace."),
 				"metadata":    RawObjectSchema("Optional metadata for the run record."),
 			}, "source_root"),
-			Handler: HandleWorkspaceCreateRun(store),
+			Handler: HandleWorkspaceCreateRun(svc),
 		},
 		{
 			Name:        "workspace_get_run",
@@ -167,7 +161,7 @@ func workspaceToolDefinitions(store WorkspaceStore) []ToolDefinition {
 			InputSchema: ObjectSchema(map[string]Schema{
 				"run_key": StringSchema("Workspace run key."),
 			}, "run_key"),
-			Handler: HandleWorkspaceGetRun(store),
+			Handler: HandleWorkspaceGetRun(svc),
 		},
 		{
 			Name:        "workspace_list_runs",
@@ -177,7 +171,7 @@ func workspaceToolDefinitions(store WorkspaceStore) []ToolDefinition {
 				"dag_key": StringSchema("Optional DAG key filter."),
 				"limit":   IntegerSchema("Max number of runs to return."),
 			}),
-			Handler: HandleWorkspaceListRuns(store),
+			Handler: HandleWorkspaceListRuns(svc),
 		},
 		{
 			Name:        "workspace_merge_run",
@@ -188,7 +182,7 @@ func workspaceToolDefinitions(store WorkspaceStore) []ToolDefinition {
 				"dry_run":        BooleanSchema("Only simulate merge without writing source files."),
 				"delete_removed": BooleanSchema("Delete source files removed in workspace when safe."),
 			}, "run_key"),
-			Handler: HandleWorkspaceMergeRun(store),
+			Handler: HandleWorkspaceMergeRun(svc),
 		},
 		{
 			Name:        "workspace_abort_run",
@@ -198,43 +192,48 @@ func workspaceToolDefinitions(store WorkspaceStore) []ToolDefinition {
 				"updated_by": StringSchema("Operator identifier (optional)."),
 				"reason":     StringSchema("Abort reason (optional)."),
 			}, "run_key"),
-			Handler: HandleWorkspaceAbortRun(store),
+			Handler: HandleWorkspaceAbortRun(svc),
 		},
 	}
 }
 
 // V3 validates source_root and trims optional fields at the handler boundary.
 // V2 relied on downstream workspace services to enforce the same constraints.
-func createWorkspaceRun(ctx context.Context, store WorkspaceStore, input WorkspaceCreateRunRequest) (*workspaceRunDTO, error) {
-	if store == nil {
-		return nil, errors.New("workspace store is not configured")
+func createWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceCreateRunRequest) (*workspaceRunDTO, error) {
+	if svc == nil {
+		return nil, errors.New("workspace service is not configured")
 	}
 	sourceRoot, err := requireTrimmed(input.SourceRoot, "source_root")
 	if err != nil {
 		return nil, err
 	}
-	req := input
-	req.SourceRoot = sourceRoot
-	req.RunKey = strings.TrimSpace(req.RunKey)
-	req.DagKey = strings.TrimSpace(req.DagKey)
-	req.CreatedBy = strings.TrimSpace(req.CreatedBy)
-	req.Files = trimNonEmpty(req.Files)
-	run, err := store.CreateRun(ctx, req)
+	metadata, err := marshalMapToJSON(input.Metadata)
 	if err != nil {
 		return nil, err
 	}
-	return workspaceRunDTOFromStore(run), nil
+	run, err := svc.CreateRun(ctx, workspace.CreateRunRequest{
+		RunKey:     strings.TrimSpace(input.RunKey),
+		DagKey:     strings.TrimSpace(input.DagKey),
+		SourceRoot: sourceRoot,
+		CreatedBy:  strings.TrimSpace(input.CreatedBy),
+		Files:      trimNonEmpty(input.Files),
+		Metadata:   metadata,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return workspaceRunDTOFromRun(run), nil
 }
 
-func getWorkspaceRun(ctx context.Context, store WorkspaceStore, input workspaceGetRunInput) (*workspaceRunDTO, error) {
-	if store == nil {
-		return nil, errors.New("workspace store is not configured")
+func getWorkspaceRun(ctx context.Context, svc workspace.Service, input workspaceGetRunInput) (*workspaceRunDTO, error) {
+	if svc == nil {
+		return nil, errors.New("workspace service is not configured")
 	}
 	runKey, err := requireTrimmed(input.RunKey, "run_key")
 	if err != nil {
 		return nil, err
 	}
-	run, err := store.GetRun(ctx, runKey)
+	run, err := svc.GetRun(ctx, runKey)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return nil, fmt.Errorf("workspace run %s not found", runKey)
@@ -244,58 +243,71 @@ func getWorkspaceRun(ctx context.Context, store WorkspaceStore, input workspaceG
 	if run == nil {
 		return nil, fmt.Errorf("workspace run %s not found", runKey)
 	}
-	return workspaceRunDTOFromStore(run), nil
+	return workspaceRunDTOFromRun(run), nil
 }
 
-func listWorkspaceRuns(ctx context.Context, store WorkspaceStore, input workspaceListRunsInput) ([]workspaceRunDTO, error) {
-	if store == nil {
-		return nil, errors.New("workspace store is not configured")
+func listWorkspaceRuns(ctx context.Context, svc workspace.Service, input workspaceListRunsInput) ([]workspaceRunDTO, error) {
+	if svc == nil {
+		return nil, errors.New("workspace service is not configured")
 	}
-	runs, err := store.ListRuns(ctx, workspacestore.ListRunsFilter{
-		Status: strings.TrimSpace(input.Status),
-		DagKey: strings.TrimSpace(input.DagKey),
-		Limit:  normalizeWorkspaceListLimit(input.Limit),
-	})
+	runs, err := svc.ListRuns(ctx, strings.TrimSpace(input.Status), strings.TrimSpace(input.DagKey), normalizeWorkspaceListLimit(input.Limit))
 	if err != nil {
 		return nil, err
 	}
 	return mapWorkspaceRuns(runs), nil
 }
 
-func mergeWorkspaceRun(ctx context.Context, store WorkspaceStore, input WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
-	if store == nil {
-		return nil, errors.New("workspace store is not configured")
+func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
+	if svc == nil {
+		return nil, errors.New("workspace service is not configured")
 	}
 	runKey, err := requireTrimmed(input.RunKey, "run_key")
 	if err != nil {
 		return nil, err
 	}
-	req := input
-	req.RunKey = runKey
-	req.UpdatedBy = strings.TrimSpace(req.UpdatedBy)
-	return store.MergeRun(ctx, req)
+	result, err := svc.MergeRun(ctx, workspace.MergeRunRequest{
+		RunKey:        runKey,
+		UpdatedBy:     strings.TrimSpace(input.UpdatedBy),
+		DryRun:        input.DryRun,
+		DeleteRemoved: input.DeleteRemoved,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := convertMergeResult(result)
+	// MergeRunResult from workspace.Service lacks FinishedAt; read it
+	// from the persisted run when the merge was not a dry run.
+	if !input.DryRun {
+		if run, runErr := svc.GetRun(ctx, runKey); runErr == nil && run != nil {
+			out.FinishedAt = cloneTime(run.FinishedAt)
+		}
+	}
+	return out, nil
 }
 
-func abortWorkspaceRun(ctx context.Context, store WorkspaceStore, input workspaceAbortRunInput) (*workspaceRunDTO, error) {
-	if store == nil {
-		return nil, errors.New("workspace store is not configured")
+func abortWorkspaceRun(ctx context.Context, svc workspace.Service, input workspaceAbortRunInput) (*workspaceRunDTO, error) {
+	if svc == nil {
+		return nil, errors.New("workspace service is not configured")
 	}
 	runKey, err := requireTrimmed(input.RunKey, "run_key")
 	if err != nil {
 		return nil, err
 	}
-	run, err := store.AbortRun(ctx, runKey, strings.TrimSpace(input.UpdatedBy), strings.TrimSpace(input.Reason))
+	if err := svc.AbortRun(ctx, runKey, strings.TrimSpace(input.UpdatedBy), strings.TrimSpace(input.Reason)); err != nil {
+		return nil, err
+	}
+	run, err := svc.GetRun(ctx, runKey)
 	if err != nil {
 		return nil, err
 	}
-	return workspaceRunDTOFromStore(run), nil
+	return workspaceRunDTOFromRun(run), nil
 }
 
-func normalizeWorkspaceListLimit(limit int) int32 {
+func normalizeWorkspaceListLimit(limit int) int {
 	if limit <= 0 || limit > maxWorkspaceListLimit {
 		return defaultWorkspaceListLimit
 	}
-	return int32(limit)
+	return limit
 }
 
 func trimNonEmpty(values []string) []string {
@@ -314,11 +326,11 @@ func trimNonEmpty(values []string) []string {
 	return trimmed
 }
 
-func workspaceRunDTOFromStore(run *workspacestore.WorkspaceRun) *workspaceRunDTO {
+func workspaceRunDTOFromRun(run *workspace.Run) *workspaceRunDTO {
 	if run == nil {
 		return nil
 	}
-	mapped := workspaceRunDTO{
+	return &workspaceRunDTO{
 		ID:            run.ID,
 		RunKey:        run.RunKey,
 		DagKey:        run.DagKey,
@@ -332,16 +344,49 @@ func workspaceRunDTOFromStore(run *workspacestore.WorkspaceRun) *workspaceRunDTO
 		UpdatedAt:     run.UpdatedAt,
 		FinishedAt:    cloneTime(run.FinishedAt),
 	}
-	return &mapped
 }
 
-func mapWorkspaceRuns(runs []workspacestore.WorkspaceRun) []workspaceRunDTO {
+func mapWorkspaceRuns(runs []workspace.Run) []workspaceRunDTO {
 	if len(runs) == 0 {
 		return nil
 	}
 	mapped := make([]workspaceRunDTO, 0, len(runs))
 	for i := range runs {
-		mapped = append(mapped, *workspaceRunDTOFromStore(&runs[i]))
+		mapped = append(mapped, *workspaceRunDTOFromRun(&runs[i]))
 	}
 	return mapped
+}
+
+func convertMergeResult(r *workspace.MergeRunResult) *WorkspaceMergeRunResult {
+	if r == nil {
+		return nil
+	}
+	files := make([]WorkspaceMergeFileResult, 0, len(r.Files))
+	for _, f := range r.Files {
+		files = append(files, WorkspaceMergeFileResult{
+			Path:   f.Path,
+			Action: f.Action,
+			Reason: f.Reason,
+		})
+	}
+	return &WorkspaceMergeRunResult{
+		RunKey:        r.RunKey,
+		Status:        r.Status,
+		SourceRoot:    r.SourceRoot,
+		WorkspacePath: r.WorkspacePath,
+		DryRun:        r.DryRun,
+		Merged:        r.Merged,
+		Removed:       r.Removed,
+		Conflicts:     r.Conflicts,
+		Unchanged:     r.Unchanged,
+		Errors:        r.Errors,
+		Files:         files,
+	}
+}
+
+func marshalMapToJSON(m map[string]any) (json.RawMessage, error) {
+	if len(m) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(m)
 }

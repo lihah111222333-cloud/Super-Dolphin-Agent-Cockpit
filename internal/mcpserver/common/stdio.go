@@ -1,3 +1,154 @@
 package common
 
-// Stdio transport is added in a later phase.
+import (
+	"bufio"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"sync"
+)
+
+type transportMode int
+
+const (
+	modeUnknown transportMode = iota
+	modeRawJSON
+	modeFramed
+)
+
+type StdioTransport struct {
+	reader  *bufio.Reader
+	writer  io.Writer
+	closer  io.Closer
+	decoder *json.Decoder
+	mode    transportMode
+	writeMu sync.Mutex
+}
+
+func NewStdioTransport(stdin io.Reader, stdout io.Writer) *StdioTransport {
+	transport := &StdioTransport{
+		reader: bufio.NewReader(stdin),
+		writer: stdout,
+	}
+	if closer, ok := stdin.(io.Closer); ok {
+		transport.closer = closer
+	}
+	return transport
+}
+
+func (t *StdioTransport) Close() error {
+	if t == nil || t.closer == nil {
+		return nil
+	}
+	return t.closer.Close()
+}
+
+func (t *StdioTransport) ReadMessage() (json.RawMessage, error) {
+	if err := t.ensureMode(); err != nil {
+		return nil, err
+	}
+	if t.mode == modeFramed {
+		return t.readFramed()
+	}
+	return t.readRaw()
+}
+
+func (t *StdioTransport) WriteMessage(payload any) error {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+
+	if t.mode == modeFramed {
+		if _, err := fmt.Fprintf(t.writer, "Content-Length: %d\r\n\r\n", len(raw)); err != nil {
+			return err
+		}
+		if _, err := t.writer.Write(raw); err != nil {
+			return err
+		}
+		return flushWriter(t.writer)
+	}
+	if _, err := t.writer.Write(append(raw, '\n')); err != nil {
+		return err
+	}
+	return flushWriter(t.writer)
+}
+
+func (t *StdioTransport) ensureMode() error {
+	if t.mode != modeUnknown {
+		return nil
+	}
+	for {
+		peeked, err := t.reader.Peek(1)
+		if err != nil {
+			return err
+		}
+		switch peeked[0] {
+		case ' ', '\n', '\r', '\t':
+			if _, err := t.reader.ReadByte(); err != nil {
+				return err
+			}
+		case '{', '[':
+			t.mode = modeRawJSON
+			t.decoder = json.NewDecoder(t.reader)
+			return nil
+		default:
+			t.mode = modeFramed
+			return nil
+		}
+	}
+}
+
+func (t *StdioTransport) readRaw() (json.RawMessage, error) {
+	var raw json.RawMessage
+	if err := t.decoder.Decode(&raw); err != nil {
+		return nil, err
+	}
+	return append(json.RawMessage(nil), raw...), nil
+}
+
+func (t *StdioTransport) readFramed() (json.RawMessage, error) {
+	length := -1
+	for {
+		line, err := t.reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			break
+		}
+		name, value, ok := strings.Cut(line, ":")
+		if !ok {
+			return nil, fmt.Errorf("mcp stdio: malformed header %q", line)
+		}
+		if !strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
+			continue
+		}
+		length, err = strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || length < 0 {
+			return nil, fmt.Errorf("mcp stdio: invalid Content-Length %q", value)
+		}
+	}
+	if length < 0 {
+		return nil, errors.New("mcp stdio: missing Content-Length header")
+	}
+	body := make([]byte, length)
+	if _, err := io.ReadFull(t.reader, body); err != nil {
+		return nil, err
+	}
+	return json.RawMessage(body), nil
+}
+
+func flushWriter(writer io.Writer) error {
+	flusher, ok := writer.(interface{ Flush() error })
+	if !ok {
+		return nil
+	}
+	return flusher.Flush()
+}

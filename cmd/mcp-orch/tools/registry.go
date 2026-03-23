@@ -5,11 +5,12 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	workspace "github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
 )
 
 type Dependencies struct {
 	Orchestration contract.OrchestrationService
-	Workspace     WorkspaceStore
+	Workspace     workspace.Service
 	Prompt        promptstore.Store
 	CommandCard   commandcardstore.Store
 	SharedFile    sharedfilestore.Store

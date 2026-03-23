@@ -57,7 +57,7 @@ func TestBuildManifest_EmptyBinaryDirUsesRelativeCommands(t *testing.T) {
 	}
 }
 
-func TestBuildManifest_PreservesEnvAgentIDAndAutoApprove(t *testing.T) {
+func TestBuildManifest_DoesNotInjectAgentIDEnvWhenAgentIDIsSet(t *testing.T) {
 	got := dto.BuildManifest(dto.ManifestContext{
 		AgentID:     "agent-42",
 		Env:         map[string]string{"FOO": "bar"},
@@ -70,8 +70,8 @@ func TestBuildManifest_PreservesEnvAgentIDAndAutoApprove(t *testing.T) {
 		if bin.Env["FOO"] != "bar" {
 			t.Fatalf("binary %q env = %#v, want propagated env", bin.Name, bin.Env)
 		}
-		if bin.Env["GO_AGENT_MCP_AGENT_ID"] != "agent-42" {
-			t.Fatalf("binary %q env = %#v, want GO_AGENT_MCP_AGENT_ID", bin.Name, bin.Env)
+		if _, ok := bin.Env["GO_AGENT_MCP_AGENT_ID"]; ok {
+			t.Fatalf("binary %q env = %#v, want no GO_AGENT_MCP_AGENT_ID", bin.Name, bin.Env)
 		}
 		if len(bin.AutoApprove) != 2 || bin.AutoApprove[0] != "tool.alpha" || bin.AutoApprove[1] != "tool.beta" {
 			t.Fatalf("binary %q autoApprove = %#v", bin.Name, bin.AutoApprove)

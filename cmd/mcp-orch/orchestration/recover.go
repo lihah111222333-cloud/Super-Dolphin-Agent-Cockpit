@@ -42,7 +42,7 @@ func (s *service) Recover(ctx context.Context, agentID string) error {
 	if err := recoverAgent(ctx, s, agent); err != nil {
 		return err
 	}
-	s.logger.Info("orchestration: agent recovered", "agent_id", agent.id, "pid", processID(agent.cmd))
+	s.logger.Info("orchestration: agent recovered", "agent_id", agent.id, "pid", processPID(agent.cmd))
 	return nil
 }
 

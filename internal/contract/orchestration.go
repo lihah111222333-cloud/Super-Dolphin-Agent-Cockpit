@@ -20,7 +20,6 @@ type OrchestrationService interface {
 	BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error
 	Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error)
 	UpdateRuntime(ctx context.Context, report RuntimeReport) error
-	SetReport(ctx context.Context, agentID, report string) error
 	GetState(ctx context.Context, agentID string) (AgentStateResult, error)
 	GetReport(ctx context.Context, agentID string) (AgentReportResult, error)
 	RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error)
@@ -58,6 +57,7 @@ type AgentSnapshot struct {
 	ParentID       string    `json:"parent_id,omitempty"`
 	Port           int       `json:"port"`
 	PortSource     string    `json:"port_source,omitempty"`
+	PID            int       `json:"pid,omitempty"`
 	ThreadID       string    `json:"thread_id"`
 	ActiveTurnID   string    `json:"active_turn_id,omitempty"`
 	Cwd            string    `json:"cwd"`

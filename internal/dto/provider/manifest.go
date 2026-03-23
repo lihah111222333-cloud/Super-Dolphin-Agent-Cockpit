@@ -1,6 +1,9 @@
 package provider
 
-import "path/filepath"
+import (
+	"maps"
+	"path/filepath"
+)
 
 type ToolFamily string
 
@@ -40,9 +43,6 @@ func BuildManifest(ctx ManifestContext) MCPManifest {
 	}
 
 	env := cloneManifestEnv(ctx.Env)
-	if agentID := filepath.Clean(ctx.AgentID); agentID != "." && agentID != "" {
-		env["GO_AGENT_MCP_AGENT_ID"] = agentID
-	}
 	autoApprove := append([]string(nil), ctx.AutoApprove...)
 
 	bins := make([]MCPBinary, 0, len(families))
@@ -63,8 +63,6 @@ func cloneManifestEnv(in map[string]string) map[string]string {
 		return map[string]string{}
 	}
 	out := make(map[string]string, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }

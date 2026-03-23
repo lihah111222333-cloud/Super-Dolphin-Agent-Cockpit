@@ -37,28 +37,6 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	return &result, nil
 }
 
-func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {
-	rows, err := s.q.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{
-		Column1: filter.Prefix,
-		Limit:   filter.Limit,
-	})
-	if err != nil {
-		return nil, wrapSharedFileError(err, "list")
-	}
-	result := make([]SharedFile, len(rows))
-	for i, row := range rows {
-		result[i] = mapSharedFile(row)
-	}
-	return result, nil
-}
-
-func (s *store) Delete(ctx context.Context, path string) (int64, error) {
-	count, err := s.q.DeleteSharedFile(ctx, path)
-	if err != nil {
-		return 0, wrapSharedFileError(err, "delete")
-	}
-	return count, nil
-}
 
 func mapSharedFile(row sqlc.SharedFile) SharedFile {
 	return SharedFile{

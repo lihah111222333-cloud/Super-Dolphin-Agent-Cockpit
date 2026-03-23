@@ -1,7 +1,7 @@
 # V3 迁移会话摘要
 
-> 生成时间：2026-03-22
-> 会话范围：P0-P7 全程 + P7.5 桥接 + P8 前置 + V2↔V3 全面核对 + archtest 收官
+> 生成时间：2026-03-23（P8/P8.5 收口更新）
+> 会话范围：P0-P8.5 全程 + P7.5 桥接 + V2↔V3 核对 + archtest 收官 + MCP 独立服务 + ctl/* 回调框架 + lifecycle hooks
 > Claude 会话 UUID：db2f267a-2f6b-4de9-9109-775a788ac9b3
 > 前序会话 UUID：e925f0b-eba0-49c6-82f9-c306ceae2956
 
@@ -36,7 +36,8 @@
 | **P8 前置** | ✅ | **D-1 sqlc 漂移 + D-2 runtime 上报 + D-3 状态机封堵 + dbquery 执行器** |
 | **V2↔V3 核对** | ✅ | **21 模块 1:1 核对 + 修复 + 互审，排除 MCP 后残留归零** |
 | **archtest 收官** | ✅ | **35+6 项违规全部修复；现有守卫全绿，但尚未覆盖 MCP 新依赖方向规则** |
-| P8 编排工具 | ⏳ | 把 `cmd/mcp-orch/orchestration/*`、相关 `internal/store/*` 和依赖的 `internal/store/sqlc/*` / `sql/queries/*.sql` 迁到独立 `cmd/mcp-orch` 服务；19 个可交付 + 1 个延后（`task_start_node`），计划已出；MCP 进程按共享服务建模，`agent_id` 从 tool call 参数传入 |
+| **P8 编排工具** | ✅ | **orchestration 整体迁移到独立 cmd/mcp-orch 服务，19 个 MCP tool handler，stdio server 可用，共享模式（per-binary），ctl/* 回调框架 14 方法** |
+| **P8.5 ctl 回调框架** | ✅ | **ctl/* 回调框架：14 方法（基线 9 + hook 扩展 5），注册表 + bootstrap client + 3 binary 接入** |
 | P9 LSP 工具 | ⏳ | MCP LSP 工具独立服务（`cmd/mcp-lsp`），9 个工具，计划已出 |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→目标 60%，计划已出 |
 
@@ -83,7 +84,26 @@
 - 待补守卫 2：`cmd/mcp-*` 之间禁止交叉 import
 - 待补守卫 3：`internal/*` 禁止反向 import `cmd/mcp-*`
 
-### 2.5 基础设施
+### 2.5 P8 编排工具族迁移（本会话核心成果）
+- orchestration 整体迁移到 cmd/mcp-orch/orchestration/（22 文件），internal/module/orchestration/ 已删除
+- 6 个 store 迁移到 cmd/mcp-orch/store/（taskdag/taskack/workspace/prompt/commandcard/sharedfile）
+- sqlc 生成链独立：cmd/mcp-orch/sqlc.yaml + sql/queries/ + sqlc generate
+- 19 个 MCP tool handler（V2 parity + nil guard + requireTrimmed + workspaceRunDTO）
+- stdio server 接线：tools/list + tools/call 通过 stdin/stdout 可用
+- 共享模式：per-binary 服务所有 agent，agent_id 从 tool call 参数传入
+- 核心层只提供 ctl/* RPC 接口，不启动不托管 MCP 进程
+
+### 2.6 P8.5 ctl/* 回调框架
+- 14 方法（基线 9 + hook 扩展 5）
+- LeaseKey + peer_kind + client_kind + 核心侧注册表 + 工具侧 bootstrap client
+- 3 个 binary 接入，经 3 Codex + 1 Claude 四方评审 + 两轮互辩
+
+### 2.7 核心层架构原则
+- 核心层只做：Agent 管理、工具管理（manifest）、Hooks（事前/事中/事后）、提供 ctl/* 接口
+- Hooks 支持工具可见性控制（AllowedTools/DeniedTools）
+- MCP 进程是共享服务，核心层不启动不管理
+
+### 2.8 基础设施
 - run-debug.sh 适配 V3（4 二进制、archtest 替代 code_size_guard、去除 Frida）
 - debug 端口 4500/4501 → 20799/20800（与 V2 不冲突）
 - LSP 高级工具指南：shared file prompts/lsp-advanced-guide.md + lsp-mandatory-prefix.md
@@ -95,9 +115,10 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| MCP 问题写入 P8/P9 | ⏳ | V2↔V3 + P7.5 发现的 MCP 相关问题需归档到 p8/p9-execution-plan.md |
-| **P8 编排工具族** | ⏳ | 整体迁移 `cmd/mcp-orch/orchestration/*`、相关 `internal/store/*` 与依赖 sqlc/query 到独立 `cmd/mcp-orch` 服务；候选 host store 先 xref 决定 copy+keep 还是迁移+删除；19 个可交付 + 1 个延后（`task_start_node`），按 copy/cleanup/adapt/server-wire 推进 |
-| MCP 新依赖方向守卫 | ⏳ | 需补 `cmd/mcp-* -> internal/*` 单向、`cmd/mcp-*` 禁止互相 import、`internal/*` 禁止反向 import `cmd/mcp-*` |
+| lifecycle hooks 代码实现 | ⏳ | 文档已完成（p8.5-execution-plan.md），代码待实现 |
+| ctl/config/changed 发送端 | ⏳ | 核心层需在配置变更时发送 ctl/config/changed 通知 |
+| 集成测试 | ⏳ | mcp-orch stdio server 端到端集成测试 |
+| TestTimeoutLocality | ⚠️ | 预存债务，非 P8 引入 |
 | **P9 LSP 工具族** | ⏳ | 9 个工具，6+1 Agent，~12,500 行 |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→60%，3 波次 |
 | IDA 工具族 | ⏳ | 82 个工具，暂缓 |
@@ -107,11 +128,9 @@
 
 ## 4. 下一步（优先级排序）
 
-1. **MCP 问题归档** — 把 V2↔V3 和 P7.5 发现的 MCP 相关问题写入 P8/P9 文档
-2. **手动启动测试** — 用 `./run-debug.sh` 选项 6（快速编译 agent-terminal）启动，验证 UI 可用性
-3. **P8 编排工具族开工** — 读 p8-execution-plan.md，按“整体迁移 orchestration + store + sqlc，本地化后对 `internal/store/*` 零运行时依赖 + 19 个可交付 + 1 个延后（`task_start_node`）”推进
-4. **P9 LSP 工具族开工** — 读 p9-execution-plan.md，拉 6+1 Agent
-5. **P10 工厂丰满**（P8/P9 后）
+1. **lifecycle hooks 代码实现** — 基于 p8.5-execution-plan.md 文档，实现 lifecycle hooks 代码
+2. **P9 LSP 工具族** — 读 p9-execution-plan.md，cmd/mcp-lsp 9 个工具，6+1 Agent
+3. **P10 工厂丰满** — Zone A 3.8%→60%，3 波次
 
 ---
 
@@ -137,6 +156,11 @@
 | 主迁移计划 | docs/plans/迁移/v3-migration-plan.md |
 | P7.5 桥接校准 | docs/plans/迁移/p7.5-bridge-calibration.md |
 | P8 执行计划 | docs/plans/迁移/p8-execution-plan.md |
+| P8.5 ctl 回调框架 | docs/plans/迁移/p8.5-execution-plan.md |
+| P8 lifecycle hooks | docs/plans/迁移/p8-lifecycle-hooks.md |
+| P8 handler 审查 | docs/plans/迁移/p8-handler-review-1.md + p8-handler-review-2.md |
+| MCP 服务契约 | docs/契约/mcp-service-convention.md |
+| 会话习惯 | docs/会话习惯.md |
 | P9 执行计划 | docs/plans/迁移/p9-execution-plan.md |
 | P10 执行计划 | docs/plans/迁移/p10-execution-plan.md |
 | V2↔V3 终极报告 | docs/plans/迁移/v2v3-final-report.md |
@@ -150,13 +174,19 @@
 
 | 类型 | 数量 |
 |---|---|
-| 本会话累计拉起 Agent | ~150+ |
+| 本会话累计拉起 Agent | ~300+ |
+| P8 编排迁移+审查 | ~80 |
+| P8.5 ctl 框架+审查 | ~40 |
+| P8 handler+parity | ~30 |
+| P8 共享模式+stdio | ~25 |
+| P8 死代码扫描 | ~15 |
+| 文档/lifecycle hooks | ~20+ |
 | V2↔V3 核对 | 21 |
 | P7.5 实施+审查 | ~20 |
 | P8 前置 | ~15 |
 | archtest 修复 | ~15 |
 | 两级工厂核查 | 10 |
-| 其他（汇总/分类/文档） | ~10+ |
+| 其他（汇总/分类） | ~10+ |
 
 ---
 
@@ -164,16 +194,16 @@
 
 | # | 用户指令 | 执行内容 |
 |---|---|---|
-| 1 | "进行 p8 前置任务安排" | 3 Explorer Agent 调研 → 3 Codex Agent 实施 D-1/D-2/D-3 |
-| 2 | "P7.5 前后端桥接校准" | 发现 ~24 handler 缺失，文档+3 审查 Agent+3 轮互辩 |
-| 3 | "派出 20 agent V2↔V3 核对" | 21 Agent 全模块核对，56❌/40⚠️/9✅ |
-| 4 | "修复所有问题" | 21 Agent 原地修复，排除 MCP 后残留归零 |
-| 5 | "P7.5 实施开工" | 4 Agent 补建 handler + 事件桥接 + 安全加固 |
-| 6 | "archtest 修复" | 3 轮 5+5+1 Agent，从 41 违规降到 0 |
-| 7 | "run-debug.sh 适配 V3" | 重写编译脚本，4 二进制 + archtest + 去 Frida |
-| 8 | "debug 端口改 20800" | 8 文件改 4500/4501→20799/20800 |
-| 9 | "终极裁定排除 MCP" | 3 裁定 Agent，50 项核查，残留 5→0 |
-| 10 | "archtest 全绿收官" | go build/vet/diagnostics/archtest 四项全绿 |
+| 1 | "P8 编排工具族迁移" | orchestration 整体迁移到 cmd/mcp-orch，19 个 tool handler 注册 |
+| 2 | "P8 stdio server 接入" | mcpserver/common stdio server 共享模式实现，3 binary 统一引导 |
+| 3 | "P8 workspace/DAG 工具" | workspace_tools + task_tools 适配，store 本地化，lease/wakeup 拆分 |
+| 4 | "P8.5 ctl 回调框架" | 14 方法（基线 9 + hook 扩展 5），注册表 + bootstrap client |
+| 5 | "P8 mcpcontrol handlers" | resolution 路由 + 14 handler 方法 + AgentID 快照测试 |
+| 6 | "P8 archtest 守卫补充" | TestMCPOrchDependencyDirection 4 子测试，依赖方向守卫全绿 |
+| 7 | "P8 manifest/mcp_bridge" | provider manifest ctl 方法注册 + mcp_bridge 回调适配 |
+| 8 | "P8 parity 测试" | parity_v2_test 19 工具覆盖 + handler_regression_test 补充 |
+| 9 | "P8 文档更新" | p8/p8.5-execution-plan + mcp-service-convention 更新 |
+| 10 | "P8 收口验证" | 14 条 build/vet/archtest 全绿，session-summary 更新，commit 方案 |
 
 ---
 
@@ -193,5 +223,5 @@ Zone B 模式：docs/plans/迁移/v3-two-zone-dry-enrichment.md §3
 sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 ```
 
-### 只用 Codex Agent（provider="codex"）
-Claude Agent 禁用，所有子 Agent 走 orchestration_launch_agent(provider="codex")
+### Codex + Claude 混用
+默认用 Codex Agent（provider="codex"）实施，Claude Agent（provider="claude"）用于架构评审和全局视角审查

@@ -41,9 +41,6 @@ func (b *MCPBridge) GenerateConfig(cwd string) (string, error) {
 		"GO_AGENT_DYNAMIC_TOOL_NAMES": joinNames(b.ToolNames),
 		"AGENT_APISERVER_URL":         b.APIServerURL,
 	}
-	if agentID := strings.TrimSpace(b.AgentID); agentID != "" {
-		env["GO_AGENT_MCP_AGENT_ID"] = agentID
-	}
 
 	cfg := MCPConfig{
 		MCPServers: map[string]MCPServerConfig{
@@ -82,12 +79,12 @@ func (b *MCPBridge) GenerateConfig(cwd string) (string, error) {
 }
 
 func joinNames(names []string) string {
-	result := ""
+	var builder strings.Builder
 	for i, n := range names {
 		if i > 0 {
-			result += ","
+			builder.WriteByte(',')
 		}
-		result += n
+		builder.WriteString(n)
 	}
-	return result
+	return builder.String()
 }

@@ -4,9 +4,18 @@ import (
 	"context"
 	"log"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
+	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
+	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
+	taskdagstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
+	workspace "github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
+	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	internalStore "github.com/anthropic-ai/super-agent-v3/internal/store"
+	storeworkspace "github.com/anthropic-ai/super-agent-v3/internal/store/workspace"
 	"go.uber.org/fx"
 )
 
@@ -15,7 +24,23 @@ import (
 func run() error {
 	app := fx.New(
 		fx.NopLogger,
+		platformconfig.Module,
+		platformbus.Module,
+		internalStore.Module,
+		promptstore.Module,
+		commandcardstore.Module,
+		sharedfilestore.Module,
+		taskdagstore.Module,
+		orchestration.Module,
 		fx.Provide(
+			newLogger,
+			newPool,
+			newQueries,
+			func(store storeworkspace.Store, emitters *platformbus.WorkspaceEmitters) workspace.Service {
+				return workspace.NewService(store, emitters)
+			},
+			newNoopSessionCleaner,
+			newNoopTurnStarter,
 			func(shutdowner fx.Shutdowner) bootstrap.Config {
 				cfg := bootstrap.ReadBootConfig()
 				cfg.AgentID = ""
@@ -48,13 +73,12 @@ func run() error {
 				return cfg
 			},
 			bootstrap.New,
+			newRegistry,
+			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
+			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
 		),
-		fx.Invoke(func(lc fx.Lifecycle, client *bootstrap.Client) {
-			lc.Append(fx.Hook{
-				OnStart: func(ctx context.Context) error { return client.Start(ctx) },
-				OnStop:  func(context.Context) error { return client.Close() },
-			})
-		}),
+		fx.Invoke(registerPoolLifecycle),
+		fx.Invoke(bindRuntime),
 	)
 	if err := app.Err(); err != nil {
 		return err

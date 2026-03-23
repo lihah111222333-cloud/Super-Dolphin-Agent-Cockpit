@@ -36,6 +36,32 @@ func TestCreateDAGNodesFromInputRejectsBlankRequiredFields(t *testing.T) {
 	}
 }
 
+func TestCreateDAGRequestFromInputRequiresAgentID(t *testing.T) {
+	_, err := createDAGRequestFromInput(CreateDAGInput{
+		DagKey:   "dag-1",
+		Title:    "Build",
+		Schedule: DAGScheduleInput{Trigger: "manual"},
+	})
+	if err == nil || err.Error() != "agent_id is required" {
+		t.Fatalf("createDAGRequestFromInput() error = %v", err)
+	}
+}
+
+func TestCreateDAGRequestFromInputMapsCreatedBy(t *testing.T) {
+	req, err := createDAGRequestFromInput(CreateDAGInput{
+		AgentID:  " agent-42 ",
+		DagKey:   "dag-1",
+		Title:    "Build",
+		Schedule: DAGScheduleInput{Trigger: "manual"},
+	})
+	if err != nil {
+		t.Fatalf("createDAGRequestFromInput() error = %v", err)
+	}
+	if req.CreatedBy != "agent-42" {
+		t.Fatalf("CreatedBy = %q, want agent-42", req.CreatedBy)
+	}
+}
+
 func TestOrchestrationNilGuardsUseConsistentMessage(t *testing.T) {
 	handlers := []struct {
 		name    string

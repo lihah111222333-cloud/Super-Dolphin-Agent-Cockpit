@@ -147,6 +147,7 @@ MCP Client
 3. `cmd/mcp-orch` 只注册 orch-family tool definitions；MCP runtime / registry / manifest 也收口在 `cmd/mcp-orch/*`。
 4. family-specific server、registry、runtime、resource facade、store、sqlc 只允许放在 `cmd/mcp-orch/*`。
 5. MCP handler 只做协议翻译、schema 校验、DTO mapping、错误映射；业务调用必须落到本地 orchestration 包或本地 store 层。
+6. `cmd/mcp-orch` 是共享 MCP 服务；`agent_id` 只从 tool call 参数进入业务层，不通过 `GO_AGENT_*_AGENT_ID` env 做进程级绑定。
 
 ### 3.3 `cmd/mcp-orch/fx.go` 最小模块集
 

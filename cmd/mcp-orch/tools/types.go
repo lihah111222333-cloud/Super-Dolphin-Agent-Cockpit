@@ -43,10 +43,6 @@ func IntegerSchema(description string) Schema {
 	return scalarSchema("integer", description)
 }
 
-func NumberSchema(description string) Schema {
-	return scalarSchema("number", description)
-}
-
 func BooleanSchema(description string) Schema {
 	return scalarSchema("boolean", description)
 }

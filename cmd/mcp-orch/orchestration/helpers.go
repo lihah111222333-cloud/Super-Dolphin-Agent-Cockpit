@@ -378,6 +378,7 @@ func (q *SubmissionQueue) Dequeue() (turndto.TurnSubmission, bool) {
 	return cloneTurnSubmission(s), true
 }
 
+// Peek is currently used only in tests; kept for diagnostic/debugging use.
 func (q *SubmissionQueue) Peek() (turndto.TurnSubmission, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()

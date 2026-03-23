@@ -276,6 +276,14 @@ func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, 
 	return s.snapshotLocked(ctx, agent), nil
 }
 
+func (s *service) GetAgentSnapshot(agentID string) (*AgentSnapshot, error) {
+	snapshot, err := s.Snapshot(context.Background(), strings.TrimSpace(agentID))
+	if err != nil {
+		return nil, err
+	}
+	return &snapshot, nil
+}
+
 func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
 	cmd := exec.Command(agent.command[0], agent.command[1:]...)
 	cmd.Dir = agent.cwd

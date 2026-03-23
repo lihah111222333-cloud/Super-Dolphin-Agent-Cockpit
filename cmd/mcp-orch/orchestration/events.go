@@ -1,7 +1,6 @@
 package orchestration
 
 import (
-	"os/exec"
 	"strconv"
 	"time"
 
@@ -122,12 +121,6 @@ func agentSessionID(agent *agentRuntime) string {
 	return strconv.FormatUint(agent.launchSeq, 10)
 }
 
-func processID(cmd *exec.Cmd) int {
-	if cmd == nil || cmd.Process == nil {
-		return 0
-	}
-	return cmd.Process.Pid
-}
 
 func cloneTime(value *time.Time) *time.Time {
 	if value == nil {

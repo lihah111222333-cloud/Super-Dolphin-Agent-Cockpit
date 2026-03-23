@@ -11,32 +11,43 @@ import (
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
-	workspacestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
+	workspace "github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
-type stubWorkspaceStore struct {
-	workspacestore.Store
-	getRun func(context.Context, string) (*workspacestore.WorkspaceRun, error)
+type stubWorkspaceService struct {
+	getRun func(context.Context, string) (*workspace.Run, error)
 }
 
-func (s stubWorkspaceStore) GetRun(ctx context.Context, runKey string) (*workspacestore.WorkspaceRun, error) {
+func (s stubWorkspaceService) GetRun(ctx context.Context, runKey string) (*workspace.Run, error) {
 	if s.getRun == nil {
 		return nil, nil
 	}
 	return s.getRun(ctx, runKey)
 }
 
-func (stubWorkspaceStore) CreateRun(context.Context, WorkspaceCreateRunRequest) (*workspacestore.WorkspaceRun, error) {
+func (stubWorkspaceService) CreateRun(context.Context, workspace.CreateRunRequest) (*workspace.Run, error) {
 	return nil, errors.New("unexpected CreateRun call")
 }
 
-func (stubWorkspaceStore) MergeRun(context.Context, WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
+func (stubWorkspaceService) ListRuns(context.Context, string, string, int) ([]workspace.Run, error) {
+	return nil, errors.New("unexpected ListRuns call")
+}
+
+func (stubWorkspaceService) MergeRun(context.Context, workspace.MergeRunRequest) (*workspace.MergeRunResult, error) {
 	return nil, errors.New("unexpected MergeRun call")
 }
 
-func (stubWorkspaceStore) AbortRun(context.Context, string, string, string) (*workspacestore.WorkspaceRun, error) {
-	return nil, errors.New("unexpected AbortRun call")
+func (stubWorkspaceService) AbortRun(context.Context, string, string, string) error {
+	return errors.New("unexpected AbortRun call")
+}
+
+func (stubWorkspaceService) ListRunFiles(context.Context, string, string) ([]workspace.RunFile, error) {
+	return nil, nil
+}
+
+func (stubWorkspaceService) GetRunFile(context.Context, string, string) (*workspace.RunFile, error) {
+	return nil, nil
 }
 
 type stubPromptStore struct {
@@ -94,8 +105,8 @@ func mustRawInput(t *testing.T, input any) json.RawMessage {
 
 func TestHandleWorkspaceGetRunNilMapsToNotFound(t *testing.T) {
 	var gotRunKey string
-	handler := HandleWorkspaceGetRun(stubWorkspaceStore{
-		getRun: func(_ context.Context, runKey string) (*workspacestore.WorkspaceRun, error) {
+	handler := HandleWorkspaceGetRun(stubWorkspaceService{
+		getRun: func(_ context.Context, runKey string) (*workspace.Run, error) {
 			gotRunKey = runKey
 			return nil, nil
 		},
@@ -112,8 +123,8 @@ func TestHandleWorkspaceGetRunNilMapsToNotFound(t *testing.T) {
 
 func TestHandleWorkspaceGetRunWrappedNotFoundMapsToNotFound(t *testing.T) {
 	var gotRunKey string
-	handler := HandleWorkspaceGetRun(stubWorkspaceStore{
-		getRun: func(_ context.Context, runKey string) (*workspacestore.WorkspaceRun, error) {
+	handler := HandleWorkspaceGetRun(stubWorkspaceService{
+		getRun: func(_ context.Context, runKey string) (*workspace.Run, error) {
 			gotRunKey = runKey
 			return nil, platformdb.WrapStoreError(platformdb.ErrNotFound, "get", "workspace_run")
 		},
