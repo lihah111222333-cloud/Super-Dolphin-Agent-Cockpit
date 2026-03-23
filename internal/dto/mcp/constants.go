@@ -42,4 +42,23 @@ const (
 	DecisionSourceUI          = "ui"
 	DecisionSourceAutoApprove = "auto_approve"
 	DecisionSourceStatic      = "static"
+
+	// Hook methods (v2 extension)
+	MethodHookSubscribe = "ctl/hook/subscribe"
+	MethodHookBefore    = "ctl/hook/before"
+	MethodHookCheck     = "ctl/hook/check"
+	MethodHookAfter     = "ctl/hook/after"
+	MethodHookResolve   = "ctl/hook/resolve"
+
+	// Hook decisions
+	HookDecisionAllow    = "allow"
+	HookDecisionDeny     = "deny"
+	HookDecisionWait     = "wait"
+	HookDecisionModify   = "modify"
+	HookDecisionContinue = "continue"
+	HookDecisionWarn     = "warn"
+	HookDecisionAbort    = "abort"
+	HookDecisionApprove  = "approve"
+	HookDecisionReject   = "reject"
+	HookDecisionEscalate = "escalate"
 )

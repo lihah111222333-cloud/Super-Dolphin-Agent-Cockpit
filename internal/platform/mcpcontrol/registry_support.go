@@ -195,7 +195,7 @@ func cloneInstance(instance *ToolInstance) *ToolInstance {
 func toContractInstance(instance *ToolInstance) contract.ToolInstance {
 	return contract.ToolInstance{
 		Lease:         instance.Lease,
-		LeaseID:       instance.LeaseID,
+		LeaseID:       instance.LeaseID, // Deprecated: use LeaseKey. Will be removed after 2026-06-30.
 		BinaryName:    instance.BinaryName,
 		AgentID:       instance.AgentID,
 		ThreadID:      instance.ThreadID,

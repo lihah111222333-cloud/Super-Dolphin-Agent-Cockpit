@@ -21,6 +21,7 @@ type LeaseKey = dto.LeaseKey
 
 type ToolInstance struct {
 	Lease               LeaseKey
+	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
 	LeaseID             string
 	BinaryName          string
 	AgentID             string
@@ -104,7 +105,7 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 	lease := LeaseKey{InstanceID: normalized.InstanceID, Generation: 1}
 	instance := &ToolInstance{
 		Lease:         lease,
-		LeaseID:       platformshared.NewID("mcp_lease"),
+		LeaseID:       platformshared.NewID("mcp_lease"), // Deprecated: use LeaseKey. Will be removed after 2026-06-30.
 		BinaryName:    normalized.BinaryName,
 		AgentID:       normalized.AgentID,
 		ThreadID:      normalized.ThreadID,
