@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -109,6 +110,77 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 	got[dto.CapThreadList] = false
 	if !s.caps.Has(dto.CapThreadList) {
 		t.Fatal("Capabilities() returned aliased map")
+	}
+}
+
+func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+		defer conn.Close()
+		for {
+			var raw string
+			if err := websocket.Message.Receive(conn, &raw); err != nil {
+				return
+			}
+			var msg jsonRPCMessage
+			if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+				continue
+			}
+			if len(msg.ID) == 0 {
+				continue
+			}
+			var result json.RawMessage
+			switch msg.Method {
+			case "initialize":
+				result = mustJSON(map[string]any{"ok": true})
+			case "thread/resume":
+				result = mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-1"}})
+			case "thread/config/get":
+				result = mustJSON(map[string]any{
+					"threadId": "provider-thread-1",
+					"provider": "codex",
+					"effective": map[string]any{
+						"approvals": "never",
+					},
+				})
+			default:
+				result = mustJSON(map[string]any{"ok": true})
+			}
+			resp, err := json.Marshal(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+				"result":  json.RawMessage(append([]byte(nil), result...)),
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+			if err := websocket.Message.Send(conn, string(resp)); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	d := &driver{serverURL: "ws" + strings.TrimPrefix(server.URL, "http")}
+	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		Provider: "codex",
+		AgentID:  "agent-1",
+		ThreadID: "thread-1",
+	})
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	s, ok := got.(*session)
+	if !ok {
+		t.Fatalf("ResumeSession() type = %T, want *session", got)
+	}
+	defer closeCodexTestSession(t, s)
+	if s.ThreadID() != "provider-thread-1" {
+		t.Fatalf("ThreadID() = %q, want provider-thread-1", s.ThreadID())
+	}
+	if s.approvalPolicyValue() != "never" {
+		t.Fatalf("approvalPolicy = %q, want never", s.approvalPolicyValue())
 	}
 }
 

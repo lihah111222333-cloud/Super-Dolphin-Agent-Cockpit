@@ -29,10 +29,14 @@ func (s *session) requestToolApproval(method string, params json.RawMessage) err
 	if !ok {
 		return nil
 	}
+	if decision, ok := s.processedApprovalDecision(requestID); ok {
+		return s.sendApprovalDecision(requestID, decision)
+	}
 	decision, err := s.requestApprovalDecision(req)
 	if err != nil {
 		return err
 	}
+	s.rememberProcessedApprovalDecision(requestID, decision)
 	return s.sendApprovalDecision(requestID, decision)
 }
 
@@ -47,7 +51,50 @@ func (s *session) requestApprovalDecision(req rpc.ApprovalRequest) (contract.App
 }
 
 func approvalDecisionContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return rpc.WithApprovalDeadline(ctx)
+	return rpc.WithApprovalDeadline(rpc.WithApprovalAutoDeclineOnCancel(ctx))
+}
+
+func (s *session) setApprovalPolicy(policy string) {
+	if s == nil {
+		return
+	}
+	s.approvalPolicy.Store(strings.TrimSpace(policy))
+}
+
+func (s *session) approvalPolicyValue() string {
+	if s == nil {
+		return ""
+	}
+	value, _ := s.approvalPolicy.Load().(string)
+	return strings.TrimSpace(value)
+}
+
+func (s *session) processedApprovalDecision(requestID int64) (contract.ApprovalDecision, bool) {
+	if s == nil || requestID <= 0 {
+		return contract.ApprovalDecision{}, false
+	}
+	s.approvalMu.Lock()
+	defer s.approvalMu.Unlock()
+	if len(s.processedApprovals) == 0 {
+		return contract.ApprovalDecision{}, false
+	}
+	decision, ok := s.processedApprovals[requestID]
+	if !ok {
+		return contract.ApprovalDecision{}, false
+	}
+	return cloneApprovalDecision(decision), true
+}
+
+func (s *session) rememberProcessedApprovalDecision(requestID int64, decision contract.ApprovalDecision) {
+	if s == nil || requestID <= 0 {
+		return
+	}
+	s.approvalMu.Lock()
+	defer s.approvalMu.Unlock()
+	if s.processedApprovals == nil {
+		s.processedApprovals = map[int64]contract.ApprovalDecision{}
+	}
+	s.processedApprovals[requestID] = cloneApprovalDecision(decision)
 }
 
 func (s *session) buildApprovalRequest(method string, payload map[string]any) (rpc.ApprovalRequest, int64, bool) {
@@ -65,22 +112,26 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 	)
 	requestRef := requestID
 	return rpc.ApprovalRequest{
-		CallID:       callID,
-		ApprovalID:   stringValue(payload, "approvalId", "approval_id"),
-		ToolName:     firstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedValue(payload, "item"), "toolName", "tool")),
-		AgentID:      s.agentID,
-		ThreadID:     firstNonEmpty(stringValue(payload, "threadId", "thread_id"), s.ThreadID()),
-		TurnID:       firstNonEmpty(stringValue(payload, "turnId", "turn_id"), stringValue(nestedValue(payload, "turn"), "id")),
-		Reason:       stringValue(payload, "reason", "message"),
-		SourceMethod: method,
-		RequestID:    &requestRef,
-		Payload:      payload,
+		CallID:         callID,
+		ApprovalID:     stringValue(payload, "approvalId", "approval_id"),
+		ToolName:       firstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedValue(payload, "item"), "toolName", "tool")),
+		AgentID:        s.agentID,
+		ThreadID:       firstNonEmpty(stringValue(payload, "threadId", "thread_id"), s.ThreadID()),
+		TurnID:         firstNonEmpty(stringValue(payload, "turnId", "turn_id"), stringValue(nestedValue(payload, "turn"), "id")),
+		Reason:         stringValue(payload, "reason", "message"),
+		SourceMethod:   method,
+		RequestID:      &requestRef,
+		ApprovalPolicy: s.approvalPolicyValue(),
+		Payload:        payload,
 	}, requestID, callID != ""
 }
 
 func (s *session) sendApprovalDecision(requestID int64, decision contract.ApprovalDecision) error {
 	if requestID <= 0 {
 		return errors.New("codexapp: approval request id is required")
+	}
+	if s == nil || s.transport == nil {
+		return errors.New("codexapp: approval transport is not initialized")
 	}
 	params := map[string]any{"requestId": requestID}
 	if decision.Approved != nil {
@@ -95,6 +146,11 @@ func (s *session) sendApprovalDecision(requestID int64, decision contract.Approv
 	defer cancel()
 	_, err := s.callTransport(callCtx, "approval/respond", params)
 	return err
+}
+
+func cloneApprovalDecision(decision contract.ApprovalDecision) contract.ApprovalDecision {
+	decision.Detail = append(json.RawMessage(nil), decision.Detail...)
+	return decision
 }
 
 func isApprovalBridgeMethod(method string) bool {

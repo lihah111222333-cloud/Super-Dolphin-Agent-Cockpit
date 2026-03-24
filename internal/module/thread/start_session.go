@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -15,24 +17,119 @@ import (
 const defaultStartProvider = "codex"
 
 func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
-	req.Provider = firstNonEmpty(req.Provider, defaultStartProvider)
+	req = trimStartRequest(req)
+	req.Prompt = firstNonEmpty(req.Prompt, req.BaseInstructions)
+	if req.AgentID == "" {
+		req.AgentID = shareddto.NewID("agent")
+	}
+	req, err := resolveStartConfig(req)
+	if err != nil {
+		return StartRequest{}, "", err
+	}
+	return req, req.AgentID, nil
+}
+
+func trimStartRequest(req StartRequest) StartRequest {
+	req.Provider = strings.TrimSpace(req.Provider)
 	req.AgentID = strings.TrimSpace(req.AgentID)
 	req.CWD = strings.TrimSpace(req.CWD)
 	req.Model = strings.TrimSpace(req.Model)
 	req.ModelProvider = strings.TrimSpace(req.ModelProvider)
 	req.Prompt = strings.TrimSpace(req.Prompt)
 	req.BaseInstructions = strings.TrimSpace(req.BaseInstructions)
-	req.Prompt = firstNonEmpty(req.Prompt, req.BaseInstructions)
 	req.DeveloperInstructions = strings.TrimSpace(req.DeveloperInstructions)
 	req.ApprovalPolicy = strings.TrimSpace(req.ApprovalPolicy)
 	req.Sandbox = trimRawJSON(req.Sandbox)
 	req.Summary = strings.TrimSpace(req.Summary)
 	req.Effort = strings.TrimSpace(req.Effort)
 	req.Personality = strings.TrimSpace(req.Personality)
-	if req.AgentID == "" {
-		req.AgentID = shareddto.NewID("agent")
+	return req
+}
+
+func resolveStartConfig(req StartRequest) (StartRequest, error) {
+	provider, err := resolveStartProvider(req.Provider)
+	if err != nil {
+		return StartRequest{}, err
 	}
-	return req, req.AgentID, nil
+	req.Provider = provider
+	req.CWD = resolveStartCWD(req.CWD)
+	req.Sandbox = sanitizeStartSandbox(req.Sandbox)
+	req.ApprovalPolicy, err = resolveStartApprovalPolicy(req.ApprovalPolicy, req.Sandbox)
+	if err != nil {
+		return StartRequest{}, err
+	}
+	return req, nil
+}
+
+func resolveStartProvider(provider string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(firstNonEmpty(provider, defaultStartProvider))) {
+	case "codex", "claude":
+		return strings.ToLower(strings.TrimSpace(firstNonEmpty(provider, defaultStartProvider))), nil
+	default:
+		return "", fmt.Errorf("invalid provider %q", strings.TrimSpace(provider))
+	}
+}
+
+func resolveStartCWD(cwd string) string {
+	if cwd = strings.TrimSpace(cwd); cwd != "" {
+		return cwd
+	}
+	if wd, err := os.Getwd(); err == nil {
+		if wd = strings.TrimSpace(wd); wd != "" {
+			return wd
+		}
+	}
+	return "."
+}
+
+func resolveStartApprovalPolicy(policy string, sandbox json.RawMessage) (string, error) {
+	raw := strings.TrimSpace(policy)
+	if raw == "" {
+		if isDangerFullAccessSandbox(sandbox) {
+			return "never", nil
+		}
+		return "", nil
+	}
+	switch strings.ToLower(raw) {
+	case "always", "never", "auto", "on-request", "on-failure", "untrusted":
+		return strings.ToLower(raw), nil
+	default:
+		return "", fmt.Errorf("invalid approval policy %q", raw)
+	}
+}
+
+func sanitizeStartSandbox(raw json.RawMessage) json.RawMessage {
+	raw = trimRawJSON(raw)
+	if len(raw) == 0 || !json.Valid(raw) {
+		return nil
+	}
+	return raw
+}
+
+func isDangerFullAccessSandbox(raw json.RawMessage) bool {
+	raw = sanitizeStartSandbox(raw)
+	if len(raw) == 0 {
+		return false
+	}
+	if raw[0] == '{' {
+		var payload struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &payload); err == nil {
+			return isDangerFullAccessValue(payload.Type)
+		}
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return isDangerFullAccessValue(value)
+	}
+	return false
+}
+
+func isDangerFullAccessValue(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "-", "")
+	return normalized == "dangerfullaccess"
 }
 
 func (s *service) startSession(ctx context.Context, req StartRequest, agentID string) (contract.Session, error) {
@@ -69,12 +166,14 @@ func (s *service) lookupSession(agentID string) (contract.Session, error) {
 }
 
 type resumeState struct {
-	AgentID   string
-	Provider  string
-	Prompt    string
-	Model     string
-	CWD       string
-	CreatedAt int64
+	AgentID          string
+	Provider         string
+	ProviderThreadID string
+	PublicThreadID   string
+	Prompt           string
+	Model            string
+	CWD              string
+	CreatedAt        int64
 }
 
 func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (ResumeRequest, resumeState, error) {
@@ -82,11 +181,15 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	if err != nil {
 		return ResumeRequest{}, resumeState{}, err
 	}
-	state := s.lookupResumeState(ctx, req.ThreadID)
+	requestedThreadID := req.ThreadID
+	state := s.lookupResumeState(ctx, requestedThreadID)
+	state.PublicThreadID = firstNonEmpty(state.PublicThreadID, requestedThreadID)
+	state.ProviderThreadID = firstNonEmpty(state.ProviderThreadID, requestedThreadID)
 	req.AgentID = firstNonEmpty(req.AgentID, state.AgentID)
 	req.Provider = firstNonEmpty(req.Provider, state.Provider)
 	req.CWD = firstNonEmpty(req.CWD, req.Path, state.CWD)
 	req.Model = firstNonEmpty(req.Model, state.Model)
+	req.ThreadID = state.ProviderThreadID
 	if req.Provider == "" {
 		return ResumeRequest{}, resumeState{}, errors.New("provider is required")
 	}
@@ -116,6 +219,7 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 	thread, err := s.getThread(ctx, threadID)
 	if err == nil && thread != nil {
 		state.AgentID = strings.TrimSpace(thread.AgentID)
+		state.PublicThreadID = strings.TrimSpace(thread.ThreadID)
 		state.Prompt = strings.TrimSpace(thread.Prompt)
 		state.Model = strings.TrimSpace(thread.Model)
 		state.CWD = strings.TrimSpace(thread.Cwd)
@@ -125,6 +229,8 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 	if err == nil && binding != nil {
 		state.AgentID = firstNonEmpty(state.AgentID, binding.AgentID)
 		state.Provider = strings.TrimSpace(binding.Provider)
+		state.ProviderThreadID = firstNonEmpty(state.ProviderThreadID, binding.ProviderThreadID)
+		state.PublicThreadID = firstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
 		state.CWD = firstNonEmpty(state.CWD, binding.Cwd)
 	}
 	return state

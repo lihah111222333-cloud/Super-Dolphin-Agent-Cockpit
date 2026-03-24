@@ -15,6 +15,10 @@ func errInvalidParams(format string, args ...any) error {
 	return newMCPError(dto.ErrCodeInvalidParams, format, args...)
 }
 
+func errInternal(format string, args ...any) error {
+	return newMCPError(dto.ErrCodeInternal, format, args...)
+}
+
 func errLeaseNotFound(format string, args ...any) error {
 	return newMCPError(dto.ErrCodeLeaseNotFound, format, args...)
 }
@@ -33,6 +37,10 @@ func errScopeNotAllowed(format string, args ...any) error {
 
 func errApprovalUnavailable(format string, args ...any) error {
 	return newMCPError(dto.ErrCodeApprovalUnavailable, format, args...)
+}
+
+func errAuthFailed(format string, args ...any) error {
+	return newMCPError(dto.ErrCodeAuthFailed, format, args...)
 }
 
 func errReportConflict(format string, args ...any) error {

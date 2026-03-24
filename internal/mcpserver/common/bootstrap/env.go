@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math/rand"
 	"net"
 	"os"
@@ -18,6 +18,7 @@ import (
 	"github.com/creachadair/jrpc2/channel"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 type bootSnapshot struct {
@@ -82,7 +83,7 @@ func (c *Client) envContext(scope string, keys []string) (*mcp.ContextResponse, 
 		return nil, err
 	}
 	resp := &mcp.ContextResponse{
-		Source:     "boot_snapshot",
+		Source:     mcp.ContextSourceBootSnapshot,
 		ObservedAt: time.Now().UnixMilli(),
 		Scope:      strings.TrimSpace(scope),
 		Payload:    payload,
@@ -112,7 +113,7 @@ func contextPayloadFromSnapshot(c *Client, scope string) map[string]any {
 			"binary_name": binaryName,
 			"client_kind": clientKind,
 			"pid":         os.Getpid(),
-			"status":      "boot_snapshot",
+			"status":      mcp.ContextSourceBootSnapshot,
 		}
 	case mcp.ScopeThreadBinding:
 		return map[string]any{
@@ -162,7 +163,7 @@ func normalizeContextResponse(scope string, resp *mcp.ContextResponse) *mcp.Cont
 		out.Scope = strings.TrimSpace(scope)
 	}
 	if strings.TrimSpace(out.Source) == "" {
-		out.Source = "live"
+		out.Source = mcp.ContextSourceLive
 	}
 	return &out
 }
@@ -235,7 +236,11 @@ func readEnvJSON(keys ...string) json.RawMessage {
 }
 
 func logDeprecatedEnvKey(canonical, legacy string) {
-	log.Printf("bootstrap env %s is deprecated; use %s instead before 2026-06-30", legacy, canonical)
+	slog.Warn(fmt.Sprintf("bootstrap env %s is deprecated; use %s instead before 2026-06-30", legacy, canonical),
+		"legacy_env", legacy,
+		"canonical_env", canonical,
+		"remove_after", "2026-06-30",
+	)
 }
 
 func parseBootSnapshot(raw json.RawMessage) bootSnapshot {
@@ -252,14 +257,14 @@ func parseBootSnapshot(raw json.RawMessage) bootSnapshot {
 func deriveClientKind(binaryName string) string {
 	base := filepath.Base(strings.TrimSpace(binaryName))
 	switch {
-	case strings.Contains(base, "mcp-lsp"), strings.Contains(base, "lsp"):
-		return "lsp"
-	case strings.Contains(base, "mcp-orch"), strings.Contains(base, "orch"):
-		return "orch"
-	case strings.Contains(base, "mcp-ida"), strings.Contains(base, "ida"):
-		return "ida"
+	case strings.Contains(base, "mcp-"+mcp.ClientKindLSP), strings.Contains(base, mcp.ClientKindLSP):
+		return mcp.ClientKindLSP
+	case strings.Contains(base, "mcp-"+mcp.ClientKindOrch), strings.Contains(base, mcp.ClientKindOrch):
+		return mcp.ClientKindOrch
+	case strings.Contains(base, "mcp-"+mcp.ClientKindIDA), strings.Contains(base, mcp.ClientKindIDA):
+		return mcp.ClientKindIDA
 	default:
-		return "custom"
+		return mcp.ClientKindCustom
 	}
 }
 
@@ -334,7 +339,7 @@ func withTimeoutIfNone(ctx context.Context, timeout time.Duration) (context.Cont
 	if _, ok := ctx.Deadline(); ok {
 		return ctx, func() {}
 	}
-	return context.WithTimeout(ctx, timeout)
+	return platformconfig.WithPeerTimeout(ctx, timeout)
 }
 
 func normalizeQueueLimit(limit int) int {
@@ -386,13 +391,4 @@ func isTransportErr(err error) bool {
 		return false
 	}
 	return errors.Is(err, channel.ErrClosed) || errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed)
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }

@@ -3,6 +3,7 @@ package hooks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -49,7 +50,7 @@ func WithManagerLogger(logger *slog.Logger) ManagerOption {
 var _ contract.HookManager = (*Manager)(nil)
 var _ contract.HookLifecycle = (*Manager)(nil)
 
-func NewManager(registry *HookRegistry, dispatcher *HookDispatcher, resolver *HookResolver, opts ...ManagerOption) *Manager {
+func NewManager(registry *HookRegistry, dispatcher *HookDispatcher, resolver *HookResolver, opts ...ManagerOption) (*Manager, error) {
 	manager := &Manager{
 		registry:     registry,
 		dispatcher:   dispatcher,
@@ -63,9 +64,9 @@ func NewManager(registry *HookRegistry, dispatcher *HookDispatcher, resolver *Ho
 		}
 	}
 	if err := manager.validate(); err != nil {
-		panic(err)
+		return nil, err
 	}
-	return manager
+	return manager, nil
 }
 
 func (m *Manager) Subscribe(_ context.Context, lease mcp.LeaseKey, req mcp.HookSubscribeRequest) (mcp.HookSubscribeResponse, error) {
@@ -88,6 +89,12 @@ func (m *Manager) DispatchBefore(ctx context.Context, topic string, payload mcp.
 	}
 	result := MergeBefore(decisions)
 	m.handleLostLeases(ctx, result.LostLeases)
+	if result.PartialFailure {
+		m.logger.Warn("hooks: partial before hook failure, denying request",
+			"failed_leases", result.FailedLeases,
+		)
+		return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}, nil
+	}
 	return result.Decision, nil
 }
 
@@ -123,12 +130,28 @@ func (m *Manager) DispatchAfter(ctx context.Context, topic string, payload mcp.H
 
 	result := MergeAfter(decisions)
 	m.handleLostLeases(ctx, result.LostLeases)
+	if result.PartialFailure {
+		m.logger.Warn("hooks: partial after hook failure, keeping successful decision",
+			"failed_leases", result.FailedLeases,
+			"decision", result.Decision.Decision,
+		)
+	}
 	if result.Decision.Decision == mcp.HookDecisionEscalate {
 		subscriberLease, ok := firstLeaseByAfterDecision(decisions, mcp.HookDecisionEscalate)
 		if !ok {
-			m.logger.Warn("hooks: escalate missing subscriber lease", "hook_call_id", prepared.HookCallID)
-		} else if _, escalateErr := m.resolver.Escalate(ctx, prepared.HookCallID, prepared, subscriberLease); escalateErr != nil {
-			m.logger.Warn("hooks: escalate failed", "hook_call_id", prepared.HookCallID, "error", escalateErr)
+			err := fmt.Errorf("hooks: escalate decision for %s missing subscriber lease", prepared.HookCallID)
+			m.logger.Error("hooks: escalate missing subscriber lease",
+				"hook_call_id", prepared.HookCallID,
+				"error", err,
+			)
+			return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, err
+		} else if _, escalateErr := m.resolver.Escalate(ctx, prepared.HookCallID, prepared, subscriberLease, result.Decision.TTLMs); escalateErr != nil {
+			err := fmt.Errorf("hooks: persist escalated review %s: %w", prepared.HookCallID, escalateErr)
+			m.logger.Error("hooks: escalate failed",
+				"hook_call_id", prepared.HookCallID,
+				"error", err,
+			)
+			return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, err
 		}
 	}
 	return result.Decision, nil

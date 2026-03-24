@@ -16,11 +16,13 @@ const (
 	defaultStaleGraceTime = 5 * time.Second
 )
 
+// SweepResult reports how many leases were marked stale or evicted during a sweep.
 type SweepResult struct {
 	Staled  int
 	Evicted int
 }
 
+// Sweeper periodically marks stale leases and evicts expired MCP tool peers from a ToolRegistry.
 type Sweeper struct {
 	registry   *ToolRegistry
 	logger     *slog.Logger
@@ -30,6 +32,7 @@ type Sweeper struct {
 	staleGrace time.Duration
 }
 
+// SweeperOptions configures the sweep cadence and stale lease eviction thresholds for a Sweeper.
 type SweeperOptions struct {
 	Tick       time.Duration
 	Jitter     time.Duration
@@ -102,7 +105,7 @@ func (s *Sweeper) Sweep(now time.Time) SweepResult {
 	s.registry.mu.Unlock()
 
 	for i, peer := range peers {
-		s.registry.cleanupLease(context.Background(), evicted[i])
+		s.registry.cleanupLeaseWithTimeout(nil, evicted[i])
 		closePeer(peer)
 	}
 	return result

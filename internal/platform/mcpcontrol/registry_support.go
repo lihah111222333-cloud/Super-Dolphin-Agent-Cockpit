@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 type reportReceipt struct {
@@ -312,8 +313,5 @@ func durationOrDefault(value, fallback time.Duration) time.Duration {
 }
 
 func withTimeoutContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithTimeout(ctx, timeout)
+	return platformconfig.WithPeerTimeout(ctx, timeout)
 }

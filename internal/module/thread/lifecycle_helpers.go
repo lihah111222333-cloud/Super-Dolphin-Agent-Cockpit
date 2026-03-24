@@ -4,10 +4,19 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
-func resolveStartedThreadID(threadID, fallback string) string {
+func resolveProviderThreadID(threadID, fallback string) string {
 	return firstNonEmpty(threadID, fallback)
+}
+
+func bindingPublicThreadID(binding *bindingstore.Binding, fallback string) string {
+	if binding == nil {
+		return strings.TrimSpace(fallback)
+	}
+	return firstNonEmpty(binding.CodexThreadID, fallback)
 }
 
 func normalizeThreadContext(ctx context.Context) context.Context {

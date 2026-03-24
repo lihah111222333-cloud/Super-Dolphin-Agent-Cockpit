@@ -2,36 +2,11 @@ package skill
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
-
-func cardByKeyHandler(fn func(context.Context, string) (any, error)) handler.Func {
-	return rpc.StrictHandler(func(ctx context.Context, p cardKeyParams) (any, error) {
-		return fn(ctx, p.Key)
-	})
-}
-
-func cardCreateHandler(fn func(context.Context, Card) (*Card, error)) handler.Func {
-	return rpc.StrictHandler(func(ctx context.Context, p createCardParams) (any, error) {
-		return fn(ctx, buildCard(cardPayload(p)))
-	})
-}
-
-func cardUpdateHandler(fn func(context.Context, Card) (*Card, error)) handler.Func {
-	return rpc.StrictHandler(func(ctx context.Context, p updateCardParams) (any, error) {
-		return fn(ctx, buildCard(cardPayload(p)))
-	})
-}
-
-func cardRunHandler(fn func(context.Context, string, map[string]any) (CardRunResult, error)) handler.Func {
-	return rpc.StrictHandler(func(ctx context.Context, p runCardParams) (any, error) {
-		return fn(ctx, p.Key, p.Args)
-	})
-}
 
 func namedContentHandler(fn func(context.Context, string, string) (any, error)) handler.Func {
 	return rpc.StrictHandler(func(ctx context.Context, p skillNamedContentParams) (any, error) {
@@ -41,13 +16,6 @@ func namedContentHandler(fn func(context.Context, string, string) (any, error)) 
 
 func NewSkillHandlers(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"command/card/list":     rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) { return svc.ListCards(ctx) }),
-		"command/card/get":      cardByKeyHandler(func(ctx context.Context, key string) (any, error) { return svc.GetCard(ctx, key) }),
-		"command/card/create":   cardCreateHandler(svc.CreateCard),
-		"command/card/update":   cardUpdateHandler(svc.UpdateCard),
-		"command/card/delete":   cardByKeyHandler(func(ctx context.Context, key string) (any, error) { return nil, svc.DeleteCard(ctx, key) }),
-		"command/card/run":      cardRunHandler(svc.RunCard),
-		"command/card/versions": cardByKeyHandler(func(ctx context.Context, key string) (any, error) { return svc.ListCardVersions(ctx, key) }),
 		"command/exec": rpc.StrictHandler(func(ctx context.Context, p execParams) (any, error) {
 			return svc.ExecCommand(ctx, p.Command, p.Args, p.CWD, p.Env)
 		}),
@@ -85,18 +53,4 @@ func NewSkillHandlers(svc Service) rpc.HandlerMapResult {
 			return svc.MatchPreview(ctx, p.AgentID, p.ThreadID, p.Text, p.Input)
 		}),
 	}}
-}
-
-func buildCard(p cardPayload) Card {
-	return Card{
-		CardKey:         p.Key,
-		Title:           p.Title,
-		Description:     p.Description,
-		CommandTemplate: p.CommandTemplate,
-		ArgsSchema:      append(json.RawMessage(nil), p.ArgsSchema...),
-		RiskLevel:       p.RiskLevel,
-		Enabled:         p.Enabled == nil || *p.Enabled,
-		CreatedBy:       p.CreatedBy,
-		UpdatedBy:       p.UpdatedBy,
-	}
 }

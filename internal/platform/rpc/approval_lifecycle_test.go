@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -20,29 +19,21 @@ func (r *lifecycleRecorder) Append(h fx.Hook) {
 	r.hooks = append(r.hooks, h)
 }
 
-func TestRequestApprovalUsesDefaultTimeoutWhenNoDeadline(t *testing.T) {
-	previous := DefaultApprovalTimeout
-	DefaultApprovalTimeout = 25 * time.Millisecond
-	defer func() { DefaultApprovalTimeout = previous }()
-
+func TestRequestApprovalAutoDeclinesWithoutFrontendWhenNoCallbackPath(t *testing.T) {
 	manager := NewApprovalManager(nil, nil)
 
-	start := time.Now()
-	_, err := manager.RequestApproval(context.Background(), nil, nil, ApprovalRequest{CallID: "call-1"})
-	if err == nil {
-		t.Fatal("RequestApproval() error = nil, want timeout")
+	decision, err := manager.RequestApproval(context.Background(), nil, nil, ApprovalRequest{CallID: "call-1"})
+	if err != nil {
+		t.Fatalf("RequestApproval() error = %v", err)
 	}
-	if !errors.Is(err, ErrApprovalTimeout("approval timed out")) {
-		var rpcErr *jrpc2.Error
-		if !errors.As(err, &rpcErr) || rpcErr.Code != jrpc2.Code(CodeApprovalTimeout) {
-			t.Fatalf("RequestApproval() error = %v, want approval timeout", err)
-		}
+	if decision.Approved == nil || *decision.Approved {
+		t.Fatalf("RequestApproval() approved = %v, want false", decision.Approved)
 	}
-	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Fatalf("RequestApproval() elapsed = %s, want default timeout to apply quickly in test", elapsed)
+	if decision.Reason != "decline" {
+		t.Fatalf("RequestApproval() reason = %q, want %q", decision.Reason, "decline")
 	}
 	if len(manager.PendingSnapshot()) != 0 {
-		t.Fatal("RequestApproval left pending approvals behind after timeout")
+		t.Fatal("RequestApproval left pending approvals behind after auto-decline")
 	}
 }
 

@@ -2,6 +2,7 @@ package mcp
 
 // Standard protocol error codes.
 const (
+	ErrCodeInternal            = -32603
 	ErrCodeInvalidParams       = -32602
 	ErrCodeLeaseNotFound       = 4101
 	ErrCodeLeaseStale          = 4102

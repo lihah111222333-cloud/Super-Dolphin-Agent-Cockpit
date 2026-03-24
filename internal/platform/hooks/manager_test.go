@@ -5,170 +5,14 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
-
-func TestManagerDispatchAfterEscalatePersistsSubscriberLease(t *testing.T) {
-	t.Parallel()
-
-	registry := NewHookRegistry()
-	approveLease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
-	escalateLease := mcp.LeaseKey{InstanceID: "lease-b", Generation: 1}
-
-	if _, err := registry.Subscribe(approveLease, mcp.HookSubscribeRequest{
-		SubscriptionID: "approve-sub",
-		Topics:         []string{TopicToolAfter},
-		Scope:          mcp.Selector{Scope: &mcp.SelectorScope{AgentID: "agent-2", ThreadID: "thread-2"}},
-	}); err != nil {
-		t.Fatalf("Subscribe(approve) error = %v", err)
-	}
-	if _, err := registry.Subscribe(escalateLease, mcp.HookSubscribeRequest{
-		SubscriptionID: "escalate-sub",
-		Topics:         []string{TopicToolAfter},
-		Scope:          mcp.Selector{Scope: &mcp.SelectorScope{AgentID: "agent-1", ThreadID: "thread-1"}},
-	}); err != nil {
-		t.Fatalf("Subscribe(escalate) error = %v", err)
-	}
-
-	calledLeases := make([]mcp.LeaseKey, 0, 1)
-	dispatcher := NewHookDispatcher(registry, stubPeerCallback{
-		after: func(_ context.Context, lease mcp.LeaseKey, _ mcp.HookPayload) (mcp.AfterDecision, error) {
-			calledLeases = append(calledLeases, lease)
-			if lease == escalateLease {
-				return mcp.AfterDecision{Decision: mcp.HookDecisionEscalate, Reason: "needs review"}, nil
-			}
-			return mcp.AfterDecision{Decision: mcp.HookDecisionApprove}, nil
-		},
-	}, WithDispatcherParallelism(1))
-	store := &managerReviewStoreStub{}
-	manager := NewManager(registry, dispatcher, NewHookResolver(store))
-
-	got, err := manager.DispatchAfter(context.Background(), TopicToolAfter, mcp.HookPayload{
-		AgentID:  "agent-1",
-		ThreadID: "thread-1",
-	})
-	if err != nil {
-		t.Fatalf("DispatchAfter() error = %v", err)
-	}
-	if got.Decision != mcp.HookDecisionEscalate {
-		t.Fatalf("DispatchAfter() decision = %q, want %q", got.Decision, mcp.HookDecisionEscalate)
-	}
-	if len(store.saved) != 1 {
-		t.Fatalf("saved reviews = %d, want 1", len(store.saved))
-	}
-	if store.saved[0].SubscriberLease != "lease-b/1" {
-		t.Fatalf("saved subscriber lease = %q, want %q", store.saved[0].SubscriberLease, "lease-b/1")
-	}
-	if store.saved[0].HookCallID == "" {
-		t.Fatal("saved HookCallID = empty, want generated value")
-	}
-	if len(calledLeases) != 1 || calledLeases[0] != escalateLease {
-		t.Fatalf("after callback leases = %#v, want [%#v]", calledLeases, escalateLease)
-	}
-}
-
-func TestManagerDispatchBeforeUsesPayloadScopeSelector(t *testing.T) {
-	t.Parallel()
-
-	registry := NewHookRegistry()
-	matchingLease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
-	otherLease := mcp.LeaseKey{InstanceID: "lease-b", Generation: 1}
-
-	for _, tc := range []struct {
-		lease mcp.LeaseKey
-		scope *mcp.SelectorScope
-	}{
-		{lease: matchingLease, scope: &mcp.SelectorScope{AgentID: "agent-1", ThreadID: "thread-1"}},
-		{lease: otherLease, scope: &mcp.SelectorScope{AgentID: "agent-2", ThreadID: "thread-1"}},
-	} {
-		if _, err := registry.Subscribe(tc.lease, mcp.HookSubscribeRequest{
-			SubscriptionID: tc.lease.InstanceID,
-			Topics:         []string{TopicToolBefore},
-			Scope:          mcp.Selector{Scope: tc.scope},
-		}); err != nil {
-			t.Fatalf("Subscribe(%s) error = %v", tc.lease.InstanceID, err)
-		}
-	}
-
-	calledLeases := make([]mcp.LeaseKey, 0, 1)
-	dispatcher := NewHookDispatcher(registry, stubPeerCallback{
-		before: func(_ context.Context, lease mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
-			calledLeases = append(calledLeases, lease)
-			if lease == matchingLease {
-				return mcp.BeforeDecision{Decision: mcp.HookDecisionAllow}, nil
-			}
-			return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}, nil
-		},
-	}, WithDispatcherParallelism(1))
-	manager := NewManager(registry, dispatcher, NewHookResolver(&managerReviewStoreStub{}))
-
-	decision, err := manager.DispatchBefore(context.Background(), TopicToolBefore, mcp.HookPayload{
-		AgentID:  "agent-1",
-		ThreadID: "thread-1",
-	})
-	if err != nil {
-		t.Fatalf("DispatchBefore() error = %v", err)
-	}
-	if decision.Decision != mcp.HookDecisionAllow {
-		t.Fatalf("DispatchBefore() decision = %q, want %q", decision.Decision, mcp.HookDecisionAllow)
-	}
-	if len(calledLeases) != 1 || calledLeases[0] != matchingLease {
-		t.Fatalf("DispatchBefore() called leases = %#v, want [%#v]", calledLeases, matchingLease)
-	}
-}
-
-type managerReviewStoreStub struct {
-	saved                           []mcp.PendingHookReview
-	byID                            map[string]mcp.PendingHookReview
-	cancelPendingReviewsByLeaseFunc func(context.Context, string) (int, error)
-}
-
-func (s *managerReviewStoreStub) SavePendingReview(_ context.Context, review mcp.PendingHookReview) error {
-	if s.byID == nil {
-		s.byID = make(map[string]mcp.PendingHookReview)
-	}
-	s.saved = append(s.saved, review)
-	s.byID[review.HookCallID] = review
-	return nil
-}
-
-func (s *managerReviewStoreStub) GetPendingReview(_ context.Context, hookCallID string) (mcp.PendingHookReview, error) {
-	return s.byID[hookCallID], nil
-}
-
-func (s *managerReviewStoreStub) ListPendingReviews(_ context.Context, _ string) ([]mcp.PendingHookReview, error) {
-	return nil, nil
-}
-
-func (s *managerReviewStoreStub) ResolvePendingReview(_ context.Context, _, _, _, _ string) error {
-	return nil
-}
-
-func (s *managerReviewStoreStub) CancelPendingReviewsByLease(ctx context.Context, subscriberLease string) (int, error) {
-	if s.cancelPendingReviewsByLeaseFunc != nil {
-		return s.cancelPendingReviewsByLeaseFunc(ctx, subscriberLease)
-	}
-	return 0, nil
-}
-
-func (s *managerReviewStoreStub) CancelPendingReviewsByAgent(_ context.Context, _ string) (int, error) {
-	return 0, nil
-}
-
-func (s *managerReviewStoreStub) CancelExpiredReviews(_ context.Context) (int, error) {
-	return 0, nil
-}
-
-func (s *managerReviewStoreStub) RecoverOnStartup(_ context.Context) ([]mcp.PendingHookReview, error) {
-	return nil, nil
-}
 
 func TestDepthExceedsMax_Before(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	manager, registry := newDepthTestManager(stubPeerCallback{
+	manager, registry := newDepthTestManager(t, stubPeerCallback{
 		before: func(_ context.Context, _ mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
 			called = true
 			return mcp.BeforeDecision{Decision: mcp.HookDecisionAllow}, nil
@@ -200,7 +44,7 @@ func TestManagerShutdownHooks_UnsubscribesBeforeCancel(t *testing.T) {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 
-	dispatcher := NewHookDispatcher(registry, stubPeerCallback{})
+	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{})
 	dispatcher.failMu.Lock()
 	dispatcher.failCounts[lease] = 2
 	dispatcher.failMu.Unlock()
@@ -224,7 +68,7 @@ func TestManagerShutdownHooks_UnsubscribesBeforeCancel(t *testing.T) {
 			return 1, nil
 		},
 	}
-	manager := NewManager(registry, dispatcher, NewHookResolver(store))
+	manager := mustNewManager(t, registry, dispatcher, mustNewHookResolver(t, store))
 
 	if err := manager.ShutdownHooks(context.Background(), lease); err != nil {
 		t.Fatalf("ShutdownHooks() error = %v", err)
@@ -260,7 +104,7 @@ func TestLostSubscriberAutoUnsubscribe(t *testing.T) {
 	}
 
 	beforeCalls := 0
-	dispatcher := NewHookDispatcher(registry, stubPeerCallback{
+	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		before: func(_ context.Context, gotLease mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
 			beforeCalls++
 			if gotLease != lease {
@@ -289,7 +133,7 @@ func TestLostSubscriberAutoUnsubscribe(t *testing.T) {
 			return 1, nil
 		},
 	}
-	manager := NewManager(registry, dispatcher, NewHookResolver(store))
+	manager := mustNewManager(t, registry, dispatcher, mustNewHookResolver(t, store))
 	payload := depthTestPayload(0)
 
 	for attempt := 1; attempt <= 2; attempt++ {
@@ -346,7 +190,7 @@ func TestDepthExceedsMax_Check(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	manager, registry := newDepthTestManager(stubPeerCallback{
+	manager, registry := newDepthTestManager(t, stubPeerCallback{
 		check: func(_ context.Context, _ mcp.LeaseKey, _ mcp.HookPayload) (mcp.CheckDecision, error) {
 			called = true
 			return mcp.CheckDecision{Decision: mcp.HookDecisionWarn}, nil
@@ -370,7 +214,7 @@ func TestDepthExceedsMax_After(t *testing.T) {
 	t.Parallel()
 
 	called := false
-	manager, registry := newDepthTestManager(stubPeerCallback{
+	manager, registry := newDepthTestManager(t, stubPeerCallback{
 		after: func(_ context.Context, _ mcp.LeaseKey, _ mcp.HookPayload) (mcp.AfterDecision, error) {
 			called = true
 			return mcp.AfterDecision{Decision: mcp.HookDecisionApprove}, nil
@@ -396,7 +240,7 @@ func TestDepthBelowMax(t *testing.T) {
 	beforeCalled := false
 	checkCalled := false
 	afterCalled := false
-	manager, registry := newDepthTestManager(stubPeerCallback{
+	manager, registry := newDepthTestManager(t, stubPeerCallback{
 		before: func(_ context.Context, _ mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
 			beforeCalled = true
 			return mcp.BeforeDecision{Decision: mcp.HookDecisionAllow}, nil
@@ -451,7 +295,7 @@ func TestDepthIncrement(t *testing.T) {
 	t.Parallel()
 
 	gotDepth := 0
-	manager, registry := newDepthTestManager(stubPeerCallback{
+	manager, registry := newDepthTestManager(t, stubPeerCallback{
 		after: func(_ context.Context, _ mcp.LeaseKey, payload mcp.HookPayload) (mcp.AfterDecision, error) {
 			gotDepth = payload.Depth
 			return mcp.AfterDecision{Decision: mcp.HookDecisionApprove}, nil
@@ -468,37 +312,5 @@ func TestDepthIncrement(t *testing.T) {
 	}
 	if gotDepth != 2 {
 		t.Fatalf("callback payload.Depth = %d, want 2", gotDepth)
-	}
-}
-
-func newDepthTestManager(cb contract.PeerCallback, opts ...ManagerOption) (*Manager, *HookRegistry) {
-	registry := NewHookRegistry()
-	dispatcher := NewHookDispatcher(registry, cb)
-	resolver := NewHookResolver(&managerReviewStoreStub{})
-	return NewManager(registry, dispatcher, resolver, opts...), registry
-}
-
-func subscribeDepthTestTopics(t *testing.T, registry *HookRegistry, topics ...string) {
-	t.Helper()
-
-	_, err := registry.Subscribe(mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}, mcp.HookSubscribeRequest{
-		SubscriptionID: "depth-sub",
-		Topics:         topics,
-		Scope: mcp.Selector{Scope: &mcp.SelectorScope{
-			AgentID:  "agent-1",
-			ThreadID: "thread-1",
-		}},
-	})
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
-}
-
-func depthTestPayload(depth int) mcp.HookPayload {
-	return mcp.HookPayload{
-		AgentID:  "agent-1",
-		ThreadID: "thread-1",
-		TurnID:   "turn-1",
-		Depth:    depth,
 	}
 }

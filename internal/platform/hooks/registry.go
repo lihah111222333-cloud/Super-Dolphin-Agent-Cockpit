@@ -3,8 +3,8 @@ package hooks
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"

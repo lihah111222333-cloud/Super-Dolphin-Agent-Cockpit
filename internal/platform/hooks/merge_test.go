@@ -30,11 +30,14 @@ func TestMergeAfterPriority(t *testing.T) {
 	t.Run("escalate_over_approve", func(t *testing.T) {
 		result := MergeAfter([]peerDecision[mcp.AfterDecision]{
 			{Decision: mcp.AfterDecision{Decision: mcp.HookDecisionApprove}},
-			{Decision: mcp.AfterDecision{Decision: mcp.HookDecisionEscalate, Reason: "needs review"}},
+			{Decision: mcp.AfterDecision{Decision: mcp.HookDecisionEscalate, Reason: "needs review", TTLMs: 30_000}},
 		})
 
 		if result.Decision.Decision != mcp.HookDecisionEscalate {
 			t.Fatalf("decision = %q, want %q", result.Decision.Decision, mcp.HookDecisionEscalate)
+		}
+		if result.Decision.TTLMs != 30_000 {
+			t.Fatalf("ttl_ms = %d, want %d", result.Decision.TTLMs, 30_000)
 		}
 	})
 
@@ -50,6 +53,21 @@ func TestMergeAfterPriority(t *testing.T) {
 		}
 		if result.Decision.Reason != "hard stop" {
 			t.Fatalf("reason = %q, want %q", result.Decision.Reason, "hard stop")
+		}
+	})
+
+	t.Run("escalate_ttl_uses_first_sorted_subscriber", func(t *testing.T) {
+		result := MergeAfter([]peerDecision[mcp.AfterDecision]{
+			{Lease: mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}, Decision: mcp.AfterDecision{Decision: mcp.HookDecisionEscalate, TTLMs: 5_000}},
+			{Lease: mcp.LeaseKey{InstanceID: "lease-b", Generation: 1}, Decision: mcp.AfterDecision{Decision: mcp.HookDecisionEscalate, TTLMs: 10_000}},
+			{Lease: mcp.LeaseKey{InstanceID: "lease-c", Generation: 1}, Decision: mcp.AfterDecision{Decision: mcp.HookDecisionEscalate, TTLMs: 3_000}},
+		})
+
+		if result.Decision.Decision != mcp.HookDecisionEscalate {
+			t.Fatalf("decision = %q, want %q", result.Decision.Decision, mcp.HookDecisionEscalate)
+		}
+		if result.Decision.TTLMs != 5_000 {
+			t.Fatalf("ttl_ms = %d, want %d from first sorted escalate subscriber", result.Decision.TTLMs, 5_000)
 		}
 	})
 }

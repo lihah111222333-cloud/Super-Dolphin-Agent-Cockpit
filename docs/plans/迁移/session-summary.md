@@ -1,6 +1,6 @@
 # V3 迁移会话摘要
 
-> 生成时间：2026-03-24（P8.5 lifecycle hooks 完整落地更新）
+> 生成时间：2026-03-24（P8 fully complete + P9 starting）
 > 会话范围：P0-P8.5 全程 + P7.5 桥接 + V2↔V3 核对 + archtest 收官 + MCP 独立服务 + ctl/* 回调框架 + lifecycle hooks 完整实现
 > Claude 会话 UUID：58fdd978-cc4b-41e6-bd26-d40f3ff66854
 > 前序会话 UUID：ea3ad84e-7b52-422d-bc46-cff9da3ea9f9
@@ -36,9 +36,9 @@
 | **P8 前置** | ✅ | **D-1 sqlc 漂移 + D-2 runtime 上报 + D-3 状态机封堵 + dbquery 执行器** |
 | **V2↔V3 核对** | ✅ | **21 模块 1:1 核对 + 修复 + 互审，排除 MCP 后残留归零** |
 | **archtest 收官** | ✅ | **35+6 项违规全部修复；现有守卫全绿，但尚未覆盖 MCP 新依赖方向规则** |
-| **P8 编排工具** | ✅ | **orchestration 整体迁移到独立 cmd/mcp-orch 服务，19 个 MCP tool handler，stdio server 可用，共享模式（per-binary），ctl/* 回调框架 14 方法** |
-| **P8.5 ctl 回调框架** | ✅ | **ctl/* 回调框架：14 方法（基线 9 + hook 扩展 5），注册表 + bootstrap client + 3 binary 接入** |
-| **P8.5 lifecycle hooks** | ✅ | **hooks 核心基础设施完整落地：7 层 transport 链路（DTO/handler/fanout/核心逻辑/契约/bootstrap/store）+ selector 交集 + 重入防护 + subscriber_lost 自动取消 + shutdown 竞态 + env 统一 + config/changed 发送端 + 接口拆分 + 覆盖率 85.1%** |
+| **P8 编排工具** | ✅ | **store 6包齐全, 19 handler, CodeSizeGuard PASS** |
+| **P8.5 ctl 回调框架** | ✅ | **15方法(含hook/pending), 三binary统一, bootstrap三封装** |
+| **P8.5 lifecycle hooks** | ✅ | **30项问题全部关闭, 十方审查95%, 113 Test, 52.9% mcpcontrol覆盖率** |
 | P9 LSP 工具 | ⏳ | MCP LSP 工具独立服务（`cmd/mcp-lsp`），9 个工具，计划已出 |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→目标 60%，计划已出 |
 
@@ -49,7 +49,7 @@
 ### 2.1 P8 前置任务（D-1/D-2/D-3）
 - D-1：sqlc 漂移修复（threadbinding + ailog 穿透 dashboard + store 测试）
 - D-2：AgentSnapshot runtime 上报（DTO + UpdateRuntime + strict decode + 变更检测 + 事件去重）
-- D-3：状态机封堵 + dbquery 安全执行器（白名单 24 表 + 危险函数 15+ + CTE 防绕过 + float64 归一化 + 10s timeout + 10000 行上限）
+- D-3：状态机封堵 + dbquery 安全执行器（白名单 19 表 + 危险函数 15+ + CTE 防绕过 + float64 归一化 + 10s timeout + 10000 行上限）
 - 经历 3 轮：实现 → 互辩 → 互审修复 → 终检
 - P8 交接 1：`cmd/mcp-orch/orchestration/*` 将整体迁到 `cmd/mcp-orch/orchestration/*`；MCP binary 自己持有 agent runtime、report、runtime snapshot 与 DAG
 - P8 交接 2：相关 `store/*` 与 `store/sqlc/*` 也要本地化到 `cmd/mcp-orch`；运行时只共享 `config/db/contract/dto`
@@ -150,7 +150,7 @@
 | ~~ctl/config/changed 发送端~~ | ✅ | 已完成：bus 事件桥接 + configVersion 递增 + Selector.Scope 填充 |
 | ~~env 统一~~ | ✅ | 已完成：GO_AGENT_MCP_* → GO_AGENT_CTL_* 读写两端 + deprecation 日志 |
 | ~~hooks 集成测试~~ | ✅ | 已完成：6 个场景（merge/escalate/depth/lost/shutdown/scoped） |
-| TestTimeoutLocality | ⚠️ | 预存债务 12 处，hooks/dispatcher.go 已修复脱离违规列表 |
+| TestTimeoutLocality | ✅ | P8相关0处, 仅剩8处非P8债务 |
 | DAG SQL 适配 | ⏳ | cmd/mcp-orch/store/taskdag/ 10 个接口重写，属 MCP 工具侧消费，非核心层 |
 | **P9 LSP 工具族** | ⏳ | 9 个工具，6+1 Agent，~12,500 行 |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→60%，3 波次 |
@@ -161,7 +161,7 @@
 
 ## 4. 下一步（优先级排序）
 
-1. **P9 LSP 工具族** — 读 p9-execution-plan.md，cmd/mcp-lsp 9 个工具，6+1 Agent
+1. **▶ P9 LSP 工具族（当前执行）** — 读 p9-execution-plan.md，cmd/mcp-lsp 9 个工具，6+1 Agent
 2. **P10 工厂丰满** — Zone A 3.8%→60%，3 波次
 3. **DAG SQL 适配** — cmd/mcp-orch/store/taskdag/ 10 个接口重写（工具侧，非核心层）
 
@@ -230,27 +230,34 @@
 
 | # | 用户指令 | 执行内容 |
 |---|---|---|
-| 1 | "hooks 审查文档 + 五方终审" | p8.5-hooks-review.md 三轮审查（初审→复审→二审互辩→五方终审），12 项问题清单 |
-| 2 | "T0 前置任务 6 并行" | contract/hooks + DTO + constants + hookstore + bootstrap/hooks + archtest rule13/14 + LeaseID Deprecated |
-| 3 | "T1 Phase 1 核心 7 任务" | registry + dispatcher + merge + resolver + manager + hookstore_test + mcpcontrol handler 接线 |
-| 4 | "R1/R2/R3 第一波修复" | timeout archtest 修复 + hook depth 重入防护 + subscriber_lease + HookLifecycle shutdown |
-| 5 | "R4/R5/R6 第二波修复" | Selector 交集查询 + subscriber_lost 自动取消 + 测试补全 69.5%→85.1% |
-| 6 | "P8 剩余 8 并行" | hook selector 穿透 + PeerCallback 装配 + config/changed + env 统一 + 接口拆分 + 集成测试 + slog 收敛 + ForgetLease 测试 |
-| 7 | "1:7 互审（含代码优雅度）" | 8 Agent 交叉审查 5 维度，识别 2 阻塞 + 3 非阻塞问题 |
-| 8 | "阻塞项+非阻塞项修复" | config scope 填充 + slog fx 注入 + PeerCallback 合并 + scoped 测试 + ForgetLease 纯行为验证 |
-| 9 | "设计债务收敛" | config 路径统一 + PeerCallback 合并为 contract + ToolControlPlane 纳入 + thread/多维度 scope 测试 |
-| 10 | "session-summary 更新" | 本文档更新为 P8.5 hooks 完整落地状态 |
+| 1 | P8 十方审查（初审） | 十方交叉审查启动，初审综合得分 79.5% |
+| 2 | P8 第一轮修复 | 22项问题逐一修复 |
+| 3 | P8 终审 | 终审综合得分 90.4% |
+| 4 | P8 第二轮修复 | 7项遗留问题修复 |
+| 5 | P8 最终终审 | 最终终审综合得分 94.5% |
+| 6 | P8 残留修复 | 8项 P2/P3 残留问题修复 |
+| 7 | P8 绝对最终收官 | 综合得分 95%, 30项问题全部关闭 |
+| 8 | P9 启动 | P9 LSP 工具族启动准备 |
 
 ---
 
 ## 9. 子 Agent 提示词模式
 
-### LSP 强制指令（所有 Agent 追加）
+### LSP 强制指令（所有 Agent 追加，硬性约束）
+
+**拉起任何 Agent 时，初始 prompt 必须包含以下文档链接，不得省略：**
+
 ```
-先读 shared_file_read prompts/lsp-mandatory-prefix.md
-完整指南在 prompts/lsp-advanced-guide.md
+先执行 shared_file_read prompts/lsp-mandatory-prefix.md
+再执行 shared_file_read prompts/lsp-advanced-guide.md
 禁止只用 lsp_grep + lsp_file，每个任务至少 4 种 LSP 工具
 ```
+
+**文档路径（必须原样下发）：**
+- `prompts/lsp-mandatory-prefix.md` — LSP 强制前缀，所有 Agent 首先读取
+- `prompts/lsp-advanced-guide.md` — LSP 高级工具完整指南
+
+**违反后果：** Agent 产出的代码搜索/读取质量不可靠，审查结论不可信
 
 ### 仓库契约引用
 ```
@@ -259,5 +266,20 @@ Zone B 模式：docs/plans/迁移/v3-two-zone-dry-enrichment.md §3
 sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 ```
 
-### Codex + Claude 混用
-默认用 Codex Agent（provider="codex"）实施，Claude Agent（provider="claude"）用于架构评审和全局视角审查
+### Agent 拉起规范（硬性约束）
+
+**所有 Agent 必须通过编排接口（`orchestration_launch_agent` / `orchestration_send_message`）拉起，禁止通过 SDK Agent tool 拉 Claude 子 agent。**
+
+| 用户指令 | 含义 | 实现方式 |
+|---------|------|----------|
+| "拉 agent" / "拉 codex" | 拉 Codex Agent | `orchestration_launch_agent(provider="codex")` |
+| "拉 claude" | 拉 Claude Agent | `orchestration_launch_agent(provider="claude")` |
+| 未指定 provider | 默认 Codex | `orchestration_launch_agent(provider="codex")` |
+
+**禁止行为：**
+- ❌ 通过 SDK `Agent` tool 拉 claude 子 agent（绕过编排系统，无法被追踪/管理）
+- ❌ 不通过编排接口直接启动后台 agent
+
+**用途分工：**
+- Codex Agent（默认）：代码实施、搜索、修复、测试
+- Claude Agent：架构评审、全局视角审查、复杂推理

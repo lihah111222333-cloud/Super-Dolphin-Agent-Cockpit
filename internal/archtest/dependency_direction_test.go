@@ -31,7 +31,14 @@ type parsedFile struct {
 
 func TestDependencyDirection(t *testing.T) {
 	root := repoRoot(t)
+	assertCoreDependencyRules(t, root)
+	assertStoreAndToolDependencyRules(t, root)
+	assertMCPServerDependencyRules(t, root)
+	assertPlatformIsolationRules(t, root)
+}
 
+func assertCoreDependencyRules(t *testing.T, root string) {
+	t.Helper()
 	t.Run("rule1_contract_dto_no_framework_imports", func(t *testing.T) {
 		dirs := existingDirs(root, "internal/contract", "internal/dto")
 		if len(dirs) == 0 {
@@ -93,7 +100,10 @@ func TestDependencyDirection(t *testing.T) {
 		}
 		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform"), []string{internalPrefix("internal/module/")})
 	})
+}
 
+func assertStoreAndToolDependencyRules(t *testing.T, root string) {
+	t.Helper()
 	t.Run("rule5_store_subpackages_boundary", func(t *testing.T) {
 		if !dirExists(root, "internal/store") {
 			t.Skip("directory not yet created")
@@ -140,6 +150,23 @@ func TestDependencyDirection(t *testing.T) {
 		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/tool"), []string{internalPrefix("internal/uistate"), internalPrefix("internal/ui/")})
 	})
 
+	t.Run("rule10_fx_import_scope", func(t *testing.T) {
+		var violations []string
+		for _, file := range parseImportFiles(t, root, "internal", "cmd") {
+			if !hasImport(file.Imports, "go.uber.org/fx") {
+				continue
+			}
+			if strings.HasPrefix(file.RelPath, "cmd/") || strings.HasPrefix(file.RelPath, "internal/app/") || filepath.Base(file.RelPath) == "module.go" {
+				continue
+			}
+			violations = append(violations, fmt.Sprintf("%s imports go.uber.org/fx outside an assembly entry", file.RelPath))
+		}
+		failIfViolations(t, violations)
+	})
+}
+
+func assertMCPServerDependencyRules(t *testing.T, root string) {
+	t.Helper()
 	t.Run("rule7_mcpserver_lsp_family", func(t *testing.T) {
 		if !dirExists(root, "internal/mcpserver/lsp") {
 			t.Skip("directory not yet created")
@@ -160,33 +187,43 @@ func TestDependencyDirection(t *testing.T) {
 		}
 		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/mcpserver/ida"), []string{internalPrefix("internal/tool/lsp"), internalPrefix("internal/tool/orchestration")})
 	})
-
-	t.Run("rule10_fx_import_scope", func(t *testing.T) {
-		var violations []string
-		for _, file := range parseImportFiles(t, root, "internal", "cmd") {
-			if !hasImport(file.Imports, "go.uber.org/fx") {
-				continue
-			}
-			if strings.HasPrefix(file.RelPath, "cmd/") || strings.HasPrefix(file.RelPath, "internal/app/") || filepath.Base(file.RelPath) == "module.go" {
-				continue
-			}
-			violations = append(violations, fmt.Sprintf("%s imports go.uber.org/fx outside an assembly entry", file.RelPath))
-		}
-		failIfViolations(t, violations)
-	})
-
+}
+func assertPlatformIsolationRules(t *testing.T, root string) {
+	t.Helper()
 	t.Run("rule13_hooks_no_mcpcontrol", func(t *testing.T) {
 		if !dirExists(root, "internal/platform/hooks") {
 			t.Skip("directory not yet created")
 		}
 		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform/hooks"), []string{internalPrefix("internal/platform/mcpcontrol")})
 	})
-
 	t.Run("rule14_mcpcontrol_no_hooks", func(t *testing.T) {
 		if !dirExists(root, "internal/platform/mcpcontrol") {
 			t.Skip("directory not yet created")
 		}
 		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform/mcpcontrol"), []string{internalPrefix("internal/platform/hooks")})
+	})
+	t.Run("rule15_hooks_no_platform_db", func(t *testing.T) {
+		if !dirExists(root, "internal/platform/hooks") {
+			t.Skip("directory not yet created")
+		}
+		forbidden := []string{internalPrefix("internal/platform/db")}
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform/hooks"), forbidden)
+		var testFiles []parsedFile
+		err := filepath.WalkDir(filepath.Join(root, "internal/platform/hooks"), func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil || d.IsDir() || filepath.Ext(path) != ".go" || !strings.HasSuffix(path, "_test.go") {
+				return walkErr
+			}
+			relPath, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			testFiles = append(testFiles, parsedFile{AbsPath: path, RelPath: filepath.ToSlash(relPath), Imports: parseImports(t, path)})
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk internal/platform/hooks tests: %v", err)
+		}
+		assertNoImportPrefixes(t, testFiles, forbidden)
 	})
 }
 

@@ -4,16 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/qmuntal/stateless"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 )
+
+const submitSessionReadyTimeout = 5 * time.Second
+
+type sessionReadyWaiter interface {
+	WaitForSessionReady(ctx context.Context, agentID string, timeout time.Duration) error
+}
 
 func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platformstatemachine.StateConfig {
 	permits := make(map[string][]platformstatemachine.Permit, len(agentdto.StateDefinitions))
@@ -31,68 +39,6 @@ func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platform
 		})
 	}
 	return states
-}
-
-func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
-	agent, ok := s.agents[req.AgentID]
-	if !ok {
-		agent = s.newAgentLocked(req.AgentID)
-		s.agents[req.AgentID] = agent
-	}
-	agent.name = req.Name
-	agent.parentID = req.ParentID
-	agent.cwd = req.Cwd
-	agent.command = append([]string(nil), req.Command...)
-	agent.env = append([]string(nil), req.Env...)
-	agent.port = launchPort(req)
-	agent.portSource = inferredLaunchSource(agent.port)
-	agent.provider = launchProvider(req)
-	agent.providerSource = inferredLaunchSourceString(agent.provider)
-	resetRuntimeStateLocked(agent)
-	agent.lastError = ""
-	agent.stopRequested = false
-	agent.stopReason = ""
-	return agent
-}
-
-func (s *service) prepareLaunchStateLocked(ctx context.Context, agent *agentRuntime) error {
-	if err := s.normalizeLaunchStateLocked(ctx, agent); err != nil {
-		return err
-	}
-	resetRuntimeStateLocked(agent)
-	agent.lastError = ""
-	agent.stopRequested = false
-	agent.activeTurnID = ""
-	agent.threadID = ""
-	agent.exitedAt = nil
-	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
-	return nil
-}
-
-func (s *service) newAgentLocked(agentID string) *agentRuntime {
-	agent := &agentRuntime{
-		id: agentID,
-		// Initial construction starts in the machine's configured initial state.
-		state:     agentdto.StateProvisioning,
-		updatedAt: time.Now(),
-		queue:     &SubmissionQueue{},
-	}
-	agent.sm = platformstatemachine.New(s.machineCfg, func() string {
-		return agent.state
-	}, func(next string) {
-		// The state machine owns subsequent transitions through this sink.
-		agent.state = next
-	})
-	return agent
-}
-
-func (s *service) normalizeLaunchStateLocked(ctx context.Context, agent *agentRuntime) error {
-	switch agent.state {
-	case "", agentdto.StateProvisioning, agentdto.StateRecovering:
-		return nil
-	default:
-		return s.fireOrForceLocked(ctx, agent, agentdto.TriggerRecoverRequested)
-	}
 }
 
 func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
@@ -212,6 +158,129 @@ func (s *service) finishTurnStartFailure(ctx context.Context, work turnWork, sta
 	}
 }
 
+func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime, reason string) error {
+	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerStopRequested); err != nil {
+		return err
+	}
+	agent.stopRequested = true
+	agent.stopReason = strings.TrimSpace(reason)
+	agent.queue.Clear()
+	agent.activeTurnID = ""
+	agent.threadID = ""
+	return stopProcess(agent.cmd)
+}
+
+func (s *service) submitAgentReadyState(agentID string) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	agent, err := s.lookupAgentLocked(agentID)
+	if err != nil {
+		return false, err
+	}
+	if agent.cmd == nil {
+		return false, fmt.Errorf("agent %q is not running", agent.id)
+	}
+	if agent.stopRequested {
+		return false, fmt.Errorf("agent %q is stopping", agent.id)
+	}
+	return agent.state == agentdto.StateIdle && agent.activeTurnID == "" && agent.queue.Len() == 0, nil
+}
+
+func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string) error {
+	if s == nil || s.turnStarter == nil {
+		return nil
+	}
+	waiter, ok := s.turnStarter.(sessionReadyWaiter)
+	if !ok {
+		return nil
+	}
+	return waiter.WaitForSessionReady(ctx, agentID, submitSessionReadyTimeout)
+}
+
+func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
+	cmd := exec.Command(agent.command[0], agent.command[1:]...)
+	cmd.Dir = agent.cwd
+	cmd.Env = append(os.Environ(), agent.env...)
+	if err := cmd.Start(); err != nil {
+		agent.lastError = err.Error()
+		if fireErr := s.fireOrForceLocked(ctx, agent, agentdto.TriggerLaunchFailed); fireErr != nil {
+			return errors.Join(err, fireErr)
+		}
+		return err
+	}
+	now := resolveEventTime(ctx, agent.updatedAt)
+	agent.cmd = cmd
+	agent.launchSeq++
+	agent.monitoredSeq = 0
+	agent.stopRequested = false
+	agent.activeTurnID = ""
+	agent.threadID = ""
+	agent.startedAt = now
+	agent.updatedAt = now
+	agent.exitedAt = nil
+	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerLaunchSucceeded); err != nil {
+		agent.lastError = err.Error()
+		_ = stopProcess(cmd)
+		agent.cmd = nil
+		return err
+	}
+	s.logger.Info("orchestration: agent launched", "agent_id", agent.id, "pid", cmd.Process.Pid)
+	s.publishAgentLaunched(agent)
+	return nil
+}
+
+func (s *service) fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	before := ""
+	if agent != nil {
+		before = agent.state
+	}
+	if agent == nil || agent.sm == nil {
+		return formatIllegalTransitionError(ctx, agent, before, trigger, errors.New("state machine is not initialized"))
+	}
+	if err := s.fireAndPublishLocked(ctx, agent, trigger); err != nil {
+		return formatIllegalTransitionError(ctx, agent, before, trigger, err)
+	}
+	return nil
+}
+
+func formatIllegalTransitionError(ctx context.Context, agent *agentRuntime, before, trigger string, err error) error {
+	allowed := allowedTriggersForState(ctx, agent, before)
+	agentID := ""
+	if agent != nil {
+		agentID = agent.id
+	}
+	return fmt.Errorf("%w for agent %q: state=%s trigger=%s allowed=%v: %w", errIllegalStateTransition, agentID, before, trigger, allowed, err)
+}
+
+func allowedTriggersForState(ctx context.Context, agent *agentRuntime, state string) []string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if agent != nil && agent.sm != nil {
+		if allowed := platformstatemachine.AllowedTriggers(agent.sm, ctx); allowed != nil {
+			return allowed
+		}
+	}
+	if strings.TrimSpace(state) == "" {
+		return nil
+	}
+	return agentdto.AllowedTriggers(state)
+}
+
+func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime, trigger string) error {
+	before := agent.state
+	if err := agent.sm.FireCtx(ctx, stateless.Trigger(trigger)); err != nil {
+		return err
+	}
+	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
+	s.publishStateChanged(agent, before, trigger)
+	return nil
+}
+
 func (s *service) listAgents() []agentRuntime {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -234,112 +303,6 @@ func (s *service) lookupAgentLocked(agentID string) (*agentRuntime, error) {
 		return agent, nil
 	}
 	return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
-}
-
-func (s *service) turnIDFor(sub TurnSubmission) string {
-	if turnID := strings.TrimSpace(sub.ExpectedTurnID); turnID != "" {
-		return turnID
-	}
-	baseID := strings.TrimSpace(sub.ThreadID)
-	if baseID == "" {
-		baseID = strings.TrimSpace(sub.AgentID)
-	}
-	if baseID == "" {
-		baseID = "turn"
-	}
-	s.nextTurnSeq++
-	return fmt.Sprintf("%s-turn-%d", baseID, s.nextTurnSeq)
-}
-
-func launchPort(req LaunchRequest) int {
-	if port := parsePositiveInt(envValue(req.Env, "PORT")); port > 0 {
-		return port
-	}
-	args := launchCommandArgs(req.Command)
-	for _, flag := range []string{"--port", "-p"} {
-		if port := parsePositiveInt(commandFlagValue(args, flag)); port > 0 {
-			return port
-		}
-	}
-	return 0
-}
-
-func launchProvider(req LaunchRequest) string {
-	for _, key := range []string{"AGENT_PROVIDER", "CODEX_PROVIDER", "PROVIDER"} {
-		if value := envValue(req.Env, key); value != "" {
-			return value
-		}
-	}
-	return commandFlagValue(launchCommandArgs(req.Command), "--provider")
-}
-
-func inferredLaunchSource(value int) string {
-	if value <= 0 {
-		return ""
-	}
-	return "inferred"
-}
-
-func inferredLaunchSourceString(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return ""
-	}
-	return "inferred"
-}
-
-func launchCommandArgs(command []string) []string {
-	if len(command) <= 1 {
-		return nil
-	}
-	return command[1:]
-}
-
-func envValue(env []string, key string) string {
-	for _, entry := range env {
-		name, value, ok := strings.Cut(entry, "=")
-		if ok && strings.EqualFold(strings.TrimSpace(name), key) {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-func commandFlagValue(args []string, flag string) string {
-	for idx, arg := range args {
-		arg = strings.TrimSpace(arg)
-		if arg == flag && idx+1 < len(args) {
-			return strings.TrimSpace(args[idx+1])
-		}
-		if value, ok := strings.CutPrefix(arg, flag+"="); ok {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-func parsePositiveInt(raw string) int {
-	value, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil || value <= 0 {
-		return 0
-	}
-	return value
-}
-
-func validateLaunchRequest(req LaunchRequest) error {
-	if strings.TrimSpace(req.AgentID) == "" {
-		return errors.New("agent id is required")
-	}
-	if len(req.Command) == 0 {
-		return errors.New("command is required")
-	}
-	return nil
-}
-
-func stopProcess(cmd *exec.Cmd) error {
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	return cmd.Process.Kill()
 }
 
 func cloneTurnSubmission(sub turndto.TurnSubmission) turndto.TurnSubmission {

@@ -9,6 +9,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/creachadair/jrpc2"
 )
 
 type stubAgentContextSource struct {
@@ -141,5 +143,38 @@ func TestRegistryContextProvider_ReturnsAgentNotFoundWhenSourceMissing(t *testin
 	})
 	if err == nil || !strings.Contains(err.Error(), "agent not found") {
 		t.Fatalf("GetContext() error = %v, want agent not found", err)
+	}
+}
+
+func TestValidateHookSubscribeRequest_ReturnsInvalidParams(t *testing.T) {
+	err := validateHookSubscribeRequest(dto.HookSubscribeRequest{})
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("validateHookSubscribeRequest() error = %T, want *jrpc2.Error", err)
+	}
+	if got := int(rpcErr.Code); got != dto.ErrCodeInvalidParams {
+		t.Fatalf("validateHookSubscribeRequest() code = %d, want %d", got, dto.ErrCodeInvalidParams)
+	}
+}
+
+func TestValidateHookResolveRequest_ReturnsInvalidParams(t *testing.T) {
+	err := validateHookResolveRequest(dto.HookResolveRequest{})
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("validateHookResolveRequest() error = %T, want *jrpc2.Error", err)
+	}
+	if got := int(rpcErr.Code); got != dto.ErrCodeInvalidParams {
+		t.Fatalf("validateHookResolveRequest() code = %d, want %d", got, dto.ErrCodeInvalidParams)
+	}
+}
+
+func TestMapHookHandlerError_StoreErrorReturnsInternal(t *testing.T) {
+	err := mapHookHandlerError("resolve", platformdb.WrapStoreError(errors.New("boom"), "save", "hook_pending_review"))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("mapHookHandlerError() error = %T, want *jrpc2.Error", err)
+	}
+	if got := int(rpcErr.Code); got != dto.ErrCodeInternal {
+		t.Fatalf("mapHookHandlerError() code = %d, want %d", got, dto.ErrCodeInternal)
 	}
 }

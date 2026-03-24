@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -83,7 +84,7 @@ func withQueryTimeout(ctx context.Context, timeout time.Duration) (context.Conte
 	if timeout <= 0 {
 		timeout = defaultQueryTimeout
 	}
-	return context.WithTimeout(ctx, timeout)
+	return platformconfig.WithTimeout(ctx, timeout)
 }
 
 func validateQuery(query string, argCount int) error {

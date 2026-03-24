@@ -58,6 +58,7 @@ type ApprovalRequest struct {
 	SourceMethod   string         `json:"sourceMethod,omitempty"`
 	CallbackMethod string         `json:"-"`
 	RequestID      *int64         `json:"requestId,omitempty"`
+	ApprovalPolicy string         `json:"-"`
 	Payload        map[string]any `json:"payload,omitempty"`
 }
 
@@ -91,14 +92,23 @@ func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridg
 	if owner {
 		m.publishRequested(pending)
 	}
-	if err := m.ensureDispatch(bridge, server, pending); err != nil {
-		if owner {
+	if owner {
+		if err := m.ensureDispatch(bridge, server, pending); err != nil {
 			m.failPending(pending, err)
+			return contract.ApprovalDecision{}, err
 		}
-		return contract.ApprovalDecision{}, err
 	}
 	decision, err := waitForApproval(ctx, pending)
-	if err == nil || !owner {
+	if err == nil {
+		return decision, nil
+	}
+	if owner {
+		if decision, ok := canceledApprovalDecision(ctx, err); ok {
+			m.finishPending(pending, decision, nil)
+			return waitForApproval(context.Background(), pending)
+		}
+	}
+	if !owner {
 		return decision, err
 	}
 	err = mapApprovalWaitErr(err, pending.callID)
@@ -164,9 +174,17 @@ func (m *ApprovalManager) registerPending(req ApprovalRequest, dispatcher *event
 }
 
 func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Server, pending *pendingApproval) error {
-	// Provider-side approvals may rely on a later approval/respond RPC when
-	// there is no live callback-capable jrpc2 server for direct dispatch.
-	if bridge == nil || server == nil {
+	if pending == nil {
+		return ErrInvalidState("approval pending state is nil")
+	}
+	if decision, warnMsg, ok := dispatchApprovalDecision(pending.request, bridge, server); ok {
+		if warnMsg != "" {
+			m.logger.Warn(warnMsg,
+				"call_id", pending.callID,
+				"request_id", int64Value(pending.requestID),
+				"kind", pending.request.Kind)
+		}
+		m.finishPending(pending, decision, nil)
 		return nil
 	}
 	ctx, method, params, err := m.beginDispatch(bridge, server, pending)

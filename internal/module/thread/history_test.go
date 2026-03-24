@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -167,7 +168,7 @@ func (s *historyTestBindingStore) GetByProviderThread(_ context.Context, provide
 		copy := binding
 		return &copy, nil
 	}
-	return nil, errors.New("binding not found")
+	return nil, platformdb.ErrNotFound
 }
 
 func (s *historyTestBindingStore) Upsert(_ context.Context, params bindingstore.UpsertParams) error {
@@ -200,7 +201,7 @@ func (s *historyTestBindingStore) SetArchived(context.Context, bindingstore.SetA
 func (s *historyTestBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
 	binding, ok := s.bindings[strings.TrimSpace(agentID)]
 	if !ok {
-		return nil, errors.New("binding not found")
+		return nil, platformdb.ErrNotFound
 	}
 	copy := binding
 	return &copy, nil
@@ -226,9 +227,9 @@ func (s *historyTestBindingStore) ListAgentThreadBindings(context.Context) ([]bi
 func (s *historyTestBindingStore) GetThreadByAgent(_ context.Context, agentID string) (string, error) {
 	binding, ok := s.bindings[strings.TrimSpace(agentID)]
 	if !ok {
-		return "", errors.New("binding not found")
+		return "", platformdb.ErrNotFound
 	}
-	return binding.ProviderThreadID, nil
+	return firstNonEmpty(binding.CodexThreadID, binding.ProviderThreadID), nil
 }
 
 func (s *historyTestBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
@@ -260,7 +261,7 @@ type historyTestThreadStore struct {
 func (s *historyTestThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
 	thread, ok := s.threads[strings.TrimSpace(threadID)]
 	if !ok {
-		return nil, errors.New("thread not found")
+		return nil, platformdb.ErrNotFound
 	}
 	copy := thread
 	return &copy, nil

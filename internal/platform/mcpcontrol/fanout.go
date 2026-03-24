@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -182,8 +183,25 @@ func (r *ToolRegistry) notifyTargets(ctx context.Context, targets []sendTarget, 
 }
 
 func (r *ToolRegistry) runNotifyWorker(ctx context.Context, jobs <-chan sendTarget, errs chan<- error, method string, params any) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("mcp notify worker goroutine panic",
+				"method", method,
+				"panic", rec,
+			)
+		}
+	}()
 	for target := range jobs {
-		errs <- r.notifyTarget(ctx, target, method, params)
+		var err error
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					err = r.recoverWorkerPanic(ctx, "notify", method, target, rec)
+				}
+			}()
+			err = r.notifyTarget(ctx, target, method, params)
+		}()
+		errs <- err
 	}
 }
 
@@ -193,13 +211,30 @@ func (r *ToolRegistry) notifyTarget(ctx context.Context, target sendTarget, meth
 	if err := target.peer.Notify(callCtx, method, params); err != nil {
 		peer, evicted := r.notePeerFailure(target.key)
 		if evicted {
-			r.cleanupLease(context.Background(), target.key)
+			r.cleanupLeaseWithTimeout(ctx, target.key)
 		}
 		closePeer(peer)
 		return fmt.Errorf("%s/%d: %w", target.key.InstanceID, target.key.Generation, err)
 	}
 	r.resetPeerFailure(target.key)
 	return nil
+}
+
+func (r *ToolRegistry) recoverWorkerPanic(ctx context.Context, operation, method string, target sendTarget, rec any) error {
+	err := fmt.Errorf("mcp %s worker panic for %s/%d method=%s: %v", operation, target.key.InstanceID, target.key.Generation, method, rec)
+	peer, evicted := r.notePeerFailure(target.key)
+	if evicted {
+		r.cleanupLeaseWithTimeout(ctx, target.key)
+	}
+	closePeer(peer)
+	slog.Error("mcp worker panic",
+		"operation", operation,
+		"method", method,
+		"lease_key", target.key,
+		"panic", rec,
+		"error", err,
+	)
+	return err
 }
 
 func (r *ToolRegistry) notePeerFailure(key LeaseKey) (Peer, bool) {

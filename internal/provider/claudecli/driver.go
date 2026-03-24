@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -155,7 +156,7 @@ func (d *driver) reportRuntime(agentID string) {
 	if agentID == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	// TODO: Claude CLI is stdio-backed today. Report the real runtime/control

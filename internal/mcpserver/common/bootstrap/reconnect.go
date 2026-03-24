@@ -2,12 +2,13 @@ package bootstrap
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/creachadair/jrpc2"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const reconnectMaxDelay = 30 * time.Second
@@ -17,7 +18,11 @@ func (c *Client) handleStop(stopped *jrpc2.Client, err error) {
 	if !shouldReconnect {
 		return
 	}
-	log.Printf("bootstrap disconnected: instance=%s err=%v", c.instanceID, err)
+	slog.Warn("bootstrap disconnected",
+		"instance_id", c.instanceID,
+		"lease_key", c.currentLease(),
+		"error", err,
+	)
 	go c.reconnectLoop(rootCtx)
 }
 
@@ -57,11 +62,19 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 			c.activateLocked(conn, reg)
 			c.mu.Unlock()
 			c.flushQueuedReports(context.Background())
-			c.replayHookSubscriptions(ctx)
-			log.Printf("bootstrap reconnected: instance=%s generation=%d", c.instanceID, reg.Lease.Generation)
+			replayErr := c.replayHookSubscriptions(ctx)
+			slog.Info("bootstrap reconnected",
+				"instance_id", c.instanceID,
+				"lease_key", reg.Lease,
+				"hook_replay_pending", replayErr != nil,
+			)
 			return
 		}
-		log.Printf("bootstrap reconnect failed: instance=%s retry_in=%s err=%v", c.instanceID, delay, err)
+		slog.Warn("bootstrap reconnect failed",
+			"instance_id", c.instanceID,
+			"retry_in", delay,
+			"error", err,
+		)
 		if !sleepContext(ctx, delay) {
 			return
 		}
@@ -70,7 +83,7 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 }
 
 func (c *Client) reconnectAttempt(ctx context.Context) (*jrpc2.Client, *mcp.RegisterResponse, error) {
-	attemptCtx, cancel := context.WithTimeout(ctx, defaultHeartbeatInterval)
+	attemptCtx, cancel := platformconfig.WithPeerTimeout(ctx, defaultHeartbeatInterval)
 	defer cancel()
 	return c.connectAndRegister(attemptCtx)
 }

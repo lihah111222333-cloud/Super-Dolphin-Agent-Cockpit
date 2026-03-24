@@ -2,9 +2,11 @@ package mcpcontrol
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"go.uber.org/fx"
 )
 
 type stubHookLifecycle struct {
@@ -24,6 +26,14 @@ type stubLifecyclePeer struct {
 	callbackCount int
 	closeCount    int
 	callbackFn    func(context.Context, string, any, any) error
+}
+
+type lifecycleHookRecorder struct {
+	hooks []fx.Hook
+}
+
+func (r *lifecycleHookRecorder) Append(hook fx.Hook) {
+	r.hooks = append(r.hooks, hook)
 }
 
 func (s *stubLifecyclePeer) Notify(context.Context, string, any) error { return nil }
@@ -133,5 +143,44 @@ func TestOnDisconnect_CleansUpHooksAndEvictsLease(t *testing.T) {
 	}
 	if peer.closeCount != 1 {
 		t.Fatalf("Close() count = %d, want 1", peer.closeCount)
+	}
+}
+
+func TestRegisterRegistryLifecycle_OnStopCleansActiveLeases(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	lifecycle := &stubHookLifecycle{
+		shutdownFn: func(ctx context.Context, _ dto.LeaseKey) error {
+			if _, ok := ctx.Deadline(); !ok {
+				t.Fatal("ShutdownHooks() ctx missing deadline")
+			}
+			return nil
+		},
+	}
+	activeA := dto.LeaseKey{InstanceID: "tool-a", Generation: 1}
+	activeB := dto.LeaseKey{InstanceID: "tool-b", Generation: 2}
+	disconnected := dto.LeaseKey{InstanceID: "tool-c", Generation: 3}
+	registry.setHookLifecycle(lifecycle)
+	registry.instances[activeB] = &ToolInstance{Lease: activeB, Status: dto.StatusActive}
+	registry.instances[disconnected] = &ToolInstance{Lease: disconnected, Status: dto.StatusDisconnected}
+	registry.instances[activeA] = &ToolInstance{Lease: activeA, Status: dto.StatusActive}
+
+	recorder := &lifecycleHookRecorder{}
+	registerRegistryLifecycle(recorder, registry)
+
+	if len(recorder.hooks) != 1 {
+		t.Fatalf("registered hooks = %d, want 1", len(recorder.hooks))
+	}
+	if recorder.hooks[0].OnStop == nil {
+		t.Fatal("OnStop = nil, want registry cleanup hook")
+	}
+	if err := recorder.hooks[0].OnStop(context.Background()); err != nil {
+		t.Fatalf("OnStop() error = %v", err)
+	}
+
+	want := []dto.LeaseKey{activeA, activeB}
+	if !reflect.DeepEqual(lifecycle.calls, want) {
+		t.Fatalf("ShutdownHooks() calls = %#v, want %#v", lifecycle.calls, want)
 	}
 }

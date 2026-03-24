@@ -1,16 +1,5 @@
 package skill
 
-import commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
-
-type Card = commandcardstore.CommandCard
-type CardVersion = commandcardstore.CommandCardVersion
-
-type CardRunResult struct {
-	CardKey         string     `json:"card_key"`
-	RenderedCommand string     `json:"rendered_command"`
-	Exec            ExecResult `json:"exec"`
-}
-
 type ExecResult struct {
 	ExitCode int    `json:"exitCode"`
 	Stdout   string `json:"stdout"`

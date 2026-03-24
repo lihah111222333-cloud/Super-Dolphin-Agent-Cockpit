@@ -5,19 +5,60 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
 	"github.com/qmuntal/stateless"
+	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
+)
+
+type Service = contract.OrchestrationService
+type SessionCleaner = contract.OrchestrationSessionCleaner
+type TurnStarter = contract.OrchestrationTurnStarter
+
+type TurnSubmission = contract.TurnSubmission
+type RuntimeReport = contract.RuntimeReport
+
+type LaunchRequest = contract.LaunchRequest
+type AgentSnapshot = contract.AgentSnapshot
+type AgentStateResult = contract.AgentStateResult
+type AgentReportMetadata = contract.AgentReportMetadata
+type AgentReportResult = contract.AgentReportResult
+type RememberReportRequest = contract.RememberReportRequest
+type RememberReportRequestResult = contract.RememberReportRequestResult
+type ReportEvent = contract.ReportEvent
+type ReportEventResult = contract.ReportEventResult
+type CreateDAGRequest = contract.CreateDAGRequest
+type CreateDAGNodeRequest = contract.CreateDAGNodeRequest
+type ListDAGsFilter = contract.ListDAGsFilter
+type UpdateNodeStatusRequest = contract.UpdateNodeStatusRequest
+type DAGSummary = contract.DAGSummary
+type DAGNode = contract.DAGNode
+type DAGDetail = contract.DAGDetail
+
+var Module = fx.Module("orchestration",
+	fx.Provide(
+		NewService,
+		func(s *service) Service { return s },
+		func(s Service) contract.RuntimeReporter { return runtimeReporter{svc: s} },
+		NewOrchestrationHandlers,
+		fx.Annotate(NewRunnerActor, fx.ResultTags(`group:"runners"`)),
+	),
+	fx.Invoke(registerTurnLifecycle),
+	fx.Invoke(registerApprovalLifecycle),
 )
 
 var (
@@ -25,12 +66,6 @@ var (
 	errIllegalStateTransition = errors.New("illegal state transition")
 	errTurnNotActive          = errors.New("turn is not active")
 )
-
-const submitSessionReadyTimeout = 5 * time.Second
-
-type sessionReadyWaiter interface {
-	WaitForSessionReady(ctx context.Context, agentID string, timeout time.Duration) error
-}
 
 type service struct {
 	logger         *slog.Logger
@@ -121,6 +156,77 @@ func NewService(
 	}
 }
 
+func registerTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	startedCancel := func() {}
+	completedCancel := func() {}
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			startedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnStarted) {
+				ctx := withEventTime(context.Background(), ev.Timestamp)
+				if err := svc.BindActiveTurnID(ctx, ev.AgentID, ev.TurnID); err != nil && !errors.Is(err, errAgentNotFound) && !errors.Is(err, errTurnNotActive) {
+					logger.Warn("orchestration: failed to bind active turn id", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
+				}
+			}, logger)
+			completedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
+				handleTurnCompletedEvent(svc, logger, ev)
+			}, logger)
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			startedCancel()
+			completedCancel()
+			return nil
+		},
+	})
+}
+
+func registerApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
+	requestedCancel := func() {}
+	resolvedCancel := func() {}
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			requestedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalRequested) {
+				handleToolApprovalRequestedEvent(svc, loggerOrDefault(logger), ev)
+			}, logger)
+			resolvedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalResolved) {
+				handleToolApprovalResolvedEvent(svc, loggerOrDefault(logger), ev)
+			}, logger)
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			requestedCancel()
+			resolvedCancel()
+			return nil
+		},
+	})
+}
+
+func loggerOrDefault(logger *slog.Logger) *slog.Logger {
+	if logger != nil {
+		return logger
+	}
+	return slog.Default()
+}
+
+func withEventTime(ctx context.Context, timestamp time.Time) context.Context {
+	return sharedto.WithEventTime(ctx, timestamp)
+}
+
+func resolveEventTime(ctx context.Context, fallbacks ...time.Time) time.Time {
+	return sharedto.ResolveEventTime(ctx, nil, fallbacks...)
+}
+
+type runtimeReporter struct {
+	svc Service
+}
+
+func (r runtimeReporter) ReportRuntime(ctx context.Context, report contract.RuntimeReport) error {
+	return r.svc.UpdateRuntime(ctx, report)
+}
+
 func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error {
 	if err := validateLaunchRequest(req); err != nil {
 		return err
@@ -171,18 +277,6 @@ func (s *service) StopAllAgents() {
 	}
 }
 
-func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime, reason string) error {
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerStopRequested); err != nil {
-		return err
-	}
-	agent.stopRequested = true
-	agent.stopReason = strings.TrimSpace(reason)
-	agent.queue.Clear()
-	agent.activeTurnID = ""
-	agent.threadID = ""
-	return stopProcess(agent.cmd)
-}
-
 func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 	agentID := strings.TrimSpace(req.AgentID)
 	waitForSession, err := s.submitAgentReadyState(agentID)
@@ -215,34 +309,6 @@ func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 		}
 	}
 	return nil
-}
-
-func (s *service) submitAgentReadyState(agentID string) (bool, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil {
-		return false, err
-	}
-	if agent.cmd == nil {
-		return false, fmt.Errorf("agent %q is not running", agent.id)
-	}
-	if agent.stopRequested {
-		return false, fmt.Errorf("agent %q is stopping", agent.id)
-	}
-	return agent.state == agentdto.StateIdle && agent.activeTurnID == "" && agent.queue.Len() == 0, nil
-}
-
-func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string) error {
-	if s == nil || s.turnStarter == nil {
-		return nil
-	}
-	waiter, ok := s.turnStarter.(sessionReadyWaiter)
-	if !ok {
-		return nil
-	}
-	return waiter.WaitForSessionReady(ctx, agentID, submitSessionReadyTimeout)
 }
 
 func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
@@ -282,89 +348,6 @@ func (s *service) GetAgentSnapshot(agentID string) (*AgentSnapshot, error) {
 		return nil, err
 	}
 	return &snapshot, nil
-}
-
-func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
-	cmd := exec.Command(agent.command[0], agent.command[1:]...)
-	cmd.Dir = agent.cwd
-	cmd.Env = append(os.Environ(), agent.env...)
-	if err := cmd.Start(); err != nil {
-		agent.lastError = err.Error()
-		if fireErr := s.fireOrForceLocked(ctx, agent, agentdto.TriggerLaunchFailed); fireErr != nil {
-			return errors.Join(err, fireErr)
-		}
-		return err
-	}
-	now := resolveEventTime(ctx, agent.updatedAt)
-	agent.cmd = cmd
-	agent.launchSeq++
-	agent.monitoredSeq = 0
-	agent.stopRequested = false
-	agent.activeTurnID = ""
-	agent.threadID = ""
-	agent.startedAt = now
-	agent.updatedAt = now
-	agent.exitedAt = nil
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerLaunchSucceeded); err != nil {
-		agent.lastError = err.Error()
-		_ = stopProcess(cmd)
-		agent.cmd = nil
-		return err
-	}
-	s.logger.Info("orchestration: agent launched", "agent_id", agent.id, "pid", cmd.Process.Pid)
-	s.publishAgentLaunched(agent)
-	return nil
-}
-
-func (s *service) fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger string) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	before := ""
-	if agent != nil {
-		before = agent.state
-	}
-	if agent == nil || agent.sm == nil {
-		return formatIllegalTransitionError(ctx, agent, before, trigger, errors.New("state machine is not initialized"))
-	}
-	if err := s.fireAndPublishLocked(ctx, agent, trigger); err != nil {
-		return formatIllegalTransitionError(ctx, agent, before, trigger, err)
-	}
-	return nil
-}
-
-func formatIllegalTransitionError(ctx context.Context, agent *agentRuntime, before, trigger string, err error) error {
-	allowed := allowedTriggersForState(ctx, agent, before)
-	agentID := ""
-	if agent != nil {
-		agentID = agent.id
-	}
-	return fmt.Errorf("%w for agent %q: state=%s trigger=%s allowed=%v: %w", errIllegalStateTransition, agentID, before, trigger, allowed, err)
-}
-
-func allowedTriggersForState(ctx context.Context, agent *agentRuntime, state string) []string {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if agent != nil && agent.sm != nil {
-		if allowed := platformstatemachine.AllowedTriggers(agent.sm, ctx); allowed != nil {
-			return allowed
-		}
-	}
-	if strings.TrimSpace(state) == "" {
-		return nil
-	}
-	return agentdto.AllowedTriggers(state)
-}
-
-func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime, trigger string) error {
-	before := agent.state
-	if err := agent.sm.FireCtx(ctx, stateless.Trigger(trigger)); err != nil {
-		return err
-	}
-	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
-	s.publishStateChanged(agent, before, trigger)
-	return nil
 }
 
 func (s *service) CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -255,7 +255,12 @@ func (c *Client) Close() error {
 		c.flushQueuedReportsWithConn(context.Background(), conn, lease)
 		if finalReq := c.finalReportRequest(); finalReq != nil {
 			if _, err := c.sendReportWithConn(context.Background(), conn, lease, *finalReq); err != nil && !isTransportErr(err) {
-				log.Printf("bootstrap final report failed: instance=%s report_id=%s err=%v", c.instanceID, finalReq.ReportID, err)
+				slog.Warn("bootstrap final report failed",
+					"instance_id", c.instanceID,
+					"lease_key", lease,
+					"report_id", finalReq.ReportID,
+					"error", err,
+				)
 			}
 		}
 	}

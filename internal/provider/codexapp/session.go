@@ -17,26 +17,29 @@ import (
 )
 
 type session struct {
-	agentID      string
-	threadID     atomic.Value
-	transport    *transport
-	caps         dto.CapabilitySet
-	recovery     *recoveryManager
-	history      *rolloutReader
-	logger       *slog.Logger
-	dispatcher   *unified.EventDispatcher
-	approvals    *rpc.ApprovalManager
-	ctx          context.Context
-	cancel       context.CancelFunc
-	mu           sync.Mutex
-	recoveryMu   sync.Mutex
-	readLoopMu   sync.Mutex
-	readLoopDone chan struct{}
-	lastReadAt   atomic.Int64
-	turns        map[string]*turnHandle
-	activeTurnID string
-	pendingTurn  *turnReplayState
-	suppressed   map[string]struct{}
+	agentID            string
+	threadID           atomic.Value
+	approvalPolicy     atomic.Value
+	transport          *transport
+	caps               dto.CapabilitySet
+	recovery           *recoveryManager
+	history            *rolloutReader
+	logger             *slog.Logger
+	dispatcher         *unified.EventDispatcher
+	approvals          *rpc.ApprovalManager
+	ctx                context.Context
+	cancel             context.CancelFunc
+	mu                 sync.Mutex
+	approvalMu         sync.Mutex
+	recoveryMu         sync.Mutex
+	readLoopMu         sync.Mutex
+	readLoopDone       chan struct{}
+	lastReadAt         atomic.Int64
+	turns              map[string]*turnHandle
+	activeTurnID       string
+	pendingTurn        *turnReplayState
+	suppressed         map[string]struct{}
+	processedApprovals map[int64]contract.ApprovalDecision
 }
 
 var _ contract.Session = (*session)(nil)
@@ -63,18 +66,19 @@ func newSession(
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &session{
-		agentID:    strings.TrimSpace(agentID),
-		transport:  transport,
-		caps:       cloneCaps(codexCapabilities),
-		recovery:   &recoveryManager{transport: transport, logger: logger, maxRetry: 3},
-		history:    &rolloutReader{logger: logger, transport: transport},
-		logger:     logger,
-		dispatcher: dispatcher,
-		approvals:  approvals,
-		ctx:        ctx,
-		cancel:     cancel,
-		turns:      map[string]*turnHandle{},
-		suppressed: map[string]struct{}{},
+		agentID:            strings.TrimSpace(agentID),
+		transport:          transport,
+		caps:               cloneCaps(codexCapabilities),
+		recovery:           &recoveryManager{transport: transport, logger: logger, maxRetry: 3},
+		history:            &rolloutReader{logger: logger, transport: transport},
+		logger:             logger,
+		dispatcher:         dispatcher,
+		approvals:          approvals,
+		ctx:                ctx,
+		cancel:             cancel,
+		turns:              map[string]*turnHandle{},
+		suppressed:         map[string]struct{}{},
+		processedApprovals: map[int64]contract.ApprovalDecision{},
 	}
 	s.noteReadActivity()
 	s.startReadLoop()
@@ -220,7 +224,13 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 	if err := s.applySlashConfig(ctx, threadID, "thread/personality/set", "personality", patch.Personality); err != nil {
 		return err
 	}
-	return s.applySlashConfig(ctx, threadID, "thread/approvals/set", "policy", patch.Approvals)
+	if err := s.applySlashConfig(ctx, threadID, "thread/approvals/set", "policy", patch.Approvals); err != nil {
+		return err
+	}
+	if patch.Approvals != nil {
+		s.setApprovalPolicy(*patch.Approvals)
+	}
+	return nil
 }
 
 func (s *session) Close(context.Context) error {

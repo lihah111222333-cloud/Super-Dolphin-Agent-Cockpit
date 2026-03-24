@@ -8,6 +8,8 @@ import (
 )
 
 func TestReadBootConfig_UsesLegacyEnvWithDeprecationWarning(t *testing.T) {
+	resetBootEnvVars(t)
+
 	t.Setenv("RPC_ADDR", "127.0.0.1:9100")
 	t.Setenv("GO_AGENT_MCP_INSTANCE_ID", "instance-old")
 	t.Setenv("GO_AGENT_MCP_THREAD_ID", "thread-old")
@@ -69,6 +71,8 @@ func TestReadBootConfig_UsesLegacyEnvWithDeprecationWarning(t *testing.T) {
 }
 
 func TestReadBootConfig_PrefersCanonicalEnvWithoutDeprecationWarning(t *testing.T) {
+	resetBootEnvVars(t)
+
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "127.0.0.1:9200")
 	t.Setenv("RPC_ADDR", "127.0.0.1:9300")
 	t.Setenv("GO_AGENT_CTL_BOOTSTRAP_JSON", `{"instance_id":"snap-new"}`)
@@ -96,5 +100,32 @@ func TestReadBootConfig_PrefersCanonicalEnvWithoutDeprecationWarning(t *testing.
 	}
 	if logs := buf.String(); logs != "" {
 		t.Fatalf("logs = %q, want empty", logs)
+	}
+}
+
+func resetBootEnvVars(t *testing.T) {
+	t.Helper()
+
+	for _, key := range []string{
+		"GO_AGENT_CTL_RPC_ADDR",
+		"RPC_ADDR",
+		"GO_AGENT_CTL_INSTANCE_ID",
+		"GO_AGENT_MCP_INSTANCE_ID",
+		"GO_AGENT_CTL_BOOT_ID",
+		"GO_AGENT_MCP_BOOT_ID",
+		"GO_AGENT_CTL_BINARY_NAME",
+		"GO_AGENT_MCP_BINARY_NAME",
+		"GO_AGENT_CTL_CLIENT_KIND",
+		"GO_AGENT_MCP_CLIENT_KIND",
+		"GO_AGENT_CTL_AGENT_ID",
+		"GO_AGENT_MCP_AGENT_ID",
+		"GO_AGENT_CTL_THREAD_ID",
+		"GO_AGENT_MCP_THREAD_ID",
+		"GO_AGENT_CTL_SESSION_TOKEN",
+		"GO_AGENT_MCP_SESSION_TOKEN",
+		"GO_AGENT_CTL_BOOTSTRAP_JSON",
+		"GO_AGENT_MCP_BOOT_CONTEXT",
+	} {
+		t.Setenv(key, "")
 	}
 }

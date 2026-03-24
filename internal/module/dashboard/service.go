@@ -11,10 +11,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 	dbquerystore "github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
 	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"golang.org/x/sync/errgroup"
@@ -34,9 +32,7 @@ type service struct {
 	aiLogs        ailogstore.Store
 	dbQueries     dbquerystore.Store
 	taskTraces    tasktracestore.Store
-	sharedFiles   sharedfilestore.Store
-	commandCards  commandcardstore.Store
-	prompts       promptstore.Store
+	queries       *sqlc.Queries
 	skills        skillmodule.Service
 	startedAt     time.Time
 }
@@ -58,9 +54,7 @@ func NewService(
 	aiLogs ailogstore.Store,
 	dbQueries dbquerystore.Store,
 	taskTraces tasktracestore.Store,
-	sharedFiles sharedfilestore.Store,
-	commandCards commandcardstore.Store,
-	prompts promptstore.Store,
+	queries *sqlc.Queries,
 	skills skillmodule.Service,
 ) Service {
 	return &service{
@@ -69,9 +63,7 @@ func NewService(
 		aiLogs:        aiLogs,
 		dbQueries:     dbQueries,
 		taskTraces:    taskTraces,
-		sharedFiles:   sharedFiles,
-		commandCards:  commandCards,
-		prompts:       prompts,
+		queries:       queries,
 		skills:        skills,
 		startedAt:     time.Now(),
 	}

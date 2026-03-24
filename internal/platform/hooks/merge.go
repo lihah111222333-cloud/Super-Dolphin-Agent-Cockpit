@@ -34,26 +34,6 @@ func MergeBefore(decisions []peerDecision[mcp.BeforeDecision]) MergeResult[mcp.B
 	}
 }
 
-func MergeDuring(decisions []peerDecision[mcp.CheckDecision]) MergeResult[mcp.CheckDecision] {
-	normalized, failed, lost := normalizeCheckDecisions(decisions)
-	return MergeResult[mcp.CheckDecision]{
-		Decision:       mergeCheckDecision(normalized),
-		PartialFailure: len(failed) > 0,
-		FailedLeases:   failed,
-		LostLeases:     lost,
-	}
-}
-
-func MergeAfter(decisions []peerDecision[mcp.AfterDecision]) MergeResult[mcp.AfterDecision] {
-	normalized, failed, lost := normalizeAfterDecisions(decisions)
-	return MergeResult[mcp.AfterDecision]{
-		Decision:       mergeAfterDecision(normalized),
-		PartialFailure: len(failed) > 0,
-		FailedLeases:   failed,
-		LostLeases:     lost,
-	}
-}
-
 func normalizeBeforeDecisions(decisions []peerDecision[mcp.BeforeDecision]) ([]mcp.BeforeDecision, []mcp.LeaseKey, []mcp.LeaseKey) {
 	normalized := make([]mcp.BeforeDecision, 0, len(decisions))
 	failed := make([]mcp.LeaseKey, 0)
@@ -86,54 +66,6 @@ func normalizeBeforeDecisions(decisions []peerDecision[mcp.BeforeDecision]) ([]m
 	return normalized, failed, lost
 }
 
-func normalizeCheckDecisions(decisions []peerDecision[mcp.CheckDecision]) ([]mcp.CheckDecision, []mcp.LeaseKey, []mcp.LeaseKey) {
-	normalized := make([]mcp.CheckDecision, 0, len(decisions))
-	failed := make([]mcp.LeaseKey, 0)
-	lost := make([]mcp.LeaseKey, 0)
-	failedSeen := make(map[mcp.LeaseKey]struct{}, len(decisions))
-	lostSeen := make(map[mcp.LeaseKey]struct{}, len(decisions))
-	for _, item := range decisions {
-		if item.Err != nil {
-			failed = appendUniqueLease(failed, failedSeen, item.Lease)
-			if item.ConsecutiveFailures >= 3 {
-				lost = appendUniqueLease(lost, lostSeen, item.Lease)
-			}
-			continue
-		}
-		normalized = append(normalized, mcp.CheckDecision{
-			Decision: normalizeCheckDecision(item.Decision.Decision),
-			Severity: strings.TrimSpace(item.Decision.Severity),
-			Reason:   strings.TrimSpace(item.Decision.Reason),
-		})
-	}
-	return normalized, failed, lost
-}
-
-func normalizeAfterDecisions(decisions []peerDecision[mcp.AfterDecision]) ([]mcp.AfterDecision, []mcp.LeaseKey, []mcp.LeaseKey) {
-	normalized := make([]mcp.AfterDecision, 0, len(decisions))
-	failed := make([]mcp.LeaseKey, 0)
-	lost := make([]mcp.LeaseKey, 0)
-	failedSeen := make(map[mcp.LeaseKey]struct{}, len(decisions))
-	lostSeen := make(map[mcp.LeaseKey]struct{}, len(decisions))
-	for _, item := range decisions {
-		if item.Err != nil {
-			failed = appendUniqueLease(failed, failedSeen, item.Lease)
-			if item.ConsecutiveFailures >= 3 {
-				lost = appendUniqueLease(lost, lostSeen, item.Lease)
-			}
-			continue
-		}
-		normalized = append(normalized, mcp.AfterDecision{
-			Decision:       normalizeAfterDecision(item.Decision.Decision),
-			Patch:          cloneRawMessage(item.Decision.Patch),
-			Mutations:      cloneRawMessage(item.Decision.Mutations),
-			DispatchIntent: cloneRawMessage(item.Decision.DispatchIntent),
-			Reason:         strings.TrimSpace(item.Decision.Reason),
-		})
-	}
-	return normalized, failed, lost
-}
-
 func mergeBeforeDecision(decisions []mcp.BeforeDecision) mcp.BeforeDecision {
 	if len(decisions) == 0 {
 		return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}
@@ -157,67 +89,11 @@ func mergeBeforeDecision(decisions []mcp.BeforeDecision) mcp.BeforeDecision {
 	return merged
 }
 
-func mergeCheckDecision(decisions []mcp.CheckDecision) mcp.CheckDecision {
-	if len(decisions) == 0 {
-		return mcp.CheckDecision{Decision: mcp.HookDecisionContinue}
-	}
-	final := highestCheckDecision(decisions)
-	return mcp.CheckDecision{
-		Decision: final,
-		Severity: firstCheckSeverity(decisions, final),
-		Reason:   firstCheckReason(decisions, final),
-	}
-}
-
-func mergeAfterDecision(decisions []mcp.AfterDecision) mcp.AfterDecision {
-	if len(decisions) == 0 {
-		return mcp.AfterDecision{Decision: mcp.HookDecisionReject}
-	}
-	final := highestAfterDecision(decisions)
-	merged := mcp.AfterDecision{
-		Decision: final,
-		Reason:   firstAfterReason(decisions, final),
-	}
-	if final == mcp.HookDecisionEscalate || final == mcp.HookDecisionApprove {
-		candidate, ok := firstAfterByDecision(decisions, final)
-		if ok {
-			merged.Patch = cloneRawMessage(candidate.Patch)
-			merged.Mutations = cloneRawMessage(candidate.Mutations)
-			merged.DispatchIntent = cloneRawMessage(candidate.DispatchIntent)
-		}
-	}
-	return merged
-}
-
 func highestBeforeDecision(decisions []mcp.BeforeDecision) string {
 	best := mcp.HookDecisionAllow
 	bestRank := beforeRank(best)
 	for _, item := range decisions {
 		if rank := beforeRank(item.Decision); rank > bestRank {
-			best = item.Decision
-			bestRank = rank
-		}
-	}
-	return best
-}
-
-func highestCheckDecision(decisions []mcp.CheckDecision) string {
-	best := mcp.HookDecisionContinue
-	bestRank := checkRank(best)
-	for _, item := range decisions {
-		if rank := checkRank(item.Decision); rank > bestRank {
-			best = item.Decision
-			bestRank = rank
-		}
-	}
-	return best
-}
-
-func highestAfterDecision(decisions []mcp.AfterDecision) string {
-	best := mcp.HookDecisionApprove
-	bestRank := afterRank(best)
-	for _, item := range decisions {
-		if rank := afterRank(item.Decision); rank > bestRank {
 			best = item.Decision
 			bestRank = rank
 		}
@@ -269,15 +145,6 @@ func firstBeforeByDecision(decisions []mcp.BeforeDecision, want string) (mcp.Bef
 	return mcp.BeforeDecision{}, false
 }
 
-func firstAfterByDecision(decisions []mcp.AfterDecision, want string) (mcp.AfterDecision, bool) {
-	for _, item := range decisions {
-		if item.Decision == want {
-			return item, true
-		}
-	}
-	return mcp.AfterDecision{}, false
-}
-
 func firstBeforeReason(decisions []mcp.BeforeDecision, want string) string {
 	for _, item := range decisions {
 		if item.Decision == want && item.Reason != "" {
@@ -306,57 +173,12 @@ func maxBeforeRetry(decisions []mcp.BeforeDecision) int64 {
 	return retry
 }
 
-func firstCheckSeverity(decisions []mcp.CheckDecision, want string) string {
-	for _, item := range decisions {
-		if item.Decision == want && item.Severity != "" {
-			return item.Severity
-		}
-	}
-	return ""
-}
-
-func firstCheckReason(decisions []mcp.CheckDecision, want string) string {
-	for _, item := range decisions {
-		if item.Decision == want && item.Reason != "" {
-			return item.Reason
-		}
-	}
-	return ""
-}
-
-func firstAfterReason(decisions []mcp.AfterDecision, want string) string {
-	for _, item := range decisions {
-		if item.Decision == want && item.Reason != "" {
-			return item.Reason
-		}
-	}
-	return ""
-}
-
 func normalizeBeforeDecision(decision string) string {
 	switch strings.ToLower(strings.TrimSpace(decision)) {
 	case mcp.HookDecisionAllow, mcp.HookDecisionModify, mcp.HookDecisionWait, mcp.HookDecisionDeny:
 		return strings.ToLower(strings.TrimSpace(decision))
 	default:
 		return mcp.HookDecisionDeny
-	}
-}
-
-func normalizeCheckDecision(decision string) string {
-	switch strings.ToLower(strings.TrimSpace(decision)) {
-	case mcp.HookDecisionContinue, mcp.HookDecisionWarn, mcp.HookDecisionAbort:
-		return strings.ToLower(strings.TrimSpace(decision))
-	default:
-		return mcp.HookDecisionContinue
-	}
-}
-
-func normalizeAfterDecision(decision string) string {
-	switch strings.ToLower(strings.TrimSpace(decision)) {
-	case mcp.HookDecisionApprove, mcp.HookDecisionEscalate, mcp.HookDecisionReject:
-		return strings.ToLower(strings.TrimSpace(decision))
-	default:
-		return mcp.HookDecisionReject
 	}
 }
 
@@ -371,37 +193,4 @@ func beforeRank(decision string) int {
 	default:
 		return 0
 	}
-}
-
-func checkRank(decision string) int {
-	switch decision {
-	case mcp.HookDecisionAbort:
-		return 2
-	case mcp.HookDecisionWarn:
-		return 1
-	default:
-		return 0
-	}
-}
-
-func afterRank(decision string) int {
-	switch decision {
-	case mcp.HookDecisionReject:
-		return 2
-	case mcp.HookDecisionEscalate:
-		return 1
-	default:
-		return 0
-	}
-}
-
-func appendUniqueLease(leases []mcp.LeaseKey, seen map[mcp.LeaseKey]struct{}, lease mcp.LeaseKey) []mcp.LeaseKey {
-	if lease == (mcp.LeaseKey{}) {
-		return leases
-	}
-	if _, ok := seen[lease]; ok {
-		return leases
-	}
-	seen[lease] = struct{}{}
-	return append(leases, lease)
 }

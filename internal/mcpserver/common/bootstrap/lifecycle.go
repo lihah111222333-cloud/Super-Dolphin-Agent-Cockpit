@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -86,7 +86,11 @@ func (c *Client) registerConn(ctx context.Context, conn *jrpc2.Client) (*mcp.Reg
 
 func (c *Client) handleNotify(req *jrpc2.Request) {
 	if err := c.dispatchRequest(req); err != nil {
-		log.Printf("bootstrap notify dispatch failed: method=%s err=%v", req.Method(), err)
+		slog.Warn("bootstrap notify dispatch failed",
+			"instance_id", c.instanceID,
+			"callback_method", req.Method(),
+			"error", err,
+		)
 	}
 }
 
@@ -223,9 +227,30 @@ func (c *Client) nextLogSeq() uint64 {
 }
 
 func (c *Client) auditEventFallback(eventType string, payload json.RawMessage, sendErr error) {
-	log.Printf("bootstrap audit fallback event_type=%s err=%v payload=%s", strings.TrimSpace(eventType), sendErr, string(payload))
+	level := slog.LevelInfo
+	if sendErr != nil {
+		level = slog.LevelWarn
+	}
+	slog.Log(context.Background(), level, "bootstrap audit fallback",
+		"instance_id", c.instanceID,
+		"callback_method", mcp.MethodEvent,
+		"event_type", strings.TrimSpace(eventType),
+		"payload", string(payload),
+		"error", sendErr,
+	)
 }
 
 func (c *Client) localLogFallback(entry mcp.LogNotify, sendErr error) {
-	log.Printf("bootstrap local log fallback level=%s err=%v message=%q fields=%v", entry.Level, sendErr, entry.Message, entry.Fields)
+	level := slog.LevelInfo
+	if sendErr != nil {
+		level = slog.LevelWarn
+	}
+	slog.Log(context.Background(), level, "bootstrap local log fallback",
+		"instance_id", c.instanceID,
+		"callback_method", mcp.MethodLog,
+		"level", entry.Level,
+		"message", entry.Message,
+		"fields", entry.Fields,
+		"error", sendErr,
+	)
 }

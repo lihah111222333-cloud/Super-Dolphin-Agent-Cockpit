@@ -126,10 +126,7 @@ func lookupReadyTurnSession(
 }
 
 func readyTurnWaitContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if _, ok := ctx.Deadline(); ok {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(ctx, config.LaunchTimeout)
+	return config.WithTimeoutIfNone(ctx, config.LaunchTimeout)
 }
 
 func waitForReadyTurnSession(

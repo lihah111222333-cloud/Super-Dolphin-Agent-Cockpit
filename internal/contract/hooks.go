@@ -2,8 +2,16 @@ package contract
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+)
+
+var (
+	ErrHookReviewPermissionDenied = errors.New("hook review permission denied")
+	// ErrHookReviewNotFound indicates the requested hook review does not exist.
+	ErrHookReviewNotFound = errors.New("hook review not found")
 )
 
 // HookManager defines the core-layer hook infrastructure interface.
@@ -30,8 +38,9 @@ type HookLifecycle interface {
 type HookReviewStore interface {
 	SavePendingReview(ctx context.Context, review mcp.PendingHookReview) error
 	GetPendingReview(ctx context.Context, hookCallID string) (mcp.PendingHookReview, error)
+	GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, string, error)
 	ListPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error)
-	ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey string) error
+	ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey, resolvedBy string) error
 	CancelPendingReviewsByLease(ctx context.Context, subscriberLease string) (int, error)
 	CancelPendingReviewsByAgent(ctx context.Context, agentID string) (int, error)
 	CancelExpiredReviews(ctx context.Context) (int, error)

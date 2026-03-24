@@ -468,6 +468,10 @@ AllowedTools 合并：
 - `During` 默认 fail-open 到 `continue`
 - `ctl/hook/check` 的默认 callback timeout 是 `5s`
 
+> **实现说明**：After 阶段在部分 subscriber 失败时保留成功 subscriber 的合并决策（优先级 reject > escalate > approve），
+> 仅在全部 subscriber 失败时回退到 reject。这是务实的设计选择——After 发生在动作已执行之后，
+> 丢弃已获得的审查结果反而可能遗漏重要反馈。
+
 粗筛 / 细筛关系：
 
 - 工具列表过滤是粗筛
@@ -492,6 +496,10 @@ AllowedTools 合并：
 - `TTL` 到期后的默认决策是 `reject`
 - 默认策略是 fail-closed
 - `hook_call_id + idempotency_key` 构成 resolve 幂等键
+
+> **实现说明**：After 阶段在部分 subscriber 失败时保留成功 subscriber 的合并决策（优先级 reject > escalate > approve），
+> 仅在全部 subscriber 失败时回退到 reject。这是务实的设计选择——After 发生在动作已执行之后，
+> 丢弃已获得的审查结果反而可能遗漏重要反馈。
 
 恢复语义：
 
@@ -816,6 +824,10 @@ agent 说“任务完成”
 
 - 所有 hook callback 都必须带 deadline
 - `Before` / `After` 默认 fail-closed
+
+> **实现说明**：After 阶段在部分 subscriber 失败时保留成功 subscriber 的合并决策（优先级 reject > escalate > approve），
+> 仅在全部 subscriber 失败时回退到 reject。这是务实的设计选择——After 发生在动作已执行之后，
+> 丢弃已获得的审查结果反而可能遗漏重要反馈。
 
 ### §7.2 多个订阅方可能给出冲突决策
 

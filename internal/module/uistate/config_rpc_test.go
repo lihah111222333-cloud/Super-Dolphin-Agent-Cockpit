@@ -3,13 +3,16 @@ package uistate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
@@ -18,13 +21,13 @@ func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
 		preferenceStubKey("/repo", lspPromptHintOverrideKey): mustJSONRaw(t, "custom prompt"),
 	}}
-	files := &sharedFileStoreStub{files: map[string]sharedfilestore.SharedFile{
+	db := &configDBTXStub{files: map[string]sqlc.SharedFile{
 		lspPromptHintDefaultPath: {Path: lspPromptHintDefaultPath, Content: "default prompt"},
 	}}
 	server := newConfigTestServer(
 		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
 		prefs,
-		files,
+		sqlc.New(db),
 	)
 
 	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
@@ -57,7 +60,7 @@ func TestConfigPromptHintWriteRequiresPreferenceStore(t *testing.T) {
 	server := newConfigTestServer(
 		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
 		nil,
-		&sharedFileStoreStub{},
+		sqlc.New(&configDBTXStub{}),
 	)
 
 	if _, err := server.Dispatch(
@@ -72,10 +75,10 @@ func TestConfigPromptHintWriteRequiresPreferenceStore(t *testing.T) {
 func newConfigTestServer(
 	cfg *platformconfig.Config,
 	prefs uipreference.Store,
-	files sharedfilestore.Store,
+	queries *sqlc.Queries,
 ) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: cfg})
-	server.Register(NewConfigHandlers(cfg, prefs, files).Handlers)
+	server.Register(NewConfigHandlers(cfg, prefs, queries).Handlers)
 	return server
 }
 
@@ -124,29 +127,54 @@ func (s *uiPreferenceStoreStub) List(_ context.Context, cwd string) ([]uiprefere
 	return rows, nil
 }
 
-type sharedFileStoreStub struct {
-	files map[string]sharedfilestore.SharedFile
+// configDBTXStub is a minimal DBTX stub that supports GetSharedFile queries.
+type configDBTXStub struct {
+	files map[string]sqlc.SharedFile
 }
 
-func (s *sharedFileStoreStub) Upsert(context.Context, sharedfilestore.UpsertParams) (*sharedfilestore.SharedFile, error) {
-	return nil, nil
+func (s *configDBTXStub) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New("configDBTXStub: exec not implemented")
 }
 
-func (s *sharedFileStoreStub) Get(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
-	file, ok := s.files[path]
-	if !ok {
-		return nil, platformdb.ErrNotFound
+func (s *configDBTXStub) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("configDBTXStub: query not implemented")
+}
+
+func (s *configDBTXStub) QueryRow(_ context.Context, _ string, args ...any) pgx.Row {
+	if len(args) > 0 {
+		if path, ok := args[0].(string); ok && s.files != nil {
+			if file, exists := s.files[path]; exists {
+				return &configRowStub{file: &file}
+			}
+		}
 	}
-	out := file
-	return &out, nil
+	return &configRowStub{err: platformdb.ErrNotFound}
 }
 
-func (s *sharedFileStoreStub) List(context.Context, sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
-	return nil, nil
+type configRowStub struct {
+	file *sqlc.SharedFile
+	err  error
 }
 
-func (s *sharedFileStoreStub) Delete(context.Context, string) (int64, error) {
-	return 0, nil
+func (r *configRowStub) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if r.file == nil || len(dest) < 5 {
+		return errors.New("configRowStub: insufficient scan targets")
+	}
+	// GetSharedFile returns: path, content, updated_by, created_at, updated_at
+	if p, ok := dest[0].(*string); ok {
+		*p = r.file.Path
+	}
+	if p, ok := dest[1].(*string); ok {
+		*p = r.file.Content
+	}
+	if p, ok := dest[2].(*string); ok {
+		*p = r.file.UpdatedBy
+	}
+	// created_at and updated_at are time.Time, leave as zero values
+	return nil
 }
 
 func preferenceStubKey(cwd, key string) string {

@@ -39,7 +39,7 @@ func (s stubPeerCallback) CallbackAfter(ctx context.Context, lease mcp.LeaseKey,
 func TestHookDispatcherDispatchBeforeReturnsEmptyWithoutSubscribers(t *testing.T) {
 	t.Parallel()
 
-	dispatcher := NewHookDispatcher(NewHookRegistry(), stubPeerCallback{})
+	dispatcher := mustNewHookDispatcher(t, NewHookRegistry(), stubPeerCallback{})
 	decisions, err := dispatcher.DispatchBefore(context.Background(), TopicToolBefore, mcp.HookPayload{
 		AgentID:  "agent-1",
 		ThreadID: "thread-1",
@@ -65,7 +65,7 @@ func TestHookDispatcherDispatchBeforeSinglePeerSuccess(t *testing.T) {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 
-	dispatcher := NewHookDispatcher(registry, stubPeerCallback{
+	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		before: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.BeforeDecision, error) {
 			if gotLease != lease {
 				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
@@ -114,7 +114,8 @@ func TestHookDispatcherDispatchBeforeSinglePeerTimeout(t *testing.T) {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 
-	dispatcher := NewHookDispatcher(
+	dispatcher := mustNewHookDispatcher(
+		t,
 		registry,
 		stubPeerCallback{
 			before: func(ctx context.Context, _ mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
@@ -143,6 +144,34 @@ func TestHookDispatcherDispatchBeforeSinglePeerTimeout(t *testing.T) {
 	}
 }
 
+func TestMarkDispatchWorkerPanicResultMarksFailure(t *testing.T) {
+	t.Parallel()
+
+	lease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
+	dispatcher := &HookDispatcher{failCounts: map[mcp.LeaseKey]int{lease: 2}}
+	results := make([]peerDecision[mcp.BeforeDecision], 1)
+
+	markDispatchWorkerPanicResult(dispatcher, results, dispatchJob{index: 0, lease: lease}, true, "boom")
+
+	if results[0].Lease != lease {
+		t.Fatalf("marked lease = %#v, want %#v", results[0].Lease, lease)
+	}
+	if !errors.Is(results[0].Err, errDispatchWorkerPanic) {
+		t.Fatalf("marked err = %v, want sentinel", results[0].Err)
+	}
+	if results[0].ConsecutiveFailures != 3 {
+		t.Fatalf("marked failures = %d, want 3", results[0].ConsecutiveFailures)
+	}
+
+	merged := MergeBefore(results)
+	if len(merged.FailedLeases) != 1 || merged.FailedLeases[0] != lease {
+		t.Fatalf("MergeBefore() failed leases = %#v, want [%#v]", merged.FailedLeases, lease)
+	}
+	if len(merged.LostLeases) != 1 || merged.LostLeases[0] != lease {
+		t.Fatalf("MergeBefore() lost leases = %#v, want [%#v]", merged.LostLeases, lease)
+	}
+}
+
 func TestDispatchCheck_Success(t *testing.T) {
 	t.Parallel()
 
@@ -155,7 +184,7 @@ func TestDispatchCheck_Success(t *testing.T) {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 
-	dispatcher := NewHookDispatcher(registry, stubPeerCallback{
+	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		check: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.CheckDecision, error) {
 			if gotLease != lease {
 				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
@@ -225,7 +254,7 @@ func TestHookDispatcherDispatchCheckBySelectorFiltersScope(t *testing.T) {
 	}
 
 	calledLeases := make([]mcp.LeaseKey, 0, 1)
-	dispatcher := NewHookDispatcher(registry, stubPeerCallback{
+	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		check: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.CheckDecision, error) {
 			calledLeases = append(calledLeases, gotLease)
 			if payload.Topic != TopicToolBefore {
@@ -271,7 +300,7 @@ func TestDispatchAfter_Success(t *testing.T) {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 
-	dispatcher := NewHookDispatcher(registry, stubPeerCallback{
+	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		after: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.AfterDecision, error) {
 			if gotLease != lease {
 				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
@@ -328,7 +357,7 @@ func TestForgetLease(t *testing.T) {
 	}
 
 	someErr := errors.New("boom")
-	dispatcher := NewHookDispatcher(registry, stubPeerCallback{
+	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		before: func(_ context.Context, gotLease mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
 			if gotLease != lease {
 				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
