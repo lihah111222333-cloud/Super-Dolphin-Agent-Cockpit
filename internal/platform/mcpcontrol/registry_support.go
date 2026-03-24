@@ -133,6 +133,13 @@ func (r *ToolRegistry) indexLocked(instance *ToolInstance) {
 	if instance.AgentID != "" {
 		addIndex(r.byAgent, instance.AgentID, instance.Lease)
 	}
+	if instance.ThreadID != "" {
+		addIndex(r.byThread, instance.ThreadID, instance.Lease)
+	}
+	if instance.ClientKind != "" {
+		addIndex(r.byClientKind, instance.ClientKind, instance.Lease)
+	}
+	addIndex(r.byInstance, instance.Lease.InstanceID, instance.Lease)
 	addIndex(r.byPeerKind, instance.PeerKind, instance.Lease)
 }
 
@@ -155,6 +162,13 @@ func (r *ToolRegistry) evictLocked(key LeaseKey) Peer {
 	if instance.AgentID != "" {
 		removeIndex(r.byAgent, instance.AgentID, key)
 	}
+	if instance.ThreadID != "" {
+		removeIndex(r.byThread, instance.ThreadID, key)
+	}
+	if instance.ClientKind != "" {
+		removeIndex(r.byClientKind, instance.ClientKind, key)
+	}
+	removeIndex(r.byInstance, instance.Lease.InstanceID, key)
 	removeIndex(r.byPeerKind, instance.PeerKind, key)
 	return instance.Peer
 }

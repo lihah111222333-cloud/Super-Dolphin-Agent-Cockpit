@@ -10,11 +10,12 @@ import (
 // HookPayload is the common envelope sent to hook handlers.
 type HookPayload struct {
 	HookCallID string          `json:"hook_call_id"`
+	DeadlineMs int64           `json:"deadline_ms,omitempty"`
 	AgentID    string          `json:"agent_id"`
 	ThreadID   string          `json:"thread_id"`
 	TurnID     string          `json:"turn_id,omitempty"`
 	Topic      string          `json:"topic"`
-	DeadlineMs int64           `json:"deadline_ms,omitempty"`
+	Depth      int             `json:"depth,omitempty"`
 	Context    json.RawMessage `json:"context,omitempty"`
 }
 
@@ -90,10 +91,11 @@ type HookResolveResponse struct {
 
 // PendingHookReview represents a hook call awaiting human review.
 type PendingHookReview struct {
-	HookCallID    string    `json:"hook_call_id"`
-	Topic         string    `json:"topic"`
-	AgentID       string    `json:"agent_id"`
-	CreatedAt     time.Time `json:"created_at"`
-	DeadlineAt    time.Time `json:"deadline_at"`
-	DefaultAction string    `json:"default_action"`
+	HookCallID      string    `json:"hook_call_id"`
+	Topic           string    `json:"topic"`
+	AgentID         string    `json:"agent_id"`
+	SubscriberLease string    `json:"subscriber_lease,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	DeadlineAt      time.Time `json:"deadline_at"`
+	DefaultAction   string    `json:"default_action"`
 }

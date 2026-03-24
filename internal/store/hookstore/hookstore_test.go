@@ -19,14 +19,15 @@ import (
 // Keep these compacted SQL strings aligned with hookstore.go so the test stub
 // rejects stale query shape changes, including SELECT column count/order.
 const (
-	savePendingReviewSQL           = "INSERT INTO hook_pending_reviews ( hook_call_id, topic, agent_id, default_action, status, created_at, deadline_at ) VALUES ($1, $2, $3, $4, 'pending', $5, $6) ON CONFLICT (hook_call_id) DO NOTHING"
-	getPendingReviewSQL            = "SELECT hook_call_id, topic, agent_id, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE hook_call_id = $1 AND status = 'pending'"
-	listPendingReviewsSQL          = "SELECT hook_call_id, topic, agent_id, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE agent_id = $1 AND status = 'pending' ORDER BY created_at ASC"
+	savePendingReviewSQL           = "INSERT INTO hook_pending_reviews ( hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7) ON CONFLICT (hook_call_id) DO NOTHING"
+	getPendingReviewSQL            = "SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE hook_call_id = $1 AND status = 'pending'"
+	listPendingReviewsSQL          = "SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE agent_id = $1 AND status = 'pending' ORDER BY created_at ASC"
 	resolveIdempotencySQL          = "SELECT 1 FROM hook_pending_reviews WHERE hook_call_id = $1 AND status = 'resolved' AND idempotency_key = $2"
 	resolvePendingReviewSQL        = "UPDATE hook_pending_reviews SET status = 'resolved', decision = $2, reason = $3, idempotency_key = $4, resolved_at = $5 WHERE hook_call_id = $1 AND status = 'pending'"
+	cancelPendingReviewsByLeaseSQL = "UPDATE hook_pending_reviews SET status = 'cancelled', resolved_at = $2 WHERE subscriber_lease = $1 AND status = 'pending'"
 	cancelPendingReviewsByAgentSQL = "UPDATE hook_pending_reviews SET status = 'cancelled', resolved_at = $2 WHERE agent_id = $1 AND status = 'pending'"
 	cancelExpiredReviewsSQL        = "UPDATE hook_pending_reviews SET status = 'expired', decision = default_action, resolved_at = $1 WHERE status = 'pending' AND deadline_at <= $1"
-	recoverOnStartupSQL            = "SELECT hook_call_id, topic, agent_id, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE status = 'pending' ORDER BY deadline_at ASC"
+	recoverOnStartupSQL            = "SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE status = 'pending' ORDER BY deadline_at ASC"
 )
 
 func TestSavePendingReview(t *testing.T) {
@@ -297,6 +298,47 @@ func TestCancelPendingReviewsByAgent(t *testing.T) {
 	}
 }
 
+func TestCancelPendingReviewsByLease(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 3, 24, 15, 30, 0, 0, time.UTC)
+	sharedAgentLeaseA := testPendingReview("call-cancel-lease-1", "agent-cancel", "reject", base, base.Add(10*time.Minute))
+	sharedAgentLeaseA.SubscriberLease = "lease-a/1"
+	sharedAgentLeaseB := testPendingReview("call-cancel-lease-2", "agent-cancel", "approve", base.Add(time.Minute), base.Add(20*time.Minute))
+	sharedAgentLeaseB.SubscriberLease = "lease-b/1"
+	resolved := testPendingReview("call-cancel-lease-3", "agent-cancel", "reject", base.Add(2*time.Minute), base.Add(30*time.Minute))
+	resolved.SubscriberLease = "lease-a/1"
+	otherAgentSameLease := testPendingReview("call-cancel-lease-4", "agent-keep", "reject", base.Add(3*time.Minute), base.Add(40*time.Minute))
+	otherAgentSameLease.SubscriberLease = "lease-a/1"
+	store, db := newTestStore(
+		testRecord{review: sharedAgentLeaseA, status: "pending"},
+		testRecord{review: sharedAgentLeaseB, status: "pending"},
+		testRecord{review: resolved, status: "resolved", decision: "approve", idempotencyKey: "idem-cancel-lease", resolvedAt: base.Add(5 * time.Minute)},
+		testRecord{review: otherAgentSameLease, status: "pending"},
+	)
+
+	count, err := store.CancelPendingReviewsByLease(context.Background(), "lease-a/1")
+	if err != nil {
+		t.Fatalf("CancelPendingReviewsByLease() error = %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("CancelPendingReviewsByLease() count = %d, want 2", count)
+	}
+
+	if db.mustRecord(t, sharedAgentLeaseA.HookCallID).status != "cancelled" {
+		t.Fatalf("first lease status = %q, want cancelled", db.mustRecord(t, sharedAgentLeaseA.HookCallID).status)
+	}
+	if db.mustRecord(t, sharedAgentLeaseB.HookCallID).status != "pending" {
+		t.Fatalf("other lease status = %q, want pending", db.mustRecord(t, sharedAgentLeaseB.HookCallID).status)
+	}
+	if db.mustRecord(t, resolved.HookCallID).status != "resolved" {
+		t.Fatalf("resolved status = %q, want resolved", db.mustRecord(t, resolved.HookCallID).status)
+	}
+	if db.mustRecord(t, otherAgentSameLease.HookCallID).status != "cancelled" {
+		t.Fatalf("same lease other agent status = %q, want cancelled", db.mustRecord(t, otherAgentSameLease.HookCallID).status)
+	}
+}
+
 func TestRecoverOnStartup(t *testing.T) {
 	t.Parallel()
 
@@ -357,6 +399,9 @@ func (db *hookStoreDBStub) Exec(_ context.Context, query string, args ...any) (p
 	case resolvePendingReviewSQL:
 		db.execOps = append(db.execOps, "resolve")
 		return db.execResolve(args)
+	case cancelPendingReviewsByLeaseSQL:
+		db.execOps = append(db.execOps, "cancel_by_lease")
+		return db.execCancelByLease(args)
 	case cancelPendingReviewsByAgentSQL:
 		db.execOps = append(db.execOps, "cancel_by_agent")
 		return db.execCancelByAgent(args)
@@ -423,8 +468,8 @@ func (db *hookStoreDBStub) QueryRow(_ context.Context, query string, args ...any
 }
 
 func (db *hookStoreDBStub) execSave(args []any) (pgconn.CommandTag, error) {
-	if len(args) != 6 {
-		return pgconn.CommandTag{}, fmt.Errorf("save args = %d, want 6", len(args))
+	if len(args) != 7 {
+		return pgconn.CommandTag{}, fmt.Errorf("save args = %d, want 7", len(args))
 	}
 	review, err := pendingReviewFromArgs(args)
 	if err != nil {
@@ -471,6 +516,29 @@ func (db *hookStoreDBStub) execResolve(args []any) (pgconn.CommandTag, error) {
 	record.idempotencyKey = idempotencyKey
 	record.resolvedAt = resolvedAt
 	return pgconn.NewCommandTag("UPDATE 1"), nil
+}
+
+func (db *hookStoreDBStub) execCancelByLease(args []any) (pgconn.CommandTag, error) {
+	if len(args) != 2 {
+		return pgconn.CommandTag{}, fmt.Errorf("cancel_by_lease args = %d, want 2", len(args))
+	}
+	subscriberLease, ok := args[0].(string)
+	if !ok {
+		return pgconn.CommandTag{}, fmt.Errorf("subscriber_lease arg type = %T, want string", args[0])
+	}
+	resolvedAt, ok := args[1].(time.Time)
+	if !ok {
+		return pgconn.CommandTag{}, fmt.Errorf("resolved_at arg type = %T, want time.Time", args[1])
+	}
+	count := 0
+	for _, record := range db.records {
+		if record.review.SubscriberLease == subscriberLease && record.status == "pending" {
+			record.status = "cancelled"
+			record.resolvedAt = resolvedAt
+			count++
+		}
+	}
+	return pgconn.NewCommandTag(fmt.Sprintf("UPDATE %d", count)), nil
 }
 
 func (db *hookStoreDBStub) execCancelByAgent(args []any) (pgconn.CommandTag, error) {
@@ -628,25 +696,30 @@ func pendingReviewFromArgs(args []any) (mcp.PendingHookReview, error) {
 	if !ok {
 		return mcp.PendingHookReview{}, fmt.Errorf("agent_id arg type = %T, want string", args[2])
 	}
-	defaultAction, ok := args[3].(string)
+	subscriberLease, ok := args[3].(string)
 	if !ok {
-		return mcp.PendingHookReview{}, fmt.Errorf("default_action arg type = %T, want string", args[3])
+		return mcp.PendingHookReview{}, fmt.Errorf("subscriber_lease arg type = %T, want string", args[3])
 	}
-	createdAt, ok := args[4].(time.Time)
+	defaultAction, ok := args[4].(string)
 	if !ok {
-		return mcp.PendingHookReview{}, fmt.Errorf("created_at arg type = %T, want time.Time", args[4])
+		return mcp.PendingHookReview{}, fmt.Errorf("default_action arg type = %T, want string", args[4])
 	}
-	deadlineAt, ok := args[5].(time.Time)
+	createdAt, ok := args[5].(time.Time)
 	if !ok {
-		return mcp.PendingHookReview{}, fmt.Errorf("deadline_at arg type = %T, want time.Time", args[5])
+		return mcp.PendingHookReview{}, fmt.Errorf("created_at arg type = %T, want time.Time", args[5])
+	}
+	deadlineAt, ok := args[6].(time.Time)
+	if !ok {
+		return mcp.PendingHookReview{}, fmt.Errorf("deadline_at arg type = %T, want time.Time", args[6])
 	}
 	return mcp.PendingHookReview{
-		HookCallID:    hookCallID,
-		Topic:         topic,
-		AgentID:       agentID,
-		DefaultAction: defaultAction,
-		CreatedAt:     createdAt,
-		DeadlineAt:    deadlineAt,
+		HookCallID:      hookCallID,
+		Topic:           topic,
+		AgentID:         agentID,
+		SubscriberLease: subscriberLease,
+		DefaultAction:   defaultAction,
+		CreatedAt:       createdAt,
+		DeadlineAt:      deadlineAt,
 	}, nil
 }
 
@@ -663,6 +736,7 @@ func reviewValues(review mcp.PendingHookReview) []any {
 		review.HookCallID,
 		review.Topic,
 		review.AgentID,
+		review.SubscriberLease,
 		review.DefaultAction,
 		"pending",
 		review.CreatedAt,
@@ -706,12 +780,13 @@ func assignValue(dest, value any) error {
 
 func testPendingReview(hookCallID, agentID, defaultAction string, createdAt, deadlineAt time.Time) mcp.PendingHookReview {
 	return mcp.PendingHookReview{
-		HookCallID:    hookCallID,
-		Topic:         "topic/" + hookCallID,
-		AgentID:       agentID,
-		DefaultAction: defaultAction,
-		CreatedAt:     createdAt,
-		DeadlineAt:    deadlineAt,
+		HookCallID:      hookCallID,
+		Topic:           "topic/" + hookCallID,
+		AgentID:         agentID,
+		SubscriberLease: hookCallID + "/1",
+		DefaultAction:   defaultAction,
+		CreatedAt:       createdAt,
+		DeadlineAt:      deadlineAt,
 	}
 }
 

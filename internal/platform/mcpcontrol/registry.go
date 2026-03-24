@@ -2,6 +2,8 @@ package mcpcontrol
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -20,7 +22,7 @@ const (
 type LeaseKey = dto.LeaseKey
 
 type ToolInstance struct {
-	Lease               LeaseKey
+	Lease LeaseKey
 	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
 	LeaseID             string
 	BinaryName          string
@@ -52,6 +54,9 @@ type ToolRegistry struct {
 	bySubscription   map[string]map[LeaseKey]struct{}
 	byCapability     map[string]map[LeaseKey]struct{}
 	byAgent          map[string]map[LeaseKey]struct{}
+	byThread         map[string]map[LeaseKey]struct{}
+	byClientKind     map[string]map[LeaseKey]struct{}
+	byInstance       map[string]map[LeaseKey]struct{}
 	byPeerKind       map[string]map[LeaseKey]struct{}
 	latestByInstance map[string]LeaseKey
 	reportReceipts   map[LeaseKey]map[string]reportReceipt
@@ -60,6 +65,7 @@ type ToolRegistry struct {
 	notifyTimeout        time.Duration
 	fanoutParallelism    int
 	peerFailureThreshold int
+	hookLifecycle        contract.HookLifecycle
 }
 
 type RegistryOptions struct {
@@ -81,6 +87,9 @@ func NewToolRegistry(opts RegistryOptions) *ToolRegistry {
 		bySubscription:       make(map[string]map[LeaseKey]struct{}),
 		byCapability:         make(map[string]map[LeaseKey]struct{}),
 		byAgent:              make(map[string]map[LeaseKey]struct{}),
+		byThread:             make(map[string]map[LeaseKey]struct{}),
+		byClientKind:         make(map[string]map[LeaseKey]struct{}),
+		byInstance:           make(map[string]map[LeaseKey]struct{}),
 		byPeerKind:           make(map[string]map[LeaseKey]struct{}),
 		latestByInstance:     make(map[string]LeaseKey),
 		reportReceipts:       make(map[LeaseKey]map[string]reportReceipt),
@@ -88,6 +97,40 @@ func NewToolRegistry(opts RegistryOptions) *ToolRegistry {
 		notifyTimeout:        durationOrDefault(opts.NotifyTimeout, defaultNotifyTimeout),
 		fanoutParallelism:    intOrDefault(opts.FanoutParallelism, defaultFanoutParallelism),
 		peerFailureThreshold: intOrDefault(opts.PeerFailureThreshold, defaultPeerFailureThreshold),
+	}
+}
+
+func (r *ToolRegistry) setHookLifecycle(hookLifecycle contract.HookLifecycle) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.hookLifecycle = hookLifecycle
+	r.mu.Unlock()
+}
+
+func (r *ToolRegistry) shutdownHooks(ctx context.Context, key LeaseKey) error {
+	if r == nil {
+		return nil
+	}
+	if key == (LeaseKey{}) {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.mu.RLock()
+	hookLifecycle := r.hookLifecycle
+	r.mu.RUnlock()
+	if hookLifecycle == nil {
+		return nil
+	}
+	return hookLifecycle.ShutdownHooks(ctx, key)
+}
+
+func (r *ToolRegistry) cleanupLease(ctx context.Context, key LeaseKey) {
+	if err := r.shutdownHooks(ctx, key); err != nil {
+		slog.Warn("mcp lease hook cleanup failed", "instance_id", key.InstanceID, "generation", key.Generation, "err", err)
 	}
 }
 
@@ -123,18 +166,21 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 	}
 
 	var previous Peer
+	var replaced LeaseKey
 	r.mu.Lock()
 	if latest, ok := r.latestByInstance[instance.Lease.InstanceID]; ok {
 		if current := r.instances[latest]; current != nil {
 			instance.Lease.Generation = current.Lease.Generation + 1
 		}
 		previous = r.evictLocked(latest)
+		replaced = latest
 	}
 	r.instances[instance.Lease] = instance
 	r.latestByInstance[instance.Lease.InstanceID] = instance.Lease
 	r.indexLocked(instance)
 	r.mu.Unlock()
 
+	r.cleanupLease(ctx, replaced)
 	closePeer(previous)
 	return dto.RegisterResponse{
 		Lease:                  instance.Lease,
@@ -148,7 +194,7 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 	}, nil
 }
 
-func (r *ToolRegistry) Heartbeat(_ context.Context, req dto.HeartbeatRequest) (dto.HeartbeatResponse, error) {
+func (r *ToolRegistry) Heartbeat(ctx context.Context, req dto.HeartbeatRequest) (dto.HeartbeatResponse, error) {
 	key, err := normalizeLeaseKey(req.Lease)
 	if err != nil {
 		return dto.HeartbeatResponse{}, err
@@ -166,6 +212,7 @@ func (r *ToolRegistry) Heartbeat(_ context.Context, req dto.HeartbeatRequest) (d
 		instance.Status = dto.StatusDisconnected
 		peer := r.evictLocked(key)
 		r.mu.Unlock()
+		r.cleanupLease(ctx, key)
 		closePeer(peer)
 		return dto.HeartbeatResponse{
 			OK:              true,
@@ -209,8 +256,13 @@ func (r *ToolRegistry) ShutdownInstance(ctx context.Context, key dto.LeaseKey, r
 	if err != nil {
 		return err
 	}
+	cleanupErr := r.shutdownHooks(ctx, key)
 	if instance.Peer == nil {
-		return errPeerUnavailable("mcp peer %s/%d is not available", key.InstanceID, key.Generation)
+		peerErr := errPeerUnavailable("mcp peer %s/%d is not available", key.InstanceID, key.Generation)
+		if cleanupErr != nil {
+			return errors.Join(peerErr, cleanupErr)
+		}
+		return peerErr
 	}
 	req.Lease = key
 	callCtx, cancel := withTimeoutContext(ctx, r.notifyTimeout)
@@ -219,11 +271,19 @@ func (r *ToolRegistry) ShutdownInstance(ctx context.Context, key dto.LeaseKey, r
 	var resp map[string]any
 	err = instance.Peer.Callback(callCtx, dto.MethodShutdown, req, &resp)
 	if err != nil {
-		closePeer(r.notePeerFailure(key))
-		return errPeerUnavailable("mcp shutdown callback failed for %s/%d: %v", key.InstanceID, key.Generation, err)
+		peer, evicted := r.notePeerFailure(key)
+		if evicted {
+			r.cleanupLease(ctx, key)
+		}
+		closePeer(peer)
+		peerErr := errPeerUnavailable("mcp shutdown callback failed for %s/%d: %v", key.InstanceID, key.Generation, err)
+		if cleanupErr != nil {
+			return errors.Join(peerErr, cleanupErr)
+		}
+		return peerErr
 	}
 	r.resetPeerFailure(key)
-	return nil
+	return cleanupErr
 }
 
 func (r *ToolRegistry) OnDisconnect(key LeaseKey) {
@@ -234,6 +294,7 @@ func (r *ToolRegistry) OnDisconnect(key LeaseKey) {
 	}
 	peer := r.evictLocked(key)
 	r.mu.Unlock()
+	r.cleanupLease(context.Background(), key)
 	closePeer(peer)
 }
 

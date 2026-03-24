@@ -78,12 +78,14 @@ func (s *Sweeper) Sweep(now time.Time) SweepResult {
 	}
 	result := SweepResult{}
 	var peers []Peer
+	var evicted []LeaseKey
 
 	s.registry.mu.Lock()
 	for key, instance := range s.registry.instances {
 		switch {
 		case instance.Status == dto.StatusDisconnected:
 			peers = append(peers, s.registry.evictLocked(key))
+			evicted = append(evicted, key)
 			result.Evicted++
 		case instance.LastHeartbeat.Add(s.timeout).Before(now):
 			if instance.Status != dto.StatusStale {
@@ -92,13 +94,15 @@ func (s *Sweeper) Sweep(now time.Time) SweepResult {
 			}
 			if instance.LastHeartbeat.Add(s.timeout + s.staleGrace).Before(now) {
 				peers = append(peers, s.registry.evictLocked(key))
+				evicted = append(evicted, key)
 				result.Evicted++
 			}
 		}
 	}
 	s.registry.mu.Unlock()
 
-	for _, peer := range peers {
+	for i, peer := range peers {
+		s.registry.cleanupLease(context.Background(), evicted[i])
 		closePeer(peer)
 	}
 	return result
