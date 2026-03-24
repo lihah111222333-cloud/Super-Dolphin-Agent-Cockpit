@@ -2,9 +2,12 @@ package bootstrap
 
 import (
 	"context"
-	"log"
+	"encoding/json"
+	"errors"
+	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/creachadair/jrpc2"
 
@@ -42,25 +45,53 @@ type hookState struct {
 	subscriptionID string
 	topics         []string
 	scope          mcp.Selector
+	filters        json.RawMessage
 	mode           string
+	replayState    string
+	replayAttempts int
+	lastReplayErr  string
 }
 
-func (hs *hookState) store(subID string, topics []string, scope mcp.Selector, mode string) {
+func (hs *hookState) store(subID string, topics []string, scope mcp.Selector, filters json.RawMessage, mode string) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 	hs.subscriptionID = subID
 	hs.topics = cloneStrings(topics)
 	hs.scope = cloneSelector(scope)
+	hs.filters = cloneRaw(filters)
 	hs.mode = mode
+	hs.replayState = ""
+	hs.replayAttempts = 0
+	hs.lastReplayErr = ""
 }
 
-func (hs *hookState) load() (subID string, topics []string, scope mcp.Selector, mode string, ok bool) {
+func (hs *hookState) load() (subID string, topics []string, scope mcp.Selector, filters json.RawMessage, mode string, ok bool) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 	if len(hs.topics) == 0 {
-		return "", nil, mcp.Selector{}, "", false
+		return "", nil, mcp.Selector{}, nil, "", false
 	}
-	return hs.subscriptionID, cloneStrings(hs.topics), cloneSelector(hs.scope), hs.mode, true
+	return hs.subscriptionID, cloneStrings(hs.topics), cloneSelector(hs.scope), cloneRaw(hs.filters), hs.mode, true
+}
+
+func (hs *hookState) markReplayFailure(attempts int, err error) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.replayState = "failed"
+	hs.replayAttempts = attempts
+	if err != nil {
+		hs.lastReplayErr = err.Error()
+	} else {
+		hs.lastReplayErr = ""
+	}
+}
+
+func (hs *hookState) clearReplayFailure() {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.replayState = ""
+	hs.replayAttempts = 0
+	hs.lastReplayErr = ""
 }
 
 // ---------------------------------------------------------------------------
@@ -131,11 +162,11 @@ func (c *Client) handleHookAfter(ctx context.Context, req *jrpc2.Request) (any, 
 
 // SubscribeHooks sends a ctl/hook/subscribe request to the core layer.
 // It stores the parameters so they can be replayed on reconnect.
-func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topics []string, scope mcp.Selector, mode string) (*mcp.HookSubscribeResponse, error) {
+func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topics []string, scope mcp.Selector, filters json.RawMessage, mode string) (*mcp.HookSubscribeResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
 		// Store for later replay even if we cannot send right now.
-		c.hooks.store(subscriptionID, topics, scope, mode)
+		c.hooks.store(subscriptionID, topics, scope, filters, mode)
 		return nil, errHookSubscribeUnavailable()
 	}
 
@@ -143,6 +174,7 @@ func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topi
 		SubscriptionID: strings.TrimSpace(subscriptionID),
 		Topics:         cloneStrings(topics),
 		Scope:          scope,
+		Filters:        cloneRaw(filters),
 		Mode:           strings.TrimSpace(mode),
 	}
 	callCtx, cancel := withTimeoutIfNone(ctx, c.currentSendTimeout())
@@ -154,35 +186,117 @@ func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topi
 	}
 
 	// Persist on success so reconnect can replay.
-	c.hooks.store(subscriptionID, topics, scope, mode)
+	c.hooks.store(subscriptionID, topics, scope, filters, mode)
 	return &resp, nil
+}
+
+// ResolveHook sends a ctl/hook/resolve request to the core layer.
+func (c *Client) ResolveHook(ctx context.Context, req mcp.HookResolveRequest) (*mcp.HookResolveResponse, error) {
+	conn, degraded := c.currentConn()
+	if conn == nil || degraded {
+		return nil, errHookResolveUnavailable()
+	}
+
+	callCtx, cancel := withTimeoutIfNone(ctx, c.currentSendTimeout())
+	defer cancel()
+
+	var resp mcp.HookResolveResponse
+	if err := conn.CallResult(callCtx, mcp.MethodHookResolve, req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// PendingHooks fetches the current agent's pending hook reviews from the core layer.
+func (c *Client) PendingHooks(ctx context.Context) ([]mcp.PendingHookReview, error) {
+	conn, degraded := c.currentConn()
+	if conn == nil || degraded {
+		return nil, errHookPendingUnavailable()
+	}
+	agentID := strings.TrimSpace(firstNonEmpty(c.cfg.AgentID, c.boot.AgentID))
+	if agentID == "" {
+		return nil, errHookPendingAgentIDRequired()
+	}
+
+	callCtx, cancel := withTimeoutIfNone(ctx, c.currentSendTimeout())
+	defer cancel()
+
+	var resp mcp.HookPendingResponse
+	if err := conn.CallResult(callCtx, mcp.MethodHookPending, mcp.HookPendingRequest{AgentID: agentID}, &resp); err != nil {
+		return nil, err
+	}
+	if len(resp.Reviews) == 0 {
+		return []mcp.PendingHookReview{}, nil
+	}
+	return append([]mcp.PendingHookReview(nil), resp.Reviews...), nil
 }
 
 // replayHookSubscriptions re-sends the last ctl/hook/subscribe after a
 // successful reconnect. Safe to call when no prior subscription exists.
-func (c *Client) replayHookSubscriptions(ctx context.Context) {
-	subID, topics, scope, mode, ok := c.hooks.load()
+func (c *Client) replayHookSubscriptions(ctx context.Context) error {
+	subID, topics, scope, filters, mode, ok := c.hooks.load()
 	if !ok {
-		return
-	}
-	conn, _ := c.currentConn()
-	if conn == nil {
-		return
+		return nil
 	}
 
 	req := mcp.HookSubscribeRequest{
 		SubscriptionID: subID,
 		Topics:         topics,
 		Scope:          scope,
+		Filters:        filters,
 		Mode:           mode,
 	}
-	callCtx, cancel := withTimeoutIfNone(ctx, c.currentSendTimeout())
-	defer cancel()
-
-	var resp mcp.HookSubscribeResponse
-	if err := conn.CallResult(callCtx, mcp.MethodHookSubscribe, req, &resp); err != nil {
-		log.Printf("bootstrap hook subscribe replay failed: instance=%s err=%v", c.instanceID, err)
+	ctx = defaultContext(ctx)
+	delay := time.Second
+	var lastErr error
+	attempts := 0
+	for attempt := 1; attempt <= 3; attempt++ {
+		attempts = attempt
+		conn, degraded := c.currentConn()
+		if conn == nil || degraded {
+			lastErr = errHookSubscribeUnavailable()
+		} else {
+			callCtx, cancel := withTimeoutIfNone(ctx, c.currentSendTimeout())
+			var resp mcp.HookSubscribeResponse
+			lastErr = conn.CallResult(callCtx, mcp.MethodHookSubscribe, req, &resp)
+			cancel()
+			if lastErr == nil {
+				c.hooks.clearReplayFailure()
+				slog.Info("bootstrap hook subscription replayed",
+					"instance_id", c.instanceID,
+					"subscription_id", subID,
+					"lease_key", c.currentLease(),
+				)
+				return nil
+			}
+		}
+		if attempt == 3 || ctx.Err() != nil {
+			break
+		}
+		slog.Warn("bootstrap hook subscription replay failed; retrying",
+			"instance_id", c.instanceID,
+			"subscription_id", subID,
+			"lease_key", c.currentLease(),
+			"attempt", attempt,
+			"retry_in", delay,
+			"error", lastErr,
+		)
+		if !sleepContext(ctx, delay) {
+			lastErr = ctx.Err()
+			break
+		}
+		delay *= 2
 	}
+	c.hooks.markReplayFailure(attempts, lastErr)
+	slog.Error("bootstrap hook subscription replay failed",
+		"instance_id", c.instanceID,
+		"subscription_id", subID,
+		"lease_key", c.currentLease(),
+		"attempts", attempts,
+		"replay_state", "failed",
+		"error", lastErr,
+	)
+	return lastErr
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +305,18 @@ func (c *Client) replayHookSubscriptions(ctx context.Context) {
 
 func errHookSubscribeUnavailable() error {
 	return &hookUnavailableError{msg: "bootstrap: hook subscribe unavailable (disconnected)"}
+}
+
+func errHookResolveUnavailable() error {
+	return &hookUnavailableError{msg: "bootstrap: hook resolve unavailable (disconnected)"}
+}
+
+func errHookPendingUnavailable() error {
+	return &hookUnavailableError{msg: "bootstrap: hook pending unavailable (disconnected)"}
+}
+
+func errHookPendingAgentIDRequired() error {
+	return errors.New("bootstrap: hook pending requires agent_id")
 }
 
 // hookUnavailableError marks a non-fatal connectivity error for hook subscribe.

@@ -47,6 +47,7 @@ type AfterDecision struct {
 	Mutations json.RawMessage `json:"mutations,omitempty"`
 	// DispatchIntent is retained for compatibility; in the protocol it belongs to mutations.dispatch_intent.
 	DispatchIntent json.RawMessage `json:"dispatch_intent,omitempty"`
+	TTLMs          int64           `json:"ttl_ms,omitempty"`
 	Reason         string          `json:"reason,omitempty"`
 }
 
@@ -77,6 +78,7 @@ type HookResolveRequest struct {
 	Decision       string `json:"decision"`
 	Reason         string `json:"reason,omitempty"`
 	IdempotencyKey string `json:"idempotency_key"`
+	ResolvedBy     string `json:"resolved_by,omitempty"`
 }
 
 // HookResolveResponse is the response payload for ctl/hook/resolve.
@@ -85,6 +87,16 @@ type HookResolveResponse struct {
 	ResolvedAt        string `json:"resolved_at,omitempty"`
 	CanonicalDecision string `json:"canonical_decision,omitempty"`
 	PendingState      string `json:"pending_state,omitempty"`
+}
+
+// HookPendingRequest is the request payload for ctl/hook/pending.
+type HookPendingRequest struct {
+	AgentID string `json:"agent_id,omitempty"`
+}
+
+// HookPendingResponse is the response payload for ctl/hook/pending.
+type HookPendingResponse struct {
+	Reviews []PendingHookReview `json:"reviews"`
 }
 
 // --- Pending Hook Review ---
