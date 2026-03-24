@@ -102,6 +102,12 @@ func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 		dto.MethodApproval: rpc.StrictHandler(func(ctx context.Context, req dto.ApprovalRequest) (dto.ApprovalResponse, error) {
 			return requestApproval(ctx, p.Registry, p.Approvals, p.Bridge, req)
 		}),
+		dto.MethodHookSubscribe: rpc.StrictHandler(func(ctx context.Context, req dto.HookSubscribeRequest) (dto.HookSubscribeResponse, error) {
+			return handleHookSubscribe(ctx, p.Registry, p.HookManager, req)
+		}),
+		dto.MethodHookResolve: rpc.StrictHandler(func(ctx context.Context, req dto.HookResolveRequest) (dto.HookResolveResponse, error) {
+			return handleHookResolve(ctx, p.Registry, p.HookManager, req)
+		}),
 		dto.MethodReport: rpc.StrictHandler(func(ctx context.Context, req dto.ReportRequest) (dto.ReportResponse, error) {
 			return handleReport(ctx, p.Registry, runtimeReports, completionReports, req)
 		}),
@@ -153,6 +159,74 @@ func requestApproval(
 		Reason:   decision.Reason,
 		Detail:   append(json.RawMessage(nil), decision.Detail...),
 	}, nil
+}
+
+func handleHookSubscribe(
+	ctx context.Context,
+	registry *ToolRegistry,
+	hookManager contract.HookManager,
+	req dto.HookSubscribeRequest,
+) (dto.HookSubscribeResponse, error) {
+	if hookManager == nil {
+		return dto.HookSubscribeResponse{}, errCapabilityMismatch("hook manager is not configured")
+	}
+	instance, err := resolveCurrentRegisteredInstance(ctx, registry)
+	if err != nil {
+		return dto.HookSubscribeResponse{}, err
+	}
+	return hookManager.Subscribe(ctx, instance.Lease, req)
+}
+
+func handleHookResolve(
+	ctx context.Context,
+	registry *ToolRegistry,
+	hookManager contract.HookManager,
+	req dto.HookResolveRequest,
+) (dto.HookResolveResponse, error) {
+	if hookManager == nil {
+		return dto.HookResolveResponse{}, errCapabilityMismatch("hook manager is not configured")
+	}
+	instance, err := resolveCurrentRegisteredInstance(ctx, registry)
+	if err != nil {
+		return dto.HookResolveResponse{}, err
+	}
+	return hookManager.Resolve(ctx, instance.Lease, req)
+}
+
+func resolveCurrentRegisteredInstance(ctx context.Context, registry *ToolRegistry) (*ToolInstance, error) {
+	server, err := serverFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lease, ok := registry.lookupLeaseByServer(server)
+	if !ok {
+		return nil, errLeaseNotFound("mcp lease for current peer is not registered")
+	}
+	return resolveRegisteredInstance(registry, lease, false)
+}
+
+func (r *ToolRegistry) lookupLeaseByServer(server *jrpc2.Server) (LeaseKey, bool) {
+	if r == nil || server == nil {
+		return LeaseKey{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for lease, instance := range r.instances {
+		if instance == nil {
+			continue
+		}
+		switch peer := instance.Peer.(type) {
+		case jrpcPeer:
+			if peer.server == server {
+				return lease, true
+			}
+		case *jrpcPeer:
+			if peer != nil && peer.server == server {
+				return lease, true
+			}
+		}
+	}
+	return LeaseKey{}, false
 }
 
 type registryContextProvider struct {

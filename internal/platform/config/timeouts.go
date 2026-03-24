@@ -33,3 +33,15 @@ func WithDBQueryTimeout(ctx context.Context) (context.Context, context.CancelFun
 func WithRPCRequestTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, RPCRequestTimeout)
 }
+
+// WithPeerTimeout wraps context.WithTimeout for peer callback scenarios.
+// Allowed by TestTimeoutLocality whitelist.
+func WithPeerTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, timeout)
+}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const (
@@ -111,6 +112,10 @@ func (d *HookDispatcher) DispatchAfter(ctx context.Context, topic string, payloa
 		return nil, err
 	}
 	leases, payload := d.prepareDispatch(topic, payload)
+	return d.dispatchPreparedAfter(ctx, leases, payload)
+}
+
+func (d *HookDispatcher) dispatchPreparedAfter(ctx context.Context, leases []mcp.LeaseKey, payload mcp.HookPayload) ([]peerDecision[mcp.AfterDecision], error) {
 	if len(leases) == 0 {
 		return nil, nil
 	}
@@ -120,6 +125,7 @@ func (d *HookDispatcher) DispatchAfter(ctx context.Context, topic string, payloa
 func (d *HookDispatcher) prepareDispatch(topic string, payload mcp.HookPayload) ([]mcp.LeaseKey, mcp.HookPayload) {
 	topic = strings.TrimSpace(topic)
 	payload = cloneHookPayload(payload)
+	payload.Depth++
 	payload.Topic = topic
 	payload.HookCallID = strings.TrimSpace(payload.HookCallID)
 	if payload.HookCallID == "" {
@@ -199,7 +205,7 @@ func runDispatchWorker[T any](
 	invoke func(context.Context, mcp.LeaseKey, mcp.HookPayload) (T, error),
 ) {
 	for job := range jobs {
-		callCtx, cancel := withTimeoutContext(ctx, d.peerTimeoutOrDefault())
+		callCtx, cancel := config.WithPeerTimeout(ctx, d.peerTimeoutOrDefault())
 		decision, err := invoke(callCtx, job.lease, cloneHookPayload(payload))
 		cancel()
 		failures := d.recordPeerResult(job.lease, err)
@@ -228,14 +234,11 @@ func (d *HookDispatcher) recordPeerResult(lease mcp.LeaseKey, err error) int {
 	return d.failCounts[lease]
 }
 
-func withTimeoutContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if timeout <= 0 {
-		return context.WithCancel(ctx)
-	}
-	return context.WithTimeout(ctx, timeout)
+// ForgetLease clears failure tracking for a lease after unsubscribe to avoid leaks.
+func (d *HookDispatcher) ForgetLease(lease mcp.LeaseKey) {
+	d.failMu.Lock()
+	delete(d.failCounts, lease)
+	d.failMu.Unlock()
 }
 
 func cloneHookPayload(payload mcp.HookPayload) mcp.HookPayload {

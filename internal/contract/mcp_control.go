@@ -9,7 +9,7 @@ import (
 
 // ToolInstance is a registry snapshot for a connected MCP peer.
 type ToolInstance struct {
-	Lease         mcp.LeaseKey
+	Lease mcp.LeaseKey
 	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
 	LeaseID       string
 	BinaryName    string
@@ -31,6 +31,10 @@ type ToolRegistry interface {
 	GetInstance(key mcp.LeaseKey) (ToolInstance, bool)
 	NotifyBySubscription(ctx context.Context, topic, method string, params any) error
 	NotifyByCapability(ctx context.Context, capability, method string, params any) error
+	NotifyBySelector(ctx context.Context, sel mcp.Selector, method string, params any) error
 	NotifyConfigChanged(ctx context.Context, topic string, configVersion int64, payload json.RawMessage) error
+	CallbackHookBefore(ctx context.Context, topic string, payload mcp.HookPayload) error
+	CallbackHookCheck(ctx context.Context, topic string, payload mcp.HookPayload) error
+	CallbackHookAfter(ctx context.Context, topic string, payload mcp.HookPayload) error
 	ShutdownInstance(ctx context.Context, key mcp.LeaseKey, req mcp.ShutdownRequest) error
 }

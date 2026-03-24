@@ -13,8 +13,16 @@ type HookManager interface {
 	DispatchBefore(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.BeforeDecision, error)
 	DispatchCheck(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.CheckDecision, error)
 	DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.AfterDecision, error)
-	Resolve(ctx context.Context, req mcp.HookResolveRequest) (mcp.HookResolveResponse, error)
+	Resolve(ctx context.Context, callerLease mcp.LeaseKey, req mcp.HookResolveRequest) (mcp.HookResolveResponse, error)
 	GetPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error)
+}
+
+// HookLifecycle manages hook shutdown and cleanup events.
+// Kept separate from HookManager to avoid inflating the protocol interface.
+type HookLifecycle interface {
+	// ShutdownHooks clears hook state for a lease during shutdown.
+	// Order: Unsubscribe first to stop new callback fanout, then cancel pending reviews.
+	ShutdownHooks(ctx context.Context, lease mcp.LeaseKey) error
 }
 
 // HookReviewStore defines the persistence interface for pending_hook_review.
@@ -24,6 +32,7 @@ type HookReviewStore interface {
 	GetPendingReview(ctx context.Context, hookCallID string) (mcp.PendingHookReview, error)
 	ListPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error)
 	ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey string) error
+	CancelPendingReviewsByLease(ctx context.Context, subscriberLease string) (int, error)
 	CancelPendingReviewsByAgent(ctx context.Context, agentID string) (int, error)
 	CancelExpiredReviews(ctx context.Context) (int, error)
 	RecoverOnStartup(ctx context.Context) ([]mcp.PendingHookReview, error)

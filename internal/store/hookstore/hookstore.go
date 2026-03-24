@@ -44,15 +44,16 @@ type scanRows interface {
 func (s *Store) SavePendingReview(ctx context.Context, review mcp.PendingHookReview) error {
 	const q = `
 		INSERT INTO hook_pending_reviews (
-			hook_call_id, topic, agent_id, default_action,
+			hook_call_id, topic, agent_id, subscriber_lease, default_action,
 			status, created_at, deadline_at
-		) VALUES ($1, $2, $3, $4, 'pending', $5, $6)
+		) VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
 		ON CONFLICT (hook_call_id) DO NOTHING
 	`
 	_, err := s.db.Exec(ctx, q,
 		review.HookCallID,
 		review.Topic,
 		review.AgentID,
+		review.SubscriberLease,
 		review.DefaultAction,
 		review.CreatedAt,
 		review.DeadlineAt,
@@ -63,7 +64,7 @@ func (s *Store) SavePendingReview(ctx context.Context, review mcp.PendingHookRev
 // GetPendingReview retrieves a single pending hook review by its call ID.
 func (s *Store) GetPendingReview(ctx context.Context, hookCallID string) (mcp.PendingHookReview, error) {
 	const q = `
-		SELECT hook_call_id, topic, agent_id, default_action,
+		SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
 		       status, created_at, deadline_at
 		FROM hook_pending_reviews
 		WHERE hook_call_id = $1 AND status = 'pending'
@@ -79,7 +80,7 @@ func (s *Store) GetPendingReview(ctx context.Context, hookCallID string) (mcp.Pe
 // ListPendingReviews returns all pending reviews for a given agent.
 func (s *Store) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error) {
 	const q = `
-		SELECT hook_call_id, topic, agent_id, default_action,
+		SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
 		       status, created_at, deadline_at
 		FROM hook_pending_reviews
 		WHERE agent_id = $1 AND status = 'pending'
@@ -133,6 +134,36 @@ func (s *Store) ResolvePendingReview(ctx context.Context, hookCallID, decision, 
 	return nil
 }
 
+// GetResolvedReview returns the canonical decision metadata for a resolved review.
+func (s *Store) GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, error) {
+	const q = `
+		SELECT decision, resolved_at
+		FROM hook_pending_reviews
+		WHERE hook_call_id = $1 AND status = 'resolved'
+	`
+	var decision string
+	var resolvedAt time.Time
+	row := s.db.QueryRow(ctx, q, hookCallID)
+	if err := row.Scan(&decision, &resolvedAt); err != nil {
+		return "", time.Time{}, wrapErr(err, "get_resolved")
+	}
+	return decision, resolvedAt, nil
+}
+
+// CancelPendingReviewsByLease marks all pending reviews for the given subscriber lease as cancelled.
+func (s *Store) CancelPendingReviewsByLease(ctx context.Context, subscriberLease string) (int, error) {
+	const q = `
+		UPDATE hook_pending_reviews
+		SET status = 'cancelled', resolved_at = $2
+		WHERE subscriber_lease = $1 AND status = 'pending'
+	`
+	tag, err := s.db.Exec(ctx, q, subscriberLease, time.Now().UTC())
+	if err != nil {
+		return 0, wrapErr(err, "cancel_by_lease")
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // CancelPendingReviewsByAgent marks all pending reviews for the given agent as cancelled.
 func (s *Store) CancelPendingReviewsByAgent(ctx context.Context, agentID string) (int, error) {
 	const q = `
@@ -165,7 +196,7 @@ func (s *Store) CancelExpiredReviews(ctx context.Context) (int, error) {
 // RecoverOnStartup returns all reviews that are still pending (used at process start).
 func (s *Store) RecoverOnStartup(ctx context.Context) ([]mcp.PendingHookReview, error) {
 	const q = `
-		SELECT hook_call_id, topic, agent_id, default_action,
+		SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
 		       status, created_at, deadline_at
 		FROM hook_pending_reviews
 		WHERE status = 'pending'
@@ -196,7 +227,7 @@ func scanReview(row scanRow) (mcp.PendingHookReview, error) {
 	var r mcp.PendingHookReview
 	var status string
 	err := row.Scan(
-		&r.HookCallID, &r.Topic, &r.AgentID, &r.DefaultAction,
+		&r.HookCallID, &r.Topic, &r.AgentID, &r.SubscriberLease, &r.DefaultAction,
 		&status, &r.CreatedAt, &r.DeadlineAt,
 	)
 	return r, err
@@ -206,7 +237,7 @@ func scanReviewRows(rows scanRows) (mcp.PendingHookReview, error) {
 	var r mcp.PendingHookReview
 	var status string
 	err := rows.Scan(
-		&r.HookCallID, &r.Topic, &r.AgentID, &r.DefaultAction,
+		&r.HookCallID, &r.Topic, &r.AgentID, &r.SubscriberLease, &r.DefaultAction,
 		&status, &r.CreatedAt, &r.DeadlineAt,
 	)
 	return r, err

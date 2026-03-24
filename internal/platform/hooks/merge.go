@@ -22,7 +22,7 @@ type peerDecision[T any] struct {
 }
 
 func MergeBefore(decisions []peerDecision[mcp.BeforeDecision]) MergeResult[mcp.BeforeDecision] {
-	normalized, failed := normalizeBeforeDecisions(decisions)
+	normalized, failed, lost := normalizeBeforeDecisions(decisions)
 	merged := mergeBeforeDecision(normalized)
 	merged.AllowedTools = mergeAllowedTools(normalized)
 	merged.DeniedTools = mergeDeniedTools(normalized)
@@ -30,15 +30,17 @@ func MergeBefore(decisions []peerDecision[mcp.BeforeDecision]) MergeResult[mcp.B
 		Decision:       merged,
 		PartialFailure: len(failed) > 0,
 		FailedLeases:   failed,
+		LostLeases:     lost,
 	}
 }
 
 func MergeDuring(decisions []peerDecision[mcp.CheckDecision]) MergeResult[mcp.CheckDecision] {
-	normalized, failed := normalizeCheckDecisions(decisions)
+	normalized, failed, lost := normalizeCheckDecisions(decisions)
 	return MergeResult[mcp.CheckDecision]{
 		Decision:       mergeCheckDecision(normalized),
 		PartialFailure: len(failed) > 0,
 		FailedLeases:   failed,
+		LostLeases:     lost,
 	}
 }
 
@@ -52,13 +54,18 @@ func MergeAfter(decisions []peerDecision[mcp.AfterDecision]) MergeResult[mcp.Aft
 	}
 }
 
-func normalizeBeforeDecisions(decisions []peerDecision[mcp.BeforeDecision]) ([]mcp.BeforeDecision, []mcp.LeaseKey) {
+func normalizeBeforeDecisions(decisions []peerDecision[mcp.BeforeDecision]) ([]mcp.BeforeDecision, []mcp.LeaseKey, []mcp.LeaseKey) {
 	normalized := make([]mcp.BeforeDecision, 0, len(decisions))
 	failed := make([]mcp.LeaseKey, 0)
-	seen := make(map[mcp.LeaseKey]struct{}, len(decisions))
+	lost := make([]mcp.LeaseKey, 0)
+	failedSeen := make(map[mcp.LeaseKey]struct{}, len(decisions))
+	lostSeen := make(map[mcp.LeaseKey]struct{}, len(decisions))
 	for _, item := range decisions {
 		if item.Err != nil {
-			failed = appendUniqueLease(failed, seen, item.Lease)
+			failed = appendUniqueLease(failed, failedSeen, item.Lease)
+			if item.ConsecutiveFailures >= 3 {
+				lost = appendUniqueLease(lost, lostSeen, item.Lease)
+			}
 			continue
 		}
 		allowedTools := cloneStrings(item.Decision.AllowedTools)
@@ -76,16 +83,21 @@ func normalizeBeforeDecisions(decisions []peerDecision[mcp.BeforeDecision]) ([]m
 			Reason:       strings.TrimSpace(item.Decision.Reason),
 		})
 	}
-	return normalized, failed
+	return normalized, failed, lost
 }
 
-func normalizeCheckDecisions(decisions []peerDecision[mcp.CheckDecision]) ([]mcp.CheckDecision, []mcp.LeaseKey) {
+func normalizeCheckDecisions(decisions []peerDecision[mcp.CheckDecision]) ([]mcp.CheckDecision, []mcp.LeaseKey, []mcp.LeaseKey) {
 	normalized := make([]mcp.CheckDecision, 0, len(decisions))
 	failed := make([]mcp.LeaseKey, 0)
-	seen := make(map[mcp.LeaseKey]struct{}, len(decisions))
+	lost := make([]mcp.LeaseKey, 0)
+	failedSeen := make(map[mcp.LeaseKey]struct{}, len(decisions))
+	lostSeen := make(map[mcp.LeaseKey]struct{}, len(decisions))
 	for _, item := range decisions {
 		if item.Err != nil {
-			failed = appendUniqueLease(failed, seen, item.Lease)
+			failed = appendUniqueLease(failed, failedSeen, item.Lease)
+			if item.ConsecutiveFailures >= 3 {
+				lost = appendUniqueLease(lost, lostSeen, item.Lease)
+			}
 			continue
 		}
 		normalized = append(normalized, mcp.CheckDecision{
@@ -94,7 +106,7 @@ func normalizeCheckDecisions(decisions []peerDecision[mcp.CheckDecision]) ([]mcp
 			Reason:   strings.TrimSpace(item.Decision.Reason),
 		})
 	}
-	return normalized, failed
+	return normalized, failed, lost
 }
 
 func normalizeAfterDecisions(decisions []peerDecision[mcp.AfterDecision]) ([]mcp.AfterDecision, []mcp.LeaseKey, []mcp.LeaseKey) {

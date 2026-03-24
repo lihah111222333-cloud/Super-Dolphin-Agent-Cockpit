@@ -18,6 +18,7 @@ var Module = fx.Module("mcpcontrol",
 		NewSweeper,
 		provideHandlers,
 	),
+	fx.Invoke(registerHookLifecycle),
 	fx.Invoke(registerSweeperLifecycle),
 )
 
@@ -25,6 +26,7 @@ type HandlerDeps struct {
 	Registry          *ToolRegistry
 	Approvals         *rpc.ApprovalManager          `optional:"true"`
 	Bridge            *rpc.PushBridge               `optional:"true"`
+	HookManager       contract.HookManager          `optional:"true"`
 	Logger            *slog.Logger                  `optional:"true"`
 	Dispatcher        *event.Dispatcher             `optional:"true"`
 	Orchestration     contract.OrchestrationService `optional:"true"`
@@ -42,6 +44,7 @@ type handlerIn struct {
 	Registry          *ToolRegistry
 	Approvals         *rpc.ApprovalManager          `optional:"true"`
 	Bridge            *rpc.PushBridge               `optional:"true"`
+	HookManager       contract.HookManager          `optional:"true"`
 	Logger            *slog.Logger                  `optional:"true"`
 	Dispatcher        *event.Dispatcher             `optional:"true"`
 	Orchestration     contract.OrchestrationService `optional:"true"`
@@ -53,11 +56,19 @@ type handlerIn struct {
 	CompletionReports CompletionReportHandler       `optional:"true"`
 }
 
+type hookLifecycleIn struct {
+	fx.In
+
+	Registry      *ToolRegistry
+	HookLifecycle contract.HookLifecycle `optional:"true"`
+}
+
 func provideHandlers(in handlerIn) rpc.HandlerMapResult {
 	return NewHandlers(HandlerDeps{
 		Registry:          in.Registry,
 		Approvals:         in.Approvals,
 		Bridge:            in.Bridge,
+		HookManager:       in.HookManager,
 		Logger:            in.Logger,
 		Dispatcher:        in.Dispatcher,
 		Orchestration:     in.Orchestration,
@@ -68,6 +79,13 @@ func provideHandlers(in handlerIn) rpc.HandlerMapResult {
 		RuntimeReports:    in.RuntimeReports,
 		CompletionReports: in.CompletionReports,
 	})
+}
+
+func registerHookLifecycle(in hookLifecycleIn) {
+	if in.Registry == nil {
+		return
+	}
+	in.Registry.setHookLifecycle(in.HookLifecycle)
 }
 
 func registerSweeperLifecycle(lc fx.Lifecycle, sweeper *Sweeper) {
