@@ -11,6 +11,118 @@ import (
 
 const defaultDAGStatus = "draft"
 
+type createDAGParams struct {
+	DagKey      string                `json:"dag_key"`
+	Title       string                `json:"title"`
+	Description string                `json:"description,omitempty"`
+	CreatedBy   string                `json:"created_by,omitempty"`
+	Metadata    json.RawMessage       `json:"metadata,omitempty"`
+	Nodes       []createDAGNodeParams `json:"nodes,omitempty"`
+}
+
+func (p *createDAGParams) UnmarshalJSON(data []byte) error {
+	type raw createDAGParams
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = createDAGParams(current)
+	var legacy struct {
+		DagKey    string `json:"dagKey"`
+		CreatedBy string `json:"createdBy"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.DagKey) == "" {
+		p.DagKey = strings.TrimSpace(legacy.DagKey)
+	}
+	if strings.TrimSpace(p.CreatedBy) == "" {
+		p.CreatedBy = strings.TrimSpace(legacy.CreatedBy)
+	}
+	return nil
+}
+
+type createDAGNodeParams struct {
+	NodeKey    string          `json:"node_key"`
+	Title      string          `json:"title"`
+	NodeType   string          `json:"node_type,omitempty"`
+	AssignedTo string          `json:"assigned_to,omitempty"`
+	DependsOn  []string        `json:"depends_on,omitempty"`
+	CommandRef string          `json:"command_ref,omitempty"`
+	Config     json.RawMessage `json:"config,omitempty"`
+}
+
+func (p *createDAGNodeParams) UnmarshalJSON(data []byte) error {
+	type raw createDAGNodeParams
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = createDAGNodeParams(current)
+	var legacy struct {
+		NodeKey    string   `json:"nodeKey"`
+		NodeType   string   `json:"nodeType"`
+		AssignedTo string   `json:"assignedTo"`
+		DependsOn  []string `json:"dependsOn"`
+		CommandRef string   `json:"commandRef"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.NodeKey) == "" {
+		p.NodeKey = strings.TrimSpace(legacy.NodeKey)
+	}
+	if strings.TrimSpace(p.NodeType) == "" {
+		p.NodeType = strings.TrimSpace(legacy.NodeType)
+	}
+	if strings.TrimSpace(p.AssignedTo) == "" {
+		p.AssignedTo = strings.TrimSpace(legacy.AssignedTo)
+	}
+	if len(p.DependsOn) == 0 && len(legacy.DependsOn) > 0 {
+		p.DependsOn = append([]string(nil), legacy.DependsOn...)
+	}
+	if strings.TrimSpace(p.CommandRef) == "" {
+		p.CommandRef = strings.TrimSpace(legacy.CommandRef)
+	}
+	return nil
+}
+
+type listDAGsParams struct {
+	Status  string `json:"status,omitempty"`
+	Keyword string `json:"keyword,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+}
+
+type updateNodeParams struct {
+	dagNodeParams
+	Status string          `json:"status"`
+	Result json.RawMessage `json:"result,omitempty"`
+}
+
+func (p *updateNodeParams) UnmarshalJSON(data []byte) error {
+	type raw updateNodeParams
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = updateNodeParams(current)
+	var legacy struct {
+		DagKey  string `json:"dagKey"`
+		NodeKey string `json:"nodeKey"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.DagKey) == "" {
+		p.DagKey = strings.TrimSpace(legacy.DagKey)
+	}
+	if strings.TrimSpace(p.NodeKey) == "" {
+		p.NodeKey = strings.TrimSpace(legacy.NodeKey)
+	}
+	return nil
+}
+
 func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error) {
 	store, err := s.dagStoreOrErr()
 	if err != nil {

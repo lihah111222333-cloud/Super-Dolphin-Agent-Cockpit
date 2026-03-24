@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 )
@@ -19,6 +20,10 @@ import (
 // DefaultApprovalTimeout bounds approvals that do not carry an explicit deadline.
 // Tests may override it with a shorter duration.
 var DefaultApprovalTimeout = 5 * time.Minute
+
+type approvalContextKey string
+
+const approvalAutoDeclineOnCancelKey approvalContextKey = "approval_auto_decline_on_cancel"
 
 func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
 	callID := approvalCallID(firstNonEmpty(req.CallID, req.ApprovalID), req.RequestID)
@@ -32,6 +37,7 @@ func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
 	req.State = firstNonEmpty(strings.TrimSpace(req.State), agentdto.StateAwaitingUserInput)
 	req.SourceMethod = strings.TrimSpace(req.SourceMethod)
 	req.Reason = strings.TrimSpace(req.Reason)
+	req.ApprovalPolicy = strings.TrimSpace(req.ApprovalPolicy)
 	req.Payload = cloneMap(req.Payload)
 	return req, nil
 }
@@ -45,10 +51,14 @@ func WithApprovalDeadline(ctx context.Context) (context.Context, context.CancelF
 	if DefaultApprovalTimeout <= 0 {
 		return ctx, func() {}
 	}
-	if _, ok := ctx.Deadline(); ok {
-		return ctx, func() {}
+	return platformconfig.WithTimeoutIfNone(ctx, DefaultApprovalTimeout)
+}
+
+func WithApprovalAutoDeclineOnCancel(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return context.WithTimeout(ctx, DefaultApprovalTimeout)
+	return context.WithValue(ctx, approvalAutoDeclineOnCancelKey, true)
 }
 
 func waitForApproval(ctx context.Context, pending *pendingApproval) (contract.ApprovalDecision, error) {
@@ -117,6 +127,36 @@ func mapApprovalWaitErr(err error, callID string) error {
 	}
 }
 
+func dispatchApprovalDecision(req ApprovalRequest, bridge *PushBridge, server *jrpc2.Server) (contract.ApprovalDecision, string, bool) {
+	switch {
+	case shouldAutoApproveUserInput(req):
+		return contract.ApprovalDecision{Approved: boolPtr(true), Reason: "auto_approved"}, "", true
+	case bridge == nil && server == nil:
+		return declinedApprovalDecision(), "", true
+	case bridge == nil:
+		return declinedApprovalDecision(), "approval dispatch misconfigured: callback bridge is nil while rpc server is present", true
+	case server == nil:
+		return declinedApprovalDecision(), "approval dispatch misconfigured: rpc server is nil while callback bridge is present", true
+	default:
+		return contract.ApprovalDecision{}, "", false
+	}
+}
+
+func canceledApprovalDecision(ctx context.Context, err error) (contract.ApprovalDecision, bool) {
+	if !shouldAutoDeclineOnCancel(ctx) || !errors.Is(err, context.Canceled) {
+		return contract.ApprovalDecision{}, false
+	}
+	return declinedApprovalDecision(), true
+}
+
+func shouldAutoDeclineOnCancel(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	enabled, _ := ctx.Value(approvalAutoDeclineOnCancelKey).(bool)
+	return enabled
+}
+
 func isRecoverableDispatchErr(err error) bool {
 	var rpcErr *jrpc2.Error
 	if errors.As(err, &rpcErr) {
@@ -176,6 +216,18 @@ func cloneApprovalRequest(req ApprovalRequest, requestID *int64) ApprovalRequest
 	req.RequestID = cloneInt64Ptr(requestID)
 	req.Payload = cloneMap(req.Payload)
 	return req
+}
+
+func shouldAutoApproveUserInput(req ApprovalRequest) bool {
+	return isRequestUserInputKind(req.Kind) && strings.EqualFold(approvalPolicy(req), "never")
+}
+
+func approvalPolicy(req ApprovalRequest) string {
+	return firstNonEmpty(req.ApprovalPolicy, stringFromMap(req.Payload, "approvalPolicy", "approval_policy"))
+}
+
+func declinedApprovalDecision() contract.ApprovalDecision {
+	return contract.ApprovalDecision{Approved: boolPtr(false), Reason: "decline"}
 }
 
 func cloneMap(in map[string]any) map[string]any {

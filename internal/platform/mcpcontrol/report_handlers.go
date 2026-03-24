@@ -10,10 +10,12 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
+// RuntimeReportHandler handles runtime reports received through the MCP control plane.
 type RuntimeReportHandler interface {
 	HandleRuntimeReport(ctx context.Context, instance *ToolInstance, report dto.RuntimeReport, req dto.ReportRequest) (dto.ReportResponse, error)
 }
 
+// CompletionReportHandler handles completion reports received through the MCP control plane.
 type CompletionReportHandler interface {
 	HandleCompletionReport(ctx context.Context, instance *ToolInstance, report dto.CompletionReport, req dto.ReportRequest) (dto.ReportResponse, error)
 }
@@ -68,8 +70,10 @@ func dispatchReport(
 			report = *req.Report.Completion
 		}
 		return completionReports.HandleCompletionReport(ctx, instance, report, req)
+	case dto.ReportVariantProgress, dto.ReportVariantDiagnostic:
+		return dto.ReportResponse{}, errInvalidParams("unsupported report variant %q", reportVariant(req.Report))
 	default:
-		return dto.ReportResponse{}, errInvalidParams("unsupported report variant %q", req.Report.Type)
+		return dto.ReportResponse{}, errInvalidParams("unsupported report variant %q", reportVariant(req.Report))
 	}
 }
 

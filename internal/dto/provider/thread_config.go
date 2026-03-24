@@ -8,8 +8,9 @@ type ThreadConfigPatch struct {
 }
 
 type ThreadConfigValues struct {
-	Model  string `json:"model,omitempty"`
-	Effort string `json:"effort,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Effort    string `json:"effort,omitempty"`
+	Approvals string `json:"approvals,omitempty"`
 }
 
 type ThreadConfig struct {

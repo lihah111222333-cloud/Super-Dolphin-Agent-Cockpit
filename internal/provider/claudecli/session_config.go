@@ -78,8 +78,9 @@ func (s *session) ReadConfig(context.Context, string) (dto.ThreadConfig, error) 
 		ThreadID: threadID,
 		Provider: "claude",
 		Effective: dto.ThreadConfigValues{
-			Model:  strings.TrimSpace(s.model),
-			Effort: strings.TrimSpace(s.config.Effort),
+			Model:     strings.TrimSpace(s.model),
+			Effort:    strings.TrimSpace(s.config.Effort),
+			Approvals: strings.TrimSpace(s.config.ApprovalPolicy),
 		},
 	}, nil
 }

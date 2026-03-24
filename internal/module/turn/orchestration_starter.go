@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 type orchestrationTurnStarter struct {
@@ -35,7 +36,7 @@ func (s orchestrationTurnStarter) WaitForSessionReady(ctx context.Context, agent
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
+		ctx, cancel = platformconfig.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 	ticker := time.NewTicker(sessionReadyPollInterval)

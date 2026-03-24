@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const (
@@ -152,7 +154,7 @@ func findScopedFiles(ctx context.Context, raw string, roots []string, limit int)
 }
 
 func walkScopedMatches(ctx context.Context, raw string, roots []string, limit int) ([]scopedPath, bool, error) {
-	searchCtx, cancel := context.WithTimeout(ctx, codeSearchTimeout)
+	searchCtx, cancel := platformconfig.WithTimeout(ctx, codeSearchTimeout)
 	defer cancel()
 	target := filepath.ToSlash(filepath.Clean(raw))
 	base := path.Base(target)

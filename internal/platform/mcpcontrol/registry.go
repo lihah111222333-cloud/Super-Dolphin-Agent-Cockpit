@@ -3,7 +3,6 @@ package mcpcontrol
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -15,12 +14,15 @@ import (
 const (
 	defaultHeartbeatInterval    = 10 * time.Second
 	defaultNotifyTimeout        = 2 * time.Second
+	defaultCleanupTimeout       = 3 * time.Second
 	defaultFanoutParallelism    = 8
 	defaultPeerFailureThreshold = 3
+	controlPlaneProtocolVersion = dto.ProtocolVersion
 )
 
+// LeaseKey identifies a registered MCP tool lease.
 type LeaseKey = dto.LeaseKey
-
+// ToolInstance captures the metadata and live peer for a registered MCP tool lease.
 type ToolInstance struct {
 	Lease LeaseKey
 	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
@@ -41,13 +43,13 @@ type ToolInstance struct {
 	ConsecutiveFailures int
 	Peer                Peer
 }
-
+// Peer represents the live RPC connection back to a registered MCP tool.
 type Peer interface {
 	Notify(ctx context.Context, method string, params any) error
 	Callback(ctx context.Context, method string, params any, result any) error
 	Close() error
 }
-
+// ToolRegistry manages registered MCP tool instances, their lease indexes, and control-plane fanout.
 type ToolRegistry struct {
 	mu               sync.RWMutex
 	instances        map[LeaseKey]*ToolInstance
@@ -69,6 +71,7 @@ type ToolRegistry struct {
 	hookLifecycle        contract.HookLifecycle
 }
 
+// RegistryOptions configures heartbeat, notification, and peer failure behavior for a ToolRegistry.
 type RegistryOptions struct {
 	HeartbeatInterval    time.Duration
 	NotifyTimeout        time.Duration
@@ -105,66 +108,6 @@ func NewToolRegistry(opts RegistryOptions) *ToolRegistry {
 		notifyTimeout:        durationOrDefault(opts.NotifyTimeout, defaultNotifyTimeout),
 		fanoutParallelism:    intOrDefault(opts.FanoutParallelism, defaultFanoutParallelism),
 		peerFailureThreshold: intOrDefault(opts.PeerFailureThreshold, defaultPeerFailureThreshold),
-	}
-}
-
-func (r *ToolRegistry) setHookLifecycle(hookLifecycle contract.HookLifecycle) {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	r.hookLifecycle = hookLifecycle
-	r.mu.Unlock()
-}
-
-func (r *ToolRegistry) currentConfigVersionLocked() int64 {
-	if r == nil || r.configVersion < 1 {
-		return 1
-	}
-	return r.configVersion
-}
-
-func (r *ToolRegistry) advanceConfigVersion() int64 {
-	if r == nil {
-		return 1
-	}
-	r.mu.Lock()
-	if r.configVersion < 1 {
-		r.configVersion = 1
-	}
-	r.configVersion++
-	next := r.configVersion
-	for _, instance := range r.instances {
-		if instance != nil {
-			instance.ConfigVersion = next
-		}
-	}
-	r.mu.Unlock()
-	return next
-}
-
-func (r *ToolRegistry) shutdownHooks(ctx context.Context, key LeaseKey) error {
-	if r == nil {
-		return nil
-	}
-	if key == (LeaseKey{}) {
-		return nil
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	r.mu.RLock()
-	hookLifecycle := r.hookLifecycle
-	r.mu.RUnlock()
-	if hookLifecycle == nil {
-		return nil
-	}
-	return hookLifecycle.ShutdownHooks(ctx, key)
-}
-
-func (r *ToolRegistry) cleanupLease(ctx context.Context, key LeaseKey) {
-	if err := r.shutdownHooks(ctx, key); err != nil {
-		slog.Warn("mcp lease hook cleanup failed", "instance_id", key.InstanceID, "generation", key.Generation, "err", err)
 	}
 }
 
@@ -218,12 +161,15 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 	closePeer(previous)
 	return dto.RegisterResponse{
 		Lease:                  instance.Lease,
+		AcceptedGeneration:     instance.Lease.Generation,
 		PeerKind:               instance.PeerKind,
 		CapabilitiesNegotiated: cloneStrings(instance.Capabilities),
+		CapabilitiesRejected:   []string{},
 		HeartbeatIntervalMs:    int(r.heartbeatInterval / time.Millisecond),
 		HeartbeatTimeoutMs:     int(defaultHeartbeatTTL / time.Millisecond),
 		SendTimeoutMs:          int(r.notifyTimeout / time.Millisecond),
 		SweeperIntervalMs:      int(defaultSweepTick / time.Millisecond),
+		ServerProtocolVersion:  controlPlaneProtocolVersion,
 		ConfigVersion:          instance.ConfigVersion,
 	}, nil
 }
@@ -328,20 +274,6 @@ func (r *ToolRegistry) OnDisconnect(key LeaseKey) {
 	}
 	peer := r.evictLocked(key)
 	r.mu.Unlock()
-	r.cleanupLease(context.Background(), key)
+	r.cleanupLeaseWithTimeout(nil, key)
 	closePeer(peer)
-}
-
-func (r *ToolRegistry) lookupInstance(key dto.LeaseKey) (*ToolInstance, bool) {
-	normalized, err := normalizeLeaseKey(key)
-	if err != nil {
-		return nil, false
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	instance := r.instances[normalized]
-	if instance == nil {
-		return nil, false
-	}
-	return cloneInstance(instance), true
 }

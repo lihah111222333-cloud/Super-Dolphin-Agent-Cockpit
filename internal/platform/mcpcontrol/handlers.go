@@ -5,28 +5,32 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
 )
 
+// AgentContextSource provides agent snapshots used to build MCP context responses.
 type AgentContextSource interface {
 	GetAgentSnapshot(agentID string) (*contract.AgentSnapshot, error)
 }
 
+// ContextProvider resolves a context request for a registered MCP tool instance.
 type ContextProvider interface {
 	GetContext(ctx context.Context, instance *ToolInstance, req dto.ContextRequest) (dto.ContextResponse, error)
 }
 
+// EventSink handles event notifications emitted by a registered MCP tool instance.
 type EventSink interface {
 	HandleEvent(ctx context.Context, instance *ToolInstance, req dto.EventNotify) error
 }
 
+// LogSink handles log notifications emitted by a registered MCP tool instance.
 type LogSink interface {
 	HandleLog(ctx context.Context, instance *ToolInstance, req dto.LogNotify) error
 }
@@ -108,6 +112,9 @@ func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 		dto.MethodHookResolve: rpc.StrictHandler(func(ctx context.Context, req dto.HookResolveRequest) (dto.HookResolveResponse, error) {
 			return handleHookResolve(ctx, p.Registry, p.HookManager, req)
 		}),
+		dto.MethodHookPending: rpc.StrictHandler(func(ctx context.Context, req dto.HookPendingRequest) (dto.HookPendingResponse, error) {
+			return handleHookPending(ctx, p.Registry, p.HookManager, req)
+		}),
 		dto.MethodReport: rpc.StrictHandler(func(ctx context.Context, req dto.ReportRequest) (dto.ReportResponse, error) {
 			return handleReport(ctx, p.Registry, runtimeReports, completionReports, req)
 		}),
@@ -136,7 +143,7 @@ func requestApproval(
 	callCtx := ctx
 	if req.TimeoutMs > 0 {
 		var cancel context.CancelFunc
-		callCtx, cancel = context.WithTimeout(ctx, timeDurationMillis(req.TimeoutMs))
+		callCtx, cancel = platformconfig.WithPeerTimeout(ctx, timeDurationMillis(req.TimeoutMs))
 		defer cancel()
 	}
 	payload := decodePayloadMap(req.Payload)
@@ -155,78 +162,20 @@ func requestApproval(
 		return dto.ApprovalResponse{}, err
 	}
 	return dto.ApprovalResponse{
-		Approved: decision.Approved,
-		Reason:   decision.Reason,
-		Detail:   append(json.RawMessage(nil), decision.Detail...),
+		Approved:       decision.Approved,
+		Reason:         decision.Reason,
+		Detail:         append(json.RawMessage(nil), decision.Detail...),
+		DecisionSource: approvalDecisionSource(decision),
 	}, nil
 }
 
-func handleHookSubscribe(
-	ctx context.Context,
-	registry *ToolRegistry,
-	hookManager contract.HookManager,
-	req dto.HookSubscribeRequest,
-) (dto.HookSubscribeResponse, error) {
-	if hookManager == nil {
-		return dto.HookSubscribeResponse{}, errCapabilityMismatch("hook manager is not configured")
+func approvalDecisionSource(decision contract.ApprovalDecision) string {
+	switch strings.TrimSpace(decision.Reason) {
+	case "auto_approved":
+		return dto.DecisionSourceAutoApprove
+	default:
+		return dto.DecisionSourceUI
 	}
-	instance, err := resolveCurrentRegisteredInstance(ctx, registry)
-	if err != nil {
-		return dto.HookSubscribeResponse{}, err
-	}
-	return hookManager.Subscribe(ctx, instance.Lease, req)
-}
-
-func handleHookResolve(
-	ctx context.Context,
-	registry *ToolRegistry,
-	hookManager contract.HookManager,
-	req dto.HookResolveRequest,
-) (dto.HookResolveResponse, error) {
-	if hookManager == nil {
-		return dto.HookResolveResponse{}, errCapabilityMismatch("hook manager is not configured")
-	}
-	instance, err := resolveCurrentRegisteredInstance(ctx, registry)
-	if err != nil {
-		return dto.HookResolveResponse{}, err
-	}
-	return hookManager.Resolve(ctx, instance.Lease, req)
-}
-
-func resolveCurrentRegisteredInstance(ctx context.Context, registry *ToolRegistry) (*ToolInstance, error) {
-	server, err := serverFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	lease, ok := registry.lookupLeaseByServer(server)
-	if !ok {
-		return nil, errLeaseNotFound("mcp lease for current peer is not registered")
-	}
-	return resolveRegisteredInstance(registry, lease, false)
-}
-
-func (r *ToolRegistry) lookupLeaseByServer(server *jrpc2.Server) (LeaseKey, bool) {
-	if r == nil || server == nil {
-		return LeaseKey{}, false
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for lease, instance := range r.instances {
-		if instance == nil {
-			continue
-		}
-		switch peer := instance.Peer.(type) {
-		case jrpcPeer:
-			if peer.server == server {
-				return lease, true
-			}
-		case *jrpcPeer:
-			if peer != nil && peer.server == server {
-				return lease, true
-			}
-		}
-	}
-	return LeaseKey{}, false
 }
 
 type registryContextProvider struct {
@@ -329,17 +278,6 @@ func filterKeys(payload map[string]any, keys []string) map[string]any {
 	return filtered
 }
 
-func decodePayloadMap(raw json.RawMessage) map[string]any {
-	if len(raw) == 0 {
-		return nil
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err == nil {
-		return payload
-	}
-	return map[string]any{"payload": append(json.RawMessage(nil), raw...)}
-}
-
 func serverFromContext(ctx context.Context) (server *jrpc2.Server, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -352,11 +290,4 @@ func serverFromContext(ctx context.Context) (server *jrpc2.Server, err error) {
 		return nil, errPeerUnavailable("mcp control peer is not available")
 	}
 	return server, nil
-}
-
-func timeDurationMillis(timeoutMs int) time.Duration {
-	if timeoutMs <= 0 {
-		return defaultNotifyTimeout
-	}
-	return time.Duration(timeoutMs) * time.Millisecond
 }

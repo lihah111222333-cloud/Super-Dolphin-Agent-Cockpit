@@ -32,10 +32,6 @@ type HookResolver struct {
 
 type ResolverOption func(*HookResolver)
 
-type resolvedReviewReader interface {
-	GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, error)
-}
-
 func WithResolverTTL(ttl time.Duration) ResolverOption {
 	return func(r *HookResolver) {
 		if r != nil && ttl > 0 {
@@ -52,9 +48,9 @@ func WithResolverLogger(logger *slog.Logger) ResolverOption {
 	}
 }
 
-func NewHookResolver(store contract.HookReviewStore, opts ...ResolverOption) *HookResolver {
+func NewHookResolver(store contract.HookReviewStore, opts ...ResolverOption) (*HookResolver, error) {
 	if store == nil {
-		panic(errNilHookReviewStore)
+		return nil, errNilHookReviewStore
 	}
 
 	resolver := &HookResolver{
@@ -67,17 +63,17 @@ func NewHookResolver(store contract.HookReviewStore, opts ...ResolverOption) *Ho
 			opt(resolver)
 		}
 	}
-	return resolver
+	return resolver, nil
 }
 
 // Escalate converts an after-phase escalate result into a durable pending review.
-func (r *HookResolver) Escalate(ctx context.Context, hookCallID string, payload mcp.HookPayload, subscriberLease mcp.LeaseKey) (mcp.PendingHookReview, error) {
+func (r *HookResolver) Escalate(ctx context.Context, hookCallID string, payload mcp.HookPayload, subscriberLease mcp.LeaseKey, ttlMs int64) (mcp.PendingHookReview, error) {
 	if err := r.validate(); err != nil {
 		return mcp.PendingHookReview{}, err
 	}
 
 	ctx = contextOrBackground(ctx)
-	review, err := r.newPendingReview(time.Now().UTC(), hookCallID, payload, subscriberLease)
+	review, err := r.newPendingReview(time.Now().UTC(), hookCallID, payload, subscriberLease, ttlMs)
 	if err != nil {
 		return mcp.PendingHookReview{}, err
 	}
@@ -88,7 +84,6 @@ func (r *HookResolver) Escalate(ctx context.Context, hookCallID string, payload 
 }
 
 // Resolve handles ctl/hook/resolve and converges the pending review idempotently.
-// TODO(T1-5): validate callerLease owns this hook_call_id once subscriber_lease is persisted in pending review.
 func (r *HookResolver) Resolve(ctx context.Context, callerLease mcp.LeaseKey, req mcp.HookResolveRequest) (mcp.HookResolveResponse, error) {
 	if err := r.validate(); err != nil {
 		return mcp.HookResolveResponse{}, err
@@ -108,7 +103,17 @@ func (r *HookResolver) Resolve(ctx context.Context, callerLease mcp.LeaseKey, re
 	}
 
 	ctx = contextOrBackground(ctx)
-	if err := r.store.ResolvePendingReview(ctx, hookCallID, decision, strings.TrimSpace(req.Reason), idempotencyKey); err != nil {
+	if err := r.validateResolveLease(ctx, hookCallID, callerLease); err != nil {
+		return mcp.HookResolveResponse{}, err
+	}
+	if err := r.store.ResolvePendingReview(
+		ctx,
+		hookCallID,
+		decision,
+		strings.TrimSpace(req.Reason),
+		idempotencyKey,
+		strings.TrimSpace(req.ResolvedBy),
+	); err != nil {
 		return mcp.HookResolveResponse{}, err
 	}
 	canonicalDecision, resolvedAt := r.loadResolvedReview(ctx, hookCallID, decision)
@@ -124,6 +129,47 @@ func (r *HookResolver) Resolve(ctx context.Context, callerLease mcp.LeaseKey, re
 		CanonicalDecision: canonicalDecision,
 		PendingState:      pendingStateResolved,
 	}, nil
+}
+
+func (r *HookResolver) validateResolveLease(ctx context.Context, hookCallID string, callerLease mcp.LeaseKey) error {
+	review, err := r.store.GetPendingReview(ctx, hookCallID)
+	if err != nil {
+		if errors.Is(err, contract.ErrHookReviewNotFound) {
+			return r.validateResolvedReviewLease(ctx, hookCallID, callerLease)
+		}
+		return err
+	}
+
+	return validateSubscriberLeaseOwner(hookCallID, review.SubscriberLease, callerLease)
+}
+
+func (r *HookResolver) validateResolvedReviewLease(ctx context.Context, hookCallID string, callerLease mcp.LeaseKey) error {
+	_, _, subscriberLease, err := r.readResolvedReview(ctx, hookCallID)
+	if err != nil {
+		if errors.Is(err, contract.ErrHookReviewNotFound) {
+			return nil
+		}
+		return err
+	}
+	return validateSubscriberLeaseOwner(hookCallID, subscriberLease, callerLease)
+}
+
+func validateSubscriberLeaseOwner(hookCallID, storedSubscriberLease string, callerLease mcp.LeaseKey) error {
+	callerSubscriberLease, err := formatSubscriberLease(callerLease)
+	if err != nil {
+		return err
+	}
+	storedSubscriberLease = strings.TrimSpace(storedSubscriberLease)
+	if storedSubscriberLease == callerSubscriberLease {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: hook_call_id=%s caller=%s subscriber=%s",
+		contract.ErrHookReviewPermissionDenied,
+		hookCallID,
+		callerSubscriberLease,
+		storedSubscriberLease,
+	)
 }
 
 // SweepExpired scans timed-out pending reviews and applies the default reject action.
@@ -191,7 +237,7 @@ func (r *HookResolver) validate() error {
 	return nil
 }
 
-func (r *HookResolver) newPendingReview(now time.Time, hookCallID string, payload mcp.HookPayload, subscriberLease mcp.LeaseKey) (mcp.PendingHookReview, error) {
+func (r *HookResolver) newPendingReview(now time.Time, hookCallID string, payload mcp.HookPayload, subscriberLease mcp.LeaseKey, ttlMs int64) (mcp.PendingHookReview, error) {
 	resolvedHookCallID, err := resolveHookCallID(hookCallID, payload.HookCallID)
 	if err != nil {
 		return mcp.PendingHookReview{}, err
@@ -216,12 +262,15 @@ func (r *HookResolver) newPendingReview(now time.Time, hookCallID string, payloa
 		AgentID:         agentID,
 		SubscriberLease: resolvedSubscriberLease,
 		CreatedAt:       now,
-		DeadlineAt:      r.resolveDeadline(now, payload.DeadlineMs),
+		DeadlineAt:      r.resolveDeadline(now, payload.DeadlineMs, ttlMs),
 		DefaultAction:   pendingDefaultDecision,
 	}, nil
 }
 
-func (r *HookResolver) resolveDeadline(now time.Time, deadlineMs int64) time.Time {
+func (r *HookResolver) resolveDeadline(now time.Time, deadlineMs int64, ttlMs int64) time.Time {
+	if ttlMs > 0 {
+		return now.Add(time.Duration(ttlMs) * time.Millisecond)
+	}
 	if deadlineMs > 0 {
 		return time.UnixMilli(deadlineMs).UTC()
 	}
@@ -274,12 +323,7 @@ func normalizeResolveDecision(decision string) (string, error) {
 }
 
 func (r *HookResolver) loadResolvedReview(ctx context.Context, hookCallID, _ string) (string, time.Time) {
-	reader, ok := r.store.(resolvedReviewReader)
-	if !ok {
-		return "", time.Time{}
-	}
-
-	decision, resolvedAt, err := reader.GetResolvedReview(ctx, hookCallID)
+	decision, resolvedAt, _, err := r.readResolvedReview(ctx, hookCallID)
 	if err != nil {
 		return "", time.Time{}
 	}
@@ -290,6 +334,10 @@ func (r *HookResolver) loadResolvedReview(ctx context.Context, hookCallID, _ str
 		return decision, time.Time{}
 	}
 	return decision, resolvedAt
+}
+
+func (r *HookResolver) readResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, string, error) {
+	return r.store.GetResolvedReview(ctx, hookCallID)
 }
 
 func contextOrBackground(ctx context.Context) context.Context {

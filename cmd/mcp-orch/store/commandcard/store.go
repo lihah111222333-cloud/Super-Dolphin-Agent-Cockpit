@@ -55,6 +55,38 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, err
 	return cards, nil
 }
 
+func (s *store) Delete(ctx context.Context, cardKey string) error {
+	_, err := s.q.DeleteCommandCard(ctx, cardKey)
+	return wrapCommandCardError(err, "delete", "command_card")
+}
+
+func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) error {
+	return wrapCommandCardError(s.q.InsertCommandCardVersion(ctx, sqlc.InsertCommandCardVersionParams{
+		CardKey:         version.CardKey,
+		Title:           version.Title,
+		Description:     version.Description,
+		CommandTemplate: version.CommandTemplate,
+		Column5:         version.ArgsSchema,
+		RiskLevel:       version.RiskLevel,
+		Enabled:         version.Enabled,
+		CreatedBy:       version.CreatedBy,
+		UpdatedBy:       version.UpdatedBy,
+		SourceUpdatedAt: sqlc.TimeValuePtr(version.SourceUpdatedAt),
+	}), "insert_version", "command_card_version")
+}
+
+func (s *store) ListVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error) {
+	rows, err := s.q.ListCommandCardVersions(ctx, cardKey)
+	if err != nil {
+		return nil, wrapCommandCardError(err, "list_versions", "command_card_version")
+	}
+	versions := make([]CommandCardVersion, 0, len(rows))
+	for _, row := range rows {
+		versions = append(versions, fromVersion(row))
+	}
+	return versions, nil
+}
+
 func fromCard(row sqlc.CommandCard) CommandCard {
 	return CommandCard{
 		ID:              row.ID,
@@ -88,6 +120,24 @@ func fromListRow(row sqlc.ListCommandCardsRow) CommandCard {
 		UpdatedAt:       sqlc.TimeValue(row.UpdatedAt),
 		LastRunAt:       timePtr(row.LastRunAt),
 		RunCount:        row.RunCount,
+	}
+}
+
+func fromVersion(row sqlc.CommandCardVersion) CommandCardVersion {
+	return CommandCardVersion{
+		ID:              row.ID,
+		CardKey:         row.CardKey,
+		Title:           row.Title,
+		Description:     row.Description,
+		CommandTemplate: row.CommandTemplate,
+		ArgsSchema:      json.RawMessage(row.ArgsSchema),
+		RiskLevel:       row.RiskLevel,
+		Enabled:         row.Enabled,
+		CreatedBy:       row.CreatedBy,
+		UpdatedBy:       row.UpdatedBy,
+		SourceUpdatedAt: sqlc.TimePtr(row.SourceUpdatedAt),
+		CreatedAt:       sqlc.TimeValue(row.CreatedAt),
+		ArchivedAt:      sqlc.TimeValue(row.ArchivedAt),
 	}
 }
 

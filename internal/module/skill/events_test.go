@@ -19,7 +19,7 @@ func TestWriteSkillContentPublishesSkillsChanged(t *testing.T) {
 	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
 	defer cancel()
 
-	svc := NewService(nil, "").(*service)
+	svc := NewService("").(*service)
 	svc.bindDispatcher(dispatcher)
 	if _, err := svc.WriteSkillContent(context.Background(), "demo-skill", "# Demo"); err != nil {
 		t.Fatalf("WriteSkillContent() error = %v", err)
@@ -42,7 +42,7 @@ func TestPublishSkillsChangedDebouncesBurst(t *testing.T) {
 	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
 	defer cancel()
 
-	svc := NewService(nil, "").(*service)
+	svc := NewService("").(*service)
 	svc.bindDispatcher(dispatcher)
 	svc.publishSkillsChanged("local_write", "first")
 	svc.publishSkillsChanged("import_dir", "second")
@@ -70,7 +70,7 @@ func TestPublishSkillsChangedDedupesRepeatedActions(t *testing.T) {
 	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
 	defer cancel()
 
-	svc := NewService(nil, "").(*service)
+	svc := NewService("").(*service)
 	svc.bindDispatcher(dispatcher)
 	svc.publishSkillsChanged("local_write", "first")
 	svc.publishSkillsChanged("write", "second")

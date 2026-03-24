@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -113,8 +114,25 @@ func (r *ToolRegistry) callbackTargets(ctx context.Context, targets []sendTarget
 }
 
 func (r *ToolRegistry) runCallbackWorker(ctx context.Context, jobs <-chan sendTarget, errs chan<- error, method string, params any) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("mcp callback worker goroutine panic",
+				"method", method,
+				"panic", rec,
+			)
+		}
+	}()
 	for target := range jobs {
-		errs <- r.callbackTarget(ctx, target, method, params, nil)
+		var err error
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					err = r.recoverWorkerPanic(ctx, "callback", method, target, rec)
+				}
+			}()
+			err = r.callbackTarget(ctx, target, method, params, nil)
+		}()
+		errs <- err
 	}
 }
 
@@ -124,7 +142,7 @@ func (r *ToolRegistry) callbackTarget(ctx context.Context, target sendTarget, me
 	if err := target.peer.Callback(callCtx, method, params, result); err != nil {
 		peer, evicted := r.notePeerFailure(target.key)
 		if evicted {
-			r.cleanupLease(context.Background(), target.key)
+			r.cleanupLeaseWithTimeout(ctx, target.key)
 		}
 		closePeer(peer)
 		return fmt.Errorf("%s/%d: %w", target.key.InstanceID, target.key.Generation, err)

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -22,9 +23,10 @@ const (
 )
 
 var (
-	errNilDispatcher   = errors.New("hooks dispatcher is nil")
-	errNilHookRegistry = errors.New("hooks dispatcher registry is nil")
-	errNilPeerCallback = errors.New("hooks peer callback is not configured")
+	errNilDispatcher       = errors.New("hooks dispatcher is nil")
+	errNilHookRegistry     = errors.New("hooks dispatcher registry is nil")
+	errNilPeerCallback     = errors.New("hooks peer callback is not configured")
+	errDispatchWorkerPanic = errors.New("hooks dispatch worker panic")
 )
 
 // HookDispatcher fans hook callbacks out to subscribed peers.
@@ -55,12 +57,12 @@ func WithPeerTimeout(timeout time.Duration) DispatcherOption {
 	}
 }
 
-func NewHookDispatcher(registry *HookRegistry, cb contract.PeerCallback, opts ...DispatcherOption) *HookDispatcher {
+func NewHookDispatcher(registry *HookRegistry, cb contract.PeerCallback, opts ...DispatcherOption) (*HookDispatcher, error) {
 	if registry == nil {
-		panic(errNilHookRegistry)
+		return nil, errNilHookRegistry
 	}
 	if cb == nil {
-		panic(errNilPeerCallback)
+		return nil, errNilPeerCallback
 	}
 
 	dispatcher := &HookDispatcher{
@@ -75,7 +77,7 @@ func NewHookDispatcher(registry *HookRegistry, cb contract.PeerCallback, opts ..
 			opt(dispatcher)
 		}
 	}
-	return dispatcher
+	return dispatcher, nil
 }
 
 func (d *HookDispatcher) DispatchBefore(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.BeforeDecision], error) {
@@ -179,6 +181,11 @@ type dispatchJob struct {
 	lease mcp.LeaseKey
 }
 
+type dispatchWorkerState struct {
+	current    dispatchJob
+	hasCurrent bool
+}
+
 func dispatchDecisions[T any](
 	d *HookDispatcher,
 	ctx context.Context,
@@ -193,10 +200,16 @@ func dispatchDecisions[T any](
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	for i := 0; i < workers; i++ {
-		go func() {
-			defer wg.Done()
-			runDispatchWorker(d, ctx, jobs, payload, results, invoke)
-		}()
+		state := &dispatchWorkerState{}
+		go func(state *dispatchWorkerState) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					markDispatchWorkerPanicResult(d, results, state.current, state.hasCurrent, rec)
+				}
+				wg.Done()
+			}()
+			runDispatchWorker(d, ctx, jobs, payload, results, invoke, state)
+		}(state)
 	}
 	for i, lease := range leases {
 		jobs <- dispatchJob{index: i, lease: lease}
@@ -206,6 +219,37 @@ func dispatchDecisions[T any](
 	return results
 }
 
+func markDispatchWorkerPanicResult[T any](d *HookDispatcher, results []peerDecision[T], job dispatchJob, hasCurrent bool, rec any) {
+	attrs := []any{"panic", rec}
+	if !hasCurrent {
+		slog.Error("hooks dispatch worker goroutine panic", attrs...)
+		return
+	}
+
+	err := fmt.Errorf("%w for %s/%d: %v", errDispatchWorkerPanic, job.lease.InstanceID, job.lease.Generation, rec)
+	attrs = append(attrs,
+		"lease_key", job.lease,
+		"job_index", job.index,
+		"error", err,
+	)
+	if job.index < 0 || job.index >= len(results) {
+		attrs = append(attrs, "results_len", len(results))
+		slog.Error("hooks dispatch worker goroutine panic", attrs...)
+		return
+	}
+
+	failures := 0
+	if d != nil {
+		failures = d.recordPeerResult(job.lease, err)
+	}
+	results[job.index] = peerDecision[T]{
+		Lease:               job.lease,
+		Err:                 err,
+		ConsecutiveFailures: failures,
+	}
+	slog.Error("hooks dispatch worker goroutine panic", attrs...)
+}
+
 func runDispatchWorker[T any](
 	d *HookDispatcher,
 	ctx context.Context,
@@ -213,17 +257,39 @@ func runDispatchWorker[T any](
 	payload mcp.HookPayload,
 	results []peerDecision[T],
 	invoke func(context.Context, mcp.LeaseKey, mcp.HookPayload) (T, error),
+	state *dispatchWorkerState,
 ) {
 	for job := range jobs {
-		callCtx, cancel := config.WithPeerTimeout(ctx, d.peerTimeoutOrDefault())
-		decision, err := invoke(callCtx, job.lease, cloneHookPayload(payload))
-		cancel()
+		if state != nil {
+			state.current = job
+			state.hasCurrent = true
+		}
+		var decision T
+		var err error
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					err = fmt.Errorf("hooks dispatch panic for %s/%d: %v", job.lease.InstanceID, job.lease.Generation, rec)
+					slog.Error("hooks dispatch worker panic",
+						"lease_key", job.lease,
+						"panic", rec,
+						"error", err,
+					)
+				}
+			}()
+			callCtx, cancel := config.WithPeerTimeout(ctx, d.peerTimeoutOrDefault())
+			defer cancel()
+			decision, err = invoke(callCtx, job.lease, cloneHookPayload(payload))
+		}()
 		failures := d.recordPeerResult(job.lease, err)
 		results[job.index] = peerDecision[T]{
 			Lease:               job.lease,
 			Decision:            decision,
 			Err:                 err,
 			ConsecutiveFailures: failures,
+		}
+		if state != nil {
+			state.hasCurrent = false
 		}
 	}
 }

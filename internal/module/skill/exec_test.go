@@ -2,12 +2,9 @@ package skill
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
-
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 )
 
 func TestExecCommandRejectsShellMetacharacters(t *testing.T) {
@@ -104,7 +101,7 @@ func TestExecCommandOverlaysAllowedEnv(t *testing.T) {
 func TestNewServiceConfiguresProjectRootAndHTTPTimeout(t *testing.T) {
 	t.Parallel()
 
-	impl, ok := NewService(nil, " /tmp/project ").(*service)
+	impl, ok := NewService(" /tmp/project ").(*service)
 	if !ok {
 		t.Fatal("NewService type assertion failed")
 	}
@@ -114,87 +111,4 @@ func TestNewServiceConfiguresProjectRootAndHTTPTimeout(t *testing.T) {
 	if impl.http == nil || impl.http.Timeout != 15*time.Second {
 		t.Fatalf("http timeout mismatch: %#v", impl.http)
 	}
-}
-
-func TestRunCardAllowsShellSyntaxViaInternalShellPath(t *testing.T) {
-	t.Parallel()
-
-	card := commandcardstore.CommandCard{
-		CardKey:         "demo",
-		Title:           "demo",
-		CommandTemplate: "printf foo | tr o a",
-		ArgsSchema:      json.RawMessage("{}"),
-		Enabled:         true,
-	}
-	svc := &service{cards: stubCardStore{card: card}}
-
-	out, err := svc.RunCard(context.Background(), "demo", map[string]any{})
-	if err != nil {
-		t.Fatalf("RunCard returned error: %v", err)
-	}
-	if got := strings.TrimSpace(out.Exec.Stdout); got != "faa" {
-		t.Fatalf("RunCard stdout mismatch: got %q", got)
-	}
-}
-
-func TestRunCardRejectsDangerousShellCommand(t *testing.T) {
-	t.Parallel()
-
-	card := commandcardstore.CommandCard{
-		CardKey:         "danger",
-		Title:           "danger",
-		CommandTemplate: `r\m -rf /tmp/danger`,
-		ArgsSchema:      json.RawMessage("{}"),
-		Enabled:         true,
-	}
-	svc := &service{cards: stubCardStore{card: card}}
-
-	if _, err := svc.RunCard(context.Background(), "danger", map[string]any{}); err == nil {
-		t.Fatal("RunCard expected dangerous command validation error")
-	}
-}
-
-func TestRunCardRejectsDangerousCommandSubstitution(t *testing.T) {
-	t.Parallel()
-
-	card := commandcardstore.CommandCard{
-		CardKey:         "subshell",
-		Title:           "subshell",
-		CommandTemplate: `printf '%s' "$(chmod 600 /tmp/danger)"`,
-		ArgsSchema:      json.RawMessage("{}"),
-		Enabled:         true,
-	}
-	svc := &service{cards: stubCardStore{card: card}}
-
-	if _, err := svc.RunCard(context.Background(), "subshell", map[string]any{}); err == nil {
-		t.Fatal("RunCard expected dangerous command substitution validation error")
-	}
-}
-
-type stubCardStore struct {
-	card commandcardstore.CommandCard
-}
-
-func (s stubCardStore) Get(context.Context, string) (*commandcardstore.CommandCard, error) {
-	card := s.card
-	return &card, nil
-}
-
-func (stubCardStore) Delete(context.Context, string) error { return nil }
-
-func (stubCardStore) InsertVersion(context.Context, commandcardstore.CommandCardVersion) error {
-	return nil
-}
-
-func (stubCardStore) ListVersions(context.Context, string) ([]commandcardstore.CommandCardVersion, error) {
-	return nil, nil
-}
-
-func (s stubCardStore) Upsert(context.Context, commandcardstore.CommandCard) (*commandcardstore.CommandCard, error) {
-	card := s.card
-	return &card, nil
-}
-
-func (s stubCardStore) List(context.Context, commandcardstore.ListFilter) ([]commandcardstore.CommandCard, error) {
-	return []commandcardstore.CommandCard{s.card}, nil
 }

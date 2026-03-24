@@ -12,7 +12,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
@@ -43,17 +43,17 @@ type lspPromptHintResult struct {
 func NewConfigHandlers(
 	cfg *platformconfig.Config,
 	prefs uipreference.Store,
-	files sharedfilestore.Store,
+	queries *sqlc.Queries,
 ) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"config/read": rpc.StrictHandler(func(context.Context, struct{}) (any, error) {
 			return runtimeConfigResult{CWD: configCWD(cfg)}, nil
 		}),
 		"config/lspPromptHint/read": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
-			return readLSPPromptHint(ctx, prefs, files, p.Cwd)
+			return readLSPPromptHint(ctx, prefs, queries, p.Cwd)
 		}),
 		"config/lspPromptHint/write": rpc.StrictHandler(func(ctx context.Context, p lspPromptHintWriteParams) (any, error) {
-			return writeLSPPromptHint(ctx, prefs, files, p.Cwd, p.Hint)
+			return writeLSPPromptHint(ctx, prefs, queries, p.Cwd, p.Hint)
 		}),
 	}}
 }
@@ -73,10 +73,10 @@ func configCWD(cfg *platformconfig.Config) string {
 func readLSPPromptHint(
 	ctx context.Context,
 	prefs uipreference.Store,
-	files sharedfilestore.Store,
+	queries *sqlc.Queries,
 	cwd string,
 ) (*lspPromptHintResult, error) {
-	defaultHint, err := readDefaultLSPPromptHint(ctx, files)
+	defaultHint, err := readDefaultLSPPromptHint(ctx, queries)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func readLSPPromptHint(
 func writeLSPPromptHint(
 	ctx context.Context,
 	prefs uipreference.Store,
-	files sharedfilestore.Store,
+	queries *sqlc.Queries,
 	cwd, hint string,
 ) (*lspPromptHintResult, error) {
 	if prefs == nil {
@@ -103,18 +103,18 @@ func writeLSPPromptHint(
 	if err := storePreference(ctx, prefs, strings.TrimSpace(cwd), lspPromptHintOverrideKey, overrideHint); err != nil {
 		return nil, err
 	}
-	defaultHint, err := readDefaultLSPPromptHint(ctx, files)
+	defaultHint, err := readDefaultLSPPromptHint(ctx, queries)
 	if err != nil {
 		return nil, err
 	}
 	return buildLSPPromptHintResult(defaultHint, overrideHint), nil
 }
 
-func readDefaultLSPPromptHint(ctx context.Context, files sharedfilestore.Store) (string, error) {
-	if files == nil {
+func readDefaultLSPPromptHint(ctx context.Context, queries *sqlc.Queries) (string, error) {
+	if queries == nil {
 		return "", nil
 	}
-	file, err := files.Get(ctx, lspPromptHintDefaultPath)
+	file, err := queries.GetSharedFile(ctx, lspPromptHintDefaultPath)
 	switch {
 	case err == nil:
 		return file.Content, nil

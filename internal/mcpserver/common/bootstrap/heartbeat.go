@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/creachadair/jrpc2"
@@ -37,7 +37,13 @@ func (c *Client) runHeartbeat(ctx context.Context) {
 		if err != nil {
 			failures++
 			if failures >= heartbeatWarnAfter {
-				log.Printf("bootstrap heartbeat failed: instance=%s failures=%d err=%v", c.instanceID, failures, err)
+				slog.Warn("bootstrap heartbeat failed",
+					"instance_id", c.instanceID,
+					"lease_key", c.currentLease(),
+					"failures", failures,
+					"interval", interval,
+					"error", err,
+				)
 			}
 			continue
 		}
@@ -47,7 +53,12 @@ func (c *Client) runHeartbeat(ctx context.Context) {
 		}
 		if rejected {
 			if err := c.refreshLease(ctx); err != nil {
-				log.Printf("bootstrap heartbeat lease refresh failed: instance=%s err=%v", c.instanceID, err)
+				slog.Warn("bootstrap heartbeat lease refresh failed",
+					"instance_id", c.instanceID,
+					"lease_key", c.currentLease(),
+					"interval", interval,
+					"error", err,
+				)
 			}
 		}
 	}

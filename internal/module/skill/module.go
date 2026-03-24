@@ -7,7 +7,6 @@ import (
 	"go.uber.org/fx"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 )
 
 // TODO(P7): 接入事件驱动 auto-match。当前仅 skills/match/preview RPC 触发，
@@ -18,12 +17,12 @@ var Module = fx.Module("skill",
 	fx.Provide(NewSkillHandlers),
 )
 
-func newService(cards commandcardstore.Store, cfg *platformconfig.Config, dispatcher *event.Dispatcher) Service {
+func newService(cfg *platformconfig.Config, dispatcher *event.Dispatcher) Service {
 	projectRoot := ""
 	if cfg != nil {
 		projectRoot = strings.TrimSpace(cfg.ProjectRoot)
 	}
-	svc := NewService(cards, projectRoot)
+	svc := NewService(projectRoot)
 	if impl, ok := svc.(*service); ok {
 		impl.bindDispatcher(dispatcher)
 	}

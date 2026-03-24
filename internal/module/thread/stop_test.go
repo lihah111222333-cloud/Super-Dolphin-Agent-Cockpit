@@ -22,7 +22,8 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
 			AgentID:          "agent-1",
 			Provider:         "codex",
-			ProviderThreadID: "thread-1",
+			ProviderThreadID: "provider-thread-1",
+			CodexThreadID:    "thread-1",
 		}},
 		threadStore: &stubThreadStore{thread: &threadstore.Thread{
 			ThreadID: "thread-1",
@@ -58,8 +59,9 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 		t.Fatalf("session close calls = %d, want 1", session.closeCalls)
 	}
 	wantCleanup := map[string]struct{}{
-		"agent-1:thread_stopped":  {},
-		"thread-1:thread_stopped": {},
+		"agent-1:thread_stopped":           {},
+		"thread-1:thread_stopped":          {},
+		"provider-thread-1:thread_stopped": {},
 	}
 	if len(turns.cleanupCalls) != len(wantCleanup) {
 		t.Fatalf("cleanup calls = %#v", turns.cleanupCalls)

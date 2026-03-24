@@ -28,7 +28,7 @@ const (
 
 	ContextSourceLive         = "live"
 	ContextSourceBootSnapshot = "boot_snapshot"
-	ContextSourceDBRebuild    = "db_rebuild"
+	ContextSourceDBRebuild    = "db_rebuild" // reserved for future use
 
 	StatusActive       = "active"
 	StatusStale        = "stale"
@@ -41,7 +41,7 @@ const (
 
 	DecisionSourceUI          = "ui"
 	DecisionSourceAutoApprove = "auto_approve"
-	DecisionSourceStatic      = "static"
+	DecisionSourceStatic      = "static" // reserved for future use
 
 	// Hook methods (v2 extension)
 	MethodHookSubscribe = "ctl/hook/subscribe"
@@ -49,6 +49,7 @@ const (
 	MethodHookCheck     = "ctl/hook/check"
 	MethodHookAfter     = "ctl/hook/after"
 	MethodHookResolve   = "ctl/hook/resolve"
+	MethodHookPending   = "ctl/hook/pending"
 
 	// Hook decisions
 	HookDecisionAllow    = "allow"

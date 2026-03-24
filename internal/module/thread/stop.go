@@ -88,9 +88,9 @@ func stoppedThreadID(binding *bindingstore.Binding, threadID string) string {
 		return strings.TrimSpace(threadID)
 	}
 	return firstNonEmpty(
-		binding.ProviderThreadID,
 		binding.CodexThreadID,
 		threadID,
+		binding.ProviderThreadID,
 		binding.AgentID,
 	)
 }

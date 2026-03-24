@@ -3,6 +3,7 @@ package mcpcontrol
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -10,8 +11,11 @@ import (
 	"go.uber.org/fx"
 )
 
-// Module wires the ctl/* registry, handlers, and sweeper only. MCP binaries are
-// started outside the core process and self-register through the control plane.
+const activeLeaseCleanupTimeout = 5 * time.Second
+
+// Module wires the ctl/* control-plane registry, handlers, sweeper, and related
+// lifecycle hooks. MCP binaries are started outside the core process and
+// self-register through the control plane.
 var Module = fx.Module("mcpcontrol",
 	fx.Provide(
 		NewRegistry,
@@ -25,10 +29,12 @@ var Module = fx.Module("mcpcontrol",
 		provideHandlers,
 	),
 	fx.Invoke(registerHookLifecycle),
+	fx.Invoke(registerRegistryLifecycle),
 	fx.Invoke(registerConfigChangeLifecycle),
 	fx.Invoke(registerSweeperLifecycle),
 )
 
+// HandlerDeps bundles the dependencies used to build the MCP control-plane RPC handlers.
 type HandlerDeps struct {
 	Registry          *ToolRegistry
 	Approvals         *rpc.ApprovalManager          `optional:"true"`
@@ -130,6 +136,22 @@ func registerHookLifecycle(in hookLifecycleIn) {
 		return
 	}
 	in.Registry.setHookLifecycle(in.HookLifecycle)
+}
+
+func registerRegistryLifecycle(lc fx.Lifecycle, registry *ToolRegistry) {
+	if registry == nil {
+		return
+	}
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			stopCtx, cancel := withTimeoutContext(ctx, activeLeaseCleanupTimeout)
+			defer cancel()
+			return registry.shutdownActiveLeases(stopCtx)
+		},
+	})
 }
 
 func registerConfigChangeLifecycle(lc fx.Lifecycle, in configChangeIn) {

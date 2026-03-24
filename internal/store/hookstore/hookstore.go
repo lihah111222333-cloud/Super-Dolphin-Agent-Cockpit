@@ -72,6 +72,9 @@ func (s *Store) GetPendingReview(ctx context.Context, hookCallID string) (mcp.Pe
 	row := s.db.QueryRow(ctx, q, hookCallID)
 	r, err := scanReview(row)
 	if err != nil {
+		if platformdb.IsNotFound(err) {
+			err = contract.ErrHookReviewNotFound
+		}
 		return mcp.PendingHookReview{}, wrapErr(err, "get")
 	}
 	return r, nil
@@ -106,7 +109,7 @@ func (s *Store) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.P
 }
 
 // ResolvePendingReview marks a pending review as resolved with the given decision.
-func (s *Store) ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey string) error {
+func (s *Store) ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey, resolvedBy string) error {
 	const qCheck = `
 		SELECT 1
 		FROM hook_pending_reviews
@@ -121,33 +124,37 @@ func (s *Store) ResolvePendingReview(ctx context.Context, hookCallID, decision, 
 
 	const q = `
 		UPDATE hook_pending_reviews
-		SET status = 'resolved', decision = $2, reason = $3, idempotency_key = $4, resolved_at = $5
+		SET status = 'resolved', decision = $2, reason = $3, idempotency_key = $4, resolved_by = $5, resolved_at = $6
 		WHERE hook_call_id = $1 AND status = 'pending'
 	`
-	tag, err := s.db.Exec(ctx, q, hookCallID, decision, reason, idempotencyKey, time.Now().UTC())
+	tag, err := s.db.Exec(ctx, q, hookCallID, decision, reason, idempotencyKey, resolvedBy, time.Now().UTC())
 	if err != nil {
 		return wrapErr(err, "resolve")
 	}
 	if tag.RowsAffected() == 0 {
-		return wrapErr(platformdb.ErrNotFound, "resolve")
+		return wrapErr(contract.ErrHookReviewNotFound, "resolve")
 	}
 	return nil
 }
 
-// GetResolvedReview returns the canonical decision metadata for a resolved review.
-func (s *Store) GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, error) {
+// GetResolvedReview returns the canonical decision metadata plus subscriber lease for a resolved review.
+func (s *Store) GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, string, error) {
 	const q = `
-		SELECT decision, resolved_at
+		SELECT decision, resolved_at, subscriber_lease
 		FROM hook_pending_reviews
 		WHERE hook_call_id = $1 AND status = 'resolved'
 	`
 	var decision string
 	var resolvedAt time.Time
+	var subscriberLease string
 	row := s.db.QueryRow(ctx, q, hookCallID)
-	if err := row.Scan(&decision, &resolvedAt); err != nil {
-		return "", time.Time{}, wrapErr(err, "get_resolved")
+	if err := row.Scan(&decision, &resolvedAt, &subscriberLease); err != nil {
+		if platformdb.IsNotFound(err) {
+			err = contract.ErrHookReviewNotFound
+		}
+		return "", time.Time{}, "", wrapErr(err, "get_resolved")
 	}
-	return decision, resolvedAt, nil
+	return decision, resolvedAt, subscriberLease, nil
 }
 
 // CancelPendingReviewsByLease marks all pending reviews for the given subscriber lease as cancelled.

@@ -46,3 +46,26 @@ func TestWriteManifestConfigIncludesEnvAndAutoApprove(t *testing.T) {
 		t.Fatalf("server.cwd = %#v, want /tmp/work", got)
 	}
 }
+
+func TestResolvePermissionModeAcceptsLegacyAndNewApprovalPolicies(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		policy string
+		want   string
+	}{
+		{name: "empty", policy: "", want: "bypassPermissions"},
+		{name: "never", policy: "never", want: "bypassPermissions"},
+		{name: "on-request", policy: "on-request", want: "bypassPermissions"},
+		{name: "always", policy: "always", want: "bypassPermissions"},
+		{name: "auto", policy: "auto", want: "bypassPermissions"},
+		{name: "on-failure", policy: "on-failure", want: "default"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolvePermissionMode(tc.policy, ""); got != tc.want {
+				t.Fatalf("resolvePermissionMode(%q, \"\") = %q, want %q", tc.policy, got, tc.want)
+			}
+		})
+	}
+}

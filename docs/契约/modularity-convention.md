@@ -158,7 +158,16 @@ super-agent-v3/
 │   │   └── fx.go
 │   ├── mcp-orch/        ← 编排 + DAG 工具独立服务
 │   │   ├── main.go
-│   │   └── fx.go
+│   │   ├── fx.go
+│   │   ├── orchestration/
+│   │   ├── store/         ← canonical store（commandcard/prompt/sharedfile 的唯一归属）
+│   │   │   ├── sqlc/
+│   │   │   ├── commandcard/
+│   │   │   ├── prompt/
+│   │   │   ├── sharedfile/
+│   │   │   ├── taskdag/
+│   │   │   └── workspace/
+│   │   └── tools/         ← MCP tool handlers
 │   ├── mcp-ida/         ← IDA 工具独立服务
 │   │   ├── main.go
 │   │   └── fx.go
@@ -240,14 +249,11 @@ super-agent-v3/
 │   │   │   └── *.sql.go
 │   │   ├── agentstatus/
 │   │   ├── auditlog/
-│   │   ├── commandcard/
-│   │   ├── prompt/
-│   │   ├── sharedfile/
 │   │   ├── taskdag/
 │   │   ├── thread/
 │   │   ├── uipreference/
 │   │   ├── workspace/
-│   │   └── ...
+│   │   └── ...                ← commandcard/prompt/sharedfile 已迁至 cmd/mcp-orch/store/
 │   ├── module/
 │   │   ├── thread/
 │   │   │   ├── module.go
@@ -255,11 +261,11 @@ super-agent-v3/
 │   │   │   ├── service.go
 │   │   │   ├── rpc.go
 │   │   │   └── events.go
-│   │   ├── skill/
+│   │   ├── skill/             ← 只负责技能管理，card CRUD 已迁至 cmd/mcp-orch/tools
 │   │   │   ├── module.go
 │   │   │   ├── contract.go
 │   │   │   ├── service.go
-│   │   │   └── loader.go
+│   │   │   └── exec.go
 │   │   ├── workspace/
 │   │   │   ├── module.go
 │   │   │   ├── contract.go
@@ -286,7 +292,7 @@ super-agent-v3/
 │   │   │   ├── contract.go
 │   │   │   ├── service.go
 │   │   │   └── lifecycle.go
-│   │   └── dashboard/
+│   │   └── dashboard/         ← prompt 写操作已迁至 cmd/mcp-orch/tools
 │   │       ├── module.go
 │   │       ├── contract.go
 │   │       ├── service.go
@@ -318,7 +324,7 @@ super-agent-v3/
 | 平台层 | `internal/platform/*` | 提供基础设施能力 | 标准库、第三方库 |
 | Provider 收敛层 | `internal/provider/*` | 统一 provider 语义，屏蔽 Claude CLI / Codex transport 差异，对上暴露 session / capability / manifest | `contract`、`dto`、`platform` |
 | MCP 公共层 | `internal/mcpserver/common` | 历史共享协议层；不再是 P8 `cmd/mcp-orch` 的目标态依赖 | `contract`、`dto`、`platform/{config,db}` |
-| 存储层 | `internal/store/*` | 包装 `sqlc` 和 DB 访问，对外暴露 store 接口 | `platform/db`、`internal/store/sqlc` |
+| 存储层 | `internal/store/*` | 包装 `sqlc` 和 DB 访问，对外暴露 store 接口；commandcard/prompt/sharedfile 已迁至 `cmd/mcp-orch/store/*` | `platform/db`、`internal/store/sqlc` |
 | 业务层 | `internal/module/*` | 承载前端 UI 所需领域逻辑、核心 RPC 注册、事件处理；不再内嵌 MCP stdio tool binary | `contract`、`dto`、`platform`、`provider/unified`、`store` |
 | UI 视图层 | `internal/ui/*` | 运行时事件投影、timeline、dashboard SSE / code_open 等视图适配 | `contract`、`dto`、`platform`、`provider`、`module` |
 | 契约层 | `internal/contract/*` | 纯接口、事件、常量 | 无运行时依赖 |
@@ -1580,9 +1586,9 @@ V2 当前主链路是：
 | V2 字段 | V3 模块 |
 |---|---|
 | `dagStore` | `internal/store/dag` |
-| `cmdStore` | `internal/store/commandcard` |
-| `promptStore` | `internal/store/prompt` |
-| `fileStore` | `internal/store/sharedfile` |
+| `cmdStore` | `cmd/mcp-orch/store/commandcard` |
+| `promptStore` | `cmd/mcp-orch/store/prompt` |
+| `fileStore` | `cmd/mcp-orch/store/sharedfile` |
 | `workspaceRunStore` | `internal/store/workspace` |
 | `sysLogStore` | `internal/store/systemlog` |
 | `agentStatusStore` | `internal/store/agentstatus` |

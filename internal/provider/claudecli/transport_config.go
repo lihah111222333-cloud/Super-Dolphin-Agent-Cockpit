@@ -110,7 +110,7 @@ func resolvePermissionMode(approvalPolicy, sandbox string) string {
 		return mode
 	}
 	switch strings.ToLower(strings.TrimSpace(approvalPolicy)) {
-	case "", "never", "on-request":
+	case "", "never", "on-request", "always", "auto":
 		return "bypassPermissions"
 	case "on-failure", "untrusted":
 		return "default"

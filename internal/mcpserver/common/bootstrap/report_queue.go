@@ -3,7 +3,7 @@ package bootstrap
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/creachadair/jrpc2"
@@ -49,12 +49,19 @@ func (c *Client) flushQueuedReports(ctx context.Context) {
 }
 
 func (c *Client) flushQueuedReportsWithConn(ctx context.Context, conn *jrpc2.Client, lease mcp.LeaseKey) {
-	for _, req := range c.snapshotQueuedReports() {
+	queued := c.snapshotQueuedReports()
+	for _, req := range queued {
 		if _, err := c.sendReportWithConn(ctx, conn, lease, req); err != nil {
 			if isTransportErr(err) {
 				return
 			}
-			log.Printf("bootstrap report replay dropped: instance=%s report_id=%s err=%v", c.instanceID, req.ReportID, err)
+			slog.Warn("bootstrap report replay dropped",
+				"instance_id", c.instanceID,
+				"lease_key", lease,
+				"report_id", req.ReportID,
+				"queue_size", len(queued),
+				"error", err,
+			)
 		}
 		c.dropQueuedReport(req.ReportID)
 	}
@@ -107,15 +114,15 @@ func guessReportVariant(req mcp.ReportRequest) string {
 	}
 	switch {
 	case req.Report.Runtime != nil:
-		return "runtime"
+		return mcp.ReportVariantRuntime
 	case req.Report.Completion != nil:
-		return "completion"
+		return mcp.ReportVariantCompletion
 	case req.Report.Progress != nil:
-		return "progress"
+		return mcp.ReportVariantProgress
 	case req.Report.Diagnostic != nil:
-		return "diagnostic"
+		return mcp.ReportVariantDiagnostic
 	default:
-		return "completion"
+		return mcp.ReportVariantCompletion
 	}
 }
 

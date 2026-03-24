@@ -10,7 +10,6 @@ import (
 	"time"
 
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 )
 
 const (
@@ -19,7 +18,6 @@ const (
 )
 
 type service struct {
-	cards             commandcardstore.Store
 	root              string
 	projectRoot       string
 	http              *http.Client
@@ -32,9 +30,8 @@ type service struct {
 
 var _ Service = (*service)(nil)
 
-func NewService(cards commandcardstore.Store, projectRoot string) Service {
+func NewService(projectRoot string) Service {
 	return &service{
-		cards:       cards,
 		root:        defaultSkillsRoot(),
 		projectRoot: strings.TrimSpace(projectRoot),
 		http:        &http.Client{Timeout: 15 * time.Second},

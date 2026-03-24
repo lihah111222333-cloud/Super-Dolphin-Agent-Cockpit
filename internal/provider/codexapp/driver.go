@@ -13,6 +13,7 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
@@ -85,6 +86,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if err != nil {
 		return nil, err
 	}
+	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
 	if err := initializeSession(ctx, s.transport); err != nil {
 		_ = s.ForceStop()
 		return nil, err
@@ -114,8 +116,26 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		return nil, err
 	}
 	s.setThreadID(threadID)
+	d.restoreApprovalPolicy(ctx, s, threadID)
 	d.reportRuntime(s.agentID)
 	return s, nil
+}
+
+func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) {
+	if d == nil || s == nil {
+		return
+	}
+	cfg, err := s.ReadConfig(ctx, threadID)
+	if err != nil {
+		if d.logger != nil {
+			d.logger.Warn("codexapp: restore approval policy failed",
+				"agent_id", s.agentID,
+				"thread_id", strings.TrimSpace(threadID),
+				"error", err)
+		}
+		return
+	}
+	s.setApprovalPolicy(approvalPolicyFromThreadConfig(cfg))
 }
 
 func (d *driver) reportRuntime(agentID string) {
@@ -126,7 +146,7 @@ func (d *driver) reportRuntime(agentID string) {
 	if agentID == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	// TODO: Prefer a provider-reported control/runtime port once the Codex App
@@ -213,7 +233,7 @@ func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRe
 		ModelProvider:         configString(req.Config, "modelProvider"),
 		BaseInstructions:      strings.TrimSpace(req.Instructions),
 		DeveloperInstructions: configString(req.Config, "developerInstructions"),
-		ApprovalPolicy:        configString(req.Config, "approvalPolicy"),
+		ApprovalPolicy:        resolveApprovalPolicy(req.Config),
 		Personality:           configString(req.Config, "personality"),
 		Summary:               configString(req.Config, "summary"),
 		Effort:                configString(req.Config, "effort"),
@@ -260,6 +280,19 @@ func configString(cfg map[string]any, key string) string {
 	}
 	value, _ := cfg[key].(string)
 	return strings.TrimSpace(value)
+}
+
+func resolveApprovalPolicy(cfg map[string]any) string {
+	for _, key := range []string{"approvalPolicy", "approval_policy"} {
+		if value := configString(cfg, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func approvalPolicyFromThreadConfig(cfg dto.ThreadConfig) string {
+	return firstNonEmpty(cfg.Effective.Approvals, cfg.Override.Approvals)
 }
 
 func configJSON(cfg map[string]any, key string) json.RawMessage {

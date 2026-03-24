@@ -242,6 +242,13 @@ func (s *service) resolveBinding(ctx context.Context, threadID string) (*binding
 		s.rememberBinding(binding)
 		return binding, nil
 	}
+	if agentID := s.lookupPersistedAgentID(ctx, id); agentID != "" && agentID != id {
+		binding, agentErr := s.bindingStore.GetByAgentID(ctx, agentID)
+		if agentErr == nil {
+			s.rememberBinding(binding)
+			return binding, nil
+		}
+	}
 	if agentID := s.lookupThreadAgent(id); agentID != "" && agentID != id {
 		binding, agentErr := s.bindingStore.GetByAgentID(ctx, agentID)
 		if agentErr == nil {
@@ -305,23 +312,16 @@ func (s *service) setBindingArchived(ctx context.Context, threadID string, archi
 }
 
 func historyTargetID(binding *bindingstore.Binding, threadID string) string {
+	requestedID := strings.TrimSpace(threadID)
 	if binding == nil {
-		return strings.TrimSpace(threadID)
+		return requestedID
 	}
-	// Prefer the concrete thread ID first. Forked threads can temporarily share
-	// the source agent's binding, but their history and future turns must stay
-	// attached to the fork thread ID rather than fall back to the source thread.
-	for _, candidate := range []string{
-		threadID,
-		binding.ProviderThreadID,
-		binding.CodexThreadID,
-		binding.AgentID,
-	} {
-		if candidate = strings.TrimSpace(candidate); candidate != "" {
-			return candidate
-		}
+	publicThreadID := strings.TrimSpace(binding.CodexThreadID)
+	agentID := strings.TrimSpace(binding.AgentID)
+	if requestedID != "" && requestedID != publicThreadID && requestedID != agentID {
+		return requestedID
 	}
-	return ""
+	return firstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
 }
 
 func toRef(thread threadstore.Thread) Ref {
@@ -350,10 +350,10 @@ func (s *service) publishThreadStarted(state threadState) {
 	}
 	s.emitStarted(threaddto.Started{
 		EventHeader:      shared.EventHeader{Timestamp: time.Now()},
-		ThreadID:         strings.TrimSpace(state.ThreadID),
+		ThreadID:         strings.TrimSpace(state.PublicThreadID),
 		AgentID:          strings.TrimSpace(state.AgentID),
 		Provider:         strings.TrimSpace(state.Provider),
-		ProviderThreadID: strings.TrimSpace(firstNonEmpty(state.ThreadID, state.OwnerThreadID)),
+		ProviderThreadID: strings.TrimSpace(resolveProviderThreadID(state.ProviderThreadID, state.PublicThreadID)),
 		CWD:              strings.TrimSpace(state.CWD),
 		Model:            strings.TrimSpace(state.Model),
 	})

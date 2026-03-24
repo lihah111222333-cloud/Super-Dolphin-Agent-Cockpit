@@ -86,7 +86,7 @@ func stopFXApp(parent context.Context, app *fx.App) error {
 	}
 	// Keep the caller-side hard stop aligned with fx.StopTimeout so shutdown
 	// cannot hang indefinitely outside the lifecycle hook deadline.
-	ctx, cancel := context.WithTimeout(parent, platformconfig.ShutdownTimeout)
+	ctx, cancel := platformconfig.WithTimeout(parent, platformconfig.ShutdownTimeout)
 	defer cancel()
 	return app.Stop(ctx)
 }

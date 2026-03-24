@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -30,7 +31,7 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "codex",
-		ProviderThreadID: "thread-1",
+		ProviderThreadID: "provider-thread-1",
 		CodexThreadID:    "thread-1",
 		Cwd:              "/repo",
 	}}
@@ -43,13 +44,13 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 			if req.AgentID != "agent-1" {
 				t.Fatalf("AgentID = %q, want agent-1", req.AgentID)
 			}
-			if req.ThreadID != "thread-1" {
-				t.Fatalf("ThreadID = %q, want thread-1", req.ThreadID)
+			if req.ThreadID != "provider-thread-1" {
+				t.Fatalf("ThreadID = %q, want provider-thread-1", req.ThreadID)
 			}
 			if req.Model != "override-model" {
 				t.Fatalf("Model = %q, want override-model", req.Model)
 			}
-			session := &stubSession{threadID: "thread-1-resumed"}
+			session := &stubSession{threadID: "provider-thread-1"}
 			sessions.session = session
 			return session, nil
 		},
@@ -67,11 +68,11 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	if len(sessions.removed) != 1 || sessions.removed[0] != "agent-1" {
 		t.Fatalf("removed sessions = %#v, want [agent-1]", sessions.removed)
 	}
-	if result.ThreadID != "thread-1-resumed" {
-		t.Fatalf("ThreadID = %q, want thread-1-resumed", result.ThreadID)
+	if result.ThreadID != "thread-1" {
+		t.Fatalf("ThreadID = %q, want thread-1", result.ThreadID)
 	}
-	if result.SessionID != "thread-1-resumed" {
-		t.Fatalf("SessionID = %q, want thread-1-resumed", result.SessionID)
+	if result.SessionID != "provider-thread-1" {
+		t.Fatalf("SessionID = %q, want provider-thread-1", result.SessionID)
 	}
 	if result.Status != "resumed" {
 		t.Fatalf("Status = %q, want resumed", result.Status)
@@ -79,11 +80,11 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	if result.Model != "override-model" {
 		t.Fatalf("Model = %q, want override-model", result.Model)
 	}
-	if threads.upsert.ThreadID != "thread-1-resumed" {
-		t.Fatalf("persisted thread id = %q, want thread-1-resumed", threads.upsert.ThreadID)
+	if threads.upsert.ThreadID != "thread-1" {
+		t.Fatalf("persisted thread id = %q, want thread-1", threads.upsert.ThreadID)
 	}
-	if bindings.upsert.Provider != "codex" {
-		t.Fatalf("persisted provider = %q, want codex", bindings.upsert.Provider)
+	if bindings.upsert.AgentID != "" {
+		t.Fatalf("binding upsert = %#v, want idempotent no-op", bindings.upsert)
 	}
 	if orch.launchReq.Cwd != "/repo" {
 		t.Fatalf("launch cwd = %q, want /repo", orch.launchReq.Cwd)
@@ -185,10 +186,14 @@ func TestCompactReturnsFriendlyCapabilityError(t *testing.T) {
 }
 
 type stubSessionStarter struct {
+	onStart  func(context.Context, dto.StartSessionRequest) (contract.Session, error)
 	onResume func(context.Context, dto.ResumeSessionRequest) (contract.Session, error)
 }
 
-func (s *stubSessionStarter) StartSession(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+func (s *stubSessionStarter) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	if s.onStart != nil {
+		return s.onStart(ctx, req)
+	}
 	return nil, errors.New("unexpected start session")
 }
 
@@ -273,14 +278,15 @@ func (s *stubSession) SetThreadName(_ context.Context, threadID, name string) er
 }
 
 type stubThreadStore struct {
-	thread *threadstore.Thread
-	upsert threadstore.UpsertParams
-	status threadstore.UpdateStatusParams
+	thread    *threadstore.Thread
+	upsert    threadstore.UpsertParams
+	upsertErr error
+	status    threadstore.UpdateStatusParams
 }
 
-func (s *stubThreadStore) GetByThreadID(context.Context, string) (*threadstore.Thread, error) {
-	if s.thread == nil {
-		return nil, errors.New("thread not found")
+func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+	if s.thread == nil || (s.thread.ThreadID != "" && s.thread.ThreadID != threadID) {
+		return nil, platformdb.ErrNotFound
 	}
 	thread := *s.thread
 	return &thread, nil
@@ -303,7 +309,20 @@ func (s *stubThreadStore) ListRunningAgents(context.Context) ([]threadstore.Runn
 }
 
 func (s *stubThreadStore) Upsert(_ context.Context, params threadstore.UpsertParams) error {
+	if s.upsertErr != nil {
+		return s.upsertErr
+	}
 	s.upsert = params
+	s.thread = &threadstore.Thread{
+		ThreadID:      params.ThreadID,
+		Prompt:        params.Prompt,
+		Model:         params.Model,
+		Cwd:           params.Cwd,
+		Status:        params.Status,
+		CreatedAt:     params.CreatedAt,
+		UpdatedAt:     params.UpdatedAt,
+		OwnerThreadID: params.OwnerThreadID,
+	}
 	return nil
 }
 
@@ -329,13 +348,16 @@ func (s *stubThreadStore) ListCwdsByPrefix(context.Context, string) ([]threadsto
 }
 
 type stubBindingStore struct {
-	binding *bindingstore.Binding
-	upsert  bindingstore.UpsertParams
+	binding        *bindingstore.Binding
+	upsert         bindingstore.UpsertParams
+	upserts        []bindingstore.UpsertParams
+	deleteAgentIDs []string
+	deleteErr      error
 }
 
 func (s *stubBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*bindingstore.Binding, error) {
 	if s.binding == nil || s.binding.Provider != provider || s.binding.ProviderThreadID != providerThreadID {
-		return nil, errors.New("binding not found")
+		return nil, platformdb.ErrNotFound
 	}
 	binding := *s.binding
 	return &binding, nil
@@ -343,10 +365,29 @@ func (s *stubBindingStore) GetByProviderThread(_ context.Context, provider, prov
 
 func (s *stubBindingStore) Upsert(_ context.Context, params bindingstore.UpsertParams) error {
 	s.upsert = params
+	s.upserts = append(s.upserts, params)
+	s.binding = &bindingstore.Binding{
+		AgentID:          params.AgentID,
+		Provider:         params.Provider,
+		ProviderThreadID: params.ProviderThreadID,
+		CodexThreadID:    params.CodexThreadID,
+		Cwd:              params.Cwd,
+		CreatedAt:        params.CreatedAt,
+		UpdatedAt:        params.UpdatedAt,
+	}
 	return nil
 }
 
-func (s *stubBindingStore) DeleteByAgentID(context.Context, string) error { return nil }
+func (s *stubBindingStore) DeleteByAgentID(_ context.Context, agentID string) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	s.deleteAgentIDs = append(s.deleteAgentIDs, agentID)
+	if s.binding != nil && s.binding.AgentID == agentID {
+		s.binding = nil
+	}
+	return nil
+}
 
 func (s *stubBindingStore) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
 	return nil
@@ -356,9 +397,13 @@ func (s *stubBindingStore) SetArchived(context.Context, bindingstore.SetArchived
 	return nil
 }
 
-func (s *stubBindingStore) GetByAgentID(context.Context, string) (*bindingstore.Binding, error) {
-	if s.binding == nil {
-		return nil, errors.New("binding not found")
+func (s *stubBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+	return s.bindingForAgent(agentID)
+}
+
+func (s *stubBindingStore) bindingForAgent(agentID string) (*bindingstore.Binding, error) {
+	if s.binding == nil || (agentID != "" && s.binding.AgentID != agentID) {
+		return nil, platformdb.ErrNotFound
 	}
 	binding := *s.binding
 	return &binding, nil
@@ -379,9 +424,9 @@ func (s *stubBindingStore) ListAgentThreadBindings(context.Context) ([]bindingst
 
 func (s *stubBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
 	if s.binding == nil {
-		return "", errors.New("binding not found")
+		return "", platformdb.ErrNotFound
 	}
-	return s.binding.ProviderThreadID, nil
+	return firstNonEmpty(s.binding.CodexThreadID, s.binding.ProviderThreadID), nil
 }
 
 func (s *stubBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {

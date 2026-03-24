@@ -18,20 +18,43 @@ const (
 	InterruptSettleTimeout = 6 * time.Second
 )
 
+func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func WithTimeoutIfNone(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return WithTimeout(ctx, timeout)
+}
+
 func WithInitialThreadIDTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, InitialThreadIDTimeout)
+	return WithTimeout(ctx, InitialThreadIDTimeout)
 }
 
 func WithSessionCloseTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, SessionCloseTimeout)
+	return WithTimeout(ctx, SessionCloseTimeout)
 }
 
 func WithDBQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, DBQueryTimeout)
+	return WithTimeout(ctx, DBQueryTimeout)
 }
 
 func WithRPCRequestTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, RPCRequestTimeout)
+	return WithTimeout(ctx, RPCRequestTimeout)
 }
 
 // WithPeerTimeout wraps context.WithTimeout for peer callback scenarios.
@@ -43,5 +66,5 @@ func WithPeerTimeout(ctx context.Context, timeout time.Duration) (context.Contex
 	if timeout <= 0 {
 		return context.WithCancel(ctx)
 	}
-	return context.WithTimeout(ctx, timeout)
+	return WithTimeout(ctx, timeout)
 }
