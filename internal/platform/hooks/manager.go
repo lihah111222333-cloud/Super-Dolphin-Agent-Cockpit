@@ -3,7 +3,8 @@ package hooks
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -22,6 +23,7 @@ type Manager struct {
 	registry     *HookRegistry
 	dispatcher   *HookDispatcher
 	resolver     *HookResolver
+	logger       *slog.Logger
 	maxHookDepth int
 }
 
@@ -35,6 +37,14 @@ func WithMaxHookDepth(n int) ManagerOption {
 	}
 }
 
+func WithManagerLogger(logger *slog.Logger) ManagerOption {
+	return func(m *Manager) {
+		if m != nil && logger != nil {
+			m.logger = logger
+		}
+	}
+}
+
 // Compile-time interface check.
 var _ contract.HookManager = (*Manager)(nil)
 var _ contract.HookLifecycle = (*Manager)(nil)
@@ -44,6 +54,7 @@ func NewManager(registry *HookRegistry, dispatcher *HookDispatcher, resolver *Ho
 		registry:     registry,
 		dispatcher:   dispatcher,
 		resolver:     resolver,
+		logger:       slog.Default(),
 		maxHookDepth: defaultMaxHookDepth,
 	}
 	for _, opt := range opts {
@@ -71,7 +82,7 @@ func (m *Manager) DispatchBefore(ctx context.Context, topic string, payload mcp.
 	if m.depthExceeded(payload) {
 		return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}, nil
 	}
-	decisions, err := m.dispatcher.DispatchBefore(ctx, topic, payload)
+	decisions, err := m.dispatcher.dispatchBeforeBySelector(ctx, dispatchSelector(topic, payload), payload)
 	if err != nil {
 		return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}, err
 	}
@@ -87,7 +98,7 @@ func (m *Manager) DispatchCheck(ctx context.Context, topic string, payload mcp.H
 	if m.depthExceeded(payload) {
 		return mcp.CheckDecision{Decision: mcp.HookDecisionContinue}, nil
 	}
-	decisions, err := m.dispatcher.DispatchCheck(ctx, topic, payload)
+	decisions, err := m.dispatcher.dispatchCheckBySelector(ctx, dispatchSelector(topic, payload), payload)
 	if err != nil {
 		return mcp.CheckDecision{Decision: mcp.HookDecisionContinue}, err
 	}
@@ -104,7 +115,7 @@ func (m *Manager) DispatchAfter(ctx context.Context, topic string, payload mcp.H
 		return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, nil
 	}
 
-	leases, prepared := m.dispatcher.prepareDispatch(topic, payload)
+	leases, prepared := m.dispatcher.prepareDispatchBySelector(dispatchSelector(topic, payload), payload)
 	decisions, err := m.dispatcher.dispatchPreparedAfter(ctx, leases, prepared)
 	if err != nil {
 		return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, err
@@ -115,9 +126,9 @@ func (m *Manager) DispatchAfter(ctx context.Context, topic string, payload mcp.H
 	if result.Decision.Decision == mcp.HookDecisionEscalate {
 		subscriberLease, ok := firstLeaseByAfterDecision(decisions, mcp.HookDecisionEscalate)
 		if !ok {
-			log.Printf("hooks manager: escalate %s missing subscriber lease", prepared.HookCallID)
+			m.logger.Warn("hooks: escalate missing subscriber lease", "hook_call_id", prepared.HookCallID)
 		} else if _, escalateErr := m.resolver.Escalate(ctx, prepared.HookCallID, prepared, subscriberLease); escalateErr != nil {
-			log.Printf("hooks manager: escalate %s failed: %v", prepared.HookCallID, escalateErr)
+			m.logger.Warn("hooks: escalate failed", "hook_call_id", prepared.HookCallID, "error", escalateErr)
 		}
 	}
 	return result.Decision, nil
@@ -152,17 +163,14 @@ func (m *Manager) handleLostLeases(ctx context.Context, leases []mcp.LeaseKey) {
 		m.registry.Unsubscribe(lease)
 		m.dispatcher.ForgetLease(lease)
 		if _, err := m.resolver.CancelByLease(ctx, lease); err != nil {
-			log.Printf(
-				"hooks manager: cancel pending reviews for lost subscriber failed lease=%s/%d err=%v",
-				lease.InstanceID,
-				lease.Generation,
-				err,
+			m.logger.Warn("hooks: cancel pending reviews for lost subscriber failed",
+				"lease", lease,
+				"error", err,
 			)
 		}
-		log.Printf(
-			"hooks manager: subscriber_lost lease=%s/%d unsubscribed and cancelled pending reviews",
-			lease.InstanceID,
-			lease.Generation,
+		m.logger.Info(
+			"hooks: subscriber_lost, unsubscribed and cancelled pending reviews",
+			"lease", lease,
 		)
 	}
 }
@@ -205,4 +213,16 @@ func firstLeaseByAfterDecision(decisions []peerDecision[mcp.AfterDecision], want
 		}
 	}
 	return mcp.LeaseKey{}, false
+}
+
+func dispatchSelector(topic string, payload mcp.HookPayload) mcp.Selector {
+	sel := mcp.Selector{Subscription: topic}
+	scope := mcp.SelectorScope{
+		AgentID:  strings.TrimSpace(payload.AgentID),
+		ThreadID: strings.TrimSpace(payload.ThreadID),
+	}
+	if scope != (mcp.SelectorScope{}) {
+		sel.Scope = &scope
+	}
+	return sel
 }

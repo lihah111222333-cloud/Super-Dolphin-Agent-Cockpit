@@ -60,6 +60,7 @@ type ToolRegistry struct {
 	byPeerKind       map[string]map[LeaseKey]struct{}
 	latestByInstance map[string]LeaseKey
 	reportReceipts   map[LeaseKey]map[string]reportReceipt
+	configVersion    int64
 
 	heartbeatInterval    time.Duration
 	notifyTimeout        time.Duration
@@ -75,7 +76,13 @@ type RegistryOptions struct {
 	PeerFailureThreshold int
 }
 
-var _ contract.ToolRegistry = (*ToolRegistry)(nil)
+var (
+	_ contract.ToolRegistry     = (*ToolRegistry)(nil)
+	_ contract.ToolNotifier     = (*ToolRegistry)(nil)
+	_ contract.ToolHookCallback = (*ToolRegistry)(nil)
+	_ contract.PeerCallback     = (*ToolRegistry)(nil)
+	_ contract.ToolControlPlane = (*ToolRegistry)(nil)
+)
 
 func NewRegistry() *ToolRegistry {
 	return NewToolRegistry(RegistryOptions{})
@@ -93,6 +100,7 @@ func NewToolRegistry(opts RegistryOptions) *ToolRegistry {
 		byPeerKind:           make(map[string]map[LeaseKey]struct{}),
 		latestByInstance:     make(map[string]LeaseKey),
 		reportReceipts:       make(map[LeaseKey]map[string]reportReceipt),
+		configVersion:        1,
 		heartbeatInterval:    durationOrDefault(opts.HeartbeatInterval, defaultHeartbeatInterval),
 		notifyTimeout:        durationOrDefault(opts.NotifyTimeout, defaultNotifyTimeout),
 		fanoutParallelism:    intOrDefault(opts.FanoutParallelism, defaultFanoutParallelism),
@@ -107,6 +115,32 @@ func (r *ToolRegistry) setHookLifecycle(hookLifecycle contract.HookLifecycle) {
 	r.mu.Lock()
 	r.hookLifecycle = hookLifecycle
 	r.mu.Unlock()
+}
+
+func (r *ToolRegistry) currentConfigVersionLocked() int64 {
+	if r == nil || r.configVersion < 1 {
+		return 1
+	}
+	return r.configVersion
+}
+
+func (r *ToolRegistry) advanceConfigVersion() int64 {
+	if r == nil {
+		return 1
+	}
+	r.mu.Lock()
+	if r.configVersion < 1 {
+		r.configVersion = 1
+	}
+	r.configVersion++
+	next := r.configVersion
+	for _, instance := range r.instances {
+		if instance != nil {
+			instance.ConfigVersion = next
+		}
+	}
+	r.mu.Unlock()
+	return next
 }
 
 func (r *ToolRegistry) shutdownHooks(ctx context.Context, key LeaseKey) error {
@@ -161,7 +195,6 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 		RegisteredAt:  now,
 		LastHeartbeat: now,
 		Status:        dto.StatusActive,
-		ConfigVersion: 1,
 		Peer:          peer,
 	}
 
@@ -175,6 +208,7 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 		previous = r.evictLocked(latest)
 		replaced = latest
 	}
+	instance.ConfigVersion = r.currentConfigVersionLocked()
 	r.instances[instance.Lease] = instance
 	r.latestByInstance[instance.Lease.InstanceID] = instance.Lease
 	r.indexLocked(instance)

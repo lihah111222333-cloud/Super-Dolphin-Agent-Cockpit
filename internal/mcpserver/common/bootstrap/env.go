@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net"
 	"os"
@@ -202,8 +203,15 @@ func approvalUnavailableErr(reason string) error {
 }
 
 func firstEnv(keys ...string) string {
-	for _, key := range keys {
+	if len(keys) == 0 {
+		return ""
+	}
+	if value := strings.TrimSpace(os.Getenv(keys[0])); value != "" {
+		return value
+	}
+	for _, key := range keys[1:] {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			logDeprecatedEnvKey(keys[0], key)
 			return value
 		}
 	}
@@ -211,12 +219,23 @@ func firstEnv(keys ...string) string {
 }
 
 func readEnvJSON(keys ...string) json.RawMessage {
-	for _, key := range keys {
+	if len(keys) == 0 {
+		return nil
+	}
+	if value := strings.TrimSpace(os.Getenv(keys[0])); value != "" {
+		return json.RawMessage(value)
+	}
+	for _, key := range keys[1:] {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			logDeprecatedEnvKey(keys[0], key)
 			return json.RawMessage(value)
 		}
 	}
 	return nil
+}
+
+func logDeprecatedEnvKey(canonical, legacy string) {
+	log.Printf("bootstrap env %s is deprecated; use %s instead before 2026-06-30", legacy, canonical)
 }
 
 func parseBootSnapshot(raw json.RawMessage) bootSnapshot {

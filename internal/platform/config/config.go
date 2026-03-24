@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strings"
 )
@@ -15,7 +16,7 @@ type Config struct {
 func New() *Config {
 	return &Config{
 		DatabaseURL: envOr("DATABASE_URL", "postgres://postgres:postgres@127.0.0.1:5432/super_agent_v3?sslmode=disable"),
-		RPCAddr:     envOr("RPC_ADDR", "127.0.0.1:8080"),
+		RPCAddr:     envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8080"),
 		LogLevel:    envOr("LOG_LEVEL", "info"),
 		ProjectRoot: resolveProjectRoot(),
 	}
@@ -33,7 +34,18 @@ func resolveProjectRoot() string {
 }
 
 func envOr(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func envOrCompat(canonical, legacy, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(canonical)); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(os.Getenv(legacy)); value != "" {
+		log.Printf("config env %s is deprecated; use %s instead before 2026-06-30", legacy, canonical)
 		return value
 	}
 	return fallback

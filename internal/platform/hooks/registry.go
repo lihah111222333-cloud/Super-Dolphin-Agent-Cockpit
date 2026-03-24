@@ -120,15 +120,25 @@ func (r *HookRegistry) Unsubscribe(lease mcp.LeaseKey) {
 }
 
 func (r *HookRegistry) GetSubscribers(topic string) []mcp.LeaseKey {
-	normalized := strings.TrimSpace(topic)
+	return r.GetSubscribersBySelector(mcp.Selector{Subscription: topic})
+}
+
+func (r *HookRegistry) GetSubscribersBySelector(sel mcp.Selector) []mcp.LeaseKey {
+	normalized := strings.TrimSpace(sel.Subscription)
 	if normalized == "" {
 		return nil
 	}
+
+	requestedScope := normalizeSelectorScope(sel.Scope)
+	filterByScope := hasSelectorScope(requestedScope)
 
 	r.mu.RLock()
 	current := r.byTopic[normalized]
 	subscribers := make([]mcp.LeaseKey, 0, len(current))
 	for lease := range current {
+		if filterByScope && !subscriptionMatchesSelectorScope(r.subscriptions[lease], requestedScope) {
+			continue
+		}
 		subscribers = append(subscribers, lease)
 	}
 	r.mu.RUnlock()
@@ -196,6 +206,37 @@ func cloneSelector(selector mcp.Selector) mcp.Selector {
 		cloned.Scope = &scope
 	}
 	return cloned
+}
+
+func normalizeSelectorScope(scope *mcp.SelectorScope) mcp.SelectorScope {
+	if scope == nil {
+		return mcp.SelectorScope{}
+	}
+	return mcp.SelectorScope{
+		AgentID:    strings.TrimSpace(scope.AgentID),
+		ThreadID:   strings.TrimSpace(scope.ThreadID),
+		ClientKind: strings.TrimSpace(scope.ClientKind),
+		InstanceID: strings.TrimSpace(scope.InstanceID),
+	}
+}
+
+func hasSelectorScope(scope mcp.SelectorScope) bool {
+	return scope != (mcp.SelectorScope{})
+}
+
+func subscriptionMatchesSelectorScope(subscription *Subscription, requested mcp.SelectorScope) bool {
+	if subscription == nil {
+		return false
+	}
+	scope := normalizeSelectorScope(subscription.Scope.Scope)
+	return selectorScopeFieldMatches(scope.AgentID, requested.AgentID) &&
+		selectorScopeFieldMatches(scope.ThreadID, requested.ThreadID) &&
+		selectorScopeFieldMatches(scope.ClientKind, requested.ClientKind) &&
+		selectorScopeFieldMatches(scope.InstanceID, requested.InstanceID)
+}
+
+func selectorScopeFieldMatches(subscriptionField, requestedField string) bool {
+	return subscriptionField == "" || requestedField == subscriptionField
 }
 
 func cloneRawMessage(message json.RawMessage) json.RawMessage {

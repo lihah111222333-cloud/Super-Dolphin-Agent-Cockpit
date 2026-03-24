@@ -201,6 +201,64 @@ func TestDispatchCheck_Success(t *testing.T) {
 	}
 }
 
+func TestHookDispatcherDispatchCheckBySelectorFiltersScope(t *testing.T) {
+	t.Parallel()
+
+	registry := NewHookRegistry()
+	matchingLease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
+	otherLease := mcp.LeaseKey{InstanceID: "lease-b", Generation: 1}
+
+	for _, tc := range []struct {
+		lease mcp.LeaseKey
+		scope *mcp.SelectorScope
+	}{
+		{lease: matchingLease, scope: &mcp.SelectorScope{AgentID: "agent-1", ThreadID: "thread-1"}},
+		{lease: otherLease, scope: &mcp.SelectorScope{AgentID: "agent-2", ThreadID: "thread-1"}},
+	} {
+		if _, err := registry.Subscribe(tc.lease, mcp.HookSubscribeRequest{
+			SubscriptionID: tc.lease.InstanceID,
+			Topics:         []string{TopicToolBefore},
+			Scope:          mcp.Selector{Scope: tc.scope},
+		}); err != nil {
+			t.Fatalf("Subscribe(%s) error = %v", tc.lease.InstanceID, err)
+		}
+	}
+
+	calledLeases := make([]mcp.LeaseKey, 0, 1)
+	dispatcher := NewHookDispatcher(registry, stubPeerCallback{
+		check: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.CheckDecision, error) {
+			calledLeases = append(calledLeases, gotLease)
+			if payload.Topic != TopicToolBefore {
+				t.Fatalf("payload.Topic = %q, want %q", payload.Topic, TopicToolBefore)
+			}
+			if payload.Depth != 1 {
+				t.Fatalf("payload.Depth = %d, want 1", payload.Depth)
+			}
+			if payload.HookCallID == "" {
+				t.Fatal("payload.HookCallID = empty, want generated value")
+			}
+			return mcp.CheckDecision{Decision: mcp.HookDecisionWarn}, nil
+		},
+	}, WithDispatcherParallelism(1))
+
+	decisions, err := dispatcher.dispatchCheckBySelector(context.Background(), mcp.Selector{
+		Subscription: TopicToolBefore,
+		Scope:        &mcp.SelectorScope{AgentID: "agent-1", ThreadID: "thread-1"},
+	}, mcp.HookPayload{})
+	if err != nil {
+		t.Fatalf("dispatchCheckBySelector() error = %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("dispatchCheckBySelector() len = %d, want 1", len(decisions))
+	}
+	if decisions[0].Lease != matchingLease {
+		t.Fatalf("dispatchCheckBySelector() lease = %#v, want %#v", decisions[0].Lease, matchingLease)
+	}
+	if len(calledLeases) != 1 || calledLeases[0] != matchingLease {
+		t.Fatalf("dispatchCheckBySelector() called leases = %#v, want [%#v]", calledLeases, matchingLease)
+	}
+}
+
 func TestDispatchAfter_Success(t *testing.T) {
 	t.Parallel()
 
@@ -260,19 +318,64 @@ func TestDispatchAfter_Success(t *testing.T) {
 func TestForgetLease(t *testing.T) {
 	t.Parallel()
 
-	dispatcher := NewHookDispatcher(NewHookRegistry(), stubPeerCallback{})
+	registry := NewHookRegistry()
 	lease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
+	if _, err := registry.Subscribe(lease, mcp.HookSubscribeRequest{
+		SubscriptionID: "sub-a",
+		Topics:         []string{TopicToolBefore},
+	}); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
 
-	if failures := dispatcher.recordPeerResult(lease, errors.New("boom")); failures != 1 {
-		t.Fatalf("recordPeerResult(error) = %d, want 1", failures)
+	someErr := errors.New("boom")
+	dispatcher := NewHookDispatcher(registry, stubPeerCallback{
+		before: func(_ context.Context, gotLease mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
+			if gotLease != lease {
+				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
+			}
+			return mcp.BeforeDecision{}, someErr
+		},
+	}, WithDispatcherParallelism(1))
+
+	payload := mcp.HookPayload{AgentID: "agent-1", ThreadID: "thread-1"}
+	first, err := dispatcher.DispatchBefore(context.Background(), TopicToolBefore, payload)
+	if err != nil {
+		t.Fatalf("DispatchBefore(first) error = %v", err)
 	}
-	if got := dispatcher.failCounts[lease]; got != 1 {
-		t.Fatalf("failCounts[%#v] = %d, want 1", lease, got)
+	if len(first) != 1 {
+		t.Fatalf("DispatchBefore(first) len = %d, want 1", len(first))
 	}
-	if failures := dispatcher.recordPeerResult(lease, nil); failures != 0 {
-		t.Fatalf("recordPeerResult(nil) = %d, want 0", failures)
+	if !errors.Is(first[0].Err, someErr) {
+		t.Fatalf("DispatchBefore(first) peer err = %v, want boom", first[0].Err)
 	}
-	if _, ok := dispatcher.failCounts[lease]; ok {
-		t.Fatalf("failCounts still contains %#v after success", lease)
+	if first[0].ConsecutiveFailures != 1 {
+		t.Fatalf("DispatchBefore(first) failures = %d, want 1", first[0].ConsecutiveFailures)
+	}
+
+	second, err := dispatcher.DispatchBefore(context.Background(), TopicToolBefore, payload)
+	if err != nil {
+		t.Fatalf("DispatchBefore(second) error = %v", err)
+	}
+	if len(second) != 1 {
+		t.Fatalf("DispatchBefore(second) len = %d, want 1", len(second))
+	}
+	if second[0].ConsecutiveFailures != 2 {
+		t.Fatalf("DispatchBefore(second) failures = %d, want 2", second[0].ConsecutiveFailures)
+	}
+
+	dispatcher.ForgetLease(lease)
+
+	third, err := dispatcher.DispatchBefore(context.Background(), TopicToolBefore, payload)
+	if err != nil {
+		t.Fatalf("DispatchBefore(third) error = %v", err)
+	}
+	if len(third) != 1 {
+		t.Fatalf("DispatchBefore(third) len = %d, want 1", len(third))
+	}
+	if !errors.Is(third[0].Err, someErr) {
+		t.Fatalf("DispatchBefore(third) peer err = %v, want boom", third[0].Err)
+	}
+	if third[0].ConsecutiveFailures != 1 {
+		t.Fatalf("DispatchBefore(third) failures = %d, want 1", third[0].ConsecutiveFailures)
 	}
 }

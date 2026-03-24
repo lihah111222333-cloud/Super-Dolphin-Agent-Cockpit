@@ -3,6 +3,7 @@ package provider
 import (
 	"maps"
 	"path/filepath"
+	"strings"
 )
 
 type ToolFamily string
@@ -42,7 +43,7 @@ func BuildManifest(ctx ManifestContext) MCPManifest {
 		families = append(families, FamilyIDA)
 	}
 
-	env := cloneManifestEnv(ctx.Env)
+	env := normalizeManifestEnv(ctx.Env)
 	autoApprove := append([]string(nil), ctx.AutoApprove...)
 
 	bins := make([]MCPBinary, 0, len(families))
@@ -65,4 +66,37 @@ func cloneManifestEnv(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	maps.Copy(out, in)
 	return out
+}
+
+func normalizeManifestEnv(in map[string]string) map[string]string {
+	out := cloneManifestEnv(in)
+	promoteManifestEnv(out, "GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR")
+	promoteManifestEnv(out, "GO_AGENT_CTL_INSTANCE_ID", "GO_AGENT_MCP_INSTANCE_ID")
+	promoteManifestEnv(out, "GO_AGENT_CTL_BOOT_ID", "GO_AGENT_MCP_BOOT_ID")
+	promoteManifestEnv(out, "GO_AGENT_CTL_BINARY_NAME", "GO_AGENT_MCP_BINARY_NAME")
+	promoteManifestEnv(out, "GO_AGENT_CTL_CLIENT_KIND", "GO_AGENT_MCP_CLIENT_KIND")
+	promoteManifestEnv(out, "GO_AGENT_CTL_AGENT_ID", "GO_AGENT_MCP_AGENT_ID")
+	promoteManifestEnv(out, "GO_AGENT_CTL_THREAD_ID", "GO_AGENT_MCP_THREAD_ID")
+	promoteManifestEnv(out, "GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN")
+	promoteManifestEnv(out, "GO_AGENT_CTL_BOOTSTRAP_JSON", "GO_AGENT_MCP_BOOT_CONTEXT")
+	return out
+}
+
+func promoteManifestEnv(env map[string]string, canonical string, aliases ...string) {
+	if value := strings.TrimSpace(env[canonical]); value != "" {
+		env[canonical] = value
+		for _, alias := range aliases {
+			delete(env, alias)
+		}
+		return
+	}
+	for _, alias := range aliases {
+		if value := strings.TrimSpace(env[alias]); value != "" {
+			env[canonical] = value
+			break
+		}
+	}
+	for _, alias := range aliases {
+		delete(env, alias)
+	}
 }
