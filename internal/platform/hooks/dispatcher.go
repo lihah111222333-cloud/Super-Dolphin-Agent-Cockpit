@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
@@ -26,18 +27,10 @@ var (
 	errNilPeerCallback = errors.New("hooks peer callback is not configured")
 )
 
-// PeerCallback is the dispatcher-side callback bridge.
-// mcpcontrol injects an implementation so hooks does not hold peer connections.
-type PeerCallback interface {
-	CallbackBefore(ctx context.Context, lease mcp.LeaseKey, payload mcp.HookPayload) (mcp.BeforeDecision, error)
-	CallbackCheck(ctx context.Context, lease mcp.LeaseKey, payload mcp.HookPayload) (mcp.CheckDecision, error)
-	CallbackAfter(ctx context.Context, lease mcp.LeaseKey, payload mcp.HookPayload) (mcp.AfterDecision, error)
-}
-
 // HookDispatcher fans hook callbacks out to subscribed peers.
 type HookDispatcher struct {
 	registry     *HookRegistry
-	peerCallback PeerCallback
+	peerCallback contract.PeerCallback
 	parallelism  int
 	peerTimeout  time.Duration
 	failMu       sync.Mutex
@@ -62,7 +55,7 @@ func WithPeerTimeout(timeout time.Duration) DispatcherOption {
 	}
 }
 
-func NewHookDispatcher(registry *HookRegistry, cb PeerCallback, opts ...DispatcherOption) *HookDispatcher {
+func NewHookDispatcher(registry *HookRegistry, cb contract.PeerCallback, opts ...DispatcherOption) *HookDispatcher {
 	if registry == nil {
 		panic(errNilHookRegistry)
 	}
@@ -86,10 +79,14 @@ func NewHookDispatcher(registry *HookRegistry, cb PeerCallback, opts ...Dispatch
 }
 
 func (d *HookDispatcher) DispatchBefore(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.BeforeDecision], error) {
+	return d.dispatchBeforeBySelector(ctx, mcp.Selector{Subscription: topic}, payload)
+}
+
+func (d *HookDispatcher) dispatchBeforeBySelector(ctx context.Context, sel mcp.Selector, payload mcp.HookPayload) ([]peerDecision[mcp.BeforeDecision], error) {
 	if err := d.validate(); err != nil {
 		return nil, err
 	}
-	leases, payload := d.prepareDispatch(topic, payload)
+	leases, payload := d.prepareDispatchBySelector(sel, payload)
 	if len(leases) == 0 {
 		return nil, nil
 	}
@@ -97,10 +94,14 @@ func (d *HookDispatcher) DispatchBefore(ctx context.Context, topic string, paylo
 }
 
 func (d *HookDispatcher) DispatchCheck(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.CheckDecision], error) {
+	return d.dispatchCheckBySelector(ctx, mcp.Selector{Subscription: topic}, payload)
+}
+
+func (d *HookDispatcher) dispatchCheckBySelector(ctx context.Context, sel mcp.Selector, payload mcp.HookPayload) ([]peerDecision[mcp.CheckDecision], error) {
 	if err := d.validate(); err != nil {
 		return nil, err
 	}
-	leases, payload := d.prepareDispatch(topic, payload)
+	leases, payload := d.prepareDispatchBySelector(sel, payload)
 	if len(leases) == 0 {
 		return nil, nil
 	}
@@ -108,10 +109,14 @@ func (d *HookDispatcher) DispatchCheck(ctx context.Context, topic string, payloa
 }
 
 func (d *HookDispatcher) DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.AfterDecision], error) {
+	return d.dispatchAfterBySelector(ctx, mcp.Selector{Subscription: topic}, payload)
+}
+
+func (d *HookDispatcher) dispatchAfterBySelector(ctx context.Context, sel mcp.Selector, payload mcp.HookPayload) ([]peerDecision[mcp.AfterDecision], error) {
 	if err := d.validate(); err != nil {
 		return nil, err
 	}
-	leases, payload := d.prepareDispatch(topic, payload)
+	leases, payload := d.prepareDispatchBySelector(sel, payload)
 	return d.dispatchPreparedAfter(ctx, leases, payload)
 }
 
@@ -123,7 +128,11 @@ func (d *HookDispatcher) dispatchPreparedAfter(ctx context.Context, leases []mcp
 }
 
 func (d *HookDispatcher) prepareDispatch(topic string, payload mcp.HookPayload) ([]mcp.LeaseKey, mcp.HookPayload) {
-	topic = strings.TrimSpace(topic)
+	return d.prepareDispatchBySelector(mcp.Selector{Subscription: topic}, payload)
+}
+
+func (d *HookDispatcher) prepareDispatchBySelector(sel mcp.Selector, payload mcp.HookPayload) ([]mcp.LeaseKey, mcp.HookPayload) {
+	topic := strings.TrimSpace(sel.Subscription)
 	payload = cloneHookPayload(payload)
 	payload.Depth++
 	payload.Topic = topic
@@ -134,7 +143,8 @@ func (d *HookDispatcher) prepareDispatch(topic string, payload mcp.HookPayload) 
 	if topic == "" {
 		return nil, payload
 	}
-	return d.registry.GetSubscribers(topic), payload
+	sel.Subscription = topic
+	return d.registry.GetSubscribersBySelector(sel), payload
 }
 
 func (d *HookDispatcher) validate() error {

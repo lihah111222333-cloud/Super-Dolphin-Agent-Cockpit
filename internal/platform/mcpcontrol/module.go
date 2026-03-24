@@ -15,10 +15,17 @@ import (
 var Module = fx.Module("mcpcontrol",
 	fx.Provide(
 		NewRegistry,
+		provideConfigVersionSource,
+		provideToolRegistry,
+		provideToolNotifier,
+		provideToolHookCallback,
+		providePeerCallback,
+		provideToolControlPlane,
 		NewSweeper,
 		provideHandlers,
 	),
 	fx.Invoke(registerHookLifecycle),
+	fx.Invoke(registerConfigChangeLifecycle),
 	fx.Invoke(registerSweeperLifecycle),
 )
 
@@ -63,6 +70,43 @@ type hookLifecycleIn struct {
 	HookLifecycle contract.HookLifecycle `optional:"true"`
 }
 
+type configChangeIn struct {
+	fx.In
+
+	Notifier   contract.ToolNotifier `optional:"true"`
+	Versions   configVersionSource   `optional:"true"`
+	Dispatcher *event.Dispatcher     `optional:"true"`
+	Logger     *slog.Logger          `optional:"true"`
+}
+
+type configVersionSource interface {
+	advanceConfigVersion() int64
+}
+
+func provideConfigVersionSource(registry *ToolRegistry) configVersionSource {
+	return registry
+}
+
+func provideToolRegistry(registry *ToolRegistry) contract.ToolRegistry {
+	return registry
+}
+
+func provideToolNotifier(registry *ToolRegistry) contract.ToolNotifier {
+	return registry
+}
+
+func provideToolHookCallback(registry *ToolRegistry) contract.ToolHookCallback {
+	return registry
+}
+
+func providePeerCallback(registry *ToolRegistry) contract.PeerCallback {
+	return registry
+}
+
+func provideToolControlPlane(registry *ToolRegistry) contract.ToolControlPlane {
+	return registry
+}
+
 func provideHandlers(in handlerIn) rpc.HandlerMapResult {
 	return NewHandlers(HandlerDeps{
 		Registry:          in.Registry,
@@ -86,6 +130,33 @@ func registerHookLifecycle(in hookLifecycleIn) {
 		return
 	}
 	in.Registry.setHookLifecycle(in.HookLifecycle)
+}
+
+func registerConfigChangeLifecycle(lc fx.Lifecycle, in configChangeIn) {
+	if in.Notifier == nil || in.Versions == nil || in.Dispatcher == nil {
+		return
+	}
+	logger := in.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	var cancels []context.CancelFunc
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			cancels = registerConfigChangeSubscriptions(in.Dispatcher, in.Notifier, in.Versions, logger)
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			for _, cancel := range cancels {
+				if cancel != nil {
+					cancel()
+				}
+			}
+			cancels = nil
+			return nil
+		},
+	})
 }
 
 func registerSweeperLifecycle(lc fx.Lifecycle, sweeper *Sweeper) {

@@ -10,15 +10,19 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
-func (r *ToolRegistry) NotifyConfigChanged(ctx context.Context, topic string, configVersion int64, payload json.RawMessage) error {
+func (r *ToolRegistry) NotifyConfigChanged(ctx context.Context, topic string, scope *dto.SelectorScope, configVersion int64, payload json.RawMessage) error {
 	topic = strings.TrimSpace(topic)
 	if topic == "" {
 		return errInvalidParams("mcp config topic is required")
 	}
-	return r.NotifyBySelector(ctx, dto.Selector{Subscription: topic}, dto.MethodConfigChanged, dto.ConfigChangedNotify{
-		Selector: dto.Selector{
-			Subscription: topic,
-		},
+	sel := dto.Selector{Subscription: topic}
+	normalizedScope := normalizeSelectorScope(scope)
+	if normalizedScope != (dto.SelectorScope{}) {
+		sel.Scope = &normalizedScope
+	}
+	return r.NotifyBySelector(ctx, sel, dto.MethodConfigChanged, dto.ConfigChangedNotify{
+		Selector:      sel,
+		Scope:         configChangeScope(topic),
 		ConfigVersion: configVersion,
 		Payload:       append(json.RawMessage(nil), payload...),
 	})

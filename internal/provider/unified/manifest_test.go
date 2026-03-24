@@ -95,3 +95,61 @@ func TestBuildManifest_OmitsAgentIDEnvWhenEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildManifest_NormalizesControlEnvNames(t *testing.T) {
+	got := dto.BuildManifest(dto.ManifestContext{
+		Env: map[string]string{
+			"FOO":                        "bar",
+			"RPC_ADDR":                   "127.0.0.1:9000",
+			"GO_AGENT_MCP_INSTANCE_ID":   "instance-old",
+			"GO_AGENT_CTL_THREAD_ID":     "thread-new",
+			"GO_AGENT_MCP_THREAD_ID":     "thread-old",
+			"GO_AGENT_MCP_BINARY_NAME":   "go-agent-mcp-lsp",
+			"GO_AGENT_MCP_CLIENT_KIND":   "lsp",
+			"GO_AGENT_MCP_SESSION_TOKEN": "token-old",
+			"GO_AGENT_MCP_BOOT_CONTEXT":  `{"instance_id":"snap-old"}`,
+		},
+	})
+	if len(got.Binaries) == 0 {
+		t.Fatal("expected manifest binaries")
+	}
+	for _, bin := range got.Binaries {
+		if bin.Env["FOO"] != "bar" {
+			t.Fatalf("binary %q env = %#v, want propagated env", bin.Name, bin.Env)
+		}
+		if got := bin.Env["GO_AGENT_CTL_RPC_ADDR"]; got != "127.0.0.1:9000" {
+			t.Fatalf("binary %q GO_AGENT_CTL_RPC_ADDR = %q", bin.Name, got)
+		}
+		if got := bin.Env["GO_AGENT_CTL_INSTANCE_ID"]; got != "instance-old" {
+			t.Fatalf("binary %q GO_AGENT_CTL_INSTANCE_ID = %q", bin.Name, got)
+		}
+		if got := bin.Env["GO_AGENT_CTL_THREAD_ID"]; got != "thread-new" {
+			t.Fatalf("binary %q GO_AGENT_CTL_THREAD_ID = %q", bin.Name, got)
+		}
+		if got := bin.Env["GO_AGENT_CTL_BINARY_NAME"]; got != "go-agent-mcp-lsp" {
+			t.Fatalf("binary %q GO_AGENT_CTL_BINARY_NAME = %q", bin.Name, got)
+		}
+		if got := bin.Env["GO_AGENT_CTL_CLIENT_KIND"]; got != "lsp" {
+			t.Fatalf("binary %q GO_AGENT_CTL_CLIENT_KIND = %q", bin.Name, got)
+		}
+		if got := bin.Env["GO_AGENT_CTL_SESSION_TOKEN"]; got != "token-old" {
+			t.Fatalf("binary %q GO_AGENT_CTL_SESSION_TOKEN = %q", bin.Name, got)
+		}
+		if got := bin.Env["GO_AGENT_CTL_BOOTSTRAP_JSON"]; got != `{"instance_id":"snap-old"}` {
+			t.Fatalf("binary %q GO_AGENT_CTL_BOOTSTRAP_JSON = %q", bin.Name, got)
+		}
+		for _, legacy := range []string{
+			"RPC_ADDR",
+			"GO_AGENT_MCP_INSTANCE_ID",
+			"GO_AGENT_MCP_THREAD_ID",
+			"GO_AGENT_MCP_BINARY_NAME",
+			"GO_AGENT_MCP_CLIENT_KIND",
+			"GO_AGENT_MCP_SESSION_TOKEN",
+			"GO_AGENT_MCP_BOOT_CONTEXT",
+		} {
+			if _, ok := bin.Env[legacy]; ok {
+				t.Fatalf("binary %q env = %#v, want no legacy key %q", bin.Name, bin.Env, legacy)
+			}
+		}
+	}
+}

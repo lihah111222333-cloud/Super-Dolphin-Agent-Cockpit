@@ -1,9 +1,9 @@
 # V3 迁移会话摘要
 
-> 生成时间：2026-03-23（P8/P8.5 收口更新）
-> 会话范围：P0-P8.5 全程 + P7.5 桥接 + V2↔V3 核对 + archtest 收官 + MCP 独立服务 + ctl/* 回调框架 + lifecycle hooks
-> Claude 会话 UUID：db2f267a-2f6b-4de9-9109-775a788ac9b3
-> 前序会话 UUID：e925f0b-eba0-49c6-82f9-c306ceae2956
+> 生成时间：2026-03-24（P8.5 lifecycle hooks 完整落地更新）
+> 会话范围：P0-P8.5 全程 + P7.5 桥接 + V2↔V3 核对 + archtest 收官 + MCP 独立服务 + ctl/* 回调框架 + lifecycle hooks 完整实现
+> Claude 会话 UUID：58fdd978-cc4b-41e6-bd26-d40f3ff66854
+> 前序会话 UUID：ea3ad84e-7b52-422d-bc46-cff9da3ea9f9
 
 ---
 
@@ -38,6 +38,7 @@
 | **archtest 收官** | ✅ | **35+6 项违规全部修复；现有守卫全绿，但尚未覆盖 MCP 新依赖方向规则** |
 | **P8 编排工具** | ✅ | **orchestration 整体迁移到独立 cmd/mcp-orch 服务，19 个 MCP tool handler，stdio server 可用，共享模式（per-binary），ctl/* 回调框架 14 方法** |
 | **P8.5 ctl 回调框架** | ✅ | **ctl/* 回调框架：14 方法（基线 9 + hook 扩展 5），注册表 + bootstrap client + 3 binary 接入** |
+| **P8.5 lifecycle hooks** | ✅ | **hooks 核心基础设施完整落地：7 层 transport 链路（DTO/handler/fanout/核心逻辑/契约/bootstrap/store）+ selector 交集 + 重入防护 + subscriber_lost 自动取消 + shutdown 竞态 + env 统一 + config/changed 发送端 + 接口拆分 + 覆盖率 85.1%** |
 | P9 LSP 工具 | ⏳ | MCP LSP 工具独立服务（`cmd/mcp-lsp`），9 个工具，计划已出 |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→目标 60%，计划已出 |
 
@@ -109,16 +110,48 @@
 - LSP 高级工具指南：shared file prompts/lsp-advanced-guide.md + lsp-mandatory-prefix.md
 - P10 执行计划：docs/plans/迁移/p10-execution-plan.md
 
+### 2.9 P8.5 Lifecycle Hooks 完整实现（本会话核心成果）
+
+**产出统计**：19 文件、~3,500 行代码、覆盖率 85.1%、35+ 测试用例
+
+**7 层 transport 链路全量落地**：
+- 契约层：`contract/hooks.go`（HookManager 6 方法 + HookReviewStore 8 方法 + HookLifecycle + PeerCallback）
+- DTO 层：`dto/mcp/hook.go`（7 类型 + Depth 字段）+ `constants.go`（5 方法常量 + 10 决策常量）
+- 核心层：`platform/hooks/` 11 文件（registry + dispatcher + merge + resolver + manager + points + module）
+- 持久化层：`store/hookstore/`（migration + 8 方法 + GetResolvedReview + subscriber_lease）
+- Handler 接线：`mcpcontrol/handlers.go`（subscribe/resolve）+ `router.go`（before/check/after fanout + selector 交集）
+- Bootstrap 消费：`bootstrap/hooks.go`（callback 接收 + subscribe 发起 + reconnect 重放）
+- 架构守卫：rchtest rule13/14 双向隔离
+
+**关键特性**：
+- Before/During/After 三阶段模型（fail-closed / fail-open）
+- 多订阅方决策合并（优先级排序 + AllowedTools 交集 / DeniedTools 并集）
+- escalate → pending_hook_review → resolve 幂等收敛
+- hook 重入防护（maxHookDepth=3）
+- subscriber_lost 自动取消（连续 3 次失败 + ForgetLease + CancelByLease）
+- shutdown 竞态处理（HookLifecycle.ShutdownHooks: Unsubscribe → ForgetLease → CancelByLease）
+- Selector 交集查询（IntersectTargets 最小桶算法 + 6 维度索引）
+- hook dispatch selector 穿透（payload AgentID/ThreadID 自动派生 Selector.Scope）
+- ctl/config/changed 发送端（bus 事件桥接 + configVersion 递增）
+- env 统一（GO_AGENT_MCP_* → GO_AGENT_CTL_* + deprecation 2026-06-30）
+- ToolRegistry 接口拆分（ToolRegistry / ToolNotifier / ToolHookCallback / PeerCallback / ToolControlPlane）
+- PeerCallback fx 装配层桥接（app/modules.go）
+- Manager slog 注入（WithManagerLogger + optional fx 注入）
+
+**审查流程**：初审 → 复审 → 二审互辩 → 五方终审 → 1:7 互审（含代码优雅度）→ 设计债务收敛
+
 ---
 
 ## 3. 未完成
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| lifecycle hooks 代码实现 | ⏳ | 文档已完成（p8.5-execution-plan.md），代码待实现 |
-| ctl/config/changed 发送端 | ⏳ | 核心层需在配置变更时发送 ctl/config/changed 通知 |
-| 集成测试 | ⏳ | mcp-orch stdio server 端到端集成测试 |
-| TestTimeoutLocality | ⚠️ | 预存债务，非 P8 引入 |
+| ~~lifecycle hooks 代码实现~~ | ✅ | 已完成：7 层 transport + selector + 重入防护 + subscriber_lost + shutdown 竞态 + 覆盖率 85.1% |
+| ~~ctl/config/changed 发送端~~ | ✅ | 已完成：bus 事件桥接 + configVersion 递增 + Selector.Scope 填充 |
+| ~~env 统一~~ | ✅ | 已完成：GO_AGENT_MCP_* → GO_AGENT_CTL_* 读写两端 + deprecation 日志 |
+| ~~hooks 集成测试~~ | ✅ | 已完成：6 个场景（merge/escalate/depth/lost/shutdown/scoped） |
+| TestTimeoutLocality | ⚠️ | 预存债务 12 处，hooks/dispatcher.go 已修复脱离违规列表 |
+| DAG SQL 适配 | ⏳ | cmd/mcp-orch/store/taskdag/ 10 个接口重写，属 MCP 工具侧消费，非核心层 |
 | **P9 LSP 工具族** | ⏳ | 9 个工具，6+1 Agent，~12,500 行 |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→60%，3 波次 |
 | IDA 工具族 | ⏳ | 82 个工具，暂缓 |
@@ -128,9 +161,9 @@
 
 ## 4. 下一步（优先级排序）
 
-1. **lifecycle hooks 代码实现** — 基于 p8.5-execution-plan.md 文档，实现 lifecycle hooks 代码
-2. **P9 LSP 工具族** — 读 p9-execution-plan.md，cmd/mcp-lsp 9 个工具，6+1 Agent
-3. **P10 工厂丰满** — Zone A 3.8%→60%，3 波次
+1. **P9 LSP 工具族** — 读 p9-execution-plan.md，cmd/mcp-lsp 9 个工具，6+1 Agent
+2. **P10 工厂丰满** — Zone A 3.8%→60%，3 波次
+3. **DAG SQL 适配** — cmd/mcp-orch/store/taskdag/ 10 个接口重写（工具侧，非核心层）
 
 ---
 
@@ -167,6 +200,7 @@
 | 两级工厂方案 | docs/plans/迁移/v3-two-zone-dry-enrichment.md |
 | LSP 高级指南 | shared file: prompts/lsp-advanced-guide.md |
 | LSP 强制前缀 | shared file: prompts/lsp-mandatory-prefix.md |
+| P8.5 Hooks 审查报告 | docs/plans/迁移/p8.5-hooks-review.md |
 
 ---
 
@@ -174,13 +208,15 @@
 
 | 类型 | 数量 |
 |---|---|
-| 本会话累计拉起 Agent | ~300+ |
+| 本会话累计拉起 Agent | ~350+ |
 | P8 编排迁移+审查 | ~80 |
 | P8.5 ctl 框架+审查 | ~40 |
 | P8 handler+parity | ~30 |
 | P8 共享模式+stdio | ~25 |
 | P8 死代码扫描 | ~15 |
 | 文档/lifecycle hooks | ~20+ |
+| **P8.5 hooks 实现+审查+修复** | **~60** |
+| **P8.5 hooks 设计债务收敛** | **~15** |
 | V2↔V3 核对 | 21 |
 | P7.5 实施+审查 | ~20 |
 | P8 前置 | ~15 |
@@ -194,16 +230,16 @@
 
 | # | 用户指令 | 执行内容 |
 |---|---|---|
-| 1 | "P8 编排工具族迁移" | orchestration 整体迁移到 cmd/mcp-orch，19 个 tool handler 注册 |
-| 2 | "P8 stdio server 接入" | mcpserver/common stdio server 共享模式实现，3 binary 统一引导 |
-| 3 | "P8 workspace/DAG 工具" | workspace_tools + task_tools 适配，store 本地化，lease/wakeup 拆分 |
-| 4 | "P8.5 ctl 回调框架" | 14 方法（基线 9 + hook 扩展 5），注册表 + bootstrap client |
-| 5 | "P8 mcpcontrol handlers" | resolution 路由 + 14 handler 方法 + AgentID 快照测试 |
-| 6 | "P8 archtest 守卫补充" | TestMCPOrchDependencyDirection 4 子测试，依赖方向守卫全绿 |
-| 7 | "P8 manifest/mcp_bridge" | provider manifest ctl 方法注册 + mcp_bridge 回调适配 |
-| 8 | "P8 parity 测试" | parity_v2_test 19 工具覆盖 + handler_regression_test 补充 |
-| 9 | "P8 文档更新" | p8/p8.5-execution-plan + mcp-service-convention 更新 |
-| 10 | "P8 收口验证" | 14 条 build/vet/archtest 全绿，session-summary 更新，commit 方案 |
+| 1 | "hooks 审查文档 + 五方终审" | p8.5-hooks-review.md 三轮审查（初审→复审→二审互辩→五方终审），12 项问题清单 |
+| 2 | "T0 前置任务 6 并行" | contract/hooks + DTO + constants + hookstore + bootstrap/hooks + archtest rule13/14 + LeaseID Deprecated |
+| 3 | "T1 Phase 1 核心 7 任务" | registry + dispatcher + merge + resolver + manager + hookstore_test + mcpcontrol handler 接线 |
+| 4 | "R1/R2/R3 第一波修复" | timeout archtest 修复 + hook depth 重入防护 + subscriber_lease + HookLifecycle shutdown |
+| 5 | "R4/R5/R6 第二波修复" | Selector 交集查询 + subscriber_lost 自动取消 + 测试补全 69.5%→85.1% |
+| 6 | "P8 剩余 8 并行" | hook selector 穿透 + PeerCallback 装配 + config/changed + env 统一 + 接口拆分 + 集成测试 + slog 收敛 + ForgetLease 测试 |
+| 7 | "1:7 互审（含代码优雅度）" | 8 Agent 交叉审查 5 维度，识别 2 阻塞 + 3 非阻塞问题 |
+| 8 | "阻塞项+非阻塞项修复" | config scope 填充 + slog fx 注入 + PeerCallback 合并 + scoped 测试 + ForgetLease 纯行为验证 |
+| 9 | "设计债务收敛" | config 路径统一 + PeerCallback 合并为 contract + ToolControlPlane 纳入 + thread/多维度 scope 测试 |
+| 10 | "session-summary 更新" | 本文档更新为 P8.5 hooks 完整落地状态 |
 
 ---
 
