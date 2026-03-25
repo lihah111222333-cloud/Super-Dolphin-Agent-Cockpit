@@ -110,8 +110,10 @@ type ClaimDueWakeupsInput struct {
 }
 
 type MarkWakeupSentInput struct {
-	ID        int64
-	ClaimedAt time.Time
+	ID             int64
+	ClaimedAt      time.Time
+	ClaimedBy      string
+	LeaseExpiresAt time.Time
 }
 
 type BindWakeupTurnInput struct {
@@ -120,16 +122,20 @@ type BindWakeupTurnInput struct {
 }
 
 type RetryWakeupInput struct {
-	RetryInterval string
-	LastError     string
-	ID            int64
-	ClaimedAt     time.Time
+	RetryInterval  string
+	LastError      string
+	ID             int64
+	ClaimedAt      time.Time
+	ClaimedBy      string
+	LeaseExpiresAt time.Time
 }
 
 type FailWakeupInput struct {
-	LastError string
-	ID        int64
-	ClaimedAt time.Time
+	LastError      string
+	ID             int64
+	ClaimedAt      time.Time
+	ClaimedBy      string
+	LeaseExpiresAt time.Time
 }
 
 type AcquireWorkerLeaseInput struct {

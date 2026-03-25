@@ -80,7 +80,7 @@ func TestDriverReportRuntimeUsesParsedServerURLPort(t *testing.T) {
 func TestNewSessionInitializesStateAndCapabilities(t *testing.T) {
 	t.Parallel()
 
-	s, err := newSession(nil, startCodexTestServer(t), " agent-1 ", nil, nil)
+	s, err := newSession(context.Background(), nil, startCodexTestServer(t), " agent-1 ", nil, nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -190,8 +190,26 @@ func startCodexTestServer(t *testing.T) string {
 	server := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
 		defer conn.Close()
 		for {
-			var msg string
-			if err := websocket.Message.Receive(conn, &msg); err != nil {
+			var raw string
+			if err := websocket.Message.Receive(conn, &raw); err != nil {
+				return
+			}
+			var msg jsonRPCMessage
+			if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+				continue
+			}
+			if len(msg.ID) == 0 {
+				continue
+			}
+			resp, err := json.Marshal(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+				"result":  mustJSON(map[string]any{"ok": true}),
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+			if err := websocket.Message.Send(conn, string(resp)); err != nil {
 				return
 			}
 		}

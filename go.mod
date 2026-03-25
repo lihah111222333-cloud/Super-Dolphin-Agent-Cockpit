@@ -8,6 +8,7 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/kelindar/event v1.5.2
 	github.com/oklog/run v1.2.0
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/qmuntal/stateless v1.8.0
 	go.uber.org/fx v1.24.0
 	golang.org/x/net v0.49.0

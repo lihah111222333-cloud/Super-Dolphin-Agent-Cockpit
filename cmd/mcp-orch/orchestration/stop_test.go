@@ -2,6 +2,8 @@ package orchestration
 
 import (
 	"context"
+	"errors"
+	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -92,6 +94,200 @@ func TestStopAgentPublishesStoppedAfterObservedExit(t *testing.T) {
 	}
 }
 
+func TestStopAllAgentsPublishesShutdownAfterObservedExit(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	stopped := make(chan agentdto.AgentStopped, 1)
+	cancel := event.Subscribe(dispatcher, func(ev agentdto.AgentStopped) {
+		if ev.AgentID == "agent-1" {
+			stopped <- ev
+		}
+	})
+	defer cancel()
+
+	cleaner := &stopTestSessionCleaner{}
+	svc := NewService(silentLogger(), dispatcher, cleaner, nil, nil)
+	cmd := exec.Command("sh", "-c", "sleep 30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() error = %v", err)
+	}
+
+	agent := svc.newAgentLocked("agent-1")
+	agent.cmd = cmd
+	agent.state = agentdto.StateIdle
+	agent.launchSeq = 1
+	agent.sessionGeneration = 9
+	svc.agents[agent.id] = agent
+
+	waitDone := make(chan struct{})
+	go func() {
+		err := cmd.Wait()
+		svc.handleProcessExit(context.Background(), agent.id, 1, err)
+		close(waitDone)
+	}()
+
+	svc.StopAllAgents()
+
+	select {
+	case <-waitDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process exit was not observed")
+	}
+
+	select {
+	case ev := <-stopped:
+		if ev.Reason != "shutdown" {
+			t.Fatalf("AgentStopped reason = %q, want shutdown", ev.Reason)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected AgentStopped event")
+	}
+
+	if agent.cmd != nil {
+		t.Fatal("agent.cmd = non-nil, want nil after observed exit")
+	}
+	if len(cleaner.removeGeneration) != 1 || cleaner.removeGeneration[0] != 9 {
+		t.Fatalf("removeGeneration = %#v, want [9]", cleaner.removeGeneration)
+	}
+}
+
+func TestStopAllAgentsReturnsAfterWaitTimeout(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	svc.processExitWaitTimeout = 25 * time.Millisecond
+	cmd := exec.Command("sh", "-c", "sleep 30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() error = %v", err)
+	}
+	defer func() { _ = cmd.Wait() }()
+
+	agent := svc.newAgentLocked("agent-1")
+	agent.cmd = cmd
+	agent.state = agentdto.StateIdle
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+
+	done := make(chan struct{})
+	go func() {
+		svc.StopAllAgents()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("StopAllAgents() did not return after process exit wait timeout")
+	}
+}
+
+func TestWaitForProcessExitReturnsErrorWhenForceKillFails(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	svc.processExitWaitTimeout = 25 * time.Millisecond
+	agent := svc.newAgentLocked("agent-1")
+	agent.cmd = &exec.Cmd{Process: &os.Process{Pid: -1}}
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+
+	if err := svc.waitForProcessExit(context.Background(), agent.id, agent.launchSeq); err == nil {
+		t.Fatal("waitForProcessExit() error = nil, want force-kill failure")
+	}
+}
+
+func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	stopped := make(chan agentdto.AgentStopped, 1)
+	cancelSubscription := event.Subscribe(dispatcher, func(ev agentdto.AgentStopped) {
+		if ev.AgentID == "agent-1" {
+			stopped <- ev
+		}
+	})
+	defer cancelSubscription()
+
+	cleaner := &stopTestSessionCleaner{}
+	svc := NewService(silentLogger(), dispatcher, cleaner, nil, nil)
+	cmd := exec.Command("sh", "-c", "sleep 30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() error = %v", err)
+	}
+
+	agent := svc.newAgentLocked("agent-1")
+	agent.cmd = cmd
+	agent.state = agentdto.StateIdle
+	agent.launchSeq = 1
+	agent.sessionGeneration = 13
+	svc.agents[agent.id] = agent
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx)
+	}()
+
+	waitForAgentMonitor(t, svc, agent.id, agent.launchSeq)
+	cancel()
+
+	select {
+	case err := <-runDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runner did not stop after context cancel")
+	}
+
+	select {
+	case ev := <-stopped:
+		if ev.Reason != "shutdown" {
+			t.Fatalf("AgentStopped reason = %q, want shutdown", ev.Reason)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected AgentStopped event")
+	}
+
+	svc.mu.RLock()
+	exited := svc.agents[agent.id].lastExitedSeq >= 1
+	svc.mu.RUnlock()
+	if !exited {
+		t.Fatal("lastExitedSeq was not observed after runner shutdown")
+	}
+	if agent.cmd != nil {
+		t.Fatal("agent.cmd = non-nil, want nil after shutdown exit observation")
+	}
+	if len(cleaner.removeGeneration) != 1 || cleaner.removeGeneration[0] != 13 {
+		t.Fatalf("removeGeneration = %#v, want [13]", cleaner.removeGeneration)
+	}
+}
+
+func TestRequestAgentStopKeepsOriginalReasonOnRepeat(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateIdle
+	svc.agents[agent.id] = agent
+
+	if _, err := svc.requestAgentStop(context.Background(), agent.id, "shutdown"); err != nil {
+		t.Fatalf("requestAgentStop(first) error = %v", err)
+	}
+	if _, err := svc.requestAgentStop(context.Background(), agent.id, "user_requested"); err != nil {
+		t.Fatalf("requestAgentStop(second) error = %v", err)
+	}
+	if !agent.stopRequested {
+		t.Fatal("agent.stopRequested = false, want true")
+	}
+	if agent.stopReason != "shutdown" {
+		t.Fatalf("agent.stopReason = %q, want shutdown", agent.stopReason)
+	}
+}
+
 func TestRemoveSessionGenerationAwareCleanerDoesNotFallbackToCurrent(t *testing.T) {
 	t.Parallel()
 
@@ -139,4 +335,21 @@ func TestHandleProcessExitClearsRuntimeState(t *testing.T) {
 	if agent.runtimeProvider != "" {
 		t.Fatalf("agent.runtimeProvider = %q, want empty", agent.runtimeProvider)
 	}
+}
+
+func waitForAgentMonitor(t *testing.T, svc *service, agentID string, launchSeq uint64) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		svc.mu.RLock()
+		agent, ok := svc.agents[agentID]
+		ready := ok && agent.monitoredSeq >= launchSeq
+		svc.mu.RUnlock()
+		if ready {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("agent %q was not monitored for launch seq %d", agentID, launchSeq)
 }

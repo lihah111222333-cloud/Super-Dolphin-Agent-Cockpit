@@ -2,6 +2,7 @@ package thread
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 )
 
@@ -113,13 +114,41 @@ type threadInfo struct {
 }
 
 func (p *messagesParams) UnmarshalJSON(data []byte) error {
-	type raw messagesParams
+	type raw struct {
+		ThreadID string          `json:"thread_id"`
+		Limit    int             `json:"limit,omitempty"`
+		Before   json.RawMessage `json:"before,omitempty"`
+	}
 	var current raw
 	if err := json.Unmarshal(data, &current); err != nil {
 		return err
 	}
-	*p = messagesParams(current)
+	p.ThreadID = current.ThreadID
+	p.Limit = current.Limit
+	before, err := decodeMessagesBefore(current.Before)
+	if err != nil {
+		return err
+	}
+	p.Before = before
 	return fillLegacyThreadID(data, &p.ThreadID)
+}
+
+func decodeMessagesBefore(raw json.RawMessage) (string, error) {
+	value := strings.TrimSpace(string(raw))
+	if value == "" || value == "null" {
+		return "", nil
+	}
+	var cursor string
+	if err := json.Unmarshal(raw, &cursor); err == nil {
+		return strings.TrimSpace(cursor), nil
+	}
+	dec := json.NewDecoder(strings.NewReader(value))
+	dec.UseNumber()
+	var number json.Number
+	if err := dec.Decode(&number); err == nil {
+		return strings.TrimSpace(number.String()), nil
+	}
+	return "", errors.New("thread/messages: before must be a string or integer")
 }
 
 type nameSetParams struct {

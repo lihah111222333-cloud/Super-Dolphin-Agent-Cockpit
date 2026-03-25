@@ -103,3 +103,11 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 		t.Fatal("Capabilities() returned aliased map")
 	}
 }
+
+func TestClaudeDeclarationOmitsContextCompact(t *testing.T) {
+	t.Parallel()
+
+	if claudeCapabilities.Has(dto.CapContextCompact) {
+		t.Fatalf("claudeCapabilities unexpectedly declares %q", dto.CapContextCompact)
+	}
+}

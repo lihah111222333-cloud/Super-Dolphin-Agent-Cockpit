@@ -1,0 +1,20 @@
+{
+  "error": {
+    "payload": {
+      "error": {
+        "code": -31002,
+        "message": "thread session is not available"
+      },
+      "success": false
+    }
+  },
+  "success": {
+    "payload": {
+      "data": {
+        "agent_id": "agent-1",
+        "state": "running"
+      },
+      "success": true
+    }
+  }
+}

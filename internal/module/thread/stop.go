@@ -2,43 +2,75 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
+type threadStopState struct {
+	agentID   string
+	stoppedID string
+	targets   []string
+	binding   *bindingstore.Binding
+}
+
 func (s *service) Stop(ctx context.Context, threadID string) error {
 	ctx = normalizeThreadContext(ctx)
-	binding, err := s.resolveBinding(ctx, threadID)
+	stopState, err := s.resolveThreadStopState(ctx, threadID)
 	if err != nil {
 		return err
 	}
-	agentID := strings.TrimSpace(binding.AgentID)
-	targets := stopThreadTargets(binding, threadID)
-	stoppedID := stoppedThreadID(binding, threadID)
-	s.interruptStoppingThread(ctx, agentID)
-	if err := s.closeSessionIfActive(ctx, stoppedID); err != nil {
+	if err := s.stopThreadRuntime(ctx, stopState, "thread_stopped", false); err != nil {
 		return err
 	}
-	if err := s.stopManagedAgent(ctx, agentID); err != nil {
+	if err := s.updateThreadStatus(ctx, stopState.stoppedID, statusStopped); err != nil {
 		return err
 	}
-	if err := s.updateThreadStatus(ctx, stoppedID, statusStopped); err != nil {
+	if err := s.cleanupStoppedBinding(ctx, stopState.binding); err != nil {
 		return err
 	}
-	if err := s.cleanupStoppedBinding(ctx, binding); err != nil {
-		return err
-	}
-	for _, id := range uniqueThreadIDs(targets...) {
+	for _, id := range stopState.targets {
 		s.forgetThreadAgent(id)
 	}
-	s.cleanupThreadTurns(ctx, "thread_stopped", targets...)
-	s.publishThreadStopped(stoppedID, agentID, statusStopped, "stopped")
+	s.cleanupThreadTurns(ctx, "thread_stopped", stopState.targets...)
+	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusStopped, "stopped")
 	return nil
 }
 
-func (s *service) interruptStoppingThread(ctx context.Context, agentID string) {
+func (s *service) resolveThreadStopState(ctx context.Context, threadID string) (threadStopState, error) {
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil {
+		return threadStopState{}, err
+	}
+	return newThreadStopState(binding, threadID), nil
+}
+
+func newThreadStopState(binding *bindingstore.Binding, threadID string) threadStopState {
+	return threadStopState{
+		agentID:   strings.TrimSpace(bindingAgentID(binding)),
+		stoppedID: stoppedThreadID(binding, threadID),
+		targets:   stopThreadTargets(binding, threadID),
+		binding:   binding,
+	}
+}
+
+func (s *service) stopThreadRuntime(
+	ctx context.Context,
+	stopState threadStopState,
+	source string,
+	allowMissingAgent bool,
+) error {
+	s.interruptStoppingThread(ctx, stopState.agentID, source)
+	if err := s.closeSessionForAgent(ctx, stopState.agentID); err != nil {
+		return err
+	}
+	return s.stopManagedAgent(ctx, stopState.agentID, allowMissingAgent)
+}
+
+func (s *service) interruptStoppingThread(ctx context.Context, agentID, source string) {
 	if s.turns == nil {
 		return
 	}
@@ -46,20 +78,34 @@ func (s *service) interruptStoppingThread(ctx context.Context, agentID string) {
 	if err != nil || session == nil {
 		return
 	}
-	if err := s.turns.InterruptActiveTurn(ctx, session, "thread_stopped"); err != nil && s.logger != nil {
+	if err := s.turns.InterruptActiveTurn(ctx, session, source); err != nil && s.logger != nil {
 		s.logger.Warn("thread stop: interrupt active turn failed", "agent_id", agentID, "error", err)
 	}
 }
 
-func (s *service) stopManagedAgent(ctx context.Context, agentID string) error {
+func bindingAgentID(binding *bindingstore.Binding) string {
+	if binding == nil {
+		return ""
+	}
+	return binding.AgentID
+}
+
+func (s *service) stopManagedAgent(ctx context.Context, agentID string, allowMissingAgent bool) error {
 	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil
+	}
 	if s.orchestration == nil {
-		if s.sessions != nil && agentID != "" {
+		if s.sessions != nil {
 			s.sessions.RemoveSession(agentID)
 		}
 		return nil
 	}
-	return s.orchestration.StopAgent(ctx, agentID)
+	err := s.orchestration.StopAgent(ctx, agentID)
+	if allowMissingAgent && errors.Is(err, contract.ErrAgentNotFound) {
+		return nil
+	}
+	return err
 }
 
 func (s *service) cleanupThreadTurns(ctx context.Context, reason string, threadIDs ...string) {

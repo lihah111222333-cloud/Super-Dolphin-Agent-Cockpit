@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	workspace "github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -52,42 +51,6 @@ type workspaceAbortRunInput struct {
 	RunKey    string `json:"run_key"`
 	UpdatedBy string `json:"updated_by,omitempty"`
 	Reason    string `json:"reason,omitempty"`
-}
-
-type WorkspaceMergeFileResult struct {
-	Path   string `json:"path"`
-	Action string `json:"action"`
-	Reason string `json:"reason,omitempty"`
-}
-
-type WorkspaceMergeRunResult struct {
-	RunKey        string                     `json:"run_key"`
-	Status        string                     `json:"status"`
-	SourceRoot    string                     `json:"source_root"`
-	WorkspacePath string                     `json:"workspace_path"`
-	DryRun        bool                       `json:"dry_run"`
-	Merged        int                        `json:"merged"`
-	Removed       int                        `json:"removed"`
-	Conflicts     int                        `json:"conflicts"`
-	Unchanged     int                        `json:"unchanged"`
-	Errors        int                        `json:"errors"`
-	FinishedAt    *time.Time                 `json:"finished_at,omitempty"`
-	Files         []WorkspaceMergeFileResult `json:"files,omitempty"`
-}
-
-type workspaceRunDTO struct {
-	ID            int64           `json:"id"`
-	RunKey        string          `json:"run_key"`
-	DagKey        string          `json:"dag_key,omitempty"`
-	SourceRoot    string          `json:"source_root"`
-	WorkspacePath string          `json:"workspace_path"`
-	Status        string          `json:"status"`
-	CreatedBy     string          `json:"created_by,omitempty"`
-	UpdatedBy     string          `json:"updated_by,omitempty"`
-	Metadata      json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
-	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
 }
 
 func HandleWorkspaceCreateRun(svc workspace.Service) ToolHandler {
@@ -222,7 +185,7 @@ func createWorkspaceRun(ctx context.Context, svc workspace.Service, input Worksp
 	if err != nil {
 		return nil, err
 	}
-	return workspaceRunDTOFromRun(run), nil
+	return workspaceRunDTOFromRun(ctx, svc, run)
 }
 
 func getWorkspaceRun(ctx context.Context, svc workspace.Service, input workspaceGetRunInput) (*workspaceRunDTO, error) {
@@ -243,7 +206,7 @@ func getWorkspaceRun(ctx context.Context, svc workspace.Service, input workspace
 	if run == nil {
 		return nil, fmt.Errorf("workspace run %s not found", runKey)
 	}
-	return workspaceRunDTOFromRun(run), nil
+	return workspaceRunDTOFromRun(ctx, svc, run)
 }
 
 func listWorkspaceRuns(ctx context.Context, svc workspace.Service, input workspaceListRunsInput) ([]workspaceRunDTO, error) {
@@ -254,7 +217,7 @@ func listWorkspaceRuns(ctx context.Context, svc workspace.Service, input workspa
 	if err != nil {
 		return nil, err
 	}
-	return mapWorkspaceRuns(runs), nil
+	return mapWorkspaceRuns(ctx, svc, runs)
 }
 
 func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
@@ -274,7 +237,7 @@ func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input Workspa
 	if err != nil {
 		return nil, err
 	}
-	out := convertMergeResult(result)
+	out := convertMergeResult(result, input.DeleteRemoved)
 	// MergeRunResult from workspace.Service lacks FinishedAt; read it
 	// from the persisted run when the merge was not a dry run.
 	if !input.DryRun {
@@ -300,7 +263,7 @@ func abortWorkspaceRun(ctx context.Context, svc workspace.Service, input workspa
 	if err != nil {
 		return nil, err
 	}
-	return workspaceRunDTOFromRun(run), nil
+	return workspaceRunDTOFromRun(ctx, svc, run)
 }
 
 func normalizeWorkspaceListLimit(limit int) int {
@@ -324,64 +287,6 @@ func trimNonEmpty(values []string) []string {
 		return nil
 	}
 	return trimmed
-}
-
-func workspaceRunDTOFromRun(run *workspace.Run) *workspaceRunDTO {
-	if run == nil {
-		return nil
-	}
-	return &workspaceRunDTO{
-		ID:            run.ID,
-		RunKey:        run.RunKey,
-		DagKey:        run.DagKey,
-		SourceRoot:    run.SourceRoot,
-		WorkspacePath: run.WorkspacePath,
-		Status:        run.Status,
-		CreatedBy:     run.CreatedBy,
-		UpdatedBy:     run.UpdatedBy,
-		Metadata:      cloneRawMessage(run.Metadata),
-		CreatedAt:     run.CreatedAt,
-		UpdatedAt:     run.UpdatedAt,
-		FinishedAt:    cloneTime(run.FinishedAt),
-	}
-}
-
-func mapWorkspaceRuns(runs []workspace.Run) []workspaceRunDTO {
-	if len(runs) == 0 {
-		return nil
-	}
-	mapped := make([]workspaceRunDTO, 0, len(runs))
-	for i := range runs {
-		mapped = append(mapped, *workspaceRunDTOFromRun(&runs[i]))
-	}
-	return mapped
-}
-
-func convertMergeResult(r *workspace.MergeRunResult) *WorkspaceMergeRunResult {
-	if r == nil {
-		return nil
-	}
-	files := make([]WorkspaceMergeFileResult, 0, len(r.Files))
-	for _, f := range r.Files {
-		files = append(files, WorkspaceMergeFileResult{
-			Path:   f.Path,
-			Action: f.Action,
-			Reason: f.Reason,
-		})
-	}
-	return &WorkspaceMergeRunResult{
-		RunKey:        r.RunKey,
-		Status:        r.Status,
-		SourceRoot:    r.SourceRoot,
-		WorkspacePath: r.WorkspacePath,
-		DryRun:        r.DryRun,
-		Merged:        r.Merged,
-		Removed:       r.Removed,
-		Conflicts:     r.Conflicts,
-		Unchanged:     r.Unchanged,
-		Errors:        r.Errors,
-		Files:         files,
-	}
 }
 
 func marshalMapToJSON(m map[string]any) (json.RawMessage, error) {

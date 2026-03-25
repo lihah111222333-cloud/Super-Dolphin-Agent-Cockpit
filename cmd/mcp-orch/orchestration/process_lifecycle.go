@@ -3,11 +3,14 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
 
@@ -98,7 +101,7 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	s.removeSession(agent)
 	s.recordProcessExitError(agent, err)
 	s.handleProcessExitTransition(ctx, agent)
-	if agent.stopRequested && agent.stopReason == "user_requested" {
+	if agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
 		s.publishAgentStopped(agent, agent.stopReason)
 	}
 	agent.stopReason = ""
@@ -132,9 +135,8 @@ func (s *service) waitForProcessExit(ctx context.Context, agentID string, launch
 	if launchSeq == 0 {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	waitCtx, cancel := platformconfig.WithTimeout(ctx, s.processExitWaitTimeout)
+	defer cancel()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -147,11 +149,32 @@ func (s *service) waitForProcessExit(ctx context.Context, agentID string, launch
 			return nil
 		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-waitCtx.Done():
+			if ctx != nil && ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return s.forceKillProcess(agentID, launchSeq)
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *service) forceKillProcess(agentID string, launchSeq uint64) error {
+	var proc *os.Process
+	s.mu.RLock()
+	if agent, ok := s.agents[agentID]; ok && agent.launchSeq == launchSeq && agent.lastExitedSeq < launchSeq && agent.cmd != nil {
+		proc = agent.cmd.Process
+	}
+	s.mu.RUnlock()
+	if proc == nil {
+		return fmt.Errorf("orchestration: timed out waiting for process exit for agent %q", agentID)
+	}
+	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		s.logger.Warn("orchestration: failed to force-kill timed out agent process", "agent_id", agentID, "launch_seq", launchSeq, "error", err)
+		return fmt.Errorf("orchestration: failed to force-kill timed out agent process %q: %w", agentID, err)
+	}
+	s.logger.Warn("orchestration: timed out waiting for process exit; forced kill issued", "agent_id", agentID, "launch_seq", launchSeq, "timeout", s.processExitWaitTimeout)
+	return nil
 }
 
 type runnerActor struct {
@@ -199,9 +222,16 @@ func (a *runnerActor) startWaiters(ctx context.Context, results chan<- waitResul
 
 func (a *runnerActor) waitForExit(ctx context.Context, target monitorTarget, results chan<- waitResult) {
 	err := target.cmd.Wait()
+	result := waitResult{agentID: target.agentID, launchSeq: target.launchSeq, err: err}
+	if ctx.Err() != nil {
+		// Runner shutdown still needs the exit transition to complete so StopAllAgents can observe it.
+		a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
+		return
+	}
 	select {
+	case results <- result:
 	case <-ctx.Done():
-	case results <- waitResult{agentID: target.agentID, launchSeq: target.launchSeq, err: err}:
+		a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
 	}
 }
 

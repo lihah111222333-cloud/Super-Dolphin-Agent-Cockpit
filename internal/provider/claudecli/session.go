@@ -93,7 +93,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	payload, turnID, handle, err := s.prepareTurn(req)
+	payload, turnID, handle, err := s.prepareTurn(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -214,9 +214,15 @@ func (s *session) stop(force bool) error {
 	return err
 }
 
-func (s *session) restartIfNeededLocked(req dto.TurnRequest) error {
-	if !s.applyTurnSettingsLocked(req) || s.transport == nil {
+func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest) error {
+	if s.transport == nil {
 		return nil
+	}
+	prevModel := s.model
+	prevConfig := s.config
+	prevManifest := s.manifest
+	if !s.applyTurnSettingsLocked(req) {
+		return s.awaitThreadReadyLocked(ctx)
 	}
 	oldTransport := s.transport
 	oldCleanup := s.cleanup
@@ -227,21 +233,43 @@ func (s *session) restartIfNeededLocked(req dto.TurnRequest) error {
 		s.instructions,
 		s.config,
 		s.manifest,
-		s.threadID,
+		s.restartResumeIDLocked(),
 	)
 	if err != nil {
+		s.model = prevModel
+		s.config = prevConfig
+		s.manifest = prevManifest
 		return err
 	}
+	s.resetThreadReadyLocked()
+	s.activeTurn = nil
+	s.suppressedTurns = map[string]struct{}{}
 	s.transport = tr
 	s.cleanup = cleanup
 	s.startReadLoop(tr)
-	if oldTransport != nil {
-		_ = oldTransport.Close()
+	if oldTransport != nil || oldCleanup != nil {
+		go releaseTransport(oldTransport, oldCleanup)
 	}
-	if oldCleanup != nil {
-		oldCleanup()
+	return s.awaitThreadReadyLocked(ctx)
+}
+
+func (s *session) restartResumeIDLocked() string {
+	// Keep the last resolved thread/session identity across restarts until the
+	// new transport confirms the resumed session with a fresh system:init.
+	resumeID := strings.TrimSpace(firstNonEmpty(s.sessionID, s.threadID))
+	if requiresResolvedThreadID(resumeID) {
+		return ""
 	}
-	return nil
+	return resumeID
+}
+
+func releaseTransport(tr *transport, cleanup func()) {
+	if tr != nil {
+		_ = tr.Close()
+	}
+	if cleanup != nil {
+		cleanup()
+	}
 }
 
 func (s *session) applyTurnSettingsLocked(req dto.TurnRequest) bool {

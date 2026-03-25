@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"golang.org/x/sync/errgroup"
 )
@@ -19,9 +21,9 @@ type DashboardPage struct {
 	Agents       []AgentOverview                `json:"agents"`
 	TaskTraces   []tasktracestore.TaskTrace     `json:"taskTraces"`
 	Skills       []skillmodule.SkillInfo        `json:"skills"`
-	CommandCards []sqlc.ListCommandCardsRow     `json:"commandCards"`
-	Prompts      []sqlc.ListPromptTemplatesRow  `json:"prompts"`
-	Memory       []sqlc.SharedFile              `json:"memory"`
+	CommandCards []commandcardstore.CommandCard `json:"commandCards"`
+	Prompts      []promptstore.PromptTemplate   `json:"prompts"`
+	Memory       []sharedfilestore.SharedFile   `json:"memory"`
 }
 
 type dashboardPageLoader func(context.Context) error
@@ -39,9 +41,9 @@ func newDashboardPage() *DashboardPage {
 		Agents:       []AgentOverview{},
 		TaskTraces:   []tasktracestore.TaskTrace{},
 		Skills:       []skillmodule.SkillInfo{},
-		CommandCards: []sqlc.ListCommandCardsRow{},
-		Prompts:      []sqlc.ListPromptTemplatesRow{},
-		Memory:       []sqlc.SharedFile{},
+		CommandCards: []commandcardstore.CommandCard{},
+		Prompts:      []promptstore.PromptTemplate{},
+		Memory:       []sharedfilestore.SharedFile{},
 	}
 }
 
@@ -138,23 +140,23 @@ func (s *service) listDashboardSkills(ctx context.Context) ([]skillmodule.SkillI
 	return s.skills.ListSkills(ctx)
 }
 
-func (s *service) listDashboardCommandCards(ctx context.Context) ([]sqlc.ListCommandCardsRow, error) {
-	if s.queries == nil {
-		return []sqlc.ListCommandCardsRow{}, nil
+func (s *service) listDashboardCommandCards(ctx context.Context) ([]commandcardstore.CommandCard, error) {
+	if s.commandCards == nil {
+		return []commandcardstore.CommandCard{}, nil
 	}
-	return s.queries.ListCommandCards(ctx, sqlc.ListCommandCardsParams{Limit: dashboardPageDefaultLimit})
+	return s.commandCards.List(ctx, commandcardstore.ListFilter{Limit: dashboardPageDefaultLimit})
 }
 
-func (s *service) listDashboardPrompts(ctx context.Context) ([]sqlc.ListPromptTemplatesRow, error) {
-	if s.queries == nil {
-		return []sqlc.ListPromptTemplatesRow{}, nil
+func (s *service) listDashboardPrompts(ctx context.Context) ([]promptstore.PromptTemplate, error) {
+	if s.prompts == nil {
+		return []promptstore.PromptTemplate{}, nil
 	}
-	return s.queries.ListPromptTemplates(ctx, sqlc.ListPromptTemplatesParams{Limit: dashboardPageDefaultLimit})
+	return s.prompts.List(ctx, promptstore.ListFilter{Limit: dashboardPageDefaultLimit})
 }
 
-func (s *service) listDashboardMemory(ctx context.Context) ([]sqlc.SharedFile, error) {
-	if s.queries == nil {
-		return []sqlc.SharedFile{}, nil
+func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
+	if s.sharedFiles == nil {
+		return []sharedfilestore.SharedFile{}, nil
 	}
-	return s.queries.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{Limit: dashboardMemoryLimit})
+	return s.sharedFiles.List(ctx, sharedfilestore.ListFilter{Limit: dashboardMemoryLimit})
 }

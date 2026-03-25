@@ -124,17 +124,30 @@ func (q *Queries) EnqueueTaskDagWakeup(ctx context.Context, arg EnqueueTaskDagWa
 const failTaskDagWakeup = `-- name: FailTaskDagWakeup :execrows
 UPDATE task_dag_wakeups
 SET status = 'failed', last_error = $1, claimed_at = NULL, claimed_by = '', lease_expires_at = NULL, updated_at = NOW()
-WHERE id = $2 AND status = 'dispatching' AND claimed_at = $3
+WHERE id = $2
+  AND status = 'dispatching'
+  AND claimed_at = $3
+  AND claimed_by = $4
+  AND lease_expires_at = $5
+  AND lease_expires_at >= NOW()
 `
 
 type FailTaskDagWakeupParams struct {
-	LastError string             `json:"last_error"`
-	ID        int64              `json:"id"`
-	ClaimedAt pgtype.Timestamptz `json:"claimed_at"`
+	LastError      string             `json:"last_error"`
+	ID             int64              `json:"id"`
+	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
+	ClaimedBy      string             `json:"claimed_by"`
+	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
 }
 
 func (q *Queries) FailTaskDagWakeup(ctx context.Context, arg FailTaskDagWakeupParams) (int64, error) {
-	result, err := q.db.Exec(ctx, failTaskDagWakeup, arg.LastError, arg.ID, arg.ClaimedAt)
+	result, err := q.db.Exec(ctx, failTaskDagWakeup,
+		arg.LastError,
+		arg.ID,
+		arg.ClaimedAt,
+		arg.ClaimedBy,
+		arg.LeaseExpiresAt,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -144,16 +157,28 @@ func (q *Queries) FailTaskDagWakeup(ctx context.Context, arg FailTaskDagWakeupPa
 const markTaskDagWakeupSent = `-- name: MarkTaskDagWakeupSent :execrows
 UPDATE task_dag_wakeups
 SET status = 'sent', sent_at = NOW(), updated_at = NOW()
-WHERE id = $1 AND status = 'dispatching' AND claimed_at = $2
+WHERE id = $1
+  AND status = 'dispatching'
+  AND claimed_at = $2
+  AND claimed_by = $3
+  AND lease_expires_at = $4
+  AND lease_expires_at >= NOW()
 `
 
 type MarkTaskDagWakeupSentParams struct {
-	ID        int64              `json:"id"`
-	ClaimedAt pgtype.Timestamptz `json:"claimed_at"`
+	ID             int64              `json:"id"`
+	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
+	ClaimedBy      string             `json:"claimed_by"`
+	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
 }
 
 func (q *Queries) MarkTaskDagWakeupSent(ctx context.Context, arg MarkTaskDagWakeupSentParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markTaskDagWakeupSent, arg.ID, arg.ClaimedAt)
+	result, err := q.db.Exec(ctx, markTaskDagWakeupSent,
+		arg.ID,
+		arg.ClaimedAt,
+		arg.ClaimedBy,
+		arg.LeaseExpiresAt,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -164,14 +189,22 @@ const retryTaskDagWakeup = `-- name: RetryTaskDagWakeup :execrows
 UPDATE task_dag_wakeups
 SET status = 'pending', next_retry_at = NOW() + $1::interval, last_error = $2,
     claimed_at = NULL, claimed_by = '', lease_expires_at = NULL, updated_at = NOW()
-WHERE id = $3 AND status = 'dispatching' AND claimed_at = $4 AND attempt_count < 8
+WHERE id = $3
+  AND status = 'dispatching'
+  AND claimed_at = $4
+  AND claimed_by = $5
+  AND lease_expires_at = $6
+  AND lease_expires_at >= NOW()
+  AND attempt_count < 8
 `
 
 type RetryTaskDagWakeupParams struct {
-	Column1   pgtype.Interval    `json:"column_1"`
-	LastError string             `json:"last_error"`
-	ID        int64              `json:"id"`
-	ClaimedAt pgtype.Timestamptz `json:"claimed_at"`
+	Column1        pgtype.Interval    `json:"column_1"`
+	LastError      string             `json:"last_error"`
+	ID             int64              `json:"id"`
+	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
+	ClaimedBy      string             `json:"claimed_by"`
+	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
 }
 
 func (q *Queries) RetryTaskDagWakeup(ctx context.Context, arg RetryTaskDagWakeupParams) (int64, error) {
@@ -180,6 +213,8 @@ func (q *Queries) RetryTaskDagWakeup(ctx context.Context, arg RetryTaskDagWakeup
 		arg.LastError,
 		arg.ID,
 		arg.ClaimedAt,
+		arg.ClaimedBy,
+		arg.LeaseExpiresAt,
 	)
 	if err != nil {
 		return 0, err

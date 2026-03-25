@@ -175,9 +175,16 @@ func (p *approvalRespondParams) UnmarshalJSON(data []byte) error {
 }
 
 type turnInterruptResult struct {
-	OK     bool   `json:"ok"`
-	TurnID string `json:"turnId,omitempty"`
-	Status string `json:"status,omitempty"`
+	OK             bool   `json:"ok"`
+	TurnID         string `json:"turnId,omitempty"`
+	Status         string `json:"status,omitempty"`
+	Confirmed      bool   `json:"confirmed"`
+	Mode           string `json:"mode"`
+	InterruptSent  bool   `json:"interruptSent"`
+	StateBefore    string `json:"stateBefore"`
+	StateAfter     string `json:"stateAfter"`
+	WaitedMS       *int64 `json:"waitedMs,omitempty"`
+	ActiveObserved *bool  `json:"activeObserved,omitempty"`
 }
 
 type turnForceCompleteResult struct {

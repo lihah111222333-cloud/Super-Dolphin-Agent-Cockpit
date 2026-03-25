@@ -10,10 +10,14 @@ type TurnStarted struct {
 // TurnCompleted reports a turn reaching a terminal result.
 type TurnCompleted struct {
 	shared.TurnHeader
-	Success bool   `json:"success"`
-	Error   string `json:"error,omitempty"`
-	Status  string `json:"status,omitempty"`
-	Reason  string `json:"reason,omitempty"`
+	Success    bool   `json:"success"`
+	Error      string `json:"error,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Result     string `json:"result,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	Message    string `json:"message,omitempty"`
+	StopReason string `json:"stop_reason,omitempty"`
 }
 
 // TurnInterrupted reports an interrupt applied to a running turn.

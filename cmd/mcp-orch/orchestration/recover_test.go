@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -27,6 +28,10 @@ func TestRecoverReplaysStoreBackedActiveTurnAheadOfQueuedWork(t *testing.T) {
 		wakeups: map[int64]taskdag.Wakeup{
 			7: {
 				ID:            7,
+				Status:        "sent",
+				TargetAgentID: "agent-1",
+				BoundTurnID:   testStringPtr("turn-active"),
+				TurnBoundAt:   testTimePtr(t),
 				PromptPayload: json.RawMessage(`{"agentId":"agent-1","prompt":"replay me","selectedSkills":["debug"]}`),
 			},
 		},
@@ -79,6 +84,41 @@ func TestRecoverReplaysStoreBackedActiveTurnAheadOfQueuedWork(t *testing.T) {
 	}
 	if len(second.Inputs) != 1 || second.Inputs[0].Content != "queued work" {
 		t.Fatalf("second.Inputs = %#v, want queued work", second.Inputs)
+	}
+}
+
+func TestLoadRecoveredTurnSubmissionSkipsReclaimedWakeup(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	svc.recoveryStore = stubRecoveryTurnStore{
+		nodes: []taskdag.Node{{
+			DagKey:         "dag-1",
+			NodeKey:        "node-1",
+			AssignedTo:     "agent-1",
+			ActiveTurnID:   testStringPtr("turn-active"),
+			ActiveWakeupID: testInt64Ptr(7),
+		}},
+		wakeups: map[int64]taskdag.Wakeup{
+			7: {
+				ID:            7,
+				Status:        "pending",
+				TargetAgentID: "agent-1",
+				PromptPayload: json.RawMessage(`{"agentId":"agent-1","prompt":"stale"}`),
+			},
+		},
+	}
+	agent := &agentRuntime{id: "agent-1", threadID: "thread-1", activeTurnID: "turn-active"}
+
+	submission, shouldReplay, err := loadRecoveredTurnSubmission(context.Background(), svc, agent)
+	if err != nil {
+		t.Fatalf("loadRecoveredTurnSubmission() error = %v", err)
+	}
+	if shouldReplay {
+		t.Fatalf("shouldReplay = true, want false with reclaimed wakeup: %#v", submission)
+	}
+	if got := len(submission.Inputs); got != 0 {
+		t.Fatalf("submission.Inputs len = %d, want 0", got)
 	}
 }
 
@@ -155,3 +195,9 @@ func (s stubRecoveryTurnStore) GetWakeup(_ context.Context, id int64) (*taskdag.
 func testStringPtr(value string) *string { return &value }
 
 func testInt64Ptr(value int64) *int64 { return &value }
+
+func testTimePtr(t *testing.T) *time.Time {
+	t.Helper()
+	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
+	return &now
+}

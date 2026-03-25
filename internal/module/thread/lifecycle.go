@@ -289,9 +289,7 @@ func (s *service) launchAgent(ctx context.Context, agentID, cwd, name, provider,
 }
 
 func (s *service) stopAgent(ctx context.Context, agentID string) {
-	if s.orchestration != nil {
-		_ = s.orchestration.StopAgent(ctx, strings.TrimSpace(agentID))
-	}
+	_ = s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true)
 }
 
 func (s *service) recoverAgent(ctx context.Context, agentID, cwd, name string) error {

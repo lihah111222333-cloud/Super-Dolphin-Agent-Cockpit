@@ -82,15 +82,11 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 func (d *driver) Name() string { return "codex" }
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-	s, err := newSession(d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals)
+	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals)
 	if err != nil {
 		return nil, err
 	}
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
-	if err := initializeSession(ctx, s.transport); err != nil {
-		_ = s.ForceStop()
-		return nil, err
-	}
 	threadID, err := startRemoteThread(ctx, s.transport, req)
 	if err != nil {
 		_ = s.ForceStop()
@@ -102,12 +98,8 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-	s, err := newSession(d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals)
+	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals)
 	if err != nil {
-		return nil, err
-	}
-	if err := initializeSession(ctx, s.transport); err != nil {
-		_ = s.ForceStop()
 		return nil, err
 	}
 	threadID, err := resumeRemoteThread(ctx, s.transport, req)
@@ -171,13 +163,6 @@ func runtimePortFromServerURL(raw string) int {
 		return 0
 	}
 	return port
-}
-
-func initializeSession(ctx context.Context, t *transport) error {
-	callCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	_, err := t.Call(callCtx, "initialize", initializeParams())
-	return err
 }
 
 func (s *session) AllowedModels(ctx context.Context) ([]string, error) {

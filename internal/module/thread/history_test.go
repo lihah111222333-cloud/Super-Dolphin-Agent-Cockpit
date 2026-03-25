@@ -15,7 +15,7 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
-func TestReadMessagesCursorUsesAdaptiveWindow(t *testing.T) {
+func TestReadMessagesSupportsTimestampCursorCompatibility(t *testing.T) {
 	t.Parallel()
 
 	base := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
@@ -50,25 +50,25 @@ func TestReadMessagesCursorUsesAdaptiveWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadMessages() error = %v", err)
 	}
-	want := []dto.Message{
-		{Role: "user", Content: "m3", Timestamp: base.Add(3 * time.Minute)},
-		{Role: "assistant", Content: "m4", Timestamp: base.Add(4 * time.Minute)},
+	want := dto.ThreadMessagesResult{
+		Messages: []dto.Message{
+			{ID: 4, AgentID: "thread-1", Role: "assistant", EventType: "agent_message", Content: "m4", Timestamp: base.Add(4 * time.Minute)},
+			{ID: 3, AgentID: "thread-1", Role: "user", EventType: "", Content: "m3", Timestamp: base.Add(3 * time.Minute)},
+		},
+		Total: 6,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReadMessages() = %#v, want %#v", got, want)
 	}
-	if got := session.readCalls; len(got) != 2 {
-		t.Fatalf("read calls = %#v, want 2 calls", got)
+	if got := session.readCalls; len(got) != 1 {
+		t.Fatalf("read calls = %#v, want 1 call", got)
 	}
-	if session.readCalls[0].Limit != 2 || session.readCalls[1].Limit != 4 {
-		t.Fatalf("read limits = %#v, want [2 4]", session.readCalls)
+	if session.readCalls[0].Limit != 0 {
+		t.Fatalf("read limits = %#v, want [0]", session.readCalls)
 	}
 	for _, call := range session.readCalls {
 		if call.ThreadID != "thread-1" {
 			t.Fatalf("read thread id = %q, want thread-1", call.ThreadID)
-		}
-		if call.Limit == 0 {
-			t.Fatalf("cursor pagination should not fall back to full history: %#v", session.readCalls)
 		}
 	}
 }
@@ -337,6 +337,7 @@ type historyReadCall struct {
 
 type historyTestSession struct {
 	threadID   string
+	threads    []dto.ThreadRef
 	messages   []dto.Message
 	forkResult dto.ForkResult
 	readCalls  []historyReadCall
@@ -356,7 +357,12 @@ func (s *historyTestSession) ForceComplete(context.Context, dto.ForceCompleteReq
 	return nil
 }
 
-func (s *historyTestSession) ListThreads(context.Context) ([]dto.ThreadRef, error) { return nil, nil }
+func (s *historyTestSession) ListThreads(context.Context) ([]dto.ThreadRef, error) {
+	if len(s.threads) == 0 {
+		return nil, nil
+	}
+	return append([]dto.ThreadRef(nil), s.threads...), nil
+}
 
 func (s *historyTestSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
 	return s.forkResult, nil

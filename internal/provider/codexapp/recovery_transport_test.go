@@ -55,14 +55,14 @@ func TestTransportReconnectReinitializes(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport, err := newTransport("ws" + strings.TrimPrefix(server.URL, "http"))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	transport, err := newTransport(ctx, "ws"+strings.TrimPrefix(server.URL, "http"))
 	if err != nil {
 		t.Fatalf("newTransport() error = %v", err)
 	}
 	defer func() { _ = transport.Kill() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
 	if err := transport.reconnect(ctx); err != nil {
 		t.Fatalf("reconnect() error = %v", err)
 	}
@@ -75,8 +75,8 @@ func TestTransportReconnectReinitializes(t *testing.T) {
 			initializeCount++
 		}
 	}
-	if initializeCount != 1 {
-		t.Fatalf("initialize count = %d, want 1 after reconnect; methods=%v", initializeCount, methods)
+	if initializeCount != 2 {
+		t.Fatalf("initialize count = %d, want 2 after startup+reconnect; methods=%v", initializeCount, methods)
 	}
 }
 
@@ -129,17 +129,13 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s, err := newSession(slog.Default(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil)
+	s, err := newSession(context.Background(), slog.Default(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
 	defer closeCodexTestSession(t, s)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := initializeSession(ctx, s.transport); err != nil {
-		t.Fatalf("initializeSession() error = %v", err)
-	}
 
 	handle, err := s.StartTurn(ctx, dto.TurnRequest{
 		ThreadID: "thread-1",

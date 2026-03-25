@@ -54,13 +54,14 @@ type turnHandle struct {
 }
 
 func newSession(
+	transportCtx context.Context,
 	logger *slog.Logger,
 	serverURL string,
 	agentID string,
 	dispatcher *unified.EventDispatcher,
 	approvals *rpc.ApprovalManager,
 ) (*session, error) {
-	transport, err := newTransport(serverURL)
+	transport, err := newTransport(transportCtx, serverURL)
 	if err != nil {
 		return nil, err
 	}

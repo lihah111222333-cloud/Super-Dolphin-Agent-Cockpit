@@ -22,3 +22,17 @@ func WithTx(ctx context.Context, q *Queries, fn func(txq *Queries) error) error 
 		return fn(q.WithTx(tx))
 	})
 }
+
+// WithTxOrReuse runs fn in the current transaction when one is already bound.
+func WithTxOrReuse(ctx context.Context, q *Queries, fn func(txq *Queries) error) error {
+	if q == nil {
+		return errors.New("sqlc queries are not initialized")
+	}
+	if tx, ok := q.db.(pgx.Tx); ok && tx != nil {
+		return fn(q.WithTx(tx))
+	}
+	if pool, ok := q.db.(*pgxpool.Pool); ok && pool != nil {
+		return platformdb.WithTx(ctx, pool, func(tx pgx.Tx) error { return fn(q.WithTx(tx)) })
+	}
+	return fn(q)
+}

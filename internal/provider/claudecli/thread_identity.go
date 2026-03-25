@@ -6,6 +6,7 @@ import (
 	"fmt"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"strings"
+	"sync"
 )
 
 func requiresResolvedThreadID(threadID string) bool {
@@ -22,24 +23,48 @@ func isPlaceholderThreadID(threadID string) bool {
 }
 
 func (s *session) setResolvedThreadID(threadID string) {
+	s.setResolvedThreadIDForTransport(nil, threadID)
+}
+
+func (s *session) setResolvedThreadIDForTransport(tr *transport, threadID string) {
 	threadID = strings.TrimSpace(threadID)
 	if isPlaceholderThreadID(threadID) {
 		return
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if tr != nil && s.transport != tr {
+		return
+	}
 	s.threadID = threadID
 	s.sessionID = threadID
-	s.mu.Unlock()
-	s.markThreadReady()
+	s.markThreadReadyLocked()
 }
 
 func (s *session) markThreadReady() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.markThreadReadyLocked()
+}
+
+func (s *session) markThreadReadyLocked() {
 	if s == nil || s.threadReady == nil {
 		return
 	}
 	s.threadReadyOnce.Do(func() {
 		close(s.threadReady)
 	})
+}
+
+func (s *session) resetThreadReadyLocked() {
+	if s == nil {
+		return
+	}
+	s.threadReadyOnce = sync.Once{}
+	s.threadReady = make(chan struct{})
 }
 
 func (s *session) awaitResolvedThreadID(ctx context.Context) error {
@@ -69,6 +94,29 @@ func (s *session) threadReadyState() (chan struct{}, *transport) {
 	return s.threadReady, s.transport
 }
 
+func (s *session) pendingThreadReadyLocked() (chan struct{}, *transport) {
+	if s == nil || s.threadReady == nil {
+		return nil, nil
+	}
+	select {
+	case <-s.threadReady:
+		return nil, nil
+	default:
+		return s.threadReady, s.transport
+	}
+}
+
+func (s *session) awaitThreadReadyLocked(ctx context.Context) error {
+	ready, tr := s.pendingThreadReadyLocked()
+	if ready == nil {
+		return nil
+	}
+	s.mu.Unlock()
+	err := waitForCurrentThreadReady(ctx, ready, tr)
+	s.mu.Lock()
+	return err
+}
+
 func withThreadIDTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -86,6 +134,18 @@ func waitForThreadReady(ctx context.Context, ready <-chan struct{}) error {
 	case <-ctx.Done():
 		return fmt.Errorf("claudecli: waiting for real thread id: %w", ctx.Err())
 	}
+}
+
+func waitForCurrentThreadReady(ctx context.Context, ready <-chan struct{}, tr *transport) error {
+	if ready == nil {
+		return nil
+	}
+	waitCtx, cancel := withThreadIDTimeout(ctx)
+	defer cancel()
+	if tr == nil {
+		return waitForThreadReady(waitCtx, ready)
+	}
+	return waitForThreadReadyOrExit(waitCtx, ready, tr)
 }
 
 func waitForThreadReadyOrExit(ctx context.Context, ready <-chan struct{}, tr *transport) error {

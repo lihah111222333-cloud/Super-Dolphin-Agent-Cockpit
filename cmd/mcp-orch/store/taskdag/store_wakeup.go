@@ -39,8 +39,10 @@ func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput)
 
 func (s *store) MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (int64, error) {
 	count, err := s.q.MarkTaskDagWakeupSent(ctx, sqlc.MarkTaskDagWakeupSentParams{
-		ID:        input.ID,
-		ClaimedAt: timestampValue(input.ClaimedAt),
+		ID:             input.ID,
+		ClaimedAt:      timestampValue(input.ClaimedAt),
+		ClaimedBy:      input.ClaimedBy,
+		LeaseExpiresAt: timestampValue(input.LeaseExpiresAt),
 	})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "mark_sent", "task_dag_wakeup")
@@ -65,10 +67,12 @@ func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64,
 		return 0, wrapTaskDAGError(err, "retry", "task_dag_wakeup")
 	}
 	count, err := s.q.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{
-		Column1:   retryInterval,
-		LastError: input.LastError,
-		ID:        input.ID,
-		ClaimedAt: timestampValue(input.ClaimedAt),
+		Column1:        retryInterval,
+		LastError:      input.LastError,
+		ID:             input.ID,
+		ClaimedAt:      timestampValue(input.ClaimedAt),
+		ClaimedBy:      input.ClaimedBy,
+		LeaseExpiresAt: timestampValue(input.LeaseExpiresAt),
 	})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "retry", "task_dag_wakeup")
@@ -78,9 +82,11 @@ func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64,
 
 func (s *store) FailWakeup(ctx context.Context, input FailWakeupInput) (int64, error) {
 	count, err := s.q.FailTaskDagWakeup(ctx, sqlc.FailTaskDagWakeupParams{
-		LastError: input.LastError,
-		ID:        input.ID,
-		ClaimedAt: timestampValue(input.ClaimedAt),
+		LastError:      input.LastError,
+		ID:             input.ID,
+		ClaimedAt:      timestampValue(input.ClaimedAt),
+		ClaimedBy:      input.ClaimedBy,
+		LeaseExpiresAt: timestampValue(input.LeaseExpiresAt),
 	})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "fail", "task_dag_wakeup")

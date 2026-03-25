@@ -1,0 +1,73 @@
+package turn
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+)
+
+func TestInterruptTurnReturnsEnvelope(t *testing.T) {
+	t.Parallel()
+
+	handle := newStubTurnHandle("local-1", "provider-1")
+	session := &stubSession{
+		threadID: "thread-1",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			return handle, nil
+		},
+		interrupt: func(context.Context, dto.InterruptRequest) error {
+			time.AfterFunc(20*time.Millisecond, func() {
+				handle.complete(errors.New("turn aborted"))
+			})
+			return nil
+		},
+	}
+
+	svc := NewService(silentLogger())
+	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
+		LocalID:  "local-1",
+		ThreadID: "thread-1",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+
+	status, err := svc.InterruptTurn(context.Background(), session, "user")
+	if err != nil {
+		t.Fatalf("InterruptTurn() error = %v", err)
+	}
+	envelope := status.interruptEnvelope()
+	if !envelope.confirmed || envelope.mode != "interrupt_confirmed" {
+		t.Fatalf("interrupt envelope = %#v, want confirmed interrupt", envelope)
+	}
+	if !envelope.interruptSent || envelope.stateBefore != "running" || envelope.stateAfter != "idle" {
+		t.Fatalf("interrupt envelope = %#v, want sent/running->idle", envelope)
+	}
+	if envelope.waitedMS <= 0 || !envelope.activeObserved {
+		t.Fatalf("interrupt envelope = %#v, want waitedMS>0 and activeObserved", envelope)
+	}
+}
+
+func TestInterruptTurnNoActiveReturnsEnvelope(t *testing.T) {
+	t.Parallel()
+
+	session := &stubSession{threadID: "thread-2"}
+	svc := NewService(silentLogger())
+
+	status, err := svc.InterruptTurn(context.Background(), session, "user")
+	if err != nil {
+		t.Fatalf("InterruptTurn() error = %v", err)
+	}
+	envelope := status.interruptEnvelope()
+	if envelope.confirmed || envelope.mode != "no_active_turn" || envelope.interruptSent {
+		t.Fatalf("interrupt envelope = %#v, want no_active_turn without send", envelope)
+	}
+	if envelope.stateBefore != "idle" || envelope.stateAfter != "idle" {
+		t.Fatalf("interrupt envelope = %#v, want idle->idle", envelope)
+	}
+}
