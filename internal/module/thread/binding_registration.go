@@ -94,13 +94,9 @@ func (s *service) registerThreadBinding(ctx context.Context, state threadState) 
 	if err := s.ensureProviderThreadAvailable(ctx, registration); err != nil {
 		return bindingWriteOutcome{}, err
 	}
-	existing, err := s.bindingStore.GetByAgentID(ctx, registration.AgentID)
-	if err != nil && !platformdb.IsNotFound(err) {
+	existing, outcome, err := s.prepareBindingWrite(ctx, registration)
+	if err != nil {
 		return bindingWriteOutcome{}, err
-	}
-	outcome := bindingWriteOutcome{
-		AgentID:  registration.AgentID,
-		Previous: cloneBinding(existing),
 	}
 	if err := validateBindingRegistration(existing, registration); err != nil {
 		return outcome, err
@@ -108,25 +104,11 @@ func (s *service) registerThreadBinding(ctx context.Context, state threadState) 
 	if !shouldPersistBinding(existing, registration) {
 		return outcome, nil
 	}
-	if err := s.bindingStore.Upsert(ctx, bindingstore.UpsertParams{
-		AgentID:          registration.AgentID,
-		Provider:         registration.Provider,
-		ProviderThreadID: registration.ProviderThreadID,
-		CodexThreadID:    registration.PublicThreadID,
-		Cwd:              registration.CWD,
-		CreatedAt:        registration.CreatedAt,
-		UpdatedAt:        time.Now().Unix(),
-	}); err != nil {
+	if err := s.persistRegisteredBinding(ctx, registration); err != nil {
 		return outcome, err
 	}
 	outcome.Persisted = true
-	if err := s.verifyThreadBinding(ctx, registration); err != nil {
-		if rollbackErr := s.rollbackThreadBinding(ctx, outcome); rollbackErr != nil {
-			return outcome, errors.Join(err, rollbackErr)
-		}
-		return outcome, err
-	}
-	return outcome, nil
+	return outcome, s.verifyOrRollbackThreadBinding(ctx, registration, outcome)
 }
 
 func (s *service) ensureProviderThreadAvailable(ctx context.Context, registration bindingRegistration) error {
@@ -153,17 +135,15 @@ func validateBindingRegistration(existing *bindingstore.Binding, registration bi
 	if existing == nil {
 		return nil
 	}
-	if provider := strings.TrimSpace(existing.Provider); provider != "" && provider != registration.Provider {
-		return fmt.Errorf("agent %q is already bound to provider %q", registration.AgentID, provider)
-	}
-	if providerThreadID := strings.TrimSpace(existing.ProviderThreadID); providerThreadID != "" && providerThreadID != registration.ProviderThreadID {
-		return fmt.Errorf("agent %q is already bound to provider thread %q", registration.AgentID, providerThreadID)
-	}
-	if publicThreadID := strings.TrimSpace(existing.CodexThreadID); publicThreadID != "" && publicThreadID != registration.PublicThreadID {
-		return fmt.Errorf("agent %q is already bound to public thread %q", registration.AgentID, publicThreadID)
-	}
-	if cwd := strings.TrimSpace(existing.Cwd); cwd != "" && registration.CWD != "" && cwd != registration.CWD {
-		return fmt.Errorf("agent %q binding cwd mismatch", registration.AgentID)
+	for _, validate := range []func(*bindingstore.Binding, bindingRegistration) error{
+		validateBindingProvider,
+		validateBindingProviderThread,
+		validateBindingPublicThread,
+		validateBindingCWD,
+	} {
+		if err := validate(existing, registration); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -203,6 +183,77 @@ func (s *service) verifyThreadBinding(ctx context.Context, registration bindingR
 	}
 	if registration.CWD != "" && strings.TrimSpace(binding.Cwd) != registration.CWD {
 		return fmt.Errorf("binding verification failed: cwd mismatch for agent %q", registration.AgentID)
+	}
+	return nil
+}
+
+func (s *service) prepareBindingWrite(
+	ctx context.Context,
+	registration bindingRegistration,
+) (*bindingstore.Binding, bindingWriteOutcome, error) {
+	existing, err := s.bindingStore.GetByAgentID(ctx, registration.AgentID)
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return nil, bindingWriteOutcome{AgentID: registration.AgentID}, nil
+		}
+		return nil, bindingWriteOutcome{}, err
+	}
+	return existing, bindingWriteOutcome{
+		AgentID:  registration.AgentID,
+		Previous: cloneBinding(existing),
+	}, nil
+}
+
+func (s *service) persistRegisteredBinding(ctx context.Context, registration bindingRegistration) error {
+	return s.bindingStore.Upsert(ctx, bindingstore.UpsertParams{
+		AgentID:          registration.AgentID,
+		Provider:         registration.Provider,
+		ProviderThreadID: registration.ProviderThreadID,
+		CodexThreadID:    registration.PublicThreadID,
+		Cwd:              registration.CWD,
+		CreatedAt:        registration.CreatedAt,
+		UpdatedAt:        time.Now().Unix(),
+	})
+}
+
+func (s *service) verifyOrRollbackThreadBinding(
+	ctx context.Context,
+	registration bindingRegistration,
+	outcome bindingWriteOutcome,
+) error {
+	if err := s.verifyThreadBinding(ctx, registration); err != nil {
+		if rollbackErr := s.rollbackThreadBinding(ctx, outcome); rollbackErr != nil {
+			return errors.Join(err, rollbackErr)
+		}
+		return err
+	}
+	return nil
+}
+
+func validateBindingProvider(existing *bindingstore.Binding, registration bindingRegistration) error {
+	if provider := strings.TrimSpace(existing.Provider); provider != "" && provider != registration.Provider {
+		return fmt.Errorf("agent %q is already bound to provider %q", registration.AgentID, provider)
+	}
+	return nil
+}
+
+func validateBindingProviderThread(existing *bindingstore.Binding, registration bindingRegistration) error {
+	if providerThreadID := strings.TrimSpace(existing.ProviderThreadID); providerThreadID != "" && providerThreadID != registration.ProviderThreadID {
+		return fmt.Errorf("agent %q is already bound to provider thread %q", registration.AgentID, providerThreadID)
+	}
+	return nil
+}
+
+func validateBindingPublicThread(existing *bindingstore.Binding, registration bindingRegistration) error {
+	if publicThreadID := strings.TrimSpace(existing.CodexThreadID); publicThreadID != "" && publicThreadID != registration.PublicThreadID {
+		return fmt.Errorf("agent %q is already bound to public thread %q", registration.AgentID, publicThreadID)
+	}
+	return nil
+}
+
+func validateBindingCWD(existing *bindingstore.Binding, registration bindingRegistration) error {
+	if cwd := strings.TrimSpace(existing.Cwd); cwd != "" && registration.CWD != "" && cwd != registration.CWD {
+		return fmt.Errorf("agent %q binding cwd mismatch", registration.AgentID)
 	}
 	return nil
 }

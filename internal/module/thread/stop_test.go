@@ -73,6 +73,44 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 	}
 }
 
+func TestStopUsesPublicThreadIDForStatusUpdateWhenProviderDiffers(t *testing.T) {
+	t.Parallel()
+
+	turns := &stubTurnService{}
+	orch := &stubThreadOrchestration{}
+	svc := &service{
+		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "provider-thread-1",
+			CodexThreadID:    "thread-1",
+		}},
+		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID: "thread-1",
+			AgentID:  "agent-1",
+			Status:   statusCreated,
+		}},
+		sessions: &stubThreadSessions{
+			agentID: "agent-1",
+			session: &stubThreadSession{threadID: "provider-thread-1"},
+		},
+		turns:         turns,
+		orchestration: orch,
+	}
+
+	if err := svc.Stop(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	threadStore := svc.threadStore.(*stubThreadStore)
+	if threadStore.status.ThreadID != "thread-1" || threadStore.status.Status != statusStopped {
+		t.Fatalf("thread status update = %#v", threadStore.status)
+	}
+	if len(turns.cleanupCalls) == 0 {
+		t.Fatal("cleanup calls = nil, want cleanup for stop targets")
+	}
+}
+
 type stubThreadBindingStore struct {
 	binding        *bindingstore.Binding
 	sessionUpdates []bindingstore.UpdateSessionUUIDParams
