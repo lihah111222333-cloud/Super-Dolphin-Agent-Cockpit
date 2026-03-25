@@ -176,38 +176,6 @@ func buildSteerRequest(req dto.TurnRequest, expectedTurnID string) dto.SteerRequ
 	}
 }
 
-func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (TurnStatus, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return TurnStatus{}, err
-	}
-	if err := requireSession(session); err != nil {
-		return TurnStatus{}, err
-	}
-	threadID, err := resolveThreadID(session, "")
-	if err != nil {
-		return TurnStatus{}, err
-	}
-	active, tracked := s.tracker.ActiveByThread(threadID)
-	err = session.Interrupt(ctx, dto.InterruptRequest{
-		ThreadID: threadID,
-		Source:   strings.TrimSpace(source),
-	})
-	if err != nil {
-		return TurnStatus{}, err
-	}
-	if !tracked || !s.tracker.MarkInterruptRequested(active.localID) {
-		return TurnStatus{}, nil
-	}
-	if err := s.waitForTurnSettle(ctx, active.localID, active.handle); err != nil {
-		return TurnStatus{}, err
-	}
-	if status, ok := s.tracker.Get(active.localID); ok {
-		return status, nil
-	}
-	return TurnStatus{LocalID: active.localID, ProviderID: strings.TrimSpace(active.handle.ProviderID()), State: "interrupted"}, nil
-}
-
 func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Session) error {
 	ctx = normalizeContext(ctx)
 	if err := ctx.Err(); err != nil {

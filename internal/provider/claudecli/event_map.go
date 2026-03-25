@@ -81,6 +81,10 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			Error:      dataString(raw.Data, "error"),
 			Status:     dataString(raw.Data, "status"),
 			Reason:     dataString(raw.Data, "reason"),
+			Result:     dataString(raw.Data, "result"),
+			Summary:    dataString(raw.Data, "summary"),
+			Message:    dataString(raw.Data, "message"),
+			StopReason: dataString(raw.Data, "stop_reason"),
 		}, true
 	default:
 		return nil, false

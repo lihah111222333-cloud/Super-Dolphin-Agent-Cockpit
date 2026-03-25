@@ -28,6 +28,24 @@ func TestHandleToolApprovalRequestedEventMarksAwaitingUserInput(t *testing.T) {
 	}
 }
 
+func TestHandleToolApprovalRequestedEventMarksAwaitingUserInputForToolKind(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.activeTurnID = "turn-1"
+	svc.agents[agent.id] = agent
+
+	ev := approvalRequestedEvent("agent-1", "turn-1")
+	ev.Kind = "tool"
+	handleToolApprovalRequestedEvent(svc, silentLogger(), ev)
+
+	if agent.state != agentdto.StateAwaitingUserInput {
+		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateAwaitingUserInput)
+	}
+}
+
 func TestHandleToolApprovalResolvedEventReturnsToTurnRunning(t *testing.T) {
 	t.Parallel()
 

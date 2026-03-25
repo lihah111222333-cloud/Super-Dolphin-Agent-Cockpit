@@ -3,10 +3,13 @@ package contract
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
+
+var ErrAgentNotFound = errors.New("agent not found")
 
 // OrchestrationService defines the shared orchestration boundary used by
 // internal modules and the MCP orchestration runtime.

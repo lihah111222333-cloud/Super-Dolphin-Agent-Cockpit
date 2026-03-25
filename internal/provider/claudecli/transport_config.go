@@ -20,7 +20,9 @@ type cliLaunchConfig struct {
 	DeveloperInstructions string
 }
 
-func launchCLI(
+var launchCLI = launchCLIWithManifest
+
+func launchCLIWithManifest(
 	binary string,
 	cwd string,
 	model string,

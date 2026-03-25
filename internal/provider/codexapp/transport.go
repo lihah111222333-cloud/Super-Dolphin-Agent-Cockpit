@@ -1,75 +1,172 @@
 package codexapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	xwebsocket "golang.org/x/net/websocket"
 )
 
-type jsonRPCRequest struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      int64  `json:"id,omitempty"`
-	Method  string `json:"method"`
-	Params  any    `json:"params,omitempty"`
+const (
+	transportReadyTimeout        = 15 * time.Second
+	transportShutdownGracePeriod = 3 * time.Second
+	transportKillWaitTimeout     = 5 * time.Second
+	transportStderrLimitBytes    = 8 * 1024
+)
+
+type localProcess struct {
+	cmd        *exec.Cmd
+	stderr     *limitedBuffer
+	done       chan struct{}
+	stderrDone chan struct{}
+	waitErr    error
+	waitMu     sync.Mutex
+	exited     atomic.Bool
 }
 
-type jsonRPCMessage struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *jsonRPCError   `json:"error,omitempty"`
-}
-
-type jsonRPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-type pendingCall struct {
-	result json.RawMessage
-	err    error
-	done   chan struct{}
-	once   sync.Once
+type limitedBuffer struct {
+	mu    sync.Mutex
+	buf   bytes.Buffer
+	limit int
 }
 
 type transport struct {
-	serverURL string
-	local     bool
-	cmd       *exec.Cmd
-	ws        *xwebsocket.Conn
-	stateMu   sync.RWMutex
-	writeMu   sync.Mutex
-	pending   sync.Map
-	nextID    atomic.Int64
-	looping   atomic.Bool
-	closed    atomic.Bool
+	serverURL  string
+	local      bool
+	ws         *xwebsocket.Conn
+	process    *localProcess
+	processErr error
+	stateMu    sync.RWMutex
+	writeMu    sync.Mutex
+	pending    sync.Map
+	nextID     atomic.Int64
+	looping    atomic.Bool
+	closed     atomic.Bool
 }
 
-func newTransport(serverURL string) (*transport, error) {
+func newLimitedBuffer(limit int) *limitedBuffer { return &limitedBuffer{limit: limit} }
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n, err := b.buf.Write(p)
+	if b.buf.Len() <= b.limit {
+		return n, err
+	}
+	raw := append([]byte(nil), b.buf.Bytes()...)
+	b.buf.Reset()
+	b.buf.Write(raw[len(raw)-b.limit:])
+	return n, err
+}
+
+func (b *limitedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func newLocalProcess(cmd *exec.Cmd) *localProcess {
+	return &localProcess{
+		cmd:        cmd,
+		stderr:     newLimitedBuffer(transportStderrLimitBytes),
+		done:       make(chan struct{}),
+		stderrDone: make(chan struct{}),
+	}
+}
+
+func (p *localProcess) running() bool {
+	return p != nil && p.cmd != nil && p.cmd.Process != nil && !p.exited.Load()
+}
+
+func (p *localProcess) setWaitErr(err error) {
+	p.waitMu.Lock()
+	defer p.waitMu.Unlock()
+	p.waitErr = err
+}
+
+func (p *localProcess) waitErrValue() error {
+	p.waitMu.Lock()
+	defer p.waitMu.Unlock()
+	return p.waitErr
+}
+
+func (p *localProcess) waitForExit(timeout time.Duration) bool {
+	select {
+	case <-p.done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func (p *localProcess) waitForStderr(timeout time.Duration) {
+	select {
+	case <-p.stderrDone:
+	case <-time.After(timeout):
+	}
+}
+
+func (p *localProcess) stderrSummary() string {
+	if p == nil || p.stderr == nil {
+		return ""
+	}
+	return strings.TrimSpace(p.stderr.String())
+}
+
+func (p *localProcess) exitError() error {
+	if p == nil {
+		return errors.New("codexapp: local process missing")
+	}
+	err := p.waitErrValue()
+	if err == nil {
+		err = errors.New("codexapp: local process exited unexpectedly")
+	}
+	if stderr := p.stderrSummary(); stderr != "" {
+		return fmt.Errorf("%w: %s", err, stderr)
+	}
+	return err
+}
+
+func (p *localProcess) signal(sig syscall.Signal) error {
+	if p == nil || p.cmd == nil || p.cmd.Process == nil {
+		return nil
+	}
+	pid := p.cmd.Process.Pid
+	if pid <= 0 {
+		return errors.New("codexapp: invalid local process pid")
+	}
+	if err := syscall.Kill(-pid, sig); err == nil || errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	err := p.cmd.Process.Signal(sig)
+	if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	return err
+}
+
+func newTransport(ctx context.Context, serverURL string) (*transport, error) {
+	startupCtx, cancel := withTimeout(normalizeTransportContext(ctx), transportReadyTimeout)
+	defer cancel()
 	t := &transport{serverURL: normalizeServerURL(serverURL)}
 	if t.serverURL == "" {
 		if err := t.spawnLocal(); err != nil {
 			return nil, err
 		}
 	}
-	ctx, cancel := withTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := t.connect(ctx); err != nil {
+	if err := t.establish(startupCtx); err != nil {
 		_ = t.Kill()
 		return nil, err
 	}
@@ -124,18 +221,23 @@ func (t *transport) Close() error {
 	}
 	_ = t.Notify("shutdown", nil)
 	t.closed.Store(true)
+	err := t.stopProcess(true)
 	t.closeSocket()
-	return t.stopProcess(true)
+	return err
 }
 
 func (t *transport) Kill() error {
 	t.closed.Store(true)
+	err := t.stopProcess(false)
 	t.closeSocket()
-	return t.stopProcess(false)
+	return err
 }
 
 func (t *transport) Running() bool {
-	return !t.closed.Load() && t.currentWS() != nil
+	if t.closed.Load() || t.currentWS() == nil {
+		return false
+	}
+	return !t.local || t.processRunning()
 }
 
 func (t *transport) reconnect(ctx context.Context) error {
@@ -148,6 +250,11 @@ func (t *transport) reconnect(ctx context.Context) error {
 			return err
 		}
 	}
+	return t.establish(ctx)
+}
+
+func (t *transport) establish(ctx context.Context) error {
+	ctx = normalizeTransportContext(ctx)
 	if err := t.connect(ctx); err != nil {
 		return err
 	}
@@ -155,151 +262,29 @@ func (t *transport) reconnect(ctx context.Context) error {
 }
 
 func (t *transport) connect(ctx context.Context) error {
-	return shared.Retry(ctx, 6, 150*time.Millisecond, func() error {
-		config, err := xwebsocket.NewConfig(t.serverURL, websocketOrigin(t.serverURL))
-		if err != nil {
-			return err
-		}
-		config.Dialer = &net.Dialer{Timeout: 5 * time.Second}
-		conn, err := config.DialContext(ctx)
-		if err != nil {
-			return err
-		}
-		t.setWS(conn)
-		return nil
-	})
-}
-
-func (t *transport) initialize(ctx context.Context) error {
-	ctx = normalizeTransportContext(ctx)
-	ws, err := t.initializeSocket(ctx)
-	if err != nil {
-		return err
-	}
-	id, key, pc := t.registerInitializeCall()
-	defer t.pending.Delete(key)
-	if err := t.sendInitializeRequest(id); err != nil {
-		return err
-	}
-	return t.awaitInitialize(ctx, ws, pc)
-}
-
-func normalizeTransportContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
-}
-
-func (t *transport) initializeSocket(ctx context.Context) (*xwebsocket.Conn, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	ws := t.currentWS()
-	if ws == nil {
-		return nil, errors.New("codexapp: websocket not connected")
-	}
-	return ws, nil
-}
-
-func (t *transport) registerInitializeCall() (int64, string, *pendingCall) {
-	id := t.nextID.Add(1)
-	key := strconv.FormatInt(id, 10)
-	pc := &pendingCall{done: make(chan struct{})}
-	t.pending.Store(key, pc)
-	return id, key, pc
-}
-
-func (t *transport) sendInitializeRequest(id int64) error {
-	return t.writeJSON(jsonRPCRequest{
-		JSONRPC: "2.0",
-		ID:      id,
-		Method:  "initialize",
-		Params:  initializeParams(),
-	})
-}
-
-func (t *transport) awaitInitialize(ctx context.Context, ws *xwebsocket.Conn, pc *pendingCall) error {
-	defer func() { _ = ws.SetReadDeadline(time.Time{}) }()
-	for {
-		if done, err := initializeDone(pc); done {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := t.readInitializeMessage(ctx, ws); err != nil {
-			if isTimeoutNetError(err) {
-				continue
+	var lastErr error
+	for attempt := 0; attempt < 6; attempt++ {
+		if err := t.localProcessReady(); err != nil {
+			if t.local && t.processFailure() != nil {
+				return err
 			}
-			return err
+			lastErr = err
+		} else {
+			lastErr = t.connectOnce(ctx)
+			if lastErr == nil {
+				return nil
+			}
+		}
+		if attempt == 5 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(150 * time.Millisecond << attempt):
 		}
 	}
-}
-
-func initializeDone(pc *pendingCall) (bool, error) {
-	select {
-	case <-pc.done:
-		return true, pc.err
-	default:
-		return false, nil
-	}
-}
-
-func (t *transport) readInitializeMessage(ctx context.Context, ws *xwebsocket.Conn) error {
-	_ = ws.SetReadDeadline(initializeReadDeadline(ctx))
-	var data string
-	if err := xwebsocket.Message.Receive(ws, &data); err != nil {
-		return err
-	}
-	t.dispatchReadMessage([]byte(data), nil)
-	return nil
-}
-
-func initializeReadDeadline(ctx context.Context) time.Time {
-	deadline := time.Now().Add(200 * time.Millisecond)
-	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
-	}
-	return deadline
-}
-
-func isTimeoutNetError(err error) bool {
-	netErr, ok := err.(net.Error)
-	return ok && netErr.Timeout()
-}
-
-func (t *transport) spawnLocal() error {
-	if t.processRunning() {
-		return nil
-	}
-	serverURL, err := reserveServerURL()
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command("codex", "app-server", "--listen", serverURL)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	t.stateMu.Lock()
-	t.cmd = cmd
-	t.local = true
-	t.serverURL = serverURL
-	t.stateMu.Unlock()
-	return nil
-}
-
-func (t *transport) writeJSON(v any) error {
-	t.writeMu.Lock()
-	defer t.writeMu.Unlock()
-	ws := t.currentWS()
-	if ws == nil {
-		return errors.New("codexapp: websocket not connected")
-	}
-	_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return xwebsocket.JSON.Send(ws, v)
+	return lastErr
 }
 
 func (t *transport) readLoopStep(ctx context.Context, handler func(string, json.RawMessage)) bool {
@@ -318,107 +303,126 @@ func (t *transport) readLoopStep(ctx context.Context, handler func(string, json.
 	return t.dispatchReadMessage([]byte(data), handler)
 }
 
-func (t *transport) endReadLoop(ctx context.Context, handler func(string, json.RawMessage), err error, message string) bool {
+func (t *transport) spawnLocal() error {
+	if t.processRunning() {
+		return nil
+	}
+	serverURL, err := reserveServerURL()
 	if err != nil {
-		t.failPending(err)
+		return err
 	}
-	if handler != nil && !t.closed.Load() && ctx.Err() == nil {
-		handler("connection.dead", mustJSON(map[string]any{"error": message}))
+	cmd := exec.Command("codex", "app-server", "--listen", serverURL)
+	cmd.Stdout = io.Discard
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
 	}
-	return false
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	proc := newLocalProcess(cmd)
+	t.stateMu.Lock()
+	t.local = true
+	t.serverURL = serverURL
+	t.process = proc
+	t.processErr = nil
+	t.stateMu.Unlock()
+	go t.collectProcessStderr(proc, stderr)
+	go t.watchLocalProcess(proc)
+	return nil
 }
 
-func (t *transport) dispatchReadMessage(data []byte, handler func(string, json.RawMessage)) bool {
-	var msg jsonRPCMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return true
+func (t *transport) collectProcessStderr(proc *localProcess, stderr io.ReadCloser) {
+	defer close(proc.stderrDone)
+	if stderr == nil {
+		return
 	}
-	if t.handleResponse(msg) {
-		return true
-	}
-	if handler != nil && strings.TrimSpace(msg.Method) != "" {
-		handler(msg.Method, msg.Params)
-	}
-	return true
+	_, _ = io.Copy(proc.stderr, stderr)
+	_ = stderr.Close()
 }
 
-func (t *transport) handleResponse(msg jsonRPCMessage) bool {
-	if strings.TrimSpace(msg.Method) != "" || len(msg.ID) == 0 {
-		return false
+func (t *transport) watchLocalProcess(proc *localProcess) {
+	err := proc.cmd.Wait()
+	proc.exited.Store(true)
+	proc.setWaitErr(err)
+	close(proc.done)
+	proc.waitForStderr(time.Second)
+	if t.closed.Load() {
+		t.clearProcess(proc, nil)
+		return
 	}
-	key := jsonRPCIDKey(msg.ID)
-	value, ok := t.pending.Load(key)
-	if !ok {
-		return true
-	}
-	pc := value.(*pendingCall)
-	if msg.Error != nil {
-		pc.resolve(nil, fmt.Errorf("rpc error %d: %s", msg.Error.Code, msg.Error.Message))
-		return true
-	}
-	pc.resolve(msg.Result, nil)
-	return true
+	exitErr := proc.exitError()
+	t.clearProcess(proc, exitErr)
+	_ = proc.signal(syscall.SIGKILL)
+	t.closeSocket()
+	t.failPending(exitErr)
 }
 
-func (t *transport) failPending(err error) {
-	if err == nil {
-		err = errors.New("codexapp: transport unavailable")
-	}
-	t.pending.Range(func(_, value any) bool {
-		value.(*pendingCall).resolve(nil, err)
-		return true
-	})
-}
-
-func (t *transport) currentWS() *xwebsocket.Conn {
+func (t *transport) currentProcess() *localProcess {
 	t.stateMu.RLock()
 	defer t.stateMu.RUnlock()
-	return t.ws
+	return t.process
 }
 
-func (t *transport) setWS(ws *xwebsocket.Conn) {
+func (t *transport) clearProcess(proc *localProcess, err error) {
 	t.stateMu.Lock()
 	defer t.stateMu.Unlock()
-	if t.ws != nil && t.ws != ws {
-		_ = t.ws.Close()
+	if t.process == proc {
+		t.process = nil
 	}
-	t.ws = ws
+	if err != nil {
+		t.processErr = err
+	}
 }
 
-func (t *transport) closeSocket() {
-	t.stateMu.Lock()
-	defer t.stateMu.Unlock()
-	if t.ws != nil {
-		_ = t.ws.Close()
+func (t *transport) processFailure() error {
+	t.stateMu.RLock()
+	defer t.stateMu.RUnlock()
+	return t.processErr
+}
+
+func (t *transport) localProcessReady() error {
+	if !t.local {
+		return nil
 	}
-	t.ws = nil
+	if t.processRunning() {
+		return nil
+	}
+	if err := t.processFailure(); err != nil {
+		return err
+	}
+	return errors.New("codexapp: local process not running")
 }
 
 func (t *transport) stopProcess(graceful bool) error {
 	t.stateMu.Lock()
-	cmd := t.cmd
-	t.cmd = nil
+	proc := t.process
+	t.process = nil
 	t.stateMu.Unlock()
-	if cmd == nil || cmd.Process == nil {
+	if proc == nil {
 		return nil
 	}
 	if graceful {
-		_ = cmd.Process.Signal(os.Interrupt)
+		if err := proc.signal(syscall.SIGTERM); err != nil {
+			return err
+		}
+		if proc.waitForExit(transportShutdownGracePeriod) {
+			proc.waitForStderr(time.Second)
+			return nil
+		}
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case <-time.After(time.Second):
-		_ = cmd.Process.Kill()
-		<-done
-		return nil
-	case <-done:
+	if err := proc.signal(syscall.SIGKILL); err != nil {
+		return err
+	}
+	if proc.waitForExit(transportKillWaitTimeout) {
+		proc.waitForStderr(time.Second)
 		return nil
 	}
+	return fmt.Errorf("codexapp: timed out waiting for local process exit: %w", proc.exitError())
 }
 
 func (t *transport) processRunning() bool {
-	t.stateMu.RLock()
-	defer t.stateMu.RUnlock()
-	return t.cmd != nil && t.cmd.Process != nil && (t.cmd.ProcessState == nil || !t.cmd.ProcessState.Exited())
+	proc := t.currentProcess()
+	return proc != nil && proc.running()
 }

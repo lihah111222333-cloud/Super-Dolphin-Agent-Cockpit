@@ -4,8 +4,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
+	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 	dbquerystore "github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
 	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"go.uber.org/fx"
@@ -19,7 +21,9 @@ type serviceParams struct {
 	AILogs        ailogstore.Store
 	DBQueries     dbquerystore.Store
 	TaskTraces    tasktracestore.Store
-	Queries       *sqlc.Queries
+	CommandCards  commandcardstore.Store
+	Prompts       promptstore.Store
+	SharedFiles   sharedfilestore.Store
 	Skills        skillmodule.Service
 }
 
@@ -31,7 +35,9 @@ var Module = fx.Options(
 			p.AILogs,
 			p.DBQueries,
 			p.TaskTraces,
-			p.Queries,
+			p.CommandCards,
+			p.Prompts,
+			p.SharedFiles,
 			p.Skills,
 		)
 	}),

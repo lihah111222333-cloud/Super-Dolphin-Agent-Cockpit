@@ -173,6 +173,50 @@ func TestNewThreadHandlersDispatchApprovalsSetRejectsConflictingArgs(t *testing.
 	}
 }
 
+func TestNewThreadHandlersDispatchReadReturnsHistoryPayload(t *testing.T) {
+	t.Parallel()
+
+	server := newThreadTestServer(&stubThreadService{})
+	raw, err := server.Dispatch(context.Background(), "thread/read", json.RawMessage(`{"threadId":"thread-1"}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/read) error = %v", err)
+	}
+	var got ReadHistoryResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/read) error = %v", err)
+	}
+	want := ReadHistoryResult{History: []ReadHistoryThread{{ThreadID: "thread-1"}}}
+	if got.History == nil || len(got.History) != 1 || got.History[0] != want.History[0] {
+		t.Fatalf("Dispatch(thread/read) = %#v, want %#v", got, want)
+	}
+}
+
+func TestNewThreadHandlersDispatchMessagesReturnsEnvelope(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{
+		readMessagesResult: dto.ThreadMessagesResult{
+			Messages: []dto.Message{{ID: 2, AgentID: "thread-1", Role: "assistant", EventType: "agent_message", Content: "world"}},
+			Total:    7,
+		},
+	}
+	server := newThreadTestServer(stub)
+	raw, err := server.Dispatch(context.Background(), "thread/messages", json.RawMessage(`{"threadId":"thread-1","limit":2,"before":3}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/messages) error = %v", err)
+	}
+	var got dto.ThreadMessagesResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/messages) error = %v", err)
+	}
+	if got.Total != 7 || len(got.Messages) != 1 || got.Messages[0].ID != 2 {
+		t.Fatalf("Dispatch(thread/messages) = %#v", got)
+	}
+	if stub.readMessagesThread != "thread-1" || stub.readMessagesLimit != 2 || stub.readMessagesBefore != "3" {
+		t.Fatalf("ReadMessages call = (%q, %d, %q)", stub.readMessagesThread, stub.readMessagesLimit, stub.readMessagesBefore)
+	}
+}
+
 func newThreadTestServer(svc Service) *rpcpkg.Server {
 	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewThreadHandlers(svc, nil).Handlers)
@@ -180,20 +224,24 @@ func newThreadTestServer(svc Service) *rpcpkg.Server {
 }
 
 type stubThreadService struct {
-	startReq          StartRequest
-	startResult       StartResult
-	listResult        []Ref
-	listCalls         int
-	setConfigPatch    dto.ThreadConfigPatch
-	setConfigID       string
-	setConfigResp     dto.ThreadConfig
-	setModelID        string
-	setModelArg       string
-	setModelErr       error
-	sendCommandThread string
-	sendCommandName   string
-	sendCommandArgs   string
-	sendCommandResult any
+	startReq           StartRequest
+	startResult        StartResult
+	listResult         []Ref
+	listCalls          int
+	setConfigPatch     dto.ThreadConfigPatch
+	setConfigID        string
+	setConfigResp      dto.ThreadConfig
+	setModelID         string
+	setModelArg        string
+	setModelErr        error
+	readMessagesThread string
+	readMessagesLimit  int
+	readMessagesBefore string
+	readMessagesResult dto.ThreadMessagesResult
+	sendCommandThread  string
+	sendCommandName    string
+	sendCommandArgs    string
+	sendCommandResult  any
 }
 
 func (s *stubThreadService) Start(_ context.Context, req StartRequest) (StartResult, error) {
@@ -214,8 +262,11 @@ func (s *stubThreadService) Get(context.Context, string) (*Ref, error) {
 func (s *stubThreadService) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
 	return nil, nil
 }
-func (s *stubThreadService) ReadMessages(context.Context, string, int, string) ([]dto.Message, error) {
-	return nil, nil
+func (s *stubThreadService) ReadMessages(_ context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error) {
+	s.readMessagesThread = threadID
+	s.readMessagesLimit = limit
+	s.readMessagesBefore = before
+	return s.readMessagesResult, nil
 }
 func (s *stubThreadService) GetConfig(context.Context, string) (dto.ThreadConfig, error) {
 	return dto.ThreadConfig{}, nil

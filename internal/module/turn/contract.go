@@ -48,4 +48,5 @@ type TurnStatus struct {
 	ProviderID string `json:"providerId"`
 	State      string `json:"state"`
 	Error      string `json:"error,omitempty"`
+	interrupt  turnInterruptEnvelope
 }

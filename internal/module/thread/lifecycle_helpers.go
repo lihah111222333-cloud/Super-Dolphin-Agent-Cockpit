@@ -101,3 +101,56 @@ func (s *service) rememberStartedThread(state threadState) {
 	s.rememberThreadAgent(state.PublicThreadID, state.AgentID)
 	s.rememberThreadAgent(state.ProviderThreadID, state.AgentID)
 }
+
+func historyTargetID(binding *bindingstore.Binding, threadID string) string {
+	requestedID := strings.TrimSpace(threadID)
+	if binding == nil {
+		return requestedID
+	}
+	publicThreadID := strings.TrimSpace(binding.CodexThreadID)
+	agentID := strings.TrimSpace(binding.AgentID)
+	if requestedID != "" && requestedID != publicThreadID && requestedID != agentID {
+		return requestedID
+	}
+	return firstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
+}
+
+func toRef(thread threadstore.Thread) Ref {
+	name := strings.TrimSpace(thread.Prompt)
+	if name == "" {
+		name = strings.TrimSpace(thread.ThreadID)
+	}
+	return Ref{ID: strings.TrimSpace(thread.ThreadID), Name: name, AgentID: strings.TrimSpace(thread.AgentID)}
+}
+
+func normalizeThreadID(threadID string) (string, error) {
+	id := strings.TrimSpace(threadID)
+	if id == "" {
+		return "", errors.New("thread id is required")
+	}
+	return id, nil
+}
+
+func agentIDFromBinding(binding *bindingstore.Binding, fallback string) string {
+	if binding == nil {
+		return strings.TrimSpace(fallback)
+	}
+	if agentID := strings.TrimSpace(binding.AgentID); agentID != "" {
+		return agentID
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func pageCount(totalCount, limit int) int {
+	if totalCount <= 0 {
+		return 0
+	}
+	if limit <= 0 || totalCount <= limit {
+		return 1
+	}
+	pages := totalCount / limit
+	if totalCount%limit != 0 {
+		pages++
+	}
+	return pages
+}

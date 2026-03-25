@@ -9,9 +9,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/creachadair/jrpc2/handler"
+
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
+
+const eventTypeAgentMessage = "agent_message"
 
 func (s *service) ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
@@ -22,67 +26,120 @@ func (s *service) ReadHistory(ctx context.Context, threadID string, limit int) (
 	return session.ReadHistory(ctx, targetID, normalizeHistoryLimit(limit))
 }
 
-func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, before string) ([]dto.Message, error) {
-	session, binding, err := s.resolveSession(ctx, threadID)
-	if err != nil {
-		return nil, err
-	}
-	targetID := historyTargetID(binding, threadID)
-	cursor := strings.TrimSpace(before)
-	if cursor == "" {
-		messages, err := session.ReadHistory(ctx, targetID, normalizeHistoryLimit(limit))
-		if err != nil {
-			return nil, err
-		}
-		s.publishMessagesPage(threadID, len(messages), pageCount(len(messages), limit))
-		return messages, nil
-	}
-	cutoff, err := parseBeforeCursor(cursor)
-	if err != nil {
-		return nil, err
-	}
-	filtered, err := readMessagesBeforeCursor(ctx, session, targetID, limit, cutoff)
-	if err != nil {
-		return nil, err
-	}
-	s.publishMessagesPage(threadID, len(filtered), pageCount(len(filtered), limit))
-	return filtered, nil
+type threadReadProvider interface {
+	ReadThreadHistory(ctx context.Context, threadID string) (*ReadHistoryResult, error)
 }
 
-func readMessagesBeforeCursor(
-	ctx context.Context,
-	session contract.Session,
-	threadID string,
-	limit int,
-	cutoff time.Time,
-) ([]dto.Message, error) {
-	pageLimit := normalizeHistoryLimit(limit)
-	if pageLimit == 0 {
-		// Preserve the "all messages before cursor" behavior when limit is unset.
-		messages, err := session.ReadHistory(ctx, threadID, 0)
-		if err != nil {
-			return nil, err
-		}
-		return filterMessagesBefore(messages, 0, cutoff), nil
+func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error) {
+	session, binding, err := s.resolveSession(ctx, threadID)
+	if err != nil {
+		return dto.ThreadMessagesResult{}, err
 	}
-	window := pageLimit
-	prevCount := -1
-	for {
-		messages, err := session.ReadHistory(ctx, threadID, window)
-		if err != nil {
-			return nil, err
-		}
-		filtered := filterMessagesBefore(messages, pageLimit, cutoff)
-		if len(filtered) >= pageLimit || len(messages) < window || len(messages) == prevCount {
-			return filtered, nil
-		}
-		next := growHistoryWindow(window)
-		if next <= window {
-			return filtered, nil
-		}
-		prevCount = len(messages)
-		window = next
+	// TODO(A1): offline thread history lookup still needs a non-session-backed path.
+	targetID := historyTargetID(binding, threadID)
+	all, err := session.ReadHistory(ctx, targetID, 0)
+	if err != nil {
+		return dto.ThreadMessagesResult{}, err
 	}
+	all = decorateThreadMessages(threadID, all)
+	page, err := selectMessagesPage(all, limit, before)
+	if err != nil {
+		return dto.ThreadMessagesResult{}, err
+	}
+	total := int64(len(all))
+	s.publishMessagesPage(threadID, int(total), pageCount(int(total), limit))
+	return dto.ThreadMessagesResult{Messages: page, Total: total}, nil
+}
+
+func newThreadReadHandler(svc Service) handler.Func {
+	return newThreadCall(func(ctx context.Context, id string) (any, error) {
+		if reader, ok := svc.(threadReadProvider); ok {
+			return reader.ReadThreadHistory(ctx, id)
+		}
+		return fallbackReadThreadHistory(ctx, svc, id)
+	})
+}
+
+func (s *service) ReadThreadHistory(ctx context.Context, threadID string) (*ReadHistoryResult, error) {
+	ref, err := s.Get(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	fallbackID := readHistoryFallbackID(ref, threadID)
+	session, _, err := s.resolveSession(ctx, threadID)
+	if err != nil {
+		return buildReadHistoryResult(fallbackID), nil
+	}
+	threads, err := session.ListThreads(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return buildReadHistoryResultFromThreads(threads, fallbackID), nil
+}
+
+func fallbackReadThreadHistory(ctx context.Context, svc Service, threadID string) (*ReadHistoryResult, error) {
+	ref, err := svc.Get(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	return buildReadHistoryResult(readHistoryFallbackID(ref, threadID)), nil
+}
+
+func buildReadHistoryResultFromThreads(threads []dto.ThreadRef, fallbackID string) *ReadHistoryResult {
+	ids := make([]string, 0, len(threads))
+	for _, thread := range threads {
+		ids = append(ids, thread.ID)
+	}
+	result := buildReadHistoryResult(ids...)
+	if len(result.History) != 0 {
+		return result
+	}
+	return buildReadHistoryResult(fallbackID)
+}
+
+func readHistoryFallbackID(ref *Ref, threadID string) string {
+	fallbackID := strings.TrimSpace(threadID)
+	if ref != nil {
+		return firstNonEmpty(ref.ID, fallbackID)
+	}
+	return fallbackID
+}
+
+func buildReadHistoryResult(threadIDs ...string) *ReadHistoryResult {
+	result := ReadHistoryResult{History: make([]ReadHistoryThread, 0, len(threadIDs))}
+	seen := make(map[string]struct{}, len(threadIDs))
+	for _, threadID := range threadIDs {
+		id := strings.TrimSpace(threadID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result.History = append(result.History, ReadHistoryThread{ThreadID: id})
+	}
+	return &result
+}
+
+func decorateThreadMessages(threadID string, messages []dto.Message) []dto.Message {
+	out := make([]dto.Message, 0, len(messages))
+	fallbackAgentID := strings.TrimSpace(threadID)
+	for i, msg := range messages {
+		next := msg
+		if next.ID == 0 {
+			next.ID = int64(i + 1)
+		}
+		if strings.TrimSpace(next.AgentID) == "" {
+			next.AgentID = fallbackAgentID
+		}
+		if strings.TrimSpace(next.EventType) == "" {
+			next.EventType = defaultEventTypeForRole(next.Role)
+		}
+		next.Method = strings.TrimSpace(next.Method)
+		out = append(out, next)
+	}
+	return out
 }
 
 func normalizeHistoryLimit(limit int) int {
@@ -92,15 +149,28 @@ func normalizeHistoryLimit(limit int) int {
 	return limit
 }
 
-func growHistoryWindow(current int) int {
-	if current <= 0 {
-		return 1
+func selectMessagesPage(all []dto.Message, limit int, before string) ([]dto.Message, error) {
+	cursor := strings.TrimSpace(before)
+	switch {
+	case cursor == "":
+		return paginateMessagesByID(all, limit, 0), nil
+	case strings.IndexFunc(cursor, func(r rune) bool { return r < '0' || r > '9' }) == -1:
+		return paginateMessagesByID(all, limit, clampBeforeID(cursor)), nil
+	default:
+		cutoff, err := parseBeforeCursor(cursor)
+		if err != nil {
+			return nil, err
+		}
+		return paginateMessagesBeforeTime(all, limit, cutoff), nil
 	}
-	next := current * 2
-	if next <= current {
-		return current
+}
+
+func clampBeforeID(raw string) int64 {
+	value, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || value < 0 {
+		return 0
 	}
-	return next
+	return value
 }
 
 func parseBeforeCursor(raw string) (time.Time, error) {
@@ -129,7 +199,7 @@ func parseBeforeCursor(raw string) (time.Time, error) {
 	}
 }
 
-func filterMessagesBefore(messages []dto.Message, limit int, cutoff time.Time) []dto.Message {
+func paginateMessagesBeforeTime(messages []dto.Message, limit int, cutoff time.Time) []dto.Message {
 	filtered := make([]dto.Message, 0, len(messages))
 	for _, msg := range messages {
 		if !msg.Timestamp.IsZero() && !msg.Timestamp.Before(cutoff) {
@@ -137,10 +207,31 @@ func filterMessagesBefore(messages []dto.Message, limit int, cutoff time.Time) [
 		}
 		filtered = append(filtered, msg)
 	}
-	if limit > 0 && len(filtered) > limit {
-		filtered = filtered[len(filtered)-limit:]
+	return paginateMessagesByID(filtered, limit, 0)
+}
+
+func paginateMessagesByID(messages []dto.Message, limit int, before int64) []dto.Message {
+	if len(messages) == 0 {
+		return []dto.Message{}
 	}
-	return filtered
+	page := make([]dto.Message, 0, len(messages))
+	for idx := len(messages) - 1; idx >= 0; idx-- {
+		if before > 0 && messages[idx].ID >= before {
+			continue
+		}
+		page = append(page, messages[idx])
+		if limit > 0 && len(page) >= limit {
+			break
+		}
+	}
+	return page
+}
+
+func defaultEventTypeForRole(role string) string {
+	if strings.EqualFold(strings.TrimSpace(role), "assistant") {
+		return eventTypeAgentMessage
+	}
+	return ""
 }
 
 func (s *service) Compact(ctx context.Context, threadID, args string) (dto.ThreadCompactResult, error) {

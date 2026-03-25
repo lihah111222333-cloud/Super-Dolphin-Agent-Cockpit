@@ -1,0 +1,51 @@
+{
+  "agent.launch": {
+    "method": "agent.launch",
+    "request": {
+      "command": [
+        "codex",
+        "serve"
+      ],
+      "cwd": "/tmp/agent-launch",
+      "env": {
+        "PROVIDER": "codex",
+        "SANDBOX": "workspace-write"
+      },
+      "id": "agent-launch-1",
+      "name": "guard-launch-agent",
+      "parentId": "parent-launch-1",
+      "prompt": "launch golden agent"
+    },
+    "response": null,
+    "v2_reference": {
+      "path": "internal/guards/golden/rpc_response/agent_launch.golden.json",
+      "result": {
+        "agent_id": "agent-launch-1",
+        "name": "guard-launch-agent",
+        "status": "running"
+      }
+    }
+  },
+  "agent.submit": {
+    "method": "agent.submit",
+    "request": {
+      "agent_id": "agent-submit-1",
+      "files": [
+        "app://workspace/docs/notes.txt"
+      ],
+      "images": [
+        "diagram.png"
+      ],
+      "prompt": "trace submit prompt"
+    },
+    "response": {
+      "success": true
+    },
+    "v2_reference": {
+      "path": "internal/guards/golden/rpc_response/agent_submit.golden.json",
+      "result": {
+        "success": true
+      }
+    }
+  }
+}

@@ -37,15 +37,9 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 			return svc.ListByStatus(ctx, statusCreated)
 		}),
 		// thread/read and thread/resolve intentionally remain separate RPC names.
-		// Today they both surface the persisted thread ref; keep the split so
-		// thread/resolve can grow richer runtime/provider identity semantics later
-		// without changing thread/read callers.
-		// Compatibility note: V2 exposed distinct read/resolve payloads.
-		// `thread/read` returned a history-shaped payload, while `thread/resolve`
-		// resolved runtime identity. V3 currently folds both onto `svc.Get`
-		// until dedicated compatibility DTOs are restored; `thread/messages`
-		// remains the message-history API.
-		"thread/read": newThreadGetHandler(svc),
+		// `thread/read` keeps the V2 compatibility history wrapper, while
+		// `thread/resolve` remains the runtime identity lookup.
+		"thread/read": newThreadReadHandler(svc),
 		"thread/resolve": newThreadCall(func(ctx context.Context, id string) (any, error) {
 			return svc.Get(ctx, id)
 		}),
@@ -247,12 +241,6 @@ func newResumeHandler(svc Service) handler.Func {
 			"thread": threadInfo{ID: result.ThreadID, Status: result.Status},
 			"model":  result.Model,
 		}, nil
-	})
-}
-
-func newThreadGetHandler(svc Service) handler.Func {
-	return newThreadCall(func(ctx context.Context, id string) (any, error) {
-		return svc.Get(ctx, id)
 	})
 }
 

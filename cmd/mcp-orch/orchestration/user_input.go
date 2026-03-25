@@ -127,7 +127,9 @@ func approvalResolveReason(ev tooldto.ToolApprovalResolved) string {
 }
 
 func isRequestUserInputEvent(kind string) bool {
-	return strings.EqualFold(strings.TrimSpace(kind), "request_user_input")
+	// Ordinary tool approvals reach orchestration as kind "tool" because
+	// rpc.RequestApproval normalizes an empty approval kind to that live value.
+	return strings.EqualFold(strings.TrimSpace(kind), "request_user_input") || strings.EqualFold(strings.TrimSpace(kind), "tool")
 }
 
 func shouldIgnoreUserInputErr(err error) bool {
@@ -135,8 +137,6 @@ func shouldIgnoreUserInputErr(err error) bool {
 }
 
 func userInputLogger(logger *slog.Logger) *slog.Logger {
-	if logger != nil {
-		return logger
-	}
+	if logger != nil { return logger }
 	return slog.Default()
 }

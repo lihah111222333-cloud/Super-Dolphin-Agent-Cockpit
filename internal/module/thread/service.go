@@ -145,25 +145,39 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 }
 
 func (s *service) Delete(ctx context.Context, threadID string) error {
+	ctx = normalizeThreadContext(ctx)
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
 		return err
 	}
 	binding, _ := s.resolveBinding(ctx, id)
-	_ = s.closeSessionIfActive(ctx, id)
+	stopState := newThreadStopState(binding, id)
+	if binding != nil {
+		if err := s.stopThreadRuntime(ctx, stopState, "thread_deleted", true); err != nil {
+			return err
+		}
+	}
 	if s.bindingStore != nil && binding != nil {
 		if err := s.bindingStore.DeleteByAgentID(ctx, strings.TrimSpace(binding.AgentID)); err != nil {
 			return err
 		}
 	}
-	s.forgetThreadAgent(id)
+	for _, targetID := range stopState.targets {
+		s.forgetThreadAgent(targetID)
+	}
 	if s.threadStore == nil {
 		return errors.New("thread store is not configured")
 	}
-	if err := s.threadStore.DeleteByThreadID(ctx, id); err != nil {
+	if err := s.threadStore.DeleteByThreadID(ctx, stopState.stoppedID); err != nil {
 		return err
 	}
-	s.publishThreadStopped(id, agentIDFromBinding(binding, id), "deleted", "deleted")
+	s.cleanupThreadTurns(ctx, "thread_deleted", stopState.targets...)
+	s.publishThreadStopped(
+		stopState.stoppedID,
+		agentIDFromBinding(binding, stopState.stoppedID),
+		"deleted",
+		"deleted",
+	)
 	return nil
 }
 
@@ -316,7 +330,14 @@ func (s *service) closeSessionIfActive(ctx context.Context, threadID string) err
 	if err != nil {
 		return nil
 	}
-	session, err := s.sessions.GetSession(strings.TrimSpace(binding.AgentID))
+	return s.closeSessionForAgent(ctx, binding.AgentID)
+}
+
+func (s *service) closeSessionForAgent(ctx context.Context, agentID string) error {
+	if s.sessions == nil {
+		return nil
+	}
+	session, err := s.sessions.GetSession(strings.TrimSpace(agentID))
 	if err != nil {
 		return nil
 	}
@@ -336,39 +357,6 @@ func (s *service) setBindingArchived(ctx context.Context, threadID string, archi
 		Archived:  archived,
 		UpdatedAt: time.Now().Unix(),
 	})
-}
-
-func historyTargetID(binding *bindingstore.Binding, threadID string) string {
-	requestedID := strings.TrimSpace(threadID)
-	if binding == nil {
-		return requestedID
-	}
-	publicThreadID := strings.TrimSpace(binding.CodexThreadID)
-	agentID := strings.TrimSpace(binding.AgentID)
-	if requestedID != "" && requestedID != publicThreadID && requestedID != agentID {
-		return requestedID
-	}
-	return firstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
-}
-
-func toRef(thread threadstore.Thread) Ref {
-	name := strings.TrimSpace(thread.Prompt)
-	if name == "" {
-		name = strings.TrimSpace(thread.ThreadID)
-	}
-	return Ref{
-		ID:      strings.TrimSpace(thread.ThreadID),
-		Name:    name,
-		AgentID: strings.TrimSpace(thread.AgentID),
-	}
-}
-
-func normalizeThreadID(threadID string) (string, error) {
-	id := strings.TrimSpace(threadID)
-	if id == "" {
-		return "", errors.New("thread id is required")
-	}
-	return id, nil
 }
 
 func (s *service) publishThreadStarted(state threadState) {
@@ -409,28 +397,4 @@ func (s *service) publishMessagesPage(threadID string, totalCount, pages int) {
 		TotalCount:  totalCount,
 		Pages:       pages,
 	})
-}
-
-func agentIDFromBinding(binding *bindingstore.Binding, fallback string) string {
-	if binding == nil {
-		return strings.TrimSpace(fallback)
-	}
-	if agentID := strings.TrimSpace(binding.AgentID); agentID != "" {
-		return agentID
-	}
-	return strings.TrimSpace(fallback)
-}
-
-func pageCount(totalCount, limit int) int {
-	if totalCount <= 0 {
-		return 0
-	}
-	if limit <= 0 || totalCount <= limit {
-		return 1
-	}
-	pages := totalCount / limit
-	if totalCount%limit != 0 {
-		pages++
-	}
-	return pages
 }

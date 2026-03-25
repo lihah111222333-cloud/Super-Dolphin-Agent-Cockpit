@@ -159,15 +159,56 @@ func (s *service) finishTurnStartFailure(ctx context.Context, work turnWork, sta
 }
 
 func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime, reason string) error {
+	if agent.stopRequested {
+		if agent.cmd != nil {
+			setStopReasonIfEmpty(agent, reason)
+		}
+		return nil
+	}
 	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerStopRequested); err != nil {
 		return err
 	}
 	agent.stopRequested = true
-	agent.stopReason = strings.TrimSpace(reason)
+	setStopReasonIfEmpty(agent, reason)
 	agent.queue.Clear()
 	agent.activeTurnID = ""
 	agent.threadID = ""
 	return stopProcess(agent.cmd)
+}
+
+func (s *service) stopAgentWithReason(ctx context.Context, agentID, reason string) error {
+	launchSeq, err := s.requestAgentStop(ctx, agentID, reason)
+	if err != nil {
+		return err
+	}
+	return s.waitForProcessExit(ctx, strings.TrimSpace(agentID), launchSeq)
+}
+
+func (s *service) requestAgentStop(ctx context.Context, agentID, reason string) (uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
+	if err != nil {
+		return 0, err
+	}
+	launchSeq := uint64(0)
+	if agent.cmd != nil {
+		launchSeq = agent.launchSeq
+	}
+	if err := s.stopAgentLocked(ctx, agent, reason); err != nil {
+		return 0, err
+	}
+	return launchSeq, nil
+}
+
+func setStopReasonIfEmpty(agent *agentRuntime, reason string) {
+	if agent == nil || strings.TrimSpace(agent.stopReason) != "" {
+		return
+	}
+	if reason = strings.TrimSpace(reason); reason != "" {
+		agent.stopReason = reason
+	}
 }
 
 func (s *service) submitAgentReadyState(agentID string) (bool, error) {

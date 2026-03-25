@@ -8,10 +8,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/cwdlock"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/hookstore"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/interaction"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
@@ -29,10 +32,13 @@ var Module = fx.Module("store",
 	auditlog.Module,
 	binding.Module,
 	buslog.Module,
+	commandcard.Module,
 	cwdlock.Module,
 	dbquery.Module,
 	hookstore.Module,
 	interaction.Module,
+	prompt.Module,
+	sharedfile.Module,
 	systemlog.Module,
 	tasktrace.Module,
 	thread.Module,

@@ -6,33 +6,56 @@ import (
 	"errors"
 	"testing"
 
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 	t.Parallel()
 
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
-		preferenceStubKey("/repo", lspPromptHintOverrideKey): mustJSONRaw(t, "custom prompt"),
+		preferenceStubKey("/repo", lspPromptHintOverrideKey):                           mustJSONRaw(t, "custom prompt"),
+		preferenceStubKey("/window", normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-7"),
 	}}
-	db := &configDBTXStub{files: map[string]sqlc.SharedFile{
+	sharedFiles := &sharedFileStoreStub{files: map[string]sharedfilestore.SharedFile{
 		lspPromptHintDefaultPath: {Path: lspPromptHintDefaultPath, Content: "default prompt"},
+	}}
+	threads := &configThreadServiceStub{getConfigResult: dto.ThreadConfig{
+		ThreadID: "thread-7",
+		Effective: dto.ThreadConfigValues{
+			Model:     "gpt-5.4",
+			Approvals: "never",
+		},
 	}}
 	server := newConfigTestServer(
 		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
 		prefs,
-		sqlc.New(db),
+		sharedFiles,
+		threads,
 	)
 
 	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
-	if cfg.CWD != "/window" {
-		t.Fatalf("config/read cwd = %q", cfg.CWD)
+	if cfg.CWD != "/window" || cfg.Model != "gpt-5.4" || cfg.ApprovalPolicy != "never" {
+		t.Fatalf("config/read = %#v", cfg)
+	}
+	if len(threads.getConfigIDs) != 1 || threads.getConfigIDs[0] != "thread-7" {
+		t.Fatalf("GetConfig thread ids = %#v, want [thread-7]", threads.getConfigIDs)
+	}
+	if cfg.ModelProvider != nil || cfg.Sandbox != nil || cfg.Config != nil || cfg.BaseInstructions != nil || cfg.DeveloperInstructions != nil || cfg.Personality != nil {
+		t.Fatalf("config/read nullable defaults = %#v", cfg)
+	}
+	if cfg.ToolRouting != (runtimeConfigToolRouting{
+		Mode:                "legacy",
+		RouterProvider:      "openai_compatible",
+		ConfidenceThreshold: 0.65,
+		TimeoutSec:          8,
+	}) {
+		t.Fatalf("config/read toolRouting = %#v", cfg.ToolRouting)
 	}
 
 	readRes := dispatchConfig[lspPromptHintResult](t, server, "config/lspPromptHint/read", `{"cwd":"/repo"}`)
@@ -54,13 +77,37 @@ func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 	}
 }
 
+func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) {
+	t.Parallel()
+
+	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
+		preferenceStubKey("/window", normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-9"),
+	}}
+	threads := &configThreadServiceStub{getConfigErr: errors.New("session offline")}
+	server := newConfigTestServer(
+		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
+		prefs,
+		&sharedFileStoreStub{},
+		threads,
+	)
+
+	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
+	if cfg.CWD != "/window" || cfg.Model != "o4-mini" || cfg.ApprovalPolicy != "on-failure" {
+		t.Fatalf("config/read fallback = %#v", cfg)
+	}
+	if len(threads.getConfigIDs) != 1 || threads.getConfigIDs[0] != "thread-9" {
+		t.Fatalf("GetConfig thread ids = %#v, want [thread-9]", threads.getConfigIDs)
+	}
+}
+
 func TestConfigPromptHintWriteRequiresPreferenceStore(t *testing.T) {
 	t.Parallel()
 
 	server := newConfigTestServer(
 		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
 		nil,
-		sqlc.New(&configDBTXStub{}),
+		&sharedFileStoreStub{},
+		nil,
 	)
 
 	if _, err := server.Dispatch(
@@ -75,10 +122,11 @@ func TestConfigPromptHintWriteRequiresPreferenceStore(t *testing.T) {
 func newConfigTestServer(
 	cfg *platformconfig.Config,
 	prefs uipreference.Store,
-	queries *sqlc.Queries,
+	sharedFiles sharedfilestore.Store,
+	threads thread.Service,
 ) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: cfg})
-	server.Register(NewConfigHandlers(cfg, prefs, queries).Handlers)
+	server.Register(NewConfigHandlers(cfg, prefs, sharedFiles, threads).Handlers)
 	return server
 }
 
@@ -127,54 +175,29 @@ func (s *uiPreferenceStoreStub) List(_ context.Context, cwd string) ([]uiprefere
 	return rows, nil
 }
 
-// configDBTXStub is a minimal DBTX stub that supports GetSharedFile queries.
-type configDBTXStub struct {
-	files map[string]sqlc.SharedFile
+type sharedFileStoreStub struct {
+	files map[string]sharedfilestore.SharedFile
 }
 
-func (s *configDBTXStub) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, errors.New("configDBTXStub: exec not implemented")
+func (s *sharedFileStoreStub) Get(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
+	if s.files == nil {
+		return nil, platformdb.ErrNotFound
+	}
+	file, ok := s.files[path]
+	if !ok {
+		return nil, platformdb.ErrNotFound
+	}
+	return &file, nil
 }
 
-func (s *configDBTXStub) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	return nil, errors.New("configDBTXStub: query not implemented")
-}
-
-func (s *configDBTXStub) QueryRow(_ context.Context, _ string, args ...any) pgx.Row {
-	if len(args) > 0 {
-		if path, ok := args[0].(string); ok && s.files != nil {
-			if file, exists := s.files[path]; exists {
-				return &configRowStub{file: &file}
-			}
+func (s *sharedFileStoreStub) List(_ context.Context, filter sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
+	rows := make([]sharedfilestore.SharedFile, 0, len(s.files))
+	for path, file := range s.files {
+		if filter.Prefix == "" || len(path) >= len(filter.Prefix) && path[:len(filter.Prefix)] == filter.Prefix {
+			rows = append(rows, file)
 		}
 	}
-	return &configRowStub{err: platformdb.ErrNotFound}
-}
-
-type configRowStub struct {
-	file *sqlc.SharedFile
-	err  error
-}
-
-func (r *configRowStub) Scan(dest ...any) error {
-	if r.err != nil {
-		return r.err
-	}
-	if r.file == nil || len(dest) < 5 {
-		return errors.New("configRowStub: insufficient scan targets")
-	}
-	// GetSharedFile returns: path, content, updated_by, created_at, updated_at
-	if p, ok := dest[0].(*string); ok {
-		*p = r.file.Path
-	}
-	if p, ok := dest[1].(*string); ok {
-		*p = r.file.Content
-	}
-	if p, ok := dest[2].(*string); ok {
-		*p = r.file.UpdatedBy
-	}
-	// created_at and updated_at are time.Time, leave as zero values
-	return nil
+	return rows, nil
 }
 
 func preferenceStubKey(cwd, key string) string {
@@ -198,3 +221,74 @@ func mustJSONRaw(t *testing.T, value string) json.RawMessage {
 	}
 	return raw
 }
+
+type configThreadServiceStub struct {
+	getConfigResult dto.ThreadConfig
+	getConfigErr    error
+	getConfigIDs    []string
+}
+
+func (*configThreadServiceStub) Start(context.Context, thread.StartRequest) (thread.StartResult, error) {
+	return thread.StartResult{}, nil
+}
+
+func (*configThreadServiceStub) Stop(context.Context, string) error { return nil }
+
+func (*configThreadServiceStub) Resume(context.Context, thread.ResumeRequest) (thread.ResumeResult, error) {
+	return thread.ResumeResult{}, nil
+}
+
+func (*configThreadServiceStub) Fork(context.Context, string) (thread.ForkResult, error) {
+	return thread.ForkResult{}, nil
+}
+
+func (*configThreadServiceStub) Recover(context.Context, string) error { return nil }
+
+func (*configThreadServiceStub) List(context.Context) ([]thread.Ref, error) { return nil, nil }
+
+func (*configThreadServiceStub) Get(context.Context, string) (*thread.Ref, error) { return nil, nil }
+
+func (*configThreadServiceStub) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
+	return nil, nil
+}
+
+func (*configThreadServiceStub) ReadMessages(context.Context, string, int, string) (dto.ThreadMessagesResult, error) {
+	return dto.ThreadMessagesResult{}, nil
+}
+
+func (s *configThreadServiceStub) GetConfig(_ context.Context, threadID string) (dto.ThreadConfig, error) {
+	s.getConfigIDs = append(s.getConfigIDs, threadID)
+	return s.getConfigResult, s.getConfigErr
+}
+
+func (*configThreadServiceStub) SetConfig(context.Context, string, dto.ThreadConfigPatch) (dto.ThreadConfig, error) {
+	return dto.ThreadConfig{}, nil
+}
+
+func (*configThreadServiceStub) SetModel(context.Context, string, string) (dto.ThreadConfig, error) {
+	return dto.ThreadConfig{}, nil
+}
+
+func (*configThreadServiceStub) Compact(context.Context, string, string) (dto.ThreadCompactResult, error) {
+	return dto.ThreadCompactResult{}, nil
+}
+
+func (*configThreadServiceStub) Archive(context.Context, string) error { return nil }
+
+func (*configThreadServiceStub) Unarchive(context.Context, string) error { return nil }
+
+func (*configThreadServiceStub) ListByStatus(context.Context, string) ([]thread.Ref, error) {
+	return nil, nil
+}
+
+func (*configThreadServiceStub) ListByCWD(context.Context, string) ([]thread.Ref, error) {
+	return nil, nil
+}
+
+func (*configThreadServiceStub) SendCommand(context.Context, string, string, string) (any, error) {
+	return nil, nil
+}
+
+func (*configThreadServiceStub) SetName(context.Context, string, string) error { return nil }
+
+func (*configThreadServiceStub) Delete(context.Context, string) error { return nil }

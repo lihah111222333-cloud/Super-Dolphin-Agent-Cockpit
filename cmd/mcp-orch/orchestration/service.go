@@ -62,22 +62,23 @@ var Module = fx.Module("orchestration",
 )
 
 var (
-	errAgentNotFound          = errors.New("agent not found")
+	errAgentNotFound          = contract.ErrAgentNotFound
 	errIllegalStateTransition = errors.New("illegal state transition")
 	errTurnNotActive          = errors.New("turn is not active")
 )
 
 type service struct {
-	logger         *slog.Logger
-	eventBus       *event.Dispatcher
-	sessionCleaner SessionCleaner
-	turnStarter    TurnStarter
-	dagStore       taskdag.Store
-	recoveryStore  recoveryTurnStore
-	machineCfg     platformstatemachine.Config
-	mu             sync.RWMutex
-	agents         map[string]*agentRuntime
-	nextTurnSeq    int64
+	logger                 *slog.Logger
+	eventBus               *event.Dispatcher
+	sessionCleaner         SessionCleaner
+	turnStarter            TurnStarter
+	dagStore               taskdag.Store
+	recoveryStore          recoveryTurnStore
+	machineCfg             platformstatemachine.Config
+	processExitWaitTimeout time.Duration
+	mu                     sync.RWMutex
+	agents                 map[string]*agentRuntime
+	nextTurnSeq            int64
 }
 
 type recoveryTurnStore interface {
@@ -152,7 +153,8 @@ func NewService(
 			Initial: agentdto.StateProvisioning,
 			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions),
 		},
-		agents: make(map[string]*agentRuntime),
+		processExitWaitTimeout: 30 * time.Second,
+		agents:                 make(map[string]*agentRuntime),
 	}
 }
 
@@ -162,6 +164,7 @@ func registerTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 	}
 	startedCancel := func() {}
 	completedCancel := func() {}
+	interruptedCancel := func() {}
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			startedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnStarted) {
@@ -173,11 +176,15 @@ func registerTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 			completedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
 				handleTurnCompletedEvent(svc, logger, ev)
 			}, logger)
+			interruptedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
+				handleTurnInterruptedEvent(svc, logger, ev)
+			}, logger)
 			return nil
 		},
 		OnStop: func(context.Context) error {
 			startedCancel()
 			completedCancel()
+			interruptedCancel()
 			return nil
 		},
 	})
@@ -247,32 +254,21 @@ func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error {
 }
 
 func (s *service) StopAgent(ctx context.Context, agentID string) error {
-	s.mu.Lock()
-
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil {
-		s.mu.Unlock()
-		return err
-	}
-	launchSeq := agent.launchSeq
-	if err := s.stopAgentLocked(ctx, agent, "user_requested"); err != nil {
-		s.mu.Unlock()
-		return err
-	}
-	s.mu.Unlock()
-
-	return s.waitForProcessExit(ctx, agent.id, launchSeq)
+	return s.stopAgentWithReason(ctx, agentID, "user_requested")
 }
 
 func (s *service) StopAllAgents() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, agent := range s.agents {
-		if err := s.stopAgentLocked(context.Background(), agent, "shutdown"); err == nil {
-			s.removeSession(agent)
-			s.publishAgentStopped(agent, "shutdown")
-			agent.stopReason = ""
+	s.mu.RLock()
+	ids := make([]string, 0, len(s.agents))
+	for agentID := range s.agents {
+		ids = append(ids, agentID)
+	}
+	s.mu.RUnlock()
+	sort.Strings(ids)
+	for _, agentID := range ids {
+		if err := s.stopAgentWithReason(context.Background(), agentID, "shutdown"); err != nil &&
+			!errors.Is(err, errAgentNotFound) {
+			s.logger.Warn("orchestration: failed to stop agent during shutdown", "agent_id", agentID, "error", err)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package claudecli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-func (s *session) prepareTurn(req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
+func (s *session) prepareTurn(ctx context.Context, req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
 	text := buildTurnText(req)
 	if text == "" {
 		return nil, "", nil, errors.New("claudecli: empty turn input")
@@ -20,7 +21,10 @@ func (s *session) prepareTurn(req dto.TurnRequest) ([]byte, string, *turnHandle,
 	if err := ensureTurnAvailable(s.activeTurn); err != nil {
 		return nil, "", nil, err
 	}
-	if err := s.restartIfNeededLocked(req); err != nil {
+	if err := s.restartIfNeededLocked(ctx, req); err != nil {
+		return nil, "", nil, err
+	}
+	if err := ensureTurnAvailable(s.activeTurn); err != nil {
 		return nil, "", nil, err
 	}
 	if s.transport == nil {

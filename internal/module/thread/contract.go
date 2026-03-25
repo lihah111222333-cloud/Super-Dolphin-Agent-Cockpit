@@ -17,7 +17,7 @@ type Service interface {
 	List(ctx context.Context) ([]Ref, error)
 	Get(ctx context.Context, id string) (*Ref, error)
 	ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error)
-	ReadMessages(ctx context.Context, threadID string, limit int, before string) ([]dto.Message, error)
+	ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error)
 	GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error)
 	SetConfig(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error)
 	SetModel(ctx context.Context, threadID, model string) (dto.ThreadConfig, error)
@@ -87,4 +87,12 @@ type Ref struct {
 	ID      string `json:"id"`
 	Name    string `json:"name,omitempty"`
 	AgentID string `json:"agent_id,omitempty"`
+}
+
+type ReadHistoryThread struct {
+	ThreadID string `json:"thread_id"`
+}
+
+type ReadHistoryResult struct {
+	History []ReadHistoryThread `json:"history"`
 }

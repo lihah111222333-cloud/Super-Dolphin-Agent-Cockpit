@@ -2,6 +2,7 @@ package taskdag
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
@@ -127,16 +128,33 @@ func (s *store) GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, e
 }
 
 func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error) {
-	row, err := s.q.BindRunningTaskDagNodeTurn(ctx, sqlc.BindRunningTaskDagNodeTurnParams{
-		ActiveTurnID:   stringPtr(input.TurnID),
-		DagKey:         input.DagKey,
-		NodeKey:        input.NodeKey,
-		ActiveWakeupID: int64Ptr(input.WakeupID),
+	var mapped Node
+	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
+		count, err := txq.BindTaskDagWakeupTurn(ctx, sqlc.BindTaskDagWakeupTurnParams{
+			BoundTurnID: stringPtr(input.TurnID),
+			ID:          input.WakeupID,
+		})
+		if err != nil {
+			return wrapTaskDAGError(err, "bind_turn", "task_dag_wakeup")
+		}
+		if count == 0 {
+			return wrapTaskDAGError(errors.New("wakeup turn binding conflict"), "bind_turn", "task_dag_wakeup")
+		}
+		row, err := txq.BindRunningTaskDagNodeTurn(ctx, sqlc.BindRunningTaskDagNodeTurnParams{
+			ActiveTurnID:   stringPtr(input.TurnID),
+			DagKey:         input.DagKey,
+			NodeKey:        input.NodeKey,
+			ActiveWakeupID: int64Ptr(input.WakeupID),
+		})
+		if err != nil {
+			return wrapTaskDAGError(err, "bind_running_turn", "task_dag_node")
+		}
+		mapped = fromNode(row)
+		return nil
 	})
 	if err != nil {
-		return nil, wrapTaskDAGError(err, "bind_running_turn", "task_dag_node")
+		return nil, err
 	}
-	mapped := fromNode(row)
 	return &mapped, nil
 }
 

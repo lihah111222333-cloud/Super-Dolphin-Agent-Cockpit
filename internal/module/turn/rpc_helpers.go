@@ -220,9 +220,29 @@ func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handle
 			if err != nil {
 				return nil, err
 			}
-			return turnInterruptResult{OK: true, TurnID: status.LocalID, Status: status.State}, nil
+			return newTurnInterruptResult(status), nil
 		})
 	})
+}
+
+func newTurnInterruptResult(status TurnStatus) turnInterruptResult {
+	result := turnInterruptResult{OK: true, TurnID: status.LocalID, Status: status.State}
+	envelope := status.interruptEnvelope()
+	if envelope.mode == "" {
+		envelope = buildTurnInterruptEnvelope(status.State, status.State, false, false, 0, false)
+	}
+	result.Confirmed = envelope.confirmed
+	result.Mode = envelope.mode
+	result.InterruptSent = envelope.interruptSent
+	result.StateBefore = envelope.stateBefore
+	result.StateAfter = envelope.stateAfter
+	if envelope.interruptSent {
+		waitedMS := envelope.waitedMS
+		activeObserved := envelope.activeObserved
+		result.WaitedMS = &waitedMS
+		result.ActiveObserved = &activeObserved
+	}
+	return result
 }
 
 func turnForceCompleteHandler(svc Service, resolver contract.SessionResolver) handler.Func {

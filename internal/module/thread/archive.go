@@ -3,16 +3,22 @@ package thread
 import "context"
 
 func (s *service) Archive(ctx context.Context, threadID string) error {
-	if err := s.updateThreadStatus(ctx, threadID, statusArchived); err != nil {
+	ctx = normalizeThreadContext(ctx)
+	stopState, err := s.resolveThreadStopState(ctx, threadID)
+	if err != nil {
 		return err
 	}
-	if err := s.setBindingArchived(ctx, threadID, true); err != nil {
+	if err := s.stopThreadRuntime(ctx, stopState, "thread_archived", true); err != nil {
 		return err
 	}
-	if err := s.closeSessionIfActive(ctx, threadID); err != nil {
+	if err := s.updateThreadStatus(ctx, stopState.stoppedID, statusArchived); err != nil {
 		return err
 	}
-	s.publishThreadStopped(threadID, s.lookupThreadAgent(threadID), statusArchived, "archived")
+	if err := s.setBindingArchived(ctx, stopState.stoppedID, true); err != nil {
+		return err
+	}
+	s.cleanupThreadTurns(ctx, "thread_archived", stopState.targets...)
+	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusArchived, "archived")
 	return nil
 }
 

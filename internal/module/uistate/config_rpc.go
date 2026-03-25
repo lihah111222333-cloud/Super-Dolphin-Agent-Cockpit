@@ -9,10 +9,11 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
@@ -25,7 +26,26 @@ const (
 var errConfigPreferenceStoreRequired = errors.New("uistate: ui preference store is not configured")
 
 type runtimeConfigResult struct {
-	CWD string `json:"cwd"`
+	Model                 string                   `json:"model"`
+	ModelProvider         any                      `json:"modelProvider"`
+	CWD                   string                   `json:"cwd"`
+	ApprovalPolicy        string                   `json:"approvalPolicy"`
+	Sandbox               any                      `json:"sandbox"`
+	Config                any                      `json:"config"`
+	BaseInstructions      any                      `json:"baseInstructions"`
+	DeveloperInstructions any                      `json:"developerInstructions"`
+	Personality           any                      `json:"personality"`
+	ToolRouting           runtimeConfigToolRouting `json:"toolRouting"`
+}
+
+type runtimeConfigToolRouting struct {
+	Mode                string  `json:"mode"`
+	RouterModel         string  `json:"routerModel"`
+	RouterProvider      string  `json:"routerProvider"`
+	RouterBaseURL       string  `json:"routerBaseURL"`
+	RouterHasAPIKey     bool    `json:"routerHasAPIKey"`
+	ConfidenceThreshold float64 `json:"confidenceThreshold"`
+	TimeoutSec          int     `json:"timeoutSec"`
 }
 
 type lspPromptHintWriteParams struct {
@@ -43,19 +63,92 @@ type lspPromptHintResult struct {
 func NewConfigHandlers(
 	cfg *platformconfig.Config,
 	prefs uipreference.Store,
-	queries *sqlc.Queries,
+	sharedFiles sharedfilestore.Store,
+	threads thread.Service,
 ) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"config/read": rpc.StrictHandler(func(context.Context, struct{}) (any, error) {
-			return runtimeConfigResult{CWD: configCWD(cfg)}, nil
+		"config/read": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+			return readRuntimeConfig(ctx, cfg, prefs, threads), nil
 		}),
 		"config/lspPromptHint/read": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
-			return readLSPPromptHint(ctx, prefs, queries, p.Cwd)
+			return readLSPPromptHint(ctx, prefs, sharedFiles, p.Cwd)
 		}),
 		"config/lspPromptHint/write": rpc.StrictHandler(func(ctx context.Context, p lspPromptHintWriteParams) (any, error) {
-			return writeLSPPromptHint(ctx, prefs, queries, p.Cwd, p.Hint)
+			return writeLSPPromptHint(ctx, prefs, sharedFiles, p.Cwd, p.Hint)
 		}),
 	}}
+}
+
+func readRuntimeConfig(
+	ctx context.Context,
+	cfg *platformconfig.Config,
+	prefs uipreference.Store,
+	threads thread.Service,
+) runtimeConfigResult {
+	result := defaultRuntimeConfig(cfg)
+	threadID := readActiveThreadID(ctx, prefs, result.CWD)
+	if threadID == "" || threads == nil {
+		return result
+	}
+	threadCfg, err := threads.GetConfig(ctx, threadID)
+	if err != nil {
+		return result
+	}
+	if model := strings.TrimSpace(threadCfg.Effective.Model); model != "" {
+		result.Model = model
+	}
+	if approval := firstRuntimeConfigValue(threadCfg.Effective.Approvals, threadCfg.Override.Approvals); approval != "" {
+		result.ApprovalPolicy = approval
+	}
+	return result
+}
+
+func defaultRuntimeConfig(cfg *platformconfig.Config) runtimeConfigResult {
+	return runtimeConfigResult{
+		Model:                 "o4-mini",
+		ModelProvider:         nil,
+		CWD:                   configCWD(cfg),
+		ApprovalPolicy:        "on-failure",
+		Sandbox:               nil,
+		Config:                nil,
+		BaseInstructions:      nil,
+		DeveloperInstructions: nil,
+		Personality:           nil,
+		ToolRouting: runtimeConfigToolRouting{
+			Mode:                "legacy",
+			RouterModel:         "",
+			RouterProvider:      "openai_compatible",
+			RouterBaseURL:       "",
+			RouterHasAPIKey:     false,
+			ConfidenceThreshold: 0.65,
+			TimeoutSec:          8,
+		},
+	}
+}
+
+func readActiveThreadID(ctx context.Context, prefs uipreference.Store, cwd string) string {
+	if prefs == nil {
+		return ""
+	}
+	raw, err := prefs.GetValue(ctx, strings.TrimSpace(cwd), normalizePreferenceKey(preferenceActiveThreadID))
+	switch {
+	case err == nil:
+	case platformdb.IsNotFound(err):
+		return ""
+	default:
+		return ""
+	}
+	value, _ := decodePreferenceValue(raw).(string)
+	return strings.TrimSpace(value)
+}
+
+func firstRuntimeConfigValue(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func configCWD(cfg *platformconfig.Config) string {
@@ -73,10 +166,10 @@ func configCWD(cfg *platformconfig.Config) string {
 func readLSPPromptHint(
 	ctx context.Context,
 	prefs uipreference.Store,
-	queries *sqlc.Queries,
+	sharedFiles sharedfilestore.Store,
 	cwd string,
 ) (*lspPromptHintResult, error) {
-	defaultHint, err := readDefaultLSPPromptHint(ctx, queries)
+	defaultHint, err := readDefaultLSPPromptHint(ctx, sharedFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +183,7 @@ func readLSPPromptHint(
 func writeLSPPromptHint(
 	ctx context.Context,
 	prefs uipreference.Store,
-	queries *sqlc.Queries,
+	sharedFiles sharedfilestore.Store,
 	cwd, hint string,
 ) (*lspPromptHintResult, error) {
 	if prefs == nil {
@@ -103,20 +196,23 @@ func writeLSPPromptHint(
 	if err := storePreference(ctx, prefs, strings.TrimSpace(cwd), lspPromptHintOverrideKey, overrideHint); err != nil {
 		return nil, err
 	}
-	defaultHint, err := readDefaultLSPPromptHint(ctx, queries)
+	defaultHint, err := readDefaultLSPPromptHint(ctx, sharedFiles)
 	if err != nil {
 		return nil, err
 	}
 	return buildLSPPromptHintResult(defaultHint, overrideHint), nil
 }
 
-func readDefaultLSPPromptHint(ctx context.Context, queries *sqlc.Queries) (string, error) {
-	if queries == nil {
+func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedfilestore.Store) (string, error) {
+	if sharedFiles == nil {
 		return "", nil
 	}
-	file, err := queries.GetSharedFile(ctx, lspPromptHintDefaultPath)
+	file, err := sharedFiles.Get(ctx, lspPromptHintDefaultPath)
 	switch {
 	case err == nil:
+		if file == nil {
+			return "", nil
+		}
 		return file.Content, nil
 	case platformdb.IsNotFound(err):
 		return "", nil

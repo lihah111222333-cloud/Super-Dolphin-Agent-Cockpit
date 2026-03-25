@@ -24,7 +24,7 @@ func (s *session) startReadLoop(tr *transport) {
 				continue
 			}
 			for _, raw := range rawEvents {
-				s.applyRaw(raw)
+				s.applyRaw(tr, raw)
 			}
 		}
 	}()
@@ -43,9 +43,12 @@ func (s *session) rawBase() rawBase {
 	}
 }
 
-func (s *session) applyRaw(raw dto.RawProviderEvent) {
+func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 	if raw.EventType == "system:init" {
-		s.setResolvedThreadID(dataString(raw.Data, "thread_id", "session_id"))
+		s.setResolvedThreadIDForTransport(tr, dataString(raw.Data, "thread_id", "session_id"))
+	}
+	if !s.isCurrentTransport(tr) {
+		return
 	}
 	if s.shouldSuppressTurn(raw) {
 		return
@@ -54,6 +57,15 @@ func (s *session) applyRaw(raw dto.RawProviderEvent) {
 	if raw.EventType == "turn:complete" || raw.EventType == "turn:interrupted" {
 		s.finishTurnFromRaw(raw)
 	}
+}
+
+func (s *session) isCurrentTransport(tr *transport) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.transport == tr
 }
 
 func (s *session) handleReceiveExit(tr *transport, err error) {
@@ -223,8 +235,24 @@ func decodeUserEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, err
 
 func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data := baseData(base, raw.SessionID, raw.Timestamp)
-	data["success"] = !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
-	data["error"] = strings.TrimSpace(firstNonEmpty(raw.Result, raw.StopReason))
+	success := !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
+	data["success"] = success
+	if success {
+		if result := strings.TrimSpace(raw.Result); result != "" {
+			data["result"] = result
+			data["summary"] = result
+			data["message"] = result
+		}
+		if stopReason := strings.TrimSpace(raw.StopReason); stopReason != "" {
+			data["stop_reason"] = stopReason
+		}
+	} else {
+		errMsg := strings.TrimSpace(firstNonEmpty(raw.Result, raw.StopReason))
+		if errMsg == "" {
+			errMsg = "claude result error"
+		}
+		data["error"] = errMsg
+	}
 	return []dto.RawProviderEvent{{EventType: "turn:complete", Data: data}}
 }
 

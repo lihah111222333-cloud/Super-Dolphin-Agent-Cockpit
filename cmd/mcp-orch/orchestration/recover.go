@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 )
 
@@ -27,9 +28,8 @@ func (d *StallDetector) CheckStall(agent *agentRuntime) bool {
 	return stalled
 }
 
-// Recover currently implements stop-and-restart semantics only. It does not
-// replay active turns or hydrate in-memory state from persisted runtime state.
-// TODO(P8): add turn replay and state hydration semantics.
+// Recover restarts the agent process and replays persisted DAG-backed work when
+// the stored wakeup is still fenced to the same active turn.
 func (s *service) Recover(ctx context.Context, agentID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -88,28 +88,61 @@ func loadRecoveredTurnSubmission(ctx context.Context, s *service, agent *agentRu
 	if !ok {
 		return TurnSubmission{}, false, nil
 	}
+	wakeup, err := findReplayWakeup(ctx, s, agent, activeTurnID)
+	if err != nil {
+		return TurnSubmission{}, false, err
+	}
+	if wakeup == nil {
+		return TurnSubmission{}, false, nil
+	}
+	submission, err := decodeReplayWakeupSubmission(wakeup, agent, activeTurnID)
+	if err != nil {
+		return TurnSubmission{}, false, err
+	}
+	return submission, true, nil
+}
+
+func findReplayWakeup(ctx context.Context, s *service, agent *agentRuntime, activeTurnID string) (*taskdag.Wakeup, error) {
 	nodes, err := s.recoveryStore.ListRunningNodesByAssignee(ctx, agent.id)
 	if err != nil {
-		return TurnSubmission{}, false, fmt.Errorf("recover replay: list running nodes for %q: %w", agent.id, err)
+		return nil, fmt.Errorf("recover replay: list running nodes for %q: %w", agent.id, err)
 	}
 	for _, node := range nodes {
-		if node.ActiveTurnID == nil || strings.TrimSpace(*node.ActiveTurnID) != activeTurnID {
+		if !nodeMatchesActiveTurn(node, activeTurnID) {
 			continue
 		}
-		if node.ActiveWakeupID == nil || *node.ActiveWakeupID <= 0 {
-			return TurnSubmission{}, false, fmt.Errorf("recover replay: node %s/%s missing active wakeup for turn %q", node.DagKey, node.NodeKey, activeTurnID)
-		}
-		wakeup, err := s.recoveryStore.GetWakeup(ctx, *node.ActiveWakeupID)
+		wakeup, err := loadReplayWakeup(ctx, s, node, activeTurnID)
 		if err != nil {
-			return TurnSubmission{}, false, fmt.Errorf("recover replay: load wakeup %d for turn %q: %w", *node.ActiveWakeupID, activeTurnID, err)
+			return nil, err
 		}
-		submission, err := decodeRecoveredTurnSubmission(wakeup.PromptPayload, agent, activeTurnID)
-		if err != nil {
-			return TurnSubmission{}, false, fmt.Errorf("recover replay: decode wakeup %d for turn %q: %w", wakeup.ID, activeTurnID, err)
+		if wakeupEligibleForReplay(agent, activeTurnID, wakeup) {
+			return wakeup, nil
 		}
-		return submission, true, nil
 	}
-	return TurnSubmission{}, false, nil
+	return nil, nil
+}
+
+func nodeMatchesActiveTurn(node taskdag.Node, activeTurnID string) bool {
+	return node.ActiveTurnID != nil && strings.TrimSpace(*node.ActiveTurnID) == activeTurnID
+}
+
+func loadReplayWakeup(ctx context.Context, s *service, node taskdag.Node, activeTurnID string) (*taskdag.Wakeup, error) {
+	if node.ActiveWakeupID == nil || *node.ActiveWakeupID <= 0 {
+		return nil, fmt.Errorf("recover replay: node %s/%s missing active wakeup for turn %q", node.DagKey, node.NodeKey, activeTurnID)
+	}
+	wakeup, err := s.recoveryStore.GetWakeup(ctx, *node.ActiveWakeupID)
+	if err != nil {
+		return nil, fmt.Errorf("recover replay: load wakeup %d for turn %q: %w", *node.ActiveWakeupID, activeTurnID, err)
+	}
+	return wakeup, nil
+}
+
+func decodeReplayWakeupSubmission(wakeup *taskdag.Wakeup, agent *agentRuntime, activeTurnID string) (TurnSubmission, error) {
+	submission, err := decodeRecoveredTurnSubmission(wakeup.PromptPayload, agent, activeTurnID)
+	if err != nil {
+		return TurnSubmission{}, fmt.Errorf("recover replay: decode wakeup %d for turn %q: %w", wakeup.ID, activeTurnID, err)
+	}
+	return submission, nil
 }
 
 func validateRecoveryContext(s *service, agent *agentRuntime) (string, bool) {
@@ -121,6 +154,20 @@ func validateRecoveryContext(s *service, agent *agentRuntime) (string, bool) {
 		return "", false
 	}
 	return activeTurnID, true
+}
+
+func wakeupEligibleForReplay(agent *agentRuntime, activeTurnID string, wakeup *taskdag.Wakeup) bool {
+	if wakeup == nil || strings.TrimSpace(wakeup.Status) != "sent" {
+		return false
+	}
+	if wakeup.BoundTurnID == nil || strings.TrimSpace(*wakeup.BoundTurnID) != activeTurnID {
+		return false
+	}
+	if wakeup.TurnBoundAt == nil {
+		return false
+	}
+	targetAgentID := strings.TrimSpace(wakeup.TargetAgentID)
+	return targetAgentID == "" || agent == nil || targetAgentID == agent.id
 }
 
 func decodeRecoveredTurnSubmission(raw json.RawMessage, agent *agentRuntime, activeTurnID string) (TurnSubmission, error) {
