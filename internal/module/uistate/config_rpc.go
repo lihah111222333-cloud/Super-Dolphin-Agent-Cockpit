@@ -60,6 +60,10 @@ type lspPromptHintResult struct {
 	UsingDefault bool   `json:"usingDefault"`
 }
 
+type threadRuntimeConfigReader interface {
+	ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error)
+}
+
 func NewConfigHandlers(
 	cfg *platformconfig.Config,
 	prefs uipreference.Store,
@@ -90,6 +94,12 @@ func readRuntimeConfig(
 	if threadID == "" || threads == nil {
 		return result
 	}
+	if reader, ok := threads.(threadRuntimeConfigReader); ok {
+		runtimeCfg, err := reader.ReadRuntimeConfig(ctx, threadID)
+		if err == nil {
+			applyRuntimeConfigOverrides(&result, runtimeCfg)
+		}
+	}
 	threadCfg, err := threads.GetConfig(ctx, threadID)
 	if err != nil {
 		return result
@@ -101,6 +111,33 @@ func readRuntimeConfig(
 		result.ApprovalPolicy = approval
 	}
 	return result
+}
+
+func applyRuntimeConfigOverrides(result *runtimeConfigResult, cfg map[string]any) {
+	if result == nil || len(cfg) == 0 {
+		return
+	}
+	if value := runtimeConfigString(cfg, "modelProvider"); value != "" {
+		result.ModelProvider = value
+	}
+	if value := runtimeConfigString(cfg, "approvalPolicy", "approval_policy", "approvals"); value != "" {
+		result.ApprovalPolicy = value
+	}
+	if value, ok := cfg["sandbox"]; ok && value != nil {
+		result.Sandbox = value
+	}
+	if value := runtimeConfigString(cfg, "baseInstructions", "instructions"); value != "" {
+		result.BaseInstructions = value
+	}
+	if value := runtimeConfigString(cfg, "developerInstructions", "developer_instructions"); value != "" {
+		result.DeveloperInstructions = value
+	}
+	if value := runtimeConfigString(cfg, "personality"); value != "" {
+		result.Personality = value
+	}
+	if routing, ok := runtimeToolRouting(cfg["toolRouting"]); ok {
+		result.ToolRouting = routing
+	}
 }
 
 func defaultRuntimeConfig(cfg *platformconfig.Config) runtimeConfigResult {
@@ -149,6 +186,69 @@ func firstRuntimeConfigValue(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func runtimeConfigString(cfg map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, _ := cfg[key].(string)
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func runtimeToolRouting(raw any) (runtimeConfigToolRouting, bool) {
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return runtimeConfigToolRouting{}, false
+	}
+	out := runtimeConfigToolRouting{
+		Mode:                runtimeConfigString(values, "mode"),
+		RouterModel:         runtimeConfigString(values, "routerModel"),
+		RouterProvider:      runtimeConfigString(values, "routerProvider"),
+		RouterBaseURL:       runtimeConfigString(values, "routerBaseURL"),
+		RouterHasAPIKey:     runtimeConfigBool(values, "routerHasAPIKey"),
+		ConfidenceThreshold: runtimeConfigFloat(values, "confidenceThreshold"),
+		TimeoutSec:          runtimeConfigInt(values, "timeoutSec"),
+	}
+	if out == (runtimeConfigToolRouting{}) {
+		return runtimeConfigToolRouting{}, false
+	}
+	return out, true
+}
+
+func runtimeConfigBool(cfg map[string]any, key string) bool {
+	value, _ := cfg[key].(bool)
+	return value
+}
+
+func runtimeConfigFloat(cfg map[string]any, key string) float64 {
+	switch value := cfg[key].(type) {
+	case float64:
+		return value
+	case float32:
+		return float64(value)
+	case int:
+		return float64(value)
+	case int64:
+		return float64(value)
+	default:
+		return 0
+	}
+}
+
+func runtimeConfigInt(cfg map[string]any, key string) int {
+	switch value := cfg[key].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
 }
 
 func configCWD(cfg *platformconfig.Config) string {

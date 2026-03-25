@@ -71,3 +71,45 @@ func TestInterruptTurnNoActiveReturnsEnvelope(t *testing.T) {
 		t.Fatalf("interrupt envelope = %#v, want idle->idle", envelope)
 	}
 }
+
+func TestInterruptTurnSettleTimeoutReturnsEnvelope(t *testing.T) {
+	t.Parallel()
+
+	previousTimeout := interruptSettleTimeout
+	interruptSettleTimeout = 25 * time.Millisecond
+	t.Cleanup(func() { interruptSettleTimeout = previousTimeout })
+
+	handle := newStubTurnHandle("local-timeout", "provider-timeout")
+	session := &stubSession{
+		threadID: "thread-timeout",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			return handle, nil
+		},
+		interrupt: func(context.Context, dto.InterruptRequest) error { return nil },
+	}
+
+	svc := NewService(silentLogger())
+	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
+		LocalID:  "local-timeout",
+		ThreadID: "thread-timeout",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+
+	status, err := svc.InterruptTurn(context.Background(), session, "user")
+	if err != nil {
+		t.Fatalf("InterruptTurn() error = %v, want timeout envelope", err)
+	}
+	envelope := status.interruptEnvelope()
+	if !envelope.confirmed || envelope.mode != "interrupt_timeout" || !envelope.interruptSent {
+		t.Fatalf("interrupt envelope = %#v, want confirmed timeout envelope", envelope)
+	}
+	if envelope.stateBefore != "running" || envelope.stateAfter != "running" {
+		t.Fatalf("interrupt envelope = %#v, want running->running timeout state", envelope)
+	}
+	if envelope.waitedMS < 20 || !envelope.activeObserved {
+		t.Fatalf("interrupt envelope = %#v, want waitedMS>=20 and activeObserved", envelope)
+	}
+}

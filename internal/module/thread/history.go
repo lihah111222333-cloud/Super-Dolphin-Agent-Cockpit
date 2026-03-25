@@ -30,18 +30,23 @@ type threadReadProvider interface {
 	ReadThreadHistory(ctx context.Context, threadID string) (*ReadHistoryResult, error)
 }
 
+type runtimeConfigReaderSession interface {
+	RuntimeConfigSnapshot() map[string]any
+}
+
 func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error) {
-	session, binding, err := s.resolveSession(ctx, threadID)
+	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err
 	}
-	// TODO(A1): offline thread history lookup still needs a non-session-backed path.
-	targetID := historyTargetID(binding, threadID)
-	all, err := session.ReadHistory(ctx, targetID, 0)
+	agentID := agentIDFromBinding(binding, threadID)
+	all, err := s.readMessagesSource(ctx, threadID, binding)
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err
 	}
-	all = decorateThreadMessages(threadID, all)
+	// TODO(A1): basic store-backed fallback is implemented; complete offline
+	// history parity with V2 runtime merge/hydration is still pending.
+	all = decorateThreadMessages(agentID, all)
 	page, err := selectMessagesPage(all, limit, before)
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err
@@ -49,6 +54,18 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	total := int64(len(all))
 	s.publishMessagesPage(threadID, int(total), pageCount(int(total), limit))
 	return dto.ThreadMessagesResult{Messages: page, Total: total}, nil
+}
+
+func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
+	session, _, err := s.resolveSession(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	reader, ok := session.(runtimeConfigReaderSession)
+	if !ok {
+		return nil, nil
+	}
+	return cloneRuntimeConfigMap(reader.RuntimeConfigSnapshot()), nil
 }
 
 func newThreadReadHandler(svc Service) handler.Func {
@@ -122,9 +139,31 @@ func buildReadHistoryResult(threadIDs ...string) *ReadHistoryResult {
 	return &result
 }
 
-func decorateThreadMessages(threadID string, messages []dto.Message) []dto.Message {
+func cloneRuntimeConfigMap(cfg map[string]any) map[string]any {
+	if len(cfg) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		out := make(map[string]any, len(cfg))
+		for key, value := range cfg {
+			out[key] = value
+		}
+		return out
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		out = make(map[string]any, len(cfg))
+		for key, value := range cfg {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func decorateThreadMessages(agentID string, messages []dto.Message) []dto.Message {
 	out := make([]dto.Message, 0, len(messages))
-	fallbackAgentID := strings.TrimSpace(threadID)
+	fallbackAgentID := strings.TrimSpace(agentID)
 	for i, msg := range messages {
 		next := msg
 		if next.ID == 0 {

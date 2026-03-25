@@ -1,6 +1,7 @@
 package claudecli
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,6 +143,28 @@ func copyCapabilities(in dto.CapabilitySet) dto.CapabilitySet {
 	out := make(dto.CapabilitySet, len(in))
 	for key, value := range in {
 		out[key] = value
+	}
+	return out
+}
+
+func cloneConfigMap(cfg map[string]any) map[string]any {
+	if len(cfg) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		out := make(map[string]any, len(cfg))
+		for key, value := range cfg {
+			out[key] = value
+		}
+		return out
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		out = make(map[string]any, len(cfg))
+		for key, value := range cfg {
+			out[key] = value
+		}
 	}
 	return out
 }

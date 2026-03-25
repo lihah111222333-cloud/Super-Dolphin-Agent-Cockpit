@@ -31,6 +31,22 @@ func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 			Model:     "gpt-5.4",
 			Approvals: "never",
 		},
+	}, runtimeConfigResult: map[string]any{
+		"modelProvider":         "openai",
+		"developerInstructions": "be precise",
+		"personality":           "balanced",
+		"sandbox": map[string]any{
+			"type": "workspace-write",
+		},
+		"toolRouting": map[string]any{
+			"mode":                "dynamic",
+			"routerModel":         "router-1",
+			"routerProvider":      "router-x",
+			"routerBaseURL":       "https://router.example",
+			"routerHasAPIKey":     true,
+			"confidenceThreshold": 0.9,
+			"timeoutSec":          11,
+		},
 	}}
 	server := newConfigTestServer(
 		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
@@ -46,16 +62,26 @@ func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 	if len(threads.getConfigIDs) != 1 || threads.getConfigIDs[0] != "thread-7" {
 		t.Fatalf("GetConfig thread ids = %#v, want [thread-7]", threads.getConfigIDs)
 	}
-	if cfg.ModelProvider != nil || cfg.Sandbox != nil || cfg.Config != nil || cfg.BaseInstructions != nil || cfg.DeveloperInstructions != nil || cfg.Personality != nil {
+	if len(threads.runtimeConfigIDs) != 1 || threads.runtimeConfigIDs[0] != "thread-7" {
+		t.Fatalf("ReadRuntimeConfig thread ids = %#v, want [thread-7]", threads.runtimeConfigIDs)
+	}
+	if cfg.ModelProvider != "openai" || cfg.Config != nil || cfg.BaseInstructions != nil || cfg.DeveloperInstructions != "be precise" || cfg.Personality != "balanced" {
 		t.Fatalf("config/read nullable defaults = %#v", cfg)
 	}
 	if cfg.ToolRouting != (runtimeConfigToolRouting{
-		Mode:                "legacy",
-		RouterProvider:      "openai_compatible",
-		ConfidenceThreshold: 0.65,
-		TimeoutSec:          8,
+		Mode:                "dynamic",
+		RouterModel:         "router-1",
+		RouterProvider:      "router-x",
+		RouterBaseURL:       "https://router.example",
+		RouterHasAPIKey:     true,
+		ConfidenceThreshold: 0.9,
+		TimeoutSec:          11,
 	}) {
 		t.Fatalf("config/read toolRouting = %#v", cfg.ToolRouting)
+	}
+	sandbox, _ := cfg.Sandbox.(map[string]any)
+	if sandbox["type"] != "workspace-write" {
+		t.Fatalf("config/read sandbox = %#v", cfg.Sandbox)
 	}
 
 	readRes := dispatchConfig[lspPromptHintResult](t, server, "config/lspPromptHint/read", `{"cwd":"/repo"}`)
@@ -97,6 +123,9 @@ func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) 
 	}
 	if len(threads.getConfigIDs) != 1 || threads.getConfigIDs[0] != "thread-9" {
 		t.Fatalf("GetConfig thread ids = %#v, want [thread-9]", threads.getConfigIDs)
+	}
+	if len(threads.runtimeConfigIDs) != 1 || threads.runtimeConfigIDs[0] != "thread-9" {
+		t.Fatalf("ReadRuntimeConfig thread ids = %#v, want [thread-9]", threads.runtimeConfigIDs)
 	}
 }
 
@@ -223,9 +252,12 @@ func mustJSONRaw(t *testing.T, value string) json.RawMessage {
 }
 
 type configThreadServiceStub struct {
-	getConfigResult dto.ThreadConfig
-	getConfigErr    error
-	getConfigIDs    []string
+	getConfigResult     dto.ThreadConfig
+	getConfigErr        error
+	getConfigIDs        []string
+	runtimeConfigResult map[string]any
+	runtimeConfigErr    error
+	runtimeConfigIDs    []string
 }
 
 func (*configThreadServiceStub) Start(context.Context, thread.StartRequest) (thread.StartResult, error) {
@@ -259,6 +291,11 @@ func (*configThreadServiceStub) ReadMessages(context.Context, string, int, strin
 func (s *configThreadServiceStub) GetConfig(_ context.Context, threadID string) (dto.ThreadConfig, error) {
 	s.getConfigIDs = append(s.getConfigIDs, threadID)
 	return s.getConfigResult, s.getConfigErr
+}
+
+func (s *configThreadServiceStub) ReadRuntimeConfig(_ context.Context, threadID string) (map[string]any, error) {
+	s.runtimeConfigIDs = append(s.runtimeConfigIDs, threadID)
+	return s.runtimeConfigResult, s.runtimeConfigErr
 }
 
 func (*configThreadServiceStub) SetConfig(context.Context, string, dto.ThreadConfigPatch) (dto.ThreadConfig, error) {

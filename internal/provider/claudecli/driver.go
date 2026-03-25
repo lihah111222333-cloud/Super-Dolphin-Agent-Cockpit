@@ -33,6 +33,7 @@ type startSpec struct {
 	instructions string
 	manifest     dto.MCPManifest
 	config       cliLaunchConfig
+	rawConfig    map[string]any
 	historyDir   string
 }
 
@@ -73,6 +74,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		instructions: req.Instructions,
 		manifest:     manifest,
 		config:       configFromMap(req.Config),
+		rawConfig:    cloneConfigMap(req.Config),
 		historyDir:   configString(req.Config, "history_dir", "claude_home"),
 	})
 }
@@ -120,6 +122,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		model:           strings.TrimSpace(spec.model),
 		instructions:    strings.TrimSpace(spec.instructions),
 		config:          spec.config,
+		rawConfig:       cloneConfigMap(spec.rawConfig),
 		manifest:        spec.manifest,
 		cleanup:         cleanup,
 		suppressedTurns: map[string]struct{}{},

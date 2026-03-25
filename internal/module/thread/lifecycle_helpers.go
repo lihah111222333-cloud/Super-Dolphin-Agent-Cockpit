@@ -6,6 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/historyjsonl"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -153,4 +156,38 @@ func pageCount(totalCount, limit int) int {
 		pages++
 	}
 	return pages
+}
+
+func (s *service) readMessagesSource(ctx context.Context, threadID string, binding *bindingstore.Binding) ([]dto.Message, error) {
+	session, err := s.sessionForBinding(binding)
+	if err == nil {
+		return session.ReadHistory(ctx, historyTargetID(binding, threadID), 0)
+	}
+	return s.readPersistedMessages(ctx, threadID, binding)
+}
+
+func (s *service) sessionForBinding(binding *bindingstore.Binding) (contract.Session, error) {
+	if binding == nil {
+		return nil, errors.New("thread binding is not configured")
+	}
+	if s.sessions == nil {
+		return nil, errors.New("session provider is not configured")
+	}
+	return s.sessions.GetSession(strings.TrimSpace(binding.AgentID))
+}
+
+func (s *service) readPersistedMessages(ctx context.Context, threadID string, binding *bindingstore.Binding) ([]dto.Message, error) {
+	if _, err := s.getThread(ctx, threadID); err != nil {
+		return nil, err
+	}
+	if binding == nil {
+		return nil, errors.New("thread binding is not configured")
+	}
+	return historyjsonl.ReadProviderMessages(historyjsonl.ReadRequest{
+		Provider:         binding.Provider,
+		RolloutPath:      binding.RolloutPath,
+		ThreadID:         threadID,
+		ProviderThreadID: binding.ProviderThreadID,
+		SessionUUID:      binding.SessionUUID,
+	})
 }

@@ -225,6 +225,7 @@ type stubSession struct {
 	configurePatch     dto.ThreadConfigPatch
 	configureCalls     int
 	readConfigResult   dto.ThreadConfig
+	runtimeConfig      map[string]any
 	forkResult         dto.ForkResult
 	forkRequest        dto.ForkRequest
 	caps               dto.CapabilitySet
@@ -258,6 +259,10 @@ func (s *stubSession) ReadHistory(context.Context, string, int) ([]dto.Message, 
 
 func (s *stubSession) ReadConfig(context.Context, string) (dto.ThreadConfig, error) {
 	return s.readConfigResult, nil
+}
+
+func (s *stubSession) RuntimeConfigSnapshot() map[string]any {
+	return cloneRuntimeConfigMap(s.runtimeConfig)
 }
 
 func (s *stubSession) Configure(_ context.Context, patch dto.ThreadConfigPatch) error {

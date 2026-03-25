@@ -40,6 +40,7 @@ type session struct {
 	pendingTurn        *turnReplayState
 	suppressed         map[string]struct{}
 	processedApprovals map[string]*processedApprovalEntry
+	runtimeConfig      map[string]any
 }
 
 var _ contract.Session = (*session)(nil)
@@ -87,6 +88,28 @@ func newSession(
 	return s, nil
 }
 func (s *session) Capabilities() dto.CapabilitySet { return cloneCaps(s.caps) }
+
+func (s *session) setRuntimeConfig(cfg map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeConfig = cloneRuntimeConfigMap(cfg)
+}
+
+func (s *session) RuntimeConfigSnapshot() map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := cloneRuntimeConfigMap(s.runtimeConfig)
+	if len(out) == 0 {
+		out = map[string]any{}
+	}
+	if value := s.approvalPolicyValue(); value != "" {
+		out["approvalPolicy"] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
 
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
 	threadID := s.resolveThreadID(req.ThreadID)
@@ -230,6 +253,12 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 	}
 	if patch.Approvals != nil {
 		s.setApprovalPolicy(*patch.Approvals)
+		s.setRuntimeConfigValue("approvalPolicy", strings.TrimSpace(*patch.Approvals))
+		s.setRuntimeConfigValue("approval_policy", strings.TrimSpace(*patch.Approvals))
+		s.setRuntimeConfigValue("approvals", strings.TrimSpace(*patch.Approvals))
+	}
+	if patch.Personality != nil {
+		s.setRuntimeConfigValue("personality", strings.TrimSpace(*patch.Personality))
 	}
 	return nil
 }
@@ -260,6 +289,40 @@ func (s *session) applySlashConfig(ctx context.Context, threadID, method, key st
 	defer cancel()
 	_, err := s.callTransport(callCtx, method, map[string]any{"threadId": threadID, key: arg, "args": arg})
 	return err
+}
+
+func (s *session) setRuntimeConfigValue(key string, value any) {
+	if strings.TrimSpace(key) == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runtimeConfig == nil {
+		s.runtimeConfig = map[string]any{}
+	}
+	s.runtimeConfig[key] = value
+}
+
+func cloneRuntimeConfigMap(cfg map[string]any) map[string]any {
+	if len(cfg) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		out := make(map[string]any, len(cfg))
+		for key, value := range cfg {
+			out[key] = value
+		}
+		return out
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		out = make(map[string]any, len(cfg))
+		for key, value := range cfg {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 func (s *session) onNotification(method string, params json.RawMessage) {

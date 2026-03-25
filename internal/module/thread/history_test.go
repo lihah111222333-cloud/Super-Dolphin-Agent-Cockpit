@@ -52,8 +52,8 @@ func TestReadMessagesSupportsTimestampCursorCompatibility(t *testing.T) {
 	}
 	want := dto.ThreadMessagesResult{
 		Messages: []dto.Message{
-			{ID: 4, AgentID: "thread-1", Role: "assistant", EventType: "agent_message", Content: "m4", Timestamp: base.Add(4 * time.Minute)},
-			{ID: 3, AgentID: "thread-1", Role: "user", EventType: "", Content: "m3", Timestamp: base.Add(3 * time.Minute)},
+			{ID: 4, AgentID: "agent-1", Role: "assistant", EventType: "agent_message", Content: "m4", Timestamp: base.Add(4 * time.Minute)},
+			{ID: 3, AgentID: "agent-1", Role: "user", EventType: "", Content: "m3", Timestamp: base.Add(3 * time.Minute)},
 		},
 		Total: 6,
 	}
