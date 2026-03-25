@@ -39,7 +39,7 @@ type session struct {
 	activeTurnID       string
 	pendingTurn        *turnReplayState
 	suppressed         map[string]struct{}
-	processedApprovals map[int64]contract.ApprovalDecision
+	processedApprovals map[string]*processedApprovalEntry
 }
 
 var _ contract.Session = (*session)(nil)
@@ -78,7 +78,7 @@ func newSession(
 		cancel:             cancel,
 		turns:              map[string]*turnHandle{},
 		suppressed:         map[string]struct{}{},
-		processedApprovals: map[int64]contract.ApprovalDecision{},
+		processedApprovals: map[string]*processedApprovalEntry{},
 	}
 	s.noteReadActivity()
 	s.startReadLoop()
@@ -235,12 +235,14 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 
 func (s *session) Close(context.Context) error {
 	s.failTurns(errors.New("codexapp: session closed"))
+	s.clearProcessedApprovals()
 	s.cancel()
 	return s.transport.Close()
 }
 
 func (s *session) ForceStop() error {
 	s.failTurns(errors.New("codexapp: session stopped"))
+	s.clearProcessedApprovals()
 	s.cancel()
 	return s.transport.Kill()
 }

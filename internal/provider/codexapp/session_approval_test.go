@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/kelindar/event"
@@ -104,6 +106,92 @@ func TestOnNotificationApprovalRequestPublishesRequestedOnce(t *testing.T) {
 	cancel()
 }
 
+func TestBeginProcessedApprovalDedupesByCallIDAndRequestID(t *testing.T) {
+	s := &session{processedApprovals: map[string]*processedApprovalEntry{}}
+
+	key := processedApprovalKey("call-1", 1)
+	first, firstOwner := s.beginProcessedApproval(key)
+	second, secondOwner := s.beginProcessedApproval(key)
+
+	if !firstOwner || secondOwner {
+		t.Fatalf("owners = %v, %v; want true, false", firstOwner, secondOwner)
+	}
+	if first == nil || first != second {
+		t.Fatalf("entries = %p, %p; want same non-nil entry", first, second)
+	}
+}
+
+func TestBeginProcessedApprovalClearsCacheAtCapacity(t *testing.T) {
+	s := &session{processedApprovals: map[string]*processedApprovalEntry{}}
+
+	for i := 0; i < processedApprovalLimit; i++ {
+		key := processedApprovalKey("call-"+strconv.Itoa(i), int64(i+1))
+		entry, owner := s.beginProcessedApproval(key)
+		if entry == nil || !owner {
+			t.Fatalf("beginProcessedApproval(%q) = (%#v, %v), want new owner entry", key, entry, owner)
+		}
+		approved := false
+		s.finishProcessedApproval(key, entry, rpcDecision(approved, "decline"), nil)
+	}
+
+	lastKey := processedApprovalKey("call-overflow", int64(processedApprovalLimit+1))
+	lastEntry, owner := s.beginProcessedApproval(lastKey)
+	if lastEntry == nil || !owner {
+		t.Fatalf("beginProcessedApproval(%q) = (%#v, %v), want new owner entry", lastKey, lastEntry, owner)
+	}
+
+	s.approvalMu.Lock()
+	defer s.approvalMu.Unlock()
+	if got := len(s.processedApprovals); got != 1 {
+		t.Fatalf("processed approvals = %d, want 1 after capacity reset", got)
+	}
+	if s.processedApprovals[lastKey] != lastEntry {
+		t.Fatalf("processed approvals[%q] = %#v, want %#v", lastKey, s.processedApprovals[lastKey], lastEntry)
+	}
+}
+
+func TestBeginProcessedApprovalCapacityKeepsPendingEntries(t *testing.T) {
+	s := &session{processedApprovals: map[string]*processedApprovalEntry{}}
+
+	pendingKey := processedApprovalKey("call-pending", 1)
+	pendingEntry, owner := s.beginProcessedApproval(pendingKey)
+	if pendingEntry == nil || !owner {
+		t.Fatalf("beginProcessedApproval(%q) = (%#v, %v), want pending owner entry", pendingKey, pendingEntry, owner)
+	}
+
+	for i := 1; i < processedApprovalLimit; i++ {
+		key := processedApprovalKey("call-"+strconv.Itoa(i), int64(i+1))
+		entry, owner := s.beginProcessedApproval(key)
+		if entry == nil || !owner {
+			t.Fatalf("beginProcessedApproval(%q) = (%#v, %v), want new owner entry", key, entry, owner)
+		}
+		approved := false
+		s.finishProcessedApproval(key, entry, rpcDecision(approved, "decline"), nil)
+	}
+
+	lastKey := processedApprovalKey("call-overflow-pending", int64(processedApprovalLimit+1))
+	lastEntry, owner := s.beginProcessedApproval(lastKey)
+	if lastEntry == nil || !owner {
+		t.Fatalf("beginProcessedApproval(%q) = (%#v, %v), want new owner entry", lastKey, lastEntry, owner)
+	}
+
+	s.approvalMu.Lock()
+	defer s.approvalMu.Unlock()
+	if got := len(s.processedApprovals); got != 2 {
+		t.Fatalf("processed approvals = %d, want 2 after purging completed entries", got)
+	}
+	if s.processedApprovals[pendingKey] != pendingEntry {
+		t.Fatalf("pending entry for %q was removed", pendingKey)
+	}
+	if s.processedApprovals[lastKey] != lastEntry {
+		t.Fatalf("processed approvals[%q] = %#v, want %#v", lastKey, s.processedApprovals[lastKey], lastEntry)
+	}
+}
+
+func rpcDecision(approved bool, reason string) contract.ApprovalDecision {
+	return contract.ApprovalDecision{Approved: &approved, Reason: reason}
+}
+
 func TestRequestToolApprovalDedupesProcessedRequestID(t *testing.T) {
 	var mu sync.Mutex
 	approvalRespondCalls := 0
@@ -153,6 +241,7 @@ func TestRequestToolApprovalDedupesProcessedRequestID(t *testing.T) {
 
 	payload := mustJSON(map[string]any{
 		"requestId": int64(1),
+		"callId":    "call-1",
 		"command":   "echo hi",
 		"toolName":  "shell",
 		"turnId":    "turn-1",
@@ -183,8 +272,12 @@ func TestRequestToolApprovalDedupesProcessedRequestID(t *testing.T) {
 		s.approvalMu.Unlock()
 		t.Fatalf("processed approvals = %d, want 1", got)
 	}
-	decision := s.processedApprovals[1]
+	entry := s.processedApprovals[processedApprovalKey("call-1", 1)]
 	s.approvalMu.Unlock()
+	if entry == nil || !entry.done {
+		t.Fatalf("processed approval entry = %#v, want completed entry", entry)
+	}
+	decision := entry.decision
 	if decision.Approved == nil || *decision.Approved {
 		t.Fatalf("cached decision = %#v, want decline", decision)
 	}

@@ -12,6 +12,15 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+type processedApprovalEntry struct {
+	decision contract.ApprovalDecision
+	err      error
+	ready    chan struct{}
+	done     bool
+}
+
+const processedApprovalLimit = 1000
+
 func (s *session) handleApprovalRequest(method string, params json.RawMessage) {
 	if s.approvals == nil {
 		return
@@ -29,14 +38,20 @@ func (s *session) requestToolApproval(method string, params json.RawMessage) err
 	if !ok {
 		return nil
 	}
-	if decision, ok := s.processedApprovalDecision(requestID); ok {
+	key := processedApprovalKey(req.CallID, requestID)
+	entry, owner := s.beginProcessedApproval(key)
+	if !owner {
+		decision, err := waitProcessedApproval(entry)
+		if err != nil {
+			return err
+		}
 		return s.sendApprovalDecision(requestID, decision)
 	}
 	decision, err := s.requestApprovalDecision(req)
+	s.finishProcessedApproval(key, entry, decision, err)
 	if err != nil {
 		return err
 	}
-	s.rememberProcessedApprovalDecision(requestID, decision)
 	return s.sendApprovalDecision(requestID, decision)
 }
 
@@ -69,32 +84,61 @@ func (s *session) approvalPolicyValue() string {
 	return strings.TrimSpace(value)
 }
 
-func (s *session) processedApprovalDecision(requestID int64) (contract.ApprovalDecision, bool) {
-	if s == nil || requestID <= 0 {
-		return contract.ApprovalDecision{}, false
-	}
-	s.approvalMu.Lock()
-	defer s.approvalMu.Unlock()
-	if len(s.processedApprovals) == 0 {
-		return contract.ApprovalDecision{}, false
-	}
-	decision, ok := s.processedApprovals[requestID]
-	if !ok {
-		return contract.ApprovalDecision{}, false
-	}
-	return cloneApprovalDecision(decision), true
-}
-
-func (s *session) rememberProcessedApprovalDecision(requestID int64, decision contract.ApprovalDecision) {
-	if s == nil || requestID <= 0 {
-		return
+func (s *session) beginProcessedApproval(key string) (*processedApprovalEntry, bool) {
+	if s == nil || key == "" {
+		return nil, true
 	}
 	s.approvalMu.Lock()
 	defer s.approvalMu.Unlock()
 	if s.processedApprovals == nil {
-		s.processedApprovals = map[int64]contract.ApprovalDecision{}
+		s.processedApprovals = map[string]*processedApprovalEntry{}
 	}
-	s.processedApprovals[requestID] = cloneApprovalDecision(decision)
+	if entry := s.processedApprovals[key]; entry != nil {
+		return entry, false
+	}
+	if len(s.processedApprovals) >= processedApprovalLimit {
+		s.purgeCompletedProcessedApprovalsLocked()
+	}
+	entry := &processedApprovalEntry{ready: make(chan struct{})}
+	s.processedApprovals[key] = entry
+	return entry, true
+}
+
+func (s *session) purgeCompletedProcessedApprovalsLocked() {
+	for key, entry := range s.processedApprovals {
+		if entry != nil && entry.done {
+			delete(s.processedApprovals, key)
+		}
+	}
+}
+
+func (s *session) finishProcessedApproval(key string, entry *processedApprovalEntry, decision contract.ApprovalDecision, err error) {
+	if s == nil || entry == nil {
+		return
+	}
+	s.approvalMu.Lock()
+	defer s.approvalMu.Unlock()
+	if entry.done {
+		return
+	}
+	entry.decision = cloneApprovalDecision(decision)
+	entry.err = err
+	entry.done = true
+	if err != nil {
+		if current := s.processedApprovals[key]; current == entry {
+			delete(s.processedApprovals, key)
+		}
+	}
+	close(entry.ready)
+}
+
+func (s *session) clearProcessedApprovals() {
+	if s == nil {
+		return
+	}
+	s.approvalMu.Lock()
+	defer s.approvalMu.Unlock()
+	clear(s.processedApprovals)
 }
 
 func (s *session) buildApprovalRequest(method string, payload map[string]any) (rpc.ApprovalRequest, int64, bool) {
@@ -151,6 +195,22 @@ func (s *session) sendApprovalDecision(requestID int64, decision contract.Approv
 func cloneApprovalDecision(decision contract.ApprovalDecision) contract.ApprovalDecision {
 	decision.Detail = append(json.RawMessage(nil), decision.Detail...)
 	return decision
+}
+
+func processedApprovalKey(callID string, requestID int64) string {
+	if requestID <= 0 {
+		return ""
+	}
+	id := strconv.FormatInt(requestID, 10)
+	return firstNonEmpty(callID, id) + ":" + id
+}
+
+func waitProcessedApproval(entry *processedApprovalEntry) (contract.ApprovalDecision, error) {
+	if entry == nil {
+		return contract.ApprovalDecision{}, nil
+	}
+	<-entry.ready
+	return cloneApprovalDecision(entry.decision), entry.err
 }
 
 func isApprovalBridgeMethod(method string) bool {
