@@ -61,6 +61,7 @@ func TestResolvePermissionModeAcceptsLegacyAndNewApprovalPolicies(t *testing.T) 
 		{name: "always", policy: "always", want: "bypassPermissions"},
 		{name: "auto", policy: "auto", want: "bypassPermissions"},
 		{name: "on-failure", policy: "on-failure", want: "default"},
+		{name: "untrusted", policy: "untrusted", want: "default"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := resolvePermissionMode(tc.policy, ""); got != tc.want {
