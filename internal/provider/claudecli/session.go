@@ -31,6 +31,7 @@ type session struct {
 	model           string
 	instructions    string
 	config          cliLaunchConfig
+	rawConfig       map[string]any
 	manifest        dto.MCPManifest
 	cleanup         func()
 	mu              sync.Mutex
@@ -84,6 +85,39 @@ func (s *session) ThreadID() string {
 
 func (s *session) Capabilities() dto.CapabilitySet {
 	return copyCapabilities(s.caps)
+}
+
+func (s *session) RuntimeConfigSnapshot() map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := cloneConfigMap(s.rawConfig)
+	if len(out) == 0 {
+		out = map[string]any{}
+	}
+	if value := strings.TrimSpace(s.model); value != "" {
+		out["model"] = value
+	}
+	if value := strings.TrimSpace(s.instructions); value != "" {
+		out["baseInstructions"] = value
+	}
+	if value := strings.TrimSpace(s.config.ApprovalPolicy); value != "" {
+		out["approvalPolicy"] = value
+	}
+	if value := strings.TrimSpace(s.config.DeveloperInstructions); value != "" {
+		out["developerInstructions"] = value
+	}
+	if value := strings.TrimSpace(s.config.Personality); value != "" {
+		out["personality"] = value
+	}
+	if _, ok := out["sandbox"]; !ok {
+		if value := strings.TrimSpace(s.config.Sandbox); value != "" {
+			out["sandbox"] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {

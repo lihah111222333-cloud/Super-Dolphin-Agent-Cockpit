@@ -2,12 +2,16 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
+
+var interruptSettleTimeout = config.InterruptSettleTimeout
 
 func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (TurnStatus, error) {
 	ctx = normalizeContext(ctx)
@@ -54,17 +58,13 @@ func (s *service) interruptBaseStatus(active activeTurn, tracked bool) TurnStatu
 func (s *service) finishInterrupt(ctx context.Context, active activeTurn, before TurnStatus, start time.Time) (TurnStatus, error) {
 	if s.tracker.MarkInterruptRequested(active.localID) {
 		if err := s.waitForTurnSettle(ctx, active.localID, active.handle); err != nil {
+			if status, ok := s.timeoutInterruptStatus(ctx, err, active, before, start); ok {
+				return status, nil
+			}
 			return TurnStatus{}, err
 		}
 	}
-	after, ok := s.tracker.Get(active.localID)
-	if !ok {
-		after = TurnStatus{
-			LocalID:    active.localID,
-			ProviderID: interruptProviderID(before, active.handle),
-			State:      "interrupted",
-		}
-	}
+	after := s.interruptStatus(active, before, "interrupted")
 	envelope := buildTurnInterruptEnvelope(
 		before.State,
 		after.State,
@@ -74,4 +74,33 @@ func (s *service) finishInterrupt(ctx context.Context, active activeTurn, before
 		interruptConfirmed(after.State),
 	)
 	return attachInterruptEnvelope(after, envelope), nil
+}
+
+func (s *service) interruptStatus(active activeTurn, fallback TurnStatus, defaultState string) TurnStatus {
+	if after, ok := s.tracker.Get(active.localID); ok {
+		return after
+	}
+	return TurnStatus{
+		LocalID:    active.localID,
+		ProviderID: interruptProviderID(fallback, active.handle),
+		State:      defaultState,
+	}
+}
+
+func (s *service) timeoutInterruptStatus(
+	ctx context.Context,
+	err error,
+	active activeTurn,
+	before TurnStatus,
+	start time.Time,
+) (TurnStatus, bool) {
+	if !errors.Is(err, context.DeadlineExceeded) || (ctx != nil && ctx.Err() != nil) {
+		return TurnStatus{}, false
+	}
+	after := s.interruptStatus(active, before, before.State)
+	return attachInterruptEnvelope(after, buildTurnInterruptTimeoutEnvelope(
+		before.State,
+		after.State,
+		time.Since(start).Milliseconds(),
+	)), true
 }

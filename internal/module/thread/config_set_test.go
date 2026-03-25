@@ -76,3 +76,51 @@ func TestServiceSetConfigRejectsInvalidEffort(t *testing.T) {
 		t.Fatalf("configureCalls = %d, want 0", session.configureCalls)
 	}
 }
+
+func TestServiceReadRuntimeConfigUsesSessionSnapshot(t *testing.T) {
+	t.Parallel()
+
+	session := &stubSession{
+		threadID: "thread-1",
+		runtimeConfig: map[string]any{
+			"modelProvider":         "openai",
+			"developerInstructions": "be precise",
+			"sandbox": map[string]any{
+				"type": "workspace-write",
+			},
+			"toolRouting": map[string]any{
+				"mode":                "dynamic",
+				"routerProvider":      "router-x",
+				"confidenceThreshold": 0.9,
+				"timeoutSec":          11,
+			},
+		},
+	}
+	sessions := &stubSessionProvider{session: session}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "thread-1",
+		CodexThreadID:    "thread-1",
+	}}
+	svc, ok := NewService(silentLogger(), nil, bindings, sessions, nil, nil, nil, nil).(*service)
+	if !ok {
+		t.Fatal("NewService() type assertion failed")
+	}
+
+	got, err := svc.ReadRuntimeConfig(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatalf("ReadRuntimeConfig() error = %v", err)
+	}
+	if got["modelProvider"] != "openai" || got["developerInstructions"] != "be precise" {
+		t.Fatalf("ReadRuntimeConfig() = %#v", got)
+	}
+	sandbox, _ := got["sandbox"].(map[string]any)
+	if sandbox["type"] != "workspace-write" {
+		t.Fatalf("sandbox = %#v, want workspace-write", sandbox)
+	}
+	toolRouting, _ := got["toolRouting"].(map[string]any)
+	if toolRouting["mode"] != "dynamic" || toolRouting["routerProvider"] != "router-x" {
+		t.Fatalf("toolRouting = %#v", toolRouting)
+	}
+}

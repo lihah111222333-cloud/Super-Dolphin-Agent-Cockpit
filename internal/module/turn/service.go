@@ -13,7 +13,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 type service struct {
@@ -250,7 +249,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 }
 
 func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle contract.TurnHandle) error {
-	deadline := time.Now().Add(config.InterruptSettleTimeout)
+	deadline := time.Now().Add(interruptSettleTimeout)
 	ctx = normalizeContext(ctx)
 	if err := waitForHandle(ctx, handle, deadline); err != nil && handle != nil {
 		return err

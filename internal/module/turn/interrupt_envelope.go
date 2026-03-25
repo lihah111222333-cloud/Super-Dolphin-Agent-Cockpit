@@ -50,6 +50,18 @@ func buildTurnInterruptEnvelope(
 	}
 }
 
+func buildTurnInterruptTimeoutEnvelope(beforeRaw string, afterRaw string, waitedMS int64) turnInterruptEnvelope {
+	return turnInterruptEnvelope{
+		confirmed:      true,
+		mode:           "interrupt_timeout",
+		interruptSent:  true,
+		stateBefore:    normalizeTurnInterruptState(beforeRaw),
+		stateAfter:     normalizeTurnInterruptState(afterRaw),
+		waitedMS:       waitedMS,
+		activeObserved: true,
+	}
+}
+
 func normalizeTurnInterruptState(raw string) string {
 	state := strings.ToLower(strings.TrimSpace(raw))
 	switch state {

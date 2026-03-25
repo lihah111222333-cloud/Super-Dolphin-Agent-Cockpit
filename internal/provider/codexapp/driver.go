@@ -86,6 +86,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if err != nil {
 		return nil, err
 	}
+	s.setRuntimeConfig(req.Config)
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
 	threadID, err := startRemoteThread(ctx, s.transport, req)
 	if err != nil {
@@ -128,6 +129,7 @@ func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID
 		return
 	}
 	s.setApprovalPolicy(approvalPolicyFromThreadConfig(cfg))
+	s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
 }
 
 func (d *driver) reportRuntime(agentID string) {
