@@ -165,11 +165,6 @@ func isRecoverableDispatchErr(err error) bool {
 	return errors.Is(err, channel.ErrClosed) || errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed)
 }
 
-func isApprovalNotFound(err error) bool {
-	var rpcErr *jrpc2.Error
-	return errors.As(err, &rpcErr) && rpcErr.Code == jrpc2.Code(CodeNotFound)
-}
-
 func decisionReason(decision contract.ApprovalDecision, err error) string {
 	if decision.Reason != "" {
 		return decision.Reason
