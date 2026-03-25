@@ -10,7 +10,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type SessionStarter interface {
@@ -236,43 +235,21 @@ func (s *service) Recover(ctx context.Context, threadID string) error {
 }
 
 func (s *service) persistThreadState(ctx context.Context, state threadState, updateBinding bool) error {
-	var err error
-	var bindingOutcome bindingWriteOutcome
-	if state, err = normalizeThreadState(state); err != nil {
+	state, err := normalizeThreadState(state)
+	if err != nil {
 		return err
 	}
 	if err := s.ensurePublicThreadAvailable(ctx, state); err != nil {
 		return err
 	}
-	if updateBinding && s.bindingStore != nil {
-		if bindingOutcome, err = s.registerThreadBinding(ctx, state); err != nil {
-			return err
-		}
-	}
 	if state.PublicThreadID == "" || state.AgentID == "" {
 		return errors.New("thread and agent ids are required")
 	}
-	if s.threadStore != nil {
-		if err := s.threadStore.Upsert(ctx, threadstore.UpsertParams{
-			ThreadID:      state.PublicThreadID,
-			Prompt:        state.Prompt,
-			Model:         state.Model,
-			Cwd:           state.CWD,
-			Status:        statusCreated,
-			CreatedAt:     state.CreatedAt,
-			UpdatedAt:     time.Now().Unix(),
-			OwnerThreadID: state.OwnerThreadID,
-		}); err != nil {
-			if rollbackErr := s.rollbackThreadBinding(ctx, bindingOutcome); rollbackErr != nil {
-				return errors.Join(err, rollbackErr)
-			}
-			return err
-		}
+	bindingOutcome, err := s.maybeRegisterThreadBinding(ctx, state, updateBinding)
+	if err != nil {
+		return err
 	}
-	s.rememberThreadAgent(state.PublicThreadID, state.AgentID)
-	s.rememberThreadAgent(state.ProviderThreadID, state.AgentID)
-	s.publishThreadStarted(state)
-	return nil
+	return s.persistStartedThread(ctx, state, bindingOutcome)
 }
 
 func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadMeta {

@@ -2,10 +2,12 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func resolveProviderThreadID(threadID, fallback string) string {
@@ -42,4 +44,60 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func (s *service) maybeRegisterThreadBinding(
+	ctx context.Context,
+	state threadState,
+	updateBinding bool,
+) (bindingWriteOutcome, error) {
+	if !updateBinding || s.bindingStore == nil {
+		return bindingWriteOutcome{}, nil
+	}
+	return s.registerThreadBinding(ctx, state)
+}
+
+func (s *service) persistStartedThread(
+	ctx context.Context,
+	state threadState,
+	bindingOutcome bindingWriteOutcome,
+) error {
+	if err := s.upsertPublicThread(ctx, state, bindingOutcome); err != nil {
+		return err
+	}
+	s.rememberStartedThread(state)
+	s.publishThreadStarted(state)
+	return nil
+}
+
+func (s *service) upsertPublicThread(
+	ctx context.Context,
+	state threadState,
+	bindingOutcome bindingWriteOutcome,
+) error {
+	if s.threadStore == nil {
+		return nil
+	}
+	err := s.threadStore.Upsert(ctx, threadstore.UpsertParams{
+		ThreadID:      state.PublicThreadID,
+		Prompt:        state.Prompt,
+		Model:         state.Model,
+		Cwd:           state.CWD,
+		Status:        statusCreated,
+		CreatedAt:     state.CreatedAt,
+		UpdatedAt:     time.Now().Unix(),
+		OwnerThreadID: state.OwnerThreadID,
+	})
+	if err == nil {
+		return nil
+	}
+	if rollbackErr := s.rollbackThreadBinding(ctx, bindingOutcome); rollbackErr != nil {
+		return errors.Join(err, rollbackErr)
+	}
+	return err
+}
+
+func (s *service) rememberStartedThread(state threadState) {
+	s.rememberThreadAgent(state.PublicThreadID, state.AgentID)
+	s.rememberThreadAgent(state.ProviderThreadID, state.AgentID)
 }

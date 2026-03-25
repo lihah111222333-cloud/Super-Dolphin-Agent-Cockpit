@@ -237,33 +237,60 @@ func (s *service) resolveBinding(ctx context.Context, threadID string) (*binding
 	if s.bindingStore == nil {
 		return nil, errors.New("binding store is not configured")
 	}
-	binding, err := s.bindingStore.GetByAgentID(ctx, id)
-	if err == nil {
-		s.rememberBinding(binding)
-		return binding, nil
+	binding, err := s.bindingByAgentID(ctx, id)
+	if binding != nil || err == nil {
+		return binding, err
 	}
-	if agentID := s.lookupPersistedAgentID(ctx, id); agentID != "" && agentID != id {
-		binding, agentErr := s.bindingStore.GetByAgentID(ctx, agentID)
-		if agentErr == nil {
-			s.rememberBinding(binding)
-			return binding, nil
-		}
-	}
-	if agentID := s.lookupThreadAgent(id); agentID != "" && agentID != id {
-		binding, agentErr := s.bindingStore.GetByAgentID(ctx, agentID)
-		if agentErr == nil {
-			s.rememberBinding(binding)
-			return binding, nil
-		}
-	}
-	for _, provider := range []string{"codex", "claude"} {
-		binding, providerErr := s.bindingStore.GetByProviderThread(ctx, provider, id)
-		if providerErr == nil {
-			s.rememberBinding(binding)
+	for _, lookup := range []func(context.Context, string) *bindingstore.Binding{
+		s.bindingByPersistedThreadAgent,
+		s.bindingByRememberedThreadAgent,
+		s.bindingByProviderThreadID,
+	} {
+		if binding := lookup(ctx, id); binding != nil {
 			return binding, nil
 		}
 	}
 	return nil, err
+}
+
+func (s *service) bindingByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error) {
+	binding, err := s.bindingStore.GetByAgentID(ctx, agentID)
+	if err == nil {
+		s.rememberBinding(binding)
+	}
+	return binding, err
+}
+
+func (s *service) bindingByPersistedThreadAgent(ctx context.Context, threadID string) *bindingstore.Binding {
+	agentID := s.lookupPersistedAgentID(ctx, threadID)
+	return s.bindingByResolvedAgentID(ctx, threadID, agentID)
+}
+
+func (s *service) bindingByRememberedThreadAgent(ctx context.Context, threadID string) *bindingstore.Binding {
+	agentID := s.lookupThreadAgent(threadID)
+	return s.bindingByResolvedAgentID(ctx, threadID, agentID)
+}
+
+func (s *service) bindingByResolvedAgentID(ctx context.Context, threadID, agentID string) *bindingstore.Binding {
+	if agentID == "" || agentID == threadID {
+		return nil
+	}
+	binding, err := s.bindingByAgentID(ctx, agentID)
+	if err != nil {
+		return nil
+	}
+	return binding
+}
+
+func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string) *bindingstore.Binding {
+	for _, provider := range []string{"codex", "claude"} {
+		binding, err := s.bindingStore.GetByProviderThread(ctx, provider, threadID)
+		if err == nil {
+			s.rememberBinding(binding)
+			return binding
+		}
+	}
+	return nil
 }
 
 func (s *service) resolveSession(ctx context.Context, threadID string) (contract.Session, *bindingstore.Binding, error) {
