@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
@@ -313,7 +314,7 @@ func (s *service) launchAgent(ctx context.Context, agentID, cwd, name, provider,
 }
 
 func (s *service) stopAgent(ctx context.Context, agentID string) {
-	_ = s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true)
+	shared.LogIgnoredError(s.logger, "stop managed agent failed", s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true))
 }
 
 func (s *service) recoverAgent(ctx context.Context, agentID, cwd, name string) error {

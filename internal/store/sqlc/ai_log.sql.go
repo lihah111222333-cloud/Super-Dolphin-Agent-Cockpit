@@ -174,12 +174,14 @@ SELECT
     model
 FROM derived_logs
 WHERE ($1::text = '' OR category = $1::text)
+  AND ($2::text = '' OR message ILIKE '%' || $2::text || '%')
 ORDER BY ts DESC, id DESC
-LIMIT $2
+LIMIT $3
 `
 
 type ListAILogsByCategoryParams struct {
 	Category   string `db:"category" json:"category"`
+	Keyword    string `db:"keyword" json:"keyword"`
 	LimitCount int32  `db:"limit_count" json:"limit_count"`
 }
 
@@ -209,7 +211,7 @@ type ListAILogsByCategoryRow struct {
 }
 
 func (q *Queries) ListAILogsByCategory(ctx context.Context, arg ListAILogsByCategoryParams) ([]ListAILogsByCategoryRow, error) {
-	rows, err := q.db.Query(ctx, listAILogsByCategory, arg.Category, arg.LimitCount)
+	rows, err := q.db.Query(ctx, listAILogsByCategory, arg.Category, arg.Keyword, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}

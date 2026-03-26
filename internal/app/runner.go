@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 
 	"go.uber.org/fx"
 
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 )
 
@@ -26,17 +28,25 @@ type runtimeParams struct {
 }
 
 func BindRuntime(lc fx.Lifecycle, p runtimeParams) {
-	var cancel context.CancelFunc
+	var (
+		cancel       context.CancelFunc
+		shutdownOnce sync.Once
+	)
 	done := make(chan error, 1)
+	requestShutdown := func() {
+		shutdownOnce.Do(func() {
+			platformshared.LogIgnoredError(p.Logger, "shutdown error", p.Shutdowner.Shutdown())
+		})
+	}
 
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			runCtx, runCancel := context.WithCancel(context.Background())
 			cancel = runCancel
 
-			go func() {
+			platformshared.SafeGo(p.Logger, func() {
 				err := platformrunner.RunGroup(runCtx, p.Runners, platformrunner.GroupOptions{
-					EnableSignals: p.Lifecycle == nil,
+					EnableSignals: false,
 				})
 				done <- err
 				close(done)
@@ -49,8 +59,8 @@ func BindRuntime(lc fx.Lifecycle, p runtimeParams) {
 				}
 
 				// RunGroup returning means the runtime has ended; always stop fx.
-				_ = p.Shutdowner.Shutdown()
-			}()
+				requestShutdown()
+			})
 
 			return nil
 		},

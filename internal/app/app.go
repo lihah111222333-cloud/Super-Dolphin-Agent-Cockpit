@@ -9,6 +9,7 @@ import (
 	"go.uber.org/fx"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -33,7 +34,9 @@ func RunDesktop() error {
 	var lifecycle *uiwails.WailsLifecycle
 
 	app := newDesktopFXApp(fx.Populate(&wailsApp, &lifecycle))
-	if err := app.Start(ctx); err != nil {
+	startCtx, cancel := platformconfig.WithTimeout(ctx, platformconfig.StartupTimeout)
+	defer cancel()
+	if err := app.Start(startCtx); err != nil {
 		return err
 	}
 	if wailsApp == nil {
@@ -55,14 +58,16 @@ func newFXApp(options ...fx.Option) *fx.App {
 	base := []fx.Option{
 		Module,
 		fx.Invoke(BindRuntime),
-		fx.StopTimeout(platformconfig.ShutdownTimeout),
+		// Caller-side start/stop deadlines are applied where App.Start/App.Stop are invoked.
 	}
 	base = append(base, options...)
 	return fx.New(base...)
 }
 
 func runApp(app *fx.App) error {
-	if err := app.Start(context.Background()); err != nil {
+	startCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.StartupTimeout)
+	defer cancel()
+	if err := app.Start(startCtx); err != nil {
 		return err
 	}
 	<-app.Done()
@@ -74,7 +79,7 @@ func newDesktopFXApp(options ...fx.Option) *fx.App {
 		Module,
 		uiwails.Module,
 		fx.Invoke(BindRuntime),
-		fx.StopTimeout(platformconfig.ShutdownTimeout),
+		// Caller-side start/stop deadlines are applied where App.Start/App.Stop are invoked.
 	}
 	base = append(base, options...)
 	return fx.New(base...)
@@ -84,8 +89,7 @@ func stopFXApp(parent context.Context, app *fx.App) error {
 	if parent == nil {
 		parent = context.Background()
 	}
-	// Keep the caller-side hard stop aligned with fx.StopTimeout so shutdown
-	// cannot hang indefinitely outside the lifecycle hook deadline.
+	// Apply a caller-side hard stop so shutdown cannot hang indefinitely.
 	ctx, cancel := platformconfig.WithTimeout(parent, platformconfig.ShutdownTimeout)
 	defer cancel()
 	return app.Stop(ctx)
@@ -93,12 +97,12 @@ func stopFXApp(parent context.Context, app *fx.App) error {
 
 func watchFXShutdown(app *fx.App, lifecycle *uiwails.WailsLifecycle) chan struct{} {
 	stop := make(chan struct{})
-	go func() {
+	platformshared.SafeGo(slog.Default(), func() {
 		select {
 		case <-app.Done():
 			lifecycle.NotifyBackendFailed()
 		case <-stop:
 		}
-	}()
+	})
 	return stop
 }

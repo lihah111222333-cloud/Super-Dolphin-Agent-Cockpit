@@ -246,7 +246,13 @@ func (a *runnerActor) recoverStalledAgents(ctx context.Context, stallDetector *S
 		if !stallDetector.CheckStall(&agent) {
 			continue
 		}
-		if err := a.service.Recover(ctx, agent.id); err != nil {
+		detectedAt := resolveEventTime(ctx, time.Now())
+		stalledFor := time.Duration(0)
+		if !agent.updatedAt.IsZero() && detectedAt.After(agent.updatedAt) {
+			stalledFor = detectedAt.Sub(agent.updatedAt)
+		}
+		a.service.publishTurnStalled(&agent, agent.threadID, agent.activeTurnID, recoverReasonStall, stalledFor, detectedAt)
+		if err := a.service.recoverWithReason(ctx, agent.id, recoverReasonStall); err != nil {
 			a.logger.Warn("orchestration: stalled agent recovery failed", "agent_id", agent.id, "error", err)
 		}
 	}

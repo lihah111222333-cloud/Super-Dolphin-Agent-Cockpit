@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -138,7 +139,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 	}
 	s.startReadLoop(tr)
 	if err := s.awaitResolvedThreadID(ctx); err != nil {
-		_ = s.stop(true)
+		shared.LogIgnoredError(d.logger, "stop failed on start error", s.stop(true))
 		return nil, err
 	}
 	resolvedThreadID := s.ThreadID()

@@ -12,6 +12,12 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 )
 
+const (
+	recoverReasonManual     = "manual"
+	recoverReasonStall      = "stall_detected"
+	turnResumeReasonRecover = "recover_succeeded"
+)
+
 type StallDetector struct {
 	threshold time.Duration
 	logger    *slog.Logger
@@ -31,6 +37,10 @@ func (d *StallDetector) CheckStall(agent *agentRuntime) bool {
 // Recover restarts the agent process and replays persisted DAG-backed work when
 // the stored wakeup is still fenced to the same active turn.
 func (s *service) Recover(ctx context.Context, agentID string) error {
+	return s.recoverWithReason(ctx, agentID, recoverReasonManual)
+}
+
+func (s *service) recoverWithReason(ctx context.Context, agentID, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -38,43 +48,49 @@ func (s *service) Recover(ctx context.Context, agentID string) error {
 	if err != nil {
 		return err
 	}
-	s.publishAgentRecovering(agent, "manual")
-	if err := recoverAgent(ctx, s, agent); err != nil {
+	threadID := agent.threadID
+	turnID := agent.activeTurnID
+	s.publishAgentRecovering(agent, reason)
+	resumed, err := recoverAgent(ctx, s, agent)
+	if err != nil {
 		return err
+	}
+	if resumed {
+		s.publishTurnResumed(agent, threadID, turnID, turnResumeReasonRecover, resolveEventTime(ctx, time.Now()))
 	}
 	s.logger.Info("orchestration: agent recovered", "agent_id", agent.id, "pid", processPID(agent.cmd))
 	return nil
 }
 
-func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) error {
+func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, error) {
 	replay, shouldReplay, err := loadRecoveredTurnSubmission(ctx, s, agent)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := stopProcess(agent.cmd); err != nil {
-		return err
+		return false, err
 	}
 	agent.stopRequested = false
 	agent.activeTurnID = ""
 	agent.monitoredSeq = 0
 	if err := normalizeRecoveryState(ctx, s, agent); err != nil {
-		return err
+		return false, err
 	}
 	if err := s.startProcessLocked(ctx, agent); err != nil {
-		return err
+		return false, err
 	}
 	if !shouldReplay {
-		return nil
+		return false, nil
 	}
 	if err := replayRecoveredTurn(ctx, s, agent, replay); err != nil {
-		return err
+		return false, err
 	}
 	s.logger.Info(
 		"orchestration: queued recovered active turn replay",
 		"agent_id", agent.id,
 		"turn_id", replay.ExpectedTurnID,
 	)
-	return nil
+	return true, nil
 }
 
 func normalizeRecoveryState(ctx context.Context, s *service, agent *agentRuntime) error {

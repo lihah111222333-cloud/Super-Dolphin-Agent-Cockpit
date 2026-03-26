@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
@@ -399,7 +400,7 @@ func (s *service) recordThreadModel(ctx context.Context, threadID, model string)
 	}
 	thread.Model = model
 	thread.UpdatedAt = time.Now().Unix()
-	_ = s.upsertThread(ctx, *thread)
+	shared.LogIgnoredError(s.logger, "upsert thread failed", s.upsertThread(ctx, *thread))
 }
 
 func validateModelName(value string) (string, error) {

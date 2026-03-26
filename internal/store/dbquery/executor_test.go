@@ -158,6 +158,65 @@ func TestExecuteQueryAppliesDBQueryTimeout(t *testing.T) {
 	}
 }
 
+func TestExecuteQueryUsesReadOnlyTransaction(t *testing.T) {
+	t.Parallel()
+
+	tx := &captureTx{rows: emptyRows()}
+	queryer := &beginTxQueryer{tx: tx}
+	_, err := executeQuery(context.Background(), queryer, defaultQueryTimeout, "SELECT * FROM agent_threads WHERE thread_id = $1", "thread-1")
+	if err != nil {
+		t.Fatalf("executeQuery() error = %v", err)
+	}
+	if queryer.beginOptions.AccessMode != pgx.ReadOnly {
+		t.Fatalf("BeginTx() access mode = %q, want %q", queryer.beginOptions.AccessMode, pgx.ReadOnly)
+	}
+	if !tx.committed || tx.rolledBack {
+		t.Fatalf("transaction state commit=%v rollback=%v", tx.committed, tx.rolledBack)
+	}
+	if tx.querySQL != "SELECT * FROM agent_threads WHERE thread_id = $1" {
+		t.Fatalf("tx.Query() sql = %q", tx.querySQL)
+	}
+}
+
+func TestExecuteQueryRollsBackReadOnlyTransactionOnError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("query failed")
+	queryer := &beginTxQueryer{tx: &captureTx{err: wantErr}}
+	_, err := executeQuery(context.Background(), queryer, defaultQueryTimeout, "SELECT * FROM agent_threads")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("executeQuery() error = %v, want %v", err, wantErr)
+	}
+	if queryer.beginOptions.AccessMode != pgx.ReadOnly {
+		t.Fatalf("BeginTx() access mode = %q, want %q", queryer.beginOptions.AccessMode, pgx.ReadOnly)
+	}
+	if !queryer.tx.rolledBack || queryer.tx.committed {
+		t.Fatalf("transaction state commit=%v rollback=%v", queryer.tx.committed, queryer.tx.rolledBack)
+	}
+}
+
+func TestExecuteQueryRollsBackReadOnlyTransactionOnTimeout(t *testing.T) {
+	t.Parallel()
+
+	queryer := &beginTxQueryer{tx: &captureTx{
+		queryFn: func(ctx context.Context, _ string, _ ...any) (pgx.Rows, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}}
+
+	_, err := executeQuery(context.Background(), queryer, 50*time.Millisecond, "SELECT * FROM agent_threads")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("executeQuery() error = %v, want %v", err, context.DeadlineExceeded)
+	}
+	if queryer.beginOptions.AccessMode != pgx.ReadOnly {
+		t.Fatalf("BeginTx() access mode = %q, want %q", queryer.beginOptions.AccessMode, pgx.ReadOnly)
+	}
+	if !queryer.tx.rolledBack || queryer.tx.committed {
+		t.Fatalf("transaction state commit=%v rollback=%v", queryer.tx.committed, queryer.tx.rolledBack)
+	}
+}
+
 func TestQueryRowLimit(t *testing.T) {
 	t.Parallel()
 
@@ -216,6 +275,90 @@ func (q *captureQueryer) Query(_ context.Context, _ string, args ...any) (pgx.Ro
 }
 
 func (*captureQueryer) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
+
+type beginTxQueryer struct {
+	tx           *captureTx
+	beginErr     error
+	beginOptions pgx.TxOptions
+}
+
+func (*beginTxQueryer) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New("beginTxQueryer: exec not implemented")
+}
+
+func (*beginTxQueryer) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("beginTxQueryer: direct query should not be used")
+}
+
+func (*beginTxQueryer) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
+
+func (q *beginTxQueryer) BeginTx(_ context.Context, txOptions pgx.TxOptions) (pgx.Tx, error) {
+	q.beginOptions = txOptions
+	if q.beginErr != nil {
+		return nil, q.beginErr
+	}
+	if q.tx == nil {
+		q.tx = &captureTx{rows: emptyRows()}
+	}
+	return q.tx, nil
+}
+
+type captureTx struct {
+	rows       pgx.Rows
+	err        error
+	querySQL   string
+	queryFn    func(context.Context, string, ...any) (pgx.Rows, error)
+	committed  bool
+	rolledBack bool
+}
+
+func (*captureTx) Begin(context.Context) (pgx.Tx, error) {
+	return nil, errors.New("captureTx: begin not implemented")
+}
+
+func (tx *captureTx) Commit(context.Context) error {
+	tx.committed = true
+	return nil
+}
+
+func (tx *captureTx) Rollback(context.Context) error {
+	tx.rolledBack = true
+	return nil
+}
+
+func (*captureTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
+	return 0, errors.New("captureTx: copyfrom not implemented")
+}
+
+func (*captureTx) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults { return nil }
+
+func (*captureTx) LargeObjects() pgx.LargeObjects { return pgx.LargeObjects{} }
+
+func (*captureTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
+	return nil, errors.New("captureTx: prepare not implemented")
+}
+
+func (*captureTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New("captureTx: exec not implemented")
+}
+
+func (tx *captureTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	tx.querySQL = sql
+	if tx.queryFn != nil {
+		return tx.queryFn(ctx, sql, args...)
+	}
+	if tx.err != nil {
+		return nil, tx.err
+	}
+	if tx.rows != nil {
+		return tx.rows, nil
+	}
+	return emptyRows(), nil
+}
+
+func (*captureTx) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
+
+func (*captureTx) Conn() *pgx.Conn { return nil }
 
 type stubRows struct {
 	fields []pgconn.FieldDescription

@@ -79,8 +79,9 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 ├── gopls/                                 # gopls 管理 (~2,510 = C1:580 + C2:900 + E:1030)
 │   ├── client.go                          #   LSP 客户端封装 (~360)
 │   ├── transport.go                       #   stdio 传输层 (~220)
-│   ├── manager.go                         #   生命周期管理 + ensureClient (~410)
-│   ├── manager_symbols.go                 #   符号查询 + md/json/yaml fallback (~400)
+│   ├── manager.go                         #   Manager 主体 + workspace 路由 (~280)
+│   ├── manager_lifecycle.go               #   生命周期管理 + ensureClient (~130)
+│   ├── manager_symbols.go                 #   符号查询主路径 (~250)
 │   ├── bootstrap_doc.go                   #   文档 bootstrap + sibling (~280)
 │   ├── state.go                           #   bootstrap 状态机 (~210)
 │   ├── pool.go                            #   进程池 (~180)
@@ -96,7 +97,8 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 │   ├── tool_structure.go                  #   lsp_structure: doc_symbol/ws_symbol (~300)
 │   ├── tool_completion.go                 #   lsp_completion (~220)
 │   ├── tool_diagnostics.go                #   diagnostics 子 handler (~200)
-│   ├── tool_edit.go                       #   lsp_edit: replace_range/rename/format (~560)
+│   ├── tool_edit.go                       #   lsp_edit: rename/code_action/format 主 handler (~280)
+│   ├── tool_edit_replace.go               #   replace_range 多 hunk 应用与回滚 (~280)
 │   ├── tool_coderun.go                    #   code_run handler (~200)
 │   └── tool_coderuntest.go                #   code_run_test handler (~220)
 │
@@ -154,7 +156,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 **关键行为**:
 - `read_file` 不需要 gopls (`requireManager=false`, V2 tool_handlers_file.go:479)
 - 批量上限 `lspReadFileBatchMax=10`，载荷上限 `16KB`
-- 5 级安全门: 存在性 → 大小(2MB) → 二进制检测(512B 采样) → 行数(2000) → 编码
+- 安全门: Lstat 存在性 → 拒绝 symlink → 拒绝 non-regular file → 大小(2MB) → 二进制检测(512B NUL 采样)
 - 渐进式裁剪 `encodeBatchReadPayload`: 先截内容后截文件数 (T7)
 
 ### 3.2 lsp_inspect
@@ -164,7 +166,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 | Action | 参数 | 输出格式 |
 |---|---|---|
 | `hover` | `file_path, line, column` | 原始字符串; 空: `"no hover info available"` |
-| `definition` | `file_path, line, column` | `[]LocationResult{file, line, col, func_start?, func_end?}` |
+| `definition` | `file_path, line, column` | `[]LocationResult{file, line, col, end_line?, end_col?, func_start?, func_end?}` |
 | `implementation` | `file_path, line, column` | 同 definition |
 | `type_definition` | `file_path, line, column` | 同 definition |
 | `signature_help` | `file_path, line, column` | `{signatures[], activeSignature?, activeParameter?}` |
@@ -227,7 +229,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 
 | Action | 参数 | 输出格式 |
 |---|---|---|
-| `replace_range` | `file_path, patch?, new_text?, edits?: [{old_string, new_string}], dry_run?, force?` | 成功: `{matched_by, resolved_*, edit_context, func_start?, func_end?}` |
+| `replace_range` | `file_path, patch?, new_text?, edits?: [{old_string, new_string}], dry_run?` | 成功: `{matched_by, resolved_*, edit_context, func_start?, func_end?}` |
 | `rename` | `file_path, line, column, new_name, force?` | `{success, applied, applied_count, message}` |
 | `code_action` | `file_path, line, column, only?` | `[]CodeActionResult` |
 | `format` | `file_path` | `[]TextEdit{range, newText}` |
@@ -235,6 +237,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 **关键行为**:
 - replace_range 是最重模块：patch 解析 → seek_sequence 4-pass → 上下文匹配
 - 安全限制：替换体 256KB，文件内容 4MB，强制绕过 2MB
+- `force` 不暴露为外部参数；V2 的 `force` 语义是内部 didChange 自动设置（内容 ≤2MB 时 `force=true`）
 - 必须返回 `func_start/func_end/func_body`（enclosing function context）
 - dry_run 模式返回预览不执行
 
@@ -246,7 +249,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 |---|---|
 | `file_path, line, column, verbosity?, max_results?` | compact: `{data:[{label,kind?,detail?}], total, showing}`; full: `[]CompletionItem` |
 
-**关键行为**: compact 上限 `lspCompletionCompactLimit=20`
+**关键行为**: compact 默认值 `lspCompletionCompactLimit=20`（显式 `max_results` 可覆盖，最终 clamp 到 `XRefResultLimit=50`）
 
 ### 3.8 code_run
 
@@ -259,6 +262,8 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 **关键行为**:
 - 审批不在 LSP 层（共识#12），V2 实际使用 `approvals.AwaitApproval` (code_run.go:95)，
   V3 需根据新架构重新设计审批接口
+- V3 接法：tool/MCP handler 层构造 `ApprovalRequest{ToolName:"code_run", Kind:"tool", CallbackMethod:"item/commandExecution/requestApproval", Payload:{mode, command, is_dangerous, work_dir}}`，调用 `ApprovalManager.RequestApproval`
+- 注意：无 bridge+server 时 V3 自动 decline；`policy=never` 只对 `request_user_input` 生效，不自动放行普通 tool approval
 - run 模式支持 Go/JavaScript/TypeScript, auto_wrap 默认 true
 
 ### 3.9 code_run_test
@@ -270,6 +275,8 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 | `test_func, test_pkg?, timeout?` | 同 code_run |
 
 **关键行为**: 底层复用 code_run 执行引擎，自动构造 `go test -run` 命令
+
+硬约束：V3 必须保留结构化 test mode（独立 handler + `CodeRunRequest{Mode:"test", TestFunc, TestPkg}`），不得把 `code_run_test` 降级为字符串拼 shell 再转发到 `project_cmd`。
 
 ---
 
@@ -300,7 +307,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 
 ### 共识 #4: display 坐标转换 (~200 行) 必须包含
 
-- **行为**: LSP 0-based 坐标 → 1-based 用户坐标 + 路径规范化 + 输出美化
+- **行为**: LSP 0-based 坐标 → 1-based 用户坐标 + 输出美化；路径规范化不在 `display.go`，在 search 层
 - **V2 证据**: `tool_handlers_display.go` (522行) — 全部计划初始都遗漏，Claude#2 首先发现
 - **V3 实现**: `format/display.go` (~200行)
 - **禁止**: 直接输出 0-based 坐标
@@ -321,7 +328,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 
 ### 共识 #7: markdown/json/yaml symbol fallback 必须
 
-- **行为**: 对非 Go 文件提供基于正则的 symbol 提取 (heading/key/anchor)
+- **行为**: 对非 Go 文件提供基于正则的 symbol 提取 (heading/key/indent symbol)
 - **V2 证据**: `manager_markdown_symbols.go` (483行)
 - **V3 实现**: `gopls/manager_symbols.go` (~400行, 含 fallback 逻辑)
 - **禁止**: 只支持 gopls 能处理的语言
@@ -344,8 +351,8 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 ### 共识 #10: diagnostics waitStable (80ms/40ms/800ms) + generation tracking 必须
 
 - **行为**: 等待 gopls diagnostics 稳定后才返回 — 80ms 初始延迟 → 40ms 轮询间隔 → 800ms 最大等待
-- **generation 跟踪**: V2 使用 `atomic.Uint64` 计数器 (`diagGeneration`) 实现诊断代次跟踪，
-  确保 didChange 后只处理最新一代的 diagnostics 回调，丢弃过期代次的结果。
+- **generation 跟踪**: V2 使用 `atomic.Uint64` 计数器 (`diagGeneration`) 实现诊断代次跟踪。
+  generation 仅在 runtime reset 时推进，didChange 路径不推进 generation；发布 diagnostics 时按当前 runtime generation 过滤，丢弃过期 runtime 的结果。
   关键函数: `currentDiagnosticGeneration()`, `advanceDiagnosticGeneration()`,
   `publishDiagnosticsForGeneration(generation)`, `setDiagnosticsForGeneration(uri, diags, generation)`
   (V2 manager_diagnostics.go:11-49)

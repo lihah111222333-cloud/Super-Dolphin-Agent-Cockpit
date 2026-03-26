@@ -11,13 +11,8 @@ var Module = fx.Module(
 	"bus",
 	fx.Provide(
 		NewDispatcher,
-		NewAgentEmitters,
 		NewThreadEmitters,
-		NewTurnEmitters,
-		NewToolEmitters,
-		NewTaskEmitters,
 		NewWorkspaceEmitters,
-		NewUIEmitters,
 		NewLogSink,
 	),
 	fx.Invoke(registerLifecycle),

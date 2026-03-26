@@ -15,6 +15,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -90,7 +91,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
 	threadID, err := startRemoteThread(ctx, s.transport, req)
 	if err != nil {
-		_ = s.ForceStop()
+		shared.LogIgnoredError(d.logger, "force stop failed on start error", s.ForceStop())
 		return nil, err
 	}
 	s.setThreadID(threadID)
@@ -105,7 +106,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	}
 	threadID, err := resumeRemoteThread(ctx, s.transport, req)
 	if err != nil {
-		_ = s.ForceStop()
+		shared.LogIgnoredError(d.logger, "force stop failed on resume error", s.ForceStop())
 		return nil, err
 	}
 	s.setThreadID(threadID)

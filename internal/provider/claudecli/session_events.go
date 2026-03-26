@@ -8,10 +8,11 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func (s *session) startReadLoop(tr *transport) {
-	go func() {
+	platformshared.SafeGo(s.logger, func() {
 		for {
 			line, err := tr.Receive()
 			if err != nil {
@@ -27,7 +28,7 @@ func (s *session) startReadLoop(tr *transport) {
 				s.applyRaw(tr, raw)
 			}
 		}
-	}()
+	})
 }
 
 func (s *session) rawBase() rawBase {

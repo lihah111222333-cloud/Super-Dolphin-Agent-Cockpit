@@ -102,7 +102,9 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 	if s.ctx.Err() != nil {
 		return
 	}
-	go func() { _ = s.attemptRecovery(reason) }()
+	shared.SafeGo(s.logger, func() {
+		shared.LogIgnoredError(s.logger, "background recovery failed", s.attemptRecovery(reason))
+	})
 }
 
 func (s *session) attemptRecovery(reason string) error {
@@ -257,7 +259,7 @@ func shouldReconnect(err error) bool {
 }
 
 func (s *session) startHealthLoop() {
-	go func() {
+	shared.SafeGo(s.logger, func() {
 		ticker := time.NewTicker(healthCheckInterval)
 		defer ticker.Stop()
 		for {
@@ -268,7 +270,7 @@ func (s *session) startHealthLoop() {
 				s.checkIdleHealth()
 			}
 		}
-	}()
+	})
 }
 
 func (s *session) checkIdleHealth() {
@@ -280,10 +282,10 @@ func (s *session) checkIdleHealth() {
 		return
 	} else if s.logger != nil {
 		s.logger.Warn("codexapp: health check failed", "error", err)
-		_ = s.attemptRecovery("health check failed: " + err.Error())
+		shared.LogIgnoredError(s.logger, "health check recovery failed", s.attemptRecovery("health check failed: "+err.Error()))
 		return
 	}
-	_ = s.attemptRecovery("health check failed")
+	shared.LogIgnoredError(s.logger, "health check recovery failed", s.attemptRecovery("health check failed"))
 }
 
 func (s *session) noteReadActivity() {
