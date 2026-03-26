@@ -70,7 +70,7 @@
 | **B2** | `StopAllAgents/archive/delete` 统一停机 | ✅ 已交付 | runner shutdown 补 handleProcessExit；**已知残留：waitForProcessExit 无超时的理论竞态窗口，放第二批修** |
 | **B3** | claude reconnect / reinitialize | ✅ 已交付 | threadReady/threadReadyOnce 重建 + 等新 transport ready，-race 通过 |
 | **B4** | codex transport 进程契约 | ✅ 已交付 | Setpgid + readiness probe + stderr collector + orphan cleanup + SIGTERM→grace→SIGKILL + atomic.Bool 修竞态，-race 通过 |
-| **B5** | approval 阻塞等待态策略落地 | ⏸️ 等人工定策略 | 方案 A（新增状态）vs 方案 B（扩大 Kind 匹配）未决 |
+| **B5** | approval 阻塞等待态策略落地 | ✅ 方案 B 确认 | R1 已实现 Kind 扩展匹配（`tool`+`request_user_input`），UI 按 Kind 区分审批/输入，无需新增状态 |
 | **B6** | DAG 锁 / wakeup fencing | ✅ 已交付 | ClaimedBy/LeaseExpiresAt 补传 + active_wakeup_id 贯穿 + 正向 fence 测试 + CC 降到≤10 |
 | **D0** | golden test 框架 | ✅ 已交付 | helper + 3 个示例 case 按业务域分布（orchestration/transport/archtest） |
 
@@ -79,7 +79,7 @@
 | # | 问题 | 归因 | 说明 |
 |---|------|------|------|
 | R1 | B2 waitForProcessExit 无超时理论竞态窗口 | B2 | 修复前 100% 卡死，修复后仅极小窗口。第二批加超时彻底封死 |
-| R2 | B5 approval 等待态策略未决 | B5 | 等老公定方案 A/B |
+| R2 | B5 approval 等待态策略已决 | B5 | ✅ 方案 B 确认，R1 已落地 |
 | R3 | SqlcBoundary 4 项违规（dashboard/uistate） | 预存 | 非本批引入，记录待修 |
 
 ### B1: `TurnInterrupted` 独立终态闭环
@@ -626,7 +626,7 @@
 
 | # | 问题 | 状态 | 说明 |
 |---|------|------|------|
-| 1 | P1-16 (B5) approval 阻塞等待态 | ⏸️ 等人工定策略 | 方案 A/B 未决，从第一批延续 |
+| 1 | P1-16 (B5) approval 阻塞等待态 | ✅ 方案 B 确认 | R1 已实现 Kind 扩展匹配，UI 按 Kind 区分，2026-03-27 人工确认关闭 |
 | 2 | A4-γ Timeline 投影 | ⏸️ 可选推迟 | ~400-500行高耦合，第三批标记为放第四批但未列入 |
 | 3 | D1 config/read 完整离线 merge | ⏸️ | A1 基础已建，完整 V2 runtime merge 待补 |
 

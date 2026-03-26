@@ -82,6 +82,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 │   ├── manager.go                         #   Manager 主体 + workspace 路由 (~280)
 │   ├── manager_lifecycle.go               #   生命周期管理 + ensureClient (~130)
 │   ├── manager_symbols.go                 #   符号查询主路径 (~250)
+│   ├── manager_symbols_fallback.go        #   markdown/json/yaml fallback (~250)
 │   ├── bootstrap_doc.go                   #   文档 bootstrap + sibling (~280)
 │   ├── state.go                           #   bootstrap 状态机 (~210)
 │   ├── pool.go                            #   进程池 (~180)
@@ -115,7 +116,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 │   └── replaceutil.go                     #   replace_range 辅助 (~210)
 │
 ├── search/                                # 搜索子系统 (~430)
-│   ├── fileutil.go                        #   文件读取+5级安全门 (~210)
+│   ├── fileutil.go                        #   文件读取+安全门 (~210)
 │   └── searchutil.go                      #   搜索匹配+排除+裁剪 (~220)
 │
 ├── exec/                                  # 执行子系统 (~220)
@@ -156,7 +157,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 **关键行为**:
 - `read_file` 不需要 gopls (`requireManager=false`, V2 tool_handlers_file.go:479)
 - 批量上限 `lspReadFileBatchMax=10`，载荷上限 `16KB`
-- 安全门: Lstat 存在性 → 拒绝 symlink → 拒绝 non-regular file → 大小(2MB) → 二进制检测(512B NUL 采样)
+- 安全门: Lstat 存在性 → 拒绝 symlink → 拒绝非 regular file → 大小(2MB) → 二进制检测(512B NUL 采样)
 - 渐进式裁剪 `encodeBatchReadPayload`: 先截内容后截文件数 (T7)
 
 ### 3.2 lsp_inspect
@@ -210,7 +211,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 | Action | 参数 | 输出格式 |
 |---|---|---|
 | `document_symbol` | `file_path, verbosity?` | 符号树 |
-| `workspace_symbol` | `query (required), file_path?, language?, verbosity?, max_results?` | compact 上限20 |
+| `workspace_symbol` | `query (required), file_path?, language?, verbosity?, max_results?` | compact 默认值20（显式 max_results 可覆盖） |
 | `folding_range` | `file_path` | 折叠范围列表 |
 | `semantic_tokens` | `file_path, max_results?` | 上限200 |
 
@@ -330,7 +331,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 
 - **行为**: 对非 Go 文件提供基于正则的 symbol 提取 (heading/key/indent symbol)
 - **V2 证据**: `manager_markdown_symbols.go` (483行)
-- **V3 实现**: `gopls/manager_symbols.go` (~400行, 含 fallback 逻辑)
+- **V3 实现**: `gopls/manager_symbols.go` (~250行) + `gopls/manager_symbols_fallback.go` (~250行)
 - **禁止**: 只支持 gopls 能处理的语言
 
 ### 共识 #8: cache_store 必须 (内存默认 + env-gated persistent)
@@ -387,8 +388,8 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 | T1 | formatFileContent | formatFileContent | 按 limit 截断行数，附加 `[showing lines X-Y of Z total]` | tool_handlers_file.go:432 |
 | T2 | batchReadPayloadCap | encodeBatchReadPayload | 批量读取总载荷 ≤16KB，超出截断 | tool_handlers_file.go |
 | T3 | searchMatchesCap | filterAndCapSearchMatches | 搜索结果按 max_results 裁剪 | tool_handlers_search.go |
-| T4 | symbolResultsCap | limitResults | workspace_symbol 结果上限 20 (compact) | tool_handlers_compact.go |
-| T5 | completionCap | limitResults | 补全结果上限 20 (compact) | tool_handlers_compact.go |
+| T4 | symbolResultsCap | limitResults | workspace_symbol compact 默认 20（显式 max_results 可覆盖） | tool_handlers_compact.go |
+| T5 | completionCap | limitResults | 补全 compact 默认 20（显式 max_results 可覆盖） | tool_handlers_compact.go |
 | T6 | referencesCap | limitResults | 引用上限 30(compact) / XRef 50 | tool_handlers_compact.go + protocol_ext_common.go |
 | T7 | encodeBatchReadPayload | encodeBatchReadPayload | 渐进式裁剪: 先截内容长度，再截文件数 (19行核心) | tool_handlers_file.go |
 | T8 | filterAndCapSearchMatches | filterAndCapSearchMatches | 排除模式匹配 + 裁剪到上限 (29行核心) | tool_handlers_search.go |
@@ -398,7 +399,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 
 | ID | V3名称 | V2原名 | 行为 | V2 参考文件 |
 |---|---|---|---|---|
-| F1 | readToolFileContent | readToolFileContent | 5 级安全门: 存在→大小(2MB)→二进制(512B采样)→行数(2000)→编码 (45行核心) | tool_handlers_file.go |
+| F1 | readToolFileContent | readToolFileContent | 安全门: Lstat 存在性→拒绝 symlink→拒绝非 regular file→大小(2MB)→二进制(512B NUL 采样) (45行核心) | tool_handlers_file.go |
 | F2 | guardReplaceRangeContentSize | guardReplaceRangeContentSize | 替换体 256KB + 文件内容 4MB + 强制绕过 2MB | tool_handlers_edit.go:431 |
 | F3 | guardLargeDidChange | guardLargeDidChange | 大文件(>200行) didChange 性能告警 | tool_handlers_edit_flow.go:41 |
 
@@ -508,11 +509,11 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 | **A** 协议+输出 | protocol/ + format/ | ~1,040 | 9 | 无 |
 | **B** Patch引擎 | edit/ (patchparse+patchmatch+seeksequence+replaceutil) | ~776 | 4 | 无 |
 | **C1** 客户端 | gopls/client + gopls/transport | ~580 | 2 | A |
-| **C2** 管理器核心 | gopls/manager + gopls/manager_symbols + gopls/gomod | ~900 | 3 | A (C1用interface) |
+| **C2** 管理器核心 | gopls/manager + manager_lifecycle + manager_symbols + manager_symbols_fallback + gomod | ~900 | 5 | A (C1用interface) |
 | **E** Bootstrap+健康 | gopls/bootstrap_doc + gopls/state + gopls/pool + gopls/recycler + gopls/cache | ~1,030 | 5 | C2 |
 | **D** 文件+搜索+诊断 | tools/tool_file + tools/tool_grep + tools/tool_diagnostics + search/ + middleware/budget | ~1,220 | 6 | C2 |
 | **F** 导航+结构+补全 | tools/tool_inspect + tools/tool_xref + tools/tool_structure + tools/tool_completion | ~1,060 | 4 | C2+A |
-| **G** 编辑+执行+胶水 | tools/tool_edit + tools/tool_coderun + tools/tool_coderuntest + exec/sandbox + middleware/ | ~1,420 | 7 | C2+B |
+| **G** 编辑+执行+胶水 | tools/tool_edit + tool_edit_replace + tools/tool_coderun + tools/tool_coderuntest + exec/sandbox + middleware/ | ~1,420 | 8 | C2+B |
 | **V** 验证 | build+vet+archtest+schema+冒烟+修复 | ~测试 | - | 全部 |
 
 **均衡度**: σ=227 (CV=23%), 远优于单人分工的 σ=695
@@ -527,12 +528,12 @@ t=0.0h   ┌─ S 骨架 (~0.5h) ───────── cmd/mcp-lsp/ 4文�
          └─ B Patch引擎 (~1.0h) ──── edit/ 4文件
               │
 t=1.0h       ├─ C1 客户端 (~0.75h) ── gopls/client + transport
-              └─ C2 管理器 (~0.75h) ── gopls/manager + manager_symbols + gomod
+              └─ C2 管理器 (~0.75h) ── gopls/manager + manager_lifecycle + manager_symbols + manager_symbols_fallback + gomod
                    │
 t=1.75h          ├─ D 文件+搜索 (~1.5h) ── tools/tool_file + tool_grep + tool_diagnostics + search/
                   ├─ E Bootstrap (~1.25h) ─ gopls/bootstrap_doc + state + pool + recycler + cache
                   ├─ F 导航+结构 (~1.25h) ─ tools/tool_inspect + tool_xref + tool_structure + tool_completion
-                  └─ G 编辑+执行 (~1.75h) ─ tools/tool_edit + tool_coderun + tool_coderuntest + exec/ + middleware/
+                  └─ G 编辑+执行 (~1.75h) ─ tools/tool_edit + tool_edit_replace + tool_coderun + tool_coderuntest + exec/ + middleware/
                        │
 t=3.5h               V 验证 (~2.0h) ──── build + vet + archtest + schema + 冒烟测试 + 修复
                        │
@@ -574,7 +575,7 @@ t=5.5h           ✅ 完成
 | protocol/codec.go | ~130 | JSON-RPC 2.0 编解码 (Request/Response/Notification) |
 | protocol/ext.go | ~130 | LocationResult, CompactLocation, GroupedResult 等扩展类型 |
 | protocol/notification.go | ~90 | publishDiagnostics/logMessage 通知分发 |
-| format/display.go | ~200 | 0-based→1-based 坐标转换 + 路径规范化 |
+| format/display.go | ~200 | 0-based→1-based 坐标转换 + URI→路径 |
 | format/compact.go | ~120 | compact 输出模式序列化 |
 | format/funcrange.go | ~80 | func_start/func_end 计算 |
 | format/render.go | ~120 | JSON/表格/纯文本 渲染工具 |
@@ -588,7 +589,7 @@ t=5.5h           ✅ 完成
 | edit/patchparse.go | ~230 | Parse(单hunk) + ParseMulti(多hunk) unified diff 解析 |
 | edit/patchmatch.go | ~190 | 多 hunk 匹配 + 歧义检测 + 两级 fallback |
 | edit/seeksequence.go | ~146 | 4-pass 上下文定位: exact→trimRight→trimBoth→unicodeNorm |
-| edit/replaceutil.go | ~210 | offset 计算 + 行号转换 + 替换预览 + enclosing function |
+| edit/replaceutil.go | ~210 | offset→行号转换 + 替换预览 + edit context 构建 |
 
 **V2 参考**: `patch/parser.go`, `replace_range_context.go`, `seek_sequence.go`, `replace_range_runtime.go`
 
@@ -602,12 +603,14 @@ t=5.5h           ✅ 完成
 **V2 参考**: `client.go` (491行), `client_transport.go` (126行), `client_tools.go` (225行)
 **依赖**: A (protocol/ 类型)
 
-#### Agent C2 — 管理器核心 (~900行, 3文件)
+#### Agent C2 — 管理器核心 (~900行, 5文件)
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
-| gopls/manager.go | ~410 | 生命周期管理 + ensureClient 双重检查锁 + workspace 路由 |
-| gopls/manager_symbols.go | ~400 | 符号查询封装 + markdown/json/yaml fallback |
+| gopls/manager.go | ~280 | Manager 主体 + workspace 路由 |
+| gopls/manager_lifecycle.go | ~130 | 生命周期管理 + ensureClient 双重检查锁 |
+| gopls/manager_symbols.go | ~250 | 符号查询主路径 |
+| gopls/manager_symbols_fallback.go | ~250 | markdown/json/yaml fallback |
 | gopls/gomod.go | ~90 | go.mod root 发现 (用于 workspace 分区) |
 
 **V2 参考**: `manager.go` (591行), `manager_markdown_symbols.go` (483行), `gomod_root.go` (83行)
@@ -633,7 +636,7 @@ t=5.5h           ✅ 完成
 | tools/tool_file.go | ~270 | lsp_file handler: open/read(单+批量)/diagnostics 分发 |
 | tools/tool_grep.go | ~220 | lsp_grep handler: text_search + ast_search（sg 不可用时返回错误） |
 | tools/tool_diagnostics.go | ~200 | diagnostics 子handler: waitStable + reactive bootstrap |
-| search/fileutil.go | ~210 | 5级安全门 + 文件读取 + 二进制检测 |
+| search/fileutil.go | ~210 | 安全门 + 文件读取 + 二进制检测 |
 | search/searchutil.go | ~220 | 搜索匹配 + filterAndCapSearchMatches + 排除模式 |
 | middleware/budget.go | ~100 | 输出预算兜底 |
 
@@ -652,11 +655,12 @@ t=5.5h           ✅ 完成
 **V2 参考**: `tool_handlers_core.go` (895行), `tool_handlers_p1_outputs.go` (258行), `tool_handlers_navigation.go` (155行)
 **依赖**: C2 + A
 
-#### Agent G — 编辑+执行+胶水 (~1,420行, 7文件)
+#### Agent G — 编辑+执行+胶水 (~1,420行, 8文件)
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
-| tools/tool_edit.go | ~560 | lsp_edit: replace_range/rename/code_action/format |
+| tools/tool_edit.go | ~280 | lsp_edit: rename/code_action/format 主 handler |
+| tools/tool_edit_replace.go | ~280 | replace_range: 多 hunk 应用 + 回滚 |
 | tools/tool_coderun.go | ~200 | code_run: run/project_cmd 模式 |
 | tools/tool_coderuntest.go | ~220 | code_run_test: go test 封装 |
 | exec/sandbox.go | ~220 | 命令执行: timeout + work_dir + output capture |
@@ -717,7 +721,8 @@ fx.go 已包含函数: run(), newBootstrapRunner(), bindRuntime()。
 
 ## 约束
 - 守卫: ≤400行/文件, ≤80行/函数, CC≤10
-- 无外部依赖，S 可独立完成
+- 装配模式：仿照 `cmd/mcp-orch/runtime.go`，定义 `registryToolProvider` + `newStdioRunner`，由 `common.NewServer` 装配 stub server
+- 无跨 Agent 依赖，S 可独立完成
 - tools.go 中 9 个工具名必须精确: lsp_file, lsp_inspect, lsp_xref, lsp_grep,
   lsp_structure, lsp_edit, lsp_completion, code_run, code_run_test
 - handler 暂用 stub (返回 "not implemented")
@@ -746,7 +751,7 @@ go build ./cmd/mcp-lsp/...
 5. notification.go (~90行) — publishDiagnostics/logMessage 通知处理
 
 ### format/
-6. display.go (~200行) — 0-based→1-based 坐标转换 + URI→路径 + 路径规范化
+6. display.go (~200行) — 0-based→1-based 坐标转换 + URI→路径
 7. compact.go (~120行) — compact 输出序列化 (lspCompactList/lspGroupedLocationResult)
 8. funcrange.go (~80行) — func_start/func_end 基础计算
 9. render.go (~120行) — JSON/表格/带行号文本 渲染工具
@@ -780,7 +785,7 @@ go build ./cmd/mcp-lsp/...
 1. edit/patchparse.go (~230行) — Parse(单hunk) + ParseMulti(多hunk) unified diff 解析
 2. edit/patchmatch.go (~190行) — 多 hunk 匹配 + 歧义检测 + 两级 fallback
 3. edit/seeksequence.go (~146行) — 4-pass 上下文定位算法
-4. edit/replaceutil.go (~210行) — offset→行号转换 + 替换预览 + enclosing function 定位
+4. edit/replaceutil.go (~210行) — offset→行号转换 + 替换预览 + edit context 构建
 
 ## V2 参考文件 (关键算法必须行为对等)
 - go-agent-v2/pkg/toolsdk/lsp/patch/parser.go — Parse(119行) + ParseMulti(121行)
@@ -810,7 +815,7 @@ go build ./cmd/mcp-lsp/...
 ## 共识约束
 - #5: patch 三件套全量，不可简化
 - #6: seek_sequence 4-pass 全量，禁止只实现 exact match
-- replaceutil.go 须提供 enclosing function 计算 (与 format/funcrange.go 配合)
+- replaceutil.go 负责 offset→行号转换 + 替换预览 + edit context 构建
 
 ## 守卫
 ≤400行/文件, ≤80行/函数, CC≤10
@@ -835,16 +840,21 @@ go build ./cmd/mcp-lsp/...
    - notify(method, params) 单向通知
    - didOpen/didChange/didClose 文件同步
    - capability negotiation: 必须注册以下 11+1 capabilities (V2 client.go:99-135):
-     TextDocument: PublishDiagnostics, Hover, Completion, Rename(prepareSupport),
+     TextDocument: PublishDiagnostics, Hover, Completion, Rename,
      CallHierarchy, TypeHierarchy, CodeAction, SignatureHelp, Formatting,
-     FoldingRange, SemanticTokens (full+delta, 22 tokenTypes, 10 modifiers)
+     FoldingRange, SemanticTokens
      Workspace: WorkspaceFolders
+     必须注册的子字段：PublishDiagnostics.RelatedInformation, Hover.ContentFormat,
+     Completion.DynamicRegistration, Rename.PrepareSupport, CallHierarchy.DynamicRegistration,
+     TypeHierarchy.DynamicRegistration, CodeAction.DynamicRegistration, SignatureHelp.DynamicRegistration,
+     Formatting.DynamicRegistration, FoldingRange.DynamicRegistration,
+     SemanticTokens.DynamicRegistration + Requests.Range + Requests.Full.Delta + Formats=["relative"]
 2. gopls/transport.go (~220行) — stdio JSON-RPC 传输
    - cmd.Start + stdin/stdout pipe
    - reader goroutine: 循环读 Content-Length header + JSON body
-   - pending map: id → chan response
-   - notification callback
-   - close + process kill
+   - 请求 ID 分配 + 写入前注册 pending
+   - 返回/超时/cancel 后删除 pending，close 时 clearPending
+   - notification callback + stdin 写锁串行化 + process kill
 
 ## V2 参考文件
 - go-agent-v2/pkg/toolsdk/lsp/client.go (491行) — Client 主体
@@ -877,23 +887,25 @@ go build ./cmd/mcp-lsp/...
 你是 P9-C2 Agent，负责实现 gopls 生命周期管理器。
 
 ## 任务
-创建 gopls/manager.go (~410行) + gopls/manager_symbols.go (~400行) + gopls/gomod.go (~90行)，
+创建 gopls/manager.go (~280行) + gopls/manager_lifecycle.go (~130行) + gopls/manager_symbols.go (~250行) + gopls/manager_symbols_fallback.go (~250行) + gopls/gomod.go (~90行)，
 总计 ~900 行。
 
 ## 输出文件
-1. gopls/manager.go (~410行) — Manager
-   - ensureClient(cfg) 双重检查锁 (共识#1)
+1. gopls/manager.go (~280行) — Manager 主体
    - workspace 路由: 按 go.mod root 分配 client
    - ensureClientForFile(path) / ensureClientForLanguage(lang)
+2. gopls/manager_lifecycle.go (~130行) — 生命周期
+   - ensureClient(cfg) 双重检查锁 (共识#1)
    - Close() 全部 client shutdown
    - closed bool 永久关闭标志
-2. gopls/manager_symbols.go (~400行) — 符号查询
+3. gopls/manager_symbols.go (~250行) — 符号查询主路径
    - DocumentSymbol(ctx, uri) — 调 LSP textDocument/documentSymbol
    - WorkspaceSymbol(ctx, query) — 调 LSP workspace/symbol
+4. gopls/manager_symbols_fallback.go (~250行) — fallback
    - markdown heading 提取 fallback (共识#7)
    - json key 提取 fallback
-   - yaml anchor 提取 fallback
-3. gopls/gomod.go (~90行) — go.mod root 发现
+   - yaml key/indent symbol fallback
+5. gopls/gomod.go (~90行) — go.mod root 发现
    - findGoModRoot(path) → root
 
 ## V2 参考文件
@@ -995,12 +1007,12 @@ go build ./cmd/mcp-lsp/...
 3. tools/tool_diagnostics.go (~200行) — diagnostics 子 handler
    - waitDiagnosticsStable: 80ms init→40ms poll→800ms max (共识#10)
    - **generation tracking**: 必须实现 atomic.Uint64 诊断代次计数器，
-     didChange 后 advanceGeneration，只处理当前代次的回调
+     generation 仅在 runtime reset 时推进，didChange 路径不推进 generation
      (V2: manager_diagnostics.go currentDiagnosticGeneration/advanceDiagnosticGeneration)
    - reactive bootstrap: 诊断为空时自动 bootstrap (maxReactiveBootstrap=30)
    - 结果格式: {file, cols, rows} 表格
 4. search/fileutil.go (~210行) — 文件读取安全门
-   - 5 级安全门: 存在→大小(2MB)→二进制(512B)→行数(2000)→编码 (F1)
+   - 安全门: Lstat 存在性→拒绝 symlink→拒绝非 regular file→大小(2MB)→二进制(512B NUL 采样) (F1)
    - readToolFileContent 函数
 5. search/searchutil.go (~220行) — 搜索工具
    - filterAndCapSearchMatches (T8)
@@ -1048,11 +1060,11 @@ go build ./cmd/mcp-lsp/...
    - compact 上限: lspReferencesCompactLimit=30, XRefResultLimit=50
 3. tools/tool_structure.go (~300行) — lsp_structure handler
    - document_symbol: 调 textDocument/documentSymbol → 符号树
-   - workspace_symbol: 调 workspace/symbol → compact 上限 20
+   - workspace_symbol: 调 workspace/symbol → compact 默认值 20（显式 max_results 可覆盖）
    - folding_range: 调 textDocument/foldingRange
    - semantic_tokens: 调 textDocument/semanticTokens/full → 上限 200
 4. tools/tool_completion.go (~220行) — lsp_completion handler
-   - 调 textDocument/completion → compact(label+kind+detail 上限20)/full
+   - 调 textDocument/completion → compact(label+kind+detail 默认 20，显式 max_results 可覆盖，最终 clamp 到 XRefResultLimit=50)/full
 
 ## V2 参考文件
 - go-agent-v2/pkg/toolsdk/lsp/tool_handlers_core.go (895行) — 核心 handler
@@ -1078,40 +1090,43 @@ go build ./cmd/mcp-lsp/...
 你是 P9-G Agent，负责实现 lsp_edit、code_run、code_run_test 和中间件。
 
 ## 任务
-创建 tools/ 下 3 个 handler + exec/ + middleware/ 3文件，总计 ~1,420 行。
+创建 tools/ 下 4 个 handler + exec/ + middleware/ 3文件，总计 ~1,420 行。
 这是行数最多的 Agent，也是关键路径上最长的实现 Agent。
 
 ## 输出文件
-1. tools/tool_edit.go (~560行) — lsp_edit handler
-   - replace_range: patch 解析(调 edit/) → seek_sequence 定位 → 应用替换 → didChange → 返回
-     * 支持: patch 格式 / 坐标范围 + new_text 格式 / edits 数组格式
-     * **multi-edit (edits数组)**: 上限 20 个 edit (V2 tool_handlers_edit_flow.go:82)，
-       顺序应用，重叠检测，带 replaceWithDeleteOptimization (V2:793)
-     * dry_run 模式: 只定位不应用
-     * force 模式: 绕过大文件限制
-     * 返回: matched_by, resolved_*, edit_context, func_start/func_end
-     * 失败返回: error + current_content + func_start/func_end
+1. tools/tool_edit.go (~280行) — lsp_edit 主 handler
    - rename: 调 textDocument/rename → 应用 WorkspaceEdit
    - code_action: 调 textDocument/codeAction → 列出可用操作
    - format: 调 textDocument/formatting → 应用 TextEdit[]
+   - replace_range: 参数校验 + 分发到 tool_edit_replace.go
+2. tools/tool_edit_replace.go (~280行) — replace_range 应用层
+   - patch 解析(调 edit/) → seek_sequence 定位 → 按顺序应用多 hunk → didChange → 返回
+   - 支持: patch 格式 / 坐标范围 + new_text 格式 / edits 数组格式
+   - **multi-edit (edits数组)**: 上限 20 个 edit (V2 tool_handlers_edit_flow.go:82)，
+     顺序应用，重叠检测，带 replaceWithDeleteOptimization (V2:793)
+   - dry_run 模式: 只定位不应用
+   - `force` 不暴露为外部参数；内容 ≤2MB 时内部 didChange 自动 `force=true`
+   - 返回: matched_by, resolved_*, edit_context, func_start/func_end
+   - 失败返回: error + current_content + func_start/func_end
    - 安全限制: replaceRangeMaxReplacementBytes=256KB, replaceRangeMaxContentBytes=4MB
-2. tools/tool_coderun.go (~200行) — code_run handler
+3. tools/tool_coderun.go (~200行) — code_run handler
    - run 模式: 写临时文件 → 执行 → 捕获输出
    - project_cmd 模式: 在 work_dir 执行 shell 命令
    - auto_wrap: Go 代码自动包装 package main + imports
    - 审批不在此层 (共识#12)，V2 用 ApprovalProvider.AwaitApproval，
      V3 需重新设计审批接口 (非 bootstrap.RequestApproval)
-3. tools/tool_coderuntest.go (~220行) — code_run_test handler
+4. tools/tool_coderuntest.go (~220行) — code_run_test handler
+   - 保留结构化 test mode：独立 handler + CodeRunRequest{Mode:"test", TestFunc, TestPkg}
    - 构造 go test -run <func> <pkg> 命令
-   - 复用 code_run 执行引擎
-4. exec/sandbox.go (~220行) — 命令执行沙箱
+   - 复用 code_run 执行引擎（不得降级为拼 shell 再转发 project_cmd）
+5. exec/sandbox.go (~220行) — 命令执行沙箱
    - exec.CommandContext + timeout
    - work_dir 校验 (项目根目录内)
    - stdout+stderr capture + truncation
    - exit code 提取
-5. middleware/logging.go (~90行) — 请求/响应结构化日志
-6. middleware/recovery.go (~60行) — panic 恢复
-7. middleware/timeout.go (~70行) — 超时控制
+6. middleware/logging.go (~90行) — 请求/响应结构化日志
+7. middleware/recovery.go (~60行) — panic 恢复
+8. middleware/timeout.go (~70行) — 超时控制
    - TierFast=5s, TierNormal=30s, TierSlow=120s, TierExec=300s
 
 ## V2 参考文件
@@ -1133,6 +1148,13 @@ go build ./cmd/mcp-lsp/...
 
 ## 依赖
 - C2 (Manager) + B (edit/ patch 引擎)
+
+B↔G 接口契约：
+- `edit.Parse(patch string) -> (Hunk, error)`
+- `edit.ParseMulti(patch string) -> ([]Hunk, error)`
+- `edit.MatchContext(content string, hunks []Hunk) -> ([]Match, error)`
+- `edit.SeekSequence(lines []string, pattern []string, start int) -> (int, MatchMode, error)`
+- G 负责消费 ParseMulti 产出的多 hunk，按顺序应用，任一失败则整体回滚。
 
 ## 守卫
 ≤400行/文件, ≤80行/函数, CC≤10
@@ -1378,23 +1400,23 @@ func TestMCPLSPBudgetConstants(t *testing.T) {
 |---|---|---|---|---|
 | R1 | gopls 进程管理复杂度超预期 | 中 | 高 | Agent E 专攻 bootstrap+pool+recycler；V2 参考已验证架构可行 |
 | R2 | replace_range patch 解析边界情况 | 高 | 高 | Agent B 独立开发+大量单元测试；V2 seek_sequence 已覆盖 4-pass |
-| R3 | 文件行数超 400 行守卫 | 中 | 中 | 预算已按 ≤380 行规划，留 20 行余量；Agent V 负责拆分超限文件 |
+| R3 | 文件行数超 400 行守卫 | 中 | 中 | manager.go 和 tool_edit.go 已拆分确保 ≤400；Agent V 负责收尾超限文件 |
 | R4 | Agent 间接口不兼容 | 中 | 高 | protocol/ 和 interface 在 A/C1/C2 中优先定义；Agent S 提供骨架 |
 | R5 | sg (ast-grep) 后端不可用 | 低 | 中 | ast_search 返回 "sg not found in PATH" 错误；text_search 不依赖 sg |
 | R6 | 跨平台 RSS 监控 | 低 | 低 | linux /proc/pid/status + darwin ps 命令；降级模式跳过监控 |
 | R7 | diagnostics waitStable 超时 | 低 | 中 | 800ms max 已有上限；超时返回当前结果(非空) |
 | R8 | cache persistent 后端兼容性 | 低 | 低 | 默认纯内存；persistent 是 opt-in；有 fallback (R3) |
-| R9 | Agent G 行数过多成为瓶颈 | 中 | 中 | G 是关键路径最长(1.75h)；必要时可拆分 tool_edit.go |
+| R9 | Agent G 行数过多成为瓶颈 | 中 | 中 | G 是关键路径最长(1.75h)；tool_edit 已拆分，必要时优先裁剪非关键胶水工作 |
 | R10 | V2↔V3 行为不一致 | 中 | 高 | Schema 快照对比 + 冒烟测试 + 容错测试覆盖 29 个 action |
 
 ### 10.2 紧急缓解预案
 
 | 场景 | 预案 |
 |---|---|
-| Agent G 超时 | 将 tool_edit.go 拆为 tool_edit_replace.go + tool_edit_refactor.go，减少单 Agent 负担 |
+| Agent G 超时 | 固定 tool_edit.go / tool_edit_replace.go 边界，优先延后低优先胶水工作，避免再次拆分 |
 | Agent E 超时 | cache.go 先用纯内存实现，persistent 后续补充 |
 | 编译失败 | Agent V 有 2h 缓冲用于修复；接口问题可追溯到 A/C1/C2 |
-| 行数超限 | 预留的 20 行余量 + Agent V 拆分职责 |
+| 行数超限 | manager.go 和 tool_edit.go 已拆分；Agent V 负责处理剩余超限文件 |
 
 ### 10.3 回滚策略
 
@@ -1418,8 +1440,8 @@ func TestMCPLSPBudgetConstants(t *testing.T) {
 | seek_sequence.go | 145 | edit/seeksequence.go | ~150 | B |
 | client.go | 491 | gopls/client.go | ~360 | C1 |
 | client_transport.go | 126 | gopls/transport.go | ~220 | C1 |
-| manager.go | 591 | gopls/manager.go | ~410 | C2 |
-| manager_markdown_symbols.go | 483 | gopls/manager_symbols.go | ~400 | C2 |
+| manager.go | 591 | gopls/manager.go + manager_lifecycle.go | ~410 | C2 |
+| manager_markdown_symbols.go | 483 | gopls/manager_symbols.go + manager_symbols_fallback.go | ~500 | C2 |
 | gomod_root.go | 83 | gopls/gomod.go | ~90 | C2 |
 | manager_bootstrap_document.go | 477 | gopls/bootstrap_doc.go | ~280 | E |
 | manager_bootstrap_document_state.go | 298 | gopls/state.go | ~210 | E |
@@ -1432,9 +1454,9 @@ func TestMCPLSPBudgetConstants(t *testing.T) {
 | tool_handlers_core.go | 895 | tools/tool_inspect.go + tool_xref.go + tool_structure.go | ~840 | F |
 | tool_handlers_p1_outputs.go | 258 | tools/tool_completion.go (部分) | ~220 | F |
 | replace_range_runtime.go | 119 | edit/replaceutil.go (部分) | ~50 | G |
-| tool_handlers_edit.go + edit_enclosing + edit_flow | 1,355 | tools/tool_edit.go | ~560 | G |
+| tool_handlers_edit.go + edit_enclosing + edit_flow | 1,355 | tools/tool_edit.go + tool_edit_replace.go | ~560 | G |
 | tool_handlers_dispatch.go | 256 | 分散到各 tool handler | - | G |
-| manager_bootstrap.go | 152 | gopls/manager.go (部分) | 合并入 manager | C2 |
+| manager_bootstrap.go | 152 | gopls/manager_lifecycle.go (部分) | 合并入 lifecycle | C2 |
 | manager_tools.go | 112 | 分散到各 tools/tool_*.go | 分散 | F+G |
 | tool_handlers_workspace_manager.go | 81 | 分散到各 tools/tool_*.go（workspace manager 选择/校验） | 分散 | D+F+G |
 | tool_handlers_workspace_root.go | 45 | gopls/gomod.go + 各 tools/tool_*.go（workspace_root 解析/归一化） | ~45 | C2 + D/F/G |
@@ -1448,12 +1470,12 @@ func TestMCPLSPBudgetConstants(t *testing.T) {
 | 1 | 懒启动 | ensureClient 双重检查锁 | 预启动 |
 | 2 | 工具级截断 | 每个工具自行裁剪 | 统一 truncate 中间件 |
 | 3 | func_start/func_end | 定义/引用结果附带 | 省略 |
-| 4 | display 坐标转换 | 0→1-based + 路径规范化 | 直接输出 0-based |
+| 4 | display 坐标转换 | 0→1-based；路径规范化在 search 层 | 直接输出 0-based |
 | 5 | patch 三件套 | Parse+ParseMulti+context+seek | 简化 |
 | 6 | seek_sequence 4-pass | exact→trimR→trimB→unicodeNorm | 只 exact |
 | 7 | md/json/yaml fallback | 非 Go 文件符号提取 | 只支持 gopls 语言 |
 | 8 | cache_store | 内存默认+env-gated persistent | 跳过 |
 | 9 | 池回收+RSS | 周期监控+超阈值回收 | 不监控 |
-| 10 | waitStable | 80ms/40ms/800ms | 立即返回 |
+| 10 | waitStable | 80ms/40ms/800ms；generation 仅 runtime reset 推进 | 立即返回 |
 | 11 | sibling bootstrap | 同目录 .go 文件 cap=20 | 只当前文件 |
 | 12 | 审批不在 LSP | V2: approvals.AwaitApproval; V3 重新设计 | LSP 层审批 |

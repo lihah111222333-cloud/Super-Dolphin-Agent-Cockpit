@@ -10,11 +10,12 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	workspacedto "github.com/anthropic-ai/super-agent-v3/internal/dto/workspace"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 )
 
 func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service) []context.CancelFunc {
-	return []context.CancelFunc{
+	cancels := []context.CancelFunc{
 		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentStateChanged, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentLaunched, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentStopped, svc.logger),
@@ -42,8 +43,18 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunMergeError, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTokensUpdated, svc.logger),
 	}
+	onTimelineUpdated := func(threadID string) {
+		svc.mu.Lock()
+		ev := svc.projectionUpdatedLocked("timeline")
+		svc.mu.Unlock()
+		ev.ThreadID = threadID
+		svc.emitProjectionUpdatedEvents(ev)
+	}
+	if svc.timeline != nil {
+		cancels = append(cancels, timeline.RegisterSubscriptions(dispatcher, svc.timeline, svc.logger, onTimelineUpdated)...)
+	}
+	return cancels
 }
-
 func (s *service) applyWorkspaceRunCreated(ev workspacedto.WorkspaceRunCreated) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -57,7 +68,6 @@ func (s *service) applyWorkspaceRunCreated(ev workspacedto.WorkspaceRunCreated) 
 		UpdatedAt:     cloneTime(&ev.Timestamp),
 	})
 }
-
 func (s *service) applyWorkspaceRunStatusChanged(ev workspacedto.WorkspaceRunStatusChanged) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -69,7 +79,6 @@ func (s *service) applyWorkspaceRunStatusChanged(ev workspacedto.WorkspaceRunSta
 		UpdatedAt: cloneTime(&ev.Timestamp),
 	})
 }
-
 func (s *service) applyWorkspaceRunMerged(ev workspacedto.WorkspaceRunMerged) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -84,7 +93,6 @@ func (s *service) applyWorkspaceRunMerged(ev workspacedto.WorkspaceRunMerged) {
 		UpdatedAt:       cloneTime(&ev.Timestamp),
 	})
 }
-
 func (s *service) applyWorkspaceRunAborted(ev workspacedto.WorkspaceRunAborted) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -97,7 +105,6 @@ func (s *service) applyWorkspaceRunAborted(ev workspacedto.WorkspaceRunAborted) 
 		UpdatedAt: cloneTime(&ev.Timestamp),
 	})
 }
-
 func (s *service) applyWorkspaceRunMergeError(ev workspacedto.WorkspaceRunMergeError) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -128,7 +135,6 @@ func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }
-
 func (s *service) applyItemStarted(ev turndto.ItemStarted) {
 	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)
 	if activity == "" {
@@ -153,7 +159,6 @@ func (s *service) applyItemStarted(ev turndto.ItemStarted) {
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }
-
 func (s *service) applyItemCompleted(ev turndto.ItemCompleted) {
 	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)
 	if activity == "" {
@@ -175,7 +180,6 @@ func (s *service) applyItemCompleted(ev turndto.ItemCompleted) {
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }
-
 func (s *service) applyToolCallBegin(ev tooldto.ToolCallBegin) {
 	activity := classifyToolActivity(ev.ToolName)
 	if activity == "" {
@@ -199,7 +203,6 @@ func (s *service) applyToolCallBegin(ev tooldto.ToolCallBegin) {
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }
-
 func (s *service) applyToolCallEnd(ev tooldto.ToolCallEnd) {
 	activity := classifyToolActivity(ev.ToolName)
 	if activity == "" {
@@ -220,7 +223,6 @@ func (s *service) applyToolCallEnd(ev tooldto.ToolCallEnd) {
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }
-
 func (s *service) applyToolApprovalRequested(ev tooldto.ToolApprovalRequested) {
 	s.mu.Lock()
 	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "tool/approvalRequested")
@@ -240,7 +242,6 @@ func (s *service) applyToolApprovalRequested(ev tooldto.ToolApprovalRequested) {
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }
-
 func (s *service) applyToolApprovalResolved(ev tooldto.ToolApprovalResolved) {
 	s.mu.Lock()
 	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "tool/approvalResolved")
