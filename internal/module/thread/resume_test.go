@@ -44,8 +44,11 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 			if req.AgentID != "agent-1" {
 				t.Fatalf("AgentID = %q, want agent-1", req.AgentID)
 			}
-			if req.ThreadID != "provider-thread-1" {
-				t.Fatalf("ThreadID = %q, want provider-thread-1", req.ThreadID)
+			if req.ThreadID != "thread-1" {
+				t.Fatalf("ThreadID = %q, want thread-1", req.ThreadID)
+			}
+			if req.ProviderThreadID != "provider-thread-1" {
+				t.Fatalf("ProviderThreadID = %q, want provider-thread-1", req.ProviderThreadID)
 			}
 			if req.Model != "override-model" {
 				t.Fatalf("Model = %q, want override-model", req.Model)
@@ -79,6 +82,9 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	}
 	if result.Model != "override-model" {
 		t.Fatalf("Model = %q, want override-model", result.Model)
+	}
+	if result.CWD != "/repo" {
+		t.Fatalf("CWD = %q, want /repo", result.CWD)
 	}
 	if threads.upsert.ThreadID != "thread-1" {
 		t.Fatalf("persisted thread id = %q, want thread-1", threads.upsert.ThreadID)

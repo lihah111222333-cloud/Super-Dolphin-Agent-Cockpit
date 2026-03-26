@@ -57,11 +57,3 @@ func (s *service) collectRemovedWorkspaceFiles(
 	}
 	return removed, nil
 }
-
-func trackedRunFilePaths(files []RunFile) map[string]struct{} {
-	paths := make(map[string]struct{}, len(files))
-	for _, file := range files {
-		paths[file.RelativePath] = struct{}{}
-	}
-	return paths
-}

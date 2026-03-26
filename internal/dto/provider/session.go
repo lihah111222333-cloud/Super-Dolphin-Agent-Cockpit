@@ -12,10 +12,13 @@ type StartSessionRequest struct {
 }
 
 type ResumeSessionRequest struct {
-	Provider string `json:"provider"`
-	AgentID  string `json:"agentId"`
-	ThreadID string `json:"threadId"`
-	Model    string `json:"model,omitempty"`
+	Provider         string `json:"provider"`
+	AgentID          string `json:"agentId"`
+	ThreadID         string `json:"threadId"`
+	ProviderThreadID string `json:"providerThreadId,omitempty"`
+	Path             string `json:"path,omitempty"`
+	CWD              string `json:"cwd,omitempty"`
+	Model            string `json:"model,omitempty"`
 }
 
 var _ json.Marshaler = json.RawMessage(nil)

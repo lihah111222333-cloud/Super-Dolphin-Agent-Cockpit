@@ -72,9 +72,64 @@ func TestGetAgentDetailSkipsEmptyTurnHistoryWithoutActiveTurn(t *testing.T) {
 	}
 }
 
+func TestListDAGsUsesOrchestration(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{
+			listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Dag One", Status: "running"}},
+		},
+	}
+
+	got, err := svc.ListDAGs(context.Background(), contract.ListDAGsFilter{
+		Keyword: " build ",
+		Status:  " running ",
+		Limit:   7,
+	})
+	if err != nil {
+		t.Fatalf("ListDAGs() error = %v", err)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.listDAGsFilter.Keyword != "build" || stub.listDAGsFilter.Status != "running" || stub.listDAGsFilter.Limit != 7 {
+		t.Fatalf("ListDAGs() filter = %#v", stub.listDAGsFilter)
+	}
+	if len(got) != 1 || got[0].DagKey != "dag-1" {
+		t.Fatalf("ListDAGs() = %#v", got)
+	}
+}
+
+func TestGetDAGDetailUsesOrchestration(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{
+			dagDetail: contract.DAGDetail{
+				DAG:   contract.DAGSummary{DagKey: "dag-1", Title: "Dag One"},
+				Nodes: []contract.DAGNode{{NodeKey: "node-1", Title: "Node One"}},
+			},
+		},
+	}
+
+	got, err := svc.GetDAGDetail(context.Background(), " dag-1 ")
+	if err != nil {
+		t.Fatalf("GetDAGDetail() error = %v", err)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.getDAGKey != "dag-1" {
+		t.Fatalf("GetDAG() key = %q, want dag-1", stub.getDAGKey)
+	}
+	if got == nil || got.DAG.DagKey != "dag-1" || len(got.Nodes) != 1 || got.Nodes[0].NodeKey != "node-1" {
+		t.Fatalf("GetDAGDetail() = %#v", got)
+	}
+}
+
 type stubDashboardOrchestration struct {
-	snapshot contract.AgentSnapshot
-	report   contract.AgentReportResult
+	snapshot       contract.AgentSnapshot
+	report         contract.AgentReportResult
+	listDAGsResult []contract.DAGSummary
+	listDAGsFilter contract.ListDAGsFilter
+	dagDetail      contract.DAGDetail
+	getDAGKey      string
 }
 
 func (s *stubDashboardOrchestration) LaunchAgent(context.Context, contract.LaunchRequest) error {
@@ -129,12 +184,14 @@ func (s *stubDashboardOrchestration) CreateDAG(context.Context, contract.CreateD
 	return contract.DAGDetail{}, nil
 }
 
-func (s *stubDashboardOrchestration) GetDAG(context.Context, string) (contract.DAGDetail, error) {
-	return contract.DAGDetail{}, nil
+func (s *stubDashboardOrchestration) GetDAG(_ context.Context, dagKey string) (contract.DAGDetail, error) {
+	s.getDAGKey = dagKey
+	return s.dagDetail, nil
 }
 
-func (s *stubDashboardOrchestration) ListDAGs(context.Context, contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
-	return nil, nil
+func (s *stubDashboardOrchestration) ListDAGs(_ context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
+	s.listDAGsFilter = filter
+	return s.listDAGsResult, nil
 }
 
 func (s *stubDashboardOrchestration) UpdateNodeStatus(context.Context, contract.UpdateNodeStatusRequest) (contract.DAGNode, error) {

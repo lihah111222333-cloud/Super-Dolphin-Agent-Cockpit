@@ -10,7 +10,10 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
+	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
+	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 	dbquerystore "github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
@@ -30,7 +33,10 @@ const (
 
 type service struct {
 	orchestration contract.OrchestrationService
+	agentStatuses agentstatusstore.Store
 	systemLogs    systemlogstore.Store
+	auditLogs     auditlogstore.Store
+	busLogs       buslogstore.Store
 	aiLogs        ailogstore.Store
 	dbQueries     dbquerystore.Store
 	taskTraces    tasktracestore.Store
@@ -41,20 +47,14 @@ type service struct {
 	startedAt     time.Time
 }
 
-type buildMetadata struct {
-	version   string
-	commit    string
-	buildTime string
-	dirty     bool
-	goVersion string
-	runtime   string
-}
-
 var _ Service = (*service)(nil)
 
 func NewService(
 	orchestrationSvc contract.OrchestrationService,
+	agentStatuses agentstatusstore.Store,
 	systemLogs systemlogstore.Store,
+	auditLogs auditlogstore.Store,
+	busLogs buslogstore.Store,
 	aiLogs ailogstore.Store,
 	dbQueries dbquerystore.Store,
 	taskTraces tasktracestore.Store,
@@ -65,7 +65,10 @@ func NewService(
 ) Service {
 	return &service{
 		orchestration: orchestrationSvc,
+		agentStatuses: agentStatuses,
 		systemLogs:    systemLogs,
+		auditLogs:     auditLogs,
+		busLogs:       busLogs,
 		aiLogs:        aiLogs,
 		dbQueries:     dbQueries,
 		taskTraces:    taskTraces,
@@ -383,13 +386,4 @@ func mapAILogEntry(row ailogstore.AILog) LogEntry {
 		DurationMs: row.DurationMs,
 		Extra:      row.Extra,
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }

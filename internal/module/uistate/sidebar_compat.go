@@ -9,9 +9,10 @@ const (
 	overlayTypeMCPStartup = "mcp_startup"
 	// Terminal wait rendering is wired through snapshot/patch payloads, but a live
 	// producer still needs raw terminal interaction events to set this overlay.
-	overlayTypeTerminalWait   = "terminal_wait"
-	overlayPriorityMCPStartup = 40
-	mcpStartupOverlayTTL      = 30 * time.Second
+	overlayTypeTerminalWait     = "terminal_wait"
+	overlayPriorityMCPStartup   = 40
+	overlayPriorityTerminalWait = 90
+	mcpStartupOverlayTTL        = 30 * time.Second
 )
 
 func cloneStringMap(input map[string]string) map[string]string {

@@ -18,13 +18,13 @@ type ListFilter struct {
 }
 
 type BusExceptionLog struct {
-	ID        int64
-	Ts        time.Time
-	Category  string
-	Severity  string
-	Source    string
-	ToolName  string
-	Message   string
-	Traceback string
-	Extra     json.RawMessage
+	ID        int64           `json:"id"`
+	Ts        time.Time       `json:"ts"`
+	Category  string          `json:"category"`
+	Severity  string          `json:"severity"`
+	Source    string          `json:"source"`
+	ToolName  string          `json:"tool_name"`
+	Message   string          `json:"message"`
+	Traceback string          `json:"traceback"`
+	Extra     json.RawMessage `json:"extra"`
 }

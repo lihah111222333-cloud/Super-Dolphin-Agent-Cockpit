@@ -9,12 +9,13 @@ import (
 )
 
 type threadActivity struct {
-	turnDepth     int
-	commandDepth  int
-	editDepth     int
-	toolDepth     int
-	approvalDepth int
-	collabDepth   int
+	turnDepth          int
+	commandDepth       int
+	editDepth          int
+	toolDepth          int
+	approvalDepth      int
+	inputApprovalDepth int
+	collabDepth        int
 }
 
 func cloneThreadGroups(items []ThreadGroup) []ThreadGroup {

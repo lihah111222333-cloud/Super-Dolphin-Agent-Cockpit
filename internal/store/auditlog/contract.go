@@ -31,14 +31,14 @@ type InsertParams struct {
 }
 
 type AuditEvent struct {
-	ID        int64
-	Ts        time.Time
-	EventType string
-	Action    string
-	Result    string
-	Actor     string
-	Target    string
-	Detail    string
-	Level     string
-	Extra     json.RawMessage
+	ID        int64           `json:"id"`
+	Ts        time.Time       `json:"ts"`
+	EventType string          `json:"event_type"`
+	Action    string          `json:"action"`
+	Result    string          `json:"result"`
+	Actor     string          `json:"actor"`
+	Target    string          `json:"target"`
+	Detail    string          `json:"detail"`
+	Level     string          `json:"level"`
+	Extra     json.RawMessage `json:"extra"`
 }

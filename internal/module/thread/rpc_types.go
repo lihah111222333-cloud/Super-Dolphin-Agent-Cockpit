@@ -109,8 +109,9 @@ type messagesParams struct {
 }
 
 type threadInfo struct {
-	ID     string `json:"id"`
-	Status string `json:"status,omitempty"`
+	ID         string `json:"id"`
+	Status     string `json:"status,omitempty"`
+	ForkedFrom string `json:"forkedFrom,omitempty"`
 }
 
 func (p *messagesParams) UnmarshalJSON(data []byte) error {

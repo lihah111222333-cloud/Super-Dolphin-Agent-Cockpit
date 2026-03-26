@@ -1,6 +1,7 @@
 package claudecli
 
 import (
+	"context"
 	"errors"
 	"io"
 	"testing"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/kelindar/event"
 
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
@@ -81,5 +84,63 @@ func TestHandleReceiveExitEOFCompletesActiveTurn(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("TurnCompleted event was not published")
+	}
+}
+
+func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
+	t.Parallel()
+
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+
+	got := make(chan agentdto.AgentLaunched, 4)
+	cancel := event.Subscribe(bus, func(ev agentdto.AgentLaunched) {
+		got <- ev
+	})
+	defer cancel()
+
+	next := newBufferedTransport(t, "provider-thread-1")
+	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+		if resumeID != "provider-thread-1" {
+			t.Fatalf("resumeID = %q, want provider-thread-1", resumeID)
+		}
+		return next.tr, nil, nil
+	})
+
+	d := &driver{eventDispatcher: dispatcher}
+	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		Provider:         "claude",
+		AgentID:          "agent-1",
+		ThreadID:         "thread-public",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              "/tmp/repo",
+	})
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	s, ok := resumed.(*session)
+	if !ok {
+		t.Fatalf("ResumeSession() type = %T, want *session", resumed)
+	}
+	if s.ThreadID() != "provider-thread-1" {
+		t.Fatalf("ThreadID() = %q, want provider-thread-1", s.ThreadID())
+	}
+	if s.EventThreadID() != "thread-public" {
+		t.Fatalf("EventThreadID() = %q, want thread-public", s.EventThreadID())
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case ev := <-got:
+			if ev.ThreadID != "thread-public" {
+				t.Fatalf("AgentLaunched.ThreadID = %q, want thread-public", ev.ThreadID)
+			}
+			if ev.SessionID != "provider-thread-1" {
+				t.Fatalf("AgentLaunched.SessionID = %q, want provider-thread-1", ev.SessionID)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("AgentLaunched event was not published")
+		}
 	}
 }

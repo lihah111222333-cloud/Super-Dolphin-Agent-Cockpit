@@ -7,6 +7,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/kelindar/event"
 )
@@ -170,6 +171,116 @@ func TestAgentLifecyclePublishesOverlayThreadPatch(t *testing.T) {
 	}
 	if clearPatch.StatusHeader == "" {
 		t.Fatalf("clear patch presentation = %#v, want non-empty header", clearPatch)
+	}
+}
+
+func TestRequestUserInputApprovalKeepsTerminalWaitOverlayUntilLastResolve(t *testing.T) {
+	t.Parallel()
+
+	svc := mustNewUIStateService(t)
+	header := sharedto.AgentSessionHeader{
+		AgentHeader: sharedto.AgentHeader{
+			ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-1"},
+			AgentID:      "agent-1",
+		},
+		SessionID: "session-1",
+	}
+	turnHeader := sharedto.TurnHeader{
+		AgentHeader:  header.AgentHeader,
+		TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"},
+	}
+
+	svc.applyToolApprovalRequested(tooldto.ToolApprovalRequested{
+		ToolApprovalHeader: sharedto.ToolApprovalHeader{
+			ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-1", ToolName: "shell"},
+			ApprovalID:     "approval-1",
+		},
+		Kind: "request_user_input",
+	})
+	svc.applyToolApprovalRequested(tooldto.ToolApprovalRequested{
+		ToolApprovalHeader: sharedto.ToolApprovalHeader{
+			ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-2", ToolName: "shell"},
+			ApprovalID:     "approval-2",
+		},
+		Kind: "request_user_input",
+	})
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() after request error = %v", err)
+	}
+	thread := mustThread(t, sidebar.Threads, "thread-1")
+	if thread.OverlayType != overlayTypeTerminalWait || thread.OverlayText != "等待终端输入" || thread.OverlayPriority != overlayPriorityTerminalWait {
+		t.Fatalf("thread overlay after request = %#v, want terminal wait overlay", thread)
+	}
+
+	svc.applyToolApprovalResolved(tooldto.ToolApprovalResolved{
+		ToolApprovalHeader: sharedto.ToolApprovalHeader{
+			ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-1", ToolName: "shell"},
+			ApprovalID:     "approval-1",
+		},
+		Kind:     "request_user_input",
+		Approved: true,
+	})
+
+	sidebar, err = svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() after first resolve error = %v", err)
+	}
+	thread = mustThread(t, sidebar.Threads, "thread-1")
+	if thread.OverlayType != overlayTypeTerminalWait || thread.OverlayText != "等待终端输入" || thread.OverlayPriority != overlayPriorityTerminalWait {
+		t.Fatalf("thread overlay after first resolve = %#v, want terminal wait overlay", thread)
+	}
+
+	svc.applyToolApprovalResolved(tooldto.ToolApprovalResolved{
+		ToolApprovalHeader: sharedto.ToolApprovalHeader{
+			ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-2", ToolName: "shell"},
+			ApprovalID:     "approval-2",
+		},
+		Kind:     "request_user_input",
+		Approved: true,
+	})
+
+	sidebar, err = svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() after second resolve error = %v", err)
+	}
+	thread = mustThread(t, sidebar.Threads, "thread-1")
+	if thread.OverlayType != "" || thread.OverlayText != "" || thread.OverlayPriority != 0 {
+		t.Fatalf("thread overlay after second resolve = %#v, want cleared", thread)
+	}
+}
+
+func TestGenericApprovalDoesNotSetTerminalWaitOverlay(t *testing.T) {
+	t.Parallel()
+
+	svc := mustNewUIStateService(t)
+	header := sharedto.AgentSessionHeader{
+		AgentHeader: sharedto.AgentHeader{
+			ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-2"},
+			AgentID:      "agent-2",
+		},
+		SessionID: "session-2",
+	}
+	turnHeader := sharedto.TurnHeader{
+		AgentHeader:  header.AgentHeader,
+		TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-2"},
+	}
+
+	svc.applyToolApprovalRequested(tooldto.ToolApprovalRequested{
+		ToolApprovalHeader: sharedto.ToolApprovalHeader{
+			ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-2", ToolName: "shell"},
+			ApprovalID:     "approval-2",
+		},
+	})
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() error = %v", err)
+	}
+	thread := mustThread(t, sidebar.Threads, "thread-2")
+	if thread.OverlayType != "" || thread.OverlayText != "" || thread.OverlayPriority != 0 {
+		t.Fatalf("thread overlay = %#v, want no terminal wait overlay for generic approval", thread)
 	}
 }
 

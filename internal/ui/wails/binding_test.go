@@ -3,6 +3,7 @@ package wails
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -98,34 +99,129 @@ func TestOpenNewWindowRequiresApplication(t *testing.T) {
 	}
 }
 
-func TestDeferredBindingsReturnNotImplemented(t *testing.T) {
-	app := &App{}
-	cases := []struct {
-		name string
-		call func() error
-	}{
-		{
-			name: "GetLSPDiagnostics",
-			call: func() error {
-				_, err := app.GetLSPDiagnostics("/tmp/file.go")
-				return err
-			},
-		},
-		{
-			name: "GetLSPStatus",
-			call: func() error {
-				_, err := app.GetLSPStatus()
-				return err
-			},
+func TestGetGroupUsesLegacyFallback(t *testing.T) {
+	app := &App{group: "team-alpha"}
+	if got := app.GetGroup(); got != "team-alpha" {
+		t.Fatalf("GetGroup() = %q, want %q", got, "team-alpha")
+	}
+}
+
+func TestGetGroupReturnsNonEmptyDefault(t *testing.T) {
+	if got := (&App{}).GetGroup(); got != defaultGroup {
+		t.Fatalf("GetGroup() = %q, want %q", got, defaultGroup)
+	}
+	if defaultGroup == "" {
+		t.Fatal("defaultGroup = empty, want non-empty default")
+	}
+}
+
+func TestWindowBootstrapSnapshotCodecRoundTrip(t *testing.T) {
+	origin := map[string]any{
+		"page": "chat",
+		"thread": map[string]any{
+			"activeThreadId": "thread-123",
 		},
 	}
-	for _, tc := range cases {
-		err := tc.call()
-		if err == nil {
-			t.Fatalf("%s() error = nil, want not implemented", tc.name)
+	encoded, err := encodeWindowBootstrapSnapshot(origin)
+	if err != nil {
+		t.Fatalf("encodeWindowBootstrapSnapshot() error = %v", err)
+	}
+	if encoded == "" {
+		t.Fatal("encodeWindowBootstrapSnapshot() = empty, want payload")
+	}
+	decoded, err := decodeWindowBootstrapSnapshot(encoded)
+	if err != nil {
+		t.Fatalf("decodeWindowBootstrapSnapshot() error = %v", err)
+	}
+	if !reflect.DeepEqual(decoded, origin) {
+		t.Fatalf("decoded snapshot = %#v, want %#v", decoded, origin)
+	}
+}
+
+func TestConsumeWindowBootstrapSnapshotFallsBackToLegacySlot(t *testing.T) {
+	app := &App{windowBootstrap: map[string]any{"page": "chat"}}
+
+	first := app.consumeWindowBootstrapSnapshot()
+	if first["page"] != "chat" {
+		t.Fatalf("first snapshot = %#v, want page=chat", first)
+	}
+	if second := app.consumeWindowBootstrapSnapshot(); second != nil {
+		t.Fatalf("second snapshot = %#v, want nil", second)
+	}
+}
+
+func TestGetLSPDiagnosticsUsesGUIFileRoute(t *testing.T) {
+	var method string
+	var params map[string]any
+	app := &App{dispatch: func(ctx context.Context, gotMethod string, raw json.RawMessage) (json.RawMessage, error) {
+		method = gotMethod
+		if err := json.Unmarshal(raw, &params); err != nil {
+			t.Fatalf("unmarshal params: %v", err)
 		}
-		if !strings.Contains(err.Error(), "not implemented") {
-			t.Fatalf("%s() error = %q, want not implemented marker", tc.name, err)
-		}
+		return json.RawMessage(`{"diagnostics":[{"message":"warn"}]}`), nil
+	}}
+
+	got, err := app.GetLSPDiagnostics(" /tmp/file.go ")
+	if err != nil {
+		t.Fatalf("GetLSPDiagnostics() error = %v", err)
+	}
+	if method != "lsp/gui_file" {
+		t.Fatalf("GetLSPDiagnostics() method = %q, want %q", method, "lsp/gui_file")
+	}
+	if params["action"] != "diagnostics" {
+		t.Fatalf("GetLSPDiagnostics() action = %#v, want diagnostics", params["action"])
+	}
+	if params["file_path"] != "/tmp/file.go" {
+		t.Fatalf("GetLSPDiagnostics() file_path = %#v, want /tmp/file.go", params["file_path"])
+	}
+	if got != `{"diagnostics":[{"message":"warn"}]}` {
+		t.Fatalf("GetLSPDiagnostics() = %q", got)
+	}
+}
+
+func TestGetLSPDiagnosticsEmptyPathReturnsAggregateMapShape(t *testing.T) {
+	app := &App{dispatch: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+		return json.RawMessage(`{"diagnostics":[{"message":"unexpected"}]}`), nil
+	}}
+	got, err := app.GetLSPDiagnostics(" ")
+	if err != nil {
+		t.Fatalf("GetLSPDiagnostics() error = %v", err)
+	}
+	if got != emptyDiagnosticsMapJSON {
+		t.Fatalf("GetLSPDiagnostics() = %q, want empty aggregate map JSON", got)
+	}
+}
+
+func TestGetLSPDiagnosticsWithoutDispatchReturnsEmptyDiagnostics(t *testing.T) {
+	got, err := (&App{}).GetLSPDiagnostics("main.go")
+	if err != nil {
+		t.Fatalf("GetLSPDiagnostics() error = %v", err)
+	}
+	if got != emptyDiagnosticsJSON {
+		t.Fatalf("GetLSPDiagnostics() = %q, want empty diagnostics JSON", got)
+	}
+}
+
+func TestGetLSPDiagnosticsWithoutDispatchReturnsEmptyAggregateMap(t *testing.T) {
+	got, err := (&App{}).GetLSPDiagnostics("")
+	if err != nil {
+		t.Fatalf("GetLSPDiagnostics() error = %v", err)
+	}
+	if got != emptyDiagnosticsMapJSON {
+		t.Fatalf("GetLSPDiagnostics() = %q, want empty aggregate map JSON", got)
+	}
+}
+
+func TestGetLSPStatusReturnsStableEmptySlice(t *testing.T) {
+	got, err := (&App{}).GetLSPStatus()
+	if err != nil {
+		t.Fatalf("GetLSPStatus() error = %v", err)
+	}
+	items, ok := got.([]map[string]any)
+	if !ok {
+		t.Fatalf("GetLSPStatus() type = %T, want []map[string]any", got)
+	}
+	if len(items) != 0 {
+		t.Fatalf("len(GetLSPStatus()) = %d, want 0", len(items))
 	}
 }

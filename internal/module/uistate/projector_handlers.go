@@ -33,6 +33,9 @@ func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 	} else {
 		s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
 	}
+	if agentState != "waiting" {
+		s.clearThreadOverlayLocked(threadID, overlayTypeTerminalWait)
+	}
 	s.updateDerivedThreadStateLocked(threadID, agentID)
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
@@ -88,7 +91,7 @@ func (s *service) applyAgentStopped(ev agentdto.AgentStopped) {
 		State:      "stopped",
 		AgentState: "idle",
 	})
-	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	s.clearThreadOverlayLocked(threadID, "")
 	s.updateDerivedThreadStateLocked(threadID, agentID)
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
@@ -114,7 +117,7 @@ func (s *service) applyAgentRecovering(ev agentdto.AgentRecovering) {
 		State:      "recovering",
 		AgentState: agentState,
 	})
-	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	s.clearThreadOverlayLocked(threadID, "")
 	s.updateDerivedThreadStateLocked(threadID, agentID)
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
@@ -142,7 +145,7 @@ func (s *service) applyAgentFailed(ev agentdto.AgentFailed) {
 		LastReport:  strings.TrimSpace(ev.Error),
 		LastMessage: strings.TrimSpace(ev.Error),
 	})
-	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	s.clearThreadOverlayLocked(threadID, "")
 	s.updateDerivedThreadStateLocked(threadID, agentID)
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
@@ -212,7 +215,7 @@ func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 			AgentState: normalizeAgentLifecycleState(status),
 		})
 	}
-	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	s.clearThreadOverlayLocked(threadID, "")
 	patch := s.refreshThreadPatchLocked(threadID, agentID, "thread/stopped")
 	delete(s.patchSeq, threadID)
 	s.mu.Unlock()
@@ -275,7 +278,7 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 		State:        "idle",
 		ThreadStatus: "idle",
 	})
-	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	s.clearThreadOverlayLocked(threadID, "")
 	sortThreads(s.state.Threads)
 	patch := s.threadPatchLocked(threadID, "turn/interrupted")
 	applyPatchStatus(&patch, "idle")
@@ -300,7 +303,7 @@ func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 		State:        status,
 		ThreadStatus: status,
 	})
-	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	s.clearThreadOverlayLocked(threadID, "")
 	sortThreads(s.state.Threads)
 	patch := s.threadPatchLocked(threadID, "turn/completed")
 	applyPatchStatus(&patch, status)

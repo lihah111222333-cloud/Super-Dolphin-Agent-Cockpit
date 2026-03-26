@@ -6,11 +6,18 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
+	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 )
 
 type uiDashboardGetParams struct {
 	Page string `json:"page,omitempty"`
+}
+
+type agentStatusParams struct {
+	Status string `json:"status,omitempty"`
 }
 
 type dashboardQueryParams struct {
@@ -45,13 +52,42 @@ type limitParams struct {
 	Limit int `json:"limit,omitempty"`
 }
 
+type auditLogsParams struct {
+	EventType string `json:"eventType,omitempty"`
+	Action    string `json:"action,omitempty"`
+	Actor     string `json:"actor,omitempty"`
+	Keyword   string `json:"keyword,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+type busLogsParams struct {
+	Category string `json:"category,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	Keyword  string `json:"keyword,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+}
+
+type dagsParams struct {
+	Keyword string `json:"keyword,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+}
+
+type dagDetailParams struct {
+	DAGKey string `json:"dagKey,omitempty"`
+}
+
 func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"ui/dashboard/get": rpc.StrictHandler(func(ctx context.Context, p uiDashboardGetParams) (any, error) {
 			return svc.GetDashboardPage(ctx, p.Page)
 		}),
-		"dashboard/agentStatus": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return dashboardPageField(ctx, svc, "agents", func(page *DashboardPage) any { return page.Agents })
+		"dashboard/agentStatus": rpc.StrictHandler(func(ctx context.Context, p agentStatusParams) (any, error) {
+			agents, err := svc.ListAgentStatuses(ctx, p.Status)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"agents": agents}, nil
 		}),
 		"dashboard/taskTraces": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardPageField(ctx, svc, "tasks", func(page *DashboardPage) any { return page.TaskTraces }, "traces")
@@ -79,6 +115,18 @@ func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
 		}),
 		"dashboard/aiLogs": rpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
 			return dashboardAILogField(ctx, svc, p)
+		}),
+		"dashboard/auditLogs": rpc.StrictHandler(func(ctx context.Context, p auditLogsParams) (any, error) {
+			return dashboardAuditLogField(ctx, svc, p)
+		}),
+		"dashboard/busLogs": rpc.StrictHandler(func(ctx context.Context, p busLogsParams) (any, error) {
+			return dashboardBusLogField(ctx, svc, p)
+		}),
+		"dashboard/dags": rpc.StrictHandler(func(ctx context.Context, p dagsParams) (any, error) {
+			return dashboardDAGField(ctx, svc, p)
+		}),
+		"dashboard/dagDetail": rpc.StrictHandler(func(ctx context.Context, p dagDetailParams) (any, error) {
+			return dashboardDAGDetailField(ctx, svc, p)
 		}),
 		"dashboard/aiLogs/recent": rpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
 			return dashboardRecentAILogField(ctx, svc, p.Limit)
@@ -126,6 +174,53 @@ func dashboardAILogField(ctx context.Context, svc Service, p logsParams) (map[st
 		return nil, err
 	}
 	return map[string]any{"logs": logs}, nil
+}
+
+func dashboardAuditLogField(ctx context.Context, svc Service, p auditLogsParams) (map[string]any, error) {
+	logs, err := svc.GetAuditLogs(ctx, auditlogstore.ListFilter{
+		EventType: p.EventType,
+		Action:    p.Action,
+		Actor:     p.Actor,
+		Keyword:   p.Keyword,
+		Limit:     int32(p.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"logs": logs}, nil
+}
+
+func dashboardBusLogField(ctx context.Context, svc Service, p busLogsParams) (map[string]any, error) {
+	logs, err := svc.GetBusLogs(ctx, buslogstore.ListFilter{
+		Category: p.Category,
+		Severity: p.Severity,
+		Keyword:  p.Keyword,
+		Limit:    int32(p.Limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"logs": logs}, nil
+}
+
+func dashboardDAGField(ctx context.Context, svc Service, p dagsParams) (map[string]any, error) {
+	dags, err := svc.ListDAGs(ctx, contract.ListDAGsFilter{
+		Status:  p.Status,
+		Keyword: p.Keyword,
+		Limit:   p.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"dags": dags}, nil
+}
+
+func dashboardDAGDetailField(ctx context.Context, svc Service, p dagDetailParams) (map[string]any, error) {
+	detail, err := svc.GetDAGDetail(ctx, p.DAGKey)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"dag": detail.DAG, "nodes": detail.Nodes}, nil
 }
 
 func dashboardRecentAILogField(ctx context.Context, svc Service, limit int) (map[string]any, error) {

@@ -1,8 +1,12 @@
 package dashboard
 
 import (
+	"context"
 	"sort"
 	"strings"
+
+	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
+	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 )
 
 func matchesLogFilter(entry LogEntry, filter LogFilter) bool {
@@ -82,4 +86,27 @@ func sortLogEntries(entries []LogEntry) {
 		}
 		return entries[i].ID > entries[j].ID
 	})
+}
+
+func (s *service) GetAuditLogs(ctx context.Context, filter auditlogstore.ListFilter) ([]auditlogstore.AuditEvent, error) {
+	if s.auditLogs == nil {
+		return []auditlogstore.AuditEvent{}, nil
+	}
+	filter.EventType = strings.TrimSpace(filter.EventType)
+	filter.Action = strings.TrimSpace(filter.Action)
+	filter.Actor = strings.TrimSpace(filter.Actor)
+	filter.Keyword = strings.TrimSpace(filter.Keyword)
+	filter.Limit = int32(clampLogLimit(int(filter.Limit)))
+	return s.auditLogs.List(ctx, filter)
+}
+
+func (s *service) GetBusLogs(ctx context.Context, filter buslogstore.ListFilter) ([]buslogstore.BusExceptionLog, error) {
+	if s.busLogs == nil {
+		return []buslogstore.BusExceptionLog{}, nil
+	}
+	filter.Category = strings.TrimSpace(filter.Category)
+	filter.Severity = strings.TrimSpace(filter.Severity)
+	filter.Keyword = strings.TrimSpace(filter.Keyword)
+	filter.Limit = int32(clampLogLimit(int(filter.Limit)))
+	return s.busLogs.List(ctx, filter)
 }

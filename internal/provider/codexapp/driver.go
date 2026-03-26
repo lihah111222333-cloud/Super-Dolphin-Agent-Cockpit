@@ -238,14 +238,15 @@ func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRe
 func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (string, error) {
 	callCtx, cancel := withTimeout(ctx, 30*time.Second)
 	defer cancel()
+	resumeID := firstNonEmpty(req.ProviderThreadID, req.ThreadID)
 	raw, err := t.Call(callCtx, "thread/resume", threadResumeParams{
-		ThreadID: strings.TrimSpace(req.ThreadID),
+		ThreadID: strings.TrimSpace(resumeID),
 		Model:    strings.TrimSpace(req.Model),
 	})
 	if err != nil {
 		return "", err
 	}
-	return decodeThreadID(raw, req.ThreadID)
+	return decodeThreadID(raw, resumeID)
 }
 
 func decodeThreadID(raw json.RawMessage, fallback string) (string, error) {

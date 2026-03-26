@@ -105,6 +105,10 @@ func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRun
 }
 
 func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
+	if err := s.waitForSubmitSessionReady(ctx, work.agentID); err != nil {
+		s.finishTurnStartFailure(ctx, work, err)
+		return
+	}
 	if s.turnStarter == nil {
 		s.finishTurnStartFailure(ctx, work, errors.New("turn starter is not configured"))
 		return

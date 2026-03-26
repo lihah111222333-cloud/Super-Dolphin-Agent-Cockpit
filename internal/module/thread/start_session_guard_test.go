@@ -133,6 +133,9 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	if result.ThreadID != "agent-start" || result.SessionID != "provider-thread-1" || result.AgentID != "agent-start" {
 		t.Fatalf("result = %#v", result)
 	}
+	if result.Provider != "claude" || result.CWD != wantStartCWD(t) || result.ApprovalPolicy != "never" {
+		t.Fatalf("effective start result = %#v", result)
+	}
 	if orch.launchReq.Cwd != wantStartCWD(t) {
 		t.Fatalf("launch cwd = %q, want %q", orch.launchReq.Cwd, wantStartCWD(t))
 	}
