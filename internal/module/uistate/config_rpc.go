@@ -117,14 +117,16 @@ func applyRuntimeConfigOverrides(result *runtimeConfigResult, cfg map[string]any
 	if result == nil || len(cfg) == 0 {
 		return
 	}
+	applyRuntimeStringOverrides(result, cfg)
+	applyRuntimeObjectOverrides(result, cfg)
+}
+
+func applyRuntimeStringOverrides(result *runtimeConfigResult, cfg map[string]any) {
 	if value := runtimeConfigString(cfg, "modelProvider"); value != "" {
 		result.ModelProvider = value
 	}
 	if value := runtimeConfigString(cfg, "approvalPolicy", "approval_policy", "approvals"); value != "" {
 		result.ApprovalPolicy = value
-	}
-	if value, ok := cfg["sandbox"]; ok && value != nil {
-		result.Sandbox = value
 	}
 	if value := runtimeConfigString(cfg, "baseInstructions", "instructions"); value != "" {
 		result.BaseInstructions = value
@@ -135,7 +137,13 @@ func applyRuntimeConfigOverrides(result *runtimeConfigResult, cfg map[string]any
 	if value := runtimeConfigString(cfg, "personality"); value != "" {
 		result.Personality = value
 	}
-	if routing, ok := runtimeToolRouting(cfg["toolRouting"]); ok {
+}
+
+func applyRuntimeObjectOverrides(result *runtimeConfigResult, cfg map[string]any) {
+	if value, ok := cfg["sandbox"]; ok && value != nil {
+		result.Sandbox = value
+	}
+	if routing, ok := runtimeToolRouting(result.ToolRouting, cfg["toolRouting"]); ok {
 		result.ToolRouting = routing
 	}
 }
@@ -198,21 +206,42 @@ func runtimeConfigString(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
-func runtimeToolRouting(raw any) (runtimeConfigToolRouting, bool) {
+func runtimeToolRouting(base runtimeConfigToolRouting, raw any) (runtimeConfigToolRouting, bool) {
 	values, ok := raw.(map[string]any)
 	if !ok {
 		return runtimeConfigToolRouting{}, false
 	}
-	out := runtimeConfigToolRouting{
-		Mode:                runtimeConfigString(values, "mode"),
-		RouterModel:         runtimeConfigString(values, "routerModel"),
-		RouterProvider:      runtimeConfigString(values, "routerProvider"),
-		RouterBaseURL:       runtimeConfigString(values, "routerBaseURL"),
-		RouterHasAPIKey:     runtimeConfigBool(values, "routerHasAPIKey"),
-		ConfidenceThreshold: runtimeConfigFloat(values, "confidenceThreshold"),
-		TimeoutSec:          runtimeConfigInt(values, "timeoutSec"),
+	out := base
+	applied := false
+	if value := runtimeConfigString(values, "mode"); value != "" {
+		out.Mode = value
+		applied = true
 	}
-	if out == (runtimeConfigToolRouting{}) {
+	if value := runtimeConfigString(values, "routerModel"); value != "" {
+		out.RouterModel = value
+		applied = true
+	}
+	if value := runtimeConfigString(values, "routerProvider"); value != "" {
+		out.RouterProvider = value
+		applied = true
+	}
+	if value := runtimeConfigString(values, "routerBaseURL"); value != "" {
+		out.RouterBaseURL = value
+		applied = true
+	}
+	if value, ok := values["routerHasAPIKey"].(bool); ok {
+		out.RouterHasAPIKey = value
+		applied = true
+	}
+	if value := runtimeConfigFloat(values, "confidenceThreshold"); value > 0 {
+		out.ConfidenceThreshold = value
+		applied = true
+	}
+	if value := runtimeConfigInt(values, "timeoutSec"); value > 0 {
+		out.TimeoutSec = value
+		applied = true
+	}
+	if !applied {
 		return runtimeConfigToolRouting{}, false
 	}
 	return out, true

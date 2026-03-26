@@ -4,6 +4,7 @@
 > 说明：本版在 `arch-*.md` / `verify-*.md` 基础上，补充吸收 `align-*.md`、`cap-*.md`、`review-*.md` 中已落锤的契约结论，对旧版 `framework_audit.md` 重新评估。  
 > 口径：本报告同时覆盖“框架选型/使用合规”与“迁移契约是否真正闭环”，因此结论会比旧版更严格。  
 > 注：`pgx` 项没有独立 `arch-pgx-*.md` 文档，本报告仅按“驱动选型与访问边界”口径归纳；`store` 的 1:1 parity 单列评估。
+> 2026-03-26 二次修订：根据 `verify-align-session-event.md` / `verify-align-fx-wails.md` / `internal/platform/eventsurface/bind.go` 实际代码状态，修正 event bus（❌→⚠️）、lifecycle（❌→⚠️）、JSON wire 描述
 
 ## 总览
 
@@ -12,10 +13,10 @@
 | # | 框架 | 用途 | 合规状态 |
 |---|------|------|----------|
 | 1 | `go.uber.org/fx` | 依赖注入 | ⚠️ 图可验证，但有 19 个悬空 provider 与 9 个 optional 依赖设计 |
-| 2 | `github.com/kelindar/event` | 事件总线 | ❌ typed bus 存在，但对外事件契约、bridge 宽度与前端消费链均未对齐 |
+| 2 | `github.com/kelindar/event` | 事件总线 | ⚠️ typed bus 存在，推送面已从 3 扩展到 34 个 method，但 V2 method name 兼容、零发布事件与前端消费链仍未完全收口（依据：`verify-align-session-event.md` 第 5 条、`internal/platform/eventsurface/bind.go`） |
 | 3 | `github.com/qmuntal/stateless` | 状态机 | ❌ Agent SM 仍有 out-of-band 写；turn tracker 仍完全绕过 |
 | 4 | `github.com/creachadair/jrpc2` | JSON-RPC | ❌ 内部基座可用，但方法覆盖率、approval、push、返回 shape 仍明显偏离 V2 |
-| 5 | `github.com/oklog/run` + fx lifecycle | 进程拉起 + 关闭 | ❌ 可运行，但 shutdown 顺序、timeout、signal 与 panic hardening 未达契约要求 |
+| 5 | `github.com/oklog/run` + fx lifecycle | 进程拉起 + 关闭 | ⚠️ 骨架可跑，3 个高优并发已修，但 shutdown 顺序、timeout 与 panic hardening 仍有缺口（依据：`verify-align-session-event.md` 第 1-4 条、`verify-align-fx-wails.md` 总结） |
 | 6 | `github.com/jackc/pgx` | 数据库 | ✅ 驱动选型与访问边界合规（不等于 store parity 已完成） |
 
 ### 架构横切面合规状态
@@ -45,16 +46,16 @@
 
 ---
 
-## 2. kelindar/event（事件总线）— ❌ 内部 bus 存在，但对外事件契约未闭环
+## 2. kelindar/event（事件总线）— ⚠️ typed bus 存在，推送面已从 3 扩展到 34 个 method，但 V2 method name 兼容、零发布事件与消费闭环仍未完全收口
 
-> 详见 [arch-event-contract.md](迁移/arch-event-contract.md)；对齐/能力复核见 [align-event-flow.md](迁移/align-event-flow.md)、[cap-event-push.md](迁移/cap-event-push.md)
+> 详见 [arch-event-contract.md](迁移/arch-event-contract.md)；对齐/能力复核见 [align-event-flow.md](迁移/align-event-flow.md)、[cap-event-push.md](迁移/cap-event-push.md)；二次修正依据：`verify-align-session-event.md` 第 5 条、`internal/platform/eventsurface/bind.go`、`internal/platform/rpc/push.go`、`internal/ui/wails/bridge.go`
 
 - 6 族 Emitter 全部通过 fx.Provide 暴露
 - 19 个已发布事件都至少有 1 个订阅者，但其中大量事件仍只有 `LogSink` 消费
 - `bridge-event` 后端桥与 `type + payload` envelope 已接上
 
 **问题**：
-- **对外 push/Wails 只桥接 3 个事件**：`ui/state/changed`、`turn/started`、`turn/completed`，远窄于 V2 public method 面
+- **对外 push/Wails 已统一通过 `eventsurface.Bind()` 桥接 34 个 method**：覆盖 `core` / `thread` / `tool` / `ui` / `workspace` / `agentLifecycle` 6 组事件，RPC push 与 Wails bridge 共享同一入口；但相对 V2 仍不是 1:1 method family 兼容（依据：`verify-align-session-event.md` 第 5-6 条、`internal/platform/eventsurface/bind.go`、`internal/platform/rpc/push.go`、`internal/ui/wails/bridge.go`）
 - **前端消费链未闭环**：当前内嵌 frontend 只有占位页，没有 `bridge-event` / `app-will-quit` 订阅
 - **V2 的 `agent-event` 双入口与 thread/CWD 隔离未迁入**
 - **9 个零发布事件**：`TurnStalled`、`TurnResumed`、`TaskDagCreated`、`TaskNodeStatusChanged`、`TaskWakeupDispatched`、`TaskWakeupCompleted`、`UIProjectionUpdated`、`UITimelineAppended`、`UITokensUpdated`
@@ -103,35 +104,41 @@
 - `request_user_input` 尚未收口到统一前端交互链；approval event 也没有反向驱动 orchestration 状态机
 
 ### JSON wire / 返回值 shape 当前状态
-- **snake_case 主格式 + camelCase 兼容** 已扩展到多模块，旧版“只补少数点状类型”的判断过窄
-- 但 **仍未完全统一**：
+- **snake_case 主格式 + camelCase 兼容** 已明显推进到 orchestration DAG、thread、turn、workspace 多模块，旧版“只补少数点状类型”的判断已经过时（依据：`verify-align-fx-wails.md` 第 18 条、`cmd/mcp-orch/orchestration/rpc_types.go`、`internal/module/thread/rpc_types.go`、`internal/module/turn/rpc_types.go`、`internal/module/workspace/rpc_types.go`）
+- **但治理仍未完成**：
   - `thread/start` 仍保留 camelCase 主 tag
   - `turnForceCompleteResult` 仍输出 `forceCompleted`
   - 多个 thread / turn 路由返回 `null`、裸数组或大写字段，并非 V2 期望 shape
 - 事件 DTO 层已统一 snake_case，`AgentSnapshot` 与 V2 一致
 
 ### 仍然成立的关键偏差
-- `agent.launch`：V3 成功结果仍是 `null`，V2 期望 `{agent_id, name, status}`
+- `agent.launch`：V3 成功结果仍是 `null`，V2 期望 `{agent_id, name, status}`；并且当前只完成进程拉起，不创建 provider session，直接 `agent.launch -> agent.submit` 仍可能因无 session 失败
 - `RememberReportRequestResult`：V3 `{agent_id, requester_id}`，V2 `{sender_id, worker_id}`
-- `ReportEventResult`：V3 额外带 `report` / `notified_requester_ids`，V2 无此字段
+- `ReportEventResult`：V3 额外带 `report` / `notified_requester_ids`，V2 无此字段；report requester 当前也仍只是内存内 drain，没有真实 UI/消息投递闭环
 - `approval/respond`：V3 成功返回 `nil`，不是 V2 的结构化 ack
+- `review/start`：V3 仍直接 `ErrNotImplemented`，而且参数类型本身还没迁到 V2 形态
+- `turn/forceComplete`：V3 仍只是 `Interrupt(..., Source: "force_complete")`，成功返回 `nil`，不是 V2 的 provider 专用 contract + ack
 - `turn/start` / `turn/steer` / `thread/start` / `thread/resume` 等参数面与 V2 仍明显不兼容
+- transport 侧仍缺关键基础设施：非 approval 事件的 `requestId` passthrough、fallback transport、pending request allocator、timeout restore 仍未接线
 
 ---
 
-## 5. oklog/run + fx lifecycle（进程拉起+关闭）— ❌ 骨架可跑，但 lifecycle hardening 未达标
+## 5. oklog/run + fx lifecycle（进程拉起+关闭）— ⚠️ 骨架可跑，3 个高优并发已修，但 shutdown 顺序/timeout/panic hardening 仍有缺口
 
-> 详见 [arch-concurrency.md](迁移/arch-concurrency.md)；能力复核见 [cap-fx-lifecycle.md](迁移/cap-fx-lifecycle.md)、[cap-wails-desktop.md](迁移/cap-wails-desktop.md)
+> 详见 [arch-concurrency.md](迁移/arch-concurrency.md)；能力复核见 [cap-fx-lifecycle.md](迁移/cap-fx-lifecycle.md)、[cap-wails-desktop.md](迁移/cap-wails-desktop.md)；二次修正依据：`verify-align-session-event.md` 第 1-4 条、`verify-align-fx-wails.md`、`internal/provider/unified/session.go`、`internal/provider/codexapp/session.go`
 
 - `oklog/run` 负责启动 Actor，fx lifecycle 负责 graceful shutdown
 - `platform/runner/group.go` 正确封装 `run.Group`
-- 原审计列出的 **3 个高优并发问题**（`SessionManager` 代际、`codexapp.threadID` data race、`ApprovalManager.pending.dispatcher` 并发窗口）已在复核文档中判定为 **已修**
+- 原审计列出的 **3 个高优并发问题**（`SessionManager` 代际、`codexapp.threadID` data race、`ApprovalManager.pending.dispatcher` 并发窗口）现已不再构成 blocking issue：前两项已在复核文档中判定为 **已修**，第三项也已在 `registerPending` / `beginDispatch` 中收回锁内处理（依据：`verify-align-session-event.md` 第 1-4 条、`internal/platform/rpc/approval.go`、`internal/provider/unified/session.go`、`internal/provider/codexapp/thread_id.go`）
 - 本轮仍未发现确定性死锁链；锁顺序基本单向
 
 **仍然不通过的原因**：
 
 | 风险级别 | 问题 | 影响 |
 |---|---|---|
+| 已修（原高） | `SessionManager` 代际保护 | `generation` 保护已落地，旧 generation 不再删除新 session（依据：`verify-align-session-event.md` 第 1 条、`internal/provider/unified/session.go`） |
+| 已修（原高） | `codexapp.threadID` data race | `threadID` 已改为 `atomic.Value`，start/resume 统一经 `setThreadID(...)` 写入（依据：`verify-align-session-event.md` 第 2 条、`internal/provider/codexapp/session.go`、`internal/provider/codexapp/thread_id.go`） |
+| 已修（原高） | `ApprovalManager.pending.dispatcher` 并发窗口 | `dispatcher` 已在 `registerPending` 锁内固化，`beginDispatch` 也在锁内检查并翻转 `dispatching`，旧 register/dispatch 快速竞争窗口已收口（依据：`internal/platform/rpc/approval.go`） |
 | 高 | graceful shutdown 顺序仍不符合目标顺序 | `session close -> agent stop -> db close -> bus stop` 目前不成立 |
 | 高 | app 级 `fx.Start/Stop` 与 `RunGroup` 缺少外层 timeout 护栏 | hook / provider close 卡死时可能无限等待 |
 | 中 | headless 下存在 Fx `app.Done()` + `RunGroup` 双 signal 入口 | 重复处理与日志噪声风险 |
@@ -252,10 +259,10 @@
 | ⚠️ 部分问题 | 代码守卫 | 多处贴边，复杂度余量紧张 |
 | ⚠️ 部分问题 | two-zone DRY | Projector/Route 复用弱，handler 去重不完整 |
 | ⚠️ 部分问题 | store parity | repo/sqlc 底座稳定，但 `threadbinding` / `ailog` / `dbquery` 未 1:1 |
-| ❌ 不合规 | event bus | 对外事件面只剩 3 个核心事件，前端消费链与双入口隔离未闭环 |
+| ⚠️ 部分问题 | event bus | 推送面已扩到 34 个 method，但 V2 method name、9 个零发布事件、前端消费链与双入口隔离仍未闭环（依据：`verify-align-session-event.md` 第 5-6 条、`internal/platform/eventsurface/bind.go`） |
 | ❌ 不合规 | stateless | out-of-band 写，turn tracker 绕过，`awaiting_user_input` 不可达 |
-| ❌ 不合规 | jrpc2 | 仅 64/154 V2 同名方法对齐，approval / push / shape 仍未收口 |
-| ❌ 不合规 | oklog/run + fx lifecycle | shutdown 顺序、timeout、signal、panic hardening 未达标 |
+| ❌ 不合规 | jrpc2 | 仅 64/154 V2 同名方法对齐，approval / push / shape / transport / orchestration side-effect 仍未收口 |
+| ⚠️ 部分问题 | oklog/run + fx lifecycle | 3 个高优并发已修，但 shutdown 顺序、timeout、双 signal 入口与 panic hardening 仍未达标（依据：`verify-align-session-event.md` 第 1-4 条、`verify-align-fx-wails.md`） |
 | ❌ 不合规 | 错误处理 | 吞错多，panic 防护不足，Close/ctx 语义不统一 |
 | ❌ 不合规 | 测试覆盖 | `store/*` 全零；`thread` / `codexapp` / `claudecli` / `platform/rpc` 近零测试 |
 
@@ -265,16 +272,17 @@
 
 1. **stateless strict mode 收口** → 消除 `prepareLaunchStateLocked` / `forceIdleAfterCompletionError` 的状态机外写状态
 2. **`awaiting_user_input` + approval bridge 打通** → orchestration 消费 approval 事件，驱动 `turn_running → awaiting_user_input → turn_running`
-3. **RPC 契约收口** → 优先修 `agent.launch`、`approval/respond`、`turn/start`、`thread/start` / `resume` 的返回 shape 与参数面；同时补 V2 approval method family
-4. **lifecycle hardening** → 补 app 级 timeout、修 shutdown 顺序、统一 goroutine panic policy、收敛双 signal 入口
-5. **provider/thread session 一致性** → 修 Claude placeholder threadID、Archive/Delete 不 `Remove` session、Recover 误复用 closed session 等问题
-6. **测试补齐** → 先补 `store/*`、`thread`、`codexapp`、`claudecli`、`platform/rpc`
+3. **RPC 契约与 transport 收口** → 优先修 `agent.launch`、`approval/respond`、`review/start`、`turn/forceComplete`、`turn/start`、`thread/start` / `resume` 的返回 shape 与参数面；同时补 V2 approval method family、非 approval push 的 `requestId` passthrough，以及 fallback transport / pending allocator / timeout restore
+4. **lifecycle hardening** → 3 个高优并发问题已修；剩余 P0 是补 app 级 timeout、修 shutdown 顺序、统一 goroutine panic policy、收敛双 signal 入口（依据：`verify-align-session-event.md` 第 1-4 条、`verify-align-fx-wails.md` 总结）
+5. **provider/thread/orchestration session 一致性** → `SessionManager` 代际保护与 `codexapp.threadID` data race 已修；剩余重点是 `agent.launch` 不创建 provider session、Claude placeholder threadID、Archive/Delete 不 `Remove` session、Recover 误复用 closed session 等问题（依据：`verify-align-session-event.md` 第 1-4 条、`internal/provider/unified/session.go`、`internal/provider/codexapp/session.go`）
+6. **report requester 真实投递闭环** → 消除只做 local drain、不进入真实 UI/消息投递的现状
+7. **测试补齐** → 先补 `store/*`、`thread`、`codexapp`、`claudecli`、`platform/rpc`
 
 **P1 — 影响事件面、维护性与迁移完整度**：
 
-7. **事件契约收口** → 决定补齐 V2 public method / `agent-event` / 前端 runtime 消费，还是明确降级并删死定义
-8. **9 个零发布事件 + 软孤儿事件** → 决定补发布链路与消费者，或删除死定义/死桥接
-9. **fx optional 与悬空 provider 收紧** → 能改强依赖的改强依赖；悬空 provider 要么接消费点，要么删除
-10. **turn tracker** → 迁移到 stateless 状态机
-11. **Store parity 深化** → 补 `threadbinding` / `ailog` / `dbquery` 与相关事务/兼容层
-12. **Two-Zone DRY 深化** → 补足 Projector/Route 复用与跨模块 handler 工厂
+8. **事件契约收口** → 决定补齐 V2 public method / `agent-event` / 前端 runtime 消费，还是明确降级并删死定义
+9. **9 个零发布事件 + 软孤儿事件** → 决定补发布链路与消费者，或删除死定义/死桥接
+10. **fx optional 与悬空 provider 收紧** → 能改强依赖的改强依赖；悬空 provider 要么接消费点，要么删除
+11. **turn tracker** → 迁移到 stateless 状态机
+12. **Store parity 深化** → 补 `threadbinding` / `ailog` / `dbquery` 与相关事务/兼容层
+13. **Two-Zone DRY 深化** → 补足 Projector/Route 复用与跨模块 handler 工厂

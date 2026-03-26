@@ -2,20 +2,26 @@ package uistate
 
 import (
 	"encoding/json"
+	"errors"
+	"strconv"
 	"strings"
 )
 
 const (
-	preferenceActiveThreadID     = "activeThreadId"
-	preferenceActiveCmdThreadID  = "activeCmdThreadId"
-	preferenceMainAgentID        = "mainAgentId"
-	preferenceViewPrefsChat      = "viewPrefs.chat"
-	preferenceViewPrefsCmd       = "viewPrefs.cmd"
-	preferenceThreadPinsChat     = "threadPins.chat"
-	preferenceThreadArchivesChat = "threadArchives.chat"
+	preferenceActiveThreadID           = "activeThreadId"
+	preferenceActiveCmdThreadID        = "activeCmdThreadId"
+	preferenceMainAgentID              = "mainAgentId"
+	preferenceStallThresholdSec        = "stallThresholdSec"
+	preferenceViewPrefsChat            = "viewPrefs.chat"
+	preferenceViewPrefsCmd             = "viewPrefs.cmd"
+	preferenceThreadPinsChat           = "threadPins.chat"
+	preferenceThreadArchivesChat       = "threadArchives.chat"
+	preferenceShowInjectedPromptInChat = "settings.showInjectedPromptInChat"
 
 	recentTurnLimit = 20
 )
+
+var errInvalidStallThresholdSec = errors.New("stallThresholdSec must be >= 30 seconds")
 
 func normalizePreferenceKey(key string) string {
 	switch strings.TrimSpace(key) {
@@ -25,6 +31,8 @@ func normalizePreferenceKey(key string) string {
 		return preferenceActiveCmdThreadID
 	case "main_agent_id":
 		return preferenceMainAgentID
+	case "stall_threshold_sec":
+		return preferenceStallThresholdSec
 	case "view_prefs.chat":
 		return preferenceViewPrefsChat
 	case "view_prefs.cmd":
@@ -33,6 +41,8 @@ func normalizePreferenceKey(key string) string {
 		return preferenceThreadPinsChat
 	case "thread_archives.chat":
 		return preferenceThreadArchivesChat
+	case "show_injected_prompt_in_chat":
+		return preferenceShowInjectedPromptInChat
 	default:
 		return strings.TrimSpace(key)
 	}
@@ -49,6 +59,8 @@ func buildPreferences(scope string, values map[string]any) Preferences {
 	prefs.ActiveThreadID = stringPreferenceValue(values, preferenceActiveThreadID, "active_thread_id")
 	prefs.ActiveCmdThreadID = stringPreferenceValue(values, preferenceActiveCmdThreadID, "active_cmd_thread_id")
 	prefs.MainAgentID = stringPreferenceValue(values, preferenceMainAgentID, "main_agent_id")
+	prefs.StallThresholdSec = positiveIntPreferenceValue(values, 30, preferenceStallThresholdSec, "stall_threshold_sec")
+	prefs.ShowInjectedPromptInChat = boolPreferenceValue(values, preferenceShowInjectedPromptInChat, "show_injected_prompt_in_chat")
 	prefs.ViewPrefs.Chat = normalizeJSONObject(preferenceRawValue(values, preferenceViewPrefsChat, "view_prefs.chat"))
 	prefs.ViewPrefs.Cmd = normalizeJSONObject(preferenceRawValue(values, preferenceViewPrefsCmd, "view_prefs.cmd"))
 	prefs.ThreadPins.Chat = normalizeTimestampMap(preferenceRawValue(values, preferenceThreadPinsChat, "thread_pins.chat"))
@@ -92,6 +104,8 @@ func applyPreferencesToState(state *UIState, prefs *Preferences) {
 	state.ActiveThreadID = prefs.ActiveThreadID
 	state.ActiveCmdThreadID = prefs.ActiveCmdThreadID
 	state.MainAgentID = deriveMainAgentID(state.Agents, prefs.MainAgentID)
+	state.StallThresholdSec = prefs.StallThresholdSec
+	state.ShowInjectedPromptInChat = cloneBoolPtr(prefs.ShowInjectedPromptInChat)
 	state.ViewPrefsChat = cloneJSONMap(prefs.ViewPrefs.Chat)
 	state.ViewPrefsCmd = cloneJSONMap(prefs.ViewPrefs.Cmd)
 	state.ThreadPinsChat = cloneTimestampMap(prefs.ThreadPins.Chat)
@@ -163,13 +177,49 @@ func stringPreferenceValue(values map[string]any, keys ...string) string {
 	}
 }
 
-func preferenceRawValue(values map[string]any, keys ...string) any {
-	for _, key := range keys {
-		if value, ok := values[key]; ok {
-			return value
+func positiveIntPreferenceValue(values map[string]any, minVal int, keys ...string) int {
+	value, ok := preferenceRawValueFound(values, keys...)
+	if !ok {
+		return 0
+	}
+	return asPositiveInt(value, minVal)
+}
+
+func boolPreferenceValue(values map[string]any, keys ...string) *bool {
+	value, ok := preferenceRawValueFound(values, keys...)
+	if !ok {
+		return nil
+	}
+	return boolPreferencePointer(value, false)
+}
+
+func boolPreferencePointer(value any, fallback bool) *bool {
+	resolved := asBool(value, fallback)
+	return &resolved
+}
+
+func validatePreferenceValue(key string, value any) error {
+	switch normalizePreferenceKey(key) {
+	case preferenceStallThresholdSec:
+		if asPositiveInt(value, 30) <= 0 {
+			return errInvalidStallThresholdSec
 		}
 	}
 	return nil
+}
+
+func preferenceRawValue(values map[string]any, keys ...string) any {
+	value, _ := preferenceRawValueFound(values, keys...)
+	return value
+}
+
+func preferenceRawValueFound(values map[string]any, keys ...string) (any, bool) {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			return value, true
+		}
+	}
+	return nil, false
 }
 
 func normalizeJSONObject(value any) map[string]any {
@@ -253,6 +303,38 @@ func asInt64(value any) (int64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func asPositiveInt(value any, minVal int) int {
+	switch typed := value.(type) {
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err != nil || parsed < minVal {
+			return 0
+		}
+		return parsed
+	default:
+		parsed, ok := asInt64(value)
+		if !ok || parsed < int64(minVal) {
+			return 0
+		}
+		return int(parsed)
+	}
+}
+
+func asBool(value any, fallback bool) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		}
+	}
+	return fallback
 }
 
 func emptyStringAsNil(value string) any {

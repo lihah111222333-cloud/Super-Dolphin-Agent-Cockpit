@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 	"github.com/creachadair/jrpc2/handler"
@@ -19,10 +20,10 @@ var defaultWSUpgrader = websocket.Upgrader{}
 var _ channel.Channel = (*wsChannel)(nil)
 
 // WSHandler bridges a websocket connection into a jrpc2 channel.
-func WSHandler(methods handler.Map, opts *jrpc2.ServerOptions) http.Handler {
-	mux := methods
-	if mux == nil {
-		mux = handler.Map{}
+func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
+	mux := handler.Map{}
+	if server != nil && server.methods != nil {
+		mux = server.methods
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := defaultWSUpgrader.Upgrade(w, r, nil)
@@ -32,6 +33,11 @@ func WSHandler(methods handler.Map, opts *jrpc2.ServerOptions) http.Handler {
 		}
 		ch := newWSChannel(conn)
 		srv := jrpc2.NewServer(mux, prepareServerOptions(opts)).Start(ch)
+		if server != nil {
+			server.addActive(srv, dto.PeerKindUI)
+			defer server.removeActive(srv)
+			server.notifyConnected(srv)
+		}
 		defer srv.Stop()
 		defer ch.Close()
 		if err := srv.Wait(); err != nil && !errors.Is(err, io.EOF) && !channel.IsErrClosing(err) {

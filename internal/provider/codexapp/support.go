@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -84,6 +85,106 @@ func cloneCaps(src dto.CapabilitySet) dto.CapabilitySet {
 	out := make(dto.CapabilitySet, len(src))
 	for k, v := range src {
 		out[k] = v
+	}
+	return out
+}
+
+func (s *session) configureThread(ctx context.Context, patch dto.ThreadConfigPatch) error {
+	threadID := s.ThreadID()
+	if threadID == "" {
+		return errors.New("codexapp: thread id is required")
+	}
+	if err := s.applyConfigSet(ctx, threadID, patch); err != nil {
+		return err
+	}
+	if err := s.applyConfigSlashCommands(ctx, threadID, patch); err != nil {
+		return err
+	}
+	s.updateRuntimeConfigFromPatch(patch)
+	return nil
+}
+
+func (s *session) applyConfigSet(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) error {
+	if patch.Model == nil && patch.Effort == nil {
+		return nil
+	}
+	params := map[string]any{"threadId": threadID}
+	if patch.Model != nil {
+		params["model"] = strings.TrimSpace(*patch.Model)
+	}
+	if patch.Effort != nil {
+		params["effort"] = strings.TrimSpace(*patch.Effort)
+	}
+	callCtx, cancel := withTimeout(ctx, 10*time.Second)
+	defer cancel()
+	_, err := s.callTransport(callCtx, "thread/config/set", params)
+	return err
+}
+
+func (s *session) applyConfigSlashCommands(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) error {
+	if err := s.applySlashConfig(ctx, threadID, "thread/personality/set", "personality", patch.Personality); err != nil {
+		return err
+	}
+	return s.applySlashConfig(ctx, threadID, "thread/approvals/set", "policy", patch.Approvals)
+}
+
+func (s *session) updateRuntimeConfigFromPatch(patch dto.ThreadConfigPatch) {
+	if patch.Approvals != nil {
+		approval := strings.TrimSpace(*patch.Approvals)
+		s.setApprovalPolicy(approval)
+		s.setRuntimeConfigValue("approvalPolicy", approval)
+		s.setRuntimeConfigValue("approval_policy", approval)
+		s.setRuntimeConfigValue("approvals", approval)
+	}
+	if patch.Personality != nil {
+		s.setRuntimeConfigValue("personality", strings.TrimSpace(*patch.Personality))
+	}
+}
+
+func (s *session) applySlashConfig(ctx context.Context, threadID, method, key string, value *string) error {
+	if value == nil {
+		return nil
+	}
+	arg := strings.TrimSpace(*value)
+	if arg == "" {
+		return nil
+	}
+	callCtx, cancel := withTimeout(ctx, 10*time.Second)
+	defer cancel()
+	_, err := s.callTransport(callCtx, method, map[string]any{"threadId": threadID, key: arg, "args": arg})
+	return err
+}
+
+func (s *session) setRuntimeConfigValue(key string, value any) {
+	if strings.TrimSpace(key) == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runtimeConfig == nil {
+		s.runtimeConfig = map[string]any{}
+	}
+	s.runtimeConfig[key] = value
+}
+
+func cloneRuntimeConfigMap(cfg map[string]any) map[string]any {
+	if len(cfg) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		out := make(map[string]any, len(cfg))
+		for key, value := range cfg {
+			out[key] = value
+		}
+		return out
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		out = make(map[string]any, len(cfg))
+		for key, value := range cfg {
+			out[key] = value
+		}
 	}
 	return out
 }

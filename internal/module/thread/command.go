@@ -178,9 +178,21 @@ func bindingProvider(binding *bindingstore.Binding) string {
 func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
-		return dto.ThreadConfig{}, err
+		offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
+		if offlineErr != nil {
+			return dto.ThreadConfig{}, offlineErr
+		}
+		return offline.Config, nil
 	}
-	cfg, err := readThreadConfig(ctx, session, threadID)
+	reader, ok := session.(configReaderSession)
+	if !ok {
+		offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
+		if offlineErr != nil {
+			return dto.ThreadConfig{}, errors.New("thread config reader is not available")
+		}
+		return offline.Config, nil
+	}
+	cfg, err := reader.ReadConfig(ctx, threadID)
 	if err != nil {
 		return dto.ThreadConfig{}, err
 	}
@@ -203,10 +215,14 @@ func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.Thre
 	if err := session.Configure(ctx, patch); err != nil {
 		return dto.ThreadConfig{}, wrapThreadConfigPatchError(err, provider, patch)
 	}
-	if model := threadConfigPatchValue(patch.Model); model != "" {
-		s.recordThreadModel(ctx, threadID, model)
+	cfg, err := s.GetConfig(ctx, threadID)
+	if err != nil {
+		return dto.ThreadConfig{}, err
 	}
-	return s.GetConfig(ctx, threadID)
+	if err := s.persistThreadConfig(ctx, threadID, patch, cfg); err != nil {
+		return dto.ThreadConfig{}, err
+	}
+	return cfg, nil
 }
 
 func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.ThreadConfig, error) {
@@ -230,8 +246,19 @@ func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.
 			errRuntimeModelSwitchUnsupported,
 		)
 	}
-	s.recordThreadModel(ctx, threadID, model)
-	return s.GetConfig(ctx, threadID)
+	cfg, err := s.GetConfig(ctx, threadID)
+	if err != nil {
+		return dto.ThreadConfig{}, err
+	}
+	if err := s.persistThreadConfig(
+		ctx,
+		threadID,
+		dto.ThreadConfigPatch{Model: &model},
+		cfg,
+	); err != nil {
+		return dto.ThreadConfig{}, err
+	}
+	return cfg, nil
 }
 
 func normalizeThreadConfigPatch(
@@ -258,14 +285,6 @@ func normalizeThreadConfigPatch(
 		return dto.ThreadConfigPatch{}, err
 	}
 	return patch, nil
-}
-
-func readThreadConfig(ctx context.Context, session contract.Session, threadID string) (dto.ThreadConfig, error) {
-	reader, ok := session.(configReaderSession)
-	if !ok {
-		return dto.ThreadConfig{}, errors.New("thread config reader is not available")
-	}
-	return reader.ReadConfig(ctx, threadID)
 }
 
 func threadConfigPatchNoop(patch dto.ThreadConfigPatch) bool {
@@ -296,6 +315,9 @@ func (s *service) normalizeThreadConfig(
 	cfg.ThreadID = firstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(threadID))
 	if binding != nil && strings.TrimSpace(cfg.Provider) == "" {
 		cfg.Provider = strings.TrimSpace(binding.Provider)
+	}
+	if !cfg.SupportsThreadOverride && supportsThreadOverride(cfg.Provider) {
+		cfg.SupportsThreadOverride = true
 	}
 	if cfg.Effective.Model == "" {
 		cfg.Effective.Model = s.storedThreadModel(ctx, threadID)

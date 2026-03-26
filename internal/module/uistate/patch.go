@@ -124,14 +124,19 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 		Partial:           true,
 	}
 	if summary, ok := s.threadSummaryLocked(id); ok {
+		summary = s.effectiveThreadSummaryLocked(summary, time.Now())
+		status, header, details := threadPatchPresentation(summary)
 		patch.Thread = &uidto.ThreadPatchThread{
 			ID:    summary.ID,
 			Name:  summary.Name,
-			State: patchStatus(summary.State),
+			State: status,
 		}
-		if summary.State != "" {
-			patch.Status = patchStatus(summary.State)
-		}
+		patch.Status = status
+		patch.StatusHeader = header
+		patch.StatusDetails = details
+		patch.OverlayText = strings.TrimSpace(summary.OverlayText)
+		patch.OverlayType = strings.TrimSpace(summary.OverlayType)
+		patch.OverlayPriority = summary.OverlayPriority
 	}
 	return patch
 }
@@ -169,6 +174,33 @@ func (s *service) threadSummaryLocked(threadID string) (ThreadSummary, bool) {
 	return ThreadSummary{}, false
 }
 
+func (s *service) eventThreadActivityLocked(threadID, agentID, source string) (string, *threadActivity, bool) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		if s != nil && s.logger != nil {
+			s.logger.Warn(
+				"uistate: skip activity event without thread id",
+				"source", strings.TrimSpace(source),
+				"agent_id", strings.TrimSpace(agentID),
+			)
+		}
+		return "", nil, false
+	}
+	rt := s.threadActivityLocked(threadID)
+	if rt == nil {
+		if s != nil && s.logger != nil {
+			s.logger.Warn(
+				"uistate: skip activity event without thread state",
+				"source", strings.TrimSpace(source),
+				"thread_id", threadID,
+				"agent_id", strings.TrimSpace(agentID),
+			)
+		}
+		return "", nil, false
+	}
+	return threadID, rt, true
+}
+
 func (s *service) mainAgentIDLocked() string {
 	if current := strings.TrimSpace(s.state.MainAgentID); current != "" {
 		return current
@@ -183,7 +215,16 @@ func (s *service) mainAgentStateLocked() string {
 	}
 	for _, agent := range s.state.Agents {
 		if strings.TrimSpace(agent.ID) == mainAgentID {
-			return patchStatus(agent.State)
+			if summary, ok := s.threadSummaryLocked(agent.ThreadID); ok {
+				return patchStatus(firstNonEmptyString(
+					summary.ThreadStatus,
+					summary.AgentState,
+					agent.ThreadStatus,
+					agent.AgentState,
+					agent.State,
+				))
+			}
+			return patchStatus(firstNonEmptyString(agent.ThreadStatus, agent.AgentState, agent.State))
 		}
 	}
 	return ""
@@ -197,12 +238,27 @@ func (s *service) applyRuntimePreferenceLocked(key string, value any) {
 		s.state.ActiveCmdThreadID = preferenceString(value)
 	case preferenceMainAgentID:
 		s.state.MainAgentID = strings.TrimSpace(deriveMainAgentID(s.state.Agents, preferenceString(value)))
+	case preferenceStallThresholdSec:
+		if sec := asPositiveInt(value, 30); sec > 0 {
+			s.state.StallThresholdSec = sec
+		}
+	case preferenceShowInjectedPromptInChat:
+		s.state.ShowInjectedPromptInChat = boolPreferencePointer(value, false)
 	}
 }
 
 func preferenceString(value any) string {
 	text, _ := value.(string)
 	return strings.TrimSpace(text)
+}
+
+func threadPatchPresentation(summary ThreadSummary) (string, string, string) {
+	if status, header, details, ok := sidebarThreadOverlay(&summary); ok {
+		return status, header, details
+	}
+	status := patchStatus(firstNonEmptyString(summary.ThreadStatus, summary.State))
+	header, details := sidebarStatusText(status, summary.LastMessage)
+	return status, header, details
 }
 
 func applyPatchStatus(patch *uidto.UIThreadPatch, status string) {

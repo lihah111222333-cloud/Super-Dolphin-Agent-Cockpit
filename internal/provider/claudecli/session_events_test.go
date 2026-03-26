@@ -12,6 +12,23 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
+func TestBaseDataUsesPublicThreadIDAndSeparateSessionID(t *testing.T) {
+	t.Parallel()
+
+	got := baseData(rawBase{
+		AgentID:  "agent-1",
+		ThreadID: "thread-public",
+		TurnID:   "turn-1",
+	}, "session-123", "2026-03-26T00:00:00Z")
+
+	if got["thread_id"] != "thread-public" {
+		t.Fatalf("thread_id = %v, want thread-public", got["thread_id"])
+	}
+	if got["session_id"] != "session-123" {
+		t.Fatalf("session_id = %v, want session-123", got["session_id"])
+	}
+}
+
 func TestHandleReceiveExitEOFCompletesActiveTurn(t *testing.T) {
 	t.Parallel()
 

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/creachadair/jrpc2"
 	"github.com/kelindar/event"
@@ -73,7 +74,7 @@ func TestStartApprovalCleanupLoopTimesOutPendingApprovals(t *testing.T) {
 func TestBindApprovalLifecycleRegistersRestorePendingOnConnect(t *testing.T) {
 	lc := &lifecycleRecorder{}
 	approvals := NewApprovalManager(nil, nil)
-	server := &Server{active: make(map[*jrpc2.Server]struct{})}
+	server := &Server{active: make(map[*jrpc2.Server]string)}
 
 	bindApprovalLifecycle(lc, approvals, nil, server, nil)
 
@@ -83,4 +84,72 @@ func TestBindApprovalLifecycleRegistersRestorePendingOnConnect(t *testing.T) {
 	if got := len(lc.hooks); got != 1 {
 		t.Fatalf("lifecycle hooks = %d, want 1 approval lifecycle hook", got)
 	}
+}
+
+func TestBindApprovalLifecycleRestoresPendingOnlyForUIConnections(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		peerKind     string
+		wantDispatch bool
+	}{
+		{name: "ui", peerKind: dto.PeerKindUI, wantDispatch: true},
+		{name: "tool", peerKind: dto.PeerKindTool, wantDispatch: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lc := &lifecycleRecorder{}
+			approvals := NewApprovalManager(nil, nil)
+			pending, owner := approvals.registerPending(ApprovalRequest{CallID: "call-1"}, nil)
+			if !owner {
+				t.Fatal("registerPending owner = false, want true")
+			}
+			baseline := time.Now().Add(-time.Minute)
+			pending.createdAt = baseline
+
+			local, bridge := newBlockingApprovalLocal(t)
+			server := &Server{active: make(map[*jrpc2.Server]string)}
+			server.addActive(local.Server, tc.peerKind)
+
+			bindApprovalLifecycle(lc, approvals, bridge, server, nil)
+
+			createdAt, dispatching := pendingState(approvals, pending)
+			if dispatching != tc.wantDispatch {
+				t.Fatalf("dispatching = %v, want %v", dispatching, tc.wantDispatch)
+			}
+			if tc.wantDispatch && !createdAt.After(baseline) {
+				t.Fatalf("createdAt = %s, want after %s", createdAt, baseline)
+			}
+			if !tc.wantDispatch && !createdAt.Equal(baseline) {
+				t.Fatalf("createdAt = %s, want %s", createdAt, baseline)
+			}
+		})
+	}
+}
+
+func TestRestorePendingRefreshesTTLAfterReplayDispatch(t *testing.T) {
+	approvals := NewApprovalManager(nil, nil)
+	pending, owner := approvals.registerPending(ApprovalRequest{CallID: "call-1"}, nil)
+	if !owner {
+		t.Fatal("registerPending owner = false, want true")
+	}
+	baseline := time.Now().Add(-4 * time.Minute)
+	pending.createdAt = baseline
+
+	local, bridge := newBlockingApprovalLocal(t)
+	if err := approvals.RestorePending(context.Background(), bridge, local.Server); err != nil {
+		t.Fatalf("RestorePending() error = %v", err)
+	}
+
+	createdAt, dispatching := pendingState(approvals, pending)
+	if !dispatching {
+		t.Fatal("RestorePending() did not restart dispatch")
+	}
+	if !createdAt.After(baseline) {
+		t.Fatalf("createdAt = %s, want after %s", createdAt, baseline)
+	}
+}
+
+func pendingState(approvals *ApprovalManager, pending *pendingApproval) (time.Time, bool) {
+	approvals.mu.Lock()
+	defer approvals.mu.Unlock()
+	return pending.createdAt, pending.dispatching
 }

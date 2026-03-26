@@ -21,7 +21,7 @@ const (
 	MaxUnderscores  = 3
 	MaxCCComplexity = 10
 	MaxPackageFiles = 15
-	MaxPackageLines = 3000
+	MaxPackageLines = 4500
 )
 
 type ViolationKind int

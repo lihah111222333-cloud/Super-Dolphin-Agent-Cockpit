@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 )
 
 type Store interface {
@@ -22,16 +23,17 @@ type Store interface {
 }
 
 type UpsertParams struct {
-	ThreadID      string
-	Prompt        string
-	Model         string
-	Cwd           string
-	Status        string
-	Port          int32
-	PID           int32
-	CreatedAt     int64
-	UpdatedAt     int64
-	OwnerThreadID string
+	ThreadID       string
+	Prompt         string
+	Model          string
+	Cwd            string
+	Status         string
+	Port           int32
+	PID            int32
+	CreatedAt      int64
+	UpdatedAt      int64
+	OwnerThreadID  string
+	ConfigOverride json.RawMessage
 }
 
 type UpdateStatusParams struct {
@@ -61,6 +63,7 @@ type Thread struct {
 	ErrorMessage    string
 	WorkspaceRunKey string
 	OwnerThreadID   string
+	ConfigOverride  json.RawMessage
 }
 
 type RunningAgent struct {

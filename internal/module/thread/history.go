@@ -44,8 +44,6 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err
 	}
-	// TODO(A1): basic store-backed fallback is implemented; complete offline
-	// history parity with V2 runtime merge/hydration is still pending.
 	all = decorateThreadMessages(agentID, all)
 	page, err := selectMessagesPage(all, limit, before)
 	if err != nil {
@@ -57,15 +55,19 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 }
 
 func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
-	session, _, err := s.resolveSession(ctx, threadID)
+	session, binding, err := s.resolveSession(ctx, threadID)
+	offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
+	if offlineErr != nil {
+		return nil, offlineErr
+	}
 	if err != nil {
-		return nil, err
+		return cloneRuntimeConfigMap(offline.Runtime), nil
 	}
 	reader, ok := session.(runtimeConfigReaderSession)
 	if !ok {
-		return nil, nil
+		return cloneRuntimeConfigMap(offline.Runtime), nil
 	}
-	return cloneRuntimeConfigMap(reader.RuntimeConfigSnapshot()), nil
+	return mergeRuntimeConfig(offline.Runtime, reader.RuntimeConfigSnapshot()), nil
 }
 
 func newThreadReadHandler(svc Service) handler.Func {
@@ -159,6 +161,25 @@ func cloneRuntimeConfigMap(cfg map[string]any) map[string]any {
 		}
 	}
 	return out
+}
+
+func mergeRuntimeConfig(base, overlay map[string]any) map[string]any {
+	if len(base) == 0 {
+		return cloneRuntimeConfigMap(overlay)
+	}
+	merged := cloneRuntimeConfigMap(base)
+	if len(overlay) == 0 {
+		return merged
+	}
+	for key, value := range overlay {
+		if nested, ok := value.(map[string]any); ok {
+			current, _ := merged[key].(map[string]any)
+			merged[key] = mergeRuntimeConfig(current, nested)
+			continue
+		}
+		merged[key] = value
+	}
+	return merged
 }
 
 func decorateThreadMessages(agentID string, messages []dto.Message) []dto.Message {

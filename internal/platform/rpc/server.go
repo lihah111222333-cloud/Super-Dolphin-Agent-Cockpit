@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 	"github.com/creachadair/jrpc2/handler"
@@ -21,7 +22,7 @@ type Server struct {
 	methods handler.Map
 
 	mu         sync.RWMutex
-	active     map[*jrpc2.Server]struct{}
+	active     map[*jrpc2.Server]string
 	onConnects []func(*jrpc2.Server)
 }
 
@@ -30,7 +31,7 @@ func NewServer(p Params) *Server {
 		logger:  p.Logger,
 		addr:    p.Config.RPCAddr,
 		methods: handler.Map{},
-		active:  make(map[*jrpc2.Server]struct{}),
+		active:  make(map[*jrpc2.Server]string),
 	}
 }
 
@@ -112,7 +113,7 @@ func (s *Server) serveConn(ctx context.Context, ch channel.Channel, opts *jrpc2.
 	defer cancel()
 
 	srv := jrpc2.NewServer(s.methods, opts).Start(ch)
-	s.addActive(srv)
+	s.addActive(srv, dto.PeerKindTool)
 	defer s.removeActive(srv)
 	s.notifyConnected(srv)
 
@@ -127,13 +128,13 @@ func (s *Server) serveConn(ctx context.Context, ch channel.Channel, opts *jrpc2.
 	}
 }
 
-func (s *Server) addActive(srv *jrpc2.Server) {
+func (s *Server) addActive(srv *jrpc2.Server, peerKind string) {
 	if srv == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.active[srv] = struct{}{}
+	s.active[srv] = peerKind
 }
 
 func (s *Server) removeActive(srv *jrpc2.Server) {
@@ -154,10 +155,30 @@ func (s *Server) OnConnect(fn func(*jrpc2.Server)) {
 	}
 }
 
+func (s *Server) OnConnectUI(fn func(*jrpc2.Server)) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.OnConnect(func(current *jrpc2.Server) {
+		if s.PeerKind(current) == dto.PeerKindUI {
+			fn(current)
+		}
+	})
+}
+
 func (s *Server) notifyConnected(srv *jrpc2.Server) {
 	for _, hook := range s.snapshotOnConnects() {
 		hook(srv)
 	}
+}
+
+func (s *Server) PeerKind(srv *jrpc2.Server) string {
+	if s == nil || srv == nil {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.active[srv]
 }
 
 func (s *Server) snapshotActive() []*jrpc2.Server {

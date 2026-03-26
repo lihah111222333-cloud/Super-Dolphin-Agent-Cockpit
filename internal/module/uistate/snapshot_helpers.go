@@ -4,7 +4,18 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 )
+
+type threadActivity struct {
+	turnDepth     int
+	commandDepth  int
+	editDepth     int
+	toolDepth     int
+	approvalDepth int
+	collabDepth   int
+}
 
 func cloneThreadGroups(items []ThreadGroup) []ThreadGroup {
 	out := make([]ThreadGroup, len(items))
@@ -86,4 +97,299 @@ func recentTurnTime(value TurnSummary) time.Time {
 		return *value.CompletedAt
 	}
 	return zeroTime(value.StartedAt)
+}
+
+func (s *service) threadActivityLocked(threadID string) *threadActivity {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return nil
+	}
+	if s.activityByThread == nil {
+		s.activityByThread = map[string]*threadActivity{}
+	}
+	if current := s.activityByThread[threadID]; current != nil {
+		return current
+	}
+	current := &threadActivity{}
+	s.activityByThread[threadID] = current
+	return current
+}
+
+func (s *service) clearThreadActivityLocked(threadID string) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" || s.activityByThread == nil {
+		return
+	}
+	delete(s.activityByThread, threadID)
+}
+
+func (s *service) clearActiveTurnLocked(threadID string) {
+	if s.state.ActiveTurn == nil {
+		return
+	}
+	if strings.TrimSpace(s.state.ActiveTurn.ThreadID) == strings.TrimSpace(threadID) {
+		s.state.ActiveTurn = nil
+	}
+}
+
+func (rt *threadActivity) startTurn() {
+	if rt == nil {
+		return
+	}
+	rt.turnDepth = 1
+	rt.commandDepth = 0
+	rt.editDepth = 0
+	rt.toolDepth = 0
+	rt.collabDepth = 0
+}
+
+func adjustDepth(current, delta int) int {
+	if current+delta <= 0 {
+		return 0
+	}
+	return current + delta
+}
+
+func classifyItemActivity(itemType, rawType, command, file string) string {
+	if strings.TrimSpace(file) != "" {
+		return "editing"
+	}
+	if strings.TrimSpace(command) != "" {
+		return "command"
+	}
+	joined := strings.ToLower(strings.TrimSpace(itemType + " " + rawType))
+	switch {
+	case strings.Contains(joined, "file"):
+		return "editing"
+	case strings.Contains(joined, "command"):
+		return "command"
+	default:
+		return ""
+	}
+}
+
+func classifyToolActivity(toolName string) string {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "spawn_agent",
+		"wait_agent",
+		"send_input",
+		"resume_agent",
+		"close_agent",
+		"orchestration_launch_agent",
+		"orchestration_send_message",
+		"orchestration_stop_agent",
+		"orchestration_get_agent_report",
+		"orchestration_list_agents":
+		return "collab"
+	case "":
+		return ""
+	default:
+		return "tool"
+	}
+}
+
+func normalizeAgentLifecycleState(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "provisioning", "turn_queued":
+		return "starting"
+	case "turn_starting":
+		return "thinking"
+	case "turn_running":
+		return "running"
+	case "awaiting_user_input":
+		return "waiting"
+	case "recovering":
+		return "syncing"
+	case "failed":
+		return "error"
+	case "stopping", "stopped", "idle":
+		return "idle"
+	default:
+		return patchStatus(raw)
+	}
+}
+
+func hasApprovalActivity(rt *threadActivity) bool {
+	return rt != nil && rt.approvalDepth > 0
+}
+
+func hasEditingActivity(rt *threadActivity) bool {
+	return rt != nil && rt.editDepth > 0
+}
+
+func hasRunningActivity(rt *threadActivity) bool {
+	return rt != nil && (rt.commandDepth > 0 || rt.toolDepth > 0 || rt.collabDepth > 0)
+}
+
+func hasThinkingActivity(rt *threadActivity) bool {
+	return rt != nil && rt.turnDepth > 0
+}
+
+func deriveActivityStatus(rt *threadActivity) string {
+	switch {
+	case hasApprovalActivity(rt):
+		return "waiting"
+	case hasEditingActivity(rt):
+		return "editing"
+	case hasRunningActivity(rt):
+		return "running"
+	case hasThinkingActivity(rt):
+		return "thinking"
+	default:
+		return ""
+	}
+}
+
+func fallbackThreadStatus(agentState string) string {
+	switch agentState {
+	case "error":
+		return "error"
+	case "waiting", "running", "editing", "thinking", "starting", "syncing":
+		return agentState
+	default:
+		return "idle"
+	}
+}
+
+func deriveThreadStatus(rt *threadActivity, agentState string) string {
+	agentState = normalizeAgentLifecycleState(agentState)
+	if status := deriveActivityStatus(rt); status != "" {
+		return status
+	}
+	return fallbackThreadStatus(agentState)
+}
+
+func (s *service) hasActiveTurnForThreadLocked(threadID string) bool {
+	return s.state.ActiveTurn != nil && strings.TrimSpace(s.state.ActiveTurn.ThreadID) == threadID
+}
+
+func (s *service) hasLocalThreadActivityLocked(threadID string) bool {
+	activity := s.activityByThread[threadID]
+	return hasApprovalActivity(activity) ||
+		hasEditingActivity(activity) ||
+		hasRunningActivity(activity) ||
+		hasThinkingActivity(activity)
+}
+
+func shouldPreserveIdleAgentState(rawAgentState string) bool {
+	switch strings.ToLower(strings.TrimSpace(rawAgentState)) {
+	case "", "idle", "stopped", "stopping":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *service) shouldPreserveIdleThreadStatusLocked(threadID, currentStatus, rawAgentState string) bool {
+	return currentStatus == "idle" &&
+		!s.hasActiveTurnForThreadLocked(threadID) &&
+		!s.hasLocalThreadActivityLocked(threadID) &&
+		shouldPreserveIdleAgentState(rawAgentState)
+}
+
+func (s *service) threadIDForAgentLocked(agentID string) string {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return ""
+	}
+	for _, item := range s.state.Agents {
+		if strings.TrimSpace(item.ID) == agentID {
+			return strings.TrimSpace(item.ThreadID)
+		}
+	}
+	return ""
+}
+
+func (s *service) agentIDForThreadLocked(threadID string) string {
+	if current, ok := s.threadSummaryLocked(threadID); ok {
+		return strings.TrimSpace(current.AgentID)
+	}
+	return ""
+}
+
+func (s *service) resolveDerivedStateIDsLocked(threadID, agentID string) (string, string) {
+	threadID = strings.TrimSpace(threadID)
+	agentID = strings.TrimSpace(agentID)
+	if threadID == "" {
+		threadID = s.threadIDForAgentLocked(agentID)
+	}
+	if agentID == "" {
+		agentID = s.agentIDForThreadLocked(threadID)
+	}
+	return threadID, agentID
+}
+
+func (s *service) agentSummaryLocked(agentID string) (AgentSummary, bool) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return AgentSummary{}, false
+	}
+	for _, item := range s.state.Agents {
+		if strings.TrimSpace(item.ID) == agentID {
+			return item, true
+		}
+	}
+	return AgentSummary{}, false
+}
+
+func (s *service) rawAgentStateForThreadLocked(threadID, agentID string) string {
+	if summary, ok := s.agentSummaryLocked(agentID); ok {
+		return firstNonEmptyString(summary.State, summary.AgentState, summary.ThreadStatus)
+	}
+	if current, ok := s.threadSummaryLocked(threadID); ok {
+		return firstNonEmptyString(current.AgentState, current.ThreadStatus, current.State)
+	}
+	return ""
+}
+
+func (s *service) currentThreadStatusLocked(threadID string) string {
+	if current, ok := s.threadSummaryLocked(threadID); ok {
+		return patchStatus(firstNonEmptyString(current.ThreadStatus, current.State))
+	}
+	return ""
+}
+
+func (s *service) applyDerivedThreadStateLocked(threadID, agentID, agentState, status string) {
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:           threadID,
+		AgentID:      agentID,
+		State:        status,
+		ThreadStatus: status,
+		AgentState:   agentState,
+	})
+	if agentID != "" {
+		s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
+			ID:           agentID,
+			ThreadID:     threadID,
+			AgentState:   agentState,
+			ThreadStatus: status,
+		})
+	}
+	if s.hasActiveTurnForThreadLocked(threadID) {
+		s.state.ActiveTurn.Status = status
+	}
+}
+
+func (s *service) updateDerivedThreadStateLocked(threadID, agentID string) string {
+	threadID, agentID = s.resolveDerivedStateIDsLocked(threadID, agentID)
+	if threadID == "" {
+		return ""
+	}
+	rawAgentState := s.rawAgentStateForThreadLocked(threadID, agentID)
+	agentState := normalizeAgentLifecycleState(rawAgentState)
+	status := deriveThreadStatus(s.threadActivityLocked(threadID), agentState)
+	if s.shouldPreserveIdleThreadStatusLocked(threadID, s.currentThreadStatusLocked(threadID), rawAgentState) {
+		status = "idle"
+	}
+	s.applyDerivedThreadStateLocked(threadID, agentID, agentState, status)
+	return status
+}
+
+func (s *service) refreshThreadPatchLocked(threadID, agentID, source string) uidto.UIThreadPatch {
+	status := s.updateDerivedThreadStateLocked(threadID, agentID)
+	sortThreads(s.state.Threads)
+	sortAgents(s.state.Agents)
+	patch := s.threadPatchLocked(threadID, source)
+	applyPatchStatus(&patch, status)
+	return patch
 }

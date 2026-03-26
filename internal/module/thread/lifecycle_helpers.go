@@ -2,12 +2,14 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/historyjsonl"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
@@ -47,6 +49,190 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+const (
+	offlineApprovalPolicy = "on-failure"
+	offlineProvider       = "codex"
+	offlineToolMode       = "legacy"
+	offlineToolProvider   = "openai_compatible"
+)
+
+type storedThreadConfig struct {
+	Model       string `json:"model,omitempty"`
+	Effort      string `json:"effort,omitempty"`
+	Approvals   string `json:"approvals,omitempty"`
+	Personality string `json:"personality,omitempty"`
+}
+
+type offlineConfigSnapshot struct {
+	Config  dto.ThreadConfig
+	Runtime map[string]any
+}
+
+func (s *service) buildOfflineConfig(
+	ctx context.Context,
+	threadID string,
+	binding *bindingstore.Binding,
+) (offlineConfigSnapshot, error) {
+	id, err := normalizeThreadID(threadID)
+	if err != nil {
+		return offlineConfigSnapshot{}, err
+	}
+	thread, err := s.loadOfflineThread(ctx, id)
+	if err != nil {
+		return offlineConfigSnapshot{}, err
+	}
+	if thread == nil && binding == nil {
+		return offlineConfigSnapshot{}, platformdb.ErrNotFound
+	}
+	stored := decodeStoredThreadConfig(offlineThreadConfigRaw(thread))
+	provider := offlineThreadProvider(binding)
+	return offlineConfigSnapshot{
+		Config: dto.ThreadConfig{
+			ThreadID:               id,
+			Provider:               provider,
+			SupportsThreadOverride: supportsThreadOverride(provider),
+			Override: dto.ThreadConfigValues{
+				Model:     stored.Model,
+				Effort:    stored.Effort,
+				Approvals: stored.Approvals,
+			},
+			Effective: dto.ThreadConfigValues{
+				Model:     firstNonEmpty(stored.Model, offlineThreadModel(thread)),
+				Effort:    strings.TrimSpace(stored.Effort),
+				Approvals: strings.TrimSpace(stored.Approvals),
+			},
+		},
+		Runtime: buildOfflineRuntimeConfig(stored),
+	}, nil
+}
+
+func (s *service) loadOfflineThread(
+	ctx context.Context,
+	threadID string,
+) (*threadstore.Thread, error) {
+	if s.threadStore == nil {
+		return nil, nil
+	}
+	thread, err := s.threadStore.GetByThreadID(ctx, threadID)
+	switch {
+	case err == nil:
+		return thread, nil
+	case platformdb.IsNotFound(err):
+		return nil, nil
+	default:
+		return nil, err
+	}
+}
+
+func buildOfflineRuntimeConfig(stored storedThreadConfig) map[string]any {
+	cfg := map[string]any{
+		"approvalPolicy": offlineApprovalPolicy,
+		"toolRouting": map[string]any{
+			"mode":                offlineToolMode,
+			"routerModel":         "",
+			"routerProvider":      offlineToolProvider,
+			"routerBaseURL":       "",
+			"routerHasAPIKey":     false,
+			"confidenceThreshold": 0.65,
+			"timeoutSec":          8,
+		},
+	}
+	if value := strings.TrimSpace(stored.Approvals); value != "" {
+		cfg["approvalPolicy"] = value
+	}
+	if value := strings.TrimSpace(stored.Personality); value != "" {
+		cfg["personality"] = value
+	}
+	return cfg
+}
+
+func offlineThreadProvider(binding *bindingstore.Binding) string {
+	if binding == nil {
+		return offlineProvider
+	}
+	return firstNonEmpty(binding.Provider, offlineProvider)
+}
+
+func supportsThreadOverride(provider string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), offlineProvider)
+}
+
+func offlineThreadModel(thread *threadstore.Thread) string {
+	if thread == nil {
+		return ""
+	}
+	return strings.TrimSpace(thread.Model)
+}
+
+func offlineThreadConfigRaw(thread *threadstore.Thread) json.RawMessage {
+	if thread == nil {
+		return nil
+	}
+	return thread.ConfigOverride
+}
+
+func decodeStoredThreadConfig(raw json.RawMessage) storedThreadConfig {
+	var cfg storedThreadConfig
+	if len(raw) == 0 {
+		return cfg
+	}
+	_ = json.Unmarshal(raw, &cfg)
+	return cfg
+}
+
+func encodeStoredThreadConfig(cfg storedThreadConfig) (json.RawMessage, error) {
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
+}
+
+func applyStoredThreadConfigPatch(
+	cfg *storedThreadConfig,
+	patch dto.ThreadConfigPatch,
+) {
+	if cfg == nil {
+		return
+	}
+	updateStoredThreadConfigValue(&cfg.Model, patch.Model)
+	updateStoredThreadConfigValue(&cfg.Effort, patch.Effort)
+	updateStoredThreadConfigValue(&cfg.Approvals, patch.Approvals)
+	updateStoredThreadConfigValue(&cfg.Personality, patch.Personality)
+}
+
+func updateStoredThreadConfigValue(dst *string, value *string) {
+	if dst == nil || value == nil {
+		return
+	}
+	*dst = strings.TrimSpace(*value)
+}
+
+func (s *service) persistThreadConfig(
+	ctx context.Context,
+	threadID string,
+	patch dto.ThreadConfigPatch,
+	effective dto.ThreadConfig,
+) error {
+	if s.threadStore == nil {
+		return nil
+	}
+	thread, err := s.getThread(ctx, threadID)
+	if err != nil {
+		return err
+	}
+	stored := decodeStoredThreadConfig(thread.ConfigOverride)
+	applyStoredThreadConfigPatch(&stored, patch)
+	raw, err := encodeStoredThreadConfig(stored)
+	if err != nil {
+		return err
+	}
+	thread.Model = firstNonEmpty(effective.Effective.Model, effective.Override.Model)
+	thread.ConfigOverride = raw
+	thread.UpdatedAt = time.Now().Unix()
+	return s.upsertThread(ctx, *thread)
 }
 
 func (s *service) maybeRegisterThreadBinding(

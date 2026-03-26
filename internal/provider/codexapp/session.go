@@ -226,41 +226,7 @@ func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.Fork
 }
 
 func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) error {
-	threadID := s.ThreadID()
-	if threadID == "" {
-		return errors.New("codexapp: thread id is required")
-	}
-	if patch.Model != nil || patch.Effort != nil {
-		params := map[string]any{"threadId": threadID}
-		if patch.Model != nil {
-			params["model"] = strings.TrimSpace(*patch.Model)
-		}
-		if patch.Effort != nil {
-			params["effort"] = strings.TrimSpace(*patch.Effort)
-		}
-		callCtx, cancel := withTimeout(ctx, 10*time.Second)
-		defer cancel()
-		_, err := s.callTransport(callCtx, "thread/config/set", params)
-		if err != nil {
-			return err
-		}
-	}
-	if err := s.applySlashConfig(ctx, threadID, "thread/personality/set", "personality", patch.Personality); err != nil {
-		return err
-	}
-	if err := s.applySlashConfig(ctx, threadID, "thread/approvals/set", "policy", patch.Approvals); err != nil {
-		return err
-	}
-	if patch.Approvals != nil {
-		s.setApprovalPolicy(*patch.Approvals)
-		s.setRuntimeConfigValue("approvalPolicy", strings.TrimSpace(*patch.Approvals))
-		s.setRuntimeConfigValue("approval_policy", strings.TrimSpace(*patch.Approvals))
-		s.setRuntimeConfigValue("approvals", strings.TrimSpace(*patch.Approvals))
-	}
-	if patch.Personality != nil {
-		s.setRuntimeConfigValue("personality", strings.TrimSpace(*patch.Personality))
-	}
-	return nil
+	return s.configureThread(ctx, patch)
 }
 
 func (s *session) Close(context.Context) error {
@@ -275,54 +241,6 @@ func (s *session) ForceStop() error {
 	s.clearProcessedApprovals()
 	s.cancel()
 	return s.transport.Kill()
-}
-
-func (s *session) applySlashConfig(ctx context.Context, threadID, method, key string, value *string) error {
-	if value == nil {
-		return nil
-	}
-	arg := strings.TrimSpace(*value)
-	if arg == "" {
-		return nil
-	}
-	callCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	_, err := s.callTransport(callCtx, method, map[string]any{"threadId": threadID, key: arg, "args": arg})
-	return err
-}
-
-func (s *session) setRuntimeConfigValue(key string, value any) {
-	if strings.TrimSpace(key) == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.runtimeConfig == nil {
-		s.runtimeConfig = map[string]any{}
-	}
-	s.runtimeConfig[key] = value
-}
-
-func cloneRuntimeConfigMap(cfg map[string]any) map[string]any {
-	if len(cfg) == 0 {
-		return nil
-	}
-	raw, err := json.Marshal(cfg)
-	if err != nil {
-		out := make(map[string]any, len(cfg))
-		for key, value := range cfg {
-			out[key] = value
-		}
-		return out
-	}
-	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		out = make(map[string]any, len(cfg))
-		for key, value := range cfg {
-			out[key] = value
-		}
-	}
-	return out
 }
 
 func (s *session) onNotification(method string, params json.RawMessage) {

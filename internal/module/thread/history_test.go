@@ -293,14 +293,15 @@ func (s *historyTestThreadStore) Upsert(_ context.Context, params threadstore.Up
 		s.threads = map[string]threadstore.Thread{}
 	}
 	s.threads[params.ThreadID] = threadstore.Thread{
-		ThreadID:      params.ThreadID,
-		Prompt:        params.Prompt,
-		Model:         params.Model,
-		Cwd:           params.Cwd,
-		Status:        params.Status,
-		CreatedAt:     params.CreatedAt,
-		UpdatedAt:     params.UpdatedAt,
-		OwnerThreadID: params.OwnerThreadID,
+		ThreadID:       params.ThreadID,
+		Prompt:         params.Prompt,
+		Model:          params.Model,
+		Cwd:            params.Cwd,
+		Status:         params.Status,
+		CreatedAt:      params.CreatedAt,
+		UpdatedAt:      params.UpdatedAt,
+		OwnerThreadID:  params.OwnerThreadID,
+		ConfigOverride: params.ConfigOverride,
 	}
 	return nil
 }
