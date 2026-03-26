@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
+	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
+	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 )
 
 func TestGetDashboardPageReturnsStructuredPage(t *testing.T) {
@@ -107,6 +109,63 @@ func TestGetRecentAILogsUsesStore(t *testing.T) {
 	}
 }
 
+func TestGetAuditLogsUsesStore(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubAuditLogStore{
+		listResult: []auditlogstore.AuditEvent{{ID: 7, EventType: "tool", Action: "run"}},
+	}
+	svc := &service{auditLogs: stub}
+
+	got, err := svc.GetAuditLogs(context.Background(), auditlogstore.ListFilter{
+		EventType: " tool ",
+		Action:    " run ",
+		Actor:     " agent-1 ",
+		Keyword:   " failed ",
+		Limit:     7,
+	})
+	if err != nil {
+		t.Fatalf("GetAuditLogs() error = %v", err)
+	}
+	if stub.listCalls != 1 {
+		t.Fatalf("List() calls = %d, want 1", stub.listCalls)
+	}
+	if stub.listFilter.EventType != "tool" || stub.listFilter.Action != "run" || stub.listFilter.Actor != "agent-1" || stub.listFilter.Keyword != "failed" || stub.listFilter.Limit != 7 {
+		t.Fatalf("List() filter = %#v", stub.listFilter)
+	}
+	if len(got) != 1 || got[0].ID != 7 {
+		t.Fatalf("GetAuditLogs() = %#v", got)
+	}
+}
+
+func TestGetBusLogsUsesStore(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubBusLogStore{
+		listResult: []buslogstore.BusExceptionLog{{ID: 9, Category: "rpc", Severity: "error"}},
+	}
+	svc := &service{busLogs: stub}
+
+	got, err := svc.GetBusLogs(context.Background(), buslogstore.ListFilter{
+		Category: " rpc ",
+		Severity: " error ",
+		Keyword:  " timeout ",
+		Limit:    9,
+	})
+	if err != nil {
+		t.Fatalf("GetBusLogs() error = %v", err)
+	}
+	if stub.listCalls != 1 {
+		t.Fatalf("List() calls = %d, want 1", stub.listCalls)
+	}
+	if stub.listFilter.Category != "rpc" || stub.listFilter.Severity != "error" || stub.listFilter.Keyword != "timeout" || stub.listFilter.Limit != 9 {
+		t.Fatalf("List() filter = %#v", stub.listFilter)
+	}
+	if len(got) != 1 || got[0].ID != 9 {
+		t.Fatalf("GetBusLogs() = %#v", got)
+	}
+}
+
 type stubAILogStore struct {
 	listByCategoryResult   []ailogstore.AILog
 	listByCategoryErr      error
@@ -146,4 +205,38 @@ func (s *stubAILogStore) ListRecent(_ context.Context, limit int32) ([]ailogstor
 	s.listRecentCalls++
 	s.listRecentLimit = limit
 	return s.listRecentResult, s.listRecentErr
+}
+
+type stubAuditLogStore struct {
+	listResult []auditlogstore.AuditEvent
+	listErr    error
+	listFilter auditlogstore.ListFilter
+	listCalls  int
+}
+
+var _ auditlogstore.Store = (*stubAuditLogStore)(nil)
+
+func (s *stubAuditLogStore) List(_ context.Context, filter auditlogstore.ListFilter) ([]auditlogstore.AuditEvent, error) {
+	s.listCalls++
+	s.listFilter = filter
+	return s.listResult, s.listErr
+}
+
+func (*stubAuditLogStore) Insert(context.Context, auditlogstore.InsertParams) error {
+	return nil
+}
+
+type stubBusLogStore struct {
+	listResult []buslogstore.BusExceptionLog
+	listErr    error
+	listFilter buslogstore.ListFilter
+	listCalls  int
+}
+
+var _ buslogstore.Store = (*stubBusLogStore)(nil)
+
+func (s *stubBusLogStore) List(_ context.Context, filter buslogstore.ListFilter) ([]buslogstore.BusExceptionLog, error) {
+	s.listCalls++
+	s.listFilter = filter
+	return s.listResult, s.listErr
 }

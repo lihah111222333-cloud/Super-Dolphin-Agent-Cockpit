@@ -151,10 +151,13 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 		return nil, errors.New("session starter is not configured")
 	}
 	return s.starter.ResumeSession(ctx, dto.ResumeSessionRequest{
-		Provider: req.Provider,
-		AgentID:  req.AgentID,
-		ThreadID: req.ThreadID,
-		Model:    req.Model,
+		Provider:         req.Provider,
+		AgentID:          req.AgentID,
+		ThreadID:         req.ThreadID,
+		ProviderThreadID: req.ProviderThreadID,
+		Path:             req.Path,
+		CWD:              req.CWD,
+		Model:            req.Model,
 	})
 }
 
@@ -187,9 +190,10 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.ProviderThreadID = firstNonEmpty(state.ProviderThreadID, requestedThreadID)
 	req.AgentID = firstNonEmpty(req.AgentID, state.AgentID)
 	req.Provider = firstNonEmpty(req.Provider, state.Provider)
+	req.ProviderThreadID = firstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
 	req.CWD = firstNonEmpty(req.CWD, req.Path, state.CWD)
 	req.Model = firstNonEmpty(req.Model, state.Model)
-	req.ThreadID = state.ProviderThreadID
+	req.ThreadID = state.PublicThreadID
 	if req.Provider == "" {
 		return ResumeRequest{}, resumeState{}, errors.New("provider is required")
 	}

@@ -18,6 +18,7 @@ import (
 type session struct {
 	agentID         string
 	threadID        string
+	publicThreadID  string
 	sessionID       string
 	threadReady     chan struct{}
 	threadReadyOnce sync.Once
@@ -81,6 +82,12 @@ func (s *session) ThreadID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.threadID
+}
+
+func (s *session) EventThreadID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.eventThreadIDLocked()
 }
 
 func (s *session) Capabilities() dto.CapabilitySet {
@@ -236,7 +243,7 @@ func (s *session) stop(force bool) error {
 	eventType := "agent:stopped"
 	data := map[string]any{
 		"agent_id":   s.agentID,
-		"thread_id":  s.ThreadID(),
+		"thread_id":  s.EventThreadID(),
 		"session_id": s.sessionID,
 		"timestamp":  time.Now().Format(time.RFC3339Nano),
 	}
@@ -346,7 +353,7 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 func (s *session) turnRawEvent(eventType, turnID string, extras map[string]any) dto.RawProviderEvent {
 	data := map[string]any{
 		"agent_id":   s.agentID,
-		"thread_id":  s.ThreadID(),
+		"thread_id":  s.EventThreadID(),
 		"session_id": s.sessionID,
 		"turn_id":    strings.TrimSpace(turnID),
 		"timestamp":  time.Now().Format(time.RFC3339Nano),

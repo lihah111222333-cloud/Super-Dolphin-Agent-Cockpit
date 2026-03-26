@@ -92,6 +92,24 @@ func TestStartParamsMarshalUsesSnakeCase(t *testing.T) {
 	}
 }
 
+func TestResumeParamsAcceptThreadBodyFields(t *testing.T) {
+	t.Parallel()
+
+	var params resumeParams
+	input := []byte(`{
+		"threadId":"thread-1",
+		"path":"/tmp/history",
+		"cwd":"/tmp/repo",
+		"model":"gpt-5.4"
+	}`)
+	if err := json.Unmarshal(input, &params); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if params.ThreadID != "thread-1" || params.Path != "/tmp/history" || params.CWD != "/tmp/repo" || params.Model != "gpt-5.4" {
+		t.Fatalf("resumeParams = %#v", params)
+	}
+}
+
 func TestNormalizeStartRequestDefaultsProvider(t *testing.T) {
 	t.Parallel()
 

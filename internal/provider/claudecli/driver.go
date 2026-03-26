@@ -28,6 +28,7 @@ type driver struct {
 type startSpec struct {
 	agentID      string
 	threadID     string
+	publicThread string
 	cwd          string
 	model        string
 	instructions string
@@ -75,6 +76,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		manifest:     manifest,
 		config:       configFromMap(req.Config),
 		rawConfig:    cloneConfigMap(req.Config),
+		publicThread: req.AgentID,
 		historyDir:   configString(req.Config, "history_dir", "claude_home"),
 	})
 }
@@ -84,9 +86,11 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		ctx = context.Background()
 	}
 	return d.start(ctx, startSpec{
-		agentID:  req.AgentID,
-		threadID: req.ThreadID,
-		model:    req.Model,
+		agentID:      req.AgentID,
+		threadID:     firstNonEmpty(req.ProviderThreadID, req.ThreadID),
+		publicThread: req.ThreadID,
+		cwd:          req.CWD,
+		model:        req.Model,
 	})
 }
 
@@ -107,9 +111,11 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		return nil, err
 	}
 	initialThreadID := fallbackThreadID(spec.agentID, spec.threadID)
+	publicThreadID := firstNonEmpty(spec.publicThread, spec.agentID, initialThreadID)
 	s := &session{
 		agentID:         strings.TrimSpace(spec.agentID),
 		threadID:        initialThreadID,
+		publicThreadID:  strings.TrimSpace(publicThreadID),
 		sessionID:       initialThreadID,
 		threadReady:     make(chan struct{}),
 		transport:       tr,
@@ -136,11 +142,12 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		return nil, err
 	}
 	resolvedThreadID := s.ThreadID()
+	eventThreadID := s.EventThreadID()
 	s.dispatch(dto.RawProviderEvent{
 		EventType: "agent:launched",
 		Data: map[string]any{
 			"agent_id":   s.agentID,
-			"thread_id":  resolvedThreadID,
+			"thread_id":  eventThreadID,
 			"session_id": resolvedThreadID,
 			"timestamp":  time.Now().Format(time.RFC3339Nano),
 			"cwd":        s.cwd,

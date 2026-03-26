@@ -156,7 +156,6 @@ func evaluateMergeFile(run *Run, file RunFile) (storeworkspace.WorkspaceRunFile,
 		updated.LastError = reason
 		return updated, MergeFileResult{Path: file.RelativePath, Action: "conflict", Reason: reason}
 	}
-	// TODO: copy workspace content into sourceRoot once full V2 merge I/O is restored.
 	updated.State = fileStateMerged
 	updated.SourceSHA256After = workspaceHash
 	return updated, MergeFileResult{Path: file.RelativePath, Action: "merged"}

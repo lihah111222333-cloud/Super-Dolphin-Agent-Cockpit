@@ -35,7 +35,7 @@ func (s *session) rawBase() rawBase {
 	defer s.mu.Unlock()
 	return rawBase{
 		AgentID:   s.agentID,
-		ThreadID:  s.threadID,
+		ThreadID:  s.eventThreadIDLocked(),
 		SessionID: s.sessionID,
 		TurnID:    currentTurnID(s.activeTurn),
 		CWD:       s.cwd,
@@ -45,7 +45,7 @@ func (s *session) rawBase() rawBase {
 
 func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 	if raw.EventType == "system:init" {
-		s.setResolvedThreadIDForTransport(tr, dataString(raw.Data, "thread_id", "session_id"))
+		s.setResolvedThreadIDForTransport(tr, dataString(raw.Data, "session_id", "thread_id"))
 	}
 	if !s.isCurrentTransport(tr) {
 		return

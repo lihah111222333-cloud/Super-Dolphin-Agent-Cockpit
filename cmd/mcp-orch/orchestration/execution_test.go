@@ -123,24 +123,119 @@ func TestSubmitTurnSkipsSessionWaitWhenBusy(t *testing.T) {
 	}
 }
 
+func TestStartTurnExecutionWaitsForSessionReadyAfterBusySubmit(t *testing.T) {
+	t.Parallel()
+
+	starter := &stubTurnStarter{}
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, starter, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.cmd = &exec.Cmd{}
+	agent.state = agentdto.StateTurnRunning
+	agent.activeTurnID = "turn-active"
+	svc.agents[agent.id] = agent
+
+	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-1"}); err != nil {
+		t.Fatalf("SubmitTurn() error = %v", err)
+	}
+	if starter.waitCalls != 0 {
+		t.Fatalf("waitCalls after busy SubmitTurn = %d, want 0", starter.waitCalls)
+	}
+
+	agent.state = agentdto.StateIdle
+	agent.activeTurnID = ""
+	work := svc.claimTurnWork(context.Background())
+	if len(work) != 1 {
+		t.Fatalf("len(work) = %d, want 1", len(work))
+	}
+
+	svc.startTurnExecution(context.Background(), work[0])
+
+	if starter.waitCalls != 1 {
+		t.Fatalf("waitCalls after startTurnExecution = %d, want 1", starter.waitCalls)
+	}
+	if starter.startCalls != 1 {
+		t.Fatalf("startCalls = %d, want 1", starter.startCalls)
+	}
+	if agent.state != agentdto.StateTurnRunning {
+		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateTurnRunning)
+	}
+}
+
+func TestStartTurnExecutionReturnsSessionWaitErrorAfterSubmitWait(t *testing.T) {
+	t.Parallel()
+
+	want := errors.New("agent session not ready, ensure agent.launch completed")
+	waitCalls := 0
+	starter := &stubTurnStarter{
+		waitFunc: func(_ context.Context, _ string, _ time.Duration) error {
+			waitCalls++
+			if waitCalls == 2 {
+				return want
+			}
+			return nil
+		},
+	}
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, starter, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.cmd = &exec.Cmd{}
+	agent.state = agentdto.StateIdle
+	svc.agents[agent.id] = agent
+
+	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-1"}); err != nil {
+		t.Fatalf("SubmitTurn() error = %v", err)
+	}
+
+	work := svc.claimTurnWork(context.Background())
+	if len(work) != 1 {
+		t.Fatalf("len(work) = %d, want 1", len(work))
+	}
+	svc.startTurnExecution(context.Background(), work[0])
+
+	if starter.waitCalls != 2 {
+		t.Fatalf("waitCalls = %d, want 2 across submit and execute", starter.waitCalls)
+	}
+	if starter.startCalls != 0 {
+		t.Fatalf("startCalls = %d, want 0 after wait failure", starter.startCalls)
+	}
+	if agent.state != agentdto.StateIdle {
+		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateIdle)
+	}
+	if agent.activeTurnID != "" {
+		t.Fatalf("activeTurnID = %q, want empty after wait failure", agent.activeTurnID)
+	}
+	if agent.lastError != want.Error() {
+		t.Fatalf("lastError = %q, want %q", agent.lastError, want.Error())
+	}
+}
+
 type stubTurnStarter struct {
 	submission   TurnSubmission
 	returnTurnID string
+	startCalls   int
+	startErr     error
 	waitCalls    int
 	waitAgentID  string
 	waitTimeout  time.Duration
 	waitErr      error
+	waitFunc     func(context.Context, string, time.Duration) error
 }
 
 func (s *stubTurnStarter) StartTurn(_ context.Context, submission TurnSubmission) (string, error) {
+	s.startCalls++
 	s.submission = submission
+	if s.startErr != nil {
+		return "", s.startErr
+	}
 	return s.returnTurnID, nil
 }
 
-func (s *stubTurnStarter) WaitForSessionReady(_ context.Context, agentID string, timeout time.Duration) error {
+func (s *stubTurnStarter) WaitForSessionReady(ctx context.Context, agentID string, timeout time.Duration) error {
 	s.waitCalls++
 	s.waitAgentID = agentID
 	s.waitTimeout = timeout
+	if s.waitFunc != nil {
+		return s.waitFunc(ctx, agentID, timeout)
+	}
 	return s.waitErr
 }
 

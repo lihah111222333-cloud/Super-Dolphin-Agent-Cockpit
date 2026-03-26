@@ -232,6 +232,10 @@ func (s *service) applyToolApprovalRequested(ev tooldto.ToolApprovalRequested) {
 		rt.turnDepth = 1
 	}
 	rt.approvalDepth++
+	if strings.EqualFold(strings.TrimSpace(ev.Kind), "request_user_input") {
+		rt.inputApprovalDepth++
+		s.setThreadOverlayLocked(threadID, overlayTypeTerminalWait, "等待终端输入", overlayPriorityTerminalWait, 0)
+	}
 	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "tool/approvalRequested")
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
@@ -245,6 +249,12 @@ func (s *service) applyToolApprovalResolved(ev tooldto.ToolApprovalResolved) {
 		return
 	}
 	rt.approvalDepth = adjustDepth(rt.approvalDepth, -1)
+	if strings.EqualFold(strings.TrimSpace(ev.Kind), "request_user_input") {
+		rt.inputApprovalDepth = adjustDepth(rt.inputApprovalDepth, -1)
+		if rt.inputApprovalDepth == 0 {
+			s.clearThreadOverlayLocked(threadID, overlayTypeTerminalWait)
+		}
+	}
 	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "tool/approvalResolved")
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)

@@ -19,13 +19,11 @@ const (
 
 func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"thread/start":  newStartHandler(svc),
-		"thread/stop":   newThreadEffect(svc.Stop),
-		"thread/resume": newResumeHandler(svc),
-		"thread/fork": newThreadCall(func(ctx context.Context, id string) (any, error) {
-			return svc.Fork(ctx, id)
-		}),
-		"thread/recover":   newThreadEffect(svc.Recover),
+		"thread/start":     newStartHandler(svc),
+		"thread/stop":      newThreadEffect(svc.Stop),
+		"thread/resume":    newResumeHandler(svc),
+		"thread/fork":      newForkHandler(svc),
+		"thread/recover":   newRecoverHandler(svc),
 		"thread/archive":   newThreadEffect(svc.Archive),
 		"thread/unarchive": newThreadEffect(svc.Unarchive),
 		"thread/delete":    newThreadEffect(svc.Delete),
@@ -110,15 +108,28 @@ func newStartHandler(svc Service) handler.Func {
 		}
 		status := firstNonEmpty(result.Status, "running")
 		sessionID := firstNonEmpty(result.SessionID, result.ThreadID)
+		effective := map[string]any{
+			"model":          result.Model,
+			"provider":       result.Provider,
+			"modelProvider":  result.ModelProvider,
+			"cwd":            result.CWD,
+			"approvalPolicy": result.ApprovalPolicy,
+		}
 		return map[string]any{
-			"thread":     threadInfo{ID: result.ThreadID, Status: status},
-			"threadId":   result.ThreadID,
-			"thread_id":  result.ThreadID,
-			"sessionId":  sessionID,
-			"session_id": sessionID,
-			"status":     status,
-			"agentId":    result.AgentID,
-			"agent_id":   result.AgentID,
+			"thread":         threadInfo{ID: result.ThreadID, Status: status},
+			"threadId":       result.ThreadID,
+			"thread_id":      result.ThreadID,
+			"sessionId":      sessionID,
+			"session_id":     sessionID,
+			"status":         status,
+			"agentId":        result.AgentID,
+			"agent_id":       result.AgentID,
+			"model":          result.Model,
+			"provider":       result.Provider,
+			"modelProvider":  result.ModelProvider,
+			"cwd":            result.CWD,
+			"approvalPolicy": result.ApprovalPolicy,
+			"effective":      effective,
 		}, nil
 	})
 }
@@ -132,6 +143,32 @@ func newThreadCall(fn func(context.Context, string) (any, error)) handler.Func {
 func newThreadEffect(fn func(context.Context, string) error) handler.Func {
 	return newThreadCall(func(ctx context.Context, id string) (any, error) {
 		return nil, fn(ctx, id)
+	})
+}
+
+func newForkHandler(svc Service) handler.Func {
+	return newThreadCall(func(ctx context.Context, id string) (any, error) {
+		result, err := svc.Fork(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"thread": threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom},
+		}, nil
+	})
+}
+
+func newRecoverHandler(svc Service) handler.Func {
+	return newThreadCall(func(ctx context.Context, id string) (any, error) {
+		result, err := svc.Recover(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"thread":    threadInfo{ID: result.ThreadID, Status: result.Status},
+			"recovered": result.Recovered,
+			"mode":      result.Mode,
+		}, nil
 	})
 }
 
@@ -228,7 +265,7 @@ var errApprovalsSetArgsConflict = errors.New("thread/approvals/set: policy and a
 func newResumeHandler(svc Service) handler.Func {
 	return rpc.ThreadHandler(func(ctx context.Context, p resumeParams) (any, error) {
 		result, err := svc.Resume(ctx, ResumeRequest{
-			ThreadID: rpc.ThreadIDFrom(ctx),
+			ThreadID: firstNonEmpty(p.ThreadID, rpc.ThreadIDFrom(ctx)),
 			Path:     p.Path,
 			CWD:      p.CWD,
 			Model:    p.Model,
@@ -237,9 +274,17 @@ func newResumeHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
+		status := firstNonEmpty(result.Status, "resumed")
+		sessionID := firstNonEmpty(result.SessionID, result.ThreadID)
 		return map[string]any{
-			"thread": threadInfo{ID: result.ThreadID, Status: result.Status},
-			"model":  result.Model,
+			"thread":     threadInfo{ID: result.ThreadID, Status: status},
+			"threadId":   result.ThreadID,
+			"thread_id":  result.ThreadID,
+			"sessionId":  sessionID,
+			"session_id": sessionID,
+			"status":     status,
+			"model":      result.Model,
+			"cwd":        result.CWD,
 		}, nil
 	})
 }

@@ -68,7 +68,17 @@ func TestNewThreadHandlersDispatchStart(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubThreadService{
-		startResult: StartResult{ThreadID: "thread-7", AgentID: "agent-7", SessionID: "session-7", Status: "running"},
+		startResult: StartResult{
+			ThreadID:       "thread-7",
+			AgentID:        "agent-7",
+			SessionID:      "session-7",
+			Status:         "running",
+			Model:          "gpt-5.4",
+			Provider:       "codex",
+			ModelProvider:  "openai",
+			CWD:            "/tmp/demo",
+			ApprovalPolicy: "never",
+		},
 	}
 	server := newThreadTestServer(stub)
 	raw, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(`{"provider":"codex","cwd":"/tmp/demo","prompt":"hello"}`))
@@ -86,8 +96,100 @@ func TestNewThreadHandlersDispatchStart(t *testing.T) {
 	if thread["id"] != "thread-7" || thread["status"] != "running" {
 		t.Fatalf("Dispatch(thread/start).thread = %#v", thread)
 	}
+	effective, _ := got["effective"].(map[string]any)
+	if got["model"] != "gpt-5.4" || got["provider"] != "codex" || got["modelProvider"] != "openai" || got["cwd"] != "/tmp/demo" || got["approvalPolicy"] != "never" {
+		t.Fatalf("Dispatch(thread/start) effective fields = %#v", got)
+	}
+	if effective["model"] != "gpt-5.4" || effective["provider"] != "codex" || effective["modelProvider"] != "openai" || effective["cwd"] != "/tmp/demo" || effective["approvalPolicy"] != "never" {
+		t.Fatalf("Dispatch(thread/start).effective = %#v", effective)
+	}
 	if stub.startReq.Provider != "codex" || stub.startReq.CWD != "/tmp/demo" || stub.startReq.Prompt != "hello" {
 		t.Fatalf("StartRequest = %#v", stub.startReq)
+	}
+}
+
+func TestNewThreadHandlersDispatchResume(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{
+		resumeResult: ResumeResult{
+			ThreadID:  "thread-9",
+			SessionID: "session-9",
+			Status:    "resumed",
+			Model:     "gpt-5.4",
+			CWD:       "/tmp/resume",
+		},
+	}
+	server := newThreadTestServer(stub)
+	raw, err := server.Dispatch(context.Background(), "thread/resume", json.RawMessage(`{"threadId":"thread-9","path":"/tmp/legacy","cwd":"/tmp/resume","model":"gpt-5.4"}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/resume) error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/resume) error = %v", err)
+	}
+	if got["threadId"] != "thread-9" || got["sessionId"] != "session-9" || got["status"] != "resumed" || got["model"] != "gpt-5.4" || got["cwd"] != "/tmp/resume" {
+		t.Fatalf("Dispatch(thread/resume) = %#v", got)
+	}
+	thread, _ := got["thread"].(map[string]any)
+	if thread["id"] != "thread-9" || thread["status"] != "resumed" {
+		t.Fatalf("Dispatch(thread/resume).thread = %#v", thread)
+	}
+	if stub.resumeReq.ThreadID != "thread-9" || stub.resumeReq.Path != "/tmp/legacy" || stub.resumeReq.CWD != "/tmp/resume" || stub.resumeReq.Model != "gpt-5.4" {
+		t.Fatalf("ResumeRequest = %#v", stub.resumeReq)
+	}
+}
+
+func TestNewThreadHandlersDispatchForkReturnsThreadEnvelope(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{
+		forkResult: ForkResult{NewThreadID: "thread-7-fork", ForkedFrom: "thread-7"},
+	}
+	server := newThreadTestServer(stub)
+	raw, err := server.Dispatch(context.Background(), "thread/fork", json.RawMessage(`{"threadId":"thread-7"}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/fork) error = %v", err)
+	}
+	var got struct {
+		Thread threadInfo `json:"thread"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/fork) error = %v", err)
+	}
+	if got.Thread.ID != "thread-7-fork" || got.Thread.ForkedFrom != "thread-7" {
+		t.Fatalf("Dispatch(thread/fork) = %#v", got)
+	}
+	if stub.forkThreadID != "thread-7" {
+		t.Fatalf("Fork thread id = %q, want thread-7", stub.forkThreadID)
+	}
+}
+
+func TestNewThreadHandlersDispatchRecoverReturnsEnvelope(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{
+		recoverResult: RecoverResult{ThreadID: "thread-8", Status: "recovering", Recovered: true, Mode: "relaunch_resume"},
+	}
+	server := newThreadTestServer(stub)
+	raw, err := server.Dispatch(context.Background(), "thread/recover", json.RawMessage(`{"threadId":"thread-8"}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/recover) error = %v", err)
+	}
+	var got struct {
+		Thread    threadInfo `json:"thread"`
+		Recovered bool       `json:"recovered"`
+		Mode      string     `json:"mode"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/recover) error = %v", err)
+	}
+	if got.Thread.ID != "thread-8" || got.Thread.Status != "recovering" || !got.Recovered || got.Mode != "relaunch_resume" {
+		t.Fatalf("Dispatch(thread/recover) = %#v", got)
+	}
+	if stub.recoverThreadID != "thread-8" {
+		t.Fatalf("Recover thread id = %q, want thread-8", stub.recoverThreadID)
 	}
 }
 
@@ -226,6 +328,12 @@ func newThreadTestServer(svc Service) *rpcpkg.Server {
 type stubThreadService struct {
 	startReq           StartRequest
 	startResult        StartResult
+	resumeReq          ResumeRequest
+	resumeResult       ResumeResult
+	forkThreadID       string
+	forkResult         ForkResult
+	recoverThreadID    string
+	recoverResult      RecoverResult
 	listResult         []Ref
 	listCalls          int
 	setConfigPatch     dto.ThreadConfigPatch
@@ -249,13 +357,18 @@ func (s *stubThreadService) Start(_ context.Context, req StartRequest) (StartRes
 	return s.startResult, nil
 }
 func (s *stubThreadService) Stop(context.Context, string) error { return nil }
-func (s *stubThreadService) Resume(context.Context, ResumeRequest) (ResumeResult, error) {
-	return ResumeResult{}, nil
+func (s *stubThreadService) Resume(_ context.Context, req ResumeRequest) (ResumeResult, error) {
+	s.resumeReq = req
+	return s.resumeResult, nil
 }
-func (s *stubThreadService) Fork(context.Context, string) (ForkResult, error) {
-	return ForkResult{}, nil
+func (s *stubThreadService) Fork(_ context.Context, threadID string) (ForkResult, error) {
+	s.forkThreadID = threadID
+	return s.forkResult, nil
 }
-func (s *stubThreadService) Recover(context.Context, string) error { return nil }
+func (s *stubThreadService) Recover(_ context.Context, threadID string) (RecoverResult, error) {
+	s.recoverThreadID = threadID
+	return s.recoverResult, nil
+}
 func (s *stubThreadService) Get(context.Context, string) (*Ref, error) {
 	return &Ref{ID: "thread-1", AgentID: "agent-1"}, nil
 }

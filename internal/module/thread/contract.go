@@ -12,7 +12,7 @@ type Service interface {
 	Stop(ctx context.Context, threadID string) error
 	Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error)
 	Fork(ctx context.Context, threadID string) (ForkResult, error)
-	Recover(ctx context.Context, threadID string) error
+	Recover(ctx context.Context, threadID string) (RecoverResult, error)
 
 	List(ctx context.Context) ([]Ref, error)
 	Get(ctx context.Context, id string) (*Ref, error)
@@ -48,19 +48,25 @@ type StartRequest struct {
 }
 
 type StartResult struct {
-	ThreadID  string `json:"thread_id"`
-	AgentID   string `json:"agent_id,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	Status    string `json:"status,omitempty"`
+	ThreadID       string `json:"thread_id"`
+	AgentID        string `json:"agent_id,omitempty"`
+	SessionID      string `json:"session_id,omitempty"`
+	Status         string `json:"status,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Provider       string `json:"provider,omitempty"`
+	ModelProvider  string `json:"modelProvider,omitempty"`
+	CWD            string `json:"cwd,omitempty"`
+	ApprovalPolicy string `json:"approvalPolicy,omitempty"`
 }
 
 type ResumeRequest struct {
-	Provider string
-	AgentID  string
-	ThreadID string
-	Path     string
-	CWD      string
-	Model    string
+	Provider         string
+	AgentID          string
+	ThreadID         string
+	ProviderThreadID string
+	Path             string
+	CWD              string
+	Model            string
 }
 
 type ResumeResult struct {
@@ -68,10 +74,19 @@ type ResumeResult struct {
 	SessionID string `json:"session_id,omitempty"`
 	Status    string `json:"status"`
 	Model     string `json:"model,omitempty"`
+	CWD       string `json:"cwd,omitempty"`
 }
 
 type ForkResult struct {
 	NewThreadID string `json:"new_thread_id"`
+	ForkedFrom  string `json:"forked_from,omitempty"`
+}
+
+type RecoverResult struct {
+	ThreadID  string `json:"thread_id"`
+	Status    string `json:"status,omitempty"`
+	Recovered bool   `json:"recovered"`
+	Mode      string `json:"mode,omitempty"`
 }
 
 type LaunchAgentRequest struct {

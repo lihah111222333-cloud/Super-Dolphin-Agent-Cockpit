@@ -37,8 +37,15 @@ func (s *session) setResolvedThreadIDForTransport(tr *transport, threadID string
 		return
 	}
 	s.threadID = threadID
+	if isPlaceholderThreadID(s.publicThreadID) {
+		s.publicThreadID = threadID
+	}
 	s.sessionID = threadID
 	s.markThreadReadyLocked()
+}
+
+func (s *session) eventThreadIDLocked() string {
+	return firstNonEmpty(s.publicThreadID, s.threadID)
 }
 
 func (s *session) markThreadReady() {

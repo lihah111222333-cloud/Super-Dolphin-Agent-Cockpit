@@ -66,6 +66,10 @@ func (s *service) applyMergeFilesystem(
 	files []storeworkspace.WorkspaceRunFile,
 ) []storeworkspace.WorkspaceRunFile {
 	updated := append([]storeworkspace.WorkspaceRunFile(nil), files...)
+	// Filesystem updates are applied per file before run-file rows are persisted.
+	// Successful writes stay in place if a later file fails because sourceRoot and
+	// store state cannot be rolled back atomically; the run records the partial
+	// failure and transitions to failed so callers can repair or retry explicitly.
 	for i := range updated {
 		updated[i], result.Files[i] = applyMergeFilesystemFile(run, updated[i], result.Files[i])
 	}

@@ -292,7 +292,9 @@ func (*configThreadServiceStub) Fork(context.Context, string) (thread.ForkResult
 	return thread.ForkResult{}, nil
 }
 
-func (*configThreadServiceStub) Recover(context.Context, string) error { return nil }
+func (*configThreadServiceStub) Recover(context.Context, string) (thread.RecoverResult, error) {
+	return thread.RecoverResult{}, nil
+}
 
 func (*configThreadServiceStub) List(context.Context) ([]thread.Ref, error) { return nil, nil }
 

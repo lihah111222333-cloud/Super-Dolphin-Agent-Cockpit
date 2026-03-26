@@ -227,10 +227,10 @@ func (s *service) MergeRun(ctx context.Context, req MergeRunRequest) (*MergeRunR
 	if err != nil {
 		return nil, err
 	}
-	if req.DryRun {
-		return s.dryRunMerge(ctx, run, req)
-	}
 	updatedBy := strings.TrimSpace(req.UpdatedBy)
+	if req.DryRun {
+		return s.dryRunMerge(ctx, run, req, updatedBy)
+	}
 	mergingRun, err := s.transitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
 		RunKey:     run.RunKey,
 		FromStatus: statusActive,
@@ -340,23 +340,6 @@ func marshalMetadata(metadata map[string]any) json.RawMessage {
 		return nil
 	}
 	return data
-}
-
-func (s *service) dryRunMerge(ctx context.Context, run *Run, req MergeRunRequest) (*MergeRunResult, error) {
-	files, err := s.store.ListFiles(ctx, storeworkspace.ListFilesFilter{
-		RunKey: run.RunKey,
-		Limit:  mergeListLimit,
-	})
-	if err != nil {
-		return nil, err
-	}
-	result, _, err := s.buildMergePlan(run, files, req)
-	if err != nil {
-		return nil, err
-	}
-	result.DryRun = req.DryRun
-	result.Status = run.Status
-	return result, nil
 }
 
 func mergeMetadata(result *MergeRunResult, req MergeRunRequest, message string) json.RawMessage {

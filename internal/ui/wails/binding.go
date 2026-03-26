@@ -8,11 +8,16 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-const defaultGroup = ""
+const (
+	defaultGroup             = "default"
+	emptyDiagnosticsJSON     = `{"diagnostics":[]}`
+	emptyDiagnosticsMapJSON  = `{}`
+)
 
 type App struct {
 	dispatch    func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
@@ -20,6 +25,16 @@ type App struct {
 	wailsApp    *application.App
 	windowTitle string
 	debug       bool
+
+	group string
+
+	windowStateMu         sync.Mutex
+	windowBootstrap       map[string]any
+	windowBootstrapByName map[string]map[string]any
+	windowGroups          map[string]string
+
+	openNewWindowInvoker func(group string, n int, uiBootstrap, cwd string) (string, error)
+	currentWindowNameFn  func() string
 }
 
 func (a *App) CallAPI(method string, paramsJSON string) (any, error) {
@@ -69,7 +84,7 @@ func (a *App) GetBuildInfo() map[string]string {
 }
 
 func (a *App) GetGroup() string {
-	return defaultGroup
+	return a.currentWindowGroup()
 }
 
 func (a *App) OpenNewWindow(group string, n int, uiBootstrap, cwd string) error {
@@ -78,33 +93,61 @@ func (a *App) OpenNewWindow(group string, n int, uiBootstrap, cwd string) error 
 }
 
 func (a *App) openNewWindow(group string, n int, uiBootstrap, cwd string) (string, error) {
+	if a != nil && a.openNewWindowInvoker != nil {
+		return a.openNewWindowInvoker(group, n, uiBootstrap, cwd)
+	}
 	app, err := a.requireWailsApp()
 	if err != nil {
 		return "", err
 	}
+	snapshot, err := decodeWindowBootstrapSnapshot(uiBootstrap)
+	if err != nil {
+		return "", fmt.Errorf("wails binding: decode ui bootstrap: %w", err)
+	}
+	group = normalizeWindowGroup(group, a.currentWindowGroup())
 	title := strings.TrimSpace(a.windowTitle)
 	if title == "" {
 		title = applicationTitle()
 	}
 	// TODO(P7.5): Frontend still needs to read ao_ui_bootstrap/ao_window_cwd
 	// from window.location.search before these query params affect runtime state.
-	window := createWindow(app, title, a.debug, buildWindowName(group, n), uiBootstrap, cwd)
+	name := buildWindowName(group, n)
+	window := createWindow(app, title, a.debug, name, uiBootstrap, cwd)
 	if window == nil {
 		return "", errors.New("wails binding: failed to create window")
 	}
+	a.registerWindowState(name, group, snapshot)
 	return fmt.Sprintf("%d", window.ID()), nil
 }
 
-// TODO(P9): Restore desktop LSP convenience bindings after the typed LSP tool
-// family lands.
 func (a *App) GetLSPDiagnostics(filePath string) (string, error) {
-	return "", deferredBindingError("GetLSPDiagnostics", "desktop LSP helpers move to the P9 LSP tool family")
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return emptyDiagnosticsMapJSON, nil
+	}
+	if a == nil || a.dispatch == nil {
+		return emptyDiagnosticsJSON, nil
+	}
+	result, err := a.callAPIObject("lsp/gui_file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": filePath,
+	})
+	if err != nil {
+		return "", err
+	}
+	if result == nil {
+		return emptyDiagnosticsJSON, nil
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
-// TODO(P9): Restore desktop LSP convenience bindings after the typed LSP tool
-// family lands.
+// TODO(P9): Wire this to the real V3 LSP server status source once one exists.
 func (a *App) GetLSPStatus() (any, error) {
-	return nil, deferredBindingError("GetLSPStatus", "desktop LSP helpers move to the P9 LSP tool family")
+	return []map[string]any{}, nil
 }
 
 func (a *App) bindRuntime(wailsApp *application.App) {

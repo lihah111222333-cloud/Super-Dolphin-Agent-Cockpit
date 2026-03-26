@@ -272,9 +272,29 @@
 
 ---
 
-## 3. 第三批：根因 A 残项 + E 残项（session 解耦 + approval replay）
+## 3. 第三批：根因 A 残项 + E 残项（session 解耦 + approval replay）— ✅ 已完成
 
-### 预计：3 项 P1 + 1 项前置架构（A4 分 3 阶段执行），12-16 人日，4 个 Agent 并行
+> 完成日期：2026-03-26
+> 审查流程：5 Agent 实施 → 1:4 互审 → 修复 11 项问题 → 再互审 4 方确认 → 收口
+
+| Agent | 任务 | 状态 | 备注 |
+|-------|------|------|------|
+| **A1** | session 解耦 | ✅ 已交付 | store 写穿+resume 合并+config 优先级链；**已知残留：Claude resume threadID 耦合，放第四批** |
+| **A2** | preferences delta | ✅ 已交付 | 校验先于存储，非法值拒绝写入 |
+| **A3** | approval replay+peer_kind | ✅ 已交付 | UI-only replay+TTL 刷新+peer_kind gating |
+| **A4-α** | 深度计数器+Status | ✅ 已交付 | nil check+idle-preserve 修正+CC≤10 |
+| **A4-β** | Overlay 覆盖层 | ✅ 已交付 | Sidebar/patch 一致性；**已知限制：terminal_wait 无生产 producer** |
+| **A4-γ** | Timeline 投影 | ⏸️ 可选 | 顺延到第四批 |
+
+### 第三批已知残留（放第四批）
+
+| # | 问题 | 归因 | 说明 |
+|---|------|------|------|
+| R1 | Claude resume 路径 resolveResumeRequest 把 threadID 改写成 ProviderThreadID | A1 | 事件流 threadID 仍可能落到 provider id，影响 uistate 归属 |
+| R2 | terminal_wait overlay 无生产 producer | A4-β | 只有 mcp_startup 有 live producer，terminal_wait 等后续事件接入 |
+| R3 | A4-γ Timeline 投影未实现 | A4-γ | ~400-500行，高耦合，可选推迟 |
+
+### 原始计划：3 项 P1 + 1 项前置架构（A4 分 3 阶段执行），12-16 人日，4 个 Agent 并行
 
 `注`：D1/D2 在线合同已在第二批处理，第三批只补无 session 语义。
 `注`：A2 soft-depends-on A1。
@@ -391,7 +411,7 @@
 
 ## 4. 第四批：thread 能力面 + workspace + dashboard + wails 收尾
 
-### 预计：11 项 P1 + 1 项已完成校核，12-18 人日，8-10 个 Agent 并行
+### 预计：11 项 P1 + 2 项第三批残留 + 1 项已完成校核，14-22 人日，8-10 个 Agent 并行
 
 | Agent | 任务 | 工作量 | 依赖 |
 |-------|------|--------|------|
@@ -400,20 +420,51 @@
 | **F3** | wails desktop API：`ui/log`、`windowBootstrap`、LSP helper | 中 | 无 |
 | **F4** | wails desktop 兼容绑定/事件：`ui/openNewWindow`、`agent-event`、`files-dropped`、`GetGroup`、`SelectProjectDirs` | 中 | 无 |
 | **F5-1** | `thread/start` 契约恢复 | 中 | P0 thread-start guard/binding |
-| **F5-2** | `thread/resume` 契约恢复 | 中 | B3 + B4 |
+| **F5-2** | `thread/resume` 契约恢复（含 R1 threadID 修复） | 中 | B3/B4 + A1-R1 + P0-2 |
 | **F5-3** | `thread/recover` 契约恢复 | 中 | B6 |
 | **F5-4** | `thread/fork` 契约恢复 | 小~中 | 无 |
-| **F6-1** | workspace dry-run 生命周期恢复 | 中 | 无 |
-| **F6-2** | workspace merge 补偿 + `delete_removed` | 中 | F6-1 |
+| **F6-1** | 验证+清理：workspace dry-run 生命周期 | 小 | 无 |
+| **F6-2** | 验证+清理：workspace merge 补偿 + `delete_removed` | 小 | F6-1 |
 | **F7** | execute-time ready wait | 小 | B3/B4 建底 |
+| **F8** | Claude resume public/provider thread ID 边界修复 | 小 | F5-2 |
+| **F9** | codexapp `terminal_wait` overlay producer 补齐 | 小 | A4-β 已交付 |
 
 ### F1: `dashboard/agentStatus` 独立读模型 + status filter
 
 **目标**：恢复 V2 `dashboard/agentStatus` 的独立接口与过滤能力，不再完全并入 `ui/dashboard/get`。
 
+**目标文件链**：
+1. `go-agent-v2/internal/dashrpc/register.go`
+2. `go-agent-v2/internal/apiserver/dashboard_bindings.go`
+3. `internal/module/dashboard/rpc.go`
+4. `internal/module/dashboard/contract.go`
+5. `internal/module/dashboard/ui_page.go`
+
+**至少恢复**：
+1. `dashboard/agentStatus` 接收 `status` 参数并独立返回 `agents` envelope
+2. 不再依赖 `ui/dashboard/get` 全量 page 聚合来做状态过滤
+3. 补 schema / contract / guard 测试，覆盖 `status=running` 过滤
+
+**验证**：`go test ./internal/module/dashboard/... ./internal/apiserver/... ./internal/guards/...`
+
 ### F2: dashboard 日志面 + DAG 面
 
 **目标**：恢复 `dashboard/auditLogs`、`dashboard/aiLogs`、`dashboard/busLogs`、`dashboard/dags`、`dashboard/dagDetail` 等细粒度能力。
+
+**目标文件链**：
+1. `go-agent-v2/internal/dashrpc/register.go`
+2. `go-agent-v2/internal/apiserver/dashboard_bindings.go`
+3. `internal/module/dashboard/rpc.go`
+4. `internal/module/dashboard/service.go`
+5. `internal/module/dashboard/contract.go`
+
+**至少恢复**：
+1. `dashboard/auditLogs` / `dashboard/busLogs` 与 V2 同名 surface
+2. `dashboard/dags` / `dashboard/dagDetail` 细粒度 DAG 查询，不再只靠总览页
+3. `dashboard/aiLogs` 与现有 `dashboard/aiLogs/recent` / `stats` 共存，不做回退覆盖
+4. 实施时按 logs / DAG 两条子链拆提交，避免单文件过热
+
+**验证**：`go test ./internal/module/dashboard/... ./internal/apiserver/... ./internal/guards/...`
 
 ### F3: wails desktop API
 
@@ -421,6 +472,17 @@
 1. `ui/log`
 2. `windowBootstrap`
 3. LSP helper / diagnostics helper
+
+**目标文件链**：
+1. `go-agent-v2/cmd/agent-terminal/app_handlers.go`
+2. `internal/ui/wails/binding.go`
+3. `internal/ui/wails/binding_native.go`
+4. `internal/ui/wails/rpc.go`
+
+**至少恢复**：
+1. `ui/log` RPC surface 与桌面日志桥接
+2. `ui/windowBootstrap/get` 的一次性读取行为
+3. `GetLSPDiagnostics` / `GetLSPStatus` 或同等 desktop helper 兼容面
 
 **验证**：`go test ./internal/ui/wails/... ./internal/app/...`
 
@@ -445,6 +507,18 @@
 
 ### F5: thread 模块四项契约恢复
 
+> ⚠️ F5-1~F5-4 共享 `launchAgent`/`persistThreadState`/`bindSessionGeneration` 等核心内部方法。
+> 建议由同一 Agent 或最多 2 个 Agent 执行，禁止 4 个 Agent 并行改同一组方法。
+> 如果多 Agent 执行，必须遵守约束：共享方法签名不可变更，只能扩展返回体。
+
+**目标文件链**：
+1. `internal/module/thread/rpc.go`
+2. `internal/module/thread/contract.go`
+3. `internal/module/thread/lifecycle.go`
+4. `internal/module/thread/start_session.go`
+5. `internal/provider/codexapp/driver.go`
+6. `internal/provider/codexapp/session.go`
+
 #### F5-1: `thread/start`
 
 **目标**：恢复 V2 `thread/start` 的参数面、provider 选择 fallback 和返回 envelope。
@@ -458,6 +532,8 @@
 
 **目标**：恢复 `threadId/path/cwd/model` 请求面与对象型返回，避免继续返回 `null`。
 
+**含 R1 子任务**：修复 `resolveResumeRequest`（`start_session.go:179-202`）把 `req.ThreadID` 改写成 `ProviderThreadID` 的问题。Resume 后事件流 threadID 必须始终是 public thread id，provider 内部自行解析 provider-side ID。此项与 F8 共同收口 R1 残留。
+
 #### F5-3: `thread/recover`
 
 **目标**：恢复 `recovered/mode` 结果面与 recover replay 语义，不再只返回 effect。
@@ -466,26 +542,93 @@
 
 **目标**：恢复 `thread{id,forkedFrom}` 返回 envelope，补齐 fork 元数据，不再只返回 `newThreadID`。
 
+**验证**：`go test ./internal/module/thread/... ./internal/provider/codexapp/...`
+
 ### F6: workspace dry-run + merge 补偿
 
-#### F6-1: dry-run 生命周期
+**目标文件链**：
+1. `internal/module/workspace/service.go`
+2. `internal/module/workspace/service_merge.go`
+3. `internal/module/workspace/service_delete_removed.go`
+4. `internal/module/workspace/rpc.go`
+5. `internal/module/workspace/service_test.go`
 
-**目标**：恢复 V2 `active -> merging -> active` 门闩与事件时序。
+#### F6-1: dry-run 生命周期（验证+清理）
 
-#### F6-2: merge 补偿 + `delete_removed`
+**目标**：dry-run 生命周期已实现且有测试，验证 `active → merging → active` 门闩完整性，清理 `service_helpers.go:159` 过时 TODO。
 
-**目标**：恢复删除语义、失败补偿、事件一致性，不再留 TODO。
+#### F6-2: merge 补偿 + `delete_removed`（验证+清理）
+
+**目标**：merge 补偿 + `delete_removed` 已实现且有测试，验证事件一致性，清理死代码 `trackedRunFilePaths`。
+
+**验证**：`go test ./internal/module/workspace/...`
 
 ### F7: execute-time ready wait
 
-**说明**：`WSHandler` 已经在 `internal/platform/rpc/module.go:68-78` 接线，本任务只保留 execute-time ready wait。
+**说明**：`WSHandler` 已经在 `internal/platform/rpc/module.go` 接线，本任务只保留 execute-time ready wait。
+
+**目标文件链**：
+1. `cmd/mcp-orch/orchestration/helpers.go`
+2. `cmd/mcp-orch/orchestration/service.go`
+3. `cmd/mcp-orch/orchestration/execution_test.go`
 
 **目标**：
 1. 统一 submit / execute 前的 session ready 等待
-2. 以 `cmd/mcp-orch/orchestration/helpers.go:190-199` 的 `waitForSubmitSessionReady` 为收敛点
+2. 以 `cmd/mcp-orch/orchestration/helpers.go` 的 `waitForSubmitSessionReady` 为收敛点
 3. 覆盖 ready race、超时、重试
 
 **验证**：`go test ./cmd/mcp-orch/orchestration/...`
+
+### F8: Claude resume public/provider thread ID 边界修复
+
+**来源**：第三批残留 R1-Claude。
+
+**目标文件链**：
+1. `internal/module/thread/start_session.go`
+2. `internal/module/thread/lifecycle.go`
+3. `internal/provider/codexapp/driver.go`
+4. `internal/module/thread/binding_registration.go`
+
+**修复目标**：
+1. `resolveResumeRequest` 保持 public `threadId` 透传到 provider 调用边界
+2. provider 内部自行解析 `ProviderThreadID`，禁止在 module 层把 `req.ThreadID` 改写成 provider id
+3. 事件流 / uistate / binding 继续以 public thread id 归属
+
+**验证**：`go test ./internal/module/thread/... ./internal/provider/codexapp/...`
+
+### F9: codexapp `terminal_wait` overlay producer 补齐
+
+**来源**：第三批残留 R2-TerminalWait。
+
+**目标文件链**：
+1. `internal/module/uistate/projector_handlers.go`
+2. `internal/module/uistate/sidebar_compat.go`
+3. `internal/provider/codexapp/session_approval.go`
+4. `internal/platform/rpc/approval_events.go`
+
+**修复目标**：
+1. 在 codexapp 的终端等待 / `request_user_input` 事件中补 `setThreadOverlayLocked` 调用
+2. 在输入恢复或 turn 完成后清理 `terminal_wait` overlay，避免悬挂
+3. 补 live projector 测试，确保 overlay 与 sidebar snapshot/patch 一致
+
+**验证**：`go test ./internal/module/uistate/... ./internal/provider/codexapp/... ./internal/platform/rpc/...`
+
+### 第四批统一验收
+
+⚠️ 守卫红线：单文件≤400行，单函数≤80行，CC≤10，包文件数≤15，包总行数≤4500
+完成后必须跑 `go test -run TestCodeSizeGuard ./internal/archtest/...`
+
+**批次验收**：
+1. `go test ./internal/module/dashboard/... ./internal/ui/wails/... ./internal/module/thread/... ./internal/module/workspace/...`
+2. `go test ./cmd/mcp-orch/orchestration/... ./internal/provider/codexapp/...`
+
+### 第四批后仍未闭环项（需第五批或人工决策）
+
+| # | 问题 | 状态 | 说明 |
+|---|------|------|------|
+| 1 | P1-16 (B5) approval 阻塞等待态 | ⏸️ 等人工定策略 | 方案 A/B 未决，从第一批延续 |
+| 2 | A4-γ Timeline 投影 | ⏸️ 可选推迟 | ~400-500行高耦合，第三批标记为放第四批但未列入 |
+| 3 | D1 config/read 完整离线 merge | ⏸️ | A1 基础已建，完整 V2 runtime merge 待补 |
 
 ---
 
@@ -533,15 +676,15 @@
 | 第 2 周 | 第一批 | B + C + DAG fencing | 6 项 P1 + D0 | 7 |
 | 第 3 周 | 第二批 | D | 9 项 P1 | 5 |
 | 第 3-4 周 | 第三批 | A 残项 + E 残项 | 3 项 P1 + 1 项前置（A4 分阶段） | 4 |
-| 第 4-5 周 | 第四批 | thread/workspace/dashboard/wails | 11 项 P1 + 1 项已完成校核 | 8-10 |
-| **合计** | | | **30 项 P1（含 1 项已完成校核） + 1 项使能 + 1 项前置** | **~24-26** |
+| 第 4-5 周 | 第四批 | thread/workspace/dashboard/wails | 11 项 P1 + 2 项残留 + 1 项已完成校核 | 8-10 |
+| **合计** | | | **30 项 P1（含 1 项已完成校核） + 2 项残留 + 1 项使能 + 1 项前置** | **~24-26** |
 
 工作量汇总：
 - 第一批：15-20 人日
 - 第二批：10-15 人日
 - 第三批：12-16 人日
-- 第四批：12-18 人日
-- **总计：49-69 人日**
+- 第四批：14-22 人日
+- **总计：51-73 人日**
 
 说明：
 - P1-23（WSHandler 接线）不再作为新增开发项，只保留验收核对。

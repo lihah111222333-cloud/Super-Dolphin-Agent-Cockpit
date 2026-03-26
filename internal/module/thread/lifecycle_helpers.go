@@ -15,8 +15,8 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
-func resolveProviderThreadID(threadID, fallback string) string {
-	return firstNonEmpty(threadID, fallback)
+func resolveProviderThreadID(values ...string) string {
+	return firstNonEmpty(values...)
 }
 
 func bindingPublicThreadID(binding *bindingstore.Binding, fallback string) string {

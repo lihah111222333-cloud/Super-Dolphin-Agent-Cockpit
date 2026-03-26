@@ -3,15 +3,24 @@ package dashboard
 import (
 	"context"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
+	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
+	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 )
 
 type Service interface {
 	GetDashboard(ctx context.Context) (*Dashboard, error)
 	GetDashboardPage(ctx context.Context, page string) (*DashboardPage, error)
+	ListAgentStatuses(ctx context.Context, status string) ([]agentstatusstore.AgentStatus, error)
 	GetAgentDetail(ctx context.Context, agentID string) (*AgentDetail, error)
 	GetSystemInfo(ctx context.Context) (*SystemInfo, error)
 	GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, error)
+	GetAuditLogs(ctx context.Context, filter auditlogstore.ListFilter) ([]auditlogstore.AuditEvent, error)
+	GetBusLogs(ctx context.Context, filter buslogstore.ListFilter) ([]buslogstore.BusExceptionLog, error)
+	ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error)
+	GetDAGDetail(ctx context.Context, dagKey string) (*contract.DAGDetail, error)
 	Query(ctx context.Context, query string, args ...any) ([]map[string]any, error)
 	GetAILogsByCategory(ctx context.Context, category, keyword string, limit int) ([]ailogstore.AILog, error)
 	GetAILogStats(ctx context.Context) ([]ailogstore.StatusCount, error)
