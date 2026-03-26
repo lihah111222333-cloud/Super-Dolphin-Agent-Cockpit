@@ -319,14 +319,15 @@ func (s *stubThreadStore) Upsert(_ context.Context, params threadstore.UpsertPar
 	}
 	s.upsert = params
 	s.thread = &threadstore.Thread{
-		ThreadID:      params.ThreadID,
-		Prompt:        params.Prompt,
-		Model:         params.Model,
-		Cwd:           params.Cwd,
-		Status:        params.Status,
-		CreatedAt:     params.CreatedAt,
-		UpdatedAt:     params.UpdatedAt,
-		OwnerThreadID: params.OwnerThreadID,
+		ThreadID:       params.ThreadID,
+		Prompt:         params.Prompt,
+		Model:          params.Model,
+		Cwd:            params.Cwd,
+		Status:         params.Status,
+		CreatedAt:      params.CreatedAt,
+		UpdatedAt:      params.UpdatedAt,
+		OwnerThreadID:  params.OwnerThreadID,
+		ConfigOverride: params.ConfigOverride,
 	}
 	return nil
 }

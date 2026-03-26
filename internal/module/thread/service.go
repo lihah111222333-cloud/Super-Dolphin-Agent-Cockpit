@@ -215,16 +215,17 @@ func (s *service) upsertThread(ctx context.Context, thread threadstore.Thread) e
 		return errors.New("thread store is not configured")
 	}
 	return s.threadStore.Upsert(ctx, threadstore.UpsertParams{
-		ThreadID:      thread.ThreadID,
-		Prompt:        thread.Prompt,
-		Model:         thread.Model,
-		Cwd:           thread.Cwd,
-		Status:        thread.Status,
-		Port:          thread.Port,
-		PID:           thread.PID,
-		CreatedAt:     thread.CreatedAt,
-		UpdatedAt:     thread.UpdatedAt,
-		OwnerThreadID: thread.OwnerThreadID,
+		ThreadID:       thread.ThreadID,
+		Prompt:         thread.Prompt,
+		Model:          thread.Model,
+		Cwd:            thread.Cwd,
+		Status:         thread.Status,
+		Port:           thread.Port,
+		PID:            thread.PID,
+		CreatedAt:      thread.CreatedAt,
+		UpdatedAt:      thread.UpdatedAt,
+		OwnerThreadID:  thread.OwnerThreadID,
+		ConfigOverride: thread.ConfigOverride,
 	})
 }
 
@@ -313,11 +314,11 @@ func (s *service) resolveSession(ctx context.Context, threadID string) (contract
 		return nil, nil, err
 	}
 	if s.sessions == nil {
-		return nil, nil, errors.New("session provider is not configured")
+		return nil, binding, errors.New("session provider is not configured")
 	}
 	session, err := s.sessions.GetSession(strings.TrimSpace(binding.AgentID))
 	if err != nil {
-		return nil, nil, err
+		return nil, binding, err
 	}
 	return session, binding, nil
 }

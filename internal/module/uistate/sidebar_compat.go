@@ -1,6 +1,18 @@
 package uistate
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
+
+const (
+	overlayTypeMCPStartup = "mcp_startup"
+	// Terminal wait rendering is wired through snapshot/patch payloads, but a live
+	// producer still needs raw terminal interaction events to set this overlay.
+	overlayTypeTerminalWait   = "terminal_wait"
+	overlayPriorityMCPStartup = 40
+	mcpStartupOverlayTTL      = 30 * time.Second
+)
 
 func cloneStringMap(input map[string]string) map[string]string {
 	if len(input) == 0 {
@@ -44,6 +56,51 @@ func cloneRuntimeMap(input map[string]map[string]any) map[string]map[string]any 
 		out[key] = cloneJSONMap(value)
 	}
 	return out
+}
+
+func clearThreadOverlay(thread *ThreadSummary) {
+	if thread == nil {
+		return
+	}
+	thread.OverlayText = ""
+	thread.OverlayType = ""
+	thread.OverlayPriority = 0
+}
+
+func overlayStatus(overlayType string) string {
+	switch strings.ToLower(strings.TrimSpace(overlayType)) {
+	case overlayTypeMCPStartup:
+		return "starting"
+	case overlayTypeTerminalWait:
+		return "waiting"
+	default:
+		return ""
+	}
+}
+
+func overlayHeaderText(overlayType, text string) string {
+	if text = strings.TrimSpace(text); text != "" {
+		return text
+	}
+	switch strings.ToLower(strings.TrimSpace(overlayType)) {
+	case overlayTypeMCPStartup:
+		return "MCP 启动中"
+	case overlayTypeTerminalWait:
+		return "等待后台终端"
+	default:
+		return ""
+	}
+}
+
+func overlayDetails(overlayType string) string {
+	switch strings.ToLower(strings.TrimSpace(overlayType)) {
+	case overlayTypeMCPStartup:
+		return "正在初始化 MCP 服务"
+	case overlayTypeTerminalWait:
+		return "命令正在等待终端输入"
+	default:
+		return ""
+	}
 }
 
 type sidebarAgentLookup struct {
@@ -132,6 +189,9 @@ func deriveThreadStatuses(sidebar *Sidebar, agents sidebarAgentLookup, recentByT
 			thread.AgentID = strings.TrimSpace(agent.ID)
 		}
 		status := sidebarThreadStatus(thread, agent, sidebar.ActiveTurn)
+		if overlayStatus, _, _, ok := sidebarThreadOverlay(thread); ok {
+			status = overlayStatus
+		}
 		thread.State = status
 		thread.ThreadStatus = status
 		if agent != nil {
@@ -168,10 +228,26 @@ func deriveStatusHeaders(sidebar *Sidebar) {
 	for i := range sidebar.Threads {
 		thread := &sidebar.Threads[i]
 		threadID := strings.TrimSpace(thread.ID)
+		if _, header, details, ok := sidebarThreadOverlay(thread); ok {
+			sidebar.StatusHeadersByThread[threadID] = header
+			sidebar.StatusDetailsByThread[threadID] = details
+			continue
+		}
 		header, details := sidebarStatusText(sidebar.Statuses[threadID], thread.LastMessage)
 		sidebar.StatusHeadersByThread[threadID] = header
 		sidebar.StatusDetailsByThread[threadID] = details
 	}
+}
+
+func sidebarThreadOverlay(thread *ThreadSummary) (string, string, string, bool) {
+	if thread == nil {
+		return "", "", "", false
+	}
+	status := overlayStatus(thread.OverlayType)
+	if status == "" {
+		return "", "", "", false
+	}
+	return status, overlayHeaderText(thread.OverlayType, thread.OverlayText), overlayDetails(thread.OverlayType), true
 }
 
 func latestTurnsByThread(active *TurnSummary, items []TurnSummary) map[string]TurnSummary {

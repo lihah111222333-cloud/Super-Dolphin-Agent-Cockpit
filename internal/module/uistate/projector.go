@@ -6,6 +6,7 @@ import (
 
 	"github.com/kelindar/event"
 
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	workspacedto "github.com/anthropic-ai/super-agent-v3/internal/dto/workspace"
@@ -25,7 +26,15 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnStarted, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnInterrupted, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnCompleted, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnResumed, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnInputReceived, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnOutputDelta, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyItemStarted, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyItemCompleted, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyToolCallBegin, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyToolCallEnd, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyToolApprovalRequested, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyToolApprovalResolved, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunCreated, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunStatusChanged, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunMerged, svc.logger),
@@ -116,6 +125,127 @@ func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 	}
 	patch := s.threadPatchLocked(ev.ThreadID, "thread/tokenusage/updated")
 	patch.TokenUsage = tokenUsagePatch(ev)
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
+
+func (s *service) applyItemStarted(ev turndto.ItemStarted) {
+	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)
+	if activity == "" {
+		return
+	}
+	s.mu.Lock()
+	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "item/started")
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	if rt.turnDepth == 0 {
+		rt.turnDepth = 1
+	}
+	switch activity {
+	case "editing":
+		rt.editDepth++
+	case "command":
+		rt.commandDepth++
+	}
+	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "item/started")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
+
+func (s *service) applyItemCompleted(ev turndto.ItemCompleted) {
+	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)
+	if activity == "" {
+		return
+	}
+	s.mu.Lock()
+	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "item/completed")
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	switch activity {
+	case "editing":
+		rt.editDepth = adjustDepth(rt.editDepth, -1)
+	case "command":
+		rt.commandDepth = adjustDepth(rt.commandDepth, -1)
+	}
+	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "item/completed")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
+
+func (s *service) applyToolCallBegin(ev tooldto.ToolCallBegin) {
+	activity := classifyToolActivity(ev.ToolName)
+	if activity == "" {
+		return
+	}
+	s.mu.Lock()
+	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "tool/call")
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	if rt.turnDepth == 0 {
+		rt.turnDepth = 1
+	}
+	if activity == "collab" {
+		rt.collabDepth++
+	} else {
+		rt.toolDepth++
+	}
+	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "tool/call")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
+
+func (s *service) applyToolCallEnd(ev tooldto.ToolCallEnd) {
+	activity := classifyToolActivity(ev.ToolName)
+	if activity == "" {
+		return
+	}
+	s.mu.Lock()
+	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "tool/completed")
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	if activity == "collab" {
+		rt.collabDepth = adjustDepth(rt.collabDepth, -1)
+	} else {
+		rt.toolDepth = adjustDepth(rt.toolDepth, -1)
+	}
+	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "tool/completed")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
+
+func (s *service) applyToolApprovalRequested(ev tooldto.ToolApprovalRequested) {
+	s.mu.Lock()
+	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "tool/approvalRequested")
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	if rt.turnDepth == 0 {
+		rt.turnDepth = 1
+	}
+	rt.approvalDepth++
+	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "tool/approvalRequested")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
+
+func (s *service) applyToolApprovalResolved(ev tooldto.ToolApprovalResolved) {
+	s.mu.Lock()
+	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "tool/approvalResolved")
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	rt.approvalDepth = adjustDepth(rt.approvalDepth, -1)
+	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "tool/approvalResolved")
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }

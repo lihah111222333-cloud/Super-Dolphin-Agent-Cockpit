@@ -109,7 +109,14 @@ func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) 
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
 		preferenceStubKey("/window", normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-9"),
 	}}
-	threads := &configThreadServiceStub{getConfigErr: errors.New("session offline")}
+	threads := &configThreadServiceStub{
+		getConfigErr: errors.New("session offline"),
+		runtimeConfigResult: map[string]any{
+			"toolRouting": map[string]any{
+				"mode": "legacy",
+			},
+		},
+	}
 	server := newConfigTestServer(
 		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
 		prefs,
@@ -120,6 +127,17 @@ func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) 
 	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
 	if cfg.CWD != "/window" || cfg.Model != "o4-mini" || cfg.ApprovalPolicy != "on-failure" {
 		t.Fatalf("config/read fallback = %#v", cfg)
+	}
+	if cfg.ToolRouting != (runtimeConfigToolRouting{
+		Mode:                "legacy",
+		RouterModel:         "",
+		RouterProvider:      "openai_compatible",
+		RouterBaseURL:       "",
+		RouterHasAPIKey:     false,
+		ConfidenceThreshold: 0.65,
+		TimeoutSec:          8,
+	}) {
+		t.Fatalf("config/read toolRouting fallback = %#v", cfg.ToolRouting)
 	}
 	if len(threads.getConfigIDs) != 1 || threads.getConfigIDs[0] != "thread-9" {
 		t.Fatalf("GetConfig thread ids = %#v, want [thread-9]", threads.getConfigIDs)

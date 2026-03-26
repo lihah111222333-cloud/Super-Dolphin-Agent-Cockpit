@@ -272,56 +272,118 @@
 
 ---
 
-## 3. 第三批：根因 A + E（session 解耦 + approval restore + uistate）
+## 3. 第三批：根因 A 残项 + E 残项（session 解耦 + approval replay）
 
-### 预计：3 项 P1 + 1 项前置架构，8-10 人日，4 个 Agent 并行
+### 预计：3 项 P1 + 1 项前置架构（A4 分 3 阶段执行），12-16 人日，4 个 Agent 并行
+
+`注`：D1/D2 在线合同已在第二批处理，第三批只补无 session 语义。
+`注`：A2 soft-depends-on A1。
 
 | Agent | 任务 | 涉及模块 | 工作量 | 备注 |
 |-------|------|---------|--------|------|
-| **A1** | thread-scoped config/state resolver | thread-config + thread-messages | 中 | 架构前置；支撑 D2-4 离线历史 |
-| **A2** | preferences 合同 + 副作用恢复 | uistate | 中 | 对应 P1-21 |
-| **A3** | approval live replay | approval | 中 | 对应 P1-12 |
-| **A4** | uistate 事件投影链恢复 | uistate | 大 | 对应 P1-22 |
+| **A1** | thread-scoped config/state resolver + override 持久化 | thread-config + thread-messages + uistate-config | 中~大 | 架构前置；补 D1/D2 的无 session 语义 |
+| **A2** | 剩余 preferences 合同与副作用 delta | uistate | 中 | 对应 P1-21；soft-depends-on A1 |
+| **A3** | approval live replay + `peer_kind` gating | rpc + approval | 中 | 对应 P1-12；不再依赖 B5 |
+| **A4-α** | 深度计数器 + Status Derive 增强 | uistate | 小~中 | 对应 P1-22；必做，低耦合 |
+| **A4-β** | Overlay 覆盖层 | uistate | 中 | 对应 P1-22；必做，中耦合 |
+| **A4-γ** | Timeline 投影 | uistate | 大 | 对应 P1-22；可选，高耦合，可推迟 |
 
 ### A1: thread-scoped config/state resolver
 
-**目标**：恢复“无 active session 也能读 config/history/sidebar 元数据”的 thread 作用域真相源。
+**目标**：把 `thread/config/get`、`thread/messages`、`ui/config/get` 的“无 active session”读取统一到 thread-scoped resolver，不再把 online session 当成唯一真相源。
 
-**作用**：
-1. 让 `thread/config/get` 不强依赖 active session。
-2. 为 `thread/messages` 离线历史提供统一 resolver。
-3. 为 `ui/sidebar/get` / dashboard / recover 提供独立于 session 的 thread state 读取。
+**边界说明**：
+1. 第二批 D1/D2 已恢复在线合同与返回结构；第三批只补“session 缺失时”的读取语义。
+2. resolver 要同时覆盖 config、runtime config、messages、sidebar 所需的 thread 元数据读取。
 
-### A2: preferences 合同 + 副作用恢复
+**文件落点（已核对）**：
+1. `internal/module/thread/service.go` `resolveSession`
+2. `internal/module/thread/command.go` `GetConfig`
+3. `internal/module/thread/history.go` `ReadMessages` / `ReadRuntimeConfig`
+4. `internal/module/uistate/config_rpc.go` `applyRuntimeConfigOverrides`
 
-**目标**：恢复 richer preferences/sidebar 结果层，不再只保留缩减版 `{cwd, values}`。
+**config 真相源优先级链**：
+```text
+1. active session runtime 值（session 存在时）
+2. thread-scoped store override（SetConfig 写入，持久化到 threadStore）
+3. binding metadata（provider / cwd）
+4. provider default（hardcoded）
+```
 
-**至少覆盖**：
+**交付物**：
+1. `buildOfflineConfig()`
+2. `SetConfig` override 持久化到 `threadStore`
+3. D1 `toolRouting` 在无 session 时有明确 fallback，而不是隐式丢空
+4. `ReadMessages` / `ReadRuntimeConfig` / `ui/config/get` 共享同一套 resolver 语义
+
+### A2: 剩余 preferences 合同与副作用 delta
+
+**目标**：不重做 `ui/preferences` 主合同，只补当前实现相对 V2 仍缺的 side-effects delta 和结果层尾差。
+
+**当前已具备**：
 1. `ui/preferences/get`
-2. `ui/preferences/set`
-3. 缺失字段与副作用恢复（如 `activeThreadId/mainAgentId/viewPrefs/threadPins/threadArchives` 等）
+2. `ui/preferences/getAll`
+3. `ui/preferences/set`
+4. 结构化 `Preferences` 结果层（`cwd/values/activeThreadId/...`）
+5. 3 个 runtime 副作用：`activeThreadId`、`activeCmdThreadId`、`mainAgentId`
 
-**验证**：`go test ./internal/module/uistate/...`
+**剩余 delta**：
+1. 补齐 V2 `stallThresholdSec` 的运行时副作用与校验语义
+2. 补齐 V2 `settings.showInjectedPromptInChat` 的运行时副作用
+3. 盘点其他仍留在 V2 `PreferenceSideEffects` / UI state 结果层里的尾差，避免只改 key 存储不改行为
+
+**文件落点**：
+1. `internal/module/uistate/service.go` `SetPreference`
+2. `internal/module/uistate/patch.go` `SetPreference` side-effect path / `applyRuntimePreferenceLocked`
+
+**依赖**：soft-depends-on A1
 
 ### A3: approval live replay
 
-**目标**：恢复 reconnect 后 pending approvals 的重放与重新投递。
+**目标**：恢复 reconnect 后 pending approvals 的重放，但只对 UI peer 生效，不再把 tool peer 当成 replay 目标。
 
-**重点**：
-1. pending approval 恢复
-2. reconnect 后 replay
-3. 与 B5 的等待态策略一致
+**前置改动**：
+1. 去掉对 B5 的依赖声明；B5 `Kind` 已在 R1 用方案 B 修完。
+2. `rpc.Server` 引入 `peer_kind`。
+3. `serveConn` 注入 `peer_kind`（`ui` 或 `tool`）。
+4. `RestorePending` 只对 `peer_kind=ui` 的连接触发。
+
+**竞态修复**：
+1. replay 成功后刷新 pending TTL 基准，避免 reconnect 后立即被 cleanup 线程清掉。
+2. `OnConnect` replay 与 cleanup timeout 的窗口要有显式顺序保证。
+
+**文件落点**：
+1. `internal/platform/rpc/module.go` `OnConnect`
+2. `internal/platform/rpc/approval.go` `RestorePending`
 
 **验证**：`go test ./internal/platform/rpc/... ./internal/module/turn/...`
 
-### A4: uistate 事件投影链恢复
+### A4: uistate 事件投影链恢复（分阶段）
 
-**目标**：恢复 V2 级别的 projection 链，而不是只做轻量快照。
+**目标**：把 P1-22 从“一次性大改”改成 staged delivery；第三批先完成必做的状态与 overlay 恢复，timeline 投影允许顺延。
 
-**至少覆盖**：
-1. turn 终态细节写回（`success/error/status/reason/completedAt`）
-2. thread/tool/`TurnOutputDelta` / workspace / token usage 投影
-3. normalize / lifecycle / overlay 的链路完整性
+**V2 对照文件（已核对）**：
+1. `/Users/mima0000/Desktop/wj/go-agent-v2/internal/uistate/event_normalizer.go`
+2. `/Users/mima0000/Desktop/wj/go-agent-v2/internal/uistate/event_dispatch.go`
+3. `/Users/mima0000/Desktop/wj/go-agent-v2/internal/uistate/runtime_state.go`
+
+#### A4-α（必做）：深度计数器 + Status Derive 增强
+
+- 规模：约 200 行，低耦合
+- 目标：补齐 turn/tool/workspace 事件深度计数、状态派生与 status text derive
+- 结果：先把 sidebar/state 的状态正确性拉回 V2 水位
+
+#### A4-β（必做）：Overlay 覆盖层
+
+- 规模：约 150 行，中耦合
+- 目标：恢复 lifecycle / snapshot / partial patch 之间的 overlay 合成
+- 结果：解决“状态有了但 UI patch 仍不完整”的半恢复状态
+
+#### A4-γ（可选）：Timeline 投影
+
+- 规模：约 400-500 行，高耦合
+- 目标：恢复 thread timeline / diff / workspace 投影链
+- 说明：若第三批压力过高，可顺延到第四批前半，但不得阻塞 α / β 落地
 
 **验证**：`go test ./internal/module/uistate/...`
 
@@ -470,16 +532,16 @@
 |----|------|------|------|---------|
 | 第 2 周 | 第一批 | B + C + DAG fencing | 6 项 P1 + D0 | 7 |
 | 第 3 周 | 第二批 | D | 9 项 P1 | 5 |
-| 第 3-4 周 | 第三批 | A + E | 3 项 P1 + A1 前置 | 4 |
+| 第 3-4 周 | 第三批 | A 残项 + E 残项 | 3 项 P1 + 1 项前置（A4 分阶段） | 4 |
 | 第 4-5 周 | 第四批 | thread/workspace/dashboard/wails | 11 项 P1 + 1 项已完成校核 | 8-10 |
 | **合计** | | | **30 项 P1（含 1 项已完成校核） + 1 项使能 + 1 项前置** | **~24-26** |
 
 工作量汇总：
 - 第一批：15-20 人日
 - 第二批：10-15 人日
-- 第三批：8-10 人日
+- 第三批：12-16 人日
 - 第四批：12-18 人日
-- **总计：45-63 人日**
+- **总计：49-69 人日**
 
 说明：
 - P1-23（WSHandler 接线）不再作为新增开发项，只保留验收核对。

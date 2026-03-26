@@ -8,8 +8,25 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+type querier interface {
+	AgentThreadRunningExists(ctx context.Context, threadID string) (bool, error)
+	DeleteAgentThreadByID(ctx context.Context, threadID string) error
+	ExpireStaleAgentThreads(ctx context.Context, arg sqlc.ExpireStaleAgentThreadsParams) (int64, error)
+	GetAgentThreadByID(ctx context.Context, threadID string) (sqlc.GetAgentThreadByIDRow, error)
+	GetAgentThreadByPort(ctx context.Context, port int32) (sqlc.GetAgentThreadByPortRow, error)
+	ListAgentThreadCwds(ctx context.Context) ([]sqlc.ListAgentThreadCwdsRow, error)
+	ListAgentThreadCwdsByPrefix(ctx context.Context, dollar_1 *string) ([]sqlc.ListAgentThreadCwdsByPrefixRow, error)
+	ListAgentThreads(ctx context.Context) ([]sqlc.ListAgentThreadsRow, error)
+	ListRecoverableAgentThreads(ctx context.Context) ([]sqlc.ListRecoverableAgentThreadsRow, error)
+	ListRunningAgentThreads(ctx context.Context) ([]sqlc.ListRunningAgentThreadsRow, error)
+	ListRunningAgents(ctx context.Context) ([]sqlc.ListRunningAgentsRow, error)
+	ResetRunningAgentThreads(ctx context.Context) error
+	UpdateAgentThreadStatus(ctx context.Context, arg sqlc.UpdateAgentThreadStatusParams) error
+	UpsertAgentThread(ctx context.Context, arg sqlc.UpsertAgentThreadParams) error
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Store {
@@ -77,16 +94,17 @@ func (s *store) ListRunningAgents(ctx context.Context) ([]RunningAgent, error) {
 
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	return wrapThreadError(s.q.UpsertAgentThread(ctx, sqlc.UpsertAgentThreadParams{
-		ThreadID:      params.ThreadID,
-		Prompt:        params.Prompt,
-		Model:         params.Model,
-		Cwd:           params.Cwd,
-		Status:        params.Status,
-		Port:          params.Port,
-		Pid:           params.PID,
-		CreatedAt:     params.CreatedAt,
-		UpdatedAt:     params.UpdatedAt,
-		OwnerThreadID: params.OwnerThreadID,
+		ThreadID:       params.ThreadID,
+		Prompt:         params.Prompt,
+		Model:          params.Model,
+		Cwd:            params.Cwd,
+		Status:         params.Status,
+		Port:           params.Port,
+		Pid:            params.PID,
+		CreatedAt:      params.CreatedAt,
+		UpdatedAt:      params.UpdatedAt,
+		OwnerThreadID:  params.OwnerThreadID,
+		ConfigOverride: params.ConfigOverride,
 	}), "upsert")
 }
 
@@ -162,6 +180,7 @@ func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 		ErrorMessage:    row.ErrorMessage,
 		WorkspaceRunKey: row.WorkspaceRunKey,
 		OwnerThreadID:   row.OwnerThreadID,
+		ConfigOverride:  row.ConfigOverride,
 	}
 }
 
@@ -182,6 +201,7 @@ func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
 		ErrorMessage:    row.ErrorMessage,
 		WorkspaceRunKey: row.WorkspaceRunKey,
 		OwnerThreadID:   row.OwnerThreadID,
+		ConfigOverride:  row.ConfigOverride,
 	}
 }
 
@@ -204,6 +224,7 @@ func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 			ErrorMessage:    row.ErrorMessage,
 			WorkspaceRunKey: row.WorkspaceRunKey,
 			OwnerThreadID:   row.OwnerThreadID,
+			ConfigOverride:  row.ConfigOverride,
 		}
 	}
 	return result
@@ -228,6 +249,7 @@ func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 			ErrorMessage:    row.ErrorMessage,
 			WorkspaceRunKey: row.WorkspaceRunKey,
 			OwnerThreadID:   row.OwnerThreadID,
+			ConfigOverride:  row.ConfigOverride,
 		}
 	}
 	return result
@@ -252,6 +274,7 @@ func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thre
 			ErrorMessage:    row.ErrorMessage,
 			WorkspaceRunKey: row.WorkspaceRunKey,
 			OwnerThreadID:   row.OwnerThreadID,
+			ConfigOverride:  row.ConfigOverride,
 		}
 	}
 	return result

@@ -29,9 +29,9 @@ type UITokensUpdated struct {
 // SkillsChanged reports local skill inventory mutations.
 type SkillsChanged struct {
 	shared.EventHeader
-	SkillsDir string `json:"skillsDir,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Action    string `json:"action,omitempty"`
+	SkillsDir string   `json:"skillsDir,omitempty"`
+	Name      string   `json:"name,omitempty"`
+	Action    string   `json:"action,omitempty"`
 	Actions   []string `json:"actions,omitempty"`
 	Count     int      `json:"count,omitempty"`
 }
@@ -63,6 +63,11 @@ type UIThreadPatch struct {
 	Sequence          int64                  `json:"sequence,omitempty"`
 	Thread            *ThreadPatchThread     `json:"thread,omitempty"`
 	Status            string                 `json:"status,omitempty"`
+	StatusHeader      string                 `json:"statusHeader,omitempty"`
+	StatusDetails     string                 `json:"statusDetails,omitempty"`
+	OverlayText       string                 `json:"overlayText,omitempty"`
+	OverlayType       string                 `json:"overlayType,omitempty"`
+	OverlayPriority   int                    `json:"overlayPriority,omitempty"`
 	TokenUsage        *ThreadPatchTokenUsage `json:"tokenUsage,omitempty"`
 	ActiveThreadID    string                 `json:"activeThreadId,omitempty"`
 	ActiveCmdThreadID string                 `json:"activeCmdThreadId,omitempty"`

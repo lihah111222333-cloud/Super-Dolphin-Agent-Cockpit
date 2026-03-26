@@ -11,9 +11,11 @@ import (
 var approvalCleanupInterval = time.Minute
 
 func (m *ApprovalManager) Cleanup(timeout time.Duration) {
-	if timeout <= 0 {
+	if m == nil || timeout <= 0 {
 		return
 	}
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
 	cutoff := time.Now().Add(-timeout)
 	for _, pending := range m.snapshotPending() {
 		if pending.createdAt.After(cutoff) {
@@ -46,16 +48,39 @@ func startApprovalCleanupLoop(ctx context.Context, approvals *ApprovalManager, i
 }
 
 func (m *ApprovalManager) RestorePending(ctx context.Context, bridge *PushBridge, server *jrpc2.Server) error {
+	if m == nil {
+		return nil
+	}
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
 	var firstErr error
 	for _, pending := range m.snapshotPending() {
 		if ctx != nil && ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if err := m.ensureDispatch(bridge, server, pending); err != nil && firstErr == nil {
-			firstErr = err
+		started, err := m.ensureDispatch(bridge, server, pending)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if started {
+			m.refreshPendingTTL(pending)
 		}
 	}
 	return firstErr
+}
+
+func (m *ApprovalManager) refreshPendingTTL(pending *pendingApproval) {
+	if pending == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pending[pending.key] == pending {
+		pending.createdAt = time.Now()
+	}
 }
 
 func (m *ApprovalManager) PendingSnapshot() []ApprovalRequest {

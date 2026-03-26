@@ -11,35 +11,48 @@ import (
 
 func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	newState := strings.TrimSpace(ev.NewState)
+	agentState := normalizeAgentLifecycleState(newState)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:         strings.TrimSpace(ev.ThreadID),
-		AgentID:    strings.TrimSpace(ev.AgentID),
-		AgentState: strings.TrimSpace(ev.NewState),
+		ID:      threadID,
+		AgentID: agentID,
 	})
 	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
-		ID:         strings.TrimSpace(ev.AgentID),
-		ThreadID:   strings.TrimSpace(ev.ThreadID),
-		State:      strings.TrimSpace(ev.NewState),
-		AgentState: strings.TrimSpace(ev.NewState),
+		ID:         agentID,
+		ThreadID:   threadID,
+		State:      newState,
+		AgentState: agentState,
 	})
+	if agentState == "idle" || agentState == "syncing" || agentState == "error" {
+		s.clearThreadActivityLocked(threadID)
+	}
+	if strings.EqualFold(newState, "provisioning") || strings.EqualFold(newState, "starting") {
+		s.setThreadOverlayLocked(threadID, overlayTypeMCPStartup, "", overlayPriorityMCPStartup, mcpStartupOverlayTTL)
+	} else {
+		s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	}
+	s.updateDerivedThreadStateLocked(threadID, agentID)
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
+	patch := s.threadPatchLocked(threadID, "agent/stateChanged")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
 }
 
 func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
-	agentState := launchedAgentState(firstNonEmptyString(
-		s.threadAgentStateLocked(threadID),
+	currentState := normalizeAgentLifecycleState(firstNonEmptyString(
 		s.agentStateLocked(agentID),
+		s.threadAgentStateLocked(threadID),
 	))
+	agentState := launchedAgentState(currentState)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:         threadID,
-		AgentID:    agentID,
-		AgentState: agentState,
+		ID:      threadID,
+		AgentID: agentID,
 	})
 	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
 		ID:         agentID,
@@ -48,97 +61,129 @@ func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 		CWD:        strings.TrimSpace(ev.CWD),
 		AgentState: agentState,
 	})
+	if currentState == "" || currentState == "starting" {
+		s.setThreadOverlayLocked(threadID, overlayTypeMCPStartup, "", overlayPriorityMCPStartup, mcpStartupOverlayTTL)
+	}
+	s.updateDerivedThreadStateLocked(threadID, agentID)
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
+	patch := s.threadPatchLocked(threadID, "agent/launched")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
 }
 
 func (s *service) applyAgentStopped(ev agentdto.AgentStopped) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	s.clearThreadActivityLocked(threadID)
+	s.clearActiveTurnLocked(threadID)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:         strings.TrimSpace(ev.ThreadID),
-		AgentID:    strings.TrimSpace(ev.AgentID),
-		AgentState: "stopped",
+		ID:      threadID,
+		AgentID: agentID,
 	})
 	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
-		ID:         strings.TrimSpace(ev.AgentID),
-		ThreadID:   strings.TrimSpace(ev.ThreadID),
+		ID:         agentID,
+		ThreadID:   threadID,
 		State:      "stopped",
-		AgentState: "stopped",
+		AgentState: "idle",
 	})
+	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	s.updateDerivedThreadStateLocked(threadID, agentID)
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
+	patch := s.threadPatchLocked(threadID, "agent/stopped")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
 }
 
 func (s *service) applyAgentRecovering(ev agentdto.AgentRecovering) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	agentState := normalizeAgentLifecycleState("recovering")
+	s.clearThreadActivityLocked(threadID)
+	s.clearActiveTurnLocked(threadID)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:         strings.TrimSpace(ev.ThreadID),
-		AgentID:    strings.TrimSpace(ev.AgentID),
-		AgentState: "recovering",
+		ID:      threadID,
+		AgentID: agentID,
 	})
 	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
-		ID:         strings.TrimSpace(ev.AgentID),
-		ThreadID:   strings.TrimSpace(ev.ThreadID),
+		ID:         agentID,
+		ThreadID:   threadID,
 		State:      "recovering",
-		AgentState: "recovering",
+		AgentState: agentState,
 	})
+	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	s.updateDerivedThreadStateLocked(threadID, agentID)
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
+	patch := s.threadPatchLocked(threadID, "agent/recovering")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
 }
 
 func (s *service) applyAgentFailed(ev agentdto.AgentFailed) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	s.clearThreadActivityLocked(threadID)
+	s.clearActiveTurnLocked(threadID)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:           strings.TrimSpace(ev.ThreadID),
-		AgentID:      strings.TrimSpace(ev.AgentID),
-		State:        "error",
-		ThreadStatus: "error",
-		AgentState:   "error",
-		LastMessage:  strings.TrimSpace(ev.Error),
+		ID:          threadID,
+		AgentID:     agentID,
+		LastMessage: strings.TrimSpace(ev.Error),
 	})
 	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
-		ID:          strings.TrimSpace(ev.AgentID),
-		ThreadID:    strings.TrimSpace(ev.ThreadID),
-		State:       "error",
+		ID:          agentID,
+		ThreadID:    threadID,
+		State:       "failed",
 		AgentState:  "error",
 		LastReport:  strings.TrimSpace(ev.Error),
 		LastMessage: strings.TrimSpace(ev.Error),
 	})
+	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	s.updateDerivedThreadStateLocked(threadID, agentID)
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
+	patch := s.threadPatchLocked(threadID, "agent/failed")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
 }
 
 func (s *service) applyAgentRuntimeReported(ev agentdto.AgentRuntimeReported) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:      strings.TrimSpace(ev.ThreadID),
-		AgentID: strings.TrimSpace(ev.AgentID),
+		ID:      threadID,
+		AgentID: agentID,
 	})
 	s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
-		ID:       strings.TrimSpace(ev.AgentID),
-		ThreadID: strings.TrimSpace(ev.ThreadID),
+		ID:       agentID,
+		ThreadID: threadID,
 		Provider: strings.TrimSpace(ev.Provider),
 		Port:     ev.Port,
 	})
+	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	s.updateDerivedThreadStateLocked(threadID, agentID)
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)
+	patch := s.threadPatchLocked(threadID, "agent/runtimeReported")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
 }
 
 func (s *service) applyThreadStarted(ev threaddto.Started) {
 	s.mu.Lock()
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:           strings.TrimSpace(ev.ThreadID),
-		AgentID:      strings.TrimSpace(ev.AgentID),
-		State:        "running",
-		ThreadStatus: "running",
+		ID:      threadID,
+		AgentID: agentID,
 	})
-	sortThreads(s.state.Threads)
-	patch := s.threadPatchLocked(ev.ThreadID, "thread/started")
-	applyPatchStatus(&patch, "running")
+	patch := s.refreshThreadPatchLocked(threadID, agentID, "thread/started")
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }
@@ -146,18 +191,29 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 	s.mu.Lock()
 	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
 	status := strings.TrimSpace(ev.Status)
 	if status == "" {
 		status = "stopped"
 	}
+	s.clearThreadActivityLocked(threadID)
+	s.clearActiveTurnLocked(threadID)
 	s.state.Threads = markThreadStopped(s.state.Threads, threadID, status)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:           threadID,
-		ThreadStatus: patchStatus(status),
+		ID:         threadID,
+		AgentID:    agentID,
+		AgentState: normalizeAgentLifecycleState(status),
 	})
-	sortThreads(s.state.Threads)
-	patch := s.threadPatchLocked(threadID, "thread/stopped")
-	applyPatchStatus(&patch, status)
+	if agentID != "" {
+		s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
+			ID:         agentID,
+			ThreadID:   threadID,
+			State:      status,
+			AgentState: normalizeAgentLifecycleState(status),
+		})
+	}
+	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	patch := s.refreshThreadPatchLocked(threadID, agentID, "thread/stopped")
 	delete(s.patchSeq, threadID)
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
@@ -166,6 +222,8 @@ func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 	s.mu.Lock()
 	turnID := strings.TrimSpace(ev.TurnID)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
 	if turnID != "" && s.hasRecentTurnLocked(turnID) {
 		s.mu.Unlock()
 		return
@@ -173,20 +231,18 @@ func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 	startedAt := cloneTime(&ev.Timestamp)
 	s.state.ActiveTurn = &TurnSummary{
 		ID:        turnID,
-		AgentID:   strings.TrimSpace(ev.AgentID),
-		ThreadID:  strings.TrimSpace(ev.ThreadID),
-		Status:    "running",
+		AgentID:   agentID,
+		ThreadID:  threadID,
+		Status:    "thinking",
 		StartedAt: startedAt,
 	}
+	s.threadActivityLocked(threadID).startTurn()
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:           strings.TrimSpace(ev.ThreadID),
-		AgentID:      strings.TrimSpace(ev.AgentID),
-		State:        "running",
-		ThreadStatus: "running",
+		ID:      threadID,
+		AgentID: agentID,
 	})
-	sortThreads(s.state.Threads)
-	patch := s.threadPatchLocked(ev.ThreadID, "turn/started")
-	applyPatchStatus(&patch, "running")
+	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
+	patch := s.refreshThreadPatchLocked(threadID, agentID, "turn/started")
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }
@@ -212,12 +268,14 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 			CompletedAt: cloneTime(&ev.Timestamp),
 		}, recentTurnLimit)
 	}
+	s.clearThreadActivityLocked(threadID)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
 		ID:           threadID,
 		AgentID:      agentID,
 		State:        "idle",
 		ThreadStatus: "idle",
 	})
+	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
 	sortThreads(s.state.Threads)
 	patch := s.threadPatchLocked(threadID, "turn/interrupted")
 	applyPatchStatus(&patch, "idle")
@@ -232,16 +290,42 @@ func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 	if s.state.ActiveTurn != nil && s.state.ActiveTurn.ID == completed.ID {
 		s.state.ActiveTurn = nil
 	}
-	status := completionStatus(ev)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	status := patchStatus(completionStatus(ev))
+	s.clearThreadActivityLocked(threadID)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-		ID:           strings.TrimSpace(ev.ThreadID),
-		AgentID:      strings.TrimSpace(ev.AgentID),
-		State:        patchStatus(status),
-		ThreadStatus: patchStatus(status),
+		ID:           threadID,
+		AgentID:      agentID,
+		State:        status,
+		ThreadStatus: status,
 	})
+	s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
 	sortThreads(s.state.Threads)
-	patch := s.threadPatchLocked(ev.ThreadID, "turn/completed")
+	patch := s.threadPatchLocked(threadID, "turn/completed")
 	applyPatchStatus(&patch, status)
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
+
+func (s *service) applyTurnResumed(ev turndto.TurnResumed) {
+	s.mu.Lock()
+	rt := s.threadActivityLocked(ev.ThreadID)
+	if rt != nil && rt.turnDepth == 0 {
+		rt.turnDepth = 1
+	}
+	patch := s.refreshThreadPatchLocked(ev.ThreadID, ev.AgentID, "turn/resumed")
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
+
+func (s *service) applyTurnInputReceived(ev turndto.TurnInputReceived) {
+	s.mu.Lock()
+	rt := s.threadActivityLocked(ev.ThreadID)
+	if rt != nil && rt.turnDepth == 0 {
+		rt.turnDepth = 1
+	}
+	patch := s.refreshThreadPatchLocked(ev.ThreadID, ev.AgentID, "turn/inputReceived")
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)
 }
@@ -267,7 +351,7 @@ func (s *service) threadAgentStateLocked(threadID string) string {
 	}
 	for _, item := range s.state.Threads {
 		if item.ID == threadID {
-			return strings.TrimSpace(item.AgentState)
+			return normalizeAgentLifecycleState(firstNonEmptyString(item.AgentState, item.ThreadStatus, item.State))
 		}
 	}
 	return ""
@@ -280,7 +364,7 @@ func (s *service) agentStateLocked(agentID string) string {
 	}
 	for _, item := range s.state.Agents {
 		if item.ID == agentID {
-			return firstNonEmptyString(item.AgentState, item.State)
+			return normalizeAgentLifecycleState(firstNonEmptyString(item.AgentState, item.ThreadStatus, item.State))
 		}
 	}
 	return ""

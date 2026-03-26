@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
@@ -21,6 +22,8 @@ type service struct {
 	projectsMu            sync.Mutex
 	state                 UIState
 	workspaceByKey        map[string]WorkspaceRunSummary
+	activityByThread      map[string]*threadActivity
+	overlayExpiryByThread map[string]time.Time
 	fallbackPrefs         map[string]json.RawMessage
 	patchSeq              map[string]int64
 	projectionSeq         map[string]int64
@@ -49,13 +52,15 @@ func NewService(
 		return nil, nil, err
 	}
 	svc := &service{
-		logger:         logger,
-		preferences:    preferences,
-		state:          state,
-		workspaceByKey: map[string]WorkspaceRunSummary{},
-		fallbackPrefs:  map[string]json.RawMessage{},
-		patchSeq:       map[string]int64{},
-		projectionSeq:  map[string]int64{},
+		logger:                logger,
+		preferences:           preferences,
+		state:                 state,
+		workspaceByKey:        map[string]WorkspaceRunSummary{},
+		activityByThread:      map[string]*threadActivity{},
+		overlayExpiryByThread: map[string]time.Time{},
+		fallbackPrefs:         map[string]json.RawMessage{},
+		patchSeq:              map[string]int64{},
+		projectionSeq:         map[string]int64{},
 	}
 	return svc, svc, nil
 }
@@ -166,6 +171,9 @@ func (s *service) SetPreference(ctx context.Context, key string, value any) erro
 	if key == "" {
 		return errPreferenceKeyRequired
 	}
+	if err := validatePreferenceValue(key, value); err != nil {
+		return err
+	}
 	scope := preferenceScopeFromContext(ctx)
 	var projectionUpdates []uidto.UIProjectionUpdated
 	if s.preferences != nil {
@@ -203,6 +211,7 @@ func (s *service) sidebarLocked() Sidebar {
 		Workspace:   WorkspacePanel{Runs: s.workspaceRunsLocked()},
 		TokenUsage:  s.state.TokenUsage,
 	}
+	s.applyThreadOverlaysLocked(sidebar.Threads, time.Now())
 	s.fillSidebarDerivedLocked(&sidebar)
 	return sidebar
 }
@@ -271,20 +280,99 @@ func decodePreferenceValue(raw json.RawMessage) any {
 	return strings.TrimSpace(string(raw))
 }
 
-func marshalPreferenceValue(value any) (json.RawMessage, error) {
-	return json.Marshal(value)
-}
+func marshalPreferenceValue(value any) (json.RawMessage, error) { return json.Marshal(value) }
 
 func (s *service) stateSnapshot() *UIState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return cloneState(s.state)
+	snapshot := cloneState(s.state)
+	s.applyThreadOverlaysLocked(snapshot.Threads, time.Now())
+	return snapshot
 }
 
 func (s *service) sidebarSnapshot() *Sidebar {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return cloneSidebar(s.sidebarLocked())
+}
+
+func (s *service) applyThreadOverlaysLocked(threads []ThreadSummary, now time.Time) {
+	for i := range threads {
+		threads[i] = s.effectiveThreadSummaryLocked(threads[i], now)
+	}
+}
+
+func (s *service) overlayActiveLocked(thread ThreadSummary, now time.Time) bool {
+	threadID := strings.TrimSpace(thread.ID)
+	if threadID == "" {
+		return false
+	}
+	if strings.TrimSpace(thread.OverlayType) == "" && strings.TrimSpace(thread.OverlayText) == "" {
+		return false
+	}
+	deadline, ok := s.overlayExpiryByThread[threadID]
+	return !ok || deadline.IsZero() || !deadline.Before(now)
+}
+
+func (s *service) effectiveThreadSummaryLocked(thread ThreadSummary, now time.Time) ThreadSummary {
+	if !s.overlayActiveLocked(thread, now) {
+		clearThreadOverlay(&thread)
+		return thread
+	}
+	thread.OverlayText = overlayHeaderText(thread.OverlayType, thread.OverlayText)
+	if status := overlayStatus(thread.OverlayType); status != "" {
+		thread.State = status
+		thread.ThreadStatus = status
+	}
+	return thread
+}
+
+func (s *service) setThreadOverlayLocked(threadID, overlayType, text string, priority int, ttl time.Duration) {
+	threadID = strings.TrimSpace(threadID)
+	overlayType = strings.TrimSpace(overlayType)
+	if threadID == "" || overlayType == "" {
+		return
+	}
+	now := time.Now()
+	if current, ok := s.threadSummaryLocked(threadID); ok && s.overlayActiveLocked(current, now) && current.OverlayPriority > priority {
+		return
+	}
+	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+		ID:              threadID,
+		OverlayText:     overlayHeaderText(overlayType, text),
+		OverlayType:     overlayType,
+		OverlayPriority: priority,
+	})
+	if ttl <= 0 {
+		delete(s.overlayExpiryByThread, threadID)
+		return
+	}
+	if s.overlayExpiryByThread == nil {
+		s.overlayExpiryByThread = map[string]time.Time{}
+	}
+	s.overlayExpiryByThread[threadID] = now.Add(ttl)
+}
+
+func (s *service) clearThreadOverlayLocked(threadID, overlayType string) {
+	threadID = strings.TrimSpace(threadID)
+	overlayType = strings.TrimSpace(overlayType)
+	if threadID == "" {
+		return
+	}
+	for i := range s.state.Threads {
+		if s.state.Threads[i].ID != threadID {
+			continue
+		}
+		if overlayType != "" && s.state.Threads[i].OverlayType != overlayType {
+			return
+		}
+		clearThreadOverlay(&s.state.Threads[i])
+		delete(s.overlayExpiryByThread, threadID)
+		return
+	}
+	if overlayType == "" {
+		delete(s.overlayExpiryByThread, threadID)
+	}
 }
 
 func withPreferenceScope(ctx context.Context, cwd string) context.Context {
@@ -302,12 +390,9 @@ func preferenceScopeFromContext(ctx context.Context) string {
 	return strings.TrimSpace(value)
 }
 
-func fallbackPreferenceKey(scope, key string) string {
-	return scope + "\x1f" + strings.TrimSpace(key)
-}
+func fallbackPreferenceKey(scope, key string) string { return scope + "\x1f" + strings.TrimSpace(key) }
 
 func splitFallbackPreferenceKey(raw string) (string, string, bool) {
 	scope, key, ok := strings.Cut(raw, "\x1f")
-	key = strings.TrimSpace(key)
-	return scope, key, ok && key != ""
+	return scope, strings.TrimSpace(key), ok && strings.TrimSpace(key) != ""
 }

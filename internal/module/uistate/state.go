@@ -7,32 +7,37 @@ import (
 )
 
 type UIState struct {
-	Threads              []ThreadSummary   `json:"threads"`
-	Agents               []AgentSummary    `json:"agents"`
-	ActiveTurn           *TurnSummary      `json:"active_turn,omitempty"`
-	RecentTurns          []TurnSummary     `json:"recent_turns,omitempty"`
-	TokenUsage           TokenUsage        `json:"token_usage"`
-	DiffTextByThread     map[string]string `json:"diffTextByThread,omitempty"`
-	DiffRevisionByThread map[string]int64  `json:"diffRevisionByThread,omitempty"`
-	Unchanged            bool              `json:"unchanged,omitempty"`
-	ActiveThreadID       string            `json:"activeThreadId,omitempty"`
-	ActiveCmdThreadID    string            `json:"activeCmdThreadId,omitempty"`
-	MainAgentID          string            `json:"mainAgentId,omitempty"`
-	ViewPrefsChat        map[string]any    `json:"viewPrefs.chat,omitempty"`
-	ViewPrefsCmd         map[string]any    `json:"viewPrefs.cmd,omitempty"`
-	ThreadPinsChat       map[string]int64  `json:"threadPins.chat,omitempty"`
-	ThreadArchivesChat   map[string]int64  `json:"threadArchives.chat,omitempty"`
-	Groups               []ThreadGroup     `json:"groups,omitempty"`
+	Threads                  []ThreadSummary   `json:"threads"`
+	Agents                   []AgentSummary    `json:"agents"`
+	ActiveTurn               *TurnSummary      `json:"active_turn,omitempty"`
+	RecentTurns              []TurnSummary     `json:"recent_turns,omitempty"`
+	TokenUsage               TokenUsage        `json:"token_usage"`
+	DiffTextByThread         map[string]string `json:"diffTextByThread,omitempty"`
+	DiffRevisionByThread     map[string]int64  `json:"diffRevisionByThread,omitempty"`
+	Unchanged                bool              `json:"unchanged,omitempty"`
+	ActiveThreadID           string            `json:"activeThreadId,omitempty"`
+	ActiveCmdThreadID        string            `json:"activeCmdThreadId,omitempty"`
+	MainAgentID              string            `json:"mainAgentId,omitempty"`
+	StallThresholdSec        int               `json:"-"`
+	ShowInjectedPromptInChat *bool             `json:"settings.showInjectedPromptInChat,omitempty"`
+	ViewPrefsChat            map[string]any    `json:"viewPrefs.chat,omitempty"`
+	ViewPrefsCmd             map[string]any    `json:"viewPrefs.cmd,omitempty"`
+	ThreadPinsChat           map[string]int64  `json:"threadPins.chat,omitempty"`
+	ThreadArchivesChat       map[string]int64  `json:"threadArchives.chat,omitempty"`
+	Groups                   []ThreadGroup     `json:"groups,omitempty"`
 }
 
 type ThreadSummary struct {
-	ID           string `json:"id"`
-	Name         string `json:"name,omitempty"`
-	AgentID      string `json:"agent_id,omitempty"`
-	State        string `json:"state,omitempty"`
-	ThreadStatus string `json:"threadStatus,omitempty"`
-	AgentState   string `json:"agentState,omitempty"`
-	LastMessage  string `json:"lastMessage,omitempty"`
+	ID              string `json:"id"`
+	Name            string `json:"name,omitempty"`
+	AgentID         string `json:"agent_id,omitempty"`
+	State           string `json:"state,omitempty"`
+	ThreadStatus    string `json:"threadStatus,omitempty"`
+	AgentState      string `json:"agentState,omitempty"`
+	LastMessage     string `json:"lastMessage,omitempty"`
+	OverlayText     string `json:"overlayText,omitempty"`
+	OverlayType     string `json:"overlayType,omitempty"`
+	OverlayPriority int    `json:"overlayPriority,omitempty"`
 }
 
 type AgentSummary struct {
@@ -111,14 +116,16 @@ type WorkspaceRunSummary struct {
 }
 
 type Preferences struct {
-	CWD               string            `json:"cwd,omitempty"`
-	Values            map[string]any    `json:"values"`
-	ActiveThreadID    string            `json:"active_thread_id,omitempty"`
-	ActiveCmdThreadID string            `json:"active_cmd_thread_id,omitempty"`
-	MainAgentID       string            `json:"main_agent_id,omitempty"`
-	ViewPrefs         ViewPrefs         `json:"view_prefs"`
-	ThreadPins        ThreadCollections `json:"thread_pins"`
-	ThreadArchives    ThreadCollections `json:"thread_archives"`
+	CWD                      string            `json:"cwd,omitempty"`
+	Values                   map[string]any    `json:"values"`
+	ActiveThreadID           string            `json:"active_thread_id,omitempty"`
+	ActiveCmdThreadID        string            `json:"active_cmd_thread_id,omitempty"`
+	MainAgentID              string            `json:"main_agent_id,omitempty"`
+	StallThresholdSec        int               `json:"stall_threshold_sec,omitempty"`
+	ShowInjectedPromptInChat *bool             `json:"show_injected_prompt_in_chat,omitempty"`
+	ViewPrefs                ViewPrefs         `json:"view_prefs"`
+	ThreadPins               ThreadCollections `json:"thread_pins"`
+	ThreadArchives           ThreadCollections `json:"thread_archives"`
 }
 
 type ThreadGroup struct {
@@ -139,22 +146,24 @@ type ThreadCollections struct {
 
 func cloneState(value UIState) *UIState {
 	return &UIState{
-		Threads:              cloneThreads(value.Threads),
-		Agents:               cloneAgents(value.Agents),
-		ActiveTurn:           cloneTurn(value.ActiveTurn),
-		RecentTurns:          cloneTurns(value.RecentTurns),
-		TokenUsage:           value.TokenUsage,
-		DiffTextByThread:     cloneStringMap(value.DiffTextByThread),
-		DiffRevisionByThread: cloneInt64Map(value.DiffRevisionByThread),
-		Unchanged:            value.Unchanged,
-		ActiveThreadID:       value.ActiveThreadID,
-		ActiveCmdThreadID:    value.ActiveCmdThreadID,
-		MainAgentID:          value.MainAgentID,
-		ViewPrefsChat:        cloneJSONMap(value.ViewPrefsChat),
-		ViewPrefsCmd:         cloneJSONMap(value.ViewPrefsCmd),
-		ThreadPinsChat:       cloneTimestampMap(value.ThreadPinsChat),
-		ThreadArchivesChat:   cloneTimestampMap(value.ThreadArchivesChat),
-		Groups:               cloneThreadGroups(value.Groups),
+		Threads:                  cloneThreads(value.Threads),
+		Agents:                   cloneAgents(value.Agents),
+		ActiveTurn:               cloneTurn(value.ActiveTurn),
+		RecentTurns:              cloneTurns(value.RecentTurns),
+		TokenUsage:               value.TokenUsage,
+		DiffTextByThread:         cloneStringMap(value.DiffTextByThread),
+		DiffRevisionByThread:     cloneInt64Map(value.DiffRevisionByThread),
+		Unchanged:                value.Unchanged,
+		ActiveThreadID:           value.ActiveThreadID,
+		ActiveCmdThreadID:        value.ActiveCmdThreadID,
+		MainAgentID:              value.MainAgentID,
+		StallThresholdSec:        value.StallThresholdSec,
+		ShowInjectedPromptInChat: cloneBoolPtr(value.ShowInjectedPromptInChat),
+		ViewPrefsChat:            cloneJSONMap(value.ViewPrefsChat),
+		ViewPrefsCmd:             cloneJSONMap(value.ViewPrefsCmd),
+		ThreadPinsChat:           cloneTimestampMap(value.ThreadPinsChat),
+		ThreadArchivesChat:       cloneTimestampMap(value.ThreadArchivesChat),
+		Groups:                   cloneThreadGroups(value.Groups),
 	}
 }
 
@@ -184,14 +193,16 @@ func cloneSidebar(value Sidebar) *Sidebar {
 
 func clonePreferences(value Preferences) *Preferences {
 	return &Preferences{
-		CWD:               value.CWD,
-		Values:            cloneJSONMap(value.Values),
-		ActiveThreadID:    value.ActiveThreadID,
-		ActiveCmdThreadID: value.ActiveCmdThreadID,
-		MainAgentID:       value.MainAgentID,
-		ViewPrefs:         cloneViewPrefs(value.ViewPrefs),
-		ThreadPins:        cloneThreadCollections(value.ThreadPins),
-		ThreadArchives:    cloneThreadCollections(value.ThreadArchives),
+		CWD:                      value.CWD,
+		Values:                   cloneJSONMap(value.Values),
+		ActiveThreadID:           value.ActiveThreadID,
+		ActiveCmdThreadID:        value.ActiveCmdThreadID,
+		MainAgentID:              value.MainAgentID,
+		StallThresholdSec:        value.StallThresholdSec,
+		ShowInjectedPromptInChat: cloneBoolPtr(value.ShowInjectedPromptInChat),
+		ViewPrefs:                cloneViewPrefs(value.ViewPrefs),
+		ThreadPins:               cloneThreadCollections(value.ThreadPins),
+		ThreadArchives:           cloneThreadCollections(value.ThreadArchives),
 	}
 }
 
@@ -252,36 +263,40 @@ func cloneTime(value *time.Time) *time.Time {
 	return &copied
 }
 
+func cloneBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
+}
+
 func upsertThreadSummary(items []ThreadSummary, next ThreadSummary) []ThreadSummary {
 	next.ID = strings.TrimSpace(next.ID)
 	if next.ID == "" {
 		return items
 	}
 	for i := range items {
-		if items[i].ID != next.ID {
-			continue
+		if items[i].ID == next.ID {
+			mergeThreadSummary(&items[i], next)
+			return items
 		}
-		if next.Name != "" {
-			items[i].Name = next.Name
-		}
-		if next.AgentID != "" {
-			items[i].AgentID = next.AgentID
-		}
-		if next.State != "" {
-			items[i].State = next.State
-		}
-		if next.ThreadStatus != "" {
-			items[i].ThreadStatus = next.ThreadStatus
-		}
-		if next.AgentState != "" {
-			items[i].AgentState = next.AgentState
-		}
-		if next.LastMessage != "" {
-			items[i].LastMessage = next.LastMessage
-		}
-		return items
 	}
 	return append(items, next)
+}
+
+func mergeThreadSummary(dst *ThreadSummary, src ThreadSummary) {
+	dst.Name = chooseString(src.Name, dst.Name)
+	dst.AgentID = chooseString(src.AgentID, dst.AgentID)
+	dst.State = chooseString(src.State, dst.State)
+	dst.ThreadStatus = chooseString(src.ThreadStatus, dst.ThreadStatus)
+	dst.AgentState = chooseString(src.AgentState, dst.AgentState)
+	dst.LastMessage = chooseString(src.LastMessage, dst.LastMessage)
+	if src.OverlayType != "" || src.OverlayText != "" || src.OverlayPriority > 0 {
+		dst.OverlayText = src.OverlayText
+		dst.OverlayType = src.OverlayType
+		dst.OverlayPriority = src.OverlayPriority
+	}
 }
 
 func upsertAgentSummary(items []AgentSummary, next AgentSummary) []AgentSummary {

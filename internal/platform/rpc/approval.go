@@ -18,6 +18,7 @@ import (
 // ApprovalManager manages tool-call approvals and their client callbacks.
 type ApprovalManager struct {
 	mu                 sync.Mutex
+	lifecycleMu        sync.Mutex
 	pending            map[string]*pendingApproval
 	pendingByRequestID map[int64]map[string]*pendingApproval
 	nextRequestID      atomic.Int64
@@ -93,7 +94,7 @@ func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridg
 		m.publishRequested(pending)
 	}
 	if owner {
-		if err := m.ensureDispatch(bridge, server, pending); err != nil {
+		if _, err := m.ensureDispatch(bridge, server, pending); err != nil {
 			m.failPending(pending, err)
 			return contract.ApprovalDecision{}, err
 		}
@@ -173,9 +174,9 @@ func (m *ApprovalManager) registerPending(req ApprovalRequest, dispatcher *event
 	return pending, true
 }
 
-func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Server, pending *pendingApproval) error {
+func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Server, pending *pendingApproval) (bool, error) {
 	if pending == nil {
-		return ErrInvalidState("approval pending state is nil")
+		return false, ErrInvalidState("approval pending state is nil")
 	}
 	if decision, warnMsg, ok := dispatchApprovalDecision(pending.request, bridge, server); ok {
 		if warnMsg != "" {
@@ -185,17 +186,17 @@ func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Serve
 				"kind", pending.request.Kind)
 		}
 		m.finishPending(pending, decision, nil)
-		return nil
+		return false, nil
 	}
 	ctx, method, params, err := m.beginDispatch(bridge, server, pending)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if ctx == nil {
-		return nil
+		return false, nil
 	}
 	go m.dispatchApproval(ctx, bridge, server, pending, method, params)
-	return nil
+	return true, nil
 }
 
 func (m *ApprovalManager) beginDispatch(bridge *PushBridge, server *jrpc2.Server, pending *pendingApproval) (context.Context, string, map[string]any, error) {

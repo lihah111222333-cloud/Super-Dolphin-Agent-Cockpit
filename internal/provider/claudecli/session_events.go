@@ -257,11 +257,12 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 }
 
 func baseData(base rawBase, sessionID, timestamp string) map[string]any {
-	threadID := strings.TrimSpace(firstNonEmpty(sessionID, base.ThreadID))
+	threadID := strings.TrimSpace(base.ThreadID)
+	sessionID = strings.TrimSpace(firstNonEmpty(sessionID, threadID))
 	data := map[string]any{
 		"agent_id":   strings.TrimSpace(base.AgentID),
 		"thread_id":  threadID,
-		"session_id": threadID,
+		"session_id": sessionID,
 		"turn_id":    strings.TrimSpace(base.TurnID),
 	}
 	if timestamp = strings.TrimSpace(timestamp); timestamp != "" {
