@@ -3,10 +3,14 @@ package ailog
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type ailogQuerierStub struct {
@@ -92,7 +96,7 @@ func TestListByCategory(t *testing.T) {
 	ts := time.Unix(200, 0)
 	s := &store{q: &ailogQuerierStub{
 		listAILogsByCategoryFn: func(_ context.Context, arg sqlc.ListAILogsByCategoryParams) ([]sqlc.ListAILogsByCategoryRow, error) {
-			if arg.Category != "api_request" || arg.LimitCount != 7 {
+			if arg.Category != "api_request" || arg.Keyword != "models" || arg.LimitCount != 7 {
 				t.Fatalf("ListByCategory() forwarded wrong params: %+v", arg)
 			}
 			return []sqlc.ListAILogsByCategoryRow{{
@@ -111,7 +115,7 @@ func TestListByCategory(t *testing.T) {
 		},
 	}}
 
-	rows, err := s.ListByCategory(context.Background(), "api_request", 7)
+	rows, err := s.ListByCategory(context.Background(), "api_request", "models", 7)
 	if err != nil {
 		t.Fatalf("ListByCategory() error = %v", err)
 	}
@@ -171,4 +175,139 @@ func TestListRecent(t *testing.T) {
 	if len(rows) != 1 || rows[0].Model != "gpt-5-mini" || string(rows[0].Extra) != string(rawExtra) {
 		t.Fatalf("ListRecent() = %+v", rows)
 	}
+}
+
+func TestListKeywordHandling(t *testing.T) {
+	t.Parallel()
+
+	db := &ailogQueryCaptureDB{}
+	s := NewStore(sqlc.New(db))
+
+	filtered, err := s.List(context.Background(), ListFilter{Keyword: "req", Limit: 10})
+	if err != nil {
+		t.Fatalf("List(filtered) error = %v", err)
+	}
+	if len(filtered) != 0 {
+		t.Fatalf("List(filtered) = %+v", filtered)
+	}
+	requireAILogQuery(t, db, "req", int32(10))
+	requireSQLContains(t, db.query, "WHERE ($1::text = '' OR message ILIKE '%' || $1::text || '%')")
+
+	all, err := s.List(context.Background(), ListFilter{Keyword: "", Limit: 10})
+	if err != nil {
+		t.Fatalf("List(all) error = %v", err)
+	}
+	if len(all) != 0 {
+		t.Fatalf("List(all) = %+v", all)
+	}
+	requireAILogQuery(t, db, "", int32(10))
+	requireSQLContains(t, db.query, "WHERE ($1::text = '' OR message ILIKE '%' || $1::text || '%')")
+}
+
+func TestListByCategoryAllowsEmptyKeyword(t *testing.T) {
+	t.Parallel()
+
+	db := &ailogQueryCaptureDB{}
+	s := NewStore(sqlc.New(db))
+
+	rows, err := s.ListByCategory(context.Background(), "api_request", "", 3)
+	if err != nil {
+		t.Fatalf("ListByCategory() error = %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("ListByCategory() = %+v", rows)
+	}
+	requireAILogCategoryQuery(t, db, "api_request", "", int32(3))
+	requireSQLContains(t, db.query, "WHERE ($1::text = '' OR category = $1::text)")
+	requireSQLContains(t, db.query, "AND ($2::text = '' OR message ILIKE '%' || $2::text || '%')")
+}
+
+func requireSQLContains(t *testing.T, got, want string) {
+	t.Helper()
+
+	if !strings.Contains(compactAILogSQL(got), compactAILogSQL(want)) {
+		t.Fatalf("query = %q, want substring %q", got, want)
+	}
+}
+
+func requireAILogQuery(t *testing.T, db *ailogQueryCaptureDB, keyword string, limit int32) {
+	t.Helper()
+
+	if len(db.args) != 2 {
+		t.Fatalf("query args = %#v, want 2 args", db.args)
+	}
+	if got, ok := db.args[0].(string); !ok || got != keyword {
+		t.Fatalf("query keyword arg = %#v, want %q", db.args[0], keyword)
+	}
+	if got, ok := db.args[1].(int32); !ok || got != limit {
+		t.Fatalf("query limit arg = %#v, want %d", db.args[1], limit)
+	}
+}
+
+func requireAILogCategoryQuery(t *testing.T, db *ailogQueryCaptureDB, category, keyword string, limit int32) {
+	t.Helper()
+
+	if len(db.args) != 3 {
+		t.Fatalf("query args = %#v, want 3 args", db.args)
+	}
+	if got, ok := db.args[0].(string); !ok || got != category {
+		t.Fatalf("query category arg = %#v, want %q", db.args[0], category)
+	}
+	if got, ok := db.args[1].(string); !ok || got != keyword {
+		t.Fatalf("query keyword arg = %#v, want %q", db.args[1], keyword)
+	}
+	if got, ok := db.args[2].(int32); !ok || got != limit {
+		t.Fatalf("query limit arg = %#v, want %d", db.args[2], limit)
+	}
+}
+
+type ailogQueryCaptureDB struct {
+	query string
+	args  []any
+	err   error
+	rows  pgx.Rows
+}
+
+func (*ailogQueryCaptureDB) Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New("ailogQueryCaptureDB: exec not implemented")
+}
+
+func (db *ailogQueryCaptureDB) Query(_ context.Context, query string, args ...interface{}) (pgx.Rows, error) {
+	db.query = query
+	db.args = append([]any(nil), args...)
+	if db.err != nil {
+		return nil, db.err
+	}
+	if db.rows != nil {
+		return db.rows, nil
+	}
+	return &ailogEmptyRows{}, nil
+}
+
+func (*ailogQueryCaptureDB) QueryRow(context.Context, string, ...interface{}) pgx.Row { return nil }
+
+type ailogEmptyRows struct{}
+
+func (*ailogEmptyRows) Close() {}
+
+func (*ailogEmptyRows) Err() error { return nil }
+
+func (*ailogEmptyRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
+
+func (*ailogEmptyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+
+func (*ailogEmptyRows) Next() bool { return false }
+
+func (*ailogEmptyRows) Scan(...any) error { return errors.New("ailogEmptyRows: scan not implemented") }
+
+func (*ailogEmptyRows) Values() ([]any, error) {
+	return nil, errors.New("ailogEmptyRows: values not implemented")
+}
+
+func (*ailogEmptyRows) RawValues() [][]byte { return nil }
+
+func (*ailogEmptyRows) Conn() *pgx.Conn { return nil }
+
+func compactAILogSQL(query string) string {
+	return strings.Join(strings.Fields(query), " ")
 }

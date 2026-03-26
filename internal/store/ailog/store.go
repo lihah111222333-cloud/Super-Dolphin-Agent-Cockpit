@@ -38,9 +38,10 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]AILog, error) {
 	return result, nil
 }
 
-func (s *store) ListByCategory(ctx context.Context, category string, limit int32) ([]AILog, error) {
+func (s *store) ListByCategory(ctx context.Context, category string, keyword string, limit int32) ([]AILog, error) {
 	rows, err := s.q.ListAILogsByCategory(ctx, sqlc.ListAILogsByCategoryParams{
 		Category:   category,
+		Keyword:    keyword,
 		LimitCount: limit,
 	})
 	if err != nil {

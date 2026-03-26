@@ -3,9 +3,11 @@ package wails
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -22,9 +24,9 @@ func (r *runner) Run(ctx context.Context) error {
 		return errors.New("wails runner: application is not configured")
 	}
 	done := make(chan error, 1)
-	go func() {
+	platformshared.SafeGo(slog.Default(), func() {
 		done <- r.app.Run()
-	}()
+	})
 	select {
 	case err := <-done:
 		return err

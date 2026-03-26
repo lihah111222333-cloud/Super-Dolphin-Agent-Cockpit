@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 	"github.com/creachadair/jrpc2/handler"
@@ -117,10 +118,10 @@ func (s *Server) serveConn(ctx context.Context, ch channel.Channel, opts *jrpc2.
 	defer s.removeActive(srv)
 	s.notifyConnected(srv)
 
-	go func() {
+	platformshared.SafeGo(s.logger, func() {
 		<-connCtx.Done()
 		srv.Stop()
-	}()
+	})
 
 	stat := srv.WaitStatus()
 	if stat.Err != nil && !errors.Is(stat.Err, context.Canceled) && !errors.Is(stat.Err, net.ErrClosed) && !channel.IsErrClosing(stat.Err) {

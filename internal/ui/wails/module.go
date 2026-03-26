@@ -9,6 +9,7 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"go.uber.org/fx"
@@ -123,12 +124,12 @@ func isDebug(cfg *config.Config) bool {
 	return strings.EqualFold(strings.TrimSpace(cfg.LogLevel), "debug")
 }
 
-func bindWailsLifecycle(lifecycle *WailsLifecycle, shutdowner fx.Shutdowner) {
+func bindWailsLifecycle(lifecycle *WailsLifecycle, shutdowner fx.Shutdowner, logger *slog.Logger) {
 	if lifecycle == nil {
 		return
 	}
 	lifecycle.SetShutdownerFunc(func() {
-		_ = shutdowner.Shutdown()
+		shared.LogIgnoredError(logger, "shutdown failed", shutdowner.Shutdown())
 	})
 }
 

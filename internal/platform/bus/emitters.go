@@ -17,19 +17,9 @@ func (e *domainEmitters) Dispatcher() *event.Dispatcher {
 	return e.dispatcher
 }
 
-type AgentEmitters struct{ *domainEmitters }
-
 type ThreadEmitters struct{ *domainEmitters }
 
-type TurnEmitters struct{ *domainEmitters }
-
-type ToolEmitters struct{ *domainEmitters }
-
-type TaskEmitters struct{ *domainEmitters }
-
 type WorkspaceEmitters struct{ *domainEmitters }
-
-type UIEmitters struct{ *domainEmitters }
 
 // NewEmitter returns a typed publish function without hand-writing per-event wrappers.
 func NewEmitter[T event.Event](dispatcher *event.Dispatcher) func(T) {
@@ -41,30 +31,10 @@ func NewEmitter[T event.Event](dispatcher *event.Dispatcher) func(T) {
 	}
 }
 
-func NewAgentEmitters(dispatcher *event.Dispatcher) *AgentEmitters {
-	return &AgentEmitters{domainEmitters: newDomainEmitters(dispatcher)}
-}
-
 func NewThreadEmitters(dispatcher *event.Dispatcher) *ThreadEmitters {
 	return &ThreadEmitters{domainEmitters: newDomainEmitters(dispatcher)}
 }
 
-func NewTurnEmitters(dispatcher *event.Dispatcher) *TurnEmitters {
-	return &TurnEmitters{domainEmitters: newDomainEmitters(dispatcher)}
-}
-
-func NewToolEmitters(dispatcher *event.Dispatcher) *ToolEmitters {
-	return &ToolEmitters{domainEmitters: newDomainEmitters(dispatcher)}
-}
-
-func NewTaskEmitters(dispatcher *event.Dispatcher) *TaskEmitters {
-	return &TaskEmitters{domainEmitters: newDomainEmitters(dispatcher)}
-}
-
 func NewWorkspaceEmitters(dispatcher *event.Dispatcher) *WorkspaceEmitters {
 	return &WorkspaceEmitters{domainEmitters: newDomainEmitters(dispatcher)}
-}
-
-func NewUIEmitters(dispatcher *event.Dispatcher) *UIEmitters {
-	return &UIEmitters{domainEmitters: newDomainEmitters(dispatcher)}
 }

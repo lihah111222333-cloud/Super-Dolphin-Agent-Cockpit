@@ -78,6 +78,7 @@ SELECT
     model
 FROM derived_logs
 WHERE (sqlc.arg(category)::text = '' OR category = sqlc.arg(category)::text)
+  AND (sqlc.arg(keyword)::text = '' OR message ILIKE '%' || sqlc.arg(keyword)::text || '%')
 ORDER BY ts DESC, id DESC
 LIMIT sqlc.arg(limit_count);
 

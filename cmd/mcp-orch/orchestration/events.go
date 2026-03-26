@@ -6,6 +6,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/kelindar/event"
 )
 
@@ -75,6 +76,34 @@ func (s *service) publishAgentRuntimeReported(agent *agentRuntime) {
 	})
 }
 
+func (s *service) publishTurnStalled(
+	agent *agentRuntime,
+	threadID string,
+	turnID string,
+	reason string,
+	stalled time.Duration,
+	timestamp time.Time,
+) {
+	if s.eventBus == nil || turnID == "" {
+		return
+	}
+	event.Publish(s.eventBus, turndto.TurnStalled{
+		TurnHeader: turnHeader(agent, threadID, turnID, timestamp),
+		Reason:     reason,
+		StalledMS:  stalledMilliseconds(stalled),
+	})
+}
+
+func (s *service) publishTurnResumed(agent *agentRuntime, threadID, turnID, reason string, timestamp time.Time) {
+	if s.eventBus == nil || turnID == "" {
+		return
+	}
+	event.Publish(s.eventBus, turndto.TurnResumed{
+		TurnHeader: turnHeader(agent, threadID, turnID, timestamp),
+		Reason:     reason,
+	})
+}
+
 func (s *service) agentSessionHeader(agent *agentRuntime) shared.AgentSessionHeader {
 	return shared.AgentSessionHeader{
 		AgentHeader: agentHeader(agent),
@@ -121,6 +150,26 @@ func agentSessionID(agent *agentRuntime) string {
 	return strconv.FormatUint(agent.launchSeq, 10)
 }
 
+func turnHeader(agent *agentRuntime, threadID, turnID string, timestamp time.Time) shared.TurnHeader {
+	header := agentHeader(agent)
+	if threadID != "" {
+		header.ThreadID = threadID
+	}
+	if !timestamp.IsZero() {
+		header.ThreadHeader.EventHeader.Timestamp = timestamp
+	}
+	return shared.TurnHeader{
+		AgentHeader:  header,
+		TurnIDHeader: shared.TurnIDHeader{TurnID: turnID},
+	}
+}
+
+func stalledMilliseconds(stalled time.Duration) int64 {
+	if stalled <= 0 {
+		return 0
+	}
+	return stalled.Milliseconds()
+}
 
 func cloneTime(value *time.Time) *time.Time {
 	if value == nil {

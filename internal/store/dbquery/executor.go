@@ -44,23 +44,18 @@ var (
 	errInvalidCTESyntax      = errors.New("dbquery query has invalid CTE syntax")
 )
 
-func executeQuery(ctx context.Context, queryer sqlc.Queryable, timeout time.Duration, query string, args ...any) ([]map[string]any, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if queryer == nil {
-		return nil, errors.New("dbquery queryer is not initialized")
-	}
-	if err := validateQuery(query, len(args)); err != nil {
+func executeQuery(ctx context.Context, queryer sqlc.Queryable, timeout time.Duration, query string, args ...any) (_ []map[string]any, err error) {
+	ctx, err = prepareQueryContext(ctx, queryer, query, len(args))
+	if err != nil {
 		return nil, err
 	}
 	queryCtx, cancel := withQueryTimeout(ctx, timeout)
 	defer cancel()
-	rows, err := queryer.Query(queryCtx, query, normalizeArgs(args)...)
+	rows, finish, err := sqlc.OpenReadOnlyRows(queryCtx, queryer, query, normalizeArgs(args)...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer finalizeQuery(&err, finish)
 	fields := sqlc.RowsFieldNames(rows)
 	result := make([]map[string]any, 0)
 	for rows.Next() {
@@ -77,6 +72,25 @@ func executeQuery(ctx context.Context, queryer sqlc.Queryable, timeout time.Dura
 		return nil, err
 	}
 	return result, nil
+}
+
+func prepareQueryContext(ctx context.Context, queryer sqlc.Queryable, query string, argCount int) (context.Context, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if queryer == nil {
+		return nil, errors.New("dbquery queryer is not initialized")
+	}
+	if err := validateQuery(query, argCount); err != nil {
+		return nil, err
+	}
+	return ctx, nil
+}
+
+func finalizeQuery(errp *error, finish sqlc.QueryFinish) {
+	if finishErr := finish(*errp == nil); finishErr != nil {
+		*errp = errors.Join(*errp, finishErr)
+	}
 }
 
 func withQueryTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

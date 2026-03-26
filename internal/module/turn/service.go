@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type service struct {
@@ -227,7 +228,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 	if localID == "" {
 		return
 	}
-	go func() {
+	platformshared.SafeGo(s.logger, func() {
 		timer := time.NewTimer(trackerTTL)
 		defer timer.Stop()
 		select {
@@ -245,7 +246,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 			return
 		}
 		s.tracker.Complete(localID, true, "")
-	}()
+	})
 }
 
 func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle contract.TurnHandle) error {

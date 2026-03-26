@@ -20,6 +20,15 @@
 ✅ archtest TestSqlcBoundary                    — PASS
 ```
 
+### 2026-03-27 补充验证（P3 集成验证 + fx 快清）
+- `go build ./internal/... ./cmd/mcp-orch/...`：PASS
+- `go vet ./internal/... ./cmd/mcp-orch/...`：PASS
+- `go test ./internal/platform/bus/... -v -count=1`：PASS
+- `go test -run TestCodeSizeGuard ./internal/archtest/...`：PASS
+- `go test ./internal/archtest/... -v -count=1`：FAIL
+- 当前可复现失败仅剩 `TestMCPOrchDependencyDirection/allowed_internal_boundary`：`cmd/mcp-orch` 通过 `internal/platform/rpc` 传递依赖到了 `internal/platform/shared`，超出 archtest 允许边界
+- `TestTimeoutLocality` 在首次全量运行中曾报 `internal/store/sqlc/read_only_tx.go:62`，但该文件随后发生并发工作树变更；按当前磁盘状态重跑已 PASS
+
 ### 迁移状态
 
 | 阶段 | 状态 | 内容 |
@@ -43,6 +52,11 @@
 ---
 
 ## 2. P1 修复总结（本会话核心成果）
+
+### 2026-03-27 补充收口记录
+- P0: lifecycle `SafeGo` 11 处 + signal 收敛 + `StartupTimeout` + oklog recover
+- P1: `DBQuery` READ ONLY + `AILog` keyword SQL 下推 + 9 处高风险吞错 `LogIgnoredError`
+- fx: 5 个悬空 emitter provider 清理（删除 `Agent/Turn/Tool/Task/UI`，保留 `Thread/Workspace`）
 
 ### 四批执行统计
 
@@ -185,6 +199,46 @@ sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 ```
 
 **违反后果：** 互审必然被打回，大量返工。宁可写代码时多拆几个 helper，也不要事后被 archtest 卡住。
+
+### 死代码清理规范（硬性约束，下发任务时必须包含）
+
+> 教训：Agent 习惯“加新不删旧”，导致大量死代码残留。本规范强制要求每个任务包含清理环节。
+
+**核心原则：替换 = 删旧 + 加新，不是只加新。**
+
+**每次下发任务给 Agent 时，初始 prompt 必须附加以下清理规范，不得省略：**
+
+```
+⚠️ 死代码清理规范（违反将导致互审打回）：
+
+1. 替换旧实现时，必须删除旧代码（不是注释掉，不是在旁边加新的）
+2. 新建 helper/工厂后，搜全仓现有手写等价逻辑，统一迁移到新 helper 后删除旧代码
+3. 删除定义前，用 lsp_xref(references) 确认零引用
+4. 删除后用 lsp_grep 搜索旧模式关键字，确认全仓零残留
+5. 空函数/空文件/空目录 → 删除
+6. 未使用的 import → 删除（go vet 验证）
+7. 如有 //nolint:errcheck 等抑制注释，随旧代码一起删除
+8. 任务完成前必须跑一遍清理验证：
+   - lsp_grep 搜索旧模式 → 全仓零残留
+   - go vet ./... → 无 unused import
+   - lsp_file(diagnostics) → 无新增告警
+```
+
+**常见遗留场景与强制处理：**
+
+| 场景 | 遗留风险 | 强制处理 |
+|--------|----------|----------|
+| 裸 `go func()` 替换为 SafeGo | 旧 `go func()` 整块未删，旧 inline recover 残留 | 删除旧整块；如旧 goroutine 内有通用 recover 则删除（SafeGo 已覆盖）；如有专用语义（如写结果到 channel）则保留但重构 |
+| `_ = err` 替换为 LogIgnoredError | 旧 `_ =` 行未删，新旧并存 | 删除旧行；删除伴随的 `//nolint` 注释 |
+| 新建 helper 函数 | 全仓散落的手写等价逻辑未迁移 | 搜全仓同模式，统一替换后删旧 |
+| 删除事件/类型定义 | DTO 删了但 sink 订阅/event_map 注册/常量未同步删 | 联动删除所有引用点；如文件变空则删文件 |
+| 接口方法签名变更 | 调用方旧签名未同步更新 | 用 lsp_xref(references) 找所有调用方，逐个更新 |
+| 新增常量替代硬编码字符串 | 旧硬编码字符串散落在多个文件 | lsp_grep 搜旧字面量，全部替换为常量引用 |
+| JSON tag 改名（如 camelCase → snake_case） | 前端/测试仍依赖旧 tag | 搜全仓旧 tag 字符串，同步更新测试断言 |
+| fx.Provide 删除 | 构造函数和类型定义仍在 | 用 lsp_xref 确认零引用后删除构造函数和类型 |
+| 测试断言依赖旧返回值/旧行为 | 生产代码改了但测试没同步 | 生产代码每改一处，必须同步更新对应测试 |
+
+**违反后果：** 互审必然被打回。Agent 不会主动清理，必须在 prompt 中显式要求。
 
 ### Agent 拉起规范（硬性约束）
 

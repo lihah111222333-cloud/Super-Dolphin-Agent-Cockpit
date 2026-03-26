@@ -51,10 +51,33 @@ func TestGetAILogsByCategoryUsesStore(t *testing.T) {
 	if stub.listByCategoryCalls != 1 {
 		t.Fatalf("ListByCategory() calls = %d, want 1", stub.listByCategoryCalls)
 	}
-	if stub.listByCategoryCategory != "api_request" || stub.listByCategoryLimit != 7 {
-		t.Fatalf("ListByCategory() args = (%q, %d)", stub.listByCategoryCategory, stub.listByCategoryLimit)
+	if stub.listByCategoryCategory != "api_request" || stub.listByCategoryKeyword != "" || stub.listByCategoryLimit != 7 {
+		t.Fatalf("ListByCategory() args = (%q, %q, %d)", stub.listByCategoryCategory, stub.listByCategoryKeyword, stub.listByCategoryLimit)
 	}
 	if len(got) != 1 || got[0].ID != 7 || got[0].Category != "api_request" {
+		t.Fatalf("GetAILogsByCategory() = %#v", got)
+	}
+}
+
+func TestGetAILogsByCategoryPassesKeywordToStore(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubAILogStore{
+		listByCategoryResult: []ailogstore.AILog{
+			{ID: 7, Category: "api_request", Message: "GET /v1/models"},
+			{ID: 8, Category: "api_request", Message: "unfiltered here, store owns keyword match"},
+		},
+	}
+	svc := &service{aiLogs: stub}
+
+	got, err := svc.GetAILogsByCategory(context.Background(), " api_request ", " models ", 2)
+	if err != nil {
+		t.Fatalf("GetAILogsByCategory() error = %v", err)
+	}
+	if stub.listByCategoryKeyword != "models" || stub.listByCategoryLimit != 2 {
+		t.Fatalf("ListByCategory() args = (%q, %d)", stub.listByCategoryKeyword, stub.listByCategoryLimit)
+	}
+	if len(got) != 2 {
 		t.Fatalf("GetAILogsByCategory() = %#v", got)
 	}
 }
@@ -171,6 +194,7 @@ type stubAILogStore struct {
 	listByCategoryErr      error
 	listByCategoryCalls    int
 	listByCategoryCategory string
+	listByCategoryKeyword  string
 	listByCategoryLimit    int32
 
 	countByStatusResult []ailogstore.StatusCount
@@ -189,9 +213,10 @@ func (s *stubAILogStore) List(context.Context, ailogstore.ListFilter) ([]ailogst
 	return []ailogstore.AILog{}, nil
 }
 
-func (s *stubAILogStore) ListByCategory(_ context.Context, category string, limit int32) ([]ailogstore.AILog, error) {
+func (s *stubAILogStore) ListByCategory(_ context.Context, category string, keyword string, limit int32) ([]ailogstore.AILog, error) {
 	s.listByCategoryCalls++
 	s.listByCategoryCategory = category
+	s.listByCategoryKeyword = keyword
 	s.listByCategoryLimit = limit
 	return s.listByCategoryResult, s.listByCategoryErr
 }

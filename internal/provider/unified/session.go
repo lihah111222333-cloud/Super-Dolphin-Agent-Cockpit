@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 // SessionManager manages active sessions by agent ID.
@@ -175,9 +176,9 @@ func closeSession(ctx context.Context, session contract.Session) error {
 		return nil
 	}
 	done := make(chan error, 1)
-	go func() {
+	platformshared.SafeGo(slog.Default(), func() {
 		done <- session.Close(ctx)
-	}()
+	})
 	select {
 	case err := <-done:
 		return err

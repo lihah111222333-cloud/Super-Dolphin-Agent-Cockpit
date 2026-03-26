@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
@@ -113,7 +114,7 @@ func (s *service) cleanupThreadTurns(ctx context.Context, reason string, threadI
 		return
 	}
 	for _, threadID := range uniqueThreadIDs(threadIDs...) {
-		_ = s.turns.CleanupThread(ctx, threadID, reason)
+		shared.LogIgnoredError(s.logger, "cleanup thread turns failed", s.turns.CleanupThread(ctx, threadID, reason))
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/oklog/run"
@@ -37,8 +38,19 @@ func RunGroup(ctx context.Context, runners []Runner, options GroupOptions) error
 	return group.Run()
 }
 
+func addActor(group *run.Group, execute func() error, interrupt func(error)) {
+	group.Add(func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("runner actor panic: %v\n%s", r, debug.Stack())
+			}
+		}()
+		return execute()
+	}, interrupt)
+}
+
 func addContextActor(group *run.Group, rootCtx context.Context, cancel context.CancelFunc) {
-	group.Add(func() error {
+	addActor(group, func() error {
 		<-rootCtx.Done()
 		return nil
 	}, func(error) {
@@ -47,7 +59,7 @@ func addContextActor(group *run.Group, rootCtx context.Context, cancel context.C
 }
 
 func addSignalActor(group *run.Group, rootCtx context.Context, cancel context.CancelFunc) {
-	group.Add(func() error {
+	addActor(group, func() error {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(signals)
@@ -66,7 +78,7 @@ func addSignalActor(group *run.Group, rootCtx context.Context, cancel context.Ca
 func addRunnerActors(group *run.Group, rootCtx context.Context, cancel context.CancelFunc, runners []Runner) {
 	for _, runner := range runners {
 		current := runner
-		group.Add(func() error {
+		addActor(group, func() error {
 			return current.Run(rootCtx)
 		}, func(error) {
 			cancel()

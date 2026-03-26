@@ -8,6 +8,7 @@ import (
 const (
 	TurnTimeout            = 10 * time.Minute
 	LaunchTimeout          = 30 * time.Second
+	StartupTimeout         = 30 * time.Second
 	ShutdownTimeout        = 15 * time.Second
 	InitialThreadIDTimeout = 5 * time.Second
 	SessionCloseTimeout    = 5 * time.Second

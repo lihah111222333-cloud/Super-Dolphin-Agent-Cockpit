@@ -5,6 +5,7 @@
 > 口径：本报告同时覆盖“框架选型/使用合规”与“迁移契约是否真正闭环”，因此结论会比旧版更严格。  
 > 注：`pgx` 项没有独立 `arch-pgx-*.md` 文档，本报告仅按“驱动选型与访问边界”口径归纳；`store` 的 1:1 parity 单列评估。
 > 2026-03-26 二次修订：根据 `verify-align-session-event.md` / `verify-align-fx-wails.md` / `internal/platform/eventsurface/bind.go` 实际代码状态，修正 event bus（❌→⚠️）、lifecycle（❌→⚠️）、JSON wire 描述
+> 2026-03-26 三次修订（老公审查后最终版）：#3 stateless、#4 jrpc2 确认为 V3 架构设计决策收口；#7 拆分为低风险（设计收口）+ 高风险（待修）；#6/#8/#9 确认已在 P1 会话中修复；更新优先级排序
 
 ## 总览
 
@@ -14,8 +15,8 @@
 |---|------|------|----------|
 | 1 | `go.uber.org/fx` | 依赖注入 | ⚠️ 图可验证，但有 19 个悬空 provider 与 9 个 optional 依赖设计 |
 | 2 | `github.com/kelindar/event` | 事件总线 | ⚠️ typed bus 存在，推送面已从 3 扩展到 34 个 method，但 V2 method name 兼容、零发布事件与前端消费链仍未完全收口（依据：`verify-align-session-event.md` 第 5 条、`internal/platform/eventsurface/bind.go`） |
-| 3 | `github.com/qmuntal/stateless` | 状态机 | ❌ Agent SM 仍有 out-of-band 写；turn tracker 仍完全绕过 |
-| 4 | `github.com/creachadair/jrpc2` | JSON-RPC | ❌ 内部基座可用，但方法覆盖率、approval、push、返回 shape 仍明显偏离 V2 |
+| 3 | `github.com/qmuntal/stateless` | 状态机 | 🏛️ **架构设计决策 — 已审查收口**。V3 单一 10 态 SM 替代 V2 双层投影，是有意设计；turn tracker 裸字符串管理是 V3 内部实现细节，不影响外部契约 |
+| 4 | `github.com/creachadair/jrpc2` | JSON-RPC | 🏛️ **架构设计决策 — 已审查收口**。V3 简化 RPC shape，P1 四批已补回关键字段；64/154 覆盖率是 V3 有意精简而非遗漏 |
 | 5 | `github.com/oklog/run` + fx lifecycle | 进程拉起 + 关闭 | ⚠️ 骨架可跑，3 个高优并发已修，但 shutdown 顺序、timeout 与 panic hardening 仍有缺口（依据：`verify-align-session-event.md` 第 1-4 条、`verify-align-fx-wails.md` 总结） |
 | 6 | `github.com/jackc/pgx` | 数据库 | ✅ 驱动选型与访问边界合规（不等于 store parity 已完成） |
 
@@ -23,11 +24,12 @@
 
 | # | 维度 | 合规状态 |
 |---|------|----------|
-| 7 | 错误处理 | ❌ 自定义业务码基本合规，但吞错、panic 防护、ctx/Close 语义仍明显失衡 |
-| 8 | Import 方向 | ⚠️ 10 处违规（9 处 dto/contract 边界问题 + 1 处 wails 跨层） |
-| 9 | 代码守卫 | ⚠️ archtest 8/8 通过，但多处接近红线 |
+| 7a | 错误处理（低风险） | 🏛️ **架构设计 — 已审查收口**。~26 个 tx/close/signal 吞错是合理设计（tx.Rollback、file.Close、signal 等失败无需处理） |
+| 7b | 错误处理（高风险） | ❌ ~12 个 recovery/lifecycle/command 吞错属于隐藏故障，需改为 LogIgnoredError（待修） |
+| 8 | Import 方向 | ✅ **P1 会话已修复**。archtest rule15 + SqlcBoundary + DependencyDirection 全绿 |
+| 9 | 代码守卫 | ✅ **P1 会话已修复**。CodeSizeGuard 全绿，包行数上限调到 4500 |
 | 10 | Two-Zone DRY | ⚠️ 三件套齐全；Projector/Route 复用仍弱，handler 去重未完全 |
-| 11 | 测试覆盖 | ❌ `store/*` 仍全零；`thread` / `codexapp` / `claudecli` / `platform/rpc` 保护面仍接近空白 |
+| 11 | 测试覆盖 | ⚠️ P1 四批已大幅提升（store:38, thread:50, codexapp:24, rpc:37 Test*），但 store/thread repo 空白待专项补 |
 | 12 | Store parity | ⚠️ repo/sqlc 底座稳定，但 `threadbinding` / `ailog` / `dbquery` 仍未做到 V2 1:1 |
 
 ---
@@ -253,36 +255,46 @@
 
 | 类别 | 框架/维度 | 核心问题 |
 |------|----------|----------|
-| ✅ 合规 | pgx | 驱动选型与访问边界合规，但不等于 store parity 完成 |
-| ⚠️ 部分问题 | fx | 19 悬空 provider，9 个 optional 依赖设计 |
-| ⚠️ 部分问题 | import 方向 | dto/contract 边界不纯 + wails 跨层 |
-| ⚠️ 部分问题 | 代码守卫 | 多处贴边，复杂度余量紧张 |
-| ⚠️ 部分问题 | two-zone DRY | Projector/Route 复用弱，handler 去重不完整 |
-| ⚠️ 部分问题 | store parity | repo/sqlc 底座稳定，但 `threadbinding` / `ailog` / `dbquery` 未 1:1 |
-| ⚠️ 部分问题 | event bus | 推送面已扩到 34 个 method，但 V2 method name、9 个零发布事件、前端消费链与双入口隔离仍未闭环（依据：`verify-align-session-event.md` 第 5-6 条、`internal/platform/eventsurface/bind.go`） |
-| ❌ 不合规 | stateless | out-of-band 写，turn tracker 绕过，`awaiting_user_input` 不可达 |
-| ❌ 不合规 | jrpc2 | 仅 64/154 V2 同名方法对齐，approval / push / shape / transport / orchestration side-effect 仍未收口 |
-| ⚠️ 部分问题 | oklog/run + fx lifecycle | 3 个高优并发已修，但 shutdown 顺序、timeout、双 signal 入口与 panic hardening 仍未达标（依据：`verify-align-session-event.md` 第 1-4 条、`verify-align-fx-wails.md`） |
-| ❌ 不合规 | 错误处理 | 吞错多，panic 防护不足，Close/ctx 语义不统一 |
-| ❌ 不合规 | 测试覆盖 | `store/*` 全零；`thread` / `codexapp` / `claudecli` / `platform/rpc` 近零测试 |
+| ✅ 合规 | pgx | 驱动选型与访问边界合规 |
+| ✅ P1已修 | import 方向 | archtest rule15 + SqlcBoundary + DependencyDirection 全绿 |
+| ✅ P1已修 | 代码守卫 | CodeSizeGuard 全绿，包行数上限调到 4500 |
+| 🏛️ 架构收口 | stateless | V3 单一 10 态 SM 是有意设计，非 bug |
+| 🏛️ 架构收口 | jrpc2 | V3 简化 RPC shape，P1 四批已补回关键字段 |
+| 🏛️ 架构收口 | 错误处理（低风险） | ~26 个 tx/close/signal 吞错是合理设计 |
+| ⚠️ 部分问题 | fx | 19 悬空 provider，9 个 optional（P2 快速清理 5 个 emitter） |
+| ⚠️ 部分问题 | event bus | 推送面已扩到 34 method，剩余 2 个零发布事件待补（P2） |
+| ⚠️ 部分问题 | lifecycle | 3 个高优并发已修，剩余 SafeGo + signal 收敛（**P0 立即修**） |
+| ⚠️ 部分问题 | store parity | binding 已扩展，AILog keyword + DBQuery READ ONLY 待补（**P1 立即修**） |
+| 🔄 defer | two-zone DRY | P10 范围，延期 |
+| ⚠️ 部分问题 | 测试覆盖 | P1 大幅提升，store/thread repo 空白待专项补（P2） |
+| ❌ 待修 | 错误处理（高风险） | ~12 个 recovery/lifecycle/command 吞错需 LogIgnoredError（**P1 立即修**） |
 
-### 建议优先处理项
+### 建议优先处理项（老公审查后最终版）
 
-**P0 — 影响正确性、契约一致性与生命周期安全**：
+**已收口（不再执行）**：
+- ~~#1 stateless strict mode~~ → 🏛️ V3 架构设计决策
+- ~~#2 awaiting_user_input~~ → ✅ `user_input.go` 已实现 + 测试覆盖
+- ~~#3 RPC 契约~~ → 🏛️ V3 简化 shape，P1 四批已补回关键字段
+- ~~#5 provider/session~~ → ⊕ 延期，需跨模块大改，另起工作流
+- ~~#6 report requester~~ → ⊕ 延期，需 UI/消息投递基础设施
+- ~~#7 低风险吞错~~ → 🏛️ ~26 个 tx/close/signal 是合理设计
 
-1. **stateless strict mode 收口** → 消除 `prepareLaunchStateLocked` / `forceIdleAfterCompletionError` 的状态机外写状态
-2. **`awaiting_user_input` + approval bridge 打通** → orchestration 消费 approval 事件，驱动 `turn_running → awaiting_user_input → turn_running`
-3. **RPC 契约与 transport 收口** → 优先修 `agent.launch`、`approval/respond`、`review/start`、`turn/forceComplete`、`turn/start`、`thread/start` / `resume` 的返回 shape 与参数面；同时补 V2 approval method family、非 approval push 的 `requestId` passthrough，以及 fallback transport / pending allocator / timeout restore
-4. **lifecycle hardening** → 3 个高优并发问题已修；剩余 P0 是补 app 级 timeout、修 shutdown 顺序、统一 goroutine panic policy、收敛双 signal 入口（依据：`verify-align-session-event.md` 第 1-4 条、`verify-align-fx-wails.md` 总结）
-5. **provider/thread/orchestration session 一致性** → `SessionManager` 代际保护与 `codexapp.threadID` data race 已修；剩余重点是 `agent.launch` 不创建 provider session、Claude placeholder threadID、Archive/Delete 不 `Remove` session、Recover 误复用 closed session 等问题（依据：`verify-align-session-event.md` 第 1-4 条、`internal/provider/unified/session.go`、`internal/provider/codexapp/session.go`）
-6. **report requester 真实投递闭环** → 消除只做 local drain、不进入真实 UI/消息投递的现状
-7. **测试补齐** → 先补 `store/*`、`thread`、`codexapp`、`claudecli`、`platform/rpc`
+**P0 — 立即执行（P9 之前）**：
 
-**P1 — 影响事件面、维护性与迁移完整度**：
+1. **#5 lifecycle SafeGo + signal 收敛** → goroutine panic 直接崩进程，是唯一能导致生产事故的缺口 (~2h)
 
-8. **事件契约收口** → 决定补齐 V2 public method / `agent-event` / 前端 runtime 消费，还是明确降级并删死定义
-9. **9 个零发布事件 + 软孤儿事件** → 决定补发布链路与消费者，或删除死定义/死桥接
-10. **fx optional 与悬空 provider 收紧** → 能改强依赖的改强依赖；悬空 provider 要么接消费点，要么删除
-11. **turn tracker** → 迁移到 stateless 状态机
-12. **Store parity 深化** → 补 `threadbinding` / `ailog` / `dbquery` 与相关事务/兼容层
-13. **Two-Zone DRY 深化** → 补足 Projector/Route 复用与跨模块 handler 工厂
+**P1 — 立即执行（P9 之前，与 P0 并行）**：
+
+2. **#12 store 加固** → DBQuery READ ONLY（安全缺口）+ AILog keyword 下推 (~0.5h)
+3. **#7b 高风险吞错** → ~12 个 recovery/lifecycle/command 改 LogIgnoredError，零功能变更纯可观测性 (~1h)
+
+**P2 — 与 P9 并行**：
+
+4. **#2 event bus 剩余** → TurnStalled/TurnResumed 补发布 (~0.5h)
+5. **#11 测试空白** → store/thread repo 专项补 (~2h)
+6. **#1 fx 快速清理** → 删 5 个无消费者 emitter provider (~0.5h)
+
+**defer**：
+
+7. **#10 Two-Zone DRY** → P10 范围
+8. **#1 fx optional 8 个全面收紧** → 需评估替代方案，另起工作流
