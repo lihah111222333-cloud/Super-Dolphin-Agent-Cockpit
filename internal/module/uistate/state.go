@@ -4,27 +4,30 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 )
 
 type UIState struct {
-	Threads                  []ThreadSummary   `json:"threads"`
-	Agents                   []AgentSummary    `json:"agents"`
-	ActiveTurn               *TurnSummary      `json:"active_turn,omitempty"`
-	RecentTurns              []TurnSummary     `json:"recent_turns,omitempty"`
-	TokenUsage               TokenUsage        `json:"token_usage"`
-	DiffTextByThread         map[string]string `json:"diffTextByThread,omitempty"`
-	DiffRevisionByThread     map[string]int64  `json:"diffRevisionByThread,omitempty"`
-	Unchanged                bool              `json:"unchanged,omitempty"`
-	ActiveThreadID           string            `json:"activeThreadId,omitempty"`
-	ActiveCmdThreadID        string            `json:"activeCmdThreadId,omitempty"`
-	MainAgentID              string            `json:"mainAgentId,omitempty"`
-	StallThresholdSec        int               `json:"-"`
-	ShowInjectedPromptInChat *bool             `json:"settings.showInjectedPromptInChat,omitempty"`
-	ViewPrefsChat            map[string]any    `json:"viewPrefs.chat,omitempty"`
-	ViewPrefsCmd             map[string]any    `json:"viewPrefs.cmd,omitempty"`
-	ThreadPinsChat           map[string]int64  `json:"threadPins.chat,omitempty"`
-	ThreadArchivesChat       map[string]int64  `json:"threadArchives.chat,omitempty"`
-	Groups                   []ThreadGroup     `json:"groups,omitempty"`
+	Threads                  []ThreadSummary            `json:"threads"`
+	Agents                   []AgentSummary             `json:"agents"`
+	ActiveTurn               *TurnSummary               `json:"active_turn,omitempty"`
+	RecentTurns              []TurnSummary              `json:"recent_turns,omitempty"`
+	TokenUsage               TokenUsage                 `json:"token_usage"`
+	DiffTextByThread         map[string]string          `json:"diffTextByThread,omitempty"`
+	DiffRevisionByThread     map[string]int64           `json:"diffRevisionByThread,omitempty"`
+	TimelineByThread         map[string][]timeline.Item `json:"timelineByThread,omitempty"`
+	Unchanged                bool                       `json:"unchanged,omitempty"`
+	ActiveThreadID           string                     `json:"activeThreadId,omitempty"`
+	ActiveCmdThreadID        string                     `json:"activeCmdThreadId,omitempty"`
+	MainAgentID              string                     `json:"mainAgentId,omitempty"`
+	StallThresholdSec        int                        `json:"-"`
+	ShowInjectedPromptInChat *bool                      `json:"settings.showInjectedPromptInChat,omitempty"`
+	ViewPrefsChat            map[string]any             `json:"viewPrefs.chat,omitempty"`
+	ViewPrefsCmd             map[string]any             `json:"viewPrefs.cmd,omitempty"`
+	ThreadPinsChat           map[string]int64           `json:"threadPins.chat,omitempty"`
+	ThreadArchivesChat       map[string]int64           `json:"threadArchives.chat,omitempty"`
+	Groups                   []ThreadGroup              `json:"groups,omitempty"`
 }
 
 type ThreadSummary struct {
@@ -164,6 +167,8 @@ func cloneState(value UIState) *UIState {
 		ThreadPinsChat:           cloneTimestampMap(value.ThreadPinsChat),
 		ThreadArchivesChat:       cloneTimestampMap(value.ThreadArchivesChat),
 		Groups:                   cloneThreadGroups(value.Groups),
+		// TimelineByThread 不在此处复制。它不存储在 s.state 中，
+		// 而是在 GetState 中通过 timeline.Snapshot() 动态填充。
 	}
 }
 

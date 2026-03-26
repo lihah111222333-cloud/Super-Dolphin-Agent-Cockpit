@@ -1,0 +1,282 @@
+package timeline
+
+import (
+	"log/slog"
+	"strings"
+	"sync"
+
+	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+)
+
+// Item represents a single renderable entry in the thread timeline.
+type Item struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Status    string `json:"status"`
+	CallID    string `json:"call_id,omitempty"`
+	RequestID int64  `json:"request_id,omitempty"`
+	ToolName  string `json:"tool_name,omitempty"`
+	ItemType  string `json:"item_type,omitempty"`
+	Command   string `json:"command,omitempty"`
+	File      string `json:"file,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Success   *bool  `json:"success,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
+	TurnID    string `json:"turn_id,omitempty"`
+	lookupKey string
+}
+
+type AppendedEmitter func(uidto.UITimelineAppended)
+
+func itemLookupKey(item Item) string {
+	if key := strings.TrimSpace(item.lookupKey); key != "" {
+		return key
+	}
+	return strings.TrimSpace(item.CallID)
+}
+
+type Service interface {
+	Append(threadID, agentID string, item Item)
+	UpdateByCallID(threadID, agentID, callID string, fn func(*Item)) bool
+	GetByThread(threadID string) []Item
+	Snapshot() map[string][]Item
+	SetEmitter(AppendedEmitter)
+}
+
+const defaultCapacity = 200
+
+func New(logger *slog.Logger, emitter AppendedEmitter, capacity int) Service {
+	if capacity <= 0 {
+		capacity = defaultCapacity
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &service{
+		timelines: make(map[string]*threadTimeline),
+		logger:    logger,
+		emitter:   emitter,
+		capacity:  capacity,
+	}
+}
+
+type service struct {
+	mu        sync.RWMutex
+	timelines map[string]*threadTimeline
+	logger    *slog.Logger
+	emitter   AppendedEmitter
+	capacity  int
+}
+
+func (s *service) Append(threadID, agentID string, item Item) {
+	s.mu.Lock()
+	tl := s.timelineLocked(threadID)
+	if tl.isDuplicate(item) {
+		s.mu.Unlock()
+		return
+	}
+	tl.append(item)
+	emitter := s.emitter
+	s.mu.Unlock()
+
+	s.emitAppended(emitter, threadID, item)
+}
+
+func (s *service) UpdateByCallID(threadID, agentID, callID string, fn func(*Item)) bool {
+	callID = strings.TrimSpace(callID)
+	if callID == "" {
+		return false
+	}
+
+	s.mu.Lock()
+	tl := s.timelineLocked(threadID)
+	updated := tl.updateByCallID(callID, fn)
+	s.mu.Unlock()
+	return updated
+}
+
+func (s *service) GetByThread(threadID string) []Item {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	tl, ok := s.timelines[threadID]
+	if !ok {
+		return nil
+	}
+	return tl.snapshot()
+}
+
+func (s *service) Snapshot() map[string][]Item {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if len(s.timelines) == 0 {
+		return nil
+	}
+
+	out := make(map[string][]Item, len(s.timelines))
+	for threadID, tl := range s.timelines {
+		if tl.len() == 0 {
+			continue
+		}
+		out[threadID] = tl.snapshot()
+	}
+	return out
+}
+
+func (s *service) SetEmitter(emitter AppendedEmitter) {
+	s.mu.Lock()
+	s.emitter = emitter
+	s.mu.Unlock()
+}
+
+func (s *service) timelineLocked(threadID string) *threadTimeline {
+	tl, ok := s.timelines[threadID]
+	if ok {
+		return tl
+	}
+
+	tl = newThreadTimeline(s.capacity)
+	s.timelines[threadID] = tl
+	return tl
+}
+
+func (s *service) emitAppended(emitter AppendedEmitter, threadID string, item Item) {
+	if emitter == nil {
+		return
+	}
+
+	emitter(uidto.UITimelineAppended{
+		UITurnHeader: shared.UITurnHeader{
+			UIProjectionHeader: shared.UIProjectionHeader{
+				ThreadHeader: shared.ThreadHeader{ThreadID: threadID},
+				Projection:   "timeline",
+			},
+			TurnIDHeader: shared.TurnIDHeader{TurnID: item.TurnID},
+		},
+		ItemID:    item.ID,
+		ItemKind:  item.Kind,
+		RequestID: item.RequestID,
+		CallID:    item.CallID,
+	})
+}
+
+type threadTimeline struct {
+	items    []Item
+	cap      int
+	index    map[string]int
+	turnKind map[string]string
+}
+
+func newThreadTimeline(capacity int) *threadTimeline {
+	return &threadTimeline{
+		items:    make([]Item, 0, capacity),
+		cap:      capacity,
+		index:    make(map[string]int),
+		turnKind: make(map[string]string),
+	}
+}
+
+func (tl *threadTimeline) append(item Item) {
+	if len(tl.items) >= tl.cap {
+		tl.evictOldest()
+	}
+
+	tl.items = append(tl.items, item)
+	idx := len(tl.items) - 1
+	if lookupKey := itemLookupKey(item); lookupKey != "" {
+		tl.index[lookupKey] = idx
+	}
+	if key := turnKindKey(item); key != "" {
+		tl.turnKind[key] = key
+	}
+}
+
+func (tl *threadTimeline) updateByCallID(callID string, fn func(*Item)) bool {
+	idx, ok := tl.findByCallID(callID)
+	if !ok {
+		return false
+	}
+	if fn == nil {
+		return true
+	}
+
+	fn(&tl.items[idx])
+	return true
+}
+
+func (tl *threadTimeline) findByCallID(callID string) (int, bool) {
+	idx, ok := tl.index[callID]
+	if !ok || idx < 0 || idx >= len(tl.items) {
+		return 0, false
+	}
+	return idx, true
+}
+
+func (tl *threadTimeline) isDuplicate(item Item) bool {
+	if lookupKey := itemLookupKey(item); lookupKey != "" {
+		if _, exists := tl.index[lookupKey]; exists {
+			return true
+		}
+	}
+
+	if key := turnKindKey(item); key != "" {
+		if _, exists := tl.turnKind[key]; exists {
+			return true
+		}
+	}
+	return false
+}
+
+func (tl *threadTimeline) evictOldest() {
+	if len(tl.items) == 0 {
+		return
+	}
+
+	evicted := tl.items[0]
+	tl.items = tl.items[1:]
+	if lookupKey := itemLookupKey(evicted); lookupKey != "" {
+		delete(tl.index, lookupKey)
+	}
+	if key := turnKindKey(evicted); key != "" {
+		delete(tl.turnKind, key)
+	}
+	tl.rebuildIndex()
+}
+
+func (tl *threadTimeline) snapshot() []Item {
+	out := make([]Item, len(tl.items))
+	copy(out, tl.items)
+	return out
+}
+
+func (tl *threadTimeline) rebuildIndex() {
+	for key := range tl.index {
+		delete(tl.index, key)
+	}
+	for i, item := range tl.items {
+		if lookupKey := itemLookupKey(item); lookupKey != "" {
+			tl.index[lookupKey] = i
+		}
+	}
+}
+
+func (tl *threadTimeline) len() int {
+	return len(tl.items)
+}
+
+func turnKindKey(item Item) string {
+	if !isTurnBoundaryKind(item.Kind) {
+		return ""
+	}
+	turnID := strings.TrimSpace(item.TurnID)
+	if turnID == "" {
+		return ""
+	}
+	return turnID + ":" + item.Kind
+}
+
+func isTurnBoundaryKind(kind string) bool {
+	return kind == "turn_start" || kind == "turn_end" || kind == "turn_interrupted"
+}

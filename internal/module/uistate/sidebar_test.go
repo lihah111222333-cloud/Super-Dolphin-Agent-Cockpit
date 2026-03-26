@@ -178,11 +178,20 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 		},
 		Reason: "user_requested",
 	})
-	time.Sleep(20 * time.Millisecond)
-
-	sidebar, err := svc.GetSidebar(context.Background())
-	if err != nil {
-		t.Fatalf("GetSidebar() error = %v", err)
+	var sidebar *Sidebar
+	deadline := time.Now().Add(time.Second)
+	for {
+		sidebar, err = svc.GetSidebar(context.Background())
+		if err != nil {
+			t.Fatalf("GetSidebar() error = %v", err)
+		}
+		if sidebar.ActiveTurn == nil && sidebar.Statuses["thread-1"] == "idle" {
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if sidebar.ActiveTurn != nil {
 		t.Fatalf("sidebar.ActiveTurn = %#v, want nil after interrupt", sidebar.ActiveTurn)

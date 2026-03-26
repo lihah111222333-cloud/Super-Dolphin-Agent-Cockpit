@@ -29,21 +29,18 @@ func cloneThreadGroups(items []ThreadGroup) []ThreadGroup {
 	}
 	return out
 }
-
 func cloneViewPrefs(value ViewPrefs) ViewPrefs {
 	return ViewPrefs{
 		Chat: cloneJSONMap(value.Chat),
 		Cmd:  cloneJSONMap(value.Cmd),
 	}
 }
-
 func cloneThreadCollections(value ThreadCollections) ThreadCollections {
 	return ThreadCollections{
 		Chat: cloneTimestampMap(value.Chat),
 		Cmd:  cloneTimestampMap(value.Cmd),
 	}
 }
-
 func pushRecentTurn(items []TurnSummary, next TurnSummary, limit int) []TurnSummary {
 	next.ID = strings.TrimSpace(next.ID)
 	if next.ID == "" {
@@ -73,7 +70,6 @@ func pushRecentTurn(items []TurnSummary, next TurnSummary, limit int) []TurnSumm
 	}
 	return items
 }
-
 func markThreadStopped(items []ThreadSummary, threadID, status string) []ThreadSummary {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -92,7 +88,6 @@ func markThreadStopped(items []ThreadSummary, threadID, status string) []ThreadS
 	}
 	return append(items, ThreadSummary{ID: threadID, State: status})
 }
-
 func recentTurnTime(value TurnSummary) time.Time {
 	if value.CompletedAt != nil {
 		return *value.CompletedAt
@@ -282,10 +277,18 @@ func shouldPreserveIdleAgentState(rawAgentState string) bool {
 }
 
 func (s *service) shouldPreserveIdleThreadStatusLocked(threadID, currentStatus, rawAgentState string) bool {
-	return currentStatus == "idle" &&
-		!s.hasActiveTurnForThreadLocked(threadID) &&
-		!s.hasLocalThreadActivityLocked(threadID) &&
-		shouldPreserveIdleAgentState(rawAgentState)
+	if currentStatus != "idle" || s.hasActiveTurnForThreadLocked(threadID) || s.hasLocalThreadActivityLocked(threadID) {
+		return false
+	}
+	if shouldPreserveIdleAgentState(rawAgentState) {
+		return true
+	}
+	for _, item := range s.state.RecentTurns {
+		if strings.TrimSpace(item.ThreadID) == threadID {
+			return strings.EqualFold(item.Status, "completed") || strings.EqualFold(item.Status, "interrupted")
+		}
+	}
+	return false
 }
 
 func (s *service) threadIDForAgentLocked(agentID string) string {

@@ -260,3 +260,39 @@ func mustStoredThreadConfigRaw(
 	}
 	return raw
 }
+
+func TestBuildOfflineRuntimeConfigIncludesModel(t *testing.T) {
+	threads := &stubThreadStore{
+		thread: &threadstore.Thread{
+			ThreadID: "thread-model-offline",
+			Model:    "claude-sonnet-4-20250514",
+			Status:   "running",
+		},
+	}
+	svc, ok := NewService(
+		silentLogger(),
+		threads,
+		&stubBindingStore{binding: &bindingstore.Binding{}},
+		&stubSessionProvider{session: nil},
+		nil,
+		nil,
+		nil,
+		nil,
+	).(*service)
+	if !ok {
+		t.Fatal("NewService() type assertion failed")
+	}
+
+	runtime, err := svc.ReadRuntimeConfig(context.Background(), "thread-model-offline")
+	if err != nil {
+		t.Fatalf("ReadRuntimeConfig() error = %v", err)
+	}
+
+	model, ok := runtime["model"]
+	if !ok {
+		t.Fatalf("offline runtime should contain model field: %#v", runtime)
+	}
+	if model != "claude-sonnet-4-20250514" {
+		t.Fatalf("runtime model = %#v, want %q", model, "claude-sonnet-4-20250514")
+	}
+}

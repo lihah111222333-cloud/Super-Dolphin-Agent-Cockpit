@@ -6,6 +6,7 @@ import (
 
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
 )
@@ -21,6 +22,10 @@ func (s *service) bindDispatcher(dispatcher *event.Dispatcher) {
 	s.emitThreadPatch = bus.NewEmitter[uidto.UIThreadPatch](dispatcher)
 	s.emitPreferenceChange = bus.NewEmitter[uidto.UIPreferencesChanged](dispatcher)
 	s.emitProjectionUpdated = bus.NewEmitter[uidto.UIProjectionUpdated](dispatcher)
+	emitTimelineAppend := bus.NewEmitter[uidto.UITimelineAppended](dispatcher)
+	if s.timeline != nil {
+		s.timeline.SetEmitter(timeline.AppendedEmitter(emitTimelineAppend))
+	}
 }
 
 func (s *service) emitThreadPatchEvent(patch uidto.UIThreadPatch) {
@@ -155,14 +160,6 @@ func (s *service) currentDiffRevisionLocked(threadID string) int64 {
 		return 0
 	}
 	return s.projectionSeq["diff:"+threadID]
-}
-
-func (s *service) bumpDiffRevisionLocked(threadID string) int64 {
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
-		return 0
-	}
-	return s.nextProjectionRevisionLocked("diff:" + threadID)
 }
 
 func (s *service) threadSummaryLocked(threadID string) (ThreadSummary, bool) {

@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
@@ -25,6 +26,7 @@ type service struct {
 	activityByThread      map[string]*threadActivity
 	overlayExpiryByThread map[string]time.Time
 	fallbackPrefs         map[string]json.RawMessage
+	timeline              timeline.Service
 	patchSeq              map[string]int64
 	projectionSeq         map[string]int64
 	emitThreadPatch       threadPatchEmitter
@@ -59,12 +61,12 @@ func NewService(
 		activityByThread:      map[string]*threadActivity{},
 		overlayExpiryByThread: map[string]time.Time{},
 		fallbackPrefs:         map[string]json.RawMessage{},
+		timeline:              timeline.New(logger, nil, 0),
 		patchSeq:              map[string]int64{},
 		projectionSeq:         map[string]int64{},
 	}
 	return svc, svc, nil
 }
-
 func buildInitialState(ctx context.Context, threads thread.Service, agents contract.OrchestrationService) (UIState, error) {
 	state := UIState{}
 	if threads != nil {
@@ -91,7 +93,6 @@ func buildInitialState(ctx context.Context, threads thread.Service, agents contr
 	sortAgents(state.Agents)
 	return state, nil
 }
-
 func summarizeThreads(items []thread.Ref) []ThreadSummary {
 	out := make([]ThreadSummary, 0, len(items))
 	for _, item := range items {
@@ -103,7 +104,6 @@ func summarizeThreads(items []thread.Ref) []ThreadSummary {
 	}
 	return out
 }
-
 func summarizeAgents(items []contract.AgentSnapshot) []AgentSummary {
 	out := make([]AgentSummary, 0, len(items))
 	for _, item := range items {
@@ -123,7 +123,6 @@ func summarizeAgents(items []contract.AgentSnapshot) []AgentSummary {
 	}
 	return out
 }
-
 func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	prefs, err := s.GetPreferences(ctx)
 	if err != nil {
@@ -134,9 +133,11 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	// TODO(P8): knownDiffRevision only short-circuits unchanged snapshots here.
 	// Real known diff consumption still needs projector/live patch integration.
 	applyDiffStateSnapshot(ctx, snapshot, s.diffStateSnapshot(ctx))
+	if s.timeline != nil {
+		snapshot.TimelineByThread = s.timeline.Snapshot()
+	}
 	return snapshot, nil
 }
-
 func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
 	prefs, err := s.GetPreferences(ctx)
 	if err != nil {
@@ -146,7 +147,6 @@ func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
 	applyPreferencesToSidebar(snapshot, prefs)
 	return snapshot, nil
 }
-
 func (s *service) GetPreferences(ctx context.Context) (*Preferences, error) {
 	scope := preferenceScopeFromContext(ctx)
 	var (

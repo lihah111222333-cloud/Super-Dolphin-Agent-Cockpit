@@ -1,7 +1,7 @@
 # V3 迁移会话摘要
 
-> 生成时间：2026-03-26（P1 四批全部收口）
-> 会话范围：P0-P8.5 全程 + P7.5 桥接 + V2↔V3 核对×2 + archtest 收官 + MCP 独立服务 + ctl/* 回调框架 + lifecycle hooks + P8 审查修复 + P0 安全修复 + P1 四批修复
+> 生成时间：2026-03-27（A4-γ Timeline 投影 + D1 离线 Model 补全 完成）
+> 会话范围：P0-P8.5 全程 + P7.5 桥接 + V2↔V3 核对×2 + archtest 收官 + MCP 独立服务 + ctl/* 回调框架 + lifecycle hooks + P8 审查修复 + P0 安全修复 + P1 四批修复 + **framework-audit 12 维度修复 + P9 计划审查 + A4-γ Timeline + D1 离线 Model**
 > Claude 会话 UUID：58fdd978-cc4b-41e6-bd26-d40f3ff66854
 > 前序会话 UUID：ea3ad84e-7b52-422d-bc46-cff9da3ea9f9
 
@@ -20,14 +20,20 @@
 ✅ archtest TestSqlcBoundary                    — PASS
 ```
 
-### 2026-03-27 补充验证（P3 集成验证 + fx 快清）
-- `go build ./internal/... ./cmd/mcp-orch/...`：PASS
-- `go vet ./internal/... ./cmd/mcp-orch/...`：PASS
-- `go test ./internal/platform/bus/... -v -count=1`：PASS
-- `go test -run TestCodeSizeGuard ./internal/archtest/...`：PASS
-- `go test ./internal/archtest/... -v -count=1`：FAIL
-- 当前可复现失败仅剩 `TestMCPOrchDependencyDirection/allowed_internal_boundary`：`cmd/mcp-orch` 通过 `internal/platform/rpc` 传递依赖到了 `internal/platform/shared`，超出 archtest 允许边界
-- `TestTimeoutLocality` 在首次全量运行中曾报 `internal/store/sqlc/read_only_tx.go:62`，但该文件随后发生并发工作树变更；按当前磁盘状态重跑已 PASS
+### 2026-03-27 最终验证（framework-audit 全部收口）
+```
+✅ go build ./internal/... ./cmd/...           — 0 errors
+✅ go vet ./internal/... ./cmd/...             — 0 warnings
+✅ archtest 全量 9/9 PASS
+   TestCodeSizeGuard / TestDependencyDirection / TestMCPOrchDependencyDirection /
+   TestWave3DependencyDirection / TestFxValidateApp / TestMCPFamilyIsolation /
+   TestSharedBudget / TestSqlcBoundary / TestTimeoutLocality
+✅ go test ./internal/platform/bus/... -v       — PASS
+✅ go test ./internal/store/... -v              — PASS
+✅ go test ./internal/provider/... -v           — PASS
+✅ go test ./internal/module/thread/... -v      — PASS
+```
+注：`TestMCPOrchDependencyDirection` 曾失败（`platform/shared` 未在白名单），已修复（`dependency_direction_mcp_orch_test.go` 加入 `internal/platform/shared`）
 
 ### 迁移状态
 
@@ -46,7 +52,10 @@
 | **P1 第二批 D+残留** | ✅ | **config/read+messages+interrupt envelope+turn finish+store DTO+超时+Kind+SqlcBoundary** |
 | **P1 第三批 A+E** | ✅ | **session解耦+preferences delta+approval replay+深度计数器+Overlay** |
 | **P1 第四批 余项** | ✅ | **dashboard补全+wails desktop+thread 4项契约+workspace验证+ready wait+terminal_wait+threadID修复** |
-| P9 LSP 工具 | ⏳ | cmd/mcp-lsp 9个工具 |
+| **framework-audit 修复** | ✅ | **12 维度审查: 3✅ + 4🏛️架构收口 + 4⚠️部分 + 1❌→✅** |
+| **P9 计划审查** | ✅ | **10 Agent 审查 + 5 Agent 复查，18 个问题已识别，文档修复中** |
+| **A4-γ + D1** | ✅ | **Timeline 投影拆子包 + D1 离线 model 补全，4 任务 + 互审通过** |
+| P9 LSP 工具 | ⏳ | cmd/mcp-lsp 9个工具，计划已审查修正 |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→60% |
 
 ---
@@ -107,21 +116,21 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| P1-16 (B5) approval 等待态 | ⏸️ | 方案 A/B 未决，等人工定策略 |
-| A4-γ Timeline 投影 | ⏸️ | ~400-500行高耦合，可选推迟 |
-| D1 完整离线 merge | ⏸️ | A1 基础已建，完整 V2 runtime merge 待补 |
-| P9 LSP 工具族 | ⏳ | 9 个工具，6+1 Agent |
+| P1-16 (B5) approval 等待态 | ✅ | 方案 B 确认（R1 已实现 Kind 扩展匹配，UI 按 Kind 区分审批/输入） |
+| A4-γ Timeline 投影 | ✅ | 拆子包 `uistate/timeline/` + 9 handler + 主包集成，4 任务互审通过 |
+| D1 完整离线 merge | ✅ | buildOfflineRuntimeConfig 补全 model 字段，复用 offlineThreadModel 优先级链 |
+| **P9 LSP 工具族** | **⏳ 计划已审查** | **9 工具、计划 18 个问题已修正，等待执行** |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→60% |
 | IDA 工具族 | ⏳ | 82 个工具，暂缓 |
+| P2 event bus 互审 | 🔄 | TurnStalled/TurnResumed 补发布 + 测试空白已执行，互审待收报告 |
 
 ---
 
 ## 4. 下一步
 
-1. **P9 LSP 工具族** — 读 p9-execution-plan.md
-2. **P10 工厂丰满** — Zone A 3.8%→60%
-3. **B5 策略决策** — 人工定方案 A/B 后执行
-4. **A4-γ Timeline** — 可选
+1. **P10 工厂丰满** — Zone A 3.8%→60%
+2. **A4-γ Timeline 投影** — ✅ 已完成（拆子包 + 9 handler + 主包集成）
+3. **D1 离线 Model 补全** — ✅ 已完成（buildOfflineRuntimeConfig + model 字段）
 
 ---
 
@@ -136,6 +145,9 @@
 | MCP 服务契约 | docs/契约/mcp-service-convention.md |
 | P8 lifecycle hooks | docs/plans/迁移/p8-lifecycle-hooks.md |
 | P9 执行计划 | docs/plans/迁移/p9-execution-plan.md |
+| **P9 实施计划（已审查）** | **docs/plans/迁移/p9-implementation-plan.md** |
+| **framework-audit 报告（三次修订）** | **docs/plans/framework_audit.md** |
+| **framework-audit 工作流** | **.agent/workflows/framework-audit-fixes/** |
 | LSP 强制前缀 | shared file: prompts/lsp-mandatory-prefix.md |
 | LSP 高级指南 | shared file: prompts/lsp-advanced-guide.md |
 
@@ -145,17 +157,25 @@
 
 | 类型 | 数量 |
 |---|---|
-| 本会话 P8 审查+修复 | ~50 |
-| 本会话 V2V3 核对+汇总+审计 | ~25 |
-| 本会话 P0 修复+互审 | ~15 |
-| 本会话 P1 第一批(B+C+DAG)+互审 | ~20 |
-| 本会话 P1 第二批(D+残留)+互审 | ~20 |
-| 本会话 P1 第三批(A+E)+互审 | ~15 |
-| 本会话 P1 第四批(余项)+互审 | ~20 |
-| 本会话 计划审查+辩论 | ~10 |
-| **本会话合计** | **~175** |
+| 前序会话 P8/V2V3/P0/P1 | ~175 |
 | 前序会话累计 | ~350+ |
-| **总计** | **~525+** |
+| **本轮会话 (2026-03-27)** | |
+| framework-audit 文档修复 Agent | 1 |
+| framework-audit v1 审查 (5 Codex) | 5 |
+| framework-audit v2 审查 (3 Codex) | 3 |
+| framework-audit v2.1 审查 (2 Claude + 2 Codex) | 4 |
+| P0/P1 执行 (lifecycle + store + errlog) | 3+3 |
+| P0/P1 互审 | 3 |
+| StartTimeout 修复 | 1 |
+| P3 集成验证 + fx 清理 | 1 |
+| archtest 遗留修复 | 1 (主 Agent 直接修) |
+| P2 执行 (eventbus + testgap) | 2 |
+| P2 互审 (交叉审查) | 2 (复用执行 Agent) |
+| P9 计划审查 (10 Codex) | 10 |
+| P9 复查 (5 Codex) | 5 |
+| P9 文档修复 | 1 (复用复查 Agent) |
+| **本轮合计** | **~45** |
+| **总计** | **~570+** |
 
 ---
 
@@ -264,9 +284,10 @@ sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 
 ### 8.1 当前仓库状态
 - **编译**：go build ✅ / go vet ✅ / lsp diagnostics ✅
-- **archtest**：TestCodeSizeGuard ✅ / TestDependencyDirection ✅ / TestTimeoutLocality ✅ / TestSqlcBoundary ✅
+- **archtest**：全量 9/9 PASS（含 TestMCPOrchDependencyDirection 已修复）
 - **包行数上限**：已从 3000 调整为 4500（internal/archtest/guardlib.go:24）
 - **未提交改动**：本会话所有改动均在工作区，未 git commit
+- **运行中 Agent**：p9-recheck-1（P9 文档修复）+ exec-P2-eventbus/testgap（P2 互审）可能仍在跑，收报告或停止即可
 
 ### 8.2 已完成的重大改动（本会话）
 
@@ -278,12 +299,18 @@ sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 | P1 第二批 | config/read + messages + interrupt envelope + turn finish + store DTO + 超时 + Kind + SqlcBoundary | thread/ turn/ claudecli/ store/ uistate/ dashboard/ |
 | P1 第三批 | session解耦 + preferences + approval replay + 深度计数器 + Overlay | thread/ uistate/ rpc/ |
 | P1 第四批 | dashboard补全 + wails desktop + thread 4项契约 + workspace验证 + ready wait + terminal_wait + threadID修复 | dashboard/ wails/ thread/ workspace/ orchestration/ uistate/ |
+| **framework-audit** | SafeGo 11处 + signal收敛 + StartupTimeout + DBQuery READ ONLY + AILog keyword + 9处 LogIgnoredError + fx 5 emitter清理 + TurnStalled/TurnResumed补发布 + 测试空白补齐 + archtest白名单修复 | shared/ app/ runner/ config/ rpc/ provider/ thread/ store/ bus/ archtest/ orchestration/ |
 
 ### 8.3 下一会话首任务
 
-1. **git commit** — 本会话所有改动未提交，建议先 `git add -A && git commit`
-2. **P9 LSP 工具族** — 读 `docs/plans/迁移/p9-execution-plan.md`，cmd/mcp-lsp 9 个工具
-3. 或者 **B5 策略决策** — 人工定方案 A（新增 awaiting_tool_approval 状态）vs B（扩大 Kind 匹配）
+1. **收剩余 Agent 报告** — P2 互审 2 Agent + P9 文档修复 1 Agent 可能仍在跑，用 `orchestration_get_agent_report` 收结果或 `orchestration_stop_agent` 停止
+2. **git commit** — 本会话所有改动未提交，建议 `git add -A && git commit`
+3. **执行 P9 LSP 工具族** — 读 `docs/plans/迁移/p9-implementation-plan.md`（已审查修正版），10 Agent 并行执行
+   - 注意：`internal/mcpserver/lsp/` 当前不存在，是从零拼装
+   - 建议先冻结接口契约（edit/contracts.go）再开 Agent
+   - 关键风险：跨 Agent 接口漂移、Agent G 过载、gopls 生命周期长链
+4. **B5 策略决策** — 人工定方案 A vs B 后执行
+5. **P10 工厂丰满** — Zone A 3.8%→60%
 
 ### 8.4 关键守卫参数（新会话必须知道）
 
@@ -318,3 +345,38 @@ sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 | 2 | Claude API 限额 | 大量并行 Agent 可能触发限额。解决：用 Codex provider 代替 |
 | 3 | SDK Agent tool 不受管理 | 通过 SDK 拉的 Agent 无法被编排系统追踪。解决：禁止使用，只走编排接口 |
 | 4 | 共享文件 vs 仓库文件 | 报告在共享文件系统，汇总落盘到仓库。读用 shared_file_read，写用 code_run |
+| 5 | Agent 不主动清理死代码 | 替换旧实现时只加新不删旧，必须在 prompt 中显式要求清理。见 §7 死代码清理规范 |
+| 6 | 计划文档快速过时 | 代码演进很快，计划中的“待修”可能已修。必须先 LSP 验证代码现状再执行 |
+| 7 | archtest 白名单需同步更新 | 新增共享包依赖后（如 SafeGo 加入 shared），传递依赖可能触发 archtest 越界，需同步更新白名单 |
+
+### 8.8 本轮会话核心成果摘要（2026-03-27）
+
+#### framework-audit 12 维度最终状态
+
+| 状态 | 数量 | 维度 |
+|------|:----:|------|
+| ✅ 合规/已修 | 3 | pgx、import 方向、代码守卫 |
+| 🏛️ 架构设计收口 | 4 | stateless、jrpc2、错误处理(低风险)、two-zone DRY(defer) |
+| ⚠️ 部分覆盖 | 4 | fx、event bus、测试覆盖、lifecycle |
+| ❌→✅ 本轮修复 | 1 | 错误处理(高风险) 12处 LogIgnoredError |
+
+#### 本轮交付物
+
+| 交付物 | 状态 |
+|----------|:----:|
+| `internal/platform/shared/safe_go.go` + `log_error.go` | ✅ 新建 |
+| 11 处裸 go func() → SafeGo | ✅ 替换+互审 |
+| signal 收敛 (EnableSignals:false + sync.Once) | ✅ |
+| StartupTimeout caller-side deadline | ✅ |
+| oklog/run execute recover wrapper | ✅ |
+| DBQuery READ ONLY 事务 | ✅ 互审通过 |
+| AILog keyword SQL 下推 + dashboard 内存过滤删除 | ✅ 互审通过 |
+| 9 处高风险吞错 → LogIgnoredError | ✅ 互审通过 |
+| fx 5 emitter provider 清理 | ✅ |
+| TurnStalled/TurnResumed 补发布 | ✅ 待互审 |
+| 5 个测试空白区补齐 | ✅ 待互审 |
+| archtest MCPOrchDependencyDirection 白名单修复 | ✅ |
+| read_only_tx.go TimeoutLocality 修复 | ✅ |
+| framework_audit.md 三次修订 | ✅ |
+| P9 实施计划 18 个问题识别 + 文档修复中 | 🔄 |
+| session-summary.md 死代码清理规范 | ✅ 新增 |
