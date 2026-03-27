@@ -11,8 +11,8 @@ type Match struct {
 	ResolvedStartOffset int
 	ResolvedEndOffset   int
 	ResolvedLSPLine     int
-	PreviewStartLine    int
-	PreviewEndLine      int
+	AffectedStartLine   int
+	AffectedEndLine     int
 	EditContext         string
 }
 
@@ -43,7 +43,7 @@ func MatchContext(content string, hunks []Hunk) ([]Match, error) {
 		if err != nil {
 			return nil, fmt.Errorf("hunk %d: %w", idx+1, err)
 		}
-		editContext, previewStart, previewEnd, err := BuildEditContext(working, candidate.startOffset, candidate.endOffset, hunk.NewText)
+		editContext, affectedStart, affectedEnd, err := BuildEditContext(working, candidate.startOffset, candidate.endOffset, hunk.NewText)
 		if err != nil {
 			return nil, err
 		}
@@ -52,8 +52,8 @@ func MatchContext(content string, hunks []Hunk) ([]Match, error) {
 			ResolvedStartOffset: candidate.startOffset,
 			ResolvedEndOffset:   candidate.endOffset,
 			ResolvedLSPLine:     candidate.startLine,
-			PreviewStartLine:    previewStart,
-			PreviewEndLine:      previewEnd,
+			AffectedStartLine:   affectedStart,
+			AffectedEndLine:     affectedEnd,
 			EditContext:         editContext,
 		})
 		working = working[:candidate.startOffset] + hunk.NewText + working[candidate.endOffset:]

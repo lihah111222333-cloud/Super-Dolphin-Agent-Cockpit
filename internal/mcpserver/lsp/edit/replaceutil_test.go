@@ -40,35 +40,18 @@ func TestOffsetToLine(t *testing.T) {
 	})
 }
 
-func TestReplacementPreview(t *testing.T) {
-	content := "alpha\nbeta\ngamma\n"
-	start := strings.Index(content, "beta")
-	end := start + len("beta")
-
-	preview, err := ReplacementPreview(content, start, end, "BETA")
-	if err != nil {
-		t.Fatalf("ReplacementPreview returned error: %v", err)
-	}
-	if !strings.Contains(preview, "   2 | BETA") {
-		t.Fatalf("preview = %q, want line for replacement", preview)
-	}
-	if strings.Contains(preview, "beta") {
-		t.Fatalf("preview = %q, unexpectedly contains old text", preview)
-	}
-}
-
 func TestBuildEditContext(t *testing.T) {
 	lines := []string{"l1", "l2", "l3", "l4", "l5", "target", "l7", "l8", "l9", "l10", "l11", "l12", "l13", ""}
 	content := strings.Join(lines, "\n")
 	start := strings.Index(content, "target")
 	end := start + len("target")
 
-	context, previewStart, previewEnd, err := BuildEditContext(content, start, end, "updated")
+	context, affectedStart, affectedEnd, err := BuildEditContext(content, start, end, "updated")
 	if err != nil {
 		t.Fatalf("BuildEditContext returned error: %v", err)
 	}
-	if previewStart != 1 || previewEnd != 11 {
-		t.Fatalf("preview range = %d-%d, want 1-11", previewStart, previewEnd)
+	if affectedStart != 1 || affectedEnd != 11 {
+		t.Fatalf("affected range = %d-%d, want 1-11", affectedStart, affectedEnd)
 	}
 	if !strings.Contains(context, "-   6 | target") {
 		t.Fatalf("context = %q, missing removed line", context)

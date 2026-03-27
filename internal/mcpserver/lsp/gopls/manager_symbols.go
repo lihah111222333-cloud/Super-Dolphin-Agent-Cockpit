@@ -91,34 +91,46 @@ func (m *manager) CallHierarchy(ctx context.Context, uri string, position protoc
 	if client == nil {
 		return nil, fmt.Errorf("call hierarchy is unsupported for %s", ref.languageID)
 	}
-	items, err := m.prepareCallHierarchy(ctx, client, ref.uri, position)
+	items, err := prepareHierarchy[protocol.CallHierarchyItem](ctx, m, client, protocol.MethodPrepareCallHierarchy, ref.uri, position)
 	if err != nil {
 		return nil, err
 	}
 	results := make([]protocol.CallHierarchyResult, 0, len(items))
 	for _, item := range items {
-		result := protocol.CallHierarchyResult{Item: item}
-		if direction == "" || direction == "incoming" || direction == "both" {
-			raw, err := m.request(ctx, client, protocol.MethodCallHierarchyIncoming, protocol.CallHierarchyIncomingCallsParams{Item: item})
-			if err != nil {
-				return nil, err
-			}
-			if err := decodeInto(raw, &result.Incoming); err != nil {
-				return nil, fmt.Errorf("decode incoming hierarchy: %w", err)
-			}
-		}
-		if direction == "" || direction == "outgoing" || direction == "both" {
-			raw, err := m.request(ctx, client, protocol.MethodCallHierarchyOutgoing, protocol.CallHierarchyOutgoingCallsParams{Item: item})
-			if err != nil {
-				return nil, err
-			}
-			if err := decodeInto(raw, &result.Outgoing); err != nil {
-				return nil, fmt.Errorf("decode outgoing hierarchy: %w", err)
-			}
+		result, err := m.resolveCallDirections(ctx, client, item, direction)
+		if err != nil {
+			return nil, err
 		}
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+func (m *manager) resolveCallDirections(ctx context.Context, client Client, item protocol.CallHierarchyItem, direction string) (protocol.CallHierarchyResult, error) {
+	result := protocol.CallHierarchyResult{Item: item}
+	if wantCallDirection(direction, "incoming") {
+		raw, err := m.request(ctx, client, protocol.MethodCallHierarchyIncoming, protocol.CallHierarchyIncomingCallsParams{Item: item})
+		if err != nil {
+			return result, err
+		}
+		if err := decodeInto(raw, &result.Incoming); err != nil {
+			return result, fmt.Errorf("decode incoming hierarchy: %w", err)
+		}
+	}
+	if wantCallDirection(direction, "outgoing") {
+		raw, err := m.request(ctx, client, protocol.MethodCallHierarchyOutgoing, protocol.CallHierarchyOutgoingCallsParams{Item: item})
+		if err != nil {
+			return result, err
+		}
+		if err := decodeInto(raw, &result.Outgoing); err != nil {
+			return result, fmt.Errorf("decode outgoing hierarchy: %w", err)
+		}
+	}
+	return result, nil
+}
+
+func wantCallDirection(direction, target string) bool {
+	return direction == "" || direction == target || direction == "both"
 }
 
 func (m *manager) TypeHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.TypeHierarchyResult, error) {
@@ -129,34 +141,42 @@ func (m *manager) TypeHierarchy(ctx context.Context, uri string, position protoc
 	if client == nil {
 		return nil, fmt.Errorf("type hierarchy is unsupported for %s", ref.languageID)
 	}
-	items, err := m.prepareTypeHierarchy(ctx, client, ref.uri, position)
+	items, err := prepareHierarchy[protocol.TypeHierarchyItem](ctx, m, client, protocol.MethodPrepareTypeHierarchy, ref.uri, position)
 	if err != nil {
 		return nil, err
 	}
 	results := make([]protocol.TypeHierarchyResult, 0, len(items))
 	for _, item := range items {
-		result := protocol.TypeHierarchyResult{Item: item}
-		if direction == "" || direction == "supertypes" {
-			raw, err := m.request(ctx, client, protocol.MethodTypeHierarchySupertypes, protocol.TypeHierarchySupertypesParams{Item: item})
-			if err != nil {
-				return nil, err
-			}
-			if err := decodeInto(raw, &result.Supertypes); err != nil {
-				return nil, fmt.Errorf("decode supertypes: %w", err)
-			}
-		}
-		if direction == "" || direction == "subtypes" {
-			raw, err := m.request(ctx, client, protocol.MethodTypeHierarchySubtypes, protocol.TypeHierarchySubtypesParams{Item: item})
-			if err != nil {
-				return nil, err
-			}
-			if err := decodeInto(raw, &result.Subtypes); err != nil {
-				return nil, fmt.Errorf("decode subtypes: %w", err)
-			}
+		result, err := m.resolveTypeDirections(ctx, client, item, direction)
+		if err != nil {
+			return nil, err
 		}
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+func (m *manager) resolveTypeDirections(ctx context.Context, client Client, item protocol.TypeHierarchyItem, direction string) (protocol.TypeHierarchyResult, error) {
+	result := protocol.TypeHierarchyResult{Item: item}
+	if direction == "" || direction == "supertypes" {
+		raw, err := m.request(ctx, client, protocol.MethodTypeHierarchySupertypes, protocol.TypeHierarchySupertypesParams{Item: item})
+		if err != nil {
+			return result, err
+		}
+		if err := decodeInto(raw, &result.Supertypes); err != nil {
+			return result, fmt.Errorf("decode supertypes: %w", err)
+		}
+	}
+	if direction == "" || direction == "subtypes" {
+		raw, err := m.request(ctx, client, protocol.MethodTypeHierarchySubtypes, protocol.TypeHierarchySubtypesParams{Item: item})
+		if err != nil {
+			return result, err
+		}
+		if err := decodeInto(raw, &result.Subtypes); err != nil {
+			return result, fmt.Errorf("decode subtypes: %w", err)
+		}
+	}
+	return result, nil
 }
 
 func (m *manager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
@@ -357,32 +377,17 @@ func normalizeLocationParams(params any, documentURI string) any {
 	}
 }
 
-func (m *manager) prepareCallHierarchy(ctx context.Context, client Client, uri string, position protocol.Position) ([]protocol.CallHierarchyItem, error) {
-	raw, err := m.request(ctx, client, protocol.MethodPrepareCallHierarchy, protocol.PrepareCallHierarchyParams{
+func prepareHierarchy[T any](ctx context.Context, m *manager, client Client, method, uri string, position protocol.Position) ([]T, error) {
+	raw, err := m.request(ctx, client, method, protocol.TextDocumentPositionParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 		Position:     position,
 	})
 	if err != nil {
 		return nil, err
 	}
-	var items []protocol.CallHierarchyItem
+	var items []T
 	if err := decodeInto(raw, &items); err != nil {
-		return nil, fmt.Errorf("decode prepare call hierarchy: %w", err)
-	}
-	return items, nil
-}
-
-func (m *manager) prepareTypeHierarchy(ctx context.Context, client Client, uri string, position protocol.Position) ([]protocol.TypeHierarchyItem, error) {
-	raw, err := m.request(ctx, client, protocol.MethodPrepareTypeHierarchy, protocol.PrepareTypeHierarchyParams{
-		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
-		Position:     position,
-	})
-	if err != nil {
-		return nil, err
-	}
-	var items []protocol.TypeHierarchyItem
-	if err := decodeInto(raw, &items); err != nil {
-		return nil, fmt.Errorf("decode prepare type hierarchy: %w", err)
+		return nil, fmt.Errorf("decode %s: %w", method, err)
 	}
 	return items, nil
 }

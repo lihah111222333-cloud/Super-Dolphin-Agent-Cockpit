@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const (
@@ -19,10 +21,7 @@ func Timeout(limit time.Duration) Middleware {
 	}
 	return func(next Handler) Handler {
 		return func(ctx context.Context, params json.RawMessage) (any, error) {
-			if _, ok := ctx.Deadline(); ok {
-				return next(ctx, params)
-			}
-			timeoutCtx, cancel := context.WithTimeout(ctx, limit)
+			timeoutCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, limit)
 			defer cancel()
 			return next(timeoutCtx, params)
 		}

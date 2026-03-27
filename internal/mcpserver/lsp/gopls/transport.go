@@ -16,10 +16,12 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const (
 	defaultShutdownTimeout = 5 * time.Second
+	defaultRequestTimeout  = 30 * time.Second
 	stderrLimitBytes       = 8 * 1024
 	jsonRPCMethodNotFound  = -32601
 	jsonRPCInternalError   = -32603
@@ -27,10 +29,10 @@ const (
 
 type ServerRequestHandler func(context.Context, string, json.RawMessage) (any, error)
 type transportOptions struct {
-	Binary, Dir          string
-	Args, Env            []string
-	NotificationHandler  protocol.NotificationHandler
-	RequestHandler       ServerRequestHandler
+	Binary, Dir         string
+	Args, Env           []string
+	NotificationHandler protocol.NotificationHandler
+	RequestHandler      ServerRequestHandler
 }
 type transport struct {
 	cmd                 *exec.Cmd
@@ -98,6 +100,8 @@ func startTransport(options transportOptions) (*exec.Cmd, io.WriteCloser, io.Rea
 }
 func (t *transport) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	ctx = normalizeContext(ctx)
+	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, defaultRequestTimeout)
+	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -275,7 +279,9 @@ func defaultServerRequestResult(method string, params json.RawMessage) (any, err
 	}
 }
 func emptyConfigurationResult(params json.RawMessage) []any {
-	var request struct{ Items []json.RawMessage `json:"items"` }
+	var request struct {
+		Items []json.RawMessage `json:"items"`
+	}
 	if err := json.Unmarshal(params, &request); err != nil || len(request.Items) == 0 {
 		return []any{}
 	}

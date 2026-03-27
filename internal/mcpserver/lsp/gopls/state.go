@@ -2,7 +2,6 @@ package gopls
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -185,16 +184,3 @@ func (s *bootstrapStateStore) entryLocked(key bootstrapKey) *bootstrapEntry {
 	return entry
 }
 
-func (s *bootstrapStateStore) debugString(workspace, uri string) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entry := s.entries[bootstrapKey{workspace: workspace, uri: uri}]
-	if entry == nil {
-		return string(bootstrapPending)
-	}
-	if entry.err == nil {
-		return fmt.Sprintf("%s@v%d", entry.status, entry.version)
-	}
-	return fmt.Sprintf("%s@v%d: %v", entry.status, entry.version, entry.err)
-}

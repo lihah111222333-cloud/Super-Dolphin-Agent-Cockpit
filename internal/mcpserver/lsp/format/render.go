@@ -203,27 +203,28 @@ func positionMapForDisplay(value map[string]any) map[string]any {
 }
 
 func anyCoordinate(value any) (any, bool) {
+	if result, ok := convertIntegerCoordinate(value); ok {
+		return result, true
+	}
+	return convertFloatCoordinate(value)
+}
+
+func convertIntegerCoordinate(value any) (any, bool) {
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		converted := FromLSP(int(rv.Int()))
+		return reflect.ValueOf(converted).Convert(rv.Type()).Interface(), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		converted := FromLSP(int(rv.Uint()))
+		return reflect.ValueOf(converted).Convert(rv.Type()).Interface(), true
+	default:
+		return nil, false
+	}
+}
+
+func convertFloatCoordinate(value any) (any, bool) {
 	switch v := value.(type) {
-	case int:
-		return FromLSP(v), true
-	case int8:
-		return int8(FromLSP(int(v))), true
-	case int16:
-		return int16(FromLSP(int(v))), true
-	case int32:
-		return int32(FromLSP(int(v))), true
-	case int64:
-		return int64(FromLSP(int(v))), true
-	case uint:
-		return uint(FromLSP(int(v))), true
-	case uint8:
-		return uint8(FromLSP(int(v))), true
-	case uint16:
-		return uint16(FromLSP(int(v))), true
-	case uint32:
-		return uint32(FromLSP(int(v))), true
-	case uint64:
-		return uint64(FromLSP(int(v))), true
 	case float32:
 		if v < 0 {
 			return v, true

@@ -14,7 +14,26 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
 
+type lineEndingStyle string
+
+const (
+	lineEndingLF   lineEndingStyle = "\n"
+	lineEndingCRLF lineEndingStyle = "\r\n"
+)
+
+type editableFile struct {
+	content    string
+	raw        string
+	mode       os.FileMode
+	lineEnding lineEndingStyle
+}
+
+func (f editableFile) diskContent(content string) string {
+	return restoreLineEndings(content, f.lineEnding)
+}
+
 func parsePatchHunks(patch string) ([]editpkg.Hunk, error) {
+	patch = normalizeLineEndings(patch)
 	hunks, err := editpkg.ParseMulti(patch)
 	if err != nil {
 		return nil, err
@@ -24,9 +43,9 @@ func parsePatchHunks(patch string) ([]editpkg.Hunk, error) {
 		if err != nil {
 			return nil, err
 		}
-		return []editpkg.Hunk{single}, nil
+		return normalizeHunks([]editpkg.Hunk{single}), nil
 	}
-	return hunks, nil
+	return normalizeHunks(hunks), nil
 }
 
 func resolveMatchMode(content string, hunk editpkg.Hunk, fallback string) string {
@@ -99,7 +118,7 @@ func applyTextEdits(content string, edits []protocol.TextEdit) (string, error) {
 	offset := 0
 	for _, item := range indexed {
 		builder.WriteString(content[offset:item.start])
-		builder.WriteString(item.edit.NewText)
+		builder.WriteString(normalizeLineEndings(item.edit.NewText))
 		offset = item.end
 	}
 	builder.WriteString(content[offset:])
@@ -130,7 +149,7 @@ func runeOffset(line string, character int) (int, error) {
 		return 0, nil
 	}
 	offset := 0
-	for idx := 0; idx < character; idx++ {
+	for range character {
 		if offset >= len(line) {
 			return 0, errors.New("column is out of range")
 		}
@@ -166,24 +185,31 @@ func resolveWorkspacePath(uri string) (string, error) {
 	return resolveFilePath(uri)
 }
 
-func readFileWithMode(path string) (string, os.FileMode, error) {
+func readFileWithMode(path string) (editableFile, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", 0, err
+		return editableFile{}, err
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return "", 0, err
+		return editableFile{}, err
 	}
-	return string(content), info.Mode().Perm(), nil
+	raw := string(content)
+	return editableFile{
+		content:    normalizeLineEndings(raw),
+		raw:        raw,
+		mode:       info.Mode().Perm(),
+		lineEnding: detectLineEnding(raw),
+	}, nil
 }
 
-func restoreFiles(originals map[string]string, modes map[string]os.FileMode, updated map[string]string) error {
+func restoreFiles(originals map[string]editableFile, updated map[string]string) error {
 	restored := 0
 	failed := 0
 	details := make([]string, 0)
 	for _, path := range sortedKeys(updated) {
-		if err := os.WriteFile(path, []byte(originals[path]), modes[path]); err != nil {
+		file := originals[path]
+		if err := os.WriteFile(path, []byte(file.raw), file.mode); err != nil {
 			failed++
 			details = append(details, fmt.Sprintf("%s: %v", path, err))
 			continue
@@ -194,6 +220,32 @@ func restoreFiles(originals map[string]string, modes map[string]os.FileMode, upd
 		return nil
 	}
 	return fmt.Errorf("partial rollback: %d files restored, %d failed: %s", restored, failed, strings.Join(details, "; "))
+}
+
+func normalizeHunks(hunks []editpkg.Hunk) []editpkg.Hunk {
+	for idx := range hunks {
+		hunks[idx].OldText = normalizeLineEndings(hunks[idx].OldText)
+		hunks[idx].NewText = normalizeLineEndings(hunks[idx].NewText)
+	}
+	return hunks
+}
+
+func normalizeLineEndings(content string) string {
+	return strings.ReplaceAll(content, "\r\n", "\n")
+}
+
+func detectLineEnding(content string) lineEndingStyle {
+	if strings.Contains(content, string(lineEndingCRLF)) {
+		return lineEndingCRLF
+	}
+	return lineEndingLF
+}
+
+func restoreLineEndings(content string, lineEnding lineEndingStyle) string {
+	if lineEnding == lineEndingCRLF {
+		return strings.ReplaceAll(content, "\n", string(lineEndingCRLF))
+	}
+	return content
 }
 
 func functionBody(content string, start int, end int) string {

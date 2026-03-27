@@ -26,6 +26,34 @@ type diagnosticsResponse struct {
 	Meta    resultMeta         `json:"meta"`
 }
 
+func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, string, error) {
+	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
+		return nil, "", err
+	}
+	items, err := h.manager.Diagnostics(ctx, uris)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(items) > 0 || len(uris) == 0 {
+		return items, "manager", nil
+	}
+	bootstrapped, err := h.reactiveBootstrap(ctx, uris)
+	if err != nil {
+		return nil, "", err
+	}
+	if bootstrapped == 0 {
+		return items, "manager", nil
+	}
+	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
+		return nil, "", err
+	}
+	items, err = h.manager.Diagnostics(ctx, uris)
+	if err != nil {
+		return nil, "", err
+	}
+	return items, "reactive_bootstrap", nil
+}
+
 func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput) (any, error) {
 	if h.manager == nil {
 		return nil, errManagerUnavailable
@@ -35,29 +63,9 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		return nil, err
 	}
 
-	source := "manager"
-	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
-		return nil, err
-	}
-	items, err := h.manager.Diagnostics(ctx, uris)
+	items, source, err := h.fetchDiagnosticsWithRetry(ctx, uris)
 	if err != nil {
 		return nil, err
-	}
-	if len(items) == 0 && len(uris) > 0 {
-		bootstrapped, err := h.reactiveBootstrap(ctx, uris)
-		if err != nil {
-			return nil, err
-		}
-		if bootstrapped > 0 {
-			source = "reactive_bootstrap"
-			if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
-				return nil, err
-			}
-			items, err = h.manager.Diagnostics(ctx, uris)
-			if err != nil {
-				return nil, err
-			}
-		}
 	}
 
 	tables := buildDiagnosticsTables(items)

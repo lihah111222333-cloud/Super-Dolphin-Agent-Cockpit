@@ -34,7 +34,6 @@ type EditRequest struct {
 	Edits         []ReplaceEdit `json:"edits,omitempty"`
 	NewName       string        `json:"new_name,omitempty"`
 	NewText       string        `json:"new_text,omitempty"`
-	DryRun        bool          `json:"dry_run,omitempty"`
 	PersistToDisk *bool         `json:"persist_to_disk,omitempty"`
 	Version       int           `json:"version,omitempty"`
 	Only          []string      `json:"only,omitempty"`

@@ -239,6 +239,19 @@ func walkSearchEntry(
 	return nil
 }
 
+func findDirEntry(candidate string) (os.DirEntry, error) {
+	entries, err := os.ReadDir(filepath.Dir(candidate))
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range entries {
+		if filepath.Join(filepath.Dir(candidate), item.Name()) == candidate {
+			return item, nil
+		}
+	}
+	return nil, nil
+}
+
 func searchTextFile(ctx context.Context, root, candidate, glob string, maxFileBytes int, matcher lineMatcher) ([]SearchMatch, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -246,16 +259,9 @@ func searchTextFile(ctx context.Context, root, candidate, glob string, maxFileBy
 	if !matchesPathGlob(root, candidate, glob) {
 		return nil, nil
 	}
-	entry, err := os.ReadDir(filepath.Dir(candidate))
+	selected, err := findDirEntry(candidate)
 	if err != nil {
 		return nil, err
-	}
-	var selected os.DirEntry
-	for _, item := range entry {
-		if filepath.Join(filepath.Dir(candidate), item.Name()) == candidate {
-			selected = item
-			break
-		}
 	}
 	if !isSearchCandidate(candidate, selected, maxFileBytes) {
 		return nil, nil

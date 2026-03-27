@@ -46,29 +46,7 @@ func OffsetToLine(content string, offset int) (int, error) {
 	return index.lineForOffset(offset)
 }
 
-// ReplacementPreview applies the replacement and returns a compact preview
-// window around the edit.
-func ReplacementPreview(content string, startOffset int, endOffset int, replacement string) (string, error) {
-	if err := GuardContentAndReplacement(content, replacement); err != nil {
-		return "", err
-	}
-	if err := validateOffsets(content, startOffset, endOffset); err != nil {
-		return "", err
-	}
-	updated := content[:startOffset] + replacement + content[endOffset:]
-	startLine, err := OffsetToLine(content, startOffset)
-	if err != nil {
-		return "", err
-	}
-	index, err := indexContent(updated)
-	if err != nil {
-		return "", err
-	}
-	windowStart, windowEnd := previewWindow(index.lines, startLine, startLine)
-	return renderWindow(index.lines, windowStart, windowEnd), nil
-}
-
-// BuildEditContext renders the surrounding lines and the old/new change block.
+// BuildEditContext renders the surrounding lines and the old/new change block, and returns the affected window bounds.
 func BuildEditContext(content string, startOffset int, endOffset int, replacement string) (string, int, int, error) {
 	if err := GuardContentAndReplacement(content, replacement); err != nil {
 		return "", 0, 0, err
@@ -84,9 +62,9 @@ func BuildEditContext(content string, startOffset int, endOffset int, replacemen
 	if err != nil {
 		return "", 0, 0, err
 	}
-	windowStart, windowEnd := previewWindow(index.lines, startLine, endLine)
-	removed := splitPreviewLines(content[startOffset:endOffset])
-	added := splitPreviewLines(replacement)
+	windowStart, windowEnd := affectedWindow(index.lines, startLine, endLine)
+	removed := splitAffectedLines(content[startOffset:endOffset])
+	added := splitAffectedLines(replacement)
 	before := sliceLines(index.lines, windowStart, startLine-1)
 	after := sliceLines(index.lines, endLine+1, windowEnd)
 
@@ -115,9 +93,7 @@ func indexContent(content string) (contentIndex, error) {
 			continue
 		}
 		line := content[lineStart:idx]
-		if strings.HasSuffix(line, "\r") {
-			line = strings.TrimSuffix(line, "\r")
-		}
+		line = strings.TrimSuffix(line, "\r")
 		lines = append(lines, line)
 		starts = append(starts, lineStart)
 		ends = append(ends, idx+1)
@@ -125,9 +101,7 @@ func indexContent(content string) (contentIndex, error) {
 	}
 	if lineStart < len(content) {
 		line := content[lineStart:]
-		if strings.HasSuffix(line, "\r") {
-			line = strings.TrimSuffix(line, "\r")
-		}
+		line = strings.TrimSuffix(line, "\r")
 		lines = append(lines, line)
 		starts = append(starts, lineStart)
 		ends = append(ends, len(content))
@@ -169,7 +143,7 @@ func (idx contentIndex) lineRangeForOffsets(startOffset int, endOffset int) (int
 	return startLine, endLine, nil
 }
 
-func previewWindow(lines []string, startLine int, endLine int) (int, int) {
+func affectedWindow(lines []string, startLine int, endLine int) (int, int) {
 	if len(lines) == 0 {
 		return 1, 1
 	}
@@ -178,24 +152,13 @@ func previewWindow(lines []string, startLine int, endLine int) (int, int) {
 	return windowStart, windowEnd
 }
 
-func renderWindow(lines []string, startLine int, endLine int) string {
-	if len(lines) == 0 {
-		return ""
-	}
-	var builder strings.Builder
-	for lineNo := startLine; lineNo <= endLine; lineNo++ {
-		fmt.Fprintf(&builder, "%4d | %s\n", lineNo, lines[lineNo-1])
-	}
-	return strings.TrimRight(builder.String(), "\n")
-}
-
 func writeContextLines(builder *strings.Builder, prefix byte, startLine int, lines []string) {
 	for idx, line := range lines {
 		fmt.Fprintf(builder, "%c%4d | %s\n", prefix, startLine+idx, line)
 	}
 }
 
-func splitPreviewLines(text string) []string {
+func splitAffectedLines(text string) []string {
 	if text == "" {
 		return nil
 	}

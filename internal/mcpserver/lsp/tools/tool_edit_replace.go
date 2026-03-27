@@ -24,8 +24,8 @@ type replacePlan struct {
 	resolvedStart      int
 	resolvedEnd        int
 	resolvedLSPLine    int
-	previewStartLine   int
-	previewEndLine     int
+	affectedStartLine  int
+	affectedEndLine    int
 	editContext        string
 	replaced           string
 	replacement        string
@@ -34,21 +34,20 @@ type replacePlan struct {
 
 type replaceRangeResult struct {
 	editEnvelope
-	DryRun           bool   `json:"dry_run,omitempty"`
-	MatchedBy        string `json:"matched_by,omitempty"`
-	ResolvedStart    int    `json:"resolved_start_offset,omitempty"`
-	ResolvedEnd      int    `json:"resolved_end_offset,omitempty"`
-	ResolvedLSPLine  int    `json:"resolved_lsp_line,omitempty"`
-	PreviewStartLine int    `json:"preview_start_line,omitempty"`
-	PreviewEndLine   int    `json:"preview_end_line,omitempty"`
-	EditContext      string `json:"edit_context,omitempty"`
-	Replaced         string `json:"replaced,omitempty"`
-	Replacement      string `json:"replacement,omitempty"`
-	ReplacedLen      int    `json:"replaced_len,omitempty"`
-	ReplacementLen   int    `json:"replacement_len,omitempty"`
-	FuncStart        int    `json:"func_start,omitempty"`
-	FuncEnd          int    `json:"func_end,omitempty"`
-	FuncBody         string `json:"func_body,omitempty"`
+	MatchedBy         string `json:"matched_by,omitempty"`
+	ResolvedStart     int    `json:"resolved_start_offset,omitempty"`
+	ResolvedEnd       int    `json:"resolved_end_offset,omitempty"`
+	ResolvedLSPLine   int    `json:"resolved_lsp_line,omitempty"`
+	AffectedStartLine int    `json:"affected_start_line,omitempty"`
+	AffectedEndLine   int    `json:"affected_end_line,omitempty"`
+	EditContext       string `json:"edit_context,omitempty"`
+	Replaced          string `json:"replaced,omitempty"`
+	Replacement       string `json:"replacement,omitempty"`
+	ReplacedLen       int    `json:"replaced_len,omitempty"`
+	ReplacementLen    int    `json:"replacement_len,omitempty"`
+	FuncStart         int    `json:"func_start,omitempty"`
+	FuncEnd           int    `json:"func_end,omitempty"`
+	FuncBody          string `json:"func_body,omitempty"`
 }
 
 type replaceRangeFailure struct {
@@ -73,16 +72,14 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	if err != nil {
 		return nil, err
 	}
-	content, mode, err := readFileWithMode(path)
+	file, err := readFileWithMode(path)
 	if err != nil {
 		return nil, err
 	}
+	content := file.content
 	plan, err := buildReplacePlan(content, req)
 	if err != nil {
 		return h.replaceFailure(ctx, path, content, req.Line, err), nil
-	}
-	if req.DryRun {
-		return h.replaceDryRun(ctx, path, content, plan), nil
 	}
 	if plan.updatedContent == content {
 		return replaceRangeResult{
@@ -98,12 +95,13 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 			},
 		}, nil
 	}
-	if err := os.WriteFile(path, []byte(plan.updatedContent), mode); err != nil {
+	updatedContent := file.diskContent(plan.updatedContent)
+	if err := os.WriteFile(path, []byte(updatedContent), file.mode); err != nil {
 		return h.replaceFailure(ctx, path, content, req.Line, err), nil
 	}
-	lspSync, warning, err := h.syncDocument(ctx, path, plan.updatedContent, normalizeEditVersion(req.Version))
+	lspSync, warning, err := h.syncDocument(ctx, path, updatedContent, normalizeEditVersion(req.Version))
 	if err != nil {
-		_ = os.WriteFile(path, []byte(content), mode)
+		_ = os.WriteFile(path, []byte(file.raw), file.mode)
 		return h.replaceFailure(ctx, path, content, plan.functionLookupLine, err), nil
 	}
 	functionCtx := h.lookupFunctionContext(ctx, path, plan.functionLookupLine, plan.updatedContent)
@@ -121,46 +119,21 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 			Warning:              warning,
 			DiagnosticGeneration: h.manager.CurrentDiagnosticGeneration(),
 		},
-		MatchedBy:        plan.matchedBy,
-		ResolvedStart:    plan.resolvedStart,
-		ResolvedEnd:      plan.resolvedEnd,
-		ResolvedLSPLine:  plan.resolvedLSPLine,
-		PreviewStartLine: plan.previewStartLine,
-		PreviewEndLine:   plan.previewEndLine,
-		EditContext:      plan.editContext,
-		Replaced:         plan.replaced,
-		Replacement:      plan.replacement,
-		ReplacedLen:      len(plan.replaced),
-		ReplacementLen:   len(plan.replacement),
-		FuncStart:        functionCtx.Start,
-		FuncEnd:          functionCtx.End,
-		FuncBody:         functionCtx.Body,
+		MatchedBy:         plan.matchedBy,
+		ResolvedStart:     plan.resolvedStart,
+		ResolvedEnd:       plan.resolvedEnd,
+		ResolvedLSPLine:   plan.resolvedLSPLine,
+		AffectedStartLine: plan.affectedStartLine,
+		AffectedEndLine:   plan.affectedEndLine,
+		EditContext:       plan.editContext,
+		Replaced:          plan.replaced,
+		Replacement:       plan.replacement,
+		ReplacedLen:       len(plan.replaced),
+		ReplacementLen:    len(plan.replacement),
+		FuncStart:         functionCtx.Start,
+		FuncEnd:           functionCtx.End,
+		FuncBody:          functionCtx.Body,
 	}, nil
-}
-
-func (h EditHandler) replaceDryRun(ctx context.Context, path string, content string, plan replacePlan) replaceRangeResult {
-	functionCtx := h.lookupFunctionContext(ctx, path, plan.functionLookupLine, content)
-	return replaceRangeResult{
-		editEnvelope: editEnvelope{
-			Success:              true,
-			Action:               "replace_range",
-			Status:               "dry_run",
-			Message:              "replacement located but not applied",
-			Applied:              false,
-			Persisted:            false,
-			RequiresApply:        true,
-			DiagnosticGeneration: h.manager.CurrentDiagnosticGeneration(),
-		},
-		DryRun:         true,
-		MatchedBy:      plan.matchedBy,
-		Replaced:       plan.replaced,
-		Replacement:    plan.replacement,
-		ReplacedLen:    len(plan.replaced),
-		ReplacementLen: len(plan.replacement),
-		FuncStart:      functionCtx.Start,
-		FuncEnd:        functionCtx.End,
-		FuncBody:       functionCtx.Body,
-	}
 }
 
 func (h EditHandler) replaceFailure(ctx context.Context, path string, content string, line int, err error) replaceRangeFailure {
@@ -182,35 +155,36 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, workspaceEdit *prot
 	if err != nil {
 		return applyWorkspaceEditResult{}, err
 	}
-	originals := make(map[string]string, len(files))
-	modes := make(map[string]os.FileMode, len(files))
+	originals := make(map[string]editableFile, len(files))
 	updated := make(map[string]string, len(files))
 	for _, path := range sortedKeys(files) {
-		content, mode, err := readFileWithMode(path)
+		file, err := readFileWithMode(path)
 		if err != nil {
 			return applyWorkspaceEditResult{}, err
 		}
-		next, err := applyTextEdits(content, files[path])
+		next, err := applyTextEdits(file.content, files[path])
 		if err != nil {
 			return applyWorkspaceEditResult{}, err
 		}
-		originals[path] = content
-		modes[path] = mode
-		if next != content {
+		originals[path] = file
+		if next != file.content {
 			updated[path] = next
 		}
 	}
 	if len(updated) == 0 {
 		return applyWorkspaceEditResult{}, nil
 	}
+	written := make(map[string]string, len(updated))
 	for _, path := range sortedKeys(updated) {
-		if err := os.WriteFile(path, []byte(updated[path]), modes[path]); err != nil {
-			return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, modes, updated))
+		file := originals[path]
+		written[path] = file.diskContent(updated[path])
+		if err := os.WriteFile(path, []byte(written[path]), file.mode); err != nil {
+			return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, updated))
 		}
 	}
-	lspSync, warning, err := h.syncDocuments(ctx, updated, version)
+	lspSync, warning, err := h.syncDocuments(ctx, written, version)
 	if err != nil {
-		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, modes, updated))
+		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, updated))
 	}
 	return applyWorkspaceEditResult{
 		AppliedCount: len(updated),
@@ -322,8 +296,8 @@ func buildPatchReplacePlan(content string, patch string) (replacePlan, error) {
 		resolvedStart:      first.ResolvedStartOffset,
 		resolvedEnd:        last.ResolvedEndOffset,
 		resolvedLSPLine:    first.ResolvedLSPLine,
-		previewStartLine:   first.PreviewStartLine,
-		previewEndLine:     last.PreviewEndLine,
+		affectedStartLine:  first.AffectedStartLine,
+		affectedEndLine:    last.AffectedEndLine,
 		editContext:        strings.Join(contexts, "\n\n"),
 		replaced:           joinHunkOldText(hunks),
 		replacement:        joinHunkNewText(hunks),
@@ -368,7 +342,8 @@ func buildRangeReplacePlan(content string, req EditRequest) (replacePlan, error)
 	if err := editpkg.GuardContentAndReplacement(content, req.NewText); err != nil {
 		return replacePlan{}, err
 	}
-	editContext, previewStart, previewEnd, err := editpkg.BuildEditContext(content, startOffset, endOffset, req.NewText)
+	req.NewText = normalizeLineEndings(req.NewText)
+	editContext, affectedStart, affectedEnd, err := editpkg.BuildEditContext(content, startOffset, endOffset, req.NewText)
 	if err != nil {
 		return replacePlan{}, err
 	}
@@ -382,8 +357,8 @@ func buildRangeReplacePlan(content string, req EditRequest) (replacePlan, error)
 		resolvedStart:      startOffset,
 		resolvedEnd:        endOffset,
 		resolvedLSPLine:    line,
-		previewStartLine:   previewStart,
-		previewEndLine:     previewEnd,
+		affectedStartLine:  affectedStart,
+		affectedEndLine:    affectedEnd,
 		editContext:        editContext,
 		replaced:           content[startOffset:endOffset],
 		replacement:        req.NewText,

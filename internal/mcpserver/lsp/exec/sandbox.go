@@ -13,6 +13,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const defaultOutputLimit = 256 * 1024
@@ -170,13 +172,7 @@ func normalizeArgs(req Request) ([]string, error) {
 }
 
 func withTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if timeout <= 0 {
-		return context.WithCancel(ctx)
-	}
-	return context.WithTimeout(ctx, timeout)
+	return platformconfig.WithTimeout(ctx, timeout)
 }
 
 func normalizePath(path string) (string, error) {

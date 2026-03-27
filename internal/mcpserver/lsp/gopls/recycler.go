@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const (
@@ -112,19 +114,23 @@ func (r *poolRecycler) checkManager(index int, mgr *manager) {
 	}
 
 	for _, workspace := range snapshotWorkspaceClients(mgr) {
-		rssBytes, pid, err := clientRSSBytes(workspace.client)
-		if err != nil || pid <= 0 || rssBytes <= rssLimitBytes() {
-			continue
-		}
-		if r.pool.activeLeases(workspace.client) > 0 {
-			continue
-		}
-		if mgr.logger != nil {
-			mgr.logger.Warn("recycling gopls process", "workspace", workspace.key, "pid", pid, "rss_bytes", rssBytes)
-		}
-		if err := recycleWorkspaceClient(mgr, workspace); err != nil && mgr.logger != nil {
-			mgr.logger.Warn("gopls recycle failed", "workspace", workspace.key, "pid", pid, "err", err)
-		}
+		r.recycleIfNeeded(mgr, workspace)
+	}
+}
+
+func (r *poolRecycler) recycleIfNeeded(mgr *manager, workspace workspaceClient) {
+	rssBytes, pid, err := clientRSSBytes(workspace.client)
+	if err != nil || pid <= 0 || rssBytes <= rssLimitBytes() {
+		return
+	}
+	if r.pool.activeLeases(workspace.client) > 0 {
+		return
+	}
+	if mgr.logger != nil {
+		mgr.logger.Warn("recycling gopls process", "workspace", workspace.key, "pid", pid, "rss_bytes", rssBytes)
+	}
+	if err := recycleWorkspaceClient(mgr, workspace); err != nil && mgr.logger != nil {
+		mgr.logger.Warn("gopls recycle failed", "workspace", workspace.key, "pid", pid, "err", err)
 	}
 }
 
@@ -141,8 +147,9 @@ func recycleWorkspaceClient(mgr *manager, workspace workspaceClient) error {
 	if detached == nil || detached.client == nil {
 		return nil
 	}
+	mgr.AdvanceDiagnosticGeneration()
 
-	ctx, cancel := context.WithTimeout(context.Background(), managerShutdownTimeout)
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
 	shutdownErr := detached.client.Shutdown(ctx)
 	cancel()
 	closeErr := detached.client.Close()

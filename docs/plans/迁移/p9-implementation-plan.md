@@ -230,7 +230,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 
 | Action | 参数 | 输出格式 |
 |---|---|---|
-| `replace_range` | `file_path, patch?, new_text?, edits?: [{old_string, new_string}], dry_run?` | 成功: `{matched_by, resolved_*, edit_context, func_start?, func_end?}` |
+| `replace_range` | `file_path, patch?, new_text?, edits?: [{old_string, new_string}]` | 成功: `{matched_by, resolved_*, edit_context, func_start?, func_end?}` |
 | `rename` | `file_path, line, column, new_name, force?` | `{success, applied, applied_count, message}` |
 | `code_action` | `file_path, line, column, only?` | `[]CodeActionResult` |
 | `format` | `file_path` | `[]TextEdit{range, newText}` |
@@ -240,7 +240,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 - 安全限制：替换体 256KB，文件内容 4MB，强制绕过 2MB
 - `force` 不暴露为外部参数；V2 的 `force` 语义是内部 didChange 自动设置（内容 ≤2MB 时 `force=true`）
 - 必须返回 `func_start/func_end/func_body`（enclosing function context）
-- dry_run 模式返回预览不执行
+- ~~dry_run~~ 已删除：V3 工具契约不暴露 dry_run 给 AI，replace_range 始终执行实际替换
 
 ### 3.7 lsp_completion
 
@@ -1104,7 +1104,7 @@ go build ./cmd/mcp-lsp/...
    - 支持: patch 格式 / 坐标范围 + new_text 格式 / edits 数组格式
    - **multi-edit (edits数组)**: 上限 20 个 edit (V2 tool_handlers_edit_flow.go:82)，
      顺序应用，重叠检测，带 replaceWithDeleteOptimization (V2:793)
-   - dry_run 模式: 只定位不应用
+   - ~~dry_run~~ 已删除：V3 不暴露 dry_run，始终执行实际替换
    - `force` 不暴露为外部参数；内容 ≤2MB 时内部 didChange 自动 `force=true`
    - 返回: matched_by, resolved_*, edit_context, func_start/func_end
    - 失败返回: error + current_content + func_start/func_end
@@ -1258,7 +1258,7 @@ go test ./internal/archtest/ -run TestCodeSizeGuard
 | lsp_structure | semantic_tokens | token 列表 |
 | lsp_edit | replace_range (patch) | 匹配+替换+func context |
 | lsp_edit | replace_range (edits) | multi-edit 顺序应用 + overlap 检测 |
-| lsp_edit | replace_range (dry_run) | 预览不执行 |
+| ~~lsp_edit~~ | ~~replace_range (dry_run)~~ | ~~已删除：V3 不暴露 dry_run~~ |
 | lsp_edit | rename | 多文件重命名 |
 | lsp_edit | code_action | 可用操作列表 |
 | lsp_edit | format | 格式化 |

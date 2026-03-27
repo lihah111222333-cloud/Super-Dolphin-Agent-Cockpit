@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
 
@@ -27,7 +28,7 @@ func NewStructureHandler(manager gopls.Manager) ToolHandler {
 	if manager == nil {
 		return missingManagerHandler()
 	}
-	return func(ctx context.Context, params json.RawMessage) (any, error) {
+	return ToolHandler(wrapToolHandler("lsp_structure", middleware.TierNormal, func(ctx context.Context, params json.RawMessage) (any, error) {
 		req, err := decodeParams[structureParams](params)
 		if err != nil {
 			return nil, err
@@ -44,7 +45,7 @@ func NewStructureHandler(manager gopls.Manager) ToolHandler {
 		default:
 			return nil, fmt.Errorf("unsupported structure action %q", req.Action)
 		}
-	}
+	}))
 }
 
 func runDocumentSymbols(

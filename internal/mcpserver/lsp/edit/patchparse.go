@@ -3,6 +3,7 @@ package edit
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -52,10 +53,8 @@ func Parse(patch string) (Hunk, error) {
 		}
 		return parseHunkBody(headerLines[0])
 	}
-	for _, line := range lines[1:] {
-		if isPatchHeader(line) {
-			return Hunk{}, fmt.Errorf("%w: leading implicit hunk is not allowed before a second @@ header", ErrInvalidPatch)
-		}
+	if containsPatchHeader(lines[1:]) {
+		return Hunk{}, fmt.Errorf("%w: leading implicit hunk is not allowed before a second @@ header", ErrInvalidPatch)
 	}
 	return parseHunkBody(lines)
 }
@@ -70,16 +69,7 @@ func ParseMulti(patch string) ([]Hunk, error) {
 		return nil, ErrEmptyPatch
 	}
 	if !isPatchHeader(lines[0]) {
-		for _, line := range lines[1:] {
-			if isPatchHeader(line) {
-				return nil, fmt.Errorf("%w: leading implicit hunk is not allowed when multiple @@ blocks exist", ErrInvalidPatch)
-			}
-		}
-		hunk, err := parseHunkBody(lines)
-		if err != nil {
-			return nil, err
-		}
-		return []Hunk{hunk}, nil
+		return parseImplicitHunk(lines)
 	}
 
 	blocks, err := splitPatchHeaders(lines)
@@ -98,6 +88,23 @@ func ParseMulti(patch string) ([]Hunk, error) {
 		hunks = append(hunks, hunk)
 	}
 	return hunks, nil
+}
+
+// parseImplicitHunk handles a patch with no leading "@@ " header, treating all
+// lines as a single implicit hunk.
+func parseImplicitHunk(lines []string) ([]Hunk, error) {
+	if containsPatchHeader(lines[1:]) {
+		return nil, fmt.Errorf("%w: leading implicit hunk is not allowed when multiple @@ blocks exist", ErrInvalidPatch)
+	}
+	hunk, err := parseHunkBody(lines)
+	if err != nil {
+		return nil, err
+	}
+	return []Hunk{hunk}, nil
+}
+
+func containsPatchHeader(lines []string) bool {
+	return slices.ContainsFunc(lines, isPatchHeader)
 }
 
 func normalizePatchLines(patch string) ([]string, error) {
@@ -161,23 +168,9 @@ func parseHunkBody(lines []string) (Hunk, error) {
 	if len(body) == 0 {
 		return Hunk{}, fmt.Errorf("%w: patch hunk body is empty", ErrInvalidPatch)
 	}
-	parsed := make([]patchBodyLine, 0, len(body))
-	firstChange, lastChange := -1, -1
-	for idx, line := range body {
-		entry, err := parsePatchBodyLine(line)
-		if err != nil {
-			return Hunk{}, fmt.Errorf("%w: line %d: %v", ErrInvalidPatch, start+idx+1, err)
-		}
-		parsed = append(parsed, entry)
-		if entry.kind != ' ' {
-			if firstChange < 0 {
-				firstChange = idx
-			}
-			lastChange = idx
-		}
-	}
-	if firstChange < 0 {
-		return Hunk{}, fmt.Errorf("%w: patch body must contain at least one changed line", ErrInvalidPatch)
+	parsed, firstChange, lastChange, err := classifyBodyLines(body, start)
+	if err != nil {
+		return Hunk{}, err
 	}
 
 	before := takeTexts(parsed[:firstChange])
@@ -193,6 +186,30 @@ func parseHunkBody(lines []string) (Hunk, error) {
 		BeforeContext: before,
 		AfterContext:  after,
 	}, nil
+}
+
+// classifyBodyLines parses each body line, returning the classified lines and
+// the indices of the first and last changed (non-context) lines.
+func classifyBodyLines(body []string, startOffset int) ([]patchBodyLine, int, int, error) {
+	parsed := make([]patchBodyLine, 0, len(body))
+	firstChange, lastChange := -1, -1
+	for idx, line := range body {
+		entry, err := parsePatchBodyLine(line)
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("%w: line %d: %v", ErrInvalidPatch, startOffset+idx+1, err)
+		}
+		parsed = append(parsed, entry)
+		if entry.kind != ' ' {
+			if firstChange < 0 {
+				firstChange = idx
+			}
+			lastChange = idx
+		}
+	}
+	if firstChange < 0 {
+		return nil, 0, 0, fmt.Errorf("%w: patch body must contain at least one changed line", ErrInvalidPatch)
+	}
+	return parsed, firstChange, lastChange, nil
 }
 
 func parseHeaderLine(line string) (string, error) {

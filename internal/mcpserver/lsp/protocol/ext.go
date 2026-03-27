@@ -1,5 +1,7 @@
 package protocol
 
+import "encoding/json"
+
 const (
 	XRefResultLimit          = 50
 	SemanticTokenResultLimit = 200
@@ -184,6 +186,27 @@ func (r LocationResult) PrimaryLocation() *Location {
 		location.Range = r.LocationLink.TargetRange
 	}
 	return &location
+}
+
+func (r LocationResult) MarshalJSON() ([]byte, error) {
+	loc := r.PrimaryLocation()
+	flat := map[string]any{}
+	if loc != nil {
+		flat["file"] = loc.URI
+		flat["line"] = loc.Range.Start.Line
+		flat["col"] = loc.Range.Start.Character
+		if loc.Range.End != (Position{}) {
+			flat["end_line"] = loc.Range.End.Line
+			flat["end_col"] = loc.Range.End.Character
+		}
+	}
+	if r.FuncStart > 0 {
+		flat["func_start"] = r.FuncStart
+	}
+	if r.FuncEnd > 0 {
+		flat["func_end"] = r.FuncEnd
+	}
+	return json.Marshal(flat)
 }
 
 func (r LocationResult) HasFuncRange() bool {

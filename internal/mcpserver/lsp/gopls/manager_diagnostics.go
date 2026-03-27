@@ -9,6 +9,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
 
+type managerNotificationHandler struct {
+	publishDiagnostics func(protocol.PublishDiagnosticsParams) error
+	logMessage         func(protocol.LogMessageParams) error
+}
+
+func (h managerNotificationHandler) PublishDiagnostics(params protocol.PublishDiagnosticsParams) error {
+	return h.publishDiagnostics(params)
+}
+
+func (h managerNotificationHandler) LogMessage(params protocol.LogMessageParams) error {
+	return h.logMessage(params)
+}
+
 func (m *manager) Diagnostics(_ context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
 	current := m.CurrentDiagnosticGeneration()
 	filter, err := m.normalizeDiagnosticFilter(uris)
@@ -78,14 +91,20 @@ func (m *manager) AdvanceDiagnosticGeneration() uint64 {
 }
 
 func (m *manager) PublishDiagnostics(params protocol.PublishDiagnosticsParams) error {
-	generation := m.CurrentDiagnosticGeneration()
+	return m.publishDiagnosticsForGeneration(params, m.CurrentDiagnosticGeneration())
+}
+
+func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnosticsParams, capturedGen uint64) error {
 	m.diagMu.Lock()
+	defer m.diagMu.Unlock()
+	if capturedGen < m.CurrentDiagnosticGeneration() {
+		return nil
+	}
 	m.diagnostics[params.URI] = diagnosticSnapshot{
 		params:     params,
-		generation: generation,
+		generation: capturedGen,
 		updatedAt:  time.Now(),
 	}
-	m.diagMu.Unlock()
 	return nil
 }
 

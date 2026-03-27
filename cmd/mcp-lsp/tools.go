@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/tools"
 )
 
 type ToolHandler func(ctx context.Context, params json.RawMessage) (any, error)
@@ -29,18 +31,30 @@ var lspToolManifests = []common.ToolManifest{
 	toolManifest("code_run_test", "Run focused project tests"),
 }
 
-func newToolHandlers(*Manager) ToolHandlers {
-	return ToolHandlers{
-		"lsp_file":       stubToolHandler,
-		"lsp_inspect":    stubToolHandler,
-		"lsp_xref":       stubToolHandler,
-		"lsp_grep":       stubToolHandler,
-		"lsp_structure":  stubToolHandler,
-		"lsp_edit":       stubToolHandler,
-		"lsp_completion": stubToolHandler,
-		"code_run":       stubToolHandler,
-		"code_run_test":  stubToolHandler,
+func newToolHandlers(m *Manager) (ToolHandlers, error) {
+	cfg := tools.Config{
+		WorkspaceRoot: m.root,
+		Manager:       m.goplsMgr,
 	}
+	codeRunH, err := tools.NewCodeRunHandler(m.root)
+	if err != nil {
+		return nil, fmt.Errorf("code_run handler: %w", err)
+	}
+	codeRunTestH, err := tools.NewCodeRunTestHandler(m.root)
+	if err != nil {
+		return nil, fmt.Errorf("code_run_test handler: %w", err)
+	}
+	return ToolHandlers{
+		"lsp_file":       ToolHandler(tools.NewFileHandler(cfg)),
+		"lsp_inspect":    ToolHandler(tools.NewInspectHandler(m.goplsMgr)),
+		"lsp_xref":       ToolHandler(tools.NewXRefHandler(m.goplsMgr)),
+		"lsp_grep":       ToolHandler(tools.NewGrepHandler(cfg)),
+		"lsp_structure":  ToolHandler(tools.NewStructureHandler(m.goplsMgr)),
+		"lsp_edit":       ToolHandler(tools.NewEditHandler(m.goplsMgr)),
+		"lsp_completion": ToolHandler(tools.NewCompletionHandler(m.goplsMgr)),
+		"code_run":       ToolHandler(codeRunH),
+		"code_run_test":  ToolHandler(codeRunTestH),
+	}, nil
 }
 
 func toolDefinitions(handlers ToolHandlers) []toolDefinition {
