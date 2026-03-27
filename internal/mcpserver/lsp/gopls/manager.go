@@ -58,6 +58,7 @@ type Manager interface {
 	DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error
 	DidClose(ctx context.Context, uri string) error
 	BootstrapDocument(ctx context.Context, uri string) error
+	BootstrapDocumentOpenOnly(ctx context.Context, uri string) error
 
 	Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error)
 	WaitDiagnosticsStable(ctx context.Context, uris []string) error
