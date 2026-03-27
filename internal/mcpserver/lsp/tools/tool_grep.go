@@ -53,12 +53,11 @@ func NewGrepHandler(cfg Config) Handler {
 		root:    resolveRoot(cfg.WorkspaceRoot),
 		manager: cfg.Manager,
 	}
-	base := func(ctx context.Context, params json.RawMessage) (any, error) {
-		return handler.handleGrep(ctx, params)
-	}
-	return Handler(middleware.WithOutputBudget(middleware.Handler(base), middleware.Budget{
-		Message: "lsp_grep response exceeded output budget",
-	}))
+	return Handler(middleware.WithOutputBudget(
+		wrapToolHandler("lsp_grep", middleware.TierSlow, handler.handleGrep),
+		middleware.Budget{
+			Message: "lsp_grep response exceeded output budget",
+		}))
 }
 
 func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (any, error) {

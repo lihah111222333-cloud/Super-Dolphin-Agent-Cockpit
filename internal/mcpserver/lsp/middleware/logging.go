@@ -37,7 +37,7 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 			logger.DebugContext(ctx, "mcp-lsp request",
 				slog.String("tool", name),
 				slog.Int("request_bytes", len(params)),
-				slog.String("request", previewValue(params)),
+				slog.String("request", compactValue(params)),
 			)
 			result, err := next(ctx, params)
 			if err != nil {
@@ -51,22 +51,22 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 			logger.DebugContext(ctx, "mcp-lsp response",
 				slog.String("tool", name),
 				slog.Int64("duration_ms", time.Since(start).Milliseconds()),
-				slog.String("response", previewAny(result)),
+				slog.String("response", compactAny(result)),
 			)
 			return result, nil
 		}
 	}
 }
 
-func previewAny(value any) string {
+func compactAny(value any) string {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return "<unmarshalable>"
 	}
-	return previewValue(raw)
+	return compactValue(raw)
 }
 
-func previewValue(raw []byte) string {
+func compactValue(raw []byte) string {
 	const limit = 2048
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" {

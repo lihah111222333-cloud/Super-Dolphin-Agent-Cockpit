@@ -305,7 +305,7 @@ func runRefreshTasks(ctx context.Context, width, count int, fn func(int)) {
 	}
 	sem := make(chan struct{}, width)
 	var wg sync.WaitGroup
-	for index := 0; index < count; index++ {
+	for index := range count {
 		select {
 		case <-ctx.Done():
 			return

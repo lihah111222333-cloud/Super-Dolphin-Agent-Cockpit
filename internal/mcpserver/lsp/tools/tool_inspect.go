@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
 
@@ -31,7 +32,7 @@ func NewInspectHandler(manager gopls.Manager) ToolHandler {
 	if manager == nil {
 		return missingManagerHandler()
 	}
-	return func(ctx context.Context, params json.RawMessage) (any, error) {
+	return ToolHandler(wrapToolHandler("lsp_inspect", middleware.TierNormal, func(ctx context.Context, params json.RawMessage) (any, error) {
 		req, err := decodeParams[inspectParams](params)
 		if err != nil {
 			return nil, err
@@ -46,7 +47,6 @@ func NewInspectHandler(manager gopls.Manager) ToolHandler {
 		case "definition":
 			return runLocationInspect(
 				ctx,
-				manager,
 				filePath,
 				position,
 				"no definition found",
@@ -55,7 +55,6 @@ func NewInspectHandler(manager gopls.Manager) ToolHandler {
 		case "implementation":
 			return runLocationInspect(
 				ctx,
-				manager,
 				filePath,
 				position,
 				"no implementation found",
@@ -64,7 +63,6 @@ func NewInspectHandler(manager gopls.Manager) ToolHandler {
 		case "type_definition":
 			return runLocationInspect(
 				ctx,
-				manager,
 				filePath,
 				position,
 				"no type definition found",
@@ -75,7 +73,7 @@ func NewInspectHandler(manager gopls.Manager) ToolHandler {
 		default:
 			return nil, fmt.Errorf("unsupported inspect action %q", req.Action)
 		}
-	}
+	}))
 }
 
 func runHover(
@@ -97,7 +95,6 @@ func runHover(
 
 func runLocationInspect(
 	ctx context.Context,
-	manager gopls.Manager,
 	filePath string,
 	position protocol.Position,
 	emptyMessage string,

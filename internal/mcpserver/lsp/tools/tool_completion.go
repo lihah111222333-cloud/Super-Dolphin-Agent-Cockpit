@@ -7,6 +7,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 )
 
 type completionParams struct {
@@ -21,7 +22,7 @@ func NewCompletionHandler(manager gopls.Manager) ToolHandler {
 	if manager == nil {
 		return missingManagerHandler()
 	}
-	return func(ctx context.Context, params json.RawMessage) (any, error) {
+	return ToolHandler(wrapToolHandler("lsp_completion", middleware.TierFast, func(ctx context.Context, params json.RawMessage) (any, error) {
 		req, err := decodeParams[completionParams](params)
 		if err != nil {
 			return nil, err
@@ -49,7 +50,7 @@ func NewCompletionHandler(manager gopls.Manager) ToolHandler {
 			return items, nil
 		}
 		return format.NewCompactList(format.CompactCompletionItems(items), total), nil
-	}
+	}))
 }
 
 var _ = fmt.Sprintf

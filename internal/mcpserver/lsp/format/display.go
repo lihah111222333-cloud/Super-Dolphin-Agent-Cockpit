@@ -304,23 +304,36 @@ func URIToPath(uri string) string {
 	if trimmed == "" {
 		return ""
 	}
-	path := trimmed
-	if parsed, err := url.Parse(trimmed); err == nil && strings.EqualFold(parsed.Scheme, "file") {
-		path = parsed.Path
-		if parsed.Host != "" {
-			path = "//" + parsed.Host + path
-		}
-		if unescaped, err := url.PathUnescape(path); err == nil && unescaped != "" {
-			path = unescaped
-		}
-	}
+	path := parseFileURI(trimmed)
 	path = filepath.Clean(path)
-	if cwd, err := os.Getwd(); err == nil && filepath.IsAbs(path) {
-		if rel, err := filepath.Rel(cwd, path); err == nil && withinWorkspace(rel) {
-			path = rel
-		}
-	}
+	path = tryMakeRelative(path)
 	return filepath.ToSlash(path)
+}
+
+func parseFileURI(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "file") {
+		return raw
+	}
+	path := parsed.Path
+	if parsed.Host != "" {
+		path = "//" + parsed.Host + path
+	}
+	if unescaped, err := url.PathUnescape(path); err == nil && unescaped != "" {
+		path = unescaped
+	}
+	return path
+}
+
+func tryMakeRelative(path string) string {
+	cwd, err := os.Getwd()
+	if err != nil || !filepath.IsAbs(path) {
+		return path
+	}
+	if rel, err := filepath.Rel(cwd, path); err == nil && withinWorkspace(rel) {
+		return rel
+	}
+	return path
 }
 
 func hierarchyItem(item protocol.CallHierarchyItem) protocol.CallHierarchyItem {

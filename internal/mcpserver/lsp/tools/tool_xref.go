@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
 
@@ -27,7 +28,7 @@ func NewXRefHandler(manager gopls.Manager) ToolHandler {
 	if manager == nil {
 		return missingManagerHandler()
 	}
-	return func(ctx context.Context, params json.RawMessage) (any, error) {
+	return ToolHandler(wrapToolHandler("lsp_xref", middleware.TierNormal, func(ctx context.Context, params json.RawMessage) (any, error) {
 		req, err := decodeParams[xrefParams](params)
 		if err != nil {
 			return nil, err
@@ -50,7 +51,7 @@ func NewXRefHandler(manager gopls.Manager) ToolHandler {
 		default:
 			return nil, fmt.Errorf("unsupported xref action %q", req.Action)
 		}
-	}
+	}))
 }
 
 func runReferences(

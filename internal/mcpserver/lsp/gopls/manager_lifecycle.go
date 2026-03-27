@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const managerShutdownTimeout = 5 * time.Second
@@ -33,10 +34,28 @@ func (m *manager) Close() error {
 	m.mu.Unlock()
 
 	// Let any in-flight initialization observe the closed state and clean up before shutdown.
-	m.ensureMu.Lock()
-	m.ensureMu.Unlock()
+	m.waitForEnsureOperations()
 
+	clients := m.collectAndClearClients()
+	m.AdvanceDiagnosticGeneration()
+	var firstErr error
+	if m.pool != nil && m.pool.primary == m {
+		firstErr = firstNonNilError(firstErr, m.pool.Close())
+	}
+	firstErr = firstNonNilError(firstErr, shutdownClients(clients))
+	closeBootstrapCoordinator(m)
+	return firstErr
+}
+
+func (m *manager) waitForEnsureOperations() {
+	m.ensureMu.Lock()
+	defer m.ensureMu.Unlock()
+	_ = m.closed
+}
+
+func (m *manager) collectAndClearClients() []Client {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	clients := make([]Client, 0, len(m.workspaces))
 	for _, workspace := range m.workspaces {
 		if workspace != nil && workspace.client != nil {
@@ -44,17 +63,13 @@ func (m *manager) Close() error {
 		}
 	}
 	clear(m.workspaces)
-	m.mu.Unlock()
+	return clients
+}
 
-	m.AdvanceDiagnosticGeneration()
+func shutdownClients(clients []Client) error {
 	var firstErr error
-	if m.pool != nil && m.pool.primary == m {
-		if err := m.pool.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
 	for _, client := range clients {
-		shutCtx, cancel := context.WithTimeout(context.Background(), managerShutdownTimeout)
+		shutCtx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
 		if err := client.Shutdown(shutCtx); err != nil && firstErr == nil {
 			firstErr = err
 		}
@@ -63,8 +78,14 @@ func (m *manager) Close() error {
 			firstErr = err
 		}
 	}
-	closeBootstrapCoordinator(m)
 	return firstErr
+}
+
+func firstNonNilError(current, next error) error {
+	if current != nil || next == nil {
+		return current
+	}
+	return next
 }
 
 func (m *manager) ensureClientForFile(ctx context.Context, filePath, languageID string) (Client, error) {
@@ -97,37 +118,45 @@ func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string
 }
 
 func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
-	m.mu.RLock()
-	if m.closed {
-		m.mu.RUnlock()
-		return nil, ErrManagerClosed
+	client, err := m.lookupExistingClient(cfg.key)
+	if client != nil || err != nil {
+		return client, err
 	}
-	if workspace := m.workspaces[cfg.key]; workspace != nil && workspace.client != nil {
-		client := workspace.client
-		m.mu.RUnlock()
-		return client, nil
-	}
-	m.mu.RUnlock()
 
 	m.ensureMu.Lock()
 	defer m.ensureMu.Unlock()
 
+	client, err = m.lookupExistingClient(cfg.key)
+	if client != nil || err != nil {
+		return client, err
+	}
+
+	return m.createAndRegisterClient(ctx, cfg)
+}
+
+func (m *manager) lookupExistingClient(key string) (Client, error) {
 	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.closed {
-		m.mu.RUnlock()
 		return nil, ErrManagerClosed
 	}
-	if workspace := m.workspaces[cfg.key]; workspace != nil && workspace.client != nil {
-		client := workspace.client
-		m.mu.RUnlock()
-		return client, nil
+	if workspace := m.workspaces[key]; workspace != nil && workspace.client != nil {
+		return workspace.client, nil
 	}
-	m.mu.RUnlock()
+	return nil, nil
+}
 
+func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
 	if m.factory == nil {
 		return nil, ErrClientFactoryNil
 	}
-	client, err := m.factory.NewClient(m)
+	capturedGen := m.diagGeneration.Load()
+	client, err := m.factory.NewClient(managerNotificationHandler{
+		publishDiagnostics: func(params protocol.PublishDiagnosticsParams) error {
+			return m.publishDiagnosticsForGeneration(params, capturedGen)
+		},
+		logMessage: m.LogMessage,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("create gopls client: %w", err)
 	}
@@ -137,18 +166,16 @@ func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client
 	}
 
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.closed {
-		m.mu.Unlock()
 		_ = client.Shutdown(context.Background())
 		_ = client.Close()
 		return nil, ErrManagerClosed
 	}
 	if workspace := m.workspaces[cfg.key]; workspace != nil && workspace.client != nil {
-		existing := workspace.client
-		m.mu.Unlock()
 		_ = client.Shutdown(context.Background())
 		_ = client.Close()
-		return existing, nil
+		return workspace.client, nil
 	}
 	m.workspaces[cfg.key] = &workspaceClient{
 		key:      cfg.key,
@@ -156,7 +183,6 @@ func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client
 		rootURI:  cfg.rootURI,
 		client:   client,
 	}
-	m.mu.Unlock()
 	return client, nil
 }
 

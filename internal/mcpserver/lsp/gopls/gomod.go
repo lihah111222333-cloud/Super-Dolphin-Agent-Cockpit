@@ -13,32 +13,36 @@ func findGoModRoot(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	startDir := absPath
-	info, statErr := os.Stat(absPath)
-	switch {
-	case statErr == nil && !info.IsDir():
-		startDir = filepath.Dir(absPath)
-	case statErr != nil && !os.IsNotExist(statErr):
-		return "", fmt.Errorf("stat path: %w", statErr)
-	case statErr != nil:
-		startDir = filepath.Dir(absPath)
+	startDir, err := resolveStartDir(absPath)
+	if err != nil {
+		return "", err
 	}
-	if strings.EqualFold(filepath.Base(absPath), "go.mod") {
-		startDir = filepath.Dir(absPath)
-	}
-	for dir := startDir; dir != ""; dir = filepath.Dir(dir) {
-		if dir == "." {
-			break
-		}
+	for dir := startDir; dir != "" && dir != "."; dir = filepath.Dir(dir) {
 		if fileExists(filepath.Join(dir, "go.mod")) {
 			return dir, nil
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
+		if filepath.Dir(dir) == dir {
 			break
 		}
 	}
 	return "", nil
+}
+
+func resolveStartDir(absPath string) (string, error) {
+	if strings.EqualFold(filepath.Base(absPath), "go.mod") {
+		return filepath.Dir(absPath), nil
+	}
+	info, statErr := os.Stat(absPath)
+	switch {
+	case statErr == nil && !info.IsDir():
+		return filepath.Dir(absPath), nil
+	case statErr != nil && !os.IsNotExist(statErr):
+		return "", fmt.Errorf("stat path: %w", statErr)
+	case statErr != nil:
+		return filepath.Dir(absPath), nil
+	default:
+		return absPath, nil
+	}
 }
 
 func normalizeAbsolutePath(path string) (string, error) {
