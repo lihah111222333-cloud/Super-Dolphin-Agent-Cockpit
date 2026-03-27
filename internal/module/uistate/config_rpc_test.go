@@ -169,7 +169,7 @@ func TestConfigPromptHintWriteRequiresPreferenceStore(t *testing.T) {
 func newConfigTestServer(
 	cfg *platformconfig.Config,
 	prefs uipreference.Store,
-	sharedFiles sharedfilestore.Store,
+	sharedFiles sharedfilestore.Reader,
 	threads thread.Service,
 ) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: cfg})

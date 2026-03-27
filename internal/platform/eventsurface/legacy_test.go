@@ -31,13 +31,13 @@ func TestExpandNotificationsAddsLegacyThreadRefresh(t *testing.T) {
 func TestExpandNotificationsAddsWorkspaceSidebarRefresh(t *testing.T) {
 	t.Parallel()
 
-	got := ExpandNotifications(MethodWorkspaceCreated, map[string]any{"runKey": "run-1"})
+	got := ExpandNotifications("workspace/run/created", map[string]any{"runKey": "run-1"})
 	if len(got) != 2 {
 		t.Fatalf("len(ExpandNotifications()) = %d, want 2", len(got))
 	}
-	assertNotification(t, got[0], MethodWorkspaceCreated, map[string]any{"runKey": "run-1"})
+	assertNotification(t, got[0], "workspace/run/created", map[string]any{"runKey": "run-1"})
 	assertNotification(t, got[1], MethodUISidebarChanged, map[string]any{
-		"source": MethodWorkspaceCreated,
+		"source": "workspace/run/created",
 	})
 }
 

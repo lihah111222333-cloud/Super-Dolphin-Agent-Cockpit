@@ -1,0 +1,151 @@
+package gopls
+
+import (
+	"context"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
+)
+
+func (m *manager) Diagnostics(_ context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+	current := m.CurrentDiagnosticGeneration()
+	filter, err := m.normalizeDiagnosticFilter(uris)
+	if err != nil {
+		return nil, err
+	}
+
+	m.diagMu.RLock()
+	defer m.diagMu.RUnlock()
+
+	items := make([]protocol.PublishDiagnosticsParams, 0, len(m.diagnostics))
+	for _, snapshot := range m.diagnostics {
+		if snapshot.generation != current {
+			continue
+		}
+		if len(filter) > 0 {
+			if _, ok := filter[snapshot.params.URI]; !ok {
+				continue
+			}
+		}
+		items = append(items, snapshot.params)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].URI < items[j].URI
+	})
+	return items, nil
+}
+
+func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) error {
+	if err := sleepContext(ctx, m.diagInitial); err != nil {
+		return err
+	}
+	filter, err := m.normalizeDiagnosticFilter(uris)
+	if err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(m.diagMaxWait)
+	lastUpdate := m.latestDiagnosticUpdate(filter)
+	for {
+		if time.Now().After(deadline) {
+			return nil
+		}
+		if lastUpdate.IsZero() || time.Since(lastUpdate) >= m.diagPoll {
+			return nil
+		}
+		waitFor := minDuration(m.diagPoll, time.Until(deadline))
+		if err := sleepContext(ctx, waitFor); err != nil {
+			return err
+		}
+		if next := m.latestDiagnosticUpdate(filter); next.After(lastUpdate) {
+			lastUpdate = next
+		}
+	}
+}
+
+func (m *manager) CurrentDiagnosticGeneration() uint64 {
+	return m.diagGeneration.Load()
+}
+
+func (m *manager) AdvanceDiagnosticGeneration() uint64 {
+	next := m.diagGeneration.Add(1)
+	m.diagMu.Lock()
+	clear(m.diagnostics)
+	m.diagMu.Unlock()
+	return next
+}
+
+func (m *manager) PublishDiagnostics(params protocol.PublishDiagnosticsParams) error {
+	generation := m.CurrentDiagnosticGeneration()
+	m.diagMu.Lock()
+	m.diagnostics[params.URI] = diagnosticSnapshot{
+		params:     params,
+		generation: generation,
+		updatedAt:  time.Now(),
+	}
+	m.diagMu.Unlock()
+	return nil
+}
+
+func (m *manager) latestDiagnosticUpdate(filter map[string]struct{}) time.Time {
+	m.diagMu.RLock()
+	defer m.diagMu.RUnlock()
+
+	current := m.CurrentDiagnosticGeneration()
+	var latest time.Time
+	for _, snapshot := range m.diagnostics {
+		if snapshot.generation != current {
+			continue
+		}
+		if len(filter) > 0 {
+			if _, ok := filter[snapshot.params.URI]; !ok {
+				continue
+			}
+		}
+		if snapshot.updatedAt.After(latest) {
+			latest = snapshot.updatedAt
+		}
+	}
+	return latest
+}
+
+func (m *manager) normalizeDiagnosticFilter(uris []string) (map[string]struct{}, error) {
+	filter := make(map[string]struct{}, len(uris))
+	for _, uri := range uris {
+		if strings.TrimSpace(uri) == "" {
+			continue
+		}
+		ref, err := m.resolveDocumentRef(uri, "")
+		if err != nil {
+			return nil, err
+		}
+		filter[ref.uri] = struct{}{}
+	}
+	return filter, nil
+}
+
+func minDuration(left, right time.Duration) time.Duration {
+	if right <= 0 {
+		return left
+	}
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func sleepContext(ctx context.Context, wait time.Duration) error {
+	if wait <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}

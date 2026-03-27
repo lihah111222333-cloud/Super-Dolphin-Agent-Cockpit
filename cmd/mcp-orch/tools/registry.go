@@ -5,7 +5,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	workspace "github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
+	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 )
 
 type Dependencies struct {

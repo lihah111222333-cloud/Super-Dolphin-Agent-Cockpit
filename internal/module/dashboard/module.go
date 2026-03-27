@@ -27,9 +27,9 @@ type serviceParams struct {
 	AILogs        ailogstore.Store
 	DBQueries     dbquerystore.Store
 	TaskTraces    tasktracestore.Store
-	CommandCards  commandcardstore.Store
-	Prompts       promptstore.Store
-	SharedFiles   sharedfilestore.Store
+	CommandCards  commandcardstore.Reader
+	Prompts       promptstore.Reader
+	SharedFiles   sharedfilestore.Reader
 	Skills        skillmodule.Service
 }
 

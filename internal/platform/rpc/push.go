@@ -90,9 +90,6 @@ var typedPushMethods = map[string]struct{}{
 	strings.ToLower(eventsurface.MethodThreadCompacted):  {},
 	strings.ToLower(eventsurface.MethodSkillsChanged):    {},
 	strings.ToLower(eventsurface.MethodUIThreadPatch):    {},
-	strings.ToLower(eventsurface.MethodWorkspaceCreated): {},
-	strings.ToLower(eventsurface.MethodWorkspaceMerged):  {},
-	strings.ToLower(eventsurface.MethodWorkspaceAborted): {},
 	strings.ToLower(eventsurface.MethodAgentLaunched):    {},
 	strings.ToLower(eventsurface.MethodAgentStopped):     {},
 }

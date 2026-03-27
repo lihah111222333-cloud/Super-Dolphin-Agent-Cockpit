@@ -43,12 +43,6 @@ const (
 	EventTypeThreadMessagesPage uint32 = 1352
 	EventTypeThreadCompacted    uint32 = 1353
 
-	EventTypeWorkspaceRunCreated       uint32 = 1400
-	EventTypeWorkspaceRunStatusChanged uint32 = 1401
-	EventTypeWorkspaceRunMerged        uint32 = 1402
-	EventTypeWorkspaceRunAborted       uint32 = 1403
-	EventTypeWorkspaceRunMergeError    uint32 = 1404
-
 	EventTypeUIProjectionUpdated  uint32 = 1500
 	EventTypeUITimelineAppended   uint32 = 1501
 	EventTypeUITokensUpdated      uint32 = 1502
@@ -127,12 +121,6 @@ type TaskNodeHeader struct {
 type TaskWakeupHeader struct {
 	TaskNodeHeader
 	WakeupID int64 `json:"wakeup_id"`
-}
-
-// WorkspaceRunHeader identifies a workspace run event.
-type WorkspaceRunHeader struct {
-	DAGHeader
-	RunKey string `json:"run_key"`
 }
 
 // UIProjectionHeader identifies a UI projection event.

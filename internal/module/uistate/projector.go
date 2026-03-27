@@ -9,7 +9,6 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	workspacedto "github.com/anthropic-ai/super-agent-v3/internal/dto/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 )
@@ -36,11 +35,6 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 		platformbus.ResilientSubscribe(dispatcher, svc.applyToolCallEnd, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyToolApprovalRequested, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyToolApprovalResolved, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunCreated, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunStatusChanged, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunMerged, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunAborted, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyWorkspaceRunMergeError, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTokensUpdated, svc.logger),
 	}
 	onTimelineUpdated := func(threadID string) {
@@ -54,72 +48,6 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 		cancels = append(cancels, timeline.RegisterSubscriptions(dispatcher, svc.timeline, svc.logger, onTimelineUpdated)...)
 	}
 	return cancels
-}
-func (s *service) applyWorkspaceRunCreated(ev workspacedto.WorkspaceRunCreated) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.workspaceByKey[ev.RunKey] = mergeWorkspaceRun(s.workspaceByKey[ev.RunKey], WorkspaceRunSummary{
-		RunKey:        strings.TrimSpace(ev.RunKey),
-		DagKey:        strings.TrimSpace(ev.DagKey),
-		Status:        "created",
-		SourceRoot:    strings.TrimSpace(ev.SourceRoot),
-		WorkspacePath: strings.TrimSpace(ev.WorkspacePath),
-		CreatedBy:     strings.TrimSpace(ev.CreatedBy),
-		UpdatedAt:     cloneTime(&ev.Timestamp),
-	})
-}
-func (s *service) applyWorkspaceRunStatusChanged(ev workspacedto.WorkspaceRunStatusChanged) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.workspaceByKey[ev.RunKey] = mergeWorkspaceRun(s.workspaceByKey[ev.RunKey], WorkspaceRunSummary{
-		RunKey:    strings.TrimSpace(ev.RunKey),
-		DagKey:    strings.TrimSpace(ev.DagKey),
-		Status:    strings.TrimSpace(ev.NewStatus),
-		UpdatedBy: strings.TrimSpace(ev.UpdatedBy),
-		UpdatedAt: cloneTime(&ev.Timestamp),
-	})
-}
-func (s *service) applyWorkspaceRunMerged(ev workspacedto.WorkspaceRunMerged) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.workspaceByKey[ev.RunKey] = mergeWorkspaceRun(s.workspaceByKey[ev.RunKey], WorkspaceRunSummary{
-		RunKey:          strings.TrimSpace(ev.RunKey),
-		DagKey:          strings.TrimSpace(ev.DagKey),
-		Status:          "merged",
-		SourceRoot:      strings.TrimSpace(ev.SourceRoot),
-		WorkspacePath:   strings.TrimSpace(ev.WorkspacePath),
-		UpdatedBy:       strings.TrimSpace(ev.UpdatedBy),
-		MergedFileCount: ev.MergedFileCount,
-		UpdatedAt:       cloneTime(&ev.Timestamp),
-	})
-}
-func (s *service) applyWorkspaceRunAborted(ev workspacedto.WorkspaceRunAborted) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.workspaceByKey[ev.RunKey] = mergeWorkspaceRun(s.workspaceByKey[ev.RunKey], WorkspaceRunSummary{
-		RunKey:    strings.TrimSpace(ev.RunKey),
-		DagKey:    strings.TrimSpace(ev.DagKey),
-		Status:    "aborted",
-		UpdatedBy: strings.TrimSpace(ev.UpdatedBy),
-		Message:   strings.TrimSpace(ev.Reason),
-		UpdatedAt: cloneTime(&ev.Timestamp),
-	})
-}
-func (s *service) applyWorkspaceRunMergeError(ev workspacedto.WorkspaceRunMergeError) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.workspaceByKey[ev.RunKey] = mergeWorkspaceRun(s.workspaceByKey[ev.RunKey], WorkspaceRunSummary{
-		RunKey:        strings.TrimSpace(ev.RunKey),
-		DagKey:        strings.TrimSpace(ev.DagKey),
-		Status:        "merge_error",
-		SourceRoot:    strings.TrimSpace(ev.SourceRoot),
-		WorkspacePath: strings.TrimSpace(ev.WorkspacePath),
-		UpdatedBy:     strings.TrimSpace(ev.UpdatedBy),
-		Conflicts:     ev.Conflicts,
-		Errors:        ev.Errors,
-		Message:       strings.TrimSpace(ev.Message),
-		UpdatedAt:     cloneTime(&ev.Timestamp),
-	})
 }
 
 func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
@@ -302,23 +230,6 @@ func completionStatus(ev turndto.TurnCompleted) string {
 	return "failed"
 }
 
-func mergeWorkspaceRun(current, next WorkspaceRunSummary) WorkspaceRunSummary {
-	current.RunKey = chooseString(next.RunKey, current.RunKey)
-	current.DagKey = chooseString(next.DagKey, current.DagKey)
-	current.Status = chooseString(next.Status, current.Status)
-	current.SourceRoot = chooseString(next.SourceRoot, current.SourceRoot)
-	current.WorkspacePath = chooseString(next.WorkspacePath, current.WorkspacePath)
-	current.CreatedBy = chooseString(next.CreatedBy, current.CreatedBy)
-	current.UpdatedBy = chooseString(next.UpdatedBy, current.UpdatedBy)
-	current.MergedFileCount = choosePositiveInt(next.MergedFileCount, current.MergedFileCount)
-	current.Conflicts = choosePositiveInt(next.Conflicts, current.Conflicts)
-	current.Errors = choosePositiveInt(next.Errors, current.Errors)
-	current.Message = chooseString(next.Message, current.Message)
-	if next.UpdatedAt != nil {
-		current.UpdatedAt = cloneTime(next.UpdatedAt)
-	}
-	return current
-}
 
 func chooseString(next, current string) string {
 	if next != "" {

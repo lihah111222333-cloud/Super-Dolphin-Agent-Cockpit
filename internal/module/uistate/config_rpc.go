@@ -67,7 +67,7 @@ type threadRuntimeConfigReader interface {
 func NewConfigHandlers(
 	cfg *platformconfig.Config,
 	prefs uipreference.Store,
-	sharedFiles sharedfilestore.Store,
+	sharedFiles sharedfilestore.Reader,
 	threads thread.Service,
 ) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
@@ -295,7 +295,7 @@ func configCWD(cfg *platformconfig.Config) string {
 func readLSPPromptHint(
 	ctx context.Context,
 	prefs uipreference.Store,
-	sharedFiles sharedfilestore.Store,
+	sharedFiles sharedfilestore.Reader,
 	cwd string,
 ) (*lspPromptHintResult, error) {
 	defaultHint, err := readDefaultLSPPromptHint(ctx, sharedFiles)
@@ -312,7 +312,7 @@ func readLSPPromptHint(
 func writeLSPPromptHint(
 	ctx context.Context,
 	prefs uipreference.Store,
-	sharedFiles sharedfilestore.Store,
+	sharedFiles sharedfilestore.Reader,
 	cwd, hint string,
 ) (*lspPromptHintResult, error) {
 	if prefs == nil {
@@ -332,7 +332,7 @@ func writeLSPPromptHint(
 	return buildLSPPromptHintResult(defaultHint, overrideHint), nil
 }
 
-func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedfilestore.Store) (string, error) {
+func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedfilestore.Reader) (string, error) {
 	if sharedFiles == nil {
 		return "", nil
 	}

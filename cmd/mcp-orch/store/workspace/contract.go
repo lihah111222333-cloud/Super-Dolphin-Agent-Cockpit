@@ -2,8 +2,8 @@ package workspace
 
 import (
 	"context"
-
-	internalworkspace "github.com/anthropic-ai/super-agent-v3/internal/store/workspace"
+	"encoding/json"
+	"time"
 )
 
 type Store interface {
@@ -18,58 +18,58 @@ type Store interface {
 	ListFiles(ctx context.Context, filter ListFilesFilter) ([]WorkspaceRunFile, error)
 }
 
-type ListRunsFilter = internalworkspace.ListRunsFilter
-type UpdateRunStatusInput = internalworkspace.UpdateRunStatusInput
-type TransitionRunStatusInput = internalworkspace.TransitionRunStatusInput
-type ListFilesFilter = internalworkspace.ListFilesFilter
-type WorkspaceRun = internalworkspace.WorkspaceRun
-type WorkspaceRunFile = internalworkspace.WorkspaceRunFile
-
-func AsInternalStore(store Store) internalworkspace.Store {
-	if store == nil {
-		return nil
-	}
-	return internalStoreAdapter{store: store}
+type ListRunsFilter struct {
+	Status string
+	DagKey string
+	Limit  int32
 }
 
-type internalStoreAdapter struct {
-	store Store
+type UpdateRunStatusInput struct {
+	RunKey    string
+	Status    string
+	UpdatedBy string
+	Metadata  json.RawMessage
 }
 
-func (a internalStoreAdapter) WithTx(ctx context.Context, fn func(txStore internalworkspace.Store) error) error {
-	return a.store.WithTx(ctx, func(tx Store) error {
-		return fn(AsInternalStore(tx))
-	})
+type TransitionRunStatusInput struct {
+	RunKey     string
+	FromStatus string
+	Status     string
+	UpdatedBy  string
+	Metadata   json.RawMessage
 }
 
-func (a internalStoreAdapter) UpsertRun(ctx context.Context, run internalworkspace.WorkspaceRun) (*internalworkspace.WorkspaceRun, error) {
-	return a.store.UpsertRun(ctx, run)
+type ListFilesFilter struct {
+	RunKey string
+	State  string
+	Limit  int32
 }
 
-func (a internalStoreAdapter) GetRun(ctx context.Context, runKey string) (*internalworkspace.WorkspaceRun, error) {
-	return a.store.GetRun(ctx, runKey)
+type WorkspaceRun struct {
+	ID            int64           `json:"id"`
+	RunKey        string          `json:"run_key"`
+	DagKey        string          `json:"dag_key,omitempty"`
+	SourceRoot    string          `json:"source_root"`
+	WorkspacePath string          `json:"workspace_path"`
+	Status        string          `json:"status"`
+	CreatedBy     string          `json:"created_by,omitempty"`
+	UpdatedBy     string          `json:"updated_by,omitempty"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
 }
 
-func (a internalStoreAdapter) ListRuns(ctx context.Context, filter internalworkspace.ListRunsFilter) ([]internalworkspace.WorkspaceRun, error) {
-	return a.store.ListRuns(ctx, filter)
-}
-
-func (a internalStoreAdapter) UpdateRunStatus(ctx context.Context, input internalworkspace.UpdateRunStatusInput) (*internalworkspace.WorkspaceRun, error) {
-	return a.store.UpdateRunStatus(ctx, input)
-}
-
-func (a internalStoreAdapter) TransitionRunStatus(ctx context.Context, input internalworkspace.TransitionRunStatusInput) (*internalworkspace.WorkspaceRun, error) {
-	return a.store.TransitionRunStatus(ctx, input)
-}
-
-func (a internalStoreAdapter) UpsertFile(ctx context.Context, file internalworkspace.WorkspaceRunFile) (*internalworkspace.WorkspaceRunFile, error) {
-	return a.store.UpsertFile(ctx, file)
-}
-
-func (a internalStoreAdapter) GetFile(ctx context.Context, runKey, relativePath string) (*internalworkspace.WorkspaceRunFile, error) {
-	return a.store.GetFile(ctx, runKey, relativePath)
-}
-
-func (a internalStoreAdapter) ListFiles(ctx context.Context, filter internalworkspace.ListFilesFilter) ([]internalworkspace.WorkspaceRunFile, error) {
-	return a.store.ListFiles(ctx, filter)
+type WorkspaceRunFile struct {
+	ID                 int64     `json:"id"`
+	RunKey             string    `json:"run_key"`
+	RelativePath       string    `json:"relative_path"`
+	BaselineSHA256     string    `json:"baseline_sha256,omitempty"`
+	WorkspaceSHA256    string    `json:"workspace_sha256,omitempty"`
+	SourceSHA256Before string    `json:"source_sha256_before,omitempty"`
+	SourceSHA256After  string    `json:"source_sha256_after,omitempty"`
+	State              string    `json:"state"`
+	LastError          string    `json:"last_error,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }

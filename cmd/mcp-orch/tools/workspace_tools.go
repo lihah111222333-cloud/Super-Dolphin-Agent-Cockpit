@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	workspace "github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
+	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 

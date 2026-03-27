@@ -9,7 +9,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -43,7 +42,6 @@ var Module = fx.Options(
 	thread.Module,
 	turn.Module,
 	uistate.Module,
-	workspace.Module,
 	unified.Module,
 	claudecli.Module,
 	codexapp.Module,
