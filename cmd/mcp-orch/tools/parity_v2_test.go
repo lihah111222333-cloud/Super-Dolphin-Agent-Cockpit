@@ -11,7 +11,7 @@ import (
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
-	workspace "github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
+	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 

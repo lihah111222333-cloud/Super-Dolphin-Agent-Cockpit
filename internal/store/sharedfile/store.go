@@ -11,14 +11,15 @@ type store struct {
 	q *sqlc.Queries
 }
 
-func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+func NewStore(q *sqlc.Queries) Reader { return &store{q: q} }
 
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	row, err := s.q.GetSharedFile(ctx, path)
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "get", "shared_file")
 	}
-	return &row, nil
+	mapped := fromSQLCRow(row)
+	return &mapped, nil
 }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {
@@ -29,5 +30,29 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, erro
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "list", "shared_file")
 	}
-	return rows, nil
+	files := make([]SharedFile, 0, len(rows))
+	for _, row := range rows {
+		files = append(files, fromSQLCListRow(row))
+	}
+	return files, nil
+}
+
+func fromSQLCRow(row sqlc.SharedFile) SharedFile {
+	return SharedFile{
+		Path:      row.Path,
+		Content:   row.Content,
+		UpdatedBy: row.UpdatedBy,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+	}
+}
+
+func fromSQLCListRow(row sqlc.SharedFile) SharedFile {
+	return SharedFile{
+		Path:      row.Path,
+		Content:   row.Content,
+		UpdatedBy: row.UpdatedBy,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+	}
 }

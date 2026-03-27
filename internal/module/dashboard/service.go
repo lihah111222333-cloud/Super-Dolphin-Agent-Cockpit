@@ -40,9 +40,9 @@ type service struct {
 	aiLogs        ailogstore.Store
 	dbQueries     dbquerystore.Store
 	taskTraces    tasktracestore.Store
-	commandCards  commandcardstore.Store
-	prompts       promptstore.Store
-	sharedFiles   sharedfilestore.Store
+	commandCards  commandcardstore.Reader
+	prompts       promptstore.Reader
+	sharedFiles   sharedfilestore.Reader
 	skills        skillmodule.Service
 	startedAt     time.Time
 }
@@ -58,9 +58,9 @@ func NewService(
 	aiLogs ailogstore.Store,
 	dbQueries dbquerystore.Store,
 	taskTraces tasktracestore.Store,
-	commandCards commandcardstore.Store,
-	prompts promptstore.Store,
-	sharedFiles sharedfilestore.Store,
+	commandCards commandcardstore.Reader,
+	prompts promptstore.Reader,
+	sharedFiles sharedfilestore.Reader,
 	skills skillmodule.Service,
 ) Service {
 	return &service{

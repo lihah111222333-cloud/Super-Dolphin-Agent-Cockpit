@@ -2,14 +2,12 @@ package workspace
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
-	internalworkspace "github.com/anthropic-ai/super-agent-v3/internal/store/workspace"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -177,55 +175,5 @@ func TestListWorkspaceRuns(t *testing.T) {
 	}
 }
 
-func TestAsInternalStore(t *testing.T) {
-	txStub := &adapterStoreStub{
-		getRun: func(_ context.Context, runKey string) (*WorkspaceRun, error) {
-			return &WorkspaceRun{RunKey: runKey, Status: "tx"}, nil
-		},
-	}
-	base := &adapterStoreStub{
-		txStore: txStub,
-		getRun: func(_ context.Context, runKey string) (*WorkspaceRun, error) {
-			return &WorkspaceRun{RunKey: runKey, Status: "base"}, nil
-		},
-		listRuns: func(_ context.Context, filter ListRunsFilter) ([]WorkspaceRun, error) {
-			return []WorkspaceRun{{RunKey: filter.DagKey}}, nil
-		},
-	}
 
-	adapted := AsInternalStore(base)
-	got, err := adapted.GetRun(context.Background(), "run-direct")
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got.Status != "base" {
-		t.Fatalf("GetRun().Status = %q, want base", got.Status)
-	}
 
-	listed, err := adapted.ListRuns(context.Background(), internalworkspace.ListRunsFilter{DagKey: "dag-adapter"})
-	if err != nil {
-		t.Fatalf("ListRuns() error = %v", err)
-	}
-	if len(listed) != 1 || listed[0].RunKey != "dag-adapter" {
-		t.Fatalf("ListRuns() = %#v", listed)
-	}
-
-	if err := adapted.WithTx(context.Background(), func(tx internalworkspace.Store) error {
-		run, err := tx.GetRun(context.Background(), "run-tx")
-		if err != nil {
-			return err
-		}
-		if run.Status != "tx" {
-			return fmt.Errorf("tx GetRun().Status = %q, want tx", run.Status)
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("WithTx() error = %v", err)
-	}
-	if base.withTxCalls != 1 {
-		t.Fatalf("WithTx() calls = %d, want 1", base.withTxCalls)
-	}
-	if len(txStub.getRunKeys) != 1 || txStub.getRunKeys[0] != "run-tx" {
-		t.Fatalf("tx getRunKeys = %#v, want [run-tx]", txStub.getRunKeys)
-	}
-}

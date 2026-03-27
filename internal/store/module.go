@@ -21,7 +21,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/topologyapproval"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/workspace"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -44,5 +43,4 @@ var Module = fx.Module("store",
 	thread.Module,
 	topologyapproval.Module,
 	uipreference.Module,
-	workspace.Module,
 )

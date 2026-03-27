@@ -9,13 +9,14 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	taskdagstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
+	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
-	workspace "github.com/anthropic-ai/super-agent-v3/internal/module/workspace"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	internalStore "github.com/anthropic-ai/super-agent-v3/internal/store"
-	storeworkspace "github.com/anthropic-ai/super-agent-v3/internal/store/workspace"
+	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
 
@@ -31,13 +32,14 @@ func run() error {
 		commandcardstore.Module,
 		sharedfilestore.Module,
 		taskdagstore.Module,
+		storeworkspace.Module,
 		orchestration.Module,
 		fx.Provide(
 			newLogger,
 			newPool,
 			newQueries,
-			func(store storeworkspace.Store, emitters *platformbus.WorkspaceEmitters) workspace.Service {
-				return workspace.NewService(store, emitters)
+			func(store storeworkspace.Store, dispatcher *event.Dispatcher) workspace.Service {
+				return workspace.NewService(store, dispatcher)
 			},
 			newNoopSessionCleaner,
 			newNoopTurnStarter,

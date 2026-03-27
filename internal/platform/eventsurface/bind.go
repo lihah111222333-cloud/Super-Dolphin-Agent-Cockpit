@@ -11,7 +11,6 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	workspacedto "github.com/anthropic-ai/super-agent-v3/internal/dto/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
 )
@@ -42,11 +41,6 @@ const (
 	MethodSkillsChanged          = "skills/changed"
 	MethodUIPreferencesChanged   = "ui/preferences/changed"
 	MethodUIThreadPatch          = "ui/thread/patch"
-	MethodWorkspaceCreated       = "workspace/run/created"
-	MethodWorkspaceStatusChanged = "workspace/run/status/changed"
-	MethodWorkspaceMerged        = "workspace/run/merged"
-	MethodWorkspaceAborted       = "workspace/run/aborted"
-	MethodWorkspaceMergeError    = "workspace/run/merge_error"
 	MethodAgentLaunched          = "agent/launched"
 	MethodAgentStopped           = "agent/stopped"
 	MethodAgentRecovering        = "agent/recovering"
@@ -64,7 +58,6 @@ func Bind(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFunc
 	cancels = append(cancels, bindThread(dispatcher, logger, publish)...)
 	cancels = append(cancels, bindTool(dispatcher, logger, publish)...)
 	cancels = append(cancels, bindUI(dispatcher, logger, publish)...)
-	cancels = append(cancels, bindWorkspace(dispatcher, logger, publish)...)
 	cancels = append(cancels, bindAgentLifecycle(dispatcher, logger, publish)...)
 	return cancels
 }
@@ -142,26 +135,6 @@ func bindUI(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFu
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev uidto.UIThreadPatch) {
 			publish(MethodUIThreadPatch, ev)
-		}, logger),
-	}
-}
-
-func bindWorkspace(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFunc) []context.CancelFunc {
-	return []context.CancelFunc{
-		bus.ResilientSubscribe(dispatcher, func(ev workspacedto.WorkspaceRunCreated) {
-			publish(MethodWorkspaceCreated, workspaceCreatedPayload(ev))
-		}, logger),
-		bus.ResilientSubscribe(dispatcher, func(ev workspacedto.WorkspaceRunStatusChanged) {
-			publish(MethodWorkspaceStatusChanged, workspaceStatusChangedPayload(ev))
-		}, logger),
-		bus.ResilientSubscribe(dispatcher, func(ev workspacedto.WorkspaceRunMerged) {
-			publish(MethodWorkspaceMerged, workspaceMergedPayload(ev))
-		}, logger),
-		bus.ResilientSubscribe(dispatcher, func(ev workspacedto.WorkspaceRunAborted) {
-			publish(MethodWorkspaceAborted, workspaceAbortedPayload(ev))
-		}, logger),
-		bus.ResilientSubscribe(dispatcher, func(ev workspacedto.WorkspaceRunMergeError) {
-			publish(MethodWorkspaceMergeError, workspaceMergeErrorPayload(ev))
 		}, logger),
 	}
 }

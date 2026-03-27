@@ -10,7 +10,6 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	workspacedto "github.com/anthropic-ai/super-agent-v3/internal/dto/workspace"
 	"github.com/kelindar/event"
 )
 
@@ -29,7 +28,6 @@ func NewLogSink(dispatcher *event.Dispatcher, logger *slog.Logger) *LogSink {
 	sink.bindTurn(dispatcher, logger)
 	sink.bindTool(dispatcher, logger)
 	sink.bindTask(dispatcher, logger)
-	sink.bindWorkspace(dispatcher, logger)
 	sink.bindUI(dispatcher, logger)
 	return sink
 }
@@ -85,14 +83,6 @@ func (s *LogSink) bindTask(dispatcher *event.Dispatcher, logger *slog.Logger) {
 	s.subs.Add(logEvent[taskdto.TaskNodeStatusChanged](dispatcher, logger))
 	s.subs.Add(logEvent[taskdto.TaskWakeupDispatched](dispatcher, logger))
 	s.subs.Add(logEvent[taskdto.TaskWakeupCompleted](dispatcher, logger))
-}
-
-func (s *LogSink) bindWorkspace(dispatcher *event.Dispatcher, logger *slog.Logger) {
-	s.subs.Add(logEvent[workspacedto.WorkspaceRunCreated](dispatcher, logger))
-	s.subs.Add(logEvent[workspacedto.WorkspaceRunStatusChanged](dispatcher, logger))
-	s.subs.Add(logEvent[workspacedto.WorkspaceRunMerged](dispatcher, logger))
-	s.subs.Add(logEvent[workspacedto.WorkspaceRunAborted](dispatcher, logger))
-	s.subs.Add(logEvent[workspacedto.WorkspaceRunMergeError](dispatcher, logger))
 }
 
 func (s *LogSink) bindUI(dispatcher *event.Dispatcher, logger *slog.Logger) {

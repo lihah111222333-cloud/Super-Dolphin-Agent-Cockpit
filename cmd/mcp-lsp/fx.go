@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
 	"strings"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -23,6 +26,10 @@ type runtimeParams struct {
 
 	Runners    []platformrunner.Runner `group:"runners"`
 	Shutdowner fx.Shutdowner
+}
+
+type registryToolProvider struct {
+	defs []toolDefinition
 }
 
 // run boots the MCP binary itself. The core process only exposes ctl/* endpoints
@@ -62,7 +69,11 @@ func run() error {
 				return cfg
 			},
 			bootstrap.New,
+			newManager,
+			newToolHandlers,
+			newServer,
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
+			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
 		),
 		fx.Invoke(bindRuntime),
 	)
@@ -80,8 +91,60 @@ func run() error {
 	return app.Stop(stopCtx)
 }
 
+func newServer(handlers ToolHandlers) *common.Server {
+	transport := common.NewStdioTransport(os.Stdin, os.Stdout)
+	return common.NewServer(binaryName, binaryVersion, transport, registryToolProvider{
+		defs: toolDefinitions(handlers),
+	})
+}
+
 func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client) platformrunner.Runner {
 	return bootstrapRunner{cfg: cfg, client: client}
+}
+
+func (p registryToolProvider) ListTools(context.Context) ([]common.MCPTool, error) {
+	toolsList := make([]common.MCPTool, 0, len(p.defs))
+	for _, def := range p.defs {
+		schema, err := marshalInputSchema(def.Manifest.Schema)
+		if err != nil {
+			return nil, err
+		}
+		toolsList = append(toolsList, common.MCPTool{
+			Name:        def.Manifest.Name,
+			Description: def.Manifest.Description,
+			InputSchema: schema,
+		})
+	}
+	return toolsList, nil
+}
+
+func (p registryToolProvider) CallTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
+	return handleToolCall(ctx, p.defs, name, args)
+}
+
+func marshalInputSchema(schema map[string]any) (json.RawMessage, error) {
+	if len(schema) == 0 {
+		return json.RawMessage("{}"), nil
+	}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func handleToolCall(ctx context.Context, defs []toolDefinition, name string, args json.RawMessage) (any, error) {
+	trimmed := strings.TrimSpace(name)
+	for _, def := range defs {
+		if def.Manifest.Name != trimmed {
+			continue
+		}
+		if def.Handler == nil {
+			return nil, errors.New("tool handler is not configured")
+		}
+		return def.Handler(ctx, args)
+	}
+	return nil, errors.New("unknown tool: " + trimmed)
 }
 
 func (r bootstrapRunner) Run(ctx context.Context) error {

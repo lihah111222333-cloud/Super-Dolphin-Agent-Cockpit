@@ -13,7 +13,6 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	workspacedto "github.com/anthropic-ai/super-agent-v3/internal/dto/workspace"
 	"github.com/kelindar/event"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -62,11 +61,6 @@ var typedEventPublishers = map[reflect.Type]typedEventPublisher{
 	typedEventType[uidto.SkillsChanged]():                    publishEvent[uidto.SkillsChanged],
 	typedEventType[uidto.UIThreadPatch]():                    publishEvent[uidto.UIThreadPatch],
 	typedEventType[uidto.UIPreferencesChanged]():             publishEvent[uidto.UIPreferencesChanged],
-	typedEventType[workspacedto.WorkspaceRunCreated]():       publishEvent[workspacedto.WorkspaceRunCreated],
-	typedEventType[workspacedto.WorkspaceRunStatusChanged](): publishEvent[workspacedto.WorkspaceRunStatusChanged],
-	typedEventType[workspacedto.WorkspaceRunMerged]():        publishEvent[workspacedto.WorkspaceRunMerged],
-	typedEventType[workspacedto.WorkspaceRunAborted]():       publishEvent[workspacedto.WorkspaceRunAborted],
-	typedEventType[workspacedto.WorkspaceRunMergeError]():    publishEvent[workspacedto.WorkspaceRunMergeError],
 }
 
 // EventDispatcher manages raw driver events and republishes translated typed events.

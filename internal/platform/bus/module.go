@@ -12,7 +12,6 @@ var Module = fx.Module(
 	fx.Provide(
 		NewDispatcher,
 		NewThreadEmitters,
-		NewWorkspaceEmitters,
 		NewLogSink,
 	),
 	fx.Invoke(registerLifecycle),

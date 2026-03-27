@@ -2,7 +2,6 @@ package eventsurface
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	workspacedto "github.com/anthropic-ai/super-agent-v3/internal/dto/workspace"
 	"github.com/kelindar/event"
 )
 
@@ -27,7 +25,7 @@ func TestBindPublishesExpandedSurface(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	got := make(chan publishedEvent, 3)
+	got := make(chan publishedEvent, 2)
 	cancels := Bind(dispatcher, nil, func(method string, payload any) {
 		got <- publishedEvent{method: method, payload: payload}
 	})
@@ -40,20 +38,6 @@ func TestBindPublishesExpandedSurface(t *testing.T) {
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/tmp/demo",
-	})
-	event.Publish(dispatcher, workspacedto.WorkspaceRunCreated{
-		WorkspaceRunHeader: shared.WorkspaceRunHeader{
-			DAGHeader: shared.DAGHeader{
-				EventHeader: shared.EventHeader{Timestamp: now},
-				DagKey:      "dag-1",
-			},
-			RunKey: "run-1",
-		},
-		SourceRoot:    "/src",
-		WorkspacePath: "/workspace/run-1",
-		Status:        "active",
-		CreatedBy:     "alice",
-		UpdatedBy:     "alice",
 	})
 	event.Publish(dispatcher, agentdto.AgentStopped{
 		AgentSessionHeader: shared.AgentSessionHeader{
@@ -70,60 +54,13 @@ func TestBindPublishesExpandedSurface(t *testing.T) {
 	})
 
 	seen := map[string]bool{}
-	for range 3 {
+	for range 2 {
 		seen[mustReceivePublished(t, got).method] = true
 	}
-	for _, method := range []string{MethodThreadStarted, MethodWorkspaceCreated, MethodAgentStopped} {
+	for _, method := range []string{MethodThreadStarted, MethodAgentStopped} {
 		if !seen[method] {
 			t.Fatalf("method %q missing from %#v", method, seen)
 		}
-	}
-}
-
-func TestWorkspacePayloadShapes(t *testing.T) {
-	t.Parallel()
-
-	now := time.Unix(1710000000, 0).UTC()
-	created := workspaceCreatedPayload(workspacedto.WorkspaceRunCreated{
-		WorkspaceRunHeader: shared.WorkspaceRunHeader{
-			DAGHeader: shared.DAGHeader{
-				EventHeader: shared.EventHeader{Timestamp: now},
-				DagKey:      "dag-2",
-			},
-			RunKey: "run-2",
-		},
-		ID:            42,
-		SourceRoot:    "/src",
-		WorkspacePath: "/workspace/run-2",
-		Status:        "active",
-		CreatedBy:     "bob",
-		UpdatedBy:     "bob",
-		Metadata:      json.RawMessage(`{"owner":"bob"}`),
-		CreatedAt:     now.Add(-time.Minute),
-		UpdatedAt:     now,
-	})
-	run, _ := created["run"].(map[string]any)
-	if created["runKey"] != "run-2" || run["status"] != "active" || run["id"] != int64(42) {
-		t.Fatalf("created payload = %#v", created)
-	}
-	if got, ok := run["createdAt"].(time.Time); !ok || !got.Equal(now.Add(-time.Minute)) {
-		t.Fatalf("created payload createdAt = %#v", run["createdAt"])
-	}
-	if got, ok := run["metadata"].(json.RawMessage); !ok || string(got) != `{"owner":"bob"}` {
-		t.Fatalf("created payload metadata = %#v", run["metadata"])
-	}
-
-	merged := workspaceMergedPayload(workspacedto.WorkspaceRunMerged{
-		WorkspaceRunHeader: shared.WorkspaceRunHeader{RunKey: "run-2"},
-		Status:             "merged",
-		SourceRoot:         "/src",
-		WorkspacePath:      "/workspace/run-2",
-		MergedFileCount:    3,
-		Removed:            1,
-	})
-	result, _ := merged["result"].(map[string]any)
-	if result["merged"] != 3 || result["removed"] != 1 {
-		t.Fatalf("merged payload = %#v", merged)
 	}
 }
 
