@@ -221,6 +221,10 @@ func (m *manager) BootstrapDocument(ctx context.Context, uri string) error {
 	return m.bootstrapDocument(ctx, uri)
 }
 
+func (m *manager) BootstrapDocumentOpenOnly(ctx context.Context, uri string) error {
+	return m.bootstrapDocumentOpenOnly(ctx, uri)
+}
+
 func (m *manager) LogMessage(params protocol.LogMessageParams) error {
 	if m.logger == nil {
 		return nil

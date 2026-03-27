@@ -60,7 +60,7 @@ func runReferences(
 	position protocol.Position,
 	req xrefParams,
 ) (any, error) {
-	includeDeclaration := true
+	includeDeclaration := false
 	if req.IncludeDeclaration != nil {
 		includeDeclaration = *req.IncludeDeclaration
 	}

@@ -104,10 +104,10 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	filtered, total, truncated := search.FilterAndCapSearchMatches(matches, limit)
 	h.attachFuncRanges(ctx, filtered)
 	if len(filtered) == 0 {
-		return emptyListEnvelope{
-			Success: true,
-			Data:    []any{},
-			Meta:    resultMeta{Count: 0, Message: "no matches found"},
+		return grepResponse{
+			Files:   map[string]grepFileRows{},
+			Total:   0,
+			Showing: 0,
 		}, nil
 	}
 	return buildGrepResponse(filtered, total, truncated), nil

@@ -178,10 +178,22 @@ func readFileWithMode(path string) (string, os.FileMode, error) {
 	return string(content), info.Mode().Perm(), nil
 }
 
-func restoreFiles(originals map[string]string, modes map[string]os.FileMode, updated map[string]string) {
+func restoreFiles(originals map[string]string, modes map[string]os.FileMode, updated map[string]string) error {
+	restored := 0
+	failed := 0
+	details := make([]string, 0)
 	for _, path := range sortedKeys(updated) {
-		_ = os.WriteFile(path, []byte(originals[path]), modes[path])
+		if err := os.WriteFile(path, []byte(originals[path]), modes[path]); err != nil {
+			failed++
+			details = append(details, fmt.Sprintf("%s: %v", path, err))
+			continue
+		}
+		restored++
 	}
+	if failed == 0 {
+		return nil
+	}
+	return fmt.Errorf("partial rollback: %d files restored, %d failed: %s", restored, failed, strings.Join(details, "; "))
 }
 
 func functionBody(content string, start int, end int) string {
@@ -197,7 +209,11 @@ func functionBody(content string, start int, end int) string {
 }
 
 func countLines(content string) int {
-	return len(splitNormalizedLines(content))
+	lines := splitNormalizedLines(content)
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		return len(lines) - 1
+	}
+	return len(lines)
 }
 
 func splitLines(content string) []string {

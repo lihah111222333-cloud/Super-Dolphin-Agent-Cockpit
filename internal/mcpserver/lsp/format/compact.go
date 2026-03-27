@@ -129,35 +129,61 @@ func LocationFromAny(location any) (file string, line int, column int, ok bool) 
 	case nil:
 		return "", 0, 0, false
 	case protocol.Location:
-		return URIToPath(value.URI), FromLSP(value.Range.Start.Line), FromLSP(value.Range.Start.Character), true
+		return locationFromProtocol(value)
 	case *protocol.Location:
-		if value == nil {
-			return "", 0, 0, false
-		}
-		return URIToPath(value.URI), FromLSP(value.Range.Start.Line), FromLSP(value.Range.Start.Character), true
+		return locationFromProtocolPtr(value)
 	case protocol.WorkspaceSymbolLocation:
-		return URIToPath(value.URI), 0, 0, strings.TrimSpace(value.URI) != ""
+		return locationFromWorkspaceSymbol(value)
 	case *protocol.WorkspaceSymbolLocation:
-		if value == nil {
-			return "", 0, 0, false
-		}
-		return URIToPath(value.URI), 0, 0, strings.TrimSpace(value.URI) != ""
+		return locationFromWorkspaceSymbolPtr(value)
 	case map[string]any:
-		uri, _ := value["uri"].(string)
-		if strings.TrimSpace(uri) == "" {
-			return "", 0, 0, false
-		}
-		line, column = 0, 0
-		if rangeMap, ok := value["range"].(map[string]any); ok {
-			if startMap, ok := rangeMap["start"].(map[string]any); ok {
-				line = intFromAny(startMap["line"])
-				column = intFromAny(startMap["character"])
-			}
-		}
-		return URIToPath(uri), FromLSP(line), FromLSP(column), true
+		return locationFromMap(value)
 	default:
 		return "", 0, 0, false
 	}
+}
+
+func locationFromProtocol(value protocol.Location) (string, int, int, bool) {
+	return URIToPath(value.URI), FromLSP(value.Range.Start.Line), FromLSP(value.Range.Start.Character), true
+}
+
+func locationFromProtocolPtr(value *protocol.Location) (string, int, int, bool) {
+	if value == nil {
+		return "", 0, 0, false
+	}
+	return locationFromProtocol(*value)
+}
+
+func locationFromWorkspaceSymbol(value protocol.WorkspaceSymbolLocation) (string, int, int, bool) {
+	return URIToPath(value.URI), 0, 0, strings.TrimSpace(value.URI) != ""
+}
+
+func locationFromWorkspaceSymbolPtr(value *protocol.WorkspaceSymbolLocation) (string, int, int, bool) {
+	if value == nil {
+		return "", 0, 0, false
+	}
+	return locationFromWorkspaceSymbol(*value)
+}
+
+func locationFromMap(value map[string]any) (string, int, int, bool) {
+	uri, _ := value["uri"].(string)
+	if strings.TrimSpace(uri) == "" {
+		return "", 0, 0, false
+	}
+	line, column := mapStartPosition(value)
+	return URIToPath(uri), FromLSP(line), FromLSP(column), true
+}
+
+func mapStartPosition(value map[string]any) (int, int) {
+	rangeMap, ok := value["range"].(map[string]any)
+	if !ok {
+		return 0, 0
+	}
+	startMap, ok := rangeMap["start"].(map[string]any)
+	if !ok {
+		return 0, 0
+	}
+	return intFromAny(startMap["line"]), intFromAny(startMap["character"])
 }
 
 func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.GroupedLocationResult {

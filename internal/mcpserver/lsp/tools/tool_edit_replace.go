@@ -205,14 +205,12 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, workspaceEdit *prot
 	}
 	for _, path := range sortedKeys(updated) {
 		if err := os.WriteFile(path, []byte(updated[path]), modes[path]); err != nil {
-			restoreFiles(originals, modes, updated)
-			return applyWorkspaceEditResult{}, err
+			return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, modes, updated))
 		}
 	}
 	lspSync, warning, err := h.syncDocuments(ctx, updated, version)
 	if err != nil {
-		restoreFiles(originals, modes, updated)
-		return applyWorkspaceEditResult{}, err
+		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, modes, updated))
 	}
 	return applyWorkspaceEditResult{
 		AppliedCount: len(updated),
@@ -240,7 +238,7 @@ func (h EditHandler) syncDocuments(ctx context.Context, updated map[string]strin
 
 func (h EditHandler) syncDocument(ctx context.Context, path string, content string, version int) (bool, string, error) {
 	if editpkg.ShouldForceBypass(len(content)) {
-		if err := h.manager.BootstrapDocument(ctx, path); err != nil {
+		if err := h.manager.BootstrapDocumentOpenOnly(ctx, path); err != nil {
 			return false, "", err
 		}
 		return true, "used bootstrap-only LSP sync", nil
@@ -256,6 +254,16 @@ func (h EditHandler) syncDocument(ctx context.Context, path string, content stri
 		return true, "full document sync exceeded large-file line threshold", nil
 	}
 	return true, "", nil
+}
+
+func withRollbackWarning(err error, rollbackErr error) error {
+	if err == nil {
+		return rollbackErr
+	}
+	if rollbackErr == nil {
+		return err
+	}
+	return fmt.Errorf("%w; rollback warning: %v", err, rollbackErr)
 }
 
 func (h EditHandler) lookupFunctionContext(ctx context.Context, path string, line int, content string) functionContext {

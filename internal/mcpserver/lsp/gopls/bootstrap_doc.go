@@ -50,6 +50,22 @@ func (m *manager) bootstrapDocument(ctx context.Context, uri string) error {
 	return nil
 }
 
+func (m *manager) bootstrapDocumentOpenOnly(ctx context.Context, uri string) error {
+	ref, cfg, err := m.bootstrapTarget(uri)
+	if err != nil {
+		return err
+	}
+	if !shouldUseClientForLanguage(ref.languageID) {
+		return nil
+	}
+	coordinator := bootstrapCoordinatorFor(m)
+	snapshot, err := readDocumentSnapshot(ref)
+	if err != nil {
+		return err
+	}
+	return coordinator.openSnapshotIfNeeded(ctx, m, cfg, snapshot)
+}
+
 func restoreBootstrappedWorkspace(ctx context.Context, m *manager, cfg workspaceConfig) error {
 	coordinator := bootstrapCoordinatorFor(m)
 	coordinator.states.reset(cfg.key, coordinator.cache.WorkspaceURIs(cfg.key))
@@ -148,6 +164,38 @@ func (c *bootstrapCoordinator) syncSnapshot(ctx context.Context, m *manager, cfg
 		Size:            snapshot.size,
 	})
 	c.states.complete(cfg.key, snapshot.ref.uri, snapshot.fingerprint, version)
+	return nil
+}
+
+func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *manager, cfg workspaceConfig, snapshot documentSnapshot) error {
+	status := c.states.status(cfg.key, snapshot.ref.uri)
+	if status == bootstrapReady || status == bootstrapStale || status == bootstrapBootstrapping {
+		return nil
+	}
+	key := lspCacheKey{Workspace: cfg.key, Language: snapshot.ref.languageID, URI: snapshot.ref.uri}
+	if _, cached := c.cache.Load(key); cached {
+		return nil
+	}
+	client, err := m.ensureClient(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	if m.pool != nil {
+		m.pool.acquire(client)
+		defer m.pool.release(client)
+	}
+	if err := client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, 1, snapshot.text); err != nil {
+		c.states.fail(cfg.key, snapshot.ref.uri, err)
+		return err
+	}
+	c.cache.Upsert(lspCacheValue{
+		Key:             key,
+		Version:         1,
+		Fingerprint:     snapshot.fingerprint,
+		ModTimeUnixNano: snapshot.modTimeNano,
+		Size:            snapshot.size,
+	})
+	c.states.complete(cfg.key, snapshot.ref.uri, snapshot.fingerprint, 1)
 	return nil
 }
 

@@ -38,13 +38,6 @@ type lspCacheValue struct {
 	UpdatedAt       time.Time   `json:"updated_at"`
 }
 
-type lspCacheBaseline struct {
-	Workspace string    `json:"workspace"`
-	Language  string    `json:"language"`
-	URIs      []string  `json:"uris"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
 type lspCacheConfig struct {
 	TTL        time.Duration
 	Persistent bool
@@ -59,8 +52,7 @@ type lspCacheStore struct {
 	now    func() time.Time
 	stopCh chan struct{}
 
-	memory    map[string]lspCacheValue
-	baselines map[string]lspCacheBaseline
+	memory map[string]lspCacheValue
 
 	persistent      bool
 	persistentReady bool
@@ -69,8 +61,7 @@ type lspCacheStore struct {
 }
 
 type lspCacheDiskState struct {
-	Documents []lspCacheValue    `json:"documents"`
-	Baselines []lspCacheBaseline `json:"baselines"`
+	Documents []lspCacheValue `json:"documents"`
 }
 
 func newLSPCacheStoreFromEnv(logger *slog.Logger) *lspCacheStore {
@@ -92,7 +83,6 @@ func newLSPCacheStore(cfg lspCacheConfig) *lspCacheStore {
 		now:            time.Now,
 		stopCh:         make(chan struct{}),
 		memory:         map[string]lspCacheValue{},
-		baselines:      map[string]lspCacheBaseline{},
 		persistent:     cfg.Persistent,
 		fallbackWarned: false,
 	}
@@ -135,7 +125,6 @@ func (s *lspCacheStore) Upsert(value lspCacheValue) {
 
 	value.UpdatedAt = s.now()
 	s.memory[value.Key.String()] = value
-	s.upsertBaselineLocked(value.Key)
 	if err := s.persistLocked(); err != nil {
 		s.fallbackToMemory(err)
 	}
@@ -149,7 +138,6 @@ func (s *lspCacheStore) Delete(key lspCacheKey) {
 	defer s.mu.Unlock()
 
 	delete(s.memory, key.String())
-	s.rebuildBaselineLocked(key.Workspace, key.Language)
 	if err := s.persistLocked(); err != nil {
 		s.fallbackToMemory(err)
 	}
@@ -241,7 +229,6 @@ func (s *lspCacheStore) maybeCleanup() {
 			continue
 		}
 		delete(s.memory, key)
-		s.rebuildBaselineLocked(value.Key.Workspace, value.Key.Language)
 		changed = true
 	}
 	if changed {
@@ -297,9 +284,6 @@ func (s *lspCacheStore) loadPersistent() error {
 		}
 		s.memory[value.Key.String()] = value
 	}
-	for _, baseline := range disk.Baselines {
-		s.baselines[baseline.String()] = baseline
-	}
 	return nil
 }
 
@@ -309,13 +293,9 @@ func (s *lspCacheStore) persistLocked() error {
 	}
 	disk := lspCacheDiskState{
 		Documents: make([]lspCacheValue, 0, len(s.memory)),
-		Baselines: make([]lspCacheBaseline, 0, len(s.baselines)),
 	}
 	for _, value := range s.memory {
 		disk.Documents = append(disk.Documents, value)
-	}
-	for _, baseline := range s.baselines {
-		disk.Baselines = append(disk.Baselines, baseline)
 	}
 	payload, err := json.MarshalIndent(disk, "", "  ")
 	if err != nil {
@@ -335,40 +315,6 @@ func (s *lspCacheStore) fallbackToMemory(err error) {
 	s.config.Logger.Warn("gopls cache fell back to memory", "err", err)
 }
 
-func (s *lspCacheStore) upsertBaselineLocked(key lspCacheKey) {
-	baselineKey := key.workspaceBaseline()
-	baseline := s.baselines[baselineKey.String()]
-	baseline.Workspace = key.Workspace
-	baseline.Language = key.Language
-	if !slices.Contains(baseline.URIs, key.URI) {
-		baseline.URIs = append(baseline.URIs, key.URI)
-		slices.Sort(baseline.URIs)
-	}
-	baseline.UpdatedAt = s.now()
-	s.baselines[baselineKey.String()] = baseline
-}
-
-func (s *lspCacheStore) rebuildBaselineLocked(workspace, language string) {
-	baselineKey := lspCacheKey{Workspace: workspace, Language: language}.workspaceBaseline()
-	uris := make([]string, 0, len(s.memory))
-	for _, value := range s.memory {
-		if value.Key.Workspace == workspace && value.Key.Language == language {
-			uris = append(uris, value.Key.URI)
-		}
-	}
-	if len(uris) == 0 {
-		delete(s.baselines, baselineKey.String())
-		return
-	}
-	slices.Sort(uris)
-	s.baselines[baselineKey.String()] = lspCacheBaseline{
-		Workspace: workspace,
-		Language:  language,
-		URIs:      uris,
-		UpdatedAt: s.now(),
-	}
-}
-
 func (s *lspCacheStore) expired(value lspCacheValue, now time.Time) bool {
 	if s.config.TTL <= 0 || value.UpdatedAt.IsZero() {
 		return false
@@ -378,12 +324,4 @@ func (s *lspCacheStore) expired(value lspCacheValue, now time.Time) bool {
 
 func (k lspCacheKey) String() string {
 	return k.Workspace + "\x00" + k.Language + "\x00" + k.URI
-}
-
-func (k lspCacheKey) workspaceBaseline() lspCacheBaseline {
-	return lspCacheBaseline{Workspace: k.Workspace, Language: k.Language}
-}
-
-func (b lspCacheBaseline) String() string {
-	return b.Workspace + "\x00" + b.Language
 }

@@ -129,7 +129,10 @@ func runSemanticTokens(
 	if err != nil {
 		return nil, err
 	}
-	limit := format.ResolveResultLimit(req.MaxResults, req.Verbosity, protocol.SemanticTokenResultLimit)
+	limit := protocol.SemanticTokenResultLimit
+	if req.MaxResults > 0 && req.MaxResults < limit {
+		limit = req.MaxResults
+	}
 	result = capSemanticTokens(result, limit)
 	if result == nil || (len(result.Data) == 0 && len(result.Decoded) == 0) {
 		return "no semantic tokens found", nil
