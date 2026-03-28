@@ -17,6 +17,7 @@ vi.mock('./services/api.js', () => ({
 
 vi.mock('./utils/assistant-markdown.js', () => ({
   renderAssistantMarkdown: markdownMock.render,
+  injectSentenceBreaks: vi.fn((text) => text),
 }));
 
 import { ChatTimeline } from './components/ChatTimeline.js';

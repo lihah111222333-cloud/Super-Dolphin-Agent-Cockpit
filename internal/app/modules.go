@@ -48,6 +48,7 @@ var Module = fx.Options(
 	fx.Provide(
 		AsRPCRunner,
 		newThreadOrchestrationFacade,
+		newRuntimeReporter,
 	),
 )
 

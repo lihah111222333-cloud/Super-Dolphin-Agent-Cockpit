@@ -190,20 +190,6 @@ export function useThreadActions(props, deps) {
     }
   }
 
-  async function forceCompleteCurrent() {
-    const threadId = (selectedThreadId.value || '').toString().trim();
-    if (!threadId) return;
-    logInfo('ui', 'chat.forceComplete.request', { thread_id: threadId });
-    try {
-      await props.threadStore.forceCompleteThread(threadId);
-    } catch (error) {
-      logWarn('ui', 'chat.forceComplete.failed', {
-        thread_id: threadId,
-        error,
-      });
-    }
-  }
-
   async function recoverSelected() {
     const threadId = (selectedThreadId.value || '').toString().trim();
     if (!threadId || recoveringSelected.value) return;
@@ -329,7 +315,6 @@ export function useThreadActions(props, deps) {
     send,
     interruptCurrent,
     compactCurrent,
-    forceCompleteCurrent,
     recoverSelected,
     stopSelected,
     renameSelected,

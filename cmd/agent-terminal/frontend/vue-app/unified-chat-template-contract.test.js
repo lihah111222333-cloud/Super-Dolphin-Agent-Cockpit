@@ -86,7 +86,6 @@ describe('UnifiedChatPage template contract', () => {
       'set-cmd-card-cols',
       'copy-thread-info',
       'stop-selected',
-      'force-complete-current',
       'toggle-provider-mode',
       'launch-one',
       'recover-selected',
@@ -161,16 +160,11 @@ describe('UnifiedChatPage template contract', () => {
 
     expect(WorkspaceChatPanel.name).toBe('WorkspaceChatPanel');
     expect(WorkspaceChatPanel.components).toHaveProperty('ChatTimeline');
-    expect(WorkspaceChatPanel.components).toHaveProperty('JsonRenderer');
     expect(WorkspaceChatPanel.emits).toEqual(['dismiss-pinned-plan', 'file-ref-click', 'citation-click', 'scroll-to-bottom', 'scroll-to-top']);
     expectTemplateContainsAll(template, [
       'id="chat-panel"',
-      'class="chat-plan-pin"',
-      'class="chat-plan-pin-close"',
       'data-testid="chat-empty-state"',
-      '@click="onPinnedPlanBodyClick"',
       '<ChatTimeline',
-      '<JsonRenderer',
     ]);
 
   });

@@ -1,7 +1,7 @@
 # V3 迁移会话摘要
 
-> 生成时间：2026-03-27（P9 LSP 第一批 S+A+B+C1+C2 完成）
-> 会话范围：P0-P8.5 全程 + P7.5 桥接 + V2↔V3 核对×2 + archtest 收官 + MCP 独立服务 + ctl/* 回调框架 + lifecycle hooks + P8 审查修复 + P0 安全修复 + P1 四批修复 + **framework-audit 12 维度修复 + P9 计划审查 + A4-γ Timeline + D1 离线 Model + P9 LSP S/A/B/C1/C2**
+> 生成时间：2026-03-27（P9 LSP 工具族 10 Agent DAG 全部完成 ✅）
+> 会话范围：P0-P8.5 全程 + P7.5 桥接 + V2↔V3 核对×2 + archtest 收官 + MCP 独立服务 + ctl/* 回调框架 + lifecycle hooks + P8 审查修复 + P0 安全修复 + P1 四批修复 + **framework-audit + P9 审查 + A4-γ + D1 + P9 LSP 9工具全量实施**
 > Claude 会话 UUID：58fdd978-cc4b-41e6-bd26-d40f3ff66854
 > 前序会话 UUID：ea3ad84e-7b52-422d-bc46-cff9da3ea9f9
 
@@ -56,9 +56,9 @@
 | **P9 计划审查** | ✅ | **10 Agent 审查 + 5 Agent 复查，18 个问题已识别，文档修复中** |
 | **A4-γ + D1** | ✅ | **Timeline 投影拆子包 + D1 离线 model 补全，4 任务 + 互审通过** |
 | **P9 LSP 第一批 S+A+B** | ✅ | **骨架(4文件) + 协议输出(9文件) + Patch引擎(4+4测试)，3+3审查通过** |
-| **P9 LSP 第二批 C1+C2** | ✅ | **gopls客户端(2文件) + 管理器核心(6文件)，2+1审查+修复通过** |
-| P9 LSP 第三批 D+E+F+G | ⏳ | 文件+搜索+Bootstrap+导航+编辑，等待启动 |
-| P9 LSP 验证 V | ⏳ | 等待 D+E+F+G 完成 |
+| **P9 LSP 第二批 C1+C2** | ✅ | **gopls客户端(2文件) + 管理器核心(6文件)，3方审查+修复通过** |
+| **P9 LSP 第三批 D+E+F+G** | ✅ | **文件+搜索+Bootstrap+导航+编辑，多轮修复+12 Agent审查通过** |
+| **P9 LSP 验证 V** | ✅ | **双Agent(Codex+Claude)最终验证8项全绿: build+vet+archtest+timeout+dep+单测+diagnostics+dry_run零残留** |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→60% |
 
 ---
@@ -122,7 +122,7 @@
 | P1-16 (B5) approval 等待态 | ✅ | 方案 B 确认（R1 已实现 Kind 扩展匹配，UI 按 Kind 区分审批/输入） |
 | A4-γ Timeline 投影 | ✅ | 拆子包 `uistate/timeline/` + 9 handler + 主包集成，4 任务互审通过 |
 | D1 完整离线 merge | ✅ | buildOfflineRuntimeConfig 补全 model 字段，复用 offlineThreadModel 优先级链 |
-| **P9 LSP 工具族** | **⏳ 计划已审查** | **9 工具、计划 18 个问题已修正，等待执行** |
+| **P9 LSP 工具族** | ✅ | **10 Agent DAG 全部完成，双Agent最终验证8项全绿，~51个文件新增/修改** |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→60% |
 | IDA 工具族 | ⏳ | 82 个工具，暂缓 |
 | P2 event bus 互审 | 🔄 | TurnStalled/TurnResumed 补发布 + 测试空白已执行，互审待收报告 |
@@ -131,9 +131,9 @@
 
 ## 4. 下一步
 
-1. **P10 工厂丰满** — Zone A 3.8%→60%
-2. **A4-γ Timeline 投影** — ✅ 已完成（拆子包 + 9 handler + 主包集成）
-3. **D1 离线 Model 补全** — ✅ 已完成（buildOfflineRuntimeConfig + model 字段）
+1. **git commit** — 本会话所有改动未提交
+2. **P10 工厂丰满** — Zone A 3.8%→60%
+3. **IDA 工具族** — 82 个工具，暂缓
 
 ---
 

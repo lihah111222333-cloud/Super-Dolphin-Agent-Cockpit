@@ -1,8 +1,8 @@
 // @ts-nocheck
 import { test, expect } from '@playwright/test';
 
-const CALL_API_METHOD_ID = 1055257995;
-const GET_BUILD_INFO_METHOD_ID = 3168473285;
+const CALL_API_METHOD_ID = 2963398832;
+const GET_BUILD_INFO_METHOD_ID = 2341363104;
 const THREAD_ID = 'thread-e2e-dup-1';
 const ASSISTANT_TEXT = '同一条 assistant 消息不应因为重复 history load 出现两次';
 

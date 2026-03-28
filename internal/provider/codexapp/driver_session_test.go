@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -10,7 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 type stubRuntimeReporter struct {
@@ -116,13 +117,19 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
 		defer conn.Close()
 		for {
-			var raw string
-			if err := websocket.Message.Receive(conn, &raw); err != nil {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
 				return
 			}
+			raw := string(rawBytes)
 			var msg jsonRPCMessage
 			if err := json.Unmarshal([]byte(raw), &msg); err != nil {
 				continue
@@ -155,7 +162,7 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal response: %v", err)
 			}
-			if err := websocket.Message.Send(conn, string(resp)); err != nil {
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
 				return
 			}
 		}
@@ -187,13 +194,19 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 func startCodexTestServer(t *testing.T) string {
 	t.Helper()
 
-	server := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
 		defer conn.Close()
 		for {
-			var raw string
-			if err := websocket.Message.Receive(conn, &raw); err != nil {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
 				return
 			}
+			raw := string(rawBytes)
 			var msg jsonRPCMessage
 			if err := json.Unmarshal([]byte(raw), &msg); err != nil {
 				continue
@@ -209,7 +222,7 @@ func startCodexTestServer(t *testing.T) string {
 			if err != nil {
 				t.Fatalf("marshal response: %v", err)
 			}
-			if err := websocket.Message.Send(conn, string(resp)); err != nil {
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
 				return
 			}
 		}

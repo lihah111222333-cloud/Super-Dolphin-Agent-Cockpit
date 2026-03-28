@@ -50,6 +50,7 @@ type AgentSummary struct {
 	ParentID     string `json:"parent_id,omitempty"`
 	State        string `json:"state,omitempty"`
 	Provider     string `json:"provider,omitempty"`
+	Model        string `json:"model,omitempty"`
 	CWD          string `json:"cwd,omitempty"`
 	Port         int    `json:"port,omitempty"`
 	LastReport   string `json:"last_report,omitempty"`
@@ -334,6 +335,7 @@ func mergeAgentIdentity(dst *AgentSummary, src AgentSummary) {
 func mergeAgentRuntime(dst *AgentSummary, src AgentSummary) {
 	dst.State = chooseString(src.State, dst.State)
 	dst.Provider = chooseString(src.Provider, dst.Provider)
+	dst.Model = chooseString(src.Model, dst.Model)
 	dst.CWD = chooseString(src.CWD, dst.CWD)
 	dst.Port = choosePositiveInt(src.Port, dst.Port)
 }

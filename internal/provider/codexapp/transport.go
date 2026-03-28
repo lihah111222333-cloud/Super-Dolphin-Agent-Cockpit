@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	xwebsocket "golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -45,7 +45,7 @@ type limitedBuffer struct {
 type transport struct {
 	serverURL  string
 	local      bool
-	ws         *xwebsocket.Conn
+	ws         *websocket.Conn
 	process    *localProcess
 	processErr error
 	stateMu    sync.RWMutex
@@ -295,12 +295,11 @@ func (t *transport) readLoopStep(ctx context.Context, handler func(string, json.
 	if ws == nil {
 		return t.endReadLoop(ctx, handler, nil, "connection unavailable")
 	}
-	var data string
-	err := xwebsocket.Message.Receive(ws, &data)
+	_, data, err := ws.ReadMessage()
 	if err != nil {
 		return t.endReadLoop(ctx, handler, err, err.Error())
 	}
-	return t.dispatchReadMessage([]byte(data), handler)
+	return t.dispatchReadMessage(data, handler)
 }
 
 func (t *transport) spawnLocal() error {

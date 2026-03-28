@@ -68,13 +68,14 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	}
 	publicThreadID := strings.TrimSpace(agentID)
 	providerThreadID := resolveProviderThreadID(session.ThreadID(), publicThreadID)
+	effectiveModel, effectiveCWD := enrichFromSessionConfig(session, req.Model, req.CWD)
 	if err := s.persistThreadState(ctx, threadState{
 		PublicThreadID:   publicThreadID,
 		ProviderThreadID: providerThreadID,
 		AgentID:          agentID,
 		Provider:         req.Provider,
-		CWD:              req.CWD,
-		Model:            req.Model,
+		CWD:              effectiveCWD,
+		Model:            effectiveModel,
 		Prompt:           req.Prompt,
 		CreatedAt:        time.Now().Unix(),
 	}, true); err != nil {
@@ -86,10 +87,10 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		AgentID:        agentID,
 		SessionID:      firstNonEmpty(providerThreadID, publicThreadID),
 		Status:         "running",
-		Model:          req.Model,
+		Model:          effectiveModel,
 		Provider:       req.Provider,
 		ModelProvider:  req.ModelProvider,
-		CWD:            req.CWD,
+		CWD:            effectiveCWD,
 		ApprovalPolicy: req.ApprovalPolicy,
 	}, nil
 }

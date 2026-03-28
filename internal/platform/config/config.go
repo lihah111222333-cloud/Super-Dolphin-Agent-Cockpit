@@ -15,8 +15,8 @@ type Config struct {
 
 func New() *Config {
 	return &Config{
-		DatabaseURL: envOr("DATABASE_URL", "postgres://postgres:postgres@127.0.0.1:5432/super_agent_v3?sslmode=disable"),
-		RPCAddr:     envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8080"),
+		DatabaseURL: envOr("DATABASE_URL", "postgres://mima0000@127.0.0.1:54320/super_agent_v3?sslmode=disable"),
+		RPCAddr:     envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8090"),
 		LogLevel:    envOr("LOG_LEVEL", "info"),
 		ProjectRoot: resolveProjectRoot(),
 	}

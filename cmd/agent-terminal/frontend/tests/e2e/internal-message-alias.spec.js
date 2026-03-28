@@ -3,8 +3,8 @@ import { test, expect } from '@playwright/test';
 import { installMockBackend as installSupportMockBackend } from './support/mock-backend.js';
 import { prepareVisualSnapshot, expectVisualSnapshot } from './support/visual.js';
 
-const CALL_API_METHOD_ID = 1055257995;
-const GET_BUILD_INFO_METHOD_ID = 3168473285;
+const CALL_API_METHOD_ID = 2963398832;
+const GET_BUILD_INFO_METHOD_ID = 2341363104;
 
 const RUNTIME_MODULE_SOURCE = `
 const listeners = globalThis.__AO_E2E_RUNTIME_LISTENERS__ || (globalThis.__AO_E2E_RUNTIME_LISTENERS__ = new Map());

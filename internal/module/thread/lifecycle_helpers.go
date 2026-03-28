@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"time"
 
@@ -17,6 +18,42 @@ import (
 
 func resolveProviderThreadID(values ...string) string {
 	return firstNonEmpty(values...)
+}
+
+// enrichFromSessionConfig extracts model/cwd from the session's runtime config
+// when the original request values are empty. codex app-server assigns model
+// server-side; the resolved value is captured in runtimeConfig during StartSession.
+func enrichFromSessionConfig(session contract.Session, reqModel, reqCWD string) (model, cwd string) {
+	model, cwd = reqModel, reqCWD
+	rc, ok := session.(interface{ RuntimeConfigSnapshot() map[string]any })
+	if !ok {
+		return model, resolveRelativeCWD(cwd)
+	}
+	cfg := rc.RuntimeConfigSnapshot()
+	if cfg == nil {
+		return model, resolveRelativeCWD(cwd)
+	}
+	if model == "" {
+		model, _ = cfg["model"].(string)
+	}
+	if cwd == "" || cwd == "." {
+		if v, _ := cfg["cwd"].(string); v != "" && v != "." {
+			cwd = v
+		}
+	}
+	return model, resolveRelativeCWD(cwd)
+}
+
+// resolveRelativeCWD converts "." or empty to the process working directory.
+func resolveRelativeCWD(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd != "" && cwd != "." {
+		return cwd
+	}
+	if abs, err := os.Getwd(); err == nil {
+		return abs
+	}
+	return cwd
 }
 
 func bindingPublicThreadID(binding *bindingstore.Binding, fallback string) string {

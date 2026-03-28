@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { reactive, nextTick } from '../lib/vue.esm-browser.prod.js';
 import { ChatTimeline } from './components/ChatTimeline.js';
 
@@ -33,6 +33,10 @@ function setupTimeline(items) {
   const vm = ChatTimeline.setup(props, { emit: () => {} });
   return { props, vm };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('ChatTimeline reasoning leak handling', () => {
   it('keeps assistant replies in the main timeline and removes the hidden summary placeholder', () => {
@@ -75,6 +79,18 @@ describe('ChatTimeline reasoning leak handling', () => {
       { id: 'assistant-1', kind: 'assistant', text: '**hello**', ts: '2026-03-07T10:00:00Z' },
     ]);
     expect(vm.renderAssistantBody(props.items[0].text)).toContain('<strong>');
+  });
+
+  it('does not emit diagnostic console warnings for completed long assistant content', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { props, vm } = setupTimeline([
+      { id: 'assistant-1', kind: 'assistant', text: `# 标题\n\n${leakedProgressText}`, ts: '2026-03-07T10:00:00Z', done: true },
+    ]);
+    const streaming = vm.streamingAssistantState(props.items[0]);
+
+    expect(streaming.html).toContain('<h1');
+    expect(streaming.tailText).toBe('');
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
 

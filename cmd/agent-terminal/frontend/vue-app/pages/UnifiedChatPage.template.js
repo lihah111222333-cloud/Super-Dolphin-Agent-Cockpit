@@ -18,7 +18,7 @@ export const template = `
         @update-project="projectStore.setActive($event)" @add-project="projectStore.quickAdd()" @remove-project="projectStore.removeProject($event)"
         @set-cmd-layout="setCmdLayout" @set-cmd-card-cols="setCmdCardCols"
         @copy-thread-info="copySelectedThreadId" @stop-selected="stopSelected"
-        @force-complete-current="forceCompleteCurrent" @toggle-provider-mode="toggleProviderMode" @launch-one="launchOne" @recover-selected="recoverSelected"
+        @toggle-provider-mode="toggleProviderMode" @launch-one="launchOne" @recover-selected="recoverSelected"
       />
       <div class="unified-main">
         <ThreadRailSidePanel

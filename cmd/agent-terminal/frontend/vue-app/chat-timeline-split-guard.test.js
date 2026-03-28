@@ -22,6 +22,7 @@ vi.mock('./services/api.js', () => ({
 
 vi.mock('./utils/assistant-markdown.js', () => ({
   renderAssistantMarkdown: markdownMock.render,
+  injectSentenceBreaks: vi.fn((text) => text),
 }));
 
 import { ChatTimeline } from './components/ChatTimeline.js';
@@ -61,7 +62,7 @@ afterEach(() => {
 describe('ChatTimeline split guard coverage', () => {
   it('locks the setup return contract before composable extraction', () => {
     const { vm } = setupTimeline();
-    const expected = 'approvalActionDisabled,approvalHint,attachmentCanZoomOut,attachmentHoverPreview,attachmentHoverStyle,attachmentLightbox,attachmentPreviewApi,avatarText,bubbleRole,closeAttachmentLightbox,closePresencePopover,collapsedToolCount,collapsedToolTickerText,commandExitText,commandHasOutput,commandStatusIcon,commandStatusIconClass,commandStatusText,commandTitle,copyFilePath,copyPlanText,displayFilePath,formatTime,getItemKey,hasAvatar,hasMore,hasPresenceTarget,internalRouteLabel,isCitationTarget,isDialog,itemHasSpec,jsonRenderMarkdownActionHandlers,onAssistantBodyClick,onAttachmentHoverLeave,onAttachmentPreviewEnter,onAttachmentPreviewLeave,onAttachmentPreviewResetZoom,onAttachmentPreviewZoomIn,onAttachmentPreviewZoomOut,openPresencePopover,planCardSpec,presenceLabel,presencePopoverTitle,renderAssistantBody,resolvedPresenceTarget,respondApproval,roleLabel,schedulePresencePopoverClose,sharedStatusMeta,sharedStatusText,showAgentPresence,showMore,showPresencePopover,showThinkingPopover,showToolTicker,splitBySpec,stateLabel,streamingAssistantState,streamingFrameVersion,thinkingPopoverText,thinkingToolSummaries,timelineItems,translateText,visibleItems'.split(',').sort();
+    const expected = 'approvalActionDisabled,approvalHint,attachmentCanZoomOut,attachmentHoverPreview,attachmentHoverStyle,attachmentLightbox,attachmentPreviewApi,avatarText,bubbleRole,closeAttachmentLightbox,closePresencePopover,collapsedToolCount,collapsedToolTickerText,commandExitText,commandHasOutput,commandStatusIcon,commandStatusIconClass,commandStatusText,commandTitle,copyFilePath,copyPlanText,displayFilePath,formatTime,getItemKey,hasAvatar,hasMore,hasPresenceTarget,injectSentenceBreaks,internalRouteLabel,isCitationTarget,isDialog,itemHasSpec,jsonRenderMarkdownActionHandlers,onAssistantBodyClick,onAttachmentHoverLeave,onAttachmentPreviewEnter,onAttachmentPreviewLeave,onAttachmentPreviewResetZoom,onAttachmentPreviewZoomIn,onAttachmentPreviewZoomOut,openPresencePopover,planCardSpec,presenceLabel,presencePopoverTitle,renderAssistantBody,resolvedPresenceTarget,respondApproval,roleLabel,schedulePresencePopoverClose,sharedStatusMeta,sharedStatusText,showAgentPresence,showMore,showPresencePopover,showThinkingPopover,showToolTicker,splitBySpec,stateLabel,streamingAssistantState,streamingFrameVersion,thinkingPopoverText,thinkingToolSummaries,timelineItems,translateText,visibleItems,visibleOffset'.split(',').sort();
     expect(Object.keys(vm).sort()).toEqual(expected);
   });
 

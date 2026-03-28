@@ -80,14 +80,11 @@ function shouldPromoteTrailingLine(line) {
   return INLINE_BALANCED_MARKDOWN_RE.test(normalized);
 }
 
-function buildStreamingMarkdownState(text, renderAssistantBody, emptyState, done = false) {
+function buildStreamingMarkdownState(text, renderAssistantBody, emptyState) {
   if (!text) return emptyState;
-  const parts = done
-    ? { stableText: text, tailText: '' }
-    : splitStreamingMarkdownForDisplay(text);
-  const html = parts.stableText ? renderAssistantBody(parts.stableText) : '';
+  const parts = splitStreamingMarkdownForDisplay(text);
   return Object.freeze({
-    html,
+    html: parts.stableText ? renderAssistantBody(parts.stableText) : '',
     tailText: parts.tailText || '',
   });
 }
@@ -188,13 +185,10 @@ export function createStreamingMarkdownStateResolver(renderAssistantBody, onStat
     }
   }
 
-  function getStateByText(text, done = false) {
+  function getStateByText(text) {
     if (!text) return emptyState;
-    if (done) {
-      return buildStreamingMarkdownState(text, renderAssistantBody, emptyState, true);
-    }
     if (cache.has(text)) return cache.get(text) || emptyState;
-    const next = buildStreamingMarkdownState(text, renderAssistantBody, emptyState, false);
+    const next = buildStreamingMarkdownState(text, renderAssistantBody, emptyState);
     cache.set(text, next);
     if (cache.size > 280) cache.delete(cache.keys().next().value);
     return next;
@@ -260,7 +254,7 @@ export function createStreamingMarkdownStateResolver(renderAssistantBody, onStat
         displayedByItemId.delete(itemId);
         pendingByItemId.delete(itemId);
       }
-      return getStateByText(text, true);
+      return getStateByText(text);
     }
 
     const displayed = displayedByItemId.get(itemId);

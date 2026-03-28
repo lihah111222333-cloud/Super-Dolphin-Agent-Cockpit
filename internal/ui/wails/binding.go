@@ -37,7 +37,7 @@ type App struct {
 	currentWindowNameFn  func() string
 }
 
-func (a *App) CallAPI(method string, paramsJSON string) (any, error) {
+func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 	if a == nil || a.dispatch == nil {
 		return nil, errors.New("wails binding: dispatch is not configured")
 	}
@@ -45,10 +45,10 @@ func (a *App) CallAPI(method string, paramsJSON string) (any, error) {
 	if method == "" {
 		return nil, errors.New("wails binding: method is required")
 	}
-	params, err := parseParamsJSON(paramsJSON)
-	if err != nil {
-		return nil, err
+	if len(params) == 0 {
+		params = json.RawMessage("{}")
 	}
+	params = stripFrontendMeta(params)
 	result, err := a.dispatch(a.callContext(), method, params)
 	if err != nil {
 		return nil, err
@@ -177,34 +177,38 @@ func (a *App) callContext() context.Context {
 }
 
 func (a *App) callAPIObject(method string, params any) (any, error) {
-	paramsJSON, err := encodeParamsJSON(params)
+	data, err := json.Marshal(params)
 	if err != nil {
 		return nil, err
 	}
-	return a.CallAPI(method, paramsJSON)
+	return a.CallAPI(method, json.RawMessage(data))
 }
 
-func parseParamsJSON(raw string) (json.RawMessage, error) {
-	text := strings.TrimSpace(raw)
-	if text == "" {
-		return json.RawMessage("{}"), nil
-	}
-	payload := json.RawMessage(text)
-	if !json.Valid(payload) {
-		return nil, errors.New("wails binding: paramsJSON must be valid JSON")
-	}
-	return payload, nil
-}
 
-func encodeParamsJSON(params any) (string, error) {
-	if params == nil {
-		return "{}", nil
+// stripFrontendMeta removes _ao-prefixed metadata fields that the frontend
+// injects into every CallAPI payload (e.g. _aoClientKind, _aoClientRoute).
+// These are useful for logging but must not reach StrictHandler RPC endpoints
+// which reject unknown fields.
+func stripFrontendMeta(raw json.RawMessage) json.RawMessage {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return raw // not an object — pass through as-is
 	}
-	data, err := json.Marshal(params)
+	changed := false
+	for key := range obj {
+		if strings.HasPrefix(key, "_ao") {
+			delete(obj, key)
+			changed = true
+		}
+	}
+	if !changed {
+		return raw
+	}
+	cleaned, err := json.Marshal(obj)
 	if err != nil {
-		return "", err
+		return raw
 	}
-	return string(data), nil
+	return cleaned
 }
 
 func decodeAPIResult(result json.RawMessage) (any, error) {

@@ -31,6 +31,7 @@ vi.mock('./services/api.js', () => ({
 
 vi.mock('./utils/assistant-markdown.js', () => ({
   renderAssistantMarkdown: lifecycle.renderMarkdown,
+  injectSentenceBreaks: vi.fn((text) => text),
 }));
 
 vi.mock('./utils/assistant-markdown-streaming.js', () => ({
@@ -133,6 +134,23 @@ describe('ChatTimeline host lifecycle guards', () => {
     hooks.unmounted.forEach((fn) => fn());
     expect(globalThis.window.removeEventListener).toHaveBeenCalledWith('keydown', lifecycle.onAttachmentLightboxKeydown);
     expect(lifecycle.streamingDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not attach a timeline-level mutation observer during mount', () => {
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    const MutationObserverMock = vi.fn(function MutationObserverMock() {
+      this.observe = observe;
+      this.disconnect = disconnect;
+    });
+    vi.stubGlobal('MutationObserver', MutationObserverMock);
+
+    setupTimeline();
+    hooks.mounted.forEach((fn) => fn());
+
+    expect(MutationObserverMock).not.toHaveBeenCalled();
+    expect(observe).not.toHaveBeenCalled();
+    expect(disconnect).not.toHaveBeenCalled();
   });
 
   it('cleans pending popover and citation timers during unmount', () => {

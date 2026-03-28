@@ -186,6 +186,15 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 		ID:      threadID,
 		AgentID: agentID,
 	})
+	if agentID != "" {
+		s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
+			ID:       agentID,
+			ThreadID: threadID,
+			Provider: strings.TrimSpace(ev.Provider),
+			Model:    strings.TrimSpace(ev.Model),
+			CWD:      strings.TrimSpace(ev.CWD),
+		})
+	}
 	patch := s.refreshThreadPatchLocked(threadID, agentID, "thread/started")
 	s.mu.Unlock()
 	s.emitThreadPatchEvent(patch)

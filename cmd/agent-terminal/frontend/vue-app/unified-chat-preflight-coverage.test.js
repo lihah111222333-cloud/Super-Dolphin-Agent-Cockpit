@@ -337,9 +337,13 @@ describe('UnifiedChatPage preflight coverage', () => {
   });
 
   it('covers copySelectedThreadId fallback identity, provider and log-path branches', async () => {
-    vi.useFakeTimers(); provider.useClaude = true; vi.setSystemTime(new Date('2026-03-09T01:02:03Z')); vi.mocked(resolveThreadIdentity).mockResolvedValueOnce({ providerThreadId: 'provider-2', port: 9911 }); vi.mocked(callAPI).mockRejectedValueOnce(new Error('pref failed'));
+    vi.useFakeTimers(); provider.useClaude = true; vi.setSystemTime(new Date('2026-03-09T01:02:03Z')); vi.mocked(resolveThreadIdentity).mockResolvedValueOnce({ providerThreadId: 'provider-2', port: 9911 }); vi.mocked(callAPI).mockImplementation(async (method) => {
+      if (method === 'thread/config/get') return { effective: { model: 'gpt-5.4' } };
+      if (method === 'ui/preferences/get') throw new Error('pref failed');
+      return {};
+    });
     const { vm } = await createVm({ selectedId: 'thread-active', active: '/Users/mima0000/Desktop/wj/go-agent-v2', runtime: { 'thread-active': { providerThreadId: '', port: undefined, provider: '', cwd: '', logPath: '' } } }); await vm.copySelectedThreadId();
-    expect(resolveThreadIdentity).toHaveBeenCalledWith('thread-active'); const payload = JSON.parse(vi.mocked(copyTextToClipboard).mock.calls[0][0]); expect(payload.providerThreadId).toBe('provider-2'); expect(payload.uuid).toBe('provider-2'); expect(payload.port).toBe(9911); expect(payload.provider).toBe('claude'); expect(payload.model).toBeNull(); expect(payload.cwd).toBeNull(); expect(payload['log-path']).toBe('~/.multi-agent/log/go-agent-v2/'); expect(payload.copiedAt).toBe('2026-03-09 09:02:03 UTC+8');
+    expect(resolveThreadIdentity).toHaveBeenCalledWith('thread-active'); const payload = JSON.parse(vi.mocked(copyTextToClipboard).mock.calls[0][0]); expect(payload.providerThreadId).toBe('provider-2'); expect(payload.uuid).toBe('provider-2'); expect(payload.port).toBe(9911); expect(payload.provider).toBe('claude'); expect(payload.model).toBe('gpt-5.4'); expect(payload.cwd).toBe('/Users/mima0000/Desktop/wj/go-agent-v2'); expect(payload['log-path']).toBe('~/.multi-agent/log/go-agent-v2/'); expect(payload.copiedAt).toBe('2026-03-09 09:02:03 UTC+8');
   });
 
   it('covers copySelectedThreadId clipboard failure state reset', async () => {
@@ -352,10 +356,9 @@ describe('UnifiedChatPage preflight coverage', () => {
     store.recoverThread = vi.fn(async () => { throw new Error('boom'); }); globalThis.window.alert.mockClear(); await vm.recoverSelected(); expect(globalThis.window.alert).toHaveBeenCalledWith('进程恢复失败: boom'); expect(vm.recoveringSelected.value).toBe(false);
   });
 
-  it('covers openNewWindow cancel/failure and forceCompleteCurrent guards', async () => {
+  it('covers openNewWindow cancel/failure', async () => {
     const { vm, store } = await createVm({ selectedId: 'thread-active' }); vi.mocked(callAPI).mockResolvedValueOnce({}); await vm.openNewWindow(); expect(vi.mocked(callAPI).mock.calls.some(([method]) => method === 'ui/openNewWindow')).toBe(false);
     vi.mocked(callAPI).mockReset().mockResolvedValueOnce({ path: '/tmp/child' }).mockRejectedValueOnce(new Error('open failed')); await expect(vm.openNewWindow()).resolves.toBeUndefined(); expect(vi.mocked(callAPI).mock.calls.map(([method]) => method)).toEqual(['ui/selectProjectDir', 'ui/openNewWindow']);
-    const { vm: noThreadVm, store: noThreadStore } = await createVm({ selectedId: '' }); await noThreadVm.forceCompleteCurrent(); expect(noThreadStore.forceCompleteThread).not.toHaveBeenCalled(); store.forceCompleteThread.mockRejectedValueOnce(new Error('force failed')); await expect(vm.forceCompleteCurrent()).resolves.toBeUndefined(); expect(store.forceCompleteThread).toHaveBeenCalledWith('thread-active');
   });
 
   it('covers file ref markdown, image, synthetic diff and empty path branches', async () => {

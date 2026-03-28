@@ -179,6 +179,13 @@ describe('thread store actions', () => {
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'turn/start') return {};
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-live', activeThreadId: 'thread-live' });
+      if (method === 'thread/messages') {
+        return {
+          messages: [
+            { id: 1, role: 'user', content: 'hello', createdAt: '2026-03-10T12:00:00Z' },
+          ],
+        };
+      }
       return {};
     });
 
@@ -197,6 +204,10 @@ describe('thread store actions', () => {
       cwd: '/repo',
       selectedSkills: ['git'],
       manualSkillSelection: true,
+    });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/messages', {
+      threadId: 'thread-live',
+      limit: 300,
     });
   });
 
@@ -254,7 +265,6 @@ describe('thread store actions', () => {
     store.state.threads = [{ id: 'thread-live', name: 'thread-live', state: 'idle' }];
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'thread/archive') return { archived: true };
-      if (method === 'thread/list') return { threads: [] };
       if (method === 'ui/sidebar/get') return buildSnapshot({ threadId: 'thread-live', activeThreadId: '' });
       if (method === 'ui/preferences/set') return {};
       return {};
@@ -273,7 +283,6 @@ describe('thread store actions', () => {
     store.state.threads = [{ id: 'thread-live', name: 'thread-live', state: 'idle' }];
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'thread/archive') return { partial: true, warnings: ['copy artifact failed'], skippedCount: 1 };
-      if (method === 'thread/list') return { threads: [] };
       if (method === 'ui/sidebar/get') return buildSnapshot({ threadId: 'thread-live', activeThreadId: '' });
       if (method === 'ui/preferences/set') return {};
       return {};

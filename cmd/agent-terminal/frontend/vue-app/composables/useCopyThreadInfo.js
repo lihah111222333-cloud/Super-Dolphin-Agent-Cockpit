@@ -44,6 +44,51 @@ export function useCopyThreadInfo(deps) {
     return '复制信息';
   });
 
+  function pickString(...values) {
+    for (const value of values) {
+      if (value == null) continue;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed && trimmed !== '.' && trimmed !== '[object Object]') return trimmed;
+        continue;
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+      // skip objects/arrays — callers must extract string fields before passing
+    }
+    return '';
+  }
+
+  async function resolveAgentModel(threadId, agentProvider, runtime, thread, storeRuntime) {
+    const directModel = pickString(
+      runtime?.model,
+      runtime?.modelName,
+      runtime?.model_name,
+      storeRuntime?.model,
+      storeRuntime?.modelName,
+      storeRuntime?.model_name,
+      thread?.model,
+      thread?.effectiveModel,
+      thread?.effective?.model,
+      thread?.config?.effective?.model,
+    );
+    if (directModel) return directModel;
+    try {
+      const config = typeof threadStore?.getThreadConfig === 'function'
+        ? await threadStore.getThreadConfig(threadId)
+        : await callAPI('thread/config/get', { threadId });
+      const effectiveModel = pickString(config?.effective?.model);
+      if (effectiveModel) return effectiveModel;
+    } catch {
+      // ignore thread config lookup failure
+    }
+    try {
+      const modelPref = await callAPI('ui/preferences/get', { key: `settings.provider.${agentProvider}.model` });
+      return pickString(modelPref);
+    } catch {
+      return '';
+    }
+  }
+
   async function copySelectedThreadId() {
     const threadId = (selectedThreadId.value || '').toString();
     if (!threadId) return;
@@ -61,20 +106,31 @@ export function useCopyThreadInfo(deps) {
     }
     const providerThreadID = existingProviderThreadID
       || (resolved.providerThreadId || '').toString().trim();
-    const resolvedPort = Number.isFinite(Number(runtime.port))
+    const resolvedPort = (Number.isFinite(Number(runtime.port)) && Number(runtime.port) > 0)
       ? Number(runtime.port)
-      : (Number.isFinite(Number(resolved.port)) ? Number(resolved.port) : null);
-    const agentProvider = (runtime.provider || '').toString().trim() || (useClaudeProvider.value ? 'claude' : 'codex');
-    let agentModel = '';
-    try {
-      const modelPref = await callAPI('ui/preferences/get', { key: `settings.provider.${agentProvider}.model` });
-      agentModel = (typeof modelPref === 'string' && modelPref.trim()) ? modelPref.trim() : '';
-    } catch {
-      // ignore model preference lookup failure
-    }
-    const runtimeCwd = (runtime.cwd || '').toString().trim();
-    const runtimeLogPath = (runtime.logPath || '').toString().trim();
-    const currentCwd = runtimeCwd || (activeProjectCwd.value || '').toString().trim();
+      : ((Number.isFinite(Number(resolved.port)) && Number(resolved.port) > 0) ? Number(resolved.port) : null);
+    const storeRuntime = /** @type {any} */ ((threadStore?.state?.agentRuntimeById?.[threadId] && typeof threadStore.state.agentRuntimeById[threadId] === 'object')
+      ? threadStore.state.agentRuntimeById[threadId]
+      : {});
+    const thread = /** @type {any} */ ((activeThread.value && typeof activeThread.value === 'object')
+      ? activeThread.value
+      : {});
+    const agentProvider = pickString(runtime.provider, storeRuntime.provider) || (useClaudeProvider.value ? 'claude' : 'codex');
+    const agentModel = await resolveAgentModel(threadId, agentProvider, runtime, thread, storeRuntime);
+    const currentCwd = pickString(
+      runtime.cwd,
+      storeRuntime.cwd,
+      thread.cwd,
+      activeProjectCwd.value,
+    );
+    const resolvedLogPath = pickString(
+      runtime.logPath,
+      runtime.log_path,
+      storeRuntime.logPath,
+      storeRuntime.log_path,
+      thread.logPath,
+      thread.log_path,
+    );
     const payload = {
       agentId: threadId,
       providerThreadId: providerThreadID,
@@ -85,8 +141,8 @@ export function useCopyThreadInfo(deps) {
       provider: agentProvider,
       model: agentModel || null,
       port: resolvedPort,
-      cwd: runtimeCwd || null,
-      'log-path': runtimeLogPath || buildCwdLogPath(currentCwd),
+      cwd: currentCwd || null,
+      'log-path': resolvedLogPath || buildCwdLogPath(currentCwd),
       copiedAt: formatUTC8HumanReadable(),
     };
 

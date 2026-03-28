@@ -6,13 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	xwebsocket "golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 type jsonRPCRequest struct {
@@ -84,18 +83,6 @@ func jsonRPCIDKey(raw json.RawMessage) string {
 	return strings.TrimSpace(string(raw))
 }
 
-func websocketOrigin(serverURL string) string {
-	parsed, err := url.Parse(strings.TrimSpace(serverURL))
-	if err != nil || parsed.Host == "" {
-		return "http://127.0.0.1/"
-	}
-	scheme := "http"
-	if strings.EqualFold(parsed.Scheme, "wss") {
-		scheme = "https"
-	}
-	return scheme + "://" + parsed.Host + "/"
-}
-
 func normalizeTransportContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
@@ -104,12 +91,8 @@ func normalizeTransportContext(ctx context.Context) context.Context {
 }
 
 func (t *transport) connectOnce(ctx context.Context) error {
-	config, err := xwebsocket.NewConfig(t.serverURL, websocketOrigin(t.serverURL))
-	if err != nil {
-		return err
-	}
-	config.Dialer = &net.Dialer{Timeout: 5 * time.Second}
-	conn, err := config.DialContext(ctx)
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	conn, _, err := dialer.DialContext(ctx, t.serverURL, nil)
 	if err != nil {
 		return err
 	}
@@ -131,7 +114,7 @@ func (t *transport) initialize(ctx context.Context) error {
 	return t.awaitInitialize(ctx, ws, pc)
 }
 
-func (t *transport) initializeSocket(ctx context.Context) (*xwebsocket.Conn, error) {
+func (t *transport) initializeSocket(ctx context.Context) (*websocket.Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -159,7 +142,7 @@ func (t *transport) sendInitializeRequest(id int64) error {
 	})
 }
 
-func (t *transport) awaitInitialize(ctx context.Context, ws *xwebsocket.Conn, pc *pendingCall) error {
+func (t *transport) awaitInitialize(ctx context.Context, ws *websocket.Conn, pc *pendingCall) error {
 	defer func() { _ = ws.SetReadDeadline(time.Time{}) }()
 	for {
 		if done, err := initializeDone(pc); done {
@@ -186,13 +169,13 @@ func initializeDone(pc *pendingCall) (bool, error) {
 	}
 }
 
-func (t *transport) readInitializeMessage(ctx context.Context, ws *xwebsocket.Conn) error {
+func (t *transport) readInitializeMessage(ctx context.Context, ws *websocket.Conn) error {
 	_ = ws.SetReadDeadline(initializeReadDeadline(ctx))
-	var data string
-	if err := xwebsocket.Message.Receive(ws, &data); err != nil {
+	_, data, err := ws.ReadMessage()
+	if err != nil {
 		return err
 	}
-	t.dispatchReadMessage([]byte(data), nil)
+	t.dispatchReadMessage(data, nil)
 	return nil
 }
 
@@ -217,7 +200,7 @@ func (t *transport) writeJSON(v any) error {
 		return errors.New("codexapp: websocket not connected")
 	}
 	_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return xwebsocket.JSON.Send(ws, v)
+	return ws.WriteJSON(v)
 }
 
 func (t *transport) endReadLoop(ctx context.Context, handler func(string, json.RawMessage), err error, message string) bool {
@@ -272,13 +255,13 @@ func (t *transport) failPending(err error) {
 	})
 }
 
-func (t *transport) currentWS() *xwebsocket.Conn {
+func (t *transport) currentWS() *websocket.Conn {
 	t.stateMu.RLock()
 	defer t.stateMu.RUnlock()
 	return t.ws
 }
 
-func (t *transport) setWS(ws *xwebsocket.Conn) {
+func (t *transport) setWS(ws *websocket.Conn) {
 	t.stateMu.Lock()
 	defer t.stateMu.Unlock()
 	if t.ws != nil && t.ws != ws {

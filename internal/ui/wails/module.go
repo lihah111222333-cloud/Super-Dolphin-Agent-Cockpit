@@ -24,6 +24,7 @@ var Module = fx.Module("ui.wails",
 		NewWailsLifecycle,
 		NewEventBridge,
 		NewWailsApplication,
+		NewHTTPAssetServer,
 	),
 	fx.Invoke(bindWailsLifecycle),
 	fx.Invoke(bindEventBridge),
@@ -76,6 +77,7 @@ type applicationParams struct {
 	Binding   *App
 	Service   application.Service
 	Lifecycle *WailsLifecycle
+	Frontend  FrontendFS `optional:"true"`
 }
 
 func NewWailsApplication(p applicationParams) *application.App {
@@ -93,7 +95,7 @@ func NewWailsApplication(p applicationParams) *application.App {
 		Logger:      p.Logger,
 		Services:    []application.Service{p.Service},
 		Assets: application.AssetOptions{
-			Handler: AssetHandler(),
+			Handler: AssetHandlerFrom(p.Frontend),
 		},
 		ShouldQuit: p.Lifecycle.ShouldQuit,
 		OnShutdown: p.Lifecycle.OnShutdown,
