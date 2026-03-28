@@ -7,6 +7,7 @@ WORKTREE_DIR="$PROJECT_DIR/.worktrees/test"
 FRONTEND_DIR="$PROJECT_DIR/cmd/agent-terminal/frontend"
 FORCE_NPM_REINSTALL="0"
 USE_FRIDA="1"
+USE_SERVER="0"
 FRIDA_VERSION_FILE_REL="build/frida-version.txt"
 
 resolve_frida_version() {
@@ -52,11 +53,13 @@ case "$choice" in
     echo "  debug 子选项:"
     echo "    [1] 无 IDA/Frida (精简编译)"
     echo "    [2] 正常编译 (含 Frida)"
+    echo "    [3] Server 模式 (浏览器访问 localhost:4511)"
     echo ""
-    read -rp "  选择 (1/2): " debug_sub
+    read -rp "  选择 (1/2/3): " debug_sub
     case "$debug_sub" in
       1) USE_FRIDA="0"; LABEL="main + debug (no Frida)" ;;
       2) USE_FRIDA="1"; LABEL="main + debug (Frida)" ;;
+      3) USE_FRIDA="0"; USE_SERVER="1"; LABEL="main + debug (server mode)" ;;
       *) echo "❌ 无效选择"; exit 1 ;;
     esac
     ;;
@@ -109,14 +112,14 @@ echo "────────────────────────�
 
 # run-only 模式: 跳过编译，直接启动
 if [ "$MODE" = "run-only" ]; then
-  if [ ! -f "$BUILD_DIR/agent-terminal" ]; then
-    echo "❌ 未找到已编译的二进制: $BUILD_DIR/agent-terminal"
+  if [ ! -f "$BUILD_DIR/super-agent-debug" ]; then
+    echo "❌ 未找到已编译的二进制: $BUILD_DIR/super-agent-debug"
     echo "   请先使用选项 1/2/3/5 编译"
     exit 1
   fi
   echo "[1/2] 停止旧进程..."
-  pkill -f "agent-terminal" >/dev/null 2>&1 || true
-  lsof -ti :4500 :4501 2>/dev/null | xargs kill -9 2>/dev/null || true
+  pkill -f "super-agent-debug" >/dev/null 2>&1 || true
+  lsof -ti :4510 :4511 2>/dev/null | xargs kill -9 2>/dev/null || true
   sleep 0.5
 
   echo "[2/2] 清理 webview 缓存..."
@@ -129,9 +132,9 @@ if [ "$MODE" = "run-only" ]; then
   echo ""
   echo "════════════════════════════════════"
   echo "▶ 直接启动已编译二进制 (debug)..."
-  echo "  sha256: $(shasum -a 256 "$BUILD_DIR/agent-terminal" | awk '{print $1}')"
-  (sleep 1.0; open "http://localhost:4501" >/dev/null 2>&1 || true) &
-  exec "$BUILD_DIR/agent-terminal" --debug "$@"
+  echo "  sha256: $(shasum -a 256 "$BUILD_DIR/super-agent-debug" | awk '{print $1}')"
+  (sleep 1.0; open "http://localhost:4511" >/dev/null 2>&1 || true) &
+  exec "$BUILD_DIR/super-agent-debug" --debug "$@"
 fi
 
 # 1) 前端
@@ -187,24 +190,33 @@ if [ "$MODE" = "debug" ] && [ "$USE_FRIDA" = "1" ]; then
     exit 1
   fi
   echo "[3/4] 编译后端 (debug + IDA + Frida: -tags ida,frida, -gcflags='all=-N -l')..."
-  build_debug_binary_with_frida ./agent-terminal ./cmd/agent-terminal "$FRIDA_DEVKIT_VERSION"
-  build_debug_binary_with_frida ./mcp-server ./cmd/mcp-server "$FRIDA_DEVKIT_VERSION"
+  build_debug_binary_with_frida ./super-agent-debug ./cmd/agent-terminal "$FRIDA_DEVKIT_VERSION"
+  build_debug_binary_with_frida ./mcp-orch ./cmd/mcp-orch "$FRIDA_DEVKIT_VERSION"
+  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-lsp ./cmd/mcp-lsp/
+elif [ "$MODE" = "debug" ] && [ "$USE_SERVER" = "1" ]; then
+  echo "[3/4] 编译后端 (debug server 模式: -gcflags='all=-N -l')..."
+  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./super-agent-debug ./cmd/agent-terminal/
+  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-orch ./cmd/mcp-orch/
+  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-lsp ./cmd/mcp-lsp/
 elif [ "$MODE" = "debug" ] && [ "$USE_FRIDA" = "0" ]; then
   echo "[3/4] 编译后端 (debug 无 Frida: -gcflags='all=-N -l')..."
-  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./agent-terminal ./cmd/agent-terminal/
-  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-server ./cmd/mcp-server/
+  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./super-agent-debug ./cmd/agent-terminal/
+  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-orch ./cmd/mcp-orch/
+  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-lsp ./cmd/mcp-lsp/
 else
   echo "[3/4] 编译后端 (release)..."
-  go build -o ./agent-terminal ./cmd/agent-terminal/
-  go build -o ./mcp-server ./cmd/mcp-server/
+  go build -o ./super-agent-debug ./cmd/agent-terminal/
+  go build -o ./mcp-orch ./cmd/mcp-orch/
+  go build -o ./mcp-lsp ./cmd/mcp-lsp/
 fi
-echo "  ✅ agent-terminal $(shasum -a 256 ./agent-terminal | awk '{print "sha256: " $1}')"
-echo "  ✅ mcp-server     $(shasum -a 256 ./mcp-server | awk '{print "sha256: " $1}')"
+echo "  ✅ super-agent-debug $(shasum -a 256 ./super-agent-debug | awk '{print "sha256: " $1}')"
+echo "  ✅ mcp-orch       $(shasum -a 256 ./mcp-orch | awk '{print "sha256: " $1}')"
+echo "  ✅ mcp-lsp        $(shasum -a 256 ./mcp-lsp | awk '{print "sha256: " $1}')"
 
 # 4) 停旧进程
 echo "[4/4] 停止旧进程..."
-pkill -f "agent-terminal" >/dev/null 2>&1 || true
-lsof -ti :4500 :4501 2>/dev/null | xargs kill -9 2>/dev/null || true
+pkill -f "super-agent-debug" >/dev/null 2>&1 || true
+lsof -ti :4510 :4511 2>/dev/null | xargs kill -9 2>/dev/null || true
 sleep 0.5
 
 # 启动
@@ -212,9 +224,9 @@ echo ""
 echo "════════════════════════════════════"
 if [ "$MODE" = "debug" ]; then
   echo "▶ 启动 debug 模式 (Frida + 调试 UI)..."
-  (sleep 1.0; open "http://localhost:4501" >/dev/null 2>&1 || true) &
-  exec "$BUILD_DIR/agent-terminal" --debug "$@"
+  (sleep 1.0; open "http://localhost:4511" >/dev/null 2>&1 || true) &
+  exec "$BUILD_DIR/super-agent-debug" --debug "$@"
 else
   echo "▶ 启动正常模式..."
-  exec "$BUILD_DIR/agent-terminal" "$@"
+  exec "$BUILD_DIR/super-agent-debug" "$@"
 fi

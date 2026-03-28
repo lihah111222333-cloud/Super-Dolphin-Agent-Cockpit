@@ -7,6 +7,7 @@
 
 # Project Specific Binaries
 /agent-terminal
+/super-agent-debug
 /mcp-server
 /app-server
 /mcp-ida
@@ -48,6 +49,7 @@ test-results/
 # OS
 .DS_Store
 Thumbs.db
+.mypy_cache/
 
 # Environment
 .env

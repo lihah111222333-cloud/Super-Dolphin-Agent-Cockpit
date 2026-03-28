@@ -195,7 +195,6 @@ export const ChatTimeline = {
       if (typeof window !== 'undefined') {
         window.addEventListener('keydown', onAttachmentLightboxKeydown);
       }
-      // [DIAG:height-change] observer removed — flicker bug fixed
     });
     onBeforeUnmount(() => {
       if (typeof window !== 'undefined') {
@@ -281,6 +280,7 @@ export const ChatTimeline = {
   template: `
     <div
       class="chat-messages-vue hide-scrollbar"
+      :class="{ 'has-plan-pin': pinnedPlanVisible }"
       @mouseleave="onAttachmentHoverLeave"
       @scroll.passive="onAttachmentHoverLeave"
     >
@@ -336,10 +336,13 @@ export const ChatTimeline = {
                 :data-stream-version="item.done === false ? streamingFrameVersion : undefined"
                 @click="onAssistantBodyClick"
               >
-                <template v-for="s in [streamingAssistantState(item)]" :key="0">
-                  <div v-if="s.html" class="chat-item-markdown-body-wrap" v-html="s.html"></div>
-                  <pre v-if="s.tailText" class="chat-item-plain chat-item-streaming">{{ s.tailText }}</pre>
+                <template v-if="item.done === false">
+                  <template v-for="s in [streamingAssistantState(item)]" :key="0">
+                    <div v-if="s.html" class="chat-item-markdown-stream-wrap" v-html="s.html"></div>
+                    <pre v-if="s.tailText" class="chat-item-plain chat-item-streaming">{{ s.tailText }}</pre>
+                  </template>
                 </template>
+                <div v-else class="chat-item-markdown-static-wrap" v-html="renderAssistantBody(item.text)"></div>
               </div>
               <div v-else key="mixed" class="chat-item-body chat-item-markdown agent-markdown-root jr-mixed" @click="onAssistantBodyClick">
                 <template v-for="(part, pIdx) in splitBySpec(item.text)" :key="pIdx">

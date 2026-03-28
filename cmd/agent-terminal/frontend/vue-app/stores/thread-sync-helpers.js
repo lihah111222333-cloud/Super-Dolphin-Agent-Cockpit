@@ -213,23 +213,37 @@ export async function syncThreadState(ctx, threadId) {
 
 export async function refreshSidebarState(ctx) {
   const { callAPI, logDebug, logWarn } = ctx;
-  const start = perfNow();
-  try {
-    const snapshotRequest = beginRuntimeSnapshotRequest(ctx, (ctx.state.activeThreadId || '').toString().trim() || '__sidebar__');
-    await callAPI('thread/list', {});
-    const sidebar = await callAPI('ui/sidebar/get', ctx.withPreferenceScope({}));
-    if (!isLatestRuntimeSnapshotRequest(ctx, snapshotRequest)) return;
-    if (typeof ctx.saveScrollPosition === 'function') ctx.saveScrollPosition();
-    ctx.applyRuntimeSnapshot(ctx.state, sidebar || {}, {
-      requestedThreadId: '',
-      allowActiveSelectionPatch: true,
-      loadedRevisionByThread: ctx.threadDiffLoadedRevisionByThread,
-    });
-    if (typeof ctx.restoreScrollPosition === 'function') ctx.restoreScrollPosition();
-    logDebug('thread', 'sidebar.refreshed', { count: ctx.state.threads.length, active_chat: ctx.state.activeThreadId, active_cmd: ctx.state.activeCmdThreadId, duration_ms: Math.round(perfNow() - start) });
-  } catch (error) {
-    logWarn('thread', 'sidebar.refresh.failed', { error, duration_ms: Math.round(perfNow() - start) });
+  if (ctx.sidebarRefreshPromise) {
+    ctx.sidebarRefreshPending = true;
+    return ctx.sidebarRefreshPromise;
   }
+  const start = perfNow();
+  ctx.sidebarRefreshPromise = (async () => {
+    try {
+      const snapshotRequest = beginRuntimeSnapshotRequest(ctx, (ctx.state.activeThreadId || '').toString().trim() || '__sidebar__');
+      const sidebar = await callAPI('ui/sidebar/get', ctx.withPreferenceScope({}));
+      if (!isLatestRuntimeSnapshotRequest(ctx, snapshotRequest)) return;
+      if (typeof ctx.saveScrollPosition === 'function') ctx.saveScrollPosition();
+      ctx.applyRuntimeSnapshot(ctx.state, sidebar || {}, {
+        requestedThreadId: '',
+        allowActiveSelectionPatch: true,
+        loadedRevisionByThread: ctx.threadDiffLoadedRevisionByThread,
+      });
+      if (typeof ctx.restoreScrollPosition === 'function') ctx.restoreScrollPosition();
+      logDebug('thread', 'sidebar.refreshed', { count: ctx.state.threads.length, active_chat: ctx.state.activeThreadId, active_cmd: ctx.state.activeCmdThreadId, duration_ms: Math.round(perfNow() - start) });
+    } catch (error) {
+      logWarn('thread', 'sidebar.refresh.failed', { error, duration_ms: Math.round(perfNow() - start) });
+    } finally {
+      ctx.sidebarRefreshPromise = null;
+      if (ctx.sidebarRefreshPending) {
+        ctx.sidebarRefreshPending = false;
+        await refreshSidebarState(ctx).catch((error) => {
+          logWarn('thread', 'sidebar.refresh.replay_failed', { error });
+        });
+      }
+    }
+  })();
+  return ctx.sidebarRefreshPromise;
 }
 
 export async function loadMessages(ctx, threadId, limit = 300, options = {}) {
@@ -428,6 +442,8 @@ export function buildSyncContext(state, deps) {
     threadPatchMetaByThread: new Map(),
     syncDebounceTimer: 0,
     syncThrottleLastRun: 0,
+    sidebarRefreshPromise: null,
+    sidebarRefreshPending: false,
     sidebarSyncDebounceTimer: 0,
     sidebarSyncThrottleLastRun: 0,
     THREAD_HISTORY_FRESH_TTL_MS: 30_000,

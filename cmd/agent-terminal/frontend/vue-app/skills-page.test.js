@@ -19,6 +19,7 @@ vi.mock('./services/log.js', () => ({
 
 vi.mock('./utils/assistant-markdown.js', () => ({
   renderAssistantMarkdown: (text) => `<p>${text}</p>`,
+  injectSentenceBreaks: vi.fn((text) => text),
 }));
 
 import { nextTick, reactive } from '../lib/vue.esm-browser.prod.js';

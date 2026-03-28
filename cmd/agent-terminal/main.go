@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	if err := app.RunDesktop(); err != nil {
+	if err := app.RunDesktop(frontendDistFS()); err != nil {
 		fmt.Fprintf(os.Stderr, "agent-terminal: %v\n", err)
 		os.Exit(1)
 	}

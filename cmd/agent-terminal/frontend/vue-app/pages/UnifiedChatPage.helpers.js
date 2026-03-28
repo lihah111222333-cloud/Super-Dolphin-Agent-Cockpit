@@ -145,7 +145,6 @@ export function buildUnifiedChatPageExposed(ctx) {
     toggleProviderMode,
     interruptCurrent: threadActions.interruptCurrent,
     compactCurrent: threadActions.compactCurrent,
-    forceCompleteCurrent: threadActions.forceCompleteCurrent,
     recoverSelected: threadActions.recoverSelected,
     setCmdLayout: threadActions.setCmdLayout,
     setCmdCardCols: threadActions.setCmdCardCols,

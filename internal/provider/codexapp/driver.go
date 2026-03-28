@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
@@ -40,8 +41,11 @@ var codexCapabilities = dto.CapabilitySet{
 
 type threadRPCResult struct {
 	Thread struct {
-		ID string `json:"id"`
+		ID  string `json:"id"`
+		Cwd string `json:"cwd"`
 	} `json:"thread"`
+	Model         string `json:"model"`
+	ModelProvider string `json:"modelProvider"`
 }
 
 type threadStartParams struct {
@@ -89,12 +93,18 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	}
 	s.setRuntimeConfig(req.Config)
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
-	threadID, err := startRemoteThread(ctx, s.transport, req)
+	result, err := startRemoteThread(ctx, s.transport, req)
 	if err != nil {
 		shared.LogIgnoredError(d.logger, "force stop failed on start error", s.ForceStop())
 		return nil, err
 	}
-	s.setThreadID(threadID)
+	s.setThreadID(result.threadID)
+	if result.model != "" {
+		s.setRuntimeConfigValue("model", result.model)
+	}
+	if result.cwd != "" {
+		s.setRuntimeConfigValue("cwd", result.cwd)
+	}
 	d.reportRuntime(s.agentID)
 	return s, nil
 }
@@ -115,21 +125,12 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	return s, nil
 }
 
-func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) {
+func (d *driver) restoreApprovalPolicy(_ context.Context, s *session, _ string) {
 	if d == nil || s == nil {
 		return
 	}
-	cfg, err := s.ReadConfig(ctx, threadID)
-	if err != nil {
-		if d.logger != nil {
-			d.logger.Warn("codexapp: restore approval policy failed",
-				"agent_id", s.agentID,
-				"thread_id", strings.TrimSpace(threadID),
-				"error", err)
-		}
-		return
-	}
-	s.setApprovalPolicy(approvalPolicyFromThreadConfig(cfg))
+	// codex app-server has no per-thread config read API;
+	// approval policy is preserved in the session's local state.
 	s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
 }
 
@@ -214,7 +215,13 @@ func modelIDs(raw any) []string {
 	return out
 }
 
-func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRequest) (string, error) {
+type startResult struct {
+	threadID string
+	model    string
+	cwd      string
+}
+
+func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRequest) (startResult, error) {
 	params := threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
@@ -231,9 +238,9 @@ func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRe
 	defer cancel()
 	raw, err := t.Call(callCtx, "thread/start", params)
 	if err != nil {
-		return "", err
+		return startResult{}, err
 	}
-	return decodeThreadID(raw, "")
+	return decodeStartResult(raw)
 }
 
 func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (string, error) {
@@ -248,6 +255,22 @@ func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSession
 		return "", err
 	}
 	return decodeThreadID(raw, resumeID)
+}
+
+func decodeStartResult(raw json.RawMessage) (startResult, error) {
+	var resp threadRPCResult
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return startResult{}, fmt.Errorf("codexapp: decode thread/start: %w", err)
+	}
+	id := strings.TrimSpace(resp.Thread.ID)
+	if id == "" {
+		return startResult{}, errors.New("codexapp: empty thread id")
+	}
+	return startResult{
+		threadID: id,
+		model:    strings.TrimSpace(resp.Model),
+		cwd:      strings.TrimSpace(resp.Thread.Cwd),
+	}, nil
 }
 
 func decodeThreadID(raw json.RawMessage, fallback string) (string, error) {

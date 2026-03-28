@@ -1,6 +1,7 @@
 package uistate
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -175,10 +176,30 @@ func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[s
 	if agent.Port > 0 {
 		runtimeEntry["port"] = agent.Port
 	}
+	if agent.Model != "" {
+		runtimeEntry["model"] = agent.Model
+	}
+	if agent.CWD != "" {
+		runtimeEntry["logPath"] = buildLogPath(agent.CWD)
+	}
 	if agent.LastMessage != "" {
 		runtimeEntry["lastMessage"] = agent.LastMessage
 	}
 	return runtimeEntry
+}
+
+// buildLogPath derives the conventional log directory from the project CWD.
+// Matches the frontend's buildCwdLogPath in thread-copy-utils.js.
+func buildLogPath(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" || cwd == "." {
+		return ""
+	}
+	name := filepath.Base(cwd)
+	if name == "" || name == "." || name == "/" {
+		return ""
+	}
+	return "~/.multi-agent/log/" + name + "/"
 }
 
 func deriveThreadStatuses(sidebar *Sidebar, agents sidebarAgentLookup, recentByThread map[string]TurnSummary) {

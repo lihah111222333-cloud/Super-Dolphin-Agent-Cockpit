@@ -147,9 +147,6 @@ describe('thread store runtime sync', () => {
     const freshScopedSnapshot = deferred();
 
     apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'thread/list') {
-        return { threads: [] };
-      }
       if (method === 'ui/sidebar/get') {
         refreshSyncStarted.resolve();
         return staleRefreshSnapshot.promise;
@@ -343,7 +340,6 @@ describe('thread store runtime sync', () => {
     const secondSnapshot = deferred();
     let sidebarRequestCount = 0;
     apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'thread/list') return { threads: [] };
       if (method !== 'ui/sidebar/get') return {};
       sidebarRequestCount += 1;
       if (sidebarRequestCount === 1) { firstStarted.resolve(); return firstSnapshot.promise; }
@@ -354,6 +350,24 @@ describe('thread store runtime sync', () => {
     firstSnapshot.resolve(buildSidebarSnapshot({ threadId: 'thread-live', statusHeader: 'first', activeThreadId: 'thread-live' })); await Promise.resolve();
     secondSnapshot.resolve(buildSidebarSnapshot({ threadId: 'thread-live', statusHeader: 'second', activeThreadId: 'thread-live' })); await Promise.all([refreshA, refreshB]);
     expect(sidebarRequestCount).toBe(2); expect(store.getThreadStatusHeader('thread-live')).toBe('second');
+  });
+
+  it('keeps existing sidebar state when ui/sidebar/get fails', async () => {
+    const store = useThreadStore();
+    store.state.activeThreadId = 'thread-live';
+    store.state.threads = [{ id: 'thread-live', name: 'Live', state: 'running' }];
+    store.state.statuses = { 'thread-live': 'running' };
+    store.state.statusHeadersByThread = { 'thread-live': 'Still here' };
+
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'ui/sidebar/get') throw new Error('catalog unavailable');
+      return {};
+    });
+
+    await store.refreshSidebarState();
+
+    expect(store.state.threads).toEqual([{ id: 'thread-live', name: 'Live', state: 'running' }]);
+    expect(store.getThreadStatusHeader('thread-live')).toBe('Still here');
   });
 
 
@@ -370,7 +384,6 @@ describe('thread store runtime sync', () => {
       const methods = [];
       apiMock.callAPI.mockImplementation(async (method) => {
         methods.push(method);
-        if (method === 'thread/list') return { threads: [] };
         if (method === 'ui/sidebar/get') {
           return buildSidebarSnapshot({
             threadId: 'thread-other',
@@ -666,7 +679,6 @@ describe('thread store runtime sync', () => {
           activeThreadId: 'thread-new',
         });
       }
-      if (method === 'thread/list') return { threads: [] };
       if (method === 'ui/sidebar/get') {
         return buildSidebarSnapshot({
           threadId: 'thread-old',
@@ -710,7 +722,6 @@ describe('thread store runtime sync', () => {
           activeCmdThreadId: 'thread-cmd-new',
         };
       }
-      if (method === 'thread/list') return { threads: [] };
       if (method === 'ui/sidebar/get') {
         return {
           ...buildSidebarSnapshot({
@@ -877,7 +888,6 @@ describe('thread store runtime sync', () => {
     const freshScopedSnapshot = deferred();
 
     apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'thread/list') return { threads: [] };
       if (method === 'ui/sidebar/get') {
         sidebarStarted.resolve();
         return staleSidebarSnapshot.promise;
@@ -980,4 +990,3 @@ describe('thread store runtime sync', () => {
   });
 
 });
-

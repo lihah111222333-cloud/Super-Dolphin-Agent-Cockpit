@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 type localCodexHelper struct {
@@ -169,9 +169,16 @@ func runServeHelper(listenURL string, withChild bool) error {
 		return err
 	}
 	defer listener.Close()
+	upgrader := &websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- http.Serve(listener, websocket.Handler(helperWSHandler))
+		serveErr <- http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			helperWSHandler(conn)
+		}))
 	}()
 	return waitForHelperSignal(listener, serveErr)
 }
@@ -196,12 +203,12 @@ func waitForHelperSignal(listener net.Listener, serveErr chan error) error {
 func helperWSHandler(conn *websocket.Conn) {
 	defer conn.Close()
 	for {
-		var raw string
-		if err := websocket.Message.Receive(conn, &raw); err != nil {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
 			return
 		}
 		var msg jsonRPCMessage
-		if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+		if err := json.Unmarshal(raw, &msg); err != nil {
 			continue
 		}
 		method := strings.TrimSpace(msg.Method)
@@ -219,7 +226,7 @@ func helperWSHandler(conn *websocket.Conn) {
 		if err != nil {
 			return
 		}
-		if err := websocket.Message.Send(conn, string(resp)); err != nil {
+		if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
 			return
 		}
 	}

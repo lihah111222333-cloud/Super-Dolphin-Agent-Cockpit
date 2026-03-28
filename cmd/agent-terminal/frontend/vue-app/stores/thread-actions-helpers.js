@@ -296,6 +296,26 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
       ctx.threadHistoryLoadedAtByThread.set(threadId, Date.now());
     }
     await callAPI('turn/start', requestPayload);
+    if (typeof ctx.syncThreadState === 'function') {
+      try {
+        await ctx.syncThreadState(threadId);
+      } catch (error) {
+        logWarn('thread', 'send.post_turn_sync_thread.failed', {
+          thread_id: threadId,
+          error,
+        });
+      }
+    }
+    if (typeof ctx.loadMessages === 'function') {
+      try {
+        await ctx.loadMessages(threadId, 300, { syncRuntime: false });
+      } catch (error) {
+        logWarn('thread', 'send.post_turn_load_messages.failed', {
+          thread_id: threadId,
+          error,
+        });
+      }
+    }
     await ctx.syncRuntimeState();
     const afterLen = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId].length : 0;
     logWarn('ui', 'chat.send.timeline_diff', { thread_id: threadId, beforeLen, afterLen });

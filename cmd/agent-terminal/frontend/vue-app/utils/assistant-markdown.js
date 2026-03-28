@@ -504,6 +504,5 @@ export function renderAssistantMarkdown(rawText) {
   const reasoningNormalized = normalizeReasoningText(withBreaks);
   const normalized = preprocessCodexMarkdown(reasoningNormalized);
   const fixed = fixBrokenBoldMarkers(normalized);
-  const html = postprocessCodexHtml(markdown.render(fixed));
-  return html;
+  return postprocessCodexHtml(markdown.render(fixed));
 }

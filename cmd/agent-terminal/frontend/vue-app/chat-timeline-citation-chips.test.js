@@ -5,7 +5,7 @@ const markdownMock = vi.hoisted(() => ({ render: vi.fn((text) => `<p>${text}</p>
 
 vi.mock('./services/log.js', () => ({ logDebug: vi.fn(), logInfo: vi.fn(), logWarn: vi.fn() }));
 vi.mock('./services/api.js', () => ({ callAPI: vi.fn() }));
-vi.mock('./utils/assistant-markdown.js', () => ({ renderAssistantMarkdown: markdownMock.render }));
+vi.mock('./utils/assistant-markdown.js', () => ({ renderAssistantMarkdown: markdownMock.render, injectSentenceBreaks: vi.fn((text) => text) }));
 
 import { ChatTimeline } from './components/ChatTimeline.js';
 

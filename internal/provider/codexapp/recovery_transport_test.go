@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -12,7 +13,7 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 func TestTransportReconnectReinitializes(t *testing.T) {
@@ -20,13 +21,19 @@ func TestTransportReconnectReinitializes(t *testing.T) {
 
 	var mu sync.Mutex
 	methods := make([]string, 0, 4)
-	server := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
 		defer conn.Close()
 		for {
-			var raw string
-			if err := websocket.Message.Receive(conn, &raw); err != nil {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
 				return
 			}
+			raw := string(rawBytes)
 			var msg jsonRPCMessage
 			if err := json.Unmarshal([]byte(raw), &msg); err != nil {
 				continue
@@ -48,7 +55,7 @@ func TestTransportReconnectReinitializes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal response: %v", err)
 			}
-			if err := websocket.Message.Send(conn, string(resp)); err != nil {
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
 				return
 			}
 		}
@@ -84,13 +91,19 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 	var mu sync.Mutex
 	turnStarts := 0
 	initializeCalls := 0
-	server := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+	upgrader2 := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader2.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
 		defer conn.Close()
 		for {
-			var raw string
-			if err := websocket.Message.Receive(conn, &raw); err != nil {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
 				return
 			}
+			raw := string(rawBytes)
 			var msg jsonRPCMessage
 			if err := json.Unmarshal([]byte(raw), &msg); err != nil {
 				continue
@@ -122,7 +135,7 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal response: %v", err)
 			}
-			if err := websocket.Message.Send(conn, string(resp)); err != nil {
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
 				return
 			}
 		}

@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 
 	"go.uber.org/fx"
+
+	"github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -14,10 +17,22 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+// NewLogger initializes file + stderr dual logging aligned with V2 convention.
+// Log path: ~/.multi-agent/log/{projectName}/agent-terminal-{date}-{N}.log
 func NewLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	logger.Init(os.Getenv("LOG_LEVEL"))
+	homeDir, _ := os.UserHomeDir()
+	cwd, _ := os.Getwd()
+	logDir, projectName := logger.ResolveProjectLogDir(homeDir, cwd)
+	if logDir != "" {
+		if err := logger.InitWithFile(logDir); err != nil {
+			logger.Warn("file logging unavailable", "error", err)
+		}
+	}
+	if projectName != "" {
+		logger.SetProject(projectName)
+	}
+	return logger.Get()
 }
 
 func NewApp() *fx.App {
@@ -28,12 +43,17 @@ func Run() error {
 	return runApp(NewApp())
 }
 
-func RunDesktop() error {
+// RunDesktop starts the desktop application with the given frontend filesystem.
+// When frontendFS is nil the wails module falls back to a built-in placeholder.
+func RunDesktop(frontendFS fs.FS) error {
 	ctx := context.Background()
 	var wailsApp *application.App
 	var lifecycle *uiwails.WailsLifecycle
 
-	app := newDesktopFXApp(fx.Populate(&wailsApp, &lifecycle))
+	app := newDesktopFXApp(
+		fx.Supply(uiwails.FrontendFS{FS: frontendFS}),
+		fx.Populate(&wailsApp, &lifecycle),
+	)
 	startCtx, cancel := platformconfig.WithTimeout(ctx, platformconfig.StartupTimeout)
 	defer cancel()
 	if err := app.Start(startCtx); err != nil {

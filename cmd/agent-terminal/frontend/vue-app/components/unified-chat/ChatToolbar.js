@@ -46,7 +46,6 @@ export const ChatToolbar = {
     'set-cmd-card-cols',
     'copy-thread-info',
     'stop-selected',
-    'force-complete-current',
     'toggle-provider-mode',
     'launch-one',
     'recover-selected',
@@ -122,22 +121,6 @@ export const ChatToolbar = {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="8"></circle>
           <rect x="9" y="9" width="6" height="6" rx="1.2"></rect>
-        </svg>
-      </button>
-      <button
-        v-if="!isCmd && selectedThreadId && activeStatus === 'running'"
-        class="btn btn-ghost btn-xs btn-warning chat-toolbar-icon-btn"
-        @click="emit('force-complete-current')"
-        aria-label="重链"
-        title="强制完成当前 turn，重置状态机"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9.4 14.6 7 17a3.2 3.2 0 1 1-4.5-4.5l2.4-2.4"></path>
-          <path d="M14.6 9.4 17 7a3.2 3.2 0 1 1 4.5 4.5l-2.4 2.4"></path>
-          <path d="M9 15h6"></path>
-          <path d="M18.5 15.5a6.5 6.5 0 0 1-9.2 2.1"></path>
-          <path d="M18.5 18.5v-3"></path>
-          <path d="M18.5 18.5h-3"></path>
         </svg>
       </button>
       <label
