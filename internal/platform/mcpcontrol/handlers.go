@@ -3,7 +3,7 @@ package mcpcontrol
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -222,7 +222,7 @@ func resolveAgentContextSource(explicit AgentContextSource, orchestration contra
 
 type defaultEventSink struct {
 	dispatcher *event.Dispatcher
-	logger     *slog.Logger
+	logger     *pkglogger.Logger
 }
 
 func (s defaultEventSink) HandleEvent(_ context.Context, instance *ToolInstance, req dto.EventNotify) error {
@@ -245,7 +245,7 @@ func (s defaultEventSink) HandleEvent(_ context.Context, instance *ToolInstance,
 }
 
 type defaultLogSink struct {
-	logger *slog.Logger
+	logger *pkglogger.Logger
 }
 
 func (s defaultLogSink) HandleLog(_ context.Context, instance *ToolInstance, req dto.LogNotify) error {

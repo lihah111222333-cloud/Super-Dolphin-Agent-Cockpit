@@ -1,7 +1,6 @@
 package skill
 
 import (
-	"log/slog"
 	"strings"
 	"time"
 
@@ -9,6 +8,7 @@ import (
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
 
@@ -45,7 +45,7 @@ func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 	seq := s.skillsChangedSeq
 	s.skillsChangedMu.Unlock()
 
-	platformshared.SafeGo(slog.Default(), func() {
+	platformshared.SafeGo(pkglogger.Get(), func() {
 		time.Sleep(skillsChangedDebounceWindow)
 		s.flushSkillsChanged(seq)
 	})

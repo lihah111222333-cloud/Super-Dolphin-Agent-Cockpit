@@ -2,7 +2,7 @@ package db
 
 import (
 	"context"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
@@ -25,7 +25,7 @@ func NewPool(cfg *config.Config) (*pgxpool.Pool, error) {
 	return pgxpool.NewWithConfig(context.Background(), poolCfg)
 }
 
-func registerLifecycle(lc fx.Lifecycle, logger *slog.Logger, pool *pgxpool.Pool) {
+func registerLifecycle(lc fx.Lifecycle, logger *pkglogger.Logger, pool *pgxpool.Pool) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			logger.Info("db pool ready")

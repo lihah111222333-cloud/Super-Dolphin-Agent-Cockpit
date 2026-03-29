@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 )
 
@@ -138,5 +139,5 @@ func shouldIgnoreUserInputErr(err error) bool {
 
 func userInputLogger(logger *slog.Logger) *slog.Logger {
 	if logger != nil { return logger }
-	return slog.Default()
+	return pkglogger.Get()
 }

@@ -7,18 +7,9 @@ import (
 )
 
 var (
-	fileWatcherStop   chan struct{}
+	fileWatcherStop chan struct{}
 	fileWatchInterval = 30 * time.Second
 )
-
-func startFileWatcher(path string) {
-	logMu.Lock()
-	stopFileWatcherLocked()
-	stop := make(chan struct{})
-	fileWatcherStop = stop
-	logMu.Unlock()
-	go watchLogFile(path, stop)
-}
 
 func watchLogFile(path string, stop chan struct{}) {
 	ticker := time.NewTicker(fileWatchInterval)
@@ -34,14 +25,15 @@ func watchLogFile(path string, stop chan struct{}) {
 			_ = os.MkdirAll(filepath.Dir(path), 0o755)
 			f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 			if err != nil {
+				Warn("log file watchdog: reopen failed", "path", path, "error", err)
 				continue
 			}
-			logMu.Lock()
+			logFileMu.Lock()
 			closeLogFileLocked()
 			logFile = f
-			logMu.Unlock()
+			logFileMu.Unlock()
 			rebuildLoggerWithFile(f)
-			Info("log file watchdog: reopened", FieldPath, path)
+			Info("log file watchdog: reopened deleted log file", "path", path)
 		}
 	}
 }
@@ -60,13 +52,13 @@ func closeLogFileLocked() {
 	}
 }
 
-// ShutdownFileHandler releases the log file and stops the watchdog.
 func ShutdownFileHandler() {
-	logMu.Lock()
-	defer logMu.Unlock()
+	logFileMu.Lock()
+	defer logFileMu.Unlock()
 	stopFileWatcherLocked()
 	if logFile != nil {
 		closeLogFileLocked()
 		logFile = nil
 	}
+	logFileConsole = nil
 }

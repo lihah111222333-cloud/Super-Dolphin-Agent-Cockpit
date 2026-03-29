@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type recordedLog struct {
@@ -96,7 +98,7 @@ func TestSafeGoRecoversPanicAndLogs(t *testing.T) {
 	t.Parallel()
 
 	handler := &recordingHandler{}
-	logger := slog.New(handler)
+	logger := pkglogger.New(handler)
 	done := make(chan struct{})
 
 	SafeGo(logger, func() {

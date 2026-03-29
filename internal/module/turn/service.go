@@ -14,6 +14,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type service struct {
@@ -30,7 +31,7 @@ type steerableSession interface {
 
 func NewService(logger *slog.Logger) Service {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &service{
 		logger:    logger,

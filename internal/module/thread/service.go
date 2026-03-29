@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
 
@@ -65,7 +66,7 @@ func NewService(
 	threadEvents *bus.ThreadEmitters,
 ) Service {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	var dispatcher *event.Dispatcher
 	if threadEvents != nil {

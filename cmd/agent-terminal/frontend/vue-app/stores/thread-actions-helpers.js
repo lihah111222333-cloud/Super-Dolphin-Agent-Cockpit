@@ -10,6 +10,11 @@ import {
 } from './thread-preference.model.js';
 import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimistic.js';
 
+function isSessionNotAvailableError(err) {
+  const msg = (err?.message || err?.cause?.message || '').toString().toLowerCase();
+  return msg.includes('session is not available') || msg.includes('session not found');
+}
+
 export function perfNow() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
 }
@@ -295,7 +300,25 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     if (typeof ctx.threadHistoryLoadedAtByThread?.set === 'function') {
       ctx.threadHistoryLoadedAtByThread.set(threadId, Date.now());
     }
-    await callAPI('turn/start', requestPayload);
+    try {
+      await callAPI('turn/start', requestPayload);
+    } catch (turnError) {
+      if (isSessionNotAvailableError(turnError)) {
+        logWarn('thread', 'send.auto_recover', { thread_id: threadId, error: turnError });
+        await recoverThread(ctx, threadId);
+        await callAPI('turn/start', requestPayload);
+      } else {
+        throw turnError;
+      }
+    }
+    // Optimistic UI: insert user message into local timeline immediately so
+    // it renders before the backend writes the JSONL / completes the turn.
+    const userText = input.filter((i) => i?.type === 'text').map((i) => i.text).join('\n').trim();
+    if (userText) {
+      const existing = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
+      const optimisticItem = Object.freeze({ id: `${threadId}-optimistic-user-${Date.now()}`, kind: 'user', text: userText, ts: new Date().toISOString() });
+      ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: [...existing, optimisticItem] };
+    }
     if (typeof ctx.syncThreadState === 'function') {
       try {
         await ctx.syncThreadState(threadId);

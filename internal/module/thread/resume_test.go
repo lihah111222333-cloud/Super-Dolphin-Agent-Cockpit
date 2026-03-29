@@ -3,8 +3,6 @@ package thread
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"reflect"
 	"testing"
 
@@ -13,6 +11,7 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
@@ -445,6 +444,6 @@ func (s *stubBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAg
 	return nil
 }
 
-func silentLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+func silentLogger() *pkglogger.Logger {
+	return pkglogger.Get()
 }

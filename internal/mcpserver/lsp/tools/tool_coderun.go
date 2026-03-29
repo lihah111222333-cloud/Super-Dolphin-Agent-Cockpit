@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	lspexec "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/exec"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 )
 
@@ -254,11 +254,11 @@ func defaultCodeRunTimeout() time.Duration {
 var goTestNamePattern = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
 func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Handler) middleware.Handler {
-	logger := slog.Default()
+	log := pkglogger.Get()
 	return middleware.Chain(
 		handler,
-		middleware.Recovery(logger, toolName),
-		middleware.Logging(logger, toolName),
+		middleware.Recovery(log, toolName),
+		middleware.Logging(log, toolName),
 		middleware.Timeout(tier),
 	)
 }

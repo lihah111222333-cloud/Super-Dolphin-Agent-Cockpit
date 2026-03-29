@@ -3,7 +3,7 @@ package mcpcontrol
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -24,7 +24,7 @@ func registerConfigChangeSubscriptions(
 	dispatcher *event.Dispatcher,
 	notifier contract.ToolNotifier,
 	versions configVersionSource,
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 ) []context.CancelFunc {
 	if dispatcher == nil || notifier == nil || versions == nil {
 		return nil
@@ -60,7 +60,7 @@ func registerConfigChangeSubscriptions(
 func publishConfigChanged(
 	notifier contract.ToolNotifier,
 	versions configVersionSource,
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	topic string,
 	payload map[string]any,
 ) {
@@ -68,7 +68,7 @@ func publishConfigChanged(
 		return
 	}
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

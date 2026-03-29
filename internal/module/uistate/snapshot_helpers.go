@@ -336,6 +336,18 @@ func (s *service) agentSummaryLocked(agentID string) (AgentSummary, bool) {
 	return AgentSummary{}, false
 }
 
+// resolveThreadIDByAgentLocked finds the public thread ID for the given agent.
+// Codex events use providerThreadID as ThreadID; this resolves back to the
+// public ID that the sidebar uses.
+func (s *service) resolveThreadIDByAgentLocked(agentID string) string {
+	if summary, ok := s.agentSummaryLocked(agentID); ok {
+		if tid := strings.TrimSpace(summary.ThreadID); tid != "" {
+			return tid
+		}
+	}
+	return ""
+}
+
 func (s *service) rawAgentStateForThreadLocked(threadID, agentID string) string {
 	if summary, ok := s.agentSummaryLocked(agentID); ok {
 		return firstNonEmptyString(summary.State, summary.AgentState, summary.ThreadStatus)

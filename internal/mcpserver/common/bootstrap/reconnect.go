@@ -2,10 +2,10 @@ package bootstrap
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/creachadair/jrpc2"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -18,7 +18,7 @@ func (c *Client) handleStop(stopped *jrpc2.Client, err error) {
 	if !shouldReconnect {
 		return
 	}
-	slog.Warn("bootstrap disconnected",
+	pkglogger.Warn("bootstrap disconnected",
 		"instance_id", c.instanceID,
 		"lease_key", c.currentLease(),
 		"error", err,
@@ -63,14 +63,14 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 			c.mu.Unlock()
 			c.flushQueuedReports(context.Background())
 			replayErr := c.replayHookSubscriptions(ctx)
-			slog.Info("bootstrap reconnected",
+			pkglogger.Info("bootstrap reconnected",
 				"instance_id", c.instanceID,
 				"lease_key", reg.Lease,
 				"hook_replay_pending", replayErr != nil,
 			)
 			return
 		}
-		slog.Warn("bootstrap reconnect failed",
+		pkglogger.Warn("bootstrap reconnect failed",
 			"instance_id", c.instanceID,
 			"retry_in", delay,
 			"error", err,

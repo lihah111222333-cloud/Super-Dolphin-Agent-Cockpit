@@ -20,6 +20,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
 )
@@ -42,11 +43,12 @@ type runtimeParams struct {
 }
 
 func newLogger(cfg *platformconfig.Config) *slog.Logger {
-	level := slog.LevelInfo
+	level := pkglogger.LevelInfo
 	if cfg != nil {
 		_ = level.UnmarshalText([]byte(strings.TrimSpace(cfg.LogLevel)))
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	pkglogger.InitModeWithLevel(pkglogger.Production, level)
+	return pkglogger.Get()
 }
 
 func newPool(cfg *platformconfig.Config) (*pgxpool.Pool, error) {
@@ -177,7 +179,7 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 	logger := params.Logger
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	var cancel context.CancelFunc
 	done := make(chan error, 1)

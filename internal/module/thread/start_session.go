@@ -47,7 +47,9 @@ func trimStartRequest(req StartRequest) StartRequest {
 }
 
 func resolveStartConfig(req StartRequest) (StartRequest, error) {
-	provider, err := resolveStartProvider(req.Provider)
+	// ModelProvider from frontend (e.g. "claude") should drive provider selection
+	// when Provider is not explicitly set.
+	provider, err := resolveStartProvider(firstNonEmpty(req.Provider, req.ModelProvider))
 	if err != nil {
 		return StartRequest{}, err
 	}

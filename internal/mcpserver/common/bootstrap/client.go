@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/creachadair/jrpc2"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
@@ -255,7 +255,7 @@ func (c *Client) Close() error {
 		c.flushQueuedReportsWithConn(context.Background(), conn, lease)
 		if finalReq := c.finalReportRequest(); finalReq != nil {
 			if _, err := c.sendReportWithConn(context.Background(), conn, lease, *finalReq); err != nil && !isTransportErr(err) {
-				slog.Warn("bootstrap final report failed",
+				pkglogger.Warn("bootstrap final report failed",
 					"instance_id", c.instanceID,
 					"lease_key", lease,
 					"report_id", finalReq.ReportID,

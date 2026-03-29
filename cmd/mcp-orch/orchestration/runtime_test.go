@@ -14,6 +14,7 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestUpdateRuntimePrefersReportedValues(t *testing.T) {
@@ -157,7 +158,7 @@ func TestUpdateRuntimeUnknownProviderWarns(t *testing.T) {
 	t.Parallel()
 
 	var logs bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	logger := pkglogger.New(pkglogger.NewTextHandler(&logs, nil))
 	svc, reported, cancel := newRuntimeTestService(logger, runtimeTestAgent())
 	defer cancel()
 

@@ -3,7 +3,7 @@ package mcpcontrol
 import (
 	"context"
 	"errors"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"sort"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -66,7 +66,7 @@ func (r *ToolRegistry) shutdownHooks(ctx context.Context, key LeaseKey) error {
 
 func (r *ToolRegistry) cleanupLease(ctx context.Context, key LeaseKey) {
 	if err := r.shutdownHooks(ctx, key); err != nil {
-		slog.Warn("mcp lease hook cleanup failed", "instance_id", key.InstanceID, "generation", key.Generation, "err", err)
+		pkglogger.Warn("mcp lease hook cleanup failed", "instance_id", key.InstanceID, "generation", key.Generation, "err", err)
 	}
 }
 
@@ -109,7 +109,7 @@ func (r *ToolRegistry) cleanupLeaseWithTimeout(parent context.Context, key Lease
 	defer cancel()
 	err := r.shutdownHooks(ctx, key)
 	if err != nil {
-		slog.Warn("mcp lease hook cleanup failed", "instance_id", key.InstanceID, "generation", key.Generation, "err", err)
+		pkglogger.Warn("mcp lease hook cleanup failed", "instance_id", key.InstanceID, "generation", key.Generation, "err", err)
 	}
 	return err
 }

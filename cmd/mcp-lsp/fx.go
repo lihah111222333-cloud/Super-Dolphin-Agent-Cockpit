@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
 
@@ -54,7 +54,7 @@ func run() error {
 					}
 				}
 				cfg.OnConfigChanged = func(notify mcp.ConfigChangedNotify) {
-					slog.Info("mcp-lsp config changed",
+					pkglogger.Info("mcp-lsp config changed",
 						"binary_name", cfg.BinaryName,
 						"instance_id", cfg.InstanceID,
 						"scope", notify.Scope,
@@ -160,7 +160,7 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 }
 
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
-	logger := slog.Default()
+	log := pkglogger.Get()
 	var cancel context.CancelFunc
 	done := make(chan error, 1)
 
@@ -175,7 +175,7 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 				done <- err
 				close(done)
 				if err != nil && !errors.Is(err, context.Canceled) {
-					logger.Error("mcp-lsp runtime exited", "error", err)
+					log.Error("mcp-lsp runtime exited", "error", err)
 				}
 				_ = params.Shutdowner.Shutdown()
 			}()

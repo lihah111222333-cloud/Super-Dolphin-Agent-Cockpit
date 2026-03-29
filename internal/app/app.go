@@ -6,10 +6,13 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"runtime"
+	"runtime/debug"
+	"strings"
 
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -17,22 +20,72 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// NewLogger initializes file + stderr dual logging aligned with V2 convention.
-// Log path: ~/.multi-agent/log/{projectName}/agent-terminal-{date}-{N}.log
 func NewLogger() *slog.Logger {
-	logger.Init(os.Getenv("LOG_LEVEL"))
+	pkglogger.Init(os.Getenv("LOG_LEVEL"))
+	info := currentBuildInfo()
+	pkglogger.Info("build info",
+		"version", info.Version,
+		"commit", info.Commit,
+		"build_time", info.BuildTime,
+		"runtime", info.Runtime,
+	)
+
 	homeDir, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
-	logDir, projectName := logger.ResolveProjectLogDir(homeDir, cwd)
-	if logDir != "" {
-		if err := logger.InitWithFile(logDir); err != nil {
-			logger.Warn("file logging unavailable", "error", err)
-		}
+	logDir, projectName := pkglogger.ResolveProjectLogDir(homeDir, cwd)
+	if err := pkglogger.InitWithFile(logDir); err != nil {
+		pkglogger.Warn("file logging unavailable", pkglogger.FieldError, err)
 	}
 	if projectName != "" {
-		logger.SetProject(projectName)
+		pkglogger.SetProject(projectName)
 	}
-	return logger.Get()
+	return pkglogger.Get()
+}
+
+type buildInfo struct {
+	Version   string
+	Commit    string
+	BuildTime string
+	Runtime   string
+}
+
+func currentBuildInfo() buildInfo {
+	info := buildInfo{
+		Version: "dev",
+		Commit:  "unknown",
+		Runtime: runtime.GOOS + "/" + runtime.GOARCH,
+	}
+	meta, ok := debug.ReadBuildInfo()
+	if !ok {
+		return info
+	}
+	if version := strings.TrimSpace(meta.Main.Version); version != "" && version != "(devel)" {
+		info.Version = version
+	}
+	for _, setting := range meta.Settings {
+		applyBuildSetting(&info, setting.Key, setting.Value)
+	}
+	return info
+}
+
+func applyBuildSetting(info *buildInfo, key, value string) {
+	if info == nil {
+		return
+	}
+	switch key {
+	case "vcs.revision":
+		value = strings.TrimSpace(value)
+		if len(value) > 7 {
+			value = value[:7]
+		}
+		if value != "" {
+			info.Commit = value
+		}
+	case "vcs.time":
+		if value = strings.TrimSpace(value); value != "" {
+			info.BuildTime = value
+		}
+	}
 }
 
 func NewApp() *fx.App {
@@ -117,7 +170,7 @@ func stopFXApp(parent context.Context, app *fx.App) error {
 
 func watchFXShutdown(app *fx.App, lifecycle *uiwails.WailsLifecycle) chan struct{} {
 	stop := make(chan struct{})
-	platformshared.SafeGo(slog.Default(), func() {
+	platformshared.SafeGo(pkglogger.Get(), func() {
 		select {
 		case <-app.Done():
 			lifecycle.NotifyBackendFailed()

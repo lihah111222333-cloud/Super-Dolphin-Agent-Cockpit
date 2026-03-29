@@ -11,6 +11,24 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// resolveAbsCWD ensures CWD is an absolute path.
+func resolveAbsCWD(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		if wd, err := os.Getwd(); err == nil {
+			return wd
+		}
+		return "."
+	}
+	if filepath.IsAbs(cwd) {
+		return cwd
+	}
+	if abs, err := filepath.Abs(cwd); err == nil {
+		return abs
+	}
+	return cwd
+}
+
 func resolveBinaryPath() string {
 	if bin := strings.TrimSpace(os.Getenv("CLAUDE_CLI_BIN")); bin != "" {
 		return bin

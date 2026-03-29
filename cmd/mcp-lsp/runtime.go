@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"os"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
@@ -22,11 +22,11 @@ func newManager() (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	logger := slog.Default()
+	log := pkglogger.Get()
 	goplsMgr := gopls.NewManager(gopls.Config{
 		WorkspaceRoot: root,
 		ClientFactory: gopls.ClientFactoryFunc(gopls.NewClient),
-		Logger:        logger,
+		Logger:        log,
 	})
 	return &Manager{goplsMgr: goplsMgr, root: root}, nil
 }

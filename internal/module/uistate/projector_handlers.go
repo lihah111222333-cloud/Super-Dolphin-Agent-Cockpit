@@ -7,12 +7,22 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+func currentLogFilePath() string { return pkglogger.CurrentLogFilePath() }
 
 func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 	s.mu.Lock()
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
+	// codex events use providerThreadID as ThreadID; resolve to the
+	// public thread ID (agentId) so state updates match the existing sidebar entry.
+	if agentID != "" {
+		if resolved := s.resolveThreadIDByAgentLocked(agentID); resolved != "" {
+			threadID = resolved
+		}
+	}
 	newState := strings.TrimSpace(ev.NewState)
 	agentState := normalizeAgentLifecycleState(newState)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
@@ -188,11 +198,15 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 	})
 	if agentID != "" {
 		s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
-			ID:       agentID,
-			ThreadID: threadID,
-			Provider: strings.TrimSpace(ev.Provider),
-			Model:    strings.TrimSpace(ev.Model),
-			CWD:      strings.TrimSpace(ev.CWD),
+			ID:               agentID,
+			ThreadID:         threadID,
+			ProviderThreadID: strings.TrimSpace(ev.ProviderThreadID),
+			Provider:         strings.TrimSpace(ev.Provider),
+			Model:            strings.TrimSpace(ev.Model),
+			CWD:              strings.TrimSpace(ev.CWD),
+			LogPath:          currentLogFilePath(),
+			State:            "idle",
+			AgentState:       "idle",
 		})
 	}
 	patch := s.refreshThreadPatchLocked(threadID, agentID, "thread/started")

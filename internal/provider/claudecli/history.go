@@ -26,6 +26,9 @@ func (h *historyBackend) ReadHistory(ctx context.Context, threadID string) ([]Me
 	if err != nil {
 		return nil, err
 	}
+	if path == "" {
+		return nil, nil // no history yet
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open claude history: %w", err)
@@ -64,7 +67,8 @@ func (h *historyBackend) sessionPath(threadID string) (string, error) {
 			return matches[i], nil
 		}
 	}
-	return "", fmt.Errorf("claudecli: history not found for %s", threadID)
+	// No history file yet — normal for new sessions.
+	return "", nil
 }
 
 func (h *historyBackend) rootDir() (string, error) {

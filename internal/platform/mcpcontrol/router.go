@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -116,7 +116,7 @@ func (r *ToolRegistry) callbackTargets(ctx context.Context, targets []sendTarget
 func (r *ToolRegistry) runCallbackWorker(ctx context.Context, jobs <-chan sendTarget, errs chan<- error, method string, params any) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			slog.Error("mcp callback worker goroutine panic",
+			pkglogger.Error("mcp callback worker goroutine panic",
 				"method", method,
 				"panic", rec,
 			)

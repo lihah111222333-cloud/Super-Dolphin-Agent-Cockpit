@@ -3,7 +3,6 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/gorilla/websocket"
 	"github.com/kelindar/event"
 )
@@ -234,7 +234,7 @@ func TestRequestToolApprovalDedupesProcessedRequestID(t *testing.T) {
 	defer server.Close()
 
 	bus := event.NewDispatcher()
-	s, err := newSession(context.Background(), slog.Default(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, rpc.NewApprovalManager(nil, bus))
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, rpc.NewApprovalManager(nil, bus))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

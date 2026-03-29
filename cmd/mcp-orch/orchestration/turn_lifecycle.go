@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
 
@@ -244,7 +245,7 @@ func logTurnCompletionFailure(
 	recoverErr error,
 ) {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	attrs := []any{
 		"agent_id", ev.AgentID,
@@ -266,7 +267,7 @@ func logTurnInterruptedFailure(
 	recoverErr error,
 ) {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	attrs := []any{
 		"agent_id", ev.AgentID,

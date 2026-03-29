@@ -17,6 +17,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type typedEventPublisher func(*event.Dispatcher, any) bool
@@ -73,7 +74,7 @@ type EventDispatcher struct {
 
 func NewEventDispatcher(bus *event.Dispatcher, logger *slog.Logger) *EventDispatcher {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &EventDispatcher{
 		translators: []dto.EventTranslator{translateCommonRawEvent},

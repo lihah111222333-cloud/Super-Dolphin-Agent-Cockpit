@@ -3,12 +3,12 @@ package hooks
 import (
 	"context"
 	"io"
-	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestEscalate_Normal(t *testing.T) {
@@ -19,7 +19,7 @@ func TestEscalate_Normal(t *testing.T) {
 		t,
 		store,
 		WithResolverTTL(2*time.Minute),
-		WithResolverLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
+		WithResolverLogger(pkglogger.New(pkglogger.NewTextHandler(io.Discard, nil))),
 	)
 
 	got, err := resolver.Escalate(nil, "call-escalate", mcp.HookPayload{
@@ -81,7 +81,7 @@ func TestEscalate_UsesExplicitTTLMs(t *testing.T) {
 		t,
 		store,
 		WithResolverTTL(2*time.Minute),
-		WithResolverLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
+		WithResolverLogger(pkglogger.New(pkglogger.NewTextHandler(io.Discard, nil))),
 	)
 
 	got, err := resolver.Escalate(nil, "call-escalate-ttl", mcp.HookPayload{

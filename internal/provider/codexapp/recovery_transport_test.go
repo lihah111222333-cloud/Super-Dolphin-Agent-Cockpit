@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/gorilla/websocket"
 )
 
@@ -142,7 +142,7 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s, err := newSession(context.Background(), slog.Default(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

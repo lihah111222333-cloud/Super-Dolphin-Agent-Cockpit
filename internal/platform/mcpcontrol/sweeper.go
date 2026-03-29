@@ -2,7 +2,7 @@ package mcpcontrol
 
 import (
 	"context"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"math/rand"
 	"time"
 
@@ -25,7 +25,7 @@ type SweepResult struct {
 // Sweeper periodically marks stale leases and evicts expired MCP tool peers from a ToolRegistry.
 type Sweeper struct {
 	registry   *ToolRegistry
-	logger     *slog.Logger
+	logger     *pkglogger.Logger
 	tick       time.Duration
 	jitter     time.Duration
 	timeout    time.Duration
@@ -40,13 +40,13 @@ type SweeperOptions struct {
 	StaleGrace time.Duration
 }
 
-func NewSweeper(registry *ToolRegistry, logger *slog.Logger) *Sweeper {
+func NewSweeper(registry *ToolRegistry, logger *pkglogger.Logger) *Sweeper {
 	return NewSweeperWithOptions(registry, logger, SweeperOptions{})
 }
 
-func NewSweeperWithOptions(registry *ToolRegistry, logger *slog.Logger, opts SweeperOptions) *Sweeper {
+func NewSweeperWithOptions(registry *ToolRegistry, logger *pkglogger.Logger, opts SweeperOptions) *Sweeper {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &Sweeper{
 		registry:   registry,

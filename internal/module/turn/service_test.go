@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestPrepareTurnKeepsSkillPromptsAndNormalizesInputs(t *testing.T) {
@@ -357,8 +356,8 @@ func (h *stubTurnHandle) complete(err error) {
 	close(h.done)
 }
 
-func silentLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+func silentLogger() *pkglogger.Logger {
+	return pkglogger.Get()
 }
 
 func commandForBinary(manifest dto.MCPManifest, name string) string {

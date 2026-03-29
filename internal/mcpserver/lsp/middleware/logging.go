@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type Handler func(context.Context, json.RawMessage) (any, error)
@@ -25,7 +27,7 @@ func Chain(handler Handler, middlewares ...Middleware) Handler {
 
 func Logging(logger *slog.Logger, toolName ...string) Middleware {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	name := ""
 	if len(toolName) > 0 {
@@ -35,23 +37,23 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 		return func(ctx context.Context, params json.RawMessage) (any, error) {
 			start := time.Now()
 			logger.DebugContext(ctx, "mcp-lsp request",
-				slog.String("tool", name),
-				slog.Int("request_bytes", len(params)),
-				slog.String("request", compactValue(params)),
+				pkglogger.String("tool", name),
+				pkglogger.Int("request_bytes", len(params)),
+				pkglogger.String("request", compactValue(params)),
 			)
 			result, err := next(ctx, params)
 			if err != nil {
 				logger.WarnContext(ctx, "mcp-lsp request failed",
-					slog.String("tool", name),
-					slog.Int64("duration_ms", time.Since(start).Milliseconds()),
-					slog.String("error", err.Error()),
+					pkglogger.String("tool", name),
+					pkglogger.Int64("duration_ms", time.Since(start).Milliseconds()),
+					pkglogger.String("error", err.Error()),
 				)
 				return nil, err
 			}
 			logger.DebugContext(ctx, "mcp-lsp response",
-				slog.String("tool", name),
-				slog.Int64("duration_ms", time.Since(start).Milliseconds()),
-				slog.String("response", compactAny(result)),
+				pkglogger.String("tool", name),
+				pkglogger.Int64("duration_ms", time.Since(start).Milliseconds()),
+				pkglogger.String("response", compactAny(result)),
 			)
 			return result, nil
 		}

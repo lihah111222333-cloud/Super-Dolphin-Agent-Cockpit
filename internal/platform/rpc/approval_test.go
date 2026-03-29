@@ -15,6 +15,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 	jrpcserver "github.com/creachadair/jrpc2/server"
 	"github.com/kelindar/event"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestRegisterPendingAssignsUniqueRequestIDForDuplicateCallID(t *testing.T) {
@@ -157,7 +158,7 @@ func TestRequestApprovalWarnsAndDeclinesOnPartialFrontendConfig(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var logBuf bytes.Buffer
-			logger := slog.New(slog.NewTextHandler(&logBuf, nil))
+			logger := pkglogger.New(pkglogger.NewTextHandler(&logBuf, nil))
 			manager := NewApprovalManager(logger, nil)
 
 			decision, err := manager.RequestApproval(context.Background(), tc.bridge, tc.server, ApprovalRequest{CallID: "call-1"})

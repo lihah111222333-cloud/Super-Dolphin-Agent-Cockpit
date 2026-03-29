@@ -162,10 +162,15 @@ func normalizeSidebarAgent(agent *AgentSummary) {
 }
 
 func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[string]any {
+	// providerThreadId: prefer codex UUID, fall back to public threadID
+	providerTID := agent.ProviderThreadID
+	if providerTID == "" {
+		providerTID = threadID
+	}
 	runtimeEntry := map[string]any{
 		"agentId":          agentID,
 		"state":            agent.AgentState,
-		"providerThreadId": threadID,
+		"providerThreadId": providerTID,
 	}
 	if agent.Provider != "" {
 		runtimeEntry["provider"] = agent.Provider
@@ -179,7 +184,9 @@ func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[s
 	if agent.Model != "" {
 		runtimeEntry["model"] = agent.Model
 	}
-	if agent.CWD != "" {
+	if agent.LogPath != "" {
+		runtimeEntry["logPath"] = agent.LogPath
+	} else if agent.CWD != "" {
 		runtimeEntry["logPath"] = buildLogPath(agent.CWD)
 	}
 	if agent.LastMessage != "" {

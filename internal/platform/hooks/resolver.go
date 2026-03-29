@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 	"time"
 
@@ -26,7 +26,7 @@ var (
 // HookResolver manages the escalate -> pending -> resolve lifecycle.
 type HookResolver struct {
 	store      contract.HookReviewStore
-	logger     *slog.Logger
+	logger     *pkglogger.Logger
 	defaultTTL time.Duration // pending review 默认 TTL，默认 5 分钟
 }
 
@@ -40,7 +40,7 @@ func WithResolverTTL(ttl time.Duration) ResolverOption {
 	}
 }
 
-func WithResolverLogger(logger *slog.Logger) ResolverOption {
+func WithResolverLogger(logger *pkglogger.Logger) ResolverOption {
 	return func(r *HookResolver) {
 		if r != nil && logger != nil {
 			r.logger = logger
@@ -55,7 +55,7 @@ func NewHookResolver(store contract.HookReviewStore, opts ...ResolverOption) (*H
 
 	resolver := &HookResolver{
 		store:      store,
-		logger:     slog.Default(),
+		logger:     pkglogger.Get(),
 		defaultTTL: defaultHookReviewTTL,
 	}
 	for _, opt := range opts {

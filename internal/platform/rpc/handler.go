@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 	"time"
 
@@ -141,7 +141,7 @@ func ThreadIDFrom(ctx context.Context) string {
 	return value
 }
 
-func Logging(logger *slog.Logger) Middleware {
+func Logging(logger *pkglogger.Logger) Middleware {
 	return func(next handler.Func) handler.Func {
 		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
 			start := time.Now()

@@ -8,6 +8,7 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
 
@@ -21,7 +22,7 @@ func RegisterSubscriptions(
 		return nil
 	}
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return []context.CancelFunc{
 		platformbus.ResilientSubscribe(dispatcher, turnStartedHandler(svc), logger),

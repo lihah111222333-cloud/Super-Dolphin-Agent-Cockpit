@@ -3,7 +3,6 @@ package wails
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/creachadair/jrpc2/handler"
@@ -11,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const codeLocateLimit = 24
@@ -184,6 +184,10 @@ func handleUILog(ctx context.Context, params map[string]any) map[string]any {
 			continue
 		}
 		level, scope, event, timestamp := frontendLogMetadata(entry)
+		// high-frequency frontend scopes → force debug to reduce noise
+		if scope == "scroll" {
+			level = "debug"
+		}
 		threadID, agentID := frontendLogIDs(entry)
 		msg := fmt.Sprintf("frontend: %s.%s", scope, event)
 		args := buildFrontendLogArgs(entry, clientKind, clientRoute, level, scope, event, timestamp, threadID, agentID)
@@ -274,7 +278,7 @@ func buildFrontendLogArgs(
 }
 
 func emitFrontendLog(ctx context.Context, level string, msg string, args []any) {
-	logger := slog.Default()
+	logger := pkglogger.Get()
 	switch level {
 	case "debug":
 		logger.DebugContext(ctx, msg, args...)

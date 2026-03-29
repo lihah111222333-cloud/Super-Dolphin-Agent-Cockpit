@@ -22,6 +22,16 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 	if err != nil {
 		return nil, err
 	}
+	// Fallback: when the requested threadID (e.g. agentID) has no history,
+	// try the session's resolved threadID (e.g. claude UUID from system:init).
+	if len(messages) == 0 {
+		resolved := strings.TrimSpace(s.ThreadID())
+		if resolved != "" && resolved != target {
+			if fallback, err := s.history.ReadHistory(ctx, resolved); err == nil && len(fallback) > 0 {
+				messages = fallback
+			}
+		}
+	}
 	messages = trimClaudeHistory(messages, limit)
 	return toProviderHistory(messages), nil
 }

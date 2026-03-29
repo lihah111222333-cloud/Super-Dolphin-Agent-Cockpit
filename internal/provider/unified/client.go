@@ -7,6 +7,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type Client struct {
@@ -17,7 +18,7 @@ type Client struct {
 
 func NewClient(registry *Registry, sessions *SessionManager, logger *slog.Logger) *Client {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &Client{
 		registry: registry,
