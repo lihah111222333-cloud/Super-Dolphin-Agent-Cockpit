@@ -2,7 +2,7 @@ package rpc
 
 import (
 	"context"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"time"
 
 	"github.com/creachadair/jrpc2"
@@ -25,7 +25,7 @@ func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 	}
 }
 
-func startApprovalCleanupLoop(ctx context.Context, approvals *ApprovalManager, interval, timeout time.Duration, logger *slog.Logger) {
+func startApprovalCleanupLoop(ctx context.Context, approvals *ApprovalManager, interval, timeout time.Duration, logger *pkglogger.Logger) {
 	if approvals == nil || interval <= 0 || timeout <= 0 {
 		return
 	}

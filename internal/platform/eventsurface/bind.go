@@ -2,7 +2,7 @@ package eventsurface
 
 import (
 	"context"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -50,7 +50,7 @@ const (
 
 type PublishFunc func(method string, payload any)
 
-func Bind(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFunc) []context.CancelFunc {
+func Bind(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	if dispatcher == nil || publish == nil {
 		return nil
 	}
@@ -62,7 +62,7 @@ func Bind(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFunc
 	return cancels
 }
 
-func bindCore(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFunc) []context.CancelFunc {
+func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	return []context.CancelFunc{
 		bus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {
 			publish(MethodUIStateChanged, ev)
@@ -88,7 +88,7 @@ func bindCore(dispatcher *event.Dispatcher, logger *slog.Logger, publish Publish
 	}
 }
 
-func bindThread(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFunc) []context.CancelFunc {
+func bindThread(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	return []context.CancelFunc{
 		bus.ResilientSubscribe(dispatcher, func(ev threaddto.Started) {
 			publish(MethodThreadStarted, threadStartedPayload(ev))
@@ -105,7 +105,7 @@ func bindThread(dispatcher *event.Dispatcher, logger *slog.Logger, publish Publi
 	}
 }
 
-func bindTool(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFunc) []context.CancelFunc {
+func bindTool(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	return []context.CancelFunc{
 		bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolCallBegin) {
 			publish(MethodToolCall, toolCallBeginPayload(ev))
@@ -122,7 +122,7 @@ func bindTool(dispatcher *event.Dispatcher, logger *slog.Logger, publish Publish
 	}
 }
 
-func bindUI(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFunc) []context.CancelFunc {
+func bindUI(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	return []context.CancelFunc{
 		bus.ResilientSubscribe(dispatcher, func(ev uidto.UITokensUpdated) {
 			publish(MethodThreadTokenUsage, threadTokenUsagePayload(ev))
@@ -136,10 +136,13 @@ func bindUI(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFu
 		bus.ResilientSubscribe(dispatcher, func(ev uidto.UIThreadPatch) {
 			publish(MethodUIThreadPatch, ev)
 		}, logger),
+		bus.ResilientSubscribe(dispatcher, func(ev uidto.UIProjectionUpdated) {
+			publish(projectionUpdatedMethod(ev), projectionUpdatedPayload(ev))
+		}, logger),
 	}
 }
 
-func bindAgentLifecycle(dispatcher *event.Dispatcher, logger *slog.Logger, publish PublishFunc) []context.CancelFunc {
+func bindAgentLifecycle(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	return []context.CancelFunc{
 		bus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentLaunched) {
 			publish(MethodAgentLaunched, agentLaunchedPayload(ev))
@@ -358,4 +361,24 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func projectionUpdatedMethod(ev uidto.UIProjectionUpdated) string {
+	switch strings.TrimSpace(ev.Projection) {
+	case "sidebar":
+		return MethodUISidebarChanged
+	default:
+		return MethodUIThreadChanged
+	}
+}
+
+func projectionUpdatedPayload(ev uidto.UIProjectionUpdated) map[string]any {
+	payload := map[string]any{
+		"projection": strings.TrimSpace(ev.Projection),
+		"revision":   ev.Revision,
+	}
+	if tid := strings.TrimSpace(ev.ThreadID); tid != "" {
+		payload["threadId"] = tid
+	}
+	return payload
 }

@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"time"
 
 	"github.com/creachadair/jrpc2"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
@@ -37,7 +37,7 @@ func (c *Client) runHeartbeat(ctx context.Context) {
 		if err != nil {
 			failures++
 			if failures >= heartbeatWarnAfter {
-				slog.Warn("bootstrap heartbeat failed",
+				pkglogger.Warn("bootstrap heartbeat failed",
 					"instance_id", c.instanceID,
 					"lease_key", c.currentLease(),
 					"failures", failures,
@@ -53,7 +53,7 @@ func (c *Client) runHeartbeat(ctx context.Context) {
 		}
 		if rejected {
 			if err := c.refreshLease(ctx); err != nil {
-				slog.Warn("bootstrap heartbeat lease refresh failed",
+				pkglogger.Warn("bootstrap heartbeat lease refresh failed",
 					"instance_id", c.instanceID,
 					"lease_key", c.currentLease(),
 					"interval", interval,

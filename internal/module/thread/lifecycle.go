@@ -68,7 +68,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	}
 	publicThreadID := strings.TrimSpace(agentID)
 	providerThreadID := resolveProviderThreadID(session.ThreadID(), publicThreadID)
-	effectiveModel, effectiveCWD := enrichFromSessionConfig(session, req.Model, req.CWD)
+	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	if err := s.persistThreadState(ctx, threadState{
 		PublicThreadID:   publicThreadID,
 		ProviderThreadID: providerThreadID,

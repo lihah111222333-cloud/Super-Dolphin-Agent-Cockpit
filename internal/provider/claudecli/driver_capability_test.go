@@ -8,6 +8,27 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
+func TestResolveAbsCWDConvertsRelativeToAbsolute(t *testing.T) {
+	t.Parallel()
+
+	got := resolveAbsCWD(".")
+	if got == "." || got == "" {
+		t.Fatalf("resolveAbsCWD(\".\") = %q, want absolute path", got)
+	}
+	if got[0] != '/' {
+		t.Fatalf("resolveAbsCWD(\".\") = %q, want path starting with /", got)
+	}
+}
+
+func TestResolveAbsCWDPreservesAbsolute(t *testing.T) {
+	t.Parallel()
+
+	got := resolveAbsCWD("/tmp/demo")
+	if got != "/tmp/demo" {
+		t.Fatalf("resolveAbsCWD(\"/tmp/demo\") = %q, want /tmp/demo", got)
+	}
+}
+
 type stubRuntimeReporter struct {
 	last  contract.RuntimeReport
 	calls int

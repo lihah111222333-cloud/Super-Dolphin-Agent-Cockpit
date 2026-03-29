@@ -2,7 +2,7 @@ package rpc
 
 import (
 	"context"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"net/http"
 	"time"
 
@@ -32,7 +32,7 @@ var Module = fx.Module("rpc",
 type Params struct {
 	fx.In
 
-	Logger *slog.Logger
+	Logger *pkglogger.Logger
 	Config *config.Config
 }
 
@@ -57,7 +57,7 @@ type HTTPRouteResult struct {
 type serverParams struct {
 	fx.In
 
-	Logger   *slog.Logger
+	Logger   *pkglogger.Logger
 	Config   *config.Config
 	Handlers []handler.Map `group:"rpc_handlers"`
 }
@@ -78,7 +78,7 @@ func provideWSRoute(server *Server) HTTPRouteResult {
 	}
 }
 
-func bindEventBridge(lc fx.Lifecycle, bridge *PushBridge, server *Server, logger *slog.Logger) {
+func bindEventBridge(lc fx.Lifecycle, bridge *PushBridge, server *Server, logger *pkglogger.Logger) {
 	var cancels []context.CancelFunc
 
 	lc.Append(fx.Hook{
@@ -98,9 +98,9 @@ func bindEventBridge(lc fx.Lifecycle, bridge *PushBridge, server *Server, logger
 	})
 }
 
-func bindApprovalLifecycle(lc fx.Lifecycle, approvals *ApprovalManager, bridge *PushBridge, server *Server, logger *slog.Logger) {
+func bindApprovalLifecycle(lc fx.Lifecycle, approvals *ApprovalManager, bridge *PushBridge, server *Server, logger *pkglogger.Logger) {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	registerApprovalRestoreOnConnect(approvals, bridge, server, logger)
 	cleanupCancel := func() {}
@@ -117,7 +117,7 @@ func bindApprovalLifecycle(lc fx.Lifecycle, approvals *ApprovalManager, bridge *
 	})
 }
 
-func registerApprovalRestoreOnConnect(approvals *ApprovalManager, bridge *PushBridge, server *Server, logger *slog.Logger) {
+func registerApprovalRestoreOnConnect(approvals *ApprovalManager, bridge *PushBridge, server *Server, logger *pkglogger.Logger) {
 	if server == nil {
 		return
 	}
@@ -133,7 +133,7 @@ func startApprovalLifecycle(
 	approvals *ApprovalManager,
 	bridge *PushBridge,
 	server *Server,
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 ) (context.CancelFunc, error) {
 	cleanupCancel := func() {}
 	if err := restoreActiveApprovals(ctx, approvals, bridge, server); err != nil {
@@ -170,7 +170,7 @@ func restorePendingApprovals(ctx context.Context, approvals *ApprovalManager, br
 	return approvals.RestorePending(ctx, bridge, current)
 }
 
-func shutdownPendingApprovals(ctx context.Context, approvals *ApprovalManager, logger *slog.Logger) error {
+func shutdownPendingApprovals(ctx context.Context, approvals *ApprovalManager, logger *pkglogger.Logger) error {
 	const grace = 5 * time.Second
 	if approvals == nil {
 		return nil

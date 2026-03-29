@@ -13,6 +13,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestClaimTurnWorkStartsQueuedSubmission(t *testing.T) {
@@ -240,5 +241,5 @@ func (s *stubTurnStarter) WaitForSessionReady(ctx context.Context, agentID strin
 }
 
 func silentLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return pkglogger.New(pkglogger.NewTextHandler(io.Discard, nil))
 }

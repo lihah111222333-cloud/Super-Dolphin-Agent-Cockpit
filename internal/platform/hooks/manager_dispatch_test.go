@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestManagerDispatchAfterEscalatePersistsSubscriberLease(t *testing.T) {
@@ -244,7 +245,7 @@ func TestDispatchAfter_PartialFailure_PreservesSuccessfulDecision(t *testing.T) 
 	}
 
 	var logs bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	logger := pkglogger.New(pkglogger.NewTextHandler(&logs, nil))
 	calledLeases := make([]mcp.LeaseKey, 0, 2)
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		after: func(_ context.Context, gotLease mcp.LeaseKey, _ mcp.HookPayload) (mcp.AfterDecision, error) {

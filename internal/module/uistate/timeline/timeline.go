@@ -7,6 +7,7 @@ import (
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // Item represents a single renderable entry in the thread timeline.
@@ -51,7 +52,7 @@ func New(logger *slog.Logger, emitter AppendedEmitter, capacity int) Service {
 		capacity = defaultCapacity
 	}
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &service{
 		timelines: make(map[string]*threadTimeline),

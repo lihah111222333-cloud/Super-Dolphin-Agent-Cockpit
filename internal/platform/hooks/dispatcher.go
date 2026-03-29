@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 	"sync"
 	"time"
@@ -222,7 +222,7 @@ func dispatchDecisions[T any](
 func markDispatchWorkerPanicResult[T any](d *HookDispatcher, results []peerDecision[T], job dispatchJob, hasCurrent bool, rec any) {
 	attrs := []any{"panic", rec}
 	if !hasCurrent {
-		slog.Error("hooks dispatch worker goroutine panic", attrs...)
+		pkglogger.Error("hooks dispatch worker goroutine panic", attrs...)
 		return
 	}
 
@@ -234,7 +234,7 @@ func markDispatchWorkerPanicResult[T any](d *HookDispatcher, results []peerDecis
 	)
 	if job.index < 0 || job.index >= len(results) {
 		attrs = append(attrs, "results_len", len(results))
-		slog.Error("hooks dispatch worker goroutine panic", attrs...)
+		pkglogger.Error("hooks dispatch worker goroutine panic", attrs...)
 		return
 	}
 
@@ -247,7 +247,7 @@ func markDispatchWorkerPanicResult[T any](d *HookDispatcher, results []peerDecis
 		Err:                 err,
 		ConsecutiveFailures: failures,
 	}
-	slog.Error("hooks dispatch worker goroutine panic", attrs...)
+	pkglogger.Error("hooks dispatch worker goroutine panic", attrs...)
 }
 
 func runDispatchWorker[T any](
@@ -270,7 +270,7 @@ func runDispatchWorker[T any](
 			defer func() {
 				if rec := recover(); rec != nil {
 					err = fmt.Errorf("hooks dispatch panic for %s/%d: %v", job.lease.InstanceID, job.lease.Generation, rec)
-					slog.Error("hooks dispatch worker panic",
+					pkglogger.Error("hooks dispatch worker panic",
 						"lease_key", job.lease,
 						"panic", rec,
 						"error", err,

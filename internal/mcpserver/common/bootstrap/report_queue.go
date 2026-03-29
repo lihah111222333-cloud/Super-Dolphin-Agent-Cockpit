@@ -3,12 +3,12 @@ package bootstrap
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 
 	"github.com/creachadair/jrpc2"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func (c *Client) normalizeReportRequest(req mcp.ReportRequest) mcp.ReportRequest {
@@ -55,7 +55,7 @@ func (c *Client) flushQueuedReportsWithConn(ctx context.Context, conn *jrpc2.Cli
 			if isTransportErr(err) {
 				return
 			}
-			slog.Warn("bootstrap report replay dropped",
+			pkglogger.Warn("bootstrap report replay dropped",
 				"instance_id", c.instanceID,
 				"lease_key", lease,
 				"report_id", req.ReportID,

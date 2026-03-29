@@ -248,26 +248,8 @@ export const AppRoot = {
     }
 
     async function bootstrap() {
-      await Promise.all([
-        refreshBuildInfo(),
-        refreshRuntimeConfig(),
-        projectStore.reloadProjects(),
-      ]);
-
-      if (typeof threadStore.setPreferenceScopeCwd === 'function') {
-        threadStore.setPreferenceScopeCwd(threadScopeCwd.value);
-      }
-
-      await threadStore.refreshSidebarState();
-
-      if (threadStore.state.activeThreadId) {
-        await ensureThreadSelectionFresh(threadStore, threadStore.state.activeThreadId, { reason: 'bootstrap' });
-      }
-      // 启动时同步 cmd 模式的活跃 thread 历史，避免切换卡片时显示快照
-      if (threadStore.state.activeCmdThreadId && threadStore.state.activeCmdThreadId !== threadStore.state.activeThreadId) {
-        ensureThreadSelectionFresh(threadStore, threadStore.state.activeCmdThreadId, { reason: 'page-enter' }).catch(() => {});
-      }
-
+      // Subscribe to events FIRST, before any await — ensures no events are missed
+      // even if subsequent initialization steps hang or take long.
       unsubscribeAgentEvent = onAgentEvent(/** @param {unknown} evt */ (evt) => {
         threadStore.handleAgentEvent(evt);
       });
@@ -296,6 +278,26 @@ export const AppRoot = {
       unsubscribeAppWillQuit = onAppWillQuit(() => {
         isExiting.value = true;
       });
+
+      // Initialization — runs after event subscriptions are active
+      await Promise.all([
+        refreshBuildInfo(),
+        refreshRuntimeConfig(),
+        projectStore.reloadProjects(),
+      ]);
+
+      if (typeof threadStore.setPreferenceScopeCwd === 'function') {
+        threadStore.setPreferenceScopeCwd(threadScopeCwd.value);
+      }
+
+      await threadStore.refreshSidebarState();
+
+      if (threadStore.state.activeThreadId) {
+        await ensureThreadSelectionFresh(threadStore, threadStore.state.activeThreadId, { reason: 'bootstrap' });
+      }
+      if (threadStore.state.activeCmdThreadId && threadStore.state.activeCmdThreadId !== threadStore.state.activeThreadId) {
+        ensureThreadSelectionFresh(threadStore, threadStore.state.activeCmdThreadId, { reason: 'page-enter' }).catch(() => {});
+      }
 
       refreshTimer = setInterval(() => {
         threadStore.refreshSidebarState();

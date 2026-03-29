@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestIntegration_LostSubscriberAutoCleanup(t *testing.T) {
@@ -158,7 +159,7 @@ func TestIntegration_ManagerWiringAndThinWrappers(t *testing.T) {
 	store := &stubHookReviewStore{
 		listPendingReviewsResult: []mcp.PendingHookReview{{HookCallID: "call-pending", AgentID: "agent-wire"}},
 	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := pkglogger.New(pkglogger.NewTextHandler(io.Discard, nil))
 	resolver := mustNewHookResolver(t, store)
 	manager, err := provideManager(managerIn{
 		Registry:   registry,

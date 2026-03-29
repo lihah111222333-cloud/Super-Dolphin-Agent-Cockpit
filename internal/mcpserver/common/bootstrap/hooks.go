@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/creachadair/jrpc2"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
@@ -262,7 +262,7 @@ func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 			cancel()
 			if lastErr == nil {
 				c.hooks.clearReplayFailure()
-				slog.Info("bootstrap hook subscription replayed",
+				pkglogger.Info("bootstrap hook subscription replayed",
 					"instance_id", c.instanceID,
 					"subscription_id", subID,
 					"lease_key", c.currentLease(),
@@ -273,7 +273,7 @@ func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 		if attempt == 3 || ctx.Err() != nil {
 			break
 		}
-		slog.Warn("bootstrap hook subscription replay failed; retrying",
+		pkglogger.Warn("bootstrap hook subscription replay failed; retrying",
 			"instance_id", c.instanceID,
 			"subscription_id", subID,
 			"lease_key", c.currentLease(),
@@ -288,7 +288,7 @@ func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 		delay *= 2
 	}
 	c.hooks.markReplayFailure(attempts, lastErr)
-	slog.Error("bootstrap hook subscription replay failed",
+	pkglogger.Error("bootstrap hook subscription replay failed",
 		"instance_id", c.instanceID,
 		"subscription_id", subID,
 		"lease_key", c.currentLease(),

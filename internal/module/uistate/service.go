@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type service struct {
@@ -47,7 +48,7 @@ func NewService(
 	preferences uipreference.Store,
 ) (*service, Service, error) {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	state, err := buildInitialState(context.Background(), threads, agents)
 	if err != nil {

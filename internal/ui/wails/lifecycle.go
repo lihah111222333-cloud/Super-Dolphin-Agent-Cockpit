@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -51,12 +53,12 @@ type WailsLifecycle struct {
 	pendingQuit     atomic.Bool
 }
 
-func NewWailsLifecycle(counter ActiveAgentCounter, logger *slog.Logger) *WailsLifecycle {
-	if logger == nil {
-		logger = slog.Default()
+func NewWailsLifecycle(counter ActiveAgentCounter, slogLogger *slog.Logger) *WailsLifecycle {
+	if slogLogger == nil {
+		slogLogger = pkglogger.Get()
 	}
 	return &WailsLifecycle{
-		logger:  logger,
+		logger:  slogLogger,
 		counter: counter,
 	}
 }

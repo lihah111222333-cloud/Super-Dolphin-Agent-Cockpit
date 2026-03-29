@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"maps"
 	"net"
 	"sync"
@@ -18,7 +18,7 @@ import (
 )
 
 type Server struct {
-	logger  *slog.Logger
+	logger  *pkglogger.Logger
 	addr    string
 	methods handler.Map
 

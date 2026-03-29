@@ -2,7 +2,7 @@ package mcpcontrol
 
 import (
 	"context"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -40,7 +40,7 @@ type HandlerDeps struct {
 	Approvals         *rpc.ApprovalManager          `optional:"true"`
 	Bridge            *rpc.PushBridge               `optional:"true"`
 	HookManager       contract.HookManager          `optional:"true"`
-	Logger            *slog.Logger                  `optional:"true"`
+	Logger            *pkglogger.Logger                  `optional:"true"`
 	Dispatcher        *event.Dispatcher             `optional:"true"`
 	Orchestration     contract.OrchestrationService `optional:"true"`
 	AgentSource       AgentContextSource            `optional:"true"`
@@ -58,7 +58,7 @@ type handlerIn struct {
 	Approvals         *rpc.ApprovalManager          `optional:"true"`
 	Bridge            *rpc.PushBridge               `optional:"true"`
 	HookManager       contract.HookManager          `optional:"true"`
-	Logger            *slog.Logger                  `optional:"true"`
+	Logger            *pkglogger.Logger                  `optional:"true"`
 	Dispatcher        *event.Dispatcher             `optional:"true"`
 	Orchestration     contract.OrchestrationService `optional:"true"`
 	AgentSource       AgentContextSource            `optional:"true"`
@@ -82,7 +82,7 @@ type configChangeIn struct {
 	Notifier   contract.ToolNotifier `optional:"true"`
 	Versions   configVersionSource   `optional:"true"`
 	Dispatcher *event.Dispatcher     `optional:"true"`
-	Logger     *slog.Logger          `optional:"true"`
+	Logger     *pkglogger.Logger          `optional:"true"`
 }
 
 type configVersionSource interface {
@@ -160,7 +160,7 @@ func registerConfigChangeLifecycle(lc fx.Lifecycle, in configChangeIn) {
 	}
 	logger := in.Logger
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 
 	var cancels []context.CancelFunc

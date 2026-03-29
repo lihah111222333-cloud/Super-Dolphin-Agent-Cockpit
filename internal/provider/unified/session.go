@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // SessionManager manages active sessions by agent ID.
@@ -27,7 +28,7 @@ type sessionEntry struct {
 
 func NewSessionManager(logger *slog.Logger) *SessionManager {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &SessionManager{
 		sessions: make(map[string]sessionEntry),
@@ -176,7 +177,7 @@ func closeSession(ctx context.Context, session contract.Session) error {
 		return nil
 	}
 	done := make(chan error, 1)
-	platformshared.SafeGo(slog.Default(), func() {
+	platformshared.SafeGo(pkglogger.Get(), func() {
 		done <- session.Close(ctx)
 	})
 	select {

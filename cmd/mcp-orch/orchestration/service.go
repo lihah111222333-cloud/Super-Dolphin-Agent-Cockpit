@@ -21,6 +21,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 )
@@ -140,7 +141,7 @@ func NewService(
 	dagStore taskdag.Store,
 ) *service {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &service{
 		logger:         logger,
@@ -160,7 +161,7 @@ func NewService(
 
 func registerTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	startedCancel := func() {}
 	completedCancel := func() {}
@@ -215,7 +216,7 @@ func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 	if logger != nil {
 		return logger
 	}
-	return slog.Default()
+	return pkglogger.Get()
 }
 
 func withEventTime(ctx context.Context, timestamp time.Time) context.Context {

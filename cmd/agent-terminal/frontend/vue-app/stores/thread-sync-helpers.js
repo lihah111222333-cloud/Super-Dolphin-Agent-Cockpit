@@ -356,7 +356,7 @@ export function handleBridgeEvent(ctx, evt) {
   const threadSyncSignal = methodLower === 'ui/thread/changed' || directThreadSyncSignal || methodLower === 'turn/completed' || methodLower === 'item/completed';
   const eventThreadTarget = normalizeThreadID(eventThreadId);
   const activeThreadTarget = eventThreadTarget && (eventThreadTarget === normalizeThreadID(ctx.state.activeThreadId) || eventThreadTarget === normalizeThreadID(ctx.state.activeCmdThreadId)) ? eventThreadTarget : '';
-  const historyHydrationSignal = methodLower === 'turn/completed';
+  const historyHydrationSignal = methodLower === 'turn/completed' || sourceLower === 'thread/messages/page';
   if (methodLower === THREAD_PATCH_METHOD && activeThreadTarget) {
     const patchResult = applyRuntimeThreadPatch(ctx, evt, activeThreadTarget, { perfNow });
     if (patchResult?.handled) {

@@ -2,7 +2,6 @@ package codexapp
 
 import (
 	"encoding/json"
-	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func RegisterTranslators(dispatcher *unified.EventDispatcher) {
@@ -38,12 +38,19 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publish(ev)
 		return
 	}
-	if shouldWarnUnknownRawEvent(payload) {
-		slog.Warn("codexapp: unknown raw event", "raw_type", eventType, "payload", payload)
+	if shouldWarnUnknownRawEvent(eventType, payload) {
+		pkglogger.Get().Warn("codexapp: unknown raw event", "raw_type", eventType, "payload", payload)
 	}
 }
 
-func shouldWarnUnknownRawEvent(payload map[string]any) bool {
+func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
+	switch strings.TrimSpace(eventType) {
+	case "item/started", "item_started", "agent/event/item_started",
+		"item/completed", "item_completed", "agent/event/item_completed", "rawResponseItem/completed",
+		"item/plan/delta", "item_plan_delta", "agent/event/item_plan_delta",
+		"item/plan/updated", "item_plan_updated", "agent/event/item_plan_updated":
+		return false
+	}
 	if len(payload) == 0 {
 		return true
 	}
@@ -148,10 +155,28 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 
 func validatedStateChangedEvent(payload map[string]any) (any, bool) {
 	newState := stringValue(payload, "newState", "new_state", "status")
+	if newState == "" {
+		newState = stringValue(nestedValue(payload, "status"), "type")
+	}
+	switch strings.TrimSpace(newState) {
+	case "active":
+		newState = agentdto.StateTurnRunning
+	case "idle":
+		newState = agentdto.StateIdle
+	}
 	if !isKnownAgentState(newState) {
 		return nil, false
 	}
 	oldState := stringValue(payload, "oldState", "old_state")
+	if oldState == "" {
+		oldState = stringValue(nestedValue(payload, "oldStatus"), "type")
+	}
+	switch strings.TrimSpace(oldState) {
+	case "active":
+		oldState = agentdto.StateTurnRunning
+	case "idle":
+		oldState = agentdto.StateIdle
+	}
 	if oldState != "" && !isKnownAgentState(oldState) {
 		return nil, false
 	}
@@ -218,16 +243,20 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 }
 
 func agentSessionHeader(payload map[string]any) shared.AgentSessionHeader {
-	threadID := firstNonEmpty(stringValue(payload, "threadId", "thread_id"), stringValue(nestedValue(payload, "thread"), "id"))
+	providerThreadID := firstNonEmpty(stringValue(payload, "threadId", "thread_id"), stringValue(nestedValue(payload, "thread"), "id"))
+	agentID := stringValue(payload, "agentId", "agent_id")
+	// Use agentID as the public ThreadID when available; the codex provider
+	// UUID stays in SessionID so downstream code can still reach it.
+	threadID := firstNonEmpty(agentID, providerThreadID)
 	return shared.AgentSessionHeader{
 		AgentHeader: shared.AgentHeader{
 			ThreadHeader: shared.ThreadHeader{
 				EventHeader: shared.EventHeader{Timestamp: eventTime(payload)},
 				ThreadID:    threadID,
 			},
-			AgentID: stringValue(payload, "agentId", "agent_id"),
+			AgentID: agentID,
 		},
-		SessionID: firstNonEmpty(stringValue(payload, "sessionId", "session_id"), threadID),
+		SessionID: firstNonEmpty(stringValue(payload, "sessionId", "session_id"), providerThreadID),
 	}
 }
 

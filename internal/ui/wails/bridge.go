@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
 
@@ -20,28 +21,31 @@ type EventBridge struct {
 	cancels []context.CancelFunc
 }
 
-func NewEventBridge(dispatcher *event.Dispatcher, lifecycle *WailsLifecycle, logger *slog.Logger) *EventBridge {
-	if logger == nil {
-		logger = slog.Default()
+func NewEventBridge(dispatcher *event.Dispatcher, lifecycle *WailsLifecycle, slogLogger *slog.Logger) *EventBridge {
+	if slogLogger == nil {
+		slogLogger = pkglogger.Get()
 	}
 	return &EventBridge{
 		dispatcher: dispatcher,
 		lifecycle:  lifecycle,
-		logger:     logger,
+		logger:     slogLogger,
 	}
 }
 
 func (b *EventBridge) Start() {
 	if b == nil || b.dispatcher == nil {
+		b.logger.Warn("bridge: Start skipped", "nil_bridge", b == nil, "nil_dispatcher", b == nil || b.dispatcher == nil)
 		return
 	}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if len(b.cancels) > 0 {
+		b.logger.Info("bridge: Start skipped (already started)", "cancels", len(b.cancels))
 		return
 	}
 	b.cancels = eventsurface.Bind(b.dispatcher, b.logger, b.publish)
+	b.logger.Info("bridge: started", "subscriptions", len(b.cancels))
 }
 
 func (b *EventBridge) Stop() {
@@ -63,7 +67,8 @@ func (b *EventBridge) publish(method string, payload any) {
 	if b == nil || b.lifecycle == nil {
 		return
 	}
-	for _, notification := range eventsurface.ExpandNotifications(method, payload) {
+	notifications := eventsurface.ExpandNotifications(method, payload)
+	for _, notification := range notifications {
 		normalized := payloadToMap(notification.Payload)
 		b.lifecycle.EmitEvent(bridgeEventName, map[string]any{
 			"type":    notification.Method,

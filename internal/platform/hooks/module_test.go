@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
 
@@ -37,7 +38,7 @@ func TestRegisterRecoveryLifecycle_OnStartCallsRecoverOnStartup(t *testing.T) {
 	registerRecoveryLifecycle(recorder, recoveryLifecycleIn{
 		Resolver: resolver,
 		Manager:  manager,
-		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:   pkglogger.New(pkglogger.NewTextHandler(io.Discard, nil)),
 	})
 
 	if len(recorder.hooks) != 1 {

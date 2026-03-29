@@ -250,6 +250,11 @@ func (s *session) stop(force bool) error {
 	if force {
 		eventType = "agent:failed"
 		data["error"] = "session stopped"
+		if tr != nil {
+			if stderr := tr.stderr.String(); stderr != "" {
+				data["stderr"] = stderr
+			}
+		}
 	}
 	s.dispatch(dto.RawProviderEvent{EventType: eventType, Data: data})
 	return err

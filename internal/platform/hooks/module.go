@@ -2,7 +2,7 @@ package hooks
 
 import (
 	"context"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"go.uber.org/fx"
@@ -26,7 +26,7 @@ type managerIn struct {
 	Registry   *HookRegistry
 	Dispatcher *HookDispatcher
 	Resolver   *HookResolver
-	Logger     *slog.Logger `optional:"true"`
+	Logger     *pkglogger.Logger `optional:"true"`
 }
 
 func provideManager(in managerIn) (*Manager, error) {
@@ -38,7 +38,7 @@ type recoveryLifecycleIn struct {
 
 	Resolver *HookResolver
 	Manager  *Manager
-	Logger   *slog.Logger `optional:"true"`
+	Logger   *pkglogger.Logger `optional:"true"`
 }
 
 func registerRecoveryLifecycle(lc fx.Lifecycle, in recoveryLifecycleIn) {
@@ -47,7 +47,7 @@ func registerRecoveryLifecycle(lc fx.Lifecycle, in recoveryLifecycleIn) {
 	}
 	logger := in.Logger
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {

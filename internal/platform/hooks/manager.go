@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -24,7 +24,7 @@ type Manager struct {
 	registry     *HookRegistry
 	dispatcher   *HookDispatcher
 	resolver     *HookResolver
-	logger       *slog.Logger
+	logger       *pkglogger.Logger
 	maxHookDepth int
 }
 
@@ -38,7 +38,7 @@ func WithMaxHookDepth(n int) ManagerOption {
 	}
 }
 
-func WithManagerLogger(logger *slog.Logger) ManagerOption {
+func WithManagerLogger(logger *pkglogger.Logger) ManagerOption {
 	return func(m *Manager) {
 		if m != nil && logger != nil {
 			m.logger = logger
@@ -55,7 +55,7 @@ func NewManager(registry *HookRegistry, dispatcher *HookDispatcher, resolver *Ho
 		registry:     registry,
 		dispatcher:   dispatcher,
 		resolver:     resolver,
-		logger:       slog.Default(),
+		logger:       pkglogger.Get(),
 		maxHookDepth: defaultMaxHookDepth,
 	}
 	for _, opt := range opts {

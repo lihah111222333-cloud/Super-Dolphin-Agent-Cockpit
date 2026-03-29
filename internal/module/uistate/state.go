@@ -16,7 +16,7 @@ type UIState struct {
 	TokenUsage               TokenUsage                 `json:"token_usage"`
 	DiffTextByThread         map[string]string          `json:"diffTextByThread,omitempty"`
 	DiffRevisionByThread     map[string]int64           `json:"diffRevisionByThread,omitempty"`
-	TimelineByThread         map[string][]timeline.Item `json:"timelineByThread,omitempty"`
+	TimelineByThread         map[string][]timeline.Item `json:"timelinesByThread,omitempty"`
 	Unchanged                bool                       `json:"unchanged,omitempty"`
 	ActiveThreadID           string                     `json:"activeThreadId,omitempty"`
 	ActiveCmdThreadID        string                     `json:"activeCmdThreadId,omitempty"`
@@ -44,19 +44,21 @@ type ThreadSummary struct {
 }
 
 type AgentSummary struct {
-	ID           string `json:"id"`
-	Name         string `json:"name,omitempty"`
-	ThreadID     string `json:"thread_id,omitempty"`
-	ParentID     string `json:"parent_id,omitempty"`
-	State        string `json:"state,omitempty"`
-	Provider     string `json:"provider,omitempty"`
-	Model        string `json:"model,omitempty"`
-	CWD          string `json:"cwd,omitempty"`
-	Port         int    `json:"port,omitempty"`
-	LastReport   string `json:"last_report,omitempty"`
-	AgentState   string `json:"agentState,omitempty"`
-	ThreadStatus string `json:"threadStatus,omitempty"`
-	LastMessage  string `json:"lastMessage,omitempty"`
+	ID               string `json:"id"`
+	Name             string `json:"name,omitempty"`
+	ThreadID         string `json:"thread_id,omitempty"`
+	ProviderThreadID string `json:"provider_thread_id,omitempty"`
+	ParentID         string `json:"parent_id,omitempty"`
+	State            string `json:"state,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	Model            string `json:"model,omitempty"`
+	CWD              string `json:"cwd,omitempty"`
+	Port             int    `json:"port,omitempty"`
+	LogPath          string `json:"logPath,omitempty"`
+	LastReport       string `json:"last_report,omitempty"`
+	AgentState       string `json:"agentState,omitempty"`
+	ThreadStatus     string `json:"threadStatus,omitempty"`
+	LastMessage      string `json:"lastMessage,omitempty"`
 }
 
 type TurnSummary struct {
@@ -335,9 +337,11 @@ func mergeAgentIdentity(dst *AgentSummary, src AgentSummary) {
 func mergeAgentRuntime(dst *AgentSummary, src AgentSummary) {
 	dst.State = chooseString(src.State, dst.State)
 	dst.Provider = chooseString(src.Provider, dst.Provider)
+	dst.ProviderThreadID = chooseString(src.ProviderThreadID, dst.ProviderThreadID)
 	dst.Model = chooseString(src.Model, dst.Model)
 	dst.CWD = chooseString(src.CWD, dst.CWD)
 	dst.Port = choosePositiveInt(src.Port, dst.Port)
+	dst.LogPath = chooseString(src.LogPath, dst.LogPath)
 }
 
 func mergeAgentTurnInfo(dst *AgentSummary, src AgentSummary) {

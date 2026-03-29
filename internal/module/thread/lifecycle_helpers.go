@@ -23,15 +23,15 @@ func resolveProviderThreadID(values ...string) string {
 // enrichFromSessionConfig extracts model/cwd from the session's runtime config
 // when the original request values are empty. codex app-server assigns model
 // server-side; the resolved value is captured in runtimeConfig during StartSession.
-func enrichFromSessionConfig(session contract.Session, reqModel, reqCWD string) (model, cwd string) {
+func enrichFromSessionConfig(session contract.Session, reqModel, reqCWD string) (model, cwd string, port int) {
 	model, cwd = reqModel, reqCWD
 	rc, ok := session.(interface{ RuntimeConfigSnapshot() map[string]any })
 	if !ok {
-		return model, resolveRelativeCWD(cwd)
+		return model, resolveRelativeCWD(cwd), 0
 	}
 	cfg := rc.RuntimeConfigSnapshot()
 	if cfg == nil {
-		return model, resolveRelativeCWD(cwd)
+		return model, resolveRelativeCWD(cwd), 0
 	}
 	if model == "" {
 		model, _ = cfg["model"].(string)
@@ -41,7 +41,10 @@ func enrichFromSessionConfig(session contract.Session, reqModel, reqCWD string) 
 			cwd = v
 		}
 	}
-	return model, resolveRelativeCWD(cwd)
+	if p, ok := cfg["port"].(int); ok && p > 0 {
+		port = p
+	}
+	return model, resolveRelativeCWD(cwd), port
 }
 
 // resolveRelativeCWD converts "." or empty to the process working directory.

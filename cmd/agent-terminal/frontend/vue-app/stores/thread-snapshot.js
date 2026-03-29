@@ -218,7 +218,7 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
       const newItems = Array.isArray(value) ? value : [];
       const oldItems = nextTimelinesByThread[key];
       if (Array.isArray(oldItems) && oldItems.length > 0 && newItems.length === 0) {
-        logWarn('thread', 'snapshot.timeline.cleared', {
+        logWarn('thread', 'snapshot.timeline.skip_empty_remote', {
           thread_id: key,
           requested_thread_id: requestedThreadId,
           active_thread_id: state.activeThreadId,
@@ -227,6 +227,25 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
           old_timeline_len: oldItems.length,
           new_timeline_len: newItems.length,
         });
+        continue;
+      }
+      // Guard: do not replace a local timeline that contains dialog items
+      // (user/assistant from loadMessages) with a remote one that only has
+      // structural events (turn_start/turn_end/item). The dialog items are
+      // injected client-side by applyImmediateTimelineFromMessages and are
+      // not present in the backend timeline snapshot.
+      if (Array.isArray(oldItems) && oldItems.length > 0 && newItems.length > 0) {
+        const oldDialogCount = oldItems.filter((i) => i?.kind === 'user' || i?.kind === 'assistant').length;
+        const newDialogCount = newItems.filter((i) => i?.kind === 'user' || i?.kind === 'assistant').length;
+        if (oldDialogCount > 0 && newDialogCount === 0) {
+          logWarn('thread', 'snapshot.timeline.skip_no_dialog_remote', {
+            thread_id: key,
+            old_timeline_len: oldItems.length,
+            new_timeline_len: newItems.length,
+            old_dialog_count: oldDialogCount,
+          });
+          continue;
+        }
       }
       const frozenTimeline = freezeTimelineItemsAtomic(newItems, oldItems);
       if (!frozenTimeline.changed) continue;

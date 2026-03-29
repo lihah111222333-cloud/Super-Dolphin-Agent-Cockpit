@@ -11,6 +11,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 var claudeCapabilities = dto.CapabilitySet{
@@ -45,7 +46,7 @@ func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 
 func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter) contract.Driver {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &driver{
 		logger:          logger,
@@ -125,7 +126,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		logger:          d.logger,
 		eventDispatcher: d.eventDispatcher,
 		binaryPath:      d.binaryPath,
-		cwd:             strings.TrimSpace(spec.cwd),
+		cwd:             resolveAbsCWD(spec.cwd),
 		model:           strings.TrimSpace(spec.model),
 		instructions:    strings.TrimSpace(spec.instructions),
 		config:          spec.config,
@@ -134,7 +135,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		cleanup:         cleanup,
 		suppressedTurns: map[string]struct{}{},
 	}
-	if !requiresResolvedThreadID(spec.threadID) {
+	if shouldMarkThreadReady(spec.threadID, publicThreadID) {
 		s.markThreadReady()
 	}
 	s.startReadLoop(tr)

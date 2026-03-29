@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net"
 	"os"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type bootSnapshot struct {
@@ -236,7 +236,7 @@ func readEnvJSON(keys ...string) json.RawMessage {
 }
 
 func logDeprecatedEnvKey(canonical, legacy string) {
-	slog.Warn(fmt.Sprintf("bootstrap env %s is deprecated; use %s instead before 2026-06-30", legacy, canonical),
+	pkglogger.Warn(fmt.Sprintf("bootstrap env %s is deprecated; use %s instead before 2026-06-30", legacy, canonical),
 		"legacy_env", legacy,
 		"canonical_env", canonical,
 		"remove_after", "2026-06-30",

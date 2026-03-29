@@ -206,6 +206,15 @@ func newLimitedBuffer(limit int) *limitedBuffer {
 	return &limitedBuffer{limit: limit}
 }
 
+func (b *limitedBuffer) String() string {
+	if b == nil {
+		return ""
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

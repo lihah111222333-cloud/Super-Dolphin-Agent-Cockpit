@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
@@ -64,11 +64,11 @@ type editEnvelope struct {
 }
 
 func NewEditHandler(manager gopls.Manager) middleware.Handler {
-	logger := slog.Default()
+	log := pkglogger.Get()
 	return middleware.Chain(
 		EditHandler{manager: manager}.Handle,
-		middleware.Recovery(logger, "lsp_edit"),
-		middleware.Logging(logger, "lsp_edit"),
+		middleware.Recovery(log, "lsp_edit"),
+		middleware.Logging(log, "lsp_edit"),
 		middleware.Timeout(middleware.TierNormal),
 	)
 }

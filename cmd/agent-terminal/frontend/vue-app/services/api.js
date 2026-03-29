@@ -137,7 +137,7 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
 
   waitRuntime().then((runtime) => {
     if (!runtime?.Events?.On) {
-      logWarn('event', options.subscribeUnavailableLog || 'runtime.subscribe.unavailable', {});
+      logWarn('event', options.subscribeUnavailableLog || 'runtime.subscribe.unavailable', { eventName });
       return;
     }
     const unbind = runtime.Events.On(eventName, wrapped);

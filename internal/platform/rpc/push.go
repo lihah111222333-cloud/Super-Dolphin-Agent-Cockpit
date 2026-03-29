@@ -3,7 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 
 	"github.com/creachadair/jrpc2"
@@ -17,12 +17,12 @@ import (
 // PushBridge bridges internal events into jrpc2 server push APIs.
 type PushBridge struct {
 	dispatcher *event.Dispatcher
-	logger     *slog.Logger
+	logger     *pkglogger.Logger
 }
 
-func NewPushBridge(dispatcher *event.Dispatcher, logger *slog.Logger) *PushBridge {
+func NewPushBridge(dispatcher *event.Dispatcher, logger *pkglogger.Logger) *PushBridge {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &PushBridge{dispatcher: dispatcher, logger: logger}
 }
@@ -58,7 +58,7 @@ func BindEventToNotify[T event.Event](bridge *PushBridge, server *jrpc2.Server, 
 	}
 	logger := bridge.logger
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return event.Subscribe(bridge.dispatcher, func(ev T) {
 		if err := bridge.NotifyClient(context.Background(), server, method, ev); err != nil {
@@ -67,7 +67,7 @@ func BindEventToNotify[T event.Event](bridge *PushBridge, server *jrpc2.Server, 
 	})
 }
 
-func subscribeCoreEventPushes(bridge *PushBridge, server *Server, logger *slog.Logger) []context.CancelFunc {
+func subscribeCoreEventPushes(bridge *PushBridge, server *Server, logger *pkglogger.Logger) []context.CancelFunc {
 	if bridge == nil || bridge.dispatcher == nil || server == nil {
 		return nil
 	}
@@ -94,7 +94,7 @@ var typedPushMethods = map[string]struct{}{
 	strings.ToLower(eventsurface.MethodAgentStopped):     {},
 }
 
-func subscribeRawProviderEventPushes(bridge *PushBridge, server *Server, logger *slog.Logger) context.CancelFunc {
+func subscribeRawProviderEventPushes(bridge *PushBridge, server *Server, logger *pkglogger.Logger) context.CancelFunc {
 	if bridge == nil || bridge.dispatcher == nil || server == nil {
 		return func() {}
 	}

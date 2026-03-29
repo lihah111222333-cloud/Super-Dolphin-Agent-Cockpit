@@ -15,6 +15,51 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
+func TestForceStopIncludesStderrInFailedEvent(t *testing.T) {
+	t.Parallel()
+
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+
+	got := make(chan dto.BusRawProviderEvent, 1)
+	cancel := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) {
+		if ev.Event.EventType == "agent:failed" {
+			got <- ev
+		}
+	})
+	defer cancel()
+
+	stderrBuf := newLimitedBuffer(1024)
+	_, _ = stderrBuf.Write([]byte("Error: authentication failed\n"))
+
+	// done already closed so Kill() won't block; cmd nil so signal is a no-op.
+	done := make(chan struct{})
+	close(done)
+
+	s := &session{
+		agentID:         "agent-1",
+		threadID:        "thread-1",
+		sessionID:       "thread-1",
+		transport:       &transport{stderr: stderrBuf, done: done},
+		eventDispatcher: dispatcher,
+	}
+
+	_ = s.stop(true)
+
+	select {
+	case ev := <-got:
+		data, _ := ev.Event.Data.(map[string]any)
+		stderr, _ := data["stderr"].(string)
+		if stderr != "Error: authentication failed\n" {
+			t.Fatalf("agent:failed stderr = %q, want stderr content from transport", stderr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("agent:failed event was not published")
+	}
+}
+
 func TestBaseDataUsesPublicThreadIDAndSeparateSessionID(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func requireLoggedError(t *testing.T, value any, want error) {
@@ -27,7 +29,7 @@ func TestLogIgnoredErrorSkipsNilError(t *testing.T) {
 	t.Parallel()
 
 	handler := &recordingHandler{}
-	logger := slog.New(handler)
+	logger := pkglogger.New(handler)
 
 	LogIgnoredError(logger, "ignored", nil)
 	if handler.Count() != 0 {
@@ -39,7 +41,7 @@ func TestLogIgnoredErrorLogsWarning(t *testing.T) {
 	t.Parallel()
 
 	handler := &recordingHandler{}
-	logger := slog.New(handler)
+	logger := pkglogger.New(handler)
 	wantErr := errors.New("boom")
 
 	LogIgnoredError(logger, "ignored", wantErr)

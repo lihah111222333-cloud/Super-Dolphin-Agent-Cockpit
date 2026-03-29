@@ -3,7 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,7 +22,7 @@ type ApprovalManager struct {
 	pending            map[string]*pendingApproval
 	pendingByRequestID map[int64]map[string]*pendingApproval
 	nextRequestID      atomic.Int64
-	logger             *slog.Logger
+	logger             *pkglogger.Logger
 	dispatcher         *event.Dispatcher
 }
 
@@ -63,9 +63,9 @@ type ApprovalRequest struct {
 	Payload        map[string]any `json:"payload,omitempty"`
 }
 
-func NewApprovalManager(logger *slog.Logger, dispatcher *event.Dispatcher) *ApprovalManager {
+func NewApprovalManager(logger *pkglogger.Logger, dispatcher *event.Dispatcher) *ApprovalManager {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &ApprovalManager{
 		pending:            make(map[string]*pendingApproval),

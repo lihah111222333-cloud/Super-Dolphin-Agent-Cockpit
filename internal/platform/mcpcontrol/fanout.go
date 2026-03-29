@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -185,7 +185,7 @@ func (r *ToolRegistry) notifyTargets(ctx context.Context, targets []sendTarget, 
 func (r *ToolRegistry) runNotifyWorker(ctx context.Context, jobs <-chan sendTarget, errs chan<- error, method string, params any) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			slog.Error("mcp notify worker goroutine panic",
+			pkglogger.Error("mcp notify worker goroutine panic",
 				"method", method,
 				"panic", rec,
 			)
@@ -227,7 +227,7 @@ func (r *ToolRegistry) recoverWorkerPanic(ctx context.Context, operation, method
 		r.cleanupLeaseWithTimeout(ctx, target.key)
 	}
 	closePeer(peer)
-	slog.Error("mcp worker panic",
+	pkglogger.Error("mcp worker panic",
 		"operation", operation,
 		"method", method,
 		"lease_key", target.key,

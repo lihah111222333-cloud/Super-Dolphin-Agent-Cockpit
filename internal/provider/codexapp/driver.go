@@ -18,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type driver struct {
@@ -73,7 +74,7 @@ func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 
 func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter) contract.Driver {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	return &driver{
 		logger:          logger,
@@ -104,6 +105,9 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	}
 	if result.cwd != "" {
 		s.setRuntimeConfigValue("cwd", result.cwd)
+	}
+	if port := extractPort(s.transport.serverURL); port > 0 {
+		s.setRuntimeConfigValue("port", port)
 	}
 	d.reportRuntime(s.agentID)
 	return s, nil
@@ -292,6 +296,18 @@ func configString(cfg map[string]any, key string) string {
 	}
 	value, _ := cfg[key].(string)
 	return strings.TrimSpace(value)
+}
+
+func extractPort(serverURL string) int {
+	parsed, err := url.Parse(strings.TrimSpace(serverURL))
+	if err != nil || parsed.Port() == "" {
+		return 0
+	}
+	p, err := strconv.Atoi(parsed.Port())
+	if err != nil || p <= 0 {
+		return 0
+	}
+	return p
 }
 
 func resolveApprovalPolicy(cfg map[string]any) string {

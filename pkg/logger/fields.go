@@ -3,15 +3,17 @@ package logger
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
-	"os"
 )
 
 // Type aliases for packages that must not import log/slog directly.
 type (
-	Logger = slog.Logger
-	Level  = slog.Level
-	Attr   = slog.Attr
+	Logger         = slog.Logger
+	Level          = slog.Level
+	Attr           = slog.Attr
+	Handler        = slog.Handler
+	HandlerOptions = slog.HandlerOptions
 )
 
 // Level re-exports.
@@ -24,72 +26,85 @@ const (
 
 type ctxKey struct{}
 
-// WithContext attaches a logger to the context.
 func WithContext(ctx context.Context, l *slog.Logger) context.Context {
 	return context.WithValue(ctx, ctxKey{}, l)
 }
 
-// FromContext retrieves the logger from context, falling back to the global.
 func FromContext(ctx context.Context) *slog.Logger {
-	if ctx != nil {
-		if l, ok := ctx.Value(ctxKey{}).(*slog.Logger); ok {
-			return l
-		}
+	if ctx == nil {
+		return getLogger()
 	}
-	return Get()
+	if l, ok := ctx.Value(ctxKey{}).(*slog.Logger); ok {
+		return l
+	}
+	return getLogger()
 }
 
-// Get returns the current global logger.
-func Get() *slog.Logger { return defaultLogger.Load() }
+func Get() *slog.Logger { return getLogger() }
 
-// With returns a child logger with additional attributes.
-func With(args ...any) *slog.Logger { return Get().With(args...) }
+func With(args ...any) *slog.Logger { return getLogger().With(args...) }
 
-// Convenience logging functions.
-func Info(msg string, args ...any)  { Get().Info(msg, args...) }
-func Error(msg string, args ...any) { Get().Error(msg, args...) }
-func Warn(msg string, args ...any)  { Get().Warn(msg, args...) }
-func Debug(msg string, args ...any) { Get().Debug(msg, args...) }
+func Info(msg string, args ...any)  { getLogger().Info(msg, args...) }
+func Error(msg string, args ...any) { getLogger().Error(msg, args...) }
+func Warn(msg string, args ...any)  { getLogger().Warn(msg, args...) }
+func Debug(msg string, args ...any) { getLogger().Debug(msg, args...) }
 
-func Infof(format string, args ...any)  { Get().Info(fmt.Sprintf(format, args...)) }
-func Errorf(format string, args ...any) { Get().Error(fmt.Sprintf(format, args...)) }
-func Warnf(format string, args ...any)  { Get().Warn(fmt.Sprintf(format, args...)) }
-func Debugf(format string, args ...any) { Get().Debug(fmt.Sprintf(format, args...)) }
+func Infof(format string, args ...any)  { getLogger().Info(fmt.Sprintf(format, args...)) }
+func Errorf(format string, args ...any) { getLogger().Error(fmt.Sprintf(format, args...)) }
+func Warnf(format string, args ...any)  { getLogger().Warn(fmt.Sprintf(format, args...)) }
+func Debugf(format string, args ...any) { getLogger().Debug(fmt.Sprintf(format, args...)) }
 
-// Fatal logs an error then exits the process.
 func Fatal(msg string, args ...any) {
-	Get().Error(msg, args...)
+	getLogger().Error(msg, args...)
+	shutdownDBHandler()
 	ShutdownFileHandler()
-	os.Exit(1)
+	exitFunc(1)
 }
 
-// CurrentLogFilePath returns the path of the active log file, or empty.
+func Infow(msg string, keysAndValues ...any)  { getLogger().Info(msg, keysAndValues...) }
+func Warnw(msg string, keysAndValues ...any)  { getLogger().Warn(msg, keysAndValues...) }
+func Errorw(msg string, keysAndValues ...any) { getLogger().Error(msg, keysAndValues...) }
+func Debugw(msg string, keysAndValues ...any) { getLogger().Debug(msg, keysAndValues...) }
+
+func InfoLevel() slog.Level  { return slog.LevelInfo }
+func WarnLevel() slog.Level  { return slog.LevelWarn }
+func ErrorLevel() slog.Level { return slog.LevelError }
+func DebugLevel() slog.Level { return slog.LevelDebug }
+
 func CurrentLogFilePath() string {
-	logMu.Lock()
-	defer logMu.Unlock()
-	if logFile == nil {
-		return ""
-	}
-	return logFile.Name()
+	logFileMu.Lock()
+	defer logFileMu.Unlock()
+	return logFilePath
 }
 
-// IsDebugEnabled reports whether Debug messages are emitted.
 func IsDebugEnabled() bool {
-	return Get().Enabled(context.Background(), slog.LevelDebug)
+	return getLogger().Enabled(context.Background(), slog.LevelDebug)
 }
 
-// SetForTest replaces the global logger (test use only).
 func SetForTest(l *slog.Logger) { storeLogger(l) }
 
-// ResolveProjectLogDir is the exported version for app-level callers.
+func New(handler slog.Handler) *slog.Logger { return slog.New(handler) }
+
+func NewTextHandler(out io.Writer, opts *slog.HandlerOptions) slog.Handler {
+	return slog.NewTextHandler(out, opts)
+}
+
+func Any(key string, value any) Attr { return slog.Any(key, value) }
+
+func String(key, value string) Attr { return slog.String(key, value) }
+
+func Int(key string, value int) Attr { return slog.Int(key, value) }
+
+func Int64(key string, value int64) Attr { return slog.Int64(key, value) }
+
 func ResolveProjectLogDir(homeDir, cwd string) (string, string) {
 	return resolveProjectLogDir(homeDir, cwd)
 }
 
-// Standard field key constants (aligned with V2).
 const (
 	FieldTraceID    = "trace_id"
 	FieldAgentID    = "agent_id"
+	FieldGatewayID  = "gateway_id"
 	FieldThreadID   = "thread_id"
 	FieldAction     = "action"
 	FieldComponent  = "component"
@@ -97,31 +112,51 @@ const (
 	FieldError      = "error"
 	FieldStatus     = "status"
 	FieldLatencyMS  = "latency_ms"
-	FieldDurationMS = "duration_ms"
 	FieldCount      = "count"
 	FieldPath       = "path"
 	FieldMethod     = "method"
+	FieldUserID     = "user_id"
 	FieldSource     = "source"
 	FieldEventType  = "event_type"
 	FieldToolName   = "tool_name"
+	FieldDurationMS = "duration_ms"
 	FieldAddr       = "addr"
-	FieldPort       = "port"
-	FieldCwd        = "cwd"
-	FieldPID        = "pid"
-	FieldState      = "state"
+	FieldConn       = "conn"
+	FieldRemote     = "remote"
 	FieldKey        = "key"
-	FieldName       = "name"
+	FieldSkill      = "skill"
+	FieldOrigin     = "origin"
+	FieldMax        = "max"
+	FieldDataLen    = "data_len"
+	FieldParamsLen  = "params_len"
 	FieldID         = "id"
-	FieldURL        = "url"
+	FieldName       = "name"
+	FieldCwd        = "cwd"
+	FieldRunKey     = "run_key"
+	FieldRoot       = "root"
+	FieldBytes      = "bytes"
+	FieldLen        = "len"
+	FieldListen     = "listen"
+	FieldPort       = "port"
 	FieldVersion    = "version"
-	FieldTurnID     = "turn_id"
-	FieldCommand    = "command"
-	FieldExitCode   = "exit_code"
-	FieldDecision   = "decision"
+	FieldTopic      = "topic"
 	FieldSeq        = "seq"
-	FieldReqID      = "req_id"
-	FieldCallID     = "call_id"
 	FieldDAG        = "dag"
 	FieldNode       = "node"
-	FieldRunKey     = "run_key"
+	FieldURL        = "url"
+	FieldVarsSet    = "vars_set"
+	FieldReqID      = "req_id"
+	FieldCallID     = "call_id"
+	FieldRaw        = "raw"
+	FieldTurnID     = "turn_id"
+	FieldCommand    = "command"
+	FieldRunID      = "run_id"
+	FieldExitCode   = "exit_code"
+	FieldCardKey    = "card_key"
+	FieldLanguage   = "language"
+	FieldSubscriber = "subscriber"
+	FieldFilter     = "filter"
+	FieldDecision   = "decision"
+	FieldPID        = "pid"
+	FieldState      = "state"
 )

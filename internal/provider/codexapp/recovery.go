@@ -49,7 +49,7 @@ func (r *recoveryManager) Reconnect(ctx context.Context) error {
 		attempts = 1
 	}
 	if r.logger != nil {
-		r.logger.Warn("codexapp reconnect", "attempts", attempts)
+		r.logger.Debug("codexapp reconnect", "attempts", attempts)
 	}
 	return shared.Retry(ctx, attempts, 200*time.Millisecond, func() error {
 		callCtx, cancel := withTimeout(ctx, 5*time.Second)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/creachadair/jrpc2/channel"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func (c *Client) beginStart(rootCtx context.Context, cancel context.CancelFunc) error {
@@ -86,7 +86,7 @@ func (c *Client) registerConn(ctx context.Context, conn *jrpc2.Client) (*mcp.Reg
 
 func (c *Client) handleNotify(req *jrpc2.Request) {
 	if err := c.dispatchRequest(req); err != nil {
-		slog.Warn("bootstrap notify dispatch failed",
+		pkglogger.Warn("bootstrap notify dispatch failed",
 			"instance_id", c.instanceID,
 			"callback_method", req.Method(),
 			"error", err,
@@ -227,11 +227,11 @@ func (c *Client) nextLogSeq() uint64 {
 }
 
 func (c *Client) auditEventFallback(eventType string, payload json.RawMessage, sendErr error) {
-	level := slog.LevelInfo
+	level := pkglogger.LevelInfo
 	if sendErr != nil {
-		level = slog.LevelWarn
+		level = pkglogger.LevelWarn
 	}
-	slog.Log(context.Background(), level, "bootstrap audit fallback",
+	pkglogger.Get().Log(context.Background(), level, "bootstrap audit fallback",
 		"instance_id", c.instanceID,
 		"callback_method", mcp.MethodEvent,
 		"event_type", strings.TrimSpace(eventType),
@@ -241,11 +241,11 @@ func (c *Client) auditEventFallback(eventType string, payload json.RawMessage, s
 }
 
 func (c *Client) localLogFallback(entry mcp.LogNotify, sendErr error) {
-	level := slog.LevelInfo
+	level := pkglogger.LevelInfo
 	if sendErr != nil {
-		level = slog.LevelWarn
+		level = pkglogger.LevelWarn
 	}
-	slog.Log(context.Background(), level, "bootstrap local log fallback",
+	pkglogger.Get().Log(context.Background(), level, "bootstrap local log fallback",
 		"instance_id", c.instanceID,
 		"callback_method", mcp.MethodLog,
 		"level", entry.Level,
