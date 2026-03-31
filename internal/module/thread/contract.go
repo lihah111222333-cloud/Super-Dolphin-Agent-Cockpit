@@ -45,6 +45,7 @@ type StartRequest struct {
 	Summary               string
 	Effort                string
 	Personality           string
+	Config                map[string]any
 }
 
 type StartResult struct {

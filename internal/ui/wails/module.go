@@ -9,6 +9,7 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -78,6 +79,21 @@ type applicationParams struct {
 	Service   application.Service
 	Lifecycle *WailsLifecycle
 	Frontend  FrontendFS `optional:"true"`
+}
+
+// httpAssetRunnerResult mirrors app.RunnerResult to avoid an import cycle.
+type httpAssetRunnerResult struct {
+	fx.Out
+	Runner platformrunner.Runner `group:"runners"`
+}
+
+type httpAssetServerParams struct {
+	fx.In
+
+	Logger   *slog.Logger
+	Frontend FrontendFS `optional:"true"`
+	Config   *config.Config
+	Server   *rpc.Server
 }
 
 func NewWailsApplication(p applicationParams) *application.App {

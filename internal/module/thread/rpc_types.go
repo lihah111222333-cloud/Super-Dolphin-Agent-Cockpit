@@ -32,6 +32,7 @@ type startParams struct {
 	Summary               string          `json:"summary,omitempty"`
 	Effort                string          `json:"effort,omitempty"`
 	Personality           string          `json:"personality,omitempty"`
+	Config                json.RawMessage `json:"config,omitempty"`
 	Prompt                string          `json:"-"`
 }
 

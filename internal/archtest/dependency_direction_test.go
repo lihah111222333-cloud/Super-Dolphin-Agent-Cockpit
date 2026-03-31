@@ -19,8 +19,9 @@ import (
 const modulePath = "github.com/anthropic-ai/super-agent-v3"
 
 var providerAllowedExternal = map[string]bool{
-	"github.com/kelindar/event": true,
-	"golang.org/x/net":          true,
+	"github.com/gorilla/websocket": true,
+	"github.com/kelindar/event":    true,
+	"golang.org/x/net":             true,
 }
 
 type parsedFile struct {

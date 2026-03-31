@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 )
 
@@ -65,6 +66,42 @@ func TestRegisterAllHandlersAddsGroupedHandlers(t *testing.T) {
 	}
 	if string(raw) != `"second"` {
 		t.Fatalf("Dispatch(second) = %s, want %q", raw, `"second"`)
+	}
+}
+
+func TestPrepareServerOptionsDefaultsStayQuiet(t *testing.T) {
+	t.Parallel()
+
+	opts := prepareServerOptions(nil)
+	if opts == nil {
+		t.Fatal("prepareServerOptions(nil) returned nil")
+	}
+	if !opts.AllowPush {
+		t.Fatal("AllowPush = false, want true")
+	}
+	if opts.Logger != nil {
+		t.Fatal("Logger should be nil by default to avoid jrpc2 debug text logs")
+	}
+}
+
+func TestPrepareServerOptionsPreservesExplicitLogger(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	logger := jrpc2.Logger(func(string) { called = true })
+	opts := prepareServerOptions(&jrpc2.ServerOptions{Logger: logger})
+	if opts == nil {
+		t.Fatal("prepareServerOptions returned nil")
+	}
+	if !opts.AllowPush {
+		t.Fatal("AllowPush = false, want true")
+	}
+	if opts.Logger == nil {
+		t.Fatal("Logger = nil, want explicit logger to be preserved")
+	}
+	opts.Logger("probe")
+	if !called {
+		t.Fatal("explicit logger was not invoked")
 	}
 }
 

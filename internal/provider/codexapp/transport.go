@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/gorilla/websocket"
 )
 
@@ -310,7 +311,9 @@ func (t *transport) spawnLocal() error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command("codex", "app-server", "--listen", serverURL)
+	argv := []string{"codex", "app-server", "--listen", serverURL}
+	pkglogger.Info("codexapp: spawning local app-server", "argv", argv)
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout = io.Discard
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stderr, err := cmd.StderrPipe()

@@ -367,8 +367,10 @@ export function handleBridgeEvent(ctx, evt) {
     }
   }
   if (activeThreadTarget && shouldSkipThreadSyncFromPatch(ctx, activeThreadTarget, methodLower, sourceLower, perfNow())) {
-    logInfo('thread', 'state.patch.recent.skip_sync', { thread_id: activeThreadTarget, method: eventMethod, source: sourceLower || eventName });
-    return;
+    // Do NOT skip history hydration signals — they must refresh messages.
+    if (!historyHydrationSignal) {
+      return;
+    }
   }
 
 

@@ -215,13 +215,9 @@ func prepareServerOptions(opts *jrpc2.ServerOptions) *jrpc2.ServerOptions {
 	if opts == nil {
 		return &jrpc2.ServerOptions{
 			AllowPush: true,
-			Logger:    jrpc2.StdLogger(nil),
 		}
 	}
 	dup := *opts
-	if dup.Logger == nil {
-		dup.Logger = jrpc2.StdLogger(nil)
-	}
 	dup.AllowPush = true
 	return &dup
 }

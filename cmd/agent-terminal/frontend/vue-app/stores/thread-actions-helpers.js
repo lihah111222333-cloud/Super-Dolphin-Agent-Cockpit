@@ -319,27 +319,11 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
       const optimisticItem = Object.freeze({ id: `${threadId}-optimistic-user-${Date.now()}`, kind: 'user', text: userText, ts: new Date().toISOString() });
       ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: [...existing, optimisticItem] };
     }
-    if (typeof ctx.syncThreadState === 'function') {
-      try {
-        await ctx.syncThreadState(threadId);
-      } catch (error) {
-        logWarn('thread', 'send.post_turn_sync_thread.failed', {
-          thread_id: threadId,
-          error,
-        });
-      }
-    }
-    if (typeof ctx.loadMessages === 'function') {
-      try {
-        await ctx.loadMessages(threadId, 300, { syncRuntime: false });
-      } catch (error) {
-        logWarn('thread', 'send.post_turn_load_messages.failed', {
-          thread_id: threadId,
-          error,
-        });
-      }
-    }
-    await ctx.syncRuntimeState();
+    // Note: syncThreadState and loadMessages are NOT called here.
+    // They would overwrite the optimistic user message with backend state
+    // that doesn't contain user text yet (JSONL not written until turn completes).
+    // Timeline refresh is handled by event-driven hydration:
+    //   turn/completed → MessagesPage → historyHydrationSignal → loadMessages
     const afterLen = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId].length : 0;
     logWarn('ui', 'chat.send.timeline_diff', { thread_id: threadId, beforeLen, afterLen });
     logInfo('thread', 'send.done', { thread_id: threadId, duration_ms: Math.round(perfNow() - start) });

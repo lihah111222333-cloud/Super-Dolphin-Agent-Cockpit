@@ -205,10 +205,8 @@ describe('thread store actions', () => {
       selectedSkills: ['git'],
       manualSkillSelection: true,
     });
-    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/messages', {
-      threadId: 'thread-live',
-      limit: 300,
-    });
+    // sendMessage no longer calls loadMessages eagerly (event-driven hydration).
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('thread/messages', expect.anything());
   });
 
   it('waits for compact completion via bridge-event envelope and stores success result', async () => {

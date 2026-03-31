@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,15 +14,7 @@ import (
 )
 
 func withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
-	if _, ok := ctx.Deadline(); ok {
-		return ctx, func() {}
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	timer := time.AfterFunc(d, cancel)
-	return ctx, func() {
-		timer.Stop()
-		cancel()
-	}
+	return context.WithTimeout(ctx, d)
 }
 
 func mustJSON(v any) json.RawMessage {
@@ -87,6 +82,25 @@ func cloneCaps(src dto.CapabilitySet) dto.CapabilitySet {
 		out[k] = v
 	}
 	return out
+}
+
+func (s *session) ThreadID() string {
+	if s == nil {
+		return ""
+	}
+	threadID, _ := s.threadID.Load().(string)
+	return strings.TrimSpace(threadID)
+}
+
+func (s *session) setThreadID(threadID string) {
+	if s == nil {
+		return
+	}
+	s.threadID.Store(strings.TrimSpace(threadID))
+}
+
+func (s *session) resolveThreadID(explicit string) string {
+	return strings.TrimSpace(firstNonEmpty(explicit, s.ThreadID()))
 }
 
 func (s *session) configureThread(ctx context.Context, patch dto.ThreadConfigPatch) error {
@@ -187,4 +201,117 @@ func cloneRuntimeConfigMap(cfg map[string]any) map[string]any {
 		}
 	}
 	return out
+}
+
+func decodeAllowedModels(raw []byte) ([]string, error) {
+	var top map[string]any
+	if err := json.Unmarshal(raw, &top); err == nil {
+		if models := modelIDs(top["models"]); len(models) > 0 {
+			return models, nil
+		}
+	}
+	var list []any
+	if err := json.Unmarshal(raw, &list); err == nil {
+		if models := modelIDs(list); len(models) > 0 {
+			return models, nil
+		}
+	}
+	return nil, errors.New("codexapp: invalid model/list response")
+}
+
+func modelIDs(raw any) []string {
+	list, _ := raw.([]any)
+	out := make([]string, 0, len(list))
+	seen := make(map[string]struct{}, len(list))
+	for _, item := range list {
+		entry, _ := item.(map[string]any)
+		id, _ := entry["id"].(string)
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func runtimePortFromServerURL(raw string) int {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return 0
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(parsed.Port()))
+	if err != nil || port <= 0 {
+		return 0
+	}
+	return port
+}
+
+func configString(cfg map[string]any, key string) string {
+	if cfg == nil {
+		return ""
+	}
+	value, _ := cfg[key].(string)
+	return strings.TrimSpace(value)
+}
+
+func extractPort(serverURL string) int {
+	parsed, err := url.Parse(strings.TrimSpace(serverURL))
+	if err != nil || parsed.Port() == "" {
+		return 0
+	}
+	p, err := strconv.Atoi(parsed.Port())
+	if err != nil || p <= 0 {
+		return 0
+	}
+	return p
+}
+
+func resolveApprovalPolicy(cfg map[string]any) string {
+	for _, key := range []string{"approvalPolicy", "approval_policy"} {
+		if value := configString(cfg, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func approvalPolicyFromThreadConfig(cfg dto.ThreadConfig) string {
+	return firstNonEmpty(cfg.Effective.Approvals, cfg.Override.Approvals)
+}
+
+func configJSON(cfg map[string]any, key string) json.RawMessage {
+	if cfg == nil || cfg[key] == nil {
+		return nil
+	}
+	raw, err := json.Marshal(cfg[key])
+	if err != nil || string(raw) == "null" {
+		return nil
+	}
+	return raw
+}
+
+func sortedConfigKeys(cfg map[string]any) []string {
+	if len(cfg) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(cfg))
+	for key := range cfg {
+		keys = append(keys, strings.TrimSpace(key))
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func hasAnyConfigKey(cfg map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, ok := cfg[strings.TrimSpace(key)]; ok {
+			return true
+		}
+	}
+	return false
 }

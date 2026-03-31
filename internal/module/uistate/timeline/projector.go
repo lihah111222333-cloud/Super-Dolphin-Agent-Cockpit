@@ -34,6 +34,7 @@ func RegisterSubscriptions(
 		platformbus.ResilientSubscribe(dispatcher, toolCallEndHandler(svc, onUpdated), logger),
 		platformbus.ResilientSubscribe(dispatcher, approvalRequestedHandler(svc), logger),
 		platformbus.ResilientSubscribe(dispatcher, approvalResolvedHandler(svc, onUpdated), logger),
+		platformbus.ResilientSubscribe(dispatcher, reasoningDeltaHandler(svc), logger),
 	}
 }
 
@@ -59,6 +60,18 @@ func turnCompletedHandler(svc Service) func(turndto.TurnCompleted) {
 		if threadID == "" {
 			return
 		}
+		// Append assistant message as a timeline item so the frontend can
+		// render it from the GetState snapshot without needing loadMessages.
+		if msg := strings.TrimSpace(ev.Message); msg != "" {
+			svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
+				ID:      timelineID("assistant", ev.TurnID),
+				Kind:    "assistant",
+				Text:    msg,
+				Ts:      ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+				AgentID: strings.TrimSpace(ev.AgentID),
+				TurnID:  strings.TrimSpace(ev.TurnID),
+			})
+		}
 		svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
 			ID:      timelineID("turn-end", ev.TurnID),
 			Kind:    "turn_end",
@@ -66,6 +79,39 @@ func turnCompletedHandler(svc Service) func(turndto.TurnCompleted) {
 			AgentID: strings.TrimSpace(ev.AgentID),
 			TurnID:  strings.TrimSpace(ev.TurnID),
 		})
+	}
+}
+
+func reasoningDeltaHandler(svc Service) func(turndto.TurnOutputDelta) {
+	return func(ev turndto.TurnOutputDelta) {
+		if !strings.EqualFold(strings.TrimSpace(ev.Stream), "reasoning") {
+			return
+		}
+		threadID := strings.TrimSpace(ev.ThreadID)
+		if threadID == "" {
+			return
+		}
+		delta := strings.TrimSpace(ev.Delta)
+		if delta == "" {
+			return
+		}
+		agentID := strings.TrimSpace(ev.AgentID)
+		turnID := strings.TrimSpace(ev.TurnID)
+		id := timelineID("thinking", turnID)
+		// Try to append to existing thinking item for this turn.
+		if !svc.UpdateByCallID(threadID, agentID, id, func(item *Item) {
+			item.Text += delta
+		}) {
+			svc.Append(threadID, agentID, Item{
+				ID:        id,
+				Kind:      "thinking",
+				Text:      delta,
+				Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+				AgentID:   agentID,
+				TurnID:    turnID,
+				lookupKey: id,
+			})
+		}
 	}
 }
 

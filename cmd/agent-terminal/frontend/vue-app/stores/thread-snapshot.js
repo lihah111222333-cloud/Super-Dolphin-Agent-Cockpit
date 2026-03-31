@@ -229,25 +229,17 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
         });
         continue;
       }
-      // Guard: do not replace a local timeline that contains dialog items
-      // (user/assistant from loadMessages) with a remote one that only has
-      // structural events (turn_start/turn_end/item). The dialog items are
-      // injected client-side by applyImmediateTimelineFromMessages and are
-      // not present in the backend timeline snapshot.
+      // Merge: preserve local dialog items (user/assistant from loadMessages
+      // or optimistic insert) when remote timeline only has structural events.
+      let mergedItems = newItems;
       if (Array.isArray(oldItems) && oldItems.length > 0 && newItems.length > 0) {
-        const oldDialogCount = oldItems.filter((i) => i?.kind === 'user' || i?.kind === 'assistant').length;
-        const newDialogCount = newItems.filter((i) => i?.kind === 'user' || i?.kind === 'assistant').length;
-        if (oldDialogCount > 0 && newDialogCount === 0) {
-          logWarn('thread', 'snapshot.timeline.skip_no_dialog_remote', {
-            thread_id: key,
-            old_timeline_len: oldItems.length,
-            new_timeline_len: newItems.length,
-            old_dialog_count: oldDialogCount,
-          });
-          continue;
+        const newIds = new Set(newItems.map((i) => i?.id).filter(Boolean));
+        const localDialogItems = oldItems.filter((i) => (i?.kind === 'user' || i?.kind === 'assistant') && !newIds.has(i?.id));
+        if (localDialogItems.length > 0 && !newItems.some((i) => i?.kind === 'user' || i?.kind === 'assistant')) {
+          mergedItems = [...newItems, ...localDialogItems];
         }
       }
-      const frozenTimeline = freezeTimelineItemsAtomic(newItems, oldItems);
+      const frozenTimeline = freezeTimelineItemsAtomic(mergedItems, oldItems);
       if (!frozenTimeline.changed) continue;
       if (!timelinesChanged) {
         nextTimelinesByThread = { ...nextTimelinesByThread };

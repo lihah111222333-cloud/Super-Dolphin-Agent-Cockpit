@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const defaultClaudeCLIBin = "claude"
@@ -36,6 +38,7 @@ func launchCLIWithManifest(
 		return nil, nil, err
 	}
 	args := buildCLIArgs(model, instructions, mcpPath, cfg)
+	logManifestLaunch(binary, cwd, model, mcpPath, manifest)
 	if resumeID = strings.TrimSpace(resumeID); resumeID != "" {
 		args = append(args, "--resume", resumeID)
 	}
@@ -47,6 +50,41 @@ func launchCLIWithManifest(
 		return nil, nil, err
 	}
 	return tr, cleanup, nil
+}
+
+func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManifest) {
+	servers := make([]map[string]any, 0, len(manifest.Binaries))
+	for _, bin := range manifest.Binaries {
+		command := ""
+		args := []string(nil)
+		if len(bin.Command) > 0 {
+			command = strings.TrimSpace(bin.Command[0])
+			args = append(args, bin.Command[1:]...)
+		}
+		envKeys := make([]string, 0, len(bin.Env))
+		for key := range bin.Env {
+			envKeys = append(envKeys, key)
+		}
+		sort.Strings(envKeys)
+		_, statErr := os.Stat(command)
+		servers = append(servers, map[string]any{
+			"name":           strings.TrimSpace(bin.Name),
+			"command":        command,
+			"args":           args,
+			"command_exists": statErr == nil,
+			"env_keys":       envKeys,
+			"has_rpc_addr":   strings.TrimSpace(bin.Env["GO_AGENT_CTL_RPC_ADDR"]) != "",
+			"has_bootstrap":  strings.TrimSpace(bin.Env["GO_AGENT_CTL_BOOTSTRAP_JSON"]) != "",
+		})
+	}
+	pkglogger.Info("claudecli: launch mcp manifest",
+		"binary", strings.TrimSpace(binary),
+		"cwd", strings.TrimSpace(cwd),
+		"model", strings.TrimSpace(model),
+		"mcp_config_path", strings.TrimSpace(mcpPath),
+		"server_count", len(servers),
+		"servers", servers,
+	)
 }
 
 func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig) []string {
