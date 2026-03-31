@@ -31,6 +31,7 @@ type session struct {
 	cancel             context.CancelFunc
 	mu                 sync.Mutex
 	approvalMu         sync.Mutex
+	mcpWatcherMu       sync.Mutex
 	recoveryMu         sync.Mutex
 	readLoopMu         sync.Mutex
 	readLoopDone       chan struct{}
@@ -41,6 +42,7 @@ type session struct {
 	suppressed         map[string]struct{}
 	processedApprovals map[string]*processedApprovalEntry
 	runtimeConfig      map[string]any
+	mcpWatcher         *mcpReadyWatcher
 }
 
 var _ contract.Session = (*session)(nil)
@@ -241,26 +243,6 @@ func (s *session) ForceStop() error {
 	s.clearProcessedApprovals()
 	s.cancel()
 	return s.transport.Kill()
-}
-
-func (s *session) onNotification(method string, params json.RawMessage) {
-	s.noteReadActivity()
-	if s.shouldSuppressTurnEvent(method, params) {
-		return
-	}
-	raw := dto.RawProviderEvent{EventType: method, Data: params}
-	method = strings.TrimSpace(method)
-	if !isApprovalBridgeMethod(method) || s.approvals == nil {
-		s.dispatch(raw)
-	}
-	switch {
-	case isApprovalBridgeMethod(method):
-		s.handleApprovalRequest(method, params)
-	case method == "turn/completed" || method == "turn/aborted":
-		s.finishTurn(params, method == "turn/completed")
-	case method == "connection.dead":
-		s.handleConnectionDead(params)
-	}
 }
 
 func (s *session) dispatch(raw dto.RawProviderEvent) {

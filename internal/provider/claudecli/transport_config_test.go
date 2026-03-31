@@ -70,3 +70,31 @@ func TestResolvePermissionModeAcceptsLegacyAndNewApprovalPolicies(t *testing.T) 
 		})
 	}
 }
+
+func TestWriteManifestConfigPreservesFullManagedServerName(t *testing.T) {
+	t.Parallel()
+
+	manifest := dto.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
+	path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
+	if err != nil {
+		t.Fatalf("writeManifestConfig() error = %v", err)
+	}
+	defer cleanup()
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if _, ok := servers["go-agent-mcp-lsp"]; !ok {
+		t.Fatalf("mcpServers = %#v, want full managed server name key", servers)
+	}
+	if _, ok := servers["lsp"]; ok {
+		t.Fatalf("mcpServers = %#v, got truncated key lsp", servers)
+	}
+}

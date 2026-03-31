@@ -13,10 +13,10 @@ import (
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
+	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
-	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -166,10 +166,29 @@ func handleToolCall(ctx context.Context, registry tools.Registry, name string, a
 
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	if strings.TrimSpace(r.cfg.RPCAddr) == "" {
+		pkglogger.Warn("mcp-orch bootstrap disabled: GO_AGENT_CTL_RPC_ADDR missing",
+			"binary_name", r.cfg.BinaryName,
+			"client_kind", r.cfg.ClientKind,
+			"thread_id", r.cfg.ThreadID,
+			"capabilities", r.cfg.Capabilities,
+			"subscriptions", r.cfg.Subscriptions,
+		)
 		<-ctx.Done()
 		return nil
 	}
+	pkglogger.Info("mcp-orch bootstrap starting",
+		"binary_name", r.cfg.BinaryName,
+		"rpc_addr", r.cfg.RPCAddr,
+		"thread_id", r.cfg.ThreadID,
+		"capabilities", r.cfg.Capabilities,
+		"subscriptions", r.cfg.Subscriptions,
+	)
 	if err := r.client.Start(ctx); err != nil {
+		pkglogger.Error("mcp-orch bootstrap start failed",
+			"binary_name", r.cfg.BinaryName,
+			"rpc_addr", r.cfg.RPCAddr,
+			"error", err,
+		)
 		return err
 	}
 	<-ctx.Done()

@@ -8,29 +8,11 @@ import (
 	"net/http"
 	"time"
 
-	"go.uber.org/fx"
-
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
 const defaultHTTPAddr = "127.0.0.1:4511"
-
-// httpAssetRunnerResult mirrors app.RunnerResult to avoid an import cycle.
-type httpAssetRunnerResult struct {
-	fx.Out
-	Runner platformrunner.Runner `group:"runners"`
-}
-
-type httpAssetServerParams struct {
-	fx.In
-
-	Logger   *slog.Logger
-	Frontend FrontendFS     `optional:"true"`
-	Config   *config.Config
-	Server   *rpc.Server
-}
 
 type httpAssetServer struct {
 	logger  *slog.Logger
@@ -85,7 +67,7 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 		}
 		return err
 	case <-ctx.Done():
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.ShutdownTimeout)
 		defer cancel()
 		return srv.Shutdown(shutCtx)
 	}

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/creachadair/jrpc2"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/creachadair/jrpc2"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
@@ -87,6 +87,12 @@ func New(cfg Config) *Client {
 
 func (c *Client) Start(ctx context.Context) error {
 	if strings.TrimSpace(c.cfg.RPCAddr) == "" {
+		pkglogger.Warn("bootstrap start skipped: GO_AGENT_CTL_RPC_ADDR missing",
+			"binary_name", c.cfg.BinaryName,
+			"instance_id", c.instanceID,
+			"thread_id", c.cfg.ThreadID,
+			"capabilities_offered", c.offeredCapabilities(),
+		)
 		return errors.New("bootstrap: GO_AGENT_CTL_RPC_ADDR is required")
 	}
 	if ctx == nil {
@@ -99,12 +105,29 @@ func (c *Client) Start(ctx context.Context) error {
 	}
 	conn, reg, err := c.connectAndRegister(rootCtx)
 	if err != nil {
+		pkglogger.Warn("bootstrap connect/register failed",
+			"binary_name", c.cfg.BinaryName,
+			"instance_id", c.instanceID,
+			"rpc_addr", c.cfg.RPCAddr,
+			"thread_id", c.cfg.ThreadID,
+			"error", err,
+		)
 		_ = c.Close()
 		return err
 	}
 	c.mu.Lock()
 	c.activateLocked(conn, reg)
 	c.mu.Unlock()
+	pkglogger.Info("bootstrap registered",
+		"binary_name", c.cfg.BinaryName,
+		"instance_id", c.instanceID,
+		"rpc_addr", c.cfg.RPCAddr,
+		"thread_id", c.cfg.ThreadID,
+		"lease_generation", reg.Lease.Generation,
+		"capabilities_negotiated", reg.CapabilitiesNegotiated,
+		"subscriptions", c.cfg.Subscriptions,
+		"config_version", reg.ConfigVersion,
+	)
 	go c.watchRoot(rootCtx)
 	c.flushQueuedReports(context.Background())
 	return nil

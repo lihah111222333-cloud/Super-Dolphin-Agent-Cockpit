@@ -10,6 +10,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -66,9 +67,9 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		AgentID:     strings.TrimSpace(req.AgentID),
 		CWD:         strings.TrimSpace(req.CWD),
 		ThreadCaps:  copyCapabilities(claudeCapabilities),
-		BinaryDir:   resolveBinaryDir(req.CWD, req.Config),
-		Env:         stringMap(req.Config["env"]),
-		AutoApprove: configStringSlice(req.Config, "auto_approve", "autoApprove"),
+		BinaryDir:   providershared.ResolveBinaryDir(req.CWD, req.Config),
+		Env:         providershared.StringMap(req.Config["env"]),
+		AutoApprove: providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
@@ -79,7 +80,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		config:       configFromMap(req.Config),
 		rawConfig:    cloneConfigMap(req.Config),
 		publicThread: req.AgentID,
-		historyDir:   configString(req.Config, "history_dir", "claude_home"),
+		historyDir:   providershared.ConfigString(req.Config, "history_dir", "claude_home"),
 	})
 }
 

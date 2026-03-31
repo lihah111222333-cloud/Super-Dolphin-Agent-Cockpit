@@ -6,9 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
-	"strconv"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,8 +16,10 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"go.uber.org/fx"
 )
 
 type driver struct {
@@ -39,6 +40,8 @@ var codexCapabilities = dto.CapabilitySet{
 	dto.CapTurnOverride:   true,
 	dto.CapModelSwitch:    true,
 }
+
+var buildCodexMCPManifest = dto.BuildManifest
 
 type threadRPCResult struct {
 	Thread struct {
@@ -72,6 +75,27 @@ func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 	return newDriver(logger, eventDispatcher, approvals, reporter)
 }
 
+func NewDriverFactory(
+	logger *slog.Logger,
+	dispatcher *unified.EventDispatcher,
+	approvals *rpc.ApprovalManager,
+	reporter contract.RuntimeReporter,
+) contract.DriverFactory {
+	return contract.DriverFactory{
+		Name: "codex",
+		Create: func() contract.Driver {
+			return newDriver(logger, dispatcher, approvals, reporter)
+		},
+	}
+}
+
+var Module = fx.Module("provider.codexapp",
+	fx.Provide(
+		fx.Annotate(NewDriverFactory, fx.ResultTags(`group:"drivers"`)),
+	),
+	fx.Invoke(RegisterTranslators),
+)
+
 func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -94,6 +118,10 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	}
 	s.setRuntimeConfig(req.Config)
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
+	if err := d.injectCodexMCPServers(ctx, s, req); err != nil {
+		shared.LogIgnoredError(d.logger, "force stop failed on mcp injection error", s.ForceStop())
+		return nil, err
+	}
 	result, err := startRemoteThread(ctx, s.transport, req)
 	if err != nil {
 		shared.LogIgnoredError(d.logger, "force stop failed on start error", s.ForceStop())
@@ -129,12 +157,33 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	return s, nil
 }
 
-func (d *driver) restoreApprovalPolicy(_ context.Context, s *session, _ string) {
+func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) {
 	if d == nil || s == nil {
 		return
 	}
-	// codex app-server has no per-thread config read API;
-	// approval policy is preserved in the session's local state.
+	result, err := s.transport.Call(ctx, "thread/config/get", map[string]any{
+		"threadId": threadID,
+	})
+	if err != nil {
+		// RPC not available – fall back to local state.
+		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
+		return
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(result, &resp); err != nil {
+		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
+		return
+	}
+	effective, _ := resp["effective"].(map[string]any)
+	if effective == nil {
+		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
+		return
+	}
+	if approval, ok := effective["approvals"].(string); ok && strings.TrimSpace(approval) != "" {
+		s.setApprovalPolicy(strings.TrimSpace(approval))
+		s.setRuntimeConfigValue("approvalPolicy", strings.TrimSpace(approval))
+		return
+	}
 	s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
 }
 
@@ -161,18 +210,6 @@ func (d *driver) reportRuntime(agentID string) {
 	}
 }
 
-func runtimePortFromServerURL(raw string) int {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return 0
-	}
-	port, err := strconv.Atoi(strings.TrimSpace(parsed.Port()))
-	if err != nil || port <= 0 {
-		return 0
-	}
-	return port
-}
-
 func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 	callCtx, cancel := withTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -181,42 +218,6 @@ func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return decodeAllowedModels(raw)
-}
-
-func decodeAllowedModels(raw []byte) ([]string, error) {
-	var top map[string]any
-	if err := json.Unmarshal(raw, &top); err == nil {
-		if models := modelIDs(top["models"]); len(models) > 0 {
-			return models, nil
-		}
-	}
-	var list []any
-	if err := json.Unmarshal(raw, &list); err == nil {
-		if models := modelIDs(list); len(models) > 0 {
-			return models, nil
-		}
-	}
-	return nil, errors.New("codexapp: invalid model/list response")
-}
-
-func modelIDs(raw any) []string {
-	list, _ := raw.([]any)
-	out := make([]string, 0, len(list))
-	seen := make(map[string]struct{}, len(list))
-	for _, item := range list {
-		entry, _ := item.(map[string]any)
-		id, _ := entry["id"].(string)
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
-	}
-	return out
 }
 
 type startResult struct {
@@ -238,6 +239,16 @@ func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRe
 		Effort:                configString(req.Config, "effort"),
 		Sandbox:               configJSON(req.Config, "sandbox"),
 	}
+	pkglogger.Info("codexapp: thread/start request",
+		"agent_id", strings.TrimSpace(req.AgentID),
+		"cwd", params.Cwd,
+		"model", params.Model,
+		"approval_policy", params.ApprovalPolicy,
+		"config_keys", sortedConfigKeys(req.Config),
+		"has_env", hasAnyConfigKey(req.Config, "env"),
+		"has_mcp", hasAnyConfigKey(req.Config, "mcp", "mcpConfig", "mcp_config", "mcpServers", "mcp_servers"),
+		"has_hooks", hasAnyConfigKey(req.Config, "hooks", "hookConfig", "hook_config"),
+	)
 	callCtx, cancel := withTimeout(ctx, 30*time.Second)
 	defer cancel()
 	raw, err := t.Call(callCtx, "thread/start", params)
@@ -290,46 +301,87 @@ func decodeThreadID(raw json.RawMessage, fallback string) (string, error) {
 	return "", errors.New("codexapp: empty thread id")
 }
 
-func configString(cfg map[string]any, key string) string {
-	if cfg == nil {
-		return ""
+func (d *driver) injectCodexMCPServers(ctx context.Context, s *session, req dto.StartSessionRequest) error {
+	manifest := buildCodexMCPManifest(dto.ManifestContext{
+		AgentID:     strings.TrimSpace(req.AgentID),
+		CWD:         strings.TrimSpace(req.CWD),
+		ThreadCaps:  cloneCaps(codexCapabilities),
+		BinaryDir:   providershared.ResolveBinaryDir(req.CWD, req.Config),
+		Env:         providershared.StringMap(req.Config["env"]),
+		AutoApprove: providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
+	})
+	managedNames := managedBinaryNames(manifest)
+	if len(managedNames) == 0 {
+		return nil
 	}
-	value, _ := cfg[key].(string)
-	return strings.TrimSpace(value)
+	if s == nil || s.transport == nil {
+		return errors.New("codexapp: session transport is not available")
+	}
+	if !s.transport.local {
+		d.logger.Warn("codexapp: skipping mcp injection for external app-server",
+			"agent_id", strings.TrimSpace(req.AgentID),
+			"server_url", s.transport.serverURL,
+			"managed_servers", managedNames,
+		)
+		return nil
+	}
+
+	watcher := newMCPReadyWatcher(managedNames)
+	s.setMCPWatcher(watcher)
+	defer s.setMCPWatcher(nil)
+
+	configPath := resolveCodexConfigPath()
+	if err := writeCodexMCPConfig(configPath, manifest, req.CWD); err != nil {
+		return fmt.Errorf("mcp config write: %w", err)
+	}
+
+	reloadCtx, cancel := withTimeout(ctx, 10*time.Second)
+	_, err := s.transport.Call(reloadCtx, "config/mcpServer/reload", nil)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("mcp reload: %w", err)
+	}
+
+	readyCtx, readyCancel := withTimeout(ctx, 30*time.Second)
+	errCh := make(chan error, 2)
+	go func() { errCh <- watcher.Wait(readyCtx) }()
+	go func() { errCh <- pollMCPStatus(readyCtx, s.transport, managedNames, 2*time.Second) }()
+	err = <-errCh
+	readyCancel()
+	if err != nil {
+		return fmt.Errorf("mcp ready: %w", err)
+	}
+	return nil
 }
 
-func extractPort(serverURL string) int {
-	parsed, err := url.Parse(strings.TrimSpace(serverURL))
-	if err != nil || parsed.Port() == "" {
-		return 0
+func resolveCodexConfigPath() string {
+	if root := strings.TrimSpace(os.Getenv("CODEX_HOME")); root != "" {
+		return filepath.Join(root, "config.toml")
 	}
-	p, err := strconv.Atoi(parsed.Port())
-	if err != nil || p <= 0 {
-		return 0
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".codex", "config.toml")
 	}
-	return p
+	return filepath.Join(home, ".codex", "config.toml")
 }
 
-func resolveApprovalPolicy(cfg map[string]any) string {
-	for _, key := range []string{"approvalPolicy", "approval_policy"} {
-		if value := configString(cfg, key); value != "" {
-			return value
+func managedBinaryNames(manifest dto.MCPManifest) []string {
+	seen := make(map[string]struct{}, len(manifest.Binaries))
+	out := make([]string, 0, len(manifest.Binaries))
+	for _, bin := range manifest.Binaries {
+		command := ""
+		if len(bin.Command) > 0 {
+			command = bin.Command[0]
 		}
+		name := strings.TrimSpace(bin.Name)
+		if !isManagedBinary(name, command) {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
 	}
-	return ""
-}
-
-func approvalPolicyFromThreadConfig(cfg dto.ThreadConfig) string {
-	return firstNonEmpty(cfg.Effective.Approvals, cfg.Override.Approvals)
-}
-
-func configJSON(cfg map[string]any, key string) json.RawMessage {
-	if cfg == nil || cfg[key] == nil {
-		return nil
-	}
-	raw, err := json.Marshal(cfg[key])
-	if err != nil || string(raw) == "null" {
-		return nil
-	}
-	return raw
+	return out
 }

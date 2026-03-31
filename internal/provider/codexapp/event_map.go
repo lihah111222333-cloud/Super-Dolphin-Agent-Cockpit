@@ -8,7 +8,6 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -38,8 +37,26 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publish(ev)
 		return
 	}
+	if logCodexMCPStartupStatus(eventType, payload) {
+		return
+	}
 	if shouldWarnUnknownRawEvent(eventType, payload) {
 		pkglogger.Get().Warn("codexapp: unknown raw event", "raw_type", eventType, "payload", payload)
+	}
+}
+
+func logCodexMCPStartupStatus(eventType string, payload map[string]any) bool {
+	switch strings.TrimSpace(eventType) {
+	case "mcpServer/startupStatus/update", "mcpServer/startupStatus/updated":
+		pkglogger.Get().Info("codexapp: mcp server startup status",
+			"agent_id", stringValue(payload, "agentId", "agent_id"),
+			"name", stringValue(payload, "name"),
+			"status", stringValue(payload, "status"),
+			"error", stringValue(payload, "error", "message"),
+		)
+		return true
+	default:
+		return false
 	}
 }
 
@@ -239,51 +256,6 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 		}, true
 	default:
 		return nil, false
-	}
-}
-
-func agentSessionHeader(payload map[string]any) shared.AgentSessionHeader {
-	providerThreadID := firstNonEmpty(stringValue(payload, "threadId", "thread_id"), stringValue(nestedValue(payload, "thread"), "id"))
-	agentID := stringValue(payload, "agentId", "agent_id")
-	// Use agentID as the public ThreadID when available; the codex provider
-	// UUID stays in SessionID so downstream code can still reach it.
-	threadID := firstNonEmpty(agentID, providerThreadID)
-	return shared.AgentSessionHeader{
-		AgentHeader: shared.AgentHeader{
-			ThreadHeader: shared.ThreadHeader{
-				EventHeader: shared.EventHeader{Timestamp: eventTime(payload)},
-				ThreadID:    threadID,
-			},
-			AgentID: agentID,
-		},
-		SessionID: firstNonEmpty(stringValue(payload, "sessionId", "session_id"), providerThreadID),
-	}
-}
-
-func turnHeader(payload map[string]any) shared.TurnHeader {
-	return shared.TurnHeader{
-		AgentHeader: agentSessionHeader(payload).AgentHeader,
-		TurnIDHeader: shared.TurnIDHeader{
-			TurnID: firstNonEmpty(
-				stringValue(payload, "turnId", "turn_id"),
-				stringValue(nestedValue(payload, "turn"), "id"),
-			),
-		},
-	}
-}
-
-func toolCallHeader(payload map[string]any) shared.ToolCallHeader {
-	return shared.ToolCallHeader{
-		TurnHeader: turnHeader(payload),
-		CallID:     firstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(nestedValue(payload, "item"), "callId")),
-		ToolName:   firstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedValue(payload, "item"), "toolName", "tool")),
-	}
-}
-
-func toolApprovalHeader(payload map[string]any) shared.ToolApprovalHeader {
-	return shared.ToolApprovalHeader{
-		ToolCallHeader: toolCallHeader(payload),
-		ApprovalID:     stringValue(payload, "approvalId", "approval_id"),
 	}
 }
 

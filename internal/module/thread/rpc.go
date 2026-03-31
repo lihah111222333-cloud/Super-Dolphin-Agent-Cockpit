@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"runtime"
 	"strings"
@@ -102,6 +103,7 @@ func newStartHandler(svc Service) handler.Func {
 			Summary:               p.Summary,
 			Effort:                p.Effort,
 			Personality:           p.Personality,
+			Config:                decodeConfigMap(p.Config),
 		})
 		if err != nil {
 			return nil, err
@@ -132,6 +134,18 @@ func newStartHandler(svc Service) handler.Func {
 			"effective":      effective,
 		}, nil
 	})
+}
+
+func decodeConfigMap(raw json.RawMessage) map[string]any {
+	raw = trimRawJSON(raw)
+	if len(raw) == 0 {
+		return nil
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil || len(cfg) == 0 {
+		return nil
+	}
+	return cfg
 }
 
 func newThreadCall(fn func(context.Context, string) (any, error)) handler.Func {

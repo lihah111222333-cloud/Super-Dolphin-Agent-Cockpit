@@ -72,10 +72,10 @@ func (s *LogSink) bindTurn(dispatcher *event.Dispatcher, logger *pkglogger.Logge
 }
 
 func (s *LogSink) bindTool(dispatcher *event.Dispatcher, logger *pkglogger.Logger) {
-	s.subs.Add(logEvent[tooldto.ToolCallBegin](dispatcher, logger))
-	s.subs.Add(logEvent[tooldto.ToolCallEnd](dispatcher, logger))
-	s.subs.Add(logEvent[tooldto.ToolApprovalRequested](dispatcher, logger))
-	s.subs.Add(logEvent[tooldto.ToolApprovalResolved](dispatcher, logger))
+	s.subs.Add(logDebugEvent[tooldto.ToolCallBegin](dispatcher, logger))
+	s.subs.Add(logDebugEvent[tooldto.ToolCallEnd](dispatcher, logger))
+	s.subs.Add(logDebugEvent[tooldto.ToolApprovalRequested](dispatcher, logger))
+	s.subs.Add(logDebugEvent[tooldto.ToolApprovalResolved](dispatcher, logger))
 }
 
 func (s *LogSink) bindTask(dispatcher *event.Dispatcher, logger *pkglogger.Logger) {
@@ -86,9 +86,9 @@ func (s *LogSink) bindTask(dispatcher *event.Dispatcher, logger *pkglogger.Logge
 }
 
 func (s *LogSink) bindUI(dispatcher *event.Dispatcher, logger *pkglogger.Logger) {
-	s.subs.Add(logEvent[uidto.UIProjectionUpdated](dispatcher, logger))
-	s.subs.Add(logEvent[uidto.UITimelineAppended](dispatcher, logger))
-	s.subs.Add(logEvent[uidto.UITokensUpdated](dispatcher, logger))
+	s.subs.Add(logDebugEvent[uidto.UIProjectionUpdated](dispatcher, logger))
+	s.subs.Add(logDebugEvent[uidto.UITimelineAppended](dispatcher, logger))
+	s.subs.Add(logDebugEvent[uidto.UITokensUpdated](dispatcher, logger))
 }
 
 func logEvent[T event.Event](dispatcher *event.Dispatcher, logger *pkglogger.Logger) func() {

@@ -3,6 +3,8 @@ package claudecli
 import (
 	"reflect"
 	"testing"
+
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
 func TestConfigStringSlice(t *testing.T) {
@@ -54,8 +56,8 @@ func TestConfigStringSlice(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := configStringSlice(tt.cfg, tt.keys...); !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("configStringSlice() = %#v, want %#v", got, tt.want)
+			if got := providershared.ConfigStringSlice(tt.cfg, tt.keys...); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("ConfigStringSlice() = %#v, want %#v", got, tt.want)
 			}
 		})
 	}

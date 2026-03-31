@@ -25,6 +25,8 @@ type Item struct {
 	Success   *bool  `json:"success,omitempty"`
 	AgentID   string `json:"agent_id,omitempty"`
 	TurnID    string `json:"turn_id,omitempty"`
+	Text      string `json:"text,omitempty"`
+	Ts        string `json:"ts,omitempty"`
 	lookupKey string
 }
 

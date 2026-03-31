@@ -149,10 +149,27 @@ func handleToolCall(ctx context.Context, defs []toolDefinition, name string, arg
 
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	if strings.TrimSpace(r.cfg.RPCAddr) == "" {
+		pkglogger.Warn("mcp-lsp bootstrap disabled: GO_AGENT_CTL_RPC_ADDR missing",
+			"binary_name", r.cfg.BinaryName,
+			"client_kind", r.cfg.ClientKind,
+			"thread_id", r.cfg.ThreadID,
+			"capabilities", r.cfg.Capabilities,
+		)
 		<-ctx.Done()
 		return nil
 	}
+	pkglogger.Info("mcp-lsp bootstrap starting",
+		"binary_name", r.cfg.BinaryName,
+		"rpc_addr", r.cfg.RPCAddr,
+		"thread_id", r.cfg.ThreadID,
+		"capabilities", r.cfg.Capabilities,
+	)
 	if err := r.client.Start(ctx); err != nil {
+		pkglogger.Error("mcp-lsp bootstrap start failed",
+			"binary_name", r.cfg.BinaryName,
+			"rpc_addr", r.cfg.RPCAddr,
+			"error", err,
+		)
 		return err
 	}
 	<-ctx.Done()

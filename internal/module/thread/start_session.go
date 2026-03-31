@@ -254,6 +254,11 @@ func startSessionConfig(req StartRequest) map[string]any {
 	putConfigString(cfg, "effort", req.Effort)
 	putConfigString(cfg, "personality", req.Personality)
 	putConfigJSON(cfg, "sandbox", req.Sandbox)
+	for key, value := range req.Config {
+		if _, exists := cfg[key]; !exists {
+			cfg[key] = value
+		}
+	}
 	if len(cfg) == 0 {
 		return nil
 	}
