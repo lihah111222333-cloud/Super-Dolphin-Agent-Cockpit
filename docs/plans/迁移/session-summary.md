@@ -62,7 +62,8 @@
 | **P11 MCP 启动配置** | ✅ | **5轮计划审查(r1→r5) + P1配置注入(6任务) + P2工具过滤预设 + E2E验证PASS + ready降级(poll兜底) + binary重命名(mcp-lsp/mcp-orch)** |
 | **P11 MCP Bug 修复** | ✅ | **B1 prompt migration + B2 metadata NULL + B4 orchestration fail-fast + env 自动收集 + binary 重命名(mcp-lsp/mcp-orch) + approval 默认 never** |
 | **P12 Sub-Agent Runtime** | ✅ | **8轮计划审查(v1→v8) + 三波实施(task0-8) + 11测试 + archtest修复 + E2E全量验证** |
-| P10 工厂丰满 | ⏳ | Zone A 3.8%→60% |
+| **P13 工厂修复** | 🔄 | **21 Agent 审查完成，5波修复计划已出（p13-factory-repair-plan.md）** |
+| P10 工厂丰满 | ⏳ | 已被 P13 吸收修订 |
 
 ---
 

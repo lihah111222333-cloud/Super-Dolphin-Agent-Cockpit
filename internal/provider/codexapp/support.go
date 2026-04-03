@@ -10,11 +10,13 @@ import (
 	"strings"
 	"time"
 
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 func withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, d)
+	return platformconfig.WithTimeout(ctx, d)
 }
 
 func mustJSON(v any) json.RawMessage {

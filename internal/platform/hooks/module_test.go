@@ -3,7 +3,6 @@ package hooks
 import (
 	"context"
 	"io"
-	"log/slog"
 	"testing"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
