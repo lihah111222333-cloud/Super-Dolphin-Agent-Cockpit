@@ -34,9 +34,7 @@ func (r *recoveryManager) CheckHealth(ctx context.Context) error {
 	if r.transport == nil || !r.transport.Running() {
 		return errors.New("codexapp: transport not running")
 	}
-	callCtx, cancel := withTimeout(ctx, 3*time.Second)
-	defer cancel()
-	_, err := r.transport.Call(callCtx, "app/list", nil)
+	_, err := callWithTimeout(ctx, r.transport, 3*time.Second, "app/list", nil)
 	return err
 }
 
@@ -99,7 +97,7 @@ func (s *session) callTransport(ctx context.Context, method string, params any) 
 
 func (s *session) handleConnectionDead(params json.RawMessage) {
 	reason := firstNonEmpty(stringValue(decodeEventPayload(params), "error", "message"), "connection lost")
-	if s.ctx.Err() != nil {
+	if err := checkCtx(s.ctx); err != nil {
 		return
 	}
 	shared.SafeGo(s.logger, func() {
@@ -141,9 +139,10 @@ func (s *session) attemptRecovery(reason string) error {
 }
 
 func (s *session) replayPendingTurn(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
+	if err := checkCtx(ctx); err != nil {
+		return err
 	}
+	ctx = normalizeTransportContext(ctx)
 	snapshot := s.pendingTurnSnapshot()
 	if snapshot == nil || replayTurnDone(snapshot.handle) {
 		return nil
@@ -195,15 +194,13 @@ func validatePendingTurnSnapshot(snapshot *turnReplayState) error {
 }
 
 func (s *session) replayTurnStart(ctx context.Context, params turnStartParams) (string, error) {
-	callCtx, cancel := withTimeout(ctx, 30*time.Second)
-	defer cancel()
-	raw, err := s.transport.Call(callCtx, "turn/start", params)
+	raw, err := callWithTimeout(ctx, s.transport, 30*time.Second, "turn/start", params)
 	if err != nil {
 		return "", err
 	}
-	var resp turnRPCResult
-	if err := json.Unmarshal(raw, &resp); err != nil || strings.TrimSpace(resp.Turn.ID) == "" {
-		return "", errors.New("codexapp: invalid turn/start response")
+	resp, err := decodeTurnStartResult(raw)
+	if err != nil {
+		return "", err
 	}
 	return strings.TrimSpace(resp.Turn.ID), nil
 }

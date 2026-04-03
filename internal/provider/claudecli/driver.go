@@ -60,9 +60,6 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 func (d *driver) Name() string { return "claude" }
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	manifest := dto.BuildManifest(dto.ManifestContext{
 		AgentID:     strings.TrimSpace(req.AgentID),
 		CWD:         strings.TrimSpace(req.CWD),
@@ -85,9 +82,6 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
 		threadID:     firstNonEmpty(req.ProviderThreadID, req.ThreadID),
@@ -98,7 +92,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 }
 
 func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, error) {
-	if err := ctx.Err(); err != nil {
+	if err := checkCtx(ctx); err != nil {
 		return nil, err
 	}
 	tr, cleanup, err := launchCLI(

@@ -122,7 +122,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if result.cwd != "" {
 		s.setRuntimeConfigValue("cwd", result.cwd)
 	}
-	if port := extractPort(s.transport.serverURL); port > 0 {
+	if port := parsePortFromURL(s.transport.serverURL); port > 0 {
 		s.setRuntimeConfigValue("port", port)
 	}
 	d.reportRuntime(s.agentID)
@@ -191,7 +191,7 @@ func (d *driver) reportRuntime(agentID string) {
 	// app-server endpoint port after session startup succeeds.
 	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
 		AgentID:  agentID,
-		Port:     runtimePortFromServerURL(d.serverURL),
+		Port:     parsePortFromURL(d.serverURL),
 		Provider: d.Name(),
 	}); err != nil {
 		d.logger.Warn("codexapp: report runtime failed", "agent_id", agentID, "error", err)
@@ -199,9 +199,7 @@ func (d *driver) reportRuntime(agentID string) {
 }
 
 func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
-	callCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	raw, err := s.callTransport(callCtx, "model/list", map[string]any{})
+	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "model/list", map[string]any{})
 	if err != nil {
 		return nil, err
 	}
@@ -237,9 +235,7 @@ func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRe
 		"has_mcp", hasAnyConfigKey(req.Config, "mcp", "mcpConfig", "mcp_config", "mcpServers", "mcp_servers"),
 		"has_hooks", hasAnyConfigKey(req.Config, "hooks", "hookConfig", "hook_config"),
 	)
-	callCtx, cancel := withTimeout(ctx, 30*time.Second)
-	defer cancel()
-	raw, err := t.Call(callCtx, "thread/start", params)
+	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/start", params)
 	if err != nil {
 		return startResult{}, err
 	}
@@ -247,10 +243,8 @@ func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRe
 }
 
 func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (string, error) {
-	callCtx, cancel := withTimeout(ctx, 30*time.Second)
-	defer cancel()
 	resumeID := firstNonEmpty(req.ProviderThreadID, req.ThreadID)
-	raw, err := t.Call(callCtx, "thread/resume", threadResumeParams{
+	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/resume", threadResumeParams{
 		ThreadID: strings.TrimSpace(resumeID),
 		Model:    strings.TrimSpace(req.Model),
 	})

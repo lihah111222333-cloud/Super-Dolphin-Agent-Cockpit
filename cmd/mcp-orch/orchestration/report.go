@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"time"
 )
 
 var terminalReportEventTypes = map[string]struct{}{
@@ -58,7 +57,7 @@ func (s *service) GetReport(_ context.Context, agentID string) (AgentReportResul
 	return agentReportLocked(agent), nil
 }
 
-func (s *service) RememberReportRequest(_ context.Context, req RememberReportRequest) (RememberReportRequestResult, error) {
+func (s *service) RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error) {
 	agentID := strings.TrimSpace(req.AgentID)
 	requesterID := strings.TrimSpace(req.RequesterID)
 	if agentID == "" {
@@ -78,12 +77,12 @@ func (s *service) RememberReportRequest(_ context.Context, req RememberReportReq
 	if err != nil {
 		return RememberReportRequestResult{}, err
 	}
-	rememberReportRequesterLocked(agent, requesterID)
+	rememberReportRequesterLocked(ctx, agent, requesterID)
 	return RememberReportRequestResult{Success: true, AgentID: agent.id, RequesterID: requesterID}, nil
 }
 
 // TODO(p2-b15): deliver drained requester notifications into the UI timeline once a stable V3 delivery path exists.
-func (s *service) HandleReportEvent(_ context.Context, event ReportEvent) (ReportEventResult, error) {
+func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error) {
 	agentID := strings.TrimSpace(event.AgentID)
 	if agentID == "" {
 		return ReportEventResult{}, errors.New("agent id is required")
@@ -102,11 +101,11 @@ func (s *service) HandleReportEvent(_ context.Context, event ReportEvent) (Repor
 		return ReportEventResult{}, err
 	}
 	if report != "" {
-		setReportLocked(agent, report)
+		setReportLocked(ctx, agent, report)
 	}
 	notified := []string(nil)
 	if report != "" || isTerminalReportEvent(eventType, event.EventData) {
-		notified = drainReportRequestersLocked(agent)
+		notified = drainReportRequestersLocked(ctx, agent)
 	}
 	if report == "" {
 		report = strings.TrimSpace(agent.lastReport)
@@ -120,9 +119,9 @@ func (s *service) HandleReportEvent(_ context.Context, event ReportEvent) (Repor
 	}, nil
 }
 
-func setReportLocked(agent *agentRuntime, report string) {
+func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
 	agent.lastReport = strings.TrimSpace(report)
-	agent.updatedAt = time.Now()
+	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 }
 
 func agentReportLocked(agent *agentRuntime) AgentReportResult {
@@ -139,21 +138,21 @@ func agentReportLocked(agent *agentRuntime) AgentReportResult {
 	}
 }
 
-func rememberReportRequesterLocked(agent *agentRuntime, requesterID string) {
+func rememberReportRequesterLocked(ctx context.Context, agent *agentRuntime, requesterID string) {
 	for _, existing := range agent.reportRequesters {
 		if strings.EqualFold(existing, requesterID) {
-			agent.updatedAt = time.Now()
+			agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 			return
 		}
 	}
 	agent.reportRequesters = append(agent.reportRequesters, requesterID)
-	agent.updatedAt = time.Now()
+	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 }
 
-func drainReportRequestersLocked(agent *agentRuntime) []string {
+func drainReportRequestersLocked(ctx context.Context, agent *agentRuntime) []string {
 	requesters := append([]string(nil), agent.reportRequesters...)
 	agent.reportRequesters = nil
-	agent.updatedAt = time.Now()
+	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 	return requesters
 }
 

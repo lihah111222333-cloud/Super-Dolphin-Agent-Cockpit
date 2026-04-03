@@ -272,15 +272,6 @@ func baseData(base rawBase, sessionID, timestamp string) map[string]any {
 	return data
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func dataString(data any, keys ...string) string {
 	if m, ok := data.(map[string]any); ok {
 		for _, key := range keys {

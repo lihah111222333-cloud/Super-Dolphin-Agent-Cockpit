@@ -13,10 +13,7 @@ import (
 const capThreadConfigure = "thread_configure"
 
 func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
+	if err := checkCtx(ctx); err != nil {
 		return err
 	}
 	if configurePatchEmpty(patch) {
@@ -95,10 +92,7 @@ func modelAllowed(model string, allowed []string) bool {
 }
 
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
+	if err := checkCtx(ctx); err != nil {
 		return err
 	}
 	if err := s.transport.signalProcess(syscall.SIGINT); err != nil {
