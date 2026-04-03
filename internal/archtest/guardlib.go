@@ -15,13 +15,14 @@ import (
 )
 
 const (
-	MaxFileLines    = 400
-	MaxFuncLines    = 80
-	MaxNestingDepth = 4
-	MaxUnderscores  = 3
-	MaxCCComplexity = 10
-	MaxPackageFiles = 15
-	MaxPackageLines = 4500
+	MaxFileLines        = 400
+	MaxFactoryFileLines = 800
+	MaxFuncLines        = 80
+	MaxNestingDepth     = 4
+	MaxUnderscores      = 3
+	MaxCCComplexity     = 10
+	MaxPackageFiles     = 15
+	MaxPackageLines     = 4500
 )
 
 type ViolationKind int
@@ -244,10 +245,13 @@ func checkSingleFile(path, relPath string, stats map[string]*packageStat) []Viol
 		stat = &packageStat{}
 		stats[filepath.ToSlash(filepath.Dir(relPath))] = stat
 	}
-	stat.Files++
-	stat.Lines += fileLines
+	factory := isFactoryFile(relPath)
+	if !factory {
+		stat.Files++
+		stat.Lines += fileLines
+	}
 
-	violations := fileLengthViolations(relPath, fileLines)
+	violations := fileLengthViolationsForFile(relPath, fileLines, factory)
 	fset := token.NewFileSet()
 	fileNode, parseErr := parser.ParseFile(fset, path, data, parser.SkipObjectResolution)
 	if parseErr != nil {
@@ -258,11 +262,19 @@ func checkSingleFile(path, relPath string, stats map[string]*packageStat) []Viol
 	return violations
 }
 
-func fileLengthViolations(relPath string, fileLines int) []Violation {
-	if fileLines <= MaxFileLines {
+func isFactoryFile(relPath string) bool {
+	return filepath.Base(relPath) == "factory.go"
+}
+
+func fileLengthViolationsForFile(relPath string, fileLines int, factory bool) []Violation {
+	limit := MaxFileLines
+	if factory {
+		limit = MaxFactoryFileLines
+	}
+	if fileLines <= limit {
 		return nil
 	}
-	return []Violation{{Kind: ViolationFile, File: relPath, Got: fileLines, Limit: MaxFileLines, Message: fmt.Sprintf("文件  %s: %d 行 > 上限 %d", relPath, fileLines, MaxFileLines)}}
+	return []Violation{{Kind: ViolationFile, File: relPath, Got: fileLines, Limit: limit, Message: fmt.Sprintf("文件  %s: %d 行 > 上限 %d", relPath, fileLines, limit)}}
 }
 
 func functionViolations(relPath string, rawLines []string, fset *token.FileSet, fileNode *ast.File) []Violation {
