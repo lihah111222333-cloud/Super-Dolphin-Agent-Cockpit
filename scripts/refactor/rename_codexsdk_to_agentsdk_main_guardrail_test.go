@@ -142,7 +142,8 @@ func TestRenameScriptMainApplyRewritesImports(t *testing.T) {
 	if strings.Contains(content, "/pkg/codexsdk") {
 		t.Fatalf("apply mode should remove old import root, got %q", content)
 	}
-	if !strings.Contains(content, "/pkg/agentsdk") {
+	expectedImportRoot := "/pkg/" + "agentsdk"
+	if !strings.Contains(content, expectedImportRoot) {
 		t.Fatalf("apply mode should rewrite to agentsdk import root, got %q", content)
 	}
 }

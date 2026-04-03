@@ -9,8 +9,8 @@
 - V2 实际执行链：
   - `go-agent-v2/internal/apiserver/codexadapter/adapter.go:269-355`
   - `go-agent-v2/internal/apiserver/codexadapter/adapter_stall.go:31-43`
-  - `go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go:93-104,144-306`
-  - `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_lifecycle_core.go:60-107,320-369`
+  - `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go:93-104,144-306`
+  - `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_lifecycle_core.go:60-107,320-369`
 - V3 RPC 入口：
   - `internal/module/turn/rpc.go:60-75`
   - `internal/module/turn/rpc_types.go:22-29,71-73`
@@ -26,9 +26,9 @@
 ## 先校正一个口径
 
 - 按当前仓库里的生产实现，V2 `turn/interrupt` 并不返回 `{"ok":true}`。
-  - 真实生产返回来自 `interruptPayload(...)`，字段是 `confirmed`、`mode`、`interruptSent`、`stateBefore`、`stateAfter`，以及条件性追加的 `waitedMs`、`activeObserved`，见 `go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go:128-142,212`。
+  - 真实生产返回来自 `interruptPayload(...)`，字段是 `confirmed`、`mode`、`interruptSent`、`stateBefore`、`stateAfter`，以及条件性追加的 `waitedMs`、`activeObserved`，见 `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go:128-142,212`。
   - `{"ok":true}` 只出现在部分测试替身里，例如 `go-agent-v2/internal/guards/rpc_golden_test.go:535-545`。
-- 当前仓库里的 V2 `turn/forceComplete` 生产返回是 `{"confirmed":true,"forceCompleted":true}`，见 `go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go:304`。
+- 当前仓库里的 V2 `turn/forceComplete` 生产返回是 `{"confirmed":true,"forceCompleted":true}`，见 `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go:304`。
 
 ## `turn/interrupt`
 

@@ -8,7 +8,7 @@
   - `go-agent-v2/internal/apiserver/provider_adapter_registry.go`
   - `go-agent-v2/internal/apiserver/codexadapter/adapter_lifecycle.go`
   - `go-agent-v2/internal/apiserver/codexadapter/adapter_thread_listing.go`
-  - `go-agent-v2/pkg/agentsdk/service/lifecycle/thread_lifecycle_logic.go`
+  - `go-agent-v2/legacy-agentsdk/service/lifecycle/thread_lifecycle_logic.go`
 - V3：
   - `internal/module/thread/rpc.go`
   - `internal/module/thread/rpc_types.go`

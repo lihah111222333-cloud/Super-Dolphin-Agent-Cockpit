@@ -2,7 +2,7 @@
 
 ## 范围与方法
 
-- 范围：V3 `internal/module/turn`、`cmd/mcp-orch/orchestration`、`internal/provider/*`，以及对照 V2 `go-agent-v2/internal/apiserver`、`go-agent-v2/pkg/agentsdk/service/*`。
+- 范围：V3 `internal/module/turn`、`cmd/mcp-orch/orchestration`、`internal/provider/*`，以及对照 V2 `go-agent-v2/internal/apiserver`、`go-agent-v2/legacy-agentsdk/service/*`。
 - 方法：仅用 LSP `text_search`、`workspace_symbol`、`references(compact)`、`call_hierarchy`、`read_file(func_start/func_end)` 逐项落证。
 - 口径：只认“代码里已经接通的真实链路”；文档、计划、历史审计不作为主证据。
 
@@ -59,7 +59,7 @@
 - 参数面只有 `threadId + prompt`：`internal/module/turn/rpc_types.go:14-17`，没有 `expectedTurnId`。
 - `SteerTurn` 的真实实现只是 `PrepareTurn(...Prompt...)` 后再 `StartTurn(...)`：`internal/module/turn/service.go:109-115`。
 - 单测名字直接说明语义：`internal/module/turn/service_test.go:179-202` 的 `TestSteerTurnStartsPromptAsNewTurn`。
-- 对照 V2，`turn/steer` 明确要求 `expectedTurnId`，并先做 active-turn 对齐：`go-agent-v2/internal/apiserver/methods_turn.go:68-82`，`go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:70-106`。
+- 对照 V2，`turn/steer` 明确要求 `expectedTurnId`，并先做 active-turn 对齐：`go-agent-v2/internal/apiserver/methods_turn.go:68-82`，`go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:70-106`。
 
 判断：
 - prompt 会真实传到 provider。
@@ -92,7 +92,7 @@
 - service 实现只是 `session.Interrupt(... Source: "force_complete")`：`internal/module/turn/service.go:143-159`。
 - provider contract 里没有独立的 force-complete API，只有 `StartTurn` 和 `Interrupt`：`internal/contract/provider.go:23-37`。
 - 单测明确验证“最终状态留给 watcher”，并且最后期待的是 `interrupted`，不是 `completed`：`internal/module/turn/service_test.go:204-245`。
-- 对照 V2，`turnForceComplete` 会额外 `notifyTurnCompleted(..., "completed", "force_complete")`：`go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go:271-304`。
+- 对照 V2，`turnForceComplete` 会额外 `notifyTurnCompleted(..., "completed", "force_complete")`：`go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go:271-304`。
 
 判断：
 - V3 的 `forceComplete` 和普通 interrupt 的主要差别只剩下 `Source` 字符串。
@@ -206,19 +206,19 @@
 - V2 `turnStartParams` 有 `input[] / selectedSkills / manualSkillSelection / cwd / outputSchema`，返回 `{turn:{id,status}}`：`go-agent-v2/internal/apiserver/methods_turn.go:30-66`。
 - V3 `turnStartParams` 只有 `prompt/images/files/model/effort`，返回只有 `{turnId}`：`internal/module/turn/rpc_types.go:5-12,39-41`、`internal/module/turn/rpc.go:45`。
 - `turn/steer` 不等价。
-- V2 强制要求 `expectedTurnId` 并校验 active tracked turn：`go-agent-v2/internal/apiserver/methods_turn.go:68-82`、`go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:70-106`。
+- V2 强制要求 `expectedTurnId` 并校验 active tracked turn：`go-agent-v2/internal/apiserver/methods_turn.go:68-82`、`go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:70-106`。
 - V3 没有 `expectedTurnId`，只是新开 turn：`internal/module/turn/rpc_types.go:14-17`、`internal/module/turn/service.go:109-115`。
 - `turn/interrupt` 不等价。
-- V2 有 `waitInterruptOutcome`、`notifyTurnCompleted`、tracked-turn terminal wait：`go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go:56-126,215-269`。
+- V2 有 `waitInterruptOutcome`、`notifyTurnCompleted`、tracked-turn terminal wait：`go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go:56-126,215-269`。
 - V3 只有本地 handle settle；没有补发 `TurnCompleted`，也没有 `interrupt_no_active_turn` 之类补偿语义：`internal/module/turn/service.go:117-141`。
 - `turn/forceComplete` 不等价。
-- V2 有独立 `TurnForceComplete`，且会通知 completion：`go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go:271-304`。
+- V2 有独立 `TurnForceComplete`，且会通知 completion：`go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go:271-304`。
 - V3 只是 `Interrupt(Source="force_complete")`：`internal/module/turn/service.go:143-159`。
 - approval 不等价。
 - V2 有统一 notify hook / pending request / `approval/respond` 解锁链：`go-agent-v2/internal/apiserver/server.go:233-238`、`go-agent-v2/internal/apiserver/server_event_handler.go:221-246`、`go-agent-v2/internal/apiserver/server_approval.go:462-483`。
 - V3 只有 codex session 内部 `RequestApproval -> approval/respond` 回写，缺统一 push/UI/state machine。
 - tracker/stall 不等价。
-- V2 有更丰富的 tracker/stall/auto-interrupt 体系：`go-agent-v2/pkg/agentsdk/service/tracker/*`、`go-agent-v2/pkg/agentsdk/service/support/interrupt_state.go`。
+- V2 有更丰富的 tracker/stall/auto-interrupt 体系：`go-agent-v2/legacy-agentsdk/service/tracker/*`、`go-agent-v2/legacy-agentsdk/service/support/interrupt_state.go`。
 - V3 只有一个轻量 in-memory tracker：`internal/module/turn/tracker.go`。
 
 ## 12. `BinaryDir`

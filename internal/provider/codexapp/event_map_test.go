@@ -18,7 +18,7 @@ func TestAgentSessionHeaderPrefersAgentIDAsThreadID(t *testing.T) {
 		"sessionId": "019d3595-1444-76d0-adca-e7d9f6b11232",
 	}
 
-	header := agentSessionHeader(payload)
+	header := buildAgentSessionHeader(payload)
 
 	// ThreadID must be the agentId, not the codex UUID.
 	if got := header.ThreadID; got != "agent_1774720455588_04820e21fd876e3b" {

@@ -38,15 +38,15 @@
 
 ### V2 参考
 - Claude：
-  - `/Users/mima0000/Desktop/wj/go-agent-v2/pkg/agentsdk/claude/client.go:176-239`
-  - `/Users/mima0000/Desktop/wj/go-agent-v2/pkg/agentsdk/claude/client_cli_transport.go:50-102`
-  - `/Users/mima0000/Desktop/wj/go-agent-v2/pkg/agentsdk/claude/client_cli_transport.go:201-322`
+  - `/Users/mima0000/Desktop/wj/go-agent-v2/legacy-agentsdk/claude/client.go:176-239`
+  - `/Users/mima0000/Desktop/wj/go-agent-v2/legacy-agentsdk/claude/client_cli_transport.go:50-102`
+  - `/Users/mima0000/Desktop/wj/go-agent-v2/legacy-agentsdk/claude/client_cli_transport.go:201-322`
 - Codex：
-  - `/Users/mima0000/Desktop/wj/go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go:38-50`
-  - `/Users/mima0000/Desktop/wj/go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go:102-149`
-  - `/Users/mima0000/Desktop/wj/go-agent-v2/pkg/agentsdk/codex/client_appserver_runtime.go:129-156`
+  - `/Users/mima0000/Desktop/wj/go-agent-v2/legacy-agentsdk/codex/client_appserver_protocol.go:38-50`
+  - `/Users/mima0000/Desktop/wj/go-agent-v2/legacy-agentsdk/codex/client_appserver_protocol.go:102-149`
+  - `/Users/mima0000/Desktop/wj/go-agent-v2/legacy-agentsdk/codex/client_appserver_runtime.go:129-156`
   - `/Users/mima0000/Desktop/wj/go-agent-v2/internal/runner/manager_launch.go:119-198`
-  - `/Users/mima0000/Desktop/wj/go-agent-v2/pkg/agentsdk/agentcore/types.go:83-104`
+  - `/Users/mima0000/Desktop/wj/go-agent-v2/legacy-agentsdk/agentcore/types.go:83-104`
 
 ### 当前仓库
 - 共享上层模型：

@@ -67,16 +67,16 @@
 
 ### V2 基线
 - V2 turn 主链不是“线程 id 直接查 session map”，而是 `TurnStartSubmissionAndTrack -> EnsureThreadReadyForTurn`。如果 live process 还活着就直接复用；如果进程死了会先 stop，再决定是否 restore 历史线程。证据：
-  - `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_operations.go:127-159`
-  - `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_logic.go:138-164`
+  - `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_operations.go:127-159`
+  - `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_logic.go:138-164`
 - 恢复候选链是分层的：
   - 先从 binding 取 `SessionUUID`
   - 没有再取 `ProviderThreadID / LegacyThreadID`
   - 还可以再从 status 取 `SessionID`
   - 最终形成 candidate 列表用于 native resume 或 `ResumeThread`
   证据：
-  - `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_logic.go:211-257`
-  - `go-agent-v2/pkg/agentsdk/service/history/thread_history_core.go:73-112`
+  - `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_logic.go:211-257`
+  - `go-agent-v2/legacy-agentsdk/service/history/thread_history_core.go:73-112`
   - `go-agent-v2/internal/apiserver/codexadapter/adapter_lifecycle.go:162-195`
 - Claude 的 `session_uuid` 不是死字段，V2 会在事件处理里把它修进 binding，供未来 resume 使用。证据：
   - `go-agent-v2/internal/apiserver/server_event_handler.go:320-339`
@@ -85,7 +85,7 @@
   - 是否 launch 历史进程后再 `ResumeThread`
   - 如果对已绑定线程没有任何有效 resume candidate，就拒绝 fresh session，避免偷偷丢上下文
   证据：
-  - `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_logic.go:259-417`
+  - `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_logic.go:259-417`
 
 ### V3 现状
 - turn RPC 统一通过 `contract.SessionResolver` 取 session；`turn/start`、`turn/steer`、capability gate 都依赖这条链。证据：
@@ -109,13 +109,13 @@
 
 ### V2 基线
 - `CLIClient.spawnWithResume` 负责 spawn；恢复时支持 `--resume <session_id>`。证据：
-  - `go-agent-v2/pkg/agentsdk/claude/client.go:163-239`
+  - `go-agent-v2/legacy-agentsdk/claude/client.go:163-239`
 - `Shutdown` 是 `SIGTERM -> 等待 -> 超时 SIGKILL`，`Kill` 直接强杀。证据：
-  - `go-agent-v2/pkg/agentsdk/claude/client.go:414-466`
+  - `go-agent-v2/legacy-agentsdk/claude/client.go:414-466`
 - `dispatchEvent` 会在 `session_configured` 时把真实 `threadID/sessionID` 写回 client，用于后续恢复和 restart。证据：
-  - `go-agent-v2/pkg/agentsdk/claude/client.go:617-626`
+  - `go-agent-v2/legacy-agentsdk/claude/client.go:617-626`
 - `RestartWithParams` / `SwitchModel` / `CompactContext` 都是 kill 后带 `session_id` resume。证据：
-  - `go-agent-v2/pkg/agentsdk/claude/client.go:525-584`
+  - `go-agent-v2/legacy-agentsdk/claude/client.go:525-584`
 
 ### V3 现状
 - `launchCLI` 同样支持 `--resume`；transport 进程是独立 process group，便于整组信号管理。证据：
@@ -140,8 +140,8 @@
 
 ### V2 基线
 - 启动链是 `Spawn -> dialWS -> Initialize -> ThreadStart / ResumeThread`。证据：
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_runtime.go:103-200`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_transport.go:24-118`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_runtime.go:103-200`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_transport.go:24-118`
 - recovery 主体是 `reconnectWS(...)`：
   - websocket 指数退避重连
   - reconnect health 计数
@@ -149,9 +149,9 @@
   - background event 反馈
   - 必要时升级到 respawn
   证据：
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_transport.go:209-367`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_health.go:1-184`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go:141-231`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_transport.go:209-367`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_health.go:1-184`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:141-231`
 - respawn 路径不是简单重连，而是：
   - 杀老进程
   - 起新 app-server
@@ -160,10 +160,10 @@
   - `ResumeThread`
   - 必要时对落到 idle 的恢复场景自动 continue
   证据：
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_transport.go:370-540`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go:334-560`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_transport.go:370-540`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:334-560`
 - 事件侧还有会话保护：收到 conversation mismatch 的 thread-scoped event 会丢弃，只在必要时回补 lifecycle。证据：
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go:277-331`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:277-331`
 
 ### V3 现状
 - 启动链是 `newTransport -> connect -> initialize -> thread/start or thread/resume`。证据：
@@ -195,11 +195,11 @@
 - `effectiveState` 会在 provider 进程已经退出、但 UI 还停在 running/thinking 时主动把状态 reconcile 掉，避免长期挂假活跃。证据：
   - `go-agent-v2/internal/runner/manager.go:220-276`
 - `EnsureThreadReadyForTurn` 遇到 dead process 会先 stop 掉旧对象，再走 restore/resume，不会把 dead client 当 live session 复用。证据：
-  - `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_logic.go:154-164`
+  - `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_logic.go:154-164`
 - 对已绑定线程，如果一个有效 resume candidate 都没有，V2 会拒绝 fresh session，防止上下文悄悄丢失。证据：
-  - `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_logic.go:403-417`
+  - `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_logic.go:403-417`
 - Codex event 侧还会丢弃错 conversation 的 thread-scoped event，避免 stale 事件把当前 turn lifecycle 污染掉。证据：
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go:277-299`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:277-299`
 
 ### V3 现状
 - `SessionManager.Get` 只是 map lookup，没有任何 liveness / closed-state 校验。证据：

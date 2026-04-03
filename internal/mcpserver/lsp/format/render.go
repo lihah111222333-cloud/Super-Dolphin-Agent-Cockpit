@@ -24,17 +24,6 @@ func RenderJSON(value any) (string, error) {
 	return strings.TrimRight(buffer.String(), "\n"), nil
 }
 
-func RenderTable(headers []string, rows [][]string) string {
-	widths := columnWidths(headers, rows)
-	var builder strings.Builder
-	writeTableRow(&builder, headers, widths)
-	writeTableSeparator(&builder, widths)
-	for i := range rows {
-		writeTableRow(&builder, rows[i], widths)
-	}
-	return builder.String()
-}
-
 func RenderLineNumberedText(content string, startLine int) string {
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	if len(lines) == 0 {
@@ -97,48 +86,6 @@ func NormalizeForDisplay[T any](value T) T {
 		return normalizer(value).(T)
 	}
 	return value
-}
-
-func columnWidths(headers []string, rows [][]string) []int {
-	widths := make([]int, len(headers))
-	for i := range headers {
-		widths[i] = len(headers[i])
-	}
-	for _, row := range rows {
-		for i := range row {
-			if i < len(widths) && len(row[i]) > widths[i] {
-				widths[i] = len(row[i])
-			}
-		}
-	}
-	return widths
-}
-
-func writeTableRow(builder *strings.Builder, row []string, widths []int) {
-	for i := range widths {
-		if i > 0 {
-			builder.WriteString(" | ")
-		}
-		cell := ""
-		if i < len(row) {
-			cell = row[i]
-		}
-		builder.WriteString(cell)
-		if pad := widths[i] - len(cell); pad > 0 {
-			builder.WriteString(strings.Repeat(" ", pad))
-		}
-	}
-	builder.WriteByte('\n')
-}
-
-func writeTableSeparator(builder *strings.Builder, widths []int) {
-	for i := range widths {
-		if i > 0 {
-			builder.WriteString("-+-")
-		}
-		builder.WriteString(strings.Repeat("-", widths[i]))
-	}
-	builder.WriteByte('\n')
 }
 
 func workspaceSymbolLocationAny(location any) any {

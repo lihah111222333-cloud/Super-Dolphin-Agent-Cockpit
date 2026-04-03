@@ -185,20 +185,3 @@ func matchedTerms(prompt string, terms []string) []string {
 }
 
 func normalizeSkillNames(names []string) []string { return uniqStrings(names) }
-
-func collectChangedSkillNames(result any) []string {
-	payload, _ := result.(map[string]any)
-	if len(payload) == 0 {
-		return nil
-	}
-	names := make([]string, 0, 4)
-	if name, _ := payload["name"].(string); name != "" {
-		names = append(names, name)
-	}
-	if skill, _ := payload["skill"].(map[string]any); len(skill) > 0 {
-		if name, _ := skill["name"].(string); name != "" {
-			names = append(names, name)
-		}
-	}
-	return normalizeSkillNames(names)
-}

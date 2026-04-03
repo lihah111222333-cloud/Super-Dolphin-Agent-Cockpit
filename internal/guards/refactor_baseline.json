@@ -56,17 +56,24 @@
       "frozen_max": 2000,
       "note": "统一状态机 + 类型安全事件后精简"
     },
-    "pkg/agentsdk": {
+    "internal/contract": {
       "lines": 0,
-      "frozen_max": 5000
+      "frozen_max": 300
     },
-    "pkg/errors": {
+    "internal/provider/claudecli": {
       "lines": 0,
-      "frozen_max": 100
+      "frozen_max": 1000,
+      "note": "CLI 传输与 history/session 逻辑"
     },
-    "pkg/factory": {
+    "internal/provider/codexapp": {
       "lines": 0,
-      "frozen_max": 2000
+      "frozen_max": 800,
+      "note": "AppServer 传输与恢复逻辑"
+    },
+    "internal/provider/unified": {
+      "lines": 0,
+      "frozen_max": 1500,
+      "note": "统一 Provider/session/registry"
     },
     "pkg/idamcp": {
       "lines": 0,
@@ -79,26 +86,7 @@
     "pkg/toolsdk": {
       "lines": 0,
       "frozen_max": 10000
-    },
-    "pkg/util": {
-      "lines": 0,
-      "frozen_max": 300
-    },
-    "pkg/agentsdk/provider": {
-      "lines": 0,
-      "frozen_max": 1500,
-      "note": "新建：统一 Provider"
-    },
-    "pkg/agentsdk/claude": {
-      "lines": 0,
-      "frozen_max": 1000,
-      "note": "精简：只保留 CLI 传输"
-    },
-    "pkg/agentsdk/codex": {
-      "lines": 0,
-      "frozen_max": 800,
-      "note": "精简：只保留 AppServer 传输"
     }
   },
-  "convergence_note": "ADR-001: 双端 Provider 收敛后，agentsdk 总预算从 8000 降至 5000"
+  "convergence_note": "ADR-001: 双端 Provider 收敛后，预算分散到 internal/contract + internal/provider/*"
 }

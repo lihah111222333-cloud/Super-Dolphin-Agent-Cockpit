@@ -22,7 +22,6 @@
 | `internal/platform/rpc` | 15 | `approval_test.go`, `handler_test.go` |
 | `internal/provider/claudecli` | 14 | `thread_identity_test.go` |
 | `internal/provider/unified` | 7 | `client_test.go`, `contract_test.go`, `manifest_test.go`, `registry_test.go` |
-| `pkg/factory` | 4 | `factory_test.go` |
 
 ### 1.2 仅有守卫/脚本测试的包
 
@@ -43,11 +42,9 @@
 - `internal/provider/codexapp`
 - `internal/store` 与全部子包：`agentstatus`, `ailog`, `auditlog`, `binding`, `buslog`, `commandcard`, `cwdlock`, `dbquery`, `interaction`, `prompt`, `sharedfile`, `sqlc`, `systemlog`, `taskack`, `taskdag`, `tasktrace`, `thread`, `topologyapproval`, `uipreference`, `workspace`
 - `internal/ui/wails`
-- `pkg/agentsdk/agentcore`
-- `pkg/agentsdk/provider`
-- `pkg/errors`
 - `pkg/logger`
-- `pkg/util`
+- `internal/contract`
+- `internal/provider/unified`
 
 ### 1.4 补充观察
 
@@ -137,8 +134,8 @@
    - 3 个生产文件，零测试；作为 MCP 共用层，没有参数/协议/错误路径覆盖。
 3. `internal/platform/config`, `internal/platform/db`, `internal/platform/shared`, `internal/platform/runner`, `internal/platform/statemachine`
    - 都是零测试；其中 `shared` 虽有 `archtest` 预算守卫，但没有功能性单测。
-4. `pkg/factory`
-   - 只有一个 `TestFactoryPackageExists`，更像占位测试，不足以证明 factory 行为稳定。
+4. 已删除的 legacy factory stub 层
+   - 删除前只有一个 `TestFactoryPackageExists` 占位测试，现已由平台层承接，不再作为独立包维护。
 
 ## 7. 结论
 

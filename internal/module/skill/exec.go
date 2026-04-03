@@ -40,10 +40,6 @@ var execAllowedEnvPrefixes = []string{
 
 const lspPreferenceHint = "[LSP提示] 优先用 LSP 工具读代码：lsp_file lsp_inspect lsp_xref lsp_grep lsp_structure lsp_edit lsp_completion。\n"
 
-func (s *service) execShell(ctx context.Context, shellCmd, cwd string) (ExecResult, error) {
-	return s.execCommand(ctx, "sh", []string{"-lc", shellCmd}, cwd, nil, true)
-}
-
 func (s *service) ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error) {
 	return s.execCommand(ctx, command, args, cwd, env, false)
 }
@@ -207,12 +203,6 @@ func isAllowedExecEnvKey(key string) bool {
 		}
 	}
 	return false
-}
-func shellQuote(value string) string {
-	if value == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 type limitedBuffer struct {

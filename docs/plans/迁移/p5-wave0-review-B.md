@@ -45,7 +45,7 @@ provider JSON-RPC request
 - approval 去重状态不在 pending map，而在 `runtimeGuardState.approvalInFlight sync.Map`，定义在 `go-agent-v2/internal/apiserver/server_state_groups.go:394-420`。
 - approval 入口是 `handleApprovalRequest`，主流程在 `go-agent-v2/internal/apiserver/server_approval.go:384-403`。
 - request/user-input 不是独立链路，而是被桥接到 approval。`go-agent-v2/internal/apiserver/server_event_handler.go:223-233` 对 `request_user_input` 直接调用 `handleApprovalRequest(..., approvalMethodCommandExecution, ...)`。
-- provider 侧恢复 turn 的关键不是 HTTP 回调，而是事件对象上的 `RespondResultFunc` / `DenyFunc`。这些字段定义在 `go-agent-v2/pkg/agentsdk/agentcore/types.go:119-126`，由 `go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go:265-274` 在入站 JSON-RPC request 带 `id` 时挂入 `agentcore.Event`。
+- provider 侧恢复 turn 的关键不是 HTTP 回调，而是事件对象上的 `RespondResultFunc` / `DenyFunc`。这些字段定义在 `go-agent-v2/legacy-agentsdk/agentcore/types.go:119-126`，由 `go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:265-274` 在入站 JSON-RPC request 带 `id` 时挂入 `agentcore.Event`。
 - 如果 approval 来自旧 provider 或无 request id，V2 仍保留 legacy 续跑路径：`submitApprovalLegacyDecision` 通过 `SubmitSystemPrompt(..., "approval")` 提交 `"yes"` / `"no"`，见 `go-agent-v2/internal/apiserver/server_approval.go:319-338`、`:449-453`。
 
 ### 主要方法列表
@@ -119,7 +119,7 @@ provider JSON-RPC request
 
 ### `request_user_input` 如何触发 approval
 
-- provider 侧 `jsonRPCToEvent` 对未映射但命中 `codex/event/`、`item/` 等前缀的方法，直接把原始 method 当 event type，见 `go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go:731-772`。
+- provider 侧 `jsonRPCToEvent` 对未映射但命中 `codex/event/`、`item/` 等前缀的方法，直接把原始 method 当 event type，见 `go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:731-772`。
 - `server_event_handler.isRequestUserInputEvent` 通过 method/type 后缀匹配 `request_user_input` / `requestUserInput`，见 `go-agent-v2/internal/apiserver/server_event_handler.go:486-492`。
 - 若当前 approval policy 为 `never`，走 auto-respond；否则统一桥接到 `handleApprovalRequest(..., approvalMethodCommandExecution, ...)`，见 `go-agent-v2/internal/apiserver/server_event_handler.go:223-233`。
 - 因此 `request_user_input` 在 V2 不是独立状态机，而是 approval 状态机的一个别名入口。
@@ -316,7 +316,7 @@ R0a
 
 - A 在 `p5-wave0-review-A.md:29-33` 概括了 `server_approval.go` 的主流程，但仍漏掉了一个关键入口：`request_user_input` 并不是独立通道，而是由 `go-agent-v2/internal/apiserver/server_event_handler.go:223-233` 直接桥接到 `handleApprovalRequest(..., approvalMethodCommandExecution, ...)`。
 - A 在 `p5-wave0-review-A.md:61-70` 接受“删掉 fallback 后 R0c <= 250 可成立”，但这个估计没有把 typed 通道仍必需的三块算进去：
-  - provider 侧 callback 绑定。`go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go:265-274` 把 `RespondResultFunc` / `DenyFunc` 挂到 event 上，这是 approval 恢复 turn 的核心，不是 legacy 专属分支。
+  - provider 侧 callback 绑定。`go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:265-274` 把 `RespondResultFunc` / `DenyFunc` 挂到 event 上，这是 approval 恢复 turn 的核心，不是 legacy 专属分支。
   - shared awaiter。`go-agent-v2/internal/apiserver/server_conn.go:196-257` 与 `go-agent-v2/internal/apiserver/server_state_groups.go:21-137` 承载了 request/response 相关性和 pending wait。
   - turn 状态恢复。V3 已定义 `awaiting_user_input -> turn_running` 触发器，见 `internal/dto/agent/state.go:28-29`、`:90-95`，但 `cmd/mcp-orch/orchestration` 内没有任何 `TriggerUserInputRequested` / `TriggerUserInputResolved` 使用点。
 - 因此 A 在代码量节接受 `R0c <= 250`，与它自己在 `p5-wave0-review-A.md:88-91` 识别出的“缺 user input 恢复接口链”是内在冲突的。缺口既然存在，就不应被当作 250 行内可自然吸收的细节。

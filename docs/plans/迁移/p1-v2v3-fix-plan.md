@@ -50,10 +50,10 @@
 3. **每批修复后 1:N 互审 + archtest/golden 全绿**，方可进入下一批。
 4. **Agent 拉起规范**：通过 `orchestration_launch_agent(provider="codex")`，初始 prompt 必含 `prompts/lsp-mandatory-prefix.md` 与 `prompts/lsp-advanced-guide.md`。
 5. **V2 参考路径冻结**（统一按真实源码路径引用，不再使用旧错链）：
-   - B1：`/Users/mima0000/Desktop/wj/go-agent-v2/internal/runner/manager_lifecycle.go` + `/Users/mima0000/Desktop/wj/go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_rules_core.go`
+   - B1：`/Users/mima0000/Desktop/wj/go-agent-v2/internal/runner/manager_lifecycle.go` + `/Users/mima0000/Desktop/wj/go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_rules_core.go`
    - B2：`/Users/mima0000/Desktop/wj/go-agent-v2/internal/runner/manager_lifecycle.go`
-   - B3：`/Users/mima0000/Desktop/wj/go-agent-v2/pkg/agentsdk/claude/client.go`
-   - B4：`/Users/mima0000/Desktop/wj/go-agent-v2/pkg/agentsdk/codex/client_appserver_transport.go`
+   - B3：`/Users/mima0000/Desktop/wj/go-agent-v2/legacy-agentsdk/claude/client.go`
+   - B4：`/Users/mima0000/Desktop/wj/go-agent-v2/legacy-agentsdk/codex/client_appserver_transport.go`
 6. **golden 测试按业务域分布**，首批样例分散到 `orchestration`、`transport`、`archtest`，不集中堆在 `rpc/`。
 7. **守卫标准**：文件 ≤ 400 行，函数 ≤ 80 行，CC ≤ 10，包非测试文件 ≤ 15。
 
@@ -88,7 +88,7 @@
 
 **V2 参考**：
 - `internal/runner/manager_lifecycle.go`：停机/中断链路会发出终态事件
-- `pkg/agentsdk/service/tracker/turn_tracker_rules_core.go`：区分 `turn_aborted`、`turn_complete`、`idle` 等终态
+- legacy tracker rules：区分 `turn_aborted`、`turn_complete`、`idle` 等终态
 
 **修复方案**：
 1. 在 `cmd/mcp-orch/orchestration/service.go` 的 `registerTurnLifecycle` 中显式订阅 `turndto.TurnInterrupted`。
@@ -121,10 +121,10 @@
 
 **问题**：`restartIfNeededLocked` 实际位于 `internal/provider/claudecli/session.go`，当前只替换 transport/read loop，没有重建 `threadReady/threadReadyOnce`，也没有重新等待新的 ready 信号。
 
-**V2 参考**：`pkg/agentsdk/claude/client.go` 在重启后会重置 ready 通道，并等待 `session_configured` / ready 事件重新建立 session 上下文。
+**V2 参考**：legacy claude client 在重启后会重置 ready 通道，并等待 `session_configured` / ready 事件重新建立 session 上下文。
 
 **修复方案**：
-1. 读取 V2 `pkg/agentsdk/claude/client.go` 的 restart/ready 链路。
+1. 读取 V2 legacy claude client 的 restart/ready 链路。
 2. 在 V3 `internal/provider/claudecli/session.go` 的 `restartIfNeededLocked()` 中：
    - 重建 `threadReady` / `threadReadyOnce`
    - 重建 restart 期间的 turn/session 协调状态
@@ -138,7 +138,7 @@
 
 **问题**：codex 进程管理相关逻辑实际集中在 `internal/provider/codexapp/transport.go`，不是 `driver.go`。当前仍缺 readiness probe、`Setpgid`、stderr collector、orphan cleanup、分阶段 stop。
 
-**V2 参考**：`pkg/agentsdk/codex/client_appserver_transport.go` 提供完整 app-server transport 管理，包括 `Setpgid`、初始化、重连、孤儿清理等。
+**V2 参考**：legacy codex app-server transport 提供完整 transport 管理，包括 `Setpgid`、初始化、重连、孤儿清理等。
 
 **修复方案**：
 1. 以 `internal/provider/codexapp/transport.go` 为主改点，补齐：

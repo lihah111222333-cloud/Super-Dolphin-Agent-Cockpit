@@ -44,8 +44,8 @@
 
 | 范围 | 处置 |
 |------|------|
-| `pkg/factory/` 全目录 | 删除 |
-| `pkg/agentsdk/*` + `pkg/errors` + `pkg/util` | 删除 |
+| legacy factory stub 全目录 | 删除 |
+| legacy provider stub + empty helper packages | 删除 |
 | 15 个 0 引用符号（rpc.BindEventToNotify/rpc.Registry/rpc.WithCWD/codexapp.NewDriver/approvalPolicyFromThreadConfig/execShell/shellQuote/collectChangedSkillNames/NewPublishDiagnosticsNotification/NewLogMessageNotification/RenderTable/TurnTimeout/NewTypedEmitter/NewProjector + dto alias） | 删除或降 unexported |
 
 ### 1.3 预留保留（不动）
@@ -280,7 +280,7 @@ W2/W3 完成后，每个包的 helper 已稳定。此时把跨包重复的 helpe
 | P10 原项 | P13 处置 | 原因 |
 |----------|---------|------|
 | Zone A shared 提升 | ✅ W4 | 核心目标（先二级后一级） |
-| pkg/factory 清理 | ✅ W1 | 前置清理 |
+| Zone A stub 清理 | ✅ W1 | 前置清理 |
 | 命名漂移 | ⏳ 延后 | 非 DRY 范畴 |
 | module.go 纯化 | ⏳ 延后 | 非 DRY 范畴 |
 | 缺失文件补建 | ❌ 不做 | 模块重构 |

@@ -8,7 +8,7 @@
 - 总结论：`❌`
 - `thread/stop`：`❌`
   - 在已读路由表里，V2/V3 都没有裸 `thread/stop`，只有 `thread/realtime/stop`：`go-agent-v2/internal/apiserver/methods_thread_turn.go:72-92`，`internal/module/thread/rpc.go:89-95`
-  - V2 的 `thread/realtime/stop` 只是校验 `threadId` 后返回空结果：`go-agent-v2/internal/apiserver/codexadapter/adapter_lifecycle.go:140-141`，`go-agent-v2/pkg/agentsdk/service/lifecycle/thread_lifecycle_logic.go:161-163,359-368`
+  - V2 的 `thread/realtime/stop` 只是校验 `threadId` 后返回空结果：`go-agent-v2/internal/apiserver/codexadapter/adapter_lifecycle.go:140-141`，`go-agent-v2/legacy-agentsdk/service/lifecycle/thread_lifecycle_logic.go:161-163,359-368`
   - V3 虽然挂了同名路由，但运行时会落到 `SendCommand("realtime/stop") -> /realtime/stop -> unsupported command`：`internal/module/thread/rpc.go:89-95`，`internal/module/thread/command.go:22-45`
 - `thread/delete`：`❌`
   - V2 是“停进程/会话 + 删 archive 目录 + 删 binding + 清 prefs”的 best-effort 删除：`go-agent-v2/internal/apiserver/methods.go:204-227`

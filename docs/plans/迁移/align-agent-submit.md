@@ -6,9 +6,9 @@
 - V2 取证文件：
   - `go-agent-v2/internal/apiserver/methods_orchestration.go`
   - `go-agent-v2/internal/runner/manager_submission.go`
-  - `go-agent-v2/pkg/agentsdk/agentcore/client.go`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_helpers.go`
+  - `go-agent-v2/legacy-agentsdk/agentcore/client.go`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_protocol.go`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_helpers.go`
 - V3 取证文件：
   - `cmd/mcp-orch/orchestration/rpc.go`
   - `cmd/mcp-orch/orchestration/rpc_types.go`
@@ -69,7 +69,7 @@
   - 忙态时排队
 - `go-agent-v2/internal/runner/manager_submission.go:140-205`
   - 空闲时 drain queue，直接调用 submission 的 `dispatch(client)`
-- `go-agent-v2/pkg/agentsdk/agentcore/client.go:7-19`
+- `go-agent-v2/legacy-agentsdk/agentcore/client.go:7-19`
   - client 合约是 `Submit(prompt, images, files []string, outputSchema json.RawMessage) error`
 
 结论：
@@ -81,15 +81,15 @@
 
 ### 1.3 V2 provider 侧真正收到什么
 
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go:214-220`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver_protocol.go:214-220`
   - `Submit(...) -> SubmitWithSkills(...) -> SubmitWithSkillsAndOverrides(...)`
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go:222-249`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver_protocol.go:222-249`
   - 真正 RPC 是 `turn/start`
   - `buildTurnStartInputs(prompt, images, files, skills)` 负责把参数转成 provider `input`
   - `outputSchema` 只有在 `len(outputSchema) > 0` 时才写入 `turn/start`
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver_helpers.go:39-48`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver_helpers.go:39-48`
   - `prompt/images/files/skills` 会被拼成 typed `input`
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver_helpers.go:106-123`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver_helpers.go:106-123`
   - V2 lower layer 的 `skills` 是 `{name, path}` 级别，不只是名字
 
 关键点：

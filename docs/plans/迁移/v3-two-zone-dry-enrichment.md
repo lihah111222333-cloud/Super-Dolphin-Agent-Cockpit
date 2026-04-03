@@ -31,7 +31,7 @@
 - 状态机 builder、graph export、matrix harness。这些属于 `platform/statemachine`。
 - tool schema、availability、family compose。这些属于 `tool/registry`。
 
-`pkg/factory/` 的去向：
+legacy factory stub 层的去向：
 - `handler.go` 被 `platform/rpc` 吸收。
 - `fsm.go` 被 `platform/statemachine` 吸收。
 - `schema.go` 被 `tool/registry` 吸收。
@@ -44,14 +44,14 @@ V2 的 Zone A 不是简单搬目录，而是被框架和平台层重新承接。
 
 | V2 Zone A 项 | V3 承接方式 | 类型 |
 | --- | --- | --- |
-| `pkg/factory/handler.go` | `jrpc2 handler.New` + `handler.Map` + `platform/rpc/middleware.go` | 框架直接替代 |
+| legacy handler stub | `jrpc2 handler.New` + `handler.Map` + `platform/rpc/middleware.go` | 框架直接替代 |
 | `withRequiredThreadID(...)` | typed request `Validate()` + `platform/rpc` validated binder | 框架 + helper |
 | `capabilityGuard(...)` | `platform/rpc` middleware + provider capability error builder | helper |
-| `pkg/factory/fsm.go` | `stateless` + `platform/statemachine/factory.go` | 框架直接替代 |
+| legacy state-machine stub | `stateless` + `platform/statemachine/factory.go` | 框架直接替代 |
 | `effectiveState()` 二次投影 | 单一主状态机 + `uistate`/dashboard 只读 projection | 架构替代 |
 | `SafeGo` / 手写 supervisor | `platform/runner` + `run.Group` | 框架直接替代 |
 | `BaseStore` + 重复 tx 模式 | `sqlc` + `platform/db/tx.go` + `Queries.WithTx` | 框架 + helper |
-| `pkg/factory/schema.go` | `tool/registry/schemas.go` | 平台模块承接 |
+| legacy schema stub | `tool/registry/schemas.go` | 平台模块承接 |
 | 字符串 topic + `map[string]any` bus | `kelindar/event` typed event + `platform/bus` | 框架直接替代 |
 | 零散 nil-guard 构造 | `fx` object graph + `fx.ValidateApp` | 框架直接替代 |
 
@@ -212,4 +212,4 @@ internal/archtest/
 - `internal/platform/shared/` 只能装“最后剩下、且已稳定复用”的纯 helper，不接受预判式抽象。
 - Zone B 的核心不是多文件，而是单模块单真相：一块业务的重复只在自己的包里收敛。
 - MCP 独立服务只复用 Zone A / Zone B 暴露的能力，不占用 `internal/module/*` 的模块席位，也不把 stdio tool transport 带回核心层。
-- `pkg/factory` 在 V3 只能作为过渡遗留，不应成为最终落点。
+- legacy factory stub 层在 V3 只能作为过渡遗留，不应成为最终落点。

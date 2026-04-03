@@ -53,12 +53,12 @@ mcp:
 	go run ./cmd/mcp-server/main.go
 
 # 已知并行争抢的 E2E 包（pipe/WebSocket/gopls 进程资源）：
-#   pkg/agentsdk/claude, pkg/agentsdk/codex, pkg/toolsdk/lsp
+#   internal/provider/claudecli, internal/provider/codexapp, pkg/toolsdk/lsp
 # 先并行跑其余包，再用 -p 1 串行跑这 3 个，避免全仓并行时的 flaky failure。
-DEFERRED_TEST_PKGS := github.com/multi-agent/go-agent-v2/pkg/agentsdk/claude github.com/multi-agent/go-agent-v2/pkg/agentsdk/codex github.com/multi-agent/go-agent-v2/pkg/toolsdk/lsp
+DEFERRED_TEST_PKGS := ./internal/provider/claudecli ./internal/provider/codexapp ./pkg/toolsdk/lsp
 
 test: guard
-	go test $$(go list ./... | grep -v -E '/(agentsdk/claude|agentsdk/codex|toolsdk/lsp)$$') -race -count=1
+	go test $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp|toolsdk/lsp)$$') -race -count=1
 	@echo "\n=== deferred E2E packages (sequential, -p 1) ==="
 	go test $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s
 
@@ -123,7 +123,7 @@ app-cover-report:
 
 ci-l0: guard
 	@echo "[ci-l0] quick gate (no real Claude CLI)"
-	go test ./pkg/agentsdk/claude/... -count=1
+	go test ./internal/provider/claudecli/... -count=1
 	go test ./internal/runner/... -count=1
 	go test ./internal/apiserver/... -count=1
 

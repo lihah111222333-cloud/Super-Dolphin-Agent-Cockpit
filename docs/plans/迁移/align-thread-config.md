@@ -13,7 +13,7 @@
   - `go-agent-v2/internal/apiserver/methods_schema_contract_n_z_test.go`
   - `go-agent-v2/cmd/agent-terminal/app.go`
   - `go-agent-v2/internal/runner/manager_submission.go`
-  - `go-agent-v2/pkg/agentsdk/agentcore/client.go`
+  - `go-agent-v2/legacy-agentsdk/agentcore/client.go`
   - `go-agent-v2/internal/apiserver/codexadapter/adapter_launch_config.go`
 - V3
   - `internal/module/thread/rpc.go`
@@ -121,7 +121,7 @@ V2 这是 live slash command：
   - `go-agent-v2/internal/apiserver/codexadapter/adapter_submit.go:212-214`
   - `go-agent-v2/cmd/agent-terminal/app.go:165-169`
   - `go-agent-v2/internal/runner/manager_submission.go:528-536`
-  - `go-agent-v2/pkg/agentsdk/agentcore/client.go:7-18`
+  - `go-agent-v2/legacy-agentsdk/agentcore/client.go:7-18`
 
 因此 V2 的 `/model` 是直接送进活跃 CLI 会话的。
 

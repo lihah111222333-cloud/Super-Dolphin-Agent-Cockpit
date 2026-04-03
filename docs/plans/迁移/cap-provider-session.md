@@ -5,7 +5,7 @@
 - 仅使用 LSP 路径完成验证：`text_search`、`workspace_symbol`、`references(compact)`、`call_hierarchy`、`read_file`。
 - 审查对象覆盖：
   - V3：`internal/provider/*`、`internal/module/thread/*`、`internal/module/turn/*`、`cmd/mcp-orch/orchestration/*`、`internal/store/*`
-  - V2 对照：`go-agent-v2/internal/runner/*`、`go-agent-v2/internal/apiserver/*`、`go-agent-v2/pkg/agentsdk/*`
+  - V2 对照：`go-agent-v2/internal/runner/*`、`go-agent-v2/internal/apiserver/*`、`go-agent-v2/legacy-agentsdk/*`
 
 ## 总结
 - 当前 provider session 骨架已成型：`thread.Start/Resume -> unified.Client -> Driver -> SessionManager.Register`，`StopAgent/进程退出/fx OnStop` 也能走到 `Remove/CloseAll`。
@@ -186,8 +186,8 @@
 
 ### V2 对照
 - V2 Codex app-server client 有更完整的恢复路径：
-  - `callWithNotInitializedRecovery(...)`：`go-agent-v2/pkg/agentsdk/codex/client_appserver_helpers.go:171-188`
-  - process restart 后会 `Initialize()` + `ResumeThread(...)`：`go-agent-v2/pkg/agentsdk/codex/client_appserver_transport.go:421-516`
+  - `callWithNotInitializedRecovery(...)`：`go-agent-v2/legacy-agentsdk/codex/client_appserver_helpers.go:171-188`
+  - process restart 后会 `Initialize()` + `ResumeThread(...)`：`go-agent-v2/legacy-agentsdk/codex/client_appserver_transport.go:421-516`
 - V3 当前明显弱于 V2。
 
 ## 7. 双 driver 能力差异
@@ -255,7 +255,7 @@
 - Codex 侧能恢复 metadata，但本地 rollout 仍只恢复 `input_image`；源码里还有 TODO：
   - `internal/provider/codexapp/history_rollout.go:101-102`
 - 这一点与 V2 Codex 是同级别，不是 V3 独有退化：
-  - `go-agent-v2/pkg/agentsdk/codex/rollout_reader.go:216-239`
+  - `go-agent-v2/legacy-agentsdk/codex/rollout_reader.go:216-239`
 - 但 V3 有额外风险：Claude fresh start 的 placeholder threadID 未修复，`thread/messages` / `ReadHistory` 很容易把 `agentID` 当 history target。
 
 ## 10. EventDispatcher AgentID 回填
@@ -312,7 +312,7 @@
   - V2 runner 有 app-server -> REST fallback：`go-agent-v2/internal/runner/manager_launch.go:209-250`
   - V3 codex driver 没有第二 transport 形态：`internal/provider/codexapp/driver.go:78-112`
 - Codex recovery 不等价：
-  - V2 restart recovery 会 `Initialize + ResumeThread`：`go-agent-v2/pkg/agentsdk/codex/client_appserver_transport.go:467-502`
+  - V2 restart recovery 会 `Initialize + ResumeThread`：`go-agent-v2/legacy-agentsdk/codex/client_appserver_transport.go:467-502`
   - V3 recovery 只 reconnect transport：`internal/provider/codexapp/session_recovery.go:32-52`
 - Claude session/thread ID repair 不等价：
   - V2 有 `session_configured -> repairBindingOnSessionConfigured(...)`：`go-agent-v2/internal/apiserver/server_event_handler.go:196-295`
@@ -325,7 +325,7 @@
   - 但 RPC 仍暴露这些入口：`internal/module/thread/rpc.go:63-83`
   - V2 这些入口至少有完整 API surface：`go-agent-v2/internal/apiserver/methods_thread_turn.go:33-92`
 - 抽象边界也不同：
-  - V2 `agentcore.Client` 还有 `SendDynamicToolResult` / `RespondError`：`go-agent-v2/pkg/agentsdk/agentcore/client.go:7-20`
+  - V2 `agentcore.Client` 还有 `SendDynamicToolResult` / `RespondError`：`go-agent-v2/legacy-agentsdk/agentcore/client.go:7-20`
   - V3 provider `Session` 没有对应能力；审批被拆到单独桥接：`internal/module/turn/rpc.go:82-94`、`internal/provider/codexapp/session_approval.go:14-91`
 - 同时 V3 也有新增统一能力：
   - `Session.ReadHistory(...)` 是 V3 统一 surface 的新增项：`internal/contract/provider.go:22-37`

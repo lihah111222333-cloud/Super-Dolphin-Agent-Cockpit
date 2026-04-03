@@ -136,7 +136,7 @@
   - `go-agent-v2/internal/apiserver/methods_thread.go:220-351`
   - `go-agent-v2/internal/apiserver/methods_turn.go:30-120`
 - 但 raw slash-command 兼容路径不是只认 `threadId`：
-  - `go-agent-v2/pkg/agentsdk/service/command/slash_command_logic.go:104-120` 同时提取 `threadId`、`threadID`、`thread_id`
+  - `go-agent-v2/legacy-agentsdk/service/command/slash_command_logic.go:104-120` 同时提取 `threadId`、`threadID`、`thread_id`
 - 反例：
   - `go-agent-v2/internal/apiserver/methods_ui_state.go:105-110` 的 `ui/state/get` 也有 `threadId`，但语义是可选筛选，不应被 `ThreadScope` 当成 required middleware。
 

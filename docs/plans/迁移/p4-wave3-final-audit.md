@@ -95,10 +95,10 @@
 - 风险补充：`module/turn` 当前也没有消费这些 turn typed event。tracker 状态主要依赖 [`watchTurn`](/Volumes/bot/super-agent-v3/internal/module/turn/service.go#L125)，未形成“provider translator 发布，turn 消费并更新状态”的闭环。
 
 ### V2 对照
-- 对照 V2 [`turn_prepare_core.go` 前 50 行](/Volumes/bot/super-agent-v3/go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go#L1) 可见输入 guardrail、允许扩展名和大小限制属于核心准备逻辑；对照 [`ParseTurnInputs`](/Volumes/bot/super-agent-v3/go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go#L277) 可见其还负责输入上限裁剪、结构化解析、去重和多输入类型归一化。
+- 对照 V2 [`turn_prepare_core.go` 前 50 行](/Volumes/bot/super-agent-v3/go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go#L1) 可见输入 guardrail、允许扩展名和大小限制属于核心准备逻辑；对照 [`ParseTurnInputs`](/Volumes/bot/super-agent-v3/go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go#L277) 可见其还负责输入上限裁剪、结构化解析、去重和多输入类型归一化。
 - V3 [`PrepareTurn`](/Volumes/bot/super-agent-v3/internal/module/turn/service.go#L36) + [`inputAssembler.Assemble`](/Volumes/bot/super-agent-v3/internal/module/turn/assembler.go#L11) 当前仅覆盖 `prompt/images/files` 的扁平拼装，未覆盖 guardrail、去重、`mention/localimage/filecontent`、attachment 生成等核心行为。
-- 阻断问题：[`autoMatch`](/Volumes/bot/super-agent-v3/internal/module/turn/skills.go#L100) 仍为 `TODO(P5)`，而 V2 [`prepareTurnSubmissionCommon`](/Volumes/bot/super-agent-v3/go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go#L146) 已包含 auto-matched skill 合并流程。
-- 对照 V2 [`turn_interrupt_core.go` 前 50 行](/Volumes/bot/super-agent-v3/go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go#L1) 可见中断 settle timeout 策略和 runtime state hook 是核心语义；对照 V2 [`turnInterrupt`](/Volumes/bot/super-agent-v3/go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go#L215) 可见其会取消运行中的 code runs、发送中断、等待 settle、回读状态并产生完成通知。
+- 阻断问题：[`autoMatch`](/Volumes/bot/super-agent-v3/internal/module/turn/skills.go#L100) 仍为 `TODO(P5)`，而 V2 [`prepareTurnSubmissionCommon`](/Volumes/bot/super-agent-v3/go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go#L146) 已包含 auto-matched skill 合并流程。
+- 对照 V2 [`turn_interrupt_core.go` 前 50 行](/Volumes/bot/super-agent-v3/go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go#L1) 可见中断 settle timeout 策略和 runtime state hook 是核心语义；对照 V2 [`turnInterrupt`](/Volumes/bot/super-agent-v3/go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go#L215) 可见其会取消运行中的 code runs、发送中断、等待 settle、回读状态并产生完成通知。
 - 阻断问题：V3 [`InterruptTurn`](/Volumes/bot/super-agent-v3/internal/module/turn/service.go#L93) 仅调用 `session.Interrupt` 后立即返回，且代码中直接标注 `TODO(P5): settle`，未覆盖 V2 的核心中断流程。
 - 结论：V3 turn service 尚未覆盖 V2 prepare/interrupt 的核心行为面，语义对照不通过。
 

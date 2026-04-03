@@ -101,7 +101,7 @@
 
 - V2 的 `command_list` / `command_get` 是 MCP tool，定义在 `go-agent-v2/pkg/toolsdk/tools/resource_specs.go:120-141`，handler 在 `go-agent-v2/pkg/toolsdk/tools/resource.go:253-284`。
 - V2 中没有名为 `command_create` / `command_card_create` / `command_card_*` 的 MCP tool 定义；底层只有 store CRUD 能力，接口在 `go-agent-v2/pkg/toolsdk/tools/providers.go:178-184`，实现为 `Save` / `Get` / `List` / `SetEnabled` / `Delete`：`go-agent-v2/internal/store/command_card.go:15-75`。
-- `command_run` 也不是 V2 的真实 MCP tool；当前代码里它只出现在 prefix 分组测试中，用来验证 `command_` 前缀归类：`go-agent-v2/pkg/agentsdk/claude/cc_guardrail_test.go:59-77`。
+- `command_run` 也不是 V2 的真实 MCP tool；当前代码里它只出现在 prefix 分组测试中，用来验证 `command_` 前缀归类：`go-agent-v2/legacy-agentsdk/claude/cc_guardrail_test.go:59-77`。
 - V3 中 command card 同样只有 store 层，没有对应 MCP tool；store contract 位于 `internal/store/commandcard/contract.go:10-15`，实现位于 `internal/store/commandcard/store.go:16-86`，而 `cmd/mcp-orch` 仍未接入任何 command tool：`cmd/mcp-orch/fx.go:5-12`。
 
 ### 3.3 Shared File 工具

@@ -55,9 +55,9 @@ NDJSON tool_result                  JSON-RPC response/notification
 
 | 组件 | V2 | V3 |
 |---|---|---|
-| `pkg/agentsdk/codex/` | 3,462 行，独立工具注入链 | **删除独立注入链**，复用统一 MCP 路径 |
-| `pkg/agentsdk/claude/` | 2,637 行，MCP config 生成 | 提取 MCP config 生成到**共享层** |
-| `pkg/agentsdk/provider/` | 不存在 | **新建**：统一 Provider 实现 |
+| legacy Codex provider slice | 3,462 行，独立工具注入链 | **删除独立注入链**，复用统一 MCP 路径 |
+| legacy Claude provider slice | 2,637 行，MCP config 生成 | 提取 MCP config 生成到**共享层** |
+| `internal/provider/unified/` | 不存在 | **新建**：统一 Provider 实现 |
 | `internal/apiserver/codexadapter/` | 3,575 行，Codex 专用 | **合并**到统一 adapter |
 | `internal/apiserver/commonadapter/` | 155 行 | **扩展**为统一 adapter 基座 |
 | `ThreadStart.DynamicTools` | Codex 专用字段 | **移除** |
@@ -70,22 +70,21 @@ NDJSON tool_result                  JSON-RPC response/notification
 ### 3.1 新包结构
 
 ```
-pkg/agentsdk/
-├── provider/              ← 新建：统一 Provider
-│   ├── provider.go        ← UnifiedProvider 核心
-│   ├── mcp_bridge.go      ← MCP config 生成（从 claude 提取）
-│   ├── capabilities.go    ← 合并后的 capability matrix
-│   ├── events.go          ← 统一事件解析
-│   └── transport.go       ← 传输抽象
-├── agentcore/             ← 保留：接口定义
-│   ├── client.go          ← Client 接口（简化）
-│   └── types.go           ← 共享类型
-├── claude/                ← 精简：只保留 Claude-specific 传输
-│   ├── cli_transport.go   ← CLI spawn/connect（精简）
-│   └── cli_events.go      ← stream-json 解析（精简）
-└── codex/                 ← 精简：只保留 Codex-specific 传输
-    ├── appserver.go        ← AppServer connect（精简）
-    └── appserver_events.go ← JSON-RPC 事件解析（精简）
+internal/
+├── contract/              ← Provider/session 合同
+│   └── provider.go        ← Driver / Session / TurnHandle 接口
+└── provider/
+    ├── unified/           ← 统一 registry/session 编排
+    │   ├── client.go      ← 统一 client 入口
+    │   ├── session.go     ← 会话装配
+    │   ├── registry.go    ← driver registry
+    │   └── event_map.go   ← 统一事件翻译
+    ├── claudecli/         ← Claude-specific 传输与 session
+    │   ├── driver.go      ← CLI spawn/connect
+    │   └── transport.go   ← stream transport
+    └── codexapp/          ← Codex-specific 传输与 session
+        ├── driver.go      ← AppServer connect
+        └── transport.go   ← JSON-RPC transport
 ```
 
 ### 3.2 工具注入统一流程
@@ -201,13 +200,13 @@ type ResumeConfig struct {
 
 | 包 | V2 行数 | V3 预估 | 减少 |
 |---|---|---|---|
-| `pkg/agentsdk/claude/` | 2,637 | ~800 | -1,837 |
-| `pkg/agentsdk/codex/` | 3,462 | ~600 | -2,862 |
-| `pkg/agentsdk/provider/` (新) | 0 | ~1,200 | +1,200 |
-| `pkg/agentsdk/agentcore/` | 285 | ~200 | -85 |
+| `internal/provider/claudecli/` | 2,637 | ~800 | -1,837 |
+| `internal/provider/codexapp/` | 3,462 | ~600 | -2,862 |
+| `internal/provider/unified/` (新) | 0 | ~1,200 | +1,200 |
+| `internal/contract/` | 285 | ~200 | -85 |
 | `internal/apiserver/codexadapter/` | 3,575 | ~1,500 | -2,075 |
 | `internal/apiserver/commonadapter/` | 155 | 0 (合并) | -155 |
-| `pkg/agentsdk/service/runtime/` | 1,372 | ~900 | -472 |
+| legacy runtime/service slice | 1,372 | ~900 | -472 |
 | **合计** | **11,486** | **~5,200** | **~-6,286** |
 
 **净减少 ~6,286 行**（比原估计的 3-4K 更多，因为 adapter 层也大幅简化）
@@ -218,25 +217,28 @@ type ResumeConfig struct {
 
 这个决策改变了 P2 的迁移策略：
 
-### 原 P2：分别迁移 runner + agentsdk
+### 原 P2：分别迁移 runner + provider stack
 ### 新 P2：
 
 ```
-P2a: 新建 pkg/agentsdk/provider/（统一 Provider）
-     ├── provider.go         ← 核心逻辑
-     ├── mcp_bridge.go       ← 从 claude/client_cli_transport.go 提取
-     ├── capabilities.go     ← 从 claude/capabilities.go 合并
-     └── events.go           ← 统一事件抽象
+P2a: 收敛 internal/contract/（统一 Provider 合同）
+     └── provider.go         ← Driver / Session / TurnHandle
 
-P2b: 精简 pkg/agentsdk/claude/（只留传输）
-     ├── cli_transport.go    ← 精简 SpawnAndConnect
-     └── cli_events.go       ← 精简 stream-json 解析
+P2b: 收敛 internal/provider/unified/（统一 Provider）
+     ├── client.go           ← 核心逻辑
+     ├── session.go          ← session 装配
+     ├── registry.go         ← driver 注册
+     └── event_map.go        ← 统一事件抽象
 
-P2c: 精简 pkg/agentsdk/codex/（只留传输 + MCP 接入）
-     ├── appserver.go         ← 精简连接，增加 MCP config 支持
-     └── appserver_events.go  ← 精简事件解析
+P2c: 收敛 internal/provider/claudecli/（只留 Claude 传输）
+     ├── driver.go           ← 精简 SpawnAndConnect
+     └── transport.go        ← 精简 stream-json 解析
 
-P2d: 迁移 internal/runner/（使用统一 Provider）
+P2d: 收敛 internal/provider/codexapp/（只留 Codex 传输 + MCP 接入）
+     ├── driver.go           ← 精简连接，增加 MCP config 支持
+     └── transport.go        ← 精简事件解析
+
+P2e: 迁移 internal/runner/（使用统一 Provider）
      └── 不再传递 dynamicTools 参数
 ```
 
@@ -268,4 +270,3 @@ P2d: 迁移 internal/runner/（使用统一 Provider）
 - go-agent 完全掌控
 - 不依赖外部团队排期
 - 代码复用 Claude 的 MCP bridge 逻辑
-

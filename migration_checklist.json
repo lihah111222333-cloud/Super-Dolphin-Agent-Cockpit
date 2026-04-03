@@ -18,16 +18,11 @@
       "name": "基础库",
       "status": "in_progress",
       "packages": [
-        "pkg/factory",
-        "pkg/errors",
-        "pkg/util",
         "pkg/logger"
       ],
-      "v2_source_lines": 1620,
+      "v2_source_lines": 200,
       "v3_target_lines": "≤1200",
-      "guards_to_migrate": [
-        "pkg/toolsdk/tools/lsp_golden_test.go → pkg/factory/schema golden"
-      ]
+      "guards_to_migrate": []
     },
     {
       "id": "P1",
@@ -54,23 +49,27 @@
       "status": "pending",
       "packages": [
         "internal/runner",
-        "pkg/agentsdk"
+        "internal/contract",
+        "internal/provider/unified",
+        "internal/provider/claudecli",
+        "internal/provider/codexapp"
       ],
       "v2_source_lines": 14272,
       "v3_target_lines": "≤7000（收敛后减半）",
       "guards_to_migrate": [
         "internal/runner/manager_contract_test.go (必迁 - 1824行 状态机合同)",
         "internal/runner/state_matrix_guard_test.go (必迁)",
-        "pkg/agentsdk/agentcore/phase1_contract_test.go (必迁 - 接口兼容性)",
-        "pkg/agentsdk/service/runtime/turn_runtime_logic_contract_test.go (必迁)",
-        "claude/injection_chain_test.go → provider/mcp_bridge_test.go (迁移+重写)"
+        "internal/provider/unified/contract_test.go (必迁 - provider 合同)",
+        "internal/provider/unified/client_test.go (必迁)",
+        "internal/provider/unified/manifest_test.go (必迁)"
       ],
       "migration_strategy": "双端收敛为统一 Provider + MCP 工具路径",
       "sub_phases": [
-        "P2a: 新建 pkg/agentsdk/provider/ — 统一 Provider 核心 + MCP bridge",
-        "P2b: 精简 pkg/agentsdk/claude/ — 只保留 CLI 传输层",
-        "P2c: 精简 pkg/agentsdk/codex/ — 只保留 AppServer 传输层 + MCP client",
-        "P2d: 迁移 internal/runner/ — 使用统一 Provider，不再传 dynamicTools"
+        "P2a: 收敛 internal/contract/ — Provider 合同",
+        "P2b: 收敛 internal/provider/unified/ — 统一 session/registry",
+        "P2c: 收敛 internal/provider/claudecli/ — CLI 传输层",
+        "P2d: 收敛 internal/provider/codexapp/ — AppServer 传输层",
+        "P2e: 迁移 internal/runner/ — 使用统一 Provider，不再传 dynamicTools"
       ],
       "deleted_code_paths": [
         "codex/client_appserver_protocol.go → ThreadStart.DynamicTools 字段",
@@ -183,21 +182,11 @@
     "internal/store/store_db_contract_test.go",
     "internal/store/store_constructors_contract_test.go",
     "internal/store/store_helpers_contract_test.go",
-    "pkg/agentsdk/agentcore/phase1_contract_test.go",
-    "pkg/agentsdk/service/runtime/turn_runtime_logic_contract_test.go"
+    "internal/provider/unified/contract_test.go",
+    "internal/provider/unified/client_test.go",
+    "internal/provider/unified/manifest_test.go"
   ],
-  "red_debts_to_fix_during_migration": [
-    {
-      "file": "pkg/agentsdk/claude/client.go",
-      "issue": "680 lines (limit 579)",
-      "migration_action": "拆分为 client.go + client_streaming.go"
-    },
-    {
-      "file": "pkg/agentsdk/service/archive/thread_archive_core.go",
-      "issue": "509 lines (limit 500)",
-      "migration_action": "提取 helper 到 archive_helpers.go"
-    }
-  ],
+  "red_debts_to_fix_during_migration": [],
   "architecture_decisions": [
     {
       "id": "ADR-001",

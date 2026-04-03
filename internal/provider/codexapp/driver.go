@@ -70,10 +70,6 @@ type threadResumeParams struct {
 	Model    string `json:"model,omitempty"`
 }
 
-func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter) contract.Driver {
-	return newDriver(logger, eventDispatcher, approvals, reporter)
-}
-
 func NewDriverFactory(
 	logger *slog.Logger,
 	dispatcher *unified.EventDispatcher,

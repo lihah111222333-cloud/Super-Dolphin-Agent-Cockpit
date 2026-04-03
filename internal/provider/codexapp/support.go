@@ -284,10 +284,6 @@ func resolveApprovalPolicy(cfg map[string]any) string {
 	return "never"
 }
 
-func approvalPolicyFromThreadConfig(cfg dto.ThreadConfig) string {
-	return firstNonEmpty(cfg.Effective.Approvals, cfg.Override.Approvals)
-}
-
 func configJSON(cfg map[string]any, key string) json.RawMessage {
 	if cfg == nil || cfg[key] == nil {
 		return nil

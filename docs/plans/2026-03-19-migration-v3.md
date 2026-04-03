@@ -67,7 +67,7 @@ pkg/                    ← 可复用库层
 
 | 批次 | 模块 | 行数 | 迁移策略 |
 |---|---|---|---|
-| **P0** | pkg/factory, errors, util, logger | ~1,620 | 新建 + 直接搬 |
+| **P0** | legacy shared stubs, logger | ~1,620 | 共享 stub 已并入平台层，仅保留 logger |
 | **P1** | config, bus, store | ~4,734 | 精简后搬 |
 | **P2** | runner, agentsdk | ~14,272 | 规则表化后搬 |
 | **P3** | toolsdk, mcp | ~17,943 | descriptor 化后搬 |

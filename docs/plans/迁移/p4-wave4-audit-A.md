@@ -54,9 +54,9 @@
 ## 8. V2 对照
 
 - 抽读文件：
-- `go-agent-v2/pkg/agentsdk/service/history/thread_history_core.go` 前 50 行
-- `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_core.go` 前 50 行
-- `go-agent-v2/pkg/agentsdk/service/listing/thread_listing_core.go` 前 50 行
+- `go-agent-v2/legacy-agentsdk/service/history/thread_history_core.go` 前 50 行
+- `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_core.go` 前 50 行
+- `go-agent-v2/legacy-agentsdk/service/listing/thread_listing_core.go` 前 50 行
 - `thread_history_core.go` 前 50 行暴露的是 backend/timeout/context 级抽象；符号表继续显示 `ResolveProviderThreadCandidates`、`ThreadExistsInHistory`。V3 当前已覆盖“通过 session 读取历史”这条主链，但未覆盖 V2 的 backend fallback、rollout/artifact 搜索、history existence probe
 - `thread_archive_core.go` 前 50 行暴露的是 archive manifest/file/restore 结构与 restore 依赖；V3 当前 `Archive/Unarchive` 仅更新 thread status + binding archived 标记，不覆盖 manifest/restore/inspect 语义
 - `thread_listing_core.go` 前 50 行暴露的是分页、列表项和 alias 相关结构；符号表继续显示 `BuildThreadList`、`AppendArchivedThreads`、`PersistThreadAlias` 等。V3 当前已覆盖 `List/Get/ListByStatus/ListByCWD/SetName`，但未覆盖 cursor 分页、alias 存储、archive/status 聚合列表

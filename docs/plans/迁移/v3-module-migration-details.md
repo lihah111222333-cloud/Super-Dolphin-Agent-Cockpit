@@ -7,7 +7,7 @@
 >
 > 现状说明：
 > - 当前仓库多数 `internal/module/*`、`internal/platform/*`、`internal/mcpserver/*` 目标目录尚未完全落地。
-> - 当前仓库已存在的 V3 前置骨架主要在 `internal/app`、`internal/bus`、`internal/rpc`、`internal/runner`、`internal/store/module.go`、`pkg/agentsdk/provider`、`pkg/factory`。
+> - 当前仓库已存在的 V3 前置骨架主要在 `internal/app`、`internal/bus`、`internal/rpc`、`internal/runner`、`internal/store/module.go`、`internal/contract`、`internal/provider/unified`、`internal/platform/shared`。
 > - `docs/plans/迁移/v3-migration-plan.md` 中引用的 `stateless-convention.md` / `event-convention.md` 未单独落盘；实际可执行契约位于 `docs/契约/statemachine-event-convention.md`。
 
 ## 内部模块
@@ -20,9 +20,9 @@
 - `go-agent-v2/internal/apiserver/codexadapter/adapter_thread_listing.go`
 - `go-agent-v2/internal/apiserver/codexadapter/thread_messages.go`
 - `go-agent-v2/internal/apiserver/codexadapter/thread_recover.go`
-- `go-agent-v2/pkg/agentsdk/service/listing/thread_listing_core.go`
-- `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_io.go`
-- `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_utils.go`
+- `go-agent-v2/legacy-agentsdk/service/listing/thread_listing_core.go`
+- `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_io.go`
+- `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_utils.go`
 - `go-agent-v2/internal/store/agent_thread.go`
 - `go-agent-v2/internal/store/agent_thread_binding.go`
 - `go-agent-v2/internal/store/agent_provider_binding.go`
@@ -116,9 +116,9 @@
 - `go-agent-v2/internal/apiserver/methods_thread_turn.go`
 - `go-agent-v2/internal/apiserver/codexadapter/adapter_submit.go`
 - `go-agent-v2/internal/apiserver/codexadapter/adapter_deferred_turn_start.go`
-- `go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go`
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_logic.go`
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_adapters.go`
+- `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go`
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_logic.go`
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_adapters.go`
 
 #### V3 目标文件结构
 - `internal/module/turn/module.go`
@@ -1015,14 +1015,14 @@
 ### 16. provider/unified
 
 #### 迁移来源（V2）
-- `go-agent-v2/pkg/agentsdk/claude/*`
-- `go-agent-v2/pkg/agentsdk/codex/*`
-- `go-agent-v2/pkg/agentsdk/agentcore/*`
+- `go-agent-v2/legacy-agentsdk/claude/*`
+- `go-agent-v2/legacy-agentsdk/codex/*`
+- `go-agent-v2/legacy-agentsdk/agentcore/*`
 - `go-agent-v2/internal/apiserver/codexadapter/*`
 - `go-agent-v2/internal/apiserver/commonadapter/*`
-- `go-agent-v2/pkg/agentsdk/service/lifecycle/*`
-- `go-agent-v2/pkg/agentsdk/service/runtime/*`
-- 当前仓库前置骨架：`pkg/agentsdk/provider/provider.go`、`pkg/agentsdk/agentcore/client.go`
+- `go-agent-v2/legacy-agentsdk/service/lifecycle/*`
+- `go-agent-v2/legacy-agentsdk/service/runtime/*`
+- 当前仓库前置骨架：`internal/provider/unified/client.go`、`internal/contract/provider.go`
 
 #### V3 目标文件结构
 - `internal/provider/unified/module.go`
@@ -1081,7 +1081,7 @@
 ### 17. provider/claudecli
 
 #### 迁移来源（V2）
-- `go-agent-v2/pkg/agentsdk/claude/*`
+- `go-agent-v2/legacy-agentsdk/claude/*`
 
 #### V3 目标文件结构
 - `internal/provider/claudecli/module.go`
@@ -1137,7 +1137,7 @@
 ### 18. provider/codexapp
 
 #### 迁移来源（V2）
-- `go-agent-v2/pkg/agentsdk/codex/*`
+- `go-agent-v2/legacy-agentsdk/codex/*`
 - `go-agent-v2/internal/apiserver/codexadapter/*`
 
 #### V3 目标文件结构

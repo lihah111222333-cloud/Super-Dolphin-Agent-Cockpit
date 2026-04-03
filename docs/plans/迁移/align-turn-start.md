@@ -4,13 +4,13 @@
 
 ### V2
 - `go-agent-v2/internal/apiserver/methods_turn.go:24-82`
-- `go-agent-v2/pkg/agentsdk/agentcore/types.go:20-39`
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver_helpers.go:39-124`
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go:218-270`
-- `go-agent-v2/pkg/agentsdk/claude/client.go:283-309`
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:42-169,243-291`
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_operations.go:72-160`
-- `go-agent-v2/pkg/agentsdk/service/lifecycle/thread_lifecycle_logic.go:165-171`
+- `go-agent-v2/legacy-agentsdk/agentcore/types.go:20-39`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver_helpers.go:39-124`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver_protocol.go:218-270`
+- `go-agent-v2/legacy-agentsdk/claude/client.go:283-309`
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:42-169,243-291`
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_operations.go:72-160`
+- `go-agent-v2/legacy-agentsdk/service/lifecycle/thread_lifecycle_logic.go:165-171`
 - `go-agent-v2/internal/apiserver/codexadapter/adapter_submit.go:69-92,152-179,382-418`
 - `go-agent-v2/internal/apiserver/codexadapter/adapter_stall.go:24-50`
 
@@ -55,7 +55,7 @@
 
 V2 的 typed RPC 入口本身不是 `prompt/images/files/skills` 四个平铺字段，而是统一收 `input[]`。但它的 appserver client 会在下游把 `prompt/images/files/skills` 组装成 `input[]`:
 
-- `buildTurnStartInputs(...)` 会把 `prompt` 变成 `text`，`images` 变成 `image/localImage`，`files` 变成 `mention`，`skills` 变成 `skill`，见 `go-agent-v2/pkg/agentsdk/codex/client_appserver_helpers.go:39-124`。
+- `buildTurnStartInputs(...)` 会把 `prompt` 变成 `text`，`images` 变成 `image/localImage`，`files` 变成 `mention`，`skills` 变成 `skill`，见 `go-agent-v2/legacy-agentsdk/codex/client_appserver_helpers.go:39-124`。
 - `turnStartTyped(...)` / `turnSteerTyped(...)` 再把 `input[]` 和 `selectedSkills/manualSkillSelection` 交给 provider adapter，见 `go-agent-v2/internal/apiserver/methods_turn.go:48-82`。
 
 V3 direct RPC 则明显收窄：
@@ -73,9 +73,9 @@ V3 direct RPC 则明显收窄：
 
 V2 的核心在 runtime prepare 层：
 
-- `ParseTurnInputs(...)` 会把 `text/image/localImage/filecontent/mention/skill` 规整成 `Prompt/Images/Files/TimelineAttachments`，见 `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:277-291,303-319`。
-- `prepareTurnSubmissionCommon(...)` 会把 `selectedSkills` 和 `input[]` 里的 `skill` 名称并起来，再注入 selected-skill prompt 与 auto-matched skill prompt，产出最终 `submitPrompt`，见 `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:146-169,243-257`。
-- `manualSkillSelection` 在这段 prepare 代码里其实没有生效，代码直接 `_ = manualSkillSelection`，见 `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:154`。
+- `ParseTurnInputs(...)` 会把 `text/image/localImage/filecontent/mention/skill` 规整成 `Prompt/Images/Files/TimelineAttachments`，见 `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:277-291,303-319`。
+- `prepareTurnSubmissionCommon(...)` 会把 `selectedSkills` 和 `input[]` 里的 `skill` 名称并起来，再注入 selected-skill prompt 与 auto-matched skill prompt，产出最终 `submitPrompt`，见 `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:146-169,243-257`。
+- `manualSkillSelection` 在这段 prepare 代码里其实没有生效，代码直接 `_ = manualSkillSelection`，见 `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:154`。
 
 V3 的 service prepare 层也有 assembler，但边界不同：
 
@@ -108,9 +108,9 @@ V3 则在 `PrepareTurn(...)` 固定构建 manifest：
 
 V2 的 start / steer 最终都走 provider submit：
 
-- `TurnStart(...)` 在 runtime 层 prepare 完后，调用 `StartTurnSubmissionAndTrack(...)`，再经 `SubmitWithSkills(...)` 进入 provider 进程，见 `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_operations.go:72-160`。
-- codex appserver client 会把数据编码回 `turn/start`，见 `go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go:218-270`。
-- claude client 则把附件提示和 skill hints 合并回 prompt，见 `go-agent-v2/pkg/agentsdk/claude/client.go:283-309`。
+- `TurnStart(...)` 在 runtime 层 prepare 完后，调用 `StartTurnSubmissionAndTrack(...)`，再经 `SubmitWithSkills(...)` 进入 provider 进程，见 `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_operations.go:72-160`。
+- codex appserver client 会把数据编码回 `turn/start`，见 `go-agent-v2/legacy-agentsdk/codex/client_appserver_protocol.go:218-270`。
+- claude client 则把附件提示和 skill hints 合并回 prompt，见 `go-agent-v2/legacy-agentsdk/claude/client.go:283-309`。
 
 V3 已有清晰的 session 抽象并落地：
 
@@ -149,9 +149,9 @@ V3 tracker 的起点更靠前：
 V2:
 
 - `turnSteerTyped(...)` 走的是 `TurnSteerFromInputAligned(...)`，见 `go-agent-v2/internal/apiserver/methods_turn.go:74-82`。
-- `ResolveTurnSteerAlignment(...)` 会强制要求 `expectedTurnId` 非空，且必须等于当前 active tracked turn id，见 `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:70-88`。
-- 通过校验后，`TurnSteerFromInput(...)` 会 prepare 出 `submitPrompt/images/files/skills`，再调用 `a.TurnSteer(...)`，见 `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:90-106`、`go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_operations.go:110-125`。
-- `RunTurnSteer(...)` 本质是对当前 provider 进程再做一次 submit，而不是新建 turn，见 `go-agent-v2/pkg/agentsdk/service/lifecycle/thread_lifecycle_logic.go:165-171`。
+- `ResolveTurnSteerAlignment(...)` 会强制要求 `expectedTurnId` 非空，且必须等于当前 active tracked turn id，见 `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:70-88`。
+- 通过校验后，`TurnSteerFromInput(...)` 会 prepare 出 `submitPrompt/images/files/skills`，再调用 `a.TurnSteer(...)`，见 `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:90-106`、`go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_operations.go:110-125`。
+- `RunTurnSteer(...)` 本质是对当前 provider 进程再做一次 submit，而不是新建 turn，见 `go-agent-v2/legacy-agentsdk/service/lifecycle/thread_lifecycle_logic.go:165-171`。
 
 V3:
 
