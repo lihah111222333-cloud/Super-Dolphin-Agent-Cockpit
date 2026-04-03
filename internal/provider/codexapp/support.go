@@ -277,7 +277,9 @@ func resolveApprovalPolicy(cfg map[string]any) string {
 			return value
 		}
 	}
-	return ""
+	// Default to "never" — UI approval flow is not yet wired,
+	// so any other default would block MCP tool calls indefinitely.
+	return "never"
 }
 
 func approvalPolicyFromThreadConfig(cfg dto.ThreadConfig) string {

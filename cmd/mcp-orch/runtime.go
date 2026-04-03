@@ -43,11 +43,9 @@ type runtimeParams struct {
 }
 
 func newLogger(cfg *platformconfig.Config) *slog.Logger {
-	level := pkglogger.LevelInfo
-	if cfg != nil {
-		_ = level.UnmarshalText([]byte(strings.TrimSpace(cfg.LogLevel)))
-	}
-	pkglogger.InitModeWithLevel(pkglogger.Production, level)
+	// MCP stdio transport uses stdout for JSON-RPC messages.
+	// Force all logging to stderr so it does not pollute the MCP channel.
+	pkglogger.InitWithConsoleWriter(os.Stderr)
 	return pkglogger.Get()
 }
 

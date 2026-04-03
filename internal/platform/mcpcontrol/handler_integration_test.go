@@ -177,7 +177,7 @@ func newHookHandlerHarness(t *testing.T) *hookHandlerHarness {
 	var regResp dto.RegisterResponse
 	err = local.Client.CallResult(context.Background(), dto.MethodRegister, dto.RegisterRequest{
 		InstanceID:          "instance-hook",
-		BinaryName:          "go-agent-mcp-orch",
+		BinaryName:          "mcp-orch",
 		AgentID:             "agent-hook",
 		ThreadID:            "thread-hook",
 		ClientKind:          dto.ClientKindOrch,

@@ -70,7 +70,7 @@ func TestHookPendingHandler_UsesCurrentInstanceAgentID(t *testing.T) {
 
 	registerHookTestClient(t, local, dto.RegisterRequest{
 		InstanceID: "instance-hook",
-		BinaryName: "go-agent-mcp-orch",
+		BinaryName: "mcp-orch",
 		AgentID:    "agent-hook",
 		PID:        42,
 		ClientKind: dto.ClientKindOrch,
@@ -103,7 +103,7 @@ func TestHookPendingHandler_SharedServiceUsesRequestedAgentID(t *testing.T) {
 
 	registerHookTestClient(t, local, dto.RegisterRequest{
 		InstanceID: "instance-shared",
-		BinaryName: "go-agent-mcp-orch",
+		BinaryName: "mcp-orch",
 		PID:        42,
 		ClientKind: dto.ClientKindOrch,
 	})
@@ -131,7 +131,7 @@ func TestHookPendingHandler_SharedServiceRequiresAgentID(t *testing.T) {
 
 	registerHookTestClient(t, local, dto.RegisterRequest{
 		InstanceID: "instance-shared",
-		BinaryName: "go-agent-mcp-orch",
+		BinaryName: "mcp-orch",
 		PID:        42,
 		ClientKind: dto.ClientKindOrch,
 	})
@@ -163,7 +163,7 @@ func TestHookPendingHandler_RejectsMismatchedRequestedAgentID(t *testing.T) {
 
 	registerHookTestClient(t, local, dto.RegisterRequest{
 		InstanceID: "instance-main",
-		BinaryName: "go-agent-mcp-orch",
+		BinaryName: "mcp-orch",
 		AgentID:    "agent-main",
 		PID:        42,
 		ClientKind: dto.ClientKindOrch,
@@ -198,7 +198,7 @@ func TestHookResolveHandler_MapsPermissionDeniedToAuthFailed(t *testing.T) {
 
 	registerHookTestClient(t, local, dto.RegisterRequest{
 		InstanceID: "instance-resolve",
-		BinaryName: "go-agent-mcp-orch",
+		BinaryName: "mcp-orch",
 		AgentID:    "agent-resolve",
 		PID:        7,
 		ClientKind: dto.ClientKindOrch,

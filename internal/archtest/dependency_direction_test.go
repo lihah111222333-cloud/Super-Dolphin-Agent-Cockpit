@@ -19,8 +19,10 @@ import (
 const modulePath = "github.com/anthropic-ai/super-agent-v3"
 
 var providerAllowedExternal = map[string]bool{
+	"github.com/BurntSushi/toml":   true,
 	"github.com/gorilla/websocket": true,
 	"github.com/kelindar/event":    true,
+	"go.uber.org/fx":               true,
 	"golang.org/x/net":             true,
 }
 

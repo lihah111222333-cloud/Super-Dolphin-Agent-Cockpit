@@ -72,7 +72,7 @@ func newRegisteredLocalRegistry(t *testing.T, extra handler.Map, req dto.Registe
 		req.InstanceID = "instance-1"
 	}
 	if req.BinaryName == "" {
-		req.BinaryName = "go-agent-mcp-orch"
+		req.BinaryName = "mcp-orch"
 	}
 	if req.ClientKind == "" {
 		req.ClientKind = dto.ClientKindOrch
@@ -123,7 +123,7 @@ func TestToolRegistry_Register_And_GetInstance(t *testing.T) {
 
 	env := newRegisteredLocalRegistry(t, nil, dto.RegisterRequest{
 		InstanceID:          "instance-get",
-		BinaryName:          "go-agent-mcp-orch",
+		BinaryName:          "mcp-orch",
 		AgentID:             "agent-get",
 		ThreadID:            "thread-get",
 		ClientKind:          dto.ClientKindOrch,

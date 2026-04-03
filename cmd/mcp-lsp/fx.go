@@ -35,6 +35,10 @@ type registryToolProvider struct {
 // run boots the MCP binary itself. The core process only exposes ctl/* endpoints
 // and manifest metadata; external executors decide when and how this binary starts.
 func run() error {
+	// MCP stdio transport uses stdout for JSON-RPC messages.
+	// Force all logging to stderr so it does not pollute the MCP channel.
+	pkglogger.InitWithConsoleWriter(os.Stderr)
+
 	app := fx.New(
 		fx.NopLogger,
 		fx.Provide(

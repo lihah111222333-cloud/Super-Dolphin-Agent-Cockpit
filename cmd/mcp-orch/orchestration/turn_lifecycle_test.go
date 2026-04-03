@@ -24,7 +24,7 @@ func (l *stubLifecycle) Append(hook fx.Hook) {
 func TestHandleTurnCompletedEventForcesIdleWhenActiveTurnMissing(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "thread-1"
@@ -46,7 +46,7 @@ func TestHandleTurnCompletedEventForcesIdleWhenActiveTurnMissing(t *testing.T) {
 func TestForceIdleAfterCompletionErrorKeepsDifferentActiveTurn(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
 	agent.activeTurnID = "turn-active"
@@ -79,7 +79,7 @@ func TestRegisterTurnLifecycleHandlesTurnInterrupted(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 
-	svc := NewService(silentLogger(), dispatcher, nil, nil, nil)
+	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
 	startTurnLifecycle(t, dispatcher, svc)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
@@ -108,7 +108,7 @@ func TestHandleTurnInterruptedEventIsIdempotent(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 
-	svc := NewService(silentLogger(), dispatcher, nil, nil, nil)
+	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
 	startTurnLifecycle(t, dispatcher, svc)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
@@ -140,7 +140,7 @@ func TestHandleTurnCompletedEventConvergesAfterInterrupt(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 
-	svc := NewService(silentLogger(), dispatcher, nil, nil, nil)
+	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
 	startTurnLifecycle(t, dispatcher, svc)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning

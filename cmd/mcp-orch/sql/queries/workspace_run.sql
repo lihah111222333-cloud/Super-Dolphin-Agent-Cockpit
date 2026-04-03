@@ -2,7 +2,7 @@
 INSERT INTO workspace_runs (
     run_key, dag_key, source_root, workspace_path, status,
     created_by, updated_by, metadata, updated_at, finished_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW(), $9)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::jsonb, '{}'::jsonb), NOW(), $9)
 ON CONFLICT (run_key) DO UPDATE
 SET dag_key = EXCLUDED.dag_key,
     source_root = EXCLUDED.source_root,
@@ -31,7 +31,7 @@ LIMIT $3;
 UPDATE workspace_runs
 SET status = $1,
     updated_by = $2,
-    metadata = $3::jsonb,
+    metadata = COALESCE($3::jsonb, '{}'::jsonb),
     updated_at = NOW(),
     finished_at = CASE
         WHEN $1 IN ('merged', 'aborted', 'failed') THEN NOW()
@@ -45,7 +45,7 @@ RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by,
 UPDATE workspace_runs
 SET status = $1,
     updated_by = $2,
-    metadata = $3::jsonb,
+    metadata = COALESCE($3::jsonb, '{}'::jsonb),
     updated_at = NOW(),
     finished_at = CASE
         WHEN $1 IN ('merged', 'aborted', 'failed') THEN NOW()

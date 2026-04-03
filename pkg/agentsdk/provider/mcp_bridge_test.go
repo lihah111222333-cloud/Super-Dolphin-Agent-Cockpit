@@ -18,7 +18,7 @@ func TestGenerateConfig_DoesNotInjectAgentIDEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			bridge := &MCPBridge{
 				AgentID:       tt.agentID,
-				ServerCommand: "/tmp/go-agent-mcp-server",
+				ServerCommand: "/tmp/mcp-server",
 				APIServerURL:  "http://127.0.0.1:8080",
 				ToolNames:     []string{"tool.alpha"},
 				ToolsJSON:     `{"tools":[]}`,

@@ -40,8 +40,8 @@ command = "/usr/local/bin/custom"
 	}
 
 	text := readCodexMCPTestFile(t, path)
-	if !strings.Contains(text, `[mcp_servers.go-agent-mcp-lsp.env]`) {
-		t.Fatalf("config = %s, want env subtable for go-agent-mcp-lsp", text)
+	if !strings.Contains(text, `[mcp_servers.mcp-lsp.env]`) {
+		t.Fatalf("config = %s, want env subtable for mcp-lsp", text)
 	}
 
 	doc := readCodexMCPTestDoc(t, path)
@@ -50,9 +50,9 @@ command = "/usr/local/bin/custom"
 	if custom["command"] != "/usr/local/bin/custom" {
 		t.Fatalf("custom server = %#v, want preserved command", custom)
 	}
-	lsp := mustCodexMCPServer(t, servers, "go-agent-mcp-lsp")
-	if lsp["command"] != "/tmp/bin/go-agent-mcp-lsp" {
-		t.Fatalf("lsp.command = %#v, want /tmp/bin/go-agent-mcp-lsp", lsp["command"])
+	lsp := mustCodexMCPServer(t, servers, "mcp-lsp")
+	if lsp["command"] != "/tmp/bin/mcp-lsp" {
+		t.Fatalf("lsp.command = %#v, want /tmp/bin/mcp-lsp", lsp["command"])
 	}
 	if lsp["type"] != "stdio" {
 		t.Fatalf("lsp.type = %#v, want stdio", lsp["type"])
@@ -121,8 +121,8 @@ func TestWriteCodexMCPConfig_PreservesUserKeysAndUsesEnvTable(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "config.toml")
 	initial := strings.TrimSpace(`
-[mcp_servers.go-agent-mcp-lsp]
-command = "/custom/bin/go-agent-mcp-lsp"
+[mcp_servers.mcp-lsp]
+command = "/custom/bin/mcp-lsp"
 startup_timeout_sec = 30
 `) + "\n"
 	if err := os.WriteFile(path, []byte(initial), 0o600); err != nil {
@@ -141,12 +141,12 @@ startup_timeout_sec = 30
 	if !strings.Contains(text, `type = "stdio"`) {
 		t.Fatalf("config = %s, want explicit stdio type", text)
 	}
-	if !strings.Contains(text, `[mcp_servers.go-agent-mcp-lsp.env]`) {
+	if !strings.Contains(text, `[mcp_servers.mcp-lsp.env]`) {
 		t.Fatalf("config = %s, want env subtable", text)
 	}
 
 	doc := readCodexMCPTestDoc(t, path)
-	lsp := mustCodexMCPServer(t, mustCodexMCPServers(t, doc), "go-agent-mcp-lsp")
+	lsp := mustCodexMCPServer(t, mustCodexMCPServers(t, doc), "mcp-lsp")
 	if lsp["startup_timeout_sec"] != int64(30) {
 		t.Fatalf("lsp.startup_timeout_sec = %#v, want 30", lsp["startup_timeout_sec"])
 	}
@@ -162,10 +162,10 @@ startup_timeout_sec = 30
 func TestMCPReadyWatcher_FailedStatus(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"go-agent-mcp-lsp"})
-	w.OnStartupStatus("go-agent-mcp-lsp", "failed")
+	w := newMCPReadyWatcher([]string{"mcp-lsp"})
+	w.OnStartupStatus("mcp-lsp", "failed")
 	err := w.Wait(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "go-agent-mcp-lsp") || !strings.Contains(err.Error(), "failed") {
+	if err == nil || !strings.Contains(err.Error(), "mcp-lsp") || !strings.Contains(err.Error(), "failed") {
 		t.Fatalf("Wait() error = %v, want failed status for tracked server", err)
 	}
 }
@@ -173,11 +173,11 @@ func TestMCPReadyWatcher_FailedStatus(t *testing.T) {
 func TestMCPReadyWatcher_Timeout(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"go-agent-mcp-lsp", "go-agent-mcp-orch"})
+	w := newMCPReadyWatcher([]string{"mcp-lsp", "mcp-orch"})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 	err := w.Wait(ctx)
-	if err == nil || !strings.Contains(err.Error(), "mcp ready timeout after waiting for servers [go-agent-mcp-lsp go-agent-mcp-orch]") {
+	if err == nil || !strings.Contains(err.Error(), "mcp ready timeout after waiting for servers [mcp-lsp mcp-orch]") {
 		t.Fatalf("Wait() error = %v, want timeout with pending server list", err)
 	}
 }
@@ -224,10 +224,10 @@ func TestInjectCodexMCPServers_SkipsEmptyManifest(t *testing.T) {
 func TestMCPReadyWatcher_CancelledStatus(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"go-agent-mcp-lsp"})
-	w.OnStartupStatus("go-agent-mcp-lsp", "cancelled")
+	w := newMCPReadyWatcher([]string{"mcp-lsp"})
+	w.OnStartupStatus("mcp-lsp", "cancelled")
 	err := w.Wait(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "go-agent-mcp-lsp") || !strings.Contains(err.Error(), "cancelled") {
+	if err == nil || !strings.Contains(err.Error(), "mcp-lsp") || !strings.Contains(err.Error(), "cancelled") {
 		t.Fatalf("Wait() error = %v, want cancelled status for tracked server", err)
 	}
 }
@@ -235,12 +235,12 @@ func TestMCPReadyWatcher_CancelledStatus(t *testing.T) {
 func TestMCPReadyWatcher_MultiServerAllReady(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"go-agent-mcp-lsp", "go-agent-mcp-orch"})
-	w.OnStartupStatus("go-agent-mcp-orch", "ready")
-	if pending := w.pendingNames(); !reflect.DeepEqual(pending, []string{"go-agent-mcp-lsp"}) {
+	w := newMCPReadyWatcher([]string{"mcp-lsp", "mcp-orch"})
+	w.OnStartupStatus("mcp-orch", "ready")
+	if pending := w.pendingNames(); !reflect.DeepEqual(pending, []string{"mcp-lsp"}) {
 		t.Fatalf("pendingNames() after first ready = %#v, want remaining tracked server", pending)
 	}
-	w.OnStartupStatus("go-agent-mcp-lsp", "ready")
+	w.OnStartupStatus("mcp-lsp", "ready")
 	if pending := w.pendingNames(); len(pending) != 0 {
 		t.Fatalf("pendingNames() after all ready = %#v, want none", pending)
 	}
@@ -252,9 +252,9 @@ func TestMCPReadyWatcher_MultiServerAllReady(t *testing.T) {
 func TestMCPReadyWatcher_DuplicateReady(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"go-agent-mcp-lsp"})
-	w.OnStartupStatus("go-agent-mcp-lsp", "ready")
-	w.OnStartupStatus("go-agent-mcp-lsp", "ready")
+	w := newMCPReadyWatcher([]string{"mcp-lsp"})
+	w.OnStartupStatus("mcp-lsp", "ready")
+	w.OnStartupStatus("mcp-lsp", "ready")
 	if pending := w.pendingNames(); len(pending) != 0 {
 		t.Fatalf("pendingNames() = %#v, want none after duplicate ready", pending)
 	}
@@ -266,9 +266,9 @@ func TestMCPReadyWatcher_DuplicateReady(t *testing.T) {
 func TestMCPReadyWatcher_UnknownServer(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"go-agent-mcp-lsp"})
-	w.OnStartupStatus("go-agent-mcp-orch", "ready")
-	if pending := w.pendingNames(); !reflect.DeepEqual(pending, []string{"go-agent-mcp-lsp"}) {
+	w := newMCPReadyWatcher([]string{"mcp-lsp"})
+	w.OnStartupStatus("mcp-orch", "ready")
+	if pending := w.pendingNames(); !reflect.DeepEqual(pending, []string{"mcp-lsp"}) {
 		t.Fatalf("pendingNames() = %#v, want tracked server unchanged", pending)
 	}
 }

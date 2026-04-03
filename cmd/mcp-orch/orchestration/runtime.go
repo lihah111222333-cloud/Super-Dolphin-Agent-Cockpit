@@ -53,6 +53,10 @@ func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error
 func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSnapshot {
 	port, portSource := snapshotPort(agent)
 	provider, providerSource := snapshotProvider(agent)
+	threadID := strings.TrimSpace(agent.threadID)
+	if remoteThreadID := strings.TrimSpace(agent.remoteThreadID); remoteThreadID != "" {
+		threadID = remoteThreadID
+	}
 	return AgentSnapshot{
 		ID:             agent.id,
 		Name:           agent.name,
@@ -60,7 +64,7 @@ func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSn
 		Port:           port,
 		PortSource:     portSource,
 		PID:            processPID(agent.cmd),
-		ThreadID:       agent.threadID,
+		ThreadID:       threadID,
 		ActiveTurnID:   agent.activeTurnID,
 		Cwd:            agent.cwd,
 		State:          agent.state,
@@ -141,6 +145,8 @@ func resetRuntimeStateLocked(agent *agentRuntime) {
 	}
 	agent.runtimePort = 0
 	agent.runtimeProvider = ""
+	agent.remoteThreadID = ""
+	agent.remoteAgentID = ""
 }
 
 func snapshotPort(agent *agentRuntime) (int, string) {

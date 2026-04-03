@@ -14,7 +14,7 @@ func ResolveBinaryDir(cwd string, cfg map[string]any) string {
 	if exe, err := os.Executable(); err == nil {
 		return filepath.Dir(exe)
 	}
-	if bin, err := exec.LookPath("go-agent-mcp-lsp"); err == nil {
+	if bin, err := exec.LookPath("mcp-lsp"); err == nil {
 		return filepath.Dir(bin)
 	}
 	return strings.TrimSpace(cwd)

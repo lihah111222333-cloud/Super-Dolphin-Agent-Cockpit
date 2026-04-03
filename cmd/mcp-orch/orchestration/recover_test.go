@@ -18,7 +18,7 @@ import (
 func TestRecoverReplaysStoreBackedActiveTurnAheadOfQueuedWork(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.recoveryStore = stubRecoveryTurnStore{
 		nodes: []taskdag.Node{{
 			DagKey:         "dag-1",
@@ -93,7 +93,7 @@ func TestRecoverPublishesTurnResumedForRecoveredTurn(t *testing.T) {
 	t.Parallel()
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
-	svc := NewService(silentLogger(), dispatcher, nil, nil, nil)
+	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
 	svc.recoveryStore = replayableRecoveryTurnStore()
 	resumedEvents := make(chan turndto.TurnResumed, 1)
 	cancel := event.Subscribe(dispatcher, func(ev turndto.TurnResumed) {
@@ -135,7 +135,7 @@ func TestRecoverWithoutActiveTurnDoesNotPublishTurnResumed(t *testing.T) {
 
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
-	svc := NewService(silentLogger(), dispatcher, nil, nil, nil)
+	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
 	resumedEvents := make(chan turndto.TurnResumed, 1)
 	cancel := event.Subscribe(dispatcher, func(ev turndto.TurnResumed) { resumedEvents <- ev })
 	t.Cleanup(cancel)
@@ -166,7 +166,7 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 
-	svc := NewService(silentLogger(), dispatcher, nil, nil, nil)
+	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
 	svc.recoveryStore = replayableRecoveryTurnStore()
 	stalledEvents := make(chan turndto.TurnStalled, 1)
 	resumedEvents := make(chan turndto.TurnResumed, 1)
@@ -233,7 +233,7 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 func TestLoadRecoveredTurnSubmissionSkipsReclaimedWakeup(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.recoveryStore = stubRecoveryTurnStore{
 		nodes: []taskdag.Node{{
 			DagKey:         "dag-1",
@@ -268,7 +268,7 @@ func TestLoadRecoveredTurnSubmissionSkipsReclaimedWakeup(t *testing.T) {
 func TestFireOrForceLockedIncludesContextForIllegalTransition(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateIdle
 
@@ -293,7 +293,7 @@ func TestFireOrForceLockedIncludesContextForIllegalTransition(t *testing.T) {
 func TestFireOrForceLockedIncludesContextWhenStateMachineMissing(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	agent := &agentRuntime{id: "agent-1", state: agentdto.StateIdle}
 
 	err := svc.fireOrForceLocked(context.Background(), agent, agentdto.TriggerTurnAccepted)

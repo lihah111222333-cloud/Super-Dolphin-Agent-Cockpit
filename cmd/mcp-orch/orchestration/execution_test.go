@@ -20,7 +20,7 @@ func TestClaimTurnWorkStartsQueuedSubmission(t *testing.T) {
 	t.Parallel()
 
 	starter := &stubTurnStarter{returnTurnID: "thread-1-turn-1"}
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, starter, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, starter, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateIdle
@@ -59,7 +59,7 @@ func TestSubmitTurnWaitsForSessionReadyWhenIdle(t *testing.T) {
 	t.Parallel()
 
 	starter := &stubTurnStarter{}
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, starter, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, starter, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateIdle
@@ -87,7 +87,7 @@ func TestSubmitTurnReturnsSessionWaitError(t *testing.T) {
 
 	want := errors.New("agent session not ready, ensure agent.launch completed")
 	starter := &stubTurnStarter{waitErr: want}
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, starter, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, starter, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateIdle
@@ -106,7 +106,7 @@ func TestSubmitTurnSkipsSessionWaitWhenBusy(t *testing.T) {
 	t.Parallel()
 
 	starter := &stubTurnStarter{}
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, starter, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, starter, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateTurnRunning
@@ -128,7 +128,7 @@ func TestStartTurnExecutionWaitsForSessionReadyAfterBusySubmit(t *testing.T) {
 	t.Parallel()
 
 	starter := &stubTurnStarter{}
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, starter, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, starter, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateTurnRunning
@@ -176,7 +176,7 @@ func TestStartTurnExecutionReturnsSessionWaitErrorAfterSubmitWait(t *testing.T) 
 			return nil
 		},
 	}
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, starter, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, starter, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{}
 	agent.state = agentdto.StateIdle

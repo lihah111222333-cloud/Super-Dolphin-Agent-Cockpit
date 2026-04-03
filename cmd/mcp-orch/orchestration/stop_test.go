@@ -37,7 +37,7 @@ func TestStopAgentPublishesStoppedAfterObservedExit(t *testing.T) {
 	defer cancel()
 
 	cleaner := &stopTestSessionCleaner{}
-	svc := NewService(silentLogger(), dispatcher, cleaner, nil, nil)
+	svc := NewService(silentLogger(), dispatcher, nil, cleaner, nil, nil)
 	cmd := exec.Command("sh", "-c", "sleep 30")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
@@ -107,7 +107,7 @@ func TestStopAllAgentsPublishesShutdownAfterObservedExit(t *testing.T) {
 	defer cancel()
 
 	cleaner := &stopTestSessionCleaner{}
-	svc := NewService(silentLogger(), dispatcher, cleaner, nil, nil)
+	svc := NewService(silentLogger(), dispatcher, nil, cleaner, nil, nil)
 	cmd := exec.Command("sh", "-c", "sleep 30")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
@@ -155,7 +155,7 @@ func TestStopAllAgentsPublishesShutdownAfterObservedExit(t *testing.T) {
 func TestStopAllAgentsReturnsAfterWaitTimeout(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.processExitWaitTimeout = 25 * time.Millisecond
 	cmd := exec.Command("sh", "-c", "sleep 30")
 	if err := cmd.Start(); err != nil {
@@ -185,7 +185,7 @@ func TestStopAllAgentsReturnsAfterWaitTimeout(t *testing.T) {
 func TestWaitForProcessExitReturnsErrorWhenForceKillFails(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.processExitWaitTimeout = 25 * time.Millisecond
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = &exec.Cmd{Process: &os.Process{Pid: -1}}
@@ -210,7 +210,7 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 	defer cancelSubscription()
 
 	cleaner := &stopTestSessionCleaner{}
-	svc := NewService(silentLogger(), dispatcher, cleaner, nil, nil)
+	svc := NewService(silentLogger(), dispatcher, nil, cleaner, nil, nil)
 	cmd := exec.Command("sh", "-c", "sleep 30")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
@@ -269,7 +269,7 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 func TestRequestAgentStopKeepsOriginalReasonOnRepeat(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), nil, nil, nil, nil)
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateIdle
 	svc.agents[agent.id] = agent
@@ -292,7 +292,7 @@ func TestRemoveSessionGenerationAwareCleanerDoesNotFallbackToCurrent(t *testing.
 	t.Parallel()
 
 	cleaner := &stopTestSessionCleaner{}
-	svc := NewService(silentLogger(), nil, cleaner, nil, nil)
+	svc := NewService(silentLogger(), nil, nil, cleaner, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.sessionGeneration = 11
 
@@ -310,7 +310,7 @@ func TestRemoveSessionGenerationAwareCleanerDoesNotFallbackToCurrent(t *testing.
 func TestHandleProcessExitClearsRuntimeState(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(nil, nil, nil, nil, nil)
+	svc := NewService(nil, nil, nil, nil, nil, nil)
 	agent := runtimeTestAgent()
 	agent.state = agentdto.StateStopping
 	agent.stopRequested = true

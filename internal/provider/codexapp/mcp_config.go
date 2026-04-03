@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	managedMCPPrefix     = "go-agent-mcp-"
+	managedMCPPrefix     = "mcp-"
 	codexConfigFilePerm  = 0o600
 	codexConfigServerKey = "mcp_servers"
 )
