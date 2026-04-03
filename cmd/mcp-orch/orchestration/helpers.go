@@ -172,9 +172,7 @@ func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime, reas
 	}
 	agent.stopRequested = true
 	setStopReasonIfEmpty(agent, reason)
-	agent.queue.Clear()
-	agent.activeTurnID = ""
-	agent.threadID = ""
+	cleanupAgentState(agent)
 	return stopProcess(agent.cmd)
 }
 
@@ -253,15 +251,11 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 		return err
 	}
 	now := resolveEventTime(ctx, agent.updatedAt)
+	resetLaunchState(agent)
 	agent.cmd = cmd
 	agent.launchSeq++
-	agent.monitoredSeq = 0
-	agent.stopRequested = false
-	agent.activeTurnID = ""
-	agent.threadID = ""
 	agent.startedAt = now
 	agent.updatedAt = now
-	agent.exitedAt = nil
 	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerLaunchSucceeded); err != nil {
 		agent.lastError = err.Error()
 		_ = stopProcess(cmd)

@@ -187,9 +187,7 @@ func (s *session) sendApprovalDecision(requestID int64, decision contract.Approv
 	} else if reason := strings.TrimSpace(decision.Reason); reason != "" {
 		params["decision"] = reason
 	}
-	callCtx, cancel := withTimeout(s.ctx, 10*time.Second)
-	defer cancel()
-	_, err := s.callTransport(callCtx, "approval/respond", params)
+	_, err := callWithTimeout(s.ctx, callTargetFunc(s.callTransport), 10*time.Second, "approval/respond", params)
 	return err
 }
 

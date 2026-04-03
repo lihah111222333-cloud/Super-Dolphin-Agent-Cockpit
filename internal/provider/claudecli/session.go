@@ -128,10 +128,7 @@ func (s *session) RuntimeConfigSnapshot() map[string]any {
 }
 
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
+	if err := checkCtx(ctx); err != nil {
 		return nil, err
 	}
 	payload, turnID, handle, err := s.prepareTurn(ctx, req)
@@ -156,10 +153,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 }
 
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
+	if err := checkCtx(ctx); err != nil {
 		return err
 	}
 	payload, err := buildSteerPayload(req)
@@ -178,10 +172,7 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 }
 
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
+	if err := checkCtx(ctx); err != nil {
 		return err
 	}
 	if err := s.transport.signalProcess(syscall.SIGINT); err != nil {

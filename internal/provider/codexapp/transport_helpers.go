@@ -115,7 +115,7 @@ func (t *transport) initialize(ctx context.Context) error {
 }
 
 func (t *transport) initializeSocket(ctx context.Context) (*websocket.Conn, error) {
-	if err := ctx.Err(); err != nil {
+	if err := checkCtx(ctx); err != nil {
 		return nil, err
 	}
 	ws := t.currentWS()
@@ -148,7 +148,7 @@ func (t *transport) awaitInitialize(ctx context.Context, ws *websocket.Conn, pc 
 		if done, err := initializeDone(pc); done {
 			return err
 		}
-		if err := ctx.Err(); err != nil {
+		if err := checkCtx(ctx); err != nil {
 			return err
 		}
 		if err := t.readInitializeMessage(ctx, ws); err != nil {
@@ -207,7 +207,7 @@ func (t *transport) endReadLoop(ctx context.Context, handler func(string, json.R
 	if err != nil {
 		t.failPending(err)
 	}
-	if handler != nil && !t.closed.Load() && ctx.Err() == nil {
+	if handler != nil && !t.closed.Load() && checkCtx(ctx) == nil {
 		handler("connection.dead", mustJSON(map[string]any{"error": message}))
 	}
 	return false

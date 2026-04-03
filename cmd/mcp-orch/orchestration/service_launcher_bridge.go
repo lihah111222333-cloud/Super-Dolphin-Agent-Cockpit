@@ -162,9 +162,7 @@ func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason strin
 	}
 	agent.stopRequested = true
 	setStopReasonIfEmpty(agent, reason)
-	agent.queue.Clear()
-	agent.activeTurnID = ""
-	agent.threadID = ""
+	cleanupAgentState(agent)
 	launchSeq := agent.launchSeq
 	s.mu.Unlock()
 	return agent, launchSeq, nil
@@ -287,10 +285,8 @@ func adoptLaunchStateLocked(dst, src *agentRuntime) {
 	if dst == nil || src == nil {
 		return
 	}
+	resetLaunchState(dst)
 	dst.cmd = src.cmd
-	dst.monitoredSeq = src.monitoredSeq
-	dst.stopRequested = src.stopRequested
-	dst.activeTurnID = src.activeTurnID
 	dst.threadID = src.threadID
 	dst.remoteThreadID = src.remoteThreadID
 	dst.remoteAgentID = src.remoteAgentID

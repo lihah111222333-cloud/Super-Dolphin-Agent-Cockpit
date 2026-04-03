@@ -164,7 +164,10 @@ func (t *transport) connect(ctx context.Context) error {
 }
 
 func (t *transport) readLoopStep(ctx context.Context, handler func(string, json.RawMessage)) bool {
-	if ctx.Err() != nil || t.closed.Load() {
+	if err := checkCtx(ctx); err != nil {
+		return false
+	}
+	if t.closed.Load() {
 		return false
 	}
 	ws := t.currentWS()

@@ -53,15 +53,11 @@ func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ Launc
 		return LaunchResult{}, err
 	}
 	now := resolveEventTime(ctx, agent.updatedAt)
+	resetLaunchState(agent)
 	agent.cmd = cmd
 	agent.launchSeq++
-	agent.monitoredSeq = 0
-	agent.stopRequested = false
-	agent.activeTurnID = ""
-	agent.threadID = ""
 	agent.startedAt = now
 	agent.updatedAt = now
-	agent.exitedAt = nil
 	if l != nil && l.logger != nil {
 		l.logger.Info("orchestration: agent launched", "agent_id", agent.id, "pid", cmd.Process.Pid)
 	}
@@ -159,16 +155,13 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		return LaunchResult{}, errors.New("remote launcher: empty thread id")
 	}
 	now := resolveEventTime(ctx, agent.updatedAt)
+	resetLaunchState(agent)
 	agent.launchSeq++
-	agent.monitoredSeq = 0
-	agent.stopRequested = false
-	agent.activeTurnID = ""
 	agent.threadID = result.ThreadID
 	agent.remoteThreadID = result.ThreadID
 	agent.remoteAgentID = result.RemoteAgentID
 	agent.startedAt = now
 	agent.updatedAt = now
-	agent.exitedAt = nil
 	return result, nil
 }
 

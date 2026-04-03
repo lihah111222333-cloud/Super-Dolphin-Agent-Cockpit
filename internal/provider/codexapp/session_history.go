@@ -95,8 +95,6 @@ func (s *session) CompactThread(ctx context.Context, threadID, args string) erro
 	if arg := strings.TrimSpace(args); arg != "" {
 		params["args"] = arg
 	}
-	callCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	_, err := s.callTransport(callCtx, "thread/compact/start", params)
+	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/compact/start", params)
 	return err
 }

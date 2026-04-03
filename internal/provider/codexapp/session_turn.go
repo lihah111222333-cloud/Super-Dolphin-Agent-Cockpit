@@ -27,7 +27,7 @@ type turnInputItem struct {
 	Content string `json:"content,omitempty"`
 }
 
-type turnRPCResult struct {
+type turnStartResult struct {
 	Turn struct {
 		ID string `json:"id"`
 	} `json:"turn"`

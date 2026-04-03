@@ -16,10 +16,7 @@ type historyBackend struct {
 }
 
 func (h *historyBackend) ReadHistory(ctx context.Context, threadID string) ([]Message, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
+	if err := checkCtx(ctx); err != nil {
 		return nil, err
 	}
 	path, err := h.sessionPath(threadID)

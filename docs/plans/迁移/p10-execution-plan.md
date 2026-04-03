@@ -96,7 +96,7 @@
 |---|---|---|---|
 | typed request Validate() | ❌ 未落地 | 设计 `rpc.ValidatedHandler` 自动调用 params.Validate()，逐模块补 Validate 实现 | P10 |
 | middleware.go 命名 | ⚠️ 落在 handler.go | 拆分：handler.go 只保留 ThreadHandler/StrictHandler，middleware 逻辑独立文件 | P10 |
-| typed event 替代 | ⚠️ 部分 | 推广 NewTypedEmitter 到 orchestration/approval，替代 raw dispatcher | P10 |
+| typed event 替代 | ⚠️ 部分 | 原计划推广 `NewTypedEmitter`（已在 P13 W1 删除）；如需替代 raw dispatcher，应改走现有 bus API | P10 |
 | sqlc WithTx 收口 | ⚠️ 部分 | store 接口不再暴露 WithTx，改用 platform/db 事务闭包 | P10 |
 | Zone A stub 清理 | ✅ 已完成 | 删除 legacy factory stub 全部占位文件 | P13 |
 

@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -131,9 +129,7 @@ func (s *session) applyConfigSet(ctx context.Context, threadID string, patch dto
 	if patch.Effort != nil {
 		params["effort"] = strings.TrimSpace(*patch.Effort)
 	}
-	callCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	_, err := s.callTransport(callCtx, "thread/config/set", params)
+	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/config/set", params)
 	return err
 }
 
@@ -165,9 +161,7 @@ func (s *session) applySlashConfig(ctx context.Context, threadID, method, key st
 	if arg == "" {
 		return nil
 	}
-	callCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	_, err := s.callTransport(callCtx, method, map[string]any{"threadId": threadID, key: arg, "args": arg})
+	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, method, map[string]any{"threadId": threadID, key: arg, "args": arg})
 	return err
 }
 
@@ -241,36 +235,12 @@ func modelIDs(raw any) []string {
 	return out
 }
 
-func runtimePortFromServerURL(raw string) int {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return 0
-	}
-	port, err := strconv.Atoi(strings.TrimSpace(parsed.Port()))
-	if err != nil || port <= 0 {
-		return 0
-	}
-	return port
-}
-
 func configString(cfg map[string]any, key string) string {
 	if cfg == nil {
 		return ""
 	}
 	value, _ := cfg[key].(string)
 	return strings.TrimSpace(value)
-}
-
-func extractPort(serverURL string) int {
-	parsed, err := url.Parse(strings.TrimSpace(serverURL))
-	if err != nil || parsed.Port() == "" {
-		return 0
-	}
-	p, err := strconv.Atoi(parsed.Port())
-	if err != nil || p <= 0 {
-		return 0
-	}
-	return p
 }
 
 func resolveApprovalPolicy(cfg map[string]any) string {

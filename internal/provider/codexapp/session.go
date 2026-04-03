@@ -119,15 +119,13 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 		return nil, errors.New("codexapp: thread id is required")
 	}
 	params := buildTurnStartParams(threadID, req)
-	callCtx, cancel := withTimeout(ctx, 30*time.Second)
-	defer cancel()
-	raw, err := s.callTransport(callCtx, "turn/start", params)
+	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/start", params)
 	if err != nil {
 		return nil, err
 	}
-	var resp turnRPCResult
-	if err := json.Unmarshal(raw, &resp); err != nil || strings.TrimSpace(resp.Turn.ID) == "" {
-		return nil, errors.New("codexapp: invalid turn/start response")
+	resp, err := decodeTurnStartResult(raw)
+	if err != nil {
+		return nil, err
 	}
 	providerID := strings.TrimSpace(resp.Turn.ID)
 	h := newTurnHandle(resolveLocalTurnID(req.LocalID, providerID), providerID)
@@ -148,9 +146,7 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	if expectedTurnID == "" {
 		return errors.New("codexapp: expected turn id is required")
 	}
-	callCtx, cancel := withTimeout(ctx, 30*time.Second)
-	defer cancel()
-	_, err := s.callTransport(callCtx, "turn/steer", buildTurnSteerParams(threadID, req))
+	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/steer", buildTurnSteerParams(threadID, req))
 	return err
 }
 
@@ -163,9 +159,7 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	if source := strings.TrimSpace(req.Source); source != "" {
 		params["source"] = source
 	}
-	callCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	_, err := s.callTransport(callCtx, "turn/interrupt", params)
+	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/interrupt", params)
 	return err
 }
 
@@ -174,9 +168,7 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 	if threadID == "" {
 		return errors.New("codexapp: thread id is required")
 	}
-	callCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if _, err := s.callTransport(callCtx, "turn/forceComplete", map[string]any{"threadId": threadID}); err != nil {
+	if _, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/forceComplete", map[string]any{"threadId": threadID}); err != nil {
 		return err
 	}
 	s.forceCompleteTurn(strings.TrimSpace(req.ProviderID))
@@ -184,9 +176,7 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 }
 
 func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
-	callCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	raw, err := s.callTransport(callCtx, "thread/list", map[string]any{})
+	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/list", map[string]any{})
 	if err != nil {
 		return nil, err
 	}
@@ -214,9 +204,7 @@ func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.Fork
 	if threadID == "" {
 		return dto.ForkResult{}, errors.New("codexapp: thread id is required")
 	}
-	callCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	raw, err := s.callTransport(callCtx, "thread/fork", map[string]any{"threadId": threadID})
+	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/fork", map[string]any{"threadId": threadID})
 	if err != nil {
 		return dto.ForkResult{}, err
 	}

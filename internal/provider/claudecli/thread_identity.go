@@ -131,13 +131,10 @@ func (s *session) awaitThreadReadyLocked(ctx context.Context) error {
 }
 
 func withThreadIDTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if _, ok := ctx.Deadline(); ok {
+	if err := checkCtx(ctx); err != nil {
 		return ctx, func() {}
 	}
-	return platformconfig.WithInitialThreadIDTimeout(ctx)
+	return platformconfig.WithTimeoutIfNone(ctx, platformconfig.InitialThreadIDTimeout)
 }
 
 func waitForThreadReady(ctx context.Context, ready <-chan struct{}) error {
