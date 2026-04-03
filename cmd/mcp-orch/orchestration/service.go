@@ -21,9 +21,9 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type Service = contract.OrchestrationService
@@ -52,11 +52,9 @@ type DAGDetail = contract.DAGDetail
 
 var Module = fx.Module("orchestration",
 	fx.Provide(
-		NewService,
+		provideService,
 		func(s *service) Service { return s },
-		func(s Service) contract.RuntimeReporter { return runtimeReporter{svc: s} },
 		NewOrchestrationHandlers,
-		fx.Annotate(NewRunnerActor, fx.ResultTags(`group:"runners"`)),
 	),
 	fx.Invoke(registerTurnLifecycle),
 	fx.Invoke(registerApprovalLifecycle),
@@ -71,6 +69,7 @@ var (
 type service struct {
 	logger                 *slog.Logger
 	eventBus               *event.Dispatcher
+	launcher               AgentLauncher
 	sessionCleaner         SessionCleaner
 	turnStarter            TurnStarter
 	dagStore               taskdag.Store
@@ -80,6 +79,17 @@ type service struct {
 	mu                     sync.RWMutex
 	agents                 map[string]*agentRuntime
 	nextTurnSeq            int64
+}
+
+type serviceParams struct {
+	fx.In
+
+	Logger         *slog.Logger
+	EventBus       *event.Dispatcher
+	Launcher       AgentLauncher
+	SessionCleaner SessionCleaner
+	TurnStarter    TurnStarter
+	DAGStore       taskdag.Store `optional:"true"`
 }
 
 type recoveryTurnStore interface {
@@ -102,6 +112,8 @@ type agentRuntime struct {
 	providerSource    string
 	state             string
 	threadID          string
+	remoteThreadID    string
+	remoteAgentID     string
 	activeTurnID      string
 	lastReport        string
 	reportRequesters  []string
@@ -136,6 +148,7 @@ type turnWork struct {
 func NewService(
 	logger *slog.Logger,
 	eventBus *event.Dispatcher,
+	launcher AgentLauncher,
 	sessionCleaner SessionCleaner,
 	turnStarter TurnStarter,
 	dagStore taskdag.Store,
@@ -146,6 +159,7 @@ func NewService(
 	return &service{
 		logger:         logger,
 		eventBus:       eventBus,
+		launcher:       launcher,
 		sessionCleaner: sessionCleaner,
 		turnStarter:    turnStarter,
 		dagStore:       dagStore,
@@ -157,6 +171,10 @@ func NewService(
 		processExitWaitTimeout: 30 * time.Second,
 		agents:                 make(map[string]*agentRuntime),
 	}
+}
+
+func provideService(p serviceParams) *service {
+	return NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
 }
 
 func registerTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
@@ -236,26 +254,11 @@ func (r runtimeReporter) ReportRuntime(ctx context.Context, report contract.Runt
 }
 
 func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error {
-	if err := validateLaunchRequest(req); err != nil {
-		return err
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent := s.agentForLaunchLocked(req)
-	if agent.cmd != nil {
-		return fmt.Errorf("agent %q already launched", agent.id)
-	}
-	agent.queue.Clear()
-	if err := s.prepareLaunchStateLocked(ctx, agent); err != nil {
-		return err
-	}
-	return s.startProcessLocked(ctx, agent)
+	return s.launchAgentViaLauncher(ctx, req)
 }
 
 func (s *service) StopAgent(ctx context.Context, agentID string) error {
-	return s.stopAgentWithReason(ctx, agentID, "user_requested")
+	return s.stopAgentViaLauncher(ctx, agentID, "user_requested")
 }
 
 func (s *service) StopAllAgents() {
@@ -267,7 +270,7 @@ func (s *service) StopAllAgents() {
 	s.mu.RUnlock()
 	sort.Strings(ids)
 	for _, agentID := range ids {
-		if err := s.stopAgentWithReason(context.Background(), agentID, "shutdown"); err != nil &&
+		if err := s.stopAgentViaLauncher(context.Background(), agentID, "shutdown"); err != nil &&
 			!errors.Is(err, errAgentNotFound) {
 			s.logger.Warn("orchestration: failed to stop agent during shutdown", "agent_id", agentID, "error", err)
 		}
@@ -275,37 +278,7 @@ func (s *service) StopAllAgents() {
 }
 
 func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
-	agentID := strings.TrimSpace(req.AgentID)
-	waitForSession, err := s.submitAgentReadyState(agentID)
-	if err != nil {
-		return err
-	}
-	if waitForSession {
-		if err := s.waitForSubmitSessionReady(ctx, agentID); err != nil {
-			return err
-		}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil {
-		return err
-	}
-	if agent.cmd == nil {
-		return fmt.Errorf("agent %q is not running", agent.id)
-	}
-	if agent.stopRequested {
-		return fmt.Errorf("agent %q is stopping", agent.id)
-	}
-	req.AgentID = agentID
-	agent.queue.Enqueue(req)
-	if agent.state == agentdto.StateIdle {
-		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.submitTurnViaLauncher(ctx, req)
 }
 
 func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"maps"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -48,7 +49,7 @@ func BuildManifest(ctx ManifestContext) MCPManifest {
 
 	bins := make([]MCPBinary, 0, len(families))
 	for _, fam := range families {
-		name := "go-agent-mcp-" + string(fam)
+		name := "mcp-" + string(fam)
 		bins = append(bins, MCPBinary{
 			Name:        name,
 			Command:     []string{filepath.Join(ctx.BinaryDir, name)},
@@ -68,17 +69,57 @@ func cloneManifestEnv(in map[string]string) map[string]string {
 	return out
 }
 
+// mcpRequiredEnvKeys lists the canonical env vars that MCP binaries need to
+// connect back to the control plane.
+var mcpRequiredEnvKeys = []string{
+	"GO_AGENT_CTL_RPC_ADDR",
+	"GO_AGENT_CTL_INSTANCE_ID",
+	"GO_AGENT_CTL_BOOT_ID",
+	"GO_AGENT_CTL_BINARY_NAME",
+	"GO_AGENT_CTL_CLIENT_KIND",
+	"GO_AGENT_CTL_AGENT_ID",
+	"GO_AGENT_CTL_THREAD_ID",
+	"GO_AGENT_CTL_SESSION_TOKEN",
+	"GO_AGENT_CTL_BOOTSTRAP_JSON",
+}
+
+var mcpLegacyEnvAliases = map[string][]string{
+	"GO_AGENT_CTL_RPC_ADDR":       {"RPC_ADDR"},
+	"GO_AGENT_CTL_INSTANCE_ID":    {"GO_AGENT_MCP_INSTANCE_ID"},
+	"GO_AGENT_CTL_BOOT_ID":        {"GO_AGENT_MCP_BOOT_ID"},
+	"GO_AGENT_CTL_BINARY_NAME":    {"GO_AGENT_MCP_BINARY_NAME"},
+	"GO_AGENT_CTL_CLIENT_KIND":    {"GO_AGENT_MCP_CLIENT_KIND"},
+	"GO_AGENT_CTL_AGENT_ID":       {"GO_AGENT_MCP_AGENT_ID"},
+	"GO_AGENT_CTL_THREAD_ID":      {"GO_AGENT_MCP_THREAD_ID"},
+	"GO_AGENT_CTL_SESSION_TOKEN":  {"GO_AGENT_MCP_SESSION_TOKEN"},
+	"GO_AGENT_CTL_BOOTSTRAP_JSON": {"GO_AGENT_MCP_BOOT_CONTEXT"},
+}
+
+// normalizeManifestEnv ensures MCP binaries get all required GO_AGENT_CTL_*
+// env vars. When the caller does not supply explicit values (req.Config["env"]
+// is empty), it auto-collects them from the current process environment.
+// This fixes both Claude (where CLI inherits parent env but JSON env may be
+// empty) and Codex (where app-server reads config.toml env sub-table).
 func normalizeManifestEnv(in map[string]string) map[string]string {
 	out := cloneManifestEnv(in)
-	promoteManifestEnv(out, "GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR")
-	promoteManifestEnv(out, "GO_AGENT_CTL_INSTANCE_ID", "GO_AGENT_MCP_INSTANCE_ID")
-	promoteManifestEnv(out, "GO_AGENT_CTL_BOOT_ID", "GO_AGENT_MCP_BOOT_ID")
-	promoteManifestEnv(out, "GO_AGENT_CTL_BINARY_NAME", "GO_AGENT_MCP_BINARY_NAME")
-	promoteManifestEnv(out, "GO_AGENT_CTL_CLIENT_KIND", "GO_AGENT_MCP_CLIENT_KIND")
-	promoteManifestEnv(out, "GO_AGENT_CTL_AGENT_ID", "GO_AGENT_MCP_AGENT_ID")
-	promoteManifestEnv(out, "GO_AGENT_CTL_THREAD_ID", "GO_AGENT_MCP_THREAD_ID")
-	promoteManifestEnv(out, "GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN")
-	promoteManifestEnv(out, "GO_AGENT_CTL_BOOTSTRAP_JSON", "GO_AGENT_MCP_BOOT_CONTEXT")
+	for _, key := range mcpRequiredEnvKeys {
+		if _, exists := out[key]; exists {
+			continue
+		}
+		if val := strings.TrimSpace(os.Getenv(key)); val != "" {
+			out[key] = val
+			continue
+		}
+		for _, alias := range mcpLegacyEnvAliases[key] {
+			if val := strings.TrimSpace(os.Getenv(alias)); val != "" {
+				out[key] = val
+				break
+			}
+		}
+	}
+	for key, aliases := range mcpLegacyEnvAliases {
+		promoteManifestEnv(out, key, aliases...)
+	}
 	return out
 }
 

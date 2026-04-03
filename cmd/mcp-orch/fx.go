@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
+	"os"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
@@ -23,6 +26,7 @@ import (
 // run boots the MCP binary itself. The core process only exposes ctl/* endpoints
 // and manifest metadata; external executors decide when and how this binary starts.
 func run() error {
+	remoteAddr := strings.TrimSpace(os.Getenv("GO_AGENT_CTL_RPC_ADDR"))
 	app := fx.New(
 		fx.NopLogger,
 		platformconfig.Module,
@@ -33,7 +37,7 @@ func run() error {
 		sharedfilestore.Module,
 		taskdagstore.Module,
 		storeworkspace.Module,
-		orchestration.Module,
+		fx.Options(buildOrchestrationOptions(remoteAddr)...),
 		fx.Provide(
 			newLogger,
 			newPool,
@@ -94,4 +98,30 @@ func run() error {
 	stopCtx, stopCancel := platformconfig.WithRPCRequestTimeout(context.Background())
 	defer stopCancel()
 	return app.Stop(stopCtx)
+}
+
+func buildOrchestrationOptions(remoteAddr string) []fx.Option {
+	options := []fx.Option{
+		orchestration.Module,
+		fx.Provide(func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
+			return buildLauncher(lc, turnStarter, logger, remoteAddr)
+		}),
+	}
+	if remoteAddr == "" {
+		options = append(options, fx.Provide(
+			fx.Annotate(orchestration.NewRunnerActor, fx.ResultTags(`group:"runners"`)),
+		))
+	}
+	return options
+}
+
+func buildLauncher(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger, remoteAddr string) orchestration.AgentLauncher {
+	if remoteAddr == "" {
+		return orchestration.NewLocalLauncher(turnStarter, logger)
+	}
+	launcher := orchestration.NewRemoteLauncher(remoteAddr)
+	if closer, ok := launcher.(interface{ Close() error }); ok {
+		lc.Append(fx.Hook{OnStop: func(context.Context) error { return closer.Close() }})
+	}
+	return launcher
 }

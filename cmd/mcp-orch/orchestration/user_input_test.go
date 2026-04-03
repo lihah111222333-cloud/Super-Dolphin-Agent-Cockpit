@@ -15,7 +15,7 @@ import (
 func TestHandleToolApprovalRequestedEventMarksAwaitingUserInput(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
 	agent.activeTurnID = "turn-1"
@@ -31,7 +31,7 @@ func TestHandleToolApprovalRequestedEventMarksAwaitingUserInput(t *testing.T) {
 func TestHandleToolApprovalRequestedEventMarksAwaitingUserInputForToolKind(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
 	agent.activeTurnID = "turn-1"
@@ -49,7 +49,7 @@ func TestHandleToolApprovalRequestedEventMarksAwaitingUserInputForToolKind(t *te
 func TestHandleToolApprovalResolvedEventReturnsToTurnRunning(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateAwaitingUserInput
 	agent.activeTurnID = "turn-1"
@@ -77,7 +77,7 @@ func TestHandleToolApprovalResolvedEventClosesAwaitingUserInputOnTimeoutOrCancel
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil)
+			svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 			agent := svc.newAgentLocked("agent-1")
 			agent.state = agentdto.StateAwaitingUserInput
 			agent.activeTurnID = "turn-1"
@@ -95,7 +95,7 @@ func TestHandleToolApprovalResolvedEventClosesAwaitingUserInputOnTimeoutOrCancel
 func TestForceIdleAfterCompletionErrorRecoversAwaitingUserInput(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateAwaitingUserInput
 	agent.activeTurnID = "turn-1"

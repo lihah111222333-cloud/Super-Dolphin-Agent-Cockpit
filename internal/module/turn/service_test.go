@@ -110,8 +110,8 @@ func TestPrepareTurnUsesExecutableBinaryDirForManifest(t *testing.T) {
 		t.Fatalf("PrepareTurn() error = %v", err)
 	}
 
-	want := filepath.Join(filepath.Dir(exe), "go-agent-mcp-lsp")
-	if got := commandForBinary(req.MCP, "go-agent-mcp-lsp"); got != want {
+	want := filepath.Join(filepath.Dir(exe), "mcp-lsp")
+	if got := commandForBinary(req.MCP, "mcp-lsp"); got != want {
 		t.Fatalf("lsp command = %q, want %q", got, want)
 	}
 }
@@ -126,8 +126,8 @@ func TestPrepareTurnPrefersExplicitBinaryDir(t *testing.T) {
 		t.Fatalf("PrepareTurn() error = %v", err)
 	}
 
-	want := filepath.Join("/tmp/turn-bin", "go-agent-mcp-lsp")
-	if got := commandForBinary(req.MCP, "go-agent-mcp-lsp"); got != want {
+	want := filepath.Join("/tmp/turn-bin", "mcp-lsp")
+	if got := commandForBinary(req.MCP, "mcp-lsp"); got != want {
 		t.Fatalf("lsp command = %q, want %q", got, want)
 	}
 }

@@ -11,7 +11,7 @@ import (
 func TestBuildManifest_DefaultFamilies(t *testing.T) {
 	binaryDir := "/tmp/default-bin"
 	got := dto.BuildManifest(dto.ManifestContext{BinaryDir: binaryDir})
-	if len(got.Binaries) != 2 || got.Binaries[0].Name != "go-agent-mcp-lsp" || got.Binaries[1].Name != "go-agent-mcp-orch" {
+	if len(got.Binaries) != 2 || got.Binaries[0].Name != "mcp-lsp" || got.Binaries[1].Name != "mcp-orch" {
 		t.Fatalf("unexpected default manifest: %+v", got.Binaries)
 	}
 	for _, bin := range got.Binaries {
@@ -26,7 +26,7 @@ func TestBuildManifest_DefaultFamilies(t *testing.T) {
 
 func TestBuildManifest_WithIDA(t *testing.T) {
 	got := dto.BuildManifest(dto.ManifestContext{ThreadCaps: dto.CapabilitySet{"ida": true}})
-	if len(got.Binaries) != 3 || got.Binaries[2].Name != "go-agent-mcp-ida" {
+	if len(got.Binaries) != 3 || got.Binaries[2].Name != "mcp-ida" {
 		t.Fatalf("unexpected ida manifest: %+v", got.Binaries)
 	}
 }
@@ -34,8 +34,8 @@ func TestBuildManifest_WithIDA(t *testing.T) {
 func TestBuildManifest_BinaryPaths(t *testing.T) {
 	got := dto.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
 	want := []string{
-		filepath.Join("/tmp/bin", "go-agent-mcp-lsp"),
-		filepath.Join("/tmp/bin", "go-agent-mcp-orch"),
+		filepath.Join("/tmp/bin", "mcp-lsp"),
+		filepath.Join("/tmp/bin", "mcp-orch"),
 	}
 	for i, binary := range got.Binaries {
 		if len(binary.Command) != 1 || binary.Command[0] != want[i] {
@@ -47,8 +47,8 @@ func TestBuildManifest_BinaryPaths(t *testing.T) {
 func TestBuildManifest_EmptyBinaryDirUsesRelativeCommands(t *testing.T) {
 	got := dto.BuildManifest(dto.ManifestContext{})
 	want := []string{
-		filepath.Join("", "go-agent-mcp-lsp"),
-		filepath.Join("", "go-agent-mcp-orch"),
+		filepath.Join("", "mcp-lsp"),
+		filepath.Join("", "mcp-orch"),
 	}
 	for i, binary := range got.Binaries {
 		if len(binary.Command) != 1 || binary.Command[0] != want[i] {
@@ -104,7 +104,7 @@ func TestBuildManifest_NormalizesControlEnvNames(t *testing.T) {
 			"GO_AGENT_MCP_INSTANCE_ID":   "instance-old",
 			"GO_AGENT_CTL_THREAD_ID":     "thread-new",
 			"GO_AGENT_MCP_THREAD_ID":     "thread-old",
-			"GO_AGENT_MCP_BINARY_NAME":   "go-agent-mcp-lsp",
+			"GO_AGENT_MCP_BINARY_NAME":   "mcp-lsp",
 			"GO_AGENT_MCP_CLIENT_KIND":   "lsp",
 			"GO_AGENT_MCP_SESSION_TOKEN": "token-old",
 			"GO_AGENT_MCP_BOOT_CONTEXT":  `{"instance_id":"snap-old"}`,
@@ -126,7 +126,7 @@ func TestBuildManifest_NormalizesControlEnvNames(t *testing.T) {
 		if got := bin.Env["GO_AGENT_CTL_THREAD_ID"]; got != "thread-new" {
 			t.Fatalf("binary %q GO_AGENT_CTL_THREAD_ID = %q", bin.Name, got)
 		}
-		if got := bin.Env["GO_AGENT_CTL_BINARY_NAME"]; got != "go-agent-mcp-lsp" {
+		if got := bin.Env["GO_AGENT_CTL_BINARY_NAME"]; got != "mcp-lsp" {
 			t.Fatalf("binary %q GO_AGENT_CTL_BINARY_NAME = %q", bin.Name, got)
 		}
 		if got := bin.Env["GO_AGENT_CTL_CLIENT_KIND"]; got != "lsp" {

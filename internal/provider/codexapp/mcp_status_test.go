@@ -17,12 +17,12 @@ func TestPollMCPStatus_FindsAllServers(t *testing.T) {
 	t.Parallel()
 
 	transport := newMCPStatusTestTransport(t, []json.RawMessage{
-		mcpStatusResult("go-agent-mcp-lsp", "go-agent-mcp-orch"),
+		mcpStatusResult("mcp-lsp", "mcp-orch"),
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	err := pollMCPStatus(ctx, transport, []string{"go-agent-mcp-lsp", "go-agent-mcp-orch"}, 5*time.Millisecond)
+	err := pollMCPStatus(ctx, transport, []string{"mcp-lsp", "mcp-orch"}, 5*time.Millisecond)
 	if err != nil {
 		t.Fatalf("pollMCPStatus() error = %v, want nil", err)
 	}
@@ -37,8 +37,8 @@ func TestPollMCPStatus_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 
-	err := pollMCPStatus(ctx, transport, []string{"go-agent-mcp-lsp", "go-agent-mcp-orch"}, 5*time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), "mcp status poll timeout, still waiting for: [go-agent-mcp-lsp go-agent-mcp-orch]") {
+	err := pollMCPStatus(ctx, transport, []string{"mcp-lsp", "mcp-orch"}, 5*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "mcp status poll timeout, still waiting for: [mcp-lsp mcp-orch]") {
 		t.Fatalf("pollMCPStatus() error = %v, want timeout with pending server list", err)
 	}
 }
@@ -47,13 +47,13 @@ func TestPollMCPStatus_PartialThenComplete(t *testing.T) {
 	t.Parallel()
 
 	transport := newMCPStatusTestTransport(t, []json.RawMessage{
-		mcpStatusResult("go-agent-mcp-lsp"),
-		mcpStatusResult("go-agent-mcp-lsp", "go-agent-mcp-orch"),
+		mcpStatusResult("mcp-lsp"),
+		mcpStatusResult("mcp-lsp", "mcp-orch"),
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	err := pollMCPStatus(ctx, transport, []string{"go-agent-mcp-lsp", "go-agent-mcp-orch"}, 5*time.Millisecond)
+	err := pollMCPStatus(ctx, transport, []string{"mcp-lsp", "mcp-orch"}, 5*time.Millisecond)
 	if err != nil {
 		t.Fatalf("pollMCPStatus() error = %v, want nil", err)
 	}

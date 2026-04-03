@@ -7,13 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/qmuntal/stateless"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 )
 
@@ -215,7 +213,7 @@ func setStopReasonIfEmpty(agent *agentRuntime, reason string) {
 	}
 }
 
-func (s *service) submitAgentReadyState(agentID string) (bool, error) {
+func (s *service) submitAgentReadyState(ctx context.Context, agentID string) (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -223,7 +221,7 @@ func (s *service) submitAgentReadyState(agentID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if agent.cmd == nil {
+	if !s.agentRunningLocked(ctx, agent) {
 		return false, fmt.Errorf("agent %q is not running", agent.id)
 	}
 	if agent.stopRequested {
@@ -348,62 +346,4 @@ func (s *service) lookupAgentLocked(agentID string) (*agentRuntime, error) {
 		return agent, nil
 	}
 	return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
-}
-
-func cloneTurnSubmission(sub turndto.TurnSubmission) turndto.TurnSubmission {
-	cloned := sub
-	cloned.Inputs = append([]turndto.InputItem(nil), sub.Inputs...)
-	cloned.SelectedSkills = append([]string(nil), sub.SelectedSkills...)
-	cloned.OutputSchema = append([]byte(nil), sub.OutputSchema...)
-	return cloned
-}
-
-type SubmissionQueue struct {
-	mu    sync.Mutex
-	items []turndto.TurnSubmission
-}
-
-func (q *SubmissionQueue) Enqueue(s turndto.TurnSubmission) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.items = append(q.items, cloneTurnSubmission(s))
-}
-
-func (q *SubmissionQueue) Prepend(s turndto.TurnSubmission) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.items = append([]turndto.TurnSubmission{cloneTurnSubmission(s)}, q.items...)
-}
-
-func (q *SubmissionQueue) Dequeue() (turndto.TurnSubmission, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if len(q.items) == 0 {
-		return turndto.TurnSubmission{}, false
-	}
-	s := q.items[0]
-	q.items = q.items[1:]
-	return cloneTurnSubmission(s), true
-}
-
-// Peek is currently used only in tests; kept for diagnostic/debugging use.
-func (q *SubmissionQueue) Peek() (turndto.TurnSubmission, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if len(q.items) == 0 {
-		return turndto.TurnSubmission{}, false
-	}
-	return cloneTurnSubmission(q.items[0]), true
-}
-
-func (q *SubmissionQueue) Len() int {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return len(q.items)
-}
-
-func (q *SubmissionQueue) Clear() {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.items = nil
 }

@@ -19,7 +19,6 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"go.uber.org/fx"
 )
 
 type driver struct {
@@ -88,13 +87,6 @@ func NewDriverFactory(
 		},
 	}
 }
-
-var Module = fx.Module("provider.codexapp",
-	fx.Provide(
-		fx.Annotate(NewDriverFactory, fx.ResultTags(`group:"drivers"`)),
-	),
-	fx.Invoke(RegisterTranslators),
-)
 
 func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter) contract.Driver {
 	if logger == nil {

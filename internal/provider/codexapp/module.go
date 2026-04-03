@@ -4,6 +4,14 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"go.uber.org/fx"
+)
+
+var Module = fx.Module("provider.codexapp",
+	fx.Provide(
+		fx.Annotate(NewDriverFactory, fx.ResultTags(`group:"drivers"`)),
+	),
+	fx.Invoke(RegisterTranslators),
 )
 
 func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {

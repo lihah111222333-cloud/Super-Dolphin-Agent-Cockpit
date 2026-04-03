@@ -1,7 +1,7 @@
 # V3 迁移会话摘要
 
-> 生成时间：2026-03-27（P9 LSP 工具族 10 Agent DAG 全部完成 ✅）
-> 会话范围：P0-P8.5 全程 + P7.5 桥接 + V2↔V3 核对×2 + archtest 收官 + MCP 独立服务 + ctl/* 回调框架 + lifecycle hooks + P8 审查修复 + P0 安全修复 + P1 四批修复 + **framework-audit + P9 审查 + A4-γ + D1 + P9 LSP 9工具全量实施**
+> 生成时间：2026-04-04（P12 Sub-Agent Turn Runtime 三波实施完成，E2E 修复审查中）
+> 会话范围：P0-P9 + P11 MCP 启动配置 + **P12 Sub-Agent Turn Runtime（v1→v8 8轮计划审查 + 第一波实施中）**
 > Claude 会话 UUID：58fdd978-cc4b-41e6-bd26-d40f3ff66854
 > 前序会话 UUID：ea3ad84e-7b52-422d-bc46-cff9da3ea9f9
 
@@ -59,6 +59,9 @@
 | **P9 LSP 第二批 C1+C2** | ✅ | **gopls客户端(2文件) + 管理器核心(6文件)，3方审查+修复通过** |
 | **P9 LSP 第三批 D+E+F+G** | ✅ | **文件+搜索+Bootstrap+导航+编辑，多轮修复+12 Agent审查通过** |
 | **P9 LSP 验证 V** | ✅ | **双Agent(Codex+Claude)最终验证8项全绿: build+vet+archtest+timeout+dep+单测+diagnostics+dry_run零残留** |
+| **P11 MCP 启动配置** | ✅ | **5轮计划审查(r1→r5) + P1配置注入(6任务) + P2工具过滤预设 + E2E验证PASS + ready降级(poll兜底) + binary重命名(mcp-lsp/mcp-orch)** |
+| **P11 MCP Bug 修复** | ✅ | **B1 prompt migration + B2 metadata NULL + B4 orchestration fail-fast + env 自动收集 + binary 重命名(mcp-lsp/mcp-orch) + approval 默认 never** |
+| **P12 Sub-Agent Runtime** | ✅ | **8轮计划审查(v1→v8) + 三波实施(task0-8) + 11测试 + archtest修复 + E2E全量验证** |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→60% |
 
 ---
@@ -123,6 +126,10 @@
 | A4-γ Timeline 投影 | ✅ | 拆子包 `uistate/timeline/` + 9 handler + 主包集成，4 任务互审通过 |
 | D1 完整离线 merge | ✅ | buildOfflineRuntimeConfig 补全 model 字段，复用 offlineThreadModel 优先级链 |
 | **P9 LSP 工具族** | ✅ | **10 Agent DAG 全部完成，双Agent最终验证8项全绿，~51个文件新增/修改** |
+| **P11 MCP 启动配置** | ✅ | **Claude JSON + Codex TOML 双 provider 注入，E2E PASS，~220行生产代码 + ~400行测试** |
+| **P11 MCP Bug 修复** | ✅ | **B1 prompt migration + B2 metadata NULL + B4 orchestration fail-fast + env 自动收集 + binary 重命名(mcp-lsp/mcp-orch) + approval 默认 never** |
+| **P12 Sub-Agent Runtime** | ✅ | **8轮计划审查(v1→v8) + 三波实施(task0-8) + 11测试 + archtest修复 + E2E全量验证** |
+| **P12 Sub-Agent Runtime** | ✅ | **三波全部完成：接口+launcher+service核心+parent装配+fx注入+identity+11测试+E2E** |
 | P10 工厂丰满 | ⏳ | Zone A 3.8%→60% |
 | IDA 工具族 | ⏳ | 82 个工具，暂缓 |
 | P2 event bus 互审 | 🔄 | TurnStalled/TurnResumed 补发布 + 测试空白已执行，互审待收报告 |
@@ -132,8 +139,10 @@
 ## 4. 下一步
 
 1. **git commit** — 本会话所有改动未提交
-2. **P10 工厂丰满** — Zone A 3.8%→60%
-3. **IDA 工具族** — 82 个工具，暂缓
+2. **P12 E2E 真实验证** — 重新编译 run-debug.sh，验证 orchestration_launch_agent + send_message 真正可用
+3. **P11 后续** — hooks 运行时接线、外部 app-server 支持、ResumeSession 注入
+3. **P10 工厂丰满** — Zone A 3.8%→60%
+4. **IDA 工具族** — 82 个工具，暂缓
 
 ---
 

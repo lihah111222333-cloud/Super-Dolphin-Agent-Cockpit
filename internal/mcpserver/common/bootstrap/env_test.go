@@ -13,7 +13,7 @@ func TestReadBootConfig_UsesLegacyEnvWithDeprecationWarning(t *testing.T) {
 	t.Setenv("RPC_ADDR", "127.0.0.1:9100")
 	t.Setenv("GO_AGENT_MCP_INSTANCE_ID", "instance-old")
 	t.Setenv("GO_AGENT_MCP_THREAD_ID", "thread-old")
-	t.Setenv("GO_AGENT_MCP_BINARY_NAME", "go-agent-mcp-lsp")
+	t.Setenv("GO_AGENT_MCP_BINARY_NAME", "mcp-lsp")
 	t.Setenv("GO_AGENT_MCP_CLIENT_KIND", "lsp")
 	t.Setenv("GO_AGENT_MCP_SESSION_TOKEN", "session-old")
 	t.Setenv("GO_AGENT_MCP_BOOT_CONTEXT", `{"instance_id":"snap-old"}`)
@@ -41,7 +41,7 @@ func TestReadBootConfig_UsesLegacyEnvWithDeprecationWarning(t *testing.T) {
 	if cfg.ThreadID != "thread-old" {
 		t.Fatalf("ThreadID = %q", cfg.ThreadID)
 	}
-	if cfg.BinaryName != "go-agent-mcp-lsp" {
+	if cfg.BinaryName != "mcp-lsp" {
 		t.Fatalf("BinaryName = %q", cfg.BinaryName)
 	}
 	if cfg.ClientKind != "lsp" {

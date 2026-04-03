@@ -56,7 +56,7 @@ func (s *service) claimTurnWork(ctx context.Context) []turnWork {
 	work := make([]turnWork, 0, len(s.agents))
 	for _, agent := range s.agents {
 		s.reconcileReadyStateLocked(ctx, agent)
-		if agent.cmd == nil || agent.stopRequested || agent.state != agentdto.StateTurnQueued {
+		if !s.agentRunningLocked(ctx, agent) || agent.stopRequested || agent.state != agentdto.StateTurnQueued {
 			continue
 		}
 		submission, ok := agent.queue.Dequeue()

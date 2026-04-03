@@ -90,6 +90,9 @@ func (s *service) CreateRun(ctx context.Context, req CreateRunRequest) (*Run, er
 }
 
 func buildRun(req CreateRunRequest) (storeworkspace.WorkspaceRun, error) {
+	if len(req.Metadata) == 0 {
+		req.Metadata = json.RawMessage("{}")
+	}
 	runKey := strings.TrimSpace(req.RunKey)
 	if runKey == "" {
 		runKey = "run-" + strconv.FormatInt(time.Now().UnixMilli(), 10)

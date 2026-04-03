@@ -42,7 +42,7 @@ func TestRegistryContextProvider_UsesRequestedAgentSnapshotForRuntimeScope(t *te
 	}
 	resp, err := (registryContextProvider{agents: source}).GetContext(context.Background(), &ToolInstance{
 		AgentID:    "shared",
-		BinaryName: "go-agent-mcp-orch",
+		BinaryName: "mcp-orch",
 		ClientKind: "orch",
 		PeerKind:   dto.PeerKindTool,
 		PID:        99,
@@ -76,7 +76,7 @@ func TestRegistryContextProvider_UsesRequestedAgentSnapshotForRuntimeScope(t *te
 func TestRegistryContextProvider_UsesLeaseScopedAgentIDWhenHintMissing(t *testing.T) {
 	resp, err := (registryContextProvider{}).GetContext(context.Background(), &ToolInstance{
 		AgentID:    "lease-agent",
-		BinaryName: "go-agent-mcp-orch",
+		BinaryName: "mcp-orch",
 		ClientKind: "orch",
 		PeerKind:   dto.PeerKindTool,
 		PID:        99,

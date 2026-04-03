@@ -291,7 +291,7 @@ func trimNonEmpty(values []string) []string {
 
 func marshalMapToJSON(m map[string]any) (json.RawMessage, error) {
 	if len(m) == 0 {
-		return nil, nil
+		return json.RawMessage("{}"), nil
 	}
 	return json.Marshal(m)
 }

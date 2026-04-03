@@ -91,7 +91,7 @@ func TestWriteManifestConfigPreservesFullManagedServerName(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	servers, _ := doc["mcpServers"].(map[string]any)
-	if _, ok := servers["go-agent-mcp-lsp"]; !ok {
+	if _, ok := servers["mcp-lsp"]; !ok {
 		t.Fatalf("mcpServers = %#v, want full managed server name key", servers)
 	}
 	if _, ok := servers["lsp"]; ok {

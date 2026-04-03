@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
+
+const standaloneMCPOrchLaunchError = "orchestration_launch_agent is not supported in standalone mcp-orch mode; use the main agent-terminal binary to launch agents"
+
+var osExecutable = os.Executable
 
 type LaunchAgentInput struct {
 	Name     string `json:"name"`
@@ -165,9 +170,16 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 }
 
 func launchRequestFromInput(in LaunchAgentInput) (contract.LaunchRequest, error) {
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err != nil {
 		return contract.LaunchRequest{}, err
+	}
+	return launchRequestFromExecutable(in, exe)
+}
+
+func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.LaunchRequest, error) {
+	if isStandaloneMCPOrchExecutable(exe) {
+		return contract.LaunchRequest{}, errors.New(standaloneMCPOrchLaunchError)
 	}
 	name, err := requireTrimmed(in.Name, "name")
 	if err != nil {
@@ -180,9 +192,20 @@ func launchRequestFromInput(in LaunchAgentInput) (contract.LaunchRequest, error)
 		Name:    name,
 		Prompt:  strings.TrimSpace(in.Prompt),
 		Cwd:     strings.TrimSpace(in.CWD),
-		Command: []string{exe},
+		Command: []string{strings.TrimSpace(exe)},
 		Env:     launchEnv(in.Provider),
 	}, nil
+}
+
+func isStandaloneMCPOrchExecutable(exe string) bool {
+	trimmed := strings.TrimSpace(exe)
+	normalized := strings.ReplaceAll(trimmed, "\\", "/")
+	switch strings.ToLower(filepath.Base(normalized)) {
+	case "mcp-orch", "mcp-orch.exe":
+		return true
+	default:
+		return false
+	}
 }
 
 func launchEnv(provider string) []string {

@@ -11,7 +11,10 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-const defaultClaudeCLIBin = "claude"
+const (
+	defaultClaudeCLIBin = "claude"
+	managedMCPPrefix    = "mcp-"
+)
 
 type cliLaunchConfig struct {
 	ApprovalPolicy        string
@@ -242,10 +245,14 @@ func manifestServers(manifest dto.MCPManifest, cwd string) map[string]any {
 
 func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool) {
 	name := strings.TrimSpace(bin.Name)
-	if name == "" || len(bin.Command) == 0 {
+	if name == "" || !strings.HasPrefix(name, managedMCPPrefix) || len(bin.Command) == 0 {
 		return "", nil, false
 	}
-	server := map[string]any{"command": strings.TrimSpace(bin.Command[0])}
+	command := strings.TrimSpace(bin.Command[0])
+	if command == "" {
+		return "", nil, false
+	}
+	server := map[string]any{"command": command}
 	if len(bin.Command) > 1 {
 		server["args"] = bin.Command[1:]
 	}

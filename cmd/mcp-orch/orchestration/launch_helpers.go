@@ -7,11 +7,71 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 )
+
+func cloneTurnSubmission(sub turndto.TurnSubmission) turndto.TurnSubmission {
+	cloned := sub
+	cloned.Inputs = append([]turndto.InputItem(nil), sub.Inputs...)
+	cloned.SelectedSkills = append([]string(nil), sub.SelectedSkills...)
+	cloned.OutputSchema = append([]byte(nil), sub.OutputSchema...)
+	return cloned
+}
+
+type SubmissionQueue struct {
+	mu    sync.Mutex
+	items []turndto.TurnSubmission
+}
+
+func (q *SubmissionQueue) Enqueue(s turndto.TurnSubmission) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.items = append(q.items, cloneTurnSubmission(s))
+}
+
+func (q *SubmissionQueue) Prepend(s turndto.TurnSubmission) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.items = append([]turndto.TurnSubmission{cloneTurnSubmission(s)}, q.items...)
+}
+
+func (q *SubmissionQueue) Dequeue() (turndto.TurnSubmission, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) == 0 {
+		return turndto.TurnSubmission{}, false
+	}
+	s := q.items[0]
+	q.items = q.items[1:]
+	return cloneTurnSubmission(s), true
+}
+
+// Peek is currently used only in tests; kept for diagnostic/debugging use.
+func (q *SubmissionQueue) Peek() (turndto.TurnSubmission, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) == 0 {
+		return turndto.TurnSubmission{}, false
+	}
+	return cloneTurnSubmission(q.items[0]), true
+}
+
+func (q *SubmissionQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.items)
+}
+
+func (q *SubmissionQueue) Clear() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.items = nil
+}
 
 func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
 	agent, ok := s.agents[req.AgentID]
