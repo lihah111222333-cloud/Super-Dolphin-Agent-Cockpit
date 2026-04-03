@@ -641,7 +641,7 @@ sequenceDiagram
 ##### Day 1
 
 - 任务描述：梳理 Claude/Codex 能力矩阵、共性/差异表，落统一 provider contract。
-- 输入：现有 `pkg/agentsdk/claude/*`、`pkg/agentsdk/codex/*`、迁移方案第 3 章。
+- 输入：现有 Claude/Codex provider transport slices、迁移方案第 3 章。
 - 输出：`internal/contract/provider/*`、capability matrix、统一 driver 接口定义。
 - 验证方式：所有现有主流程能力都可在统一 contract 中表达；无 provider 特定语义泄漏到上层。
 - 预估时间：`1 人天`。

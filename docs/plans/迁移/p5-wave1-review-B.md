@@ -120,7 +120,7 @@
 
 - `thread/resolve`
   - 完全缺失。
-  - V2 `thread/resolve` 需要运行态、providerThreadID、history 存在性等聚合结果：`go-agent-v2/pkg/agentsdk/service/lifecycle/thread_lifecycle_logic.go:253-290`
+  - V2 `thread/resolve` 需要运行态、providerThreadID、history 存在性等聚合结果：`go-agent-v2/legacy-agentsdk/service/lifecycle/thread_lifecycle_logic.go:253-290`
 
 - `thread/config/get`
   - 完全缺失。

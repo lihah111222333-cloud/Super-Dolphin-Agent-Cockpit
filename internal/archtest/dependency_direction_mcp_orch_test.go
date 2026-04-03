@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const mcpOrchRPCHostSymbols = ",ApprovalManager,BindEventToNotify,CallbackClient,Dispatch,HTTPRoute,HTTPRouteResult,Module,NewApprovalManager,NewPushBridge,NewServer,NotifyAll,NotifyClient,OnConnect,Params,PushBridge,Register,Run,Server,WSHandler,"
+const mcpOrchRPCHostSymbols = ",ApprovalManager,CallbackClient,Dispatch,HTTPRoute,HTTPRouteResult,Module,NewApprovalManager,NewPushBridge,NewServer,NotifyAll,NotifyClient,OnConnect,Params,PushBridge,Register,Run,Server,WSHandler,"
 const mcpOrchPkg = "cmd/" + "mcp-orch"
 
 func assertMCPOrchDependencyDirection(t *testing.T, root string) {

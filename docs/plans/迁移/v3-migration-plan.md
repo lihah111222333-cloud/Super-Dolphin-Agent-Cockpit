@@ -38,7 +38,7 @@ V3 不应在 V2 仓库上原地重构，而应采用迁移模式：
 核心原因不是“V2 差”，而是 V2 的痛点都集中在“基础骨架层”：
 
 - `go-agent-v2/internal/apiserver`：17,199 行生产代码。
-- `go-agent-v2/pkg/agentsdk`：13,979 行生产代码。
+- `go-agent-v2/legacy-agentsdk`：13,979 行生产代码。
 - `go-agent-v2/pkg/toolsdk`：16,891 行生产代码。
 - 仅这三块合计：48,069 行。
 - `go-agent-v2/internal/apiserver` + `go-agent-v2/internal/runner` + `go-agent-v2/internal/store` + `go-agent-v2/internal/bus` 合计：24,396 行。
@@ -113,7 +113,7 @@ V3 的目标是通过框架替代手写骨架、Provider 双端收敛、MCP 三�
 | `go-agent-v2/internal/apiserver` 等价层 | 17,199 | 3,000 - 4,500 | `jrpc2` handler.Map + 中间件消灭手写注册/上下文包装/nil-guard |
 | `go-agent-v2/internal/store` 等价层 | 3,112 | 800 - 1,200 手写 + 生成代码 | 手写 repo 极薄，SQL 全量生成化 |
 | `go-agent-v2/internal/runner` 等价层 | 3,333 | 1,200 - 1,800 | `stateless` 声明式迁移表 + `run.Group` actor 替代手写状态管理 |
-| `go-agent-v2/pkg/agentsdk + go-agent-v2/internal/apiserver/codexadapter` 等价层 | 17,500+ | 4,000 - 5,500 | 双端统一消灭平行路径 + MCP manifest 替代 DynamicTools 链路 |
+| `go-agent-v2/legacy-agentsdk + go-agent-v2/internal/apiserver/codexadapter` 等价层 | 17,500+ | 4,000 - 5,500 | 双端统一消灭平行路径 + MCP manifest 替代 DynamicTools 链路 |
 | `go-agent-v2/pkg/toolsdk` 等价层 | 16,891 | 8,000 - 10,000 | 三家族拆分后消除跨族样板、registry/schema/dispatch 统一 |
 
 ### 1.7 V3 如何实现 3-4W 行目标
@@ -124,7 +124,7 @@ V2 的 87,900 行中，真实业务复杂度和可消除的骨架样板各占多
 **可深度压缩的骨架层（预计消除 35,000 - 45,000 行）：**
 
 - `go-agent-v2/internal/apiserver` 17,199 行 → `jrpc2` handler.Map + 中间件替代手写注册链、nil-guard 汇总、上下文包装、God Object server，预计压缩到 3,000 - 4,500 行。
-- `go-agent-v2/pkg/agentsdk` + `codexadapter` 17,500+ 行 → Provider 双端收敛消灭平行实现路径，预计压缩到 4,000 - 5,500 行。
+- `go-agent-v2/legacy-agentsdk` + `codexadapter` 17,500+ 行 → Provider 双端收敛消灭平行实现路径，预计压缩到 4,000 - 5,500 行。
 - `go-agent-v2/pkg/toolsdk` 16,891 行 → 三家族拆分后消除跨族样板、registry/schema/dispatch 统一，预计压缩到 8,000 - 10,000 行。
 - `go-agent-v2/internal/store` 3,112 行 → `sqlc` 全量生成，手写 repo 极薄化，预计压缩到 800 - 1,200 行。
 - `go-agent-v2/internal/runner` 3,333 行 → `stateless` 声明式状态机替代手写状态管理，预计压缩到 1,200 - 1,800 行。
@@ -451,15 +451,15 @@ internal/
 
 #### Zone A 在 V3 的演化
 
-V2 的 Zone A 目标，是把跨包复用、无业务领域知识、且不 import 业务包的原语收敛到 `pkg/factory/`。
-V3 中，这一层不再以独立 `pkg/factory/` 形式存在，而是分别被框架和 `internal/platform/` 层吸收：
+V2 的 Zone A 目标，是把跨包复用、无业务领域知识、且不 import 业务包的原语收敛到独立的 factory 共享层。
+V3 中，这一层不再以独立共享包形式存在，而是分别被框架和 `internal/platform/` 层吸收：
 
 | V2 Zone A | V3 替代 | 说明 |
 |---|---|---|
-| `pkg/factory/handler.go` | `jrpc2` + `internal/platform/rpc/` | `handler.New` / `handler.Map` 直接替代 typed handler 工厂 |
-| `pkg/factory/fsm.go` | `stateless` + `internal/platform/statemachine/` | 声明式状态机直接替代手写 FSM 迁移引擎 |
-| `pkg/factory/schema.go` | `cmd/mcp-*/tools/*` + 各自本地 manifest/runtime | tool schema 与 manifest 收敛到独立服务本地包 |
-| `pkg/factory/retry.go` | `internal/platform/shared/retry.go` | 仍然保留为跨模块共享 helper |
+| legacy handler stub | `jrpc2` + `internal/platform/rpc/` | `handler.New` / `handler.Map` 直接替代 typed handler 工厂 |
+| legacy state-machine stub | `stateless` + `internal/platform/statemachine/` | 声明式状态机直接替代手写 FSM 迁移引擎 |
+| legacy schema stub | `cmd/mcp-*/tools/*` + 各自本地 manifest/runtime | tool schema 与 manifest 收敛到独立服务本地包 |
+| legacy retry stub | `internal/platform/shared/retry.go` | 仍然保留为跨模块共享 helper |
 
 因此，V3 的 Zone A 等价物不是新的中央工厂包，而是 `internal/platform/` 层中的框架承接点。
 其中只有满足 Rule of Two 的纯 helper，才进入 `internal/platform/shared/`。
@@ -506,10 +506,10 @@ Rule of Two 在 V3 中保持不变，仍然是跨模块抽象唯一允许的晋�
 
 | V2 Two-Zone 项 | V3 等价物 | 说明 |
 |---|---|---|
-| Zone A `pkg/factory/handler.go` | `jrpc2` + `internal/platform/rpc/` + `internal/module/*/rpc.go` | 框架提供 handler 装配，模块保有业务 handler |
-| Zone A `pkg/factory/fsm.go` | `stateless` + `internal/platform/statemachine/` | 平台层负责状态机构造，模块层负责规则与动作 |
-| Zone A `pkg/factory/schema.go` | `cmd/mcp-*/tools/*` + 各自本地 manifest/runtime | schema 收敛到独立 MCP 服务本地包 |
-| Zone A `pkg/factory/retry.go` | `internal/platform/shared/retry.go` | 保留为跨模块共享纯 helper |
+| Zone A legacy handler stub | `jrpc2` + `internal/platform/rpc/` + `internal/module/*/rpc.go` | 框架提供 handler 装配，模块保有业务 handler |
+| Zone A legacy state-machine stub | `stateless` + `internal/platform/statemachine/` | 平台层负责状态机构造，模块层负责规则与动作 |
+| Zone A legacy schema stub | `cmd/mcp-*/tools/*` + 各自本地 manifest/runtime | schema 收敛到独立 MCP 服务本地包 |
+| Zone A legacy retry stub | `internal/platform/shared/retry.go` | 保留为跨模块共享纯 helper |
 | Zone B `internal/apiserver/factory_handler.go` | `internal/platform/rpc/` + `internal/module/*/rpc.go` | 中间件留在平台层，领域 handler 留在 module |
 | Zone B `internal/store/factory_repo_*.go` | `internal/store/*/store.go` | `sqlc` 生成查询，手写 repo wrapper 变薄 |
 | Zone B `internal/runner/factory_event_rules.go` | `cmd/mcp-orch/orchestration/` + `internal/platform/statemachine/` | 声明式规则在编排模块，状态机宿主在平台层 |
@@ -656,7 +656,7 @@ V2 里的 `withRequiredThreadID` 16 处重复，在 V3 中统一变成 `ThreadSc
 | `go-agent-v2/internal/uistate` | `internal/ui/runtime`, `internal/module/uistate` | UI 投影与业务状态拼装分离 |
 | `go-agent-v2/internal/service` | `internal/module/*` | 保留职责，但按业务域重组 |
 | `go-agent-v2/internal/mcp` | `cmd/mcp-*/local runtime/server` | 协议层与具体服务一并迁到独立二进制本地包 |
-| `go-agent-v2/pkg/agentsdk` | `internal/provider/*` + `internal/module/turn|thread|skill` + `internal/contract` + `internal/dto` | provider-specific 与 provider-neutral 逻辑拆开 |
+| `go-agent-v2/legacy-agentsdk` | `internal/provider/*` + `internal/module/turn|thread|skill` + `internal/contract` + `internal/dto` | provider-specific 与 provider-neutral 逻辑拆开 |
 | `go-agent-v2/pkg/toolsdk` | `cmd/mcp-lsp/*` + `cmd/mcp-orch/*` + `cmd/mcp-ida/*` | 按独立服务重编译，不进入 V3 核心模块层 |
 | `go-agent-v2/cmd/mcp-server` | `cmd/mcp-lsp`, `cmd/mcp-orch`, `cmd/mcp-ida` | 从混编改为三二进制 |
 
@@ -1137,7 +1137,7 @@ P3 的 Done 标准：
 
 | 项目 | 内容 |
 |---|---|
-| 迁移源 | `go-agent-v2/pkg/agentsdk/claude/*`, `go-agent-v2/pkg/agentsdk/codex/*`, `go-agent-v2/pkg/agentsdk/agentcore/*`, `go-agent-v2/internal/apiserver/codexadapter/*`, `go-agent-v2/internal/runner/provider_registry.go` |
+| 迁移源 | `go-agent-v2/legacy-agentsdk/claude/*`, `go-agent-v2/legacy-agentsdk/codex/*`, `go-agent-v2/legacy-agentsdk/agentcore/*`, `go-agent-v2/internal/apiserver/codexadapter/*`, `go-agent-v2/internal/runner/provider_registry.go` |
 | 迁移目标 | `internal/provider/unified/*`, `internal/provider/claudecli/*`, `internal/provider/codexapp/*`, `cmd/mcp-orch/orchestration/*` |
 | 使用框架 | `fx`, `run.Group` |
 | 预期代码量变化 | provider 相关手写代码净减 4,000 ~ 6,000 行 |
@@ -1379,9 +1379,9 @@ MCP 新依赖方向守卫不属于 P10 延后项，而是 P8/P9 的前置条件�
 | `go-agent-v2/internal/mcp/mcp_response_golden_guard_test.go` | MCP 协议输出 | 迁移为 family-level MCP contract |
 | `go-agent-v2/internal/mcp/lifecycle_matrix_guard_test.go` | MCP 生命周期矩阵 | 迁移为各 family 本地 lifecycle contract |
 | `go-agent-v2/internal/mcp/state_matrix_guard_test.go` | 协议状态机 | 迁移为 stdio runtime contract |
-| `go-agent-v2/pkg/agentsdk/service/runtime/*` | turn prepare/runtime 规则 | 迁移为 `module/turn/*` 单测 |
-| `go-agent-v2/pkg/agentsdk/service/history/*` | thread history 规则 | 迁移为 `module/thread/service.go` 单测 |
-| `go-agent-v2/pkg/agentsdk/service/archive/*` | archive/unarchive 行为 | 迁移为 `module/thread/service.go` 单测 |
+| `go-agent-v2/legacy-agentsdk/service/runtime/*` | turn prepare/runtime 规则 | 迁移为 `module/turn/*` 单测 |
+| `go-agent-v2/legacy-agentsdk/service/history/*` | thread history 规则 | 迁移为 `module/thread/service.go` 单测 |
+| `go-agent-v2/legacy-agentsdk/service/archive/*` | archive/unarchive 行为 | 迁移为 `module/thread/service.go` 单测 |
 | `go-agent-v2/pkg/toolsdk/tools/*schema*` | tool schema 契约 | 迁移为三个 family 的 schema contract |
 
 ### 5.2 哪些 V2 guard 测试不应原样迁移
@@ -1487,7 +1487,7 @@ V3 状态机必须做到：
 ## 6. 迁移清单（Checklist）
 
 > 说明：
-> 1. 本清单覆盖以下核心包的**全部生产代码文件**：`go-agent-v2/internal/apiserver/`, `go-agent-v2/internal/store/`, `go-agent-v2/internal/runner/`, `go-agent-v2/internal/bus/`, `go-agent-v2/pkg/agentsdk/`, `go-agent-v2/pkg/toolsdk/`。
+> 1. 本清单覆盖以下核心包的**全部生产代码文件**：`go-agent-v2/internal/apiserver/`, `go-agent-v2/internal/store/`, `go-agent-v2/internal/runner/`, `go-agent-v2/internal/bus/`, `go-agent-v2/legacy-agentsdk/`, `go-agent-v2/pkg/toolsdk/`。
 > 2. 测试文件不在本节逐文件列出，它们在第 5 节按规格类型迁移。
 > 3. “动作”只使用四种：`迁移` / `重写` / `丢弃` / `合并`。
 >
@@ -1634,80 +1634,80 @@ V3 状态机必须做到：
 | `go-agent-v2/internal/bus/router.go` | 重写 | `internal/module/uistate/projection.go` + `internal/platform/bus/typed.go` | 路由从字符串改为 typed 投影 |
 | `go-agent-v2/internal/bus/types.go` | 重写 | `internal/contract/agent/event.go` + `internal/platform/bus/typed.go` | 消息类型回核心事件模型 |
 
-### 6.5 `go-agent-v2/pkg/agentsdk/`
+### 6.5 `go-agent-v2/legacy-agentsdk/`
 
 | V2 文件 | 动作 | V3 归宿 | 说明 |
 |---|---|---|---|
-| `go-agent-v2/pkg/agentsdk/agentcore/client.go` | 重写 | `internal/contract/provider.go` | 统一 provider port |
-| `go-agent-v2/pkg/agentsdk/agentcore/doc.go` | 丢弃 | - | 包文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/agentcore/types.go` | 重写 | `internal/contract/agent/event.go` + `internal/dto/thread/config.go` + `internal/dto/turn/input.go` | 共享类型回归核心层 |
-| `go-agent-v2/pkg/agentsdk/claude/capabilities.go` | 合并 | `internal/provider/unified/capabilities.go` | capability matrix 收口 |
-| `go-agent-v2/pkg/agentsdk/claude/client.go` | 重写 | `internal/provider/claudecli/driver.go` | Claude driver |
-| `go-agent-v2/pkg/agentsdk/claude/client_cli_events.go` | 重写 | `internal/provider/claudecli/event_map.go` | Claude event map |
-| `go-agent-v2/pkg/agentsdk/claude/client_cli_transport.go` | 重写 | `internal/provider/claudecli/transport.go` + `internal/provider/unified/mcp_manifest.go` | transport 与 manifest 分离 |
-| `go-agent-v2/pkg/agentsdk/claude/doc.go` | 丢弃 | - | 包文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/claude/history_backend.go` | 重写 | `internal/provider/claudecli/history.go` | Claude history |
-| `go-agent-v2/pkg/agentsdk/claude/session.go` | 合并 | `internal/provider/unified/session.go` | session 抽象上提 |
-| `go-agent-v2/pkg/agentsdk/codex/client.go` | 重写 | `internal/provider/codexapp/driver.go` | Codex driver |
-| `go-agent-v2/pkg/agentsdk/codex/client_appserver.go` | 重写 | `internal/provider/codexapp/driver.go` | app-server 会话控制 |
-| `go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go` | 重写 | `internal/provider/codexapp/event_map.go` | Codex event map |
-| `go-agent-v2/pkg/agentsdk/codex/client_appserver_filter.go` | 丢弃 | - | DynamicTools deny list 不再存在 |
-| `go-agent-v2/pkg/agentsdk/codex/client_appserver_health.go` | 合并 | `internal/provider/codexapp/recovery.go` | health/retry 合并 |
-| `go-agent-v2/pkg/agentsdk/codex/client_appserver_helpers.go` | 合并 | `internal/provider/codexapp/transport.go` | transport helper |
-| `go-agent-v2/pkg/agentsdk/codex/client_appserver_jsonrpc_id.go` | 合并 | `internal/platform/rpc/codec.go` | JSON-RPC id 处理回基础设施 |
-| `go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go` | 重写 | `internal/provider/codexapp/transport.go` | app-server protocol |
-| `go-agent-v2/pkg/agentsdk/codex/client_appserver_runtime.go` | 合并 | `internal/provider/codexapp/driver.go` | runtime 行为合并 |
-| `go-agent-v2/pkg/agentsdk/codex/client_appserver_transport.go` | 重写 | `internal/provider/codexapp/transport.go` | transport 主体 |
-| `go-agent-v2/pkg/agentsdk/codex/doc.go` | 丢弃 | - | 包文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/codex/events.go` | 合并 | `internal/provider/codexapp/event_map.go` | event 类型并入 driver |
-| `go-agent-v2/pkg/agentsdk/codex/interface.go` | 丢弃 | - | alias 型兼容层不保留 |
-| `go-agent-v2/pkg/agentsdk/codex/rollout_reader.go` | 重写 | `internal/provider/codexapp/history.go` | rollout reader 私有化 |
-| `go-agent-v2/pkg/agentsdk/doc.go` | 丢弃 | - | v2 兼容文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/guardtest/function_surface.go` | 丢弃 | - | 文件形状 guard 不迁移 |
-| `go-agent-v2/pkg/agentsdk/pathutil/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/pathutil/pathutil.go` | 合并 | `internal/dto/shared/path.go` | path 工具回 shared |
-| `go-agent-v2/pkg/agentsdk/service/archive/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_core.go` | 重写 | `internal/module/thread/service.go` | archive 服务统一 |
-| `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_io.go` | 合并 | `internal/module/thread/service.go` | IO 细节合并 |
-| `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_ops.go` | 合并 | `internal/module/thread/service.go` | archive 操作合并 |
-| `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_utils.go` | 合并 | `internal/module/thread/service.go` | util 合并 |
-| `go-agent-v2/pkg/agentsdk/service/command/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/command/slash_command_logic.go` | 重写 | `internal/module/thread/service.go` | slash command 语义变为显式 service 方法 |
-| `go-agent-v2/pkg/agentsdk/service/common/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/common/turn_common_paths.go` | 合并 | `internal/dto/shared/path.go` | 公共路径逻辑上提 |
-| `go-agent-v2/pkg/agentsdk/service/history/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/history/thread_history_core.go` | 重写 | `internal/module/thread/service.go` | thread history 统一 |
-| `go-agent-v2/pkg/agentsdk/service/interrupt/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go` | 重写 | `internal/module/turn/service.go` | interrupt 统一 |
-| `go-agent-v2/pkg/agentsdk/service/lifecycle/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/lifecycle/thread_lifecycle_logic.go` | 重写 | `internal/module/thread/service.go` | thread lifecycle |
-| `go-agent-v2/pkg/agentsdk/service/lifecycle/turn_resume_core.go` | 合并 | `internal/module/thread/service.go` | resume 合并 |
-| `go-agent-v2/pkg/agentsdk/service/listing/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/listing/thread_listing_core.go` | 重写 | `internal/module/thread/service.go` | listing service |
-| `go-agent-v2/pkg/agentsdk/service/messages/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/messages/thread_messages_logic.go` | 重写 | `internal/module/thread/service.go` | messages 归 history |
-| `go-agent-v2/pkg/agentsdk/service/prompt/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/prompt/turn_prompt_core.go` | 重写 | `internal/module/turn/service.go` | prompt compose 统一 |
-| `go-agent-v2/pkg/agentsdk/service/rollout/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/rollout/thread_messages_hydration_core.go` | 合并 | `internal/module/thread/service.go` | history hydration 合并 |
-| `go-agent-v2/pkg/agentsdk/service/rollout/thread_messages_rollout_core.go` | 合并 | `internal/module/thread/service.go` | rollout merge 合并 |
-| `go-agent-v2/pkg/agentsdk/service/runtime/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/runtime/stream_timeout.go` | 合并 | `internal/platform/config/timeouts.go` | timeout 集中化 |
-| `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go` | 重写 | `internal/module/turn/service.go` | turn prepare |
-| `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_adapters.go` | 合并 | `internal/module/turn/service.go` | runtime adapter 不再独立存在 |
-| `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_logic.go` | 重写 | `internal/module/turn/service.go` | turn runtime |
-| `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_operations.go` | 合并 | `internal/module/turn/service.go` | operations 合并 |
-| `go-agent-v2/pkg/agentsdk/service/runtime/turn_steer_alignment.go` | 合并 | `internal/module/turn/service.go` | steer 逻辑合并 |
-| `go-agent-v2/pkg/agentsdk/service/support/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/support/interrupt_state.go` | 合并 | `internal/module/turn/service.go` | interrupt state 并入 tracker |
-| `go-agent-v2/pkg/agentsdk/service/support/prompt_match.go` | 重写 | `internal/module/skill/service.go` | prompt match 归 skill |
-| `go-agent-v2/pkg/agentsdk/service/tracker/doc.go` | 丢弃 | - | 文档不迁移 |
-| `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_core.go` | 重写 | `internal/module/turn/service.go` | tracker 核心 |
-| `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_lifecycle_core.go` | 合并 | `internal/module/turn/service.go` | lifecycle 合并 |
-| `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_rules_core.go` | 合并 | `internal/module/turn/service.go` | rules 合并 |
-| `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_stall_core.go` | 合并 | `internal/module/turn/service.go` | stall 合并 |
-| `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_state_core.go` | 合并 | `internal/module/turn/service.go` | state 合并 |
-| `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_summary_core.go` | 合并 | `internal/module/turn/service.go` | summary 合并 |
+| `go-agent-v2/legacy-agentsdk/agentcore/client.go` | 重写 | `internal/contract/provider.go` | 统一 provider port |
+| `go-agent-v2/legacy-agentsdk/agentcore/doc.go` | 丢弃 | - | 包文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/agentcore/types.go` | 重写 | `internal/contract/agent/event.go` + `internal/dto/thread/config.go` + `internal/dto/turn/input.go` | 共享类型回归核心层 |
+| `go-agent-v2/legacy-agentsdk/claude/capabilities.go` | 合并 | `internal/provider/unified/capabilities.go` | capability matrix 收口 |
+| `go-agent-v2/legacy-agentsdk/claude/client.go` | 重写 | `internal/provider/claudecli/driver.go` | Claude driver |
+| `go-agent-v2/legacy-agentsdk/claude/client_cli_events.go` | 重写 | `internal/provider/claudecli/event_map.go` | Claude event map |
+| `go-agent-v2/legacy-agentsdk/claude/client_cli_transport.go` | 重写 | `internal/provider/claudecli/transport.go` + `internal/provider/unified/mcp_manifest.go` | transport 与 manifest 分离 |
+| `go-agent-v2/legacy-agentsdk/claude/doc.go` | 丢弃 | - | 包文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/claude/history_backend.go` | 重写 | `internal/provider/claudecli/history.go` | Claude history |
+| `go-agent-v2/legacy-agentsdk/claude/session.go` | 合并 | `internal/provider/unified/session.go` | session 抽象上提 |
+| `go-agent-v2/legacy-agentsdk/codex/client.go` | 重写 | `internal/provider/codexapp/driver.go` | Codex driver |
+| `go-agent-v2/legacy-agentsdk/codex/client_appserver.go` | 重写 | `internal/provider/codexapp/driver.go` | app-server 会话控制 |
+| `go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go` | 重写 | `internal/provider/codexapp/event_map.go` | Codex event map |
+| `go-agent-v2/legacy-agentsdk/codex/client_appserver_filter.go` | 丢弃 | - | DynamicTools deny list 不再存在 |
+| `go-agent-v2/legacy-agentsdk/codex/client_appserver_health.go` | 合并 | `internal/provider/codexapp/recovery.go` | health/retry 合并 |
+| `go-agent-v2/legacy-agentsdk/codex/client_appserver_helpers.go` | 合并 | `internal/provider/codexapp/transport.go` | transport helper |
+| `go-agent-v2/legacy-agentsdk/codex/client_appserver_jsonrpc_id.go` | 合并 | `internal/platform/rpc/codec.go` | JSON-RPC id 处理回基础设施 |
+| `go-agent-v2/legacy-agentsdk/codex/client_appserver_protocol.go` | 重写 | `internal/provider/codexapp/transport.go` | app-server protocol |
+| `go-agent-v2/legacy-agentsdk/codex/client_appserver_runtime.go` | 合并 | `internal/provider/codexapp/driver.go` | runtime 行为合并 |
+| `go-agent-v2/legacy-agentsdk/codex/client_appserver_transport.go` | 重写 | `internal/provider/codexapp/transport.go` | transport 主体 |
+| `go-agent-v2/legacy-agentsdk/codex/doc.go` | 丢弃 | - | 包文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/codex/events.go` | 合并 | `internal/provider/codexapp/event_map.go` | event 类型并入 driver |
+| `go-agent-v2/legacy-agentsdk/codex/interface.go` | 丢弃 | - | alias 型兼容层不保留 |
+| `go-agent-v2/legacy-agentsdk/codex/rollout_reader.go` | 重写 | `internal/provider/codexapp/history.go` | rollout reader 私有化 |
+| `go-agent-v2/legacy-agentsdk/doc.go` | 丢弃 | - | v2 兼容文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/guardtest/function_surface.go` | 丢弃 | - | 文件形状 guard 不迁移 |
+| `go-agent-v2/legacy-agentsdk/pathutil/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/pathutil/pathutil.go` | 合并 | `internal/dto/shared/path.go` | path 工具回 shared |
+| `go-agent-v2/legacy-agentsdk/service/archive/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_core.go` | 重写 | `internal/module/thread/service.go` | archive 服务统一 |
+| `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_io.go` | 合并 | `internal/module/thread/service.go` | IO 细节合并 |
+| `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_ops.go` | 合并 | `internal/module/thread/service.go` | archive 操作合并 |
+| `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_utils.go` | 合并 | `internal/module/thread/service.go` | util 合并 |
+| `go-agent-v2/legacy-agentsdk/service/command/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/command/slash_command_logic.go` | 重写 | `internal/module/thread/service.go` | slash command 语义变为显式 service 方法 |
+| `go-agent-v2/legacy-agentsdk/service/common/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/common/turn_common_paths.go` | 合并 | `internal/dto/shared/path.go` | 公共路径逻辑上提 |
+| `go-agent-v2/legacy-agentsdk/service/history/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/history/thread_history_core.go` | 重写 | `internal/module/thread/service.go` | thread history 统一 |
+| `go-agent-v2/legacy-agentsdk/service/interrupt/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go` | 重写 | `internal/module/turn/service.go` | interrupt 统一 |
+| `go-agent-v2/legacy-agentsdk/service/lifecycle/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/lifecycle/thread_lifecycle_logic.go` | 重写 | `internal/module/thread/service.go` | thread lifecycle |
+| `go-agent-v2/legacy-agentsdk/service/lifecycle/turn_resume_core.go` | 合并 | `internal/module/thread/service.go` | resume 合并 |
+| `go-agent-v2/legacy-agentsdk/service/listing/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/listing/thread_listing_core.go` | 重写 | `internal/module/thread/service.go` | listing service |
+| `go-agent-v2/legacy-agentsdk/service/messages/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/messages/thread_messages_logic.go` | 重写 | `internal/module/thread/service.go` | messages 归 history |
+| `go-agent-v2/legacy-agentsdk/service/prompt/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/prompt/turn_prompt_core.go` | 重写 | `internal/module/turn/service.go` | prompt compose 统一 |
+| `go-agent-v2/legacy-agentsdk/service/rollout/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/rollout/thread_messages_hydration_core.go` | 合并 | `internal/module/thread/service.go` | history hydration 合并 |
+| `go-agent-v2/legacy-agentsdk/service/rollout/thread_messages_rollout_core.go` | 合并 | `internal/module/thread/service.go` | rollout merge 合并 |
+| `go-agent-v2/legacy-agentsdk/service/runtime/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/runtime/stream_timeout.go` | 合并 | `internal/platform/config/timeouts.go` | timeout 集中化 |
+| `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go` | 重写 | `internal/module/turn/service.go` | turn prepare |
+| `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_adapters.go` | 合并 | `internal/module/turn/service.go` | runtime adapter 不再独立存在 |
+| `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_logic.go` | 重写 | `internal/module/turn/service.go` | turn runtime |
+| `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_operations.go` | 合并 | `internal/module/turn/service.go` | operations 合并 |
+| `go-agent-v2/legacy-agentsdk/service/runtime/turn_steer_alignment.go` | 合并 | `internal/module/turn/service.go` | steer 逻辑合并 |
+| `go-agent-v2/legacy-agentsdk/service/support/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/support/interrupt_state.go` | 合并 | `internal/module/turn/service.go` | interrupt state 并入 tracker |
+| `go-agent-v2/legacy-agentsdk/service/support/prompt_match.go` | 重写 | `internal/module/skill/service.go` | prompt match 归 skill |
+| `go-agent-v2/legacy-agentsdk/service/tracker/doc.go` | 丢弃 | - | 文档不迁移 |
+| `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_core.go` | 重写 | `internal/module/turn/service.go` | tracker 核心 |
+| `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_lifecycle_core.go` | 合并 | `internal/module/turn/service.go` | lifecycle 合并 |
+| `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_rules_core.go` | 合并 | `internal/module/turn/service.go` | rules 合并 |
+| `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_stall_core.go` | 合并 | `internal/module/turn/service.go` | stall 合并 |
+| `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_state_core.go` | 合并 | `internal/module/turn/service.go` | state 合并 |
+| `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_summary_core.go` | 合并 | `internal/module/turn/service.go` | summary 合并 |
 
 ### 6.6 `go-agent-v2/pkg/toolsdk/`
 

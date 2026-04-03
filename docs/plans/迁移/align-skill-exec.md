@@ -9,10 +9,10 @@
 - V2 `go-agent-v2/internal/apiserver/methods_ui_projects.go`
 - V2 `go-agent-v2/internal/skills/helpers.go`
 - V2 `go-agent-v2/internal/skills/methods.go`
-- V2 `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go`
-- V2 `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_adapters.go`
-- V2 `go-agent-v2/pkg/agentsdk/service/prompt/turn_prompt_core.go`
-- V2 `go-agent-v2/pkg/agentsdk/service/prompt/turn_prompt_automatch_cc_test.go`
+- V2 `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go`
+- V2 `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_adapters.go`
+- V2 `go-agent-v2/legacy-agentsdk/service/prompt/turn_prompt_core.go`
+- V2 `go-agent-v2/legacy-agentsdk/service/prompt/turn_prompt_automatch_cc_test.go`
 - V3 `internal/module/skill/rpc.go`
 - V3 `internal/module/skill/rpc_types.go`
 - V3 `internal/module/skill/contract.go`
@@ -111,9 +111,9 @@
 ### 7. auto-match 配置型匹配
 
 - V2 `SkillsMatchPreview` 会把 `IncludeConfiguredExplicit=true` 和 `IncludeConfiguredForce=true` 传给 collector，见 `go-agent-v2/internal/skills/methods.go:363-370`。
-- V2 runtime 的 contract 是 `CollectAutoMatchedSkillMatches(prompt, inputs, configuredSkillNames, candidates, options)`；配置型 skill 名单来自 `a.ListAgentSkills(agentID)`，见 `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_adapters.go:21-29`、`go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:259-275`。
-- V2 prompt 侧真正的 configured 过滤逻辑是：只有配置过的 skill 且 `matchedBy=explicit/force` 时，才由 `IncludeConfiguredExplicit/Force` 控制是否纳入；配置型 `trigger` 仍被过滤，见 `go-agent-v2/pkg/agentsdk/service/prompt/turn_prompt_core.go:257-291`。
-- V2 测试也明确验证了这点：configured + explicit 可放行，configured + trigger 仍过滤，configured + force 可放行，见 `go-agent-v2/pkg/agentsdk/service/prompt/turn_prompt_automatch_cc_test.go:139-219`。
+- V2 runtime 的 contract 是 `CollectAutoMatchedSkillMatches(prompt, inputs, configuredSkillNames, candidates, options)`；配置型 skill 名单来自 `a.ListAgentSkills(agentID)`，见 `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_adapters.go:21-29`、`go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:259-275`。
+- V2 prompt 侧真正的 configured 过滤逻辑是：只有配置过的 skill 且 `matchedBy=explicit/force` 时，才由 `IncludeConfiguredExplicit/Force` 控制是否纳入；配置型 `trigger` 仍被过滤，见 `go-agent-v2/legacy-agentsdk/service/prompt/turn_prompt_core.go:257-291`。
+- V2 测试也明确验证了这点：configured + explicit 可放行，configured + trigger 仍过滤，configured + force 可放行，见 `go-agent-v2/legacy-agentsdk/service/prompt/turn_prompt_automatch_cc_test.go:139-219`。
 - V3 `MatchPreview` 的 configured 分支来自 `collectConfiguredAutoMatchedSkills(ctx, resolvedID)`，它只会读取 `readConfiguredSkillState/ReadConfig`，然后把 `skills` 列表里的名字直接包装成 `MatchedBy: "configured"`，见 `internal/module/skill/skills_match.go:59-74,76-81,83-103`。
 - V3 这里还有明确 TODO：后续才会替换成 provider-backed matcher，以表达 configured explicit vs force，见 `internal/module/skill/skills_match.go:68-72`。
 - V3 当前默认 `ReadConfig` 仍是 stub，返回 `skills: []string{}`、`binding_source: "stub"`，见 `internal/module/skill/skills_fs.go:143-156`。

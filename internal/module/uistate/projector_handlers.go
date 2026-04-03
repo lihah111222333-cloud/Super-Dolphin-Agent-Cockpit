@@ -7,10 +7,7 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
-
-func currentLogFilePath() string { return pkglogger.CurrentLogFilePath() }
 
 func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 	s.mu.Lock()
@@ -58,11 +55,8 @@ func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 	s.mu.Lock()
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
-	currentState := normalizeAgentLifecycleState(firstNonEmptyString(
-		s.agentStateLocked(agentID),
-		s.threadAgentStateLocked(threadID),
-	))
-	agentState := launchedAgentState(currentState)
+	currentState := normalizeAgentLifecycleState(firstNonEmptyString(s.agentLifecycleLocked(agentID), s.threadLifecycleLocked(threadID)))
+	agentState := launchState(currentState)
 	s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
 		ID:      threadID,
 		AgentID: agentID,
@@ -204,7 +198,7 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 			Provider:         strings.TrimSpace(ev.Provider),
 			Model:            strings.TrimSpace(ev.Model),
 			CWD:              strings.TrimSpace(ev.CWD),
-			LogPath:          currentLogFilePath(),
+			LogPath:          logFilePath(),
 			State:            "idle",
 			AgentState:       "idle",
 		})
@@ -250,7 +244,7 @@ func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 	turnID := strings.TrimSpace(ev.TurnID)
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
-	if turnID != "" && s.hasRecentTurnLocked(turnID) {
+	if turnID != "" && s.recentTurnExistsLocked(turnID) {
 		s.mu.Unlock()
 		return
 	}
@@ -368,51 +362,4 @@ func (s *service) applyTurnOutputDelta(ev turndto.TurnOutputDelta) {
 	appendLastMessageLocked(&s.state.Threads, strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.AgentID), delta)
 	appendAgentMessageLocked(&s.state.Agents, strings.TrimSpace(ev.AgentID), strings.TrimSpace(ev.ThreadID), delta)
 	s.mu.Unlock()
-}
-
-func (s *service) threadAgentStateLocked(threadID string) string {
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
-		return ""
-	}
-	for _, item := range s.state.Threads {
-		if item.ID == threadID {
-			return normalizeAgentLifecycleState(firstNonEmptyString(item.AgentState, item.ThreadStatus, item.State))
-		}
-	}
-	return ""
-}
-
-func (s *service) agentStateLocked(agentID string) string {
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" {
-		return ""
-	}
-	for _, item := range s.state.Agents {
-		if item.ID == agentID {
-			return normalizeAgentLifecycleState(firstNonEmptyString(item.AgentState, item.ThreadStatus, item.State))
-		}
-	}
-	return ""
-}
-
-func (s *service) hasRecentTurnLocked(turnID string) bool {
-	turnID = strings.TrimSpace(turnID)
-	if turnID == "" {
-		return false
-	}
-	for _, item := range s.state.RecentTurns {
-		if item.ID == turnID {
-			return true
-		}
-	}
-	return false
-}
-
-func launchedAgentState(current string) string {
-	current = strings.TrimSpace(current)
-	if current == "" || strings.EqualFold(current, "starting") {
-		return "starting"
-	}
-	return current
 }

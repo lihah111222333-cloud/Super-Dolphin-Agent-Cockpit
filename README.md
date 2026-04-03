@@ -15,6 +15,6 @@ make build   # compile
 
 ## Architecture
 
-- `pkg/factory/` — Cross-package DRY primitives (Zone A)
+- `internal/platform/*` + `internal/platform/shared/` — Cross-package DRY primitives (former Zone A)
 - `internal/*/factory_*.go` — Package-local DRY (Zone B)
 - `internal/guards/` — Behavioral & structural guards

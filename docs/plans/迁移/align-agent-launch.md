@@ -6,10 +6,10 @@
   - `go-agent-v2/internal/apiserver/methods_orchestration.go`
   - `go-agent-v2/internal/runner/manager_launch.go`
   - `go-agent-v2/internal/runner/manager_lifecycle.go`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_runtime.go`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go`
-  - `go-agent-v2/pkg/agentsdk/claude/client.go`
-  - `go-agent-v2/pkg/agentsdk/agentcore/types.go`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_runtime.go`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_protocol.go`
+  - `go-agent-v2/legacy-agentsdk/claude/client.go`
+  - `go-agent-v2/legacy-agentsdk/agentcore/types.go`
 - V3：
   - `cmd/mcp-orch/orchestration/rpc.go`
   - `cmd/mcp-orch/orchestration/rpc_types.go`

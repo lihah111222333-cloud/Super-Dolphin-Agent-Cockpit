@@ -15,13 +15,7 @@ const (
 	ErrCodeBusy                = 4109
 	ErrCodeTimeout             = 4110
 
-	// Deprecated aliases kept temporarily so downstream packages can migrate in
-	// parallel without immediately breaking on constant renames.
-	ErrCodeInvalidLease    = ErrCodeLeaseNotFound
-	ErrCodeStaleLease      = ErrCodeLeaseStale
-	ErrCodeUnknownScope    = ErrCodeScopeNotAllowed
-	ErrCodeApprovalDenied  = ErrCodeApprovalUnavailable
-	ErrCodeApprovalTimeout = ErrCodeTimeout
-	ErrCodeReportConflict  = ErrCodePersistFailed
-	ErrCodeNotRegistered   = ErrCodeLeaseNotFound
+	// Deprecated alias kept temporarily so downstream packages can migrate
+	// without immediately breaking on constant renames.
+	ErrCodeReportConflict = ErrCodePersistFailed
 )

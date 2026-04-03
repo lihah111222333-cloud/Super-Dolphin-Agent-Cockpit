@@ -22,7 +22,7 @@
 2. `claudecli` 声明了 `context_compact` capability，但 thread 命令通道并不支持 `/compact`，`thread/compact/start` 通过 capability gate 后仍会落到 `unsupported command`。证据：`internal/provider/claudecli/driver.go:13`、`internal/module/thread/rpc.go:63`、`internal/module/thread/command.go:20`。
 3. `claudecli` 的 session 代码实际支持 turn-level `Model/Effort` override，但 capability 集未声明 `turn_override`，上游 `module/turn` 会直接把 override 剪掉，导致能力被“实现了但不可达”。证据：`internal/provider/claudecli/session.go:333`、`internal/provider/claudecli/driver.go:13`、`internal/module/turn/service.go:242`。
 4. `SessionResolver` 并没有成为唯一的 `threadID -> session` 入口。`turn/rpc` 与 capability gate 使用它，但 `module/thread` 仍保留了自己的一套 binding + session provider 解析逻辑。证据：`internal/provider/unified/session_resolver.go:23`、`internal/module/turn/rpc.go:20`、`internal/platform/rpc/handler.go:20`、`internal/module/thread/service.go:213`。
-5. `ReadHistory` 在两个 driver 上都已存在，但与 V2 相比，历史 metadata 保真度退化。`claudecli` 已不再提取附件 metadata；`codexapp` 的本地 rollout 路径也会丢 metadata。证据：`internal/provider/claudecli/session_history.go:35`、`internal/provider/claudecli/history.go:84`、`internal/provider/codexapp/history_rollout.go:52`、`go-agent-v2/pkg/agentsdk/claude/history_backend.go:180`、`go-agent-v2/pkg/agentsdk/codex/rollout_reader.go:216`。
+5. `ReadHistory` 在两个 driver 上都已存在，但与 V2 相比，历史 metadata 保真度退化。`claudecli` 已不再提取附件 metadata；`codexapp` 的本地 rollout 路径也会丢 metadata。证据：`internal/provider/claudecli/session_history.go:35`、`internal/provider/claudecli/history.go:84`、`internal/provider/codexapp/history_rollout.go:52`、`go-agent-v2/legacy-agentsdk/claude/history_backend.go:180`、`go-agent-v2/legacy-agentsdk/codex/rollout_reader.go:216`。
 6. `codexapp/recovery.go` 目前只是孤立实现，session 构造时挂上了 `recoveryManager`，但审查范围内没有任何调用点，和 V2 appserver client 的 health/reconnect 能力相比尚未真正迁入。证据：`internal/provider/codexapp/session.go:86`、`internal/provider/codexapp/recovery.go:18`、`internal/provider/codexapp/recovery.go:28`。
 
 ## 1. 文件清单与行数
@@ -218,8 +218,8 @@
 
 和 V2 对照：
 
-- V2 Claude history 会从注入的 `[image:...]` / `[file:...]` hint 中恢复 metadata，见 `go-agent-v2/pkg/agentsdk/claude/history_backend.go:164`、`:180`。
-- V2 Codex rollout reader 会提取用户图片 metadata，见 `go-agent-v2/pkg/agentsdk/codex/rollout_reader.go:216`。
+- V2 Claude history 会从注入的 `[image:...]` / `[file:...]` hint 中恢复 metadata，见 `go-agent-v2/legacy-agentsdk/claude/history_backend.go:164`、`:180`。
+- V2 Codex rollout reader 会提取用户图片 metadata，见 `go-agent-v2/legacy-agentsdk/codex/rollout_reader.go:216`。
 
 审查判断：
 
@@ -295,10 +295,10 @@ driver 侧：
 ### 明确退化或未迁完
 
 - 默认 provider fallback：V2 有，V3 `unified.Registry` 没有。证据：`go-agent-v2/internal/apiserver/provider_adapter_registry.go:77` 对比 `internal/provider/unified/registry.go:27`。
-- Claude history metadata：V2 有附件 metadata 恢复，V3 没有。证据：`go-agent-v2/pkg/agentsdk/claude/history_backend.go:180` 对比 `internal/provider/claudecli/history.go:113`。
-- Codex rollout metadata：V2 有 `extractRolloutMetadata`，V3 本地 rollout parser 没有 metadata。证据：`go-agent-v2/pkg/agentsdk/codex/rollout_reader.go:216` 对比 `internal/provider/codexapp/history_rollout.go:52`。
-- Codex recovery/health：V2 appserver client 有成体系的 health/reconnect 文件族，V3 仅保留了一个未接线的 `recovery.go`。证据：`go-agent-v2/pkg/agentsdk/codex/client_appserver_health.go` 对比 `internal/provider/codexapp/recovery.go:18`。
-- Claude 动态 tool result responder：V2 CLI client 有 `SendDynamicToolResult` / `RespondError`，见 `go-agent-v2/pkg/agentsdk/claude/client.go:363`；V3 `contract.ToolCallResponder` 仍在，但 provider 包里没有实现。
+- Claude history metadata：V2 有附件 metadata 恢复，V3 没有。证据：`go-agent-v2/legacy-agentsdk/claude/history_backend.go:180` 对比 `internal/provider/claudecli/history.go:113`。
+- Codex rollout metadata：V2 有 `extractRolloutMetadata`，V3 本地 rollout parser 没有 metadata。证据：`go-agent-v2/legacy-agentsdk/codex/rollout_reader.go:216` 对比 `internal/provider/codexapp/history_rollout.go:52`。
+- Codex recovery/health：V2 appserver client 有成体系的 health/reconnect 文件族，V3 仅保留了一个未接线的 `recovery.go`。证据：`go-agent-v2/legacy-agentsdk/codex/client_appserver_health.go` 对比 `internal/provider/codexapp/recovery.go:18`。
+- Claude 动态 tool result responder：V2 CLI client 有 `SendDynamicToolResult` / `RespondError`，见 `go-agent-v2/legacy-agentsdk/claude/client.go:363`；V3 `contract.ToolCallResponder` 仍在，但 provider 包里没有实现。
 
 审查判断：
 

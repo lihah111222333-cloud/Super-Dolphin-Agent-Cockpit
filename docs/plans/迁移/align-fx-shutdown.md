@@ -6,7 +6,7 @@
 
 - V2 desktop: `go-agent-v2/cmd/agent-terminal/main.go`, `go-agent-v2/cmd/agent-terminal/main_setup.go`, `go-agent-v2/cmd/agent-terminal/app_helpers.go`, `go-agent-v2/internal/runner/manager_lifecycle.go`
 - V2 headless: `go-agent-v2/cmd/app-server/main.go`
-- V2 provider stop: `go-agent-v2/pkg/agentsdk/claude/client.go`, `go-agent-v2/pkg/agentsdk/codex/client_appserver_runtime.go`
+- V2 provider stop: `go-agent-v2/legacy-agentsdk/claude/client.go`, `go-agent-v2/legacy-agentsdk/codex/client_appserver_runtime.go`
 - V3 app/fx: `internal/app/app.go`, `internal/app/modules.go`, `internal/app/runner.go`
 - V3 wails: `internal/ui/wails/lifecycle.go`, `internal/ui/wails/module.go`
 - V3 runtime/shutdown: `internal/platform/runner/group.go`, `cmd/mcp-orch/orchestration/runner_actor.go`, `cmd/mcp-orch/orchestration/service.go`, `cmd/mcp-orch/orchestration/helpers.go`, `internal/provider/unified/module.go`, `internal/provider/unified/session.go`, `internal/provider/unified/session_adapter.go`, `internal/platform/db/module.go`
@@ -215,8 +215,8 @@ V3 desktop 下，`ShouldQuit()`/`OnShutdown()` 只是请求 FX shutdown：
 
 V2 没有独立的 session manager shutdown 步骤。session close 被折叠进 provider client 的 `Shutdown()`：
 
-- `go-agent-v2/pkg/agentsdk/claude/client.go:414-451`
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver_runtime.go:202-243`
+- `go-agent-v2/legacy-agentsdk/claude/client.go:414-451`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver_runtime.go:202-243`
 
 也就是“agent stop”与“session close”混在 provider client 层。
 

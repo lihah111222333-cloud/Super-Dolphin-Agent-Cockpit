@@ -103,12 +103,12 @@
 兼容部分：
 
 - `ui/state/changed`：V2 UI 层把它当作关键 bridge method 之一，见 `go-agent-v2/cmd/agent-terminal/app_helpers.go:104-110`。
-- `turn/started`：V2 codex client map 显式映射到 `EventTurnStarted`，见 `go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go:636-647`。
+- `turn/started`：V2 codex client map 显式映射到 `EventTurnStarted`，见 `go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:636-647`。
 - `turn/completed`：V2 codex client map 显式映射到 `EventTurnComplete`，同上。
 
 不兼容部分：
 
-- V2 仍保留独立 `turn/aborted` method，见 `go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go:641-644` 与 `go-agent-v2/cmd/agent-terminal/app_helpers.go:104-110`。
+- V2 仍保留独立 `turn/aborted` method，见 `go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:641-644` 与 `go-agent-v2/cmd/agent-terminal/app_helpers.go:104-110`。
 - 但 V3 codex translator 把 raw `turn/aborted` 折叠成 `turndto.TurnCompleted{Success:false}`，见 `internal/provider/codexapp/event_map.go:76-85`；随后 push bridge 固定发 `turn/completed`，不会发 `turn/aborted`。
 
 结论：**成功态是 exact-compatible；终止/中断语义不是 exact-compatible，而是“折叠兼容”。**
@@ -430,7 +430,7 @@ provider translator 也会发布：
 
 ### 10.1 V2 有哪些事件族
 
-`go-agent-v2/pkg/agentsdk/agentcore/types.go:210-274` 一共定义了 **63 个命名事件**。按语义可归为：
+`go-agent-v2/legacy-agentsdk/agentcore/types.go:210-274` 一共定义了 **63 个命名事件**。按语义可归为：
 
 1. agent / session / turn lifecycle  
    例：`session_configured`、`turn_started`、`turn_complete`、`turn_aborted`、`idle`、`shutdown_complete`、`connection_dead`

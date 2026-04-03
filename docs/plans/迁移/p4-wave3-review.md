@@ -27,7 +27,7 @@
   - 因此 unified 最合理的实现是 facade：选 driver，调用 `driver.StartSession` / `driver.ResumeSession`，必要时仅包一层 bookkeeping。
 - Blocker：registry 当前没有稳定的 driver 选择输入。
   - `internal/dto/provider/StartSessionRequest` 与 `ResumeSessionRequest` 都没有 `Provider` / `Driver` 字段。
-  - V2 的 provider 选择是显式契约：`go-agent-v2/pkg/agentsdk/agentcore/types.go` 中 `LaunchConfig.Provider`，以及 `go-agent-v2/internal/runner/provider_registry.go` 的 `ResolveProviderFactory(...)`。
+  - V2 的 provider 选择是显式契约：`go-agent-v2/legacy-agentsdk/agentcore/types.go` 中 `LaunchConfig.Provider`，以及 `go-agent-v2/internal/runner/provider_registry.go` 的 `ResolveProviderFactory(...)`。
   - 如果不补 typed provider 字段，unified registry 只能依赖隐式默认值或 `Config` map，和 V2 的显式 provider 选择相比不稳定。
 
 ## 3. T6 依赖方向
@@ -93,7 +93,7 @@
   - V3 `dto/provider.InputItem` 只有 `Type, Content, Path`。
   - 当前 `codexapp/session.go` 的 `mapTurnInput(...)` 主要读取 `item.Content`，对 `Path` 不敏感；这和 `claudecli/session.go` 的处理方式不一致。
   - 结论：若不扩展 provider DTO 或修正 provider mapper，T6 无法无损迁移 V2 的 image/file/mention/fileContent 输入。
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go` 的核心保留面：
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go` 的核心保留面：
   - `PrepareTurnStartSubmission`
   - `PrepareTurnSteerSubmission`
   - `prepareTurnSubmissionCommon`
@@ -105,12 +105,12 @@
   - UI timeline append 相关
   - injected LSP prompt 展示偏好
   - DynamicTools/LSP availability warning
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_logic.go` 中大段逻辑属于“准备可提交进程/恢复历史线程”，不应进入 T6：
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_logic.go` 中大段逻辑属于“准备可提交进程/恢复历史线程”，不应进入 T6：
   - `EnsureThreadReadyForTurn`
   - launch context / binding candidate / resume candidate
   - historical launch/recover
   - 这些职责在 V3 应前移到 T5 session bootstrap 或更外层 agent/session 管理服务
-- `go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go` 与 `service/tracker/*` 中需要保留的不是 API 形状，而是行为：
+- `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go` 与 `service/tracker/*` 中需要保留的不是 API 形状，而是行为：
   - active turn terminal wait
   - interrupt settle
   - watchdog

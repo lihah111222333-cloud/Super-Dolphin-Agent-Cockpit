@@ -98,7 +98,7 @@
 | middleware.go 命名 | ⚠️ 落在 handler.go | 拆分：handler.go 只保留 ThreadHandler/StrictHandler，middleware 逻辑独立文件 | P10 |
 | typed event 替代 | ⚠️ 部分 | 推广 NewTypedEmitter 到 orchestration/approval，替代 raw dispatcher | P10 |
 | sqlc WithTx 收口 | ⚠️ 部分 | store 接口不再暴露 WithTx，改用 platform/db 事务闭包 | P10 |
-| pkg/factory 清理 | ⚠️ 遗留 | 删除 pkg/factory/ 全部 stub（handler.go/fsm.go/schema.go） | P10 |
+| Zone A stub 清理 | ✅ 已完成 | 删除 legacy factory stub 全部占位文件 | P13 |
 
 ---
 
@@ -187,7 +187,7 @@
 ### P10 波次 3（延后，3 Agent）
 - Agent 8: fileops + hash 新建
 - Agent 9: module.go 纯化 + rpc.go 边界收紧
-- Agent 10: 框架承接补完（Validate/TypedEmitter/WithTx/pkg/factory 清理）
+- Agent 10: 框架承接补完（Validate/TypedEmitter/WithTx/Zone A stub 清理）
 
 ---
 

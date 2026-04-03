@@ -98,7 +98,7 @@
 
 ### 3.1 依赖方向违规
 
-- 全局文本搜索显示，`internal/store` 作用域里只有 `binding/store.go` 和 `sqlc/db.go` import 了 `internal/platform/db`；没有 `internal/module/`、`pkg/agentsdk/provider`、`provider/` 的命中。[binding/store.go](/Volumes/bot/super-agent-v3/internal/store/binding/store.go#L6) [db.go](/Volumes/bot/super-agent-v3/internal/store/sqlc/db.go#L7)
+- 全局文本搜索显示，`internal/store` 作用域里只有 `binding/store.go` 和 `sqlc/db.go` import 了 `internal/platform/db`；没有 `internal/module/`、`internal/provider/unified`、`provider/` 的命中。[binding/store.go](/Volumes/bot/super-agent-v3/internal/store/binding/store.go#L6) [db.go](/Volumes/bot/super-agent-v3/internal/store/sqlc/db.go#L7)
 - 如果按最初硬约束“手写 store 只依赖 sqlc + 标准库”，`binding/store.go` 是明确违规点：它直接 import `platform/db`，并在 `Upsert` 中调用 `platformdb.IsUniqueViolation`。[binding/store.go](/Volumes/bot/super-agent-v3/internal/store/binding/store.go#L6) [binding/store.go](/Volumes/bot/super-agent-v3/internal/store/binding/store.go#L41)
 - `call_hierarchy(outgoing)` 也证明 `binding.Upsert` 会出向调用 `internal/platform/db/errors.go:IsUniqueViolation`，而不是停留在 `sqlc` 层内部。[binding/store.go](/Volumes/bot/super-agent-v3/internal/store/binding/store.go#L30) [errors.go](/Volumes/bot/super-agent-v3/internal/platform/db/errors.go#L9)
 

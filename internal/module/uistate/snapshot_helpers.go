@@ -18,29 +18,6 @@ type threadActivity struct {
 	collabDepth        int
 }
 
-func cloneThreadGroups(items []ThreadGroup) []ThreadGroup {
-	out := make([]ThreadGroup, len(items))
-	for i := range items {
-		out[i] = ThreadGroup{
-			Key:     items[i].Key,
-			Title:   items[i].Title,
-			Threads: cloneThreads(items[i].Threads),
-		}
-	}
-	return out
-}
-func cloneViewPrefs(value ViewPrefs) ViewPrefs {
-	return ViewPrefs{
-		Chat: cloneJSONMap(value.Chat),
-		Cmd:  cloneJSONMap(value.Cmd),
-	}
-}
-func cloneThreadCollections(value ThreadCollections) ThreadCollections {
-	return ThreadCollections{
-		Chat: cloneTimestampMap(value.Chat),
-		Cmd:  cloneTimestampMap(value.Cmd),
-	}
-}
 func pushRecentTurn(items []TurnSummary, next TurnSummary, limit int) []TurnSummary {
 	next.ID = strings.TrimSpace(next.ID)
 	if next.ID == "" {

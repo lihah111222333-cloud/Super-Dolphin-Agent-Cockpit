@@ -198,8 +198,8 @@
 
 对照 V2：
 
-- V2 `ThreadArchive` 会真正归档 provider artifacts、保存 manifest、回传 `archiveDir/rolloutPath/files/partial/warnings`，见 `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_ops.go:54-91`。
-- V2 `ThreadUnarchive` 会恢复归档文件、回写 binding、清理 archive dir、回传 restore 结果，见 `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_ops.go:94-175`。
+- V2 `ThreadArchive` 会真正归档 provider artifacts、保存 manifest、回传 `archiveDir/rolloutPath/files/partial/warnings`，见 `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_ops.go:54-91`。
+- V2 `ThreadUnarchive` 会恢复归档文件、回写 binding、清理 archive dir、回传 restore 结果，见 `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_ops.go:94-175`。
 
 结论：
 
@@ -228,7 +228,7 @@
 更细的兼容性问题：
 
 1. 当前所有 command handler 统一使用 `commandParams{threadId,args}`，见 `internal/module/thread/rpc_types.go:34-37`。
-2. V2 对 `/model`、`/personality`、`/approvals` 允许专用参数键，例如 `model`、`personality`、`policy`，也兼容 `args`，见 `go-agent-v2/pkg/agentsdk/service/command/slash_command_logic.go:104-119`。
+2. V2 对 `/model`、`/personality`、`/approvals` 允许专用参数键，例如 `model`、`personality`、`policy`，也兼容 `args`，见 `go-agent-v2/legacy-agentsdk/service/command/slash_command_logic.go:104-119`。
 3. 当前 handler 使用 `StrictHandler`，所以如果前端按 V2 发送 `{"threadId":"...","model":"gpt-5.4"}`，会因为 `model` 不是 `commandParams` 字段而直接判定为 invalid params。
 4. `thread/skills/list` 在 V2 是无参路由，当前却用了 `rpc.ThreadHandler`，会强制要求 `threadId`。
 5. `thread/debugMemory` 在 V2 参数是 `{"action":"drop|update"}`；当前却走 `threadId` 路径，完全不是同一个协议。

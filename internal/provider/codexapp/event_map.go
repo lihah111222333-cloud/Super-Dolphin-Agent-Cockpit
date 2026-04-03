@@ -8,6 +8,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -19,6 +20,25 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	if dispatcher != nil {
 		dispatcher.Register(translateCodexEvent)
 	}
+}
+
+func buildAgentSessionHeader(payload map[string]any) shared.AgentSessionHeader {
+	agentID := stringValue(payload, "agentId", "agent_id")
+	threadID := firstNonEmpty(agentID, stringValue(payload, "threadId", "thread_id"), stringValue(nestedValue(payload, "thread"), "id"))
+	return shared.AgentSessionHeader{AgentHeader: shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: eventTime(payload)}, ThreadID: threadID}, AgentID: agentID}, SessionID: firstNonEmpty(stringValue(payload, "sessionId", "session_id"), threadID)}
+}
+
+func buildTurnHeader(payload map[string]any) shared.TurnHeader {
+	return shared.TurnHeader{AgentHeader: buildAgentSessionHeader(payload).AgentHeader, TurnIDHeader: shared.TurnIDHeader{TurnID: firstNonEmpty(stringValue(payload, "turnId", "turn_id"), stringValue(nestedValue(payload, "turn"), "id"))}}
+}
+
+func buildToolCallHeader(payload map[string]any) shared.ToolCallHeader {
+	item := nestedValue(payload, "item")
+	return shared.ToolCallHeader{TurnHeader: buildTurnHeader(payload), CallID: firstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(item, "callId")), ToolName: firstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(item, "toolName", "tool"))}
+}
+
+func buildToolApprovalHeader(payload map[string]any) shared.ToolApprovalHeader {
+	return shared.ToolApprovalHeader{ToolCallHeader: buildToolCallHeader(payload), ApprovalID: stringValue(payload, "approvalId", "approval_id")}
 }
 
 func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
@@ -102,7 +122,7 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 	switch eventType {
 	case "thread/started", "session.configured":
 		return agentdto.AgentLaunched{
-			AgentSessionHeader: agentSessionHeader(payload),
+			AgentSessionHeader: buildAgentSessionHeader(payload),
 			Model:              stringValue(payload, "model"),
 			CWD:                stringValue(payload, "cwd"),
 		}, true
@@ -110,18 +130,18 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 		return validatedStateChangedEvent(payload)
 	case "shutdown.complete", "shutdown_complete":
 		return agentdto.AgentStopped{
-			AgentSessionHeader: agentSessionHeader(payload),
+			AgentSessionHeader: buildAgentSessionHeader(payload),
 			Reason:             stringValue(payload, "reason", "message"),
 		}, true
 	case "recovery.attempt":
 		return agentdto.AgentRecovering{
-			AgentSessionHeader: agentSessionHeader(payload),
+			AgentSessionHeader: buildAgentSessionHeader(payload),
 			Reason:             firstNonEmpty(stringValue(payload, "reason", "message"), "reconnecting"),
 			Attempt:            int(int64Value(payload, "attempt")),
 		}, true
 	case "connection.dead":
 		return agentdto.AgentFailed{
-			AgentSessionHeader: agentSessionHeader(payload),
+			AgentSessionHeader: buildAgentSessionHeader(payload),
 			Error:              firstNonEmpty(stringValue(payload, "error", "message"), "connection lost"),
 			Recoverable:        boolValue(payload, "recoverable", "willRetry", "will_retry"),
 		}, true
@@ -133,10 +153,10 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	switch eventType {
 	case "turn/started", "turn.started":
-		return turndto.TurnStarted{TurnHeader: turnHeader(payload)}, true
+		return turndto.TurnStarted{TurnHeader: buildTurnHeader(payload)}, true
 	case "turn/completed", "turn.completed", "turn/aborted", "turn.aborted":
 		return turndto.TurnCompleted{
-			TurnHeader: turnHeader(payload),
+			TurnHeader: buildTurnHeader(payload),
 			Success:    completionSuccess(eventType, payload),
 			Error:      stringValue(payload, "error", "message", "reason"),
 			Status:     stringValue(payload, "status"),
@@ -144,24 +164,24 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 		}, true
 	case "turn/interrupted", "turn.interrupted":
 		return turndto.TurnInterrupted{
-			TurnHeader: turnHeader(payload),
+			TurnHeader: buildTurnHeader(payload),
 			Reason:     stringValue(payload, "reason", "message"),
 		}, true
 	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
 		return turndto.TurnOutputDelta{
-			TurnHeader: turnHeader(payload),
+			TurnHeader: buildTurnHeader(payload),
 			Stream:     "message",
 			Delta:      stringValue(payload, "delta", "content"),
 		}, true
 	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "reasoning.delta":
 		return turndto.TurnOutputDelta{
-			TurnHeader: turnHeader(payload),
+			TurnHeader: buildTurnHeader(payload),
 			Stream:     "reasoning",
 			Delta:      stringValue(payload, "delta", "content"),
 		}, true
 	case "item/commandExecution/outputDelta", "exec_output_delta":
 		return turndto.TurnOutputDelta{
-			TurnHeader: turnHeader(payload),
+			TurnHeader: buildTurnHeader(payload),
 			Stream:     "stdout",
 			Delta:      stringValue(payload, "delta", "content"),
 		}, true
@@ -198,7 +218,7 @@ func validatedStateChangedEvent(payload map[string]any) (any, bool) {
 		return nil, false
 	}
 	return agentdto.StateChanged{
-		AgentSessionHeader: agentSessionHeader(payload),
+		AgentSessionHeader: buildAgentSessionHeader(payload),
 		OldState:           oldState,
 		NewState:           newState,
 		Trigger:            stringValue(payload, "trigger"),
@@ -222,7 +242,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 	switch eventType {
 	case "item/tool/call", "dynamic_tool_call", "tool.call.begin":
 		return tooldto.ToolCallBegin{
-			ToolCallHeader:   toolCallHeader(payload),
+			ToolCallHeader:   buildToolCallHeader(payload),
 			RequestID:        int64Value(payload, "requestId"),
 			ArgumentsPreview: jsonPreview(payload, "arguments", "args"),
 		}, true
@@ -231,7 +251,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			return nil, false
 		}
 		return tooldto.ToolCallEnd{
-			ToolCallHeader: toolCallHeader(payload),
+			ToolCallHeader: buildToolCallHeader(payload),
 			Success:        completionSuccess(eventType, payload),
 			Error:          stringValue(payload, "error", "message", "reason"),
 			ElapsedMS:      int64Value(payload, "elapsedMs", "elapsed_ms"),
@@ -243,13 +263,13 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 		"skill/requestApproval",
 		"tool.approval.requested":
 		return tooldto.ToolApprovalRequested{
-			ToolApprovalHeader: toolApprovalHeader(payload),
+			ToolApprovalHeader: buildToolApprovalHeader(payload),
 			RequestID:          int64Value(payload, "requestId"),
 			Reason:             stringValue(payload, "reason", "message"),
 		}, true
 	case "approval/resolved", "tool.approval.resolved":
 		return tooldto.ToolApprovalResolved{
-			ToolApprovalHeader: toolApprovalHeader(payload),
+			ToolApprovalHeader: buildToolApprovalHeader(payload),
 			Approved:           boolValue(payload, "approved"),
 			Decision:           stringValue(payload, "decision"),
 			ReviewedBy:         stringValue(payload, "reviewedBy", "reviewed_by"),
@@ -360,7 +380,7 @@ func completionSuccess(eventType string, payload map[string]any) bool {
 }
 
 func looksLikeToolCall(payload map[string]any) bool {
-	header := toolCallHeader(payload)
+	header := buildToolCallHeader(payload)
 	return header.CallID != "" && header.ToolName != ""
 }
 

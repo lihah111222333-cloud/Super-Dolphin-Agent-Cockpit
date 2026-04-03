@@ -169,7 +169,7 @@ func cloneState(value UIState) *UIState {
 		ViewPrefsCmd:             cloneJSONMap(value.ViewPrefsCmd),
 		ThreadPinsChat:           cloneTimestampMap(value.ThreadPinsChat),
 		ThreadArchivesChat:       cloneTimestampMap(value.ThreadArchivesChat),
-		Groups:                   cloneThreadGroups(value.Groups),
+		Groups:                   copyThreadGroups(value.Groups),
 		// TimelineByThread 不在此处复制。它不存储在 s.state 中，
 		// 而是在 GetState 中通过 timeline.Snapshot() 动态填充。
 	}
@@ -195,7 +195,7 @@ func cloneSidebar(value Sidebar) *Sidebar {
 		ViewPrefsCmd:          cloneJSONMap(value.ViewPrefsCmd),
 		ThreadPinsChat:        cloneTimestampMap(value.ThreadPinsChat),
 		ThreadArchivesChat:    cloneTimestampMap(value.ThreadArchivesChat),
-		Groups:                cloneThreadGroups(value.Groups),
+		Groups:                copyThreadGroups(value.Groups),
 	}
 }
 
@@ -208,9 +208,9 @@ func clonePreferences(value Preferences) *Preferences {
 		MainAgentID:              value.MainAgentID,
 		StallThresholdSec:        value.StallThresholdSec,
 		ShowInjectedPromptInChat: cloneBoolPtr(value.ShowInjectedPromptInChat),
-		ViewPrefs:                cloneViewPrefs(value.ViewPrefs),
-		ThreadPins:               cloneThreadCollections(value.ThreadPins),
-		ThreadArchives:           cloneThreadCollections(value.ThreadArchives),
+		ViewPrefs:                copyViewPrefs(value.ViewPrefs),
+		ThreadPins:               copyThreadCollections(value.ThreadPins),
+		ThreadArchives:           copyThreadCollections(value.ThreadArchives),
 	}
 }
 

@@ -24,7 +24,7 @@
 
 ### 2.2 偏差项（需修正）
 
-- `provider/unified` 的 V2 来源写错。文档写的是 `go-agent-v2/pkg/agentsdk/provider/*`，但该目录在实际仓库中不存在。LSP 已确认真实来源应落在 `go-agent-v2/pkg/agentsdk/claude/*`、`go-agent-v2/pkg/agentsdk/codex/*`、`go-agent-v2/pkg/agentsdk/agentcore/*` 以及 `internal/apiserver/codexadapter/*`。
+- `provider/unified` 的 V2 来源写错。文档写的是 `go-agent-v2/legacy-agentsdk/provider/*`，但该目录在实际仓库中不存在。LSP 已确认真实来源应落在 `go-agent-v2/legacy-agentsdk/claude/*`、`go-agent-v2/legacy-agentsdk/codex/*`、`go-agent-v2/legacy-agentsdk/agentcore/*` 以及 `internal/apiserver/codexadapter/*`。
 - `module/thread` 的 RPC 面严重漏项。实际 `registerThreadTurnMethods()` 还包含 `thread/name/set`、`thread/resolve`、`thread/loaded/list`、`thread/realtime/*`、`thread/rollback`、`thread/undo`、`thread/model/set`、`thread/personality/set`、`thread/approvals/set`、`thread/mcp/list`、`thread/skills/list`、`thread/backgroundTerminals/clean`、`thread/debugMemory`；子文档没有给出迁移归宿，也没有声明废弃。
 - 代码量估算在部分模块上偏乐观。`workspace` 核心服务仅 `workspace.go + workspace_file_ops.go` 就已达 881 行，还未计 RPC、tool adapter、store；文档给出的 V3 500-700 行缺乏可信压缩依据。
 - `taskdagphase1` 被单列为 V3 store 包，但 V2 代码真实形态仍是同一个 `TaskDAGStore` 的扩展方法集，拆成独立包会制造人为边界。
@@ -172,7 +172,7 @@
 - Zone A / Zone B 的大方向正确，尤其是“平台共享只收纯技术 helper”的约束是必要的。
 - `cursor.go` 与模块细化文档中的 `pagination` 命名不一致，必须统一。
 - `helpers.go` / `patterns.go` 的模块形状定义比模块细化文档更完整，应以本文件为准回填另两份文档。
-- `pkg/factory` 去向表存在轻微时态问题：当前仓库没有 `pkg/factory/fsm.go`，不应写成现成迁移对象。
+- legacy factory 去向表存在轻微时态问题：当前仓库没有对应的 FSM stub，不应写成现成迁移对象。
 - `internal/archtest/*` 列表设计是正确的，但当前仓库没有对应文件，说明执行条件尚未建立。
 - `platform/shared` 预算本身合理，但只有在预算测试落地后才有约束力。
 
@@ -188,7 +188,7 @@
 
 ### 必须修正项（Blocker）
 
-- 修正 `provider/unified` 的 V2 来源路径，删除不存在的 `go-agent-v2/pkg/agentsdk/provider/*`。
+- 修正 `provider/unified` 的 V2 来源路径，删除不存在的 `go-agent-v2/legacy-agentsdk/provider/*`。
 - 统一 `sqlc` 生成目录口径。主文档、三份子文档、契约文档必须只保留一个路径。
 - 为 `module/thread` 补齐现有 V2 thread 方法的迁移去向表，禁止无声丢失。
 - 统一 `cursor` / `pagination` 命名，消除错误 import 风险。
@@ -215,7 +215,7 @@
 
 | # | Blocker | 修复状态 | 修复内容 |
 |---|---|---|---|
-| 1 | provider/unified V2 来源路径 | ✅ 已修正 | `v3-module-migration-details.md` 已将不存在的 `go-agent-v2/pkg/agentsdk/provider/*` 改为 `claude/*`、`codex/*`、`agentcore/*`、`codexadapter/*`、`commonadapter/*`。 |
+| 1 | provider/unified V2 来源路径 | ✅ 已修正 | `v3-module-migration-details.md` 已将不存在的 `go-agent-v2/legacy-agentsdk/provider/*` 改为 `claude/*`、`codex/*`、`agentcore/*`、`codexadapter/*`、`commonadapter/*`。 |
 | 2 | sqlc 目录口径统一 | ✅ 已修正 | `v3-module-migration-details.md`、`v3-two-zone-dry-enrichment.md`、`v3-framework-usage-guide.md`、`v3-migration-plan.md` 中的 `sqlcgen` 已统一改为 `sqlc`，`no_sqlcgen_outside_store_test.go` 已改为 `no_sqlc_outside_store_test.go`。 |
 | 3 | module/thread 方法处置表 | ✅ 已补齐 | `v3-module-migration-details.md` 的 `module/thread` 小节已新增完整 V2 RPC 方法迁移处置表，覆盖保留、下沉、合并、删除四类去向。 |
 | 4 | cursor/pagination 命名统一 | ✅ 已修正 | `v3-module-migration-details.md` 中的 `platform/shared/pagination` 已统一改为 `platform/shared/cursor`，与 `v3-two-zone-dry-enrichment.md` 保持一致。 |

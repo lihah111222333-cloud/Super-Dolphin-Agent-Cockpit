@@ -49,7 +49,7 @@
    `internal/provider/claudecli/driver.go:13` 到 `internal/provider/claudecli/driver.go:17` 只声明了 `message_send` / `model_switch` / `turn_override`。
    `internal/module/thread/rpc.go:63` 的 `thread/compact/start` 仍然依赖 `context_compact` capability。
    对照：
-   `go-agent-v2/pkg/agentsdk/claude/capabilities.go:42` 到 `go-agent-v2/pkg/agentsdk/claude/capabilities.go:44` 明确把 `CapabilityContextCompact` 标成 `true`。
+   `go-agent-v2/legacy-agentsdk/claude/capabilities.go:42` 到 `go-agent-v2/legacy-agentsdk/claude/capabilities.go:44` 明确把 `CapabilityContextCompact` 标成 `true`。
    影响：
    D8 号称修 capability 声明不一致，但当前 Claude 仍然会把 `thread/compact/start` 错误地 gate 掉。
 

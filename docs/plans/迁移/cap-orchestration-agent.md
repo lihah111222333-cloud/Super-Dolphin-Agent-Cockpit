@@ -283,7 +283,7 @@ V3 当前方法面，见 `cmd/mcp-orch/orchestration/rpc.go:15-76`：
 
 2. 这份报告把 orchestration submit 链讲成了“真实可执行”，但漏掉了当前最硬的前提条件：session 必须预先存在。`orchestrationTurnStarter.StartTurn` 第一件事就是 `sessions.GetSession(agentID)`，见 `internal/module/turn/orchestration_starter.go:29-37`；而 session 只会在 `StartSession/ResumeSession` 后被 `SessionManager.Register(...)`，见 `internal/provider/unified/client.go:47-67`。`agent.launch` 自己只起进程，不建 session，见 `cmd/mcp-orch/orchestration/service.go:110-125`。所以“代码链接上了”不等于“`agent.launch -> agent.submit` 当前就一定能跑通”。
 
-3. 这份报告批了 `turn/forceComplete` 的语义，但还少指出一个直接的 RPC 兼容性问题：V3 handler 返回 `nil`，见 `internal/module/turn/rpc.go:70-75`；V2 则把 provider 返回值原样透出，`turn/forceComplete` 实现最终返回的是 `{"confirmed": true, "forceCompleted": true}`，见 `go-agent-v2/internal/apiserver/methods_thread_turn.go:67-70` 与 `go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go:271-305`。也就是说，V3 这里不仅“语义不等价”，连返回形状都已经变了。
+3. 这份报告批了 `turn/forceComplete` 的语义，但还少指出一个直接的 RPC 兼容性问题：V3 handler 返回 `nil`，见 `internal/module/turn/rpc.go:70-75`；V2 则把 provider 返回值原样透出，`turn/forceComplete` 实现最终返回的是 `{"confirmed": true, "forceCompleted": true}`，见 `go-agent-v2/internal/apiserver/methods_thread_turn.go:67-70` 与 `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go:271-305`。也就是说，V3 这里不仅“语义不等价”，连返回形状都已经变了。
 
 ### 2. `docs/plans/迁移/cap-approval-lifecycle.md`
 

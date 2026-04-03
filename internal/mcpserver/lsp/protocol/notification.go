@@ -45,14 +45,6 @@ func (t LogMessageType) String() string {
 	}
 }
 
-func NewPublishDiagnosticsNotification(params PublishDiagnosticsParams) (Notification, error) {
-	return BuildNotification(MethodPublishDiagnostics, params)
-}
-
-func NewLogMessageNotification(params LogMessageParams) (Notification, error) {
-	return BuildNotification(MethodLogMessage, params)
-}
-
 func DispatchNotification(payload []byte, handler NotificationHandler) error {
 	if handler == nil {
 		return ErrNotificationHandlerNil

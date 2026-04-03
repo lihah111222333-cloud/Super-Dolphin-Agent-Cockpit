@@ -19,20 +19,20 @@
 
 LSP 已确认题面列出的代表性 V2 文件真实存在，包括：
 
-- `go-agent-v2/pkg/agentsdk/agentcore/client.go`
-- `go-agent-v2/pkg/agentsdk/agentcore/types.go`
-- `go-agent-v2/pkg/agentsdk/claude/client.go`
-- `go-agent-v2/pkg/agentsdk/claude/client_cli_transport.go`
-- `go-agent-v2/pkg/agentsdk/claude/client_cli_events.go`
-- `go-agent-v2/pkg/agentsdk/claude/capabilities.go`
-- `go-agent-v2/pkg/agentsdk/claude/session.go`
-- `go-agent-v2/pkg/agentsdk/claude/history_backend.go`
-- `go-agent-v2/pkg/agentsdk/codex/client.go`
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver.go`
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver_transport.go`
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver_events.go`
-- `go-agent-v2/pkg/agentsdk/codex/client_appserver_health.go`
-- `go-agent-v2/pkg/agentsdk/codex/rollout_reader.go`
+- `go-agent-v2/legacy-agentsdk/agentcore/client.go`
+- `go-agent-v2/legacy-agentsdk/agentcore/types.go`
+- `go-agent-v2/legacy-agentsdk/claude/client.go`
+- `go-agent-v2/legacy-agentsdk/claude/client_cli_transport.go`
+- `go-agent-v2/legacy-agentsdk/claude/client_cli_events.go`
+- `go-agent-v2/legacy-agentsdk/claude/capabilities.go`
+- `go-agent-v2/legacy-agentsdk/claude/session.go`
+- `go-agent-v2/legacy-agentsdk/claude/history_backend.go`
+- `go-agent-v2/legacy-agentsdk/codex/client.go`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver.go`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver_transport.go`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go`
+- `go-agent-v2/legacy-agentsdk/codex/client_appserver_health.go`
+- `go-agent-v2/legacy-agentsdk/codex/rollout_reader.go`
 - `go-agent-v2/internal/apiserver/codexadapter/adapter.go`
 
 按 LSP + 生产文件行数统计，有 3 个不同口径：
@@ -53,28 +53,28 @@ LSP 已确认题面列出的代表性 V2 文件真实存在，包括：
 相对摘要式拆分，以下 V2 生产文件没有被明确点名，但从 V2 实码和迁移文档看，不能省略：
 
 - Claude 侧遗漏：
-  - `go-agent-v2/pkg/agentsdk/claude/session_log_watcher.go`
+  - `go-agent-v2/legacy-agentsdk/claude/session_log_watcher.go`
 - Codex 侧遗漏：
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_helpers.go`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_jsonrpc_id.go`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_protocol.go`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_runtime.go`
-  - `go-agent-v2/pkg/agentsdk/codex/client_appserver_filter.go`
-  - `go-agent-v2/pkg/agentsdk/codex/events.go`
-  - `go-agent-v2/pkg/agentsdk/codex/interface.go`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_helpers.go`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_jsonrpc_id.go`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_protocol.go`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_runtime.go`
+  - `go-agent-v2/legacy-agentsdk/codex/client_appserver_filter.go`
+  - `go-agent-v2/legacy-agentsdk/codex/events.go`
+  - `go-agent-v2/legacy-agentsdk/codex/interface.go`
 - T6 相关但摘要未展开的 turn/common 源：
   - `go-agent-v2/internal/apiserver/commonadapter/common.go`
   - `go-agent-v2/internal/apiserver/commonadapter/skills.go`
-  - `go-agent-v2/pkg/agentsdk/service/common/turn_common_paths.go`
-  - `go-agent-v2/pkg/agentsdk/service/prompt/turn_prompt_core.go`
-  - `go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go`
-  - `go-agent-v2/pkg/agentsdk/service/support/interrupt_state.go`
-  - `go-agent-v2/pkg/agentsdk/service/support/prompt_match.go`
-  - `go-agent-v2/pkg/agentsdk/service/tracker/*.go`
+  - `go-agent-v2/legacy-agentsdk/service/common/turn_common_paths.go`
+  - `go-agent-v2/legacy-agentsdk/service/prompt/turn_prompt_core.go`
+  - `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go`
+  - `go-agent-v2/legacy-agentsdk/service/support/interrupt_state.go`
+  - `go-agent-v2/legacy-agentsdk/service/support/prompt_match.go`
+  - `go-agent-v2/legacy-agentsdk/service/tracker/*.go`
 - T7 摘要只写了 `history/archive/listing/command`，但 V2 实际还需要：
-  - `go-agent-v2/pkg/agentsdk/service/messages/thread_messages_logic.go`
-  - `go-agent-v2/pkg/agentsdk/service/rollout/thread_messages_hydration_core.go`
-  - `go-agent-v2/pkg/agentsdk/service/rollout/thread_messages_rollout_core.go`
+  - `go-agent-v2/legacy-agentsdk/service/messages/thread_messages_logic.go`
+  - `go-agent-v2/legacy-agentsdk/service/rollout/thread_messages_hydration_core.go`
+  - `go-agent-v2/legacy-agentsdk/service/rollout/thread_messages_rollout_core.go`
 
 补充统计：
 
@@ -141,7 +141,7 @@ LSP 已确认题面列出的代表性 V2 文件真实存在，包括：
 
 ### 可行项
 
-- `provider/claudecli` 不 import `store/*` / `module/*` / `tool/*` 是可行的。V2 `pkg/agentsdk/claude/*` 实际上已经没有 `internal/store/*`、`internal/module/*`、`pkg/toolsdk/*` 依赖，主要是 CLI transport、事件解析和 history backend。
+- `provider/claudecli` 不 import `store/*` / `module/*` / `tool/*` 是可行的。V2 legacy claude provider slice 实际上已经没有 `internal/store/*`、`internal/module/*`、`pkg/toolsdk/*` 依赖，主要是 CLI transport、事件解析和 history backend。
 - `provider/unified` 不 import `claudecli` / `codexapp` 也是可行的。V2 已有对象式 `ProviderRegistry` 先例；V3 可以通过 `fx` value-group 或 map builder 构造 driver registry，而不是在 unified 包里直接引用具体 driver 包。
 - `module/turn` 不 import `provider/*` 在技术上可行。V2 `service/runtime/turn_runtime_adapters.go` 已证明 turn 层可以只依赖一组注入函数和窄接口，而不是直接 import provider 实现。
 
@@ -436,7 +436,7 @@ I5 的当前 LSP 总行数如下：
 ### DynamicTools
 
 - 对 `internal/provider/**/*.go` 的 `DynamicTools` 全仓 LSP 搜索结果为 0。
-- V2 `go-agent-v2/pkg/agentsdk/codex/client_appserver_filter.go` 中的 `filterDynamicTools` deny-list 逻辑，在 V3 `internal/provider/` 下未发现对应实现；对 `filterDynamicTools`、`denyList`、`filtered denied dynamic tool` 的 LSP 搜索结果均为 0。
+- V2 `go-agent-v2/legacy-agentsdk/codex/client_appserver_filter.go` 中的 `filterDynamicTools` deny-list 逻辑，在 V3 `internal/provider/` 下未发现对应实现；对 `filterDynamicTools`、`denyList`、`filtered denied dynamic tool` 的 LSP 搜索结果均为 0。
 - 该项通过。
 
 ### fx 范围
@@ -729,11 +729,11 @@ Codex：
 
 ### V2 对照
 
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:146-169` 的 `prepareTurnSubmissionCommon` 会做输入解析、selected skills 合并、auto-matched skill prompt 注入；V3 `internal/module/turn/service.go:35-55` 只做 prompt/images/files/skills/outputSchema/overrides/manifest 组装，不包含 auto-match/force-match 逻辑。结论：部分等价，能力收缩。
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:277-396` 的 `ParseTurnInputs` 支持通用 `TurnInput` 类型解析、去重、guardrail 和多种输入类型；V3 `internal/module/turn/assembler.go:11-44` 只覆盖 `text + image path + file path`，不覆盖 V2 的 `localImage/fileContent/mention` 泛化输入面。结论：非等价，属于简化实现。
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:146-169` 的 `prepareTurnSubmissionCommon` 会做输入解析、selected skills 合并、auto-matched skill prompt 注入；V3 `internal/module/turn/service.go:35-55` 只做 prompt/images/files/skills/outputSchema/overrides/manifest 组装，不包含 auto-match/force-match 逻辑。结论：部分等价，能力收缩。
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:277-396` 的 `ParseTurnInputs` 支持通用 `TurnInput` 类型解析、去重、guardrail 和多种输入类型；V3 `internal/module/turn/assembler.go:11-44` 只覆盖 `text + image path + file path`，不覆盖 V2 的 `localImage/fileContent/mention` 泛化输入面。结论：非等价，属于简化实现。
 - `go-agent-v2/internal/apiserver/commonadapter/skills.go:43-112` 含显式 mention、force/explicit/trigger 分类和技能名标准化；V3 `internal/module/turn/skills.go:11-55` 仅做 trim、按 name 去重、同名 prompt 合并。结论：未覆盖 V2 skill 解析语义。
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_logic.go:138-193` / `304-417` 覆盖历史线程恢复、进程拉起、resume candidate、approval/provider launch config；V3 `internal/module/turn/service.go:58-87` 仅在已有 `contract.Session` 上启动 turn。运行时复杂度已下沉到 provider session：`internal/provider/claudecli/session.go:87-147,303-340` 与 `internal/provider/codexapp/session.go:94-129,306-329` 承担了 provider-specific start path。结论：在“session 已就绪”前提下成立，但不等价于 V2 全量 runtime。
-- `go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go:144-269` 会发送中断、等待 settle、回读状态、必要时通知完成；V3 `internal/module/turn/service.go:89-105` 仅同步调用 `session.Interrupt(...)`，没有等待确认/状态收敛逻辑。结论：部分覆盖，缺少 V2 的 interrupt settle 语义。
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_logic.go:138-193` / `304-417` 覆盖历史线程恢复、进程拉起、resume candidate、approval/provider launch config；V3 `internal/module/turn/service.go:58-87` 仅在已有 `contract.Session` 上启动 turn。运行时复杂度已下沉到 provider session：`internal/provider/claudecli/session.go:87-147,303-340` 与 `internal/provider/codexapp/session.go:94-129,306-329` 承担了 provider-specific start path。结论：在“session 已就绪”前提下成立，但不等价于 V2 全量 runtime。
+- `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go:144-269` 会发送中断、等待 settle、回读状态、必要时通知完成；V3 `internal/module/turn/service.go:89-105` 仅同步调用 `session.Interrupt(...)`，没有等待确认/状态收敛逻辑。结论：部分覆盖，缺少 V2 的 interrupt settle 语义。
 
 ### turn ID 相关性
 
@@ -752,12 +752,8 @@ Codex：
 ### DynamicTools
 
 - `internal/**` 范围内搜索 `DynamicTools` / `dynamicTools` / `dynamic_tools`：0 / 0 / 0。
-- 但仓库活跃代码并未全清零：
-- `pkg/agentsdk/agentcore/client.go:4,36,46` 仍有 `dynamicTools` 注释残留
-- `pkg/agentsdk/provider/mcp_bridge.go:36` 仍有 `buildDynamicToolsMCPConfig` 注释残留
-- `pkg/agentsdk/provider/provider.go:22` 仍有 `DynamicTools` 注释残留
-- `pkg/agentsdk/provider/mcp_bridge.go:39-40` 仍保留 `GO_AGENT_DYNAMIC_TOOLS_JSON` / `GO_AGENT_DYNAMIC_TOOL_NAMES`
-- 若零残留口径是“整个当前仓库（不含 go-agent-v2 历史镜像）”，本项不通过；若口径仅限 `internal/` 新实现，则通过。
+- 旧 provider stub 目录中的相关注释与环境变量残留，已随整包删除一并清理。
+- 若口径仅限当前仓库活跃实现，本项通过。
 
 ### 结论（通过/需修正 + 行动项）
 
@@ -766,7 +762,7 @@ Codex：
 - 行动项 1：明确 import 白名单是否豁免 `module.go` 装配文件；若不豁免，需要把 `fx` 装配移出被审查目录或调整审查口径。
 - 行动项 2：修正 turn ID 对外语义漂移，避免 `TurnStatus.TurnID` 在 provider 绑定后改写成 provider ID。
 - 行动项 3：补齐或明确放弃 V2 的 skill 解析能力与 interrupt settle 语义；当前实现仅覆盖简化版。
-- 行动项 4：按最终口径清理 `pkg/agentsdk/*` 中剩余 `DynamicTools` / `dynamic_tools` 文本与环境变量命名。
+- 行动项 4：已完成，旧 provider stub 目录已整体移除。
 
 ---
 

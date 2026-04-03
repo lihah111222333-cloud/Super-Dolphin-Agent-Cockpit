@@ -10,7 +10,7 @@
 
 ## 2. Bus 事件对照
 
-补充说明：`go-agent-v2/internal/bus/types.go` 只做了 `type AgentEvent = agentcore.Event` 别名。为完成“V2 事件清单 vs V3 typed event”比对，本次补读了 `go-agent-v2/pkg/agentsdk/agentcore/types.go` 中的实际事件常量。
+补充说明：`go-agent-v2/internal/bus/types.go` 只做了 `type AgentEvent = agentcore.Event` 别名。为完成“V2 事件清单 vs V3 typed event”比对，本次补读了 `go-agent-v2/legacy-agentsdk/agentcore/types.go` 中的实际事件常量。
 
 ### V2 事件清单 vs V3 typed event 映射表
 
@@ -18,13 +18,13 @@
 |---|---|---|---|
 | `go-agent-v2/internal/bus/bus.go` | `dag.*` / `task.*` | `internal/dto/task/event.go` | 部分覆盖：DAG 创建、节点状态、wakeup 派发/完成已建模，但 V2 的 `dag.run_*`、`task.progress` 级别事件未见独立 typed event |
 | `go-agent-v2/internal/bus/orchestration.go` | `BeginOrchestrationTaskState` / `UpdateOrchestrationTaskState` / `EndOrchestrationTaskState` | `internal/dto/task/event.go` + `internal/dto/workspace/event.go` | 部分覆盖：编排态拆入 task/workspace 事件，但 `binding_warning`、`reset`、snapshot 无直接事件模型 |
-| `go-agent-v2/pkg/agentsdk/agentcore/types.go` | `EventTurnStarted` / `EventTurnComplete` / `EventTurnAborted` | `internal/dto/turn/event.go` | 部分覆盖：`TurnStarted`/`TurnCompleted` 存在；`TurnAborted` 仅近似映射到 `TurnInterrupted`，未见严格等价事件 |
-| `go-agent-v2/pkg/agentsdk/agentcore/types.go` | `EventExecApprovalRequest` / `EventExecCommandBegin` / `EventExecCommandEnd` | `internal/dto/tool/event.go` | 部分覆盖：有 tool begin/end 与 approval request/resolved，但 orchestration 当前未实际发射这些事件 |
-| `go-agent-v2/pkg/agentsdk/agentcore/types.go` | `EventAgentMessageDelta` / `EventReasoningDelta` / `EventPlanDelta` | `internal/dto/turn/event.go` 中 `TurnOutputDelta` | 部分覆盖：只看到通用 `TurnOutputDelta` DTO；reasoning/plan/message delta 没有细分 typed event，且当前未实际发布 |
-| `go-agent-v2/pkg/agentsdk/agentcore/types.go` | `EventConnectionDead` / `EventStreamError` / `EventWarning` / `EventTokenCount` | 无 | 遗漏 |
+| `go-agent-v2/legacy-agentsdk/agentcore/types.go` | `EventTurnStarted` / `EventTurnComplete` / `EventTurnAborted` | `internal/dto/turn/event.go` | 部分覆盖：`TurnStarted`/`TurnCompleted` 存在；`TurnAborted` 仅近似映射到 `TurnInterrupted`，未见严格等价事件 |
+| `go-agent-v2/legacy-agentsdk/agentcore/types.go` | `EventExecApprovalRequest` / `EventExecCommandBegin` / `EventExecCommandEnd` | `internal/dto/tool/event.go` | 部分覆盖：有 tool begin/end 与 approval request/resolved，但 orchestration 当前未实际发射这些事件 |
+| `go-agent-v2/legacy-agentsdk/agentcore/types.go` | `EventAgentMessageDelta` / `EventReasoningDelta` / `EventPlanDelta` | `internal/dto/turn/event.go` 中 `TurnOutputDelta` | 部分覆盖：只看到通用 `TurnOutputDelta` DTO；reasoning/plan/message delta 没有细分 typed event，且当前未实际发布 |
+| `go-agent-v2/legacy-agentsdk/agentcore/types.go` | `EventConnectionDead` / `EventStreamError` / `EventWarning` / `EventTokenCount` | 无 | 遗漏 |
 | `go-agent-v2/internal/bus/bus.go` | `command_card.*` / `prompt.*` / `skill.*` / `lsp.*` | 无 | 遗漏 |
 | `go-agent-v2/internal/bus/bus.go` | `approval.*` / `lock.*` / `heartbeat.*` / `budget.*` / `rollback.*` / `scheduler.*` | 无 | 遗漏 |
-| `go-agent-v2/pkg/agentsdk/agentcore/types.go` | `EventPatchApply*` / `EventFileRead` / `EventFileUpdated` / `EventThreadNameUpdated` / `EventContextCompacted` | 无 | 遗漏 |
+| `go-agent-v2/legacy-agentsdk/agentcore/types.go` | `EventPatchApply*` / `EventFileRead` / `EventFileUpdated` / `EventThreadNameUpdated` / `EventContextCompacted` | 无 | 遗漏 |
 | V3 新增 | `internal/dto/ui/event.go` UI projection 事件 | V2 总线中无 typed 对应 | V3 新增能力，不构成回归 |
 
 ### 覆盖项

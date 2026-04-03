@@ -73,7 +73,7 @@
 
 - V2 参数面：`threadId`、`expectedTurnId`、`input[]`、`selectedSkills`、`manualSkillSelection`，见 `go-agent-v2/internal/apiserver/methods_turn.go:68-82` 与 `go-agent-v2/internal/apiserver/methods_schema_contract_n_z_test.go:466-470`。
 - V3 参数面：只有 `threadId`、`prompt`，见 `internal/module/turn/rpc_types.go:14-17`。
-- V2 语义：对齐当前 active turn，至少保留 `turnId` 对齐结果，见 `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go:90-106`。
+- V2 语义：对齐当前 active turn，至少保留 `turnId` 对齐结果，见 `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go:90-106`。
 - V3 语义：`SteerTurn` 直接 `PrepareTurn(...Prompt...)` 后 `StartTurn(...)`，测试名也明确写成 `StartsPromptAsNewTurn`，见 `internal/module/turn/service.go:94-100`、`internal/module/turn/service_test.go:119-142`。
 
 结论：不兼容，而且语义偏差比 `turn/start` 更大。V2 是“steer active turn”，V3 是“再发一个新 turn”。

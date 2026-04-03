@@ -52,21 +52,6 @@ func (b *PushBridge) CallbackClient(ctx context.Context, server *jrpc2.Server, m
 	return raw, nil
 }
 
-func BindEventToNotify[T event.Event](bridge *PushBridge, server *jrpc2.Server, method string) context.CancelFunc {
-	if bridge == nil || bridge.dispatcher == nil || server == nil {
-		return func() {}
-	}
-	logger := bridge.logger
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-	return event.Subscribe(bridge.dispatcher, func(ev T) {
-		if err := bridge.NotifyClient(context.Background(), server, method, ev); err != nil {
-			logger.Warn("rpc push notify failed", "method", method, "error", err)
-		}
-	})
-}
-
 func subscribeCoreEventPushes(bridge *PushBridge, server *Server, logger *pkglogger.Logger) []context.CancelFunc {
 	if bridge == nil || bridge.dispatcher == nil || server == nil {
 		return nil
@@ -81,17 +66,17 @@ func subscribeCoreEventPushes(bridge *PushBridge, server *Server, logger *pkglog
 }
 
 var typedPushMethods = map[string]struct{}{
-	strings.ToLower(eventsurface.MethodUIStateChanged):   {},
-	strings.ToLower(eventsurface.MethodTurnStarted):      {},
-	strings.ToLower(eventsurface.MethodTurnCompleted):    {},
-	strings.ToLower(eventsurface.MethodThreadStarted):    {},
-	strings.ToLower(eventsurface.MethodThreadStopped):    {},
-	strings.ToLower(eventsurface.MethodThreadMessages):   {},
-	strings.ToLower(eventsurface.MethodThreadCompacted):  {},
-	strings.ToLower(eventsurface.MethodSkillsChanged):    {},
-	strings.ToLower(eventsurface.MethodUIThreadPatch):    {},
-	strings.ToLower(eventsurface.MethodAgentLaunched):    {},
-	strings.ToLower(eventsurface.MethodAgentStopped):     {},
+	strings.ToLower(eventsurface.MethodUIStateChanged):  {},
+	strings.ToLower(eventsurface.MethodTurnStarted):     {},
+	strings.ToLower(eventsurface.MethodTurnCompleted):   {},
+	strings.ToLower(eventsurface.MethodThreadStarted):   {},
+	strings.ToLower(eventsurface.MethodThreadStopped):   {},
+	strings.ToLower(eventsurface.MethodThreadMessages):  {},
+	strings.ToLower(eventsurface.MethodThreadCompacted): {},
+	strings.ToLower(eventsurface.MethodSkillsChanged):   {},
+	strings.ToLower(eventsurface.MethodUIThreadPatch):   {},
+	strings.ToLower(eventsurface.MethodAgentLaunched):   {},
+	strings.ToLower(eventsurface.MethodAgentStopped):    {},
 }
 
 func subscribeRawProviderEventPushes(bridge *PushBridge, server *Server, logger *pkglogger.Logger) context.CancelFunc {

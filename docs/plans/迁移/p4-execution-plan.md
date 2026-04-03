@@ -32,23 +32,23 @@ T6 必须显式覆盖以下 19 个 V2 生产文件，不能再只写“turn prep
 
 - `go-agent-v2/internal/apiserver/commonadapter/common.go`
 - `go-agent-v2/internal/apiserver/commonadapter/skills.go`
-- `go-agent-v2/pkg/agentsdk/service/common/turn_common_paths.go`
-- `go-agent-v2/pkg/agentsdk/service/prompt/turn_prompt_core.go`
-- `go-agent-v2/pkg/agentsdk/service/runtime/stream_timeout.go`
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_prepare_core.go`
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_adapters.go`
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_logic.go`
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_runtime_operations.go`
-- `go-agent-v2/pkg/agentsdk/service/runtime/turn_steer_alignment.go`
-- `go-agent-v2/pkg/agentsdk/service/interrupt/turn_interrupt_core.go`
-- `go-agent-v2/pkg/agentsdk/service/support/interrupt_state.go`
-- `go-agent-v2/pkg/agentsdk/service/support/prompt_match.go`
-- `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_core.go`
-- `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_lifecycle_core.go`
-- `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_rules_core.go`
-- `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_stall_core.go`
-- `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_state_core.go`
-- `go-agent-v2/pkg/agentsdk/service/tracker/turn_tracker_summary_core.go`
+- `go-agent-v2/legacy-agentsdk/service/common/turn_common_paths.go`
+- `go-agent-v2/legacy-agentsdk/service/prompt/turn_prompt_core.go`
+- `go-agent-v2/legacy-agentsdk/service/runtime/stream_timeout.go`
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_prepare_core.go`
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_adapters.go`
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_logic.go`
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_runtime_operations.go`
+- `go-agent-v2/legacy-agentsdk/service/runtime/turn_steer_alignment.go`
+- `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go`
+- `go-agent-v2/legacy-agentsdk/service/support/interrupt_state.go`
+- `go-agent-v2/legacy-agentsdk/service/support/prompt_match.go`
+- `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_core.go`
+- `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_lifecycle_core.go`
+- `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_rules_core.go`
+- `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_stall_core.go`
+- `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_state_core.go`
+- `go-agent-v2/legacy-agentsdk/service/tracker/turn_tracker_summary_core.go`
 
 补充说明：
 
@@ -59,16 +59,16 @@ T6 必须显式覆盖以下 19 个 V2 生产文件，不能再只写“turn prep
 
 T7 的 thread/history 面统一按以下 10 个 V2 生产文件执行：
 
-- `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_core.go`
-- `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_io.go`
-- `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_ops.go`
-- `go-agent-v2/pkg/agentsdk/service/archive/thread_archive_utils.go`
-- `go-agent-v2/pkg/agentsdk/service/command/slash_command_logic.go`
-- `go-agent-v2/pkg/agentsdk/service/history/thread_history_core.go`
-- `go-agent-v2/pkg/agentsdk/service/listing/thread_listing_core.go`
-- `go-agent-v2/pkg/agentsdk/service/messages/thread_messages_logic.go`
-- `go-agent-v2/pkg/agentsdk/service/rollout/thread_messages_hydration_core.go`
-- `go-agent-v2/pkg/agentsdk/service/rollout/thread_messages_rollout_core.go`
+- `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_core.go`
+- `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_io.go`
+- `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_ops.go`
+- `go-agent-v2/legacy-agentsdk/service/archive/thread_archive_utils.go`
+- `go-agent-v2/legacy-agentsdk/service/command/slash_command_logic.go`
+- `go-agent-v2/legacy-agentsdk/service/history/thread_history_core.go`
+- `go-agent-v2/legacy-agentsdk/service/listing/thread_listing_core.go`
+- `go-agent-v2/legacy-agentsdk/service/messages/thread_messages_logic.go`
+- `go-agent-v2/legacy-agentsdk/service/rollout/thread_messages_hydration_core.go`
+- `go-agent-v2/legacy-agentsdk/service/rollout/thread_messages_rollout_core.go`
 
 补充说明：
 
@@ -79,7 +79,7 @@ T7 的 thread/history 面统一按以下 10 个 V2 生产文件执行：
 
 ### 3.1 B1：接口缺口修正
 
-`go-agent-v2/pkg/agentsdk/agentcore/client.go` 暴露的方法面不能直接照搬到 V3，但也不能丢失语义。修正后的归宿如下：
+`go-agent-v2/legacy-agentsdk/agentcore/client.go` 暴露的方法面不能直接照搬到 V3，但也不能丢失语义。修正后的归宿如下：
 
 | V2 方法 | V3 归宿 | 方案要求 |
 |---|---|---|
