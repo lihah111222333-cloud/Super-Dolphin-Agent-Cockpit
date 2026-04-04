@@ -51,27 +51,26 @@ describe('ChatTimeline reasoning leak handling', () => {
     expect(vm.showThinkingPopover.value).toBe(false);
   });
 
-  it('renders completed markdown blocks and keeps the unfinished tail plain during streaming', async () => {
+  it('keeps the full assistant text in plain pretext mode during streaming and markdown after completion', async () => {
     const { props, vm } = setupTimeline([
       { id: 'assistant-1', kind: 'assistant', text: '# Title\n\n- first\n- sec', ts: '2026-03-07T10:00:00Z', done: false },
     ]);
     const streaming = vm.streamingAssistantState(props.items[0]);
-    expect(streaming.html).toContain('<h1');
-    expect(streaming.html).toContain('<li>first</li>');
-    expect(streaming.tailText).toBe('- sec');
+    expect(streaming.text).toBe('# Title\n\n- first\n- sec');
+    expect(streaming.heightPx).toBeGreaterThanOrEqual(0);
 
     props.items = [{ ...props.items[0], text: '# Title\n\n- first\n- second\n', done: true }];
     await nextTick();
     expect(vm.renderAssistantBody(props.items[0].text)).toContain('<li>second</li>');
   });
 
-  it('promotes balanced inline markdown while the assistant is still streaming', () => {
+  it('keeps balanced inline markdown in plain pretext mode while the assistant is still streaming', () => {
     const { props, vm } = setupTimeline([
       { id: 'assistant-1', kind: 'assistant', text: '**hello**', ts: '2026-03-07T10:00:00Z', done: false },
     ]);
     const streaming = vm.streamingAssistantState(props.items[0]);
-    expect(streaming.html).toContain('<strong>');
-    expect(streaming.tailText).toBe('');
+    expect(streaming.text).toBe('**hello**');
+    expect(streaming.heightPx).toBeGreaterThanOrEqual(0);
   });
 
   it('treats assistant replies without an explicit done flag as markdown content', () => {
@@ -88,8 +87,8 @@ describe('ChatTimeline reasoning leak handling', () => {
     ]);
     const streaming = vm.streamingAssistantState(props.items[0]);
 
-    expect(streaming.html).toContain('<h1');
-    expect(streaming.tailText).toBe('');
+    expect(streaming.text).toBe(`# 标题\n\n${leakedProgressText}`);
+    expect(streaming.heightPx).toBeGreaterThanOrEqual(0);
     expect(warnSpy).not.toHaveBeenCalled();
   });
 

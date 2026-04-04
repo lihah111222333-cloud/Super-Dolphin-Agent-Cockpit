@@ -2,94 +2,10 @@
 import { logWarn } from '../services/log.js';
 import { measureTailHeight, getWidthVersion, getFontVersion, setInvalidateCallback } from '../services/pretext-layout.js';
 
-const FENCE_DELIMITER_RE = /^(`{3,}|~{3,})/;
-const BLOCKISH_TRAILING_LINE_RE = /^\s*(?:#{1,6}\s|>\s|\|.*\|?|(?:-{3,}|\*{3,}|_{3,})\s*$)/;
-
-const INLINE_BALANCED_MARKDOWN_RE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|(^|[^*])\*[^*\n]+\*([^*]|$)|~~[^~\n]+~~|\[[^\]\n]+\]\([^\)\n]+\))/;
-const SENTENCE_END_RE = /[。！？!?；;：:.…](?:[)\]"'”’`*_~]+)?$/;
-
-function normalizeStreamingMarkdownText(rawText) {
-  return (rawText || '').toString().replace(/\r\n?/g, '\n');
-}
-
-function readFenceMarker(line) {
-  const trimmed = (line || '').toString().trimStart();
-  const match = trimmed.match(FENCE_DELIMITER_RE);
-  if (!match) return null;
-  return {
-    char: match[1][0],
-    size: match[1].length,
-  };
-}
-
-function isFenceClose(line, fenceMarker) {
-  if (!fenceMarker) return false;
-  const nextMarker = readFenceMarker(line);
-  if (!nextMarker) return false;
-  return nextMarker.char === fenceMarker.char && nextMarker.size >= fenceMarker.size;
-}
-
-function countUnescapedToken(source, token) {
-  if (!source || !token) return 0;
-  let count = 0;
-  for (let index = 0; index <= source.length - token.length; index += 1) {
-    if (source.slice(index, index + token.length) !== token) continue;
-    let slashCount = 0;
-    for (let cursor = index - 1; cursor >= 0 && source[cursor] === '\\'; cursor -= 1) slashCount += 1;
-    if (slashCount % 2 === 1) continue;
-    count += 1;
-    index += token.length - 1;
-  }
-  return count;
-}
-
-function hasBalancedPairs(source, openChar, closeChar) {
-  let depth = 0;
-  for (let index = 0; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === '\\') {
-      index += 1;
-      continue;
-    }
-    if (char === openChar) depth += 1;
-    else if (char === closeChar) {
-      depth -= 1;
-      if (depth < 0) return false;
-    }
-  }
-  return depth === 0;
-}
-
-function hasUnclosedInlineMarkdown(line) {
-  const normalized = (line || '').toString().trim();
-  if (!normalized) return false;
-  if (countUnescapedToken(normalized, '`') % 2 === 1) return true;
-  if (countUnescapedToken(normalized, '**') % 2 === 1) return true;
-  if (countUnescapedToken(normalized, '~~') % 2 === 1) return true;
-  if (!hasBalancedPairs(normalized, '[', ']')) return true;
-  if (normalized.includes('](') && !hasBalancedPairs(normalized, '(', ')')) return true;
-  return false;
-}
-
-function shouldPromoteTrailingLine(line) {
-  const normalized = (line || '').toString().trim();
-  if (!normalized) return false;
-  if (readFenceMarker(normalized)) return false;
-  if (hasUnclosedInlineMarkdown(normalized)) return false;
-  if (BLOCKISH_TRAILING_LINE_RE.test(normalized)) return true;
-  if (SENTENCE_END_RE.test(normalized)) return true;
-  return INLINE_BALANCED_MARKDOWN_RE.test(normalized);
-}
-
-function buildStreamingMarkdownState(text, renderAssistantBody, emptyState) {
+function buildStreamingMarkdownState(text, emptyState) {
   if (!text) return emptyState;
-  const parts = splitStreamingMarkdownForDisplay(text);
-  const tailHeightPx = parts.tailText ? measureTailHeight(parts.tailText) : 0;
-  return Object.freeze({
-    html: parts.stableText ? renderAssistantBody(parts.stableText) : '',
-    tailText: parts.tailText || '',
-    tailHeightPx,
-  });
+  const heightPx = measureTailHeight(text);
+  return Object.freeze({ text, heightPx });
 }
 
 function createFrameScheduler() {
@@ -126,56 +42,11 @@ function cancelFrame(handle) {
   }
 }
 
-export function splitStreamingMarkdownForDisplay(rawText) {
-  const text = normalizeStreamingMarkdownText(rawText);
-  if (!text) return { stableText: '', tailText: '' };
-
-  const lines = text.split('\n');
-  let boundary = 0;
-  let offset = 0;
-  let openFenceMarker = null;
-  let openFenceBoundary = 0;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const lineEnd = offset + line.length;
-    const hasLineBreak = index < lines.length - 1;
-    const fenceMarker = readFenceMarker(line);
-
-    if (fenceMarker) {
-      if (!openFenceMarker) {
-        openFenceMarker = fenceMarker;
-        openFenceBoundary = boundary;
-      } else if (isFenceClose(line, openFenceMarker)) {
-        openFenceMarker = null;
-        boundary = hasLineBreak ? lineEnd + 1 : lineEnd;
-      }
-    } else if (!openFenceMarker && hasLineBreak) {
-      boundary = lineEnd + 1;
-    }
-
-    offset = lineEnd + 1;
-  }
-
-  if (openFenceMarker) boundary = openFenceBoundary;
-  else {
-    const trailingText = text.slice(boundary);
-    if (trailingText && shouldPromoteTrailingLine(trailingText)) boundary = text.length;
-  }
-
-  if (boundary <= 0) return { stableText: '', tailText: text };
-  if (boundary >= text.length) return { stableText: text, tailText: '' };
-  return {
-    stableText: text.slice(0, boundary),
-    tailText: text.slice(boundary),
-  };
-}
-
-export function createStreamingMarkdownStateResolver(renderAssistantBody, onStateFlush = null, onStallDetected = null) {
+export function createStreamingMarkdownStateResolver(onStateFlush = null, onStallDetected = null) {
   const cache = new Map();
   const displayedByItemId = new Map();
   const pendingByItemId = new Map();
-  const emptyState = Object.freeze({ html: '', tailText: '', tailHeightPx: 0 });
+  const emptyState = Object.freeze({ text: '', heightPx: 0 });
   let lastWidthVer = 0, lastFontVer = 0;
   const scheduleFrame = createFrameScheduler();
   let scheduledFrame = null;
@@ -210,7 +81,7 @@ export function createStreamingMarkdownStateResolver(renderAssistantBody, onStat
       lastFontVer = fv;
     }
     if (cache.has(text)) return cache.get(text) || emptyState;
-    const next = buildStreamingMarkdownState(text, renderAssistantBody, emptyState);
+    const next = buildStreamingMarkdownState(text, emptyState);
     cache.set(text, next);
     if (cache.size > 280) cache.delete(cache.keys().next().value);
     return next;

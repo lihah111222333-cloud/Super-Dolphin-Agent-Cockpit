@@ -14,10 +14,7 @@ import {
   normalizeReasoningText,
   renderAssistantMarkdown,
 } from './utils/assistant-markdown.js';
-import {
-  splitStreamingMarkdownForDisplay,
-  createStreamingMarkdownStateResolver,
-} from './utils/assistant-markdown-streaming.js';
+import { createStreamingMarkdownStateResolver } from './utils/assistant-markdown-streaming.js';
 
 
 const leakedProgressText = [
@@ -112,35 +109,12 @@ describe('normalizeReasoningText', () => {
     expect(html).toContain('chat-md-inline-code');
     expect(html).toContain('buildVisibleChatThreadCards(opts)');
   });
-  it('splits streaming markdown at the last completed line', () => {
-    const result = splitStreamingMarkdownForDisplay('# 标题\n\n- 第一项\n- 第二');
-    expect(result.stableText).toBe('# 标题\n\n- 第一项\n');
-    expect(result.tailText).toBe('- 第二');
-  });
-
-  it('keeps unfinished fenced blocks in the streaming tail', () => {
-    const result = splitStreamingMarkdownForDisplay('说明\n\n```js\nconst answer = 42;');
-    expect(result.stableText).toBe('说明\n\n');
-    expect(result.tailText).toBe('```js\nconst answer = 42;');
-  });
-  it('promotes balanced trailing inline markdown before a newline arrives', () => {
-    const result = splitStreamingMarkdownForDisplay('**hello**');
-    expect(result.stableText).toBe('**hello**');
-    expect(result.tailText).toBe('');
-  });
-
-  it('promotes sentence-ending trailing text once punctuation closes the thought', () => {
-    const result = splitStreamingMarkdownForDisplay('这一段已经稳定了。');
-    expect(result.stableText).toBe('这一段已经稳定了。');
-    expect(result.tailText).toBe('');
-  });
-
   it('coalesces streaming markdown state updates until the next frame', () => {
     vi.useFakeTimers();
     vi.stubGlobal('requestAnimationFrame', undefined);
     vi.stubGlobal('cancelAnimationFrame', undefined);
     const flushes = [];
-    const resolve = createStreamingMarkdownStateResolver((text) => `<p>${text}</p>`, () => flushes.push('flushed'));
+    const resolve = createStreamingMarkdownStateResolver(() => flushes.push('flushed'));
     const first = resolve({ id: 'assistant-1', kind: 'assistant', text: 'Hello\n', done: false });
     const second = resolve({ id: 'assistant-1', kind: 'assistant', text: 'Hello\nWorld', done: false });
     expect(second).toBe(first);
@@ -148,7 +122,8 @@ describe('normalizeReasoningText', () => {
     const third = resolve({ id: 'assistant-1', kind: 'assistant', text: 'Hello\nWorld', done: false });
     expect(flushes).toEqual(['flushed']);
     expect(third).not.toBe(first);
-    expect(third.tailText).toBe('World');
+    expect(third.text).toBe('Hello\nWorld');
+    expect(third.heightPx).toBeGreaterThanOrEqual(0);
     resolve.dispose?.();
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -159,7 +134,7 @@ describe('normalizeReasoningText', () => {
     vi.stubGlobal('requestAnimationFrame', undefined);
     vi.stubGlobal('cancelAnimationFrame', undefined);
     const flushes = [];
-    const resolve = createStreamingMarkdownStateResolver((text) => `<p>${text}</p>`, () => flushes.push('flushed'));
+    const resolve = createStreamingMarkdownStateResolver(() => flushes.push('flushed'));
     // Initial call — first seen, renders immediately
     resolve({ id: 'a1', kind: 'assistant', text: 'Hello\n', done: false });
     // Second call with new text — returns stale, schedules 32ms flush + 200ms backstop
@@ -170,7 +145,8 @@ describe('normalizeReasoningText', () => {
     expect(flushes).toEqual(['flushed']);
     // After flush, resolve with same text returns current (non-stale) state
     const current = resolve({ id: 'a1', kind: 'assistant', text: 'Hello\nWorld\n', done: false });
-    expect(current.html).toContain('Hello');
+    expect(current.text).toBe('Hello\nWorld\n');
+    expect(current.heightPx).toBeGreaterThanOrEqual(0);
     // New text again — schedules 32ms flush + 200ms backstop
     flushes.length = 0;
     resolve({ id: 'a1', kind: 'assistant', text: 'Hello\nWorld\nFoo\n', done: false });
@@ -191,7 +167,7 @@ describe('normalizeReasoningText', () => {
     vi.stubGlobal('requestAnimationFrame', undefined);
     vi.stubGlobal('cancelAnimationFrame', undefined);
     const flushes = [];
-    const resolve = createStreamingMarkdownStateResolver((text) => `<p>${text}</p>`, () => flushes.push('flushed'));
+    const resolve = createStreamingMarkdownStateResolver(() => flushes.push('flushed'));
     resolve({ id: 'b1', kind: 'assistant', text: 'Hi\n', done: false });
     resolve({ id: 'b1', kind: 'assistant', text: 'Hi\nBye\n', done: false });
     // Dispose before any timer fires

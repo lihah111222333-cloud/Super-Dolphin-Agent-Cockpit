@@ -227,14 +227,7 @@ func (s *session) shutdownSession(graceful bool) error {
 	}
 	s.clearProcessedApprovals()
 	s.cancel()
-	// Unregister from ServerManager; don't shut down the shared transport.
-	if s.manager != nil {
-		s.manager.Unregister(s.agentID, s.ThreadID())
-	}
-	if s.ownsTransport {
-		return s.transport.shutdownTransport(graceful)
-	}
-	return nil
+	return s.transport.shutdownTransport(graceful)
 }
 
 func (s *session) failRecovery(reason string, err error) error {
