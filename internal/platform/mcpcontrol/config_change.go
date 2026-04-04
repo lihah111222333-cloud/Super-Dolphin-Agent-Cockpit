@@ -10,12 +10,51 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/kelindar/event"
 )
 
 const (
 	configTopicAgent  = "config/agent"
 	configTopicThread = "config/thread"
 )
+
+func registerConfigChangeSubscriptions(
+	dispatcher *event.Dispatcher,
+	notifier contract.ToolNotifier,
+	versions configVersionSource,
+	logger *pkglogger.Logger,
+) []context.CancelFunc {
+	if dispatcher == nil || notifier == nil || versions == nil {
+		return nil
+	}
+	return []context.CancelFunc{
+		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {
+			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentStateChangedPayload(ev))
+		}, logger),
+		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentLaunched) {
+			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentLaunchedPayload(ev))
+		}, logger),
+		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentStopped) {
+			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentStoppedPayload(ev))
+		}, logger),
+		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentRecovering) {
+			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentRecoveringPayload(ev))
+		}, logger),
+		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentFailed) {
+			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentFailedPayload(ev))
+		}, logger),
+		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentRuntimeReported) {
+			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentRuntimeReportedPayload(ev))
+		}, logger),
+		platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Started) {
+			publishConfigChanged(notifier, versions, logger, configTopicThread, threadStartedPayload(ev))
+		}, logger),
+		platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Stopped) {
+			publishConfigChanged(notifier, versions, logger, configTopicThread, threadStoppedPayload(ev))
+		}, logger),
+	}
+}
 
 func publishConfigChanged(
 	notifier contract.ToolNotifier,

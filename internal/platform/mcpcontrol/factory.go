@@ -8,14 +8,10 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/creachadair/jrpc2"
-	"github.com/kelindar/event"
 )
 
 type hookInvalidParamsError struct {
@@ -42,10 +38,6 @@ type leaseLookupOptions struct {
 type fanoutOperation struct {
 	name   string
 	invoke func(context.Context, Peer) error
-}
-
-type configChangeSubscription struct {
-	register func(*event.Dispatcher, func(string, map[string]any), *pkglogger.Logger) context.CancelFunc
 }
 
 func newHookInvalidParams(format string, args ...any) error {
@@ -300,68 +292,6 @@ func (r *ToolRegistry) invokeFanoutTarget(ctx context.Context, target sendTarget
 	}
 	r.resetPeerFailure(target.key)
 	return nil
-}
-
-func registerConfigChangeSubscriptions(
-	dispatcher *event.Dispatcher,
-	notifier contract.ToolNotifier,
-	versions configVersionSource,
-	logger *pkglogger.Logger,
-) []context.CancelFunc {
-	if dispatcher == nil || notifier == nil || versions == nil {
-		return nil
-	}
-
-	publish := func(topic string, payload map[string]any) {
-		publishConfigChanged(notifier, versions, logger, topic, payload)
-	}
-	specs := []configChangeSubscription{
-		{register: func(dispatcher *event.Dispatcher, publish func(string, map[string]any), logger *pkglogger.Logger) context.CancelFunc {
-			return platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {
-				publish(configTopicAgent, agentStateChangedPayload(ev))
-			}, logger)
-		}},
-		{register: func(dispatcher *event.Dispatcher, publish func(string, map[string]any), logger *pkglogger.Logger) context.CancelFunc {
-			return platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentLaunched) {
-				publish(configTopicAgent, agentLaunchedPayload(ev))
-			}, logger)
-		}},
-		{register: func(dispatcher *event.Dispatcher, publish func(string, map[string]any), logger *pkglogger.Logger) context.CancelFunc {
-			return platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentStopped) {
-				publish(configTopicAgent, agentStoppedPayload(ev))
-			}, logger)
-		}},
-		{register: func(dispatcher *event.Dispatcher, publish func(string, map[string]any), logger *pkglogger.Logger) context.CancelFunc {
-			return platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentRecovering) {
-				publish(configTopicAgent, agentRecoveringPayload(ev))
-			}, logger)
-		}},
-		{register: func(dispatcher *event.Dispatcher, publish func(string, map[string]any), logger *pkglogger.Logger) context.CancelFunc {
-			return platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentFailed) {
-				publish(configTopicAgent, agentFailedPayload(ev))
-			}, logger)
-		}},
-		{register: func(dispatcher *event.Dispatcher, publish func(string, map[string]any), logger *pkglogger.Logger) context.CancelFunc {
-			return platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentRuntimeReported) {
-				publish(configTopicAgent, agentRuntimeReportedPayload(ev))
-			}, logger)
-		}},
-		{register: func(dispatcher *event.Dispatcher, publish func(string, map[string]any), logger *pkglogger.Logger) context.CancelFunc {
-			return platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Started) {
-				publish(configTopicThread, threadStartedPayload(ev))
-			}, logger)
-		}},
-		{register: func(dispatcher *event.Dispatcher, publish func(string, map[string]any), logger *pkglogger.Logger) context.CancelFunc {
-			return platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Stopped) {
-				publish(configTopicThread, threadStoppedPayload(ev))
-			}, logger)
-		}},
-	}
-	cancels := make([]context.CancelFunc, 0, len(specs))
-	for _, spec := range specs {
-		cancels = append(cancels, spec.register(dispatcher, publish, logger))
-	}
-	return cancels
 }
 
 func baseConfigPayload(eventType string, header shareddto.AgentSessionHeader) map[string]any {

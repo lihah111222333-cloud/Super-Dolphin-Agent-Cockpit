@@ -262,6 +262,32 @@ func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.
 	return cfg, nil
 }
 
+func normalizeThreadConfigPatch(
+	ctx context.Context,
+	session contract.Session,
+	provider string,
+	patch dto.ThreadConfigPatch,
+) (dto.ThreadConfigPatch, error) {
+	patch.Model = trimThreadConfigPatchValue(patch.Model)
+	patch.Effort = trimThreadConfigPatchValue(patch.Effort)
+	patch.Personality = trimThreadConfigPatchValue(patch.Personality)
+	patch.Approvals = trimThreadConfigPatchValue(patch.Approvals)
+	if model := threadConfigPatchValue(patch.Model); model != "" {
+		validated, err := validateModelName(model)
+		if err != nil {
+			return dto.ThreadConfigPatch{}, err
+		}
+		patch.Model = &validated
+		if err := ensureAllowedModel(ctx, session, validated, provider); err != nil {
+			return dto.ThreadConfigPatch{}, err
+		}
+	}
+	if err := validateThreadConfigEffort(threadConfigPatchValue(patch.Effort)); err != nil {
+		return dto.ThreadConfigPatch{}, err
+	}
+	return patch, nil
+}
+
 func ensureAllowedModel(
 	ctx context.Context,
 	session contract.Session,

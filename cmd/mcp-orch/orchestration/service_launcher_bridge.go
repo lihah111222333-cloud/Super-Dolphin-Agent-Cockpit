@@ -137,28 +137,29 @@ func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) boo
 }
 
 func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason string) (*agentRuntime, uint64, error) {
-	s.mu.Lock()
-	agent, err := lookupAgentByIDLocked(s.agents, agentID)
+	var (
+		agentRef  *agentRuntime
+		launchSeq uint64
+	)
+	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if !s.agentRunningLocked(ctx, agent) {
+			return fmt.Errorf("agent %q is not running", agent.id)
+		}
+		changed, err := s.markStoppingLocked(ctx, agent, reason)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return nil
+		}
+		agentRef = agent
+		launchSeq = agent.launchSeq
+		return nil
+	})
 	if err != nil {
-		s.mu.Unlock()
 		return nil, 0, err
 	}
-	if !s.agentRunningLocked(ctx, agent) {
-		s.mu.Unlock()
-		return nil, 0, fmt.Errorf("agent %q is not running", agent.id)
-	}
-	changed, err := s.markStoppingLocked(ctx, agent, reason)
-	if err != nil {
-		s.mu.Unlock()
-		return nil, 0, err
-	}
-	if !changed {
-		s.mu.Unlock()
-		return nil, 0, nil
-	}
-	launchSeq := agent.launchSeq
-	s.mu.Unlock()
-	return agent, launchSeq, nil
+	return agentRef, launchSeq, nil
 }
 
 func (s *service) submitTurnViaLauncher(ctx context.Context, req TurnSubmission) error {
@@ -185,43 +186,38 @@ func submissionAgentID(req TurnSubmission) (string, error) {
 }
 
 func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req TurnSubmission) (bool, error) {
-	s.mu.Lock()
-	agent, err := lookupAgentByIDLocked(s.agents, agentID)
+	handled := true
+	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if !s.canSubmitViaLauncher(ctx, agent) {
+			handled = false
+			return nil
+		}
+		if agent.stopRequested {
+			return fmt.Errorf("agent %q is stopping", agent.id)
+		}
+		if remoteAgentBusy(agent) {
+			return fmt.Errorf("agent %q is busy", agent.id)
+		}
+		req.AgentID = agentID
+		turnID, err := s.launcher.SubmitTurn(ctx, agent, req)
+		if err != nil {
+			agent.lastError = err.Error()
+			return err
+		}
+		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
+			return err
+		}
+		agent.activeTurnID = firstTrimmed(turnID, req.ExpectedTurnID)
+		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+			return err
+		}
+		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
+		return nil
+	})
 	if err != nil {
-		s.mu.Unlock()
 		return true, err
 	}
-	if !s.canSubmitViaLauncher(ctx, agent) {
-		s.mu.Unlock()
-		return false, nil
-	}
-	if agent.stopRequested {
-		s.mu.Unlock()
-		return true, fmt.Errorf("agent %q is stopping", agent.id)
-	}
-	if remoteAgentBusy(agent) {
-		s.mu.Unlock()
-		return true, fmt.Errorf("agent %q is busy", agent.id)
-	}
-	req.AgentID = agentID
-	turnID, err := s.launcher.SubmitTurn(ctx, agent, req)
-	if err != nil {
-		agent.lastError = err.Error()
-		s.mu.Unlock()
-		return true, err
-	}
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
-		s.mu.Unlock()
-		return true, err
-	}
-	agent.activeTurnID = firstTrimmed(turnID, req.ExpectedTurnID)
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
-		s.mu.Unlock()
-		return true, err
-	}
-	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
-	s.mu.Unlock()
-	return true, nil
+	return handled, nil
 }
 
 func (s *service) canSubmitViaLauncher(ctx context.Context, agent *agentRuntime) bool {

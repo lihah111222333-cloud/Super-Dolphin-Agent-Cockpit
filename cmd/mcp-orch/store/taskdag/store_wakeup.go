@@ -104,10 +104,6 @@ func (s *store) GetWakeup(ctx context.Context, id int64) (*Wakeup, error) {
 	}, "get", "task_dag_wakeup", fromWakeup)
 }
 
-func mapWakeups(rows []sqlc.TaskDagWakeup) []Wakeup {
-	return mapRows(rows, fromWakeup)
-}
-
 func fromWakeup(row sqlc.TaskDagWakeup) Wakeup {
 	return Wakeup{
 		ID:             row.ID,

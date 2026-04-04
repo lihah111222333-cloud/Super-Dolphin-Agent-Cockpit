@@ -48,29 +48,12 @@ type mergeFileSnapshot struct {
 	DryRun             bool
 }
 
-type pathResolveRequest struct {
-	Raw      string
-	Base     string
-	Field    string
-	Required bool
-	MustDir  bool
-}
-
-type runPathResolution struct {
-	SourceRoot    string
-	WorkspacePath string
-}
-
 func copyRunFile(run storeworkspace.WorkspaceRun, rel string) error {
 	paths := runPaths(&run, rel)
 	if err := copyPreserveMode(paths.SourcePath, paths.WorkspacePath, copyOptions{}); err != nil {
 		return fmt.Errorf("copy workspace file %q: %w", rel, err)
 	}
 	return nil
-}
-
-func copyFile(sourcePath, targetPath string) error {
-	return copyPreserveMode(sourcePath, targetPath, copyOptions{})
 }
 
 func copyFileAtomic(source, target string, perm os.FileMode) error {
@@ -97,27 +80,16 @@ func copyPreserveMode(sourcePath, targetPath string, opts copyOptions) error {
 	}
 
 	if opts.Atomic {
-		return copyAtomicFromReader(sourceFile, targetPath, perm)
+		return copyPreserveModeAtomic(sourceFile, targetPath, perm)
 	}
-	if err := ensureCopyTarget(targetPath, false); err != nil {
-		return err
-	}
-	targetFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(targetFile, sourceFile); err != nil {
-		_ = targetFile.Close()
-		return err
-	}
-	return targetFile.Close()
+	return copyPreserveModeDirect(sourceFile, targetPath, perm)
 }
 
-func copyAtomicFromReader(in io.Reader, target string, perm os.FileMode) error {
-	if err := ensureCopyTarget(target, true); err != nil {
+func copyPreserveModeAtomic(source *os.File, targetPath string, perm os.FileMode) error {
+	if err := ensureCopyTarget(targetPath, true); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(target), ".workspace-merge-*")
+	tmp, err := os.CreateTemp(filepath.Dir(targetPath), ".workspace-merge-*")
 	if err != nil {
 		return err
 	}
@@ -127,7 +99,7 @@ func copyAtomicFromReader(in io.Reader, target string, perm os.FileMode) error {
 		_ = os.Remove(tmpPath)
 	}
 	defer cleanup()
-	if _, err := io.Copy(tmp, in); err != nil {
+	if _, err := io.Copy(tmp, source); err != nil {
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
@@ -139,11 +111,26 @@ func copyAtomicFromReader(in io.Reader, target string, perm os.FileMode) error {
 	if err := os.Chmod(tmpPath, perm); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, target); err != nil {
+	if err := os.Rename(tmpPath, targetPath); err != nil {
 		return err
 	}
 	cleanup = func() {}
 	return nil
+}
+
+func copyPreserveModeDirect(source *os.File, targetPath string, perm os.FileMode) error {
+	if err := ensureCopyTarget(targetPath, false); err != nil {
+		return err
+	}
+	targetFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(targetFile, source); err != nil {
+		_ = targetFile.Close()
+		return err
+	}
+	return targetFile.Close()
 }
 
 func ensureCopyTarget(target string, rejectSymlink bool) error {
@@ -319,73 +306,6 @@ func buildRunFile(run *Run, rel string) (storeworkspace.WorkspaceRunFile, error)
 		SourceSHA256After:  inspected.SourceSHA256,
 		State:              state,
 	}, nil
-}
-
-func resolveCreateRunPaths(req CreateRunRequest, runKey string) (runPathResolution, error) {
-	sourceRoot, err := resolvePath(pathResolveRequest{
-		Raw:      req.SourceRoot,
-		Base:     req.CWD,
-		Field:    "sourceRoot",
-		Required: true,
-		MustDir:  true,
-	})
-	if err != nil {
-		return runPathResolution{}, err
-	}
-	workspacePath, err := resolvePath(pathResolveRequest{
-		Raw:   req.WorkspacePath,
-		Base:  req.CWD,
-		Field: "workspacePath",
-	})
-	if err != nil {
-		return runPathResolution{}, err
-	}
-	if workspacePath == "" {
-		base := strings.TrimSpace(req.CWD)
-		if base == "" {
-			base = sourceRoot
-		}
-		workspacePath, err = filepath.Abs(filepath.Join(base, ".workspace", runKey))
-		if err != nil {
-			return runPathResolution{}, fmt.Errorf("resolve workspacePath: %w", err)
-		}
-	}
-	if workspacePath == sourceRoot {
-		return runPathResolution{}, errors.New("workspacePath must be distinct from sourceRoot")
-	}
-	return runPathResolution{
-		SourceRoot:    sourceRoot,
-		WorkspacePath: workspacePath,
-	}, nil
-}
-
-func resolvePath(input pathResolveRequest) (string, error) {
-	path := strings.TrimSpace(input.Raw)
-	if path == "" {
-		if input.Required {
-			return "", fmt.Errorf("%s is required", input.Field)
-		}
-		return "", nil
-	}
-	base := strings.TrimSpace(input.Base)
-	if !filepath.IsAbs(path) && base != "" {
-		path = filepath.Join(base, path)
-	}
-	resolved, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("resolve %s: %w", input.Field, err)
-	}
-	if !input.MustDir {
-		return resolved, nil
-	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return "", fmt.Errorf("stat %s: %w", input.Field, err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("%s must be directory", input.Field)
-	}
-	return resolved, nil
 }
 
 type runStatusErrorMapper func(runKey string, err error) error

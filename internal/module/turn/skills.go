@@ -9,8 +9,8 @@ import (
 type skillResolver struct{}
 
 func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillRef, prompt string) []dto.SkillRef {
-	explicit := r.normalize(selected)
-	autoCandidates := r.normalize(candidates)
+	explicit := normalizeSkillRefs(selected)
+	autoCandidates := normalizeSkillRefs(candidates)
 	resolved := make([]dto.SkillRef, 0, len(explicit)+len(autoCandidates))
 	seen := make(map[string]bool, len(explicit)+len(autoCandidates))
 
@@ -36,22 +36,31 @@ func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillR
 	return resolved
 }
 
-func (r *skillResolver) normalize(refs []dto.SkillRef) []dto.SkillRef {
-	resolved := make([]dto.SkillRef, 0, len(refs))
-	indexByName := make(map[string]int, len(refs))
-	for _, ref := range refs {
-		ref.Name = strings.TrimSpace(ref.Name)
-		ref.Prompt = strings.TrimSpace(ref.Prompt)
-		if ref.Name == "" {
-			continue
+func normalizeSkillRefs(groups ...[]dto.SkillRef) []dto.SkillRef {
+	total := 0
+	for _, refs := range groups {
+		total += len(refs)
+	}
+	resolved := make([]dto.SkillRef, 0, total)
+	indexByName := make(map[string]int, total)
+	for _, refs := range groups {
+		for _, ref := range refs {
+			ref.Name = strings.TrimSpace(ref.Name)
+			ref.Prompt = strings.TrimSpace(ref.Prompt)
+			if ref.Name == "" {
+				continue
+			}
+			key := strings.ToLower(ref.Name)
+			if idx, ok := indexByName[key]; ok {
+				resolved[idx].Prompt = mergePromptText(resolved[idx].Prompt, ref.Prompt)
+				continue
+			}
+			indexByName[key] = len(resolved)
+			resolved = append(resolved, ref)
 		}
-		key := strings.ToLower(ref.Name)
-		if idx, ok := indexByName[key]; ok {
-			resolved[idx].Prompt = mergePromptText(resolved[idx].Prompt, ref.Prompt)
-			continue
-		}
-		indexByName[key] = len(resolved)
-		resolved = append(resolved, ref)
+	}
+	if len(resolved) == 0 {
+		return nil
 	}
 	return resolved
 }

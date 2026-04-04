@@ -54,6 +54,7 @@ func (s *service) populateDashboardPage(ctx context.Context, out *DashboardPage,
 	}
 	group, groupCtx := errgroup.WithContext(ctx)
 	for _, load := range loaders {
+		load := load
 		group.Go(func() error {
 			return load(groupCtx)
 		})
@@ -62,11 +63,67 @@ func (s *service) populateDashboardPage(ctx context.Context, out *DashboardPage,
 }
 
 func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashboardPageLoader {
-	descriptor, ok := s.pageRegistry(out)[page]
-	if !ok {
+	switch page {
+	case "agents":
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardAgents(ctx, out) },
+		}
+	case "tasks":
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardTaskTraces(ctx, out) },
+		}
+	case "skills":
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardSkills(ctx, out) },
+		}
+	case "commands":
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardCommandCards(ctx, out) },
+			func(ctx context.Context) error { return s.populateDashboardPrompts(ctx, out) },
+		}
+	case "memory":
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardMemory(ctx, out) },
+		}
+	default:
 		return nil
 	}
-	return descriptor.loaders
+}
+
+func (s *service) populateDashboardAgents(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listAgents(ctx)
+	out.Agents = items
+	return err
+}
+
+func (s *service) populateDashboardTaskTraces(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardTaskTraces(ctx)
+	out.TaskTraces = items
+	return err
+}
+
+func (s *service) populateDashboardSkills(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardSkills(ctx)
+	out.Skills = items
+	return err
+}
+
+func (s *service) populateDashboardCommandCards(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardCommandCards(ctx)
+	out.CommandCards = items
+	return err
+}
+
+func (s *service) populateDashboardPrompts(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardPrompts(ctx)
+	out.Prompts = items
+	return err
+}
+
+func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPage) error {
+	items, err := s.listDashboardMemory(ctx)
+	out.Memory = items
+	return err
 }
 
 func (s *service) listDashboardTaskTraces(ctx context.Context) ([]tasktracestore.TaskTrace, error) {

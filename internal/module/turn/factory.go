@@ -36,7 +36,7 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, caps dto.
 		Prompt:               spec.Prompt,
 		Images:               append([]string(nil), spec.Images...),
 		Files:                append([]string(nil), spec.Files...),
-		Skills:               normalizeSkillRefs(skills.Selected, skills.Derived),
+		Skills:               normalizeSkillNames(skills.Selected, skills.Derived),
 		CandidateSkills:      cloneSkillRefs(spec.CandidateSkills),
 		ManualSkillSelection: spec.ManualSkillSelection,
 		Model:                spec.Model,
@@ -118,27 +118,16 @@ func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope) tur
 	return result
 }
 
-func normalizeSkillRefs(groups ...[]string) []dto.SkillRef {
-	refs := make([]dto.SkillRef, 0)
-	seen := make(map[string]struct{})
+func normalizeSkillNames(groups ...[]string) []dto.SkillRef {
+	refGroups := make([][]dto.SkillRef, 0, len(groups))
 	for _, names := range groups {
+		refs := make([]dto.SkillRef, 0, len(names))
 		for _, raw := range names {
-			name := strings.TrimSpace(raw)
-			key := strings.ToLower(name)
-			if key == "" {
-				continue
-			}
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			refs = append(refs, dto.SkillRef{Name: name})
+			refs = append(refs, dto.SkillRef{Name: raw})
 		}
+		refGroups = append(refGroups, refs)
 	}
-	if len(refs) == 0 {
-		return nil
-	}
-	return refs
+	return normalizeSkillRefs(refGroups...)
 }
 
 func decodeLegacyTurnParams[T any, L any](

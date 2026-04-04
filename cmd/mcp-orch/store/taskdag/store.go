@@ -195,14 +195,6 @@ func stringPtr(value string) sqlc.Text {
 	return sqlc.TextValuePtr(&value)
 }
 
-func mapDAGs(rows []sqlc.TaskDag) []DAG {
-	return mapRows(rows, fromDAG)
-}
-
-func mapNodes(rows []sqlc.TaskDagNode) []Node {
-	return mapRows(rows, fromNode)
-}
-
 func fromDAG(row sqlc.TaskDag) DAG {
 	return DAG{
 		ID:          row.ID,

@@ -13,6 +13,31 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
+var blockedCommands = map[string]bool{
+	"chmod": true, "chown": true, "curl": true, "dd": true, "fdisk": true, "kill": true,
+	"killall": true, "mkfs": true, "mount": true, "passwd": true, "pkill": true, "reboot": true,
+	"rm": true, "rmdir": true, "shutdown": true, "su": true, "sudo": true, "umount": true, "useradd": true,
+	"userdel": true, "wget": true, "iptables": true,
+}
+
+var shellInterpreters = map[string]bool{
+	"bash": true, "cmd": true, "cmd.exe": true, "dash": true, "fish": true, "ksh": true,
+	"powershell": true, "powershell.exe": true, "pwsh": true, "pwsh.exe": true, "sh": true, "zsh": true,
+}
+
+var readCommands = map[string]bool{
+	"ag": true, "awk": true, "bat": true, "cat": true, "fd": true, "find": true, "grep": true,
+	"head": true, "less": true, "more": true, "rg": true, "sed": true, "tail": true, "tree": true, "wc": true,
+}
+
+var execBaseEnvKeys = []string{
+	"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TERM",
+}
+
+var execAllowedEnvPrefixes = []string{
+	"OPENAI_", "ANTHROPIC_", "CODEX_", "DYN_TOOL_", "MODEL", "LOG_LEVEL", "AGENT_", "MCP_", "APP_", "STRESS_TEST_", "TEST_E2E_",
+}
+
 const lspPreferenceHint = "[LSP提示] 优先用 LSP 工具读代码：lsp_file lsp_inspect lsp_xref lsp_grep lsp_structure lsp_edit lsp_completion。\n"
 
 func (s *service) ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error) {
@@ -39,9 +64,9 @@ func validateExecCommand(command string, allowShell bool) (string, string, error
 	switch {
 	case base == "." || base == "":
 		return "", "", errors.New("command is required")
-	case isBlockedCommand(base):
+	case blockedCommands[base]:
 		return "", "", errors.New("command is blocked for security")
-	case !allowShell && isShellInterpreter(base):
+	case !allowShell && shellInterpreters[base]:
 		return "", "", errors.New("shell interpreters are not allowed")
 	default:
 		return name, base, nil
@@ -86,7 +111,7 @@ func runExecCommand(ctx context.Context, name, base string, args []string, cwd s
 	result := ExecResult{Command: name, CWD: cmd.Dir}
 	err := cmd.Run()
 	result.Stdout, result.Stderr = stdout.String(), stderr.String()
-	if isReadOnlyCommand(base) && !strings.HasPrefix(result.Stdout, lspPreferenceHint) {
+	if readCommands[base] && !strings.HasPrefix(result.Stdout, lspPreferenceHint) {
 		result.Stdout = lspPreferenceHint + result.Stdout
 	}
 	if err == nil {
@@ -179,6 +204,12 @@ func isAllowedExecEnvKey(key string) bool {
 	}
 	return false
 }
+
+func isBlockedCommand(name string) bool { return blockedCommands[name] }
+
+func isReadOnlyCommand(name string) bool { return readCommands[name] }
+
+func isShellInterpreter(name string) bool { return shellInterpreters[name] }
 
 type limitedBuffer struct {
 	buf   bytes.Buffer

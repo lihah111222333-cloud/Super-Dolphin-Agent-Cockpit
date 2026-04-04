@@ -51,17 +51,19 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 }
 
 func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
-	s.mu.Lock()
-	s.state.TokenUsage = TokenUsage{
-		InputTokens:         ev.InputTokens,
-		OutputTokens:        ev.OutputTokens,
-		TotalTokens:         ev.TotalTokens,
-		ContextWindowTokens: ev.ContextWindowTokens,
-	}
-	patch := s.threadPatchLocked(ev.ThreadID, "thread/tokenusage/updated")
-	patch.TokenUsage = tokenUsagePatch(ev)
-	s.mu.Unlock()
-	s.emitThreadPatchEvent(patch)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	applyMutation(s, threadID, func() {
+		s.state.TokenUsage = TokenUsage{
+			InputTokens:         ev.InputTokens,
+			OutputTokens:        ev.OutputTokens,
+			TotalTokens:         ev.TotalTokens,
+			ContextWindowTokens: ev.ContextWindowTokens,
+		}
+	}, func() uidto.UIThreadPatch {
+		patch := s.threadPatchLocked(threadID, "thread/tokenusage/updated")
+		patch.TokenUsage = tokenUsagePatch(ev)
+		return patch
+	})
 }
 func (s *service) applyItemStarted(ev turndto.ItemStarted) {
 	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)

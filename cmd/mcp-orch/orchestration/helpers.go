@@ -125,34 +125,32 @@ func (s *service) finishTurnStartSuccess(ctx context.Context, work turnWork, sta
 			return
 		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := lookupAgentByIDLocked(s.agents, work.agentID)
-	if err != nil || agent.activeTurnID != currentTurnID {
-		return
-	}
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
-		s.logger.Warn("orchestration: failed to mark turn running", "agent_id", agent.id, "turn_id", currentTurnID, "error", err)
-	}
+	_ = s.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+		if agent.activeTurnID != currentTurnID {
+			return nil
+		}
+		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+			s.logger.Warn("orchestration: failed to mark turn running", "agent_id", agent.id, "turn_id", currentTurnID, "error", err)
+		}
+		return nil
+	})
 }
 
 func (s *service) finishTurnStartFailure(ctx context.Context, work turnWork, startErr error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := lookupAgentByIDLocked(s.agents, work.agentID)
-	if err != nil || agent.activeTurnID != work.turnID {
-		return
-	}
-	agent.lastError = startErr.Error()
-	agent.activeTurnID = ""
-	if agent.state != agentdto.StateTurnStarting {
-		return
-	}
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnCompleted); err != nil {
-		s.logger.Warn("orchestration: failed to reset turn after start error", "agent_id", agent.id, "turn_id", work.turnID, "error", err)
-	}
+	_ = s.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+		if agent.activeTurnID != work.turnID {
+			return nil
+		}
+		agent.lastError = startErr.Error()
+		agent.activeTurnID = ""
+		if agent.state != agentdto.StateTurnStarting {
+			return nil
+		}
+		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnCompleted); err != nil {
+			s.logger.Warn("orchestration: failed to reset turn after start error", "agent_id", agent.id, "turn_id", work.turnID, "error", err)
+		}
+		return nil
+	})
 }
 
 func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime, reason string) error {
