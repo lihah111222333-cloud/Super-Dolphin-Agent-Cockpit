@@ -3,7 +3,6 @@ package app
 import (
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/lspgui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
@@ -46,11 +45,12 @@ var Module = fx.Options(
 	unified.Module,
 	claudecli.Module,
 	codexapp.Module,
-	orchestration.Module,
+	// orchestration is handled entirely by the standalone mcp-orch MCP server;
+	// the desktop app must NOT embed its own orchestration module, otherwise
+	// localLauncher re-spawns the desktop binary as a subprocess which exits
+	// immediately and causes agent state to go to "failed".
 	fx.Provide(
 		AsRPCRunner,
-		orchestration.NewLocalLauncher,
-		fx.Annotate(orchestration.NewRunnerActor, fx.ResultTags(`group:"runners"`)),
 		newThreadOrchestrationFacade,
 		newRuntimeReporter,
 	),

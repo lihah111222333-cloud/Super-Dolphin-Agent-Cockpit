@@ -2,16 +2,12 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
-
-const standaloneMCPOrchLaunchError = "orchestration_launch_agent is not supported in standalone mcp-orch mode; use the main agent-terminal binary to launch agents"
 
 var osExecutable = os.Executable
 
@@ -117,15 +113,16 @@ func launchRequestFromInput(in LaunchAgentInput) (contract.LaunchRequest, error)
 }
 
 func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.LaunchRequest, error) {
-	if isStandaloneMCPOrchExecutable(exe) {
-		return contract.LaunchRequest{}, errors.New(standaloneMCPOrchLaunchError)
-	}
+	// NOTE: the old standalone-mcp-orch guard has been removed.  When
+	// GO_AGENT_CTL_RPC_ADDR is set the orchestration service uses
+	// remoteLauncher which delegates to thread/start on the main app's RPC
+	// server and never touches the Command field.  The guard was a relic of
+	// the previous architecture where the desktop app embedded its own
+	// orchestration module.
 	name, err := requireTrimmed(in.Name, "name")
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
-	// The MCP launch tool does not expose agent_id/command, so mirror the thread
-	// module's launch path by using the current binary and the provided name as ID.
 	return contract.LaunchRequest{
 		AgentID: name,
 		Name:    name,
@@ -136,16 +133,6 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	}, nil
 }
 
-func isStandaloneMCPOrchExecutable(exe string) bool {
-	trimmed := strings.TrimSpace(exe)
-	normalized := strings.ReplaceAll(trimmed, "\\", "/")
-	switch strings.ToLower(filepath.Base(normalized)) {
-	case "mcp-orch", "mcp-orch.exe":
-		return true
-	default:
-		return false
-	}
-}
 
 func launchEnv(provider string) []string {
 	if provider = strings.TrimSpace(provider); provider != "" {

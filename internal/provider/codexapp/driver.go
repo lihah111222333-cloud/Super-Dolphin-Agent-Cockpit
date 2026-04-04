@@ -27,6 +27,7 @@ type driver struct {
 	eventDispatcher *unified.EventDispatcher
 	approvals       *rpc.ApprovalManager
 	reporter        contract.RuntimeReporter
+	manager         *ServerManager
 }
 
 var _ contract.Driver = (*driver)(nil)
@@ -75,40 +76,54 @@ func NewDriverFactory(
 	dispatcher *unified.EventDispatcher,
 	approvals *rpc.ApprovalManager,
 	reporter contract.RuntimeReporter,
+	manager *ServerManager,
 ) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter)
+			return newDriver(logger, dispatcher, approvals, reporter, manager)
 		},
 	}
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
+	serverURL := strings.TrimSpace(os.Getenv("CODEX_APP_SERVER_URL"))
+	if serverURL == "" && manager != nil && manager.Running() {
+		serverURL = manager.ServerURL()
+	}
 	return &driver{
 		logger:          logger,
-		serverURL:       strings.TrimSpace(os.Getenv("CODEX_APP_SERVER_URL")),
+		serverURL:       serverURL,
 		eventDispatcher: eventDispatcher,
 		approvals:       approvals,
 		reporter:        reporter,
+		manager:         manager,
 	}
 }
 
 func (d *driver) Name() string { return "codex" }
 
+func (d *driver) usingManagedServer() bool {
+	return d.manager != nil && d.manager.Running()
+}
+
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals)
+	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager)
 	if err != nil {
 		return nil, err
 	}
 	s.setRuntimeConfig(req.Config)
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
-	if err := d.injectCodexMCPServers(ctx, s, req); err != nil {
-		cleanupFailedSession(s, "force stop failed on mcp injection error")
-		return nil, err
+	// Skip MCP injection when connected to the globally managed server;
+	// MCP servers were already initialized at app startup by ServerManager.
+	if !d.usingManagedServer() {
+		if err := d.injectCodexMCPServers(ctx, s, req); err != nil {
+			cleanupFailedSession(s, "force stop failed on mcp injection error")
+			return nil, err
+		}
 	}
 	result, err := startRemoteThread(ctx, s.transport, req)
 	if err != nil {
@@ -116,6 +131,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		return nil, err
 	}
 	s.setThreadID(result.threadID)
+	s.registerWithManager()
 	if result.model != "" {
 		s.setRuntimeConfigValue("model", result.model)
 	}
@@ -130,7 +146,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals)
+	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +156,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		return nil, err
 	}
 	s.setThreadID(threadID)
+	s.registerWithManager()
 	d.restoreApprovalPolicy(ctx, s, threadID)
 	d.reportRuntime(s.agentID)
 	return s, nil

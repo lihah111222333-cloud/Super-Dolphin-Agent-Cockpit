@@ -14,12 +14,30 @@ type Config struct {
 }
 
 func New() *Config {
-	return &Config{
+	cfg := &Config{
 		DatabaseURL: envOr("DATABASE_URL", "postgres://mima0000@127.0.0.1:54320/super_agent_v3?sslmode=disable"),
 		RPCAddr:     envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8090"),
 		LogLevel:    envOr("LOG_LEVEL", "info"),
 		ProjectRoot: resolveProjectRoot(),
 	}
+	exportRPCAddrIfMissing(cfg.RPCAddr)
+	return cfg
+}
+
+// exportRPCAddrIfMissing sets GO_AGENT_CTL_RPC_ADDR in the process environment
+// when neither the canonical nor legacy env var is present. This ensures that
+// normalizeManifestEnv (dto/provider/manifest.go) can propagate the resolved
+// RPC address to MCP child processes (mcp-orch, mcp-lsp) automatically.
+// Without this, mcp-orch falls back to localLauncher and spawns the desktop
+// binary as a subprocess, which crashes immediately.
+func exportRPCAddrIfMissing(addr string) {
+	if strings.TrimSpace(os.Getenv("GO_AGENT_CTL_RPC_ADDR")) != "" {
+		return
+	}
+	if strings.TrimSpace(os.Getenv("RPC_ADDR")) != "" {
+		return
+	}
+	os.Setenv("GO_AGENT_CTL_RPC_ADDR", addr)
 }
 
 func resolveProjectRoot() string {

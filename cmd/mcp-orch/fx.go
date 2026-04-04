@@ -47,7 +47,7 @@ func run() error {
 			},
 			newNoopSessionCleaner,
 			newNoopTurnStarter,
-			func(shutdowner fx.Shutdowner) bootstrap.Config {
+			func(shutdowner fx.Shutdowner, hookConsumer orchestration.HookConsumer) bootstrap.Config {
 				cfg := bootstrap.ReadBootConfig()
 				cfg.AgentID = ""
 				cfg.Capabilities = []string{
@@ -75,6 +75,11 @@ func run() error {
 				}
 				cfg.OnShutdown = func(mcp.ShutdownRequest) {
 					_ = shutdowner.Shutdown()
+				}
+				if hookConsumer != nil {
+					cfg.Hooks = bootstrap.HookConfig{
+						OnAfter: hookConsumer.After,
+					}
 				}
 				return cfg
 			},

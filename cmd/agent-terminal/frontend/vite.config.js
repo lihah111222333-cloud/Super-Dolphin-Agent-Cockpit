@@ -14,6 +14,7 @@ export default defineConfig({
                     "vendor-md": ["markdown-it", "@vscode/markdown-it-katex", "katex"],
                     "vendor-hljs": ["highlight.js/lib/core"],
                     "vendor-mermaid": ["mermaid"],
+                    "vendor-pretext": ["@chenglou/pretext"],
                 },
             },
         },

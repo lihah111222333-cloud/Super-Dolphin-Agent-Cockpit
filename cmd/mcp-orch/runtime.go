@@ -111,7 +111,11 @@ func newRegistry(
 }
 
 func newStdioRunner(registry tools.Registry) platformrunner.Runner {
-	transport := common.NewStdioTransport(os.Stdin, os.Stdout)
+	stdout := mcpStdout
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	transport := common.NewStdioTransport(os.Stdin, stdout)
 	return common.NewServer("mcp-orch", "dev", transport, registryToolProvider{registry: registry})
 }
 
@@ -182,12 +186,30 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 		"subscriptions", r.cfg.Subscriptions,
 	)
 	if err := r.client.Start(ctx); err != nil {
-		pkglogger.Error("mcp-orch bootstrap start failed",
+		pkglogger.Warn("mcp-orch bootstrap start failed, continuing without control plane",
 			"binary_name", r.cfg.BinaryName,
 			"rpc_addr", r.cfg.RPCAddr,
 			"error", err,
 		)
-		return err
+		// Non-fatal: MCP tools still work without the control plane.
+		// Returning an error would kill RunGroup and shut down the
+		// MCP stdio server, making all orchestration tools unavailable.
+		<-ctx.Done()
+		return nil
+	}
+	if err := subscribeOrchestrationHooks(ctx, r.client); err != nil {
+		pkglogger.Warn("mcp-orch hook subscription failed",
+			"binary_name", r.cfg.BinaryName,
+			"rpc_addr", r.cfg.RPCAddr,
+			"topics", orchestrationHookTopics,
+			"error", err,
+		)
+	} else {
+		pkglogger.Info("mcp-orch hook subscription ready",
+			"binary_name", r.cfg.BinaryName,
+			"rpc_addr", r.cfg.RPCAddr,
+			"topics", orchestrationHookTopics,
+		)
 	}
 	<-ctx.Done()
 	return r.client.Close()

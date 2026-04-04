@@ -1872,6 +1872,7 @@
 
 .chat-item-plain {
   white-space: pre-wrap;
+  font-family: var(--font-mono);  /* 收敛到 named mono stack，消除 generic family 风险 */
 }
 
 .chat-item-markdown {

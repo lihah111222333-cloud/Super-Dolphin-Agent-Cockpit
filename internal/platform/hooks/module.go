@@ -5,6 +5,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
 
@@ -18,6 +19,7 @@ var Module = fx.Module("platform.hooks",
 		func(m *Manager) contract.HookLifecycle { return m },
 	),
 	fx.Invoke(registerRecoveryLifecycle),
+	fx.Invoke(registerEventRelayLifecycle),
 )
 
 type managerIn struct {
@@ -61,4 +63,12 @@ func registerRecoveryLifecycle(lc fx.Lifecycle, in recoveryLifecycleIn) {
 			return nil
 		},
 	})
+}
+
+type eventRelayIn struct {
+	fx.In
+
+	Dispatcher *event.Dispatcher
+	Manager    *Manager
+	Logger     *pkglogger.Logger `optional:"true"`
 }

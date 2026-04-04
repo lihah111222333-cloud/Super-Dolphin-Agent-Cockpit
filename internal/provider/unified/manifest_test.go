@@ -11,7 +11,7 @@ import (
 func TestBuildManifest_DefaultFamilies(t *testing.T) {
 	binaryDir := "/tmp/default-bin"
 	got := dto.BuildManifest(dto.ManifestContext{BinaryDir: binaryDir})
-	if len(got.Binaries) != 2 || got.Binaries[0].Name != "mcp-lsp" || got.Binaries[1].Name != "mcp-orch" {
+	if len(got.Binaries) != 2 || got.Binaries[0].Name != "lsp" || got.Binaries[1].Name != "orch" {
 		t.Fatalf("unexpected default manifest: %+v", got.Binaries)
 	}
 	for _, bin := range got.Binaries {
@@ -26,7 +26,7 @@ func TestBuildManifest_DefaultFamilies(t *testing.T) {
 
 func TestBuildManifest_WithIDA(t *testing.T) {
 	got := dto.BuildManifest(dto.ManifestContext{ThreadCaps: dto.CapabilitySet{"ida": true}})
-	if len(got.Binaries) != 3 || got.Binaries[2].Name != "mcp-ida" {
+	if len(got.Binaries) != 3 || got.Binaries[2].Name != "ida" {
 		t.Fatalf("unexpected ida manifest: %+v", got.Binaries)
 	}
 }

@@ -87,7 +87,12 @@ func (s *session) setThreadID(threadID string) {
 	if s == nil {
 		return
 	}
-	s.threadID.Store(strings.TrimSpace(threadID))
+	oldID, _ := s.threadID.Load().(string)
+	newID := strings.TrimSpace(threadID)
+	s.threadID.Store(newID)
+	if s.manager != nil && !s.ownsTransport && oldID != newID {
+		s.manager.UpdateThreadID(s.agentID, strings.TrimSpace(oldID), newID)
+	}
 }
 
 func (s *session) configureThread(ctx context.Context, patch dto.ThreadConfigPatch) error {

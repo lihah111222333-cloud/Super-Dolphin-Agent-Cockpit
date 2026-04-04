@@ -259,6 +259,34 @@ func (s *service) resolveSession(ctx context.Context, threadID string) (contract
 	return session, binding, nil
 }
 
+// backgroundResumeIfNeeded checks whether the thread has a stored binding
+// (from a previous session) but no active session, and triggers a background
+// Resume so the session is ready by the time the user sends a message.
+func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string) {
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil || binding == nil {
+		return
+	}
+	agentID := strings.TrimSpace(binding.AgentID)
+	if agentID == "" {
+		return
+	}
+	// Check if session already exists.
+	if s.sessions != nil {
+		if sess, _ := s.sessions.GetSession(agentID); sess != nil {
+			return
+		}
+	}
+	shared.SafeGo(s.logger, func() {
+		if s.logger != nil {
+			s.logger.Info("thread: background resume", "thread_id", threadID, "agent_id", agentID)
+		}
+		if _, err := s.Resume(context.Background(), ResumeRequest{ThreadID: threadID}); err != nil {
+			shared.LogIgnoredError(s.logger, "thread: background resume failed", err)
+		}
+	})
+}
+
 func (s *service) closeSessionIfActive(ctx context.Context, threadID string) error {
 	if s.bindingStore == nil || s.sessions == nil {
 		return nil
