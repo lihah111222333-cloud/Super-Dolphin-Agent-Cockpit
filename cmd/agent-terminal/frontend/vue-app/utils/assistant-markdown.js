@@ -467,7 +467,7 @@ export function normalizeReasoningText(text) {
     result = result.replace(REASONING_TOOL_INLINE_RE, (match) => `\n\`${match.trim()}\`\n`);
   }
 
-  result = result.replace(REASONING_SENTENCE_BOUNDARY_RE, '$1\n');
+  result = result.replace(REASONING_SENTENCE_BOUNDARY_RE, '$1\n\n');
   result = result.replace(/\n{3,}/g, '\n\n');
 
   return result.trim();

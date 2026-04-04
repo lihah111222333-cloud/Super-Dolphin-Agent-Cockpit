@@ -21,6 +21,7 @@ vi.mock('../lib/vue.esm-browser.prod.js', async () => {
 
 vi.mock('./services/log.js', () => ({
   logDebug: vi.fn(),
+  logError: vi.fn(),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
 }));
@@ -36,7 +37,7 @@ vi.mock('./utils/assistant-markdown.js', () => ({
 
 vi.mock('./utils/assistant-markdown-streaming.js', () => ({
   createStreamingMarkdownStateResolver: vi.fn(() => {
-    const resolver = () => ({ html: '', tailText: '' });
+    const resolver = () => ({ text: '', heightPx: 0 });
     resolver.dispose = lifecycle.streamingDispose;
     return resolver;
   }),

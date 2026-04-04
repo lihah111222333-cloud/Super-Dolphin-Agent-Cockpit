@@ -353,10 +353,12 @@ export function handleBridgeEvent(ctx, evt) {
 
   const sidebarSyncSignal = methodLower === 'ui/sidebar/changed';
   const directThreadSyncSignal = isDirectThreadSyncSignal(methodLower, sourceLower);
-  const threadSyncSignal = methodLower === 'ui/thread/changed' || directThreadSyncSignal || methodLower === 'turn/completed' || methodLower === 'item/completed';
+  const turnCompletedSignal = methodLower === 'turn/completed';
+  const historyPageSignal = sourceLower === 'thread/messages/page';
+  const threadSyncSignal = methodLower === 'ui/thread/changed' || directThreadSyncSignal || turnCompletedSignal || methodLower === 'item/completed';
   const eventThreadTarget = normalizeThreadID(eventThreadId);
   const activeThreadTarget = eventThreadTarget && (eventThreadTarget === normalizeThreadID(ctx.state.activeThreadId) || eventThreadTarget === normalizeThreadID(ctx.state.activeCmdThreadId)) ? eventThreadTarget : '';
-  const historyHydrationSignal = methodLower === 'turn/completed' || sourceLower === 'thread/messages/page';
+  const historyHydrationSignal = turnCompletedSignal || historyPageSignal;
   if (methodLower === THREAD_PATCH_METHOD && activeThreadTarget) {
     const patchResult = applyRuntimeThreadPatch(ctx, evt, activeThreadTarget, { perfNow });
     if (patchResult?.handled) {
@@ -367,8 +369,7 @@ export function handleBridgeEvent(ctx, evt) {
     }
   }
   if (activeThreadTarget && shouldSkipThreadSyncFromPatch(ctx, activeThreadTarget, methodLower, sourceLower, perfNow())) {
-    // Do NOT skip history hydration signals — they must refresh messages.
-    if (!historyHydrationSignal) {
+    if (!historyPageSignal) {
       return;
     }
   }
@@ -396,12 +397,12 @@ export function handleBridgeEvent(ctx, evt) {
     return;
   }
 
-  if (threadSyncSignal && activeThreadTarget && (sourceLower === 'thread/messages/page' || directThreadSyncSignal || methodLower === 'turn/completed' || methodLower === 'item/completed')) {
+  if (threadSyncSignal && activeThreadTarget && (historyPageSignal || directThreadSyncSignal || turnCompletedSignal || methodLower === 'item/completed')) {
     clearTimeout(ctx.syncDebounceTimer);
     const snapshotRequest = beginRuntimeSnapshotRequest(ctx, activeThreadTarget);
-    const request = sourceLower === 'thread/messages/page'
+    const request = historyPageSignal
       ? loadMessages(ctx, activeThreadTarget, 300, { syncRuntime: false })
-      : (historyHydrationSignal ? syncThreadHistoryAtomic(ctx, activeThreadTarget) : syncThreadState(ctx, activeThreadTarget));
+      : (turnCompletedSignal ? syncThreadHistoryAtomic(ctx, activeThreadTarget) : syncThreadState(ctx, activeThreadTarget));
     logInfo('thread', 'state.sync.direct.signal', { thread_id: activeThreadTarget, method: eventMethod, source: sourceLower || eventName, request_seq: snapshotRequest.seq });
     request.catch((error) => logWarn('thread', 'state.sync.direct.failed', { error, by_event: eventName }));
     return;

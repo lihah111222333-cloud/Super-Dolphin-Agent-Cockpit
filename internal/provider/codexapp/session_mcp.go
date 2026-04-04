@@ -22,10 +22,9 @@ func (s *session) getMCPWatcher() *mcpReadyWatcher {
 
 func (s *session) onNotification(method string, params json.RawMessage) {
 	s.noteReadActivity()
-	// When this session owns its own transport (standalone mode), filter
-	// alien thread events. Managed sessions receive only their own events
-	// via ServerManager routing and don't need this check.
-	if s.ownsTransport && s.isAlienThreadEvent(params) {
+	// Each session has its own WS connection, so it may receive events
+	// for threads it doesn't own. Filter them out.
+	if s.isAlienThreadEvent(params) {
 		return
 	}
 	if s.shouldSuppressTurnEvent(method, params) {

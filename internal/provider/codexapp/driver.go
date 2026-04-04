@@ -131,7 +131,6 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		return nil, err
 	}
 	s.setThreadID(result.threadID)
-	s.registerWithManager()
 	if result.model != "" {
 		s.setRuntimeConfigValue("model", result.model)
 	}
@@ -156,7 +155,6 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		return nil, err
 	}
 	s.setThreadID(threadID)
-	s.registerWithManager()
 	d.restoreApprovalPolicy(ctx, s, threadID)
 	d.reportRuntime(s.agentID)
 	return s, nil

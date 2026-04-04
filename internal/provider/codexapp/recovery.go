@@ -120,10 +120,6 @@ func (s *session) attemptRecovery(reason string) error {
 			"attempt":  1,
 		},
 	})
-	// Managed sessions don't own the transport; ServerManager handles reconnect.
-	if !s.ownsTransport {
-		return s.replayPendingTurn(s.ctx)
-	}
 	if err := s.recovery.Reconnect(s.ctx); err != nil {
 		return s.failRecovery(reason, err)
 	}

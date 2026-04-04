@@ -57,6 +57,7 @@ function resolveMonoFont() {
 
     measuredLineHeight = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) * 1.7);
     fontVersion += 1;
+    logWarn('ui', 'pretext.font.resolved', { font: resolvedFontShorthand, lineHeight: measuredLineHeight, namedFonts });
 
     preparedCache.clear();
     if (pretextModule?.clearCache) {
@@ -76,6 +77,7 @@ async function loadPretext() {
   if (loadFailed || pretextModule) return;
   try {
     pretextModule = await import('@chenglou/pretext');
+    logWarn('ui', 'pretext.module.loaded', { version: pretextModule?.version || '0.0.4' });
     if (onInvalidate) onInvalidate();
   } catch (err) {
     loadFailed = true;
@@ -95,7 +97,7 @@ export function initPretextLayout() {
 export function observeContainerWidth() {
   const el = document.querySelector('.chat-messages-vue');
   if (!el) {
-    if (rafId === null) {
+    if (rafId === null && typeof requestAnimationFrame === 'function') {
       rafId = requestAnimationFrame(() => {
         rafId = null;
         observeContainerWidth();
@@ -123,6 +125,7 @@ export function observeContainerWidth() {
   containerObserver.observe(el);
   observedElement = el;
   cachedContainerWidth = el.clientWidth;
+  logWarn('ui', 'pretext.container.observed', { width: cachedContainerWidth });
 
   if (containerCheckInterval === null) {
     containerCheckInterval = setInterval(() => {
@@ -146,7 +149,7 @@ export function disconnectContainerObserver() {
     observedElement = null;
   }
   if (rafId !== null) {
-    cancelAnimationFrame(rafId);
+    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId);
     rafId = null;
   }
   if (containerCheckInterval !== null) {
@@ -177,7 +180,12 @@ export function measureTailHeight(tailText) {
       }
       preparedCache.set(tailText, { prepared, fontVer: fontVersion });
     }
-    return pretextModule.layout(prepared, maxWidth, measuredLineHeight).height;
+    const h = pretextModule.layout(prepared, maxWidth, measuredLineHeight).height;
+    if (h > 0 && !loggedErrors.has('first_measure')) {
+      loggedErrors.add('first_measure');
+      logWarn('ui', 'pretext.measure.first_success', { height: h, maxWidth, lineHeight: measuredLineHeight });
+    }
+    return h;
   } catch (err) {
     logOnce('measure_failed', err);
     return 0;
@@ -186,6 +194,7 @@ export function measureTailHeight(tailText) {
 
 // ── 外部接口 ──
 export function setInvalidateCallback(cb) { onInvalidate = cb; }
+/** 就绪检查 — 当前内部由 measureTailHeight 自行守卫；保留供 Phase 2 虚拟滚动外部判断使用 */
 export function isPretextReady() {
   return !featureDisabled && !!pretextModule && !!resolvedFontShorthand && cachedContainerWidth > 0;
 }

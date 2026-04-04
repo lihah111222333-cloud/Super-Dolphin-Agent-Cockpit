@@ -22,8 +22,6 @@ type session struct {
 	threadID           atomic.Value
 	approvalPolicy     atomic.Value
 	transport          *transport
-	manager            *ServerManager
-	ownsTransport      bool
 	caps               dto.CapabilitySet
 	recovery           *recoveryManager
 	history            *rolloutReader
@@ -68,24 +66,21 @@ func newSession(
 	approvals *rpc.ApprovalManager,
 	manager *ServerManager,
 ) (*session, error) {
-	var t *transport
-	ownsTransport := true
+	// Each session owns its own WS connection. When a ServerManager is
+	// running, connect to the shared app-server process (no local spawn);
+	// otherwise create a standalone transport with its own process.
+	url := serverURL
 	if manager != nil && manager.Running() {
-		t = manager.Transport()
-		ownsTransport = false
-	} else {
-		var err error
-		t, err = newTransport(transportCtx, serverURL)
-		if err != nil {
-			return nil, err
-		}
+		url = manager.ServerURL()
+	}
+	t, err := newTransport(transportCtx, url)
+	if err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &session{
 		agentID:            strings.TrimSpace(agentID),
 		transport:          t,
-		manager:            manager,
-		ownsTransport:      ownsTransport,
 		caps:               cloneCaps(codexCapabilities),
 		recovery:           &recoveryManager{transport: t, logger: logger, maxRetry: 3},
 		history:            &rolloutReader{logger: logger, transport: t},
@@ -99,21 +94,11 @@ func newSession(
 		processedApprovals: map[string]*processedApprovalEntry{},
 	}
 	s.noteReadActivity()
-	if ownsTransport {
-		s.startReadLoop()
-		s.startHealthLoop()
-	}
+	s.startReadLoop()
+	s.startHealthLoop()
 	return s, nil
 }
 
-// registerWithManager registers this session to receive routed events
-// from the shared ServerManager. Must be called after threadID is set.
-func (s *session) registerWithManager() {
-	if s.manager == nil || s.ownsTransport {
-		return
-	}
-	s.manager.Register(s.agentID, s.ThreadID(), s.onNotification)
-}
 func (s *session) Capabilities() dto.CapabilitySet { return cloneCaps(s.caps) }
 
 func (s *session) setRuntimeConfig(cfg map[string]any) {
