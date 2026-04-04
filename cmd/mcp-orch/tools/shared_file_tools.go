@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -10,7 +9,6 @@ import (
 	"time"
 
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 const (
@@ -36,73 +34,50 @@ type sharedFileDTO struct {
 }
 
 func HandleSharedFileRead(store sharedfilestore.Store) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in sharedFileReadInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(store, "shared file store", func(ctx context.Context, in sharedFileReadInput) (sharedFileDTO, error) {
 		in.Path = normalizePath(in.Path)
 		return readSharedFile(ctx, store, in)
-	}
+	})
 }
 
 func HandleSharedFileWrite(store sharedfilestore.Store) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in sharedFileWriteInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(store, "shared file store", func(ctx context.Context, in sharedFileWriteInput) (sharedFileDTO, error) {
 		in.Path = normalizePath(in.Path)
 		return writeSharedFile(ctx, store, in)
-	}
+	})
 }
 
 func sharedFileToolDefinitions(store sharedfilestore.Store) []ToolDefinition {
-	return []ToolDefinition{
-		{
-			Name:        "shared_file_read",
-			Description: "Read a shared file by path. Shared files are stored in the database and can be accessed by all agents.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"path": StringSchema("File path (for example 'config/settings.json')."),
-			}, "path"),
-			Handler: HandleSharedFileRead(store),
-		},
-		{
-			Name:        "shared_file_write",
-			Description: "Write content to a shared file. Creates or overwrites the file at the given path.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"path":    StringSchema("File path (for example 'config/settings.json')."),
-				"content": StringSchema("File content to write."),
-			}, "path", "content"),
-			Handler: HandleSharedFileWrite(store),
-		},
-	}
+	return buildToolDefinitions(
+		defineTool("shared_file_read", "Read a shared file by path. Shared files are stored in the database and can be accessed by all agents.", ObjectSchema(map[string]Schema{
+			"path": StringSchema("File path (for example 'config/settings.json')."),
+		}, "path"), HandleSharedFileRead(store)),
+		defineTool("shared_file_write", "Write content to a shared file. Creates or overwrites the file at the given path.", ObjectSchema(map[string]Schema{
+			"path":    StringSchema("File path (for example 'config/settings.json')."),
+			"content": StringSchema("File content to write."),
+		}, "path", "content"), HandleSharedFileWrite(store)),
+	)
 }
 
 func readSharedFile(ctx context.Context, store sharedfilestore.Store, input sharedFileReadInput) (sharedFileDTO, error) {
-	if store == nil {
-		return sharedFileDTO{}, errors.New("shared file store is not configured")
+	if err := requireDependency(store, "shared file store"); err != nil {
+		return sharedFileDTO{}, err
 	}
 	path, err := requireTrimmed(input.Path, "path")
 	if err != nil {
 		return sharedFileDTO{}, err
 	}
 	file, err := store.Get(ctx, path)
+	file, err = loadOrNotFound(file, err, "file", path)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
-			return sharedFileDTO{}, fmt.Errorf("file %s not found", path)
-		}
 		return sharedFileDTO{}, err
-	}
-	if file == nil {
-		return sharedFileDTO{}, fmt.Errorf("file %s not found", path)
 	}
 	return sharedFileFromStore(*file), nil
 }
 
 func writeSharedFile(ctx context.Context, store sharedfilestore.Store, input sharedFileWriteInput) (sharedFileDTO, error) {
-	if store == nil {
-		return sharedFileDTO{}, errors.New("shared file store is not configured")
+	if err := requireDependency(store, "shared file store"); err != nil {
+		return sharedFileDTO{}, err
 	}
 	path, err := requireTrimmed(input.Path, "path")
 	if err != nil {

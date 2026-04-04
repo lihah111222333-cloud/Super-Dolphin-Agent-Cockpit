@@ -29,7 +29,7 @@ func writeCodexMCPConfig(path string, manifest dto.MCPManifest, cwd string) erro
 	if path == "" {
 		return errors.New("codexapp: mcp config path is required")
 	}
-	managed := managedManifestBinaries(manifest)
+	managed := collectManagedBinaries(manifest)
 	if len(managed) == 0 {
 		return nil
 	}
@@ -48,20 +48,6 @@ func writeCodexMCPConfig(path string, manifest dto.MCPManifest, cwd string) erro
 		}
 	}
 	return writeCodexMCPDocument(path, doc, perm)
-}
-
-func managedManifestBinaries(manifest dto.MCPManifest) []dto.MCPBinary {
-	managed := make([]dto.MCPBinary, 0, len(manifest.Binaries))
-	for _, bin := range manifest.Binaries {
-		command := ""
-		if len(bin.Command) > 0 {
-			command = bin.Command[0]
-		}
-		if isManagedBinary(bin.Name, command) {
-			managed = append(managed, bin)
-		}
-	}
-	return managed
 }
 
 func applyManagedMCPServer(servers map[string]any, bin dto.MCPBinary, cwd string) error {

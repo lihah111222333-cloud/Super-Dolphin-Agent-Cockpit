@@ -3,13 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 const resourceListLimit int32 = 50
@@ -40,49 +37,33 @@ type commandCardDTO struct {
 }
 
 func HandleCommandList(store commandcardstore.Store) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in commandListInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(store, "command card store", func(ctx context.Context, in commandListInput) ([]commandCardDTO, error) {
 		return listCommandCards(ctx, store, in)
-	}
+	})
 }
 
 func HandleCommandGet(store commandcardstore.Store) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in commandGetInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(store, "command card store", func(ctx context.Context, in commandGetInput) (commandCardDTO, error) {
 		return getCommandCard(ctx, store, in)
-	}
+	})
 }
 
 func commandToolDefinitions(store commandcardstore.Store) []ToolDefinition {
-	return []ToolDefinition{
-		{
-			Name:        "command_list",
-			Description: "List available command cards. Command cards define reusable operations with templates and argument schemas.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"keyword": StringSchema("Search keyword (optional)."),
-			}),
-			Handler: HandleCommandList(store),
-		},
-		{
-			Name:        "command_get",
-			Description: "Get a specific command card by its key, including the command template and argument schema.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"card_key": StringSchema("Command card key."),
-			}, "card_key"),
-			Handler: HandleCommandGet(store),
-		},
-	}
+	return resourceToolDefinitions(resourceToolSpec{
+		ListName:        "command_list",
+		ListDescription: "List available command cards. Command cards define reusable operations with templates and argument schemas.",
+		GetName:         "command_get",
+		GetDescription:  "Get a specific command card by its key, including the command template and argument schema.",
+		KeyField:        "card_key",
+		KeyDescription:  "Command card key.",
+		ListHandler:     HandleCommandList(store),
+		GetHandler:      HandleCommandGet(store),
+	})
 }
 
 func listCommandCards(ctx context.Context, store commandcardstore.Store, input commandListInput) ([]commandCardDTO, error) {
-	if store == nil {
-		return nil, errors.New("command card store is not configured")
+	if err := requireDependency(store, "command card store"); err != nil {
+		return nil, err
 	}
 	cards, err := store.List(ctx, commandcardstore.ListFilter{
 		Keyword: strings.TrimSpace(input.Keyword),
@@ -95,22 +76,17 @@ func listCommandCards(ctx context.Context, store commandcardstore.Store, input c
 }
 
 func getCommandCard(ctx context.Context, store commandcardstore.Store, input commandGetInput) (commandCardDTO, error) {
-	if store == nil {
-		return commandCardDTO{}, errors.New("command card store is not configured")
+	if err := requireDependency(store, "command card store"); err != nil {
+		return commandCardDTO{}, err
 	}
 	cardKey, err := requireTrimmed(input.CardKey, "card_key")
 	if err != nil {
 		return commandCardDTO{}, err
 	}
 	card, err := store.Get(ctx, cardKey)
+	card, err = loadOrNotFound(card, err, "command", cardKey)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
-			return commandCardDTO{}, fmt.Errorf("command %s not found", cardKey)
-		}
 		return commandCardDTO{}, err
-	}
-	if card == nil {
-		return commandCardDTO{}, fmt.Errorf("command %s not found", cardKey)
 	}
 	return commandCardFromStore(*card), nil
 }
@@ -155,12 +131,4 @@ func cloneTime(src *time.Time) *time.Time {
 	}
 	value := *src
 	return &value
-}
-
-func requireTrimmed(value, field string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return "", errors.New(field + " is required")
-	}
-	return trimmed, nil
 }

@@ -138,7 +138,7 @@ func extractInjectedAttachmentMetadata(text string) (string, json.RawMessage) {
 			consumed++
 			break
 		}
-		input, ok := parseInjectedAttachmentHintLine(line)
+		input, ok := decodeAttachmentHint(line)
 		if !ok {
 			break
 		}
@@ -154,54 +154,4 @@ func extractInjectedAttachmentMetadata(text string) (string, json.RawMessage) {
 		return cleaned, nil
 	}
 	return cleaned, raw
-}
-
-func parseInjectedAttachmentHintLine(line string) (map[string]any, bool) {
-	trimmed := strings.TrimSpace(line)
-	lower := strings.ToLower(trimmed)
-	switch {
-	case strings.HasPrefix(lower, "[image:"):
-		return buildInjectedAttachmentItem(trimmed, "[image:", "image", "url")
-	case strings.HasPrefix(lower, "[file:"):
-		return buildInjectedAttachmentItem(trimmed, "[file:", "mention", "path")
-	default:
-		return nil, false
-	}
-}
-
-func buildInjectedAttachmentItem(line, prefix, inputType, targetKey string) (map[string]any, bool) {
-	value, ok := parseInjectedAttachmentHintValue(line, prefix)
-	if !ok {
-		return nil, false
-	}
-	name, target := splitInjectedAttachmentValue(value)
-	item := map[string]any{"type": inputType, targetKey: target}
-	if name != "" {
-		item["name"] = name
-	}
-	return item, true
-}
-
-func parseInjectedAttachmentHintValue(line, prefix string) (string, bool) {
-	if !strings.HasSuffix(line, "]") {
-		return "", false
-	}
-	value := strings.TrimSpace(line[len(prefix) : len(line)-1])
-	if value == "" {
-		return "", false
-	}
-	return value, true
-}
-
-func splitInjectedAttachmentValue(value string) (string, string) {
-	parts := strings.SplitN(value, " -> ", 2)
-	if len(parts) != 2 {
-		return "", value
-	}
-	name := strings.TrimSpace(parts[0])
-	target := strings.TrimSpace(parts[1])
-	if name == "" || target == "" {
-		return "", value
-	}
-	return name, target
 }

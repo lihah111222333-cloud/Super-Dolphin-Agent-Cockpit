@@ -42,7 +42,7 @@ func NewHookRegistry() *HookRegistry {
 
 func (r *HookRegistry) Subscribe(lease mcp.LeaseKey, req mcp.HookSubscribeRequest) (mcp.HookSubscribeResponse, error) {
 	var err error
-	lease, err = normalizeLease(lease)
+	lease, err = validateLease(lease, hookSubscriptionLeaseValidation)
 	if err != nil {
 		return mcp.HookSubscribeResponse{}, err
 	}
@@ -129,7 +129,7 @@ func (r *HookRegistry) GetSubscribersBySelector(sel mcp.Selector) []mcp.LeaseKey
 		return nil
 	}
 
-	requestedScope := normalizeSelectorScope(sel.Scope)
+	requestedScope := normalizedScope(sel.Scope)
 	filterByScope := hasSelectorScope(requestedScope)
 
 	r.mu.RLock()
@@ -208,18 +208,6 @@ func cloneSelector(selector mcp.Selector) mcp.Selector {
 	return cloned
 }
 
-func normalizeSelectorScope(scope *mcp.SelectorScope) mcp.SelectorScope {
-	if scope == nil {
-		return mcp.SelectorScope{}
-	}
-	return mcp.SelectorScope{
-		AgentID:    strings.TrimSpace(scope.AgentID),
-		ThreadID:   strings.TrimSpace(scope.ThreadID),
-		ClientKind: strings.TrimSpace(scope.ClientKind),
-		InstanceID: strings.TrimSpace(scope.InstanceID),
-	}
-}
-
 func hasSelectorScope(scope mcp.SelectorScope) bool {
 	return scope != (mcp.SelectorScope{})
 }
@@ -228,15 +216,7 @@ func subscriptionMatchesSelectorScope(subscription *Subscription, requested mcp.
 	if subscription == nil {
 		return false
 	}
-	scope := normalizeSelectorScope(subscription.Scope.Scope)
-	return selectorScopeFieldMatches(scope.AgentID, requested.AgentID) &&
-		selectorScopeFieldMatches(scope.ThreadID, requested.ThreadID) &&
-		selectorScopeFieldMatches(scope.ClientKind, requested.ClientKind) &&
-		selectorScopeFieldMatches(scope.InstanceID, requested.InstanceID)
-}
-
-func selectorScopeFieldMatches(subscriptionField, requestedField string) bool {
-	return subscriptionField == "" || requestedField == subscriptionField
+	return scopeMatches(requested, normalizedScope(subscription.Scope.Scope))
 }
 
 func cloneRawMessage(message json.RawMessage) json.RawMessage {
@@ -285,17 +265,6 @@ func sortLeaseKeys(values []mcp.LeaseKey) {
 		}
 		return values[i].InstanceID < values[j].InstanceID
 	})
-}
-
-func normalizeLease(lease mcp.LeaseKey) (mcp.LeaseKey, error) {
-	lease = trimLease(lease)
-	if lease.InstanceID == "" {
-		return mcp.LeaseKey{}, fmt.Errorf("hook subscription requires lease instance_id")
-	}
-	if lease.Generation == 0 {
-		return mcp.LeaseKey{}, fmt.Errorf("hook subscription requires lease generation")
-	}
-	return lease, nil
 }
 
 func trimLease(lease mcp.LeaseKey) mcp.LeaseKey {

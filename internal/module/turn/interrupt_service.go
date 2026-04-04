@@ -3,42 +3,30 @@ package turn
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 var interruptSettleTimeout = config.InterruptSettleTimeout
 
 func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (TurnStatus, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return TurnStatus{}, err
-	}
-	if err := requireSession(session); err != nil {
-		return TurnStatus{}, err
-	}
-	threadID, err := resolveThreadID(session, "")
+	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
 		return TurnStatus{}, err
 	}
 	active, tracked := s.tracker.ActiveByThread(threadID)
 	before := s.interruptBaseStatus(active, tracked)
 	start := time.Now()
-	err = session.Interrupt(ctx, dto.InterruptRequest{
-		ThreadID: threadID,
-		Source:   strings.TrimSpace(source),
-	})
+	waited, err := interruptAndWait(ctx, session, s.tracker, active, threadID, source, nil)
 	if err != nil {
 		return TurnStatus{}, err
 	}
 	if !tracked {
 		return attachInterruptEnvelope(before, buildTurnInterruptEnvelope(before.State, before.State, false, false, 0, false)), nil
 	}
-	return s.finishInterrupt(ctx, active, before, start)
+	return s.finishInterrupt(ctx, active, before, start, waited)
 }
 
 func (s *service) interruptBaseStatus(active activeTurn, tracked bool) TurnStatus {
@@ -55,8 +43,14 @@ func (s *service) interruptBaseStatus(active activeTurn, tracked bool) TurnStatu
 	}
 }
 
-func (s *service) finishInterrupt(ctx context.Context, active activeTurn, before TurnStatus, start time.Time) (TurnStatus, error) {
-	if s.tracker.MarkInterruptRequested(active.localID) {
+func (s *service) finishInterrupt(
+	ctx context.Context,
+	active activeTurn,
+	before TurnStatus,
+	start time.Time,
+	waited bool,
+) (TurnStatus, error) {
+	if waited {
 		if err := s.waitForTurnSettle(ctx, active.localID, active.handle); err != nil {
 			if status, ok := s.timeoutInterruptStatus(ctx, err, active, before, start); ok {
 				return status, nil

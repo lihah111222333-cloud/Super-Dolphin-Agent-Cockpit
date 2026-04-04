@@ -68,125 +68,163 @@ func (s *service) applyItemStarted(ev turndto.ItemStarted) {
 	if activity == "" {
 		return
 	}
-	s.mu.Lock()
-	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "item/started")
-	if !ok {
-		s.mu.Unlock()
-		return
-	}
-	if rt.turnDepth == 0 {
-		rt.turnDepth = 1
-	}
-	switch activity {
-	case "editing":
-		rt.editDepth++
-	case "command":
-		rt.commandDepth++
-	}
-	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "item/started")
-	s.mu.Unlock()
-	s.emitThreadPatchEvent(patch)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	ok := false
+	applyMutation(s, threadID, func() {
+		var rt *threadActivity
+		threadID, rt, ok = s.eventThreadActivityLocked(threadID, agentID, "item/started")
+		if !ok {
+			return
+		}
+		if rt.turnDepth == 0 {
+			rt.turnDepth = 1
+		}
+		switch activity {
+		case "editing":
+			rt.editDepth++
+		case "command":
+			rt.commandDepth++
+		}
+	}, func() uidto.UIThreadPatch {
+		if !ok {
+			return uidto.UIThreadPatch{}
+		}
+		return s.refreshThreadPatchLocked(threadID, agentID, "item/started")
+	})
 }
 func (s *service) applyItemCompleted(ev turndto.ItemCompleted) {
 	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)
 	if activity == "" {
 		return
 	}
-	s.mu.Lock()
-	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "item/completed")
-	if !ok {
-		s.mu.Unlock()
-		return
-	}
-	switch activity {
-	case "editing":
-		rt.editDepth = adjustDepth(rt.editDepth, -1)
-	case "command":
-		rt.commandDepth = adjustDepth(rt.commandDepth, -1)
-	}
-	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "item/completed")
-	s.mu.Unlock()
-	s.emitThreadPatchEvent(patch)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	ok := false
+	applyMutation(s, threadID, func() {
+		var rt *threadActivity
+		threadID, rt, ok = s.eventThreadActivityLocked(threadID, agentID, "item/completed")
+		if !ok {
+			return
+		}
+		switch activity {
+		case "editing":
+			rt.editDepth = adjustDepth(rt.editDepth, -1)
+		case "command":
+			rt.commandDepth = adjustDepth(rt.commandDepth, -1)
+		}
+	}, func() uidto.UIThreadPatch {
+		if !ok {
+			return uidto.UIThreadPatch{}
+		}
+		return s.refreshThreadPatchLocked(threadID, agentID, "item/completed")
+	})
 }
 func (s *service) applyToolCallBegin(ev tooldto.ToolCallBegin) {
 	activity := classifyToolActivity(ev.ToolName)
 	if activity == "" {
 		return
 	}
-	s.mu.Lock()
-	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "tool/call")
-	if !ok {
-		s.mu.Unlock()
-		return
-	}
-	if rt.turnDepth == 0 {
-		rt.turnDepth = 1
-	}
-	if activity == "collab" {
-		rt.collabDepth++
-	} else {
-		rt.toolDepth++
-	}
-	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "tool/call")
-	s.mu.Unlock()
-	s.emitThreadPatchEvent(patch)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	ok := false
+	applyMutation(s, threadID, func() {
+		var rt *threadActivity
+		threadID, rt, ok = s.eventThreadActivityLocked(threadID, agentID, "tool/call")
+		if !ok {
+			return
+		}
+		if rt.turnDepth == 0 {
+			rt.turnDepth = 1
+		}
+		if activity == "collab" {
+			rt.collabDepth++
+		} else {
+			rt.toolDepth++
+		}
+	}, func() uidto.UIThreadPatch {
+		if !ok {
+			return uidto.UIThreadPatch{}
+		}
+		return s.refreshThreadPatchLocked(threadID, agentID, "tool/call")
+	})
 }
 func (s *service) applyToolCallEnd(ev tooldto.ToolCallEnd) {
 	activity := classifyToolActivity(ev.ToolName)
 	if activity == "" {
 		return
 	}
-	s.mu.Lock()
-	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "tool/completed")
-	if !ok {
-		s.mu.Unlock()
-		return
-	}
-	if activity == "collab" {
-		rt.collabDepth = adjustDepth(rt.collabDepth, -1)
-	} else {
-		rt.toolDepth = adjustDepth(rt.toolDepth, -1)
-	}
-	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "tool/completed")
-	s.mu.Unlock()
-	s.emitThreadPatchEvent(patch)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	ok := false
+	applyMutation(s, threadID, func() {
+		var rt *threadActivity
+		threadID, rt, ok = s.eventThreadActivityLocked(threadID, agentID, "tool/completed")
+		if !ok {
+			return
+		}
+		if activity == "collab" {
+			rt.collabDepth = adjustDepth(rt.collabDepth, -1)
+		} else {
+			rt.toolDepth = adjustDepth(rt.toolDepth, -1)
+		}
+	}, func() uidto.UIThreadPatch {
+		if !ok {
+			return uidto.UIThreadPatch{}
+		}
+		return s.refreshThreadPatchLocked(threadID, agentID, "tool/completed")
+	})
 }
 func (s *service) applyToolApprovalRequested(ev tooldto.ToolApprovalRequested) {
-	s.mu.Lock()
-	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "tool/approvalRequested")
-	if !ok {
-		s.mu.Unlock()
-		return
-	}
-	if rt.turnDepth == 0 {
-		rt.turnDepth = 1
-	}
-	rt.approvalDepth++
-	if strings.EqualFold(strings.TrimSpace(ev.Kind), "request_user_input") {
-		rt.inputApprovalDepth++
-		s.setThreadOverlayLocked(threadID, overlayTypeTerminalWait, "等待终端输入", overlayPriorityTerminalWait, 0)
-	}
-	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "tool/approvalRequested")
-	s.mu.Unlock()
-	s.emitThreadPatchEvent(patch)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	waitsForInput := strings.EqualFold(strings.TrimSpace(ev.Kind), "request_user_input")
+	ok := false
+	applyMutation(s, threadID, func() {
+		var rt *threadActivity
+		threadID, rt, ok = s.eventThreadActivityLocked(threadID, agentID, "tool/approvalRequested")
+		if !ok {
+			return
+		}
+		if rt.turnDepth == 0 {
+			rt.turnDepth = 1
+		}
+		rt.approvalDepth++
+		if waitsForInput {
+			rt.inputApprovalDepth++
+			s.setThreadOverlayLocked(threadID, overlayTypeTerminalWait, "等待终端输入", overlayPriorityTerminalWait, 0)
+		}
+	}, func() uidto.UIThreadPatch {
+		if !ok {
+			return uidto.UIThreadPatch{}
+		}
+		return s.refreshThreadPatchLocked(threadID, agentID, "tool/approvalRequested")
+	})
 }
 func (s *service) applyToolApprovalResolved(ev tooldto.ToolApprovalResolved) {
-	s.mu.Lock()
-	threadID, rt, ok := s.eventThreadActivityLocked(ev.ThreadID, ev.AgentID, "tool/approvalResolved")
-	if !ok {
-		s.mu.Unlock()
-		return
-	}
-	rt.approvalDepth = adjustDepth(rt.approvalDepth, -1)
-	if strings.EqualFold(strings.TrimSpace(ev.Kind), "request_user_input") {
-		rt.inputApprovalDepth = adjustDepth(rt.inputApprovalDepth, -1)
-		if rt.inputApprovalDepth == 0 {
-			s.clearThreadOverlayLocked(threadID, overlayTypeTerminalWait)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	waitsForInput := strings.EqualFold(strings.TrimSpace(ev.Kind), "request_user_input")
+	ok := false
+	applyMutation(s, threadID, func() {
+		var rt *threadActivity
+		threadID, rt, ok = s.eventThreadActivityLocked(threadID, agentID, "tool/approvalResolved")
+		if !ok {
+			return
 		}
-	}
-	patch := s.refreshThreadPatchLocked(threadID, ev.AgentID, "tool/approvalResolved")
-	s.mu.Unlock()
-	s.emitThreadPatchEvent(patch)
+		rt.approvalDepth = adjustDepth(rt.approvalDepth, -1)
+		if waitsForInput {
+			rt.inputApprovalDepth = adjustDepth(rt.inputApprovalDepth, -1)
+			if rt.inputApprovalDepth == 0 {
+				s.clearThreadOverlayLocked(threadID, overlayTypeTerminalWait)
+			}
+		}
+	}, func() uidto.UIThreadPatch {
+		if !ok {
+			return uidto.UIThreadPatch{}
+		}
+		return s.refreshThreadPatchLocked(threadID, agentID, "tool/approvalResolved")
+	})
 }
 
 func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted) TurnSummary {
@@ -229,7 +267,6 @@ func completionStatus(ev turndto.TurnCompleted) string {
 	}
 	return "failed"
 }
-
 
 func chooseString(next, current string) string {
 	if next != "" {

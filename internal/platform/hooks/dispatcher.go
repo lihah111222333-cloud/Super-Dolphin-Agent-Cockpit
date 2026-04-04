@@ -6,14 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const (
@@ -85,14 +83,7 @@ func (d *HookDispatcher) DispatchBefore(ctx context.Context, topic string, paylo
 }
 
 func (d *HookDispatcher) dispatchBeforeBySelector(ctx context.Context, sel mcp.Selector, payload mcp.HookPayload) ([]peerDecision[mcp.BeforeDecision], error) {
-	if err := d.validate(); err != nil {
-		return nil, err
-	}
-	leases, payload := d.prepareDispatchBySelector(sel, payload)
-	if len(leases) == 0 {
-		return nil, nil
-	}
-	return dispatchDecisions(d, ctx, leases, payload, d.peerCallback.CallbackBefore), nil
+	return dispatchBySelector(d, ctx, sel, payload, d.peerCallback.CallbackBefore)
 }
 
 func (d *HookDispatcher) DispatchCheck(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.CheckDecision], error) {
@@ -100,14 +91,7 @@ func (d *HookDispatcher) DispatchCheck(ctx context.Context, topic string, payloa
 }
 
 func (d *HookDispatcher) dispatchCheckBySelector(ctx context.Context, sel mcp.Selector, payload mcp.HookPayload) ([]peerDecision[mcp.CheckDecision], error) {
-	if err := d.validate(); err != nil {
-		return nil, err
-	}
-	leases, payload := d.prepareDispatchBySelector(sel, payload)
-	if len(leases) == 0 {
-		return nil, nil
-	}
-	return dispatchDecisions(d, ctx, leases, payload, d.peerCallback.CallbackCheck), nil
+	return dispatchBySelector(d, ctx, sel, payload, d.peerCallback.CallbackCheck)
 }
 
 func (d *HookDispatcher) DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.AfterDecision], error) {
@@ -115,18 +99,11 @@ func (d *HookDispatcher) DispatchAfter(ctx context.Context, topic string, payloa
 }
 
 func (d *HookDispatcher) dispatchAfterBySelector(ctx context.Context, sel mcp.Selector, payload mcp.HookPayload) ([]peerDecision[mcp.AfterDecision], error) {
-	if err := d.validate(); err != nil {
-		return nil, err
-	}
-	leases, payload := d.prepareDispatchBySelector(sel, payload)
-	return d.dispatchPreparedAfter(ctx, leases, payload)
+	return dispatchBySelector(d, ctx, sel, payload, d.peerCallback.CallbackAfter)
 }
 
 func (d *HookDispatcher) dispatchPreparedAfter(ctx context.Context, leases []mcp.LeaseKey, payload mcp.HookPayload) ([]peerDecision[mcp.AfterDecision], error) {
-	if len(leases) == 0 {
-		return nil, nil
-	}
-	return dispatchDecisions(d, ctx, leases, payload, d.peerCallback.CallbackAfter), nil
+	return dispatchPrepared(d, ctx, leases, payload, d.peerCallback.CallbackAfter)
 }
 
 func (d *HookDispatcher) prepareDispatch(topic string, payload mcp.HookPayload) ([]mcp.LeaseKey, mcp.HookPayload) {
@@ -217,81 +194,6 @@ func dispatchDecisions[T any](
 	close(jobs)
 	wg.Wait()
 	return results
-}
-
-func markDispatchWorkerPanicResult[T any](d *HookDispatcher, results []peerDecision[T], job dispatchJob, hasCurrent bool, rec any) {
-	attrs := []any{"panic", rec}
-	if !hasCurrent {
-		pkglogger.Error("hooks dispatch worker goroutine panic", attrs...)
-		return
-	}
-
-	err := fmt.Errorf("%w for %s/%d: %v", errDispatchWorkerPanic, job.lease.InstanceID, job.lease.Generation, rec)
-	attrs = append(attrs,
-		"lease_key", job.lease,
-		"job_index", job.index,
-		"error", err,
-	)
-	if job.index < 0 || job.index >= len(results) {
-		attrs = append(attrs, "results_len", len(results))
-		pkglogger.Error("hooks dispatch worker goroutine panic", attrs...)
-		return
-	}
-
-	failures := 0
-	if d != nil {
-		failures = d.recordPeerResult(job.lease, err)
-	}
-	results[job.index] = peerDecision[T]{
-		Lease:               job.lease,
-		Err:                 err,
-		ConsecutiveFailures: failures,
-	}
-	pkglogger.Error("hooks dispatch worker goroutine panic", attrs...)
-}
-
-func runDispatchWorker[T any](
-	d *HookDispatcher,
-	ctx context.Context,
-	jobs <-chan dispatchJob,
-	payload mcp.HookPayload,
-	results []peerDecision[T],
-	invoke func(context.Context, mcp.LeaseKey, mcp.HookPayload) (T, error),
-	state *dispatchWorkerState,
-) {
-	for job := range jobs {
-		if state != nil {
-			state.current = job
-			state.hasCurrent = true
-		}
-		var decision T
-		var err error
-		func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					err = fmt.Errorf("hooks dispatch panic for %s/%d: %v", job.lease.InstanceID, job.lease.Generation, rec)
-					pkglogger.Error("hooks dispatch worker panic",
-						"lease_key", job.lease,
-						"panic", rec,
-						"error", err,
-					)
-				}
-			}()
-			callCtx, cancel := config.WithPeerTimeout(ctx, d.peerTimeoutOrDefault())
-			defer cancel()
-			decision, err = invoke(callCtx, job.lease, cloneHookPayload(payload))
-		}()
-		failures := d.recordPeerResult(job.lease, err)
-		results[job.index] = peerDecision[T]{
-			Lease:               job.lease,
-			Decision:            decision,
-			Err:                 err,
-			ConsecutiveFailures: failures,
-		}
-		if state != nil {
-			state.hasCurrent = false
-		}
-	}
 }
 
 func (d *HookDispatcher) recordPeerResult(lease mcp.LeaseKey, err error) int {

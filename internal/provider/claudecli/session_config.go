@@ -132,9 +132,7 @@ func (s *session) takeActiveTurn(turnID string) *turnHandle {
 	if turnID != "" && currentTurnID(s.activeTurn) != turnID {
 		return nil
 	}
-	handle := s.activeTurn
-	s.activeTurn = nil
-	return handle
+	return s.takeActiveTurnLocked()
 }
 
 func (s *session) suppressTurn(turnID string) {

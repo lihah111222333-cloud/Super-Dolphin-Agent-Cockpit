@@ -161,27 +161,6 @@ func classifyToolActivity(toolName string) string {
 	}
 }
 
-func normalizeAgentLifecycleState(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "provisioning", "turn_queued":
-		return "starting"
-	case "turn_starting":
-		return "thinking"
-	case "turn_running":
-		return "running"
-	case "awaiting_user_input":
-		return "waiting"
-	case "recovering":
-		return "syncing"
-	case "failed":
-		return "error"
-	case "stopping", "stopped", "idle":
-		return "idle"
-	default:
-		return patchStatus(raw)
-	}
-}
-
 func hasApprovalActivity(rt *threadActivity) bool {
 	return rt != nil && rt.approvalDepth > 0
 }
@@ -380,9 +359,7 @@ func (s *service) updateDerivedThreadStateLocked(threadID, agentID string) strin
 
 func (s *service) refreshThreadPatchLocked(threadID, agentID, source string) uidto.UIThreadPatch {
 	status := s.updateDerivedThreadStateLocked(threadID, agentID)
-	sortThreads(s.state.Threads)
-	sortAgents(s.state.Agents)
-	patch := s.threadPatchLocked(threadID, source)
+	patch := s.sortedThreadPatchLocked(threadID, source)
 	applyPatchStatus(&patch, status)
 	return patch
 }

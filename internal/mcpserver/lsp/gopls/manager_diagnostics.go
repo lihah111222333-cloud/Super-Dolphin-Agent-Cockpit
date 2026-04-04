@@ -23,27 +23,14 @@ func (h managerNotificationHandler) LogMessage(params protocol.LogMessageParams)
 }
 
 func (m *manager) Diagnostics(_ context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
-	current := m.CurrentDiagnosticGeneration()
 	filter, err := m.normalizeDiagnosticFilter(uris)
 	if err != nil {
 		return nil, err
 	}
-
-	m.diagMu.RLock()
-	defer m.diagMu.RUnlock()
-
 	items := make([]protocol.PublishDiagnosticsParams, 0, len(m.diagnostics))
-	for _, snapshot := range m.diagnostics {
-		if snapshot.generation != current {
-			continue
-		}
-		if len(filter) > 0 {
-			if _, ok := filter[snapshot.params.URI]; !ok {
-				continue
-			}
-		}
+	m.forEachCurrentDiagnostic(filter, func(snapshot diagnosticSnapshot) {
 		items = append(items, snapshot.params)
-	}
+	})
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].URI < items[j].URI
 	})
@@ -109,24 +96,12 @@ func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnos
 }
 
 func (m *manager) latestDiagnosticUpdate(filter map[string]struct{}) time.Time {
-	m.diagMu.RLock()
-	defer m.diagMu.RUnlock()
-
-	current := m.CurrentDiagnosticGeneration()
 	var latest time.Time
-	for _, snapshot := range m.diagnostics {
-		if snapshot.generation != current {
-			continue
-		}
-		if len(filter) > 0 {
-			if _, ok := filter[snapshot.params.URI]; !ok {
-				continue
-			}
-		}
+	m.forEachCurrentDiagnostic(filter, func(snapshot diagnosticSnapshot) {
 		if snapshot.updatedAt.After(latest) {
 			latest = snapshot.updatedAt
 		}
-	}
+	})
 	return latest
 }
 

@@ -57,9 +57,7 @@ func subscribeCoreEventPushes(bridge *PushBridge, server *Server, logger *pkglog
 		return nil
 	}
 	cancels := eventsurface.Bind(bridge.dispatcher, logger, func(method string, payload any) {
-		for _, notification := range eventsurface.ExpandNotifications(method, payload) {
-			server.NotifyAll(context.Background(), bridge, notification.Method, notification.Payload)
-		}
+		broadcastNotifications(context.Background(), server, bridge, eventsurface.ExpandNotifications(method, payload))
 	})
 	cancels = append(cancels, subscribeRawProviderEventPushes(bridge, server, logger))
 	return cancels
@@ -84,9 +82,7 @@ func subscribeRawProviderEventPushes(bridge *PushBridge, server *Server, logger 
 		return func() {}
 	}
 	return platformbus.ResilientSubscribe(bridge.dispatcher, func(raw providerdto.BusRawProviderEvent) {
-		for _, notification := range providerPushNotifications(raw.Event) {
-			server.NotifyAll(context.Background(), bridge, notification.Method, notification.Payload)
-		}
+		broadcastNotifications(context.Background(), server, bridge, providerPushNotifications(raw.Event))
 	}, logger)
 }
 
@@ -99,12 +95,7 @@ func providerPushNotifications(raw providerdto.RawProviderEvent) []eventsurface.
 }
 
 func normalizeRawProviderPushMethod(method string) string {
-	switch strings.TrimSpace(method) {
-	case legacyApprovalEventMethod:
-		return approvalCallbackMethodCommandExecution
-	default:
-		return strings.TrimSpace(method)
-	}
+	return approvalMethodCatalog.normalize(method)
 }
 
 func shouldPushRawProviderMethod(method string) bool {
@@ -114,6 +105,9 @@ func shouldPushRawProviderMethod(method string) bool {
 	}
 	if _, ok := typedPushMethods[strings.ToLower(method)]; ok {
 		return false
+	}
+	if approvalMethodCatalog.isPushMethod(method) {
+		return true
 	}
 	switch {
 	case strings.HasPrefix(method, "item/"),
@@ -127,9 +121,7 @@ func shouldPushRawProviderMethod(method string) bool {
 		return true
 	}
 	switch method {
-	case "approval/request",
-		"tool/approval/request",
-		"error",
+	case "error",
 		"configWarning",
 		"deprecationNotice",
 		"thread/name/updated",

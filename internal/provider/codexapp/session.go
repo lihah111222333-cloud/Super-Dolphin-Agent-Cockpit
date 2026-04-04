@@ -114,9 +114,9 @@ func (s *session) RuntimeConfigSnapshot() map[string]any {
 }
 
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
-	threadID := s.resolveThreadID(req.ThreadID)
-	if threadID == "" {
-		return nil, errors.New("codexapp: thread id is required")
+	threadID, err := requireThreadID(s, req.ThreadID)
+	if err != nil {
+		return nil, err
 	}
 	params := buildTurnStartParams(threadID, req)
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/start", params)
@@ -138,35 +138,35 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 }
 
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
-	threadID := s.resolveThreadID(req.ThreadID)
-	if threadID == "" {
-		return errors.New("codexapp: thread id is required")
+	threadID, err := requireThreadID(s, req.ThreadID)
+	if err != nil {
+		return err
 	}
 	expectedTurnID := strings.TrimSpace(req.ExpectedTurnID)
 	if expectedTurnID == "" {
 		return errors.New("codexapp: expected turn id is required")
 	}
-	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/steer", buildTurnSteerParams(threadID, req))
+	_, err = callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/steer", buildTurnSteerParams(threadID, req))
 	return err
 }
 
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
-	threadID := s.resolveThreadID(req.ThreadID)
-	if threadID == "" {
-		return errors.New("codexapp: thread id is required")
+	threadID, err := requireThreadID(s, req.ThreadID)
+	if err != nil {
+		return err
 	}
 	params := map[string]any{"threadId": threadID}
 	if source := strings.TrimSpace(req.Source); source != "" {
 		params["source"] = source
 	}
-	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/interrupt", params)
+	_, err = callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/interrupt", params)
 	return err
 }
 
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
-	threadID := s.resolveThreadID(req.ThreadID)
-	if threadID == "" {
-		return errors.New("codexapp: thread id is required")
+	threadID, err := requireThreadID(s, req.ThreadID)
+	if err != nil {
+		return err
 	}
 	if _, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/forceComplete", map[string]any{"threadId": threadID}); err != nil {
 		return err
@@ -200,9 +200,9 @@ func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
 }
 
 func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.ForkResult, error) {
-	threadID := s.resolveThreadID(req.ThreadID)
-	if threadID == "" {
-		return dto.ForkResult{}, errors.New("codexapp: thread id is required")
+	threadID, err := requireThreadID(s, req.ThreadID)
+	if err != nil {
+		return dto.ForkResult{}, err
 	}
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/fork", map[string]any{"threadId": threadID})
 	if err != nil {
@@ -220,17 +220,11 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 }
 
 func (s *session) Close(context.Context) error {
-	s.failTurns(errors.New("codexapp: session closed"))
-	s.clearProcessedApprovals()
-	s.cancel()
-	return s.transport.Close()
+	return s.shutdownSession(true)
 }
 
 func (s *session) ForceStop() error {
-	s.failTurns(errors.New("codexapp: session stopped"))
-	s.clearProcessedApprovals()
-	s.cancel()
-	return s.transport.Kill()
+	return s.shutdownSession(false)
 }
 
 func (s *session) dispatch(raw dto.RawProviderEvent) {
@@ -238,7 +232,7 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 		return
 	}
 	payload := decodeAnyPayload(raw.Data)
-	if len(payload) > 0 && stringValue(payload, "agentId", "agent_id") == "" {
+	if len(payload) > 0 && payloadAgentID(payload) == "" {
 		if agentID := strings.TrimSpace(s.agentID); agentID != "" {
 			payload["agentId"] = agentID
 			raw.Data = payload
@@ -249,7 +243,7 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 
 func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 	payload := decodeEventPayload(params)
-	turnID := strings.TrimSpace(stringValue(payload, "turnId", "turn_id"))
+	turnID := payloadTurnID(payload)
 	if turnID == "" {
 		return
 	}
@@ -308,11 +302,10 @@ func (s *session) forceCompleteTurn(turnID string) {
 }
 
 func (s *session) shouldSuppressTurnEvent(method string, params json.RawMessage) bool {
-	method = strings.TrimSpace(method)
-	if method != "turn/completed" && method != "turn/aborted" {
+	if !isTurnTerminalEvent(method) {
 		return false
 	}
-	turnID := strings.TrimSpace(stringValue(decodeEventPayload(params), "turnId", "turn_id"))
+	turnID := payloadTurnID(decodeEventPayload(params))
 	return s.consumeSuppressedTurn(turnID)
 }
 

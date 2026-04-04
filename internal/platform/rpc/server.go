@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"maps"
 	"net"
@@ -45,9 +44,7 @@ func (s *Server) Register(handlerMaps ...handler.Map) {
 // Dispatch executes a registered handler locally without using the network.
 // It is used by the Wails binding layer to bridge CallAPI requests.
 func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 
 	local := jrpcserver.NewLocal(s.methods, &jrpcserver.LocalOptions{
 		Server: prepareServerOptions(nil),
@@ -70,6 +67,7 @@ func (s *Server) NotifyAll(ctx context.Context, bridge *PushBridge, method strin
 	if bridge == nil {
 		return
 	}
+	ctx = nonNilContext(ctx)
 	for _, current := range s.snapshotActive() {
 		if err := bridge.NotifyClient(ctx, current, method, params); err != nil {
 			s.logger.Warn("rpc push notify failed", "method", method, "error", err)
@@ -86,7 +84,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.logger.Info("rpc server listening", "addr", listener.Addr().String())
 	err = s.acceptLoop(ctx, jrpcserver.NetAccepter(listener, channel.Line))
-	if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, context.Canceled) && !channel.IsErrClosing(err) {
+	if err != nil && !isExpectedCloseErr(err) {
 		return err
 	}
 	return nil
@@ -124,7 +122,7 @@ func (s *Server) serveConn(ctx context.Context, ch channel.Channel, opts *jrpc2.
 	})
 
 	stat := srv.WaitStatus()
-	if stat.Err != nil && !errors.Is(stat.Err, context.Canceled) && !errors.Is(stat.Err, net.ErrClosed) && !channel.IsErrClosing(stat.Err) {
+	if stat.Err != nil && !isExpectedCloseErr(stat.Err) {
 		s.logger.Warn("rpc connection exited", "error", stat.Err)
 	}
 }

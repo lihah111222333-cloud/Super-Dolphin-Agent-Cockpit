@@ -97,14 +97,14 @@ func sessionLookupError(err error) error {
 }
 
 func prepareQueuedTurnInput(session sessionCaps, submission contract.TurnSubmission) PrepareInput {
-	return PrepareInput{
-		Inputs:               append([]InputItem(nil), submission.Inputs...),
-		Skills:               selectedSkillRefs(submission.SelectedSkills),
+	return buildPrepareInput(prepareInputSpec{
+		Inputs:               submission.Inputs,
 		ManualSkillSelection: submission.ManualSkillSelection,
 		OutputSchema:         append(json.RawMessage(nil), submission.OutputSchema...),
 		AgentID:              strings.TrimSpace(submission.AgentID),
-		ThreadCaps:           session.Capabilities(),
-	}
+	}, prepareSkillSpec{
+		Selected: submission.SelectedSkills,
+	}, session.Capabilities())
 }
 
 type sessionCaps interface {
@@ -122,16 +122,4 @@ func queuedThreadID(session sessionCaps, submission contract.TurnSubmission) str
 		return sessionThreadID
 	}
 	return threadID
-}
-
-func selectedSkillRefs(names []string) []dto.SkillRef {
-	refs := make([]dto.SkillRef, 0, len(names))
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		refs = append(refs, dto.SkillRef{Name: name})
-	}
-	return refs
 }

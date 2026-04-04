@@ -6,10 +6,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 )
 
 type uiDashboardGetParams struct {
@@ -87,7 +84,7 @@ func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"agents": agents}, nil
+			return wrapResponse("agents", agents), nil
 		}),
 		"dashboard/taskTraces": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardPageField(ctx, svc, "tasks", func(page *DashboardPage) any { return page.TaskTraces }, "traces")
@@ -155,17 +152,15 @@ func dashboardPageField(
 	if len(keys) > 0 && strings.TrimSpace(keys[0]) != "" {
 		key = strings.TrimSpace(keys[0])
 	}
-	return map[string]any{key: selectField(page)}, nil
+	return wrapResponse(key, selectField(page)), nil
 }
 
 func dashboardLogField(ctx context.Context, svc Service, p logsParams, source string) (map[string]any, error) {
-	filter := p.filter()
-	filter.Source = source
-	logs, err := svc.GetLogs(ctx, filter)
+	logs, err := svc.GetLogs(ctx, p.ToFilter(source))
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"logs": logs}, nil
+	return wrapResponse("logs", logs), nil
 }
 
 func dashboardAILogField(ctx context.Context, svc Service, p logsParams) (map[string]any, error) {
@@ -173,46 +168,31 @@ func dashboardAILogField(ctx context.Context, svc Service, p logsParams) (map[st
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"logs": logs}, nil
+	return wrapResponse("logs", logs), nil
 }
 
 func dashboardAuditLogField(ctx context.Context, svc Service, p auditLogsParams) (map[string]any, error) {
-	logs, err := svc.GetAuditLogs(ctx, auditlogstore.ListFilter{
-		EventType: p.EventType,
-		Action:    p.Action,
-		Actor:     p.Actor,
-		Keyword:   p.Keyword,
-		Limit:     int32(p.Limit),
-	})
+	logs, err := svc.GetAuditLogs(ctx, p.ToFilter())
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"logs": logs}, nil
+	return wrapResponse("logs", logs), nil
 }
 
 func dashboardBusLogField(ctx context.Context, svc Service, p busLogsParams) (map[string]any, error) {
-	logs, err := svc.GetBusLogs(ctx, buslogstore.ListFilter{
-		Category: p.Category,
-		Severity: p.Severity,
-		Keyword:  p.Keyword,
-		Limit:    int32(p.Limit),
-	})
+	logs, err := svc.GetBusLogs(ctx, p.ToFilter())
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"logs": logs}, nil
+	return wrapResponse("logs", logs), nil
 }
 
 func dashboardDAGField(ctx context.Context, svc Service, p dagsParams) (map[string]any, error) {
-	dags, err := svc.ListDAGs(ctx, contract.ListDAGsFilter{
-		Status:  p.Status,
-		Keyword: p.Keyword,
-		Limit:   p.Limit,
-	})
+	dags, err := svc.ListDAGs(ctx, p.ToFilter())
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"dags": dags}, nil
+	return wrapResponse("dags", dags), nil
 }
 
 func dashboardDAGDetailField(ctx context.Context, svc Service, p dagDetailParams) (map[string]any, error) {
@@ -220,7 +200,10 @@ func dashboardDAGDetailField(ctx context.Context, svc Service, p dagDetailParams
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"dag": detail.DAG, "nodes": detail.Nodes}, nil
+	return wrapResponses(
+		responseField{key: "dag", value: detail.DAG},
+		responseField{key: "nodes", value: detail.Nodes},
+	), nil
 }
 
 func dashboardRecentAILogField(ctx context.Context, svc Service, limit int) (map[string]any, error) {
@@ -228,7 +211,7 @@ func dashboardRecentAILogField(ctx context.Context, svc Service, limit int) (map
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"logs": logs}, nil
+	return wrapResponse("logs", logs), nil
 }
 
 func dashboardAILogStatsField(ctx context.Context, svc Service) (map[string]any, error) {
@@ -236,24 +219,9 @@ func dashboardAILogStatsField(ctx context.Context, svc Service) (map[string]any,
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"stats": stats}, nil
+	return wrapResponse("stats", stats), nil
 }
 
 func (p agentDetailParams) agentID() string {
 	return firstNonEmpty(p.AgentID, p.AgentIDSnake)
-}
-
-func (p logsParams) filter() LogFilter {
-	return LogFilter{
-		Source:    strings.TrimSpace(p.Source),
-		Keyword:   strings.TrimSpace(p.Keyword),
-		Level:     strings.TrimSpace(p.Level),
-		Logger:    strings.TrimSpace(p.Logger),
-		Component: strings.TrimSpace(p.Component),
-		AgentID:   firstNonEmpty(p.AgentID, p.AgentIDSnake),
-		ThreadID:  firstNonEmpty(p.ThreadID, p.ThreadIDSnake),
-		EventType: firstNonEmpty(p.EventType, p.EventTypeSnake),
-		ToolName:  firstNonEmpty(p.ToolName, p.ToolNameSnake),
-		Limit:     p.Limit,
-	}
 }

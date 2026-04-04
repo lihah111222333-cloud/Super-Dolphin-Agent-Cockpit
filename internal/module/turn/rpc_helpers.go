@@ -15,21 +15,22 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
-func buildPrepareInput(p turnStartParams, session contract.Session) PrepareInput {
+func buildRPCPrepareInput(p turnStartParams, session contract.Session) PrepareInput {
 	items, inputSkills := buildTurnStartInputs(p.Input)
-	return PrepareInput{
+	return buildPrepareInput(prepareInputSpec{
 		Inputs:               items,
 		Prompt:               p.Prompt,
-		Images:               append([]string(nil), p.Images...),
-		Files:                append([]string(nil), p.Files...),
-		Skills:               skillRefsFromNames(p.SelectedSkills, inputSkills),
+		Images:               p.Images,
+		Files:                p.Files,
 		ManualSkillSelection: p.ManualSkillSelection,
 		Model:                p.Model,
 		Effort:               p.Effort,
-		OutputSchema:         append([]byte(nil), p.OutputSchema...),
+		OutputSchema:         p.OutputSchema,
 		CWD:                  p.CWD,
-		ThreadCaps:           session.Capabilities(),
-	}
+	}, prepareSkillSpec{
+		Selected: p.SelectedSkills,
+		Derived:  inputSkills,
+	}, session.Capabilities())
 }
 
 func buildTurnStartInputs(raw []turnInputItemParams) ([]InputItem, []string) {
@@ -46,29 +47,6 @@ func buildTurnStartInputs(raw []turnInputItemParams) ([]InputItem, []string) {
 		}
 	}
 	return items, skills
-}
-
-func skillRefsFromNames(groups ...[]string) []dto.SkillRef {
-	refs := make([]dto.SkillRef, 0)
-	seen := map[string]struct{}{}
-	for _, names := range groups {
-		for _, raw := range names {
-			name := strings.TrimSpace(raw)
-			key := strings.ToLower(name)
-			if key == "" {
-				continue
-			}
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			refs = append(refs, dto.SkillRef{Name: name})
-		}
-	}
-	if len(refs) == 0 {
-		return nil
-	}
-	return refs
 }
 
 func resolveTurnSession(ctx context.Context, resolver contract.SessionResolver) (contract.Session, error) {
@@ -175,7 +153,7 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, capResolve
 			if !session.Capabilities().Has(dto.CapMessageSend) {
 				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")
 			}
-			input := buildPrepareInput(p, session)
+			input := buildRPCPrepareInput(p, session)
 			if err := applyTurnStartConfig(ctx, session, p); err != nil {
 				return nil, err
 			}
@@ -199,12 +177,15 @@ func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolve
 			if !session.Capabilities().Has(dto.CapMessageSend) {
 				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")
 			}
-			handle, err := svc.SteerTurn(ctx, session, p.ExpectedTurnID, buildPrepareInput(turnStartParams{
+			items, inputSkills := buildTurnStartInputs(p.Input)
+			handle, err := svc.SteerTurn(ctx, session, p.ExpectedTurnID, buildPrepareInput(prepareInputSpec{
+				Inputs:               items,
 				Prompt:               p.Prompt,
-				Input:                p.Input,
-				SelectedSkills:       p.SelectedSkills,
 				ManualSkillSelection: p.ManualSkillSelection,
-			}, session))
+			}, prepareSkillSpec{
+				Selected: p.SelectedSkills,
+				Derived:  inputSkills,
+			}, session.Capabilities()))
 			if err != nil {
 				return nil, err
 			}
@@ -220,29 +201,9 @@ func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handle
 			if err != nil {
 				return nil, err
 			}
-			return newTurnInterruptResult(status), nil
+			return buildInterruptResult(status, status.interruptEnvelope()), nil
 		})
 	})
-}
-
-func newTurnInterruptResult(status TurnStatus) turnInterruptResult {
-	result := turnInterruptResult{OK: true, TurnID: status.LocalID, Status: status.State}
-	envelope := status.interruptEnvelope()
-	if envelope.mode == "" {
-		envelope = buildTurnInterruptEnvelope(status.State, status.State, false, false, 0, false)
-	}
-	result.Confirmed = envelope.confirmed
-	result.Mode = envelope.mode
-	result.InterruptSent = envelope.interruptSent
-	result.StateBefore = envelope.stateBefore
-	result.StateAfter = envelope.stateAfter
-	if envelope.interruptSent {
-		waitedMS := envelope.waitedMS
-		activeObserved := envelope.activeObserved
-		result.WaitedMS = &waitedMS
-		result.ActiveObserved = &activeObserved
-	}
-	return result
 }
 
 func turnForceCompleteHandler(svc Service, resolver contract.SessionResolver) handler.Func {

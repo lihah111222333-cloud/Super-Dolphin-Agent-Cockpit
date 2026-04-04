@@ -120,7 +120,7 @@ func (t *transport) Kill() error {
 }
 
 func (t *transport) Running() bool {
-	if t == nil || t.cmd == nil || t.cmd.Process == nil {
+	if t == nil {
 		return false
 	}
 	select {
@@ -128,10 +128,8 @@ func (t *transport) Running() bool {
 		return false
 	default:
 	}
-	if state := t.cmd.ProcessState; state != nil && state.Exited() {
-		return false
-	}
-	return true
+	pid, err := t.ensureProcessAlive()
+	return err == nil && pid > 0
 }
 
 func (t *transport) wait() {
@@ -179,12 +177,12 @@ func (t *transport) waitForExit(timeout time.Duration) {
 }
 
 func (t *transport) signalProcess(sig syscall.Signal) error {
-	if t == nil || t.cmd == nil || t.cmd.Process == nil {
-		return nil
+	pid, err := t.ensureProcessAlive()
+	if err != nil {
+		return err
 	}
-	pid := t.cmd.Process.Pid
-	if pid <= 0 {
-		return errors.New("invalid claude pid")
+	if pid == 0 {
+		return nil
 	}
 	return syscall.Kill(-pid, sig)
 }

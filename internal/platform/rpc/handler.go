@@ -88,7 +88,7 @@ func CapabilityGate(cap string, resolver CapabilityResolver) Middleware {
 				return nil, capabilityResolverError(ctx, err)
 			}
 			if !caps.Has(cap) {
-				return nil, jrpc2.Errorf(jrpc2.Code(CodeCapabilityGate), "capability not supported by active provider").WithData(map[string]any{
+				return nil, rpcErrorData(CodeCapabilityGate, "capability not supported by active provider", map[string]any{
 					"capability": cap,
 				})
 			}
@@ -109,7 +109,6 @@ func capabilityResolverError(ctx context.Context, err error) error {
 	if msg == "" {
 		msg = "thread session is not available; start or resume the thread first"
 	}
-	rpcErr := jrpc2.Errorf(jrpc2.Code(CodeInvalidState), "%s", msg)
 	data := map[string]any{}
 	if threadID := strings.TrimSpace(ThreadIDFrom(ctx)); threadID != "" {
 		data["threadId"] = threadID
@@ -117,10 +116,7 @@ func capabilityResolverError(ctx context.Context, err error) error {
 	if detail := strings.TrimSpace(err.Error()); detail != "" {
 		data["detail"] = detail
 	}
-	if len(data) == 0 {
-		return rpcErr
-	}
-	return rpcErr.WithData(data)
+	return rpcErrorData(CodeInvalidState, msg, data)
 }
 
 // ThreadHandler keeps the default per-method stack narrow: strict decoding,
@@ -128,12 +124,12 @@ func capabilityResolverError(ctx context.Context, err error) error {
 // should be layered outside handler helpers when parity with V2's outer HTTP
 // middleware is required.
 func ThreadHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error)) handler.Func {
-	return Wrap(Validate(), ThreadScope())(StrictHandler(fn))
+	return baseThreadHandler(fn)
 }
 
 // CapabilityThreadHandler composes ThreadScope, CapabilityGate, and StrictHandler.
 func CapabilityThreadHandler[Req, Resp any](cap string, resolver CapabilityResolver, fn func(context.Context, Req) (Resp, error)) handler.Func {
-	return Wrap(Validate(), ThreadScope(), CapabilityGate(cap, resolver))(StrictHandler(fn))
+	return baseThreadHandler(fn, CapabilityGate(cap, resolver))
 }
 
 func ThreadIDFrom(ctx context.Context) string {

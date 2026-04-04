@@ -8,17 +8,8 @@ import (
 )
 
 func peerFromContext(ctx context.Context) (peer Peer, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = errPeerUnavailable("mcp control request must run inside a jrpc2 handler")
-			peer = nil
-		}
-	}()
-	server := jrpc2.ServerFromContext(ctx)
-	if server == nil {
-		return nil, errPeerUnavailable("mcp control peer is not available")
-	}
-	return jrpcPeer{server: server}, nil
+	_, peer, err = resolveServerPeer(ctx)
+	return peer, err
 }
 
 type jrpcPeer struct {

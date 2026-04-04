@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -43,29 +43,15 @@ func handleTurnInterruptedEvent(svc *service, logger *slog.Logger, ev turndto.Tu
 }
 
 func (s *service) interruptTurn(ctx context.Context, agentID, turnID, reason string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return err
-	}
-	turnID = strings.TrimSpace(turnID)
-	if agent.activeTurnID == "" {
-		return errTurnNotActive
-	}
-	if turnID != "" && agent.activeTurnID != turnID {
-		return errTurnNotActive
-	}
-	agent.lastError = strings.TrimSpace(reason)
-	if err := s.ensureTurnAbortableLocked(ctx, agent); err != nil {
-		return err
-	}
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAborted); err != nil {
-		return err
-	}
-	agent.activeTurnID = ""
-	return nil
+	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if err := s.ensureTurnAbortableLocked(ctx, agent); err != nil {
+			return err
+		}
+		return s.finalizeActiveTurnLocked(ctx, agent, turnID, activeTurnFinalizationKind{
+			trigger:   agentdto.TriggerTurnAborted,
+			errorText: reason,
+		})
+	})
 }
 
 func (s *service) forceIdleAfterCompletionError(
@@ -75,31 +61,20 @@ func (s *service) forceIdleAfterCompletionError(
 	success bool,
 	errMsg string,
 ) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return false, err
-	}
-	if !canForceIdleAfterTurnTerminal(agent, turnID) {
-		return false, errTurnNotActive
-	}
-	before := agent.state
-	agent.activeTurnID = ""
-	if success {
-		agent.lastError = ""
-	} else {
-		agent.lastError = strings.TrimSpace(errMsg)
-	}
-	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
-	if err := s.recoverTurnCompletionStateLocked(ctx, agent, success); err != nil {
-		return false, err
-	}
-	if before != agent.state {
-		s.publishStateChanged(agent, before, triggerTurnCompletionRecovered)
-	}
-	return true, nil
+	recovered := false
+	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		var recoverErr error
+		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
+			recoveredTrigger: triggerTurnCompletionRecovered,
+			errorText:        errMsg,
+			clearError:       success,
+			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
+				return svc.recoverTurnCompletionStateLocked(ctx, agent, success)
+			},
+		})
+		return recoverErr
+	})
+	return recovered, err
 }
 
 func (s *service) forceIdleAfterInterruptionError(
@@ -108,27 +83,19 @@ func (s *service) forceIdleAfterInterruptionError(
 	turnID string,
 	reason string,
 ) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return false, err
-	}
-	if !canForceIdleAfterTurnTerminal(agent, turnID) {
-		return false, errTurnNotActive
-	}
-	before := agent.state
-	agent.activeTurnID = ""
-	agent.lastError = strings.TrimSpace(reason)
-	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
-	if err := s.recoverTurnInterruptionStateLocked(ctx, agent); err != nil {
-		return false, err
-	}
-	if before != agent.state {
-		s.publishStateChanged(agent, before, triggerTurnInterruptionRecovered)
-	}
-	return true, nil
+	recovered := false
+	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		var recoverErr error
+		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
+			recoveredTrigger: triggerTurnInterruptionRecovered,
+			errorText:        reason,
+			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
+				return svc.recoverTurnInterruptionStateLocked(ctx, agent)
+			},
+		})
+		return recoverErr
+	})
+	return recovered, err
 }
 
 func (s *service) recoverTurnCompletionStateLocked(ctx context.Context, agent *agentRuntime, success bool) error {
@@ -157,7 +124,7 @@ func (s *service) normalizeTurnCompletionStateLocked(ctx context.Context, agent 
 		if success {
 			return nil
 		}
-		return s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted)
+		return s.ensureTurnStartedLocked(ctx, agent, agentdto.TriggerTurnCompleted, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput)
 	case agentdto.StateAwaitingUserInput:
 		if !success {
 			return nil
@@ -169,14 +136,7 @@ func (s *service) normalizeTurnCompletionStateLocked(ctx context.Context, agent 
 }
 
 func (s *service) ensureTurnAbortableLocked(ctx context.Context, agent *agentRuntime) error {
-	switch agent.state {
-	case agentdto.StateTurnStarting:
-		return s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted)
-	case agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput:
-		return nil
-	default:
-		return formatIllegalTransitionError(ctx, agent, agent.state, agentdto.TriggerTurnAborted, errIllegalStateTransition)
-	}
+	return s.ensureTurnStartedLocked(ctx, agent, agentdto.TriggerTurnAborted, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput)
 }
 
 func completionRecoveryTrigger(success bool) string {
@@ -214,14 +174,14 @@ func turnTerminalConverged(svc *service, agentID, turnID string) bool {
 	if svc == nil {
 		return false
 	}
-	svc.mu.RLock()
-	defer svc.mu.RUnlock()
-
-	agent, err := svc.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
+	converged := false
+	if err := svc.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		converged = turnTerminalConvergedLocked(agent, turnID)
+		return nil
+	}); err != nil {
 		return false
 	}
-	return turnTerminalConvergedLocked(agent, turnID)
+	return converged
 }
 
 func turnTerminalConvergedLocked(agent *agentRuntime, turnID string) bool {

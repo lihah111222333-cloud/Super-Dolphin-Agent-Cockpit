@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
@@ -64,13 +63,7 @@ type editEnvelope struct {
 }
 
 func NewEditHandler(manager gopls.Manager) middleware.Handler {
-	log := pkglogger.Get()
-	return middleware.Chain(
-		EditHandler{manager: manager}.Handle,
-		middleware.Recovery(log, "lsp_edit"),
-		middleware.Logging(log, "lsp_edit"),
-		middleware.Timeout(middleware.TierNormal),
-	)
+	return wrapToolHandler("lsp_edit", middleware.TierNormal, EditHandler{manager: manager}.Handle)
 }
 
 func HandleEdit(ctx context.Context, manager gopls.Manager, params json.RawMessage) (any, error) {
@@ -81,33 +74,35 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 	if h.manager == nil {
 		return nil, errEditManagerNil
 	}
-	var req EditRequest
-	if err := json.Unmarshal(params, &req); err != nil {
+	req, err := decodeToolParams[EditRequest](params, decodeRaw)
+	if err != nil {
 		return nil, fmt.Errorf("decode lsp_edit request: %w", err)
 	}
-	switch strings.ToLower(strings.TrimSpace(req.Action)) {
-	case "rename":
-		return h.handleRename(ctx, req)
-	case "code_action":
-		return h.handleCodeAction(ctx, req)
-	case "format":
-		return h.handleFormat(ctx, req)
-	case "replace_range":
-		return h.handleReplaceRange(ctx, req)
-	default:
-		return nil, fmt.Errorf("unsupported lsp_edit action: %q", req.Action)
-	}
+	return dispatchToolAction(ctx, "lsp_edit", req.Action, req, map[string]actionHandler[EditRequest]{
+		"rename": func(ctx context.Context, req EditRequest) (any, error) {
+			return h.handleRename(ctx, req)
+		},
+		"code_action": func(ctx context.Context, req EditRequest) (any, error) {
+			return h.handleCodeAction(ctx, req)
+		},
+		"format": func(ctx context.Context, req EditRequest) (any, error) {
+			return h.handleFormat(ctx, req)
+		},
+		"replace_range": func(ctx context.Context, req EditRequest) (any, error) {
+			return h.handleReplaceRange(ctx, req)
+		},
+	})
 }
 
 func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, error) {
 	if strings.TrimSpace(req.NewName) == "" {
 		return nil, errors.New("new_name is required for rename")
 	}
-	path, err := resolveFilePath(req.FilePath)
-	if err != nil {
-		return nil, err
-	}
-	position, err := requirePosition(req.Line, req.Column)
+	path, position, err := resolveFilePositionRequest(filePositionParams{
+		FilePath: req.FilePath,
+		Line:     req.Line,
+		Column:   req.Column,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -164,11 +159,11 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 }
 
 func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any, error) {
-	path, err := resolveFilePath(req.FilePath)
-	if err != nil {
-		return nil, err
-	}
-	position, err := requirePosition(req.Line, req.Column)
+	path, position, err := resolveFilePositionRequest(filePositionParams{
+		FilePath: req.FilePath,
+		Line:     req.Line,
+		Column:   req.Column,
+	})
 	if err != nil {
 		return nil, err
 	}

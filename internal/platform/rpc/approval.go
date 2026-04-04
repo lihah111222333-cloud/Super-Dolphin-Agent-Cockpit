@@ -137,10 +137,7 @@ func (m *ApprovalManager) Respond(callID string, requestID *int64, decision cont
 }
 
 func (m *ApprovalManager) AutoApprove(callID string) error {
-	return m.Respond(callID, nil, contract.ApprovalDecision{
-		Approved: boolPtr(true),
-		Reason:   "auto_approved",
-	})
+	return m.Respond(callID, nil, approvedDecision())
 }
 
 func (m *ApprovalManager) registerPending(req ApprovalRequest, dispatcher *event.Dispatcher) (*pendingApproval, bool) {
@@ -296,8 +293,7 @@ func (m *ApprovalManager) finishPending(pending *pendingApproval, decision contr
 }
 
 func (m *ApprovalManager) failPending(pending *pendingApproval, err error) {
-	decision := contract.ApprovalDecision{Reason: decisionReason(contract.ApprovalDecision{}, err)}
-	m.finishPending(pending, decision, err)
+	m.finishPending(pending, errorDecision(err), err)
 }
 
 func (m *ApprovalManager) lookupPending(callID string, requestID *int64) *pendingApproval {

@@ -2,12 +2,11 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
 
 type completionParams struct {
@@ -19,15 +18,8 @@ type completionParams struct {
 }
 
 func NewCompletionHandler(manager gopls.Manager) ToolHandler {
-	if manager == nil {
-		return missingManagerHandler()
-	}
-	return ToolHandler(wrapToolHandler("lsp_completion", middleware.TierFast, func(ctx context.Context, params json.RawMessage) (any, error) {
-		req, err := decodeParams[completionParams](params)
-		if err != nil {
-			return nil, err
-		}
-		filePath, position, err := requireFilePosition(filePositionParams{
+	return newManagerTool("lsp_completion", middleware.TierFast, manager, decodeStrict, func(ctx context.Context, manager gopls.Manager, req completionParams) (any, error) {
+		filePath, position, err := resolveFilePositionRequest(filePositionParams{
 			FilePath: req.FilePath,
 			Line:     req.Line,
 			Column:   req.Column,
@@ -46,11 +38,11 @@ func NewCompletionHandler(manager gopls.Manager) ToolHandler {
 		}
 		total := len(result.Items)
 		items := limitSlice(result.Items, limit)
-		if verbosity == format.VerbosityFull {
-			return items, nil
-		}
-		return format.NewCompactList(format.CompactCompletionItems(items), total), nil
-	}))
+		return renderByVerbosity(items, total, verbosity,
+			func(items []protocol.CompletionItem) any { return items },
+			func(items []protocol.CompletionItem, total int) any {
+				return format.NewCompactList(format.CompactCompletionItems(items), total)
+			},
+		), nil
+	})
 }
-
-var _ = fmt.Sprintf

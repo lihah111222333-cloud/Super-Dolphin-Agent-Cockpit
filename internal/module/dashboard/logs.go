@@ -25,17 +25,8 @@ func matchesLogSource(entrySource, filterSource string) bool {
 }
 
 func matchesLogFields(entry LogEntry, filter LogFilter) bool {
-	fields := [][2]string{
-		{filter.Level, entry.Level},
-		{filter.Logger, entry.Logger},
-		{filter.Component, entry.Component},
-		{filter.AgentID, entry.AgentID},
-		{filter.ThreadID, entry.ThreadID},
-		{filter.EventType, entry.EventType},
-		{filter.ToolName, entry.ToolName},
-	}
-	for _, field := range fields {
-		if !matchField(field[0], field[1]) {
+	for _, field := range logFilterFields {
+		if !matchField(logFilterValue(filter, field), logEntryValue(entry, field)) {
 			return false
 		}
 	}
@@ -89,24 +80,22 @@ func sortLogEntries(entries []LogEntry) {
 }
 
 func (s *service) GetAuditLogs(ctx context.Context, filter auditlogstore.ListFilter) ([]auditlogstore.AuditEvent, error) {
-	if s.auditLogs == nil {
-		return []auditlogstore.AuditEvent{}, nil
-	}
-	filter.EventType = strings.TrimSpace(filter.EventType)
-	filter.Action = strings.TrimSpace(filter.Action)
-	filter.Actor = strings.TrimSpace(filter.Actor)
-	filter.Keyword = strings.TrimSpace(filter.Keyword)
-	filter.Limit = int32(clampLogLimit(int(filter.Limit)))
-	return s.auditLogs.List(ctx, filter)
+	return safeList(s.auditLogs != nil, func() ([]auditlogstore.AuditEvent, error) {
+		filter.EventType = strings.TrimSpace(filter.EventType)
+		filter.Action = strings.TrimSpace(filter.Action)
+		filter.Actor = strings.TrimSpace(filter.Actor)
+		filter.Keyword = strings.TrimSpace(filter.Keyword)
+		filter.Limit = int32(clampLogLimit(int(filter.Limit)))
+		return s.auditLogs.List(ctx, filter)
+	})
 }
 
 func (s *service) GetBusLogs(ctx context.Context, filter buslogstore.ListFilter) ([]buslogstore.BusExceptionLog, error) {
-	if s.busLogs == nil {
-		return []buslogstore.BusExceptionLog{}, nil
-	}
-	filter.Category = strings.TrimSpace(filter.Category)
-	filter.Severity = strings.TrimSpace(filter.Severity)
-	filter.Keyword = strings.TrimSpace(filter.Keyword)
-	filter.Limit = int32(clampLogLimit(int(filter.Limit)))
-	return s.busLogs.List(ctx, filter)
+	return safeList(s.busLogs != nil, func() ([]buslogstore.BusExceptionLog, error) {
+		filter.Category = strings.TrimSpace(filter.Category)
+		filter.Severity = strings.TrimSpace(filter.Severity)
+		filter.Keyword = strings.TrimSpace(filter.Keyword)
+		filter.Limit = int32(clampLogLimit(int(filter.Limit)))
+		return s.busLogs.List(ctx, filter)
+	})
 }

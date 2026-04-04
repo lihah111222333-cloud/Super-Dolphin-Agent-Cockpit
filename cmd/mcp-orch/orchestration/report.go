@@ -36,25 +36,21 @@ var terminalThreadStatuses = map[string]struct{}{
 }
 
 func (s *service) GetState(_ context.Context, agentID string) (AgentStateResult, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return AgentStateResult{}, err
-	}
-	return AgentStateResult{AgentID: agent.id, State: agent.state}, nil
+	var result AgentStateResult
+	err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		result = AgentStateResult{AgentID: agent.id, State: agent.state}
+		return nil
+	})
+	return result, err
 }
 
 func (s *service) GetReport(_ context.Context, agentID string) (AgentReportResult, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return AgentReportResult{}, err
-	}
-	return agentReportLocked(agent), nil
+	var result AgentReportResult
+	err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		result = agentReportLocked(agent)
+		return nil
+	})
+	return result, err
 }
 
 func (s *service) RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error) {
@@ -70,15 +66,13 @@ func (s *service) RememberReportRequest(ctx context.Context, req RememberReportR
 		return RememberReportRequestResult{}, errors.New("agent id and requester id must differ")
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil {
-		return RememberReportRequestResult{}, err
-	}
-	rememberReportRequesterLocked(ctx, agent, requesterID)
-	return RememberReportRequestResult{Success: true, AgentID: agent.id, RequesterID: requesterID}, nil
+	result := RememberReportRequestResult{}
+	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		rememberReportRequesterLocked(ctx, agent, requesterID)
+		result = RememberReportRequestResult{Success: true, AgentID: agent.id, RequesterID: requesterID}
+		return nil
+	})
+	return result, err
 }
 
 // TODO(p2-b15): deliver drained requester notifications into the UI timeline once a stable V3 delivery path exists.
@@ -93,30 +87,28 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 	}
 	report := resolveReportText(event)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil {
-		return ReportEventResult{}, err
-	}
-	if report != "" {
-		setReportLocked(ctx, agent, report)
-	}
-	notified := []string(nil)
-	if report != "" || isTerminalReportEvent(eventType, event.EventData) {
-		notified = drainReportRequestersLocked(ctx, agent)
-	}
-	if report == "" {
-		report = strings.TrimSpace(agent.lastReport)
-	}
-	return ReportEventResult{
-		Success:              true,
-		AgentID:              agent.id,
-		EventType:            eventType,
-		Report:               report,
-		NotifiedRequesterIDs: notified,
-	}, nil
+	result := ReportEventResult{}
+	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if report != "" {
+			setReportLocked(ctx, agent, report)
+		}
+		notified := []string(nil)
+		if report != "" || isTerminalReportEvent(eventType, event.EventData) {
+			notified = drainReportRequestersLocked(ctx, agent)
+		}
+		if report == "" {
+			report = strings.TrimSpace(agent.lastReport)
+		}
+		result = ReportEventResult{
+			Success:              true,
+			AgentID:              agent.id,
+			EventType:            eventType,
+			Report:               report,
+			NotifiedRequesterIDs: notified,
+		}
+		return nil
+	})
+	return result, err
 }
 
 func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {

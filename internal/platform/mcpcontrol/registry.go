@@ -22,6 +22,7 @@ const (
 
 // LeaseKey identifies a registered MCP tool lease.
 type LeaseKey = dto.LeaseKey
+
 // ToolInstance captures the metadata and live peer for a registered MCP tool lease.
 type ToolInstance struct {
 	Lease LeaseKey
@@ -43,12 +44,14 @@ type ToolInstance struct {
 	ConsecutiveFailures int
 	Peer                Peer
 }
+
 // Peer represents the live RPC connection back to a registered MCP tool.
 type Peer interface {
 	Notify(ctx context.Context, method string, params any) error
 	Callback(ctx context.Context, method string, params any, result any) error
 	Close() error
 }
+
 // ToolRegistry manages registered MCP tool instances, their lease indexes, and control-plane fanout.
 type ToolRegistry struct {
 	mu               sync.RWMutex
@@ -157,8 +160,10 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 	r.indexLocked(instance)
 	r.mu.Unlock()
 
-	r.cleanupLease(ctx, replaced)
-	closePeer(previous)
+	_ = r.disconnectLease(replaced, disconnectLeaseOptions{
+		ctx:  ctx,
+		peer: previous,
+	})
 	return dto.RegisterResponse{
 		Lease:                  instance.Lease,
 		AcceptedGeneration:     instance.Lease.Generation,
@@ -192,8 +197,10 @@ func (r *ToolRegistry) Heartbeat(ctx context.Context, req dto.HeartbeatRequest) 
 		instance.Status = dto.StatusDisconnected
 		peer := r.evictLocked(key)
 		r.mu.Unlock()
-		r.cleanupLease(ctx, key)
-		closePeer(peer)
+		_ = r.disconnectLease(key, disconnectLeaseOptions{
+			ctx:  ctx,
+			peer: peer,
+		})
 		return dto.HeartbeatResponse{
 			OK:              true,
 			ServerTime:      now.UnixMilli(),
@@ -253,9 +260,13 @@ func (r *ToolRegistry) ShutdownInstance(ctx context.Context, key dto.LeaseKey, r
 	if err != nil {
 		peer, evicted := r.notePeerFailure(key)
 		if evicted {
-			r.cleanupLease(ctx, key)
+			_ = r.disconnectLease(key, disconnectLeaseOptions{
+				ctx:  ctx,
+				peer: peer,
+			})
+		} else {
+			closePeer(peer)
 		}
-		closePeer(peer)
 		peerErr := errPeerUnavailable("mcp shutdown callback failed for %s/%d: %v", key.InstanceID, key.Generation, err)
 		if cleanupErr != nil {
 			return errors.Join(peerErr, cleanupErr)
@@ -274,6 +285,8 @@ func (r *ToolRegistry) OnDisconnect(key LeaseKey) {
 	}
 	peer := r.evictLocked(key)
 	r.mu.Unlock()
-	r.cleanupLeaseWithTimeout(nil, key)
-	closePeer(peer)
+	_ = r.disconnectLease(key, disconnectLeaseOptions{
+		peer:    peer,
+		timeout: true,
+	})
 }

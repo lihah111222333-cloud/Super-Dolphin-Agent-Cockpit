@@ -3,7 +3,6 @@ package orchestration
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os/exec"
 	"sort"
@@ -302,14 +301,12 @@ func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 }
 
 func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil {
-		return AgentSnapshot{}, err
-	}
-	return s.snapshotLocked(ctx, agent), nil
+	var snapshot AgentSnapshot
+	err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		snapshot = s.snapshotLocked(ctx, agent)
+		return nil
+	})
+	return snapshot, err
 }
 
 func (s *service) GetAgentSnapshot(agentID string) (*AgentSnapshot, error) {
@@ -321,30 +318,15 @@ func (s *service) GetAgentSnapshot(agentID string) (*AgentSnapshot, error) {
 }
 
 func (s *service) CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return err
-	}
-	turnID = strings.TrimSpace(turnID)
-	if agent.activeTurnID == "" {
-		return fmt.Errorf("%w: agent %q has no active turn", errTurnNotActive, agent.id)
-	}
-	if turnID != "" && agent.activeTurnID != turnID {
-		return fmt.Errorf("%w: turn %q is not active on agent %q", errTurnNotActive, turnID, agentID)
-	}
-	trigger := agentdto.TriggerTurnCompleted
-	if success {
-		agent.lastError = ""
-	} else {
-		trigger = agentdto.TriggerTurnAborted
-		agent.lastError = strings.TrimSpace(errMsg)
-	}
-	if err := s.fireOrForceLocked(ctx, agent, trigger); err != nil {
-		return err
-	}
-	agent.activeTurnID = ""
-	return nil
+	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		kind := activeTurnFinalizationKind{
+			trigger:   agentdto.TriggerTurnAborted,
+			errorText: errMsg,
+		}
+		if success {
+			kind.trigger = agentdto.TriggerTurnCompleted
+			kind.clearError = true
+		}
+		return s.finalizeActiveTurnLocked(ctx, agent, turnID, kind)
+	})
 }

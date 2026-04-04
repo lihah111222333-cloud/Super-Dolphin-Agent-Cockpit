@@ -21,26 +21,20 @@ type createDAGParams struct {
 }
 
 func (p *createDAGParams) UnmarshalJSON(data []byte) error {
-	type raw createDAGParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*p = createDAGParams(current)
-	var legacy struct {
+	type current createDAGParams
+	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
 		DagKey    string `json:"dagKey"`
 		CreatedBy string `json:"createdBy"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	if strings.TrimSpace(p.DagKey) == "" {
-		p.DagKey = strings.TrimSpace(legacy.DagKey)
-	}
-	if strings.TrimSpace(p.CreatedBy) == "" {
-		p.CreatedBy = strings.TrimSpace(legacy.CreatedBy)
-	}
-	return nil
+	}) error {
+		*p = createDAGParams(*raw)
+		if strings.TrimSpace(p.DagKey) == "" {
+			p.DagKey = strings.TrimSpace(legacy.DagKey)
+		}
+		if strings.TrimSpace(p.CreatedBy) == "" {
+			p.CreatedBy = strings.TrimSpace(legacy.CreatedBy)
+		}
+		return nil
+	})
 }
 
 type createDAGNodeParams struct {
@@ -54,38 +48,32 @@ type createDAGNodeParams struct {
 }
 
 func (p *createDAGNodeParams) UnmarshalJSON(data []byte) error {
-	type raw createDAGNodeParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*p = createDAGNodeParams(current)
-	var legacy struct {
+	type current createDAGNodeParams
+	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
 		NodeKey    string   `json:"nodeKey"`
 		NodeType   string   `json:"nodeType"`
 		AssignedTo string   `json:"assignedTo"`
 		DependsOn  []string `json:"dependsOn"`
 		CommandRef string   `json:"commandRef"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	if strings.TrimSpace(p.NodeKey) == "" {
-		p.NodeKey = strings.TrimSpace(legacy.NodeKey)
-	}
-	if strings.TrimSpace(p.NodeType) == "" {
-		p.NodeType = strings.TrimSpace(legacy.NodeType)
-	}
-	if strings.TrimSpace(p.AssignedTo) == "" {
-		p.AssignedTo = strings.TrimSpace(legacy.AssignedTo)
-	}
-	if len(p.DependsOn) == 0 && len(legacy.DependsOn) > 0 {
-		p.DependsOn = append([]string(nil), legacy.DependsOn...)
-	}
-	if strings.TrimSpace(p.CommandRef) == "" {
-		p.CommandRef = strings.TrimSpace(legacy.CommandRef)
-	}
-	return nil
+	}) error {
+		*p = createDAGNodeParams(*raw)
+		if strings.TrimSpace(p.NodeKey) == "" {
+			p.NodeKey = strings.TrimSpace(legacy.NodeKey)
+		}
+		if strings.TrimSpace(p.NodeType) == "" {
+			p.NodeType = strings.TrimSpace(legacy.NodeType)
+		}
+		if strings.TrimSpace(p.AssignedTo) == "" {
+			p.AssignedTo = strings.TrimSpace(legacy.AssignedTo)
+		}
+		if len(p.DependsOn) == 0 && len(legacy.DependsOn) > 0 {
+			p.DependsOn = append([]string(nil), legacy.DependsOn...)
+		}
+		if strings.TrimSpace(p.CommandRef) == "" {
+			p.CommandRef = strings.TrimSpace(legacy.CommandRef)
+		}
+		return nil
+	})
 }
 
 type listDAGsParams struct {
@@ -101,48 +89,40 @@ type updateNodeParams struct {
 }
 
 func (p *updateNodeParams) UnmarshalJSON(data []byte) error {
-	type raw updateNodeParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*p = updateNodeParams(current)
-	var legacy struct {
+	type current updateNodeParams
+	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
 		DagKey  string `json:"dagKey"`
 		NodeKey string `json:"nodeKey"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	if strings.TrimSpace(p.DagKey) == "" {
-		p.DagKey = strings.TrimSpace(legacy.DagKey)
-	}
-	if strings.TrimSpace(p.NodeKey) == "" {
-		p.NodeKey = strings.TrimSpace(legacy.NodeKey)
-	}
-	return nil
+	}) error {
+		*p = updateNodeParams(*raw)
+		if strings.TrimSpace(p.DagKey) == "" {
+			p.DagKey = strings.TrimSpace(legacy.DagKey)
+		}
+		if strings.TrimSpace(p.NodeKey) == "" {
+			p.NodeKey = strings.TrimSpace(legacy.NodeKey)
+		}
+		return nil
+	})
 }
 
 func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error) {
-	store, err := s.dagStoreOrErr()
-	if err != nil {
-		return DAGDetail{}, err
-	}
 	var detail DAGDetail
-	err = store.WithTx(ctx, func(txStore taskdag.Store) error {
-		dag, dagErr := upsertDAG(ctx, txStore, req)
-		if dagErr != nil {
-			return dagErr
-		}
-		if nodeErr := upsertDAGNodes(ctx, txStore, dag.DagKey, req.Nodes); nodeErr != nil {
-			return nodeErr
-		}
-		loaded, loadErr := loadDAGDetail(ctx, txStore, dag.DagKey)
-		if loadErr != nil {
-			return loadErr
-		}
-		detail = loaded
-		return nil
+	err := s.withDAGStore(func(store taskdag.Store) error {
+		return store.WithTx(ctx, func(txStore taskdag.Store) error {
+			dag, dagErr := upsertDAG(ctx, txStore, req)
+			if dagErr != nil {
+				return dagErr
+			}
+			if nodeErr := upsertDAGNodes(ctx, txStore, dag.DagKey, req.Nodes); nodeErr != nil {
+				return nodeErr
+			}
+			loaded, loadErr := loadDAGDetail(ctx, txStore, dag.DagKey)
+			if loadErr != nil {
+				return loadErr
+			}
+			detail = loaded
+			return nil
+		})
 	})
 	if err != nil {
 		return DAGDetail{}, err
@@ -151,50 +131,56 @@ func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetai
 }
 
 func (s *service) GetDAG(ctx context.Context, dagKey string) (DAGDetail, error) {
-	store, err := s.dagStoreOrErr()
-	if err != nil {
-		return DAGDetail{}, err
-	}
-	return loadDAGDetail(ctx, store, dagKey)
+	var detail DAGDetail
+	err := s.withDAGStore(func(store taskdag.Store) error {
+		loaded, loadErr := loadDAGDetail(ctx, store, dagKey)
+		if loadErr != nil {
+			return loadErr
+		}
+		detail = loaded
+		return nil
+	})
+	return detail, err
 }
 
 func (s *service) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error) {
-	store, err := s.dagStoreOrErr()
-	if err != nil {
-		return nil, err
-	}
-	dags, err := store.ListDAGs(ctx, taskdag.ListDAGsFilter{
-		Status:  strings.TrimSpace(filter.Status),
-		Keyword: strings.TrimSpace(filter.Keyword),
-		Limit:   normalizeDAGListLimit(filter.Limit),
+	var summaries []DAGSummary
+	err := s.withDAGStore(func(store taskdag.Store) error {
+		dags, listErr := store.ListDAGs(ctx, taskdag.ListDAGsFilter{
+			Status:  strings.TrimSpace(filter.Status),
+			Keyword: strings.TrimSpace(filter.Keyword),
+			Limit:   normalizeDAGListLimit(filter.Limit),
+		})
+		if listErr != nil {
+			return listErr
+		}
+		summaries = mapDAGSummaries(dags)
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return mapDAGSummaries(dags), nil
+	return summaries, nil
 }
 
 func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error) {
-	store, err := s.dagStoreOrErr()
-	if err != nil {
-		return DAGNode{}, err
-	}
 	input, err := nodeStatusUpdateFromRequest(req)
 	if err != nil {
 		return DAGNode{}, err
 	}
-	node, err := store.UpdateNodeStatus(ctx, input)
+	var result DAGNode
+	err = s.withDAGStore(func(store taskdag.Store) error {
+		node, updateErr := store.UpdateNodeStatus(ctx, input)
+		if updateErr != nil {
+			return updateErr
+		}
+		result = dagNodeDTO(*node)
+		return nil
+	})
 	if err != nil {
 		return DAGNode{}, err
 	}
-	return dagNodeDTO(*node), nil
-}
-
-func (s *service) dagStoreOrErr() (taskdag.Store, error) {
-	if s.dagStore == nil {
-		return nil, errors.New("dag store is not configured")
-	}
-	return s.dagStore, nil
+	return result, nil
 }
 
 func upsertDAG(ctx context.Context, store taskdag.Store, req CreateDAGRequest) (*taskdag.DAG, error) {

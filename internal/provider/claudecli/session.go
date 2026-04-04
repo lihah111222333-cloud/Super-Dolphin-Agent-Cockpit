@@ -137,11 +137,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	}
 	if err := s.transport.Send(payload); err != nil {
 		s.clearActiveTurn(handle)
-		handle.finish(err)
-		s.dispatch(s.turnRawEvent("turn:complete", turnID, map[string]any{
-			"success": false,
-			"error":   err.Error(),
-		}))
+		s.finishTurnWithError(handle, err)
 		return nil, err
 	}
 	s.dispatch(s.turnRawEvent("turn:started", turnID, nil))
@@ -179,8 +175,7 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 		return err
 	}
 	s.mu.Lock()
-	handle := s.activeTurn
-	s.activeTurn = nil
+	handle := s.takeActiveTurnLocked()
 	s.mu.Unlock()
 	if handle != nil {
 		turnID := currentTurnID(handle)
@@ -212,10 +207,9 @@ func (s *session) stop(force bool) error {
 	s.mu.Lock()
 	tr := s.transport
 	cleanup := s.cleanup
-	handle := s.activeTurn
+	handle := s.takeActiveTurnLocked()
 	s.transport = nil
 	s.cleanup = nil
-	s.activeTurn = nil
 	s.mu.Unlock()
 	if handle != nil {
 		handle.finish(errors.New("claudecli: session stopped"))
@@ -347,15 +341,10 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 }
 
 func (s *session) turnRawEvent(eventType, turnID string, extras map[string]any) dto.RawProviderEvent {
-	data := map[string]any{
-		"agent_id":   s.agentID,
-		"thread_id":  s.EventThreadID(),
-		"session_id": s.sessionID,
-		"turn_id":    strings.TrimSpace(turnID),
-		"timestamp":  time.Now().Format(time.RFC3339Nano),
-	}
-	for key, value := range extras {
-		data[key] = value
+	base := s.rawBase()
+	data := buildEventData(base, base.SessionID, time.Now().Format(time.RFC3339Nano), extras)
+	if turnID = strings.TrimSpace(turnID); turnID != "" {
+		data["turn_id"] = turnID
 	}
 	return dto.RawProviderEvent{EventType: eventType, Data: data}
 }

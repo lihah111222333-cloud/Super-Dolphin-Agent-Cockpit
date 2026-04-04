@@ -3,12 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"strings"
 
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 const (
@@ -54,117 +51,72 @@ type workspaceAbortRunInput struct {
 }
 
 func HandleWorkspaceCreateRun(svc workspace.Service) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in WorkspaceCreateRunRequest
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "workspace service", func(ctx context.Context, in WorkspaceCreateRunRequest) (*workspaceRunDTO, error) {
 		return createWorkspaceRun(ctx, svc, in)
-	}
+	})
 }
 
 func HandleWorkspaceGetRun(svc workspace.Service) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in workspaceGetRunInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceGetRunInput) (*workspaceRunDTO, error) {
 		return getWorkspaceRun(ctx, svc, in)
-	}
+	})
 }
 
 func HandleWorkspaceListRuns(svc workspace.Service) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in workspaceListRunsInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceListRunsInput) ([]workspaceRunDTO, error) {
 		return listWorkspaceRuns(ctx, svc, in)
-	}
+	})
 }
 
 func HandleWorkspaceMergeRun(svc workspace.Service) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in WorkspaceMergeRunRequest
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "workspace service", func(ctx context.Context, in WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
 		return mergeWorkspaceRun(ctx, svc, in)
-	}
+	})
 }
 
 func HandleWorkspaceAbortRun(svc workspace.Service) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in workspaceAbortRunInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceAbortRunInput) (*workspaceRunDTO, error) {
 		return abortWorkspaceRun(ctx, svc, in)
-	}
+	})
 }
 
 func workspaceToolDefinitions(svc workspace.Service) []ToolDefinition {
-	return []ToolDefinition{
-		{
-			Name:        "workspace_create_run",
-			Description: "Create a virtual workspace run. Filesystem workspace is used for edits; run status and file states are persisted in PostgreSQL.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"run_key":     StringSchema("Optional run key. Auto-generated if omitted."),
-				"dag_key":     StringSchema("Related DAG key (optional)."),
-				"source_root": StringSchema("Absolute or relative source project root."),
-				"created_by":  StringSchema("Creator identifier (optional)."),
-				"files":       ArraySchema(StringSchema("Relative file path to copy into the workspace."), "Optional bootstrap files to copy from source root to workspace."),
-				"metadata":    RawObjectSchema("Optional metadata for the run record."),
-			}, "source_root"),
-			Handler: HandleWorkspaceCreateRun(svc),
-		},
-		{
-			Name:        "workspace_get_run",
-			Description: "Get workspace run detail by run key.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"run_key": StringSchema("Workspace run key."),
-			}, "run_key"),
-			Handler: HandleWorkspaceGetRun(svc),
-		},
-		{
-			Name:        "workspace_list_runs",
-			Description: "List workspace runs with optional status and DAG filters.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"status":  StringSchema("Optional run status filter."),
-				"dag_key": StringSchema("Optional DAG key filter."),
-				"limit":   IntegerSchema("Max number of runs to return."),
-			}),
-			Handler: HandleWorkspaceListRuns(svc),
-		},
-		{
-			Name:        "workspace_merge_run",
-			Description: "Merge changed files from virtual workspace back to source root with conflict detection. Also updates PostgreSQL run and file states.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"run_key":        StringSchema("Workspace run key."),
-				"updated_by":     StringSchema("Operator identifier (optional)."),
-				"dry_run":        BooleanSchema("Only simulate merge without writing source files."),
-				"delete_removed": BooleanSchema("Delete source files removed in workspace when safe."),
-			}, "run_key"),
-			Handler: HandleWorkspaceMergeRun(svc),
-		},
-		{
-			Name:        "workspace_abort_run",
-			Description: "Abort a workspace run and mark it as aborted in PostgreSQL state.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"run_key":    StringSchema("Workspace run key."),
-				"updated_by": StringSchema("Operator identifier (optional)."),
-				"reason":     StringSchema("Abort reason (optional)."),
-			}, "run_key"),
-			Handler: HandleWorkspaceAbortRun(svc),
-		},
-	}
+	return buildToolDefinitions(
+		defineTool("workspace_create_run", "Create a virtual workspace run. Filesystem workspace is used for edits; run status and file states are persisted in PostgreSQL.", ObjectSchema(map[string]Schema{
+			"run_key":     StringSchema("Optional run key. Auto-generated if omitted."),
+			"dag_key":     StringSchema("Related DAG key (optional)."),
+			"source_root": StringSchema("Absolute or relative source project root."),
+			"created_by":  StringSchema("Creator identifier (optional)."),
+			"files":       ArraySchema(StringSchema("Relative file path to copy into the workspace."), "Optional bootstrap files to copy from source root to workspace."),
+			"metadata":    RawObjectSchema("Optional metadata for the run record."),
+		}, "source_root"), HandleWorkspaceCreateRun(svc)),
+		defineTool("workspace_get_run", "Get workspace run detail by run key.", ObjectSchema(map[string]Schema{
+			"run_key": StringSchema("Workspace run key."),
+		}, "run_key"), HandleWorkspaceGetRun(svc)),
+		defineTool("workspace_list_runs", "List workspace runs with optional status and DAG filters.", ObjectSchema(map[string]Schema{
+			"status":  StringSchema("Optional run status filter."),
+			"dag_key": StringSchema("Optional DAG key filter."),
+			"limit":   IntegerSchema("Max number of runs to return."),
+		}), HandleWorkspaceListRuns(svc)),
+		defineTool("workspace_merge_run", "Merge changed files from virtual workspace back to source root with conflict detection. Also updates PostgreSQL run and file states.", ObjectSchema(map[string]Schema{
+			"run_key":        StringSchema("Workspace run key."),
+			"updated_by":     StringSchema("Operator identifier (optional)."),
+			"dry_run":        BooleanSchema("Only simulate merge without writing source files."),
+			"delete_removed": BooleanSchema("Delete source files removed in workspace when safe."),
+		}, "run_key"), HandleWorkspaceMergeRun(svc)),
+		defineTool("workspace_abort_run", "Abort a workspace run and mark it as aborted in PostgreSQL state.", ObjectSchema(map[string]Schema{
+			"run_key":    StringSchema("Workspace run key."),
+			"updated_by": StringSchema("Operator identifier (optional)."),
+			"reason":     StringSchema("Abort reason (optional)."),
+		}, "run_key"), HandleWorkspaceAbortRun(svc)),
+	)
 }
 
 // V3 validates source_root and trims optional fields at the handler boundary.
 // V2 relied on downstream workspace services to enforce the same constraints.
 func createWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceCreateRunRequest) (*workspaceRunDTO, error) {
-	if svc == nil {
-		return nil, errors.New("workspace service is not configured")
+	if err := requireDependency(svc, "workspace service"); err != nil {
+		return nil, err
 	}
 	sourceRoot, err := requireTrimmed(input.SourceRoot, "source_root")
 	if err != nil {
@@ -189,29 +141,24 @@ func createWorkspaceRun(ctx context.Context, svc workspace.Service, input Worksp
 }
 
 func getWorkspaceRun(ctx context.Context, svc workspace.Service, input workspaceGetRunInput) (*workspaceRunDTO, error) {
-	if svc == nil {
-		return nil, errors.New("workspace service is not configured")
+	if err := requireDependency(svc, "workspace service"); err != nil {
+		return nil, err
 	}
 	runKey, err := requireTrimmed(input.RunKey, "run_key")
 	if err != nil {
 		return nil, err
 	}
 	run, err := svc.GetRun(ctx, runKey)
+	run, err = loadOrNotFound(run, err, "workspace run", runKey)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
-			return nil, fmt.Errorf("workspace run %s not found", runKey)
-		}
 		return nil, err
-	}
-	if run == nil {
-		return nil, fmt.Errorf("workspace run %s not found", runKey)
 	}
 	return workspaceRunDTOFromRun(ctx, svc, run)
 }
 
 func listWorkspaceRuns(ctx context.Context, svc workspace.Service, input workspaceListRunsInput) ([]workspaceRunDTO, error) {
-	if svc == nil {
-		return nil, errors.New("workspace service is not configured")
+	if err := requireDependency(svc, "workspace service"); err != nil {
+		return nil, err
 	}
 	runs, err := svc.ListRuns(ctx, strings.TrimSpace(input.Status), strings.TrimSpace(input.DagKey), normalizeWorkspaceListLimit(input.Limit))
 	if err != nil {
@@ -221,8 +168,8 @@ func listWorkspaceRuns(ctx context.Context, svc workspace.Service, input workspa
 }
 
 func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
-	if svc == nil {
-		return nil, errors.New("workspace service is not configured")
+	if err := requireDependency(svc, "workspace service"); err != nil {
+		return nil, err
 	}
 	runKey, err := requireTrimmed(input.RunKey, "run_key")
 	if err != nil {
@@ -249,8 +196,8 @@ func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input Workspa
 }
 
 func abortWorkspaceRun(ctx context.Context, svc workspace.Service, input workspaceAbortRunInput) (*workspaceRunDTO, error) {
-	if svc == nil {
-		return nil, errors.New("workspace service is not configured")
+	if err := requireDependency(svc, "workspace service"); err != nil {
+		return nil, err
 	}
 	runKey, err := requireTrimmed(input.RunKey, "run_key")
 	if err != nil {
@@ -267,10 +214,7 @@ func abortWorkspaceRun(ctx context.Context, svc workspace.Service, input workspa
 }
 
 func normalizeWorkspaceListLimit(limit int) int {
-	if limit <= 0 || limit > maxWorkspaceListLimit {
-		return defaultWorkspaceListLimit
-	}
-	return limit
+	return normalizeListLimit(limit, defaultWorkspaceListLimit, maxWorkspaceListLimit)
 }
 
 func trimNonEmpty(values []string) []string {
@@ -290,8 +234,5 @@ func trimNonEmpty(values []string) []string {
 }
 
 func marshalMapToJSON(m map[string]any) (json.RawMessage, error) {
-	if len(m) == 0 {
-		return json.RawMessage("{}"), nil
-	}
-	return json.Marshal(m)
+	return marshalRawJSON(m, rawJSONOptions{EmptyObject: true})
 }

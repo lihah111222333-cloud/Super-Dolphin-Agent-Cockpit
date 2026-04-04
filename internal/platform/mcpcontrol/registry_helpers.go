@@ -115,15 +115,13 @@ func (r *ToolRegistry) cleanupLeaseWithTimeout(parent context.Context, key Lease
 }
 
 func (r *ToolRegistry) lookupInstance(key dto.LeaseKey) (*ToolInstance, bool) {
-	normalized, err := normalizeLeaseKey(key)
+	instance, err := lookupLease(leaseLookupOptions{
+		registry:   r,
+		key:        key,
+		allowStale: true,
+	})
 	if err != nil {
 		return nil, false
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	instance := r.instances[normalized]
-	if instance == nil {
-		return nil, false
-	}
-	return cloneInstance(instance), true
+	return instance, true
 }

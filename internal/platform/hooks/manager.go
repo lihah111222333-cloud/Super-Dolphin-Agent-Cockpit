@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -77,84 +76,83 @@ func (m *Manager) Subscribe(_ context.Context, lease mcp.LeaseKey, req mcp.HookS
 }
 
 func (m *Manager) DispatchBefore(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.BeforeDecision, error) {
-	if err := m.validate(); err != nil {
-		return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}, err
-	}
-	if m.depthExceeded(payload) {
-		return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}, nil
-	}
-	decisions, err := m.dispatcher.dispatchBeforeBySelector(ctx, dispatchSelector(topic, payload), payload)
-	if err != nil {
-		return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}, err
-	}
-	result := MergeBefore(decisions)
-	m.handleLostLeases(ctx, result.LostLeases)
-	if result.PartialFailure {
-		m.logger.Warn("hooks: partial before hook failure, denying request",
-			"failed_leases", result.FailedLeases,
-		)
-		return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}, nil
-	}
-	return result.Decision, nil
+	return runPhase(ctx, m, topic, payload, phaseSpec[mcp.BeforeDecision]{
+		defaultDecision: mcp.BeforeDecision{Decision: mcp.HookDecisionDeny},
+		dispatch: func(ctx context.Context, topic string, payload mcp.HookPayload) (phaseDispatchResult[mcp.BeforeDecision], error) {
+			decisions, err := m.dispatcher.dispatchBeforeBySelector(ctx, buildDispatchSelector(topic, payload), payload)
+			return phaseDispatchResult[mcp.BeforeDecision]{decisions: decisions}, err
+		},
+		merge: MergeBefore,
+		finalize: func(_ context.Context, _ phaseDispatchResult[mcp.BeforeDecision], result MergeResult[mcp.BeforeDecision]) (mcp.BeforeDecision, error) {
+			if result.PartialFailure {
+				m.logger.Warn("hooks: partial before hook failure, denying request",
+					"failed_leases", result.FailedLeases,
+				)
+				return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}, nil
+			}
+			return result.Decision, nil
+		},
+	})
 }
 
 func (m *Manager) DispatchCheck(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.CheckDecision, error) {
-	if err := m.validate(); err != nil {
-		return mcp.CheckDecision{Decision: mcp.HookDecisionContinue}, err
-	}
-	if m.depthExceeded(payload) {
-		return mcp.CheckDecision{Decision: mcp.HookDecisionContinue}, nil
-	}
-	decisions, err := m.dispatcher.dispatchCheckBySelector(ctx, dispatchSelector(topic, payload), payload)
-	if err != nil {
-		return mcp.CheckDecision{Decision: mcp.HookDecisionContinue}, err
-	}
-	result := MergeDuring(decisions)
-	m.handleLostLeases(ctx, result.LostLeases)
-	return result.Decision, nil
+	return runPhase(ctx, m, topic, payload, phaseSpec[mcp.CheckDecision]{
+		defaultDecision: mcp.CheckDecision{Decision: mcp.HookDecisionContinue},
+		dispatch: func(ctx context.Context, topic string, payload mcp.HookPayload) (phaseDispatchResult[mcp.CheckDecision], error) {
+			decisions, err := m.dispatcher.dispatchCheckBySelector(ctx, buildDispatchSelector(topic, payload), payload)
+			return phaseDispatchResult[mcp.CheckDecision]{decisions: decisions}, err
+		},
+		merge: MergeDuring,
+	})
 }
 
 func (m *Manager) DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.AfterDecision, error) {
-	if err := m.validate(); err != nil {
-		return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, err
-	}
-	if m.depthExceeded(payload) {
-		return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, nil
-	}
+	return runPhase(ctx, m, topic, payload, phaseSpec[mcp.AfterDecision]{
+		defaultDecision: mcp.AfterDecision{Decision: mcp.HookDecisionReject},
+		dispatch: func(ctx context.Context, topic string, payload mcp.HookPayload) (phaseDispatchResult[mcp.AfterDecision], error) {
+			leases, prepared := m.dispatcher.prepareDispatchBySelector(buildDispatchSelector(topic, payload), payload)
+			decisions, err := m.dispatcher.dispatchPreparedAfter(ctx, leases, prepared)
+			return phaseDispatchResult[mcp.AfterDecision]{
+				decisions: decisions,
+				payload:   prepared,
+			}, err
+		},
+		merge: MergeAfter,
+		finalize: func(ctx context.Context, dispatched phaseDispatchResult[mcp.AfterDecision], result MergeResult[mcp.AfterDecision]) (mcp.AfterDecision, error) {
+			if result.PartialFailure {
+				m.logger.Warn("hooks: partial after hook failure, keeping successful decision",
+					"failed_leases", result.FailedLeases,
+					"decision", result.Decision.Decision,
+				)
+			}
+			if result.Decision.Decision != mcp.HookDecisionEscalate {
+				return result.Decision, nil
+			}
 
-	leases, prepared := m.dispatcher.prepareDispatchBySelector(dispatchSelector(topic, payload), payload)
-	decisions, err := m.dispatcher.dispatchPreparedAfter(ctx, leases, prepared)
-	if err != nil {
-		return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, err
-	}
-
-	result := MergeAfter(decisions)
-	m.handleLostLeases(ctx, result.LostLeases)
-	if result.PartialFailure {
-		m.logger.Warn("hooks: partial after hook failure, keeping successful decision",
-			"failed_leases", result.FailedLeases,
-			"decision", result.Decision.Decision,
-		)
-	}
-	if result.Decision.Decision == mcp.HookDecisionEscalate {
-		subscriberLease, ok := firstLeaseByAfterDecision(decisions, mcp.HookDecisionEscalate)
-		if !ok {
-			err := fmt.Errorf("hooks: escalate decision for %s missing subscriber lease", prepared.HookCallID)
-			m.logger.Error("hooks: escalate missing subscriber lease",
-				"hook_call_id", prepared.HookCallID,
-				"error", err,
-			)
-			return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, err
-		} else if _, escalateErr := m.resolver.Escalate(ctx, prepared.HookCallID, prepared, subscriberLease, result.Decision.TTLMs); escalateErr != nil {
-			err := fmt.Errorf("hooks: persist escalated review %s: %w", prepared.HookCallID, escalateErr)
-			m.logger.Error("hooks: escalate failed",
-				"hook_call_id", prepared.HookCallID,
-				"error", err,
-			)
-			return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, err
-		}
-	}
-	return result.Decision, nil
+			subscriber, ok := firstMatching(dispatched.decisions, func(item peerDecision[mcp.AfterDecision]) bool {
+				return item.Err == nil &&
+					item.Lease != (mcp.LeaseKey{}) &&
+					normalizeDecision(item.Decision.Decision, afterDecisionConfig) == mcp.HookDecisionEscalate
+			})
+			if !ok {
+				err := fmt.Errorf("hooks: escalate decision for %s missing subscriber lease", dispatched.payload.HookCallID)
+				m.logger.Error("hooks: escalate missing subscriber lease",
+					"hook_call_id", dispatched.payload.HookCallID,
+					"error", err,
+				)
+				return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, err
+			}
+			if _, err := m.resolver.Escalate(ctx, dispatched.payload.HookCallID, dispatched.payload, subscriber.Lease, result.Decision.TTLMs); err != nil {
+				wrapped := fmt.Errorf("hooks: persist escalated review %s: %w", dispatched.payload.HookCallID, err)
+				m.logger.Error("hooks: escalate failed",
+					"hook_call_id", dispatched.payload.HookCallID,
+					"error", wrapped,
+				)
+				return mcp.AfterDecision{Decision: mcp.HookDecisionReject}, wrapped
+			}
+			return result.Decision, nil
+		},
+	})
 }
 
 func (m *Manager) Resolve(ctx context.Context, callerLease mcp.LeaseKey, req mcp.HookResolveRequest) (mcp.HookResolveResponse, error) {
@@ -175,17 +173,12 @@ func (m *Manager) ShutdownHooks(ctx context.Context, lease mcp.LeaseKey) error {
 	if err := m.validate(); err != nil {
 		return err
 	}
-	m.registry.Unsubscribe(lease)
-	m.dispatcher.ForgetLease(lease)
-	_, err := m.resolver.CancelByLease(ctx, lease)
-	return err
+	return cleanupSubscriberLease(ctx, m, lease)
 }
 
 func (m *Manager) handleLostLeases(ctx context.Context, leases []mcp.LeaseKey) {
 	for _, lease := range leases {
-		m.registry.Unsubscribe(lease)
-		m.dispatcher.ForgetLease(lease)
-		if _, err := m.resolver.CancelByLease(ctx, lease); err != nil {
+		if err := cleanupSubscriberLease(ctx, m, lease); err != nil {
 			m.logger.Warn("hooks: cancel pending reviews for lost subscriber failed",
 				"lease", lease,
 				"error", err,
@@ -223,29 +216,4 @@ func (m *Manager) validate() error {
 		return errNilManagerResolver
 	}
 	return nil
-}
-
-func firstLeaseByAfterDecision(decisions []peerDecision[mcp.AfterDecision], want string) (mcp.LeaseKey, bool) {
-	normalizedWant := normalizeAfterDecision(want)
-	for _, item := range decisions {
-		if item.Err != nil || item.Lease == (mcp.LeaseKey{}) {
-			continue
-		}
-		if normalizeAfterDecision(item.Decision.Decision) == normalizedWant {
-			return item.Lease, true
-		}
-	}
-	return mcp.LeaseKey{}, false
-}
-
-func dispatchSelector(topic string, payload mcp.HookPayload) mcp.Selector {
-	sel := mcp.Selector{Subscription: topic}
-	scope := mcp.SelectorScope{
-		AgentID:  strings.TrimSpace(payload.AgentID),
-		ThreadID: strings.TrimSpace(payload.ThreadID),
-	}
-	if scope != (mcp.SelectorScope{}) {
-		sel.Scope = &scope
-	}
-	return sel
 }

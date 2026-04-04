@@ -1,12 +1,9 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
@@ -14,8 +11,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
-
-type ToolHandler func(ctx context.Context, params json.RawMessage) (any, error)
 
 type filePositionParams struct {
 	FilePath string `json:"file_path"`
@@ -29,51 +24,29 @@ type inspectParams struct {
 }
 
 func NewInspectHandler(manager gopls.Manager) ToolHandler {
-	if manager == nil {
-		return missingManagerHandler()
-	}
-	return ToolHandler(wrapToolHandler("lsp_inspect", middleware.TierNormal, func(ctx context.Context, params json.RawMessage) (any, error) {
-		req, err := decodeParams[inspectParams](params)
+	return newManagerTool("lsp_inspect", middleware.TierNormal, manager, decodeStrict, func(ctx context.Context, manager gopls.Manager, req inspectParams) (any, error) {
+		filePath, position, err := resolveFilePositionRequest(req.filePositionParams)
 		if err != nil {
 			return nil, err
 		}
-		filePath, position, err := requireFilePosition(req.filePositionParams)
-		if err != nil {
-			return nil, err
-		}
-		switch normalizeAction(req.Action) {
-		case "hover":
-			return runHover(ctx, manager, filePath, position)
-		case "definition":
-			return runLocationInspect(
-				ctx,
-				filePath,
-				position,
-				"no definition found",
-				manager.Definition,
-			)
-		case "implementation":
-			return runLocationInspect(
-				ctx,
-				filePath,
-				position,
-				"no implementation found",
-				manager.Implementation,
-			)
-		case "type_definition":
-			return runLocationInspect(
-				ctx,
-				filePath,
-				position,
-				"no type definition found",
-				manager.TypeDefinition,
-			)
-		case "signature_help":
-			return runSignatureHelp(ctx, manager, filePath, position)
-		default:
-			return nil, fmt.Errorf("unsupported inspect action %q", req.Action)
-		}
-	}))
+		return dispatchToolAction(ctx, "inspect", req.Action, req, map[string]actionHandler[inspectParams]{
+			"hover": func(ctx context.Context, _ inspectParams) (any, error) {
+				return runHover(ctx, manager, filePath, position)
+			},
+			"definition": func(ctx context.Context, _ inspectParams) (any, error) {
+				return runLocationInspect(ctx, filePath, position, "no definition found", manager.Definition)
+			},
+			"implementation": func(ctx context.Context, _ inspectParams) (any, error) {
+				return runLocationInspect(ctx, filePath, position, "no implementation found", manager.Implementation)
+			},
+			"type_definition": func(ctx context.Context, _ inspectParams) (any, error) {
+				return runLocationInspect(ctx, filePath, position, "no type definition found", manager.TypeDefinition)
+			},
+			"signature_help": func(ctx context.Context, _ inspectParams) (any, error) {
+				return runSignatureHelp(ctx, manager, filePath, position)
+			},
+		})
+	})
 }
 
 func runHover(
@@ -104,11 +77,9 @@ func runLocationInspect(
 	if err != nil {
 		return nil, err
 	}
-	results = limitSlice(results, protocol.XRefResultLimit)
-	if len(results) == 0 {
-		return emptyMessage, nil
-	}
-	return format.NormalizeForDisplay(results), nil
+	return renderListResult(results, protocol.XRefResultLimit, emptyMessage, func(items []protocol.LocationResult, _ int) any {
+		return format.NormalizeForDisplay(items)
+	})
 }
 
 func runSignatureHelp(
@@ -125,63 +96,6 @@ func runSignatureHelp(
 		return "no signature help found", nil
 	}
 	return result, nil
-}
-
-func missingManagerHandler() ToolHandler {
-	return func(context.Context, json.RawMessage) (any, error) {
-		return nil, errors.New("lsp manager is required")
-	}
-}
-
-func decodeParams[T any](raw json.RawMessage) (T, error) {
-	var value T
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&value); err != nil {
-		return value, fmt.Errorf("decode params: %w", err)
-	}
-	var extra struct{}
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return value, errors.New("decode params: unexpected trailing JSON payload")
-	}
-	return value, nil
-}
-
-func requireFilePosition(params filePositionParams) (string, protocol.Position, error) {
-	filePath, err := requireFilePath(params.FilePath)
-	if err != nil {
-		return "", protocol.Position{}, err
-	}
-	position, err := requirePosition(params.Line, params.Column)
-	if err != nil {
-		return "", protocol.Position{}, err
-	}
-	return filePath, position, nil
-}
-
-func requireFilePath(raw string) (string, error) {
-	filePath := strings.TrimSpace(raw)
-	if filePath == "" {
-		return "", errors.New("file_path is required")
-	}
-	return filePath, nil
-}
-
-func requirePosition(line, column int) (protocol.Position, error) {
-	if line <= 0 {
-		return protocol.Position{}, errors.New("line must be >= 1")
-	}
-	if column <= 0 {
-		return protocol.Position{}, errors.New("column must be >= 1")
-	}
-	return protocol.Position{
-		Line:      line - 1,
-		Character: column - 1,
-	}, nil
-}
-
-func normalizeAction(raw string) string {
-	return strings.ToLower(strings.TrimSpace(raw))
 }
 
 func clampResultLimit(requested, fallback int) int {

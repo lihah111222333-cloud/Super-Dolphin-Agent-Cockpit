@@ -3,8 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
@@ -61,42 +59,43 @@ func NewGrepHandler(cfg Config) Handler {
 }
 
 func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (any, error) {
-	var input grepToolInput
-	if err := decodeInput(params, &input); err != nil {
+	input, err := decodeToolParams[grepToolInput](params, decodeLenient)
+	if err != nil {
 		return nil, err
 	}
 	limit := normalizeSearchLimit(input.MaxResults)
 
 	var (
 		matches []search.SearchMatch
-		err     error
+		runErr  error
 	)
-	switch strings.ToLower(strings.TrimSpace(input.Action)) {
-	case "text_search":
-		matches, err = search.SearchText(ctx, search.TextSearchOptions{
-			Root:          h.root,
-			Path:          input.Path,
-			Glob:          input.Glob,
-			Query:         input.Query,
-			Regex:         input.Regex,
-			CaseSensitive: input.CaseSensitive,
-			MaxResults:    limit,
-			MaxFileBytes:  maxReadFileBytes,
-		})
-	case "ast_search":
-		matches, err = search.SearchAST(ctx, search.ASTSearchOptions{
-			Root:         h.root,
-			Path:         input.Path,
-			Glob:         input.Glob,
-			Query:        input.Query,
-			Language:     input.Language,
-			MaxResults:   limit,
-			MaxFileBytes: maxReadFileBytes,
-		})
-	default:
-		return nil, fmt.Errorf("unsupported lsp_grep action %q", input.Action)
-	}
-	if err != nil {
+	if _, err := dispatchToolAction(ctx, "lsp_grep", input.Action, input, map[string]actionHandler[grepToolInput]{
+		"text_search": func(ctx context.Context, input grepToolInput) (any, error) {
+			matches, runErr = search.SearchText(ctx, search.TextSearchOptions{
+				Root:          h.root,
+				Path:          input.Path,
+				Glob:          input.Glob,
+				Query:         input.Query,
+				Regex:         input.Regex,
+				CaseSensitive: input.CaseSensitive,
+				MaxResults:    limit,
+				MaxFileBytes:  maxReadFileBytes,
+			})
+			return nil, runErr
+		},
+		"ast_search": func(ctx context.Context, input grepToolInput) (any, error) {
+			matches, runErr = search.SearchAST(ctx, search.ASTSearchOptions{
+				Root:         h.root,
+				Path:         input.Path,
+				Glob:         input.Glob,
+				Query:        input.Query,
+				Language:     input.Language,
+				MaxResults:   limit,
+				MaxFileBytes: maxReadFileBytes,
+			})
+			return nil, runErr
+		},
+	}); err != nil {
 		return nil, err
 	}
 

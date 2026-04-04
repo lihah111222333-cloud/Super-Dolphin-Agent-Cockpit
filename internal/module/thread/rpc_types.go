@@ -13,11 +13,13 @@ type threadIDParams struct {
 func (p *threadIDParams) UnmarshalJSON(data []byte) error {
 	type raw threadIDParams
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, func(rawData []byte, current *raw) error {
+		return fillLegacyThreadID(rawData, &current.ThreadID)
+	}); err != nil {
 		return err
 	}
 	*p = threadIDParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	return nil
 }
 
 type startParams struct {
@@ -39,7 +41,7 @@ type startParams struct {
 func (p *startParams) UnmarshalJSON(data []byte) error {
 	type raw startParams
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, nil); err != nil {
 		return err
 	}
 	*p = startParams(current)
@@ -96,11 +98,13 @@ type resumeParams struct {
 func (p *resumeParams) UnmarshalJSON(data []byte) error {
 	type raw resumeParams
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, func(rawData []byte, current *raw) error {
+		return fillLegacyThreadID(rawData, &current.ThreadID)
+	}); err != nil {
 		return err
 	}
 	*p = resumeParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	return nil
 }
 
 type messagesParams struct {
@@ -122,7 +126,7 @@ func (p *messagesParams) UnmarshalJSON(data []byte) error {
 		Before   json.RawMessage `json:"before,omitempty"`
 	}
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, nil); err != nil {
 		return err
 	}
 	p.ThreadID = current.ThreadID
@@ -161,11 +165,13 @@ type nameSetParams struct {
 func (p *nameSetParams) UnmarshalJSON(data []byte) error {
 	type raw nameSetParams
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, func(rawData []byte, current *raw) error {
+		return fillLegacyThreadID(rawData, &current.ThreadID)
+	}); err != nil {
 		return err
 	}
 	*p = nameSetParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	return nil
 }
 
 type commandParams struct {
@@ -176,11 +182,13 @@ type commandParams struct {
 func (p *commandParams) UnmarshalJSON(data []byte) error {
 	type raw commandParams
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, func(rawData []byte, current *raw) error {
+		return fillLegacyThreadID(rawData, &current.ThreadID)
+	}); err != nil {
 		return err
 	}
 	*p = commandParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	return nil
 }
 
 type approvalsSetParams struct {
@@ -192,11 +200,13 @@ type approvalsSetParams struct {
 func (p *approvalsSetParams) UnmarshalJSON(data []byte) error {
 	type raw approvalsSetParams
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, func(rawData []byte, current *raw) error {
+		return fillLegacyThreadID(rawData, &current.ThreadID)
+	}); err != nil {
 		return err
 	}
 	*p = approvalsSetParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	return nil
 }
 
 type configGetParams struct {
@@ -206,11 +216,13 @@ type configGetParams struct {
 func (p *configGetParams) UnmarshalJSON(data []byte) error {
 	type raw configGetParams
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, func(rawData []byte, current *raw) error {
+		return fillLegacyThreadID(rawData, &current.ThreadID)
+	}); err != nil {
 		return err
 	}
 	*p = configGetParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	return nil
 }
 
 type configSetParams struct {
@@ -222,11 +234,13 @@ type configSetParams struct {
 func (p *configSetParams) UnmarshalJSON(data []byte) error {
 	type raw configSetParams
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, func(rawData []byte, current *raw) error {
+		return fillLegacyThreadID(rawData, &current.ThreadID)
+	}); err != nil {
 		return err
 	}
 	*p = configSetParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	return nil
 }
 
 type modelSetParams struct {
@@ -238,11 +252,13 @@ type modelSetParams struct {
 func (p *modelSetParams) UnmarshalJSON(data []byte) error {
 	type raw modelSetParams
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, func(rawData []byte, current *raw) error {
+		return fillLegacyThreadID(rawData, &current.ThreadID)
+	}); err != nil {
 		return err
 	}
 	*p = modelSetParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	return nil
 }
 
 type compactStartParams struct {
@@ -253,11 +269,13 @@ type compactStartParams struct {
 func (p *compactStartParams) UnmarshalJSON(data []byte) error {
 	type raw compactStartParams
 	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := decodeLegacyParams(data, &current, func(rawData []byte, current *raw) error {
+		return fillLegacyThreadID(rawData, &current.ThreadID)
+	}); err != nil {
 		return err
 	}
 	*p = compactStartParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	return nil
 }
 
 func fillLegacyThreadID(data []byte, threadID *string) error {

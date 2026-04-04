@@ -66,19 +66,19 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
-	publicThreadID := strings.TrimSpace(agentID)
-	providerThreadID := resolveProviderThreadID(session.ThreadID(), publicThreadID)
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
-	if err := s.persistThreadState(ctx, threadState{
-		PublicThreadID:   publicThreadID,
-		ProviderThreadID: providerThreadID,
+	state := newThreadState(threadStateStartKind, threadStateFields{
 		AgentID:          agentID,
+		ProviderThreadID: session.ThreadID(),
 		Provider:         req.Provider,
 		CWD:              effectiveCWD,
 		Model:            effectiveModel,
 		Prompt:           req.Prompt,
 		CreatedAt:        time.Now().Unix(),
-	}, true); err != nil {
+	})
+	publicThreadID := state.PublicThreadID
+	providerThreadID := state.ProviderThreadID
+	if err := s.persistThreadState(ctx, state, true); err != nil {
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
@@ -122,19 +122,21 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 		s.stopAgent(ctx, req.AgentID)
 		return ResumeResult{}, err
 	}
-	publicThreadID := firstNonEmpty(state.PublicThreadID, req.ThreadID)
-	providerThreadID := resolveProviderThreadID(session.ThreadID(), req.ProviderThreadID, req.ThreadID)
 	model := firstNonEmpty(req.Model, state.Model)
-	if err := s.persistThreadState(ctx, threadState{
-		PublicThreadID:   publicThreadID,
-		ProviderThreadID: providerThreadID,
-		AgentID:          req.AgentID,
-		Provider:         req.Provider,
-		CWD:              req.CWD,
-		Model:            model,
-		Prompt:           state.Prompt,
-		CreatedAt:        firstNonZero(state.CreatedAt, time.Now().Unix()),
-	}, true); err != nil {
+	threadState := newThreadState(threadStateResumeKind, threadStateFields{
+		RequestedThreadID: req.ThreadID,
+		PublicThreadID:    state.PublicThreadID,
+		ProviderThreadID:  firstNonEmpty(session.ThreadID(), req.ProviderThreadID),
+		AgentID:           req.AgentID,
+		Provider:          req.Provider,
+		CWD:               req.CWD,
+		Model:             model,
+		Prompt:            state.Prompt,
+		CreatedAt:         state.CreatedAt,
+	})
+	publicThreadID := threadState.PublicThreadID
+	providerThreadID := threadState.ProviderThreadID
+	if err := s.persistThreadState(ctx, threadState, true); err != nil {
 		s.stopAgent(ctx, req.AgentID)
 		return ResumeResult{}, err
 	}
@@ -186,7 +188,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		return ForkResult{}, err
 	}
 	providerThreadID := resolveProviderThreadID(forkedSession.ThreadID(), newThreadID)
-	if err := s.persistThreadState(ctx, threadState{
+	if err := s.persistThreadState(ctx, newThreadState(threadStateForkKind, threadStateFields{
 		PublicThreadID:   newThreadID,
 		ProviderThreadID: providerThreadID,
 		OwnerThreadID:    historyTargetID(binding, threadID),
@@ -196,7 +198,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		Model:            meta.Model,
 		Prompt:           meta.Prompt,
 		CreatedAt:        time.Now().Unix(),
-	}, true); err != nil {
+	}), true); err != nil {
 		s.stopAgent(ctx, agentID)
 		return ForkResult{}, err
 	}
@@ -240,16 +242,17 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	if err != nil {
 		return RecoverResult{}, err
 	}
-	if err := s.persistThreadState(ctx, threadState{
-		PublicThreadID:   publicThreadID,
-		ProviderThreadID: resolveProviderThreadID(session.ThreadID(), providerThreadID),
-		AgentID:          agentID,
-		Provider:         provider,
-		CWD:              firstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
-		Model:            meta.Model,
-		Prompt:           meta.Prompt,
-		CreatedAt:        firstNonZero(meta.CreatedAt, time.Now().Unix()),
-	}, true); err != nil {
+	if err := s.persistThreadState(ctx, newThreadState(threadStateRecoverKind, threadStateFields{
+		RequestedThreadID: threadID,
+		PublicThreadID:    publicThreadID,
+		ProviderThreadID:  firstNonEmpty(session.ThreadID(), providerThreadID),
+		AgentID:           agentID,
+		Provider:          provider,
+		CWD:               firstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
+		Model:             meta.Model,
+		Prompt:            meta.Prompt,
+		CreatedAt:         meta.CreatedAt,
+	}), true); err != nil {
 		return RecoverResult{}, err
 	}
 	return RecoverResult{

@@ -1,9 +1,6 @@
 package workspace
 
 import (
-	"fmt"
-	"path/filepath"
-
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
 )
 
@@ -35,24 +32,16 @@ func (s *service) collectRemovedWorkspaceFiles(
 	}
 	removed := make(map[string]removedWorkspaceFile, len(files))
 	for _, file := range files {
-		rel, err := normalizeRelativePath(file.RelativePath)
+		inspected, err := inspectRunFile(run, file.RelativePath)
 		if err != nil {
 			return nil, err
 		}
-		workspaceHash, err := hashFileIfExists(filepath.Join(run.WorkspacePath, rel))
-		if err != nil {
-			return nil, fmt.Errorf("hash workspace file %q: %w", rel, err)
-		}
-		if workspaceHash != "" {
+		if inspected.WorkspaceExists {
 			continue
 		}
-		sourceHash, err := hashFileIfExists(filepath.Join(run.SourceRoot, rel))
-		if err != nil {
-			return nil, fmt.Errorf("hash source file %q: %w", rel, err)
-		}
-		removed[file.RelativePath] = removedWorkspaceFile{
-			RelativePath:       rel,
-			SourceSHA256Before: sourceHash,
+		removed[inspected.RelativePath] = removedWorkspaceFile{
+			RelativePath:       inspected.RelativePath,
+			SourceSHA256Before: inspected.SourceSHA256,
 		}
 	}
 	return removed, nil

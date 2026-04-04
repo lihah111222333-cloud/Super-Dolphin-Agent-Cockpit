@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -33,14 +32,7 @@ type AgentIDInput struct {
 }
 
 func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		if svc == nil {
-			return nil, errors.New("orchestration service is not configured")
-		}
-		var in LaunchAgentInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
 		req, err := launchRequestFromInput(in)
 		if err != nil {
 			return nil, err
@@ -49,18 +41,11 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 			return nil, err
 		}
 		return successResult(map[string]any{"agent_id": req.AgentID}), nil
-	}
+	})
 }
 
 func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		if svc == nil {
-			return nil, errors.New("orchestration service is not configured")
-		}
-		var in SendMessageInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in SendMessageInput) (map[string]any, error) {
 		submission, err := submissionFromMessage(ctx, svc, in)
 		if err != nil {
 			return nil, err
@@ -69,18 +54,11 @@ func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 			return nil, err
 		}
 		return successResult(map[string]any{"agent_id": submission.AgentID}), nil
-	}
+	})
 }
 
 func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		if svc == nil {
-			return nil, errors.New("orchestration service is not configured")
-		}
-		var in AgentIDInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in AgentIDInput) (map[string]any, error) {
 		agentID, err := requireTrimmed(in.AgentID, "agent_id")
 		if err != nil {
 			return nil, err
@@ -89,84 +67,45 @@ func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 			return nil, err
 		}
 		return successResult(map[string]any{"agent_id": agentID}), nil
-	}
+	})
 }
 
 func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		if svc == nil {
-			return nil, errors.New("orchestration service is not configured")
-		}
-		var in struct{}
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, _ struct{}) (any, error) {
 		return svc.ListAgents(ctx)
-	}
+	})
 }
 
 func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		if svc == nil {
-			return nil, errors.New("orchestration service is not configured")
-		}
-		var in AgentIDInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in AgentIDInput) (any, error) {
 		agentID, err := requireTrimmed(in.AgentID, "agent_id")
 		if err != nil {
 			return nil, err
 		}
 		return svc.GetReport(ctx, agentID)
-	}
+	})
 }
 
 func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
-	return []ToolDefinition{
-		{
-			Name:        "orchestration_launch_agent",
-			Description: "Launch a managed orchestration agent.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"name":     StringSchema("Agent name. Used as the orchestration agent ID; no separate agent_id field is required."),
-				"prompt":   StringSchema("Optional initial prompt to persist on the launch request."),
-				"cwd":      StringSchema("Optional working directory for the launched agent."),
-				"provider": StringSchema("Optional provider name. Passed via AGENT_PROVIDER."),
-			}, "name"),
-			Handler: HandleLaunchAgent(svc),
-		},
-		{
-			Name:        "orchestration_send_message",
-			Description: "Submit a text turn to an existing orchestration agent.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"agent_id": StringSchema("Target orchestration agent ID."),
-				"message":  StringSchema("Message content to submit as a text input."),
-			}, "agent_id", "message"),
-			Handler: HandleSendMessage(svc),
-		},
-		{
-			Name:        "orchestration_stop_agent",
-			Description: "Stop a running orchestration agent.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"agent_id": StringSchema("Target orchestration agent ID."),
-			}, "agent_id"),
-			Handler: HandleStopAgent(svc),
-		},
-		{
-			Name:        "orchestration_list_agents",
-			Description: "List orchestration agents and their current runtime snapshots.",
-			InputSchema: ObjectSchema(nil),
-			Handler:     HandleListAgents(svc),
-		},
-		{
-			Name:        "orchestration_get_agent_report",
-			Description: "Read the last known report for an orchestration agent.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"agent_id": StringSchema("Target orchestration agent ID."),
-			}, "agent_id"),
-			Handler: HandleGetAgentReport(svc),
-		},
-	}
+	return buildToolDefinitions(
+		defineTool("orchestration_launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{
+			"name":     StringSchema("Agent name. Used as the orchestration agent ID; no separate agent_id field is required."),
+			"prompt":   StringSchema("Optional initial prompt to persist on the launch request."),
+			"cwd":      StringSchema("Optional working directory for the launched agent."),
+			"provider": StringSchema("Optional provider name. Passed via AGENT_PROVIDER."),
+		}, "name"), HandleLaunchAgent(svc)),
+		defineTool("orchestration_send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
+			"agent_id": StringSchema("Target orchestration agent ID."),
+			"message":  StringSchema("Message content to submit as a text input."),
+		}, "agent_id", "message"), HandleSendMessage(svc)),
+		defineTool("orchestration_stop_agent", "Stop a running orchestration agent.", ObjectSchema(map[string]Schema{
+			"agent_id": StringSchema("Target orchestration agent ID."),
+		}, "agent_id"), HandleStopAgent(svc)),
+		defineTool("orchestration_list_agents", "List orchestration agents and their current runtime snapshots.", ObjectSchema(nil), HandleListAgents(svc)),
+		defineTool("orchestration_get_agent_report", "Read the last known report for an orchestration agent.", ObjectSchema(map[string]Schema{
+			"agent_id": StringSchema("Target orchestration agent ID."),
+		}, "agent_id"), HandleGetAgentReport(svc)),
+	)
 }
 
 func launchRequestFromInput(in LaunchAgentInput) (contract.LaunchRequest, error) {

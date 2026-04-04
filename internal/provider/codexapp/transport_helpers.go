@@ -118,11 +118,7 @@ func (t *transport) initializeSocket(ctx context.Context) (*websocket.Conn, erro
 	if err := checkCtx(ctx); err != nil {
 		return nil, err
 	}
-	ws := t.currentWS()
-	if ws == nil {
-		return nil, errors.New("codexapp: websocket not connected")
-	}
-	return ws, nil
+	return t.currentWSOrErr()
 }
 
 func (t *transport) registerInitializeCall() (int64, string, *pendingCall) {
@@ -195,9 +191,9 @@ func isTimeoutNetError(err error) bool {
 func (t *transport) writeJSON(v any) error {
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	ws := t.currentWS()
-	if ws == nil {
-		return errors.New("codexapp: websocket not connected")
+	ws, err := t.currentWSOrErr()
+	if err != nil {
+		return err
 	}
 	_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return ws.WriteJSON(v)

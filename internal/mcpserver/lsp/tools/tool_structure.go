@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -25,27 +24,22 @@ type structureParams struct {
 }
 
 func NewStructureHandler(manager gopls.Manager) ToolHandler {
-	if manager == nil {
-		return missingManagerHandler()
-	}
-	return ToolHandler(wrapToolHandler("lsp_structure", middleware.TierNormal, func(ctx context.Context, params json.RawMessage) (any, error) {
-		req, err := decodeParams[structureParams](params)
-		if err != nil {
-			return nil, err
-		}
-		switch normalizeAction(req.Action) {
-		case "document_symbol":
-			return runDocumentSymbols(ctx, manager, req)
-		case "workspace_symbol":
-			return runWorkspaceSymbols(ctx, manager, req)
-		case "folding_range":
-			return runFoldingRanges(ctx, manager, req)
-		case "semantic_tokens":
-			return runSemanticTokens(ctx, manager, req)
-		default:
-			return nil, fmt.Errorf("unsupported structure action %q", req.Action)
-		}
-	}))
+	return newManagerTool("lsp_structure", middleware.TierNormal, manager, decodeStrict, func(ctx context.Context, manager gopls.Manager, req structureParams) (any, error) {
+		return dispatchToolAction(ctx, "structure", req.Action, req, map[string]actionHandler[structureParams]{
+			"document_symbol": func(ctx context.Context, req structureParams) (any, error) {
+				return runDocumentSymbols(ctx, manager, req)
+			},
+			"workspace_symbol": func(ctx context.Context, req structureParams) (any, error) {
+				return runWorkspaceSymbols(ctx, manager, req)
+			},
+			"folding_range": func(ctx context.Context, req structureParams) (any, error) {
+				return runFoldingRanges(ctx, manager, req)
+			},
+			"semantic_tokens": func(ctx context.Context, req structureParams) (any, error) {
+				return runSemanticTokens(ctx, manager, req)
+			},
+		})
+	})
 }
 
 func runDocumentSymbols(
@@ -53,7 +47,7 @@ func runDocumentSymbols(
 	manager gopls.Manager,
 	req structureParams,
 ) (any, error) {
-	filePath, err := requireFilePath(req.FilePath)
+	filePath, err := resolveFilePath(req.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -62,10 +56,9 @@ func runDocumentSymbols(
 		return nil, err
 	}
 	results = limitDocumentSymbols(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit))
-	if len(results) == 0 {
-		return "no symbols found", nil
-	}
-	return format.NormalizeForDisplay(results), nil
+	return renderListResult(results, protocol.XRefResultLimit, "no symbols found", func(items []protocol.DocumentSymbol, _ int) any {
+		return format.NormalizeForDisplay(items)
+	})
 }
 
 func runWorkspaceSymbols(
@@ -91,10 +84,12 @@ func runWorkspaceSymbols(
 	if len(results) == 0 {
 		return "no symbols found", nil
 	}
-	if verbosity == format.VerbosityFull {
-		return format.NormalizeForDisplay(results), nil
-	}
-	return format.NewCompactList(format.CompactWorkspaceSymbols(results), total), nil
+	return renderByVerbosity(results, total, verbosity,
+		func(items []protocol.WorkspaceSymbolResult) any { return format.NormalizeForDisplay(items) },
+		func(items []protocol.WorkspaceSymbolResult, total int) any {
+			return format.NewCompactList(format.CompactWorkspaceSymbols(items), total)
+		},
+	), nil
 }
 
 func runFoldingRanges(
@@ -102,7 +97,7 @@ func runFoldingRanges(
 	manager gopls.Manager,
 	req structureParams,
 ) (any, error) {
-	filePath, err := requireFilePath(req.FilePath)
+	filePath, err := resolveFilePath(req.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -110,11 +105,9 @@ func runFoldingRanges(
 	if err != nil {
 		return nil, err
 	}
-	results = limitSlice(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit))
-	if len(results) == 0 {
-		return "no folding ranges found", nil
-	}
-	return format.NormalizeForDisplay(results), nil
+	return renderListResult(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit), "no folding ranges found", func(items []protocol.FoldingRange, _ int) any {
+		return format.NormalizeForDisplay(items)
+	})
 }
 
 func runSemanticTokens(
@@ -122,7 +115,7 @@ func runSemanticTokens(
 	manager gopls.Manager,
 	req structureParams,
 ) (any, error) {
-	filePath, err := requireFilePath(req.FilePath)
+	filePath, err := resolveFilePath(req.FilePath)
 	if err != nil {
 		return nil, err
 	}

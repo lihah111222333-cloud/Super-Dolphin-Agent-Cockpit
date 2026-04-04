@@ -19,19 +19,14 @@ type generationAwareSessionCleaner interface {
 }
 
 func (s *service) BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return err
-	}
 	if generation == 0 {
 		return errors.New("session generation is required")
 	}
-	agent.sessionGeneration = generation
-	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
-	return nil
+	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		agent.sessionGeneration = generation
+		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+		return nil
+	})
 }
 
 func (s *service) removeSession(agent *agentRuntime) {
@@ -88,8 +83,8 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	agent, lookupErr := s.lookupAgentLocked(agentID)
-	if lookupErr != nil || agent.launchSeq != launchSeq {
+	agent, lookupErr := lookupAgentBySeqLocked(s.agents, agentID, launchSeq)
+	if lookupErr != nil {
 		return
 	}
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
@@ -142,8 +137,8 @@ func (s *service) waitForProcessExit(ctx context.Context, agentID string, launch
 
 	for {
 		s.mu.RLock()
-		agent, ok := s.agents[agentID]
-		exited := ok && agent.lastExitedSeq >= launchSeq
+		agent, err := lookupAgentBySeqLocked(s.agents, agentID, launchSeq)
+		exited := err == nil && agent.lastExitedSeq >= launchSeq
 		s.mu.RUnlock()
 		if exited {
 			return nil
@@ -162,7 +157,8 @@ func (s *service) waitForProcessExit(ctx context.Context, agentID string, launch
 func (s *service) forceKillProcess(agentID string, launchSeq uint64) error {
 	var proc *os.Process
 	s.mu.RLock()
-	if agent, ok := s.agents[agentID]; ok && agent.launchSeq == launchSeq && agent.lastExitedSeq < launchSeq && agent.cmd != nil {
+	if agent, err := lookupAgentBySeqLocked(s.agents, agentID, launchSeq); err == nil &&
+		agent.lastExitedSeq < launchSeq && agent.cmd != nil {
 		proc = agent.cmd.Process
 	}
 	s.mu.RUnlock()

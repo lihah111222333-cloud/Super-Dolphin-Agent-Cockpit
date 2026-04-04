@@ -23,52 +23,43 @@ func NewWorkspaceHandlers(svc Service) rpc.HandlerMapResult {
 }
 
 func handleCreateRun(svc Service) func(context.Context, createRunParams) (runResult, error) {
-	return func(ctx context.Context, p createRunParams) (runResult, error) {
-		if err := required(p.SourceRoot, "source_root"); err != nil {
-			return runResult{}, err
-		}
+	return typedRPCAdapter(func(ctx context.Context, p createRunParams) (runResult, error) {
 		run, err := svc.CreateRun(ctx, p)
 		if err != nil {
 			return runResult{}, err
 		}
 		return runResult{Run: run}, nil
-	}
+	}, validateCreateRunParams)
 }
 
 func handleGetRun(svc Service) func(context.Context, runKeyParams) (runResult, error) {
-	return func(ctx context.Context, p runKeyParams) (runResult, error) {
-		if err := required(p.RunKey, "run_key"); err != nil {
-			return runResult{}, err
-		}
+	return typedRPCAdapter(func(ctx context.Context, p runKeyParams) (runResult, error) {
 		run, err := svc.GetRun(ctx, p.RunKey)
 		if err != nil {
 			return runResult{}, err
 		}
 		return runResult{Run: run}, nil
-	}
+	}, validateRunKeyParams)
 }
 
 func handleListRuns(svc Service) func(context.Context, listRunsParams) (runsResult, error) {
-	return func(ctx context.Context, p listRunsParams) (runsResult, error) {
+	return typedRPCAdapter(func(ctx context.Context, p listRunsParams) (runsResult, error) {
 		runs, err := svc.ListRuns(ctx, p.Status, p.DagKey, p.Limit)
 		if err != nil {
 			return runsResult{}, err
 		}
 		return runsResult{Runs: runs}, nil
-	}
+	})
 }
 
 func handleMergeRun(svc Service) func(context.Context, mergeRunParams) (mergeResult, error) {
-	return func(ctx context.Context, p mergeRunParams) (mergeResult, error) {
-		if err := required(p.RunKey, "run_key"); err != nil {
-			return mergeResult{}, err
-		}
+	return typedRPCAdapter(func(ctx context.Context, p mergeRunParams) (mergeResult, error) {
 		result, err := svc.MergeRun(ctx, mergeRunRequestFromParams(p))
 		if err != nil {
 			return mergeResult{}, err
 		}
 		return mergeResult{Result: result}, nil
-	}
+	}, validateMergeRunParams)
 }
 
 func mergeRunRequestFromParams(p mergeRunParams) MergeRunRequest {
@@ -81,10 +72,7 @@ func mergeRunRequestFromParams(p mergeRunParams) MergeRunRequest {
 }
 
 func handleAbortRun(svc Service) func(context.Context, abortRunParams) (runResult, error) {
-	return func(ctx context.Context, p abortRunParams) (runResult, error) {
-		if err := required(p.RunKey, "run_key"); err != nil {
-			return runResult{}, err
-		}
+	return typedRPCAdapter(func(ctx context.Context, p abortRunParams) (runResult, error) {
 		if err := svc.AbortRun(ctx, p.RunKey, p.UpdatedBy, p.Reason); err != nil {
 			return runResult{}, err
 		}
@@ -93,33 +81,27 @@ func handleAbortRun(svc Service) func(context.Context, abortRunParams) (runResul
 			return runResult{}, err
 		}
 		return runResult{Run: run}, nil
-	}
+	}, validateAbortRunParams)
 }
 
 func handleListRunFiles(svc Service) func(context.Context, listRunFilesParams) (runFilesResult, error) {
-	return func(ctx context.Context, p listRunFilesParams) (runFilesResult, error) {
-		if err := required(p.RunKey, "run_key"); err != nil {
-			return runFilesResult{}, err
-		}
+	return typedRPCAdapter(func(ctx context.Context, p listRunFilesParams) (runFilesResult, error) {
 		files, err := svc.ListRunFiles(ctx, p.RunKey, p.State)
 		if err != nil {
 			return runFilesResult{}, err
 		}
 		return runFilesResult{Files: files}, nil
-	}
+	}, validateListRunFilesParams)
 }
 
 func handleGetRunFile(svc Service) func(context.Context, runFileParams) (runFileResult, error) {
-	return func(ctx context.Context, p runFileParams) (runFileResult, error) {
-		if err := required2(p.RunKey, "run_key", p.Path, "path"); err != nil {
-			return runFileResult{}, err
-		}
+	return typedRPCAdapter(func(ctx context.Context, p runFileParams) (runFileResult, error) {
 		file, err := svc.GetRunFile(ctx, p.RunKey, p.Path)
 		if err != nil {
 			return runFileResult{}, err
 		}
 		return runFileResult{File: file}, nil
-	}
+	}, validateRunFileParams)
 }
 
 func required(value, field string) error {

@@ -15,18 +15,25 @@ func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 	t.Parallel()
 
 	session := &rpcHelperSession{caps: dto.CapabilitySet{dto.CapMessageSend: true}}
-	input := buildPrepareInput(turnStartParams{
+	items, inputSkills := buildTurnStartInputs([]turnInputItemParams{
+		{Type: "text", Text: "typed text"},
+		{Type: "skill", Name: "debug"},
+		{Type: "mention", Path: "doc.md"},
+	})
+	input := buildPrepareInput(prepareInputSpec{
 		Prompt:               "flat prompt",
 		Images:               []string{"img-1"},
 		Files:                []string{"file-1"},
-		Input:                []turnInputItemParams{{Type: "text", Text: "typed text"}, {Type: "skill", Name: "debug"}, {Type: "mention", Path: "doc.md"}},
-		SelectedSkills:       []string{"review", "debug"},
+		Inputs:               items,
 		ManualSkillSelection: true,
 		CWD:                  "/tmp/work",
 		Model:                "gpt-5",
 		Effort:               "high",
 		OutputSchema:         []byte(`{"type":"object"}`),
-	}, session)
+	}, prepareSkillSpec{
+		Selected: []string{"review", "debug"},
+		Derived:  inputSkills,
+	}, session.Capabilities())
 
 	if len(input.Inputs) != 2 {
 		t.Fatalf("len(input.Inputs) = %d, want 2", len(input.Inputs))

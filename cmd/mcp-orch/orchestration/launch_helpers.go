@@ -74,8 +74,8 @@ func (q *SubmissionQueue) Clear() {
 }
 
 func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
-	agent, ok := s.agents[req.AgentID]
-	if !ok {
+	agent, err := lookupAgentByIDLocked(s.agents, req.AgentID)
+	if errors.Is(err, errAgentNotFound) {
 		agent = s.newAgentLocked(req.AgentID)
 		s.agents[req.AgentID] = agent
 	}

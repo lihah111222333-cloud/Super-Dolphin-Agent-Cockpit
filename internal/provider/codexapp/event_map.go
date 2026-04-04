@@ -11,7 +11,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -23,18 +22,17 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 }
 
 func buildAgentSessionHeader(payload map[string]any) shared.AgentSessionHeader {
-	agentID := stringValue(payload, "agentId", "agent_id")
-	threadID := firstNonEmpty(agentID, stringValue(payload, "threadId", "thread_id"), stringValue(nestedValue(payload, "thread"), "id"))
+	agentID := payloadAgentID(payload)
+	threadID := firstNonEmpty(agentID, payloadThreadID(payload))
 	return shared.AgentSessionHeader{AgentHeader: shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: eventTime(payload)}, ThreadID: threadID}, AgentID: agentID}, SessionID: firstNonEmpty(stringValue(payload, "sessionId", "session_id"), threadID)}
 }
 
 func buildTurnHeader(payload map[string]any) shared.TurnHeader {
-	return shared.TurnHeader{AgentHeader: buildAgentSessionHeader(payload).AgentHeader, TurnIDHeader: shared.TurnIDHeader{TurnID: firstNonEmpty(stringValue(payload, "turnId", "turn_id"), stringValue(nestedValue(payload, "turn"), "id"))}}
+	return shared.TurnHeader{AgentHeader: buildAgentSessionHeader(payload).AgentHeader, TurnIDHeader: shared.TurnIDHeader{TurnID: payloadTurnID(payload)}}
 }
 
 func buildToolCallHeader(payload map[string]any) shared.ToolCallHeader {
-	item := nestedValue(payload, "item")
-	return shared.ToolCallHeader{TurnHeader: buildTurnHeader(payload), CallID: firstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(item, "callId")), ToolName: firstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(item, "toolName", "tool"))}
+	return shared.ToolCallHeader{TurnHeader: buildTurnHeader(payload), CallID: payloadCallID(payload), ToolName: payloadToolName(payload)}
 }
 
 func buildToolApprovalHeader(payload map[string]any) shared.ToolApprovalHeader {
@@ -66,10 +64,10 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 }
 
 func logCodexMCPStartupStatus(eventType string, payload map[string]any) bool {
-	switch strings.TrimSpace(eventType) {
-	case "mcpServer/startupStatus/update", "mcpServer/startupStatus/updated":
+	switch {
+	case hasMethod(eventType, mcpStartupStatusMethods):
 		pkglogger.Get().Info("codexapp: mcp server startup status",
-			"agent_id", stringValue(payload, "agentId", "agent_id"),
+			"agent_id", payloadAgentID(payload),
 			"name", stringValue(payload, "name"),
 			"status", stringValue(payload, "status"),
 			"error", stringValue(payload, "error", "message"),
@@ -109,15 +107,6 @@ func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
 	)
 }
 
-func hasAnyKey(payload map[string]any, keys ...string) bool {
-	for _, key := range keys {
-		if _, ok := payload[key]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 	switch eventType {
 	case "thread/started", "session.configured":
@@ -151,40 +140,29 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 }
 
 func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
-	switch eventType {
-	case "turn/started", "turn.started":
-		return turndto.TurnStarted{TurnHeader: buildTurnHeader(payload)}, true
-	case "turn/completed", "turn.completed", "turn/aborted", "turn.aborted":
+	if isTurnTerminalEvent(eventType) {
 		return turndto.TurnCompleted{
 			TurnHeader: buildTurnHeader(payload),
-			Success:    completionSuccess(eventType, payload),
+			Success:    turnTerminalSuccess(eventType, payload),
 			Error:      stringValue(payload, "error", "message", "reason"),
 			Status:     stringValue(payload, "status"),
 			Reason:     stringValue(payload, "reason"),
 		}, true
+	}
+	switch eventType {
+	case "turn/started", "turn.started":
+		return turndto.TurnStarted{TurnHeader: buildTurnHeader(payload)}, true
 	case "turn/interrupted", "turn.interrupted":
 		return turndto.TurnInterrupted{
 			TurnHeader: buildTurnHeader(payload),
 			Reason:     stringValue(payload, "reason", "message"),
 		}, true
 	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
-		return turndto.TurnOutputDelta{
-			TurnHeader: buildTurnHeader(payload),
-			Stream:     "message",
-			Delta:      stringValue(payload, "delta", "content"),
-		}, true
+		return turnOutputDelta(payload, "message"), true
 	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "reasoning.delta":
-		return turndto.TurnOutputDelta{
-			TurnHeader: buildTurnHeader(payload),
-			Stream:     "reasoning",
-			Delta:      stringValue(payload, "delta", "content"),
-		}, true
+		return turnOutputDelta(payload, "reasoning"), true
 	case "item/commandExecution/outputDelta", "exec_output_delta":
-		return turndto.TurnOutputDelta{
-			TurnHeader: buildTurnHeader(payload),
-			Stream:     "stdout",
-			Delta:      stringValue(payload, "delta", "content"),
-		}, true
+		return turnOutputDelta(payload, "stdout"), true
 	default:
 		return nil, false
 	}
@@ -239,6 +217,13 @@ func isKnownAgentState(state string) bool {
 }
 
 func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
+	if isApprovalBridgeMethod(eventType) {
+		return tooldto.ToolApprovalRequested{
+			ToolApprovalHeader: buildToolApprovalHeader(payload),
+			RequestID:          int64Value(payload, "requestId"),
+			Reason:             stringValue(payload, "reason", "message"),
+		}, true
+	}
 	switch eventType {
 	case "item/tool/call", "dynamic_tool_call", "tool.call.begin":
 		return tooldto.ToolCallBegin{
@@ -255,17 +240,6 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			Success:        completionSuccess(eventType, payload),
 			Error:          stringValue(payload, "error", "message", "reason"),
 			ElapsedMS:      int64Value(payload, "elapsedMs", "elapsed_ms"),
-		}, true
-	case rpc.DefaultApprovalCallbackMethod,
-		"tool/approval/request",
-		"item/commandExecution/requestApproval",
-		"item/fileChange/requestApproval",
-		"skill/requestApproval",
-		"tool.approval.requested":
-		return tooldto.ToolApprovalRequested{
-			ToolApprovalHeader: buildToolApprovalHeader(payload),
-			RequestID:          int64Value(payload, "requestId"),
-			Reason:             stringValue(payload, "reason", "message"),
 		}, true
 	case "approval/resolved", "tool.approval.resolved":
 		return tooldto.ToolApprovalResolved{
@@ -297,11 +271,7 @@ func decodeAnyPayload(data any) map[string]any {
 }
 
 func decodeEventPayload(raw []byte) map[string]any {
-	var payload map[string]any
-	if len(raw) == 0 || json.Unmarshal(raw, &payload) != nil {
-		return nil
-	}
-	return payload
+	return decodeJSONMap(raw)
 }
 
 func nestedValue(payload map[string]any, key string) map[string]any {

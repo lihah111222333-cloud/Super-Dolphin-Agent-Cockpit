@@ -2,7 +2,6 @@ package mcpcontrol
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
@@ -156,77 +155,26 @@ func matchesSelectorBuckets(key LeaseKey, buckets []selectorBucket) bool {
 }
 
 func (r *ToolRegistry) notifyTargets(ctx context.Context, targets []sendTarget, method string, params any) error {
-	method = strings.TrimSpace(method)
-	if method == "" {
-		return errInvalidParams("mcp notify method is required")
-	}
-	if len(targets) == 0 {
-		return nil
-	}
-
-	workers := min(r.fanoutParallelism, len(targets))
-	jobs := make(chan sendTarget, len(targets))
-	errs := make(chan error, len(targets))
-	for i := 0; i < workers; i++ {
-		go r.runNotifyWorker(ctx, jobs, errs, method, params)
-	}
-	for _, target := range targets {
-		jobs <- target
-	}
-	close(jobs)
-
-	var joined error
-	for range targets {
-		joined = errors.Join(joined, <-errs)
-	}
-	return joined
-}
-
-func (r *ToolRegistry) runNotifyWorker(ctx context.Context, jobs <-chan sendTarget, errs chan<- error, method string, params any) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			pkglogger.Error("mcp notify worker goroutine panic",
-				"method", method,
-				"panic", rec,
-			)
-		}
-	}()
-	for target := range jobs {
-		var err error
-		func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					err = r.recoverWorkerPanic(ctx, "notify", method, target, rec)
-				}
-			}()
-			err = r.notifyTarget(ctx, target, method, params)
-		}()
-		errs <- err
-	}
-}
-
-func (r *ToolRegistry) notifyTarget(ctx context.Context, target sendTarget, method string, params any) error {
-	callCtx, cancel := withTimeoutContext(ctx, r.notifyTimeout)
-	defer cancel()
-	if err := target.peer.Notify(callCtx, method, params); err != nil {
-		peer, evicted := r.notePeerFailure(target.key)
-		if evicted {
-			r.cleanupLeaseWithTimeout(ctx, target.key)
-		}
-		closePeer(peer)
-		return fmt.Errorf("%s/%d: %w", target.key.InstanceID, target.key.Generation, err)
-	}
-	r.resetPeerFailure(target.key)
-	return nil
+	return r.fanoutTargets(ctx, targets, method, fanoutOperation{
+		name: "notify",
+		invoke: func(ctx context.Context, peer Peer) error {
+			return peer.Notify(ctx, method, params)
+		},
+	})
 }
 
 func (r *ToolRegistry) recoverWorkerPanic(ctx context.Context, operation, method string, target sendTarget, rec any) error {
 	err := fmt.Errorf("mcp %s worker panic for %s/%d method=%s: %v", operation, target.key.InstanceID, target.key.Generation, method, rec)
 	peer, evicted := r.notePeerFailure(target.key)
 	if evicted {
-		r.cleanupLeaseWithTimeout(ctx, target.key)
+		_ = r.disconnectLease(target.key, disconnectLeaseOptions{
+			ctx:     ctx,
+			peer:    peer,
+			timeout: true,
+		})
+	} else {
+		closePeer(peer)
 	}
-	closePeer(peer)
 	pkglogger.Error("mcp worker panic",
 		"operation", operation,
 		"method", method,

@@ -145,7 +145,7 @@ func (c *client) Request(ctx context.Context, method string, params any) (json.R
 	if err := c.ensureOpen(); err != nil {
 		return nil, err
 	}
-	result, err := c.transport.request(ctx, method, params)
+	result, err := requestMessage(ctx, method, params, c.transport.request)
 	if err != nil {
 		return nil, fmt.Errorf("gopls request %s: %w", method, err)
 	}
@@ -156,7 +156,7 @@ func (c *client) Notify(ctx context.Context, method string, params any) error {
 	if err := c.ensureOpen(); err != nil {
 		return err
 	}
-	if err := c.transport.notify(ctx, method, params); err != nil {
+	if err := notifyMessage(ctx, method, params, c.transport.notify); err != nil {
 		return fmt.Errorf("gopls notify %s: %w", method, err)
 	}
 	return nil
@@ -171,7 +171,7 @@ func (c *client) DidOpen(ctx context.Context, uri, languageID string, version in
 			Text:       text,
 		},
 	}
-	return c.Notify(ctx, protocol.MethodDidOpen, params)
+	return c.notifyTextDocument(ctx, protocol.MethodDidOpen, params)
 }
 
 func (c *client) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
@@ -182,14 +182,14 @@ func (c *client) DidChange(ctx context.Context, uri string, version int, changes
 		},
 		ContentChanges: append([]protocol.TextDocumentContentChangeEvent(nil), changes...),
 	}
-	return c.Notify(ctx, protocol.MethodDidChange, params)
+	return c.notifyTextDocument(ctx, protocol.MethodDidChange, params)
 }
 
 func (c *client) DidClose(ctx context.Context, uri string) error {
 	params := protocol.DidCloseTextDocumentParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 	}
-	return c.Notify(ctx, protocol.MethodDidClose, params)
+	return c.notifyTextDocument(ctx, protocol.MethodDidClose, params)
 }
 
 func (c *client) Close() error {

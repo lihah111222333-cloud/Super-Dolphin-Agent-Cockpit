@@ -27,8 +27,8 @@ func (s *session) prepareTurn(ctx context.Context, req dto.TurnRequest) ([]byte,
 	if err := ensureTurnAvailable(s.activeTurn); err != nil {
 		return nil, "", nil, err
 	}
-	if s.transport == nil {
-		return nil, "", nil, errors.New("claudecli: session transport is closed")
+	if err := ensureTransportReady(s.transport); err != nil {
+		return nil, "", nil, err
 	}
 	localID := strings.TrimSpace(req.LocalID)
 	if localID == "" {
@@ -38,7 +38,7 @@ func (s *session) prepareTurn(ctx context.Context, req dto.TurnRequest) ([]byte,
 	s.activeTurn = handle
 	payload, err := marshalTurnPayload(text)
 	if err != nil {
-		s.activeTurn = nil
+		s.takeActiveTurnLocked()
 		return nil, "", nil, err
 	}
 	return payload, currentTurnID(handle), handle, nil
@@ -70,29 +70,16 @@ func (s *session) sendSteer(payload []byte, expectedTurnID string) (string, erro
 }
 
 func (s *session) activeSteerTurnLocked(expectedTurnID string) (string, error) {
-	if s.activeTurn == nil {
-		return "", errors.New("claudecli: no active turn")
-	}
 	if err := ensureTurnOpen(s.activeTurn); err != nil {
 		return "", err
 	}
 	if err := validateExpectedTurn(expectedTurnID, s.activeTurn.ProviderID()); err != nil {
 		return "", err
 	}
-	if s.transport == nil {
-		return "", errors.New("claudecli: session transport is closed")
+	if err := ensureTransportReady(s.transport); err != nil {
+		return "", err
 	}
 	return currentTurnID(s.activeTurn), nil
-}
-
-func ensureTurnAvailable(handle *turnHandle) error {
-	if handle == nil {
-		return nil
-	}
-	if err := ensureTurnOpen(handle); err != nil {
-		return errors.New("claudecli: turn already running")
-	}
-	return nil
 }
 
 func ensureTurnOpen(handle *turnHandle) error {
@@ -199,13 +186,7 @@ func appendTurnInput(parts *[]string, attachmentHints *[]string, input dto.Input
 	if target == "" {
 		return
 	}
-	label := "File"
-	if strings.EqualFold(strings.TrimSpace(input.Type), "image") {
-		label = "Image"
+	if hint := encodeAttachmentHint(input); hint != "" {
+		*attachmentHints = append(*attachmentHints, hint)
 	}
-	name := strings.TrimSpace(input.Name)
-	if name != "" && name != target {
-		target = name + " -> " + target
-	}
-	*attachmentHints = append(*attachmentHints, "["+label+": "+target+"]")
 }

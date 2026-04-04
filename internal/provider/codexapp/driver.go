@@ -15,7 +15,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -107,12 +106,12 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	s.setRuntimeConfig(req.Config)
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
 	if err := d.injectCodexMCPServers(ctx, s, req); err != nil {
-		shared.LogIgnoredError(d.logger, "force stop failed on mcp injection error", s.ForceStop())
+		cleanupFailedSession(s, "force stop failed on mcp injection error")
 		return nil, err
 	}
 	result, err := startRemoteThread(ctx, s.transport, req)
 	if err != nil {
-		shared.LogIgnoredError(d.logger, "force stop failed on start error", s.ForceStop())
+		cleanupFailedSession(s, "force stop failed on start error")
 		return nil, err
 	}
 	s.setThreadID(result.threadID)
@@ -136,7 +135,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	}
 	threadID, err := resumeRemoteThread(ctx, s.transport, req)
 	if err != nil {
-		shared.LogIgnoredError(d.logger, "force stop failed on resume error", s.ForceStop())
+		cleanupFailedSession(s, "force stop failed on resume error")
 		return nil, err
 	}
 	s.setThreadID(threadID)
@@ -255,9 +254,9 @@ func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSession
 }
 
 func decodeStartResult(raw json.RawMessage) (startResult, error) {
-	var resp threadRPCResult
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return startResult{}, fmt.Errorf("codexapp: decode thread/start: %w", err)
+	resp, err := decodeThreadRPCResult(raw)
+	if err != nil {
+		return startResult{}, err
 	}
 	id := strings.TrimSpace(resp.Thread.ID)
 	if id == "" {
@@ -271,8 +270,7 @@ func decodeStartResult(raw json.RawMessage) (startResult, error) {
 }
 
 func decodeThreadID(raw json.RawMessage, fallback string) (string, error) {
-	var resp threadRPCResult
-	if err := json.Unmarshal(raw, &resp); err == nil {
+	if resp, err := decodeThreadRPCResult(raw); err == nil {
 		if id := strings.TrimSpace(resp.Thread.ID); id != "" {
 			return id, nil
 		}
@@ -292,43 +290,79 @@ func (d *driver) injectCodexMCPServers(ctx context.Context, s *session, req dto.
 		Env:         providershared.StringMap(req.Config["env"]),
 		AutoApprove: providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
 	})
-	managedNames := managedBinaryNames(manifest)
+	managedNames := managedCodexMCPServerNames(manifest)
 	if len(managedNames) == 0 {
 		return nil
 	}
-	if s == nil || s.transport == nil {
-		return errors.New("codexapp: session transport is not available")
+	if skip, err := d.skipCodexMCPInjection(s, req, managedNames); err != nil || skip {
+		return err
 	}
-	if !s.transport.local {
-		d.logger.Warn("codexapp: skipping mcp injection for external app-server",
-			"agent_id", strings.TrimSpace(req.AgentID),
-			"server_url", s.transport.serverURL,
-			"managed_servers", managedNames,
-		)
-		return nil
-	}
+	return d.reloadCodexMCPServers(ctx, s, req.CWD, manifest, managedNames)
+}
 
+func managedCodexMCPServerNames(manifest dto.MCPManifest) []string {
+	managed := collectManagedBinaries(manifest)
+	managedNames := make([]string, 0, len(managed))
+	seenNames := make(map[string]struct{}, len(managed))
+	for _, bin := range managed {
+		name := strings.TrimSpace(bin.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seenNames[name]; ok {
+			continue
+		}
+		seenNames[name] = struct{}{}
+		managedNames = append(managedNames, name)
+	}
+	return managedNames
+}
+
+func (d *driver) skipCodexMCPInjection(s *session, req dto.StartSessionRequest, managedNames []string) (bool, error) {
+	if s == nil || s.transport == nil {
+		return false, errors.New("codexapp: session transport is not available")
+	}
+	if s.transport.local {
+		return false, nil
+	}
+	d.logger.Warn("codexapp: skipping mcp injection for external app-server",
+		"agent_id", strings.TrimSpace(req.AgentID),
+		"server_url", s.transport.serverURL,
+		"managed_servers", managedNames,
+	)
+	return true, nil
+}
+
+func (d *driver) reloadCodexMCPServers(ctx context.Context, s *session, cwd string, manifest dto.MCPManifest, managedNames []string) error {
 	watcher := newMCPReadyWatcher(managedNames)
 	s.setMCPWatcher(watcher)
 	defer s.setMCPWatcher(nil)
 
 	configPath := resolveCodexConfigPath()
-	if err := writeCodexMCPConfig(configPath, manifest, req.CWD); err != nil {
+	if err := writeCodexMCPConfig(configPath, manifest, cwd); err != nil {
 		return fmt.Errorf("mcp config write: %w", err)
 	}
+	if err := reloadCodexMCPConfig(ctx, s.transport); err != nil {
+		return err
+	}
+	return waitForCodexMCPReady(ctx, s.transport, watcher, managedNames)
+}
 
+func reloadCodexMCPConfig(ctx context.Context, transport *transport) error {
 	reloadCtx, cancel := withTimeout(ctx, 10*time.Second)
-	_, err := s.transport.Call(reloadCtx, "config/mcpServer/reload", nil)
-	cancel()
-	if err != nil {
+	defer cancel()
+	if _, err := transport.Call(reloadCtx, "config/mcpServer/reload", nil); err != nil {
 		return fmt.Errorf("mcp reload: %w", err)
 	}
+	return nil
+}
 
+func waitForCodexMCPReady(ctx context.Context, transport *transport, watcher *mcpReadyWatcher, managedNames []string) error {
 	readyCtx, readyCancel := withTimeout(ctx, 30*time.Second)
 	errCh := make(chan error, 2)
 	go func() { errCh <- watcher.Wait(readyCtx) }()
-	go func() { errCh <- pollMCPStatus(readyCtx, s.transport, managedNames, 2*time.Second) }()
-	err = <-errCh
+	go func() { errCh <- pollMCPStatus(readyCtx, transport, managedNames, 2*time.Second) }()
+	err := <-errCh
 	readyCancel()
 	if err != nil {
 		return fmt.Errorf("mcp ready: %w", err)
@@ -345,25 +379,4 @@ func resolveCodexConfigPath() string {
 		return filepath.Join(".codex", "config.toml")
 	}
 	return filepath.Join(home, ".codex", "config.toml")
-}
-
-func managedBinaryNames(manifest dto.MCPManifest) []string {
-	seen := make(map[string]struct{}, len(manifest.Binaries))
-	out := make([]string, 0, len(manifest.Binaries))
-	for _, bin := range manifest.Binaries {
-		command := ""
-		if len(bin.Command) > 0 {
-			command = bin.Command[0]
-		}
-		name := strings.TrimSpace(bin.Name)
-		if !isManagedBinary(name, command) {
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-	}
-	return out
 }

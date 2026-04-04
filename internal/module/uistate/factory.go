@@ -3,8 +3,29 @@ package uistate
 import (
 	"strings"
 
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+// applyMutation centralizes the lock/mutate/patch/unlock/emit flow used by projection handlers.
+func applyMutation(s *service, threadID string, mutator func(), patchBuilder func() uidto.UIThreadPatch) {
+	if s == nil {
+		return
+	}
+	threadID = strings.TrimSpace(threadID)
+	s.mu.Lock()
+	if mutator != nil {
+		mutator()
+	}
+	patch := uidto.UIThreadPatch{}
+	if patchBuilder != nil {
+		patch = patchBuilder()
+	} else if threadID != "" {
+		patch.ThreadID = threadID
+	}
+	s.mu.Unlock()
+	s.emitThreadPatchEvent(patch)
+}
 
 func logFilePath() string { return pkglogger.CurrentLogFilePath() }
 
@@ -69,4 +90,31 @@ func launchState(current string) string {
 		return "starting"
 	}
 	return current
+}
+
+func normalizeAgentLifecycleState(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "provisioning", "turn_queued":
+		return "starting"
+	case "turn_starting":
+		return "thinking"
+	case "turn_running":
+		return "running"
+	case "awaiting_user_input":
+		return "waiting"
+	case "recovering":
+		return "syncing"
+	case "failed":
+		return "error"
+	case "stopping", "stopped", "idle":
+		return "idle"
+	default:
+		return patchStatus(raw)
+	}
+}
+
+func (s *service) sortedThreadPatchLocked(threadID, source string) uidto.UIThreadPatch {
+	sortThreads(s.state.Threads)
+	sortAgents(s.state.Agents)
+	return s.threadPatchLocked(threadID, source)
 }

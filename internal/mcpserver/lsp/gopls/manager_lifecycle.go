@@ -187,60 +187,21 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 }
 
 func (m *manager) DidOpen(ctx context.Context, uri, languageID string, version int, text string) error {
-	ref, err := m.resolveDocumentRef(uri, languageID)
-	if err != nil {
-		return err
-	}
-	if !shouldUseClientForLanguage(ref.languageID) {
-		return nil
-	}
-	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
-	if err != nil {
-		return err
-	}
-	if m.pool != nil {
-		m.pool.acquire(client)
-		defer m.pool.release(client)
-	}
-	return client.DidOpen(ctx, ref.uri, ref.languageID, version, text)
+	return m.notifyDocument(ctx, uri, languageID, func(ctx context.Context, client Client, ref documentRef) error {
+		return client.DidOpen(ctx, ref.uri, ref.languageID, version, text)
+	})
 }
 
 func (m *manager) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
-	ref, err := m.resolveDocumentRef(uri, "")
-	if err != nil {
-		return err
-	}
-	if !shouldUseClientForLanguage(ref.languageID) {
-		return nil
-	}
-	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
-	if err != nil {
-		return err
-	}
-	if m.pool != nil {
-		m.pool.acquire(client)
-		defer m.pool.release(client)
-	}
-	return client.DidChange(ctx, ref.uri, version, changes)
+	return m.notifyDocument(ctx, uri, "", func(ctx context.Context, client Client, ref documentRef) error {
+		return client.DidChange(ctx, ref.uri, version, changes)
+	})
 }
 
 func (m *manager) DidClose(ctx context.Context, uri string) error {
-	ref, err := m.resolveDocumentRef(uri, "")
-	if err != nil {
-		return err
-	}
-	if !shouldUseClientForLanguage(ref.languageID) {
-		return nil
-	}
-	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
-	if err != nil {
-		return err
-	}
-	if m.pool != nil {
-		m.pool.acquire(client)
-		defer m.pool.release(client)
-	}
-	return client.DidClose(ctx, ref.uri)
+	return m.notifyDocument(ctx, uri, "", func(ctx context.Context, client Client, ref documentRef) error {
+		return client.DidClose(ctx, ref.uri)
+	})
 }
 
 func (m *manager) BootstrapDocument(ctx context.Context, uri string) error {
@@ -270,11 +231,14 @@ func (m *manager) request(ctx context.Context, client Client, method string, par
 	if client == nil {
 		return nil, fmt.Errorf("request %s: client is nil", method)
 	}
-	if m.pool != nil {
-		m.pool.acquire(client)
-		defer m.pool.release(client)
-	}
-	raw, err := client.Request(ctx, method, params)
+	var (
+		raw json.RawMessage
+		err error
+	)
+	err = m.withPooledClient(client, func() error {
+		raw, err = client.Request(ctx, method, params)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", method, err)
 	}

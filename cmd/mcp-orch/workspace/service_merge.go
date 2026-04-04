@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
@@ -44,18 +43,11 @@ func (s *service) executeMerge(
 		s.emitRunMergeErrorEvent(failedRun, result, updatedBy, "")
 		return result, nil
 	}
-	mergedRun, err := s.transitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
-		RunKey:     run.RunKey,
-		FromStatus: statusMerging,
-		Status:     statusMerged,
-		UpdatedBy:  updatedBy,
-		Metadata:   mergeMetadata(result, req, ""),
-	})
+	mergedRun, err := s.transitionMergeRun(ctx, run, statusMerging, statusMerged, req, updatedBy, result, "")
 	if err != nil {
 		return nil, s.failMergeRun(ctx, run, req, result, files, updatedBy, err)
 	}
 	result.Status = mergedRun.Status
-	s.emitRunStatusChanged(run.Status, mergedRun)
 	s.emitRunMergedEvent(mergedRun, result)
 	return result, nil
 }
@@ -125,71 +117,6 @@ func removeMergedSourceFile(
 	return file, item
 }
 
-func copyFileAtomic(source, target string, perm os.FileMode) error {
-	in, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }()
-	tmp, tmpPath, err := prepareAtomicTarget(target)
-	if err != nil {
-		return err
-	}
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-	}
-	defer func() {
-		cleanup()
-	}()
-	if err := writeAtomicTempFile(tmp, in); err != nil {
-		return err
-	}
-	if err := finishAtomicCopy(tmp, tmpPath, target, perm); err != nil {
-		return err
-	}
-	cleanup = func() {}
-	return nil
-}
-
-func prepareAtomicTarget(target string) (*os.File, string, error) {
-	if err := ensureAtomicTarget(target); err != nil {
-		return nil, "", err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(target), ".workspace-merge-*")
-	if err != nil {
-		return nil, "", err
-	}
-	return tmp, tmp.Name(), nil
-}
-
-func ensureAtomicTarget(target string) error {
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return err
-	}
-	if stat, err := os.Lstat(target); err == nil && stat.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("target is symlink: %s", target)
-	}
-	return nil
-}
-
-func writeAtomicTempFile(tmp *os.File, in io.Reader) error {
-	if _, err := io.Copy(tmp, in); err != nil {
-		return err
-	}
-	return tmp.Sync()
-}
-
-func finishAtomicCopy(tmp *os.File, tmpPath, target string, perm os.FileMode) error {
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpPath, perm); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, target)
-}
-
 func (s *service) transitionMergeFailed(
 	ctx context.Context,
 	run *Run,
@@ -197,13 +124,7 @@ func (s *service) transitionMergeFailed(
 	result *MergeRunResult,
 	updatedBy, message string,
 ) (*Run, error) {
-	failedRun, err := s.transitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
-		RunKey:     run.RunKey,
-		FromStatus: statusMerging,
-		Status:     statusFailed,
-		UpdatedBy:  updatedBy,
-		Metadata:   mergeMetadata(result, req, message),
-	})
+	failedRun, err := s.transitionMergeRun(ctx, run, statusMerging, statusFailed, req, updatedBy, result, message)
 	if err != nil {
 		s.emitRunMergeErrorEvent(run, result, updatedBy, message)
 		return nil, err

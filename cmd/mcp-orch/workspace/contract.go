@@ -65,11 +65,6 @@ type MergeRunResult struct {
 
 func (r *CreateRunRequest) UnmarshalJSON(data []byte) error {
 	type raw CreateRunRequest
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*r = CreateRunRequest(current)
 	var legacy struct {
 		RunKey        string     `json:"runKey"`
 		DagKey        string     `json:"dagKey"`
@@ -79,11 +74,24 @@ func (r *CreateRunRequest) UnmarshalJSON(data []byte) error {
 		UpdatedBy     string     `json:"updatedBy"`
 		FinishedAt    *time.Time `json:"finishedAt"`
 	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	mergeLegacyCreateRunRequest(r, legacy)
-	return nil
+	return decodeLegacyRunParams(data, func() error {
+		var current raw
+		if err := json.Unmarshal(data, &current); err != nil {
+			return err
+		}
+		*r = CreateRunRequest(current)
+		return nil
+	}, &legacy, func(legacy struct {
+		RunKey        string     `json:"runKey"`
+		DagKey        string     `json:"dagKey"`
+		SourceRoot    string     `json:"sourceRoot"`
+		WorkspacePath string     `json:"workspacePath"`
+		CreatedBy     string     `json:"createdBy"`
+		UpdatedBy     string     `json:"updatedBy"`
+		FinishedAt    *time.Time `json:"finishedAt"`
+	}) {
+		mergeLegacyCreateRunRequest(r, legacy)
+	})
 }
 
 func mergeLegacyCreateRunRequest(r *CreateRunRequest, legacy struct {
