@@ -49,6 +49,7 @@ var approvalBridgeMethods = map[string]struct{}{
 	"item/commandExecution/request_user_input": {},
 	"item/tool/requestUserInput":               {},
 	"item/tool/request_user_input":             {},
+	"mcpServer/elicitation/request":            {},
 }
 
 var mcpStartupStatusMethods = map[string]struct{}{
@@ -203,7 +204,10 @@ func (t *transport) shutdownTransport(graceful bool) error {
 	if graceful && t.closed.Load() {
 		return nil
 	}
-	if graceful {
+	// Only send shutdown notification and stop process when this transport
+	// owns the process (local spawn). Non-local transports connect to a
+	// shared app-server and must NOT kill it.
+	if graceful && t.local {
 		_ = t.Notify("shutdown", nil)
 	}
 	t.closed.Store(true)
@@ -223,7 +227,14 @@ func (s *session) shutdownSession(graceful bool) error {
 	}
 	s.clearProcessedApprovals()
 	s.cancel()
-	return s.transport.shutdownTransport(graceful)
+	// Unregister from ServerManager; don't shut down the shared transport.
+	if s.manager != nil {
+		s.manager.Unregister(s.agentID, s.ThreadID())
+	}
+	if s.ownsTransport {
+		return s.transport.shutdownTransport(graceful)
+	}
+	return nil
 }
 
 func (s *session) failRecovery(reason string, err error) error {

@@ -40,6 +40,8 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err
 	}
+	// Ensure session is resumed in background when thread is loaded after restart.
+	s.backgroundResumeIfNeeded(ctx, threadID)
 	agentID := agentIDFromBinding(binding, threadID)
 	all, err := s.readMessagesSource(ctx, threadID, binding)
 	if err != nil {
@@ -88,6 +90,9 @@ func (s *service) ReadThreadHistory(ctx context.Context, threadID string) (*Read
 	fallbackID := readHistoryFallbackID(ref, threadID)
 	session, _, err := s.resolveSession(ctx, threadID)
 	if err != nil {
+		// Session not active (e.g. app restarted). Trigger background resume
+		// so the session is ready by the time the user sends a message.
+		s.backgroundResumeIfNeeded(ctx, threadID)
 		return buildReadHistoryResult(fallbackID), nil
 	}
 	threads, err := session.ListThreads(ctx)

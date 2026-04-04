@@ -22,6 +22,8 @@ type session struct {
 	threadID           atomic.Value
 	approvalPolicy     atomic.Value
 	transport          *transport
+	manager            *ServerManager
+	ownsTransport      bool
 	caps               dto.CapabilitySet
 	recovery           *recoveryManager
 	history            *rolloutReader
@@ -64,18 +66,29 @@ func newSession(
 	agentID string,
 	dispatcher *unified.EventDispatcher,
 	approvals *rpc.ApprovalManager,
+	manager *ServerManager,
 ) (*session, error) {
-	transport, err := newTransport(transportCtx, serverURL)
-	if err != nil {
-		return nil, err
+	var t *transport
+	ownsTransport := true
+	if manager != nil && manager.Running() {
+		t = manager.Transport()
+		ownsTransport = false
+	} else {
+		var err error
+		t, err = newTransport(transportCtx, serverURL)
+		if err != nil {
+			return nil, err
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &session{
 		agentID:            strings.TrimSpace(agentID),
-		transport:          transport,
+		transport:          t,
+		manager:            manager,
+		ownsTransport:      ownsTransport,
 		caps:               cloneCaps(codexCapabilities),
-		recovery:           &recoveryManager{transport: transport, logger: logger, maxRetry: 3},
-		history:            &rolloutReader{logger: logger, transport: transport},
+		recovery:           &recoveryManager{transport: t, logger: logger, maxRetry: 3},
+		history:            &rolloutReader{logger: logger, transport: t},
 		logger:             logger,
 		dispatcher:         dispatcher,
 		approvals:          approvals,
@@ -86,9 +99,20 @@ func newSession(
 		processedApprovals: map[string]*processedApprovalEntry{},
 	}
 	s.noteReadActivity()
-	s.startReadLoop()
-	s.startHealthLoop()
+	if ownsTransport {
+		s.startReadLoop()
+		s.startHealthLoop()
+	}
 	return s, nil
+}
+
+// registerWithManager registers this session to receive routed events
+// from the shared ServerManager. Must be called after threadID is set.
+func (s *session) registerWithManager() {
+	if s.manager == nil || s.ownsTransport {
+		return
+	}
+	s.manager.Register(s.agentID, s.ThreadID(), s.onNotification)
 }
 func (s *session) Capabilities() dto.CapabilitySet { return cloneCaps(s.caps) }
 
@@ -233,9 +257,18 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 		return
 	}
 	payload := decodeAnyPayload(raw.Data)
-	if len(payload) > 0 && payloadAgentID(payload) == "" {
+	if len(payload) > 0 {
 		if agentID := strings.TrimSpace(s.agentID); agentID != "" {
-			payload["agentId"] = agentID
+			if payloadAgentID(payload) == "" {
+				payload["agentId"] = agentID
+			}
+			// Always map the codex-internal threadId to our public agentId so
+			// downstream bus events use the correct thread identity. Without
+			// this, the UI sees the raw providerThreadId and creates a
+			// duplicate agent entry.
+			if tid, _ := payload["threadId"].(string); tid != "" && tid != agentID {
+				payload["threadId"] = agentID
+			}
 			raw.Data = payload
 		}
 	}

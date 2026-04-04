@@ -10,7 +10,13 @@ const (
 	binaryVersion = "dev"
 )
 
+// mcpStdout holds the original stdout exclusively for the MCP JSON-RPC
+// protocol. All other output is redirected to stderr.
+var mcpStdout *os.File
+
 func main() {
+	mcpStdout = os.Stdout
+	os.Stdout = os.Stderr
 	os.Exit(runMain())
 }
 

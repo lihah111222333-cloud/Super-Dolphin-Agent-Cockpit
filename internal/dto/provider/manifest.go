@@ -49,10 +49,14 @@ func BuildManifest(ctx ManifestContext) MCPManifest {
 
 	bins := make([]MCPBinary, 0, len(families))
 	for _, fam := range families {
-		name := "mcp-" + string(fam)
+		binaryName := "mcp-" + string(fam)
+		// Use the short family name (e.g. "lsp", "orch") as the MCP server
+		// name so the codex CLI produces concise tool names like
+		// mcp__lsp__lsp_grep instead of the redundant mcp__mcp-lsp__lsp_grep.
+		serverName := string(fam)
 		bins = append(bins, MCPBinary{
-			Name:        name,
-			Command:     []string{filepath.Join(ctx.BinaryDir, name)},
+			Name:        serverName,
+			Command:     []string{filepath.Join(ctx.BinaryDir, binaryName)},
 			Env:         cloneManifestEnv(env),
 			AutoApprove: append([]string(nil), autoApprove...),
 		})
@@ -102,8 +106,11 @@ var mcpLegacyEnvAliases = map[string][]string{
 // empty) and Codex (where app-server reads config.toml env sub-table).
 func normalizeManifestEnv(in map[string]string) map[string]string {
 	out := cloneManifestEnv(in)
+	for key, aliases := range mcpLegacyEnvAliases {
+		promoteManifestEnv(out, key, aliases...)
+	}
 	for _, key := range mcpRequiredEnvKeys {
-		if _, exists := out[key]; exists {
+		if value := strings.TrimSpace(out[key]); value != "" {
 			continue
 		}
 		if val := strings.TrimSpace(os.Getenv(key)); val != "" {
@@ -116,9 +123,6 @@ func normalizeManifestEnv(in map[string]string) map[string]string {
 				break
 			}
 		}
-	}
-	for key, aliases := range mcpLegacyEnvAliases {
-		promoteManifestEnv(out, key, aliases...)
 	}
 	return out
 }

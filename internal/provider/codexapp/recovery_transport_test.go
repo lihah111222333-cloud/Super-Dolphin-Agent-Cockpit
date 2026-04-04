@@ -142,7 +142,7 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

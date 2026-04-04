@@ -42,6 +42,15 @@ func writeCodexMCPConfig(path string, manifest dto.MCPManifest, cwd string) erro
 		return err
 	}
 	cwd = strings.TrimSpace(cwd)
+	// Remove legacy entries that used the "mcp-" prefixed server names
+	// (e.g. "mcp-lsp", "mcp-orch"). These are superseded by the short
+	// family names ("lsp", "orch") and would otherwise linger without
+	// auto_approve, causing every MCP tool call to block on an
+	// elicitation/approval request.
+	for _, bin := range managed {
+		oldName := managedMCPPrefix + bin.Name
+		delete(servers, oldName)
+	}
 	for _, bin := range managed {
 		if err := applyManagedMCPServer(servers, bin, cwd); err != nil {
 			return err
@@ -60,6 +69,13 @@ func applyManagedMCPServer(servers map[string]any, bin dto.MCPBinary, cwd string
 	setServerStringSlice(server, "args", bin.Command[1:])
 	setServerString(server, "cwd", cwd)
 	setServerStringMap(server, "env", cloneStringMap(bin.Env))
+	// Auto-approve all tools for managed MCP servers so the codex CLI does not
+	// send elicitation/approval requests that the desktop app cannot handle.
+	// Without this, every MCP tool call blocks indefinitely waiting for an
+	// approval response that never comes.
+	if len(bin.AutoApprove) > 0 {
+		setServerStringSlice(server, "auto_approve", bin.AutoApprove)
+	}
 	return nil
 }
 
@@ -301,10 +317,13 @@ func (w *mcpReadyWatcher) pendingNames() []string {
 func isManagedBinary(name, command string) bool {
 	name = strings.TrimSpace(name)
 	command = strings.TrimSpace(command)
-	if name == "" || command == "" || !strings.HasPrefix(name, managedMCPPrefix) {
+	if name == "" || command == "" {
 		return false
 	}
-	return filepath.Base(command) == name
+	// The binary on disk keeps the "mcp-" prefix (e.g. "mcp-lsp") while the
+	// server name in the codex config uses the short family name (e.g. "lsp")
+	// to avoid redundant mcp__mcp-lsp__… tool names.
+	return filepath.Base(command) == managedMCPPrefix+name
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

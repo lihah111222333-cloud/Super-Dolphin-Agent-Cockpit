@@ -96,7 +96,11 @@ func run() error {
 }
 
 func newServer(handlers ToolHandlers) *common.Server {
-	transport := common.NewStdioTransport(os.Stdin, os.Stdout)
+	stdout := mcpStdout
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	transport := common.NewStdioTransport(os.Stdin, stdout)
 	return common.NewServer(binaryName, binaryVersion, transport, registryToolProvider{
 		defs: toolDefinitions(handlers),
 	})

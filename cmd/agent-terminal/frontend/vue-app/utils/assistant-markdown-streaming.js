@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { logWarn } from '../services/log.js';
+import { measureTailHeight, getWidthVersion, getFontVersion, setInvalidateCallback } from '../services/pretext-layout.js';
 
 const FENCE_DELIMITER_RE = /^(`{3,}|~{3,})/;
 const BLOCKISH_TRAILING_LINE_RE = /^\s*(?:#{1,6}\s|>\s|\|.*\|?|(?:-{3,}|\*{3,}|_{3,})\s*$)/;
@@ -83,9 +84,11 @@ function shouldPromoteTrailingLine(line) {
 function buildStreamingMarkdownState(text, renderAssistantBody, emptyState) {
   if (!text) return emptyState;
   const parts = splitStreamingMarkdownForDisplay(text);
+  const tailHeightPx = parts.tailText ? measureTailHeight(parts.tailText) : 0;
   return Object.freeze({
     html: parts.stableText ? renderAssistantBody(parts.stableText) : '',
     tailText: parts.tailText || '',
+    tailHeightPx,
   });
 }
 
@@ -172,11 +175,24 @@ export function createStreamingMarkdownStateResolver(renderAssistantBody, onStat
   const cache = new Map();
   const displayedByItemId = new Map();
   const pendingByItemId = new Map();
-  const emptyState = Object.freeze({ html: '', tailText: '' });
+  const emptyState = Object.freeze({ html: '', tailText: '', tailHeightPx: 0 });
+  let lastWidthVer = 0, lastFontVer = 0;
   const scheduleFrame = createFrameScheduler();
   let scheduledFrame = null;
   let staleGuardTimer = null;
   let disposed = false;
+
+  setInvalidateCallback(() => {
+    if (disposed) return;  // v4-fix: disposed 后不再触发
+    const wv = getWidthVersion();
+    if (wv !== lastWidthVer) {
+      cache.clear();
+      displayedByItemId.clear();
+      lastWidthVer = wv;
+      lastFontVer = getFontVersion();
+      if (typeof onStateFlush === 'function') onStateFlush();
+    }
+  });
 
   function clearStaleGuard() {
     if (staleGuardTimer !== null) {
@@ -187,6 +203,12 @@ export function createStreamingMarkdownStateResolver(renderAssistantBody, onStat
 
   function getStateByText(text) {
     if (!text) return emptyState;
+    const wv = getWidthVersion(), fv = getFontVersion();
+    if (wv !== lastWidthVer || fv !== lastFontVer) {
+      cache.clear();
+      lastWidthVer = wv;
+      lastFontVer = fv;
+    }
     if (cache.has(text)) return cache.get(text) || emptyState;
     const next = buildStreamingMarkdownState(text, renderAssistantBody, emptyState);
     cache.set(text, next);
@@ -296,6 +318,7 @@ export function createStreamingMarkdownStateResolver(renderAssistantBody, onStat
 
   resolve.dispose = () => {
     disposed = true;
+    setInvalidateCallback(null);
     pendingByItemId.clear();
     displayedByItemId.clear();
     cancelFrame(scheduledFrame);

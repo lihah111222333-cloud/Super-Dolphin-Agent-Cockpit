@@ -2,6 +2,7 @@ import { onBeforeUnmount, ref } from '../../../lib/vue.esm-browser.prod.js';
 import { renderAssistantMarkdown } from '../../utils/assistant-markdown.js';
 import { createStreamingMarkdownStateResolver } from '../../utils/assistant-markdown-streaming.js';
 import { logInfo, logWarn } from '../../services/log.js';
+import { initPretextLayout } from '../../services/pretext-layout.js';
 import {
   describeClickNode,
   logRenderedFileRefPaths,
@@ -207,6 +208,7 @@ export function useAssistantBodyActions(props, emit, { copyTextToClipboard }) {
     logWarn('ui', 'chat.streaming.stall_detected', stallInfo);
   });
   const focusCitationItem = createFocusCitationItem(activeCitationItemId, state);
+  if (typeof window !== 'undefined') initPretextLayout();
 
   function streamingAssistantState(item) {
     streamingFrameVersion.value;

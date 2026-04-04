@@ -3,27 +3,11 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
 )
-
-func TestLaunchRequestFromExecutableRejectsStandaloneMCPOrch(t *testing.T) {
-	tests := []string{
-		"/tmp/mcp-orch",
-		`C:\agent\mcp-orch.exe`,
-	}
-	for _, exe := range tests {
-		t.Run(exe, func(t *testing.T) {
-			_, err := launchRequestFromExecutable(LaunchAgentInput{Name: "agent-1"}, exe)
-			if err == nil || err.Error() != standaloneMCPOrchLaunchError {
-				t.Fatalf("launchRequestFromExecutable() error = %v, want %q", err, standaloneMCPOrchLaunchError)
-			}
-		})
-	}
-}
 
 func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	req, err := launchRequestFromExecutable(LaunchAgentInput{
@@ -49,32 +33,50 @@ func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	}
 }
 
-func TestLaunchHandlerRejectsStandaloneMCPOrchExecutable(t *testing.T) {
+func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 	originalExecutable := osExecutable
 	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
 	defer func() { osExecutable = originalExecutable }()
 
-	called := false
+	var got contract.LaunchRequest
 	handler := HandleLaunchAgent(&golden.OrchestrationStub{
-		LaunchAgentFunc: func(context.Context, contract.LaunchRequest) error {
-			called = true
+		LaunchAgentFunc: func(_ context.Context, req contract.LaunchRequest) error {
+			got = req
 			return nil
 		},
 	})
 
-	input, err := json.Marshal(LaunchAgentInput{Name: "agent-1"})
+	input, err := json.Marshal(LaunchAgentInput{
+		Name:     "agent-1",
+		Prompt:   "hello",
+		CWD:      "/tmp/work",
+		Provider: "codex",
+	})
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 
-	_, err = handler(context.Background(), input)
-	if err == nil {
-		t.Fatal("HandleLaunchAgent() error = nil, want unsupported standalone mcp-orch error")
+	result, err := handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("HandleLaunchAgent() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "not supported in standalone mcp-orch mode") {
-		t.Fatalf("HandleLaunchAgent() error = %q, want unsupported standalone mcp-orch message", err.Error())
+	resultMap, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
 	}
-	if called {
-		t.Fatal("HandleLaunchAgent() called LaunchAgent on the orchestration service despite fail-fast guard")
+	if resultMap["success"] != true {
+		t.Fatalf("HandleLaunchAgent() result = %#v, want success", resultMap)
+	}
+	if got.AgentID != "agent-1" || got.Name != "agent-1" {
+		t.Fatalf("launch request IDs = (%q, %q), want agent-1", got.AgentID, got.Name)
+	}
+	if got.Prompt != "hello" || got.Cwd != "/tmp/work" {
+		t.Fatalf("launch request prompt/cwd = (%q, %q), want (hello, /tmp/work)", got.Prompt, got.Cwd)
+	}
+	if len(got.Command) != 1 || got.Command[0] != "/tmp/mcp-orch" {
+		t.Fatalf("launch request command = %#v, want [/tmp/mcp-orch]", got.Command)
+	}
+	if len(got.Env) != 1 || got.Env[0] != "AGENT_PROVIDER=codex" {
+		t.Fatalf("launch request env = %#v, want [AGENT_PROVIDER=codex]", got.Env)
 	}
 }

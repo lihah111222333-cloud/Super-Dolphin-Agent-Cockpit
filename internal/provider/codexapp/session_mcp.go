@@ -22,18 +22,32 @@ func (s *session) getMCPWatcher() *mcpReadyWatcher {
 
 func (s *session) onNotification(method string, params json.RawMessage) {
 	s.noteReadActivity()
+	// When this session owns its own transport (standalone mode), filter
+	// alien thread events. Managed sessions receive only their own events
+	// via ServerManager routing and don't need this check.
+	if s.ownsTransport && s.isAlienThreadEvent(params) {
+		return
+	}
 	if s.shouldSuppressTurnEvent(method, params) {
 		return
 	}
 	raw := dto.RawProviderEvent{EventType: method, Data: params}
 	method = strings.TrimSpace(method)
+	s.forwardMCPStatus(method, params)
+	if !isApprovalBridgeMethod(method) || s.approvals == nil {
+		s.dispatch(raw)
+	}
+	s.handleNotificationAction(method, params)
+}
+
+func (s *session) forwardMCPStatus(method string, params json.RawMessage) {
 	if w := s.getMCPWatcher(); w != nil && isMCPStartupStatus(method) {
 		name, status := extractStartupStatus(params)
 		w.OnStartupStatus(name, status)
 	}
-	if !isApprovalBridgeMethod(method) || s.approvals == nil {
-		s.dispatch(raw)
-	}
+}
+
+func (s *session) handleNotificationAction(method string, params json.RawMessage) {
 	switch {
 	case isApprovalBridgeMethod(method):
 		s.handleApprovalRequest(method, params)
@@ -55,4 +69,25 @@ func extractStartupStatus(params json.RawMessage) (name, status string) {
 	}
 	_ = json.Unmarshal(params, &payload)
 	return strings.TrimSpace(payload.Name), strings.TrimSpace(payload.Status)
+}
+
+// isAlienThreadEvent returns true when the event payload carries a threadId
+// that does not match this session's thread. Events without a threadId (e.g.
+// MCP startup status, account/rateLimits) are never considered alien.
+func (s *session) isAlienThreadEvent(params json.RawMessage) bool {
+	own := s.ThreadID()
+	if own == "" {
+		return false // thread not assigned yet, accept everything
+	}
+	var envelope struct {
+		ThreadID string `json:"threadId"`
+	}
+	if err := json.Unmarshal(params, &envelope); err != nil {
+		return false
+	}
+	eventThread := strings.TrimSpace(envelope.ThreadID)
+	if eventThread == "" {
+		return false // no threadId in payload, accept (global event)
+	}
+	return eventThread != own
 }

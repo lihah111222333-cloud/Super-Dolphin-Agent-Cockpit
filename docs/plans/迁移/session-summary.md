@@ -1,9 +1,9 @@
 # V3 迁移会话摘要
 
-> 生成时间：2026-04-04（P12 Sub-Agent Turn Runtime 三波实施完成，E2E 修复审查中）
-> 会话范围：P0-P9 + P11 MCP 启动配置 + **P12 Sub-Agent Turn Runtime（v1→v8 8轮计划审查 + 第一波实施中）**
-> Claude 会话 UUID：58fdd978-cc4b-41e6-bd26-d40f3ff66854
-> 前序会话 UUID：ea3ad84e-7b52-422d-bc46-cff9da3ea9f9
+> 生成时间：2026-04-05（P14 共享 App-Server 架构 + 编排拆除 + MCP 修复全部完成）
+> 会话范围：P0-P9 + P11-P13.1 + **P14 共享 App-Server 架构重构**
+> Claude 会话 UUID：（当前会话）
+> 前序会话 UUID：58fdd978-cc4b-41e6-bd26-d40f3ff66854
 
 ---
 
@@ -62,8 +62,10 @@
 | **P11 MCP 启动配置** | ✅ | **5轮计划审查(r1→r5) + P1配置注入(6任务) + P2工具过滤预设 + E2E验证PASS + ready降级(poll兜底) + binary重命名(mcp-lsp/mcp-orch)** |
 | **P11 MCP Bug 修复** | ✅ | **B1 prompt migration + B2 metadata NULL + B4 orchestration fail-fast + env 自动收集 + binary 重命名(mcp-lsp/mcp-orch) + approval 默认 never** |
 | **P12 Sub-Agent Runtime** | ✅ | **8轮计划审查(v1→v8) + 三波实施(task0-8) + 11测试 + archtest修复 + E2E全量验证** |
-| **P13 工厂修复** | 🔄 | **21 Agent 审查完成，5波修复计划已出（p13-factory-repair-plan.md）** |
-| P10 工厂丰满 | ⏳ | 已被 P13 吸收修订 |
+| **P13 两级 DRY 工厂化** | ✅ | **W1 守卫+死代码 + W2-W3 二级 DRY 第一轮 + W5-W7 二级 DRY 第二轮(14包) + 过度抽象回退 + 残留修复 + W8 一级 DRY shared 提升** |
+| **P13.1 深度 DRY** | ✅ | **10 Agent 深度扫描 + W5-W7 四波并行执行 + W8 shared 提升(7 Agent) — shared 86→1088行，16个 factory.go** |
+| P10 工厂丰满 | ✅ | 已被 P13+P13.1 完整吸收并执行 |
+| **P14 共享 App-Server** | ✅ | **编排拆除 + 全局共享 codex app-server + MCP config 预写 + RPC 地址传播 + stdout 保护 + 事件路由隔离 + 后台自动 resume + threadId→agentId 映射 + MCP 服务器命名去重 + standalone guard 移除** |
 
 ---
 
@@ -131,7 +133,8 @@
 | **P11 MCP Bug 修复** | ✅ | **B1 prompt migration + B2 metadata NULL + B4 orchestration fail-fast + env 自动收集 + binary 重命名(mcp-lsp/mcp-orch) + approval 默认 never** |
 | **P12 Sub-Agent Runtime** | ✅ | **8轮计划审查(v1→v8) + 三波实施(task0-8) + 11测试 + archtest修复 + E2E全量验证** |
 | **P12 Sub-Agent Runtime** | ✅ | **三波全部完成：接口+launcher+service核心+parent装配+fx注入+identity+11测试+E2E** |
-| P10 工厂丰满 | ⏳ | Zone A 3.8%→60% |
+| **P13+P13.1 两级 DRY** | ✅ | **shared 86→1088行，16个 factory.go，全仓 build+vet+archtest 全绿** |
+| P10 工厂丰满 | ✅ | 已被 P13+P13.1 完整执行 |
 | IDA 工具族 | ⏳ | 82 个工具，暂缓 |
 | P2 event bus 互审 | 🔄 | TurnStalled/TurnResumed 补发布 + 测试空白已执行，互审待收报告 |
 
@@ -139,10 +142,9 @@
 
 ## 4. 下一步
 
-1. **git commit** — 本会话所有改动未提交
-2. **P12 E2E 真实验证** — 重新编译 run-debug.sh，验证 orchestration_launch_agent + send_message 真正可用
-3. **P11 后续** — hooks 运行时接线、外部 app-server 支持、ResumeSession 注入
-3. **P10 工厂丰满** — Zone A 3.8%→60%
+1. **git commit** — P14 所有改动待提交
+2. **共享 app-server 稳定性优化** — ServerManager 崩溃恢复、transport 重连、远端历史同步
+3. **P11 后续** — hooks 运行时接线
 4. **IDA 工具族** — 82 个工具，暂缓
 
 ---
@@ -161,6 +163,8 @@
 | **P9 实施计划（已审查）** | **docs/plans/迁移/p9-implementation-plan.md** |
 | **framework-audit 报告（三次修订）** | **docs/plans/framework_audit.md** |
 | **framework-audit 工作流** | **.agent/workflows/framework-audit-fixes/** |
+| **P13 工厂修复计划** | **docs/plans/迁移/p13-factory-repair-plan.md** |
+| **P13.1 深度 DRY 计划** | **docs/plans/迁移/p13.1-deep-dry-plan.md** |
 | LSP 强制前缀 | shared file: prompts/lsp-mandatory-prefix.md |
 | LSP 高级指南 | shared file: prompts/lsp-advanced-guide.md |
 
@@ -297,33 +301,38 @@ sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 
 ### 8.1 当前仓库状态
 - **编译**：go build ✅ / go vet ✅ / lsp diagnostics ✅
-- **archtest**：全量 9/9 PASS（含 TestMCPOrchDependencyDirection 已修复）
+- **archtest**：TestCodeSizeGuard PASS
 - **包行数上限**：已从 3000 调整为 4500（internal/archtest/guardlib.go:24）
-- **未提交改动**：本会话所有改动均在工作区，未 git commit
-- **运行中 Agent**：p9-recheck-1（P9 文档修复）+ exec-P2-eventbus/testgap（P2 互审）可能仍在跑，收报告或停止即可
+- **未提交改动**：P14 所有改动均在工作区，未 git commit
+- **mcp-orch / mcp-lsp 二进制**：已重建，包含 stdout 保护 + bootstrap 非致命 + 服务器命名去重 + standalone guard 移除
 
-### 8.2 已完成的重大改动（本会话）
+### 8.2 已完成的重大改动（本会话 P14）
 
-| 类别 | 改动 | 涉及文件 |
-|------|------|----------|
-| P8 审查修复 | IntersectTargets 测试 + resolvedReviewReader + hooks 解耦 + resolved_by + doc comment + archtest rule15 + TTL + 文件拆分 + dispatcher panic + env_test + TimeoutLocality + 包精简 | mcpcontrol/ hooks/ hookstore/ dto/ contract/ archtest/ bootstrap/ dbquery/ |  
-| P0 安全 | thread-start guard链 + binding/thread-id + approval auto-decline + requestID去重 | thread/ rpc/ codexapp/ claudecli/ |
-| P1 第一批 | TurnInterrupted + StopAllAgents + claude reconnect + codex进程 + DAG fencing + golden框架 | orchestration/ claudecli/ codexapp/ taskdag/ testutil/ |
-| P1 第二批 | config/read + messages + interrupt envelope + turn finish + store DTO + 超时 + Kind + SqlcBoundary | thread/ turn/ claudecli/ store/ uistate/ dashboard/ |
-| P1 第三批 | session解耦 + preferences + approval replay + 深度计数器 + Overlay | thread/ uistate/ rpc/ |
-| P1 第四批 | dashboard补全 + wails desktop + thread 4项契约 + workspace验证 + ready wait + terminal_wait + threadID修复 | dashboard/ wails/ thread/ workspace/ orchestration/ uistate/ |
-| **framework-audit** | SafeGo 11处 + signal收敛 + StartupTimeout + DBQuery READ ONLY + AILog keyword + 9处 LogIgnoredError + fx 5 emitter清理 + TurnStalled/TurnResumed补发布 + 测试空白补齐 + archtest白名单修复 | shared/ app/ runner/ config/ rpc/ provider/ thread/ store/ bus/ archtest/ orchestration/ |
+| # | 改动 | 涉及文件 | 说明 |
+|---|------|----------|------|
+| 1 | **移除桌面应用嵌入式编排** | `internal/app/modules.go` | 删除 orchestration.Module + NewLocalLauncher + NewRunnerActor，消除桌面应用 spawn 自己导致 process_exited 崩溃 |
+| 2 | **RPC 地址传播** | `internal/platform/config/config.go` | 新增 exportRPCAddrIfMissing，确保 MCP 子进程获得 GO_AGENT_CTL_RPC_ADDR |
+| 3 | **全局共享 app-server** | `internal/provider/codexapp/module.go` | ServerManager — 应用启动时 spawn 一个全局 codex app-server + MCP 初始化一次 |
+| 4 | **MCP config 预写** | `internal/provider/codexapp/module.go` | 先写 config.toml 再 spawn app-server，解决 codex 无 thread 时不支持 reload 的问题 |
+| 5 | **driver 注入 manager** | `internal/provider/codexapp/driver.go` | newDriver 优先用 manager.ServerURL()；StartSession/ResumeSession 跳过 MCP 注入 |
+| 6 | **session 共享 transport** | `internal/provider/codexapp/session.go` | 新增 manager/ownsTransport 字段；非 owner 不启动 read/health loop |
+| 7 | **事件路由隔离** | `internal/provider/codexapp/module.go` | ServerManager 按 threadId 路由事件到正确 session，无 threadId 的全局事件 fan-out |
+| 8 | **shutdown 安全** | `internal/provider/codexapp/factory.go` | session 关闭时 unregister 路由，不杀共享 transport；shutdown notify 仅 t.local 时发送 |
+| 9 | **recovery 隔离** | `internal/provider/codexapp/recovery.go` | 非 owner session 跳过 reconnect/read-loop 重启，仅 replay pending turn |
+| 10 | **threadID 变更同步** | `internal/provider/codexapp/support.go` | setThreadID 自动 re-key ServerManager 路由 |
+| 11 | **后台自动 resume** | `internal/module/thread/history.go` + `service.go` | ReadMessages 触发 backgroundResumeIfNeeded，解决应用重启后 UI 无法发消息 |
+| 12 | **threadId→agentId 映射** | `internal/provider/codexapp/session.go` | dispatch 时把 payload 中 codex threadId 替换为 agentId，修复 UI 重复 agent |
+| 13 | **stdout 保护** | `cmd/mcp-orch/main.go` + `cmd/mcp-lsp/main.go` | 进程启动第一行把 stdout 重定向到 stderr，MCP server 用保存的原始 stdout |
+| 14 | **bootstrap 非致命** | `cmd/mcp-orch/runtime.go` | bootstrap 失败改为 WARN，不再 return err 杀死 RunGroup |
+| 15 | **MCP 服务器命名去重** | `internal/dto/provider/manifest.go` + `mcp_config.go` | 服务器名从 mcp-lsp/mcp-orch 改为 lsp/orch，避免 mcp__mcp-lsp__ 冗余 |
+| 16 | **standalone guard 移除** | `cmd/mcp-orch/tools/orchestration_tools.go` | 移除 isStandaloneMCPOrchExecutable，允许 remoteLauncher 处理 launch |
 
 ### 8.3 下一会话首任务
 
-1. **收剩余 Agent 报告** — P2 互审 2 Agent + P9 文档修复 1 Agent 可能仍在跑，用 `orchestration_get_agent_report` 收结果或 `orchestration_stop_agent` 停止
-2. **git commit** — 本会话所有改动未提交，建议 `git add -A && git commit`
-3. **执行 P9 LSP 工具族** — 读 `docs/plans/迁移/p9-implementation-plan.md`（已审查修正版），10 Agent 并行执行
-   - 注意：`internal/mcpserver/lsp/` 当前不存在，是从零拼装
-   - 建议先冻结接口契约（edit/contracts.go）再开 Agent
-   - 关键风险：跨 Agent 接口漂移、Agent G 过载、gopls 生命周期长链
-4. **B5 策略决策** — 人工定方案 A vs B 后执行
-5. **P10 工厂丰满** — Zone A 3.8%→60%
+1. **git commit** — P14 所有改动未提交，建议 `git add -A && git commit`
+2. **共享 app-server 稳定性** — ServerManager 崩溃恢复、transport 重连、远端历史同步
+3. **P11 后续** — hooks 运行时接线
+4. **IDA 工具族** — 82 个工具，暂缓
 
 ### 8.4 关键守卫参数（新会话必须知道）
 
@@ -362,34 +371,36 @@ sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 | 6 | 计划文档快速过时 | 代码演进很快，计划中的“待修”可能已修。必须先 LSP 验证代码现状再执行 |
 | 7 | archtest 白名单需同步更新 | 新增共享包依赖后（如 SafeGo 加入 shared），传递依赖可能触发 archtest 越界，需同步更新白名单 |
 
-### 8.8 本轮会话核心成果摘要（2026-03-27）
+### 8.8 本轮会话核心成果摘要（2026-04-05 P14 共享 App-Server 架构重构）
 
-#### framework-audit 12 维度最终状态
+#### 架构变更概要
 
-| 状态 | 数量 | 维度 |
-|------|:----:|------|
-| ✅ 合规/已修 | 3 | pgx、import 方向、代码守卫 |
-| 🏛️ 架构设计收口 | 4 | stateless、jrpc2、错误处理(低风险)、two-zone DRY(defer) |
-| ⚠️ 部分覆盖 | 4 | fx、event bus、测试覆盖、lifecycle |
-| ❌→✅ 本轮修复 | 1 | 错误处理(高风险) 12处 LogIgnoredError |
+| 变更 | 说明 |
+|------|------|
+| 桌面应用不再嵌入编排模块 | 编排完全由 mcp-orch MCP 服务器处理 |
+| 全局共享 codex app-server | ServerManager 应用启动时 spawn 一次，所有 agent 共享，启动从 ~7s 降到 <1s |
+| 事件路由隔离 | ServerManager 维护一条 WebSocket，按 threadId 路由事件到正确 session |
+| threadId→agentId 映射 | 解决 UI 重复 agent 条目问题 |
+| stdout 保护 | MCP 二进制启动第一行重定向 stdout，任何意外输出不会污染协议通道 |
+| MCP 服务器命名去重 | lsp/orch 代替 mcp-lsp/mcp-orch，节省 token + 降低理解成本 |
+| standalone guard 移除 | orchestration_launch_agent 恢复正常工作 |
 
 #### 本轮交付物
 
 | 交付物 | 状态 |
 |----------|:----:|
-| `internal/platform/shared/safe_go.go` + `log_error.go` | ✅ 新建 |
-| 11 处裸 go func() → SafeGo | ✅ 替换+互审 |
-| signal 收敛 (EnableSignals:false + sync.Once) | ✅ |
-| StartupTimeout caller-side deadline | ✅ |
-| oklog/run execute recover wrapper | ✅ |
-| DBQuery READ ONLY 事务 | ✅ 互审通过 |
-| AILog keyword SQL 下推 + dashboard 内存过滤删除 | ✅ 互审通过 |
-| 9 处高风险吞错 → LogIgnoredError | ✅ 互审通过 |
-| fx 5 emitter provider 清理 | ✅ |
-| TurnStalled/TurnResumed 补发布 | ✅ 待互审 |
-| 5 个测试空白区补齐 | ✅ 待互审 |
-| archtest MCPOrchDependencyDirection 白名单修复 | ✅ |
-| read_only_tx.go TimeoutLocality 修复 | ✅ |
-| framework_audit.md 三次修订 | ✅ |
-| P9 实施计划 18 个问题识别 + 文档修复中 | 🔄 |
-| session-summary.md 死代码清理规范 | ✅ 新增 |
+| 移除嵌入式编排 (modules.go) | ✅ |
+| exportRPCAddrIfMissing (config.go) | ✅ |
+| ServerManager + 事件路由 (module.go) | ✅ |
+| MCP config 预写 (module.go) | ✅ |
+| driver 注入 manager + MCP 注入跳过 (driver.go) | ✅ |
+| session 共享 transport (session.go) | ✅ |
+| shutdown 安全 (factory.go) | ✅ |
+| recovery 隔离 (recovery.go) | ✅ |
+| threadID 变更同步 (support.go) | ✅ |
+| 后台自动 resume (history.go + service.go) | ✅ |
+| threadId→agentId 映射 (session.go dispatch) | ✅ |
+| stdout 保护 (mcp-orch/main.go + mcp-lsp/main.go) | ✅ |
+| bootstrap 非致命 (runtime.go) | ✅ |
+| MCP 服务器命名去重 (manifest.go + mcp_config.go) | ✅ |
+| standalone guard 移除 (orchestration_tools.go) | ✅ |

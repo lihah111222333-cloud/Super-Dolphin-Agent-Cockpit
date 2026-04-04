@@ -234,7 +234,7 @@ func TestRequestToolApprovalDedupesProcessedRequestID(t *testing.T) {
 	defer server.Close()
 
 	bus := event.NewDispatcher()
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, rpc.NewApprovalManager(nil, bus))
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, rpc.NewApprovalManager(nil, bus), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

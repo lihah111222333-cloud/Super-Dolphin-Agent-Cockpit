@@ -15,6 +15,7 @@ import { ActivityPanel } from '../components/ActivityPanel.js';
 import { PathChoiceModal } from '../components/PathChoiceModal.js';
 import { normalizeStatus } from '../services/status.js';
 import { logInfo } from '../services/log.js';
+import { observeContainerWidth, disconnectContainerObserver } from '../services/pretext-layout.js';
 import { useComposerStore } from '../stores/composer.js';
 import { useProviderMode } from '../composables/useProviderMode.js';
 import { useAutoScroll } from '../composables/useAutoScroll.js';
@@ -223,7 +224,10 @@ export const UnifiedChatPage = {
 
     const pathChoiceController = createPathChoiceController(selectedThreadId);
     const isPreviewDirty = ref(false);
-    onBeforeUnmount(() => { pathChoiceController.cancelPathChoice(); });
+    onBeforeUnmount(() => {
+      pathChoiceController.cancelPathChoice();
+      disconnectContainerObserver();
+    });
     watch(selectedThreadId, () => { isPreviewDirty.value = false; });
     const activeStatus = computed(() => normalizeStatus(props.threadStore.getThreadStatus(selectedThreadId.value)));
     const threadStatus = useThreadStatus(props, selectedThreadId, activeStatus, pathChoiceController.showPathChoiceModal);
@@ -283,6 +287,7 @@ export const UnifiedChatPage = {
       restoreScrollPosition,
       isAtBottom,
     } = useAutoScroll(workspaceRef);
+    observeContainerWidth();
 
     // 注入 scroll 保护：applyRuntimeSnapshot 前后保存/恢复 scrollTop
     if (typeof props.threadStore.setScrollGuard === 'function') {
