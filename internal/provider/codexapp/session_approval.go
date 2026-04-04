@@ -10,7 +10,7 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type processedApprovalEntry struct {
@@ -27,7 +27,7 @@ func (s *session) handleApprovalRequest(method string, params json.RawMessage) {
 		return
 	}
 	payload := append(json.RawMessage(nil), params...)
-	platformshared.SafeGo(s.logger, func() {
+	shared.SafeGo(s.logger, func() {
 		if err := s.requestToolApproval(strings.TrimSpace(method), payload); err != nil && s.logger != nil {
 			s.logger.Warn("codexapp: approval request failed", "method", method, "error", err)
 		}
@@ -197,7 +197,7 @@ func processedApprovalKey(callID string, requestID int64) string {
 		return ""
 	}
 	id := strconv.FormatInt(requestID, 10)
-	return firstNonEmpty(callID, id) + ":" + id
+	return shared.FirstNonEmpty(callID, id) + ":" + id
 }
 
 func waitProcessedApproval(entry *processedApprovalEntry) (contract.ApprovalDecision, error) {

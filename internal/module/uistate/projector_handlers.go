@@ -8,6 +8,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
@@ -240,7 +241,7 @@ func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 			duplicate = true
 			return
 		}
-		startedAt := cloneTime(&ev.Timestamp)
+		startedAt := shared.CloneTime(&ev.Timestamp)
 		s.state.ActiveTurn = &TurnSummary{
 			ID:        turnID,
 			AgentID:   agentID,
@@ -269,7 +270,7 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 	applyMutation(s, threadID, func() {
 		startedAt := (*time.Time)(nil)
 		if s.state.ActiveTurn != nil && strings.TrimSpace(s.state.ActiveTurn.ID) == turnID {
-			startedAt = cloneTime(s.state.ActiveTurn.StartedAt)
+			startedAt = shared.CloneTime(s.state.ActiveTurn.StartedAt)
 			s.state.ActiveTurn = nil
 		}
 		if turnID != "" {
@@ -280,7 +281,7 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 				Status:      "interrupted",
 				Reason:      strings.TrimSpace(ev.Reason),
 				StartedAt:   startedAt,
-				CompletedAt: cloneTime(&ev.Timestamp),
+				CompletedAt: shared.CloneTime(&ev.Timestamp),
 			}, recentTurnLimit)
 		}
 		s.clearThreadActivityLocked(threadID)

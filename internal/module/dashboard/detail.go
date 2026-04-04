@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 var errOrchestrationServiceNotAvailable = errors.New("dashboard: orchestration service not available")
@@ -38,7 +39,7 @@ func (s *service) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) 
 	}
 	filter.Status = strings.TrimSpace(filter.Status)
 	filter.Keyword = strings.TrimSpace(filter.Keyword)
-	filter.Limit = clampLogLimit(filter.Limit)
+	filter.Limit = shared.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
 	return s.orchestration.ListDAGs(ctx, filter)
 }
 
@@ -55,13 +56,4 @@ func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DA
 		return nil, err
 	}
 	return &detail, nil
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }

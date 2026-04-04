@@ -7,6 +7,7 @@ import (
 	"time"
 
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const resourceListLimit int32 = 50
@@ -106,29 +107,14 @@ func commandCardFromStore(card commandcardstore.CommandCard) commandCardDTO {
 		Title:           card.Title,
 		Description:     card.Description,
 		CommandTemplate: card.CommandTemplate,
-		ArgsSchema:      cloneRawMessage(card.ArgsSchema),
+		ArgsSchema:      shared.CloneRawMessage(card.ArgsSchema),
 		RiskLevel:       card.RiskLevel,
 		Enabled:         card.Enabled,
 		CreatedBy:       card.CreatedBy,
 		UpdatedBy:       card.UpdatedBy,
 		CreatedAt:       card.CreatedAt,
 		UpdatedAt:       card.UpdatedAt,
-		LastRunAt:       cloneTime(card.LastRunAt),
+		LastRunAt:       shared.CloneTime(card.LastRunAt),
 		RunCount:        card.RunCount,
 	}
-}
-
-func cloneRawMessage(src json.RawMessage) json.RawMessage {
-	if len(src) == 0 {
-		return nil
-	}
-	return append(json.RawMessage(nil), src...)
-}
-
-func cloneTime(src *time.Time) *time.Time {
-	if src == nil {
-		return nil
-	}
-	value := *src
-	return &value
 }

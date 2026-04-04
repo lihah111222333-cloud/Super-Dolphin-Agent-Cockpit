@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -229,7 +230,7 @@ func (s *historyTestBindingStore) GetThreadByAgent(_ context.Context, agentID st
 	if !ok {
 		return "", platformdb.ErrNotFound
 	}
-	return firstNonEmpty(binding.CodexThreadID, binding.ProviderThreadID), nil
+	return shared.FirstNonEmpty(binding.CodexThreadID, binding.ProviderThreadID), nil
 }
 
 func (s *historyTestBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {

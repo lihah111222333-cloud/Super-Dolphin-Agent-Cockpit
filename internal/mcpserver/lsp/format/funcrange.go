@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type SymbolProvider interface {
@@ -73,7 +74,7 @@ func AbsolutePathFromURI(uri string) (string, error) {
 		return "", fmt.Errorf("file URI is required")
 	}
 	if filepath.IsAbs(trimmed) {
-		return normalizeAbsolutePath(trimmed)
+		return platformshared.NormalizeAbsolutePath(trimmed)
 	}
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
@@ -89,7 +90,7 @@ func AbsolutePathFromURI(uri string) (string, error) {
 	if unescaped, err := url.PathUnescape(path); err == nil && unescaped != "" {
 		path = unescaped
 	}
-	return normalizeAbsolutePath(path)
+	return platformshared.NormalizeAbsolutePath(path)
 }
 
 func findEnclosing(symbols []protocol.DocumentSymbol, zeroBasedLine int) (startLine, endLine int, ok bool) {
@@ -129,16 +130,4 @@ func documentSymbolBounds(symbol protocol.DocumentSymbol) (startLine, endLine in
 		endLine = startLine
 	}
 	return startLine, endLine, true
-}
-
-func normalizeAbsolutePath(path string) (string, error) {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("resolve absolute path: %w", err)
-	}
-	cleaned := filepath.Clean(absPath)
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		cleaned = filepath.Clean(resolved)
-	}
-	return cleaned, nil
 }

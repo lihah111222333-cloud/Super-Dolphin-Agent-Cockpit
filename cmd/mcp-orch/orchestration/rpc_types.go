@@ -3,6 +3,8 @@ package orchestration
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type launchParams struct {
@@ -33,10 +35,10 @@ func (p *launchParams) UnmarshalJSON(data []byte) error {
 	}) error {
 		*p = launchParams(*raw)
 		if strings.TrimSpace(p.AgentID) == "" {
-			p.AgentID = firstTrimmed(legacy.AgentIDSnake, legacy.AgentID)
+			p.AgentID = shared.FirstTrimmed(legacy.AgentIDSnake, legacy.AgentID)
 		}
 		if strings.TrimSpace(p.ParentID) == "" {
-			p.ParentID = firstTrimmed(
+			p.ParentID = shared.FirstTrimmed(
 				legacy.ParentID,
 				legacy.ParentIDAlt,
 				legacy.Config.ParentID,
@@ -179,10 +181,10 @@ func (p *rememberReportRequestParams) UnmarshalJSON(data []byte) error {
 	}) error {
 		*p = rememberReportRequestParams(*raw)
 		if strings.TrimSpace(p.AgentID) == "" {
-			p.AgentID = firstTrimmed(legacy.AgentID, legacy.AgentIDSnake)
+			p.AgentID = shared.FirstTrimmed(legacy.AgentID, legacy.AgentIDSnake)
 		}
 		if strings.TrimSpace(p.RequesterID) == "" {
-			p.RequesterID = firstTrimmed(legacy.RequesterID, legacy.RequesterIDSnake)
+			p.RequesterID = shared.FirstTrimmed(legacy.RequesterID, legacy.RequesterIDSnake)
 		}
 		return nil
 	})
@@ -214,13 +216,4 @@ func (p *reportEventParams) UnmarshalJSON(data []byte) error {
 		}
 		return nil
 	})
-}
-
-func firstTrimmed(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }

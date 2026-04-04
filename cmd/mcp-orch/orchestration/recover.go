@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -207,13 +208,13 @@ func decodeRecoveredTurnSubmission(raw json.RawMessage, agent *agentRuntime, act
 func normalizeRecoveredTurnSubmission(agent *agentRuntime, activeTurnID string, submission TurnSubmission) TurnSubmission {
 	normalized := cloneTurnSubmission(submission)
 	if agent != nil {
-		normalized.AgentID = firstTrimmed(normalized.AgentID, agent.id)
-		normalized.ThreadID = firstTrimmed(normalized.ThreadID, agent.threadID, agent.id)
+		normalized.AgentID = shared.FirstTrimmed(normalized.AgentID, agent.id)
+		normalized.ThreadID = shared.FirstTrimmed(normalized.ThreadID, agent.threadID, agent.id)
 	} else {
-		normalized.AgentID = firstTrimmed(normalized.AgentID)
-		normalized.ThreadID = firstTrimmed(normalized.ThreadID)
+		normalized.AgentID = shared.FirstTrimmed(normalized.AgentID)
+		normalized.ThreadID = shared.FirstTrimmed(normalized.ThreadID)
 	}
-	normalized.ExpectedTurnID = firstTrimmed(normalized.ExpectedTurnID, activeTurnID)
+	normalized.ExpectedTurnID = shared.FirstTrimmed(normalized.ExpectedTurnID, activeTurnID)
 	return normalized
 }
 

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 // MergeResult captures the merged hook decision plus fanout failure metadata.
@@ -36,16 +37,16 @@ func MergeBefore(decisions []peerDecision[mcp.BeforeDecision]) MergeResult[mcp.B
 
 func normalizeBeforeDecisions(decisions []peerDecision[mcp.BeforeDecision]) ([]mcp.BeforeDecision, []mcp.LeaseKey, []mcp.LeaseKey) {
 	return normalizePeerDecisions(decisions, func(decision mcp.BeforeDecision) mcp.BeforeDecision {
-		allowedTools := cloneStrings(decision.AllowedTools)
+		allowedTools := shared.CloneStrings(decision.AllowedTools)
 		if decision.AllowedTools != nil && allowedTools == nil {
 			allowedTools = []string{}
 		}
 		return mcp.BeforeDecision{
 			Decision:     normalizeDecision(decision.Decision, beforeDecisionConfig),
-			Patch:        cloneRawMessage(decision.Patch),
-			Mutations:    cloneRawMessage(decision.Mutations),
+			Patch:        shared.CloneRawMessage(decision.Patch),
+			Mutations:    shared.CloneRawMessage(decision.Mutations),
 			AllowedTools: allowedTools,
-			DeniedTools:  cloneStrings(decision.DeniedTools),
+			DeniedTools:  shared.CloneStrings(decision.DeniedTools),
 			Mode:         strings.TrimSpace(decision.Mode),
 			RetryAfterMs: decision.RetryAfterMs,
 			Reason:       strings.TrimSpace(decision.Reason),
@@ -78,8 +79,8 @@ func mergeBeforeDecision(decisions []mcp.BeforeDecision) mcp.BeforeDecision {
 		if candidate, ok := firstMatching(decisions, func(item mcp.BeforeDecision) bool {
 			return item.Decision == final
 		}); ok {
-			merged.Patch = cloneRawMessage(candidate.Patch)
-			merged.Mutations = cloneRawMessage(candidate.Mutations)
+			merged.Patch = shared.CloneRawMessage(candidate.Patch)
+			merged.Mutations = shared.CloneRawMessage(candidate.Mutations)
 		}
 	}
 	return merged

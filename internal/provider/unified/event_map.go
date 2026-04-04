@@ -13,6 +13,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/kelindar/event"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -23,45 +24,45 @@ import (
 type typedEventPublisher func(*event.Dispatcher, any) bool
 
 var typedEventPublishers = map[reflect.Type]typedEventPublisher{
-	typedEventType[agentdto.StateChanged]():                  publishEvent[agentdto.StateChanged],
-	typedEventType[agentdto.AgentLaunched]():                 publishEvent[agentdto.AgentLaunched],
-	typedEventType[agentdto.AgentStopped]():                  publishEvent[agentdto.AgentStopped],
-	typedEventType[agentdto.AgentRecovering]():               publishEvent[agentdto.AgentRecovering],
-	typedEventType[agentdto.AgentFailed]():                   publishEvent[agentdto.AgentFailed],
-	typedEventType[agentdto.AgentRuntimeReported]():          publishEvent[agentdto.AgentRuntimeReported],
-	typedEventType[agentdto.AgentWarning]():                  publishEvent[agentdto.AgentWarning],
-	typedEventType[agentdto.AgentError]():                    publishEvent[agentdto.AgentError],
-	typedEventType[dto.RawProviderEvent]():                   publishEvent[dto.RawProviderEvent],
-	typedEventType[dto.BusRawProviderEvent]():                publishEvent[dto.BusRawProviderEvent],
-	typedEventType[taskdto.TaskDagCreated]():                 publishEvent[taskdto.TaskDagCreated],
-	typedEventType[taskdto.TaskNodeStatusChanged]():          publishEvent[taskdto.TaskNodeStatusChanged],
-	typedEventType[taskdto.TaskWakeupDispatched]():           publishEvent[taskdto.TaskWakeupDispatched],
-	typedEventType[taskdto.TaskWakeupCompleted]():            publishEvent[taskdto.TaskWakeupCompleted],
-	typedEventType[threaddto.Started]():                      publishEvent[threaddto.Started],
-	typedEventType[threaddto.Stopped]():                      publishEvent[threaddto.Stopped],
-	typedEventType[threaddto.MessagesPage]():                 publishEvent[threaddto.MessagesPage],
-	typedEventType[threaddto.Compacted]():                    publishEvent[threaddto.Compacted],
-	typedEventType[tooldto.ToolCallBegin]():                  publishEvent[tooldto.ToolCallBegin],
-	typedEventType[tooldto.ToolCallEnd]():                    publishEvent[tooldto.ToolCallEnd],
-	typedEventType[tooldto.ToolApprovalRequested]():          publishEvent[tooldto.ToolApprovalRequested],
-	typedEventType[tooldto.ToolApprovalResolved]():           publishEvent[tooldto.ToolApprovalResolved],
-	typedEventType[turndto.TurnStarted]():                    publishEvent[turndto.TurnStarted],
-	typedEventType[turndto.TurnCompleted]():                  publishEvent[turndto.TurnCompleted],
-	typedEventType[turndto.TurnInterrupted]():                publishEvent[turndto.TurnInterrupted],
-	typedEventType[turndto.TurnStalled]():                    publishEvent[turndto.TurnStalled],
-	typedEventType[turndto.TurnResumed]():                    publishEvent[turndto.TurnResumed],
-	typedEventType[turndto.TurnInputReceived]():              publishEvent[turndto.TurnInputReceived],
-	typedEventType[turndto.TurnOutputDelta]():                publishEvent[turndto.TurnOutputDelta],
-	typedEventType[turndto.PlanDelta]():                      publishEvent[turndto.PlanDelta],
-	typedEventType[turndto.PlanUpdated]():                    publishEvent[turndto.PlanUpdated],
-	typedEventType[turndto.ItemStarted]():                    publishEvent[turndto.ItemStarted],
-	typedEventType[turndto.ItemCompleted]():                  publishEvent[turndto.ItemCompleted],
-	typedEventType[uidto.UIProjectionUpdated]():              publishEvent[uidto.UIProjectionUpdated],
-	typedEventType[uidto.UITimelineAppended]():               publishEvent[uidto.UITimelineAppended],
-	typedEventType[uidto.UITokensUpdated]():                  publishEvent[uidto.UITokensUpdated],
-	typedEventType[uidto.SkillsChanged]():                    publishEvent[uidto.SkillsChanged],
-	typedEventType[uidto.UIThreadPatch]():                    publishEvent[uidto.UIThreadPatch],
-	typedEventType[uidto.UIPreferencesChanged]():             publishEvent[uidto.UIPreferencesChanged],
+	typedEventType[agentdto.StateChanged]():         publishEvent[agentdto.StateChanged],
+	typedEventType[agentdto.AgentLaunched]():        publishEvent[agentdto.AgentLaunched],
+	typedEventType[agentdto.AgentStopped]():         publishEvent[agentdto.AgentStopped],
+	typedEventType[agentdto.AgentRecovering]():      publishEvent[agentdto.AgentRecovering],
+	typedEventType[agentdto.AgentFailed]():          publishEvent[agentdto.AgentFailed],
+	typedEventType[agentdto.AgentRuntimeReported](): publishEvent[agentdto.AgentRuntimeReported],
+	typedEventType[agentdto.AgentWarning]():         publishEvent[agentdto.AgentWarning],
+	typedEventType[agentdto.AgentError]():           publishEvent[agentdto.AgentError],
+	typedEventType[dto.RawProviderEvent]():          publishEvent[dto.RawProviderEvent],
+	typedEventType[dto.BusRawProviderEvent]():       publishEvent[dto.BusRawProviderEvent],
+	typedEventType[taskdto.TaskDagCreated]():        publishEvent[taskdto.TaskDagCreated],
+	typedEventType[taskdto.TaskNodeStatusChanged](): publishEvent[taskdto.TaskNodeStatusChanged],
+	typedEventType[taskdto.TaskWakeupDispatched]():  publishEvent[taskdto.TaskWakeupDispatched],
+	typedEventType[taskdto.TaskWakeupCompleted]():   publishEvent[taskdto.TaskWakeupCompleted],
+	typedEventType[threaddto.Started]():             publishEvent[threaddto.Started],
+	typedEventType[threaddto.Stopped]():             publishEvent[threaddto.Stopped],
+	typedEventType[threaddto.MessagesPage]():        publishEvent[threaddto.MessagesPage],
+	typedEventType[threaddto.Compacted]():           publishEvent[threaddto.Compacted],
+	typedEventType[tooldto.ToolCallBegin]():         publishEvent[tooldto.ToolCallBegin],
+	typedEventType[tooldto.ToolCallEnd]():           publishEvent[tooldto.ToolCallEnd],
+	typedEventType[tooldto.ToolApprovalRequested](): publishEvent[tooldto.ToolApprovalRequested],
+	typedEventType[tooldto.ToolApprovalResolved]():  publishEvent[tooldto.ToolApprovalResolved],
+	typedEventType[turndto.TurnStarted]():           publishEvent[turndto.TurnStarted],
+	typedEventType[turndto.TurnCompleted]():         publishEvent[turndto.TurnCompleted],
+	typedEventType[turndto.TurnInterrupted]():       publishEvent[turndto.TurnInterrupted],
+	typedEventType[turndto.TurnStalled]():           publishEvent[turndto.TurnStalled],
+	typedEventType[turndto.TurnResumed]():           publishEvent[turndto.TurnResumed],
+	typedEventType[turndto.TurnInputReceived]():     publishEvent[turndto.TurnInputReceived],
+	typedEventType[turndto.TurnOutputDelta]():       publishEvent[turndto.TurnOutputDelta],
+	typedEventType[turndto.PlanDelta]():             publishEvent[turndto.PlanDelta],
+	typedEventType[turndto.PlanUpdated]():           publishEvent[turndto.PlanUpdated],
+	typedEventType[turndto.ItemStarted]():           publishEvent[turndto.ItemStarted],
+	typedEventType[turndto.ItemCompleted]():         publishEvent[turndto.ItemCompleted],
+	typedEventType[uidto.UIProjectionUpdated]():     publishEvent[uidto.UIProjectionUpdated],
+	typedEventType[uidto.UITimelineAppended]():      publishEvent[uidto.UITimelineAppended],
+	typedEventType[uidto.UITokensUpdated]():         publishEvent[uidto.UITokensUpdated],
+	typedEventType[uidto.SkillsChanged]():           publishEvent[uidto.SkillsChanged],
+	typedEventType[uidto.UIThreadPatch]():           publishEvent[uidto.UIThreadPatch],
+	typedEventType[uidto.UIPreferencesChanged]():    publishEvent[uidto.UIPreferencesChanged],
 }
 
 // EventDispatcher manages raw driver events and republishes translated typed events.
@@ -158,7 +159,7 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publish(agentdto.AgentWarning{
 			AgentSessionHeader: commonAgentSessionHeader(payload),
 			RawType:            rawType,
-			Message:            firstNonEmpty(stringValue(payload, "message", "warning", "reason"), stringValue(nestedMap(payload, "error"), "message")),
+			Message:            shared.FirstNonEmpty(stringValue(payload, "message", "warning", "reason"), stringValue(nestedMap(payload, "error"), "message")),
 			Code:               stringValue(payload, "code"),
 			Payload:            rawEventPayload(raw.Data),
 		})
@@ -166,7 +167,7 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publish(agentdto.AgentError{
 			AgentSessionHeader: commonAgentSessionHeader(payload),
 			RawType:            rawType,
-			Message:            firstNonEmpty(stringValue(payload, "message", "error", "reason"), stringValue(nestedMap(payload, "error"), "message")),
+			Message:            shared.FirstNonEmpty(stringValue(payload, "message", "error", "reason"), stringValue(nestedMap(payload, "error"), "message")),
 			Code:               stringValue(payload, "code"),
 			Recoverable:        boolValue(payload, "recoverable", "willRetry", "will_retry"),
 			Payload:            rawEventPayload(raw.Data),
@@ -175,7 +176,7 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publish(turndto.PlanDelta{
 			TurnHeader: commonTurnHeader(payload),
 			RawType:    rawType,
-			Delta:      firstNonEmpty(stringValue(payload, "delta", "content", "text"), marshalPreview(payload["delta"], payload["plan"], payload["steps"], payload["items"], payload)),
+			Delta:      shared.FirstNonEmpty(stringValue(payload, "delta", "content", "text"), marshalPreview(payload["delta"], payload["plan"], payload["steps"], payload["items"], payload)),
 			Payload:    rawEventPayload(raw.Data),
 		})
 	case isPlanUpdatedRawType(rawType):
@@ -188,32 +189,32 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publish(turndto.ItemStarted{
 			TurnHeader: commonTurnHeader(payload),
 			RawType:    rawType,
-			ItemType:   firstNonEmpty(stringValue(payload, "type"), stringValue(nestedMap(payload, "item"), "type")),
-			Command:    firstNonEmpty(stringValue(payload, "command"), stringValue(nestedMap(payload, "item"), "command")),
-			File:       firstNonEmpty(stringValue(payload, "file", "path"), stringValue(nestedMap(payload, "item"), "file", "path")),
-			ToolName:   firstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedMap(payload, "item"), "toolName", "tool_name", "tool")),
-			CallID:     firstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(nestedMap(payload, "item"), "callId", "call_id")),
+			ItemType:   shared.FirstNonEmpty(stringValue(payload, "type"), stringValue(nestedMap(payload, "item"), "type")),
+			Command:    shared.FirstNonEmpty(stringValue(payload, "command"), stringValue(nestedMap(payload, "item"), "command")),
+			File:       shared.FirstNonEmpty(stringValue(payload, "file", "path"), stringValue(nestedMap(payload, "item"), "file", "path")),
+			ToolName:   shared.FirstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedMap(payload, "item"), "toolName", "tool_name", "tool")),
+			CallID:     shared.FirstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(nestedMap(payload, "item"), "callId", "call_id")),
 			Payload:    rawEventPayload(raw.Data),
 		})
 	case isItemCompletedRawType(rawType):
 		publish(turndto.ItemCompleted{
 			TurnHeader: commonTurnHeader(payload),
 			RawType:    rawType,
-			ItemType:   firstNonEmpty(stringValue(payload, "type"), stringValue(nestedMap(payload, "item"), "type")),
-			Command:    firstNonEmpty(stringValue(payload, "command"), stringValue(nestedMap(payload, "item"), "command")),
-			File:       firstNonEmpty(stringValue(payload, "file", "path"), stringValue(nestedMap(payload, "item"), "file", "path")),
-			ToolName:   firstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedMap(payload, "item"), "toolName", "tool_name", "tool")),
-			CallID:     firstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(nestedMap(payload, "item"), "callId", "call_id")),
+			ItemType:   shared.FirstNonEmpty(stringValue(payload, "type"), stringValue(nestedMap(payload, "item"), "type")),
+			Command:    shared.FirstNonEmpty(stringValue(payload, "command"), stringValue(nestedMap(payload, "item"), "command")),
+			File:       shared.FirstNonEmpty(stringValue(payload, "file", "path"), stringValue(nestedMap(payload, "item"), "file", "path")),
+			ToolName:   shared.FirstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedMap(payload, "item"), "toolName", "tool_name", "tool")),
+			CallID:     shared.FirstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(nestedMap(payload, "item"), "callId", "call_id")),
 			ExitCode:   firstIntValue(payload, "exitCode", "exit_code"),
 			Success:    !hasErrorPayload(payload),
-			Error:      firstNonEmpty(stringValue(payload, "error", "message", "reason"), stringValue(nestedMap(payload, "error"), "message")),
+			Error:      shared.FirstNonEmpty(stringValue(payload, "error", "message", "reason"), stringValue(nestedMap(payload, "error"), "message")),
 			Payload:    rawEventPayload(raw.Data),
 		})
 	}
 }
 
 func commonAgentSessionHeader(payload map[string]any) shareddto.AgentSessionHeader {
-	threadID := firstNonEmpty(
+	threadID := shared.FirstNonEmpty(
 		stringValue(payload, "threadId", "thread_id"),
 		stringValue(nestedMap(payload, "thread"), "id"),
 	)
@@ -223,12 +224,12 @@ func commonAgentSessionHeader(payload map[string]any) shareddto.AgentSessionHead
 				EventHeader: shareddto.EventHeader{Timestamp: shareddto.FirstEventTime(shareddto.EventTimeFromPayload(payload))},
 				ThreadID:    threadID,
 			},
-			AgentID: firstNonEmpty(
+			AgentID: shared.FirstNonEmpty(
 				stringValue(payload, "agentId", "agent_id"),
 				stringValue(nestedMap(payload, "agent"), "id"),
 			),
 		},
-		SessionID: firstNonEmpty(stringValue(payload, "sessionId", "session_id"), threadID),
+		SessionID: shared.FirstNonEmpty(stringValue(payload, "sessionId", "session_id"), threadID),
 	}
 }
 
@@ -236,7 +237,7 @@ func commonTurnHeader(payload map[string]any) shareddto.TurnHeader {
 	return shareddto.TurnHeader{
 		AgentHeader: commonAgentSessionHeader(payload).AgentHeader,
 		TurnIDHeader: shareddto.TurnIDHeader{
-			TurnID: firstNonEmpty(
+			TurnID: shared.FirstNonEmpty(
 				stringValue(payload, "turnId", "turn_id"),
 				stringValue(nestedMap(payload, "turn"), "id"),
 			),
@@ -293,7 +294,7 @@ func hasErrorPayload(payload map[string]any) bool {
 	if value, ok := payload["success"].(bool); ok {
 		return !value
 	}
-	return firstNonEmpty(
+	return shared.FirstNonEmpty(
 		stringValue(payload, "error", "message", "reason"),
 		stringValue(nestedMap(payload, "error"), "message"),
 	) != ""

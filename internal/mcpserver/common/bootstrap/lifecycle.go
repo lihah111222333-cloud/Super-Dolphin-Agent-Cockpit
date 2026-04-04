@@ -13,6 +13,7 @@ import (
 	"github.com/creachadair/jrpc2/channel"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -68,9 +69,9 @@ func (c *Client) registerConn(ctx context.Context, conn *jrpc2.Client) (*mcp.Reg
 		BootID:               c.cfg.BootID,
 		ClientKind:           c.cfg.ClientKind,
 		PeerKind:             mcp.PeerKindTool,
-		CapabilitiesOffered:  cloneStrings(c.offeredCapabilities()),
-		CapabilitiesRequired: cloneStrings(c.cfg.CapabilitiesRequired),
-		Subscriptions:        cloneStrings(c.cfg.Subscriptions),
+		CapabilitiesOffered:  shared.CloneStrings(c.offeredCapabilities()),
+		CapabilitiesRequired: shared.CloneStrings(c.cfg.CapabilitiesRequired),
+		Subscriptions:        shared.CloneStrings(c.cfg.Subscriptions),
 	}
 	if resume := c.currentResumeGeneration(); resume != 0 {
 		req.ResumeFromGeneration = &resume
@@ -133,7 +134,7 @@ func (c *Client) fireConfigChanged(notify mcp.ConfigChangedNotify) {
 	if c.cfg.OnConfigChanged == nil {
 		return
 	}
-	notify.Payload = cloneRaw(notify.Payload)
+	notify.Payload = shared.CloneRawMessage(notify.Payload)
 	go c.cfg.OnConfigChanged(notify)
 }
 
@@ -158,8 +159,8 @@ func (c *Client) applyRegisterLocked(reg *mcp.RegisterResponse) {
 	c.resumeGeneration = reg.Lease.Generation
 	c.configVersion = reg.ConfigVersion
 	c.serverProtocolVersion = strings.TrimSpace(reg.ServerProtocolVersion)
-	c.capabilitiesNegotiated = cloneStrings(reg.CapabilitiesNegotiated)
-	c.capabilitiesRejected = cloneStrings(reg.CapabilitiesRejected)
+	c.capabilitiesNegotiated = shared.CloneStrings(reg.CapabilitiesNegotiated)
+	c.capabilitiesRejected = shared.CloneStrings(reg.CapabilitiesRejected)
 	c.heartbeatInterval = durationOrDefault(reg.HeartbeatIntervalMs, defaultHeartbeatInterval)
 	c.heartbeatTimeout = durationOrDefault(reg.HeartbeatTimeoutMs, defaultHeartbeatTimeout)
 	c.sendTimeout = durationOrDefault(reg.SendTimeoutMs, defaultRPCTimeout)

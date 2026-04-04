@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -112,7 +113,7 @@ func (d *HookDispatcher) prepareDispatch(topic string, payload mcp.HookPayload) 
 
 func (d *HookDispatcher) prepareDispatchBySelector(sel mcp.Selector, payload mcp.HookPayload) ([]mcp.LeaseKey, mcp.HookPayload) {
 	topic := strings.TrimSpace(sel.Subscription)
-	payload = cloneHookPayload(payload)
+	payload = shared.CloneHookPayload(payload)
 	payload.Depth++
 	payload.Topic = topic
 	payload.HookCallID = strings.TrimSpace(payload.HookCallID)
@@ -217,12 +218,6 @@ func (d *HookDispatcher) ForgetLease(lease mcp.LeaseKey) {
 	d.failMu.Lock()
 	delete(d.failCounts, lease)
 	d.failMu.Unlock()
-}
-
-func cloneHookPayload(payload mcp.HookPayload) mcp.HookPayload {
-	cloned := payload
-	cloned.Context = cloneRawMessage(payload.Context)
-	return cloned
 }
 
 func newHookCallID() string {

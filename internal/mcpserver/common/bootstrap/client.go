@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
 
@@ -80,7 +81,7 @@ func New(cfg Config) *Client {
 		heartbeatInterval: defaultHeartbeatInterval,
 		heartbeatTimeout:  defaultHeartbeatTimeout,
 		sendTimeout:       defaultRPCTimeout,
-		reportQueueLimit:  normalizeQueueLimit(cfg.ReportQueueLimit),
+		reportQueueLimit:  shared.ClampLimit(cfg.ReportQueueLimit, 1, 0, defaultReportQueueLimit),
 		boot:              boot,
 	}
 }
@@ -141,7 +142,7 @@ func (c *Client) Context(ctx context.Context, scope string, keys []string) (*mcp
 	req := mcp.ContextRequest{
 		Lease: c.currentLease(),
 		Scope: strings.TrimSpace(scope),
-		Keys:  cloneStrings(keys),
+		Keys:  shared.CloneStrings(keys),
 	}
 	if agentID := strings.TrimSpace(c.cfg.AgentID); agentID != "" {
 		req.AgentID = agentID
@@ -226,7 +227,7 @@ func (c *Client) RequestApproval(ctx context.Context, req mcp.ApprovalRequest) (
 		}
 		return nil, err
 	}
-	resp.Detail = cloneRaw(resp.Detail)
+	resp.Detail = shared.CloneRawMessage(resp.Detail)
 	return &resp, nil
 }
 

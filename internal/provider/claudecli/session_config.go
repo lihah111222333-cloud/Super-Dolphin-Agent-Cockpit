@@ -8,12 +8,13 @@ import (
 	"syscall"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const capThreadConfigure = "thread_configure"
 
 func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) error {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
 	if configurePatchEmpty(patch) {
@@ -92,7 +93,7 @@ func modelAllowed(model string, allowed []string) bool {
 }
 
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
 	if err := s.transport.signalProcess(syscall.SIGINT); err != nil {

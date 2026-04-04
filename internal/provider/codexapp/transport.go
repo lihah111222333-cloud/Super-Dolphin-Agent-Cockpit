@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/gorilla/websocket"
 )
 
@@ -33,7 +34,7 @@ type transport struct {
 }
 
 func newTransport(ctx context.Context, serverURL string) (*transport, error) {
-	startupCtx, cancel := withTimeout(normalizeTransportContext(ctx), transportReadyTimeout)
+	startupCtx, cancel := withTimeout(shared.NonNilContext(ctx), transportReadyTimeout)
 	defer cancel()
 	t := &transport{serverURL: normalizeServerURL(serverURL)}
 	if t.serverURL == "" {
@@ -119,7 +120,7 @@ func (t *transport) reconnect(ctx context.Context) error {
 }
 
 func (t *transport) establish(ctx context.Context) error {
-	ctx = normalizeTransportContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	if err := t.connect(ctx); err != nil {
 		return err
 	}
@@ -153,7 +154,7 @@ func (t *transport) connect(ctx context.Context) error {
 }
 
 func (t *transport) readLoopStep(ctx context.Context, handler func(string, json.RawMessage)) bool {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return false
 	}
 	if t.closed.Load() {

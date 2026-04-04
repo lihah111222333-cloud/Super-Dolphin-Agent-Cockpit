@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -167,7 +169,8 @@ func (s *Server) dispatch(ctx context.Context, req jsonRPCRequest) (*jsonRPCResp
 
 func (s *Server) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 	var params initializeParams
-	if err := decodeParams(req.Params, &params); err != nil {
+	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
+		err = fmt.Errorf("decode params: %w", err)
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
 	version := strings.TrimSpace(params.ProtocolVersion)
@@ -189,7 +192,8 @@ func (s *Server) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 
 func (s *Server) handleToolsList(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	var params map[string]any
-	if err := decodeParams(req.Params, &params); err != nil {
+	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
+		err = fmt.Errorf("decode params: %w", err)
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
 	tools, err := s.listTools(ctx)
@@ -201,7 +205,8 @@ func (s *Server) handleToolsList(ctx context.Context, req jsonRPCRequest) *jsonR
 
 func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	var params toolCallParams
-	if err := decodeParams(req.Params, &params); err != nil {
+	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
+		err = fmt.Errorf("decode params: %w", err)
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
 	result, err := s.callTool(ctx, params.Name, params.Arguments)
@@ -262,17 +267,6 @@ func errorResponse(id json.RawMessage, code int, message string) *jsonRPCRespons
 			Message: strings.TrimSpace(message),
 		},
 	}
-}
-
-func decodeParams(raw json.RawMessage, dst any) error {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		trimmed = []byte("{}")
-	}
-	if err := json.Unmarshal(trimmed, dst); err != nil {
-		return fmt.Errorf("decode params: %w", err)
-	}
-	return nil
 }
 
 func hasRequestID(id json.RawMessage) bool {

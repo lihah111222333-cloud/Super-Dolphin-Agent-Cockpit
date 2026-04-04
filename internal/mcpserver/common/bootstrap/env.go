@@ -18,6 +18,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -52,27 +53,27 @@ func ReadBootConfig() Config {
 func normalizeConfig(cfg Config) (Config, bootSnapshot) {
 	boot := parseBootSnapshot(cfg.BootSnapshot)
 	cfg.RPCAddr = strings.TrimSpace(cfg.RPCAddr)
-	cfg.InstanceID = firstNonEmpty(strings.TrimSpace(cfg.InstanceID), strings.TrimSpace(boot.InstanceID), generateInstanceID())
-	cfg.BootID = firstNonEmpty(strings.TrimSpace(cfg.BootID), strings.TrimSpace(boot.BootID), generateID("boot"))
-	cfg.BinaryName = firstNonEmpty(strings.TrimSpace(cfg.BinaryName), strings.TrimSpace(boot.BinaryName), filepath.Base(os.Args[0]))
-	cfg.ClientKind = firstNonEmpty(strings.TrimSpace(cfg.ClientKind), strings.TrimSpace(boot.ClientKind), deriveClientKind(cfg.BinaryName))
+	cfg.InstanceID = shared.FirstNonEmpty(strings.TrimSpace(cfg.InstanceID), strings.TrimSpace(boot.InstanceID), generateInstanceID())
+	cfg.BootID = shared.FirstNonEmpty(strings.TrimSpace(cfg.BootID), strings.TrimSpace(boot.BootID), generateID("boot"))
+	cfg.BinaryName = shared.FirstNonEmpty(strings.TrimSpace(cfg.BinaryName), strings.TrimSpace(boot.BinaryName), filepath.Base(os.Args[0]))
+	cfg.ClientKind = shared.FirstNonEmpty(strings.TrimSpace(cfg.ClientKind), strings.TrimSpace(boot.ClientKind), deriveClientKind(cfg.BinaryName))
 	cfg.AgentID = strings.TrimSpace(cfg.AgentID)
-	cfg.ThreadID = firstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(boot.ThreadID))
+	cfg.ThreadID = shared.FirstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(boot.ThreadID))
 	cfg.SessionToken = strings.TrimSpace(cfg.SessionToken)
-	cfg.Capabilities = cloneStrings(cfg.Capabilities)
-	cfg.CapabilitiesOffered = cloneStrings(cfg.CapabilitiesOffered)
-	cfg.CapabilitiesRequired = cloneStrings(cfg.CapabilitiesRequired)
-	cfg.Subscriptions = cloneStrings(cfg.Subscriptions)
-	cfg.BootSnapshot = cloneRaw(cfg.BootSnapshot)
+	cfg.Capabilities = shared.CloneStrings(cfg.Capabilities)
+	cfg.CapabilitiesOffered = shared.CloneStrings(cfg.CapabilitiesOffered)
+	cfg.CapabilitiesRequired = shared.CloneStrings(cfg.CapabilitiesRequired)
+	cfg.Subscriptions = shared.CloneStrings(cfg.Subscriptions)
+	cfg.BootSnapshot = shared.CloneRawMessage(cfg.BootSnapshot)
 	if len(cfg.CapabilitiesOffered) == 0 {
 		if len(cfg.Capabilities) != 0 {
-			cfg.CapabilitiesOffered = cloneStrings(cfg.Capabilities)
+			cfg.CapabilitiesOffered = shared.CloneStrings(cfg.Capabilities)
 		} else {
-			cfg.CapabilitiesOffered = cloneStrings(boot.Capabilities)
+			cfg.CapabilitiesOffered = shared.CloneStrings(boot.Capabilities)
 		}
 	}
 	if len(cfg.Subscriptions) == 0 {
-		cfg.Subscriptions = cloneStrings(boot.Subscriptions)
+		cfg.Subscriptions = shared.CloneStrings(boot.Subscriptions)
 	}
 	return cfg, boot
 }
@@ -87,25 +88,25 @@ func (c *Client) envContext(scope string, keys []string) (*mcp.ContextResponse, 
 		ObservedAt: time.Now().UnixMilli(),
 		Scope:      strings.TrimSpace(scope),
 		Payload:    payload,
-		Data:       cloneRaw(payload),
+		Data:       shared.CloneRawMessage(payload),
 	}
 	if len(keys) == 0 {
 		return resp, nil
 	}
-	filtered, err := json.Marshal(filterKeys(contextPayloadFromSnapshot(c, scope), keys))
+	filtered, err := json.Marshal(shared.FilterKeys(contextPayloadFromSnapshot(c, scope), keys))
 	if err != nil {
 		return nil, err
 	}
 	resp.Payload = filtered
-	resp.Data = cloneRaw(filtered)
+	resp.Data = shared.CloneRawMessage(filtered)
 	return resp, nil
 }
 
 func contextPayloadFromSnapshot(c *Client, scope string) map[string]any {
-	clientKind := firstNonEmpty(c.boot.ClientKind, c.cfg.ClientKind)
-	binaryName := firstNonEmpty(c.boot.BinaryName, c.cfg.BinaryName)
+	clientKind := shared.FirstNonEmpty(c.boot.ClientKind, c.cfg.ClientKind)
+	binaryName := shared.FirstNonEmpty(c.boot.BinaryName, c.cfg.BinaryName)
 	agentID := strings.TrimSpace(c.cfg.AgentID)
-	threadID := firstNonEmpty(c.boot.ThreadID, c.cfg.ThreadID)
+	threadID := shared.FirstNonEmpty(c.boot.ThreadID, c.cfg.ThreadID)
 	switch strings.TrimSpace(scope) {
 	case mcp.ScopeAgentRuntime:
 		return map[string]any{
@@ -125,18 +126,18 @@ func contextPayloadFromSnapshot(c *Client, scope string) map[string]any {
 	case mcp.ScopeWorkspaceRun:
 		return map[string]any{
 			"binary_name":       binaryName,
-			"capabilities":      cloneStrings(c.offeredCapabilities()),
+			"capabilities":      shared.CloneStrings(c.offeredCapabilities()),
 			"instance_id":       c.instanceID,
-			"subscriptions":     cloneStrings(c.cfg.Subscriptions),
+			"subscriptions":     shared.CloneStrings(c.cfg.Subscriptions),
 			"cwd":               c.boot.CWD,
 			"workspace_run_key": c.boot.WorkspaceRunKey,
 		}
 	case mcp.ScopeConfigSnapshot:
 		return map[string]any{
-			"capabilities":   cloneStrings(c.offeredCapabilities()),
+			"capabilities":   shared.CloneStrings(c.offeredCapabilities()),
 			"client_kind":    clientKind,
 			"config_version": maxInt64(c.boot.ConfigVersion, c.currentConfigVersion()),
-			"subscriptions":  cloneStrings(c.cfg.Subscriptions),
+			"subscriptions":  shared.CloneStrings(c.cfg.Subscriptions),
 		}
 	default:
 		return map[string]any{
@@ -154,10 +155,10 @@ func normalizeContextResponse(scope string, resp *mcp.ContextResponse) *mcp.Cont
 	}
 	out := *resp
 	if len(out.Payload) == 0 && len(out.Data) != 0 {
-		out.Payload = cloneRaw(out.Data)
+		out.Payload = shared.CloneRawMessage(out.Data)
 	}
 	if len(out.Data) == 0 && len(out.Payload) != 0 {
-		out.Data = cloneRaw(out.Payload)
+		out.Data = shared.CloneRawMessage(out.Payload)
 	}
 	if strings.TrimSpace(out.Scope) == "" {
 		out.Scope = strings.TrimSpace(scope)
@@ -249,8 +250,8 @@ func parseBootSnapshot(raw json.RawMessage) bootSnapshot {
 		return snap
 	}
 	_ = json.Unmarshal(raw, &snap)
-	snap.Capabilities = cloneStrings(snap.Capabilities)
-	snap.Subscriptions = cloneStrings(snap.Subscriptions)
+	snap.Capabilities = shared.CloneStrings(snap.Capabilities)
+	snap.Subscriptions = shared.CloneStrings(snap.Subscriptions)
 	return snap
 }
 
@@ -268,29 +269,12 @@ func deriveClientKind(binaryName string) string {
 	}
 }
 
-func filterKeys(payload map[string]any, keys []string) map[string]any {
-	if len(keys) == 0 {
-		return payload
-	}
-	filtered := make(map[string]any, len(keys))
-	for _, key := range keys {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-		if value, ok := payload[key]; ok {
-			filtered[key] = value
-		}
-	}
-	return filtered
-}
-
 func marshalRaw(payload any) (json.RawMessage, error) {
 	switch value := payload.(type) {
 	case nil:
 		return nil, nil
 	case json.RawMessage:
-		return cloneRaw(value), nil
+		return shared.CloneRawMessage(value), nil
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -299,26 +283,13 @@ func marshalRaw(payload any) (json.RawMessage, error) {
 	return raw, nil
 }
 
-func cloneStrings(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	return append([]string(nil), in...)
-}
-
-func cloneRaw(in json.RawMessage) json.RawMessage {
-	if len(in) == 0 {
-		return nil
-	}
-	return append(json.RawMessage(nil), in...)
-}
-
 func cloneStringMapAny(in map[string]string) map[string]any {
-	if len(in) == 0 {
+	cloned := shared.CloneStringMap(in)
+	if len(cloned) == 0 {
 		return nil
 	}
-	out := make(map[string]any, len(in))
-	for key, value := range in {
+	out := make(map[string]any, len(cloned))
+	for key, value := range cloned {
 		out[key] = value
 	}
 	return out
@@ -340,13 +311,6 @@ func withTimeoutIfNone(ctx context.Context, timeout time.Duration) (context.Cont
 		return ctx, func() {}
 	}
 	return platformconfig.WithPeerTimeout(ctx, timeout)
-}
-
-func normalizeQueueLimit(limit int) int {
-	if limit <= 0 {
-		return defaultReportQueueLimit
-	}
-	return limit
 }
 
 func generateInstanceID() string {

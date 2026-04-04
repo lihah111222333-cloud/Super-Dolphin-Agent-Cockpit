@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const binaryProbeBytes = 512
@@ -187,11 +188,7 @@ func resolveExistingPath(absPath string) (string, error) {
 }
 
 func ensureWithinRoot(root, candidate string) error {
-	rel, err := filepath.Rel(root, candidate)
-	if err != nil {
-		return fmt.Errorf("path %q is outside workspace root %q", candidate, root)
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if !platformshared.ContainsPath(root, candidate) {
 		return fmt.Errorf("path %q is outside workspace root %q", candidate, root)
 	}
 	return nil

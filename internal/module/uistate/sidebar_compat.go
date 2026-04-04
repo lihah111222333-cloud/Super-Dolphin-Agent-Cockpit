@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -55,7 +57,7 @@ func cloneRuntimeMap(input map[string]map[string]any) map[string]map[string]any 
 	}
 	out := make(map[string]map[string]any, len(input))
 	for key, value := range input {
-		out[key] = cloneJSONMap(value)
+		out[key] = shared.CloneJSONMap(value)
 	}
 	return out
 }

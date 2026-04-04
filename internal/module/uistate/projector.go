@@ -11,6 +11,7 @@ import (
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service) []context.CancelFunc {
@@ -237,14 +238,14 @@ func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted) TurnSu
 		Status:      completionStatus(ev),
 		Error:       strings.TrimSpace(ev.Error),
 		Reason:      strings.TrimSpace(ev.Reason),
-		CompletedAt: cloneTime(&ev.Timestamp),
+		CompletedAt: shared.CloneTime(&ev.Timestamp),
 	}
 	if current != nil && current.ID == summary.ID {
 		summary = *cloneTurn(current)
 		summary.Status = completionStatus(ev)
 		summary.Error = strings.TrimSpace(ev.Error)
 		summary.Reason = strings.TrimSpace(ev.Reason)
-		summary.CompletedAt = cloneTime(&ev.Timestamp)
+		summary.CompletedAt = shared.CloneTime(&ev.Timestamp)
 	}
 	success := ev.Success
 	summary.Success = &success

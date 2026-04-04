@@ -13,6 +13,7 @@ import (
 
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type runtimeReportParams struct {
@@ -37,7 +38,7 @@ func (p *runtimeReportParams) UnmarshalJSON(data []byte) error {
 		if agentID != "" && legacyAgentID != "" && agentID != legacyAgentID {
 			return fmt.Errorf("runtime report agent id aliases conflict: agent_id=%q agentId=%q", agentID, legacyAgentID)
 		}
-		p.AgentID = firstTrimmed(agentID, legacyAgentID)
+		p.AgentID = shared.FirstTrimmed(agentID, legacyAgentID)
 		return nil
 	}, decodeStrictRuntimeReportJSON)
 }

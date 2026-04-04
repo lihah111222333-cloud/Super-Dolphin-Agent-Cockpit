@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type prepareInputSpec struct {
@@ -54,7 +55,7 @@ func requireTurnContext(
 	session contract.Session,
 	requestedThreadID ...string,
 ) (context.Context, string, error) {
-	ctx = normalizeContext(ctx)
+	ctx = platformshared.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return ctx, "", err
 	}

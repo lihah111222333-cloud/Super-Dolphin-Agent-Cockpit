@@ -10,6 +10,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
@@ -190,7 +191,7 @@ func (p registryContextProvider) GetContext(_ context.Context, instance *ToolIns
 	if err != nil {
 		return dto.ContextResponse{}, err
 	}
-	return buildContextResponse(req.Scope, filterKeys(payload, req.Keys))
+	return buildContextResponse(req.Scope, platformshared.FilterKeys(payload, req.Keys))
 }
 
 func (p registryContextProvider) lookupAgentSnapshot(agentID string) (*contract.AgentSnapshot, error) {
@@ -262,19 +263,6 @@ func (s defaultLogSink) HandleLog(_ context.Context, instance *ToolInstance, req
 		"fields", req.Fields,
 	)
 	return nil
-}
-
-func filterKeys(payload map[string]any, keys []string) map[string]any {
-	if len(keys) == 0 {
-		return payload
-	}
-	filtered := make(map[string]any, len(keys))
-	for _, key := range keys {
-		if value, ok := payload[key]; ok {
-			filtered[key] = value
-		}
-	}
-	return filtered
 }
 
 func serverFromContext(ctx context.Context) (server *jrpc2.Server, err error) {

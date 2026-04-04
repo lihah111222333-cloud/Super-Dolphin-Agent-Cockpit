@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type structureParams struct {
@@ -55,7 +56,7 @@ func runDocumentSymbols(
 	if err != nil {
 		return nil, err
 	}
-	results = limitDocumentSymbols(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit))
+	results = limitDocumentSymbols(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit))
 	return renderListResult(results, protocol.XRefResultLimit, "no symbols found", func(items []protocol.DocumentSymbol, _ int) any {
 		return format.NormalizeForDisplay(items)
 	})
@@ -105,7 +106,7 @@ func runFoldingRanges(
 	if err != nil {
 		return nil, err
 	}
-	return renderListResult(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit), "no folding ranges found", func(items []protocol.FoldingRange, _ int) any {
+	return renderListResult(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit), "no folding ranges found", func(items []protocol.FoldingRange, _ int) any {
 		return format.NormalizeForDisplay(items)
 	})
 }

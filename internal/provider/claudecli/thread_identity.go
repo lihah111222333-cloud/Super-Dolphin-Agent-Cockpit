@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"strings"
 	"sync"
 )
@@ -50,7 +51,7 @@ func (s *session) setResolvedThreadIDForTransport(tr *transport, threadID string
 }
 
 func (s *session) eventThreadIDLocked() string {
-	return firstNonEmpty(s.publicThreadID, s.threadID)
+	return shared.FirstNonEmpty(s.publicThreadID, s.threadID)
 }
 
 func (s *session) markThreadReady() {
@@ -117,7 +118,7 @@ func (s *session) awaitThreadReadyLocked(ctx context.Context) error {
 }
 
 func withThreadIDTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return ctx, func() {}
 	}
 	return platformconfig.WithTimeoutIfNone(ctx, platformconfig.InitialThreadIDTimeout)

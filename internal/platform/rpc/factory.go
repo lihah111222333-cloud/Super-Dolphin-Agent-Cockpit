@@ -13,6 +13,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type approvalMethodCatalogSpec struct {
@@ -108,7 +109,7 @@ func broadcastNotifications(ctx context.Context, server *Server, bridge *PushBri
 	if server == nil || bridge == nil || len(notifications) == 0 {
 		return
 	}
-	ctx = nonNilContext(ctx)
+	ctx = platformshared.NonNilContext(ctx)
 	for _, notification := range notifications {
 		server.NotifyAll(ctx, bridge, notification.Method, notification.Payload)
 	}
@@ -123,13 +124,6 @@ func isExpectedCloseErr(err error) bool {
 		errors.Is(err, net.ErrClosed) ||
 		errors.Is(err, channel.ErrClosed) ||
 		channel.IsErrClosing(err)
-}
-
-func nonNilContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
 }
 
 func rpcError(code int, msg string) error {

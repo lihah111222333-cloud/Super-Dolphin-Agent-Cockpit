@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -51,7 +53,7 @@ func normalizePreferenceKey(key string) string {
 func buildPreferences(scope string, values map[string]any) Preferences {
 	prefs := Preferences{
 		CWD:            scope,
-		Values:         cloneJSONMap(values),
+		Values:         shared.CloneJSONMap(values),
 		ViewPrefs:      ViewPrefs{Chat: map[string]any{}, Cmd: map[string]any{}},
 		ThreadPins:     ThreadCollections{Chat: map[string]int64{}, Cmd: map[string]int64{}},
 		ThreadArchives: ThreadCollections{Chat: map[string]int64{}, Cmd: map[string]int64{}},
@@ -77,9 +79,9 @@ func preferenceValue(prefs Preferences, key string) any {
 	case preferenceMainAgentID:
 		return emptyStringAsNil(prefs.MainAgentID)
 	case preferenceViewPrefsChat:
-		return cloneJSONMap(prefs.ViewPrefs.Chat)
+		return shared.CloneJSONMap(prefs.ViewPrefs.Chat)
 	case preferenceViewPrefsCmd:
-		return cloneJSONMap(prefs.ViewPrefs.Cmd)
+		return shared.CloneJSONMap(prefs.ViewPrefs.Cmd)
 	case preferenceThreadPinsChat:
 		return cloneTimestampMap(prefs.ThreadPins.Chat)
 	case preferenceThreadArchivesChat:
@@ -106,8 +108,8 @@ func applyPreferencesToState(state *UIState, prefs *Preferences) {
 	state.MainAgentID = deriveMainAgentID(state.Agents, prefs.MainAgentID)
 	state.StallThresholdSec = prefs.StallThresholdSec
 	state.ShowInjectedPromptInChat = cloneBoolPtr(prefs.ShowInjectedPromptInChat)
-	state.ViewPrefsChat = cloneJSONMap(prefs.ViewPrefs.Chat)
-	state.ViewPrefsCmd = cloneJSONMap(prefs.ViewPrefs.Cmd)
+	state.ViewPrefsChat = shared.CloneJSONMap(prefs.ViewPrefs.Chat)
+	state.ViewPrefsCmd = shared.CloneJSONMap(prefs.ViewPrefs.Cmd)
 	state.ThreadPinsChat = cloneTimestampMap(prefs.ThreadPins.Chat)
 	state.ThreadArchivesChat = cloneTimestampMap(prefs.ThreadArchives.Chat)
 	state.Groups = buildThreadGroups(state.Threads, prefs.ThreadPins.Chat, prefs.ThreadArchives.Chat)
@@ -120,8 +122,8 @@ func applyPreferencesToSidebar(sidebar *Sidebar, prefs *Preferences) {
 	sidebar.ActiveThreadID = prefs.ActiveThreadID
 	sidebar.ActiveCmdThreadID = prefs.ActiveCmdThreadID
 	sidebar.MainAgentID = deriveMainAgentID(sidebar.Agents, prefs.MainAgentID)
-	sidebar.ViewPrefsChat = cloneJSONMap(prefs.ViewPrefs.Chat)
-	sidebar.ViewPrefsCmd = cloneJSONMap(prefs.ViewPrefs.Cmd)
+	sidebar.ViewPrefsChat = shared.CloneJSONMap(prefs.ViewPrefs.Chat)
+	sidebar.ViewPrefsCmd = shared.CloneJSONMap(prefs.ViewPrefs.Cmd)
 	sidebar.ThreadPinsChat = cloneTimestampMap(prefs.ThreadPins.Chat)
 	sidebar.ThreadArchivesChat = cloneTimestampMap(prefs.ThreadArchives.Chat)
 	sidebar.Groups = buildThreadGroups(sidebar.Threads, prefs.ThreadPins.Chat, prefs.ThreadArchives.Chat)
@@ -227,7 +229,7 @@ func normalizeJSONObject(value any) map[string]any {
 	if !ok {
 		return map[string]any{}
 	}
-	return cloneJSONMap(typed)
+	return shared.CloneJSONMap(typed)
 }
 
 func normalizeTimestampMap(value any) map[string]int64 {
@@ -248,21 +250,10 @@ func normalizeTimestampMap(value any) map[string]int64 {
 	return out
 }
 
-func cloneJSONMap(input map[string]any) map[string]any {
-	if len(input) == 0 {
-		return map[string]any{}
-	}
-	out := make(map[string]any, len(input))
-	for key, value := range input {
-		out[key] = cloneJSONValue(value)
-	}
-	return out
-}
-
 func cloneJSONValue(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
-		return cloneJSONMap(typed)
+		return shared.CloneJSONMap(typed)
 	case []any:
 		out := make([]any, len(typed))
 		for i := range typed {

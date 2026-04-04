@@ -7,9 +7,10 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -47,11 +48,11 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	}
 	switch kind {
 	case threadStateStartKind:
-		state.PublicThreadID = firstNonEmpty(fields.PublicThreadID, fields.AgentID)
+		state.PublicThreadID = shared.FirstNonEmpty(fields.PublicThreadID, fields.AgentID)
 	case threadStateForkKind:
-		state.PublicThreadID = firstNonEmpty(fields.PublicThreadID, fields.ProviderThreadID, fields.AgentID)
+		state.PublicThreadID = shared.FirstNonEmpty(fields.PublicThreadID, fields.ProviderThreadID, fields.AgentID)
 	default:
-		state.PublicThreadID = firstNonEmpty(fields.PublicThreadID, fields.RequestedThreadID, fields.AgentID)
+		state.PublicThreadID = shared.FirstNonEmpty(fields.PublicThreadID, fields.RequestedThreadID, fields.AgentID)
 	}
 	state.ProviderThreadID = resolveProviderThreadID(
 		fields.ProviderThreadID,
@@ -116,7 +117,7 @@ type threadEventFields struct {
 }
 
 func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFields) any {
-	header := shared.EventHeader{Timestamp: time.Now()}
+	header := shareddto.EventHeader{Timestamp: time.Now()}
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
 		return nil
@@ -211,7 +212,7 @@ func (s *service) buildOfflineConfig(
 				Approvals: stored.Approvals,
 			},
 			Effective: dto.ThreadConfigValues{
-				Model:     firstNonEmpty(stored.Model, offlineThreadModel(thread)),
+				Model:     shared.FirstNonEmpty(stored.Model, offlineThreadModel(thread)),
 				Effort:    strings.TrimSpace(stored.Effort),
 				Approvals: strings.TrimSpace(stored.Approvals),
 			},
@@ -257,7 +258,7 @@ func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Th
 	if value := strings.TrimSpace(stored.Personality); value != "" {
 		cfg["personality"] = value
 	}
-	if model := firstNonEmpty(stored.Model, offlineThreadModel(thread)); model != "" {
+	if model := shared.FirstNonEmpty(stored.Model, offlineThreadModel(thread)); model != "" {
 		cfg["model"] = model
 	}
 	return cfg
@@ -267,7 +268,7 @@ func offlineThreadProvider(binding *bindingstore.Binding) string {
 	if binding == nil {
 		return offlineProvider
 	}
-	return firstNonEmpty(binding.Provider, offlineProvider)
+	return shared.FirstNonEmpty(binding.Provider, offlineProvider)
 }
 
 func supportsThreadOverride(provider string) bool {
@@ -338,7 +339,7 @@ func (s *service) persistThreadConfig(
 	if err != nil {
 		return err
 	}
-	thread.Model = firstNonEmpty(effective.Effective.Model, effective.Override.Model)
+	thread.Model = shared.FirstNonEmpty(effective.Effective.Model, effective.Override.Model)
 	thread.ConfigOverride = raw
 	thread.UpdatedAt = time.Now().Unix()
 	return s.upsertThread(ctx, *thread)
@@ -384,7 +385,7 @@ func (s *service) normalizeThreadConfig(
 	binding *bindingstore.Binding,
 	cfg dto.ThreadConfig,
 ) dto.ThreadConfig {
-	cfg.ThreadID = firstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(threadID))
+	cfg.ThreadID = shared.FirstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(threadID))
 	if binding != nil && strings.TrimSpace(cfg.Provider) == "" {
 		cfg.Provider = strings.TrimSpace(binding.Provider)
 	}

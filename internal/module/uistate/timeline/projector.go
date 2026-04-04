@@ -8,6 +8,7 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -276,14 +277,5 @@ func toolUpdateKey(callID string) string {
 }
 
 func approvalUpdateKey(approvalID, callID string) string {
-	return timelineID("approval", firstNonEmpty(approvalID, callID))
-}
-
-func firstNonEmpty(parts ...string) string {
-	for _, part := range parts {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
+	return timelineID("approval", shared.FirstNonEmpty(approvalID, callID))
 }

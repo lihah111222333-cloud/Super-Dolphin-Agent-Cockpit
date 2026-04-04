@@ -29,15 +29,6 @@ func initializeParams() map[string]any {
 	}
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func newTurnHandle(localID, providerID string) *turnHandle {
 	return &turnHandle{
 		localID:    strings.TrimSpace(localID),
@@ -171,28 +162,6 @@ func (s *session) setRuntimeConfigValue(key string, value any) {
 		s.runtimeConfig = map[string]any{}
 	}
 	s.runtimeConfig[key] = value
-}
-
-func cloneRuntimeConfigMap(cfg map[string]any) map[string]any {
-	if len(cfg) == 0 {
-		return nil
-	}
-	raw, err := json.Marshal(cfg)
-	if err != nil {
-		out := make(map[string]any, len(cfg))
-		for key, value := range cfg {
-			out[key] = value
-		}
-		return out
-	}
-	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		out = make(map[string]any, len(cfg))
-		for key, value := range cfg {
-			out[key] = value
-		}
-	}
-	return out
 }
 
 func decodeAllowedModels(raw []byte) ([]string, error) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -170,7 +172,7 @@ func EventTimeFromPayload(payload map[string]any) time.Time {
 	if len(payload) == 0 {
 		return time.Time{}
 	}
-	return ParseEventTime(strings.TrimSpace(firstPayloadString(
+	return ParseEventTime(strings.TrimSpace(platformshared.FirstPayloadString(
 		payload,
 		"timestamp",
 		"ts",
@@ -196,15 +198,4 @@ func eventTimeFromContext(ctx context.Context) time.Time {
 	}
 	timestamp, _ := ctx.Value(eventTimeKey{}).(time.Time)
 	return timestamp
-}
-
-func firstPayloadString(payload map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value, ok := payload[key].(string); ok {
-			if value = strings.TrimSpace(value); value != "" {
-				return value
-			}
-		}
-	}
-	return ""
 }

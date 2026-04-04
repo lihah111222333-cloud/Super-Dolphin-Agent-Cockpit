@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func MergeAfter(decisions []peerDecision[mcp.AfterDecision]) MergeResult[mcp.AfterDecision] {
@@ -20,9 +21,9 @@ func normalizeAfterDecisions(decisions []peerDecision[mcp.AfterDecision]) ([]mcp
 	return normalizePeerDecisions(decisions, func(decision mcp.AfterDecision) mcp.AfterDecision {
 		return mcp.AfterDecision{
 			Decision:       normalizeDecision(decision.Decision, afterDecisionConfig),
-			Patch:          cloneRawMessage(decision.Patch),
-			Mutations:      cloneRawMessage(decision.Mutations),
-			DispatchIntent: cloneRawMessage(decision.DispatchIntent),
+			Patch:          shared.CloneRawMessage(decision.Patch),
+			Mutations:      shared.CloneRawMessage(decision.Mutations),
+			DispatchIntent: shared.CloneRawMessage(decision.DispatchIntent),
 			TTLMs:          decision.TTLMs,
 			Reason:         strings.TrimSpace(decision.Reason),
 		}
@@ -46,9 +47,9 @@ func mergeAfterDecision(decisions []mcp.AfterDecision) mcp.AfterDecision {
 		if candidate, ok := firstMatching(decisions, func(item mcp.AfterDecision) bool {
 			return item.Decision == final
 		}); ok {
-			merged.Patch = cloneRawMessage(candidate.Patch)
-			merged.Mutations = cloneRawMessage(candidate.Mutations)
-			merged.DispatchIntent = cloneRawMessage(candidate.DispatchIntent)
+			merged.Patch = shared.CloneRawMessage(candidate.Patch)
+			merged.Mutations = shared.CloneRawMessage(candidate.Mutations)
+			merged.DispatchIntent = shared.CloneRawMessage(candidate.DispatchIntent)
 			merged.TTLMs = candidate.TTLMs
 		}
 	}

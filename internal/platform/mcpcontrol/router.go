@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func (r *ToolRegistry) NotifyConfigChanged(ctx context.Context, topic string, scope *dto.SelectorScope, configVersion int64, payload json.RawMessage) error {
@@ -14,7 +15,7 @@ func (r *ToolRegistry) NotifyConfigChanged(ctx context.Context, topic string, sc
 		return errInvalidParams("mcp config topic is required")
 	}
 	sel := dto.Selector{Subscription: topic}
-	normalizedScope := normalizeSelectorScope(scope)
+	normalizedScope := shared.NormalizeSelectorScope(scope)
 	if normalizedScope != (dto.SelectorScope{}) {
 		sel.Scope = &normalizedScope
 	}
@@ -59,7 +60,7 @@ func (r *ToolRegistry) callbackHookTopic(ctx context.Context, topic, method stri
 	if topic == "" {
 		return errInvalidParams("mcp hook topic is required")
 	}
-	payload = cloneHookPayload(payload)
+	payload = shared.CloneHookPayload(payload)
 	payload.Topic = topic
 	return r.callbackTargets(ctx, r.snapshotTargets(r.bySubscription, topic), method, payload)
 }
@@ -79,7 +80,7 @@ func callbackHookDecision[T any](
 	if instance.Peer == nil {
 		return decision, errPeerUnavailable("mcp peer %s/%d is not available", instance.Lease.InstanceID, instance.Lease.Generation)
 	}
-	payload = cloneHookPayload(payload)
+	payload = shared.CloneHookPayload(payload)
 	err = registry.invokeFanoutTarget(ctx, sendTarget{key: instance.Lease, peer: instance.Peer}, fanoutOperation{
 		name: "callback",
 		invoke: func(ctx context.Context, peer Peer) error {
@@ -96,10 +97,4 @@ func (r *ToolRegistry) callbackTargets(ctx context.Context, targets []sendTarget
 			return peer.Callback(ctx, method, params, nil)
 		},
 	})
-}
-
-func cloneHookPayload(payload dto.HookPayload) dto.HookPayload {
-	cloned := payload
-	cloned.Context = append(json.RawMessage(nil), payload.Context...)
-	return cloned
 }

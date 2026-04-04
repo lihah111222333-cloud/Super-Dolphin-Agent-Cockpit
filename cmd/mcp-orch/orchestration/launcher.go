@@ -14,6 +14,7 @@ import (
 	"github.com/creachadair/jrpc2/channel"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type AgentLauncher interface {
@@ -140,16 +141,16 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		return LaunchResult{}, errors.New("agent is required")
 	}
 	resp, err := rpcCall[map[string]any](ctx, r, "thread/start", map[string]any{
-		"cwd": strings.TrimSpace(req.Cwd), "prompt": firstTrimmed(req.Prompt, req.Name), "base_instructions": strings.TrimSpace(req.Instructions),
-		"provider": launchProvider(req), "model": firstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model")),
+		"cwd": strings.TrimSpace(req.Cwd), "prompt": shared.FirstTrimmed(req.Prompt, req.Name), "base_instructions": strings.TrimSpace(req.Instructions),
+		"provider": launchProvider(req), "model": shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model")),
 	})
 	if err != nil {
 		return LaunchResult{}, err
 	}
 	thread, _ := resp["thread"].(map[string]any)
 	result := LaunchResult{
-		ThreadID:      firstTrimmed(rpcString(thread["id"]), rpcString(resp["threadId"]), rpcString(resp["thread_id"])),
-		RemoteAgentID: firstTrimmed(rpcString(resp["agentId"]), rpcString(resp["agent_id"]), agent.id),
+		ThreadID:      shared.FirstTrimmed(rpcString(thread["id"]), rpcString(resp["threadId"]), rpcString(resp["thread_id"])),
+		RemoteAgentID: shared.FirstTrimmed(rpcString(resp["agentId"]), rpcString(resp["agent_id"]), agent.id),
 	}
 	if result.ThreadID == "" {
 		return LaunchResult{}, errors.New("remote launcher: empty thread id")

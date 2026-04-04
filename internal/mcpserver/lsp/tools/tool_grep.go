@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/search"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -63,7 +64,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	if err != nil {
 		return nil, err
 	}
-	limit := normalizeSearchLimit(input.MaxResults)
+	limit := shared.ClampLimit(input.MaxResults, 1, maxSearchResults, defaultSearchResults)
 
 	var (
 		matches []search.SearchMatch
@@ -164,16 +165,5 @@ func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) 
 		Showing:   len(matches),
 		Truncated: truncated,
 		Hint:      hint,
-	}
-}
-
-func normalizeSearchLimit(requested int) int {
-	switch {
-	case requested <= 0:
-		return defaultSearchResults
-	case requested > maxSearchResults:
-		return maxSearchResults
-	default:
-		return requested
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type launcherLaunchAttempt struct {
@@ -207,7 +208,7 @@ func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req T
 		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
 			return err
 		}
-		agent.activeTurnID = firstTrimmed(turnID, req.ExpectedTurnID)
+		agent.activeTurnID = shared.FirstTrimmed(turnID, req.ExpectedTurnID)
 		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
 			return err
 		}
@@ -277,7 +278,7 @@ func adoptLaunchStateLocked(dst, src *agentRuntime) {
 	dst.remoteAgentID = src.remoteAgentID
 	dst.startedAt = src.startedAt
 	dst.updatedAt = src.updatedAt
-	dst.exitedAt = cloneTime(src.exitedAt)
+	dst.exitedAt = shared.CloneTime(src.exitedAt)
 	dst.lastError = src.lastError
 }
 

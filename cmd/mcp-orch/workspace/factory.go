@@ -154,7 +154,7 @@ func runPaths(run *Run, rel string) runFilePaths {
 }
 
 func inspectRunFile(run *Run, rel string) (inspectedRunFile, error) {
-	normalized, err := normalizeRelativePath(rel)
+	normalized, err := validateRelativePath(rel)
 	if err != nil {
 		return inspectedRunFile{}, err
 	}

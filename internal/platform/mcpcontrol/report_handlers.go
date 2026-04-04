@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 // RuntimeReportHandler handles runtime reports received through the MCP control plane.
@@ -118,10 +119,10 @@ func (h defaultCompletionReportHandler) HandleCompletionReport(
 	if h.orchestration == nil {
 		return dto.ReportResponse{}, errCapabilityMismatch("completion report orchestration service is not configured")
 	}
-	eventType := firstNonEmpty(report.Status, dto.ReportVariantCompletion)
+	eventType := shared.FirstNonEmpty(report.Status, dto.ReportVariantCompletion)
 	_, err := h.orchestration.HandleReportEvent(ctx, contract.ReportEvent{
 		AgentID:   instance.AgentID,
-		Report:    firstNonEmpty(report.Report, report.Status),
+		Report:    shared.FirstNonEmpty(report.Report, report.Status),
 		EventType: eventType,
 		EventData: completionEventData(req.Report),
 	})
@@ -159,13 +160,4 @@ func completionEventData(report dto.ReportEnvelope) json.RawMessage {
 		return nil
 	}
 	return raw
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }

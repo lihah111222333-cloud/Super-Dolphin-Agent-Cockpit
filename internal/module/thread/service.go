@@ -12,6 +12,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -145,7 +146,7 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 }
 
 func (s *service) Delete(ctx context.Context, threadID string) error {
-	ctx = normalizeThreadContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
 		return err

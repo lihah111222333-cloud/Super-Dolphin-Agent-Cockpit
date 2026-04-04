@@ -1,9 +1,13 @@
 package thread
 
-import "context"
+import (
+	"context"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+)
 
 func (s *service) Archive(ctx context.Context, threadID string) error {
-	ctx = normalizeThreadContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	stopState, err := s.resolveThreadStopState(ctx, threadID)
 	if err != nil {
 		return err

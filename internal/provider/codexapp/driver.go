@@ -15,6 +15,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -242,7 +243,7 @@ func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRe
 }
 
 func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (string, error) {
-	resumeID := firstNonEmpty(req.ProviderThreadID, req.ThreadID)
+	resumeID := shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID)
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/resume", threadResumeParams{
 		ThreadID: strings.TrimSpace(resumeID),
 		Model:    strings.TrimSpace(req.Model),

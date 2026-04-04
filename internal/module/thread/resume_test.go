@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -267,7 +268,7 @@ func (s *stubSession) ReadConfig(context.Context, string) (dto.ThreadConfig, err
 }
 
 func (s *stubSession) RuntimeConfigSnapshot() map[string]any {
-	return cloneRuntimeConfigMap(s.runtimeConfig)
+	return shared.CloneRuntimeConfigMap(s.runtimeConfig)
 }
 
 func (s *stubSession) Configure(_ context.Context, patch dto.ThreadConfigPatch) error {
@@ -437,7 +438,7 @@ func (s *stubBindingStore) GetThreadByAgent(context.Context, string) (string, er
 	if s.binding == nil {
 		return "", platformdb.ErrNotFound
 	}
-	return firstNonEmpty(s.binding.CodexThreadID, s.binding.ProviderThreadID), nil
+	return shared.FirstNonEmpty(s.binding.CodexThreadID, s.binding.ProviderThreadID), nil
 }
 
 func (s *stubBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {

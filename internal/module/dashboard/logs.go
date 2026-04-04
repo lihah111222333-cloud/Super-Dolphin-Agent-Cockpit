@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 )
@@ -85,7 +86,7 @@ func (s *service) GetAuditLogs(ctx context.Context, filter auditlogstore.ListFil
 		filter.Action = strings.TrimSpace(filter.Action)
 		filter.Actor = strings.TrimSpace(filter.Actor)
 		filter.Keyword = strings.TrimSpace(filter.Keyword)
-		filter.Limit = int32(clampLogLimit(int(filter.Limit)))
+		filter.Limit = int32(shared.ClampLimit(int(filter.Limit), 1, maxLogLimit, defaultLogLimit))
 		return s.auditLogs.List(ctx, filter)
 	})
 }
@@ -95,7 +96,7 @@ func (s *service) GetBusLogs(ctx context.Context, filter buslogstore.ListFilter)
 		filter.Category = strings.TrimSpace(filter.Category)
 		filter.Severity = strings.TrimSpace(filter.Severity)
 		filter.Keyword = strings.TrimSpace(filter.Keyword)
-		filter.Limit = int32(clampLogLimit(int(filter.Limit)))
+		filter.Limit = int32(shared.ClampLimit(int(filter.Limit), 1, maxLogLimit, defaultLogLimit))
 		return s.busLogs.List(ctx, filter)
 	})
 }

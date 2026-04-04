@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -255,7 +256,7 @@ func siblingDocumentRefs(target documentRef) ([]documentRef, error) {
 		if path == target.absPath {
 			continue
 		}
-		absPath, err := normalizeAbsolutePath(path)
+		absPath, err := platformshared.NormalizeAbsolutePath(path)
 		if err != nil {
 			return nil, err
 		}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 var (
@@ -138,13 +139,13 @@ var (
 )
 
 func NewManager(cfg Config) Manager {
-	root, err := normalizeAbsolutePath(cfg.WorkspaceRoot)
+	root, err := platformshared.NormalizeAbsolutePath(cfg.WorkspaceRoot)
 	if err != nil {
 		root = ""
 	}
 	if root == "" {
 		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-			root, _ = normalizeAbsolutePath(cwd)
+			root, _ = platformshared.NormalizeAbsolutePath(cwd)
 		}
 	}
 	mgr := &manager{
@@ -174,7 +175,7 @@ func (m *manager) resolveDocumentRef(target, languageID string) (documentRef, er
 	if strings.HasPrefix(trimmed, "file://") {
 		absPath, err = absolutePathFromURI(trimmed)
 	} else {
-		absPath, err = normalizeAbsolutePath(trimmed)
+		absPath, err = platformshared.NormalizeAbsolutePath(trimmed)
 	}
 	if err != nil {
 		return documentRef{}, err
@@ -208,7 +209,7 @@ func (m *manager) resolveWorkspaceForDocument(ref documentRef) (workspaceConfig,
 	if root == "" {
 		root = filepath.Dir(ref.absPath)
 	}
-	root, err := normalizeAbsolutePath(root)
+	root, err := platformshared.NormalizeAbsolutePath(root)
 	if err != nil {
 		return workspaceConfig{}, err
 	}

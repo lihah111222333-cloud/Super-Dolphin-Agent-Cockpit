@@ -8,26 +8,11 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-func checkCtx(ctx context.Context) error {
-	if ctx == nil {
-		return nil
-	}
-	return ctx.Err()
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func encodeAttachmentHint(input dto.InputItem) string {
-	target := firstNonEmpty(input.Path, input.URL)
+	target := shared.FirstNonEmpty(input.Path, input.URL)
 	if target == "" {
 		return ""
 	}
@@ -205,7 +190,7 @@ func buildEventData(base rawBase, sessionID, timestamp string, extras map[string
 	data := map[string]any{
 		"agent_id":   strings.TrimSpace(base.AgentID),
 		"thread_id":  threadID,
-		"session_id": firstNonEmpty(sessionID, threadID),
+		"session_id": shared.FirstNonEmpty(sessionID, threadID),
 		"turn_id":    strings.TrimSpace(base.TurnID),
 	}
 	if timestamp = strings.TrimSpace(timestamp); timestamp != "" {

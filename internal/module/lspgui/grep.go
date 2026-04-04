@@ -8,9 +8,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 var errStopSearch = errors.New("stop search")
@@ -20,11 +20,7 @@ const (
 	maxSearchFileBytes = 1024 * 1024
 )
 
-type lineMatcher struct {
-	needle        string
-	regex         *regexp.Regexp
-	caseSensitive bool
-}
+type lineMatcher = shared.LineMatcher
 
 func (s *service) HandleGrep(ctx context.Context, p grepParams) (any, error) {
 	switch strings.TrimSpace(p.Action) {
@@ -38,7 +34,7 @@ func (s *service) HandleGrep(ctx context.Context, p grepParams) (any, error) {
 }
 
 func (s *service) textSearch(ctx context.Context, p grepParams) (searchResult, error) {
-	matcher, err := newLineMatcher(p.Query, p.Regex, p.CaseSensitive)
+	matcher, err := shared.NewLineMatcher(p.Query, p.Regex, p.CaseSensitive)
 	if err != nil {
 		return searchResult{}, err
 	}
@@ -57,47 +53,6 @@ func (s *service) textSearch(ctx context.Context, p grepParams) (searchResult, e
 		return searchResult{}, err
 	}
 	return searchResult{Results: results}, nil
-}
-
-func newLineMatcher(query string, regexMode, caseSensitive bool) (lineMatcher, error) {
-	needle := strings.TrimSpace(query)
-	if needle == "" {
-		return lineMatcher{}, errors.New("query is required")
-	}
-	if regexMode {
-		if !caseSensitive {
-			needle = "(?i)" + needle
-		}
-		re, err := regexp.Compile(needle)
-		if err != nil {
-			return lineMatcher{}, err
-		}
-		return lineMatcher{regex: re, caseSensitive: caseSensitive}, nil
-	}
-	if caseSensitive {
-		return lineMatcher{needle: needle, caseSensitive: true}, nil
-	}
-	return lineMatcher{needle: strings.ToLower(needle)}, nil
-}
-
-func (m lineMatcher) find(line string) (int, bool) {
-	if m.regex != nil {
-		loc := m.regex.FindStringIndex(line)
-		if loc == nil {
-			return 0, false
-		}
-		return utf8.RuneCountInString(line[:loc[0]]), true
-	}
-	haystack := line
-	needle := m.needle
-	if !m.caseSensitive {
-		haystack = strings.ToLower(line)
-	}
-	idx := strings.Index(haystack, needle)
-	if idx < 0 {
-		return 0, false
-	}
-	return utf8.RuneCountInString(line[:idx]), true
 }
 
 func searchPath(
@@ -187,7 +142,7 @@ func searchFile(
 			return nil, err
 		}
 		line := scanner.Text()
-		col, ok := matcher.find(line)
+		col, ok := matcher.Find(line)
 		if !ok {
 			continue
 		}

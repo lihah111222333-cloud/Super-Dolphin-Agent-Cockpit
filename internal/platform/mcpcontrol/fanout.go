@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type sendTarget struct {
@@ -36,7 +37,7 @@ func (r *ToolRegistry) IntersectTargets(sel dto.Selector) []sendTarget {
 }
 
 func (r *ToolRegistry) selectorBucketsLocked(sel dto.Selector) ([]selectorBucket, bool) {
-	scope := normalizeSelectorScope(sel.Scope)
+	scope := shared.NormalizeSelectorScope(sel.Scope)
 	specs := []struct {
 		key   string
 		index map[string]map[LeaseKey]struct{}
@@ -113,18 +114,6 @@ func (r *ToolRegistry) activeTargetLocked(key LeaseKey) (sendTarget, bool) {
 		return sendTarget{}, false
 	}
 	return sendTarget{key: key, peer: instance.Peer}, true
-}
-
-func normalizeSelectorScope(scope *dto.SelectorScope) dto.SelectorScope {
-	if scope == nil {
-		return dto.SelectorScope{}
-	}
-	return dto.SelectorScope{
-		AgentID:    strings.TrimSpace(scope.AgentID),
-		ThreadID:   strings.TrimSpace(scope.ThreadID),
-		ClientKind: strings.TrimSpace(scope.ClientKind),
-		InstanceID: strings.TrimSpace(scope.InstanceID),
-	}
 }
 
 func selectorIndexBucket(key string, index map[string]map[LeaseKey]struct{}) (map[LeaseKey]struct{}, bool) {

@@ -8,9 +8,10 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -21,22 +22,22 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	}
 }
 
-func buildAgentSessionHeader(payload map[string]any) shared.AgentSessionHeader {
+func buildAgentSessionHeader(payload map[string]any) shareddto.AgentSessionHeader {
 	agentID := payloadAgentID(payload)
-	threadID := firstNonEmpty(agentID, payloadThreadID(payload))
-	return shared.AgentSessionHeader{AgentHeader: shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: eventTime(payload)}, ThreadID: threadID}, AgentID: agentID}, SessionID: firstNonEmpty(stringValue(payload, "sessionId", "session_id"), threadID)}
+	threadID := shared.FirstNonEmpty(agentID, payloadThreadID(payload))
+	return shareddto.AgentSessionHeader{AgentHeader: shareddto.AgentHeader{ThreadHeader: shareddto.ThreadHeader{EventHeader: shareddto.EventHeader{Timestamp: eventTime(payload)}, ThreadID: threadID}, AgentID: agentID}, SessionID: shared.FirstNonEmpty(stringValue(payload, "sessionId", "session_id"), threadID)}
 }
 
-func buildTurnHeader(payload map[string]any) shared.TurnHeader {
-	return shared.TurnHeader{AgentHeader: buildAgentSessionHeader(payload).AgentHeader, TurnIDHeader: shared.TurnIDHeader{TurnID: payloadTurnID(payload)}}
+func buildTurnHeader(payload map[string]any) shareddto.TurnHeader {
+	return shareddto.TurnHeader{AgentHeader: buildAgentSessionHeader(payload).AgentHeader, TurnIDHeader: shareddto.TurnIDHeader{TurnID: payloadTurnID(payload)}}
 }
 
-func buildToolCallHeader(payload map[string]any) shared.ToolCallHeader {
-	return shared.ToolCallHeader{TurnHeader: buildTurnHeader(payload), CallID: payloadCallID(payload), ToolName: payloadToolName(payload)}
+func buildToolCallHeader(payload map[string]any) shareddto.ToolCallHeader {
+	return shareddto.ToolCallHeader{TurnHeader: buildTurnHeader(payload), CallID: payloadCallID(payload), ToolName: payloadToolName(payload)}
 }
 
-func buildToolApprovalHeader(payload map[string]any) shared.ToolApprovalHeader {
-	return shared.ToolApprovalHeader{ToolCallHeader: buildToolCallHeader(payload), ApprovalID: stringValue(payload, "approvalId", "approval_id")}
+func buildToolApprovalHeader(payload map[string]any) shareddto.ToolApprovalHeader {
+	return shareddto.ToolApprovalHeader{ToolCallHeader: buildToolCallHeader(payload), ApprovalID: stringValue(payload, "approvalId", "approval_id")}
 }
 
 func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
@@ -125,13 +126,13 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 	case "recovery.attempt":
 		return agentdto.AgentRecovering{
 			AgentSessionHeader: buildAgentSessionHeader(payload),
-			Reason:             firstNonEmpty(stringValue(payload, "reason", "message"), "reconnecting"),
+			Reason:             shared.FirstNonEmpty(stringValue(payload, "reason", "message"), "reconnecting"),
 			Attempt:            int(int64Value(payload, "attempt")),
 		}, true
 	case "connection.dead":
 		return agentdto.AgentFailed{
 			AgentSessionHeader: buildAgentSessionHeader(payload),
-			Error:              firstNonEmpty(stringValue(payload, "error", "message"), "connection lost"),
+			Error:              shared.FirstNonEmpty(stringValue(payload, "error", "message"), "connection lost"),
 			Recoverable:        boolValue(payload, "recoverable", "willRetry", "will_retry"),
 		}, true
 	default:
@@ -345,10 +346,8 @@ func looksLikeToolCall(payload map[string]any) bool {
 
 func eventTime(payload map[string]any) time.Time {
 	if raw := stringValue(payload, "timestamp", "ts", "createdAt", "created_at"); raw != "" {
-		for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
-			if parsed, err := time.Parse(layout, raw); err == nil {
-				return parsed
-			}
+		if parsed := shared.ParseRFC3339Loose(raw); !parsed.IsZero() {
+			return parsed
 		}
 	}
 	return time.Now()

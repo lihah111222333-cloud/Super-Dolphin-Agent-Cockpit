@@ -7,6 +7,7 @@ import (
 	"time"
 
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type promptListInput struct {
@@ -106,8 +107,8 @@ func promptTemplateFromStore(template promptstore.PromptTemplate) promptTemplate
 		AgentKey:    template.AgentKey,
 		ToolName:    template.ToolName,
 		PromptText:  template.PromptText,
-		Variables:   cloneRawMessage(template.Variables),
-		Tags:        cloneRawMessage(template.Tags),
+		Variables:   shared.CloneRawMessage(template.Variables),
+		Tags:        shared.CloneRawMessage(template.Tags),
 		Enabled:     template.Enabled,
 		CreatedBy:   template.CreatedBy,
 		UpdatedBy:   template.UpdatedBy,

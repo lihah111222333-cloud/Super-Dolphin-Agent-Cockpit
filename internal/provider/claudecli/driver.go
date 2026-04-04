@@ -84,7 +84,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
-		threadID:     firstNonEmpty(req.ProviderThreadID, req.ThreadID),
+		threadID:     shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID),
 		publicThread: req.ThreadID,
 		cwd:          req.CWD,
 		model:        req.Model,
@@ -92,7 +92,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 }
 
 func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, error) {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
 	tr, cleanup, err := launchCLI(
@@ -108,7 +108,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		return nil, err
 	}
 	initialThreadID := fallbackThreadID(spec.agentID, spec.threadID)
-	publicThreadID := firstNonEmpty(spec.publicThread, spec.agentID, initialThreadID)
+	publicThreadID := shared.FirstNonEmpty(spec.publicThread, spec.agentID, initialThreadID)
 	s := &session{
 		agentID:         strings.TrimSpace(spec.agentID),
 		threadID:        initialThreadID,

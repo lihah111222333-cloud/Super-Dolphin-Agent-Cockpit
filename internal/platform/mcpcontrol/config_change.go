@@ -11,6 +11,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/kelindar/event"
 )
 
@@ -81,7 +82,7 @@ func publishConfigChanged(
 }
 
 func configChangeSelectorScope(payload map[string]any) *dto.SelectorScope {
-	scope := normalizeSelectorScope(&dto.SelectorScope{
+	scope := shared.NormalizeSelectorScope(&dto.SelectorScope{
 		AgentID:  configChangePayloadString(payload, "agentId", "agent_id"),
 		ThreadID: configChangePayloadString(payload, "threadId", "thread_id"),
 	})

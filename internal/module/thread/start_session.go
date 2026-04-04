@@ -11,16 +11,16 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const defaultStartProvider = "codex"
 
 func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 	req = trimStartRequest(req)
-	req.Prompt = firstNonEmpty(req.Prompt, req.BaseInstructions)
+	req.Prompt = shared.FirstNonEmpty(req.Prompt, req.BaseInstructions)
 	if req.AgentID == "" {
-		req.AgentID = shareddto.NewID("agent")
+		req.AgentID = shared.NewID("agent")
 	}
 	req, err := resolveStartConfig(req)
 	if err != nil {
@@ -49,7 +49,7 @@ func trimStartRequest(req StartRequest) StartRequest {
 func resolveStartConfig(req StartRequest) (StartRequest, error) {
 	// ModelProvider from frontend (e.g. "claude") should drive provider selection
 	// when Provider is not explicitly set.
-	provider, err := resolveStartProvider(firstNonEmpty(req.Provider, req.ModelProvider))
+	provider, err := resolveStartProvider(shared.FirstNonEmpty(req.Provider, req.ModelProvider))
 	if err != nil {
 		return StartRequest{}, err
 	}
@@ -64,9 +64,9 @@ func resolveStartConfig(req StartRequest) (StartRequest, error) {
 }
 
 func resolveStartProvider(provider string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(firstNonEmpty(provider, defaultStartProvider))) {
+	switch strings.ToLower(strings.TrimSpace(shared.FirstNonEmpty(provider, defaultStartProvider))) {
 	case "codex", "claude":
-		return strings.ToLower(strings.TrimSpace(firstNonEmpty(provider, defaultStartProvider))), nil
+		return strings.ToLower(strings.TrimSpace(shared.FirstNonEmpty(provider, defaultStartProvider))), nil
 	default:
 		return "", fmt.Errorf("invalid provider %q", strings.TrimSpace(provider))
 	}
@@ -143,7 +143,7 @@ func (s *service) startSession(ctx context.Context, req StartRequest, agentID st
 		AgentID:      agentID,
 		CWD:          req.CWD,
 		Model:        req.Model,
-		Instructions: firstNonEmpty(req.BaseInstructions, req.Prompt),
+		Instructions: shared.FirstNonEmpty(req.BaseInstructions, req.Prompt),
 		Config:       buildStartSessionConfig(req),
 	})
 }
@@ -188,13 +188,13 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	}
 	requestedThreadID := req.ThreadID
 	state := s.lookupResumeState(ctx, requestedThreadID)
-	state.PublicThreadID = firstNonEmpty(state.PublicThreadID, requestedThreadID)
-	state.ProviderThreadID = firstNonEmpty(state.ProviderThreadID, requestedThreadID)
-	req.AgentID = firstNonEmpty(req.AgentID, state.AgentID)
-	req.Provider = firstNonEmpty(req.Provider, state.Provider)
-	req.ProviderThreadID = firstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
-	req.CWD = firstNonEmpty(req.CWD, req.Path, state.CWD)
-	req.Model = firstNonEmpty(req.Model, state.Model)
+	state.PublicThreadID = shared.FirstNonEmpty(state.PublicThreadID, requestedThreadID)
+	state.ProviderThreadID = shared.FirstNonEmpty(state.ProviderThreadID, requestedThreadID)
+	req.AgentID = shared.FirstNonEmpty(req.AgentID, state.AgentID)
+	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
+	req.ProviderThreadID = shared.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
+	req.CWD = shared.FirstNonEmpty(req.CWD, req.Path, state.CWD)
+	req.Model = shared.FirstNonEmpty(req.Model, state.Model)
 	req.ThreadID = state.PublicThreadID
 	if req.Provider == "" {
 		return ResumeRequest{}, resumeState{}, errors.New("provider is required")
@@ -233,11 +233,11 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 	}
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err == nil && binding != nil {
-		state.AgentID = firstNonEmpty(state.AgentID, binding.AgentID)
+		state.AgentID = shared.FirstNonEmpty(state.AgentID, binding.AgentID)
 		state.Provider = strings.TrimSpace(binding.Provider)
-		state.ProviderThreadID = firstNonEmpty(state.ProviderThreadID, binding.ProviderThreadID)
-		state.PublicThreadID = firstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
-		state.CWD = firstNonEmpty(state.CWD, binding.Cwd)
+		state.ProviderThreadID = shared.FirstNonEmpty(state.ProviderThreadID, binding.ProviderThreadID)
+		state.PublicThreadID = shared.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
+		state.CWD = shared.FirstNonEmpty(state.CWD, binding.Cwd)
 	}
 	return state
 }

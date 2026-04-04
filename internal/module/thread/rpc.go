@@ -11,6 +11,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -108,8 +109,8 @@ func newStartHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
-		status := firstNonEmpty(result.Status, "running")
-		sessionID := firstNonEmpty(result.SessionID, result.ThreadID)
+		status := shared.FirstNonEmpty(result.Status, "running")
+		sessionID := shared.FirstNonEmpty(result.SessionID, result.ThreadID)
 		effective := map[string]any{
 			"model":          result.Model,
 			"provider":       result.Provider,
@@ -279,7 +280,7 @@ var errApprovalsSetArgsConflict = errors.New("thread/approvals/set: policy and a
 func newResumeHandler(svc Service) handler.Func {
 	return rpc.ThreadHandler(func(ctx context.Context, p resumeParams) (any, error) {
 		result, err := svc.Resume(ctx, ResumeRequest{
-			ThreadID: firstNonEmpty(p.ThreadID, rpc.ThreadIDFrom(ctx)),
+			ThreadID: shared.FirstNonEmpty(p.ThreadID, rpc.ThreadIDFrom(ctx)),
 			Path:     p.Path,
 			CWD:      p.CWD,
 			Model:    p.Model,
@@ -288,8 +289,8 @@ func newResumeHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
-		status := firstNonEmpty(result.Status, "resumed")
-		sessionID := firstNonEmpty(result.SessionID, result.ThreadID)
+		status := shared.FirstNonEmpty(result.Status, "resumed")
+		sessionID := shared.FirstNonEmpty(result.SessionID, result.ThreadID)
 		return map[string]any{
 			"thread":     threadInfo{ID: result.ThreadID, Status: status},
 			"threadId":   result.ThreadID,

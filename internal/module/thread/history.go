@@ -13,6 +13,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const eventTypeAgentMessage = "agent_message"
@@ -23,7 +24,7 @@ func (s *service) ReadHistory(ctx context.Context, threadID string, limit int) (
 		return nil, err
 	}
 	targetID := historyTargetID(binding, threadID)
-	return session.ReadHistory(ctx, targetID, normalizeHistoryLimit(limit))
+	return session.ReadHistory(ctx, targetID, shared.ClampLimit(limit, 0, 0, 0))
 }
 
 type threadReadProvider interface {
@@ -61,11 +62,11 @@ func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[s
 		return nil, offlineErr
 	}
 	if err != nil {
-		return cloneRuntimeConfigMap(offline.Runtime), nil
+		return shared.CloneRuntimeConfigMap(offline.Runtime), nil
 	}
 	reader, ok := session.(runtimeConfigReaderSession)
 	if !ok {
-		return cloneRuntimeConfigMap(offline.Runtime), nil
+		return shared.CloneRuntimeConfigMap(offline.Runtime), nil
 	}
 	return mergeRuntimeConfig(offline.Runtime, reader.RuntimeConfigSnapshot()), nil
 }
@@ -119,7 +120,7 @@ func buildReadHistoryResultFromThreads(threads []dto.ThreadRef, fallbackID strin
 func readHistoryFallbackID(ref *Ref, threadID string) string {
 	fallbackID := strings.TrimSpace(threadID)
 	if ref != nil {
-		return firstNonEmpty(ref.ID, fallbackID)
+		return shared.FirstNonEmpty(ref.ID, fallbackID)
 	}
 	return fallbackID
 }
@@ -141,33 +142,11 @@ func buildReadHistoryResult(threadIDs ...string) *ReadHistoryResult {
 	return &result
 }
 
-func cloneRuntimeConfigMap(cfg map[string]any) map[string]any {
-	if len(cfg) == 0 {
-		return nil
-	}
-	raw, err := json.Marshal(cfg)
-	if err != nil {
-		out := make(map[string]any, len(cfg))
-		for key, value := range cfg {
-			out[key] = value
-		}
-		return out
-	}
-	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		out = make(map[string]any, len(cfg))
-		for key, value := range cfg {
-			out[key] = value
-		}
-	}
-	return out
-}
-
 func mergeRuntimeConfig(base, overlay map[string]any) map[string]any {
 	if len(base) == 0 {
-		return cloneRuntimeConfigMap(overlay)
+		return shared.CloneRuntimeConfigMap(overlay)
 	}
-	merged := cloneRuntimeConfigMap(base)
+	merged := shared.CloneRuntimeConfigMap(base)
 	if len(overlay) == 0 {
 		return merged
 	}
@@ -200,13 +179,6 @@ func decorateThreadMessages(agentID string, messages []dto.Message) []dto.Messag
 		out = append(out, next)
 	}
 	return out
-}
-
-func normalizeHistoryLimit(limit int) int {
-	if limit < 0 {
-		return 0
-	}
-	return limit
 }
 
 func selectMessagesPage(all []dto.Message, limit int, before string) ([]dto.Message, error) {
