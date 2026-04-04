@@ -51,14 +51,7 @@ func resolveBinaryDir() string {
 }
 
 func (s *service) PrepareTurn(ctx context.Context, session contract.Session, input PrepareInput) (dto.TurnRequest, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return dto.TurnRequest{}, err
-	}
-	if err := requireSession(session); err != nil {
-		return dto.TurnRequest{}, err
-	}
-	threadID, err := resolveThreadID(session, "")
+	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
 		return dto.TurnRequest{}, err
 	}
@@ -80,15 +73,8 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 }
 
 func (s *service) StartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := requireSession(session); err != nil {
-		return nil, err
-	}
+	ctx, threadID, err := requireTurnContext(ctx, session, req.ThreadID)
 	req.LocalID = ensureLocalTurnID(req.LocalID)
-	threadID, err := resolveThreadID(session, req.ThreadID)
 	if err != nil {
 		return nil, err
 	}
@@ -113,14 +99,7 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 }
 
 func (s *service) SteerTurn(ctx context.Context, session contract.Session, expectedTurnID string, input PrepareInput) (contract.TurnHandle, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := requireSession(session); err != nil {
-		return nil, err
-	}
-	threadID, err := resolveThreadID(session, "")
+	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +115,7 @@ func (s *service) SteerTurn(ctx context.Context, session contract.Session, expec
 	if err != nil {
 		return nil, err
 	}
-	if err := steerer.Steer(ctx, buildSteerRequest(req, active.handle.ProviderID())); err != nil {
+	if err := steerer.Steer(ctx, newSteerRequest(req, active.handle.ProviderID())); err != nil {
 		return nil, err
 	}
 	return active.handle, nil
@@ -165,27 +144,8 @@ func requireSteerableSession(session contract.Session) (steerableSession, error)
 	return steerer, nil
 }
 
-func buildSteerRequest(req dto.TurnRequest, expectedTurnID string) dto.SteerRequest {
-	return dto.SteerRequest{
-		ThreadID:             req.ThreadID,
-		ExpectedTurnID:       strings.TrimSpace(expectedTurnID),
-		Inputs:               append([]dto.InputItem(nil), req.Inputs...),
-		Skills:               append([]dto.SkillRef(nil), req.Skills...),
-		ManualSkillSelection: req.ManualSkillSelection,
-		OutputSchema:         append([]byte(nil), req.OutputSchema...),
-		Overrides:            req.Overrides,
-	}
-}
-
 func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Session) error {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := requireSession(session); err != nil {
-		return err
-	}
-	threadID, err := resolveThreadID(session, "")
+	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
 		return err
 	}
@@ -321,24 +281,6 @@ func normalizeContext(ctx context.Context) context.Context {
 		return context.Background()
 	}
 	return ctx
-}
-
-func requireSession(session contract.Session) error {
-	if session == nil {
-		return errors.New("session is required")
-	}
-	return nil
-}
-
-func resolveThreadID(session contract.Session, requested string) (string, error) {
-	threadID := strings.TrimSpace(requested)
-	if threadID == "" {
-		threadID = strings.TrimSpace(session.ThreadID())
-	}
-	if threadID == "" {
-		return "", errors.New("thread id is required")
-	}
-	return threadID, nil
 }
 
 func ensureLocalTurnID(localID string) string {

@@ -205,7 +205,7 @@ func (s *service) prepareBindingWrite(
 }
 
 func (s *service) persistRegisteredBinding(ctx context.Context, registration bindingRegistration) error {
-	return s.bindingStore.Upsert(ctx, bindingstore.UpsertParams{
+	return s.bindingStore.Upsert(ctx, newBindingUpsertParams(bindingstore.Binding{
 		AgentID:          registration.AgentID,
 		Provider:         registration.Provider,
 		ProviderThreadID: registration.ProviderThreadID,
@@ -213,7 +213,7 @@ func (s *service) persistRegisteredBinding(ctx context.Context, registration bin
 		Cwd:              registration.CWD,
 		CreatedAt:        registration.CreatedAt,
 		UpdatedAt:        time.Now().Unix(),
-	})
+	}))
 }
 
 func (s *service) verifyOrRollbackThreadBinding(
@@ -268,7 +268,7 @@ func (s *service) rollbackThreadBinding(ctx context.Context, outcome bindingWrit
 	if outcome.Previous == nil {
 		return s.bindingStore.DeleteByAgentID(ctx, outcome.AgentID)
 	}
-	return s.bindingStore.Upsert(ctx, bindingstore.UpsertParams{
+	return s.bindingStore.Upsert(ctx, newBindingUpsertParams(bindingstore.Binding{
 		AgentID:          strings.TrimSpace(outcome.Previous.AgentID),
 		Provider:         strings.TrimSpace(outcome.Previous.Provider),
 		ProviderThreadID: strings.TrimSpace(outcome.Previous.ProviderThreadID),
@@ -277,7 +277,7 @@ func (s *service) rollbackThreadBinding(ctx context.Context, outcome bindingWrit
 		Cwd:              strings.TrimSpace(outcome.Previous.Cwd),
 		CreatedAt:        outcome.Previous.CreatedAt,
 		UpdatedAt:        time.Now().Unix(),
-	})
+	}))
 }
 
 func cloneBinding(binding *bindingstore.Binding) *bindingstore.Binding {

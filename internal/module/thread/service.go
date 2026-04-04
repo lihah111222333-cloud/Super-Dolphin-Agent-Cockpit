@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
@@ -215,19 +214,7 @@ func (s *service) upsertThread(ctx context.Context, thread threadstore.Thread) e
 	if s.threadStore == nil {
 		return errors.New("thread store is not configured")
 	}
-	return s.threadStore.Upsert(ctx, threadstore.UpsertParams{
-		ThreadID:       thread.ThreadID,
-		Prompt:         thread.Prompt,
-		Model:          thread.Model,
-		Cwd:            thread.Cwd,
-		Status:         thread.Status,
-		Port:           thread.Port,
-		PID:            thread.PID,
-		CreatedAt:      thread.CreatedAt,
-		UpdatedAt:      thread.UpdatedAt,
-		OwnerThreadID:  thread.OwnerThreadID,
-		ConfigOverride: thread.ConfigOverride,
-	})
+	return s.threadStore.Upsert(ctx, newThreadUpsertParams(thread))
 }
 
 func (s *service) updateThreadStatus(ctx context.Context, threadID, status string) error {
@@ -253,60 +240,7 @@ func (s *service) resolveBinding(ctx context.Context, threadID string) (*binding
 	if s.bindingStore == nil {
 		return nil, errors.New("binding store is not configured")
 	}
-	binding, err := s.bindingByAgentID(ctx, id)
-	if binding != nil || err == nil {
-		return binding, err
-	}
-	for _, lookup := range []func(context.Context, string) *bindingstore.Binding{
-		s.bindingByPersistedThreadAgent,
-		s.bindingByRememberedThreadAgent,
-		s.bindingByProviderThreadID,
-	} {
-		if binding := lookup(ctx, id); binding != nil {
-			return binding, nil
-		}
-	}
-	return nil, err
-}
-
-func (s *service) bindingByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error) {
-	binding, err := s.bindingStore.GetByAgentID(ctx, agentID)
-	if err == nil {
-		s.rememberBinding(binding)
-	}
-	return binding, err
-}
-
-func (s *service) bindingByPersistedThreadAgent(ctx context.Context, threadID string) *bindingstore.Binding {
-	agentID := s.lookupPersistedAgentID(ctx, threadID)
-	return s.bindingByResolvedAgentID(ctx, threadID, agentID)
-}
-
-func (s *service) bindingByRememberedThreadAgent(ctx context.Context, threadID string) *bindingstore.Binding {
-	agentID := s.lookupThreadAgent(threadID)
-	return s.bindingByResolvedAgentID(ctx, threadID, agentID)
-}
-
-func (s *service) bindingByResolvedAgentID(ctx context.Context, threadID, agentID string) *bindingstore.Binding {
-	if agentID == "" || agentID == threadID {
-		return nil
-	}
-	binding, err := s.bindingByAgentID(ctx, agentID)
-	if err != nil {
-		return nil
-	}
-	return binding
-}
-
-func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string) *bindingstore.Binding {
-	for _, provider := range []string{"codex", "claude"} {
-		binding, err := s.bindingStore.GetByProviderThread(ctx, provider, threadID)
-		if err == nil {
-			s.rememberBinding(binding)
-			return binding
-		}
-	}
-	return nil
+	return s.resolveBindingChain(ctx, id)
 }
 
 func (s *service) resolveSession(ctx context.Context, threadID string) (contract.Session, *bindingstore.Binding, error) {
@@ -365,38 +299,38 @@ func (s *service) publishThreadStarted(state threadState) {
 	if s == nil || s.emitStarted == nil {
 		return
 	}
-	s.emitStarted(threaddto.Started{
-		EventHeader:      shared.EventHeader{Timestamp: time.Now()},
-		ThreadID:         strings.TrimSpace(state.PublicThreadID),
-		AgentID:          strings.TrimSpace(state.AgentID),
-		Provider:         strings.TrimSpace(state.Provider),
-		ProviderThreadID: strings.TrimSpace(resolveProviderThreadID(state.ProviderThreadID, state.PublicThreadID)),
-		CWD:              strings.TrimSpace(state.CWD),
-		Model:            strings.TrimSpace(state.Model),
-	})
+	event := newThreadEvent(threadEventStartedKind, state.PublicThreadID, threadEventFields{State: state})
+	if event == nil {
+		return
+	}
+	s.emitStarted(event.(threaddto.Started))
 }
 
 func (s *service) publishThreadStopped(threadID, agentID, status, reason string) {
 	if s == nil || s.emitStopped == nil {
 		return
 	}
-	s.emitStopped(threaddto.Stopped{
-		EventHeader: shared.EventHeader{Timestamp: time.Now()},
-		ThreadID:    strings.TrimSpace(threadID),
-		AgentID:     strings.TrimSpace(agentID),
-		Status:      strings.TrimSpace(status),
-		Reason:      strings.TrimSpace(reason),
+	event := newThreadEvent(threadEventStoppedKind, threadID, threadEventFields{
+		AgentID: agentID,
+		Status:  status,
+		Reason:  reason,
 	})
+	if event == nil {
+		return
+	}
+	s.emitStopped(event.(threaddto.Stopped))
 }
 
 func (s *service) publishMessagesPage(threadID string, totalCount, pages int) {
-	if s == nil || s.emitMessagesPage == nil || strings.TrimSpace(threadID) == "" {
+	if s == nil || s.emitMessagesPage == nil {
 		return
 	}
-	s.emitMessagesPage(threaddto.MessagesPage{
-		EventHeader: shared.EventHeader{Timestamp: time.Now()},
-		ThreadID:    strings.TrimSpace(threadID),
-		TotalCount:  totalCount,
-		Pages:       pages,
+	event := newThreadEvent(threadEventMessagesPageKind, threadID, threadEventFields{
+		TotalCount: totalCount,
+		Pages:      pages,
 	})
+	if event == nil {
+		return
+	}
+	s.emitMessagesPage(event.(threaddto.MessagesPage))
 }

@@ -83,25 +83,25 @@ func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 			return p.Registry.Heartbeat(ctx, req)
 		}),
 		dto.MethodContext: rpc.StrictHandler(func(ctx context.Context, req dto.ContextRequest) (dto.ContextResponse, error) {
-			instance, err := resolveRegisteredInstance(p.Registry, req.Lease, false)
-			if err != nil {
-				return dto.ContextResponse{}, err
-			}
-			return contextProvider.GetContext(ctx, instance, req)
+			return withResolvedInstance(p.Registry, req, func(req dto.ContextRequest) dto.LeaseKey {
+				return req.Lease
+			}, func(instance *ToolInstance) (dto.ContextResponse, error) {
+				return contextProvider.GetContext(ctx, instance, req)
+			})
 		}),
 		dto.MethodEvent: rpc.StrictHandler(func(ctx context.Context, req dto.EventNotify) (ackResponse, error) {
-			instance, err := resolveRegisteredInstance(p.Registry, req.Lease, false)
-			if err != nil {
-				return ackResponse{}, err
-			}
-			return ackResponse{OK: true}, eventSink.HandleEvent(ctx, instance, req)
+			return withResolvedInstance(p.Registry, req, func(req dto.EventNotify) dto.LeaseKey {
+				return req.Lease
+			}, func(instance *ToolInstance) (ackResponse, error) {
+				return ackResponse{OK: true}, eventSink.HandleEvent(ctx, instance, req)
+			})
 		}),
 		dto.MethodLog: rpc.StrictHandler(func(ctx context.Context, req dto.LogNotify) (ackResponse, error) {
-			instance, err := resolveRegisteredInstance(p.Registry, req.Lease, false)
-			if err != nil {
-				return ackResponse{}, err
-			}
-			return ackResponse{OK: true}, logSink.HandleLog(ctx, instance, req)
+			return withResolvedInstance(p.Registry, req, func(req dto.LogNotify) dto.LeaseKey {
+				return req.Lease
+			}, func(instance *ToolInstance) (ackResponse, error) {
+				return ackResponse{OK: true}, logSink.HandleLog(ctx, instance, req)
+			})
 		}),
 		dto.MethodApproval: rpc.StrictHandler(func(ctx context.Context, req dto.ApprovalRequest) (dto.ApprovalResponse, error) {
 			return requestApproval(ctx, p.Registry, p.Approvals, p.Bridge, req)
@@ -131,42 +131,41 @@ func requestApproval(
 	if approvals == nil {
 		return dto.ApprovalResponse{}, errApprovalUnavailable("mcp approval manager is not configured")
 	}
-	instance, err := resolveRegisteredInstance(registry, req.Lease, false)
-	if err != nil {
-		return dto.ApprovalResponse{}, err
-	}
 	server, err := serverFromContext(ctx)
 	if err != nil {
 		return dto.ApprovalResponse{}, err
 	}
-
-	callCtx := ctx
-	if req.TimeoutMs > 0 {
-		var cancel context.CancelFunc
-		callCtx, cancel = platformconfig.WithPeerTimeout(ctx, timeDurationMillis(req.TimeoutMs))
-		defer cancel()
-	}
-	payload := decodePayloadMap(req.Payload)
-	decision, err := approvals.RequestApproval(callCtx, bridge, server, rpc.ApprovalRequest{
-		CallID:       req.CallID,
-		ApprovalID:   req.CallID,
-		ToolName:     req.ToolName,
-		AgentID:      instance.AgentID,
-		ThreadID:     instance.ThreadID,
-		Reason:       req.Reason,
-		Kind:         req.Kind,
-		SourceMethod: dto.MethodApproval,
-		Payload:      payload,
+	return withResolvedInstance(registry, req, func(req dto.ApprovalRequest) dto.LeaseKey {
+		return req.Lease
+	}, func(instance *ToolInstance) (dto.ApprovalResponse, error) {
+		callCtx := ctx
+		if req.TimeoutMs > 0 {
+			var cancel context.CancelFunc
+			callCtx, cancel = platformconfig.WithPeerTimeout(ctx, timeDurationMillis(req.TimeoutMs))
+			defer cancel()
+		}
+		payload := decodePayloadMap(req.Payload)
+		decision, err := approvals.RequestApproval(callCtx, bridge, server, rpc.ApprovalRequest{
+			CallID:       req.CallID,
+			ApprovalID:   req.CallID,
+			ToolName:     req.ToolName,
+			AgentID:      instance.AgentID,
+			ThreadID:     instance.ThreadID,
+			Reason:       req.Reason,
+			Kind:         req.Kind,
+			SourceMethod: dto.MethodApproval,
+			Payload:      payload,
+		})
+		if err != nil {
+			return dto.ApprovalResponse{}, err
+		}
+		return dto.ApprovalResponse{
+			Approved:       decision.Approved,
+			Reason:         decision.Reason,
+			Detail:         append(json.RawMessage(nil), decision.Detail...),
+			DecisionSource: approvalDecisionSource(decision),
+		}, nil
 	})
-	if err != nil {
-		return dto.ApprovalResponse{}, err
-	}
-	return dto.ApprovalResponse{
-		Approved:       decision.Approved,
-		Reason:         decision.Reason,
-		Detail:         append(json.RawMessage(nil), decision.Detail...),
-		DecisionSource: approvalDecisionSource(decision),
-	}, nil
 }
 
 func approvalDecisionSource(decision contract.ApprovalDecision) string {
@@ -279,15 +278,6 @@ func filterKeys(payload map[string]any, keys []string) map[string]any {
 }
 
 func serverFromContext(ctx context.Context) (server *jrpc2.Server, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = errPeerUnavailable("mcp control request must run inside a jrpc2 handler")
-			server = nil
-		}
-	}()
-	server = jrpc2.ServerFromContext(ctx)
-	if server == nil {
-		return nil, errPeerUnavailable("mcp control peer is not available")
-	}
-	return server, nil
+	server, _, err = resolveServerPeer(ctx)
+	return server, err
 }

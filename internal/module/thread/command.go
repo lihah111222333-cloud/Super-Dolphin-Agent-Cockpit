@@ -262,70 +262,6 @@ func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.
 	return cfg, nil
 }
 
-func normalizeThreadConfigPatch(
-	ctx context.Context,
-	session contract.Session,
-	provider string,
-	patch dto.ThreadConfigPatch,
-) (dto.ThreadConfigPatch, error) {
-	patch.Model = trimThreadConfigPatchValue(patch.Model)
-	patch.Effort = trimThreadConfigPatchValue(patch.Effort)
-	patch.Personality = trimThreadConfigPatchValue(patch.Personality)
-	patch.Approvals = trimThreadConfigPatchValue(patch.Approvals)
-	if model := threadConfigPatchValue(patch.Model); model != "" {
-		validated, err := validateModelName(model)
-		if err != nil {
-			return dto.ThreadConfigPatch{}, err
-		}
-		patch.Model = &validated
-		if err := ensureAllowedModel(ctx, session, validated, provider); err != nil {
-			return dto.ThreadConfigPatch{}, err
-		}
-	}
-	if err := validateThreadConfigEffort(threadConfigPatchValue(patch.Effort)); err != nil {
-		return dto.ThreadConfigPatch{}, err
-	}
-	return patch, nil
-}
-
-func threadConfigPatchNoop(patch dto.ThreadConfigPatch) bool {
-	return patch.Model == nil &&
-		patch.Effort == nil &&
-		patch.Personality == nil &&
-		patch.Approvals == nil
-}
-
-func wrapThreadConfigPatchError(err error, provider string, patch dto.ThreadConfigPatch) error {
-	if patch.Model != nil {
-		return wrapFriendlyCapabilityError(
-			err,
-			dto.CapModelSwitch,
-			provider,
-			errRuntimeModelSwitchUnsupported,
-		)
-	}
-	return err
-}
-
-func (s *service) normalizeThreadConfig(
-	ctx context.Context,
-	threadID string,
-	binding *bindingstore.Binding,
-	cfg dto.ThreadConfig,
-) dto.ThreadConfig {
-	cfg.ThreadID = firstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(threadID))
-	if binding != nil && strings.TrimSpace(cfg.Provider) == "" {
-		cfg.Provider = strings.TrimSpace(binding.Provider)
-	}
-	if !cfg.SupportsThreadOverride && supportsThreadOverride(cfg.Provider) {
-		cfg.SupportsThreadOverride = true
-	}
-	if cfg.Effective.Model == "" {
-		cfg.Effective.Model = s.storedThreadModel(ctx, threadID)
-	}
-	return cfg
-}
-
 func ensureAllowedModel(
 	ctx context.Context,
 	session contract.Session,
@@ -365,21 +301,6 @@ func modelAllowed(model string, allowed []string) bool {
 		}
 	}
 	return false
-}
-
-func trimThreadConfigPatchValue(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	trimmed := strings.TrimSpace(*value)
-	return &trimmed
-}
-
-func threadConfigPatchValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return strings.TrimSpace(*value)
 }
 
 func (s *service) storedThreadModel(ctx context.Context, threadID string) string {

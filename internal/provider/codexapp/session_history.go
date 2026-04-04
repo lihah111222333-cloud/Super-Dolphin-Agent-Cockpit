@@ -39,9 +39,9 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 	if s.history == nil {
 		return nil, errors.New("codexapp: history backend is not configured")
 	}
-	target := strings.TrimSpace(firstNonEmpty(threadID, s.ThreadID()))
-	if target == "" {
-		return nil, errors.New("codexapp: thread id is required")
+	target, err := requireThreadID(s, threadID)
+	if err != nil {
+		return nil, err
 	}
 	messages, err := s.history.ReadHistory(ctx, target, limit)
 	if err != nil {
@@ -64,14 +64,7 @@ func toProviderHistory(messages []Message) []dto.Message {
 }
 
 func decodeHistoryMetadata(raw json.RawMessage) map[string]any {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil || len(payload) == 0 {
-		return nil
-	}
-	return payload
+	return decodeJSONMap(raw)
 }
 
 func parseCodexHistoryTime(raw string) time.Time {
@@ -87,14 +80,14 @@ func parseCodexHistoryTime(raw string) time.Time {
 }
 
 func (s *session) CompactThread(ctx context.Context, threadID, args string) error {
-	target := s.resolveThreadID(threadID)
-	if target == "" {
-		return errors.New("codexapp: thread id is required")
+	target, err := requireThreadID(s, threadID)
+	if err != nil {
+		return err
 	}
 	params := map[string]any{"threadId": target}
 	if arg := strings.TrimSpace(args); arg != "" {
 		params["args"] = arg
 	}
-	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/compact/start", params)
+	_, err = callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/compact/start", params)
 	return err
 }

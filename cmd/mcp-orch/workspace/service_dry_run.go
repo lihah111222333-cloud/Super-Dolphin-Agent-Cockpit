@@ -13,36 +13,22 @@ func (s *service) dryRunMerge(
 	req MergeRunRequest,
 	updatedBy string,
 ) (*MergeRunResult, error) {
-	mergingRun, err := s.transitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
-		RunKey:     run.RunKey,
-		FromStatus: statusActive,
-		Status:     statusMerging,
-		UpdatedBy:  updatedBy,
-		Metadata:   mergeMetadata(nil, req, ""),
-	})
+	mergingRun, err := s.transitionMergeRun(ctx, run, statusActive, statusMerging, req, updatedBy, nil, "")
 	if err != nil {
 		return nil, err
 	}
-	s.emitRunStatusChanged(run.Status, mergingRun)
 	result, dryRunErr := s.buildDryRunResult(ctx, run, req)
 	message := ""
 	if dryRunErr != nil {
 		message = dryRunErr.Error()
 	}
-	activeRun, restoreErr := s.transitionRunStatus(ctx, storeworkspace.TransitionRunStatusInput{
-		RunKey:     run.RunKey,
-		FromStatus: statusMerging,
-		Status:     statusActive,
-		UpdatedBy:  updatedBy,
-		Metadata:   mergeMetadata(result, req, message),
-	})
+	activeRun, restoreErr := s.transitionMergeRun(ctx, mergingRun, statusMerging, statusActive, req, updatedBy, result, message)
 	if restoreErr != nil {
 		if dryRunErr != nil {
 			return nil, errors.Join(dryRunErr, restoreErr)
 		}
 		return nil, restoreErr
 	}
-	s.emitRunStatusChanged(mergingRun.Status, activeRun)
 	if dryRunErr != nil {
 		return nil, dryRunErr
 	}

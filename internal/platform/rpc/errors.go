@@ -1,7 +1,5 @@
 package rpc
 
-import "github.com/creachadair/jrpc2"
-
 const (
 	CodeNotFound        = -31001
 	CodeInvalidState    = -31002
@@ -11,21 +9,21 @@ const (
 )
 
 func ErrNotFound(msg string) error {
-	return jrpc2.Errorf(jrpc2.Code(CodeNotFound), "%s", msg)
+	return rpcError(CodeNotFound, msg)
 }
 
 func ErrInvalidState(msg string) error {
-	return jrpc2.Errorf(jrpc2.Code(CodeInvalidState), "%s", msg)
+	return rpcError(CodeInvalidState, msg)
 }
 
 func ErrConflict(msg string) error {
-	return jrpc2.Errorf(jrpc2.Code(CodeConflict), "%s", msg)
+	return rpcError(CodeConflict, msg)
 }
 
 func ErrCapabilityGate(msg string) error {
-	return jrpc2.Errorf(jrpc2.Code(CodeCapabilityGate), "%s", msg)
+	return rpcError(CodeCapabilityGate, msg)
 }
 
 func ErrApprovalTimeout(msg string) error {
-	return jrpc2.Errorf(jrpc2.Code(CodeApprovalTimeout), "%s", msg)
+	return rpcError(CodeApprovalTimeout, msg)
 }

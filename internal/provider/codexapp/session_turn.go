@@ -99,8 +99,7 @@ func mapTurnInput(item dto.InputItem) turnInputItem {
 }
 
 func textTurnInput(item dto.InputItem) turnInputItem {
-	content := strings.TrimSpace(item.Content)
-	return turnInputItem{Type: "text", Text: content, Content: content}
+	return newTextTurnInput("text", item.Content)
 }
 
 func imageTurnInput(item dto.InputItem) turnInputItem {
@@ -128,8 +127,7 @@ func mentionTurnInput(item dto.InputItem) turnInputItem {
 }
 
 func fallbackTurnInput(item dto.InputItem) turnInputItem {
-	content := strings.TrimSpace(item.Content)
-	return turnInputItem{Type: item.Type, Content: content, Text: content}
+	return newTextTurnInput(item.Type, item.Content)
 }
 
 func resolvedInputPath(item dto.InputItem) string {

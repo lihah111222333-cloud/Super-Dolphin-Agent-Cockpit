@@ -3,7 +3,6 @@ package claudecli
 import (
 	"context"
 	"errors"
-	"fmt"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"strings"
 	"sync"
@@ -82,20 +81,7 @@ func (s *session) resetThreadReadyLocked() {
 
 func (s *session) awaitResolvedThreadID(ctx context.Context) error {
 	ready, tr := s.threadReadyState()
-	if ready == nil {
-		return nil
-	}
-	select {
-	case <-ready:
-		return nil
-	default:
-	}
-	waitCtx, cancel := withThreadIDTimeout(ctx)
-	defer cancel()
-	if tr == nil {
-		return waitForThreadReady(waitCtx, ready)
-	}
-	return waitForThreadReadyOrExit(waitCtx, ready, tr)
+	return waitThreadReady(ctx, ready, tr)
 }
 
 func (s *session) threadReadyState() (chan struct{}, *transport) {
@@ -125,7 +111,7 @@ func (s *session) awaitThreadReadyLocked(ctx context.Context) error {
 		return nil
 	}
 	s.mu.Unlock()
-	err := waitForCurrentThreadReady(ctx, ready, tr)
+	err := waitThreadReady(ctx, ready, tr)
 	s.mu.Lock()
 	return err
 }
@@ -135,27 +121,6 @@ func withThreadIDTimeout(ctx context.Context) (context.Context, context.CancelFu
 		return ctx, func() {}
 	}
 	return platformconfig.WithTimeoutIfNone(ctx, platformconfig.InitialThreadIDTimeout)
-}
-
-func waitForThreadReady(ctx context.Context, ready <-chan struct{}) error {
-	select {
-	case <-ready:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("claudecli: waiting for real thread id: %w", ctx.Err())
-	}
-}
-
-func waitForCurrentThreadReady(ctx context.Context, ready <-chan struct{}, tr *transport) error {
-	if ready == nil {
-		return nil
-	}
-	waitCtx, cancel := withThreadIDTimeout(ctx)
-	defer cancel()
-	if tr == nil {
-		return waitForThreadReady(waitCtx, ready)
-	}
-	return waitForThreadReadyOrExit(waitCtx, ready, tr)
 }
 
 func waitForThreadReadyOrExit(ctx context.Context, ready <-chan struct{}, tr *transport) error {
@@ -178,6 +143,6 @@ func waitForThreadReadyOrExit(ctx context.Context, ready <-chan struct{}, tr *tr
 			return nil
 		default:
 		}
-		return fmt.Errorf("claudecli: waiting for real thread id: %w", ctx.Err())
+		return threadReadyContextErr(ctx.Err())
 	}
 }

@@ -45,29 +45,12 @@ func normalizeLeaseKey(key dto.LeaseKey) (LeaseKey, error) {
 }
 
 func (r *ToolRegistry) resolveLease(key dto.LeaseKey, expected LeaseKey, allowStale bool) (*ToolInstance, error) {
-	normalized, err := normalizeLeaseKey(key)
-	if err != nil {
-		return nil, err
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	instance := r.instances[normalized]
-	if instance == nil {
-		return nil, errLeaseNotFound("mcp lease %s/%d not found", normalized.InstanceID, normalized.Generation)
-	}
-	if expected.InstanceID != "" && expected != normalized {
-		return nil, errLeaseNotFound("mcp lease %s/%d does not match expected key", normalized.InstanceID, normalized.Generation)
-	}
-	switch instance.Status {
-	case dto.StatusDisconnected:
-		return nil, errPeerUnavailable("mcp peer %s/%d is disconnected", normalized.InstanceID, normalized.Generation)
-	case dto.StatusStale:
-		if !allowStale {
-			return nil, errLeaseStale("mcp lease %s/%d is stale", normalized.InstanceID, normalized.Generation)
-		}
-	}
-	return cloneInstance(instance), nil
+	return lookupLease(leaseLookupOptions{
+		registry:   r,
+		key:        key,
+		expected:   expected,
+		allowStale: allowStale,
+	})
 }
 
 func (r *ToolRegistry) reserveReport(key LeaseKey, req dto.ReportRequest) (*dto.ReportResponse, string, error) {
@@ -125,23 +108,9 @@ func (r *ToolRegistry) completeReport(key LeaseKey, reportID, fingerprint string
 }
 
 func (r *ToolRegistry) indexLocked(instance *ToolInstance) {
-	for _, topic := range instance.Subscriptions {
-		addIndex(r.bySubscription, topic, instance.Lease)
-	}
-	for _, capability := range instance.Capabilities {
-		addIndex(r.byCapability, capability, instance.Lease)
-	}
-	if instance.AgentID != "" {
-		addIndex(r.byAgent, instance.AgentID, instance.Lease)
-	}
-	if instance.ThreadID != "" {
-		addIndex(r.byThread, instance.ThreadID, instance.Lease)
-	}
-	if instance.ClientKind != "" {
-		addIndex(r.byClientKind, instance.ClientKind, instance.Lease)
-	}
-	addIndex(r.byInstance, instance.Lease.InstanceID, instance.Lease)
-	addIndex(r.byPeerKind, instance.PeerKind, instance.Lease)
+	r.forEachInstanceBucket(instance, func(index map[string]map[LeaseKey]struct{}, bucket string, key LeaseKey) {
+		addIndex(index, bucket, key)
+	})
 }
 
 func (r *ToolRegistry) evictLocked(key LeaseKey) Peer {
@@ -154,23 +123,9 @@ func (r *ToolRegistry) evictLocked(key LeaseKey) Peer {
 	if latest, ok := r.latestByInstance[key.InstanceID]; ok && latest == key {
 		delete(r.latestByInstance, key.InstanceID)
 	}
-	for _, topic := range instance.Subscriptions {
-		removeIndex(r.bySubscription, topic, key)
-	}
-	for _, capability := range instance.Capabilities {
-		removeIndex(r.byCapability, capability, key)
-	}
-	if instance.AgentID != "" {
-		removeIndex(r.byAgent, instance.AgentID, key)
-	}
-	if instance.ThreadID != "" {
-		removeIndex(r.byThread, instance.ThreadID, key)
-	}
-	if instance.ClientKind != "" {
-		removeIndex(r.byClientKind, instance.ClientKind, key)
-	}
-	removeIndex(r.byInstance, instance.Lease.InstanceID, key)
-	removeIndex(r.byPeerKind, instance.PeerKind, key)
+	r.forEachInstanceBucket(instance, func(index map[string]map[LeaseKey]struct{}, bucket string, key LeaseKey) {
+		removeIndex(index, bucket, key)
+	})
 	return instance.Peer
 }
 

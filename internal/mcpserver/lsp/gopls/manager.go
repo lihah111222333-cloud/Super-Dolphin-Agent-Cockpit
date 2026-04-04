@@ -228,75 +228,19 @@ func chooseDuration(given, fallback time.Duration) time.Duration {
 }
 
 func decodeLocationResults(raw json.RawMessage) ([]protocol.LocationResult, error) {
-	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return nil, nil
-	}
-	if raw[0] != '[' {
-		raw = append([]byte{'['}, append(raw, ']')...)
-	}
-	var payloads []json.RawMessage
-	if err := json.Unmarshal(raw, &payloads); err != nil {
-		return nil, fmt.Errorf("decode locations: %w", err)
-	}
-	results := make([]protocol.LocationResult, 0, len(payloads))
-	for _, payload := range payloads {
-		var location protocol.Location
-		if err := json.Unmarshal(payload, &location); err == nil && location.URI != "" {
-			results = append(results, protocol.LocationResult{Location: &location, Canonical: &location})
-			continue
-		}
-		var link protocol.LocationLink
-		if err := json.Unmarshal(payload, &link); err == nil && link.TargetURI != "" {
-			results = append(results, protocol.LocationResult{LocationLink: &link})
-		}
+	results, err := decodeUnionListWithMode(raw, true, decodeLocationUnion)
+	if err != nil {
+		return nil, err
 	}
 	return results, nil
 }
 
 func decodeDocumentSymbols(raw json.RawMessage) ([]protocol.DocumentSymbol, error) {
-	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return nil, nil
-	}
-	var symbols []protocol.DocumentSymbol
-	if err := json.Unmarshal(raw, &symbols); err == nil {
-		return symbols, nil
-	}
-	var infos []protocol.SymbolInformation
-	if err := json.Unmarshal(raw, &infos); err != nil {
-		return nil, fmt.Errorf("decode document symbols: %w", err)
-	}
-	symbols = make([]protocol.DocumentSymbol, 0, len(infos))
-	for _, info := range infos {
-		symbols = append(symbols, protocol.DocumentSymbol{
-			Name:           info.Name,
-			Kind:           info.Kind,
-			Range:          info.Location.Range,
-			SelectionRange: info.Location.Range,
-		})
-	}
-	return symbols, nil
+	return decodeUnionList(raw, decodeDocumentSymbolUnion)
 }
 
 func decodeWorkspaceSymbols(raw json.RawMessage) ([]protocol.WorkspaceSymbolResult, error) {
-	var payloads []json.RawMessage
-	if err := decodeInto(raw, &payloads); err != nil {
-		return nil, fmt.Errorf("decode workspace symbols: %w", err)
-	}
-	results := make([]protocol.WorkspaceSymbolResult, 0, len(payloads))
-	for _, payload := range payloads {
-		var symbol protocol.WorkspaceSymbol
-		if err := json.Unmarshal(payload, &symbol); err == nil && symbol.Name != "" {
-			results = append(results, protocol.WorkspaceSymbolResult{WorkspaceSymbol: &symbol})
-			continue
-		}
-		var info protocol.SymbolInformation
-		if err := json.Unmarshal(payload, &info); err == nil && info.Name != "" {
-			results = append(results, protocol.WorkspaceSymbolResult{SymbolInformation: &info})
-		}
-	}
-	return results, nil
+	return decodeUnionList(raw, decodeWorkspaceSymbolUnion)
 }
 
 func decodeCompletionList(raw json.RawMessage) (*protocol.CompletionList, error) {
@@ -319,29 +263,5 @@ func decodeCompletionList(raw json.RawMessage) (*protocol.CompletionList, error)
 }
 
 func decodeCodeActions(raw json.RawMessage) ([]protocol.CodeActionResult, error) {
-	var payloads []json.RawMessage
-	if err := decodeInto(raw, &payloads); err != nil {
-		return nil, fmt.Errorf("decode code actions: %w", err)
-	}
-	results := make([]protocol.CodeActionResult, 0, len(payloads))
-	for _, payload := range payloads {
-		var keys map[string]json.RawMessage
-		if err := json.Unmarshal(payload, &keys); err != nil {
-			return nil, fmt.Errorf("decode code action entry: %w", err)
-		}
-		if rawCommand, ok := keys["command"]; ok && len(rawCommand) > 0 && rawCommand[0] == '"' {
-			var cmd protocol.Command
-			if err := json.Unmarshal(payload, &cmd); err != nil {
-				return nil, fmt.Errorf("decode command action: %w", err)
-			}
-			results = append(results, protocol.CodeActionResult{Command: &cmd})
-			continue
-		}
-		var action protocol.CodeAction
-		if err := json.Unmarshal(payload, &action); err != nil {
-			return nil, fmt.Errorf("decode structured code action: %w", err)
-		}
-		results = append(results, protocol.CodeActionResult{CodeAction: &action})
-	}
-	return results, nil
+	return decodeUnionList(raw, decodeCodeActionUnion)
 }

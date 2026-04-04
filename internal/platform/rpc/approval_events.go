@@ -45,34 +45,11 @@ func (m *ApprovalManager) publishResolved(pending *pendingApproval, decision con
 }
 
 func callbackMethod(req ApprovalRequest) string {
-	for _, candidate := range []string{req.CallbackMethod, req.SourceMethod} {
-		if method := normalizeApprovalCallbackMethod(candidate); method != "" {
-			return method
-		}
-	}
-	if isRequestUserInputKind(req.Kind) {
-		return approvalCallbackMethodCommandExecution
-	}
-	return DefaultApprovalCallbackMethod
+	return approvalMethodCatalog.callback(req)
 }
 
 func normalizeApprovalCallbackMethod(method string) string {
-	switch strings.TrimSpace(method) {
-	case "":
-		return ""
-	case legacyApprovalCallbackMethod:
-		return DefaultApprovalCallbackMethod
-	case approvalCallbackMethodCommandExecution,
-		approvalCallbackMethodFileChange,
-		approvalCallbackMethodSkillRequest:
-		return strings.TrimSpace(method)
-	case legacyApprovalEventMethod:
-		return approvalCallbackMethodCommandExecution
-	case "codex/event/request_user_input", "item/tool/request_user_input", "item/tool/requestUserInput", "request_user_input":
-		return approvalCallbackMethodCommandExecution
-	default:
-		return strings.TrimSpace(method)
-	}
+	return approvalMethodCatalog.normalize(method)
 }
 
 func isRequestUserInputKind(kind string) bool {

@@ -3,7 +3,6 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -50,8 +49,8 @@ func newTransport(ctx context.Context, serverURL string) (*transport, error) {
 }
 
 func (t *transport) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	if t.closed.Load() {
-		return nil, errors.New("codexapp: transport closed")
+	if err := t.ensureOpen(); err != nil {
+		return nil, err
 	}
 	callCtx, cancel := withTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -72,8 +71,8 @@ func (t *transport) Call(ctx context.Context, method string, params any) (json.R
 }
 
 func (t *transport) Notify(method string, params any) error {
-	if t.closed.Load() {
-		return errors.New("codexapp: transport closed")
+	if err := t.ensureOpen(); err != nil {
+		return err
 	}
 	return t.writeJSON(struct {
 		JSONRPC string `json:"jsonrpc"`
@@ -92,21 +91,11 @@ func (t *transport) ReadLoop(ctx context.Context, handler func(method string, pa
 }
 
 func (t *transport) Close() error {
-	if t.closed.Load() {
-		return nil
-	}
-	_ = t.Notify("shutdown", nil)
-	t.closed.Store(true)
-	err := t.stopProcess(true)
-	t.closeSocket()
-	return err
+	return t.shutdownTransport(true)
 }
 
 func (t *transport) Kill() error {
-	t.closed.Store(true)
-	err := t.stopProcess(false)
-	t.closeSocket()
-	return err
+	return t.shutdownTransport(false)
 }
 
 func (t *transport) Running() bool {
@@ -117,8 +106,8 @@ func (t *transport) Running() bool {
 }
 
 func (t *transport) reconnect(ctx context.Context) error {
-	if t.closed.Load() {
-		return errors.New("codexapp: transport closed")
+	if err := t.ensureOpen(); err != nil {
+		return err
 	}
 	t.closeSocket()
 	if t.local && !t.processRunning() {

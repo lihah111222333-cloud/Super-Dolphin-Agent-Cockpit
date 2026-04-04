@@ -8,74 +8,57 @@ import (
 	"strings"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func (s *service) markAwaitingUserInput(ctx context.Context, agentID, turnID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return err
-	}
-	if !userInputMatchesActiveTurn(agent, turnID) {
-		return errTurnNotActive
-	}
-	if err := s.ensureTurnRunningForUserInputLocked(ctx, agent); err != nil {
-		return err
-	}
-	if agent.state == agentdto.StateAwaitingUserInput {
-		return nil
-	}
-	return s.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputRequested)
+	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if !userInputMatchesActiveTurn(agent, turnID) {
+			return errTurnNotActive
+		}
+		if err := s.ensureTurnRunningForUserInputLocked(ctx, agent); err != nil {
+			return err
+		}
+		if agent.state == agentdto.StateAwaitingUserInput {
+			return nil
+		}
+		return s.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputRequested)
+	})
 }
 
 func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID, reason string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return err
-	}
-	if !userInputMatchesActiveTurn(agent, turnID) {
-		return errTurnNotActive
-	}
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		reason = "reject"
 	}
-	resolvedTurnID := strings.TrimSpace(turnID)
-	if resolvedTurnID == "" {
-		resolvedTurnID = strings.TrimSpace(agent.activeTurnID)
-	}
 	logger := userInputLogger(s.logger)
-	switch agent.state {
-	case agentdto.StateAwaitingUserInput:
-		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputResolved); err != nil {
-			return err
+	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if !userInputMatchesActiveTurn(agent, turnID) {
+			return errTurnNotActive
 		}
-		logger.Info("orchestration: resolved awaiting user input", "agent_id", agent.id, "turn_id", resolvedTurnID, "reason", reason)
-		return nil
-	case agentdto.StateTurnRunning:
-		logger.Info("orchestration: awaiting user input already resolved", "agent_id", agent.id, "turn_id", resolvedTurnID, "reason", reason)
-		return nil
-	default:
-		return fmt.Errorf("%w for agent %q: state=%s trigger=%s", errIllegalStateTransition, agent.id, agent.state, agentdto.TriggerUserInputResolved)
-	}
+		resolvedTurnID := strings.TrimSpace(turnID)
+		if resolvedTurnID == "" {
+			resolvedTurnID = strings.TrimSpace(agent.activeTurnID)
+		}
+		switch agent.state {
+		case agentdto.StateAwaitingUserInput:
+			if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerUserInputResolved); err != nil {
+				return err
+			}
+			logger.Info("orchestration: resolved awaiting user input", "agent_id", agent.id, "turn_id", resolvedTurnID, "reason", reason)
+			return nil
+		case agentdto.StateTurnRunning:
+			logger.Info("orchestration: awaiting user input already resolved", "agent_id", agent.id, "turn_id", resolvedTurnID, "reason", reason)
+			return nil
+		default:
+			return fmt.Errorf("%w for agent %q: state=%s trigger=%s", errIllegalStateTransition, agent.id, agent.state, agentdto.TriggerUserInputResolved)
+		}
+	})
 }
 
 func (s *service) ensureTurnRunningForUserInputLocked(ctx context.Context, agent *agentRuntime) error {
-	switch agent.state {
-	case agentdto.StateTurnStarting:
-		return s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted)
-	case agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput:
-		return nil
-	default:
-		return fmt.Errorf("%w for agent %q: state=%s trigger=%s", errIllegalStateTransition, agent.id, agent.state, agentdto.TriggerUserInputRequested)
-	}
+	return s.ensureTurnStartedLocked(ctx, agent, agentdto.TriggerUserInputRequested, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput)
 }
 
 func userInputMatchesActiveTurn(agent *agentRuntime, turnID string) bool {
@@ -138,6 +121,8 @@ func shouldIgnoreUserInputErr(err error) bool {
 }
 
 func userInputLogger(logger *slog.Logger) *slog.Logger {
-	if logger != nil { return logger }
+	if logger != nil {
+		return logger
+	}
 	return pkglogger.Get()
 }

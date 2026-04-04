@@ -3,9 +3,6 @@ package mcpcontrol
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -83,72 +80,22 @@ func callbackHookDecision[T any](
 		return decision, errPeerUnavailable("mcp peer %s/%d is not available", instance.Lease.InstanceID, instance.Lease.Generation)
 	}
 	payload = cloneHookPayload(payload)
-	err = registry.callbackTarget(ctx, sendTarget{key: instance.Lease, peer: instance.Peer}, method, payload, &decision)
+	err = registry.invokeFanoutTarget(ctx, sendTarget{key: instance.Lease, peer: instance.Peer}, fanoutOperation{
+		name: "callback",
+		invoke: func(ctx context.Context, peer Peer) error {
+			return peer.Callback(ctx, method, payload, &decision)
+		},
+	})
 	return decision, err
 }
 
 func (r *ToolRegistry) callbackTargets(ctx context.Context, targets []sendTarget, method string, params any) error {
-	method = strings.TrimSpace(method)
-	if method == "" {
-		return errInvalidParams("mcp callback method is required")
-	}
-	if len(targets) == 0 {
-		return nil
-	}
-	workers := min(r.fanoutParallelism, len(targets))
-	jobs := make(chan sendTarget, len(targets))
-	errs := make(chan error, len(targets))
-	for i := 0; i < workers; i++ {
-		go r.runCallbackWorker(ctx, jobs, errs, method, params)
-	}
-	for _, target := range targets {
-		jobs <- target
-	}
-	close(jobs)
-
-	var joined error
-	for range targets {
-		joined = errors.Join(joined, <-errs)
-	}
-	return joined
-}
-
-func (r *ToolRegistry) runCallbackWorker(ctx context.Context, jobs <-chan sendTarget, errs chan<- error, method string, params any) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			pkglogger.Error("mcp callback worker goroutine panic",
-				"method", method,
-				"panic", rec,
-			)
-		}
-	}()
-	for target := range jobs {
-		var err error
-		func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					err = r.recoverWorkerPanic(ctx, "callback", method, target, rec)
-				}
-			}()
-			err = r.callbackTarget(ctx, target, method, params, nil)
-		}()
-		errs <- err
-	}
-}
-
-func (r *ToolRegistry) callbackTarget(ctx context.Context, target sendTarget, method string, params any, result any) error {
-	callCtx, cancel := withTimeoutContext(ctx, r.notifyTimeout)
-	defer cancel()
-	if err := target.peer.Callback(callCtx, method, params, result); err != nil {
-		peer, evicted := r.notePeerFailure(target.key)
-		if evicted {
-			r.cleanupLeaseWithTimeout(ctx, target.key)
-		}
-		closePeer(peer)
-		return fmt.Errorf("%s/%d: %w", target.key.InstanceID, target.key.Generation, err)
-	}
-	r.resetPeerFailure(target.key)
-	return nil
+	return r.fanoutTargets(ctx, targets, method, fanoutOperation{
+		name: "callback",
+		invoke: func(ctx context.Context, peer Peer) error {
+			return peer.Callback(ctx, method, params, nil)
+		},
+	})
 }
 
 func cloneHookPayload(payload dto.HookPayload) dto.HookPayload {

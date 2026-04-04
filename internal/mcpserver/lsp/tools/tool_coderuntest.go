@@ -20,11 +20,11 @@ func NewCodeRunTestHandler(rootDir string) (middleware.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	return wrapToolHandler("code_run_test", middleware.TierExec, CodeRunTestHandler{sandbox: sandbox}.Handle), nil
+	return newSandboxTool("code_run_test", sandbox, HandleCodeRunTest), nil
 }
 
 func NewCodeRunTestHandlerWithSandbox(sandbox SandboxRunner) middleware.Handler {
-	return wrapToolHandler("code_run_test", middleware.TierExec, CodeRunTestHandler{sandbox: sandbox}.Handle)
+	return newSandboxTool("code_run_test", sandbox, HandleCodeRunTest)
 }
 
 func HandleCodeRunTest(ctx context.Context, sandbox SandboxRunner, params json.RawMessage) (any, error) {
@@ -35,8 +35,8 @@ func (h CodeRunTestHandler) Handle(ctx context.Context, params json.RawMessage) 
 	if h.sandbox == nil {
 		return nil, errors.New("code_run_test sandbox is nil")
 	}
-	var req CodeRunRequest
-	if err := json.Unmarshal(params, &req); err != nil {
+	req, err := decodeToolParams[CodeRunRequest](params, decodeRaw)
+	if err != nil {
 		return nil, fmt.Errorf("decode code_run_test request: %w", err)
 	}
 	if strings.TrimSpace(req.TestFunc) == "" {
@@ -55,17 +55,5 @@ func (h CodeRunTestHandler) Handle(ctx context.Context, params json.RawMessage) 
 		WorkDir: h.sandbox.RootDir(),
 		Timeout: timeout,
 	}
-	result, err := h.sandbox.Run(ctx, request)
-	if err != nil {
-		return CodeRunFailure{Error: err.Error(), ExitCode: -1}, nil
-	}
-	return CodeRunResult{
-		Success:   result.ExitCode == 0,
-		Output:    result.Output,
-		ExitCode:  result.ExitCode,
-		Duration:  result.Duration,
-		Language:  "go",
-		Mode:      "test",
-		Truncated: result.Truncated,
-	}, nil
+	return executeSandbox(ctx, h.sandbox, request, "go", "test")
 }

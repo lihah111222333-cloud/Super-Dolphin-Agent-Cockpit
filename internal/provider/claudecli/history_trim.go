@@ -40,18 +40,10 @@ func normalizeClaudeHistoryMessage(msg Message) (Message, bool) {
 		}
 		return msg, true
 	}
-	text := stripLeadingClaudeSystemNoise(msg.Content)
-	text = trimInjectedClaudeLSPHint(trimInjectedClaudeSkillBlock(text))
+	text := stripSystemNoise(msg.Content)
 	trimmedText := strings.TrimSpace(text)
-	if trimmedText == "" {
-		if len(msg.Metadata) == 0 || string(msg.Metadata) == "null" {
-			return Message{}, false
-		}
-		msg.Content = ""
-		return msg, true
-	}
-	if isClaudeSystemNoiseText(text) {
-		if len(msg.Metadata) == 0 || string(msg.Metadata) == "null" {
+	if trimmedText == "" || isClaudeSystemNoiseText(text) {
+		if !shouldKeepEmptyMessage(msg) {
 			return Message{}, false
 		}
 		msg.Content = ""

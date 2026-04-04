@@ -22,12 +22,6 @@ type turnStartParams struct {
 }
 
 func (p *turnStartParams) UnmarshalJSON(data []byte) error {
-	type raw turnStartParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*p = turnStartParams(current)
 	var legacy struct {
 		ThreadID             string          `json:"threadId"`
 		SelectedSkills       []string        `json:"selectedSkills"`
@@ -35,25 +29,31 @@ func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 		ApprovalPolicy       string          `json:"approvalPolicy"`
 		OutputSchema         json.RawMessage `json:"outputSchema"`
 	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	if err := fillLegacyThreadID(data, &p.ThreadID); err != nil {
-		return err
-	}
-	if len(p.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
-		p.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
-	}
-	if !p.ManualSkillSelection && legacy.ManualSkillSelection != nil {
-		p.ManualSkillSelection = *legacy.ManualSkillSelection
-	}
-	if strings.TrimSpace(p.ApprovalPolicy) == "" {
-		p.ApprovalPolicy = strings.TrimSpace(legacy.ApprovalPolicy)
-	}
-	if len(p.OutputSchema) == 0 {
-		p.OutputSchema = append(json.RawMessage(nil), legacy.OutputSchema...)
-	}
-	return nil
+	type raw turnStartParams
+	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
+		ThreadID             string          `json:"threadId"`
+		SelectedSkills       []string        `json:"selectedSkills"`
+		ManualSkillSelection *bool           `json:"manualSkillSelection"`
+		ApprovalPolicy       string          `json:"approvalPolicy"`
+		OutputSchema         json.RawMessage `json:"outputSchema"`
+	}) error {
+		if strings.TrimSpace(current.ThreadID) == "" {
+			current.ThreadID = strings.TrimSpace(legacy.ThreadID)
+		}
+		if len(current.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
+			current.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
+		}
+		if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
+			current.ManualSkillSelection = *legacy.ManualSkillSelection
+		}
+		if strings.TrimSpace(current.ApprovalPolicy) == "" {
+			current.ApprovalPolicy = strings.TrimSpace(legacy.ApprovalPolicy)
+		}
+		if len(current.OutputSchema) == 0 {
+			current.OutputSchema = append(json.RawMessage(nil), legacy.OutputSchema...)
+		}
+		return nil
+	})
 }
 
 type turnInputItemParams struct {
@@ -75,34 +75,33 @@ type turnSteerParams struct {
 }
 
 func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
-	type raw turnSteerParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*p = turnSteerParams(current)
 	var legacy struct {
 		ThreadID             string   `json:"threadId"`
 		ExpectedTurnID       string   `json:"expectedTurnId"`
 		SelectedSkills       []string `json:"selectedSkills"`
 		ManualSkillSelection *bool    `json:"manualSkillSelection"`
 	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	if err := fillLegacyThreadID(data, &p.ThreadID); err != nil {
-		return err
-	}
-	if strings.TrimSpace(p.ExpectedTurnID) == "" {
-		p.ExpectedTurnID = strings.TrimSpace(legacy.ExpectedTurnID)
-	}
-	if len(p.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
-		p.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
-	}
-	if !p.ManualSkillSelection && legacy.ManualSkillSelection != nil {
-		p.ManualSkillSelection = *legacy.ManualSkillSelection
-	}
-	return nil
+	type raw turnSteerParams
+	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
+		ThreadID             string   `json:"threadId"`
+		ExpectedTurnID       string   `json:"expectedTurnId"`
+		SelectedSkills       []string `json:"selectedSkills"`
+		ManualSkillSelection *bool    `json:"manualSkillSelection"`
+	}) error {
+		if strings.TrimSpace(current.ThreadID) == "" {
+			current.ThreadID = strings.TrimSpace(legacy.ThreadID)
+		}
+		if strings.TrimSpace(current.ExpectedTurnID) == "" {
+			current.ExpectedTurnID = strings.TrimSpace(legacy.ExpectedTurnID)
+		}
+		if len(current.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
+			current.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
+		}
+		if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
+			current.ManualSkillSelection = *legacy.ManualSkillSelection
+		}
+		return nil
+	})
 }
 
 type turnInterruptParams struct {
@@ -111,13 +110,18 @@ type turnInterruptParams struct {
 }
 
 func (p *turnInterruptParams) UnmarshalJSON(data []byte) error {
-	type raw turnInterruptParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
+	var legacy struct {
+		ThreadID string `json:"threadId"`
 	}
-	*p = turnInterruptParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	type raw turnInterruptParams
+	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
+		ThreadID string `json:"threadId"`
+	}) error {
+		if strings.TrimSpace(current.ThreadID) == "" {
+			current.ThreadID = strings.TrimSpace(legacy.ThreadID)
+		}
+		return nil
+	})
 }
 
 type threadIDOnlyParams struct {
@@ -125,13 +129,18 @@ type threadIDOnlyParams struct {
 }
 
 func (p *threadIDOnlyParams) UnmarshalJSON(data []byte) error {
-	type raw threadIDOnlyParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
+	var legacy struct {
+		ThreadID string `json:"threadId"`
 	}
-	*p = threadIDOnlyParams(current)
-	return fillLegacyThreadID(data, &p.ThreadID)
+	type raw threadIDOnlyParams
+	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
+		ThreadID string `json:"threadId"`
+	}) error {
+		if strings.TrimSpace(current.ThreadID) == "" {
+			current.ThreadID = strings.TrimSpace(legacy.ThreadID)
+		}
+		return nil
+	})
 }
 
 type approvalRespondParams struct {
@@ -142,36 +151,35 @@ type approvalRespondParams struct {
 }
 
 func (p *approvalRespondParams) UnmarshalJSON(data []byte) error {
-	type raw approvalRespondParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*p = approvalRespondParams(current)
 	var legacy struct {
 		CallID    string          `json:"callId"`
 		RequestID *int64          `json:"requestId"`
 		Approved  *bool           `json:"approved"`
 		Decision  json.RawMessage `json:"decision"`
 	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	if strings.TrimSpace(p.CallID) == "" {
-		p.CallID = strings.TrimSpace(legacy.CallID)
-	}
-	if p.RequestID == nil && legacy.RequestID != nil {
-		value := *legacy.RequestID
-		p.RequestID = &value
-	}
-	if p.Approved == nil && legacy.Approved != nil {
-		value := *legacy.Approved
-		p.Approved = &value
-	}
-	if len(p.Decision) == 0 {
-		p.Decision = append(json.RawMessage(nil), legacy.Decision...)
-	}
-	return nil
+	type raw approvalRespondParams
+	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
+		CallID    string          `json:"callId"`
+		RequestID *int64          `json:"requestId"`
+		Approved  *bool           `json:"approved"`
+		Decision  json.RawMessage `json:"decision"`
+	}) error {
+		if strings.TrimSpace(current.CallID) == "" {
+			current.CallID = strings.TrimSpace(legacy.CallID)
+		}
+		if current.RequestID == nil && legacy.RequestID != nil {
+			value := *legacy.RequestID
+			current.RequestID = &value
+		}
+		if current.Approved == nil && legacy.Approved != nil {
+			value := *legacy.Approved
+			current.Approved = &value
+		}
+		if len(current.Decision) == 0 {
+			current.Decision = append(json.RawMessage(nil), legacy.Decision...)
+		}
+		return nil
+	})
 }
 
 type turnInterruptResult struct {
@@ -194,18 +202,4 @@ type turnForceCompleteResult struct {
 
 type turnStartResult struct {
 	TurnID string `json:"turn_id"`
-}
-
-func fillLegacyThreadID(data []byte, threadID *string) error {
-	if strings.TrimSpace(*threadID) != "" {
-		return nil
-	}
-	var legacy struct {
-		ThreadID string `json:"threadId"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	*threadID = strings.TrimSpace(legacy.ThreadID)
-	return nil
 }

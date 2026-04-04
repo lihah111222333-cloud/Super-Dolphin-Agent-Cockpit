@@ -79,24 +79,14 @@ func (s *session) handleReceiveExit(tr *transport, err error) {
 		s.mu.Unlock()
 		return
 	}
-	handle := s.activeTurn
-	s.activeTurn = nil
+	handle := s.takeActiveTurnLocked()
 	s.mu.Unlock()
-	if handle == nil {
-		return
-	}
-	turnID := currentTurnID(handle)
-	handle.finish(finishErr)
-	s.dispatch(s.turnRawEvent("turn:complete", turnID, map[string]any{
-		"success": false,
-		"error":   finishErr.Error(),
-	}))
+	s.finishTurnWithError(handle, finishErr)
 }
 
 func (s *session) finishTurnFromRaw(raw dto.RawProviderEvent) {
 	s.mu.Lock()
-	handle := s.activeTurn
-	s.activeTurn = nil
+	handle := s.takeActiveTurnLocked()
 	s.mu.Unlock()
 	if handle == nil {
 		return
@@ -141,10 +131,6 @@ type streamEvent struct {
 	IsError    bool            `json:"is_error"`
 }
 
-type assistantMessage struct {
-	Content []contentBlock `json:"content"`
-}
-
 type contentBlock struct {
 	Type     string          `json:"type"`
 	Text     string          `json:"text"`
@@ -181,57 +167,11 @@ func decodeSystemEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 }
 
 func decodeAssistantEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, error) {
-	var msg assistantMessage
-	if len(raw.Message) > 0 {
-		if err := json.Unmarshal(raw.Message, &msg); err != nil {
-			return nil, err
-		}
-	}
-	out := make([]dto.RawProviderEvent, 0, len(msg.Content))
-	for _, block := range msg.Content {
-		data := baseData(base, raw.SessionID, raw.Timestamp)
-		switch strings.TrimSpace(block.Type) {
-		case "text":
-			if strings.TrimSpace(block.Text) != "" {
-				data["stream"], data["delta"] = "message", block.Text
-				out = append(out, dto.RawProviderEvent{EventType: "assistant:message_delta", Data: data})
-			}
-		case "thinking":
-			if strings.TrimSpace(block.Thinking) != "" {
-				data["stream"], data["delta"] = "reasoning", block.Thinking
-				out = append(out, dto.RawProviderEvent{EventType: "assistant:message_delta", Data: data})
-			}
-		case "tool_use":
-			data["call_id"] = strings.TrimSpace(block.ID)
-			data["tool_name"] = strings.TrimSpace(block.Name)
-			data["arguments_preview"] = strings.TrimSpace(string(block.Input))
-			out = append(out, dto.RawProviderEvent{EventType: "tool:use_begin", Data: data})
-		}
-	}
-	return out, nil
+	return decodeMessageEvents(raw, base, "assistant")
 }
 
 func decodeUserEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, error) {
-	var msg struct {
-		Content []map[string]any `json:"content"`
-	}
-	if len(raw.Message) > 0 {
-		if err := json.Unmarshal(raw.Message, &msg); err != nil {
-			return nil, err
-		}
-	}
-	out := make([]dto.RawProviderEvent, 0, len(msg.Content))
-	for _, block := range msg.Content {
-		if dataString(block, "type") != "tool_result" {
-			continue
-		}
-		data := baseData(base, raw.SessionID, raw.Timestamp)
-		data["call_id"] = dataString(block, "tool_use_id")
-		data["tool_name"] = dataString(block, "tool_name")
-		data["success"] = true
-		out = append(out, dto.RawProviderEvent{EventType: "tool:use_end", Data: data})
-	}
-	return out, nil
+	return decodeMessageEvents(raw, base, "user")
 }
 
 func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
@@ -258,18 +198,7 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 }
 
 func baseData(base rawBase, sessionID, timestamp string) map[string]any {
-	threadID := strings.TrimSpace(base.ThreadID)
-	sessionID = strings.TrimSpace(firstNonEmpty(sessionID, threadID))
-	data := map[string]any{
-		"agent_id":   strings.TrimSpace(base.AgentID),
-		"thread_id":  threadID,
-		"session_id": sessionID,
-		"turn_id":    strings.TrimSpace(base.TurnID),
-	}
-	if timestamp = strings.TrimSpace(timestamp); timestamp != "" {
-		data["timestamp"] = timestamp
-	}
-	return data
+	return buildEventData(base, sessionID, timestamp, nil)
 }
 
 func dataString(data any, keys ...string) string {

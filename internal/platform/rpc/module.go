@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 	"go.uber.org/fx"
@@ -122,7 +121,7 @@ func registerApprovalRestoreOnConnect(approvals *ApprovalManager, bridge *PushBr
 		return
 	}
 	server.OnConnectUI(func(current *jrpc2.Server) {
-		if err := restorePendingApprovals(context.Background(), approvals, bridge, server, current); err != nil {
+		if err := restorePendingForUIServers(context.Background(), approvals, bridge, server, current); err != nil {
 			logger.Warn("rpc: restore pending approvals on connect failed", "error", err)
 		}
 	})
@@ -136,7 +135,7 @@ func startApprovalLifecycle(
 	logger *pkglogger.Logger,
 ) (context.CancelFunc, error) {
 	cleanupCancel := func() {}
-	if err := restoreActiveApprovals(ctx, approvals, bridge, server); err != nil {
+	if err := restorePendingForUIServers(ctx, approvals, bridge, server); err != nil {
 		return cleanupCancel, err
 	}
 	if approvals == nil {
@@ -146,28 +145,6 @@ func startApprovalLifecycle(
 	cleanupCancel = cancel
 	go startApprovalCleanupLoop(cleanupCtx, approvals, approvalCleanupInterval, DefaultApprovalTimeout, logger)
 	return cleanupCancel, nil
-}
-
-func restoreActiveApprovals(ctx context.Context, approvals *ApprovalManager, bridge *PushBridge, server *Server) error {
-	if approvals == nil || server == nil {
-		return nil
-	}
-	for _, current := range server.snapshotActive() {
-		if err := restorePendingApprovals(ctx, approvals, bridge, server, current); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func restorePendingApprovals(ctx context.Context, approvals *ApprovalManager, bridge *PushBridge, server *Server, current *jrpc2.Server) error {
-	if approvals == nil || server == nil || current == nil {
-		return nil
-	}
-	if server.PeerKind(current) != dto.PeerKindUI {
-		return nil
-	}
-	return approvals.RestorePending(ctx, bridge, current)
 }
 
 func shutdownPendingApprovals(ctx context.Context, approvals *ApprovalManager, logger *pkglogger.Logger) error {

@@ -17,29 +17,16 @@ func MergeAfter(decisions []peerDecision[mcp.AfterDecision]) MergeResult[mcp.Aft
 }
 
 func normalizeAfterDecisions(decisions []peerDecision[mcp.AfterDecision]) ([]mcp.AfterDecision, []mcp.LeaseKey, []mcp.LeaseKey) {
-	normalized := make([]mcp.AfterDecision, 0, len(decisions))
-	failed := make([]mcp.LeaseKey, 0)
-	lost := make([]mcp.LeaseKey, 0)
-	failedSeen := make(map[mcp.LeaseKey]struct{}, len(decisions))
-	lostSeen := make(map[mcp.LeaseKey]struct{}, len(decisions))
-	for _, item := range decisions {
-		if item.Err != nil {
-			failed = appendUniqueLease(failed, failedSeen, item.Lease)
-			if item.ConsecutiveFailures >= 3 {
-				lost = appendUniqueLease(lost, lostSeen, item.Lease)
-			}
-			continue
+	return normalizePeerDecisions(decisions, func(decision mcp.AfterDecision) mcp.AfterDecision {
+		return mcp.AfterDecision{
+			Decision:       normalizeDecision(decision.Decision, afterDecisionConfig),
+			Patch:          cloneRawMessage(decision.Patch),
+			Mutations:      cloneRawMessage(decision.Mutations),
+			DispatchIntent: cloneRawMessage(decision.DispatchIntent),
+			TTLMs:          decision.TTLMs,
+			Reason:         strings.TrimSpace(decision.Reason),
 		}
-		normalized = append(normalized, mcp.AfterDecision{
-			Decision:       normalizeAfterDecision(item.Decision.Decision),
-			Patch:          cloneRawMessage(item.Decision.Patch),
-			Mutations:      cloneRawMessage(item.Decision.Mutations),
-			DispatchIntent: cloneRawMessage(item.Decision.DispatchIntent),
-			TTLMs:          item.Decision.TTLMs,
-			Reason:         strings.TrimSpace(item.Decision.Reason),
-		})
-	}
-	return normalized, failed, lost
+	})
 }
 
 func mergeAfterDecision(decisions []mcp.AfterDecision) mcp.AfterDecision {
@@ -49,11 +36,16 @@ func mergeAfterDecision(decisions []mcp.AfterDecision) mcp.AfterDecision {
 	final := highestAfterDecision(decisions)
 	merged := mcp.AfterDecision{
 		Decision: final,
-		Reason:   firstAfterReason(decisions, final),
+	}
+	if item, ok := firstMatching(decisions, func(item mcp.AfterDecision) bool {
+		return item.Decision == final && item.Reason != ""
+	}); ok {
+		merged.Reason = item.Reason
 	}
 	if final == mcp.HookDecisionEscalate || final == mcp.HookDecisionApprove {
-		candidate, ok := firstAfterByDecision(decisions, final)
-		if ok {
+		if candidate, ok := firstMatching(decisions, func(item mcp.AfterDecision) bool {
+			return item.Decision == final
+		}); ok {
 			merged.Patch = cloneRawMessage(candidate.Patch)
 			merged.Mutations = cloneRawMessage(candidate.Mutations)
 			merged.DispatchIntent = cloneRawMessage(candidate.DispatchIntent)
@@ -64,51 +56,7 @@ func mergeAfterDecision(decisions []mcp.AfterDecision) mcp.AfterDecision {
 }
 
 func highestAfterDecision(decisions []mcp.AfterDecision) string {
-	best := mcp.HookDecisionApprove
-	bestRank := afterRank(best)
-	for _, item := range decisions {
-		if rank := afterRank(item.Decision); rank > bestRank {
-			best = item.Decision
-			bestRank = rank
-		}
-	}
-	return best
-}
-
-func firstAfterByDecision(decisions []mcp.AfterDecision, want string) (mcp.AfterDecision, bool) {
-	for _, item := range decisions {
-		if item.Decision == want {
-			return item, true
-		}
-	}
-	return mcp.AfterDecision{}, false
-}
-
-func firstAfterReason(decisions []mcp.AfterDecision, want string) string {
-	for _, item := range decisions {
-		if item.Decision == want && item.Reason != "" {
-			return item.Reason
-		}
-	}
-	return ""
-}
-
-func normalizeAfterDecision(decision string) string {
-	switch strings.ToLower(strings.TrimSpace(decision)) {
-	case mcp.HookDecisionApprove, mcp.HookDecisionEscalate, mcp.HookDecisionReject:
-		return strings.ToLower(strings.TrimSpace(decision))
-	default:
-		return mcp.HookDecisionReject
-	}
-}
-
-func afterRank(decision string) int {
-	switch decision {
-	case mcp.HookDecisionReject:
-		return 2
-	case mcp.HookDecisionEscalate:
-		return 1
-	default:
-		return 0
-	}
+	return chooseDecision(decisions, func(item mcp.AfterDecision) string {
+		return item.Decision
+	}, afterDecisionConfig)
 }

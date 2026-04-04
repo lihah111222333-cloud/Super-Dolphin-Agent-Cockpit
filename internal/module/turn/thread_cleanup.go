@@ -2,21 +2,12 @@ package turn
 
 import (
 	"context"
-	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 func (s *service) InterruptActiveTurn(ctx context.Context, session contract.Session, source string) error {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := requireSession(session); err != nil {
-		return err
-	}
-	threadID, err := resolveThreadID(session, "")
+	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
 		return err
 	}
@@ -24,14 +15,10 @@ func (s *service) InterruptActiveTurn(ctx context.Context, session contract.Sess
 	if !tracked {
 		return nil
 	}
-	err = session.Interrupt(ctx, dto.InterruptRequest{
-		ThreadID: threadID,
-		Source:   strings.TrimSpace(source),
+	_, err = interruptAndWait(ctx, session, s.tracker, active, threadID, source, func() error {
+		return s.waitForTurnSettle(ctx, active.localID, active.handle)
 	})
-	if err != nil || !s.tracker.MarkInterruptRequested(active.localID) {
-		return err
-	}
-	return s.waitForTurnSettle(ctx, active.localID, active.handle)
+	return err
 }
 
 func (s *service) CleanupThread(_ context.Context, threadID, reason string) error {

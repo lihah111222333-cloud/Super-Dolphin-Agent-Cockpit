@@ -42,15 +42,10 @@ func launchCLIWithManifest(
 	}
 	args := buildCLIArgs(model, instructions, mcpPath, cfg)
 	logManifestLaunch(binary, cwd, model, mcpPath, manifest)
-	if resumeID = strings.TrimSpace(resumeID); resumeID != "" {
-		args = append(args, "--resume", resumeID)
-	}
+	args = appendFlagIfSet(args, "--resume", resumeID)
 	tr, err := newTransport(binary, args, cwd, nil)
 	if err != nil {
-		if cleanup != nil {
-			cleanup()
-		}
-		return nil, nil, err
+		return nil, nil, cleanupOnError(err, cleanup)
 	}
 	return tr, cleanup, nil
 }
@@ -97,23 +92,15 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 		"--output-format", "stream-json",
 		"--verbose",
 	}
-	if model = strings.TrimSpace(model); model != "" {
-		args = append(args, "--model", model)
-	}
-	if prompt := composeLaunchSystemPrompt(instructions, cfg); prompt != "" {
-		args = append(args, "--system-prompt", prompt)
-	}
-	if mode := resolvePermissionMode(cfg.ApprovalPolicy, cfg.Sandbox); mode != "" {
-		args = append(args, "--permission-mode", mode)
-	}
-	if effort := normalizeEffort(cfg.Effort); effort != "" {
-		args = append(args, "--effort", effort)
-	}
+	args = appendFlagIfSet(args, "--model", model)
+	args = appendFlagIfSet(args, "--system-prompt", composeLaunchSystemPrompt(instructions, cfg))
+	args = appendFlagIfSet(args, "--permission-mode", resolvePermissionMode(cfg.ApprovalPolicy, cfg.Sandbox))
+	args = appendFlagIfSet(args, "--effort", normalizeEffort(cfg.Effort))
 	if mcpConfigPath = strings.TrimSpace(mcpConfigPath); mcpConfigPath != "" {
-		args = append(args, "--mcp-config", mcpConfigPath)
+		args = appendFlagIfSet(args, "--mcp-config", mcpConfigPath)
 		args = append(args, "--disallowedTools", "Read,Write,Edit,MultiEdit,Bash,Grep,Glob,LS")
 		if !hasFlag(args, "--permission-mode") {
-			args = append(args, "--permission-mode", "bypassPermissions")
+			args = appendFlagIfSet(args, "--permission-mode", "bypassPermissions")
 		}
 	}
 	return args
@@ -220,13 +207,14 @@ func writeManifestConfig(manifest dto.MCPManifest, cwd string) (string, func(), 
 	path := file.Name()
 	cleanup := func() { _ = os.Remove(path) }
 	if _, err := file.Write(raw); err != nil {
-		_ = file.Close()
-		cleanup()
-		return "", nil, fmt.Errorf("write mcp config: %w", err)
+		return "", nil, cleanupOnError(
+			fmt.Errorf("write mcp config: %w", err),
+			func() { _ = file.Close() },
+			cleanup,
+		)
 	}
 	if err := file.Close(); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("close mcp config: %w", err)
+		return "", nil, cleanupOnError(fmt.Errorf("close mcp config: %w", err), cleanup)
 	}
 	return path, cleanup, nil
 }

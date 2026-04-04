@@ -48,7 +48,7 @@ func literalExecTokens(base string, args []string) []shellToken {
 }
 
 func shellCommandArg(base string, args []string) (string, bool) {
-	if !shellInterpreters[normalizeExecToken(base)] {
+	if !isShellInterpreter(normalizeExecToken(base)) {
 		if len(args) == 0 {
 			return "", false
 		}
@@ -331,40 +331,6 @@ func dangerousCommandAt(tokens []shellToken, idx, depth int) string {
 		return blocked
 	}
 	return isDangerousWrapper(tokens, idx, depth, name)
-}
-
-func nextXargsCommandIndex(tokens []shellToken, start int) int {
-	for i := start; i < len(tokens); i++ {
-		text := strings.TrimSpace(tokens[i].text)
-		switch {
-		case text == "":
-			continue
-		case xargsOptionNeedsValue(text):
-			i++
-		case xargsInlineValueOption(text), strings.HasPrefix(text, "-"):
-			continue
-		default:
-			return i
-		}
-	}
-	return -1
-}
-
-func xargsOptionNeedsValue(text string) bool {
-	switch text {
-	case "-n", "-L", "-P", "-I", "-d", "--max-args", "--max-lines", "--max-procs", "--replace", "--delimiter":
-		return true
-	default:
-		return false
-	}
-}
-
-func xargsInlineValueOption(text string) bool {
-	return strings.HasPrefix(text, "--max-args=") ||
-		strings.HasPrefix(text, "--max-lines=") ||
-		strings.HasPrefix(text, "--max-procs=") ||
-		strings.HasPrefix(text, "--replace=") ||
-		strings.HasPrefix(text, "--delimiter=")
 }
 
 func isEnvAssignmentToken(value string) bool {

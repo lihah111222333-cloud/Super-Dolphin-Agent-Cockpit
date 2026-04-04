@@ -9,53 +9,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/kelindar/event"
 )
 
 const (
 	configTopicAgent  = "config/agent"
 	configTopicThread = "config/thread"
 )
-
-func registerConfigChangeSubscriptions(
-	dispatcher *event.Dispatcher,
-	notifier contract.ToolNotifier,
-	versions configVersionSource,
-	logger *pkglogger.Logger,
-) []context.CancelFunc {
-	if dispatcher == nil || notifier == nil || versions == nil {
-		return nil
-	}
-	return []context.CancelFunc{
-		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentStateChangedPayload(ev))
-		}, logger),
-		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentLaunched) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentLaunchedPayload(ev))
-		}, logger),
-		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentStopped) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentStoppedPayload(ev))
-		}, logger),
-		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentRecovering) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentRecoveringPayload(ev))
-		}, logger),
-		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentFailed) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentFailedPayload(ev))
-		}, logger),
-		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentRuntimeReported) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentRuntimeReportedPayload(ev))
-		}, logger),
-		platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Started) {
-			publishConfigChanged(notifier, versions, logger, configTopicThread, threadStartedPayload(ev))
-		}, logger),
-		platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Stopped) {
-			publishConfigChanged(notifier, versions, logger, configTopicThread, threadStoppedPayload(ev))
-		}, logger),
-	}
-}
 
 func publishConfigChanged(
 	notifier contract.ToolNotifier,
@@ -121,8 +81,7 @@ func configChangeScope(topic string) string {
 }
 
 func agentStateChangedPayload(ev agentdto.StateChanged) map[string]any {
-	payload := agentSessionPayload(ev.AgentSessionHeader)
-	payload["event"] = "agent/state/changed"
+	payload := baseConfigPayload("agent/state/changed", ev.AgentSessionHeader)
 	setPayloadString(payload, "oldState", ev.OldState)
 	setPayloadString(payload, "newState", ev.NewState)
 	setPayloadString(payload, "trigger", ev.Trigger)
@@ -130,23 +89,20 @@ func agentStateChangedPayload(ev agentdto.StateChanged) map[string]any {
 }
 
 func agentLaunchedPayload(ev agentdto.AgentLaunched) map[string]any {
-	payload := agentSessionPayload(ev.AgentSessionHeader)
-	payload["event"] = "agent/launched"
+	payload := baseConfigPayload("agent/launched", ev.AgentSessionHeader)
 	setPayloadString(payload, "cwd", ev.CWD)
 	setPayloadString(payload, "model", ev.Model)
 	return payload
 }
 
 func agentStoppedPayload(ev agentdto.AgentStopped) map[string]any {
-	payload := agentSessionPayload(ev.AgentSessionHeader)
-	payload["event"] = "agent/stopped"
+	payload := baseConfigPayload("agent/stopped", ev.AgentSessionHeader)
 	setPayloadString(payload, "reason", ev.Reason)
 	return payload
 }
 
 func agentRecoveringPayload(ev agentdto.AgentRecovering) map[string]any {
-	payload := agentSessionPayload(ev.AgentSessionHeader)
-	payload["event"] = "agent/recovering"
+	payload := baseConfigPayload("agent/recovering", ev.AgentSessionHeader)
 	setPayloadString(payload, "reason", ev.Reason)
 	if ev.Attempt > 0 {
 		payload["attempt"] = ev.Attempt
@@ -155,8 +111,7 @@ func agentRecoveringPayload(ev agentdto.AgentRecovering) map[string]any {
 }
 
 func agentFailedPayload(ev agentdto.AgentFailed) map[string]any {
-	payload := agentSessionPayload(ev.AgentSessionHeader)
-	payload["event"] = "agent/failed"
+	payload := baseConfigPayload("agent/failed", ev.AgentSessionHeader)
 	setPayloadString(payload, "error", ev.Error)
 	if ev.Recoverable {
 		payload["recoverable"] = true
@@ -165,8 +120,7 @@ func agentFailedPayload(ev agentdto.AgentFailed) map[string]any {
 }
 
 func agentRuntimeReportedPayload(ev agentdto.AgentRuntimeReported) map[string]any {
-	payload := agentSessionPayload(ev.AgentSessionHeader)
-	payload["event"] = "agent/runtime/reported"
+	payload := baseConfigPayload("agent/runtime/reported", ev.AgentSessionHeader)
 	setPayloadString(payload, "provider", ev.Provider)
 	if ev.Port > 0 {
 		payload["port"] = ev.Port
@@ -175,11 +129,7 @@ func agentRuntimeReportedPayload(ev agentdto.AgentRuntimeReported) map[string]an
 }
 
 func threadStartedPayload(ev threaddto.Started) map[string]any {
-	payload := map[string]any{
-		"event":    "thread/started",
-		"threadId": strings.TrimSpace(ev.ThreadID),
-	}
-	setPayloadString(payload, "agentId", ev.AgentID)
+	payload := baseConfigPayload("thread/started", configPayloadHeader(ev.AgentID, ev.ThreadID))
 	setPayloadString(payload, "provider", ev.Provider)
 	setPayloadString(payload, "providerThreadId", ev.ProviderThreadID)
 	setPayloadString(payload, "cwd", ev.CWD)
@@ -188,21 +138,9 @@ func threadStartedPayload(ev threaddto.Started) map[string]any {
 }
 
 func threadStoppedPayload(ev threaddto.Stopped) map[string]any {
-	payload := map[string]any{
-		"event":    "thread/stopped",
-		"threadId": strings.TrimSpace(ev.ThreadID),
-	}
-	setPayloadString(payload, "agentId", ev.AgentID)
+	payload := baseConfigPayload("thread/stopped", configPayloadHeader(ev.AgentID, ev.ThreadID))
 	setPayloadString(payload, "status", ev.Status)
 	setPayloadString(payload, "reason", ev.Reason)
-	return payload
-}
-
-func agentSessionPayload(header shareddto.AgentSessionHeader) map[string]any {
-	payload := map[string]any{}
-	setPayloadString(payload, "threadId", header.ThreadID)
-	setPayloadString(payload, "agentId", header.AgentID)
-	setPayloadString(payload, "sessionId", header.SessionID)
 	return payload
 }
 

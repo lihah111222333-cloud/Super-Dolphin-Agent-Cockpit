@@ -2,8 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -25,15 +23,8 @@ type xrefParams struct {
 }
 
 func NewXRefHandler(manager gopls.Manager) ToolHandler {
-	if manager == nil {
-		return missingManagerHandler()
-	}
-	return ToolHandler(wrapToolHandler("lsp_xref", middleware.TierNormal, func(ctx context.Context, params json.RawMessage) (any, error) {
-		req, err := decodeParams[xrefParams](params)
-		if err != nil {
-			return nil, err
-		}
-		filePath, position, err := requireFilePosition(filePositionParams{
+	return newManagerTool("lsp_xref", middleware.TierNormal, manager, decodeStrict, func(ctx context.Context, manager gopls.Manager, req xrefParams) (any, error) {
+		filePath, position, err := resolveFilePositionRequest(filePositionParams{
 			FilePath: req.FilePath,
 			Line:     req.Line,
 			Column:   req.Column,
@@ -41,17 +32,18 @@ func NewXRefHandler(manager gopls.Manager) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		switch normalizeAction(req.Action) {
-		case "references":
-			return runReferences(ctx, manager, filePath, position, req)
-		case "call_hierarchy":
-			return runCallHierarchy(ctx, manager, filePath, position, req)
-		case "type_hierarchy":
-			return runTypeHierarchy(ctx, manager, filePath, position, req)
-		default:
-			return nil, fmt.Errorf("unsupported xref action %q", req.Action)
-		}
-	}))
+		return dispatchToolAction(ctx, "xref", req.Action, req, map[string]actionHandler[xrefParams]{
+			"references": func(ctx context.Context, req xrefParams) (any, error) {
+				return runReferences(ctx, manager, filePath, position, req)
+			},
+			"call_hierarchy": func(ctx context.Context, req xrefParams) (any, error) {
+				return runCallHierarchy(ctx, manager, filePath, position, req)
+			},
+			"type_hierarchy": func(ctx context.Context, req xrefParams) (any, error) {
+				return runTypeHierarchy(ctx, manager, filePath, position, req)
+			},
+		})
+	})
 }
 
 func runReferences(
@@ -76,10 +68,10 @@ func runReferences(
 	if len(results) == 0 {
 		return "no references found", nil
 	}
-	if verbosity == format.VerbosityFull {
-		return format.NormalizeForDisplay(results), nil
-	}
-	return format.GroupLocationsByFile(results, total), nil
+	return renderByVerbosity(results, total, verbosity,
+		func(items []protocol.LocationResult) any { return format.NormalizeForDisplay(items) },
+		func(items []protocol.LocationResult, total int) any { return format.GroupLocationsByFile(items, total) },
+	), nil
 }
 
 func runCallHierarchy(
@@ -97,11 +89,9 @@ func runCallHierarchy(
 	if err != nil {
 		return nil, err
 	}
-	results = limitSlice(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit))
-	if len(results) == 0 {
-		return "no call hierarchy found", nil
-	}
-	return format.NormalizeForDisplay(results), nil
+	return renderListResult(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit), "no call hierarchy found", func(items []protocol.CallHierarchyResult, _ int) any {
+		return format.NormalizeForDisplay(items)
+	})
 }
 
 func runTypeHierarchy(
@@ -119,11 +109,9 @@ func runTypeHierarchy(
 	if err != nil {
 		return nil, err
 	}
-	results = limitSlice(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit))
-	if len(results) == 0 {
-		return "no type hierarchy found", nil
-	}
-	return format.NormalizeForDisplay(results), nil
+	return renderListResult(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit), "no type hierarchy found", func(items []protocol.TypeHierarchyResult, _ int) any {
+		return format.NormalizeForDisplay(items)
+	})
 }
 
 func normalizeCallHierarchyDirection(raw string) (string, error) {
@@ -145,8 +133,3 @@ func normalizeTypeHierarchyDirection(raw string) (string, error) {
 		return "", fmt.Errorf("invalid type_hierarchy direction %q", raw)
 	}
 }
-
-var (
-	_ = errors.New
-	_ = json.RawMessage{}
-)

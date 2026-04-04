@@ -22,24 +22,24 @@ type runtimeReportParams struct {
 }
 
 func (p *runtimeReportParams) UnmarshalJSON(data []byte) error {
-	var payload struct {
+	type payload struct {
 		AgentID       string `json:"agent_id"`
 		AgentIDLegacy string `json:"agentId"`
 		Port          int    `json:"port,omitempty"`
 		Provider      string `json:"provider,omitempty"`
 	}
-	if err := decodeStrictRuntimeReportJSON(data, &payload); err != nil {
-		return err
-	}
-	agentID := strings.TrimSpace(payload.AgentID)
-	legacyAgentID := strings.TrimSpace(payload.AgentIDLegacy)
-	if agentID != "" && legacyAgentID != "" && agentID != legacyAgentID {
-		return fmt.Errorf("runtime report agent id aliases conflict: agent_id=%q agentId=%q", agentID, legacyAgentID)
-	}
-	p.AgentID = firstTrimmed(agentID, legacyAgentID)
-	p.Port = payload.Port
-	p.Provider = payload.Provider
-	return nil
+	return decodeLegacyAliasWith(data, new(payload), func(raw *payload, legacy *payload) error {
+		p.AgentID = strings.TrimSpace(raw.AgentID)
+		p.Port = raw.Port
+		p.Provider = raw.Provider
+		agentID := strings.TrimSpace(p.AgentID)
+		legacyAgentID := strings.TrimSpace(legacy.AgentIDLegacy)
+		if agentID != "" && legacyAgentID != "" && agentID != legacyAgentID {
+			return fmt.Errorf("runtime report agent id aliases conflict: agent_id=%q agentId=%q", agentID, legacyAgentID)
+		}
+		p.AgentID = firstTrimmed(agentID, legacyAgentID)
+		return nil
+	}, decodeStrictRuntimeReportJSON)
 }
 
 func decodeStrictRuntimeReportJSON(data []byte, dst any) error {

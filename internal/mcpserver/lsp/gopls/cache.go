@@ -103,15 +103,23 @@ func (s *lspCacheStore) Load(key lspCacheKey) (lspCacheValue, bool) {
 		return lspCacheValue{}, false
 	}
 	s.maybeCleanup()
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	value, ok := s.memory[key.String()]
-	if !ok || s.expired(value, s.now()) {
-		return lspCacheValue{}, false
-	}
-	return value, true
+	result := withReadLock(&s.mu, func() struct {
+		value lspCacheValue
+		ok    bool
+	} {
+		value, ok := s.memory[key.String()]
+		if !ok || s.expired(value, s.now()) {
+			return struct {
+				value lspCacheValue
+				ok    bool
+			}{}
+		}
+		return struct {
+			value lspCacheValue
+			ok    bool
+		}{value: value, ok: true}
+	})
+	return result.value, result.ok
 }
 
 func (s *lspCacheStore) Upsert(value lspCacheValue) {
@@ -119,28 +127,24 @@ func (s *lspCacheStore) Upsert(value lspCacheValue) {
 		return
 	}
 	s.maybeCleanup()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	value.UpdatedAt = s.now()
-	s.memory[value.Key.String()] = value
-	if err := s.persistLocked(); err != nil {
-		s.fallbackToMemory(err)
-	}
+	withWriteLock(&s.mu, func() struct{} {
+		value.UpdatedAt = s.now()
+		s.memory[value.Key.String()] = value
+		s.persistOnMutation(true)
+		return struct{}{}
+	})
 }
 
 func (s *lspCacheStore) Delete(key lspCacheKey) {
 	if s == nil {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.memory, key.String())
-	if err := s.persistLocked(); err != nil {
-		s.fallbackToMemory(err)
-	}
+	withWriteLock(&s.mu, func() struct{} {
+		_, existed := s.memory[key.String()]
+		delete(s.memory, key.String())
+		s.persistOnMutation(existed)
+		return struct{}{}
+	})
 }
 
 func (s *lspCacheStore) WorkspaceDocuments(workspace string) []lspCacheValue {
@@ -148,28 +152,26 @@ func (s *lspCacheStore) WorkspaceDocuments(workspace string) []lspCacheValue {
 		return nil
 	}
 	s.maybeCleanup()
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	now := s.now()
-	values := make([]lspCacheValue, 0, len(s.memory))
-	for _, value := range s.memory {
-		if value.Key.Workspace != workspace || s.expired(value, now) {
-			continue
+	return withReadLock(&s.mu, func() []lspCacheValue {
+		now := s.now()
+		values := make([]lspCacheValue, 0, len(s.memory))
+		for _, value := range s.memory {
+			if value.Key.Workspace != workspace || s.expired(value, now) {
+				continue
+			}
+			values = append(values, value)
 		}
-		values = append(values, value)
-	}
-	slices.SortFunc(values, func(left, right lspCacheValue) int {
-		if left.UpdatedAt.Equal(right.UpdatedAt) {
-			return strings.Compare(left.Key.URI, right.Key.URI)
-		}
-		if left.UpdatedAt.After(right.UpdatedAt) {
-			return -1
-		}
-		return 1
+		slices.SortFunc(values, func(left, right lspCacheValue) int {
+			if left.UpdatedAt.Equal(right.UpdatedAt) {
+				return strings.Compare(left.Key.URI, right.Key.URI)
+			}
+			if left.UpdatedAt.After(right.UpdatedAt) {
+				return -1
+			}
+			return 1
+		})
+		return values
 	})
-	return values
 }
 
 func (s *lspCacheStore) WorkspaceURIs(workspace string) []string {
@@ -219,23 +221,19 @@ func (s *lspCacheStore) maybeCleanup() {
 	if s == nil {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := s.now()
-	changed := false
-	for key, value := range s.memory {
-		if !s.expired(value, now) {
-			continue
+	withWriteLock(&s.mu, func() struct{} {
+		now := s.now()
+		changed := false
+		for key, value := range s.memory {
+			if !s.expired(value, now) {
+				continue
+			}
+			delete(s.memory, key)
+			changed = true
 		}
-		delete(s.memory, key)
-		changed = true
-	}
-	if changed {
-		if err := s.persistLocked(); err != nil {
-			s.fallbackToMemory(err)
-		}
-	}
+		s.persistOnMutation(changed)
+		return struct{}{}
+	})
 }
 
 func (s *lspCacheStore) ensurePersistentReady() {

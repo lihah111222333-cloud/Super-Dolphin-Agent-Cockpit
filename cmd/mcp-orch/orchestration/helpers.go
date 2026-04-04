@@ -40,26 +40,21 @@ func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platform
 }
 
 func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return err
-	}
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
 		return errors.New("turn id is required")
 	}
-	if agent.activeTurnID == "" {
-		return fmt.Errorf("%w: agent %q has no active turn", errTurnNotActive, agent.id)
-	}
-	if agent.activeTurnID == turnID {
+	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if agent.activeTurnID == "" {
+			return fmt.Errorf("%w: agent %q has no active turn", errTurnNotActive, agent.id)
+		}
+		if agent.activeTurnID == turnID {
+			return nil
+		}
+		agent.activeTurnID = turnID
+		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 		return nil
-	}
-	agent.activeTurnID = turnID
-	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
-	return nil
+	})
 }
 
 func (s *service) claimMonitorTargetsLocked() []monitorTarget {
@@ -133,7 +128,7 @@ func (s *service) finishTurnStartSuccess(ctx context.Context, work turnWork, sta
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	agent, err := s.lookupAgentLocked(work.agentID)
+	agent, err := lookupAgentByIDLocked(s.agents, work.agentID)
 	if err != nil || agent.activeTurnID != currentTurnID {
 		return
 	}
@@ -146,7 +141,7 @@ func (s *service) finishTurnStartFailure(ctx context.Context, work turnWork, sta
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	agent, err := s.lookupAgentLocked(work.agentID)
+	agent, err := lookupAgentByIDLocked(s.agents, work.agentID)
 	if err != nil || agent.activeTurnID != work.turnID {
 		return
 	}
@@ -161,18 +156,13 @@ func (s *service) finishTurnStartFailure(ctx context.Context, work turnWork, sta
 }
 
 func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime, reason string) error {
-	if agent.stopRequested {
-		if agent.cmd != nil {
-			setStopReasonIfEmpty(agent, reason)
-		}
-		return nil
-	}
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerStopRequested); err != nil {
+	changed, err := s.markStoppingLocked(ctx, agent, reason)
+	if err != nil {
 		return err
 	}
-	agent.stopRequested = true
-	setStopReasonIfEmpty(agent, reason)
-	cleanupAgentState(agent)
+	if !changed {
+		return nil
+	}
 	return stopProcess(agent.cmd)
 }
 
@@ -185,21 +175,14 @@ func (s *service) stopAgentWithReason(ctx context.Context, agentID, reason strin
 }
 
 func (s *service) requestAgentStop(ctx context.Context, agentID, reason string) (uint64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(strings.TrimSpace(agentID))
-	if err != nil {
-		return 0, err
-	}
 	launchSeq := uint64(0)
-	if agent.cmd != nil {
-		launchSeq = agent.launchSeq
-	}
-	if err := s.stopAgentLocked(ctx, agent, reason); err != nil {
-		return 0, err
-	}
-	return launchSeq, nil
+	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if agent.cmd != nil {
+			launchSeq = agent.launchSeq
+		}
+		return s.stopAgentLocked(ctx, agent, reason)
+	})
+	return launchSeq, err
 }
 
 func setStopReasonIfEmpty(agent *agentRuntime, reason string) {
@@ -212,20 +195,18 @@ func setStopReasonIfEmpty(agent *agentRuntime, reason string) {
 }
 
 func (s *service) submitAgentReadyState(ctx context.Context, agentID string) (bool, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil {
-		return false, err
-	}
-	if !s.agentRunningLocked(ctx, agent) {
-		return false, fmt.Errorf("agent %q is not running", agent.id)
-	}
-	if agent.stopRequested {
-		return false, fmt.Errorf("agent %q is stopping", agent.id)
-	}
-	return agent.state == agentdto.StateIdle && agent.activeTurnID == "" && agent.queue.Len() == 0, nil
+	ready := false
+	err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		if !s.agentRunningLocked(ctx, agent) {
+			return fmt.Errorf("agent %q is not running", agent.id)
+		}
+		if agent.stopRequested {
+			return fmt.Errorf("agent %q is stopping", agent.id)
+		}
+		ready = agent.state == agentdto.StateIdle && agent.activeTurnID == "" && agent.queue.Len() == 0
+		return nil
+	})
+	return ready, err
 }
 
 func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string) error {
@@ -244,11 +225,7 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 	cmd.Dir = agent.cwd
 	cmd.Env = append(os.Environ(), agent.env...)
 	if err := cmd.Start(); err != nil {
-		agent.lastError = err.Error()
-		if fireErr := s.fireOrForceLocked(ctx, agent, agentdto.TriggerLaunchFailed); fireErr != nil {
-			return errors.Join(err, fireErr)
-		}
-		return err
+		return s.commitLaunchFailureLocked(ctx, agent, err)
 	}
 	now := resolveEventTime(ctx, agent.updatedAt)
 	resetLaunchState(agent)
@@ -256,14 +233,12 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 	agent.launchSeq++
 	agent.startedAt = now
 	agent.updatedAt = now
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerLaunchSucceeded); err != nil {
-		agent.lastError = err.Error()
+	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
 		_ = stopProcess(cmd)
 		agent.cmd = nil
 		return err
 	}
 	s.logger.Info("orchestration: agent launched", "agent_id", agent.id, "pid", cmd.Process.Pid)
-	s.publishAgentLaunched(agent)
 	return nil
 }
 
@@ -332,12 +307,4 @@ func (s *service) listAgents() []agentRuntime {
 		agents = append(agents, snapshot)
 	}
 	return agents
-}
-
-func (s *service) lookupAgentLocked(agentID string) (*agentRuntime, error) {
-	agent, ok := s.agents[agentID]
-	if ok {
-		return agent, nil
-	}
-	return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
 }

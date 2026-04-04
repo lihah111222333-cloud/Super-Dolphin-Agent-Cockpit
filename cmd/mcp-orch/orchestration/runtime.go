@@ -18,36 +18,30 @@ func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error
 	if !shouldUpdatePort(report.Port) && !shouldUpdateProvider(provider) {
 		return errors.New("runtime report must include port or provider")
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil {
-		return err
-	}
-	if shouldUpdateProvider(provider) && !isKnownRuntimeProvider(provider) {
-		loggerOrDefault(s.logger).Warn("orchestration: unknown runtime provider", "agent_id", agent.id, "provider", provider)
-	}
-	beforePort, beforePortSource := snapshotPort(agent)
-	beforeProvider, beforeProviderSource := snapshotProvider(agent)
-	applyRuntimeReportLocked(agent, report.Port, provider)
-	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
-	afterPort, afterPortSource := snapshotPort(agent)
-	afterProvider, afterProviderSource := snapshotProvider(agent)
-	if runtimeSnapshotChanged(
-		beforePort,
-		beforePortSource,
-		beforeProvider,
-		beforeProviderSource,
-		afterPort,
-		afterPortSource,
-		afterProvider,
-		afterProviderSource,
-	) {
-		s.publishAgentRuntimeReported(agent)
-	}
-	return nil
+	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if shouldUpdateProvider(provider) && !isKnownRuntimeProvider(provider) {
+			loggerOrDefault(s.logger).Warn("orchestration: unknown runtime provider", "agent_id", agent.id, "provider", provider)
+		}
+		beforePort, beforePortSource := snapshotPort(agent)
+		beforeProvider, beforeProviderSource := snapshotProvider(agent)
+		applyRuntimeReportLocked(agent, report.Port, provider)
+		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
+		afterPort, afterPortSource := snapshotPort(agent)
+		afterProvider, afterProviderSource := snapshotProvider(agent)
+		if runtimeSnapshotChanged(
+			beforePort,
+			beforePortSource,
+			beforeProvider,
+			beforeProviderSource,
+			afterPort,
+			afterPortSource,
+			afterProvider,
+			afterProviderSource,
+		) {
+			s.publishAgentRuntimeReported(agent)
+		}
+		return nil
+	})
 }
 
 func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSnapshot {

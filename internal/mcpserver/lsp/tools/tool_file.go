@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,8 +26,6 @@ const (
 )
 
 var errManagerUnavailable = errors.New("lsp manager is not configured")
-
-type Handler func(ctx context.Context, params json.RawMessage) (any, error)
 
 type Config struct {
 	WorkspaceRoot string
@@ -101,23 +98,24 @@ func NewFileHandler(cfg Config) Handler {
 }
 
 func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (any, error) {
-	var input fileToolInput
-	if err := decodeInput(params, &input); err != nil {
+	input, err := decodeToolParams[fileToolInput](params, decodeLenient)
+	if err != nil {
 		return nil, err
 	}
-	switch strings.ToLower(strings.TrimSpace(input.Action)) {
-	case "open_file":
-		return h.openFile(ctx, input.FilePath)
-	case "read_file":
-		if len(input.FilePaths) > 0 {
-			return h.readBatch(ctx, input.FilePaths, input.Offset, input.Limit)
-		}
-		return h.readSingle(input.FilePath, input.Offset, input.Limit)
-	case "diagnostics":
-		return h.handleDiagnostics(ctx, input)
-	default:
-		return nil, fmt.Errorf("unsupported lsp_file action %q", input.Action)
-	}
+	return dispatchToolAction(ctx, "lsp_file", input.Action, input, map[string]actionHandler[fileToolInput]{
+		"open_file": func(ctx context.Context, input fileToolInput) (any, error) {
+			return h.openFile(ctx, input.FilePath)
+		},
+		"read_file": func(ctx context.Context, input fileToolInput) (any, error) {
+			if len(input.FilePaths) > 0 {
+				return h.readBatch(ctx, input.FilePaths, input.Offset, input.Limit)
+			}
+			return h.readSingle(input.FilePath, input.Offset, input.Limit)
+		},
+		"diagnostics": func(ctx context.Context, input fileToolInput) (any, error) {
+			return h.handleDiagnostics(ctx, input)
+		},
+	})
 }
 
 func (h handlerBase) openFile(ctx context.Context, rawPath string) (openFileResult, error) {
@@ -288,17 +286,6 @@ func renderReadContent(content string, offset, limit int) string {
 		return rendered
 	}
 	return fmt.Sprintf("%s\n\n...[showing lines %d-%d of %d total, use offset=%d to continue]", rendered, start, end, len(lines), end+1)
-}
-
-func decodeInput(raw json.RawMessage, dst any) error {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		trimmed = []byte("{}")
-	}
-	if err := json.Unmarshal(trimmed, dst); err != nil {
-		return fmt.Errorf("decode params: %w", err)
-	}
-	return nil
 }
 
 func resolveRoot(raw string) string {

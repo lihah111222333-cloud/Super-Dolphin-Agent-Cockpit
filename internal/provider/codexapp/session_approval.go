@@ -150,19 +150,15 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 	if requestID <= 0 {
 		return rpc.ApprovalRequest{}, 0, false
 	}
-	callID := firstNonEmpty(
-		stringValue(payload, "callId", "call_id"),
-		stringValue(payload, "approvalId", "approval_id"),
-		strconv.FormatInt(requestID, 10),
-	)
+	callID := payloadCallID(payload, stringValue(payload, "approvalId", "approval_id"), strconv.FormatInt(requestID, 10))
 	requestRef := requestID
 	return rpc.ApprovalRequest{
 		CallID:         callID,
 		ApprovalID:     stringValue(payload, "approvalId", "approval_id"),
-		ToolName:       firstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedValue(payload, "item"), "toolName", "tool")),
+		ToolName:       payloadToolName(payload),
 		AgentID:        s.agentID,
-		ThreadID:       firstNonEmpty(stringValue(payload, "threadId", "thread_id"), s.ThreadID()),
-		TurnID:         firstNonEmpty(stringValue(payload, "turnId", "turn_id"), stringValue(nestedValue(payload, "turn"), "id")),
+		ThreadID:       payloadThreadID(payload, s.ThreadID()),
+		TurnID:         payloadTurnID(payload),
 		Reason:         stringValue(payload, "reason", "message"),
 		SourceMethod:   method,
 		RequestID:      &requestRef,
@@ -213,26 +209,9 @@ func waitProcessedApproval(entry *processedApprovalEntry) (contract.ApprovalDeci
 }
 
 func isApprovalBridgeMethod(method string) bool {
-	method = strings.TrimSpace(method)
-	return method == rpc.DefaultApprovalCallbackMethod ||
-		method == "tool/approval/request" ||
-		method == "item/commandExecution/requestApproval" ||
-		method == "item/fileChange/requestApproval" ||
-		method == "skill/requestApproval" ||
-		method == "tool.approval.requested" ||
-		isRequestUserInputMethod(method)
+	return hasMethod(method, approvalBridgeMethods)
 }
 
 func isRequestUserInputMethod(method string) bool {
-	switch strings.TrimSpace(method) {
-	case "request_user_input",
-		"codex/event/request_user_input",
-		"item/commandExecution/requestUserInput",
-		"item/commandExecution/request_user_input",
-		"item/tool/requestUserInput",
-		"item/tool/request_user_input":
-		return true
-	default:
-		return false
-	}
+	return hasMethod(method, requestUserInputMethods)
 }

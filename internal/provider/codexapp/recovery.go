@@ -121,19 +121,16 @@ func (s *session) attemptRecovery(reason string) error {
 		},
 	})
 	if err := s.recovery.Reconnect(s.ctx); err != nil {
-		s.failTurns(errors.New("codexapp: " + reason))
-		return err
+		return s.failRecovery(reason, err)
 	}
 	waitCtx, cancel := withTimeout(s.ctx, 2*time.Second)
 	defer cancel()
 	if err := s.waitReadLoopStopped(waitCtx); err != nil {
-		s.failTurns(errors.New("codexapp: " + reason))
-		return err
+		return s.failRecovery(reason, err)
 	}
 	s.startReadLoop()
 	if err := s.replayPendingTurn(s.ctx); err != nil {
-		s.failTurns(errors.New("codexapp: " + reason))
-		return err
+		return s.failRecovery(reason, err)
 	}
 	return nil
 }

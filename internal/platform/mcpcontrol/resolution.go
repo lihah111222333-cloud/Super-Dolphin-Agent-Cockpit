@@ -10,10 +10,11 @@ import (
 )
 
 func resolveRegisteredInstance(registry *ToolRegistry, key dto.LeaseKey, allowStale bool) (*ToolInstance, error) {
-	if registry == nil {
-		return nil, errLeaseNotFound("mcp registry is not configured")
-	}
-	return registry.resolveLease(key, LeaseKey{}, allowStale)
+	return lookupLease(leaseLookupOptions{
+		registry:   registry,
+		key:        key,
+		allowStale: allowStale,
+	})
 }
 
 func contextPayload(scope string, instance *ToolInstance, snapshot *contract.AgentSnapshot) (map[string]any, error) {

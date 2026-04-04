@@ -1,9 +1,7 @@
 package rpc
 
 import (
-	"errors"
 	"io"
-	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -40,7 +38,7 @@ func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
 		}
 		defer srv.Stop()
 		defer ch.Close()
-		if err := srv.Wait(); err != nil && !errors.Is(err, io.EOF) && !channel.IsErrClosing(err) {
+		if err := srv.Wait(); err != nil && !isExpectedCloseErr(err) {
 			deadline := time.Now().Add(time.Second)
 			msg := websocket.FormatCloseMessage(websocket.CloseInternalServerErr, http.StatusText(http.StatusInternalServerError))
 			_ = conn.WriteControl(websocket.CloseMessage, msg, deadline)
@@ -91,20 +89,14 @@ func (c *wsChannel) Close() error {
 }
 
 func recvWSError(err error) error {
-	if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-		return io.EOF
-	}
-	if errors.Is(err, net.ErrClosed) {
+	if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || isExpectedCloseErr(err) {
 		return io.EOF
 	}
 	return err
 }
 
 func sendWSError(err error) error {
-	if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-		return channel.ErrClosed
-	}
-	if errors.Is(err, net.ErrClosed) {
+	if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || isExpectedCloseErr(err) {
 		return channel.ErrClosed
 	}
 	return err

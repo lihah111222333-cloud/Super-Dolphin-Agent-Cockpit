@@ -37,15 +37,15 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 	switch {
 	case isApprovalBridgeMethod(method):
 		s.handleApprovalRequest(method, params)
-	case method == "turn/completed" || method == "turn/aborted":
-		s.finishTurn(params, method == "turn/completed")
+	case isTurnTerminalEvent(method):
+		s.finishTurn(params, turnTerminalSuccess(method, decodeEventPayload(params)))
 	case method == "connection.dead":
 		s.handleConnectionDead(params)
 	}
 }
 
 func isMCPStartupStatus(method string) bool {
-	return method == "mcpServer/startupStatus/update" || method == "mcpServer/startupStatus/updated"
+	return hasMethod(method, mcpStartupStatusMethods)
 }
 
 func extractStartupStatus(params json.RawMessage) (name, status string) {

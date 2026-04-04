@@ -136,34 +136,19 @@ func (c *bootstrapCoordinator) syncSnapshot(ctx context.Context, m *manager, cfg
 	}
 
 	record, cached := c.cache.Load(key)
-	client, err := m.ensureClient(ctx, cfg)
-	if err != nil {
-		c.states.fail(cfg.key, snapshot.ref.uri, err)
-		return err
-	}
-	if m.pool != nil {
-		m.pool.acquire(client)
-		defer m.pool.release(client)
-	}
-
 	version := 1
 	if cached && record.Version > 0 {
 		version = record.Version + 1
 	}
-	err = applyBootstrapUpdate(ctx, client, snapshot, decision.previous, cached, version)
-	if err != nil {
+	if err := c.syncSnapshotToClient(ctx, m, cfg, snapshot, snapshotSyncRequest{
+		key:      key,
+		version:  version,
+		cached:   cached,
+		previous: decision.previous,
+	}); err != nil {
 		c.states.fail(cfg.key, snapshot.ref.uri, err)
 		return err
 	}
-
-	c.cache.Upsert(lspCacheValue{
-		Key:             key,
-		Version:         version,
-		Fingerprint:     snapshot.fingerprint,
-		ModTimeUnixNano: snapshot.modTimeNano,
-		Size:            snapshot.size,
-	})
-	c.states.complete(cfg.key, snapshot.ref.uri, snapshot.fingerprint, version)
 	return nil
 }
 
@@ -176,26 +161,14 @@ func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *mana
 	if _, cached := c.cache.Load(key); cached {
 		return nil
 	}
-	client, err := m.ensureClient(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	if m.pool != nil {
-		m.pool.acquire(client)
-		defer m.pool.release(client)
-	}
-	if err := client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, 1, snapshot.text); err != nil {
+	if err := c.syncSnapshotToClient(ctx, m, cfg, snapshot, snapshotSyncRequest{
+		key:      key,
+		version:  1,
+		openOnly: true,
+	}); err != nil {
 		c.states.fail(cfg.key, snapshot.ref.uri, err)
 		return err
 	}
-	c.cache.Upsert(lspCacheValue{
-		Key:             key,
-		Version:         1,
-		Fingerprint:     snapshot.fingerprint,
-		ModTimeUnixNano: snapshot.modTimeNano,
-		Size:            snapshot.size,
-	})
-	c.states.complete(cfg.key, snapshot.ref.uri, snapshot.fingerprint, 1)
 	return nil
 }
 

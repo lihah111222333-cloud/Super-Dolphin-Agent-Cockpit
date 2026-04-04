@@ -16,33 +16,38 @@ type mergeRunParams struct {
 
 func (p *mergeRunParams) UnmarshalJSON(data []byte) error {
 	type raw mergeRunParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*p = mergeRunParams(current)
 	var legacy struct {
 		RunKey        string `json:"runKey"`
 		UpdatedBy     string `json:"updatedBy"`
 		DryRun        *bool  `json:"dryRun"`
 		DeleteRemoved *bool  `json:"deleteRemoved"`
 	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	if strings.TrimSpace(p.RunKey) == "" {
-		p.RunKey = strings.TrimSpace(legacy.RunKey)
-	}
-	if strings.TrimSpace(p.UpdatedBy) == "" {
-		p.UpdatedBy = strings.TrimSpace(legacy.UpdatedBy)
-	}
-	if !p.DryRun && legacy.DryRun != nil {
-		p.DryRun = *legacy.DryRun
-	}
-	if !p.DeleteRemoved && legacy.DeleteRemoved != nil {
-		p.DeleteRemoved = *legacy.DeleteRemoved
-	}
-	return nil
+	return decodeLegacyRunParams(data, func() error {
+		var current raw
+		if err := json.Unmarshal(data, &current); err != nil {
+			return err
+		}
+		*p = mergeRunParams(current)
+		return nil
+	}, &legacy, func(legacy struct {
+		RunKey        string `json:"runKey"`
+		UpdatedBy     string `json:"updatedBy"`
+		DryRun        *bool  `json:"dryRun"`
+		DeleteRemoved *bool  `json:"deleteRemoved"`
+	}) {
+		if strings.TrimSpace(p.RunKey) == "" {
+			p.RunKey = strings.TrimSpace(legacy.RunKey)
+		}
+		if strings.TrimSpace(p.UpdatedBy) == "" {
+			p.UpdatedBy = strings.TrimSpace(legacy.UpdatedBy)
+		}
+		if !p.DryRun && legacy.DryRun != nil {
+			p.DryRun = *legacy.DryRun
+		}
+		if !p.DeleteRemoved && legacy.DeleteRemoved != nil {
+			p.DeleteRemoved = *legacy.DeleteRemoved
+		}
+	})
 }
 
 type runKeyParams struct {
@@ -67,25 +72,28 @@ type abortRunParams struct {
 
 func (p *abortRunParams) UnmarshalJSON(data []byte) error {
 	type raw abortRunParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*p = abortRunParams(current)
 	var legacy struct {
 		RunKey    string `json:"runKey"`
 		UpdatedBy string `json:"updatedBy"`
 	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	if strings.TrimSpace(p.RunKey) == "" {
-		p.RunKey = strings.TrimSpace(legacy.RunKey)
-	}
-	if strings.TrimSpace(p.UpdatedBy) == "" {
-		p.UpdatedBy = strings.TrimSpace(legacy.UpdatedBy)
-	}
-	return nil
+	return decodeLegacyRunParams(data, func() error {
+		var current raw
+		if err := json.Unmarshal(data, &current); err != nil {
+			return err
+		}
+		*p = abortRunParams(current)
+		return nil
+	}, &legacy, func(legacy struct {
+		RunKey    string `json:"runKey"`
+		UpdatedBy string `json:"updatedBy"`
+	}) {
+		if strings.TrimSpace(p.RunKey) == "" {
+			p.RunKey = strings.TrimSpace(legacy.RunKey)
+		}
+		if strings.TrimSpace(p.UpdatedBy) == "" {
+			p.UpdatedBy = strings.TrimSpace(legacy.UpdatedBy)
+		}
+	})
 }
 
 type listRunsParams struct {
@@ -96,21 +104,23 @@ type listRunsParams struct {
 
 func (p *listRunsParams) UnmarshalJSON(data []byte) error {
 	type raw listRunsParams
-	var current raw
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*p = listRunsParams(current)
 	var legacy struct {
 		DagKey string `json:"dagKey"`
 	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	if strings.TrimSpace(p.DagKey) == "" {
-		p.DagKey = strings.TrimSpace(legacy.DagKey)
-	}
-	return nil
+	return decodeLegacyRunParams(data, func() error {
+		var current raw
+		if err := json.Unmarshal(data, &current); err != nil {
+			return err
+		}
+		*p = listRunsParams(current)
+		return nil
+	}, &legacy, func(legacy struct {
+		DagKey string `json:"dagKey"`
+	}) {
+		if strings.TrimSpace(p.DagKey) == "" {
+			p.DagKey = strings.TrimSpace(legacy.DagKey)
+		}
+	})
 }
 
 type listRunFilesParams struct {
@@ -170,9 +180,9 @@ func fillLegacyRunKey(data []byte, runKey *string) error {
 	var legacy struct {
 		RunKey string `json:"runKey"`
 	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	*runKey = strings.TrimSpace(legacy.RunKey)
-	return nil
+	return decodeLegacyRunParams(data, func() error { return nil }, &legacy, func(legacy struct {
+		RunKey string `json:"runKey"`
+	}) {
+		*runKey = strings.TrimSpace(legacy.RunKey)
+	})
 }

@@ -4,9 +4,9 @@ import "strings"
 
 func isDangerousBasename(name string) string {
 	switch {
-	case blockedCommands[name]:
+	case isBlockedCommand(name):
 		return name
-	case shellInterpreters[name]:
+	case isShellInterpreter(name):
 		return name
 	default:
 		return ""
@@ -18,24 +18,11 @@ func isDangerousWrapper(tokens []shellToken, idx, depth int, name string) string
 }
 
 func wrappedCommandIndex(tokens []shellToken, idx int, name string) int {
-	switch name {
-	case "env":
-		return nextEnvCommandIndex(tokens, idx+1)
-	case "command", "time":
-		return nextOptionCommandIndex(tokens, idx+1)
-	case "nohup":
-		return nextCommandIndex(tokens, idx+1)
-	case "nice":
-		return nextNiceCommandIndex(tokens, idx+1)
-	case "timeout":
-		return nextTimeoutCommandIndex(tokens, idx+1)
-	case "find":
-		return nextFindExecCommandIndex(tokens, idx+1)
-	case "xargs":
-		return nextXargsCommandIndex(tokens, idx+1)
-	default:
+	rule, ok := wrapperSkipRules[name]
+	if !ok {
 		return -1
 	}
+	return skipOptionsAndFindCommand(tokens, idx+1, rule)
 }
 
 func isDangerousChain(tokens []shellToken, idx, depth int) string {
@@ -49,90 +36,6 @@ func nextCommandIndex(tokens []shellToken, start int) int {
 	for i := start; i < len(tokens); i++ {
 		if strings.TrimSpace(tokens[i].text) != "" {
 			return i
-		}
-	}
-	return -1
-}
-
-func nextEnvCommandIndex(tokens []shellToken, start int) int {
-	for i := start; i < len(tokens); i++ {
-		text := strings.TrimSpace(tokens[i].text)
-		switch {
-		case text == "":
-			continue
-		case text == "-u" || text == "--unset" || text == "-S":
-			i++
-		case strings.HasPrefix(text, "--unset="), text == "-i", text == "--ignore-environment", isEnvAssignmentToken(text):
-			continue
-		case strings.HasPrefix(text, "-"):
-			continue
-		default:
-			return i
-		}
-	}
-	return -1
-}
-
-func nextOptionCommandIndex(tokens []shellToken, start int) int {
-	for i := start; i < len(tokens); i++ {
-		text := strings.TrimSpace(tokens[i].text)
-		switch {
-		case text == "":
-			continue
-		case strings.HasPrefix(text, "-"):
-			continue
-		default:
-			return i
-		}
-	}
-	return -1
-}
-
-func nextNiceCommandIndex(tokens []shellToken, start int) int {
-	for i := start; i < len(tokens); i++ {
-		text := strings.TrimSpace(tokens[i].text)
-		switch {
-		case text == "":
-			continue
-		case text == "-n" || text == "--adjustment":
-			i++
-		case strings.HasPrefix(text, "--adjustment="):
-			continue
-		case looksLikeSignedInteger(text):
-			continue
-		case strings.HasPrefix(text, "-"):
-			continue
-		default:
-			return i
-		}
-	}
-	return -1
-}
-
-func nextTimeoutCommandIndex(tokens []shellToken, start int) int {
-	for i := start; i < len(tokens); i++ {
-		text := strings.TrimSpace(tokens[i].text)
-		switch {
-		case text == "":
-			continue
-		case text == "-k" || text == "--kill-after" || text == "-s" || text == "--signal":
-			i++
-		case strings.HasPrefix(text, "--kill-after="), strings.HasPrefix(text, "--signal="):
-			continue
-		case strings.HasPrefix(text, "-"):
-			continue
-		default:
-			return nextCommandIndex(tokens, i+1)
-		}
-	}
-	return -1
-}
-
-func nextFindExecCommandIndex(tokens []shellToken, start int) int {
-	for i := start; i < len(tokens); i++ {
-		text := strings.ToLower(strings.TrimSpace(tokens[i].text))
-		if text == "-exec" || text == "-execdir" {
-			return nextCommandIndex(tokens, i+1)
 		}
 	}
 	return -1

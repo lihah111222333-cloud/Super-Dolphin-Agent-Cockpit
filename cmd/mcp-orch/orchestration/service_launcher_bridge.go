@@ -34,8 +34,7 @@ func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) 
 		s.mu.Unlock()
 		return launcherLaunchAttempt{}, true, fmt.Errorf("agent %q already launched", agent.id)
 	}
-	agent.queue.Clear()
-	if err := s.prepareLaunchStateLocked(ctx, agent); err != nil {
+	if err := s.prepareLaunchLocked(ctx, agent); err != nil {
 		s.mu.Unlock()
 		return launcherLaunchAttempt{}, true, err
 	}
@@ -64,8 +63,8 @@ func launchInProgress(ctx context.Context, s *service, agent *agentRuntime) bool
 
 func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaunchAttempt, result LaunchResult, launchErr error) error {
 	s.mu.Lock()
-	agent, err := s.lookupAgentLocked(attempt.agentID)
-	if err != nil || agent.launchSeq != attempt.expectedSeq {
+	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
+	if err != nil {
 		s.mu.Unlock()
 		return s.discardStaleLaunchResult(ctx, &attempt.launching, launchErr)
 	}
@@ -83,20 +82,15 @@ func (s *service) discardStaleLaunchResult(ctx context.Context, launching *agent
 }
 
 func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching *agentRuntime, launchErr error) error {
-	agent.lastError = firstTrimmed(launching.lastError, launchErr.Error())
-	if fireErr := s.fireOrForceLocked(ctx, agent, agentdto.TriggerLaunchFailed); fireErr != nil {
-		s.mu.Unlock()
-		return errors.Join(launchErr, fireErr)
-	}
+	err := s.commitLaunchFailureLocked(ctx, agent, launchErr, launching.lastError)
 	s.mu.Unlock()
-	return launchErr
+	return err
 }
 
 func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launching *agentRuntime, result LaunchResult) error {
 	adoptLaunchStateLocked(agent, launching)
 	bindLaunchResult(agent, result)
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerLaunchSucceeded); err != nil {
-		agent.lastError = err.Error()
+	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
 		agent.cmd = nil
 		agent.threadID = ""
 		resetRuntimeStateLocked(agent)
@@ -104,7 +98,6 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 		_ = s.launcher.Stop(ctx, launching)
 		return err
 	}
-	s.publishAgentLaunched(agent)
 	s.mu.Unlock()
 	return nil
 }
@@ -132,18 +125,20 @@ func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason stri
 }
 
 func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil || agent == nil || s.launcher == nil || agent.cmd != nil {
-		return false
-	}
-	return s.launcher.IsRunning(ctx, agent)
+	shouldStop := false
+	_ = s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		if s.launcher == nil || agent.cmd != nil {
+			return nil
+		}
+		shouldStop = s.launcher.IsRunning(ctx, agent)
+		return nil
+	})
+	return shouldStop
 }
 
 func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason string) (*agentRuntime, uint64, error) {
 	s.mu.Lock()
-	agent, err := s.lookupAgentLocked(agentID)
+	agent, err := lookupAgentByIDLocked(s.agents, agentID)
 	if err != nil {
 		s.mu.Unlock()
 		return nil, 0, err
@@ -152,17 +147,15 @@ func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason strin
 		s.mu.Unlock()
 		return nil, 0, fmt.Errorf("agent %q is not running", agent.id)
 	}
-	if agent.stopRequested {
-		s.mu.Unlock()
-		return nil, 0, nil
-	}
-	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerStopRequested); err != nil {
+	changed, err := s.markStoppingLocked(ctx, agent, reason)
+	if err != nil {
 		s.mu.Unlock()
 		return nil, 0, err
 	}
-	agent.stopRequested = true
-	setStopReasonIfEmpty(agent, reason)
-	cleanupAgentState(agent)
+	if !changed {
+		s.mu.Unlock()
+		return nil, 0, nil
+	}
 	launchSeq := agent.launchSeq
 	s.mu.Unlock()
 	return agent, launchSeq, nil
@@ -193,7 +186,7 @@ func submissionAgentID(req TurnSubmission) (string, error) {
 
 func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req TurnSubmission) (bool, error) {
 	s.mu.Lock()
-	agent, err := s.lookupAgentLocked(agentID)
+	agent, err := lookupAgentByIDLocked(s.agents, agentID)
 	if err != nil {
 		s.mu.Unlock()
 		return true, err
@@ -249,26 +242,22 @@ func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string
 			return err
 		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil {
-		return err
-	}
-	if agent.cmd == nil {
-		return fmt.Errorf("agent %q is not running", agent.id)
-	}
-	if agent.stopRequested {
-		return fmt.Errorf("agent %q is stopping", agent.id)
-	}
-	req.AgentID = agentID
-	agent.queue.Enqueue(req)
-	if agent.state == agentdto.StateIdle {
-		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
-			return err
+	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if agent.cmd == nil {
+			return fmt.Errorf("agent %q is not running", agent.id)
 		}
-	}
-	return nil
+		if agent.stopRequested {
+			return fmt.Errorf("agent %q is stopping", agent.id)
+		}
+		req.AgentID = agentID
+		agent.queue.Enqueue(req)
+		if agent.state == agentdto.StateIdle {
+			if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *service) agentRunningLocked(ctx context.Context, agent *agentRuntime) bool {

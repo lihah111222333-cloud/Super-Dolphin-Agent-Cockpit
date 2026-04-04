@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +12,6 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/creachadair/jrpc2"
-	"github.com/creachadair/jrpc2/channel"
 )
 
 // DefaultApprovalTimeout bounds approvals that do not carry an explicit deadline.
@@ -45,9 +42,7 @@ func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
 // WithApprovalDeadline applies the default approval timeout when the caller did
 // not already provide an explicit deadline.
 func WithApprovalDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	if DefaultApprovalTimeout <= 0 {
 		return ctx, func() {}
 	}
@@ -55,19 +50,14 @@ func WithApprovalDeadline(ctx context.Context) (context.Context, context.CancelF
 }
 
 func WithApprovalAutoDeclineOnCancel(ctx context.Context) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, approvalAutoDeclineOnCancelKey, true)
+	return context.WithValue(nonNilContext(ctx), approvalAutoDeclineOnCancelKey, true)
 }
 
 func waitForApproval(ctx context.Context, pending *pendingApproval) (contract.ApprovalDecision, error) {
 	if pending == nil {
 		return contract.ApprovalDecision{}, ErrInvalidState("approval pending state is nil")
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	select {
 	case <-ctx.Done():
 		return contract.ApprovalDecision{}, ctx.Err()
@@ -130,13 +120,13 @@ func mapApprovalWaitErr(err error, callID string) error {
 func dispatchApprovalDecision(req ApprovalRequest, bridge *PushBridge, server *jrpc2.Server) (contract.ApprovalDecision, string, bool) {
 	switch {
 	case shouldAutoApproveUserInput(req):
-		return contract.ApprovalDecision{Approved: boolPtr(true), Reason: "auto_approved"}, "", true
+		return approvedDecision(), "", true
 	case bridge == nil && server == nil:
-		return declinedApprovalDecision(), "", true
+		return declinedDecision(""), "", true
 	case bridge == nil:
-		return declinedApprovalDecision(), "approval dispatch misconfigured: callback bridge is nil while rpc server is present", true
+		return declinedDecision(""), "approval dispatch misconfigured: callback bridge is nil while rpc server is present", true
 	case server == nil:
-		return declinedApprovalDecision(), "approval dispatch misconfigured: rpc server is nil while callback bridge is present", true
+		return declinedDecision(""), "approval dispatch misconfigured: rpc server is nil while callback bridge is present", true
 	default:
 		return contract.ApprovalDecision{}, "", false
 	}
@@ -146,14 +136,11 @@ func canceledApprovalDecision(ctx context.Context, err error) (contract.Approval
 	if !shouldAutoDeclineOnCancel(ctx) || !errors.Is(err, context.Canceled) {
 		return contract.ApprovalDecision{}, false
 	}
-	return declinedApprovalDecision(), true
+	return declinedDecision(""), true
 }
 
 func shouldAutoDeclineOnCancel(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	enabled, _ := ctx.Value(approvalAutoDeclineOnCancelKey).(bool)
+	enabled, _ := nonNilContext(ctx).Value(approvalAutoDeclineOnCancelKey).(bool)
 	return enabled
 }
 
@@ -162,7 +149,7 @@ func isRecoverableDispatchErr(err error) bool {
 	if errors.As(err, &rpcErr) {
 		return false
 	}
-	return errors.Is(err, channel.ErrClosed) || errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed)
+	return isExpectedCloseErr(err)
 }
 
 func decisionReason(decision contract.ApprovalDecision, err error) string {
@@ -219,10 +206,6 @@ func shouldAutoApproveUserInput(req ApprovalRequest) bool {
 
 func approvalPolicy(req ApprovalRequest) string {
 	return firstNonEmpty(req.ApprovalPolicy, stringFromMap(req.Payload, "approvalPolicy", "approval_policy"))
-}
-
-func declinedApprovalDecision() contract.ApprovalDecision {
-	return contract.ApprovalDecision{Approved: boolPtr(false), Reason: "decline"}
 }
 
 func cloneMap(in map[string]any) map[string]any {

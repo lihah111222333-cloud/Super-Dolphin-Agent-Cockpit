@@ -99,14 +99,10 @@ func (s *session) setThreadID(threadID string) {
 	s.threadID.Store(strings.TrimSpace(threadID))
 }
 
-func (s *session) resolveThreadID(explicit string) string {
-	return strings.TrimSpace(firstNonEmpty(explicit, s.ThreadID()))
-}
-
 func (s *session) configureThread(ctx context.Context, patch dto.ThreadConfigPatch) error {
-	threadID := s.ThreadID()
-	if threadID == "" {
-		return errors.New("codexapp: thread id is required")
+	threadID, err := requireThreadID(s)
+	if err != nil {
+		return err
 	}
 	if err := s.applyConfigSet(ctx, threadID, patch); err != nil {
 		return err
@@ -278,10 +274,5 @@ func sortedConfigKeys(cfg map[string]any) []string {
 }
 
 func hasAnyConfigKey(cfg map[string]any, keys ...string) bool {
-	for _, key := range keys {
-		if _, ok := cfg[strings.TrimSpace(key)]; ok {
-			return true
-		}
-	}
-	return false
+	return hasAnyKey(cfg, keys...)
 }

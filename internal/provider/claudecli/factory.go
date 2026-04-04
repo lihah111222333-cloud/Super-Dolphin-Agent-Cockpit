@@ -2,7 +2,12 @@ package claudecli
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
+
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 func checkCtx(ctx context.Context) error {
@@ -19,4 +24,262 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func encodeAttachmentHint(input dto.InputItem) string {
+	target := firstNonEmpty(input.Path, input.URL)
+	if target == "" {
+		return ""
+	}
+	label := "File"
+	if strings.EqualFold(strings.TrimSpace(input.Type), "image") {
+		label = "Image"
+	}
+	if name := strings.TrimSpace(input.Name); name != "" && name != target {
+		target = name + " -> " + target
+	}
+	return "[" + label + ": " + target + "]"
+}
+
+func decodeAttachmentHint(line string) (map[string]any, bool) {
+	trimmed := strings.TrimSpace(line)
+	lower := strings.ToLower(trimmed)
+	prefix, inputType, targetKey := "", "", ""
+	switch {
+	case strings.HasPrefix(lower, "[image:"):
+		prefix, inputType, targetKey = "[image:", "image", "url"
+	case strings.HasPrefix(lower, "[file:"):
+		prefix, inputType, targetKey = "[file:", "mention", "path"
+	default:
+		return nil, false
+	}
+	if !strings.HasSuffix(trimmed, "]") {
+		return nil, false
+	}
+	value := strings.TrimSpace(trimmed[len(prefix) : len(trimmed)-1])
+	if value == "" {
+		return nil, false
+	}
+	name, target := splitAttachmentHintValue(value)
+	item := map[string]any{"type": inputType, targetKey: target}
+	if name != "" {
+		item["name"] = name
+	}
+	return item, true
+}
+
+func splitAttachmentHintValue(value string) (string, string) {
+	parts := strings.SplitN(value, " -> ", 2)
+	if len(parts) != 2 {
+		return "", value
+	}
+	name := strings.TrimSpace(parts[0])
+	target := strings.TrimSpace(parts[1])
+	if name == "" || target == "" {
+		return "", value
+	}
+	return name, target
+}
+
+func (s *session) finishTurnWithError(handle *turnHandle, err error) {
+	if handle == nil {
+		return
+	}
+	if err == nil {
+		err = errors.New("claudecli: turn failed")
+	}
+	turnID := currentTurnID(handle)
+	handle.finish(err)
+	s.dispatch(s.turnRawEvent("turn:complete", turnID, map[string]any{
+		"success": false,
+		"error":   err.Error(),
+	}))
+}
+
+func (s *session) takeActiveTurnLocked() *turnHandle {
+	if s == nil {
+		return nil
+	}
+	handle := s.activeTurn
+	s.activeTurn = nil
+	return handle
+}
+
+func ensureTurnAvailable(handle *turnHandle) error {
+	if handle == nil {
+		return nil
+	}
+	if err := ensureTurnOpen(handle); err != nil {
+		return errors.New("claudecli: turn already running")
+	}
+	return nil
+}
+
+func ensureTransportReady(tr *transport) error {
+	if tr == nil {
+		return errors.New("claudecli: session transport is closed")
+	}
+	return nil
+}
+
+func decodeMessageEvents(raw streamEvent, base rawBase, role string) ([]dto.RawProviderEvent, error) {
+	var msg struct {
+		Content []json.RawMessage `json:"content"`
+	}
+	if len(raw.Message) > 0 {
+		if err := json.Unmarshal(raw.Message, &msg); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]dto.RawProviderEvent, 0, len(msg.Content))
+	for _, rawBlock := range msg.Content {
+		data := buildEventData(base, raw.SessionID, raw.Timestamp, nil)
+		events, err := decodeMessageBlock(role, rawBlock, data)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, events...)
+	}
+	return out, nil
+}
+
+func decodeMessageBlock(role string, rawBlock json.RawMessage, data map[string]any) ([]dto.RawProviderEvent, error) {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "assistant":
+		return decodeAssistantMessageBlock(rawBlock, data)
+	case "user":
+		return decodeUserMessageBlock(rawBlock, data)
+	default:
+		return nil, nil
+	}
+}
+
+func decodeAssistantMessageBlock(rawBlock json.RawMessage, data map[string]any) ([]dto.RawProviderEvent, error) {
+	var block contentBlock
+	if err := json.Unmarshal(rawBlock, &block); err != nil {
+		return nil, err
+	}
+	switch strings.TrimSpace(block.Type) {
+	case "text":
+		if event, ok := messageDeltaEvent(data, "message", block.Text); ok {
+			return []dto.RawProviderEvent{event}, nil
+		}
+	case "thinking":
+		if event, ok := messageDeltaEvent(data, "reasoning", block.Thinking); ok {
+			return []dto.RawProviderEvent{event}, nil
+		}
+	case "tool_use":
+		data["call_id"] = strings.TrimSpace(block.ID)
+		data["tool_name"] = strings.TrimSpace(block.Name)
+		data["arguments_preview"] = strings.TrimSpace(string(block.Input))
+		return []dto.RawProviderEvent{{EventType: "tool:use_begin", Data: data}}, nil
+	}
+	return nil, nil
+}
+
+func decodeUserMessageBlock(rawBlock json.RawMessage, data map[string]any) ([]dto.RawProviderEvent, error) {
+	var block map[string]any
+	if err := json.Unmarshal(rawBlock, &block); err != nil {
+		return nil, err
+	}
+	if dataString(block, "type") != "tool_result" {
+		return nil, nil
+	}
+	data["call_id"] = dataString(block, "tool_use_id")
+	data["tool_name"] = dataString(block, "tool_name")
+	data["success"] = true
+	return []dto.RawProviderEvent{{EventType: "tool:use_end", Data: data}}, nil
+}
+
+func messageDeltaEvent(data map[string]any, stream, delta string) (dto.RawProviderEvent, bool) {
+	if strings.TrimSpace(delta) == "" {
+		return dto.RawProviderEvent{}, false
+	}
+	data["stream"] = stream
+	data["delta"] = delta
+	return dto.RawProviderEvent{EventType: "assistant:message_delta", Data: data}, true
+}
+
+func buildEventData(base rawBase, sessionID, timestamp string, extras map[string]any) map[string]any {
+	threadID := strings.TrimSpace(base.ThreadID)
+	data := map[string]any{
+		"agent_id":   strings.TrimSpace(base.AgentID),
+		"thread_id":  threadID,
+		"session_id": firstNonEmpty(sessionID, threadID),
+		"turn_id":    strings.TrimSpace(base.TurnID),
+	}
+	if timestamp = strings.TrimSpace(timestamp); timestamp != "" {
+		data["timestamp"] = timestamp
+	}
+	for key, value := range extras {
+		data[key] = value
+	}
+	return data
+}
+
+func appendFlagIfSet(args []string, flag, value string) []string {
+	if value = strings.TrimSpace(value); value != "" {
+		args = append(args, flag, value)
+	}
+	return args
+}
+
+func cleanupOnError(err error, cleanups ...func()) error {
+	if err == nil {
+		return nil
+	}
+	for _, cleanup := range cleanups {
+		if cleanup != nil {
+			cleanup()
+		}
+	}
+	return err
+}
+
+func waitThreadReady(ctx context.Context, ready <-chan struct{}, tr *transport) error {
+	if ready == nil {
+		return nil
+	}
+	select {
+	case <-ready:
+		return nil
+	default:
+	}
+	waitCtx, cancel := withThreadIDTimeout(ctx)
+	defer cancel()
+	if tr == nil {
+		select {
+		case <-ready:
+			return nil
+		case <-waitCtx.Done():
+			return threadReadyContextErr(waitCtx.Err())
+		}
+	}
+	return waitForThreadReadyOrExit(waitCtx, ready, tr)
+}
+
+func threadReadyContextErr(err error) error {
+	return fmt.Errorf("claudecli: waiting for real thread id: %w", err)
+}
+
+func (t *transport) ensureProcessAlive() (int, error) {
+	if t == nil || t.cmd == nil || t.cmd.Process == nil {
+		return 0, nil
+	}
+	if state := t.cmd.ProcessState; state != nil && state.Exited() {
+		return 0, nil
+	}
+	pid := t.cmd.Process.Pid
+	if pid <= 0 {
+		return 0, errors.New("invalid claude pid")
+	}
+	return pid, nil
+}
+
+func shouldKeepEmptyMessage(msg Message) bool {
+	return len(msg.Metadata) > 0 && string(msg.Metadata) != "null"
+}
+
+func stripSystemNoise(text string) string {
+	return trimInjectedClaudeLSPHint(trimInjectedClaudeSkillBlock(stripLeadingClaudeSystemNoise(text)))
 }

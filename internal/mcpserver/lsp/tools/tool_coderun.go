@@ -12,7 +12,6 @@ import (
 	"time"
 
 	lspexec "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/exec"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 )
 
@@ -58,11 +57,11 @@ func NewCodeRunHandler(rootDir string) (middleware.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	return wrapToolHandler("code_run", middleware.TierExec, CodeRunHandler{sandbox: sandbox}.Handle), nil
+	return newSandboxTool("code_run", sandbox, HandleCodeRun), nil
 }
 
 func NewCodeRunHandlerWithSandbox(sandbox SandboxRunner) middleware.Handler {
-	return wrapToolHandler("code_run", middleware.TierExec, CodeRunHandler{sandbox: sandbox}.Handle)
+	return newSandboxTool("code_run", sandbox, HandleCodeRun)
 }
 
 func HandleCodeRun(ctx context.Context, sandbox SandboxRunner, params json.RawMessage) (any, error) {
@@ -73,8 +72,8 @@ func (h CodeRunHandler) Handle(ctx context.Context, params json.RawMessage) (any
 	if h.sandbox == nil {
 		return nil, errors.New("code_run sandbox is nil")
 	}
-	var req CodeRunRequest
-	if err := json.Unmarshal(params, &req); err != nil {
+	req, err := decodeToolParams[CodeRunRequest](params, decodeRaw)
+	if err != nil {
 		return nil, fmt.Errorf("decode code_run request: %w", err)
 	}
 	mode := strings.ToLower(strings.TrimSpace(req.Mode))
@@ -116,19 +115,7 @@ func (h CodeRunHandler) handleProjectCommand(ctx context.Context, req CodeRunReq
 }
 
 func (h CodeRunHandler) execute(ctx context.Context, request lspexec.Request, language string, mode string) (any, error) {
-	result, err := h.sandbox.Run(ctx, request)
-	if err != nil {
-		return CodeRunFailure{Error: err.Error(), ExitCode: -1}, nil
-	}
-	return CodeRunResult{
-		Success:   result.ExitCode == 0,
-		Output:    result.Output,
-		ExitCode:  result.ExitCode,
-		Duration:  result.Duration,
-		Language:  language,
-		Mode:      mode,
-		Truncated: result.Truncated,
-	}, nil
+	return executeSandbox(ctx, h.sandbox, request, language, mode)
 }
 
 func (h CodeRunHandler) snippetRequest(fileName string, source string, args []string, timeout time.Duration) (lspexec.Request, func(), error) {
@@ -252,13 +239,3 @@ func defaultCodeRunTimeout() time.Duration {
 }
 
 var goTestNamePattern = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
-
-func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Handler) middleware.Handler {
-	log := pkglogger.Get()
-	return middleware.Chain(
-		handler,
-		middleware.Recovery(log, toolName),
-		middleware.Logging(log, toolName),
-		middleware.Timeout(tier),
-	)
-}

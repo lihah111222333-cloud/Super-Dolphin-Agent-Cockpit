@@ -16,39 +16,6 @@ import (
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
 )
 
-func copyRunFile(run storeworkspace.WorkspaceRun, rel string) error {
-	sourcePath := filepath.Join(run.SourceRoot, rel)
-	workspacePath := filepath.Join(run.WorkspacePath, rel)
-	if err := os.MkdirAll(filepath.Dir(workspacePath), 0o755); err != nil {
-		return fmt.Errorf("create workspace file dir %q: %w", rel, err)
-	}
-	if err := copyFile(sourcePath, workspacePath); err != nil {
-		return fmt.Errorf("copy workspace file %q: %w", rel, err)
-	}
-	return nil
-}
-
-func copyFile(sourcePath, targetPath string) error {
-	sourceFile, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = sourceFile.Close() }()
-	info, err := sourceFile.Stat()
-	if err != nil {
-		return err
-	}
-	targetFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm())
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(targetFile, sourceFile); err != nil {
-		_ = targetFile.Close()
-		return err
-	}
-	return targetFile.Close()
-}
-
 func dedupeRelativePaths(files []string) ([]string, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -91,74 +58,6 @@ func (s *service) planMerge(
 	return result, updates
 }
 
-func evaluateTrackedMergeFile(
-	run *Run,
-	file RunFile,
-	removed map[string]removedWorkspaceFile,
-	dryRun bool,
-) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
-	if candidate, ok := removed[file.RelativePath]; ok {
-		return evaluateRemovedMergeFile(storeworkspace.WorkspaceRunFile(file), candidate, dryRun)
-	}
-	return evaluateMergeFile(run, file)
-}
-
-func evaluateRemovedMergeFile(
-	file storeworkspace.WorkspaceRunFile,
-	candidate removedWorkspaceFile,
-	dryRun bool,
-) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
-	file.WorkspaceSHA256 = ""
-	file.SourceSHA256Before = candidate.SourceSHA256Before
-	file.SourceSHA256After = ""
-	file.LastError = ""
-	if file.BaselineSHA256 != "" && candidate.SourceSHA256Before != "" && candidate.SourceSHA256Before != file.BaselineSHA256 {
-		reason := "delete conflict: source changed since baseline"
-		file.State = fileStateConflict
-		file.LastError = reason
-		return file, MergeFileResult{Path: candidate.RelativePath, Action: "conflict", Reason: reason}
-	}
-	file.State = fileStateRemoved
-	action := "removed"
-	if dryRun {
-		action = "would_remove"
-	}
-	return file, MergeFileResult{Path: candidate.RelativePath, Action: action}
-}
-
-func evaluateMergeFile(run *Run, file RunFile) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
-	updated := storeworkspace.WorkspaceRunFile(file)
-	updated.LastError = ""
-	sourceBefore, err := hashFileIfExists(filepath.Join(run.SourceRoot, file.RelativePath))
-	updated.SourceSHA256Before = sourceBefore
-	if err != nil {
-		return mergeFileError(updated, err.Error())
-	}
-	workspaceHash, err := hashFileIfExists(filepath.Join(run.WorkspacePath, file.RelativePath))
-	updated.WorkspaceSHA256 = workspaceHash
-	if err != nil {
-		return mergeFileError(updated, err.Error())
-	}
-	if workspaceHash == "" {
-		return mergeFileError(updated, "workspace file is missing")
-	}
-	if file.BaselineSHA256 != "" && workspaceHash == file.BaselineSHA256 {
-		updated.State = fileStateUnchanged
-		updated.SourceSHA256After = sourceBefore
-		return updated, MergeFileResult{Path: file.RelativePath, Action: "unchanged"}
-	}
-	if file.BaselineSHA256 != "" && sourceBefore != "" && sourceBefore != file.BaselineSHA256 {
-		reason := "source changed since baseline"
-		updated.State = fileStateConflict
-		updated.SourceSHA256After = ""
-		updated.LastError = reason
-		return updated, MergeFileResult{Path: file.RelativePath, Action: "conflict", Reason: reason}
-	}
-	updated.State = fileStateMerged
-	updated.SourceSHA256After = workspaceHash
-	return updated, MergeFileResult{Path: file.RelativePath, Action: "merged"}
-}
-
 func recordMergeItem(result *MergeRunResult, item MergeFileResult) {
 	result.Files = append(result.Files, item)
 	countMergeItem(result, item)
@@ -198,12 +97,7 @@ func mergeFileError(file storeworkspace.WorkspaceRunFile, reason string) (storew
 }
 
 func (s *service) applyFileUpdates(ctx context.Context, files []storeworkspace.WorkspaceRunFile) error {
-	for _, file := range files {
-		if _, err := s.store.UpsertFile(ctx, file); err != nil {
-			return fmt.Errorf("upsert run file %q: %w", file.RelativePath, err)
-		}
-	}
-	return nil
+	return upsertRunFiles(ctx, s.store, files)
 }
 
 func (s *service) rollbackMergeState(ctx context.Context, original []RunFile, cause error) error {
@@ -214,12 +108,11 @@ func (s *service) rollbackMergeState(ctx context.Context, original []RunFile, ca
 }
 
 func (s *service) restoreRunFiles(ctx context.Context, files []RunFile) error {
+	restored := make([]storeworkspace.WorkspaceRunFile, 0, len(files))
 	for _, file := range files {
-		if _, err := s.store.UpsertFile(ctx, storeworkspace.WorkspaceRunFile(file)); err != nil {
-			return fmt.Errorf("restore run file %q: %w", file.RelativePath, err)
-		}
+		restored = append(restored, storeworkspace.WorkspaceRunFile(file))
 	}
-	return nil
+	return upsertRunFiles(ctx, s.store, restored)
 }
 
 func (s *service) persistRun(ctx context.Context, run storeworkspace.WorkspaceRun, files []string) (*Run, error) {
@@ -229,51 +122,17 @@ func (s *service) persistRun(ctx context.Context, run storeworkspace.WorkspaceRu
 		if err != nil {
 			return err
 		}
-		if err := upsertRunFilesWithStore(ctx, txStore, created, files); err != nil {
+		prepared, err := prepareRunFiles(created, files)
+		if err != nil {
+			return err
+		}
+		if err := upsertRunFiles(ctx, txStore, prepared); err != nil {
 			return err
 		}
 		saved = created
 		return nil
 	})
 	return saved, err
-}
-
-func upsertRunFilesWithStore(ctx context.Context, txStore storeworkspace.Store, run *Run, files []string) error {
-	for _, rel := range files {
-		file, err := buildRunFile(run, rel)
-		if err != nil {
-			return fmt.Errorf("prepare run file %q: %w", rel, err)
-		}
-		if _, err := txStore.UpsertFile(ctx, file); err != nil {
-			return fmt.Errorf("upsert run file %q: %w", rel, err)
-		}
-	}
-	return nil
-}
-
-func buildRunFile(run *Run, rel string) (storeworkspace.WorkspaceRunFile, error) {
-	sourcePath := filepath.Join(run.SourceRoot, rel)
-	sourceHash, err := hashFile(sourcePath)
-	if err != nil {
-		return storeworkspace.WorkspaceRunFile{}, fmt.Errorf("hash source file: %w", err)
-	}
-	workspaceHash, err := hashFileIfExists(filepath.Join(run.WorkspacePath, rel))
-	if err != nil {
-		return storeworkspace.WorkspaceRunFile{}, fmt.Errorf("hash workspace file: %w", err)
-	}
-	state := fileStateTracked
-	if workspaceHash != "" && workspaceHash == sourceHash {
-		state = fileStateSynced
-	}
-	return storeworkspace.WorkspaceRunFile{
-		RunKey:             run.RunKey,
-		RelativePath:       rel,
-		BaselineSHA256:     sourceHash,
-		WorkspaceSHA256:    workspaceHash,
-		SourceSHA256Before: sourceHash,
-		SourceSHA256After:  sourceHash,
-		State:              state,
-	}, nil
 }
 
 func (s *service) emitRunCreated(run *Run) {

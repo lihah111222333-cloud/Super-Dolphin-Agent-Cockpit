@@ -155,7 +155,7 @@ func (r *HookResolver) validateResolvedReviewLease(ctx context.Context, hookCall
 }
 
 func validateSubscriberLeaseOwner(hookCallID, storedSubscriberLease string, callerLease mcp.LeaseKey) error {
-	callerSubscriberLease, err := formatSubscriberLease(callerLease)
+	callerSubscriberLease, err := formatLease(callerLease, hookSubscriberLeaseValidation)
 	if err != nil {
 		return err
 	}
@@ -186,7 +186,7 @@ func (r *HookResolver) CancelByLease(ctx context.Context, subscriberLease mcp.Le
 		return 0, err
 	}
 
-	resolvedSubscriberLease, err := formatSubscriberLease(subscriberLease)
+	resolvedSubscriberLease, err := formatLease(subscriberLease, hookSubscriberLeaseValidation)
 	if err != nil {
 		return 0, err
 	}
@@ -251,7 +251,7 @@ func (r *HookResolver) newPendingReview(now time.Time, hookCallID string, payloa
 	if agentID == "" {
 		return mcp.PendingHookReview{}, fmt.Errorf("hook escalate requires agent_id")
 	}
-	resolvedSubscriberLease, err := formatSubscriberLease(subscriberLease)
+	resolvedSubscriberLease, err := formatLease(subscriberLease, hookSubscriberLeaseValidation)
 	if err != nil {
 		return mcp.PendingHookReview{}, err
 	}
@@ -300,17 +300,6 @@ func resolveHookCallID(explicitHookCallID, payloadHookCallID string) (string, er
 	default:
 		return explicitHookCallID, nil
 	}
-}
-
-func formatSubscriberLease(lease mcp.LeaseKey) (string, error) {
-	instanceID := strings.TrimSpace(lease.InstanceID)
-	if instanceID == "" {
-		return "", fmt.Errorf("hook escalate requires subscriber lease instance_id")
-	}
-	if lease.Generation == 0 {
-		return "", fmt.Errorf("hook escalate requires subscriber lease generation")
-	}
-	return fmt.Sprintf("%s/%d", instanceID, lease.Generation), nil
 }
 
 func normalizeResolveDecision(decision string) (string, error) {

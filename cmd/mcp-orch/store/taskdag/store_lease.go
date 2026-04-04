@@ -7,40 +7,39 @@ import (
 )
 
 func (s *store) AcquireWorkerLease(ctx context.Context, input AcquireWorkerLeaseInput) (int64, error) {
-	leaseInterval, err := intervalValue(input.LeaseInterval)
+	leaseInterval, err := parseLeaseDuration(input.LeaseInterval, "acquire", "task_dag_worker_lease")
 	if err != nil {
-		return 0, wrapTaskDAGError(err, "acquire", "task_dag_worker_lease")
+		return 0, err
 	}
-	count, err := s.q.AcquireTaskDagWorkerLease(ctx, sqlc.AcquireTaskDagWorkerLeaseParams{
-		TargetAgentID: input.TargetAgentID,
-		OwnerID:       input.OwnerID,
-		Column3:       leaseInterval,
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "acquire", "task_dag_worker_lease")
-	}
-	return count, nil
+	return queryValue(func() (int64, error) {
+		return s.q.AcquireTaskDagWorkerLease(ctx, sqlc.AcquireTaskDagWorkerLeaseParams{
+			TargetAgentID: input.TargetAgentID,
+			OwnerID:       input.OwnerID,
+			Column3:       leaseInterval,
+		})
+	}, "acquire", "task_dag_worker_lease")
 }
 
 func (s *store) RenewWorkerLease(ctx context.Context, input RenewWorkerLeaseInput) (int64, error) {
-	leaseInterval, err := intervalValue(input.LeaseInterval)
+	leaseInterval, err := parseLeaseDuration(input.LeaseInterval, "renew", "task_dag_worker_lease")
 	if err != nil {
-		return 0, wrapTaskDAGError(err, "renew", "task_dag_worker_lease")
+		return 0, err
 	}
-	count, err := s.q.RenewTaskDagWorkerLease(ctx, sqlc.RenewTaskDagWorkerLeaseParams{
-		Column1:       leaseInterval,
-		TargetAgentID: input.TargetAgentID,
-		OwnerID:       input.OwnerID,
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "renew", "task_dag_worker_lease")
-	}
-	return count, nil
+	return queryValue(func() (int64, error) {
+		return s.q.RenewTaskDagWorkerLease(ctx, sqlc.RenewTaskDagWorkerLeaseParams{
+			Column1:       leaseInterval,
+			TargetAgentID: input.TargetAgentID,
+			OwnerID:       input.OwnerID,
+		})
+	}, "renew", "task_dag_worker_lease")
 }
 
 func (s *store) ReleaseWorkerLease(ctx context.Context, input ReleaseWorkerLeaseInput) error {
-	return wrapTaskDAGError(s.q.ReleaseTaskDagWorkerLease(ctx, sqlc.ReleaseTaskDagWorkerLeaseParams{
-		TargetAgentID: input.TargetAgentID,
-		OwnerID:       input.OwnerID,
-	}), "release", "task_dag_worker_lease")
+	_, err := queryValue(func() (struct{}, error) {
+		return struct{}{}, s.q.ReleaseTaskDagWorkerLease(ctx, sqlc.ReleaseTaskDagWorkerLeaseParams{
+			TargetAgentID: input.TargetAgentID,
+			OwnerID:       input.OwnerID,
+		})
+	}, "release", "task_dag_worker_lease")
+	return err
 }

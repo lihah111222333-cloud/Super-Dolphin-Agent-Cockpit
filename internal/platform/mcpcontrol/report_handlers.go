@@ -27,21 +27,21 @@ func handleReport(
 	completionReports CompletionReportHandler,
 	req dto.ReportRequest,
 ) (dto.ReportResponse, error) {
-	instance, err := resolveRegisteredInstance(registry, req.Lease, false)
-	if err != nil {
-		return dto.ReportResponse{}, err
-	}
-	cached, fingerprint, err := registry.reserveReport(instance.Lease, req)
-	if err != nil {
-		return dto.ReportResponse{}, err
-	}
-	if cached != nil {
-		return *cached, nil
-	}
+	return withResolvedInstance(registry, req, func(req dto.ReportRequest) dto.LeaseKey {
+		return req.Lease
+	}, func(instance *ToolInstance) (dto.ReportResponse, error) {
+		cached, fingerprint, err := registry.reserveReport(instance.Lease, req)
+		if err != nil {
+			return dto.ReportResponse{}, err
+		}
+		if cached != nil {
+			return *cached, nil
+		}
 
-	response, handleErr := dispatchReport(ctx, instance, runtimeReports, completionReports, req)
-	registry.completeReport(instance.Lease, req.ReportID, fingerprint, response, handleErr)
-	return response, handleErr
+		response, handleErr := dispatchReport(ctx, instance, runtimeReports, completionReports, req)
+		registry.completeReport(instance.Lease, req.ReportID, fingerprint, response, handleErr)
+		return response, handleErr
+	})
 }
 
 func dispatchReport(

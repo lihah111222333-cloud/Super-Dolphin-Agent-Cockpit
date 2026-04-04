@@ -3,13 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 type promptListInput struct {
@@ -38,49 +35,33 @@ type promptTemplateDTO struct {
 }
 
 func HandlePromptList(store promptstore.Store) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in promptListInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(store, "prompt store", func(ctx context.Context, in promptListInput) ([]promptTemplateDTO, error) {
 		return listPromptTemplates(ctx, store, in)
-	}
+	})
 }
 
 func HandlePromptGet(store promptstore.Store) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		var in promptGetInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(store, "prompt store", func(ctx context.Context, in promptGetInput) (promptTemplateDTO, error) {
 		return getPromptTemplate(ctx, store, in)
-	}
+	})
 }
 
 func promptToolDefinitions(store promptstore.Store) []ToolDefinition {
-	return []ToolDefinition{
-		{
-			Name:        "prompt_list",
-			Description: "List available prompt templates. Templates can be used to generate structured prompts for agents.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"keyword": StringSchema("Search keyword (optional)."),
-			}),
-			Handler: HandlePromptList(store),
-		},
-		{
-			Name:        "prompt_get",
-			Description: "Get a specific prompt template by its key, including the prompt text and variables.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"prompt_key": StringSchema("Prompt template key."),
-			}, "prompt_key"),
-			Handler: HandlePromptGet(store),
-		},
-	}
+	return resourceToolDefinitions(resourceToolSpec{
+		ListName:        "prompt_list",
+		ListDescription: "List available prompt templates. Templates can be used to generate structured prompts for agents.",
+		GetName:         "prompt_get",
+		GetDescription:  "Get a specific prompt template by its key, including the prompt text and variables.",
+		KeyField:        "prompt_key",
+		KeyDescription:  "Prompt template key.",
+		ListHandler:     HandlePromptList(store),
+		GetHandler:      HandlePromptGet(store),
+	})
 }
 
 func listPromptTemplates(ctx context.Context, store promptstore.Store, input promptListInput) ([]promptTemplateDTO, error) {
-	if store == nil {
-		return nil, errors.New("prompt store is not configured")
+	if err := requireDependency(store, "prompt store"); err != nil {
+		return nil, err
 	}
 	templates, err := store.List(ctx, promptstore.ListFilter{
 		AgentKey: "",
@@ -94,22 +75,17 @@ func listPromptTemplates(ctx context.Context, store promptstore.Store, input pro
 }
 
 func getPromptTemplate(ctx context.Context, store promptstore.Store, input promptGetInput) (promptTemplateDTO, error) {
-	if store == nil {
-		return promptTemplateDTO{}, errors.New("prompt store is not configured")
+	if err := requireDependency(store, "prompt store"); err != nil {
+		return promptTemplateDTO{}, err
 	}
 	promptKey, err := requireTrimmed(input.PromptKey, "prompt_key")
 	if err != nil {
 		return promptTemplateDTO{}, err
 	}
 	template, err := store.Get(ctx, promptKey)
+	template, err = loadOrNotFound(template, err, "prompt", promptKey)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
-			return promptTemplateDTO{}, fmt.Errorf("prompt %s not found", promptKey)
-		}
 		return promptTemplateDTO{}, err
-	}
-	if template == nil {
-		return promptTemplateDTO{}, fmt.Errorf("prompt %s not found", promptKey)
 	}
 	return promptTemplateFromStore(*template), nil
 }

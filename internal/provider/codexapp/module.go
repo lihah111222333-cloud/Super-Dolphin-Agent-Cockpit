@@ -30,7 +30,7 @@ func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {
 		return turnInputItem{}, false
 	}
 	text := strings.Join(sections, "\n\n")
-	return turnInputItem{Type: "text", Text: text, Content: text}, true
+	return newTextTurnInput("text", text), true
 }
 
 func resolveLocalTurnID(requested, fallback string) string {

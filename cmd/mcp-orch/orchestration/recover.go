@@ -41,25 +41,20 @@ func (s *service) Recover(ctx context.Context, agentID string) error {
 }
 
 func (s *service) recoverWithReason(ctx context.Context, agentID, reason string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	agent, err := s.lookupAgentLocked(agentID)
-	if err != nil {
-		return err
-	}
-	threadID := agent.threadID
-	turnID := agent.activeTurnID
-	s.publishAgentRecovering(agent, reason)
-	resumed, err := recoverAgent(ctx, s, agent)
-	if err != nil {
-		return err
-	}
-	if resumed {
-		s.publishTurnResumed(agent, threadID, turnID, turnResumeReasonRecover, resolveEventTime(ctx, time.Now()))
-	}
-	s.logger.Info("orchestration: agent recovered", "agent_id", agent.id, "pid", processPID(agent.cmd))
-	return nil
+	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		threadID := agent.threadID
+		turnID := agent.activeTurnID
+		s.publishAgentRecovering(agent, reason)
+		resumed, err := recoverAgent(ctx, s, agent)
+		if err != nil {
+			return err
+		}
+		if resumed {
+			s.publishTurnResumed(agent, threadID, turnID, turnResumeReasonRecover, resolveEventTime(ctx, time.Now()))
+		}
+		s.logger.Info("orchestration: agent recovered", "agent_id", agent.id, "pid", processPID(agent.cmd))
+		return nil
+	})
 }
 
 func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, error) {

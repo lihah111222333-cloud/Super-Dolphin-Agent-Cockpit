@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -63,84 +62,48 @@ type UpdateNodeInput struct {
 }
 
 func HandleCreateDAG(svc contract.OrchestrationService) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		if svc == nil {
-			return nil, errors.New("orchestration service is not configured")
-		}
-		var in CreateDAGInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in CreateDAGInput) (any, error) {
 		req, err := createDAGRequestFromInput(in)
 		if err != nil {
 			return nil, err
 		}
 		return svc.CreateDAG(ctx, req)
-	}
+	})
 }
 
 func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		if svc == nil {
-			return nil, errors.New("orchestration service is not configured")
-		}
-		var in DAGKeyInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DAGKeyInput) (any, error) {
 		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
 		if err != nil {
 			return nil, err
 		}
 		return svc.GetDAG(ctx, dagKey)
-	}
+	})
 }
 
 func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		if svc == nil {
-			return nil, errors.New("orchestration service is not configured")
-		}
-		var in UpdateNodeInput
-		if err := decodeInput(input, &in); err != nil {
-			return nil, err
-		}
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in UpdateNodeInput) (any, error) {
 		req, err := updateNodeRequestFromInput(in)
 		if err != nil {
 			return nil, err
 		}
 		return svc.UpdateNodeStatus(ctx, req)
-	}
+	})
 }
 
 func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
-	return []ToolDefinition{
-		{
-			Name:        "task_create_dag",
-			Description: "Create or upsert a DAG and its nodes in the orchestration store.",
-			InputSchema: createDAGSchema(),
-			Handler:     HandleCreateDAG(svc),
-		},
-		{
-			Name:        "task_get_dag",
-			Description: "Fetch a DAG and all of its nodes.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"dag_key": StringSchema("Unique DAG key."),
-			}, "dag_key"),
-			Handler: HandleGetDAG(svc),
-		},
-		{
-			Name:        "task_update_node",
-			Description: "Update the runtime status for a DAG node.",
-			InputSchema: ObjectSchema(map[string]Schema{
-				"dag_key":  StringSchema("DAG key."),
-				"node_key": StringSchema("Node key within the DAG."),
-				"status":   EnumStringSchema("New node status.", "pending", "running", "done", "failed"),
-				"result":   StringSchema("Optional result summary."),
-			}, "dag_key", "node_key", "status"),
-			Handler: HandleUpdateNode(svc),
-		},
-	}
+	return buildToolDefinitions(
+		defineTool("task_create_dag", "Create or upsert a DAG and its nodes in the orchestration store.", createDAGSchema(), HandleCreateDAG(svc)),
+		defineTool("task_get_dag", "Fetch a DAG and all of its nodes.", ObjectSchema(map[string]Schema{
+			"dag_key": StringSchema("Unique DAG key."),
+		}, "dag_key"), HandleGetDAG(svc)),
+		defineTool("task_update_node", "Update the runtime status for a DAG node.", ObjectSchema(map[string]Schema{
+			"dag_key":  StringSchema("DAG key."),
+			"node_key": StringSchema("Node key within the DAG."),
+			"status":   EnumStringSchema("New node status.", "pending", "running", "done", "failed"),
+			"result":   StringSchema("Optional result summary."),
+		}, "dag_key", "node_key", "status"), HandleUpdateNode(svc)),
+	)
 }
 
 func createDAGSchema() Schema {
@@ -324,23 +287,9 @@ func executionMap(in DAGExecutionInput) map[string]any {
 }
 
 func encodeJSONRaw(value any) (json.RawMessage, error) {
-	if value == nil {
-		return nil, nil
-	}
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(raw), nil
+	return marshalRawJSON(value, rawJSONOptions{})
 }
 
 func encodeOptionalString(value string) (json.RawMessage, error) {
-	if value == "" {
-		return nil, nil
-	}
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(raw), nil
+	return marshalRawJSON(value, rawJSONOptions{OmitEmptyString: true})
 }

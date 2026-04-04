@@ -305,27 +305,13 @@ func (s *service) appendSystemLogs(ctx context.Context, entries []LogEntry, filt
 	if s.systemLogs == nil {
 		return entries, nil
 	}
-	rows, err := s.systemLogs.List(ctx, systemlogstore.ListFilter{
-		Level:     strings.TrimSpace(filter.Level),
-		Logger:    strings.TrimSpace(filter.Logger),
-		Component: strings.TrimSpace(filter.Component),
-		AgentID:   strings.TrimSpace(filter.AgentID),
-		ThreadID:  strings.TrimSpace(filter.ThreadID),
-		EventType: strings.TrimSpace(filter.EventType),
-		ToolName:  strings.TrimSpace(filter.ToolName),
-		Keyword:   strings.TrimSpace(filter.Keyword),
-		Limit:     int32(filter.Limit),
-	})
+	rows, err := s.systemLogs.List(ctx, newSystemLogListFilter(filter))
 	if err != nil {
 		return nil, err
 	}
-	for _, row := range rows {
-		entry := mapSystemLogEntry(row)
-		if matchesLogFilter(entry, filter) {
-			entries = append(entries, entry)
-		}
-	}
-	return entries, nil
+	return appendMappedLogs(entries, rows, filter, func(row systemlogstore.SystemLog) LogEntry {
+		return mapLogEntry(row, logSourceSystem)
+	}), nil
 }
 
 func (s *service) appendAILogs(ctx context.Context, entries []LogEntry, filter LogFilter) ([]LogEntry, error) {
@@ -339,51 +325,7 @@ func (s *service) appendAILogs(ctx context.Context, entries []LogEntry, filter L
 	if err != nil {
 		return nil, err
 	}
-	for _, row := range rows {
-		entry := mapAILogEntry(row)
-		if matchesLogFilter(entry, filter) {
-			entries = append(entries, entry)
-		}
-	}
-	return entries, nil
-}
-
-func mapSystemLogEntry(row systemlogstore.SystemLog) LogEntry {
-	return LogEntry{
-		Source:     logSourceSystem,
-		ID:         row.ID,
-		Timestamp:  row.Ts,
-		Level:      row.Level,
-		Logger:     row.Logger,
-		Message:    row.Message,
-		Raw:        row.Raw,
-		Component:  row.Component,
-		AgentID:    row.AgentID,
-		ThreadID:   row.ThreadID,
-		TraceID:    row.TraceID,
-		EventType:  row.EventType,
-		ToolName:   row.ToolName,
-		DurationMs: row.DurationMs,
-		Extra:      row.Extra,
-	}
-}
-
-func mapAILogEntry(row ailogstore.AILog) LogEntry {
-	return LogEntry{
-		Source:     logSourceAI,
-		ID:         row.ID,
-		Timestamp:  row.Ts,
-		Level:      row.Level,
-		Logger:     row.Logger,
-		Message:    row.Message,
-		Raw:        row.Raw,
-		Component:  row.Component,
-		AgentID:    row.AgentID,
-		ThreadID:   row.ThreadID,
-		TraceID:    row.TraceID,
-		EventType:  row.EventType,
-		ToolName:   row.ToolName,
-		DurationMs: row.DurationMs,
-		Extra:      row.Extra,
-	}
+	return appendMappedLogs(entries, rows, filter, func(row ailogstore.AILog) LogEntry {
+		return mapLogEntry(row, logSourceAI)
+	}), nil
 }
