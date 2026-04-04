@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
@@ -199,7 +198,26 @@ func (s *service) buildOfflineConfig(
 	if thread == nil && binding == nil {
 		return offlineConfigSnapshot{}, platformdb.ErrNotFound
 	}
-	return buildOfflineConfigSnapshot(id, binding, thread), nil
+	stored := decodeStoredThreadConfig(offlineThreadConfigRaw(thread))
+	provider := offlineThreadProvider(binding)
+	return offlineConfigSnapshot{
+		Config: dto.ThreadConfig{
+			ThreadID:               id,
+			Provider:               provider,
+			SupportsThreadOverride: supportsThreadOverride(provider),
+			Override: dto.ThreadConfigValues{
+				Model:     stored.Model,
+				Effort:    stored.Effort,
+				Approvals: stored.Approvals,
+			},
+			Effective: dto.ThreadConfigValues{
+				Model:     firstNonEmpty(stored.Model, offlineThreadModel(thread)),
+				Effort:    strings.TrimSpace(stored.Effort),
+				Approvals: strings.TrimSpace(stored.Approvals),
+			},
+		},
+		Runtime: buildOfflineRuntimeConfig(stored, thread),
+	}, nil
 }
 
 func (s *service) loadOfflineThread(
@@ -217,33 +235,6 @@ func (s *service) loadOfflineThread(
 		return nil, nil
 	default:
 		return nil, err
-	}
-}
-
-func buildOfflineConfigSnapshot(
-	threadID string,
-	binding *bindingstore.Binding,
-	thread *threadstore.Thread,
-) offlineConfigSnapshot {
-	stored := decodeStoredThreadConfig(offlineThreadConfigRaw(thread))
-	provider := offlineThreadProvider(binding)
-	return offlineConfigSnapshot{
-		Config: dto.ThreadConfig{
-			ThreadID:               threadID,
-			Provider:               provider,
-			SupportsThreadOverride: supportsThreadOverride(provider),
-			Override: dto.ThreadConfigValues{
-				Model:     stored.Model,
-				Effort:    stored.Effort,
-				Approvals: stored.Approvals,
-			},
-			Effective: dto.ThreadConfigValues{
-				Model:     firstNonEmpty(stored.Model, offlineThreadModel(thread)),
-				Effort:    strings.TrimSpace(stored.Effort),
-				Approvals: strings.TrimSpace(stored.Approvals),
-			},
-		},
-		Runtime: buildOfflineRuntimeConfig(stored, thread),
 	}
 }
 
@@ -351,72 +342,6 @@ func (s *service) persistThreadConfig(
 	thread.ConfigOverride = raw
 	thread.UpdatedAt = time.Now().Unix()
 	return s.upsertThread(ctx, *thread)
-}
-
-func buildStartSessionConfig(req StartRequest) map[string]any {
-	cfg := map[string]any{}
-	putConfigString(cfg, "approvalPolicy", req.ApprovalPolicy)
-	putConfigString(cfg, "approval_policy", req.ApprovalPolicy)
-	putConfigString(cfg, "approvals", req.ApprovalPolicy)
-	putConfigString(cfg, "modelProvider", req.ModelProvider)
-	putConfigString(cfg, "developerInstructions", req.DeveloperInstructions)
-	putConfigString(cfg, "developer_instructions", req.DeveloperInstructions)
-	putConfigString(cfg, "summary", req.Summary)
-	putConfigString(cfg, "effort", req.Effort)
-	putConfigString(cfg, "personality", req.Personality)
-	putConfigJSON(cfg, "sandbox", req.Sandbox)
-	for key, value := range req.Config {
-		if _, exists := cfg[key]; !exists {
-			cfg[key] = value
-		}
-	}
-	if len(cfg) == 0 {
-		return nil
-	}
-	return cfg
-}
-
-func putConfigString(cfg map[string]any, key, value string) {
-	if value = strings.TrimSpace(value); value != "" {
-		cfg[key] = value
-	}
-}
-
-func putConfigJSON(cfg map[string]any, key string, raw json.RawMessage) {
-	raw = trimRawJSON(raw)
-	if len(raw) == 0 {
-		return
-	}
-	var value any
-	if err := json.Unmarshal(raw, &value); err == nil {
-		cfg[key] = value
-	}
-}
-
-func normalizeThreadConfigPatch(
-	ctx context.Context,
-	session contract.Session,
-	provider string,
-	patch dto.ThreadConfigPatch,
-) (dto.ThreadConfigPatch, error) {
-	patch.Model = trimThreadConfigPatchValue(patch.Model)
-	patch.Effort = trimThreadConfigPatchValue(patch.Effort)
-	patch.Personality = trimThreadConfigPatchValue(patch.Personality)
-	patch.Approvals = trimThreadConfigPatchValue(patch.Approvals)
-	if model := threadConfigPatchValue(patch.Model); model != "" {
-		validated, err := validateModelName(model)
-		if err != nil {
-			return dto.ThreadConfigPatch{}, err
-		}
-		patch.Model = &validated
-		if err := ensureAllowedModel(ctx, session, validated, provider); err != nil {
-			return dto.ThreadConfigPatch{}, err
-		}
-	}
-	if err := validateThreadConfigEffort(threadConfigPatchValue(patch.Effort)); err != nil {
-		return dto.ThreadConfigPatch{}, err
-	}
-	return patch, nil
 }
 
 func threadConfigPatchNoop(patch dto.ThreadConfigPatch) bool {

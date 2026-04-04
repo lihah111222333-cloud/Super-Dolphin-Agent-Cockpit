@@ -349,9 +349,7 @@ func (d *driver) reloadCodexMCPServers(ctx context.Context, s *session, cwd stri
 }
 
 func reloadCodexMCPConfig(ctx context.Context, transport *transport) error {
-	reloadCtx, cancel := withTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if _, err := transport.Call(reloadCtx, "config/mcpServer/reload", nil); err != nil {
+	if _, err := callWithTimeout(ctx, transport, 10*time.Second, "config/mcpServer/reload", nil); err != nil {
 		return fmt.Errorf("mcp reload: %w", err)
 	}
 	return nil

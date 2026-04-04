@@ -12,7 +12,6 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
 )
 
@@ -96,48 +95,6 @@ func (c approvalMethodCatalogSpec) isPushMethod(method string) bool {
 	}
 	_, ok := c.pushEligibleMethods[method]
 	return ok
-}
-
-func restorePendingForUIServers(ctx context.Context, approvals *ApprovalManager, bridge *PushBridge, server *Server, targets ...*jrpc2.Server) error {
-	if approvals == nil || server == nil {
-		return nil
-	}
-	targets = resolveRestorePendingTargets(server, targets)
-	ctx = nonNilContext(ctx)
-	var firstErr error
-	for _, current := range targets {
-		err := restorePendingForUITarget(ctx, approvals, bridge, server, current)
-		if shouldAbortRestorePending(err) {
-			return err
-		}
-		firstErr = firstRestorePendingError(firstErr, err)
-	}
-	return firstErr
-}
-
-func resolveRestorePendingTargets(server *Server, targets []*jrpc2.Server) []*jrpc2.Server {
-	if len(targets) == 0 {
-		return server.snapshotActive()
-	}
-	return targets
-}
-
-func restorePendingForUITarget(ctx context.Context, approvals *ApprovalManager, bridge *PushBridge, server *Server, target *jrpc2.Server) error {
-	if target == nil || server.PeerKind(target) != dto.PeerKindUI {
-		return nil
-	}
-	return approvals.RestorePending(ctx, bridge, target)
-}
-
-func shouldAbortRestorePending(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
-}
-
-func firstRestorePendingError(firstErr, err error) error {
-	if firstErr == nil {
-		return err
-	}
-	return firstErr
 }
 
 func baseThreadHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error), extras ...Middleware) handler.Func {

@@ -237,7 +237,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 		}
 		return tooldto.ToolCallEnd{
 			ToolCallHeader: buildToolCallHeader(payload),
-			Success:        completionSuccess(eventType, payload),
+			Success:        turnTerminalSuccess(eventType, payload),
 			Error:          stringValue(payload, "error", "message", "reason"),
 			ElapsedMS:      int64Value(payload, "elapsedMs", "elapsed_ms"),
 		}, true
@@ -336,17 +336,6 @@ func jsonPreview(payload map[string]any, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func completionSuccess(eventType string, payload map[string]any) bool {
-	if strings.Contains(strings.ToLower(strings.TrimSpace(eventType)), "aborted") {
-		return false
-	}
-	if value, ok := payload["success"].(bool); ok {
-		return value
-	}
-	status := strings.ToLower(stringValue(payload, "status"))
-	return status == "" || (status != "failed" && status != "error" && status != "aborted")
 }
 
 func looksLikeToolCall(payload map[string]any) bool {

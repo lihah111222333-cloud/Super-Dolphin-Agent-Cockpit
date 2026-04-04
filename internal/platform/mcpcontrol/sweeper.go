@@ -80,15 +80,19 @@ func (s *Sweeper) Sweep(now time.Time) SweepResult {
 		return SweepResult{}
 	}
 	result := SweepResult{}
-	var peers []Peer
-	var evicted []LeaseKey
+	var evicted []struct {
+		key  LeaseKey
+		peer Peer
+	}
 
 	s.registry.mu.Lock()
 	for key, instance := range s.registry.instances {
 		switch {
 		case instance.Status == dto.StatusDisconnected:
-			peers = append(peers, s.registry.evictLocked(key))
-			evicted = append(evicted, key)
+			evicted = append(evicted, struct {
+				key  LeaseKey
+				peer Peer
+			}{key: key, peer: s.registry.evictLocked(key)})
 			result.Evicted++
 		case instance.LastHeartbeat.Add(s.timeout).Before(now):
 			if instance.Status != dto.StatusStale {
@@ -96,17 +100,21 @@ func (s *Sweeper) Sweep(now time.Time) SweepResult {
 				result.Staled++
 			}
 			if instance.LastHeartbeat.Add(s.timeout + s.staleGrace).Before(now) {
-				peers = append(peers, s.registry.evictLocked(key))
-				evicted = append(evicted, key)
+				evicted = append(evicted, struct {
+					key  LeaseKey
+					peer Peer
+				}{key: key, peer: s.registry.evictLocked(key)})
 				result.Evicted++
 			}
 		}
 	}
 	s.registry.mu.Unlock()
 
-	for i, peer := range peers {
-		s.registry.cleanupLeaseWithTimeout(nil, evicted[i])
-		closePeer(peer)
+	for _, target := range evicted {
+		_ = s.registry.disconnectLease(target.key, disconnectLeaseOptions{
+			peer:    target.peer,
+			timeout: true,
+		})
 	}
 	return result
 }

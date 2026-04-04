@@ -1,21 +1,15 @@
 package dashboard
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
-	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 )
 
 type responseField struct {
@@ -24,10 +18,6 @@ type responseField struct {
 }
 
 type logFilterField string
-
-type pageDescriptor struct {
-	loaders []dashboardPageLoader
-}
 
 type storedLogRow interface {
 	ailogstore.AILog | systemlogstore.SystemLog
@@ -98,15 +88,18 @@ func safeList[T any](enabled bool, query func() ([]T, error)) ([]T, error) {
 }
 
 func (p logsParams) ToFilter(source string) LogFilter {
-	filter := LogFilter{
-		Source:  strings.TrimSpace(source),
-		Keyword: strings.TrimSpace(p.Keyword),
-		Limit:   p.Limit,
+	return LogFilter{
+		Source:    strings.TrimSpace(source),
+		Keyword:   strings.TrimSpace(p.Keyword),
+		Level:     strings.TrimSpace(p.Level),
+		Logger:    strings.TrimSpace(p.Logger),
+		Component: strings.TrimSpace(p.Component),
+		AgentID:   firstNonEmpty(p.AgentID, p.AgentIDSnake),
+		ThreadID:  firstNonEmpty(p.ThreadID, p.ThreadIDSnake),
+		EventType: firstNonEmpty(p.EventType, p.EventTypeSnake),
+		ToolName:  firstNonEmpty(p.ToolName, p.ToolNameSnake),
+		Limit:     p.Limit,
 	}
-	for _, field := range logFilterFields {
-		setLogFilterField(&filter, field, p.fieldValue(field))
-	}
-	return filter
 }
 
 func (p logsParams) fieldValue(field logFilterField) string {
@@ -157,29 +150,6 @@ func (p dagsParams) ToFilter() contract.ListDAGsFilter {
 	}
 }
 
-func setLogFilterField(filter *LogFilter, field logFilterField, value string) {
-	if filter == nil {
-		return
-	}
-	value = strings.TrimSpace(value)
-	switch field {
-	case logFieldLevel:
-		filter.Level = value
-	case logFieldLogger:
-		filter.Logger = value
-	case logFieldComponent:
-		filter.Component = value
-	case logFieldAgentID:
-		filter.AgentID = value
-	case logFieldThreadID:
-		filter.ThreadID = value
-	case logFieldEventType:
-		filter.EventType = value
-	case logFieldToolName:
-		filter.ToolName = value
-	}
-}
-
 func logFilterValue(filter LogFilter, field logFilterField) string {
 	switch field {
 	case logFieldLevel:
@@ -223,36 +193,16 @@ func logEntryValue(entry LogEntry, field logFilterField) string {
 }
 
 func newSystemLogListFilter(filter LogFilter) systemlogstore.ListFilter {
-	out := systemlogstore.ListFilter{
-		Keyword: strings.TrimSpace(filter.Keyword),
-		Limit:   int32(filter.Limit),
-	}
-	for _, field := range logFilterFields {
-		setSystemLogFilterField(&out, field, logFilterValue(filter, field))
-	}
-	return out
-}
-
-func setSystemLogFilterField(filter *systemlogstore.ListFilter, field logFilterField, value string) {
-	if filter == nil {
-		return
-	}
-	value = strings.TrimSpace(value)
-	switch field {
-	case logFieldLevel:
-		filter.Level = value
-	case logFieldLogger:
-		filter.Logger = value
-	case logFieldComponent:
-		filter.Component = value
-	case logFieldAgentID:
-		filter.AgentID = value
-	case logFieldThreadID:
-		filter.ThreadID = value
-	case logFieldEventType:
-		filter.EventType = value
-	case logFieldToolName:
-		filter.ToolName = value
+	return systemlogstore.ListFilter{
+		Level:     strings.TrimSpace(filter.Level),
+		Logger:    strings.TrimSpace(filter.Logger),
+		Component: strings.TrimSpace(filter.Component),
+		AgentID:   strings.TrimSpace(filter.AgentID),
+		ThreadID:  strings.TrimSpace(filter.ThreadID),
+		EventType: strings.TrimSpace(filter.EventType),
+		ToolName:  strings.TrimSpace(filter.ToolName),
+		Keyword:   strings.TrimSpace(filter.Keyword),
+		Limit:     int32(filter.Limit),
 	}
 }
 
@@ -331,71 +281,4 @@ func readStoredLogFields[T storedLogRow](row T) storedLogFields {
 	default:
 		return storedLogFields{}
 	}
-}
-
-func bindPageLoader[T any](
-	out *DashboardPage,
-	load func(context.Context) ([]T, error),
-	assign func(*DashboardPage, []T),
-) dashboardPageLoader {
-	return func(ctx context.Context) error {
-		items, err := load(ctx)
-		assign(out, items)
-		return err
-	}
-}
-
-func (s *service) pageRegistry(out *DashboardPage) map[string]pageDescriptor {
-	return map[string]pageDescriptor{
-		"agents": {
-			loaders: []dashboardPageLoader{
-				bindPageLoader(out, s.listAgents, assignDashboardAgents),
-			},
-		},
-		"tasks": {
-			loaders: []dashboardPageLoader{
-				bindPageLoader(out, s.listDashboardTaskTraces, assignDashboardTaskTraces),
-			},
-		},
-		"skills": {
-			loaders: []dashboardPageLoader{
-				bindPageLoader(out, s.listDashboardSkills, assignDashboardSkills),
-			},
-		},
-		"commands": {
-			loaders: []dashboardPageLoader{
-				bindPageLoader(out, s.listDashboardCommandCards, assignDashboardCommandCards),
-				bindPageLoader(out, s.listDashboardPrompts, assignDashboardPrompts),
-			},
-		},
-		"memory": {
-			loaders: []dashboardPageLoader{
-				bindPageLoader(out, s.listDashboardMemory, assignDashboardMemory),
-			},
-		},
-	}
-}
-
-func assignDashboardAgents(out *DashboardPage, items []AgentOverview) {
-	out.Agents = items
-}
-
-func assignDashboardTaskTraces(out *DashboardPage, items []tasktracestore.TaskTrace) {
-	out.TaskTraces = items
-}
-
-func assignDashboardSkills(out *DashboardPage, items []skillmodule.SkillInfo) {
-	out.Skills = items
-}
-
-func assignDashboardCommandCards(out *DashboardPage, items []commandcardstore.CommandCard) {
-	out.CommandCards = items
-}
-
-func assignDashboardPrompts(out *DashboardPage, items []promptstore.PromptTemplate) {
-	out.Prompts = items
-}
-
-func assignDashboardMemory(out *DashboardPage, items []sharedfilestore.SharedFile) {
-	out.Memory = items
 }
