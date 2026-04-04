@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/search"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -278,7 +279,7 @@ func fitsBatchPayload(resp batchReadResponse) bool {
 func renderReadContent(content string, offset, limit int) string {
 	lines := splitNormalizedLines(content)
 	start := clampOffset(offset, len(lines))
-	limit = clampReadLimit(limit)
+	limit = shared.ClampLimit(limit, 1, maxReadFileLimit, defaultReadFileLimit)
 	end := minInt(start+limit-1, len(lines))
 	segment := strings.Join(lines[start-1:end], "\n")
 	rendered := format.RenderLineNumberedText(segment, start)
@@ -315,16 +316,6 @@ func clampOffset(offset, total int) int {
 		return total
 	}
 	return offset
-}
-
-func clampReadLimit(limit int) int {
-	if limit <= 0 {
-		return defaultReadFileLimit
-	}
-	if limit > maxReadFileLimit {
-		return maxReadFileLimit
-	}
-	return limit
 }
 
 func truncateText(text string, maxChars int) string {

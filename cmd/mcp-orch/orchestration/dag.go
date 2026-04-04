@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const defaultDAGStatus = "draft"
@@ -149,7 +150,7 @@ func (s *service) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSum
 		dags, listErr := store.ListDAGs(ctx, taskdag.ListDAGsFilter{
 			Status:  strings.TrimSpace(filter.Status),
 			Keyword: strings.TrimSpace(filter.Keyword),
-			Limit:   normalizeDAGListLimit(filter.Limit),
+			Limit:   int32(shared.ClampLimit(filter.Limit, 1, 0, 50)),
 		})
 		if listErr != nil {
 			return listErr
@@ -264,13 +265,6 @@ func nodeStatusUpdateFromRequest(req UpdateNodeStatusRequest) (taskdag.NodeStatu
 	}, nil
 }
 
-func normalizeDAGListLimit(limit int) int32 {
-	if limit <= 0 {
-		return 50
-	}
-	return int32(limit)
-}
-
 func mapDAGSummaries(items []taskdag.DAG) []DAGSummary {
 	mapped := make([]DAGSummary, 0, len(items))
 	for _, item := range items {
@@ -296,8 +290,8 @@ func dagSummaryDTO(item taskdag.DAG) DAGSummary {
 		Status:      item.Status,
 		CreatedBy:   item.CreatedBy,
 		Metadata:    append(json.RawMessage(nil), item.Metadata...),
-		StartedAt:   cloneTime(item.StartedAt),
-		FinishedAt:  cloneTime(item.FinishedAt),
+		StartedAt:   shared.CloneTime(item.StartedAt),
+		FinishedAt:  shared.CloneTime(item.FinishedAt),
 		CreatedAt:   item.CreatedAt,
 		UpdatedAt:   item.UpdatedAt,
 	}
@@ -316,13 +310,13 @@ func dagNodeDTO(item taskdag.Node) DAGNode {
 		CommandRef:     item.CommandRef,
 		Config:         append(json.RawMessage(nil), item.Config...),
 		Result:         append(json.RawMessage(nil), item.Result...),
-		StartedAt:      cloneTime(item.StartedAt),
-		FinishedAt:     cloneTime(item.FinishedAt),
+		StartedAt:      shared.CloneTime(item.StartedAt),
+		FinishedAt:     shared.CloneTime(item.FinishedAt),
 		CreatedAt:      item.CreatedAt,
 		UpdatedAt:      item.UpdatedAt,
 		ActiveTurnID:   cloneString(item.ActiveTurnID),
 		ActiveWakeupID: cloneInt64(item.ActiveWakeupID),
-		LastEventAt:    cloneTime(item.LastEventAt),
+		LastEventAt:    shared.CloneTime(item.LastEventAt),
 	}
 }
 

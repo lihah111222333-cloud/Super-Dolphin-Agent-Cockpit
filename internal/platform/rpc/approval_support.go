@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/creachadair/jrpc2"
 )
 
@@ -23,26 +24,26 @@ type approvalContextKey string
 const approvalAutoDeclineOnCancelKey approvalContextKey = "approval_auto_decline_on_cancel"
 
 func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
-	callID := approvalCallID(firstNonEmpty(req.CallID, req.ApprovalID), req.RequestID)
+	callID := approvalCallID(shared.FirstNonEmpty(req.CallID, req.ApprovalID), req.RequestID)
 	if callID == "" {
 		return ApprovalRequest{}, ErrInvalidState("approval call id is required")
 	}
 	req.CallID = callID
 	req.ToolName = strings.TrimSpace(req.ToolName)
 	req.ApprovalID = strings.TrimSpace(req.ApprovalID)
-	req.Kind = firstNonEmpty(strings.TrimSpace(req.Kind), "tool")
-	req.State = firstNonEmpty(strings.TrimSpace(req.State), agentdto.StateAwaitingUserInput)
+	req.Kind = shared.FirstNonEmpty(strings.TrimSpace(req.Kind), "tool")
+	req.State = shared.FirstNonEmpty(strings.TrimSpace(req.State), agentdto.StateAwaitingUserInput)
 	req.SourceMethod = strings.TrimSpace(req.SourceMethod)
 	req.Reason = strings.TrimSpace(req.Reason)
 	req.ApprovalPolicy = strings.TrimSpace(req.ApprovalPolicy)
-	req.Payload = cloneMap(req.Payload)
+	req.Payload = shared.CloneJSONMap(req.Payload)
 	return req, nil
 }
 
 // WithApprovalDeadline applies the default approval timeout when the caller did
 // not already provide an explicit deadline.
 func WithApprovalDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
-	ctx = nonNilContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	if DefaultApprovalTimeout <= 0 {
 		return ctx, func() {}
 	}
@@ -50,14 +51,14 @@ func WithApprovalDeadline(ctx context.Context) (context.Context, context.CancelF
 }
 
 func WithApprovalAutoDeclineOnCancel(ctx context.Context) context.Context {
-	return context.WithValue(nonNilContext(ctx), approvalAutoDeclineOnCancelKey, true)
+	return context.WithValue(shared.NonNilContext(ctx), approvalAutoDeclineOnCancelKey, true)
 }
 
 func waitForApproval(ctx context.Context, pending *pendingApproval) (contract.ApprovalDecision, error) {
 	if pending == nil {
 		return contract.ApprovalDecision{}, ErrInvalidState("approval pending state is nil")
 	}
-	ctx = nonNilContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	select {
 	case <-ctx.Done():
 		return contract.ApprovalDecision{}, ctx.Err()
@@ -67,7 +68,7 @@ func waitForApproval(ctx context.Context, pending *pendingApproval) (contract.Ap
 }
 
 func decodeApprovalDecision(raw json.RawMessage) (contract.ApprovalDecision, error) {
-	raw = cloneRawMessage(raw)
+	raw = shared.CloneRawMessage(raw)
 	var approved bool
 	if err := json.Unmarshal(raw, &approved); err == nil {
 		return contract.ApprovalDecision{Approved: boolPtr(approved), Detail: raw}, nil
@@ -140,7 +141,7 @@ func canceledApprovalDecision(ctx context.Context, err error) (contract.Approval
 }
 
 func shouldAutoDeclineOnCancel(ctx context.Context) bool {
-	enabled, _ := nonNilContext(ctx).Value(approvalAutoDeclineOnCancelKey).(bool)
+	enabled, _ := shared.NonNilContext(ctx).Value(approvalAutoDeclineOnCancelKey).(bool)
 	return enabled
 }
 
@@ -196,7 +197,7 @@ func pendingStorageKey(callID string, requestID *int64) string {
 
 func cloneApprovalRequest(req ApprovalRequest, requestID *int64) ApprovalRequest {
 	req.RequestID = cloneInt64Ptr(requestID)
-	req.Payload = cloneMap(req.Payload)
+	req.Payload = shared.CloneJSONMap(req.Payload)
 	return req
 }
 
@@ -205,18 +206,7 @@ func shouldAutoApproveUserInput(req ApprovalRequest) bool {
 }
 
 func approvalPolicy(req ApprovalRequest) string {
-	return firstNonEmpty(req.ApprovalPolicy, stringFromMap(req.Payload, "approvalPolicy", "approval_policy"))
-}
-
-func cloneMap(in map[string]any) map[string]any {
-	if len(in) == 0 {
-		return map[string]any{}
-	}
-	out := make(map[string]any, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
-	return out
+	return shared.FirstNonEmpty(req.ApprovalPolicy, stringFromMap(req.Payload, "approvalPolicy", "approval_policy"))
 }
 
 func cloneInt64Ptr(value *int64) *int64 {
@@ -229,13 +219,6 @@ func cloneInt64Ptr(value *int64) *int64 {
 
 func boolPtr(value bool) *bool {
 	return &value
-}
-
-func cloneRawMessage(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 {
-		return nil
-	}
-	return append(json.RawMessage(nil), raw...)
 }
 
 func int64Value(value *int64) int64 {
@@ -268,15 +251,6 @@ func detailReason(raw json.RawMessage) string {
 		return ""
 	}
 	return stringFromMap(payload, "reason", "decision")
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func isPendingDone(pending *pendingApproval) bool {

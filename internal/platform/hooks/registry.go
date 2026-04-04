@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 // HookRegistry manages hook topic subscriptions keyed by lease.
@@ -55,7 +56,7 @@ func (r *HookRegistry) Subscribe(lease mcp.LeaseKey, req mcp.HookSubscribeReques
 	if len(topics) == 0 {
 		return mcp.HookSubscribeResponse{}, fmt.Errorf("hook subscription requires at least one topic")
 	}
-	scope := cloneSelector(req.Scope)
+	scope := shared.CloneSelector(req.Scope)
 	filters, err := canonicalizeFilters(req.Filters)
 	if err != nil {
 		return mcp.HookSubscribeResponse{}, err
@@ -83,8 +84,8 @@ func (r *HookRegistry) Subscribe(lease mcp.LeaseKey, req mcp.HookSubscribeReques
 			return mcp.HookSubscribeResponse{
 				Accepted:            true,
 				SubscriptionVersion: previous.Version,
-				EffectiveTopics:     cloneStrings(previous.Topics),
-				EffectiveScope:      cloneSelector(previous.Scope),
+				EffectiveTopics:     shared.CloneStrings(previous.Topics),
+				EffectiveScope:      shared.CloneSelector(previous.Scope),
 			}, nil
 		}
 		subscription.Version = previous.Version + 1
@@ -101,8 +102,8 @@ func (r *HookRegistry) Subscribe(lease mcp.LeaseKey, req mcp.HookSubscribeReques
 	return mcp.HookSubscribeResponse{
 		Accepted:            true,
 		SubscriptionVersion: subscription.Version,
-		EffectiveTopics:     cloneStrings(subscription.Topics),
-		EffectiveScope:      cloneSelector(subscription.Scope),
+		EffectiveTopics:     shared.CloneStrings(subscription.Topics),
+		EffectiveScope:      shared.CloneSelector(subscription.Scope),
 	}, nil
 }
 
@@ -129,7 +130,7 @@ func (r *HookRegistry) GetSubscribersBySelector(sel mcp.Selector) []mcp.LeaseKey
 		return nil
 	}
 
-	requestedScope := normalizedScope(sel.Scope)
+	requestedScope := shared.NormalizeSelectorScope(sel.Scope)
 	filterByScope := hasSelectorScope(requestedScope)
 
 	r.mu.RLock()
@@ -193,19 +194,10 @@ func cloneSubscription(subscription *Subscription) *Subscription {
 		return nil
 	}
 	cloned := *subscription
-	cloned.Topics = cloneStrings(subscription.Topics)
-	cloned.Scope = cloneSelector(subscription.Scope)
-	cloned.Filters = cloneRawMessage(subscription.Filters)
+	cloned.Topics = shared.CloneStrings(subscription.Topics)
+	cloned.Scope = shared.CloneSelector(subscription.Scope)
+	cloned.Filters = shared.CloneRawMessage(subscription.Filters)
 	return &cloned
-}
-
-func cloneSelector(selector mcp.Selector) mcp.Selector {
-	cloned := selector
-	if selector.Scope != nil {
-		scope := *selector.Scope
-		cloned.Scope = &scope
-	}
-	return cloned
 }
 
 func hasSelectorScope(scope mcp.SelectorScope) bool {
@@ -216,25 +208,7 @@ func subscriptionMatchesSelectorScope(subscription *Subscription, requested mcp.
 	if subscription == nil {
 		return false
 	}
-	return scopeMatches(requested, normalizedScope(subscription.Scope.Scope))
-}
-
-func cloneRawMessage(message json.RawMessage) json.RawMessage {
-	if len(message) == 0 {
-		return nil
-	}
-	cloned := make(json.RawMessage, len(message))
-	copy(cloned, message)
-	return cloned
-}
-
-func cloneStrings(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make([]string, len(values))
-	copy(cloned, values)
-	return cloned
+	return scopeMatches(requested, shared.NormalizeSelectorScope(subscription.Scope.Scope))
 }
 
 func normalizeTopics(topics []string) []string {
@@ -287,7 +261,7 @@ func canonicalizeFilters(message json.RawMessage) (json.RawMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("hook subscription has invalid filters: %w", err)
 	}
-	return cloneRawMessage(encoded), nil
+	return shared.CloneRawMessage(encoded), nil
 }
 
 func hashSubscriptionRequest(topics []string, scope mcp.Selector, filters json.RawMessage, mode string) (string, error) {
@@ -297,9 +271,9 @@ func hashSubscriptionRequest(topics []string, scope mcp.Selector, filters json.R
 		Filters json.RawMessage `json:"filters,omitempty"`
 		Mode    string          `json:"mode,omitempty"`
 	}{
-		Topics:  cloneStrings(topics),
-		Scope:   cloneSelector(scope),
-		Filters: cloneRawMessage(filters),
+		Topics:  shared.CloneStrings(topics),
+		Scope:   shared.CloneSelector(scope),
+		Filters: shared.CloneRawMessage(filters),
 		Mode:    mode,
 	}
 

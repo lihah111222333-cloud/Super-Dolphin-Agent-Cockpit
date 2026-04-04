@@ -12,7 +12,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -61,7 +60,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	}
 	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, s.assembler.PromptText(input))
 	return dto.TurnRequest{
-		LocalID:              shareddto.NewID("turn"),
+		LocalID:              platformshared.NewID("turn"),
 		ThreadID:             threadID,
 		Inputs:               s.assembler.Assemble(input),
 		Skills:               resolvedSkills,
@@ -167,7 +166,7 @@ func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Sessio
 }
 
 func (s *service) TrackTurn(ctx context.Context, localID string) (TurnStatus, error) {
-	ctx = normalizeContext(ctx)
+	ctx = platformshared.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return TurnStatus{}, err
 	}
@@ -212,7 +211,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 
 func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle contract.TurnHandle) error {
 	deadline := time.Now().Add(interruptSettleTimeout)
-	ctx = normalizeContext(ctx)
+	ctx = platformshared.NonNilContext(ctx)
 	if err := waitForHandle(ctx, handle, deadline); err != nil && handle != nil {
 		return err
 	}
@@ -276,18 +275,11 @@ func (s *service) buildOverrides(caps dto.CapabilitySet, input PrepareInput) dto
 	return overrides
 }
 
-func normalizeContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
-}
-
 func ensureLocalTurnID(localID string) string {
 	if localID = strings.TrimSpace(localID); localID != "" {
 		return localID
 	}
-	return shareddto.NewID("turn")
+	return platformshared.NewID("turn")
 }
 
 func isTerminalTurnState(state string) bool {

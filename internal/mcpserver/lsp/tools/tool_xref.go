@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type xrefParams struct {
@@ -89,7 +90,7 @@ func runCallHierarchy(
 	if err != nil {
 		return nil, err
 	}
-	return renderListResult(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit), "no call hierarchy found", func(items []protocol.CallHierarchyResult, _ int) any {
+	return renderListResult(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit), "no call hierarchy found", func(items []protocol.CallHierarchyResult, _ int) any {
 		return format.NormalizeForDisplay(items)
 	})
 }
@@ -109,7 +110,7 @@ func runTypeHierarchy(
 	if err != nil {
 		return nil, err
 	}
-	return renderListResult(results, clampResultLimit(req.MaxResults, protocol.XRefResultLimit), "no type hierarchy found", func(items []protocol.TypeHierarchyResult, _ int) any {
+	return renderListResult(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit), "no type hierarchy found", func(items []protocol.TypeHierarchyResult, _ int) any {
 		return format.NormalizeForDisplay(items)
 	})
 }

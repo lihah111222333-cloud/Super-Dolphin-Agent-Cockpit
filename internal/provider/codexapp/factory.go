@@ -13,7 +13,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/gorilla/websocket"
 )
 
@@ -82,13 +82,6 @@ func parsePortFromURL(rawURL string) int {
 	return port
 }
 
-func checkCtx(ctx context.Context) error {
-	if ctx == nil {
-		return nil
-	}
-	return ctx.Err()
-}
-
 func hasMethod(method string, methods map[string]struct{}) bool {
 	_, ok := methods[strings.TrimSpace(method)]
 	return ok
@@ -117,7 +110,7 @@ func requireThreadID(s *session, explicit ...string) (string, error) {
 	if s != nil {
 		values = append(values, s.ThreadID())
 	}
-	threadID := firstNonEmpty(values...)
+	threadID := shared.FirstNonEmpty(values...)
 	if threadID == "" {
 		return "", errors.New("codexapp: thread id is required")
 	}
@@ -133,7 +126,7 @@ func payloadThreadID(payload map[string]any, fallbacks ...string) string {
 		stringValue(payload, "threadId", "thread_id"),
 		stringValue(nestedValue(payload, "thread"), "id"),
 	}, fallbacks...)
-	return firstNonEmpty(values...)
+	return shared.FirstNonEmpty(values...)
 }
 
 func payloadTurnID(payload map[string]any, fallbacks ...string) string {
@@ -141,7 +134,7 @@ func payloadTurnID(payload map[string]any, fallbacks ...string) string {
 		stringValue(payload, "turnId", "turn_id"),
 		stringValue(nestedValue(payload, "turn"), "id"),
 	}, fallbacks...)
-	return firstNonEmpty(values...)
+	return shared.FirstNonEmpty(values...)
 }
 
 func payloadCallID(payload map[string]any, fallbacks ...string) string {
@@ -150,7 +143,7 @@ func payloadCallID(payload map[string]any, fallbacks ...string) string {
 		stringValue(payload, "callId", "call_id"),
 		stringValue(item, "callId", "call_id"),
 	}, fallbacks...)
-	return firstNonEmpty(values...)
+	return shared.FirstNonEmpty(values...)
 }
 
 func payloadToolName(payload map[string]any, fallbacks ...string) string {
@@ -159,7 +152,7 @@ func payloadToolName(payload map[string]any, fallbacks ...string) string {
 		stringValue(payload, "toolName", "tool_name", "tool"),
 		stringValue(item, "toolName", "tool"),
 	}, fallbacks...)
-	return firstNonEmpty(values...)
+	return shared.FirstNonEmpty(values...)
 }
 
 func isTurnTerminalEvent(method string) bool {
@@ -245,7 +238,7 @@ func cleanupFailedSession(s *session, msg string) {
 	if s == nil {
 		return
 	}
-	platformshared.LogIgnoredError(s.logger, msg, s.ForceStop())
+	shared.LogIgnoredError(s.logger, msg, s.ForceStop())
 }
 
 func decodeThreadRPCResult(raw json.RawMessage) (*threadRPCResult, error) {

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type requiredField struct {
@@ -42,7 +43,7 @@ func makeHandler[T any, R any](
 			return nil, err
 		}
 		var in T
-		if err := decodeInput(input, &in); err != nil {
+		if err := shared.DecodeInput(input, &in); err != nil {
 			return nil, err
 		}
 		return exec(ctx, in)

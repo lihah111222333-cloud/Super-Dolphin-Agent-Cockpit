@@ -44,7 +44,7 @@ func (s *Server) Register(handlerMaps ...handler.Map) {
 // Dispatch executes a registered handler locally without using the network.
 // It is used by the Wails binding layer to bridge CallAPI requests.
 func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
-	ctx = nonNilContext(ctx)
+	ctx = platformshared.NonNilContext(ctx)
 
 	local := jrpcserver.NewLocal(s.methods, &jrpcserver.LocalOptions{
 		Server: prepareServerOptions(nil),
@@ -67,7 +67,7 @@ func (s *Server) NotifyAll(ctx context.Context, bridge *PushBridge, method strin
 	if bridge == nil {
 		return
 	}
-	ctx = nonNilContext(ctx)
+	ctx = platformshared.NonNilContext(ctx)
 	for _, current := range s.snapshotActive() {
 		if err := bridge.NotifyClient(ctx, current, method, params); err != nil {
 			s.logger.Warn("rpc push notify failed", "method", method, "error", err)

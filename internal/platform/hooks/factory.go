@@ -9,6 +9,7 @@ import (
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const lostSubscriberFailureThreshold = 3
@@ -132,7 +133,7 @@ func dispatchPrepared[T any](
 
 func buildDispatchSelector(topic string, payload mcp.HookPayload) mcp.Selector {
 	selector := mcp.Selector{Subscription: topic}
-	scope := normalizedScope(&mcp.SelectorScope{
+	scope := shared.NormalizeSelectorScope(&mcp.SelectorScope{
 		AgentID:  payload.AgentID,
 		ThreadID: payload.ThreadID,
 	})
@@ -140,18 +141,6 @@ func buildDispatchSelector(topic string, payload mcp.HookPayload) mcp.Selector {
 		selector.Scope = &scope
 	}
 	return selector
-}
-
-func normalizedScope(scope *mcp.SelectorScope) mcp.SelectorScope {
-	if scope == nil {
-		return mcp.SelectorScope{}
-	}
-	return mcp.SelectorScope{
-		AgentID:    strings.TrimSpace(scope.AgentID),
-		ThreadID:   strings.TrimSpace(scope.ThreadID),
-		ClientKind: strings.TrimSpace(scope.ClientKind),
-		InstanceID: strings.TrimSpace(scope.InstanceID),
-	}
 }
 
 func scopeMatches(requested, subscribed mcp.SelectorScope) bool {
@@ -277,7 +266,7 @@ func executeDispatchJob[T any](
 	callCtx, cancel := config.WithPeerTimeout(ctx, dispatcher.peerTimeoutOrDefault())
 	defer cancel()
 
-	decision, err := invoke(callCtx, job.lease, cloneHookPayload(payload))
+	decision, err := invoke(callCtx, job.lease, shared.CloneHookPayload(payload))
 	result.Decision = decision
 	result.Err = err
 	result.ConsecutiveFailures = dispatcher.recordPeerResult(job.lease, err)

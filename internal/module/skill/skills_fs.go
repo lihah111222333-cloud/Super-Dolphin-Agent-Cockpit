@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func (s *service) ListSkills(context.Context) ([]SkillInfo, error) {
@@ -366,12 +368,8 @@ func resolveExistingPath(path string) (string, error) {
 }
 
 func pathEscapesRoot(rootPath, targetPath string) (bool, error) {
-	relativePath, err := filepath.Rel(rootPath, targetPath)
-	if err != nil {
+	if _, err := filepath.Rel(rootPath, targetPath); err != nil {
 		return false, err
 	}
-	if relativePath == ".." {
-		return true, nil
-	}
-	return strings.HasPrefix(relativePath, ".."+string(filepath.Separator)), nil
+	return !platformshared.ContainsPath(rootPath, targetPath), nil
 }

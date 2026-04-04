@@ -11,8 +11,9 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/kelindar/event"
 )
 
@@ -219,7 +220,7 @@ func (s *service) commitLaunchFailureLocked(
 	}
 	if agent != nil {
 		values := append(append([]string(nil), details...), launchErr.Error())
-		agent.lastError = firstTrimmed(values...)
+		agent.lastError = shared.FirstTrimmed(values...)
 	}
 	if agent == nil {
 		return launchErr
@@ -415,23 +416,23 @@ func decodeLegacyAliasWith[C any, L any](
 	return aliasFn(current, &legacy)
 }
 
-func agentSessionHeader(agent *agentState) shared.AgentSessionHeader {
-	return shared.AgentSessionHeader{
+func agentSessionHeader(agent *agentState) shareddto.AgentSessionHeader {
+	return shareddto.AgentSessionHeader{
 		AgentHeader: agentHeader(agent),
 		SessionID:   agentSessionID(agent),
 	}
 }
 
-func agentHeader(agent *agentState) shared.AgentHeader {
+func agentHeader(agent *agentState) shareddto.AgentHeader {
 	agentID := ""
 	threadID := ""
 	if agent != nil {
 		agentID = agent.id
 		threadID = agent.threadID
 	}
-	return shared.AgentHeader{
-		ThreadHeader: shared.ThreadHeader{
-			EventHeader: shared.EventHeader{Timestamp: agentEventTime(agent)},
+	return shareddto.AgentHeader{
+		ThreadHeader: shareddto.ThreadHeader{
+			EventHeader: shareddto.EventHeader{Timestamp: agentEventTime(agent)},
 			ThreadID:    threadID,
 		},
 		AgentID: agentID,
@@ -440,7 +441,7 @@ func agentHeader(agent *agentState) shared.AgentHeader {
 
 func agentEventTime(agent *agentState) time.Time {
 	if agent == nil {
-		return shared.FirstEventTime()
+		return shareddto.FirstEventTime()
 	}
 	if !agent.updatedAt.IsZero() {
 		return agent.updatedAt
@@ -451,7 +452,7 @@ func agentEventTime(agent *agentState) time.Time {
 	if agent.exitedAt != nil && !agent.exitedAt.IsZero() {
 		return *agent.exitedAt
 	}
-	return shared.FirstEventTime()
+	return shareddto.FirstEventTime()
 }
 
 func agentSessionID(agent *agentState) string {
@@ -461,7 +462,7 @@ func agentSessionID(agent *agentState) string {
 	return strconv.FormatUint(agent.launchSeq, 10)
 }
 
-func turnHeader(agent *agentState, threadID, turnID string, timestamp time.Time) shared.TurnHeader {
+func turnHeader(agent *agentState, threadID, turnID string, timestamp time.Time) shareddto.TurnHeader {
 	header := agentHeader(agent)
 	if threadID != "" {
 		header.ThreadID = threadID
@@ -469,9 +470,9 @@ func turnHeader(agent *agentState, threadID, turnID string, timestamp time.Time)
 	if !timestamp.IsZero() {
 		header.ThreadHeader.EventHeader.Timestamp = timestamp
 	}
-	return shared.TurnHeader{
+	return shareddto.TurnHeader{
 		AgentHeader:  header,
-		TurnIDHeader: shared.TurnIDHeader{TurnID: turnID},
+		TurnIDHeader: shareddto.TurnIDHeader{TurnID: turnID},
 	}
 }
 
@@ -480,14 +481,6 @@ func stalledMilliseconds(stalled time.Duration) int64 {
 		return 0
 	}
 	return stalled.Milliseconds()
-}
-
-func cloneTime(value *time.Time) *time.Time {
-	if value == nil {
-		return nil
-	}
-	copied := *value
-	return &copied
 }
 
 func eventAgent(agentID string, fields []any) (*agentState, []any) {

@@ -13,6 +13,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func buildRPCPrepareInput(p turnStartParams, session contract.Session) PrepareInput {
@@ -242,16 +243,16 @@ func (p turnInputItemParams) skillName() string {
 	if !strings.EqualFold(strings.TrimSpace(p.Type), "skill") {
 		return ""
 	}
-	return firstTrimmed(p.Name, p.Text, p.Content, p.Path)
+	return shared.FirstTrimmed(p.Name, p.Text, p.Content, p.Path)
 }
 
 func (p turnInputItemParams) inputItem() (InputItem, bool) {
 	item := InputItem{
-		Type:    firstTrimmed(p.Type),
-		Content: firstTrimmed(p.Content, p.Text),
-		Path:    firstTrimmed(p.Path),
-		Name:    firstTrimmed(p.Name),
-		URL:     firstTrimmed(p.URL),
+		Type:    shared.FirstTrimmed(p.Type),
+		Content: shared.FirstTrimmed(p.Content, p.Text),
+		Path:    shared.FirstTrimmed(p.Path),
+		Name:    shared.FirstTrimmed(p.Name),
+		URL:     shared.FirstTrimmed(p.URL),
 	}
 	switch {
 	case item.Type == "" && item.URL != "":
@@ -265,13 +266,4 @@ func (p turnInputItemParams) inputItem() (InputItem, bool) {
 		return InputItem{}, false
 	}
 	return item, item.Content != "" || item.Path != "" || item.URL != ""
-}
-
-func firstTrimmed(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }

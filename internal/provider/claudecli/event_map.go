@@ -8,6 +8,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -140,10 +141,8 @@ func toolHeader(data any) shared.ToolCallHeader {
 
 func eventTime(data any) time.Time {
 	raw := dataString(data, "timestamp", "ts")
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
-		if parsed, err := time.Parse(layout, raw); err == nil {
-			return parsed
-		}
+	if parsed := platformshared.ParseRFC3339Loose(raw); !parsed.IsZero() {
+		return parsed
 	}
 	return time.Now()
 }

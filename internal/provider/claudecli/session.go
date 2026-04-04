@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -128,7 +129,7 @@ func (s *session) RuntimeConfigSnapshot() map[string]any {
 }
 
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
 	payload, turnID, handle, err := s.prepareTurn(ctx, req)
@@ -149,7 +150,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 }
 
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
 	payload, err := buildSteerPayload(req)
@@ -168,7 +169,7 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 }
 
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
 	if err := s.transport.signalProcess(syscall.SIGINT); err != nil {
@@ -287,7 +288,7 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 func (s *session) restartResumeIDLocked() string {
 	// Keep the last resolved thread/session identity across restarts until the
 	// new transport confirms the resumed session with a fresh system:init.
-	resumeID := strings.TrimSpace(firstNonEmpty(s.sessionID, s.threadID))
+	resumeID := strings.TrimSpace(shared.FirstNonEmpty(s.sessionID, s.threadID))
 	if requiresResolvedThreadID(resumeID) {
 		return ""
 	}

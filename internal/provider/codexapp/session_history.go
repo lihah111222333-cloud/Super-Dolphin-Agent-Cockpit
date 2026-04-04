@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type Message struct {
@@ -56,27 +57,11 @@ func toProviderHistory(messages []Message) []dto.Message {
 		out = append(out, dto.Message{
 			Role:      msg.Role,
 			Content:   msg.Content,
-			Timestamp: parseCodexHistoryTime(msg.Timestamp),
-			Metadata:  decodeHistoryMetadata(msg.Metadata),
+			Timestamp: platformshared.ParseRFC3339Loose(msg.Timestamp),
+			Metadata:  platformshared.DecodeHistoryMetadata(msg.Metadata),
 		})
 	}
 	return out
-}
-
-func decodeHistoryMetadata(raw json.RawMessage) map[string]any {
-	return decodeJSONMap(raw)
-}
-
-func parseCodexHistoryTime(raw string) time.Time {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return time.Time{}
-	}
-	if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-		return parsed
-	}
-	parsed, _ := time.Parse(time.RFC3339, raw)
-	return parsed
 }
 
 func (s *session) CompactThread(ctx context.Context, threadID, args string) error {

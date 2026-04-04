@@ -12,6 +12,7 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/kelindar/event"
 )
 
@@ -37,15 +38,15 @@ const (
 	MethodThreadMessages           = "thread/messages/page"
 	MethodThreadCompacted          = "thread/compacted"
 	// Deprecated: token usage now rides on ui/thread/patch; kept for reference only
-	MethodThreadTokenUsage       = "thread/tokenusage/updated"
-	MethodSkillsChanged          = "skills/changed"
-	MethodUIPreferencesChanged   = "ui/preferences/changed"
-	MethodUIThreadPatch          = "ui/thread/patch"
-	MethodAgentLaunched          = "agent/launched"
-	MethodAgentStopped           = "agent/stopped"
-	MethodAgentRecovering        = "agent/recovering"
-	MethodAgentFailed            = "agent/failed"
-	MethodAgentRuntimeReported   = "agent/runtime/reported"
+	MethodThreadTokenUsage     = "thread/tokenusage/updated"
+	MethodSkillsChanged        = "skills/changed"
+	MethodUIPreferencesChanged = "ui/preferences/changed"
+	MethodUIThreadPatch        = "ui/thread/patch"
+	MethodAgentLaunched        = "agent/launched"
+	MethodAgentStopped         = "agent/stopped"
+	MethodAgentRecovering      = "agent/recovering"
+	MethodAgentFailed          = "agent/failed"
+	MethodAgentRuntimeReported = "agent/runtime/reported"
 )
 
 type PublishFunc func(method string, payload any)
@@ -166,7 +167,7 @@ func threadStartedPayload(ev threaddto.Started) map[string]any {
 	payload := map[string]any{"threadId": strings.TrimSpace(ev.ThreadID)}
 	setString(payload, "agentId", ev.AgentID)
 	setString(payload, "provider", ev.Provider)
-	setString(payload, "providerThreadId", firstNonEmpty(ev.ProviderThreadID, ev.ThreadID))
+	setString(payload, "providerThreadId", shared.FirstNonEmpty(ev.ProviderThreadID, ev.ThreadID))
 	setString(payload, "cwd", ev.CWD)
 	setString(payload, "model", ev.Model)
 	return payload
@@ -352,15 +353,6 @@ func setString(payload map[string]any, key, value string) {
 	if text := strings.TrimSpace(value); text != "" {
 		payload[key] = text
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if text := strings.TrimSpace(value); text != "" {
-			return text
-		}
-	}
-	return ""
 }
 
 func projectionUpdatedMethod(ev uidto.UIProjectionUpdated) string {

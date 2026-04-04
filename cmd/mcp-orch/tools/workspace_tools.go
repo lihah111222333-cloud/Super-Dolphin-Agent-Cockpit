@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -189,7 +190,7 @@ func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input Workspa
 	// from the persisted run when the merge was not a dry run.
 	if !input.DryRun {
 		if run, runErr := svc.GetRun(ctx, runKey); runErr == nil && run != nil {
-			out.FinishedAt = cloneTime(run.FinishedAt)
+			out.FinishedAt = shared.CloneTime(run.FinishedAt)
 		}
 	}
 	return out, nil

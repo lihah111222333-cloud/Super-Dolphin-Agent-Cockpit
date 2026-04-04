@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/gorilla/websocket"
 )
 
@@ -83,13 +84,6 @@ func jsonRPCIDKey(raw json.RawMessage) string {
 	return strings.TrimSpace(string(raw))
 }
 
-func normalizeTransportContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
-}
-
 func (t *transport) connectOnce(ctx context.Context) error {
 	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
 	conn, _, err := dialer.DialContext(ctx, t.serverURL, nil)
@@ -101,7 +95,7 @@ func (t *transport) connectOnce(ctx context.Context) error {
 }
 
 func (t *transport) initialize(ctx context.Context) error {
-	ctx = normalizeTransportContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	ws, err := t.initializeSocket(ctx)
 	if err != nil {
 		return err
@@ -115,7 +109,7 @@ func (t *transport) initialize(ctx context.Context) error {
 }
 
 func (t *transport) initializeSocket(ctx context.Context) (*websocket.Conn, error) {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
 	return t.currentWSOrErr()
@@ -144,7 +138,7 @@ func (t *transport) awaitInitialize(ctx context.Context, ws *websocket.Conn, pc 
 		if done, err := initializeDone(pc); done {
 			return err
 		}
-		if err := checkCtx(ctx); err != nil {
+		if err := shared.CheckCtx(ctx); err != nil {
 			return err
 		}
 		if err := t.readInitializeMessage(ctx, ws); err != nil {
@@ -203,7 +197,7 @@ func (t *transport) endReadLoop(ctx context.Context, handler func(string, json.R
 	if err != nil {
 		t.failPending(err)
 	}
-	if handler != nil && !t.closed.Load() && checkCtx(ctx) == nil {
+	if handler != nil && !t.closed.Load() && shared.CheckCtx(ctx) == nil {
 		handler("connection.dead", mustJSON(map[string]any{"error": message}))
 	}
 	return false

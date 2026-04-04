@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
@@ -94,10 +95,10 @@ func (p logsParams) ToFilter(source string) LogFilter {
 		Level:     strings.TrimSpace(p.Level),
 		Logger:    strings.TrimSpace(p.Logger),
 		Component: strings.TrimSpace(p.Component),
-		AgentID:   firstNonEmpty(p.AgentID, p.AgentIDSnake),
-		ThreadID:  firstNonEmpty(p.ThreadID, p.ThreadIDSnake),
-		EventType: firstNonEmpty(p.EventType, p.EventTypeSnake),
-		ToolName:  firstNonEmpty(p.ToolName, p.ToolNameSnake),
+		AgentID:   shared.FirstNonEmpty(p.AgentID, p.AgentIDSnake),
+		ThreadID:  shared.FirstNonEmpty(p.ThreadID, p.ThreadIDSnake),
+		EventType: shared.FirstNonEmpty(p.EventType, p.EventTypeSnake),
+		ToolName:  shared.FirstNonEmpty(p.ToolName, p.ToolNameSnake),
 		Limit:     p.Limit,
 	}
 }
@@ -111,13 +112,13 @@ func (p logsParams) fieldValue(field logFilterField) string {
 	case logFieldComponent:
 		return p.Component
 	case logFieldAgentID:
-		return firstNonEmpty(p.AgentID, p.AgentIDSnake)
+		return shared.FirstNonEmpty(p.AgentID, p.AgentIDSnake)
 	case logFieldThreadID:
-		return firstNonEmpty(p.ThreadID, p.ThreadIDSnake)
+		return shared.FirstNonEmpty(p.ThreadID, p.ThreadIDSnake)
 	case logFieldEventType:
-		return firstNonEmpty(p.EventType, p.EventTypeSnake)
+		return shared.FirstNonEmpty(p.EventType, p.EventTypeSnake)
 	case logFieldToolName:
-		return firstNonEmpty(p.ToolName, p.ToolNameSnake)
+		return shared.FirstNonEmpty(p.ToolName, p.ToolNameSnake)
 	default:
 		return ""
 	}

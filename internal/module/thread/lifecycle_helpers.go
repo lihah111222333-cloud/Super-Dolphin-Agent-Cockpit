@@ -10,12 +10,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/historyjsonl"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func resolveProviderThreadID(values ...string) string {
-	return firstNonEmpty(values...)
+	return shared.FirstNonEmpty(values...)
 }
 
 // enrichFromSessionConfig extracts model/cwd from the session's runtime config
@@ -61,14 +62,7 @@ func bindingPublicThreadID(binding *bindingstore.Binding, fallback string) strin
 	if binding == nil {
 		return strings.TrimSpace(fallback)
 	}
-	return firstNonEmpty(binding.CodexThreadID, fallback)
-}
-
-func normalizeThreadContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
+	return shared.FirstNonEmpty(binding.CodexThreadID, fallback)
 }
 
 func firstNonZero(values ...int64) int64 {
@@ -78,15 +72,6 @@ func firstNonZero(values ...int64) int64 {
 		}
 	}
 	return time.Now().Unix()
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func (s *service) maybeRegisterThreadBinding(
@@ -155,7 +140,7 @@ func historyTargetID(binding *bindingstore.Binding, threadID string) string {
 	if requestedID != "" && requestedID != publicThreadID && requestedID != agentID {
 		return requestedID
 	}
-	return firstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
+	return shared.FirstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
 }
 
 func toRef(thread threadstore.Thread) Ref {

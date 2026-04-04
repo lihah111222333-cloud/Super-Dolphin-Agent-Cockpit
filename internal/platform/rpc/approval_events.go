@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/kelindar/event"
 )
 
@@ -58,11 +59,11 @@ func isRequestUserInputKind(kind string) bool {
 
 func callbackParams(pending *pendingApproval) map[string]any {
 	req := pending.request
-	params := cloneMap(req.Payload)
+	params := shared.CloneJSONMap(req.Payload)
 	params["requestId"] = int64Value(pending.requestID)
 	params["callId"] = pending.callID
 	params["toolName"] = pending.toolName
-	params["approvalId"] = firstNonEmpty(req.ApprovalID, pending.callID)
+	params["approvalId"] = shared.FirstNonEmpty(req.ApprovalID, pending.callID)
 	params["reason"] = req.Reason
 	params["kind"] = req.Kind
 	params["state"] = req.State
@@ -79,43 +80,43 @@ func callbackParams(pending *pendingApproval) map[string]any {
 	return params
 }
 
-func approvalHeader(req ApprovalRequest, timestamp time.Time) shared.ToolApprovalHeader {
-	return shared.ToolApprovalHeader{
-		ToolCallHeader: shared.ToolCallHeader{
-			TurnHeader: shared.TurnHeader{
-				AgentHeader: shared.AgentHeader{
-					ThreadHeader: shared.ThreadHeader{
-						EventHeader: shared.EventHeader{Timestamp: timestamp},
+func approvalHeader(req ApprovalRequest, timestamp time.Time) shareddto.ToolApprovalHeader {
+	return shareddto.ToolApprovalHeader{
+		ToolCallHeader: shareddto.ToolCallHeader{
+			TurnHeader: shareddto.TurnHeader{
+				AgentHeader: shareddto.AgentHeader{
+					ThreadHeader: shareddto.ThreadHeader{
+						EventHeader: shareddto.EventHeader{Timestamp: timestamp},
 						ThreadID:    req.ThreadID,
 					},
 					AgentID: req.AgentID,
 				},
-				TurnIDHeader: shared.TurnIDHeader{TurnID: req.TurnID},
+				TurnIDHeader: shareddto.TurnIDHeader{TurnID: req.TurnID},
 			},
 			CallID:   req.CallID,
 			ToolName: req.ToolName,
 		},
-		ApprovalID: firstNonEmpty(req.ApprovalID, req.CallID),
+		ApprovalID: shared.FirstNonEmpty(req.ApprovalID, req.CallID),
 	}
 }
 
 func approvalRequestedAt(pending *pendingApproval) time.Time {
 	if pending == nil {
-		return shared.FirstEventTime()
+		return shareddto.FirstEventTime()
 	}
-	return shared.ResolveEventTime(nil, pending.request.Payload, pending.createdAt)
+	return shareddto.ResolveEventTime(nil, pending.request.Payload, pending.createdAt)
 }
 
 func approvalResolvedAt(decision contract.ApprovalDecision) time.Time {
-	return shared.ResolveEventTime(nil, approvalDecisionPayload(decision))
+	return shareddto.ResolveEventTime(nil, approvalDecisionPayload(decision))
 }
 
 func approvalRequestTime(req ApprovalRequest) time.Time {
-	return shared.EventTimeFromPayload(req.Payload)
+	return shareddto.EventTimeFromPayload(req.Payload)
 }
 
 func approvalDecisionTime(decision contract.ApprovalDecision) time.Time {
-	return shared.EventTimeFromPayload(approvalDecisionPayload(decision))
+	return shareddto.EventTimeFromPayload(approvalDecisionPayload(decision))
 }
 
 func approvalDecisionPayload(decision contract.ApprovalDecision) map[string]any {

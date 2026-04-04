@@ -8,6 +8,7 @@ import (
 	"time"
 
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type WorkspaceMergeFileResult struct {
@@ -69,10 +70,10 @@ func workspaceRunDTOFromRun(ctx context.Context, svc workspace.Service, run *wor
 		Status:        run.Status,
 		CreatedBy:     run.CreatedBy,
 		UpdatedBy:     run.UpdatedBy,
-		Metadata:      cloneRawMessage(run.Metadata),
+		Metadata:      shared.CloneRawMessage(run.Metadata),
 		CreatedAt:     run.CreatedAt,
 		UpdatedAt:     run.UpdatedAt,
-		FinishedAt:    cloneTime(run.FinishedAt),
+		FinishedAt:    shared.CloneTime(run.FinishedAt),
 		Files:         files,
 	}, nil
 }

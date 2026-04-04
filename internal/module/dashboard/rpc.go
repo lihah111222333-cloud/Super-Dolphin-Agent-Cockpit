@@ -7,6 +7,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type uiDashboardGetParams struct {
@@ -223,5 +224,5 @@ func dashboardAILogStatsField(ctx context.Context, svc Service) (map[string]any,
 }
 
 func (p agentDetailParams) agentID() string {
-	return firstNonEmpty(p.AgentID, p.AgentIDSnake)
+	return shared.FirstNonEmpty(p.AgentID, p.AgentIDSnake)
 }

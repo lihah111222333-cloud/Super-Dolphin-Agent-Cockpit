@@ -10,10 +10,10 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type SearchMatch struct {
@@ -47,11 +47,7 @@ type ASTSearchOptions struct {
 	MaxFileBytes int
 }
 
-type lineMatcher struct {
-	needle        string
-	regex         *regexp.Regexp
-	caseSensitive bool
-}
+type lineMatcher = shared.LineMatcher
 
 type sgStreamMatch struct {
 	File  string `json:"file"`
@@ -66,7 +62,7 @@ type sgStreamMatch struct {
 }
 
 func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, error) {
-	matcher, err := newLineMatcher(opts.Query, opts.Regex, opts.CaseSensitive)
+	matcher, err := shared.NewLineMatcher(opts.Query, opts.Regex, opts.CaseSensitive)
 	if err != nil {
 		return nil, err
 	}
@@ -149,47 +145,6 @@ func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchM
 		return filtered, total, false
 	}
 	return append([]SearchMatch(nil), filtered[:maxResults]...), total, true
-}
-
-func newLineMatcher(query string, regexMode, caseSensitive bool) (lineMatcher, error) {
-	needle := strings.TrimSpace(query)
-	if needle == "" {
-		return lineMatcher{}, errors.New("query is required")
-	}
-	if regexMode {
-		if !caseSensitive {
-			needle = "(?i)" + needle
-		}
-		re, err := regexp.Compile(needle)
-		if err != nil {
-			return lineMatcher{}, err
-		}
-		return lineMatcher{regex: re, caseSensitive: caseSensitive}, nil
-	}
-	if caseSensitive {
-		return lineMatcher{needle: needle, caseSensitive: true}, nil
-	}
-	return lineMatcher{needle: strings.ToLower(needle)}, nil
-}
-
-func (m lineMatcher) find(line string) (int, bool) {
-	if m.regex != nil {
-		loc := m.regex.FindStringIndex(line)
-		if loc == nil {
-			return 0, false
-		}
-		return utf8.RuneCountInString(line[:loc[0]]), true
-	}
-	haystack := line
-	needle := m.needle
-	if !m.caseSensitive {
-		haystack = strings.ToLower(line)
-	}
-	idx := strings.Index(haystack, needle)
-	if idx < 0 {
-		return 0, false
-	}
-	return utf8.RuneCountInString(line[:idx]), true
 }
 
 func statSearchPath(root, rawPath string) (PathInfo, os.FileInfo, error) {
@@ -281,7 +236,7 @@ func searchTextFile(ctx context.Context, root, candidate, glob string, maxFileBy
 			return nil, err
 		}
 		line := scanner.Text()
-		col, ok := matcher.find(line)
+		col, ok := matcher.Find(line)
 		if !ok {
 			continue
 		}

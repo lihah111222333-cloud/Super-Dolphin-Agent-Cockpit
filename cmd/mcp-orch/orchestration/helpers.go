@@ -12,6 +12,7 @@ import (
 	"github.com/qmuntal/stateless"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 )
 
@@ -301,7 +302,7 @@ func (s *service) listAgents() []agentRuntime {
 		snapshot.cmd = nil
 		snapshot.queue = nil
 		snapshot.sm = nil
-		snapshot.exitedAt = cloneTime(agent.exitedAt)
+		snapshot.exitedAt = shared.CloneTime(agent.exitedAt)
 		agents = append(agents, snapshot)
 	}
 	return agents

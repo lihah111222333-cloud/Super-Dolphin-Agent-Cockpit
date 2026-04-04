@@ -96,8 +96,8 @@ func (s *session) callTransport(ctx context.Context, method string, params any) 
 }
 
 func (s *session) handleConnectionDead(params json.RawMessage) {
-	reason := firstNonEmpty(stringValue(decodeEventPayload(params), "error", "message"), "connection lost")
-	if err := checkCtx(s.ctx); err != nil {
+	reason := shared.FirstNonEmpty(stringValue(decodeEventPayload(params), "error", "message"), "connection lost")
+	if err := shared.CheckCtx(s.ctx); err != nil {
 		return
 	}
 	shared.SafeGo(s.logger, func() {
@@ -136,10 +136,10 @@ func (s *session) attemptRecovery(reason string) error {
 }
 
 func (s *session) replayPendingTurn(ctx context.Context) error {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
-	ctx = normalizeTransportContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	snapshot := s.pendingTurnSnapshot()
 	if snapshot == nil || replayTurnDone(snapshot.handle) {
 		return nil

@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func findGoModRoot(path string) (string, error) {
-	absPath, err := normalizeAbsolutePath(path)
+	absPath, err := platformshared.NormalizeAbsolutePath(path)
 	if err != nil {
 		return "", err
 	}
@@ -45,22 +47,6 @@ func resolveStartDir(absPath string) (string, error) {
 	}
 }
 
-func normalizeAbsolutePath(path string) (string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
-		return "", nil
-	}
-	absPath, err := filepath.Abs(trimmed)
-	if err != nil {
-		return "", fmt.Errorf("resolve absolute path: %w", err)
-	}
-	cleaned := filepath.Clean(absPath)
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		cleaned = filepath.Clean(resolved)
-	}
-	return cleaned, nil
-}
-
 func absolutePathFromURI(uri string) (string, error) {
 	if strings.TrimSpace(uri) == "" {
 		return "", ErrDocumentTargetEmpty
@@ -79,7 +65,7 @@ func absolutePathFromURI(uri string) (string, error) {
 	if unescaped, err := url.PathUnescape(path); err == nil && unescaped != "" {
 		path = unescaped
 	}
-	return normalizeAbsolutePath(path)
+	return platformshared.NormalizeAbsolutePath(path)
 }
 
 func fileExists(path string) bool {

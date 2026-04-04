@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type reportReceipt struct {
@@ -157,8 +158,8 @@ func cloneInstance(instance *ToolInstance) *ToolInstance {
 		return nil
 	}
 	cloned := *instance
-	cloned.Capabilities = cloneStrings(instance.Capabilities)
-	cloned.Subscriptions = cloneStrings(instance.Subscriptions)
+	cloned.Capabilities = platformshared.CloneStrings(instance.Capabilities)
+	cloned.Subscriptions = platformshared.CloneStrings(instance.Subscriptions)
 	return &cloned
 }
 
@@ -170,20 +171,13 @@ func toContractInstance(instance *ToolInstance) contract.ToolInstance {
 		AgentID:       instance.AgentID,
 		ThreadID:      instance.ThreadID,
 		PID:           instance.PID,
-		Capabilities:  cloneStrings(instance.Capabilities),
-		Subscriptions: cloneStrings(instance.Subscriptions),
+		Capabilities:  platformshared.CloneStrings(instance.Capabilities),
+		Subscriptions: platformshared.CloneStrings(instance.Subscriptions),
 		PeerKind:      instance.PeerKind,
 		ClientKind:    instance.ClientKind,
 		Status:        instance.Status,
 		ConfigVersion: instance.ConfigVersion,
 	}
-}
-
-func cloneStrings(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	return append([]string(nil), values...)
 }
 
 func uniqueTrimmed(values []string) []string {

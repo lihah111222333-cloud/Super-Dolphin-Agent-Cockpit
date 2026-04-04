@@ -8,6 +8,7 @@ import (
 
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func PublishUITokensUpdated(data any, publish func(ev any)) {
@@ -42,12 +43,12 @@ func tokensUpdatedEvent(payload map[string]any) (uidto.UITokensUpdated, bool) {
 			UIProjectionHeader: shareddto.UIProjectionHeader{
 				ThreadHeader: shareddto.ThreadHeader{
 					EventHeader: shareddto.EventHeader{Timestamp: tokenEventTime(payload)},
-					ThreadID:    firstNonEmpty(stringValue(payload, "threadId", "thread_id"), stringValue(usage, "threadId", "thread_id")),
+					ThreadID:    shared.FirstNonEmpty(stringValue(payload, "threadId", "thread_id"), stringValue(usage, "threadId", "thread_id")),
 				},
 				Projection: "thread",
 			},
 			TurnIDHeader: shareddto.TurnIDHeader{
-				TurnID: firstNonEmpty(stringValue(payload, "turnId", "turn_id"), stringValue(usage, "turnId", "turn_id")),
+				TurnID: shared.FirstNonEmpty(stringValue(payload, "turnId", "turn_id"), stringValue(usage, "turnId", "turn_id")),
 			},
 		},
 		InputTokens:         input,
@@ -137,13 +138,4 @@ func tokenEventTime(payload map[string]any) time.Time {
 		}
 	}
 	return time.Now()
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }

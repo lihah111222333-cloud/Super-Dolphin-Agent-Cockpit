@@ -14,6 +14,7 @@ import (
 	"time"
 
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func dedupeRelativePaths(files []string) ([]string, error) {
@@ -23,7 +24,7 @@ func dedupeRelativePaths(files []string) ([]string, error) {
 	seen := make(map[string]struct{}, len(files))
 	out := make([]string, 0, len(files))
 	for _, raw := range files {
-		rel, err := normalizeRelativePath(raw)
+		rel, err := validateRelativePath(raw)
 		if err != nil {
 			return nil, err
 		}
@@ -233,8 +234,8 @@ func cloneTimePtr(value *time.Time) *time.Time {
 	return &copy
 }
 
-func normalizeRelativePath(raw string) (string, error) {
-	path := filepath.Clean(strings.TrimSpace(raw))
+func validateRelativePath(raw string) (string, error) {
+	path := platformshared.NormalizeRelativePath(raw)
 	if path == "." {
 		return "", errors.New("file path is required")
 	}

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -38,7 +39,7 @@ func copyThreadGroups(items []ThreadGroup) []ThreadGroup {
 }
 
 func copyViewPrefs(value ViewPrefs) ViewPrefs {
-	return ViewPrefs{Chat: cloneJSONMap(value.Chat), Cmd: cloneJSONMap(value.Cmd)}
+	return ViewPrefs{Chat: shared.CloneJSONMap(value.Chat), Cmd: shared.CloneJSONMap(value.Cmd)}
 }
 
 func copyThreadCollections(value ThreadCollections) ThreadCollections {

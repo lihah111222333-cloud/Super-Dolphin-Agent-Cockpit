@@ -8,8 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/creachadair/jrpc2"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/creachadair/jrpc2"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
@@ -56,9 +57,9 @@ func (hs *hookState) store(subID string, topics []string, scope mcp.Selector, fi
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 	hs.subscriptionID = subID
-	hs.topics = cloneStrings(topics)
-	hs.scope = cloneSelector(scope)
-	hs.filters = cloneRaw(filters)
+	hs.topics = shared.CloneStrings(topics)
+	hs.scope = shared.CloneSelector(scope)
+	hs.filters = shared.CloneRawMessage(filters)
 	hs.mode = mode
 	hs.replayState = ""
 	hs.replayAttempts = 0
@@ -71,7 +72,7 @@ func (hs *hookState) load() (subID string, topics []string, scope mcp.Selector, 
 	if len(hs.topics) == 0 {
 		return "", nil, mcp.Selector{}, nil, "", false
 	}
-	return hs.subscriptionID, cloneStrings(hs.topics), cloneSelector(hs.scope), cloneRaw(hs.filters), hs.mode, true
+	return hs.subscriptionID, shared.CloneStrings(hs.topics), shared.CloneSelector(hs.scope), shared.CloneRawMessage(hs.filters), hs.mode, true
 }
 
 func (hs *hookState) markReplayFailure(attempts int, err error) {
@@ -123,7 +124,7 @@ func (c *Client) handleHookBefore(ctx context.Context, req *jrpc2.Request) (any,
 	if err := req.UnmarshalParams(&payload); err != nil {
 		return nil, true, err
 	}
-	payload.Context = cloneRaw(payload.Context)
+	payload.Context = shared.CloneRawMessage(payload.Context)
 	dec, err := handler(ctx, payload)
 	return dec, true, err
 }
@@ -137,7 +138,7 @@ func (c *Client) handleHookCheck(ctx context.Context, req *jrpc2.Request) (any, 
 	if err := req.UnmarshalParams(&payload); err != nil {
 		return nil, true, err
 	}
-	payload.Context = cloneRaw(payload.Context)
+	payload.Context = shared.CloneRawMessage(payload.Context)
 	dec, err := handler(ctx, payload)
 	return dec, true, err
 }
@@ -151,7 +152,7 @@ func (c *Client) handleHookAfter(ctx context.Context, req *jrpc2.Request) (any, 
 	if err := req.UnmarshalParams(&payload); err != nil {
 		return nil, true, err
 	}
-	payload.Context = cloneRaw(payload.Context)
+	payload.Context = shared.CloneRawMessage(payload.Context)
 	dec, err := handler(ctx, payload)
 	return dec, true, err
 }
@@ -172,9 +173,9 @@ func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topi
 
 	req := mcp.HookSubscribeRequest{
 		SubscriptionID: strings.TrimSpace(subscriptionID),
-		Topics:         cloneStrings(topics),
+		Topics:         shared.CloneStrings(topics),
 		Scope:          scope,
-		Filters:        cloneRaw(filters),
+		Filters:        shared.CloneRawMessage(filters),
 		Mode:           strings.TrimSpace(mode),
 	}
 	callCtx, cancel := withTimeoutIfNone(ctx, c.currentSendTimeout())
@@ -213,7 +214,7 @@ func (c *Client) PendingHooks(ctx context.Context) ([]mcp.PendingHookReview, err
 	if conn == nil || degraded {
 		return nil, errHookPendingUnavailable()
 	}
-	agentID := strings.TrimSpace(firstNonEmpty(c.cfg.AgentID, c.boot.AgentID))
+	agentID := strings.TrimSpace(shared.FirstNonEmpty(c.cfg.AgentID, c.boot.AgentID))
 	if agentID == "" {
 		return nil, errHookPendingAgentIDRequired()
 	}
@@ -323,12 +324,3 @@ func errHookPendingAgentIDRequired() error {
 type hookUnavailableError struct{ msg string }
 
 func (e *hookUnavailableError) Error() string { return e.msg }
-
-func cloneSelector(s mcp.Selector) mcp.Selector {
-	out := s
-	if s.Scope != nil {
-		cp := *s.Scope
-		out.Scope = &cp
-	}
-	return out
-}

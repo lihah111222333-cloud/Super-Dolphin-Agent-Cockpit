@@ -337,13 +337,6 @@ func normalizeProcessID(processID int) int {
 	return os.Getpid()
 }
 
-func normalizeContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
-}
-
 func coalesceString(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
@@ -383,13 +376,4 @@ func (e *responseError) Error() string {
 
 func normalizeID(id json.RawMessage) string {
 	return string(bytes.TrimSpace(id))
-}
-
-func cloneRawMessage(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 {
-		return nil
-	}
-	out := make(json.RawMessage, len(raw))
-	copy(out, raw)
-	return out
 }

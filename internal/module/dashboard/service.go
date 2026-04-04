@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
@@ -125,7 +126,7 @@ func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDet
 	snapshot := AgentSnapshot(rawSnapshot)
 	report := strings.TrimSpace(snapshot.LastReport)
 	if reportErr == nil {
-		report = firstNonEmpty(strings.TrimSpace(reportResp.Report), report)
+		report = shared.FirstNonEmpty(strings.TrimSpace(reportResp.Report), report)
 	}
 	snapshot.LastReport = report
 	return &AgentDetail{
@@ -157,7 +158,7 @@ func (s *service) GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, er
 	if err != nil {
 		return nil, err
 	}
-	limit := clampLogLimit(filter.Limit)
+	limit := shared.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
 	filter.Limit = limit
 	entries := make([]LogEntry, 0, limit)
 	if mode.includeSystem {
@@ -271,16 +272,6 @@ func runtimeMemoryStats() runtime.MemStats {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
 	return stats
-}
-
-func clampLogLimit(limit int) int {
-	if limit <= 0 {
-		return defaultLogLimit
-	}
-	if limit > maxLogLimit {
-		return maxLogLimit
-	}
-	return limit
 }
 
 type logSourceMode struct {

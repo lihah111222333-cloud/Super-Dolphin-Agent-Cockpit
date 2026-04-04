@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -71,7 +72,7 @@ func newTransport(options transportOptions) (*transport, error) {
 	return t, nil
 }
 func (t *transport) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	ctx = normalizeContext(ctx)
+	ctx = platformshared.NonNilContext(ctx)
 	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, defaultRequestTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -91,14 +92,14 @@ func (t *transport) request(ctx context.Context, method string, params any) (jso
 	}
 	select {
 	case outcome := <-result:
-		return cloneRawMessage(outcome.result), outcome.err
+		return platformshared.CloneRawMessage(outcome.result), outcome.err
 	case <-ctx.Done():
 		t.removePending(key)
 		return nil, ctx.Err()
 	}
 }
 func (t *transport) notify(ctx context.Context, method string, params any) error {
-	ctx = normalizeContext(ctx)
+	ctx = platformshared.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -136,11 +137,11 @@ func (t *transport) handleResponse(payload json.RawMessage) error {
 		result <- pendingResult{err: &responseError{
 			Code:    response.Error.Code,
 			Message: response.Error.Message,
-			Data:    cloneRawMessage(response.Error.Data),
+			Data:    platformshared.CloneRawMessage(response.Error.Data),
 		}}
 		return nil
 	}
-	result <- pendingResult{result: cloneRawMessage(response.Result)}
+	result <- pendingResult{result: platformshared.CloneRawMessage(response.Result)}
 	return nil
 }
 func (t *transport) handleNotification(payload json.RawMessage) error {

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type threadIDParams struct {
@@ -65,19 +67,19 @@ func (p *startParams) fillLegacyFields(data []byte) error {
 		return err
 	}
 	if strings.TrimSpace(p.ModelProvider) == "" {
-		p.ModelProvider = firstNonEmpty(legacy.ModelProvider, legacy.ModelProviderAlt)
+		p.ModelProvider = shared.FirstNonEmpty(legacy.ModelProvider, legacy.ModelProviderAlt)
 	}
 	if strings.TrimSpace(p.ApprovalPolicy) == "" {
-		p.ApprovalPolicy = firstNonEmpty(legacy.ApprovalPolicy, legacy.ApprovalPolicyAlt)
+		p.ApprovalPolicy = shared.FirstNonEmpty(legacy.ApprovalPolicy, legacy.ApprovalPolicyAlt)
 	}
 	if strings.TrimSpace(p.Prompt) == "" {
 		p.Prompt = strings.TrimSpace(legacy.Prompt)
 	}
 	if strings.TrimSpace(p.DeveloperInstructions) == "" {
-		p.DeveloperInstructions = firstNonEmpty(legacy.DeveloperInstructions, legacy.DeveloperAlt)
+		p.DeveloperInstructions = shared.FirstNonEmpty(legacy.DeveloperInstructions, legacy.DeveloperAlt)
 	}
 	if strings.TrimSpace(p.BaseInstructions) == "" {
-		p.BaseInstructions = firstNonEmpty(
+		p.BaseInstructions = shared.FirstNonEmpty(
 			legacy.BaseInstructions,
 			legacy.BaseInstructionsAlt,
 			legacy.Instructions,

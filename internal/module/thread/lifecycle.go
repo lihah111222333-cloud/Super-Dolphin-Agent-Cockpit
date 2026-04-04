@@ -45,7 +45,7 @@ type threadMeta struct {
 }
 
 func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, error) {
-	ctx = normalizeThreadContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	req, agentID, err := normalizeStartRequest(req)
 	if err != nil {
 		return StartResult{}, err
@@ -85,7 +85,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	return StartResult{
 		ThreadID:       publicThreadID,
 		AgentID:        agentID,
-		SessionID:      firstNonEmpty(providerThreadID, publicThreadID),
+		SessionID:      shared.FirstNonEmpty(providerThreadID, publicThreadID),
 		Status:         "running",
 		Model:          effectiveModel,
 		Provider:       req.Provider,
@@ -95,14 +95,14 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	}, nil
 }
 func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
-	ctx = normalizeThreadContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	req, state, err := s.resolveResumeRequest(ctx, req)
 	if err != nil {
 		return ResumeResult{}, err
 	}
-	req.Provider = firstNonEmpty(req.Provider, state.Provider)
-	req.Model = firstNonEmpty(req.Model, state.Model)
-	req.CWD = firstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
+	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
+	req.Model = shared.FirstNonEmpty(req.Model, state.Model)
+	req.CWD = shared.FirstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
 	if s.sessions != nil {
 		s.sessions.RemoveSession(req.AgentID)
 	}
@@ -122,11 +122,11 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 		s.stopAgent(ctx, req.AgentID)
 		return ResumeResult{}, err
 	}
-	model := firstNonEmpty(req.Model, state.Model)
+	model := shared.FirstNonEmpty(req.Model, state.Model)
 	threadState := newThreadState(threadStateResumeKind, threadStateFields{
 		RequestedThreadID: req.ThreadID,
 		PublicThreadID:    state.PublicThreadID,
-		ProviderThreadID:  firstNonEmpty(session.ThreadID(), req.ProviderThreadID),
+		ProviderThreadID:  shared.FirstNonEmpty(session.ThreadID(), req.ProviderThreadID),
 		AgentID:           req.AgentID,
 		Provider:          req.Provider,
 		CWD:               req.CWD,
@@ -142,14 +142,14 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	}
 	return ResumeResult{
 		ThreadID:  publicThreadID,
-		SessionID: firstNonEmpty(providerThreadID, publicThreadID),
+		SessionID: shared.FirstNonEmpty(providerThreadID, publicThreadID),
 		Status:    "resumed",
 		Model:     model,
 		CWD:       req.CWD,
 	}, nil
 }
 func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error) {
-	ctx = normalizeThreadContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
 		return ForkResult{}, err
@@ -168,7 +168,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		return ForkResult{}, errors.New("fork provider is required")
 	}
 	agentID := newThreadID
-	cwd := firstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
+	cwd := shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
 	if err := s.launchAgent(ctx, agentID, cwd, meta.Prompt, provider, meta.Model); err != nil {
 		return ForkResult{}, err
 	}
@@ -209,7 +209,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 }
 
 func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, error) {
-	ctx = normalizeThreadContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
 		return RecoverResult{}, err
@@ -220,7 +220,7 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	publicThreadID := bindingPublicThreadID(binding, threadID)
 	providerThreadID := historyTargetID(binding, threadID)
 	mode := "restore_launch"
-	if err := s.recoverAgent(ctx, strings.TrimSpace(binding.AgentID), firstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)), meta.Prompt); err != nil {
+	if err := s.recoverAgent(ctx, strings.TrimSpace(binding.AgentID), shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)), meta.Prompt); err != nil {
 		return RecoverResult{}, err
 	}
 	if _, err := s.lookupSession(agentID); err != nil {
@@ -245,10 +245,10 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	if err := s.persistThreadState(ctx, newThreadState(threadStateRecoverKind, threadStateFields{
 		RequestedThreadID: threadID,
 		PublicThreadID:    publicThreadID,
-		ProviderThreadID:  firstNonEmpty(session.ThreadID(), providerThreadID),
+		ProviderThreadID:  shared.FirstNonEmpty(session.ThreadID(), providerThreadID),
 		AgentID:           agentID,
 		Provider:          provider,
-		CWD:               firstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
+		CWD:               shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
 		Model:             meta.Model,
 		Prompt:            meta.Prompt,
 		CreatedAt:         meta.CreatedAt,

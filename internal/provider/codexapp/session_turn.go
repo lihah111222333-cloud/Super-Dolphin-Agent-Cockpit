@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type turnStartParams struct {
@@ -107,7 +108,7 @@ func imageTurnInput(item dto.InputItem) turnInputItem {
 		return turnInputItem{Type: "image", URL: url}
 	}
 	path := resolvedInputPath(item)
-	if isRemoteTurnInput(path) {
+	if shared.IsRemoteTurnInput(path) {
 		return turnInputItem{Type: "image", URL: path}
 	}
 	return turnInputItem{Type: "localImage", Path: path}
@@ -135,9 +136,4 @@ func resolvedInputPath(item dto.InputItem) string {
 		return path
 	}
 	return strings.TrimSpace(item.Content)
-}
-
-func isRemoteTurnInput(value string) bool {
-	value = strings.TrimSpace(value)
-	return strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")
 }

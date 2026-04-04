@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const JSONRPCVersion = "2.0"
@@ -98,7 +100,7 @@ func BuildSuccessResponse(id json.RawMessage, result any) (Response, error) {
 	}
 	return Response{
 		JSONRPC: JSONRPCVersion,
-		ID:      cloneRaw(id),
+		ID:      shared.CloneRawMessage(id),
 		Result:  rawResult,
 	}, nil
 }
@@ -110,7 +112,7 @@ func BuildErrorResponse(id json.RawMessage, code int, message string, data any) 
 	}
 	return Response{
 		JSONRPC: JSONRPCVersion,
-		ID:      cloneRaw(id),
+		ID:      shared.CloneRawMessage(id),
 		Error: &ResponseError{
 			Code:    code,
 			Message: message,
@@ -148,9 +150,9 @@ func DecodeRequest(payload []byte) (Request, error) {
 	}
 	return Request{
 		JSONRPC: env.JSONRPC,
-		ID:      cloneRaw(env.ID),
+		ID:      shared.CloneRawMessage(env.ID),
 		Method:  env.Method,
-		Params:  cloneRaw(env.Params),
+		Params:  shared.CloneRawMessage(env.Params),
 	}, nil
 }
 
@@ -165,7 +167,7 @@ func DecodeNotification(payload []byte) (Notification, error) {
 	return Notification{
 		JSONRPC: env.JSONRPC,
 		Method:  env.Method,
-		Params:  cloneRaw(env.Params),
+		Params:  shared.CloneRawMessage(env.Params),
 	}, nil
 }
 
@@ -189,8 +191,8 @@ func DecodeResponse(payload []byte) (Response, error) {
 	}
 	return Response{
 		JSONRPC: env.JSONRPC,
-		ID:      cloneRaw(env.ID),
-		Result:  cloneRaw(env.Result),
+		ID:      shared.CloneRawMessage(env.ID),
+		Result:  shared.CloneRawMessage(env.Result),
 		Error:   cloneResponseError(env.Error),
 	}, nil
 }
@@ -205,10 +207,10 @@ func marshalPayload(value any) (json.RawMessage, error) {
 	case nil:
 		return nil, nil
 	case json.RawMessage:
-		return cloneRaw(raw), nil
+		return shared.CloneRawMessage(raw), nil
 	case []byte:
 		if json.Valid(raw) {
-			return cloneRaw(raw), nil
+			return shared.CloneRawMessage(raw), nil
 		}
 	}
 	payload, err := json.Marshal(value)
@@ -218,20 +220,11 @@ func marshalPayload(value any) (json.RawMessage, error) {
 	return payload, nil
 }
 
-func cloneRaw(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 {
-		return nil
-	}
-	out := make(json.RawMessage, len(raw))
-	copy(out, raw)
-	return out
-}
-
 func cloneResponseError(err *ResponseError) *ResponseError {
 	if err == nil {
 		return nil
 	}
 	out := *err
-	out.Data = cloneRaw(err.Data)
+	out.Data = shared.CloneRawMessage(err.Data)
 	return &out
 }

@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -146,7 +147,7 @@ func normalizeImageItem(item shareddto.InputItem) (shareddto.InputItem, bool) {
 	if name := normalizeInputName(item.Name, target); name != "" {
 		out.Name = name
 	}
-	if isDataImage(target) || isRemoteTurnInput(target) {
+	if isDataImage(target) || shared.IsRemoteTurnInput(target) {
 		out.URL = target
 		return out, true
 	}
@@ -234,7 +235,7 @@ func isAllowedFileTarget(target string) bool {
 	if _, denied := deniedTurnInputExecutableExts[ext]; denied {
 		return false
 	}
-	if isRemoteTurnInput(target) {
+	if shared.IsRemoteTurnInput(target) {
 		_, ok := allowedTurnInputFileExts[ext]
 		return ok
 	}
@@ -265,11 +266,6 @@ func clampString(value string, limit int) string {
 		cut--
 	}
 	return value[:cut]
-}
-
-func isRemoteTurnInput(value string) bool {
-	value = strings.TrimSpace(value)
-	return strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")
 }
 
 func isDataImage(value string) bool {

@@ -13,6 +13,7 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -94,13 +95,13 @@ func (s *session) Capabilities() dto.CapabilitySet { return cloneCaps(s.caps) }
 func (s *session) setRuntimeConfig(cfg map[string]any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.runtimeConfig = cloneRuntimeConfigMap(cfg)
+	s.runtimeConfig = shared.CloneRuntimeConfigMap(cfg)
 }
 
 func (s *session) RuntimeConfigSnapshot() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := cloneRuntimeConfigMap(s.runtimeConfig)
+	out := shared.CloneRuntimeConfigMap(s.runtimeConfig)
 	if len(out) == 0 {
 		out = map[string]any{}
 	}
@@ -251,7 +252,7 @@ func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 	if h == nil {
 		return
 	}
-	errText := strings.TrimSpace(firstNonEmpty(
+	errText := strings.TrimSpace(shared.FirstNonEmpty(
 		stringValue(payload, "error", "message", "reason"),
 		stringValue(nestedValue(payload, "error"), "message"),
 	))

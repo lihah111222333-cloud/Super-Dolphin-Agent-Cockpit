@@ -8,11 +8,11 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func (s *session) startReadLoop(tr *transport) {
-	platformshared.SafeGo(s.logger, func() {
+	shared.SafeGo(s.logger, func() {
 		for {
 			line, err := tr.Receive()
 			if err != nil {
@@ -188,7 +188,7 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 			data["stop_reason"] = stopReason
 		}
 	} else {
-		errMsg := strings.TrimSpace(firstNonEmpty(raw.Result, raw.StopReason))
+		errMsg := strings.TrimSpace(shared.FirstNonEmpty(raw.Result, raw.StopReason))
 		if errMsg == "" {
 			errMsg = "claude result error"
 		}

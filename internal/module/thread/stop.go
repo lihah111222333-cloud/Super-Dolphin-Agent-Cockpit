@@ -19,7 +19,7 @@ type threadStopState struct {
 }
 
 func (s *service) Stop(ctx context.Context, threadID string) error {
-	ctx = normalizeThreadContext(ctx)
+	ctx = shared.NonNilContext(ctx)
 	stopState, err := s.resolveThreadStopState(ctx, threadID)
 	if err != nil {
 		return err
@@ -134,7 +134,7 @@ func stoppedThreadID(binding *bindingstore.Binding, threadID string) string {
 	if binding == nil {
 		return strings.TrimSpace(threadID)
 	}
-	return firstNonEmpty(
+	return shared.FirstNonEmpty(
 		binding.CodexThreadID,
 		threadID,
 		binding.ProviderThreadID,

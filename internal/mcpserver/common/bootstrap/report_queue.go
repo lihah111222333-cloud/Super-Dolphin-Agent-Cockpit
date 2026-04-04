@@ -8,6 +8,7 @@ import (
 	"github.com/creachadair/jrpc2"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -139,7 +140,7 @@ func cloneReportEnvelope(in mcp.ReportEnvelope) mcp.ReportEnvelope {
 	}
 	if in.Completion != nil {
 		copied := *in.Completion
-		copied.Metadata = cloneRaw(copied.Metadata)
+		copied.Metadata = shared.CloneRawMessage(copied.Metadata)
 		out.Completion = &copied
 	}
 	if in.Progress != nil {
@@ -148,7 +149,7 @@ func cloneReportEnvelope(in mcp.ReportEnvelope) mcp.ReportEnvelope {
 	}
 	if in.Diagnostic != nil {
 		copied := *in.Diagnostic
-		copied.Details = cloneRaw(copied.Details)
+		copied.Details = shared.CloneRawMessage(copied.Details)
 		out.Diagnostic = &copied
 	}
 	return out

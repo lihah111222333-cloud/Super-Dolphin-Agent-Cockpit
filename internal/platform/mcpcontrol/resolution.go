@@ -7,6 +7,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func resolveRegisteredInstance(registry *ToolRegistry, key dto.LeaseKey, allowStale bool) (*ToolInstance, error) {
@@ -39,16 +40,16 @@ func contextPayload(scope string, instance *ToolInstance, snapshot *contract.Age
 	case dto.ScopeWorkspaceRun:
 		return map[string]any{
 			"binary_name":   instance.BinaryName,
-			"capabilities":  cloneStrings(instance.Capabilities),
-			"subscriptions": cloneStrings(instance.Subscriptions),
+			"capabilities":  platformshared.CloneStrings(instance.Capabilities),
+			"subscriptions": platformshared.CloneStrings(instance.Subscriptions),
 		}, nil
 	case dto.ScopeConfigSnapshot:
 		return map[string]any{
-			"capabilities":   cloneStrings(instance.Capabilities),
+			"capabilities":   platformshared.CloneStrings(instance.Capabilities),
 			"client_kind":    instance.ClientKind,
 			"config_version": instance.ConfigVersion,
 			"peer_kind":      instance.PeerKind,
-			"subscriptions":  cloneStrings(instance.Subscriptions),
+			"subscriptions":  platformshared.CloneStrings(instance.Subscriptions),
 		}, nil
 	default:
 		return nil, errScopeNotAllowed("unsupported mcp context scope %q", scope)

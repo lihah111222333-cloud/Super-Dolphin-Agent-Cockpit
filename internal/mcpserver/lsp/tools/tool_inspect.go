@@ -98,16 +98,6 @@ func runSignatureHelp(
 	return result, nil
 }
 
-func clampResultLimit(requested, fallback int) int {
-	if requested <= 0 {
-		return fallback
-	}
-	if requested > protocol.XRefResultLimit {
-		return protocol.XRefResultLimit
-	}
-	return requested
-}
-
 func limitSlice[T any](items []T, limit int) []T {
 	if limit <= 0 || len(items) <= limit {
 		return items

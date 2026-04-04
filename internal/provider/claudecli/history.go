@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type historyBackend struct {
@@ -16,7 +18,7 @@ type historyBackend struct {
 }
 
 func (h *historyBackend) ReadHistory(ctx context.Context, threadID string) ([]Message, error) {
-	if err := checkCtx(ctx); err != nil {
+	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
 	path, err := h.sessionPath(threadID)
@@ -87,7 +89,7 @@ func parseHistoryLine(raw []byte) (Message, bool) {
 	if err := json.Unmarshal(raw, &line); err != nil {
 		return Message{}, false
 	}
-	role := strings.ToLower(strings.TrimSpace(firstNonEmpty(line.Message.Role, line.Type)))
+	role := strings.ToLower(strings.TrimSpace(shared.FirstNonEmpty(line.Message.Role, line.Type)))
 	if role != "user" && role != "assistant" {
 		return Message{}, false
 	}

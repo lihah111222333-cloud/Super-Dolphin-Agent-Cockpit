@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 )
@@ -15,14 +14,6 @@ type ToolDefinition struct {
 	Description string      `json:"description,omitempty"`
 	InputSchema Schema      `json:"input_schema"`
 	Handler     ToolHandler `json:"-"`
-}
-
-func decodeInput(input json.RawMessage, dst any) error {
-	trimmed := bytes.TrimSpace(input)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		trimmed = []byte("{}")
-	}
-	return json.Unmarshal(trimmed, dst)
 }
 
 func successResult(fields map[string]any) map[string]any {

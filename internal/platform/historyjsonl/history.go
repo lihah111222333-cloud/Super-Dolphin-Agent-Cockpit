@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type ReadRequest struct {
@@ -73,9 +74,9 @@ func discoverPath(provider string, req ReadRequest) string {
 
 func historyID(req ReadRequest, preferSession bool) string {
 	if preferSession {
-		return firstNonEmpty(req.SessionUUID, req.ProviderThreadID, req.ThreadID)
+		return shared.FirstNonEmpty(req.SessionUUID, req.ProviderThreadID, req.ThreadID)
 	}
-	return firstNonEmpty(req.ProviderThreadID, req.ThreadID)
+	return shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID)
 }
 
 func claudeRoot() string {
@@ -149,7 +150,7 @@ func parseClaudeLine(raw []byte) (dto.Message, bool) {
 	if err := json.Unmarshal(raw, &line); err != nil {
 		return dto.Message{}, false
 	}
-	return buildMessage(firstNonEmpty(line.Message.Role, line.Type), collectText(line.Message.Content), line.Timestamp)
+	return buildMessage(shared.FirstNonEmpty(line.Message.Role, line.Type), collectText(line.Message.Content), line.Timestamp)
 }
 
 func buildMessage(role, content, rawTime string) (dto.Message, bool) {
@@ -185,13 +186,4 @@ func parseTime(raw string) time.Time {
 	}
 	parsed, _ := time.Parse(time.RFC3339, value)
 	return parsed
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }

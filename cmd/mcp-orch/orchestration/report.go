@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 var terminalReportEventTypes = map[string]struct{}{
@@ -163,29 +165,7 @@ func extractReportFromEventData(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return ""
 	}
-	return firstPayloadString(payload, "report", "summary", "uiText", "text", "message", "output", "result")
-}
-
-func firstPayloadString(payload map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value, ok := payload[key]; ok {
-			if text := payloadString(value); text != "" {
-				return text
-			}
-		}
-	}
-	return ""
-}
-
-func payloadString(value any) string {
-	switch typed := value.(type) {
-	case string:
-		return strings.TrimSpace(typed)
-	case map[string]any:
-		return firstPayloadString(typed, "text", "summary", "message", "output", "result")
-	default:
-		return ""
-	}
+	return platformshared.FirstPayloadString(payload, "report", "summary", "uiText", "text", "message", "output", "result")
 }
 
 func isTerminalReportEvent(eventType string, raw json.RawMessage) bool {
@@ -209,7 +189,7 @@ func isTerminalThreadStatus(raw json.RawMessage) bool {
 	if !ok {
 		return false
 	}
-	status := payloadString(statusValue)
+	status := platformshared.FirstPayloadString(map[string]any{"status": statusValue}, "status")
 	if status == "" {
 		return false
 	}
