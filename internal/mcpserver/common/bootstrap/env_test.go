@@ -2,9 +2,11 @@ package bootstrap
 
 import (
 	"bytes"
-	"log"
+	"log/slog"
 	"strings"
 	"testing"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestReadBootConfig_UsesLegacyEnvWithDeprecationWarning(t *testing.T) {
@@ -19,17 +21,9 @@ func TestReadBootConfig_UsesLegacyEnvWithDeprecationWarning(t *testing.T) {
 	t.Setenv("GO_AGENT_MCP_BOOT_CONTEXT", `{"instance_id":"snap-old"}`)
 
 	var buf bytes.Buffer
-	origWriter := log.Writer()
-	origFlags := log.Flags()
-	origPrefix := log.Prefix()
-	log.SetOutput(&buf)
-	log.SetFlags(0)
-	log.SetPrefix("")
-	t.Cleanup(func() {
-		log.SetOutput(origWriter)
-		log.SetFlags(origFlags)
-		log.SetPrefix(origPrefix)
-	})
+	origLogger := slog.Default()
+	pkglogger.SetForTest(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { pkglogger.SetForTest(origLogger) })
 
 	cfg := ReadBootConfig()
 	if cfg.RPCAddr != "127.0.0.1:9100" {
@@ -79,17 +73,9 @@ func TestReadBootConfig_PrefersCanonicalEnvWithoutDeprecationWarning(t *testing.
 	t.Setenv("GO_AGENT_MCP_BOOT_CONTEXT", `{"instance_id":"snap-old"}`)
 
 	var buf bytes.Buffer
-	origWriter := log.Writer()
-	origFlags := log.Flags()
-	origPrefix := log.Prefix()
-	log.SetOutput(&buf)
-	log.SetFlags(0)
-	log.SetPrefix("")
-	t.Cleanup(func() {
-		log.SetOutput(origWriter)
-		log.SetFlags(origFlags)
-		log.SetPrefix(origPrefix)
-	})
+	origLogger := slog.Default()
+	pkglogger.SetForTest(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { pkglogger.SetForTest(origLogger) })
 
 	cfg := ReadBootConfig()
 	if cfg.RPCAddr != "127.0.0.1:9200" {

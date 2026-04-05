@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/search"
@@ -42,15 +42,15 @@ type grepResponse struct {
 }
 
 type documentSymbolProvider struct {
-	ctx     context.Context
-	manager gopls.Manager
-	cache   map[string][]protocol.DocumentSymbol
+	ctx      context.Context
+	registry lspmanager.Registry
+	cache    map[string][]protocol.DocumentSymbol
 }
 
 func NewGrepHandler(cfg Config) Handler {
 	handler := handlerBase{
-		root:    resolveRoot(cfg.WorkspaceRoot),
-		manager: cfg.Manager,
+		root:     resolveRoot(cfg.WorkspaceRoot),
+		registry: cfg.Registry,
 	}
 	return Handler(middleware.WithOutputBudget(
 		wrapToolHandler("lsp_grep", middleware.TierSlow, handler.handleGrep),
@@ -113,13 +113,13 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 }
 
 func (h handlerBase) attachFuncRanges(ctx context.Context, matches []search.SearchMatch) {
-	if h.manager == nil || len(matches) == 0 {
+	if h.registry == nil || len(matches) == 0 {
 		return
 	}
 	provider := &documentSymbolProvider{
-		ctx:     ctx,
-		manager: h.manager,
-		cache:   make(map[string][]protocol.DocumentSymbol),
+		ctx:      ctx,
+		registry: h.registry,
+		cache:    make(map[string][]protocol.DocumentSymbol),
 	}
 	lastRange := make(map[string][2]int)
 	for index := range matches {
@@ -136,7 +136,11 @@ func (p *documentSymbolProvider) Symbols(absPath string) ([]protocol.DocumentSym
 	if cached, ok := p.cache[absPath]; ok {
 		return cached, nil
 	}
-	symbols, err := p.manager.DocumentSymbol(p.ctx, fileURI(absPath))
+	mgr, err := p.registry.GetManagerForFile(p.ctx, absPath)
+	if err != nil {
+		return nil, err
+	}
+	symbols, err := mgr.DocumentSymbol(p.ctx, fileURI(absPath))
 	if err != nil {
 		return nil, err
 	}

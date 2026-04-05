@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -23,8 +23,12 @@ type xrefParams struct {
 	MaxResults         int    `json:"max_results"`
 }
 
-func NewXRefHandler(manager gopls.Manager) ToolHandler {
-	return newManagerTool("lsp_xref", middleware.TierNormal, manager, decodeStrict, func(ctx context.Context, manager gopls.Manager, req xrefParams) (any, error) {
+func NewXRefHandler(registry lspmanager.Registry) ToolHandler {
+	return newManagerTool("lsp_xref", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req xrefParams) (any, error) {
+		manager, err := registry.GetManagerForFile(ctx, req.FilePath)
+		if err != nil {
+			return nil, err
+		}
 		filePath, position, err := resolveFilePositionRequest(filePositionParams{
 			FilePath: req.FilePath,
 			Line:     req.Line,
@@ -49,7 +53,7 @@ func NewXRefHandler(manager gopls.Manager) ToolHandler {
 
 func runReferences(
 	ctx context.Context,
-	manager gopls.Manager,
+	manager lspmanager.Manager,
 	filePath string,
 	position protocol.Position,
 	req xrefParams,
@@ -77,7 +81,7 @@ func runReferences(
 
 func runCallHierarchy(
 	ctx context.Context,
-	manager gopls.Manager,
+	manager lspmanager.Manager,
 	filePath string,
 	position protocol.Position,
 	req xrefParams,
@@ -97,7 +101,7 @@ func runCallHierarchy(
 
 func runTypeHierarchy(
 	ctx context.Context,
-	manager gopls.Manager,
+	manager lspmanager.Manager,
 	filePath string,
 	position protocol.Position,
 	req xrefParams,

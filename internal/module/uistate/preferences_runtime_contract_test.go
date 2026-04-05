@@ -8,7 +8,7 @@ import (
 func TestSetPreferenceAppliesV2PreferenceRuntimeSideEffects(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -54,7 +54,7 @@ func TestGetPreferencesStructuresV2RuntimePreferenceKeys(t *testing.T) {
 
 	const projectCWD = "/tmp/preferences-runtime-contract"
 
-	svc, _, err := NewService(nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -87,7 +87,7 @@ func TestGetStateProjectsInjectedPromptVisibilityPreference(t *testing.T) {
 
 	const projectCWD = "/tmp/preferences-state-contract"
 
-	svc, _, err := NewService(nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

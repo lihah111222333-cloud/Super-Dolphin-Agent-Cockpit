@@ -108,6 +108,11 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 	cmd.Dir = pathInfo.Root
 	output, err := cmd.Output()
 	if err != nil {
+		// sg exits with code 1 when no matches are found; treat as empty.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("sg run: %w", err)
 	}
 	return decodeSGMatches(output, pathInfo.Root), nil

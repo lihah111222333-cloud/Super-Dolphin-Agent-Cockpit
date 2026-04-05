@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
@@ -38,10 +39,10 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
 	defer func() { osExecutable = originalExecutable }()
 
-	var got contract.LaunchRequest
+	done := make(chan contract.LaunchRequest, 1)
 	handler := HandleLaunchAgent(&golden.OrchestrationStub{
 		LaunchAgentFunc: func(_ context.Context, req contract.LaunchRequest) error {
-			got = req
+			done <- req
 			return nil
 		},
 	})
@@ -67,16 +68,26 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 	if resultMap["success"] != true {
 		t.Fatalf("HandleLaunchAgent() result = %#v, want success", resultMap)
 	}
-	if got.AgentID != "agent-1" || got.Name != "agent-1" {
-		t.Fatalf("launch request IDs = (%q, %q), want agent-1", got.AgentID, got.Name)
+	if resultMap["status"] != "launching" {
+		t.Fatalf("HandleLaunchAgent() status = %v, want launching", resultMap["status"])
 	}
-	if got.Prompt != "hello" || got.Cwd != "/tmp/work" {
-		t.Fatalf("launch request prompt/cwd = (%q, %q), want (hello, /tmp/work)", got.Prompt, got.Cwd)
-	}
-	if len(got.Command) != 1 || got.Command[0] != "/tmp/mcp-orch" {
-		t.Fatalf("launch request command = %#v, want [/tmp/mcp-orch]", got.Command)
-	}
-	if len(got.Env) != 1 || got.Env[0] != "AGENT_PROVIDER=codex" {
-		t.Fatalf("launch request env = %#v, want [AGENT_PROVIDER=codex]", got.Env)
+
+	// Wait for the async goroutine to call LaunchAgent.
+	select {
+	case got := <-done:
+		if got.AgentID != "agent-1" || got.Name != "agent-1" {
+			t.Fatalf("launch request IDs = (%q, %q), want agent-1", got.AgentID, got.Name)
+		}
+		if got.Prompt != "hello" || got.Cwd != "/tmp/work" {
+			t.Fatalf("launch request prompt/cwd = (%q, %q), want (hello, /tmp/work)", got.Prompt, got.Cwd)
+		}
+		if len(got.Command) != 1 || got.Command[0] != "/tmp/mcp-orch" {
+			t.Fatalf("launch request command = %#v, want [/tmp/mcp-orch]", got.Command)
+		}
+		if len(got.Env) != 1 || got.Env[0] != "AGENT_PROVIDER=codex" {
+			t.Fatalf("launch request env = %#v, want [AGENT_PROVIDER=codex]", got.Env)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("async LaunchAgent was not called within 5s")
 	}
 }

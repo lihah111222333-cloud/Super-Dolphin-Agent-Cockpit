@@ -296,7 +296,7 @@ func joinHunksAsPatch(hunks []editpkg.Hunk) string {
 	blocks := make([]string, 0, len(hunks))
 	for _, hunk := range hunks {
 		var block strings.Builder
-		block.WriteString("@@\n")
+		block.WriteString("@@ \n")
 		for _, line := range splitNormalizedLines(hunk.OldText) {
 			block.WriteString("-")
 			block.WriteString(line)

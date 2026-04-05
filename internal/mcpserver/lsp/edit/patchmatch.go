@@ -107,6 +107,10 @@ func collectLineSequenceCandidates(index contentIndex, hunk Hunk, anchors map[in
 		return nil
 	}
 	positions, mode := collectSequenceMatches(index.lines, oldLines)
+	if len(positions) == 0 && len(oldLines) > 1 && oldLines[len(oldLines)-1] == "" {
+		oldLines = oldLines[:len(oldLines)-1]
+		positions, mode = collectSequenceMatches(index.lines, oldLines)
+	}
 	if len(positions) == 0 {
 		return nil
 	}

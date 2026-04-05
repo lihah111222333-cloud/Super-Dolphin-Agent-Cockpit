@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
@@ -47,7 +48,7 @@ func NewServerManager(p ServerManagerParams) *ServerManager {
 	m := &ServerManager{}
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error { return m.start(ctx) },
-		OnStop:  func(ctx context.Context) error { return m.stop() },
+		OnStop:  func(ctx context.Context) error { return m.stop(ctx) },
 	})
 	return m
 }
@@ -67,6 +68,15 @@ func (m *ServerManager) Running() bool {
 }
 
 func (m *ServerManager) start(ctx context.Context) error {
+	// Kill orphaned mcp-orch/mcp-lsp processes from previous runs.
+	// These accumulate when the app crashes, is SIGKILL'd, or when
+	// run-debug.sh restarts without cleaning MCP sidecars.
+	// Runs outside the lock because it calls exec.Command("ps").
+	if killed := cleanOrphanedMCPProcesses(nil); killed > 0 {
+		pkglogger.Info("server_manager: cleaned orphaned MCP processes at startup",
+			"killed", killed)
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -110,17 +120,32 @@ func (m *ServerManager) writeMCPConfig() {
 	}
 }
 
-func (m *ServerManager) stop() error {
+func (m *ServerManager) stop(ctx context.Context) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.ready = false
-	if m.process == nil {
+	process := m.process
+	m.process = nil
+	m.serverURL = ""
+	m.mu.Unlock()
+
+	if process == nil {
 		return nil
 	}
 	pkglogger.Info("server_manager: stopping shared app-server")
-	err := m.process.shutdownTransport(true)
-	m.process = nil
-	m.serverURL = ""
+	err := process.shutdownTransport(true)
+
+	// Give MCP sidecars a moment to exit after codex receives SIGTERM,
+	// but respect the fx shutdown deadline so we don't block too long.
+	select {
+	case <-time.After(mcpOrphanCleanupGracePeriod):
+	case <-ctx.Done():
+	}
+
+	// Clean up any MCP sidecar processes that survived the shutdown.
+	if killed := cleanOrphanedMCPProcesses(nil); killed > 0 {
+		pkglogger.Info("server_manager: cleaned residual MCP processes at shutdown",
+			"killed", killed)
+	}
 	return err
 }
 

@@ -9,12 +9,14 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type AgentLauncher interface {
@@ -140,12 +142,21 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	if agent == nil {
 		return LaunchResult{}, errors.New("agent is required")
 	}
+	start := time.Now()
+	pkglogger.Info("remoteLauncher: thread/start RPC begin", "agent_id", agent.id, "rpc_addr", r.addr)
 	resp, err := rpcCall[map[string]any](ctx, r, "thread/start", map[string]any{
 		"cwd": strings.TrimSpace(req.Cwd), "prompt": shared.FirstTrimmed(req.Prompt, req.Name), "base_instructions": strings.TrimSpace(req.Instructions),
 		"provider": launchProvider(req), "model": shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model")),
 	})
+	elapsed := time.Since(start)
 	if err != nil {
+		pkglogger.Warn("remoteLauncher: thread/start RPC failed",
+			"agent_id", agent.id, "elapsed", elapsed, "error", err)
 		return LaunchResult{}, err
+	}
+	if elapsed > 5*time.Second {
+		pkglogger.Warn("remoteLauncher: thread/start RPC slow",
+			"agent_id", agent.id, "elapsed", elapsed)
 	}
 	thread, _ := resp["thread"].(map[string]any)
 	result := LaunchResult{

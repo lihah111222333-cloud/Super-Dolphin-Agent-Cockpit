@@ -360,9 +360,17 @@ func (s *service) withAgentReadLocked(agentID string, fn func(*agentState) error
 
 func lookupAgentByIDLocked(agents map[string]*agentState, agentID string) (*agentState, error) {
 	agentID = strings.TrimSpace(agentID)
+	// Primary lookup: by orchestration agent name (map key).
 	agent, ok := agents[agentID]
 	if ok {
 		return agent, nil
+	}
+	// Reverse lookup: by remoteAgentID or remoteThreadID assigned by main app.
+	// Hook events from the main app carry the remote ID, not the local name.
+	for _, candidate := range agents {
+		if candidate.remoteAgentID == agentID || candidate.remoteThreadID == agentID {
+			return candidate, nil
+		}
 	}
 	return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
 }

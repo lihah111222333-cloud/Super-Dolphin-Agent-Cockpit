@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
@@ -44,7 +44,7 @@ type ReplaceEdit struct {
 }
 
 type EditHandler struct {
-	manager gopls.Manager
+	registry lspmanager.Registry
 }
 
 type editEnvelope struct {
@@ -62,16 +62,16 @@ type editEnvelope struct {
 	DiagnosticGeneration uint64                  `json:"diagnostic_generation,omitempty"`
 }
 
-func NewEditHandler(manager gopls.Manager) middleware.Handler {
-	return wrapToolHandler("lsp_edit", middleware.TierNormal, EditHandler{manager: manager}.Handle)
+func NewEditHandler(registry lspmanager.Registry) middleware.Handler {
+	return wrapToolHandler("lsp_edit", middleware.TierNormal, EditHandler{registry: registry}.Handle)
 }
 
-func HandleEdit(ctx context.Context, manager gopls.Manager, params json.RawMessage) (any, error) {
-	return EditHandler{manager: manager}.Handle(ctx, params)
+func HandleEdit(ctx context.Context, registry lspmanager.Registry, params json.RawMessage) (any, error) {
+	return EditHandler{registry: registry}.Handle(ctx, params)
 }
 
 func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, error) {
-	if h.manager == nil {
+	if h.registry == nil {
 		return nil, errEditManagerNil
 	}
 	req, err := decodeToolParams[EditRequest](params, decodeRaw)
@@ -106,7 +106,11 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 	if err != nil {
 		return nil, err
 	}
-	workspaceEdit, err := h.manager.Rename(ctx, path, position, req.NewName)
+	manager, err := h.registry.GetManagerForFile(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	workspaceEdit, err := manager.Rename(ctx, path, position, req.NewName)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +123,7 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 			Applied:              false,
 			Persisted:            false,
 			RequiresApply:        false,
-			DiagnosticGeneration: h.manager.CurrentDiagnosticGeneration(),
+			DiagnosticGeneration: manager.CurrentDiagnosticGeneration(),
 		}, nil
 	}
 	if !persistToDisk(req.PersistToDisk) {
@@ -132,10 +136,10 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 			Persisted:            false,
 			RequiresApply:        true,
 			WorkspaceEdit:        format.WorkspaceEdit(workspaceEdit),
-			DiagnosticGeneration: h.manager.CurrentDiagnosticGeneration(),
+			DiagnosticGeneration: manager.CurrentDiagnosticGeneration(),
 		}, nil
 	}
-	applied, err := h.applyWorkspaceEdit(ctx, workspaceEdit, normalizeEditVersion(req.Version))
+	applied, err := h.applyWorkspaceEdit(ctx, manager, workspaceEdit, normalizeEditVersion(req.Version))
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +158,7 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 		RequiresApply:        false,
 		LSPSync:              applied.LSPSync,
 		Warning:              applied.Warning,
-		DiagnosticGeneration: h.manager.CurrentDiagnosticGeneration(),
+		DiagnosticGeneration: manager.CurrentDiagnosticGeneration(),
 	}, nil
 }
 
@@ -167,7 +171,11 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	if err != nil {
 		return nil, err
 	}
-	actions, err := h.manager.CodeAction(ctx, path, protocol.Range{Start: position, End: position}, req.Only)
+	manager, err := h.registry.GetManagerForFile(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	actions, err := manager.CodeAction(ctx, path, protocol.Range{Start: position, End: position}, req.Only)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +187,11 @@ func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, er
 	if err != nil {
 		return nil, err
 	}
-	edits, err := h.manager.Format(ctx, path, protocol.FormattingOptions{
+	manager, err := h.registry.GetManagerForFile(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	edits, err := manager.Format(ctx, path, protocol.FormattingOptions{
 		TabSize:      4,
 		InsertSpaces: false,
 	})

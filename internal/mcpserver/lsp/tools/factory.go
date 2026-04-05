@@ -12,7 +12,7 @@ import (
 
 	lspexec "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/exec"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -35,11 +35,11 @@ const (
 func newManagerTool[T any](
 	name string,
 	tier time.Duration,
-	manager gopls.Manager,
+	registry lspmanager.Registry,
 	mode decodeMode,
-	dispatch func(context.Context, gopls.Manager, T) (any, error),
+	dispatch func(context.Context, lspmanager.Registry, T) (any, error),
 ) ToolHandler {
-	if manager == nil {
+	if registry == nil {
 		return missingManagerHandler()
 	}
 	return wrapToolHandler(name, tier, func(ctx context.Context, params json.RawMessage) (any, error) {
@@ -47,7 +47,7 @@ func newManagerTool[T any](
 		if err != nil {
 			return nil, err
 		}
-		return dispatch(ctx, manager, req)
+		return dispatch(ctx, registry, req)
 	})
 }
 

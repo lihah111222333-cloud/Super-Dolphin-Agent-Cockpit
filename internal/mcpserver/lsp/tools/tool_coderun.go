@@ -153,82 +153,96 @@ func prepareSnippet(language string, code string, autoWrap bool) (string, string
 	}
 }
 
+var goImportHintRe = regexp.MustCompile(`\b([a-z][a-z0-9]*)\.[A-Z]`)
+
+var goStdlibPackages = map[string]string{
+	"fmt":      "fmt",
+	"strings":  "strings",
+	"strconv":  "strconv",
+	"math":     "math",
+	"sort":     "sort",
+	"os":       "os",
+	"io":       "io",
+	"time":     "time",
+	"regexp":   "regexp",
+	"bytes":    "bytes",
+	"bufio":    "bufio",
+	"encoding": "encoding",
+	"json":     "encoding/json",
+	"xml":      "encoding/xml",
+	"csv":      "encoding/csv",
+	"http":     "net/http",
+	"url":      "net/url",
+	"filepath": "path/filepath",
+	"path":     "path",
+	"reflect":  "reflect",
+	"errors":   "errors",
+	"log":      "log",
+	"sync":     "sync",
+	"atomic":   "sync/atomic",
+	"context":  "context",
+	"rand":     "math/rand",
+	"unicode":  "unicode",
+	"utf8":     "unicode/utf8",
+	"base64":   "encoding/base64",
+	"hex":      "encoding/hex",
+	"binary":   "encoding/binary",
+	"hash":     "hash",
+}
+
 func wrapGoSnippet(code string) string {
 	trimmed := strings.TrimSpace(code)
 	if trimmed == "" || strings.HasPrefix(trimmed, "package ") {
 		return code
 	}
-	if strings.Contains(trimmed, "func main(") || strings.HasPrefix(trimmed, "import ") || strings.HasPrefix(trimmed, "import(") {
-		return "package main\n\n" + code
-	}
-	importBlock, body := splitLeadingGoImports(code)
-	if importBlock == "" {
-		return "package main\n\nfunc main() {\n" + indentBlock(code) + "\n}\n"
-	}
-	return "package main\n\n" + importBlock + "\n\nfunc main() {\n" + indentBlock(body) + "\n}\n"
-}
-
-func splitLeadingGoImports(code string) (string, string) {
-	trimmed := strings.TrimSpace(code)
-	if !hasLeadingGoImportBlock(trimmed) {
-		return "", code
-	}
-	lines := strings.Split(strings.ReplaceAll(code, "\r\n", "\n"), "\n")
-	if len(lines) == 0 {
-		return "", code
-	}
-	importLines, bodyStart, ok := collectLeadingGoImportLines(lines)
-	if !ok {
-		return "", code
-	}
-	body := strings.Join(lines[bodyStart:], "\n")
-	return strings.Join(importLines, "\n"), strings.TrimLeft(body, "\n")
-}
-
-func hasLeadingGoImportBlock(trimmed string) bool {
-	return strings.HasPrefix(trimmed, "import ") || strings.HasPrefix(trimmed, "import(")
-}
-
-func collectLeadingGoImportLines(lines []string) ([]string, int, bool) {
-	importLines := make([]string, 0, len(lines))
-	bodyStart := 0
-	openParens := 0
-	for idx, line := range lines {
-		if idx == 0 {
-			if !strings.HasPrefix(strings.TrimSpace(line), "import") {
-				return nil, 0, false
-			}
-		} else if len(importLines) == 0 {
-			return nil, 0, false
-		}
-		importLines = append(importLines, line)
-		openParens += strings.Count(line, "(") - strings.Count(line, ")")
-		bodyStart = idx + 1
-		if importBlockClosed(line, openParens) {
-			return importLines, bodyStart, true
+	// Strip comments for scanning, keep original code for output.
+	var scanLines []string
+	for _, line := range strings.Split(trimmed, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "//") {
+			scanLines = append(scanLines, line)
 		}
 	}
-	return importLines, bodyStart, len(importLines) > 0
-}
-
-func importBlockClosed(line string, openParens int) bool {
-	if openParens > 0 {
-		return false
+	scanCode := strings.Join(scanLines, "\n")
+	imports := detectGoStdlibImports(scanCode)
+	var sb strings.Builder
+	sb.WriteString("package main\n\n")
+	if len(imports) > 0 {
+		sb.WriteString("import (\n")
+		for _, imp := range imports {
+			sb.WriteString("\t")
+			sb.WriteString(fmt.Sprintf("%q", imp))
+			sb.WriteString("\n")
+		}
+		sb.WriteString(")\n\n")
 	}
-	return !strings.HasPrefix(strings.TrimSpace(line), "import (")
+	if strings.Contains(trimmed, "func main(") {
+		sb.WriteString(trimmed)
+	} else {
+		sb.WriteString("func main() {\n")
+		sb.WriteString(trimmed)
+		sb.WriteString("\n}\n")
+	}
+	return sb.String()
 }
 
-func indentBlock(code string) string {
-	lines := strings.Split(strings.ReplaceAll(code, "\r\n", "\n"), "\n")
-	for idx := range lines {
-		if strings.TrimSpace(lines[idx]) == "" {
-			lines[idx] = ""
+func detectGoStdlibImports(code string) []string {
+	matches := goImportHintRe.FindAllStringSubmatch(code, -1)
+	seen := make(map[string]bool, len(matches))
+	var imports []string
+	for _, m := range matches {
+		alias := m[1]
+		if seen[alias] {
 			continue
 		}
-		lines[idx] = "\t" + lines[idx]
+		seen[alias] = true
+		if fullPath, ok := goStdlibPackages[alias]; ok {
+			imports = append(imports, fullPath)
+		}
 	}
-	return strings.Join(lines, "\n")
+	return imports
 }
+
+
 
 func autoWrapEnabled(flag *bool) bool {
 	return flag == nil || *flag

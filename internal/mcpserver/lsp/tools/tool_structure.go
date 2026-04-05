@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -24,28 +24,61 @@ type structureParams struct {
 	MaxResults int    `json:"max_results"`
 }
 
-func NewStructureHandler(manager gopls.Manager) ToolHandler {
-	return newManagerTool("lsp_structure", middleware.TierNormal, manager, decodeStrict, func(ctx context.Context, manager gopls.Manager, req structureParams) (any, error) {
+func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
+	return newManagerTool("lsp_structure", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
+		// Resolve the manager lazily per action: workspace_symbol can use
+		// the "language" parameter instead of "file_path", so we must not
+		// call GetManagerForFile unconditionally.
+		resolveManager := func() (lspmanager.Manager, error) {
+			return registry.GetManagerForFile(ctx, req.FilePath)
+		}
 		return dispatchToolAction(ctx, "structure", req.Action, req, map[string]actionHandler[structureParams]{
 			"document_symbol": func(ctx context.Context, req structureParams) (any, error) {
-				return runDocumentSymbols(ctx, manager, req)
+				mgr, err := resolveManager()
+				if err != nil {
+					return nil, err
+				}
+				return runDocumentSymbols(ctx, mgr, req)
 			},
 			"workspace_symbol": func(ctx context.Context, req structureParams) (any, error) {
-				return runWorkspaceSymbols(ctx, manager, req)
+				mgr, err := resolveWorkspaceSymbolManager(ctx, registry, req.FilePath, req.Language)
+				if err != nil {
+					return nil, err
+				}
+				return runWorkspaceSymbols(ctx, mgr, req)
 			},
 			"folding_range": func(ctx context.Context, req structureParams) (any, error) {
-				return runFoldingRanges(ctx, manager, req)
+				mgr, err := resolveManager()
+				if err != nil {
+					return nil, err
+				}
+				return runFoldingRanges(ctx, mgr, req)
 			},
 			"semantic_tokens": func(ctx context.Context, req structureParams) (any, error) {
-				return runSemanticTokens(ctx, manager, req)
+				mgr, err := resolveManager()
+				if err != nil {
+					return nil, err
+				}
+				return runSemanticTokens(ctx, mgr, req)
 			},
 		})
 	})
 }
 
+// resolveWorkspaceSymbolManager picks the right manager based on language or
+// file_path, matching the validation logic in validateWorkspaceSymbolScope.
+func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Registry, filePath, language string) (lspmanager.Manager, error) {
+	language = normalizeWorkspaceSymbolLanguage(language)
+	filePath = strings.TrimSpace(filePath)
+	if language != "" {
+		return registry.GetManagerForLanguage(ctx, language)
+	}
+	return registry.GetManagerForFile(ctx, filePath)
+}
+
 func runDocumentSymbols(
 	ctx context.Context,
-	manager gopls.Manager,
+	manager lspmanager.Manager,
 	req structureParams,
 ) (any, error) {
 	filePath, err := resolveFilePath(req.FilePath)
@@ -64,7 +97,7 @@ func runDocumentSymbols(
 
 func runWorkspaceSymbols(
 	ctx context.Context,
-	manager gopls.Manager,
+	manager lspmanager.Manager,
 	req structureParams,
 ) (any, error) {
 	query := strings.TrimSpace(req.Query)
@@ -95,7 +128,7 @@ func runWorkspaceSymbols(
 
 func runFoldingRanges(
 	ctx context.Context,
-	manager gopls.Manager,
+	manager lspmanager.Manager,
 	req structureParams,
 ) (any, error) {
 	filePath, err := resolveFilePath(req.FilePath)
@@ -113,7 +146,7 @@ func runFoldingRanges(
 
 func runSemanticTokens(
 	ctx context.Context,
-	manager gopls.Manager,
+	manager lspmanager.Manager,
 	req structureParams,
 ) (any, error) {
 	filePath, err := resolveFilePath(req.FilePath)

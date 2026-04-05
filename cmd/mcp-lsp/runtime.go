@@ -3,17 +3,21 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/installer"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
 
 // Manager is the local runtime hook point for LSP and exec resources.
 type Manager struct {
-	goplsMgr gopls.Manager
+	registry manager.Registry
 	root     string
 }
 
@@ -23,17 +27,101 @@ func newManager() (*Manager, error) {
 		return nil, err
 	}
 	log := pkglogger.Get()
-	goplsMgr := gopls.NewManager(gopls.Config{
-		WorkspaceRoot: root,
-		ClientFactory: gopls.ClientFactoryFunc(gopls.NewClient),
-		Logger:        log,
+	inst := setupInstaller()
+
+	registry := manager.NewRegistry(inst)
+	
+	// Register Go manager
+	goplsMgr := createGenericManager("gopls", nil, root, log)
+	registry.Register("go", goplsMgr)
+	registry.Register("gomod", goplsMgr)
+	registry.Register("gosum", goplsMgr)
+	registry.Register("gowork", goplsMgr)
+
+	// Register JS/TS manager
+	jsMgr := createGenericManager("typescript-language-server", []string{"--stdio"}, root, log)
+	registry.Register("javascript", jsMgr)
+	registry.Register("typescript", jsMgr)
+
+	// Register Python manager
+	pyMgr := createGenericManager("pyright-langserver", []string{"--stdio"}, root, log)
+	registry.Register("python", pyMgr)
+
+	// Register CSS manager
+	cssMgr := createGenericManager("vscode-css-language-server", []string{"--stdio"}, root, log)
+	registry.Register("css", cssMgr)
+
+	// Register Rust manager
+	rustMgr := createGenericManager("rust-analyzer", nil, root, log)
+	registry.Register("rust", rustMgr)
+
+	// Register Java manager
+	javaMgr := createGenericManager("jdtls", nil, root, log)
+	registry.Register("java", javaMgr)
+
+	return &Manager{registry: registry, root: root}, nil
+}
+
+func setupInstaller() *installer.Provider {
+	inst := installer.NewProvider()
+	
+	inst.Register("javascript", installer.InstallerConfig{
+		BinaryName:  "typescript-language-server",
+		InstallCmd:  "npm",
+		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
 	})
-	return &Manager{goplsMgr: goplsMgr, root: root}, nil
+	inst.Register("typescript", installer.InstallerConfig{
+		BinaryName:  "typescript-language-server",
+		InstallCmd:  "npm",
+		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
+	})
+	inst.Register("python", installer.InstallerConfig{
+		BinaryName:  "pyright-langserver",
+		InstallCmd:  "npm",
+		InstallArgs: []string{"install", "-g", "pyright"},
+	})
+	inst.Register("css", installer.InstallerConfig{
+		BinaryName:  "vscode-css-language-server",
+		InstallCmd:  "npm",
+		InstallArgs: []string{"install", "-g", "vscode-langservers-extracted"},
+	})
+	inst.Register("rust", installer.InstallerConfig{
+		BinaryName:  "rust-analyzer",
+		InstallCmd:  "rustup",
+		InstallArgs: []string{"component", "add", "rust-analyzer"},
+	})
+	inst.Register("java", installer.InstallerConfig{
+		BinaryName:  "jdtls",
+		InstallCmd:  "brew",
+		InstallArgs: []string{"install", "jdtls"},
+	})
+	inst.Register("go", installer.InstallerConfig{
+		BinaryName:  "gopls",
+		InstallCmd:  "go",
+		InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
+	})
+
+	return inst
+}
+
+func createGenericManager(executable string, args []string, root string, log *slog.Logger) manager.Manager {
+	return gopls.NewManager(gopls.Config{
+		WorkspaceRoot: root,
+		ClientFactory: gopls.ClientFactoryFunc(func(h protocol.NotificationHandler) (gopls.Client, error) {
+			return gopls.NewClientWithOptions(gopls.Options{
+				Binary:              executable,
+				Args:                args,
+				Dir:                 root,
+				NotificationHandler: h,
+			})
+		}),
+		Logger: log,
+	})
 }
 
 func (m *Manager) Close() error {
-	if m.goplsMgr != nil {
-		return m.goplsMgr.Close()
+	if m.registry != nil {
+		return m.registry.Close()
 	}
 	return nil
 }

@@ -17,7 +17,7 @@ func TestApplyTokensUpdatedPublishesThreadPatch(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -73,7 +73,7 @@ func TestApplyThreadStoppedResetsPatchSequence(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

@@ -74,7 +74,14 @@ func fileExists(path string) bool {
 }
 
 func shouldUseClientForLanguage(languageID string) bool {
-	return shouldUseGoWorkspace(languageID)
+	id := normalizeLanguageID(languageID)
+	// Fallback-only file types don't need an LSP client.
+	switch id {
+	case "markdown", "json", "yaml":
+		return false
+	default:
+		return true
+	}
 }
 
 func shouldUseGoWorkspace(languageID string) bool {
@@ -103,6 +110,18 @@ func detectLanguageID(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go":
 		return "go"
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return "javascript"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".py", ".pyi":
+		return "python"
+	case ".rs":
+		return "rust"
+	case ".java":
+		return "java"
+	case ".css":
+		return "css"
 	case ".md", ".markdown":
 		return "markdown"
 	case ".json":

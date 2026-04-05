@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -30,11 +30,11 @@ var errManagerUnavailable = errors.New("lsp manager is not configured")
 
 type Config struct {
 	WorkspaceRoot string
-	Manager       gopls.Manager
+	Registry      lspmanager.Registry
 }
 type handlerBase struct {
-	root    string
-	manager gopls.Manager
+	root     string
+	registry lspmanager.Registry
 }
 type resultMeta struct {
 	Count   int    `json:"count"`
@@ -89,8 +89,8 @@ type indexedBatchItem struct {
 
 func NewFileHandler(cfg Config) Handler {
 	handler := handlerBase{
-		root:    resolveRoot(cfg.WorkspaceRoot),
-		manager: cfg.Manager,
+		root:     resolveRoot(cfg.WorkspaceRoot),
+		registry: cfg.Registry,
 	}
 	return Handler(middleware.WithOutputBudget(
 		wrapToolHandler("lsp_file", middleware.TierNormal, handler.handleFile),
@@ -120,7 +120,7 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 }
 
 func (h handlerBase) openFile(ctx context.Context, rawPath string) (openFileResult, error) {
-	if h.manager == nil {
+	if h.registry == nil {
 		return openFileResult{}, errManagerUnavailable
 	}
 	file, err := search.ReadToolFileContent(h.root, rawPath, maxReadFileBytes)
@@ -128,8 +128,10 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string) (openFileResu
 		return openFileResult{}, err
 	}
 	uri := fileURI(file.Path.AbsPath)
-	if err := h.manager.DidOpen(ctx, uri, detectLanguageID(file.Path.AbsPath), 1, file.Content); err != nil {
-		return openFileResult{}, err
+	manager, err := h.registry.GetManagerForFile(ctx, file.Path.AbsPath)
+	if err == nil {
+		// Only open file in the language server if a manager exists for it
+		_ = manager.DidOpen(ctx, uri, detectLanguageID(file.Path.AbsPath), 1, file.Content)
 	}
 	return openFileResult{
 		Success:  true,
@@ -352,6 +354,18 @@ func detectLanguageID(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go":
 		return "go"
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return "javascript"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".py", ".pyi":
+		return "python"
+	case ".rs":
+		return "rust"
+	case ".java":
+		return "java"
+	case ".css":
+		return "css"
 	case ".md", ".markdown":
 		return "markdown"
 	case ".json":
