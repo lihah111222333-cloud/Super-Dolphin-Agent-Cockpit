@@ -110,14 +110,15 @@ func (q *Queries) UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg
 
 const upsertAgentProviderBinding = `-- name: UpsertAgentProviderBinding :exec
 INSERT INTO agent_provider_binding (
-    agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, archived, created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8)
+    agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, archived, created_at, updated_at, session_uuid
+) VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8, $9)
 ON CONFLICT (agent_id) DO UPDATE
 SET provider = EXCLUDED.provider,
     provider_thread_id = EXCLUDED.provider_thread_id,
     codex_thread_id = EXCLUDED.codex_thread_id,
     rollout_path = EXCLUDED.rollout_path,
     cwd = EXCLUDED.cwd,
+    session_uuid = EXCLUDED.session_uuid,
     updated_at = EXCLUDED.updated_at
 `
 
@@ -130,6 +131,7 @@ type UpsertAgentProviderBindingParams struct {
 	Cwd              string `db:"cwd" json:"cwd"`
 	CreatedAt        int64  `db:"created_at" json:"created_at"`
 	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	SessionUUID      string `db:"session_uuid" json:"session_uuid"`
 }
 
 func (q *Queries) UpsertAgentProviderBinding(ctx context.Context, arg UpsertAgentProviderBindingParams) error {
@@ -142,6 +144,7 @@ func (q *Queries) UpsertAgentProviderBinding(ctx context.Context, arg UpsertAgen
 		arg.Cwd,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.SessionUUID,
 	)
 	return err
 }

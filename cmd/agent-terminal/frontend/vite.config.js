@@ -2,6 +2,9 @@ import { defineConfig } from "vite";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+    // Vite 持久化 transform 缓存：避免每次 build 重新处理 2600+ 模块
+    cacheDir: ".vite-cache",
+
     // Wails 前端: 输出到 dist/, Go embed 打包
     build: {
         outDir: "dist",

@@ -35,6 +35,7 @@ type threadStateFields struct {
 	Model             string
 	Prompt            string
 	RolloutPath       string
+	SessionUUID       string
 	CreatedAt         int64
 }
 
@@ -62,6 +63,7 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 		fields.AgentID,
 	)
 	state.RolloutPath = fields.RolloutPath
+	state.SessionUUID = fields.SessionUUID
 	state.CreatedAt = firstNonZero(fields.CreatedAt)
 	return state
 }
@@ -89,6 +91,7 @@ func newBindingUpsertParams(binding bindingstore.Binding) bindingstore.UpsertPar
 		ProviderThreadID: strings.TrimSpace(binding.ProviderThreadID),
 		CodexThreadID:    strings.TrimSpace(binding.CodexThreadID),
 		RolloutPath:      strings.TrimSpace(binding.RolloutPath),
+		SessionUUID:      strings.TrimSpace(binding.SessionUUID),
 		Cwd:              strings.TrimSpace(binding.Cwd),
 		CreatedAt:        binding.CreatedAt,
 		UpdatedAt:        binding.UpdatedAt,

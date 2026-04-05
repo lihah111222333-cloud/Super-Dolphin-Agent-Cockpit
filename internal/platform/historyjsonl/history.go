@@ -66,10 +66,31 @@ func resolvePath(req ReadRequest) (string, string, error) {
 func discoverPath(provider string, req ReadRequest) string {
 	switch provider {
 	case "claude":
-		return latestExistingMatch(filepath.Join(claudeRoot(), "projects", "*", historyID(req, true)+".jsonl"))
+		return discoverClaudePath(req)
 	default:
 		return latestExistingMatch(filepath.Join(codexRoot(), "sessions", "*", "*", "*", "rollout-*-"+historyID(req, false)+".jsonl"))
 	}
+}
+
+// discoverClaudePath tries all candidate IDs to find the Claude history file.
+// The real session UUID is assigned asynchronously by Claude CLI (via system:init)
+// and may not be persisted in the binding DB at startup time.
+func discoverClaudePath(req ReadRequest) string {
+	root := filepath.Join(claudeRoot(), "projects", "*")
+	for _, id := range []string{
+		req.SessionUUID,
+		req.ProviderThreadID,
+		req.ThreadID,
+	} {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if path := latestExistingMatch(filepath.Join(root, id+".jsonl")); path != "" {
+			return path
+		}
+	}
+	return ""
 }
 
 func historyID(req ReadRequest, preferSession bool) string {

@@ -24,6 +24,7 @@ type UpsertParams struct {
 	ProviderThreadID string
 	CodexThreadID    string
 	RolloutPath      string
+	SessionUUID      string
 	Cwd              string
 	CreatedAt        int64
 	UpdatedAt        int64

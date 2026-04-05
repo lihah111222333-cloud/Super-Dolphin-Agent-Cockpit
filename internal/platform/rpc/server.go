@@ -78,23 +78,32 @@ func (t *rpcRequestTracker) LogResponse(_ context.Context, rsp *jrpc2.Response) 
 	if t == nil || rsp == nil {
 		return
 	}
-	id := strings.TrimSpace(rsp.ID())
-	if id == "" {
+	meta, ok := t.takePendingResponse(strings.TrimSpace(rsp.ID()))
+	if !ok || t.logger == nil {
 		return
 	}
+	rpcErr := rsp.Error()
+	if rpcErr == nil {
+		return
+	}
+	t.logger.Warn(rpcFailureLogMessage(rpcErr.Message), rpcFailureLogArgs(meta, rpcErr)...)
+}
+
+func (t *rpcRequestTracker) takePendingResponse(id string) (rpcPendingRequest, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return rpcPendingRequest{}, false
+	}
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	meta, ok := t.pending[id]
 	if ok {
 		delete(t.pending, id)
 	}
-	t.mu.Unlock()
-	if !ok {
-		return
-	}
-	rpcErr := rsp.Error()
-	if rpcErr == nil || t.logger == nil {
-		return
-	}
+	return meta, ok
+}
+
+func rpcFailureLogArgs(meta rpcPendingRequest, rpcErr *jrpc2.Error) []any {
 	args := []any{
 		"method", meta.Method,
 		"request_id", meta.ID,
@@ -108,13 +117,17 @@ func (t *rpcRequestTracker) LogResponse(_ context.Context, rsp *jrpc2.Response) 
 	if meta.ParamsPreview != "" {
 		args = append(args, "params_preview", meta.ParamsPreview)
 	}
-	switch message := strings.TrimSpace(rpcErr.Message); {
+	return args
+}
+
+func rpcFailureLogMessage(raw string) string {
+	switch message := strings.TrimSpace(raw); {
 	case isRPCTimeoutMessage(message):
-		t.logger.Warn("rpc request timed out", args...)
+		return "rpc request timed out"
 	case isRPCCanceledMessage(message):
-		t.logger.Warn("rpc request canceled", args...)
+		return "rpc request canceled"
 	default:
-		t.logger.Warn("rpc request failed", args...)
+		return "rpc request failed"
 	}
 }
 

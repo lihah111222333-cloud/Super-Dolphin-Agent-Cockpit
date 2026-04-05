@@ -191,6 +191,7 @@ type resumeState struct {
 	Model            string
 	CWD              string
 	RolloutPath      string
+	SessionUUID      string
 	CreatedAt        int64
 }
 
@@ -251,6 +252,7 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.ProviderThreadID = shared.FirstNonEmpty(state.ProviderThreadID, binding.ProviderThreadID)
 		state.PublicThreadID = shared.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
 		state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
+		state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
 		state.CWD = shared.FirstNonEmpty(state.CWD, binding.Cwd)
 	}
 	return state

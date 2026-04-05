@@ -8,6 +8,7 @@
         "dev": "vite",
         "prebuild": "node scripts/size-guard.cjs",
         "build": "vite build",
+        "build:debug": "vite build --mode development --minify false",
         "preview": "vite preview",
         "test:e2e": "playwright test",
         "test:e2e:headed": "playwright test --headed",
