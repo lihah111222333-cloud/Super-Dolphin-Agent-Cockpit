@@ -3,7 +3,12 @@ package wails
 import (
 	"embed"
 	"io/fs"
+	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -22,8 +27,34 @@ var placeholderAssets embed.FS
 
 // AssetHandlerFrom builds the Wails asset handler using the injected FS,
 // falling back to the embedded placeholder when the injected FS is nil.
+//
+// When the VITE_DEV_URL environment variable is set (e.g. "http://localhost:5173"),
+// all requests are reverse-proxied to the Vite dev server, enabling HMR
+// (hot module replacement) and instant frontend updates without vite build.
 func AssetHandlerFrom(injected FrontendFS) http.Handler {
+	if devURL := strings.TrimSpace(os.Getenv("VITE_DEV_URL")); devURL != "" {
+		return viteDevProxy(devURL)
+	}
 	return application.BundledAssetFileServer(resolveFS(injected))
+}
+
+// viteDevProxy returns an http.Handler that reverse-proxies all requests
+// to the Vite dev server at the given URL.
+func viteDevProxy(rawURL string) http.Handler {
+	target, err := url.Parse(rawURL)
+	if err != nil {
+		slog.Error("invalid VITE_DEV_URL, falling back to embedded assets", "url", rawURL, "error", err)
+		return application.BundledAssetFileServer(placeholderAssets)
+	}
+	slog.Info("frontend proxying to vite dev server", "url", target.String())
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	// Rewrite the Host header so Vite accepts the request.
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = target.Host
+	}
+	return proxy
 }
 
 func resolveFS(injected FrontendFS) fs.FS {

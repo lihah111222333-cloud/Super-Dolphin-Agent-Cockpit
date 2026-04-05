@@ -147,15 +147,30 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 	}
 	resolvedThreadID := s.ThreadID()
 	eventThreadID := s.EventThreadID()
+	now := time.Now().Format(time.RFC3339Nano)
 	s.dispatch(dto.RawProviderEvent{
 		EventType: "agent:launched",
 		Data: map[string]any{
 			"agent_id":   s.agentID,
 			"thread_id":  eventThreadID,
 			"session_id": resolvedThreadID,
-			"timestamp":  time.Now().Format(time.RFC3339Nano),
+			"timestamp":  now,
 			"cwd":        s.cwd,
 			"model":      s.model,
+		},
+	})
+	// Signal that the session is idle and ready to accept turns.
+	// Without this the UI overlay stays at "MCP 启动中" forever because
+	// the claudecli provider — unlike codexapp — never emits a
+	// StateChanged event after launch.
+	s.dispatch(dto.RawProviderEvent{
+		EventType: "agent:state_changed",
+		Data: map[string]any{
+			"agent_id":   s.agentID,
+			"thread_id":  eventThreadID,
+			"session_id": resolvedThreadID,
+			"new_state":  "idle",
+			"timestamp":  now,
 		},
 	})
 	d.reportRuntime(s.agentID)

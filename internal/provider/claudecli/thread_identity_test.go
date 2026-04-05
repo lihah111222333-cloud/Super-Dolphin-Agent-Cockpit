@@ -24,27 +24,24 @@ func TestRequiresResolvedThreadID(t *testing.T) {
 }
 
 func TestStartSessionWithPublicThreadIsImmediatelyReady(t *testing.T) {
-	// Reproduces the bug: StartSession provides publicThread (agentID) but
-	// spec.threadID is empty. The current driver.start only checks
-	// spec.threadID, so it fails to mark the session ready — causing a
-	// timeout waiting for the CLI to send a system:init event.
+	// StartSession provides publicThread (agentID) but spec.threadID is
+	// empty.  The session must be immediately ready so StartSession can
+	// return without waiting for system:init (which may arrive later).
 	s := &session{
 		publicThreadID: "agent_123",
 		threadID:       "agent_123",
 		threadReady:    make(chan struct{}),
 	}
 
-	// Use shouldMarkThreadReady which encapsulates the driver.start decision.
 	specThreadID := "" // empty for StartSession (no resume)
 	if shouldMarkThreadReady(specThreadID, s.publicThreadID) {
 		s.markThreadReady()
 	}
 
-	// awaitResolvedThreadID must return instantly — 50ms timeout proves it.
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	if err := s.awaitResolvedThreadID(ctx); err != nil {
-		t.Fatalf("awaitResolvedThreadID() timed out: %v — session should be immediately ready when publicThread is known", err)
+		t.Fatalf("awaitResolvedThreadID() timed out: %v", err)
 	}
 }
 

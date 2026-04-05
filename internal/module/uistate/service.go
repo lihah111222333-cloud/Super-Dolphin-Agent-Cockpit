@@ -20,6 +20,7 @@ import (
 type service struct {
 	logger                *slog.Logger
 	preferences           uipreference.Store
+	bindings              bindingLookup
 	mu                    sync.RWMutex
 	projectsMu            sync.Mutex
 	state                 UIState
@@ -35,6 +36,21 @@ type service struct {
 	emitPreferenceChange  preferenceChangedEmitter
 }
 
+// bindingLookup abstracts the binding store so uistate can enrich agent data
+// from DB without importing the full store package.
+type bindingLookup interface {
+	ListAgentThreadBindings(ctx context.Context) ([]bindingEntry, error)
+}
+
+// bindingEntry is the minimal binding data uistate needs for enrichment.
+type bindingEntry struct {
+	AgentID          string
+	Provider         string
+	ProviderThreadID string
+	SessionUUID      string
+	Cwd              string
+}
+
 type preferenceScopeKey struct{}
 
 var errPreferenceKeyRequired = errors.New("uistate: preference key is required")
@@ -46,6 +62,7 @@ func NewService(
 	threads thread.Service,
 	agents contract.OrchestrationService,
 	preferences uipreference.Store,
+	bindings bindingLookup,
 ) (*service, Service, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -57,6 +74,7 @@ func NewService(
 	svc := &service{
 		logger:                logger,
 		preferences:           preferences,
+		bindings:              bindings,
 		state:                 state,
 		workspaceByKey:        map[string]WorkspaceRunSummary{},
 		activityByThread:      map[string]*threadActivity{},
@@ -137,6 +155,7 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	if s.timeline != nil {
 		snapshot.TimelineByThread = s.timeline.Snapshot()
 	}
+	s.enrichAgentsFromDB(ctx, snapshot.Agents)
 	return snapshot, nil
 }
 func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
@@ -145,6 +164,7 @@ func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
 		return nil, err
 	}
 	snapshot := s.sidebarSnapshot()
+	s.enrichAgentsFromDB(ctx, snapshot.Agents)
 	applyPreferencesToSidebar(snapshot, prefs)
 	return snapshot, nil
 }

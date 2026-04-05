@@ -7,7 +7,6 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/kelindar/event"
 )
@@ -35,19 +34,21 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
 	sessionID := strings.TrimSpace(ev.SessionID)
-	if agentID == "" || sessionID == "" {
+	if sessionID == "" {
 		return
 	}
 
 	ctx := context.Background()
-	binding, err := s.bindingStore.GetByAgentID(ctx, agentID)
-	if err != nil {
-		if !platformdb.IsNotFound(err) {
-			s.logger.Warn("thread: load binding for session_uuid update failed", "thread_id", threadID, "agent_id", agentID, "error", err)
-		}
+	// Claude system:init may not carry agent_id; resolve from threadID → binding.
+	binding, err := s.resolveBindingForEvent(ctx, agentID, threadID)
+	if err != nil || binding == nil {
 		return
 	}
-	if binding == nil || strings.TrimSpace(binding.SessionUUID) == sessionID {
+	agentID = strings.TrimSpace(binding.AgentID)
+	if agentID == "" {
+		return
+	}
+	if strings.TrimSpace(binding.SessionUUID) == sessionID {
 		return
 	}
 	if err := s.bindingStore.UpdateSessionUUID(ctx, bindingstore.UpdateSessionUUIDParams{
@@ -59,4 +60,17 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 		return
 	}
 	s.logger.Info("thread: updated session_uuid from agent event", "thread_id", threadID, "agent_id", agentID, "session_uuid", sessionID)
+}
+
+func (s *service) resolveBindingForEvent(ctx context.Context, agentID, threadID string) (*bindingstore.Binding, error) {
+	if agentID != "" {
+		b, err := s.bindingStore.GetByAgentID(ctx, agentID)
+		if err == nil && b != nil {
+			return b, nil
+		}
+	}
+	if threadID != "" {
+		return s.resolveBinding(ctx, threadID)
+	}
+	return nil, nil
 }

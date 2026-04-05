@@ -156,6 +156,11 @@ func shouldPersistBinding(existing *bindingstore.Binding, registration bindingRe
 	if existing == nil {
 		return true
 	}
+	if strings.TrimSpace(existing.ProviderThreadID) != registration.ProviderThreadID &&
+		strings.TrimSpace(existing.SessionUUID) == registration.ProviderThreadID &&
+		registration.ProviderThreadID != "" {
+		return true
+	}
 	if strings.TrimSpace(existing.CodexThreadID) == "" && registration.PublicThreadID != "" {
 		return true
 	}
@@ -244,10 +249,14 @@ func validateBindingProvider(existing *bindingstore.Binding, registration bindin
 }
 
 func validateBindingProviderThread(existing *bindingstore.Binding, registration bindingRegistration) error {
-	if providerThreadID := strings.TrimSpace(existing.ProviderThreadID); providerThreadID != "" && providerThreadID != registration.ProviderThreadID {
-		return fmt.Errorf("agent %q is already bound to provider thread %q", registration.AgentID, providerThreadID)
+	providerThreadID := strings.TrimSpace(existing.ProviderThreadID)
+	if providerThreadID == "" || providerThreadID == registration.ProviderThreadID {
+		return nil
 	}
-	return nil
+	if strings.TrimSpace(existing.SessionUUID) == registration.ProviderThreadID {
+		return nil
+	}
+	return fmt.Errorf("agent %q is already bound to provider thread %q", registration.AgentID, providerThreadID)
 }
 
 func validateBindingPublicThread(existing *bindingstore.Binding, registration bindingRegistration) error {

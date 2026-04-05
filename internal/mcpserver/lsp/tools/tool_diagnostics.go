@@ -30,7 +30,7 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []strin
 	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
 		return nil, "", err
 	}
-	items, err := h.manager.Diagnostics(ctx, uris)
+	items, err := h.registry.Diagnostics(ctx, uris)
 	if err != nil {
 		return nil, "", err
 	}
@@ -47,7 +47,7 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []strin
 	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
 		return nil, "", err
 	}
-	items, err = h.manager.Diagnostics(ctx, uris)
+	items, err = h.registry.Diagnostics(ctx, uris)
 	if err != nil {
 		return nil, "", err
 	}
@@ -55,7 +55,7 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []strin
 }
 
 func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput) (any, error) {
-	if h.manager == nil {
+	if h.registry == nil {
 		return nil, errManagerUnavailable
 	}
 	uris, err := h.collectDiagnosticURIs(input)
@@ -132,16 +132,16 @@ func ensureDiagnosticFile(absPath, displayPath string) error {
 }
 
 func (h handlerBase) waitDiagnosticsStable(ctx context.Context, uris []string) (uint64, error) {
-	startGeneration := h.manager.CurrentDiagnosticGeneration()
-	if err := h.manager.WaitDiagnosticsStable(ctx, uris); err != nil {
+	startGeneration := h.registry.CurrentDiagnosticGeneration()
+	if err := h.registry.WaitDiagnosticsStable(ctx, uris); err != nil {
 		return 0, err
 	}
-	currentGeneration := h.manager.CurrentDiagnosticGeneration()
+	currentGeneration := h.registry.CurrentDiagnosticGeneration()
 	if currentGeneration != startGeneration {
-		if err := h.manager.WaitDiagnosticsStable(ctx, uris); err != nil {
+		if err := h.registry.WaitDiagnosticsStable(ctx, uris); err != nil {
 			return 0, err
 		}
-		currentGeneration = h.manager.CurrentDiagnosticGeneration()
+		currentGeneration = h.registry.CurrentDiagnosticGeneration()
 	}
 	return currentGeneration, nil
 }
@@ -158,7 +158,7 @@ func (h handlerBase) reactiveBootstrap(ctx context.Context, uris []string) (int,
 			continue
 		}
 		seen[uri] = struct{}{}
-		if err := h.manager.BootstrapDocument(ctx, uri); err != nil {
+		if err := h.registry.BootstrapDocument(ctx, uri); err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}

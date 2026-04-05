@@ -15,7 +15,7 @@ import (
 func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -73,7 +73,7 @@ func TestSetPreferencePublishesProjectionUpdatesForSettingsKeys(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -113,7 +113,7 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

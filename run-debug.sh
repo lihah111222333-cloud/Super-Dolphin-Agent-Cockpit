@@ -165,9 +165,10 @@ fi
 
 # 1) 前端
 FRONT="$BUILD_DIR/cmd/agent-terminal/frontend"
+VITE_DEV_PID=""
 
 if [ -f "$FRONT/package.json" ]; then
-  echo "[1/4] 编译前端..."
+  echo "[1/4] 前端处理..."
   cd "$FRONT"
   # 三级依赖安装策略（按速度优先）：
   #   1. node_modules 不存在 → 全新安装 (npm ci)
@@ -187,24 +188,41 @@ if [ -f "$FRONT/package.json" ]; then
     echo "  → 依赖无变化，跳过安装"
   fi
 
-  # 前端源码 hash 检测：src/ + vite.config.js 无变化则跳过整个 vite build（省 10s）
-  _FRONT_HASH_FILE="$FRONT/.build-cache/frontend-src.hash"
-  mkdir -p "$FRONT/.build-cache"
-  _FRONT_CUR_HASH=$(find "$FRONT/src" "$FRONT/vite.config.js" "$FRONT/index.html" -type f 2>/dev/null | sort | xargs md5 -q 2>/dev/null | md5 -q 2>/dev/null || echo "nohash")
-  _FRONT_SKIP_BUILD=0
-  if [ -f "$_FRONT_HASH_FILE" ] && [ "$(cat "$_FRONT_HASH_FILE")" = "$_FRONT_CUR_HASH" ] && [ -d "$FRONT/dist" ]; then
-    echo "  → 前端源码无变化，跳过 vite build ✅"
-    _FRONT_SKIP_BUILD=1
-  fi
-
-  if [ "$_FRONT_SKIP_BUILD" = "0" ]; then
-    if npm run build; then
-      echo "$_FRONT_CUR_HASH" > "$_FRONT_HASH_FILE"
-    else
-      echo ""
-      echo "⚠️  前端构建/守卫未通过！按 Enter 跳过继续编译，Ctrl+C 中止"
-      read -r
-      echo "  → 已跳过前端报错，继续..."
+  if [ "$MODE" = "debug" ]; then
+    # ═══ debug 模式：启动 vite dev server（毫秒级热更新，不再 vite build）═══
+    # 杀掉残留的 vite 进程
+    lsof -ti :5173 2>/dev/null | xargs kill -9 2>/dev/null || true
+    echo "  → 启动 vite dev server (端口 5173)..."
+    npx vite --port 5173 --strictPort &
+    VITE_DEV_PID=$!
+    # 等待 vite dev server 就绪
+    for i in $(seq 1 30); do
+      if curl -s http://localhost:5173 >/dev/null 2>&1; then
+        echo "  → vite dev server 已就绪 ✅ (PID: $VITE_DEV_PID)"
+        break
+      fi
+      sleep 0.3
+    done
+    export VITE_DEV_URL="http://localhost:5173"
+  else
+    # ═══ release 模式：完整 vite build ═══
+    _FRONT_HASH_FILE="$FRONT/.build-cache/frontend-src.hash"
+    mkdir -p "$FRONT/.build-cache"
+    _FRONT_CUR_HASH=$(find "$FRONT/src" "$FRONT/vite.config.js" "$FRONT/index.html" -type f 2>/dev/null | sort | xargs md5 -q 2>/dev/null | md5 -q 2>/dev/null || echo "nohash")
+    _FRONT_SKIP_BUILD=0
+    if [ -f "$_FRONT_HASH_FILE" ] && [ "$(cat "$_FRONT_HASH_FILE")" = "$_FRONT_CUR_HASH" ] && [ -d "$FRONT/dist" ]; then
+      echo "  → 前端源码无变化，跳过 vite build ✅"
+      _FRONT_SKIP_BUILD=1
+    fi
+    if [ "$_FRONT_SKIP_BUILD" = "0" ]; then
+      if npm run build; then
+        echo "$_FRONT_CUR_HASH" > "$_FRONT_HASH_FILE"
+      else
+        echo ""
+        echo "⚠️  前端构建/守卫未通过！按 Enter 跳过继续编译，Ctrl+C 中止"
+        read -r
+        echo "  → 已跳过前端报错，继续..."
+      fi
     fi
   fi
 else
@@ -227,7 +245,7 @@ echo "[3/4] 后端代码守卫检查..."
 _GUARD_BIN="$BUILD_DIR/.build-cache/code-size-guard"
 _GUARD_HASH_FILE="$BUILD_DIR/.build-cache/code-size-guard.srchash"
 mkdir -p "$BUILD_DIR/.build-cache"
-_GUARD_CUR_HASH=$(md5 -q "$BUILD_DIR/scripts/code_size_guard.go" 2>/dev/null || echo "nohash")
+_GUARD_CUR_HASH=$(find "$BUILD_DIR/scripts/code_size_guard.go" "$BUILD_DIR/internal/archtest" -name '*.go' 2>/dev/null | sort | xargs md5 -q 2>/dev/null | md5 -q 2>/dev/null || echo "nohash")
 if [ ! -f "$_GUARD_BIN" ] || [ ! -f "$_GUARD_HASH_FILE" ] || [ "$(cat "$_GUARD_HASH_FILE")" != "$_GUARD_CUR_HASH" ]; then
   echo "  → 编译 code_size_guard..."
   go build -o "$_GUARD_BIN" "$BUILD_DIR/scripts/code_size_guard.go"
@@ -287,11 +305,24 @@ pkill -f "super-agent-debug" >/dev/null 2>&1 || true
 lsof -ti :4510 :4511 2>/dev/null | xargs kill -9 2>/dev/null || true
 sleep 0.5
 
+# 退出时清理 vite dev server
+cleanup_vite() {
+  if [ -n "$VITE_DEV_PID" ] && kill -0 "$VITE_DEV_PID" 2>/dev/null; then
+    echo "  → 停止 vite dev server (PID: $VITE_DEV_PID)..."
+    kill "$VITE_DEV_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup_vite EXIT INT TERM
+
 # 启动
 echo ""
 echo "════════════════════════════════════"
 if [ "$MODE" = "debug" ]; then
-  echo "▶ 启动 debug 模式 (Frida + 调试 UI)..."
+  if [ -n "$VITE_DEV_URL" ]; then
+    echo "▶ 启动 debug 模式 (前端热更新 → $VITE_DEV_URL)..."
+  else
+    echo "▶ 启动 debug 模式..."
+  fi
   (sleep 1.0; open "http://localhost:4511" >/dev/null 2>&1 || true) &
   exec "$BUILD_DIR/super-agent-debug" --debug "$@"
 else

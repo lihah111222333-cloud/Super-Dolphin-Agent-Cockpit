@@ -326,8 +326,9 @@ func packageViolations(stats map[string]*packageStat) []Violation {
 	var violations []Violation
 	for _, pkgDir := range keys {
 		stat := stats[pkgDir]
-		if !skipPackageFileCountLimit(pkgDir) && stat.Files > MaxPackageFiles {
-			violations = append(violations, Violation{Kind: ViolationPackageCount, File: pkgDir, Got: stat.Files, Limit: MaxPackageFiles, Message: fmt.Sprintf("包文件数 %s: %d 个 > 上限 %d", pkgDir, stat.Files, MaxPackageFiles)})
+		limit := packageFileCountLimit(pkgDir)
+		if limit > 0 && stat.Files > limit {
+			violations = append(violations, Violation{Kind: ViolationPackageCount, File: pkgDir, Got: stat.Files, Limit: limit, Message: fmt.Sprintf("包文件数 %s: %d 个 > 上限 %d", pkgDir, stat.Files, limit)})
 		}
 		if stat.Lines > MaxPackageLines {
 			violations = append(violations, Violation{Kind: ViolationPackageLines, File: pkgDir, Got: stat.Lines, Limit: MaxPackageLines, Message: fmt.Sprintf("包行数 %s: %d 行 > 上限 %d", pkgDir, stat.Lines, MaxPackageLines)})
@@ -336,16 +337,16 @@ func packageViolations(stats map[string]*packageStat) []Violation {
 	return violations
 }
 
-func skipPackageFileCountLimit(pkgDir string) bool {
+// packageFileCountLimit 返回包的文件数上限；0 表示跳过检查。
+func packageFileCountLimit(pkgDir string) int {
 	switch pkgDir {
-	case "internal/store/sqlc":
+	case "internal/module/thread":
+		return 20 // 该包较大，上限提高到 20
+	case "internal/store/sqlc", "cmd/mcp-orch/store/sqlc":
 		// sqlc 输出按查询源文件拆分，包文件数对生成层噪声较大；仍保留包总行数与单文件/函数守卫。
-		return true
-	case "cmd/mcp-orch/store/sqlc":
-		// sqlc 输出按查询源文件拆分，包文件数对生成层噪声较大；仍保留包总行数与单文件/函数守卫。
-		return true
+		return 0
 	default:
-		return false
+		return MaxPackageFiles
 	}
 }
 

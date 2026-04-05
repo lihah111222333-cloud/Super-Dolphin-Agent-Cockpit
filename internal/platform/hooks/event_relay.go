@@ -12,8 +12,8 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/kelindar/event"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"go.uber.org/fx"
 )
 
 const (
@@ -30,81 +30,65 @@ type hookContextEnvelope struct {
 	Event json.RawMessage `json:"event"`
 }
 
-func registerEventRelayLifecycle(lc fx.Lifecycle, in eventRelayIn) {
-	if in.Dispatcher == nil || in.Manager == nil {
-		return
-	}
-	logger := in.Logger
+// startEventRelay subscribes to bus events and relays them as hook
+// dispatches.  It returns a cancel function that unsubscribes all listeners.
+func startEventRelay(dispatcher *event.Dispatcher, manager *Manager, logger *pkglogger.Logger) func() {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-
-	startedCancel := func() {}
-	stoppedCancel := func() {}
-	stateCancel := func() {}
-	turnCompletedCancel := func() {}
-	turnInterruptedCancel := func() {}
-	itemCompletedCancel := func() {}
-
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			startedCancel = platformbus.ResilientSubscribe(in.Dispatcher, func(ev threaddto.Started) {
-				dispatchObservedAfter(in.Manager, logger, TopicSessionStart, ev.Timestamp, mcp.HookPayload{
-					AgentID:  strings.TrimSpace(ev.AgentID),
-					ThreadID: strings.TrimSpace(ev.ThreadID),
-					Context:  mustMarshalHookContext(logger, relayKindThreadStarted, ev),
-				})
-			}, logger)
-			stoppedCancel = platformbus.ResilientSubscribe(in.Dispatcher, func(ev threaddto.Stopped) {
-				dispatchObservedAfter(in.Manager, logger, TopicProcessExit, ev.Timestamp, mcp.HookPayload{
-					AgentID:  strings.TrimSpace(ev.AgentID),
-					ThreadID: strings.TrimSpace(ev.ThreadID),
-					Context:  mustMarshalHookContext(logger, relayKindThreadStopped, ev),
-				})
-			}, logger)
-			stateCancel = platformbus.ResilientSubscribe(in.Dispatcher, func(ev agentdto.StateChanged) {
-				dispatchObservedAfter(in.Manager, logger, TopicStateChange, ev.Timestamp, mcp.HookPayload{
-					AgentID:  strings.TrimSpace(ev.AgentID),
-					ThreadID: strings.TrimSpace(ev.ThreadID),
-					Context:  mustMarshalHookContext(logger, relayKindStateChanged, ev),
-				})
-			}, logger)
-			turnCompletedCancel = platformbus.ResilientSubscribe(in.Dispatcher, func(ev turndto.TurnCompleted) {
-				dispatchObservedAfter(in.Manager, logger, TopicTurnAfter, ev.Timestamp, mcp.HookPayload{
-					AgentID:  strings.TrimSpace(ev.AgentID),
-					ThreadID: strings.TrimSpace(ev.ThreadID),
-					Context:  mustMarshalHookContext(logger, relayKindTurnCompleted, ev),
-				})
-			}, logger)
-			turnInterruptedCancel = platformbus.ResilientSubscribe(in.Dispatcher, func(ev turndto.TurnInterrupted) {
-				dispatchObservedAfter(in.Manager, logger, TopicTurnFailed, ev.Timestamp, mcp.HookPayload{
-					AgentID:  strings.TrimSpace(ev.AgentID),
-					ThreadID: strings.TrimSpace(ev.ThreadID),
-					Context:  mustMarshalHookContext(logger, relayKindTurnInterrupted, ev),
-				})
-			}, logger)
-			itemCompletedCancel = platformbus.ResilientSubscribe(in.Dispatcher, func(ev turndto.ItemCompleted) {
-				if !isFinalAnswerItemCompleted(ev) {
-					return
-				}
-				dispatchObservedAfter(in.Manager, logger, TopicTurnProgress, ev.Timestamp, mcp.HookPayload{
-					AgentID:  strings.TrimSpace(ev.AgentID),
-					ThreadID: strings.TrimSpace(ev.ThreadID),
-					Context:  mustMarshalHookContext(logger, relayKindTurnItemCompleted, ev),
-				})
-			}, logger)
-			return nil
-		},
-		OnStop: func(context.Context) error {
-			startedCancel()
-			stoppedCancel()
-			stateCancel()
-			turnCompletedCancel()
-			turnInterruptedCancel()
-			itemCompletedCancel()
-			return nil
-		},
-	})
+	startedCancel := platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Started) {
+		dispatchObservedAfter(manager, logger, TopicSessionStart, ev.Timestamp, mcp.HookPayload{
+			AgentID:  strings.TrimSpace(ev.AgentID),
+			ThreadID: strings.TrimSpace(ev.ThreadID),
+			Context:  mustMarshalHookContext(logger, relayKindThreadStarted, ev),
+		})
+	}, logger)
+	stoppedCancel := platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Stopped) {
+		dispatchObservedAfter(manager, logger, TopicProcessExit, ev.Timestamp, mcp.HookPayload{
+			AgentID:  strings.TrimSpace(ev.AgentID),
+			ThreadID: strings.TrimSpace(ev.ThreadID),
+			Context:  mustMarshalHookContext(logger, relayKindThreadStopped, ev),
+		})
+	}, logger)
+	stateCancel := platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {
+		dispatchObservedAfter(manager, logger, TopicStateChange, ev.Timestamp, mcp.HookPayload{
+			AgentID:  strings.TrimSpace(ev.AgentID),
+			ThreadID: strings.TrimSpace(ev.ThreadID),
+			Context:  mustMarshalHookContext(logger, relayKindStateChanged, ev),
+		})
+	}, logger)
+	turnCompletedCancel := platformbus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
+		dispatchObservedAfter(manager, logger, TopicTurnAfter, ev.Timestamp, mcp.HookPayload{
+			AgentID:  strings.TrimSpace(ev.AgentID),
+			ThreadID: strings.TrimSpace(ev.ThreadID),
+			Context:  mustMarshalHookContext(logger, relayKindTurnCompleted, ev),
+		})
+	}, logger)
+	turnInterruptedCancel := platformbus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
+		dispatchObservedAfter(manager, logger, TopicTurnFailed, ev.Timestamp, mcp.HookPayload{
+			AgentID:  strings.TrimSpace(ev.AgentID),
+			ThreadID: strings.TrimSpace(ev.ThreadID),
+			Context:  mustMarshalHookContext(logger, relayKindTurnInterrupted, ev),
+		})
+	}, logger)
+	itemCompletedCancel := platformbus.ResilientSubscribe(dispatcher, func(ev turndto.ItemCompleted) {
+		if !isFinalAnswerItemCompleted(ev) {
+			return
+		}
+		dispatchObservedAfter(manager, logger, TopicTurnProgress, ev.Timestamp, mcp.HookPayload{
+			AgentID:  strings.TrimSpace(ev.AgentID),
+			ThreadID: strings.TrimSpace(ev.ThreadID),
+			Context:  mustMarshalHookContext(logger, relayKindTurnItemCompleted, ev),
+		})
+	}, logger)
+	return func() {
+		startedCancel()
+		stoppedCancel()
+		stateCancel()
+		turnCompletedCancel()
+		turnInterruptedCancel()
+		itemCompletedCancel()
+	}
 }
 
 func dispatchObservedAfter(manager *Manager, logger *pkglogger.Logger, topic string, timestamp time.Time, payload mcp.HookPayload) {

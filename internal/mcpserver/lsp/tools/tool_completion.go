@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
@@ -17,8 +17,12 @@ type completionParams struct {
 	MaxResults int    `json:"max_results"`
 }
 
-func NewCompletionHandler(manager gopls.Manager) ToolHandler {
-	return newManagerTool("lsp_completion", middleware.TierFast, manager, decodeStrict, func(ctx context.Context, manager gopls.Manager, req completionParams) (any, error) {
+func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
+	return newManagerTool("lsp_completion", middleware.TierFast, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req completionParams) (any, error) {
+		manager, err := registry.GetManagerForFile(ctx, req.FilePath)
+		if err != nil {
+			return nil, err
+		}
 		filePath, position, err := resolveFilePositionRequest(filePositionParams{
 			FilePath: req.FilePath,
 			Line:     req.Line,

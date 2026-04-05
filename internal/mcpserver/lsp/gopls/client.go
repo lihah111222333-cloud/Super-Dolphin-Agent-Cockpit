@@ -265,6 +265,22 @@ func clientCapabilities() protocol.ClientCapabilities {
 			Rename: &protocol.RenameClientCapability{
 				PrepareSupport: true,
 			},
+			DocumentSymbol: &protocol.DocumentSymbolCapability{
+				DynamicRegistration:               true,
+				HierarchicalDocumentSymbolSupport: true,
+			},
+			Definition: &protocol.DynamicRegistrationCapability{
+				DynamicRegistration: true,
+			},
+			Implementation: &protocol.DynamicRegistrationCapability{
+				DynamicRegistration: true,
+			},
+			TypeDefinition: &protocol.DynamicRegistrationCapability{
+				DynamicRegistration: true,
+			},
+			References: &protocol.DynamicRegistrationCapability{
+				DynamicRegistration: true,
+			},
 			CallHierarchy: &protocol.CallHierarchyCapability{
 				DynamicRegistration: true,
 			},
@@ -293,9 +309,6 @@ func clientCapabilities() protocol.ClientCapabilities {
 				},
 				Formats: []string{"relative"},
 			},
-		},
-		Workspace: &protocol.WorkspaceClientCapability{
-			WorkspaceFolders: true,
 		},
 	}
 }
@@ -327,7 +340,7 @@ func defaultArgs(args []string) []string {
 	if len(args) != 0 {
 		return append([]string(nil), args...)
 	}
-	return []string{"serve"}
+	return nil
 }
 
 func normalizeProcessID(processID int) int {

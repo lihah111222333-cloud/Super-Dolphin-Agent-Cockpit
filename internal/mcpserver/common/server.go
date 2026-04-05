@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -209,7 +211,13 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 		err = fmt.Errorf("decode params: %w", err)
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
+	start := time.Now()
 	result, err := s.callTool(ctx, params.Name, params.Arguments)
+	elapsed := time.Since(start)
+	if elapsed > 3*time.Second {
+		pkglogger.Warn("mcp: slow tool call",
+			"tool", params.Name, "elapsed", elapsed, "has_error", err != nil)
+	}
 	if err != nil {
 		return errorResponse(req.ID, codeToolCall, err.Error())
 	}

@@ -146,6 +146,7 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 		s.stopAgent(ctx, req.AgentID)
 		return ResumeResult{}, err
 	}
+	s.publishThreadStarted(threadState)
 	return ResumeResult{
 		ThreadID:  publicThreadID,
 		SessionID: shared.FirstNonEmpty(providerThreadID, publicThreadID),
@@ -265,6 +266,7 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	}), true); err != nil {
 		return RecoverResult{}, err
 	}
+	s.publishThreadStarted(threadState{PublicThreadID: publicThreadID, AgentID: agentID, Provider: provider})
 	return RecoverResult{
 		ThreadID:  publicThreadID,
 		Status:    "recovering",

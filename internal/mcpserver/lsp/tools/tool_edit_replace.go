@@ -9,6 +9,7 @@ import (
 
 	editpkg "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/edit"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
 
@@ -76,10 +77,14 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	if err != nil {
 		return nil, err
 	}
+	manager, err := h.registry.GetManagerForFile(ctx, path)
+	if err != nil {
+		return nil, err
+	}
 	content := file.content
 	plan, err := buildReplacePlan(content, req)
 	if err != nil {
-		return h.replaceFailure(ctx, path, content, req.Line, err), nil
+		return h.replaceFailure(ctx, manager, path, content, req.Line, err), nil
 	}
 	if plan.updatedContent == content {
 		return replaceRangeResult{
@@ -91,20 +96,20 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 				Applied:              false,
 				Persisted:            false,
 				RequiresApply:        false,
-				DiagnosticGeneration: h.manager.CurrentDiagnosticGeneration(),
+				DiagnosticGeneration: manager.CurrentDiagnosticGeneration(),
 			},
 		}, nil
 	}
 	updatedContent := file.diskContent(plan.updatedContent)
 	if err := os.WriteFile(path, []byte(updatedContent), file.mode); err != nil {
-		return h.replaceFailure(ctx, path, content, req.Line, err), nil
+		return h.replaceFailure(ctx, manager, path, content, req.Line, err), nil
 	}
-	lspSync, warning, err := h.syncDocument(ctx, path, updatedContent, normalizeEditVersion(req.Version))
+	lspSync, warning, err := h.syncDocument(ctx, manager, path, updatedContent, normalizeEditVersion(req.Version))
 	if err != nil {
 		_ = os.WriteFile(path, []byte(file.raw), file.mode)
-		return h.replaceFailure(ctx, path, content, plan.functionLookupLine, err), nil
+		return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err), nil
 	}
-	functionCtx := h.lookupFunctionContext(ctx, path, plan.functionLookupLine, plan.updatedContent)
+	functionCtx := h.lookupFunctionContext(ctx, manager, path, plan.functionLookupLine, plan.updatedContent)
 	return replaceRangeResult{
 		editEnvelope: editEnvelope{
 			Success:              true,
@@ -117,7 +122,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 			RequiresApply:        false,
 			LSPSync:              lspSync,
 			Warning:              warning,
-			DiagnosticGeneration: h.manager.CurrentDiagnosticGeneration(),
+			DiagnosticGeneration: h.registry.CurrentDiagnosticGeneration(),
 		},
 		MatchedBy:         plan.matchedBy,
 		ResolvedStart:     plan.resolvedStart,
@@ -136,8 +141,8 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	}, nil
 }
 
-func (h EditHandler) replaceFailure(ctx context.Context, path string, content string, line int, err error) replaceRangeFailure {
-	functionCtx := h.lookupFunctionContext(ctx, path, line, content)
+func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Manager, path string, content string, line int, err error) replaceRangeFailure {
+	functionCtx := h.lookupFunctionContext(ctx, manager, path, line, content)
 	return replaceRangeFailure{
 		Success:              false,
 		Action:               "replace_range",
@@ -146,11 +151,11 @@ func (h EditHandler) replaceFailure(ctx context.Context, path string, content st
 		FuncStart:            functionCtx.Start,
 		FuncEnd:              functionCtx.End,
 		FuncBody:             functionCtx.Body,
-		DiagnosticGeneration: h.manager.CurrentDiagnosticGeneration(),
+		DiagnosticGeneration: manager.CurrentDiagnosticGeneration(),
 	}
 }
 
-func (h EditHandler) applyWorkspaceEdit(ctx context.Context, workspaceEdit *protocol.WorkspaceEdit, version int) (applyWorkspaceEditResult, error) {
+func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.Manager, workspaceEdit *protocol.WorkspaceEdit, version int) (applyWorkspaceEditResult, error) {
 	files, err := collectWorkspaceEdits(workspaceEdit)
 	if err != nil {
 		return applyWorkspaceEditResult{}, err
@@ -182,7 +187,7 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, workspaceEdit *prot
 			return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, updated))
 		}
 	}
-	lspSync, warning, err := h.syncDocuments(ctx, written, version)
+	lspSync, warning, err := h.syncDocuments(ctx, manager, written, version)
 	if err != nil {
 		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, updated))
 	}
@@ -193,10 +198,10 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, workspaceEdit *prot
 	}, nil
 }
 
-func (h EditHandler) syncDocuments(ctx context.Context, updated map[string]string, version int) (bool, string, error) {
+func (h EditHandler) syncDocuments(ctx context.Context, manager lspmanager.Manager, updated map[string]string, version int) (bool, string, error) {
 	warnings := make([]string, 0, len(updated))
 	for _, path := range sortedKeys(updated) {
-		synced, warning, err := h.syncDocument(ctx, path, updated[path], version)
+		synced, warning, err := h.syncDocument(ctx, manager, path, updated[path], version)
 		if err != nil {
 			return false, strings.Join(warnings, "; "), err
 		}
@@ -210,18 +215,18 @@ func (h EditHandler) syncDocuments(ctx context.Context, updated map[string]strin
 	return true, strings.Join(warnings, "; "), nil
 }
 
-func (h EditHandler) syncDocument(ctx context.Context, path string, content string, version int) (bool, string, error) {
+func (h EditHandler) syncDocument(ctx context.Context, manager lspmanager.Manager, path string, content string, version int) (bool, string, error) {
 	if editpkg.ShouldForceBypass(len(content)) {
-		if err := h.manager.BootstrapDocumentOpenOnly(ctx, path); err != nil {
+		if err := manager.BootstrapDocumentOpenOnly(ctx, path); err != nil {
 			return false, "", err
 		}
 		return true, "used bootstrap-only LSP sync", nil
 	}
-	if err := h.manager.BootstrapDocument(ctx, path); err != nil {
+	if err := manager.BootstrapDocument(ctx, path); err != nil {
 		return false, "", err
 	}
 	change := protocol.TextDocumentContentChangeEvent{Text: content}
-	if err := h.manager.DidChange(ctx, path, version, []protocol.TextDocumentContentChangeEvent{change}); err != nil {
+	if err := manager.DidChange(ctx, path, version, []protocol.TextDocumentContentChangeEvent{change}); err != nil {
 		return false, "", err
 	}
 	if countLines(content) > didChangeLargeFileLineThreshold {
@@ -240,11 +245,11 @@ func withRollbackWarning(err error, rollbackErr error) error {
 	return fmt.Errorf("%w; rollback warning: %v", err, rollbackErr)
 }
 
-func (h EditHandler) lookupFunctionContext(ctx context.Context, path string, line int, content string) functionContext {
+func (h EditHandler) lookupFunctionContext(ctx context.Context, manager lspmanager.Manager, path string, line int, content string) functionContext {
 	if line <= 0 {
 		return functionContext{}
 	}
-	symbols, err := h.manager.DocumentSymbol(ctx, path)
+	symbols, err := manager.DocumentSymbol(ctx, path)
 	if err != nil {
 		return functionContext{}
 	}

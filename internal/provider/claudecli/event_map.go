@@ -42,6 +42,12 @@ func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
 			Model:              dataString(raw.Data, "model"),
 			CWD:                dataString(raw.Data, "cwd"),
 		}, true
+	case "agent:state_changed":
+		return agentdto.StateChanged{
+			AgentSessionHeader: agentSessionHeader(raw.Data),
+			OldState:           dataString(raw.Data, "old_state"),
+			NewState:            dataString(raw.Data, "new_state"),
+		}, true
 	case "agent:stopped":
 		return agentdto.AgentStopped{AgentSessionHeader: agentSessionHeader(raw.Data)}, true
 	case "agent:failed":

@@ -3,6 +3,7 @@ module github.com/anthropic-ai/super-agent-v3
 go 1.25.7
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/creachadair/jrpc2 v1.3.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.8.0
@@ -10,13 +11,14 @@ require (
 	github.com/oklog/run v1.2.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/qmuntal/stateless v1.8.0
+	github.com/wailsapp/wails/v3 v3.0.0-alpha.74
 	go.uber.org/fx v1.24.0
-	golang.org/x/net v0.49.0
+	golang.org/x/sync v0.19.0
+	golang.org/x/text v0.33.0
 )
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.3.0 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
@@ -53,14 +55,12 @@ require (
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/skeema/knownhosts v1.3.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
-	github.com/wailsapp/wails/v3 v3.0.0-alpha.74 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.uber.org/dig v1.19.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )

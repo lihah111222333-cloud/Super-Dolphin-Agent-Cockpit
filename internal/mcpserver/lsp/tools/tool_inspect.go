@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
+	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 )
@@ -23,8 +23,12 @@ type inspectParams struct {
 	filePositionParams
 }
 
-func NewInspectHandler(manager gopls.Manager) ToolHandler {
-	return newManagerTool("lsp_inspect", middleware.TierNormal, manager, decodeStrict, func(ctx context.Context, manager gopls.Manager, req inspectParams) (any, error) {
+func NewInspectHandler(registry lspmanager.Registry) ToolHandler {
+	return newManagerTool("lsp_inspect", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req inspectParams) (any, error) {
+		manager, err := registry.GetManagerForFile(ctx, req.FilePath)
+		if err != nil {
+			return nil, err
+		}
 		filePath, position, err := resolveFilePositionRequest(req.filePositionParams)
 		if err != nil {
 			return nil, err
@@ -51,7 +55,7 @@ func NewInspectHandler(manager gopls.Manager) ToolHandler {
 
 func runHover(
 	ctx context.Context,
-	manager gopls.Manager,
+	manager lspmanager.Manager,
 	filePath string,
 	position protocol.Position,
 ) (any, error) {
@@ -84,7 +88,7 @@ func runLocationInspect(
 
 func runSignatureHelp(
 	ctx context.Context,
-	manager gopls.Manager,
+	manager lspmanager.Manager,
 	filePath string,
 	position protocol.Position,
 ) (any, error) {

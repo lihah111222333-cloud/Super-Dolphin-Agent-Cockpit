@@ -36,7 +36,7 @@ func (r *recoveryManager) CheckHealth(ctx context.Context) error {
 	if r.transport == nil || !r.transport.Running() {
 		return errors.New("codexapp: transport not running")
 	}
-	_, err := callWithTimeout(ctx, r.transport, 3*time.Second, "apps/list", map[string]any{})
+	_, err := callWithTimeout(ctx, r.transport, 3*time.Second, "app/list", map[string]any{})
 	return err
 }
 

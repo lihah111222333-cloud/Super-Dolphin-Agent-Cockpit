@@ -33,17 +33,27 @@ type DynamicRegistrationCapability struct {
 }
 
 type TextDocumentClientCapabilities struct {
-	PublishDiagnostics *PublishDiagnosticsCapability `json:"publishDiagnostics,omitempty"`
-	Hover              *HoverCapability              `json:"hover,omitempty"`
-	Completion         *CompletionClientCapability   `json:"completion,omitempty"`
-	Rename             *RenameClientCapability       `json:"rename,omitempty"`
-	CallHierarchy      *CallHierarchyCapability      `json:"callHierarchy,omitempty"`
-	TypeHierarchy      *TypeHierarchyCapability      `json:"typeHierarchy,omitempty"`
-	CodeAction         *CodeActionCapability         `json:"codeAction,omitempty"`
-	SignatureHelp      *SignatureHelpCapability      `json:"signatureHelp,omitempty"`
-	Formatting         *FormattingCapability         `json:"formatting,omitempty"`
-	FoldingRange       *FoldingRangeCapability       `json:"foldingRange,omitempty"`
-	SemanticTokens     *SemanticTokensCapability     `json:"semanticTokens,omitempty"`
+	PublishDiagnostics *PublishDiagnosticsCapability  `json:"publishDiagnostics,omitempty"`
+	Hover              *HoverCapability               `json:"hover,omitempty"`
+	Completion         *CompletionClientCapability    `json:"completion,omitempty"`
+	Rename             *RenameClientCapability        `json:"rename,omitempty"`
+	DocumentSymbol     *DocumentSymbolCapability      `json:"documentSymbol,omitempty"`
+	Definition         *DynamicRegistrationCapability `json:"definition,omitempty"`
+	Implementation     *DynamicRegistrationCapability `json:"implementation,omitempty"`
+	TypeDefinition     *DynamicRegistrationCapability `json:"typeDefinition,omitempty"`
+	References         *DynamicRegistrationCapability `json:"references,omitempty"`
+	CallHierarchy      *CallHierarchyCapability       `json:"callHierarchy,omitempty"`
+	TypeHierarchy      *TypeHierarchyCapability       `json:"typeHierarchy,omitempty"`
+	CodeAction         *CodeActionCapability          `json:"codeAction,omitempty"`
+	SignatureHelp      *SignatureHelpCapability        `json:"signatureHelp,omitempty"`
+	Formatting         *FormattingCapability          `json:"formatting,omitempty"`
+	FoldingRange       *FoldingRangeCapability        `json:"foldingRange,omitempty"`
+	SemanticTokens     *SemanticTokensCapability      `json:"semanticTokens,omitempty"`
+}
+
+type DocumentSymbolCapability struct {
+	DynamicRegistration          bool `json:"dynamicRegistration,omitempty"`
+	HierarchicalDocumentSymbolSupport bool `json:"hierarchicalDocumentSymbolSupport,omitempty"`
 }
 
 type PublishDiagnosticsCapability struct {

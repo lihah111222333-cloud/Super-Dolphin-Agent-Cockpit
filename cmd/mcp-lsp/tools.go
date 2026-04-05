@@ -20,21 +20,21 @@ type toolDefinition struct {
 }
 
 var lspToolManifests = []common.ToolManifest{
-	toolManifest("lsp_file", "Read files and diagnostics via LSP"),
-	toolManifest("lsp_inspect", "Inspect symbols and definitions via LSP"),
-	toolManifest("lsp_xref", "Query references and hierarchies via LSP"),
-	toolManifest("lsp_grep", "Search text and AST patterns via LSP"),
-	toolManifest("lsp_structure", "Inspect document and workspace structure via LSP"),
-	toolManifest("lsp_edit", "Apply semantic edits via LSP"),
-	toolManifest("lsp_completion", "Request code completions via LSP"),
-	toolManifest("code_run", "Run project commands and snippets"),
-	toolManifest("code_run_test", "Run focused project tests"),
+	toolManifestWithSchema("lsp_file", "File: read_file (offset/limit paging), open_file, diagnostics. Batch: file_paths.", lspFileSchema),
+	toolManifestWithSchema("lsp_inspect", "Hover/definition/implementation/type_definition/signature_help at file:line:column (1-based).", lspInspectSchema),
+	toolManifestWithSchema("lsp_xref", "References/call_hierarchy/type_hierarchy. verbosity=compact(default)|full, max_results cap 50.", lspXrefSchema),
+	toolManifestWithSchema("lsp_grep", "Search codebase: text_search (literal default, regex=true) or ast_search. Returns 1-based file:line:col.", lspGrepSchema),
+	toolManifestWithSchema("lsp_structure", "Document/workspace symbols, folding ranges, semantic tokens.", lspStructureSchema),
+	toolManifestWithSchema("lsp_edit", "Edit: rename, replace_range (single-hunk patch), code_action, format.", lspEditSchema),
+	toolManifestWithSchema("lsp_completion", "Request code completions via LSP.", lspCompletionSchema),
+	toolManifestWithSchema("code_run", "Execute code snippet or project shell command. mode=project_cmd for shell.", codeRunSchema),
+	toolManifestWithSchema("code_run_test", "Run a specific Go test function.", codeRunTestSchema),
 }
 
 func newToolHandlers(m *Manager) (ToolHandlers, error) {
 	cfg := tools.Config{
 		WorkspaceRoot: m.root,
-		Manager:       m.goplsMgr,
+		Registry:      m.registry,
 	}
 	codeRunH, err := tools.NewCodeRunHandler(m.root)
 	if err != nil {
@@ -46,12 +46,12 @@ func newToolHandlers(m *Manager) (ToolHandlers, error) {
 	}
 	return ToolHandlers{
 		"lsp_file":       ToolHandler(tools.NewFileHandler(cfg)),
-		"lsp_inspect":    ToolHandler(tools.NewInspectHandler(m.goplsMgr)),
-		"lsp_xref":       ToolHandler(tools.NewXRefHandler(m.goplsMgr)),
+		"lsp_inspect":    ToolHandler(tools.NewInspectHandler(m.registry)),
+		"lsp_xref":       ToolHandler(tools.NewXRefHandler(m.registry)),
 		"lsp_grep":       ToolHandler(tools.NewGrepHandler(cfg)),
-		"lsp_structure":  ToolHandler(tools.NewStructureHandler(m.goplsMgr)),
-		"lsp_edit":       ToolHandler(tools.NewEditHandler(m.goplsMgr)),
-		"lsp_completion": ToolHandler(tools.NewCompletionHandler(m.goplsMgr)),
+		"lsp_structure":  ToolHandler(tools.NewStructureHandler(m.registry)),
+		"lsp_edit":       ToolHandler(tools.NewEditHandler(m.registry)),
+		"lsp_completion": ToolHandler(tools.NewCompletionHandler(m.registry)),
 		"code_run":       ToolHandler(codeRunH),
 		"code_run_test":  ToolHandler(codeRunTestH),
 	}, nil
@@ -69,11 +69,11 @@ func toolDefinitions(handlers ToolHandlers) []toolDefinition {
 	return defs
 }
 
-func toolManifest(name, description string) common.ToolManifest {
+func toolManifestWithSchema(name, description string, s schema) common.ToolManifest {
 	return common.ToolManifest{
 		Name:        name,
 		Description: description,
-		Schema:      map[string]any{"type": "object"},
+		Schema:      map[string]any(s),
 	}
 }
 

@@ -254,6 +254,14 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
 		state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
 		state.CWD = shared.FirstNonEmpty(state.CWD, binding.Cwd)
+		// SessionUUID is updated asynchronously by onAgentLaunched when the
+		// real provider UUID arrives (e.g. claude system:init).  If it
+		// differs from ProviderThreadID the latter is stale (was set to the
+		// agentID placeholder before the real UUID was known) — prefer
+		// SessionUUID so resume uses the correct provider session.
+		if state.SessionUUID != "" && state.SessionUUID != state.ProviderThreadID {
+			state.ProviderThreadID = state.SessionUUID
+		}
 	}
 	return state
 }

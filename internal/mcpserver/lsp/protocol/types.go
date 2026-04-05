@@ -311,17 +311,15 @@ type FoldingRange struct {
 }
 
 type SignatureInformationResult struct {
-	Label             string                       `json:"label"`
-	Documentation     string                       `json:"documentation,omitempty"`
-	DocumentationKind string                       `json:"documentationKind,omitempty"`
-	Parameters        []ParameterInformationResult `json:"parameters,omitempty"`
+	Label         string                       `json:"label"`
+	Documentation any                          `json:"documentation,omitempty"`
+	Parameters    []ParameterInformationResult `json:"parameters,omitempty"`
 }
 
 type ParameterInformationResult struct {
-	Label             string `json:"label,omitempty"`
-	LabelOffsets      []int  `json:"labelOffsets,omitempty"`
-	Documentation     string `json:"documentation,omitempty"`
-	DocumentationKind string `json:"documentationKind,omitempty"`
+	Label         string `json:"label,omitempty"`
+	LabelOffsets  []int  `json:"labelOffsets,omitempty"`
+	Documentation any    `json:"documentation,omitempty"`
 }
 
 type SignatureHelpResult struct {

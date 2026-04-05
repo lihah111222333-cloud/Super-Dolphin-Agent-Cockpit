@@ -7,6 +7,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 var osExecutable = os.Executable
@@ -33,10 +35,19 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		if err := svc.LaunchAgent(ctx, req); err != nil {
-			return nil, err
-		}
-		return successResult(map[string]any{"agent_id": req.AgentID}), nil
+		// Async launch: return immediately so the MCP tool call never blocks
+		// longer than the codex app-server's tool-call timeout. The actual
+		// launch runs in the background; callers poll orchestration_list_agents
+		// or orchestration_get_agent_report for status.
+		go func() {
+			bgCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
+			defer cancel()
+			if err := svc.LaunchAgent(bgCtx, req); err != nil {
+				pkglogger.Warn("orchestration_launch_agent: async launch failed",
+					"agent_id", req.AgentID, "error", err)
+			}
+		}()
+		return successResult(map[string]any{"agent_id": req.AgentID, "status": "launching"}), nil
 	})
 }
 

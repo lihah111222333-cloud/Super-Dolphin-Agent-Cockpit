@@ -15,7 +15,8 @@ const (
 	StallDetectDelay       = 90 * time.Second
 	DBQueryTimeout         = 10 * time.Second
 	RPCRequestTimeout      = 30 * time.Second
-	InterruptSettleTimeout = 6 * time.Second
+	InterruptSettleTimeout  = 6 * time.Second
+	AsyncLaunchTimeout     = 60 * time.Second
 )
 
 func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
