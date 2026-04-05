@@ -36,7 +36,7 @@ func (r *recoveryManager) CheckHealth(ctx context.Context) error {
 	if r.transport == nil || !r.transport.Running() {
 		return errors.New("codexapp: transport not running")
 	}
-	_, err := callWithTimeout(ctx, r.transport, 3*time.Second, "app/list", nil)
+	_, err := callWithTimeout(ctx, r.transport, 3*time.Second, "apps/list", map[string]any{})
 	return err
 }
 
@@ -306,15 +306,23 @@ func (s *session) checkIdleHealth() {
 	if s.recovery == nil || time.Since(s.lastReadTime()) < healthCheckIdleThreshold {
 		return
 	}
-	if err := s.recovery.CheckHealth(s.ctx); err == nil {
+	err := s.recovery.CheckHealth(s.ctx)
+	if err == nil {
 		s.noteReadActivity()
 		return
-	} else if s.logger != nil {
+	}
+	if s.logger != nil {
 		s.logger.Warn("codexapp: health check failed", "error", err)
-		shared.LogIgnoredError(s.logger, "health check recovery failed", s.attemptRecovery("health check failed: "+err.Error()))
+	}
+	// RPC protocol errors (-32600, -32601, etc.) indicate the server is alive but
+	// returned an error response. Do not trigger recovery for these — only recover
+	// when the transport is truly broken (connection lost, timeout, etc.).
+	errMsg := strings.ToLower(err.Error())
+	if strings.Contains(errMsg, "rpc error") || strings.Contains(errMsg, "invalid request") || strings.Contains(errMsg, "method not found") {
+		s.noteReadActivity()
 		return
 	}
-	shared.LogIgnoredError(s.logger, "health check recovery failed", s.attemptRecovery("health check failed"))
+	shared.LogIgnoredError(s.logger, "health check recovery failed", s.attemptRecovery("health check failed: "+err.Error()))
 }
 
 func (s *session) noteReadActivity() {

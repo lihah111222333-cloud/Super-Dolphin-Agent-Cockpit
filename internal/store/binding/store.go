@@ -52,6 +52,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		Cwd:              params.Cwd,
 		CreatedAt:        params.CreatedAt,
 		UpdatedAt:        params.UpdatedAt,
+		SessionUUID:      params.SessionUUID,
 	})
 	if err == nil {
 		return nil

@@ -24,11 +24,11 @@ const (
 
 	hookSyncTrigger = "hook_state_sync"
 
-	hookRelayKindThreadStarted = "thread.started"
-	hookRelayKindThreadStopped = "thread.stopped"
-	hookRelayKindStateChanged  = "agent.state_changed"
-	hookRelayKindTurnCompleted = "turn.completed"
-	hookRelayKindTurnInterrupted = "turn.interrupted"
+	hookRelayKindThreadStarted     = "thread.started"
+	hookRelayKindThreadStopped     = "thread.stopped"
+	hookRelayKindStateChanged      = "agent.state_changed"
+	hookRelayKindTurnCompleted     = "turn.completed"
+	hookRelayKindTurnInterrupted   = "turn.interrupted"
 	hookRelayKindTurnItemCompleted = "turn.item_completed"
 )
 
@@ -60,39 +60,61 @@ func (c *hookConsumer) After(ctx context.Context, payload mcp.HookPayload) (mcp.
 		return decision, nil
 	}
 
-	switch strings.TrimSpace(payload.Topic) {
-	case hookTopicSessionStart:
-		ev, ok := decodeHookEvent[threaddto.Started](c.logger, envelope, hookRelayKindThreadStarted)
-		if ok {
-			c.handleThreadStarted(ctx, ev)
-		}
-	case hookTopicStateChange:
-		ev, ok := decodeHookEvent[agentdto.StateChanged](c.logger, envelope, hookRelayKindStateChanged)
-		if ok {
-			c.handleStateChanged(ctx, ev)
-		}
-	case hookTopicTurnAfter:
-		ev, ok := decodeHookEvent[turndto.TurnCompleted](c.logger, envelope, hookRelayKindTurnCompleted)
-		if ok {
-			c.handleTurnCompleted(ctx, ev)
-		}
-	case hookTopicTurnFailed:
-		ev, ok := decodeHookEvent[turndto.TurnInterrupted](c.logger, envelope, hookRelayKindTurnInterrupted)
-		if ok {
-			c.handleTurnInterrupted(ctx, ev)
-		}
-	case hookTopicTurnProgress:
-		ev, ok := decodeHookEvent[turndto.ItemCompleted](c.logger, envelope, hookRelayKindTurnItemCompleted)
-		if ok {
-			c.handleItemCompleted(ctx, ev)
-		}
-	case hookTopicProcessExit:
-		ev, ok := decodeHookEvent[threaddto.Stopped](c.logger, envelope, hookRelayKindThreadStopped)
-		if ok {
-			c.handleThreadStopped(ctx, ev)
-		}
-	}
+	c.dispatchAfterTopic(ctx, strings.TrimSpace(payload.Topic), envelope)
 	return decision, nil
+}
+
+func (c *hookConsumer) dispatchAfterTopic(ctx context.Context, topic string, envelope hookContextEnvelope) {
+	switch topic {
+	case hookTopicSessionStart:
+		c.handleSessionStartTopic(ctx, envelope)
+	case hookTopicStateChange:
+		c.handleStateChangeTopic(ctx, envelope)
+	case hookTopicTurnAfter:
+		c.handleTurnAfterTopic(ctx, envelope)
+	case hookTopicTurnFailed:
+		c.handleTurnFailedTopic(ctx, envelope)
+	case hookTopicTurnProgress:
+		c.handleTurnProgressTopic(ctx, envelope)
+	case hookTopicProcessExit:
+		c.handleProcessExitTopic(ctx, envelope)
+	}
+}
+
+func (c *hookConsumer) handleSessionStartTopic(ctx context.Context, envelope hookContextEnvelope) {
+	if ev, ok := decodeHookEvent[threaddto.Started](c.logger, envelope, hookRelayKindThreadStarted); ok {
+		c.handleThreadStarted(ctx, ev)
+	}
+}
+
+func (c *hookConsumer) handleStateChangeTopic(ctx context.Context, envelope hookContextEnvelope) {
+	if ev, ok := decodeHookEvent[agentdto.StateChanged](c.logger, envelope, hookRelayKindStateChanged); ok {
+		c.handleStateChanged(ctx, ev)
+	}
+}
+
+func (c *hookConsumer) handleTurnAfterTopic(ctx context.Context, envelope hookContextEnvelope) {
+	if ev, ok := decodeHookEvent[turndto.TurnCompleted](c.logger, envelope, hookRelayKindTurnCompleted); ok {
+		c.handleTurnCompleted(ctx, ev)
+	}
+}
+
+func (c *hookConsumer) handleTurnFailedTopic(ctx context.Context, envelope hookContextEnvelope) {
+	if ev, ok := decodeHookEvent[turndto.TurnInterrupted](c.logger, envelope, hookRelayKindTurnInterrupted); ok {
+		c.handleTurnInterrupted(ctx, ev)
+	}
+}
+
+func (c *hookConsumer) handleTurnProgressTopic(ctx context.Context, envelope hookContextEnvelope) {
+	if ev, ok := decodeHookEvent[turndto.ItemCompleted](c.logger, envelope, hookRelayKindTurnItemCompleted); ok {
+		c.handleItemCompleted(ctx, ev)
+	}
+}
+
+func (c *hookConsumer) handleProcessExitTopic(ctx context.Context, envelope hookContextEnvelope) {
+	if ev, ok := decodeHookEvent[threaddto.Stopped](c.logger, envelope, hookRelayKindThreadStopped); ok {
+		c.handleThreadStopped(ctx, ev)
+	}
 }
 
 func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Started) {
@@ -181,7 +203,7 @@ func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnC
 	handleTurnCompletedEvent(c.svc, c.logger, ev)
 }
 
-func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
+func (c *hookConsumer) handleTurnInterrupted(_ context.Context, ev turndto.TurnInterrupted) {
 	handleTurnInterruptedEvent(c.svc, c.logger, ev)
 }
 

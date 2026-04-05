@@ -186,11 +186,26 @@ if [ -f "$FRONT/package.json" ]; then
   else
     echo "  → 依赖无变化，跳过安装"
   fi
-  if ! npm run build; then
-    echo ""
-    echo "⚠️  前端构建/守卫未通过！按 Enter 跳过继续编译，Ctrl+C 中止"
-    read -r
-    echo "  → 已跳过前端报错，继续..."
+
+  # 前端源码 hash 检测：src/ + vite.config.js 无变化则跳过整个 vite build（省 10s）
+  _FRONT_HASH_FILE="$FRONT/.build-cache/frontend-src.hash"
+  mkdir -p "$FRONT/.build-cache"
+  _FRONT_CUR_HASH=$(find "$FRONT/src" "$FRONT/vite.config.js" "$FRONT/index.html" -type f 2>/dev/null | sort | xargs md5 -q 2>/dev/null | md5 -q 2>/dev/null || echo "nohash")
+  _FRONT_SKIP_BUILD=0
+  if [ -f "$_FRONT_HASH_FILE" ] && [ "$(cat "$_FRONT_HASH_FILE")" = "$_FRONT_CUR_HASH" ] && [ -d "$FRONT/dist" ]; then
+    echo "  → 前端源码无变化，跳过 vite build ✅"
+    _FRONT_SKIP_BUILD=1
+  fi
+
+  if [ "$_FRONT_SKIP_BUILD" = "0" ]; then
+    if npm run build; then
+      echo "$_FRONT_CUR_HASH" > "$_FRONT_HASH_FILE"
+    else
+      echo ""
+      echo "⚠️  前端构建/守卫未通过！按 Enter 跳过继续编译，Ctrl+C 中止"
+      read -r
+      echo "  → 已跳过前端报错，继续..."
+    fi
   fi
 else
   echo "[1/4] 跳过前端 (无 package.json)"

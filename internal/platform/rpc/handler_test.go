@@ -83,6 +83,8 @@ type stubRPCSession struct {
 
 func (s stubRPCSession) ThreadID() string { return "" }
 
+func (s stubRPCSession) RolloutPath() string { return "" }
+
 func (s stubRPCSession) Capabilities() dto.CapabilitySet { return s.caps }
 
 func (s stubRPCSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
@@ -147,7 +149,6 @@ func TestThreadHandlerExtractsThreadIDFromAliases(t *testing.T) {
 	}
 
 	for _, rawParams := range tests {
-		rawParams := rawParams
 		t.Run(rawParams, func(t *testing.T) {
 			t.Parallel()
 
