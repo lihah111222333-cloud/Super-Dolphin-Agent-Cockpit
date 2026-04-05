@@ -138,10 +138,16 @@ func (s *service) startSession(ctx context.Context, req StartRequest, agentID st
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
 	}
+	cwd := strings.TrimSpace(req.CWD)
+	if cwd == "" || cwd == "." {
+		if abs, err := os.Getwd(); err == nil {
+			cwd = abs
+		}
+	}
 	return s.starter.StartSession(ctx, dto.StartSessionRequest{
 		Provider:     req.Provider,
 		AgentID:      agentID,
-		CWD:          req.CWD,
+		CWD:          cwd,
 		Model:        req.Model,
 		Instructions: shared.FirstNonEmpty(req.BaseInstructions, req.Prompt),
 		Config:       buildStartSessionConfig(req),
@@ -152,13 +158,19 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
 	}
+	cwd := strings.TrimSpace(req.CWD)
+	if cwd == "" || cwd == "." {
+		if abs, err := os.Getwd(); err == nil {
+			cwd = abs
+		}
+	}
 	return s.starter.ResumeSession(ctx, dto.ResumeSessionRequest{
 		Provider:         req.Provider,
 		AgentID:          req.AgentID,
 		ThreadID:         req.ThreadID,
 		ProviderThreadID: req.ProviderThreadID,
 		Path:             req.Path,
-		CWD:              req.CWD,
+		CWD:              cwd,
 		Model:            req.Model,
 	})
 }
@@ -178,6 +190,7 @@ type resumeState struct {
 	Prompt           string
 	Model            string
 	CWD              string
+	RolloutPath      string
 	CreatedAt        int64
 }
 
@@ -237,6 +250,7 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.Provider = strings.TrimSpace(binding.Provider)
 		state.ProviderThreadID = shared.FirstNonEmpty(state.ProviderThreadID, binding.ProviderThreadID)
 		state.PublicThreadID = shared.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
+		state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
 		state.CWD = shared.FirstNonEmpty(state.CWD, binding.Cwd)
 	}
 	return state

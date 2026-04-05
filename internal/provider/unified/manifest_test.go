@@ -153,3 +153,17 @@ func TestBuildManifest_NormalizesControlEnvNames(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildManifest_PreservesDatabaseURLFromEnvironment(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable")
+
+	got := dto.BuildManifest(dto.ManifestContext{})
+	if len(got.Binaries) == 0 {
+		t.Fatal("expected manifest binaries")
+	}
+	for _, bin := range got.Binaries {
+		if gotURL := bin.Env["DATABASE_URL"]; gotURL != "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable" {
+			t.Fatalf("binary %q DATABASE_URL = %q", bin.Name, gotURL)
+		}
+	}
+}

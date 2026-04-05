@@ -42,160 +42,162 @@ function cancelFrame(handle) {
   }
 }
 
-export function createStreamingMarkdownStateResolver(onStateFlush = null, onStallDetected = null) {
-  const cache = new Map();
-  const displayedByItemId = new Map();
-  const pendingByItemId = new Map();
-  const emptyState = Object.freeze({ text: '', heightPx: 0 });
-  let lastWidthVer = 0, lastFontVer = 0;
-  const scheduleFrame = createFrameScheduler();
-  let scheduledFrame = null;
-  let staleGuardTimer = null;
-  let disposed = false;
+function clearStaleGuard(state) {
+  if (state.staleGuardTimer !== null) {
+    clearTimeout(state.staleGuardTimer);
+    state.staleGuardTimer = null;
+  }
+}
 
-  setInvalidateCallback(() => {
-    if (disposed) return;  // v4-fix: disposed 后不再触发
-    const wv = getWidthVersion();
-    if (wv !== lastWidthVer) {
-      cache.clear();
-      displayedByItemId.clear();
-      lastWidthVer = wv;
-      lastFontVer = getFontVersion();
-      if (typeof onStateFlush === 'function') onStateFlush();
+function getStateByText(state, text) {
+  if (!text) return state.emptyState;
+  const wv = getWidthVersion();
+  const fv = getFontVersion();
+  if (wv !== state.lastWidthVer || fv !== state.lastFontVer) {
+    state.cache.clear();
+    state.lastWidthVer = wv;
+    state.lastFontVer = fv;
+  }
+  if (state.cache.has(text)) return state.cache.get(text) || state.emptyState;
+  const next = buildStreamingMarkdownState(text, state.emptyState);
+  state.cache.set(text, next);
+  if (state.cache.size > 280) state.cache.delete(state.cache.keys().next().value);
+  return next;
+}
+
+function handleLayoutInvalidation(state) {
+  if (state.disposed) return;
+  const wv = getWidthVersion();
+  if (wv !== state.lastWidthVer) {
+    state.cache.clear();
+    state.displayedByItemId.clear();
+    state.lastWidthVer = wv;
+    state.lastFontVer = getFontVersion();
+    if (typeof state.onStateFlush === 'function') state.onStateFlush();
+  }
+}
+
+function flushPending(state) {
+  state.scheduledFrame = null;
+  if (state.disposed || state.pendingByItemId.size === 0) return;
+  clearStaleGuard(state);
+  let changed = false;
+  const flushStart = performance.now();
+  for (const [itemId, entry] of state.pendingByItemId.entries()) {
+    const current = state.displayedByItemId.get(itemId);
+    if (!entry.state) entry.state = getStateByText(state, entry.text);
+    if (!current || current.text !== entry.text || current.state !== entry.state) {
+      state.displayedByItemId.set(itemId, entry);
+      changed = true;
     }
-  });
+  }
+  const flushDurationMs = Math.round(performance.now() - flushStart);
+  const flushedCount = state.pendingByItemId.size;
+  state.pendingByItemId.clear();
+  if (changed && typeof state.onStateFlush === 'function') state.onStateFlush();
+  if (flushDurationMs > 50 && typeof state.onStallDetected === 'function') {
+    state.onStallDetected({
+      reason: 'flush_slow',
+      duration_ms: flushDurationMs,
+      items_flushed: flushedCount,
+      displayed_count: state.displayedByItemId.size,
+    });
+  }
+  if (!state.disposed && state.pendingByItemId.size > 0) scheduleFlush(state);
+}
 
-  function clearStaleGuard() {
-    if (staleGuardTimer !== null) {
-      clearTimeout(staleGuardTimer);
-      staleGuardTimer = null;
+function scheduleFlush(state) {
+  if (state.scheduledFrame || state.disposed) return;
+  state.scheduledFrame = state.scheduleFrame(() => flushPending(state));
+}
+
+function resolveStreamingState(state, item) {
+  const text = (item?.text || '').toString();
+  const itemId = (item?.id || '').toString().trim();
+
+  if (itemId) {
+    const prevEntry = state.displayedByItemId.get(itemId) || state.pendingByItemId.get(itemId);
+    const prevLen = prevEntry?.text?.length || 0;
+    if (prevLen > 0 && text.length === 0) {
+      logWarn('ui', 'chat.streaming.text_vanished', { item_id: itemId, prev_len: prevLen, done: item?.done });
+    } else if (prevLen > 0 && text.length < prevLen && !item?.done) {
+      logWarn('ui', 'chat.streaming.text_shrunk', { item_id: itemId, prev_len: prevLen, current_len: text.length, done: item?.done });
     }
   }
 
-  function getStateByText(text) {
-    if (!text) return emptyState;
-    const wv = getWidthVersion(), fv = getFontVersion();
-    if (wv !== lastWidthVer || fv !== lastFontVer) {
-      cache.clear();
-      lastWidthVer = wv;
-      lastFontVer = fv;
+  if (!text) return state.emptyState;
+  if (item?.done !== false || !itemId) {
+    clearStaleGuard(state);
+    if (itemId) {
+      state.displayedByItemId.delete(itemId);
+      state.pendingByItemId.delete(itemId);
     }
-    if (cache.has(text)) return cache.get(text) || emptyState;
-    const next = buildStreamingMarkdownState(text, emptyState);
-    cache.set(text, next);
-    if (cache.size > 280) cache.delete(cache.keys().next().value);
-    return next;
+    return getStateByText(state, text);
   }
 
-  function flushPending() {
-    scheduledFrame = null;
-    if (disposed || pendingByItemId.size === 0) return;
-    clearStaleGuard();
-    let changed = false;
-    const flushStart = performance.now();
-    for (const [itemId, entry] of pendingByItemId.entries()) {
-      const current = displayedByItemId.get(itemId);
-      if (!entry.state) {
-        entry.state = getStateByText(entry.text);
-      }
-      if (!current || current.text !== entry.text || current.state !== entry.state) {
-        displayedByItemId.set(itemId, entry);
-        changed = true;
-      }
-    }
-    const flushDurationMs = Math.round(performance.now() - flushStart);
-    const flushedCount = pendingByItemId.size;
-    pendingByItemId.clear();
-    if (changed && typeof onStateFlush === 'function') onStateFlush();
-    // Warn if flush render took too long — this blocks main thread and causes UI stall
-    if (flushDurationMs > 50 && typeof onStallDetected === 'function') {
-      onStallDetected({
-        reason: 'flush_slow',
-        duration_ms: flushDurationMs,
-        items_flushed: flushedCount,
-        displayed_count: displayedByItemId.size,
+  const displayed = state.displayedByItemId.get(itemId);
+  if (!displayed) {
+    const nextState = getStateByText(state, text);
+    const initial = { text, state: nextState };
+    state.displayedByItemId.set(itemId, initial);
+    return nextState;
+  }
+  if (displayed.text === text) {
+    clearStaleGuard(state);
+    return displayed.state;
+  }
+
+  const pending = state.pendingByItemId.get(itemId);
+  if (!pending || pending.text !== text) {
+    state.pendingByItemId.set(itemId, { text, state: null });
+    scheduleFlush(state);
+  }
+  clearStaleGuard(state);
+  const backstopEnqueuedAt = performance.now();
+  state.staleGuardTimer = setTimeout(() => {
+    state.staleGuardTimer = null;
+    if (state.disposed) return;
+    const backstopDelayMs = Math.round(performance.now() - backstopEnqueuedAt);
+    if (typeof state.onStallDetected === 'function') {
+      state.onStallDetected({
+        reason: 'stale_guard_fired',
+        delay_ms: backstopDelayMs,
+        pending_count: state.pendingByItemId.size,
+        displayed_count: state.displayedByItemId.size,
       });
     }
-    // Safety net: if new pending appeared during the heavy render above, re-schedule
-    if (!disposed && pendingByItemId.size > 0) scheduleFlush();
-  }
+    flushPending(state);
+  }, 200);
+  return displayed.state;
+}
 
-  function scheduleFlush() {
-    if (scheduledFrame || disposed) return;
-    scheduledFrame = scheduleFrame(flushPending);
-  }
+function disposeStreamingMarkdownStateResolver(state) {
+  state.disposed = true;
+  setInvalidateCallback(null);
+  state.pendingByItemId.clear();
+  state.displayedByItemId.clear();
+  cancelFrame(state.scheduledFrame);
+  state.scheduledFrame = null;
+  clearStaleGuard(state);
+}
 
-  const resolve = (item) => {
-    const text = (item?.text || '').toString();
-    const itemId = (item?.id || '').toString().trim();
-
-    if (itemId) {
-      const prevEntry = displayedByItemId.get(itemId) || pendingByItemId.get(itemId);
-      const prevLen = prevEntry?.text?.length || 0;
-      if (prevLen > 0 && text.length === 0) {
-        logWarn('ui', 'chat.streaming.text_vanished', { item_id: itemId, prev_len: prevLen, done: item?.done });
-      } else if (prevLen > 0 && text.length < prevLen && !item?.done) {
-        logWarn('ui', 'chat.streaming.text_shrunk', { item_id: itemId, prev_len: prevLen, current_len: text.length, done: item?.done });
-      }
-    }
-
-    if (!text) return emptyState;
-
-    if (item?.done !== false || !itemId) {
-      clearStaleGuard();
-      if (itemId) {
-        displayedByItemId.delete(itemId);
-        pendingByItemId.delete(itemId);
-      }
-      return getStateByText(text);
-    }
-
-    const displayed = displayedByItemId.get(itemId);
-    if (!displayed) {
-      const nextState = getStateByText(text);
-      const initial = { text, state: nextState };
-      displayedByItemId.set(itemId, initial);
-      return nextState;
-    }
-    if (displayed.text === text) {
-      clearStaleGuard();
-      return displayed.state;
-    }
-
-    const pending = pendingByItemId.get(itemId);
-    if (!pending || pending.text !== text) {
-      pendingByItemId.set(itemId, { text, state: null });
-      scheduleFlush();
-    }
-    // Backstop: force flush if normal path hasn't resolved within 200ms
-    clearStaleGuard();
-    const backstopEnqueuedAt = performance.now();
-    staleGuardTimer = setTimeout(() => {
-      staleGuardTimer = null;
-      if (disposed) return;
-      const backstopDelayMs = Math.round(performance.now() - backstopEnqueuedAt);
-      if (typeof onStallDetected === 'function') {
-        onStallDetected({
-          reason: 'stale_guard_fired',
-          delay_ms: backstopDelayMs,
-          pending_count: pendingByItemId.size,
-          displayed_count: displayedByItemId.size,
-        });
-      }
-      flushPending();
-    }, 200);
-    return displayed.state;
+export function createStreamingMarkdownStateResolver(onStateFlush = null, onStallDetected = null) {
+  const state = {
+    cache: new Map(),
+    displayedByItemId: new Map(),
+    pendingByItemId: new Map(),
+    emptyState: Object.freeze({ text: '', heightPx: 0 }),
+    lastWidthVer: 0,
+    lastFontVer: 0,
+    scheduleFrame: createFrameScheduler(),
+    scheduledFrame: null,
+    staleGuardTimer: null,
+    disposed: false,
+    onStateFlush,
+    onStallDetected,
   };
-
-  resolve.dispose = () => {
-    disposed = true;
-    setInvalidateCallback(null);
-    pendingByItemId.clear();
-    displayedByItemId.clear();
-    cancelFrame(scheduledFrame);
-    scheduledFrame = null;
-    clearStaleGuard();
-  };
-
+  setInvalidateCallback(() => handleLayoutInvalidation(state));
+  const resolve = (item) => resolveStreamingState(state, item);
+  resolve.dispose = () => disposeStreamingMarkdownStateResolver(state);
   return resolve;
 }

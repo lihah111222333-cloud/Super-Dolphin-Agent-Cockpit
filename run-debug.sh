@@ -6,6 +6,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKTREE_DIR="$PROJECT_DIR/.worktrees/test"
 FRONTEND_DIR="$PROJECT_DIR/cmd/agent-terminal/frontend"
 FORCE_NPM_REINSTALL="0"
+NPM_REGISTRY="https://registry.npmmirror.com"
 USE_FRIDA="1"
 USE_SERVER="0"
 FRIDA_VERSION_FILE_REL="build/frida-version.txt"
@@ -25,13 +26,38 @@ resolve_frida_version() {
   return 1
 }
 
+# frida-bootstrap 预编译缓存路径（和 BUILD_DIR 绑定，不同 worktree 各自缓存）
+FRIDA_BOOTSTRAP_BIN=""
+
+# 预编译或复用已有的 frida-bootstrap 二进制
+ensure_frida_bootstrap() {
+  local src_dir="$1"
+  local cache_bin="$src_dir/.build-cache/frida-bootstrap"
+  local src_hash_file="$src_dir/.build-cache/frida-bootstrap.srchash"
+  mkdir -p "$src_dir/.build-cache"
+
+  # 计算 frida-bootstrap 源码 hash（源码不变则复用缓存二进制）
+  local cur_hash
+  cur_hash=$(find "$src_dir/cmd/frida-bootstrap" -name '*.go' | sort | xargs md5 -q 2>/dev/null | md5 -q 2>/dev/null || echo "nohash")
+
+  if [ -f "$cache_bin" ] && [ -f "$src_hash_file" ] && [ "$(cat "$src_hash_file")" = "$cur_hash" ]; then
+    echo "  → frida-bootstrap 缓存命中，跳过编译"
+  else
+    echo "  → 编译 frida-bootstrap..."
+    CGO_ENABLED=1 go build -o "$cache_bin" "$src_dir/cmd/frida-bootstrap/"
+    echo "$cur_hash" > "$src_hash_file"
+  fi
+  FRIDA_BOOTSTRAP_BIN="$cache_bin"
+}
+
 build_debug_binary_with_frida() {
   local output="$1"
   local pkg="$2"
   local frida_version="$3"
   local frida_ldflags="-X github.com/multi-agent/go-agent-v2/pkg/idamcp.defaultFridaVersion=$frida_version"
-  CGO_ENABLED=1 go run ./cmd/frida-bootstrap --frida-version "$frida_version" -- \
-    go build -tags ida,frida -gcflags="all=-N -l" -ldflags "$frida_ldflags" -o "$output" "$pkg"
+  # 使用预编译的 frida-bootstrap，不再每次 go run（go run 不走 build cache）
+  CGO_ENABLED=1 "$FRIDA_BOOTSTRAP_BIN" --frida-version "$frida_version" -- \
+    go build -tags ida,frida -gcflags="-N -l" -ldflags "$frida_ldflags" -o "$output" "$pkg"
 }
 
 echo "┌──────────────────────────────────┐"
@@ -63,7 +89,7 @@ case "$choice" in
       *) echo "❌ 无效选择"; exit 1 ;;
     esac
     ;;
-  2) BUILD_DIR="$WORKTREE_DIR"; MODE="debug" ; LABEL="test + debug" ; FORCE_NPM_REINSTALL="1" ;;
+  2) BUILD_DIR="$WORKTREE_DIR"; MODE="debug" ; LABEL="test + debug" ;;
   3) BUILD_DIR="$PROJECT_DIR" ; MODE="normal"; LABEL="main + normal" ;;
   4) BUILD_DIR="$PROJECT_DIR" ; MODE="run-only"; LABEL="直接启动 (debug)" ;;
   5)
@@ -143,12 +169,22 @@ FRONT="$BUILD_DIR/cmd/agent-terminal/frontend"
 if [ -f "$FRONT/package.json" ]; then
   echo "[1/4] 编译前端..."
   cd "$FRONT"
-  # worktree 的 node_modules 可能残留或损坏, 强制重装
-  # 同时检测 package.json 是否比 node_modules 更新(新增依赖后需重装)
-  if [ ! -d "node_modules" ] || [ "$FORCE_NPM_REINSTALL" = "1" ] || [ "package.json" -nt "node_modules" ]; then
-    echo "  → npm install (清理重装)..."
-    rm -rf node_modules
-    npm install
+  # 三级依赖安装策略（按速度优先）：
+  #   1. node_modules 不存在 → 全新安装 (npm ci)
+  #   2. package-lock.json 比 node_modules 新 → lock 变了，需 ci 洁净安装
+  #   3. package.json 比 node_modules 新 → 有新增依赖，增量 install 即可
+  #   4. 其他 → 跳过，不安装
+  if [ ! -d "node_modules" ] || [ "$FORCE_NPM_REINSTALL" = "1" ]; then
+    echo "  → npm ci (首次/全量安装)..."
+    npm ci --registry="$NPM_REGISTRY"
+  elif [ -f "package-lock.json" ] && [ "package-lock.json" -nt "node_modules" ]; then
+    echo "  → npm ci (lock 文件已更新，洁净安装)..."
+    npm ci --registry="$NPM_REGISTRY"
+  elif [ "package.json" -nt "node_modules" ]; then
+    echo "  → npm install (增量追加新依赖)..."
+    npm install --registry="$NPM_REGISTRY"
+  else
+    echo "  → 依赖无变化，跳过安装"
   fi
   if ! npm run build; then
     echo ""
@@ -171,7 +207,21 @@ rm -rf "$HOME/Library/Caches/agent-terminal" \
 # 3) 后端代码守卫 + 编译
 cd "$BUILD_DIR"
 echo "[3/4] 后端代码守卫检查..."
-if ! go run ./scripts/code_size_guard.go; then
+
+# 预编译守卫工具并缓存（源码未变则跳过重编译，避免每次 go run）
+_GUARD_BIN="$BUILD_DIR/.build-cache/code-size-guard"
+_GUARD_HASH_FILE="$BUILD_DIR/.build-cache/code-size-guard.srchash"
+mkdir -p "$BUILD_DIR/.build-cache"
+_GUARD_CUR_HASH=$(md5 -q "$BUILD_DIR/scripts/code_size_guard.go" 2>/dev/null || echo "nohash")
+if [ ! -f "$_GUARD_BIN" ] || [ ! -f "$_GUARD_HASH_FILE" ] || [ "$(cat "$_GUARD_HASH_FILE")" != "$_GUARD_CUR_HASH" ]; then
+  echo "  → 编译 code_size_guard..."
+  go build -o "$_GUARD_BIN" "$BUILD_DIR/scripts/code_size_guard.go"
+  echo "$_GUARD_CUR_HASH" > "$_GUARD_HASH_FILE"
+else
+  echo "  → code_size_guard 缓存命中，跳过编译"
+fi
+
+if ! "$_GUARD_BIN"; then
   echo ""
   echo "⚠️  代码守卫检查未通过！按 Enter 跳过继续编译，Ctrl+C 中止"
   read -r
@@ -189,20 +239,23 @@ if [ "$MODE" = "debug" ] && [ "$USE_FRIDA" = "1" ]; then
     echo "❌ 当前源码树缺少 ./cmd/frida-bootstrap，无法执行 Frida debug 编译"
     exit 1
   fi
-  echo "[3/4] 编译后端 (debug + IDA + Frida: -tags ida,frida, -gcflags='all=-N -l')..."
+  # 预编译 frida-bootstrap（源码不变则复用缓存，不再每次 go run）
+  ensure_frida_bootstrap "$BUILD_DIR"
+  echo "[3/4] 编译后端 (debug + IDA + Frida: -tags ida,frida, -gcflags='-N -l')..."
   build_debug_binary_with_frida ./super-agent-debug ./cmd/agent-terminal "$FRIDA_DEVKIT_VERSION"
   build_debug_binary_with_frida ./mcp-orch ./cmd/mcp-orch "$FRIDA_DEVKIT_VERSION"
-  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-lsp ./cmd/mcp-lsp/
+  # 去掉 all= 前缀：仅本包禁优化，stdlib/第三方包仍走增量缓存
+  CGO_ENABLED=1 go build -gcflags="-N -l" -o ./mcp-lsp ./cmd/mcp-lsp/
 elif [ "$MODE" = "debug" ] && [ "$USE_SERVER" = "1" ]; then
-  echo "[3/4] 编译后端 (debug server 模式: -gcflags='all=-N -l')..."
-  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./super-agent-debug ./cmd/agent-terminal/
-  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-orch ./cmd/mcp-orch/
-  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-lsp ./cmd/mcp-lsp/
+  echo "[3/4] 编译后端 (debug server 模式: -gcflags='-N -l')..."
+  CGO_ENABLED=1 go build -gcflags="-N -l" -o ./super-agent-debug ./cmd/agent-terminal/
+  CGO_ENABLED=1 go build -gcflags="-N -l" -o ./mcp-orch ./cmd/mcp-orch/
+  CGO_ENABLED=1 go build -gcflags="-N -l" -o ./mcp-lsp ./cmd/mcp-lsp/
 elif [ "$MODE" = "debug" ] && [ "$USE_FRIDA" = "0" ]; then
-  echo "[3/4] 编译后端 (debug 无 Frida: -gcflags='all=-N -l')..."
-  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./super-agent-debug ./cmd/agent-terminal/
-  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-orch ./cmd/mcp-orch/
-  CGO_ENABLED=1 go build -gcflags="all=-N -l" -o ./mcp-lsp ./cmd/mcp-lsp/
+  echo "[3/4] 编译后端 (debug 无 Frida: -gcflags='-N -l')..."
+  CGO_ENABLED=1 go build -gcflags="-N -l" -o ./super-agent-debug ./cmd/agent-terminal/
+  CGO_ENABLED=1 go build -gcflags="-N -l" -o ./mcp-orch ./cmd/mcp-orch/
+  CGO_ENABLED=1 go build -gcflags="-N -l" -o ./mcp-lsp ./cmd/mcp-lsp/
 else
   echo "[3/4] 编译后端 (release)..."
   go build -o ./super-agent-debug ./cmd/agent-terminal/

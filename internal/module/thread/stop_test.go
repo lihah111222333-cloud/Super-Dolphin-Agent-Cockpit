@@ -294,7 +294,8 @@ type stubThreadSession struct {
 	calls      *[]string
 }
 
-func (s *stubThreadSession) ThreadID() string { return s.threadID }
+func (s *stubThreadSession) ThreadID() string    { return s.threadID }
+func (s *stubThreadSession) RolloutPath() string { return "" }
 func (s *stubThreadSession) Capabilities() dto.CapabilitySet {
 	return nil
 }

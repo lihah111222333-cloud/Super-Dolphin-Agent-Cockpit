@@ -87,6 +87,10 @@ var mcpRequiredEnvKeys = []string{
 	"GO_AGENT_CTL_BOOTSTRAP_JSON",
 }
 
+var mcpPassthroughEnvKeys = []string{
+	"DATABASE_URL",
+}
+
 var mcpLegacyEnvAliases = map[string][]string{
 	"GO_AGENT_CTL_RPC_ADDR":       {"RPC_ADDR"},
 	"GO_AGENT_CTL_INSTANCE_ID":    {"GO_AGENT_MCP_INSTANCE_ID"},
@@ -122,6 +126,14 @@ func normalizeManifestEnv(in map[string]string) map[string]string {
 				out[key] = val
 				break
 			}
+		}
+	}
+	for _, key := range mcpPassthroughEnvKeys {
+		if value := strings.TrimSpace(out[key]); value != "" {
+			continue
+		}
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			out[key] = value
 		}
 	}
 	return out

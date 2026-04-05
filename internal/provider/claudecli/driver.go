@@ -82,12 +82,19 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+	manifest := dto.BuildManifest(dto.ManifestContext{
+		AgentID:    strings.TrimSpace(req.AgentID),
+		CWD:        strings.TrimSpace(req.CWD),
+		ThreadCaps: copyCapabilities(claudeCapabilities),
+		BinaryDir:  providershared.ResolveBinaryDir(req.CWD, nil),
+	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
 		threadID:     shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID),
 		publicThread: req.ThreadID,
 		cwd:          req.CWD,
 		model:        req.Model,
+		manifest:     manifest,
 	})
 }
 

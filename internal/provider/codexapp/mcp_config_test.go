@@ -40,8 +40,8 @@ command = "/usr/local/bin/custom"
 	}
 
 	text := readCodexMCPTestFile(t, path)
-	if !strings.Contains(text, `[mcp_servers.mcp-lsp.env]`) {
-		t.Fatalf("config = %s, want env subtable for mcp-lsp", text)
+	if !strings.Contains(text, `[mcp_servers.lsp.env]`) {
+		t.Fatalf("config = %s, want env subtable for lsp", text)
 	}
 
 	doc := readCodexMCPTestDoc(t, path)
@@ -50,7 +50,7 @@ command = "/usr/local/bin/custom"
 	if custom["command"] != "/usr/local/bin/custom" {
 		t.Fatalf("custom server = %#v, want preserved command", custom)
 	}
-	lsp := mustCodexMCPServer(t, servers, "mcp-lsp")
+	lsp := mustCodexMCPServer(t, servers, "lsp")
 	if lsp["command"] != "/tmp/bin/mcp-lsp" {
 		t.Fatalf("lsp.command = %#v, want /tmp/bin/mcp-lsp", lsp["command"])
 	}
@@ -121,7 +121,7 @@ func TestWriteCodexMCPConfig_PreservesUserKeysAndUsesEnvTable(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "config.toml")
 	initial := strings.TrimSpace(`
-[mcp_servers.mcp-lsp]
+[mcp_servers.lsp]
 command = "/custom/bin/mcp-lsp"
 startup_timeout_sec = 30
 `) + "\n"
@@ -141,12 +141,12 @@ startup_timeout_sec = 30
 	if !strings.Contains(text, `type = "stdio"`) {
 		t.Fatalf("config = %s, want explicit stdio type", text)
 	}
-	if !strings.Contains(text, `[mcp_servers.mcp-lsp.env]`) {
+	if !strings.Contains(text, `[mcp_servers.lsp.env]`) {
 		t.Fatalf("config = %s, want env subtable", text)
 	}
 
 	doc := readCodexMCPTestDoc(t, path)
-	lsp := mustCodexMCPServer(t, mustCodexMCPServers(t, doc), "mcp-lsp")
+	lsp := mustCodexMCPServer(t, mustCodexMCPServers(t, doc), "lsp")
 	if lsp["startup_timeout_sec"] != int64(30) {
 		t.Fatalf("lsp.startup_timeout_sec = %#v, want 30", lsp["startup_timeout_sec"])
 	}
@@ -162,10 +162,10 @@ startup_timeout_sec = 30
 func TestMCPReadyWatcher_FailedStatus(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"mcp-lsp"})
-	w.OnStartupStatus("mcp-lsp", "failed")
+	w := newMCPReadyWatcher([]string{"lsp"})
+	w.OnStartupStatus("lsp", "failed")
 	err := w.Wait(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "mcp-lsp") || !strings.Contains(err.Error(), "failed") {
+	if err == nil || !strings.Contains(err.Error(), "lsp") || !strings.Contains(err.Error(), "failed") {
 		t.Fatalf("Wait() error = %v, want failed status for tracked server", err)
 	}
 }
@@ -173,11 +173,11 @@ func TestMCPReadyWatcher_FailedStatus(t *testing.T) {
 func TestMCPReadyWatcher_Timeout(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"mcp-lsp", "mcp-orch"})
+	w := newMCPReadyWatcher([]string{"lsp", "orch"})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 	err := w.Wait(ctx)
-	if err == nil || !strings.Contains(err.Error(), "mcp ready timeout after waiting for servers [mcp-lsp mcp-orch]") {
+	if err == nil || !strings.Contains(err.Error(), "mcp ready timeout after waiting for servers [lsp orch]") {
 		t.Fatalf("Wait() error = %v, want timeout with pending server list", err)
 	}
 }
@@ -224,10 +224,10 @@ func TestInjectCodexMCPServers_SkipsEmptyManifest(t *testing.T) {
 func TestMCPReadyWatcher_CancelledStatus(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"mcp-lsp"})
-	w.OnStartupStatus("mcp-lsp", "cancelled")
+	w := newMCPReadyWatcher([]string{"lsp"})
+	w.OnStartupStatus("lsp", "cancelled")
 	err := w.Wait(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "mcp-lsp") || !strings.Contains(err.Error(), "cancelled") {
+	if err == nil || !strings.Contains(err.Error(), "lsp") || !strings.Contains(err.Error(), "cancelled") {
 		t.Fatalf("Wait() error = %v, want cancelled status for tracked server", err)
 	}
 }
@@ -235,12 +235,12 @@ func TestMCPReadyWatcher_CancelledStatus(t *testing.T) {
 func TestMCPReadyWatcher_MultiServerAllReady(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"mcp-lsp", "mcp-orch"})
-	w.OnStartupStatus("mcp-orch", "ready")
-	if pending := w.pendingNames(); !reflect.DeepEqual(pending, []string{"mcp-lsp"}) {
+	w := newMCPReadyWatcher([]string{"lsp", "orch"})
+	w.OnStartupStatus("orch", "ready")
+	if pending := w.pendingNames(); !reflect.DeepEqual(pending, []string{"lsp"}) {
 		t.Fatalf("pendingNames() after first ready = %#v, want remaining tracked server", pending)
 	}
-	w.OnStartupStatus("mcp-lsp", "ready")
+	w.OnStartupStatus("lsp", "ready")
 	if pending := w.pendingNames(); len(pending) != 0 {
 		t.Fatalf("pendingNames() after all ready = %#v, want none", pending)
 	}
@@ -252,9 +252,9 @@ func TestMCPReadyWatcher_MultiServerAllReady(t *testing.T) {
 func TestMCPReadyWatcher_DuplicateReady(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"mcp-lsp"})
-	w.OnStartupStatus("mcp-lsp", "ready")
-	w.OnStartupStatus("mcp-lsp", "ready")
+	w := newMCPReadyWatcher([]string{"lsp"})
+	w.OnStartupStatus("lsp", "ready")
+	w.OnStartupStatus("lsp", "ready")
 	if pending := w.pendingNames(); len(pending) != 0 {
 		t.Fatalf("pendingNames() = %#v, want none after duplicate ready", pending)
 	}
@@ -266,9 +266,9 @@ func TestMCPReadyWatcher_DuplicateReady(t *testing.T) {
 func TestMCPReadyWatcher_UnknownServer(t *testing.T) {
 	t.Parallel()
 
-	w := newMCPReadyWatcher([]string{"mcp-lsp"})
-	w.OnStartupStatus("mcp-orch", "ready")
-	if pending := w.pendingNames(); !reflect.DeepEqual(pending, []string{"mcp-lsp"}) {
+	w := newMCPReadyWatcher([]string{"lsp"})
+	w.OnStartupStatus("orch", "ready")
+	if pending := w.pendingNames(); !reflect.DeepEqual(pending, []string{"lsp"}) {
 		t.Fatalf("pendingNames() = %#v, want tracked server unchanged", pending)
 	}
 }

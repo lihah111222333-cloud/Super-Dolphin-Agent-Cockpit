@@ -34,6 +34,7 @@ type threadStateFields struct {
 	CWD               string
 	Model             string
 	Prompt            string
+	RolloutPath       string
 	CreatedAt         int64
 }
 
@@ -60,6 +61,7 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 		fields.RequestedThreadID,
 		fields.AgentID,
 	)
+	state.RolloutPath = fields.RolloutPath
 	state.CreatedAt = firstNonZero(fields.CreatedAt)
 	return state
 }

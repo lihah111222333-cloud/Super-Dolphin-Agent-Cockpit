@@ -345,7 +345,8 @@ type historyTestSession struct {
 	readCalls  []historyReadCall
 }
 
-func (s *historyTestSession) ThreadID() string { return s.threadID }
+func (s *historyTestSession) ThreadID() string    { return s.threadID }
+func (s *historyTestSession) RolloutPath() string { return "" }
 
 func (s *historyTestSession) Capabilities() dto.CapabilitySet { return nil }
 

@@ -238,7 +238,8 @@ type stubSession struct {
 	setThreadNameCalls []string
 }
 
-func (s *stubSession) ThreadID() string { return s.threadID }
+func (s *stubSession) ThreadID() string    { return s.threadID }
+func (s *stubSession) RolloutPath() string { return "" }
 
 func (s *stubSession) Capabilities() dto.CapabilitySet { return s.caps }
 

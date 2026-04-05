@@ -22,6 +22,7 @@ type DriverFactory struct {
 // Session is the unified provider session abstraction.
 type Session interface {
 	ThreadID() string
+	RolloutPath() string
 	Capabilities() dto.CapabilitySet
 
 	StartTurn(ctx context.Context, req dto.TurnRequest) (TurnHandle, error)

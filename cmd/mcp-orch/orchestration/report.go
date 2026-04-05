@@ -165,7 +165,27 @@ func extractReportFromEventData(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return ""
 	}
-	return platformshared.FirstPayloadString(payload, "report", "summary", "uiText", "text", "message", "output", "result")
+	return reportTextFromPayload(payload)
+}
+
+func reportTextFromPayload(payload map[string]any) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	if report := platformshared.FirstPayloadString(payload, "report", "summary", "uiText", "text", "message", "output", "result"); report != "" {
+		return report
+	}
+	if nested, ok := payload["item"].(map[string]any); ok {
+		if report := reportTextFromPayload(nested); report != "" {
+			return report
+		}
+	}
+	if nested, ok := payload["payload"].(map[string]any); ok {
+		if report := reportTextFromPayload(nested); report != "" {
+			return report
+		}
+	}
+	return ""
 }
 
 func isTerminalReportEvent(eventType string, raw json.RawMessage) bool {
