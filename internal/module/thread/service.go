@@ -43,6 +43,7 @@ type service struct {
 	starter       SessionStarter
 	turns         turn.Service
 	orchestration OrchestrationFacade
+	bus           *event.Dispatcher
 
 	emitStarted      func(threaddto.Started)
 	emitStopped      func(threaddto.Stopped)
@@ -80,6 +81,7 @@ func NewService(
 		starter:          starter,
 		turns:            turns,
 		orchestration:    orchestration,
+		bus:              dispatcher,
 		emitStarted:      bus.NewEmitter[threaddto.Started](dispatcher),
 		emitStopped:      bus.NewEmitter[threaddto.Stopped](dispatcher),
 		emitMessagesPage: bus.NewEmitter[threaddto.MessagesPage](dispatcher),
