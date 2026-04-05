@@ -3,9 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
@@ -41,11 +39,11 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 				return runDocumentSymbols(ctx, mgr, req)
 			},
 			"workspace_symbol": func(ctx context.Context, req structureParams) (any, error) {
-				mgr, err := resolveWorkspaceSymbolManager(ctx, registry, req.FilePath, req.Language)
+				mgr, languageID, err := resolveWorkspaceSymbolManager(ctx, registry, req.FilePath, req.Language)
 				if err != nil {
 					return nil, err
 				}
-				return runWorkspaceSymbols(ctx, mgr, req)
+				return runWorkspaceSymbols(ctx, mgr, languageID, req)
 			},
 			"folding_range": func(ctx context.Context, req structureParams) (any, error) {
 				mgr, err := resolveManager()
@@ -66,14 +64,31 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 }
 
 // resolveWorkspaceSymbolManager picks the right manager based on language or
-// file_path, matching the validation logic in validateWorkspaceSymbolScope.
-func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Registry, filePath, language string) (lspmanager.Manager, error) {
+// file_path and returns the language that WorkspaceSymbol should use.
+func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Registry, filePath, language string) (lspmanager.Manager, string, error) {
 	language = normalizeWorkspaceSymbolLanguage(language)
 	filePath = strings.TrimSpace(filePath)
-	if language != "" {
-		return registry.GetManagerForLanguage(ctx, language)
+	if (filePath == "") == (language == "") {
+		return nil, "", errors.New("exactly one of file_path or language is required")
 	}
-	return registry.GetManagerForFile(ctx, filePath)
+	if language != "" {
+		manager, err := registry.GetManagerForLanguage(ctx, language)
+		if err != nil {
+			return nil, "", err
+		}
+		return manager, language, nil
+	}
+	if err := validateWorkspaceSymbolFilePath(filePath); err != nil {
+		return nil, "", err
+	}
+	manager, err := registry.GetManagerForFile(ctx, filePath)
+	if err != nil {
+		if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+			return nil, "", errors.New("path must point to a source file with a configured language server; use language for workspace-wide search, and use lsp_file/lsp_grep for docs or config files")
+		}
+		return nil, "", err
+	}
+	return manager, lspmanager.DetectLanguageID(workspaceSymbolPathForValidation(filePath)), nil
 }
 
 func runDocumentSymbols(
@@ -98,18 +113,16 @@ func runDocumentSymbols(
 func runWorkspaceSymbols(
 	ctx context.Context,
 	manager lspmanager.Manager,
+	languageID string,
 	req structureParams,
 ) (any, error) {
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
 		return nil, errors.New("query is required")
 	}
-	if err := validateWorkspaceSymbolScope(req.FilePath, req.Language); err != nil {
-		return nil, err
-	}
 	verbosity := format.NormalizeVerbosity(req.Verbosity)
 	limit := format.WorkspaceSymbolLimit(req.MaxResults, verbosity)
-	results, err := manager.WorkspaceSymbol(ctx, query)
+	results, err := manager.WorkspaceSymbol(ctx, query, languageID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,52 +181,16 @@ func runSemanticTokens(
 	return format.NormalizeForDisplay(result), nil
 }
 
-func validateWorkspaceSymbolScope(filePath, language string) error {
+func validateWorkspaceSymbolFilePath(filePath string) error {
 	filePath = strings.TrimSpace(filePath)
-	language = normalizeWorkspaceSymbolLanguage(language)
-	if (filePath == "") == (language == "") {
-		return errors.New("exactly one of file_path or language is required")
-	}
-	if language != "" {
-		if !supportsWorkspaceSymbolLanguage(language) {
-			return fmt.Errorf("language %q is not managed by gopls", language)
-		}
-		return nil
-	}
 	if stat, err := os.Stat(workspaceSymbolPathForValidation(filePath)); err == nil && stat.IsDir() {
 		return errors.New("directory path is not supported for workspace_symbol; use language instead")
-	}
-	if !supportsWorkspaceSymbolPath(filePath) {
-		return errors.New("path must point to a source file with a configured language server; use language for workspace-wide search, and use lsp_file/lsp_grep for docs or config files")
 	}
 	return nil
 }
 
 func normalizeWorkspaceSymbolLanguage(raw string) string {
 	return strings.ToLower(strings.TrimSpace(raw))
-}
-
-func supportsWorkspaceSymbolLanguage(language string) bool {
-	switch normalizeWorkspaceSymbolLanguage(language) {
-	case "go", "gomod", "gosum", "gowork":
-		return true
-	default:
-		return false
-	}
-}
-
-func supportsWorkspaceSymbolPath(path string) bool {
-	base := strings.ToLower(filepath.Base(path))
-	switch base {
-	case "go.mod", "go.sum", "go.work":
-		return true
-	}
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".go":
-		return true
-	default:
-		return false
-	}
 }
 
 func workspaceSymbolPathForValidation(path string) string {

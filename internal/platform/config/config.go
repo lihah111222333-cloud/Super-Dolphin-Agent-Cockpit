@@ -21,6 +21,7 @@ func New() *Config {
 		ProjectRoot: resolveProjectRoot(),
 	}
 	exportRPCAddrIfMissing(cfg.RPCAddr)
+	exportDatabaseURLIfMissing(cfg.DatabaseURL)
 	return cfg
 }
 
@@ -38,6 +39,16 @@ func exportRPCAddrIfMissing(addr string) {
 		return
 	}
 	os.Setenv("GO_AGENT_CTL_RPC_ADDR", addr)
+}
+
+func exportDatabaseURLIfMissing(databaseURL string) {
+	if strings.TrimSpace(os.Getenv("DATABASE_URL")) != "" {
+		return
+	}
+	if strings.TrimSpace(databaseURL) == "" {
+		return
+	}
+	os.Setenv("DATABASE_URL", databaseURL)
 }
 
 func resolveProjectRoot() string {
