@@ -21,7 +21,7 @@ func NewPool(cfg *config.Config) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
-	poolCfg.MaxConns = 4
+	poolCfg.MaxConns = 100
 	return pgxpool.NewWithConfig(context.Background(), poolCfg)
 }
 

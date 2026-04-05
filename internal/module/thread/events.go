@@ -34,7 +34,7 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
 	sessionID := strings.TrimSpace(ev.SessionID)
-	if sessionID == "" {
+	if sessionID == "" || !looksLikeUUID(sessionID) {
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -233,11 +234,18 @@ func manifestServers(manifest dto.MCPManifest, cwd string) map[string]any {
 
 func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool) {
 	name := strings.TrimSpace(bin.Name)
-	if name == "" || !strings.HasPrefix(name, managedMCPPrefix) || len(bin.Command) == 0 {
+	if name == "" || len(bin.Command) == 0 {
 		return "", nil, false
 	}
 	command := strings.TrimSpace(bin.Command[0])
 	if command == "" {
+		return "", nil, false
+	}
+	// Accept both short family names ("lsp", "orch") produced by
+	// BuildManifest since P14, and legacy prefixed names ("mcp-lsp").
+	// The binary on disk always keeps the "mcp-" prefix.
+	base := filepath.Base(command)
+	if !strings.HasPrefix(base, managedMCPPrefix) {
 		return "", nil, false
 	}
 	server := map[string]any{"command": command}

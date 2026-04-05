@@ -8,6 +8,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type launcherLaunchAttempt struct {
@@ -27,15 +28,22 @@ func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest)
 
 func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) (launcherLaunchAttempt, bool, error) {
 	if err := validateLaunchRequest(req); err != nil {
+		pkglogger.Warn("orchestration: launch rejected: validation failed",
+			"agent_id", req.AgentID, "name", req.Name, "error", err)
 		return launcherLaunchAttempt{}, true, err
 	}
 	s.mu.Lock()
 	agent := s.agentForLaunchLocked(req)
 	if launchInProgress(ctx, s, agent) {
+		pkglogger.Warn("orchestration: launch rejected: already in progress",
+			"agent_id", agent.id, "state", agent.state,
+			"launch_seq", agent.launchSeq, "last_exited_seq", agent.lastExitedSeq)
 		s.mu.Unlock()
 		return launcherLaunchAttempt{}, true, fmt.Errorf("agent %q already launched", agent.id)
 	}
 	if err := s.prepareLaunchLocked(ctx, agent); err != nil {
+		pkglogger.Warn("orchestration: launch rejected: prepare failed",
+			"agent_id", agent.id, "state", agent.state, "error", err)
 		s.mu.Unlock()
 		return launcherLaunchAttempt{}, true, err
 	}
@@ -66,10 +74,16 @@ func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaun
 	s.mu.Lock()
 	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
 	if err != nil {
+		pkglogger.Warn("orchestration: launch finish: stale seq (agent may have been replaced)",
+			"agent_id", attempt.agentID, "expected_seq", attempt.expectedSeq,
+			"launch_err", launchErr, "lookup_err", err)
 		s.mu.Unlock()
 		return s.discardStaleLaunchResult(ctx, &attempt.launching, launchErr)
 	}
 	if launchErr != nil {
+		pkglogger.Warn("orchestration: launch failed",
+			"agent_id", attempt.agentID, "state", agent.state,
+			"launch_seq", attempt.expectedSeq, "error", launchErr)
 		return s.failLauncherLaunchLocked(ctx, agent, &attempt.launching, launchErr)
 	}
 	return s.completeLauncherLaunchLocked(ctx, agent, &attempt.launching, result)
@@ -241,9 +255,15 @@ func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string
 	}
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if agent.cmd == nil {
+			pkglogger.Warn("orchestration: submit turn rejected: agent not running",
+				"agent_id", agent.id, "state", agent.state,
+				"launch_seq", agent.launchSeq, "last_exited_seq", agent.lastExitedSeq,
+				"last_error", agent.lastError)
 			return fmt.Errorf("agent %q is not running", agent.id)
 		}
 		if agent.stopRequested {
+			pkglogger.Warn("orchestration: submit turn rejected: agent stopping",
+				"agent_id", agent.id, "state", agent.state, "stop_reason", agent.stopReason)
 			return fmt.Errorf("agent %q is stopping", agent.id)
 		}
 		req.AgentID = agentID

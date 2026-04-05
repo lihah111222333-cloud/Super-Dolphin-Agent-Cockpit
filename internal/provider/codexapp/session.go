@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type session struct {
@@ -240,6 +241,8 @@ func (s *session) ForceStop() error {
 
 func (s *session) dispatch(raw dto.RawProviderEvent) {
 	if s.dispatcher == nil {
+		pkglogger.Warn("codexapp: dispatch skipped: no dispatcher",
+			"agent_id", s.agentID, "event_type", raw.EventType)
 		return
 	}
 	payload := decodeAnyPayload(raw.Data)

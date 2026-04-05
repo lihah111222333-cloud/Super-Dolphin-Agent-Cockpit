@@ -9,8 +9,10 @@ import (
 	"time"
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type processedApprovalEntry struct {
@@ -214,4 +216,90 @@ func isApprovalBridgeMethod(method string) bool {
 
 func isRequestUserInputMethod(method string) bool {
 	return hasMethod(method, requestUserInputMethods)
+}
+
+func (s *session) setMCPWatcher(w *mcpReadyWatcher) {
+	s.mcpWatcherMu.Lock()
+	s.mcpWatcher = w
+	s.mcpWatcherMu.Unlock()
+}
+
+func (s *session) getMCPWatcher() *mcpReadyWatcher {
+	s.mcpWatcherMu.Lock()
+	w := s.mcpWatcher
+	s.mcpWatcherMu.Unlock()
+	return w
+}
+
+func (s *session) onNotification(method string, params json.RawMessage) {
+	s.noteReadActivity()
+	if s.isAlienThreadEvent(params) {
+		pkglogger.Warn("codexapp: dropped alien thread event",
+			"agent_id", s.agentID, "method", method, "own_thread", s.ThreadID())
+		return
+	}
+	if s.shouldSuppressTurnEvent(method, params) {
+		pkglogger.Warn("codexapp: suppressed duplicate turn terminal event",
+			"agent_id", s.agentID, "method", method)
+		return
+	}
+	method = strings.TrimSpace(method)
+	raw := dto.RawProviderEvent{EventType: method, Data: params}
+	s.forwardMCPStatus(method, params)
+	if !isApprovalBridgeMethod(method) || s.approvals == nil {
+		s.dispatch(raw)
+	}
+	s.handleNotificationAction(method, params)
+}
+
+func (s *session) forwardMCPStatus(method string, params json.RawMessage) {
+	if w := s.getMCPWatcher(); w != nil && isMCPStartupStatus(method) {
+		name, status := extractStartupStatus(params)
+		w.OnStartupStatus(name, status)
+	}
+}
+
+func (s *session) handleNotificationAction(method string, params json.RawMessage) {
+	switch {
+	case isApprovalBridgeMethod(method):
+		s.handleApprovalRequest(method, params)
+	case isTurnTerminalEvent(method):
+		s.finishTurn(params, turnTerminalSuccess(method, decodeEventPayload(params)))
+	case method == "connection.dead":
+		s.handleConnectionDead(params)
+	}
+}
+
+func isMCPStartupStatus(method string) bool {
+	return hasMethod(method, mcpStartupStatusMethods)
+}
+
+func extractStartupStatus(params json.RawMessage) (name, status string) {
+	var payload struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+	_ = json.Unmarshal(params, &payload)
+	return strings.TrimSpace(payload.Name), strings.TrimSpace(payload.Status)
+}
+
+// isAlienThreadEvent returns true when the event payload carries a threadId
+// that does not match this session's thread. Events without a threadId (e.g.
+// MCP startup status, account/rateLimits) are never considered alien.
+func (s *session) isAlienThreadEvent(params json.RawMessage) bool {
+	own := s.ThreadID()
+	if own == "" {
+		return false
+	}
+	var envelope struct {
+		ThreadID string `json:"threadId"`
+	}
+	if err := json.Unmarshal(params, &envelope); err != nil {
+		return false
+	}
+	eventThread := strings.TrimSpace(envelope.ThreadID)
+	if eventThread == "" {
+		return false
+	}
+	return eventThread != own
 }

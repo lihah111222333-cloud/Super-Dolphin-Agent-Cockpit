@@ -13,6 +13,32 @@ import (
 
 var ErrUnsupportedLanguage = errors.New("unsupported language for LSP toolchain")
 
+var languageIDByBaseName = map[string]string{
+	"go.mod":  "gomod",
+	"go.sum":  "gosum",
+	"go.work": "gowork",
+}
+
+var languageIDByExtension = map[string]string{
+	".go":       "go",
+	".js":       "javascript",
+	".jsx":      "javascript",
+	".mjs":      "javascript",
+	".cjs":      "javascript",
+	".ts":       "typescript",
+	".tsx":      "typescript",
+	".py":       "python",
+	".pyi":      "python",
+	".rs":       "rust",
+	".java":     "java",
+	".css":      "css",
+	".md":       "markdown",
+	".markdown": "markdown",
+	".json":     "json",
+	".yaml":     "yaml",
+	".yml":      "yaml",
+}
+
 // Registry route requests to different LSP Managers based on file type.
 type Registry interface {
 	GetManagerForFile(ctx context.Context, filePath string) (Manager, error)
@@ -49,7 +75,7 @@ func (r *dynamicRegistry) Register(languageID string, manager Manager) {
 
 func (r *dynamicRegistry) GetManagerForFile(ctx context.Context, filePath string) (Manager, error) {
 	lang := DetectLanguageID(filePath)
-	
+
 	r.mu.RLock()
 	config, ok := r.managers[lang]
 	r.mu.RUnlock()
@@ -90,7 +116,7 @@ func (r *dynamicRegistry) GetManagerForLanguage(ctx context.Context, languageID 
 func (r *dynamicRegistry) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	var errs []error
 	for _, cfg := range r.managers {
 		if err := cfg.manager.Close(); err != nil {
@@ -102,39 +128,14 @@ func (r *dynamicRegistry) Close() error {
 }
 
 func DetectLanguageID(path string) string {
-	base := strings.ToLower(filepath.Base(path))
-	switch base {
-	case "go.mod":
-		return "gomod"
-	case "go.sum":
-		return "gosum"
-	case "go.work":
-		return "gowork"
+	if languageID, ok := languageIDByBaseName[strings.ToLower(filepath.Base(path))]; ok {
+		return languageID
 	}
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".go":
-		return "go"
-	case ".js", ".jsx", ".mjs", ".cjs":
-		return "javascript"
-	case ".ts", ".tsx":
-		return "typescript"
-	case ".py":
-		return "python"
-	case ".rs":
-		return "rust"
-	case ".java":
-		return "java"
-	case ".css":
-		return "css"
-	case ".md", ".markdown":
-		return "markdown"
-	case ".json":
-		return "json"
-	case ".yaml", ".yml":
-		return "yaml"
-	default:
-		return strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+	ext := strings.ToLower(filepath.Ext(path))
+	if languageID, ok := languageIDByExtension[ext]; ok {
+		return languageID
 	}
+	return strings.TrimPrefix(ext, ".")
 }
 
 func (r *dynamicRegistry) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {

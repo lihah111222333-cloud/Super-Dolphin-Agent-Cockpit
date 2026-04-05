@@ -373,6 +373,7 @@ func TestLanguageDetection_E2E(t *testing.T) {
 		{"service.ts", "typescript"},
 		{"component.tsx", "typescript"},
 		{"models.py", "python"},
+		{"stubs.pyi", "python"},
 		{"lib.rs", "rust"},
 		{"App.java", "java"},
 	}

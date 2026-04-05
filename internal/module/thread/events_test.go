@@ -27,7 +27,8 @@ func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {
 	cancels := registerThreadSubscriptions(svc)
 	defer cancelThreadSubscriptions(cancels)
 
-	event.Publish(dispatcher, newAgentLaunchedEvent("agent-1", "thread-1", "session-uuid-1"))
+	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
+	event.Publish(dispatcher, newAgentLaunchedEvent("agent-1", "thread-1", realUUID))
 	select {
 	case <-bindings.updateCh:
 	case <-time.After(time.Second):
@@ -38,11 +39,11 @@ func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {
 		t.Fatalf("len(sessionUpdates) = %d, want 1", len(bindings.sessionUpdates))
 	}
 	got := bindings.sessionUpdates[0]
-	if got.AgentID != "agent-1" || got.SessionUUID != "session-uuid-1" || got.UpdatedAt == 0 {
+	if got.AgentID != "agent-1" || got.SessionUUID != realUUID || got.UpdatedAt == 0 {
 		t.Fatalf("session update = %#v", got)
 	}
-	if bindings.binding.SessionUUID != "session-uuid-1" {
-		t.Fatalf("binding.SessionUUID = %q, want session-uuid-1", bindings.binding.SessionUUID)
+	if bindings.binding.SessionUUID != realUUID {
+		t.Fatalf("binding.SessionUUID = %q, want %s", bindings.binding.SessionUUID, realUUID)
 	}
 }
 

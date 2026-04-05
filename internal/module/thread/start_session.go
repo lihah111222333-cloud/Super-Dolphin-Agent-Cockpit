@@ -256,10 +256,14 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.CWD = shared.FirstNonEmpty(state.CWD, binding.Cwd)
 		// SessionUUID is updated asynchronously by onAgentLaunched when the
 		// real provider UUID arrives (e.g. claude system:init).  If it
-		// differs from ProviderThreadID the latter is stale (was set to the
-		// agentID placeholder before the real UUID was known) — prefer
+		// differs from ProviderThreadID the latter is stale — prefer
 		// SessionUUID so resume uses the correct provider session.
-		if state.SessionUUID != "" && state.SessionUUID != state.ProviderThreadID {
+		// However, SessionUUID itself can be an agent_id placeholder
+		// (e.g. "agent_17754...") that is NOT a valid provider UUID.
+		// Only override when SessionUUID looks like a real UUID.
+		if state.SessionUUID != "" &&
+			state.SessionUUID != state.ProviderThreadID &&
+			looksLikeUUID(state.SessionUUID) {
 			state.ProviderThreadID = state.SessionUUID
 		}
 	}
@@ -312,4 +316,25 @@ func trimRawJSON(raw json.RawMessage) json.RawMessage {
 		return nil
 	}
 	return raw
+}
+
+// looksLikeUUID returns true when s resembles a UUID (hex-and-dashes, 32+ hex chars).
+// It rejects agent_id placeholders like "agent_17754..." that are not valid provider UUIDs.
+func looksLikeUUID(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) < 32 {
+		return false
+	}
+	hex := 0
+	for _, c := range s {
+		switch {
+		case (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'):
+			hex++
+		case c == '-':
+			// ok
+		default:
+			return false
+		}
+	}
+	return hex >= 32
 }
