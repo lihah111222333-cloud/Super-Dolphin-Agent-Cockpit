@@ -46,7 +46,7 @@ type Manager interface {
 	TypeHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.TypeHierarchyResult, error)
 
 	DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error)
-	WorkspaceSymbol(ctx context.Context, query string) ([]protocol.WorkspaceSymbolResult, error)
+	WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error)
 	FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error)
 	SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error)
 

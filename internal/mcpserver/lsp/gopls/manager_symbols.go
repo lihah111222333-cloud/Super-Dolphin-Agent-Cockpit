@@ -171,8 +171,12 @@ func (m *manager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.Do
 	)
 }
 
-func (m *manager) WorkspaceSymbol(ctx context.Context, query string) ([]protocol.WorkspaceSymbolResult, error) {
-	client, err := m.ensureClientForLanguage(ctx, "go")
+func (m *manager) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
+	languageID = normalizeLanguageID(languageID)
+	if languageID == "" {
+		languageID = "go"
+	}
+	client, err := m.ensureClientForLanguage(ctx, languageID)
 	if err != nil {
 		return nil, err
 	}
