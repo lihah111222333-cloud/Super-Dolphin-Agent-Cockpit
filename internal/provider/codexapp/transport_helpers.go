@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/gorilla/websocket"
 )
 
@@ -194,6 +195,9 @@ func (t *transport) writeJSON(v any) error {
 }
 
 func (t *transport) endReadLoop(ctx context.Context, handler func(string, json.RawMessage), err error, message string) bool {
+	pkglogger.Warn("codexapp: transport read loop ending",
+		"server_url", t.serverURL, "local", t.local, "closed", t.closed.Load(),
+		"error", err, "message", message)
 	if err != nil {
 		t.failPending(err)
 	}

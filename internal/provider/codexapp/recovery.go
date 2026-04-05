@@ -11,6 +11,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type recoveryManager struct {
@@ -367,6 +368,8 @@ func (s *session) runReadLoop(done chan struct{}) {
 }
 
 func (s *session) finishReadLoop(done chan struct{}) {
+	pkglogger.Warn("codexapp: read loop exited",
+		"agent_id", s.agentID, "thread_id", s.ThreadID())
 	close(done)
 	s.readLoopMu.Lock()
 	defer s.readLoopMu.Unlock()

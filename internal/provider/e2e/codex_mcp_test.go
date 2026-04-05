@@ -34,16 +34,16 @@ func TestCodexMCPInjection_E2E(t *testing.T) {
 	}
 
 	raw := readCodexFile(t, path)
-	if !strings.Contains(raw, `[mcp_servers.mcp-lsp.env]`) {
-		t.Fatalf("config = %s, want env subtable for mcp-lsp", raw)
+	if !strings.Contains(raw, `[mcp_servers.lsp.env]`) {
+		t.Fatalf("config = %s, want env subtable for lsp", raw)
 	}
-	if !strings.Contains(raw, `[mcp_servers.mcp-orch.env]`) {
-		t.Fatalf("config = %s, want env subtable for mcp-orch", raw)
+	if !strings.Contains(raw, `[mcp_servers.orch.env]`) {
+		t.Fatalf("config = %s, want env subtable for orch", raw)
 	}
 
 	doc := readCodexDoc(t, path)
-	assertManagedCodexServer(t, codexServer(t, doc, "mcp-lsp"), "mcp-lsp")
-	assertManagedCodexServer(t, codexServer(t, doc, "mcp-orch"), "mcp-orch")
+	assertManagedCodexServer(t, codexServer(t, doc, "lsp"), "lsp")
+	assertManagedCodexServer(t, codexServer(t, doc, "orch"), "orch")
 }
 
 func TestCodexMCPConfig_PreservesUserKeys_E2E(t *testing.T) {
@@ -100,8 +100,8 @@ startup_timeout_sec = 45
 		t.Fatalf("postgres.startup_timeout_sec = %#v, want 45", postgres["startup_timeout_sec"])
 	}
 
-	assertManagedCodexServer(t, codexServer(t, doc, "mcp-lsp"), "mcp-lsp")
-	assertManagedCodexServer(t, codexServer(t, doc, "mcp-orch"), "mcp-orch")
+	assertManagedCodexServer(t, codexServer(t, doc, "lsp"), "lsp")
+	assertManagedCodexServer(t, codexServer(t, doc, "orch"), "orch")
 }
 
 func requireCodexCLI(t *testing.T) {
@@ -151,7 +151,7 @@ func codexServer(t *testing.T, doc map[string]any, name string) map[string]any {
 
 func assertManagedCodexServer(t *testing.T, server map[string]any, name string) {
 	t.Helper()
-	command := "/tmp/codex-e2e/bin/" + name
+	command := "/tmp/codex-e2e/bin/mcp-" + name
 	if server["type"] != "stdio" {
 		t.Fatalf("%s.type = %#v, want stdio", name, server["type"])
 	}

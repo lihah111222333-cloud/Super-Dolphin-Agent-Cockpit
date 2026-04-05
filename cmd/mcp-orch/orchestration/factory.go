@@ -221,6 +221,9 @@ func (s *service) commitLaunchFailureLocked(
 	if agent != nil {
 		values := append(append([]string(nil), details...), launchErr.Error())
 		agent.lastError = shared.FirstTrimmed(values...)
+		s.logger.Warn("orchestration: launch failure committed",
+			"agent_id", agent.id, "state", agent.state, "error", launchErr,
+			"details", strings.Join(details, "; "))
 	}
 	if agent == nil {
 		return launchErr

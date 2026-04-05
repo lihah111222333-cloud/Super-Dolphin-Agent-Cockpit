@@ -2,8 +2,13 @@ package codexapp
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -174,3 +179,170 @@ func resolveLocalTurnID(requested, fallback string) string {
 	}
 	return strings.TrimSpace(fallback)
 }
+
+// managedMCPBinaries are the singleton sidecar binaries that belong to the
+// shared app-server lifecycle.
+var managedMCPBinaries = map[string]struct{}{
+	"mcp-orch": {},
+	"mcp-lsp":  {},
+}
+
+// mcpProcessInfo holds PID and PPID for a discovered MCP sidecar process.
+type mcpProcessInfo struct {
+	pid    int
+	ppid   int
+	binary string
+}
+
+// cleanOrphanedMCPProcesses finds mcp-orch and mcp-lsp processes that are
+// NOT part of the current application process tree. Such processes are
+// orphans from a previous run (crash, SIGKILL, run-debug restart, etc.).
+//
+// Returns the number of processes killed.
+func cleanOrphanedMCPProcesses(skipPIDs map[int]struct{}) int {
+	allProcs, mcpProcs := discoverProcesses()
+	if len(mcpProcs) == 0 {
+		return 0
+	}
+
+	myTree := buildProcessTree(os.Getpid(), allProcs)
+
+	killed := 0
+	for _, proc := range mcpProcs {
+		if proc.pid <= 1 {
+			continue
+		}
+		if len(skipPIDs) > 0 {
+			if _, skip := skipPIDs[proc.pid]; skip {
+				continue
+			}
+		}
+		if _, inTree := myTree[proc.pid]; inTree {
+			continue
+		}
+		if err := killMCPProcess(proc.pid); err != nil {
+			pkglogger.Warn("orphan cleanup: kill failed",
+				"binary", proc.binary, "pid", proc.pid, "ppid", proc.ppid,
+				"error", err)
+			continue
+		}
+		pkglogger.Info("orphan cleanup: killed orphaned MCP process",
+			"binary", proc.binary, "pid", proc.pid, "ppid", proc.ppid)
+		killed++
+	}
+	if killed > 0 {
+		pkglogger.Info("orphan cleanup: summary", "total_killed", killed)
+	}
+	return killed
+}
+
+// discoverProcesses runs a single `ps -eo pid,ppid,comm` and returns:
+//   - allProcs: map[pid]ppid for the entire process table (used for tree building)
+//   - mcpProcs: filtered list of mcp-orch/mcp-lsp entries
+func discoverProcesses() (allProcs map[int]int, mcpProcs []mcpProcessInfo) {
+	out, err := exec.Command("ps", "-eo", "pid,ppid,comm").Output()
+	if err != nil {
+		pkglogger.Warn("orphan cleanup: ps command failed", "error", err)
+		return nil, nil
+	}
+
+	allProcs = make(map[int]int, 256)
+	for _, line := range strings.Split(string(out), "\n") {
+		pid, ppid, binary, ok := parseProcessLine(line)
+		if !ok {
+			continue
+		}
+		allProcs[pid] = ppid
+		if binary != "" {
+			mcpProcs = append(mcpProcs, mcpProcessInfo{pid: pid, ppid: ppid, binary: binary})
+		}
+	}
+	return allProcs, mcpProcs
+}
+
+func parseProcessLine(line string) (pid, ppid int, binary string, ok bool) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return 0, 0, "", false
+	}
+
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return 0, 0, "", false
+	}
+
+	pid, ppid, ok = parseProcessIDs(fields)
+	if !ok {
+		return 0, 0, "", false
+	}
+	return pid, ppid, matchMCPBinary(fields), true
+}
+
+func parseProcessIDs(fields []string) (pid, ppid int, ok bool) {
+	pid, err1 := strconv.Atoi(fields[0])
+	ppid, err2 := strconv.Atoi(fields[1])
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return pid, ppid, true
+}
+
+func matchMCPBinary(fields []string) string {
+	if len(fields) < 3 {
+		return ""
+	}
+
+	comm := fields[len(fields)-1]
+	if idx := strings.LastIndex(comm, "/"); idx >= 0 {
+		comm = comm[idx+1:]
+	}
+	if _, ok := managedMCPBinaries[comm]; ok {
+		return comm
+	}
+	return ""
+}
+
+// buildProcessTree returns all PIDs that are descendants of rootPID
+// (including rootPID itself). Uses a children-map + BFS for O(N) traversal.
+func buildProcessTree(rootPID int, allProcs map[int]int) map[int]struct{} {
+	children := make(map[int][]int, len(allProcs))
+	for pid, ppid := range allProcs {
+		children[ppid] = append(children[ppid], pid)
+	}
+
+	tree := make(map[int]struct{}, 16)
+	tree[rootPID] = struct{}{}
+	queue := []int{rootPID}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, child := range children[current] {
+			if _, seen := tree[child]; !seen {
+				tree[child] = struct{}{}
+				queue = append(queue, child)
+			}
+		}
+	}
+	return tree
+}
+
+// killMCPProcess terminates a process and its process group.
+func killMCPProcess(pid int) error {
+	if pid <= 1 {
+		return errors.New("refusing to kill PID <= 1")
+	}
+	pgErr := syscall.Kill(-pid, syscall.SIGKILL)
+	if pgErr == nil {
+		return nil
+	}
+	err := syscall.Kill(pid, syscall.SIGKILL)
+	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	return err
+}
+
+// mcpOrphanCleanupGracePeriod is the delay after stopping the codex process
+// before scanning for residual MCP sidecars. This gives the codex process
+// time to propagate SIGTERM to its MCP children.
+const mcpOrphanCleanupGracePeriod = 500 * time.Millisecond

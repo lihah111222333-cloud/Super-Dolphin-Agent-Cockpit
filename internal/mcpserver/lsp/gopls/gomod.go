@@ -97,42 +97,6 @@ func normalizeLanguageID(languageID string) string {
 	return strings.ToLower(strings.TrimSpace(languageID))
 }
 
-func detectLanguageID(path string) string {
-	base := strings.ToLower(filepath.Base(path))
-	switch base {
-	case "go.mod":
-		return "gomod"
-	case "go.sum":
-		return "gosum"
-	case "go.work":
-		return "gowork"
-	}
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".go":
-		return "go"
-	case ".js", ".jsx", ".mjs", ".cjs":
-		return "javascript"
-	case ".ts", ".tsx":
-		return "typescript"
-	case ".py", ".pyi":
-		return "python"
-	case ".rs":
-		return "rust"
-	case ".java":
-		return "java"
-	case ".css":
-		return "css"
-	case ".md", ".markdown":
-		return "markdown"
-	case ".json":
-		return "json"
-	case ".yaml", ".yml":
-		return "yaml"
-	default:
-		return strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
-	}
-}
-
 func fileURIFromPath(absPath string) string {
 	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(absPath)}).String()
 }

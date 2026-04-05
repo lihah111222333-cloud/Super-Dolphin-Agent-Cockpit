@@ -85,8 +85,11 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 
 	agent, lookupErr := lookupAgentBySeqLocked(s.agents, agentID, launchSeq)
 	if lookupErr != nil {
+		s.logger.Warn("orchestration: process exit ignored (stale seq)",
+			"agent_id", agentID, "launch_seq", launchSeq, "error", err)
 		return
 	}
+	stateBefore := agent.state
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	agent.cmd = nil
 	agent.exitedAt = &now
@@ -96,6 +99,10 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	s.removeSession(agent)
 	s.recordProcessExitError(agent, err)
 	s.handleProcessExitTransition(ctx, agent)
+	s.logger.Warn("orchestration: agent process exited",
+		"agent_id", agentID, "launch_seq", launchSeq,
+		"state_before", stateBefore, "state_after", agent.state,
+		"stop_requested", agent.stopRequested, "exit_error", err)
 	if agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
 		s.publishAgentStopped(agent, agent.stopReason)
 	}

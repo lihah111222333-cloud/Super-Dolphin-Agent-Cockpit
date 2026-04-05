@@ -22,12 +22,15 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 		CreatedAt: 123,
 		Status:    statusCreated,
 	}}
+	// SessionUUID must look like a real UUID so the resume logic prefers it
+	// over the stale ProviderThreadID placeholder.
+	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "agent-1",
 		CodexThreadID:    "thread-public",
-		SessionUUID:      "session-uuid-1",
+		SessionUUID:      realUUID,
 		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
@@ -35,10 +38,10 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 		if req.Provider != "claude" {
 			t.Fatalf("Provider = %q, want claude", req.Provider)
 		}
-		if req.ProviderThreadID != "session-uuid-1" {
-			t.Fatalf("ProviderThreadID = %q, want session-uuid-1", req.ProviderThreadID)
+		if req.ProviderThreadID != realUUID {
+			t.Fatalf("ProviderThreadID = %q, want %s", req.ProviderThreadID, realUUID)
 		}
-		session := &stubSession{threadID: "session-uuid-1"}
+		session := &stubSession{threadID: realUUID}
 		sessions.session = session
 		return session, nil
 	}}
@@ -48,7 +51,7 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Resume() error = %v", err)
 	}
-	if result.SessionID != "session-uuid-1" {
-		t.Fatalf("SessionID = %q, want session-uuid-1", result.SessionID)
+	if result.SessionID != realUUID {
+		t.Fatalf("SessionID = %q, want %s", result.SessionID, realUUID)
 	}
 }

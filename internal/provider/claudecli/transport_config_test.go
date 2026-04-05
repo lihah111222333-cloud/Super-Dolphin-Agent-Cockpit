@@ -71,7 +71,7 @@ func TestResolvePermissionModeAcceptsLegacyAndNewApprovalPolicies(t *testing.T) 
 	}
 }
 
-func TestWriteManifestConfigPreservesFullManagedServerName(t *testing.T) {
+func TestWriteManifestConfigAcceptsShortFamilyName(t *testing.T) {
 	t.Parallel()
 
 	manifest := dto.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
@@ -91,10 +91,11 @@ func TestWriteManifestConfigPreservesFullManagedServerName(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	servers, _ := doc["mcpServers"].(map[string]any)
-	if _, ok := servers["mcp-lsp"]; !ok {
-		t.Fatalf("mcpServers = %#v, want full managed server name key", servers)
+	// BuildManifest now emits short family names ("lsp", "orch").
+	if _, ok := servers["lsp"]; !ok {
+		t.Fatalf("mcpServers = %#v, want short family name key \"lsp\"", servers)
 	}
-	if _, ok := servers["lsp"]; ok {
-		t.Fatalf("mcpServers = %#v, got truncated key lsp", servers)
+	if _, ok := servers["orch"]; !ok {
+		t.Fatalf("mcpServers = %#v, want short family name key \"orch\"", servers)
 	}
 }

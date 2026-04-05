@@ -58,13 +58,13 @@ func TestClaudeMCPManifest_E2E(t *testing.T) {
 	if strings.Contains(string(raw), "env_vars") {
 		t.Fatalf("manifest = %s, got env_vars key", raw)
 	}
-	if _, ok := doc.MCPServers["mcp-orch"]; !ok {
-		t.Fatalf("mcpServers = %#v, want mcp-orch", doc.MCPServers)
+	if _, ok := doc.MCPServers["orch"]; !ok {
+		t.Fatalf("mcpServers = %#v, want orch", doc.MCPServers)
 	}
 
-	lsp, ok := doc.MCPServers["mcp-lsp"]
+	lsp, ok := doc.MCPServers["lsp"]
 	if !ok {
-		t.Fatalf("mcpServers = %#v, want mcp-lsp", doc.MCPServers)
+		t.Fatalf("mcpServers = %#v, want lsp", doc.MCPServers)
 	}
 	if lsp.Command != "/tmp/claude-e2e/bin/mcp-lsp" {
 		t.Fatalf("lsp.command = %q, want binary path", lsp.Command)

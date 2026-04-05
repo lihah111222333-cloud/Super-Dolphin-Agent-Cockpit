@@ -25,7 +25,7 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 func buildAgentSessionHeader(payload map[string]any) shareddto.AgentSessionHeader {
 	agentID := payloadAgentID(payload)
 	threadID := shared.FirstNonEmpty(agentID, payloadThreadID(payload))
-	return shareddto.AgentSessionHeader{AgentHeader: shareddto.AgentHeader{ThreadHeader: shareddto.ThreadHeader{EventHeader: shareddto.EventHeader{Timestamp: eventTime(payload)}, ThreadID: threadID}, AgentID: agentID}, SessionID: shared.FirstNonEmpty(stringValue(payload, "sessionId", "session_id"), threadID)}
+	return shareddto.AgentSessionHeader{AgentHeader: shareddto.AgentHeader{ThreadHeader: shareddto.ThreadHeader{EventHeader: shareddto.EventHeader{Timestamp: eventTime(payload)}, ThreadID: threadID}, AgentID: agentID}, SessionID: stringValue(payload, "sessionId", "session_id")}
 }
 
 func buildTurnHeader(payload map[string]any) shareddto.TurnHeader {

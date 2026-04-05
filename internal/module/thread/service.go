@@ -52,6 +52,11 @@ type service struct {
 
 	threadAgentsMu sync.RWMutex
 	threadAgents   map[string]string
+
+	// resumeInFlight tracks background resume attempts in progress.
+	// Prevents stampede when multiple ReadMessages calls trigger
+	// concurrent resume for the same agent.
+	resumeInFlight sync.Map // agentID → struct{}
 }
 
 var _ Service = (*service)(nil)
@@ -279,13 +284,23 @@ func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string)
 			return
 		}
 	}
+	// Prevent stampede: skip if a resume was already attempted for this agent.
+	// The entry is never deleted — a failed resume stays marked so we don't
+	// retry in an infinite loop and exhaust the DB connection pool.
+	if _, loaded := s.resumeInFlight.LoadOrStore(agentID, struct{}{}); loaded {
+		return
+	}
 	shared.SafeGo(s.logger, func() {
 		if s.logger != nil {
 			s.logger.Info("thread: background resume", "thread_id", threadID, "agent_id", agentID)
 		}
 		if _, err := s.Resume(context.Background(), ResumeRequest{ThreadID: threadID}); err != nil {
 			shared.LogIgnoredError(s.logger, "thread: background resume failed", err)
+			// Keep resumeInFlight entry to block further retries.
+			return
 		}
+		// Only clear on success so subsequent ReadMessages can detect a live session.
+		s.resumeInFlight.Delete(agentID)
 	})
 }
 

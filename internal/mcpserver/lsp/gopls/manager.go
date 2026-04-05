@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -182,7 +183,7 @@ func (m *manager) resolveDocumentRef(target, languageID string) (documentRef, er
 	}
 	lang := normalizeLanguageID(languageID)
 	if lang == "" {
-		lang = detectLanguageID(absPath)
+		lang = lspmanager.DetectLanguageID(absPath)
 	}
 	return documentRef{
 		raw:        target,
