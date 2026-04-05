@@ -37,6 +37,7 @@ type session struct {
 	readLoopMu         sync.Mutex
 	readLoopDone       chan struct{}
 	lastReadAt         atomic.Int64
+	recoveryCount      atomic.Int32
 	turns              map[string]*turnHandle
 	activeTurnID       string
 	pendingTurn        *turnReplayState

@@ -13,14 +13,19 @@ vi.mock('../services/log.js', () => ({
 }));
 
 import { useProjectStore } from './projects.js';
+import { selectProjectDir } from '../services/api.js';
 
 describe('projectOptions label disambiguation', () => {
     let store;
     beforeEach(() => {
         store = useProjectStore();
+        vi.mocked(selectProjectDir).mockReset().mockResolvedValue('');
         // reset state
         store.state.projects = [];
         store.state.active = '.';
+        store.state.showModal = false;
+        store.state.modalPath = '';
+        store.state.browsing = false;
     });
 
     it('keeps short label (slice -2) when no collision', () => {
@@ -77,6 +82,18 @@ describe('projectOptions label disambiguation', () => {
         const options = store.projectOptions.value;
         expect(options[1].value).toBe('/Users/mima0000/Desktop/wj/go-agent-v2');
         expect(options[2].value).toBe('/Users/mima0000/.worktrees/tag-v1.03/wj/go-agent-v2');
+    });
+
+    it('passes the current modal path to the native directory picker', async () => {
+        store.state.active = '/workspace/active-project';
+        store.state.modalPath = '/workspace/custom-seed';
+        vi.mocked(selectProjectDir).mockResolvedValue('/workspace/selected-project');
+
+        await store.browseDirectory();
+
+        expect(selectProjectDir).toHaveBeenCalledWith('/workspace/custom-seed');
+        expect(store.state.modalPath).toBe('/workspace/selected-project');
+        expect(store.state.browsing).toBe(false);
     });
 
     it('does not leak _segments into the final option objects', () => {

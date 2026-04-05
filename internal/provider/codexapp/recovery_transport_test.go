@@ -91,6 +91,7 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 	var mu sync.Mutex
 	turnStarts := 0
 	initializeCalls := 0
+	threadResumes := 0
 	upgrader2 := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader2.Upgrade(w, r, nil)
@@ -115,6 +116,11 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 				initializeCalls++
 				mu.Unlock()
 				result = mustJSON(map[string]any{"ok": true})
+			case "thread/resume":
+				mu.Lock()
+				threadResumes++
+				mu.Unlock()
+				result = mustJSON(map[string]any{"thread": map[string]any{"id": "thread-1"}})
 			case "turn/start":
 				mu.Lock()
 				turnStarts++
@@ -161,6 +167,13 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 		t.Fatalf("initial ProviderID() = %q, want turn-1", got)
 	}
 
+	s.setThreadID("thread-1")
+	beforeReadAt := time.Now().Add(-time.Second).UnixNano()
+	s.lastReadAt.Store(beforeReadAt)
+	s.mu.Lock()
+	s.suppressed["stale-turn"] = struct{}{}
+	s.mu.Unlock()
+
 	if err := s.attemptRecovery("test recovery"); err != nil {
 		t.Fatalf("attemptRecovery() error = %v", err)
 	}
@@ -172,6 +185,19 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 		t.Fatalf("activeTurnID = %q, want turn-2", got)
 	}
 
+	if got := s.recoveryCount.Load(); got != 0 {
+		t.Fatalf("recoveryCount = %d, want 0 after successful recovery", got)
+	}
+	if got := s.lastReadAt.Load(); got <= beforeReadAt {
+		t.Fatalf("lastReadAt = %d, want value newer than %d after successful recovery", got, beforeReadAt)
+	}
+	s.mu.Lock()
+	suppressedLen := len(s.suppressed)
+	s.mu.Unlock()
+	if suppressedLen != 0 {
+		t.Fatalf("suppressed size = %d, want 0 after successful recovery", suppressedLen)
+	}
+
 	mu.Lock()
 	defer mu.Unlock()
 	if turnStarts != 2 {
@@ -179,5 +205,36 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 	}
 	if initializeCalls != 2 {
 		t.Fatalf("initialize count = %d, want 2", initializeCalls)
+	}
+	if threadResumes != 1 {
+		t.Fatalf("thread/resume count = %d, want 1", threadResumes)
+	}
+}
+
+func TestSessionAttemptRecoveryStopsAfterMaxAttempts(t *testing.T) {
+	handle := newTurnHandle("local-1", "provider-1")
+	s := &session{
+		turns:      map[string]*turnHandle{"provider-1": handle},
+		suppressed: map[string]struct{}{},
+	}
+
+	for i := 0; i < maxRecoveryAttempts; i++ {
+		err := s.attemptRecovery("test recovery")
+		if err == nil || !strings.Contains(err.Error(), "recovery unavailable") {
+			t.Fatalf("attempt %d error = %v, want recovery unavailable", i+1, err)
+		}
+	}
+
+	err := s.attemptRecovery("test recovery")
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("max recovery attempts (%d) exceeded", maxRecoveryAttempts)) {
+		t.Fatalf("attempt %d error = %v, want max recovery attempts exceeded", maxRecoveryAttempts+1, err)
+	}
+	select {
+	case <-handle.Done():
+	default:
+		t.Fatal("handle.Done() not closed after max recovery attempts")
+	}
+	if got := handle.Err(); got == nil || !strings.Contains(got.Error(), "max recovery attempts exceeded") {
+		t.Fatalf("handle.Err() = %v, want max recovery attempts exceeded", got)
 	}
 }

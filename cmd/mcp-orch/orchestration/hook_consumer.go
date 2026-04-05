@@ -10,11 +10,16 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
 	hookTopicSessionStart = "agent.session.start"
 	hookTopicStateChange  = "agent.state.change"
+	hookTopicTurnAfter    = "agent.turn.after"
+	hookTopicTurnFailed   = "agent.turn.failed"
+	hookTopicTurnProgress = "agent.turn.progress"
 	hookTopicProcessExit  = "agent.process.exit"
 
 	hookSyncTrigger = "hook_state_sync"
@@ -22,6 +27,9 @@ const (
 	hookRelayKindThreadStarted = "thread.started"
 	hookRelayKindThreadStopped = "thread.stopped"
 	hookRelayKindStateChanged  = "agent.state_changed"
+	hookRelayKindTurnCompleted = "turn.completed"
+	hookRelayKindTurnInterrupted = "turn.interrupted"
+	hookRelayKindTurnItemCompleted = "turn.item_completed"
 )
 
 type HookConsumer interface {
@@ -62,6 +70,21 @@ func (c *hookConsumer) After(ctx context.Context, payload mcp.HookPayload) (mcp.
 		ev, ok := decodeHookEvent[agentdto.StateChanged](c.logger, envelope, hookRelayKindStateChanged)
 		if ok {
 			c.handleStateChanged(ctx, ev)
+		}
+	case hookTopicTurnAfter:
+		ev, ok := decodeHookEvent[turndto.TurnCompleted](c.logger, envelope, hookRelayKindTurnCompleted)
+		if ok {
+			c.handleTurnCompleted(ctx, ev)
+		}
+	case hookTopicTurnFailed:
+		ev, ok := decodeHookEvent[turndto.TurnInterrupted](c.logger, envelope, hookRelayKindTurnInterrupted)
+		if ok {
+			c.handleTurnInterrupted(ctx, ev)
+		}
+	case hookTopicTurnProgress:
+		ev, ok := decodeHookEvent[turndto.ItemCompleted](c.logger, envelope, hookRelayKindTurnItemCompleted)
+		if ok {
+			c.handleItemCompleted(ctx, ev)
 		}
 	case hookTopicProcessExit:
 		ev, ok := decodeHookEvent[threaddto.Stopped](c.logger, envelope, hookRelayKindThreadStopped)
@@ -143,6 +166,37 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 	c.logUnexpectedHookError("thread stopped", ev.AgentID, ev.ThreadID, err)
 }
 
+func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
+	if c == nil || c.svc == nil {
+		return
+	}
+	report := platformshared.FirstTrimmed(ev.Result, ev.Summary, ev.Message)
+	_, err := c.svc.HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
+		AgentID:   strings.TrimSpace(ev.AgentID),
+		Report:    report,
+		EventType: "turn/completed",
+		EventData: mustMarshalHookReportEvent(ev),
+	})
+	c.logUnexpectedHookError("turn completed report", ev.AgentID, ev.ThreadID, err)
+	handleTurnCompletedEvent(c.svc, c.logger, ev)
+}
+
+func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
+	handleTurnInterruptedEvent(c.svc, c.logger, ev)
+}
+
+func (c *hookConsumer) handleItemCompleted(ctx context.Context, ev turndto.ItemCompleted) {
+	if c == nil || c.svc == nil || !isFinalAnswerItem(ev) {
+		return
+	}
+	_, err := c.svc.HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
+		AgentID:   strings.TrimSpace(ev.AgentID),
+		EventType: strings.TrimSpace(platformshared.FirstTrimmed(ev.RawType, "item/completed")),
+		EventData: append(json.RawMessage(nil), ev.Payload...),
+	})
+	c.logUnexpectedHookError("turn item completed", ev.AgentID, ev.ThreadID, err)
+}
+
 func (c *hookConsumer) logUnexpectedHookError(action, agentID, threadID string, err error) {
 	if err == nil || errors.Is(err, errAgentNotFound) {
 		return
@@ -184,6 +238,48 @@ func decodeHookEvent[T any](logger *slog.Logger, envelope hookContextEnvelope, w
 		return zero, false
 	}
 	return event, true
+}
+
+func mustMarshalHookReportEvent(event any) json.RawMessage {
+	raw, err := json.Marshal(event)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func isFinalAnswerItem(ev turndto.ItemCompleted) bool {
+	if !strings.EqualFold(strings.TrimSpace(ev.ItemType), "agentMessage") || len(ev.Payload) == 0 {
+		return false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+		return false
+	}
+	item, _ := payload["item"].(map[string]any)
+	phase := firstPayloadString(item, "phase")
+	if phase == "" {
+		phase = firstPayloadString(payload, "phase")
+	}
+	switch strings.ToLower(strings.TrimSpace(phase)) {
+	case "final_answer", "final-answer", "finalanswer", "final":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstPayloadString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if payload == nil {
+			return ""
+		}
+		value, ok := payload[key].(string)
+		if ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func isKnownMirroredState(state string) bool {

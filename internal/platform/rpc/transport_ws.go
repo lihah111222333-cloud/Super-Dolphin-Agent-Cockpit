@@ -30,7 +30,13 @@ func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
 			return
 		}
 		ch := newWSChannel(conn)
-		srv := jrpc2.NewServer(mux, prepareServerOptions(opts)).Start(ch)
+		var rpcLog jrpc2.RPCLogger
+		tracker := (*rpcRequestTracker)(nil)
+		if server != nil {
+			tracker = newRPCRequestTracker(server.logger)
+			rpcLog = tracker
+		}
+		srv := jrpc2.NewServer(mux, prepareServerOptions(rpcLog, opts)).Start(ch)
 		if server != nil {
 			server.addActive(srv, dto.PeerKindUI)
 			defer server.removeActive(srv)
@@ -39,6 +45,9 @@ func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
 		defer srv.Stop()
 		defer ch.Close()
 		if err := srv.Wait(); err != nil && !isExpectedCloseErr(err) {
+			if tracker != nil {
+				tracker.logConnectionExit(err)
+			}
 			deadline := time.Now().Add(time.Second)
 			msg := websocket.FormatCloseMessage(websocket.CloseInternalServerErr, http.StatusText(http.StatusInternalServerError))
 			_ = conn.WriteControl(websocket.CloseMessage, msg, deadline)

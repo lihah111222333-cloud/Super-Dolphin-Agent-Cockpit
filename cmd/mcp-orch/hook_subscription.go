@@ -13,6 +13,9 @@ const orchestrationHookSubscriptionID = "mcp-orch-agent-lifecycle"
 var orchestrationHookTopics = []string{
 	"agent.session.start",
 	"agent.state.change",
+	"agent.turn.after",
+	"agent.turn.failed",
+	"agent.turn.progress",
 	"agent.process.exit",
 }
 

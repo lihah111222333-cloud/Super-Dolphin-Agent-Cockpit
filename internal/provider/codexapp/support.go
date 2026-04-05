@@ -83,6 +83,18 @@ func (s *session) ThreadID() string {
 	return strings.TrimSpace(threadID)
 }
 
+func (s *session) RolloutPath() string {
+	tid := s.ThreadID()
+	if tid == "" {
+		return ""
+	}
+	path, err := findRolloutPath(tid)
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
 func (s *session) setThreadID(threadID string) {
 	if s == nil {
 		return

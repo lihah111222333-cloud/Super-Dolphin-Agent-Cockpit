@@ -114,20 +114,23 @@ async function browseDirectory() {
   // UI intent only: actual directory picker is provided by Wails bridge (Go).
   state.browsing = true;
   const start = Date.now();
-  logInfo('project', 'browse.start', {});
+  const defaultPath = normalizePath(state.modalPath || (state.active === '.' ? '' : state.active));
+  logInfo('project', 'browse.start', { default_path: defaultPath });
   try {
-    const value = await selectProjectDir();
+    const value = await selectProjectDir(defaultPath);
     if (value) {
       state.modalPath = normalizePath(value);
     }
     logInfo('project', 'browse.done', {
       selected: Boolean(value),
       path: value || '',
+      default_path: defaultPath,
       duration_ms: Date.now() - start,
     });
   } catch (error) {
     logWarn('project', 'browse.failed', {
       error,
+      default_path: defaultPath,
       duration_ms: Date.now() - start,
     });
   } finally {

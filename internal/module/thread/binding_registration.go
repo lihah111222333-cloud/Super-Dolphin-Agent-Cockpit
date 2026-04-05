@@ -17,6 +17,7 @@ type bindingRegistration struct {
 	ProviderThreadID string
 	PublicThreadID   string
 	CWD              string
+	RolloutPath      string
 	CreatedAt        int64
 }
 
@@ -55,6 +56,7 @@ func normalizeBindingRegistration(state threadState) (bindingRegistration, error
 		ProviderThreadID: resolveProviderThreadID(state.ProviderThreadID, state.PublicThreadID),
 		PublicThreadID:   state.PublicThreadID,
 		CWD:              state.CWD,
+		RolloutPath:      state.RolloutPath,
 		CreatedAt:        state.CreatedAt,
 	}, nil
 }
@@ -210,6 +212,7 @@ func (s *service) persistRegisteredBinding(ctx context.Context, registration bin
 		Provider:         registration.Provider,
 		ProviderThreadID: registration.ProviderThreadID,
 		CodexThreadID:    registration.PublicThreadID,
+		RolloutPath:      registration.RolloutPath,
 		Cwd:              registration.CWD,
 		CreatedAt:        registration.CreatedAt,
 		UpdatedAt:        time.Now().Unix(),

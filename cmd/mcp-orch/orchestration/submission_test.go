@@ -255,6 +255,23 @@ func TestHandleReportEventTreatsCompletionAsTerminal(t *testing.T) {
 	}
 }
 
+func TestHandleReportEventExtractsNestedItemText(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{agents: map[string]*agentRuntime{"agent-1": {id: "agent-1"}}}
+	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
+		AgentID:   "agent-1",
+		EventType: "item/completed",
+		EventData: json.RawMessage(`{"item":{"type":"agentMessage","phase":"final_answer","text":"ORCH_OK"}}`),
+	})
+	if err != nil {
+		t.Fatalf("HandleReportEvent() error = %v", err)
+	}
+	if got.Report != "ORCH_OK" {
+		t.Fatalf("Report = %q, want ORCH_OK", got.Report)
+	}
+}
+
 func TestReportParamCompatibility(t *testing.T) {
 	t.Parallel()
 

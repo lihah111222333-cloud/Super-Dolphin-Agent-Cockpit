@@ -1,6 +1,18 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const runtimeMock = vi.hoisted(() => ({
+  byId: vi.fn(),
+}));
+
+vi.mock('/wails/runtime.js', () => ({
+  Call: { ByID: runtimeMock.byId },
+  Events: {
+    On: vi.fn(),
+    Off: vi.fn(),
+  },
+}), { virtual: true });
+
 vi.mock('./services/log.js', () => ({
   logDebug: vi.fn(),
   logInfo: vi.fn(),
@@ -14,9 +26,11 @@ import {
   copyTextToClipboard,
   normalizeRuntimeEventEnvelope,
   resolveThreadIdentity,
+  selectProjectDir,
 } from './services/api.js';
 
 beforeEach(() => {
+  runtimeMock.byId.mockReset();
   vi.stubGlobal('window', { __WAILS_SHIM_DEBUG__: true, location: { pathname: '/test' } });
   vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
   vi.stubGlobal('document', {
@@ -48,6 +62,26 @@ describe('api service behavior', () => {
   it('rejects non-object RPC params before touching the runtime bridge', async () => {
     await expect(callAPI('thread/list', [])).rejects.toThrow('callAPI params must be an object');
     await expect(callAPI('thread/list', 'bad')).rejects.toThrow('callAPI params must be an object');
+  });
+
+  it('falls back to RPC project directory selection when direct binding is unavailable', async () => {
+    runtimeMock.byId
+      .mockRejectedValueOnce(new Error('binding missing'))
+      .mockResolvedValueOnce({ path: '/tmp/from-rpc' });
+
+    await expect(selectProjectDir()).resolves.toBe('/tmp/from-rpc');
+
+    expect(runtimeMock.byId).toHaveBeenNthCalledWith(1, 3694631468);
+    expect(runtimeMock.byId).toHaveBeenNthCalledWith(
+      2,
+      2963398832,
+      'ui/selectProjectDir',
+      expect.objectContaining({
+        defaultPath: '',
+        _aoClientKind: 'web-debug-shim',
+        _aoClientRoute: '/test',
+      }),
+    );
   });
 
   it('copies text through browser clipboard in debug shim mode', async () => {

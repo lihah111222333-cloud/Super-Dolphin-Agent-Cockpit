@@ -85,6 +85,8 @@ func (s *session) ThreadID() string {
 	return s.threadID
 }
 
+func (s *session) RolloutPath() string { return "" }
+
 func (s *session) EventThreadID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

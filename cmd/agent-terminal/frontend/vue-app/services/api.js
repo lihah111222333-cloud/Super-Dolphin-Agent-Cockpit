@@ -289,12 +289,38 @@ export async function callAPI(method, params = {}) {
 }
 
 
-export async function selectProjectDir() {
+export async function selectProjectDir(defaultPath = '') {
   // Project directory chooser must be handled by Go/Wails native dialog.
-  logInfo('ui', 'selectProjectDir.start', {});
-  const value = await callByID(METHOD_IDS.SELECT_PROJECT_DIR, '');
-  const path = typeof value === 'string' ? value : '';
-  logInfo('ui', 'selectProjectDir.done', { selected: Boolean(path), path });
+  const seed = typeof defaultPath === 'string' ? defaultPath : '';
+  logInfo('ui', 'selectProjectDir.start', { default_path: seed });
+
+  if (!seed) {
+    try {
+      const value = await callByID(METHOD_IDS.SELECT_PROJECT_DIR);
+      if (typeof value === 'string') {
+        logInfo('ui', 'selectProjectDir.done', {
+          selected: Boolean(value),
+          path: value,
+          via: 'binding',
+        });
+        return value;
+      }
+      logWarn('ui', 'selectProjectDir.unexpectedShape', {
+        type: typeof value,
+        is_array: Array.isArray(value),
+      });
+    } catch (error) {
+      logWarn('ui', 'selectProjectDir.byId.failed', { error });
+    }
+  }
+
+  const raw = await callAPI('ui/selectProjectDir', { defaultPath: seed });
+  const path = raw && typeof raw === 'object' && typeof raw.path === 'string' ? raw.path : '';
+  logInfo('ui', 'selectProjectDir.done', {
+    selected: Boolean(path),
+    path,
+    via: 'rpc',
+  });
   return path;
 }
 

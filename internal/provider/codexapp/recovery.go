@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ type recoveryManager struct {
 }
 
 const (
+	maxRecoveryAttempts      = 3
 	healthCheckInterval      = 15 * time.Second
 	healthCheckIdleThreshold = 30 * time.Second
 )
@@ -106,6 +108,11 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 }
 
 func (s *session) attemptRecovery(reason string) error {
+	count := s.recoveryCount.Add(1)
+	if count > maxRecoveryAttempts {
+		s.failTurns(errors.New("codexapp: max recovery attempts exceeded"))
+		return fmt.Errorf("codexapp: max recovery attempts (%d) exceeded", maxRecoveryAttempts)
+	}
 	if s.recovery == nil {
 		return errors.New("codexapp: recovery unavailable")
 	}
@@ -117,7 +124,7 @@ func (s *session) attemptRecovery(reason string) error {
 			"agentId":  strings.TrimSpace(s.agentID),
 			"threadId": s.ThreadID(),
 			"reason":   strings.TrimSpace(reason),
-			"attempt":  1,
+			"attempt":  count,
 		},
 	})
 	if err := s.recovery.Reconnect(s.ctx); err != nil {
@@ -129,8 +136,36 @@ func (s *session) attemptRecovery(reason string) error {
 		return s.failRecovery(reason, err)
 	}
 	s.startReadLoop()
+	s.mu.Lock()
+	s.suppressed = make(map[string]struct{})
+	s.mu.Unlock()
+	if err := s.resumeThreadAfterRecovery(s.ctx); err != nil {
+		return s.failRecovery(reason, err)
+	}
 	if err := s.replayPendingTurn(s.ctx); err != nil {
 		return s.failRecovery(reason, err)
+	}
+	s.recoveryCount.Store(0)
+	s.noteReadActivity()
+	return nil
+}
+
+func (s *session) resumeThreadAfterRecovery(ctx context.Context) error {
+	threadID := s.ThreadID()
+	if threadID == "" {
+		return nil
+	}
+	if s.logger != nil {
+		s.logger.Info("codexapp: resuming thread after recovery", "thread_id", threadID)
+	}
+	raw, err := callWithTimeout(ctx, s.transport, 30*time.Second, "thread/resume", threadResumeParams{
+		ThreadID: threadID,
+	})
+	if err != nil {
+		return fmt.Errorf("codexapp: thread/resume after recovery failed: %w", err)
+	}
+	if newID, decodeErr := decodeThreadID(raw, threadID); decodeErr == nil && newID != "" {
+		s.setThreadID(newID)
 	}
 	return nil
 }

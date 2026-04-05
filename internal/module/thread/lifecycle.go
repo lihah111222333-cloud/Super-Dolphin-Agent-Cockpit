@@ -34,6 +34,7 @@ type threadState struct {
 	CWD              string
 	Model            string
 	Prompt           string
+	RolloutPath      string
 	CreatedAt        int64
 }
 
@@ -74,6 +75,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		CWD:              effectiveCWD,
 		Model:            effectiveModel,
 		Prompt:           req.Prompt,
+		RolloutPath:      session.RolloutPath(),
 		CreatedAt:        time.Now().Unix(),
 	})
 	publicThreadID := state.PublicThreadID
@@ -132,6 +134,7 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 		CWD:               req.CWD,
 		Model:             model,
 		Prompt:            state.Prompt,
+		RolloutPath:       shared.FirstNonEmpty(state.RolloutPath, session.RolloutPath()),
 		CreatedAt:         state.CreatedAt,
 	})
 	publicThreadID := threadState.PublicThreadID
@@ -197,6 +200,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		CWD:              cwd,
 		Model:            meta.Model,
 		Prompt:           meta.Prompt,
+		RolloutPath:      forkedSession.RolloutPath(),
 		CreatedAt:        time.Now().Unix(),
 	}), true); err != nil {
 		s.stopAgent(ctx, agentID)
@@ -251,6 +255,7 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		CWD:               shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
 		Model:             meta.Model,
 		Prompt:            meta.Prompt,
+		RolloutPath:       shared.FirstNonEmpty(binding.RolloutPath, session.RolloutPath()),
 		CreatedAt:         meta.CreatedAt,
 	}), true); err != nil {
 		return RecoverResult{}, err

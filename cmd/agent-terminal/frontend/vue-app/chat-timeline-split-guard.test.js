@@ -590,24 +590,24 @@ describe('ChatTimeline split guard coverage', () => {
     expect(idleVm.showPresencePopover.value).toBe(false);
   });
 
-  it('keeps streaming fenced-block and deferred flush branches stable', async () => {
+  it('keeps full-text pretext streaming and deferred flush branches stable', async () => {
     vi.useFakeTimers();
     const { props, vm } = setupTimeline({
       items: [{ id: 'assistant-1', kind: 'assistant', text: 'Intro\n```js\nconst x = 1', done: false }],
     });
 
     const initial = vm.streamingAssistantState(props.items[0]);
-    expect(initial.html).toContain('Intro');
-    expect(initial.tailText).toContain('```js');
+    expect(initial.text).toBe('Intro\n```js\nconst x = 1');
+    expect(initial.heightPx).toBeGreaterThanOrEqual(0);
 
     props.items = [{ ...props.items[0], text: 'Intro\n```js\nconst x = 1\n```', done: false }];
     const beforeFlush = vm.streamingAssistantState(props.items[0]);
-    expect(beforeFlush.tailText).toContain('```js');
+    expect(beforeFlush.text).toBe('Intro\n```js\nconst x = 1');
 
     await vi.advanceTimersByTimeAsync(32);
     const afterFlush = vm.streamingAssistantState(props.items[0]);
-    expect(afterFlush.tailText).toBe('');
-    expect(afterFlush.html).toContain('```');
+    expect(afterFlush.text).toBe('Intro\n```js\nconst x = 1\n```');
+    expect(afterFlush.heightPx).toBeGreaterThanOrEqual(0);
   });
 
   it('locks template split contracts for presence, plan card and approval actions', () => {
