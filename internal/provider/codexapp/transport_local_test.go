@@ -29,7 +29,7 @@ type localCodexHelper struct {
 
 func TestTransportSpawnLocalWaitsForReady(t *testing.T) {
 	helper := installLocalCodexHelper(t, "serve")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	transport, err := newTransport(ctx, "")
@@ -45,6 +45,27 @@ func TestTransportSpawnLocalWaitsForReady(t *testing.T) {
 		t.Fatal("transport.Running() = false, want true")
 	}
 	events := waitForHelperEvents(t, helper.logPath, 1, time.Second)
+	if events[0] != "initialize" {
+		t.Fatalf("first helper event = %q, want initialize; events=%v", events[0], events)
+	}
+}
+
+func TestTransportSpawnLocalWaitsPastLegacyRetryWindow(t *testing.T) {
+	helper := installLocalCodexHelper(t, "serve-after-delay")
+	t.Setenv("CODEX_HELPER_START_DELAY_MS", "4800")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	transport, err := newTransport(ctx, "")
+	if err != nil {
+		t.Fatalf("newTransport() error = %v", err)
+	}
+	defer func() { _ = transport.Close() }()
+
+	if !transport.local {
+		t.Fatal("transport.local = false, want true")
+	}
+	events := waitForHelperEvents(t, helper.logPath, 1, 2*time.Second)
 	if events[0] != "initialize" {
 		t.Fatalf("first helper event = %q, want initialize; events=%v", events[0], events)
 	}
@@ -70,7 +91,7 @@ func TestTransportCloseGracefullyStopsLocalProcess(t *testing.T) {
 
 func TestTransportStartupFailureCleansUpOrphans(t *testing.T) {
 	helper := installLocalCodexHelper(t, "fail-with-child")
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	_, err := newTransport(ctx, "")
@@ -125,6 +146,11 @@ func runCodexHelperProcess() error {
 	switch mode {
 	case "serve":
 		return runServeHelper(helperListenURL(args), false)
+	case "serve-after-delay":
+		if delay := helperStartDelay(); delay > 0 {
+			time.Sleep(delay)
+		}
+		return runServeHelper(helperListenURL(args), false)
 	case "serve-with-child":
 		return runServeHelper(helperListenURL(args), true)
 	case "fail-with-child":
@@ -134,6 +160,18 @@ func runCodexHelperProcess() error {
 	default:
 		return fmt.Errorf("unknown helper mode %q", mode)
 	}
+}
+
+func helperStartDelay() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("CODEX_HELPER_START_DELAY_MS"))
+	if raw == "" {
+		return 0
+	}
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms <= 0 {
+		return 0
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 func helperCommandArgs() []string {

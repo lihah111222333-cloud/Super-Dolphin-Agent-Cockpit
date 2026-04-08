@@ -17,6 +17,13 @@ type stubLifecycle struct {
 	hooks []fx.Hook
 }
 
+type agentSnapshot struct {
+	state        string
+	activeTurnID string
+	lastError    string
+	updatedAt    time.Time
+}
+
 func (l *stubLifecycle) Append(hook fx.Hook) {
 	l.hooks = append(l.hooks, hook)
 }
@@ -90,15 +97,15 @@ func TestRegisterTurnLifecycleHandlesTurnInterrupted(t *testing.T) {
 	interruptAt := time.Unix(1710000000, 0).UTC()
 	event.Publish(dispatcher, interruptedEventAt("agent-1", "thread-1", "turn-1", "user_cancelled", interruptAt))
 
-	waitForAgentState(t, agent, agentdto.StateIdle)
-	if agent.activeTurnID != "" {
-		t.Fatalf("activeTurnID = %q, want empty", agent.activeTurnID)
+	snapshot := waitForAgentState(t, svc, agent.id, agentdto.StateIdle)
+	if snapshot.activeTurnID != "" {
+		t.Fatalf("activeTurnID = %q, want empty", snapshot.activeTurnID)
 	}
-	if agent.lastError != "user_cancelled" {
-		t.Fatalf("lastError = %q, want user_cancelled", agent.lastError)
+	if snapshot.lastError != "user_cancelled" {
+		t.Fatalf("lastError = %q, want user_cancelled", snapshot.lastError)
 	}
-	if !agent.updatedAt.Equal(interruptAt) {
-		t.Fatalf("updatedAt = %s, want %s", agent.updatedAt, interruptAt)
+	if !snapshot.updatedAt.Equal(interruptAt) {
+		t.Fatalf("updatedAt = %s, want %s", snapshot.updatedAt, interruptAt)
 	}
 }
 
@@ -119,18 +126,19 @@ func TestHandleTurnInterruptedEventIsIdempotent(t *testing.T) {
 	firstInterruptAt := time.Unix(1710000000, 0).UTC()
 	secondInterruptAt := firstInterruptAt.Add(time.Minute)
 	event.Publish(dispatcher, interruptedEventAt("agent-1", "thread-1", "turn-1", "user_cancelled", firstInterruptAt))
-	waitForAgentState(t, agent, agentdto.StateIdle)
+	waitForAgentState(t, svc, agent.id, agentdto.StateIdle)
 	event.Publish(dispatcher, interruptedEventAt("agent-1", "thread-1", "turn-1", "user_cancelled", secondInterruptAt))
 
-	assertAgentUpdatedAtStays(t, agent, firstInterruptAt)
-	if agent.activeTurnID != "" {
-		t.Fatalf("activeTurnID = %q, want empty", agent.activeTurnID)
+	assertAgentUpdatedAtStays(t, svc, agent.id, firstInterruptAt)
+	snapshot := readAgentSnapshot(t, svc, agent.id)
+	if snapshot.activeTurnID != "" {
+		t.Fatalf("activeTurnID = %q, want empty", snapshot.activeTurnID)
 	}
-	if agent.lastError != "user_cancelled" {
-		t.Fatalf("lastError = %q, want user_cancelled", agent.lastError)
+	if snapshot.lastError != "user_cancelled" {
+		t.Fatalf("lastError = %q, want user_cancelled", snapshot.lastError)
 	}
-	if !agent.updatedAt.Equal(firstInterruptAt) {
-		t.Fatalf("updatedAt = %s, want %s", agent.updatedAt, firstInterruptAt)
+	if !snapshot.updatedAt.Equal(firstInterruptAt) {
+		t.Fatalf("updatedAt = %s, want %s", snapshot.updatedAt, firstInterruptAt)
 	}
 }
 
@@ -151,18 +159,19 @@ func TestHandleTurnCompletedEventConvergesAfterInterrupt(t *testing.T) {
 	interruptAt := time.Unix(1710000000, 0).UTC()
 	completedAt := interruptAt.Add(time.Minute)
 	event.Publish(dispatcher, interruptedEventAt("agent-1", "thread-1", "turn-1", "user_cancelled", interruptAt))
-	waitForAgentState(t, agent, agentdto.StateIdle)
+	waitForAgentState(t, svc, agent.id, agentdto.StateIdle)
 	event.Publish(dispatcher, completedEventAt("agent-1", "thread-1", "turn-1", true, "", completedAt))
 
-	assertAgentUpdatedAtStays(t, agent, interruptAt)
-	if agent.activeTurnID != "" {
-		t.Fatalf("activeTurnID = %q, want empty", agent.activeTurnID)
+	assertAgentUpdatedAtStays(t, svc, agent.id, interruptAt)
+	snapshot := readAgentSnapshot(t, svc, agent.id)
+	if snapshot.activeTurnID != "" {
+		t.Fatalf("activeTurnID = %q, want empty", snapshot.activeTurnID)
 	}
-	if agent.lastError != "user_cancelled" {
-		t.Fatalf("lastError = %q, want user_cancelled", agent.lastError)
+	if snapshot.lastError != "user_cancelled" {
+		t.Fatalf("lastError = %q, want user_cancelled", snapshot.lastError)
 	}
-	if !agent.updatedAt.Equal(interruptAt) {
-		t.Fatalf("updatedAt = %s, want %s", agent.updatedAt, interruptAt)
+	if !snapshot.updatedAt.Equal(interruptAt) {
+		t.Fatalf("updatedAt = %s, want %s", snapshot.updatedAt, interruptAt)
 	}
 }
 
@@ -227,27 +236,49 @@ func startTurnLifecycle(t *testing.T, dispatcher *event.Dispatcher, svc *service
 	})
 }
 
-func waitForAgentState(t *testing.T, agent *agentRuntime, wantState string) {
+func waitForAgentState(t *testing.T, svc *service, agentID, wantState string) agentSnapshot {
 	t.Helper()
 
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if agent.state == wantState {
-			return
+		snapshot := readAgentSnapshot(t, svc, agentID)
+		if snapshot.state == wantState {
+			return snapshot
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatalf("agent.state = %q, want %q", agent.state, wantState)
+	snapshot := readAgentSnapshot(t, svc, agentID)
+	t.Fatalf("agent.state = %q, want %q", snapshot.state, wantState)
+	return agentSnapshot{}
 }
 
-func assertAgentUpdatedAtStays(t *testing.T, agent *agentRuntime, want time.Time) {
+func assertAgentUpdatedAtStays(t *testing.T, svc *service, agentID string, want time.Time) {
 	t.Helper()
 
 	deadline := time.Now().Add(50 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if !agent.updatedAt.Equal(want) {
-			t.Fatalf("updatedAt = %s, want %s", agent.updatedAt, want)
+		snapshot := readAgentSnapshot(t, svc, agentID)
+		if !snapshot.updatedAt.Equal(want) {
+			t.Fatalf("updatedAt = %s, want %s", snapshot.updatedAt, want)
 		}
 		time.Sleep(time.Millisecond)
 	}
+}
+
+func readAgentSnapshot(t *testing.T, svc *service, agentID string) agentSnapshot {
+	t.Helper()
+
+	var snapshot agentSnapshot
+	if err := svc.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		snapshot = agentSnapshot{
+			state:        agent.state,
+			activeTurnID: agent.activeTurnID,
+			lastError:    agent.lastError,
+			updatedAt:    agent.updatedAt,
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("withAgentReadLocked(%q) error = %v", agentID, err)
+	}
+	return snapshot
 }

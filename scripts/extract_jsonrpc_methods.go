@@ -16,9 +16,9 @@ import (
 
 func main() {
 	roots := []string{
-		"internal/apiserver",
-		"internal/dashrpc",
-		"internal/skills",
+		"internal/module/thread",
+		"internal/module/turn",
+		"internal/module/uistate",
 	}
 	fset := token.NewFileSet()
 	methods := map[string]struct{}{}
@@ -75,8 +75,26 @@ func collectExtractedMethods(n ast.Node, consts map[string]string, methods map[s
 	if call, ok := n.(*ast.CallExpr); ok {
 		collectBindMethods(call, consts, methods)
 	}
+	if lit, ok := n.(*ast.CompositeLit); ok {
+		collectCompositeLiteralMethods(lit, consts, methods)
+	}
 	if name := extractedMethod(n, consts); name != "" {
 		methods[name] = struct{}{}
+	}
+}
+
+func collectCompositeLiteralMethods(lit *ast.CompositeLit, consts map[string]string, methods map[string]struct{}) {
+	if !isMethodMapLiteral(lit) {
+		return
+	}
+	for _, elt := range lit.Elts {
+		entry, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		if name, ok := methodFromExpr(entry.Key, consts); ok && validMethod(name) {
+			methods[name] = struct{}{}
+		}
 	}
 }
 
@@ -119,6 +137,15 @@ func extractedMethod(n ast.Node, consts map[string]string) string {
 func isBindMethodsCall(call *ast.CallExpr) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	return ok && sel.Sel != nil && sel.Sel.Name == "bindMethods"
+}
+
+func isMethodMapLiteral(lit *ast.CompositeLit) bool {
+	sel, ok := lit.Type.(*ast.SelectorExpr)
+	if !ok || sel.Sel == nil || sel.Sel.Name != "Map" {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == "handler"
 }
 
 func collectStringConsts(file *ast.File, out map[string]string) {

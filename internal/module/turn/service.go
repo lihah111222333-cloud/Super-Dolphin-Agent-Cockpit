@@ -12,16 +12,18 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type service struct {
-	logger    *slog.Logger
-	assembler *inputAssembler
-	skills    *skillResolver
-	manifest  *manifestBuilder
-	tracker   *turnTracker
+	logger                 *slog.Logger
+	assembler              *inputAssembler
+	skills                 *skillResolver
+	manifest               *manifestBuilder
+	tracker                *turnTracker
+	interruptSettleTimeout time.Duration
 }
 
 type steerableSession interface {
@@ -33,11 +35,12 @@ func NewService(logger *slog.Logger) Service {
 		logger = pkglogger.Get()
 	}
 	return &service{
-		logger:    logger,
-		assembler: &inputAssembler{},
-		skills:    &skillResolver{},
-		manifest:  newManifestBuilder(resolveBinaryDir()),
-		tracker:   newTurnTracker(),
+		logger:                 logger,
+		assembler:              &inputAssembler{},
+		skills:                 &skillResolver{},
+		manifest:               newManifestBuilder(resolveBinaryDir()),
+		tracker:                newTurnTracker(),
+		interruptSettleTimeout: config.InterruptSettleTimeout,
 	}
 }
 
@@ -210,7 +213,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 }
 
 func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle contract.TurnHandle) error {
-	deadline := time.Now().Add(interruptSettleTimeout)
+	deadline := time.Now().Add(s.interruptSettleTimeout)
 	ctx = platformshared.NonNilContext(ctx)
 	if err := waitForHandle(ctx, handle, deadline); err != nil && handle != nil {
 		return err

@@ -14,6 +14,7 @@ type generationTestSession struct {
 }
 
 func (s *generationTestSession) ThreadID() string                               { return s.threadID }
+func (s *generationTestSession) RolloutPath() string                            { return "" }
 func (s *generationTestSession) Capabilities() dto.CapabilitySet                { return nil }
 func (s *generationTestSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, nil

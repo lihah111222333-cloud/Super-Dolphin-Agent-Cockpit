@@ -39,6 +39,7 @@ type mockSession struct {
 }
 
 func (m *mockSession) ThreadID() string                { return m.threadID }
+func (m *mockSession) RolloutPath() string             { return "" }
 func (m *mockSession) Capabilities() dto.CapabilitySet { return m.caps }
 func (m *mockSession) Close(context.Context) error     { m.closed = true; return nil }
 func (m *mockSession) ForceStop() error                { m.forceStopped = true; return nil }

@@ -93,28 +93,41 @@ func (s *Server) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	pkglogger.Info("mcp: server run started", "server", s.name)
 	results := make(chan readResult, 1)
 	go s.readLoop(results)
 	for {
 		select {
 		case <-ctx.Done():
+			pkglogger.Warn("mcp: server run stopping (ctx done)",
+				"server", s.name, "error", ctx.Err())
 			_ = s.transport.Close()
 			return nil
 		case result, ok := <-results:
 			if !ok {
+				pkglogger.Warn("mcp: server run stopping (read channel closed)",
+					"server", s.name)
 				return nil
 			}
 			if shouldStop(result.err) {
+				pkglogger.Warn("mcp: server run stopping (EOF/pipe closed)",
+					"server", s.name, "error", result.err)
 				return nil
 			}
 			if result.err != nil {
+				pkglogger.Warn("mcp: server run stopping (read error)",
+					"server", s.name, "error", result.err)
 				return result.err
 			}
 			exit, err := s.handleMessage(ctx, result.payload)
 			if err != nil {
+				pkglogger.Warn("mcp: server run stopping (handle error)",
+					"server", s.name, "error", err)
 				return err
 			}
 			if exit {
+				pkglogger.Warn("mcp: server run stopping (exit requested)",
+					"server", s.name)
 				return nil
 			}
 		}
@@ -209,18 +222,29 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 	var params toolCallParams
 	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
 		err = fmt.Errorf("decode params: %w", err)
+		pkglogger.Warn("mcp: tools/call decode error",
+			"server", s.name, "error", err)
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
+	pkglogger.Info("mcp: tools/call begin",
+		"server", s.name, "tool", params.Name,
+		"req_id", string(req.ID))
 	start := time.Now()
 	result, err := s.callTool(ctx, params.Name, params.Arguments)
 	elapsed := time.Since(start)
-	if elapsed > 3*time.Second {
-		pkglogger.Warn("mcp: slow tool call",
-			"tool", params.Name, "elapsed", elapsed, "has_error", err != nil)
-	}
 	if err != nil {
+		pkglogger.Warn("mcp: tools/call error",
+			"server", s.name, "tool", params.Name,
+			"elapsed", elapsed, "error", err)
 		return errorResponse(req.ID, codeToolCall, err.Error())
 	}
+	if elapsed > 3*time.Second {
+		pkglogger.Warn("mcp: tools/call slow",
+			"server", s.name, "tool", params.Name, "elapsed", elapsed)
+	}
+	pkglogger.Info("mcp: tools/call done",
+		"server", s.name, "tool", params.Name,
+		"elapsed", elapsed, "result_len", len(result))
 	return maybeResult(req.ID, map[string]any{
 		"content": []textContent{{Type: "text", Text: result}},
 	})
@@ -252,7 +276,13 @@ func (s *Server) reply(resp *jsonRPCResponse) error {
 	if resp == nil {
 		return nil
 	}
-	return s.transport.WriteMessage(resp)
+	if err := s.transport.WriteMessage(resp); err != nil {
+		pkglogger.Warn("mcp: reply write failed",
+			"server", s.name, "resp_id", string(resp.ID),
+			"has_error", resp.Error != nil, "error", err)
+		return err
+	}
+	return nil
 }
 
 func maybeResult(id json.RawMessage, result any) *jsonRPCResponse {

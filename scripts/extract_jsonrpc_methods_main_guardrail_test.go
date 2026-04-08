@@ -48,7 +48,7 @@ func TestExtractJSONRPCMethodsMainShapeAndFileOwnership(t *testing.T) {
 	}
 
 	roots := extractMainRoots(mainDecl)
-	wantRoots := []string{"internal/apiserver", "internal/dashrpc", "internal/skills"}
+	wantRoots := []string{"internal/module/thread", "internal/module/turn", "internal/module/uistate"}
 	if !reflect.DeepEqual(roots, wantRoots) {
 		t.Fatalf("main roots = %v, want %v", roots, wantRoots)
 	}
@@ -99,14 +99,14 @@ func TestExtractJSONRPCMethodsMainShapeAndFileOwnership(t *testing.T) {
 
 func TestExtractJSONRPCMethodsScript_EmitsSortedUniqueValidMethods(t *testing.T) {
 	repoRoot := t.TempDir()
-	for _, dir := range []string{"internal/apiserver", "internal/dashrpc", "internal/skills"} {
+	for _, dir := range []string{"internal/module/thread", "internal/module/turn", "internal/module/uistate"} {
 		if err := os.MkdirAll(filepath.Join(repoRoot, filepath.FromSlash(dir)), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
 
-	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/apiserver/scan.go", strings.Join([]string{
-		"package apiserver",
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/thread/scan.go", strings.Join([]string{
+		"package thread",
 		"",
 		"const zetaMethod = \"zeta/method\"",
 		"",
@@ -119,18 +119,16 @@ func TestExtractJSONRPCMethodsScript_EmitsSortedUniqueValidMethods(t *testing.T)
 		"}",
 		"",
 	}, "\n"))
-	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/dashrpc/scan.go", strings.Join([]string{
-		"package dashrpc",
-		"",
-		"func register(string) {}",
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/turn/scan.go", strings.Join([]string{
+		"package turn",
 		"",
 		"func collectAgain() {",
-		"\tregister(\"alpha/method\")",
+		"\t_ = handler.Map{\"alpha/method\": nil}",
 		"}",
 		"",
 	}, "\n"))
-	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/apiserver/ignored_test.go", strings.Join([]string{
-		"package apiserver",
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/thread/ignored_test.go", strings.Join([]string{
+		"package thread",
 		"",
 		"func register(string) {}",
 		"",
@@ -163,12 +161,12 @@ func TestExtractJSONRPCMethodsScript_EmitsSortedUniqueValidMethods(t *testing.T)
 
 func TestExtractJSONRPCMethodsScript_ReportsWalkAndParseErrorsButKeepsValidOutput(t *testing.T) {
 	repoRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repoRoot, "internal", "apiserver"), 0o755); err != nil {
-		t.Fatalf("mkdir internal/apiserver: %v", err)
+	if err := os.MkdirAll(filepath.Join(repoRoot, "internal", "module", "thread"), 0o755); err != nil {
+		t.Fatalf("mkdir internal/module/thread: %v", err)
 	}
 
-	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/apiserver/good.go", strings.Join([]string{
-		"package apiserver",
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/thread/good.go", strings.Join([]string{
+		"package thread",
 		"",
 		"func register(string) {}",
 		"",
@@ -177,7 +175,7 @@ func TestExtractJSONRPCMethodsScript_ReportsWalkAndParseErrorsButKeepsValidOutpu
 		"}",
 		"",
 	}, "\n"))
-	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/apiserver/broken.go", "package apiserver\nfunc broken(\n")
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/thread/broken.go", "package thread\nfunc broken(\n")
 
 	stdout, stderr, err := runExtractJSONRPCMethodsScript(t, repoRoot)
 	if err != nil {
@@ -190,9 +188,9 @@ func TestExtractJSONRPCMethodsScript_ReportsWalkAndParseErrorsButKeepsValidOutpu
 		t.Fatalf("stdout lines = %v, want %v", got, want)
 	}
 	for _, wantErr := range []string{
-		"extract_jsonrpc_methods: parse internal/apiserver/broken.go",
-		"extract_jsonrpc_methods: walk internal/dashrpc",
-		"extract_jsonrpc_methods: walk internal/skills",
+		"extract_jsonrpc_methods: parse internal/module/thread/broken.go",
+		"extract_jsonrpc_methods: walk internal/module/turn",
+		"extract_jsonrpc_methods: walk internal/module/uistate",
 	} {
 		if !strings.Contains(stderr, wantErr) {
 			t.Fatalf("stderr = %q, want substring %q", stderr, wantErr)

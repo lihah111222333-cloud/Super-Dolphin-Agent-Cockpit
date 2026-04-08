@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 )
 
 const orchestrationHookSubscriptionID = "mcp-orch-agent-lifecycle"
@@ -19,7 +19,11 @@ var orchestrationHookTopics = []string{
 	"agent.process.exit",
 }
 
-func subscribeOrchestrationHooks(ctx context.Context, client *bootstrap.Client) error {
+type hookSubscriber interface {
+	SubscribeHooks(context.Context, string, []string, mcp.Selector, json.RawMessage, string) (*mcp.HookSubscribeResponse, error)
+}
+
+func subscribeOrchestrationHooks(ctx context.Context, client hookSubscriber) error {
 	if client == nil {
 		return nil
 	}

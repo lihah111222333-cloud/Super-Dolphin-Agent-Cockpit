@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type transportMode int
@@ -48,17 +50,27 @@ func (t *StdioTransport) Close() error {
 
 func (t *StdioTransport) ReadMessage() (json.RawMessage, error) {
 	if err := t.ensureMode(); err != nil {
+		pkglogger.Warn("mcp stdio: read mode detection failed", "error", err)
 		return nil, err
 	}
+	var msg json.RawMessage
+	var err error
 	if t.mode == modeFramed {
-		return t.readFramed()
+		msg, err = t.readFramed()
+	} else {
+		msg, err = t.readRaw()
 	}
-	return t.readRaw()
+	if err != nil {
+		pkglogger.Warn("mcp stdio: read failed",
+			"mode", t.mode, "error", err)
+	}
+	return msg, err
 }
 
 func (t *StdioTransport) WriteMessage(payload any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
+		pkglogger.Warn("mcp stdio: marshal failed", "error", err)
 		return err
 	}
 	t.writeMu.Lock()
@@ -66,14 +78,17 @@ func (t *StdioTransport) WriteMessage(payload any) error {
 
 	if t.mode == modeFramed {
 		if _, err := fmt.Fprintf(t.writer, "Content-Length: %d\r\n\r\n", len(raw)); err != nil {
+			pkglogger.Warn("mcp stdio: write header failed", "error", err)
 			return err
 		}
 		if _, err := t.writer.Write(raw); err != nil {
+			pkglogger.Warn("mcp stdio: write body failed", "error", err)
 			return err
 		}
 		return flushWriter(t.writer)
 	}
 	if _, err := t.writer.Write(append(raw, '\n')); err != nil {
+		pkglogger.Warn("mcp stdio: write raw failed", "error", err)
 		return err
 	}
 	return flushWriter(t.writer)

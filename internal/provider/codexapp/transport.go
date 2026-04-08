@@ -17,6 +17,8 @@ const (
 	transportShutdownGracePeriod = 3 * time.Second
 	transportKillWaitTimeout     = 5 * time.Second
 	transportStderrLimitBytes    = 8 * 1024
+	transportConnectRetryDelay   = 150 * time.Millisecond
+	transportConnectRetryMaxWait = time.Second
 )
 
 type transport struct {
@@ -128,29 +130,65 @@ func (t *transport) establish(ctx context.Context) error {
 }
 
 func (t *transport) connect(ctx context.Context) error {
-	var lastErr error
-	for attempt := 0; attempt < 6; attempt++ {
-		if err := t.localProcessReady(); err != nil {
-			if t.local && t.processFailure() != nil {
-				return err
-			}
-			lastErr = err
-		} else {
-			lastErr = t.connectOnce(ctx)
-			if lastErr == nil {
-				return nil
-			}
+	retryDelay := transportConnectRetryDelay
+	for {
+		connected, err := t.connectAttempt(ctx)
+		if err != nil {
+			return err
 		}
-		if attempt == 5 {
-			break
+		if connected {
+			return nil
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(150 * time.Millisecond << attempt):
+		if err := t.waitForConnectRetry(ctx, retryDelay); err != nil {
+			return err
+		}
+		retryDelay = nextConnectRetryDelay(retryDelay)
+	}
+}
+
+func (t *transport) connectAttempt(ctx context.Context) (bool, error) {
+	if err := t.localProcessReady(); err != nil {
+		if procErr := t.localProcessFailure(); procErr != nil {
+			return false, procErr
+		}
+		return false, nil
+	}
+	if err := t.connectOnce(ctx); err != nil {
+		if procErr := t.localProcessFailure(); procErr != nil {
+			return false, procErr
+		}
+		return false, nil
+	}
+	return true, nil
+}
+
+func (t *transport) waitForConnectRetry(ctx context.Context, delay time.Duration) error {
+	select {
+	case <-ctx.Done():
+		if procErr := t.localProcessFailure(); procErr != nil {
+			return procErr
+		}
+		return ctx.Err()
+	case <-time.After(delay):
+		return nil
+	}
+}
+
+func nextConnectRetryDelay(delay time.Duration) time.Duration {
+	if delay < transportConnectRetryMaxWait {
+		delay *= 2
+		if delay > transportConnectRetryMaxWait {
+			return transportConnectRetryMaxWait
 		}
 	}
-	return lastErr
+	return delay
+}
+
+func (t *transport) localProcessFailure() error {
+	if !t.local {
+		return nil
+	}
+	return t.processFailure()
 }
 
 func (t *transport) readLoopStep(ctx context.Context, handler func(string, json.RawMessage)) bool {
