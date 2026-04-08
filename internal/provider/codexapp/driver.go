@@ -155,11 +155,6 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		return nil, err
 	}
 	s.setThreadID(threadID)
-	// After a full app restart the MCP servers are new processes; any pending
-	// MCP tool call from the previous session will never receive a response.
-	// Interrupt the stale turn so the agent can accept new input instead of
-	// hanging forever.  No-op when no turn is active.
-	interruptStaleTurnOnResume(s, threadID)
 	d.restoreApprovalPolicy(ctx, s, threadID)
 	d.reportRuntime(s.agentID)
 	return s, nil

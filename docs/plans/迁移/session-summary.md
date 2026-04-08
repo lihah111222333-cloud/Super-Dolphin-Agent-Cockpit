@@ -1,7 +1,7 @@
 # V3 迁移会话摘要
 
-> 生成时间：2026-04-05（P14 共享 App-Server 架构 + 编排拆除 + MCP 修复全部完成）
-> 会话范围：P0-P9 + P11-P13.1 + **P14 共享 App-Server 架构重构**
+> 生成时间：2026-04-08（P14 共享 App-Server 架构 + 编排拆除 + MCP 修复全部完成；P15 动态工具注入计划已完成三轮审查）
+> 会话范围：P0-P9 + P11-P13.1 + **P14 共享 App-Server 架构重构** + **P15 动态工具注入计划**
 > Claude 会话 UUID：（当前会话）
 > 前序会话 UUID：58fdd978-cc4b-41e6-bd26-d40f3ff66854
 
@@ -66,6 +66,7 @@
 | **P13.1 深度 DRY** | ✅ | **10 Agent 深度扫描 + W5-W7 四波并行执行 + W8 shared 提升(7 Agent) — shared 86→1088行，16个 factory.go** |
 | P10 工厂丰满 | ✅ | 已被 P13+P13.1 完整吸收并执行 |
 | **P14 共享 App-Server** | ✅ | **编排拆除 + 全局共享 codex app-server + MCP config 预写 + RPC 地址传播 + stdout 保护 + 事件路由隔离 + 后台自动 resume + threadId→agentId 映射 + MCP 服务器命名去重 + standalone guard 移除** |
+| **P15 动态工具注入** | 📝 计划中 | **Codex 从 MCP sidecar 改为 dynamicTools 直接注入，Claude 保持 MCP 不变。计划文档已完成三轮审查。** |
 
 ---
 
@@ -137,15 +138,17 @@
 | P10 工厂丰满 | ✅ | 已被 P13+P13.1 完整执行 |
 | IDA 工具族 | ⏳ | 82 个工具，暂缓 |
 | P2 event bus 互审 | 🔄 | TurnStalled/TurnResumed 补发布 + 测试空白已执行，互审待收报告 |
+| P15 动态工具注入 | 📝 | 计划已审查，待实施。docs/plans/迁移/p15-dynamic-tool-injection-plan.md |
 
 ---
 
 ## 4. 下一步
 
-1. **git commit** — P14 所有改动待提交
-2. **共享 app-server 稳定性优化** — ServerManager 崩溃恢复、transport 重连、远端历史同步
-3. **P11 后续** — hooks 运行时接线
-4. **IDA 工具族** — 82 个工具，暂缓
+1. **P15 动态工具注入** — Codex 从 MCP sidecar 改为 thread/start.dynamicTools 注入，28 个工具（19 orch + 9 lsp）通过 RPC 回调主进程执行
+2. **git commit** — P14 所有改动待提交
+3. **共享 app-server 稳定性优化** — ServerManager 崩溃恢复、transport 重连、远端历史同步
+4. **P11 后续** — hooks 运行时接线
+5. **IDA 工具族** — 82 个工具，暂缓
 
 ---
 
@@ -191,8 +194,14 @@
 | P9 计划审查 (10 Codex) | 10 |
 | P9 复查 (5 Codex) | 5 |
 | P9 文档修复 | 1 (复用复查 Agent) |
-| **本轮合计** | **~45** |
-| **总计** | **~570+** |
+| **本轮合计 (2026-03-27)** | **~45** |
+| **本轮会话 (2026-04-06 ~ 2026-04-08)** | |
+| V2/V3 探索 Agent (3 Codex) | 3 |
+| P15 计划编写 Agent (1 Codex) | 1 |
+| 计划审查 (4 Agent × 2 轮) | 8 |
+| 守卫修复 Agent (2 Codex) | 2 |
+| **本轮合计** | **~14** |
+| **总计** | **~584+** |
 
 ---
 
@@ -326,13 +335,17 @@ sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 | 14 | **bootstrap 非致命** | `cmd/mcp-orch/runtime.go` | bootstrap 失败改为 WARN，不再 return err 杀死 RunGroup |
 | 15 | **MCP 服务器命名去重** | `internal/dto/provider/manifest.go` + `mcp_config.go` | 服务器名从 mcp-lsp/mcp-orch 改为 lsp/orch，避免 mcp__mcp-lsp__ 冗余 |
 | 16 | **standalone guard 移除** | `cmd/mcp-orch/tools/orchestration_tools.go` | 移除 isStandaloneMCPOrchExecutable，允许 remoteLauncher 处理 launch |
+| 17 | **Claude MCP config 修复** | `internal/provider/claudecli/transport_config.go` | manifestServer 改用 command 基名判断，兼容短名 |
+| 18 | **agent 生命周期 WARN 日志** | `cmd/mcp-orch/orchestration/` | 5 处 launch/exit WARN 日志 |
+| 19 | **codex session 事件链路 WARN 日志** | `internal/provider/codexapp/` | 5 处 alien/dispatch/read loop WARN 日志 |
+| 20 | **MCP server stdio WARN 日志** | `internal/mcpserver/common/` | server run/tools/call/reply/stdio WARN 日志 |
+| 21 | **mcp-orch bootstrap 跳过** | `cmd/mcp-orch/runtime.go` | 无条件跳过 bootstrap 注册，防止 sweeper evict |
+| 22 | **P15 计划文档** | `docs/plans/迁移/p15-dynamic-tool-injection-plan.md` | 动态工具注入实施计划，三轮审查 |
 
 ### 8.3 下一会话首任务
 
-1. **git commit** — P14 所有改动未提交，建议 `git add -A && git commit`
-2. **共享 app-server 稳定性** — ServerManager 崩溃恢复、transport 重连、远端历史同步
-3. **P11 后续** — hooks 运行时接线
-4. **IDA 工具族** — 82 个工具，暂缓
+1. **P15 动态工具注入实施** — 按 p15-dynamic-tool-injection-plan.md 执行，Phase 0 先做协议 preflight 验证
+2. **git commit** — 本会话改动待提交
 
 ### 8.4 关键守卫参数（新会话必须知道）
 
@@ -371,7 +384,14 @@ sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 | 6 | 计划文档快速过时 | 代码演进很快，计划中的“待修”可能已修。必须先 LSP 验证代码现状再执行 |
 | 7 | archtest 白名单需同步更新 | 新增共享包依赖后（如 SafeGo 加入 shared），传递依赖可能触发 archtest 越界，需同步更新白名单 |
 
-### 8.8 本轮会话核心成果摘要（2026-04-05 P14 共享 App-Server 架构重构）
+### 8.8 本轮会话核心成果摘要（2026-04-05 ~ 2026-04-08，P14 收口 + P15 动态工具注入计划）
+
+#### 本轮核心发现
+
+- **codex thread/resume + MCP sidecar = 工具调用卡死**：resume 后 codex 内部 MCP 路由指向废弃的 stdio 管道，工具调用永远不返回
+- **V2 不用 thread/resume**：V2 每次用 thread/create 创建新 codex thread，工具通过 dynamicTools 参数注入
+- **V2 不用 MCP sidecar 给 codex**：V2 的 codex 走 dynamicTools + handleDynamicToolCall + WebSocket 回传，MCP sidecar 只给 Claude 用
+- **解决方案**：P15 计划把 Codex 改成 V2 模式（dynamicTools 注入），Claude 保持 MCP 不变
 
 #### 架构变更概要
 

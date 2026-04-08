@@ -52,13 +52,13 @@ run-agent-terminal-debug-plain:
 mcp:
 	go run ./cmd/mcp-server/main.go
 
-# 已知并行争抢的 E2E 包（pipe/WebSocket/gopls 进程资源）：
-#   internal/provider/claudecli, internal/provider/codexapp, pkg/toolsdk/lsp
-# 先并行跑其余包，再用 -p 1 串行跑这 3 个，避免全仓并行时的 flaky failure。
-DEFERRED_TEST_PKGS := ./internal/provider/claudecli ./internal/provider/codexapp ./pkg/toolsdk/lsp
+# 已知并行争抢的 E2E 包（pipe/WebSocket 进程资源）：
+#   internal/provider/claudecli, internal/provider/codexapp
+# 先并行跑其余包，再用 -p 1 串行跑这 2 个，避免全仓并行时的 flaky failure。
+DEFERRED_TEST_PKGS := ./internal/provider/claudecli ./internal/provider/codexapp
 
 test: guard
-	go test $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp|toolsdk/lsp)$$') -race -count=1
+	go test $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -race -count=1
 	@echo "\n=== deferred E2E packages (sequential, -p 1) ==="
 	go test $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s
 
@@ -129,7 +129,7 @@ ci-l0: guard
 
 ci-l1: guard
 	@echo "[ci-l1] extended unit regression"
-	go test $$(go list ./... | grep -v -E '/(agentsdk/claude|agentsdk/codex|toolsdk/lsp)$$') -count=1
+	go test $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -count=1
 	@echo "[ci-l1] deferred E2E packages (sequential)"
 	go test $(DEFERRED_TEST_PKGS) -count=1 -p 1 -timeout 120s
 

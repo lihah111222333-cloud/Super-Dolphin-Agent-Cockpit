@@ -6,10 +6,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
-
-var interruptSettleTimeout = config.InterruptSettleTimeout
 
 func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (TurnStatus, error) {
 	ctx, threadID, err := requireTurnContext(ctx, session)

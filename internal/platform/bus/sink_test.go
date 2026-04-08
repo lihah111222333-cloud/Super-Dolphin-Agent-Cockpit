@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,23 @@ type sinkLogEntry struct {
 	EventType string `json:"event_type"`
 }
 
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 func TestLogSinkHighFrequencyEventsUseDebugLevel(t *testing.T) {
 	t.Parallel()
 
@@ -28,7 +46,7 @@ func TestLogSinkHighFrequencyEventsUseDebugLevel(t *testing.T) {
 		_ = dispatcher.Close()
 	})
 
-	var buf bytes.Buffer
+	var buf lockedBuffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	sink := NewLogSink(dispatcher, logger)
 	t.Cleanup(sink.Close)
@@ -49,7 +67,7 @@ func TestLogSinkHighFrequencyEventsUseDebugLevel(t *testing.T) {
 	}
 }
 
-func waitForBusLogEntries(t *testing.T, buf *bytes.Buffer, want int) []sinkLogEntry {
+func waitForBusLogEntries(t *testing.T, buf *lockedBuffer, want int) []sinkLogEntry {
 	t.Helper()
 
 	deadline := time.Now().Add(time.Second)

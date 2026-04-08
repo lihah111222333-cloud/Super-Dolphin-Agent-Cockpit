@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -31,7 +32,13 @@ type registryToolProvider struct {
 
 type bootstrapRunner struct {
 	cfg    bootstrap.Config
-	client *bootstrap.Client
+	client bootstrapClient
+}
+
+type bootstrapClient interface {
+	Start(context.Context) error
+	Close() error
+	hookSubscriber
 }
 
 type runtimeParams struct {
@@ -44,8 +51,14 @@ type runtimeParams struct {
 
 func newLogger(cfg *platformconfig.Config) *slog.Logger {
 	// MCP stdio transport uses stdout for JSON-RPC messages.
-	// Force all logging to stderr so it does not pollute the MCP channel.
-	pkglogger.InitWithConsoleWriter(os.Stderr)
+	// Write logs to a file so they are visible for debugging.
+	// stderr is swallowed by the codex app-server parent process.
+	logPath := fmt.Sprintf("/tmp/mcp-orch-%d.log", os.Getpid())
+	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		pkglogger.InitWithConsoleWriter(f)
+	} else {
+		pkglogger.InitWithConsoleWriter(os.Stderr)
+	}
 	return pkglogger.Get()
 }
 
@@ -167,52 +180,17 @@ func handleToolCall(ctx context.Context, registry tools.Registry, name string, a
 }
 
 func (r bootstrapRunner) Run(ctx context.Context) error {
-	if strings.TrimSpace(r.cfg.RPCAddr) == "" {
-		pkglogger.Warn("mcp-orch bootstrap disabled: GO_AGENT_CTL_RPC_ADDR missing",
-			"binary_name", r.cfg.BinaryName,
-			"client_kind", r.cfg.ClientKind,
-			"thread_id", r.cfg.ThreadID,
-			"capabilities", r.cfg.Capabilities,
-			"subscriptions", r.cfg.Subscriptions,
-		)
-		<-ctx.Done()
-		return nil
-	}
-	pkglogger.Info("mcp-orch bootstrap starting",
-		"binary_name", r.cfg.BinaryName,
+	// Never register with the control plane. Bootstrap registration causes
+	// sweeper eviction and hook failures that kill the mcp-orch process
+	// (Transport closed), making all MCP tools permanently unavailable.
+	// The RPC address is still used by remoteLauncher for orchestration
+	// calls (thread/start, thread/stop) without any lifecycle coupling.
+	pkglogger.Info("mcp-orch bootstrap skipped",
 		"rpc_addr", r.cfg.RPCAddr,
-		"thread_id", r.cfg.ThreadID,
-		"capabilities", r.cfg.Capabilities,
-		"subscriptions", r.cfg.Subscriptions,
+		"binary_name", r.cfg.BinaryName,
 	)
-	if err := r.client.Start(ctx); err != nil {
-		pkglogger.Warn("mcp-orch bootstrap start failed, continuing without control plane",
-			"binary_name", r.cfg.BinaryName,
-			"rpc_addr", r.cfg.RPCAddr,
-			"error", err,
-		)
-		// Non-fatal: MCP tools still work without the control plane.
-		// Returning an error would kill RunGroup and shut down the
-		// MCP stdio server, making all orchestration tools unavailable.
-		<-ctx.Done()
-		return nil
-	}
-	if err := subscribeOrchestrationHooks(ctx, r.client); err != nil {
-		pkglogger.Warn("mcp-orch hook subscription failed",
-			"binary_name", r.cfg.BinaryName,
-			"rpc_addr", r.cfg.RPCAddr,
-			"topics", orchestrationHookTopics,
-			"error", err,
-		)
-	} else {
-		pkglogger.Info("mcp-orch hook subscription ready",
-			"binary_name", r.cfg.BinaryName,
-			"rpc_addr", r.cfg.RPCAddr,
-			"topics", orchestrationHookTopics,
-		)
-	}
 	<-ctx.Done()
-	return r.client.Close()
+	return nil
 }
 
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {

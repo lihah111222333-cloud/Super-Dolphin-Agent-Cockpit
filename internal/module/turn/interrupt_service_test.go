@@ -75,10 +75,6 @@ func TestInterruptTurnNoActiveReturnsEnvelope(t *testing.T) {
 func TestInterruptTurnSettleTimeoutReturnsEnvelope(t *testing.T) {
 	t.Parallel()
 
-	previousTimeout := interruptSettleTimeout
-	interruptSettleTimeout = 25 * time.Millisecond
-	t.Cleanup(func() { interruptSettleTimeout = previousTimeout })
-
 	handle := newStubTurnHandle("local-timeout", "provider-timeout")
 	session := &stubSession{
 		threadID: "thread-timeout",
@@ -88,7 +84,8 @@ func TestInterruptTurnSettleTimeoutReturnsEnvelope(t *testing.T) {
 		interrupt: func(context.Context, dto.InterruptRequest) error { return nil },
 	}
 
-	svc := NewService(silentLogger())
+	svc := NewService(silentLogger()).(*service)
+	svc.interruptSettleTimeout = 25 * time.Millisecond
 	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-timeout",
 		ThreadID: "thread-timeout",

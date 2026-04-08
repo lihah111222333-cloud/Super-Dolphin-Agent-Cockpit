@@ -94,6 +94,8 @@ type rpcHelperSession struct {
 
 func (s rpcHelperSession) ThreadID() string { return "thread-1" }
 
+func (s rpcHelperSession) RolloutPath() string { return "" }
+
 func (s rpcHelperSession) Capabilities() dto.CapabilitySet { return s.caps }
 
 func (s rpcHelperSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
