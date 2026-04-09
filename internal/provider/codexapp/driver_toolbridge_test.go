@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/gorilla/websocket"
 )
 
@@ -29,7 +28,7 @@ func TestToolBridge_Initialize_ExperimentalAPI(t *testing.T) {
 	}
 }
 
-func TestToolBridge_FeatureFlag_FallbackToMCP(t *testing.T) {
+func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	t.Setenv("CODEX_APP_SERVER_URL", startToolBridgeRPCServer(t, recorder))
 	manager := &ServerManager{}
@@ -41,15 +40,22 @@ func TestToolBridge_FeatureFlag_FallbackToMCP(t *testing.T) {
 	}
 	defer func() { buildCodexMCPManifest = origBuildManifest }()
 
-	got, ok := newDriver(nil, nil, nil, nil, manager, &platformconfig.Config{}).(*driver)
+	listToolsCalls := 0
+	got, ok := newDriver(nil, nil, nil, nil, manager, func(context.Context) ([]DynamicToolSchema, error) {
+		listToolsCalls++
+		return []DynamicToolSchema{{
+			Name:        "tool.echo",
+			Description: "echo payload",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}}, nil
+	}).(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, manager, &platformconfig.Config{}))
+		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, manager, func(context.Context) ([]DynamicToolSchema, error) {
+			return nil, nil
+		}))
 	}
-	if got.listTools != nil {
-		t.Fatal("listTools = non-nil, want nil")
-	}
-	if got.usingManagedServer() {
-		t.Fatal("usingManagedServer() = true, want false")
+	if got.listTools == nil {
+		t.Fatal("listTools = nil, want configured")
 	}
 	if manager.getToolHandler() != nil {
 		t.Fatal("toolHandler = non-nil, want nil")
@@ -65,8 +71,11 @@ func TestToolBridge_FeatureFlag_FallbackToMCP(t *testing.T) {
 	}
 	defer closeCodexTestSession(t, s)
 
-	if manifestCalls != 1 {
-		t.Fatalf("inject manifest calls = %d, want 1", manifestCalls)
+	if listToolsCalls != 1 {
+		t.Fatalf("listTools calls = %d, want 1", listToolsCalls)
+	}
+	if manifestCalls != 0 {
+		t.Fatalf("legacy manifest calls = %d, want 0", manifestCalls)
 	}
 	if calls := recorder.calls("thread/start"); calls != 1 {
 		t.Fatalf("thread/start calls = %d, want 1", calls)
@@ -75,8 +84,9 @@ func TestToolBridge_FeatureFlag_FallbackToMCP(t *testing.T) {
 	if len(params) == 0 {
 		t.Fatal("thread/start params not recorded")
 	}
-	if _, exists := params["dynamicTools"]; exists {
-		t.Fatalf("thread/start params = %#v, want legacy payload without dynamicTools", params)
+	tools, ok := params["dynamicTools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("dynamicTools = %#v, want one tool", params["dynamicTools"])
 	}
 	if s.ThreadID() != "provider-thread-1" {
 		t.Fatalf("ThreadID() = %q, want provider-thread-1", s.ThreadID())

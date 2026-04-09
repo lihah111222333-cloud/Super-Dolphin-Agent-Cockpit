@@ -35,7 +35,6 @@ type session struct {
 	cancel             context.CancelFunc
 	mu                 sync.Mutex
 	approvalMu         sync.Mutex
-	mcpWatcherMu       sync.Mutex
 	recoveryMu         sync.Mutex
 	readLoopMu         sync.Mutex
 	readLoopDone       chan struct{}
@@ -47,7 +46,6 @@ type session struct {
 	suppressed         map[string]struct{}
 	processedApprovals map[string]*processedApprovalEntry
 	runtimeConfig      map[string]any
-	mcpWatcher         *mcpReadyWatcher
 }
 
 var _ contract.Session = (*session)(nil)

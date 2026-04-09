@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,10 +13,8 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -30,7 +27,6 @@ type DriverFactory struct {
 	approvals       *rpc.ApprovalManager
 	reporter        contract.RuntimeReporter
 	manager         *ServerManager
-	cfg             *platformconfig.Config
 	listTools       func(context.Context) ([]DynamicToolSchema, error)
 }
 
@@ -41,7 +37,6 @@ type driver struct {
 	approvals       *rpc.ApprovalManager
 	reporter        contract.RuntimeReporter
 	manager         *ServerManager
-	cfg             *platformconfig.Config
 	listTools       func(context.Context) ([]DynamicToolSchema, error)
 }
 
@@ -99,7 +94,6 @@ func NewDriverFactory(
 	approvals *rpc.ApprovalManager,
 	reporter contract.RuntimeReporter,
 	manager *ServerManager,
-	cfg *platformconfig.Config,
 ) *DriverFactory {
 	factory := &DriverFactory{
 		logger:          logger,
@@ -107,12 +101,11 @@ func NewDriverFactory(
 		approvals:       approvals,
 		reporter:        reporter,
 		manager:         manager,
-		cfg:             cfg,
 	}
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter, manager, cfg, factory.currentListTools())
+			return newDriver(logger, dispatcher, approvals, reporter, manager, factory.currentListTools())
 		},
 	}
 	return factory
@@ -136,7 +129,7 @@ func (f *DriverFactory) currentListTools() func(context.Context) ([]DynamicToolS
 	return f.listTools
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, cfg *platformconfig.Config, listTools ...func(context.Context) ([]DynamicToolSchema, error)) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, listTools ...func(context.Context) ([]DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -155,16 +148,11 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		approvals:       approvals,
 		reporter:        reporter,
 		manager:         manager,
-		cfg:             cfg,
 		listTools:       listToolsFn,
 	}
 }
 
 func (d *driver) Name() string { return "codex" }
-
-func (d *driver) usingManagedServer() bool {
-	return d.manager != nil && d.manager.Running()
-}
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager)
@@ -173,11 +161,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	}
 	s.setRuntimeConfig(req.Config)
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
-
-	if d.cfg != nil && d.cfg.Provider.DynamicToolsEnabled && d.listTools != nil {
-		return d.startDynamicSession(ctx, s, req)
-	}
-	return d.startLegacySession(ctx, s, req)
+	return d.startDynamicSession(ctx, s, req)
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
@@ -209,10 +193,6 @@ type startResult struct {
 	threadID string
 	model    string
 	cwd      string
-}
-
-func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRequest) (startResult, error) {
-	return startRemoteThreadWithParams(ctx, t, req, buildThreadStartParams(req))
 }
 
 // interruptStaleTurnOnResume cancels any in-progress turn that was left over
@@ -278,93 +258,6 @@ func decodeThreadID(raw json.RawMessage, fallback string) (string, error) {
 	return "", errors.New("codexapp: empty thread id")
 }
 
-func (d *driver) injectCodexMCPServers(ctx context.Context, s *session, req dto.StartSessionRequest) error {
-	manifest := buildCodexMCPManifest(dto.ManifestContext{
-		AgentID:     strings.TrimSpace(req.AgentID),
-		CWD:         strings.TrimSpace(req.CWD),
-		ThreadCaps:  cloneCaps(codexCapabilities),
-		BinaryDir:   providershared.ResolveBinaryDir(req.CWD, req.Config),
-		Env:         providershared.StringMap(req.Config["env"]),
-		AutoApprove: providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
-	})
-	managedNames := managedCodexMCPServerNames(manifest)
-	if len(managedNames) == 0 {
-		return nil
-	}
-	if skip, err := d.skipCodexMCPInjection(s, req, managedNames); err != nil || skip {
-		return err
-	}
-	return d.reloadCodexMCPServers(ctx, s, req.CWD, manifest, managedNames)
-}
-
-func managedCodexMCPServerNames(manifest dto.MCPManifest) []string {
-	managed := collectManagedBinaries(manifest)
-	managedNames := make([]string, 0, len(managed))
-	seenNames := make(map[string]struct{}, len(managed))
-	for _, bin := range managed {
-		name := strings.TrimSpace(bin.Name)
-		if name == "" {
-			continue
-		}
-		if _, ok := seenNames[name]; ok {
-			continue
-		}
-		seenNames[name] = struct{}{}
-		managedNames = append(managedNames, name)
-	}
-	return managedNames
-}
-
-func (d *driver) skipCodexMCPInjection(s *session, req dto.StartSessionRequest, managedNames []string) (bool, error) {
-	if s == nil || s.transport == nil {
-		return false, errors.New("codexapp: session transport is not available")
-	}
-	if s.transport.local {
-		return false, nil
-	}
-	d.logger.Warn("codexapp: skipping mcp injection for external app-server",
-		"agent_id", strings.TrimSpace(req.AgentID),
-		"server_url", s.transport.serverURL,
-		"managed_servers", managedNames,
-	)
-	return true, nil
-}
-
-func (d *driver) reloadCodexMCPServers(ctx context.Context, s *session, cwd string, manifest dto.MCPManifest, managedNames []string) error {
-	watcher := newMCPReadyWatcher(managedNames)
-	s.setMCPWatcher(watcher)
-	defer s.setMCPWatcher(nil)
-
-	configPath := resolveCodexConfigPath()
-	if err := writeCodexMCPConfig(configPath, manifest, cwd); err != nil {
-		return fmt.Errorf("mcp config write: %w", err)
-	}
-	if err := reloadCodexMCPConfig(ctx, s.transport); err != nil {
-		return err
-	}
-	return waitForCodexMCPReady(ctx, s.transport, watcher, managedNames)
-}
-
-func reloadCodexMCPConfig(ctx context.Context, transport *transport) error {
-	if _, err := callWithTimeout(ctx, transport, 10*time.Second, "config/mcpServer/reload", nil); err != nil {
-		return fmt.Errorf("mcp reload: %w", err)
-	}
-	return nil
-}
-
-func waitForCodexMCPReady(ctx context.Context, transport *transport, watcher *mcpReadyWatcher, managedNames []string) error {
-	readyCtx, readyCancel := withTimeout(ctx, 30*time.Second)
-	errCh := make(chan error, 2)
-	go func() { errCh <- watcher.Wait(readyCtx) }()
-	go func() { errCh <- pollMCPStatus(readyCtx, transport, managedNames, 2*time.Second) }()
-	err := <-errCh
-	readyCancel()
-	if err != nil {
-		return fmt.Errorf("mcp ready: %w", err)
-	}
-	return nil
-}
-
 func resolveCodexConfigPath() string {
 	if root := strings.TrimSpace(os.Getenv("CODEX_HOME")); root != "" {
 		return filepath.Join(root, "config.toml")
@@ -375,3 +268,4 @@ func resolveCodexConfigPath() string {
 	}
 	return filepath.Join(home, ".codex", "config.toml")
 }
+
