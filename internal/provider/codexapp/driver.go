@@ -28,6 +28,8 @@ type driver struct {
 	approvals       *rpc.ApprovalManager
 	reporter        contract.RuntimeReporter
 	manager         *ServerManager
+	cfg             *platformconfig.Config
+	listTools       func(context.Context) ([]DynamicToolSchema, error)
 }
 
 var _ contract.Driver = (*driver)(nil)
@@ -52,17 +54,24 @@ type threadRPCResult struct {
 	ModelProvider string `json:"modelProvider"`
 }
 
+type DynamicToolSchema struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"inputSchema"`
+}
+
 type threadStartParams struct {
-	Cwd                   string          `json:"cwd,omitempty"`
-	Model                 string          `json:"model,omitempty"`
-	ModelProvider         string          `json:"modelProvider,omitempty"`
-	BaseInstructions      string          `json:"baseInstructions,omitempty"`
-	DeveloperInstructions string          `json:"developerInstructions,omitempty"`
-	ApprovalPolicy        string          `json:"approvalPolicy,omitempty"`
-	Personality           string          `json:"personality,omitempty"`
-	Summary               string          `json:"summary,omitempty"`
-	Effort                string          `json:"effort,omitempty"`
-	Sandbox               json.RawMessage `json:"sandbox,omitempty"`
+	Cwd                   string              `json:"cwd,omitempty"`
+	Model                 string              `json:"model,omitempty"`
+	ModelProvider         string              `json:"modelProvider,omitempty"`
+	BaseInstructions      string              `json:"baseInstructions,omitempty"`
+	DeveloperInstructions string              `json:"developerInstructions,omitempty"`
+	ApprovalPolicy        string              `json:"approvalPolicy,omitempty"`
+	Personality           string              `json:"personality,omitempty"`
+	Summary               string              `json:"summary,omitempty"`
+	Effort                string              `json:"effort,omitempty"`
+	Sandbox               json.RawMessage     `json:"sandbox,omitempty"`
+	DynamicTools          []DynamicToolSchema `json:"dynamicTools,omitempty"`
 }
 
 type threadResumeParams struct {
@@ -77,16 +86,17 @@ func NewDriverFactory(
 	approvals *rpc.ApprovalManager,
 	reporter contract.RuntimeReporter,
 	manager *ServerManager,
+	cfg *platformconfig.Config,
 ) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter, manager)
+			return newDriver(logger, dispatcher, approvals, reporter, manager, cfg)
 		},
 	}
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, cfg *platformconfig.Config) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -101,6 +111,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		approvals:       approvals,
 		reporter:        reporter,
 		manager:         manager,
+		cfg:             cfg,
 	}
 }
 
@@ -117,18 +128,33 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	}
 	s.setRuntimeConfig(req.Config)
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
-	// Skip MCP injection when connected to the globally managed server;
-	// MCP servers were already initialized at app startup by ServerManager.
-	if !d.usingManagedServer() {
-		if err := d.injectCodexMCPServers(ctx, s, req); err != nil {
-			cleanupFailedSession(s, "force stop failed on mcp injection error")
+
+	var result startResult
+	if d.cfg != nil && d.cfg.Provider.DynamicToolsEnabled && d.listTools != nil {
+		tools, err := d.listTools(ctx)
+		if err != nil {
+			cleanupFailedSession(s, "force stop failed on dynamic tools list error")
+			return nil, fmt.Errorf("dynamic tools list: %w", err)
+		}
+		result, err = startRemoteThreadWithDynamicTools(ctx, s.transport, req, tools)
+		if err != nil {
+			cleanupFailedSession(s, "force stop failed on start error")
 			return nil, err
 		}
-	}
-	result, err := startRemoteThread(ctx, s.transport, req)
-	if err != nil {
-		cleanupFailedSession(s, "force stop failed on start error")
-		return nil, err
+	} else {
+		// Skip MCP injection when connected to the globally managed server;
+		// MCP servers were already initialized at app startup by ServerManager.
+		if !d.usingManagedServer() {
+			if err := d.injectCodexMCPServers(ctx, s, req); err != nil {
+				cleanupFailedSession(s, "force stop failed on mcp injection error")
+				return nil, err
+			}
+		}
+		result, err = startRemoteThread(ctx, s.transport, req)
+		if err != nil {
+			cleanupFailedSession(s, "force stop failed on start error")
+			return nil, err
+		}
 	}
 	s.setThreadID(result.threadID)
 	if result.model != "" {
@@ -160,58 +186,6 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	return s, nil
 }
 
-func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) {
-	if d == nil || s == nil {
-		return
-	}
-	result, err := s.transport.Call(ctx, "thread/config/get", map[string]any{
-		"threadId": threadID,
-	})
-	if err != nil {
-		// RPC not available – fall back to local state.
-		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-		return
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(result, &resp); err != nil {
-		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-		return
-	}
-	effective, _ := resp["effective"].(map[string]any)
-	if effective == nil {
-		s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-		return
-	}
-	if approval, ok := effective["approvals"].(string); ok && strings.TrimSpace(approval) != "" {
-		s.setApprovalPolicy(strings.TrimSpace(approval))
-		s.setRuntimeConfigValue("approvalPolicy", strings.TrimSpace(approval))
-		return
-	}
-	s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
-}
-
-func (d *driver) reportRuntime(agentID string) {
-	if d == nil || d.reporter == nil {
-		return
-	}
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" {
-		return
-	}
-	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// TODO: Prefer a provider-reported control/runtime port once the Codex App
-	// protocol exposes one explicitly; for now we fall back to the configured
-	// app-server endpoint port after session startup succeeds.
-	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
-		AgentID:  agentID,
-		Port:     parsePortFromURL(d.serverURL),
-		Provider: d.Name(),
-	}); err != nil {
-		d.logger.Warn("codexapp: report runtime failed", "agent_id", agentID, "error", err)
-	}
-}
 
 func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "model/list", map[string]any{})
@@ -228,33 +202,7 @@ type startResult struct {
 }
 
 func startRemoteThread(ctx context.Context, t *transport, req dto.StartSessionRequest) (startResult, error) {
-	params := threadStartParams{
-		Cwd:                   strings.TrimSpace(req.CWD),
-		Model:                 strings.TrimSpace(req.Model),
-		ModelProvider:         configString(req.Config, "modelProvider"),
-		BaseInstructions:      strings.TrimSpace(req.Instructions),
-		DeveloperInstructions: configString(req.Config, "developerInstructions"),
-		ApprovalPolicy:        resolveApprovalPolicy(req.Config),
-		Personality:           configString(req.Config, "personality"),
-		Summary:               configString(req.Config, "summary"),
-		Effort:                configString(req.Config, "effort"),
-		Sandbox:               configJSON(req.Config, "sandbox"),
-	}
-	pkglogger.Info("codexapp: thread/start request",
-		"agent_id", strings.TrimSpace(req.AgentID),
-		"cwd", params.Cwd,
-		"model", params.Model,
-		"approval_policy", params.ApprovalPolicy,
-		"config_keys", sortedConfigKeys(req.Config),
-		"has_env", hasAnyConfigKey(req.Config, "env"),
-		"has_mcp", hasAnyConfigKey(req.Config, "mcp", "mcpConfig", "mcp_config", "mcpServers", "mcp_servers"),
-		"has_hooks", hasAnyConfigKey(req.Config, "hooks", "hookConfig", "hook_config"),
-	)
-	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/start", params)
-	if err != nil {
-		return startResult{}, err
-	}
-	return decodeStartResult(raw)
+	return startRemoteThreadWithParams(ctx, t, req, buildThreadStartParams(req))
 }
 
 // interruptStaleTurnOnResume cancels any in-progress turn that was left over

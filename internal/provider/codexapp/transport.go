@@ -84,7 +84,7 @@ func (t *transport) Notify(method string, params any) error {
 	}{JSONRPC: "2.0", Method: method, Params: params})
 }
 
-func (t *transport) ReadLoop(ctx context.Context, handler func(method string, params json.RawMessage)) {
+func (t *transport) ReadLoop(ctx context.Context, handler any) {
 	if !t.looping.CompareAndSwap(false, true) {
 		return
 	}
@@ -191,7 +191,7 @@ func (t *transport) localProcessFailure() error {
 	return t.processFailure()
 }
 
-func (t *transport) readLoopStep(ctx context.Context, handler func(string, json.RawMessage)) bool {
+func (t *transport) readLoopStep(ctx context.Context, handler any) bool {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return false
 	}
@@ -206,5 +206,5 @@ func (t *transport) readLoopStep(ctx context.Context, handler func(string, json.
 	if err != nil {
 		return t.endReadLoop(ctx, handler, err, err.Error())
 	}
-	return t.dispatchReadMessage(data, handler)
+	return t.dispatchReadMessage(ctx, data, handler)
 }

@@ -75,3 +75,20 @@ func buildContextResponse(scope string, payload map[string]any) (dto.ContextResp
 		Payload:    raw,
 	}, nil
 }
+
+func (r *ToolRegistry) FindActiveByKind(clientKind string) []*ToolInstance {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	keys, ok := r.byClientKind[clientKind]
+	if !ok {
+		return nil
+	}
+	var result []*ToolInstance
+	for key := range keys {
+		inst, ok := r.instances[key]
+		if ok && inst.Status == dto.StatusActive {
+			result = append(result, inst)
+		}
+	}
+	return result
+}

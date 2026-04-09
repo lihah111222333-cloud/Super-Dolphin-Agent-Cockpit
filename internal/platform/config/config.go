@@ -6,11 +6,16 @@ import (
 	"strings"
 )
 
+type ProviderConfig struct {
+	DynamicToolsEnabled bool `json:"dynamic_tools_enabled"`
+}
+
 type Config struct {
 	DatabaseURL string
 	RPCAddr     string
 	LogLevel    string
 	ProjectRoot string
+	Provider    ProviderConfig
 }
 
 func New() *Config {

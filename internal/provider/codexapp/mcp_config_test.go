@@ -186,7 +186,7 @@ func TestInjectCodexMCPServers_SkipsExternalServer(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CODEX_HOME", root)
 
-	d := newDriver(nil, nil, nil, nil, nil).(*driver)
+	d := newDriver(nil, nil, nil, nil, nil, nil).(*driver)
 	s := &session{transport: &transport{serverURL: "ws://example.invalid/ws"}}
 	req := dto.StartSessionRequest{
 		AgentID: "agent-1",
@@ -212,7 +212,7 @@ func TestInjectCodexMCPServers_SkipsEmptyManifest(t *testing.T) {
 	buildCodexMCPManifest = func(dto.ManifestContext) dto.MCPManifest { return dto.MCPManifest{} }
 	defer func() { buildCodexMCPManifest = orig }()
 
-	d := newDriver(nil, nil, nil, nil, nil).(*driver)
+	d := newDriver(nil, nil, nil, nil, nil, nil).(*driver)
 	if err := d.injectCodexMCPServers(context.Background(), nil, dto.StartSessionRequest{}); err != nil {
 		t.Fatalf("injectCodexMCPServers() error = %v, want nil", err)
 	}
