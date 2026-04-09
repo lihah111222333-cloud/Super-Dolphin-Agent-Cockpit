@@ -249,29 +249,16 @@ func buildThreadStartParams(req dto.StartSessionRequest) threadStartParams {
 }
 
 func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.StartSessionRequest) (contract.Session, error) {
+	if d == nil || d.listTools == nil {
+		cleanupFailedSession(s, "force stop failed on missing dynamic tools provider")
+		return nil, errors.New("codexapp: dynamic tools provider is not configured")
+	}
 	tools, err := d.listTools(ctx)
 	if err != nil {
 		cleanupFailedSession(s, "force stop failed on dynamic tools list error")
 		return nil, fmt.Errorf("dynamic tools list: %w", err)
 	}
 	result, err := startRemoteThreadWithDynamicTools(ctx, s.transport, req, tools)
-	if err != nil {
-		cleanupFailedSession(s, "force stop failed on start error")
-		return nil, err
-	}
-	return d.finishStartedSession(s, result), nil
-}
-
-func (d *driver) startLegacySession(ctx context.Context, s *session, req dto.StartSessionRequest) (contract.Session, error) {
-	// Skip MCP injection when connected to the globally managed server;
-	// MCP servers were already initialized at app startup by ServerManager.
-	if !d.usingManagedServer() {
-		if err := d.injectCodexMCPServers(ctx, s, req); err != nil {
-			cleanupFailedSession(s, "force stop failed on mcp injection error")
-			return nil, err
-		}
-	}
-	result, err := startRemoteThread(ctx, s.transport, req)
 	if err != nil {
 		cleanupFailedSession(s, "force stop failed on start error")
 		return nil, err

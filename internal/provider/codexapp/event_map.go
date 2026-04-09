@@ -65,8 +65,8 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 }
 
 func logCodexMCPStartupStatus(eventType string, payload map[string]any) bool {
-	switch {
-	case hasMethod(eventType, mcpStartupStatusMethods):
+	switch strings.TrimSpace(eventType) {
+	case "mcpServer/startupStatus/update", "mcpServer/startupStatus/updated":
 		pkglogger.Get().Info("codexapp: mcp server startup status",
 			"agent_id", payloadAgentID(payload),
 			"name", stringValue(payload, "name"),

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -50,11 +49,6 @@ var approvalBridgeMethods = map[string]struct{}{
 	"item/tool/requestUserInput":               {},
 	"item/tool/request_user_input":             {},
 	"mcpServer/elicitation/request":            {},
-}
-
-var mcpStartupStatusMethods = map[string]struct{}{
-	"mcpServer/startupStatus/update":  {},
-	"mcpServer/startupStatus/updated": {},
 }
 
 func callWithTimeout(ctx context.Context, t callTarget, d time.Duration, method string, params any) (json.RawMessage, error) {
@@ -251,20 +245,6 @@ func decodeThreadRPCResult(raw json.RawMessage) (*threadRPCResult, error) {
 		return nil, fmt.Errorf("codexapp: decode thread rpc result: %w", err)
 	}
 	return &resp, nil
-}
-
-func collectManagedBinaries(manifest dto.MCPManifest) []dto.MCPBinary {
-	managed := make([]dto.MCPBinary, 0, len(manifest.Binaries))
-	for _, bin := range manifest.Binaries {
-		command := ""
-		if len(bin.Command) > 0 {
-			command = bin.Command[0]
-		}
-		if isManagedBinary(bin.Name, command) {
-			managed = append(managed, bin)
-		}
-	}
-	return managed
 }
 
 func turnOutputDelta(payload map[string]any, stream string) turndto.TurnOutputDelta {

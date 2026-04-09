@@ -14,7 +14,6 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
@@ -39,11 +38,10 @@ func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory
 // ServerManager: shared codex app-server process (one process, N sessions)
 // ---------------------------------------------------------------------------
 
-// ServerManager owns a single codex app-server process and ensures MCP
-// servers (mcp-lsp, mcp-orch, etc.) are initialized exactly once at
-// application startup. Each agent session creates its own independent
-// WebSocket connection to ServerURL(), providing natural isolation:
-// one broken WS only affects the owning session.
+// ServerManager owns a single codex app-server process. Each agent
+// session creates its own independent WebSocket connection to
+// ServerURL(), providing natural isolation: one broken WS only affects
+// the owning session.
 type ToolHandler func(context.Context, RawMessage) (any, error)
 
 type ServerManager struct {
@@ -112,11 +110,6 @@ func (m *ServerManager) start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Write MCP config BEFORE spawning the app-server so it reads the
-	// config on startup. The codex app-server does not support reloading
-	// MCP config before any thread exists.
-	m.writeMCPConfig()
-
 	t := &transport{}
 	if err := t.spawnLocal(); err != nil {
 		m.err = err
@@ -136,20 +129,6 @@ func (m *ServerManager) start(ctx context.Context) error {
 	m.ready = true
 	pkglogger.Info("server_manager: shared app-server ready", "server_url", m.serverURL)
 	return nil
-}
-
-func (m *ServerManager) writeMCPConfig() {
-	manifest := buildCodexMCPManifest(dto.ManifestContext{
-		BinaryDir:   providershared.ResolveBinaryDir("", nil),
-		ThreadCaps:  cloneCaps(codexCapabilities),
-		AutoApprove: []string{"*"},
-	})
-	if len(collectManagedBinaries(manifest)) == 0 {
-		return
-	}
-	if err := writeCodexMCPConfig(resolveCodexConfigPath(), manifest, ""); err != nil {
-		pkglogger.Warn("server_manager: failed to write MCP config", pkglogger.FieldError, err)
-	}
 }
 
 func (m *ServerManager) stop(ctx context.Context) error {
