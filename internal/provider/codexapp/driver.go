@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -20,6 +21,18 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+type DriverFactory struct {
+	contract.DriverFactory
+	mu              sync.RWMutex
+	logger          *slog.Logger
+	eventDispatcher *unified.EventDispatcher
+	approvals       *rpc.ApprovalManager
+	reporter        contract.RuntimeReporter
+	manager         *ServerManager
+	cfg             *platformconfig.Config
+	listTools       func(context.Context) ([]DynamicToolSchema, error)
+}
 
 type driver struct {
 	logger          *slog.Logger
@@ -87,22 +100,53 @@ func NewDriverFactory(
 	reporter contract.RuntimeReporter,
 	manager *ServerManager,
 	cfg *platformconfig.Config,
-) contract.DriverFactory {
-	return contract.DriverFactory{
+) *DriverFactory {
+	factory := &DriverFactory{
+		logger:          logger,
+		eventDispatcher: dispatcher,
+		approvals:       approvals,
+		reporter:        reporter,
+		manager:         manager,
+		cfg:             cfg,
+	}
+	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter, manager, cfg)
+			return newDriver(logger, dispatcher, approvals, reporter, manager, cfg, factory.currentListTools())
 		},
 	}
+	return factory
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, cfg *platformconfig.Config) contract.Driver {
+func (f *DriverFactory) SetListTools(fn func(context.Context) ([]DynamicToolSchema, error)) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listTools = fn
+}
+
+func (f *DriverFactory) currentListTools() func(context.Context) ([]DynamicToolSchema, error) {
+	if f == nil {
+		return nil
+	}
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.listTools
+}
+
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, cfg *platformconfig.Config, listTools ...func(context.Context) ([]DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	serverURL := strings.TrimSpace(os.Getenv("CODEX_APP_SERVER_URL"))
 	if serverURL == "" && manager != nil && manager.Running() {
 		serverURL = manager.ServerURL()
+	}
+	var listToolsFn func(context.Context) ([]DynamicToolSchema, error)
+	if len(listTools) != 0 {
+		listToolsFn = listTools[0]
 	}
 	return &driver{
 		logger:          logger,
@@ -112,6 +156,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		reporter:        reporter,
 		manager:         manager,
 		cfg:             cfg,
+		listTools:       listToolsFn,
 	}
 }
 
@@ -129,45 +174,10 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	s.setRuntimeConfig(req.Config)
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
 
-	var result startResult
 	if d.cfg != nil && d.cfg.Provider.DynamicToolsEnabled && d.listTools != nil {
-		tools, err := d.listTools(ctx)
-		if err != nil {
-			cleanupFailedSession(s, "force stop failed on dynamic tools list error")
-			return nil, fmt.Errorf("dynamic tools list: %w", err)
-		}
-		result, err = startRemoteThreadWithDynamicTools(ctx, s.transport, req, tools)
-		if err != nil {
-			cleanupFailedSession(s, "force stop failed on start error")
-			return nil, err
-		}
-	} else {
-		// Skip MCP injection when connected to the globally managed server;
-		// MCP servers were already initialized at app startup by ServerManager.
-		if !d.usingManagedServer() {
-			if err := d.injectCodexMCPServers(ctx, s, req); err != nil {
-				cleanupFailedSession(s, "force stop failed on mcp injection error")
-				return nil, err
-			}
-		}
-		result, err = startRemoteThread(ctx, s.transport, req)
-		if err != nil {
-			cleanupFailedSession(s, "force stop failed on start error")
-			return nil, err
-		}
+		return d.startDynamicSession(ctx, s, req)
 	}
-	s.setThreadID(result.threadID)
-	if result.model != "" {
-		s.setRuntimeConfigValue("model", result.model)
-	}
-	if result.cwd != "" {
-		s.setRuntimeConfigValue("cwd", result.cwd)
-	}
-	if port := parsePortFromURL(s.transport.serverURL); port > 0 {
-		s.setRuntimeConfigValue("port", port)
-	}
-	d.reportRuntime(s.agentID)
-	return s, nil
+	return d.startLegacySession(ctx, s, req)
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {

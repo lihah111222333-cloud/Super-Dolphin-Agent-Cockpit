@@ -858,3 +858,13 @@ func (d *driver) postStartSetup(s *session, result startResult) {
 6. **initialize 必须带 `experimentalApi: true`；`thread/start` 传 `dynamicTools`，`thread/resume` 不重复注入并依赖官方自动恢复。**
 7. **dynamic tool 成功/失败结果都要适配成官方 `{contentItems:[...], success:true|false}` 结构后再回写给 Codex。**
 8. **`writeMCPConfig` 与 legacy sidecar 路径只在 Phase 3 才删除。**
+
+## 13. 后续待办（Phase 1 不阻塞，实施后跟进）
+
+| # | 优先级 | 项 | 说明 |
+|---|:------:|------|------|
+| 1 | Medium | **DynamicToolSchema 补 DeferLoading 字段** | 当前 MCPTool 也没有这个字段，先全部默认 false。后续扫 common.MCPTool + tools/list DTO 统一补上，再在 toCodexDynamicTools 中保留 |
+| 2 | Medium | **peer 路由按 AgentID/ThreadID 精确选择** | 当前 FindActiveByKind 只按 ClientKind，单实例够用。多 Agent 场景下需要升级为 ClientKind + AgentID/ThreadID 多维索引，复用现有 registry.byThread/byAgent |
+| 3 | Medium | **tool call 并发限流** | 当前 go func() 无 semaphore，120s 下可能堆积。后续补 inflight cap（建议 8-16）|
+| 4 | Medium | **recovery 时 in-flight tool call 的 ctx cancel 传播** | 当前 recovery 不 cancel session ctx，旧 goroutine 最长挂 120s。后续补 per-generation ctx 或 inflight tracker |
+| 5 | Low | **预算表数字刷新** | 实施完成后重新 LSP 实测并更新文档中的行数 |

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -245,6 +246,52 @@ func buildThreadStartParams(req dto.StartSessionRequest) threadStartParams {
 		Effort:                configString(req.Config, "effort"),
 		Sandbox:               configJSON(req.Config, "sandbox"),
 	}
+}
+
+func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.StartSessionRequest) (contract.Session, error) {
+	tools, err := d.listTools(ctx)
+	if err != nil {
+		cleanupFailedSession(s, "force stop failed on dynamic tools list error")
+		return nil, fmt.Errorf("dynamic tools list: %w", err)
+	}
+	result, err := startRemoteThreadWithDynamicTools(ctx, s.transport, req, tools)
+	if err != nil {
+		cleanupFailedSession(s, "force stop failed on start error")
+		return nil, err
+	}
+	return d.finishStartedSession(s, result), nil
+}
+
+func (d *driver) startLegacySession(ctx context.Context, s *session, req dto.StartSessionRequest) (contract.Session, error) {
+	// Skip MCP injection when connected to the globally managed server;
+	// MCP servers were already initialized at app startup by ServerManager.
+	if !d.usingManagedServer() {
+		if err := d.injectCodexMCPServers(ctx, s, req); err != nil {
+			cleanupFailedSession(s, "force stop failed on mcp injection error")
+			return nil, err
+		}
+	}
+	result, err := startRemoteThread(ctx, s.transport, req)
+	if err != nil {
+		cleanupFailedSession(s, "force stop failed on start error")
+		return nil, err
+	}
+	return d.finishStartedSession(s, result), nil
+}
+
+func (d *driver) finishStartedSession(s *session, result startResult) contract.Session {
+	s.setThreadID(result.threadID)
+	if result.model != "" {
+		s.setRuntimeConfigValue("model", result.model)
+	}
+	if result.cwd != "" {
+		s.setRuntimeConfigValue("cwd", result.cwd)
+	}
+	if port := parsePortFromURL(s.transport.serverURL); port > 0 {
+		s.setRuntimeConfigValue("port", port)
+	}
+	d.reportRuntime(s.agentID)
+	return s
 }
 
 func startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []DynamicToolSchema) (startResult, error) {
