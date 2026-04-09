@@ -27,6 +27,9 @@ func New() *Config {
 	}
 	exportRPCAddrIfMissing(cfg.RPCAddr)
 	exportDatabaseURLIfMissing(cfg.DatabaseURL)
+	if v := os.Getenv("GO_AGENT_DYNAMIC_TOOLS"); v == "true" || v == "1" {
+		cfg.Provider.DynamicToolsEnabled = true
+	}
 	return cfg
 }
 

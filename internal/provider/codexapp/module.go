@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -21,10 +22,18 @@ import (
 var Module = fx.Module("provider.codexapp",
 	fx.Provide(
 		NewServerManager,
-		fx.Annotate(NewDriverFactory, fx.ResultTags(`group:"drivers"`)),
+		NewDriverFactory,
+		fx.Annotate(provideContractDriverFactory, fx.ResultTags(`group:"drivers"`)),
 	),
 	fx.Invoke(RegisterTranslators),
 )
+
+func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {
+	if factory == nil {
+		return contract.DriverFactory{}
+	}
+	return factory.DriverFactory
+}
 
 // ---------------------------------------------------------------------------
 // ServerManager: shared codex app-server process (one process, N sessions)
