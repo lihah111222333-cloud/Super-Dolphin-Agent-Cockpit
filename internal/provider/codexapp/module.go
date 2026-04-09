@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -34,13 +35,18 @@ var Module = fx.Module("provider.codexapp",
 // application startup. Each agent session creates its own independent
 // WebSocket connection to ServerURL(), providing natural isolation:
 // one broken WS only affects the owning session.
+type ToolHandler func(context.Context, RawMessage) (any, error)
+
 type ServerManager struct {
-	mu        sync.Mutex
-	process   *transport // owns the local process; sessions use ServerURL() to connect independently
-	serverURL string
-	ready     bool
-	err       error
+	mu          sync.Mutex
+	process     *transport // owns the local process; sessions use ServerURL() to connect independently
+	serverURL   string
+	ready       bool
+	err         error
+	toolHandler ToolHandler
 }
+
+type Responder interface{ RespondWithID(id json.RawMessage, result any, callErr error) error }
 
 // ServerManagerParams are the fx dependencies for NewServerManager.
 type ServerManagerParams struct {
@@ -70,6 +76,18 @@ func (m *ServerManager) Running() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.ready && m.process != nil && m.process.processRunning()
+}
+
+func (m *ServerManager) SetToolHandler(h ToolHandler) {
+	if m == nil { return }
+	m.mu.Lock(); defer m.mu.Unlock()
+	m.toolHandler = h
+}
+
+func (m *ServerManager) getToolHandler() ToolHandler {
+	if m == nil { return nil }
+	m.mu.Lock(); defer m.mu.Unlock()
+	return m.toolHandler
 }
 
 func (m *ServerManager) start(ctx context.Context) error {

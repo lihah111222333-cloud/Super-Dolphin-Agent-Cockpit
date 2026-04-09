@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/hooks"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli"
@@ -45,6 +46,7 @@ var Module = fx.Options(
 	unified.Module,
 	claudecli.Module,
 	codexapp.Module,
+	toolbridge.Module, // P15 新增：始终加载
 	// orchestration is handled entirely by the standalone mcp-orch MCP server;
 	// the desktop app must NOT embed its own orchestration module, otherwise
 	// localLauncher re-spawns the desktop binary as a subprocess which exits

@@ -364,7 +364,7 @@ func (s *session) prepareReadLoop() (chan struct{}, bool) {
 
 func (s *session) runReadLoop(done chan struct{}) {
 	defer s.finishReadLoop(done)
-	s.transport.ReadLoop(s.ctx, s.onNotification)
+	s.transport.ReadLoop(s.ctx, s.onInboundMessage)
 }
 
 func (s *session) finishReadLoop(done chan struct{}) {

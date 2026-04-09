@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ type session struct {
 	threadID           atomic.Value
 	approvalPolicy     atomic.Value
 	transport          *transport
+	manager            *ServerManager
 	caps               dto.CapabilitySet
 	recovery           *recoveryManager
 	history            *rolloutReader
@@ -83,6 +85,7 @@ func newSession(
 	s := &session{
 		agentID:            strings.TrimSpace(agentID),
 		transport:          t,
+		manager:            manager,
 		caps:               cloneCaps(codexCapabilities),
 		recovery:           &recoveryManager{transport: t, logger: logger, maxRetry: 3},
 		history:            &rolloutReader{logger: logger, transport: t},
@@ -101,6 +104,22 @@ func newSession(
 	return s, nil
 }
 
+func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawMessage) {
+	s.noteReadActivity()
+	if toolHandler := s.manager.getToolHandler(); len(msg.ID) != 0 && toolHandler != nil && isToolCallMethod(msg.Method) {
+		go func() { result, err := toolHandler(ctx, msg); _ = resp.RespondWithID(msg.ID, result, err) }()
+		return
+	}
+	if isKnownRequestMethod(msg.Method) { s.onNotification(msg.Method, msg.Params); return }
+	if len(msg.ID) != 0 { _ = resp.RespondWithID(msg.ID, nil, fmt.Errorf("method not supported: %s", msg.Method)); return }
+	s.onNotification(msg.Method, msg.Params)
+}
+
+func isKnownRequestMethod(method string) bool { return hasMethod(method, approvalBridgeMethods) || hasMethod(method, requestUserInputMethods) }
+func isToolCallMethod(method string) bool {
+	switch strings.TrimSpace(method) { case "item/tool/call", "dynamic_tool_call", "tool.call.begin": return true }
+	return false
+}
 func (s *session) Capabilities() dto.CapabilitySet { return cloneCaps(s.caps) }
 
 func (s *session) setRuntimeConfig(cfg map[string]any) {
