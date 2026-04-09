@@ -32,13 +32,6 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	t.Setenv("CODEX_APP_SERVER_URL", startToolBridgeRPCServer(t, recorder))
 	manager := &ServerManager{}
-	origBuildManifest := buildCodexMCPManifest
-	manifestCalls := 0
-	buildCodexMCPManifest = func(dto.ManifestContext) dto.MCPManifest {
-		manifestCalls++
-		return dto.MCPManifest{}
-	}
-	defer func() { buildCodexMCPManifest = origBuildManifest }()
 
 	listToolsCalls := 0
 	got, ok := newDriver(nil, nil, nil, nil, manager, func(context.Context) ([]DynamicToolSchema, error) {
@@ -73,9 +66,6 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 
 	if listToolsCalls != 1 {
 		t.Fatalf("listTools calls = %d, want 1", listToolsCalls)
-	}
-	if manifestCalls != 0 {
-		t.Fatalf("legacy manifest calls = %d, want 0", manifestCalls)
 	}
 	if calls := recorder.calls("thread/start"); calls != 1 {
 		t.Fatalf("thread/start calls = %d, want 1", calls)

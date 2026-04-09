@@ -71,6 +71,8 @@ type Config struct {
 	OnShutdown           func(mcp.ShutdownRequest)
 	OnConfigChanged      func(mcp.ConfigChangedNotify)
 	Hooks                HookConfig
+	OnToolsList          func(context.Context) (any, error)                         // P15: tools/list callback
+	OnToolsCall          func(ctx context.Context, params json.RawMessage) (any, error) // P15: tools/call callback
 }
 
 func New(cfg Config) *Client {

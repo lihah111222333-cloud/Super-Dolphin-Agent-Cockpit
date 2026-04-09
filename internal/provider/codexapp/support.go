@@ -258,6 +258,10 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 		cleanupFailedSession(s, "force stop failed on dynamic tools list error")
 		return nil, fmt.Errorf("dynamic tools list: %w", err)
 	}
+	pkglogger.Info("codexapp: dynamic tools injected into thread/start",
+		"agent_id", req.AgentID,
+		"tool_count", len(tools),
+	)
 	result, err := startRemoteThreadWithDynamicTools(ctx, s.transport, req, tools)
 	if err != nil {
 		cleanupFailedSession(s, "force stop failed on start error")

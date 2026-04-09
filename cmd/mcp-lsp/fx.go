@@ -42,10 +42,32 @@ func run() error {
 	app := fx.New(
 		fx.NopLogger,
 		fx.Provide(
-			func(shutdowner fx.Shutdowner) bootstrap.Config {
+			func(shutdowner fx.Shutdowner, handlers ToolHandlers) bootstrap.Config {
 				cfg := bootstrap.ReadBootConfig()
 				cfg.AgentID = ""
 				cfg.Capabilities = []string{"tools/lsp"}
+				// P15: register tools/list and tools/call so toolbridge can call this peer.
+				toolProvider := registryToolProvider{defs: toolDefinitions(handlers)}
+				cfg.OnToolsList = func(ctx context.Context) (any, error) {
+					tools, err := toolProvider.ListTools(ctx)
+					if err != nil { return nil, err }
+					return map[string]any{"tools": tools}, nil
+				}
+				cfg.OnToolsCall = func(ctx context.Context, params json.RawMessage) (any, error) {
+					var req struct {
+						Name      string          `json:"name"`
+						Arguments json.RawMessage `json:"arguments"`
+					}
+					if err := json.Unmarshal(params, &req); err != nil {
+						return nil, err
+					}
+					result, err := toolProvider.CallTool(ctx, req.Name, req.Arguments)
+					if err != nil { return nil, err }
+					text, _ := json.Marshal(result)
+					return map[string]any{
+						"content": []map[string]string{{"type": "text", "text": string(text)}},
+					}, nil
+				}
 				cfg.FinalReport = func() *mcp.ReportRequest {
 					return &mcp.ReportRequest{
 						Report: mcp.ReportEnvelope{
@@ -166,10 +188,19 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 		<-ctx.Done()
 		return nil
 	}
-	pkglogger.Info("mcp-lsp bootstrap starting",
+	// Only register when running as independent peer (GO_AGENT_PEER_MODE=1).
+	// Sidecar mode (spawned by codex/claude) skips registration to avoid sweeper conflicts.
+	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
+		pkglogger.Info("mcp-lsp bootstrap skipped (sidecar mode)",
+			"rpc_addr", r.cfg.RPCAddr,
+			"binary_name", r.cfg.BinaryName,
+		)
+		<-ctx.Done()
+		return nil
+	}
+	pkglogger.Info("mcp-lsp bootstrap starting (peer mode)",
 		"binary_name", r.cfg.BinaryName,
 		"rpc_addr", r.cfg.RPCAddr,
-		"thread_id", r.cfg.ThreadID,
 		"capabilities", r.cfg.Capabilities,
 	)
 	if err := r.client.Start(ctx); err != nil {

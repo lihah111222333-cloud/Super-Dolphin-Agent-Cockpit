@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -78,23 +79,46 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexapp.DynamicTool
 	return toCodexDynamicTools(merged), nil
 }
 
+// peerReadyTimeout is the max time to wait for a peer to register after startup.
+const peerReadyTimeout = 10 * time.Second
+const peerPollInterval = 300 * time.Millisecond
+
 func (h *Handler) listPeerTools(ctx context.Context, clientKind string) ([]common.MCPTool, error) {
 	if h == nil || h.registry == nil {
 		return nil, ErrNoPeerAvailable
 	}
-	peers := h.registry.FindActiveByKind(clientKind)
-	if len(peers) == 0 {
-		return nil, ErrNoPeerAvailable
-	}
-	if len(peers) > 1 {
-		return nil, ErrAmbiguousPeer
+	// Peer processes may still be starting up. Poll with a short timeout.
+	peers, err := h.waitForPeer(ctx, clientKind)
+	if err != nil {
+		return nil, err
 	}
 
+	// Bootstrap peer callback returns {"tools":[...]} wrapper.
 	var result peerToolsListResult
 	if err := peers[0].Peer.Callback(ctx, "tools/list", nil, &result); err != nil {
 		return nil, err
 	}
 	return result.Tools, nil
+}
+
+func (h *Handler) waitForPeer(ctx context.Context, clientKind string) ([]*mcpcontrol.ToolInstance, error) {
+	deadline := time.Now().Add(peerReadyTimeout)
+	for {
+		peers := h.registry.FindActiveByKind(clientKind)
+		if len(peers) >= 1 {
+			// Use the first active peer. Multiple peers can exist when the
+			// codex app-server also spawns MCP sidecars from a resumed thread.
+			return peers[:1], nil
+		}
+		if time.Now().After(deadline) {
+			return nil, ErrNoPeerAvailable
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(peerPollInterval):
+		}
+	}
 }
 
 func adaptMCPResponse(resp peerToolCallResponse) *ToolCallResult {
