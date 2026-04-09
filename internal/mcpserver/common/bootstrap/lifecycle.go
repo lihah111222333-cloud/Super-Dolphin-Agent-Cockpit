@@ -96,6 +96,17 @@ func (c *Client) handleNotify(req *jrpc2.Request) {
 }
 
 func (c *Client) handleCallback(ctx context.Context, req *jrpc2.Request) (any, error) {
+	// P15: route tools/list and tools/call to registered handlers.
+	switch req.Method() {
+	case "tools/list":
+		if c.cfg.OnToolsList != nil {
+			return c.cfg.OnToolsList(ctx)
+		}
+	case "tools/call":
+		if c.cfg.OnToolsCall != nil {
+			return c.cfg.OnToolsCall(ctx, json.RawMessage(req.ParamString()))
+		}
+	}
 	if resp, handled, err := c.dispatchHookCallback(ctx, req); handled {
 		return resp, err
 	}

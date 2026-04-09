@@ -180,17 +180,39 @@ func handleToolCall(ctx context.Context, registry tools.Registry, name string, a
 }
 
 func (r bootstrapRunner) Run(ctx context.Context) error {
-	// Never register with the control plane. Bootstrap registration causes
-	// sweeper eviction and hook failures that kill the mcp-orch process
-	// (Transport closed), making all MCP tools permanently unavailable.
-	// The RPC address is still used by remoteLauncher for orchestration
-	// calls (thread/start, thread/stop) without any lifecycle coupling.
-	pkglogger.Info("mcp-orch bootstrap skipped",
+	if strings.TrimSpace(r.cfg.RPCAddr) == "" {
+		pkglogger.Warn("mcp-orch bootstrap disabled: GO_AGENT_CTL_RPC_ADDR missing",
+			"binary_name", r.cfg.BinaryName,
+		)
+		<-ctx.Done()
+		return nil
+	}
+	// Only register with the control plane when running as an independent
+	// peer (GO_AGENT_PEER_MODE=1), spawned by ServerManager for toolbridge.
+	// When codex spawns mcp-orch as a stdio MCP sidecar, bootstrap
+	// registration causes sweeper eviction that kills the process.
+	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
+		pkglogger.Info("mcp-orch bootstrap skipped (sidecar mode)",
+			"rpc_addr", r.cfg.RPCAddr,
+			"binary_name", r.cfg.BinaryName,
+		)
+		<-ctx.Done()
+		return nil
+	}
+	pkglogger.Info("mcp-orch bootstrap starting (peer mode)",
 		"rpc_addr", r.cfg.RPCAddr,
 		"binary_name", r.cfg.BinaryName,
 	)
+	if err := r.client.Start(ctx); err != nil {
+		pkglogger.Error("mcp-orch bootstrap start failed",
+			"binary_name", r.cfg.BinaryName,
+			"rpc_addr", r.cfg.RPCAddr,
+			"error", err,
+		)
+		return err
+	}
 	<-ctx.Done()
-	return nil
+	return r.client.Close()
 }
 
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {

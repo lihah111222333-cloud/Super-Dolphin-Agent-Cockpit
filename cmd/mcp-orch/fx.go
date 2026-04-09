@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"log/slog"
 	"os"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
@@ -47,42 +49,7 @@ func run() error {
 			},
 			newNoopSessionCleaner,
 			newNoopTurnStarter,
-			func(shutdowner fx.Shutdowner, hookConsumer orchestration.HookConsumer) bootstrap.Config {
-				cfg := bootstrap.ReadBootConfig()
-				cfg.AgentID = ""
-				cfg.Capabilities = []string{
-					"tools/orchestration",
-					"tools/task",
-					"tools/workspace",
-					"tools/prompt",
-					"tools/command",
-					"tools/shared_file",
-				}
-				cfg.Subscriptions = []string{"config/agent", "config/thread"}
-				cfg.FinalReport = func() *mcp.ReportRequest {
-					return &mcp.ReportRequest{
-						Report: mcp.ReportEnvelope{
-							Type: mcp.ReportVariantCompletion,
-							Completion: &mcp.CompletionReport{
-								Status: "done",
-								Report: "mcp-orch shutdown",
-							},
-						},
-					}
-				}
-				cfg.OnConfigChanged = func(notify mcp.ConfigChangedNotify) {
-					log.Printf("mcp-orch config changed: scope=%s version=%d selector=%+v payload=%s", notify.Scope, notify.ConfigVersion, notify.Selector, string(notify.Payload))
-				}
-				cfg.OnShutdown = func(mcp.ShutdownRequest) {
-					_ = shutdowner.Shutdown()
-				}
-				if hookConsumer != nil {
-					cfg.Hooks = bootstrap.HookConfig{
-						OnAfter: hookConsumer.After,
-					}
-				}
-				return cfg
-			},
+			buildBootstrapConfig,
 			bootstrap.New,
 			newRegistry,
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
@@ -103,6 +70,52 @@ func run() error {
 	stopCtx, stopCancel := platformconfig.WithRPCRequestTimeout(context.Background())
 	defer stopCancel()
 	return app.Stop(stopCtx)
+}
+
+func buildBootstrapConfig(shutdowner fx.Shutdowner, hookConsumer orchestration.HookConsumer, registry tools.Registry) bootstrap.Config {
+	cfg := bootstrap.ReadBootConfig()
+	cfg.AgentID = ""
+	// P15: register tools/list and tools/call so toolbridge can call this peer.
+	p := registryToolProvider{registry: registry}
+	cfg.OnToolsList = func(ctx context.Context) (any, error) {
+		tools, err := p.ListTools(ctx)
+		if err != nil { return nil, err }
+		return map[string]any{"tools": tools}, nil
+	}
+	cfg.OnToolsCall = func(ctx context.Context, params json.RawMessage) (any, error) {
+		var req struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}
+		if err := json.Unmarshal(params, &req); err != nil {
+			return nil, err
+		}
+		result, err := p.CallTool(ctx, req.Name, req.Arguments)
+		if err != nil { return nil, err }
+		text, _ := json.Marshal(result)
+		return map[string]any{
+			"content": []map[string]string{{"type": "text", "text": string(text)}},
+		}, nil
+	}
+	cfg.Capabilities = []string{
+		"tools/orchestration", "tools/task", "tools/workspace",
+		"tools/prompt", "tools/command", "tools/shared_file",
+	}
+	cfg.Subscriptions = []string{"config/agent", "config/thread"}
+	cfg.FinalReport = func() *mcp.ReportRequest {
+		return &mcp.ReportRequest{Report: mcp.ReportEnvelope{
+			Type:       mcp.ReportVariantCompletion,
+			Completion: &mcp.CompletionReport{Status: "done", Report: "mcp-orch shutdown"},
+		}}
+	}
+	cfg.OnConfigChanged = func(n mcp.ConfigChangedNotify) {
+		log.Printf("mcp-orch config changed: scope=%s version=%d", n.Scope, n.ConfigVersion)
+	}
+	cfg.OnShutdown = func(mcp.ShutdownRequest) { _ = shutdowner.Shutdown() }
+	if hookConsumer != nil {
+		cfg.Hooks = bootstrap.HookConfig{OnAfter: hookConsumer.After}
+	}
+	return cfg
 }
 
 func buildOrchestrationOptions(remoteAddr string) []fx.Option {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -50,8 +49,6 @@ var codexCapabilities = dto.CapabilitySet{
 	dto.CapTurnOverride:   true,
 	dto.CapModelSwitch:    true,
 }
-
-var buildCodexMCPManifest = dto.BuildManifest
 
 type threadRPCResult struct {
 	Thread struct {
@@ -195,29 +192,6 @@ type startResult struct {
 	cwd      string
 }
 
-// interruptStaleTurnOnResume cancels any in-progress turn that was left over
-// from a previous app lifecycle.  After a full restart the local MCP servers
-// (mcp-lsp, mcp-orch) are new processes and any pending MCP tool call from the
-// old session will never receive a response, causing the agent to hang forever.
-// Sending turn/interrupt is safe: it is a no-op when no turn is active.
-func interruptStaleTurnOnResume(s *session, threadID string) {
-	if s == nil || strings.TrimSpace(threadID) == "" {
-		return
-	}
-	_, err := callWithTimeout(s.ctx, s.transport, 10*time.Second, "turn/interrupt", map[string]any{
-		"threadId": threadID,
-		"source":   "resume_stale_turn_cleanup",
-	})
-	if s.logger != nil {
-		if err != nil {
-			s.logger.Debug("codexapp: stale turn interrupt on resume (expected if idle)",
-				"thread_id", threadID, "error", err)
-		} else {
-			s.logger.Info("codexapp: interrupted stale turn on resume", "thread_id", threadID)
-		}
-	}
-}
-
 func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (string, error) {
 	resumeID := shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID)
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/resume", threadResumeParams{
@@ -258,14 +232,4 @@ func decodeThreadID(raw json.RawMessage, fallback string) (string, error) {
 	return "", errors.New("codexapp: empty thread id")
 }
 
-func resolveCodexConfigPath() string {
-	if root := strings.TrimSpace(os.Getenv("CODEX_HOME")); root != "" {
-		return filepath.Join(root, "config.toml")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".codex", "config.toml")
-	}
-	return filepath.Join(home, ".codex", "config.toml")
-}
 
