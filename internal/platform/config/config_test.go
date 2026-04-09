@@ -67,7 +67,7 @@ func TestNew_PreservesDatabaseURLFromEnv(t *testing.T) {
 }
 
 func TestNew_EnablesDynamicToolsFromEnv(t *testing.T) {
-	t.Setenv("GO_AGENT_DYNAMIC_TOOLS", "1")
+	t.Setenv("GO_AGENT_DYNAMIC_TOOLS", "true")
 
 	cfg := New()
 	if !cfg.Provider.DynamicToolsEnabled {

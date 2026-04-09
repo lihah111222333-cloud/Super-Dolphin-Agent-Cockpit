@@ -15,7 +15,11 @@ import (
 )
 
 type Handler struct {
-	registry *mcpcontrol.ToolRegistry
+	registry activePeerRegistry
+}
+
+type activePeerRegistry interface {
+	FindActiveByKind(clientKind string) []*mcpcontrol.ToolInstance
 }
 
 func NewHandler(registry *mcpcontrol.ToolRegistry) *Handler {

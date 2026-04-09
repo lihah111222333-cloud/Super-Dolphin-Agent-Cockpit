@@ -99,3 +99,29 @@ func TestWriteManifestConfigAcceptsShortFamilyName(t *testing.T) {
 		t.Fatalf("mcpServers = %#v, want short family name key \"orch\"", servers)
 	}
 }
+
+func TestClaude_MCP_SmokeTest(t *testing.T) {
+	t.Parallel()
+
+	manifest := dto.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
+	path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
+	if err != nil {
+		t.Fatalf("writeManifestConfig() error = %v", err)
+	}
+	defer cleanup()
+
+	args := buildCLIArgs("claude-sonnet", "system", path, cliLaunchConfig{})
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] != "--mcp-config" {
+			continue
+		}
+		if args[i+1] != path {
+			t.Fatalf("--mcp-config path = %q, want %q", args[i+1], path)
+		}
+		if _, err := os.Stat(args[i+1]); err != nil {
+			t.Fatalf("Stat(%q) error = %v", args[i+1], err)
+		}
+		return
+	}
+	t.Fatalf("buildCLIArgs() args = %#v, want --mcp-config %q", args, path)
+}
