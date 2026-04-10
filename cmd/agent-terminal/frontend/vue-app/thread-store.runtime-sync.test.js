@@ -426,12 +426,11 @@ describe('thread store runtime sync', () => {
       vi.useRealTimers();
     }
   });
-  it('hydrates current-thread history-page signals immediately and ignores older scoped snapshots', async () => {
+  it('debounces history-page signals for the active thread (trailing sync after 2s)', async () => {
     vi.useFakeTimers();
     try {
       const store = useThreadStore();
       const threadId = 'thread-live';
-      const staleSync = deferred();
       const methods = [];
       store.state.activeThreadId = threadId;
       store.state.threads = [{ id: threadId, name: 'Live', state: 'running' }];
@@ -443,20 +442,67 @@ describe('thread store runtime sync', () => {
       apiMock.callAPI.mockImplementation(async (method) => {
         methods.push(method);
         if (method === 'thread/messages') return { total: 1, messages: [{ id: 1, agentId: threadId, role: 'assistant', content: 'history page synced', createdAt: '2026-03-08T00:00:02Z' }] };
-        if (method === 'ui/state/get') return staleSync.promise;
+        if (method === 'ui/state/get') return buildSnapshot({ threadId, activeThreadId: threadId, text: 'base' });
         return {};
       });
-      store.handleBridgeEvent({ method: 'ui/thread/changed', payload: { source: 'item/completed', threadId } });
-      vi.advanceTimersByTime(250);
-      await Promise.resolve();
-      expect(methods).toEqual(['ui/state/get']);
+      // thread/messages/page on the active thread is debounced (2s trailing)
+      // to prevent rapid-fire overwrites while still catching final state.
       store.handleBridgeEvent({ method: 'ui/thread/changed', payload: { source: 'thread/messages/page', threadId } });
       await Promise.resolve(); await Promise.resolve();
-      expect(methods).toEqual(['ui/state/get', 'thread/messages']);
-      expect(store.getThreadTimeline(threadId)[0]?.text).toBe('history page synced');
-      staleSync.resolve(buildSnapshot({ threadId, activeThreadId: threadId, text: 'base' }));
-      await Promise.resolve(); await Promise.resolve();
-      expect(store.getThreadTimeline(threadId)[0]?.text).toBe('history page synced');
+      // Immediate — no thread/messages call yet
+      expect(methods).not.toContain('thread/messages');
+      // After 2s debounce, trailing sync fires (uses syncThreadHistoryAtomic → ui/state/get + thread/messages)
+      vi.advanceTimersByTime(2100);
+      await vi.waitFor(() => { expect(methods).toContain('ui/state/get'); });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('content-mismatch guard preserves dialog items when remote has only structural items', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = useThreadStore();
+      const threadId = 'thread-claude';
+      store.state.activeThreadId = threadId;
+      store.state.threads = [{ id: threadId, name: 'Claude', state: 'running' }];
+      // Pre-populate local timeline with dialog items (as loadMessages would)
+      const dialogItems = [
+        { id: 'msg-1', kind: 'user', text: 'hello', ts: '2026-01-01T00:00:00Z' },
+        { id: 'msg-2', kind: 'assistant', text: 'hi', ts: '2026-01-01T00:00:01Z' },
+        { id: 'msg-3', kind: 'user', text: 'do work', ts: '2026-01-01T00:00:02Z' },
+        { id: 'msg-4', kind: 'assistant', text: 'done', ts: '2026-01-01T00:00:03Z' },
+      ];
+      store.state.timelinesByThread = { [threadId]: dialogItems };
+      // Remote returns structural-only timeline (no dialog items)
+      const structuralTimeline = [
+        { id: 'turn-1', kind: 'turn_start', status: 'running' },
+        { id: 'tc-1', kind: 'tool_call', tool_name: 'read', call_id: 'c1' },
+        { id: 'tc-2', kind: 'tool_call', tool_name: 'write', call_id: 'c2' },
+        { id: 'turn-1-end', kind: 'turn_end', status: 'completed' },
+      ];
+      let loadMessagesCalled = false;
+      apiMock.callAPI.mockImplementation(async (method) => {
+        if (method === 'ui/state/get') return {
+          threads: [{ id: threadId, name: 'Claude', state: 'running' }],
+          agents: [],
+          timelinesByThread: { [threadId]: structuralTimeline },
+        };
+        if (method === 'thread/messages') {
+          loadMessagesCalled = true;
+          return { messages: [
+            { id: 1, agentId: threadId, role: 'user', content: 'hello', createdAt: '2026-01-01T00:00:00Z' },
+            { id: 2, agentId: threadId, role: 'assistant', content: 'hi', createdAt: '2026-01-01T00:00:01Z' },
+            { id: 3, agentId: threadId, role: 'user', content: 'do work', createdAt: '2026-01-01T00:00:02Z' },
+            { id: 4, agentId: threadId, role: 'assistant', content: 'done', createdAt: '2026-01-01T00:00:03Z' },
+          ] };
+        }
+        return {};
+      });
+      await store.syncThreadState(threadId);
+      await vi.waitFor(() => { expect(loadMessagesCalled).toBe(true); });
+      // Dialog items should be preserved (not replaced with structural-only)
+      const finalTimeline = store.getThreadTimeline(threadId);
+      const dialogKinds = finalTimeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant');
+      expect(dialogKinds.length).toBeGreaterThanOrEqual(3);
     } finally { vi.useRealTimers(); }
   });
 

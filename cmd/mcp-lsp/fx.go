@@ -100,6 +100,7 @@ func run() error {
 			newServer,
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
+			fx.Annotate(newHTTPRunner, fx.ResultTags(`group:"runners"`)),
 		),
 		fx.Invoke(bindRuntime),
 	)

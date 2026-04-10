@@ -17,7 +17,9 @@ const (
 
 type MCPBinary struct {
 	Name        string            `json:"name"`
-	Command     []string          `json:"command"`
+	Type        string            `json:"type,omitempty"`    // "http" or "" (stdio)
+	URL         string            `json:"url,omitempty"`     // HTTP endpoint URL
+	Command     []string          `json:"command,omitempty"` // stdio command
 	Env         map[string]string `json:"env,omitempty"`
 	AutoApprove []string          `json:"autoApprove,omitempty"`
 }
@@ -27,12 +29,13 @@ type MCPManifest struct {
 }
 
 type ManifestContext struct {
-	AgentID     string
-	CWD         string
-	ThreadCaps  CapabilitySet
-	BinaryDir   string
-	Env         map[string]string
-	AutoApprove []string
+	AgentID       string
+	CWD           string
+	ThreadCaps    CapabilitySet
+	BinaryDir     string
+	Env           map[string]string
+	AutoApprove   []string
+	PeerHTTPAddrs map[ToolFamily]string // e.g. {FamilyOrch: "127.0.0.1:9091"}
 }
 
 // BuildManifest returns declarative MCP binary metadata for external executors
@@ -49,11 +52,24 @@ func BuildManifest(ctx ManifestContext) MCPManifest {
 
 	bins := make([]MCPBinary, 0, len(families))
 	for _, fam := range families {
-		binaryName := "mcp-" + string(fam)
 		// Use the short family name (e.g. "lsp", "orch") as the MCP server
 		// name so the codex CLI produces concise tool names like
 		// mcp__lsp__lsp_grep instead of the redundant mcp__mcp-lsp__lsp_grep.
 		serverName := string(fam)
+
+		// If a peer HTTP address is available, generate HTTP config so
+		// Claude connects to the shared process instead of spawning a sidecar.
+		if addr := strings.TrimSpace(ctx.PeerHTTPAddrs[fam]); addr != "" {
+			bins = append(bins, MCPBinary{
+				Name:        serverName,
+				Type:        "http",
+				URL:         "http://" + addr + "/mcp",
+				AutoApprove: append([]string(nil), autoApprove...),
+			})
+			continue
+		}
+
+		binaryName := "mcp-" + string(fam)
 		bins = append(bins, MCPBinary{
 			Name:        serverName,
 			Command:     []string{filepath.Join(ctx.BinaryDir, binaryName)},

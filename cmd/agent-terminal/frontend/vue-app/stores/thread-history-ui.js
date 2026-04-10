@@ -95,8 +95,7 @@ function historyMessageToTimelineItem(threadId, message, index) {
   return item;
 }
 
-export function applyImmediateTimelineFromMessages({ threadId, response, state, normalizeThreadID, freezeTimelineItemsAtomic, logInfo, logWarn: logWarnParam }) {
-  const logWarnFn = typeof logWarnParam === 'function' ? logWarnParam : (typeof logInfo === 'function' ? logInfo : () => {});
+export function applyImmediateTimelineFromMessages({ threadId, response, state, normalizeThreadID, freezeTimelineItemsAtomic, logInfo }) {
   const id = typeof normalizeThreadID === 'function' ? normalizeThreadID(threadId) : (threadId || '').toString().trim();
   const messages = Array.isArray(response?.messages) ? response.messages : [];
   if (!id || messages.length === 0) return false;
@@ -134,15 +133,12 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
   }
   // Check if local has optimistic user messages that would be lost
   const hasOptimistic = existing.some((it) => (it?.id || '').toString().includes('-optimistic-'));
-  logWarnFn('thread', 'messages.load.local_timeline.overwrite_decision', {
+  if (typeof logInfo === 'function') logInfo('thread', 'messages.load.local_timeline.overwrite_decision', {
     thread_id: id,
     existing_total: existing.length,
     incoming_total: timeline.length,
     existing_dialog_count: existingDialogCount,
     incoming_dialog_count: incomingDialogCount,
-    existing_ts: existingTsValid ? existingLatestDialogTs : null,
-    incoming_ts: incomingTsValid ? incomingLatestDialogTs : null,
-    same_or_newer: sameOrNewerExistingDialog,
     has_optimistic: hasOptimistic,
   });
   const frozenTimeline = freezeTimelineItemsAtomic(timeline, existing);
@@ -152,7 +148,7 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
     const optimisticItems = existing.filter((it) => (it?.id || '').toString().includes('-optimistic-'));
     const mergedItems = [...frozenTimeline.items, ...optimisticItems];
     state.timelinesByThread = { ...state.timelinesByThread, [id]: mergedItems };
-    logWarnFn('thread', 'messages.load.local_timeline.applied_with_optimistic', {
+    if (typeof logInfo === 'function') logInfo('thread', 'messages.load.local_timeline.applied_with_optimistic', {
       thread_id: id,
       history_count: frozenTimeline.items.length,
       optimistic_count: optimisticItems.length,

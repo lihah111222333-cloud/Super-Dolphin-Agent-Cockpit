@@ -160,39 +160,27 @@ export async function syncThreadState(ctx, threadId) {
       const timeline = Array.isArray(res?.timelinesByThread?.[id]) ? res.timelinesByThread[id] : [];
       const diffRevision = normalizeDiffRevision(res?.diffRevisionByThread?.[id]);
       const localTimelineLen = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id].length : 0;
-      logWarn('thread', 'sync.thread_state_response_timeline', {
-        thread_id: id,
-        remote_len: timeline.length,
-        local_len: localTimelineLen,
-        remote_kinds: timeline.slice(0, 20).map((it) => it?.kind).filter(Boolean),
-      });
       logInfo('thread', 'state.sync.thread.response', { thread_id: id, timeline_len: timeline.length, diff_revision: diffRevision, local_timeline_len: localTimelineLen, duration_ms: Math.round(perfNow() - start) });
-      if (timeline.length === 0 && localTimelineLen > 0) {
-        logWarn('thread', 'state.sync.thread.empty_remote_snapshot', {
-          thread_id: id,
-          requested_thread_id: id,
-          active_thread_id: ctx.state.activeThreadId,
-          active_cmd_thread_id: ctx.state.activeCmdThreadId,
-          local_timeline_len: localTimelineLen,
-          remote_timeline_len: timeline.length,
-          diff_revision: diffRevision,
-          cwd: ctx.getPreferenceScopeCwd(),
-          duration_ms: Math.round(perfNow() - start),
-        });
-      }
-      // Regression guard: only block when remote is drastically smaller than local.
-      // Local timeline may contain structural items (turn_start, item, etc.) that inflate
-      // the count, so a small difference is normal. Block only when remote < 30% of local
-      // AND the absolute gap is > 10 items — this catches real regressions (37→3) but
-      // allows normal cache-vs-snapshot fluctuation (92→65).
-      const regressionThreshold = localTimelineLen > 5 && timeline.length > 0
+      // Regression guard: prevent remote structural-only timeline from overwriting
+      // a local timeline that already contains dialog items (user/assistant messages).
+      // This happens when Claude CLI doesn't emit turn lifecycle events for subsequent
+      // turns — the backend timeline only has turn_start/tool_call/turn_end from turn 1,
+      // while the frontend has already loaded the full dialog via loadMessages.
+      const localTimeline = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id] : [];
+      const remoteDialogCount = timeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant').length;
+      const localDialogCount = localTimeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant').length;
+      const regressionByCount = localTimelineLen > 5 && timeline.length > 0
         && timeline.length < localTimelineLen * 0.3
         && (localTimelineLen - timeline.length) > 10;
-      if (regressionThreshold) {
+      const regressionByContent = remoteDialogCount === 0 && localDialogCount >= 3 && timeline.length > 0;
+      if (regressionByCount || regressionByContent) {
         logWarn('thread', 'sync.thread_state_regression_guard', {
           thread_id: id,
           remote_len: timeline.length,
           local_len: localTimelineLen,
+          remote_dialog: remoteDialogCount,
+          local_dialog: localDialogCount,
+          guard_type: regressionByContent ? 'content_mismatch' : 'count_mismatch',
           remote_kinds: timeline.slice(0, 5).map((it) => it?.kind),
         });
         if (res && res.timelinesByThread) {
@@ -210,8 +198,8 @@ export async function syncThreadState(ctx, threadId) {
         loadedRevisionByThread: ctx.threadDiffLoadedRevisionByThread,
       });
       if (typeof ctx.restoreScrollPosition === 'function') ctx.restoreScrollPosition();
-      if (id === normalizeThreadID(ctx.state.activeThreadId) && shouldReloadThreadHistory(ctx, id)) {
-        logInfo('thread', 'history.reload.after_sync', { thread_id: id, sync_runtime: false });
+      if (id === normalizeThreadID(ctx.state.activeThreadId) && (regressionByContent || shouldReloadThreadHistory(ctx, id))) {
+        logInfo('thread', 'history.reload.after_sync', { thread_id: id, sync_runtime: false, forced_by_guard: regressionByContent });
         await loadMessages(ctx, id, 300, { syncRuntime: false });
       }
       if (id === normalizeThreadID(ctx.state.activeThreadId) && normalizeDiffRevision(ctx.state.diffRevisionByThread?.[id]) !== loadedDiffRevision(ctx, id)) {
@@ -286,7 +274,7 @@ export async function loadMessages(ctx, threadId, limit = 300, options = {}) {
     const start = perfNow();
     try {
       const res = await callAPI('thread/messages', { threadId: id, limit });
-      const immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logInfo, logWarn });
+      const immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logInfo });
       if (syncRuntime) {
         logInfo('thread', 'messages.load.sync.start', { thread_id: id, limit, immediate_timeline_applied: immediateTimelineApplied });
         await syncRuntimeState(ctx);
@@ -385,25 +373,19 @@ export function handleBridgeEvent(ctx, evt) {
   const activeThreadTarget = eventThreadTarget && (eventThreadTarget === normalizeThreadID(ctx.state.activeThreadId) || eventThreadTarget === normalizeThreadID(ctx.state.activeCmdThreadId)) ? eventThreadTarget : '';
   const historyHydrationSignal = turnCompletedSignal || historyPageSignal;
   if (directThreadSyncSignal) {
-    logWarn('thread', 'bridge.streaming_delta_received', {
+    logInfo('thread', 'bridge.streaming_delta_received', {
       method: eventMethod, source: sourceLower, thread_id: eventThreadTarget,
-      active_thread_id: normalizeThreadID(ctx.state.activeThreadId),
-      active_cmd_thread_id: normalizeThreadID(ctx.state.activeCmdThreadId),
       is_active: Boolean(activeThreadTarget),
     });
   }
   if (methodLower === THREAD_PATCH_METHOD && activeThreadTarget) {
     const patchPayload = evt?.payload || evt?.params?.payload || evt?.params || evt?.data || evt || {};
     const hasTimelineItems = Array.isArray(patchPayload?.timelineItems) && patchPayload.timelineItems.length > 0;
-    logWarn('thread', 'bridge.thread_patch_received', {
+    logInfo('thread', 'bridge.thread_patch_received', {
       thread_id: activeThreadTarget,
       source: (patchPayload?.source || '').toString(),
       sequence: patchPayload?.sequence,
       has_timeline_items: hasTimelineItems,
-      timeline_count: hasTimelineItems ? patchPayload.timelineItems.length : 0,
-      timeline_kinds: hasTimelineItems ? patchPayload.timelineItems.map((it) => it?.kind).filter(Boolean) : [],
-      has_status: Boolean(patchPayload?.status),
-      status: (patchPayload?.status || '').toString(),
     });
     const patchResult = applyRuntimeThreadPatch(ctx, evt, activeThreadTarget, { perfNow });
     if (patchResult?.handled) {
@@ -415,14 +397,10 @@ export function handleBridgeEvent(ctx, evt) {
   }
   if (activeThreadTarget && shouldSkipThreadSyncFromPatch(ctx, activeThreadTarget, methodLower, sourceLower, perfNow())) {
     if (!historyPageSignal) {
-      logWarn('thread', 'bridge.event_skipped_by_patch_dedup', {
-        method: eventMethod, source: sourceLower, thread_id: activeThreadTarget,
-      });
+      logInfo('thread', 'bridge.event_skipped_by_patch_dedup', { method: eventMethod, source: sourceLower, thread_id: activeThreadTarget });
       return;
     }
   }
-
-
 
   if (sidebarSyncSignal) {
     const debounceMs = sourceLower === 'thread/started' ? 120 : 320;
@@ -468,14 +446,19 @@ export function handleBridgeEvent(ctx, evt) {
     return;
   }
 
-  // thread/messages/page on the active thread: skip loadMessages entirely.
-  // Live patches already provide real-time rendering. Repeated loadMessages would
-  // overwrite the richer timeline (structural items + optimistic messages) with a
-  // dialog-only snapshot from thread/messages API, causing the "message swallowed" bug.
+  // thread/messages/page on the active thread: debounce instead of immediate loadMessages.
+  // Live patches handle real-time rendering during streaming. Repeated loadMessages would
+  // overwrite the richer timeline (structural + optimistic items) with dialog-only data.
+  // However we MUST eventually sync because some providers (Claude) don't emit turn/completed.
+  // Use a trailing debounce (2s) so rapid-fire events collapse into a single final sync.
   if (historyPageSignal && activeThreadTarget) {
-    logWarn('thread', 'bridge.historyPage_active_skipped', {
-      method: eventMethod, source: sourceLower, thread_id: activeThreadTarget,
-    });
+    logInfo('thread', 'bridge.historyPage_active_debounced', { thread_id: activeThreadTarget });
+    clearTimeout(ctx.historyPageDebounceTimer);
+    ctx.historyPageDebounceTimer = setTimeout(() => {
+      logInfo('thread', 'bridge.historyPage_active_trailing_sync', { thread_id: activeThreadTarget });
+      syncThreadHistoryAtomic(ctx, activeThreadTarget)
+        .catch((error) => logWarn('thread', 'bridge.historyPage_trailing.failed', { error }));
+    }, 2000);
     return;
   }
 
@@ -483,11 +466,7 @@ export function handleBridgeEvent(ctx, evt) {
     clearTimeout(ctx.syncDebounceTimer);
     const snapshotRequest = beginRuntimeSnapshotRequest(ctx, activeThreadTarget);
     const syncKind = turnCompletedSignal ? 'syncThreadHistoryAtomic' : 'syncThreadState';
-    logWarn('thread', 'bridge.direct_sync_triggered', {
-      method: eventMethod, source: sourceLower, thread_id: activeThreadTarget,
-      sync_kind: syncKind, turn_completed: turnCompletedSignal,
-      request_seq: snapshotRequest.seq,
-    });
+    logInfo('thread', 'bridge.direct_sync_triggered', { thread_id: activeThreadTarget, sync_kind: syncKind, turn_completed: turnCompletedSignal });
     const request = turnCompletedSignal ? syncThreadHistoryAtomic(ctx, activeThreadTarget) : syncThreadState(ctx, activeThreadTarget);
     logInfo('thread', 'state.sync.direct.signal', { thread_id: activeThreadTarget, method: eventMethod, source: sourceLower || eventName, request_seq: snapshotRequest.seq });
     request.catch((error) => logWarn('thread', 'state.sync.direct.failed', { error, by_event: eventName }));
@@ -533,6 +512,7 @@ export function buildSyncContext(state, deps) {
     syncThrottleLastRun: 0,
     streamingSyncLastRun: 0,
     streamingSyncDebounceTimer: 0,
+    historyPageDebounceTimer: 0,
     sidebarRefreshPromise: null,
     sidebarRefreshPending: false,
     sidebarSyncDebounceTimer: 0,

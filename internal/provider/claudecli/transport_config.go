@@ -234,7 +234,24 @@ func manifestServers(manifest dto.MCPManifest, cwd string) map[string]any {
 
 func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool) {
 	name := strings.TrimSpace(bin.Name)
-	if name == "" || len(bin.Command) == 0 {
+	if name == "" {
+		return "", nil, false
+	}
+
+	// HTTP mode: peer process already running, just point Claude at the URL.
+	if strings.TrimSpace(bin.Type) == "http" && strings.TrimSpace(bin.URL) != "" {
+		server := map[string]any{
+			"type": "http",
+			"url":  strings.TrimSpace(bin.URL),
+		}
+		if len(bin.AutoApprove) > 0 {
+			server["autoApprove"] = append([]string(nil), bin.AutoApprove...)
+		}
+		return name, server, true
+	}
+
+	// stdio mode: validate command and ensure it's a managed MCP binary.
+	if len(bin.Command) == 0 {
 		return "", nil, false
 	}
 	command := strings.TrimSpace(bin.Command[0])
