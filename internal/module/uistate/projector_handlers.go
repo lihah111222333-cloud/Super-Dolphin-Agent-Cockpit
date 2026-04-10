@@ -352,7 +352,17 @@ func (s *service) applyTurnInputReceived(ev turndto.TurnInputReceived) {
 }
 
 func (s *service) applyTurnOutputDelta(ev turndto.TurnOutputDelta) {
-	if !strings.EqualFold(strings.TrimSpace(ev.Stream), "message") {
+	stream := strings.TrimSpace(ev.Stream)
+	s.logger.Warn("uistate: applyTurnOutputDelta received",
+		"stream", stream,
+		"thread_id", ev.ThreadID,
+		"delta_len", len(ev.Delta),
+	)
+	if !strings.EqualFold(stream, "message") {
+		s.logger.Warn("uistate: applyTurnOutputDelta skipped (non-message stream)",
+			"stream", stream,
+			"thread_id", ev.ThreadID,
+		)
 		return
 	}
 	delta := strings.TrimSpace(ev.Delta)

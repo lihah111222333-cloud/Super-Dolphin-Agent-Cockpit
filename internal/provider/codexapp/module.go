@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,73 +27,6 @@ var Module = fx.Module("provider.codexapp",
 	fx.Invoke(RegisterTranslators),
 	fx.Invoke(spawnToolbridgePeers),
 )
-
-// spawnToolbridgePeers launches mcp-orch and mcp-lsp as independent peer
-// processes with GO_AGENT_PEER_MODE=1. In peer mode, bootstrap registration
-// is enabled so toolbridge can find them via FindActiveByKind + Peer.Callback.
-// This is separate from MCP sidecars that codex/claude spawn via stdio.
-func spawnToolbridgePeers(mgr *ServerManager) {
-	go func() {
-		// Wait for the ctl RPC server to accept connections.
-		rpcAddr := os.Getenv("GO_AGENT_CTL_RPC_ADDR")
-		if rpcAddr == "" {
-			rpcAddr = "127.0.0.1:8090"
-		}
-		for i := 0; i < 30; i++ {
-			conn, err := net.DialTimeout("tcp", rpcAddr, 200*time.Millisecond)
-			if err == nil {
-				conn.Close()
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-
-		exe, err := os.Executable()
-		if err != nil {
-			pkglogger.Warn("server_manager: cannot resolve binary dir", "error", err)
-			return
-		}
-		binDir := filepath.Dir(exe)
-
-		for _, name := range []string{"mcp-orch", "mcp-lsp"} {
-			binPath := filepath.Join(binDir, name)
-			if _, err := os.Stat(binPath); err != nil {
-				pkglogger.Warn("peer spawn: binary not found", "binary", name, "path", binPath)
-				continue
-			}
-			// Provide a long-lived stdin pipe so the stdio MCP server
-			// inside the binary doesn't see EOF and exit.
-			stdinR, stdinW, err := os.Pipe()
-			if err != nil {
-				continue
-			}
-			cmd := exec.Command(binPath)
-			cmd.Stdin = stdinR
-			cmd.Stdout = os.Stderr
-			cmd.Stderr = os.Stderr
-			cmd.Env = append(os.Environ(), "GO_AGENT_PEER_MODE=1")
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-			if err := cmd.Start(); err != nil {
-				stdinR.Close()
-				stdinW.Close()
-				pkglogger.Warn("peer spawn: failed", "binary", name, "error", err)
-				continue
-			}
-			stdinR.Close() // child owns read end
-			pkglogger.Info("peer spawn: started", "binary", name, "pid", cmd.Process.Pid, "mode", "peer")
-
-			mgr.mu.Lock()
-			mgr.peerProcs = append(mgr.peerProcs, cmd.Process)
-			mgr.peerPipes = append(mgr.peerPipes, stdinW)
-			mgr.mu.Unlock()
-
-			go func(n string, p *os.Process) {
-				_, _ = p.Wait()
-				pkglogger.Info("peer spawn: exited", "binary", n)
-			}(name, cmd.Process)
-		}
-	}()
-}
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {
 	if factory == nil {
@@ -179,6 +110,12 @@ func (m *ServerManager) start(ctx context.Context) error {
 			"killed", killed)
 	}
 
+	// Kill orphaned codex app-server --listen processes and their descendants.
+	if killed := cleanOrphanedAppServers(); killed > 0 {
+		pkglogger.Info("server_manager: cleaned orphaned app-server processes at startup",
+			"killed", killed)
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -239,6 +176,12 @@ func (m *ServerManager) stop(ctx context.Context) error {
 	// Clean up any MCP processes that survived the shutdown.
 	if killed := cleanOrphanedMCPProcesses(nil); killed > 0 {
 		pkglogger.Info("server_manager: cleaned residual MCP processes at shutdown",
+			"killed", killed)
+	}
+
+	// Clean up orphaned app-server processes and their descendants.
+	if killed := cleanOrphanedAppServers(); killed > 0 {
+		pkglogger.Info("server_manager: cleaned residual app-server processes at shutdown",
 			"killed", killed)
 	}
 	return err

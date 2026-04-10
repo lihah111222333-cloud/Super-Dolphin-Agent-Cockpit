@@ -49,9 +49,24 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 		s.setResolvedThreadIDForTransport(tr, dataString(raw.Data, "session_id", "thread_id"))
 	}
 	if !s.isCurrentTransport(tr) {
+		if s.logger != nil {
+			s.logger.Warn("claudecli: applyRaw: transport mismatch, event dropped",
+				"event_type", raw.EventType,
+				"thread_id", dataString(raw.Data, "thread_id"),
+				"agent_id", s.agentID,
+			)
+		}
 		return
 	}
 	if s.shouldSuppressTurn(raw) {
+		if s.logger != nil {
+			s.logger.Warn("claudecli: applyRaw: turn suppressed",
+				"event_type", raw.EventType,
+				"thread_id", dataString(raw.Data, "thread_id"),
+				"turn_id", dataString(raw.Data, "turn_id"),
+				"agent_id", s.agentID,
+			)
+		}
 		return
 	}
 	s.dispatch(raw)

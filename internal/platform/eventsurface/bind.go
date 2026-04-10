@@ -2,8 +2,11 @@ package eventsurface
 
 import (
 	"context"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"fmt"
+	"runtime"
 	"strings"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
@@ -15,6 +18,21 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/kelindar/event"
 )
+
+func captureBindStack() string {
+	pcs := make([]uintptr, 8)
+	n := runtime.Callers(3, pcs)
+	frames := runtime.CallersFrames(pcs[:n])
+	var b strings.Builder
+	for {
+		f, more := frames.Next()
+		fmt.Fprintf(&b, "%s:%d ", f.Function, f.Line)
+		if !more || b.Len() > 400 {
+			break
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
 
 const (
 	MethodUIStateChanged           = "ui/state/changed"
@@ -55,6 +73,12 @@ func Bind(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Publis
 	if dispatcher == nil || publish == nil {
 		return nil
 	}
+	if logger != nil {
+		logger.Warn("eventsurface: Bind() called",
+			"dispatcher", fmt.Sprintf("%p", dispatcher),
+			"stack", captureBindStack(),
+		)
+	}
 	cancels := bindCore(dispatcher, logger, publish)
 	cancels = append(cancels, bindThread(dispatcher, logger, publish)...)
 	cancels = append(cancels, bindTool(dispatcher, logger, publish)...)
@@ -84,7 +108,16 @@ func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Pu
 			publish(MethodTurnResumed, turnResumedPayload(ev))
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnOutputDelta) {
-			publish(turnOutputMethod(ev), turnOutputDeltaPayload(ev))
+			method := turnOutputMethod(ev)
+			if logger != nil {
+				logger.Warn("eventsurface: TurnOutputDelta publish",
+					"method", method,
+					"thread_id", ev.ThreadID,
+					"stream", ev.Stream,
+					"delta_len", len(ev.Delta),
+				)
+			}
+			publish(method, turnOutputDeltaPayload(ev))
 		}, logger),
 	}
 }

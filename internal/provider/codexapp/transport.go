@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -109,9 +110,14 @@ func (t *transport) Running() bool {
 }
 
 func (t *transport) reconnect(ctx context.Context) error {
-	if err := t.ensureOpen(); err != nil {
-		return err
+	if t == nil {
+		return errors.New("codexapp: transport unavailable")
 	}
+	// Reset the closed flag so the reconnection can proceed. This is safe
+	// because reconnect is only called from attemptRecovery which serializes
+	// via recoveryMu. If the transport was closed due to an idle disconnect
+	// or network failure, we need to clear the flag to re-establish the WS.
+	t.closed.Store(false)
 	t.closeSocket()
 	if t.local && !t.processRunning() {
 		if err := t.spawnLocal(); err != nil {

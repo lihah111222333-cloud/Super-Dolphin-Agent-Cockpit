@@ -175,6 +175,12 @@ func (t *transport) readInitializeMessage(ctx context.Context, ws *websocket.Con
 	if err != nil {
 		return err
 	}
+	// P15 debug: log the initialize response to verify experimentalApi accepted
+	if len(data) < 2000 {
+		pkglogger.Info("codexapp: initialize response", "data", string(data))
+	} else {
+		pkglogger.Info("codexapp: initialize response", "data_len", len(data), "preview", string(data[:500]))
+	}
 	t.dispatchReadMessage(ctx, data, nil)
 	return nil
 }

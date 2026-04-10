@@ -220,6 +220,7 @@ func (s *session) shutdownSession(graceful bool) error {
 		s.failTurns(errors.New("codexapp: session stopped"))
 	}
 	s.clearProcessedApprovals()
+	s.shutdownSessionCleanup() // unregister from idle tracking
 	s.cancel()
 	return s.transport.shutdownTransport(graceful)
 }
