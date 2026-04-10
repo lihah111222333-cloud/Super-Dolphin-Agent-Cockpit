@@ -61,12 +61,13 @@ func (d *driver) Name() string { return "claude" }
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	manifest := dto.BuildManifest(dto.ManifestContext{
-		AgentID:     strings.TrimSpace(req.AgentID),
-		CWD:         strings.TrimSpace(req.CWD),
-		ThreadCaps:  copyCapabilities(claudeCapabilities),
-		BinaryDir:   providershared.ResolveBinaryDir(req.CWD, req.Config),
-		Env:         providershared.StringMap(req.Config["env"]),
-		AutoApprove: providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
+		AgentID:       strings.TrimSpace(req.AgentID),
+		CWD:           strings.TrimSpace(req.CWD),
+		ThreadCaps:    copyCapabilities(claudeCapabilities),
+		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, req.Config),
+		Env:           providershared.StringMap(req.Config["env"]),
+		AutoApprove:   providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
+		PeerHTTPAddrs: discoverPeerAddrs(),
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
@@ -83,10 +84,11 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	manifest := dto.BuildManifest(dto.ManifestContext{
-		AgentID:    strings.TrimSpace(req.AgentID),
-		CWD:        strings.TrimSpace(req.CWD),
-		ThreadCaps: copyCapabilities(claudeCapabilities),
-		BinaryDir:  providershared.ResolveBinaryDir(req.CWD, nil),
+		AgentID:       strings.TrimSpace(req.AgentID),
+		CWD:           strings.TrimSpace(req.CWD),
+		ThreadCaps:    copyCapabilities(claudeCapabilities),
+		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, nil),
+		PeerHTTPAddrs: discoverPeerAddrs(),
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,

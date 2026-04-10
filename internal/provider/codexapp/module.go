@@ -160,6 +160,8 @@ func (m *ServerManager) stop(ctx context.Context) error {
 	for _, p := range peers {
 		if p != nil { _ = p.Signal(syscall.SIGTERM) }
 	}
+	// Clean up peer HTTP discovery files as a safety net.
+	cleanPeerDiscoveryFiles()
 
 	if process == nil {
 		return nil
