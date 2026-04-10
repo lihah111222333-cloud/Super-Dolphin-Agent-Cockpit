@@ -18,11 +18,16 @@ func discoveryPath(binaryName string, parentPID int) string {
 		fmt.Sprintf("super-agent-mcp-%s-%d.port", binaryName, parentPID))
 }
 
-// WriteDiscoveryFile writes the HTTP listen address to the discovery file
-// so that BuildManifest() can find the peer's HTTP endpoint.
+// WriteDiscoveryFile atomically writes the HTTP listen address to the
+// discovery file so that BuildManifest() can find the peer's HTTP endpoint.
+// Uses write-to-temp + rename for crash-safe, race-free updates.
 func WriteDiscoveryFile(binaryName string, parentPID int, addr string) error {
 	path := discoveryPath(binaryName, parentPID)
-	return os.WriteFile(path, []byte(strings.TrimSpace(addr)+"\n"), 0o644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strings.TrimSpace(addr)+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // ReadDiscoveryAddr reads the peer HTTP listen address from the discovery file.

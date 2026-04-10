@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -50,5 +51,7 @@ func (r *httpRunner) Run(ctx context.Context) error {
 	<-ctx.Done()
 
 	_ = common.CleanupPeerDiscovery(httpLSPBinaryName)
-	return srv.Stop(context.Background())
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return srv.Stop(stopCtx)
 }

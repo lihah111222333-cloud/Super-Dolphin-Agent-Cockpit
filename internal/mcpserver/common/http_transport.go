@@ -18,11 +18,10 @@ import (
 // Multiple Claude CLI instances can connect to the same endpoint concurrently,
 // eliminating the need for per-agent stdio sidecar processes.
 type HTTPServer struct {
-	name     string
-	version  string
-	tools    ToolProvider
-	server   *http.Server
-	listener net.Listener
+	name    string
+	version string
+	tools   ToolProvider
+	server  *http.Server
 }
 
 // NewHTTPServer creates an MCP server that speaks Streamable HTTP transport.
@@ -46,7 +45,6 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("mcp http: listen %s: %w", listenAddr, err)
 	}
-	h.listener = ln
 	addr := ln.Addr().String()
 
 	mux := http.NewServeMux()
@@ -90,7 +88,7 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, _ := h.dispatch(r.Context(), req)
+	resp := h.dispatch(r.Context(), req)
 	if resp == nil {
 		// Notification — no response needed, return 202 Accepted.
 		w.WriteHeader(http.StatusAccepted)
@@ -104,28 +102,26 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *HTTPServer) dispatch(ctx context.Context, req jsonRPCRequest) (*jsonRPCResponse, bool) {
+func (h *HTTPServer) dispatch(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	if strings.TrimSpace(req.JSONRPC) != "2.0" {
-		return errorResponse(req.ID, codeInvalidReq, "jsonrpc must be 2.0"), false
+		return errorResponse(req.ID, codeInvalidReq, "jsonrpc must be 2.0")
 	}
 	switch req.Method {
 	case "initialize":
-		return h.handleInitialize(req), false
-	case "notifications/initialized":
-		return nil, false
+		return h.handleInitialize(req)
+	case "notifications/initialized", "exit":
+		return nil
 	case "ping", "shutdown":
-		return maybeResult(req.ID, map[string]any{}), false
-	case "exit":
-		return nil, true
+		return maybeResult(req.ID, map[string]any{})
 	case "tools/list":
-		return h.handleToolsList(ctx, req), false
+		return h.handleToolsList(ctx, req)
 	case "tools/call":
-		return h.handleToolsCall(ctx, req), false
+		return h.handleToolsCall(ctx, req)
 	default:
 		if !hasRequestID(req.ID) {
-			return nil, false
+			return nil
 		}
-		return errorResponse(req.ID, codeMethodMissing, "method not found"), false
+		return errorResponse(req.ID, codeMethodMissing, "method not found")
 	}
 }
 
