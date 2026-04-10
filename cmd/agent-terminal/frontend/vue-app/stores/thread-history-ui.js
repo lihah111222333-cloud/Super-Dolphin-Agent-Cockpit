@@ -95,7 +95,7 @@ function historyMessageToTimelineItem(threadId, message, index) {
   return item;
 }
 
-export function applyImmediateTimelineFromMessages({ threadId, response, state, normalizeThreadID, freezeTimelineItemsAtomic, logInfo }) {
+export function applyImmediateTimelineFromMessages({ threadId, response, state, normalizeThreadID, freezeTimelineItemsAtomic, logInfo, logWarn }) {
   const id = typeof normalizeThreadID === 'function' ? normalizeThreadID(threadId) : (threadId || '').toString().trim();
   const messages = Array.isArray(response?.messages) ? response.messages : [];
   if (!id || messages.length === 0) return false;
@@ -133,6 +133,18 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
   }
   // Check if local has optimistic user messages that would be lost
   const hasOptimistic = existing.some((it) => (it?.id || '').toString().includes('-optimistic-'));
+  const optimisticItems = hasOptimistic ? existing.filter((it) => (it?.id || '').toString().includes('-optimistic-')) : [];
+  if (typeof logWarn === 'function') logWarn('thread', 'history.immediate_apply', {
+    thread_id: id,
+    existing_total: existing.length,
+    incoming_total: timeline.length,
+    existing_dialog_count: existingDialogCount,
+    incoming_dialog_count: incomingDialogCount,
+    has_optimistic: hasOptimistic,
+    optimistic_count: optimisticItems.length,
+    optimistic_ids: optimisticItems.map((it) => (it?.id || '').toString()).slice(0, 4),
+    incoming_user_count: timeline.filter((it) => it?.kind === 'user').length,
+  });
   if (typeof logInfo === 'function') logInfo('thread', 'messages.load.local_timeline.overwrite_decision', {
     thread_id: id,
     existing_total: existing.length,
@@ -141,22 +153,47 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
     incoming_dialog_count: incomingDialogCount,
     has_optimistic: hasOptimistic,
   });
-  const frozenTimeline = freezeTimelineItemsAtomic(timeline, existing);
-  if (!frozenTimeline.changed) return false;
-  // Preserve optimistic user messages that are not yet in the incoming timeline
-  if (hasOptimistic) {
-    const optimisticItems = existing.filter((it) => (it?.id || '').toString().includes('-optimistic-'));
-    const mergedItems = [...frozenTimeline.items, ...optimisticItems];
-    state.timelinesByThread = { ...state.timelinesByThread, [id]: mergedItems };
-    if (typeof logInfo === 'function') logInfo('thread', 'messages.load.local_timeline.applied_with_optimistic', {
-      thread_id: id,
-      history_count: frozenTimeline.items.length,
-      optimistic_count: optimisticItems.length,
-      merged_count: mergedItems.length,
-    });
+  const incomingIds = new Set(timeline.map((it) => it?.id).filter(Boolean));
+  const incomingUserTexts = new Set(timeline.filter((it) => it?.kind === 'user').map((it) => (it?.text || '').trim()));
+
+  const missingFromIncoming = existing.filter((it) => {
+    if (incomingIds.has(it?.id)) return false;
+    // Deduplicate optimistic items
+    if ((it?.id || '').toString().includes('-optimistic-')) {
+      if (incomingUserTexts.has((it?.text || '').trim())) return false;
+    }
     return true;
+  });
+
+  const mergedItems = [...missingFromIncoming, ...timeline];
+  mergedItems.sort((a, b) => {
+    const tsA = Date.parse(a?.ts || '');
+    const tsB = Date.parse(b?.ts || '');
+    const valA = Number.isFinite(tsA) ? tsA : 0;
+    const valB = Number.isFinite(tsB) ? tsB : 0;
+    if (valA !== valB && valA > 0 && valB > 0) return valA - valB;
+    const numA = Number((a?.id || '').toString().split('-').pop());
+    const numB = Number((b?.id || '').toString().split('-').pop());
+    if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) return numA - numB;
+    return 0;
+  });
+
+  const frozenTimeline = freezeTimelineItemsAtomic(mergedItems, existing);
+  if (!frozenTimeline.changed) return false;
+
+  if (hasOptimistic) {
+    const survivingOptimisticCount = mergedItems.filter((it) => (it?.id || '').toString().includes('-optimistic-')).length;
+    if (survivingOptimisticCount < optimisticItems.length) {
+      if (typeof logWarn === 'function') logWarn('thread', 'history.optimistic_deduped', {
+        thread_id: id,
+        original_optimistic_count: optimisticItems.length,
+        deduped_count: optimisticItems.length - survivingOptimisticCount,
+        surviving_count: survivingOptimisticCount,
+      });
+    }
   }
+
   state.timelinesByThread = { ...state.timelinesByThread, [id]: frozenTimeline.items };
-  if (typeof logInfo === 'function') logInfo('thread', 'messages.load.local_timeline.applied', { thread_id: id, count: timeline.length });
+  if (typeof logInfo === 'function') logInfo('thread', 'messages.load.local_timeline.applied', { thread_id: id, count: timeline.length, merged_count: mergedItems.length });
   return true;
 }

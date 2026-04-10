@@ -30,6 +30,7 @@ function logOnce(key, err) {
 }
 
 // ── 字体探测：probe + cs.font + generic family 拦截 ──
+// Returns true if named fonts were found, false if only generic families.
 function resolveMonoFont() {
   let container = null;
   try {
@@ -43,18 +44,20 @@ function resolveMonoFont() {
     document.body.appendChild(container);
 
     const cs = getComputedStyle(probe);
-    resolvedFontShorthand = cs.font;
+    const candidateFont = cs.font;
 
     const families = cs.fontFamily;
     const namedFonts = families.split(',')
       .map(f => f.trim().replace(/^["']|["']$/g, ''))
       .filter(f => !GENERIC_FAMILIES.test(f));
     if (namedFonts.length === 0) {
-      featureDisabled = true;
-      logWarn('ui', 'pretext.disabled.generic_font_only', { fontFamily: families });
-      return;
+      // [FIX] Don't permanently disable — CSS may not be loaded yet.
+      // Return false so caller can retry.
+      logWarn('ui', 'pretext.font.probe_generic_only', { fontFamily: families });
+      return false;
     }
 
+    resolvedFontShorthand = candidateFont;
     measuredLineHeight = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) * 1.7);
     fontVersion += 1;
     logWarn('ui', 'pretext.font.resolved', { font: resolvedFontShorthand, lineHeight: measuredLineHeight, namedFonts });
@@ -63,8 +66,10 @@ function resolveMonoFont() {
     if (pretextModule?.clearCache) {
       try { pretextModule.clearCache(); } catch { /* ignore */ }
     }
+    return true;
   } catch (err) {
     logOnce('probe_failed', err);
+    return false;
   } finally {
     if (container && container.parentNode) {
       container.parentNode.removeChild(container);
@@ -85,12 +90,33 @@ async function loadPretext() {
   }
 }
 
-// ── 初始化（幂等） ──
+// ── 初始化（幂等 + 字体探测重试） ──
+let _fontRetryCount = 0;
+let _fontRetryTimer = null;
+const FONT_RETRY_MAX = 5;
+const FONT_RETRY_DELAY_MS = 200;
+
 export function initPretextLayout() {
   if (resolvedFontShorthand || featureDisabled || loadFailed) return;
-  resolveMonoFont();
-  if (featureDisabled) return;
-  loadPretext();
+  const ok = resolveMonoFont();
+  if (ok) {
+    _fontRetryCount = 0;
+    loadPretext();
+    return;
+  }
+  // Font probe failed — CSS may not be loaded yet. Schedule retry.
+  _fontRetryCount += 1;
+  if (_fontRetryCount >= FONT_RETRY_MAX) {
+    featureDisabled = true;
+    logWarn('ui', 'pretext.disabled.generic_font_only', { retries: _fontRetryCount });
+    return;
+  }
+  if (_fontRetryTimer === null) {
+    _fontRetryTimer = setTimeout(() => {
+      _fontRetryTimer = null;
+      initPretextLayout();
+    }, FONT_RETRY_DELAY_MS);
+  }
 }
 
 // ── 宽度观测：支持容器重绑 ──
@@ -155,6 +181,10 @@ export function disconnectContainerObserver() {
   if (containerCheckInterval !== null) {
     clearInterval(containerCheckInterval);
     containerCheckInterval = null;
+  }
+  if (_fontRetryTimer !== null) {
+    clearTimeout(_fontRetryTimer);
+    _fontRetryTimer = null;
   }
   preparedCache.clear();
   if (pretextModule?.clearCache) {

@@ -1,7 +1,7 @@
 # V3 迁移会话摘要
 
-> 生成时间：2026-04-08（P14 共享 App-Server 架构 + 编排拆除 + MCP 修复全部完成；P15 动态工具注入计划已完成三轮审查）
-> 会话范围：P0-P9 + P11-P13.1 + **P14 共享 App-Server 架构重构** + **P15 动态工具注入计划**
+> 生成时间：2026-04-11（P15 dynamicTools 注入实施完成：Phase 1/2/3 + peer 进程管理 + bootstrap hooks + 工具目录注入）
+> 会话范围：P0-P9 + P11-P13.1 + P14 + **P15 dynamicTools 注入实施**
 > Claude 会话 UUID：（当前会话）
 > 前序会话 UUID：58fdd978-cc4b-41e6-bd26-d40f3ff66854
 
@@ -66,7 +66,7 @@
 | **P13.1 深度 DRY** | ✅ | **10 Agent 深度扫描 + W5-W7 四波并行执行 + W8 shared 提升(7 Agent) — shared 86→1088行，16个 factory.go** |
 | P10 工厂丰满 | ✅ | 已被 P13+P13.1 完整吸收并执行 |
 | **P14 共享 App-Server** | ✅ | **编排拆除 + 全局共享 codex app-server + MCP config 预写 + RPC 地址传播 + stdout 保护 + 事件路由隔离 + 后台自动 resume + threadId→agentId 映射 + MCP 服务器命名去重 + standalone guard 移除** |
-| **P15 动态工具注入** | 📝 计划中 | **Codex 从 MCP sidecar 改为 dynamicTools 直接注入，Claude 保持 MCP 不变。计划文档已完成三轮审查。** |
+| **P15 dynamicTools 注入** | ✅ | **9 轮计划审查 + Phase 1(实施) + Phase 2(测试) + Phase 3(删 legacy) + peer 进程管理 + bootstrap hooks 订阅 + 工具目录注入 developerInstructions。Codex 走 dynamicTools JSON-RPC WebSocket 回调，Claude 保持 MCP 不变。** |
 
 ---
 
@@ -138,17 +138,18 @@
 | P10 工厂丰满 | ✅ | 已被 P13+P13.1 完整执行 |
 | IDA 工具族 | ⏳ | 82 个工具，暂缓 |
 | P2 event bus 互审 | 🔄 | TurnStalled/TurnResumed 补发布 + 测试空白已执行，互审待收报告 |
-| P15 动态工具注入 | 📝 | 计划已审查，待实施。docs/plans/迁移/p15-dynamic-tool-injection-plan.md |
+| **P15 dynamicTools 注入** | ✅ | **Phase 1+2+3 完成，实施详情见下方 §8.8** |
+| P15 后续待办 | ⏳ | DeferLoading 字段、peer 精准路由、tool call 并发限流、recovery ctx cancel、预算表刷新 |
 
 ---
 
 ## 4. 下一步
 
-1. **P15 动态工具注入** — Codex 从 MCP sidecar 改为 thread/start.dynamicTools 注入，28 个工具（19 orch + 9 lsp）通过 RPC 回调主进程执行
-2. **git commit** — P14 所有改动待提交
-3. **共享 app-server 稳定性优化** — ServerManager 崩溃恢复、transport 重连、远端历史同步
-4. **P11 后续** — hooks 运行时接线
-5. **IDA 工具族** — 82 个工具，暂缓
+1. **P15 稳定性优化** — peer 进程被 sweeper 回收后自动重启已实现，待观察稳定性
+2. **P15 后续待办** — DeferLoading / peer 精准路由 / 并发限流 / recovery ctx
+3. **共享 app-server 稳定性优化** — ServerManager 崩溃恢复、transport 重连
+4. **IDA 工具族** — 82 个工具，暂缓
+5. **git commit** — P15 所有改动待提交
 
 ---
 
@@ -200,8 +201,19 @@
 | P15 计划编写 Agent (1 Codex) | 1 |
 | 计划审查 (4 Agent × 2 轮) | 8 |
 | 守卫修复 Agent (2 Codex) | 2 |
-| **本轮合计** | **~14** |
-| **总计** | **~584+** |
+| **本轮合计 (04-06~04-08)** | **~14** |
+| **本轮会话 (2026-04-10 ~ 2026-04-11)** | |
+| P15 计划审查 (9 轮×3 Agent) | ~27 |
+| P15 计划文档修订 Agent | 1 |
+| P15 Phase 1 实施 (5 Agent 并行) | 5 |
+| P15 Phase 1 互审 (1:4 + 修复 + 二轮) | 5 |
+| P15 Phase 2 测试 (4 Agent 并行) | 4 |
+| P15 Phase 2 互审 (1:3) | 4 |
+| P15 Phase 3 删除 (3 Agent 并行) | 3 |
+| P15 Phase 3 互审 (1:2) | 3 |
+| P15 白名单放行检查 | 1 |
+| **本轮合计 (04-10~04-11)** | **~53** |
+| **总计** | **~651+** |
 
 ---
 
@@ -424,3 +436,58 @@ sqlc 生成代码豁免：internal/store/sqlc/ SkipDir
 | bootstrap 非致命 (runtime.go) | ✅ |
 | MCP 服务器命名去重 (manifest.go + mcp_config.go) | ✅ |
 | standalone guard 移除 (orchestration_tools.go) | ✅ |
+
+### 8.9 本轮会话核心成果摘要（2026-04-10 ~ 2026-04-11，P15 dynamicTools 注入实施）
+
+#### P15 实施概要
+
+- **9 轮计划审查**：~20 个 Agent，从架构/实现/风险三维度审查，解决了循环依赖、回包职责、peer 路由、feature flag、官方协议对齐等问题
+- **Phase 1**：5 Agent 并行实施 + 1:4 互审 + 修复 + 二轮互审
+- **Phase 2**：4 Agent 并行写 15 个测试 + 1:3 互审
+- **Phase 3**：3 Agent 并行删除 legacy MCP sidecar 路径 + 互审
+- **紧急 bug 修复**：peer 进程启动时序、stdin pipe、bootstrap 注册、sweeper 回收重启、tools/list 格式、tools/call 格式、hook 订阅、工具目录注入
+
+#### P15 架构
+
+| 组件 | 说明 |
+|------|------|
+| Codex 工具通道 | dynamicTools JSON-RPC WebSocket 回调（不再走 MCP sidecar） |
+| Claude 工具通道 | 保持 MCP `--mcp-config` 不变 |
+| 工具执行 | toolbridge → peer.Callback("tools/call") → mcp-orch/mcp-lsp peer |
+| peer 进程 | `GO_AGENT_PEER_MODE=1` 独立进程，bootstrap 注册 + hook 订阅 |
+| peer 生命周期 | 死后自动重启（watchAndRestartPeer） |
+| session 路由 | onInboundMessage 四分支：tool call → approval bridge → unknown error → notification |
+| 工具目录 | 注入 developerInstructions 让 model 知道可用工具 |
+| 官方协议 | experimentalApi:true + dynamicTools 持久化到 rollout metadata + resume 自动恢复 |
+
+#### P15 改动文件清单
+
+| 文件 | 改动 |
+|------|------|
+| `codexapp/module.go` | ServerManager + toolHandler + SetToolHandler + Responder + spawnToolbridgePeers |
+| `codexapp/peer_spawn.go` | 新增：spawnToolbridgePeers + watchAndRestartPeer |
+| `codexapp/transport_helpers.go` | RawMessage + RespondWithID + ReadLoop 改造 |
+| `codexapp/session.go` | manager 字段 + onInboundMessage 四分支 + isToolCallMethod + isKnownRequestMethod |
+| `codexapp/recovery.go` | ReadLoop → onInboundMessage |
+| `codexapp/driver.go` | DriverFactory + SetListTools + DynamicToolSchema + StartSession dynamic path |
+| `codexapp/support.go` | startDynamicSession + startRemoteThreadWithDynamicTools + 工具目录注入 developerInstructions |
+| `platform/config/config.go` | ProviderConfig 已删除（Phase 3） |
+| `platform/toolbridge/{module,types,handler}.go` | 新包：Handler + routeToolCall + ListToolsForCodex + adaptMCPResponse + waitForPeer |
+| `platform/mcpcontrol/resolution.go` | FindActiveByKind |
+| `app/modules.go` | toolbridge.Module 静态接入 |
+| `cmd/mcp-orch/fx.go` | buildBootstrapConfig + OnToolsList/OnToolsCall + hook 订阅 |
+| `cmd/mcp-orch/runtime.go` | GO_AGENT_PEER_MODE 双模式 bootstrap |
+| `cmd/mcp-lsp/fx.go` | OnToolsList/OnToolsCall + GO_AGENT_PEER_MODE |
+| `bootstrap/client.go` | Config.OnToolsList/OnToolsCall 回调字段 |
+| `bootstrap/lifecycle.go` | handleCallback 路由 tools/list + tools/call |
+| `~/.codex/config.toml` | 移除 lsp/orch MCP sidecar，只保留 exa/postgres |
+
+#### P15 已知限制
+
+| # | 限制 | 说明 |
+|---|------|------|
+| 1 | peer 被 sweeper 回收 | 约 10 分钟无活动后 sweeper 标记 stale 并 evict，watchAndRestartPeer 自动重启 |
+| 2 | orphan_sweeper CC=11 | 既有问题，非 P15 引入 |
+| 3 | DeferLoading 未实现 | MCPTool 没有这个字段，先全部默认 false |
+| 4 | peer 路由只按 ClientKind | 单实例够用，多 Agent 场景需升级 |
+| 5 | tool call 无并发限流 | 后续补 inflight cap |

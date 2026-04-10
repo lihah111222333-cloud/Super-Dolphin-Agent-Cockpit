@@ -108,11 +108,22 @@ func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string
 	if root == "" {
 		return nil, ErrWorkspaceRootEmpty
 	}
+	// For JS/TS, tsserver needs the workspace root to contain a project
+	// marker (package.json, tsconfig.json, or jsconfig.json). First try
+	// walking up; if that fails (marker is in a subdirectory), walk down.
+	langID := normalizeLanguageID(languageID)
+	if shouldUseJSTSWorkspace(langID) {
+		if jsRoot, err := findJSTSProjectRoot(root); err == nil && jsRoot != "" {
+			root = jsRoot
+		} else if jsRoot := findJSTSProjectRootWithin(root); jsRoot != "" {
+			root = jsRoot
+		}
+	}
 	cfg := workspaceConfig{
 		key:        root,
 		rootPath:   root,
 		rootURI:    fileURIFromPath(root),
-		languageID: normalizeLanguageID(languageID),
+		languageID: langID,
 	}
 	return m.ensureClient(ctx, cfg)
 }

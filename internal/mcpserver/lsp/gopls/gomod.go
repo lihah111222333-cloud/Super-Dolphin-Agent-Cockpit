@@ -93,6 +93,69 @@ func shouldUseGoWorkspace(languageID string) bool {
 	}
 }
 
+func shouldUseJSTSWorkspace(languageID string) bool {
+	switch normalizeLanguageID(languageID) {
+	case "javascript", "typescript", "javascriptreact", "typescriptreact":
+		return true
+	default:
+		return false
+	}
+}
+
+// findJSTSProjectRoot walks up from path looking for package.json,
+// tsconfig.json, or jsconfig.json — the project markers that tsserver
+// needs to anchor a workspace.
+func findJSTSProjectRoot(path string) (string, error) {
+	absPath, err := platformshared.NormalizeAbsolutePath(path)
+	if err != nil {
+		return "", err
+	}
+	startDir, err := resolveStartDir(absPath)
+	if err != nil {
+		return "", err
+	}
+	for dir := startDir; dir != "" && dir != "."; dir = filepath.Dir(dir) {
+		for _, marker := range jstsProjectMarkers {
+			if fileExists(filepath.Join(dir, marker)) {
+				return dir, nil
+			}
+		}
+		if filepath.Dir(dir) == dir {
+			break
+		}
+	}
+	return "", nil
+}
+
+var jstsProjectMarkers = []string{"tsconfig.json", "jsconfig.json", "package.json"}
+
+// findJSTSProjectRootWithin walks down from root looking for the first
+// directory that contains a JS/TS project marker. Used when no source
+// file path is available (e.g. workspace_symbol with only a language).
+func findJSTSProjectRootWithin(root string) string {
+	var result string
+	filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d == nil {
+			return nil
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "node_modules", ".git", "vendor", ".workspace", ".build-cache", "dist":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		for _, marker := range jstsProjectMarkers {
+			if d.Name() == marker {
+				result = filepath.Dir(path)
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	return result
+}
+
 func normalizeLanguageID(languageID string) string {
 	return strings.ToLower(strings.TrimSpace(languageID))
 }

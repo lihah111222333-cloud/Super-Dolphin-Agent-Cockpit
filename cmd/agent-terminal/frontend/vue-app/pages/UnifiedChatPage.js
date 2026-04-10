@@ -60,8 +60,8 @@ function selectThreadInPage(selectedThreadId, threadStore, threadId) {
     next_thread_id: nextThreadId,
   });
   if (nextThreadId === prevThreadId) {
-    logInfo('ui', 'chat.select.same_card.refresh', { thread_id: nextThreadId });
-    threadStore.loadMessages(nextThreadId, 300);
+    logWarn('ui', 'chat.select.same_card.refresh', { thread_id: nextThreadId, sync_runtime: false });
+    threadStore.loadMessages(nextThreadId, 300, { syncRuntime: false });
     return;
   }
   selectedThreadId.value = nextThreadId;

@@ -318,6 +318,15 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
       const existing = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
       const optimisticItem = Object.freeze({ id: `${threadId}-optimistic-user-${Date.now()}`, kind: 'user', text: userText, ts: new Date().toISOString() });
       ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: [...existing, optimisticItem] };
+      logWarn('ui', 'chat.send.optimistic_insert', {
+        thread_id: threadId,
+        item_id: optimisticItem.id,
+        text_preview: userText.slice(0, 80),
+        timeline_len_before: existing.length,
+        timeline_len_after: existing.length + 1,
+        existing_user_count: existing.filter((it) => it?.kind === 'user').length,
+        existing_optimistic_count: existing.filter((it) => (it?.id || '').toString().includes('-optimistic-')).length,
+      });
     }
     // Note: syncThreadState and loadMessages are NOT called here.
     // They would overwrite the optimistic user message with backend state
