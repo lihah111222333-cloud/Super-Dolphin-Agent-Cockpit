@@ -143,6 +143,69 @@ function pruneTouchedThreadPayloadCache(keepThreadIDs) {
   }
 }
 
+/**
+ * Merge remote timeline items with local dialog items.
+ * - When remote has real dialog (user/assistant), strip local optimistic items.
+ * - When remote has only structural items, preserve local dialog items.
+ */
+function mergeTimelineWithLocalDialog(newItems, oldItems, threadId, requestedThreadId, logWarn) {
+  if (!Array.isArray(oldItems) || oldItems.length === 0 || newItems.length === 0) return newItems;
+  const newIds = new Set(newItems.map((i) => i?.id).filter(Boolean));
+  const remoteHasDialog = newItems.some((i) => i?.kind === 'user' || i?.kind === 'assistant');
+
+  const localDialogItems = oldItems.filter((i) => {
+    if (i?.kind !== 'user' && i?.kind !== 'assistant') return false;
+    if (newIds.has(i?.id)) return false;
+    // Strip old optimistic items when incoming has actual new messages.
+    if (remoteHasDialog && (i?.id || '').toString().includes('-optimistic-')) return false;
+    return true;
+  });
+
+  if (localDialogItems.length === 0) {
+    if (remoteHasDialog) {
+      const oldOptimistic = oldItems.filter((i) => (i?.id || '').toString().includes('-optimistic-'));
+      if (oldOptimistic.length > 0 && typeof logWarn === 'function') {
+        logWarn('thread', 'snapshot.timeline.optimistic_stripped', {
+          thread_id: threadId,
+          requested_thread_id: requestedThreadId,
+          stripped_count: oldOptimistic.length,
+          stripped_ids: oldOptimistic.map((i) => (i?.id || '').toString()).slice(0, 4),
+          new_timeline_len: newItems.length,
+        });
+      }
+    }
+    return newItems;
+  }
+
+  if (!remoteHasDialog && typeof logWarn === 'function') {
+    logWarn('thread', 'snapshot.timeline.local_dialog_preserved', {
+      thread_id: threadId,
+      requested_thread_id: requestedThreadId,
+      preserved_count: localDialogItems.length,
+      preserved_ids: localDialogItems.map((i) => (i?.id || '').toString()).slice(0, 8),
+      preserved_kinds: localDialogItems.map((i) => i?.kind).slice(0, 8),
+      has_optimistic: localDialogItems.some((i) => (i?.id || '').toString().includes('-optimistic-')),
+      new_timeline_len: newItems.length,
+      old_timeline_len: oldItems.length,
+    });
+  }
+
+  const mergedItems = [...newItems, ...localDialogItems];
+  mergedItems.sort((a, b) => {
+    const tsA = Date.parse(a?.ts || '');
+    const tsB = Date.parse(b?.ts || '');
+    const valA = Number.isFinite(tsA) ? tsA : 0;
+    const valB = Number.isFinite(tsB) ? tsB : 0;
+    if (valA !== valB && valA > 0 && valB > 0) return valA - valB;
+    const numA = Number((a?.id || '').toString().split('-').pop());
+    const numB = Number((b?.id || '').toString().split('-').pop());
+    if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) return numA - numB;
+    return 0;
+  });
+
+  return mergedItems;
+}
+
 export function applyRuntimeSnapshot(state, snapshot, options = {}) {
   const data = snapshot && typeof snapshot === 'object' ? snapshot : {};
   const patch = {};
@@ -194,7 +257,22 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
     }
     nextStatuses[thread.id] = normalizeStatus(thread.state || 'idle');
   }
-  if (statusesChanged) patch.statuses = nextStatuses;
+  if (statusesChanged) {
+    const changedKeys = Object.keys(nextStatuses).filter((key) => nextStatuses[key] !== state.statuses[key]);
+    if (changedKeys.length > 0) {
+      logWarn('thread', 'snapshot.statuses.changed', {
+        requested_thread_id: requestedThreadId,
+        changed_thread_ids: changedKeys,
+        changed_count: changedKeys.length,
+        changes: changedKeys.slice(0, 6).map((key) => ({
+          thread_id: key,
+          old: state.statuses[key] || 'undefined',
+          new: nextStatuses[key],
+        })),
+      });
+    }
+    patch.statuses = nextStatuses;
+  }
 
   let nextInterruptibleByThread = state.interruptibleByThread;
   let interruptibleChanged = false;
@@ -231,14 +309,13 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
       }
       // Merge: preserve local dialog items (user/assistant from loadMessages
       // or optimistic insert) when remote timeline only has structural events.
-      let mergedItems = newItems;
-      if (Array.isArray(oldItems) && oldItems.length > 0 && newItems.length > 0) {
-        const newIds = new Set(newItems.map((i) => i?.id).filter(Boolean));
-        const localDialogItems = oldItems.filter((i) => (i?.kind === 'user' || i?.kind === 'assistant') && !newIds.has(i?.id));
-        if (localDialogItems.length > 0 && !newItems.some((i) => i?.kind === 'user' || i?.kind === 'assistant')) {
-          mergedItems = [...newItems, ...localDialogItems];
-        }
-      }
+      // [FIX] Only preserve for the requested thread — cross-thread snapshots
+      // must not re-preserve stale optimistic items on unrelated threads.
+      const isRequestedThread = requestedThreadId && key === requestedThreadId;
+      const isDirectSync = !requestedThreadId;
+      const mergedItems = (isRequestedThread || isDirectSync)
+        ? mergeTimelineWithLocalDialog(newItems, oldItems, key, requestedThreadId, logWarn)
+        : newItems;
       const frozenTimeline = freezeTimelineItemsAtomic(mergedItems, oldItems);
       if (!frozenTimeline.changed) continue;
       if (!timelinesChanged) {
@@ -328,12 +405,16 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
   if (Object.prototype.hasOwnProperty.call(data, PREF_PINNED_THREADS_CHAT)) {
     const pinnedMap = normalizePinnedThreadMap(data[PREF_PINNED_THREADS_CHAT]);
     for (const id of Object.keys(pinnedMap)) ensureThreadOrderIndex(id);
-    patch.pinnedThreadAtById = pinnedMap;
+    if (JSON.stringify(pinnedMap) !== JSON.stringify(state.pinnedThreadAtById)) {
+      patch.pinnedThreadAtById = pinnedMap;
+    }
   }
   if (Object.prototype.hasOwnProperty.call(data, PREF_ARCHIVED_THREADS_CHAT)) {
     const archivedMap = normalizeArchivedThreadMap(data[PREF_ARCHIVED_THREADS_CHAT]);
     for (const id of Object.keys(archivedMap)) ensureThreadOrderIndex(id);
-    patch.archivedThreadAtById = archivedMap;
+    if (JSON.stringify(archivedMap) !== JSON.stringify(state.archivedThreadAtById)) {
+      patch.archivedThreadAtById = archivedMap;
+    }
   }
   const nextViewPrefsChat = normalizeChatPrefs(data[PREF_VIEW_CHAT]);
   if (JSON.stringify(nextViewPrefsChat) !== JSON.stringify(state.viewPrefsChat)) patch.viewPrefsChat = nextViewPrefsChat;

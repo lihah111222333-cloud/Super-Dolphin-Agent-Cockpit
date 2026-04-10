@@ -241,7 +241,8 @@ export function useThreadActions(props, deps) {
 
 
   function loadCardHistory(cardId) {
-    props.threadStore.loadMessages(cardId, 300);
+    logWarn('ui', 'chat.select.card_history.refresh', { card_id: cardId, sync_runtime: false });
+    props.threadStore.loadMessages(cardId, 300, { syncRuntime: false });
   }
 
   function renameCard(cardId) {

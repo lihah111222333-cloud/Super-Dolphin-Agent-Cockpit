@@ -458,52 +458,46 @@ describe('thread store runtime sync', () => {
   });
 
   it('content-mismatch guard preserves dialog items when remote has only structural items', async () => {
-    vi.useFakeTimers();
-    try {
-      const store = useThreadStore();
-      const threadId = 'thread-claude';
-      store.state.activeThreadId = threadId;
-      store.state.threads = [{ id: threadId, name: 'Claude', state: 'running' }];
-      // Pre-populate local timeline with dialog items (as loadMessages would)
-      const dialogItems = [
-        { id: 'msg-1', kind: 'user', text: 'hello', ts: '2026-01-01T00:00:00Z' },
-        { id: 'msg-2', kind: 'assistant', text: 'hi', ts: '2026-01-01T00:00:01Z' },
-        { id: 'msg-3', kind: 'user', text: 'do work', ts: '2026-01-01T00:00:02Z' },
-        { id: 'msg-4', kind: 'assistant', text: 'done', ts: '2026-01-01T00:00:03Z' },
-      ];
-      store.state.timelinesByThread = { [threadId]: dialogItems };
-      // Remote returns structural-only timeline (no dialog items)
-      const structuralTimeline = [
-        { id: 'turn-1', kind: 'turn_start', status: 'running' },
-        { id: 'tc-1', kind: 'tool_call', tool_name: 'read', call_id: 'c1' },
-        { id: 'tc-2', kind: 'tool_call', tool_name: 'write', call_id: 'c2' },
-        { id: 'turn-1-end', kind: 'turn_end', status: 'completed' },
-      ];
-      let loadMessagesCalled = false;
-      apiMock.callAPI.mockImplementation(async (method) => {
-        if (method === 'ui/state/get') return {
-          threads: [{ id: threadId, name: 'Claude', state: 'running' }],
-          agents: [],
-          timelinesByThread: { [threadId]: structuralTimeline },
-        };
-        if (method === 'thread/messages') {
-          loadMessagesCalled = true;
-          return { messages: [
-            { id: 1, agentId: threadId, role: 'user', content: 'hello', createdAt: '2026-01-01T00:00:00Z' },
-            { id: 2, agentId: threadId, role: 'assistant', content: 'hi', createdAt: '2026-01-01T00:00:01Z' },
-            { id: 3, agentId: threadId, role: 'user', content: 'do work', createdAt: '2026-01-01T00:00:02Z' },
-            { id: 4, agentId: threadId, role: 'assistant', content: 'done', createdAt: '2026-01-01T00:00:03Z' },
-          ] };
-        }
-        return {};
-      });
-      await store.syncThreadState(threadId);
-      await vi.waitFor(() => { expect(loadMessagesCalled).toBe(true); });
-      // Dialog items should be preserved (not replaced with structural-only)
-      const finalTimeline = store.getThreadTimeline(threadId);
-      const dialogKinds = finalTimeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant');
-      expect(dialogKinds.length).toBeGreaterThanOrEqual(3);
-    } finally { vi.useRealTimers(); }
+    const store = useThreadStore();
+    const threadId = 'thread-claude';
+    store.state.activeThreadId = threadId;
+    store.state.threads = [{ id: threadId, name: 'Claude', state: 'running' }];
+    // Pre-populate local timeline with dialog items (as loadMessages would)
+    const dialogItems = [
+      { id: 'msg-1', kind: 'user', text: 'hello', ts: '2026-01-01T00:00:00Z' },
+      { id: 'msg-2', kind: 'assistant', text: 'hi', ts: '2026-01-01T00:00:01Z' },
+      { id: 'msg-3', kind: 'user', text: 'do work', ts: '2026-01-01T00:00:02Z' },
+      { id: 'msg-4', kind: 'assistant', text: 'done', ts: '2026-01-01T00:00:03Z' },
+    ];
+    store.state.timelinesByThread = { [threadId]: dialogItems };
+    // Remote returns structural-only timeline (no dialog items)
+    const structuralTimeline = [
+      { id: 'turn-1', kind: 'turn_start', status: 'running' },
+      { id: 'tc-1', kind: 'tool_call', tool_name: 'read', call_id: 'c1' },
+      { id: 'tc-2', kind: 'tool_call', tool_name: 'write', call_id: 'c2' },
+      { id: 'turn-1-end', kind: 'turn_end', status: 'completed' },
+    ];
+    let loadMessagesCalled = false;
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'ui/state/get') return {
+        threads: [{ id: threadId, name: 'Claude', state: 'running' }],
+        agents: [],
+        timelinesByThread: { [threadId]: structuralTimeline },
+      };
+      if (method === 'thread/messages') {
+        loadMessagesCalled = true;
+        return { messages: [] };
+      }
+      return {};
+    });
+    await store.syncThreadState(threadId);
+    // Guard should NOT call loadMessages — local dialog is already loaded.
+    // Calling loadMessages would replace the timeline reference and cause text flicker.
+    expect(loadMessagesCalled).toBe(false);
+    // Dialog items should be preserved by the merge logic in applyRuntimeSnapshot
+    const finalTimeline = store.getThreadTimeline(threadId);
+    const dialogKinds = finalTimeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant');
+    expect(dialogKinds.length).toBeGreaterThanOrEqual(3);
   });
 
   it('replays active direct delta sync after an in-flight scoped sync finishes', async () => {

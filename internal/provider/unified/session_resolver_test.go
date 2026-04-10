@@ -37,6 +37,15 @@ func (s stubBindingLookup) GetByProviderThread(_ context.Context, provider, prov
 	return nil, platformdb.ErrNotFound
 }
 
+func (s stubBindingLookup) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+	for _, b := range s.bindings {
+		if b != nil && b.AgentID == agentID {
+			return b, nil
+		}
+	}
+	return nil, platformdb.ErrNotFound
+}
+
 func TestSessionResolverResolveSessionUsesThreadStoreAgent(t *testing.T) {
 	sessions := NewSessionManager(nil)
 	session := &generationTestSession{threadID: "thread-1"}

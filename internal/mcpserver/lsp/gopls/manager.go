@@ -206,6 +206,14 @@ func (m *manager) resolveWorkspaceForDocument(ref documentRef) (workspaceConfig,
 		if goRoot != "" {
 			root = goRoot
 		}
+	} else if shouldUseJSTSWorkspace(ref.languageID) {
+		jsRoot, err := findJSTSProjectRoot(ref.absPath)
+		if err != nil {
+			return workspaceConfig{}, err
+		}
+		if jsRoot != "" {
+			root = jsRoot
+		}
 	}
 	if root == "" {
 		root = filepath.Dir(ref.absPath)

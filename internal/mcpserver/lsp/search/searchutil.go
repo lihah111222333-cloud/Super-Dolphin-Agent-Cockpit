@@ -98,6 +98,12 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 		return nil, errors.New("sg not found in PATH")
 	}
 
+	// When the query looks like a tree-sitter node type (e.g. "function_declaration",
+	// "type_spec"), use sg scan with a kind-based rule instead of pattern matching.
+	if isLikelyNodeType(query) {
+		return runSGKindSearch(ctx, query, language, pathInfo.AbsPath, pathInfo.Root, opts.Glob)
+	}
+
 	args := []string{"run", "--pattern", query, "--lang", language, "--json=stream"}
 	if glob := strings.TrimSpace(opts.Glob); glob != "" {
 		args = append(args, "--globs", glob)
@@ -256,6 +262,82 @@ func searchTextFile(ctx context.Context, root, candidate, glob string, maxFileBy
 	return results, scanner.Err()
 }
 
+// isLikelyNodeType returns true when the query looks like a tree-sitter node
+// type name (e.g. "function_declaration", "type_spec") rather than an ast-grep
+// code pattern. Node types are strictly lowercase letters and underscores.
+func isLikelyNodeType(query string) bool {
+	if len(query) < 4 || !strings.Contains(query, "_") {
+		return false
+	}
+	for _, ch := range query {
+		if ch != '_' && (ch < 'a' || ch > 'z') {
+			return false
+		}
+	}
+	return true
+}
+
+// runSGKindSearch executes `sg scan --rule <tmpfile>` to find AST nodes by
+// their tree-sitter kind (e.g. function_declaration, type_spec).
+func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob string) ([]SearchMatch, error) {
+	rule := fmt.Sprintf("id: kind-search\nlanguage: %s\nrule:\n  kind: %s\n", language, kind)
+
+	tmpFile, err := os.CreateTemp("", "sg-rule-*.yml")
+	if err != nil {
+		return nil, fmt.Errorf("create temp rule file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(rule); err != nil {
+		tmpFile.Close()
+		return nil, fmt.Errorf("write temp rule file: %w", err)
+	}
+	tmpFile.Close()
+
+	args := []string{"scan", "--rule", tmpFile.Name(), "--json"}
+	if g := strings.TrimSpace(glob); g != "" {
+		args = append(args, "--globs", g)
+	}
+	args = append(args, absPath)
+
+	cmd := exec.CommandContext(ctx, "sg", args...)
+	cmd.Dir = root
+	output, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("sg scan: %w", err)
+	}
+	// sg scan --json outputs a JSON array, not NDJSON like sg run --json=stream.
+	return decodeSGScanMatches(output, root), nil
+}
+
+// decodeSGScanMatches parses the JSON array output from `sg scan --json`.
+func decodeSGScanMatches(output []byte, root string) []SearchMatch {
+	var items []sgStreamMatch
+	if err := json.Unmarshal(output, &items); err != nil {
+		return nil
+	}
+	results := make([]SearchMatch, 0, len(items))
+	for _, item := range items {
+		absPath := item.File
+		if !filepath.IsAbs(absPath) {
+			absPath = filepath.Join(root, item.File)
+		}
+		absPath = filepath.Clean(absPath)
+		results = append(results, SearchMatch{
+			AbsPath: absPath,
+			File:    displayPath(absPath),
+			Line:    item.Range.Start.Line + 1,
+			Col:     item.Range.Start.Column + 1,
+			Text:    collapseSnippet(item.Lines, item.Text),
+		})
+	}
+	return results
+}
+
 func decodeSGMatches(output []byte, root string) []SearchMatch {
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	scanner.Buffer(make([]byte, 0, 64*1024), 2<<20)
@@ -306,23 +388,20 @@ func matchesCompiledGlob(pattern, candidate string) bool {
 }
 
 func normalizeASTLanguage(raw, target string, isDir bool, glob string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "go", "golang":
-		return "go", nil
-	case "md", "markdown":
-		return "markdown", nil
-	case "json":
-		return "json", nil
-	case "yaml", "yml":
-		return "yaml", nil
+	if normalized := normalizeLanguageAlias(raw); normalized != "" {
+		return normalized, nil
 	}
-	if !isDir {
-		if inferred := inferLanguage(target); inferred != "" {
-			return inferred, nil
-		}
-	}
-	if inferred := inferLanguage(glob); inferred != "" {
+	if inferred := inferASTLanguage(target, isDir, glob); inferred != "" {
 		return inferred, nil
 	}
 	return "", errors.New("language is required for ast_search")
+}
+
+func inferASTLanguage(target string, isDir bool, glob string) string {
+	if !isDir {
+		if inferred := inferLanguage(target); inferred != "" {
+			return inferred
+		}
+	}
+	return inferLanguage(glob)
 }

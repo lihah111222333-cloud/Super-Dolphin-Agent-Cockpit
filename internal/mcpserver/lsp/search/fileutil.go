@@ -16,6 +16,62 @@ import (
 
 const binaryProbeBytes = 512
 
+var (
+	languageByExtension = map[string]string{
+		".c":        "c",
+		".cc":       "cpp",
+		".cjs":      "javascript",
+		".cpp":      "cpp",
+		".css":      "css",
+		".cts":      "typescript",
+		".cxx":      "cpp",
+		".go":       "go",
+		".h":        "c",
+		".hpp":      "cpp",
+		".htm":      "html",
+		".html":     "html",
+		".java":     "java",
+		".js":       "javascript",
+		".json":     "json",
+		".jsx":      "javascript",
+		".markdown": "markdown",
+		".md":       "markdown",
+		".mjs":      "javascript",
+		".mts":      "typescript",
+		".py":       "python",
+		".pyi":      "python",
+		".rs":       "rust",
+		".ts":       "typescript",
+		".tsx":      "typescript",
+		".yaml":     "yaml",
+		".yml":      "yaml",
+	}
+	languageAliases = map[string]string{
+		"c":          "c",
+		"c++":        "cpp",
+		"cpp":        "cpp",
+		"css":        "css",
+		"cxx":        "cpp",
+		"go":         "go",
+		"golang":     "go",
+		"html":       "html",
+		"java":       "java",
+		"javascript": "javascript",
+		"js":         "javascript",
+		"json":       "json",
+		"markdown":   "markdown",
+		"md":         "markdown",
+		"py":         "python",
+		"python":     "python",
+		"rs":         "rust",
+		"rust":       "rust",
+		"ts":         "typescript",
+		"typescript": "typescript",
+		"yaml":       "yaml",
+		"yml":        "yaml",
+	}
+)
+
 type PathInfo struct {
 	Root        string
 	AbsPath     string
@@ -229,18 +285,15 @@ func shouldExcludePath(path string) bool {
 }
 
 func inferLanguage(value string) string {
-	switch strings.ToLower(filepath.Ext(strings.TrimSpace(value))) {
-	case ".go":
-		return "go"
-	case ".md", ".markdown":
-		return "markdown"
-	case ".json":
-		return "json"
-	case ".yaml", ".yml":
-		return "yaml"
-	default:
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(value)))
+	if ext == "" {
 		return ""
 	}
+	return languageByExtension[ext]
+}
+
+func normalizeLanguageAlias(value string) string {
+	return languageAliases[strings.ToLower(strings.TrimSpace(value))]
 }
 
 func collapseSnippet(primary, fallback string) string {

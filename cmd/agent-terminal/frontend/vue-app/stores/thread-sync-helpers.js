@@ -145,6 +145,19 @@ export async function syncThreadState(ctx, threadId) {
   const { callAPI, logInfo, logWarn } = ctx;
   const id = normalizeThreadID(threadId);
   if (!id) return null;
+  // [FIX] Cooldown: when the regression guard repeatedly fires for the same thread
+  // with unchanged local dialog count, skip the sync entirely for GUARD_COOLDOWN_MS.
+  // This prevents 300+ unnecessary ui/state/get RPCs that produce empty patches
+  // but still trigger Vue reactivity churn.
+  const GUARD_COOLDOWN_MS = 10000;
+  if (ctx._regressionGuardCooldown) {
+    const cd = ctx._regressionGuardCooldown;
+    if (cd.threadId === id && (perfNow() - cd.ts) < GUARD_COOLDOWN_MS) {
+      return cd.lastResult;
+    }
+    // Cooldown expired or different thread — clear it
+    if (cd.threadId === id) ctx._regressionGuardCooldown = null;
+  }
   const inFlight = ctx.threadStateSyncPromiseByThread.get(id);
   if (inFlight) {
     ctx.threadStateSyncPendingByThread.set(id, true);
@@ -198,8 +211,13 @@ export async function syncThreadState(ctx, threadId) {
         loadedRevisionByThread: ctx.threadDiffLoadedRevisionByThread,
       });
       if (typeof ctx.restoreScrollPosition === 'function') ctx.restoreScrollPosition();
-      if (id === normalizeThreadID(ctx.state.activeThreadId) && (regressionByContent || shouldReloadThreadHistory(ctx, id))) {
-        logInfo('thread', 'history.reload.after_sync', { thread_id: id, sync_runtime: false, forced_by_guard: regressionByContent });
+      // [FIX] When the regression guard fires, the local dialog is already loaded —
+      // do NOT call loadMessages. Just set cooldown to skip future syncs for this thread.
+      if (regressionByContent) {
+        ctx._regressionGuardCooldown = { threadId: id, ts: perfNow(), lastResult: res || {} };
+      }
+      if (!regressionByContent && id === normalizeThreadID(ctx.state.activeThreadId) && shouldReloadThreadHistory(ctx, id)) {
+        logInfo('thread', 'history.reload.after_sync', { thread_id: id, sync_runtime: false });
         await loadMessages(ctx, id, 300, { syncRuntime: false });
       }
       if (id === normalizeThreadID(ctx.state.activeThreadId) && normalizeDiffRevision(ctx.state.diffRevisionByThread?.[id]) !== loadedDiffRevision(ctx, id)) {
@@ -274,7 +292,7 @@ export async function loadMessages(ctx, threadId, limit = 300, options = {}) {
     const start = perfNow();
     try {
       const res = await callAPI('thread/messages', { threadId: id, limit });
-      const immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logInfo });
+      const immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logInfo, logWarn });
       if (syncRuntime) {
         logInfo('thread', 'messages.load.sync.start', { thread_id: id, limit, immediate_timeline_applied: immediateTimelineApplied });
         await syncRuntimeState(ctx);
