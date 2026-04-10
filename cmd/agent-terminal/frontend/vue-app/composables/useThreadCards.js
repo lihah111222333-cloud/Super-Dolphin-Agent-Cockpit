@@ -35,19 +35,44 @@ export function useThreadCards(props, deps) {
     isThreadInterruptible,
   } = deps;
 
-  const visibleChatThreadCardState = computed(() => buildVisibleChatThreadCards({
-    threads: chatThreadOptions.value,
-    selectedThreadId: selectedThreadId.value,
+  const __threadCardCache = new Map();
+  const visibleChatThreadCardState = computed(() => {
+    const raw = buildVisibleChatThreadCards({
+      threads: chatThreadOptions.value,
+      selectedThreadId: selectedThreadId.value,
 
-    pinnedMap: props.threadStore.state.pinnedThreadAtById,
-    archivedMap: props.threadStore.state.archivedThreadAtById,
-    runtimeById: props.threadStore.state.agentRuntimeById,
-    showArchived: showArchivedThreadList.value,
-    displayNameOf: (thread) => props.threadStore.displayName(thread),
-    statusOf: (threadId) => normalizeStatus(props.threadStore.getThreadStatus(threadId)),
-    statusHeaderOf: (threadId) => getThreadStatusHeader(threadId),
-    interruptibleOf: (threadId) => isThreadInterruptible(threadId),
-  }));
+      pinnedMap: props.threadStore.state.pinnedThreadAtById,
+      archivedMap: props.threadStore.state.archivedThreadAtById,
+      runtimeById: props.threadStore.state.agentRuntimeById,
+      showArchived: showArchivedThreadList.value,
+      displayNameOf: (thread) => props.threadStore.displayName(thread),
+      statusOf: (threadId) => normalizeStatus(props.threadStore.getThreadStatus(threadId)),
+      statusHeaderOf: (threadId) => getThreadStatusHeader(threadId),
+      interruptibleOf: (threadId) => isThreadInterruptible(threadId),
+    });
+
+    const recycledCards = raw.cards.map((card) => {
+      const cached = __threadCardCache.get(card.id);
+      if (cached) {
+        let isSame = true;
+        for (const key in card) {
+          if (card[key] !== cached[key]) {
+            isSame = false;
+            break;
+          }
+        }
+        if (isSame) return cached;
+      }
+      __threadCardCache.set(card.id, card);
+      return card;
+    });
+
+    return {
+      activeCount: raw.activeCount,
+      archivedCount: raw.archivedCount,
+      cards: recycledCards,
+    };
+  });
   const chatActiveThreadCards = computed(() => (
     showArchivedThreadList.value ? [] : visibleChatThreadCardState.value.cards
   ));

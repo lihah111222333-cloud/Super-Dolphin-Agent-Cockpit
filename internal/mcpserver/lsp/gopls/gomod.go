@@ -127,33 +127,98 @@ func findJSTSProjectRoot(path string) (string, error) {
 	return "", nil
 }
 
-var jstsProjectMarkers = []string{"tsconfig.json", "jsconfig.json", "package.json"}
+var (
+	jstsProjectMarkers = []string{"tsconfig.json", "jsconfig.json", "package.json"}
+	jstsProjectMarkerSet = map[string]struct{}{
+		"jsconfig.json": {},
+		"package.json":  {},
+		"tsconfig.json": {},
+	}
+	jstsIgnoredDirNames = map[string]struct{}{
+		".build-cache": {},
+		".git":         {},
+		".workspace":   {},
+		"dist":         {},
+		"node_modules": {},
+		"vendor":       {},
+	}
+	jstsBootstrapExtensions = map[string]struct{}{
+		".js":  {},
+		".jsx": {},
+		".ts":  {},
+		".tsx": {},
+	}
+)
+
+type jstsProjectRootWithinFinder struct {
+	result string
+}
 
 // findJSTSProjectRootWithin walks down from root looking for the first
 // directory that contains a JS/TS project marker. Used when no source
 // file path is available (e.g. workspace_symbol with only a language).
 func findJSTSProjectRootWithin(root string) string {
-	var result string
-	filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil || d == nil {
-			return nil
-		}
-		if d.IsDir() {
-			switch d.Name() {
-			case "node_modules", ".git", "vendor", ".workspace", ".build-cache", "dist":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		for _, marker := range jstsProjectMarkers {
-			if d.Name() == marker {
-				result = filepath.Dir(path)
-				return filepath.SkipAll
-			}
-		}
+	finder := &jstsProjectRootWithinFinder{}
+	_ = filepath.WalkDir(root, finder.walk)
+	return finder.result
+}
+
+func (f *jstsProjectRootWithinFinder) walk(path string, d os.DirEntry, walkErr error) error {
+	if walkErr != nil || d == nil {
 		return nil
-	})
-	return result
+	}
+	if d.IsDir() {
+		return jstsWalkDirDecision(d.Name())
+	}
+	if !isJSTSProjectMarker(d.Name()) {
+		return nil
+	}
+	f.result = filepath.Dir(path)
+	return filepath.SkipAll
+}
+
+func jstsWalkDirDecision(name string) error {
+	if strings.HasPrefix(name, ".") {
+		return filepath.SkipDir
+	}
+	if _, ok := jstsIgnoredDirNames[name]; ok {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+func isJSTSProjectMarker(name string) bool {
+	_, ok := jstsProjectMarkerSet[name]
+	return ok
+}
+
+type jstsBootstrapFileFinder struct {
+	result string
+}
+
+func findJSTSBootstrapFileWithin(root string) string {
+	finder := &jstsBootstrapFileFinder{}
+	_ = filepath.WalkDir(root, finder.walk)
+	return finder.result
+}
+
+func (f *jstsBootstrapFileFinder) walk(path string, d os.DirEntry, walkErr error) error {
+	if walkErr != nil || d == nil {
+		return nil
+	}
+	if d.IsDir() {
+		return jstsWalkDirDecision(d.Name())
+	}
+	if !isJSTSBootstrapFile(path) {
+		return nil
+	}
+	f.result = path
+	return filepath.SkipAll
+}
+
+func isJSTSBootstrapFile(path string) bool {
+	_, ok := jstsBootstrapExtensions[strings.ToLower(filepath.Ext(path))]
+	return ok
 }
 
 func normalizeLanguageID(languageID string) string {

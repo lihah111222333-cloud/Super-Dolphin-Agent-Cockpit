@@ -428,13 +428,15 @@ export function getThreadArchivedAt(ctx, threadId) {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-export function setThreadPinned(ctx, threadId, pinned) {
+export async function setThreadPinned(ctx, threadId, pinned) {
   const id = (threadId || '').toString().trim();
   if (!id) return;
   ensureThreadOrderIndex(id);
   const next = { ...(ctx.state.pinnedThreadAtById || {}) };
   if (pinned) next[id] = Date.now(); else delete next[id];
   ctx.state.pinnedThreadAtById = next;
+  const { _optimisticPreferenceMapTaints, OPTIMISTIC_LEAK_GUARD_MS } = await import('./thread-optimistic.js');
+  _optimisticPreferenceMapTaints.set('pinnedThreadAtById', Date.now() + OPTIMISTIC_LEAK_GUARD_MS);
   ctx.persistPreferenceAndSync(PREF_PINNED_THREADS_CHAT, next, { thread_id: id, pinned: Boolean(pinned) });
 }
 
@@ -457,6 +459,8 @@ export async function setThreadArchived(ctx, threadId, archived) {
   const next = { ...previous };
   if (archived) next[id] = Date.now(); else delete next[id];
   ctx.state.archivedThreadAtById = next;
+  const { _optimisticPreferenceMapTaints, OPTIMISTIC_LEAK_GUARD_MS } = await import('./thread-optimistic.js');
+  _optimisticPreferenceMapTaints.set('archivedThreadAtById', Date.now() + OPTIMISTIC_LEAK_GUARD_MS);
   logInfo('thread', archived ? 'archive.start' : 'unarchive.start', { thread_id: id, cwd: ctx.getPreferenceScopeCwd() });
   try {
     const response = await callAPI(archived ? 'thread/archive' : 'thread/unarchive', { threadId: id });

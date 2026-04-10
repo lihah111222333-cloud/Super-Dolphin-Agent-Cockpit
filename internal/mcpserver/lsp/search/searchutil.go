@@ -237,7 +237,7 @@ func searchTextFile(ctx context.Context, root, candidate, glob string, maxFileBy
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxInt(maxFileBytes, 64*1024))
@@ -286,13 +286,17 @@ func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob st
 	if err != nil {
 		return nil, fmt.Errorf("create temp rule file: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(rule); err != nil {
-		tmpFile.Close()
+		if closeErr := tmpFile.Close(); closeErr != nil {
+			return nil, fmt.Errorf("write temp rule file: %w (close temp rule file: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("write temp rule file: %w", err)
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		return nil, fmt.Errorf("close temp rule file: %w", err)
+	}
 
 	args := []string{"scan", "--rule", tmpFile.Name(), "--json"}
 	if g := strings.TrimSpace(glob); g != "" {
