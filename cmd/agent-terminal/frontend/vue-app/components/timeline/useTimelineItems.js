@@ -102,6 +102,7 @@ export function useTimelineItems(props) {
     return filtered;
   });
   const mergedTimelineItems = computed(() => {
+    const start = performance.now();
     const all = timelineItems.value;
     if (all.length === 0) return all;
     const result = [];
@@ -128,6 +129,14 @@ export function useTimelineItems(props) {
       }
       result.push(item);
       index += 1;
+    }
+    const elapsed = performance.now() - start;
+    if (elapsed > 1.0 || result.length > 50) {
+      logWarn('ui', 'chat.render.timeline.perf', { 
+        duration_ms: Math.round(elapsed * 100) / 100, 
+        source_items: all.length,
+        merged_items: result.length
+      });
     }
     return result;
   });

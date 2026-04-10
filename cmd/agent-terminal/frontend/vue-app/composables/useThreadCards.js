@@ -37,6 +37,7 @@ export function useThreadCards(props, deps) {
 
   const __threadCardCache = new Map();
   const visibleChatThreadCardState = computed(() => {
+    const start = performance.now();
     const raw = buildVisibleChatThreadCards({
       threads: chatThreadOptions.value,
       selectedThreadId: selectedThreadId.value,
@@ -51,6 +52,7 @@ export function useThreadCards(props, deps) {
       interruptibleOf: (threadId) => isThreadInterruptible(threadId),
     });
 
+    let recycleCount = 0;
     const recycledCards = raw.cards.map((card) => {
       const cached = __threadCardCache.get(card.id);
       if (cached) {
@@ -61,11 +63,26 @@ export function useThreadCards(props, deps) {
             break;
           }
         }
-        if (isSame) return cached;
+        if (isSame) {
+          recycleCount += 1;
+          return cached;
+        }
       }
       __threadCardCache.set(card.id, card);
       return card;
     });
+
+    const elapsed = performance.now() - start;
+    if (elapsed > 1.5 || raw.cards.length > 0) {
+       // Only log meaningful computations (above threshold or non-empty payload)
+       import('../services/log.js').then((m) => {
+           m.logWarn('ui', 'chat.render.cards.perf', { 
+               duration_ms: Math.round(elapsed * 100) / 100, 
+               total_cards: raw.cards.length,
+               recycled_cards: recycleCount
+           });
+       });
+    }
 
     return {
       activeCount: raw.activeCount,

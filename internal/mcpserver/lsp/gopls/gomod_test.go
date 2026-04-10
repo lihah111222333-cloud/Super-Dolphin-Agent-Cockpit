@@ -58,6 +58,89 @@ func TestFindJSTSBootstrapFileWithinSkipsIgnoredDirectories(t *testing.T) {
 	}
 }
 
+func TestFindJavaProjectRootFindsMarkerWalkingUp(t *testing.T) {
+	root := resolveSymlinks(t, t.TempDir())
+
+	writeProjectMarker(t, root, "pom.xml")
+	src := filepath.Join(root, "src", "main", "java", "com", "example")
+	writeProjectMarker(t, src, "App.java")
+
+	got, err := findJavaProjectRoot(filepath.Join(src, "App.java"))
+	if err != nil {
+		t.Fatalf("findJavaProjectRoot: %v", err)
+	}
+	if got != root {
+		t.Fatalf("findJavaProjectRoot = %q, want %q", got, root)
+	}
+}
+
+func TestFindJavaProjectRootFindsGradleMarker(t *testing.T) {
+	root := resolveSymlinks(t, t.TempDir())
+
+	writeProjectMarker(t, root, "build.gradle")
+	src := filepath.Join(root, "src", "main", "java")
+	writeProjectMarker(t, src, "Main.java")
+
+	got, err := findJavaProjectRoot(filepath.Join(src, "Main.java"))
+	if err != nil {
+		t.Fatalf("findJavaProjectRoot: %v", err)
+	}
+	if got != root {
+		t.Fatalf("findJavaProjectRoot = %q, want %q", got, root)
+	}
+}
+
+func TestFindJavaProjectRootWithinFindsFirstProject(t *testing.T) {
+	root := t.TempDir()
+
+	writeProjectMarker(t, filepath.Join(root, "target", "ignored"), "pom.xml")
+	want := filepath.Join(root, "services", "api")
+	writeProjectMarker(t, want, "pom.xml")
+
+	got := findJavaProjectRootWithin(root)
+	if got != want {
+		t.Fatalf("findJavaProjectRootWithin(%q) = %q, want %q", root, got, want)
+	}
+}
+
+func TestFindJavaProjectRootWithinSkipsIgnoredDirs(t *testing.T) {
+	root := t.TempDir()
+
+	writeProjectMarker(t, filepath.Join(root, "target", "nested"), "pom.xml")
+	writeProjectMarker(t, filepath.Join(root, ".gradle", "wrapper"), "build.gradle")
+	writeProjectMarker(t, filepath.Join(root, "build", "output"), "pom.xml")
+
+	got := findJavaProjectRootWithin(root)
+	if got != "" {
+		t.Fatalf("findJavaProjectRootWithin(%q) = %q, want empty result", root, got)
+	}
+}
+
+func TestFindJavaBootstrapFileWithinFindsJavaFile(t *testing.T) {
+	root := t.TempDir()
+
+	writeProjectMarker(t, filepath.Join(root, "target", "classes"), "App.java")
+	want := filepath.Join(root, "src", "main", "java", "App.java")
+	writeProjectMarker(t, filepath.Join(root, "src", "main", "java"), "App.java")
+
+	got := findJavaBootstrapFileWithin(root)
+	if got != want {
+		t.Fatalf("findJavaBootstrapFileWithin(%q) = %q, want %q", root, got, want)
+	}
+}
+
+func TestShouldUseJavaWorkspace(t *testing.T) {
+	if !shouldUseJavaWorkspace("java") {
+		t.Fatal("shouldUseJavaWorkspace(\"java\") = false, want true")
+	}
+	if !shouldUseJavaWorkspace("Java") {
+		t.Fatal("shouldUseJavaWorkspace(\"Java\") = false, want true")
+	}
+	if shouldUseJavaWorkspace("go") {
+		t.Fatal("shouldUseJavaWorkspace(\"go\") = true, want false")
+	}
+}
+
 func writeProjectMarker(t *testing.T, dir, marker string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -67,4 +150,13 @@ func writeProjectMarker(t *testing.T, dir, marker string) {
 	if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q): %v", path, err)
 	}
+}
+
+func resolveSymlinks(t *testing.T, dir string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", dir, err)
+	}
+	return resolved
 }

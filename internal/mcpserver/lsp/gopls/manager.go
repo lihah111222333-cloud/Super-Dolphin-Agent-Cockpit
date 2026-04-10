@@ -193,32 +193,35 @@ func (m *manager) resolveDocumentRef(target, languageID string) (documentRef, er
 	}, nil
 }
 
+func resolveProjectRoot(languageID, absPath string) (string, error) {
+	switch {
+	case shouldUseGoWorkspace(languageID):
+		return findGoModRoot(absPath)
+	case shouldUseJSTSWorkspace(languageID):
+		return findJSTSProjectRoot(absPath)
+	case shouldUseJavaWorkspace(languageID):
+		return findJavaProjectRoot(absPath)
+	default:
+		return "", nil
+	}
+}
+
 func (m *manager) resolveWorkspaceForDocument(ref documentRef) (workspaceConfig, error) {
 	if ref.absPath == "" {
 		return workspaceConfig{}, ErrWorkspaceRootEmpty
 	}
 	root := m.workspaceRoot
-	if shouldUseGoWorkspace(ref.languageID) {
-		goRoot, err := findGoModRoot(ref.absPath)
-		if err != nil {
-			return workspaceConfig{}, err
-		}
-		if goRoot != "" {
-			root = goRoot
-		}
-	} else if shouldUseJSTSWorkspace(ref.languageID) {
-		jsRoot, err := findJSTSProjectRoot(ref.absPath)
-		if err != nil {
-			return workspaceConfig{}, err
-		}
-		if jsRoot != "" {
-			root = jsRoot
-		}
+	langRoot, err := resolveProjectRoot(ref.languageID, ref.absPath)
+	if err != nil {
+		return workspaceConfig{}, err
+	}
+	if langRoot != "" {
+		root = langRoot
 	}
 	if root == "" {
 		root = filepath.Dir(ref.absPath)
 	}
-	root, err := platformshared.NormalizeAbsolutePath(root)
+	root, err = platformshared.NormalizeAbsolutePath(root)
 	if err != nil {
 		return workspaceConfig{}, err
 	}

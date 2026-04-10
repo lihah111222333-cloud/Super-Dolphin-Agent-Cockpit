@@ -43,13 +43,15 @@ type Options struct {
 	Dir                 string
 	Env                 []string
 	ProcessID           int
+	InitOptions         map[string]any
 	NotificationHandler protocol.NotificationHandler
 	RequestHandler      ServerRequestHandler
 }
 
 type client struct {
-	transport *transport
-	processID int
+	transport   *transport
+	processID   int
+	initOptions map[string]any
 
 	lifecycleMu sync.Mutex
 	stateMu     sync.RWMutex
@@ -87,8 +89,9 @@ func NewClientWithOptions(options Options) (Client, error) {
 		return nil, err
 	}
 	return &client{
-		transport: transport,
-		processID: normalizeProcessID(options.ProcessID),
+		transport:   transport,
+		processID:   normalizeProcessID(options.ProcessID),
+		initOptions: options.InitOptions,
 	}, nil
 }
 
@@ -98,14 +101,16 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 	if err := c.canInitialize(rootURI); err != nil {
 		return err
 	}
+	initOpts := c.initOptions
+	if initOpts == nil {
+		initOpts = map[string]any{"semanticTokens": true}
+	}
 	params := protocol.InitializeParams{
-		ProcessID:        c.processID,
-		RootURI:          rootURI,
-		Capabilities:     clientCapabilities(),
-		WorkspaceFolders: workspaceFolders(rootURI),
-		InitializationOptions: map[string]any{
-			"semanticTokens": true,
-		},
+		ProcessID:             c.processID,
+		RootURI:               rootURI,
+		Capabilities:          clientCapabilities(),
+		WorkspaceFolders:      workspaceFolders(rootURI),
+		InitializationOptions: initOpts,
 	}
 	result, err := c.transport.request(ctx, protocol.MethodInitialize, params)
 	if err != nil {
