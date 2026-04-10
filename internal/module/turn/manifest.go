@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 type manifestBuilder struct {
@@ -16,10 +17,11 @@ func newManifestBuilder(binaryDir string) *manifestBuilder {
 
 func (b *manifestBuilder) Build(input PrepareInput) dto.MCPManifest {
 	return dto.BuildManifest(dto.ManifestContext{
-		AgentID:    input.AgentID,
-		CWD:        input.CWD,
-		ThreadCaps: input.ThreadCaps,
-		BinaryDir:  b.binaryDirFor(input.BinaryDir),
+		AgentID:       input.AgentID,
+		CWD:           input.CWD,
+		ThreadCaps:    input.ThreadCaps,
+		BinaryDir:     b.binaryDirFor(input.BinaryDir),
+		PeerHTTPAddrs: discoverPeers(),
 	})
 }
 
@@ -28,4 +30,20 @@ func (b *manifestBuilder) binaryDirFor(binaryDir string) string {
 		return binaryDir
 	}
 	return strings.TrimSpace(b.binaryDir)
+}
+
+// discoverPeers probes for running peer HTTP endpoints. Returns nil if none.
+func discoverPeers() map[dto.ToolFamily]string {
+	addrs := make(map[dto.ToolFamily]string)
+	for _, fam := range []dto.ToolFamily{dto.FamilyLSP, dto.FamilyOrch} {
+		addr, err := common.DiscoverPeerHTTPAddr("mcp-" + string(fam))
+		if err != nil || addr == "" {
+			continue
+		}
+		addrs[fam] = addr
+	}
+	if len(addrs) == 0 {
+		return nil
+	}
+	return addrs
 }

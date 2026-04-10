@@ -93,7 +93,9 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 		"--output-format", "stream-json",
 		"--verbose",
 	}
-	args = appendFlagIfSet(args, "--model", model)
+	// Do not pass --model to Claude CLI; let it use its configured default.
+	// The model is still stored in session state for UI display.
+	// args = appendFlagIfSet(args, "--model", model)
 	args = appendFlagIfSet(args, "--system-prompt", composeLaunchSystemPrompt(instructions, cfg))
 	args = appendFlagIfSet(args, "--permission-mode", resolvePermissionMode(cfg.ApprovalPolicy, cfg.Sandbox))
 	args = appendFlagIfSet(args, "--effort", normalizeEffort(cfg.Effort))
@@ -244,26 +246,31 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 			"type": "http",
 			"url":  strings.TrimSpace(bin.URL),
 		}
-		if len(bin.AutoApprove) > 0 {
-			server["autoApprove"] = append([]string(nil), bin.AutoApprove...)
-		}
+		applyAutoApprove(server, bin.AutoApprove)
 		return name, server, true
 	}
 
 	// stdio mode: validate command and ensure it's a managed MCP binary.
-	if len(bin.Command) == 0 {
+	server, ok := buildStdioServer(bin, cwd)
+	if !ok {
 		return "", nil, false
+	}
+	return name, server, true
+}
+
+func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
+	if len(bin.Command) == 0 {
+		return nil, false
 	}
 	command := strings.TrimSpace(bin.Command[0])
 	if command == "" {
-		return "", nil, false
+		return nil, false
 	}
 	// Accept both short family names ("lsp", "orch") produced by
 	// BuildManifest since P14, and legacy prefixed names ("mcp-lsp").
 	// The binary on disk always keeps the "mcp-" prefix.
-	base := filepath.Base(command)
-	if !strings.HasPrefix(base, managedMCPPrefix) {
-		return "", nil, false
+	if !strings.HasPrefix(filepath.Base(command), managedMCPPrefix) {
+		return nil, false
 	}
 	server := map[string]any{"command": command}
 	if len(bin.Command) > 1 {
@@ -272,13 +279,17 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 	if len(bin.Env) > 0 {
 		server["env"] = bin.Env
 	}
-	if len(bin.AutoApprove) > 0 {
-		server["autoApprove"] = append([]string(nil), bin.AutoApprove...)
-	}
+	applyAutoApprove(server, bin.AutoApprove)
 	if cwd != "" {
 		server["cwd"] = cwd
 	}
-	return name, server, true
+	return server, true
+}
+
+func applyAutoApprove(server map[string]any, autoApprove []string) {
+	if len(autoApprove) > 0 {
+		server["autoApprove"] = append([]string(nil), autoApprove...)
+	}
 }
 
 func nonEmptyStrings(values ...string) []string {
