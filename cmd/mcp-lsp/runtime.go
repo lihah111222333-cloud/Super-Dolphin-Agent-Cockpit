@@ -56,7 +56,7 @@ func newManager() (*Manager, error) {
 	registry.Register("rust", rustMgr)
 
 	// Register Java manager
-	javaMgr := createGenericManager("jdtls", nil, root, log)
+	javaMgr := createGenericManager("jdtls", nil, root, log, jdtlsInitOptions())
 	registry.Register("java", javaMgr)
 
 	return &Manager{registry: registry, root: root}, nil
@@ -104,7 +104,11 @@ func setupInstaller() *installer.Provider {
 	return inst
 }
 
-func createGenericManager(executable string, args []string, root string, log *slog.Logger) manager.Manager {
+func createGenericManager(executable string, args []string, root string, log *slog.Logger, initOpts ...map[string]any) manager.Manager {
+	var opts map[string]any
+	if len(initOpts) > 0 {
+		opts = initOpts[0]
+	}
 	return gopls.NewManager(gopls.Config{
 		WorkspaceRoot: root,
 		ClientFactory: gopls.ClientFactoryFunc(func(h protocol.NotificationHandler) (gopls.Client, error) {
@@ -112,11 +116,31 @@ func createGenericManager(executable string, args []string, root string, log *sl
 				Binary:              executable,
 				Args:                args,
 				Dir:                 root,
+				InitOptions:         opts,
 				NotificationHandler: h,
 			})
 		}),
 		Logger: log,
 	})
+}
+
+func jdtlsInitOptions() map[string]any {
+	return map[string]any{
+		"settings": map[string]any{
+			"java": map[string]any{
+				"configuration": map[string]any{
+					"updateBuildConfiguration": "automatic",
+				},
+				"import": map[string]any{
+					"gradle": map[string]any{"enabled": true},
+					"maven":  map[string]any{"enabled": true},
+				},
+			},
+		},
+		"extendedClientCapabilities": map[string]any{
+			"classFileContentsSupport": true,
+		},
+	}
 }
 
 func (m *Manager) Close() error {

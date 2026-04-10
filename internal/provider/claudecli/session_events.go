@@ -9,6 +9,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func (s *session) startReadLoop(tr *transport) {
@@ -178,7 +179,8 @@ func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error)
 	if err := json.Unmarshal(line, &raw); err != nil {
 		return nil, err
 	}
-	switch strings.TrimSpace(raw.Type) {
+	t := strings.TrimSpace(raw.Type)
+	switch t {
 	case "system":
 		return decodeSystemEvent(raw, base), nil
 	case "assistant":
@@ -188,6 +190,9 @@ func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error)
 	case "result":
 		return decodeResultEvent(raw, base), nil
 	default:
+		// Attempt to parse out streaming deltas to not break streaming
+		// Log the unparsed events to confirm if they contain the real deltas!
+		pkglogger.Get().Warn("claudecli: unknown stream event type dropped", "raw_type", t, "line", string(line))
 		return nil, nil
 	}
 }

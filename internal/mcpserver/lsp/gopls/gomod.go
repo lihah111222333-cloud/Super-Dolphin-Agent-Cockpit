@@ -221,6 +221,113 @@ func isJSTSBootstrapFile(path string) bool {
 	return ok
 }
 
+func shouldUseJavaWorkspace(languageID string) bool {
+	return normalizeLanguageID(languageID) == "java"
+}
+
+var (
+	javaProjectMarkers = []string{"pom.xml", "build.gradle", "build.gradle.kts"}
+	javaProjectMarkerSet = map[string]struct{}{
+		"build.gradle":     {},
+		"build.gradle.kts": {},
+		"pom.xml":          {},
+	}
+	javaIgnoredDirNames = map[string]struct{}{
+		".build-cache": {},
+		".git":         {},
+		".gradle":      {},
+		".idea":        {},
+		".workspace":   {},
+		"build":        {},
+		"node_modules": {},
+		"target":       {},
+		"vendor":       {},
+	}
+	javaBootstrapExtensions = map[string]struct{}{
+		".java": {},
+	}
+)
+
+func findJavaProjectRoot(path string) (string, error) {
+	absPath, err := platformshared.NormalizeAbsolutePath(path)
+	if err != nil {
+		return "", err
+	}
+	startDir, err := resolveStartDir(absPath)
+	if err != nil {
+		return "", err
+	}
+	for dir := startDir; dir != "" && dir != "."; dir = filepath.Dir(dir) {
+		for _, marker := range javaProjectMarkers {
+			if fileExists(filepath.Join(dir, marker)) {
+				return dir, nil
+			}
+		}
+		if filepath.Dir(dir) == dir {
+			break
+		}
+	}
+	return "", nil
+}
+
+type javaProjectRootWithinFinder struct {
+	result string
+}
+
+func findJavaProjectRootWithin(root string) string {
+	finder := &javaProjectRootWithinFinder{}
+	_ = filepath.WalkDir(root, finder.walk)
+	return finder.result
+}
+
+func (f *javaProjectRootWithinFinder) walk(path string, d os.DirEntry, walkErr error) error {
+	if walkErr != nil || d == nil {
+		return nil
+	}
+	if d.IsDir() {
+		return javaWalkDirDecision(d.Name())
+	}
+	if _, ok := javaProjectMarkerSet[d.Name()]; !ok {
+		return nil
+	}
+	f.result = filepath.Dir(path)
+	return filepath.SkipAll
+}
+
+func javaWalkDirDecision(name string) error {
+	if strings.HasPrefix(name, ".") {
+		return filepath.SkipDir
+	}
+	if _, ok := javaIgnoredDirNames[name]; ok {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+type javaBootstrapFileFinder struct {
+	result string
+}
+
+func findJavaBootstrapFileWithin(root string) string {
+	finder := &javaBootstrapFileFinder{}
+	_ = filepath.WalkDir(root, finder.walk)
+	return finder.result
+}
+
+func (f *javaBootstrapFileFinder) walk(path string, d os.DirEntry, walkErr error) error {
+	if walkErr != nil || d == nil {
+		return nil
+	}
+	if d.IsDir() {
+		return javaWalkDirDecision(d.Name())
+	}
+	if _, ok := javaBootstrapExtensions[strings.ToLower(filepath.Ext(path))]; !ok {
+		return nil
+	}
+	f.result = path
+	return filepath.SkipAll
+}
+
 func normalizeLanguageID(languageID string) string {
 	return strings.ToLower(strings.TrimSpace(languageID))
 }

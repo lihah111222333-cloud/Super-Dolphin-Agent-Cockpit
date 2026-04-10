@@ -131,6 +131,9 @@ func (m *manager) resolveLanguageWorkspace(languageID string) (string, string, e
 	if shouldUseJSTSWorkspace(langID) {
 		return m.resolveJSTSWorkspaceRoot(root), langID, nil
 	}
+	if shouldUseJavaWorkspace(langID) {
+		return m.resolveJavaWorkspaceRoot(root), langID, nil
+	}
 	return root, langID, nil
 }
 
@@ -150,6 +153,8 @@ func (m *manager) resolveJSTSWorkspaceRoot(root string) string {
 func (m *manager) bootstrapLanguageClient(ctx context.Context, client Client, root, languageID string) {
 	if shouldUseJSTSWorkspace(languageID) {
 		m.bootstrapJSTSClient(ctx, client, root, languageID)
+	} else if shouldUseJavaWorkspace(languageID) {
+		m.bootstrapJavaClient(ctx, client, root, languageID)
 	}
 }
 
@@ -174,6 +179,40 @@ func (m *manager) bootstrapJSTSClient(ctx context.Context, client Client, root, 
 	}
 	m.warnJSTS("jsts: bootstrap - opening file for tsserver", "file", target, "root", root, "lang", languageID)
 	_ = client.DidOpen(ctx, fileURIFromPath(target), languageID, 0, string(content))
+}
+
+func (m *manager) resolveJavaWorkspaceRoot(root string) string {
+	if javaRoot, err := findJavaProjectRoot(root); err == nil && javaRoot != "" {
+		m.logJava("java: found project root walking up", "root", javaRoot)
+		return javaRoot
+	}
+	if javaRoot := findJavaProjectRootWithin(root); javaRoot != "" {
+		m.logJava("java: found project root walking down", "root", javaRoot)
+		return javaRoot
+	}
+	m.logJava("java: no project root found", "workspaceRoot", root)
+	return root
+}
+
+func (m *manager) bootstrapJavaClient(ctx context.Context, client Client, root, languageID string) {
+	target := findJavaBootstrapFileWithin(root)
+	if target == "" {
+		m.logJava("java: bootstrap - no .java file found", "root", root)
+		return
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		m.logJava("java: bootstrap - failed to read file", "file", target, "err", err)
+		return
+	}
+	m.logJava("java: bootstrap - opening file for jdtls", "file", target, "root", root)
+	_ = client.DidOpen(ctx, fileURIFromPath(target), languageID, 0, string(content))
+}
+
+func (m *manager) logJava(message string, args ...any) {
+	if m.logger != nil {
+		m.logger.Warn(message, args...)
+	}
 }
 
 func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client, error) {

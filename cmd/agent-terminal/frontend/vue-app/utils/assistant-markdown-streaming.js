@@ -9,27 +9,14 @@ function buildStreamingMarkdownState(text, emptyState) {
 }
 
 function createFrameScheduler() {
-  let lastRenderTime = 0;
   return function scheduleFrame(callback) {
-    // Use a balanced strategy: we want to avoid main-thread saturation but also
-    // ensure smooth visual updates. requestAnimationFrame syncs natively with display.
+    // Rely natively on requestAnimationFrame to synchronize with display hardware (60Hz / 120Hz).
+    // Artificial 32ms gating causes frame pacing misalignment (jitter) and dropping frames during stream interpolation.
     if (typeof requestAnimationFrame === 'function') {
-      let handleId = null;
-      const loop = (timestamp) => {
-        const now = timestamp || performance.now();
-        // Throttle to ~30fps (32ms interval) so we don't block every single render frame
-        // with heavy Markdown parsing tasks for huge outputs.
-        if (!lastRenderTime || now - lastRenderTime >= 32) {
-          lastRenderTime = now;
-          callback();
-        } else {
-          handleId = requestAnimationFrame(loop);
-        }
-      };
-      handleId = requestAnimationFrame(loop);
+      const handleId = requestAnimationFrame(callback);
       return { type: 'raf', cancel: () => cancelAnimationFrame(handleId) };
     }
-    return { type: 'timeout', id: setTimeout(callback, 32) };
+    return { type: 'timeout', id: setTimeout(callback, 16) };
   };
 }
 
@@ -83,6 +70,7 @@ function flushPending(state) {
   clearStaleGuard(state);
   let changed = false;
   const flushStart = performance.now();
+  
   for (const [itemId, entry] of state.pendingByItemId.entries()) {
     const current = state.displayedByItemId.get(itemId);
     if (!entry.state) entry.state = getStateByText(state, entry.text);
@@ -91,10 +79,13 @@ function flushPending(state) {
       changed = true;
     }
   }
+
   const flushDurationMs = Math.round(performance.now() - flushStart);
   const flushedCount = state.pendingByItemId.size;
   state.pendingByItemId.clear();
+  
   if (changed && typeof state.onStateFlush === 'function') state.onStateFlush();
+  
   if (flushDurationMs > 50 && typeof state.onStallDetected === 'function') {
     state.onStallDetected({
       reason: 'flush_slow',
@@ -103,6 +94,7 @@ function flushPending(state) {
       displayed_count: state.displayedByItemId.size,
     });
   }
+  
   if (!state.disposed && state.pendingByItemId.size > 0) scheduleFlush(state);
 }
 
