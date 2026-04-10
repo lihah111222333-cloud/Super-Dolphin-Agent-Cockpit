@@ -2,9 +2,19 @@
 import { normalizeStatus } from '../services/status.js';
 import { normalizeThreadID } from './bridge-event-parser.js';
 
+// Backend timeline projector lifecycle kinds that are not renderable chat content.
+const STRUCTURAL_TIMELINE_KINDS = new Set([
+  'turn_start', 'turn_end', 'turn_interrupted',
+  'item', 'tool_call', 'approval_request',
+]);
+
 export function getThreadTimeline(ctx, threadId) {
   if (!threadId) return [];
-  return ctx.state.timelinesByThread[threadId] || [];
+  const items = ctx.state.timelinesByThread[threadId] || [];
+  if (items.length === 0) return items;
+  // Fast path: if no structural items, return as-is to avoid allocation
+  if (!items.some((it) => STRUCTURAL_TIMELINE_KINDS.has(it?.kind))) return items;
+  return items.filter((it) => !STRUCTURAL_TIMELINE_KINDS.has(it?.kind));
 }
 
 export function getThreadDiff(ctx, threadId) {

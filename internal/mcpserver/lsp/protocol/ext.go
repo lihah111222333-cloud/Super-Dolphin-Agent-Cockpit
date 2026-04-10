@@ -13,10 +13,11 @@ type WorkspaceFolder struct {
 }
 
 type InitializeParams struct {
-	ProcessID        int                `json:"processId"`
-	RootURI          string             `json:"rootUri,omitempty"`
-	Capabilities     ClientCapabilities `json:"capabilities"`
-	WorkspaceFolders []WorkspaceFolder  `json:"workspaceFolders,omitempty"`
+	ProcessID             int                `json:"processId"`
+	RootURI               string             `json:"rootUri,omitempty"`
+	Capabilities          ClientCapabilities `json:"capabilities"`
+	WorkspaceFolders      []WorkspaceFolder  `json:"workspaceFolders,omitempty"`
+	InitializationOptions any                `json:"initializationOptions,omitempty"`
 }
 
 type ClientCapabilities struct {

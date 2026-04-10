@@ -180,9 +180,15 @@ export async function syncThreadState(ctx, threadId) {
           duration_ms: Math.round(perfNow() - start),
         });
       }
-      // Regression guard: if remote returns fewer items than local (partial turn snapshot),
-      // preserve local timeline instead of overwriting with incomplete data.
-      if (timeline.length > 0 && timeline.length < localTimelineLen && localTimelineLen > 5) {
+      // Regression guard: only block when remote is drastically smaller than local.
+      // Local timeline may contain structural items (turn_start, item, etc.) that inflate
+      // the count, so a small difference is normal. Block only when remote < 30% of local
+      // AND the absolute gap is > 10 items — this catches real regressions (37→3) but
+      // allows normal cache-vs-snapshot fluctuation (92→65).
+      const regressionThreshold = localTimelineLen > 5 && timeline.length > 0
+        && timeline.length < localTimelineLen * 0.3
+        && (localTimelineLen - timeline.length) > 10;
+      if (regressionThreshold) {
         logWarn('thread', 'sync.thread_state_regression_guard', {
           thread_id: id,
           remote_len: timeline.length,
@@ -280,7 +286,7 @@ export async function loadMessages(ctx, threadId, limit = 300, options = {}) {
     const start = perfNow();
     try {
       const res = await callAPI('thread/messages', { threadId: id, limit });
-      const immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logInfo });
+      const immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logInfo, logWarn });
       if (syncRuntime) {
         logInfo('thread', 'messages.load.sync.start', { thread_id: id, limit, immediate_timeline_applied: immediateTimelineApplied });
         await syncRuntimeState(ctx);
@@ -439,29 +445,50 @@ export function handleBridgeEvent(ctx, evt) {
     return;
   }
 
-  // Streaming deltas: debounced lightweight sync instead of full syncThreadState
-  // (syncThreadState returns partial timeline during active turns and would overwrite local history)
+  // Streaming deltas: throttle + trailing debounce instead of full syncThreadState.
+  // syncThreadState returns partial timeline during active turns and would overwrite local history.
+  // Throttle: fire immediately on first delta, then at most once per STREAMING_THROTTLE_MS.
+  // Trailing debounce: ensure a final sync fires after deltas stop.
   if (directThreadSyncSignal && activeThreadTarget && !turnCompletedSignal && !historyPageSignal) {
-    clearTimeout(ctx.syncDebounceTimer);
-    ctx.syncDebounceTimer = setTimeout(() => {
+    const now = perfNow();
+    const throttleMs = ctx.STREAMING_SYNC_THROTTLE_MS || 800;
+    const elapsed = now - (ctx.streamingSyncLastRun || 0);
+    if (elapsed >= throttleMs) {
+      ctx.streamingSyncLastRun = now;
       syncThreadHistoryAtomic(ctx, activeThreadTarget)
-        .catch((error) => logWarn('thread', 'state.sync.streaming_debounced.failed', { error, by_event: eventName }));
+        .catch((error) => logWarn('thread', 'state.sync.streaming_throttle.failed', { error, by_event: eventName }));
+    }
+    // Trailing debounce to catch final state after streaming stops
+    clearTimeout(ctx.streamingSyncDebounceTimer);
+    ctx.streamingSyncDebounceTimer = setTimeout(() => {
+      ctx.streamingSyncLastRun = perfNow();
+      syncThreadHistoryAtomic(ctx, activeThreadTarget)
+        .catch((error) => logWarn('thread', 'state.sync.streaming_trailing.failed', { error, by_event: eventName }));
     }, 500);
     return;
   }
 
-  if (threadSyncSignal && activeThreadTarget && (historyPageSignal || turnCompletedSignal || methodLower === 'item/completed')) {
+  // thread/messages/page on the active thread: skip loadMessages entirely.
+  // Live patches already provide real-time rendering. Repeated loadMessages would
+  // overwrite the richer timeline (structural items + optimistic messages) with a
+  // dialog-only snapshot from thread/messages API, causing the "message swallowed" bug.
+  if (historyPageSignal && activeThreadTarget) {
+    logWarn('thread', 'bridge.historyPage_active_skipped', {
+      method: eventMethod, source: sourceLower, thread_id: activeThreadTarget,
+    });
+    return;
+  }
+
+  if (threadSyncSignal && activeThreadTarget && (turnCompletedSignal || methodLower === 'item/completed')) {
     clearTimeout(ctx.syncDebounceTimer);
     const snapshotRequest = beginRuntimeSnapshotRequest(ctx, activeThreadTarget);
-    const syncKind = historyPageSignal ? 'loadMessages' : (turnCompletedSignal ? 'syncThreadHistoryAtomic' : 'syncThreadState');
+    const syncKind = turnCompletedSignal ? 'syncThreadHistoryAtomic' : 'syncThreadState';
     logWarn('thread', 'bridge.direct_sync_triggered', {
       method: eventMethod, source: sourceLower, thread_id: activeThreadTarget,
       sync_kind: syncKind, turn_completed: turnCompletedSignal,
       request_seq: snapshotRequest.seq,
     });
-    const request = historyPageSignal
-      ? loadMessages(ctx, activeThreadTarget, 300, { syncRuntime: false })
-      : (turnCompletedSignal ? syncThreadHistoryAtomic(ctx, activeThreadTarget) : syncThreadState(ctx, activeThreadTarget));
+    const request = turnCompletedSignal ? syncThreadHistoryAtomic(ctx, activeThreadTarget) : syncThreadState(ctx, activeThreadTarget);
     logInfo('thread', 'state.sync.direct.signal', { thread_id: activeThreadTarget, method: eventMethod, source: sourceLower || eventName, request_seq: snapshotRequest.seq });
     request.catch((error) => logWarn('thread', 'state.sync.direct.failed', { error, by_event: eventName }));
     return;
@@ -504,6 +531,8 @@ export function buildSyncContext(state, deps) {
     threadPatchMetaByThread: new Map(),
     syncDebounceTimer: 0,
     syncThrottleLastRun: 0,
+    streamingSyncLastRun: 0,
+    streamingSyncDebounceTimer: 0,
     sidebarRefreshPromise: null,
     sidebarRefreshPending: false,
     sidebarSyncDebounceTimer: 0,
@@ -511,6 +540,7 @@ export function buildSyncContext(state, deps) {
     THREAD_HISTORY_FRESH_TTL_MS: 30_000,
     THREAD_PATCH_RECENT_WINDOW_MS: 250,
     SYNC_THROTTLE_MS: 500,
+    STREAMING_SYNC_THROTTLE_MS: 800,
     SIDEBAR_SYNC_THROTTLE_MS: 1200,
   };
 }

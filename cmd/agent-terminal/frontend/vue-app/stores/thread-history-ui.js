@@ -95,7 +95,8 @@ function historyMessageToTimelineItem(threadId, message, index) {
   return item;
 }
 
-export function applyImmediateTimelineFromMessages({ threadId, response, state, normalizeThreadID, freezeTimelineItemsAtomic, logInfo }) {
+export function applyImmediateTimelineFromMessages({ threadId, response, state, normalizeThreadID, freezeTimelineItemsAtomic, logInfo, logWarn: logWarnParam }) {
+  const logWarnFn = typeof logWarnParam === 'function' ? logWarnParam : (typeof logInfo === 'function' ? logInfo : () => {});
   const id = typeof normalizeThreadID === 'function' ? normalizeThreadID(threadId) : (threadId || '').toString().trim();
   const messages = Array.isArray(response?.messages) ? response.messages : [];
   if (!id || messages.length === 0) return false;
@@ -131,8 +132,34 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
     });
     return false;
   }
+  // Check if local has optimistic user messages that would be lost
+  const hasOptimistic = existing.some((it) => (it?.id || '').toString().includes('-optimistic-'));
+  logWarnFn('thread', 'messages.load.local_timeline.overwrite_decision', {
+    thread_id: id,
+    existing_total: existing.length,
+    incoming_total: timeline.length,
+    existing_dialog_count: existingDialogCount,
+    incoming_dialog_count: incomingDialogCount,
+    existing_ts: existingTsValid ? existingLatestDialogTs : null,
+    incoming_ts: incomingTsValid ? incomingLatestDialogTs : null,
+    same_or_newer: sameOrNewerExistingDialog,
+    has_optimistic: hasOptimistic,
+  });
   const frozenTimeline = freezeTimelineItemsAtomic(timeline, existing);
   if (!frozenTimeline.changed) return false;
+  // Preserve optimistic user messages that are not yet in the incoming timeline
+  if (hasOptimistic) {
+    const optimisticItems = existing.filter((it) => (it?.id || '').toString().includes('-optimistic-'));
+    const mergedItems = [...frozenTimeline.items, ...optimisticItems];
+    state.timelinesByThread = { ...state.timelinesByThread, [id]: mergedItems };
+    logWarnFn('thread', 'messages.load.local_timeline.applied_with_optimistic', {
+      thread_id: id,
+      history_count: frozenTimeline.items.length,
+      optimistic_count: optimisticItems.length,
+      merged_count: mergedItems.length,
+    });
+    return true;
+  }
   state.timelinesByThread = { ...state.timelinesByThread, [id]: frozenTimeline.items };
   if (typeof logInfo === 'function') logInfo('thread', 'messages.load.local_timeline.applied', { thread_id: id, count: timeline.length });
   return true;

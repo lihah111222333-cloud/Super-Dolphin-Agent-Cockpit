@@ -1,4 +1,5 @@
 import { logInfo, logWarn } from '../services/log.js';
+import { perfNow } from '../stores/thread-actions-helpers.js';
 
 /**
  * @typedef {import('./thread-page-types').BuildVisibleChatThreadCardsOptions} BuildVisibleChatThreadCardsOptions
@@ -71,16 +72,21 @@ export async function requestHistoryLoad(threadStore, threadId, loadOptions = un
     force_reload: forceReload,
     cache_stale: historyLooksStale,
   });
+  const loadStart = perfNow();
   try {
     await threadStore.loadMessages(id, undefined, loadOptions || undefined);
-    logInfo('ui', 'chat.historyLoad.done', {
+    const loadDuration = Math.round(perfNow() - loadStart);
+    logWarn('ui', 'chat.historyLoad.done_timed', {
       thread_id: id,
+      duration_ms: loadDuration,
+      force_reload: forceReload,
     });
     return true;
   } catch (error) {
     logWarn('ui', 'chat.historyLoad.failed', {
       thread_id: id,
       error,
+      duration_ms: Math.round(perfNow() - loadStart),
     });
     throw error;
   }
@@ -101,14 +107,37 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
   const shouldRefreshOnThreadSwitch = reason === 'selection' && Boolean(previousThreadId) && previousThreadId !== id;
   const shouldRefreshOnPageEnter = reason === 'page-enter' && Boolean(id);
   const shouldRefreshVisibleThread = (shouldRefreshOnThreadSwitch || shouldRefreshOnPageEnter) && typeof threadStore?.syncThreadState === 'function';
+  const selectionStart = perfNow();
+  logWarn('ui', 'chat.selection.fresh.start', {
+    thread_id: id,
+    reason,
+    previous_thread_id: previousThreadId,
+    should_refresh_visible: shouldRefreshVisibleThread,
+    should_refresh_switch: shouldRefreshOnThreadSwitch,
+    should_refresh_page_enter: shouldRefreshOnPageEnter,
+  });
   if (shouldRefreshVisibleThread) {
     logInfo('ui', 'chat.threadState.refresh_visible_thread', {
       reason,
       previous_thread_id: previousThreadId,
       thread_id: id,
     });
+    const syncStart = perfNow();
     await threadStore.syncThreadState(id);
+    const syncDuration = Math.round(perfNow() - syncStart);
+    logWarn('ui', 'chat.selection.syncThreadState.done', {
+      thread_id: id,
+      duration_ms: syncDuration,
+    });
+    const histStart = perfNow();
     const requestedHistory = await requestHistoryLoad(threadStore, id, { syncRuntime: false, force: true });
+    const histDuration = Math.round(perfNow() - histStart);
+    logWarn('ui', 'chat.selection.requestHistoryLoad.done', {
+      thread_id: id,
+      requested: requestedHistory,
+      duration_ms: histDuration,
+      total_ms: Math.round(perfNow() - selectionStart),
+    });
     return {
       requestedHistory,
       syncedThreadState: true,
@@ -124,7 +153,13 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
     logInfo('ui', 'chat.historyLoad.force_reload', {
       thread_id: id,
     });
+    const forceStart = perfNow();
     await threadStore.loadMessages(id);
+    logWarn('ui', 'chat.selection.forceReload.done', {
+      thread_id: id,
+      duration_ms: Math.round(perfNow() - forceStart),
+      total_ms: Math.round(perfNow() - selectionStart),
+    });
     return {
       requestedHistory: true,
       syncedThreadState: false,
@@ -138,7 +173,13 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
       previous_thread_id: previousThreadId,
       thread_id: id,
     });
+    const refreshStart = perfNow();
     await threadStore.loadMessages(id);
+    logWarn('ui', 'chat.selection.refreshLoadMessages.done', {
+      thread_id: id,
+      duration_ms: Math.round(perfNow() - refreshStart),
+      total_ms: Math.round(perfNow() - selectionStart),
+    });
     return {
       requestedHistory: true,
       syncedThreadState: false,
@@ -146,8 +187,14 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
     };
   }
 
+  const fallbackStart = perfNow();
   const requestedHistory = await requestHistoryLoad(threadStore, id);
   if (requestedHistory) {
+    logWarn('ui', 'chat.selection.fallbackHistory.done', {
+      thread_id: id,
+      duration_ms: Math.round(perfNow() - fallbackStart),
+      total_ms: Math.round(perfNow() - selectionStart),
+    });
     return {
       requestedHistory,
       syncedThreadState: false,
@@ -155,13 +202,23 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
     };
   }
   if (!id || typeof threadStore?.syncThreadState !== 'function') {
+    logWarn('ui', 'chat.selection.fresh.no_action', {
+      thread_id: id,
+      total_ms: Math.round(perfNow() - selectionStart),
+    });
     return {
       requestedHistory,
       syncedThreadState: false,
       forcedHistoryReload: false,
     };
   }
+  const fallbackSyncStart = perfNow();
   await threadStore.syncThreadState(id);
+  logWarn('ui', 'chat.selection.fallbackSync.done', {
+    thread_id: id,
+    duration_ms: Math.round(perfNow() - fallbackSyncStart),
+    total_ms: Math.round(perfNow() - selectionStart),
+  });
   return {
     requestedHistory,
     syncedThreadState: true,

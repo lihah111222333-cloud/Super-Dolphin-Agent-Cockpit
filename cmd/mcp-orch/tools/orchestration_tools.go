@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -99,7 +100,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"name":     StringSchema("Agent name. Used as the orchestration agent ID; no separate agent_id field is required."),
 			"prompt":   StringSchema("Optional initial prompt to persist on the launch request."),
 			"cwd":      StringSchema("Optional working directory for the launched agent."),
-			"provider": StringSchema("Optional provider name. Passed via AGENT_PROVIDER."),
+			"provider": EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", "codex", "claude"),
 		}, "name"), HandleLaunchAgent(svc)),
 		defineTool("orchestration_send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
@@ -134,16 +135,33 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
+	provider, err := validateLaunchProvider(in.Provider)
+	if err != nil {
+		return contract.LaunchRequest{}, err
+	}
 	return contract.LaunchRequest{
 		AgentID: name,
 		Name:    name,
 		Prompt:  strings.TrimSpace(in.Prompt),
 		Cwd:     strings.TrimSpace(in.CWD),
 		Command: []string{strings.TrimSpace(exe)},
-		Env:     launchEnv(in.Provider),
+		Env:     launchEnv(provider),
 	}, nil
 }
 
+
+func validateLaunchProvider(raw string) (string, error) {
+	p := strings.ToLower(strings.TrimSpace(raw))
+	if p == "" {
+		return "", nil // empty → downstream defaults to codex
+	}
+	switch p {
+	case "codex", "claude":
+		return p, nil
+	default:
+		return "", fmt.Errorf("invalid provider %q: must be codex or claude", raw)
+	}
+}
 
 func launchEnv(provider string) []string {
 	if provider = strings.TrimSpace(provider); provider != "" {

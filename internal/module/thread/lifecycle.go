@@ -98,6 +98,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		ApprovalPolicy: req.ApprovalPolicy,
 	}, nil
 }
+
 func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
 	ctx = shared.NonNilContext(ctx)
 	req, state, err := s.resolveResumeRequest(ctx, req)
@@ -143,8 +144,18 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	publicThreadID := threadState.PublicThreadID
 	providerThreadID := threadState.ProviderThreadID
 	if err := s.persistThreadState(ctx, threadState, true); err != nil {
-		s.stopAgent(ctx, req.AgentID)
-		return ResumeResult{}, err
+		// Binding upsert can fail when the DB immutability constraint
+		// rejects a changed provider_thread_id (e.g. Claude session UUID
+		// rotation). We must NOT suppress thread.Started — without it the
+		// UI never receives the correct ProviderThreadID or Model.
+		if s.logger != nil {
+			s.logger.Warn("thread: resume persist failed, continuing with event emission",
+				"error", err,
+				"agent_id", req.AgentID,
+				"thread_id", publicThreadID,
+				"provider_thread_id", providerThreadID,
+			)
+		}
 	}
 	s.publishThreadStarted(threadState)
 	return ResumeResult{
@@ -298,12 +309,7 @@ func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadM
 	if err != nil || thread == nil {
 		return threadMeta{}
 	}
-	return threadMeta{
-		Prompt:    strings.TrimSpace(thread.Prompt),
-		Model:     strings.TrimSpace(thread.Model),
-		CWD:       strings.TrimSpace(thread.Cwd),
-		CreatedAt: thread.CreatedAt,
-	}
+	return threadMeta{Prompt: strings.TrimSpace(thread.Prompt), Model: strings.TrimSpace(thread.Model), CWD: strings.TrimSpace(thread.Cwd), CreatedAt: thread.CreatedAt}
 }
 
 func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
@@ -314,8 +320,7 @@ func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
 	if err != nil || binding == nil {
 		return ""
 	}
-	s.rememberBinding(binding)
-	return strings.TrimSpace(binding.Cwd)
+	s.rememberBinding(binding); return strings.TrimSpace(binding.Cwd)
 }
 
 func (s *service) launchAgent(ctx context.Context, agentID, cwd, name, provider, model string) error {
@@ -325,8 +330,7 @@ func (s *service) launchAgent(ctx context.Context, agentID, cwd, name, provider,
 	req, err := buildLaunchRequest(agentID, cwd, name, provider, model)
 	if err != nil {
 		return err
-	}
-	return s.orchestration.LaunchAgent(ctx, req)
+	}; return s.orchestration.LaunchAgent(ctx, req)
 }
 
 func (s *service) stopAgent(ctx context.Context, agentID string) {
@@ -340,8 +344,7 @@ func (s *service) recoverAgent(ctx context.Context, agentID, cwd, name string) e
 	agentID = strings.TrimSpace(agentID)
 	if err := s.orchestration.Recover(ctx, agentID); err == nil {
 		return nil
-	}
-	return s.launchAgent(ctx, agentID, cwd, name, "", "")
+	}; return s.launchAgent(ctx, agentID, cwd, name, "", "")
 }
 
 func buildLaunchRequest(agentID, cwd, name, provider, model string) (LaunchAgentRequest, error) {
@@ -349,25 +352,16 @@ func buildLaunchRequest(agentID, cwd, name, provider, model string) (LaunchAgent
 	if err != nil {
 		return LaunchAgentRequest{}, err
 	}
-	return LaunchAgentRequest{
-		AgentID: strings.TrimSpace(agentID),
-		Name:    strings.TrimSpace(name),
-		Cwd:     strings.TrimSpace(cwd),
-		Command: []string{exe},
-		Env:     launchConfigEnv(provider, model),
-	}, nil
+	return LaunchAgentRequest{AgentID: strings.TrimSpace(agentID), Name: strings.TrimSpace(name), Cwd: strings.TrimSpace(cwd), Command: []string{exe}, Env: launchConfigEnv(provider, model)}, nil
 }
 
 func launchConfigEnv(provider, model string) []string {
-	env := make([]string, 0, 2)
+	var env []string
 	if provider = strings.TrimSpace(provider); provider != "" {
 		env = append(env, "AGENT_PROVIDER="+provider)
 	}
 	if model = strings.TrimSpace(model); model != "" {
 		env = append(env, "AGENT_MODEL="+model)
-	}
-	if len(env) == 0 {
-		return nil
 	}
 	return env
 }
@@ -376,13 +370,13 @@ func (s *service) rememberBinding(binding *bindingstore.Binding) {
 		return
 	}
 	agentID := strings.TrimSpace(binding.AgentID)
-	for _, threadID := range []string{binding.ProviderThreadID, binding.CodexThreadID, binding.AgentID} {
-		s.rememberThreadAgent(threadID, agentID)
+	for _, tid := range []string{binding.ProviderThreadID, binding.CodexThreadID, binding.AgentID} {
+		s.rememberThreadAgent(tid, agentID)
 	}
 }
+
 func (s *service) rememberThreadAgent(threadID, agentID string) {
-	threadID = strings.TrimSpace(threadID)
-	agentID = strings.TrimSpace(agentID)
+	threadID, agentID = strings.TrimSpace(threadID), strings.TrimSpace(agentID)
 	if threadID == "" || agentID == "" {
 		return
 	}
@@ -394,8 +388,7 @@ func (s *service) rememberThreadAgent(threadID, agentID string) {
 	s.threadAgents[threadID] = agentID
 }
 func (s *service) lookupThreadAgent(threadID string) string {
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
+	if threadID = strings.TrimSpace(threadID); threadID == "" {
 		return ""
 	}
 	s.threadAgentsMu.RLock()
@@ -403,8 +396,7 @@ func (s *service) lookupThreadAgent(threadID string) string {
 	return s.threadAgents[threadID]
 }
 func (s *service) forgetThreadAgent(threadID string) {
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
+	if threadID = strings.TrimSpace(threadID); threadID == "" {
 		return
 	}
 	s.threadAgentsMu.Lock()

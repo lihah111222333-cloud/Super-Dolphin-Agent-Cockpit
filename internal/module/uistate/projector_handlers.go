@@ -54,6 +54,7 @@ func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
+	sessionID := strings.TrimSpace(ev.SessionID)
 	applyMutation(s, threadID, func() {
 		currentState := normalizeAgentLifecycleState(firstNonEmptyString(s.agentLifecycleLocked(agentID), s.threadLifecycleLocked(threadID)))
 		agentState := launchState(currentState)
@@ -62,11 +63,13 @@ func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 			AgentID: agentID,
 		})
 		s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
-			ID:         agentID,
-			ThreadID:   threadID,
-			State:      agentState,
-			CWD:        strings.TrimSpace(ev.CWD),
-			AgentState: agentState,
+			ID:               agentID,
+			ThreadID:         threadID,
+			ProviderThreadID: sessionID,
+			State:            agentState,
+			CWD:              strings.TrimSpace(ev.CWD),
+			LogPath:          logFilePath(),
+			AgentState:       agentState,
 		})
 		if currentState == "" || currentState == "starting" {
 			s.setThreadOverlayLocked(threadID, overlayTypeMCPStartup, "", overlayPriorityMCPStartup, mcpStartupOverlayTTL)
@@ -182,7 +185,12 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 			AgentID: agentID,
 		})
 		if agentID != "" {
-			s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
+			// thread.Started is a full session initialization event.
+			// Unlike incremental events, all identity fields must be
+			// replaced, not merged — stale values (e.g. a model leaked
+			// from a different provider) must be cleared even when the
+			// new value is empty.
+			s.replaceAgentOnThreadStarted(agentID, AgentSummary{
 				ID:               agentID,
 				ThreadID:         threadID,
 				ProviderThreadID: strings.TrimSpace(ev.ProviderThreadID),
@@ -197,6 +205,28 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 	}, func() uidto.UIThreadPatch {
 		return s.refreshThreadPatchLocked(threadID, agentID, "thread/started")
 	})
+}
+
+// replaceAgentOnThreadStarted overwrites all runtime-identity fields of an
+// existing AgentSummary with the values from a thread.Started event.  Unlike
+// upsertAgentSummary (which uses chooseString and keeps old non-empty values),
+// this resets fields that are authoritative from thread.Started — preventing a
+// stale model from a previous provider from persisting across session restarts.
+func (s *service) replaceAgentOnThreadStarted(agentID string, next AgentSummary) {
+	for i := range s.state.Agents {
+		if s.state.Agents[i].ID != agentID {
+			continue
+		}
+		// Preserve fields that thread.Started does not own.
+		next.Name = chooseString(next.Name, s.state.Agents[i].Name)
+		next.ParentID = chooseString(next.ParentID, s.state.Agents[i].ParentID)
+		next.LastReport = chooseString(next.LastReport, s.state.Agents[i].LastReport)
+		next.LastMessage = chooseString(next.LastMessage, s.state.Agents[i].LastMessage)
+		next.Port = choosePositiveInt(next.Port, s.state.Agents[i].Port)
+		s.state.Agents[i] = next
+		return
+	}
+	s.state.Agents = append(s.state.Agents, next)
 }
 
 func (s *service) applyThreadStopped(ev threaddto.Stopped) {

@@ -46,7 +46,25 @@ func (s *session) rawBase() rawBase {
 
 func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 	if raw.EventType == "system:init" {
-		s.setResolvedThreadIDForTransport(tr, dataString(raw.Data, "session_id", "thread_id"))
+		resolvedID := dataString(raw.Data, "session_id", "thread_id")
+		prevID := s.ThreadID()
+		s.setResolvedThreadIDForTransport(tr, resolvedID)
+		// When system:init resolves a real UUID that differs from the
+		// initial placeholder, re-dispatch an agent:launched event so
+		// downstream subscribers (thread module, UI projector) can update
+		// the binding session_uuid and provider_thread_id.
+		if newID := s.ThreadID(); newID != prevID && newID != "" {
+			s.dispatch(dto.RawProviderEvent{
+				EventType: "agent:launched",
+				Data: map[string]any{
+					"agent_id":   s.agentID,
+					"thread_id":  s.EventThreadID(),
+					"session_id": newID,
+					"cwd":        s.cwd,
+					"model":      s.model,
+				},
+			})
+		}
 	}
 	if !s.isCurrentTransport(tr) {
 		if s.logger != nil {
