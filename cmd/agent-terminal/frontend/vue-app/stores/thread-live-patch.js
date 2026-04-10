@@ -248,6 +248,16 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   const sequenceGap = Number.isFinite(sequence) && sequence > 0 && previousSequence > 0 && sequence !== previousSequence + 1;
   const needsRecovery = hasRecover || hasRefreshRequired || sequenceGap || timelineResult.needsRecovery;
   if (Number.isFinite(sequence) && sequence > 0) recordThreadPatchMeta(ctx, id, payload.source, sequence, now);
+  if (Array.isArray(payload.timelineItems) && payload.timelineItems.length > 0) {
+    ctx.logWarn('thread', 'patch.timeline_items_applied', {
+      thread_id: id,
+      source: (payload.source || '').toString(),
+      sequence,
+      timeline_items: payload.timelineItems.length,
+      timeline_changed: timelineResult.changed,
+      needs_recovery: needsRecovery,
+    });
+  }
   ctx.logInfo('thread', 'state.patch.applied', {
     thread_id: id,
     source: (payload.source || '').toString(),

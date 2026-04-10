@@ -258,6 +258,16 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 	if !s.applyTurnSettingsLocked(req) {
 		return s.awaitThreadReadyLocked(ctx)
 	}
+	if s.logger != nil {
+		s.logger.Warn("claudecli: session restart triggered",
+			"agent_id", s.agentID,
+			"thread_id", s.threadID,
+			"session_id", s.sessionID,
+			"old_model", prevModel,
+			"new_model", s.model,
+			"resume_id", s.restartResumeIDLocked(),
+		)
+	}
 	oldTransport := s.transport
 	oldCleanup := s.cleanup
 	tr, cleanup, err := launchCLI(

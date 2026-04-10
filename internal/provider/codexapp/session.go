@@ -99,6 +99,8 @@ func newSession(
 	s.noteReadActivity()
 	s.startReadLoop()
 	s.startHealthLoop()
+
+
 	return s, nil
 }
 
@@ -254,6 +256,11 @@ func (s *session) Close(context.Context) error {
 
 func (s *session) ForceStop() error {
 	return s.shutdownSession(false)
+}
+
+// shutdownSessionCleanup handles cleanup when a session shuts down.
+func (s *session) shutdownSessionCleanup() {
+	// placeholder for future idle tracking cleanup
 }
 
 func (s *session) dispatch(raw dto.RawProviderEvent) {

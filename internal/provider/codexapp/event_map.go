@@ -159,10 +159,31 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 			Reason:     stringValue(payload, "reason", "message"),
 		}, true
 	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
+		pkglogger.Get().Warn("codexapp: translateTurnEvent: outputDelta",
+			"event_type", eventType,
+			"stream", "message",
+			"thread_id", payloadThreadID(payload),
+			"agent_id", payloadAgentID(payload),
+			"delta_len", len(stringValue(payload, "delta", "content")),
+		)
 		return turnOutputDelta(payload, "message"), true
 	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "reasoning.delta":
+		pkglogger.Get().Warn("codexapp: translateTurnEvent: outputDelta",
+			"event_type", eventType,
+			"stream", "reasoning",
+			"thread_id", payloadThreadID(payload),
+			"agent_id", payloadAgentID(payload),
+			"delta_len", len(stringValue(payload, "delta", "content")),
+		)
 		return turnOutputDelta(payload, "reasoning"), true
 	case "item/commandExecution/outputDelta", "exec_output_delta":
+		pkglogger.Get().Warn("codexapp: translateTurnEvent: outputDelta",
+			"event_type", eventType,
+			"stream", "stdout",
+			"thread_id", payloadThreadID(payload),
+			"agent_id", payloadAgentID(payload),
+			"delta_len", len(stringValue(payload, "delta", "content")),
+		)
 		return turnOutputDelta(payload, "stdout"), true
 	default:
 		return nil, false

@@ -85,6 +85,12 @@ func turnCompletedHandler(svc Service) func(turndto.TurnCompleted) {
 
 func reasoningDeltaHandler(svc Service) func(turndto.TurnOutputDelta) {
 	return func(ev turndto.TurnOutputDelta) {
+		pkglogger.Get().Warn("timeline: reasoningDeltaHandler received",
+			"stream", ev.Stream,
+			"thread_id", ev.ThreadID,
+			"turn_id", ev.TurnID,
+			"delta_len", len(ev.Delta),
+		)
 		if !strings.EqualFold(strings.TrimSpace(ev.Stream), "reasoning") {
 			return
 		}

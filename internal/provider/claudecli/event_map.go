@@ -10,6 +10,7 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func RegisterTranslators(dispatcher *unified.EventDispatcher) {
@@ -71,10 +72,17 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			Source:     dataString(raw.Data, "source"),
 		}, true
 	case "assistant:message_delta":
+		stream := dataString(raw.Data, "stream")
+		delta := dataString(raw.Data, "delta")
+		pkglogger.Get().Warn("claudecli: translateTurnEvent: message_delta",
+			"stream", stream,
+			"thread_id", dataString(raw.Data, "thread_id"),
+			"delta_len", len(delta),
+		)
 		return turndto.TurnOutputDelta{
 			TurnHeader: turnHeader(raw.Data),
-			Stream:     dataString(raw.Data, "stream"),
-			Delta:      dataString(raw.Data, "delta"),
+			Stream:     stream,
+			Delta:      delta,
 		}, true
 	case "turn:interrupted":
 		return turndto.TurnInterrupted{

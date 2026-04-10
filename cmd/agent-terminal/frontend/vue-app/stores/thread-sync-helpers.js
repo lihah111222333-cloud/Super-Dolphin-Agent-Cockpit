@@ -160,6 +160,12 @@ export async function syncThreadState(ctx, threadId) {
       const timeline = Array.isArray(res?.timelinesByThread?.[id]) ? res.timelinesByThread[id] : [];
       const diffRevision = normalizeDiffRevision(res?.diffRevisionByThread?.[id]);
       const localTimelineLen = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id].length : 0;
+      logWarn('thread', 'sync.thread_state_response_timeline', {
+        thread_id: id,
+        remote_len: timeline.length,
+        local_len: localTimelineLen,
+        remote_kinds: timeline.slice(0, 20).map((it) => it?.kind).filter(Boolean),
+      });
       logInfo('thread', 'state.sync.thread.response', { thread_id: id, timeline_len: timeline.length, diff_revision: diffRevision, local_timeline_len: localTimelineLen, duration_ms: Math.round(perfNow() - start) });
       if (timeline.length === 0 && localTimelineLen > 0) {
         logWarn('thread', 'state.sync.thread.empty_remote_snapshot', {
@@ -173,6 +179,19 @@ export async function syncThreadState(ctx, threadId) {
           cwd: ctx.getPreferenceScopeCwd(),
           duration_ms: Math.round(perfNow() - start),
         });
+      }
+      // Regression guard: if remote returns fewer items than local (partial turn snapshot),
+      // preserve local timeline instead of overwriting with incomplete data.
+      if (timeline.length > 0 && timeline.length < localTimelineLen && localTimelineLen > 5) {
+        logWarn('thread', 'sync.thread_state_regression_guard', {
+          thread_id: id,
+          remote_len: timeline.length,
+          local_len: localTimelineLen,
+          remote_kinds: timeline.slice(0, 5).map((it) => it?.kind),
+        });
+        if (res && res.timelinesByThread) {
+          delete res.timelinesByThread[id];
+        }
       }
       if (!isLatestRuntimeSnapshotRequest(ctx, snapshotRequest)) {
         logInfo('thread', 'state.sync.thread.stale.skipped', { thread_id: id, scope: snapshotRequest.scope, request_seq: snapshotRequest.seq, duration_ms: Math.round(perfNow() - start) });
@@ -359,7 +378,27 @@ export function handleBridgeEvent(ctx, evt) {
   const eventThreadTarget = normalizeThreadID(eventThreadId);
   const activeThreadTarget = eventThreadTarget && (eventThreadTarget === normalizeThreadID(ctx.state.activeThreadId) || eventThreadTarget === normalizeThreadID(ctx.state.activeCmdThreadId)) ? eventThreadTarget : '';
   const historyHydrationSignal = turnCompletedSignal || historyPageSignal;
+  if (directThreadSyncSignal) {
+    logWarn('thread', 'bridge.streaming_delta_received', {
+      method: eventMethod, source: sourceLower, thread_id: eventThreadTarget,
+      active_thread_id: normalizeThreadID(ctx.state.activeThreadId),
+      active_cmd_thread_id: normalizeThreadID(ctx.state.activeCmdThreadId),
+      is_active: Boolean(activeThreadTarget),
+    });
+  }
   if (methodLower === THREAD_PATCH_METHOD && activeThreadTarget) {
+    const patchPayload = evt?.payload || evt?.params?.payload || evt?.params || evt?.data || evt || {};
+    const hasTimelineItems = Array.isArray(patchPayload?.timelineItems) && patchPayload.timelineItems.length > 0;
+    logWarn('thread', 'bridge.thread_patch_received', {
+      thread_id: activeThreadTarget,
+      source: (patchPayload?.source || '').toString(),
+      sequence: patchPayload?.sequence,
+      has_timeline_items: hasTimelineItems,
+      timeline_count: hasTimelineItems ? patchPayload.timelineItems.length : 0,
+      timeline_kinds: hasTimelineItems ? patchPayload.timelineItems.map((it) => it?.kind).filter(Boolean) : [],
+      has_status: Boolean(patchPayload?.status),
+      status: (patchPayload?.status || '').toString(),
+    });
     const patchResult = applyRuntimeThreadPatch(ctx, evt, activeThreadTarget, { perfNow });
     if (patchResult?.handled) {
       if (patchResult.needsRecovery) {
@@ -370,6 +409,9 @@ export function handleBridgeEvent(ctx, evt) {
   }
   if (activeThreadTarget && shouldSkipThreadSyncFromPatch(ctx, activeThreadTarget, methodLower, sourceLower, perfNow())) {
     if (!historyPageSignal) {
+      logWarn('thread', 'bridge.event_skipped_by_patch_dedup', {
+        method: eventMethod, source: sourceLower, thread_id: activeThreadTarget,
+      });
       return;
     }
   }
@@ -397,9 +439,26 @@ export function handleBridgeEvent(ctx, evt) {
     return;
   }
 
-  if (threadSyncSignal && activeThreadTarget && (historyPageSignal || directThreadSyncSignal || turnCompletedSignal || methodLower === 'item/completed')) {
+  // Streaming deltas: debounced lightweight sync instead of full syncThreadState
+  // (syncThreadState returns partial timeline during active turns and would overwrite local history)
+  if (directThreadSyncSignal && activeThreadTarget && !turnCompletedSignal && !historyPageSignal) {
+    clearTimeout(ctx.syncDebounceTimer);
+    ctx.syncDebounceTimer = setTimeout(() => {
+      syncThreadHistoryAtomic(ctx, activeThreadTarget)
+        .catch((error) => logWarn('thread', 'state.sync.streaming_debounced.failed', { error, by_event: eventName }));
+    }, 500);
+    return;
+  }
+
+  if (threadSyncSignal && activeThreadTarget && (historyPageSignal || turnCompletedSignal || methodLower === 'item/completed')) {
     clearTimeout(ctx.syncDebounceTimer);
     const snapshotRequest = beginRuntimeSnapshotRequest(ctx, activeThreadTarget);
+    const syncKind = historyPageSignal ? 'loadMessages' : (turnCompletedSignal ? 'syncThreadHistoryAtomic' : 'syncThreadState');
+    logWarn('thread', 'bridge.direct_sync_triggered', {
+      method: eventMethod, source: sourceLower, thread_id: activeThreadTarget,
+      sync_kind: syncKind, turn_completed: turnCompletedSignal,
+      request_seq: snapshotRequest.seq,
+    });
     const request = historyPageSignal
       ? loadMessages(ctx, activeThreadTarget, 300, { syncRuntime: false })
       : (turnCompletedSignal ? syncThreadHistoryAtomic(ctx, activeThreadTarget) : syncThreadState(ctx, activeThreadTarget));

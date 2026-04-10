@@ -258,9 +258,14 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 		cleanupFailedSession(s, "force stop failed on dynamic tools list error")
 		return nil, fmt.Errorf("dynamic tools list: %w", err)
 	}
+	names := make([]string, len(tools))
+	for i, t := range tools {
+		names[i] = t.Name
+	}
 	pkglogger.Info("codexapp: dynamic tools injected into thread/start",
 		"agent_id", req.AgentID,
 		"tool_count", len(tools),
+		"tool_names", names,
 	)
 	result, err := startRemoteThreadWithDynamicTools(ctx, s.transport, req, tools)
 	if err != nil {
@@ -288,6 +293,20 @@ func (d *driver) finishStartedSession(s *session, result startResult) contract.S
 func startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []DynamicToolSchema) (startResult, error) {
 	params := buildThreadStartParams(req)
 	params.DynamicTools = tools
+	// Inject tool catalog into developerInstructions so the model knows
+	// which dynamicTools are available (they don't appear as MCP tools).
+	if len(tools) > 0 {
+		var catalog strings.Builder
+		catalog.WriteString("\n\n## Available dynamic tools\nYou have the following tools available. Call them directly by name:\n")
+		for _, tool := range tools {
+			catalog.WriteString("- `" + tool.Name + "`")
+			if tool.Description != "" {
+				catalog.WriteString(": " + tool.Description)
+			}
+			catalog.WriteString("\n")
+		}
+		params.DeveloperInstructions = strings.TrimSpace(params.DeveloperInstructions + catalog.String())
+	}
 	return startRemoteThreadWithParams(ctx, t, req, params)
 }
 
@@ -302,6 +321,13 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 		"has_mcp", hasAnyConfigKey(req.Config, "mcp", "mcpConfig", "mcp_config", "mcpServers", "mcp_servers"),
 		"has_hooks", hasAnyConfigKey(req.Config, "hooks", "hookConfig", "hook_config"),
 	)
+	if len(params.DynamicTools) > 0 {
+		firstTool, _ := json.Marshal(params.DynamicTools[0])
+		pkglogger.Info("codexapp: thread/start payload debug",
+			"dynamic_tools_count", len(params.DynamicTools),
+			"first_tool_json", string(firstTool),
+		)
+	}
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/start", params)
 	if err != nil {
 		return startResult{}, err

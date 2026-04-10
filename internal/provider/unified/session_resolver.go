@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -18,16 +20,22 @@ type threadLookup interface {
 
 type providerThreadLookup interface {
 	GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*bindingstore.Binding, error)
+	GetByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error)
 }
 
 type providerNameSource interface {
 	Names() []string
 }
 
+type driverRegistry interface {
+	Resolve(provider string) (contract.Driver, error)
+	Names() []string
+}
+
 type sessionResolver struct {
 	threadStore  threadLookup
 	bindingStore providerThreadLookup
-	registry     providerNameSource
+	registry     driverRegistry
 	sessions     *SessionManager
 }
 
@@ -113,7 +121,19 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	if agentID == "" {
 		return nil, fmt.Errorf("resolve session: thread %q has no agent id", threadID)
 	}
-	return r.sessions.Get(agentID)
+	if session, err := r.sessions.Get(agentID); err == nil {
+		return session, nil
+	}
+	// Session not in memory (e.g. after restart). Look up the binding to
+	// get the provider thread UUID and auto-resume.
+	if r.bindingStore == nil {
+		return nil, contract.ErrSessionNotFound
+	}
+	binding, err := r.bindingStore.GetByAgentID(ctx, agentID)
+	if err != nil {
+		return nil, contract.ErrSessionNotFound
+	}
+	return r.autoResumeSession(ctx, binding)
 }
 
 func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
@@ -134,12 +154,61 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 			errs = append(errs, fmt.Errorf("resolve session: provider %q thread %q has no agent id", provider, threadID))
 			continue
 		}
-		return r.sessions.Get(agentID)
+		if session, err := r.sessions.Get(agentID); err == nil {
+			return session, nil
+		}
+		// Memory miss — auto-resume from binding.
+		return r.autoResumeSession(ctx, binding)
 	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
 	return nil, platformdb.ErrNotFound
+}
+
+// autoResumeSession rebuilds a runtime session from a persisted binding.
+// This is the key recovery path after application restart: the DB has the
+// thread UUID but the in-memory SessionManager is empty.
+func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *bindingstore.Binding) (contract.Session, error) {
+	if binding == nil {
+		return nil, contract.ErrSessionNotFound
+	}
+	provider := strings.TrimSpace(binding.Provider)
+	if provider == "" {
+		return nil, fmt.Errorf("resolve session: binding for %q has no provider", binding.AgentID)
+	}
+	if r.registry == nil {
+		return nil, fmt.Errorf("resolve session: no driver registry available")
+	}
+	driver, err := r.registry.Resolve(provider)
+	if err != nil {
+		return nil, fmt.Errorf("resolve session: %w", err)
+	}
+
+	req := dto.ResumeSessionRequest{
+		Provider:         provider,
+		AgentID:          binding.AgentID,
+		ThreadID:         binding.AgentID,
+		ProviderThreadID: binding.ProviderThreadID,
+		CWD:              binding.Cwd,
+	}
+	pkglogger.Info("resolve session: auto-resuming after restart",
+		"agent_id", binding.AgentID,
+		"provider", provider,
+		"provider_thread_id", binding.ProviderThreadID,
+	)
+	session, err := driver.ResumeSession(ctx, req)
+	if err != nil {
+		pkglogger.Warn("resolve session: auto-resume failed",
+			"agent_id", binding.AgentID, "error", err)
+		return nil, fmt.Errorf("resolve session: auto-resume failed: %w", err)
+	}
+	r.sessions.Register(binding.AgentID, session)
+	pkglogger.Info("resolve session: auto-resume succeeded",
+		"agent_id", binding.AgentID,
+		"thread_id", session.ThreadID(),
+	)
+	return session, nil
 }
 
 func (r *sessionResolver) providerNames() []string {

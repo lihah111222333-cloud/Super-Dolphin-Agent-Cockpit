@@ -461,27 +461,31 @@ describe('thread store runtime sync', () => {
   });
 
   it('replays active direct delta sync after an in-flight scoped sync finishes', async () => {
-    const store = useThreadStore();
-    const threadId = 'thread-live-delta';
-    const firstSync = deferred();
-    let uiStateCalls = 0;
-    store.state.activeThreadId = threadId;
-    store.state.threads = [{ id: threadId, name: 'Live', state: 'running' }];
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method !== 'ui/state/get') return {};
-      uiStateCalls += 1;
-      if (uiStateCalls === 1) return firstSync.promise;
-      return buildSnapshot({ threadId, activeThreadId: threadId, text: 'live delta' });
-    });
-    store.handleBridgeEvent({ method: 'item/agentMessage/delta', payload: { threadId, delta: 'live ' } });
-    await Promise.resolve();
-    store.handleBridgeEvent({ method: 'item/agentMessage/delta', payload: { threadId, delta: 'delta' } });
-    await Promise.resolve();
-    expect(uiStateCalls).toBe(1);
-    firstSync.resolve(buildSnapshot({ threadId, activeThreadId: threadId, text: 'stale delta' }));
-    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-    expect(uiStateCalls).toBe(2);
-    expect(store.getThreadTimeline(threadId)[0]?.text).toBe('live delta');
+    vi.useFakeTimers();
+    try {
+      const store = useThreadStore();
+      const threadId = 'thread-live-delta';
+      let uiStateCalls = 0;
+      store.state.activeThreadId = threadId;
+      store.state.threads = [{ id: threadId, name: 'Live', state: 'running' }];
+      apiMock.callAPI.mockImplementation(async (method) => {
+        if (method !== 'ui/state/get') return {};
+        uiStateCalls += 1;
+        return buildSnapshot({ threadId, activeThreadId: threadId, text: 'live delta' });
+      });
+      // Streaming deltas now use debounced sync (500ms), not immediate syncThreadState
+      store.handleBridgeEvent({ method: 'item/agentMessage/delta', payload: { threadId, delta: 'live ' } });
+      await Promise.resolve();
+      store.handleBridgeEvent({ method: 'item/agentMessage/delta', payload: { threadId, delta: 'delta' } });
+      await Promise.resolve();
+      // Before debounce fires, no sync yet (debounce resets on each delta)
+      expect(uiStateCalls).toBe(0);
+      vi.advanceTimersByTime(600);
+      await Promise.resolve(); await Promise.resolve();
+      expect(uiStateCalls).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('syncs the active thread on direct turn-completed bridge events', async () => {
@@ -552,45 +556,59 @@ describe('thread store runtime sync', () => {
   });
 
   it('syncs the selected cmd card on direct reasoning refresh signals', async () => {
-    const store = useThreadStore();
-    const threadId = 'thread-live-reasoning';
-    let uiStateCalls = 0;
-    store.state.activeCmdThreadId = threadId;
-    store.state.threads = [{ id: threadId, name: 'Live Cmd', state: 'running' }];
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method !== 'ui/state/get') return {};
-      uiStateCalls += 1;
-      return buildSnapshot({
-        threadId,
-        activeThreadId: '',
-        timelineItems: [{ id: 'thinking-1', kind: 'thinking', text: '实时推理', ts: '2026-03-08T00:00:00Z' }],
+    vi.useFakeTimers();
+    try {
+      const store = useThreadStore();
+      const threadId = 'thread-live-reasoning';
+      let uiStateCalls = 0;
+      store.state.activeCmdThreadId = threadId;
+      store.state.threads = [{ id: threadId, name: 'Live Cmd', state: 'running' }];
+      apiMock.callAPI.mockImplementation(async (method) => {
+        if (method !== 'ui/state/get') return {};
+        uiStateCalls += 1;
+        return buildSnapshot({
+          threadId,
+          activeThreadId: '',
+          timelineItems: [{ id: 'thinking-1', kind: 'thinking', text: '实时推理', ts: '2026-03-08T00:00:00Z' }],
+        });
       });
-    });
-    store.handleBridgeEvent({ method: 'ui/thread/changed', payload: { source: 'item/reasoning/summaryTextDelta', threadId } });
-    await Promise.resolve(); await Promise.resolve();
-    expect(uiStateCalls).toBeGreaterThanOrEqual(1);
-    expect(store.getThreadTimeline(threadId)[0]?.text).toBe('实时推理');
+      // Streaming deltas now use debounced sync (500ms)
+      store.handleBridgeEvent({ method: 'ui/thread/changed', payload: { source: 'item/reasoning/summaryTextDelta', threadId } });
+      vi.advanceTimersByTime(600);
+      await Promise.resolve(); await Promise.resolve();
+      expect(uiStateCalls).toBeGreaterThanOrEqual(1);
+      expect(store.getThreadTimeline(threadId)[0]?.text).toBe('实时推理');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('syncs the selected cmd card on raw command output delta bridge events', async () => {
-    const store = useThreadStore();
-    const threadId = 'thread-live-command-output';
-    let uiStateCalls = 0;
-    store.state.activeCmdThreadId = threadId;
-    store.state.threads = [{ id: threadId, name: 'Live Cmd', state: 'running' }];
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method !== 'ui/state/get') return {};
-      uiStateCalls += 1;
-      return buildSnapshot({
-        threadId,
-        activeThreadId: '',
-        timelineItems: [{ id: 'command-1', kind: 'command', command: 'npm test', output: 'partial output', status: 'running', ts: '2026-03-08T00:00:00Z' }],
+    vi.useFakeTimers();
+    try {
+      const store = useThreadStore();
+      const threadId = 'thread-live-command-output';
+      let uiStateCalls = 0;
+      store.state.activeCmdThreadId = threadId;
+      store.state.threads = [{ id: threadId, name: 'Live Cmd', state: 'running' }];
+      apiMock.callAPI.mockImplementation(async (method) => {
+        if (method !== 'ui/state/get') return {};
+        uiStateCalls += 1;
+        return buildSnapshot({
+          threadId,
+          activeThreadId: '',
+          timelineItems: [{ id: 'command-1', kind: 'command', command: 'npm test', output: 'partial output', status: 'running', ts: '2026-03-08T00:00:00Z' }],
+        });
       });
-    });
-    store.handleBridgeEvent({ method: 'item/commandExecution/outputDelta', payload: { threadId, delta: 'partial output' } });
-    await Promise.resolve(); await Promise.resolve();
-    expect(uiStateCalls).toBeGreaterThanOrEqual(1);
-    expect(store.getThreadTimeline(threadId)[0]?.output).toBe('partial output');
+      // Streaming deltas now use debounced sync (500ms)
+      store.handleBridgeEvent({ method: 'item/commandExecution/outputDelta', payload: { threadId, delta: 'partial output' } });
+      vi.advanceTimersByTime(600);
+      await Promise.resolve(); await Promise.resolve();
+      expect(uiStateCalls).toBeGreaterThanOrEqual(1);
+      expect(store.getThreadTimeline(threadId)[0]?.output).toBe('partial output');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
 

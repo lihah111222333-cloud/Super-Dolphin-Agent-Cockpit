@@ -262,7 +262,19 @@ function createRoleLabel(props) {
         return '计划';
       case 'error':
         return '错误';
+      case 'turn_start':
+      case 'turn_end':
+      case 'turn_interrupted':
+        return '回合';
+      case 'item':
+      case 'tool_call':
+        return '过程';
+      case 'approval_request':
+        return '审批';
       default:
+        logWarn('ui', 'timeline.roleLabel.unknown_kind', {
+          kind: item?.kind, id: item?.id, text_len: (item?.text || '').length,
+        });
         return '事件';
     }
   };
