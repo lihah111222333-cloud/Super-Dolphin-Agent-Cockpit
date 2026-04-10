@@ -16,7 +16,7 @@ import {
   normalizeCmdPrefs,
 } from './thread-preference.model.js';
 import { mergeDiffRuntimePatch, markLoadedDiffRevisions } from './thread-diff-sync.js';
-import { _optimisticThreadIds } from './thread-optimistic.js';
+import { _optimisticThreadIds, _optimisticPreferenceMapTaints } from './thread-optimistic.js';
 import {
   freezeTimelineItemsAtomic,
   mergeObjectMapAtomic,
@@ -214,11 +214,12 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
   const loadedRevisionByThread = options.loadedRevisionByThread;
 
   const unorderedThreads = Array.isArray(data.threads) ? data.threads.map(normalizeThread) : [];
-  const nextThreads = sortThreadsByStableFirstSeen(unorderedThreads);
+  let nextThreads = sortThreadsByStableFirstSeen(unorderedThreads);
 
   if (_optimisticThreadIds.size > 0) {
     const backendIds = new Set(nextThreads.map((t) => t.id));
     const now = Date.now();
+    let hasOptimisticMutations = false;
     for (const [optimisticId, expiresAt] of _optimisticThreadIds) {
       if (backendIds.has(optimisticId)) {
         _optimisticThreadIds.delete(optimisticId);
@@ -230,11 +231,52 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
         continue;
       }
       const local = state.threads.find((t) => t.id === optimisticId);
-      if (local) nextThreads.push(local);
+      if (local) {
+        nextThreads.push(local);
+        hasOptimisticMutations = true;
+      }
+    }
+    if (hasOptimisticMutations) {
+      nextThreads = sortThreadsByStableFirstSeen(nextThreads);
     }
   }
 
-  if (state.threads.map((t) => t.id).join(',') !== nextThreads.map((t) => t.id).join(',')) patch.threads = nextThreads;
+  const existingThreadById = new Map();
+  if (Array.isArray(state.threads)) {
+    for (const t of state.threads) {
+      if (t && t.id) existingThreadById.set(t.id, t);
+    }
+  }
+
+  const identitySafeThreads = nextThreads.map((t) => {
+    const existing = existingThreadById.get(t.id);
+    if (existing && existing.name === t.name && existing.state === t.state) {
+      return existing;
+    }
+    return t;
+  });
+
+  const oldThreadsStr = state.threads.map((t) => t.id).join(',');
+  const newThreadsStr = identitySafeThreads.map((t) => t.id).join(',');
+  
+  if (oldThreadsStr !== newThreadsStr) {
+    logWarn('thread', 'snapshot.threads.changed', {
+      old_len: state.threads.length,
+      new_len: identitySafeThreads.length,
+      old_ids: oldThreadsStr,
+      new_ids: newThreadsStr
+    });
+    patch.threads = identitySafeThreads;
+  } else {
+    let needsPatch = false;
+    for (let i = 0; i < identitySafeThreads.length; i++) {
+        if (identitySafeThreads[i] !== state.threads[i]) {
+            needsPatch = true; 
+            break;
+        }
+    }
+    if (needsPatch) patch.threads = identitySafeThreads;
+  }
 
   let nextStatuses = state.statuses;
   let statusesChanged = false;
@@ -402,18 +444,29 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
   }
 
 
+  const nowTaint = Date.now();
   if (Object.prototype.hasOwnProperty.call(data, PREF_PINNED_THREADS_CHAT)) {
     const pinnedMap = normalizePinnedThreadMap(data[PREF_PINNED_THREADS_CHAT]);
     for (const id of Object.keys(pinnedMap)) ensureThreadOrderIndex(id);
-    if (JSON.stringify(pinnedMap) !== JSON.stringify(state.pinnedThreadAtById)) {
-      patch.pinnedThreadAtById = pinnedMap;
+    const expire = _optimisticPreferenceMapTaints.get('pinnedThreadAtById') || 0;
+    if (nowTaint > expire) {
+      if (JSON.stringify(pinnedMap) !== JSON.stringify(state.pinnedThreadAtById)) {
+        patch.pinnedThreadAtById = pinnedMap;
+      }
+    } else {
+      logDebug('thread', 'snapshot.pinnedThreadAtById.skipped_optimistic', {});
     }
   }
   if (Object.prototype.hasOwnProperty.call(data, PREF_ARCHIVED_THREADS_CHAT)) {
     const archivedMap = normalizeArchivedThreadMap(data[PREF_ARCHIVED_THREADS_CHAT]);
     for (const id of Object.keys(archivedMap)) ensureThreadOrderIndex(id);
-    if (JSON.stringify(archivedMap) !== JSON.stringify(state.archivedThreadAtById)) {
-      patch.archivedThreadAtById = archivedMap;
+    const expire = _optimisticPreferenceMapTaints.get('archivedThreadAtById') || 0;
+    if (nowTaint > expire) {
+      if (JSON.stringify(archivedMap) !== JSON.stringify(state.archivedThreadAtById)) {
+        patch.archivedThreadAtById = archivedMap;
+      }
+    } else {
+      logDebug('thread', 'snapshot.archivedThreadAtById.skipped_optimistic', {});
     }
   }
   const nextViewPrefsChat = normalizeChatPrefs(data[PREF_VIEW_CHAT]);

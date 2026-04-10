@@ -481,7 +481,7 @@ export function normalizeReasoningText(text) {
  * 此函数将断裂的标记合并回同一行。
  */
 function fixBrokenBoldMarkers(text) {
-  return text.replace(/\*\*([^*\n]{1,80})\n{1,2}([^*\n]{0,80}\*\*)/g, '**$1 $2');
+  return text.replace(/\*\*([^*\n|]{1,80})\n{1,2}(?!\s*(?:[-+*]|\d+\.|#|>|\|))([^*\n|]{0,80}\*\*)/g, '**$1 $2');
 }
 
 export function injectSentenceBreaks(text) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -101,31 +102,78 @@ func (m *manager) ensureClientForFile(ctx context.Context, filePath, languageID 
 }
 
 func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string) (Client, error) {
-	if !shouldUseClientForLanguage(languageID) {
-		return nil, fmt.Errorf("language %q is not managed by gopls", languageID)
+	root, langID, err := m.resolveLanguageWorkspace(languageID)
+	if err != nil {
+		return nil, err
 	}
-	root := m.workspaceRoot
-	if root == "" {
-		return nil, ErrWorkspaceRootEmpty
-	}
-	// For JS/TS, tsserver needs the workspace root to contain a project
-	// marker (package.json, tsconfig.json, or jsconfig.json). First try
-	// walking up; if that fails (marker is in a subdirectory), walk down.
-	langID := normalizeLanguageID(languageID)
-	if shouldUseJSTSWorkspace(langID) {
-		if jsRoot, err := findJSTSProjectRoot(root); err == nil && jsRoot != "" {
-			root = jsRoot
-		} else if jsRoot := findJSTSProjectRootWithin(root); jsRoot != "" {
-			root = jsRoot
-		}
-	}
-	cfg := workspaceConfig{
+	client, err := m.ensureClient(ctx, workspaceConfig{
 		key:        root,
 		rootPath:   root,
 		rootURI:    fileURIFromPath(root),
 		languageID: langID,
+	})
+	if err != nil {
+		return nil, err
 	}
-	return m.ensureClient(ctx, cfg)
+	m.bootstrapLanguageClient(ctx, client, root, langID)
+	return client, nil
+}
+
+func (m *manager) resolveLanguageWorkspace(languageID string) (string, string, error) {
+	if !shouldUseClientForLanguage(languageID) {
+		return "", "", fmt.Errorf("language %q is not managed by gopls", languageID)
+	}
+	root := m.workspaceRoot
+	if root == "" {
+		return "", "", ErrWorkspaceRootEmpty
+	}
+	langID := normalizeLanguageID(languageID)
+	if shouldUseJSTSWorkspace(langID) {
+		return m.resolveJSTSWorkspaceRoot(root), langID, nil
+	}
+	return root, langID, nil
+}
+
+func (m *manager) resolveJSTSWorkspaceRoot(root string) string {
+	if jsRoot, err := findJSTSProjectRoot(root); err == nil && jsRoot != "" {
+		m.warnJSTS("jsts: found project root walking up", "root", jsRoot)
+		return jsRoot
+	}
+	if jsRoot := findJSTSProjectRootWithin(root); jsRoot != "" {
+		m.warnJSTS("jsts: found project root walking down", "root", jsRoot)
+		return jsRoot
+	}
+	m.warnJSTS("jsts: no project root found", "workspaceRoot", root)
+	return root
+}
+
+func (m *manager) bootstrapLanguageClient(ctx context.Context, client Client, root, languageID string) {
+	if shouldUseJSTSWorkspace(languageID) {
+		m.bootstrapJSTSClient(ctx, client, root, languageID)
+	}
+}
+
+func (m *manager) warnJSTS(message string, args ...any) {
+	if m.logger != nil {
+		m.logger.Warn(message, args...)
+	}
+}
+
+// bootstrapJSTSClient opens the first JS/TS file found under root so that
+// tsserver creates a project context for workspace-wide queries.
+func (m *manager) bootstrapJSTSClient(ctx context.Context, client Client, root, languageID string) {
+	target := findJSTSBootstrapFileWithin(root)
+	if target == "" {
+		m.warnJSTS("jsts: bootstrap - no JS/TS file found", "root", root)
+		return
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		m.warnJSTS("jsts: bootstrap - failed to read file", "file", target, "err", err)
+		return
+	}
+	m.warnJSTS("jsts: bootstrap - opening file for tsserver", "file", target, "root", root, "lang", languageID)
+	_ = client.DidOpen(ctx, fileURIFromPath(target), languageID, 0, string(content))
 }
 
 func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
