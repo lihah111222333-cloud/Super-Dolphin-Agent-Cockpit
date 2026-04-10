@@ -103,6 +103,9 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 		RootURI:          rootURI,
 		Capabilities:     clientCapabilities(),
 		WorkspaceFolders: workspaceFolders(rootURI),
+		InitializationOptions: map[string]any{
+			"semanticTokens": true,
+		},
 	}
 	result, err := c.transport.request(ctx, protocol.MethodInitialize, params)
 	if err != nil {
@@ -306,6 +309,18 @@ func clientCapabilities() protocol.ClientCapabilities {
 					Full: protocol.SemanticTokensFullRequestsCapability{
 						Delta: true,
 					},
+				},
+				TokenTypes: []string{
+					"namespace", "type", "class", "enum", "interface",
+					"struct", "typeParameter", "parameter", "variable",
+					"property", "enumMember", "event", "function", "method",
+					"macro", "keyword", "modifier", "comment", "string",
+					"number", "regexp", "operator", "decorator",
+				},
+				TokenModifiers: []string{
+					"declaration", "definition", "readonly", "static",
+					"deprecated", "abstract", "async", "modification",
+					"documentation", "defaultLibrary",
 				},
 				Formats: []string{"relative"},
 			},

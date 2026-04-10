@@ -469,20 +469,23 @@ describe('thread store runtime sync', () => {
       store.state.activeThreadId = threadId;
       store.state.threads = [{ id: threadId, name: 'Live', state: 'running' }];
       apiMock.callAPI.mockImplementation(async (method) => {
+        if (method === 'thread/messages') return { messages: [{ id: 1, agentId: threadId, role: 'assistant', eventType: 'agent_message', content: 'live delta', createdAt: '2026-03-08T00:00:00Z' }] };
         if (method !== 'ui/state/get') return {};
         uiStateCalls += 1;
         return buildSnapshot({ threadId, activeThreadId: threadId, text: 'live delta' });
       });
-      // Streaming deltas now use debounced sync (500ms), not immediate syncThreadState
+      // Streaming deltas use throttle (immediate first) + trailing debounce.
+      // First delta fires immediately via throttle.
       store.handleBridgeEvent({ method: 'item/agentMessage/delta', payload: { threadId, delta: 'live ' } });
-      await Promise.resolve();
+      await vi.waitFor(() => { expect(uiStateCalls).toBeGreaterThanOrEqual(1); });
+      const afterFirst = uiStateCalls;
       store.handleBridgeEvent({ method: 'item/agentMessage/delta', payload: { threadId, delta: 'delta' } });
       await Promise.resolve();
-      // Before debounce fires, no sync yet (debounce resets on each delta)
-      expect(uiStateCalls).toBe(0);
+      // Second delta within throttle window, no additional sync yet
+      expect(uiStateCalls).toBe(afterFirst);
+      // Trailing debounce fires after 500ms
       vi.advanceTimersByTime(600);
-      await Promise.resolve(); await Promise.resolve();
-      expect(uiStateCalls).toBe(1);
+      await vi.waitFor(() => { expect(uiStateCalls).toBeGreaterThan(afterFirst); });
     } finally {
       vi.useRealTimers();
     }
