@@ -65,6 +65,9 @@ func spawnToolbridgePeers(mgr *ServerManager) {
 			mgr.mu.Lock()
 			mgr.peerProcs = append(mgr.peerProcs, cmd.Process)
 			mgr.peerPipes = append(mgr.peerPipes, stdinW)
+			if mgr.pidRegistry != nil {
+				mgr.pidRegistry.Register(cmd.Process.Pid, name, nil)
+			}
 			mgr.mu.Unlock()
 
 			go watchAndRestartPeer(mgr, name, cmd, stdinW)
@@ -96,42 +99,57 @@ func watchAndRestartPeer(mgr *ServerManager, name string, cmd *exec.Cmd, stdinW 
 
 		time.Sleep(2 * time.Second)
 
-		exe, err2 := os.Executable()
+		newCmd, newW, err2 := restartPeer(mgr, name, cmd, stdinW)
 		if err2 != nil {
-			pkglogger.Warn("peer watch: cannot resolve binary for restart", "error", err2)
 			return
 		}
-		binPath := filepath.Join(filepath.Dir(exe), name)
-		stdinR, newW, err2 := os.Pipe()
-		if err2 != nil {
-			pkglogger.Warn("peer watch: pipe failed on restart", "error", err2)
-			return
-		}
-		newCmd := exec.Command(binPath)
-		newCmd.Stdin = stdinR
-		newCmd.Stdout = os.Stderr
-		newCmd.Stderr = os.Stderr
-		newCmd.Env = append(os.Environ(), "GO_AGENT_PEER_MODE=1")
-		newCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		if err2 = newCmd.Start(); err2 != nil {
-			stdinR.Close()
-			newW.Close()
-			pkglogger.Warn("peer watch: restart failed", "binary", name, "error", err2)
-			return
-		}
-		stdinR.Close()
-		pkglogger.Info("peer watch: restarted", "binary", name, "pid", newCmd.Process.Pid)
-
-		mgr.mu.Lock()
-		for i, p := range mgr.peerPipes {
-			if p == stdinW {
-				mgr.peerPipes[i] = newW
-				break
-			}
-		}
-		mgr.mu.Unlock()
-
 		stdinW = newW
 		cmd = newCmd
 	}
+}
+
+// restartPeer spawns a new peer process and updates the manager state.
+func restartPeer(mgr *ServerManager, name string, oldCmd *exec.Cmd, oldPipe *os.File) (*exec.Cmd, *os.File, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		pkglogger.Warn("peer watch: cannot resolve binary for restart", "error", err)
+		return nil, nil, err
+	}
+	binPath := filepath.Join(filepath.Dir(exe), name)
+	stdinR, newW, err := os.Pipe()
+	if err != nil {
+		pkglogger.Warn("peer watch: pipe failed on restart", "error", err)
+		return nil, nil, err
+	}
+	newCmd := exec.Command(binPath)
+	newCmd.Stdin = stdinR
+	newCmd.Stdout = os.Stderr
+	newCmd.Stderr = os.Stderr
+	newCmd.Env = append(os.Environ(), "GO_AGENT_PEER_MODE=1")
+	newCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err = newCmd.Start(); err != nil {
+		stdinR.Close()
+		newW.Close()
+		pkglogger.Warn("peer watch: restart failed", "binary", name, "error", err)
+		return nil, nil, err
+	}
+	stdinR.Close()
+	pkglogger.Info("peer watch: restarted", "binary", name, "pid", newCmd.Process.Pid)
+
+	mgr.mu.Lock()
+	for i, p := range mgr.peerPipes {
+		if p == oldPipe {
+			mgr.peerPipes[i] = newW
+			break
+		}
+	}
+	if mgr.pidRegistry != nil {
+		if oldCmd.Process != nil {
+			mgr.pidRegistry.Unregister(oldCmd.Process.Pid)
+		}
+		mgr.pidRegistry.Register(newCmd.Process.Pid, name, nil)
+	}
+	mgr.mu.Unlock()
+
+	return newCmd, newW, nil
 }

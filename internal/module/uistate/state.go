@@ -15,8 +15,8 @@ type UIState struct {
 	ActiveTurn               *TurnSummary               `json:"active_turn,omitempty"`
 	RecentTurns              []TurnSummary              `json:"recent_turns,omitempty"`
 	TokenUsage               TokenUsage                 `json:"token_usage"`
-	DiffTextByThread         map[string]string          `json:"diffTextByThread,omitempty"`
-	DiffRevisionByThread     map[string]int64           `json:"diffRevisionByThread,omitempty"`
+	DiffTextByAgent          map[string]string          `json:"diffTextByThread,omitempty"`
+	DiffRevisionByAgent      map[string]int64           `json:"diffRevisionByThread,omitempty"`
 	TimelineByThread         map[string][]timeline.Item `json:"timelinesByThread,omitempty"`
 	Unchanged                bool                       `json:"unchanged,omitempty"`
 	ActiveThreadID           string                     `json:"activeThreadId,omitempty"`
@@ -158,8 +158,8 @@ func cloneState(value UIState) *UIState {
 		ActiveTurn:               cloneTurn(value.ActiveTurn),
 		RecentTurns:              cloneTurns(value.RecentTurns),
 		TokenUsage:               value.TokenUsage,
-		DiffTextByThread:         cloneStringMap(value.DiffTextByThread),
-		DiffRevisionByThread:     cloneInt64Map(value.DiffRevisionByThread),
+		DiffTextByAgent:          cloneStringMap(value.DiffTextByAgent),
+		DiffRevisionByAgent:      cloneInt64Map(value.DiffRevisionByAgent),
 		Unchanged:                value.Unchanged,
 		ActiveThreadID:           value.ActiveThreadID,
 		ActiveCmdThreadID:        value.ActiveCmdThreadID,

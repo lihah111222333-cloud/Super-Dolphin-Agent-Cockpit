@@ -14,6 +14,7 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
@@ -54,6 +55,7 @@ type ServerManager struct {
 	toolHandler ToolHandler
 	peerProcs   []*os.Process // independent peer processes (GO_AGENT_PEER_MODE=1)
 	peerPipes   []*os.File    // stdin write-ends kept open to prevent EOF
+	pidRegistry *pidregistry.Registry
 }
 
 type Responder interface{ RespondWithID(id json.RawMessage, result any, callErr error) error }
@@ -61,12 +63,13 @@ type Responder interface{ RespondWithID(id json.RawMessage, result any, callErr 
 // ServerManagerParams are the fx dependencies for NewServerManager.
 type ServerManagerParams struct {
 	fx.In
-	Lifecycle fx.Lifecycle
+	Lifecycle   fx.Lifecycle
+	PIDRegistry *pidregistry.Registry
 }
 
 // NewServerManager creates and registers a ServerManager with the fx lifecycle.
 func NewServerManager(p ServerManagerParams) *ServerManager {
-	m := &ServerManager{}
+	m := &ServerManager{pidRegistry: p.PIDRegistry}
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error { return m.start(ctx) },
 		OnStop:  func(ctx context.Context) error { return m.stop(ctx) },
@@ -101,16 +104,21 @@ func (m *ServerManager) getToolHandler() ToolHandler {
 }
 
 func (m *ServerManager) start(ctx context.Context) error {
-	// Kill orphaned mcp-orch/mcp-lsp processes from previous runs.
-	// These accumulate when the app crashes, is SIGKILL'd, or when
-	// run-debug.sh restarts without cleaning MCP sidecars.
-	// Runs outside the lock because it calls exec.Command("ps").
+	// Clean up processes registered by dead app instances via PID registry.
+	// This is precise (only kills processes we actually spawned) and fast
+	// (batch SIGTERM with a single grace period wait).
+	if killed := pidregistry.CleanupStale(); killed > 0 {
+		pkglogger.Info("server_manager: cleaned stale registry processes at startup",
+			"killed", killed)
+	}
+
+	// Legacy fallback: also scan for orphaned processes that predate the
+	// PID registry (e.g. from older builds). This can be removed once all
+	// running builds include the PID registry.
 	if killed := cleanOrphanedMCPProcesses(nil); killed > 0 {
 		pkglogger.Info("server_manager: cleaned orphaned MCP processes at startup",
 			"killed", killed)
 	}
-
-	// Kill orphaned codex app-server --listen processes and their descendants.
 	if killed := cleanOrphanedAppServers(); killed > 0 {
 		pkglogger.Info("server_manager: cleaned orphaned app-server processes at startup",
 			"killed", killed)
@@ -123,6 +131,10 @@ func (m *ServerManager) start(ctx context.Context) error {
 	if err := t.spawnLocal(); err != nil {
 		m.err = err
 		return err
+	}
+	// Register the app-server PID for crash-safe cleanup.
+	if pid := t.localPID(); pid > 0 {
+		m.pidRegistry.Register(pid, "codex-app-server", nil)
 	}
 	// Perform a single health-check connection+initialize to verify the
 	// process started correctly. Sessions will each create their own WS.
@@ -147,21 +159,19 @@ func (m *ServerManager) stop(ctx context.Context) error {
 	process := m.process
 	peers := m.peerProcs
 	pipes := m.peerPipes
+	registry := m.pidRegistry
 	m.process = nil
 	m.peerProcs = nil
 	m.peerPipes = nil
 	m.serverURL = ""
 	m.mu.Unlock()
 
-	// Stop independent peer processes.
-	for _, p := range pipes {
-		if p != nil { _ = p.Close() }
-	}
-	for _, p := range peers {
-		if p != nil { _ = p.Signal(syscall.SIGTERM) }
-	}
-	// Clean up peer HTTP discovery files as a safety net.
+	stopPeers(pipes, peers)
 	cleanPeerDiscoveryFiles()
+
+	if registry != nil {
+		registry.Close()
+	}
 
 	if process == nil {
 		return nil
@@ -175,18 +185,34 @@ func (m *ServerManager) stop(ctx context.Context) error {
 	case <-ctx.Done():
 	}
 
-	// Clean up any MCP processes that survived the shutdown.
+	cleanResidualProcesses()
+	return err
+}
+
+// stopPeers closes stdin pipes and sends SIGTERM to peer processes.
+func stopPeers(pipes []*os.File, peers []*os.Process) {
+	for _, p := range pipes {
+		if p != nil {
+			_ = p.Close()
+		}
+	}
+	for _, p := range peers {
+		if p != nil {
+			_ = p.Signal(syscall.SIGTERM)
+		}
+	}
+}
+
+// cleanResidualProcesses sweeps any MCP or app-server orphans after shutdown.
+func cleanResidualProcesses() {
 	if killed := cleanOrphanedMCPProcesses(nil); killed > 0 {
 		pkglogger.Info("server_manager: cleaned residual MCP processes at shutdown",
 			"killed", killed)
 	}
-
-	// Clean up orphaned app-server processes and their descendants.
 	if killed := cleanOrphanedAppServers(); killed > 0 {
 		pkglogger.Info("server_manager: cleaned residual app-server processes at shutdown",
 			"killed", killed)
 	}
-	return err
 }
 
 func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {

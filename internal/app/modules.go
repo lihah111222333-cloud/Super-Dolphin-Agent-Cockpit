@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/hooks"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -28,6 +29,7 @@ import (
 // for externally started MCP binaries, but does not launch or supervise MCP processes.
 var Module = fx.Options(
 	fx.Provide(NewLogger),
+	fx.Provide(pidregistry.New),
 	config.Module,
 	db.Module,
 	bus.Module,

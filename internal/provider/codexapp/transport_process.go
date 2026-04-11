@@ -258,3 +258,12 @@ func (t *transport) processRunning() bool {
 	proc := t.currentProcess()
 	return proc != nil && proc.running()
 }
+
+// localPID returns the PID of the local app-server process, or 0 if unavailable.
+func (t *transport) localPID() int {
+	proc := t.currentProcess()
+	if proc == nil || proc.cmd == nil || proc.cmd.Process == nil {
+		return 0
+	}
+	return proc.cmd.Process.Pid
+}
