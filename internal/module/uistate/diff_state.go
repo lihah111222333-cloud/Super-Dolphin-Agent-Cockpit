@@ -21,7 +21,6 @@ type diffStateSnapshot struct {
 }
 
 type diffStateRequestKey struct{}
-type knownDiffRevisionKey struct{}
 
 func withDiffStateRequest(ctx context.Context, threadID string, includeDiff bool, known int) context.Context {
 	return context.WithValue(ctx, diffStateRequestKey{}, diffStateRequest{
@@ -37,13 +36,6 @@ func diffStateRequestFromContext(ctx context.Context) diffStateRequest {
 	}
 	value, _ := ctx.Value(diffStateRequestKey{}).(diffStateRequest)
 	return value
-}
-
-func withKnownDiffRevision(ctx context.Context, revision int) context.Context {
-	if revision <= 0 {
-		return ctx
-	}
-	return context.WithValue(ctx, knownDiffRevisionKey{}, revision)
 }
 
 func (s *service) applyToolDiffUpdated(ev tooldto.ToolDiffUpdated) {

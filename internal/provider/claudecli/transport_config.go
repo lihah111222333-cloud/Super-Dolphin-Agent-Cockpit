@@ -54,23 +54,33 @@ func launchCLIWithManifest(
 func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManifest) {
 	servers := make([]map[string]any, 0, len(manifest.Binaries))
 	for _, bin := range manifest.Binaries {
+		serverType := strings.TrimSpace(bin.Type)
+		if serverType == "" {
+			serverType = "stdio"
+		}
 		command := ""
 		args := []string(nil)
+		commandExists := false
 		if len(bin.Command) > 0 {
 			command = strings.TrimSpace(bin.Command[0])
 			args = append(args, bin.Command[1:]...)
+			if command != "" {
+				_, statErr := os.Stat(command)
+				commandExists = statErr == nil
+			}
 		}
 		envKeys := make([]string, 0, len(bin.Env))
 		for key := range bin.Env {
 			envKeys = append(envKeys, key)
 		}
 		sort.Strings(envKeys)
-		_, statErr := os.Stat(command)
 		servers = append(servers, map[string]any{
 			"name":           strings.TrimSpace(bin.Name),
+			"type":           serverType,
 			"command":        command,
 			"args":           args,
-			"command_exists": statErr == nil,
+			"command_exists": commandExists,
+			"url":            strings.TrimSpace(bin.URL),
 			"env_keys":       envKeys,
 			"has_rpc_addr":   strings.TrimSpace(bin.Env["GO_AGENT_CTL_RPC_ADDR"]) != "",
 			"has_bootstrap":  strings.TrimSpace(bin.Env["GO_AGENT_CTL_BOOTSTRAP_JSON"]) != "",

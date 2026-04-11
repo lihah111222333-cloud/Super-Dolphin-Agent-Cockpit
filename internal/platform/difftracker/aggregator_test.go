@@ -101,10 +101,7 @@ func TestDiffAggregator_CleanupAgent(t *testing.T) {
 	})
 	aggregator.CleanupAgent("agent-a")
 
-	aggregator.mu.Lock()
-	_, ok := aggregator.sessions["agent-a"]
-	aggregator.mu.Unlock()
-	if ok {
+	if hasSessionForAgent(aggregator, "agent-a") {
 		t.Fatal("session still exists after cleanup")
 	}
 }
@@ -128,10 +125,7 @@ func TestDiffAggregator_TTLCleanup(t *testing.T) {
 
 	deadline := time.Now().Add(250 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		aggregator.mu.Lock()
-		_, ok := aggregator.sessions["agent-a"]
-		aggregator.mu.Unlock()
-		if !ok {
+		if !hasSessionForAgent(aggregator, "agent-a") {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -161,8 +155,8 @@ func TestDiffAggregator_TTLSweeperSkipsInUseSession(t *testing.T) {
 
 	aggregator.sweepExpired()
 
+	ok := hasSessionForAgent(aggregator, "agent-a")
 	aggregator.mu.Lock()
-	_, ok := aggregator.sessions["agent-a"]
 	refCount := session.refCount
 	aggregator.mu.Unlock()
 	if !ok {
@@ -177,10 +171,7 @@ func TestDiffAggregator_TTLSweeperSkipsInUseSession(t *testing.T) {
 	current = current.Add(2 * time.Minute)
 	aggregator.sweepExpired()
 
-	aggregator.mu.Lock()
-	_, ok = aggregator.sessions["agent-a"]
-	aggregator.mu.Unlock()
-	if ok {
+	if hasSessionForAgent(aggregator, "agent-a") {
 		t.Fatal("session still exists after release and ttl expiry")
 	}
 }
@@ -215,6 +206,42 @@ func TestDiffAggregator_RepoRootReset(t *testing.T) {
 	}
 	if strings.Contains(result.DiffText, "a.txt") || !strings.Contains(result.DiffText, "b.txt") {
 		t.Fatalf("unexpected cumulative diff after reset: %q", result.DiffText)
+	}
+}
+
+func TestDiffAggregator_CWDIsolationWithoutRepoRoot(t *testing.T) {
+	aggregator := NewDiffAggregator(withSweepInterval(time.Hour))
+	aggregator.Start()
+	defer aggregator.Stop()
+
+	mustMergeRequest(t, aggregator, MergeRequest{
+		AgentID:  "agent-a",
+		ThreadID: "thread-1",
+		CallID:   "call-1",
+		ToolName: "lsp_edit",
+		CWD:      "/tmp/agent-a/one",
+		DiffText: buildUnifiedDiffBlock("a.txt", "old\n", "new\n"),
+	})
+	result, changed := mustMergeRequest(t, aggregator, MergeRequest{
+		AgentID:  "agent-a",
+		ThreadID: "thread-1",
+		CallID:   "call-2",
+		ToolName: "lsp_edit",
+		CWD:      "/tmp/agent-a/two",
+		DiffText: buildUnifiedDiffBlock("b.txt", "base\n", "beta\n"),
+	})
+
+	if !changed {
+		t.Fatal("second merge changed = false, want true")
+	}
+	if result.Revision != 1 {
+		t.Fatalf("revision = %d, want 1 after cwd reset", result.Revision)
+	}
+	if strings.Contains(result.DiffText, "a.txt") || !strings.Contains(result.DiffText, "b.txt") {
+		t.Fatalf("unexpected cumulative diff after cwd reset: %q", result.DiffText)
+	}
+	if got := sessionCountForAgent(aggregator, "agent-a"); got != 2 {
+		t.Fatalf("session count = %d, want 2 isolated cwd sessions", got)
 	}
 }
 
@@ -316,13 +343,38 @@ func invalidReplaceRangeToolResult(text string) json.RawMessage {
 	return json.RawMessage(fmt.Sprintf(`{"content":[{"type":"text","text":%q}]}`, text))
 }
 
+func hasSessionForAgent(aggregator *DiffAggregator, agentID string) bool {
+	aggregator.mu.Lock()
+	defer aggregator.mu.Unlock()
+	for _, session := range aggregator.sessions {
+		if session != nil && session.agentID == agentID {
+			return true
+		}
+	}
+	return false
+}
+
+func sessionCountForAgent(aggregator *DiffAggregator, agentID string) int {
+	aggregator.mu.Lock()
+	defer aggregator.mu.Unlock()
+	count := 0
+	for _, session := range aggregator.sessions {
+		if session != nil && session.agentID == agentID {
+			count++
+		}
+	}
+	return count
+}
+
 func sessionForTest(t *testing.T, aggregator *DiffAggregator, agentID string) *agentDiffSession {
 	t.Helper()
 	aggregator.mu.Lock()
 	defer aggregator.mu.Unlock()
-	session := aggregator.sessions[agentID]
-	if session == nil {
-		t.Fatalf("session %q missing", agentID)
+	for _, session := range aggregator.sessions {
+		if session != nil && session.agentID == agentID {
+			return session
+		}
 	}
-	return session
+	t.Fatalf("session %q missing", agentID)
+	return nil
 }

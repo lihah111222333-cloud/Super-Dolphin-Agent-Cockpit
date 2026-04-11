@@ -36,7 +36,6 @@ func NewUIStateHandlers(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"ui/state/get": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			ctx = withPreferenceScope(ctx, p.Cwd)
-			ctx = withKnownDiffRevision(ctx, p.KnownDiffRevision)
 			ctx = withDiffStateRequest(ctx, strings.TrimSpace(p.ThreadID), p.IncludeDiff, p.KnownDiffRevision)
 			return svc.GetState(ctx)
 		}),

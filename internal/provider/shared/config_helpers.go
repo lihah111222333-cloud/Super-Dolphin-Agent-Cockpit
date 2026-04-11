@@ -7,17 +7,68 @@ import (
 	"strings"
 )
 
+var (
+	executablePath = os.Executable
+	lookPath       = exec.LookPath
+)
+
+var managedBinaryNames = []string{"mcp-lsp", "mcp-orch"}
+
 func ResolveBinaryDir(cwd string, cfg map[string]any) string {
 	if dir := ConfigString(cfg, "binary_dir", "binaryDir"); dir != "" {
 		return dir
 	}
-	if exe, err := os.Executable(); err == nil {
-		return filepath.Dir(exe)
+	candidates := make([]string, 0, 3)
+	if exe, err := executablePath(); err == nil {
+		candidates = append(candidates, filepath.Dir(exe))
 	}
-	if bin, err := exec.LookPath("mcp-lsp"); err == nil {
-		return filepath.Dir(bin)
+	if dir := strings.TrimSpace(cwd); dir != "" {
+		candidates = append(candidates, dir)
 	}
-	return strings.TrimSpace(cwd)
+	if dir := lookPathBinaryDir(); dir != "" {
+		candidates = append(candidates, dir)
+	}
+	if dir := firstManagedBinaryDir(candidates...); dir != "" {
+		return dir
+	}
+	for _, dir := range candidates {
+		if dir = strings.TrimSpace(dir); dir != "" {
+			return dir
+		}
+	}
+	return ""
+}
+
+func lookPathBinaryDir() string {
+	for _, name := range managedBinaryNames {
+		if bin, err := lookPath(name); err == nil {
+			return filepath.Dir(bin)
+		}
+	}
+	return ""
+}
+
+func firstManagedBinaryDir(dirs ...string) string {
+	for _, dir := range dirs {
+		if hasManagedBinary(dir) {
+			return dir
+		}
+	}
+	return ""
+}
+
+func hasManagedBinary(dir string) bool {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return false
+	}
+	for _, name := range managedBinaryNames {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func ConfigString(cfg map[string]any, keys ...string) string {
