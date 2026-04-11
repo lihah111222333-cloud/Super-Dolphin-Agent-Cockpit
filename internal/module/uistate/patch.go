@@ -1,6 +1,7 @@
 package uistate
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ func (s *service) emitThreadPatchEvent(patch uidto.UIThreadPatch) {
 	if s == nil || s.emitThreadPatch == nil || strings.TrimSpace(patch.ThreadID) == "" {
 		return
 	}
-	s.emitThreadPatch(patch)
+	s.emitThreadPatch(s.guardThreadPatchPayload(patch))
 }
 
 func (s *service) emitPreferenceChangedEvent(scope, key string, value any) {
@@ -142,7 +143,9 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 		patch.OverlayText = strings.TrimSpace(summary.OverlayText)
 		patch.OverlayType = strings.TrimSpace(summary.OverlayType)
 		patch.OverlayPriority = summary.OverlayPriority
+		patch.Interruptible = patchInterruptible(status)
 	}
+	s.applyThreadDiffLocked(&patch, id)
 	return patch
 }
 
@@ -154,12 +157,46 @@ func (s *service) nextPatchSequenceLocked(threadID string) int64 {
 	return s.patchSeq[threadID]
 }
 
-func (s *service) currentDiffRevisionLocked(threadID string) int64 {
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" || s.projectionSeq == nil {
-		return 0
+const threadPatchMaxPayloadBytes = 64 * 1024
+
+func (s *service) applyThreadDiffLocked(patch *uidto.UIThreadPatch, threadID string) {
+	if patch == nil {
+		return
 	}
-	return s.projectionSeq["diff:"+threadID]
+	if revision := s.currentDiffRevisionLocked(threadID); revision > 0 {
+		patch.DiffRevision = revision
+	}
+	if diffText := s.currentDiffTextLocked(threadID); diffText != "" {
+		patch.DiffText = diffText
+	}
+}
+
+func patchInterruptible(status string) *bool {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return nil
+	}
+	interruptible := sidebarInterruptible(status)
+	return &interruptible
+}
+
+func (s *service) guardThreadPatchPayload(patch uidto.UIThreadPatch) uidto.UIThreadPatch {
+	payload, err := json.Marshal(patch)
+	if err != nil || len(payload) <= threadPatchMaxPayloadBytes {
+		return patch
+	}
+	return uidto.UIThreadPatch{
+		ThreadID:        patch.ThreadID,
+		Source:          patch.Source,
+		Sequence:        patch.Sequence,
+		Status:          patch.Status,
+		StatusHeader:    patch.StatusHeader,
+		StatusDetails:   patch.StatusDetails,
+		Interruptible:   patch.Interruptible,
+		Recover:         true,
+		RefreshRequired: true,
+		FallbackReason:  "payload_too_large",
+	}
 }
 
 func (s *service) threadSummaryLocked(threadID string) (ThreadSummary, bool) {

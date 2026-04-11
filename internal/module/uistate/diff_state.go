@@ -1,6 +1,12 @@
 package uistate
 
-import "context"
+import (
+	"context"
+	"strings"
+
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+)
 
 type diffStateRequest struct {
 	threadID    string
@@ -10,6 +16,8 @@ type diffStateRequest struct {
 
 type diffStateSnapshot struct {
 	threadID string
+	agentID  string
+	diffText string
 	revision int64
 }
 
@@ -31,16 +39,60 @@ func diffStateRequestFromContext(ctx context.Context) diffStateRequest {
 	return value
 }
 
+func (s *service) applyToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
+	threadID := strings.TrimSpace(ev.ThreadID)
+	agentID := strings.TrimSpace(ev.AgentID)
+	if threadID == "" || agentID == "" {
+		return
+	}
+	changed := false
+	applyMutation(s, threadID, func() {
+		changed = s.applyToolDiffUpdatedLocked(agentID, threadID, ev.DiffText)
+	}, func() uidto.UIThreadPatch {
+		if !changed {
+			return uidto.UIThreadPatch{}
+		}
+		return s.sortedThreadPatchLocked(threadID, "tool/diffUpdated")
+	})
+}
+
+func (s *service) applyToolDiffUpdatedLocked(agentID, threadID, diffText string) bool {
+	agentID = strings.TrimSpace(agentID)
+	threadID = strings.TrimSpace(threadID)
+	if agentID == "" || threadID == "" {
+		return false
+	}
+	if s.state.DiffTextByAgent == nil {
+		s.state.DiffTextByAgent = map[string]string{}
+	}
+	if s.state.DiffRevisionByAgent == nil {
+		s.state.DiffRevisionByAgent = map[string]int64{}
+	}
+	if current, ok := s.state.DiffTextByAgent[agentID]; ok && current == diffText {
+		return false
+	}
+	s.state.DiffTextByAgent[agentID] = diffText
+	s.state.DiffRevisionByAgent[agentID]++
+	return true
+}
+
 func (s *service) diffStateSnapshot(ctx context.Context) diffStateSnapshot {
 	req := diffStateRequestFromContext(ctx)
-	if !req.includeDiff || req.threadID == "" {
+	threadID := strings.TrimSpace(req.threadID)
+	if !req.includeDiff || threadID == "" {
 		return diffStateSnapshot{}
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	agentID := s.diffAgentIDLocked(threadID)
+	if agentID == "" {
+		return diffStateSnapshot{threadID: threadID}
+	}
 	return diffStateSnapshot{
-		threadID: req.threadID,
-		revision: s.currentDiffRevisionLocked(req.threadID),
+		threadID: threadID,
+		agentID:  agentID,
+		diffText: s.state.DiffTextByAgent[agentID],
+		revision: s.state.DiffRevisionByAgent[agentID],
 	}
 }
 
@@ -49,12 +101,65 @@ func applyDiffStateSnapshot(ctx context.Context, snapshot *UIState, current diff
 		return
 	}
 	req := diffStateRequestFromContext(ctx)
-	snapshot.DiffRevisionByThread = map[string]int64{current.threadID: current.revision}
+	snapshot.DiffRevisionByAgent = map[string]int64{current.threadID: current.revision}
 	if req.known > 0 && int64(req.known) == current.revision {
-		snapshot.DiffTextByThread = map[string]string{}
+		snapshot.DiffTextByAgent = map[string]string{}
 		snapshot.Unchanged = true
 		return
 	}
-	snapshot.DiffTextByThread = map[string]string{current.threadID: ""}
+	snapshot.DiffTextByAgent = map[string]string{current.threadID: current.diffText}
 	snapshot.Unchanged = false
+}
+
+func (s *service) currentDiffTextLocked(threadID string) string {
+	agentID := s.diffAgentIDLocked(threadID)
+	if agentID == "" {
+		return ""
+	}
+	return s.state.DiffTextByAgent[agentID]
+}
+
+func (s *service) currentDiffRevisionLocked(threadID string) int64 {
+	agentID := s.diffAgentIDLocked(threadID)
+	if agentID == "" {
+		return 0
+	}
+	return s.state.DiffRevisionByAgent[agentID]
+}
+
+func (s *service) diffAgentIDLocked(threadID string) string {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return ""
+	}
+	if agentID := s.activeDiffAgentIDLocked(threadID); agentID != "" {
+		return agentID
+	}
+	if summary, ok := s.threadSummaryLocked(threadID); ok {
+		if agentID := strings.TrimSpace(summary.AgentID); agentID != "" {
+			return agentID
+		}
+	}
+	for _, agent := range s.state.Agents {
+		if strings.TrimSpace(agent.ThreadID) == threadID {
+			return strings.TrimSpace(agent.ID)
+		}
+	}
+	return ""
+}
+
+func (s *service) activeDiffAgentIDLocked(threadID string) string {
+	if threadID != strings.TrimSpace(s.state.ActiveThreadID) && threadID != strings.TrimSpace(s.state.ActiveCmdThreadID) {
+		return ""
+	}
+	mainAgentID := strings.TrimSpace(s.mainAgentIDLocked())
+	if mainAgentID == "" {
+		return ""
+	}
+	for _, agent := range s.state.Agents {
+		if strings.TrimSpace(agent.ID) == mainAgentID && strings.TrimSpace(agent.ThreadID) == threadID {
+			return mainAgentID
+		}
+	}
+	return ""
 }

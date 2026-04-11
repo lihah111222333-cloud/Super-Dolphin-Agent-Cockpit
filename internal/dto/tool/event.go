@@ -1,6 +1,10 @@
 package tool
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import (
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+)
 
 // ToolCallBegin reports the start of a tool invocation.
 type ToolCallBegin struct {
@@ -34,7 +38,19 @@ type ToolApprovalResolved struct {
 	Kind       string `json:"kind,omitempty"`
 }
 
+// ToolDiffUpdated reports a diff extracted from a completed tool invocation.
+type ToolDiffUpdated struct {
+	Timestamp time.Time `json:"timestamp"`
+	ThreadID  string    `json:"threadId"`
+	AgentID   string    `json:"agentId"`
+	CallID    string    `json:"callId,omitempty"`
+	ToolName  string    `json:"toolName,omitempty"`
+	DiffText  string    `json:"diffText"`
+	Files     []string  `json:"files"`
+}
+
 func (ToolCallBegin) Type() uint32         { return shared.EventTypeToolCallBegin }
 func (ToolCallEnd) Type() uint32           { return shared.EventTypeToolCallEnd }
 func (ToolApprovalRequested) Type() uint32 { return shared.EventTypeToolApprovalRequested }
 func (ToolApprovalResolved) Type() uint32  { return shared.EventTypeToolApprovalResolved }
+func (ToolDiffUpdated) Type() uint32       { return shared.EventTypeToolDiffUpdated }

@@ -34,6 +34,7 @@ const (
 	EventTypeToolCallEnd           uint32 = 1201
 	EventTypeToolApprovalRequested uint32 = 1202
 	EventTypeToolApprovalResolved  uint32 = 1203
+	EventTypeToolDiffUpdated       uint32 = 1204
 
 	EventTypeTaskDagCreated        uint32 = 1300
 	EventTypeTaskNodeStatusChanged uint32 = 1301

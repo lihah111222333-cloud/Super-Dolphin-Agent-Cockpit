@@ -15,6 +15,10 @@ import (
 // are NOT part of the current application process tree and kills them along
 // with all their descendant processes (typically mcp-server-postgres,
 // exa-mcp-server, etc.). Returns the total number of processes killed.
+//
+// All orphaned app-servers are SIGTERM'd concurrently (batch), then we wait
+// once for the grace period before SIGKILL'ing survivors. This keeps cleanup
+// time constant (~5s) regardless of how many orphans exist.
 func cleanOrphanedAppServers() int {
 	allProcs, appServerProcs := discoverAppServerProcesses()
 	if len(appServerProcs) == 0 {
@@ -22,42 +26,91 @@ func cleanOrphanedAppServers() int {
 	}
 
 	myTree := buildProcessTree(os.Getpid(), allProcs)
-
-	killed := 0
-	for _, proc := range appServerProcs {
-		if proc.pid <= 1 {
-			continue
-		}
-		if _, inTree := myTree[proc.pid]; inTree {
-			continue
-		}
-		killed += killOrphanTree(proc, allProcs)
+	orphans := filterOrphanAppServers(appServerProcs, myTree)
+	if len(orphans) == 0 {
+		return 0
 	}
+
+	sigtermed := sigtermAppServers(orphans)
+	waitForAppServerExit(sigtermed)
+	killed := sigkillAppServerSurvivors(sigtermed, allProcs)
+
 	if killed > 0 {
 		pkglogger.Info("orphan sweeper: summary", "total_killed", killed)
 	}
 	return killed
 }
 
-// killOrphanTree kills an orphaned app-server process and all its descendants.
-// Order: SIGTERM the app-server first so it can flush rollout JSONL to disk,
-// then kill any remaining descendant processes.
-// Returns the number of processes successfully killed.
-func killOrphanTree(proc appServerProcessInfo, allProcs map[int]int) int {
-	killed := 0
-
-	// Step 1: SIGTERM the app-server so it can persist rollout files.
-	if err := killAppServerProcess(proc.pid); err != nil {
-		pkglogger.Warn("orphan sweeper: kill app-server failed",
-			"pid", proc.pid, "ppid", proc.ppid, "error", err)
-		return killed
+func filterOrphanAppServers(procs []appServerProcessInfo, myTree map[int]struct{}) []appServerProcessInfo {
+	orphans := make([]appServerProcessInfo, 0, len(procs))
+	for _, proc := range procs {
+		if proc.pid <= 1 {
+			continue
+		}
+		if _, inTree := myTree[proc.pid]; !inTree {
+			orphans = append(orphans, proc)
+		}
 	}
-	pkglogger.Info("orphan sweeper: killed orphaned app-server",
-		"pid", proc.pid, "ppid", proc.ppid)
-	killed++
+	return orphans
+}
 
-	// Step 2: Kill remaining descendants (mcp-server-postgres, exa-mcp-server, etc.)
-	// that survived the app-server shutdown.
+func sigtermAppServers(orphans []appServerProcessInfo) []appServerProcessInfo {
+	sigtermed := make([]appServerProcessInfo, 0, len(orphans))
+	for _, proc := range orphans {
+		if err := syscall.Kill(proc.pid, syscall.SIGTERM); err != nil {
+			if err != syscall.ESRCH {
+				pkglogger.Warn("orphan sweeper: SIGTERM failed",
+					"pid", proc.pid, "ppid", proc.ppid, "error", err)
+			}
+			continue
+		}
+		sigtermed = append(sigtermed, proc)
+	}
+	return sigtermed
+}
+
+func waitForAppServerExit(sigtermed []appServerProcessInfo) {
+	deadline := time.Now().Add(appServerKillGracePeriod)
+	for time.Now().Before(deadline) {
+		allGone := true
+		for _, proc := range sigtermed {
+			if syscall.Kill(proc.pid, 0) == nil {
+				allGone = false
+				break
+			}
+		}
+		if allGone {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func sigkillAppServerSurvivors(sigtermed []appServerProcessInfo, allProcs map[int]int) int {
+	killed := 0
+	for _, proc := range sigtermed {
+		if syscall.Kill(proc.pid, 0) != nil {
+			pkglogger.Info("orphan sweeper: killed orphaned app-server",
+				"pid", proc.pid, "ppid", proc.ppid)
+			killed++
+		} else if err := killMCPProcess(proc.pid); err != nil {
+			pkglogger.Warn("orphan sweeper: kill app-server failed",
+				"pid", proc.pid, "ppid", proc.ppid, "error", err)
+			continue
+		} else {
+			pkglogger.Info("orphan sweeper: killed orphaned app-server",
+				"pid", proc.pid, "ppid", proc.ppid)
+			killed++
+		}
+		killed += killDescendants(proc, allProcs)
+	}
+	return killed
+}
+
+// killDescendants kills remaining descendant processes of an app-server
+// (mcp-server-postgres, exa-mcp-server, etc.) that survived the parent shutdown.
+func killDescendants(proc appServerProcessInfo, allProcs map[int]int) int {
+	killed := 0
 	descendants := buildProcessTree(proc.pid, allProcs)
 	for descPID := range descendants {
 		if descPID == proc.pid || descPID <= 1 {
@@ -135,34 +188,6 @@ func isAppServerArgs(args []string) bool {
 		}
 	}
 	return false
-}
-
-// killAppServerProcess gracefully terminates a codex app-server process.
-// First sends SIGTERM; if it doesn't exit within the grace period, sends SIGKILL.
-func killAppServerProcess(pid int) error {
-	if pid <= 1 {
-		return nil
-	}
-
-	// Try SIGTERM first for graceful shutdown.
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-		if err == syscall.ESRCH {
-			return nil // already gone
-		}
-		// Fall through to SIGKILL below.
-	} else {
-		// Wait briefly for graceful exit.
-		deadline := time.Now().Add(appServerKillGracePeriod)
-		for time.Now().Before(deadline) {
-			if err := syscall.Kill(pid, 0); err != nil {
-				return nil // process exited
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
-
-	// Force kill.
-	return killMCPProcess(pid)
 }
 
 const appServerKillGracePeriod = 5 * time.Second

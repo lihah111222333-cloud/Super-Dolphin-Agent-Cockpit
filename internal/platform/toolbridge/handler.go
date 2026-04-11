@@ -11,20 +11,34 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type Handler struct {
-	registry activePeerRegistry
+	registry   activePeerRegistry
+	aggregator *difftracker.DiffAggregator
+	resolver   difftracker.WorkDirResolver
+	logger     *pkglogger.Logger
 }
 
 type activePeerRegistry interface {
 	FindActiveByKind(clientKind string) []*mcpcontrol.ToolInstance
 }
 
-func NewHandler(registry *mcpcontrol.ToolRegistry) *Handler {
-	return &Handler{registry: registry}
+func NewHandler(in handlerIn) *Handler {
+	logger := in.Logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	return &Handler{
+		registry:   in.Registry,
+		aggregator: in.Aggregator,
+		resolver:   in.Resolver,
+		logger:     logger,
+	}
 }
 
 func (h *Handler) HandleToolCall(ctx context.Context, msg codexapp.RawMessage) (any, error) {
@@ -50,11 +64,14 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	callCtx, cancel := context.WithTimeout(ctx, toolCallTimeout)
 	defer cancel()
 
+	mergeCtx := h.mergeContext(ctx, req)
+	peer := peers[0].Peer
 	var resp peerToolCallResponse
-	if err := peers[0].Peer.Callback(callCtx, "tools/call", map[string]any{
+	err := peer.Callback(callCtx, "tools/call", map[string]any{
 		"name":      req.Name,
 		"arguments": req.Arguments,
-	}, &resp); err != nil {
+	}, &resp)
+	if err != nil {
 		return &ToolCallResult{
 			Success: false,
 			ContentItems: []ToolCallContentItem{{
@@ -63,7 +80,19 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 			}},
 		}, nil
 	}
-	return adaptMCPResponse(resp), nil
+
+	result := adaptMCPResponse(resp)
+	if h.aggregator != nil && strings.TrimSpace(req.AgentID) != "" {
+		if err := h.aggregator.Merge(mergeCtx, req.AgentID, req.CallID, req.Name, result, h.resolver); err != nil {
+			h.warn("toolbridge: diff merge failed",
+				"agent_id", req.AgentID,
+				"call_id", req.CallID,
+				"tool", req.Name,
+				"error", err,
+			)
+		}
+	}
+	return result, nil
 }
 
 func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexapp.DynamicToolSchema, error) {
@@ -240,4 +269,57 @@ func setDynamicToolDeferLoading(schema *codexapp.DynamicToolSchema, enabled bool
 	if field.IsValid() && field.CanSet() && field.Kind() == reflect.Bool {
 		field.SetBool(enabled)
 	}
+}
+
+func (h *Handler) mergeContext(ctx context.Context, req ToolCallRequest) context.Context {
+	return difftracker.WithToolCallContext(ctx, req.ThreadID, req.Arguments, h.beginSnapshot(ctx, req))
+}
+
+func (h *Handler) beginSnapshot(ctx context.Context, req ToolCallRequest) *difftracker.Snapshot {
+	if h == nil || h.resolver == nil || strings.TrimSpace(req.AgentID) == "" || !shouldSnapshot(req.Name, req.Arguments) {
+		return nil
+	}
+	cwd, err := h.resolver.ResolveAgentCWD(ctx, req.AgentID)
+	if err != nil || strings.TrimSpace(cwd) == "" {
+		return nil
+	}
+	snapshot, err := difftracker.BeginSnapshot(ctx, cwd)
+	if err != nil {
+		return nil
+	}
+	return snapshot
+}
+
+func shouldSnapshot(toolName string, arguments json.RawMessage) bool {
+	switch strings.TrimSpace(toolName) {
+	case "code_run", "code_run_test":
+		return true
+	case "lsp_edit":
+		switch lspEditAction(arguments) {
+		case "rename", "format", "code_action":
+			return true
+		}
+	}
+	return false
+}
+
+func lspEditAction(arguments json.RawMessage) string {
+	if len(bytes.TrimSpace(arguments)) == 0 {
+		return ""
+	}
+	var payload struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(arguments, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Action)
+}
+
+func (h *Handler) warn(msg string, args ...any) {
+	logger := h.logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	logger.Warn(msg, args...)
 }

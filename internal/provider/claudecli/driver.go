@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
@@ -26,6 +27,7 @@ type driver struct {
 	binaryPath      string
 	eventDispatcher *unified.EventDispatcher
 	reporter        contract.RuntimeReporter
+	pidRegistry     *pidregistry.Registry
 }
 
 type startSpec struct {
@@ -42,10 +44,10 @@ type startSpec struct {
 }
 
 func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter) contract.Driver {
-	return newDriver(logger, eventDispatcher, reporter)
+	return newDriver(logger, eventDispatcher, reporter, nil)
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -54,6 +56,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		binaryPath:      resolveBinaryPath(),
 		eventDispatcher: eventDispatcher,
 		reporter:        reporter,
+		pidRegistry:     reg,
 	}
 }
 
@@ -137,6 +140,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		rawConfig:       cloneConfigMap(spec.rawConfig),
 		manifest:        spec.manifest,
 		cleanup:         cleanup,
+		pidRegistry:     d.pidRegistry,
 		suppressedTurns: map[string]struct{}{},
 	}
 	if shouldMarkThreadReady(spec.threadID, publicThreadID) {
@@ -146,6 +150,12 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 	if err := s.awaitResolvedThreadID(ctx); err != nil {
 		shared.LogIgnoredError(d.logger, "stop failed on start error", s.stop(true))
 		return nil, err
+	}
+	// Register the claude CLI PID after successful launch.
+	if d.pidRegistry != nil {
+		if pid := s.pid(); pid > 0 {
+			d.pidRegistry.Register(pid, "claude-cli", map[string]string{"agent_id": s.agentID})
+		}
 	}
 	resolvedThreadID := s.ThreadID()
 	eventThreadID := s.EventThreadID()

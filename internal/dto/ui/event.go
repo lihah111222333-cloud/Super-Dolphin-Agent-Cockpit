@@ -69,6 +69,18 @@ type UIThreadPatch struct {
 	OverlayType       string                 `json:"overlayType,omitempty"`
 	OverlayPriority   int                    `json:"overlayPriority,omitempty"`
 	TokenUsage        *ThreadPatchTokenUsage `json:"tokenUsage,omitempty"`
+	DiffText          string                 `json:"diffText,omitempty"`
+	DiffRevision      int64                  `json:"diffRevision,omitempty"`
+	Interruptible     *bool                  `json:"interruptible,omitempty"`
+	AgentMeta         map[string]any         `json:"agentMeta,omitempty"`
+	ActivityStats     *PatchActivityStats    `json:"activityStats,omitempty"`
+	Alerts            []PatchAlert           `json:"alerts,omitempty"`
+	TimelineItems     []PatchTimelineItem    `json:"timelineItems,omitempty"`
+	RemovedItemIds    []string               `json:"removedItemIds,omitempty"`
+	TimelineOrder     []string               `json:"timelineOrder,omitempty"`
+	Recover           bool                   `json:"recover,omitempty"`
+	RefreshRequired   bool                   `json:"refreshRequired,omitempty"`
+	FallbackReason    string                 `json:"fallbackReason,omitempty"`
 	ActiveThreadID    string                 `json:"activeThreadId,omitempty"`
 	ActiveCmdThreadID string                 `json:"activeCmdThreadId,omitempty"`
 	MainAgentID       string                 `json:"mainAgentId,omitempty"`

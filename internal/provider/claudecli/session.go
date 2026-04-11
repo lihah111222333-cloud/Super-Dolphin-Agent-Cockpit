@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
@@ -36,6 +37,7 @@ type session struct {
 	rawConfig       map[string]any
 	manifest        dto.MCPManifest
 	cleanup         func()
+	pidRegistry     *pidregistry.Registry
 	mu              sync.Mutex
 	activeTurn      *turnHandle
 	suppressedTurns map[string]struct{}
@@ -86,6 +88,16 @@ func (s *session) ThreadID() string {
 }
 
 func (s *session) RolloutPath() string { return "" }
+
+// pid returns the PID of the claude CLI process, or 0 if unavailable.
+func (s *session) pid() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.transport == nil || s.transport.cmd == nil || s.transport.cmd.Process == nil {
+		return 0
+	}
+	return s.transport.cmd.Process.Pid
+}
 
 func (s *session) EventThreadID() string {
 	s.mu.Lock()
@@ -211,23 +223,41 @@ func (s *session) stop(force bool) error {
 	tr := s.transport
 	cleanup := s.cleanup
 	handle := s.takeActiveTurnLocked()
+	reg := s.pidRegistry
 	s.transport = nil
 	s.cleanup = nil
 	s.mu.Unlock()
+
+	unregisterTransportPID(reg, tr)
 	if handle != nil {
 		handle.finish(errors.New("claudecli: session stopped"))
 	}
 	var err error
 	if tr != nil {
-		if force {
-			err = tr.Kill()
-		} else {
-			err = tr.Close()
-		}
+		err = stopTransport(tr, force)
 	}
 	if cleanup != nil {
 		cleanup()
 	}
+	s.dispatch(s.buildStopEvent(tr, force))
+	return err
+}
+
+func unregisterTransportPID(reg *pidregistry.Registry, tr *transport) {
+	if reg == nil || tr == nil || tr.cmd == nil || tr.cmd.Process == nil {
+		return
+	}
+	reg.Unregister(tr.cmd.Process.Pid)
+}
+
+func stopTransport(tr *transport, force bool) error {
+	if force {
+		return tr.Kill()
+	}
+	return tr.Close()
+}
+
+func (s *session) buildStopEvent(tr *transport, force bool) dto.RawProviderEvent {
 	eventType := "agent:stopped"
 	data := map[string]any{
 		"agent_id":   s.agentID,
@@ -244,8 +274,7 @@ func (s *session) stop(force bool) error {
 			}
 		}
 	}
-	s.dispatch(dto.RawProviderEvent{EventType: eventType, Data: data})
-	return err
+	return dto.RawProviderEvent{EventType: eventType, Data: data}
 }
 
 func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest) error {

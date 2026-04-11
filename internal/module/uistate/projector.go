@@ -34,6 +34,7 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 		platformbus.ResilientSubscribe(dispatcher, svc.applyItemCompleted, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyToolCallBegin, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyToolCallEnd, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyToolDiffUpdated, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyToolApprovalRequested, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyToolApprovalResolved, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTokensUpdated, svc.logger),
