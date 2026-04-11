@@ -41,7 +41,7 @@ const (
 	patchLineInvalid
 )
 
-func ExtractPatchFromReplaceRange(toolResult json.RawMessage) (string, []string, error) {
+func extractPatchFromReplaceRange(toolResult json.RawMessage) (string, []string, error) {
 	texts := toolResultTexts(toolResult)
 	if len(texts) == 0 {
 		return "", nil, ErrReplaceRangePatchNotFound
@@ -57,7 +57,7 @@ func ExtractPatchFromReplaceRange(toolResult json.RawMessage) (string, []string,
 	return "", nil, errors.Join(errs...)
 }
 
-func ExtractPatch(content, filePath string) (string, error) {
+func extractPatch(content, filePath string) (string, error) {
 	patch, _, err := extractPatchText(content, []string{filePath})
 	return patch, err
 }

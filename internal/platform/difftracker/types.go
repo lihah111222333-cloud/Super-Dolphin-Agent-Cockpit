@@ -43,8 +43,6 @@ type Snapshot struct {
 	beforeFiles map[string]beforeFileState
 }
 
-type GitSnapshot = Snapshot
-
 const (
 	MaxTrackedFiles      = 200
 	MaxFileSizeBytes     = 1 << 20

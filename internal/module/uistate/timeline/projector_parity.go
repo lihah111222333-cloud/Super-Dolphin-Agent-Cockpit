@@ -111,7 +111,7 @@ func itemKind(itemType, rawType, command, file string) string {
 	case strings.Contains(joined, "command"):
 		return "command"
 	default:
-		return "item"
+		return "command"
 	}
 }
 

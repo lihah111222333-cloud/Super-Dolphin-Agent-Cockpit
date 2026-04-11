@@ -18,7 +18,7 @@ func TestAppendAndGetByThread(t *testing.T) {
 	svc := timeline.New(nil, nil, 50)
 	item := timeline.Item{
 		ID:     "item-1",
-		Kind:   "tool_call",
+		Kind:   "tool",
 		CallID: "call-abc",
 		Status: "running",
 	}
@@ -56,7 +56,7 @@ func TestAppendRespectsCapacity(t *testing.T) {
 func TestUpdateByCallID(t *testing.T) {
 	svc := timeline.New(nil, nil, 50)
 	svc.Append("t1", "a", timeline.Item{
-		ID: "item-1", Kind: "tool_call", CallID: "call-1", Status: "running",
+		ID: "item-1", Kind: "tool", CallID: "call-1", Status: "running",
 	})
 
 	updated := svc.UpdateByCallID("t1", "a", "call-1", func(item *timeline.Item) {
@@ -81,7 +81,7 @@ func TestUpdateByCallIDDoesNotEmit(t *testing.T) {
 	}
 	svc := timeline.New(nil, emitter, 50)
 	svc.Append("t1", "a", timeline.Item{
-		ID: "i1", Kind: "tool_call", CallID: "c1", Status: "running",
+		ID: "i1", Kind: "tool", CallID: "c1", Status: "running",
 	})
 	emitted = 0
 
@@ -99,10 +99,10 @@ func TestUpdateByCallIDDoesNotEmit(t *testing.T) {
 func TestAppendDedup_SameCallID(t *testing.T) {
 	svc := timeline.New(nil, nil, 50)
 	svc.Append("t1", "a", timeline.Item{
-		ID: "item-1", Kind: "tool_call", CallID: "call-1", Status: "running",
+		ID: "item-1", Kind: "tool", CallID: "call-1", Status: "running",
 	})
 	svc.Append("t1", "a", timeline.Item{
-		ID: "item-1-dup", Kind: "tool_call", CallID: "call-1", Status: "running",
+		ID: "item-1-dup", Kind: "tool", CallID: "call-1", Status: "running",
 	})
 	items := svc.GetByThread("t1")
 	if len(items) != 1 {
@@ -110,6 +110,53 @@ func TestAppendDedup_SameCallID(t *testing.T) {
 	}
 	if items[0].ID != "item-1" {
 		t.Fatalf("items[0].ID = %q, want %q", items[0].ID, "item-1")
+	}
+}
+
+func TestAppendDedup_MergeKeepsCompletedStatus(t *testing.T) {
+	svc := timeline.New(nil, nil, 50)
+	elapsed := 123
+	svc.Append("t1", "a", timeline.Item{
+		ID:        "item-1",
+		Kind:      "tool",
+		CallID:    "call-1",
+		Status:    "completed",
+		Tool:      "bash",
+		Done:      true,
+		Preview:   "before",
+		RequestID: 7,
+	})
+	svc.Append("t1", "a", timeline.Item{
+		ID:        "item-1-dup",
+		Kind:      "tool",
+		CallID:    "call-1",
+		Status:    "running",
+		Tool:      "bash",
+		Preview:   "after",
+		ElapsedMS: &elapsed,
+	})
+
+	items := svc.GetByThread("t1")
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if got := items[0].Status; got != "completed" {
+		t.Fatalf("items[0].Status = %q, want %q", got, "completed")
+	}
+	if got := items[0].ID; got != "item-1" {
+		t.Fatalf("items[0].ID = %q, want %q", got, "item-1")
+	}
+	if got := items[0].Tool; got != "bash" {
+		t.Fatalf("items[0].Tool = %q, want %q", got, "bash")
+	}
+	if got := items[0].Preview; got != "after" {
+		t.Fatalf("items[0].Preview = %q, want %q", got, "after")
+	}
+	if items[0].ElapsedMS == nil || *items[0].ElapsedMS != 123 {
+		t.Fatalf("items[0].ElapsedMS = %v, want 123", items[0].ElapsedMS)
+	}
+	if !items[0].Done {
+		t.Fatal("items[0].Done = false, want true")
 	}
 }
 
@@ -141,7 +188,7 @@ func TestSnapshot(t *testing.T) {
 
 func TestUpdateByCallID_NonExistentCallID(t *testing.T) {
 	svc := timeline.New(nil, nil, 50)
-	svc.Append("t1", "a", timeline.Item{ID: "i1", Kind: "tool_call", CallID: "c1"})
+	svc.Append("t1", "a", timeline.Item{ID: "i1", Kind: "tool", CallID: "c1"})
 
 	updated := svc.UpdateByCallID("t1", "a", "non-existent", func(it *timeline.Item) {
 		it.Status = "completed"
@@ -161,7 +208,7 @@ func TestAppendRespectsCapacity_IndexConsistency(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		svc.Append("t1", "a", timeline.Item{
 			ID:     fmt.Sprintf("item-%d", i),
-			Kind:   "tool_call",
+			Kind:   "tool",
 			CallID: fmt.Sprintf("call-%d", i),
 		})
 	}

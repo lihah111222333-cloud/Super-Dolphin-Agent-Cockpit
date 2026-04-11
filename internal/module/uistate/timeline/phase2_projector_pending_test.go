@@ -73,6 +73,25 @@ func TestItemStarted_CommandExecutionAliasKind(t *testing.T) {
 	}
 }
 
+func TestItemStarted_UnknownKindFallsBackToCommand(t *testing.T) {
+	t.Parallel()
+	requirePhase2TimelineShape(t)
+
+	svc, dispatcher, cleanup := newPhase2TimelineHarness(t)
+	defer cleanup()
+
+	event.Publish(dispatcher, turndto.ItemStarted{
+		TurnHeader: phase2TurnHeader("t1", "agent-1", "turn-1"),
+		ItemType:   "request_user_input",
+		CallID:     "call-unknown-kind",
+	})
+
+	waitForCondition(t, func() bool { return len(svc.GetByThread("t1")) == 1 }, "expected fallback command timeline item")
+	if got := svc.GetByThread("t1")[0].Kind; got != "command" {
+		t.Fatalf("items[0].Kind = %q, want %q", got, "command")
+	}
+}
+
 func TestItemCompleted_FileChangeMarksSaved(t *testing.T) {
 	t.Parallel()
 	requirePhase2TimelineShape(t)

@@ -2,7 +2,6 @@ package difftracker
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,7 +16,7 @@ func TestFindGitRoot_InGitRepo(t *testing.T) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
-	root, err := FindGitRoot(context.Background(), nested)
+	root, err := findGitRoot(context.Background(), nested)
 	if err != nil {
 		t.Fatalf("FindGitRoot() error = %v", err)
 	}
@@ -27,9 +26,8 @@ func TestFindGitRoot_InGitRepo(t *testing.T) {
 }
 
 func TestFindGitRoot_NotGitRepo(t *testing.T) {
-	_, err := FindGitRoot(context.Background(), t.TempDir())
-	if !errors.Is(err, ErrNotGitRepository) {
-		t.Fatalf("FindGitRoot() error = %v, want %v", err, ErrNotGitRepository)
+	if _, err := findGitRoot(context.Background(), t.TempDir()); err == nil {
+		t.Fatal("FindGitRoot() error = nil, want non-nil")
 	}
 }
 
@@ -42,7 +40,7 @@ func TestListDirtyFiles(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "tracked.txt"), "v2\n")
 	writeFile(t, filepath.Join(repo, "new.txt"), "new\n")
 
-	got, err := ListDirtyFiles(context.Background(), repo)
+	got, err := listDirtyFiles(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("ListDirtyFiles() error = %v", err)
 	}

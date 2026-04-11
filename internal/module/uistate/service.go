@@ -151,8 +151,6 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	}
 	snapshot := s.stateSnapshot()
 	applyPreferencesToState(snapshot, prefs)
-	// TODO(P8): knownDiffRevision only short-circuits unchanged snapshots here.
-	// Real known diff consumption still needs projector/live patch integration.
 	applyDiffStateSnapshot(ctx, snapshot, s.diffStateSnapshot(ctx))
 	if s.timeline != nil {
 		snapshot.TimelineByThread = s.timeline.Snapshot()
@@ -396,26 +394,4 @@ func (s *service) clearThreadOverlayLocked(threadID, overlayType string) {
 	if overlayType == "" {
 		delete(s.overlayExpiryByThread, threadID)
 	}
-}
-
-func withPreferenceScope(ctx context.Context, cwd string) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, preferenceScopeKey{}, strings.TrimSpace(cwd))
-}
-
-func preferenceScopeFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	value, _ := ctx.Value(preferenceScopeKey{}).(string)
-	return strings.TrimSpace(value)
-}
-
-func fallbackPreferenceKey(scope, key string) string { return scope + "\x1f" + strings.TrimSpace(key) }
-
-func splitFallbackPreferenceKey(raw string) (string, string, bool) {
-	scope, key, ok := strings.Cut(raw, "\x1f")
-	return scope, strings.TrimSpace(key), ok && strings.TrimSpace(key) != ""
 }

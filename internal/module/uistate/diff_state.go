@@ -46,14 +46,6 @@ func withKnownDiffRevision(ctx context.Context, revision int) context.Context {
 	return context.WithValue(ctx, knownDiffRevisionKey{}, revision)
 }
 
-func knownDiffRevisionFromContext(ctx context.Context) int {
-	if ctx == nil {
-		return 0
-	}
-	value, _ := ctx.Value(knownDiffRevisionKey{}).(int)
-	return value
-}
-
 func (s *service) applyToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)

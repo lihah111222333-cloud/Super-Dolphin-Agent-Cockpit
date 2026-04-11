@@ -17,7 +17,8 @@ func (r stubResolver) ResolveAgentCWD(_ context.Context, agentID string) (string
 }
 
 func TestDiffAggregator_AgentIsolation(t *testing.T) {
-	aggregator := NewDiffAggregator(WithSweepInterval(time.Hour))
+	aggregator := NewDiffAggregator(withSweepInterval(time.Hour))
+	aggregator.Start()
 	defer aggregator.Stop()
 
 	resultA, changedA := mustMergeRequest(t, aggregator, MergeRequest{
@@ -49,7 +50,8 @@ func TestDiffAggregator_AgentIsolation(t *testing.T) {
 }
 
 func TestDiffAggregator_CallIDDedup(t *testing.T) {
-	aggregator := NewDiffAggregator(WithSweepInterval(time.Hour))
+	aggregator := NewDiffAggregator(withSweepInterval(time.Hour))
+	aggregator.Start()
 	defer aggregator.Stop()
 
 	first, changed := mustMergeRequest(t, aggregator, MergeRequest{
@@ -84,7 +86,8 @@ func TestDiffAggregator_CallIDDedup(t *testing.T) {
 }
 
 func TestDiffAggregator_CleanupAgent(t *testing.T) {
-	aggregator := NewDiffAggregator(WithSweepInterval(time.Hour))
+	aggregator := NewDiffAggregator(withSweepInterval(time.Hour))
+	aggregator.Start()
 	defer aggregator.Stop()
 
 	mustMergeRequest(t, aggregator, MergeRequest{
@@ -107,9 +110,10 @@ func TestDiffAggregator_CleanupAgent(t *testing.T) {
 
 func TestDiffAggregator_TTLCleanup(t *testing.T) {
 	aggregator := NewDiffAggregator(
-		WithSessionTTL(15*time.Millisecond),
-		WithSweepInterval(5*time.Millisecond),
+		withSessionTTL(15*time.Millisecond),
+		withSweepInterval(5*time.Millisecond),
 	)
+	aggregator.Start()
 	defer aggregator.Stop()
 
 	mustMergeRequest(t, aggregator, MergeRequest{
@@ -135,7 +139,8 @@ func TestDiffAggregator_TTLCleanup(t *testing.T) {
 }
 
 func TestDiffAggregator_RepoRootReset(t *testing.T) {
-	aggregator := NewDiffAggregator(WithSweepInterval(time.Hour))
+	aggregator := NewDiffAggregator(withSweepInterval(time.Hour))
+	aggregator.Start()
 	defer aggregator.Stop()
 
 	mustMergeRequest(t, aggregator, MergeRequest{
@@ -167,7 +172,8 @@ func TestDiffAggregator_RepoRootReset(t *testing.T) {
 }
 
 func TestDiffAggregator_ConcurrentMerge(t *testing.T) {
-	aggregator := NewDiffAggregator(WithSweepInterval(time.Hour))
+	aggregator := NewDiffAggregator(withSweepInterval(time.Hour))
+	aggregator.Start()
 	defer aggregator.Stop()
 	resolver := stubResolver{"agent-a": t.TempDir()}
 

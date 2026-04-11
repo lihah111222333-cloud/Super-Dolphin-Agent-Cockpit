@@ -105,12 +105,12 @@ func TestAddProjectDeduplicatesSymlinkAlias(t *testing.T) {
 
 	root := t.TempDir()
 	target := filepath.Join(root, "target")
-	link := filepath.Join(root, "alias")
+	aliasPath := filepath.Join(root, "alias")
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatalf("MkdirAll(target) error = %v", err)
 	}
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("os.Symlink() unavailable: %v", err)
+	if err := os.Symlink(target, aliasPath); err != nil {
+		aliasPath = filepath.Join(target, "..", filepath.Base(target))
 	}
 	_, svc, err := NewService(nil, nil, nil, nil, nil)
 	if err != nil {
@@ -119,9 +119,9 @@ func TestAddProjectDeduplicatesSymlinkAlias(t *testing.T) {
 	if _, err := svc.AddProject(context.Background(), target); err != nil {
 		t.Fatalf("AddProject(target) error = %v", err)
 	}
-	state, err := svc.AddProject(context.Background(), link)
+	state, err := svc.AddProject(context.Background(), aliasPath)
 	if err != nil {
-		t.Fatalf("AddProject(link) error = %v", err)
+		t.Fatalf("AddProject(aliasPath) error = %v", err)
 	}
 	if len(state.Projects) != 1 || state.Projects[0] != normalizeProjectPath(target) {
 		t.Fatalf("symlink dedupe projects = %#v", state.Projects)
