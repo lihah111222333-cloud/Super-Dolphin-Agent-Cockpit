@@ -192,8 +192,8 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 	oldReady := make(chan struct{})
 	close(oldReady)
 	s := &session{
-		threadID:        "thread-1",
-		sessionID:       "thread-1",
+		threadID:        "pending",
+		sessionID:       "pending",
 		threadReady:     oldReady,
 		transport:       closedTransport(),
 		suppressedTurns: map[string]struct{}{"old-turn": {}},
@@ -211,8 +211,8 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 
 	newReady := waitForReadySwap(t, s, oldReady)
 	threadID, sessionID, _ := snapshotSessionState(s)
-	if threadID != "thread-1" || sessionID != "thread-1" {
-		t.Fatalf("ids before new ready = %q/%q, want thread-1/thread-1", threadID, sessionID)
+	if threadID != "pending" || sessionID != "pending" {
+		t.Fatalf("ids before new ready = %q/%q, want pending/pending", threadID, sessionID)
 	}
 	select {
 	case <-newReady:
@@ -244,8 +244,8 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 	}
 	select {
 	case resumeID := <-resumeIDs:
-		if resumeID != "thread-1" {
-			t.Fatalf("resumeID = %q, want thread-1", resumeID)
+		if resumeID != "" {
+			t.Fatalf("resumeID = %q, want empty resume id for unresolved thread", resumeID)
 		}
 	default:
 		t.Fatal("restart launch was not invoked")
@@ -303,8 +303,8 @@ func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 	oldReady := make(chan struct{})
 	close(oldReady)
 	s := &session{
-		threadID:        "thread-1",
-		sessionID:       "thread-1",
+		threadID:        "pending",
+		sessionID:       "pending",
 		threadReady:     oldReady,
 		transport:       closedTransport(),
 		suppressedTurns: map[string]struct{}{},

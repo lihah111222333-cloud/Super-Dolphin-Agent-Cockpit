@@ -149,6 +149,35 @@ function applyTimelineDelta(state, threadId, payload) {
     nextTimeline = merged;
   }
 
+  nextTimeline.sort((a, b) => {
+    const tsA = Date.parse(a?.ts || '');
+    const tsB = Date.parse(b?.ts || '');
+    const valA = Number.isFinite(tsA) ? tsA : 0;
+    const valB = Number.isFinite(tsB) ? tsB : 0;
+
+    if (valA > 0 && valB > 0) {
+      if (valA !== valB) return valA - valB;
+    } else if (valA > 0 && valB === 0) {
+      return -1;
+    } else if (valB > 0 && valA === 0) {
+      return 1;
+    }
+
+    const prefixA = (a?.id || '').toString().split('-').slice(0, -1).join('-');
+    const prefixB = (b?.id || '').toString().split('-').slice(0, -1).join('-');
+    if (prefixA === prefixB && prefixA.length > 0) {
+      const numA = Number((a?.id || '').toString().split('-').pop());
+      const numB = Number((b?.id || '').toString().split('-').pop());
+      if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) return numA - numB;
+    }
+
+    const idA = (a?.id || '').toString();
+    const idB = (b?.id || '').toString();
+    if (idA < idB) return -1;
+    if (idA > idB) return 1;
+    return 0;
+  });
+
   const frozenTimeline = freezeTimelineItemsAtomic(nextTimeline, current);
   if (!frozenTimeline.changed) return { changed: false, needsRecovery };
   state.timelinesByThread = { ...state.timelinesByThread, [threadId]: frozenTimeline.items };

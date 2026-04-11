@@ -97,8 +97,8 @@ func (a *bindingAdapter) ListAgentThreadBindings(ctx context.Context) ([]binding
 
 // enrichAgentsFromDB overwrites in-memory agent fields with DB binding
 // truth.  Called outside the service mutex so DB queries are safe.
-func (s *service) enrichAgentsFromDB(ctx context.Context, agents []AgentSummary) {
-	if s.bindings == nil || len(agents) == 0 {
+func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threads []ThreadSummary, runtimeMap map[string]map[string]any) {
+	if s.bindings == nil {
 		return
 	}
 	byAgent := s.loadBindingIndex(ctx)
@@ -107,6 +107,24 @@ func (s *service) enrichAgentsFromDB(ctx context.Context, agents []AgentSummary)
 	}
 	for i := range agents {
 		applyBindingToAgent(&agents[i], byAgent)
+	}
+	for _, thread := range threads {
+		if thread.AgentID != "" {
+			if entry, ok := byAgent[thread.AgentID]; ok && entry.Provider != "" {
+				rt := runtimeMap[thread.ID]
+				if rt == nil {
+					rt = map[string]any{
+						"agentId":          thread.AgentID,
+						"state":            "idle",
+						"providerThreadId": entry.ProviderThreadID,
+					}
+					runtimeMap[thread.ID] = rt
+				}
+				if rt["provider"] == nil || rt["provider"] == "" {
+					rt["provider"] = entry.Provider
+				}
+			}
+		}
 	}
 }
 

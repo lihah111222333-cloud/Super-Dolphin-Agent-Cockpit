@@ -138,6 +138,7 @@ func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFie
 			ProviderThreadID: strings.TrimSpace(resolveProviderThreadID(state.ProviderThreadID, state.PublicThreadID)),
 			CWD:              strings.TrimSpace(state.CWD),
 			Model:            strings.TrimSpace(state.Model),
+			Name:             strings.TrimSpace(state.Prompt),
 		}
 	case threadEventStoppedKind:
 		return threaddto.Stopped{

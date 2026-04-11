@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -186,19 +185,31 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
-	if err := s.transport.signalProcess(syscall.SIGINT); err != nil {
-		return err
-	}
+	reason := strings.TrimSpace(req.Source)
 	s.mu.Lock()
 	handle := s.takeActiveTurnLocked()
-	s.mu.Unlock()
-	if handle != nil {
-		turnID := currentTurnID(handle)
-		handle.finish(context.Canceled)
-		s.dispatch(s.turnRawEvent("turn:interrupted", turnID, map[string]any{
-			"reason": strings.TrimSpace(req.Source),
-		}))
+	if handle == nil {
+		s.mu.Unlock()
+		return nil
 	}
+	turnID := currentTurnID(handle)
+	if turnID != "" {
+		if s.suppressedTurns == nil {
+			s.suppressedTurns = map[string]struct{}{}
+		}
+		s.suppressedTurns[turnID] = struct{}{}
+	}
+	tr := s.transport
+	cleanup := s.cleanup
+	reg := s.pidRegistry
+	s.transport = nil
+	s.cleanup = nil
+	s.mu.Unlock()
+	cleanupInterruptedTransport(s.logger, reg, tr, cleanup)
+	handle.finish(context.Canceled)
+	s.dispatch(s.turnRawEvent("turn:interrupted", turnID, map[string]any{
+		"reason": reason,
+	}))
 	return nil
 }
 
@@ -283,6 +294,7 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 	prevConfig := s.config
 	prevManifest := s.manifest
 	settingsChanged := s.applyTurnSettingsLocked(req)
+	resumeID := s.restartResumeIDLocked()
 	if !settingsChanged && !needsRestart {
 		return s.awaitThreadReadyLocked(ctx)
 	}
@@ -297,7 +309,7 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 			"session_id", s.sessionID,
 			"old_model", prevModel,
 			"new_model", s.model,
-			"resume_id", s.restartResumeIDLocked(),
+			"resume_id", resumeID,
 			"reason", restartReason,
 		)
 	}
@@ -310,7 +322,7 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 		s.instructions,
 		s.config,
 		s.manifest,
-		s.restartResumeIDLocked(),
+		resumeID,
 	)
 	if err != nil {
 		s.model = prevModel
@@ -319,6 +331,9 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 		return err
 	}
 	s.resetThreadReadyLocked()
+	if shouldMarkThreadReady(resumeID, s.publicThreadID) {
+		s.markThreadReadyLocked()
+	}
 	s.activeTurn = nil
 	s.suppressedTurns = map[string]struct{}{}
 	s.transport = tr

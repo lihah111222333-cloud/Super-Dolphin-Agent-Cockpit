@@ -84,9 +84,12 @@ func publishAgentLaunchedEvent(bus EventBus, agent *agentState, values []any) {
 	if agent == nil {
 		return
 	}
+	provider, _ := snapshotProvider(agent)
 	event.Publish(bus, agentdto.AgentLaunched{
 		AgentSessionHeader: agentSessionHeader(agent),
 		CWD:                eventString(values, 0),
+		Name:               agent.name,
+		Provider:           provider,
 	})
 }
 

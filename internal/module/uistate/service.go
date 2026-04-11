@@ -152,7 +152,7 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	if s.timeline != nil {
 		snapshot.TimelineByThread = s.timeline.Snapshot()
 	}
-	s.enrichAgentsFromDB(ctx, snapshot.Agents)
+	s.enrichFromDB(ctx, snapshot.Agents, snapshot.Threads, snapshot.AgentRuntimeByID)
 	return snapshot, nil
 }
 func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
@@ -161,7 +161,7 @@ func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
 		return nil, err
 	}
 	snapshot := s.sidebarSnapshot()
-	s.enrichAgentsFromDB(ctx, snapshot.Agents)
+	s.enrichFromDB(ctx, snapshot.Agents, snapshot.Threads, snapshot.AgentRuntimeByID)
 	applyPreferencesToSidebar(snapshot, prefs)
 	return snapshot, nil
 }

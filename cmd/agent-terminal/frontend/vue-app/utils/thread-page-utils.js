@@ -122,24 +122,25 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
       previous_thread_id: previousThreadId,
       thread_id: id,
     });
-    const syncStart = perfNow();
-    await threadStore.syncThreadState(id);
-    const syncDuration = Math.round(perfNow() - syncStart);
-    logWarn('ui', 'chat.selection.syncThreadState.done', {
+    const concurrentStart = perfNow();
+    const [_, requestedHistory] = await Promise.all([
+      threadStore.syncThreadState(id).catch(err => {
+        logWarn('ui', 'chat.selection.syncThreadState.failed', { thread_id: id, error: err?.message || String(err) });
+      }),
+      requestHistoryLoad(threadStore, id, { syncRuntime: false, force: true }).catch(err => {
+        logWarn('ui', 'chat.selection.requestHistoryLoad.failed', { thread_id: id, error: err?.message || String(err) });
+        return false;
+      })
+    ]);
+    const concurrentDuration = Math.round(perfNow() - concurrentStart);
+    logWarn('ui', 'chat.selection.concurrentLoad.done', {
       thread_id: id,
-      duration_ms: syncDuration,
-    });
-    const histStart = perfNow();
-    const requestedHistory = await requestHistoryLoad(threadStore, id, { syncRuntime: false, force: true });
-    const histDuration = Math.round(perfNow() - histStart);
-    logWarn('ui', 'chat.selection.requestHistoryLoad.done', {
-      thread_id: id,
-      requested: requestedHistory,
-      duration_ms: histDuration,
+      requested_history: requestedHistory,
+      duration_ms: concurrentDuration,
       total_ms: Math.round(perfNow() - selectionStart),
     });
     return {
-      requestedHistory,
+      requestedHistory: Boolean(requestedHistory),
       syncedThreadState: true,
       forcedHistoryReload: false,
     };

@@ -11,6 +11,7 @@ type Started struct {
 	ProviderThreadID string `json:"provider_thread_id,omitempty"`
 	CWD              string `json:"cwd,omitempty"`
 	Model            string `json:"model,omitempty"`
+	Name             string `json:"name,omitempty"`
 }
 
 // Stopped reports a thread becoming inactive.

@@ -1,0 +1,891 @@
+# 08 Platform 基础设施层代码地图
+
+## 1. 模块概述：platform 层设计哲学
+
+`internal/platform/*` 是 super-agent-v3 的基础设施底座，负责把第三方库、进程/连接生命周期、事件传播、RPC 分发、MCP 控制面、状态机与通用工具统一收敛成一组可复用的“薄适配层”。
+
+它的设计特征很明确：
+
+- **薄封装**：尽量直接复用成熟库，而不是重写轮子。典型例子：
+  - `bus` 封装 `github.com/kelindar/event`
+  - `rpc` 封装 `github.com/creachadair/jrpc2`
+  - `statemachine` 封装 `github.com/qmuntal/stateless`
+  - `runner` 封装 `github.com/oklog/run`
+  - `db` 封装 `pgxpool`
+- **统一生命周期**：大量通过 `fx.Module` 暴露，并在 `OnStart/OnStop` 中做清理、恢复、扫尾。
+- **事件优先**：业务状态变化先进入 `bus`，再由 `eventsurface`、`hooks`、`rpc.PushBridge`、`mcpcontrol` 等模块消费。
+- **强上下文语义**：超时、取消、线程上下文、审批上下文、Hook 深度、差异追踪上下文都以 `context.Context` 传递。
+- **故障自愈/降级**：常见模式包括 panic recovery、丢失订阅者自动清理、审批恢复、MCP stale peer 清扫、PID 僵尸进程清理、diff 提取失败回退到 git diff。
+- **面向“桌面主进程 + 外部 MCP 进程 + Provider 会话”三方协作**：这是 platform 层最核心的架构角色。
+
+可以把 platform 层粗分为三组：
+
+1. **基础原语**：`config`、`db`、`shared`、`runner`、`statemachine`、`pidregistry`
+2. **通信/控制基础设施**：`bus`、`eventsurface`、`rpc`、`hooks`、`mcpcontrol`、`toolbridge`
+3. **状态快照/旁路数据**：`difftracker`、`historyjsonl`
+
+---
+
+## 2. 各子包详述
+
+## 2.1 `bus/`：事件总线
+
+**职责**
+
+- 提供进程内 typed event pub/sub
+- 为上层模块提供统一事件发布入口
+- 管理订阅生命周期与日志镜像
+
+**核心类型**
+
+- `Bus`：对 `*event.Dispatcher` 的注入包装（`bus.go`）
+- `ThreadEmitters` / `domainEmitters`：typed emitter 容器（`emitters.go`）
+- `Router`：只负责托管订阅 cancel func（`router.go`）
+- `Subscription`：批量管理 cancel func（`subscription.go`）
+- `LogSink`：订阅已知 DTO 事件并写结构化日志（`sink.go`）
+
+**关键 API**
+
+- `New()` / `NewDispatcher()` / `(*Bus).Dispatcher()`
+- `NewThreadEmitters()` / `NewEmitter[T event.Event](dispatcher)`
+- `NewRouter()` / `Route[T]()` / `ResilientSubscribe[T]()`
+- `NewSubscription()` / `(*Subscription).Add()` / `(*Subscription).CancelAll()`
+- `NewLogSink()` / `(*LogSink).Close()`
+
+**文件导览**
+
+- `bus.go`：`event.Dispatcher` 注入包装
+- `emitters.go`：typed emitter 工厂与 `ThreadEmitters`
+- `resilient.go`：订阅回调 panic 保护，防止单个 handler 拉垮总线
+- `router.go`：订阅托管器
+- `subscription.go`：cancel 聚合器
+- `sink.go`：订阅 agent/thread/turn/tool/task/ui DTO 并打日志；高频事件走 `DEBUG`
+- `module.go`：fx 装配与 stop 时 `sink.Close()` / `dispatcher.Close()`
+
+**实现要点**
+
+- bus 本身极薄，语义主要来自 `kelindar/event`
+- 平台层额外补的是：**typed emitter**、**panic-safe subscribe**、**统一清理**、**日志镜像**
+- `Router` 只管理生命周期，不做 topic 路由；`NewRouter(_ *event.Dispatcher)` 的 dispatcher 参数当前只是对齐调用点
+- `ResilientSubscribe` 在 handler 边界做 `recover()`，panic 只记日志，不会污染整个 bus
+- 测试覆盖了并发 publish、类型隔离、取消订阅、批量清理
+
+---
+
+## 2.2 `config/`：配置与超时策略
+
+**职责**
+
+- 统一读取环境变量配置
+- 统一定义平台级 timeout 常量与包装函数
+- 在必要时把解析后的关键配置回写到进程环境，供子进程继承
+
+**核心类型**
+
+- `Config`（`config.go`）
+
+**关键 API**
+
+- `New()`
+- `WithTimeout()` / `WithTimeoutIfNone()`
+- `WithInitialThreadIDTimeout()` / `WithSessionCloseTimeout()`
+- `WithDBQueryTimeout()` / `WithRPCRequestTimeout()` / `WithPeerTimeout()`
+- timeout 常量：`LaunchTimeout`、`StartupTimeout`、`ShutdownTimeout`、`DBQueryTimeout`、`RPCRequestTimeout`、`InterruptSettleTimeout`、`AsyncLaunchTimeout` 等
+
+**文件导览**
+
+- `config.go`：读取 `DATABASE_URL`、`GO_AGENT_CTL_RPC_ADDR`、`LOG_LEVEL`、`PROJECT_ROOT`，并把解析出的 RPC/DB 值按需回写到进程环境
+- `timeouts.go`：统一平台 timeout 常量与 context 包装器
+- `module.go`：fx 提供 `*Config`
+
+**实现要点**
+
+- 显式兼容老环境变量 `RPC_ADDR`，并打印弃用警告
+- `exportRPCAddrIfMissing()` / `exportDatabaseURLIfMissing()` 用来保证派生出来的 MCP 子进程能继承解析后的配置
+- `WithTimeoutIfNone` 很重要：避免重复覆盖已有 deadline
+- 多个子系统（RPC、Hook peer callback、DB、Provider 会话、MCP bootstrap）都复用这里的 timeout 语义
+
+---
+
+## 2.3 `db/`：数据库连接与错误归一化
+
+**职责**
+
+- 提供 pgx pool
+- 统一 store 错误分类
+- 提供事务包装器
+
+**核心类型**
+
+- `StoreError`
+- `Pool`（对 `pgxpool.Pool` 的类型别名）
+
+**关键 API**
+
+- `NewPool(cfg)`
+- `WrapStoreError(err, op, entity)`
+- `IsNotFound()` / `IsConflict()` / `IsTimeout()` / `IsUniqueViolation()`
+- `WithTx(ctx, pool, fn)`
+
+**文件导览**
+
+- `errors.go`：把底层 pg/ctx 错误归一化成 `ErrNotFound/ErrConflict/ErrTimeout`
+- `module.go`：创建 pool、启动时 ping、停止时 close
+- `pool.go`：`type Pool = pgxpool.Pool`
+- `tx.go`：事务模板
+
+**实现要点**
+
+- store 层与 `mcpcontrol` 的错误映射都依赖这里的 `StoreError`
+- `NewPool` 固定 `MaxConns=100`
+- `WithTx` 是最薄的一层 begin/rollback/commit 模板，本身不额外包装业务错误
+
+---
+
+## 2.4 `difftracker/`：工具调用差异追踪
+
+**职责**
+
+- 聚合每个 agent 的工具改动 diff，供 UI/事件流使用
+- 优先从 hook/工具结果中提取 patch；失败时回退到 git diff
+- 隔离多 agent、多 repoRoot / 多 cwd 的累计 diff 会话
+
+**核心类型**
+
+- `DiffAggregator`
+- `MergeRequest`
+- `DiffResult`
+- `Snapshot`
+- `DiffEmitter`
+- `WorkDirResolver`
+
+**关键 API**
+
+- `NewDiffAggregator(...)` / `WithEmitter(...)`
+- `(*DiffAggregator).Start()` / `Stop()` / `Merge()` / `CleanupAgent()`
+- `WithToolCallContext(ctx, threadID, args, snapshot)`
+- `BeginSnapshot(ctx, path)` / `EmitGitDiff(ctx, snapshot)`
+
+**文件导览**
+
+- `doc.go`：说明“hook patch 优先，git diff 回退；按 agent 隔离”
+- `aggregator.go`：会话管理、CallID 去重、TTL sweeper、Emitter 回调
+- `git_diff.go`：拍快照、比较 working tree 与 HEAD、按文件生成 unified diff
+- `git_ops.go`：git root/dirty file/HEAD 内容读取，带 timeout 和 `index.lock` retry
+- `hooks_extract.go`：从 `replace_range` 工具结果抽取 patch/文件列表
+- `tool_context.go`：把 threadID、arguments、snapshot 附着到 context，并据此构造 merge request
+- `unified.go`：按文件拆分/替换 unified diff block，维护累计 diff
+- `types.go`：公开类型、大小限制与二进制扩展名黑名单
+- `resolver.go`：工作目录解析接口
+
+**实现要点**
+
+- 会话 key = `agentID + repoRoot/cwd`，避免同线程多 agent 相互覆盖
+- `processedIDs` 对 `CallID` 去重，重复工具回调不会重复叠加 diff
+- `Merge()` 先尝试 hook/`replace_range` 提取，再尝试 git diff；只有 `ErrReplaceRangePatchNotFound` 才会触发显式 fallback 逻辑
+- git 模式有安全阈值：`MaxTrackedFiles=200`、单文件 `1MB`、总 diff `5MB`
+- 测试覆盖了 agent 隔离、CallID 幂等、TTL 清理、fallback、预脏文件排除
+
+---
+
+## 2.5 `eventsurface/`：事件表面 / 推送协议映射
+
+**职责**
+
+- 把 bus 上的内部 DTO 事件映射成前端/客户端可消费的方法名和 payload
+- 为 agent/thread/turn/tool/UI 事件补齐统一 JSON 负载
+- 在新协议之外追加 legacy 刷新通知
+
+**核心类型**
+
+- `PublishFunc`
+- `Notification`
+
+**关键 API**
+
+- `Bind(dispatcher, logger, publish)`
+- `ExpandNotifications(method, payload)`
+
+**文件导览**
+
+- `bind.go`：核心映射，定义 surface method 常量，并订阅 agent/thread/turn/tool/ui 事件
+- `bind_payloads.go`：agent 生命周期 payload 组装
+- `legacy.go`：在新通知之外追加 `ui/thread/changed`、`ui/sidebar/changed` 兼容刷新事件
+
+**实现要点**
+
+- `Bind()` 覆盖的不只是 thread/turn/tool，也包括 `AgentLaunched/Stopped/Recovering/Failed/RuntimeReported`、`SkillsChanged`、`UIPreferencesChanged`、`UIProjectionUpdated`、`UIThreadPatch`
+- `TurnOutputDelta` 会按 `stream` 细分成 `item/agentMessage/delta`、`item/reasoning/textDelta`、`item/commandExecution/outputDelta`
+- `ToolApprovalRequested` 会按 `Kind` 路由到 command/fileChange/skill 不同方法名
+- `UIProjectionUpdated` 会直接映射到 `ui/thread/changed` 或 `ui/sidebar/changed`
+- `UITokensUpdated` 仍会发出兼容性方法 `thread/tokenusage/updated`
+- `legacy.go` 会跳过 `ui/thread/patch`、token usage、streaming delta，以及 `workspace/run/*` 这类不应触发双重刷新的方法
+- 这是 `rpc.PushBridge` 对外推送时最重要的协议整形层
+
+---
+
+## 2.6 `historyjsonl/`：Provider 持久化历史读取
+
+**职责**
+
+- 从 Codex / Claude 的 JSONL 历史文件中恢复消息页
+- 在实时 session 不可用时提供持久化历史旁路读取
+
+**核心类型**
+
+- `ReadRequest`
+
+**关键 API**
+
+- `ReadProviderMessages(req)`
+
+**文件导览**
+
+- `history.go`：路径发现、逐行扫描、Codex/Claude 两种 JSONL 格式解析、消息正文抽取、时间解析
+
+**实现要点**
+
+- `ReadRequest.RolloutPath` 非空时会直接绕过自动发现逻辑
+- Claude 优先从 `CLAUDE_HOME/projects/*/<session>.jsonl` 找文件
+- Codex 从 `~/.codex/sessions/.../rollout-*-<thread>.jsonl` 找最新匹配
+- 只保留 `user/assistant` 且非空消息
+- 上层主要由 thread 模块在 session 不可用时做“持久化历史回退读取”
+
+---
+
+## 2.7 `hooks/`：Hook 三阶段拦截系统
+
+**职责**
+
+- 提供 `before / check / after` 三阶段 Hook 订阅、分发、合并、升级（escalate）与 resolve
+- 提供从 bus 观察事件到 hook topic 的 observed-after relay
+- 管理订阅 lease、连续失败 peer 清理、pending review 持久化
+
+**核心类型**
+
+- `HookRegistry`
+- `HookDispatcher`
+- `HookResolver`
+- `Manager`
+- `Subscription`
+- `MergeResult[T]`
+- `DispatcherOption` / `ManagerOption` / `ResolverOption`
+
+**关键 API**
+
+- Registry：`NewHookRegistry()` / `Subscribe()` / `GetSubscribers()` / `GetSubscribersBySelector()` / `GetSubscription()` / `Unsubscribe()`
+- Dispatcher：`NewHookDispatcher()` / `WithDispatcherParallelism()` / `WithPeerTimeout()` / `DispatchBefore()` / `DispatchCheck()` / `DispatchAfter()`
+- Resolver：`NewHookResolver()` / `WithResolverTTL()` / `WithResolverLogger()` / `Escalate()` / `Resolve()` / `ListPendingReviews()` / `CancelByLease()` / `CancelByAgent()` / `SweepExpired()` / `RecoverOnStartup()`
+- Manager：`NewManager()` / `WithMaxHookDepth()` / `WithManagerLogger()` / `Subscribe()` / `DispatchBefore()` / `DispatchCheck()` / `DispatchAfter()` / `Resolve()` / `GetPendingReviews()` / `ShutdownHooks()`
+
+**文件导览**
+
+- `points.go`：定义平台 hook topic 常量，如 `agent.turn.before`、`agent.tool.after` 等
+- `registry.go`：按 lease 存储订阅，请求 hash 幂等、版本递增、scope 过滤
+- `dispatcher.go`：并行 fanout、peer timeout、panic recovery、连续失败计数
+- `factory.go`：阶段通用模板、selector 构造、决策归一化、丢失订阅者清理
+- `merge.go` / `merge_check.go` / `merge_after.go`：三阶段决策合并
+- `merge_common.go` / `merge_support.go`：lease 去重、tool set 交并处理
+- `resolver.go`：`escalate -> pending review -> resolve` 的持久化闭环
+- `manager.go`：把 registry/dispatcher/resolver 组合成对外 `HookManager`
+- `event_relay.go`：把总线观察事件映射到 after hooks：`Started -> TopicSessionStart`、`Stopped -> TopicProcessExit`、`StateChanged -> TopicStateChange`、`TurnCompleted -> TopicTurnAfter`、`TurnInterrupted -> TopicTurnFailed`、最终答复 `ItemCompleted -> TopicTurnProgress`
+- `module.go`：fx 装配、启动时读回 pending review、注册 event relay
+
+**实现要点**
+
+- `registry.Subscribe()` 用 `subscription_id + requestHash` 做幂等；同 lease 新订阅会递增版本并替换旧订阅
+- scope 过滤不是泛泛而谈，而是精确匹配 `agentID/threadID/clientKind/instanceID`
+- `prepareDispatch` 会 clone payload、`Depth++`、补 `Topic` 与 `HookCallID`
+- 默认最大深度 `defaultMaxHookDepth = 3`，用于防递归
+- **before 合并优先级**：`deny > wait > modify > allow`；`AllowedTools` 取交集，`DeniedTools` 取并集
+- **check 合并优先级**：`abort > warn > continue`
+- **after 合并优先级**：`reject > escalate > approve`
+- before 阶段若出现局部失败，`Manager` 采取 **fail closed（拒绝）**
+- check 阶段即使有局部失败，也只在 `MergeResult` 中保留 `PartialFailure/FailedLeases` 元信息，不额外改写 merged decision
+- after 阶段局部失败会保留成功决策；若最终为 `escalate`，则把获胜订阅者 lease 与 TTL 持久化成 pending review
+- 连续失败达到阈值（3）会把订阅者视为 lost，并自动 `Unsubscribe + CancelPendingReviewsByLease`
+- `RecoverOnStartup()` 负责从 store 读回 pending review 供后续查询/恢复；模块启动时只是记录已恢复数量，不会主动重放审批回调
+- 测试覆盖了多订阅者冲突合并、escalate/resolve、scope 过滤、丢失订阅者自动清理、并发 dispatch/shutdown
+
+---
+
+## 2.8 `mcpcontrol/`：MCP 控制平面
+
+**职责**
+
+- 管理外部 MCP tool peer 的注册、心跳、上下文查询、事件/日志上报、审批、hook RPC、报告上报
+- 维护租约（lease）、选择器索引、fanout、stale peer 清扫
+- 把外部 peer 的控制面输入衔接到 bus、hook、orchestration 等内部系统
+
+**核心类型**
+
+- `ToolRegistry`
+- `ToolInstance`
+- `LeaseKey`
+- `Peer`
+- `RegistryOptions`
+- `Sweeper` / `SweepResult` / `SweeperOptions`
+- `RuntimeReportHandler` / `CompletionReportHandler`
+- `HandlerDeps`
+- `AgentContextSource` / `ContextProvider` / `EventSink` / `LogSink`
+
+**关键 API**
+
+- Registry：`NewRegistry()` / `NewToolRegistry()` / `Register()` / `Heartbeat()` / `GetInstance()` / `ShutdownInstance()` / `OnDisconnect()` / `FindActiveByKind()` / `IntersectTargets()`
+- Notify/Callback：`NotifyBySubscription()` / `NotifyByCapability()` / `NotifyBySelector()` / `NotifyConfigChanged()` / `CallbackBefore()` / `CallbackCheck()` / `CallbackAfter()` / `CallbackHookBefore()` / `CallbackHookCheck()` / `CallbackHookAfter()`
+- Sweeper：`NewSweeper()` / `NewSweeperWithOptions()` / `Run()` / `Sweep()`
+- RPC handlers：`NewHandlers(...)`
+
+**文件导览**
+
+- `registry.go`：租约表、索引表、register/heartbeat/shutdown 主流程
+- `registry_support.go`：注册请求规范化、lease 校验、report receipt 幂等、索引维护
+- `registry_helpers.go`：hook cleanup、config version、active lease 清理辅助
+- `fanout.go`：selector 交集求活跃 target、fanout worker、失败计数/驱逐
+- `router.go`：`NotifyBySelector()`、`NotifyConfigChanged()`，以及 hook callback 到指定 topic/lease
+- `handlers.go`：注册 `ctl/*` RPC 处理器：register、heartbeat、context、event、log、approval、hook、report
+- `handlers_hooks.go`：hook subscribe/resolve/pending 的 RPC 封装与“当前 jrpc 连接对应 lease”解析
+- `resolution.go`：context payload 组装、按 client kind 查找 active instance
+- `report_handlers.go`：runtime/completion report 分发到 orchestration service
+- `config_change.go`：监听 bus 的 agent/thread 生命周期事件，提升 `configVersion` 并通知相关 peer
+- `peers.go`：`jrpcPeer`，把当前 jrpc2 server 包装成 `Peer`
+- `sweeper.go`：heartbeat TTL/stale grace 定时清扫
+- `errors.go` / `factory.go`：错误码工厂、通用 handler 适配、hook 错误映射、fanout 执行器
+- `module.go`：fx 装配、生命周期注册
+
+**实现要点**
+
+- `ToolRegistry` 同时按 `subscription/capability/agent/thread/clientKind/instance/peerKind` 建索引
+- 同一 `InstanceID` 重注册会递增 generation，并驱逐旧连接
+- `IntersectTargets` 会优先走最小 bucket，再做 O(1) 交集检查
+- `Heartbeat(status=disconnected)` 与 `OnDisconnect()` 都会触发 lease 驱逐与 hook 清理
+- `ContextProvider` 默认支持 `agent runtime`、`thread binding`、`workspace run`、`config snapshot` 四类 scope
+- `defaultEventSink` 会把 `ctl/event` 事件转成总线内的 `controlEvent`；`defaultLogSink` 则做结构化日志镜像
+- report 支持幂等 receipt：相同 `report_id + fingerprint` 直接复用响应；冲突则报错
+- 默认 report handler 只接受 `runtime` / `completion`，`progress` / `diagnostic` 当前明确返回 unsupported
+- hook RPC 处理器通过 `jrpc2.ServerFromContext(ctx)` 反查“当前连接对应的 lease”
+- `config_change.go` 让 MCP peer 拿到 agent/thread 绑定变化，而不需要轮询
+- `Sweeper` 默认：5s tick、30s heartbeat TTL、5s stale grace
+
+---
+
+## 2.9 `pidregistry/`：子进程 PID 注册与孤儿清理
+
+**职责**
+
+- 把 app 派生子进程登记到 `/tmp/super-agent-pids-<appPid>.json`
+- 在应用重启时清理死应用实例遗留的子进程
+- 提供兼容旧清理逻辑的 stale 文件扫描辅助
+
+**核心类型**
+
+- `Registry`
+- `ChildInfo`
+
+**关键 API**
+
+- `New()`
+- `Register(pid, kind, meta)` / `Unregister(pid)` / `Close()`
+- `CleanupStale()` / `HasStaleFiles()` / `StaleChildCount()` / `StaleAppPIDs()`
+- `RegistryFilesMatchingKind(kind)` / `ParsePIDFromFilename(name)`
+
+**文件导览**
+
+- `pidregistry.go`：全部实现都在一个文件里，包含持久化、stale 文件扫描、SIGTERM/SIGKILL 清理、文件名 PID 解析
+
+**实现要点**
+
+- 先批量 `SIGTERM`，统一等待 `orphanKillGrace=3s`，再对存活进程 `SIGKILL`
+- `forceKill` 先杀进程组，再杀单 PID
+- 文件落盘采用 `tmp + rename` 原子替换
+- `codexapp.ServerManager` / `claudecli` 会使用它做 crash-safe 清理
+
+---
+
+## 2.10 `rpc/`：JSON-RPC 框架与推送/审批体系
+
+**职责**
+
+- 提供统一 jrpc2 服务端、handler middleware、WebSocket/TCP transport、客户端推送桥、审批生命周期
+
+**核心类型**
+
+- `Server`
+- `PushBridge`
+- `ApprovalManager`
+- `ApprovalRequest`
+- `Middleware`
+- `CapabilityResolver`
+- `PayloadEncoder`
+
+**关键 API**
+
+- `NewServer()` / `(*Server).Register()` / `Run()` / `Dispatch()` / `NotifyAll()` / `OnConnect()` / `OnConnectUI()` / `PeerKind()`
+- `Wrap()` / `Logging()` / `Validate()` / `ThreadScope()` / `CapabilityGate()` / `ThreadHandler()` / `CapabilityThreadHandler()` / `StrictHandler()` / `RawHandler()`
+- `NewPushBridge()` / `NotifyClient()` / `CallbackClient()`
+- `NewApprovalManager()` / `RequestApproval()` / `RequestUserInput()` / `Respond()` / `AutoApprove()` / `RestorePending()` / `Cleanup()` / `PendingSnapshot()`
+- `WithApprovalDeadline()` / `WithApprovalAutoDeclineOnCancel()`
+- `WSHandler(server, opts)`
+
+**文件导览**
+
+- `server.go`：核心服务端；管理 active peer、`OnConnect` hook、本地 dispatch、请求跟踪与日志
+- `transport_ws.go`：WebSocket -> jrpc2 channel 适配；UI peer 通过这里接入
+- `handler.go`：middleware 体系；`ThreadScope` 注入 threadId，`CapabilityGate` 做 provider capability 校验
+- `strict.go`：严格 object-only typed handler 与 `RawHandler`
+- `push.go`：把 bus/eventsurface/provider raw event 桥接成 RPC push
+- `approval.go`：审批主状态机（pending 注册、去重、dispatch、wait、finish）
+- `approval_support.go`：审批 request 规范化、默认超时、payload 解码、自动批准/自动拒绝逻辑
+- `approval_events.go`：审批请求/决议映射成 bus 事件，并维护 callback method catalog
+- `approval_lifecycle.go`：过期清理、重连恢复 pending approvals、`PendingSnapshot()`
+- `module.go`：fx 装配，注册 grouped handlers、event bridge、approval lifecycle
+- `factory.go`：通用工具函数、approval method alias、RPC error 包装
+- `codec.go`：统一 success/error payload 包装
+- `errors.go` / `errors_helper.go`：平台自定义 RPC 错误码
+
+**实现要点**
+
+- `Server.Run` 监听 TCP，使用 `channel.Line` 接 MCP/tool peer；`WSHandler` 给 UI 用，peer kind 标为 `ui`
+- `Server.Dispatch` 允许本地进程内直调 handler，Wails 层会用到
+- `prepareServerOptions` 强制 `AllowPush=true`
+- `Server` 会维护 active peer 表，并支持 `OnConnect` / `OnConnectUI` 回调；审批恢复就挂在这里
+- `rpcRequestTracker` 会记录 pending request，在连接异常退出时打印未完成请求清单
+- `baseThreadHandler()` 的默认链路是 `Validate + ThreadScope + extras`；`Logging` 是可选 middleware，不是默认强制项
+- `CapabilityGate` 通过 `contract.SessionResolver` 反查线程当前 provider session 的 capability set
+- `PushBridge` 有两条输入：`eventsurface.Bind()` 生成的 typed surface 事件，以及 `providerdto.BusRawProviderEvent` 的白名单直推；已知 typed method 会被过滤以避免重复推送
+- 审批系统支持：
+  - 基于 `callID + requestID` 的 pending 去重；同一 pending 的“首个 owner”负责真正 dispatch，后续调用者只等待结果
+  - callback method alias 归一化：默认 `approval/request`，`request_user_input` 默认映射到 `item/commandExecution/requestApproval`
+  - UI callback 返回值可以是 `bool`、`string` 或 object payload
+  - `Respond()` 可按 `callID` 或 `requestID` 收敛 pending；`AutoApprove()` 是快捷封装
+  - `approvalPolicy=never` + `request_user_input` 自动批准
+  - 无前端/桥接缺失时自动拒绝；可选 `WithApprovalAutoDeclineOnCancel()` 在取消时 fail-closed
+  - 可恢复的连接中断不会立刻丢失 pending，而是交给 `RestorePending()` 在 UI 重连后重放
+  - `ToolApprovalRequested` / `ToolApprovalResolved` 会通过 bus 发事件
+
+---
+
+## 2.11 `runner/`：并发运行器编排
+
+**职责**
+
+- 用 `oklog/run.Group` 统一运行多个 runner，并处理 ctx 取消与 OS signal
+
+**核心类型**
+
+- `Runner`
+- `GroupOptions`
+
+**关键 API**
+
+- `RunGroup(ctx, runners, options)`
+
+**文件导览**
+
+- `group.go`：context actor、signal actor、runner actor 组装；actor panic 保护
+- `module.go`：空 fx module，占位用于装配
+
+**实现要点**
+
+- `EnableSignals` 开启时会监听 `SIGINT/SIGTERM`
+- 常用于 app、Wails、MCP sidecar 的主循环编排
+
+---
+
+## 2.12 `shared/`：共享基础工具
+
+**职责**
+
+- 提供跨平台层/模块通用的小型纯函数与安全辅助
+
+**文件导览**
+
+- `ctxutil.go`：`NonNilContext`、`CheckCtx`
+- `hookutil.go`：`NormalizeSelectorScope`
+- `idgen.go`：`NewID(prefix)`
+- `jsonutil.go`：JSON decode/clone、selector/hook payload clone、`FilterKeys`、runtime config clone、绝对路径规范化
+- `log_error.go`：忽略错误但保留日志
+- `pathscope.go`：`NormalizeRelativePath` 与 `ContainsPath`
+- `retry.go`：`Retry` / `RetryWithPolicy`，支持指数退避 + jitter + OnRetry
+- `safe_go.go`：goroutine panic recovery
+- `search.go`：逐行 literal/regex 搜索器
+- `timeparse.go`：宽松 RFC3339 解析、历史 metadata 解码、time clone
+- `turnutil.go`：远程 turn 输入 URL 检测
+- `validation.go`：`FirstNonEmpty`、`FirstTrimmed`、`ClampLimit`、payload string 提取
+
+**实现要点**
+
+- `shared` 是全平台复用频率最高的工具箱
+- 很多平台包的“拷贝防变异”语义都依赖 `CloneRawMessage/CloneJSONMap/CloneStrings/CloneSelector/CloneHookPayload`
+
+---
+
+## 2.13 `statemachine/`：状态机薄封装
+
+**职责**
+
+- 把 `stateless` 包装成更贴近项目风格的配置结构
+- 允许外部存储状态，而不是内嵌状态字段
+
+**核心类型**
+
+- `Permit`
+- `StateConfig`
+- `Config`
+
+**关键 API**
+
+- `New(cfg, accessor, mutator)`
+- `AllowedTriggers(sm, ctx)`
+
+**文件导览**
+
+- `factory.go`：全部实现；支持 guard、OnEntry、OnExit，使用 `FiringQueued`
+- `module.go`：空 fx module
+
+**实现要点**
+
+- 平台包本身不定义业务状态，只定义**状态机搭建方式**
+- 真实状态图来自上层 DTO/业务定义，再经这里装配
+
+---
+
+## 2.14 `toolbridge/`：Provider <-> MCP Tool 桥接
+
+**职责**
+
+- 把 Provider（当前主要是 `codexapp`）收到的 tool call / list tools 请求，转发给 MCP tool peer
+- 在转发前后挂接 `difftracker`
+
+**核心类型**
+
+- `Handler`
+- `ToolCallRequest`
+- `ToolCallResult`
+
+**关键 API**
+
+- `NewHandler()`
+- `HandleToolCall(ctx, codexapp.RawMessage)`
+- `ListToolsForCodex(ctx)`
+
+**文件导览**
+
+- `handler.go`：tool call 解析、peer 路由、`tools/list` 汇总、diff snapshot 与 merge
+- `types.go`：请求/响应结构、错误、tool -> clientKind 分类
+- `module.go`：把 handler 注入 `codexapp.ServerManager` 与 `DriverFactory`，并装配 diff aggregator/emitter/workdir resolver/cleanup lifecycle
+
+**实现要点**
+
+- `decodeToolCallRequest()` 会兼容多种字段别名，并能从嵌套 `item` / `thread` 结构里补出 `name/threadId/callId`
+- `classifyTool()` 目前把 `lsp_*`、`code_run`、`code_run_test` 路由到 `ClientKindLSP`，其余走 `ClientKindOrch`
+- `routeToolCall()` 通过 `mcpcontrol.ToolRegistry.FindActiveByKind()` 找活跃 peer；0 个报 `ErrNoPeerAvailable`，多个报 `ErrAmbiguousPeer`
+- 对 `tools/call` 的 peer callback 若返回错误，不会上抛 Go error，而是转换成 `ToolCallResult{Success:false}` 返给 Provider
+- `ListToolsForCodex()` 会分别等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），调用各自的 `tools/list`，再转换成 `codexapp.DynamicToolSchema`
+- 当前 `tools/list` 只取每类 client kind 的第一个活跃 peer；而 `tools/call` 则要求同类 peer 唯一
+- 只有 `code_run`、`code_run_test`，以及 `lsp_edit(rename/format/code_action/replace_range)` 会在调用前拍 git snapshot
+- `mergeContext()` 会把 `threadID + arguments + snapshot` 注入 `difftracker.WithToolCallContext()`，调用完成后再执行 `aggregator.Merge(...)`
+- agent 停止、失败或不可恢复 `AgentError` 时会清理该 agent 的 diff session
+
+---
+
+## 3. 事件系统：bus 的 pub/sub 机制
+
+platform 的事件链路大致是：
+
+```text
+上层模块 emit / event.Publish
+  -> bus.Dispatcher
+  -> 订阅者：
+     - bus.LogSink
+     - eventsurface.Bind（DTO -> surface method）
+     - rpc.subscribeRawProviderEventPushes（provider raw event -> push 白名单）
+     - hooks.startEventRelay
+     - mcpcontrol.registerConfigChangeSubscriptions
+     - toolbridge cleanup lifecycle
+  -> rpc.PushBridge.NotifyAll / Hook after / MCP config changed / structured logs
+
+MCP peer ctl/event
+  -> mcpcontrol.defaultEventSink
+  -> bus controlEvent
+```
+
+### 3.1 发布
+
+- 上层通常不直接手写 `event.Publish`，而是用 `bus.NewEmitter[T]` 生成 typed publisher
+- `internal/module/thread`、`skill`、`uistate` 等模块都按这个模式发 DTO 事件
+- 控制面事件也能反向注入总线：MCP peer 发 `ctl/event` 时，`mcpcontrol.defaultEventSink` 会发布内部 `controlEvent`
+
+### 3.2 订阅
+
+- 基础订阅：`event.Subscribe(dispatcher, handler)`
+- 平台推荐订阅：`bus.ResilientSubscribe[T]`
+  - 自动 `recover()`
+  - 将 panic 记录为日志，不让单个 handler 破坏 bus
+- `bus.Route[T]` 只是 `event.Subscribe` 的薄包装；真正负责批量解绑的是 `Router/Subscription`
+
+### 3.3 生命周期管理
+
+- `Subscription` 聚合 cancel func，适合批量解绑
+- `Router` 进一步把“处理函数注册”和“统一关闭”组织起来
+- `bus.Module` 在 `OnStop` 里关闭 `LogSink` 与 `Dispatcher`
+
+### 3.4 总线上的主要下游
+
+- **`eventsurface`**：内部 DTO -> 对外推送方法
+- **`rpc.PushBridge`**：把 `eventsurface` 通知和 provider raw event 白名单广播给 UI/RPC 客户端
+- **`hooks.event_relay`**：把 bus 观察事件转成 Hook after topic
+- **`mcpcontrol.config_change`**：把 agent/thread 生命周期变化通知到已注册的 MCP peer
+- **`toolbridge` cleanup lifecycle**：在 agent 停止/失败时清理 diff session
+- **`LogSink`**：统一日志落盘
+
+---
+
+## 4. RPC 框架：transport 与 dispatch 设计
+
+## 4.1 Transport 层
+
+### 4.1.1 Tool/MCP peer 传输
+
+- `Server.Run()` 在 `Config.RPCAddr` 上启动 TCP listener
+- `acceptLoop()` 使用 `jrpc2/server.NetAccepter(listener, channel.Line)` 接收连接
+- `serveConn()` 为每个连接启动一个 jrpc2 server
+- 这些连接被标记为 `PeerKindTool`
+
+### 4.1.2 UI 传输
+
+- `WSHandler()` 把 WebSocket 包装为 `wsChannel`（实现 `channel.Channel`）
+- 建立连接后创建 jrpc2 server，并把 peer kind 标记为 `ui`
+- UI 连接建立后会触发 `Server.notifyConnected()`，从而恢复 pending approvals 等
+
+### 4.1.3 本地直调
+
+- `Server.Dispatch(ctx, method, params)` 基于 `jrpcserver.NewLocal()` 做进程内 dispatch
+- 这是 Wails/本地 binding 层的重要桥接点
+
+## 4.2 Dispatch 层
+
+### 4.2.1 Handler 注册
+
+- 每个模块通过 `rpc.HandlerMapResult` 向 fx group `rpc_handlers` 提供 `handler.Map`
+- `rpc.Module` 中 `registerAllHandlers()` 把这些 map 合并进 `Server.methods`
+
+### 4.2.2 严格解码与 middleware
+
+- `StrictHandler()`：只接受 object params，且 strict decode
+- `RawHandler()`：保留原始 `*jrpc2.Request`
+- `ThreadScope()`：从 `threadId/threadID/thread_id` 参数里提取 threadId 注入 context
+- `CapabilityGate()`：基于当前线程 session 的 capability 拦截请求
+- `ThreadHandler()` / `CapabilityThreadHandler()` 的基础链路来自 `baseThreadHandler()`，默认包含 `Validate + ThreadScope`
+- `Logging()` 是可选 middleware，不是默认强制链路的一部分
+
+### 4.2.3 连接管理与请求跟踪
+
+- `Server.active` 跟踪所有活跃 jrpc2 server，并记录 peer kind
+- `OnConnect` / `OnConnectUI` 支持注册连接到达 hook；注册时也会立即遍历当前已活跃连接
+- `rpcRequestTracker` 记录 pending request；连接异常退出时打印未完成请求元信息
+- `prepareServerOptions()` 强制 `AllowPush=true`
+
+## 4.3 Push 与审批
+
+### 4.3.1 Push
+
+- `PushBridge.NotifyClient()` / `CallbackClient()` 封装 jrpc2 push/callback
+- `subscribeCoreEventPushes()` = `eventsurface.Bind()` + `subscribeRawProviderEventPushes()`
+- typed DTO 事件会先经过 `eventsurface.ExpandNotifications()`，因此除主通知外还可能追加 legacy `ui/thread/changed` / `ui/sidebar/changed`
+- provider raw event 会先做 method 归一化和白名单过滤；已知 typed method 会被 `typedPushMethods` 排除，避免重复直推
+- `broadcastNotifications()` 最终通过 `Server.NotifyAll()` 广播到所有活跃 peer
+
+### 4.3.2 Approval
+
+- `ApprovalManager.RequestApproval()` 会：
+  1. 规范化 `ApprovalRequest` 并应用默认 deadline
+  2. 以 `callID + requestID` 注册/复用 pending
+  3. 发布 `ToolApprovalRequested` 总线事件
+  4. 选择 callback method 并向 UI 发 callback，或走自动决策分支
+  5. 等待响应并发布 `ToolApprovalResolved`
+- callback method 由 alias catalog 统一归一化：默认 `approval/request`，`request_user_input` 缺省走 `item/commandExecution/requestApproval`
+- callback 结果支持 `bool`、`string`、object 三种解码形式
+- `Respond()` 可按 `callID` 或 `requestID` 命中 pending；`AutoApprove()` / `RequestUserInput()` 是便捷封装
+- 无前端/桥接缺失时会自动拒绝；`approvalPolicy=never` + `request_user_input` 会自动批准
+- 可恢复的断线不会立即 fail，而是保留 pending，交给 `RestorePending()` 在 UI 重连时重放
+- 生命周期层会在启动时尝试恢复、后台定时清理过期 approval，并在停机时给一个 5s grace 再强制 cleanup
+
+**一句话总结**：`rpc` 包把“连接方式”“handler 编排”“服务端推送”“审批协作”四件事统一到了同一套 jrpc2 基础设施上。
+
+---
+
+## 5. 状态机：`statemachine` 的状态转换设计
+
+`statemachine` 包本身是**通用状态机搭建器**，而不是业务状态定义者。
+
+### 5.1 建模方式
+
+- `Config.Initial`：初始状态
+- `StateConfig`：每个状态的定义
+  - `Name`
+  - `Permits []Permit`
+  - `OnEntry/OnExit`
+- `Permit`：一条边
+  - `Trigger`
+  - `Dest`
+  - `Guard(ctx, args...)`
+
+### 5.2 运行时设计
+
+- `New(cfg, accessor, mutator)` 使用 **外部状态存储** 构造 `stateless.StateMachine`
+- 若未提供 accessor/mutator，会退化为内部局部变量状态
+- 使用 `stateless.FiringQueued`，避免 reentrant fire 造成混乱
+- `AllowedTriggers()` 提供当前状态可触发 trigger 列表
+
+### 5.3 上层实际用法
+
+在 `cmd/mcp-orch/orchestration/service.go` 中：
+
+- `service.machineCfg` 来自 `agentdto.TransitionDefinitions`
+- `newAgentLocked()` 为每个 `agentRuntime` 创建一个状态机
+- 状态实际存放在 `agentRuntime.state`
+- 平台层只负责“状态机运行框架”，业务层负责“状态图定义与触发时机”
+
+因此，这个包的定位是：**为 orchestration 等上层模块提供一致、可外置状态存储的状态机语义**。
+
+---
+
+## 6. 工具桥接：`toolbridge` 如何连接 MCP tool 和 Provider
+
+当前主要桥接链路发生在 `codexapp` Provider：
+
+```text
+Codex session 收到 inbound tool request
+  -> codexapp.session.onInboundMessage()
+  -> ServerManager.getToolHandler()
+  -> toolbridge.Handler.HandleToolCall()
+  -> decodeToolCallRequest()
+  -> mergeContext(threadID, arguments, optional snapshot)
+  -> mcpcontrol.ToolRegistry.FindActiveByKind()
+  -> 选中 MCP peer，发起 peer.Callback("tools/call")
+  -> adaptMCPResponse()
+  -> difftracker.Merge()
+  -> emit tooldto.ToolDiffUpdated
+```
+
+### 6.1 Provider 侧接入点
+
+- `toolbridge.Module` 在 `bindCodexHandlers()` 中调用：
+  - `codexapp.ServerManager.SetToolHandler(h.HandleToolCall)`
+  - `codexapp.DriverFactory.SetListTools(h.ListToolsForCodex)`
+- `codexapp.session.onInboundMessage()` 遇到 `item/tool/call` / `dynamic_tool_call` / `tool.call.begin` 时，会异步转给 `toolHandler`
+
+### 6.2 MCP tool 侧接入点
+
+- `cmd/mcp-orch/fx.go` 在 bootstrap config 中显式注册：
+  - `OnToolsList`
+  - `OnToolsCall`
+- 也就是说，toolbridge 面向的是一组**注册到 mcpcontrol 的外部工具 peer**，而不是直接调用内部 Go 对象
+
+### 6.3 路由规则
+
+- `classifyTool(name)` 决定应该找哪类 peer：
+  - `lsp_*`、`code_run`、`code_run_test` -> `ClientKindLSP`
+  - 其他 -> `ClientKindOrch`
+- `routeToolCall()` 要求同类活跃 peer 唯一；否则直接 fail fast
+- `ListToolsForCodex()` 会分别等待 orch / lsp peer 就绪后再调 `tools/list`；默认最多等待 10 秒，每 300ms 轮询一次
+- `tools/list` 当前只使用每类 client kind 的第一个活跃 peer
+
+### 6.4 与 difftracker 的耦合
+
+- `mergeContext()` 会把 `threadID`、原始 `arguments`、以及可选 git snapshot 放进 `context.Context`
+- 只有可能改文件的调用会先 `beginSnapshot()`：`code_run`、`code_run_test`，以及 `lsp_edit(rename/format/code_action/replace_range)`
+- 调用完成后执行 `aggregator.Merge(...)`
+- diff 变化通过 `ToolDiffUpdated` 事件抛回总线
+- agent 停止、失败或不可恢复 error 时自动清理 diff session
+
+### 6.5 错误语义
+
+- 找不到 peer / peer 歧义时，`toolbridge` 返回 Go error
+- 已找到 peer 但 `tools/call` callback 失败时，会返回 `Success=false` 的 `ToolCallResult` 给 Provider，而不是直接上抛异常
+- diff merge 是 best-effort：失败只记 warning，不影响主工具结果
+
+**结论**：`toolbridge` 不是工具执行器，而是 **Provider 协议层 与 MCP 工具进程层之间的转接器**。
+
+---
+
+## 7. 跨模块依赖：platform 被上层哪些模块使用
+
+## 7.1 应用装配层
+
+- `internal/app/modules.go` 直接装配：
+  - `config.Module`
+  - `db.Module`
+  - `bus.Module`
+  - `rpc.Module`
+  - `hooks.Module`
+  - `mcpcontrol.Module`
+  - `runner.Module`
+  - `statemachine.Module`
+  - `pidregistry.New`
+  - `toolbridge.Module`
+
+这说明 platform 层就是 desktop app 的基础底盘。
+
+## 7.2 核心业务模块
+
+- `internal/module/thread`：大量使用 `bus`、`db`、`config`、`rpc`、`historyjsonl`、`shared`
+- `internal/module/turn`：使用 `config`、`rpc`、`shared`
+- `internal/module/uistate`：使用 `bus`、`config`、`db`、`rpc`
+- `internal/module/skill` / `dashboard` / `lspgui`：使用 `bus`、`config`、`rpc`
+
+## 7.3 Provider 层
+
+- `internal/provider/codexapp`：依赖 `rpc`、`shared`、`config`、`pidregistry`，并通过 `toolbridge` 注入 tool handler / list tools
+- `internal/provider/claudecli`：依赖 `config`、`shared`、`pidregistry`
+- `internal/provider/unified`：依赖 `config`、`shared`、`db`
+
+## 7.4 MCP/Sidecar 进程
+
+- `cmd/mcp-orch`：依赖 `config`、`bus`、`db`、`shared`、`statemachine`
+- `cmd/mcp-lsp` / `cmd/mcp-ida`：依赖 `config`、`runner`
+
+## 7.5 Store 与基础 IO 层
+
+- `internal/store/*` 广泛依赖 `db`
+- `internal/ui/wails/*` 依赖 `rpc`、`eventsurface`、`shared`、`config`、`runner`
+
+## 7.6 关键跨模块链路
+
+1. **thread / skill / uistate emit bus events**
+   - `bus` -> `eventsurface` -> `rpc.PushBridge` -> UI
+2. **bus events -> hooks event relay**
+   - 运行态事件 -> Hook after
+3. **bus events -> mcpcontrol config change**
+   - agent/thread 生命周期变化 -> MCP peer 配置更新通知
+4. **codexapp tool calls -> toolbridge -> mcpcontrol registry -> MCP peer**
+5. **tool call result -> difftracker -> ToolDiffUpdated -> UI push**
+6. **orchestration service -> statemachine**
+   - agent runtime state 由平台状态机承载
+
+---
+
+## 8. 总结
+
+platform 层不是单一“工具包”，而是一组彼此协作的基础设施：
+
+- `bus + eventsurface + rpc` 负责**事件传播与对外推送**
+- `hooks + mcpcontrol` 负责**外部进程协作与控制面治理**
+- `toolbridge + difftracker` 负责**Provider 到 MCP tool 的执行桥与改动回流**
+- `config + db + shared + runner + statemachine + pidregistry` 负责**基础运行时语义**
+- `historyjsonl` 负责**Provider 历史回放旁路**
+
+如果从项目架构角度看，platform 层承担的是 super-agent-v3 的“内核底座”角色：
+
+- 向上给业务模块提供稳定的基础语义
+- 向外给 UI、Provider、MCP sidecar 提供统一接入面
+- 向下隔离第三方库与运行时细节
+
+## 审查补遗
+
+- 补全了 `eventsurface` 对 agent 生命周期、`thread/compacted`、UI projection 与 legacy refresh 抑制条件的说明。
+- 修正了 Hook 章节里“启动恢复”的语义：`RecoverOnStartup()` 是读回 pending review 供查询/恢复，不是主动重放审批回调；同时补上了 event relay 的精确 topic 映射。
+- 补充了 RPC 章节中 push 双通道（typed surface + provider raw whitelist）、approval alias/catalog、断线恢复、停机清理与 `Respond(callID/requestID)` 语义。
+- 补充了 `mcpcontrol` 的 selector 交集、context scope、`ctl/event` 入总线、report 幂等与 unsupported variant 说明。
+- 补充了 `toolbridge` 的 peer 就绪轮询、`tools/call` 失败返回 `Success=false`、以及 snapshot 触发条件的精确范围。

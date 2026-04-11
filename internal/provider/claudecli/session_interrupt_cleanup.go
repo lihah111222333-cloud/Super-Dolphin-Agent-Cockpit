@@ -1,0 +1,48 @@
+package claudecli
+
+import (
+	"log/slog"
+	"syscall"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
+)
+
+const interruptTransportGracePeriod = 2 * time.Second
+
+var settleInterruptedTransport = func(tr *transport) error {
+	return settleInterruptedTransportWithTimeout(tr, interruptTransportGracePeriod)
+}
+
+func settleInterruptedTransportWithTimeout(tr *transport, grace time.Duration) error {
+	if tr == nil {
+		return nil
+	}
+	if err := normalizeSignalError(tr.signalProcess(syscall.SIGINT)); err != nil {
+		return tr.Kill()
+	}
+	if grace > 0 {
+		tr.waitForExit(grace)
+	}
+	if tr.Running() {
+		return tr.Kill()
+	}
+	tr.closeInput()
+	return nil
+}
+
+func cleanupInterruptedTransport(logger *slog.Logger, reg *pidregistry.Registry, tr *transport, cleanup func()) {
+	if tr == nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		return
+	}
+	unregisterTransportPID(reg, tr)
+	if err := settleInterruptedTransport(tr); err != nil && logger != nil {
+		logger.Warn("claudecli: interrupt transport cleanup failed", "error", err)
+	}
+	if cleanup != nil {
+		cleanup()
+	}
+}
