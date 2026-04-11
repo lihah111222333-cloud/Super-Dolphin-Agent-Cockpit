@@ -90,6 +90,36 @@ func TestGetStateDiffSnapshotHonorsKnownRevision(t *testing.T) {
 	}
 }
 
+func TestGetStateDiffSnapshotReturnsExplicitEmptyDiffAfterClear(t *testing.T) {
+	t.Parallel()
+
+	svc := newProjectionTestService(t)
+	svc.mu.Lock()
+	seedDiffStateThread(svc, "thread-1", "agent-a")
+	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-1") {
+		t.Fatal("applyToolDiffUpdatedLocked(diff-1) = false, want true")
+	}
+	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "") {
+		t.Fatal("applyToolDiffUpdatedLocked(clear) = false, want true")
+	}
+	svc.mu.Unlock()
+
+	cleared, err := svc.GetState(withDiffStateRequest(context.Background(), "thread-1", true, 2))
+	if err != nil {
+		t.Fatalf("GetState(cleared) error = %v", err)
+	}
+	if cleared.Unchanged {
+		t.Fatalf("cleared.Unchanged = true, want false")
+	}
+	got, ok := cleared.DiffTextByAgent["thread-1"]
+	if !ok || got != "" {
+		t.Fatalf("cleared.DiffTextByAgent[thread-1] = (%q, %t), want (\"\", true)", got, ok)
+	}
+	if got := cleared.DiffRevisionByAgent["thread-1"]; got != 0 {
+		t.Fatalf("cleared.DiffRevisionByAgent[thread-1] = %d, want 0", got)
+	}
+}
+
 func TestProjectionSubscriptionsApplyToolDiffUpdatedPublishesPatch(t *testing.T) {
 	t.Parallel()
 

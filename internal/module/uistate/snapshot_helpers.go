@@ -137,7 +137,7 @@ func classifyItemActivity(itemType, rawType, command, file string) string {
 	case strings.Contains(joined, "command"):
 		return "command"
 	default:
-		return ""
+		return "command"
 	}
 }
 

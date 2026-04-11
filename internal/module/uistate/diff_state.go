@@ -107,19 +107,19 @@ func applyDiffStateSnapshot(ctx context.Context, snapshot *UIState, current diff
 		return
 	}
 	req := diffStateRequestFromContext(ctx)
-	snapshot.DiffRevisionByAgent = map[string]int64{}
-	if current.revision > 0 {
-		snapshot.DiffRevisionByAgent[current.threadID] = current.revision
+	snapshot.DiffTextByAgent = map[string]string{current.threadID: ""}
+	snapshot.DiffRevisionByAgent = map[string]int64{current.threadID: 0}
+	if current.diffText == "" {
+		snapshot.Unchanged = false
+		return
 	}
+	snapshot.DiffRevisionByAgent[current.threadID] = current.revision
 	if req.known > 0 && int64(req.known) == current.revision {
 		snapshot.DiffTextByAgent = map[string]string{}
 		snapshot.Unchanged = true
 		return
 	}
-	snapshot.DiffTextByAgent = map[string]string{}
-	if current.diffText != "" {
-		snapshot.DiffTextByAgent[current.threadID] = current.diffText
-	}
+	snapshot.DiffTextByAgent[current.threadID] = current.diffText
 	snapshot.Unchanged = false
 }
 

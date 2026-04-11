@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -214,6 +215,38 @@ func TestDiffAggregator_ConcurrentMerge(t *testing.T) {
 	}
 }
 
+func TestDiffAggregator_MergeFallbacksToGitDiffWhenHookPatchMissing(t *testing.T) {
+	repo := initGitRepo(t)
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "old\n")
+	runGitCommand(t, repo, "add", "tracked.txt")
+	runGitCommand(t, repo, "commit", "-m", "init")
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "new\n")
+
+	aggregator := NewDiffAggregator(withSweepInterval(time.Hour))
+	aggregator.Start()
+	defer aggregator.Stop()
+
+	resolver := stubResolver{"agent-a": repo}
+	ctx := mergeContext("thread-1", "tracked.txt")
+	if err := aggregator.Merge(ctx, "agent-a", "call-1", "lsp_edit", invalidReplaceRangeToolResult("not a patch"), resolver); err != nil {
+		t.Fatalf("Merge() error = %v", err)
+	}
+
+	session := sessionForTest(t, aggregator, "agent-a")
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.revision != 1 {
+		t.Fatalf("revision = %d, want 1", session.revision)
+	}
+	diff := session.files["tracked.txt"]
+	if diff == nil {
+		t.Fatal("tracked.txt diff missing after fallback")
+	}
+	if !strings.Contains(diff.Diff, "tracked.txt") || !strings.Contains(diff.Diff, "+new") {
+		t.Fatalf("unexpected fallback diff: %q", diff.Diff)
+	}
+}
+
 func mustMergeRequest(t *testing.T, aggregator *DiffAggregator, req MergeRequest) (*DiffResult, bool) {
 	t.Helper()
 	result, changed, err := aggregator.mergeRequest(req)
@@ -231,6 +264,10 @@ func mergeContext(threadID, filePath string) context.Context {
 func replaceRangeToolResult(before, after string) json.RawMessage {
 	payload := fmt.Sprintf(`{"action":"replace_range","replaced":%q,"replacement":%q}`, before, after)
 	return json.RawMessage(fmt.Sprintf(`{"content":[{"type":"text","text":%q}]}`, payload))
+}
+
+func invalidReplaceRangeToolResult(text string) json.RawMessage {
+	return json.RawMessage(fmt.Sprintf(`{"content":[{"type":"text","text":%q}]}`, text))
 }
 
 func sessionForTest(t *testing.T, aggregator *DiffAggregator, agentID string) *agentDiffSession {
