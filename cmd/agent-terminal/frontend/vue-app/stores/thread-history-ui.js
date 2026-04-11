@@ -156,13 +156,9 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
   const incomingIds = new Set(timeline.map((it) => it?.id).filter(Boolean));
   const incomingUserTexts = new Set(timeline.filter((it) => it?.kind === 'user').map((it) => (it?.text || '').trim()));
 
-  const missingFromIncoming = existing.filter((it) => {
+  const missingFromIncoming = optimisticItems.filter((it) => {
     if (incomingIds.has(it?.id)) return false;
-    // Deduplicate optimistic items
-    if ((it?.id || '').toString().includes('-optimistic-')) {
-      if (incomingUserTexts.has((it?.text || '').trim())) return false;
-    }
-    return true;
+    return !incomingUserTexts.has((it?.text || '').trim());
   });
 
   const mergedItems = [...missingFromIncoming, ...timeline];

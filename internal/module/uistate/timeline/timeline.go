@@ -7,27 +7,36 @@ import (
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // Item represents a single renderable entry in the thread timeline.
 type Item struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Status    string `json:"status"`
-	CallID    string `json:"call_id,omitempty"`
-	RequestID int64  `json:"request_id,omitempty"`
-	ToolName  string `json:"tool_name,omitempty"`
-	ItemType  string `json:"item_type,omitempty"`
-	Command   string `json:"command,omitempty"`
-	File      string `json:"file,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Success   *bool  `json:"success,omitempty"`
-	AgentID   string `json:"agent_id,omitempty"`
-	TurnID    string `json:"turn_id,omitempty"`
-	Text      string `json:"text,omitempty"`
-	Ts        string `json:"ts,omitempty"`
-	lookupKey string
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Status      string `json:"status"`
+	CallID      string `json:"callId,omitempty"`
+	RequestID   int64  `json:"requestId,omitempty"`
+	Command     string `json:"command,omitempty"`
+	File        string `json:"file,omitempty"`
+	Tool        string `json:"tool,omitempty"`
+	Preview     string `json:"preview,omitempty"`
+	ElapsedMS   *int   `json:"elapsedMs,omitempty"`
+	Output      string `json:"output,omitempty"`
+	ExitCode    *int   `json:"exitCode,omitempty"`
+	Done        bool   `json:"done,omitempty"`
+	Text        string `json:"text,omitempty"`
+	Internal    bool   `json:"internal,omitempty"`
+	Attachments []any  `json:"attachments,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Success     *bool  `json:"success,omitempty"`
+	AgentID     string `json:"agentId,omitempty"`
+	TurnID      string `json:"turnId,omitempty"`
+	ToolName    string `json:"toolName,omitempty"`
+	ItemType    string `json:"itemType,omitempty"`
+	Ts          string `json:"ts,omitempty"`
+	lookupKey   string
 }
 
 type AppendedEmitter func(uidto.UITimelineAppended)
@@ -36,7 +45,22 @@ func itemLookupKey(item Item) string {
 	if key := strings.TrimSpace(item.lookupKey); key != "" {
 		return key
 	}
+	if key := toolCallLookupKey(item); key != "" {
+		return key
+	}
 	return strings.TrimSpace(item.CallID)
+}
+
+func toolCallLookupKey(item Item) string {
+	if strings.TrimSpace(item.Kind) != "tool" {
+		return ""
+	}
+	tool := platformshared.FirstNonEmpty(strings.TrimSpace(item.Tool), strings.TrimSpace(item.ToolName))
+	callID := strings.TrimSpace(item.CallID)
+	if tool == "" || callID == "" {
+		return ""
+	}
+	return timelineID("tool", tool, callID)
 }
 
 type Service interface {
@@ -75,7 +99,14 @@ type service struct {
 func (s *service) Append(threadID, agentID string, item Item) {
 	s.mu.Lock()
 	tl := s.timelineLocked(threadID)
-	if tl.isDuplicate(item) {
+	if idx, ok := tl.findDuplicate(item); ok {
+		mergeItem(&tl.items[idx], item)
+		if lookupKey := itemLookupKey(tl.items[idx]); lookupKey != "" {
+			tl.index[lookupKey] = idx
+		}
+		if key := turnKindKey(tl.items[idx]); key != "" {
+			tl.turnKind[key] = key
+		}
 		s.mu.Unlock()
 		return
 	}
@@ -217,19 +248,21 @@ func (tl *threadTimeline) findByCallID(callID string) (int, bool) {
 	return idx, true
 }
 
-func (tl *threadTimeline) isDuplicate(item Item) bool {
+func (tl *threadTimeline) findDuplicate(item Item) (int, bool) {
 	if lookupKey := itemLookupKey(item); lookupKey != "" {
-		if _, exists := tl.index[lookupKey]; exists {
-			return true
+		if idx, exists := tl.index[lookupKey]; exists && idx >= 0 && idx < len(tl.items) {
+			return idx, true
 		}
 	}
 
 	if key := turnKindKey(item); key != "" {
-		if _, exists := tl.turnKind[key]; exists {
-			return true
+		for i := range tl.items {
+			if turnKindKey(tl.items[i]) == key {
+				return i, true
+			}
 		}
 	}
-	return false
+	return 0, false
 }
 
 func (tl *threadTimeline) evictOldest() {

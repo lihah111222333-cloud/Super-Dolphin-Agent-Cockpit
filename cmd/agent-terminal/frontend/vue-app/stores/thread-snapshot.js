@@ -206,6 +206,156 @@ function mergeTimelineWithLocalDialog(newItems, oldItems, threadId, requestedThr
   return mergedItems;
 }
 
+function mergeOptimisticThreads(nextThreads, state) {
+  if (_optimisticThreadIds.size === 0) return nextThreads;
+  const backendIds = new Set(nextThreads.map((t) => t.id));
+  const now = Date.now();
+  let hasOptimisticMutations = false;
+  for (const [optimisticId, expiresAt] of _optimisticThreadIds) {
+    if (backendIds.has(optimisticId)) {
+      _optimisticThreadIds.delete(optimisticId);
+      continue;
+    }
+    if (now > expiresAt) {
+      logWarn('thread', 'optimistic.leak.expired', { thread_id: optimisticId });
+      _optimisticThreadIds.delete(optimisticId);
+      continue;
+    }
+    const local = state.threads.find((t) => t.id === optimisticId);
+    if (local) {
+      nextThreads.push(local);
+      hasOptimisticMutations = true;
+    }
+  }
+  return hasOptimisticMutations ? sortThreadsByStableFirstSeen(nextThreads) : nextThreads;
+}
+
+function patchThreadListIdentitySafe(state, nextThreads, patch) {
+  const existingThreadById = new Map();
+  if (Array.isArray(state.threads)) {
+    for (const t of state.threads) {
+      if (t && t.id) existingThreadById.set(t.id, t);
+    }
+  }
+  const identitySafeThreads = nextThreads.map((t) => {
+    const existing = existingThreadById.get(t.id);
+    return existing && existing.name === t.name && existing.state === t.state ? existing : t;
+  });
+  const oldThreadsStr = state.threads.map((t) => t.id).join(',');
+  const newThreadsStr = identitySafeThreads.map((t) => t.id).join(',');
+  if (oldThreadsStr !== newThreadsStr) {
+    logWarn('thread', 'snapshot.threads.changed', {
+      old_len: state.threads.length, new_len: identitySafeThreads.length,
+      old_ids: oldThreadsStr, new_ids: newThreadsStr,
+    });
+    patch.threads = identitySafeThreads;
+  } else {
+    let needsPatch = false;
+    for (let i = 0; i < identitySafeThreads.length; i++) {
+      if (identitySafeThreads[i] !== state.threads[i]) { needsPatch = true; break; }
+    }
+    if (needsPatch) patch.threads = identitySafeThreads;
+  }
+}
+
+function patchStatuses(state, data, nextThreads, patch, requestedThreadId) {
+  let nextStatuses = state.statuses;
+  let changed = false;
+  if (data.statuses && typeof data.statuses === 'object') {
+    for (const [key, value] of Object.entries(data.statuses)) {
+      const normalized = normalizeStatus(value);
+      if (nextStatuses[key] === normalized) continue;
+      if (!changed) { nextStatuses = { ...nextStatuses }; changed = true; }
+      nextStatuses[key] = normalized;
+    }
+  }
+  for (const thread of nextThreads) {
+    if (nextStatuses[thread.id]) continue;
+    if (!changed) { nextStatuses = { ...nextStatuses }; changed = true; }
+    nextStatuses[thread.id] = normalizeStatus(thread.state || 'idle');
+  }
+  if (changed) {
+    const changedKeys = Object.keys(nextStatuses).filter((key) => nextStatuses[key] !== state.statuses[key]);
+    if (changedKeys.length > 0) {
+      logWarn('thread', 'snapshot.statuses.changed', {
+        requested_thread_id: requestedThreadId,
+        changed_thread_ids: changedKeys, changed_count: changedKeys.length,
+        changes: changedKeys.slice(0, 6).map((key) => ({
+          thread_id: key, old: state.statuses[key] || 'undefined', new: nextStatuses[key],
+        })),
+      });
+    }
+    patch.statuses = nextStatuses;
+  }
+}
+
+function patchInterruptible(state, data, patch) {
+  let next = state.interruptibleByThread;
+  let changed = false;
+  if (data.interruptibleByThread && typeof data.interruptibleByThread === 'object') {
+    for (const [key, value] of Object.entries(data.interruptibleByThread)) {
+      const normalized = Boolean(value);
+      if (next[key] === normalized) continue;
+      if (!changed) { next = { ...next }; changed = true; }
+      next[key] = normalized;
+    }
+  }
+  if (changed) patch.interruptibleByThread = next;
+}
+
+function patchTimelines(state, data, patch, requestedThreadId, allowActiveSelectionPatch) {
+  let nextTimelinesByThread = state.timelinesByThread;
+  let changed = false;
+  if (data.timelinesByThread && typeof data.timelinesByThread === 'object') {
+    for (const [key, value] of Object.entries(data.timelinesByThread)) {
+      const newItems = Array.isArray(value) ? value : [];
+      const oldItems = nextTimelinesByThread[key];
+      if (Array.isArray(oldItems) && oldItems.length > 0 && newItems.length === 0) {
+        logWarn('thread', 'snapshot.timeline.skip_empty_remote', {
+          thread_id: key, requested_thread_id: requestedThreadId,
+          active_thread_id: state.activeThreadId, active_cmd_thread_id: state.activeCmdThreadId,
+          allow_active_selection_patch: allowActiveSelectionPatch,
+          old_timeline_len: oldItems.length, new_timeline_len: newItems.length,
+        });
+        continue;
+      }
+      const isTarget = (requestedThreadId && key === requestedThreadId) || !requestedThreadId;
+      const mergedItems = isTarget
+        ? mergeTimelineWithLocalDialog(newItems, oldItems, key, requestedThreadId, logWarn)
+        : newItems;
+      const frozenTimeline = freezeTimelineItemsAtomic(mergedItems, oldItems);
+      if (!frozenTimeline.changed) continue;
+      if (!changed) { nextTimelinesByThread = { ...nextTimelinesByThread }; changed = true; }
+      nextTimelinesByThread[key] = frozenTimeline.items;
+    }
+  }
+  if (changed) {
+    logTimelineReplacements(state.timelinesByThread, nextTimelinesByThread);
+    patch.timelinesByThread = nextTimelinesByThread;
+  }
+}
+
+function logTimelineReplacements(oldMap, newMap) {
+  for (const key of Object.keys(newMap)) {
+    const oldItems = oldMap[key];
+    const newItems = newMap[key];
+    if (oldItems === newItems) continue;
+    const oldLen = Array.isArray(oldItems) ? oldItems.length : 0;
+    const newLen = Array.isArray(newItems) ? newItems.length : 0;
+    let reusedCount = 0;
+    if (Array.isArray(oldItems) && Array.isArray(newItems)) {
+      for (let i = 0; i < Math.min(oldLen, newLen); i++) {
+        if (oldItems[i] === newItems[i]) reusedCount++;
+      }
+    }
+    logInfo('thread', 'snapshot.timeline.replaced', {
+      thread_id: key, old_len: oldLen, new_len: newLen,
+      reused_items: reusedCount, all_reused: reusedCount === newLen && oldLen === newLen,
+      stack: new Error('[diag]').stack,
+    });
+  }
+}
+
 export function applyRuntimeSnapshot(state, snapshot, options = {}) {
   const data = snapshot && typeof snapshot === 'object' ? snapshot : {};
   const patch = {};
@@ -214,184 +364,23 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
   const loadedRevisionByThread = options.loadedRevisionByThread;
 
   const unorderedThreads = Array.isArray(data.threads) ? data.threads.map(normalizeThread) : [];
-  let nextThreads = sortThreadsByStableFirstSeen(unorderedThreads);
+  const nextThreads = mergeOptimisticThreads(sortThreadsByStableFirstSeen(unorderedThreads), state);
 
-  if (_optimisticThreadIds.size > 0) {
-    const backendIds = new Set(nextThreads.map((t) => t.id));
-    const now = Date.now();
-    let hasOptimisticMutations = false;
-    for (const [optimisticId, expiresAt] of _optimisticThreadIds) {
-      if (backendIds.has(optimisticId)) {
-        _optimisticThreadIds.delete(optimisticId);
-        continue;
-      }
-      if (now > expiresAt) {
-        logWarn('thread', 'optimistic.leak.expired', { thread_id: optimisticId });
-        _optimisticThreadIds.delete(optimisticId);
-        continue;
-      }
-      const local = state.threads.find((t) => t.id === optimisticId);
-      if (local) {
-        nextThreads.push(local);
-        hasOptimisticMutations = true;
-      }
-    }
-    if (hasOptimisticMutations) {
-      nextThreads = sortThreadsByStableFirstSeen(nextThreads);
-    }
-  }
-
-  const existingThreadById = new Map();
-  if (Array.isArray(state.threads)) {
-    for (const t of state.threads) {
-      if (t && t.id) existingThreadById.set(t.id, t);
-    }
-  }
-
-  const identitySafeThreads = nextThreads.map((t) => {
-    const existing = existingThreadById.get(t.id);
-    if (existing && existing.name === t.name && existing.state === t.state) {
-      return existing;
-    }
-    return t;
+  patchThreadListIdentitySafe(state, nextThreads, patch);
+  patchStatuses(state, data, nextThreads, patch, requestedThreadId);
+  patchInterruptible(state, data, patch);
+  patchTimelines(state, data, patch, requestedThreadId, allowActiveSelectionPatch);
+  applyRuntimeSnapshotMapPatches(state, data, patch);
+  applyRuntimeSnapshotSelectionPatches({
+    state, data, patch, nextThreads, requestedThreadId, allowActiveSelectionPatch,
   });
+  applyRuntimeSnapshotPreferencePatches(state, data, patch);
+  finalizeRuntimeSnapshotPatch({
+    state, data, patch, requestedThreadId, loadedRevisionByThread,
+  });
+}
 
-  const oldThreadsStr = state.threads.map((t) => t.id).join(',');
-  const newThreadsStr = identitySafeThreads.map((t) => t.id).join(',');
-  
-  if (oldThreadsStr !== newThreadsStr) {
-    logWarn('thread', 'snapshot.threads.changed', {
-      old_len: state.threads.length,
-      new_len: identitySafeThreads.length,
-      old_ids: oldThreadsStr,
-      new_ids: newThreadsStr
-    });
-    patch.threads = identitySafeThreads;
-  } else {
-    let needsPatch = false;
-    for (let i = 0; i < identitySafeThreads.length; i++) {
-        if (identitySafeThreads[i] !== state.threads[i]) {
-            needsPatch = true; 
-            break;
-        }
-    }
-    if (needsPatch) patch.threads = identitySafeThreads;
-  }
-
-  let nextStatuses = state.statuses;
-  let statusesChanged = false;
-  if (data.statuses && typeof data.statuses === 'object') {
-    for (const [key, value] of Object.entries(data.statuses)) {
-      const normalized = normalizeStatus(value);
-      if (nextStatuses[key] === normalized) continue;
-      if (!statusesChanged) {
-        nextStatuses = { ...nextStatuses };
-        statusesChanged = true;
-      }
-      nextStatuses[key] = normalized;
-    }
-  }
-  for (const thread of nextThreads) {
-    if (nextStatuses[thread.id]) continue;
-    if (!statusesChanged) {
-      nextStatuses = { ...nextStatuses };
-      statusesChanged = true;
-    }
-    nextStatuses[thread.id] = normalizeStatus(thread.state || 'idle');
-  }
-  if (statusesChanged) {
-    const changedKeys = Object.keys(nextStatuses).filter((key) => nextStatuses[key] !== state.statuses[key]);
-    if (changedKeys.length > 0) {
-      logWarn('thread', 'snapshot.statuses.changed', {
-        requested_thread_id: requestedThreadId,
-        changed_thread_ids: changedKeys,
-        changed_count: changedKeys.length,
-        changes: changedKeys.slice(0, 6).map((key) => ({
-          thread_id: key,
-          old: state.statuses[key] || 'undefined',
-          new: nextStatuses[key],
-        })),
-      });
-    }
-    patch.statuses = nextStatuses;
-  }
-
-  let nextInterruptibleByThread = state.interruptibleByThread;
-  let interruptibleChanged = false;
-  if (data.interruptibleByThread && typeof data.interruptibleByThread === 'object') {
-    for (const [key, value] of Object.entries(data.interruptibleByThread)) {
-      const normalized = Boolean(value);
-      if (nextInterruptibleByThread[key] === normalized) continue;
-      if (!interruptibleChanged) {
-        nextInterruptibleByThread = { ...nextInterruptibleByThread };
-        interruptibleChanged = true;
-      }
-      nextInterruptibleByThread[key] = normalized;
-    }
-  }
-  if (interruptibleChanged) patch.interruptibleByThread = nextInterruptibleByThread;
-
-  let nextTimelinesByThread = state.timelinesByThread;
-  let timelinesChanged = false;
-  if (data.timelinesByThread && typeof data.timelinesByThread === 'object') {
-    for (const [key, value] of Object.entries(data.timelinesByThread)) {
-      const newItems = Array.isArray(value) ? value : [];
-      const oldItems = nextTimelinesByThread[key];
-      if (Array.isArray(oldItems) && oldItems.length > 0 && newItems.length === 0) {
-        logWarn('thread', 'snapshot.timeline.skip_empty_remote', {
-          thread_id: key,
-          requested_thread_id: requestedThreadId,
-          active_thread_id: state.activeThreadId,
-          active_cmd_thread_id: state.activeCmdThreadId,
-          allow_active_selection_patch: allowActiveSelectionPatch,
-          old_timeline_len: oldItems.length,
-          new_timeline_len: newItems.length,
-        });
-        continue;
-      }
-      // Merge: preserve local dialog items (user/assistant from loadMessages
-      // or optimistic insert) when remote timeline only has structural events.
-      // [FIX] Only preserve for the requested thread — cross-thread snapshots
-      // must not re-preserve stale optimistic items on unrelated threads.
-      const isRequestedThread = requestedThreadId && key === requestedThreadId;
-      const isDirectSync = !requestedThreadId;
-      const mergedItems = (isRequestedThread || isDirectSync)
-        ? mergeTimelineWithLocalDialog(newItems, oldItems, key, requestedThreadId, logWarn)
-        : newItems;
-      const frozenTimeline = freezeTimelineItemsAtomic(mergedItems, oldItems);
-      if (!frozenTimeline.changed) continue;
-      if (!timelinesChanged) {
-        nextTimelinesByThread = { ...nextTimelinesByThread };
-        timelinesChanged = true;
-      }
-      nextTimelinesByThread[key] = frozenTimeline.items;
-    }
-  }
-  if (timelinesChanged) {
-    for (const key of Object.keys(nextTimelinesByThread)) {
-      const oldItems = state.timelinesByThread[key];
-      const newItems = nextTimelinesByThread[key];
-      if (oldItems === newItems) continue;
-      const oldLen = Array.isArray(oldItems) ? oldItems.length : 0;
-      const newLen = Array.isArray(newItems) ? newItems.length : 0;
-      let reusedCount = 0;
-      if (Array.isArray(oldItems) && Array.isArray(newItems)) {
-        for (let i = 0; i < Math.min(oldLen, newLen); i++) {
-          if (oldItems[i] === newItems[i]) reusedCount++;
-        }
-      }
-      logInfo('thread', 'snapshot.timeline.replaced', {
-        thread_id: key,
-        old_len: oldLen,
-        new_len: newLen,
-        reused_items: reusedCount,
-        all_reused: reusedCount === newLen && oldLen === newLen,
-        stack: new Error('[diag]').stack,
-      });
-    }
-    patch.timelinesByThread = nextTimelinesByThread;
-  }
-
+function applyRuntimeSnapshotMapPatches(state, data, patch) {
   Object.assign(patch, mergeDiffRuntimePatch(data, state));
 
   const mergedStatusHeaders = mergeStringMapAtomic(state.statusHeadersByThread, data.statusHeadersByThread);
@@ -408,81 +397,146 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
   if (mergedActivityStats.changed) patch.activityStatsByThread = mergedActivityStats.next;
   const mergedAlerts = mergeObjectMapAtomic(state.alertsByThread, data.alertsByThread);
   if (mergedAlerts.changed) patch.alertsByThread = mergedAlerts.next;
+}
 
-  if (Object.prototype.hasOwnProperty.call(data, PREF_ACTIVE_THREAD_ID)) {
-    const next = (data[PREF_ACTIVE_THREAD_ID] || '').toString();
-    if (!allowActiveSelectionPatch) {
-      if (state.activeThreadId !== next) logDebug('thread', 'snapshot.activeThreadId.skipped_scoped', { local: state.activeThreadId, remote: next, requested_thread_id: requestedThreadId });
-    } else if (state.activeThreadId !== next) {
-      if (_localActiveThreadIdDirty) {
-        logDebug('thread', 'snapshot.activeThreadId.skipped_dirty', { local: state.activeThreadId, remote: next });
-      } else if (shouldPreserveLocalSelection(state.activeThreadId, next, nextThreads)) {
-        logDebug('thread', 'snapshot.activeThreadId.skipped_local_selection', { local: state.activeThreadId, remote: next, requested_thread_id: requestedThreadId });
-      } else {
-        patch.activeThreadId = next;
-      }
-    } else {
-      _localActiveThreadIdDirty = false;
+function applyRuntimeSnapshotSelectionPatches({
+  state,
+  data,
+  patch,
+  nextThreads,
+  requestedThreadId,
+  allowActiveSelectionPatch,
+}) {
+  applyRuntimeSnapshotSelectionPatch({
+    data,
+    patch,
+    currentValue: state.activeThreadId,
+    dirtyFlag: () => _localActiveThreadIdDirty,
+    clearDirty: () => { _localActiveThreadIdDirty = false; },
+    patchKey: 'activeThreadId',
+    preserveThreads: nextThreads,
+    preferenceKey: PREF_ACTIVE_THREAD_ID,
+    scopedEvent: 'snapshot.activeThreadId.skipped_scoped',
+    dirtyEvent: 'snapshot.activeThreadId.skipped_dirty',
+    localEvent: 'snapshot.activeThreadId.skipped_local_selection',
+    requestedThreadId,
+    allowActiveSelectionPatch,
+  });
+  applyRuntimeSnapshotSelectionPatch({
+    data,
+    patch,
+    currentValue: state.activeCmdThreadId,
+    dirtyFlag: () => _localActiveCmdThreadIdDirty,
+    clearDirty: () => { _localActiveCmdThreadIdDirty = false; },
+    patchKey: 'activeCmdThreadId',
+    preserveThreads: nextThreads,
+    preferenceKey: PREF_ACTIVE_CMD_THREAD_ID,
+    scopedEvent: 'snapshot.activeCmdThreadId.skipped_scoped',
+    dirtyEvent: 'snapshot.activeCmdThreadId.skipped_dirty',
+    localEvent: 'snapshot.activeCmdThreadId.skipped_local_selection',
+    requestedThreadId,
+    allowActiveSelectionPatch,
+  });
+}
+
+function applyRuntimeSnapshotSelectionPatch({
+  data,
+  patch,
+  currentValue,
+  dirtyFlag,
+  clearDirty,
+  patchKey,
+  preserveThreads,
+  preferenceKey,
+  scopedEvent,
+  dirtyEvent,
+  localEvent,
+  requestedThreadId,
+  allowActiveSelectionPatch,
+}) {
+  if (!Object.prototype.hasOwnProperty.call(data, preferenceKey)) return;
+  const next = (data[preferenceKey] || '').toString();
+  if (!allowActiveSelectionPatch) {
+    if (currentValue !== next) {
+      logDebug('thread', scopedEvent, { local: currentValue, remote: next, requested_thread_id: requestedThreadId });
     }
+    return;
   }
-
-  if (Object.prototype.hasOwnProperty.call(data, PREF_ACTIVE_CMD_THREAD_ID)) {
-    const next = (data[PREF_ACTIVE_CMD_THREAD_ID] || '').toString();
-    if (!allowActiveSelectionPatch) {
-      if (state.activeCmdThreadId !== next) logDebug('thread', 'snapshot.activeCmdThreadId.skipped_scoped', { local: state.activeCmdThreadId, remote: next, requested_thread_id: requestedThreadId });
-    } else if (state.activeCmdThreadId !== next) {
-      if (_localActiveCmdThreadIdDirty) {
-        logDebug('thread', 'snapshot.activeCmdThreadId.skipped_dirty', { local: state.activeCmdThreadId, remote: next });
-      } else if (shouldPreserveLocalSelection(state.activeCmdThreadId, next, nextThreads)) {
-        logDebug('thread', 'snapshot.activeCmdThreadId.skipped_local_selection', { local: state.activeCmdThreadId, remote: next, requested_thread_id: requestedThreadId });
-      } else {
-        patch.activeCmdThreadId = next;
-      }
-    } else {
-      _localActiveCmdThreadIdDirty = false;
-    }
+  if (currentValue === next) {
+    clearDirty();
+    return;
   }
+  if (dirtyFlag()) {
+    logDebug('thread', dirtyEvent, { local: currentValue, remote: next });
+    return;
+  }
+  if (shouldPreserveLocalSelection(currentValue, next, preserveThreads)) {
+    logDebug('thread', localEvent, { local: currentValue, remote: next, requested_thread_id: requestedThreadId });
+    return;
+  }
+  patch[patchKey] = next;
+}
 
-
+function applyRuntimeSnapshotPreferencePatches(state, data, patch) {
   const nowTaint = Date.now();
-  if (Object.prototype.hasOwnProperty.call(data, PREF_PINNED_THREADS_CHAT)) {
-    const pinnedMap = normalizePinnedThreadMap(data[PREF_PINNED_THREADS_CHAT]);
-    for (const id of Object.keys(pinnedMap)) ensureThreadOrderIndex(id);
-    const expire = _optimisticPreferenceMapTaints.get('pinnedThreadAtById') || 0;
-    if (nowTaint > expire) {
-      if (JSON.stringify(pinnedMap) !== JSON.stringify(state.pinnedThreadAtById)) {
-        patch.pinnedThreadAtById = pinnedMap;
-      }
-    } else {
-      logDebug('thread', 'snapshot.pinnedThreadAtById.skipped_optimistic', {});
-    }
-  }
-  if (Object.prototype.hasOwnProperty.call(data, PREF_ARCHIVED_THREADS_CHAT)) {
-    const archivedMap = normalizeArchivedThreadMap(data[PREF_ARCHIVED_THREADS_CHAT]);
-    for (const id of Object.keys(archivedMap)) ensureThreadOrderIndex(id);
-    const expire = _optimisticPreferenceMapTaints.get('archivedThreadAtById') || 0;
-    if (nowTaint > expire) {
-      if (JSON.stringify(archivedMap) !== JSON.stringify(state.archivedThreadAtById)) {
-        patch.archivedThreadAtById = archivedMap;
-      }
-    } else {
-      logDebug('thread', 'snapshot.archivedThreadAtById.skipped_optimistic', {});
-    }
-  }
+  applyRuntimeSnapshotThreadCollectionPatch({
+    state,
+    data,
+    patch,
+    preferenceKey: PREF_PINNED_THREADS_CHAT,
+    patchKey: 'pinnedThreadAtById',
+    normalizer: normalizePinnedThreadMap,
+  });
+  applyRuntimeSnapshotThreadCollectionPatch({
+    state,
+    data,
+    patch,
+    preferenceKey: PREF_ARCHIVED_THREADS_CHAT,
+    patchKey: 'archivedThreadAtById',
+    normalizer: normalizeArchivedThreadMap,
+    nowTaint,
+  });
   const nextViewPrefsChat = normalizeChatPrefs(data[PREF_VIEW_CHAT]);
   if (JSON.stringify(nextViewPrefsChat) !== JSON.stringify(state.viewPrefsChat)) patch.viewPrefsChat = nextViewPrefsChat;
   const nextViewPrefsCmd = normalizeCmdPrefs(data[PREF_VIEW_CMD]);
   if (JSON.stringify(nextViewPrefsCmd) !== JSON.stringify(state.viewPrefsCmd)) patch.viewPrefsCmd = nextViewPrefsCmd;
+}
 
+function applyRuntimeSnapshotThreadCollectionPatch({
+  state,
+  data,
+  patch,
+  preferenceKey,
+  patchKey,
+  normalizer,
+  nowTaint = Date.now(),
+}) {
+  if (!Object.prototype.hasOwnProperty.call(data, preferenceKey)) return;
+  const nextMap = normalizer(data[preferenceKey]);
+  for (const id of Object.keys(nextMap)) ensureThreadOrderIndex(id);
+  const expire = _optimisticPreferenceMapTaints.get(patchKey) || 0;
+  if (nowTaint <= expire) {
+    logDebug('thread', `snapshot.${patchKey}.skipped_optimistic`, {});
+    return;
+  }
+  if (JSON.stringify(nextMap) !== JSON.stringify(state[patchKey])) {
+    patch[patchKey] = nextMap;
+  }
+}
+
+function finalizeRuntimeSnapshotPatch({
+  state,
+  data,
+  patch,
+  requestedThreadId,
+  loadedRevisionByThread,
+}) {
   const keepThreadIDs = buildPayloadKeepThreadIDs({
     state,
     patch,
     data,
     requestedThreadId,
   });
-  // Only prune heavy payload maps to prevent memory leaks from huge text or timelines.
-  // We MUST NOT prune lightweight UI state maps like statusHeadersByThread or agentRuntimeById
-  // because the sidebar needs them to render tags and '等待指示' statuses for all visible threads.
   const pruneCandidateMaps = [
     ['timelinesByThread', patch.timelinesByThread || state.timelinesByThread],
     ['diffTextByThread', patch.diffTextByThread || state.diffTextByThread],
@@ -492,7 +546,6 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
     const pruned = pruneThreadPayloadMap(value, keepThreadIDs, key);
     if (pruned.changed) patch[key] = pruned.next;
   }
-
   if (Object.keys(patch).length > 0) {
     Object.assign(state, patch);
     if (requestedThreadId) {

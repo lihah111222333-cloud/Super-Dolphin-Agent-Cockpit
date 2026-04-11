@@ -2,6 +2,7 @@ package timeline_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -260,6 +261,7 @@ func TestRegisterSubscriptions_TurnCompleted(t *testing.T) {
 			},
 			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
 		},
+		Success: true,
 	})
 
 	waitForCondition(t, func() bool {
@@ -338,14 +340,17 @@ func TestRegisterSubscriptions_ToolCallBeginAndEnd(t *testing.T) {
 	})
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
-		return len(items) == 1 && items[0].Kind == "tool_call"
+		return len(items) == 1 && items[0].Kind == "tool"
 	}, "expected one timeline item after tool call begin")
 	items := svc.GetByThread("t1")
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1", len(items))
 	}
-	if items[0].Kind != "tool_call" {
-		t.Fatalf("items[0].Kind = %q, want %q", items[0].Kind, "tool_call")
+	if items[0].Kind != "tool" {
+		t.Fatalf("items[0].Kind = %q, want %q", items[0].Kind, "tool")
+	}
+	if items[0].Tool != "bash" {
+		t.Fatalf("items[0].Tool = %q, want %q", items[0].Tool, "bash")
 	}
 	if items[0].ToolName != "bash" {
 		t.Fatalf("items[0].ToolName = %q, want %q", items[0].ToolName, "bash")
@@ -369,12 +374,14 @@ func TestRegisterSubscriptions_ToolCallBeginAndEnd(t *testing.T) {
 			CallID:   "call-1",
 			ToolName: "bash",
 		},
-		Success: true,
+		Success:   true,
+		Result:    strings.Repeat("x", 210),
+		ElapsedMS: 123,
 	})
 
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
-		return len(items) == 1 && items[0].Status == "completed" && items[0].Success != nil && *items[0].Success
+		return len(items) == 1 && items[0].Status == "completed" && items[0].Done && items[0].ElapsedMS != nil && items[0].Preview != ""
 	}, "expected tool call item to be updated after tool call end")
 	items = svc.GetByThread("t1")
 	if items[0].Status != "completed" {
@@ -385,6 +392,15 @@ func TestRegisterSubscriptions_ToolCallBeginAndEnd(t *testing.T) {
 	}
 	if !*items[0].Success {
 		t.Fatal("items[0].Success = false, want true")
+	}
+	if !items[0].Done {
+		t.Fatal("items[0].Done = false, want true")
+	}
+	if items[0].ElapsedMS == nil || *items[0].ElapsedMS != 123 {
+		t.Fatalf("items[0].ElapsedMS = %v, want 123", items[0].ElapsedMS)
+	}
+	if got := len([]rune(items[0].Preview)); got != 200 {
+		t.Fatalf("len(items[0].Preview) = %d, want 200", got)
 	}
 }
 
@@ -416,14 +432,14 @@ func TestRegisterSubscriptions_ApprovalRequestAndResolve(t *testing.T) {
 	})
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
-		return len(items) == 1 && items[0].Kind == "approval_request"
+		return len(items) == 1 && items[0].Kind == "approval"
 	}, "expected one timeline item after approval request")
 	items := svc.GetByThread("t1")
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1", len(items))
 	}
-	if items[0].Kind != "approval_request" {
-		t.Fatalf("items[0].Kind = %q, want %q", items[0].Kind, "approval_request")
+	if items[0].Kind != "approval" {
+		t.Fatalf("items[0].Kind = %q, want %q", items[0].Kind, "approval")
 	}
 	if items[0].Status != "pending" {
 		t.Fatalf("items[0].Status = %q, want %q", items[0].Status, "pending")
@@ -448,11 +464,14 @@ func TestRegisterSubscriptions_ApprovalRequestAndResolve(t *testing.T) {
 
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
-		return len(items) == 1 && items[0].Status == "approved"
+		return len(items) == 1 && items[0].Status == "approved" && items[0].Done
 	}, "expected approval request item to be updated after approval resolved")
 	items = svc.GetByThread("t1")
 	if items[0].Status != "approved" {
 		t.Fatalf("items[0].Status = %q, want %q", items[0].Status, "approved")
+	}
+	if !items[0].Done {
+		t.Fatal("items[0].Done = false, want true")
 	}
 }
 
@@ -515,13 +534,13 @@ func TestRegisterSubscriptions_ToolAndApprovalShareCallID(t *testing.T) {
 		return len(items) == 2
 	}, "expected tool call and approval request items to coexist")
 	items := svc.GetByThread("t1")
-	toolItem := findByKind(items, "tool_call")
+	toolItem := findByKind(items, "tool")
 	if toolItem == nil {
-		t.Fatalf("items = %#v, want tool_call entry", items)
+		t.Fatalf("items = %#v, want tool entry", items)
 	}
-	approvalItem := findByKind(items, "approval_request")
+	approvalItem := findByKind(items, "approval")
 	if approvalItem == nil {
-		t.Fatalf("items = %#v, want approval_request entry", items)
+		t.Fatalf("items = %#v, want approval entry", items)
 	}
 	if toolItem.CallID != "call-1" {
 		t.Fatalf("toolItem.CallID = %q, want %q", toolItem.CallID, "call-1")
@@ -564,15 +583,16 @@ func TestRegisterSubscriptions_ToolAndApprovalShareCallID(t *testing.T) {
 
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
-		toolItem := findByKind(items, "tool_call")
-		approvalItem := findByKind(items, "approval_request")
+		toolItem := findByKind(items, "tool")
+		approvalItem := findByKind(items, "approval")
 		return len(items) == 2 &&
 			toolItem != nil &&
 			toolItem.Status == "completed" &&
 			toolItem.Success != nil &&
 			*toolItem.Success &&
 			approvalItem != nil &&
-			approvalItem.Status == "approved"
+			approvalItem.Status == "approved" &&
+			approvalItem.Done
 	}, "expected tool and approval items to update independently")
 
 	for i := 0; i < 2; i++ {
@@ -606,14 +626,14 @@ func TestRegisterSubscriptions_ItemStartedAndCompleted(t *testing.T) {
 	})
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
-		return len(items) == 1 && items[0].Kind == "item"
+		return len(items) == 1 && items[0].Kind == "command"
 	}, "expected one timeline item after item started")
 	items := svc.GetByThread("t1")
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1", len(items))
 	}
-	if items[0].Kind != "item" {
-		t.Fatalf("items[0].Kind = %q, want %q", items[0].Kind, "item")
+	if items[0].Kind != "command" {
+		t.Fatalf("items[0].Kind = %q, want %q", items[0].Kind, "command")
 	}
 	if items[0].ItemType != "command" {
 		t.Fatalf("items[0].ItemType = %q, want %q", items[0].ItemType, "command")
@@ -633,7 +653,7 @@ func TestRegisterSubscriptions_ItemStartedAndCompleted(t *testing.T) {
 
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
-		return len(items) == 1 && items[0].Status == "completed" && items[0].Success != nil && *items[0].Success
+		return len(items) == 1 && items[0].Status == "completed" && items[0].Done && items[0].Success != nil && *items[0].Success
 	}, "expected item to be updated after item completed")
 	items = svc.GetByThread("t1")
 	if items[0].Status != "completed" {
@@ -645,10 +665,13 @@ func TestRegisterSubscriptions_ItemStartedAndCompleted(t *testing.T) {
 	if !*items[0].Success {
 		t.Fatal("items[0].Success = false, want true")
 	}
+	if !items[0].Done {
+		t.Fatal("items[0].Done = false, want true")
+	}
 }
 
-func TestRegisterSubscriptions_UpdateHandlersNotifyOnUpdated(t *testing.T) {
-	updated := make(chan string, 3)
+func TestRegisterSubscriptions_TimelineChangesNotifyOnUpdated(t *testing.T) {
+	updated := make(chan string, 6)
 
 	svc := timeline.New(nil, nil, 50)
 	dispatcher := event.NewDispatcher()
@@ -771,7 +794,7 @@ func TestRegisterSubscriptions_UpdateHandlersNotifyOnUpdated(t *testing.T) {
 		Approved: true,
 	})
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 6; i++ {
 		if threadID := mustReceiveThreadUpdate(t, updated); threadID != "t1" {
 			t.Fatalf("updated[%d] = %q, want %q", i, threadID, "t1")
 		}

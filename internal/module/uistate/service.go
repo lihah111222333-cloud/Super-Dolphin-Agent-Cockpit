@@ -29,6 +29,7 @@ type service struct {
 	overlayExpiryByThread map[string]time.Time
 	fallbackPrefs         map[string]json.RawMessage
 	timeline              timeline.Service
+	timelinePatchByThread map[string]threadTimelinePatchState
 	patchSeq              map[string]int64
 	projectionSeq         map[string]int64
 	emitThreadPatch       threadPatchEmitter
@@ -81,6 +82,7 @@ func NewService(
 		overlayExpiryByThread: map[string]time.Time{},
 		fallbackPrefs:         map[string]json.RawMessage{},
 		timeline:              timeline.New(logger, nil, 0),
+		timelinePatchByThread: map[string]threadTimelinePatchState{},
 		patchSeq:              map[string]int64{},
 		projectionSeq:         map[string]int64{},
 	}

@@ -145,6 +145,8 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 		patch.OverlayPriority = summary.OverlayPriority
 		patch.Interruptible = patchInterruptible(status)
 	}
+	s.applyThreadTimelineLocked(&patch, id)
+	s.applyThreadActivityStatsLocked(&patch, id)
 	s.applyThreadDiffLocked(&patch, id, source)
 	return patch
 }

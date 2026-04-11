@@ -40,10 +40,16 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTokensUpdated, svc.logger),
 	}
 	onTimelineUpdated := func(threadID string) {
+		threadID = strings.TrimSpace(threadID)
+		if threadID == "" {
+			return
+		}
 		svc.mu.Lock()
+		patch := svc.threadPatchLocked(threadID, "timeline/updated")
 		ev := svc.projectionUpdatedLocked("timeline")
 		svc.mu.Unlock()
 		ev.ThreadID = threadID
+		svc.emitThreadPatchEvent(patch)
 		svc.emitProjectionUpdatedEvents(ev)
 	}
 	if svc.timeline != nil {
@@ -67,6 +73,7 @@ func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 		return patch
 	})
 }
+
 func (s *service) applyItemStarted(ev turndto.ItemStarted) {
 	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)
 	if activity == "" {
@@ -84,11 +91,14 @@ func (s *service) applyItemStarted(ev turndto.ItemStarted) {
 		if rt.turnDepth == 0 {
 			rt.turnDepth = 1
 		}
+		stats := s.threadActivityStatsLocked(threadID)
 		switch activity {
 		case "editing":
 			rt.editDepth++
+			stats.FileEdits++
 		case "command":
 			rt.commandDepth++
+			stats.Commands++
 		}
 	}, func() uidto.UIThreadPatch {
 		if !ok {
@@ -140,6 +150,17 @@ func (s *service) applyToolCallBegin(ev tooldto.ToolCallBegin) {
 		}
 		if rt.turnDepth == 0 {
 			rt.turnDepth = 1
+		}
+		stats := s.threadActivityStatsLocked(threadID)
+		toolName := strings.TrimSpace(ev.ToolName)
+		if toolName != "" {
+			if stats.ToolCalls == nil {
+				stats.ToolCalls = map[string]int64{}
+			}
+			stats.ToolCalls[toolName]++
+			if strings.HasPrefix(strings.ToLower(toolName), "lsp_") {
+				stats.LSPCalls++
+			}
 		}
 		if activity == "collab" {
 			rt.collabDepth++

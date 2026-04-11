@@ -26,20 +26,25 @@ func RegisterSubscriptions(
 		logger = pkglogger.Get()
 	}
 	return []context.CancelFunc{
-		platformbus.ResilientSubscribe(dispatcher, turnStartedHandler(svc), logger),
-		platformbus.ResilientSubscribe(dispatcher, turnCompletedHandler(svc), logger),
-		platformbus.ResilientSubscribe(dispatcher, turnInterruptedHandler(svc), logger),
-		platformbus.ResilientSubscribe(dispatcher, itemStartedHandler(svc), logger),
+		platformbus.ResilientSubscribe(dispatcher, turnStartedHandler(svc, onUpdated), logger),
+		platformbus.ResilientSubscribe(dispatcher, turnCompletedHandler(svc, onUpdated), logger),
+		platformbus.ResilientSubscribe(dispatcher, turnInterruptedHandler(svc, onUpdated), logger),
+		platformbus.ResilientSubscribe(dispatcher, turnInputReceivedHandler(svc, onUpdated), logger),
+		platformbus.ResilientSubscribe(dispatcher, planDeltaHandler(svc, onUpdated), logger),
+		platformbus.ResilientSubscribe(dispatcher, planUpdatedHandler(svc, onUpdated), logger),
+		platformbus.ResilientSubscribe(dispatcher, agentErrorHandler(svc, onUpdated), logger),
+		platformbus.ResilientSubscribe(dispatcher, agentFailedHandler(svc, onUpdated), logger),
+		platformbus.ResilientSubscribe(dispatcher, itemStartedHandler(svc, onUpdated), logger),
 		platformbus.ResilientSubscribe(dispatcher, itemCompletedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, toolCallBeginHandler(svc), logger),
+		platformbus.ResilientSubscribe(dispatcher, toolCallBeginHandler(svc, onUpdated), logger),
 		platformbus.ResilientSubscribe(dispatcher, toolCallEndHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, approvalRequestedHandler(svc), logger),
+		platformbus.ResilientSubscribe(dispatcher, approvalRequestedHandler(svc, onUpdated), logger),
 		platformbus.ResilientSubscribe(dispatcher, approvalResolvedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, reasoningDeltaHandler(svc), logger),
+		platformbus.ResilientSubscribe(dispatcher, reasoningDeltaHandler(svc, onUpdated), logger),
 	}
 }
 
-func turnStartedHandler(svc Service) func(turndto.TurnStarted) {
+func turnStartedHandler(svc Service, onUpdated func(string)) func(turndto.TurnStarted) {
 	return func(ev turndto.TurnStarted) {
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID == "" {
@@ -52,38 +57,67 @@ func turnStartedHandler(svc Service) func(turndto.TurnStarted) {
 			AgentID: strings.TrimSpace(ev.AgentID),
 			TurnID:  strings.TrimSpace(ev.TurnID),
 		})
+		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
 
-func turnCompletedHandler(svc Service) func(turndto.TurnCompleted) {
+func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.TurnCompleted) {
 	return func(ev turndto.TurnCompleted) {
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID == "" {
 			return
 		}
+		agentID := strings.TrimSpace(ev.AgentID)
+		turnID := strings.TrimSpace(ev.TurnID)
 		// Append assistant message as a timeline item so the frontend can
 		// render it from the GetState snapshot without needing loadMessages.
 		if msg := strings.TrimSpace(ev.Message); msg != "" {
-			svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
-				ID:      timelineID("assistant", ev.TurnID),
+			svc.Append(threadID, agentID, Item{
+				ID:      timelineID("assistant", turnID),
 				Kind:    "assistant",
 				Text:    msg,
 				Ts:      ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-				AgentID: strings.TrimSpace(ev.AgentID),
-				TurnID:  strings.TrimSpace(ev.TurnID),
+				AgentID: agentID,
+				TurnID:  turnID,
 			})
 		}
-		svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
-			ID:      timelineID("turn-end", ev.TurnID),
+		failed := !ev.Success && shared.FirstNonEmpty(
+			strings.TrimSpace(ev.Error),
+			strings.TrimSpace(ev.Reason),
+			strings.TrimSpace(ev.Status),
+		) != ""
+		status := "completed"
+		if failed {
+			status = "failed"
+		}
+		svc.Append(threadID, agentID, Item{
+			ID:      timelineID("turn-end", turnID),
 			Kind:    "turn_end",
-			Status:  "completed",
-			AgentID: strings.TrimSpace(ev.AgentID),
-			TurnID:  strings.TrimSpace(ev.TurnID),
+			Status:  status,
+			AgentID: agentID,
+			TurnID:  turnID,
 		})
+		if failed {
+			appendErrorItem(
+				svc,
+				threadID,
+				agentID,
+				turnID,
+				timelineID("error", "turn", turnID),
+				shared.FirstNonEmpty(
+					strings.TrimSpace(ev.Error),
+					strings.TrimSpace(ev.Reason),
+					strings.TrimSpace(ev.Result),
+					strings.TrimSpace(ev.Summary),
+				),
+				ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			)
+		}
+		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
 
-func reasoningDeltaHandler(svc Service) func(turndto.TurnOutputDelta) {
+func reasoningDeltaHandler(svc Service, onUpdated func(string)) func(turndto.TurnOutputDelta) {
 	return func(ev turndto.TurnOutputDelta) {
 		pkglogger.Get().Warn("timeline: reasoningDeltaHandler received",
 			"stream", ev.Stream,
@@ -106,23 +140,28 @@ func reasoningDeltaHandler(svc Service) func(turndto.TurnOutputDelta) {
 		turnID := strings.TrimSpace(ev.TurnID)
 		id := timelineID("thinking", turnID)
 		// Try to append to existing thinking item for this turn.
-		if !svc.UpdateByCallID(threadID, agentID, id, func(item *Item) {
+		if svc.UpdateByCallID(threadID, agentID, id, func(item *Item) {
 			item.Text += delta
 		}) {
-			svc.Append(threadID, agentID, Item{
-				ID:        id,
-				Kind:      "thinking",
-				Text:      delta,
-				Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-				AgentID:   agentID,
-				TurnID:    turnID,
-				lookupKey: id,
-			})
+			if onUpdated != nil {
+				onUpdated(threadID)
+			}
+			return
 		}
+		svc.Append(threadID, agentID, Item{
+			ID:        id,
+			Kind:      "thinking",
+			Text:      delta,
+			Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			AgentID:   agentID,
+			TurnID:    turnID,
+			lookupKey: id,
+		})
+		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
 
-func turnInterruptedHandler(svc Service) func(turndto.TurnInterrupted) {
+func turnInterruptedHandler(svc Service, onUpdated func(string)) func(turndto.TurnInterrupted) {
 	return func(ev turndto.TurnInterrupted) {
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID == "" {
@@ -135,111 +174,104 @@ func turnInterruptedHandler(svc Service) func(turndto.TurnInterrupted) {
 			AgentID: strings.TrimSpace(ev.AgentID),
 			TurnID:  strings.TrimSpace(ev.TurnID),
 		})
+		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
 
-func itemStartedHandler(svc Service) func(turndto.ItemStarted) {
+func itemStartedHandler(svc Service, onUpdated func(string)) func(turndto.ItemStarted) {
 	return func(ev turndto.ItemStarted) {
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID == "" {
 			return
 		}
+		kind := itemKind(ev.ItemType, ev.RawType, ev.Command, ev.File)
+		tool := strings.TrimSpace(ev.ToolName)
 		svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
 			lookupKey: itemUpdateKey(ev.CallID),
 			ID:        timelineID("item", ev.CallID, ev.ItemType, ev.Command, ev.File, ev.ToolName),
-			Kind:      "item",
+			Kind:      kind,
 			Status:    "running",
 			CallID:    strings.TrimSpace(ev.CallID),
+			Tool:      tool,
 			ToolName:  strings.TrimSpace(ev.ToolName),
 			ItemType:  strings.TrimSpace(ev.ItemType),
 			Command:   strings.TrimSpace(ev.Command),
 			File:      strings.TrimSpace(ev.File),
 			AgentID:   strings.TrimSpace(ev.AgentID),
 			TurnID:    strings.TrimSpace(ev.TurnID),
+			Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 		})
+		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
 
-func itemCompletedHandler(svc Service, onUpdated func(string)) func(turndto.ItemCompleted) {
-	return func(ev turndto.ItemCompleted) {
-		threadID := strings.TrimSpace(ev.ThreadID)
-		updateKey := itemUpdateKey(ev.CallID)
-		if threadID == "" || updateKey == "" {
-			return
-		}
-		success := ev.Success
-		updated := svc.UpdateByCallID(threadID, strings.TrimSpace(ev.AgentID), updateKey, func(it *Item) {
-			it.Status = "completed"
-			it.Success = &success
-			if errText := strings.TrimSpace(ev.Error); errText != "" {
-				it.Error = errText
-			}
-		})
-		if updated && onUpdated != nil {
-			onUpdated(threadID)
-		}
-	}
-}
-
-func toolCallBeginHandler(svc Service) func(tooldto.ToolCallBegin) {
+func toolCallBeginHandler(svc Service, onUpdated func(string)) func(tooldto.ToolCallBegin) {
 	return func(ev tooldto.ToolCallBegin) {
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID == "" {
 			return
 		}
+		tool := strings.TrimSpace(ev.ToolName)
 		svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
-			lookupKey: toolUpdateKey(ev.CallID),
+			lookupKey: toolUpdateKey(ev.CallID, tool),
 			ID:        timelineID("tool", ev.CallID, ev.ToolName),
-			Kind:      "tool_call",
+			Kind:      "tool",
 			Status:    "running",
 			CallID:    strings.TrimSpace(ev.CallID),
 			RequestID: ev.RequestID,
-			ToolName:  strings.TrimSpace(ev.ToolName),
+			Tool:      tool,
+			ToolName:  tool,
 			AgentID:   strings.TrimSpace(ev.AgentID),
 			TurnID:    strings.TrimSpace(ev.TurnID),
+			Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 		})
+		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
 
 func toolCallEndHandler(svc Service, onUpdated func(string)) func(tooldto.ToolCallEnd) {
 	return func(ev tooldto.ToolCallEnd) {
 		threadID := strings.TrimSpace(ev.ThreadID)
-		updateKey := toolUpdateKey(ev.CallID)
+		updateKey := toolUpdateKey(ev.CallID, ev.ToolName)
 		if threadID == "" || updateKey == "" {
 			return
 		}
 		success := ev.Success
 		updated := svc.UpdateByCallID(threadID, strings.TrimSpace(ev.AgentID), updateKey, func(it *Item) {
-			it.Status = "completed"
-			it.Success = &success
-			if errText := strings.TrimSpace(ev.Error); errText != "" {
-				it.Error = errText
-			}
+			applyToolCallCompleted(it, ev, success)
 		})
-		if updated && onUpdated != nil {
-			onUpdated(threadID)
+		if updated {
+			emitTimelineUpdated(onUpdated, threadID)
+			return
+		}
+		if appendCompletedToolFallback(svc, threadID, ev, updateKey, success) {
+			emitTimelineUpdated(onUpdated, threadID)
 		}
 	}
 }
 
-func approvalRequestedHandler(svc Service) func(tooldto.ToolApprovalRequested) {
+func approvalRequestedHandler(svc Service, onUpdated func(string)) func(tooldto.ToolApprovalRequested) {
 	return func(ev tooldto.ToolApprovalRequested) {
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID == "" {
 			return
 		}
+		tool := strings.TrimSpace(ev.ToolName)
 		svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
 			lookupKey: approvalUpdateKey(ev.ApprovalID, ev.CallID),
 			ID:        timelineID("approval", ev.ApprovalID, ev.CallID, ev.ToolName, ev.Kind),
-			Kind:      "approval_request",
+			Kind:      "approval",
 			Status:    "pending",
 			CallID:    strings.TrimSpace(ev.CallID),
 			RequestID: ev.RequestID,
-			ToolName:  strings.TrimSpace(ev.ToolName),
+			Tool:      tool,
+			ToolName:  tool,
 			ItemType:  strings.TrimSpace(ev.Kind),
 			AgentID:   strings.TrimSpace(ev.AgentID),
 			TurnID:    strings.TrimSpace(ev.TurnID),
+			Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 		})
+		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
 
@@ -255,11 +287,36 @@ func approvalResolvedHandler(svc Service, onUpdated func(string)) func(tooldto.T
 			status = "approved"
 		}
 		updated := svc.UpdateByCallID(threadID, strings.TrimSpace(ev.AgentID), updateKey, func(it *Item) {
+			it.Kind = "approval"
 			it.Status = status
+			it.Done = true
+			if strings.TrimSpace(it.Ts) == "" {
+				it.Ts = ev.Timestamp.Format("2006-01-02T15:04:05Z07:00")
+			}
+			it.Tool = shared.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
+			it.ToolName = shared.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
 		})
-		if updated && onUpdated != nil {
-			onUpdated(threadID)
+		if updated {
+			if onUpdated != nil {
+				onUpdated(threadID)
+			}
+			return
 		}
+		svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
+			lookupKey: updateKey,
+			ID:        timelineID("approval", ev.ApprovalID, ev.CallID, ev.ToolName, ev.Kind),
+			Kind:      "approval",
+			Status:    status,
+			CallID:    strings.TrimSpace(ev.CallID),
+			Tool:      strings.TrimSpace(ev.ToolName),
+			ToolName:  strings.TrimSpace(ev.ToolName),
+			ItemType:  strings.TrimSpace(ev.Kind),
+			Done:      true,
+			AgentID:   strings.TrimSpace(ev.AgentID),
+			TurnID:    strings.TrimSpace(ev.TurnID),
+			Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+		})
+		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
 
@@ -278,8 +335,8 @@ func itemUpdateKey(callID string) string {
 	return timelineID("item", callID)
 }
 
-func toolUpdateKey(callID string) string {
-	return timelineID("tool", callID)
+func toolUpdateKey(callID, tool string) string {
+	return timelineID("tool", tool, callID)
 }
 
 func approvalUpdateKey(approvalID, callID string) string {

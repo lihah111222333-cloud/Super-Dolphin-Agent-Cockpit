@@ -14,6 +14,134 @@ import { buildVisibleChatThreadCards } from '../utils/thread-page-utils.js';
  * @typedef {import('../utils/thread-page-types').ProcessActivityItem} ProcessActivityItem
  */
 
+function processActivityId(item, kind, index) {
+  return (item.id || `${kind}-${index}`).toString();
+}
+
+function isFailedActivity(item) {
+  const status = (item?.status || '').toString().trim().toLowerCase();
+  if (status === 'failed' || status === 'error' || status === 'rejected') return true;
+  if (item?.success === false) return true;
+  if (Number.isFinite(Number(item?.exitCode)) && Math.trunc(Number(item.exitCode)) !== 0) return true;
+  return Boolean((item?.error || '').toString().trim());
+}
+
+function toToolProcessActivityItem(item, index) {
+  const status = (item.status || '').toString().trim().toLowerCase();
+  const failed = isFailedActivity(item);
+  const tool = (item.tool || '').toString().trim() || '未知工具';
+  const detail = (item.preview || item.file || '').toString().trim();
+  return {
+    id: processActivityId(item, 'tool', index),
+    time: formatTimelineTime(item.ts),
+    message: detail ? `${tool} · ${detail}` : tool,
+    kind: 'tool',
+    status: failed ? 'failed' : status === 'running' ? 'active' : 'done',
+  };
+}
+
+function toApprovalProcessActivityItem(item, index) {
+  const status = (item.status || '').toString().trim().toLowerCase();
+  const failed = isFailedActivity(item);
+  const command = (item.command || item.tool || item.file || item.text || '').toString().trim();
+  return {
+    id: processActivityId(item, 'approval', index),
+    time: formatTimelineTime(item.ts),
+    message: command ? `审批确认 · ${command}` : '等待审批确认',
+    kind: 'approval',
+    status: failed ? 'failed' : ['approved', 'rejected', 'resolved', 'submitted'].includes(status) ? 'done' : 'active',
+    multiline: Boolean(command),
+  };
+}
+
+function toFileProcessActivityItem(item, index) {
+  const status = (item.status || '').toString().trim().toLowerCase();
+  const failed = isFailedActivity(item);
+  const file = (item.file || '').toString().trim() || '未知文件';
+  const active = status === 'editing' || status === 'running';
+  const prefix = failed ? '保存失败' : active ? '修改中' : '已修改';
+  return {
+    id: processActivityId(item, 'file', index),
+    time: formatTimelineTime(item.ts),
+    message: `${prefix} · ${file}`,
+    kind: 'file',
+    status: failed ? 'failed' : active ? 'active' : 'done',
+  };
+}
+
+/**
+ * @param {any} item
+ * @param {number} index
+ * @returns {ProcessActivityItem | null}
+ */
+function toProcessActivityItem(item, index) {
+  if (!item || typeof item !== 'object') return null;
+  const kind = (item.kind || '').toString().trim();
+  if (!kind) return null;
+  if (kind === 'thinking') {
+    const done = Boolean(item.done);
+    return {
+      id: (item.id || `${kind}-${index}`).toString(),
+      time: formatTimelineTime(item.ts),
+      message: done ? '思考完成' : '思考中',
+      kind: 'thinking',
+      status: done ? 'done' : 'active',
+    };
+  }
+  if (kind === 'command') {
+    const status = (item.status || '').toString().trim().toLowerCase();
+    const failed = isFailedActivity(item);
+    const commandText = (item.command || '').toString().trim();
+    const title = commandText ? `$ ${commandText}` : '终端命令';
+    const output = normalizeActivityOutput(item.output);
+    const rawExitCode = Number(item.exitCode);
+    const hasExitCode = Number.isFinite(rawExitCode);
+    const exitCode = hasExitCode ? Math.trunc(rawExitCode) : undefined;
+    if (status === 'running' && !failed) {
+      return {
+        id: processActivityId(item, kind, index),
+        time: formatTimelineTime(item.ts),
+        message: title,
+        kind: 'command',
+        title,
+        command: commandText,
+        output,
+        status: 'active',
+        multiline: Boolean(commandText || output),
+      };
+    }
+    if (failed) {
+      return {
+        id: processActivityId(item, kind, index),
+        time: formatTimelineTime(item.ts),
+        message: title,
+        kind: 'command',
+        title,
+        command: commandText,
+        output,
+        status: 'failed',
+        exitCode,
+        multiline: Boolean(output),
+      };
+    }
+    return {
+      id: processActivityId(item, kind, index),
+      time: formatTimelineTime(item.ts),
+      message: title,
+      kind: 'command',
+      title,
+      command: commandText,
+      output,
+      status: 'done',
+      exitCode,
+      multiline: Boolean(output),
+    };
+  }
+  if (kind === 'tool') return toToolProcessActivityItem(item, index);
+  if (kind === 'approval') return toApprovalProcessActivityItem(item, index);
+  if (kind === 'file') return toFileProcessActivityItem(item, index);
+  return null;
+}
 
 /**
  * @param {object} props
@@ -100,90 +228,18 @@ export function useThreadCards(props, deps) {
   const activeChatThreadCount = computed(() => visibleChatThreadCardState.value.activeCount);
   const archivedChatThreadCount = computed(() => visibleChatThreadCardState.value.archivedCount);
 
-  /**
-   * @param {any} item
-   * @param {number} index
-   * @returns {ProcessActivityItem | null}
-   */
-  function toProcessActivityItem(item, index) {
-    if (!item || typeof item !== 'object') return null;
-    const kind = (item.kind || '').toString().trim();
-    if (!kind) return null;
-    if (kind === 'thinking') {
-      const done = Boolean(item.done);
-      return {
-        id: (item.id || `${kind}-${index}`).toString(),
-        time: formatTimelineTime(item.ts),
-        message: done ? '思考完成' : '思考中',
-        kind: 'thinking',
-        status: done ? 'done' : 'active',
-      };
-    }
-    if (kind === 'command') {
-      const status = (item.status || '').toString().trim().toLowerCase();
-      const commandText = (item.command || '').toString().trim();
-      const title = commandText ? `$ ${commandText}` : '终端命令';
-      const output = normalizeActivityOutput(item.output);
-      const rawExitCode = Number(item.exitCode);
-      const hasExitCode = Number.isFinite(rawExitCode);
-      const exitCode = hasExitCode ? Math.trunc(rawExitCode) : undefined;
-      if (status === 'running') {
-        return {
-          id: (item.id || `${kind}-${index}`).toString(),
-          time: formatTimelineTime(item.ts),
-          message: title,
-          kind: 'command',
-          title,
-          command: commandText,
-          output,
-          status: 'active',
-          multiline: Boolean(commandText || output),
-        };
-      }
-      if (status === 'failed') {
-        return {
-          id: (item.id || `${kind}-${index}`).toString(),
-          time: formatTimelineTime(item.ts),
-          message: title,
-          kind: 'command',
-          title,
-          command: commandText,
-          output,
-          status: 'failed',
-          exitCode,
-          multiline: Boolean(output),
-        };
-      }
-      return {
-        id: (item.id || `${kind}-${index}`).toString(),
-        time: formatTimelineTime(item.ts),
-        message: title,
-        kind: 'command',
-        title,
-        command: commandText,
-        output,
-        status: 'done',
-        exitCode,
-        multiline: Boolean(output),
-      };
-    }
-    return null;
-  }
-
   const activeProcessActivity = computed(() => {
     const list = Array.isArray(activeTimeline.value) ? activeTimeline.value : [];
-    /** @type {any[]} */
-    const items = [];
     let lastSignature = '';
-    for (let index = 0; index < list.length; index += 1) {
-      const entry = toProcessActivityItem(list[index], index);
-      if (!entry) continue;
+    const items = list.flatMap((rawItem, index) => {
+      const entry = toProcessActivityItem(rawItem, index);
+      if (!entry) return [];
       const signature = `${entry.message}|${entry.status}`;
-      if (signature === lastSignature) continue;
+      if (signature === lastSignature) return [];
       lastSignature = signature;
-      items.push(/** @type {any} */ (entry));
-    }
-    return items.slice(-12).reverse();
+      return [entry];
+    });
+    return /** @type {ProcessActivityItem[]} */ (items.slice(-12).reverse());
   });
 
   const activeRuntime = computed(() => {

@@ -18,6 +18,7 @@ type UIState struct {
 	DiffTextByAgent          map[string]string          `json:"diffTextByThread,omitempty"`
 	DiffRevisionByAgent      map[string]int64           `json:"diffRevisionByThread,omitempty"`
 	TimelineByThread         map[string][]timeline.Item `json:"timelinesByThread,omitempty"`
+	ActivityStatsByThread    map[string]*ActivityStats  `json:"activityStatsByThread,omitempty"`
 	Unchanged                bool                       `json:"unchanged,omitempty"`
 	ActiveThreadID           string                     `json:"activeThreadId,omitempty"`
 	ActiveCmdThreadID        string                     `json:"activeCmdThreadId,omitempty"`
@@ -79,6 +80,13 @@ type TokenUsage struct {
 	OutputTokens        int `json:"output_tokens"`
 	TotalTokens         int `json:"total_tokens"`
 	ContextWindowTokens int `json:"context_window_tokens,omitempty"`
+}
+
+type ActivityStats struct {
+	LSPCalls  int64            `json:"lspCalls"`
+	Commands  int64            `json:"commands"`
+	FileEdits int64            `json:"fileEdits"`
+	ToolCalls map[string]int64 `json:"toolCalls,omitempty"`
 }
 
 type Sidebar struct {
@@ -160,6 +168,7 @@ func cloneState(value UIState) *UIState {
 		TokenUsage:               value.TokenUsage,
 		DiffTextByAgent:          nil,
 		DiffRevisionByAgent:      nil,
+		ActivityStatsByThread:    cloneActivityStatsByThread(value.ActivityStatsByThread),
 		Unchanged:                value.Unchanged,
 		ActiveThreadID:           value.ActiveThreadID,
 		ActiveCmdThreadID:        value.ActiveCmdThreadID,

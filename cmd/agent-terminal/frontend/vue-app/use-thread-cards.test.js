@@ -168,4 +168,36 @@ describe('useThreadCards', () => {
     expect(vm.cmdCards.value[0].preview).toEqual([{ key: 'i-0', text: '助手: 流式更新后的内容' }]);
     expect(timelinePreview.mock.calls.length).toBeGreaterThan(initialCallCount);
   });
+
+  it('maps tool, file, and approval timeline items into process activity entries', () => {
+    const vm = createThreadCards({
+      activeTimeline: [
+        { id: 'tool-1', kind: 'tool', tool: 'open_file', preview: 'src/main.js', status: 'completed', success: true, ts: '2026-03-09T10:00:00Z' },
+        { id: 'file-1', kind: 'file', file: 'src/main.js', status: 'completed', success: true, ts: '2026-03-09T10:00:01Z' },
+        { id: 'approval-1', kind: 'approval', tool: 'file_edit', requestId: 7, status: 'pending', ts: '2026-03-09T10:00:02Z' },
+      ],
+    });
+
+    expect(vm.activeProcessActivity.value).toEqual([
+      expect.objectContaining({ kind: 'approval', message: '审批确认 · file_edit', status: 'active' }),
+      expect.objectContaining({ kind: 'file', message: '已修改 · src/main.js', status: 'done' }),
+      expect.objectContaining({ kind: 'tool', message: 'open_file · src/main.js', status: 'done' }),
+    ]);
+  });
+
+  it('marks failed command, tool, and file timeline items as failed from backend payloads', () => {
+    const vm = createThreadCards({
+      activeTimeline: [
+        { id: 'tool-1', kind: 'tool', tool: 'bash', status: 'completed', success: false, error: 'boom', ts: '2026-03-09T10:00:00Z' },
+        { id: 'file-1', kind: 'file', file: 'src/main.js', status: 'completed', success: false, error: 'write failed', ts: '2026-03-09T10:00:01Z' },
+        { id: 'cmd-1', kind: 'command', command: 'go test ./...', status: 'completed', exitCode: 1, output: 'FAIL', ts: '2026-03-09T10:00:02Z' },
+      ],
+    });
+
+    expect(vm.activeProcessActivity.value).toEqual([
+      expect.objectContaining({ kind: 'command', status: 'failed', exitCode: 1 }),
+      expect.objectContaining({ kind: 'file', status: 'failed', message: '保存失败 · src/main.js' }),
+      expect.objectContaining({ kind: 'tool', status: 'failed', message: 'bash' }),
+    ]);
+  });
 });

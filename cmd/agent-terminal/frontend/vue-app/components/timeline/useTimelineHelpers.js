@@ -100,7 +100,12 @@ function createStateLabel(approvalRequestId, approvalResolvedByRequestId) {
       return '完成';
     }
     if (item.kind === 'tool') return item.status === 'failed' ? '失败' : '调用';
-    if (item.kind === 'file') return item.status === 'saved' ? '已保存' : '修改中';
+    if (item.kind === 'file') {
+      if (item.status === 'saved') return '已保存';
+      if (item.status === 'failed') return '失败';
+      if (['completed', 'done', 'ok'].includes(item.status)) return '已修改';
+      return '修改中';
+    }
     if (item.kind === 'plan') return item.done ? '完成' : '进行中';
     if (item.kind === 'approval') {
       const requestId = approvalRequestId(item);
@@ -266,11 +271,6 @@ function createRoleLabel(props) {
       case 'turn_end':
       case 'turn_interrupted':
         return '回合';
-      case 'item':
-      case 'tool_call':
-        return '过程';
-      case 'approval_request':
-        return '审批';
       default:
         logWarn('ui', 'timeline.roleLabel.unknown_kind', {
           kind: item?.kind, id: item?.id, text_len: (item?.text || '').length,

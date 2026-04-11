@@ -261,6 +261,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			ToolCallHeader: buildToolCallHeader(payload),
 			Success:        turnTerminalSuccess(eventType, payload),
 			Error:          stringValue(payload, "error", "message", "reason"),
+			Result:         jsonPreview(payload, "result", "content"),
 			ElapsedMS:      int64Value(payload, "elapsedMs", "elapsed_ms"),
 		}, true
 	case "approval/resolved", "tool.approval.resolved":

@@ -470,11 +470,11 @@ describe('thread store runtime sync', () => {
       { id: 'msg-4', kind: 'assistant', text: 'done', ts: '2026-01-01T00:00:03Z' },
     ];
     store.state.timelinesByThread = { [threadId]: dialogItems };
-    // Remote returns structural-only timeline (no dialog items)
-    const structuralTimeline = [
+    // Remote returns process-only timeline (no dialog items)
+    const processTimeline = [
       { id: 'turn-1', kind: 'turn_start', status: 'running' },
-      { id: 'tc-1', kind: 'tool_call', tool_name: 'read', call_id: 'c1' },
-      { id: 'tc-2', kind: 'tool_call', tool_name: 'write', call_id: 'c2' },
+      { id: 'tc-1', kind: 'tool', tool: 'read', callId: 'c1' },
+      { id: 'tc-2', kind: 'tool', tool: 'write', callId: 'c2' },
       { id: 'turn-1-end', kind: 'turn_end', status: 'completed' },
     ];
     let loadMessagesCalled = false;
@@ -482,7 +482,7 @@ describe('thread store runtime sync', () => {
       if (method === 'ui/state/get') return {
         threads: [{ id: threadId, name: 'Claude', state: 'running' }],
         agents: [],
-        timelinesByThread: { [threadId]: structuralTimeline },
+        timelinesByThread: { [threadId]: processTimeline },
       };
       if (method === 'thread/messages') {
         loadMessagesCalled = true;
