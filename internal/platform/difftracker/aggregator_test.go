@@ -139,6 +139,52 @@ func TestDiffAggregator_TTLCleanup(t *testing.T) {
 	t.Fatal("session was not cleaned by sweeper")
 }
 
+func TestDiffAggregator_TTLSweeperSkipsInUseSession(t *testing.T) {
+	current := time.Unix(1_700_000_000, 0)
+	aggregator := NewDiffAggregator(withSessionTTL(time.Minute), withSweepInterval(time.Hour))
+	aggregator.now = func() time.Time { return current }
+
+	session := aggregator.sessionFor(MergeRequest{
+		AgentID:  "agent-a",
+		ThreadID: "thread-1",
+		RepoRoot: "/repo",
+	})
+	t.Cleanup(func() {
+		if session != nil {
+			aggregator.releaseSession(session)
+		}
+	})
+
+	aggregator.mu.Lock()
+	session.lastActivity = current.Add(-2 * time.Minute)
+	aggregator.mu.Unlock()
+
+	aggregator.sweepExpired()
+
+	aggregator.mu.Lock()
+	_, ok := aggregator.sessions["agent-a"]
+	refCount := session.refCount
+	aggregator.mu.Unlock()
+	if !ok {
+		t.Fatal("sweeper removed in-use session")
+	}
+	if refCount != 1 {
+		t.Fatalf("refCount = %d, want 1 while session is in use", refCount)
+	}
+
+	aggregator.releaseSession(session)
+	session = nil
+	current = current.Add(2 * time.Minute)
+	aggregator.sweepExpired()
+
+	aggregator.mu.Lock()
+	_, ok = aggregator.sessions["agent-a"]
+	aggregator.mu.Unlock()
+	if ok {
+		t.Fatal("session still exists after release and ttl expiry")
+	}
+}
+
 func TestDiffAggregator_RepoRootReset(t *testing.T) {
 	aggregator := NewDiffAggregator(withSweepInterval(time.Hour))
 	aggregator.Start()

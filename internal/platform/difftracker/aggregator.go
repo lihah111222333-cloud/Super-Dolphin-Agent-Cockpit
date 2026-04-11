@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 var ErrMissingAgentID = errors.New("difftracker: missing agent ID")
