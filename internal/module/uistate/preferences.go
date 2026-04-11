@@ -1,6 +1,7 @@
 package uistate
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -24,6 +25,28 @@ const (
 )
 
 var errInvalidStallThresholdSec = errors.New("stallThresholdSec must be >= 30 seconds")
+
+func withPreferenceScope(ctx context.Context, cwd string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, preferenceScopeKey{}, strings.TrimSpace(cwd))
+}
+
+func preferenceScopeFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(preferenceScopeKey{}).(string)
+	return strings.TrimSpace(value)
+}
+
+func fallbackPreferenceKey(scope, key string) string { return scope + "\x1f" + strings.TrimSpace(key) }
+
+func splitFallbackPreferenceKey(raw string) (string, string, bool) {
+	scope, key, ok := strings.Cut(raw, "\x1f")
+	return scope, strings.TrimSpace(key), ok && strings.TrimSpace(key) != ""
+}
 
 func normalizePreferenceKey(key string) string {
 	switch strings.TrimSpace(key) {

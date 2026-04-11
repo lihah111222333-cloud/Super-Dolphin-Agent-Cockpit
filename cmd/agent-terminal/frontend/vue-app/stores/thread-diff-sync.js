@@ -63,7 +63,6 @@ export function createSyncThreadDiffState(deps) {
     perfNow,
     applyRuntimeSnapshot,
   } = deps;
-
   return async function syncThreadDiffState(threadId, options = {}) {
     const id = normalizeThreadID(threadId);
     if (!id) return null;

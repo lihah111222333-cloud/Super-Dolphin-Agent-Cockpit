@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 var ErrNotGitRepository = errors.New("difftracker: not a git repository")
@@ -21,7 +19,7 @@ const (
 	gitRetryAttempts  = 2
 )
 
-func FindGitRoot(ctx context.Context, dir string) (string, error) {
+func findGitRoot(ctx context.Context, dir string) (string, error) {
 	base, err := gitBaseDir(dir)
 	if err != nil {
 		return "", err
@@ -37,8 +35,8 @@ func FindGitRoot(ctx context.Context, dir string) (string, error) {
 	return root, nil
 }
 
-func ListDirtyFiles(ctx context.Context, root string) ([]string, error) {
-	repoRoot, err := FindGitRoot(ctx, root)
+func listDirtyFiles(ctx context.Context, root string) ([]string, error) {
+	repoRoot, err := findGitRoot(ctx, root)
 	if err != nil {
 		return nil, err
 	}
@@ -54,8 +52,8 @@ func ListDirtyFiles(ctx context.Context, root string) ([]string, error) {
 	return uniqueSorted(files), nil
 }
 
-func ReadHEADContent(ctx context.Context, root, relPath string) ([]byte, error) {
-	repoRoot, err := FindGitRoot(ctx, root)
+func readHEADContent(ctx context.Context, root, relPath string) ([]byte, error) {
+	repoRoot, err := findGitRoot(ctx, root)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +90,10 @@ func execGitCommand(ctx context.Context, dir string, args ...string) ([]byte, er
 }
 
 func execGitCommandOnce(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	commandCtx, cancel := platformconfig.WithTimeout(ctx, gitCommandTimeout)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, gitCommandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(commandCtx, "git", args...)
 	cmd.Dir = dir

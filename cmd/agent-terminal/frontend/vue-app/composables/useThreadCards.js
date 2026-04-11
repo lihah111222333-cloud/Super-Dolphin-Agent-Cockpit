@@ -1,5 +1,4 @@
 import {
-  ref,
   computed,
 } from '../../lib/vue.esm-browser.prod.js';
 import { normalizeStatus } from '../services/status.js';
@@ -7,8 +6,8 @@ import {
   formatTimelineTime,
   normalizeActivityOutput,
 } from '../utils/format-utils.js';
-import { resolvePlanItemKey } from '../utils/plan-utils.js';
 import { buildVisibleChatThreadCards } from '../utils/thread-page-utils.js';
+import { createPinnedPlanState } from './useThreadCards.pinned-plan.js';
 
 /**
  * @typedef {import('../utils/thread-page-types').ProcessActivityItem} ProcessActivityItem
@@ -143,33 +142,20 @@ function toProcessActivityItem(item, index) {
   return null;
 }
 
-/**
- * @param {object} props
- * @param {object} deps
- */
-export function useThreadCards(props, deps) {
+function createVisibleChatThreadCardState(props, deps) {
   const {
-    threads,
     chatThreadOptions,
     selectedThreadId,
-
     showArchivedThreadList,
-    activeTimeline,
-    isCmd,
-    layoutMode,
-    timelinePreview,
-    diffPreview,
     getThreadStatusHeader,
     isThreadInterruptible,
   } = deps;
-
-  const __threadCardCache = new Map();
+  const threadCardCache = new Map();
   const visibleChatThreadCardState = computed(() => {
     const start = performance.now();
     const raw = buildVisibleChatThreadCards({
       threads: chatThreadOptions.value,
       selectedThreadId: selectedThreadId.value,
-
       pinnedMap: props.threadStore.state.pinnedThreadAtById,
       archivedMap: props.threadStore.state.archivedThreadAtById,
       runtimeById: props.threadStore.state.agentRuntimeById,
@@ -182,7 +168,7 @@ export function useThreadCards(props, deps) {
 
     let recycleCount = 0;
     const recycledCards = raw.cards.map((card) => {
-      const cached = __threadCardCache.get(card.id);
+      const cached = threadCardCache.get(card.id);
       if (cached) {
         let isSame = true;
         for (const key in card) {
@@ -196,39 +182,34 @@ export function useThreadCards(props, deps) {
           return cached;
         }
       }
-      __threadCardCache.set(card.id, card);
+      threadCardCache.set(card.id, card);
       return card;
     });
 
     const elapsed = performance.now() - start;
     if (elapsed > 1.5 || raw.cards.length > 0) {
-       // Only log meaningful computations (above threshold or non-empty payload)
-       import('../services/log.js').then((m) => {
-           m.logWarn('ui', 'chat.render.cards.perf', { 
-               duration_ms: Math.round(elapsed * 100) / 100, 
-               total_cards: raw.cards.length,
-               recycled_cards: recycleCount
-           });
-       });
+      import('../services/log.js').then((m) => {
+        m.logWarn('ui', 'chat.render.cards.perf', {
+          duration_ms: Math.round(elapsed * 100) / 100,
+          total_cards: raw.cards.length,
+          recycled_cards: recycleCount,
+        });
+      });
     }
-
-    return {
-      activeCount: raw.activeCount,
-      archivedCount: raw.archivedCount,
-      cards: recycledCards,
-    };
+    return { activeCount: raw.activeCount, archivedCount: raw.archivedCount, cards: recycledCards };
   });
-  const chatActiveThreadCards = computed(() => (
-    showArchivedThreadList.value ? [] : visibleChatThreadCardState.value.cards
-  ));
-  const chatArchivedThreadCards = computed(() => (
-    showArchivedThreadList.value ? visibleChatThreadCardState.value.cards : []
-  ));
-  const visibleChatThreadCards = computed(() => visibleChatThreadCardState.value.cards);
-  const activeChatThreadCount = computed(() => visibleChatThreadCardState.value.activeCount);
-  const archivedChatThreadCount = computed(() => visibleChatThreadCardState.value.archivedCount);
 
-  const activeProcessActivity = computed(() => {
+  return {
+    chatActiveThreadCards: computed(() => (showArchivedThreadList.value ? [] : visibleChatThreadCardState.value.cards)),
+    chatArchivedThreadCards: computed(() => (showArchivedThreadList.value ? visibleChatThreadCardState.value.cards : [])),
+    visibleChatThreadCards: computed(() => visibleChatThreadCardState.value.cards),
+    activeChatThreadCount: computed(() => visibleChatThreadCardState.value.activeCount),
+    archivedChatThreadCount: computed(() => visibleChatThreadCardState.value.archivedCount),
+  };
+}
+
+function createActiveProcessActivity(activeTimeline) {
+  return computed(() => {
     const list = Array.isArray(activeTimeline.value) ? activeTimeline.value : [];
     let lastSignature = '';
     const items = list.flatMap((rawItem, index) => {
@@ -241,77 +222,16 @@ export function useThreadCards(props, deps) {
     });
     return /** @type {ProcessActivityItem[]} */ (items.slice(-12).reverse());
   });
+}
 
-  const activeRuntime = computed(() => {
-    const map = props.threadStore.state.agentRuntimeById || {};
-    return map[selectedThreadId.value] || null;
-  });
-  const noActiveThread = computed(() => !selectedThreadId.value);
-  const showOverview = computed(() => {
-    if (isCmd.value) return false;
-    return layoutMode.value === 'mix';
-  });
-
-  const latestPlanItem = computed(() => {
-    if (isCmd.value) return null;
-    const list = activeTimeline.value || [];
-    for (let index = list.length - 1; index >= 0; index -= 1) {
-      const item = list[index];
-      if (item?.kind !== 'plan') continue;
-      const text = (item.text || '').toString().trim();
-      if (!text) continue;
-      return item;
-    }
-    return null;
-  });
-  const DISMISS_STORAGE_KEY = '__plan_dismissed_v2__';
-  function loadDismissed() {
-    try {
-      const raw = sessionStorage.getItem(DISMISS_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch { return {}; }
-  }
-  function saveDismissed(map) {
-    try { sessionStorage.setItem(DISMISS_STORAGE_KEY, JSON.stringify(map)); } catch {}
-  }
-  const dismissedPlanKeyByThread = ref(loadDismissed());
-  const activePinnedPlan = computed(() => {
-    const threadId = (selectedThreadId.value || '').toString().trim();
-    if (!threadId) return null;
-    const item = latestPlanItem.value;
-    if (!item) return null;
-    const key = resolvePlanItemKey(item);
-    if (!key) return null;
-    if (dismissedPlanKeyByThread.value?.[threadId] === key) return null;
-    const text = (item.text || '').toString().trim();
-    if (!text) return null;
-    return {
-      id: ((item?.id ?? '') || key).toString(),
-      key,
-      threadId,
-      done: Boolean(item.done),
-      statusText: item.done ? '完成' : '进行中',
-      text,
-    };
-  });
-  function dismissPinnedPlan() {
-    const plan = activePinnedPlan.value;
-    if (!plan) return;
-    const next = {
-      ...dismissedPlanKeyByThread.value,
-      [plan.threadId]: plan.key,
-    };
-    dismissedPlanKeyByThread.value = next;
-    saveDismissed(next);
-  }
-
-  let _lastStatsKey = '';
-  let _lastStats = { total: 0, running: 0, thinking: 0, editing: 0, error: 0 };
-  const stats = computed(() => {
+function createStatsState(threads, props) {
+  let lastStatsKey = '';
+  let lastStats = { total: 0, running: 0, thinking: 0, editing: 0, error: 0 };
+  return computed(() => {
     const ids = threads.value.map((t) => t.id);
     const key = ids.map((id) => `${id}:${normalizeStatus(props.threadStore.getThreadStatus(id))}`).join(',');
-    if (key === _lastStatsKey) return _lastStats;
-    _lastStatsKey = key;
+    if (key === lastStatsKey) return lastStats;
+    lastStatsKey = key;
     const summary = { total: ids.length, running: 0, thinking: 0, editing: 0, error: 0 };
     for (const id of ids) {
       const status = normalizeStatus(props.threadStore.getThreadStatus(id));
@@ -320,11 +240,13 @@ export function useThreadCards(props, deps) {
       if (status === 'editing') summary.editing += 1;
       if (status === 'error') summary.error += 1;
     }
-    _lastStats = summary;
+    lastStats = summary;
     return summary;
   });
+}
 
-  const recentThreads = computed(() => {
+function createRecentThreads(threads, props) {
+  return computed(() => {
     const meta = props.threadStore.state.agentMetaById || {};
     return [...threads.value]
       .sort((a, b) => {
@@ -334,13 +256,24 @@ export function useThreadCards(props, deps) {
       })
       .slice(0, 6);
   });
+}
 
-  const cmdCards = computed(() => {
+function createCmdCards(props, deps) {
+  const {
+    threads,
+    selectedThreadId,
+    isCmd,
+    layoutMode,
+    activeTimeline,
+    timelinePreview,
+    diffPreview,
+    getThreadStatusHeader,
+    isThreadInterruptible,
+  } = deps;
+  return computed(() => {
     if (!isCmd.value) return [];
     const selId = selectedThreadId.value;
     const layout = layoutMode.value;
-    // 显式触发响应式追踪，确保选中卡片的 timeline 流式更新能使 cmdCards 失效重算。
-    // eslint-disable-next-line no-unused-expressions
     activeTimeline.value;
     return threads.value.map((thread) => {
       const selected = thread.id === selId;
@@ -365,6 +298,64 @@ export function useThreadCards(props, deps) {
       }
       return card;
     });
+  });
+}
+
+/**
+ * @param {object} props
+ * @param {object} deps
+ */
+export function useThreadCards(props, deps) {
+  const {
+    threads,
+    chatThreadOptions,
+    selectedThreadId,
+
+    showArchivedThreadList,
+    activeTimeline,
+    isCmd,
+    layoutMode,
+    timelinePreview,
+    diffPreview,
+    getThreadStatusHeader,
+    isThreadInterruptible,
+  } = deps;
+  const {
+    chatActiveThreadCards,
+    chatArchivedThreadCards,
+    visibleChatThreadCards,
+    activeChatThreadCount,
+    archivedChatThreadCount,
+  } = createVisibleChatThreadCardState(props, {
+    chatThreadOptions,
+    selectedThreadId,
+    showArchivedThreadList,
+    getThreadStatusHeader,
+    isThreadInterruptible,
+  });
+  const activeProcessActivity = createActiveProcessActivity(activeTimeline);
+  const activeRuntime = computed(() => {
+    const map = props.threadStore.state.agentRuntimeById || {};
+    return map[selectedThreadId.value] || null;
+  });
+  const noActiveThread = computed(() => !selectedThreadId.value);
+  const showOverview = computed(() => {
+    if (isCmd.value) return false;
+    return layoutMode.value === 'mix';
+  });
+  const { activePinnedPlan, dismissPinnedPlan } = createPinnedPlanState(isCmd, selectedThreadId, activeTimeline);
+  const stats = createStatsState(threads, props);
+  const recentThreads = createRecentThreads(threads, props);
+  const cmdCards = createCmdCards(props, {
+    threads,
+    selectedThreadId,
+    isCmd,
+    layoutMode,
+    activeTimeline,
+    timelinePreview,
+    diffPreview,
+    getThreadStatusHeader,
+    isThreadInterruptible,
   });
 
   return {

@@ -45,7 +45,7 @@ type agentDiffSession struct {
 	lastActivity time.Time
 }
 
-func New(options ...AggregatorOption) *DiffAggregator {
+func NewDiffAggregator(options ...AggregatorOption) *DiffAggregator {
 	aggregator := &DiffAggregator{
 		sessions:      make(map[string]*agentDiffSession),
 		ttl:           DefaultSessionTTL,
@@ -55,31 +55,18 @@ func New(options ...AggregatorOption) *DiffAggregator {
 	for _, option := range options {
 		option(aggregator)
 	}
-	aggregator.Start()
 	return aggregator
 }
 
-func NewDiffAggregator(options ...AggregatorOption) *DiffAggregator {
-	return New(options...)
-}
-
-func WithSessionTTL(ttl time.Duration) AggregatorOption {
+func withSessionTTL(ttl time.Duration) AggregatorOption {
 	return func(aggregator *DiffAggregator) {
 		aggregator.ttl = ttl
 	}
 }
 
-func WithSweepInterval(interval time.Duration) AggregatorOption {
+func withSweepInterval(interval time.Duration) AggregatorOption {
 	return func(aggregator *DiffAggregator) {
 		aggregator.sweepInterval = interval
-	}
-}
-
-func WithNow(now func() time.Time) AggregatorOption {
-	return func(aggregator *DiffAggregator) {
-		if now != nil {
-			aggregator.now = now
-		}
 	}
 }
 
@@ -123,10 +110,6 @@ func (a *DiffAggregator) Stop() {
 	a.mu.Unlock()
 	close(stopCh)
 	<-doneCh
-}
-
-func (a *DiffAggregator) Close() {
-	a.Stop()
 }
 
 func (a *DiffAggregator) Merge(ctx context.Context, agentID, callID, toolName string, result any, resolver WorkDirResolver) error {

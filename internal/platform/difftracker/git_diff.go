@@ -9,11 +9,11 @@ import (
 )
 
 func BeginSnapshot(ctx context.Context, path string) (*Snapshot, error) {
-	root, err := FindGitRoot(ctx, path)
+	root, err := findGitRoot(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	dirtyFiles, err := ListDirtyFiles(ctx, root)
+	dirtyFiles, err := listDirtyFiles(ctx, root)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func EmitGitDiff(ctx context.Context, snapshot *Snapshot) (string, []string, err
 }
 
 func snapshotPaths(ctx context.Context, snapshot *Snapshot) ([]string, error) {
-	afterDirty, err := ListDirtyFiles(ctx, snapshot.root)
+	afterDirty, err := listDirtyFiles(ctx, snapshot.root)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +143,7 @@ func snapshotState(ctx context.Context, snapshot *Snapshot, relPath string) (bef
 }
 
 func readHEADText(ctx context.Context, repoRoot, relPath string) (string, bool, error) {
-	content, err := ReadHEADContent(ctx, repoRoot, relPath)
+	content, err := readHEADContent(ctx, repoRoot, relPath)
 	if err == nil {
 		if shouldSkipGitBytes(relPath, content) {
 			return "", false, nil
@@ -157,7 +157,11 @@ func readHEADText(ctx context.Context, repoRoot, relPath string) (string, bool, 
 }
 
 func readWorkingTreeText(repoRoot, relPath string) (string, bool, error) {
-	data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(relPath)))
+	path := normalizeDiffPath(relPath)
+	if path == "" {
+		return "", false, nil
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(path)))
 	if err == nil {
 		if shouldSkipGitBytes(relPath, data) {
 			return "", false, nil

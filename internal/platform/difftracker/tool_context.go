@@ -56,7 +56,7 @@ func buildHookMergeRequest(
 	if err != nil {
 		return nil, err
 	}
-	patch, files, err := ExtractPatchFromReplaceRange(resultRaw)
+	patch, files, err := extractPatchFromReplaceRange(resultRaw)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +194,7 @@ func resolveRepoRoot(ctx context.Context, resolver WorkDirResolver, agentID stri
 	if err != nil {
 		return "", err
 	}
-	root, err := FindGitRoot(ctx, cwd)
+	root, err := findGitRoot(ctx, cwd)
 	if err != nil {
 		return "", nil
 	}
