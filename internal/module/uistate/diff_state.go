@@ -21,6 +21,7 @@ type diffStateSnapshot struct {
 }
 
 type diffStateRequestKey struct{}
+type knownDiffRevisionKey struct{}
 
 func withDiffStateRequest(ctx context.Context, threadID string, includeDiff bool, known int) context.Context {
 	return context.WithValue(ctx, diffStateRequestKey{}, diffStateRequest{
@@ -35,6 +36,21 @@ func diffStateRequestFromContext(ctx context.Context) diffStateRequest {
 		return diffStateRequest{}
 	}
 	value, _ := ctx.Value(diffStateRequestKey{}).(diffStateRequest)
+	return value
+}
+
+func withKnownDiffRevision(ctx context.Context, revision int) context.Context {
+	if revision <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, knownDiffRevisionKey{}, revision)
+}
+
+func knownDiffRevisionFromContext(ctx context.Context) int {
+	if ctx == nil {
+		return 0
+	}
+	value, _ := ctx.Value(knownDiffRevisionKey{}).(int)
 	return value
 }
 
@@ -166,4 +182,62 @@ func (s *service) activeDiffAgentIDLocked(threadID string) string {
 		}
 	}
 	return ""
+}
+
+func cloneActivityStatsByThread(input map[string]*ActivityStats) map[string]*ActivityStats {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]*ActivityStats, len(input))
+	for threadID, stats := range input {
+		threadID = strings.TrimSpace(threadID)
+		if threadID == "" {
+			continue
+		}
+		out[threadID] = cloneActivityStats(stats)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func cloneActivityStats(input *ActivityStats) *ActivityStats {
+	if input == nil {
+		return nil
+	}
+	return &ActivityStats{
+		LSPCalls:  input.LSPCalls,
+		Commands:  input.Commands,
+		FileEdits: input.FileEdits,
+		ToolCalls: cloneInt64Map(input.ToolCalls),
+	}
+}
+
+func (s *service) threadActivityStatsLocked(threadID string) *ActivityStats {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return nil
+	}
+	if s.state.ActivityStatsByThread == nil {
+		s.state.ActivityStatsByThread = map[string]*ActivityStats{}
+	}
+	if current := s.state.ActivityStatsByThread[threadID]; current != nil {
+		return current
+	}
+	current := &ActivityStats{}
+	s.state.ActivityStatsByThread[threadID] = current
+	return current
+}
+
+func patchActivityStats(input *ActivityStats) *uidto.PatchActivityStats {
+	if input == nil {
+		return nil
+	}
+	return &uidto.PatchActivityStats{
+		LSPCalls:  input.LSPCalls,
+		Commands:  input.Commands,
+		FileEdits: input.FileEdits,
+		ToolCalls: cloneInt64Map(input.ToolCalls),
+	}
 }

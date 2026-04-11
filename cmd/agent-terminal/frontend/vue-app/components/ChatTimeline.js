@@ -473,7 +473,7 @@ export const ChatTimeline = {
           </template>
 
           <template v-else-if="item.kind === 'approval'">
-            <div class="chat-process-text chat-process-meta">{{ item.command || '需要用户确认' }}</div>
+            <div class="chat-process-text chat-process-meta">{{ item.command || item.tool || '需要用户确认' }}</div>
             <div class="approval-actions">
               <button
                 class="approval-action-btn approval-action-btn--approve"

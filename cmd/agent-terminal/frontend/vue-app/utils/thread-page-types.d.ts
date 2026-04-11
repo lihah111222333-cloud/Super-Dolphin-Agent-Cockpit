@@ -101,7 +101,7 @@ export type ProcessActivityItem = {
   time: string;
   message: string;
   status: 'active' | 'done' | 'failed';
-  kind?: 'thinking' | 'command';
+  kind?: 'thinking' | 'command' | 'tool' | 'approval' | 'file';
   title?: string;
   command?: string;
   output?: string;

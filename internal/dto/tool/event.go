@@ -18,6 +18,7 @@ type ToolCallEnd struct {
 	shared.ToolCallHeader
 	Success   bool   `json:"success"`
 	Error     string `json:"error,omitempty"`
+	Result    string `json:"result,omitempty"`
 	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
 }
 

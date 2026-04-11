@@ -190,7 +190,7 @@ describe('streaming sync fix', () => {
             status: 'running',
             timelineItems: [
               { id: 'turn1', kind: 'turn_start', ts: '2026-03-08T00:00:00Z' },
-              { id: 'item1', kind: 'item', ts: '2026-03-08T00:00:00Z' },
+              { id: 'tool1', kind: 'tool', tool: 'open_file', preview: 'src/demo.js', ts: '2026-03-08T00:00:00Z' },
               { id: 'thinking1', kind: 'thinking', text: '...', ts: '2026-03-08T00:00:00Z' },
             ],
           });
@@ -206,7 +206,7 @@ describe('streaming sync fix', () => {
       expect(raw.length).toBeGreaterThanOrEqual(3);
       // getThreadTimeline should filter out structural items
       const visible = store.getThreadTimeline(threadId);
-      expect(visible.every((it) => !['turn_start', 'item', 'tool_call'].includes(it.kind))).toBe(true);
+      expect(visible.every((it) => !['turn_start', 'turn_end', 'turn_interrupted'].includes(it.kind))).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -231,7 +231,7 @@ describe('streaming sync fix', () => {
           activeThreadId: threadId,
           timelineItems: [
             { id: 'turn1', kind: 'turn_start', ts: '2026-03-08T00:00:00Z' },
-            { id: 'item1', kind: 'item', ts: '2026-03-08T00:00:00Z' },
+            { id: 'tool1', kind: 'tool', tool: 'open_file', preview: 'src/demo.js', ts: '2026-03-08T00:00:00Z' },
             { id: 'thinking1', kind: 'thinking', text: '...', ts: '2026-03-08T00:00:00Z' },
           ],
         });
@@ -283,13 +283,13 @@ describe('streaming sync fix', () => {
     store.state.timelinesByThread[threadId] = [
       { id: '1', kind: 'turn_start', ts: '2026-01-01T00:00:00Z' },
       { id: '2', kind: 'user', text: 'hi', ts: '2026-01-01T00:00:01Z' },
-      { id: '3', kind: 'item', ts: '2026-01-01T00:00:02Z' },
-      { id: '4', kind: 'tool_call', ts: '2026-01-01T00:00:03Z' },
+      { id: '3', kind: 'tool', tool: 'read_file', preview: 'src/demo.js', ts: '2026-01-01T00:00:02Z' },
+      { id: '4', kind: 'file', file: 'src/demo.js', status: 'saved', ts: '2026-01-01T00:00:03Z' },
       { id: '5', kind: 'assistant', text: 'hello', ts: '2026-01-01T00:00:04Z' },
       { id: '6', kind: 'thinking', text: '...', ts: '2026-01-01T00:00:05Z' },
       { id: '7', kind: 'turn_end', ts: '2026-01-01T00:00:06Z' },
       { id: '8', kind: 'turn_interrupted', ts: '2026-01-01T00:00:07Z' },
-      { id: '9', kind: 'approval_request', ts: '2026-01-01T00:00:08Z' },
+      { id: '9', kind: 'approval', command: 'deploy', requestId: 7, ts: '2026-01-01T00:00:08Z' },
       { id: '10', kind: 'command', command: 'ls', ts: '2026-01-01T00:00:09Z' },
     ];
 
@@ -300,12 +300,12 @@ describe('streaming sync fix', () => {
     expect(visibleKinds).not.toContain('turn_start');
     expect(visibleKinds).not.toContain('turn_end');
     expect(visibleKinds).not.toContain('turn_interrupted');
-    expect(visibleKinds).not.toContain('item');
-    expect(visibleKinds).not.toContain('tool_call');
-    expect(visibleKinds).not.toContain('approval_request');
+    expect(visibleKinds).toContain('tool');
+    expect(visibleKinds).toContain('file');
+    expect(visibleKinds).toContain('approval');
 
     // Content kinds must be preserved
-    expect(visibleKinds).toEqual(['user', 'assistant', 'thinking', 'command']);
+    expect(visibleKinds).toEqual(['user', 'tool', 'file', 'assistant', 'thinking', 'approval', 'command']);
   });
 
   it('getThreadTimeline returns original array reference when no structural items present', () => {

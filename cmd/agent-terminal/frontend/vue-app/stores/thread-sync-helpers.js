@@ -176,9 +176,8 @@ export async function syncThreadState(ctx, threadId) {
       logInfo('thread', 'state.sync.thread.response', { thread_id: id, timeline_len: timeline.length, diff_revision: diffRevision, local_timeline_len: localTimelineLen, duration_ms: Math.round(perfNow() - start) });
       // Regression guard: prevent remote structural-only timeline from overwriting
       // a local timeline that already contains dialog items (user/assistant messages).
-      // This happens when Claude CLI doesn't emit turn lifecycle events for subsequent
-      // turns — the backend timeline only has turn_start/tool_call/turn_end from turn 1,
-      // while the frontend has already loaded the full dialog via loadMessages.
+      // This happens when the backend only returns turn lifecycle plus process events from
+      // an earlier turn, while the frontend has already loaded the full dialog via loadMessages.
       const localTimeline = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id] : [];
       const remoteDialogCount = timeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant').length;
       const localDialogCount = localTimeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant').length;

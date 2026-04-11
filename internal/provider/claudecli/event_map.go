@@ -47,7 +47,7 @@ func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
 		return agentdto.StateChanged{
 			AgentSessionHeader: agentSessionHeader(raw.Data),
 			OldState:           dataString(raw.Data, "old_state"),
-			NewState:            dataString(raw.Data, "new_state"),
+			NewState:           dataString(raw.Data, "new_state"),
 		}, true
 	case "agent:stopped":
 		return agentdto.AgentStopped{AgentSessionHeader: agentSessionHeader(raw.Data)}, true
@@ -118,6 +118,7 @@ func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 			ToolCallHeader: toolHeader(raw.Data),
 			Success:        dataBool(raw.Data, "success"),
 			Error:          dataString(raw.Data, "error"),
+			Result:         dataString(raw.Data, "result"),
 		}, true
 	default:
 		return nil, false

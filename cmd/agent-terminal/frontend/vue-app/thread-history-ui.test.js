@@ -150,6 +150,30 @@ describe('thread-history-ui immediate hydration', () => {
     expect(state.timelinesByThread['thread-3'][1].ts).toBe('2026-03-10T12:00:01Z');
   });
 
+  it('replaces non-optimistic live runtime items when hydrated history arrives', () => {
+    const state = { timelinesByThread: { 'thread-live': [
+      { id: 'thread-live-user-1', kind: 'user', text: '最新提示词', ts: '2026-03-10T12:00:00Z' },
+      { id: 'thread-live-thinking-1', kind: 'thinking', text: '', ts: '2026-03-10T12:00:01Z' },
+    ] } };
+    const applied = applyImmediateTimelineFromMessages({
+      threadId: 'thread-live',
+      response: {
+        messages: [
+          { id: 1, role: 'user', content: '最新提示词', createdAt: '2026-03-10T12:00:00Z' },
+          { id: 2, role: 'assistant', content: '最终回复', createdAt: '2026-03-10T12:00:02Z' },
+        ],
+      },
+      state,
+      normalizeThreadID: (value) => value,
+      freezeTimelineItemsAtomic: (items) => ({ changed: true, items }),
+      logInfo: vi.fn(),
+      logWarn: vi.fn(),
+    });
+
+    expect(applied).toBe(true);
+    expect(state.timelinesByThread['thread-live'].map((item) => item.kind)).toEqual(['user', 'assistant']);
+  });
+
   it('skips incoming history page when existing dialog has valid ts but incoming lacks ts', () => {
     const existingTimeline = [{ id: 'ts-1', kind: 'user', text: 'A', ts: '2026-03-10T12:00:00Z' }, { id: 'ts-2', kind: 'assistant', text: 'B', ts: '2026-03-10T12:00:01Z' }];
     const state = { timelinesByThread: { 'thread-5': existingTimeline } };

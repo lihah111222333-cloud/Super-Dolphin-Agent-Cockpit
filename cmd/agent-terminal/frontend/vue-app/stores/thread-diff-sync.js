@@ -75,6 +75,7 @@ export function createSyncThreadDiffState(deps) {
       loadedRevisionByThread: threadDiffLoadedRevisionByThread,
       normalizeThreadID,
     });
+    // ui/state/get 已按当前 thread 作用域返回 diff；前端这里继续按 thread 记 knownDiffRevision 即可。
     if (!force && snapshotDiffRevision === loadedDiffRevision) return null;
     if (!force && snapshotDiffRevision === 0 && loadedDiffRevision === 0) return null;
     const inFlight = threadDiffSyncPromiseByThread.get(id);

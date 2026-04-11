@@ -5,7 +5,6 @@ import { normalizeThreadID } from './bridge-event-parser.js';
 // Backend timeline projector lifecycle kinds that are not renderable chat content.
 const STRUCTURAL_TIMELINE_KINDS = new Set([
   'turn_start', 'turn_end', 'turn_interrupted',
-  'item', 'tool_call', 'approval_request',
 ]);
 
 export function getThreadTimeline(ctx, threadId) {

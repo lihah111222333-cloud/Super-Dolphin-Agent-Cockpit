@@ -14,7 +14,7 @@ import { ComposerBar } from '../components/ComposerBar.js';
 import { ActivityPanel } from '../components/ActivityPanel.js';
 import { PathChoiceModal } from '../components/PathChoiceModal.js';
 import { normalizeStatus } from '../services/status.js';
-import { logInfo } from '../services/log.js';
+import { logInfo, logWarn } from '../services/log.js';
 import { observeContainerWidth, disconnectContainerObserver } from '../services/pretext-layout.js';
 import { useComposerStore } from '../stores/composer.js';
 import { useProviderMode } from '../composables/useProviderMode.js';
