@@ -37,13 +37,10 @@ type service struct {
 	emitPreferenceChange  preferenceChangedEmitter
 }
 
-// bindingLookup abstracts the binding store so uistate can enrich agent data
-// from DB without importing the full store package.
 type bindingLookup interface {
 	ListAgentThreadBindings(ctx context.Context) ([]bindingEntry, error)
 }
 
-// bindingEntry is the minimal binding data uistate needs for enrichment.
 type bindingEntry struct {
 	AgentID          string
 	Provider         string
@@ -149,7 +146,7 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	if err != nil {
 		return nil, err
 	}
-	snapshot := s.stateSnapshot()
+	snapshot := s.stateSnapshot(ctx)
 	applyPreferencesToState(snapshot, prefs)
 	applyDiffStateSnapshot(ctx, snapshot, s.diffStateSnapshot(ctx))
 	if s.timeline != nil {
@@ -186,7 +183,6 @@ func (s *service) GetPreferences(ctx context.Context) (*Preferences, error) {
 	}
 	return clonePreferences(buildPreferences(scope, values)), nil
 }
-
 func (s *service) SetPreference(ctx context.Context, key string, value any) error {
 	key = normalizePreferenceKey(key)
 	if key == "" {
@@ -222,7 +218,6 @@ func (s *service) SetPreference(ctx context.Context, key string, value any) erro
 	s.emitProjectionUpdatedEvents(projectionUpdates...)
 	return nil
 }
-
 func (s *service) sidebarLocked() Sidebar {
 	sidebar := Sidebar{
 		Threads:     cloneThreads(s.state.Threads),
@@ -236,7 +231,6 @@ func (s *service) sidebarLocked() Sidebar {
 	s.fillSidebarDerivedLocked(&sidebar)
 	return sidebar
 }
-
 func (s *service) workspaceRunsLocked() []WorkspaceRunSummary {
 	items := make([]WorkspaceRunSummary, 0, len(s.workspaceByKey))
 	for _, item := range s.workspaceByKey {
@@ -245,7 +239,6 @@ func (s *service) workspaceRunsLocked() []WorkspaceRunSummary {
 	sortWorkspaceRuns(items)
 	return cloneWorkspaceRuns(items)
 }
-
 func (s *service) fallbackPreferencesLocked(scope string) map[string]any {
 	values := map[string]any{}
 	for rawKey, value := range s.fallbackPrefs {
@@ -268,7 +261,6 @@ func (s *service) fallbackPreferencesLocked(scope string) map[string]any {
 	}
 	return values
 }
-
 func loadPreferencesFromStore(ctx context.Context, store uipreference.Store, scope string) (map[string]any, error) {
 	rows, err := store.List(ctx, scope)
 	if err != nil {
@@ -280,7 +272,6 @@ func loadPreferencesFromStore(ctx context.Context, store uipreference.Store, sco
 	}
 	return values, nil
 }
-
 func storePreference(ctx context.Context, store uipreference.Store, scope, key string, value any) error {
 	raw, err := marshalPreferenceValue(value)
 	if err != nil {
@@ -292,7 +283,6 @@ func storePreference(ctx context.Context, store uipreference.Store, scope, key s
 		Value: raw,
 	})
 }
-
 func decodePreferenceValue(raw json.RawMessage) any {
 	var value any
 	if err := json.Unmarshal(raw, &value); err == nil {
@@ -302,21 +292,33 @@ func decodePreferenceValue(raw json.RawMessage) any {
 }
 
 func marshalPreferenceValue(value any) (json.RawMessage, error) { return json.Marshal(value) }
-
-func (s *service) stateSnapshot() *UIState {
+func (s *service) stateSnapshot(ctx context.Context) *UIState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	snapshot := cloneState(s.state)
 	s.applyThreadOverlaysLocked(snapshot.Threads, time.Now())
+	sidebar := s.sidebarLocked(); recentByThread := latestTurnsByThread(snapshot.ActiveTurn, snapshot.RecentTurns)
+	snapshot.Statuses, snapshot.InterruptibleByThread = cloneStringMap(sidebar.Statuses), cloneBoolMap(sidebar.InterruptibleByThread)
+	snapshot.StatusHeadersByThread, snapshot.StatusDetailsByThread = cloneStringMap(sidebar.StatusHeadersByThread), cloneStringMap(sidebar.StatusDetailsByThread)
+	snapshot.AgentRuntimeByID, snapshot.MainAgentState, snapshot.AgentMetaByID = cloneRuntimeMap(sidebar.AgentRuntimeByID), s.mainAgentStateLocked(), map[string]map[string]any{}
+	for _, thread := range snapshot.Threads {
+		id, name := strings.TrimSpace(thread.ID), strings.TrimSpace(thread.Name)
+		if id == "" { continue }
+		if name != "" { snapshot.AgentMetaByID[id] = map[string]any{"alias": name} }
+		if turn, ok := recentByThread[id]; ok { if ts := recentTurnTime(turn); !ts.IsZero() { if snapshot.AgentMetaByID[id] == nil { snapshot.AgentMetaByID[id] = map[string]any{} }; snapshot.AgentMetaByID[id]["lastActiveAt"] = ts.UTC().Format(time.RFC3339Nano) } }
+	}
+	if requestedThreadID := firstNonEmptyString(diffStateRequestFromContext(ctx).threadID, snapshot.ActiveThreadID, snapshot.ActiveCmdThreadID); requestedThreadID != "" {
+		usage := &uidto.ThreadPatchTokenUsage{UsedTokens: snapshot.TokenUsage.TotalTokens, ContextWindowTokens: snapshot.TokenUsage.ContextWindowTokens}
+		if usage.ContextWindowTokens > 0 { usage.UsedPercent = float64(usage.UsedTokens) * 100 / float64(usage.ContextWindowTokens) }
+		snapshot.TokenUsageByThread, snapshot.AlertsByThread = map[string]*uidto.ThreadPatchTokenUsage{requestedThreadID: usage}, map[string][]uidto.PatchAlert{requestedThreadID: {}}
+	}
 	return snapshot
 }
-
 func (s *service) sidebarSnapshot() *Sidebar {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return cloneSidebar(s.sidebarLocked())
 }
-
 func (s *service) applyThreadOverlaysLocked(threads []ThreadSummary, now time.Time) {
 	for i := range threads {
 		threads[i] = s.effectiveThreadSummaryLocked(threads[i], now)

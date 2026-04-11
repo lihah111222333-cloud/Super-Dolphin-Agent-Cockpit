@@ -64,7 +64,8 @@ function getLatestDialogTimestamp(items) {
     const item = items[index];
     const kind = (item?.kind || '').toString().trim();
     if (kind !== 'assistant' && kind !== 'user') continue;
-    return toCreatedAtMillis(item?.ts);
+    const tsMillis = toCreatedAtMillis(item?.ts);
+    if (Number.isFinite(tsMillis)) return tsMillis;
   }
   return Number.NaN;
 }
@@ -161,16 +162,43 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
     return !incomingUserTexts.has((it?.text || '').trim());
   });
 
-  const mergedItems = [...missingFromIncoming, ...timeline];
+  const existingNonDialogItems = existing.filter((it) => {
+    const kind = (it?.kind || '').toString().trim();
+    if (kind === 'assistant' || kind === 'user') return false;
+    if ((it?.id || '').toString().includes('-optimistic-')) return false;
+    return true;
+  });
+
+  if (existingNonDialogItems.length > 0 && typeof logWarn === 'function') {
+    logWarn('thread', 'history.preserved_runtime_items', {
+      thread_id: id,
+      preserved_count: existingNonDialogItems.length,
+      sample_kinds: existingNonDialogItems.map((it) => it?.kind || 'unknown').slice(0, 10),
+    });
+  }
+
+  const mergedItems = [...missingFromIncoming, ...timeline, ...existingNonDialogItems];
   mergedItems.sort((a, b) => {
     const tsA = Date.parse(a?.ts || '');
     const tsB = Date.parse(b?.ts || '');
     const valA = Number.isFinite(tsA) ? tsA : 0;
     const valB = Number.isFinite(tsB) ? tsB : 0;
-    if (valA !== valB && valA > 0 && valB > 0) return valA - valB;
-    const numA = Number((a?.id || '').toString().split('-').pop());
-    const numB = Number((b?.id || '').toString().split('-').pop());
-    if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) return numA - numB;
+    
+    if (valA > 0 && valB > 0) {
+      if (valA !== valB) return valA - valB;
+    } else if (valA > 0 && valB === 0) {
+      return -1;
+    } else if (valB > 0 && valA === 0) {
+      return 1;
+    }
+
+    const prefixA = (a?.id || '').toString().split('-').slice(0, -1).join('-');
+    const prefixB = (b?.id || '').toString().split('-').slice(0, -1).join('-');
+    if (prefixA === prefixB && prefixA.length > 0) {
+      const numA = Number((a?.id || '').toString().split('-').pop());
+      const numB = Number((b?.id || '').toString().split('-').pop());
+      if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) return numA - numB;
+    }
     return 0;
   });
 

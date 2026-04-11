@@ -84,15 +84,24 @@ function setupToolTickerBar(props: ToolTickerBarProps) {
     scheduleToolTickerFrame();
   }
 
+  let wasVisible = false;
+
   watch(
     () => `${props.visible ? 1 : 0}|${(props.text || '').toString()}`,
     () => {
-      if (!props.visible || !props.text) {
+      const nextVisible = Boolean(props.visible && props.text);
+      if (!nextVisible) {
         pauseToolTicker();
         resetToolTickerViewport();
+        wasVisible = false;
         return;
       }
-      restartToolTicker();
+      if (!wasVisible) {
+        restartToolTicker();
+      } else {
+        scheduleToolTickerFrame();
+      }
+      wasVisible = true;
     },
     { immediate: true },
   );

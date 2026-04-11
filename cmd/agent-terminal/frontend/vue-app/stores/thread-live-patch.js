@@ -58,6 +58,12 @@ function setSingleMapEntry(state, key, threadId, value, options = {}) {
   state[key] = { ...current, [threadId]: value };
 }
 
+function setStateValue(state, key, value, hasValue) {
+  if (!hasValue) return;
+  if (state[key] === value) return;
+  state[key] = value;
+}
+
 function setObjectMapEntry(state, key, threadId, value, hasOwnValue) {
   if (!hasOwnValue) return;
   const current = state[key] && typeof state[key] === 'object' ? state[key] : {};
@@ -111,6 +117,7 @@ function applyTimelineDelta(state, threadId, payload) {
   let nextTimeline = current;
   if (hasTimelineOrder) {
     const ordered = [];
+    const orderedIds = new Set(payload.timelineOrder);
     for (const itemId of payload.timelineOrder) {
       const item = itemById.get(itemId);
       if (!item) {
@@ -119,7 +126,13 @@ function applyTimelineDelta(state, threadId, payload) {
       }
       ordered.push(item);
     }
-    nextTimeline = ordered;
+    const retained = current.filter(item => {
+      if (!item?.id) return false;
+      if (orderedIds.has(item.id)) return false;
+      if (hasRemovedItems && payload.removedItemIds.includes(item.id)) return false;
+      return true;
+    });
+    nextTimeline = [...retained, ...ordered];
   } else {
     const seen = new Set();
     const merged = [];
@@ -170,6 +183,9 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   const hasInterruptible = Object.prototype.hasOwnProperty.call(payload, 'interruptible');
   const hasStatusHeader = Object.prototype.hasOwnProperty.call(payload, 'statusHeader');
   const hasStatusDetails = Object.prototype.hasOwnProperty.call(payload, 'statusDetails');
+  const hasOverlayText = Object.prototype.hasOwnProperty.call(payload, 'overlayText');
+  const hasOverlayType = Object.prototype.hasOwnProperty.call(payload, 'overlayType');
+  const hasOverlayPriority = Object.prototype.hasOwnProperty.call(payload, 'overlayPriority');
   const hasDiffText = Object.prototype.hasOwnProperty.call(payload, 'diffText');
   const hasDiffRevision = Object.prototype.hasOwnProperty.call(payload, 'diffRevision');
   const diffTextValue = hasDiffText ? (payload.diffText || '').toString() : undefined;
@@ -188,6 +204,11 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   const hasAgentMeta = Object.prototype.hasOwnProperty.call(payload, 'agentMeta');
   const hasActivityStats = Object.prototype.hasOwnProperty.call(payload, 'activityStats');
   const hasAlerts = Object.prototype.hasOwnProperty.call(payload, 'alerts');
+  const hasActiveThreadId = Object.prototype.hasOwnProperty.call(payload, 'activeThreadId');
+  const hasActiveCmdThreadId = Object.prototype.hasOwnProperty.call(payload, 'activeCmdThreadId');
+  const hasMainAgentId = Object.prototype.hasOwnProperty.call(payload, 'mainAgentId');
+  const hasMainAgentState = Object.prototype.hasOwnProperty.call(payload, 'mainAgentState');
+  const hasPartial = Object.prototype.hasOwnProperty.call(payload, 'partial');
   const hasRefreshRequired = Boolean(payload.refreshRequired);
   const hasRecover = Boolean(payload.recover);
   const hasPatchShape = Object.prototype.hasOwnProperty.call(payload, 'thread')
@@ -195,12 +216,20 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
     || hasInterruptible
     || hasStatusHeader
     || hasStatusDetails
+    || hasOverlayText
+    || hasOverlayType
+    || hasOverlayPriority
     || hasDiffText
     || hasDiffRevision
     || hasTokenUsage
     || hasAgentMeta
     || hasActivityStats
     || hasAlerts
+    || hasActiveThreadId
+    || hasActiveCmdThreadId
+    || hasMainAgentId
+    || hasMainAgentState
+    || hasPartial
     || Array.isArray(payload.timelineItems)
     || Array.isArray(payload.removedItemIds)
     || Array.isArray(payload.timelineOrder)
@@ -227,6 +256,14 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   setSingleMapEntry(ctx.state, 'interruptibleByThread', id, Boolean(payload.interruptible), { hasValue: hasInterruptible });
   setSingleMapEntry(ctx.state, 'statusHeadersByThread', id, hasStatusHeader ? (payload.statusHeader || '').toString() : undefined, { hasValue: hasStatusHeader });
   setSingleMapEntry(ctx.state, 'statusDetailsByThread', id, hasStatusDetails ? (payload.statusDetails || '').toString() : undefined, { hasValue: hasStatusDetails });
+  setSingleMapEntry(ctx.state, 'overlayTextByThread', id, hasOverlayText ? (payload.overlayText || '').toString() : undefined, { hasValue: hasOverlayText });
+  setSingleMapEntry(ctx.state, 'overlayTypeByThread', id, hasOverlayType ? (payload.overlayType || '').toString() : undefined, { hasValue: hasOverlayType });
+  setSingleMapEntry(ctx.state, 'overlayPriorityByThread', id, hasOverlayPriority ? (Number.isFinite(Number(payload.overlayPriority)) ? Number(payload.overlayPriority) : 0) : undefined, { hasValue: hasOverlayPriority });
+  setStateValue(ctx.state, 'activeThreadId', hasActiveThreadId ? normalizeThreadID(payload.activeThreadId) : undefined, hasActiveThreadId);
+  setStateValue(ctx.state, 'activeCmdThreadId', hasActiveCmdThreadId ? normalizeThreadID(payload.activeCmdThreadId) : undefined, hasActiveCmdThreadId);
+  setStateValue(ctx.state, 'mainAgentId', hasMainAgentId ? (payload.mainAgentId || '').toString().trim() : undefined, hasMainAgentId);
+  setStateValue(ctx.state, 'mainAgentState', hasMainAgentState ? (payload.mainAgentState || '').toString().trim() : undefined, hasMainAgentState);
+  setStateValue(ctx.state, 'partial', payload.partial === true || payload.partial === 'true' || Number(payload.partial) === 1, hasPartial);
   if (shouldIgnoreTransientDiffClear) {
     ctx.logInfo('thread', 'state.patch.diff_clear_ignored', {
       thread_id: id,

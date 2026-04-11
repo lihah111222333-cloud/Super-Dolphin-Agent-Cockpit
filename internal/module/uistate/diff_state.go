@@ -46,7 +46,7 @@ func (s *service) applyToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	}
 	changed := false
 	applyMutation(s, threadID, func() {
-		changed = s.applyToolDiffUpdatedLocked(agentID, threadID, ev.DiffText)
+		changed = s.applyToolDiffUpdatedLocked(agentID, threadID, ev.DiffText, ev.Revision)
 	}, func() uidto.UIThreadPatch {
 		if !changed {
 			return uidto.UIThreadPatch{}
@@ -55,7 +55,7 @@ func (s *service) applyToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	})
 }
 
-func (s *service) applyToolDiffUpdatedLocked(agentID, threadID, diffText string) bool {
+func (s *service) applyToolDiffUpdatedLocked(agentID, threadID, diffText string, revision int64) bool {
 	agentID = strings.TrimSpace(agentID)
 	threadID = strings.TrimSpace(threadID)
 	if agentID == "" || threadID == "" {
@@ -67,11 +67,21 @@ func (s *service) applyToolDiffUpdatedLocked(agentID, threadID, diffText string)
 	if s.state.DiffRevisionByAgent == nil {
 		s.state.DiffRevisionByAgent = map[string]int64{}
 	}
-	if current, ok := s.state.DiffTextByAgent[agentID]; ok && current == diffText {
+	currentDiff := s.state.DiffTextByAgent[agentID]
+	currentRevision := s.state.DiffRevisionByAgent[agentID]
+	if currentDiff == diffText {
+		if revision > currentRevision {
+			s.state.DiffRevisionByAgent[agentID] = revision
+			return true
+		}
 		return false
 	}
 	s.state.DiffTextByAgent[agentID] = diffText
-	s.state.DiffRevisionByAgent[agentID]++
+	if revision > 0 {
+		s.state.DiffRevisionByAgent[agentID] = revision
+	} else {
+		s.state.DiffRevisionByAgent[agentID]++
+	}
 	return true
 }
 

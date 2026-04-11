@@ -19,10 +19,10 @@ func TestDiffStateByAgentSelectsActiveMainAgent(t *testing.T) {
 	seedDiffStateThread(svc, "thread-1", "agent-a", "agent-b")
 	svc.state.ActiveThreadID = "thread-1"
 	svc.state.MainAgentID = "agent-a"
-	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-a") {
+	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-a", 0) {
 		t.Fatal("applyToolDiffUpdatedLocked(agent-a) = false, want true")
 	}
-	if !svc.applyToolDiffUpdatedLocked("agent-b", "thread-1", "diff-b") {
+	if !svc.applyToolDiffUpdatedLocked("agent-b", "thread-1", "diff-b", 0) {
 		t.Fatal("applyToolDiffUpdatedLocked(agent-b) = false, want true")
 	}
 	gotA := svc.currentDiffTextLocked("thread-1")
@@ -53,10 +53,10 @@ func TestGetStateDiffSnapshotHonorsKnownRevision(t *testing.T) {
 	svc := newProjectionTestService(t)
 	svc.mu.Lock()
 	seedDiffStateThread(svc, "thread-1", "agent-a")
-	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-1") {
+	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-1", 0) {
 		t.Fatal("first applyToolDiffUpdatedLocked() = false, want true")
 	}
-	if svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-1") {
+	if svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-1", 0) {
 		t.Fatal("second applyToolDiffUpdatedLocked() = true, want false for unchanged diff")
 	}
 	svc.mu.Unlock()
@@ -90,16 +90,46 @@ func TestGetStateDiffSnapshotHonorsKnownRevision(t *testing.T) {
 	}
 }
 
+func TestApplyToolDiffUpdatedLockedUsesEventRevision(t *testing.T) {
+	t.Parallel()
+
+	svc := newProjectionTestService(t)
+	svc.mu.Lock()
+	seedDiffStateThread(svc, "thread-1", "agent-a")
+	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-1", 7) {
+		t.Fatal("applyToolDiffUpdatedLocked(diff-1, rev=7) = false, want true")
+	}
+	if got := svc.state.DiffRevisionByAgent["agent-a"]; got != 7 {
+		t.Fatalf("DiffRevisionByAgent[agent-a] = %d, want 7", got)
+	}
+	if svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-1", 7) {
+		t.Fatal("applyToolDiffUpdatedLocked(same diff, same rev) = true, want false")
+	}
+	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-1", 8) {
+		t.Fatal("applyToolDiffUpdatedLocked(same diff, higher rev) = false, want true")
+	}
+	if got := svc.state.DiffRevisionByAgent["agent-a"]; got != 8 {
+		t.Fatalf("DiffRevisionByAgent[agent-a] = %d, want 8", got)
+	}
+	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-2", 1) {
+		t.Fatal("applyToolDiffUpdatedLocked(diff-2, rev=1) = false, want true")
+	}
+	if got := svc.state.DiffRevisionByAgent["agent-a"]; got != 1 {
+		t.Fatalf("DiffRevisionByAgent[agent-a] = %d, want 1 after session reset", got)
+	}
+	svc.mu.Unlock()
+}
+
 func TestGetStateDiffSnapshotReturnsExplicitEmptyDiffAfterClear(t *testing.T) {
 	t.Parallel()
 
 	svc := newProjectionTestService(t)
 	svc.mu.Lock()
 	seedDiffStateThread(svc, "thread-1", "agent-a")
-	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-1") {
+	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "diff-1", 0) {
 		t.Fatal("applyToolDiffUpdatedLocked(diff-1) = false, want true")
 	}
-	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "") {
+	if !svc.applyToolDiffUpdatedLocked("agent-a", "thread-1", "", 0) {
 		t.Fatal("applyToolDiffUpdatedLocked(clear) = false, want true")
 	}
 	svc.mu.Unlock()
@@ -143,13 +173,14 @@ func TestProjectionSubscriptionsApplyToolDiffUpdatedPublishesPatch(t *testing.T)
 		ThreadID: "thread-1",
 		AgentID:  "agent-1",
 		DiffText: "--- a/main.go\n+++ b/main.go\n@@ -1 +1 @@\n-old\n+new\n",
+		Revision: 7,
 	})
 
 	patch := mustReceiveThreadPatch(t, got)
 	if patch.ThreadID != "thread-1" || patch.Source != "tool/diffUpdated" {
 		t.Fatalf("patch identity = %#v", patch)
 	}
-	if patch.DiffRevision != 1 || patch.DiffText == "" {
+	if patch.DiffRevision != 7 || patch.DiffText == "" {
 		t.Fatalf("patch diff = %#v", patch)
 	}
 

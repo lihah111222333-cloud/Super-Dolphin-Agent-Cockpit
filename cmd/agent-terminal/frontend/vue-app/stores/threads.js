@@ -36,8 +36,10 @@ export { withPreferenceScope, shouldSyncAfterPreferencePersist } from './thread-
 const state = reactive({ activeThreadId: '', activeCmdThreadId: '', pinnedThreadAtById: {}, archivedThreadAtById: {} });
 const runtimeRootState = reactive({
   threads: [], statuses: {}, interruptibleByThread: {}, viewPrefsChat: null, viewPrefsCmd: null,
-  statusHeadersByThread: {}, statusDetailsByThread: {}, timelinesByThread: {}, diffTextByThread: {}, diffRevisionByThread: {},
-  tokenUsageByThread: {}, agentMetaById: {}, agentRuntimeById: {}, activityStatsByThread: {}, alertsByThread: {}, skillRevision: 0,
+  statusHeadersByThread: {}, statusDetailsByThread: {}, overlayTextByThread: {}, overlayTypeByThread: {}, overlayPriorityByThread: {},
+  timelinesByThread: {}, diffTextByThread: {}, diffRevisionByThread: {},
+  tokenUsageByThread: {}, agentMetaById: {}, agentRuntimeById: {}, mainAgentId: '', mainAgentState: '', partial: false,
+  activityStatsByThread: {}, alertsByThread: {}, skillRevision: 0,
 });
 for (const key of THREAD_STORE_RUNTIME_STATE_KEYS) {
   Object.defineProperty(state, key, {

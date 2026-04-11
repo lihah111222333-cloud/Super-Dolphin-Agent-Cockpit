@@ -127,7 +127,8 @@ func normalizeHistoryUserContent(text string) (string, json.RawMessage) {
 func extractInjectedAttachmentMetadata(text string) (string, json.RawMessage) {
 	trimmed := strings.TrimLeft(text, "\ufeff \t\r\n")
 	if !strings.HasPrefix(trimmed, injectedFileHintsHeader) {
-		// TODO(P7): recover structured attachment metadata directly if Claude history adds non-text items.
+		// NOTE: Claude history currently persists injected file hints as text; recover
+		// structured attachment metadata directly if Claude adds non-text history items.
 		return text, nil
 	}
 	remainder := strings.TrimLeft(trimmed[len(injectedFileHintsHeader):], "\r\n")

@@ -173,14 +173,16 @@ describe('useThreadCards', () => {
     const vm = createThreadCards({
       activeTimeline: [
         { id: 'tool-1', kind: 'tool', tool: 'open_file', preview: 'src/main.js', status: 'completed', success: true, ts: '2026-03-09T10:00:00Z' },
-        { id: 'file-1', kind: 'file', file: 'src/main.js', status: 'completed', success: true, ts: '2026-03-09T10:00:01Z' },
-        { id: 'approval-1', kind: 'approval', tool: 'file_edit', requestId: 7, status: 'pending', ts: '2026-03-09T10:00:02Z' },
+        { id: 'file-1', kind: 'file', file: 'src/main.js', status: 'saved', success: true, ts: '2026-03-09T10:00:01Z' },
+        { id: 'file-2', kind: 'file', file: 'src/app.js', status: 'running', success: true, ts: '2026-03-09T10:00:02Z' },
+        { id: 'approval-1', kind: 'approval', tool: 'file_edit', requestId: 7, status: 'pending', ts: '2026-03-09T10:00:03Z' },
       ],
     });
 
     expect(vm.activeProcessActivity.value).toEqual([
       expect.objectContaining({ kind: 'approval', message: '审批确认 · file_edit', status: 'active' }),
-      expect.objectContaining({ kind: 'file', message: '已修改 · src/main.js', status: 'done' }),
+      expect.objectContaining({ kind: 'file', message: '修改中 · src/app.js', status: 'active' }),
+      expect.objectContaining({ kind: 'file', message: '已保存 · src/main.js', status: 'done' }),
       expect.objectContaining({ kind: 'tool', message: 'open_file · src/main.js', status: 'done' }),
     ]);
   });
@@ -196,7 +198,7 @@ describe('useThreadCards', () => {
 
     expect(vm.activeProcessActivity.value).toEqual([
       expect.objectContaining({ kind: 'command', status: 'failed', exitCode: 1 }),
-      expect.objectContaining({ kind: 'file', status: 'failed', message: '保存失败 · src/main.js' }),
+      expect.objectContaining({ kind: 'file', status: 'failed', message: '修改失败 · src/main.js' }),
       expect.objectContaining({ kind: 'tool', status: 'failed', message: 'bash' }),
     ]);
   });

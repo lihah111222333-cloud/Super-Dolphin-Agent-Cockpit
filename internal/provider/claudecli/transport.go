@@ -132,6 +132,27 @@ func (t *transport) Running() bool {
 	return err == nil && pid > 0
 }
 
+func (t *transport) readyForSend() bool {
+	if t == nil {
+		return false
+	}
+	select {
+	case <-t.done:
+		return false
+	default:
+	}
+	t.writeMu.Lock()
+	stdinReady := t.stdin != nil
+	t.writeMu.Unlock()
+	if !stdinReady {
+		return false
+	}
+	if t.cmd == nil || t.cmd.Process == nil {
+		return true
+	}
+	return t.Running()
+}
+
 func (t *transport) wait() {
 	err := t.cmd.Wait()
 	t.doneMu.Lock()

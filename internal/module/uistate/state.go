@@ -5,33 +5,42 @@ import (
 	"strings"
 	"time"
 
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type UIState struct {
-	Threads                  []ThreadSummary            `json:"threads"`
-	Agents                   []AgentSummary             `json:"agents"`
-	ActiveTurn               *TurnSummary               `json:"active_turn,omitempty"`
-	RecentTurns              []TurnSummary              `json:"recent_turns,omitempty"`
-	TokenUsage               TokenUsage                 `json:"token_usage"`
-	DiffTextByAgent          map[string]string          `json:"diffTextByThread,omitempty"`
-	DiffRevisionByAgent      map[string]int64           `json:"diffRevisionByThread,omitempty"`
-	TimelineByThread         map[string][]timeline.Item `json:"timelinesByThread,omitempty"`
-	ActivityStatsByThread    map[string]*ActivityStats  `json:"activityStatsByThread,omitempty"`
-	Unchanged                bool                       `json:"unchanged,omitempty"`
-	ActiveThreadID           string                     `json:"activeThreadId,omitempty"`
-	ActiveCmdThreadID        string                     `json:"activeCmdThreadId,omitempty"`
-	MainAgentID              string                     `json:"mainAgentId,omitempty"`
-	StallThresholdSec        int                        `json:"-"`
-	ShowInjectedPromptInChat *bool                      `json:"settings.showInjectedPromptInChat,omitempty"`
-	ViewPrefsChat            map[string]any             `json:"viewPrefs.chat,omitempty"`
-	ViewPrefsCmd             map[string]any             `json:"viewPrefs.cmd,omitempty"`
-	ThreadPinsChat           map[string]int64           `json:"threadPins.chat,omitempty"`
-	ThreadArchivesChat       map[string]int64           `json:"threadArchives.chat,omitempty"`
-	Groups                   []ThreadGroup              `json:"groups,omitempty"`
+	Threads                  []ThreadSummary                   `json:"threads"`
+	Agents                   []AgentSummary                    `json:"agents"`
+	ActiveTurn               *TurnSummary                      `json:"active_turn,omitempty"`
+	RecentTurns              []TurnSummary                     `json:"recent_turns,omitempty"`
+	TokenUsage               TokenUsage                        `json:"token_usage"`
+	Statuses                 map[string]string                 `json:"statuses,omitempty"`
+	InterruptibleByThread    map[string]bool                   `json:"interruptibleByThread,omitempty"`
+	StatusHeadersByThread    map[string]string                 `json:"statusHeadersByThread,omitempty"`
+	StatusDetailsByThread    map[string]string                 `json:"statusDetailsByThread,omitempty"`
+	TokenUsageByThread       map[string]*uidto.ThreadPatchTokenUsage `json:"tokenUsageByThread,omitempty"`
+	AgentMetaByID            map[string]map[string]any         `json:"agentMetaById,omitempty"`
+	AgentRuntimeByID         map[string]map[string]any         `json:"agentRuntimeById,omitempty"`
+	DiffTextByAgent          map[string]string                 `json:"diffTextByThread,omitempty"`
+	DiffRevisionByAgent      map[string]int64                  `json:"diffRevisionByThread,omitempty"`
+	TimelineByThread         map[string][]timeline.Item        `json:"timelinesByThread,omitempty"`
+	ActivityStatsByThread    map[string]*ActivityStats         `json:"activityStatsByThread,omitempty"`
+	AlertsByThread           map[string][]uidto.PatchAlert     `json:"alertsByThread,omitempty"`
+	Unchanged                bool                              `json:"unchanged,omitempty"`
+	ActiveThreadID           string                            `json:"activeThreadId,omitempty"`
+	ActiveCmdThreadID        string                            `json:"activeCmdThreadId,omitempty"`
+	MainAgentID              string                            `json:"mainAgentId,omitempty"`
+	MainAgentState           string                            `json:"mainAgentState,omitempty"`
+	StallThresholdSec        int                               `json:"-"`
+	ShowInjectedPromptInChat *bool                             `json:"settings.showInjectedPromptInChat,omitempty"`
+	ViewPrefsChat            map[string]any                    `json:"viewPrefs.chat,omitempty"`
+	ViewPrefsCmd             map[string]any                    `json:"viewPrefs.cmd,omitempty"`
+	ThreadPinsChat           map[string]int64                  `json:"threadPins.chat,omitempty"`
+	ThreadArchivesChat       map[string]int64                  `json:"threadArchives.chat,omitempty"`
+	Groups                   []ThreadGroup                     `json:"groups,omitempty"`
 }
-
 type ThreadSummary struct {
 	ID              string `json:"id"`
 	Name            string `json:"name,omitempty"`
@@ -180,8 +189,6 @@ func cloneState(value UIState) *UIState {
 		ThreadPinsChat:           cloneTimestampMap(value.ThreadPinsChat),
 		ThreadArchivesChat:       cloneTimestampMap(value.ThreadArchivesChat),
 		Groups:                   copyThreadGroups(value.Groups),
-		// TimelineByThread 不在此处复制。它不存储在 s.state 中，
-		// 而是在 GetState 中通过 timeline.Snapshot() 动态填充。
 	}
 }
 
@@ -384,7 +391,6 @@ func sortWorkspaceRuns(items []WorkspaceRunSummary) {
 		return items[i].RunKey < items[j].RunKey
 	})
 }
-
 func zeroTime(value *time.Time) time.Time {
 	if value == nil {
 		return time.Time{}

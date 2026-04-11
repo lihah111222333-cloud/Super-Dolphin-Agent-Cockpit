@@ -48,6 +48,7 @@ type ToolDiffUpdated struct {
 	ToolName  string    `json:"toolName,omitempty"`
 	DiffText  string    `json:"diffText"`
 	Files     []string  `json:"files"`
+	Revision  int64     `json:"revision,omitempty"`
 }
 
 func (ToolCallBegin) Type() uint32         { return shared.EventTypeToolCallBegin }
