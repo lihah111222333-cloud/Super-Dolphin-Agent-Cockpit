@@ -1,10 +1,5 @@
 package agent
 
-import (
-	"fmt"
-	"strings"
-)
-
 const (
 	StateProvisioning      = "provisioning"
 	StateIdle              = "idle"
@@ -111,22 +106,6 @@ var TransitionDefinitions = []TransitionDefinition{
 	{From: StateFailed, Trigger: TriggerStopRequested, To: StateStopping},
 }
 
-func AllStates() []string {
-	states := make([]string, 0, len(StateDefinitions))
-	for _, definition := range StateDefinitions {
-		states = append(states, definition.Name)
-	}
-	return states
-}
-
-func AllTriggers() []string {
-	triggers := make([]string, 0, len(TriggerDefinitions))
-	for _, definition := range TriggerDefinitions {
-		triggers = append(triggers, definition.Name)
-	}
-	return triggers
-}
-
 func AllowedTriggers(state string) []string {
 	triggers := make([]string, 0, 4)
 	for _, transition := range TransitionDefinitions {
@@ -135,21 +114,4 @@ func AllowedTriggers(state string) []string {
 		}
 	}
 	return triggers
-}
-
-func StateLabel(state string) string {
-	for _, definition := range StateDefinitions {
-		if definition.Name != state {
-			continue
-		}
-		parts := strings.Split(definition.Name, "_")
-		for i, part := range parts {
-			if part == "" {
-				continue
-			}
-			parts[i] = strings.ToUpper(part[:1]) + part[1:]
-		}
-		return strings.Join(parts, " ")
-	}
-	return fmt.Sprintf("Unknown(%s)", state)
 }

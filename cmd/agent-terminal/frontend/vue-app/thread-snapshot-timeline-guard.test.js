@@ -62,4 +62,73 @@ describe('applyRuntimeSnapshot timeline guard', () => {
     expect(state.timelinesByThread['thread-1']).toHaveLength(2);
     expect(state.timelinesByThread['thread-1'][0].id).toBe('turn:t1');
   });
+
+  it('hydrates overlay maps and main agent metadata from snapshot state', () => {
+    const state = {
+      threads: [],
+      statuses: {},
+      statusHeadersByThread: {},
+      statusDetailsByThread: {},
+      overlayTextByThread: {},
+      overlayTypeByThread: {},
+      overlayPriorityByThread: {},
+      interruptibleByThread: {},
+      timelinesByThread: {},
+      diffTextByThread: {},
+      diffRevisionByThread: {},
+      tokenUsageByThread: {},
+      agentMetaById: {},
+      agentRuntimeById: {},
+      mainAgentId: '',
+      mainAgentState: 'running',
+      partial: true,
+      activityStatsByThread: {},
+      alertsByThread: {},
+      activeThreadId: '',
+      activeCmdThreadId: '',
+      pinnedThreadAtById: {},
+      archivedThreadAtById: {},
+      viewPrefsChat: null,
+      viewPrefsCmd: null,
+    };
+
+    const remoteSnapshot = {
+      threads: [{
+        id: 'thread-1',
+        name: 'thread-1',
+        state: 'running',
+        overlayText: '等待终端输入',
+        overlayType: 'info',
+        overlayPriority: 7,
+      }],
+      statuses: { 'thread-1': 'running' },
+      statusHeadersByThread: { 'thread-1': 'MCP 启动中' },
+      statusDetailsByThread: { 'thread-1': '' },
+      interruptibleByThread: { 'thread-1': true },
+      timelinesByThread: {},
+      diffTextByThread: {},
+      diffRevisionByThread: { 'thread-1': 0 },
+      tokenUsageByThread: {},
+      agentMetaById: {},
+      agentRuntimeById: {},
+      activityStatsByThread: {},
+      alertsByThread: {},
+      mainAgentId: 'agent-main',
+      activeThreadId: 'thread-1',
+      activeCmdThreadId: '',
+    };
+
+    applyRuntimeSnapshot(state, remoteSnapshot, {
+      requestedThreadId: 'thread-1',
+      allowActiveSelectionPatch: true,
+      loadedRevisionByThread: new Map(),
+    });
+
+    expect(state.overlayTextByThread['thread-1']).toBe('等待终端输入');
+    expect(state.overlayTypeByThread['thread-1']).toBe('info');
+    expect(state.overlayPriorityByThread['thread-1']).toBe(7);
+    expect(state.mainAgentId).toBe('agent-main');
+    expect(state.mainAgentState).toBe('');
+    expect(state.partial).toBe(false);
+  });
 });

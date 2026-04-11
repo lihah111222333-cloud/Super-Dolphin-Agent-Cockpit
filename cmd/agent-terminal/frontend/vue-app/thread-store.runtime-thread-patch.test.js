@@ -32,12 +32,18 @@ function resetThreadStore(store) {
     viewPrefsCmd: null,
     statusHeadersByThread: {},
     statusDetailsByThread: {},
+    overlayTextByThread: {},
+    overlayTypeByThread: {},
+    overlayPriorityByThread: {},
     timelinesByThread: {},
     diffTextByThread: {},
     diffRevisionByThread: {},
     tokenUsageByThread: {},
     agentMetaById: {},
     agentRuntimeById: {},
+    mainAgentId: '',
+    mainAgentState: '',
+    partial: false,
     activityStatsByThread: {},
     alertsByThread: {},
     skillRevision: 0,
@@ -198,6 +204,40 @@ describe('thread store runtime thread patch', () => {
 
     expect(store.state.diffTextByThread[threadId]).toContain('src/a.js');
     expect(store.state.diffRevisionByThread[threadId]).toBe(4);
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+  });
+
+  it('applies bridge-only field drift patches without pull fallback', () => {
+    const store = useThreadStore();
+    const threadId = 'thread-live-field-drift';
+    store.state.activeThreadId = threadId;
+    store.state.threads = [{ id: threadId, name: 'Live', state: 'running' }];
+
+    store.handleBridgeEvent({
+      method: 'ui/thread/patch',
+      payload: {
+        threadId,
+        source: 'ui/state/preferences',
+        sequence: 24,
+        overlayText: 'MCP 启动中',
+        overlayType: 'mcp_startup',
+        overlayPriority: 90,
+        activeThreadId: 'thread-selected',
+        activeCmdThreadId: 'thread-cmd',
+        mainAgentId: 'agent-main',
+        mainAgentState: 'running',
+        partial: true,
+      },
+    });
+
+    expect(store.state.overlayTextByThread[threadId]).toBe('MCP 启动中');
+    expect(store.state.overlayTypeByThread[threadId]).toBe('mcp_startup');
+    expect(store.state.overlayPriorityByThread[threadId]).toBe(90);
+    expect(store.state.activeThreadId).toBe('thread-selected');
+    expect(store.state.activeCmdThreadId).toBe('thread-cmd');
+    expect(store.state.mainAgentId).toBe('agent-main');
+    expect(store.state.mainAgentState).toBe('running');
+    expect(store.state.partial).toBe(true);
     expect(apiMock.callAPI).not.toHaveBeenCalled();
   });
 
@@ -382,5 +422,42 @@ describe('thread store runtime thread patch', () => {
 
     expect(methods).toContain('ui/state/get');
     expect(store.getThreadTimeline(threadId)[0]?.text).toBe('recovered after refresh');
+  });
+
+  it('consumes overlay and runtime metadata fields from thread patches', () => {
+    const store = useThreadStore();
+    const threadId = 'thread-live-metadata';
+    const activeChatThreadId = 'thread-chat-selected';
+    store.state.activeCmdThreadId = threadId;
+
+    store.handleBridgeEvent({
+      method: 'ui/thread/patch',
+      payload: {
+        ...buildThreadPatch({
+          threadId,
+          sequence: 41,
+          source: 'thread/started',
+          status: 'running',
+          statusHeader: 'MCP 启动中',
+        }),
+        overlayText: '等待终端输入',
+        overlayType: 'info',
+        overlayPriority: 7,
+        activeThreadId: activeChatThreadId,
+        activeCmdThreadId: threadId,
+        mainAgentId: 'agent-main',
+        mainAgentState: 'running',
+        partial: true,
+      },
+    });
+
+    expect(store.state.overlayTextByThread[threadId]).toBe('等待终端输入');
+    expect(store.state.overlayTypeByThread[threadId]).toBe('info');
+    expect(store.state.overlayPriorityByThread[threadId]).toBe(7);
+    expect(store.state.activeThreadId).toBe(activeChatThreadId);
+    expect(store.state.activeCmdThreadId).toBe(threadId);
+    expect(store.state.mainAgentId).toBe('agent-main');
+    expect(store.state.mainAgentState).toBe('running');
+    expect(store.state.partial).toBe(true);
   });
 });

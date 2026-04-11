@@ -162,7 +162,7 @@ func turnRequest(model string) dto.TurnRequest {
 func collectStartTurnResults(t *testing.T, results <-chan startTurnResult) (int, int) {
 	t.Helper()
 	var successCount, errorCount int
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case res := <-results:
 			if res.err != nil {

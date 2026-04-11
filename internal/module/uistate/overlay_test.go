@@ -130,6 +130,51 @@ func TestAgentRuntimeReportedClearsStartupOverlay(t *testing.T) {
 	}
 }
 
+func TestGetStateIncludesRuntimeSnapshotContractFields(t *testing.T) {
+	t.Parallel()
+
+	svc := mustNewUIStateService(t)
+	startedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	svc.state.Threads = []ThreadSummary{{ID: "thread-1", Name: "主线程", AgentID: "agent-main", State: "running", ThreadStatus: "running", AgentState: "running", LastMessage: "正在处理"}}
+	svc.state.Agents = []AgentSummary{{ID: "agent-main", ThreadID: "thread-1", Provider: "claude", ProviderThreadID: "provider-1", CWD: "/repo", State: "running", AgentState: "running"}}
+	svc.state.RecentTurns = []TurnSummary{{ID: "turn-1", AgentID: "agent-main", ThreadID: "thread-1", Status: "running", StartedAt: &startedAt}}
+	svc.state.TokenUsage = TokenUsage{TotalTokens: 53, ContextWindowTokens: 200}
+	svc.state.MainAgentID = "agent-main"
+
+	state, err := svc.GetState(withDiffStateRequest(context.Background(), "thread-1", false, 0))
+	if err != nil {
+		t.Fatalf("GetState() error = %v", err)
+	}
+	if got := state.Statuses["thread-1"]; got != "running" {
+		t.Fatalf("state.Statuses[thread-1] = %q, want running", got)
+	}
+	if !state.InterruptibleByThread["thread-1"] {
+		t.Fatal("state.InterruptibleByThread[thread-1] = false, want true")
+	}
+	if got := state.StatusHeadersByThread["thread-1"]; got != "工作中" {
+		t.Fatalf("state.StatusHeadersByThread[thread-1] = %q, want 工作中", got)
+	}
+	if got := state.StatusDetailsByThread["thread-1"]; got != "正在处理" {
+		t.Fatalf("state.StatusDetailsByThread[thread-1] = %q, want 正在处理", got)
+	}
+	usage := state.TokenUsageByThread["thread-1"]
+	if usage == nil || usage.UsedTokens != 53 || usage.ContextWindowTokens != 200 || usage.UsedPercent != 26.5 {
+		t.Fatalf("state.TokenUsageByThread[thread-1] = %#v, want 53/200/26.5", usage)
+	}
+	if runtime := state.AgentRuntimeByID["thread-1"]; runtime["provider"] != "claude" || runtime["providerThreadId"] != "provider-1" {
+		t.Fatalf("state.AgentRuntimeByID[thread-1] = %#v", runtime)
+	}
+	if meta := state.AgentMetaByID["thread-1"]; meta["alias"] != "主线程" || meta["lastActiveAt"] != startedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("state.AgentMetaByID[thread-1] = %#v", meta)
+	}
+	if alerts, ok := state.AlertsByThread["thread-1"]; !ok || len(alerts) != 0 {
+		t.Fatalf("state.AlertsByThread[thread-1] = %#v, want empty slice", alerts)
+	}
+	if state.MainAgentState != "running" {
+		t.Fatalf("state.MainAgentState = %q, want running", state.MainAgentState)
+	}
+}
+
 func TestAgentLifecyclePublishesOverlayThreadPatch(t *testing.T) {
 	t.Parallel()
 

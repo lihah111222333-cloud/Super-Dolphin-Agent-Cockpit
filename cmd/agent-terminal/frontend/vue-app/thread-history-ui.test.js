@@ -150,7 +150,7 @@ describe('thread-history-ui immediate hydration', () => {
     expect(state.timelinesByThread['thread-3'][1].ts).toBe('2026-03-10T12:00:01Z');
   });
 
-  it('replaces non-optimistic live runtime items when hydrated history arrives', () => {
+  it('preserves non-dialog live runtime items when hydrated history arrives', () => {
     const state = { timelinesByThread: { 'thread-live': [
       { id: 'thread-live-user-1', kind: 'user', text: '最新提示词', ts: '2026-03-10T12:00:00Z' },
       { id: 'thread-live-thinking-1', kind: 'thinking', text: '', ts: '2026-03-10T12:00:01Z' },
@@ -171,7 +171,7 @@ describe('thread-history-ui immediate hydration', () => {
     });
 
     expect(applied).toBe(true);
-    expect(state.timelinesByThread['thread-live'].map((item) => item.kind)).toEqual(['user', 'assistant']);
+    expect(state.timelinesByThread['thread-live'].map((item) => item.kind)).toEqual(['user', 'thinking', 'assistant']);
   });
 
   it('skips incoming history page when existing dialog has valid ts but incoming lacks ts', () => {

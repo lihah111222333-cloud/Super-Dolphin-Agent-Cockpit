@@ -43,10 +43,6 @@ type startSpec struct {
 	historyDir   string
 }
 
-func NewDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter) contract.Driver {
-	return newDriver(logger, eventDispatcher, reporter, nil)
-}
-
 func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -200,8 +196,8 @@ func (d *driver) reportRuntime(agentID string) {
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// TODO: Claude CLI is stdio-backed today. Report the real runtime/control
-	// port once the provider protocol exposes a stable port or side channel.
+	// NOTE: Claude CLI is stdio-backed today, so runtime reports intentionally
+	// omit a control port until the provider exposes a stable side channel.
 	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
 		AgentID:  agentID,
 		Provider: d.Name(),

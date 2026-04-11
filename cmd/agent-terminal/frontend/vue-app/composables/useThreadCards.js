@@ -58,7 +58,10 @@ function toFileProcessActivityItem(item, index) {
   const failed = isFailedActivity(item);
   const file = (item.file || '').toString().trim() || '未知文件';
   const active = status === 'editing' || status === 'running';
-  const prefix = failed ? '保存失败' : active ? '修改中' : '已修改';
+  let prefix = '已修改';
+  if (failed) prefix = '修改失败';
+  else if (active) prefix = '修改中';
+  else if (status === 'saved') prefix = '已保存';
   return {
     id: processActivityId(item, 'file', index),
     time: formatTimelineTime(item.ts),

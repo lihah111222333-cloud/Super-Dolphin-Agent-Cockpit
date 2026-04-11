@@ -278,14 +278,17 @@ func (s *session) buildStopEvent(tr *transport, force bool) dto.RawProviderEvent
 }
 
 func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest) error {
-	if s.transport == nil {
-		return nil
-	}
+	needsRestart := !s.transport.readyForSend()
 	prevModel := s.model
 	prevConfig := s.config
 	prevManifest := s.manifest
-	if !s.applyTurnSettingsLocked(req) {
+	settingsChanged := s.applyTurnSettingsLocked(req)
+	if !settingsChanged && !needsRestart {
 		return s.awaitThreadReadyLocked(ctx)
+	}
+	restartReason := "settings_changed"
+	if needsRestart {
+		restartReason = "transport_unavailable"
 	}
 	if s.logger != nil {
 		s.logger.Warn("claudecli: session restart triggered",
@@ -295,6 +298,7 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 			"old_model", prevModel,
 			"new_model", s.model,
 			"resume_id", s.restartResumeIDLocked(),
+			"reason", restartReason,
 		)
 	}
 	oldTransport := s.transport

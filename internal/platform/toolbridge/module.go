@@ -81,6 +81,7 @@ func provideDiffEmitter(dispatcher *event.Dispatcher) difftracker.DiffEmitter {
 			ToolName:  diff.ToolName,
 			DiffText:  diff.DiffText,
 			Files:     append([]string(nil), diff.Files...),
+			Revision:  diff.Revision,
 		})
 		return nil
 	}

@@ -40,6 +40,51 @@ function normalizeArchivedThreadMap(value) {
   return normalizeThreadTimestampMap(value);
 }
 
+function normalizeOverlayPriority(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.max(0, Math.floor(num)) : 0;
+}
+
+function buildThreadOverlayRuntimePatch(state, threadList) {
+  if (!Array.isArray(threadList)) return {};
+  const overlayTextByThread = {};
+  const overlayTypeByThread = {};
+  const overlayPriorityByThread = {};
+  for (const item of threadList) {
+    const id = normalizeThreadID(item?.id);
+    if (!id) continue;
+    overlayTextByThread[id] = (item?.overlayText || '').toString();
+    overlayTypeByThread[id] = (item?.overlayType || '').toString();
+    overlayPriorityByThread[id] = normalizeOverlayPriority(item?.overlayPriority);
+  }
+  const patch = {};
+  const currentOverlayText = state.overlayTextByThread && typeof state.overlayTextByThread === 'object'
+    ? state.overlayTextByThread
+    : {};
+  const mergedOverlayText = mergeStringMapAtomic(currentOverlayText, overlayTextByThread);
+  if (mergedOverlayText.changed) patch.overlayTextByThread = mergedOverlayText.next;
+  const currentOverlayType = state.overlayTypeByThread && typeof state.overlayTypeByThread === 'object'
+    ? state.overlayTypeByThread
+    : {};
+  const mergedOverlayType = mergeStringMapAtomic(currentOverlayType, overlayTypeByThread);
+  if (mergedOverlayType.changed) patch.overlayTypeByThread = mergedOverlayType.next;
+  const currentOverlayPriority = state.overlayPriorityByThread && typeof state.overlayPriorityByThread === 'object'
+    ? state.overlayPriorityByThread
+    : {};
+  let nextOverlayPriority = currentOverlayPriority;
+  let overlayPriorityChanged = false;
+  for (const [key, value] of Object.entries(overlayPriorityByThread)) {
+    if (nextOverlayPriority[key] === value) continue;
+    if (!overlayPriorityChanged) {
+      nextOverlayPriority = { ...currentOverlayPriority };
+      overlayPriorityChanged = true;
+    }
+    nextOverlayPriority[key] = value;
+  }
+  if (overlayPriorityChanged) patch.overlayPriorityByThread = nextOverlayPriority;
+  return patch;
+}
+
 function hasThreadInSnapshot(threadList, threadId) {
   const current = normalizeThreadID(threadId);
   return current
@@ -144,24 +189,24 @@ function pruneTouchedThreadPayloadCache(keepThreadIDs) {
 }
 
 /**
- * Merge remote timeline items with local dialog items.
- * - When remote has real dialog (user/assistant), strip local optimistic items.
- * - When remote has only structural items, preserve local dialog items.
+ * Merge remote timeline items with local runtime items.
+ * - Strip local optimistic dialogs when remote has a new user/assistant dialog.
+ * - Preserve ALL missing local items (tools, reasoning, files) to prevent UI flicker
+ *   caused by delayed backend DB flushes racing with live websocket stream patches.
  */
-function mergeTimelineWithLocalDialog(newItems, oldItems, threadId, requestedThreadId, logWarn) {
+function mergeTimelineWithLocalItems(newItems, oldItems, threadId, requestedThreadId, logWarn) {
   if (!Array.isArray(oldItems) || oldItems.length === 0 || newItems.length === 0) return newItems;
   const newIds = new Set(newItems.map((i) => i?.id).filter(Boolean));
   const remoteHasDialog = newItems.some((i) => i?.kind === 'user' || i?.kind === 'assistant');
 
-  const localDialogItems = oldItems.filter((i) => {
-    if (i?.kind !== 'user' && i?.kind !== 'assistant') return false;
+  const localItems = oldItems.filter((i) => {
     if (newIds.has(i?.id)) return false;
     // Strip old optimistic items when incoming has actual new messages.
     if (remoteHasDialog && (i?.id || '').toString().includes('-optimistic-')) return false;
     return true;
   });
 
-  if (localDialogItems.length === 0) {
+  if (localItems.length === 0) {
     if (remoteHasDialog) {
       const oldOptimistic = oldItems.filter((i) => (i?.id || '').toString().includes('-optimistic-'));
       if (oldOptimistic.length > 0 && typeof logWarn === 'function') {
@@ -177,29 +222,41 @@ function mergeTimelineWithLocalDialog(newItems, oldItems, threadId, requestedThr
     return newItems;
   }
 
-  if (!remoteHasDialog && typeof logWarn === 'function') {
-    logWarn('thread', 'snapshot.timeline.local_dialog_preserved', {
+  if (typeof logWarn === 'function') {
+    logWarn('thread', 'snapshot.timeline.local_items_preserved', {
       thread_id: threadId,
       requested_thread_id: requestedThreadId,
-      preserved_count: localDialogItems.length,
-      preserved_ids: localDialogItems.map((i) => (i?.id || '').toString()).slice(0, 8),
-      preserved_kinds: localDialogItems.map((i) => i?.kind).slice(0, 8),
-      has_optimistic: localDialogItems.some((i) => (i?.id || '').toString().includes('-optimistic-')),
+      preserved_count: localItems.length,
+      preserved_ids: localItems.map((i) => (i?.id || '').toString()).slice(0, 8),
+      preserved_kinds: localItems.map((i) => i?.kind).slice(0, 8),
+      has_optimistic: localItems.some((i) => (i?.id || '').toString().includes('-optimistic-')),
       new_timeline_len: newItems.length,
       old_timeline_len: oldItems.length,
     });
   }
 
-  const mergedItems = [...newItems, ...localDialogItems];
+  const mergedItems = [...newItems, ...localItems];
   mergedItems.sort((a, b) => {
     const tsA = Date.parse(a?.ts || '');
     const tsB = Date.parse(b?.ts || '');
     const valA = Number.isFinite(tsA) ? tsA : 0;
     const valB = Number.isFinite(tsB) ? tsB : 0;
-    if (valA !== valB && valA > 0 && valB > 0) return valA - valB;
-    const numA = Number((a?.id || '').toString().split('-').pop());
-    const numB = Number((b?.id || '').toString().split('-').pop());
-    if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) return numA - numB;
+
+    if (valA > 0 && valB > 0) {
+      if (valA !== valB) return valA - valB;
+    } else if (valA > 0 && valB === 0) {
+      return -1;
+    } else if (valB > 0 && valA === 0) {
+      return 1;
+    }
+
+    const prefixA = (a?.id || '').toString().split('-').slice(0, -1).join('-');
+    const prefixB = (b?.id || '').toString().split('-').slice(0, -1).join('-');
+    if (prefixA === prefixB && prefixA.length > 0) {
+      const numA = Number((a?.id || '').toString().split('-').pop());
+      const numB = Number((b?.id || '').toString().split('-').pop());
+      if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) return numA - numB;
+    }
     return 0;
   });
 
@@ -321,7 +378,7 @@ function patchTimelines(state, data, patch, requestedThreadId, allowActiveSelect
       }
       const isTarget = (requestedThreadId && key === requestedThreadId) || !requestedThreadId;
       const mergedItems = isTarget
-        ? mergeTimelineWithLocalDialog(newItems, oldItems, key, requestedThreadId, logWarn)
+        ? mergeTimelineWithLocalItems(newItems, oldItems, key, requestedThreadId, logWarn)
         : newItems;
       const frozenTimeline = freezeTimelineItemsAtomic(mergedItems, oldItems);
       if (!frozenTimeline.changed) continue;
@@ -382,6 +439,7 @@ export function applyRuntimeSnapshot(state, snapshot, options = {}) {
 
 function applyRuntimeSnapshotMapPatches(state, data, patch) {
   Object.assign(patch, mergeDiffRuntimePatch(data, state));
+  Object.assign(patch, buildThreadOverlayRuntimePatch(state, data.threads));
 
   const mergedStatusHeaders = mergeStringMapAtomic(state.statusHeadersByThread, data.statusHeadersByThread);
   if (mergedStatusHeaders.changed) patch.statusHeadersByThread = mergedStatusHeaders.next;
@@ -393,6 +451,12 @@ function applyRuntimeSnapshotMapPatches(state, data, patch) {
   if (mergedAgentMeta.changed) patch.agentMetaById = mergedAgentMeta.next;
   const mergedAgentRuntime = mergeObjectMapAtomic(state.agentRuntimeById, normalizeAgentRuntimeMap(data.agentRuntimeById));
   if (mergedAgentRuntime.changed) patch.agentRuntimeById = mergedAgentRuntime.next;
+  if (Object.prototype.hasOwnProperty.call(data, 'mainAgentId')) {
+    const nextMainAgentId = (data.mainAgentId || '').toString().trim();
+    if (state.mainAgentId !== nextMainAgentId) patch.mainAgentId = nextMainAgentId;
+    if (state.mainAgentId !== nextMainAgentId && state.mainAgentState !== '') patch.mainAgentState = '';
+  }
+  if (state.partial !== false) patch.partial = false;
   const mergedActivityStats = mergeObjectMapAtomic(state.activityStatsByThread, data.activityStatsByThread);
   if (mergedActivityStats.changed) patch.activityStatsByThread = mergedActivityStats.next;
   const mergedAlerts = mergeObjectMapAtomic(state.alertsByThread, data.alertsByThread);
