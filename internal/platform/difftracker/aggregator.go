@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-var ErrMissingAgentID = errors.New("difftracker: agent id is required")
+var ErrMissingAgentID = errors.New("difftracker: missing agent ID")
 
 type MergeRequest struct {
 	AgentID  string
@@ -17,6 +17,7 @@ type MergeRequest struct {
 	ToolName string
 	RepoRoot string
 	DiffText string
+	Files    []string
 }
 
 type AggregatorOption func(*DiffAggregator)
@@ -134,7 +135,7 @@ func (a *DiffAggregator) Merge(ctx context.Context, agentID, callID, toolName st
 		return err
 	}
 	merged, changed, err := a.mergeRequest(*req)
-	if err != nil || merged == nil || !changed || a.emitter == nil {
+	if err != nil || !changed || merged == nil || a.emitter == nil {
 		return err
 	}
 	return a.emitter(ctx, *merged)
@@ -155,7 +156,7 @@ func (a *DiffAggregator) buildMergeRequest(
 	if req != nil || err != nil {
 		return req, err
 	}
-	return buildGitMergeRequest(agentID, callID, toolName, meta), nil
+	return buildGitMergeRequest(ctx, agentID, callID, toolName, meta), nil
 }
 
 func (a *DiffAggregator) mergeRequest(req MergeRequest) (*DiffResult, bool, error) {
@@ -167,13 +168,14 @@ func (a *DiffAggregator) mergeRequest(req MergeRequest) (*DiffResult, bool, erro
 	defer session.mu.Unlock()
 	session.threadID = req.ThreadID
 	session.lastActivity = a.now()
+
 	if req.CallID != "" && session.processedIDs[req.CallID] {
 		return session.snapshot(req), false, nil
 	}
-	changed := mergeIntoSession(session, req.DiffText)
 	if req.CallID != "" {
 		session.processedIDs[req.CallID] = true
 	}
+	changed := mergeIntoSession(session, req.DiffText, req.Files)
 	if changed {
 		session.revision++
 	}

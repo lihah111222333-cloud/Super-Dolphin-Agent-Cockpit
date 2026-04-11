@@ -145,7 +145,7 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 		patch.OverlayPriority = summary.OverlayPriority
 		patch.Interruptible = patchInterruptible(status)
 	}
-	s.applyThreadDiffLocked(&patch, id)
+	s.applyThreadDiffLocked(&patch, id, source)
 	return patch
 }
 
@@ -159,15 +159,23 @@ func (s *service) nextPatchSequenceLocked(threadID string) int64 {
 
 const threadPatchMaxPayloadBytes = 64 * 1024
 
-func (s *service) applyThreadDiffLocked(patch *uidto.UIThreadPatch, threadID string) {
+func (s *service) applyThreadDiffLocked(patch *uidto.UIThreadPatch, threadID, source string) {
 	if patch == nil {
 		return
 	}
-	if revision := s.currentDiffRevisionLocked(threadID); revision > 0 {
+	revision := s.currentDiffRevisionLocked(threadID)
+	if revision > 0 {
 		patch.DiffRevision = revision
 	}
-	if diffText := s.currentDiffTextLocked(threadID); diffText != "" {
+	diffText := s.currentDiffTextLocked(threadID)
+	if diffText != "" {
 		patch.DiffText = diffText
+		return
+	}
+	if revision > 0 && strings.TrimSpace(source) == "tool/diffUpdated" {
+		patch.Recover = true
+		patch.RefreshRequired = true
+		patch.FallbackReason = "diff_cleared"
 	}
 }
 

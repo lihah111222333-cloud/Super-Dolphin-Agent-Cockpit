@@ -16,7 +16,6 @@ type diffStateRequest struct {
 
 type diffStateSnapshot struct {
 	threadID string
-	agentID  string
 	diffText string
 	revision int64
 }
@@ -90,7 +89,6 @@ func (s *service) diffStateSnapshot(ctx context.Context) diffStateSnapshot {
 	}
 	return diffStateSnapshot{
 		threadID: threadID,
-		agentID:  agentID,
 		diffText: s.state.DiffTextByAgent[agentID],
 		revision: s.state.DiffRevisionByAgent[agentID],
 	}
@@ -101,13 +99,19 @@ func applyDiffStateSnapshot(ctx context.Context, snapshot *UIState, current diff
 		return
 	}
 	req := diffStateRequestFromContext(ctx)
-	snapshot.DiffRevisionByAgent = map[string]int64{current.threadID: current.revision}
+	snapshot.DiffRevisionByAgent = map[string]int64{}
+	if current.revision > 0 {
+		snapshot.DiffRevisionByAgent[current.threadID] = current.revision
+	}
 	if req.known > 0 && int64(req.known) == current.revision {
 		snapshot.DiffTextByAgent = map[string]string{}
 		snapshot.Unchanged = true
 		return
 	}
-	snapshot.DiffTextByAgent = map[string]string{current.threadID: current.diffText}
+	snapshot.DiffTextByAgent = map[string]string{}
+	if current.diffText != "" {
+		snapshot.DiffTextByAgent[current.threadID] = current.diffText
+	}
 	snapshot.Unchanged = false
 }
 

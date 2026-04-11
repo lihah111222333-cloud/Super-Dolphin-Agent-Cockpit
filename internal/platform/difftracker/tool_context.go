@@ -77,6 +77,7 @@ func buildHookMergeRequest(
 		ToolName: strings.TrimSpace(toolName),
 		RepoRoot: repoRoot,
 		DiffText: patch,
+		Files:    files,
 	}, nil
 }
 
@@ -113,12 +114,12 @@ func mergeHookFiles(files []string, fallback string) []string {
 	return uniqueSorted(merged)
 }
 
-func buildGitMergeRequest(agentID, callID, toolName string, meta toolCallContext) *MergeRequest {
+func buildGitMergeRequest(ctx context.Context, agentID, callID, toolName string, meta toolCallContext) *MergeRequest {
 	if meta.Snapshot == nil {
 		return nil
 	}
-	diffText, _, err := EmitGitDiff(context.Background(), meta.Snapshot)
-	if err != nil || strings.TrimSpace(diffText) == "" {
+	diffText, affected, err := EmitGitDiff(ctx, meta.Snapshot)
+	if err != nil || len(affected) == 0 {
 		return nil
 	}
 	return &MergeRequest{
@@ -128,6 +129,7 @@ func buildGitMergeRequest(agentID, callID, toolName string, meta toolCallContext
 		ToolName: strings.TrimSpace(toolName),
 		RepoRoot: meta.Snapshot.RepoRoot,
 		DiffText: diffText,
+		Files:    affected,
 	}
 }
 
