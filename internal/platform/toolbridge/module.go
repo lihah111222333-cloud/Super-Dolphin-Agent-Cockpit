@@ -117,6 +117,15 @@ type cleanupLifecycleIn struct {
 	Logger     *pkglogger.Logger `optional:"true"`
 }
 
+func cleanupOnAgentError(aggregator *difftracker.DiffAggregator) func(agentdto.AgentError) {
+	return func(ev agentdto.AgentError) {
+		if aggregator == nil || ev.Recoverable {
+			return
+		}
+		aggregator.CleanupAgent(ev.AgentID)
+	}
+}
+
 func registerCleanupLifecycle(lc fx.Lifecycle, in cleanupLifecycleIn) {
 	if in.Dispatcher == nil || in.Aggregator == nil {
 		return
@@ -136,9 +145,7 @@ func registerCleanupLifecycle(lc fx.Lifecycle, in cleanupLifecycleIn) {
 				platformbus.ResilientSubscribe(in.Dispatcher, func(ev agentdto.AgentFailed) {
 					in.Aggregator.CleanupAgent(ev.AgentID)
 				}, logger),
-				platformbus.ResilientSubscribe(in.Dispatcher, func(ev agentdto.AgentError) {
-					in.Aggregator.CleanupAgent(ev.AgentID)
-				}, logger),
+				platformbus.ResilientSubscribe(in.Dispatcher, cleanupOnAgentError(in.Aggregator), logger),
 			}
 			return nil
 		},

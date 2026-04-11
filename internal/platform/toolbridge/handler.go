@@ -297,7 +297,7 @@ func shouldSnapshot(toolName string, arguments json.RawMessage) bool {
 		return true
 	case "lsp_edit":
 		switch lspEditAction(arguments) {
-		case "rename", "format", "code_action":
+		case "rename", "format", "code_action", "replace_range":
 			return true
 		}
 	}

@@ -12,6 +12,9 @@ import (
 	"time"
 	"unsafe"
 
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
@@ -295,5 +298,59 @@ func TestOnInboundMessage_NonToolRequest_WithID_NotIntercepted(t *testing.T) {
 	}
 	if resp.callErr == nil || !strings.Contains(resp.callErr.Error(), "method not supported: unknown/method") {
 		t.Fatalf("RespondWithID() error = %v, want method not supported", resp.callErr)
+	}
+}
+
+func TestCleanupOnAgentError_RecoverablePreservesDiffSession(t *testing.T) {
+	var last difftracker.DiffResult
+	aggregator := difftracker.NewDiffAggregator(difftracker.WithEmitter(func(_ context.Context, diff difftracker.DiffResult) error {
+		last = diff
+		return nil
+	}))
+	aggregator.Start()
+	defer aggregator.Stop()
+
+	merge := func(callID, filePath, before, after string) {
+		t.Helper()
+		args := mustRawJSON(t, map[string]any{"action": "replace_range", "file_path": filePath})
+		payload := mustRawJSON(t, map[string]any{"action": "replace_range", "replaced": before, "replacement": after})
+		result := mustRawJSON(t, map[string]any{"content": []map[string]any{{"type": "text", "text": string(payload)}}})
+		ctx := difftracker.WithToolCallContext(context.Background(), "thread-1", args, nil)
+		if err := aggregator.Merge(ctx, "agent-1", callID, "lsp_edit", result, nil); err != nil {
+			t.Fatalf("Merge() error = %v", err)
+		}
+	}
+	agentError := func(recoverable bool) agentdto.AgentError {
+		return agentdto.AgentError{
+			AgentSessionHeader: shareddto.AgentSessionHeader{
+				AgentHeader: shareddto.AgentHeader{AgentID: "agent-1"},
+			},
+			Recoverable: recoverable,
+		}
+	}
+
+	merge("call-1", "a.txt", "old\n", "new\n")
+	cleanupOnAgentError(aggregator)(agentError(true))
+	merge("call-2", "b.txt", "base\n", "beta\n")
+	if last.Revision != 2 {
+		t.Fatalf("revision = %d, want 2 after recoverable error", last.Revision)
+	}
+	if !strings.Contains(last.DiffText, "a.txt") || !strings.Contains(last.DiffText, "b.txt") {
+		t.Fatalf("recoverable error should preserve cumulative diff: %q", last.DiffText)
+	}
+
+	cleanupOnAgentError(aggregator)(agentError(false))
+	merge("call-3", "c.txt", "one\n", "two\n")
+	if last.Revision != 1 {
+		t.Fatalf("revision = %d, want 1 after non-recoverable error cleanup", last.Revision)
+	}
+	if strings.Contains(last.DiffText, "a.txt") || strings.Contains(last.DiffText, "b.txt") || !strings.Contains(last.DiffText, "c.txt") {
+		t.Fatalf("non-recoverable error should reset diff session: %q", last.DiffText)
+	}
+}
+
+func TestShouldSnapshotReplaceRange(t *testing.T) {
+	if !shouldSnapshot("lsp_edit", mustRawJSON(t, map[string]any{"action": "replace_range"})) {
+		t.Fatal("replace_range should snapshot before tool execution")
 	}
 }

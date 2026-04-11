@@ -60,6 +60,10 @@ func buildHookMergeRequest(
 	if err != nil {
 		return nil, err
 	}
+	cwd, err := resolveSessionCWD(ctx, resolver, agentID)
+	if err != nil {
+		return nil, err
+	}
 	filePath, err := resolveDiffPath(ctx, resolver, agentID, args.FilePath)
 	if err != nil {
 		return nil, err
@@ -76,6 +80,7 @@ func buildHookMergeRequest(
 		CallID:   strings.TrimSpace(callID),
 		ToolName: strings.TrimSpace(toolName),
 		RepoRoot: repoRoot,
+		CWD:      cwd,
 		DiffText: patch,
 		Files:    files,
 	}, nil
@@ -114,13 +119,16 @@ func mergeHookFiles(files []string, fallback string) []string {
 	return uniqueSorted(merged)
 }
 
-func buildGitMergeRequest(ctx context.Context, agentID, callID, toolName string, meta toolCallContext) *MergeRequest {
+func buildGitMergeRequest(ctx context.Context, agentID, callID, toolName string, meta toolCallContext) (*MergeRequest, error) {
 	if meta.Snapshot == nil {
-		return nil
+		return nil, nil
 	}
 	diffText, affected, err := EmitGitDiff(ctx, meta.Snapshot)
-	if err != nil || len(affected) == 0 {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if len(affected) == 0 {
+		return nil, nil
 	}
 	return &MergeRequest{
 		AgentID:  strings.TrimSpace(agentID),
@@ -130,7 +138,7 @@ func buildGitMergeRequest(ctx context.Context, agentID, callID, toolName string,
 		RepoRoot: meta.Snapshot.RepoRoot,
 		DiffText: diffText,
 		Files:    affected,
-	}
+	}, nil
 }
 
 func resolveDiffPath(ctx context.Context, resolver WorkDirResolver, agentID, rawPath string) (string, error) {
@@ -160,6 +168,13 @@ func useRawDiffPath(resolver WorkDirResolver, agentID, path string) bool {
 	return resolver == nil || strings.TrimSpace(agentID) == "" || !filepath.IsAbs(path)
 }
 
+func resolveSessionCWD(ctx context.Context, resolver WorkDirResolver, agentID string) (string, error) {
+	if resolver == nil || strings.TrimSpace(agentID) == "" {
+		return "", nil
+	}
+	return resolveAgentCWD(ctx, resolver, agentID)
+}
+
 func resolveAgentCWD(ctx context.Context, resolver WorkDirResolver, agentID string) (string, error) {
 	cwd, err := resolver.ResolveAgentCWD(ctx, agentID)
 	if err != nil {
@@ -187,11 +202,8 @@ func resolveRepoRoot(ctx context.Context, resolver WorkDirResolver, agentID stri
 	if meta.Snapshot != nil {
 		return meta.Snapshot.RepoRoot, nil
 	}
-	if resolver == nil || strings.TrimSpace(agentID) == "" {
-		return "", nil
-	}
-	cwd, err := resolver.ResolveAgentCWD(ctx, agentID)
-	if err != nil {
+	cwd, err := resolveSessionCWD(ctx, resolver, agentID)
+	if err != nil || cwd == "" {
 		return "", err
 	}
 	root, err := findGitRoot(ctx, cwd)
