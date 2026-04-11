@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 var ErrNotGitRepository = errors.New("difftracker: not a git repository")
@@ -90,7 +92,7 @@ func execGitCommand(ctx context.Context, dir string, args ...string) ([]byte, er
 }
 
 func execGitCommandOnce(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	commandCtx, cancel := context.WithTimeout(ctx, gitCommandTimeout)
+	commandCtx, cancel := platformconfig.WithTimeout(ctx, gitCommandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(commandCtx, "git", args...)
 	cmd.Dir = dir

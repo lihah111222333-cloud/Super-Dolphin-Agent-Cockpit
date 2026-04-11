@@ -11,6 +11,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
@@ -61,7 +62,7 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 		return nil, ErrAmbiguousPeer
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, toolCallTimeout)
+	callCtx, cancel := platformconfig.WithPeerTimeout(ctx, toolCallTimeout)
 	defer cancel()
 
 	mergeCtx := h.mergeContext(ctx, req)
