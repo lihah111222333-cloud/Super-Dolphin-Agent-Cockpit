@@ -257,6 +257,11 @@ function mergeTimelineWithLocalItems(newItems, oldItems, threadId, requestedThre
       const numB = Number((b?.id || '').toString().split('-').pop());
       if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) return numA - numB;
     }
+
+    const idA = (a?.id || '').toString();
+    const idB = (b?.id || '').toString();
+    if (idA < idB) return -1;
+    if (idA > idB) return 1;
     return 0;
   });
 

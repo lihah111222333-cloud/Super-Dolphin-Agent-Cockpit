@@ -61,6 +61,7 @@ func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 		s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
 			ID:      threadID,
 			AgentID: agentID,
+			Name:    strings.TrimSpace(ev.Name),
 		})
 		s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
 			ID:               agentID,
@@ -70,6 +71,8 @@ func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 			CWD:              strings.TrimSpace(ev.CWD),
 			LogPath:          logFilePath(),
 			AgentState:       agentState,
+			Name:             strings.TrimSpace(ev.Name),
+			Provider:         strings.TrimSpace(ev.Provider),
 		})
 		if currentState == "" || currentState == "starting" {
 			s.setThreadOverlayLocked(threadID, overlayTypeMCPStartup, "", overlayPriorityMCPStartup, mcpStartupOverlayTTL)
@@ -183,6 +186,7 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 		s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
 			ID:      threadID,
 			AgentID: agentID,
+			Name:    strings.TrimSpace(ev.Name),
 		})
 		if agentID != "" {
 			// thread.Started is a full session initialization event.
@@ -200,6 +204,7 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 				LogPath:          logFilePath(),
 				State:            "idle",
 				AgentState:       "idle",
+				Name:             strings.TrimSpace(ev.Name),
 			})
 		}
 	}, func() uidto.UIThreadPatch {

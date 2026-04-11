@@ -13,8 +13,10 @@ type StateChanged struct {
 // AgentLaunched reports a new agent process or session becoming active.
 type AgentLaunched struct {
 	shared.AgentSessionHeader
-	Model string `json:"model,omitempty"`
-	CWD   string `json:"cwd,omitempty"`
+	Model    string `json:"model,omitempty"`
+	CWD      string `json:"cwd,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Provider string `json:"provider,omitempty"`
 }
 
 // AgentStopped reports a graceful or forced agent stop.

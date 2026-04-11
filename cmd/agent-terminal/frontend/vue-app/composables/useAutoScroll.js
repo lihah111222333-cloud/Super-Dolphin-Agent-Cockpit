@@ -78,6 +78,7 @@ export function useAutoScroll(workspaceRef) {
     programmaticScrollInProgress = true;
     const doScroll = () => {
       scrollTimer = requestAnimationFrame(() => {
+        unlockContainerHeight();
         scrollTimer = requestAnimationFrame(() => {
           const el = resolveChatScroller();
           if (!el || (!force && !shouldAutoScroll.value)) return programmaticScrollInProgress = false;
@@ -154,6 +155,12 @@ export function useAutoScroll(workspaceRef) {
     if (el) {
       savedScrollTop = el.scrollTop;
       savedDistFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      // 锁住容器高度，防止线程切换 DOM 重建时视觉塌缩导致浏览器强制 scrollTop=0
+      el.style.minHeight = Math.max(el.scrollHeight, el.clientHeight) + 'px';
+      // 激活快照保护，防范 DOM patch 期间浏览器原生 onscroll 事件污染 autoScroll 状态
+      snapshotGuardActive = true;
+      if (snapshotGuardTimer) clearTimeout(snapshotGuardTimer);
+      snapshotGuardTimer = setTimeout(() => { snapshotGuardActive = false; snapshotGuardTimer = 0; unlockContainerHeight(); }, 2000);
     } else {
       savedScrollTop = savedDistFromBottom = 0;
     }
