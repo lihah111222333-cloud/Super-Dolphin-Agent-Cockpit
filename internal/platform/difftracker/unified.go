@@ -10,8 +10,8 @@ import (
 
 const rawDiffSessionKey = "__raw__"
 
-func mergeIntoSession(session *agentDiffSession, diffText string) bool {
-	return mergeSessionDiff(session, diffText, sortedBlockPaths(splitUnifiedDiffBlocks(diffText)))
+func mergeIntoSession(session *agentDiffSession, diffText string, files []string) bool {
+	return mergeSessionDiff(session, diffText, uniqueSorted(files))
 }
 
 func buildCumulativeDiff(session *agentDiffSession) string {
@@ -244,14 +244,4 @@ func ensureTrailingNewline(text string) string {
 		return ""
 	}
 	return trimmed + "\n"
-}
-
-func unifiedText(diff *fileDiff) string {
-	if diff == nil {
-		return ""
-	}
-	if strings.TrimSpace(diff.UnifiedDiff) != "" {
-		return diff.UnifiedDiff
-	}
-	return diff.Diff
 }

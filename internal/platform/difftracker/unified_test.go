@@ -10,6 +10,7 @@ func TestMergeIntoSession(t *testing.T) {
 	changed := mergeIntoSession(session,
 		buildUnifiedDiffBlock("b.txt", "", "beta\n")+
 			buildUnifiedDiffBlock("a.txt", "old\n", "new\n"),
+		nil,
 	)
 
 	if !changed {
@@ -41,8 +42,8 @@ func TestBuildCumulativeDiff(t *testing.T) {
 
 func TestMergeIntoSession_SameFile(t *testing.T) {
 	session := &agentDiffSession{files: make(map[string]*FileDiff)}
-	mergeIntoSession(session, buildUnifiedDiffBlock("a.txt", "old\n", "new\n"))
-	mergeIntoSession(session, buildUnifiedDiffBlock("a.txt", "new\n", "newer\n"))
+	mergeIntoSession(session, buildUnifiedDiffBlock("a.txt", "old\n", "new\n"), nil)
+	mergeIntoSession(session, buildUnifiedDiffBlock("a.txt", "new\n", "newer\n"), nil)
 
 	diffText := buildCumulativeDiff(session)
 	if strings.Contains(diffText, "-old") {
@@ -50,5 +51,18 @@ func TestMergeIntoSession_SameFile(t *testing.T) {
 	}
 	if !strings.Contains(diffText, "-new") || !strings.Contains(diffText, "+newer") {
 		t.Fatalf("replacement diff missing: %q", diffText)
+	}
+}
+
+func TestMergeIntoSession_EmptyDiffClearsTouchedFiles(t *testing.T) {
+	session := &agentDiffSession{files: make(map[string]*FileDiff)}
+	mergeIntoSession(session, buildUnifiedDiffBlock("a.txt", "old\n", "new\n"), nil)
+
+	changed := mergeIntoSession(session, "", []string{"a.txt"})
+	if !changed {
+		t.Fatal("mergeIntoSession() = false, want true when clearing touched file")
+	}
+	if diffText := buildCumulativeDiff(session); diffText != "" {
+		t.Fatalf("buildCumulativeDiff() = %q, want empty after clear", diffText)
 	}
 }
