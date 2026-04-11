@@ -7,6 +7,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -56,7 +57,7 @@ func (r *httpRunner) Run(ctx context.Context) error {
 
 	// Cleanup discovery file on shutdown.
 	_ = common.CleanupPeerDiscovery(httpBinaryName)
-	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	stopCtx, cancel := platformconfig.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Stop(stopCtx)
 }
