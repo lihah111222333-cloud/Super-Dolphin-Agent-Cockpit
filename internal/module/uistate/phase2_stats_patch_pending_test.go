@@ -26,6 +26,20 @@ func TestActivityStats_CommandIncrementsCommands(t *testing.T) {
 	}
 }
 
+func TestActivityStats_UnknownItemFallsBackToCommandCount(t *testing.T) {
+	t.Parallel()
+
+	svc := newProjectionTestService(t)
+	turnHeader := testTurnHeader(testAgentSessionHeader("thread-stats-unknown", "agent-1"), "turn-1")
+
+	svc.applyItemStarted(turndto.ItemStarted{TurnHeader: turnHeader, ItemType: "request_user_input", CallID: "unknown-1"})
+
+	stats := activityStatsForThread(t, svc, "thread-stats-unknown")
+	if stats.Commands != 1 {
+		t.Fatalf("stats.Commands = %d, want 1", stats.Commands)
+	}
+}
+
 func TestActivityStats_FileIncrementsFileEdits(t *testing.T) {
 	t.Parallel()
 

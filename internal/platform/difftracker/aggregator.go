@@ -43,6 +43,7 @@ type agentDiffSession struct {
 	revision     int64
 	processedIDs map[string]bool
 	lastActivity time.Time
+	refCount     int
 }
 
 func NewDiffAggregator(options ...AggregatorOption) *DiffAggregator {
@@ -114,6 +115,9 @@ func (a *DiffAggregator) Stop() {
 
 func (a *DiffAggregator) Merge(ctx context.Context, agentID, callID, toolName string, result any, resolver WorkDirResolver) error {
 	req, err := a.buildMergeRequest(ctx, agentID, callID, toolName, result, resolver)
+	if err != nil {
+		req, err = fallbackGitMergeRequest(ctx, agentID, callID, toolName, resolver, err)
+	}
 	if err != nil || req == nil {
 		return err
 	}
@@ -122,6 +126,47 @@ func (a *DiffAggregator) Merge(ctx context.Context, agentID, callID, toolName st
 		return err
 	}
 	return a.emitter(ctx, *merged)
+}
+
+func fallbackGitMergeRequest(ctx context.Context, agentID, callID, toolName string, resolver WorkDirResolver, cause error) (*MergeRequest, error) {
+	if !errors.Is(cause, ErrReplaceRangePatchNotFound) {
+		return nil, cause
+	}
+	pkglogger.Warn("difftracker: hook diff extraction failed, falling back to git diff",
+		"agent_id", strings.TrimSpace(agentID),
+		"call_id", strings.TrimSpace(callID),
+		"tool", strings.TrimSpace(toolName),
+		"error", cause,
+	)
+	meta := readToolCallContext(ctx)
+	if meta.Snapshot == nil {
+		snapshot, err := beginFallbackGitSnapshot(ctx, resolver, agentID)
+		if err != nil {
+			return nil, err
+		}
+		meta.Snapshot = snapshot
+	}
+	return buildGitMergeRequest(ctx, agentID, callID, toolName, meta), nil
+}
+
+func beginFallbackGitSnapshot(ctx context.Context, resolver WorkDirResolver, agentID string) (*Snapshot, error) {
+	if resolver == nil || strings.TrimSpace(agentID) == "" {
+		return nil, nil
+	}
+	cwd, err := resolveAgentCWD(ctx, resolver, agentID)
+	if err != nil || strings.TrimSpace(cwd) == "" {
+		return nil, err
+	}
+	snapshot, err := BeginSnapshot(ctx, cwd)
+	if err != nil {
+		if errors.Is(err, ErrNotGitRepository) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	snapshot.beforeFiles = nil
+	snapshot.DirtyFiles = nil
+	return snapshot, nil
 }
 
 func (a *DiffAggregator) buildMergeRequest(
@@ -147,10 +192,11 @@ func (a *DiffAggregator) mergeRequest(req MergeRequest) (*DiffResult, bool, erro
 		return nil, false, ErrMissingAgentID
 	}
 	session := a.sessionFor(req)
+	defer a.releaseSession(session)
+
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	session.threadID = req.ThreadID
-	session.lastActivity = a.now()
 
 	if req.CallID != "" && session.processedIDs[req.CallID] {
 		return session.snapshot(req), false, nil
@@ -182,11 +228,24 @@ func (a *DiffAggregator) sessionFor(req MergeRequest) *agentDiffSession {
 			repoRoot:     req.RepoRoot,
 			files:        make(map[string]*fileDiff),
 			processedIDs: make(map[string]bool),
-			lastActivity: a.now(),
 		}
 		a.sessions[req.AgentID] = current
 	}
+	current.lastActivity = a.now()
+	current.refCount++
 	return current
+}
+
+func (a *DiffAggregator) releaseSession(session *agentDiffSession) {
+	if a == nil || session == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if session.refCount > 0 {
+		session.refCount--
+	}
+	session.lastActivity = a.now()
 }
 
 func (a *DiffAggregator) runSweeper(stopCh <-chan struct{}, doneCh chan<- struct{}) {
@@ -211,10 +270,10 @@ func (a *DiffAggregator) sweepExpired() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for agentID, session := range a.sessions {
-		session.mu.Lock()
-		expired := session.lastActivity.Before(cutoff)
-		session.mu.Unlock()
-		if expired {
+		if session.refCount > 0 {
+			continue
+		}
+		if session.lastActivity.Before(cutoff) {
 			delete(a.sessions, agentID)
 		}
 	}
