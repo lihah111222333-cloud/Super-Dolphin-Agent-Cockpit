@@ -194,6 +194,14 @@ func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[s
 	if agent.LastMessage != "" {
 		runtimeEntry["lastMessage"] = agent.LastMessage
 	}
+	// Capabilities: derive from provider name (static per driver).
+	// codex supports context_compact + model_switch; claude does not.
+	switch strings.ToLower(strings.TrimSpace(agent.Provider)) {
+	case "codex":
+		runtimeEntry["capabilities"] = []string{"context_compact", "model_switch"}
+	default:
+		runtimeEntry["capabilities"] = []string{}
+	}
 	return runtimeEntry
 }
 

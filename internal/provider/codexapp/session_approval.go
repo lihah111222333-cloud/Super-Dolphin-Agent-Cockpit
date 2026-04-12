@@ -220,6 +220,8 @@ func isRequestUserInputMethod(method string) bool {
 
 func (s *session) onNotification(method string, params json.RawMessage) {
 	s.noteReadActivity()
+	pkglogger.Warn("codexapp: onNotification received",
+		"agent_id", s.agentID, "method", method)
 	if s.isAlienThreadEvent(params) {
 		pkglogger.Warn("codexapp: dropped alien thread event",
 			"agent_id", s.agentID, "method", method, "own_thread", s.ThreadID())

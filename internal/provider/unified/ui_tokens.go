@@ -9,6 +9,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func PublishUITokensUpdated(data any, publish func(ev any)) {
@@ -21,8 +22,14 @@ func PublishUITokensUpdated(data any, publish func(ev any)) {
 	}
 	ev, ok := tokensUpdatedEvent(payload)
 	if !ok {
+		pkglogger.Warn("ui_tokens: tokensUpdatedEvent returned false",
+			"payload_keys", mapKeys(payload))
 		return
 	}
+	pkglogger.Warn("ui_tokens: publishing UITokensUpdated",
+		"input", ev.InputTokens, "output", ev.OutputTokens,
+		"total", ev.TotalTokens, "window", ev.ContextWindowTokens,
+		"thread_id", ev.ThreadID)
 	publish(ev)
 }
 
@@ -32,17 +39,18 @@ func tokensUpdatedEvent(payload map[string]any) (uidto.UITokensUpdated, bool) {
 	totalUsage := nestedMap(tokenUsage, "total")
 	lastUsage := nestedMap(tokenUsage, "last")
 
-	input, hasInput := firstInt(totalUsage, lastUsage, "inputTokens", "input_tokens")
+	// V2 parity: prefer tokenUsage.last (current turn) over tokenUsage.total (cumulative)
+	input, hasInput := firstInt(lastUsage, totalUsage, "inputTokens", "input_tokens")
 	if !hasInput {
 		input, hasInput = firstInt(usage, payload, "inputTokens", "input_tokens", "promptTokens", "prompt_tokens")
 	}
 
-	output, hasOutput := firstInt(totalUsage, lastUsage, "outputTokens", "output_tokens")
+	output, hasOutput := firstInt(lastUsage, totalUsage, "outputTokens", "output_tokens")
 	if !hasOutput {
 		output, hasOutput = firstInt(usage, payload, "outputTokens", "output_tokens", "completionTokens", "completion_tokens")
 	}
 
-	total, hasTotal := firstInt(totalUsage, lastUsage, "totalTokens", "total_tokens")
+	total, hasTotal := firstInt(lastUsage, totalUsage, "totalTokens", "total_tokens")
 	if !hasTotal {
 		total, hasTotal = intFromMap(payload, "totalTokens", "total_tokens")
 	}
@@ -105,8 +113,16 @@ func firstInt(preferred, fallback map[string]any, keys ...string) (int, bool) {
 }
 
 func contextWindowValue(payload, usage map[string]any) (int, bool) {
-	for _, key := range []string{"modelContextWindow", "contextWindow", "contextWindowTokens", "context_window", "context_window_tokens"} {
-		if value, ok := firstInt(payload, usage, key); ok {
+	tokenUsage := nestedMap(payload, "tokenUsage")
+	keys := []string{"modelContextWindow", "contextWindow", "contextWindowTokens", "context_window", "context_window_tokens"}
+	for _, key := range keys {
+		if value, ok := intFromMap(payload, key); ok {
+			return value, true
+		}
+		if value, ok := intFromMap(tokenUsage, key); ok {
+			return value, true
+		}
+		if value, ok := intFromMap(usage, key); ok {
 			return value, true
 		}
 	}
@@ -153,6 +169,14 @@ func stringValue(payload map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func tokenEventTime(payload map[string]any) time.Time {

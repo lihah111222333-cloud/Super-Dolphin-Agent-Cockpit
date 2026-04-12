@@ -85,10 +85,12 @@ type TurnSummary struct {
 }
 
 type TokenUsage struct {
-	InputTokens         int `json:"input_tokens"`
-	OutputTokens        int `json:"output_tokens"`
-	TotalTokens         int `json:"total_tokens"`
-	ContextWindowTokens int `json:"context_window_tokens,omitempty"`
+	InputTokens         int `json:"inputTokens"`
+	OutputTokens        int `json:"outputTokens"`
+	TotalTokens         int `json:"totalTokens"`
+	UsedTokens          int `json:"usedTokens"`
+	ContextWindowTokens int `json:"contextWindowTokens,omitempty"`
+	UsedPercent         float64 `json:"usedPercent,omitempty"`
 }
 
 type ActivityStats struct {
