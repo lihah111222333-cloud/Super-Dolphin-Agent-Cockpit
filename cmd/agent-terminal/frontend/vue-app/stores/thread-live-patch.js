@@ -319,11 +319,15 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   const needsRecovery = hasRecover || hasRefreshRequired || sequenceGap || timelineResult.needsRecovery;
   if (Number.isFinite(sequence) && sequence > 0) recordThreadPatchMeta(ctx, id, payload.source, sequence, now);
   if (Array.isArray(payload.timelineItems) && payload.timelineItems.length > 0) {
+    const userItems = payload.timelineItems.filter(i => i?.kind === 'user');
     ctx.logWarn('thread', 'patch.timeline_items_applied', {
       thread_id: id,
       source: (payload.source || '').toString(),
       sequence,
       timeline_items: payload.timelineItems.length,
+      item_ids: payload.timelineItems.map(i => i?.id).join(', '),
+      item_kinds: payload.timelineItems.map(i => i?.kind).join(', '),
+      user_item_texts: userItems.map(i => (i?.text || '').substring(0, 30)).join(' | '),
       timeline_changed: timelineResult.changed,
       needs_recovery: needsRecovery,
     });
