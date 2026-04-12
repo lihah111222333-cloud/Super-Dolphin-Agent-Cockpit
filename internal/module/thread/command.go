@@ -5,21 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
-// NOTE(P8): 这里仍处在过渡态。
-// thread RPC 已经暴露了不少结构化方法，但 provider-neutral Session 目前只提供
-// Configure / Interrupt 等少数 typed surface，没有统一的 slash-command / session-control 契约。
-// 因此 SendCommand 现在只能对高频命令补参数校验与结构化结果；其余命令先保留壳层并显式标 TODO。
-//
-// thread/skills/list 通过这里的 thread 命令通道下沉，语义上返回 thread 绑定的 active skills。
-// 与 skills/list 不同：后者扫描本地 skill 目录，返回所有已安装的 skill 元信息。
+// NOTE(P8): 这里仍处在过渡态；provider-neutral Session 只暴露 Configure /
+// Interrupt 等少量 typed surface，所以 SendCommand 目前只对高频命令做结构化
+// 处理，其余命令保留壳层并显式标 TODO。`thread/skills/list` 返回线程绑定的
+// active skills，不同于扫描全量本地目录的 `skills/list`。
 func (s *service) SendCommand(ctx context.Context, threadID, command, args string) (any, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -216,14 +211,15 @@ func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.Thre
 	if err := session.Configure(ctx, patch); err != nil {
 		return dto.ThreadConfig{}, wrapThreadConfigPatchError(err, provider, patch)
 	}
+	if err := s.persistThreadConfig(ctx, threadID, patch, dto.ThreadConfig{}); err != nil {
+		return dto.ThreadConfig{}, err
+	}
 	cfg, err := s.GetConfig(ctx, threadID)
 	if err != nil {
 		return dto.ThreadConfig{}, err
 	}
-	if err := s.persistThreadConfig(ctx, threadID, patch, cfg); err != nil {
-		return dto.ThreadConfig{}, err
-	}
-	return cfg, nil
+	s.emitThreadModelUpdated(threadID, patch.Model)
+	return applyThreadConfigReturnPatch(cfg, patch), nil
 }
 
 func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.ThreadConfig, error) {
@@ -335,19 +331,6 @@ func (s *service) storedThreadModel(ctx context.Context, threadID string) string
 		return ""
 	}
 	return strings.TrimSpace(thread.Model)
-}
-
-func (s *service) recordThreadModel(ctx context.Context, threadID, model string) {
-	thread, err := s.getThread(ctx, threadID)
-	if err != nil || thread == nil {
-		return
-	}
-	if strings.TrimSpace(thread.Model) == model {
-		return
-	}
-	thread.Model = model
-	thread.UpdatedAt = time.Now().Unix()
-	shared.LogIgnoredError(s.logger, "upsert thread failed", s.upsertThread(ctx, *thread))
 }
 
 func validateModelName(value string) (string, error) {

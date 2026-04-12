@@ -330,7 +330,7 @@ func (s *service) persistThreadConfig(
 	ctx context.Context,
 	threadID string,
 	patch dto.ThreadConfigPatch,
-	effective dto.ThreadConfig,
+	_ dto.ThreadConfig,
 ) error {
 	if s.threadStore == nil {
 		return nil
@@ -344,7 +344,9 @@ func (s *service) persistThreadConfig(
 	if err != nil {
 		return err
 	}
-	thread.Model = shared.FirstNonEmpty(effective.Effective.Model, effective.Override.Model)
+	if patch.Model != nil {
+		thread.Model = strings.TrimSpace(*patch.Model)
+	}
 	thread.ConfigOverride = raw
 	thread.UpdatedAt = time.Now().Unix()
 	return s.upsertThread(ctx, *thread)
@@ -382,6 +384,27 @@ func threadConfigPatchValue(value *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
+}
+
+func applyThreadConfigReturnPatch(cfg dto.ThreadConfig, patch dto.ThreadConfigPatch) dto.ThreadConfig {
+	if patch.Model != nil {
+		cfg.Override.Model = threadConfigPatchValue(patch.Model)
+		cfg.Effective.Model = cfg.Override.Model
+	}
+	if patch.Effort != nil {
+		cfg.Override.Effort = threadConfigPatchValue(patch.Effort)
+		if cfg.Override.Effort != "" {
+			cfg.Effective.Effort = cfg.Override.Effort
+		}
+	}
+	return cfg
+}
+
+func (s *service) emitThreadModelUpdated(threadID string, model *string) {
+	if s == nil || s.emitUpdated == nil || model == nil {
+		return
+	}
+	s.emitUpdated(threaddto.Updated{EventHeader: shareddto.EventHeader{Timestamp: time.Now()}, ThreadID: strings.TrimSpace(threadID), Model: model})
 }
 
 func (s *service) normalizeThreadConfig(

@@ -89,10 +89,19 @@ export async function renameThread(ctx, threadId, name) {
   const nextName = (name || '').toString().trim();
   logWarn('ui', 'renameThread.triggered', { threadId: id, name: nextName });
   if (!id || !nextName) return;
+
+  if (Array.isArray(ctx.state.threads)) {
+    const idx = ctx.state.threads.findIndex(t => t?.id === id);
+    if (idx >= 0 && ctx.state.threads[idx].name !== nextName) {
+      const nextThreads = ctx.state.threads.slice();
+      nextThreads[idx] = { ...nextThreads[idx], name: nextName };
+      ctx.state.threads = nextThreads;
+    }
+  }
+
   try {
     const res = await callAPI('thread/name/set', { threadId: id, name: nextName });
     logWarn('ui', 'renameThread.api.success', { res });
-    await ctx.syncRuntimeState();
     logWarn('ui', 'renameThread.sync.complete');
   } catch (error) {
     logWarn('thread', 'rename.remote.failed', { thread_id: id, error });
@@ -319,6 +328,14 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     const userText = input.filter((i) => i?.type === 'text').map((i) => i.text).join('\n').trim();
     if (userText) {
       const existing = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
+      // P16.1 fix: skip optimistic insert if a matching user message already
+      // arrived via turn:input_received (proxy makes MCP init instant, so
+      // the real event can beat the optimistic insert).
+      const alreadyHasMatch = existing.some((it) => it?.kind === 'user' && (it?.text || '').trim() === userText);
+      if (alreadyHasMatch) {
+        logWarn('ui', 'chat.send.optimistic_skip', { thread_id: threadId, reason: 'matching_user_message_exists', text_preview: userText.slice(0, 80) });
+        return;
+      }
       const optimisticItem = Object.freeze({ id: `${threadId}-optimistic-user-${Date.now()}`, kind: 'user', text: userText, ts: new Date().toISOString() });
       ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: [...existing, optimisticItem] };
       logWarn('ui', 'chat.send.optimistic_insert', {

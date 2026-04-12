@@ -85,6 +85,7 @@ func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
 		"item/completed", "item_completed", "agent/event/item_completed", "rawResponseItem/completed",
 		"item/plan/delta", "item_plan_delta", "agent/event/item_plan_delta",
 		"item/plan/updated", "item_plan_updated", "agent/event/item_plan_updated",
+		"thread/tokenUsage/updated",
 		"tool:use_begin", "tool:use_end":
 		return false
 	}

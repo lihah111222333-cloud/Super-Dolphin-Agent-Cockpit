@@ -28,10 +28,26 @@ func PublishUITokensUpdated(data any, publish func(ev any)) {
 
 func tokensUpdatedEvent(payload map[string]any) (uidto.UITokensUpdated, bool) {
 	usage := nestedMap(payload, "usage")
-	input, hasInput := firstInt(usage, payload, "inputTokens", "input_tokens", "promptTokens", "prompt_tokens")
-	output, hasOutput := firstInt(usage, payload, "outputTokens", "output_tokens", "completionTokens", "completion_tokens")
-	total, hasTotal := firstInt(usage, payload, "totalTokens", "total_tokens")
-	window, hasWindow := firstInt(usage, payload, "contextWindowTokens", "context_window_tokens")
+	tokenUsage := nestedMap(payload, "tokenUsage")
+	totalUsage := nestedMap(tokenUsage, "total")
+	lastUsage := nestedMap(tokenUsage, "last")
+
+	input, hasInput := firstInt(totalUsage, lastUsage, "inputTokens", "input_tokens")
+	if !hasInput {
+		input, hasInput = firstInt(usage, payload, "inputTokens", "input_tokens", "promptTokens", "prompt_tokens")
+	}
+
+	output, hasOutput := firstInt(totalUsage, lastUsage, "outputTokens", "output_tokens")
+	if !hasOutput {
+		output, hasOutput = firstInt(usage, payload, "outputTokens", "output_tokens", "completionTokens", "completion_tokens")
+	}
+
+	total, hasTotal := firstInt(totalUsage, lastUsage, "totalTokens", "total_tokens")
+	if !hasTotal {
+		total, hasTotal = intFromMap(payload, "totalTokens", "total_tokens")
+	}
+
+	window, hasWindow := contextWindowValue(payload, usage)
 	if !hasInput && !hasOutput && !hasTotal && !hasWindow {
 		return uidto.UITokensUpdated{}, false
 	}
@@ -86,6 +102,15 @@ func firstInt(preferred, fallback map[string]any, keys ...string) (int, bool) {
 		return value, true
 	}
 	return intFromMap(fallback, keys...)
+}
+
+func contextWindowValue(payload, usage map[string]any) (int, bool) {
+	for _, key := range []string{"modelContextWindow", "contextWindow", "contextWindowTokens", "context_window", "context_window_tokens"} {
+		if value, ok := firstInt(payload, usage, key); ok {
+			return value, true
+		}
+	}
+	return 0, false
 }
 
 func intFromMap(payload map[string]any, keys ...string) (int, bool) {

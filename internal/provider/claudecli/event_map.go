@@ -37,11 +37,17 @@ func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 
 func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
 	switch raw.EventType {
-	case "agent:launched", "system:init":
+	case "agent:launched":
 		return agentdto.AgentLaunched{
 			AgentSessionHeader: agentSessionHeader(raw.Data),
 			Model:              dataString(raw.Data, "model"),
 			CWD:                dataString(raw.Data, "cwd"),
+		}, true
+	case "system:init":
+		// system:init carries the real session UUID; update session but do not
+		// re-publish AgentLaunched (agent:launched already did that).
+		return agentdto.AgentRuntimeReported{
+			AgentSessionHeader: agentSessionHeader(raw.Data),
 		}, true
 	case "agent:state_changed":
 		return agentdto.StateChanged{

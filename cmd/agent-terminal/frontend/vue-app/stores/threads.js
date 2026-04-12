@@ -135,6 +135,7 @@ export function useThreadStore() {
     getThreadTokenUsage: syncManager.getThreadTokenUsage,
     getThreadCompacting,
     getThreadCompactResult,
+    setThreadCompactResult: setCompactResult,
     getThreadCompactSuccessCount,
     getThreadActivityStats: syncManager.getThreadActivityStats,
     getThreadAlerts: syncManager.getThreadAlerts,

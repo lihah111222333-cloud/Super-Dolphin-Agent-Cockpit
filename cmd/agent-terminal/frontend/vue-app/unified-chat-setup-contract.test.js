@@ -150,7 +150,7 @@ describe('UnifiedChatPage.setup public contract', () => {
       'activeChatThreadCount', 'archivedChatThreadCount', 'activeTimeline', 'activeDiffText', 'activeMediaPreview',
       'activeMarkdownPreview', 'activeDiffFocusFile', 'activeDiffFocusLine', 'activeStatus', 'activeStatusHeader',
       'activeStatusDetails', 'activeStatusMeta', 'activeTokenInline', 'activeTokenTooltip', 'compacting',
-      'compactResultText', 'compactResultTone', 'compactSuccessCount', 'canInterrupt', 'recoveringSelected',
+      'canCompact', 'compactResultText', 'compactResultTone', 'compactSuccessCount', 'canInterrupt', 'recoveringSelected',
       'displayStatusText', 'noActiveThread', 'copyButtonLabel', 'layoutMode', 'cmdCardCols', 'splitRatio',
       'threadRailStyle', 'showOverview', 'showWorkspace', 'chatComposerShellStyle', 'activityPanelRowStyle',
       'activePinnedPlan', 'stats', 'recentThreads', 'cmdCards', 'composerSkillMatches',

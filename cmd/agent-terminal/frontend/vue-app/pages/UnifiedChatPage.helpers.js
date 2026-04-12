@@ -95,6 +95,7 @@ export function buildUnifiedChatPageExposed(ctx) {
     activeTokenInline: threadStatus.activeTokenInline,
     activeTokenTooltip: threadStatus.activeTokenTooltip,
     compacting: threadStatus.compacting,
+    canCompact: threadStatus.canCompact,
     compactResultText: threadStatus.compactResultText,
     compactResultTone: threadStatus.compactResultTone,
     compactSuccessCount: threadStatus.compactSuccessCount,

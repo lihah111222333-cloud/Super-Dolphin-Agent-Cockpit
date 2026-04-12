@@ -139,6 +139,15 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 	if err := s.upsertThread(ctx, *thread); err != nil {
 		return err
 	}
+
+	if s.emitUpdated != nil {
+		s.emitUpdated(threaddto.Updated{
+			EventHeader: shareddto.EventHeader{Timestamp: time.Now()},
+			ThreadID:    threadID,
+			Name:        name,
+		})
+	}
+
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
 		return nil
@@ -151,14 +160,6 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 	// contract once at least one provider exposes a stable rename surface.
 	if err := syncer.SetThreadName(ctx, historyTargetID(binding, threadID), name); err != nil && s.logger != nil {
 		s.logger.Warn("thread/name/set: provider sync failed", "thread_id", threadID, "error", err)
-	}
-
-	if s.emitUpdated != nil {
-		s.emitUpdated(threaddto.Updated{
-			EventHeader: shareddto.EventHeader{Timestamp: time.Now()},
-			ThreadID:    threadID,
-			Name:        name,
-		})
 	}
 
 	return nil

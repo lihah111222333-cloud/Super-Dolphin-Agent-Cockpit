@@ -72,6 +72,7 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     threadId: overrides.threadId ?? 'thread-1',
     interruptible: overrides.interruptible ?? false,
     compacting: overrides.compacting ?? false,
+    canCompact: overrides.canCompact ?? true,
     compactResultText: overrides.compactResultText ?? '',
     compactResultTone: overrides.compactResultTone ?? '',
     compactSuccessCount: overrides.compactSuccessCount ?? 0,
@@ -234,10 +235,11 @@ describe('ComposerBar behavior', () => {
     expect(vm.interruptPending.value).toBe(false);
   });
 
-  it('emits compact only when the composer is enabled, idle and bound to a thread', () => {
+  it('emits compact only when the composer is enabled, idle, supported and bound to a thread', () => {
     const blockedEmit = vi.fn();
     createComposerBar({ disabled: true }, blockedEmit).vm.onCompact({ type: 'click' });
     createComposerBar({ compacting: true }, blockedEmit).vm.onCompact({ type: 'click' });
+    createComposerBar({ canCompact: false }, blockedEmit).vm.onCompact({ type: 'click' });
     createComposerBar({ threadId: '' }, blockedEmit).vm.onCompact({ type: 'click' });
     expect(blockedEmit).not.toHaveBeenCalled();
 
