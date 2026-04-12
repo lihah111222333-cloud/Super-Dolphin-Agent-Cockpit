@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-04-12",
+  "generated_at": "2026-04-13",
   "description": "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
   "codemaps": [
     {

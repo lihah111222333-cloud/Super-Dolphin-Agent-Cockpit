@@ -197,12 +197,26 @@ function pruneTouchedThreadPayloadCache(keepThreadIDs) {
 function mergeTimelineWithLocalItems(newItems, oldItems, threadId, requestedThreadId, logWarn) {
   if (!Array.isArray(oldItems) || oldItems.length === 0 || newItems.length === 0) return newItems;
   const newIds = new Set(newItems.map((i) => i?.id).filter(Boolean));
+  const newTexts = new Set(newItems.filter((i) => i?.kind === 'user' && i?.text).map((i) => i.text.trim()));
   const remoteHasDialog = newItems.some((i) => i?.kind === 'user' || i?.kind === 'assistant');
 
   const localItems = oldItems.filter((i) => {
     if (newIds.has(i?.id)) return false;
     // Strip old optimistic items when incoming has actual new messages.
     if (remoteHasDialog && (i?.id || '').toString().includes('-optimistic-')) return false;
+    
+    // Explicit deduplication for user messages by text
+    // Handles case where backend live patch (turn/started) and history provide different IDs
+    if (i?.kind === 'user' && i?.text && newTexts.has(i.text.trim())) {
+      if (typeof logWarn === 'function') {
+        logWarn('thread', 'snapshot.timeline.user_deduped_by_text', {
+          thread_id: threadId,
+          duplicate_id: i.id,
+          text_preview: i.text.slice(0, 30),
+        });
+      }
+      return false;
+    }
     return true;
   });
 
@@ -389,7 +403,8 @@ function patchTimelines(state, data, patch, requestedThreadId, allowActiveSelect
         const uItems = newItems.filter(i => i?.kind === 'user');
         logWarn('thread', 'snapshot.timeline.user_items', {
           thread_id: key, count: uItems.length,
-          preview: uItems.map(i => ({ id: i?.id, text: (i?.text || '').substring(0, 50) }))
+          preview_ids: uItems.map(i => i?.id).join(', '),
+          preview_texts: uItems.map(i => (i?.text || '').substring(0, 30)).join(' | '),
         });
       }
 
