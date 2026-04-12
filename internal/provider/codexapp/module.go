@@ -169,11 +169,10 @@ func (m *ServerManager) stop(ctx context.Context) error {
 	stopPeers(pipes, peers)
 	cleanPeerDiscoveryFiles()
 
-	if registry != nil {
-		registry.Close()
-	}
-
 	if process == nil {
+		if registry != nil {
+			registry.Close()
+		}
 		return nil
 	}
 	pkglogger.Info("server_manager: stopping shared app-server")
@@ -186,6 +185,12 @@ func (m *ServerManager) stop(ctx context.Context) error {
 	}
 
 	cleanResidualProcesses()
+
+	// 修复：确保所有进程都已经妥善停止或被清理后，再从 /tmp 中删除 PID 注册表文件
+	// 这样可以防止在长时间退出的过程中发生意外导致孤儿逃逸。
+	if registry != nil {
+		registry.Close()
+	}
 	return err
 }
 

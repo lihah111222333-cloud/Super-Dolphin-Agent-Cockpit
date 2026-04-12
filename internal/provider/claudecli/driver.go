@@ -148,11 +148,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		return nil, err
 	}
 	// Register the claude CLI PID after successful launch.
-	if d.pidRegistry != nil {
-		if pid := s.pid(); pid > 0 {
-			d.pidRegistry.Register(pid, "claude-cli", map[string]string{"agent_id": s.agentID})
-		}
-	}
+	registerTransportPID(d.pidRegistry, tr, s.agentID)
 	resolvedThreadID := s.ThreadID()
 	eventThreadID := s.EventThreadID()
 	now := time.Now().Format(time.RFC3339Nano)

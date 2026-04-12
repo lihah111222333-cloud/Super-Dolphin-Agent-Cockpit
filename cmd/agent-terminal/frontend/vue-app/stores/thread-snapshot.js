@@ -237,29 +237,33 @@ function mergeTimelineWithLocalItems(newItems, oldItems, threadId, requestedThre
 
   const mergedItems = [...newItems, ...localItems];
   mergedItems.sort((a, b) => {
-    const tsA = Date.parse(a?.ts || '');
-    const tsB = Date.parse(b?.ts || '');
-    const valA = Number.isFinite(tsA) ? tsA : 0;
-    const valB = Number.isFinite(tsB) ? tsB : 0;
+    const tsA = (a && a.ts) ? String(a.ts) : '';
+    const tsB = (b && b.ts) ? String(b.ts) : '';
 
-    if (valA > 0 && valB > 0) {
-      if (valA !== valB) return valA - valB;
-    } else if (valA > 0 && valB === 0) {
+    if (tsA && tsB) {
+      if (tsA < tsB) return -1;
+      if (tsA > tsB) return 1;
+    } else if (tsA) {
       return -1;
-    } else if (valB > 0 && valA === 0) {
+    } else if (tsB) {
       return 1;
     }
 
-    const prefixA = (a?.id || '').toString().split('-').slice(0, -1).join('-');
-    const prefixB = (b?.id || '').toString().split('-').slice(0, -1).join('-');
-    if (prefixA === prefixB && prefixA.length > 0) {
-      const numA = Number((a?.id || '').toString().split('-').pop());
-      const numB = Number((b?.id || '').toString().split('-').pop());
-      if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) return numA - numB;
+    const idA = (a && a.id) ? String(a.id) : '';
+    const idB = (b && b.id) ? String(b.id) : '';
+    const partsA = idA.split('-');
+    const partsB = idB.split('-');
+
+    if (partsA.length > 1 && partsB.length > 1) {
+      const prefixA = partsA.slice(0, -1).join('-');
+      const prefixB = partsB.slice(0, -1).join('-');
+      if (prefixA === prefixB && prefixA.length > 0) {
+        const numA = Number(partsA[partsA.length - 1]);
+        const numB = Number(partsB[partsB.length - 1]);
+        if (!Number.isNaN(numA) && !Number.isNaN(numB) && numA !== numB) return numA - numB;
+      }
     }
 
-    const idA = (a?.id || '').toString();
-    const idB = (b?.id || '').toString();
     if (idA < idB) return -1;
     if (idA > idB) return 1;
     return 0;
@@ -382,6 +386,14 @@ function patchTimelines(state, data, patch, requestedThreadId, allowActiveSelect
         continue;
       }
       const isTarget = (requestedThreadId && key === requestedThreadId) || !requestedThreadId;
+      if (newItems.some(i => i?.kind === 'user')) {
+        const uItems = newItems.filter(i => i?.kind === 'user');
+        logWarn('thread', 'snapshot.timeline.user_items', {
+          thread_id: key, count: uItems.length,
+          preview: uItems.map(i => ({ id: i?.id, text: (i?.text || '').substring(0, 50) }))
+        });
+      }
+
       const mergedItems = isTarget
         ? mergeTimelineWithLocalItems(newItems, oldItems, key, requestedThreadId, logWarn)
         : newItems;
@@ -405,9 +417,20 @@ function logTimelineReplacements(oldMap, newMap) {
     const oldLen = Array.isArray(oldItems) ? oldItems.length : 0;
     const newLen = Array.isArray(newItems) ? newItems.length : 0;
     let reusedCount = 0;
+    let toolReusedCount = 0;
+    let toolTotalCount = 0;
+    let diffToolIds = [];
     if (Array.isArray(oldItems) && Array.isArray(newItems)) {
       for (let i = 0; i < Math.min(oldLen, newLen); i++) {
-        if (oldItems[i] === newItems[i]) reusedCount++;
+        const isTool = newItems[i]?.kind === 'tool' || oldItems[i]?.kind === 'tool';
+        if (isTool) toolTotalCount++;
+        
+        if (oldItems[i] === newItems[i]) {
+          reusedCount++;
+          if (isTool) toolReusedCount++;
+        } else if (isTool) {
+          diffToolIds.push(newItems[i]?.id || oldItems[i]?.id);
+        }
       }
     }
     logInfo('thread', 'snapshot.timeline.replaced', {
@@ -415,6 +438,15 @@ function logTimelineReplacements(oldMap, newMap) {
       reused_items: reusedCount, all_reused: reusedCount === newLen && oldLen === newLen,
       stack: new Error('[diag]').stack,
     });
+
+    if (toolTotalCount > 0 && toolReusedCount < toolTotalCount) {
+      console.warn('[diag] snapshot.timeline.tool_flicker', {
+        thread_id: key, 
+        toolTotalCount, 
+        toolReusedCount, 
+        diffToolIds,
+      });
+    }
   }
 }
 

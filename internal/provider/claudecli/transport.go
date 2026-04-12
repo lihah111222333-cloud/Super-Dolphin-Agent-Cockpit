@@ -23,6 +23,7 @@ type transport struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	stdout  *bufio.Scanner
+	stdoutR io.ReadCloser
 	stderr  *limitedBuffer
 	done    chan struct{}
 	doneErr error
@@ -57,7 +58,7 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	tr := &transport{cmd: cmd, stdin: stdin, stdout: scanner, stderr: stderr, done: make(chan struct{})}
+	tr := &transport{cmd: cmd, stdin: stdin, stdout: scanner, stdoutR: stdout, stderr: stderr, done: make(chan struct{})}
 	go tr.wait()
 	return tr, nil
 }
@@ -178,6 +179,10 @@ func (t *transport) closeInput() {
 	if t.stdin != nil {
 		_ = t.stdin.Close()
 		t.stdin = nil
+	}
+	if t.stdoutR != nil {
+		_ = t.stdoutR.Close()
+		t.stdoutR = nil
 	}
 }
 

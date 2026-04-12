@@ -145,6 +145,7 @@ if [ "$MODE" = "run-only" ]; then
   fi
   echo "[1/2] 停止旧进程..."
   pkill -f "super-agent-debug" >/dev/null 2>&1 || true
+  pkill -f "esbuild --service" >/dev/null 2>&1 || true
   lsof -ti :4510 :4511 2>/dev/null | xargs kill -9 2>/dev/null || true
   sleep 0.5
 
@@ -190,8 +191,9 @@ if [ -f "$FRONT/package.json" ]; then
 
   if [ "$MODE" = "debug" ]; then
     # ═══ debug 模式：启动 vite dev server（毫秒级热更新，不再 vite build）═══
-    # 杀掉残留的 vite 进程
+    # 杀掉残留的 vite 和 esbuild 进程
     lsof -ti :5173 2>/dev/null | xargs kill -9 2>/dev/null || true
+    pkill -f "esbuild --service" >/dev/null 2>&1 || true
     echo "  → 启动 vite dev server (端口 5173)..."
     npx vite --port 5173 --strictPort &
     VITE_DEV_PID=$!
@@ -239,6 +241,27 @@ rm -rf "$HOME/Library/Caches/agent-terminal" \
 
 # 3) 后端代码守卫 + 编译
 cd "$BUILD_DIR"
+
+# ── 代码地图索引刷新 ──────────────────────────────────────
+echo "[pre-build] 刷新代码地图索引 (ai-index.json)..."
+_CODEMAP_IDX_BIN="$BUILD_DIR/.build-cache/codemap-index"
+_CODEMAP_IDX_SRC="$BUILD_DIR/scripts/codemap_index.go"
+_CODEMAP_IDX_HASH_FILE="$BUILD_DIR/.build-cache/codemap-index.srchash"
+if [ -f "$_CODEMAP_IDX_SRC" ]; then
+  _CODEMAP_IDX_CUR_HASH=$(md5 -q "$_CODEMAP_IDX_SRC" 2>/dev/null || md5sum "$_CODEMAP_IDX_SRC" | awk '{print $1}')
+  if [ ! -f "$_CODEMAP_IDX_BIN" ] || [ ! -f "$_CODEMAP_IDX_HASH_FILE" ] || [ "$(cat "$_CODEMAP_IDX_HASH_FILE")" != "$_CODEMAP_IDX_CUR_HASH" ]; then
+    echo "  → 编译 codemap_index..."
+    go build -o "$_CODEMAP_IDX_BIN" "$_CODEMAP_IDX_SRC"
+    echo "$_CODEMAP_IDX_CUR_HASH" > "$_CODEMAP_IDX_HASH_FILE"
+  else
+    echo "  → codemap_index 缓存命中，跳过编译"
+  fi
+  "$_CODEMAP_IDX_BIN" "$BUILD_DIR"
+  echo "  ✅ ai-index.json 已刷新"
+else
+  echo "  ⚠️  scripts/codemap_index.go 不存在，跳过索引刷新"
+fi
+
 echo "[3/4] 后端代码守卫检查..."
 
 # 预编译守卫工具并缓存（源码未变则跳过重编译，避免每次 go run）
@@ -302,6 +325,7 @@ echo "  ✅ mcp-lsp        $(shasum -a 256 ./mcp-lsp | awk '{print "sha256: " $1
 # 4) 停旧进程
 echo "[4/4] 停止旧进程..."
 pkill -f "super-agent-debug" >/dev/null 2>&1 || true
+pkill -f "esbuild --service" >/dev/null 2>&1 || true
 lsof -ti :4510 :4511 2>/dev/null | xargs kill -9 2>/dev/null || true
 sleep 0.5
 

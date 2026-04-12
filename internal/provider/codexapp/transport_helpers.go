@@ -95,7 +95,13 @@ func jsonRPCIDKey(raw json.RawMessage) string {
 }
 
 func (t *transport) connectOnce(ctx context.Context) error {
-	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 5 * time.Second,
+		// Bypass local proxy for 127.0.0.1 connections. Without this,
+		// HTTP_PROXY / HTTPS_PROXY env vars cause localhost WS dials
+		// to route through the proxy and timeout or fail.
+		Proxy: nil,
+	}
 	conn, _, err := dialer.DialContext(ctx, t.serverURL, nil)
 	if err != nil {
 		return err

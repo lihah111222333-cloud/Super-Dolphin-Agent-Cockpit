@@ -29,7 +29,8 @@ func NewSampler(firstN, everyM int) *Sampler {
 // ShouldLog returns true if this occurrence of key should be logged.
 func (s *Sampler) ShouldLog(key string) bool {
 	actual, _ := s.counts.LoadOrStore(key, &atomic.Int64{})
-	seq := actual.(*atomic.Int64).Add(1)
+	counter := actual.(*atomic.Int64)
+	seq := counter.Add(1)
 	if seq <= s.firstN {
 		return true
 	}

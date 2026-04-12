@@ -297,6 +297,17 @@ func (s *service) persistThreadState(ctx context.Context, state threadState, upd
 	if state.PublicThreadID == "" || state.AgentID == "" {
 		return errors.New("thread and agent ids are required")
 	}
+	if s.logger != nil {
+		s.logger.Warn("thread: persistThreadState binding snapshot",
+			"agent_id", state.AgentID,
+			"provider", state.Provider,
+			"provider_thread_id", state.ProviderThreadID,
+			"public_thread_id", state.PublicThreadID,
+			"rollout_path", state.RolloutPath,
+			"session_uuid", state.SessionUUID,
+			"update_binding", updateBinding,
+		)
+	}
 	bindingOutcome, err := s.maybeRegisterThreadBinding(ctx, state, updateBinding)
 	if err != nil {
 		return err

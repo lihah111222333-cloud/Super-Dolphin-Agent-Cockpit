@@ -71,6 +71,47 @@ function isDirectThreadSyncSignal(methodLower, sourceLower) {
 }
 
 
+function applyRegressionGuardToSnapshot(ctx, res, threadId) {
+  if (!res || !res.timelinesByThread || !res.timelinesByThread[threadId]) return false;
+  
+  const timeline = res.timelinesByThread[threadId];
+  const localTimeline = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
+  const localTimelineLen = localTimeline.length;
+
+  const remoteDialogCount = timeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant').length;
+  const localDialogCount = localTimeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant').length;
+
+  const regressionByCount = localTimelineLen > 5 && timeline.length > 0
+    && timeline.length < localTimelineLen * 0.3
+    && (localTimelineLen - timeline.length) > 10;
+  
+  const regressionByContent = remoteDialogCount === 0 && localDialogCount >= 3 && timeline.length > 0;
+  
+  // STRONG PROTECTION: Do not overwrite if local has optimistic items and the remote is lagging or hasn't fully hydrated.
+  const hasOptimisticInLocal = localTimeline.some((it) => (it?.id || '').toString().includes('-optimistic-'));
+  const regressionByOptimistic = hasOptimisticInLocal && remoteDialogCount <= localDialogCount;
+
+  if (regressionByCount || regressionByContent || regressionByOptimistic) {
+    let guardType = 'count_mismatch';
+    if (regressionByContent) guardType = 'content_mismatch';
+    if (regressionByOptimistic) guardType = 'optimistic_mismatch';
+    
+    ctx.logWarn('thread', 'sync.thread_state_regression_guard', {
+      thread_id: threadId,
+      remote_len: timeline.length,
+      local_len: localTimelineLen,
+      remote_dialog: remoteDialogCount,
+      local_dialog: localDialogCount,
+      guard_type: guardType,
+      remote_kinds: timeline.slice(0, 5).map((it) => it?.kind),
+    });
+    
+    delete res.timelinesByThread[threadId];
+    return guardType;
+  }
+  return null;
+}
+
 export async function syncRuntimeState(ctx) {
   const { callAPI, logInfo, logWarn } = ctx;
   if (ctx.runtimeSyncPromise) {
@@ -96,6 +137,8 @@ export async function syncRuntimeState(ctx) {
         loaded_diff_revision: loadedDiffRevision(ctx, activeThreadId),
       });
       const res = await callAPI('ui/state/get', ctx.withPreferenceScope({ threadId: activeThreadId, includeDiff: false }));
+      applyRegressionGuardToSnapshot(ctx, res, activeThreadId);
+
       const timelines = res && typeof res.timelinesByThread === 'object' && res.timelinesByThread ? res.timelinesByThread : {};
       logInfo('thread', 'state.sync.response', {
         active_thread_id: activeThreadId,
@@ -174,31 +217,9 @@ export async function syncThreadState(ctx, threadId) {
       const diffRevision = normalizeDiffRevision(res?.diffRevisionByThread?.[id]);
       const localTimelineLen = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id].length : 0;
       logInfo('thread', 'state.sync.thread.response', { thread_id: id, timeline_len: timeline.length, diff_revision: diffRevision, local_timeline_len: localTimelineLen, duration_ms: Math.round(perfNow() - start) });
-      // Regression guard: prevent remote structural-only timeline from overwriting
-      // a local timeline that already contains dialog items (user/assistant messages).
-      // This happens when the backend only returns turn lifecycle plus process events from
-      // an earlier turn, while the frontend has already loaded the full dialog via loadMessages.
-      const localTimeline = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id] : [];
-      const remoteDialogCount = timeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant').length;
-      const localDialogCount = localTimeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant').length;
-      const regressionByCount = localTimelineLen > 5 && timeline.length > 0
-        && timeline.length < localTimelineLen * 0.3
-        && (localTimelineLen - timeline.length) > 10;
-      const regressionByContent = remoteDialogCount === 0 && localDialogCount >= 3 && timeline.length > 0;
-      if (regressionByCount || regressionByContent) {
-        logWarn('thread', 'sync.thread_state_regression_guard', {
-          thread_id: id,
-          remote_len: timeline.length,
-          local_len: localTimelineLen,
-          remote_dialog: remoteDialogCount,
-          local_dialog: localDialogCount,
-          guard_type: regressionByContent ? 'content_mismatch' : 'count_mismatch',
-          remote_kinds: timeline.slice(0, 5).map((it) => it?.kind),
-        });
-        if (res && res.timelinesByThread) {
-          delete res.timelinesByThread[id];
-        }
-      }
+      const regressionGuardType = applyRegressionGuardToSnapshot(ctx, res, id);
+      const regressionByContent = regressionGuardType === 'content_mismatch';
+
       if (!isLatestRuntimeSnapshotRequest(ctx, snapshotRequest)) {
         logInfo('thread', 'state.sync.thread.stale.skipped', { thread_id: id, scope: snapshotRequest.scope, request_seq: snapshotRequest.seq, duration_ms: Math.round(perfNow() - start) });
         return res || {};

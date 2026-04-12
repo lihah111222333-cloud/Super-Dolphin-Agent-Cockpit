@@ -19,10 +19,10 @@ import (
 )
 
 type Handler struct {
-	registry   activePeerRegistry
-	aggregator *difftracker.DiffAggregator
-	resolver   difftracker.WorkDirResolver
-	logger     *pkglogger.Logger
+	registry activePeerRegistry
+	emitter  difftracker.DiffEmitter
+	resolver difftracker.WorkDirResolver
+	logger   *pkglogger.Logger
 }
 
 type activePeerRegistry interface {
@@ -35,10 +35,10 @@ func NewHandler(in handlerIn) *Handler {
 		logger = pkglogger.Get()
 	}
 	return &Handler{
-		registry:   in.Registry,
-		aggregator: in.Aggregator,
-		resolver:   in.Resolver,
-		logger:     logger,
+		registry: in.Registry,
+		emitter:  in.Emitter,
+		resolver: in.Resolver,
+		logger:   logger,
 	}
 }
 
@@ -65,7 +65,6 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	callCtx, cancel := platformconfig.WithPeerTimeout(ctx, toolCallTimeout)
 	defer cancel()
 
-	mergeCtx := h.mergeContext(ctx, req)
 	peer := peers[0].Peer
 	var resp peerToolCallResponse
 	err := peer.Callback(callCtx, "tools/call", map[string]any{
@@ -83,16 +82,6 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	}
 
 	result := adaptMCPResponse(resp)
-	if h.aggregator != nil && strings.TrimSpace(req.AgentID) != "" {
-		if err := h.aggregator.Merge(mergeCtx, req.AgentID, req.CallID, req.Name, result, h.resolver); err != nil {
-			h.warn("toolbridge: diff merge failed",
-				"agent_id", req.AgentID,
-				"call_id", req.CallID,
-				"tool", req.Name,
-				"error", err,
-			)
-		}
-	}
 	return result, nil
 }
 
@@ -270,38 +259,6 @@ func setDynamicToolDeferLoading(schema *codexapp.DynamicToolSchema, enabled bool
 	if field.IsValid() && field.CanSet() && field.Kind() == reflect.Bool {
 		field.SetBool(enabled)
 	}
-}
-
-func (h *Handler) mergeContext(ctx context.Context, req ToolCallRequest) context.Context {
-	return difftracker.WithToolCallContext(ctx, req.ThreadID, req.Arguments, h.beginSnapshot(ctx, req))
-}
-
-func (h *Handler) beginSnapshot(ctx context.Context, req ToolCallRequest) *difftracker.Snapshot {
-	if h == nil || h.resolver == nil || strings.TrimSpace(req.AgentID) == "" || !shouldSnapshot(req.Name, req.Arguments) {
-		return nil
-	}
-	cwd, err := h.resolver.ResolveAgentCWD(ctx, req.AgentID)
-	if err != nil || strings.TrimSpace(cwd) == "" {
-		return nil
-	}
-	snapshot, err := difftracker.BeginSnapshot(ctx, cwd)
-	if err != nil {
-		return nil
-	}
-	return snapshot
-}
-
-func shouldSnapshot(toolName string, arguments json.RawMessage) bool {
-	switch strings.TrimSpace(toolName) {
-	case "code_run", "code_run_test":
-		return true
-	case "lsp_edit":
-		switch lspEditAction(arguments) {
-		case "rename", "format", "code_action", "replace_range":
-			return true
-		}
-	}
-	return false
 }
 
 func lspEditAction(arguments json.RawMessage) string {

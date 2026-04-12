@@ -11,8 +11,9 @@ func TruncateForLog(s string, maxLen int) string {
 	if maxLen <= 0 {
 		maxLen = DefaultTruncateLen
 	}
-	if len(s) <= maxLen || IsDebugEnabled() {
+	if IsDebugEnabled() || len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + fmt.Sprintf("...[truncated, len=%d]", len(s))
+	truncated := s[:maxLen]
+	return truncated + fmt.Sprintf("...[truncated, len=%d]", len(s))
 }

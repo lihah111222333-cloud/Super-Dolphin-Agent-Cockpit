@@ -89,6 +89,7 @@ func (s *service) ensurePublicThreadAvailable(ctx context.Context, state threadS
 
 func (s *service) registerThreadBinding(ctx context.Context, state threadState) (bindingWriteOutcome, error) {
 	if s == nil || s.bindingStore == nil {
+		s.logBindingSkipped(state.AgentID, "no binding store")
 		return bindingWriteOutcome{}, nil
 	}
 	registration, err := normalizeBindingRegistration(state)
@@ -106,13 +107,47 @@ func (s *service) registerThreadBinding(ctx context.Context, state threadState) 
 		return outcome, err
 	}
 	if !shouldPersistBinding(existing, registration) {
+		s.logBindingSkipped(registration.AgentID, "no change needed")
 		return outcome, nil
 	}
 	if err := s.persistRegisteredBinding(ctx, registration); err != nil {
+		s.logBindingPersistFailed(registration, err)
 		return outcome, err
 	}
 	outcome.Persisted = true
+	s.logBindingPersisted(registration)
 	return outcome, s.verifyOrRollbackThreadBinding(ctx, registration, outcome)
+}
+
+func (s *service) logBindingSkipped(agentID, reason string) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Warn("thread: registerThreadBinding skipped",
+		"agent_id", agentID, "reason", reason)
+}
+
+func (s *service) logBindingPersistFailed(r bindingRegistration, err error) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Warn("thread: registerThreadBinding FAILED to persist",
+		"agent_id", r.AgentID,
+		"provider_thread_id", r.ProviderThreadID,
+		"error", err)
+}
+
+func (s *service) logBindingPersisted(r bindingRegistration) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Warn("thread: registerThreadBinding persisted OK",
+		"agent_id", r.AgentID,
+		"provider", r.Provider,
+		"provider_thread_id", r.ProviderThreadID,
+		"public_thread_id", r.PublicThreadID,
+		"rollout_path", r.RolloutPath,
+		"session_uuid", r.SessionUUID)
 }
 
 func (s *service) ensureProviderThreadAvailable(ctx context.Context, registration bindingRegistration) error {

@@ -83,11 +83,12 @@ protocol-sync-check:
 	go test ./internal/apiserver -run TestEventMethodMap_TargetMethodsKnownByProtocol -count=1
 
 codemap-check:
-	python3 docs/doc/validate_codemap.py
+	go run scripts/codemap_index.go
+	@echo "✅ codemap ai-index.json refreshed"
 
 codemap-refresh:
-	python3 docs/doc/export_docs_json.py --clean-output
-	python3 docs/doc/validate_codemap.py
+	go run scripts/codemap_index.go
+	@echo "✅ codemap ai-index.json refreshed"
 
 vet: guard
 	go vet ./...

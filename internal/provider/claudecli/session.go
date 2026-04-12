@@ -17,29 +17,32 @@ import (
 )
 
 type session struct {
-	agentID         string
-	threadID        string
-	publicThreadID  string
-	sessionID       string
-	threadReady     chan struct{}
-	threadReadyOnce sync.Once
-	transport       *transport
-	caps            dto.CapabilitySet
-	history         *historyBackend
-	logger          *slog.Logger
-	eventDispatcher *unified.EventDispatcher
-	binaryPath      string
-	cwd             string
-	model           string
-	instructions    string
-	config          cliLaunchConfig
-	rawConfig       map[string]any
-	manifest        dto.MCPManifest
-	cleanup         func()
-	pidRegistry     *pidregistry.Registry
-	mu              sync.Mutex
-	activeTurn      *turnHandle
-	suppressedTurns map[string]struct{}
+	agentID           string
+	threadID          string
+	publicThreadID    string
+	sessionID         string
+	threadReady       chan struct{}
+	threadReadyOnce   sync.Once
+	transport         *transport
+	caps              dto.CapabilitySet
+	history           *historyBackend
+	logger            *slog.Logger
+	eventDispatcher   *unified.EventDispatcher
+	binaryPath        string
+	cwd               string
+	model             string
+	instructions      string
+	config            cliLaunchConfig
+	rawConfig         map[string]any
+	manifest          dto.MCPManifest
+	cleanup           func()
+	pidRegistry       *pidregistry.Registry
+	restartCancel     context.CancelFunc
+	restartGeneration uint64
+	mu                sync.Mutex
+	activeTurn        *turnHandle
+	activeToolCalls   map[string]string
+	suppressedTurns   map[string]struct{}
 }
 
 type turnHandle struct {
@@ -145,20 +148,28 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
-	payload, turnID, handle, err := s.prepareTurn(ctx, req)
+	s.mu.Lock()
+	payload, turnID, handle, err := s.prepareTurnLocked(ctx, req)
 	if err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	if err := s.transport.Send(payload); err != nil {
-		s.clearActiveTurn(handle)
+		if s.activeTurn == handle {
+			s.activeTurn = nil
+		}
+		s.mu.Unlock()
 		s.finishTurnWithError(handle, err)
 		return nil, err
 	}
-	s.dispatch(s.turnRawEvent("turn:started", turnID, nil))
-	s.dispatch(s.turnRawEvent("turn:input_received", turnID, map[string]any{
+	started := s.turnRawEventLocked("turn:started", turnID, nil)
+	inputReceived := s.turnRawEventLocked("turn:input_received", turnID, map[string]any{
 		"input_type": "message",
 		"source":     "user",
-	}))
+	})
+	s.mu.Unlock()
+	s.dispatch(started)
+	s.dispatch(inputReceived)
 	return handle, nil
 }
 
@@ -176,7 +187,7 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	}
 	s.dispatch(s.turnRawEvent("turn:input_received", turnID, map[string]any{
 		"input_type": "message",
-		"source":     "user",
+		"source":     "tool_yield",
 	}))
 	return nil
 }
@@ -188,7 +199,8 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	reason := strings.TrimSpace(req.Source)
 	s.mu.Lock()
 	handle := s.takeActiveTurnLocked()
-	if handle == nil {
+	restartCancel := s.restartCancel
+	if handle == nil && restartCancel == nil {
 		s.mu.Unlock()
 		return nil
 	}
@@ -202,10 +214,22 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	tr := s.transport
 	cleanup := s.cleanup
 	reg := s.pidRegistry
+	toolEvents := s.takeActiveToolInterruptEventsLocked(turnID, reason)
+	s.restartCancel = nil
 	s.transport = nil
 	s.cleanup = nil
+	s.activeToolCalls = nil
 	s.mu.Unlock()
+	if restartCancel != nil {
+		restartCancel()
+	}
 	cleanupInterruptedTransport(s.logger, reg, tr, cleanup)
+	if handle == nil {
+		return nil
+	}
+	for _, event := range toolEvents {
+		s.dispatch(event)
+	}
 	handle.finish(context.Canceled)
 	s.dispatch(s.turnRawEvent("turn:interrupted", turnID, map[string]any{
 		"reason": reason,
@@ -237,6 +261,7 @@ func (s *session) stop(force bool) error {
 	reg := s.pidRegistry
 	s.transport = nil
 	s.cleanup = nil
+	s.activeToolCalls = nil
 	s.mu.Unlock()
 
 	unregisterTransportPID(reg, tr)
@@ -252,20 +277,6 @@ func (s *session) stop(force bool) error {
 	}
 	s.dispatch(s.buildStopEvent(tr, force))
 	return err
-}
-
-func unregisterTransportPID(reg *pidregistry.Registry, tr *transport) {
-	if reg == nil || tr == nil || tr.cmd == nil || tr.cmd.Process == nil {
-		return
-	}
-	reg.Unregister(tr.cmd.Process.Pid)
-}
-
-func stopTransport(tr *transport, force bool) error {
-	if force {
-		return tr.Kill()
-	}
-	return tr.Close()
 }
 
 func (s *session) buildStopEvent(tr *transport, force bool) dto.RawProviderEvent {
@@ -330,11 +341,16 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 		s.manifest = prevManifest
 		return err
 	}
+	restartCtx, restartGeneration := s.beginRestartWaitLocked(ctx)
+	defer s.finishRestartWaitLocked(restartGeneration)
+	unregisterTransportPID(s.pidRegistry, oldTransport)
+	registerTransportPID(s.pidRegistry, tr, s.agentID)
 	s.resetThreadReadyLocked()
 	if shouldMarkThreadReady(resumeID, s.publicThreadID) {
 		s.markThreadReadyLocked()
 	}
 	s.activeTurn = nil
+	s.activeToolCalls = nil
 	s.suppressedTurns = map[string]struct{}{}
 	s.transport = tr
 	s.cleanup = cleanup
@@ -342,7 +358,7 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 	if oldTransport != nil || oldCleanup != nil {
 		go releaseTransport(oldTransport, oldCleanup)
 	}
-	return s.awaitThreadReadyLocked(ctx)
+	return s.awaitThreadReadyLocked(restartCtx)
 }
 
 func (s *session) restartResumeIDLocked() string {
@@ -353,15 +369,6 @@ func (s *session) restartResumeIDLocked() string {
 		return ""
 	}
 	return resumeID
-}
-
-func releaseTransport(tr *transport, cleanup func()) {
-	if tr != nil {
-		_ = tr.Close()
-	}
-	if cleanup != nil {
-		cleanup()
-	}
 }
 
 func (s *session) applyTurnSettingsLocked(req dto.TurnRequest) bool {
@@ -385,39 +392,6 @@ func updateString(dst *string, value string) bool {
 
 func manifestChanged(next, current dto.MCPManifest) bool {
 	return !reflect.DeepEqual(next, dto.MCPManifest{}) && !reflect.DeepEqual(next, current)
-}
-
-func (s *session) clearActiveTurn(handle *turnHandle) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.activeTurn == handle {
-		s.activeTurn = nil
-	}
-}
-
-func (s *session) dispatch(raw dto.RawProviderEvent) {
-	if s.eventDispatcher != nil {
-		s.eventDispatcher.Dispatch(raw)
-	}
-}
-
-func (s *session) turnRawEvent(eventType, turnID string, extras map[string]any) dto.RawProviderEvent {
-	base := s.rawBase()
-	data := buildEventData(base, base.SessionID, time.Now().Format(time.RFC3339Nano), extras)
-	if turnID = strings.TrimSpace(turnID); turnID != "" {
-		data["turn_id"] = turnID
-	}
-	return dto.RawProviderEvent{EventType: eventType, Data: data}
-}
-
-func currentTurnID(handle *turnHandle) string {
-	if handle == nil {
-		return ""
-	}
-	if providerID := handle.ProviderID(); providerID != "" {
-		return providerID
-	}
-	return handle.LocalID()
 }
 
 var _ contract.Session = (*session)(nil)

@@ -26,7 +26,7 @@
 - 把 provider / thread / turn / hooks / mcpcontrol / orchestration 之间的依赖压缩为接口依赖；
 - 把 RPC、sqlc、provider transport、standalone orchestration 这类易变实现隔离到外层；
 - 允许桌面态在 **没有 orchestration service** 时，依靠 `optional:"true"` + noop 适配器完成大部分组装；
-- 按能力域拆分：`approval`、`hooks`、`mcp_control`、`orchestration`、`provider`、`runtime_reporter`、`session_resolver`。
+- 按能力域拆分：`approval`、`errors`、`hooks`、`mcp_control`、`orchestration`、`provider`、`runtime_reporter`、`session_resolver`。
 
 一句话：**`app` 负责“怎么装”，`contract` 负责“装出来的东西如何说话”。**
 
@@ -89,12 +89,12 @@
 | `PeerCallback` | `mcp_control.go` | 对单个 lease 做 before/check/after callback | `*internal/platform/mcpcontrol.ToolRegistry` | 同上。 |
 | `ToolControlPlane` | `mcp_control.go` | 上述 4 个 MCP 控制面接口的组合 | `*internal/platform/mcpcontrol.ToolRegistry` | 组合接口，无单独实现。 |
 | `OrchestrationService` | `orchestration.go` | agent 生命周期、turn、runtime、report、DAG | `*cmd/mcp-orch/orchestration.service` | 由 `cmd/mcp-orch/orchestration.Module` 导出；桌面态默认不内嵌该模块。 |
-| `OrchestrationSessionCleaner` | `orchestration.go` | orchestration 关闭 agent 时清理本地 session | `*internal/provider/unified.sessionCleanerAdapter`；standalone noop：`cmd/mcp-orch.noopSessionCleaner` | `sessionCleanerAdapter` 额外实现了非契约方法 `RemoveSessionGeneration(...)`，供 orchestration 通过类型断言使用。 |
-| `OrchestrationTurnStarter` | `orchestration.go` | orchestration 触发 turn 启动 | `internal/module/turn.orchestrationTurnStarter`；standalone noop：`cmd/mcp-orch.noopTurnStarter` | `turn.Module` 直接提供返回值类型 `contract.OrchestrationTurnStarter`。 |
+| `OrchestrationSessionCleaner` | `orchestration.go` | orchestration 关闭 agent 时清理本地 session | `*internal/provider/unified.sessionCleanerAdapter`；standalone noop：`cmd/mcp-orch.noopSessionCleaner` | `app.Module` 侧由 `unified.NewSessionCleaner` 提供；`mcp-orch` standalone 图由 `newNoopSessionCleaner` 提供。`sessionCleanerAdapter` 额外实现了非契约方法 `RemoveSessionGeneration(...)`，供 orchestration 通过类型断言使用。 |
+| `OrchestrationTurnStarter` | `orchestration.go` | orchestration 触发 turn 启动 | `internal/module/turn.orchestrationTurnStarter`；standalone noop：`cmd/mcp-orch.noopTurnStarter` | `turn.Module` 直接提供返回值类型 `contract.OrchestrationTurnStarter`；当前 `app.Module` 不内嵌 `orchestration.Module`，`mcp-orch` standalone 图则使用 `newNoopTurnStarter`。 |
 | `Driver` | `provider.go` | provider 工厂抽象：启动/恢复 session | `*internal/provider/claudecli.driver`、`*internal/provider/codexapp.driver` | 通过 `contract.DriverFactory` 注入 `group:"drivers"`。 |
 | `Session` | `provider.go` | 统一 provider session 抽象 | `*internal/provider/claudecli.session`、`*internal/provider/codexapp.session` | 由各 `Driver` 返回；由 `unified.SessionManager` 管理。 |
 | `TurnHandle` | `provider.go` | 运行中 turn 的句柄 | `*internal/provider/claudecli.turnHandle`、`*internal/provider/codexapp.turnHandle` | 分别由 provider 的 `Session.StartTurn` 返回。 |
-| `RuntimeReporter` | `runtime_reporter.go` | provider 上报 runtime 信息 | `internal/app.orchestrationRuntimeReporter`、`internal/app.noopRuntimeReporter` | `internal/app.Module` 提供桌面态实现。另有 `cmd/mcp-orch/orchestration.runtimeReporter` 辅助类型定义在 `service.go`，但当前 Fx 图未导出它。 |
+| `RuntimeReporter` | `runtime_reporter.go` | provider 上报 runtime 信息 | `internal/app.orchestrationRuntimeReporter`、`internal/app.noopRuntimeReporter` | `internal/app.Module` 提供 app 侧实现（`Run` / `RunDesktop` 均会加载）。另有 `cmd/mcp-orch/orchestration.runtimeReporter` 辅助类型定义在 `service.go`，但当前 Fx 图未导出它。 |
 | `SessionResolver` | `session_resolver.go` | 由 threadID 解析/自动恢复 session | `*internal/provider/unified.sessionResolver` | 由 `internal/provider/unified.Module` 导出。 |
 
 ### 3.3 `app` 包实现的外部桥接
@@ -109,8 +109,10 @@
 
 - `ApprovalDecision`：审批结果载体；包含 `Approved *bool`、`Reason`、`Detail json.RawMessage`。
 - `ToolInstance`：MCP peer 快照；字段包含 `Lease`、废弃中的 `LeaseID`、`BinaryName`、`AgentID`、`ThreadID`、`PID`、`Capabilities`、`Subscriptions`、`PeerKind`、`ClientKind`、`Status`、`ConfigVersion`。
+- `DriverFactory`：provider DI 注册载体；包含 `Name string`、`Create func() Driver`，由 provider 模块输出到 `group:"drivers"`。
 - `RuntimeReport`：provider 上报 runtime 的最小载荷，仅含 `AgentID`、`Port`、`Provider`。
-- `LaunchRequest`、`AgentSnapshot`、`AgentStateResult`、`AgentReportResult`、`ReportEvent`：orchestration 核心输入/输出模型。
+- `TurnSubmission`：`turndto.TurnSubmission` 的类型别名，用作 orchestration 向 turn 模块提交工作的契约载体。
+- `LaunchRequest`、`AgentSnapshot`、`AgentStateResult`、`AgentReportMetadata`、`AgentReportResult`、`RememberReportRequest`、`RememberReportRequestResult`、`ReportEvent`、`ReportEventResult`：orchestration 核心输入/输出模型。
 - `CreateDAGRequest`、`CreateDAGNodeRequest`、`ListDAGsFilter`、`UpdateNodeStatusRequest`、`DAGSummary`、`DAGNode`、`DAGDetail`：任务编排 / DAG 相关模型。
 - 哨兵错误：
   - `ErrSessionNotFound`
@@ -206,11 +208,11 @@ uiwails.NewHTTPAssetServer() [desktop only] -----┼--> []platformrunner.Runner
 | `thread.SessionStarter` | `unified.NewClient`（`fx.As(new(thread.SessionStarter))`） | `module/thread.NewService` |
 | `thread.SessionProvider` | `unified.NewSessionProvider`（`fx.As(new(thread.SessionProvider))`） | `module/thread.NewService` |
 | `turn.SessionProvider` | `unified.NewTurnSessionProvider` | `turn.NewOrchestrationTurnStarter` |
-| `contract.OrchestrationSessionCleaner` | `unified.NewSessionCleaner`（`fx.As(new(contract.OrchestrationSessionCleaner))`） | `cmd/mcp-orch/orchestration.NewService` |
+| `contract.OrchestrationSessionCleaner` | `unified.NewSessionCleaner`（`fx.As(new(contract.OrchestrationSessionCleaner))`）；`mcp-orch` standalone 图中为 `newNoopSessionCleaner` | `cmd/mcp-orch/orchestration.NewService`（仅在同一 Fx 图加载 `orchestration.Module` 时消费；`app.Module` 当前不加载它） |
 | `contract.SessionResolver` | `unified.NewSessionResolver` | `rpc.NewCapabilityResolver`、`turn.NewTurnHandlers` |
 | `rpc.CapabilityResolver` | `rpc.NewCapabilityResolver(contract.SessionResolver)` | `thread.NewThreadHandlers`、`turn.NewTurnHandlers` |
 | `group:"drivers"` (`contract.DriverFactory`) | `provider/claudecli.Module`、`provider/codexapp.Module` | `unified.NewRegistry` |
-| `contract.OrchestrationTurnStarter` | `turn.NewOrchestrationTurnStarter` | `cmd/mcp-orch/orchestration.NewService` |
+| `contract.OrchestrationTurnStarter` | `turn.NewOrchestrationTurnStarter`；`mcp-orch` standalone 图中为 `newNoopTurnStarter` | `cmd/mcp-orch/orchestration.NewService`（仅在同一 Fx 图加载 `orchestration.Module` 时消费；当前 `app.Module` 导出但不消费真实 starter） |
 | `contract.RuntimeReporter` | `app.newRuntimeReporter` | `provider/claudecli.NewDriverFactory`、`provider/codexapp.NewDriverFactory` |
 | `thread.OrchestrationFacade` | `app.newThreadOrchestrationFacade` | `module/thread.NewService` |
 
@@ -255,9 +257,11 @@ turn.SessionProvider + turn.Service
 turn.NewOrchestrationTurnStarter
         ↓
 contract.OrchestrationTurnStarter
-        ↓
+        ↓（仅当 `orchestration.Module` 与真实 starter 位于同一 Fx 图）
 cmd/mcp-orch/orchestration.service
 ```
+
+注意：当前 `app.Module` 会导出 `turn.NewOrchestrationTurnStarter`，但不会加载 `cmd/mcp-orch/orchestration.Module`；`cmd/mcp-orch` standalone 图则加载 `orchestration.Module`，并用 `newNoopTurnStarter` / `newNoopSessionCleaner` 满足其依赖。
 
 #### C. Hook 与 MCP 控制面链
 
@@ -292,6 +296,8 @@ platform/mcpcontrol.ToolRegistry
 
 ```go
 func NewLogger() *slog.Logger
+func currentBuildInfo() buildInfo
+func applyBuildSetting(info *buildInfo, key, value string)
 func NewApp() *fx.App
 func Run() error
 func RunDesktop(frontendFS fs.FS) error
@@ -305,6 +311,7 @@ func watchFXShutdown(app *fx.App, lifecycle *uiwails.WailsLifecycle) chan struct
 要点：
 
 - `NewLogger` 初始化 console/file logger，并输出构建信息；
+- `currentBuildInfo` / `applyBuildSetting` 从 `debug.ReadBuildInfo()` 中提取 version、vcs revision（截断到 7 位）、vcs time；
 - `RunDesktop` 用 `fx.Populate(&wailsApp, &lifecycle)` 从容器中取 UI 运行对象；
 - `watchFXShutdown` 监听 `app.Done()`，在后端异常退出时通知前端。
 
@@ -342,9 +349,13 @@ func (a threadOrchestrationAdapter) LaunchAgent(ctx context.Context, req thread.
 func (a threadOrchestrationAdapter) StopAgent(ctx context.Context, agentID string) error
 func (a threadOrchestrationAdapter) Recover(ctx context.Context, agentID string) error
 func (a threadOrchestrationAdapter) BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error
+func (noopThreadOrchestrationFacade) LaunchAgent(context.Context, thread.LaunchAgentRequest) error
+func (noopThreadOrchestrationFacade) StopAgent(context.Context, string) error
+func (noopThreadOrchestrationFacade) Recover(context.Context, string) error
+func (noopThreadOrchestrationFacade) BindSessionGeneration(context.Context, string, uint64) error
 ```
 
-### 5.6 `contract` 包接口签名（按领域完整列出）
+### 5.6 `contract` 包接口与关键契约签名（按领域完整列出）
 
 #### 审批
 
@@ -461,6 +472,11 @@ type Driver interface {
     ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (Session, error)
 }
 
+type DriverFactory struct {
+    Name   string
+    Create func() Driver
+}
+
 type Session interface {
     ThreadID() string
     RolloutPath() string
@@ -510,17 +526,17 @@ type SessionResolver interface {
 | `internal/app` | `OrchestrationService`、`RuntimeReporter`、`LaunchRequest`、`RuntimeReport` |
 | `internal/platform/rpc` | `ApprovalResponder`、`SessionResolver`、`ApprovalDecision` |
 | `internal/platform/hooks` | `HookManager`、`HookLifecycle`、`HookReviewStore`、`PeerCallback`、hook 错误 |
-| `internal/platform/mcpcontrol` | `ToolRegistry`、`ToolNotifier`、`ToolHookCallback`、`PeerCallback`、`ToolControlPlane`、`HookManager`、`HookLifecycle`、`OrchestrationService`、`RuntimeReport`、`ReportEvent` |
+| `internal/platform/mcpcontrol` | `ToolRegistry`、`ToolNotifier`、`ToolHookCallback`、`PeerCallback`、`ToolControlPlane`、`ToolInstance`、`HookManager`、`HookLifecycle`、`OrchestrationService`、`AgentSnapshot`、`ApprovalDecision`、`RuntimeReport`、`ReportEvent`、hook 错误 |
 | `internal/store/hookstore` | `HookReviewStore`、`ErrHookReviewNotFound` |
 | `internal/provider/unified` | `DriverFactory`、`Driver`、`Session`、`SessionResolver`、`OrchestrationSessionCleaner`、`ErrSessionNotFound` |
-| `internal/provider/claudecli` | `Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport` |
-| `internal/provider/codexapp` | `Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport` |
-| `internal/module/thread` | `Session`、`TurnHandle`、`ErrAgentNotFound` |
+| `internal/provider/claudecli` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport` |
+| `internal/provider/codexapp` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport`、`ApprovalDecision` |
+| `internal/module/thread` | `Session`、`ErrAgentNotFound` |
 | `internal/module/turn` | `Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder`、`OrchestrationTurnStarter`、`ErrSessionNotFound` |
 | `internal/module/dashboard` | `OrchestrationService`、`AgentSnapshot`、`AgentReportResult`、`ListDAGsFilter`、`DAGSummary`、`DAGDetail` |
 | `internal/module/uistate` | `OrchestrationService`、`AgentSnapshot` |
 | `internal/ui/wails` | `OrchestrationService` |
-| `cmd/mcp-orch` / `cmd/mcp-orch/orchestration` | `OrchestrationService`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter` 及相关请求/响应模型 |
+| `cmd/mcp-orch` / `cmd/mcp-orch/orchestration` | `OrchestrationService`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`、`RuntimeReport`、DAG/report 相关请求/响应模型 |
 
 ### 6.2 `app.Module` 直接纳入的模块
 
@@ -593,7 +609,7 @@ type SessionResolver interface {
 2. **`app` 是根组装层，不是业务层。** 它只决定“装哪些模块、以什么生命周期运行”。  
 3. **桌面端对 orchestration 是可选依赖。** `contract.OrchestrationService` 缺失时，通过 `noopRuntimeReporter` 与 `noopThreadOrchestrationFacade` 保证 provider / thread 仍可构造。  
 4. **provider 装配采用 `group:"drivers"`。** 新增 provider 只需追加一个 `contract.DriverFactory`，无需改 thread / turn / rpc 调用链。  
-5. **session generation 是 thread ↔ orchestration 的关键衔接点。** `SessionManager.Register()` 生成 generation，`thread.bindSessionGeneration()` 上报，`mcp-orch/orchestration` 在进程退出时再用 generation-aware cleaner 做精确清理。  
+5. **session generation 是 thread ↔ orchestration 的关键衔接点。** `SessionManager.Register()` 生成 generation；当同一 Fx 图中存在真实 `contract.OrchestrationService` 时，`thread.bindSessionGeneration()` 会上报，`mcp-orch/orchestration` 在进程退出时再用 generation-aware cleaner 做精确清理。  
 
 ---
 
@@ -604,12 +620,13 @@ internal/app
   ├─ NewApp / Run / RunDesktop
   ├─ Module = 平台模块 + store + 业务模块 + provider 模块 + 适配器
   ├─ AsRPCRunner ------------------------------------┐
-  ├─ [desktop] uiwails.NewHTTPAssetServer -----------┼--> group:"runners" --> BindRuntime --> RunGroup
-  ├─ newRuntimeReporter -----------------------------┘
-  └─ newThreadOrchestrationFacade
+  ├─ [desktop] uiwails.NewHTTPAssetServer -----------┴--> group:"runners" --> BindRuntime --> RunGroup
+  ├─ newRuntimeReporter -------------------------------> contract.RuntimeReporter --> providers
+  └─ newThreadOrchestrationFacade ----------------------> thread.OrchestrationFacade --> thread.Service
 
 internal/contract
   ├─ approval         -> rpc / turn 审批流
+  ├─ errors           -> session / hook / orchestration 通用哨兵错误
   ├─ hooks            -> hooks / mcpcontrol / hookstore
   ├─ mcp_control      -> mcpcontrol / hooks
   ├─ orchestration    -> cmd/mcp-orch / dashboard / uistate / wails / app
@@ -629,7 +646,9 @@ provider/unified
 ## 审查补遗
 
 - 已补齐 `5.6` 节中先前遗漏的接口签名：`HookReviewStore`、`ToolHookCallback`、`PeerCallback`、`ToolControlPlane`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`。  
+- 已补充此前漏写的源码符号：`internal/app/app.go` 中的 `currentBuildInfo` / `applyBuildSetting`，以及 `contract.DriverFactory`、`TurnSubmission`、`AgentReportMetadata`、`RememberReportRequest`、`RememberReportRequestResult`、`ReportEventResult` 等契约类型。  
 - 已修正 `RuntimeReporter` 的实现说明：`cmd/mcp-orch/orchestration` 中确有 `runtimeReporter` 辅助类型，但它定义在 `service.go` 内，**当前并未进入 Fx 导出图**；桌面态真正接线的是 `internal/app` 下两种 reporter。  
+- 已修正跨 Fx 图的依赖描述：`turn.NewOrchestrationTurnStarter` / `unified.NewSessionCleaner` 会在 `app.Module` 中导出，但当前生产 `mcp-orch` standalone 图分别实际注入的是 `newNoopTurnStarter` / `newNoopSessionCleaner`。  
 - 已补全此前文档未展开的依赖注入链：`group:"drivers" -> unified.Registry -> Client / SessionManager / SessionResolver -> thread / turn / rpc`，以及 `SessionGeneration -> BindSessionGeneration -> generation-aware session cleaner` 这条链路。  
 - 已澄清适配器模式的真实落点：`newThreadOrchestrationFacade` 与 `newRuntimeReporter` 是薄适配层；`AsRPCRunner` 只是 Fx 结果包装，不属于业务语义适配。  
 - 已核对 `internal/app/modules.go`：根模块清单与文档一致，仍然 **不内嵌 orchestration module**；桌面态仅通过 optional 依赖和 noop 适配器感知 orchestration。  
