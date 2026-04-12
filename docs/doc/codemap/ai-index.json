@@ -5720,11 +5720,6 @@
       "description": "frontend",
       "refs": []
     },
-    "cmd/agent-terminal/frontend/vue-app/thread-messages-page-hydration.test.js": {
-      "package": "frontend",
-      "description": "frontend",
-      "refs": []
-    },
     "cmd/agent-terminal/frontend/vue-app/thread-send-auto-recover.test.js": {
       "package": "frontend",
       "description": "frontend",
@@ -31281,6 +31276,16 @@
         }
       ]
     },
+    "internal/platform/rlimit/rlimit_unix.go": {
+      "package": "rlimit",
+      "description": "rlimit",
+      "refs": []
+    },
+    "internal/platform/rlimit/rlimit_windows.go": {
+      "package": "rlimit",
+      "description": "rlimit",
+      "refs": []
+    },
     "internal/platform/rpc/approval.go": {
       "package": "rpc",
       "description": "工具调用审批契约：`ApprovalResponder`、`ApprovalDecision`。",
@@ -33197,6 +33202,11 @@
         }
       ]
     },
+    "internal/platform/toolbridge/diff_gen.go": {
+      "package": "toolbridge",
+      "description": "toolbridge",
+      "refs": []
+    },
     "internal/platform/toolbridge/handler.go": {
       "package": "toolbridge",
       "description": "：middleware 体系；`ThreadScope` 注入 threadId，`CapabilityGate` 做 provider capability 校验",
@@ -33586,6 +33596,11 @@
           "context": "每个子包的  基本都很薄："
         }
       ]
+    },
+    "internal/platform/toolbridge/proxy.go": {
+      "package": "toolbridge",
+      "description": "toolbridge",
+      "refs": []
     },
     "internal/platform/toolbridge/types.go": {
       "package": "toolbridge",
@@ -34520,19 +34535,6 @@
           "start_line": 759,
           "end_line": 760,
           "context": "每个子包的  基本都很薄："
-        }
-      ]
-    },
-    "internal/provider/claudecli/peer_discovery.go": {
-      "package": "claudecli",
-      "description": "探测共享 peer HTTP MCP 地址",
-      "refs": [
-        {
-          "codemap": "09",
-          "section": "3. Claude CLI Provider 详述 \u003e 3.1 文件地图",
-          "start_line": 107,
-          "end_line": 125,
-          "context": "探测共享 peer HTTP MCP 地址"
         }
       ]
     },
@@ -52369,6 +52371,11 @@
           "context": "`prompt_versions.description` 由 `0024_prompt_versions_description.sql` 增补， 再做一次幂等兜底"
         }
       ]
+    },
+    "migrations/0028_binding_provider_thread_nullable.sql": {
+      "package": "sql",
+      "description": "sql",
+      "refs": []
     },
     "pkg/logger/fields.go": {
       "package": "logger",

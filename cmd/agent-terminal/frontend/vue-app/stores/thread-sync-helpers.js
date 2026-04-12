@@ -409,7 +409,7 @@ export function handleBridgeEvent(ctx, evt) {
   const threadSyncSignal = methodLower === 'ui/thread/changed' || directThreadSyncSignal || turnCompletedSignal || methodLower === 'item/completed';
   const eventThreadTarget = normalizeThreadID(eventThreadId);
   const activeThreadTarget = eventThreadTarget && (eventThreadTarget === normalizeThreadID(ctx.state.activeThreadId) || eventThreadTarget === normalizeThreadID(ctx.state.activeCmdThreadId)) ? eventThreadTarget : '';
-  const historyHydrationSignal = turnCompletedSignal || historyPageSignal;
+  const historyHydrationSignal = turnCompletedSignal;
   if (directThreadSyncSignal) {
     logInfo('thread', 'bridge.streaming_delta_received', {
       method: eventMethod, source: sourceLower, thread_id: eventThreadTarget,
@@ -484,21 +484,7 @@ export function handleBridgeEvent(ctx, evt) {
     return;
   }
 
-  // thread/messages/page on the active thread: debounce instead of immediate loadMessages.
-  // Live patches handle real-time rendering during streaming. Repeated loadMessages would
-  // overwrite the richer timeline (structural + optimistic items) with dialog-only data.
-  // However we MUST eventually sync because some providers (Claude) don't emit turn/completed.
-  // Use a trailing debounce (2s) so rapid-fire events collapse into a single final sync.
-  if (historyPageSignal && activeThreadTarget) {
-    logInfo('thread', 'bridge.historyPage_active_debounced', { thread_id: activeThreadTarget });
-    clearTimeout(ctx.historyPageDebounceTimer);
-    ctx.historyPageDebounceTimer = setTimeout(() => {
-      logInfo('thread', 'bridge.historyPage_active_trailing_sync', { thread_id: activeThreadTarget });
-      syncThreadHistoryAtomic(ctx, activeThreadTarget)
-        .catch((error) => logWarn('thread', 'bridge.historyPage_trailing.failed', { error }));
-    }, 2000);
-    return;
-  }
+  // LIVE PATCHING DEBOUNCE PRESERVED FOR OTHER EVENTS; historyPageSignal removed to prevent infinite fetch loop
 
   if (threadSyncSignal && activeThreadTarget && (turnCompletedSignal || methodLower === 'item/completed')) {
     clearTimeout(ctx.syncDebounceTimer);

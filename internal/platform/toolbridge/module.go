@@ -2,7 +2,11 @@ package toolbridge
 
 import (
 	"context"
+	"errors"
+	"net"
+	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
@@ -15,22 +19,29 @@ import (
 	"go.uber.org/fx"
 )
 
+var proxyAddr atomic.Value
+
 var Module = fx.Module("toolbridge",
 	fx.Provide(
 		NewHandler,
 		provideWorkDirResolver,
 		provideDiffEmitter,
+		provideProxyAddrFn,
 	),
-	fx.Invoke(bindCodexHandlers),
+	fx.Invoke(
+		bindCodexHandlers,
+		registerProxyLifecycle,
+	),
 )
 
 type handlerIn struct {
 	fx.In
 
-	Registry *mcpcontrol.ToolRegistry
-	Emitter  difftracker.DiffEmitter
-	Resolver difftracker.WorkDirResolver
-	Logger   *pkglogger.Logger `optional:"true"`
+	Registry     *mcpcontrol.ToolRegistry
+	Emitter      difftracker.DiffEmitter
+	Resolver     difftracker.WorkDirResolver
+	BindingStore bindingstore.Store
+	Logger       *pkglogger.Logger `optional:"true"`
 }
 
 func bindCodexHandlers(mgr *codexapp.ServerManager, factory *codexapp.DriverFactory, h *Handler) {
@@ -80,5 +91,56 @@ func provideDiffEmitter(dispatcher *event.Dispatcher) difftracker.DiffEmitter {
 		})
 		return nil
 	}
+}
+
+func provideProxyAddrFn() func() string {
+	return func() string {
+		addr, _ := proxyAddr.Load().(string)
+		return strings.TrimSpace(addr)
+	}
+}
+
+func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler) {
+	if lifecycle == nil || h == nil {
+		return
+	}
+	var ln net.Listener
+	lifecycle.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				return err
+			}
+			ln = listener
+			proxyAddr.Store(strings.TrimSpace(listener.Addr().String()))
+			logger := h.logger
+			if logger == nil {
+				logger = pkglogger.Get()
+			}
+			go func(proxyListener net.Listener) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Error("proxy serve panic", "recover", r, "stack", string(debug.Stack()))
+					}
+				}()
+				if err := h.ServeProxy(proxyListener); err != nil {
+					logger.Error("proxy serve failed", "error", err)
+				}
+			}(listener)
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			if ln == nil {
+				return nil
+			}
+			proxyAddr.Store("")
+			err := ln.Close()
+			ln = nil
+			if err != nil && !errors.Is(err, net.ErrClosed) {
+				return err
+			}
+			return nil
+		},
+	})
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -142,6 +143,21 @@ func mustRawJSON(t *testing.T, v any) json.RawMessage {
 	return raw
 }
 
+func callProxyRequest(t *testing.T, h *Handler, path, body string) proxyJSONRPCResponse {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	resp := httptest.NewRecorder()
+	h.handleProxyRequest(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("handleProxyRequest() status = %d, want %d", resp.Code, http.StatusOK)
+	}
+	var got proxyJSONRPCResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(response) error = %v, body=%s", err, resp.Body.String())
+	}
+	return got
+}
+
 func startCodexBridgeTestServer(t *testing.T) string {
 	t.Helper()
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
@@ -276,6 +292,155 @@ func TestToolBridge_PeerError_AdaptToResult(t *testing.T) {
 		t.Fatalf("routeToolCall() error = %v, want nil", err)
 	}
 	assertSingleTextItem(t, got, peerErr.Error(), false)
+}
+
+func TestToolBridge_RouteToolCall_RejectsMismatchedClientKind(t *testing.T) {
+	h, registry := newHandlerForTest(newToolCallPeer(t, "lsp_hover", json.RawMessage(`{}`), "ignored", nil))
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:       "lsp_hover",
+		Arguments:  json.RawMessage(`{}`),
+		ClientKind: "orch",
+	})
+	if err == nil || !strings.Contains(err.Error(), `belongs to "lsp", not "orch"`) {
+		t.Fatalf("routeToolCall() error = %v, want family mismatch", err)
+	}
+	if got != nil {
+		t.Fatalf("routeToolCall() result = %#v, want nil", got)
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestProxyRequest_RejectsOversizedBody(t *testing.T) {
+	h, _ := newHandlerForTest()
+	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":"req-1","method":"tools/call","params":{"name":"lsp_hover","arguments":{"blob":"%s"}}}`,
+		strings.Repeat("x", proxyMaxBodyBytes))
+
+	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", body)
+	if got.Error == nil {
+		t.Fatal("proxy response error = nil, want invalid params")
+	}
+	if got.Error.Code != jsonRPCCodeInvalidParam {
+		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
+	}
+	if !strings.Contains(got.Error.Message, "request body too large") {
+		t.Fatalf("proxy error message = %q, want request body too large", got.Error.Message)
+	}
+}
+
+func TestProxyToolCall_SetsTimeoutAndNormalizesNullArguments(t *testing.T) {
+	var deadline time.Time
+	h, _ := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(ctx context.Context, method string, params any, result any) error {
+		var ok bool
+		deadline, ok = ctx.Deadline()
+		if !ok {
+			t.Fatal("Callback() context missing deadline")
+		}
+		assertToolCallPayload(t, params, "lsp_hover", json.RawMessage(`{}`))
+		resp, ok := result.(*peerToolCallResponse)
+		if !ok {
+			t.Fatalf("Callback() result type = %T, want *peerToolCallResponse", result)
+		}
+		*resp = peerToolCallResponse{Content: []peerToolCallContent{{Type: "text", Text: "ok"}}}
+		return nil
+	}}})
+	body := string(mustRawJSON(t, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      "req-1",
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      "lsp_hover",
+			"arguments": nil,
+		},
+	}))
+
+	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", body)
+	if got.Error != nil {
+		t.Fatalf("proxy response error = %#v, want nil", got.Error)
+	}
+	if deadline.IsZero() {
+		t.Fatal("Callback() deadline was not recorded")
+	}
+	if remaining := time.Until(deadline); remaining <= 0 || remaining > proxyToolCallTimeout+time.Second {
+		t.Fatalf("Callback() deadline remaining = %s, want within (0,%s]", remaining, proxyToolCallTimeout+time.Second)
+	}
+}
+
+func TestProxyToolCall_RejectsFamilyMismatch(t *testing.T) {
+	h, registry := newHandlerForTest(newToolCallPeer(t, "spawn_agent", json.RawMessage(`{}`), "ignored", nil))
+	body := string(mustRawJSON(t, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      "req-1",
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      "spawn_agent",
+			"arguments": map[string]any{},
+		},
+	}))
+
+	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", body)
+	if got.Error == nil {
+		t.Fatal("proxy response error = nil, want invalid params")
+	}
+	if got.Error.Code != jsonRPCCodeInvalidParam {
+		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestProxyToolCall_RejectsInvalidParams(t *testing.T) {
+	h, registry := newHandlerForTest()
+	tests := []struct {
+		name    string
+		body    string
+		wantMsg string
+	}{
+		{
+			name:    "null params",
+			body:    `{"jsonrpc":"2.0","id":"req-1","method":"tools/call","params":null}`,
+			wantMsg: "tool call params must be a non-null object",
+		},
+		{
+			name:    "missing params",
+			body:    `{"jsonrpc":"2.0","id":"req-1","method":"tools/call"}`,
+			wantMsg: "tool call params must be a non-null object",
+		},
+		{
+			name: "blank tool name",
+			body: string(mustRawJSON(t, map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "req-1",
+				"method":  "tools/call",
+				"params": map[string]any{
+					"name":      "   ",
+					"arguments": map[string]any{},
+				},
+			})),
+			wantMsg: "tool name is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := callProxyRequest(t, h, "/mcp/lsp/agent-1", tt.body)
+			if got.Error == nil {
+				t.Fatal("proxy response error = nil, want invalid params")
+			}
+			if got.Error.Code != jsonRPCCodeInvalidParam {
+				t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
+			}
+			if !strings.Contains(got.Error.Message, tt.wantMsg) {
+				t.Fatalf("proxy error message = %q, want substring %q", got.Error.Message, tt.wantMsg)
+			}
+		})
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
 }
 
 func TestOnInboundMessage_NonToolRequest_WithID_NotIntercepted(t *testing.T) {

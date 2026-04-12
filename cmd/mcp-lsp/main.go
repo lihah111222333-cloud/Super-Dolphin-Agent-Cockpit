@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+
+	_ "github.com/anthropic-ai/super-agent-v3/internal/platform/rlimit"
 )
 
 const (

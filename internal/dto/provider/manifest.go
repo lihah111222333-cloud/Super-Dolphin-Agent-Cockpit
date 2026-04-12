@@ -35,6 +35,7 @@ type ManifestContext struct {
 	BinaryDir     string
 	Env           map[string]string
 	AutoApprove   []string
+	ProxyHTTPAddr string
 	PeerHTTPAddrs map[ToolFamily]string // e.g. {FamilyOrch: "127.0.0.1:9091"}
 }
 
@@ -56,6 +57,16 @@ func BuildManifest(ctx ManifestContext) MCPManifest {
 		// name so the codex CLI produces concise tool names like
 		// mcp__lsp__lsp_grep instead of the redundant mcp__mcp-lsp__lsp_grep.
 		serverName := string(fam)
+
+		if proxyAddr := strings.TrimSpace(ctx.ProxyHTTPAddr); proxyAddr != "" {
+			bins = append(bins, MCPBinary{
+				Name:        serverName,
+				Type:        "http",
+				URL:         "http://" + proxyAddr + "/mcp/" + string(fam) + "/" + ctx.AgentID,
+				AutoApprove: append([]string(nil), autoApprove...),
+			})
+			continue
+		}
 
 		// If a peer HTTP address is available, generate HTTP config so
 		// Claude connects to the shared process instead of spawning a sidecar.

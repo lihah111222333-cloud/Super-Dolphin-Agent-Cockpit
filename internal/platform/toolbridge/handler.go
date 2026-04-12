@@ -15,14 +15,16 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
+	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type Handler struct {
-	registry activePeerRegistry
-	emitter  difftracker.DiffEmitter
-	resolver difftracker.WorkDirResolver
-	logger   *pkglogger.Logger
+	registry     activePeerRegistry
+	emitter      difftracker.DiffEmitter
+	resolver     difftracker.WorkDirResolver
+	bindingStore bindingstore.Store
+	logger       *pkglogger.Logger
 }
 
 type activePeerRegistry interface {
@@ -35,10 +37,11 @@ func NewHandler(in handlerIn) *Handler {
 		logger = pkglogger.Get()
 	}
 	return &Handler{
-		registry: in.Registry,
-		emitter:  in.Emitter,
-		resolver: in.Resolver,
-		logger:   logger,
+		registry:     in.Registry,
+		emitter:      in.Emitter,
+		resolver:     in.Resolver,
+		bindingStore: in.BindingStore,
+		logger:       logger,
 	}
 }
 
@@ -54,7 +57,11 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	if h == nil || h.registry == nil {
 		return nil, ErrNoPeerAvailable
 	}
-	peers := h.registry.FindActiveByKind(classifyTool(req.Name))
+	clientKind, err := resolveToolClientKind(req)
+	if err != nil {
+		return nil, err
+	}
+	peers := h.registry.FindActiveByKind(clientKind)
 	if len(peers) == 0 {
 		return nil, ErrNoPeerAvailable
 	}
@@ -66,10 +73,15 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	defer cancel()
 
 	peer := peers[0].Peer
+	snapshot := h.beginToolDiffSnapshot(ctx, req)
+
 	var resp peerToolCallResponse
-	err := peer.Callback(callCtx, "tools/call", map[string]any{
+	err = peer.Callback(callCtx, "tools/call", map[string]any{
 		"name":      req.Name,
 		"arguments": req.Arguments,
+		"_agentId":  req.AgentID,
+		"_threadId": req.ThreadID,
+		"_callId":   req.CallID,
 	}, &resp)
 	if err != nil {
 		return &ToolCallResult{
@@ -82,6 +94,7 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	}
 
 	result := adaptMCPResponse(resp)
+	h.emitToolDiff(ctx, req, snapshot)
 	return result, nil
 }
 
@@ -176,11 +189,12 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 	}
 
 	req := ToolCallRequest{
-		Name:      firstString(payload, "name", "tool", "toolName", "tool_name"),
-		Arguments: firstRaw(payload, "arguments", "args"),
-		AgentID:   firstString(payload, "agentId", "agent_id"),
-		ThreadID:  firstString(payload, "threadId", "thread_id"),
-		CallID:    firstString(payload, "callId", "call_id"),
+		Name:       firstString(payload, "name", "tool", "toolName", "tool_name"),
+		Arguments:  firstRaw(payload, "arguments", "args"),
+		AgentID:    firstString(payload, "agentId", "agent_id"),
+		ThreadID:   firstString(payload, "threadId", "thread_id"),
+		CallID:     firstString(payload, "callId", "call_id"),
+		ClientKind: firstString(payload, "clientKind", "client_kind", "family"),
 	}
 	if req.Name == "" {
 		req.Name = nestedString(payload, "item", "name", "tool", "toolName")

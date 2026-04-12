@@ -205,7 +205,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		s.stopAgent(ctx, agentID)
 		return ForkResult{}, err
 	}
-	providerThreadID := resolveProviderThreadID(forkedSession.ThreadID(), newThreadID)
+	providerThreadID := strings.TrimSpace(forkedSession.ThreadID())
 	if err := s.persistThreadState(ctx, newThreadState(threadStateForkKind, threadStateFields{
 		PublicThreadID:   newThreadID,
 		ProviderThreadID: providerThreadID,

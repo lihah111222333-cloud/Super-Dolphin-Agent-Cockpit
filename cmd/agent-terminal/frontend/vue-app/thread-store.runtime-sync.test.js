@@ -426,36 +426,7 @@ describe('thread store runtime sync', () => {
       vi.useRealTimers();
     }
   });
-  it('debounces history-page signals for the active thread (trailing sync after 2s)', async () => {
-    vi.useFakeTimers();
-    try {
-      const store = useThreadStore();
-      const threadId = 'thread-live';
-      const methods = [];
-      store.state.activeThreadId = threadId;
-      store.state.threads = [{ id: threadId, name: 'Live', state: 'running' }];
-      apiMock.callAPI.mockImplementation(async (method) => (method === 'thread/messages'
-        ? { messages: [] }
-        : buildSnapshot({ threadId, activeThreadId: threadId, text: 'base' })));
-      await store.loadMessages(threadId);
-      apiMock.callAPI.mockReset();
-      apiMock.callAPI.mockImplementation(async (method) => {
-        methods.push(method);
-        if (method === 'thread/messages') return { total: 1, messages: [{ id: 1, agentId: threadId, role: 'assistant', content: 'history page synced', createdAt: '2026-03-08T00:00:02Z' }] };
-        if (method === 'ui/state/get') return buildSnapshot({ threadId, activeThreadId: threadId, text: 'base' });
-        return {};
-      });
-      // thread/messages/page on the active thread is debounced (2s trailing)
-      // to prevent rapid-fire overwrites while still catching final state.
-      store.handleBridgeEvent({ method: 'ui/thread/changed', payload: { source: 'thread/messages/page', threadId } });
-      await Promise.resolve(); await Promise.resolve();
-      // Immediate — no thread/messages call yet
-      expect(methods).not.toContain('thread/messages');
-      // After 2s debounce, trailing sync fires (uses syncThreadHistoryAtomic → ui/state/get + thread/messages)
-      vi.advanceTimersByTime(2100);
-      await vi.waitFor(() => { expect(methods).toContain('ui/state/get'); });
-    } finally { vi.useRealTimers(); }
-  });
+
 
   it('content-mismatch guard preserves dialog items when remote has only structural items', async () => {
     const store = useThreadStore();

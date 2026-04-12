@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+
+	_ "github.com/anthropic-ai/super-agent-v3/internal/platform/rlimit"
 )
 
 // mcpStdout holds the original stdout exclusively for the MCP JSON-RPC
