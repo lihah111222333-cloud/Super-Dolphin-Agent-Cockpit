@@ -119,19 +119,17 @@ func (s *session) configureThread(ctx context.Context, patch dto.ThreadConfigPat
 	return nil
 }
 
-func (s *session) applyConfigSet(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) error {
-	if patch.Model == nil && patch.Effort == nil {
-		return nil
-	}
-	params := map[string]any{"threadId": threadID}
+func (s *session) applyConfigSet(_ context.Context, _ string, patch dto.ThreadConfigPatch) error {
+	// V2 parity: model/effort are stored locally and applied via
+	// turn/start params (turnStartParams.Model / Effort) on the next turn.
+	// codex app-server does not have a thread/config/set RPC.
 	if patch.Model != nil {
-		params["model"] = strings.TrimSpace(*patch.Model)
+		s.setRuntimeConfigValue("model", strings.TrimSpace(*patch.Model))
 	}
 	if patch.Effort != nil {
-		params["effort"] = strings.TrimSpace(*patch.Effort)
+		s.setRuntimeConfigValue("effort", strings.TrimSpace(*patch.Effort))
 	}
-	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/config/set", params)
-	return err
+	return nil
 }
 
 func (s *session) applyConfigSlashCommands(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) error {
@@ -166,6 +164,16 @@ func (s *session) applySlashConfig(ctx context.Context, threadID, method, key st
 	return err
 }
 
+func (s *session) runtimeConfigString(key string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runtimeConfig == nil {
+		return ""
+	}
+	v, _ := s.runtimeConfig[key].(string)
+	return strings.TrimSpace(v)
+}
+
 func (s *session) setRuntimeConfigValue(key string, value any) {
 	if strings.TrimSpace(key) == "" {
 		return
@@ -181,7 +189,11 @@ func (s *session) setRuntimeConfigValue(key string, value any) {
 func decodeAllowedModels(raw []byte) ([]string, error) {
 	var top map[string]any
 	if err := json.Unmarshal(raw, &top); err == nil {
+		// Try "models" key first, then "data" key (codex app-server format)
 		if models := modelIDs(top["models"]); len(models) > 0 {
+			return models, nil
+		}
+		if models := modelIDs(top["data"]); len(models) > 0 {
 			return models, nil
 		}
 	}
@@ -191,6 +203,7 @@ func decodeAllowedModels(raw []byte) ([]string, error) {
 			return models, nil
 		}
 	}
+	pkglogger.Warn("codexapp: model/list raw response", "raw", string(raw))
 	return nil, errors.New("codexapp: invalid model/list response")
 }
 
@@ -293,20 +306,9 @@ func (d *driver) finishStartedSession(s *session, result startResult) contract.S
 func startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []DynamicToolSchema) (startResult, error) {
 	params := buildThreadStartParams(req)
 	params.DynamicTools = tools
-	// Inject tool catalog into developerInstructions so the model knows
-	// which dynamicTools are available (they don't appear as MCP tools).
-	if len(tools) > 0 {
-		var catalog strings.Builder
-		catalog.WriteString("\n\n## Available dynamic tools\nYou have the following tools available. Call them directly by name:\n")
-		for _, tool := range tools {
-			catalog.WriteString("- `" + tool.Name + "`")
-			if tool.Description != "" {
-				catalog.WriteString(": " + tool.Description)
-			}
-			catalog.WriteString("\n")
-		}
-		params.DeveloperInstructions = strings.TrimSpace(params.DeveloperInstructions + catalog.String())
-	}
+	// dynamicTools schema is exposed to the model by the codex app-server
+	// itself — no need to duplicate tool names in developerInstructions
+	// (V2 parity: avoids wasting ~70k context tokens on tool catalog).
 	return startRemoteThreadWithParams(ctx, t, req, params)
 }
 

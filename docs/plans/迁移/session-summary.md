@@ -1,7 +1,7 @@
 # V3 迁移会话摘要
 
-> 生成时间：2026-04-12（P16 UI Diff + 工具调用记录 + P16.1 统一 Diff 完成）
-> 会话范围：P0-P9 + P11-P15 + **P16 UI Diff/工具调用记录** + **P16.1 统一 Diff 完成**
+> 生成时间：2026-04-12（P16 UI Diff + 工具调用记录 + P16.1 统一 Diff + P17 UI功能修复完成）
+> 会话范围：P0-P9 + P11-P15 + **P16 UI Diff/工具调用记录** + **P16.1 统一 Diff** + **P17 UI功能修复**
 > 前序会话 UUID：58fdd978-cc4b-41e6-bd26-d40f3ff66854
 
 ---
@@ -13,9 +13,11 @@
 ✅ go build ./internal/... ./cmd/... — PASS
 ✅ go vet ./internal/... ./cmd/... — PASS
 ✅ go test -run TestCodeSizeGuard ./internal/archtest/... — PASS (internal/archtest 0.701s)
-✅ go test ./internal/platform/toolbridge/... — PASS (cached)
-✅ go test ./internal/platform/difftracker/... — PASS (0.608s)
-✅ go test ./internal/module/uistate/... — PASS (uistate 1.277s, timeline 0.777s)
+✅ go test ./internal/platform/toolbridge/... — PASS (1.029s)
+✅ go test ./internal/platform/difftracker/... — PASS (cached)
+✅ go test ./internal/module/uistate/... — PASS (uistate 0.869s, timeline cached)
+✅ go test ./internal/module/thread/... — PASS (cached)
+✅ go test ./internal/provider/unified/... — PASS (0.514s)
 ```
 
 ### 迁移状态
@@ -26,42 +28,25 @@
 | **P16 Phase 2 工具调用记录** | ✅ | Timeline Kind 映射 + ActivityStats + UIThreadPatch 增量推送 + 前端修正 |
 | **P16 Phase 1 Diff（旧实现）** | 🧹 已清理 | P16.1 Phase 0 删除旧 diff 实现，保留 difftracker 核心 git 能力 |
 | **P16 额外修复** | ✅ | 前端 ReferenceError + Claude stdin pipe + interrupt recovery + enrichFromDB CC |
-| **P16.1 统一 Diff** | ✅ | **Phase 0 清理旧 diff(-1730行) + Phase 1 proxy+manifest归一+diff tracking+安全加固 + Phase 2 git diff 兜底。11轮计划审查(v1→v11) + 3波实施 + 1:4互审 + 修复** |
+| **P16.1 统一 Diff** | ✅ | **Phase 0 清理旧diff(-1730行) + Phase 1 proxy+manifest归一+diff tracking+安全加固 + Phase 2 git diff兜底 + Codex turn/diff/updated事件映射 + Claude重复消息修复 + 前端optimistic去重。11轮计划审查 + 3波实施 + 1:4互审 + 修复** |
+| **P17 UI功能修复** | ✅ | **Phase 1 上下文空间(ui_tokens camelCase兼容) + Phase 2 模型选择(4断点修复+model patch通路) + Phase 3 压缩按钮(capability禁用+错误提示)。v2计划审查(8 Agent) + 3波并行实施 + 1:4互审 + 修复** |
 
 ---
 
-## 2. P16.1 本会话核心成果
+## 2. 本会话核心成果
 
-### 2.1 Phase 0 — 旧 diff 清理
+### 2.1 P16.1 统一 Diff
 
-- 清理旧 diff 实现：删除 `aggregator/unified/tool_context/hooks_extract` 与 `claude_diff` 旧链路。
-- 删除旧测试与死代码，净减约 `-1730` 行。
-- `handler.go` 从 aggregator 迁移到 emitter；`module.go` 删除旧 lifecycle。
-- 保留 difftracker 核心：`git_diff.go` / `git_ops.go` / `types.go` / `resolver.go`。
+- Phase 0：清理旧 diff 实现，删除 `aggregator/unified/tool_context/hooks_extract` + `claude_diff`（`-1730` 行），保留 `difftracker` 核心。
+- Phase 1：新建 `proxy.go`（MCP HTTP proxy），manifest `ProxyHTTPAddr` 归一，diff tracking（`BeginSnapshot` / `EmitGitDiff`），安全加固（`MaxBytesReader` + timeout + family 校验 + recover）。
+- Phase 2：git diff 兜底（`ToolCallEnd` 订阅 + `callId` 去重 + `EmitCurrentGitDiff`）。
+- Bug fixes：Codex `turn/diff/updated` 事件映射 + `typedEventPublishers` 注册，Claude `system:init` 重复 `AgentLaunched` 修复，前端 optimistic insert 去重。
 
-### 2.2 Phase 1 — Proxy + Manifest 归一 + Diff Tracking
+### 2.2 P17 UI功能修复
 
-- 新建 `internal/platform/toolbridge/proxy.go`：MCP HTTP proxy，覆盖 `initialize` / `notifications/initialized` / `tools/list` / `tools/call`，通过 `/mcp/<family>/<agentId>` 注入 agentId。
-- Manifest 归一：`ProxyHTTPAddr` 优先；`PeerHTTPAddrs` 删除；sidecar fallback 封死，不再绕回旧 peer 地址。
-- Diff tracking：`routeToolCall` 作为统一入口执行 `BeginSnapshot` / `EmitGitDiff`；复用 `DiffEmitter` 发布 `ToolDiffUpdated`。
-- 安全加固：`http.MaxBytesReader`、tool call timeout、family 路由校验、params 校验、panic `recover` 保护。
-
-### 2.3 Phase 2 — Git Diff 兜底
-
-- 订阅 `ToolCallEnd`，对 `code_run` / `code_run_test` / `lsp_edit` 做后置 git diff fallback。
-- `callId` 去重：Phase 1 已 emit 的 call 不再由 fallback 重复发 diff。
-- 新增/复用 `EmitCurrentGitDiff`，无需 before snapshot 即可对当前 working tree 与 HEAD 生成兜底 diff。
-
-### 2.4 互审与修复
-
-- 1:4 互审发现编译失败与 proxy 安全问题，已完成修复。
-- 已修复编译失败、proxy method/family/params 校验、请求体大小、timeout、panic recover 等问题。
-- 11 轮计划审查（v1→v11）+ 3 波实施 + 1:4 互审 + 修复已完成。
-
-### 2.5 删除死代码
-
-- 删除 `peer_discovery.go`。
-- 删除 difftracker 旧链路 9 个文件，仅保留核心 git diff 能力。
+- Phase 1：上下文空间 — `ui_tokens.go` 兼容 Codex camelCase payload（`tokenUsage.total` / `last` / `usage` 三级回退），`shouldWarnUnknownRawEvent` 白名单。
+- Phase 2：模型选择 — `applyAgentLaunched` 补 `Model`，`SetConfig` persist 后新值返回 + nil/空串语义，`threaddto.Updated.Model` patch 通路，空串回归测试。
+- Phase 3：压缩按钮 — 前端 capability 禁用（`context_compact`），`alert` → 内联提示，Codex 链路验证。
 
 ---
 
@@ -107,7 +92,8 @@ Fallback: ToolCallEnd → EmitCurrentGitDiff → DiffEmitter（callId 去重）
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| **P16.1 统一 Diff** | ✅ 已完成 | Phase 0→1→2 已落地并验证 |
+| P16.1 统一 Diff | ✅ | 已完成 |
+| P17 UI功能修复 | ✅ | 已完成 |
 | P16 旧 diff 清理 | ⏳ | P16.1 Phase 0 |
 | IDA 工具族 | ⏳ | 82 个工具，暂缓 |
 | P2 event bus 互审 | 🔄 | 待收报告 |
@@ -118,9 +104,10 @@ Fallback: ToolCallEnd → EmitCurrentGitDiff → DiffEmitter（callId 去重）
 
 ## 5. 下一步
 
-1. **git commit** — P16.1 所有改动待提交（本任务）
-2. **P15 稳定性优化**
-3. **IDA 工具族**
+1. git commit — P16.1 + P17 所有改动
+2. Claude compact 摘要重启方案（待排期）
+3. P15 稳定性优化
+4. IDA 工具族
 
 ---
 
@@ -153,32 +140,31 @@ Fallback: ToolCallEnd → EmitCurrentGitDiff → DiffEmitter（callId 去重）
 | Claude Code 调研 | 3 |
 | 精确落点调研 | 5 |
 | P16.1 计划审查（8 轮 × 4） | ~32 |
-| **本轮新增** | |
+| **本轮新增（概算）** | |
 | P16.1 计划审查（v8→v11，4轮 × 4 Agent） | ~16 |
 | P16.1 Phase 0 实施 | 1 |
 | P16.1 Phase 1 实施（2 并行） | 2 |
-| P16.1 Phase 1 互审（1:4） | 4 |
-| P16.1 Phase 1 修复 | 2 |
+| P16.1 Phase 1 互审（1:4）+ 修复 | 6 |
 | P16.1 Phase 2 实施 | 1 |
-| P16.1 本轮新增合计 | ~26 |
-| **本轮合计** | **~146+** |
-| **总计** | **~797+** |
+| P16.1 bug fix（事件映射+重复消息+optimistic） | 主 Agent 直修 |
+| P17 调研（5+3） | 8 |
+| P17 计划审查（8 Agent） | 8 |
+| P17 Phase 1-3 实施（3 并行） | 3 |
+| P17 互审（1:4）+ 修复 | 7 |
+| **本轮新增合计** | **~52** |
+| **本会话合计（更新后）** | **~172+** |
+| **总计（更新后）** | **~823+** |
 
 ---
 
 ## 8. 会话交接
 
 ### 8.1 当前仓库状态
-- **编译**：go build ✅ / go vet ✅ / 指定 archtest/toolbridge/difftracker/uistate 测试全绿
-- **P16.1 统一 Diff**：已完成 Phase 0 清理、Phase 1 proxy + manifest 归一 + diff tracking、Phase 2 git diff 兜底
-- **P16 Phase 2**：完整落地，Timeline/Stats/UIThreadPatch 全链路可用
-- **前端**：ReferenceError 已修，selector/cards/live-patch/snapshot 已对齐
-- **Claude CLI**：stdin pipe 死亡重建 + interrupt recovery 已修
+- **编译验证**：go build / go vet / archtest / toolbridge / difftracker / uistate / thread / provider/unified 全绿。
+- **P16.1 + P17**：均已完成。
 
 ### 8.2 下一会话首任务
-1. 若本任务 commit 已完成，下一会话直接进入 **P15 稳定性优化**
-2. 继续处理 **IDA 工具族**
-3. 视需要做 P16.1 真实 Codex/Claude 工具调用观察
+1. **git commit** — P16.1 + P17 所有改动
 
 ### 8.3 关键守卫参数
 | 参数 | 值 |

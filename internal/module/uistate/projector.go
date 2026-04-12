@@ -62,11 +62,24 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	applyMutation(s, threadID, func() {
+		used := ev.TotalTokens
+		if used <= 0 {
+			used = ev.InputTokens + ev.OutputTokens
+		}
+		var pct float64
+		if ev.ContextWindowTokens > 0 && used > 0 {
+			pct = float64(used) / float64(ev.ContextWindowTokens) * 100
+			if pct > 100 {
+				pct = 100
+			}
+		}
 		s.state.TokenUsage = TokenUsage{
 			InputTokens:         ev.InputTokens,
 			OutputTokens:        ev.OutputTokens,
 			TotalTokens:         ev.TotalTokens,
+			UsedTokens:          used,
 			ContextWindowTokens: ev.ContextWindowTokens,
+			UsedPercent:         pct,
 		}
 	}, func() uidto.UIThreadPatch {
 		patch := s.threadPatchLocked(threadID, "thread/tokenusage/updated")

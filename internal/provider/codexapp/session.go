@@ -160,6 +160,19 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 		return nil, err
 	}
 	params := buildTurnStartParams(threadID, req)
+	// Fill model/effort from session runtimeConfig if not set by turn request.
+	// thread/config/set stores these in runtimeConfig; they take effect on the next turn.
+	if params.Model == "" {
+		params.Model = s.runtimeConfigString("model")
+	}
+	if params.Effort == "" {
+		params.Effort = s.runtimeConfigString("effort")
+	}
+	pkglogger.Warn("codexapp: turn/start params",
+		"agent_id", s.agentID,
+		"model", params.Model,
+		"effort", params.Effort,
+	)
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/start", params)
 	if err != nil {
 		return nil, err

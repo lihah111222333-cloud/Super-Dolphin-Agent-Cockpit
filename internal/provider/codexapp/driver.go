@@ -80,9 +80,15 @@ type threadStartParams struct {
 }
 
 type threadResumeParams struct {
-	ThreadID string `json:"threadId"`
-	Cwd      string `json:"cwd,omitempty"`
-	Model    string `json:"model,omitempty"`
+	ThreadID              string `json:"threadId"`
+	Cwd                   string `json:"cwd,omitempty"`
+	Model                 string `json:"model,omitempty"`
+	ApprovalPolicy        string `json:"approvalPolicy,omitempty"`
+	DeveloperInstructions string `json:"developerInstructions"`
+	Sandbox               string `json:"sandbox,omitempty"`
+	Summary               string `json:"summary,omitempty"`
+	Effort                string `json:"effort,omitempty"`
+	Personality           string `json:"personality,omitempty"`
 }
 
 func NewDriverFactory(
@@ -172,6 +178,9 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		return nil, err
 	}
 	s.setThreadID(threadID)
+	if m := strings.TrimSpace(req.Model); m != "" {
+		s.setRuntimeConfigValue("model", m)
+	}
 	d.restoreApprovalPolicy(ctx, s, threadID)
 	d.reportRuntime(s.agentID)
 	return s, nil
@@ -195,6 +204,7 @@ func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSession
 	resumeID := shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID)
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/resume", threadResumeParams{
 		ThreadID: strings.TrimSpace(resumeID),
+		Cwd:      strings.TrimSpace(req.CWD),
 		Model:    strings.TrimSpace(req.Model),
 	})
 	if err != nil {
