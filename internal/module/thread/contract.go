@@ -37,6 +37,7 @@ type StartRequest struct {
 	CWD                   string
 	Model                 string
 	ModelProvider         string
+	Name                  string
 	Prompt                string
 	BaseInstructions      string
 	DeveloperInstructions string

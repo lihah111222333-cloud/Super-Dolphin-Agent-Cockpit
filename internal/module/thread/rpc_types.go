@@ -37,6 +37,7 @@ type startParams struct {
 	Effort                string          `json:"effort,omitempty"`
 	Personality           string          `json:"personality,omitempty"`
 	Config                json.RawMessage `json:"config,omitempty"`
+	Name                  string          `json:"name,omitempty"`
 	Prompt                string          `json:"-"`
 }
 

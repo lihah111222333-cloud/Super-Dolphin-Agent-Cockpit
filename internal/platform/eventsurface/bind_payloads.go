@@ -8,6 +8,8 @@ func agentLaunchedPayload(ev agentdto.AgentLaunched) map[string]any {
 	payload := agentSessionPayload(ev.AgentSessionHeader)
 	setString(payload, "cwd", ev.CWD)
 	setString(payload, "model", ev.Model)
+	setString(payload, "name", ev.Name)
+	setString(payload, "provider", ev.Provider)
 	return payload
 }
 

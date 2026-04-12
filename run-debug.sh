@@ -161,6 +161,7 @@ if [ "$MODE" = "run-only" ]; then
   echo "▶ 直接启动已编译二进制 (debug)..."
   echo "  sha256: $(shasum -a 256 "$BUILD_DIR/super-agent-debug" | awk '{print $1}')"
   (sleep 1.0; open "http://localhost:4511" >/dev/null 2>&1 || true) &
+  ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true
   exec "$BUILD_DIR/super-agent-debug" --debug "$@"
 fi
 
@@ -341,6 +342,11 @@ trap cleanup_vite EXIT INT TERM
 # 启动
 echo ""
 echo "════════════════════════════════════"
+
+# 提升文件描述符上限：批量 agent 场景下 codex app-server 需要大量 fd
+# (每个 agent session 占用 WS 连接 + MCP server pipe，100 agents ≈ 300+ fd)
+ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true
+
 if [ "$MODE" = "debug" ]; then
   if [ -n "$VITE_DEV_URL" ]; then
     echo "▶ 启动 debug 模式 (前端热更新 → $VITE_DEV_URL)..."

@@ -145,7 +145,18 @@ func (t *transport) spawnLocal() error {
 	}
 	argv := []string{"codex", "app-server", "--listen", serverURL}
 	pkglogger.Info("codexapp: spawning local app-server", "argv", argv)
-	cmd := exec.Command(argv[0], argv[1:]...)
+	// Wrap in shell to raise fd limit before exec. On macOS, GUI-launched
+	// processes inherit launchd's default soft limit (often 256), which is
+	// too low for batch agent scenarios (100 agents × 2 MCP servers each).
+	// Go's syscall.Setrlimit only affects the Go process; the Rust codex
+	// binary may not inherit it reliably. The shell wrapper guarantees
+	// codex starts with a high limit regardless of launch context (.app,
+	// terminal, launchd, etc.).
+	shellCmd := fmt.Sprintf(
+		"ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true; exec %s %s",
+		argv[0], strings.Join(argv[1:], " "),
+	)
+	cmd := exec.Command("sh", "-c", shellCmd)
 	cmd.Stdout = io.Discard
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stderr, err := cmd.StderrPipe()

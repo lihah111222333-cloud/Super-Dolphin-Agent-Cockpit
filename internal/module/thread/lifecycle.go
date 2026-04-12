@@ -33,6 +33,7 @@ type threadState struct {
 	Provider         string
 	CWD              string
 	Model            string
+	Name             string
 	Prompt           string
 	RolloutPath      string
 	SessionUUID      string
@@ -75,6 +76,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		Provider:         req.Provider,
 		CWD:              effectiveCWD,
 		Model:            effectiveModel,
+		Name:             req.Name,
 		Prompt:           req.Prompt,
 		RolloutPath:      session.RolloutPath(),
 		SessionUUID:      session.ThreadID(),

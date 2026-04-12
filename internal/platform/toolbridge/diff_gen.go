@@ -31,14 +31,19 @@ func (h *Handler) emitToolDiff(ctx context.Context, req ToolCallRequest, snapsho
 	if err != nil || diffText == "" {
 		return
 	}
-	_ = h.emitter(ctx, difftracker.DiffResult{
+	if err := h.emitter(ctx, difftracker.DiffResult{
 		AgentID:  req.AgentID,
 		ThreadID: req.ThreadID,
 		CallID:   req.CallID,
 		ToolName: req.Name,
 		DiffText: diffText,
 		Files:    files,
-	})
+	}); err != nil {
+		return
+	}
+	if h.diffFallback != nil {
+		h.diffFallback.MarkSeen(req.CallID)
+	}
 }
 
 // shouldTrackDiff 判断工具调用是否需要 diff 追踪

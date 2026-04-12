@@ -385,7 +385,6 @@ function patchTimelines(state, data, patch, requestedThreadId, allowActiveSelect
         });
         continue;
       }
-      const isTarget = (requestedThreadId && key === requestedThreadId) || !requestedThreadId;
       if (newItems.some(i => i?.kind === 'user')) {
         const uItems = newItems.filter(i => i?.kind === 'user');
         logWarn('thread', 'snapshot.timeline.user_items', {
@@ -394,9 +393,7 @@ function patchTimelines(state, data, patch, requestedThreadId, allowActiveSelect
         });
       }
 
-      const mergedItems = isTarget
-        ? mergeTimelineWithLocalItems(newItems, oldItems, key, requestedThreadId, logWarn)
-        : newItems;
+      const mergedItems = mergeTimelineWithLocalItems(newItems, oldItems, key, requestedThreadId, logWarn);
       const frozenTimeline = freezeTimelineItemsAtomic(mergedItems, oldItems);
       if (!frozenTimeline.changed) continue;
       if (!changed) { nextTimelinesByThread = { ...nextTimelinesByThread }; changed = true; }

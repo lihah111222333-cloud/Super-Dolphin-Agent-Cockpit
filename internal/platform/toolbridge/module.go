@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
@@ -26,10 +27,12 @@ var Module = fx.Module("toolbridge",
 		NewHandler,
 		provideWorkDirResolver,
 		provideDiffEmitter,
+		newDiffFallbackTracker,
 		provideProxyAddrFn,
 	),
 	fx.Invoke(
 		bindCodexHandlers,
+		registerDiffFallbackLifecycle,
 		registerProxyLifecycle,
 	),
 )
@@ -40,6 +43,7 @@ type handlerIn struct {
 	Registry     *mcpcontrol.ToolRegistry
 	Emitter      difftracker.DiffEmitter
 	Resolver     difftracker.WorkDirResolver
+	DiffFallback *diffFallbackTracker
 	BindingStore bindingstore.Store
 	Logger       *pkglogger.Logger `optional:"true"`
 }
@@ -100,6 +104,26 @@ func provideProxyAddrFn() func() string {
 	}
 }
 
+func registerDiffFallbackLifecycle(lifecycle fx.Lifecycle, dispatcher *event.Dispatcher, tracker *diffFallbackTracker) {
+	if lifecycle == nil || dispatcher == nil || tracker == nil {
+		return
+	}
+	var cancel context.CancelFunc
+	lifecycle.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			cancel = platformbus.ResilientSubscribe(dispatcher, tracker.handleToolCallEnd, tracker.logger)
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			if cancel != nil {
+				cancel()
+				cancel = nil
+			}
+			return nil
+		},
+	})
+}
+
 func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler) {
 	if lifecycle == nil || h == nil {
 		return
@@ -143,4 +167,3 @@ func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler) {
 		},
 	})
 }
-
