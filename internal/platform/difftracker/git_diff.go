@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"github.com/pmezard/go-difflib/difflib"
 )
 
 func BeginSnapshot(ctx context.Context, path string) (*Snapshot, error) {
@@ -195,10 +198,54 @@ func shouldSkipGitBytes(relPath string, data []byte) bool {
 }
 
 func looksBinary(data []byte) bool {
-	for _, value := range data {
-		if value == 0 {
-			return true
-		}
+	return slices.Contains(data, byte(0))
+}
+
+func buildUnifiedDiffBlockWithState(path string, tracked bool, before string, afterExists bool, after string) string {
+	clean := normalizeDiffPath(path)
+	if clean == "" || (tracked == afterExists && before == after) {
+		return ""
 	}
-	return false
+	fromFile := "/dev/null"
+	toFile := "/dev/null"
+	if tracked {
+		fromFile = "a/" + clean
+	}
+	if afterExists {
+		toFile = "b/" + clean
+	}
+	text, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
+		A:        difflib.SplitLines(before),
+		B:        difflib.SplitLines(after),
+		FromFile: fromFile,
+		ToFile:   toFile,
+		Context:  3,
+	})
+	if err != nil || text == "" {
+		return ""
+	}
+	return ensureTrailingNewline(text)
+}
+
+func normalizeDiffPath(path string) string {
+	clean := filepath.ToSlash(filepath.Clean(strings.Trim(strings.TrimSpace(path), `"`)))
+	switch clean {
+	case "", ".", "/", "/dev/null":
+		return ""
+	default:
+		clean = strings.TrimPrefix(clean, "./")
+		return strings.TrimPrefix(strings.TrimPrefix(clean, "a/"), "b/")
+	}
+}
+
+func normalizeNewlines(text string) string {
+	return strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text)
+}
+
+func ensureTrailingNewline(text string) string {
+	trimmed := strings.TrimRight(text, "\n")
+	if trimmed == "" {
+		return ""
+	}
+	return trimmed + "\n"
 }

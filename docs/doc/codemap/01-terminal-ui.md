@@ -13,15 +13,20 @@
 1. **主 RPC 路径**：`services/api.js -> runtime.Call.ByID(METHOD_IDS.CALL_API) -> Go App.CallAPI -> rpc.Server.Dispatch`
 2. **少量直连绑定路径**：`services/api.js -> runtime.Call.ByID(...) -> Go 绑定方法`，目前用于 `GetBuildInfo`、`SelectProjectDir`、`SelectFiles`、`SaveClipboardImage` 等高频原生能力
 
-后端事件则通过：
+后端事件通过：
 
 ```text
 backend event dispatcher
+  -> eventsurface.Bind(...)
   -> EventBridge.publish()
-  -> WailsLifecycle.EmitEvent('bridge-event' / 'agent-event' / 'files-dropped' / 'app-will-quit')
-  -> services/api.js 订阅器
-  -> thread store / page state / composer 响应式更新
+  -> WailsLifecycle.EmitEvent('bridge-event')
+  -> EventBridge.emitCompatAgentEvent(...)
+  -> WailsLifecycle.EmitEvent('agent-event')
+  -> services/api.js onBridgeEvent()/onAgentEvent()
+  -> thread store / page state 响应式更新
 ```
+
+另外两类 Wails 原生事件不走 `EventBridge`：窗口拖拽文件由 `window.go` 直接 `app.Event.Emit('files-dropped', payload)`，退出遮罩由 `WailsLifecycle.emitQuitOverlay()` 发 `app-will-quit`。
 
 这份代码地图重点覆盖三类事实：
 
@@ -42,7 +47,7 @@ cmd/agent-terminal/
 
 internal/ui/wails/
 ├── assets.go                    # FrontendFS 注入、Vite dev proxy、placeholder 回退
-├── binding.go                   # Wails App 绑定：CallAPI / 旧版 LaunchAgent / BuildInfo / LSP diag / 多窗口组
+├── binding.go                   # Wails App 绑定：CallAPI / 旧版 Agent 方法 / BuildInfo / LSP diag / 多窗口组
 ├── binding_native.go            # 原生能力：目录/文件选择、复制文本、剪贴板图片保存
 ├── bridge.go                    # eventsurface -> bridge-event / agent-event 兼容事件桥
 ├── code_preview.go              # ui/code/save|locate|open 的读写/预览/打开编辑器实现
@@ -68,11 +73,12 @@ cmd/agent-terminal/frontend/vue-app/
 ├── app.js                       # AppRoot：页面切换、全局 bootstrap、dashboard 刷新、事件订阅
 ├── provider-config-options.js   # Provider 的 model / effort 选项源
 ├── lib/echarts-custom.js        # JsonRenderer 图表用的精简 ECharts bundle
+├── data/en-zh-dict.json         # translate-dict.js 读取的本地翻译词典
 │
 ├── components/
 │   ├── ChatTimeline.js          # 主时间线；渲染 dialog/process/approval/plan/json-render/citation
 │   ├── ComposerBar.js           # 输入、附件、技能建议、线程配置、发送/停止/压缩
-│   ├── DiffPanel.js             # Diff / 文本 / Markdown / 图片预览与保存
+│   ├── DiffPanel.js             # Diff / 文本 / Markdown / 图片预览；文本/Markdown 可保存
 │   ├── DiffPanel.template.js    # DiffPanel 的模板拆分文件
 │   ├── ActivityPanel.js         # 活动统计、告警、过程事件面板
 │   ├── ProjectSelect.js         # 顶部项目选择器
@@ -203,7 +209,7 @@ cmd/agent-terminal/frontend/vue-app/
     └── format-utils.js          # 时间/token/elapsed/活动输出格式化
 ```
 
-补充：`vue-app/` 根目录下还包含大量 `*.test.js` 行为/回归测试，覆盖 `api bridge`、`ChatTimeline`、`ComposerBar`、`DiffPanel`、`thread store`、`UnifiedChatPage`、`Skills/Settings/LSP` 等场景；本地图以运行时代码为主，不逐一展开。
+补充：`vue-app/` 根目录下还包含 `styles.css`、`agent-components.css` 与 `styles/*.css` 等样式文件，以及大量 `*.test.js` 行为/回归测试；测试覆盖 `api bridge`、`ChatTimeline`、`ComposerBar`、`DiffPanel`、`thread store`、`UnifiedChatPage`、`Skills/Settings/LSP` 等场景。本地图以运行时 JS/TS/Go 逻辑为主，不逐一展开测试与样式。
 
 ---
 
@@ -223,7 +229,7 @@ cmd/agent-terminal/frontend/vue-app/
 | `codeSaveResult` | `code_preview.go` | `ui/code/save` 返回模型。 |
 | `codeLocateMatch` / `codeLocateResult` | `code_preview.go` | `ui/code/locate` 的匹配列表、截断标记与元数据。 |
 | `codeSnippetLine` / `codeOpenResult` | `code_preview.go` | `ui/code/open` 的 snippet / full-text / image preview 返回模型。 |
-| `clientMetaParams` / `scopeParams` / `code*Params` / `openNewWindowParams` | `rpc.go` | UI RPC 的严格参数模型；兼容 `_aoClientKind/_aoClientRoute` 元字段。 |
+| `clientMetaParams` / `scopeParams` / `code*Params` / `copyTextParams` / `select*Params` / `openNewWindowParams` / `windowBootstrapGetParams` | `rpc.go` | UI RPC 的严格参数模型；兼容 `_aoClientKind/_aoClientRoute` 元字段。 |
 | `httpAssetServer` | `http_server.go` | 浏览器模式下的 HTTP 资源服务与 WebSocket JRPC 容器。 |
 
 ### 3.2 Vue 组件 / Store / Composable
@@ -258,7 +264,7 @@ cmd/agent-terminal/frontend/vue-app/
 | `useThreadStore()` | `stores/threads.js` | 主线程 store 门面；组合 runtime state、偏好、同步器、动作管理器、selectors。 |
 | `createPreferenceManager()` | `stores/thread-prefs.js` | UI 偏好持久化与 `cwd` scope 注入；串行化 `ui/preferences/set` 写入。 |
 | `createSyncManager()` | `stores/thread-sync.js` + `thread-sync-helpers.js` | `ui/state/get` / `ui/sidebar/get` / `thread/messages` / event-driven sync 协调器。 |
-| `createThreadActions()` | `stores/thread-actions.js` + `thread-actions-helpers.js` | thread/start、turn/start、interrupt、recover、compact、rename、archive。 |
+| `createThreadActions()` | `stores/thread-actions.js` + `thread-actions-helpers.js` | thread start/send/interrupt/recover/compact/force-complete、rename、pin/archive、thread config 等动作实现。 |
 | `createThreadViewHelpers()` | `stores/thread-store-view.js` | `displayName`、模式过滤、当前选中 thread。 |
 | `thread-live-patch.js` | `stores/thread-live-patch.js` | 优先消费 `ui/thread/patch`，做 timeline delta、diff/status patch 与 sequence gap 恢复。 |
 | `thread-snapshot.js` | `stores/thread-snapshot.js` | full snapshot patch、optimistic item 合并、本地 active selection 保护、payload pruning。 |
@@ -342,12 +348,27 @@ func (a *App) GetBuildInfo() map[string]string
 func (a *App) GetLSPDiagnostics(filePath string) (string, error)
 func (a *App) GetLSPStatus() (any, error)
 ```
-- 提供直连绑定能力：读取 build info、查询 `lsp/gui_file diagnostics`、返回 LSP 状态占位值。
+- 提供直连绑定能力：读取 build info、查询 `lsp/gui_file diagnostics`、返回 LSP 状态占位空数组。
+
+```go
+func (a *App) SelectProjectDir() (string, error)
+func (a *App) SelectProjectDirs(defaultPath string) ([]string, error)
+func (a *App) SelectFiles() ([]string, error)
+func (a *App) CopyText(text string) (bool, error)
+func (a *App) SaveClipboardImage(filename string) (string, error)
+```
+- 原生能力绑定：目录/文件选择、Wails 剪贴板文本写入、以及通过系统工具从**当前系统剪贴板**抓取图片保存为 PNG。`SaveClipboardImage` 的 Go 形参是目标文件名/路径，不解析 base64 字符串。
+
+```go
+func (a *App) GetGroup() string
+func (a *App) OpenNewWindow(group string, n int, uiBootstrap, cwd string) error
+```
+- 多窗口兼容绑定；当前前端新窗口主路径实际走 `ui/openNewWindow` RPC。
 
 ```go
 func NewRPCHandlers(app *App, cfg *config.Config, uiState uistate.Service) rpc.HandlerMapResult
 ```
-- 注册 UI 专属 RPC：`ui/code/*`、`ui/log`、`ui/selectProjectDir`、`ui/selectProjectDirs`、`ui/selectFiles`、`ui/openNewWindow`、`ui/windowBootstrap/get`。
+- 注册 UI 专属 RPC：`ui/code/*`、`ui/copyText`、`ui/log`、`ui/selectProjectDir`、`ui/selectProjectDirs`、`ui/selectFiles`、`ui/openNewWindow`、`ui/windowBootstrap/get`。
 
 ```go
 func handleCodeSave(...)
@@ -438,7 +459,7 @@ export async function selectProjectDirs()
 export async function selectFiles()
 export async function saveClipboardImage(base64Payload)
 ```
-- API 桥中的直连绑定路径；`selectProjectDir/selectFiles` 在 by-ID 形状不符合预期时还会回退到 `ui/select*` RPC。
+- `getBuildInfo()`、`selectFiles()`、`saveClipboardImage()` 走 by-ID 直连；`selectProjectDir('')` 先尝试 by-ID，传入 `defaultPath` 或 by-ID 失败/返回形状不符时回退 `ui/selectProjectDir`；`selectProjectDirs()` 只走 `ui/selectProjectDirs` RPC。
 
 ```js
 export async function refreshChatPageData(threadStore)
@@ -513,7 +534,7 @@ export function buildMarkdownPreviewFromCodeOpen(codeOpenResult)
 export function buildImagePreviewFromCodeOpen(codeOpenResult)
 export function buildSyntheticDiffFromCodeOpen(codeOpenResult)
 ```
-- 把 `ui/code/open` 的返回结果转换成 `DiffPanel` 可消费的 preview state。
+- 把 `ui/code/open` 的返回结果转换成 `DiffPanel` 可消费的 preview state；`buildMarkdownPreviewFromCodeOpen()` 是兼容保留层，通用文本/Markdown 预览由 `buildTextPreviewFromCodeOpen()` 处理。
 
 ```js
 export function extractSpecBlocks(text)
@@ -562,7 +583,7 @@ export function translateThinkingBody(text)
 
 ### 5.3 前端逻辑依赖什么
 
-前端没有直接 import `internal/...`，但**逻辑上强依赖**以下 RPC / 绑定面：
+前端没有直接 import `internal/...`；源码实际调用或后端为桌面 UI 预留了以下 RPC / 绑定面：
 
 - **状态快照与 dashboard**
   - `ui/state/get`
@@ -618,7 +639,7 @@ export function translateThinkingBody(text)
 
 ### 5.4 前端内部的中心依赖点
 
-- **`services/api.js`**：前端唯一系统桥，同时负责 runtime event 订阅和 direct binding fallback。
+- **`services/api.js`**：前端唯一系统桥，同时负责 runtime event 订阅、by-ID 直连调用和 select 对话框 RPC fallback。
 - **`services/log.js`**：几乎所有页面/组件依赖它做 ring buffer、本地诊断和 `ui/log` 回传。
 - **`stores/threads.js`**：统一聊天状态中心。
 - **`stores/thread-snapshot.js` + `stores/thread-live-patch.js` + `stores/thread-sync-helpers.js`**：前端状态正确性的三条主链。
@@ -659,13 +680,17 @@ services/api.js
   -> /wails/runtime.js
   -> Go binding method
      - GetBuildInfo
-     - SelectProjectDir / SelectFiles
+     - SelectProjectDir（仅无 defaultPath 时先尝试）
+     - SelectFiles
      - SaveClipboardImage
-  -> 若 selectProjectDir/selectFiles 的 by-ID 返回形状不符
-     -> 回退 callAPI('ui/selectProjectDir' / 'ui/selectFiles')
+  -> fallback / unsupported shape
+     -> callAPI('ui/selectProjectDir' / 'ui/selectFiles')
+
+selectProjectDirs()
+  -> callAPI('ui/selectProjectDirs')
 ```
 
-补充：`copyTextToClipboard()` 默认优先 `ui/copyText`；仅在 debug shim 或原生桥失败时才降级浏览器 Clipboard API。
+补充：`copyTextToClipboard()` 默认优先 `ui/copyText`；仅在 debug shim、RPC 返回 `ok=false` 或原生桥失败时才降级浏览器 Clipboard API / `execCommand`。
 
 ### 6.3 用户输入 -> 后端 -> Provider / Orchestration
 
@@ -809,8 +834,8 @@ ThreadRailSidePanel new-window button
   -> WailsLifecycle.ShouldQuit()
   -> ActiveAgentCounter.ActiveAgentCount()
   -> 若 >0: emit 'app-will-quit' overlay + 延迟 requestBackendShutdown()
-  -> backend shutdown / hard deadline
-  -> NotifyBackendFailed() 或正常 quit
+  -> backend shutdown 完成或 hard deadline
+  -> NotifyBackendFailed() 放行并调用 wailsApp.Quit()
   -> 前端 onAppWillQuit() -> AppRoot.isExiting = true
   -> 显示退出遮罩
 ```
@@ -863,7 +888,7 @@ AppRoot
 
 3. **`useThreadStore()`**
    - UI 本地态：`activeThreadId`, `activeCmdThreadId`, `pinnedThreadAtById`, `archivedThreadAtById`
-   - runtime 态：`threads`, `statuses`, `interruptibleByThread`, `viewPrefsChat`, `viewPrefsCmd`, `timelinesByThread`, `diffTextByThread`, `diffRevisionByThread`, `tokenUsageByThread`, `agentMetaById`, `agentRuntimeById`, `mainAgentId`, `mainAgentState`, `activityStatsByThread`, `alertsByThread`, `skillRevision` 等
+   - runtime 态：`threads`, `statuses`, `interruptibleByThread`, `viewPrefsChat`, `viewPrefsCmd`, `statusHeadersByThread`, `statusDetailsByThread`, `overlayTextByThread`, `overlayTypeByThread`, `overlayPriorityByThread`, `timelinesByThread`, `diffTextByThread`, `diffRevisionByThread`, `tokenUsageByThread`, `agentMetaById`, `agentRuntimeById`, `mainAgentId`, `mainAgentState`, `partial`, `activityStatsByThread`, `alertsByThread`, `skillRevision`
    - 特点：store 根节点只允许 UI 本地键，runtime 状态通过 accessor 映射到 `runtimeRootState`
    - 内部层次：
      - `thread-prefs.js` + `thread-preference.model.js` + `thread-ui-normalize.js`
@@ -947,14 +972,15 @@ AppRoot
    - `assistant-markdown-streaming.js` + `pretext-layout.js`：流式文本高度与刷新调度
 
 7. **工具页普遍遵循“页面 + composable + services/api + cwd scope”模式**
-   - `SettingsPage`、`SystemPromptPage`、`SkillsPage` 都会把活动项目 `cwd` 作为作用域带给后端
+   - `SettingsPage` / `SystemPromptPage` 在相关 RPC 中用活动项目 `cwd` 作用域化请求；`SkillsPage` 的目录导入会把活动项目 `cwd` 传给后端。
 
 ---
 
 ## 8. 关键观察 / 备注
 
 - `internal/ui/wails/binding.go` 中 `LaunchAgent/StopAgent/ListAgents` 仍是**旧版桌面绑定兼容接口**，真实执行已切到 `thread/*` RPC。
-- `services/api.js` 现在不仅有 `callAPI()`，还有 `callByID()`：`GetBuildInfo`、`SelectProjectDir`、`SelectFiles`、`SaveClipboardImage` 走的是直连绑定路径。
+- `services/api.js` 现在不仅有 `callAPI()`，还有 by-ID 直连：`GetBuildInfo`、无 `defaultPath` 的 `SelectProjectDir`、`SelectFiles`、`SaveClipboardImage` 可直连；`SelectProjectDirs` 只通过 `ui/selectProjectDirs` RPC。
+- Go 侧 `SaveClipboardImage(filename string)` 通过 `pngpaste` / `wl-paste` / `xclip` / PowerShell 从系统剪贴板写 PNG；前端 wrapper 的 `base64Payload` 形参名不代表 Go 侧会解码 base64。
 - `internal/ui/wails/rpc.go` 的 `ui/code/save` 虽然保留 `CreateNew` 字段，但 `resolveSaveTarget(..., _ bool)` 仍要求文件已存在，**新建文件尚未真正打通**。
 - 多窗口后端路径已经完整：`ui/openNewWindow`、snapshot codec、`ao_ui_bootstrap/ao_window_cwd` URL 参数、`ui/windowBootstrap/get` 全都存在；**缺口在前端消费**。
 - `internal/ui/wails/GetLSPStatus()` 目前仍是 stub，固定返回空数组。
@@ -992,70 +1018,3 @@ cmd/agent-terminal/main.go
 -> frontend/vue-app/composables/useFileRefPreview.helpers.js
 -> frontend/vue-app/components/ChatTimeline.js / DiffPanel.js / ComposerBar.js
 ```
-
----
-
-## 审查补遗
-
-本次对照源码后，已在正文中补充/修正以下内容：
-
-1. **补齐遗漏文件覆盖**
-   - 前端新增覆盖了原文未展开的文件：
-     - `components/DiffPanel.template.js`
-     - `components/json-render-markdown-action-key.js`
-     - `composables/scroll-helpers.js`
-     - `composables/useFileRefPreview.helpers.js`
-     - `composables/useSkillFileNavigation.js`
-     - `composables/useThreadCards.pinned-plan.js`
-     - `lib/echarts-custom.js`
-     - `stores/thread-optimistic.js`
-     - `stores/thread-preference.model.js`
-     - `stores/thread-snapshot-utils.js`
-     - `stores/thread-state-whitelist.js`
-     - `stores/thread-time-utils.js`
-     - `stores/thread-ui-normalize.js`
-     - `stores/thread-view.model.js`
-     - `utils/assistant-markdown-click.js`
-     - `utils/assistant-markdown-codex.js`
-     - `utils/assistant-markdown-codex-ui.js`
-     - `utils/assistant-markdown-streaming.js`
-     - `utils/citation-action-utils.js`
-     - `utils/citation-preview-utils.js`
-     - `utils/code-highlight.js`
-     - `utils/composer-textarea-height.js`
-     - `utils/mermaid-renderer.js`
-     - `utils/skill-match-utils.js`
-     - `utils/skill-parser.js`
-     - `utils/thread-copy-utils.js`
-     - `utils/thread-page-types.d.ts`
-     - `utils/translate-dict.js`
-   - 同时把 `stores/thread-actions.js`、`stores/thread-sync.js` 及其 helper/model 文件补回目录结构与架构说明。
-
-2. **补齐 Wails 侧遗漏能力**
-   - 补记了 `binding.go` 中的 `GetBuildInfo`、`GetLSPDiagnostics`、`GetLSPStatus`、`OpenNewWindow`。
-   - 补记了 `rpc.go` 中 `ui/selectProjectDirs`、`ui/windowBootstrap/get`、`ui/openNewWindow`、`ui/log`。
-   - 补记了 `window_state.go` 的 snapshot codec 与按窗口消费逻辑。
-
-3. **修正系统桥描述**
-   - 原文把前端系统桥近似成单一路径 `callAPI -> App.CallAPI`；现已修正为“**主 RPC 路径 + 少量直连绑定路径**”双通道结构。
-
-4. **修正 thread store 架构描述**
-   - 原文未充分体现 `thread-state-whitelist`、`thread-optimistic`、`thread-preference.model`、`thread-time-utils`、`thread-ui-normalize` 等基础层。
-   - 现已把 `thread-snapshot`、`thread-live-patch`、`thread-diff-sync`、`thread-history-ui` 的职责拆清。
-
-5. **补全数据流**
-   - 新增了 **Diff lazy sync**（`diffRevision` -> `syncThreadDiffState(includeDiff=true)`）链路。
-   - 新增了 **技能建议**（`skills/match/preview`）链路。
-   - 新增了 **新窗口 / bootstrap snapshot** 链路。
-   - 细化了 **file-ref/citation -> preview** 中的 dirty preview guard、`PathChoiceModal` 与 fallback open 流程。
-
-6. **修正事件桥说明**
-   - 明确写出 `thread/tokenusage/updated` 现在会直接 push 到 store。
-   - 明确写出 `skills/changed` 会驱动 `skillRevision`，从而刷新 composer 技能建议。
-   - 明确写出 `ui/thread/patch` 会优先走 live patch，并做 `sequence` 去重与 gap 恢复。
-
-7. **修正多窗口现状判断**
-   - 原文只提到后端支持多窗口 bootstrap；现补充说明：**后端链路已完整，前端消费 query/bootstrap snapshot 仍是 TODO**。
-
-8. **补充非运行时代码说明**
-   - 目标目录中还包含大量 `*_test.go` 与 `*.test.js`，本地图已在目录说明中明确：测试文件存在且覆盖面广，但不在主树逐一展开。

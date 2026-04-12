@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sort"
 	"strings"
+	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -35,6 +37,10 @@ func (s *session) startReadLoop(tr *transport) {
 func (s *session) rawBase() rawBase {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.rawBaseLocked()
+}
+
+func (s *session) rawBaseLocked() rawBase {
 	return rawBase{
 		AgentID:   s.agentID,
 		ThreadID:  s.eventThreadIDLocked(),
@@ -45,28 +51,42 @@ func (s *session) rawBase() rawBase {
 	}
 }
 
-func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
-	if raw.EventType == "system:init" {
-		resolvedID := dataString(raw.Data, "session_id", "thread_id")
-		prevID := s.ThreadID()
-		s.setResolvedThreadIDForTransport(tr, resolvedID)
-		// When system:init resolves a real UUID that differs from the
-		// initial placeholder, re-dispatch an agent:launched event so
-		// downstream subscribers (thread module, UI projector) can update
-		// the binding session_uuid and provider_thread_id.
-		if newID := s.ThreadID(); newID != prevID && newID != "" {
-			s.dispatch(dto.RawProviderEvent{
-				EventType: "agent:launched",
-				Data: map[string]any{
-					"agent_id":   s.agentID,
-					"thread_id":  s.EventThreadID(),
-					"session_id": newID,
-					"cwd":        s.cwd,
-					"model":      s.model,
-				},
-			})
-		}
+func (s *session) turnRawEventLocked(eventType, turnID string, extras map[string]any) dto.RawProviderEvent {
+	base := s.rawBaseLocked()
+	data := buildEventData(base, base.SessionID, time.Now().Format(time.RFC3339Nano), extras)
+	if turnID = strings.TrimSpace(turnID); turnID != "" {
+		data["turn_id"] = turnID
 	}
+	return dto.RawProviderEvent{EventType: eventType, Data: data}
+}
+
+func (s *session) dispatch(raw dto.RawProviderEvent) {
+	if s.eventDispatcher != nil {
+		s.eventDispatcher.Dispatch(raw)
+	}
+}
+
+func (s *session) turnRawEvent(eventType, turnID string, extras map[string]any) dto.RawProviderEvent {
+	base := s.rawBase()
+	data := buildEventData(base, base.SessionID, time.Now().Format(time.RFC3339Nano), extras)
+	if turnID = strings.TrimSpace(turnID); turnID != "" {
+		data["turn_id"] = turnID
+	}
+	return dto.RawProviderEvent{EventType: eventType, Data: data}
+}
+
+func currentTurnID(handle *turnHandle) string {
+	if handle == nil {
+		return ""
+	}
+	if providerID := handle.ProviderID(); providerID != "" {
+		return providerID
+	}
+	return handle.LocalID()
+}
+
+func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
+	s.handleSystemInitRaw(tr, raw)
 	if !s.isCurrentTransport(tr) {
 		if s.logger != nil {
 			s.logger.Warn("claudecli: applyRaw: transport mismatch, event dropped",
@@ -88,9 +108,50 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 		}
 		return
 	}
+	s.trackToolEvent(raw)
+	s.dispatchToolInterruptEvents(raw)
 	s.dispatch(raw)
-	if raw.EventType == "turn:complete" || raw.EventType == "turn:interrupted" {
+	if shouldFinishTurnRaw(raw) {
 		s.finishTurnFromRaw(raw)
+	}
+}
+
+func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
+	if raw.EventType != "system:init" {
+		return
+	}
+	resolvedID := dataString(raw.Data, "session_id", "thread_id")
+	prevID := s.ThreadID()
+	s.setResolvedThreadIDForTransport(tr, resolvedID)
+	if newID := s.ThreadID(); newID != prevID && newID != "" {
+		s.dispatch(dto.RawProviderEvent{
+			EventType: "agent:launched",
+			Data: map[string]any{
+				"agent_id":   s.agentID,
+				"thread_id":  s.EventThreadID(),
+				"session_id": newID,
+				"cwd":        s.cwd,
+				"model":      s.model,
+			},
+		})
+	}
+}
+
+func (s *session) dispatchToolInterruptEvents(raw dto.RawProviderEvent) {
+	if raw.EventType != "turn:interrupted" {
+		return
+	}
+	for _, event := range s.takeActiveToolInterruptEvents(dataString(raw.Data, "turn_id"), "provider_interrupt") {
+		s.dispatch(event)
+	}
+}
+
+func shouldFinishTurnRaw(raw dto.RawProviderEvent) bool {
+	switch raw.EventType {
+	case "turn:complete", "turn:interrupted":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -145,6 +206,66 @@ func (s *session) shouldSuppressTurn(raw dto.RawProviderEvent) bool {
 	}
 }
 
+func (s *session) trackToolEvent(raw dto.RawProviderEvent) {
+	callID := strings.TrimSpace(dataString(raw.Data, "call_id"))
+	if callID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch raw.EventType {
+	case "tool:use_begin":
+		if s.activeToolCalls == nil {
+			s.activeToolCalls = map[string]string{}
+		}
+		s.activeToolCalls[callID] = strings.TrimSpace(dataString(raw.Data, "tool_name"))
+	case "tool:use_end":
+		delete(s.activeToolCalls, callID)
+	}
+}
+
+func (s *session) takeActiveToolInterruptEvents(turnID, reason string) []dto.RawProviderEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.takeActiveToolInterruptEventsLocked(turnID, reason)
+}
+
+func (s *session) takeActiveToolInterruptEventsLocked(turnID, reason string) []dto.RawProviderEvent {
+	if len(s.activeToolCalls) == 0 {
+		return nil
+	}
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		turnID = currentTurnID(s.activeTurn)
+	}
+	errText := "tool interrupted by turn interrupt"
+	if reason = strings.TrimSpace(reason); reason != "" {
+		errText += ": " + reason
+	}
+	timestamp := time.Now().Format(time.RFC3339Nano)
+	callIDs := make([]string, 0, len(s.activeToolCalls))
+	for callID := range s.activeToolCalls {
+		callIDs = append(callIDs, callID)
+	}
+	sort.Strings(callIDs)
+	events := make([]dto.RawProviderEvent, 0, len(callIDs))
+	for _, callID := range callIDs {
+		events = append(events, dto.RawProviderEvent{EventType: "tool:use_end", Data: map[string]any{
+			"timestamp":  timestamp,
+			"agent_id":   s.agentID,
+			"thread_id":  s.eventThreadIDLocked(),
+			"session_id": s.sessionID,
+			"turn_id":    turnID,
+			"call_id":    callID,
+			"tool_name":  s.activeToolCalls[callID],
+			"success":    false,
+			"error":      errText,
+		}})
+	}
+	s.activeToolCalls = nil
+	return events
+}
+
 type rawBase struct {
 	AgentID   string
 	ThreadID  string
@@ -186,6 +307,7 @@ func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error)
 	case "assistant":
 		return decodeAssistantEvent(raw, base)
 	case "user":
+		pkglogger.Get().Warn("claudecli: user event received", "line", string(line))
 		return decodeUserEvent(raw, base)
 	case "result":
 		return decodeResultEvent(raw, base), nil

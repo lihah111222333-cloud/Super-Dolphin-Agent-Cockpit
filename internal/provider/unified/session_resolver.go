@@ -192,6 +192,16 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *bindin
 		ProviderThreadID: binding.ProviderThreadID,
 		CWD:              binding.Cwd,
 	}
+	pkglogger.Warn("resolve session: auto-resume binding snapshot from DB",
+		"agent_id", binding.AgentID,
+		"provider", provider,
+		"provider_thread_id", binding.ProviderThreadID,
+		"codex_thread_id", binding.CodexThreadID,
+		"rollout_path", binding.RolloutPath,
+		"session_uuid", binding.SessionUUID,
+		"cwd", binding.Cwd,
+		"created_at", binding.CreatedAt,
+	)
 	pkglogger.Info("resolve session: auto-resuming after restart",
 		"agent_id", binding.AgentID,
 		"provider", provider,

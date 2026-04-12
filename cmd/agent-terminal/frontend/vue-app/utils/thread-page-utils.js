@@ -123,15 +123,13 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
       thread_id: id,
     });
     const concurrentStart = perfNow();
-    const [_, requestedHistory] = await Promise.all([
-      threadStore.syncThreadState(id).catch(err => {
-        logWarn('ui', 'chat.selection.syncThreadState.failed', { thread_id: id, error: err?.message || String(err) });
-      }),
-      requestHistoryLoad(threadStore, id, { syncRuntime: false, force: true }).catch(err => {
-        logWarn('ui', 'chat.selection.requestHistoryLoad.failed', { thread_id: id, error: err?.message || String(err) });
-        return false;
-      })
-    ]);
+    const requestedHistory = await requestHistoryLoad(threadStore, id, { syncRuntime: false, force: true }).catch(err => {
+      logWarn('ui', 'chat.selection.requestHistoryLoad.failed', { thread_id: id, error: err?.message || String(err) });
+      return false;
+    });
+    await threadStore.syncThreadState(id).catch(err => {
+      logWarn('ui', 'chat.selection.syncThreadState.failed', { thread_id: id, error: err?.message || String(err) });
+    });
     const concurrentDuration = Math.round(perfNow() - concurrentStart);
     logWarn('ui', 'chat.selection.concurrentLoad.done', {
       thread_id: id,

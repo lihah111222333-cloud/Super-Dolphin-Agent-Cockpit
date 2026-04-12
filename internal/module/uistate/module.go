@@ -109,23 +109,36 @@ func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threa
 		applyBindingToAgent(&agents[i], byAgent)
 	}
 	for _, thread := range threads {
-		if thread.AgentID != "" {
-			if entry, ok := byAgent[thread.AgentID]; ok && entry.Provider != "" {
-				rt := runtimeMap[thread.ID]
-				if rt == nil {
-					rt = map[string]any{
-						"agentId":          thread.AgentID,
-						"state":            "idle",
-						"providerThreadId": entry.ProviderThreadID,
-					}
-					runtimeMap[thread.ID] = rt
-				}
-				if rt["provider"] == nil || rt["provider"] == "" {
-					rt["provider"] = entry.Provider
-				}
-			}
-		}
+		applyBindingToThreadRuntime(thread, byAgent, runtimeMap)
 	}
+}
+
+func applyBindingToThreadRuntime(thread ThreadSummary, idx map[string]bindingEntry, runtimeMap map[string]map[string]any) {
+	if thread.AgentID == "" {
+		return
+	}
+	entry, ok := idx[thread.AgentID]
+	if !ok || entry.Provider == "" {
+		return
+	}
+	rt := ensureThreadRuntime(thread, entry, runtimeMap)
+	if rt["provider"] == nil || rt["provider"] == "" {
+		rt["provider"] = entry.Provider
+	}
+}
+
+func ensureThreadRuntime(thread ThreadSummary, entry bindingEntry, runtimeMap map[string]map[string]any) map[string]any {
+	rt := runtimeMap[thread.ID]
+	if rt != nil {
+		return rt
+	}
+	rt = map[string]any{
+		"agentId":          thread.AgentID,
+		"state":            "idle",
+		"providerThreadId": entry.ProviderThreadID,
+	}
+	runtimeMap[thread.ID] = rt
+	return rt
 }
 
 func (s *service) loadBindingIndex(ctx context.Context) map[string]bindingEntry {

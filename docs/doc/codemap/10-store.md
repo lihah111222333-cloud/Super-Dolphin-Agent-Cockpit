@@ -70,15 +70,15 @@
 
 ## 2. 各子 store 详述
 
-> 下列 17 个子包均已按源码核对；contract 接口也全部补齐。除 `hookstore` 外，默认每个包都包含 `module.go`。
+> 下列 17 个子包均已按源码核对；contract 接口也全部补齐。17 个子包都包含 `module.go`；`hookstore` 的例外仅是没有本地 `contract.go`，而是实现 `internal/contract.HookReviewStore`。
 
 ### 2.1 `agentstatus`
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：保存 Agent 运行状态快照。
 - **contract**：
-  - `Upsert(ctx, UpsertParams) (*AgentStatus, error)`
-  - `Get(ctx, agentID string) (*AgentStatus, error)`
-  - `List(ctx, status string) ([]AgentStatus, error)`
+  - `Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, error)`
+  - `Get(ctx context.Context, agentID string) (*AgentStatus, error)`
+  - `List(ctx context.Context, status string) ([]AgentStatus, error)`
 - **关键实现**：
   - `Upsert` → `sqlc.UpsertAgentStatus`，`created_at/updated_at` 都由 SQL 内部 `NOW()` 维护。
   - `List` → `sqlc.ListAgentStatuses`，SQL 内置 `LIMIT 500`。
@@ -89,10 +89,10 @@
 - **文件**：`contract.go` / `store.go` / `module.go` / `store_test.go`
 - **职责**：从 `system_logs` 派生“AI 日志视图”，不是独立落表仓储。
 - **contract**：
-  - `List(ctx, filter ListFilter) ([]AILog, error)`
-  - `ListByCategory(ctx, category string, keyword string, limit int32) ([]AILog, error)`
-  - `CountByStatus(ctx) ([]StatusCount, error)`
-  - `ListRecent(ctx, limit int32) ([]AILog, error)`
+  - `List(ctx context.Context, filter ListFilter) ([]AILog, error)`
+  - `ListByCategory(ctx context.Context, category string, keyword string, limit int32) ([]AILog, error)`
+  - `CountByStatus(ctx context.Context) ([]StatusCount, error)`
+  - `ListRecent(ctx context.Context, limit int32) ([]AILog, error)`
 - **关键实现**：
   - `List`：直接读 `system_logs`。
   - `ListByCategory`：使用 CTE + 正则从 `message` 中派生 `category/method/url/endpoint/status/status_text/model`。
@@ -105,8 +105,8 @@
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：审计事件写入与检索。
 - **contract**：
-  - `List(ctx, filter ListFilter) ([]AuditEvent, error)`
-  - `Insert(ctx, params InsertParams) error`
+  - `List(ctx context.Context, filter ListFilter) ([]AuditEvent, error)`
+  - `Insert(ctx context.Context, params InsertParams) error`
 - **关键实现**：
   - `Insert`：写 `audit_events`，`ts=NOW()` 由 SQL 内部生成。
   - `List`：支持 `event_type/action/actor/keyword/limit`。
@@ -117,17 +117,17 @@
 - **文件**：`contract.go` / `store.go` / `module.go` / `store_test.go`
 - **职责**：维护 agent 与 provider thread / codex thread 的绑定关系。
 - **contract**：
-  - `GetByProviderThread(ctx, provider, providerThreadID string) (*Binding, error)`
-  - `Upsert(ctx, params UpsertParams) error`
-  - `DeleteByAgentID(ctx, agentID string) error`
-  - `UpdateSessionUUID(ctx, params UpdateSessionUUIDParams) error`
-  - `SetArchived(ctx, params SetArchivedParams) error`
-  - `GetByAgentID(ctx, agentID string) (*Binding, error)`
-  - `BindAgentThread(ctx, params BindAgentThreadParams) error`
-  - `UnbindAgentThread(ctx, agentID string) error`
-  - `ListAgentThreadBindings(ctx) ([]Binding, error)`
-  - `GetThreadByAgent(ctx, agentID string) (string, error)`
-  - `UpdateAgentCwd(ctx, params UpdateAgentCwdParams) error`
+  - `GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*Binding, error)`
+  - `Upsert(ctx context.Context, params UpsertParams) error`
+  - `DeleteByAgentID(ctx context.Context, agentID string) error`
+  - `UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDParams) error`
+  - `SetArchived(ctx context.Context, params SetArchivedParams) error`
+  - `GetByAgentID(ctx context.Context, agentID string) (*Binding, error)`
+  - `BindAgentThread(ctx context.Context, params BindAgentThreadParams) error`
+  - `UnbindAgentThread(ctx context.Context, agentID string) error`
+  - `ListAgentThreadBindings(ctx context.Context) ([]Binding, error)`
+  - `GetThreadByAgent(ctx context.Context, agentID string) (string, error)`
+  - `UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams) error`
 - **关键实现**：
   - `Upsert`：写 `agent_provider_binding`；若遇到 `(provider, provider_thread_id)` 唯一冲突，会回查旧记录，若 `agent_id` 相同则视作幂等成功。
   - `BindAgentThread`：使用 `thread_binding.sql`。**插入路径**会写入 `provider='codex'`、`provider_thread_id=thread_id`、`codex_thread_id=thread_id`；**agent_id 冲突路径**只更新 `codex_thread_id/cwd/updated_at`，不会改写 `provider/provider_thread_id`。
@@ -148,7 +148,7 @@
 ### 2.5 `buslog`
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：总线异常日志查询。
-- **contract**：`List(ctx, filter ListFilter) ([]BusExceptionLog, error)`
+- **contract**：`List(ctx context.Context, filter ListFilter) ([]BusExceptionLog, error)`
 - **关键实现**：
   - `List`：支持 `category/severity/keyword/limit`。
 - **表 / SQL**：`bus_exception_logs` / `sql/queries/bus_log.sql`
@@ -157,7 +157,7 @@
 ### 2.6 `commandcard`
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：命令卡只读查询。
-- **contract**：`Reader.List(ctx, filter ListFilter) ([]CommandCard, error)`
+- **contract**：`Reader` 接口：`List(ctx context.Context, filter ListFilter) ([]CommandCard, error)`
 - **关键实现**：
   - `List`：查询 `command_cards`，并左连接 `command_card_runs` 聚合 `last_run_at` 与 `run_count`。
 - **表 / SQL**：`command_cards`、`command_card_runs` / `sql/queries/command_card.sql`
@@ -169,12 +169,12 @@
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：同一工作目录（CWD）互斥锁。
 - **contract**：
-  - `Acquire(ctx, params AcquireParams) (int64, error)`
-  - `ForceAcquire(ctx, params ForceAcquireParams) (int64, error)`
-  - `Release(ctx, params ReleaseParams) (int64, error)`
-  - `Heartbeat(ctx, params HeartbeatParams) error`
-  - `DeleteStale(ctx) (int64, error)`
-  - `GetHolder(ctx, cwd string) (*LockHolder, error)`
+  - `Acquire(ctx context.Context, params AcquireParams) (int64, error)`
+  - `ForceAcquire(ctx context.Context, params ForceAcquireParams) (int64, error)`
+  - `Release(ctx context.Context, params ReleaseParams) (int64, error)`
+  - `Heartbeat(ctx context.Context, params HeartbeatParams) error`
+  - `DeleteStale(ctx context.Context) (int64, error)`
+  - `GetHolder(ctx context.Context, cwd string) (*LockHolder, error)`
 - **关键实现**：
   - `Acquire`：若同实例重入，或旧锁 `heartbeat_at < NOW()-45s`，允许抢占。
   - `ForceAcquire`：仅当当前 holder 的 `pid` 等于指定 `HolderPID` 时强制顶替。
@@ -185,8 +185,8 @@
 - **文件**：`contract.go` / `store.go` / `executor.go` / `executor_parser.go` / `normalize.go` / `module.go`
 - **职责**：受限的运行时只读 SQL 查询引擎。
 - **contract**：
-  - `Placeholder(ctx) ([]PlaceholderRow, error)`
-  - `Query(ctx, query string, args ...any) ([]map[string]any, error)`
+  - `Placeholder(ctx context.Context) ([]PlaceholderRow, error)`
+  - `Query(ctx context.Context, query string, args ...any) ([]map[string]any, error)`
 - **关键实现**：
   - `Query`：走手写执行器 `executeQuery(...)`，并不依赖静态 sqlc query。
   - `Placeholder`：仅保留一个 `PlaceholderDBQuery` 占位 query，以维持整体 store 结构。
@@ -196,21 +196,23 @@
 ### 2.9 `hookstore`
 - **文件**：`hookstore.go` / `module.go` / 多个测试文件
 - **职责**：保存待人工 / 订阅者决策的 Hook review。
-- **contract**：实现 `internal/contract.HookReviewStore`，完整方法集为：
-  - `SavePendingReview`
-  - `GetPendingReview`
-  - `GetResolvedReview`
-  - `ListPendingReviews`
-  - `ResolvePendingReview`
-  - `CancelPendingReviewsByLease`
-  - `CancelPendingReviewsByAgent`
-  - `CancelExpiredReviews`
-  - `RecoverOnStartup`
+- **contract**：实现 `internal/contract.HookReviewStore`，完整签名为：
+  - `SavePendingReview(ctx context.Context, review mcp.PendingHookReview) error`
+  - `GetPendingReview(ctx context.Context, hookCallID string) (mcp.PendingHookReview, error)`
+  - `GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, string, error)`（返回 `decision/resolved_at/subscriber_lease`）
+  - `ListPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error)`
+  - `ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey, resolvedBy string) error`
+  - `CancelPendingReviewsByLease(ctx context.Context, subscriberLease string) (int, error)`
+  - `CancelPendingReviewsByAgent(ctx context.Context, agentID string) (int, error)`
+  - `CancelExpiredReviews(ctx context.Context) (int, error)`
+  - `RecoverOnStartup(ctx context.Context) ([]mcp.PendingHookReview, error)`
 - **关键实现**：
-  - `SavePendingReview`：`ON CONFLICT (hook_call_id) DO NOTHING`
-  - `ResolvePendingReview`：先做 `idempotency_key` 幂等检查，再把 `pending -> resolved`，并写入 `resolved_by`
-  - `CancelExpiredReviews`：把过期 `pending` 置为 `expired`，同时把 `decision = default_action`
-  - `RecoverOnStartup`：启动时恢复全部 `pending`
+  - `SavePendingReview`：只写 `hook_call_id/topic/agent_id/subscriber_lease/default_action/status/created_at/deadline_at`，`status` 固定为 `pending`，并使用 `ON CONFLICT (hook_call_id) DO NOTHING`；当前不会写 `thread_id/turn_id/payload`。
+  - `GetPendingReview / ListPendingReviews / RecoverOnStartup`：只扫描 `PendingHookReview` 暴露的字段；`ListPendingReviews` 按 `created_at ASC`，`RecoverOnStartup` 按 `deadline_at ASC`。
+  - `ResolvePendingReview`：先检查 `status='resolved' AND idempotency_key=$2` 做幂等返回，再把 `pending -> resolved`，并写入 `decision/reason/idempotency_key/resolved_by/resolved_at`。
+  - `GetResolvedReview`：仅读 `decision/resolved_at/subscriber_lease`，不返回 `resolved_by`。
+  - `CancelPendingReviewsByLease / CancelPendingReviewsByAgent`：把匹配的 `pending` 置为 `cancelled` 并写 `resolved_at`，不写 `decision`。
+  - `CancelExpiredReviews`：把过期 `pending` 置为 `expired`，同时把 `decision = default_action` 并写 `resolved_at`。
 - **表**：`hook_pending_reviews`
 - **备注**：
   - 明确是 **sqlc 例外**：`NewStore(*sqlc.Queries)` 只取 `q.Queryable()`，后续全部走手写 SQL。
@@ -220,10 +222,10 @@
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：Agent 间交互消息 / 审批记录。
 - **contract**：
-  - `Create(ctx, interaction Interaction) (*Interaction, error)`
-  - `Get(ctx, id int64) (*Interaction, error)`
-  - `List(ctx, filter ListFilter) ([]Interaction, error)`
-  - `Review(ctx, input ReviewInput) (*Interaction, error)`
+  - `Create(ctx context.Context, interaction Interaction) (*Interaction, error)`
+  - `Get(ctx context.Context, id int64) (*Interaction, error)`
+  - `List(ctx context.Context, filter ListFilter) ([]Interaction, error)`
+  - `Review(ctx context.Context, input ReviewInput) (*Interaction, error)`
 - **关键实现**：
   - `Create`：实际写入的核心列是 `thread_id/parent_id/sender/receiver/msg_type/status/requires_review/payload`。
   - `Review`：更新 `status/reviewed_by/review_note/reviewed_at/updated_at`。
@@ -233,7 +235,7 @@
 ### 2.11 `prompt`
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：提示模板只读查询。
-- **contract**：`Reader.List(ctx, filter ListFilter) ([]PromptTemplate, error)`
+- **contract**：`Reader` 接口：`List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)`
 - **关键实现**：
   - `List`：按 `agent_key + keyword` 查询 `prompt_templates`。
 - **表 / SQL**：`prompt_templates` / `sql/queries/prompt_template.sql`
@@ -245,8 +247,8 @@
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：共享文件只读查询。
 - **contract**：
-  - `Get(ctx, path string) (*SharedFile, error)`
-  - `List(ctx, filter ListFilter) ([]SharedFile, error)`
+  - `Get(ctx context.Context, path string) (*SharedFile, error)`
+  - `List(ctx context.Context, filter ListFilter) ([]SharedFile, error)`
 - **关键实现**：
   - `Get`：按 `path` 精确读取。
   - `List`：底层 SQL 使用 `ILIKE '%...%'`，是包含匹配而不是真前缀匹配。
@@ -257,8 +259,8 @@
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：系统日志读写。
 - **contract**：
-  - `List(ctx, filter ListFilter) ([]SystemLog, error)`
-  - `Insert(ctx, params InsertParams) error`
+  - `List(ctx context.Context, filter ListFilter) ([]SystemLog, error)`
+  - `Insert(ctx context.Context, params InsertParams) error`
 - **关键实现**：
   - `Insert`：当前只写基础列 `level/logger/message/raw`。
   - `List`：支持 `level/logger/source/component/agent_id/thread_id/event_type/tool_name` 的精确过滤，以及关键词检索。
@@ -269,8 +271,8 @@
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：任务链路追踪。
 - **contract**：
-  - `Insert(ctx, trace TaskTrace) (*TaskTrace, error)`
-  - `List(ctx, filter ListFilter) ([]TaskTrace, error)`
+  - `Insert(ctx context.Context, trace TaskTrace) (*TaskTrace, error)`
+  - `List(ctx context.Context, filter ListFilter) ([]TaskTrace, error)`
 - **关键实现**：
   - `Insert`：写 `trace_id/span_id/parent_span_id/span_name/component/input_payload/output_payload/status/error_text/duration_ms/metadata`。
   - `List`：支持 `component/since/keyword/limit`。
@@ -281,8 +283,20 @@
 - **文件**：`contract.go` / `store.go` / `module.go` / `store_test.go`
 - **职责**：线程注册、服务发现、运行态恢复。
 - **contract**：
-  - 读取：`GetByThreadID`、`GetByPort`、`ListAll`、`ListRunning`、`ListRecoverable`、`ListRunningAgents`、`ListCwds`、`ListCwdsByPrefix`、`RunningExists`
-  - 写入：`Upsert`、`UpdateStatus`、`DeleteByThreadID`、`ResetRunning`、`ExpireStale`
+  - `GetByThreadID(ctx context.Context, threadID string) (*Thread, error)`
+  - `GetByPort(ctx context.Context, port int32) (*Thread, error)`
+  - `ListAll(ctx context.Context) ([]Thread, error)`
+  - `ListRunning(ctx context.Context) ([]Thread, error)`
+  - `ListRecoverable(ctx context.Context) ([]Thread, error)`
+  - `ListRunningAgents(ctx context.Context) ([]RunningAgent, error)`
+  - `Upsert(ctx context.Context, params UpsertParams) error`
+  - `UpdateStatus(ctx context.Context, params UpdateStatusParams) error`
+  - `DeleteByThreadID(ctx context.Context, threadID string) error`
+  - `ResetRunning(ctx context.Context) error`
+  - `ExpireStale(ctx context.Context, params ExpireStaleParams) (int64, error)`
+  - `RunningExists(ctx context.Context, threadID string) (bool, error)`
+  - `ListCwds(ctx context.Context) ([]ThreadCwd, error)`
+  - `ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCwd, error)`
 - **关键实现**：
   - `Upsert`：写 `agent_threads` 主运行信息与 `config_override`。
   - `GetByThreadID / GetByPort / List*`：SQL 会回查 `agent_provider_binding`，按 `provider_thread_id/codex_thread_id`，必要时还会利用 `owner_thread_id` 派生 `AgentID`。
@@ -300,10 +314,10 @@
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：拓扑 / 架构审批。
 - **contract**：
-  - `Create(ctx, approval TopologyApproval) (*TopologyApproval, error)`
-  - `Approve(ctx, reviewer, id string) (int64, error)`
-  - `Reject(ctx, reviewer, id string) (int64, error)`
-  - `ListPending(ctx) ([]TopologyApproval, error)`
+  - `Create(ctx context.Context, approval TopologyApproval) (*TopologyApproval, error)`
+  - `Approve(ctx context.Context, reviewer, id string) (int64, error)`
+  - `Reject(ctx context.Context, reviewer, id string) (int64, error)`
+  - `ListPending(ctx context.Context) ([]TopologyApproval, error)`
 - **关键实现**：
   - `Create`：SQL 强制写 `status='pending'`，因此输入 DTO 里的 `Status/ReviewedAt/Reviewer/ReviewNote` 不参与插入。
   - `Approve/Reject`：仅设置 `status/reviewer/reviewed_at`。
@@ -315,9 +329,9 @@
 - **文件**：`contract.go` / `store.go` / `module.go`
 - **职责**：UI 偏好持久化。
 - **contract**：
-  - `GetValue(ctx, cwd, key string) (json.RawMessage, error)`
-  - `Upsert(ctx, params UpsertParams) error`
-  - `List(ctx, cwd string) ([]UIPreference, error)`
+  - `GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error)`
+  - `Upsert(ctx context.Context, params UpsertParams) error`
+  - `List(ctx context.Context, cwd string) ([]UIPreference, error)`
 - **关键实现**：
   - `GetValue`：严格按 `(cwd, key)` 精确读取，**不会**自动回退到全局 `cwd=''`。
   - `Upsert`：按 `(cwd, key)` UPSERT。
@@ -336,6 +350,7 @@
 - `out: internal/store/sqlc`
 - `package: sqlc`
 - `sql_package: pgx/v5`
+- `sql_driver: github.com/jackc/pgx/v5`
 - 打开了：
   - `emit_json_tags`
   - `emit_db_tags`
@@ -349,7 +364,7 @@
   - `json/jsonb` → `json.RawMessage`
 
 ### 3.2 schema 输入的真实组织方式
-`sqlc.yaml` **不是**直接读取完整历史迁移链，而是使用以下“代码生成输入集”：
+根 `sqlc.yaml` **不是**直接读取完整历史迁移链，而是使用以下“代码生成输入集”：
 
 - `migrations/001_baseline.sql`
 - `migrations/0022_binding_session_uuid.sql`
@@ -359,14 +374,9 @@
 
 这意味着：
 
-- **sqlc 生成 schema**：来自“baseline + 少量补丁”。
-- **运行时真实 schema**：仍应以 `migrations/` 历史迁移链为准，尤其是：
-  - `0025_hook_pending_reviews.sql`
-  - `0026_hook_pending_reviews_resolved_by.sql`
-  - `0027_prompt_description_columns.sql`
-  - 以及更早的 `0001/0003/0005/0006/0010/0012/0019/0020/0021/0006_workspace_runs` 等约束定义文件。
-
-> 审查结论：`001_baseline.sql` 更像 sqlc 的“扁平解析输入”，而**不是**唯一权威的运行时 DDL。实际主键、唯一约束、检查约束仍需对照历史迁移链理解。
+- **sqlc 生成 schema**：来自“`001_baseline` + 4 个补丁”。其中 `0022` 增补 `agent_provider_binding.session_uuid`，`0023` 增补 DAG watcher 相关列 / 表，`0024` 增补 `prompt_versions.description`，`0025_agent_thread_config_override` 增补 `agent_threads.config_override`。
+- **不在根 sqlc 输入里的后续迁移**：`0025_hook_pending_reviews.sql`、`0026_hook_pending_reviews_resolved_by.sql`、`0027_prompt_description_columns.sql` 没有被根 `sqlc.yaml` 读取；这也解释了 `hookstore` 为什么必须手写 SQL，而 `prompt_templates.description` 需要依赖 `001_baseline` 或运行时 `0027`。
+- **重要审查结论**：当前 `001_baseline.sql` 是 sqlc 可解析的扁平 schema 快照；它包含表、索引、触发器函数与触发器，但没有为大多数既有表写出 `PRIMARY KEY / UNIQUE / CHECK` 约束。因此，凡涉及“约束是否存在”的描述，必须同时看历史增量迁移（如 `0001/0003/0005/0006/0012/0020/0021/0006_workspace_runs`）或真实数据库，而不能只把 `001_baseline.sql` 当成完整 runtime DDL。
 
 `hook_pending_reviews` 整张表都没有进入 `sqlc.yaml`，这与 `hookstore` 采用手写 SQL 的设计完全对应。
 
@@ -406,6 +416,8 @@
    - `ui_preference.sql.go`
    - `workspace_run.sql.go`
 
+> 反向核对：`sql/queries/` 当前共有 18 个 `.sql` 文件，均已在本节或第 7 节提及；没有发现文档未提及的查询文件。
+
 ### 3.4 store 与 sqlc 的边界
 store 层的主要价值在于：
 
@@ -438,26 +450,16 @@ store 层的主要价值在于：
 
 ---
 
-## 4. 数据库 Schema（按运行时迁移视角）
+## 4. 数据库 Schema（按 baseline + 增量 / 历史约束视角）
 
 ### 4.1 解读原则
-与当前 store 直接相关的最终运行时 schema，主要来自以下迁移：
+本节按“**当前源码实际依赖的列 / 索引**”描述 schema，并明确区分两类来源：
 
-- 初始资产 / 交互 / 日志：`0001_initial_schema.sql`
-- trace 与 prompt version：`0003_task_trace_prompt_versions.sql`
-- command card version：`0005_command_card_versions.sql`
-- agent status：`0006_agent_status.sql`
-- workspace run：`0006_workspace_runs.sql`
-- bus log：`0007_bus_exception_logs.sql`
-- system log 扩列：`0009_system_logs_v2.sql`
-- ui preferences：`0010_ui_preferences.sql` + `0020_ui_preferences_cwd.sql`
-- thread：`0012_agent_threads.sql` + `0025_agent_thread_config_override.sql`
-- cwd lock：`0019_cwd_instance_locks.sql`
-- provider binding：`0021_agent_provider_binding.sql` + `0022_binding_session_uuid.sql`
-- prompt description：`0024_prompt_versions_description.sql` + `0027_prompt_description_columns.sql`
-- hook review：`0025_hook_pending_reviews.sql` + `0026_hook_pending_reviews_resolved_by.sql`
+- **sqlc 生成输入**：根 `sqlc.yaml` 读取 `001_baseline.sql + 0022_binding_session_uuid.sql + 0023_dag_watcher_phase1.sql + 0024_prompt_versions_description.sql + 0025_agent_thread_config_override.sql`。
+- **手写 / 运行时补丁**：`hookstore` 依赖 `0025_hook_pending_reviews.sql + 0026_hook_pending_reviews_resolved_by.sql`；`0027_prompt_description_columns.sql` 对 `prompt_templates.description / prompt_versions.description` 做运行时幂等兜底，但不在根 sqlc 输入中。
+- **约束来源说明**：`001_baseline.sql` 对多数既有表只给出列、索引、触发器，不给出 PK/UNIQUE/CHECK；下文写到的主键、唯一约束、检查约束来自历史迁移链（例如 `0001/0003/0005/0006/0006_workspace_runs/0010/0012/0019/0020/0021`）或 post-baseline 手写迁移（例如 `0025_hook_pending_reviews`）。
 
-> 也因此，本节以“历史迁移链合并后的最终结果”为准，而不是把 `001_baseline.sql` 直接当成全部真相。
+> 审查结论：列 / 索引必须优先对齐 `001_baseline.sql + post-baseline 增量`；约束必须额外对照历史迁移链，因为当前 `001_baseline.sql` 本身并不是完整可执行 runtime DDL。
 
 ### 4.2 运行态 / 绑定相关表
 
@@ -474,7 +476,7 @@ store 层的主要价值在于：
 
 #### `agent_threads`
 - 最终主列：`thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, config_override`
-- 索引：`status / port / pid / owner_thread_id / workspace_run_key`
+- 索引：`status / port / pid / owner_thread_id / workspace_run_key`（后两者出现在 `001_baseline.sql`；旧的 `0012_agent_threads.sql` 只建 `status/port/pid`）
 - 对应 store：`thread`
 - 备注：时间字段是 Unix `BIGINT`；更像运行时注册表而非纯审计表。
 
@@ -484,7 +486,7 @@ store 层的主要价值在于：
   - `PRIMARY KEY (agent_id)`
   - `CHECK status IN ('running','idle','stuck','error','disconnected','unknown')`
   - `CHECK (stagnant_sec >= 0)`
-- 索引：`(status, updated_at DESC)`
+- 索引：`(status, updated_at DESC)`、`updated_at DESC`（`001_baseline.sql` 中同时存在 `idx_agent_status_status_updated` / `idx_agent_status_status_updated_at` 与 `idx_agent_status_updated_at` / `idx_agent_status_updated_at_desc` 这两组重复语义索引名）
 - 对应 store：`agentstatus`
 
 #### `cwd_instance_locks`
@@ -565,8 +567,8 @@ store 层的主要价值在于：
 - `prompt_templates`：当前生效模板；`prompt_key` 唯一
 - `prompt_versions`：历史版本归档
 - 两张表最终都带 `description` 列：
-  - `prompt_versions.description` 由 `0024_prompt_versions_description.sql` 增补
-  - `0027_prompt_description_columns.sql` 再做一次幂等兜底
+  - `prompt_templates.description` 已在 `001_baseline.sql` 中出现，`0027_prompt_description_columns.sql` 再做一次幂等兜底
+  - `prompt_versions.description` 由 `0024_prompt_versions_description.sql` 增补，`0027_prompt_description_columns.sql` 再做一次幂等兜底
 - 关键索引：
   - `prompt_templates(agent_key, tool_name)`
   - `prompt_templates(enabled, updated_at DESC)`
@@ -587,7 +589,7 @@ store 层的主要价值在于：
 ### 4.5 sqlc 低层已覆盖、但当前 `internal/store` 未包装成子 store 的表
 
 #### `workspace_runs`
-- 主列：`run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at`
+- 主列：`id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at`
 - 约束：
   - `PRIMARY KEY (id)`
   - `UNIQUE (run_key)`
@@ -596,7 +598,7 @@ store 层的主要价值在于：
 - 生成代码：`internal/store/sqlc/workspace_run.sql.go`
 
 #### `workspace_run_files`
-- 主列：`run_key, relative_path, baseline_sha256, workspace_sha256, source_sha256_before, source_sha256_after, state, last_error, created_at, updated_at`
+- 主列：`id, run_key, relative_path, baseline_sha256, workspace_sha256, source_sha256_before, source_sha256_after, state, last_error, created_at, updated_at`
 - 约束：
   - `PRIMARY KEY (id)`
   - `UNIQUE (run_key, relative_path)`
@@ -605,6 +607,7 @@ store 层的主要价值在于：
 
 ### 4.6 schema 中仍存在、但当前 store 根模块未直接包装的遗留 / 外围对象
 - `agent_codex_binding`
+- `prompt_template_versions`（存在于 `001_baseline.sql`；历史链里 `0003_task_trace_prompt_versions.sql` 会在条件满足时把旧表名迁到 `prompt_versions`）
 - `prompts`
 - `topology_approval_archives`
 - `schema_migrations`
@@ -615,7 +618,7 @@ store 层的主要价值在于：
 - `task_dag_worker_leases`
 
 其中：
-- `task_dag_*` 在 schema 中仍然有效，且 `0023_dag_watcher_phase1.sql` 还继续扩展它们；
+- `task_dag_*` 在 schema 中仍然有效，且 `0023_dag_watcher_phase1.sql` 还继续扩展 `task_dag_nodes` 并新增 `task_dag_wakeups / task_dag_worker_leases`；
 - 但这些对象当前都不在 `store.Module` 的 17 个子 store 注册面里；
 - `dbquery` 的白名单也**没有**向这些表开放。
 
@@ -694,7 +697,7 @@ store 层的主要价值在于：
 
    补充说明：
    - `SELECT 1`、`SELECT now()` 这类**不引用白名单表**的查询也会被拒绝。
-   - `hook_pending_reviews`、`agent_codex_binding`、`prompts`、`topology_approval_archives`、`task_dag_*` 都不在开放名单里。
+   - `hook_pending_reviews`、`agent_codex_binding`、`prompt_template_versions`、`prompts`、`schema_migrations`、`topology_approval_archives`、`task_acks`、`task_dag_*` 都不在开放名单里。
 
 6. **运行时保护**
    - 默认 `10s` 超时
@@ -766,10 +769,22 @@ var Module = fx.Module("store",
 store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
 
 - `agentstatus.NewStore(*sqlc.Queries) Store`
-- `prompt.NewStore(*sqlc.Queries) Reader`
+- `ailog.NewStore(*sqlc.Queries) Store`
+- `auditlog.NewStore(*sqlc.Queries) Store`
+- `binding.NewStore(*sqlc.Queries) Store`
+- `buslog.NewStore(*sqlc.Queries) Store`
 - `commandcard.NewStore(*sqlc.Queries) Reader`
-- `sharedfile.NewStore(*sqlc.Queries) Reader`
+- `cwdlock.NewStore(*sqlc.Queries) Store`
+- `dbquery.NewStore(*sqlc.Queries, time.Duration) Store`；fx 实际通过 `newDefaultStore(*sqlc.Queries) Store` 注入默认 `10s` 超时
 - `hookstore.NewStore(*sqlc.Queries) contract.HookReviewStore`
+- `interaction.NewStore(*sqlc.Queries) Store`
+- `prompt.NewStore(*sqlc.Queries) Reader`
+- `sharedfile.NewStore(*sqlc.Queries) Reader`
+- `systemlog.NewStore(*sqlc.Queries) Store`
+- `tasktrace.NewStore(*sqlc.Queries) Store`
+- `thread.NewStore(*sqlc.Queries) Store`
+- `topologyapproval.NewStore(*sqlc.Queries) Store`
+- `uipreference.NewStore(*sqlc.Queries) Store`
 
 这意味着：
 - 上层默认拿到的是“接口视图”，不是具体实现类型；
@@ -815,9 +830,10 @@ store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
 
 ## 审查补遗
 
-1. 已逐一核对 `internal/store/`、`internal/store/sqlc/`、`migrations/`、`sql/queries/`，当前 `store.Module` 注册的 **17 个子 store 均已覆盖**，接口签名已按源码补齐，无漏项。
+1. 已逐一核对 `internal/store/`、`internal/store/sqlc/`、`migrations/`、`sql/queries/`，当前 `store.Module` 注册的 **17 个子 store 均已覆盖**；`thread` 与 `hookstore` 的 contract 也已改成完整方法签名。
 2. 修正了 `agent_provider_binding` 的 schema 描述：最新迁移并**没有**为它建立 `cwd / created_at DESC` 二级索引；旧描述混入了 `agent_codex_binding` 的遗留索引信息。
 3. 修正了 `binding.BindAgentThread` 的行为说明：它在插入路径会写入 `provider='codex'` 与 `provider_thread_id=thread_id`，但在 `agent_id` 冲突路径只更新 `codex_thread_id/cwd/updated_at`。
-4. 补强了 sqlc 组织描述：`command_card.sql.go` 还生成了 `ListCommandCardVersions`；`workspace_run.sql.go` 已完整生成但未包装成 store 子包。
-5. 修正了 schema 解读口径：`001_baseline.sql` 更适合作为 sqlc 生成输入，运行时最终 schema 仍需结合历史迁移链，尤其是 `0025_hook_pending_reviews / 0026 / 0027` 等最新变更。
-6. 补全了 `dbquery` 安全校验说明：新增写明了**引号内容屏蔽、表白名单必须命中、CTE 外层 SELECT 仍需引用表、只读事务回退策略、10 秒超时、10000 行上限**等关键细节。
+4. 补强了 sqlc 组织描述：补充 `sql_driver`，确认 `command_card.sql.go` 还生成了 `ListCommandCardVersions`，`workspace_run.sql.go` 已完整生成但未包装成 store 子包，并反向确认 `sql/queries/` 的 18 个 `.sql` 文件没有遗漏。
+5. 修正了 schema 解读口径：列 / 索引以 `001_baseline.sql + 0022/0023/0024/0025_agent_thread_config_override` 为主，`hook_pending_reviews` 来自 `0025_hook_pending_reviews + 0026`；但 `001_baseline.sql` 自身缺少多数 PK/UNIQUE/CHECK，约束说明必须结合历史迁移链。
+6. 补全了 `hookstore` 手写 SQL 说明：明确 `SavePendingReview` 当前不写 `thread_id/turn_id/payload`，`GetResolvedReview` 不返回 `resolved_by`，cancel 与 expire 的更新列不同。
+7. 补全了 `dbquery` 安全校验说明：新增写明了**引号内容屏蔽、表白名单必须命中、CTE 外层 SELECT 仍需引用表、只读事务回退策略、10 秒超时、10000 行上限**等关键细节。

@@ -79,6 +79,12 @@ function historyMessageToTimelineItem(threadId, message, index) {
   const rawID = Number(message?.id);
   const itemID = Number.isFinite(rawID) && rawID > 0 ? `${threadId}-history-${Math.floor(rawID)}` : `${threadId}-history-${index + 1}`;
   const item = { id: itemID, kind, text: (message?.content || '').toString(), ts };
+  
+  if (kind === 'user') {
+    // 诊断日志：打印被解析出的 user 消息
+    console.warn('[diag] historyMessageToTimelineItem: parsed user message', { threadId, messageId: message?.id, content: (message?.content || '').substring(0, 50) });
+  }
+
   if (kind !== 'user') return item;
   const metadata = parseHistoryMetadata(message?.metadata);
   if (!metadata) return item;
@@ -179,29 +185,33 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
 
   const mergedItems = [...missingFromIncoming, ...timeline, ...existingNonDialogItems];
   mergedItems.sort((a, b) => {
-    const tsA = Date.parse(a?.ts || '');
-    const tsB = Date.parse(b?.ts || '');
-    const valA = Number.isFinite(tsA) ? tsA : 0;
-    const valB = Number.isFinite(tsB) ? tsB : 0;
+    const tsA = (a && a.ts) ? String(a.ts) : '';
+    const tsB = (b && b.ts) ? String(b.ts) : '';
     
-    if (valA > 0 && valB > 0) {
-      if (valA !== valB) return valA - valB;
-    } else if (valA > 0 && valB === 0) {
+    if (tsA && tsB) {
+      if (tsA < tsB) return -1;
+      if (tsA > tsB) return 1;
+    } else if (tsA) {
       return -1;
-    } else if (valB > 0 && valA === 0) {
+    } else if (tsB) {
       return 1;
     }
 
-    const prefixA = (a?.id || '').toString().split('-').slice(0, -1).join('-');
-    const prefixB = (b?.id || '').toString().split('-').slice(0, -1).join('-');
-    if (prefixA === prefixB && prefixA.length > 0) {
-      const numA = Number((a?.id || '').toString().split('-').pop());
-      const numB = Number((b?.id || '').toString().split('-').pop());
-      if (Number.isFinite(numA) && Number.isFinite(numB) && numA !== numB) return numA - numB;
+    const idA = (a && a.id) ? String(a.id) : '';
+    const idB = (b && b.id) ? String(b.id) : '';
+    const partsA = idA.split('-');
+    const partsB = idB.split('-');
+    
+    if (partsA.length > 1 && partsB.length > 1) {
+      const prefixA = partsA.slice(0, -1).join('-');
+      const prefixB = partsB.slice(0, -1).join('-');
+      if (prefixA === prefixB && prefixA.length > 0) {
+        const numA = Number(partsA[partsA.length - 1]);
+        const numB = Number(partsB[partsB.length - 1]);
+        if (!Number.isNaN(numA) && !Number.isNaN(numB) && numA !== numB) return numA - numB;
+      }
     }
     
-    const idA = (a?.id || '').toString();
-    const idB = (b?.id || '').toString();
     if (idA < idB) return -1;
     if (idA > idB) return 1;
     return 0;

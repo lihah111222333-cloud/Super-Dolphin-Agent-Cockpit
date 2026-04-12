@@ -71,3 +71,8 @@ __pycache__/
 
 # Worktrees
 /.worktrees/
+
+# Added by Agent
+/.workspace/
+/.build-cache/
+/cmd/agent-terminal/frontend/.vite-cache/

@@ -2,7 +2,7 @@
 
 > 阅读范围：`internal/mcpserver/common/` 与 `internal/mcpserver/lsp/` 下 **63 个生产源码文件**（不含 `_test.go`）。
 > 为串起工具注册链路，额外参考了少量装配代码：`cmd/mcp-lsp/tools.go`、`cmd/mcp-lsp/schema.go`、`cmd/mcp-lsp/fx.go`、`cmd/mcp-lsp/runtime.go`。
-> 本次审查重点补齐了 `common` 层抽象、`bootstrap` 生命周期、`lsp/gopls` 子包职责、中间件真实挂载顺序，以及各工具的实现细节遗漏。
+> 本次审查按源码反向核对了 63 个生产 `.go` 文件：`common` 5 个、`common/bootstrap` 7 个、`lsp` 各子包 51 个；重点补齐了 `common` 层抽象、`bootstrap` 生命周期与公开 API、`lsp/gopls` 子包职责、中间件真实挂载顺序，以及各工具的实现细节遗漏。
 
 ---
 
@@ -11,7 +11,7 @@
 这一层实际由三条主线组成：
 
 1. **MCP 对外服务层（`common`）**
-   - 对外暴露最小 MCP 方法集：`initialize`、`tools/list`、`tools/call`、`ping`、`shutdown`、`exit`。
+   - 对外暴露最小 MCP 方法集：`initialize`、`notifications/initialized`、`tools/list`、`tools/call`、`ping`、`shutdown`、`exit`。
    - 有两套入口：
      - `common.Server`：stdio 模式，绑定 `*StdioTransport`
      - `common.HTTPServer`：HTTP 模式，`POST /mcp`
@@ -35,7 +35,7 @@
    - `manager/`：按语言或文件路由 manager。
    - `gopls/`：虽然名字保留了历史包名，但现在是**通用 LSP 子进程客户端/管理骨架**。
    - `search/`、`edit/`、`format/`、`exec/`、`middleware/`、`protocol/`：分别承担搜索、写入、展示、受控执行、中间件和协议模型。
-   - `markdown/json/yaml` 这类文档/配置文件并不总是起真实 LSP 进程，部分能力走 fallback 逻辑。
+   - `gopls` 包内对 `markdown/json/yaml` 有 fallback-only 分支（主要是 `DocumentSymbol` 解析，部分请求返回空结果而不启动 LSP）；但 `cmd/mcp-lsp/runtime.go` 当前没有把这些语言注册成独立 manager，只有在装配层显式路由到该 manager 时才会触发这些 fallback。
 
 ### 1.1 核心调用链
 
@@ -80,7 +80,8 @@ MCP 子进程
   - 会跳过前导空白后探测输入模式：
     - `{` / `[` 开头：raw JSON
     - 其它：`Content-Length` framed JSON-RPC
-  - 输出会沿用探测到的模式；写路径有互斥锁并支持 `Flush()`。
+  - 输出会沿用探测到的模式；写路径有互斥锁。
+  - `StdioTransport` 本身没有 `Flush()` 方法；`WriteMessage()` 会在底层 writer 实现 `Flush() error` 时调用它。
 - `http_transport.go`
   - `HTTPServer`，通过 `POST /mcp` 提供 HTTP 入口。
   - 单次请求体限制 10MB；单个 HTTP request 只处理一个 JSON-RPC envelope。
@@ -100,11 +101,13 @@ MCP 子进程
 
 - `client.go`
   - `bootstrap.Client` 与 `Config` 定义。
-  - 对外暴露 `Start / Context / EmitEvent / Log / RequestApproval / Report / Close`。
+  - 对外暴露构造函数 `New()`，以及核心方法 `Start / Context / EmitEvent / Log / RequestApproval / Report / Close`。
+  - hook 相关公开方法 `SubscribeHooks / ResolveHook / PendingHooks` 定义在 `hooks.go`，不是 `client.go` 文件本体。
+  - `Config` 还提供 `FinalReport / OnShutdown / OnConfigChanged / OnToolsList / OnToolsCall / Hooks` 等注入点。
   - 内部维护：lease、当前 `jrpc2.Client`、重连状态、心跳/日志序号、协商后的能力集合、config version、resume generation、boot snapshot、hook 状态、report queue。
   - `AgentID` 允许为空；空值意味着该 MCP 进程可工作在 shared service 模式。
 - `env.go`
-  - 读取 `GO_AGENT_CTL_*` 环境变量，并兼容旧的 `GO_AGENT_MCP_*` 键。
+  - 读取 `GO_AGENT_CTL_*` 环境变量；`RPCAddr` 兼容旧的 `RPC_ADDR`，其它 bootstrap 字段兼容对应 `GO_AGENT_MCP_*` 键（如 `GO_AGENT_MCP_INSTANCE_ID`、`GO_AGENT_MCP_BOOT_CONTEXT`）。
   - 解析 `BootSnapshot`，补齐 `InstanceID / BootID / BinaryName / ClientKind`。
   - `Context()` 在断连时会退化到 `envContext()`，按 scope 组装 boot snapshot 视图。
   - 旧环境变量会打印弃用警告，代码里写死了迁移截止提示 `2026-06-30`。
@@ -112,7 +115,7 @@ MCP 子进程
   - `beginStart()`、`dial()`、`registerConn()`、`activateLocked()` 等启动流程。
   - 传输层是 **TCP + `jrpc2/channel.Line`**。
   - `handleCallback()` 会把 `tools/list` / `tools/call` 转发给 `Config.OnToolsList / OnToolsCall`。
-  - `dispatchRequest()` 只消费 lifecycle 侧的 `shutdown` / `config_changed` 通知。
+  - `dispatchRequest()` 只识别 lifecycle 侧的 `shutdown` / `config_changed`。
 - `heartbeat.go`
   - 心跳循环、抖动等待、失败告警、下一次心跳间隔更新。
   - lease 被 core 判为 stale/not found 时，会走 `refreshLease()` 在**同一连接**上重新 register。
@@ -124,6 +127,7 @@ MCP 子进程
     - `check` 默认 `continue`
     - `after` 默认 `reject`
   - 提供 `SubscribeHooks / ResolveHook / PendingHooks / replayHookSubscriptions`。
+  - `SubscribeHooks()` 断连时会缓存订阅参数但返回 unavailable 错误；`PendingHooks()` 需要 `AgentID`（来自 `Config` 或 boot snapshot）。
   - 订阅参数会缓存到 `hookState`，重连后最多重放 3 次。
 - `reconnect.go`
   - `handleStop()` 触发断线标记。
@@ -132,10 +136,13 @@ MCP 子进程
 - `report_queue.go`
   - **离线 report queue 是“有界内存队列”，不是磁盘 durable queue。**
   - 以 `report_id` 去重覆盖；默认上限 128。
+  - `Config.ReportQueueLimit` 可覆盖默认值；`New()` 只保证小于 1 时回落默认值，并没有额外硬性最大值。
   - 连接恢复时补发；`Close()` 时还可发送 `FinalReport()`。
   - 断网时 `Report()` 返回 `queued_offline` 响应。
 
 ## 2.2 `internal/mcpserver/lsp/`
+
+> 生产源码文件分布：`edit` 4、`exec` 1、`format` 4、`gopls` 15、`installer` 1、`manager` 2、`middleware` 4、`protocol` 5、`search` 2、`tools` 13；以下逐项覆盖。
 
 ### `edit/`：补丁与 replace_range 算法层
 - `patchparse.go`
@@ -150,7 +157,8 @@ MCP 子进程
     - 超过 2MB 走 large-content bypass
     - 最多 20 个 edits
 - `seeksequence.go`
-  - 多级宽松匹配：`exact / trim_right / trim_both / unicode_normalized / escape_normalized`。
+  - `SeekSequence()` 是 5-pass **按行序列**匹配器：`exact / trim_right / trim_both / unicode_normalized / escape_normalized`。
+  - `substring_exact` 不是 `seeksequence.go` 的一档；它是 `patchmatch.go` 在行序列匹配失败后的 raw substring fallback。
 
 ### `exec/`：受控命令执行
 - `sandbox.go`
@@ -169,13 +177,13 @@ MCP 子进程
 - `display.go`
   - 把协议内部 0-based 坐标统一转成对外 1-based。
   - 把 `file://` URI 转成相对路径显示。
-  - `NormalizeForDisplay()` 用反射统一处理多种 LSP 返回结构。
 - `funcrange.go`
   - 提供 `FindEnclosingFunction()`、`ResolveEnclosingFunctionRange()`。
   - 为 grep/xref 结果补 `func_start / func_end`。
   - 也负责 `AbsolutePathFromURI()`。
 - `render.go`
   - JSON pretty render、带行号文本 render、grouped location render。
+  - `NormalizeForDisplay()` 用反射统一处理多种 LSP 返回结构。
 
 ### `gopls/`：通用 LSP 子进程管理骨架
 - `client.go`
@@ -189,7 +197,12 @@ MCP 子进程
   - 为常见 server request 提供默认应答，如：
     - `workspace/configuration`
     - `client/registerCapability`
-    - `workspace/*/refresh`
+    - `client/unregisterCapability`
+    - `window/workDoneProgress/create`
+    - `workspace/semanticTokens/refresh`
+    - `workspace/codeLens/refresh`
+    - `workspace/inlayHint/refresh`
+    - `workspace/diagnostic/refresh`
 - `transport_conn.go`
   - 启动子进程、读写 `Content-Length` framed 消息、收集 stderr（8KB ring buffer）、关闭/kill/等待退出。
 - `manager.go`
@@ -204,18 +217,18 @@ MCP 子进程
   - 按 file/language 解析 workspace root。
   - JS/TS 与 Java 在仅按 language 建 client 时，会主动打开首个源文件，为 tsserver/jdtls 建立项目上下文。
 - `manager_symbols.go`
-  - definition / implementation / typeDefinition / hover / signatureHelp / references / callHierarchy / typeHierarchy / workspaceSymbol / completion / rename / codeAction / format 的 LSP 请求封装。
+  - definition / implementation / typeDefinition / hover / signatureHelp / references / callHierarchy / typeHierarchy / documentSymbol / workspaceSymbol / foldingRange / semanticTokens / completion / rename / codeAction / format 的 LSP 请求封装。
   - `locationQuery()` 还会调用 `format.EnrichLocationResultsWithFuncRange()`。
 - `manager_diagnostics.go`
   - diagnostics snapshot 缓存、generation 隔离、稳定等待逻辑。
   - `AdvanceDiagnosticGeneration()` 会清空旧快照。
 - `manager_symbols_fallback.go`
-  - markdown/json/yaml 的 document symbol fallback，无需启动 LSP 进程。
+  - markdown/json/yaml 的 document symbol fallback；这些语言被路由到此 manager 时无需启动 LSP 进程。
 - `bootstrap_doc.go`
   - 文档 bootstrap 协调器。
   - 读取磁盘快照并做 `DidOpen/DidChange` 同步。
   - 可刷新同 workspace 已缓存文档；对 Go 还会预热同目录兄弟 `.go` 文件。
-  - 提供 `BootstrapDocument()` 与 `BootstrapDocumentOpenOnly()` 两条路径。
+  - 支撑 `BootstrapDocument()` 与 `BootstrapDocumentOpenOnly()` 两条路径。
 - `cache.go`
   - `lspCacheStore`：文档 bootstrap cache。
   - 默认 TTL 7 天。
@@ -238,10 +251,11 @@ MCP 子进程
     - `absolutePathFromURI()`
 - `pool.go`
   - `ManagerPool` 会跟踪 client lease 计数并启动 recycler。
-  - `AGENT_LSP_POOL_SIZE` 控制 size，但当前 `snapshotManagers()` 只返回 primary manager，说明多 shard 仍处于预留态。
+  - `AGENT_LSP_POOL_SIZE` 控制 size（默认 10，最大 20），但当前 `snapshotManagers()` 只返回 primary manager，说明多 shard 仍处于预留态。
 - `recycler.go`
   - 周期性检查 client RSS，超过阈值（默认 768MB，`AGENT_LSP_RSS_LIMIT_MB` 可调）时回收空闲 client。
   - 回收后会重新 ensure client，并恢复 workspace bootstrap 状态。
+  - `recycleWorkspaceClient()` 的重建路径当前把 `workspaceConfig.languageID` 写死成 `"go"`，仍带明显 Go-centric 痕迹。
 
 ### `installer/`：LSP 安装器
 - `installer.go`
@@ -292,12 +306,13 @@ MCP 子进程
 ### `search/`：文件与搜索基础设施
 - `fileutil.go`
   - workspace root 规范化、路径安全校验、root containment、二进制探测、symlink 禁止、语言别名推断。
-  - 搜索时还会跳过：`.git`、`node_modules`、`vendor`、`dist`、`build` 等目录。
+  - `text_search` 的 Go-side walk 会跳过：`.cache`、`.git`、`__pycache__`、`build`、`coverage`、`dist`、`node_modules`、`vendor` 等目录。
 - `searchutil.go`
   - 文本搜索：逐行扫描。
   - AST 搜索：依赖 `sg`（ast-grep）。
   - 普通 AST 查询走 `sg run --pattern`。
   - 若 query 看起来像 tree-sitter node kind（如 `function_declaration`），则生成临时 rule 文件走 `sg scan --rule`。
+  - `ast_search` 会校验目标路径并拒绝目标 symlink，但实际递归遍历交给 `sg`；Go 侧不会像 `text_search` 一样统一应用二进制/超大文件/跳目录过滤。
   - `FilterAndCapSearchMatches()` 负责去重、排序、截断。
 
 ### `tools/`：具体 MCP 工具实现
@@ -360,6 +375,7 @@ MCP 子进程
 
 **补充事实：**
 - `AgentID` 可以为空，表示 shared service 模式。
+- `registerConn()` 当前固定 `RegisterRequest.AgentID` 为空串；`Config.AgentID` 仍会用于 `Context()` 请求与 `PendingHooks()` 的 agent 选择。
 - `RequestApproval()` 在断连时不会降级，只会返回 `approval unavailable` 错误。
 - report queue 是有界内存队列，不会跨进程持久化。
 
@@ -459,7 +475,9 @@ MCP 子进程
   - 走 `search.SearchAST()`，依赖 `sg`（ast-grep）在 PATH 中可用。
   - 普通查询走 `sg run --pattern`。
   - 若 query 形如 `function_declaration` 这类 node kind，则会生成临时 rule 文件并走 `sg scan --rule`。
-- 搜索会自动跳过：symlink、binary 文件、超大文件，以及 `.git/node_modules/vendor/dist/build` 等目录。
+- 过滤边界：
+  - `text_search` 的 Go-side 文件遍历会跳过 symlink、binary、超大文件，以及 `.cache/.git/__pycache__/build/coverage/dist/node_modules/vendor` 等目录。
+  - `ast_search` 会校验目标路径并拒绝目标 symlink，但递归搜索本身交给 `sg`，不会在 Go 侧统一套用 `text_search` 的二进制/超大文件/跳目录过滤。
 - 结果后处理：
   - `FilterAndCapSearchMatches()` 去重、排序、截断
   - 若有 `Registry`，还会通过 `DocumentSymbol()` 给命中补 `func_start/func_end`
@@ -542,11 +560,11 @@ MCP 子进程
 - 支持三种输入：
   1. `patch`
   2. `edits: [{old_string,new_string}]`
-  3. `line/column/end_line/end_column + new_text`
+  3. `line/column[/end_line/end_column] + new_text`；源码里只有 `strings.TrimSpace(new_text) != ""` 时才会进入坐标模式，因此空字符串删除当前不会走这一路径。
 - 核心流程：
   1. 读取文件并统一为 LF 处理
   2. 构造 `replacePlan`
-  3. patch/edits 走 `edit/` 匹配算法，求出 `matched_by / resolved offsets / edit_context`
+  3. patch/edits 走 `edit.MatchContext()`：先用 `seeksequence.go` 的 5-pass 行序列匹配（`exact / trim_right / trim_both / unicode_normalized / escape_normalized`）匹配 `old_text` 与上下文；若没有候选，再在原始字符串上做 `substring_exact` fallback；多候选会报 ambiguous
   4. 写回磁盘，同时保留原文件原始内容和原权限位
   5. 同步到 LSP
   6. 成功时返回替换前后文本、影响区间、函数区间、函数体片段
@@ -664,11 +682,12 @@ Recovery -> Logging -> Timeout -> 具体 handler
 
 输出时：
 - 若当前模式是 framed，就写 `Content-Length` 头；
-- 否则直接写 JSON + `\n`。
+- 否则直接写 JSON + `\n`；
+- `StdioTransport` 没有公开 `Flush()` 方法；`WriteMessage()` 仅在底层 writer 实现 `Flush() error` 时顺手 flush。
 
 ## 6.2 MCP server dispatch（`common/server.go`）
 
-`Server.dispatch()` 当前只处理：
+`Server.dispatch()` 当前完整方法列表为：
 
 - `initialize`
 - `notifications/initialized`
@@ -704,16 +723,21 @@ Recovery -> Logging -> Timeout -> 具体 handler
 - 连接方式：TCP + `jrpc2/channel.Line`
 - 客户端注册时会上报：
   - `instance_id`
+  - `boot_id`
   - `binary_name`
   - `client_kind`
   - `thread_id`
+  - `pid`
+  - `session_token`
+  - `peer_kind=tool`
   - `capabilities_offered/required`
   - `subscriptions`
   - `resume_from_generation`（若存在）
+  - 注意：`registerConn()` 当前不把 `Config.AgentID` 写入注册请求，`RegisterRequest.AgentID` 固定为空串。
 - 运行时通道包含：
-  - request：`register / heartbeat / context / approval / report / hook/*`
+  - request：`register / heartbeat / context / approval / report / hook/subscribe / hook/resolve / hook/pending`
   - notify：`event / log`
-  - callback：`tools/list / tools/call / hook/* / shutdown / config_changed`
+  - callback：`tools/list / tools/call / hook/before / hook/check / hook/after / shutdown / config_changed`
 - 断连后会：
   - mark disconnected
   - reconnect with exponential backoff
@@ -739,7 +763,12 @@ Recovery -> Logging -> Timeout -> 具体 handler
   - 对常见 LSP server 反向请求给出默认应答，如：
     - `workspace/configuration`
     - `client/registerCapability`
+    - `client/unregisterCapability`
+    - `window/workDoneProgress/create`
     - `workspace/semanticTokens/refresh`
+    - `workspace/codeLens/refresh`
+    - `workspace/inlayHint/refresh`
+    - `workspace/diagnostic/refresh`
 - `transport_conn.go`
   - 负责启动子进程、读写 framed 消息、汇总 stderr、在异常时清空 pending、kill 进程。
 
@@ -752,7 +781,7 @@ Recovery -> Logging -> Timeout -> 具体 handler
 3. **`common` 没有统一 transport 抽象，而是 `Server + StdioTransport` 与 `HTTPServer` 双实现并存。**
 4. **`bootstrap.Client` 已经不只是 register/heartbeat 客户端，而是完整的 control-plane peer。**
 5. **`gopls/` 实际上是通用 LSP 进程管理层，不只服务 Go。**
-6. **`markdown/json/yaml` 的部分结构化能力走 fallback，不必强依赖真实 LSP 进程。**
+6. **`markdown/json/yaml` 的 fallback 能力存在于 `gopls` manager 内部**，但当前 `cmd/mcp-lsp/runtime.go` 未注册这些语言；要触发 fallback 需要装配层显式把这些语言路由到该 manager。
 7. **`replace_range` 是本层最复杂的写路径**：匹配、落盘、LSP 同步、回滚、函数上下文回显都在这里收束。
 8. **Output Budget 不是默认全局中间件**，当前仅 `lsp_file` / `lsp_grep` 使用。
 9. **`ManagerPool` / `recycler` 基础设施已经存在，但当前仍明显偏 primary-manager 模式。**
@@ -777,10 +806,17 @@ Recovery -> Logging -> Timeout -> 具体 handler
 1. **已更正 `report_queue.go` 的性质**：当前实现是**有界内存队列**，并不会落磁盘；原地图里“durable queue”的说法不准确。
 2. **已补齐 bootstrap 生命周期缺口**：`Context/EmitEvent/Log/Approval`、`shutdown/config_changed` 回调、hook 默认决策、断连退化/不可退化行为，现在都已写入地图。
 3. **已补齐 `gopls/factory.go` 的职责**：它不是对外注册工厂，而是 `gopls` 包内的泛型公共胶水层；原地图缺了这一层。
-4. **已更正中间件链描述**：`wrapToolHandler()` 默认只挂 `Recovery + Logging + Timeout`；`Budget` 是工具级 opt-in，不是全局默认链。
-5. **已补齐工具细节遗漏**：
+4. **已更正 `StdioTransport` 描述**：它只有 raw JSON / framed 两种探测模式；没有公开 `Flush()` API，只是在底层 writer 支持时由 `WriteMessage()` 顺手 flush。
+5. **已补齐 bootstrap API 与注册细节**：
+   - `client.go` 的公开入口补上了 `New()`
+   - hook 公开 API 位于 `hooks.go`
+   - `ctl/register` 的实际字段、`AgentID` 当前不入注册请求的事实，已按源码写明
+6. **已更正中间件链描述**：`wrapToolHandler()` 默认只挂 `Recovery + Logging + Timeout`；`Budget` 是工具级 opt-in，不是全局默认链。
+7. **已补齐工具细节遗漏**：
    - `lsp_file diagnostics` 支持“不传路径时读取所有当前 diagnostics”
+   - `lsp_grep` 的 `text_search` 与 `ast_search` 过滤边界并不相同；前者走 Go-side 文件筛选，后者主要委托给 `sg`
    - `lsp_edit` 会保留文件权限与行尾风格，并在 LSP 同步失败时回滚
+   - `replace_range` 的匹配策略已按 `seeksequence.go + patchmatch.go` 更正，补上了 `substring_exact` fallback 与多候选歧义行为
    - `code_run` 的非零退出与执行器错误是两种不同返回模型
-6. **已补齐 `gopls` 子包遗漏职责**：JSTS/Java bootstrap、cache 持久化开关、bootstrap 文档协调器、fallback-only 语言策略都已纳入。
-7. **保留一条实现观察**：`ManagerPool.snapshotManagers()` 当前只返回 primary manager；`recycler` 的重建路径也仍带明显 Go-centric 痕迹，说明池化/回收基础设施仍在演进中。
+8. **已补齐 `gopls` 子包遗漏职责**：JSTS/Java bootstrap、cache 持久化开关、bootstrap 文档协调器、fallback-only 语言策略都已纳入，并注明当前 runtime 尚未注册 markdown/json/yaml manager。
+9. **保留一条实现观察**：`ManagerPool.snapshotManagers()` 当前只返回 primary manager；`recycler` 的重建路径也仍带明显 Go-centric 痕迹，说明池化/回收基础设施仍在演进中。

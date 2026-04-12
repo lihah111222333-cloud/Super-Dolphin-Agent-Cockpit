@@ -5,9 +5,7 @@ import (
 	"strings"
 	"time"
 
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
@@ -22,20 +20,17 @@ var Module = fx.Module("toolbridge",
 		NewHandler,
 		provideWorkDirResolver,
 		provideDiffEmitter,
-		provideDiffAggregator,
 	),
 	fx.Invoke(bindCodexHandlers),
-	fx.Invoke(registerAggregatorLifecycle),
-	fx.Invoke(registerCleanupLifecycle),
 )
 
 type handlerIn struct {
 	fx.In
 
-	Registry   *mcpcontrol.ToolRegistry
-	Aggregator *difftracker.DiffAggregator
-	Resolver   difftracker.WorkDirResolver
-	Logger     *pkglogger.Logger `optional:"true"`
+	Registry *mcpcontrol.ToolRegistry
+	Emitter  difftracker.DiffEmitter
+	Resolver difftracker.WorkDirResolver
+	Logger   *pkglogger.Logger `optional:"true"`
 }
 
 func bindCodexHandlers(mgr *codexapp.ServerManager, factory *codexapp.DriverFactory, h *Handler) {
@@ -87,77 +82,3 @@ func provideDiffEmitter(dispatcher *event.Dispatcher) difftracker.DiffEmitter {
 	}
 }
 
-func provideDiffAggregator(emitter difftracker.DiffEmitter) *difftracker.DiffAggregator {
-	if emitter == nil {
-		return difftracker.NewDiffAggregator()
-	}
-	return difftracker.NewDiffAggregator(difftracker.WithEmitter(emitter))
-}
-
-func registerAggregatorLifecycle(lc fx.Lifecycle, aggregator *difftracker.DiffAggregator) {
-	if aggregator == nil {
-		return
-	}
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			aggregator.Start()
-			return nil
-		},
-		OnStop: func(context.Context) error {
-			aggregator.Stop()
-			return nil
-		},
-	})
-}
-
-type cleanupLifecycleIn struct {
-	fx.In
-
-	Dispatcher *event.Dispatcher
-	Aggregator *difftracker.DiffAggregator
-	Logger     *pkglogger.Logger `optional:"true"`
-}
-
-func cleanupOnAgentError(aggregator *difftracker.DiffAggregator) func(agentdto.AgentError) {
-	return func(ev agentdto.AgentError) {
-		if aggregator == nil || ev.Recoverable {
-			return
-		}
-		aggregator.CleanupAgent(ev.AgentID)
-	}
-}
-
-func registerCleanupLifecycle(lc fx.Lifecycle, in cleanupLifecycleIn) {
-	if in.Dispatcher == nil || in.Aggregator == nil {
-		return
-	}
-	logger := in.Logger
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-
-	var cancels []context.CancelFunc
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			cancels = []context.CancelFunc{
-				platformbus.ResilientSubscribe(in.Dispatcher, func(ev agentdto.AgentStopped) {
-					in.Aggregator.CleanupAgent(ev.AgentID)
-				}, logger),
-				platformbus.ResilientSubscribe(in.Dispatcher, func(ev agentdto.AgentFailed) {
-					in.Aggregator.CleanupAgent(ev.AgentID)
-				}, logger),
-				platformbus.ResilientSubscribe(in.Dispatcher, cleanupOnAgentError(in.Aggregator), logger),
-			}
-			return nil
-		},
-		OnStop: func(context.Context) error {
-			for _, cancel := range cancels {
-				if cancel != nil {
-					cancel()
-				}
-			}
-			cancels = nil
-			return nil
-		},
-	})
-}

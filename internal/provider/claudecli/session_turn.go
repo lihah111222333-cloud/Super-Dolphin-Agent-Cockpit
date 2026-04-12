@@ -11,13 +11,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-func (s *session) prepareTurn(ctx context.Context, req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
+func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
 	text := buildTurnText(req)
 	if text == "" {
 		return nil, "", nil, errors.New("claudecli: empty turn input")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := ensureTurnAvailable(s.activeTurn); err != nil {
 		return nil, "", nil, err
 	}

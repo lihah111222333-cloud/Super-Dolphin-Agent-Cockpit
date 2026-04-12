@@ -10,6 +10,12 @@ const STRUCTURAL_TIMELINE_KINDS = new Set([
 export function getThreadTimeline(ctx, threadId) {
   if (!threadId) return [];
   const items = ctx.state.timelinesByThread[threadId] || [];
+  // Ensure we don't render truncated snapshot data before the full history is loaded
+  const hasHistory = ctx.threadHistoryLoadedAtByThread ? ctx.threadHistoryLoadedAtByThread.has(threadId) : false;
+  if (!hasHistory) {
+    ctx.logWarn('ui', 'chat.timeline.shielded_empty', { thread_id: threadId, items_len: items.length });
+    return [];
+  }
   if (items.length === 0) return items;
   // Fast path: if no structural items, return as-is to avoid allocation
   if (!items.some((it) => STRUCTURAL_TIMELINE_KINDS.has(it?.kind))) return items;

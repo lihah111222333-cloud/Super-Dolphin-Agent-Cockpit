@@ -19,6 +19,7 @@ import (
 type localProcess struct {
 	cmd        *exec.Cmd
 	stderr     *limitedBuffer
+	stderrR    io.ReadCloser
 	done       chan struct{}
 	stderrDone chan struct{}
 	waitErr    error
@@ -53,10 +54,11 @@ func (b *limitedBuffer) String() string {
 	return b.buf.String()
 }
 
-func newLocalProcess(cmd *exec.Cmd) *localProcess {
+func newLocalProcess(cmd *exec.Cmd, stderrR io.ReadCloser) *localProcess {
 	return &localProcess{
 		cmd:        cmd,
 		stderr:     newLimitedBuffer(transportStderrLimitBytes),
+		stderrR:    stderrR,
 		done:       make(chan struct{}),
 		stderrDone: make(chan struct{}),
 	}
@@ -153,7 +155,7 @@ func (t *transport) spawnLocal() error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	proc := newLocalProcess(cmd)
+	proc := newLocalProcess(cmd, stderr)
 	t.stateMu.Lock()
 	t.local = true
 	t.serverURL = serverURL
@@ -246,6 +248,9 @@ func (t *transport) stopProcess(graceful bool) error {
 	}
 	if err := proc.signal(syscall.SIGKILL); err != nil {
 		return err
+	}
+	if proc.stderrR != nil {
+		_ = proc.stderrR.Close()
 	}
 	if proc.waitForExit(transportKillWaitTimeout) {
 		proc.waitForStderr(time.Second)

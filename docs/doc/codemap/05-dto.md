@@ -2,7 +2,7 @@
 
 > 扫描范围：`internal/dto/agent/`、`internal/dto/mcp/`、`internal/dto/provider/`、`internal/dto/shared/`、`internal/dto/task/`、`internal/dto/thread/`、`internal/dto/tool/`、`internal/dto/turn/`、`internal/dto/ui/`
 >
-> 审查基准：以仓库当前源码逐文件核对 29 个非测试 Go 文件；`internal/dto/provider/message_test.go` 不在本次扫描范围内。
+> 审查基准：以仓库当前源码逐文件核对 30 个 Go 文件：29 个生产定义文件 + `internal/dto/provider/message_test.go`（用于校验 `provider.Message` 的 JSON 字段名契约）。
 >
 > 审查目标：补齐 `struct` / 常量 / 事件类型，校正事件编号表，核对 Header 继承关系，并补完 DTO 间引用关系。
 
@@ -12,9 +12,9 @@ DTO 层是 super-agent-v3 在 **运行时事件总线、Provider 驱动边界、
 
 1. **共享骨架集中在 `shared`**：事件编号、Header 继承链、通用输入项、通用错误、事件时间解析都放在一个包里。
 2. **内部事件与外部协议分层明确**：`agent/turn/tool/task/thread/ui` 主要承载事件总线 DTO；`provider/mcp` 主要承载驱动协议与控制面协议 DTO。
-3. **大部分文件是纯数据定义**：少量辅助逻辑集中在 `shared/event.go`、`agent/state.go`、`provider/manifest.go`。
-4. **字段风格按边界区分**：内部事件多为 `snake_case`，Provider/UI 边界 DTO 多为 `camelCase`。
-5. **兼容性显式保留**：`mcp` 中存在若干 deprecated 字段；`turn`/`agent`/`mcp` 中大量使用 `json.RawMessage` 保留协议扩展槽位。
+3. **大部分文件是纯数据定义**：少量辅助逻辑集中在 `shared/event.go`、`agent/state.go`、`provider/capability.go`、`provider/manifest.go`；`provider/message_test.go` 是唯一测试文件。
+4. **字段风格按边界区分但并非单一规则**：内部事件多为 `snake_case`；Provider DTO 与 `ui.UIThreadPatch` 多为 `camelCase`；UI 投影事件仍混用 `snake_case` Header/字段与个别 `camelCase` 字段。
+5. **兼容性显式保留**：`mcp` 中存在若干 deprecated 字段；`turn`/`agent`/`mcp`/`provider` 中使用 `json.RawMessage` 保留协议扩展槽位。
 
 ---
 
@@ -27,7 +27,7 @@ DTO 层是 super-agent-v3 在 **运行时事件总线、Provider 驱动边界、
 | `shared` | DTO 公共基座 | `event.go`, `input.go`, `errors.go` | 统一事件编号、Header、通用输入项、通用错误、时间辅助 |
 | `agent` | Agent 生命周期/状态机/诊断 | `event.go`, `diagnostic.go`, `runtime.go`, `state.go` | 描述 agent 的生命周期事件与状态转移定义 |
 | `mcp` | 控制面 RPC/通知协议 | `protocol.go`, `constants.go`, `hook.go`, `errors.go` | 定义 `ctl/*` 协议方法、Hook DTO、错误码与 report 载荷 |
-| `provider` | Provider 驱动边界 | `session.go`, `turn.go`, `thread_config.go`, `manifest.go` | 会话、Turn、线程配置、MCP manifest、原始 provider 事件 |
+| `provider` | Provider 驱动边界 | `session.go`, `turn.go`, `thread_config.go`, `manifest.go`, `event.go`, `message.go` | 会话、Turn、线程配置、消息分页、MCP manifest、原始 provider 事件 |
 | `task` | DAG/节点/wakeup 事件 | `event.go` | 面向任务编排系统的强类型事件 |
 | `thread` | Thread 生命周期摘要 | `event.go` | 线程启动/停止/消息分页/压缩事件 |
 | `tool` | 工具调用与审批事件 | `event.go` | 工具调用开始/结束/审批/DIFF 更新 |
@@ -60,6 +60,7 @@ DTO 层是 super-agent-v3 在 **运行时事件总线、Provider 驱动边界、
 - `event.go`：`RawProviderEvent`、`BusRawProviderEvent`、`EventTranslator`
 - `manifest.go`：`ToolFamily`、`MCPBinary`、`MCPManifest`、`ManifestContext`、`BuildManifest`
 - `message.go`：`Message`、`ThreadMessagesResult`
+- `message_test.go`：验证 `Message.Timestamp` 序列化为 `createdAt`，且不输出 `timestamp`
 - `session.go`：`StartSessionRequest`、`ResumeSessionRequest`
 - `thread.go`：`ThreadRef`
 - `thread_config.go`：`ThreadConfigPatch`、`ThreadConfigValues`、`ThreadConfig`、`ThreadCompactResult`
@@ -108,7 +109,7 @@ DTO 层是 super-agent-v3 在 **运行时事件总线、Provider 驱动边界、
 | 1201 | `EventTypeToolCallEnd` | `tool.ToolCallEnd` | `shared.ToolCallHeader` |
 | 1202 | `EventTypeToolApprovalRequested` | `tool.ToolApprovalRequested` | `shared.ToolApprovalHeader` |
 | 1203 | `EventTypeToolApprovalResolved` | `tool.ToolApprovalResolved` | `shared.ToolApprovalHeader` |
-| 1204 | `EventTypeToolDiffUpdated` | `tool.ToolDiffUpdated` | 独立字段：`Timestamp/threadId/agentId/callId/toolName/diffText/files/revision`，**未嵌入** `shared.*Header` |
+| 1204 | `EventTypeToolDiffUpdated` | `tool.ToolDiffUpdated` | 独立字段：`Timestamp/ThreadID/AgentID/CallID/ToolName/DiffText/Files/Revision`，**未嵌入** `shared.*Header` |
 | 1300 | `EventTypeTaskDagCreated` | `task.TaskDagCreated` | `shared.TaskDAGHeader` |
 | 1301 | `EventTypeTaskNodeStatusChanged` | `task.TaskNodeStatusChanged` | `shared.TaskNodeHeader` |
 | 1302 | `EventTypeTaskWakeupDispatched` | `task.TaskWakeupDispatched` | `shared.TaskWakeupHeader` |
@@ -164,11 +165,12 @@ flowchart TD
   TIH --> UTH
 ```
 
-需要特别注意的三个例外：
+需要特别注意的四类例外/旁路：
 
 1. `thread.*` 事件没有复用 `shared.ThreadHeader`，而是 `shared.EventHeader + 扁平 ThreadID/...`。
 2. `tool.ToolDiffUpdated` 虽然是事件，但没有复用 `shared.ToolCallHeader`。
 3. `ui.UIThreadPatch` 虽然实现了 `Type()`，但本体是 UI patch 契约，不携带 `timestamp`/`projection` 等共享 Header 字段。
+4. `provider.RawProviderEvent` / `provider.BusRawProviderEvent` 都返回 `EventTypeProviderRaw`，但不嵌入任何 `shared.*Header`。
 
 ### 3.3 `shared` 类型、变量与工具函数
 
@@ -188,7 +190,7 @@ flowchart TD
 - `UIProjectionHeader`：`ThreadHeader + Projection`
 - `UITurnHeader`：`UIProjectionHeader + TurnIDHeader`
 - `InputItem`：统一输入条目，字段为 `Type` / `Content` / `Path` / `Name` / `URL`
-- `eventTimeKey`：`shared/event.go` 内部使用的 context key（非导出）
+- `eventTimeKey`：`shared/event.go` 内部使用的零字段 struct context key（非导出）
 
 #### 错误变量
 - `ErrNotFound`
@@ -202,6 +204,7 @@ flowchart TD
 - `FirstEventTime(fallbacks...)`：返回第一项非零时间，否则回退到 `time.Now()`
 - `EventTimeFromPayload(payload)`：从 `timestamp`、`ts`、`createdAt`、`created_at`、`updatedAt`、`updated_at` 提取时间字符串
 - `ParseEventTime(raw)`：按 `time.RFC3339Nano` / `time.RFC3339` 解析
+- `eventTimeFromContext(ctx)`：`shared/event.go` 内部非导出辅助函数，从 context 读取 `eventTimeKey{}` 注入的 `time.Time`
 
 ---
 
@@ -213,7 +216,7 @@ flowchart TD
 | 类型 | Header | 关键字段 |
 |---|---|---|
 | `StateChanged` | `shared.AgentSessionHeader` | `OldState`、`NewState`、`Trigger` |
-| `AgentLaunched` | `shared.AgentSessionHeader` | `Model`、`CWD` |
+| `AgentLaunched` | `shared.AgentSessionHeader` | `Model`、`CWD`、`Name`、`Provider` |
 | `AgentStopped` | `shared.AgentSessionHeader` | `Reason` |
 | `AgentRecovering` | `shared.AgentSessionHeader` | `Reason`、`Attempt` |
 | `AgentFailed` | `shared.AgentSessionHeader` | `Error`、`Recoverable` |
@@ -229,13 +232,13 @@ flowchart TD
 - `TransitionGuard`：`func(ctx context.Context, agentID string) bool`
 
 #### 常量
-- 状态常量：`StateProvisioning`、`StateIdle`、`StateTurnQueued`、`StateTurnStarting`、`StateTurnRunning`、`StateAwaitingUserInput`、`StateRecovering`、`StateStopping`、`StateStopped`、`StateFailed`
-- 触发器常量：`TriggerLaunchSucceeded`、`TriggerLaunchFailed`、`TriggerTurnEnqueued`、`TriggerTurnAccepted`、`TriggerTurnCompleted`、`TriggerTurnAborted`、`TriggerUserInputRequested`、`TriggerUserInputResolved`、`TriggerRecoverRequested`、`TriggerStopRequested`、`TriggerProcessExited`
+- 状态常量：`StateProvisioning="provisioning"`、`StateIdle="idle"`、`StateTurnQueued="turn_queued"`、`StateTurnStarting="turn_starting"`、`StateTurnRunning="turn_running"`、`StateAwaitingUserInput="awaiting_user_input"`、`StateRecovering="recovering"`、`StateStopping="stopping"`、`StateStopped="stopped"`、`StateFailed="failed"`
+- 触发器常量：`TriggerLaunchSucceeded="launch_succeeded"`、`TriggerLaunchFailed="launch_failed"`、`TriggerTurnEnqueued="turn_enqueued"`、`TriggerTurnAccepted="turn_accepted"`、`TriggerTurnCompleted="turn_completed"`、`TriggerTurnAborted="turn_aborted"`、`TriggerUserInputRequested="user_input_requested"`、`TriggerUserInputResolved="user_input_resolved"`、`TriggerRecoverRequested="recover_requested"`、`TriggerStopRequested="stop_requested"`、`TriggerProcessExited="process_exited"`
 
 #### 导出变量与函数
 - `StateDefinitions []StateDefinition`
 - `TriggerDefinitions []TriggerDefinition`
-- `TransitionDefinitions []TransitionDefinition`
+- `TransitionDefinitions []TransitionDefinition`：源码当前 33 条转移定义，`AllowedTriggers` 直接遍历该切片过滤 `From == state`
 - `AllowedTriggers(state string) []string`
 
 **核对修正**：源码中 **没有** `AllStates()`、`AllTriggers()`、`StateLabel()`；旧地图这里有误。
@@ -243,17 +246,17 @@ flowchart TD
 ### 4.2 `mcp`
 
 #### 协议/方法常量（`constants.go`）
-- 主协议方法：`MethodRegister`、`MethodHeartbeat`、`MethodContext`、`MethodEvent`、`MethodLog`、`MethodApproval`、`MethodReport`、`MethodShutdown`、`MethodConfigChanged`
-- 协议版本：`ProtocolVersion`
-- Client kind：`ClientKindOrch`、`ClientKindLSP`、`ClientKindIDA`、`ClientKindCustom`
-- Peer kind：`PeerKindTool`、`PeerKindUI`
-- Context scope：`ScopeAgentRuntime`、`ScopeThreadBinding`、`ScopeWorkspaceRun`、`ScopeConfigSnapshot`
-- Context source：`ContextSourceLive`、`ContextSourceBootSnapshot`、`ContextSourceDBRebuild`
-- lease/runtime 状态：`StatusActive`、`StatusStale`、`StatusDisconnected`
-- report variant：`ReportVariantRuntime`、`ReportVariantCompletion`、`ReportVariantProgress`、`ReportVariantDiagnostic`
-- decision source：`DecisionSourceUI`、`DecisionSourceAutoApprove`、`DecisionSourceStatic`
-- Hook 方法：`MethodHookSubscribe`、`MethodHookBefore`、`MethodHookCheck`、`MethodHookAfter`、`MethodHookResolve`、`MethodHookPending`
-- Hook 决策：`HookDecisionAllow`、`HookDecisionDeny`、`HookDecisionWait`、`HookDecisionModify`、`HookDecisionContinue`、`HookDecisionWarn`、`HookDecisionAbort`、`HookDecisionApprove`、`HookDecisionReject`、`HookDecisionEscalate`
+- 主协议方法：`MethodRegister="ctl/register"`、`MethodHeartbeat="ctl/heartbeat"`、`MethodContext="ctl/context"`、`MethodEvent="ctl/event"`、`MethodLog="ctl/log"`、`MethodApproval="ctl/approval/request"`、`MethodReport="ctl/report"`、`MethodShutdown="ctl/shutdown"`、`MethodConfigChanged="ctl/config/changed"`
+- 协议版本：`ProtocolVersion="ctl/v1"`
+- Client kind：`ClientKindOrch="orch"`、`ClientKindLSP="lsp"`、`ClientKindIDA="ida"`、`ClientKindCustom="custom"`
+- Peer kind：`PeerKindTool="tool"`、`PeerKindUI="ui"`
+- Context scope：`ScopeAgentRuntime="agent.runtime"`、`ScopeThreadBinding="thread.binding"`、`ScopeWorkspaceRun="workspace.run"`、`ScopeConfigSnapshot="config.snapshot"`
+- Context source：`ContextSourceLive="live"`、`ContextSourceBootSnapshot="boot_snapshot"`、`ContextSourceDBRebuild="db_rebuild"`
+- lease/runtime 状态：`StatusActive="active"`、`StatusStale="stale"`、`StatusDisconnected="disconnected"`
+- report variant：`ReportVariantRuntime="runtime"`、`ReportVariantCompletion="completion"`、`ReportVariantProgress="progress"`、`ReportVariantDiagnostic="diagnostic"`
+- decision source：`DecisionSourceUI="ui"`、`DecisionSourceAutoApprove="auto_approve"`、`DecisionSourceStatic="static"`
+- Hook 方法：`MethodHookSubscribe="ctl/hook/subscribe"`、`MethodHookBefore="ctl/hook/before"`、`MethodHookCheck="ctl/hook/check"`、`MethodHookAfter="ctl/hook/after"`、`MethodHookResolve="ctl/hook/resolve"`、`MethodHookPending="ctl/hook/pending"`
+- Hook 决策：`HookDecisionAllow="allow"`、`HookDecisionDeny="deny"`、`HookDecisionWait="wait"`、`HookDecisionModify="modify"`、`HookDecisionContinue="continue"`、`HookDecisionWarn="warn"`、`HookDecisionAbort="abort"`、`HookDecisionApprove="approve"`、`HookDecisionReject="reject"`、`HookDecisionEscalate="escalate"`
 
 #### 错误码（`errors.go`）
 | 常量 | 数值 |
@@ -324,10 +327,10 @@ flowchart TD
 
 #### 常量与基础类型
 - `CapabilitySet`：`map[string]bool`
-- 能力常量：`CapMessageSend`、`CapThreadList`、`CapThreadFork`、`CapThreadRealtime`、`CapModelSwitch`、`CapContextCompact`、`CapTurnOverride`
+- 能力常量：`CapMessageSend="message_send"`、`CapThreadList="thread_list"`、`CapThreadFork="thread_fork"`、`CapThreadRealtime="realtime"`、`CapModelSwitch="model_switch"`、`CapContextCompact="context_compact"`、`CapTurnOverride="turn_override"`
 - `CapabilityError`
 - `ToolFamily`：底层类型为 `string`
-- 工具家族常量：`FamilyLSP`、`FamilyOrch`、`FamilyIDA`
+- 工具家族常量：`FamilyLSP="lsp"`、`FamilyOrch="orch"`、`FamilyIDA="ida"`
 
 #### 原始 provider 事件
 - `RawProviderEvent`：字段为 `EventType string`、`Data any`
@@ -351,18 +354,21 @@ flowchart TD
 - `SteerRequest` 引用：`[]InputItem`、`[]SkillRef`、`TurnOverrides`（**不含** `MCPManifest`）
 - `ThreadConfig.Override` / `ThreadConfig.Effective` 都是 `ThreadConfigValues`
 - `ThreadMessagesResult.Messages` 是 `[]Message`
+- `Message.Timestamp` 的 JSON tag 是 `createdAt`；`message_test.go` 断言序列化输出包含 `createdAt` 且不包含 `timestamp`
 - `ManifestContext.ThreadCaps` 是 `CapabilitySet`
 - `ManifestContext.PeerHTTPAddrs` 是 `map[ToolFamily]string`
 
 #### 辅助变量/函数
 - 方法：`(*CapabilityError).Error()`、`NewCapabilityError(cap, driver)`、`(CapabilitySet).Has(cap)`、`(CapabilitySet).All(caps...)`
 - manifest 包级变量：`mcpRequiredEnvKeys`、`mcpPassthroughEnvKeys`、`mcpLegacyEnvAliases`
+- manifest 非导出辅助函数：`cloneManifestEnv`、`normalizeManifestEnv`、`promoteManifestEnv`
 
 #### 需要特别标注的源码事实
 - `ThreadConfigPatch` 有 `Personality *string`，但 `ThreadConfigValues` **没有** `Personality` 字段；地图中需要保留这个不对称事实。
 - `TurnRequest.LocalID` / `TurnResult.LocalID` / `TurnResult.ProviderID` 采用 `camelCase` JSON。
 - `ResumeSessionRequest` 比旧地图多出 `Path`、`CWD`、`Model` 三个恢复上下文字段。
 - `BuildManifest` 默认只放入 `FamilyLSP` 与 `FamilyOrch`；仅当 `ctx.ThreadCaps.Has("ida")` 为真时才追加 `FamilyIDA`。
+- `CapThreadRealtime` 的源码值是 `"realtime"`，不是 `"thread_realtime"`；`BuildManifest` 对 IDA 的判断使用字符串 `"ida"`，不是上述 `Cap*` 常量。
 
 ### 4.4 `task`
 
@@ -381,7 +387,7 @@ flowchart TD
 
 | 类型 | Header | 关键字段 |
 |---|---|---|
-| `Started` | `shared.EventHeader` | `ThreadID`、`AgentID`、`Provider`、`ProviderThreadID`、`CWD`、`Model` |
+| `Started` | `shared.EventHeader` | `ThreadID`、`AgentID`、`Provider`、`ProviderThreadID`、`CWD`、`Model`、`Name` |
 | `Stopped` | `shared.EventHeader` | `ThreadID`、`AgentID`、`Status`、`Reason` |
 | `MessagesPage` | `shared.EventHeader` | `ThreadID`、`TotalCount`、`Pages` |
 | `Compacted` | `shared.EventHeader` | `ThreadID`、`Command`、`BeforeTokens`、`AfterTokens`、`Compacted`、`Estimated` |
@@ -460,19 +466,23 @@ flowchart TD
 |---|---|---|
 | `provider.InputItem` | `shared.InputItem` | 类型别名 |
 | `turn.InputItem` | `shared.InputItem` | 类型别名 |
-| `provider.TurnRequest` | `provider.SkillRef`、`provider.TurnOverrides`、`provider.MCPManifest` | 字段引用 |
-| `provider.SteerRequest` | `provider.SkillRef`、`provider.TurnOverrides` | 字段引用 |
+| `turn.TurnSubmission` | `turn.InputItem`（即 `shared.InputItem`） | `Inputs []InputItem` |
+| `provider.TurnRequest` | `provider.InputItem`（即 `shared.InputItem`）、`provider.SkillRef`、`provider.TurnOverrides`、`provider.MCPManifest` | 字段引用 |
+| `provider.SteerRequest` | `provider.InputItem`（即 `shared.InputItem`）、`provider.SkillRef`、`provider.TurnOverrides` | 字段引用 |
 | `provider.MCPManifest` | `provider.MCPBinary` | `Binaries []MCPBinary` |
 | `provider.ManifestContext` | `provider.CapabilitySet`、`provider.ToolFamily` | `ThreadCaps`、`PeerHTTPAddrs map[ToolFamily]string` |
 | `provider.ThreadConfig` | `provider.ThreadConfigValues` | `Override`、`Effective` |
 | `provider.ThreadMessagesResult` | `provider.Message` | `Messages []Message` |
+| `provider.BusRawProviderEvent` | `provider.RawProviderEvent` | `Event RawProviderEvent` |
 | `mcp.RegisterResponse` 等 8 个协议 DTO | `mcp.LeaseKey` | `Lease` 字段复用 |
 | `mcp.Selector` | `mcp.SelectorScope` | `Scope *SelectorScope` |
 | `mcp.HookSubscribeRequest` / `HookSubscribeResponse` / `ConfigChangedNotify` | `mcp.Selector` | 字段引用 |
 | `mcp.HookPendingResponse` | `mcp.PendingHookReview` | `Reviews []PendingHookReview` |
-| `mcp.ReportEnvelope` | `mcp.RuntimeReport` / `CompletionReport` / `ProgressReport` / `DiagnosticReport` | 判别联合 |
+| `mcp.ReportEnvelope` | `mcp.RuntimeReport` / `mcp.CompletionReport` / `mcp.ProgressReport` / `mcp.DiagnosticReport` | 判别联合 |
 | `mcp.ReportRequest` | `mcp.ReportEnvelope` | `Report` 字段 |
-| `task.*` | `shared.TaskDAGHeader` / `TaskNodeHeader` / `TaskWakeupHeader` | 事件 Header |
+| `agent.*` typed events | `shared.AgentSessionHeader` | 事件 Header |
+| `task.*` | `shared.TaskDAGHeader` / `shared.TaskNodeHeader` / `shared.TaskWakeupHeader` | 事件 Header |
+| `thread.*` | `shared.EventHeader` | 事件 Header（未使用 `shared.ThreadHeader`） |
 | `tool.ToolCall*` | `shared.ToolCallHeader` | 事件 Header |
 | `tool.ToolApproval*` | `shared.ToolApprovalHeader` | 事件 Header |
 | `turn.*` | `shared.TurnHeader` | 事件 Header |
@@ -493,16 +503,17 @@ flowchart TD
 ### 5.3 审查结论
 
 1. **事件编号表已核对无误**：`shared/event.go` 中的 39 个事件编号，与各包的 `Type()` 实现完全一致。
-2. **Header 继承关系已修正为源码真实情况**：尤其补正了 `thread.*`、`tool.ToolDiffUpdated`、`ui.UIThreadPatch` 这三类“非标准 Header”事件。
-3. **原地图存在遗漏**：`agent.RuntimeReport`、`provider.ToolFamily`、`ui.ThreadPatchThread`、`ui.ThreadPatchTokenUsage`、`shared.FirstEventTime`、`mcp.Status*`、`mcp.ReportVariant*`、`mcp.DecisionSource*` 等已补齐。
+2. **Header 继承关系已修正为源码真实情况**：尤其补正了 `thread.*`、`tool.ToolDiffUpdated`、`ui.UIThreadPatch`、`provider.RawProviderEvent` / `provider.BusRawProviderEvent` 这些“非标准 Header”事件/旁路事件。
+3. **原地图存在遗漏**：`agent.RuntimeReport`、`provider.ToolFamily`、`provider.BusRawProviderEvent`、`ui.ThreadPatchThread`、`ui.ThreadPatchTokenUsage`、`shared.FirstEventTime`、`mcp.Status*`、`mcp.ReportVariant*`、`mcp.DecisionSource*` 等已补齐。
 4. **原地图存在错误描述**：`agent/state.go` 并没有 `AllStates()`、`AllTriggers()`、`StateLabel()`；现已按源码修正。
-5. **类型引用关系已补完**：尤其是 `provider` / `mcp` / `ui` 三处组合 DTO 的嵌套关系，旧图描述不完整。
+5. **类型引用关系已补完**：尤其是 `provider` / `mcp` / `turn` / `ui` 组合 DTO 与 `provider.BusRawProviderEvent` 的嵌套关系，旧图描述不完整。
 
 ## 审查补遗
 
-- 本次审查以 **2026-04-12** 的仓库本地源码为准，未引入外部资料。
+- 本次审查以 **2026-04-12** 的仓库本地源码为准，未引入外部资料；逐文件覆盖 30 个 `.go` 文件，其中 `provider/message_test.go` 用作 `Message` JSON 契约佐证。
 - 已补记 `mcp` 中带明确移除日期的 deprecated 字段：`LeaseID` 相关兼容字段计划在 **2026-06-30** 后移除。
-- 已补记两个容易误读的字段事实：
+- 已补记三个容易误读的字段事实：
   - `turn.TurnSubmission.Inputs` 的 JSON tag 是 `input`
   - `provider.ThreadConfigPatch` 有 `Personality`，但 `provider.ThreadConfigValues` 没有对应字段
-- 已补记两个“实现了 `Type()` 但不走标准 Header”的事件：`tool.ToolDiffUpdated`、`ui.UIThreadPatch`。
+  - `provider.Message.Timestamp` 的 JSON tag 是 `createdAt`，并由 `provider/message_test.go` 验证不会输出 `timestamp`
+- 已补记四类 Header 例外/旁路：`thread.*`、`tool.ToolDiffUpdated`、`ui.UIThreadPatch`、`provider.RawProviderEvent` / `provider.BusRawProviderEvent`。

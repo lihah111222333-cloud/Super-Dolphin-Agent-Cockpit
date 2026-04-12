@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	transportReadyTimeout        = 15 * time.Second
+	transportReadyTimeout        = 30 * time.Second
 	transportShutdownGracePeriod = 3 * time.Second
 	transportKillWaitTimeout     = 5 * time.Second
 	transportStderrLimitBytes    = 8 * 1024

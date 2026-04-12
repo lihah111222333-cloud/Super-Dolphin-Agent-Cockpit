@@ -5,13 +5,14 @@
 - 扫描范围：`internal/provider/claudecli/`、`internal/provider/codexapp/`、`internal/provider/e2e/`、`internal/provider/shared/`、`internal/provider/toolfilter/`、`internal/provider/unified/`。
 - 额外对照：`internal/contract/provider.go`、`internal/contract/runtime_reporter.go`、`internal/dto/provider/*`、`internal/dto/{agent,tool,turn,ui}/`。
 - 本次核对后确认的关键结论：
-  1. **Claude session 启动并不总是等待真实 `system:init` 才 ready**：`thread_identity.go` 允许在已有 public thread id 时提前 ready，之后再用 `system:init` 回填真实 provider id，并补发一次 `agent:launched`。
+  1. **Claude session 启动并不总是等待真实 `system:init` 才 ready**：`thread_identity.go` 允许在已有 public thread id 时提前 ready；之后 `system:init` 若解析出不同的真实 provider id，会回填并补发 `agent:launched`。
   2. **Claude/Codex 的事件表此前缺项**：实际 translator 还覆盖了 `agent:stopped` / `agent:failed`、`turn:started` / `turn:input_received`、Codex 的 `turn/aborted`、`session.configured`、`shutdown.complete` 等别名。
   3. **Codex 恢复链路是 reconnect + `thread/resume` + pending turn replay**，不是单纯重连 WebSocket。
   4. **Codex 的进程管理分两层**：共享 `ServerManager` 管 app-server / peer / orphan cleanup；单个 session 只拥有自己的 WS，必要时才自起本地 `codex app-server`。
   5. **`UITokensUpdated` 不是 `unified/event_map.go` 的 raw-type switch 产物**，而是 Claude/Codex translator 先调用 `ui_tokens.go` 从 payload / usage 中抽取。
-- 当前验证：
-  - `go test ./internal/provider/claudecli ./internal/provider/codexapp ./internal/provider/unified ./internal/provider/shared ./internal/provider/toolfilter` ✅
+- 2026-04-12 本地验证：
+  - `go test ./internal/provider/codexapp ./internal/provider/unified ./internal/provider/shared ./internal/provider/toolfilter` ✅
+  - `go test ./internal/provider/claudecli` ❌：当前 `claudecli` 包本身与测试都存在编译问题，至少包含 `takeActiveToolInterruptEventsLocked` / `trackToolEvent` 缺失、`session_events.go` 未使用 `sort`、以及 `pidregistry.RegistryFilesMatchingKind` 调用签名不匹配等错误。
   - `go test ./internal/provider/e2e` ❌：`internal/provider/e2e/codex_mcp_test.go` 通过 `linkname` 引用的 `internal/provider/codexapp.writeCodexMCPConfig` 当前源码中不存在，构建阶段直接失败。
 
 ---
@@ -53,15 +54,19 @@ Provider 层把不同运行时折叠成统一的 `Driver / Session / TurnHandle 
   - 当前标准名称：`claude`、`codex`。
 - `client.go`
   - `StartSession` / `ResumeSession` 只负责选 driver、执行、成功后注册到 `SessionManager`。
+- `module.go`
+  - Fx 提供 `Registry`、`Client`、`SessionManager`、`SessionResolver`、thread/turn 适配器，并在 `OnStop` 时 `CloseAll()`。
+- `session_adapter.go`
+  - 把 `SessionManager` 适配成 thread / turn / orchestration 侧需要的窄接口，删除 session 时最终仍走 `RemoveCurrent()` / `Remove()`。
 
 ### 2.2 SessionManager
 
 `session.go` 是进程内“在线 session 真相源”：
 
 - `Register(agentID, session)`：返回 generation；同 agent 再注册时会 `ForceStop()` 旧 session。  
-- `Remove(agentID, generation)`：按 generation 删除，防止并发误删新 session。  
-- `RemoveCurrent(agentID)`：无 generation 条件删除。  
-- `CloseAll()`：应用退出时统一 `Close()`，失败再 `ForceStop()`。
+- `Remove(agentID, generation)`：按 generation 删除，防止并发误删新 session；删除成功后会带关闭超时调用 `Close()`，失败再 `ForceStop()`。  
+- `RemoveCurrent(agentID)`：无 generation 条件删除当前 session，并执行同样的 close / force-stop 收尾。  
+- `CloseAll()`：应用退出时 drain 整个 map，逐个 `Close()`，失败再 `ForceStop()`。
 
 ### 2.3 SessionResolver
 
@@ -113,6 +118,7 @@ Claude / Codex translator 都会先调用 `PublishUITokensUpdated()`。
 | `session_config.go` | `Configure` / `AllowedModels` / `ReadConfig` / `ForceComplete` |
 | `session_events.go` | stdio read loop、raw event 应用、turn 终态收口 |
 | `session_history.go` | provider history 适配层 |
+| `session_interrupt_cleanup.go` | `Interrupt()` 后对旧 transport 的 SIGINT / SIGKILL 清理 |
 | `session_turn.go` | turn payload / steer / skill prompt / attachment hint |
 | `thread_identity.go` | public thread id / provider thread id / ready 协调 |
 | `transport.go` | Claude CLI 子进程 transport |
@@ -129,6 +135,7 @@ Claude / Codex translator 都会先调用 `PublishUITokensUpdated()`。
   - 历史目录支持 `history_dir` / `claude_home` 配置项。
 - `ResumeSession()`：
   - 也会 `BuildManifest(...)`，但恢复时主要依赖 `ProviderThreadID` / `ThreadID` 构造 resume id。
+  - 恢复路径当前只用 `AgentID` / `CWD` / capabilities / `ResolveBinaryDir(req.CWD, nil)` / peer HTTP 地址重建 manifest；不像 start 路径那样从 `req.Config` 带入 `env` / `auto_approve`。
   - `publicThread` 用的是 `req.ThreadID`，即外部 thread / agent 标识。
 
 #### `start()` 的真实流程
@@ -194,7 +201,7 @@ StartTurn
 #### Steer / Interrupt / ForceComplete
 
 - `Steer()`：不是新 turn，而是向当前 active turn 继续发送 payload；会额外发 `turn:input_received`。  
-- `Interrupt()`：给 Claude 进程发 `SIGINT`，本地收走 `activeTurn`，补发 `turn:interrupted`，handle 以 `context.Canceled` 结束。  
+- `Interrupt()`：本地收走 `activeTurn` 并记录 suppressed turn id，补发 `turn:interrupted`，handle 以 `context.Canceled` 结束；随后把当前 transport 从 session 上摘掉，`cleanupInterruptedTransport()` 对旧进程先发 `SIGINT`、最多等 2 秒，不退出则 `SIGKILL`，所以下一个 turn 会通过 `restartIfNeededLocked()` 重新拉 CLI。  
 - `ForceComplete()`：同样先发 `SIGINT`，但会：
   - 记录 suppressed turn id；
   - 本地伪造 `turn:complete{success=true,status=completed,reason=force_complete}`；
@@ -259,16 +266,24 @@ Claude 没有网络层“重连”，恢复本质是 **重启 CLI + `--resume`**
 `transport_config.go` 的实际行为：
 
 - 固定参数：
-  - `claude -p`
+  - binary 默认为 `claude`（可由 `CLAUDE_CLI_BIN` 覆盖）
+  - `-p`
   - `--input-format stream-json`
   - `--output-format stream-json`
   - `--verbose`
 - **当前不会传 `--model`**；model 只存在于 session 状态里用于展示/记录。  
-- system prompt 由以下内容拼接：
+- `--system-prompt`：仅在拼接结果非空时传；内容来自：
   - base instructions
   - developer instructions
-  - `approval_policy` / `sandbox` / `summary` / `effort` / `personality` 元数据
-- permission mode 根据 `sandbox` / `approvalPolicy` 归一化。
+  - `approval_policy` / `sandbox` / `summary` / `effort` / `personality` 元数据（`key=value`，按行拼接）
+- `--permission-mode`：根据 `sandbox` / `approvalPolicy` 归一化：
+  - `sandbox=danger-full-access` / JSON `{"type":"danger-full-access"}` -> `bypassPermissions`
+  - `sandbox=workspace-write` -> `acceptEdits`
+  - `sandbox=read-only` -> `default`
+  - approval policy 空、`never`、`on-request`、`always`、`auto` -> `bypassPermissions`
+  - `on-failure`、`untrusted` -> `default`
+- `--effort`：仅在 `normalizeEffort()` 非空时传；`minimal` / `low` -> `low`，`medium` -> `medium`，`high` / `xhigh` -> `high`，其他非空值原样传。
+- `--resume <resumeID>`：`launchCLIWithManifest()` 在 `buildCLIArgs()` 之后追加；resume id 为空时不传。
 
 #### Manifest 写出
 
@@ -276,10 +291,10 @@ Claude 没有网络层“重连”，恢复本质是 **重启 CLI + `--resume`**
 - 仅接受：
   - `type=http,url=...` 的共享 peer 端点；
   - basename 以 `mcp-` 开头的 managed stdio binary。  
-- 只要带了 manifest：
+- 只要 `writeManifestConfig()` 返回非空配置路径：
   - 加 `--mcp-config <tempfile>`
   - 加 `--disallowedTools Read,Write,Edit,MultiEdit,Bash,Grep,Glob,LS`
-  - 若尚未显式给 permission-mode，则默认补 `bypassPermissions`
+  - 若参数列表里尚无 `--permission-mode`，再补 `--permission-mode bypassPermissions`
 
 #### 子进程管理
 
@@ -332,9 +347,11 @@ Codex 的隔离模型是：
 |---|---|
 | provider session | 独立 WS 连接 |
 | provider process | 可共享，也可单 session 自起 |
-| tool call 执行 | 通过 `ServerManager.toolHandler` 回桥到 toolbridge |
+| tool call 执行 | 若 `ServerManager.toolHandler` 已配置，则通过它回桥到 toolbridge |
 | public thread id | 事件下发时重写为 `agentID` |
 | provider thread id | `session.ThreadID()` / binding store 持久化 |
+
+事件进入 `onNotification()` 后还有一道 thread 归属过滤：payload 如果带 `threadId` 且它与当前 `session.ThreadID()` 不一致，会被视为 alien thread event 直接丢弃；通过过滤后，`session.dispatch()` 再把 provider 内部 `threadId` 改成 public `agentID`。
 
 ### 4.3 Session 启动与恢复
 
@@ -342,7 +359,7 @@ Codex 的隔离模型是：
 
 无论 start 还是 resume，都先走 `newSession()`：
 
-1. 选 server URL：优先显式 URL；若 `ServerManager` 正在运行则改用共享 URL。  
+1. 选 server URL：先用传入的显式 URL 初始化；若 `ServerManager` 正在运行，则无条件改用共享 `ServerURL()`。  
 2. `newTransport(ctx, url)`：
    - 有 URL：直接连；
    - 无 URL：`spawnLocal()` 然后连接。  
@@ -362,7 +379,7 @@ Codex 的隔离模型是：
    - 拉取 dynamic tool schema；
    - `thread/start` 时把 schema 放进 `DynamicTools`；
    - 同时把工具目录文本注入 `DeveloperInstructions`，因为这些工具不会以 MCP tool 形式直接暴露给模型。  
-5. `finishStartedSession()`：写回 session 的 `threadID`、`model`、`cwd`、`port` runtime snapshot，最后 `reportRuntime()`。
+5. `finishStartedSession()`：先把 resolved `threadID` 写回 session，再把 `model` / `cwd` / `port` 放进 runtime config snapshot，最后 `reportRuntime()`。
 
 这里没有额外本地伪造 `agent:launched`；通常依赖 provider 自身通知 `thread/started` / `session.configured`。
 
@@ -393,6 +410,17 @@ Codex 的隔离模型是：
 | `AllowedModels()` | `model/list` |
 | `RolloutPath()` | 定位本地 rollout 文件 |
 
+Codex `CapabilitySet` 的实际声明只包含：
+
+- `message_send`
+- `thread_list`
+- `thread_fork`
+- `context_compact`
+- `turn_override`
+- `model_switch`
+
+当前没有声明 `realtime`，也没有单独的 `thread_configure` capability 常量。
+
 #### 输入映射
 
 `session_turn.go` 会把输入转换成 Codex 输入项：
@@ -419,15 +447,20 @@ Codex 的隔离模型是：
 
 #### Approval 桥接
 
-`session_approval.go` 处理的 raw method 不止旧文档列的几项，实际包括：
+`session_approval.go` 处理 approval；method 集合在 `factory.go` 的 `approvalBridgeMethods` / `requestUserInputMethods` 中定义，实际包括：
 
-- `rpc.DefaultApprovalCallbackMethod`
+- `rpc.DefaultApprovalCallbackMethod`（当前值：`approval/request`）
 - `tool/approval/request`
 - `item/commandExecution/requestApproval`
 - `item/fileChange/requestApproval`
 - `skill/requestApproval`
 - `tool.approval.requested`
-- `request_user_input` 及其多种别名
+- `request_user_input`
+- `codex/event/request_user_input`
+- `item/commandExecution/requestUserInput`
+- `item/commandExecution/request_user_input`
+- `item/tool/requestUserInput`
+- `item/tool/request_user_input`
 - `mcpServer/elicitation/request`
 
 流程：
@@ -465,6 +498,8 @@ provider notification
 - `transport unavailable`  
 - `rpc error ...`（说明服务端活着，只是协议返回错误）
 
+`transport closed` 当前不在排除项里，会走 reconnect；health check 遇到 `rpc error` / `invalid request` / `method not found` 也只刷新读活动时间，不触发恢复。
+
 #### 恢复流程
 
 ```text
@@ -484,6 +519,7 @@ attemptRecovery(reason)
        -> 重新 turn/start
        -> 更新 handle.providerID / turns map / activeTurnID
   -> recoveryCount 清零
+  -> noteReadActivity()
 ```
 
 #### 需要特别记住的语义
@@ -537,12 +573,13 @@ attemptRecovery(reason)
 3. `cleanOrphanedAppServers()`：清理孤儿 `codex app-server --listen ...` 及其残留后代。  
 4. `transport.spawnLocal()`：起共享 app-server。  
 5. 注册 app-server PID 到 `pidregistry`。  
-6. 用一条临时 WS 做 `establish()` 健康校验。  
-7. 暴露 `ServerURL()` 给各 session 使用。
+6. 用 manager 自己持有的 `transport` 建立 WS 并 `establish()`（`connect + initialize`）验证 app-server 可用；这个 transport 之后仍归 `ServerManager` 生命周期管理，并不是各 session 复用的 WS。  
+7. 暴露 `ServerURL()` 给各 session，让每个 session 再各自新建独立 WS。
 
 #### `spawnToolbridgePeers()`
 
 - 额外拉起：`mcp-orch`、`mcp-lsp`  
+- 二进制路径只从当前 `os.Executable()` 所在目录拼出，不走 PATH 搜索。  
 - 环境变量：`GO_AGENT_PEER_MODE=1`  
 - 使用 `os.Pipe()` 保持 stdin 打开，避免 peer 因 EOF 退出  
 - `watchAndRestartPeer()` 负责异常退出自动拉起新 peer  
@@ -615,6 +652,7 @@ Claude raw event 的生成源：
   - `turn:input_received`
   - `turn:interrupted`
   - synthetic `turn:complete(force_complete)`
+  - `turn:complete(error)`（如发送失败、read loop 以 EOF/错误收口时）
 
 ### 5.2 Codex translator：`internal/provider/codexapp/event_map.go`
 
@@ -636,10 +674,14 @@ Claude raw event 的生成源：
 | `item/completed`、`tool.call.end` | `tooldto.ToolCallEnd` | 仅当 payload 看起来像 tool call |
 | `approval/resolved`、`tool.approval.resolved` | `tooldto.ToolApprovalResolved` | |
 
-额外还有两类 **仅记录日志、不产 typed event** 的事件：
+注意：`EventDispatcher` 会先跑公共 translator 再跑 Codex translator，所以同一个 raw event 可能产出多个 typed event。例如 `item/completed` 命中公共表时会产 `turndto.ItemCompleted`，若 payload 又像 tool call，Codex translator 还会产 `tooldto.ToolCallEnd`。
+
+Codex translator 中明确 **仅记录日志、不产 typed event** 的事件：
 
 - `mcpServer/startupStatus/update`
 - `mcpServer/startupStatus/updated`
+
+另外，`shouldWarnUnknownRawEvent()` 还把若干 plan/item 别名列入“无需 unknown warning”的白名单。当前其中 `item_plan_delta`、`agent/event/item_plan_delta`、`item/plan/updated`、`item_plan_updated`、`agent/event/item_plan_updated` 在公共 translator 表里也没有对应分支，因此实际是“不产 typed event，也不告警”。
 
 ### 5.3 公共 translator：`internal/provider/unified/event_map.go`
 
@@ -669,9 +711,9 @@ Claude raw event 的生成源：
 
 - `ResolveBinaryDir()`：
   1. 优先显式 `binary_dir` / `binaryDir`  
-  2. 否则 executable dir  
-  3. 否则 cwd  
-  4. 否则 `LookPath(mcp-lsp|mcp-orch)` 所在目录
+  2. 否则收集候选目录：当前 executable 所在目录、`cwd`、`LookPath(mcp-lsp|mcp-orch)` 所在目录  
+  3. 先返回第一个实际包含 `mcp-lsp` 或 `mcp-orch` 文件的候选目录  
+  4. 若所有候选目录都没有 managed binary，再返回第一个非空候选目录
 - `ConfigString()` / `ConfigStringSlice()` / `StringMap()`：统一读取 provider config。
 
 当前直接使用它来拼 manifest 的是 **Claude provider**；Codex 当前主链路更偏向 dynamic tools + shared app-server，而不是从这里写 MCP config 文件。
@@ -682,15 +724,15 @@ Claude raw event 的生成源：
 
 - `ReviewerDecision()`：
   - 允许：`lsp_file`、`lsp_grep`、`lsp_inspect`、`lsp_xref`、`lsp_structure`、`lsp_completion`、`shared_file_read`
-  - 禁止：`lsp_edit`、`code_run`、`code_run_test`、部分 orchestration 管理工具
-- `WorkerDecision()`：禁止 orchestration 管理工具
+  - 禁止：`lsp_edit`、`code_run`、`code_run_test`、`orchestration_launch_agent`、`orchestration_stop_agent`
+- `WorkerDecision()`：禁止 `orchestration_launch_agent`、`orchestration_send_message`、`orchestration_stop_agent`、`orchestration_list_agents`、`orchestration_get_agent_report`
 - `FullAccessDecision()`：不做限制
 
 从注释和当前接线看，这仍是 **预设策略库**，尚未深度接入 provider 主链路。
 
 ### 6.3 `internal/provider/e2e/`
 
-- `claude_mcp_test.go`：验证 Claude manifest JSON 写出逻辑；当前是可构建、可运行的。  
+- `claude_mcp_test.go`：验证 Claude manifest JSON 写出逻辑；其 `linkname` 目标 `claudecli.writeManifestConfig` 当前仍存在。  
 - `codex_mcp_test.go`：仍假设存在 `writeCodexMCPConfig(path, manifest, cwd)`，并通过 `linkname` 直连 `codexapp` 包。  
 - `doc.go`：包级说明仍描述“Codex: MCPManifest -> config.toml -> reload -> poll ready”。
 

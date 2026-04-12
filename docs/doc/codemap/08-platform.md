@@ -48,9 +48,9 @@
 
 - `New()` / `NewDispatcher()` / `(*Bus).Dispatcher()`
 - `NewThreadEmitters()` / `NewEmitter[T event.Event](dispatcher)`
-- `NewRouter()` / `Route[T]()` / `ResilientSubscribe[T]()`
+- `NewRouter(_ *event.Dispatcher)` / `Route[T]()` / `ResilientSubscribe[T]()` / `(*Router).Handle()` / `(*Router).Close()`
 - `NewSubscription()` / `(*Subscription).Add()` / `(*Subscription).CancelAll()`
-- `NewLogSink()` / `(*LogSink).Close()`
+- `NewLogSink(dispatcher, logger)` / `(*LogSink).Close()`
 
 **文件导览**
 
@@ -90,18 +90,24 @@
 - `WithTimeout()` / `WithTimeoutIfNone()`
 - `WithInitialThreadIDTimeout()` / `WithSessionCloseTimeout()`
 - `WithDBQueryTimeout()` / `WithRPCRequestTimeout()` / `WithPeerTimeout()`
-- timeout 常量：`LaunchTimeout`、`StartupTimeout`、`ShutdownTimeout`、`DBQueryTimeout`、`RPCRequestTimeout`、`InterruptSettleTimeout`、`AsyncLaunchTimeout` 等
+- timeout 常量：`LaunchTimeout`、`StartupTimeout`、`ShutdownTimeout`、`InitialThreadIDTimeout`、`SessionCloseTimeout`、`HealthCheckPeriod`、`StallDetectDelay`、`DBQueryTimeout`、`RPCRequestTimeout`、`InterruptSettleTimeout`、`AsyncLaunchTimeout`
 
 **文件导览**
 
-- `config.go`：读取 `DATABASE_URL`、`GO_AGENT_CTL_RPC_ADDR`、`LOG_LEVEL`、`PROJECT_ROOT`，并把解析出的 RPC/DB 值按需回写到进程环境
+- `config.go`：读取 `DATABASE_URL`、`GO_AGENT_CTL_RPC_ADDR`（兼容旧名 `RPC_ADDR`）、`LOG_LEVEL`、`PROJECT_ROOT`，并把解析出的 RPC/DB 值按需回写到进程环境
 - `timeouts.go`：统一平台 timeout 常量与 context 包装器
 - `module.go`：fx 提供 `*Config`
 
 **实现要点**
 
-- 显式兼容老环境变量 `RPC_ADDR`，并打印弃用警告
-- `exportRPCAddrIfMissing()` / `exportDatabaseURLIfMissing()` 用来保证派生出来的 MCP 子进程能继承解析后的配置
+- 环境变量完整列表：
+  - `DATABASE_URL`：默认 `postgres://mima0000@127.0.0.1:54320/super_agent_v3?sslmode=disable`
+  - `GO_AGENT_CTL_RPC_ADDR`：RPC 地址，默认 `127.0.0.1:8090`
+  - `RPC_ADDR`：仅作为 `GO_AGENT_CTL_RPC_ADDR` 为空时的兼容旧名，会打印“2026-06-30 前迁移”的弃用警告
+  - `LOG_LEVEL`：默认 `info`
+  - `PROJECT_ROOT`：默认 `os.Getwd()`
+- `exportRPCAddrIfMissing()` 只有在 `GO_AGENT_CTL_RPC_ADDR` 与 `RPC_ADDR` 都为空时写回 canonical `GO_AGENT_CTL_RPC_ADDR`；`exportDatabaseURLIfMissing()` 只有在 `DATABASE_URL` 为空且解析值非空时写回
+- 这些回写用来保证派生出来的 MCP 子进程能继承解析后的配置
 - `WithTimeoutIfNone` 很重要：避免重复覆盖已有 deadline
 - 多个子系统（RPC、Hook peer callback、DB、Provider 会话、MCP bootstrap）都复用这里的 timeout 语义
 
@@ -184,6 +190,7 @@
 - `processedIDs` 对 `CallID` 去重，重复工具回调不会重复叠加 diff
 - `Merge()` 先尝试 hook/`replace_range` 提取，再尝试 git diff；只有 `ErrReplaceRangePatchNotFound` 才会触发显式 fallback 逻辑
 - git 模式有安全阈值：`MaxTrackedFiles=200`、单文件 `1MB`、总 diff `5MB`
+- session TTL / sweep 默认值来自 `types.go`：`DefaultSessionTTL=30m`、`DefaultSweepInterval=1m`
 - 测试覆盖了 agent 隔离、CallID 幂等、TTL 清理、fallback、预脏文件排除
 
 ---
@@ -215,11 +222,11 @@
 **实现要点**
 
 - `Bind()` 覆盖的不只是 thread/turn/tool，也包括 `AgentLaunched/Stopped/Recovering/Failed/RuntimeReported`、`SkillsChanged`、`UIPreferencesChanged`、`UIProjectionUpdated`、`UIThreadPatch`
-- `TurnOutputDelta` 会按 `stream` 细分成 `item/agentMessage/delta`、`item/reasoning/textDelta`、`item/commandExecution/outputDelta`
+- `TurnOutputDelta` 会按 `stream` 细分：`message -> item/agentMessage/delta`、`reasoning -> item/reasoning/textDelta`、`stdout -> item/commandExecution/outputDelta`，其他 stream 仍走 `turn/output/delta`
 - `ToolApprovalRequested` 会按 `Kind` 路由到 command/fileChange/skill 不同方法名
 - `UIProjectionUpdated` 会直接映射到 `ui/thread/changed` 或 `ui/sidebar/changed`
 - `UITokensUpdated` 仍会发出兼容性方法 `thread/tokenusage/updated`
-- `legacy.go` 会跳过 `ui/thread/patch`、token usage、streaming delta，以及 `workspace/run/*` 这类不应触发双重刷新的方法
+- `legacy.go` 会跳过 `ui/thread/patch`、`thread/compacted`、token usage 与 streaming delta 的 legacy refresh；`workspace/run/*` 不发 thread refresh，但会追加 `ui/sidebar/changed`
 - 这是 `rpc.PushBridge` 对外推送时最重要的协议整形层
 
 ---
@@ -246,8 +253,8 @@
 **实现要点**
 
 - `ReadRequest.RolloutPath` 非空时会直接绕过自动发现逻辑
-- Claude 优先从 `CLAUDE_HOME/projects/*/<session>.jsonl` 找文件
-- Codex 从 `~/.codex/sessions/.../rollout-*-<thread>.jsonl` 找最新匹配
+- Claude 从 `CLAUDE_HOME`（默认 `~/.claude`）下的 `projects/*/<id>.jsonl` 找文件，候选 ID 顺序是 `SessionUUID -> ProviderThreadID -> ThreadID`
+- Codex 从 `~/.codex/sessions/.../rollout-*-<id>.jsonl` 找最新匹配，候选 ID 是 `ProviderThreadID -> ThreadID`
 - 只保留 `user/assistant` 且非空消息
 - 上层主要由 thread 模块在 session 不可用时做“持久化历史回退读取”
 
@@ -274,9 +281,9 @@
 **关键 API**
 
 - Registry：`NewHookRegistry()` / `Subscribe()` / `GetSubscribers()` / `GetSubscribersBySelector()` / `GetSubscription()` / `Unsubscribe()`
-- Dispatcher：`NewHookDispatcher()` / `WithDispatcherParallelism()` / `WithPeerTimeout()` / `DispatchBefore()` / `DispatchCheck()` / `DispatchAfter()`
-- Resolver：`NewHookResolver()` / `WithResolverTTL()` / `WithResolverLogger()` / `Escalate()` / `Resolve()` / `ListPendingReviews()` / `CancelByLease()` / `CancelByAgent()` / `SweepExpired()` / `RecoverOnStartup()`
-- Manager：`NewManager()` / `WithMaxHookDepth()` / `WithManagerLogger()` / `Subscribe()` / `DispatchBefore()` / `DispatchCheck()` / `DispatchAfter()` / `Resolve()` / `GetPendingReviews()` / `ShutdownHooks()`
+- Dispatcher：`NewHookDispatcher(registry, peerCallback, opts...)` / `WithDispatcherParallelism()` / `WithPeerTimeout()` / `DispatchBefore()` / `DispatchCheck()` / `DispatchAfter()`
+- Resolver：`NewHookResolver(store, opts...)` / `WithResolverTTL()` / `WithResolverLogger()` / `Escalate()` / `Resolve()` / `ListPendingReviews()` / `CancelByLease()` / `CancelByAgent()` / `SweepExpired()` / `RecoverOnStartup()`
+- Manager：`NewManager(registry, dispatcher, resolver, opts...)` / `WithMaxHookDepth()` / `WithManagerLogger()` / `Subscribe()` / `DispatchBefore()` / `DispatchCheck()` / `DispatchAfter()` / `Resolve()` / `GetPendingReviews()` / `ShutdownHooks()`
 
 **文件导览**
 
@@ -296,7 +303,8 @@
 - `registry.Subscribe()` 用 `subscription_id + requestHash` 做幂等；同 lease 新订阅会递增版本并替换旧订阅
 - scope 过滤不是泛泛而谈，而是精确匹配 `agentID/threadID/clientKind/instanceID`
 - `prepareDispatch` 会 clone payload、`Depth++`、补 `Topic` 与 `HookCallID`
-- 默认最大深度 `defaultMaxHookDepth = 3`，用于防递归
+- dispatcher 默认并发度 `8`、peer callback timeout `2s`；默认最大 Hook 深度 `defaultMaxHookDepth = 3`，用于防递归
+- after/escalate pending review 默认 TTL 是 `5m`；`AfterDecision.TTLMs` 优先，其次用 payload `DeadlineMs`，最后才用默认 TTL
 - **before 合并优先级**：`deny > wait > modify > allow`；`AllowedTools` 取交集，`DeniedTools` 取并集
 - **check 合并优先级**：`abort > warn > continue`
 - **after 合并优先级**：`reject > escalate > approve`
@@ -331,10 +339,10 @@
 
 **关键 API**
 
-- Registry：`NewRegistry()` / `NewToolRegistry()` / `Register()` / `Heartbeat()` / `GetInstance()` / `ShutdownInstance()` / `OnDisconnect()` / `FindActiveByKind()` / `IntersectTargets()`
+- Registry：`NewRegistry()` / `NewToolRegistry(opts)` / `Register()` / `Heartbeat()` / `GetInstance()` / `ShutdownInstance()` / `OnDisconnect()` / `FindActiveByKind()` / `IntersectTargets()`
 - Notify/Callback：`NotifyBySubscription()` / `NotifyByCapability()` / `NotifyBySelector()` / `NotifyConfigChanged()` / `CallbackBefore()` / `CallbackCheck()` / `CallbackAfter()` / `CallbackHookBefore()` / `CallbackHookCheck()` / `CallbackHookAfter()`
-- Sweeper：`NewSweeper()` / `NewSweeperWithOptions()` / `Run()` / `Sweep()`
-- RPC handlers：`NewHandlers(...)`
+- Sweeper：`NewSweeper(registry, logger)` / `NewSweeperWithOptions(registry, logger, opts)` / `Run()` / `Sweep()`
+- RPC handlers：`NewHandlers(deps)`
 
 **文件导览**
 
@@ -365,7 +373,12 @@
 - 默认 report handler 只接受 `runtime` / `completion`，`progress` / `diagnostic` 当前明确返回 unsupported
 - hook RPC 处理器通过 `jrpc2.ServerFromContext(ctx)` 反查“当前连接对应的 lease”
 - `config_change.go` 让 MCP peer 拿到 agent/thread 绑定变化，而不需要轮询
-- `Sweeper` 默认：5s tick、30s heartbeat TTL、5s stale grace
+- 注册/心跳/清扫默认参数来自源码常量：
+  - registry：`HeartbeatInterval=10s`、`NotifyTimeout/SendTimeout=2s`、`FanoutParallelism=8`、`PeerFailureThreshold=3`、`defaultCleanupTimeout=3s`、初始 `configVersion=1`
+  - register response：`HeartbeatIntervalMs=10s`、`HeartbeatTimeoutMs=30s`、`SendTimeoutMs=2s`、`SweeperIntervalMs=5s`、`ServerProtocolVersion=dto.ProtocolVersion`
+  - heartbeat response：`NextHeartbeatMs=10s`，并返回当前 instance 的 `ConfigVersion`
+  - sweeper：`Tick=5s`、`Jitter=1s`、`HeartbeatTTL/Timeout=30s`、`StaleGrace=5s`
+  - module stop 清理 active leases 使用 `activeLeaseCleanupTimeout=5s`
 
 ---
 
@@ -420,10 +433,10 @@
 
 **关键 API**
 
-- `NewServer()` / `(*Server).Register()` / `Run()` / `Dispatch()` / `NotifyAll()` / `OnConnect()` / `OnConnectUI()` / `PeerKind()`
+- `NewServer(params)` / `(*Server).Register()` / `Run()` / `Dispatch()` / `NotifyAll()` / `OnConnect()` / `OnConnectUI()` / `PeerKind()`
 - `Wrap()` / `Logging()` / `Validate()` / `ThreadScope()` / `CapabilityGate()` / `ThreadHandler()` / `CapabilityThreadHandler()` / `StrictHandler()` / `RawHandler()`
-- `NewPushBridge()` / `NotifyClient()` / `CallbackClient()`
-- `NewApprovalManager()` / `RequestApproval()` / `RequestUserInput()` / `Respond()` / `AutoApprove()` / `RestorePending()` / `Cleanup()` / `PendingSnapshot()`
+- `NewPushBridge(dispatcher, logger)` / `NotifyClient()` / `CallbackClient()`
+- `NewApprovalManager(logger, dispatcher)` / `RequestApproval()` / `RequestUserInput()` / `Respond()` / `AutoApprove()` / `RestorePending()` / `Cleanup()` / `PendingSnapshot()`
 - `WithApprovalDeadline()` / `WithApprovalAutoDeclineOnCancel()`
 - `WSHandler(server, opts)`
 
@@ -451,6 +464,7 @@
 - `Server` 会维护 active peer 表，并支持 `OnConnect` / `OnConnectUI` 回调；审批恢复就挂在这里
 - `rpcRequestTracker` 会记录 pending request，在连接异常退出时打印未完成请求清单
 - `baseThreadHandler()` 的默认链路是 `Validate + ThreadScope + extras`；`Logging` 是可选 middleware，不是默认强制项
+- 具体执行顺序是 `Validate -> ThreadScope -> extras（例如 CapabilityGate） -> StrictHandler`，其中 `StrictHandler` 是 object-only strict decode 的内层 typed handler
 - `CapabilityGate` 通过 `contract.SessionResolver` 反查线程当前 provider session 的 capability set
 - `PushBridge` 有两条输入：`eventsurface.Bind()` 生成的 typed surface 事件，以及 `providerdto.BusRawProviderEvent` 的白名单直推；已知 typed method 会被过滤以避免重复推送
 - 审批系统支持：
@@ -565,7 +579,7 @@
 
 **关键 API**
 
-- `NewHandler()`
+- `NewHandler(in)`
 - `HandleToolCall(ctx, codexapp.RawMessage)`
 - `ListToolsForCodex(ctx)`
 
@@ -582,6 +596,7 @@
 - `routeToolCall()` 通过 `mcpcontrol.ToolRegistry.FindActiveByKind()` 找活跃 peer；0 个报 `ErrNoPeerAvailable`，多个报 `ErrAmbiguousPeer`
 - 对 `tools/call` 的 peer callback 若返回错误，不会上抛 Go error，而是转换成 `ToolCallResult{Success:false}` 返给 Provider
 - `ListToolsForCodex()` 会分别等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），调用各自的 `tools/list`，再转换成 `codexapp.DynamicToolSchema`
+- `tools/call` peer callback 的 timeout 是 `toolCallTimeout = 120s`
 - 当前 `tools/list` 只取每类 client kind 的第一个活跃 peer；而 `tools/call` 则要求同类 peer 唯一
 - 只有 `code_run`、`code_run_test`，以及 `lsp_edit(rename/format/code_action/replace_range)` 会在调用前拍 git snapshot
 - `mergeContext()` 会把 `threadID + arguments + snapshot` 注入 `difftracker.WithToolCallContext()`，调用完成后再执行 `aggregator.Merge(...)`
@@ -676,7 +691,8 @@ MCP peer ctl/event
 - `RawHandler()`：保留原始 `*jrpc2.Request`
 - `ThreadScope()`：从 `threadId/threadID/thread_id` 参数里提取 threadId 注入 context
 - `CapabilityGate()`：基于当前线程 session 的 capability 拦截请求
-- `ThreadHandler()` / `CapabilityThreadHandler()` 的基础链路来自 `baseThreadHandler()`，默认包含 `Validate + ThreadScope`
+- `ThreadHandler()` / `CapabilityThreadHandler()` 的基础链路来自 `baseThreadHandler()`；执行顺序是 `Validate -> ThreadScope -> extras -> StrictHandler`
+- `CapabilityThreadHandler()` 传入的 `CapabilityGate()` 属于 extras，因此会在 `ThreadScope` 已注入 threadId 后、`StrictHandler` typed decode 前执行
 - `Logging()` 是可选 middleware，不是默认强制链路的一部分
 
 ### 4.2.3 连接管理与请求跟踪
@@ -830,10 +846,12 @@ Codex session 收到 inbound tool request
 
 ## 7.2 核心业务模块
 
-- `internal/module/thread`：大量使用 `bus`、`db`、`config`、`rpc`、`historyjsonl`、`shared`
+- `internal/module/thread`：大量使用 `bus`、`db`、`rpc`、`historyjsonl`、`shared`
 - `internal/module/turn`：使用 `config`、`rpc`、`shared`
-- `internal/module/uistate`：使用 `bus`、`config`、`db`、`rpc`
-- `internal/module/skill` / `dashboard` / `lspgui`：使用 `bus`、`config`、`rpc`
+- `internal/module/uistate`：使用 `bus`、`config`、`db`、`rpc`、`shared`
+- `internal/module/skill`：使用 `bus`、`config`、`rpc`、`shared`
+- `internal/module/dashboard`：使用 `rpc`、`shared`
+- `internal/module/lspgui`：使用 `config`、`rpc`、`shared`
 
 ## 7.3 Provider 层
 
@@ -843,7 +861,7 @@ Codex session 收到 inbound tool request
 
 ## 7.4 MCP/Sidecar 进程
 
-- `cmd/mcp-orch`：依赖 `config`、`bus`、`db`、`shared`、`statemachine`
+- `cmd/mcp-orch`：根进程装配依赖 `config`、`bus`、`db`、`runner`；其 orchestration/workspace/store 子包还会用到 `rpc`、`shared`、`statemachine`
 - `cmd/mcp-lsp` / `cmd/mcp-ida`：依赖 `config`、`runner`
 
 ## 7.5 Store 与基础 IO 层
@@ -889,3 +907,4 @@ platform 层不是单一“工具包”，而是一组彼此协作的基础设�
 - 补充了 RPC 章节中 push 双通道（typed surface + provider raw whitelist）、approval alias/catalog、断线恢复、停机清理与 `Respond(callID/requestID)` 语义。
 - 补充了 `mcpcontrol` 的 selector 交集、context scope、`ctl/event` 入总线、report 幂等与 unsupported variant 说明。
 - 补充了 `toolbridge` 的 peer 就绪轮询、`tools/call` 失败返回 `Success=false`、以及 snapshot 触发条件的精确范围。
+- 本轮又按源码补全了 `config` 的完整环境变量/默认值、`mcpcontrol` 的注册/心跳/清扫常量、`rpc` 的 middleware 实际执行顺序、`historyjsonl` 的路径发现候选顺序，以及 `toolbridge` 的 `120s` callback timeout。

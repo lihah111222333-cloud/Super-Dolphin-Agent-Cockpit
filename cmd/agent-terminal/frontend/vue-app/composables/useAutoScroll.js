@@ -43,17 +43,30 @@ export function useAutoScroll(workspaceRef) {
     domRebuildInProgress = false;
 
     if (savedDistFromBottom <= 96) {
-      if (shouldAutoScroll.value) { el.scrollTop = savedScrollTop = el.scrollHeight; savedDistFromBottom = 0; }
+      if (shouldAutoScroll.value) { 
+        el.scrollTop = savedScrollTop = el.scrollHeight; 
+        savedDistFromBottom = 0; 
+      } else {
+        logWarn('scroll', 'scroll.mutation.aborted.bottom', { 
+          savedDistFromBottom, 
+          shouldAutoScroll: shouldAutoScroll.value,
+          scrollHeight: el.scrollHeight,
+          scrollTop: el.scrollTop
+        });
+      }
       unlockContainerHeight();
       if (snapshotGuardActive) { snapshotGuardActive = false; if (snapshotGuardTimer) { clearTimeout(snapshotGuardTimer); snapshotGuardTimer = 0; } }
       return;
     }
+    
+    logWarn('scroll', 'scroll.mutation.restoring', { savedScrollTop, savedDistFromBottom, shouldAutoScroll: shouldAutoScroll.value, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight });
+    
     if (savedScrollTop > 0 && Math.abs(el.scrollTop - savedScrollTop) > 4) {
       if (el.scrollTop === 0 && savedScrollTop > 100) {
         logWarn('scroll', 'scroll.mutation.unexpected_reset', { savedScrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, shouldAutoScroll: shouldAutoScroll.value, stack: new Error('[diag]').stack });
       }
       el.scrollTop = savedScrollTop;
-      logInfo('scroll', 'scroll.mutation.restored', { savedScrollTop, currentScrollTop: el.scrollTop, scrollHeight: el.scrollHeight, stack: new Error('[diag]').stack });
+      logWarn('scroll', 'scroll.mutation.restored', { savedScrollTop, currentScrollTop: el.scrollTop, scrollHeight: el.scrollHeight, stack: new Error('[diag]').stack });
     }
     unlockContainerHeight();
     if (snapshotGuardActive) { snapshotGuardActive = false; if (snapshotGuardTimer) { clearTimeout(snapshotGuardTimer); snapshotGuardTimer = 0; } }
@@ -86,6 +99,7 @@ export function useAutoScroll(workspaceRef) {
           el.scrollTop = savedScrollTop = el.scrollHeight;
           isAtBottom.value = true;
           savedDistFromBottom = 0;
+          if (force) shouldAutoScroll.value = true;
           if (Math.abs(el.scrollTop - prevTop) > 2) logDebug('scroll', 'scroll.to_bottom.done', { from: prevTop, to: el.scrollTop, scrollHeight: el.scrollHeight, force });
           requestAnimationFrame(() => programmaticScrollInProgress = false);
         });
@@ -309,7 +323,7 @@ export function useAutoScroll(workspaceRef) {
         logWarn('scroll', 'scroll.reattach.detected', { savedScrollTop, newElScrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight });
         attachScrollListener();
       }
-    }, 500);
+    }, 2000);
   });
 
   onBeforeUnmount(() => {

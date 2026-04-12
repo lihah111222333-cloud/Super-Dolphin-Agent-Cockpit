@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -17,13 +18,68 @@ type launcherLaunchAttempt struct {
 	launching   agentRuntime
 }
 
+const (
+	maxLaunchRetries      = 3
+	launchRetryBase       = 2 * time.Second
+	maxConcurrentLaunches = 10
+)
+
+// launchSemaphore limits the number of concurrent agent launches to avoid
+// overwhelming the shared codex app-server with too many thread/start RPCs.
+var launchSemaphore = make(chan struct{}, maxConcurrentLaunches)
+
+func acquireLaunchSlot(ctx context.Context) error {
+	select {
+	case launchSemaphore <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func waitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr error) error {
+	delay := time.Duration(attempt) * launchRetryBase
+	pkglogger.Info("orchestration: retrying launch",
+		"agent_id", agentID, "attempt", attempt+1,
+		"prev_error", prevErr, "backoff", delay)
+	select {
+	case <-time.After(delay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest) error {
+	if err := acquireLaunchSlot(ctx); err != nil {
+		return err
+	}
+	defer func() { <-launchSemaphore }()
 	attempt, handled, err := s.prepareLauncherLaunch(ctx, req)
 	if handled || err != nil {
 		return err
 	}
-	result, launchErr := s.launcher.Launch(ctx, &attempt.launching, req)
-	return s.finishLauncherLaunch(ctx, attempt, result, launchErr)
+	return s.launchWithRetry(ctx, attempt, req)
+}
+
+func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAttempt, req LaunchRequest) error {
+	var lastErr error
+	for i := 0; i < maxLaunchRetries; i++ {
+		if i > 0 {
+			if err := waitRetryBackoff(ctx, i, attempt.agentID, lastErr); err != nil {
+				return s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, err)
+			}
+		}
+		result, launchErr := s.launcher.Launch(ctx, &attempt.launching, req)
+		if launchErr == nil {
+			return s.finishLauncherLaunch(ctx, attempt, result, nil)
+		}
+		lastErr = launchErr
+		if !isRetryableLaunchError(launchErr) {
+			break
+		}
+	}
+	return s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, lastErr)
 }
 
 func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) (launcherLaunchAttempt, bool, error) {
@@ -99,6 +155,10 @@ func (s *service) discardStaleLaunchResult(ctx context.Context, launching *agent
 func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching *agentRuntime, launchErr error) error {
 	err := s.commitLaunchFailureLocked(ctx, agent, launchErr, launching.lastError)
 	s.mu.Unlock()
+	// Clean up any residual resources on the launching copy (remote thread, etc.).
+	if launching != nil && s.launcher != nil {
+		_ = s.launcher.Stop(ctx, launching)
+	}
 	return err
 }
 
@@ -313,4 +373,29 @@ func bindLaunchResult(agent *agentRuntime, result LaunchResult) {
 	if remoteAgentID := strings.TrimSpace(result.RemoteAgentID); remoteAgentID != "" {
 		agent.remoteAgentID = remoteAgentID
 	}
+}
+
+// isRetryableLaunchError returns true for transient errors that may succeed
+// on a subsequent attempt (timeout, connection refused, transport unavailable).
+func isRetryableLaunchError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	msg := err.Error()
+	for _, pattern := range []string{
+		"deadline exceeded",
+		"connection refused",
+		"transport unavailable",
+		"empty thread id",
+		"timed out",
+		"i/o timeout",
+	} {
+		if strings.Contains(strings.ToLower(msg), pattern) {
+			return true
+		}
+	}
+	return false
 }

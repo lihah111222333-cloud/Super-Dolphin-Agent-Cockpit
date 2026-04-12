@@ -242,7 +242,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
    - `command/exec` → `ExecCommand`
    - 阻断危险命令、shell 解释器、shell metacharacters
    - 对 `env/time/nice/timeout/find -exec/xargs` 等 wrapper 做递归危险命令分析
-   - 仅允许白名单环境变量前缀透传
+   - 基础环境只带 `PATH/HOME/USER/...` 等固定 key；宿主/请求 overlay env 仅允许白名单前缀或 `PWD`
    - 使用 RPC 请求超时执行命令；若是只读命令，会自动在 stdout 前追加 “优先使用 LSP 工具” 提示
 
 6. **技能变更事件**
@@ -341,7 +341,8 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 关键点：
 - 若 `SessionUUID` 与 `ProviderThreadID` 不同且看起来像真实 UUID，则优先用 `SessionUUID`
-- persist binding 失败时仍会继续补发 `thread.Started`，避免 UI 因 binding immutable 失败而卡死
+- `persistThreadState` 成功时内部已通过 `persistStartedThread` 发布 `thread.Started`；源码当前随后还会**无条件**再发布一次 `thread.Started`
+- persist binding 失败时会记录 warning 并继续发 `thread.Started`，避免 UI 因 binding immutable 失败而卡死
 
 #### C. Fork / Recover
 
@@ -355,6 +356,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
   - 优先 `orchestration.Recover(agent)`；若恢复失败则回退到重新拉起 agent
   - 如果本地 session 不存在，再执行 `resumeSession`
   - 最后重新持久化 thread state
+  - `persistThreadState` 成功时已发一次完整 `thread.Started`；源码当前随后还会用只含 `PublicThreadID/AgentID/Provider` 的简化 `threadState` 再发一次 `thread.Started`
 
 #### D. Stop / Archive / Delete / Unarchive
 
@@ -397,7 +399,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
   - 若 session 缺失，后台触发 `backgroundResumeIfNeeded`
   - 优先走 `session.ReadHistory`，否则回退到 `platform/historyjsonl`
   - 自动补齐 message `ID/AgentID/EventType`
-  - `before` 支持消息 ID 或时间游标；分页结果为 **newest-first**
+  - `before` 支持消息 ID（纯数字按 ID 处理）或 RFC3339/RFC3339Nano 时间游标；分页结果为 **newest-first**
   - 发 `thread.MessagesPage`
 
 - `thread/config/get` / `ReadRuntimeConfig`
@@ -548,6 +550,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
   - 把 `TurnSubmission` 转为 `PrepareInput`
   - 用 `submission.ExpectedTurnID` 覆盖本地 turn id
   - 再直接调用 turn service
+- `NewOrchestrationTurnStarter` 返回的 contract 接口只要求 `StartTurn`；`WaitForSessionReady` 是具体类型额外实现，并由编排层通过本地 interface 断言使用
 
 ### 文件地图
 
@@ -571,7 +574,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 ### 依赖特点
 
-- **contract**：`Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder`
+- **contract**：`Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder`、`OrchestrationTurnStarter` / `TurnSubmission`
 - **store**：无直接依赖
 - **platform**：`config`、`rpc`、`shared`
 - **dto**：`dto/provider`、`dto/shared`
@@ -741,6 +744,8 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 ## 3. RPC 接口总览
 
+> 本节按对应 `rpc.go`（`uistate` 另含 `config_rpc.go`）中的 `handler.Map` 注册顺序列出，名称集合与源码逐项一致。
+
 ## 3.1 dashboard
 
 - `ui/dashboard/get`
@@ -754,12 +759,12 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 - `dashboard/system/info`
 - `dashboard/query`
 - `dashboard/aiLogs`
-- `dashboard/aiLogs/recent`
-- `dashboard/aiLogs/stats`
 - `dashboard/auditLogs`
 - `dashboard/busLogs`
 - `dashboard/dags`
 - `dashboard/dagDetail`
+- `dashboard/aiLogs/recent`
+- `dashboard/aiLogs/stats`
 - `dashboard/logs`
 
 ## 3.2 lspgui
@@ -790,7 +795,6 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 ## 3.4 thread
 
-### 生命周期 / 查询 / 配置
 - `thread/start`
 - `thread/stop`
 - `thread/resume`
@@ -811,18 +815,16 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 - `thread/personality/set`
 - `thread/approvals/set`
 - `thread/compact/start`
-- `thread/debugMemory`
-
-### 已注册但当前仍是占位 / TODO(P9) 的 RPC
-- `thread/rollback`
-- `thread/undo`
-- `thread/backgroundTerminals/clean`
-- `thread/mcp/list`
-- `thread/skills/list`
-- `thread/realtime/start`
-- `thread/realtime/appendAudio`
-- `thread/realtime/appendText`
-- `thread/realtime/stop`
+- `thread/rollback`（当前 `TODO(P9)`）
+- `thread/undo`（当前 `TODO(P9)`）
+- `thread/backgroundTerminals/clean`（当前 `TODO(P9)`）
+- `thread/mcp/list`（当前 `TODO(P9)`）
+- `thread/skills/list`（当前 `TODO(P9)`；语义上走 thread 命令通道）
+- `thread/debugMemory`（当前返回宿主 Go runtime `MemStats`）
+- `thread/realtime/start`（先过 `realtime` capability gate，再落到 `TODO(P9)`）
+- `thread/realtime/appendAudio`（先过 `realtime` capability gate，再落到 `TODO(P9)`）
+- `thread/realtime/appendText`（先过 `realtime` capability gate，再落到 `TODO(P9)`）
+- `thread/realtime/stop`（先过 `realtime` capability gate，再落到 `TODO(P9)`）
 
 ## 3.5 turn
 
@@ -835,7 +837,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 ## 3.6 uistate
 
-### UI 状态类
+### UI 状态类（`rpc.go`）
 - `ui/state/get`
 - `ui/sidebar/get`
 - `ui/preferences/get`
@@ -846,10 +848,137 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 - `ui/projects/add`
 - `ui/projects/remove`
 
-### 运行时配置类
+### 运行时配置类（`config_rpc.go`）
 - `config/read`
 - `config/lspPromptHint/read`
 - `config/lspPromptHint/write`
+
+## 3.7 Service interface 签名核对
+
+> 以下只列源码中各模块的 `Service interface`；类型名按各自 package 内上下文书写。
+
+### dashboard.Service
+
+```go
+type Service interface {
+    GetDashboard(ctx context.Context) (*Dashboard, error)
+    GetDashboardPage(ctx context.Context, page string) (*DashboardPage, error)
+    ListAgentStatuses(ctx context.Context, status string) ([]agentstatusstore.AgentStatus, error)
+    GetAgentDetail(ctx context.Context, agentID string) (*AgentDetail, error)
+    GetSystemInfo(ctx context.Context) (*SystemInfo, error)
+    GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, error)
+    GetAuditLogs(ctx context.Context, filter auditlogstore.ListFilter) ([]auditlogstore.AuditEvent, error)
+    GetBusLogs(ctx context.Context, filter buslogstore.ListFilter) ([]buslogstore.BusExceptionLog, error)
+    ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error)
+    GetDAGDetail(ctx context.Context, dagKey string) (*contract.DAGDetail, error)
+    Query(ctx context.Context, query string, args ...any) ([]map[string]any, error)
+    GetAILogsByCategory(ctx context.Context, category, keyword string, limit int) ([]ailogstore.AILog, error)
+    GetAILogStats(ctx context.Context) ([]ailogstore.StatusCount, error)
+    GetRecentAILogs(ctx context.Context, limit int) ([]ailogstore.AILog, error)
+}
+```
+
+### lspgui.Service
+
+```go
+type Service interface {
+    HandleFile(ctx context.Context, p fileParams) (any, error)
+    HandleGrep(ctx context.Context, p grepParams) (any, error)
+    HandleStructure(ctx context.Context, p structureParams) (any, error)
+    HandleInspect(ctx context.Context, p inspectParams) (any, error)
+    HandleXref(ctx context.Context, p xrefParams) (any, error)
+}
+```
+
+### skill.Service
+
+```go
+type Service interface {
+    ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error)
+    ListSkills(ctx context.Context) ([]SkillInfo, error)
+    ReadLocal(ctx context.Context, path string) (any, error)
+    ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error)
+    WriteLocal(ctx context.Context, path, content string) (any, error)
+    ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error)
+    DeleteLocal(ctx context.Context, name string) (any, error)
+    ReadRemote(ctx context.Context, url string) (any, error)
+    WriteRemote(ctx context.Context, name, content string) (any, error)
+    ReadConfig(ctx context.Context, agentID string) (any, error)
+    WriteSkillContent(ctx context.Context, name, content string) (any, error)
+    WriteSummary(ctx context.Context, name, summary string) (any, error)
+    MatchPreview(ctx context.Context, agentID, threadID, text string, input []UserInput) (any, error)
+}
+```
+
+### thread.Service
+
+```go
+type Service interface {
+    Start(ctx context.Context, req StartRequest) (StartResult, error)
+    Stop(ctx context.Context, threadID string) error
+    Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error)
+    Fork(ctx context.Context, threadID string) (ForkResult, error)
+    Recover(ctx context.Context, threadID string) (RecoverResult, error)
+
+    List(ctx context.Context) ([]Ref, error)
+    Get(ctx context.Context, id string) (*Ref, error)
+    ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error)
+    ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error)
+    GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error)
+    SetConfig(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error)
+    SetModel(ctx context.Context, threadID, model string) (dto.ThreadConfig, error)
+    Compact(ctx context.Context, threadID, args string) (dto.ThreadCompactResult, error)
+    Archive(ctx context.Context, threadID string) error
+    Unarchive(ctx context.Context, threadID string) error
+    ListByStatus(ctx context.Context, status string) ([]Ref, error)
+    ListByCWD(ctx context.Context, cwdPrefix string) ([]Ref, error)
+    SendCommand(ctx context.Context, threadID, command, args string) (any, error)
+    SetName(ctx context.Context, threadID, name string) error
+    Delete(ctx context.Context, threadID string) error
+}
+```
+
+### turn.Service
+
+```go
+type Service interface {
+    PrepareTurn(ctx context.Context, session contract.Session, input PrepareInput) (dto.TurnRequest, error)
+    StartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error)
+    SteerTurn(ctx context.Context, session contract.Session, expectedTurnID string, input PrepareInput) (contract.TurnHandle, error)
+    InterruptTurn(ctx context.Context, session contract.Session, source string) (TurnStatus, error)
+    InterruptActiveTurn(ctx context.Context, session contract.Session, source string) error
+    ForceCompleteTurn(ctx context.Context, session contract.Session) error
+    CleanupThread(ctx context.Context, threadID, reason string) error
+    TrackTurn(ctx context.Context, localID string) (TurnStatus, error)
+}
+```
+
+### uistate.Service
+
+```go
+type Service interface {
+    GetState(ctx context.Context) (*UIState, error)
+    GetSidebar(ctx context.Context) (*Sidebar, error)
+    GetPreferences(ctx context.Context) (*Preferences, error)
+    SetPreference(ctx context.Context, key string, value any) error
+    GetProjects(ctx context.Context) (*ProjectsState, error)
+    SetActiveProject(ctx context.Context, path string) (*ProjectsState, error)
+    AddProject(ctx context.Context, path string) (*ProjectsState, error)
+    RemoveProject(ctx context.Context, path string) (*ProjectsState, error)
+}
+```
+
+### uistate/timeline.Service
+
+```go
+type Service interface {
+    Append(threadID, agentID string, item Item)
+    UpdateByCallID(threadID, agentID, callID string, fn func(*Item)) bool
+    GetByThread(threadID string) []Item
+    Snapshot() map[string][]Item
+    SetEmitter(AppendedEmitter)
+}
+```
 
 ---
 
@@ -889,6 +1018,11 @@ thread.Start / Resume / Fork / Recover
   -> 刷新 AgentSummary / ThreadSummary / 状态派生
   -> emit UIThreadPatch
 ```
+
+补充校验：
+- `Start` / `Fork` 通过 `persistThreadState -> persistStartedThread` 发一次 `thread.Started`
+- `Resume` 成功路径会在 `persistThreadState` 之后再**无条件**补发一次 `thread.Started`
+- `Recover` 成功路径会在 `persistThreadState` 之后再发一次字段更少的 `thread.Started`
 
 ### 链路 B：AgentLaunched 回写 SessionUUID
 
@@ -958,7 +1092,7 @@ PlanDelta / PlanUpdated / AgentError / AgentFailed / ItemStarted / ItemCompleted
 | `lspgui` | 无 | 无 | `config`、`rpc`、`shared` | 无 |
 | `skill` | 无核心 contract 依赖 | 无 | `bus`、`config`、`rpc`、`shared` | 无 |
 | `thread` | `Session`、provider errors（session/agent not found）等 | `binding`、`thread` | `bus`、`db`、`historyjsonl`、`rpc`、`shared` | `turn.Service` |
-| `turn` | `Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder` | 无 | `config`、`rpc`、`shared` | 无 |
+| `turn` | `Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder`、`OrchestrationTurnStarter` / `TurnSubmission` | 无 | `config`、`rpc`、`shared` | 无 |
 | `uistate` | `OrchestrationService`（初始化 agent 列表） | `uipreference`、`binding`、`sharedfile` | `bus`、`config`、`db`、`rpc`、`shared` | `thread.Service`、`timeline` 子包 |
 
 ### 5.1 依赖设计要点
