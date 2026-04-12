@@ -46,6 +46,7 @@ var typedEventPublishers = map[reflect.Type]typedEventPublisher{
 	typedEventType[tooldto.ToolCallEnd]():           publishEvent[tooldto.ToolCallEnd],
 	typedEventType[tooldto.ToolApprovalRequested](): publishEvent[tooldto.ToolApprovalRequested],
 	typedEventType[tooldto.ToolApprovalResolved]():  publishEvent[tooldto.ToolApprovalResolved],
+	typedEventType[tooldto.ToolDiffUpdated]():       publishEvent[tooldto.ToolDiffUpdated],
 	typedEventType[turndto.TurnStarted]():           publishEvent[turndto.TurnStarted],
 	typedEventType[turndto.TurnCompleted]():         publishEvent[turndto.TurnCompleted],
 	typedEventType[turndto.TurnInterrupted]():       publishEvent[turndto.TurnInterrupted],

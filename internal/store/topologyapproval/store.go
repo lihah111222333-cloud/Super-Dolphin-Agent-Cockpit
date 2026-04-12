@@ -16,13 +16,13 @@ func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 func (s *store) Create(ctx context.Context, approval TopologyApproval) (*TopologyApproval, error) {
 	row, err := s.q.CreateTopologyApproval(ctx, sqlc.CreateTopologyApprovalParams{
-		ID:                   approval.ID,
-		RequestedBy:          approval.RequestedBy,
-		Reason:               approval.Reason,
-		CreatedAt:            approval.CreatedAt,
-		ExpireAt:             approval.ExpireAt,
-		ArchHash:             approval.ArchHash,
-		Column7:              approval.ProposedArchitecture,
+		ID:          approval.ID,
+		RequestedBy: approval.RequestedBy,
+		Reason:      approval.Reason,
+		CreatedAt:   approval.CreatedAt,
+		ExpireAt:    approval.ExpireAt,
+		ArchHash:    approval.ArchHash,
+		Column7:     approval.ProposedArchitecture,
 	})
 	if err != nil {
 		return nil, wrapTopologyApprovalError(err, "create")

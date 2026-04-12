@@ -177,7 +177,6 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	return s, nil
 }
 
-
 func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "model/list", map[string]any{})
 	if err != nil {
@@ -231,5 +230,3 @@ func decodeThreadID(raw json.RawMessage, fallback string) (string, error) {
 	}
 	return "", errors.New("codexapp: empty thread id")
 }
-
-

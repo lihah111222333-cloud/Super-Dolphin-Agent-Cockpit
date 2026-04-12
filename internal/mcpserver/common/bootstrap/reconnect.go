@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/creachadair/jrpc2"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/creachadair/jrpc2"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"

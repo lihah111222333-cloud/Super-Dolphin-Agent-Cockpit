@@ -136,11 +136,13 @@ func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler) {
 				return err
 			}
 			ln = listener
-			proxyAddr.Store(strings.TrimSpace(listener.Addr().String()))
+			addr := strings.TrimSpace(listener.Addr().String())
+			proxyAddr.Store(addr)
 			logger := h.logger
 			if logger == nil {
 				logger = pkglogger.Get()
 			}
+			logger.Warn("toolbridge: proxy started", "addr", addr)
 			go func(proxyListener net.Listener) {
 				defer func() {
 					if r := recover(); r != nil {

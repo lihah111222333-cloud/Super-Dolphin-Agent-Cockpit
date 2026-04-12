@@ -297,19 +297,33 @@ func (s *service) stateSnapshot(ctx context.Context) *UIState {
 	defer s.mu.RUnlock()
 	snapshot := cloneState(s.state)
 	s.applyThreadOverlaysLocked(snapshot.Threads, time.Now())
-	sidebar := s.sidebarLocked(); recentByThread := latestTurnsByThread(snapshot.ActiveTurn, snapshot.RecentTurns)
+	sidebar := s.sidebarLocked()
+	recentByThread := latestTurnsByThread(snapshot.ActiveTurn, snapshot.RecentTurns)
 	snapshot.Statuses, snapshot.InterruptibleByThread = cloneStringMap(sidebar.Statuses), cloneBoolMap(sidebar.InterruptibleByThread)
 	snapshot.StatusHeadersByThread, snapshot.StatusDetailsByThread = cloneStringMap(sidebar.StatusHeadersByThread), cloneStringMap(sidebar.StatusDetailsByThread)
 	snapshot.AgentRuntimeByID, snapshot.MainAgentState, snapshot.AgentMetaByID = cloneRuntimeMap(sidebar.AgentRuntimeByID), s.mainAgentStateLocked(), map[string]map[string]any{}
 	for _, thread := range snapshot.Threads {
 		id, name := strings.TrimSpace(thread.ID), strings.TrimSpace(thread.Name)
-		if id == "" { continue }
-		if name != "" { snapshot.AgentMetaByID[id] = map[string]any{"alias": name} }
-		if turn, ok := recentByThread[id]; ok { if ts := recentTurnTime(turn); !ts.IsZero() { if snapshot.AgentMetaByID[id] == nil { snapshot.AgentMetaByID[id] = map[string]any{} }; snapshot.AgentMetaByID[id]["lastActiveAt"] = ts.UTC().Format(time.RFC3339Nano) } }
+		if id == "" {
+			continue
+		}
+		if name != "" {
+			snapshot.AgentMetaByID[id] = map[string]any{"alias": name}
+		}
+		if turn, ok := recentByThread[id]; ok {
+			if ts := recentTurnTime(turn); !ts.IsZero() {
+				if snapshot.AgentMetaByID[id] == nil {
+					snapshot.AgentMetaByID[id] = map[string]any{}
+				}
+				snapshot.AgentMetaByID[id]["lastActiveAt"] = ts.UTC().Format(time.RFC3339Nano)
+			}
+		}
 	}
 	if requestedThreadID := firstNonEmptyString(diffStateRequestFromContext(ctx).threadID, snapshot.ActiveThreadID, snapshot.ActiveCmdThreadID); requestedThreadID != "" {
 		usage := &uidto.ThreadPatchTokenUsage{UsedTokens: snapshot.TokenUsage.TotalTokens, ContextWindowTokens: snapshot.TokenUsage.ContextWindowTokens}
-		if usage.ContextWindowTokens > 0 { usage.UsedPercent = float64(usage.UsedTokens) * 100 / float64(usage.ContextWindowTokens) }
+		if usage.ContextWindowTokens > 0 {
+			usage.UsedPercent = float64(usage.UsedTokens) * 100 / float64(usage.ContextWindowTokens)
+		}
 		snapshot.TokenUsageByThread, snapshot.AlertsByThread = map[string]*uidto.ThreadPatchTokenUsage{requestedThreadID: usage}, map[string][]uidto.PatchAlert{requestedThreadID: {}}
 	}
 	return snapshot

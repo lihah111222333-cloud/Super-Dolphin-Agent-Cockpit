@@ -100,17 +100,17 @@ var lspStructureSchema = objectSchema(map[string]schema{
 }, "action")
 
 var lspEditSchema = objectSchema(map[string]schema{
-	"action":    enumProp("Operation", "rename", "code_action", "format", "replace_range"),
-	"file_path": stringProp("File path (absolute or relative, auto-resolved)"),
-	"line":      integerProp("1-based line (for rename/code_action)"),
-	"column":    integerProp("1-based column (for rename/code_action)"),
-	"end_line":  integerProp("End line for code_action range"),
+	"action":     enumProp("Operation", "rename", "code_action", "format", "replace_range"),
+	"file_path":  stringProp("File path (absolute or relative, auto-resolved)"),
+	"line":       integerProp("1-based line (for rename/code_action)"),
+	"column":     integerProp("1-based column (for rename/code_action)"),
+	"end_line":   integerProp("End line for code_action range"),
 	"end_column": integerProp("End column for code_action range"),
-	"patch":     stringProp("Single-hunk patch text for replace_range"),
-	"edits":     arrayOfObjectsProp("Array of edits for replace_range: [{old_string, new_string}]"),
-	"new_name":  stringProp("New name for rename"),
-	"new_text":  stringProp("Legacy rename alias; replacement text for replace_range"),
-	"only":      arrayOfStringsProp("Code action kinds filter"),
+	"patch":      stringProp("Single-hunk patch text for replace_range"),
+	"edits":      arrayOfObjectsProp("Array of edits for replace_range: [{old_string, new_string}]"),
+	"new_name":   stringProp("New name for rename"),
+	"new_text":   stringProp("Legacy rename alias; replacement text for replace_range"),
+	"only":       arrayOfStringsProp("Code action kinds filter"),
 }, "action", "file_path")
 
 var lspCompletionSchema = objectSchema(map[string]schema{

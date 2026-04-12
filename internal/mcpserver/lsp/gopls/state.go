@@ -183,4 +183,3 @@ func (s *bootstrapStateStore) entryLocked(key bootstrapKey) *bootstrapEntry {
 	s.entries[key] = entry
 	return entry
 }
-

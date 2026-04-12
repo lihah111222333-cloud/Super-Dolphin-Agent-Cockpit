@@ -174,6 +174,3 @@ func TestListWorkspaceRuns(t *testing.T) {
 		t.Fatalf("ListRuns() keys = [%s %s], want [run-a run-b]", runs[0].RunKey, runs[1].RunKey)
 	}
 }
-
-
-

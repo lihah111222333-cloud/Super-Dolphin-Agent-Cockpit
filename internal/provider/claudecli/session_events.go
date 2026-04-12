@@ -284,6 +284,7 @@ type streamEvent struct {
 	Result     string          `json:"result"`
 	StopReason string          `json:"stop_reason"`
 	IsError    bool            `json:"is_error"`
+	Error      json.RawMessage `json:"error"`
 }
 
 type contentBlock struct {
@@ -339,20 +340,28 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	success := !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
 	data["success"] = success
 	if success {
-		if result := strings.TrimSpace(raw.Result); result != "" {
-			data["result"] = result
-			data["summary"] = result
-			data["message"] = result
+		if r := strings.TrimSpace(raw.Result); r != "" {
+			data["result"] = r
+			data["summary"] = r
+			data["message"] = r
 		}
-		if stopReason := strings.TrimSpace(raw.StopReason); stopReason != "" {
-			data["stop_reason"] = stopReason
+		if sr := strings.TrimSpace(raw.StopReason); sr != "" {
+			data["stop_reason"] = sr
 		}
 	} else {
-		errMsg := strings.TrimSpace(shared.FirstNonEmpty(raw.Result, raw.StopReason))
-		if errMsg == "" {
-			errMsg = "claude result error"
+		errStr := strings.TrimSpace(shared.FirstNonEmpty(raw.Result, raw.StopReason))
+		var objReq struct {
+			Message string `json:"message"`
 		}
-		data["error"] = errMsg
+		var plainStr string
+		_ = json.Unmarshal(raw.Error, &objReq)
+		_ = json.Unmarshal(raw.Error, &plainStr)
+		errStr = strings.TrimSpace(shared.FirstNonEmpty(errStr, objReq.Message, plainStr))
+		if errStr == "" {
+			errStr = "claude result error"
+			pkglogger.Get().Warn("claudecli: stream error result missing message", "agent_id", base.AgentID, "raw_error", string(raw.Error), "raw_message", string(raw.Message))
+		}
+		data["error"] = errStr
 	}
 	return []dto.RawProviderEvent{{EventType: "turn:complete", Data: data}}
 }

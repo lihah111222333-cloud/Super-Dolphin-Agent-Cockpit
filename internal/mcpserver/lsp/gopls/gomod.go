@@ -128,7 +128,7 @@ func findJSTSProjectRoot(path string) (string, error) {
 }
 
 var (
-	jstsProjectMarkers = []string{"tsconfig.json", "jsconfig.json", "package.json"}
+	jstsProjectMarkers   = []string{"tsconfig.json", "jsconfig.json", "package.json"}
 	jstsProjectMarkerSet = map[string]struct{}{
 		"jsconfig.json": {},
 		"package.json":  {},
@@ -226,7 +226,7 @@ func shouldUseJavaWorkspace(languageID string) bool {
 }
 
 var (
-	javaProjectMarkers = []string{"pom.xml", "build.gradle", "build.gradle.kts"}
+	javaProjectMarkers   = []string{"pom.xml", "build.gradle", "build.gradle.kts"}
 	javaProjectMarkerSet = map[string]struct{}{
 		"build.gradle":     {},
 		"build.gradle.kts": {},

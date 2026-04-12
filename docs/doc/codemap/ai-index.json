@@ -33202,6 +33202,11 @@
         }
       ]
     },
+    "internal/platform/toolbridge/diff_fallback.go": {
+      "package": "toolbridge",
+      "description": "toolbridge",
+      "refs": []
+    },
     "internal/platform/toolbridge/diff_gen.go": {
       "package": "toolbridge",
       "description": "toolbridge",

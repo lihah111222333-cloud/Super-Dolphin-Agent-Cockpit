@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
@@ -47,6 +48,7 @@ type service struct {
 
 	emitStarted      func(threaddto.Started)
 	emitStopped      func(threaddto.Stopped)
+	emitUpdated      func(threaddto.Updated)
 	emitMessagesPage func(threaddto.MessagesPage)
 	emitCompacted    func(threaddto.Compacted)
 
@@ -89,6 +91,7 @@ func NewService(
 		bus:              dispatcher,
 		emitStarted:      bus.NewEmitter[threaddto.Started](dispatcher),
 		emitStopped:      bus.NewEmitter[threaddto.Stopped](dispatcher),
+		emitUpdated:      bus.NewEmitter[threaddto.Updated](dispatcher),
 		emitMessagesPage: bus.NewEmitter[threaddto.MessagesPage](dispatcher),
 		emitCompacted:    bus.NewEmitter[threaddto.Compacted](dispatcher),
 		threadAgents:     make(map[string]string),
@@ -149,6 +152,15 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 	if err := syncer.SetThreadName(ctx, historyTargetID(binding, threadID), name); err != nil && s.logger != nil {
 		s.logger.Warn("thread/name/set: provider sync failed", "thread_id", threadID, "error", err)
 	}
+
+	if s.emitUpdated != nil {
+		s.emitUpdated(threaddto.Updated{
+			EventHeader: shareddto.EventHeader{Timestamp: time.Now()},
+			ThreadID:    threadID,
+			Name:        name,
+		})
+	}
+
 	return nil
 }
 

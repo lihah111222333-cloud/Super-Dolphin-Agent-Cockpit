@@ -58,7 +58,9 @@ type ServerManager struct {
 	pidRegistry *pidregistry.Registry
 }
 
-type Responder interface{ RespondWithID(id json.RawMessage, result any, callErr error) error }
+type Responder interface {
+	RespondWithID(id json.RawMessage, result any, callErr error) error
+}
 
 // ServerManagerParams are the fx dependencies for NewServerManager.
 type ServerManagerParams struct {
@@ -92,14 +94,20 @@ func (m *ServerManager) Running() bool {
 }
 
 func (m *ServerManager) SetToolHandler(h ToolHandler) {
-	if m == nil { return }
-	m.mu.Lock(); defer m.mu.Unlock()
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.toolHandler = h
 }
 
 func (m *ServerManager) getToolHandler() ToolHandler {
-	if m == nil { return nil }
-	m.mu.Lock(); defer m.mu.Unlock()
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.toolHandler
 }
 

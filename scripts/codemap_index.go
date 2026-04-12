@@ -49,7 +49,11 @@ type Ref struct {
 	Context   string `json:"context"`
 }
 
-type parsedMD struct{ id, file, title string; lines []string; sections []Section }
+type parsedMD struct {
+	id, file, title string
+	lines           []string
+	sections        []Section
+}
 
 func main() {
 	root := "."
@@ -196,14 +200,20 @@ func extractTitle(lines []string) string {
 var headingRe = regexp.MustCompile(`^(#{1,4})\s+(.+)`)
 
 func parseSections(lines []string) []Section {
-	type raw struct{ title string; level, start int }
+	type raw struct {
+		title        string
+		level, start int
+	}
 	var raws []raw
 	for i, l := range lines {
 		if m := headingRe.FindStringSubmatch(l); m != nil {
 			raws = append(raws, raw{strings.TrimSpace(m[2]), len(m[1]), i + 1})
 		}
 	}
-	type frame struct{ level int; title string }
+	type frame struct {
+		level int
+		title string
+	}
 	var stack []frame
 	var out []Section
 	for idx, r := range raws {

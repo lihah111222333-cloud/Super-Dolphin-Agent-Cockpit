@@ -32,10 +32,16 @@ type jsonRPCMessage struct {
 	Error   *jsonRPCError   `json:"error,omitempty"`
 }
 
-type RawMessage struct{ ID json.RawMessage; Method string; Params json.RawMessage }
+type RawMessage struct {
+	ID     json.RawMessage
+	Method string
+	Params json.RawMessage
+}
 
 func (m RawMessage) ThreadID() string {
-	if len(m.Params) == 0 { return "" }
+	if len(m.Params) == 0 {
+		return ""
+	}
 	return payloadThreadID(decodeEventPayload(m.Params))
 }
 
@@ -219,7 +225,9 @@ func (t *transport) endReadLoop(ctx context.Context, handler any, err error, mes
 	pkglogger.Warn("codexapp: transport read loop ending",
 		"server_url", t.serverURL, "local", t.local, "closed", t.closed.Load(),
 		"error", err, "message", message)
-	if err != nil { t.failPending(err) }
+	if err != nil {
+		t.failPending(err)
+	}
 	if handler != nil && !t.closed.Load() && shared.CheckCtx(ctx) == nil {
 		invokeReadHandler(ctx, t, RawMessage{Method: "connection.dead", Params: mustJSON(map[string]any{"error": message})}, handler)
 	}
@@ -228,10 +236,16 @@ func (t *transport) endReadLoop(ctx context.Context, handler any, err error, mes
 
 func (t *transport) dispatchReadMessage(ctx context.Context, data []byte, handler any) bool {
 	var rpcMsg jsonRPCMessage
-	if err := json.Unmarshal(data, &rpcMsg); err != nil { return true }
-	if t.handleResponse(rpcMsg) { return true }
+	if err := json.Unmarshal(data, &rpcMsg); err != nil {
+		return true
+	}
+	if t.handleResponse(rpcMsg) {
+		return true
+	}
 	msg := RawMessage{ID: rpcMsg.ID, Method: rpcMsg.Method, Params: rpcMsg.Params}
-	if strings.TrimSpace(msg.Method) != "" { invokeReadHandler(ctx, t, msg, handler) }
+	if strings.TrimSpace(msg.Method) != "" {
+		invokeReadHandler(ctx, t, msg, handler)
+	}
 	return true
 }
 
@@ -240,16 +254,22 @@ func invokeReadHandler(ctx context.Context, resp Responder, msg RawMessage, hand
 	case func(context.Context, Responder, RawMessage):
 		h(ctx, resp, msg)
 	case func(string, json.RawMessage):
-		if strings.TrimSpace(msg.Method) != "" { h(msg.Method, msg.Params) }
+		if strings.TrimSpace(msg.Method) != "" {
+			h(msg.Method, msg.Params)
+		}
 	}
 }
 
 func (t *transport) RespondWithID(id json.RawMessage, result any, callErr error) error {
-	if len(id) == 0 { return errors.New("codexapp: response id is required") }
+	if len(id) == 0 {
+		return errors.New("codexapp: response id is required")
+	}
 	payload := map[string]any{"jsonrpc": "2.0", "id": id, "result": result}
 	if callErr != nil {
 		code, message := -32000, strings.ToLower(strings.TrimSpace(callErr.Error()))
-		if strings.Contains(message, "method not supported") || strings.Contains(message, "method not found") { code = -32601 }
+		if strings.Contains(message, "method not supported") || strings.Contains(message, "method not found") {
+			code = -32601
+		}
 		delete(payload, "result")
 		payload["error"] = jsonRPCError{Code: code, Message: callErr.Error()}
 	}

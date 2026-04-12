@@ -12,10 +12,10 @@ import (
 )
 
 type InstallerConfig struct {
-	BinaryName    string
-	InstallCmd    string
-	InstallArgs   []string
-	Language      string
+	BinaryName  string
+	InstallCmd  string
+	InstallArgs []string
+	Language    string
 }
 
 type Provider struct {
@@ -63,14 +63,14 @@ func (p *Provider) EnsureInstalled(ctx context.Context, lang string) (string, er
 
 	// 2. Perform installation
 	cmd := exec.CommandContext(ctx, cfg.InstallCmd, cfg.InstallArgs...)
-	
+
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to auto-install %s (%s %v): %w\nOutput: %s",
 			cfg.BinaryName, cfg.InstallCmd, cfg.InstallArgs, err, string(out))
 	}
-	
+
 	p.logger.Info("LSP auto-install successful",
 		slog.String("lang", lang),
 		slog.String("duration", time.Since(start).String()),

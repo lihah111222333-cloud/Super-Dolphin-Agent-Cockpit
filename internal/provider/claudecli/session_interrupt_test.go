@@ -17,6 +17,7 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
+
 func overrideSettleInterruptedTransport(t *testing.T, fn func(*transport) error) {
 	t.Helper()
 	prev := settleInterruptedTransport

@@ -90,7 +90,7 @@ func (s *eventBindingStore) GetByProviderThread(context.Context, string, string)
 	return nil, errors.New("not found")
 }
 func (s *eventBindingStore) Upsert(context.Context, bindingstore.UpsertParams) error { return nil }
-func (s *eventBindingStore) DeleteByAgentID(context.Context, string) error          { return nil }
+func (s *eventBindingStore) DeleteByAgentID(context.Context, string) error           { return nil }
 func (s *eventBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
 	s.sessionUpdates = append(s.sessionUpdates, params)
 	if s.binding != nil && s.binding.AgentID == params.AgentID {

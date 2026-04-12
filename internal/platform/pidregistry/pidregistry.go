@@ -42,9 +42,9 @@ type registryFile struct {
 // Registry tracks subprocess PIDs for crash-safe cleanup.
 // Each application instance gets its own file keyed by app PID.
 type Registry struct {
-	mu     sync.Mutex
-	appPID int
-	path   string
+	mu       sync.Mutex
+	appPID   int
+	path     string
 	children map[int]ChildInfo
 }
 
@@ -231,7 +231,7 @@ func registryPath(appPID int) string {
 }
 
 type staleFile struct {
-	path     string
+	path string
 	registryFile
 }
 

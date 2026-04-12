@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	fileWatcherStop chan struct{}
+	fileWatcherStop   chan struct{}
 	fileWatchInterval = 30 * time.Second
 )
 

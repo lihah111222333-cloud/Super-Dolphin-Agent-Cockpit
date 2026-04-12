@@ -40,7 +40,7 @@ type HandlerDeps struct {
 	Approvals         *rpc.ApprovalManager          `optional:"true"`
 	Bridge            *rpc.PushBridge               `optional:"true"`
 	HookManager       contract.HookManager          `optional:"true"`
-	Logger            *pkglogger.Logger                  `optional:"true"`
+	Logger            *pkglogger.Logger             `optional:"true"`
 	Dispatcher        *event.Dispatcher             `optional:"true"`
 	Orchestration     contract.OrchestrationService `optional:"true"`
 	AgentSource       AgentContextSource            `optional:"true"`
@@ -58,7 +58,7 @@ type handlerIn struct {
 	Approvals         *rpc.ApprovalManager          `optional:"true"`
 	Bridge            *rpc.PushBridge               `optional:"true"`
 	HookManager       contract.HookManager          `optional:"true"`
-	Logger            *pkglogger.Logger                  `optional:"true"`
+	Logger            *pkglogger.Logger             `optional:"true"`
 	Dispatcher        *event.Dispatcher             `optional:"true"`
 	Orchestration     contract.OrchestrationService `optional:"true"`
 	AgentSource       AgentContextSource            `optional:"true"`
@@ -82,7 +82,7 @@ type configChangeIn struct {
 	Notifier   contract.ToolNotifier `optional:"true"`
 	Versions   configVersionSource   `optional:"true"`
 	Dispatcher *event.Dispatcher     `optional:"true"`
-	Logger     *pkglogger.Logger          `optional:"true"`
+	Logger     *pkglogger.Logger     `optional:"true"`
 }
 
 type configVersionSource interface {

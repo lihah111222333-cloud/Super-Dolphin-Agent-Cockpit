@@ -23,6 +23,7 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentFailed, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentRuntimeReported, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyThreadStarted, svc.logger),
+		platformbus.ResilientSubscribe(dispatcher, svc.applyThreadUpdated, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyThreadStopped, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnStarted, svc.logger),
 		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnInterrupted, svc.logger),

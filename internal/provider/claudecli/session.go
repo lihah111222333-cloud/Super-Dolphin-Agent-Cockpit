@@ -402,7 +402,33 @@ func updateString(dst *string, value string) bool {
 }
 
 func manifestChanged(next, current dto.MCPManifest) bool {
-	return !reflect.DeepEqual(next, dto.MCPManifest{}) && !reflect.DeepEqual(next, current)
+	if reflect.DeepEqual(next, dto.MCPManifest{}) {
+		return false
+	}
+	if reflect.DeepEqual(next, current) {
+		return false
+	}
+	// If the current session is managed by the orchestrator proxy, the proxy dynamically
+	// maps tools across turns. The incoming turn-request manifest (which lacks proxy awareness)
+	// would downgrade us to static commands or peer http ports, needlessly restarting the CLI.
+	return !isProxyManifest(current)
+}
+
+func isProxyManifest(m dto.MCPManifest) bool {
+	if len(m.Binaries) == 0 {
+		return false
+	}
+	for _, bin := range m.Binaries {
+		if bin.Type == "http" && strings.Contains(bin.URL, "/mcp/") {
+			// Proxy URLs append the agent ID: http://host:port/mcp/family/agent_xxx (len >= 6)
+			// Peer URLs end at /mcp: http://host:port/mcp (len = 4)
+			parts := strings.Split(strings.TrimRight(bin.URL, "/"), "/")
+			if len(parts) >= 6 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 var _ contract.Session = (*session)(nil)

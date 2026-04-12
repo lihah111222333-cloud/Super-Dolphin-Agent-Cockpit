@@ -274,6 +274,13 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			Decision:           stringValue(payload, "decision"),
 			ReviewedBy:         stringValue(payload, "reviewedBy", "reviewed_by"),
 		}, true
+	case "turn/diff/updated":
+		return tooldto.ToolDiffUpdated{
+			Timestamp: eventTime(payload),
+			ThreadID:  shared.FirstNonEmpty(payloadAgentID(payload), payloadThreadID(payload)),
+			AgentID:   payloadAgentID(payload),
+			DiffText:  stringValue(payload, "diff"),
+		}, true
 	default:
 		return nil, false
 	}

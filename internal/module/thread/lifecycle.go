@@ -333,7 +333,8 @@ func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
 	if err != nil || binding == nil {
 		return ""
 	}
-	s.rememberBinding(binding); return strings.TrimSpace(binding.Cwd)
+	s.rememberBinding(binding)
+	return strings.TrimSpace(binding.Cwd)
 }
 
 func (s *service) launchAgent(ctx context.Context, agentID, cwd, name, provider, model string) error {
@@ -343,7 +344,8 @@ func (s *service) launchAgent(ctx context.Context, agentID, cwd, name, provider,
 	req, err := buildLaunchRequest(agentID, cwd, name, provider, model)
 	if err != nil {
 		return err
-	}; return s.orchestration.LaunchAgent(ctx, req)
+	}
+	return s.orchestration.LaunchAgent(ctx, req)
 }
 
 func (s *service) stopAgent(ctx context.Context, agentID string) {
@@ -357,7 +359,8 @@ func (s *service) recoverAgent(ctx context.Context, agentID, cwd, name string) e
 	agentID = strings.TrimSpace(agentID)
 	if err := s.orchestration.Recover(ctx, agentID); err == nil {
 		return nil
-	}; return s.launchAgent(ctx, agentID, cwd, name, "", "")
+	}
+	return s.launchAgent(ctx, agentID, cwd, name, "", "")
 }
 
 func buildLaunchRequest(agentID, cwd, name, provider, model string) (LaunchAgentRequest, error) {

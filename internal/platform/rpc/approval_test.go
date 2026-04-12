@@ -10,11 +10,11 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 	jrpcserver "github.com/creachadair/jrpc2/server"
 	"github.com/kelindar/event"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestRegisterPendingAssignsUniqueRequestIDForDuplicateCallID(t *testing.T) {
