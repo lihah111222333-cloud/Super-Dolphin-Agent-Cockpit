@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	_ "github.com/anthropic-ai/super-agent-v3/internal/platform/rlimit"
 )
 
 func main() {

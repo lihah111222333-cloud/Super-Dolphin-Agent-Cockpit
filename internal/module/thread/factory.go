@@ -56,12 +56,9 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	default:
 		state.PublicThreadID = shared.FirstNonEmpty(fields.PublicThreadID, fields.RequestedThreadID, fields.AgentID)
 	}
-	state.ProviderThreadID = resolveProviderThreadID(
-		fields.ProviderThreadID,
-		state.PublicThreadID,
-		fields.RequestedThreadID,
-		fields.AgentID,
-	)
+	// Keep provider_thread_id as-is — empty when the real UUID is not
+	// yet known (e.g. Claude resolves it asynchronously after launch).
+	state.ProviderThreadID = strings.TrimSpace(fields.ProviderThreadID)
 	state.RolloutPath = fields.RolloutPath
 	state.SessionUUID = fields.SessionUUID
 	state.CreatedAt = firstNonZero(fields.CreatedAt)
@@ -135,7 +132,7 @@ func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFie
 			ThreadID:         threadID,
 			AgentID:          strings.TrimSpace(state.AgentID),
 			Provider:         strings.TrimSpace(state.Provider),
-			ProviderThreadID: strings.TrimSpace(resolveProviderThreadID(state.ProviderThreadID, state.PublicThreadID)),
+			ProviderThreadID: strings.TrimSpace(state.ProviderThreadID),
 			CWD:              strings.TrimSpace(state.CWD),
 			Model:            strings.TrimSpace(state.Model),
 			Name:             strings.TrimSpace(state.Prompt),

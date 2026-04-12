@@ -1,10 +1,10 @@
-// Package difftracker aggregates per-agent tool diffs for UI updates.
+// Package difftracker provides git-backed snapshot and diff helpers for
+// tool-driven workspace changes.
 //
-// The package uses a hybrid strategy: hook-extracted replace_range diffs
-// are preferred because they already carry patch text, while code_run and
-// every other tool path fall back to git-based diff collection.
+// The package captures a repository snapshot before a tracked tool mutation
+// and later renders unified diffs from the updated working tree.
 //
-// Sessions are isolated by agentID (agent_<timestamp>_<hex>) instead of
-// threadID so multiple agents on the same thread cannot overwrite each
-// other's cumulative diff state.
+// It now only keeps the core git snapshot/diff primitives plus the small
+// support types used by toolbridge to resolve agent working directories and
+// emit diff payloads.
 package difftracker

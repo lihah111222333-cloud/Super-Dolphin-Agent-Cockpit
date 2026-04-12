@@ -45,6 +45,7 @@ type TurnInputReceived struct {
 	InputType string `json:"input_type"`
 	RequestID int64  `json:"request_id,omitempty"`
 	Source    string `json:"source,omitempty"`
+	Text      string `json:"text,omitempty"`
 }
 
 // TurnOutputDelta reports streamed output for a turn.

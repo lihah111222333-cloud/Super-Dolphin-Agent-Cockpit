@@ -57,6 +57,27 @@ func TestBuildManifest_EmptyBinaryDirUsesRelativeCommands(t *testing.T) {
 	}
 }
 
+func TestBuildManifest_UsesProxyHTTPAddr(t *testing.T) {
+	got := dto.BuildManifest(dto.ManifestContext{
+		AgentID:       "agent-1",
+		ProxyHTTPAddr: "127.0.0.1:39001",
+		ThreadCaps:    dto.CapabilitySet{"ida": true},
+	})
+	want := []string{
+		"http://127.0.0.1:39001/mcp/lsp/agent-1",
+		"http://127.0.0.1:39001/mcp/orch/agent-1",
+		"http://127.0.0.1:39001/mcp/ida/agent-1",
+	}
+	for i, binary := range got.Binaries {
+		if binary.Type != "http" || binary.URL != want[i] {
+			t.Fatalf("unexpected proxy binary: %+v", got.Binaries)
+		}
+		if len(binary.Command) != 0 {
+			t.Fatalf("binary %q command = %#v, want nil", binary.Name, binary.Command)
+		}
+	}
+}
+
 func TestBuildManifest_DoesNotInjectAgentIDEnvWhenAgentIDIsSet(t *testing.T) {
 	got := dto.BuildManifest(dto.ManifestContext{
 		AgentID:     "agent-42",

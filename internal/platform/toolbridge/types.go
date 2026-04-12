@@ -3,6 +3,7 @@ package toolbridge
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -18,11 +19,12 @@ var (
 )
 
 type ToolCallRequest struct {
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
-	AgentID   string          `json:"agentId,omitempty"`
-	ThreadID  string          `json:"threadId,omitempty"`
-	CallID    string          `json:"callId,omitempty"`
+	Name       string          `json:"name"`
+	Arguments  json.RawMessage `json:"arguments"`
+	AgentID    string          `json:"agentId,omitempty"`
+	ThreadID   string          `json:"threadId,omitempty"`
+	CallID     string          `json:"callId,omitempty"`
+	ClientKind string          `json:"clientKind,omitempty"`
 }
 
 type ToolCallContentItem struct {
@@ -58,4 +60,25 @@ func classifyTool(name string) string {
 	default:
 		return dto.ClientKindOrch
 	}
+}
+
+func resolveToolClientKind(req ToolCallRequest) (string, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return "", fmt.Errorf("toolbridge: missing tool name")
+	}
+	classified := classifyTool(name)
+	requested := strings.TrimSpace(req.ClientKind)
+	if requested == "" {
+		return classified, nil
+	}
+	switch requested {
+	case dto.ClientKindLSP, dto.ClientKindOrch, dto.ClientKindIDA:
+	default:
+		return "", fmt.Errorf("toolbridge: unsupported tool family %q", requested)
+	}
+	if requested != classified {
+		return "", fmt.Errorf("toolbridge: tool %q belongs to %q, not %q", name, classified, requested)
+	}
+	return requested, nil
 }

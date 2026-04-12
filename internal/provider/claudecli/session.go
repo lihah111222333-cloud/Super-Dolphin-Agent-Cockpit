@@ -163,9 +163,20 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 		return nil, err
 	}
 	started := s.turnRawEventLocked("turn:started", turnID, nil)
+
+	var textBuf strings.Builder
+	for _, in := range req.Inputs {
+		if in.Content != "" {
+			textBuf.WriteString(in.Content)
+			textBuf.WriteString("\n")
+		}
+	}
+	userText := strings.TrimSpace(textBuf.String())
+
 	inputReceived := s.turnRawEventLocked("turn:input_received", turnID, map[string]any{
 		"input_type": "message",
 		"source":     "user",
+		"text":       userText,
 	})
 	s.mu.Unlock()
 	s.dispatch(started)

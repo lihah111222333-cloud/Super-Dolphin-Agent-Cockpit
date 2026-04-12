@@ -28,6 +28,7 @@ type driver struct {
 	eventDispatcher *unified.EventDispatcher
 	reporter        contract.RuntimeReporter
 	pidRegistry     *pidregistry.Registry
+	proxyAddrFn     func() string
 }
 
 type startSpec struct {
@@ -43,9 +44,12 @@ type startSpec struct {
 	historyDir   string
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
+	}
+	if proxyAddrFn == nil {
+		proxyAddrFn = func() string { return "" }
 	}
 	return &driver{
 		logger:          logger,
@@ -53,6 +57,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		eventDispatcher: eventDispatcher,
 		reporter:        reporter,
 		pidRegistry:     reg,
+		proxyAddrFn:     proxyAddrFn,
 	}
 }
 
@@ -66,7 +71,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, req.Config),
 		Env:           providershared.StringMap(req.Config["env"]),
 		AutoApprove:   providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
-		PeerHTTPAddrs: discoverPeerAddrs(),
+		ProxyHTTPAddr: d.proxyAddrFn(),
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
@@ -87,7 +92,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		CWD:           strings.TrimSpace(req.CWD),
 		ThreadCaps:    copyCapabilities(claudeCapabilities),
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, nil),
-		PeerHTTPAddrs: discoverPeerAddrs(),
+		ProxyHTTPAddr: d.proxyAddrFn(),
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,

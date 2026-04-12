@@ -40,7 +40,9 @@ func normalizeThreadState(state threadState) (threadState, error) {
 	if state.PublicThreadID == "" || state.AgentID == "" {
 		return threadState{}, errors.New("thread and agent ids are required")
 	}
-	state.ProviderThreadID = resolveProviderThreadID(state.ProviderThreadID, state.PublicThreadID)
+	// provider_thread_id is left empty when the real UUID is not yet known
+	// (e.g. Claude resolves it asynchronously). It will be filled in once
+	// the handshake completes — no placeholder needed.
 	if state.CreatedAt == 0 {
 		state.CreatedAt = time.Now().Unix()
 	}
@@ -51,10 +53,12 @@ func normalizeBindingRegistration(state threadState) (bindingRegistration, error
 	if state.AgentID == "" || state.Provider == "" || state.PublicThreadID == "" {
 		return bindingRegistration{}, errors.New("binding requires agent, provider, and public thread ids")
 	}
+	// provider_thread_id may be empty on initial launch; it is filled
+	// in later once the session handshake returns the real UUID.
 	return bindingRegistration{
 		AgentID:          state.AgentID,
 		Provider:         state.Provider,
-		ProviderThreadID: resolveProviderThreadID(state.ProviderThreadID, state.PublicThreadID),
+		ProviderThreadID: strings.TrimSpace(state.ProviderThreadID),
 		PublicThreadID:   state.PublicThreadID,
 		CWD:              state.CWD,
 		RolloutPath:      state.RolloutPath,
@@ -191,8 +195,8 @@ func shouldPersistBinding(existing *bindingstore.Binding, registration bindingRe
 	if existing == nil {
 		return true
 	}
+	// provider_thread_id changed (e.g. Claude session UUID rotation on resume).
 	if strings.TrimSpace(existing.ProviderThreadID) != registration.ProviderThreadID &&
-		strings.TrimSpace(existing.SessionUUID) == registration.ProviderThreadID &&
 		registration.ProviderThreadID != "" {
 		return true
 	}
@@ -284,14 +288,18 @@ func validateBindingProvider(existing *bindingstore.Binding, registration bindin
 }
 
 func validateBindingProviderThread(existing *bindingstore.Binding, registration bindingRegistration) error {
-	providerThreadID := strings.TrimSpace(existing.ProviderThreadID)
-	if providerThreadID == "" || providerThreadID == registration.ProviderThreadID {
+	existingID := strings.TrimSpace(existing.ProviderThreadID)
+	// Allow empty → non-empty (first fill after async handshake).
+	if existingID == "" {
 		return nil
 	}
-	if strings.TrimSpace(existing.SessionUUID) == registration.ProviderThreadID {
+	// Same value — no conflict.
+	if existingID == registration.ProviderThreadID {
 		return nil
 	}
-	return fmt.Errorf("agent %q is already bound to provider thread %q", registration.AgentID, providerThreadID)
+	// UUID already set and caller tries to change it — reject.
+	return fmt.Errorf("agent %q provider_thread_id is immutable (existing=%q, new=%q)",
+		registration.AgentID, existingID, registration.ProviderThreadID)
 }
 
 func validateBindingPublicThread(existing *bindingstore.Binding, registration bindingRegistration) error {

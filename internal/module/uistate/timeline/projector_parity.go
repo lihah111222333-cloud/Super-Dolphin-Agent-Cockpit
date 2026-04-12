@@ -19,7 +19,10 @@ func turnInputReceivedHandler(svc Service, onUpdated func(string)) func(turndto.
 		if source == "tool_yield" {
 			return
 		}
-		text := shared.FirstNonEmpty(strings.TrimSpace(ev.Source), strings.TrimSpace(ev.InputType), "input")
+		text := ev.Text
+		if text == "" {
+			text = shared.FirstNonEmpty(strings.TrimSpace(ev.Source), strings.TrimSpace(ev.InputType), "input")
+		}
 		svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
 			ID:        timelineID("user", ev.TurnID, ev.Source, ev.InputType),
 			Kind:      "user",

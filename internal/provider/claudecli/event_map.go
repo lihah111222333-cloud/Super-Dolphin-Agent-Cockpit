@@ -70,6 +70,7 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			TurnHeader: turnHeader(raw.Data),
 			InputType:  dataString(raw.Data, "input_type"),
 			Source:     dataString(raw.Data, "source"),
+			Text:       dataString(raw.Data, "text"),
 		}, true
 	case "assistant:message_delta":
 		stream := dataString(raw.Data, "stream")
