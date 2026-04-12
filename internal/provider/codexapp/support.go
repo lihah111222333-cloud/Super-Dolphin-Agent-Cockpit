@@ -203,7 +203,6 @@ func decodeAllowedModels(raw []byte) ([]string, error) {
 			return models, nil
 		}
 	}
-	pkglogger.Warn("codexapp: model/list raw response", "raw", string(raw))
 	return nil, errors.New("codexapp: invalid model/list response")
 }
 

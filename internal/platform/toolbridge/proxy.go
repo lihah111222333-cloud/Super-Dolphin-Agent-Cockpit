@@ -68,7 +68,7 @@ func (h *Handler) ServeProxy(ln net.Listener) error {
 }
 
 func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
-	h.warn("proxy: incoming request", "method", r.Method, "path", r.URL.Path, "remote", r.RemoteAddr)
+	h.debug("proxy: incoming request", "method", r.Method, "path", r.URL.Path, "remote", r.RemoteAddr)
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return

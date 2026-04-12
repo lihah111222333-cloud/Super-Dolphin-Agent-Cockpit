@@ -9,7 +9,6 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func PublishUITokensUpdated(data any, publish func(ev any)) {
@@ -22,14 +21,8 @@ func PublishUITokensUpdated(data any, publish func(ev any)) {
 	}
 	ev, ok := tokensUpdatedEvent(payload)
 	if !ok {
-		pkglogger.Warn("ui_tokens: tokensUpdatedEvent returned false",
-			"payload_keys", mapKeys(payload))
 		return
 	}
-	pkglogger.Warn("ui_tokens: publishing UITokensUpdated",
-		"input", ev.InputTokens, "output", ev.OutputTokens,
-		"total", ev.TotalTokens, "window", ev.ContextWindowTokens,
-		"thread_id", ev.ThreadID)
 	publish(ev)
 }
 
@@ -169,14 +162,6 @@ func stringValue(payload map[string]any, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func mapKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }
 
 func tokenEventTime(payload map[string]any) time.Time {
