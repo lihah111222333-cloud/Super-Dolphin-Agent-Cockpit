@@ -297,3 +297,11 @@ func (h *Handler) warn(msg string, args ...any) {
 	}
 	logger.Warn(msg, args...)
 }
+
+func (h *Handler) debug(msg string, args ...any) {
+	logger := h.logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	logger.Debug(msg, args...)
+}

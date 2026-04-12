@@ -168,7 +168,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if params.Effort == "" {
 		params.Effort = s.runtimeConfigString("effort")
 	}
-	pkglogger.Warn("codexapp: turn/start params",
+	pkglogger.Debug("codexapp: turn/start params",
 		"agent_id", s.agentID,
 		"model", params.Model,
 		"effort", params.Effort,
