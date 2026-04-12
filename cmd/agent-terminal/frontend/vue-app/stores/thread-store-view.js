@@ -18,8 +18,10 @@ export function createThreadViewHelpers(state) {
 
   function displayName(thread) {
     if (!thread?.id) return '';
+    const threadName = (thread.name || '').toString().trim();
+    if (threadName && threadName !== thread.id) return threadName;
     const alias = (state.agentMetaById[thread.id]?.alias || '').toString().trim();
-    return alias || thread.name || thread.id;
+    return alias || threadName || thread.id;
   }
 
   function sortChatThreadsByPinned(threads) {

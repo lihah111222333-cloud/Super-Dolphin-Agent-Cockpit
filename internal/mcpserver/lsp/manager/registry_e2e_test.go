@@ -45,8 +45,8 @@ func TestMultiLanguageAutoInstall_E2E(t *testing.T) {
 
 	inst := installer.NewProvider()
 	inst.Register("python", installer.InstallerConfig{
-		BinaryName:  "pyright-langserver",
-		InstallCmd:  "npm",
+		BinaryName: "pyright-langserver",
+		InstallCmd: "npm",
 		// In E2E try to install locally to avoid global env contamination
 		InstallArgs: []string{"install", "--prefix", t.TempDir(), "pyright"},
 	})

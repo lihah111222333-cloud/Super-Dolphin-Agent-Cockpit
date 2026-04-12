@@ -46,11 +46,12 @@ func run() error {
 				cfg := bootstrap.ReadBootConfig()
 				cfg.AgentID = ""
 				cfg.Capabilities = []string{"tools/lsp"}
-				// P15: register tools/list and tools/call so toolbridge can call this peer.
-				toolProvider := registryToolProvider{defs: toolDefinitions(handlers)}
+				tp := registryToolProvider{defs: toolDefinitions(handlers)}
 				cfg.OnToolsList = func(ctx context.Context) (any, error) {
-					tools, err := toolProvider.ListTools(ctx)
-					if err != nil { return nil, err }
+					tools, err := tp.ListTools(ctx)
+					if err != nil {
+						return nil, err
+					}
 					return map[string]any{"tools": tools}, nil
 				}
 				cfg.OnToolsCall = func(ctx context.Context, params json.RawMessage) (any, error) {
@@ -61,37 +62,20 @@ func run() error {
 					if err := json.Unmarshal(params, &req); err != nil {
 						return nil, err
 					}
-					result, err := toolProvider.CallTool(ctx, req.Name, req.Arguments)
-					if err != nil { return nil, err }
+					result, err := tp.CallTool(ctx, req.Name, req.Arguments)
+					if err != nil {
+						return nil, err
+					}
 					text, _ := json.Marshal(result)
-					return map[string]any{
-						"content": []map[string]string{{"type": "text", "text": string(text)}},
-					}, nil
+					return map[string]any{"content": []map[string]string{{"type": "text", "text": string(text)}}}, nil
 				}
 				cfg.FinalReport = func() *mcp.ReportRequest {
-					return &mcp.ReportRequest{
-						Report: mcp.ReportEnvelope{
-							Type: mcp.ReportVariantCompletion,
-							Completion: &mcp.CompletionReport{
-								Status: "done",
-								Report: "mcp-lsp shutdown",
-							},
-						},
-					}
+					return &mcp.ReportRequest{Report: mcp.ReportEnvelope{Type: mcp.ReportVariantCompletion, Completion: &mcp.CompletionReport{Status: "done", Report: "mcp-lsp shutdown"}}}
 				}
 				cfg.OnConfigChanged = func(notify mcp.ConfigChangedNotify) {
-					pkglogger.Info("mcp-lsp config changed",
-						"binary_name", cfg.BinaryName,
-						"instance_id", cfg.InstanceID,
-						"scope", notify.Scope,
-						"config_version", notify.ConfigVersion,
-						"selector", notify.Selector,
-						"payload", string(notify.Payload),
-					)
+					pkglogger.Info("mcp-lsp config changed", "binary_name", cfg.BinaryName, "instance_id", cfg.InstanceID, "scope", notify.Scope, "config_version", notify.ConfigVersion, "selector", notify.Selector, "payload", string(notify.Payload))
 				}
-				cfg.OnShutdown = func(mcp.ShutdownRequest) {
-					_ = shutdowner.Shutdown()
-				}
+				cfg.OnShutdown = func(mcp.ShutdownRequest) { _ = shutdowner.Shutdown() }
 				return cfg
 			},
 			bootstrap.New,

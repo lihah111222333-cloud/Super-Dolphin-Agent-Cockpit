@@ -100,7 +100,6 @@ func newSession(
 	s.startReadLoop()
 	s.startHealthLoop()
 
-
 	return s, nil
 }
 
@@ -110,14 +109,25 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 		go func() { result, err := toolHandler(ctx, msg); _ = resp.RespondWithID(msg.ID, result, err) }()
 		return
 	}
-	if isKnownRequestMethod(msg.Method) { s.onNotification(msg.Method, msg.Params); return }
-	if len(msg.ID) != 0 { _ = resp.RespondWithID(msg.ID, nil, fmt.Errorf("method not supported: %s", msg.Method)); return }
+	if isKnownRequestMethod(msg.Method) {
+		s.onNotification(msg.Method, msg.Params)
+		return
+	}
+	if len(msg.ID) != 0 {
+		_ = resp.RespondWithID(msg.ID, nil, fmt.Errorf("method not supported: %s", msg.Method))
+		return
+	}
 	s.onNotification(msg.Method, msg.Params)
 }
 
-func isKnownRequestMethod(method string) bool { return hasMethod(method, approvalBridgeMethods) || hasMethod(method, requestUserInputMethods) }
+func isKnownRequestMethod(method string) bool {
+	return hasMethod(method, approvalBridgeMethods) || hasMethod(method, requestUserInputMethods)
+}
 func isToolCallMethod(method string) bool {
-	switch strings.TrimSpace(method) { case "item/tool/call", "dynamic_tool_call", "tool.call.begin": return true }
+	switch strings.TrimSpace(method) {
+	case "item/tool/call", "dynamic_tool_call", "tool.call.begin":
+		return true
+	}
 	return false
 }
 func (s *session) Capabilities() dto.CapabilitySet { return cloneCaps(s.caps) }

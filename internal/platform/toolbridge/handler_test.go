@@ -462,4 +462,3 @@ func TestOnInboundMessage_NonToolRequest_WithID_NotIntercepted(t *testing.T) {
 		t.Fatalf("RespondWithID() error = %v, want method not supported", resp.callErr)
 	}
 }
-

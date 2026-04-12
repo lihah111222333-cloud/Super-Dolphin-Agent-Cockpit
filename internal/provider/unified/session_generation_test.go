@@ -13,18 +13,20 @@ type generationTestSession struct {
 	closed   bool
 }
 
-func (s *generationTestSession) ThreadID() string                               { return s.threadID }
-func (s *generationTestSession) RolloutPath() string                            { return "" }
-func (s *generationTestSession) Capabilities() dto.CapabilitySet                { return nil }
+func (s *generationTestSession) ThreadID() string                { return s.threadID }
+func (s *generationTestSession) RolloutPath() string             { return "" }
+func (s *generationTestSession) Capabilities() dto.CapabilitySet { return nil }
 func (s *generationTestSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, nil
 }
-func (s *generationTestSession) Steer(context.Context, dto.SteerRequest) error { return nil }
+func (s *generationTestSession) Steer(context.Context, dto.SteerRequest) error         { return nil }
 func (s *generationTestSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
 func (s *generationTestSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
 	return nil
 }
-func (s *generationTestSession) ListThreads(context.Context) ([]dto.ThreadRef, error)   { return nil, nil }
+func (s *generationTestSession) ListThreads(context.Context) ([]dto.ThreadRef, error) {
+	return nil, nil
+}
 func (s *generationTestSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
 	return dto.ForkResult{}, nil
 }

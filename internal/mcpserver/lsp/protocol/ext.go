@@ -46,14 +46,14 @@ type TextDocumentClientCapabilities struct {
 	CallHierarchy      *CallHierarchyCapability       `json:"callHierarchy,omitempty"`
 	TypeHierarchy      *TypeHierarchyCapability       `json:"typeHierarchy,omitempty"`
 	CodeAction         *CodeActionCapability          `json:"codeAction,omitempty"`
-	SignatureHelp      *SignatureHelpCapability        `json:"signatureHelp,omitempty"`
+	SignatureHelp      *SignatureHelpCapability       `json:"signatureHelp,omitempty"`
 	Formatting         *FormattingCapability          `json:"formatting,omitempty"`
 	FoldingRange       *FoldingRangeCapability        `json:"foldingRange,omitempty"`
 	SemanticTokens     *SemanticTokensCapability      `json:"semanticTokens,omitempty"`
 }
 
 type DocumentSymbolCapability struct {
-	DynamicRegistration          bool `json:"dynamicRegistration,omitempty"`
+	DynamicRegistration               bool `json:"dynamicRegistration,omitempty"`
 	HierarchicalDocumentSymbolSupport bool `json:"hierarchicalDocumentSymbolSupport,omitempty"`
 }
 

@@ -65,25 +65,34 @@ export function useInlineRename(props, visibleChatThreadCards, selectThread) {
 
   async function submitInlineRename(threadId) {
     const id = (threadId || editingThreadId.value || '').toString().trim();
-    if (!id || editingThreadId.value !== id || renamingThreadId.value === id) return;
+    console.warn('[UI] submitInlineRename triggered:', { threadId, id, renamingThreadId: renamingThreadId.value });
+    if (!id || editingThreadId.value !== id || renamingThreadId.value === id) {
+      console.warn('[UI] submitInlineRename ignored due to state mismatch or duplicate call');
+      return;
+    }
 
     const target = visibleChatThreadCards.value.find((item) => item.id === id);
     const current = (target?.name || id).toString().trim() || id;
     const nextName = (editingAlias.value || '').toString().trim();
+    console.warn('[UI] submitInlineRename payload:', { current, nextName });
     if (!nextName || nextName === current) {
+      console.warn('[UI] submitInlineRename cancelled (no diff)');
       cancelInlineRename(id);
       return;
     }
 
     renamingThreadId.value = id;
     try {
+      console.warn('[UI] submitInlineRename executing', { storeRenameExists: typeof props.threadStore.renameThread === 'function' });
       if (typeof props.threadStore.renameThread === 'function') {
         await props.threadStore.renameThread(id, nextName);
       } else if (typeof props.threadStore.promptRenameThread === 'function') {
         props.threadStore.promptRenameThread(id);
       }
+      console.warn('[UI] submitInlineRename success');
       cancelInlineRename(id);
-    } catch {
+    } catch (error) {
+      console.warn('[UI] submitInlineRename caught error:', error);
       renamingThreadId.value = '';
       nextTick(() => {
         const input = renameInputRefByThread.get(id);

@@ -68,6 +68,7 @@ func (h *Handler) ServeProxy(ln net.Listener) error {
 }
 
 func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
+	h.warn("proxy: incoming request", "method", r.Method, "path", r.URL.Path, "remote", r.RemoteAddr)
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -93,11 +94,11 @@ func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	case "initialize":
 		writeJSONRPCResult(w, req.ID, map[string]any{
 			"protocolVersion": "2025-11-25",
-			"capabilities": map[string]any{"tools": map[string]any{}},
-			"serverInfo":   map[string]any{"name": "proxy", "version": "1.0.0"},
+			"capabilities":    map[string]any{"tools": map[string]any{}},
+			"serverInfo":      map[string]any{"name": "proxy", "version": "1.0.0"},
 		})
 	case "notifications/initialized":
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusAccepted)
 	case "tools/list":
 		h.handleProxyToolsList(w, r.Context(), req.ID, family)
 	case "tools/call":

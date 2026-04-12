@@ -31,7 +31,7 @@ type serviceParams struct {
 	Threads     thread.Service
 	Agents      contract.OrchestrationService `optional:"true"`
 	Preferences uipreference.Store
-	Bindings    bindingstore.Store             `optional:"true"`
+	Bindings    bindingstore.Store `optional:"true"`
 }
 
 var Module = fx.Options(

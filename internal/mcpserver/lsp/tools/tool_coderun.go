@@ -242,8 +242,6 @@ func detectGoStdlibImports(code string) []string {
 	return imports
 }
 
-
-
 func autoWrapEnabled(flag *bool) bool {
 	return flag == nil || *flag
 }

@@ -234,6 +234,17 @@ func (s *service) replaceAgentOnThreadStarted(agentID string, next AgentSummary)
 	s.state.Agents = append(s.state.Agents, next)
 }
 
+func (s *service) applyThreadUpdated(ev threaddto.Updated) {
+	threadID, name := strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.Name)
+	if threadID == "" {
+		return
+	}
+	applyMutation(s, threadID, func() {
+		s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{ID: threadID, Name: name})
+	}, func() uidto.UIThreadPatch { return s.refreshThreadPatchLocked(threadID, "", "thread/updated") })
+	s.emitProjectionUpdatedEvents(s.projectionUpdatedLocked("sidebar"), s.projectionUpdatedLocked("state"))
+}
+
 func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -361,55 +372,34 @@ func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 }
 
 func (s *service) applyTurnResumed(ev turndto.TurnResumed) {
-	threadID := strings.TrimSpace(ev.ThreadID)
-	agentID := strings.TrimSpace(ev.AgentID)
+	threadID, agentID := strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.AgentID)
 	applyMutation(s, threadID, func() {
-		rt := s.threadActivityLocked(threadID)
-		if rt != nil && rt.turnDepth == 0 {
+		if rt := s.threadActivityLocked(threadID); rt != nil && rt.turnDepth == 0 {
 			rt.turnDepth = 1
 		}
-	}, func() uidto.UIThreadPatch {
-		return s.refreshThreadPatchLocked(threadID, agentID, "turn/resumed")
-	})
+	}, func() uidto.UIThreadPatch { return s.refreshThreadPatchLocked(threadID, agentID, "turn/resumed") })
 }
-
 func (s *service) applyTurnInputReceived(ev turndto.TurnInputReceived) {
-	threadID := strings.TrimSpace(ev.ThreadID)
-	agentID := strings.TrimSpace(ev.AgentID)
+	threadID, agentID := strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.AgentID)
 	applyMutation(s, threadID, func() {
-		rt := s.threadActivityLocked(threadID)
-		if rt != nil && rt.turnDepth == 0 {
+		if rt := s.threadActivityLocked(threadID); rt != nil && rt.turnDepth == 0 {
 			rt.turnDepth = 1
 		}
-	}, func() uidto.UIThreadPatch {
-		return s.refreshThreadPatchLocked(threadID, agentID, "turn/inputReceived")
-	})
+	}, func() uidto.UIThreadPatch { return s.refreshThreadPatchLocked(threadID, agentID, "turn/inputReceived") })
 }
-
 func (s *service) applyTurnOutputDelta(ev turndto.TurnOutputDelta) {
-	stream := strings.TrimSpace(ev.Stream)
-	s.logger.Warn("uistate: applyTurnOutputDelta received",
-		"stream", stream,
-		"thread_id", ev.ThreadID,
-		"delta_len", len(ev.Delta),
-	)
+	stream, delta := strings.TrimSpace(ev.Stream), strings.TrimSpace(ev.Delta)
+	s.logger.Warn("uistate: applyTurnOutputDelta received", "stream", stream, "thread_id", ev.ThreadID, "delta_len", len(ev.Delta))
 	if !strings.EqualFold(stream, "message") {
-		s.logger.Warn("uistate: applyTurnOutputDelta skipped (non-message stream)",
-			"stream", stream,
-			"thread_id", ev.ThreadID,
-		)
+		s.logger.Warn("uistate: applyTurnOutputDelta skipped", "stream", stream, "thread_id", ev.ThreadID)
 		return
 	}
-	delta := strings.TrimSpace(ev.Delta)
 	if delta == "" {
 		return
 	}
-	threadID := strings.TrimSpace(ev.ThreadID)
-	agentID := strings.TrimSpace(ev.AgentID)
+	threadID, agentID := strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.AgentID)
 	applyMutation(s, threadID, func() {
 		appendLastMessageLocked(&s.state.Threads, threadID, agentID, delta)
 		appendAgentMessageLocked(&s.state.Agents, agentID, threadID, delta)
-	}, func() uidto.UIThreadPatch {
-		return s.refreshThreadPatchLocked(threadID, agentID, "turn/outputDelta")
-	})
+	}, func() uidto.UIThreadPatch { return s.refreshThreadPatchLocked(threadID, agentID, "turn/outputDelta") })
 }

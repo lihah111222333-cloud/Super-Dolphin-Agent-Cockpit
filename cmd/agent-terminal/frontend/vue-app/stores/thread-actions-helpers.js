@@ -87,10 +87,13 @@ export async function renameThread(ctx, threadId, name) {
   const { callAPI, logWarn } = ctx;
   const id = (threadId || '').toString();
   const nextName = (name || '').toString().trim();
+  logWarn('ui', 'renameThread.triggered', { threadId: id, name: nextName });
   if (!id || !nextName) return;
   try {
-    await callAPI('thread/name/set', { threadId: id, name: nextName });
+    const res = await callAPI('thread/name/set', { threadId: id, name: nextName });
+    logWarn('ui', 'renameThread.api.success', { res });
     await ctx.syncRuntimeState();
+    logWarn('ui', 'renameThread.sync.complete');
   } catch (error) {
     logWarn('thread', 'rename.remote.failed', { thread_id: id, error });
     throw error;

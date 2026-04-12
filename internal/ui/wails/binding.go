@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	defaultGroup             = "default"
-	emptyDiagnosticsJSON     = `{"diagnostics":[]}`
-	emptyDiagnosticsMapJSON  = `{}`
+	defaultGroup            = "default"
+	emptyDiagnosticsJSON    = `{"diagnostics":[]}`
+	emptyDiagnosticsMapJSON = `{}`
 )
 
 type App struct {
@@ -183,7 +183,6 @@ func (a *App) callAPIObject(method string, params any) (any, error) {
 	}
 	return a.CallAPI(method, json.RawMessage(data))
 }
-
 
 // stripFrontendMeta removes _ao-prefixed metadata fields that the frontend
 // injects into every CallAPI payload (e.g. _aoClientKind, _aoClientRoute).

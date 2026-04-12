@@ -60,7 +60,7 @@ func TestRegisterConn_ClearsAgentIDForSharedService(t *testing.T) {
 	client := &Client{
 		cfg: Config{
 			InstanceID:   "instance-1",
-		BinaryName:   "mcp-orch",
+			BinaryName:   "mcp-orch",
 			AgentID:      "agent-42",
 			ThreadID:     "thread-42",
 			ClientKind:   "orch",

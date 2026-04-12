@@ -7,12 +7,12 @@ import (
 	"os"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/installer"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // Manager is the local runtime hook point for LSP and exec resources.
@@ -30,7 +30,7 @@ func newManager() (*Manager, error) {
 	inst := setupInstaller()
 
 	registry := manager.NewRegistry(inst)
-	
+
 	// Register Go manager
 	goplsMgr := createGenericManager("gopls", nil, root, log)
 	registry.Register("go", goplsMgr)
@@ -64,7 +64,7 @@ func newManager() (*Manager, error) {
 
 func setupInstaller() *installer.Provider {
 	inst := installer.NewProvider()
-	
+
 	inst.Register("javascript", installer.InstallerConfig{
 		BinaryName:  "typescript-language-server",
 		InstallCmd:  "npm",

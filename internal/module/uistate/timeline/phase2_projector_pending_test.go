@@ -380,4 +380,3 @@ func newPhase2TimelineHarness(t *testing.T) (timeline.Service, *event.Dispatcher
 	}
 	return svc, dispatcher, cleanup
 }
-

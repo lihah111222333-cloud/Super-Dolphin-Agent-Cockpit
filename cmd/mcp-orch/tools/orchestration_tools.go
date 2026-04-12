@@ -149,7 +149,6 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	}, nil
 }
 
-
 func validateLaunchProvider(raw string) (string, error) {
 	p := strings.ToLower(strings.TrimSpace(raw))
 	if p == "" {

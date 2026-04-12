@@ -12,16 +12,16 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/kelindar/event"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/kelindar/event"
 )
 
 const (
-	relayKindThreadStarted = "thread.started"
-	relayKindThreadStopped = "thread.stopped"
-	relayKindStateChanged  = "agent.state_changed"
-	relayKindTurnCompleted = "turn.completed"
-	relayKindTurnInterrupted = "turn.interrupted"
+	relayKindThreadStarted     = "thread.started"
+	relayKindThreadStopped     = "thread.stopped"
+	relayKindStateChanged      = "agent.state_changed"
+	relayKindTurnCompleted     = "turn.completed"
+	relayKindTurnInterrupted   = "turn.interrupted"
 	relayKindTurnItemCompleted = "turn.item_completed"
 )
 

@@ -9,12 +9,12 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	taskdagstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
@@ -80,7 +80,9 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookConsumer orchestration.H
 	p := registryToolProvider{registry: registry}
 	cfg.OnToolsList = func(ctx context.Context) (any, error) {
 		tools, err := p.ListTools(ctx)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		return map[string]any{"tools": tools}, nil
 	}
 	cfg.OnToolsCall = func(ctx context.Context, params json.RawMessage) (any, error) {
@@ -92,7 +94,9 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookConsumer orchestration.H
 			return nil, err
 		}
 		result, err := p.CallTool(ctx, req.Name, req.Arguments)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		text, _ := json.Marshal(result)
 		return map[string]any{
 			"content": []map[string]string{{"type": "text", "text": string(text)}},
