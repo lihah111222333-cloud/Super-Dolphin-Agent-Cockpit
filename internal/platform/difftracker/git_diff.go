@@ -30,6 +30,17 @@ func BeginSnapshot(ctx context.Context, path string) (*Snapshot, error) {
 	return &Snapshot{RepoRoot: root, DirtyFiles: dirtyFiles, root: root, beforeFiles: beforeFiles}, nil
 }
 
+// EmitCurrentGitDiff emits the current working-tree diff against HEAD.
+// It is intended for post-tool-call fallback paths where no before snapshot exists.
+func EmitCurrentGitDiff(ctx context.Context, path string) (string, []string, error) {
+	root, err := findGitRoot(ctx, path)
+	if err != nil {
+		return "", nil, err
+	}
+	snapshot := &Snapshot{RepoRoot: root, root: root, beforeFiles: map[string]beforeFileState{}}
+	return EmitGitDiff(ctx, snapshot)
+}
+
 func EmitGitDiff(ctx context.Context, snapshot *Snapshot) (string, []string, error) {
 	if snapshot == nil || strings.TrimSpace(snapshot.root) == "" {
 		return "", nil, nil

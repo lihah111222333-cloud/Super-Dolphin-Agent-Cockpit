@@ -33,6 +33,7 @@ type threadStateFields struct {
 	Provider          string
 	CWD               string
 	Model             string
+	Name              string
 	Prompt            string
 	RolloutPath       string
 	SessionUUID       string
@@ -46,6 +47,7 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 		Provider:      fields.Provider,
 		CWD:           fields.CWD,
 		Model:         fields.Model,
+		Name:          fields.Name,
 		Prompt:        fields.Prompt,
 	}
 	switch kind {
@@ -135,7 +137,7 @@ func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFie
 			ProviderThreadID: strings.TrimSpace(state.ProviderThreadID),
 			CWD:              strings.TrimSpace(state.CWD),
 			Model:            strings.TrimSpace(state.Model),
-			Name:             strings.TrimSpace(state.Prompt),
+			Name:             strings.TrimSpace(state.Name),
 		}
 	case threadEventStoppedKind:
 		return threaddto.Stopped{

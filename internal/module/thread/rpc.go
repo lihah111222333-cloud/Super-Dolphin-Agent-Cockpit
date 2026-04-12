@@ -96,6 +96,7 @@ func newStartHandler(svc Service) handler.Func {
 			CWD:                   p.CWD,
 			Model:                 p.Model,
 			ModelProvider:         p.ModelProvider,
+			Name:                  p.Name,
 			Prompt:                p.Prompt,
 			BaseInstructions:      p.BaseInstructions,
 			DeveloperInstructions: p.DeveloperInstructions,

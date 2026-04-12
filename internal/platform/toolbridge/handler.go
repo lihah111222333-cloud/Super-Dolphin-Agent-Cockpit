@@ -23,6 +23,7 @@ type Handler struct {
 	registry     activePeerRegistry
 	emitter      difftracker.DiffEmitter
 	resolver     difftracker.WorkDirResolver
+	diffFallback *diffFallbackTracker
 	bindingStore bindingstore.Store
 	logger       *pkglogger.Logger
 }
@@ -40,6 +41,7 @@ func NewHandler(in handlerIn) *Handler {
 		registry:     in.Registry,
 		emitter:      in.Emitter,
 		resolver:     in.Resolver,
+		diffFallback: in.DiffFallback,
 		bindingStore: in.BindingStore,
 		logger:       logger,
 	}

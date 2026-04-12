@@ -116,6 +116,8 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 			AgentSessionHeader: buildAgentSessionHeader(payload),
 			Model:              stringValue(payload, "model"),
 			CWD:                stringValue(payload, "cwd"),
+			Name:               stringValue(payload, "name"),
+			Provider:           stringValue(payload, "provider"),
 		}, true
 	case "thread/status/changed":
 		return validatedStateChangedEvent(payload)
