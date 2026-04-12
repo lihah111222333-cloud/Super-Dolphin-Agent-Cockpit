@@ -19,12 +19,16 @@ import { useThreadActions } from './composables/useThreadActions.js';
 
 function createThreadActions(overrides = {}) {
   const threadStore = {
+    state: reactive({
+      agentRuntimeById: overrides.runtimeById ?? {},
+    }),
     startThread: vi.fn().mockResolvedValue('thread-started'),
     getThreadConfig: vi.fn().mockResolvedValue(null),
     setThreadConfig: vi.fn().mockResolvedValue(null),
     sendMessage: vi.fn().mockResolvedValue(undefined),
     stopThread: vi.fn().mockResolvedValue({ confirmed: true, settled: true, mode: 'confirmed' }),
     compactThread: vi.fn().mockResolvedValue(undefined),
+    setThreadCompactResult: vi.fn(),
     forceCompleteThread: vi.fn().mockResolvedValue(undefined),
     recoverThread: vi.fn().mockResolvedValue(undefined),
 
@@ -229,19 +233,55 @@ describe('useThreadActions', () => {
     expect(control.confirm).not.toHaveBeenCalled();
   });
 
-  it('recoverSelected: calls recoverThread and resets the recovering flag', async () => {
-    const fakeWindow = { alert: vi.fn() };
-    globalThis.window = fakeWindow;
-    try {
-      const vm = createThreadActions({ selectedThreadId: 'thread-live' });
+  it('compactCurrent: blocks unsupported providers and stores an inline failure message', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-claude',
+      runtimeById: {
+        'thread-claude': { provider: 'claude', capabilities: ['message_send'] },
+      },
+    });
 
-      await vm.recoverSelected();
+    const result = await vm.compactCurrent();
 
-      expect(vm.threadStore.recoverThread).toHaveBeenCalledWith('thread-live');
-      expect(vm.recoveringSelected.value).toBe(false);
-      expect(fakeWindow.alert).toHaveBeenCalledWith(expect.stringContaining('恢复'));
-    } finally {
-      delete globalThis.window;
-    }
+    expect(vm.threadStore.compactThread).not.toHaveBeenCalled();
+    expect(vm.threadStore.setThreadCompactResult).toHaveBeenCalledWith(
+      'thread-claude',
+      'failed',
+      expect.stringContaining('不支持上下文压缩'),
+      expect.objectContaining({ code: 'compact_unsupported' }),
+    );
+    expect(result).toEqual(expect.objectContaining({ ok: false, code: 'compact_unsupported' }));
+  });
+
+  it('compactCurrent: stores a user-visible error message when compact fails', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      runtimeById: {
+        'thread-live': { provider: 'codex', capabilities: ['context_compact'] },
+      },
+    });
+    vm.threadStore.compactThread.mockRejectedValueOnce(new Error('boom'));
+
+    const result = await vm.compactCurrent();
+
+    expect(vm.threadStore.compactThread).toHaveBeenCalledWith('thread-live');
+    expect(vm.threadStore.setThreadCompactResult).toHaveBeenCalledWith(
+      'thread-live',
+      'failed',
+      '压缩失败: boom',
+      expect.objectContaining({ code: 'compact_failed' }),
+    );
+    expect(result).toEqual(expect.objectContaining({ ok: false, code: 'compact_failed', message: '压缩失败: boom' }));
+  });
+
+  it('recoverSelected: calls recoverThread, returns a notice and resets the recovering flag', async () => {
+    const vm = createThreadActions({ selectedThreadId: 'thread-live' });
+
+    const result = await vm.recoverSelected();
+
+    expect(vm.threadStore.recoverThread).toHaveBeenCalledWith('thread-live');
+    expect(vm.recoveringSelected.value).toBe(false);
+    expect(result).toEqual(expect.objectContaining({ ok: true, threadId: 'thread-live' }));
+    expect(result.message).toContain('恢复');
   });
 });

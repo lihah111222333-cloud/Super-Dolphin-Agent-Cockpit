@@ -133,6 +133,7 @@ export const template = `
                   :thread-id="selectedThreadId"
                   :interruptible="canInterrupt"
                   :compacting="compacting"
+                  :can-compact="canCompact"
                   :compact-result-text="compactResultText"
                   :compact-result-tone="compactResultTone"
                   :compact-success-count="compactSuccessCount"

@@ -15,6 +15,7 @@ export const ComposerBar = {
     threadId: { type: String, default: '' },
     interruptible: { type: Boolean, default: false },
     compacting: { type: Boolean, default: false },
+    canCompact: { type: Boolean, default: true },
     compactResultText: { type: String, default: '' },
     compactResultTone: { type: String, default: '' },
     compactSuccessCount: { type: Number, default: 0 },
@@ -100,6 +101,7 @@ export const ComposerBar = {
     function onCompact() {
       if (props.disabled) return;
       if (props.compacting) return;
+      if (!props.canCompact) return;
       if (!(props.threadId || '').toString().trim()) return;
       emit('compact');
     }
@@ -324,9 +326,9 @@ export const ComposerBar = {
               data-testid="composer-compact-button"
               :class="[{ loading: compacting }, compactResultToneClass()]"
               type="button"
-              :title="compacting ? '正在暂停并压缩上下文，等待压缩返回结果' : (tokenTooltip ? ('压缩上下文\\n\\n' + tokenTooltip) : '压缩上下文')"
-              :aria-label="compacting ? '正在暂停并压缩上下文，等待压缩返回结果' : (tokenTooltip ? ('压缩上下文，' + tokenTooltip) : '压缩上下文')"
-              :disabled="disabled || !threadId || compacting"
+              :title="!canCompact ? '当前 agent 不支持上下文压缩' : (compacting ? '正在暂停并压缩上下文，等待压缩返回结果' : (tokenTooltip ? ('压缩上下文\\n\\n' + tokenTooltip) : '压缩上下文'))"
+              :aria-label="!canCompact ? '当前 agent 不支持上下文压缩' : (compacting ? '正在暂停并压缩上下文，等待压缩返回结果' : (tokenTooltip ? ('压缩上下文，' + tokenTooltip) : '压缩上下文'))"
+              :disabled="disabled || !threadId || compacting || !canCompact"
               @click="onCompact"
               style="cursor: pointer; display: inline-flex; justify-content: center; align-items: center; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); transition: background 0.2s; box-sizing: border-box; flex: 1;"
             >

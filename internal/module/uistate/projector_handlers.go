@@ -68,6 +68,7 @@ func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 			ThreadID:         threadID,
 			ProviderThreadID: sessionID,
 			State:            agentState,
+			Model:            strings.TrimSpace(ev.Model),
 			CWD:              strings.TrimSpace(ev.CWD),
 			LogPath:          logFilePath(),
 			AgentState:       agentState,
@@ -239,9 +240,24 @@ func (s *service) applyThreadUpdated(ev threaddto.Updated) {
 	if threadID == "" {
 		return
 	}
+	var agentID string
 	applyMutation(s, threadID, func() {
 		s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{ID: threadID, Name: name})
-	}, func() uidto.UIThreadPatch { return s.refreshThreadPatchLocked(threadID, "", "thread/updated") })
+		agentID = s.agentIDForThreadLocked(threadID)
+		if ev.Model == nil || agentID == "" {
+			return
+		}
+		model := strings.TrimSpace(*ev.Model)
+		for i := range s.state.Agents {
+			if s.state.Agents[i].ID == agentID {
+				s.state.Agents[i].Model = model
+				return
+			}
+		}
+		if model != "" {
+			s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{ID: agentID, ThreadID: threadID, Model: model})
+		}
+	}, func() uidto.UIThreadPatch { return s.refreshThreadPatchLocked(threadID, agentID, "thread/updated") })
 	s.emitProjectionUpdatedEvents(s.projectionUpdatedLocked("sidebar"), s.projectionUpdatedLocked("state"))
 }
 

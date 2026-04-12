@@ -23,6 +23,50 @@ function resolveThreadDisplayNameFromStore(threadStore, threadId) {
   return threadStore.displayName({ id, name: id, state: '' });
 }
 
+function getThreadRuntimeFromStore(threadStore, threadId) {
+  const id = (threadId || '').toString().trim();
+  if (!id) return {};
+  const runtime = threadStore?.state?.agentRuntimeById?.[id];
+  return runtime && typeof runtime === 'object' ? runtime : {};
+}
+
+function getThreadCapabilitiesFromStore(threadStore, threadId) {
+  const capabilities = getThreadRuntimeFromStore(threadStore, threadId).capabilities;
+  return Array.isArray(capabilities)
+    ? capabilities.map((capability) => (capability || '').toString().trim().toLowerCase()).filter(Boolean)
+    : [];
+}
+
+function formatProviderLabel(provider) {
+  const normalized = (provider || '').toString().trim().toLowerCase();
+  if (normalized === 'claude') return 'Claude';
+  if (normalized === 'codex') return 'Codex';
+  return (provider || '').toString().trim();
+}
+
+function setThreadCompactMessage(threadStore, threadId, status, message, extra = {}) {
+  const id = (threadId || '').toString().trim();
+  const detail = (message || '').toString().trim();
+  if (!id || !detail) return false;
+  if (typeof threadStore?.setThreadCompactResult !== 'function') return false;
+  threadStore.setThreadCompactResult(id, status, detail, extra);
+  return true;
+}
+
+function warnUserMessage(message, extra = {}) {
+  const detail = (message || '').toString().trim();
+  if (!detail) return;
+  console.warn(detail, extra);
+}
+
+function formatCompactErrorMessage(error) {
+  const code = (error?.code || '').toString().trim().toLowerCase();
+  if (code === 'compact_timeout') return '压缩超时：未收到完成信号，请重试。';
+  const detail = (error?.message || '').toString().trim();
+  if (!detail || detail.startsWith('compact_')) return '压缩失败，请重试。';
+  return `压缩失败: ${detail}`;
+}
+
 function setCmdLayoutValue(layoutMode, value) {
   layoutMode.value = value;
 }
@@ -178,21 +222,45 @@ export function useThreadActions(props, deps) {
 
   async function compactCurrent() {
     const threadId = (selectedThreadId.value || '').toString().trim();
-    if (!threadId) return;
-    if (deps.compacting?.value) return;
+    if (!threadId) return { ok: false, code: 'no_thread', threadId };
+    if (deps.compacting?.value) return { ok: false, code: 'compact_in_progress', threadId };
+    const runtime = getThreadRuntimeFromStore(props.threadStore, threadId);
+    const capabilities = getThreadCapabilitiesFromStore(props.threadStore, threadId);
+    if (!capabilities.includes('context_compact')) {
+      const providerLabel = formatProviderLabel(runtime.provider);
+      const message = providerLabel
+        ? `${providerLabel} 当前不支持上下文压缩。`
+        : '当前线程不支持上下文压缩。';
+      logInfo('ui', 'chat.compact.unsupported', {
+        thread_id: threadId,
+        provider: (runtime.provider || '').toString(),
+        capabilities,
+      });
+      if (!setThreadCompactMessage(props.threadStore, threadId, 'failed', message, { code: 'compact_unsupported' })) {
+        warnUserMessage(message, { threadId, code: 'compact_unsupported' });
+      }
+      return { ok: false, code: 'compact_unsupported', threadId, message };
+    }
     try {
       await props.threadStore.compactThread(threadId);
+      return { ok: true, threadId };
     } catch (error) {
+      const message = formatCompactErrorMessage(error);
+      const code = (error?.code || 'compact_failed').toString().trim() || 'compact_failed';
       logWarn('ui', 'chat.compact.failed', {
         thread_id: threadId,
         error,
       });
+      if (!setThreadCompactMessage(props.threadStore, threadId, 'failed', message, { code })) {
+        warnUserMessage(message, { threadId, code });
+      }
+      return { ok: false, code, threadId, message, error };
     }
   }
 
   async function recoverSelected() {
     const threadId = (selectedThreadId.value || '').toString().trim();
-    if (!threadId || recoveringSelected.value) return;
+    if (!threadId || recoveringSelected.value) return { ok: false, code: 'recover_unavailable', threadId };
     recoveringSelected.value = true;
     logInfo('ui', 'chat.recover.request', { thread_id: threadId });
     try {
@@ -201,21 +269,20 @@ export function useThreadActions(props, deps) {
       } else {
         await callAPI('thread/recover', { threadId });
       }
-      logInfo('ui', 'chat.recover.done', { thread_id: threadId });
-      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-        window.alert('已触发进程恢复，请等待连接重建。');
-      }
+      const message = '已触发进程恢复，请等待连接重建。';
+      logInfo('ui', 'chat.recover.done', { thread_id: threadId, message });
+      return { ok: true, threadId, message };
     } catch (error) {
+      const detail = (error && typeof error === 'object' && error.message)
+        ? error.message
+        : String(error || 'unknown error');
+      const message = `进程恢复失败: ${detail}`;
       logWarn('ui', 'chat.recover.failed', {
         thread_id: threadId,
         error,
       });
-      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-        const detail = (error && typeof error === 'object' && error.message)
-          ? error.message
-          : String(error || 'unknown error');
-        window.alert(`进程恢复失败: ${detail}`);
-      }
+      warnUserMessage(message, { threadId, action: 'recover' });
+      return { ok: false, code: 'recover_failed', threadId, message, error };
     } finally {
       recoveringSelected.value = false;
     }

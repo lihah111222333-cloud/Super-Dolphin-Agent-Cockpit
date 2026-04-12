@@ -24,6 +24,14 @@ export function useThreadStatus(props, selectedThreadId, activeStatus, showPathC
     return Boolean(props.threadStore.getThreadInterruptible(threadId));
   }
 
+  function getThreadCapabilities(threadId) {
+    if (!threadId) return [];
+    const capabilities = props.threadStore?.state?.agentRuntimeById?.[threadId]?.capabilities;
+    return Array.isArray(capabilities)
+      ? capabilities.map((capability) => (capability || '').toString().trim().toLowerCase()).filter(Boolean)
+      : [];
+  }
+
   function getThreadStatusHeader(threadId) {
     if (!threadId) return '';
     if (typeof props.threadStore.getThreadStatusHeader !== 'function') return '';
@@ -42,6 +50,7 @@ export function useThreadStatus(props, selectedThreadId, activeStatus, showPathC
     return props.threadStore.getThreadTokenUsage(selectedThreadId.value);
   });
   const canInterrupt = computed(() => isThreadInterruptible(selectedThreadId.value));
+  const canCompact = computed(() => getThreadCapabilities(selectedThreadId.value).includes('context_compact'));
   const compacting = computed(() => {
     if (typeof props.threadStore.getThreadCompacting !== 'function') return false;
     return props.threadStore.getThreadCompacting(selectedThreadId.value);
@@ -196,6 +205,7 @@ export function useThreadStatus(props, selectedThreadId, activeStatus, showPathC
     activeStatusDetails,
     activeTokenUsage,
     canInterrupt,
+    canCompact,
     compacting,
     activeCompactResult,
     compactResultText,

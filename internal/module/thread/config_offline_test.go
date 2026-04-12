@@ -249,6 +249,37 @@ func TestServiceSetConfigPersistsOverrideForOfflineReadback(t *testing.T) {
 	}
 }
 
+func TestPersistThreadConfigModelPatchSemantics(t *testing.T) {
+	t.Parallel()
+
+	ptr := func(s string) *string { return &s }
+	cases := []struct {
+		name      string
+		patch     dto.ThreadConfigPatch
+		wantModel string
+		wantStore string
+	}{
+		{name: "nil keeps existing", patch: dto.ThreadConfigPatch{}, wantModel: "keep-model", wantStore: "keep-model"},
+		{name: "empty clears override", patch: dto.ThreadConfigPatch{Model: ptr("")}, wantModel: "", wantStore: ""},
+		{name: "value updates model", patch: dto.ThreadConfigPatch{Model: ptr("gpt-5.5")}, wantModel: "gpt-5.5", wantStore: "gpt-5.5"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			threads := &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", Model: "keep-model", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1, ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: "keep-model"})}}
+			svc := NewService(silentLogger(), threads, nil, nil, nil, nil, nil, nil).(*service)
+			if err := svc.persistThreadConfig(context.Background(), "thread-1", tt.patch, dto.ThreadConfig{}); err != nil {
+				t.Fatalf("persistThreadConfig() error = %v", err)
+			}
+			if threads.thread.Model != tt.wantModel {
+				t.Fatalf("thread.Model = %q, want %q", threads.thread.Model, tt.wantModel)
+			}
+			if got := decodeStoredThreadConfig(threads.thread.ConfigOverride).Model; got != tt.wantStore {
+				t.Fatalf("stored override model = %q, want %q", got, tt.wantStore)
+			}
+		})
+	}
+}
+
 func mustStoredThreadConfigRaw(
 	t *testing.T,
 	cfg storedThreadConfig,

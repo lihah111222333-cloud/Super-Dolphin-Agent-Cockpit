@@ -3,9 +3,14 @@ package thread
 import (
 	"context"
 	"testing"
+	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/kelindar/event"
 )
 
 func TestServiceSetConfigConfiguresModelAndEffort(t *testing.T) {
@@ -74,6 +79,108 @@ func TestServiceSetConfigRejectsInvalidEffort(t *testing.T) {
 	}
 	if session.configureCalls != 0 {
 		t.Fatalf("configureCalls = %d, want 0", session.configureCalls)
+	}
+}
+
+func TestServiceSetConfigReturnsPatchedModelAndPublishesUpdated(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+	updates := make(chan threaddto.Updated, 1)
+	cancel := event.Subscribe(dispatcher, func(ev threaddto.Updated) { updates <- ev })
+	defer cancel()
+
+	model := "gpt-5.5"
+	threads := &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", Model: "o4-mini", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1}}
+	session := &stubSession{
+		threadID:      "thread-1",
+		allowedModels: []string{model},
+		readConfigResult: dto.ThreadConfig{
+			ThreadID:               "thread-1",
+			Provider:               "codex",
+			SupportsThreadOverride: true,
+			Override:               dto.ThreadConfigValues{Model: "o4-mini"},
+			Effective:              dto.ThreadConfigValues{Model: "o4-mini", Effort: "medium"},
+		},
+	}
+	svc := NewService(
+		silentLogger(),
+		threads,
+		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubSessionProvider{session: session},
+		nil,
+		nil,
+		nil,
+		bus.NewThreadEmitters(dispatcher),
+	)
+
+	cfg, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{Model: &model})
+	if err != nil {
+		t.Fatalf("SetConfig() error = %v", err)
+	}
+	if cfg.Override.Model != model || cfg.Effective.Model != model {
+		t.Fatalf("SetConfig() = %#v, want model %q", cfg, model)
+	}
+	if threads.thread.Model != model {
+		t.Fatalf("stored model = %q, want %q", threads.thread.Model, model)
+	}
+	select {
+	case ev := <-updates:
+		if ev.ThreadID != "thread-1" || ev.Model == nil || *ev.Model != model {
+			t.Fatalf("updated event = %#v, want model %q", ev, model)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected threaddto.Updated event")
+	}
+}
+
+func TestServiceSetConfigClearsModelOverrideAndPublishesUpdated(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+	updates := make(chan threaddto.Updated, 1)
+	cancel := event.Subscribe(dispatcher, func(ev threaddto.Updated) { updates <- ev })
+	defer cancel()
+
+	model := ""
+	threads := &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", Model: "o4-mini", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1}}
+	session := &stubSession{
+		threadID: "thread-1",
+		readConfigResult: dto.ThreadConfig{
+			ThreadID:               "thread-1",
+			Provider:               "codex",
+			SupportsThreadOverride: true,
+			Override:               dto.ThreadConfigValues{Model: "o4-mini"},
+			Effective:              dto.ThreadConfigValues{Model: "o4-mini", Effort: "medium"},
+		},
+	}
+	svc := NewService(
+		silentLogger(),
+		threads,
+		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubSessionProvider{session: session},
+		nil,
+		nil,
+		nil,
+		bus.NewThreadEmitters(dispatcher),
+	)
+
+	cfg, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{Model: &model})
+	if err != nil {
+		t.Fatalf("SetConfig() error = %v", err)
+	}
+	if cfg.Override.Model != "" || cfg.Effective.Model != "" {
+		t.Fatalf("SetConfig() = %#v, want cleared model override", cfg)
+	}
+	select {
+	case ev := <-updates:
+		if ev.ThreadID != "thread-1" || ev.Model == nil || *ev.Model != "" {
+			t.Fatalf("updated event = %#v, want empty model pointer", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected threaddto.Updated event")
 	}
 }
 

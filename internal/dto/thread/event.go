@@ -42,11 +42,12 @@ type Compacted struct {
 	Estimated    bool   `json:"estimated,omitempty"`
 }
 
-// Updated reports a thread modification such as a name change.
+// Updated reports a thread modification such as a name or model change.
 type Updated struct {
 	shared.EventHeader
-	ThreadID string `json:"thread_id"`
-	Name     string `json:"name"`
+	ThreadID string  `json:"thread_id"`
+	Name     string  `json:"name"`
+	Model    *string `json:"model,omitempty"`
 }
 
 func (Started) Type() uint32      { return shared.EventTypeThreadStarted }

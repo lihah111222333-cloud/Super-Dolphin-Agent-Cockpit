@@ -7,6 +7,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/kelindar/event"
@@ -64,6 +65,46 @@ func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 	}
 	if got, _ := runtime["cwd"].(string); got != "/tmp/demo" {
 		t.Fatalf("agentRuntimeById[thread-1].cwd = %q, want /tmp/demo", got)
+	}
+}
+
+func TestApplyThreadUpdatedSyncsSidebarModel(t *testing.T) {
+	t.Parallel()
+
+	svc := mustNewUIStateService(t)
+	header := sharedto.AgentSessionHeader{
+		AgentHeader: sharedto.AgentHeader{ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"},
+		SessionID:   "session-1",
+	}
+	launchedModel := "gpt-5.4"
+	svc.applyAgentLaunched(agentdto.AgentLaunched{AgentSessionHeader: header, Model: launchedModel, CWD: "/tmp/demo"})
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() after launch error = %v", err)
+	}
+	if got, _ := sidebar.AgentRuntimeByID["thread-1"]["model"].(string); got != launchedModel {
+		t.Fatalf("launch model = %q, want %q", got, launchedModel)
+	}
+
+	updatedModel := "gpt-5.5"
+	svc.applyThreadUpdated(threaddto.Updated{ThreadID: "thread-1", Model: &updatedModel})
+	sidebar, err = svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() after update error = %v", err)
+	}
+	if got, _ := sidebar.AgentRuntimeByID["thread-1"]["model"].(string); got != updatedModel {
+		t.Fatalf("updated model = %q, want %q", got, updatedModel)
+	}
+
+	clearedModel := ""
+	svc.applyThreadUpdated(threaddto.Updated{ThreadID: "thread-1", Model: &clearedModel})
+	sidebar, err = svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() after clear error = %v", err)
+	}
+	if _, ok := sidebar.AgentRuntimeByID["thread-1"]["model"]; ok {
+		t.Fatalf("cleared runtime = %#v, want model removed", sidebar.AgentRuntimeByID["thread-1"])
 	}
 }
 
