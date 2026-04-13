@@ -183,13 +183,13 @@ type PromptAssemblySnapshot struct {
 
 Phase 3 缓存失效点需补充：
 - **Provider 切换**：codex↔claude 时必须清空 section cache（cache key 不含 provider）
-- **auto-compact**：`autoCompact.ts:297,326` 的等价路径
-- **REPL partial compact**：等价路径
+- **auto-compact**：落在 V3 的 compact cleanup hook；自动 compact 完成后立即触发 invalidate
+- **REPL partial compact**：落在 turn loop partial-compact cleanup hook；partial compact 成功后立即触发 invalidate
 
 触发点统一放在：
 - `start_session` 解析 provider 后、构造 provider DTO 前
-- thread config/set 导致 provider 变化时
 - `/resume` 恢复后发现 persisted provider 与当前 provider 不一致时
+- 说明：当前 `ThreadConfigPatch` **没有 provider 字段**，因此本 Phase 不把“thread config/set 切 provider”写成现状能力
 
 ---
 
@@ -200,9 +200,10 @@ Phase 3 缓存失效点需补充：
 - 后续由 `start_session.go:18-20` 的 `FirstNonEmpty` 把 `Prompt` 折叠成 `Instructions`
 - 子 agent 不继承主 agent 的 PromptRegistry 输出
 
-**改法**：
-- 子 agent 启动时也走 `PromptAssemblyService.AssembleStart()`
-- 或至少提供继承主 agent BaseInstructions 的选项
+**改法（单一路径）**：
+- 子 agent 启动**必须**走 `PromptAssemblyService.AssembleStart()`，不保留“只继承 BaseInstructions”分支
+- 扩展 `thread.LaunchAgentRequest` / `contract.LaunchRequest`，显式承载子 agent 所需的 `DisplayName + BaseInstructions + DeveloperInstructions`（或 `PromptAssemblySnapshot`）
+- orchestration 层只负责透传 assembly 产物，不再依赖 `FirstNonEmpty(Prompt, BaseInstructions)` 旧折叠路径
 
 ---
 

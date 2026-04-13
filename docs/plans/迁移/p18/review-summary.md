@@ -1,6 +1,6 @@
 # P18 审查汇总
 
-> 10 个 codex agent 交叉审查结果 | 2026-04-14
+> 30 agent 多轮交叉审查结果 | 2026-04-14
 
 ## 审查矩阵
 
@@ -91,3 +91,24 @@
 - Agent 30（最终压轴终评）：**9.0/10**，结论 **通过，可开工**
 
 ### 综合评分：9.0/10 → 文档通过，可进入实施
+
+## 第 11 轮：交叉终评收敛（30 agent）
+
+### 关键修订
+- Phase 4 补全 claudeMd 来源：补 `filterInjectedMemoryFiles()` 过滤语义、`getClaudeMds()` 包装链、未来 team-memory-content 包装说明
+- Phase 8 补 provider-specific 回归、PromptAssembly 契约断言、Restart/Recovery snapshot 用例、thread/provider 验证命令
+- Phase 4.5 收紧任务 5/6：去掉无效的 thread config/set provider 切换表述，子 Agent 归一改为单一路径
+- `source-refs-appendix.md` 补 `query.ts` 与 `claudemd.ts` 锚点
+- 修正 `review-summary.md` 顶部旧口径（不再写“10 个 codex agent”）
+
+### 重点独立评分
+- Agent 1：**8.8/10** → 通过
+- Agent 20：**8.9/10** → 通过
+- Agent 27：**8.0/10** → 有条件通过
+- Agent 28：**9.0/10** → 通过
+- Agent 29：**6.0/10** → 不通过（主要保留异议：Phase 4.5 任务 5/6 仍需收口）
+- Agent 30：**9.0/10** → 通过
+
+### 综合评分
+- 重点独立评分中位数：**8.85/10**
+- 结论：**通过（保留 Agent 29 的少量实施层异议，但不再构成文档阻塞）**

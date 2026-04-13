@@ -45,6 +45,8 @@
 | startRelevantMemoryPrefetch | src/utils/attachments.ts | L2361-2424 |
 | getRelevantMemoryAttachments | src/utils/attachments.ts | L2196-2242 |
 | collectSurfacedMemories | src/utils/attachments.ts | L2251-2266 |
+| relevant memory prefetch start | src/query.ts | L301-304 |
+| relevant memory consume in tool loop | src/query.ts | L1599-1613 |
 
 ## 系统提示词
 
@@ -75,6 +77,7 @@
 |-----------|------|--------|
 | getUserContext | src/context.ts | L155-189 |
 | getSystemContext | src/context.ts | L116-150 |
+| getClaudeMds / filterInjectedMemoryFiles | src/utils/claudemd.ts | L1142-1195 |
 | prependUserContext | src/utils/api.ts | L449-474 |
 | appendSystemContext | src/utils/api.ts | L437-447 |
 | splitSysPromptPrefix | src/utils/api.ts | L321-435 |
