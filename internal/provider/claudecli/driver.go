@@ -229,6 +229,7 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		cleanup:           started.cleanup,
 		pidRegistry:       d.pidRegistry,
 		suppressedTurns:   map[string]struct{}{},
+		silentTurnIDs:     map[string]struct{}{},
 	}
 	s.applyConfiguredOverridesLocked(spec.configOverride, false)
 	if shouldMarkThreadReady(spec.threadID, publicThreadID) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -91,6 +90,12 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 		}
 		return
 	}
+	if s.isSilentTurn(raw) {
+		if shouldFinishTurnRaw(raw) {
+			s.finishSilentTurn(raw)
+		}
+		return
+	}
 	if s.shouldSuppressTurn(raw) {
 		if s.logger != nil {
 			s.logger.Warn("claudecli: applyRaw: turn suppressed",
@@ -161,20 +166,6 @@ func (s *session) isCurrentTransport(tr *transport) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.transport == tr
-}
-func (s *session) handleReceiveExit(tr *transport, err error) {
-	finishErr := err
-	if finishErr == nil || errors.Is(finishErr, io.EOF) {
-		finishErr = io.EOF
-	}
-	s.mu.Lock()
-	if s.transport != tr {
-		s.mu.Unlock()
-		return
-	}
-	handle := s.takeActiveTurnLocked()
-	s.mu.Unlock()
-	s.finishTurnWithError(handle, finishErr)
 }
 func (s *session) finishTurnFromRaw(raw dto.RawProviderEvent) {
 	s.mu.Lock()
@@ -259,16 +250,16 @@ type rawBase struct {
 	AgentID, ThreadID, SessionID, TurnID, CWD, Model string
 }
 type streamEvent struct {
-	Type       string          `json:"type"`
-	Subtype    string          `json:"subtype"`
-	Message    json.RawMessage `json:"message"`
-	SessionID  string          `json:"session_id"`
-	Timestamp  string          `json:"timestamp"`
-	Result     string          `json:"result"`
+	Type           string          `json:"type"`
+	Subtype        string          `json:"subtype"`
+	Message        json.RawMessage `json:"message"`
+	SessionID      string          `json:"session_id"`
+	Timestamp      string          `json:"timestamp"`
+	Result         string          `json:"result"`
 	StopReason     string          `json:"stop_reason"`
 	TerminalReason string          `json:"terminal_reason"`
 	IsError        bool            `json:"is_error"`
-	Error      json.RawMessage `json:"error"`
+	Error          json.RawMessage `json:"error"`
 }
 type contentBlock struct {
 	Type     string          `json:"type"`

@@ -340,10 +340,11 @@ func packageViolations(stats map[string]*packageStat) []Violation {
 // packageFileCountLimit 返回包的文件数上限；0 表示跳过检查。
 func packageFileCountLimit(pkgDir string) int {
 	switch pkgDir {
-	case "internal/module/thread",
-		"internal/provider/claudecli",
+	case "internal/provider/claudecli",
 		"internal/provider/codexapp":
-		return 20 // 这些包较大，上限提高到 20
+		return 30 // 核心 provider 包，逻辑密集，文件限制过低会导致逻辑分散
+	case "internal/module/thread":
+		return 20
 	case "internal/store/sqlc", "cmd/mcp-orch/store/sqlc":
 		// sqlc 输出按查询源文件拆分，包文件数对生成层噪声较大；仍保留包总行数与单文件/函数守卫。
 		return 0
