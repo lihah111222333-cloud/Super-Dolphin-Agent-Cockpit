@@ -111,12 +111,16 @@ func closedTransport() *transport {
 	return &transport{done: done}
 }
 
+var launchCLIOverrideMu sync.Mutex
+
 func overrideLaunchCLI(t *testing.T, fn func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)) {
 	t.Helper()
+	launchCLIOverrideMu.Lock()
 	prev := launchCLI
 	launchCLI = fn
 	t.Cleanup(func() {
 		launchCLI = prev
+		launchCLIOverrideMu.Unlock()
 	})
 }
 

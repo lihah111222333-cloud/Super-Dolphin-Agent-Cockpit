@@ -13,7 +13,7 @@ import (
 	"github.com/kelindar/event"
 )
 
-func TestServiceSetConfigConfiguresModelAndEffort(t *testing.T) {
+func TestSetConfigConfiguresModelAndEffort(t *testing.T) {
 	t.Parallel()
 
 	model := "gpt-5.4"
@@ -60,7 +60,7 @@ func TestServiceSetConfigConfiguresModelAndEffort(t *testing.T) {
 	}
 }
 
-func TestServiceSetConfigRejectsInvalidEffort(t *testing.T) {
+func TestSetConfigRejectsInvalidEffort(t *testing.T) {
 	t.Parallel()
 
 	effort := "turbo"
@@ -82,7 +82,7 @@ func TestServiceSetConfigRejectsInvalidEffort(t *testing.T) {
 	}
 }
 
-func TestServiceSetConfigReturnsPatchedModelAndPublishesUpdated(t *testing.T) {
+func TestSetConfigReturnsOverrideWithoutMutatingProviderEffectiveConfigAndPublishesUpdated(t *testing.T) {
 	t.Parallel()
 
 	dispatcher := event.NewDispatcher()
@@ -119,8 +119,11 @@ func TestServiceSetConfigReturnsPatchedModelAndPublishesUpdated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetConfig() error = %v", err)
 	}
-	if cfg.Override.Model != model || cfg.Effective.Model != model {
-		t.Fatalf("SetConfig() = %#v, want model %q", cfg, model)
+	if cfg.Override.Model != model {
+		t.Fatalf("Override.Model = %q, want %q", cfg.Override.Model, model)
+	}
+	if cfg.Effective.Model != "o4-mini" || cfg.Effective.Effort != "medium" {
+		t.Fatalf("Effective = %#v, want provider live values", cfg.Effective)
 	}
 	if threads.thread.Model != model {
 		t.Fatalf("stored model = %q, want %q", threads.thread.Model, model)
@@ -135,7 +138,7 @@ func TestServiceSetConfigReturnsPatchedModelAndPublishesUpdated(t *testing.T) {
 	}
 }
 
-func TestServiceSetConfigClearsModelOverrideAndPublishesUpdated(t *testing.T) {
+func TestSetConfigClearsModelOverrideWithoutClearingProviderEffectiveModelAndPublishesUpdated(t *testing.T) {
 	t.Parallel()
 
 	dispatcher := event.NewDispatcher()
@@ -171,8 +174,11 @@ func TestServiceSetConfigClearsModelOverrideAndPublishesUpdated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetConfig() error = %v", err)
 	}
-	if cfg.Override.Model != "" || cfg.Effective.Model != "" {
-		t.Fatalf("SetConfig() = %#v, want cleared model override", cfg)
+	if cfg.Override.Model != "" {
+		t.Fatalf("Override.Model = %q, want cleared override", cfg.Override.Model)
+	}
+	if cfg.Effective.Model != "o4-mini" || cfg.Effective.Effort != "medium" {
+		t.Fatalf("Effective = %#v, want provider live values", cfg.Effective)
 	}
 	select {
 	case ev := <-updates:
@@ -232,7 +238,7 @@ func TestServiceReadRuntimeConfigUsesSessionSnapshot(t *testing.T) {
 	}
 }
 
-func TestSetConfigClaudeAllowsFullModelAndMax(t *testing.T) {
+func TestSetConfigClaudeAllowsFullModelAndMaxWithoutMutatingProviderEffectiveConfig(t *testing.T) {
 	t.Parallel()
 
 	model := "claude-sonnet-4-20250514[1m]"
@@ -242,10 +248,10 @@ func TestSetConfigClaudeAllowsFullModelAndMax(t *testing.T) {
 		threadID:      "thread-1",
 		allowedModels: []string{"best", "sonnet", "sonnet[1m]", "haiku", "opus", "opus[1m]"},
 		readConfigResult: dto.ThreadConfig{
-			ThreadID:  "thread-1",
-			Provider:  "claude",
-			Override:  dto.ThreadConfigValues{Model: model, Effort: effort},
-			Effective: dto.ThreadConfigValues{Model: model, Effort: effort},
+			ThreadID:               "thread-1",
+			Provider:               "claude",
+			SupportsThreadOverride: true,
+			Effective:              dto.ThreadConfigValues{Model: "sonnet", Effort: "high"},
 		},
 	}
 	svc := NewService(
@@ -272,8 +278,14 @@ func TestSetConfigClaudeAllowsFullModelAndMax(t *testing.T) {
 	if session.configurePatch.Effort == nil || *session.configurePatch.Effort != effort {
 		t.Fatalf("configurePatch.Effort = %#v, want %q", session.configurePatch.Effort, effort)
 	}
-	if !cfg.SupportsThreadOverride || cfg.Override.Model != model || cfg.Effective.Effort != effort {
-		t.Fatalf("SetConfig() = %#v", cfg)
+	if !cfg.SupportsThreadOverride {
+		t.Fatalf("SupportsThreadOverride = false, want true: %#v", cfg)
+	}
+	if cfg.Override.Model != model || cfg.Override.Effort != effort {
+		t.Fatalf("Override = %#v, want desired override values", cfg.Override)
+	}
+	if cfg.Effective.Model != "sonnet" || cfg.Effective.Effort != "high" {
+		t.Fatalf("Effective = %#v, want provider live values", cfg.Effective)
 	}
 	if threads.thread.Model != model {
 		t.Fatalf("stored model = %q, want %q", threads.thread.Model, model)
@@ -302,6 +314,50 @@ func TestSetConfigRejectsMaxForCodex(t *testing.T) {
 	}
 	if session.configureCalls != 0 {
 		t.Fatalf("configureCalls = %d, want 0", session.configureCalls)
+	}
+}
+
+func TestSetConfigReturnPatchPreservesProviderEffectiveValues(t *testing.T) {
+	t.Parallel()
+
+	ptr := func(value string) *string { return &value }
+	base := dto.ThreadConfig{
+		Provider:               "claude",
+		SupportsThreadOverride: true,
+		Override:               dto.ThreadConfigValues{Model: "custom-override", Effort: "medium"},
+		Effective:              dto.ThreadConfigValues{Model: "sonnet", Effort: "high"},
+	}
+	cases := []struct {
+		name         string
+		patch        dto.ThreadConfigPatch
+		wantOverride dto.ThreadConfigValues
+	}{
+		{
+			name:         "explicit override",
+			patch:        dto.ThreadConfigPatch{Model: ptr("gpt-5.5"), Effort: ptr("high")},
+			wantOverride: dto.ThreadConfigValues{Model: "gpt-5.5", Effort: "high"},
+		},
+		{
+			name:         "explicit clear restores inherit state",
+			patch:        dto.ThreadConfigPatch{Model: ptr(""), Effort: ptr("")},
+			wantOverride: dto.ThreadConfigValues{},
+		},
+		{
+			name:         "claude full model with 1m and max",
+			patch:        dto.ThreadConfigPatch{Model: ptr("claude-sonnet-4-20250514[1m]"), Effort: ptr("max")},
+			wantOverride: dto.ThreadConfigValues{Model: "claude-sonnet-4-20250514[1m]", Effort: "max"},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := applyThreadConfigReturnPatch(base, tt.patch)
+			if cfg.Override != tt.wantOverride {
+				t.Fatalf("Override = %#v, want %#v", cfg.Override, tt.wantOverride)
+			}
+			if cfg.Effective != base.Effective {
+				t.Fatalf("Effective = %#v, want %#v", cfg.Effective, base.Effective)
+			}
+		})
 	}
 }
 

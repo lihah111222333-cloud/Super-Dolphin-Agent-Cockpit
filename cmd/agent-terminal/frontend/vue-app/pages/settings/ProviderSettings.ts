@@ -74,6 +74,15 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   const { activeProjectCwd, withProjectCwd } = useSettingsScope(props.projectStore);
   let providerSettingsLoadSeq = 0;
 
+  function beginProviderSettingsRequest(): number {
+    providerSettingsLoadSeq += 1;
+    return providerSettingsLoadSeq;
+  }
+
+  function isCurrentProviderSettingsRequest(requestSeq: number): boolean {
+    return requestSeq === providerSettingsLoadSeq;
+  }
+
   const normalizedActiveProvider = computed(() => normalizeProviderID(activeProvider.value));
   const providerModelOptions = computed(() =>
     appendCurrentOption(
@@ -107,19 +116,29 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     return `settings.provider.${normalizeProviderID(providerID)}.${suffix}`;
   }
 
-  async function loadActiveProviderPreference(): Promise<string> {
+  async function loadActiveProviderPreference(requestSeq: number): Promise<string> {
     try {
       const value = await callAPI('ui/preferences/get', withProjectCwd({ key: PROVIDER_ACTIVE_PREF_KEY }));
-      activeProvider.value = normalizeProviderID(typeof value === 'string' ? value : DEFAULT_PROVIDER_ID);
+      const normalizedProviderID = normalizeProviderID(typeof value === 'string' ? value : DEFAULT_PROVIDER_ID);
+      if (!isCurrentProviderSettingsRequest(requestSeq)) {
+        return normalizeProviderID(activeProvider.value);
+      }
+      activeProvider.value = normalizedProviderID;
     } catch {
+      if (!isCurrentProviderSettingsRequest(requestSeq)) {
+        return normalizeProviderID(activeProvider.value);
+      }
       activeProvider.value = DEFAULT_PROVIDER_ID;
     }
-    return activeProvider.value;
+    return normalizeProviderID(activeProvider.value);
   }
 
-  async function persistActiveProviderPreference(providerID = activeProvider.value): Promise<string> {
+  async function persistActiveProviderPreference(providerID = activeProvider.value, requestSeq = beginProviderSettingsRequest()): Promise<string> {
     const normalizedProviderID = normalizeProviderID(providerID);
     await callAPI('ui/preferences/set', withProjectCwd({ key: PROVIDER_ACTIVE_PREF_KEY, value: normalizedProviderID }));
+    if (!isCurrentProviderSettingsRequest(requestSeq)) {
+      return normalizeProviderID(activeProvider.value);
+    }
     activeProvider.value = normalizedProviderID;
     return normalizedProviderID;
   }
@@ -222,9 +241,9 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     }
   }
 
-  async function loadProviderSettingsFor(providerID: string): Promise<void> {
+  async function loadProviderSettingsFor(providerID: string, requestSeq = beginProviderSettingsRequest()): Promise<void> {
+    if (!isCurrentProviderSettingsRequest(requestSeq)) return;
     const normalizedProviderID = normalizeProviderID(providerID);
-    const requestSeq = ++providerSettingsLoadSeq;
     activeProvider.value = normalizedProviderID;
     resetProviderSettingsState(normalizedProviderID);
     sandboxNotice.level = 'info';
@@ -232,7 +251,7 @@ function setupProviderSettings(props: ProviderSettingsProps) {
 
     try {
       const raw = await readProviderPreference('sandbox', normalizedProviderID);
-      if (requestSeq !== providerSettingsLoadSeq || normalizeProviderID(activeProvider.value) !== normalizedProviderID) return;
+      if (!isCurrentProviderSettingsRequest(requestSeq) || normalizeProviderID(activeProvider.value) !== normalizedProviderID) return;
       if (raw && typeof raw === 'string') applySandboxPayload(JSON.parse(raw));
       else if (raw && typeof raw === 'object') applySandboxPayload(raw);
     } catch {
@@ -247,7 +266,7 @@ function setupProviderSettings(props: ProviderSettingsProps) {
       readProviderPreference('model', normalizedProviderID),
       readProviderPreference('personality', normalizedProviderID),
     ]);
-    if (requestSeq !== providerSettingsLoadSeq || normalizeProviderID(activeProvider.value) !== normalizedProviderID) return;
+    if (!isCurrentProviderSettingsRequest(requestSeq) || normalizeProviderID(activeProvider.value) !== normalizedProviderID) return;
 
     summaryMode.value = normalizeProviderConfigValue(summaryValue) || DEFAULT_SUMMARY_MODE;
     approvalMode.value = normalizeProviderConfigValue(approvalValue) || DEFAULT_APPROVAL_MODE;
@@ -258,15 +277,22 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   }
 
   async function loadProviderSettings(): Promise<void> {
-    const providerID = await loadActiveProviderPreference();
-    await loadProviderSettingsFor(providerID);
+    const requestSeq = beginProviderSettingsRequest();
+    const providerID = await loadActiveProviderPreference(requestSeq);
+    if (!isCurrentProviderSettingsRequest(requestSeq)) return;
+    await loadProviderSettingsFor(providerID, requestSeq);
   }
 
   async function onActiveProviderChange(): Promise<void> {
+    const requestedProviderID = normalizeProviderID(activeProvider.value);
+    const requestSeq = beginProviderSettingsRequest();
+    activeProvider.value = requestedProviderID;
     try {
-      const providerID = await persistActiveProviderPreference(activeProvider.value);
-      await loadProviderSettingsFor(providerID);
+      const providerID = await persistActiveProviderPreference(requestedProviderID, requestSeq);
+      if (!isCurrentProviderSettingsRequest(requestSeq)) return;
+      await loadProviderSettingsFor(providerID, requestSeq);
     } catch (error: any) {
+      if (!isCurrentProviderSettingsRequest(requestSeq)) return;
       sandboxNotice.level = 'error';
       sandboxNotice.message = `切换 Provider 失败：${error?.message || error}`;
     }

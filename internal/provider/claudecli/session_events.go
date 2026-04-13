@@ -132,17 +132,20 @@ func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 			s.startLogWatcherIfCurrent(tr)
 		})
 	}
-	if newID := s.ThreadID(); newID != prevID && newID != "" {
-		s.dispatch(dto.RawProviderEvent{
-			EventType: "agent:launched",
-			Data: map[string]any{
-				"agent_id":   s.agentID,
-				"thread_id":  s.EventThreadID(),
-				"session_id": newID,
-				"cwd":        s.cwd,
-				"model":      s.currentTransportModel(),
-			},
-		})
+	if newID := s.ThreadID(); newID != "" {
+		eventThreadID := s.EventThreadID()
+		if newID != prevID || eventThreadID != newID {
+			s.dispatch(dto.RawProviderEvent{
+				EventType: "agent:launched",
+				Data: map[string]any{
+					"agent_id":   s.agentID,
+					"thread_id":  eventThreadID,
+					"session_id": newID,
+					"cwd":        s.cwd,
+					"model":      s.currentTransportModel(),
+				},
+			})
+		}
 	}
 }
 

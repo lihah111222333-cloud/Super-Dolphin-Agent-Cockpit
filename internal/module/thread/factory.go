@@ -394,13 +394,9 @@ func threadConfigPatchValue(value *string) string {
 func applyThreadConfigReturnPatch(cfg dto.ThreadConfig, patch dto.ThreadConfigPatch) dto.ThreadConfig {
 	if patch.Model != nil {
 		cfg.Override.Model = threadConfigPatchValue(patch.Model)
-		cfg.Effective.Model = cfg.Override.Model
 	}
 	if patch.Effort != nil {
 		cfg.Override.Effort = threadConfigPatchValue(patch.Effort)
-		if cfg.Override.Effort != "" {
-			cfg.Effective.Effort = cfg.Override.Effort
-		}
 	}
 	return cfg
 }

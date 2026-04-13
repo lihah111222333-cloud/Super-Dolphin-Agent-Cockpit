@@ -34,6 +34,17 @@ export function useComposerThreadConfig(props, emit) {
   const overrideEffort = computed(() => normalizeThreadConfigValue(props.threadConfigMeta?.override?.effort));
   const selectedThreadConfigModel = computed(() => draftModel.value || overrideModel.value || effectiveModel.value);
   const selectedThreadConfigEffort = computed(() => draftEffort.value || overrideEffort.value || effectiveEffort.value);
+  const normalizedSelectedThreadConfigEffort = computed(() => {
+    const currentEffort = normalizeThreadConfigValue(selectedThreadConfigEffort.value);
+    if (
+      normalizedThreadConfigProvider.value === 'claude' &&
+      currentEffort.toLowerCase() === 'max' &&
+      !isClaudeOpusFamilyModel(selectedThreadConfigModel.value)
+    ) {
+      return 'high';
+    }
+    return currentEffort;
+  });
 
   const threadConfigVisible = computed(() =>
     !props.isCmd &&
@@ -46,7 +57,7 @@ export function useComposerThreadConfig(props, emit) {
   const threadConfigModelOptions = computed(() =>
     appendCurrentOption(
       MODEL_OPTIONS_BY_PROVIDER[normalizedThreadConfigProvider.value] || MODEL_OPTIONS,
-      draftModel.value,
+      selectedThreadConfigModel.value,
     )
   );
   const threadConfigEffortBaseOptions = computed(() =>
@@ -55,14 +66,12 @@ export function useComposerThreadConfig(props, emit) {
   const threadConfigEffortOptions = computed(() => {
     const baseOptions = threadConfigEffortBaseOptions.value;
     if (normalizedThreadConfigProvider.value !== 'claude') {
-      return appendCurrentOption(baseOptions, draftEffort.value);
+      return appendCurrentOption(baseOptions, normalizedSelectedThreadConfigEffort.value);
     }
     const filteredOptions = isClaudeOpusFamilyModel(selectedThreadConfigModel.value)
       ? baseOptions
       : baseOptions.filter((item) => item.value !== 'max');
-    const normalizedDraftEffort = draftEffort.value === 'max' && !isClaudeOpusFamilyModel(selectedThreadConfigModel.value)
-      ? 'high'
-      : draftEffort.value;
+    const normalizedDraftEffort = normalizedSelectedThreadConfigEffort.value;
     return appendCurrentOption(filteredOptions, normalizedDraftEffort);
   });
 
@@ -77,8 +86,14 @@ export function useComposerThreadConfig(props, emit) {
     return parts.length > 0 ? parts.join('-') : '已覆盖';
   });
 
-  const threadConfigInheritModelLabel = computed(() => '默认');
-  const threadConfigInheritEffortLabel = computed(() => '默认');
+  const threadConfigInheritModelLabel = computed(() => {
+    const currentModel = effectiveModel.value || selectedThreadConfigModel.value;
+    return currentModel ? `默认（当前：${currentModel}）` : '默认';
+  });
+  const threadConfigInheritEffortLabel = computed(() => {
+    const currentEffort = effectiveEffort.value || normalizedSelectedThreadConfigEffort.value;
+    return currentEffort ? `默认（当前：${currentEffort}）` : '默认';
+  });
 
   function toggleThreadConfig() {
     if (!threadConfigOpen.value) {

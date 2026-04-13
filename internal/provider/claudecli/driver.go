@@ -44,6 +44,13 @@ type startSpec struct {
 	historyDir   string
 }
 
+func (d *driver) proxyHTTPAddr() string {
+	if d == nil || d.proxyAddrFn == nil {
+		return ""
+	}
+	return strings.TrimSpace(d.proxyAddrFn())
+}
+
 func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -71,7 +78,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, req.Config),
 		Env:           providershared.StringMap(req.Config["env"]),
 		AutoApprove:   providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
-		ProxyHTTPAddr: d.proxyAddrFn(),
+		ProxyHTTPAddr: d.proxyHTTPAddr(),
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
@@ -92,7 +99,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		CWD:           strings.TrimSpace(req.CWD),
 		ThreadCaps:    copyCapabilities(claudeCapabilities),
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, nil),
-		ProxyHTTPAddr: d.proxyAddrFn(),
+		ProxyHTTPAddr: d.proxyHTTPAddr(),
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
@@ -108,12 +115,15 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
+	history := &historyBackend{sessionDir: spec.historyDir}
+	launchModel := claudeLaunchDisplayModel(spec.model, history)
+	launchConfig := canonicalizeClaudeLaunchConfig(launchModel, spec.config)
 	tr, cleanup, err := launchCLI(
 		d.binaryPath,
 		spec.cwd,
 		spec.model,
 		spec.instructions,
-		spec.config,
+		launchConfig,
 		spec.manifest,
 		spec.threadID,
 	)
@@ -130,14 +140,15 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		threadReady:     make(chan struct{}),
 		transport:       tr,
 		caps:            copyCapabilities(claudeCapabilities),
-		history:         &historyBackend{sessionDir: spec.historyDir},
+		history:         history,
 		logger:          d.logger,
 		eventDispatcher: d.eventDispatcher,
 		binaryPath:      d.binaryPath,
 		cwd:             resolveAbsCWD(spec.cwd),
 		model:           strings.TrimSpace(spec.model),
+		transportModel:  launchModel,
 		instructions:    strings.TrimSpace(spec.instructions),
-		config:          spec.config,
+		config:          launchConfig,
 		rawConfig:       cloneConfigMap(spec.rawConfig),
 		manifest:        spec.manifest,
 		cleanup:         cleanup,
@@ -165,7 +176,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 			"session_id": resolvedThreadID,
 			"timestamp":  now,
 			"cwd":        s.cwd,
-			"model":      s.model,
+			"model":      launchModel,
 		},
 	})
 	// Signal that the session is idle and ready to accept turns.

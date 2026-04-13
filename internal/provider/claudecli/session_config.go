@@ -76,18 +76,28 @@ func (s *session) currentTransportModelLocked() string {
 	return s.effectiveModelLocked()
 }
 
-func (s *session) desiredOverrideModelLocked() string {
+func (s *session) effectiveEffortLocked() string {
+	return normalizeEffort(s.currentTransportModelLocked(), s.config.Effort)
+}
+
+func (s *session) configuredOverrideModelLocked() string {
+	if s.pendingModel != nil {
+		return strings.TrimSpace(*s.pendingModel)
+	}
 	if s.overrideModelSet {
 		return strings.TrimSpace(s.overrideModel)
 	}
-	return s.effectiveModelLocked()
+	return ""
 }
 
-func (s *session) desiredOverrideEffortLocked() string {
+func (s *session) configuredOverrideEffortLocked() string {
+	if s.pendingEffort != nil {
+		return strings.TrimSpace(*s.pendingEffort)
+	}
 	if s.overrideEffortSet {
 		return strings.TrimSpace(s.overrideEffort)
 	}
-	return strings.TrimSpace(s.config.Effort)
+	return ""
 }
 
 var claudeAllowedModels = []string{
@@ -122,12 +132,12 @@ func (s *session) ReadConfig(context.Context, string) (dto.ThreadConfig, error) 
 		Provider:               "claude",
 		SupportsThreadOverride: true,
 		Override: dto.ThreadConfigValues{
-			Model:  s.desiredOverrideModelLocked(),
-			Effort: s.desiredOverrideEffortLocked(),
+			Model:  s.configuredOverrideModelLocked(),
+			Effort: s.configuredOverrideEffortLocked(),
 		},
 		Effective: dto.ThreadConfigValues{
-			Model:     s.effectiveModelLocked(),
-			Effort:    strings.TrimSpace(s.config.Effort),
+			Model:     s.currentTransportModelLocked(),
+			Effort:    s.effectiveEffortLocked(),
 			Approvals: strings.TrimSpace(s.config.ApprovalPolicy),
 		},
 	}, nil
