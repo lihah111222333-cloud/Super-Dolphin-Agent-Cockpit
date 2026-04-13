@@ -231,3 +231,135 @@ func TestServiceReadRuntimeConfigUsesSessionSnapshot(t *testing.T) {
 		t.Fatalf("toolRouting = %#v", toolRouting)
 	}
 }
+
+func TestSetConfigClaudeAllowsFullModelAndMax(t *testing.T) {
+	t.Parallel()
+
+	model := "claude-sonnet-4-20250514[1m]"
+	effort := "max"
+	threads := &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", Model: "sonnet", Status: statusCreated, CreatedAt: 1, UpdatedAt: 1}}
+	session := &stubSession{
+		threadID:      "thread-1",
+		allowedModels: []string{"best", "sonnet", "sonnet[1m]", "haiku", "opus", "opus[1m]"},
+		readConfigResult: dto.ThreadConfig{
+			ThreadID:  "thread-1",
+			Provider:  "claude",
+			Override:  dto.ThreadConfigValues{Model: model, Effort: effort},
+			Effective: dto.ThreadConfigValues{Model: model, Effort: effort},
+		},
+	}
+	svc := NewService(
+		silentLogger(),
+		threads,
+		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "claude", ProviderThreadID: "thread-1"}},
+		&stubSessionProvider{session: session},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	cfg, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{Model: &model, Effort: &effort})
+	if err != nil {
+		t.Fatalf("SetConfig() error = %v", err)
+	}
+	if session.configureCalls != 1 {
+		t.Fatalf("configureCalls = %d, want 1", session.configureCalls)
+	}
+	if session.configurePatch.Model == nil || *session.configurePatch.Model != model {
+		t.Fatalf("configurePatch.Model = %#v, want %q", session.configurePatch.Model, model)
+	}
+	if session.configurePatch.Effort == nil || *session.configurePatch.Effort != effort {
+		t.Fatalf("configurePatch.Effort = %#v, want %q", session.configurePatch.Effort, effort)
+	}
+	if !cfg.SupportsThreadOverride || cfg.Override.Model != model || cfg.Effective.Effort != effort {
+		t.Fatalf("SetConfig() = %#v", cfg)
+	}
+	if threads.thread.Model != model {
+		t.Fatalf("stored model = %q, want %q", threads.thread.Model, model)
+	}
+}
+
+func TestSetConfigRejectsMaxForCodex(t *testing.T) {
+	t.Parallel()
+
+	model := "gpt-5.4"
+	effort := "max"
+	session := &stubSession{threadID: "thread-1", allowedModels: []string{model}}
+	svc := NewService(
+		silentLogger(),
+		nil,
+		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubSessionProvider{session: session},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	if _, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{Model: &model, Effort: &effort}); err == nil {
+		t.Fatal("SetConfig() error = nil, want invalid effort")
+	}
+	if session.configureCalls != 0 {
+		t.Fatalf("configureCalls = %d, want 0", session.configureCalls)
+	}
+}
+
+func TestNormalizeThreadConfigPatchClaudeAllowsFullModelAndMax(t *testing.T) {
+	t.Parallel()
+
+	model := "claude-sonnet-4-20250514[1m]"
+	effort := "max"
+	patch, err := normalizeThreadConfigPatch(
+		context.Background(),
+		&stubSession{threadID: "thread-1"},
+		"claude",
+		dto.ThreadConfigPatch{Model: &model, Effort: &effort},
+	)
+	if err != nil {
+		t.Fatalf("normalizeThreadConfigPatch() error = %v", err)
+	}
+	if patch.Model == nil || *patch.Model != model {
+		t.Fatalf("patch.Model = %#v, want %q", patch.Model, model)
+	}
+	if patch.Effort == nil || *patch.Effort != effort {
+		t.Fatalf("patch.Effort = %#v, want %q", patch.Effort, effort)
+	}
+}
+
+func TestNormalizeThreadConfigPatchCodexRejectsUnlistedModel(t *testing.T) {
+	t.Parallel()
+
+	model := "gpt-5.5-preview"
+	if _, err := normalizeThreadConfigPatch(
+		context.Background(),
+		&stubSession{threadID: "thread-1", allowedModels: []string{"gpt-5.4"}},
+		"codex",
+		dto.ThreadConfigPatch{Model: &model},
+	); err == nil {
+		t.Fatal("normalizeThreadConfigPatch() error = nil, want unsupported model")
+	}
+}
+
+func TestSupportsThreadOverride(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		provider string
+		want     bool
+	}{
+		{name: "codex", provider: "codex", want: true},
+		{name: "claude", provider: "claude", want: true},
+		{name: "claude with spaces", provider: "  claude  ", want: true},
+		{name: "other", provider: "openai", want: false},
+		{name: "empty", provider: "", want: false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := supportsThreadOverride(tt.provider); got != tt.want {
+				t.Fatalf("supportsThreadOverride(%q) = %v, want %v", tt.provider, got, tt.want)
+			}
+		})
+	}
+}

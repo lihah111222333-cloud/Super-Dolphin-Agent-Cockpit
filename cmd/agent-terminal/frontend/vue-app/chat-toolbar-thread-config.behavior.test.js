@@ -42,7 +42,7 @@ vi.mock('./services/log.js', () => ({
   logWarn: vi.fn(),
 }));
 
-import { EFFORT_MODES, MODEL_OPTIONS } from './provider-config-options.js';
+import { EFFORT_MODES_BY_PROVIDER, MODEL_OPTIONS_BY_PROVIDER } from './provider-config-options.js';
 import { ComposerBar } from './components/ComposerBar.js';
 import { reactive, ref } from '../lib/vue.esm-browser.prod.js';
 
@@ -59,7 +59,8 @@ function makeComposer() {
 }
 
 function createComposerVm(overrides = {}) {
-  return ComposerBar.setup({
+  const emit = vi.fn();
+  const vm = ComposerBar.setup({
     composer: makeComposer(),
     disabled: false,
     threadId: 'thread-live',
@@ -85,12 +86,13 @@ function createComposerVm(overrides = {}) {
       effective: { model: 'gpt-5.4', effort: 'xhigh' },
     },
     ...overrides,
-  }, { emit: vi.fn() });
+  }, { emit });
+  return { vm, emit };
 }
 
 describe('ComposerBar thread config behavior', () => {
   it('reuses shared option sources for editable codex threads', () => {
-    const vm = createComposerVm({
+    const { vm } = createComposerVm({
       threadConfigMeta: {
         override: { model: 'gpt-5.2', effort: 'high' },
         effective: { model: 'gpt-5.2', effort: 'high' },
@@ -99,22 +101,44 @@ describe('ComposerBar thread config behavior', () => {
 
     expect(vm.threadConfigVisible.value).toBe(true);
     expect(vm.threadConfigEditable.value).toBe(true);
-    expect(vm.threadConfigModelOptions).toBe(MODEL_OPTIONS);
-    expect(vm.threadConfigEffortOptions).toBe(EFFORT_MODES);
+    expect(vm.threadConfigModelOptions.value).toBe(MODEL_OPTIONS_BY_PROVIDER.codex);
+    expect(vm.threadConfigEffortOptions.value).toBe(EFFORT_MODES_BY_PROVIDER.codex);
   });
 
-  it('marks claude threads as not visible when provider is claude', () => {
-    const vm = createComposerVm({
+  it('shows provider-aware claude options and hides max on non-opus models', () => {
+    const { vm } = createComposerVm({
       threadConfigProvider: 'claude',
-      threadConfigSupportsOverride: false,
+      threadConfigSupportsOverride: true,
+      threadConfigDraftModel: 'sonnet',
       threadConfigMeta: {
         override: { model: '', effort: '' },
-        effective: { model: 'claude-3.7-sonnet', effort: 'high' },
+        effective: { model: 'sonnet', effort: 'high' },
       },
     });
 
-    // ComposerBar only shows config for codex provider threads
-    expect(vm.threadConfigVisible.value).toBe(false);
-    expect(vm.threadConfigEditable.value).toBe(false);
+    expect(vm.threadConfigVisible.value).toBe(true);
+    expect(vm.threadConfigEditable.value).toBe(true);
+    expect(vm.threadConfigModelOptions.value).toBe(MODEL_OPTIONS_BY_PROVIDER.claude);
+    expect(vm.threadConfigEffortOptions.value.map((item) => item.value)).toEqual(['high', 'medium', 'low']);
+  });
+
+  it('normalizes claude max effort to high before auto-saving a non-opus model', async () => {
+    const { vm, emit } = createComposerVm({
+      threadConfigProvider: 'claude',
+      threadConfigSupportsOverride: true,
+      threadConfigDraftModel: 'best',
+      threadConfigDraftEffort: 'max',
+      threadConfigMeta: {
+        override: { model: 'best', effort: 'max' },
+        effective: { model: 'best', effort: 'max' },
+      },
+    });
+
+    vm.onModelSelectChange('sonnet');
+    await Promise.resolve();
+
+    expect(emit).toHaveBeenCalledWith('update-thread-config-model', 'sonnet');
+    expect(emit).toHaveBeenCalledWith('update-thread-config-effort', 'high');
+    expect(emit).toHaveBeenCalledWith('save-thread-config');
   });
 });

@@ -1,0 +1,59 @@
+package claudecli
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+func claudeContextWindow(runtimeWindow int, model string, history *historyBackend) int {
+	if runtimeWindow > 0 {
+		return runtimeWindow
+	}
+	return claudeModelContextWindow(claudeLaunchDisplayModel(model, history))
+}
+
+func claudeLaunchDisplayModel(model string, history *historyBackend) string {
+	if model = strings.TrimSpace(model); model != "" {
+		return model
+	}
+	return readClaudeSettingsModel(history)
+}
+
+func claudeModelContextWindow(model string) int {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case strings.Contains(normalized, "haiku"):
+		return 400_000 - 64_000
+	case strings.Contains(normalized, "opus") && strings.HasSuffix(normalized, "[1m]"):
+		return 1_000_000 - 128_000
+	case normalized == "best" || strings.Contains(normalized, "opus"):
+		return 400_000 - 128_000
+	case strings.HasSuffix(normalized, "[1m]"):
+		return 1_000_000 - 64_000
+	default:
+		return 400_000 - 64_000
+	}
+}
+
+func readClaudeSettingsModel(history *historyBackend) string {
+	if history == nil {
+		return ""
+	}
+	root, err := history.rootDir()
+	if err != nil {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "settings.json"))
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Model)
+}

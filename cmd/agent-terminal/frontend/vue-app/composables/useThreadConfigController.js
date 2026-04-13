@@ -165,7 +165,7 @@ export function createThreadConfigController({ threadStore, threadActions, selec
     return persistThreadConfig({
       model: threadConfigUi.draft.model,
       effort: threadConfigUi.draft.effort,
-    }, '线程配置已保存。');
+    }, '线程配置已保存，下次发送生效。');
   }
 
   function restoreThreadConfigInherit() {

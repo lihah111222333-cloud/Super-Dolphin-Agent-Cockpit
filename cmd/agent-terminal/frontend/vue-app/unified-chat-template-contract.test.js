@@ -25,6 +25,8 @@ describe('UnifiedChatPage template contract', () => {
       '<CmdCardGrid',
       '<CmdOverviewPanel',
       '<WorkspaceChatPanel',
+      ':thread-config-notice="threadConfigUi.notice"',
+      ':thread-config-notice-level="threadConfigUi.noticeLevel"',
       'class="thread-rail-resizer"',
       'class="workspace-bottom-row"',
     ]);

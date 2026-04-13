@@ -277,7 +277,12 @@ func offlineThreadProvider(binding *bindingstore.Binding) string {
 }
 
 func supportsThreadOverride(provider string) bool {
-	return strings.EqualFold(strings.TrimSpace(provider), offlineProvider)
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case offlineProvider, "claude":
+		return true
+	default:
+		return false
+	}
 }
 
 func offlineThreadModel(thread *threadstore.Thread) string {

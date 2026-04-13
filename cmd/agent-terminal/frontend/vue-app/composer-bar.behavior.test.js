@@ -88,6 +88,8 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     threadConfigDraftEffort: overrides.threadConfigDraftEffort ?? '',
     threadConfigLoading: overrides.threadConfigLoading ?? false,
     threadConfigSaving: overrides.threadConfigSaving ?? false,
+    threadConfigNotice: overrides.threadConfigNotice ?? '',
+    threadConfigNoticeLevel: overrides.threadConfigNoticeLevel ?? 'info',
     threadConfigMeta: overrides.threadConfigMeta ?? { override: {}, effective: {} },
   };
   const vm = ComposerBar.setup(props, { emit });
@@ -465,6 +467,23 @@ describe('ComposerBar behavior', () => {
     expect(overrideVm.threadConfigOpen.value).toBe(false);
   });
 
+  it('exposes thread config notice text in the composer area', () => {
+    const { vm } = createComposerBar({
+      threadId: 'thread-1',
+      threadConfigProvider: 'claude',
+      threadConfigSupportsOverride: true,
+      threadConfigNotice: '线程配置已保存，下次发送生效。',
+      threadConfigNoticeLevel: 'info',
+      threadConfigMeta: {
+        override: { model: 'sonnet', effort: 'high' },
+        effective: { model: 'sonnet', effort: 'high' },
+      },
+    });
+
+    expect(vm.threadConfigInlineNotice.value).toBe('线程配置已保存，下次发送生效。');
+    expect(ComposerBar.template).toContain('composer-thread-config-notice');
+  });
+
   it('preserves textarea composable contract before setup extraction', async () => {
     const vm = useComposerTextarea();
     const boundary = {
@@ -560,6 +579,7 @@ describe('ComposerBar behavior', () => {
       dropActive: expect.anything(),
       threadConfigOpen: expect.anything(),
       threadConfigSummaryLabel: expect.anything(),
+      threadConfigInlineNotice: expect.anything(),
     }));
     expect(ComposerBar.template).toContain('@keydown.esc.exact="onEscape"');
     expect(ComposerBar.template).toContain('@click="onPrimaryAction"');

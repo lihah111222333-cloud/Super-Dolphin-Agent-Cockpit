@@ -103,12 +103,10 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 		"--output-format", "stream-json",
 		"--verbose",
 	}
-	// Do not pass --model to Claude CLI; let it use its configured default.
-	// The model is still stored in session state for UI display.
-	// args = appendFlagIfSet(args, "--model", model)
+	args = appendFlagIfSet(args, "--model", model)
 	args = appendFlagIfSet(args, "--system-prompt", composeLaunchSystemPrompt(instructions, cfg))
 	args = appendFlagIfSet(args, "--permission-mode", resolvePermissionMode(cfg.ApprovalPolicy, cfg.Sandbox))
-	args = appendFlagIfSet(args, "--effort", normalizeEffort(cfg.Effort))
+	args = appendFlagIfSet(args, "--effort", normalizeEffort(model, cfg.Effort))
 	if mcpConfigPath = strings.TrimSpace(mcpConfigPath); mcpConfigPath != "" {
 		args = appendFlagIfSet(args, "--mcp-config", mcpConfigPath)
 		args = append(args, "--disallowedTools", "Read,Write,Edit,MultiEdit,Bash,Grep,Glob,LS")
@@ -189,7 +187,11 @@ func permissionModeFromSandbox(sandbox string) string {
 	}
 }
 
-func normalizeEffort(effort string) string {
+func normalizeEffort(model, effort string) string {
+	normalizedModel := strings.ToLower(strings.TrimSpace(model))
+	if normalizedModel == "best" {
+		normalizedModel = "opus"
+	}
 	switch strings.ToLower(strings.TrimSpace(effort)) {
 	case "", "none":
 		return ""
@@ -198,6 +200,11 @@ func normalizeEffort(effort string) string {
 	case "medium":
 		return "medium"
 	case "high", "xhigh":
+		return "high"
+	case "max":
+		if strings.Contains(normalizedModel, "opus") {
+			return "max"
+		}
 		return "high"
 	default:
 		return strings.TrimSpace(effort)
