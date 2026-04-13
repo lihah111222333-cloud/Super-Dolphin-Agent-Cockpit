@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/cachekeepalive"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/hooks"
@@ -34,6 +35,7 @@ var Module = fx.Options(
 	bus.Module,
 	rpc.Module,
 	hooks.Module,
+	cachekeepalive.Module,
 	mcpcontrol.Module,
 	platformrunner.Module,
 	statemachine.Module,

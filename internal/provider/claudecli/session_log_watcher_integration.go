@@ -275,6 +275,7 @@ func (s *session) swapRestartTransportLocked(tr *transport, cleanup func(), next
 	s.activeTurn = nil
 	s.activeToolCalls = nil
 	s.suppressedTurns = map[string]struct{}{}
+	s.silentTurnIDs = map[string]struct{}{}
 	s.transport = tr
 	s.cleanup = cleanup
 	s.transportModel = next.displayModel

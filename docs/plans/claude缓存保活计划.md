@@ -1,6 +1,6 @@
 # Claude 缓存保活计划 (Cache Keepalive Plan)
 
-> **文档状态**: 已修订 v5（v4 + 二审修订：涡到 turn 核心修复 / API校正 / 类型统一 / 并发闭环）
+> **文档状态**: 已修订 v8（v7 + 终验修补：Send 锁内对齐 / 时序描述修正 / 风险表精确化 / 架构图同步）
 > **修订日期**: 2026-04-14
 > **可行性**: ⚠️ 功能可实现，仓库契约需同步治理（`claudecli` 包文件数已超限）
 
@@ -101,7 +101,7 @@ if kc, ok := sess.(KeepaliveCapable); ok {
 
 Timer map 的 key 使用 **SessionUUID**（CLI 会话的唯一标识），而不是 agentID。UUID 跨 CLI 重启持久化（`restartResumeIDLocked()` 用同一 UUID 做 `--resume`），因此 timer 在 CLI 重启后仍然有效，实现了对同一会话的**连续保护**。
 
-> **注意**：restart 重置时需同步清理 `silentTurnIDs`（`make(map[string]silentTurnState)`），与现有 `activeTurn`/`suppressedTurns` 清理逻辑对齐。
+> **注意**：restart 重置时需同步清理 `silentTurnIDs`（`make(map[string]struct{})`），与现有 `activeTurn`/`suppressedTurns` 清理逻辑对齐。
 
 ```go
 func startKeepaliveRelay(
@@ -139,8 +139,10 @@ func startKeepaliveRelay(
 // manager.go — HandleAgentLaunched 封装回填逻辑
 //
 // 依赖：bindingStore (binding.Store) + threadStore (thread.Store)
-// 回填策略参考 thread/events.go:65-76 的 resolveBindingForEvent 模式：
-// 先尝试 GetByAgentID，失败时通过 threadID → threadStore.GetByThreadID → binding 回填
+// 回填策略（简化版 resolveBindingForEvent 模式，参考 thread/events.go:65-76）：
+// 1. agentID 非空且有效 → 直接用
+// 2. agentID 空或无效 → 通过 threadID 回填
+// 3. 回填失败 → 放弃注册
 func (m *Manager) HandleAgentLaunched(ev agentdto.AgentLaunched) {
     ctx := context.Background()
     agentID := strings.TrimSpace(ev.AgentID)
@@ -148,16 +150,16 @@ func (m *Manager) HandleAgentLaunched(ev agentdto.AgentLaunched) {
     if sid == "" {
         return
     }
-    // agentID 回填：先直接用，不可靠时通过 threadID 解析
+    // 第一步：尝试直接用 agentID
+    if agentID != "" {
+        if _, err := m.bindingStore.GetByAgentID(ctx, agentID); err != nil {
+            agentID = "" // agentID 无效，落入 fallback
+        }
+    }
+    // 第二步：agentID 空或无效时，通过 threadID 回填
     if agentID == "" {
         if t, err := m.threadStore.GetByThreadID(ctx, ev.ThreadID); err == nil && t != nil {
             agentID = t.AgentID
-        }
-    }
-    // 二次回填：即使 agentID 非空，也验证其有效性
-    if agentID != "" {
-        if _, err := m.bindingStore.GetByAgentID(ctx, agentID); err != nil {
-            agentID = "" // 无效 agentID，放弃注册
         }
     }
     if agentID != "" {
@@ -224,21 +226,14 @@ func (m *Manager) canPing(ctx context.Context, t *agentTimer) bool {
 ### Phase 3: 心跳发送 — 专用静默 Turn
 
 > **关键设计**：不使用 `StartTurn()`，原因见 §5 三个致命问题。
+> **超时策略**：30s 无响应 = CLI 已挂，直接 kill transport + 触发 restart。
+> Claude CLI 只认一个 UUID（`providerThreadId == uuid`），`--resume` 同 UUID 即可恢复会话。
 
 ```go
-// session_silent_turn.go — 静默 Turn 状态类型
-type silentTurnState int
-const (
-    silentActive   silentTurnState = iota // keepalive 进行中
-    silentDraining                        // 超时，等待晚到事件被拦截
-)
-
 const keepaliveTimeout = 30 * time.Second
 
 func (s *session) SendKeepalive(ctx context.Context) error {
     s.mu.Lock()
-    // 先回收残留的 draining silent turn（如果有）
-    s.reclaimStaleSilentTurnLocked()
     if err := ensureTurnAvailable(s.activeTurn); err != nil {
         s.mu.Unlock()
         return err
@@ -259,18 +254,19 @@ func (s *session) SendKeepalive(ctx context.Context) error {
     localID := "keepalive_" + shared.NewID("ping")
     handle := newTurnHandle(localID, localID)
     s.activeTurn = handle
-    s.silentTurnIDs[localID] = silentActive
-    s.mu.Unlock()
+    s.silentTurnIDs[localID] = struct{}{}
 
     // 底层发送，不触发 turn:started / turn:input_received
+    // 注意：在锁内发送，与 StartTurn 的持锁发送模型对齐，
+    // 避免 unlock→Send 窗口被 stop/restart/Interrupt 并发切换 transport。
     if err := s.transport.Send(payload); err != nil {
-        s.mu.Lock()
         s.takeActiveTurnLocked()
         delete(s.silentTurnIDs, localID)
         s.mu.Unlock()
         handle.finish(err)
         return err
     }
+    s.mu.Unlock()
 
     // 带超时等待：防止 CLI 挂起导致 goroutine 泄漏
     timer := time.NewTimer(keepaliveTimeout)
@@ -279,43 +275,33 @@ func (s *session) SendKeepalive(ctx context.Context) error {
     case <-handle.Done():
         return handle.Err()
     case <-timer.C:
-        // ❗ 核心设计：超时后 **不清 activeTurn**
+        // ❗ 方案 A：超时即 kill transport
         //
-        // 原因：rawBase() 用 currentTurnID(s.activeTurn) 生成 turn_id。
-        // 若超时后清除 activeTurn，currentTurnID(nil) 返回 ""(空)，
-        // 晚到事件的 turn_id 会变成空或被打上后续新 turn 的 ID，
-        // isSilentTurn 无法匹配，导致泄漯。
+        // 30s 无响应 = CLI 已挂。在锁内一次性完成：
+        //   1. kill 旧进程（stdin 关闭，stdout 产生 EOF）
+        //   2. 清理 activeTurn + silentTurnIDs
+        // 全程持锁，消除 unlock→kill 窗口竞态。
         //
-        // 方案：保留 activeTurn 在位，标记为 silentDraining。
-        // 晚到事件仍会被 rawBase() 打上正确的 silent turn_id，
-        // 由 isSilentTurn 拦截丢弃。
-        // 用户下次 StartTurn 时，prepareTurnLocked 调用
-        // reclaimStaleSilentTurnLocked() 自动回收这个死 handle。
+        // kill 后时序：
+        // 1. Kill() 关闭 stdin，CLI 不产新输出（pipe 缓冲区可能有 ≤1 行残留）
+        // 2. 旧 read loop 收到 EOF → handleReceiveExit(tr, io.EOF)
+        //    → s.transport == tr（此时未替换），但 activeTurn 已为 nil
+        //    → handle == nil，不会 dispatch 任何事件
+        // 3. readyForSend() 返回 false（stdin 已关，done 已关闭）
+        // 4. 用户下次 StartTurn → restartIfNeededLocked
+        //    → 同 UUID --resume 拉新进程，替换 s.transport
         s.mu.Lock()
-        s.silentTurnIDs[localID] = silentDraining
-        // 不调用 takeActiveTurnLocked()！保留 activeTurn 在位
-        s.mu.Unlock()
-        handle.finish(errors.New("claudecli: keepalive timeout"))
-        return handle.Err()
-    }
-}
-
-// reclaimStaleSilentTurnLocked 回收已完成的静默 turn，释放 activeTurn 槽位。
-// 调用时机：StartTurn / SendKeepalive 前。必须持锁调用。
-func (s *session) reclaimStaleSilentTurnLocked() {
-    if s.activeTurn == nil {
-        return
-    }
-    select {
-    case <-s.activeTurn.Done():
-        lid := s.activeTurn.LocalID()
-        if _, ok := s.silentTurnIDs[lid]; ok {
-            s.takeActiveTurnLocked()
-            // 不删除 silentTurnIDs[lid]，保留用于拦截后续晚到事件。
-            // 最终由 finishSilentTurn / handleReceiveExit / restart 清理。
+        if s.transport != nil {
+            s.transport.Kill() // 先 kill，确保无新输出
         }
-    default:
-        // activeTurn 仍在运行，不回收
+        handle = s.takeActiveTurnLocked() // 再清 activeTurn
+        delete(s.silentTurnIDs, localID)  // 再删 silent 标记
+        s.mu.Unlock()
+
+        if handle != nil {
+            handle.finish(errors.New("claudecli: keepalive timeout, killed transport"))
+        }
+        return errors.New("claudecli: keepalive timeout")
     }
 }
 ```
@@ -409,30 +395,16 @@ func (s *session) handleReceiveExit(tr *transport, err error) {
 
 ```go
 // restart 重置时，与 activeTurn/suppressedTurns 对齐
-s.silentTurnIDs = make(map[string]silentTurnState)
+s.silentTurnIDs = make(map[string]struct{})
 ```
 
-### Phase 4.3: prepareTurnLocked 增加静默 turn 回收
-
-在 `StartTurn` / `prepareTurnLocked` 入口处调用 `reclaimStaleSilentTurnLocked()`，
-确保 draining 状态的静默 turn 不会阻塞用户新 turn：
-
-```go
-// session_turn.go — prepareTurnLocked 修改
-func (s *session) prepareTurnLocked(...) (...) {
-    s.reclaimStaleSilentTurnLocked() // ← 新增
-    if err := ensureTurnAvailable(s.activeTurn); err != nil {
-        return ..., err
-    }
-    // ... 原有逻辑
-}
-```
-
-> **清理责任归属**：`silentTurnIDs` 条目的最终删除由以下路径负责：
-> 1. `finishSilentTurn`（applyRaw 收到 turn:complete）— 正常路径
-> 2. `handleReceiveExit`（CLI 崩溃）— 异常路径
-> 3. restart 重置 — 全量清理
-> 不需要独立的 sweep timer，因为以上三条路径已覆盖所有场景。
+> **清理责任归属**：`silentTurnIDs` 条目的删除由以下路径负责：
+> 1. `SendKeepalive` 正常完成 → `finishSilentTurn` 清理
+> 2. `SendKeepalive` 超时 → 超时路径直接 `delete` + `tr.Kill()`
+> 3. `handleReceiveExit`（CLI 崩溃）→ 清理
+> 4. restart 重置 → 全量清理
+>
+> **无晚到事件问题**：超时后旧进程已被 kill，stdout 关闭，无输出。
 
 ---
 
@@ -477,28 +449,27 @@ if s.shouldSuppressTurn(raw) {
 
 | # | 文件路径 | 职责 | 预算 (行) |
 |:--|:--------|:-----|:---------|
-| 1 | `internal/platform/cachekeepalive/manager.go` | Manager 结构体、Timer map、`HandleAgentLaunched`、`ResetTimer`/`StopTimer`/`Shutdown`/`executePing`/`canPing`、bindingStore+threadStore 依赖、`NewManager`、`keepaliveIn` | ~180 |
+| 1 | `internal/platform/cachekeepalive/manager.go` | Manager 结构体、Timer map、`HandleAgentLaunched`、`ResetTimer`/`StopTimer`/`Shutdown`/`executePing`/`canPing`、bindingStore+threadStore 依赖、`NewManager`、`keepaliveIn` | ~200 |
 | 2 | `internal/platform/cachekeepalive/module.go` | fx.Module 定义、`registerKeepaliveLifecycle` | ~40 |
 | 3 | `internal/platform/cachekeepalive/relay.go` | `startKeepaliveRelay` 事件订阅（回调委托给 Manager 方法） | ~35 |
 | 4 | `internal/platform/cachekeepalive/manager_test.go` | Timer 重置、Archived 排除、ActiveTurn 跳过、Shutdown 清理、agentID 回填 | ~130 |
-| 5 | `internal/provider/claudecli/session_silent_turn.go` | `silentTurnState`、`SendKeepalive`、`reclaimStaleSilentTurnLocked`、`isSilentTurn`、`finishSilentTurn` | ~115 |
-| 6 | `internal/provider/claudecli/session_silent_turn_test.go` | 静默 Turn 生命周期、死锁回归、超时保留 activeTurn 回归、draining 回收回归 | ~120 |
+| 5 | `internal/provider/claudecli/session_silent_turn.go` | `SendKeepalive`、`isSilentTurn`、`finishSilentTurn`（无 draining/reclaim，超时即 kill） | ~80 |
+| 6 | `internal/provider/claudecli/session_silent_turn_test.go` | 静默 Turn 生命周期、死锁回归、超时 kill transport 回归 | ~100 |
+| 7 | `internal/provider/claudecli/session_receive_exit.go` | 从 `session_events.go` 抽取的 `handleReceiveExit`（含静默 turn 识别） | ~30 |
 
-**新增合计：~620 行**
+**新增合计：~615 行**
 
 ### 修改文件
 
 | # | 文件路径 | 修改内容 | 变更量 |
 |:--|:--------|:---------|:------|
-| 7 | `internal/provider/claudecli/session.go` | `session` 结构体新增 `silentTurnIDs map[string]silentTurnState` | +1 行 |
-| 8 | `internal/provider/claudecli/driver.go` | `newStartedSession()` 中初始化 `silentTurnIDs`（真实构造点，非 `newSession`） | +1 行 |
-| 9 | `internal/provider/claudecli/session_events.go` | `applyRaw` 中插入 `isSilentTurn` 检查（`isCurrentTransport` 之后、`shouldSuppressTurn` 之前） | +5 行 |
-| 10 | `internal/provider/claudecli/session_events.go` | `handleReceiveExit` 增加静默 turn 识别（保留 `tr *transport` 参数） | +10 行 |
-| 11 | `internal/provider/claudecli/session_turn.go` | `prepareTurnLocked` 入口增加 `reclaimStaleSilentTurnLocked()` 调用 | +1 行 |
-| 12 | `internal/provider/claudecli/session_log_watcher_integration.go` | restart 重置时清理 `silentTurnIDs` | +1 行 |
-| 13 | `internal/app/modules.go` | `Module` 列表新增 `cachekeepalive.Module`（放在 platform 模块段，靠近 `hooks.Module`） | +2 行 |
+| 8 | `internal/provider/claudecli/session.go` | `session` 结构体新增 `silentTurnIDs map[string]struct{}` | +1 行 |
+| 9 | `internal/provider/claudecli/driver.go` | `newStartedSession()` 中初始化 `silentTurnIDs`（真实构造点） | +1 行 |
+| 10 | `internal/provider/claudecli/session_events.go` | `applyRaw` 中插入 `isSilentTurn` 检查（+5）；抽移 `handleReceiveExit` 到新文件（-14）；净变 **-9 行** | -9 行 |
+| 11 | `internal/provider/claudecli/session_log_watcher_integration.go` | restart 重置时清理 `silentTurnIDs` | +1 行 |
+| 12 | `internal/app/modules.go` | `Module` 列表新增 `cachekeepalive.Module`（放在 platform 模块段，靠近 `hooks.Module`） | +2 行 |
 
-**修改合计：~21 行**
+**修改合计：5 个文件，净变 -4 行**
 
 ### 不修改的文件
 
@@ -509,14 +480,19 @@ if s.shouldSuppressTurn(raw) {
 | `internal/platform/hooks/event_relay.go` | 不嵌入 keepalive relay，独立模块 |
 | `internal/provider/codexapp/*.go` | 无需实现 `KeepaliveCapable` |
 
-**总预算：~620 行新代码 + ~21 行修改**
+**总预算：~615 行新代码 + 5 个修改文件（净变 -4 行）**
 
 ### ℹ️ 仓库契约影响说明
 
 | 契约项 | 当前状态 | 本方案影响 | 建议 |
 |:------|:---------|:---------|:-----|
-| `session_events.go` ≤400 行 | 397 行 | +15 行 → ~412 行 **超限** | 先抽取 `handleReceiveExit`（14 行）到独立文件，原文件降至 ~383，加回 +5 约 388 行 ✅ |
-| `claudecli` 包非测试文件 ≤15 | 21 个 | +1（silent_turn）+1（receive_exit 抽取）→ 23 个 **已超限**（历史债务） | 同步规划 `claudecli` 包拆分，非本方案阻断项 |
+| `session_events.go` ≤400 行 | 397 行 | 抽移 `handleReceiveExit`(-14) + 插入 `isSilentTurn`(+5) = **388 行** ✅ | 已纳入新建文件清单（#7 `session_receive_exit.go`） |
+| `claudecli` 包非测试文件 ≤15 | 21 个 | +1（silent_turn）+1（receive_exit）= 23 个 **已超限**（历史债务） | 同步规划 `claudecli` 包拆分，非本方案阻断项 |
+
+> **方案 A 简化说明**：相比 v5，v6 删除了 `silentTurnState` 类型、`silentDraining` 状态、
+> `reclaimStaleSilentTurnLocked()` 函数、Phase 4.3 `prepareTurnLocked` 修改。
+> `silentTurnIDs` 回归简单的 `map[string]struct{}`。
+> 超时路径简化为：锁内 `Kill() → takeActiveTurn → delete silentTurnIDs → unlock → handle.finish()`。
 
 ---
 
@@ -555,8 +531,10 @@ if s.shouldSuppressTurn(raw) {
 │  │ 2. marshalTurnPayload (NDJSON)          │                 │
 │  │ 3. activeTurn = handle                  │                 │
 │  │ 4. silentTurnIDs[localID] = {}          │                 │
-│  │ 5. transport.Send(payload)              │                 │
-│  │ 6. <-handle.Done() 阻塞等待             │                 │
+│  │ 5. transport.Send(payload)（锁内）        │                 │
+│  │ 6. <-handle.Done() 或 30s 超时           │                 │
+│  │ 7. 超时 → 锁内 Kill()+清状态           │                 │
+│  │ 8. 用户 StartTurn → restart 拉新进程    │                 │
 │  └────────────┬────────────────────────────┘                 │
 │               │                                              │
 │               ▼           Claude CLI (stdin → stdout)        │
@@ -590,16 +568,16 @@ if s.shouldSuppressTurn(raw) {
 
 | 风险 | 等级 | 缓解措施 |
 |:-----|:-----|:---------|
-| 心跳期间用户发送消息 | 中 | 正常心跳期间：`ensureTurnAvailable` 返回 `turn already running` 快速报错（非阻塞），心跳回复 < 1s。超时 draining 期间：`prepareTurnLocked` 调用 `reclaimStaleSilentTurnLocked()` 自动回收，用户 turn 正常启动 |
-| 超时后晚到输出串 turn | **已修复** | 超时后不清 activeTurn，保留在位。`rawBase()` 仍生成 silent turn_id，晚到事件被 `isSilentTurn` 拦截。用户 StartTurn 时 `reclaimStaleSilentTurnLocked()` 自动回收（见 Phase 4.3） |
+| 心跳期间用户发送消息 | 中 | `ensureTurnAvailable` 返回 `turn already running` 快速报错（非阻塞），心跳回复 < 1s |
+| 超时后晚到输出串 turn | **极低** | 方案 A：锁内先 `Kill()` 再清状态，Kill 关闭 stdin 后 CLI 不产新输出。极端情况：Kill 前 pipe 缓冲区已有的 ≤1 行残留输出可能被 read loop 解码，但此时 activeTurn 已清，`currentTurnID(nil)` 返回空，`isSilentTurn` 不匹配；不过空 turn_id 的事件在 `finishTurnFromRaw` 中会因 handle==nil 被丢弃，不会污染用户 turn。用户下次 StartTurn → `restartIfNeededLocked`（`readyForSend()==false`）→ 同 UUID `--resume` 拉新进程 |
 | `handleReceiveExit` 旁路泄漯 | **已修复** | 保留原始 `(tr *transport, err error)` 签名 + transport 守卫，增加静默 turn 识别，非静默时复用 `finishTurnWithError`（见 Phase 4.1） |
+| 超时后 CLI restart 延迟 | 低 | kill 后用户下次 StartTurn 才触发 restart（~2-3s）；但超时本身说明 CLI 已挂，重启是必要的 |
 | Claude 对心跳 Prompt 发散推理 | 低 | `Reply with only: OK` 约束，预计 < 5 Output Token |
 | 心跳消息污染 Claude 对话历史 | 低 | 每次 Ping 仅增加 ~20 Token（prompt + "OK"），单次挂机最多 1-2 次 |
 | Timer goroutine 泄漏 | 低 | `Manager.Shutdown()` 全量清理 + fx.OnStop 保证调用 |
-| CLI 挂起导致 Ping 阻塞 | 低 | 30s 超时后 activeTurn 保留为 draining，晚到事件仍被拦截；用户 turn 触发自动回收 |
 | `restartIfNeededLocked` 触发重启 | 无 | `SendKeepalive` 绕过 `StartTurn`，不经过 restart 检查 |
 | restart 后 `silentTurnIDs` 残留 | 低 | restart 重置时同步清理 `silentTurnIDs`（见 Phase 4.2） |
-| 心跳完成后 55min 重置 | 低 | 静默 turn 被全量抑制，`turndto.TurnCompleted` 不会发到 bus；Manager.executePing 成功后应直接调用 `ResetTimer` 重置 55min 倒计时 |
+| 心跳完成后 55min 重置 | 低 | 静默 turn 被全量抑制，`turndto.TurnCompleted` 不会发到 bus；`Manager.executePing` 成功后直接调用 `ResetTimer` 重置 55min 倒计时 |
 
 ## 10. 副作用说明
 
