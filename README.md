@@ -13,6 +13,29 @@ make check   # lint + test
 make build   # compile
 ```
 
+## Guarded Go commands
+
+To ensure repository-wide code guards always run before package tests/builds/vet:
+
+```bash
+source scripts/activate_guard_env.sh
+go test ./internal/provider/claudecli   # will be blocked with a clear error + replacement command
+```
+
+Preferred explicit entrypoint:
+
+```bash
+./scripts/go_with_guard.sh test ./internal/provider/claudecli -count=1
+./scripts/go_with_guard.sh build ./...
+./scripts/go_with_guard.sh vet ./...
+```
+
+Or start a guarded subshell:
+
+```bash
+make guard-shell
+```
+
 ## Architecture
 
 - `internal/platform/*` + `internal/platform/shared/` — Cross-package DRY primitives (former Zone A)

@@ -25280,6 +25280,11 @@
         }
       ]
     },
+    "internal/module/thread/start_session_helpers.go": {
+      "package": "thread",
+      "description": "thread",
+      "refs": []
+    },
     "internal/module/thread/stop.go": {
       "package": "thread",
       "description": "停线程、关 session、清理 turn、清 binding sessionUUID。",

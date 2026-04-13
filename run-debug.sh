@@ -5,6 +5,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKTREE_DIR="$PROJECT_DIR/.worktrees/test"
 FRONTEND_DIR="$PROJECT_DIR/cmd/agent-terminal/frontend"
+export GO_GUARD_ALLOW_RAW="run-debug.sh"
 FORCE_NPM_REINSTALL="0"
 NPM_REGISTRY="https://registry.npmmirror.com"
 USE_FRIDA="1"

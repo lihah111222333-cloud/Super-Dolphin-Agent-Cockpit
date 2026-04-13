@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -376,9 +377,9 @@ type stubSessionProvider struct {
 	removed []string
 }
 
-func (p *stubSessionProvider) GetSession(string) (contract.Session, error) {
+func (p *stubSessionProvider) GetSession(agentID string) (contract.Session, error) {
 	if p.session == nil {
-		return nil, errors.New("session not found")
+		return nil, fmt.Errorf("%w for agent %q", contract.ErrSessionNotFound, agentID)
 	}
 	return p.session, nil
 }

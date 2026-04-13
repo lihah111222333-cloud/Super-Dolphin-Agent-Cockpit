@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain test test-deferred vet clean guard protocol-sync-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain test test-deferred vet clean guard guard-shell protocol-sync-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -56,20 +56,21 @@ mcp:
 #   internal/provider/claudecli, internal/provider/codexapp
 # 先并行跑其余包，再用 -p 1 串行跑这 2 个，避免全仓并行时的 flaky failure。
 DEFERRED_TEST_PKGS := ./internal/provider/claudecli ./internal/provider/codexapp
+TEST_WITH_GUARD := ./scripts/test_with_guard.sh
 
-test: guard
-	go test $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -race -count=1
+test:
+	$(TEST_WITH_GUARD) $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -race -count=1
 	@echo "\n=== deferred E2E packages (sequential, -p 1) ==="
-	go test $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s
+	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s
 
 p2-audit:
-	go test ./internal/logaudit -count=1
+	$(TEST_WITH_GUARD) ./internal/logaudit -count=1
 
 log-audit:
 	go run ./cmd/log-audit/main.go -hours=24 -top=10 -pretty=true
 
 test-e2e:
-	go test -tags=e2e ./cmd/rpc-test/ -v -timeout 120s -count=1
+	$(TEST_WITH_GUARD) -tags=e2e ./cmd/rpc-test/ -v -timeout 120s -count=1
 
 ida-test-all:
 	go run ./cmd/ida-test-orchestrator
@@ -79,8 +80,8 @@ ida-test-heavy:
 
 
 protocol-sync-check:
-	go test ./internal/protocolsync -run TestProtocolMethodCoverage_FromCodexRs -count=1
-	go test ./internal/apiserver -run TestEventMethodMap_TargetMethodsKnownByProtocol -count=1
+	$(TEST_WITH_GUARD) ./internal/protocolsync -run TestProtocolMethodCoverage_FromCodexRs -count=1
+	$(TEST_WITH_GUARD) ./internal/apiserver -run TestEventMethodMap_TargetMethodsKnownByProtocol -count=1
 
 codemap-check:
 	go run scripts/codemap_index.go
@@ -97,7 +98,10 @@ clean:
 	rm -rf bin/
 
 guard:
-	go run ./scripts/code_size_guard.go
+	$(TEST_WITH_GUARD) --guard-only
+
+guard-shell:
+	./scripts/go_guard_shell.sh
 
 fmt:
 	goimports -w .
@@ -122,27 +126,27 @@ app-cover-report:
 
 .PHONY: ci-l0 ci-l1 ci-l2-claude ci-l3-release
 
-ci-l0: guard
+ci-l0:
 	@echo "[ci-l0] quick gate (no real Claude CLI)"
-	go test ./internal/provider/claudecli/... -count=1
-	go test ./internal/runner/... -count=1
-	go test ./internal/apiserver/... -count=1
+	$(TEST_WITH_GUARD) ./internal/provider/claudecli/... -count=1
+	$(TEST_WITH_GUARD) ./internal/runner/... -count=1
+	$(TEST_WITH_GUARD) ./internal/apiserver/... -count=1
 
-ci-l1: guard
+ci-l1:
 	@echo "[ci-l1] extended unit regression"
-	go test $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -count=1
+	$(TEST_WITH_GUARD) $$(go list ./... | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -count=1
 	@echo "[ci-l1] deferred E2E packages (sequential)"
-	go test $(DEFERRED_TEST_PKGS) -count=1 -p 1 -timeout 120s
+	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -count=1 -p 1 -timeout 120s
 
 test-deferred:
 	@echo "=== deferred E2E packages only (sequential, -p 1) ==="
-	go test $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s -v
+	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s -v
 
 ci-l2-claude:
 	@echo "[ci-l2-claude] conditional integration (integration_claude)"
 	@if [ -n "$(CLAUDE_CLI_BIN)" ] && [ -x "$(CLAUDE_CLI_BIN)" ]; then \
 		echo "[ci-l2-claude] using CLAUDE_CLI_BIN=$(CLAUDE_CLI_BIN)"; \
-		CLAUDE_CLI_BIN="$(CLAUDE_CLI_BIN)" go test -tags=integration_claude ./internal/apiserver/... ./internal/runner/... -count=1; \
+		CLAUDE_CLI_BIN="$(CLAUDE_CLI_BIN)" $(TEST_WITH_GUARD) -tags=integration_claude ./internal/apiserver/... ./internal/runner/... -count=1; \
 	else \
 		echo "[ci-l2-claude] SKIP: CLAUDE_CLI_BIN is empty or not executable"; \
 	fi
