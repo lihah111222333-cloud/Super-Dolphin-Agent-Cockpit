@@ -54,6 +54,13 @@ scanMemoryFiles(memoryDir)
 
 > **来源**：`restored-src/src/memdir/findRelevantMemories.ts:39-141`
 
+## Selector 基础设施
+
+- `memory/selector.go` 提供 provider-neutral `RelevantMemorySelector` 接口，统一封装 side-query
+- selector 只接收 manifest + 最后一条 user 输入 + recent successful tools 摘要，不直接依赖 provider DTO
+- 默认超时 **3s**、单轮只发一次 side-query；超时/预算不足直接 fail-soft 返回空
+- codex / claude 共用同一 selector 服务，provider 差异只体现在底层 query client 适配
+
 ## 三段式去重（交叉审查修订 Agent 5）
 
 | 阶段 | 机制 | 职责 |
@@ -85,12 +92,12 @@ scanMemoryFiles(memoryDir)
 ## 任务清单
 - [ ] `memory/retrieval.go`：StartRelevantMemoryPrefetch / ConsumeIfReady
 - [ ] `memory/scan.go`：ScanMemoryFiles / FormatManifest
-- [ ] `memory/selector.go`：SelectRelevantMemories（Sonnet side-query）
+- [ ] `memory/selector.go`：SelectRelevantMemories（provider-neutral side-query）
 - [ ] 集成到 turn 执行链路
 - [ ] 去重 + 截断 + fail-soft
 
 ## 验收
 - 异步预取不阻塞 turn
 - manifest 正确排除 MEMORY.md
-- 去重双层测试
+- **三段式去重测试**
 - 60KB 阈值测试

@@ -5,10 +5,34 @@
 ## 目标
 创建 memory 和 prompt 模块骨架，注册到 fx 生命周期。
 
+## 模块职责全景
+
+| 模块 | 责任 | 被谁消费 |
+|------|------|---------|
+| `internal/module/memory` | 磁盘 CRUD、`MEMORY.md` 索引、路径安全、截断 | Phase 1 / 5 / 6 / 7 |
+| `internal/module/prompt` | PromptRegistry、PromptContext、PromptAssemblyService、缓存失效 | Phase 2 / 3 / 4 / 4.5 / 8 |
+| `internal/module/thread` | `start_session` / `turn` 注入入口，只消费 prompt 产物，不承担组装逻辑 | Phase 4 / 4.5 |
+| `cmd/mcp-orch/tools` | `memory_*` 工具面与迁移脚本入口 | Phase 7 |
+
+## 与后续 Phase 的关系
+
+- Phase 1 在 `memory` 模块内补齐磁盘存储主链
+- Phase 2/3 在 `prompt` 模块内补齐规则与 section registry
+- Phase 4.5 先解耦 thread/provider 语义，再由 Phase 4 接入 provider
+- Phase 8 负责把以上模块串成回归与守护闭环
+
+## fx 装配与第一落点
+
+- 新模块沿用现有 `internal/module/*/module.go` 模式暴露 `var Module = fx.Module(...)`
+- Phase 0 先落 4 个骨架文件：`internal/module/memory/module.go`、`internal/module/prompt/module.go`、`internal/module/prompt/config.go`、`internal/module/prompt/buildctx.go`
+- 配置集中在 `memory.Config` + `prompt.Config`，由 fx 注入 thread/turn/provider，避免开关散落在 `StartRequest` 或 provider runtime config
+- `BuildCtx` 只承载 prompt 计算所需只读上下文（cwd/git/language/provider/session flags），不直接持有 provider DTO
+
 ## 任务清单
 - [ ] 创建 `internal/module/memory/` 模块目录
 - [ ] 创建 `internal/module/prompt/` 模块目录
 - [ ] 定义核心类型（见下方）
+- [ ] 定义 `memory.Config` / `prompt.Config` / `BuildCtx` 骨架
 - [ ] fx.Module 注册到应用
 - [ ] 创建 `~/.multi-agent/memory/` 目录管理工具
 

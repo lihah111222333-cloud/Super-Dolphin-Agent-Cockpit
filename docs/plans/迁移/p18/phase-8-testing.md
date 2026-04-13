@@ -1,6 +1,6 @@
 # P18 Phase 8：测试 + 守护
 
-> 预计：1 天 | 依赖：Phase 0-7
+> 预计：1 天 | 依赖：Phase 0-7 + Phase 4.5
 
 ## 目标
 全覆盖测试 + 架构守护 + 回归防护。
@@ -22,13 +22,20 @@
 
 ## 集成测试
 
-- thread/start → PromptRegistry.Build() → instructions 正确
+- thread/start → PromptAssemblyService.AssembleStart() → instructions 正确
 - turn/start → UserContext 前置 → 模型收到
 - memory_write 新建 → MEMORY.md 更新 → memory_read 能读回
 - memory_write **upsert**：已有同名时更新而非重复创建
 - memory_search：keyword + type filter + limit + fail-soft
 - memory_forget：删除后索引同步更新
 - 缓存失效：clear 后 section 重算
+- Phase 4.5 回归测试：
+  - BaseInstructions 不污染 thread name/store/resume/Fork/Recover/toRef/SetName
+  - Provider 切换（codex→claude + claude→codex 双向）时 section cache 清空
+  - 子 Agent 调用 AssembleStart() 且产物传到子 agent，不走旧折叠路径
+  - legacy prompt 只喂给 BaseInstructions，不重新污染 Prompt/launch name
+- rollout flags / kill switch：关闭后停止新 memory 写入与 prompt 注入，但不影响既有 `shared_files` 协作链路
+- 可观测性：`memory_write/search/forget` 与 prompt cache invalidate 日志包含 `provider/threadID/reason/scope/result`
 - 迁移脚本幂等性：重跑不重复造 memory
 
 ## 架构测试

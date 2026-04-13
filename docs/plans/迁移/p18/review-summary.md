@@ -44,3 +44,50 @@
 22. boundary marker 降级为非核心（Agent 9）
 23. nested_memory 排期到 P19（Agent 4）
 24. 全量源码锚点附录（Agent 10）
+
+## 第 7 轮：Claude/Codex 归一审查（30 agent）
+
+### 关键发现
+- Prompt/BaseInstructions 语义污染需先解耦（方案 C：Name 贯通 lifecycle）
+- PromptAssemblyService 应放 internal/module/prompt，不放 provider 内部
+- 注入点统一在 start_session.go provider DTO 前
+- codex wire: baseInstructions + developerInstructions（无 userContext）
+- claude wire: 全拼 --system-prompt + turn 单消息
+- 子 Agent 不继承 instructions，需归一
+- Provider 切换时 cache 必须清空
+- 需新增 Phase 4.5 前置解耦（额外 3-5 天）
+
+### 综合评分：7.5/10 → 需拆独立 Phase
+
+## 第 8+9 轮：多维度深度审查（30 agent × 2）
+
+### 审查维度
+安全 / 性能 / 一致性 / 可测试性 / 向后兼容 / 仓库契约 / 错误处理 / 并发安全 / 迁移回滚 / 可观测性 / 用户体验 / 文档质量 / 国际化 / 磁盘IO / fx集成 / 并行可行性 / 代码规模 / V2 parity
+
+### 关键修订
+- Phase 4.5 Claude turn 顺序修正
+- Phase 8 补 4.5 回归测试项
+- Phase 3 TodoWrite 改为真实表述
+- README 暂不实现理由微调
+- Phase 7 种子迁移原则补充
+- Phase 2 补敏感信息禁止规则
+- Phase 6 验收"双层"改"三段式"
+
+### 综合评分：8.9/10 → 通过
+
+## 第 10 轮：最终多视角收敛审查（30 agent）
+
+### 关键结论
+- 文档总体已达到实施门槛，可进入开发（最终压轴终评通过）
+- README 补齐实施边界/新人入口，并将执行顺序收敛为 `0 → 1 → 2 → 3 → 4.5 → 4 → 5/6/7 → 8`
+- Phase 0 补模块职责全景、fx 装配落点、集中配置骨架
+- Phase 1 补 topic file 命名、索引全量重写、unknown type 处理与服务端敏感信息校验
+- Phase 4.5 补 legacy/Wails 兼容迁移策略、`StartInput/TurnInput/PromptAssemblySnapshot`、职责边界、provider 切换触发点
+- Phase 7/8 补工具协议、rollout flags、kill switch、rollback drill、可观测性要求
+- `source-refs-appendix.md` 补齐 Phase 4.5 缺失锚点
+
+### 特别关注
+- Agent 20（严格终评复核）：已确认第 8/9 轮文档 blocker 基本收敛；剩余问题主要是代码基座尚未实现，不属于本轮文档修订阻塞项
+- Agent 30（最终压轴终评）：**9.0/10**，结论 **通过，可开工**
+
+### 综合评分：9.0/10 → 文档通过，可进入实施

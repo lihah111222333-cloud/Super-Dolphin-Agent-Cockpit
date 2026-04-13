@@ -19,6 +19,8 @@
 
 ## V3 实现：Standard 模式（Phase 2 范围）
 
+> Go 侧先只落 `MemoryModeStandard` 可运行实现；KAIROS / TEAMMEM 只保留为源码对照与未来扩展位，不在 P18 Phase 2 交付。
+
 `BuildMemoryPrompt()` 输出内容：
 
 ### 1. 四种记忆类型 Taxonomy（Individual 版本）
@@ -57,6 +59,7 @@
 - 问“近期/当前 repo 状态”时，优先 `git log` / 读代码，不信 memory snapshot
 
 ### 5. 不能存什么（排除列表完整版）
+- **禁止保存敏感信息**：API keys、tokens、credentials、密码等不得写入任何 memory（包括 user/feedback/project/reference 所有类型）
 - 代码模式、**约定(conventions)**、架构、文件路径、项目结构
 - Git history、最近改动、谁改了什么
 - 调试方案、修复 recipe

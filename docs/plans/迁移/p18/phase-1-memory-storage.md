@@ -58,6 +58,14 @@ type: {{user|feedback|project|reference}}
 
 > **来源**：`restored-src/src/memdir/memoryTypes.ts:261-270`
 
+## 文件命名与索引更新规则
+
+- topic file 文件名由 `name` 生成 `lower-kebab-case` slug，只保留 `[a-z0-9-]`
+- `name` 作为逻辑唯一键（大小写不敏感）；slug 冲突时在文件名后追加短 hash，避免大小写/同名冲突
+- 更新已有 memory 时默认**复用原文件路径**；仅在显式迁移脚本中改文件名，不在普通 `memory_write` 中隐式 rename
+- `MEMORY.md` 采用**全量重写**策略，按 `name` case-insensitive 稳定排序；hook 由 `description` 或正文首句生成，不做局部增量 patch
+- `legacy/unknown type` 在 scan/search/read 路径继续保留并返回；`memory_write` 不允许新写入 unknown type；迁移脚本仅在显式映射规则下修复 type
+
 ## 路径安全校验
 
 必须拒绝：
@@ -90,6 +98,10 @@ Symlink 防护（team memory 路径）：
 Standard 模式两步：
 1. 写 topic file
 2. 更新 MEMORY.md 索引
+
+附加约束：
+- 写入前做服务端敏感信息校验；命中 API key / token / credential / 密码模式时 fail-closed，不只依赖 prompt 规则
+- 旧索引项按 `name` 唯一键匹配后重建，不保留重复条目
 
 skipIndex 模式（feature gate 控制）：
 - 只写 topic file，不更新索引
