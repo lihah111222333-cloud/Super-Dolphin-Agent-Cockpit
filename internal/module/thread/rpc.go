@@ -12,6 +12,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -26,7 +27,7 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 		"thread/resume":    newResumeHandler(svc),
 		"thread/fork":      newForkHandler(svc),
 		"thread/recover":   newRecoverHandler(svc),
-		"thread/archive":   newThreadEffect(svc.Archive),
+		"thread/archive":   newTracedThreadEffect("thread/archive", svc.Archive),
 		"thread/unarchive": newThreadEffect(svc.Unarchive),
 		"thread/delete":    newThreadEffect(svc.Delete),
 
@@ -159,6 +160,29 @@ func newThreadCall(fn func(context.Context, string) (any, error)) handler.Func {
 func newThreadEffect(fn func(context.Context, string) error) handler.Func {
 	return newThreadCall(func(ctx context.Context, id string) (any, error) {
 		return nil, fn(ctx, id)
+	})
+}
+
+func newTracedThreadEffect(method string, fn func(context.Context, string) error) handler.Func {
+	return newThreadCall(func(ctx context.Context, id string) (any, error) {
+		pkglogger.Warn("thread: RPC effect INVOKED",
+			"method", method,
+			"thread_id", id,
+		)
+		err := fn(ctx, id)
+		if err != nil {
+			pkglogger.Warn("thread: RPC effect FAILED",
+				"method", method,
+				"thread_id", id,
+				"error", err,
+			)
+		} else {
+			pkglogger.Warn("thread: RPC effect DONE",
+				"method", method,
+				"thread_id", id,
+			)
+		}
+		return nil, err
 	})
 }
 

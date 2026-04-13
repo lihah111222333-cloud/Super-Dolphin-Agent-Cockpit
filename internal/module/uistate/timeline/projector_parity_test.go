@@ -71,6 +71,110 @@ func TestRegisterSubscriptions_PlanAndUserParity(t *testing.T) {
 	}, "expected one user item after turn input received")
 }
 
+func TestPlanUpdated_StructuredCodexPayload(t *testing.T) {
+	svc := timeline.New(nil, nil, 50)
+	dispatcher := event.NewDispatcher()
+	cancels := timeline.RegisterSubscriptions(dispatcher, svc, nil, nil)
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+		_ = dispatcher.Close()
+	}()
+
+	// Simulate Codex turn/plan/updated with structured payload.
+	codexPayload := json.RawMessage(`{
+		"agentId": "agent_123",
+		"explanation": "并行审查前端和后端代码",
+		"plan": [
+			{"status": "inProgress", "step": "审查前端组件"},
+			{"status": "pending", "step": "审查后端逻辑"},
+			{"status": "pending", "step": "汇总审查结论"}
+		],
+		"threadId": "t-codex",
+		"turnId": "turn-codex"
+	}`)
+	event.Publish(dispatcher, turndto.PlanUpdated{
+		TurnHeader: shared.TurnHeader{
+			AgentHeader: shared.AgentHeader{
+				ThreadHeader: shared.ThreadHeader{ThreadID: "t-codex"},
+				AgentID:      "agent_123",
+			},
+			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-codex"},
+		},
+		Payload: codexPayload,
+	})
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t-codex")
+		if len(items) != 1 || items[0].Kind != "plan" {
+			return false
+		}
+		text := items[0].Text
+		// Must contain explanation, not raw JSON.
+		if !contains(text, "并行审查前端和后端代码") {
+			return false
+		}
+		// Must contain rendered steps with icons.
+		if !contains(text, "🔄 1. 审查前端组件") {
+			return false
+		}
+		if !contains(text, "⏳ 2. 审查后端逻辑") {
+			return false
+		}
+		// Must NOT contain raw JSON braces.
+		if contains(text, `"agentId"`) || contains(text, `"threadId"`) {
+			return false
+		}
+		return true
+	}, "expected structured Codex plan payload to be parsed into readable text")
+}
+
+func TestPlanDelta_StructuredStepsArray(t *testing.T) {
+	svc := timeline.New(nil, nil, 50)
+	dispatcher := event.NewDispatcher()
+	cancels := timeline.RegisterSubscriptions(dispatcher, svc, nil, nil)
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+		_ = dispatcher.Close()
+	}()
+
+	// Simulate PlanDelta where Delta is a serialized JSON steps array
+	// (from marshalPreview fallback).
+	event.Publish(dispatcher, turndto.PlanDelta{
+		TurnHeader: shared.TurnHeader{
+			AgentHeader: shared.AgentHeader{
+				ThreadHeader: shared.ThreadHeader{ThreadID: "t-delta"},
+				AgentID:      "agent_456",
+			},
+			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-delta"},
+		},
+		Delta: `[{"status":"done","step":"lint code"},{"status":"running","step":"run tests"}]`,
+	})
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t-delta")
+		if len(items) != 1 || items[0].Kind != "plan" {
+			return false
+		}
+		text := items[0].Text
+		return contains(text, "✅ 1. lint code") && contains(text, "🔄 2. run tests")
+	}, "expected JSON steps array delta to be parsed into readable text")
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || findSubstring(s, substr))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRegisterSubscriptions_ErrorParity(t *testing.T) {
 	svc := timeline.New(nil, nil, 50)
 	dispatcher := event.NewDispatcher()

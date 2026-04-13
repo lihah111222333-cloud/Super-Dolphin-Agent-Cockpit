@@ -20,9 +20,7 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "guard": "node scripts/size-guard.cjs",
-        "guard:update": "node scripts/size-guard.cjs --update",
-        "ide:mcp": "node scripts/ide_mcp_server.js --url http://localhost:4173",
-        "ide:mcp:debug": "node scripts/ide_mcp_server.js --url http://localhost:4173 --debug"
+        "guard:update": "node scripts/size-guard.cjs --update"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.x",

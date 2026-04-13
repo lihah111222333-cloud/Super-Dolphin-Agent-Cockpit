@@ -145,9 +145,9 @@ func TestRPCRequestTrackerLogsPendingRequestsOnConnectionExit(t *testing.T) {
 	tracker := newRPCRequestTracker(logger)
 	tracker.pending["req-1"] = rpcPendingRequest{
 		ID:            "req-1",
-		Method:        "lsp/gui_file",
+		Method:        "thread/start",
 		ThreadID:      "thread-1",
-		ParamsPreview: `{"action":"diagnostics","file_path":"cmd/mcp-lsp/tools.go"}`,
+		ParamsPreview: `{"cwd":"/tmp/project","baseInstructions":"hello"}`,
 		StartedAt:     time.Now().Add(-2 * time.Second),
 	}
 
@@ -157,7 +157,7 @@ func TestRPCRequestTrackerLogsPendingRequestsOnConnectionExit(t *testing.T) {
 	for _, want := range []string{
 		`"msg":"rpc connection exited with pending requests"`,
 		`"pending_count":1`,
-		`"method":"lsp/gui_file"`,
+		`"method":"thread/start"`,
 		`"thread_id":"thread-1"`,
 	} {
 		if !strings.Contains(output, want) {
