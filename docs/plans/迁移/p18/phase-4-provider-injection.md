@@ -81,9 +81,9 @@ type SystemContext struct {
 
 ## 任务清单
 - [ ] `prompt/context.go`：BuildUserContext() + BuildSystemContext()
-- [ ] 修改 `internal/provider/codexapp/session.go`：thread/start 接入 PromptRegistry
-- [ ] 修改 `internal/provider/codexapp/session_turn.go`：turn/start 前注入 UserContext
-- [ ] 修改 `internal/provider/claudecli/session.go`：同步接入
+- [ ] 修改 `internal/provider/codexapp/support.go:248-261`：thread/start buildThreadStartParams 接入 PromptRegistry
+- [ ] 修改 `internal/provider/codexapp/session_turn.go:37-49,76-85`：turn/start 前注入 UserContext
+- [ ] 修改 `internal/provider/claudecli/transport_config.go:129`：Claude CLI launch prompt 接入
 - [ ] 缓存失效注册：/clear, /compact, worktree, /resume
 
 ## 验收
