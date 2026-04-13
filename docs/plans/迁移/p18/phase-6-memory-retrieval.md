@@ -43,7 +43,7 @@ scanMemoryFiles(memoryDir)
 
 1. `alreadySurfaced` **selector 前**先过滤，避免浪费名额
 2. 用 Sonnet `sideQuery()` + manifest 选择相关文件
-3. 每个目录最多挑 5，合并后 **全局 `.slice(0, 5)`**
+3. 每个目录由 prompt 建议"up to 5"（软约束），合并后 **全局 `.slice(0, 5)`**（硬约束）
 4. 只返回 **filename**，再由 `byFilename` 映射成绝对路径 + mtimeMs
 5. 没有明显相关 → 允许返回空数组
 6. Recent successful tools 会压低工具 reference/API docs 误召回

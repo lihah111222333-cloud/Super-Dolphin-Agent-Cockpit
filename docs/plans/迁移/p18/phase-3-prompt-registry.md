@@ -177,6 +177,7 @@ Static[1-7] → Dynamic[1-5](← V3 裁剪决策，Claude 源码有 13 个动态
 - [ ] `prompt/builder.go`：Build() 组装最终 prompt
 
 ## 验收
-- 组装后 prompt 包含所有 12 个 section
-- 缓存命中率测试
-- nil 缓存测试
+- 注册表包含 **7 static + 5 dynamic = 12 slots**
+- 固定 fixture 下，渲染结果命中预期非 nil sections
+- nil 缓存单独测试（不与“总数=12”混在一起）
+- Volatile section 每轮重算测试

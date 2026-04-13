@@ -15,7 +15,8 @@
 
 > **关键修订**：`local` **不是会话级**，是持久化但不版本控制。
 > 若设置 `CLAUDE_CODE_REMOTE_MEMORY_DIR`，local 改写到：
-> `<remote>/projects/<canonical-git-root-or-project-root>/agent-memory-local/<sanitized-agentType>/`
+> `<remote>/projects/<sanitizePath(canonicalGitRoot ?? projectRoot)>/agent-memory-local/<sanitized-agentType>/`
+> 注：项目根路径会先走 `sanitizePath()`（`sessionStoragePortable.ts:311-319`）
 
 ## Agent Type 隔离
 
