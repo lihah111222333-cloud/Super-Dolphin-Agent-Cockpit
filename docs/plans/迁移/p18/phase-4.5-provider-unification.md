@@ -41,7 +41,7 @@ BaseInstructions
 | 文件 | 改动 |
 |------|------|
 | `start_session.go:18-24` | 删除 `req.Prompt = FirstNonEmpty(req.Prompt, req.BaseInstructions)`；改为显式派生 `displayName := FirstNonEmpty(req.Name, req.Prompt)`，仅用于 lifecycle 展示 |
-| `start_session.go:146-152` | `Instructions` 只取 `req.BaseInstructions`（兼容期可 fallback `req.Instructions` / legacy 映射），不再从 displayName 回写 |
+| `start_session.go:146-152` | `Instructions` 只取 `req.BaseInstructions`；兼容 fallback 落在 provider DTO `dto.StartSessionRequest.Instructions` 映射层（承接 legacy 映射），不再从 displayName 回写 |
 | `lifecycle.go:56` | `launchAgent(...)` 使用 `displayName`，不再直接吃 `req.BaseInstructions` |
 | `lifecycle.go:80` | 兼容期先把 `displayName` 持久化到现有 display-name 槽位；若后续新增 `Name` 字段，再做 schema/backfill |
 | `lifecycle.go:116,141,192,219,245,275` | Resume/Fork/Recover 统一读取 persisted displayName，而不是 system prompt 文本 |

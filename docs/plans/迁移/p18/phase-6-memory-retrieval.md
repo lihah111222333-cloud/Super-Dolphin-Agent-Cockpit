@@ -84,6 +84,12 @@ scanMemoryFiles(memoryDir)
 
 - 扫描异常 / selector 异常 / 读取失败 → 返回空结果，不抛硬错误
 
+## 并发安全
+
+- prefetch 状态按 `threadID + generation` 隔离；provider 切换或 compact invalidate 后旧 generation 结果不得再注入
+- consume 必须幂等：同一批 relevant memories 最多注入一次，不因多轮工具循环重复附加
+- selector / prefetch / consume 共享去重状态时，只允许在同一 turn generation 内读写，避免跨 provider/跨轮次串味
+
 ## Nested Memory（暂不实现，排期 P19）
 
 > nested_memory 是另一套机制（按目标文件路径补充 CLAUDE.md/rules），
