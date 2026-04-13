@@ -14,6 +14,10 @@
 
 ## 核心类型
 
+> 注：以下类型是 **V3 Go 抽象**，不是对 Claude 源码的直接映射。
+> Claude 源码中没有等价的 MemoryEntry/PromptSection 结构体，
+> 只有 frontmatter 格式（memoryTypes.ts）和 section 注册模型（systemPromptSections.ts: name/compute/cacheBreak）。
+
 ### MemoryType + MemoryEntry
 ```go
 type MemoryType string

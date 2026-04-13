@@ -34,7 +34,8 @@ scanMemoryFiles(memoryDir)
   → 解析 frontmatter: type / description
   → 按 mtimeMs 倒序
   → 保留最新 200 个 header（MAX_MEMORY_FILES）
-  → 格式化: "[type] relative/path (timestamp): description"
+  → 格式化: "- [type] relative/path (ISO时间戳): description"
+     注：每行前缀 `- `，type/description 可选
 ```
 
 > **来源**：`restored-src/src/memdir/memoryScan.ts:21-93`
