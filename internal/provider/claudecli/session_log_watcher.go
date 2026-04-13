@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -30,6 +31,12 @@ type sessionLogUsage struct {
 	TotalTokens  int
 }
 
+type sessionLogPollTarget struct {
+	path    string
+	modTime time.Time
+	offset  int64
+}
+
 type sessionLogWatcher struct {
 	logger       *slog.Logger
 	resolvePath  func() (string, error)
@@ -47,6 +54,8 @@ type sessionLogWatcher struct {
 	modTime   time.Time
 	lastUsage sessionLogUsage
 }
+
+var errSessionLogWatcherStopped = errors.New("claudecli: session log watcher stopped")
 
 func newSessionLogWatcher(cfg sessionLogWatcherConfig) *sessionLogWatcher {
 	if cfg.PollInterval <= 0 {
@@ -103,61 +112,100 @@ func (w *sessionLogWatcher) pollLoop() {
 }
 
 func (w *sessionLogWatcher) pollOnce() error {
+	target, ok, err := w.pollTarget()
+	if err != nil || !ok {
+		return err
+	}
+	return w.pollTargetFile(target)
+}
+
+func (w *sessionLogWatcher) pollTarget() (sessionLogPollTarget, bool, error) {
 	if w == nil || w.resolvePath == nil {
-		return nil
+		return sessionLogPollTarget{}, false, nil
 	}
 	path, err := w.resolvePath()
 	if err != nil {
-		return err
+		return sessionLogPollTarget{}, false, err
 	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		w.resetFileState()
-		return nil
+		return sessionLogPollTarget{}, false, nil
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			w.resetFileState()
-			return nil
-		}
+		return sessionLogPollTarget{}, false, w.handlePollPathError(err)
+	}
+	return sessionLogPollTarget{
+		path:    path,
+		modTime: info.ModTime(),
+		offset:  w.syncFileState(path, info.Size(), info.ModTime()),
+	}, true, nil
+}
+
+func (w *sessionLogWatcher) handlePollPathError(err error) error {
+	if !os.IsNotExist(err) {
 		return err
 	}
-	offset := w.syncFileState(path, info.Size(), info.ModTime())
-	file, err := os.Open(path)
+	w.resetFileState()
+	return nil
+}
+
+func (w *sessionLogWatcher) pollTargetFile(target sessionLogPollTarget) error {
+	file, err := w.openPollFile(target)
 	if err != nil {
-		if os.IsNotExist(err) {
-			w.resetFileState()
-			return nil
-		}
 		return err
 	}
 	defer func() { _ = file.Close() }()
-	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+	newOffset, err := w.scanPollFile(file)
+	if errors.Is(err, errSessionLogWatcherStopped) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
+	w.setOffset(target.path, newOffset, target.modTime)
+	return nil
+}
+
+func (w *sessionLogWatcher) openPollFile(target sessionLogPollTarget) (*os.File, error) {
+	file, err := os.Open(target.path)
+	if err != nil {
+		return nil, w.handlePollPathError(err)
+	}
+	if _, err := file.Seek(target.offset, io.SeekStart); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
+func (w *sessionLogWatcher) scanPollFile(file *os.File) (int64, error) {
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 100*1024*1024)
 	for scanner.Scan() {
-		if w.stopped() {
-			return nil
+		if err := w.dispatchScannedUsage(scanner.Bytes()); err != nil {
+			return 0, err
 		}
-		usage, ok := parseLogLineUsage(scanner.Bytes())
-		if !ok {
-			continue
-		}
-		if !w.recordUsage(usage) || w.stopped() || w.onUsage == nil {
-			continue
-		}
-		w.onUsage(usage)
 	}
 	if err := scanner.Err(); err != nil {
-		return err
+		return 0, err
 	}
-	newOffset, err := file.Seek(0, io.SeekCurrent)
-	if err == nil {
-		w.setOffset(path, newOffset, info.ModTime())
+	return file.Seek(0, io.SeekCurrent)
+}
+
+func (w *sessionLogWatcher) dispatchScannedUsage(raw []byte) error {
+	if w.stopped() {
+		return errSessionLogWatcherStopped
 	}
+	usage, ok := parseLogLineUsage(raw)
+	if !ok || !w.recordUsage(usage) || w.onUsage == nil {
+		return nil
+	}
+	if w.stopped() {
+		return errSessionLogWatcherStopped
+	}
+	w.onUsage(usage)
 	return nil
 }
 
