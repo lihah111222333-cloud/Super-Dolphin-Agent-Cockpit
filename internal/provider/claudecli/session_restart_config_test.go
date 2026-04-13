@@ -60,11 +60,61 @@ func TestRestartIfNeededLockedCommitsPendingConfigAfterReady(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("restartIfNeededLocked() did not return after ready")
 	}
-	if s.model != pendingModel || s.config.Effort != pendingEffort {
-		t.Fatalf("live state after commit = model:%q effort:%q, want %q/%q", s.model, s.config.Effort, pendingModel, pendingEffort)
+	if s.model != pendingModel || s.config.Effort != "high" {
+		t.Fatalf("live state after commit = model:%q effort:%q, want %q/high", s.model, s.config.Effort, pendingModel)
 	}
 	if s.pendingModel != nil || s.pendingEffort != nil || s.configDirty {
 		t.Fatalf("pending state not cleared after commit: %#v", s)
+	}
+	cfg, err := s.ReadConfig(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+	if cfg.Override.Model != pendingModel || cfg.Override.Effort != pendingEffort {
+		t.Fatalf("Override = %#v, want %q/%q", cfg.Override, pendingModel, pendingEffort)
+	}
+	if cfg.Effective.Model != pendingModel || cfg.Effective.Effort != "high" {
+		t.Fatalf("Effective = %#v, want %q/high", cfg.Effective, pendingModel)
+	}
+}
+
+func TestRestartIfNeededLockedConsumesCanonicalNoopPendingEffort(t *testing.T) {
+	tr := &transport{stdin: &recordingWriteCloser{}, done: make(chan struct{})}
+	oldReady := make(chan struct{})
+	close(oldReady)
+	pendingEffort := "max"
+	s := &session{
+		threadID:          "thread-1",
+		sessionID:         "thread-1",
+		threadReady:       oldReady,
+		transport:         tr,
+		model:             "sonnet",
+		transportModel:    "sonnet",
+		config:            cliLaunchConfig{Effort: "high"},
+		overrideEffort:    pendingEffort,
+		overrideEffortSet: true,
+		pendingEffort:     &pendingEffort,
+		configDirty:       true,
+		suppressedTurns:   map[string]struct{}{},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	s.mu.Lock()
+	err := s.restartIfNeededLocked(ctx, dto.TurnRequest{})
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatalf("restartIfNeededLocked() error = %v", err)
+	}
+	if s.pendingEffort != nil || s.configDirty {
+		t.Fatalf("pending effort not consumed after canonical no-op: %#v", s)
+	}
+	cfg, err := s.ReadConfig(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+	if cfg.Override.Effort != "max" || cfg.Effective.Effort != "high" {
+		t.Fatalf("ReadConfig() = %#v, want override=max effective=high", cfg)
 	}
 }
 

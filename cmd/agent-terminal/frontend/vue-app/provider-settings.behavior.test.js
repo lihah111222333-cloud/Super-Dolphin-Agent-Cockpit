@@ -12,6 +12,16 @@ vi.mock('./services/api.js', () => ({
 import { EFFORT_MODES_BY_PROVIDER, MODEL_OPTIONS_BY_PROVIDER } from './provider-config-options.js';
 import { ProviderSettings } from './pages/settings/ProviderSettings.ts';
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createProviderSettings(overrides = {}) {
   const props = {
     projectStore: overrides.projectStore ?? { state: { active: '/repo' } },
@@ -95,6 +105,35 @@ describe('ProviderSettings behavior', () => {
       value: 'claude',
       cwd: '/repo',
     });
+    expect(vm.activeProvider.value).toBe('claude');
+    expect(vm.providerModel.value).toBe('sonnet');
+    expect(vm.effortMode.value).toBe('high');
+  });
+
+  it('ignores stale stored active-provider reads after a newer selection wins', async () => {
+    const activeProviderRequest = deferred();
+    apiMock.callAPI.mockImplementation((method, payload) => {
+      if (method === 'ui/preferences/set') return Promise.resolve({ ok: true });
+      if (method !== 'ui/preferences/get') return Promise.resolve(null);
+      switch (payload.key) {
+        case 'settings.provider.active':
+          return activeProviderRequest.promise;
+        case 'settings.provider.claude.model':
+          return Promise.resolve('sonnet');
+        case 'settings.provider.claude.effort':
+          return Promise.resolve('high');
+        default:
+          return Promise.resolve(null);
+      }
+    });
+
+    const { vm } = createProviderSettings();
+    const staleLoad = vm.loadProviderSettings();
+    vm.activeProvider.value = 'claude';
+    await vm.onActiveProviderChange();
+    activeProviderRequest.resolve('codex');
+    await staleLoad;
+
     expect(vm.activeProvider.value).toBe('claude');
     expect(vm.providerModel.value).toBe('sonnet');
     expect(vm.effortMode.value).toBe('high');

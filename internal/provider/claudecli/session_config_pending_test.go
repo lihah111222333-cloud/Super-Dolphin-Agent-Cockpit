@@ -86,7 +86,47 @@ func TestAllowedModelsIncludesShortlistAndCurrentValue(t *testing.T) {
 	}
 }
 
-func TestReadConfigFallsBackToSettingsModel(t *testing.T) {
+func TestReadConfigDoesNotTreatLiveStateAsOverride(t *testing.T) {
+	s := &session{
+		threadID:       "thread-1",
+		model:          "sonnet",
+		transportModel: "sonnet",
+		config:         cliLaunchConfig{Effort: "high"},
+	}
+	cfg, err := s.ReadConfig(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+	if cfg.Override.Model != "" || cfg.Override.Effort != "" {
+		t.Fatalf("Override = %#v, want empty explicit override", cfg.Override)
+	}
+	if cfg.Effective.Model != "sonnet" || cfg.Effective.Effort != "high" {
+		t.Fatalf("Effective = %#v, want sonnet/high", cfg.Effective)
+	}
+}
+
+func TestReadConfigCanonicalizesEffectiveEffortForClaude(t *testing.T) {
+	s := &session{
+		threadID:          "thread-1",
+		model:             "sonnet",
+		transportModel:    "sonnet",
+		config:            cliLaunchConfig{Effort: "max"},
+		overrideEffort:    "max",
+		overrideEffortSet: true,
+	}
+	cfg, err := s.ReadConfig(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+	if cfg.Override.Effort != "max" {
+		t.Fatalf("Override.Effort = %q, want max", cfg.Override.Effort)
+	}
+	if cfg.Effective.Effort != "high" {
+		t.Fatalf("Effective.Effort = %q, want canonical high", cfg.Effective.Effort)
+	}
+}
+
+func TestReadConfigFallsBackToSettingsModelWithoutInventingOverride(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"model":"sonnet[1m]"}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(settings.json) error = %v", err)
@@ -100,8 +140,11 @@ func TestReadConfigFallsBackToSettingsModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadConfig() error = %v", err)
 	}
-	if cfg.Effective.Model != "sonnet[1m]" || cfg.Override.Model != "sonnet[1m]" {
-		t.Fatalf("ReadConfig() = %#v, want settings model fallback", cfg)
+	if cfg.Effective.Model != "sonnet[1m]" {
+		t.Fatalf("Effective = %#v, want settings model fallback", cfg.Effective)
+	}
+	if cfg.Override.Model != "" || cfg.Override.Effort != "" {
+		t.Fatalf("Override = %#v, want no synthetic override", cfg.Override)
 	}
 }
 

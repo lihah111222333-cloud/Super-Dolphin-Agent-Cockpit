@@ -331,6 +331,41 @@ func (s *session) buildStopEvent(tr *transport, force bool) dto.RawProviderEvent
 	return dto.RawProviderEvent{EventType: eventType, Data: data}
 }
 
+func canonicalizeClaudeLaunchConfig(model string, cfg cliLaunchConfig) cliLaunchConfig {
+	cfg.Effort = normalizeEffort(model, cfg.Effort)
+	return cfg
+}
+
+func restartStatusDetails(reason string) string {
+	switch strings.TrimSpace(reason) {
+	case "settings_changed":
+		return "正在应用新的 Claude 配置"
+	case "transport_unavailable":
+		return "正在重新连接 Claude CLI"
+	default:
+		return "正在重启 Claude CLI"
+	}
+}
+
+func restartFailureStatus(err error) (string, string, string) {
+	if errors.Is(err, context.Canceled) {
+		return "idle", "等待指示", ""
+	}
+	return "error", "Claude 重启失败", strings.TrimSpace(err.Error())
+}
+
+func (s *session) statusPatchRawEventLocked(status, header, details string) dto.RawProviderEvent {
+	base := s.rawBaseLocked()
+	data := buildEventData(base, base.SessionID, time.Now().Format(time.RFC3339Nano), map[string]any{
+		"status":         strings.TrimSpace(status),
+		"status_header":  strings.TrimSpace(header),
+		"status_details": strings.TrimSpace(details),
+		"source":         "claude/restart",
+		"partial":        true,
+	})
+	return dto.RawProviderEvent{EventType: "agent:status_patch", Data: data}
+}
+
 type stagedSessionState struct {
 	model                    string
 	displayModel             string
@@ -397,6 +432,7 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 		oldTransportModel := s.transportModel
 		oldContextWindow := s.sessionContextWindow
 		restartCtx, restartGeneration := s.beginRestartWaitLocked(ctx)
+		restartPatch := s.statusPatchRawEventLocked("syncing", "Claude 重启中…", restartStatusDetails(restartReason))
 		registerTransportPID(s.pidRegistry, tr, s.agentID)
 		s.resetThreadReadyLocked()
 		if shouldMarkThreadReady(resumeID, s.publicThreadID) {
@@ -415,11 +451,14 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 		if oldWatcher != nil {
 			oldWatcher.stopAndWait()
 		}
+		s.dispatch(restartPatch)
 		s.mu.Lock()
 
 		err = s.awaitThreadReadyLocked(restartCtx)
 		if err != nil {
 			stagedCurrent := s.transport == tr
+			var failurePatch dto.RawProviderEvent
+			var dispatchFailurePatch bool
 			if stagedCurrent {
 				s.transport = oldTransport
 				s.cleanup = oldCleanup
@@ -432,6 +471,9 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 					s.threadReady = oldReady
 					s.threadReadyOnce = sync.Once{}
 				}
+				status, header, details := restartFailureStatus(err)
+				failurePatch = s.statusPatchRawEventLocked(status, header, details)
+				dispatchFailurePatch = true
 			}
 			s.finishRestartWaitLocked(restartGeneration)
 			unregisterTransportPID(s.pidRegistry, tr)
@@ -440,12 +482,25 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 				unregisterTransportPID(s.pidRegistry, oldTransport)
 				go releaseTransport(oldTransport, oldCleanup)
 			}
+			if dispatchFailurePatch {
+				s.mu.Unlock()
+				s.dispatch(failurePatch)
+				s.mu.Lock()
+			}
 			return err
 		}
 
 		s.model = next.model
 		s.config = next.config
 		s.manifest = next.manifest
+		if next.appliedPendingModel {
+			s.overrideModel = next.appliedPendingModelText
+			s.overrideModelSet = true
+		}
+		if next.appliedPendingEffort {
+			s.overrideEffort = next.appliedPendingEffortText
+			s.overrideEffortSet = true
+		}
 		if next.appliedPendingModel && s.pendingModel != nil && strings.TrimSpace(*s.pendingModel) == next.appliedPendingModelText {
 			s.pendingModel = nil
 		}
@@ -475,38 +530,29 @@ func (s *session) restartResumeIDLocked() string {
 }
 
 func (s *session) stagedTurnSettingsLocked(req dto.TurnRequest) stagedSessionState {
+	currentModel := strings.TrimSpace(s.model)
+	currentDisplayModel := claudeLaunchDisplayModel(currentModel, s.history)
+	currentConfig := canonicalizeClaudeLaunchConfig(currentDisplayModel, s.config)
 	next := stagedSessionState{
-		model:        strings.TrimSpace(s.model),
-		config:       s.config,
+		model:        currentModel,
+		config:       currentConfig,
 		manifest:     s.manifest,
-		displayModel: claudeLaunchDisplayModel(s.model, s.history),
+		displayModel: currentDisplayModel,
 	}
 	if s.pendingModel != nil {
 		next.appliedPendingModel = true
 		next.appliedPendingModelText = strings.TrimSpace(*s.pendingModel)
-		if next.model != next.appliedPendingModelText {
-			next.settingsChanged = true
-		}
 		next.model = next.appliedPendingModelText
 	}
 	if s.pendingEffort != nil {
 		next.appliedPendingEffort = true
 		next.appliedPendingEffortText = strings.TrimSpace(*s.pendingEffort)
-		if strings.TrimSpace(next.config.Effort) != next.appliedPendingEffortText {
-			next.settingsChanged = true
-		}
 		next.config.Effort = next.appliedPendingEffortText
 	}
 	if value := strings.TrimSpace(req.Overrides.Model); value != "" {
-		if next.model != value {
-			next.settingsChanged = true
-		}
 		next.model = value
 	}
 	if value := strings.TrimSpace(req.Overrides.Effort); value != "" {
-		if strings.TrimSpace(next.config.Effort) != value {
-			next.settingsChanged = true
-		}
 		next.config.Effort = value
 	}
 	if manifestChanged(req.MCP, s.manifest) {
@@ -514,14 +560,26 @@ func (s *session) stagedTurnSettingsLocked(req dto.TurnRequest) stagedSessionSta
 		next.settingsChanged = true
 	}
 	next.displayModel = claudeLaunchDisplayModel(next.model, s.history)
+	next.config = canonicalizeClaudeLaunchConfig(next.displayModel, next.config)
+	if next.model != currentModel || next.config.Effort != currentConfig.Effort {
+		next.settingsChanged = true
+	}
 	return next
 }
 
 func (s *session) consumeNoopPendingLocked(next stagedSessionState) {
-	if next.appliedPendingModel && s.pendingModel != nil && strings.TrimSpace(*s.pendingModel) == strings.TrimSpace(s.model) {
+	if next.appliedPendingModel {
+		s.overrideModel = next.appliedPendingModelText
+		s.overrideModelSet = true
+	}
+	if next.appliedPendingEffort {
+		s.overrideEffort = next.appliedPendingEffortText
+		s.overrideEffortSet = true
+	}
+	if next.appliedPendingModel && s.pendingModel != nil && next.model == strings.TrimSpace(s.model) {
 		s.pendingModel = nil
 	}
-	if next.appliedPendingEffort && s.pendingEffort != nil && strings.TrimSpace(*s.pendingEffort) == strings.TrimSpace(s.config.Effort) {
+	if next.appliedPendingEffort && s.pendingEffort != nil && next.config.Effort == canonicalizeClaudeLaunchConfig(s.currentTransportModelLocked(), s.config).Effort {
 		s.pendingEffort = nil
 	}
 	s.configDirty = s.pendingModel != nil || s.pendingEffort != nil

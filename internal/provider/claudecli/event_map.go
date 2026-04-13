@@ -8,6 +8,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -22,6 +23,10 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 
 func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	unified.PublishUITokensUpdated(raw.Data, publish)
+	if ev, ok := translateStatusPatchEvent(raw); ok {
+		publish(ev)
+		return
+	}
 	if ev, ok := translateAgentEvent(raw); ok {
 		publish(ev)
 		return
@@ -32,6 +37,22 @@ func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	}
 	if ev, ok := translateToolEvent(raw); ok {
 		publish(ev)
+	}
+}
+
+func translateStatusPatchEvent(raw dto.RawProviderEvent) (any, bool) {
+	switch raw.EventType {
+	case "agent:status_patch":
+		return uidto.UIThreadPatch{
+			ThreadID:      dataString(raw.Data, "thread_id"),
+			Source:        dataString(raw.Data, "source"),
+			Status:        dataString(raw.Data, "status"),
+			StatusHeader:  dataString(raw.Data, "status_header"),
+			StatusDetails: dataString(raw.Data, "status_details"),
+			Partial:       dataBool(raw.Data, "partial"),
+		}, true
+	default:
+		return nil, false
 	}
 }
 

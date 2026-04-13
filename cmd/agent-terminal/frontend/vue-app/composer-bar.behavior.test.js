@@ -467,6 +467,27 @@ describe('ComposerBar behavior', () => {
     expect(overrideVm.threadConfigOpen.value).toBe(false);
   });
 
+  it('keeps inherited full-model values visible even when they are outside the shortlist', () => {
+    const vm = useComposerThreadConfig({
+      isCmd: false,
+      threadId: 'thread-claude',
+      threadConfigProvider: 'claude',
+      threadConfigSupportsOverride: true,
+      threadConfigMeta: {
+        effective: { model: 'claude-sonnet-4-6-20260401', effort: 'high' },
+        override: { model: '', effort: '' },
+      },
+    }, vi.fn());
+
+    expect(vm.threadConfigInherited.value).toBe(true);
+    expect(vm.threadConfigModelOptions.value.at(-1)).toEqual({
+      value: 'claude-sonnet-4-6-20260401',
+      label: 'claude-sonnet-4-6-20260401',
+    });
+    expect(vm.threadConfigInheritModelLabel.value).toContain('claude-sonnet-4-6-20260401');
+    expect(vm.threadConfigInheritEffortLabel.value).toContain('high');
+  });
+
   it('exposes thread config notice text in the composer area', () => {
     const { vm } = createComposerBar({
       threadId: 'thread-1',
