@@ -56,6 +56,7 @@ BaseInstructions
 - 第一阶段不强制立刻给 thread store 加 `Name` 字段；先把现有展示槽位收敛为 **display name only** 语义
 - 旧 desktop/RPC 调用方若未提供 `Name`，必须继续从 `Prompt` 派生 `displayName`，避免 launch name 变空
 - legacy `prompt` 不再双向污染 instructions；只允许单向兼容映射
+- bool/camelCase/snake_case 兼容解码要改成 **presence-aware**：current 优先、legacy 只在 current 未出现时兜底；双写冲突直接报错或告警，不允许显式 `false` 被 legacy `true` 覆盖
 
 ---
 
@@ -79,14 +80,14 @@ type StartInput struct {
     Prompt                string // legacy display-name fallback
     BaseInstructions      string
     DeveloperInstructions string
-    Provider              string
+    Provider              string // v1 过渡字段；长期应收口为 capability/profile，而不是产品名分支
     CWD                   string
     Language              string
 }
 
 type TurnInput struct {
     ThreadID    string
-    Provider    string
+    Provider    string // v1 过渡字段；长期应收口为 capability/profile，而不是产品名分支
     UserText    string
     SkillPrompt string
     Attachments []string
@@ -104,13 +105,14 @@ const (
 )
 
 type StartAssembly struct {
-    DisplayName          string
-    BaseInstructions     string // → provider system prompt
+    DisplayName           string
+    BaseInstructions      string // → provider system prompt
     DeveloperInstructions string // → provider system tail
+    Snapshot              PromptAssemblySnapshot
 }
 
 type TurnAssembly struct {
-    UserContextText string // → 前置 synthetic text input
+    UserContextText string // v1 只统一 UserContext 前置位；skill prompt / attachment hint / output schema 仍由 turn 组装链消费同一契约后落地
 }
 
 type PromptAssemblySnapshot struct {
@@ -125,6 +127,13 @@ type PromptAssemblySnapshot struct {
 
 **放置位置**：`internal/module/prompt/assembly.go`
 **不放**：provider 内部
+
+### Snapshot 持久化契约
+
+- `PromptAssemblyService.AssembleStart()` **必须直接产出** `StartAssembly.Snapshot`
+- `thread/start_session` 负责把 snapshot 写入 **thread/session runtime snapshot 层**；provider 只消费 assembly 产物，不拥有 durability contract
+- `Resume/Restart/Recovery` 统一先读 `PromptAssemblySnapshot`，校验 `Version + Hash + Provider`；校验失败时才走 compat fallback
+- 子 Agent 透传也以 `DisplayName + BaseInstructions + DeveloperInstructions + Snapshot` 为标准形态，不再依赖旧 `Prompt` 折叠
 
 ### 职责边界
 
@@ -186,6 +195,7 @@ type PromptAssemblySnapshot struct {
 
 Phase 3 缓存失效点需补充：
 - **Provider 切换**：codex↔claude 时必须清空 section cache（cache key 不含 provider）
+- **session cache/barrier**：provider session 缓存 entry 必须携带 provider/providerThread 元数据；binding/provider 不匹配时立即拒绝复用并失效旧缓存
 - **auto-compact**：落在 V3 的 compact cleanup hook；自动 compact 完成后立即触发 invalidate
 - **REPL partial compact**：落在 turn loop partial-compact cleanup hook；partial compact 成功后立即触发 invalidate
 
@@ -193,6 +203,11 @@ Phase 3 缓存失效点需补充：
 - `start_session` 解析 provider 后、构造 provider DTO 前
 - `/resume` 恢复后发现 persisted provider 与当前 provider 不一致时
 - 说明：当前 `ThreadConfigPatch` **没有 provider 字段**，因此本 Phase 不把“thread config/set 切 provider”写成现状能力
+
+### Config 归一前置规则
+- 在线程边界增加共享 `NormalizeStartConfig(...)`，统一解析 `approvalPolicy/approval_policy/approvals`、`developerInstructions/developer_instructions`、`modelProvider/model_provider`、`sandbox`
+- canonical key 与 typed field 优先；legacy alias 只做兼容输入，不允许不同 alias 取值冲突后在 provider 内各自解释
+- provider 不再各自兜底默认值来掩盖归一失败
 
 ---
 
@@ -215,7 +230,8 @@ Phase 3 缓存失效点需补充：
 
 - [ ] `BaseInstructions` 不再污染 thread name / store / resume / Fork / Recover / `toRef()` / `SetName()`
 - [ ] `PromptAssemblyService` 接口 + `StartInput/TurnInput/PromptAssemblySnapshot` 定义完成
-- [ ] Resume/Recovery/Restart 显式依赖 `PromptAssemblySnapshot`，不再只靠污染后的 `Prompt`
+- [ ] `AssembleStart()` 直接产出 `StartAssembly.Snapshot`，并写入 thread/session runtime snapshot 层
+- [ ] Resume/Recovery/Restart 显式依赖 `PromptAssemblySnapshot`（含 `Version + Hash + Provider` 校验），不再只靠污染后的 `Prompt`
 - [ ] Codex thread/start 正确接收 assembly 产物
 - [ ] Claude launch `--system-prompt` 正确接收 assembly 产物
 - [ ] Codex turn/start UserContext 前置注入
@@ -223,6 +239,7 @@ Phase 3 缓存失效点需补充：
 - [ ] Provider 切换时 section cache 清空
 - [ ] 子 Agent 走 PromptAssemblyService
 - [ ] 回归测试通过（binding/rpc_types/service_handlers/resume/fork/recover/toRef）
+- [ ] presence-aware bool alias 冲突与 config alias 归一测试通过
 
 ---
 

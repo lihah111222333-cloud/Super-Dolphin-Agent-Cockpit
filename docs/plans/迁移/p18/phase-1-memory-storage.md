@@ -150,5 +150,5 @@ skipIndex 模式（feature gate 控制）：
 - [ ] `memory/truncate.go`：TruncateEntrypointContent
 
 ## 验收
-- 单元测试覆盖：CRUD + 索引 + 路径校验 + 截断
+- 单元测试覆盖：CRUD + 索引 + 路径校验 + 截断 + index rebuild
 - 仓库契约：文件 ≤ 400 行，函数 ≤ 80 行
