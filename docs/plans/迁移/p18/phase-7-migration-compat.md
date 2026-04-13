@@ -37,7 +37,7 @@
 | 源文件 | 目标 type | 迁移方式 |
 |--------|----------|---------|
 | `docs/plans/迁移/session-summary.md` | project | 提取核心结论，写为 topic file |
-| `docs/plans/迁移/会话习惯.md` | feedback | 提取用户偏好规则，写为 topic file |
+| `docs/plans/迁移/会话习惯.md` | user + feedback | 拆分角色/偏好 vs 工作方式纠正，分别写为 topic file |
 | `docs/plans/迁移/lsp-mandatory-prefix.md` | feedback | 工具使用规范 |
 | `docs/plans/迁移/lsp-advanced-guide.md` | reference | 工具指南引用 |
 
@@ -45,6 +45,7 @@
 > - session-summary.md 只提取稳定项目事实和已确认长期决策，不迁移会话进度/临时状态
 > - 会话习惯.md 拆分为 user（角色/偏好）+ feedback（工作方式纠正），不整篇搬
 > - 迁移脚本必须幂等 + dry-run 支持
+> - apply 模式必须输出 apply manifest：记录新建/更新的 topic file、更新的 `MEMORY.md`、before/after hash 与来源文档，便于回滚/审计
 
 ## 发布开关与回滚
 

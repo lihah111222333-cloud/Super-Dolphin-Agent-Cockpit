@@ -11,7 +11,7 @@
 |------|---------|
 | memory/store | CRUD + 索引更新 + skipIndex |
 | memory/paths | canonical git root + validateMemoryPath + sanitize |
-| memory/truncate | 200行截断 + 25KB截断 + warning |
+| memory/truncate | 200 行截断 + 25 KB 截断 + warning |
 | memory/scan | 递归扫描 + MEMORY.md 排除 + frontmatter 解析 + 200 header 上限 |
 | memory/prompt_builder | taxonomy 完整性 + 排除列表 + save/access/trust 规则 |
 | memory/agent_memory | 三种 scope 目录 + sanitize + 空态处理 + 截断 |
@@ -45,6 +45,15 @@
 - 错误处理：`feature_disabled`、敏感信息校验失败、frontmatter/type 校验失败都返回显式错误且无半写文件
 - 可观测性：`memory_write/search/forget` 与 prompt cache invalidate 日志包含 `provider/threadID/reason/scope/result`
 - 迁移脚本幂等性：重跑不重复造 memory
+
+## 性能守护
+
+- benchmark：
+  - `BenchmarkAssembleStart_3ClaudeFiles_200MemoryIndex`
+  - `BenchmarkRelevantMemoryPrefetch_200Headers`
+  - `BenchmarkCacheInvalidate_ProviderSwitch`
+- 指标：`prompt_assembly_ms`、`base_instructions_tokens`、`user_context_tokens`、`manifest_scan_ms`、`selector_ms`、`selector_cache_hit_ratio`、`section_cache_bytes`、`snapshot_bytes`
+- 回归要求：provider 切换、compact invalidate、manifest repair scan 不能把单轮 prompt 装配延迟拉出基线预算
 
 ## 架构测试
 

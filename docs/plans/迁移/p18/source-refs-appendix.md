@@ -1,6 +1,6 @@
 # P18 源码锚点附录
 
-> 源码基线：`/Users/mac/Desktop/agnet/cluade/claude-code-sourcemap/restored-src/`
+> 源码基线：Claude restored-src 本地镜像（示例路径：`/Users/mac/Desktop/agnet/claude/claude-code-sourcemap/restored-src/`，**仅作个人环境示例，不是仓库契约**）
 
 ## 记忆系统
 

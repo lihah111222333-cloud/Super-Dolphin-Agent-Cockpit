@@ -1,7 +1,7 @@
 # P18 Phase 4.5：Provider 归一前置解耦
 
 > 预计：3-5 天 | 依赖：Phase 3 | 必须在 Phase 4 之前完成
-> 来源：30 agent Claude/Codex 归一审查
+> 来源：30 个 agent Claude/Codex 归一审查
 
 ---
 
@@ -19,7 +19,7 @@ Phase 4 的两阶段装配无法直接落地，因为 V3 当前存在 3 个结�
 
 ### 当前污染链路
 
-```
+```text
 BaseInstructions
   → start_session.go:20  req.Prompt = FirstNonEmpty(req.Prompt, req.BaseInstructions)
     → lifecycle.go:56    launchAgent(..., req.Prompt, ...)  // launch name 被污染
@@ -114,11 +114,12 @@ type TurnAssembly struct {
 }
 
 type PromptAssemblySnapshot struct {
-    DisplayName          string
-    BaseInstructions     string
+    DisplayName           string
+    BaseInstructions      string
     DeveloperInstructions string
-    Provider             string
-    Version              int
+    Provider              string
+    Version               int
+    Hash                  string // 结构化产物摘要，用于校验/去重/恢复时匹配
 }
 ```
 
@@ -131,7 +132,7 @@ type PromptAssemblySnapshot struct {
 |------|------|--------|
 | `PromptRegistry` | section 注册、system prompt 渲染、cache | provider DTO 映射 |
 | `PromptContext` | `gitStatus` / `claudeMd` / currentDate 等运行时上下文聚合 | lifecycle 兼容字段迁移 |
-| `PromptAssemblyService` | 调 `PromptRegistry + PromptContext` 产出 `StartAssembly/TurnAssembly/Snapshot` | provider transport 细节 |
+| `PromptAssemblyService` | 调 `PromptRegistry + PromptContext` 产出 `StartAssembly/TurnAssembly/Snapshot` | provider transport 细节、把 displayName 回写成 instructions |
 | `thread/start_session` | 在 provider DTO 前注入 assembly 产物 | 直接拼装 prompt 内容 |
 | provider | 消费 assembly 产物，按各自 wire format 落地 | 再次计算 UserContext/SystemContext |
 
@@ -155,7 +156,8 @@ type PromptAssemblySnapshot struct {
 
 ### Resume
 - codex `thread/resume` 只带 threadID/cwd/model（`driver.go:203-214`）
-- **不重注入 instructions**（由 codex app-server 保留 thread-level prompt）
+- 若坚持“resume 不重注入”，必须把 `PromptAssemblySnapshot` 作为 durability contract 持久化，并保证 app-server / runtime snapshot 不会丢 `BaseInstructions/DeveloperInstructions`
+- 若要支持 cold resume / recovery replay，则统一从 `PromptAssemblySnapshot` 重新 hydrate，不保留半吊子的字段回填
 
 ---
 
@@ -167,7 +169,7 @@ type PromptAssemblySnapshot struct {
 - **claude wire format**：全拼成单个 `--system-prompt`
 
 ### turn（阶段 B）
-- 注入点：`session_turn.go:14-42` prepareTurnLocked()
+- 注入点：`session_turn.go:173-202` `prepareTurnLocked()`
 - 实现形态：**不新增 provider DTO 字段**；在 `prepareTurnLocked()` 临时拼 `userContextPrefix + buildTurnText(req)`
 - `steer` 复用同一 helper，避免普通 turn / steer 顺序分叉
 - **不在** `buildTurnText()` 内部改（避免 steer 重复注入）
@@ -176,6 +178,7 @@ type PromptAssemblySnapshot struct {
 ### Restart/Recovery
 - claude restart 用 `s.instructions`（`session_log_watcher_integration.go:231-236`）
 - `PromptAssemblySnapshot` 持久化到 thread/session runtime snapshot；codex/claude 共用同一快照结构，恢复后再做 provider-specific 映射
+- snapshot 以**结构化字段 + hash/version/provider** 为主，不长期持久化完整拼装后的 provider 最终字符串，避免安全泄露与 provider 串味
 
 ---
 
@@ -203,6 +206,7 @@ Phase 3 缓存失效点需补充：
 **改法（单一路径）**：
 - 子 agent 启动**必须**走 `PromptAssemblyService.AssembleStart()`，不保留“只继承 BaseInstructions”分支
 - 扩展 `thread.LaunchAgentRequest` / `contract.LaunchRequest`，显式承载子 agent 所需的 `DisplayName + BaseInstructions + DeveloperInstructions`（或 `PromptAssemblySnapshot`）
+- orchestration tool 输入也要从模糊 `instructions` 升级为 `base_instructions + developer_instructions`，避免 remote/local 语义继续分叉
 - orchestration 层只负责透传 assembly 产物，不再依赖 `FirstNonEmpty(Prompt, BaseInstructions)` 旧折叠路径
 
 ---
@@ -211,6 +215,7 @@ Phase 3 缓存失效点需补充：
 
 - [ ] `BaseInstructions` 不再污染 thread name / store / resume / Fork / Recover / `toRef()` / `SetName()`
 - [ ] `PromptAssemblyService` 接口 + `StartInput/TurnInput/PromptAssemblySnapshot` 定义完成
+- [ ] Resume/Recovery/Restart 显式依赖 `PromptAssemblySnapshot`，不再只靠污染后的 `Prompt`
 - [ ] Codex thread/start 正确接收 assembly 产物
 - [ ] Claude launch `--system-prompt` 正确接收 assembly 产物
 - [ ] Codex turn/start UserContext 前置注入
@@ -223,7 +228,7 @@ Phase 3 缓存失效点需补充：
 
 ## 数据流总图
 
-```
+```text
 PromptAssemblyService.AssembleStart()
   ├─ BaseInstructions ──→ dto.Instructions ──┬─→ codex: threadStartParams.baseInstructions
   │                                          └─→ claude: --system-prompt (前半)
@@ -249,7 +254,7 @@ PromptAssemblyService.AssembleTurn()
 | internal/provider/codexapp/session_turn.go | 37-49,76-85 | codex turn 注入 |
 | internal/provider/codexapp/module.go | 231-248 | skill prompt 先例 |
 | internal/provider/claudecli/transport_config.go | 99-147 | claude --system-prompt 拼装 |
-| internal/provider/claudecli/session_turn.go | 14-42 | claude turn prepareTurnLocked |
+| internal/provider/claudecli/session_turn.go | 173-202 | claude turn prepareTurnLocked |
 | internal/provider/claudecli/driver.go | 106-127,166-179 | claude launch 链路 |
 | internal/provider/unified/client.go | 30-68 | 统一 driver 分发 |
 | internal/contract/provider.go | 10-39 | provider 接口定义 |
