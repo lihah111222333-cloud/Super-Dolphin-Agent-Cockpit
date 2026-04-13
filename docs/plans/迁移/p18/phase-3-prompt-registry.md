@@ -22,6 +22,8 @@ type SectionRegistry struct {
 - 静态区在 V3 只是静态分区，不等同于 Claude Code 的 section-name cache；Claude 的 boundary/global scope 属于 provider 级缓存机制，V3 不实现
 - 失效时机：`/clear`（同时 reset beta header latches）、`/compact`、worktree 切换、`/resume` worktree restore/exit、setup 状态翻转
 - **Provider 切换（codex↔claude）**：cache key 不含 provider，切换时必须清空
+- 并发语义：`SectionRegistry.mu` 保护 cache 读写；invalidate 走写锁 + generation bump，避免 provider 切换与并发 build 交叉污染
+- fail-safe：某个 section 计算报错时仅该 section 缺席并记录日志，不让整个 prompt build 因单 section 失败而崩溃
 
 > **来源**：`restored-src/src/constants/systemPromptSections.ts:20-58`
 > **来源**：`restored-src/src/bootstrap/state.ts:1641-1654`

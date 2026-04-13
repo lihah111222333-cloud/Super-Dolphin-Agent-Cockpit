@@ -21,7 +21,7 @@
 
 > Go 侧先只落 `MemoryModeStandard` 可运行实现；KAIROS / TEAMMEM 只保留为源码对照与未来扩展位，不在 P18 Phase 2 交付。
 
-`BuildMemoryPrompt()` 输出内容：
+`BuildMemoryPrompt()` 作为 **V3 适配入口名**，承载 Claude 源码中 `loadMemoryPrompt()/buildMemoryLines()` 的同等行为；以下描述的是其输出语义，不主张与 restored-src 中某个同名函数逐字对应：
 
 ### 1. 四种记忆类型 Taxonomy（Individual 版本）
 
@@ -32,8 +32,7 @@
 | project | 项目背景/决策动机/截止日期/谁在做什么/目标/事故（**只保存不能从代码或 git history 推导的信息**） | 相对日期转绝对日期；正文：`fact + Why: + How to apply:` |
 | reference | 外部系统哪里找什么信息及用途（不是快照） | 保存入口指针 |
 
-> **审查修订**（Agent 2）：V3 单用户，用 Individual 版本（不含 scope）。
-> Combined 版本留待 Team Memory 实现时再加。
+> **审查修订**（Agent 2）：V3 单用户，只迁移 Claude 源码的 Individual 路径；Claude 原版存在 Combined 版本，但该分支依赖 Team Memory，本轮仅保留为源码对照，不作为 P18 交付范围。
 
 ### 2. 保存规则
 - 显式 `remember` → 立即保存

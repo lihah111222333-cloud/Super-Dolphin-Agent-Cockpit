@@ -35,11 +35,14 @@
   - provider-specific turn 链：codex turn/start 收到前置 synthetic input；claude turn 在 `prepareTurnLocked()` 前缀注入 UserContext
   - BaseInstructions 不污染 thread name/store/resume/Fork/Recover/toRef/SetName
   - Provider 切换（codex→claude + claude→codex 双向）时 section cache 清空
+  - auto-compact / partial compact cleanup hook 会触发 section cache invalidate
   - 子 Agent 调用 AssembleStart() 且产物传到子 agent，不走旧折叠路径
   - legacy prompt 只喂给 BaseInstructions，不重新污染 Prompt/launch name
   - `binding` / `rpc_types` / `service_handlers` / `resume` / `fork` / `recover` / `toRef` 回归覆盖
   - Claude Restart/Recovery 从 `PromptAssemblySnapshot` 恢复的回归用例
+- 并发安全：并发 `memory_write/forget` 不产生重复索引或损坏 `MEMORY.md`；section cache 并发 build/invalidate 不串 provider
 - rollout flags / kill switch：关闭后停止新 memory 写入与 prompt 注入，但不影响既有 `shared_files` 协作链路
+- 错误处理：`feature_disabled`、敏感信息校验失败、frontmatter/type 校验失败都返回显式错误且无半写文件
 - 可观测性：`memory_write/search/forget` 与 prompt cache invalidate 日志包含 `provider/threadID/reason/scope/result`
 - 迁移脚本幂等性：重跑不重复造 memory
 
