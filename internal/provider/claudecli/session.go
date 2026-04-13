@@ -106,16 +106,6 @@ func (s *session) ThreadID() string {
 
 func (s *session) RolloutPath() string { return "" }
 
-// pid returns the PID of the claude CLI process, or 0 if unavailable.
-func (s *session) pid() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.transport == nil || s.transport.cmd == nil || s.transport.cmd.Process == nil {
-		return 0
-	}
-	return s.transport.cmd.Process.Pid
-}
-
 func (s *session) EventThreadID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
