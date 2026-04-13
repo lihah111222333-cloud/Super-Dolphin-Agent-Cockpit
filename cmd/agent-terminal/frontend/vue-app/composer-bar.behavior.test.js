@@ -493,7 +493,7 @@ describe('ComposerBar behavior', () => {
       threadId: 'thread-1',
       threadConfigProvider: 'claude',
       threadConfigSupportsOverride: true,
-      threadConfigNotice: '线程配置已保存，下次发送生效。',
+      threadConfigNotice: '某个通知消息',
       threadConfigNoticeLevel: 'info',
       threadConfigMeta: {
         override: { model: 'sonnet', effort: 'high' },
@@ -501,7 +501,7 @@ describe('ComposerBar behavior', () => {
       },
     });
 
-    expect(vm.threadConfigInlineNotice.value).toBe('线程配置已保存，下次发送生效。');
+    expect(vm.threadConfigInlineNotice.value).toBe('某个通知消息');
     expect(ComposerBar.template).toContain('composer-thread-config-notice');
   });
 

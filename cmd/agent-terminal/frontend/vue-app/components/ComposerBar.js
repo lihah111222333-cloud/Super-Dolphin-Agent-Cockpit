@@ -57,7 +57,7 @@ export const ComposerBar = {
         return '';
       }
       const explicitNotice = (props.threadConfigNotice || '').toString().trim();
-      return explicitNotice || '下次发送生效';
+      return explicitNotice || '';
     });
     const threadConfigInlineNoticeColor = computed(() => {
       const hasExplicitNotice = Boolean((props.threadConfigNotice || '').toString().trim());

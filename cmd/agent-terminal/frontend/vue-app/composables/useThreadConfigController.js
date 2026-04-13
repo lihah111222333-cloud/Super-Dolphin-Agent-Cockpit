@@ -15,6 +15,7 @@ export function createThreadConfigController({ threadStore, threadActions, selec
     result: null,
   });
   let threadConfigRequestSeq = 0;
+  let noticeTimeoutId = null;
 
   function normalizeThreadConfigValue(value) {
     return (value || '').toString().trim();
@@ -139,6 +140,16 @@ export function createThreadConfigController({ threadStore, threadActions, selec
       if (normalizeThreadConfigValue(selectedThreadId.value) !== id || isCmd.value) return null;
       threadConfigUi.notice = successNotice;
       threadConfigUi.noticeLevel = 'info';
+
+      if (noticeTimeoutId) clearTimeout(noticeTimeoutId);
+      if (successNotice) {
+        noticeTimeoutId = setTimeout(() => {
+          if (threadConfigUi.notice === successNotice) {
+            threadConfigUi.notice = '';
+          }
+        }, 5000);
+      }
+
       if (saved) {
         applyThreadConfigResult(saved, id);
         return saved;
