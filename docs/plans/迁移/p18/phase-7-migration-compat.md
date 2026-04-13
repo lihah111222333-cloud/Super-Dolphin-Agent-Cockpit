@@ -55,6 +55,13 @@
 - 回滚步骤：关 flag → 清 section cache → 停迁移脚本/写入入口 → 保留磁盘 memory 文件（默认不删除）→ 仅在人工确认后做归档/清理
 - 可观测性：`memory_write/search/forget` 与 prompt cache invalidate 必须记录 `provider/threadID/reason/scope/result`
 
+## 错误处理与并发安全
+
+- `feature flag disabled` → 工具返回显式 `feature_disabled`，不做静默 no-op
+- 敏感信息/type/frontmatter 校验失败 → fail-closed，且不得留下半写 topic file / `MEMORY.md`
+- 迁移脚本任一步失败 → 输出 dry-run / apply 报告并停止后续写入，不自动清理用户原文档
+- 同一 memory root 下的迁移与 `memory_write/forget` 共享写锁，避免并发改坏 `MEMORY.md`
+
 ## 任务清单
 - [ ] `cmd/mcp-orch/tools/memory_tools.go`：5 个 Memory MCP 工具
 - [ ] `scripts/p18-migrate-memory-seeds.go`：转换现有文档为 memory 格式（幂等 + dry-run）

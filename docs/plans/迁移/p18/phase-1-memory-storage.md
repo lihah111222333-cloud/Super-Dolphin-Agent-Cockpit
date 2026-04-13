@@ -102,6 +102,8 @@ Standard 模式两步：
 附加约束：
 - 写入前做服务端敏感信息校验；命中 API key / token / credential / 密码模式时 fail-closed，不只依赖 prompt 规则
 - 旧索引项按 `name` 唯一键匹配后重建，不保留重复条目
+- 并发写保护：同一 memory root 下的 `topic file + MEMORY.md` 更新必须串行化（进程内 keyed mutex；跨进程优先 file lock）
+- 落盘顺序：先写临时文件，再 `rename` 原子替换；任一步失败都保留旧 `MEMORY.md`，不留下半写状态
 
 skipIndex 模式（feature gate 控制）：
 - 只写 topic file，不更新索引

@@ -112,3 +112,27 @@
 ### 综合评分
 - 重点独立评分中位数：**8.85/10**
 - 结论：**通过（保留 Agent 29 的少量实施层异议，但不再构成文档阻塞）**
+
+## 第 12 轮：最终统一评分（30 agent）
+
+### 统计
+- 已收齐 **30/30** agent 报告
+- 其中 **25** 个给出显式数值评分，**5** 个给出专项通过/不通过判定
+- 显式评分**均值：8.60/10**
+- 显式评分**中位数：8.80/10**
+- **通过率：86.7%（26/30）**（含“有条件通过 / 基本通过”计入通过）
+
+### 关键收口
+- Phase 2 补充“`BuildMemoryPrompt()` 是 V3 适配入口名”，避免与 Claude 源码函数名逐字误对齐
+- Phase 1 补 `MEMORY.md` 并发写保护与临时文件原子替换
+- Phase 3 补 section cache 并发语义与单 section fail-safe
+- Phase 7 补 feature flag disabled / 迁移失败 / 共享写锁 的错误处理与并发安全要求
+- Phase 8 补 auto-compact / partial compact invalidate、并发写、显式错误返回测试
+- 采纳 Code Reviewer 提醒：`req.Instructions` fallback 的实现语义应落在 provider DTO（如 `dto.StartSessionRequest.Instructions`）映射层，而不是字面扩展 `thread.StartRequest`
+
+### 特别关注
+- Agent 29：**8.0/10**，由上轮 **6.0** 提升到“基本通过 / 可执行”
+- Agent 30：**9.0/10**，结论 **通过，可直接进入实施**
+
+### 最终结论
+**P18 文档终稿通过，可按 `0 → 1 → 2 → 3 → 4.5 → 4 → 5/6/7 → 8` 顺序进入实施。**
