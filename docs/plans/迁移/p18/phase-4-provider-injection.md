@@ -24,6 +24,11 @@ PromptRegistry.BuildSystemPrompt()  →  BaseInstructions
 PromptContext.BuildSystemContext()   →  DeveloperInstructions (gitStatus 等)
 ```
 
+> **❗实施警告**（Agent 24 终审发现）：
+> V3 现有代码中 `req.Prompt = FirstNonEmpty(req.Prompt, req.BaseInstructions)`（`start_session.go:18-20`），
+> 导致 BaseInstructions 会污染 `Prompt` 字段，进而流入 launch name / thread store / resume metadata。
+> **实施前必须先解耦 System Prompt 与 Prompt 元数据语义**，不能让它流进 thread lifecycle。
+
 ### 阶段 B：每轮 turn（turn/start 前）
 ```
 PromptContext.BuildUserContext()     →  前置 synthetic 输入

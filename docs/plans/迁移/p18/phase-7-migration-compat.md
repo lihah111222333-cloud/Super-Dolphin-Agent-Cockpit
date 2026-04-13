@@ -10,8 +10,8 @@
 | 工具 | 功能 |
 |------|------|
 | `memory_read` | 按名称/路径读取记忆 |
-| `memory_write` | 写入新记忆（type 校验 + frontmatter 生成 + 索引更新） |
-| `memory_search` | 搜索记忆（按 keyword 匹配 description/content） |
+| `memory_write` | **upsert** 语义：已有同名 memory 则更新，否则新建（type 校验 + frontmatter + 索引） |
+| `memory_search` | 搜索记忆（keyword 匹配 description/content，支持 type filter、limit、fail-soft） |
 | `memory_list` | 列出 MEMORY.md 索引 |
 | `memory_forget` | 删除指定记忆（topic file + 索引项） |
 
