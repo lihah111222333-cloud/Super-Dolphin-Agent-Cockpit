@@ -100,7 +100,17 @@ func (s *session) callTransport(ctx context.Context, method string, params any) 
 
 func (s *session) handleConnectionDead(params json.RawMessage) {
 	reason := shared.FirstNonEmpty(stringValue(decodeEventPayload(params), "error", "message"), "connection lost")
+	pkglogger.Warn("codexapp: CONNECTION DEAD (passive)",
+		"agent_id", s.agentID,
+		"thread_id", s.ThreadID(),
+		"reason", reason,
+	)
 	if err := shared.CheckCtx(s.ctx); err != nil {
+		pkglogger.Warn("codexapp: handleConnectionDead skipped (ctx done)",
+			"agent_id", s.agentID,
+			"thread_id", s.ThreadID(),
+			"ctx_err", err,
+		)
 		return
 	}
 	shared.SafeGo(s.logger, func() {
@@ -374,8 +384,13 @@ func (s *session) runReadLoop(done chan struct{}) {
 }
 
 func (s *session) finishReadLoop(done chan struct{}) {
+	ctxErr := s.ctx.Err()
 	pkglogger.Warn("codexapp: read loop exited",
-		"agent_id", s.agentID, "thread_id", s.ThreadID())
+		"agent_id", s.agentID,
+		"thread_id", s.ThreadID(),
+		"ctx_err", ctxErr,
+		"caller", codexCallerStack(),
+	)
 	close(done)
 	s.readLoopMu.Lock()
 	defer s.readLoopMu.Unlock()

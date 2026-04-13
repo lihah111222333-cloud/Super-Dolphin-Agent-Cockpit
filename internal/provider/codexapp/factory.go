@@ -6,13 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/gorilla/websocket"
 )
 
@@ -214,6 +217,12 @@ func (s *session) shutdownSession(graceful bool) error {
 	if s == nil {
 		return nil
 	}
+	pkglogger.Warn("codexapp: shutdownSession ENTERED",
+		"agent_id", s.agentID,
+		"thread_id", s.ThreadID(),
+		"graceful", graceful,
+		"caller", codexCallerStack(),
+	)
 	if graceful {
 		s.failTurns(errors.New("codexapp: session closed"))
 	} else {
@@ -229,8 +238,49 @@ func (s *session) failRecovery(reason string, err error) error {
 	if s == nil {
 		return err
 	}
+	pkglogger.Warn("codexapp: RECOVERY FAILED (passive death)",
+		"agent_id", s.agentID,
+		"thread_id", s.ThreadID(),
+		"reason", reason,
+		"error", err,
+	)
 	s.failTurns(errors.New("codexapp: " + strings.TrimSpace(reason)))
+	// Notify upstream that the session is dead but recoverable — the thread
+	// module can do a full session-level recovery (new WS connection + UUID
+	// resume) instead of retrying the same broken transport.
+	s.dispatch(dto.RawProviderEvent{
+		EventType: "connection.dead",
+		Data: map[string]any{
+			"agentId":     strings.TrimSpace(s.agentID),
+			"threadId":    s.ThreadID(),
+			"error":       strings.TrimSpace(reason),
+			"recoverable": true,
+		},
+	})
 	return err
+}
+
+// codexCallerStack returns a compact caller stack for debugging.
+func codexCallerStack() string {
+	var pcs [8]uintptr
+	n := runtime.Callers(3, pcs[:])
+	if n == 0 {
+		return "<unknown>"
+	}
+	frames := runtime.CallersFrames(pcs[:n])
+	var parts []string
+	for {
+		frame, more := frames.Next()
+		short := frame.Function
+		if idx := strings.LastIndex(short, "/"); idx >= 0 {
+			short = short[idx+1:]
+		}
+		parts = append(parts, short)
+		if !more || len(parts) >= 6 {
+			break
+		}
+	}
+	return strings.Join(parts, " <- ")
 }
 
 func cleanupFailedSession(s *session, msg string) {

@@ -59,6 +59,10 @@ type service struct {
 	// Prevents stampede when multiple ReadMessages calls trigger
 	// concurrent resume for the same agent.
 	resumeInFlight sync.Map // agentID → struct{}
+
+	// sessionRecoveryCount tracks how many times session-level
+	// recovery has been attempted per agent to prevent infinite loops.
+	sessionRecoveryCount sync.Map // agentID → *atomic.Int32
 }
 
 var _ Service = (*service)(nil)
@@ -386,6 +390,16 @@ func (s *service) publishThreadStarted(state threadState) {
 }
 
 func (s *service) publishThreadStopped(threadID, agentID, status, reason string) {
+	// Only WARN for non-intentional / suspect statuses; normal stops use Info.
+	if status == statusArchived {
+		pkglogger.Warn("thread: publishThreadStopped ARCHIVED",
+			"thread_id", threadID,
+			"agent_id", agentID,
+			"status", status,
+			"reason", reason,
+			"caller", archiveCallerStack(),
+		)
+	}
 	if s == nil || s.emitStopped == nil {
 		return
 	}

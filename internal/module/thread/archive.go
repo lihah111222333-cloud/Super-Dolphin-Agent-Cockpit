@@ -12,7 +12,7 @@ import (
 func (s *service) Archive(ctx context.Context, threadID string) error {
 	ctx = shared.NonNilContext(ctx)
 	caller := archiveCallerStack()
-	pkglogger.Warn("thread: Archive() ENTERED",
+	pkglogger.Info("thread: Archive() ENTERED",
 		"thread_id", threadID,
 		"caller", caller,
 	)
@@ -25,7 +25,7 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 		)
 		return err
 	}
-	pkglogger.Warn("thread: Archive() resolved stopState",
+	pkglogger.Info("thread: Archive() resolved stopState",
 		"thread_id", threadID,
 		"stopped_id", stopState.stoppedID,
 		"agent_id", stopState.agentID,
@@ -42,14 +42,8 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 		return err
 	}
 	s.cleanupThreadTurns(ctx, "thread_archived", stopState.targets...)
-	pkglogger.Warn("thread: Archive() publishing thread.Stopped(archived)",
-		"thread_id", threadID,
-		"stopped_id", stopState.stoppedID,
-		"agent_id", stopState.agentID,
-		"caller", caller,
-	)
 	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusArchived, "archived")
-	pkglogger.Warn("thread: Archive() COMPLETED",
+	pkglogger.Info("thread: Archive() COMPLETED",
 		"thread_id", threadID,
 		"stopped_id", stopState.stoppedID,
 		"caller", caller,
@@ -59,7 +53,7 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 
 func (s *service) Unarchive(ctx context.Context, threadID string) error {
 	caller := archiveCallerStack()
-	pkglogger.Warn("thread: Unarchive() ENTERED",
+	pkglogger.Info("thread: Unarchive() ENTERED",
 		"thread_id", threadID,
 		"caller", caller,
 	)
@@ -73,11 +67,12 @@ func (s *service) Unarchive(ctx context.Context, threadID string) error {
 	// canceled) so that the next resolve path creates a fresh session via
 	// autoResumeSession, reconnecting to the same provider thread UUID
 	// and preserving conversation history.
+	s.resetSessionRecoveryCount(threadID)
 	s.evictZombieSession(ctx, threadID)
 	// Pre-warm: kick off a background resume so the session is ready by the
 	// time the user sends the first message.
 	s.backgroundResumeIfNeeded(ctx, threadID)
-	pkglogger.Warn("thread: Unarchive() COMPLETED",
+	pkglogger.Info("thread: Unarchive() COMPLETED",
 		"thread_id", threadID,
 		"caller", caller,
 	)
