@@ -279,6 +279,26 @@ func (s *service) resolveSession(ctx context.Context, threadID string) (contract
 	return session, binding, nil
 }
 
+// evictZombieSession removes a dead session (transport closed, context
+// canceled) left by Archive so that the next resolve path creates a fresh
+// session. It also clears the resumeInFlight guard to allow
+// backgroundResumeIfNeeded to proceed.
+func (s *service) evictZombieSession(ctx context.Context, threadID string) {
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil || binding == nil {
+		return
+	}
+	agentID := strings.TrimSpace(binding.AgentID)
+	if agentID == "" {
+		return
+	}
+	if s.sessions != nil {
+		s.sessions.RemoveSession(agentID)
+	}
+	// Clear the stampede guard so backgroundResumeIfNeeded can proceed.
+	s.resumeInFlight.Delete(agentID)
+}
+
 // backgroundResumeIfNeeded checks whether the thread has a stored binding
 // (from a previous session) but no active session, and triggers a background
 // Resume so the session is ready by the time the user sends a message.

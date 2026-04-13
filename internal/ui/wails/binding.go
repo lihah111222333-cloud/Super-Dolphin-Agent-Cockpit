@@ -14,9 +14,7 @@ import (
 )
 
 const (
-	defaultGroup            = "default"
-	emptyDiagnosticsJSON    = `{"diagnostics":[]}`
-	emptyDiagnosticsMapJSON = `{}`
+	defaultGroup = "default"
 )
 
 type App struct {
@@ -118,36 +116,6 @@ func (a *App) openNewWindow(group string, n int, uiBootstrap, cwd string) (strin
 	}
 	a.registerWindowState(name, group, snapshot)
 	return fmt.Sprintf("%d", window.ID()), nil
-}
-
-func (a *App) GetLSPDiagnostics(filePath string) (string, error) {
-	filePath = strings.TrimSpace(filePath)
-	if filePath == "" {
-		return emptyDiagnosticsMapJSON, nil
-	}
-	if a == nil || a.dispatch == nil {
-		return emptyDiagnosticsJSON, nil
-	}
-	result, err := a.callAPIObject("lsp/gui_file", map[string]any{
-		"action":    "diagnostics",
-		"file_path": filePath,
-	})
-	if err != nil {
-		return "", err
-	}
-	if result == nil {
-		return emptyDiagnosticsJSON, nil
-	}
-	data, err := json.Marshal(result)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-// TODO(P9): Wire this to the real V3 LSP server status source once one exists.
-func (a *App) GetLSPStatus() (any, error) {
-	return []map[string]any{}, nil
 }
 
 func (a *App) bindRuntime(wailsApp *application.App) {

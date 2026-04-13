@@ -1,6 +1,8 @@
 package timeline
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -283,9 +285,90 @@ func toolCallStatus(success bool, errText string) string {
 
 func planText(delta string, payload []byte) string {
 	if text := strings.TrimSpace(delta); text != "" {
+		// If delta looks like serialized JSON, try structured extraction first.
+		if len(text) > 1 && (text[0] == '{' || text[0] == '[') {
+			if parsed := parseStructuredPlan([]byte(text)); parsed != "" {
+				return parsed
+			}
+		}
 		return text
 	}
+	if parsed := parseStructuredPlan(payload); parsed != "" {
+		return parsed
+	}
 	return strings.TrimSpace(string(payload))
+}
+
+// parseStructuredPlan extracts human-readable text from a Codex structured
+// plan payload that contains an "explanation" string and/or a "plan" array
+// of {"status": ..., "step": ...} objects.
+func parseStructuredPlan(data []byte) string {
+	trimmed := strings.TrimSpace(string(data))
+	if len(trimmed) < 2 {
+		return ""
+	}
+	switch trimmed[0] {
+	case '{':
+		return parseStructuredPlanObject(data)
+	case '[':
+		return parsePlanSteps(data)
+	default:
+		return ""
+	}
+}
+
+func parseStructuredPlanObject(data []byte) string {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(data, &obj) != nil {
+		return ""
+	}
+	var parts []string
+	if raw, ok := obj["explanation"]; ok {
+		var explanation string
+		if json.Unmarshal(raw, &explanation) == nil && strings.TrimSpace(explanation) != "" {
+			parts = append(parts, strings.TrimSpace(explanation))
+		}
+	}
+	if raw, ok := obj["plan"]; ok {
+		if steps := parsePlanSteps(raw); steps != "" {
+			parts = append(parts, steps)
+		}
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "\n")
+	}
+	return ""
+}
+
+func parsePlanSteps(data []byte) string {
+	var steps []map[string]any
+	if json.Unmarshal(data, &steps) != nil || len(steps) == 0 {
+		return ""
+	}
+	var lines []string
+	for i, step := range steps {
+		text, _ := step["step"].(string)
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		status, _ := step["status"].(string)
+		lines = append(lines, fmt.Sprintf("%s %d. %s", planStepIcon(status), i+1, text))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func planStepIcon(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "done", "completed", "complete":
+		return "✅"
+	case "inprogress", "in_progress", "running":
+		return "🔄"
+	case "failed", "error":
+		return "❌"
+	default:
+		return "⏳"
+	}
 }
 
 func previewText(text string) string {

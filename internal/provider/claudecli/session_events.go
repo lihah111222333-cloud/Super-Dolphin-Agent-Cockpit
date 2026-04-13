@@ -314,7 +314,11 @@ func decodeSystemEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data := baseData(base, raw.SessionID, raw.Timestamp)
 	success := !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
+	terminalReason := strings.TrimSpace(raw.TerminalReason)
 	data["success"] = success
+	if terminalReason != "" {
+		data["terminal_reason"] = terminalReason
+	}
 	if success {
 		if r := strings.TrimSpace(raw.Result); r != "" {
 			data["result"] = r
@@ -325,7 +329,6 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 			data["stop_reason"] = sr
 		}
 	} else {
-		terminalReason := strings.TrimSpace(raw.TerminalReason)
 		errStr := strings.TrimSpace(shared.FirstNonEmpty(raw.Result, raw.StopReason))
 		var objReq struct {
 			Message string `json:"message"`
@@ -334,7 +337,6 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 		_ = json.Unmarshal(raw.Error, &objReq)
 		_ = json.Unmarshal(raw.Error, &plainStr)
 		errStr = strings.TrimSpace(shared.FirstNonEmpty(errStr, objReq.Message, plainStr))
-		if terminalReason != "" { data["terminal_reason"] = terminalReason }
 		if errStr == "" {
 			errStr = errorMessageFromTerminalReason(terminalReason)
 			pkglogger.Get().Warn("claudecli: stream error result missing message", "agent_id", base.AgentID, "terminal_reason", terminalReason, "raw_error", string(raw.Error), "raw_message", string(raw.Message))

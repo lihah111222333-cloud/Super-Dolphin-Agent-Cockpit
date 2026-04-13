@@ -9,13 +9,12 @@ import { SkillsPage } from './pages/SkillsPage.js';
 import { TasksPage } from './pages/TasksPage.js';
 import { CommandsPage } from './pages/CommandsPage.js';
 import { SettingsPage } from './pages/SettingsPage.ts';
-import { LspIdePage } from './pages/LspIdePage.js';
 import { SystemPromptPage } from './pages/SystemPromptPage.js';
 import { useProjectStore } from './stores/projects.js';
 import { useThreadStore } from './stores/threads.js';
 
 /**
- * @typedef {'chat' | 'agents' | 'dags' | 'tasks' | 'skills' | 'commands' | 'memory' | 'ide' | 'settings'} AppPage
+ * @typedef {'chat' | 'agents' | 'dags' | 'tasks' | 'skills' | 'commands' | 'memory' | 'settings'} AppPage
  * @typedef {{ refreshSidebarState?: () => Promise<void>, state?: { activeThreadId?: string, activeCmdThreadId?: string } }} ChatRefreshThreadStore
  * @typedef {{ command_template?: string }} CommandCard
  * @typedef {{ prompt_text?: string, description?: string, title?: string }} PromptTemplate
@@ -31,7 +30,6 @@ const NAV_ITEMS = Object.freeze([
   { key: 'skills', icon: 'S', label: '技能' },
   { key: 'commands', icon: 'C', label: '命令' },
   { key: 'memory', icon: 'M', label: '记忆' },
-  { key: 'ide', icon: '🖥️', label: 'IDE' },
   { key: 'settings', icon: '..', label: '设置' },
 ]);
 
@@ -125,7 +123,6 @@ export const AppRoot = {
     TasksPage,
     CommandsPage,
     SettingsPage,
-    LspIdePage,
     SystemPromptPage,
   },
   setup() {
@@ -454,11 +451,6 @@ export const AppRoot = {
           :items="dashboard.memory"
           :fields="memoryFields"
           empty-text="暂无记忆"
-        />
-
-        <LspIdePage
-          v-else-if="page === 'ide'"
-          :project-cwd="activeProjectCwd || windowCwd"
         />
 
         <SettingsPage

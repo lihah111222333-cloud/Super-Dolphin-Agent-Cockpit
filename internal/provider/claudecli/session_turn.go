@@ -140,12 +140,6 @@ func (s *session) sendRetryLocked(retry *turnRetryState, handle *turnHandle, pay
 	return nil
 }
 
-func (s *session) clearPendingRetryLocked(retry *turnRetryState) {
-	if s.pendingRetry == retry {
-		s.pendingRetry = nil
-	}
-}
-
 func retryDelay(attempt int) time.Duration {
 	if attempt <= 1 {
 		return retryBaseDelay
