@@ -87,6 +87,12 @@ func (s *session) takeActiveTurnLocked() *turnHandle {
 	}
 	handle := s.activeTurn
 	s.activeTurn = nil
+	if retry := s.pendingRetry; retry != nil {
+		if retry.cancel != nil {
+			retry.cancel()
+		}
+		s.pendingRetry = nil
+	}
 	return handle
 }
 

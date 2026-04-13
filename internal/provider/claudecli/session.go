@@ -54,6 +54,7 @@ type session struct {
 	sessionContextWindow int
 	mu                   sync.Mutex
 	activeTurn           *turnHandle
+	pendingRetry         *turnRetryState
 	activeToolCalls      map[string]string
 	suppressedTurns      map[string]struct{}
 }
@@ -168,13 +169,12 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 		return nil, err
 	}
 	if err := s.transport.Send(payload); err != nil {
-		if s.activeTurn == handle {
-			s.activeTurn = nil
-		}
+		s.takeActiveTurnLocked()
 		s.mu.Unlock()
 		s.finishTurnWithError(handle, err)
 		return nil, err
 	}
+	s.pendingRetry = &turnRetryState{payload: payload}
 	started := s.turnRawEventLocked("turn:started", turnID, nil)
 
 	var textBuf strings.Builder
