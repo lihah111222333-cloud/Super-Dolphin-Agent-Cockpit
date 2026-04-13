@@ -134,6 +134,59 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 	}
 }
 
+func TestServiceRecoverRehydratesClaudeOverrideConfigWhenSessionMissing(t *testing.T) {
+	t.Parallel()
+
+	model := "claude-sonnet-4-20250514[1m]"
+	effort := "max"
+	resumedSession := &stubSession{threadID: "provider-parent"}
+	sessions := &stubSessionProvider{}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-parent",
+		Provider:         "claude",
+		ProviderThreadID: "provider-parent",
+		CodexThreadID:    "thread-parent",
+		Cwd:              "/repo",
+	}}
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:       "thread-parent",
+		AgentID:        "agent-parent",
+		Prompt:         "Recovered Thread",
+		Model:          "sonnet",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: model, Effort: effort}),
+	}}
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			if req.Provider != "claude" || req.AgentID != "agent-parent" || req.ThreadID != "thread-parent" {
+				t.Fatalf("ResumeSession request = %#v", req)
+			}
+			if req.Model != model || req.Effort != effort {
+				t.Fatalf("ResumeSession request = %#v, want model/effort restored", req)
+			}
+			if req.ConfigOverride.Model == nil || *req.ConfigOverride.Model != model {
+				t.Fatalf("ConfigOverride.Model = %#v, want %q", req.ConfigOverride.Model, model)
+			}
+			if req.ConfigOverride.Effort == nil || *req.ConfigOverride.Effort != effort {
+				t.Fatalf("ConfigOverride.Effort = %#v, want %q", req.ConfigOverride.Effort, effort)
+			}
+			sessions.session = resumedSession
+			return resumedSession, nil
+		},
+	}
+	orch := &forkOrchestrationStub{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+
+	result, err := svc.Recover(context.Background(), "thread-parent")
+	if err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	if result != (RecoverResult{ThreadID: "thread-parent", Status: "recovering", Recovered: true, Mode: "relaunch_resume"}) {
+		t.Fatalf("Recover() result = %#v", result)
+	}
+}
+
 func TestServiceRecoverReturnsRestoreEnvelopeWhenSessionActive(t *testing.T) {
 	t.Parallel()
 

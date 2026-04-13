@@ -32,6 +32,8 @@ type session struct {
 	cwd                  string
 	model                string
 	transportModel       string
+	transportConfig      cliLaunchConfig
+	transportManifest    dto.MCPManifest
 	overrideModel        string
 	overrideEffort       string
 	overrideModelSet     bool
@@ -240,6 +242,8 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	toolEvents := s.takeActiveToolInterruptEventsLocked(turnID, reason)
 	s.restartCancel = nil
 	s.transport = nil
+	s.transportConfig = cliLaunchConfig{}
+	s.transportManifest = dto.MCPManifest{}
 	s.cleanup = nil
 	s.sessionContextWindow = 0
 	s.activeToolCalls = nil
@@ -288,6 +292,8 @@ func (s *session) stop(force bool) error {
 	reg := s.pidRegistry
 	watcher := s.detachLogWatcherLocked()
 	s.transport = nil
+	s.transportConfig = cliLaunchConfig{}
+	s.transportManifest = dto.MCPManifest{}
 	s.cleanup = nil
 	s.sessionContextWindow = 0
 	s.activeToolCalls = nil
@@ -430,6 +436,8 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 		oldReady := s.threadReady
 		oldReadyClosed := readyChannelClosed(oldReady)
 		oldTransportModel := s.transportModel
+		oldTransportConfig := s.transportConfig
+		oldTransportManifest := s.transportManifest
 		oldContextWindow := s.sessionContextWindow
 		restartCtx, restartGeneration := s.beginRestartWaitLocked(ctx)
 		restartPatch := s.statusPatchRawEventLocked("syncing", "Claude 重启中…", restartStatusDetails(restartReason))
@@ -444,6 +452,8 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 		s.transport = tr
 		s.cleanup = cleanup
 		s.transportModel = next.displayModel
+		s.transportConfig = next.config
+		s.transportManifest = next.manifest
 		s.sessionContextWindow = 0
 		s.startReadLoop(tr)
 
@@ -463,6 +473,8 @@ func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest
 				s.transport = oldTransport
 				s.cleanup = oldCleanup
 				s.transportModel = oldTransportModel
+				s.transportConfig = oldTransportConfig
+				s.transportManifest = oldTransportManifest
 				s.sessionContextWindow = oldContextWindow
 				if oldReadyClosed {
 					s.resetThreadReadyLocked()
@@ -533,10 +545,23 @@ func (s *session) stagedTurnSettingsLocked(req dto.TurnRequest) stagedSessionSta
 	currentModel := strings.TrimSpace(s.model)
 	currentDisplayModel := claudeLaunchDisplayModel(currentModel, s.history)
 	currentConfig := canonicalizeClaudeLaunchConfig(currentDisplayModel, s.config)
+	currentManifest := s.manifest
+	if s.transport != nil {
+		currentModel = strings.TrimSpace(shared.FirstNonEmpty(s.transportModel, currentModel))
+		currentDisplayModel = claudeLaunchDisplayModel(currentModel, s.history)
+		transportConfig := s.transportConfig
+		if reflect.DeepEqual(transportConfig, cliLaunchConfig{}) {
+			transportConfig = s.config
+		}
+		currentConfig = canonicalizeClaudeLaunchConfig(currentDisplayModel, transportConfig)
+		if !reflect.DeepEqual(s.transportManifest, dto.MCPManifest{}) {
+			currentManifest = s.transportManifest
+		}
+	}
 	next := stagedSessionState{
 		model:        currentModel,
 		config:       currentConfig,
-		manifest:     s.manifest,
+		manifest:     currentManifest,
 		displayModel: currentDisplayModel,
 	}
 	if s.pendingModel != nil {
@@ -555,7 +580,7 @@ func (s *session) stagedTurnSettingsLocked(req dto.TurnRequest) stagedSessionSta
 	if value := strings.TrimSpace(req.Overrides.Effort); value != "" {
 		next.config.Effort = value
 	}
-	if manifestChanged(req.MCP, s.manifest) {
+	if manifestChanged(req.MCP, currentManifest) {
 		next.manifest = req.MCP
 		next.settingsChanged = true
 	}

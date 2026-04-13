@@ -69,6 +69,8 @@ type ResumeRequest struct {
 	Path             string
 	CWD              string
 	Model            string
+	Effort           string
+	ConfigOverride   dto.ThreadConfigPatch
 }
 
 type ResumeResult struct {

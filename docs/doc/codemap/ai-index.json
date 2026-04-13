@@ -33829,6 +33829,11 @@
         }
       ]
     },
+    "internal/provider/claudecli/context_window.go": {
+      "package": "claudecli",
+      "description": "claudecli",
+      "refs": []
+    },
     "internal/provider/claudecli/driver.go": {
       "package": "claudecli",
       "description": "Claude driver 入口，负责 start / resume / runtime report",
@@ -34663,6 +34668,16 @@
           "context": "`Interrupt()` 后对旧 transport 的 SIGINT / SIGKILL 清理"
         }
       ]
+    },
+    "internal/provider/claudecli/session_log_watcher.go": {
+      "package": "claudecli",
+      "description": "claudecli",
+      "refs": []
+    },
+    "internal/provider/claudecli/session_log_watcher_integration.go": {
+      "package": "claudecli",
+      "description": "claudecli",
+      "refs": []
     },
     "internal/provider/claudecli/session_restart_control.go": {
       "package": "claudecli",

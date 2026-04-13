@@ -103,6 +103,7 @@ describe('UnifiedChatPage template contract', () => {
       'data-testid="recover-agent-button"',
       '<ProjectSelect',
       'class="chat-running-card"',
+      "activeStatus === 'thinking' || activeStatus === 'responding' || activeStatus === 'running' || activeStatus === 'syncing'",
     ]);
   });
 

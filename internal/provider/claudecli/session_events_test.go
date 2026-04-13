@@ -133,8 +133,6 @@ func TestHandleReceiveExitEOFCompletesActiveTurn(t *testing.T) {
 }
 
 func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
-	t.Parallel()
-
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
@@ -187,5 +185,119 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("AgentLaunched event was not published")
 		}
+	}
+}
+
+func TestDriverResumeSessionRehydratesClaudeOverrideState(t *testing.T) {
+	next := newBufferedTransport(t, "provider-thread-override")
+	model := "claude-sonnet-4-20250514[1m]"
+	effectiveEffort := "high"
+	overrideEffort := "max"
+	overrideLaunchCLI(t, func(_, _, passedModel, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+		if resumeID != "provider-thread-override" {
+			t.Fatalf("resumeID = %q, want provider-thread-override", resumeID)
+		}
+		if passedModel != model {
+			t.Fatalf("launch model = %q, want %q", passedModel, model)
+		}
+		if cfg.Effort != effectiveEffort {
+			t.Fatalf("launch effort = %q, want %q", cfg.Effort, effectiveEffort)
+		}
+		return next.tr, nil, nil
+	})
+
+	d := &driver{}
+	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		Provider:         "claude",
+		AgentID:          "agent-1",
+		ThreadID:         "thread-public",
+		ProviderThreadID: "provider-thread-override",
+		CWD:              "/tmp/repo",
+		Model:            model,
+		Effort:           effectiveEffort,
+		ConfigOverride: dto.ThreadConfigPatch{
+			Model:  &model,
+			Effort: &overrideEffort,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	s, ok := resumed.(*session)
+	if !ok {
+		t.Fatalf("ResumeSession() type = %T, want *session", resumed)
+	}
+	if !s.overrideModelSet || s.overrideModel != model {
+		t.Fatalf("override model state = (%v, %q), want true/%q", s.overrideModelSet, s.overrideModel, model)
+	}
+	if !s.overrideEffortSet || s.overrideEffort != overrideEffort {
+		t.Fatalf("override effort state = (%v, %q), want true/%q", s.overrideEffortSet, s.overrideEffort, overrideEffort)
+	}
+	cfg, err := s.ReadConfig(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+	if cfg.Override.Model != model || cfg.Override.Effort != overrideEffort {
+		t.Fatalf("Override = %#v, want model=%q effort=%q", cfg.Override, model, overrideEffort)
+	}
+	if cfg.Effective.Model != model || cfg.Effective.Effort != effectiveEffort {
+		t.Fatalf("Effective = %#v, want model=%q effort=%q", cfg.Effective, model, effectiveEffort)
+	}
+}
+
+func TestDriverResumeSessionPreservesExplicitClearOverrideState(t *testing.T) {
+	next := newBufferedTransport(t, "provider-thread-clear")
+	empty := ""
+	effectiveModel := "sonnet"
+	effectiveEffort := "high"
+	overrideLaunchCLI(t, func(_, _, passedModel, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+		if resumeID != "provider-thread-clear" {
+			t.Fatalf("resumeID = %q, want provider-thread-clear", resumeID)
+		}
+		if passedModel != effectiveModel {
+			t.Fatalf("launch model = %q, want %q", passedModel, effectiveModel)
+		}
+		if cfg.Effort != effectiveEffort {
+			t.Fatalf("launch effort = %q, want %q", cfg.Effort, effectiveEffort)
+		}
+		return next.tr, nil, nil
+	})
+
+	d := &driver{}
+	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		Provider:         "claude",
+		AgentID:          "agent-1",
+		ThreadID:         "thread-public",
+		ProviderThreadID: "provider-thread-clear",
+		CWD:              "/tmp/repo",
+		Model:            effectiveModel,
+		Effort:           effectiveEffort,
+		ConfigOverride: dto.ThreadConfigPatch{
+			Model:  &empty,
+			Effort: &empty,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	s, ok := resumed.(*session)
+	if !ok {
+		t.Fatalf("ResumeSession() type = %T, want *session", resumed)
+	}
+	if !s.overrideModelSet || s.overrideModel != "" {
+		t.Fatalf("override model clear state = (%v, %q), want true/empty", s.overrideModelSet, s.overrideModel)
+	}
+	if !s.overrideEffortSet || s.overrideEffort != "" {
+		t.Fatalf("override effort clear state = (%v, %q), want true/empty", s.overrideEffortSet, s.overrideEffort)
+	}
+	cfg, err := s.ReadConfig(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+	if cfg.Override.Model != "" || cfg.Override.Effort != "" {
+		t.Fatalf("Override = %#v, want explicit clear reflected as empty override", cfg.Override)
+	}
+	if cfg.Effective.Model != effectiveModel || cfg.Effective.Effort != effectiveEffort {
+		t.Fatalf("Effective = %#v, want %q/%q", cfg.Effective, effectiveModel, effectiveEffort)
 	}
 }
