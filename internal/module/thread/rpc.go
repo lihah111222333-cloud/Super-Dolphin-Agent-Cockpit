@@ -165,7 +165,7 @@ func newThreadEffect(fn func(context.Context, string) error) handler.Func {
 
 func newTracedThreadEffect(method string, fn func(context.Context, string) error) handler.Func {
 	return newThreadCall(func(ctx context.Context, id string) (any, error) {
-		pkglogger.Warn("thread: RPC effect INVOKED",
+		pkglogger.Info("thread: RPC effect INVOKED",
 			"method", method,
 			"thread_id", id,
 		)
@@ -175,11 +175,6 @@ func newTracedThreadEffect(method string, fn func(context.Context, string) error
 				"method", method,
 				"thread_id", id,
 				"error", err,
-			)
-		} else {
-			pkglogger.Warn("thread: RPC effect DONE",
-				"method", method,
-				"thread_id", id,
 			)
 		}
 		return nil, err

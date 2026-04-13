@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type threadStopState struct {
@@ -64,11 +65,29 @@ func (s *service) stopThreadRuntime(
 	source string,
 	allowMissingAgent bool,
 ) error {
+	pkglogger.Info("thread: stopThreadRuntime ENTERED",
+		"agent_id", stopState.agentID,
+		"stopped_id", stopState.stoppedID,
+		"source", source,
+		"allow_missing_agent", allowMissingAgent,
+		"caller", archiveCallerStack(),
+	)
 	s.interruptStoppingThread(ctx, stopState.agentID, source)
 	if err := s.closeSessionForAgent(ctx, stopState.agentID); err != nil {
+		pkglogger.Warn("thread: stopThreadRuntime closeSession FAILED",
+			"agent_id", stopState.agentID,
+			"error", err,
+		)
 		return err
 	}
-	return s.stopManagedAgent(ctx, stopState.agentID, allowMissingAgent)
+	err := s.stopManagedAgent(ctx, stopState.agentID, allowMissingAgent)
+	if err != nil {
+		pkglogger.Warn("thread: stopThreadRuntime DONE with error",
+			"agent_id", stopState.agentID,
+			"error", err,
+		)
+	}
+	return err
 }
 
 func (s *service) interruptStoppingThread(ctx context.Context, agentID, source string) {
@@ -97,6 +116,9 @@ func (s *service) stopManagedAgent(ctx context.Context, agentID string, allowMis
 		return nil
 	}
 	if s.orchestration == nil {
+		pkglogger.Info("thread: stopManagedAgent removing session (no orchestration)",
+			"agent_id", agentID,
+		)
 		if s.sessions != nil {
 			s.sessions.RemoveSession(agentID)
 		}
@@ -105,6 +127,12 @@ func (s *service) stopManagedAgent(ctx context.Context, agentID string, allowMis
 	err := s.orchestration.StopAgent(ctx, agentID)
 	if allowMissingAgent && errors.Is(err, contract.ErrAgentNotFound) {
 		return nil
+	}
+	if err != nil {
+		pkglogger.Warn("thread: stopManagedAgent StopAgent FAILED",
+			"agent_id", agentID,
+			"error", err,
+		)
 	}
 	return err
 }
