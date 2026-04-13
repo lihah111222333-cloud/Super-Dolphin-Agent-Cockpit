@@ -61,6 +61,8 @@ type SectionRegistry struct {
 - 不做兼容 hack
 - **完成前必须验证真的可用**（跑测试、执行脚本、检查输出）
 - **结果汇报必须忠实**，不得虚报 "all tests pass"
+- 模糊指令应结合当前工作目录理解为软件工程任务
+- 对大任务应**尊重用户判断**，不自行升级为大重构
 
 > `prompts.ts:199-253` — getSimpleDoingTasksSection
 
@@ -101,11 +103,12 @@ type SectionRegistry struct {
 > `prompts.ts:430-442` — getSimpleToneAndStyleSection
 
 ### 7. output_efficiency（输出效率）
-V3 采用外部简洁版：
-```
-Go straight to the point. Try the simplest approach first.
-Do not overdo it. Be extra concise.
-```
+V3 采用外部简洁版（源码 `prompts.ts:416-427` 精简）：
+- Go straight to the point, try simplest approach first
+- **Lead with answer/action**
+- **Skip filler**，不复述用户
+- 只在决策点/里程碑/阻塞时汇报
+- 能一句说完就别三句
 
 > `prompts.ts:403-428` — getOutputEfficiencySection
 

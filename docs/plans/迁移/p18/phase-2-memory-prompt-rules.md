@@ -64,10 +64,15 @@
 - 当前会话临时任务细节、短期状态、**当前对话上下文**
 - 即使用户要求，也不机械保存 PR list / activity summary
 - 只保存其中 **surprising / non-obvious** 的部分
-- Plan 和 tasks 有专门机制，不存进 memory
 
 > **来源**：`restored-src/src/memdir/memoryTypes.ts:183-195` (WHAT_NOT_TO_SAVE)
-> **来源**：`restored-src/src/memdir/memdir.ts:199-265` (Standard 模式完整规则)
+
+### 6. Memory 与其他持久化机制的区分（来自 memdir.ts:254-257，非 WHAT_NOT_TO_SAVE 原文）
+- Plan 和 tasks 有专门机制，不存进 memory
+- 非 trivial 实现方案对齐应进 Plan
+- 当前会话的步骤拆解和进度跟踪应进 tasks
+
+> **来源**：`restored-src/src/memdir/memdir.ts:254-257`
 
 ## 任务清单
 - [ ] `memory/prompt_builder.go`：BuildMemoryPrompt(mode) string

@@ -36,14 +36,14 @@
 | KAIROS daily log 模式 | V3 非 long-lived autonomous agent |
 | Team Memory 双目录 | V3 当前单用户 |
 | Global cache scope | V3 走 codex 缓存策略 |
-| Token budget section | codex 管理 token |
-| Output Style section | V3 用 CLAUDE.md 控制风格 |
+| Token budget section | Claude 的 user token target / auto-continue 机制，V3 暂不支持该交互模型 |
+| Output Style section | 不迁移 Claude 的 outputStyle 配置/插件通道，统一由 CLAUDE.md 承载风格约束 |
 | ant_model_override | V3 无 ant 内部模型覆写 |
 | numeric_length_anchors | ant-only，V3 不需要 |
-| scratchpad | V3 已有 workspace 机制替代 |
+| scratchpad | V3 暂不引入 Claude 式 session scratchpad 目录；若后续需无权限临时目录/跨 worker 暂存，再单列实现 |
 | frc (function result clearing) | 依赖 codex CACHED_MICROCOMPACT，V3 暂无需求 |
-| summarize_tool_results | 与 frc 配套，一同延后 |
-| brief | 依赖 KAIROS/KAIROS_BRIEF gate，V3 不需要 |
+| summarize_tool_results | 源码独立注入无 gate，但 V3 延后 |
+| brief | 依赖 KAIROS/KAIROS_BRIEF + briefToolModule + proactive 去重 |
 | nested_memory | 复杂度高，单独排期到 P19 |
 
 ## 参考文档
