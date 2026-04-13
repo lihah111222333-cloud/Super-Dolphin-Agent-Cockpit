@@ -34,13 +34,11 @@ func (s *session) startReadLoop(tr *transport) {
 		}
 	})
 }
-
 func (s *session) rawBase() rawBase {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.rawBaseLocked()
 }
-
 func (s *session) rawBaseLocked() rawBase {
 	return rawBase{
 		AgentID:   s.agentID,
@@ -51,7 +49,6 @@ func (s *session) rawBaseLocked() rawBase {
 		Model:     s.currentTransportModelLocked(),
 	}
 }
-
 func (s *session) turnRawEventLocked(eventType, turnID string, extras map[string]any) dto.RawProviderEvent {
 	base := s.rawBaseLocked()
 	data := buildEventData(base, base.SessionID, time.Now().Format(time.RFC3339Nano), extras)
@@ -60,13 +57,11 @@ func (s *session) turnRawEventLocked(eventType, turnID string, extras map[string
 	}
 	return dto.RawProviderEvent{EventType: eventType, Data: data}
 }
-
 func (s *session) dispatch(raw dto.RawProviderEvent) {
 	if s.eventDispatcher != nil {
 		s.eventDispatcher.Dispatch(raw)
 	}
 }
-
 func (s *session) turnRawEvent(eventType, turnID string, extras map[string]any) dto.RawProviderEvent {
 	base := s.rawBase()
 	data := buildEventData(base, base.SessionID, time.Now().Format(time.RFC3339Nano), extras)
@@ -75,7 +70,6 @@ func (s *session) turnRawEvent(eventType, turnID string, extras map[string]any) 
 	}
 	return dto.RawProviderEvent{EventType: eventType, Data: data}
 }
-
 func currentTurnID(handle *turnHandle) string {
 	if handle == nil {
 		return ""
@@ -85,7 +79,6 @@ func currentTurnID(handle *turnHandle) string {
 	}
 	return handle.LocalID()
 }
-
 func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 	s.handleSystemInitRaw(tr, raw)
 	if !s.isCurrentTransport(tr) {
@@ -116,7 +109,6 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 		s.finishTurnFromRaw(raw)
 	}
 }
-
 func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 	if raw.EventType != "system:init" {
 		return
@@ -148,7 +140,6 @@ func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 		}
 	}
 }
-
 func (s *session) dispatchToolInterruptEvents(raw dto.RawProviderEvent) {
 	if raw.EventType != "turn:interrupted" {
 		return
@@ -157,16 +148,9 @@ func (s *session) dispatchToolInterruptEvents(raw dto.RawProviderEvent) {
 		s.dispatch(event)
 	}
 }
-
 func shouldFinishTurnRaw(raw dto.RawProviderEvent) bool {
-	switch raw.EventType {
-	case "turn:complete", "turn:interrupted":
-		return true
-	default:
-		return false
-	}
+	return raw.EventType == "turn:complete" || raw.EventType == "turn:interrupted"
 }
-
 func (s *session) isCurrentTransport(tr *transport) bool {
 	if s == nil {
 		return false
@@ -175,7 +159,6 @@ func (s *session) isCurrentTransport(tr *transport) bool {
 	defer s.mu.Unlock()
 	return s.transport == tr
 }
-
 func (s *session) handleReceiveExit(tr *transport, err error) {
 	finishErr := err
 	if finishErr == nil || errors.Is(finishErr, io.EOF) {
@@ -190,7 +173,6 @@ func (s *session) handleReceiveExit(tr *transport, err error) {
 	s.mu.Unlock()
 	s.finishTurnWithError(handle, finishErr)
 }
-
 func (s *session) finishTurnFromRaw(raw dto.RawProviderEvent) {
 	s.mu.Lock()
 	handle := s.takeActiveTurnLocked()
@@ -208,16 +190,10 @@ func (s *session) finishTurnFromRaw(raw dto.RawProviderEvent) {
 	}
 	handle.finish(errors.New(dataString(raw.Data, "error")))
 }
-
 func (s *session) shouldSuppressTurn(raw dto.RawProviderEvent) bool {
-	switch raw.EventType {
-	case "turn:complete", "turn:interrupted":
-		return s.consumeSuppressedTurn(dataString(raw.Data, "turn_id"))
-	default:
-		return false
-	}
+	return (raw.EventType == "turn:complete" || raw.EventType == "turn:interrupted") &&
+		s.consumeSuppressedTurn(dataString(raw.Data, "turn_id"))
 }
-
 func (s *session) trackToolEvent(raw dto.RawProviderEvent) {
 	callID := strings.TrimSpace(dataString(raw.Data, "call_id"))
 	if callID == "" {
@@ -235,13 +211,11 @@ func (s *session) trackToolEvent(raw dto.RawProviderEvent) {
 		delete(s.activeToolCalls, callID)
 	}
 }
-
 func (s *session) takeActiveToolInterruptEvents(turnID, reason string) []dto.RawProviderEvent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.takeActiveToolInterruptEventsLocked(turnID, reason)
 }
-
 func (s *session) takeActiveToolInterruptEventsLocked(turnID, reason string) []dto.RawProviderEvent {
 	if len(s.activeToolCalls) == 0 {
 		return nil
@@ -286,7 +260,6 @@ type rawBase struct {
 	CWD       string
 	Model     string
 }
-
 type streamEvent struct {
 	Type       string          `json:"type"`
 	Subtype    string          `json:"subtype"`
@@ -298,7 +271,6 @@ type streamEvent struct {
 	IsError    bool            `json:"is_error"`
 	Error      json.RawMessage `json:"error"`
 }
-
 type contentBlock struct {
 	Type     string          `json:"type"`
 	Text     string          `json:"text"`
@@ -331,22 +303,18 @@ func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error)
 		return nil, nil
 	}
 }
-
 func decodeSystemEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data := baseData(base, raw.SessionID, raw.Timestamp)
 	data["cwd"] = base.CWD
 	data["model"] = base.Model
 	return []dto.RawProviderEvent{{EventType: "system:" + strings.TrimSpace(raw.Subtype), Data: data}}
 }
-
 func decodeAssistantEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, error) {
 	return decodeMessageEvents(raw, base, "assistant")
 }
-
 func decodeUserEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, error) {
 	return decodeMessageEvents(raw, base, "user")
 }
-
 func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data := baseData(base, raw.SessionID, raw.Timestamp)
 	success := !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
@@ -377,11 +345,9 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	}
 	return []dto.RawProviderEvent{{EventType: "turn:complete", Data: data}}
 }
-
 func baseData(base rawBase, sessionID, timestamp string) map[string]any {
 	return buildEventData(base, sessionID, timestamp, nil)
 }
-
 func dataString(data any, keys ...string) string {
 	if m, ok := data.(map[string]any); ok {
 		for _, key := range keys {
@@ -400,13 +366,11 @@ func dataString(data any, keys ...string) string {
 	}
 	return ""
 }
-
 func dataBool(data any, key string) bool {
 	m, _ := data.(map[string]any)
 	value, _ := m[key].(bool)
 	return value
 }
-
 func dataInt(data any, keys ...string) (int, bool) {
 	m, _ := data.(map[string]any)
 	for _, key := range keys {
