@@ -48,6 +48,13 @@ Scope 注释（每种 scope 会追加说明）：
 - local: 面向项目+机器
 - 可能追加 `CLAUDE_COWORK_MEMORY_EXTRA_GUIDELINES`
 
+## 加载顺序与冲突规则
+
+- 默认加载顺序：`user → project → local`
+- 同名 memory 冲突时，按**更具体 scope 覆盖更宽 scope**：`local > project > user`
+- 子 agent 默认仍加载三种 scope；仅在显式禁用某 scope 时裁剪，不做隐式只读某一层
+- render 时保留 scope 注释，避免“内容相同但来源不同”造成串味
+
 > **来源**：`restored-src/src/memdir/memdir.ts:272-316` (buildMemoryPrompt)
 > **来源**：`restored-src/src/tools/AgentTool/agentMemory.ts:138-176` (loadAgentMemoryPrompt)
 

@@ -104,3 +104,16 @@
 | internal/provider/codexapp/session_turn.go | 37-49 | buildTurnStartParams |
 | internal/provider/codexapp/session_turn.go | 76-85 | turnInputsFromRequest |
 | internal/provider/claudecli/session.go | 127-158 | RuntimeConfigSnapshot (137-145 为字段写入) |
+| internal/module/thread/start_session.go | 18-20 | FirstNonEmpty 污染源 |
+| internal/module/thread/start_session_helpers.go | 9-30 | DeveloperInstructions → Config |
+| internal/module/thread/lifecycle.go | 56,80,116,340-372 | Prompt 扩散链 |
+| internal/module/thread/lifecycle_helpers.go | 146-152 | toRef display name fallback |
+| internal/module/thread/rpc_types.go | 54-90 | legacy 字段兼容 |
+| internal/provider/codexapp/module.go | 231-248 | skill prompt 先例 |
+| internal/provider/claudecli/transport_config.go | 99-147 | claude --system-prompt 拼装 |
+| internal/provider/claudecli/session_turn.go | 14-42 | claude turn prepareTurnLocked |
+| internal/provider/claudecli/session_log_watcher_integration.go | 231-236 | claude restart instructions 恢复 |
+| internal/provider/claudecli/driver.go | 106-127 | claude launch 链路 |
+| internal/provider/unified/client.go | 30-68 | 统一 driver 分发 |
+| internal/contract/provider.go | 10-39 | provider 接口定义 |
+| cmd/mcp-orch/tools/orchestration_tools.go | 127-149 | 子 agent launch |

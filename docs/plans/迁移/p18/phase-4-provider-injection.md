@@ -1,9 +1,11 @@
 # P18 Phase 4：Provider 链路注入
 
-> 预计：1 天 | 依赖：Phase 3
+> 预计：1 天 | 依赖：Phase 3, **Phase 4.5**
 
 ## 目标
 将三层提示词注入到 codex/claude provider 链路。
+
+> **启动条件**：本 Phase 在 Phase 4.5 解耦完成后才能启动。
 
 ## 三层注入映射（审查修订 Agent 7）
 
@@ -81,12 +83,12 @@ type SystemContext struct {
 
 ## 任务清单
 - [ ] `prompt/context.go`：BuildUserContext() + BuildSystemContext()
-- [ ] 修改 `internal/provider/codexapp/support.go:248-261`：thread/start buildThreadStartParams 接入 PromptRegistry
+- [ ] 修改 `internal/provider/codexapp/support.go:248-261`：thread/start 接入 PromptAssemblyService（通过 start_session.go 注入，不在 provider 内部）
 - [ ] 修改 `internal/provider/codexapp/session_turn.go:37-49,76-85`：turn/start 前注入 UserContext
 - [ ] 修改 `internal/provider/claudecli/transport_config.go:129`：Claude CLI launch prompt 接入
 - [ ] 缓存失效注册：/clear, /compact, worktree, /resume
 
 ## 验收
-- thread/start 的 instructions 来自 PromptRegistry.Build()
+- thread/start 的 instructions 来自 PromptAssemblyService.AssembleStart()
 - turn/start 前 UserContext 被正确前置
 - 缓存失效测试

@@ -21,6 +21,7 @@ type SectionRegistry struct {
 - `Volatile` section **跳过读缓存、每轮重算，但仍写回 cache[name]=value**；仅在值变化时才真正打破 prompt cache
 - 静态区在 V3 只是静态分区，不等同于 Claude Code 的 section-name cache；Claude 的 boundary/global scope 属于 provider 级缓存机制，V3 不实现
 - 失效时机：`/clear`（同时 reset beta header latches）、`/compact`、worktree 切换、`/resume` worktree restore/exit、setup 状态翻转
+- **Provider 切换（codex↔claude）**：cache key 不含 provider，切换时必须清空
 
 > **来源**：`restored-src/src/constants/systemPromptSections.ts:20-58`
 > **来源**：`restored-src/src/bootstrap/state.ts:1641-1654`
@@ -89,7 +90,7 @@ type SectionRegistry struct {
 
 - 无依赖调用**并行**，有依赖**串行**
 - 新建文件属于例外路径（用 `code_run` 的 `cat > file << 'EOF'`，不用 lsp_edit）
-- 任务拆分 / 进度管理：复杂任务用 TodoWrite 分解，完成一项立即标记
+- 任务拆分 / 进度管理：复杂任务应分步执行，并在每步完成后汇报进度
 - 融合 `lsp-mandatory-prefix.md` + `lsp-advanced-guide.md` 规范
 
 > `prompts.ts:269-314` — getUsingYourToolsSection（原版参考）
