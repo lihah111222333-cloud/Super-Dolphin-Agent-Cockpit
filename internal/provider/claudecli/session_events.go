@@ -253,12 +253,7 @@ func (s *session) takeActiveToolInterruptEventsLocked(turnID, reason string) []d
 }
 
 type rawBase struct {
-	AgentID   string
-	ThreadID  string
-	SessionID string
-	TurnID    string
-	CWD       string
-	Model     string
+	AgentID, ThreadID, SessionID, TurnID, CWD, Model string
 }
 type streamEvent struct {
 	Type       string          `json:"type"`
@@ -290,10 +285,10 @@ func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error)
 	case "system":
 		return decodeSystemEvent(raw, base), nil
 	case "assistant":
-		return decodeAssistantEvent(raw, base)
+		return decodeMessageEvents(raw, base, "assistant")
 	case "user":
 		pkglogger.Get().Warn("claudecli: user event received", "line", string(line))
-		return decodeUserEvent(raw, base)
+		return decodeMessageEvents(raw, base, "user")
 	case "result":
 		return decodeResultEvent(raw, base), nil
 	default:
@@ -308,12 +303,6 @@ func decodeSystemEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data["cwd"] = base.CWD
 	data["model"] = base.Model
 	return []dto.RawProviderEvent{{EventType: "system:" + strings.TrimSpace(raw.Subtype), Data: data}}
-}
-func decodeAssistantEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, error) {
-	return decodeMessageEvents(raw, base, "assistant")
-}
-func decodeUserEvent(raw streamEvent, base rawBase) ([]dto.RawProviderEvent, error) {
-	return decodeMessageEvents(raw, base, "user")
 }
 func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data := baseData(base, raw.SessionID, raw.Timestamp)
