@@ -32,16 +32,17 @@ type driver struct {
 }
 
 type startSpec struct {
-	agentID      string
-	threadID     string
-	publicThread string
-	cwd          string
-	model        string
-	instructions string
-	manifest     dto.MCPManifest
-	config       cliLaunchConfig
-	rawConfig    map[string]any
-	historyDir   string
+	agentID        string
+	threadID       string
+	publicThread   string
+	cwd            string
+	model          string
+	instructions   string
+	manifest       dto.MCPManifest
+	config         cliLaunchConfig
+	rawConfig      map[string]any
+	historyDir     string
+	configOverride dto.ThreadConfigPatch
 }
 
 func (d *driver) proxyHTTPAddr() string {
@@ -102,12 +103,14 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
 	})
 	return d.start(ctx, startSpec{
-		agentID:      req.AgentID,
-		threadID:     shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID),
-		publicThread: req.ThreadID,
-		cwd:          req.CWD,
-		model:        req.Model,
-		manifest:     manifest,
+		agentID:        req.AgentID,
+		threadID:       shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID),
+		publicThread:   req.ThreadID,
+		cwd:            req.CWD,
+		model:          req.Model,
+		manifest:       manifest,
+		config:         cliLaunchConfig{Effort: strings.TrimSpace(req.Effort)},
+		configOverride: req.ConfigOverride,
 	})
 }
 
@@ -116,12 +119,20 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 		return nil, err
 	}
 	history := &historyBackend{sessionDir: spec.historyDir}
-	launchModel := claudeLaunchDisplayModel(spec.model, history)
-	launchConfig := canonicalizeClaudeLaunchConfig(launchModel, spec.config)
+	requestedModel := strings.TrimSpace(spec.model)
+	if requestedModel == "" && spec.configOverride.Model != nil {
+		requestedModel = strings.TrimSpace(*spec.configOverride.Model)
+	}
+	requestedConfig := spec.config
+	if strings.TrimSpace(requestedConfig.Effort) == "" && spec.configOverride.Effort != nil {
+		requestedConfig.Effort = strings.TrimSpace(*spec.configOverride.Effort)
+	}
+	launchModel := claudeLaunchDisplayModel(requestedModel, history)
+	launchConfig := canonicalizeClaudeLaunchConfig(launchModel, requestedConfig)
 	tr, cleanup, err := launchCLI(
 		d.binaryPath,
 		spec.cwd,
-		spec.model,
+		requestedModel,
 		spec.instructions,
 		launchConfig,
 		spec.manifest,
@@ -133,28 +144,31 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 	initialThreadID := fallbackThreadID(spec.agentID, spec.threadID)
 	publicThreadID := shared.FirstNonEmpty(spec.publicThread, spec.agentID, initialThreadID)
 	s := &session{
-		agentID:         strings.TrimSpace(spec.agentID),
-		threadID:        initialThreadID,
-		publicThreadID:  strings.TrimSpace(publicThreadID),
-		sessionID:       initialThreadID,
-		threadReady:     make(chan struct{}),
-		transport:       tr,
-		caps:            copyCapabilities(claudeCapabilities),
-		history:         history,
-		logger:          d.logger,
-		eventDispatcher: d.eventDispatcher,
-		binaryPath:      d.binaryPath,
-		cwd:             resolveAbsCWD(spec.cwd),
-		model:           strings.TrimSpace(spec.model),
-		transportModel:  launchModel,
-		instructions:    strings.TrimSpace(spec.instructions),
-		config:          launchConfig,
-		rawConfig:       cloneConfigMap(spec.rawConfig),
-		manifest:        spec.manifest,
-		cleanup:         cleanup,
-		pidRegistry:     d.pidRegistry,
-		suppressedTurns: map[string]struct{}{},
+		agentID:           strings.TrimSpace(spec.agentID),
+		threadID:          initialThreadID,
+		publicThreadID:    strings.TrimSpace(publicThreadID),
+		sessionID:         initialThreadID,
+		threadReady:       make(chan struct{}),
+		transport:         tr,
+		caps:              copyCapabilities(claudeCapabilities),
+		history:           history,
+		logger:            d.logger,
+		eventDispatcher:   d.eventDispatcher,
+		binaryPath:        d.binaryPath,
+		cwd:               resolveAbsCWD(spec.cwd),
+		model:             requestedModel,
+		transportModel:    launchModel,
+		transportConfig:   launchConfig,
+		transportManifest: spec.manifest,
+		instructions:      strings.TrimSpace(spec.instructions),
+		config:            launchConfig,
+		rawConfig:         cloneConfigMap(spec.rawConfig),
+		manifest:          spec.manifest,
+		cleanup:           cleanup,
+		pidRegistry:       d.pidRegistry,
+		suppressedTurns:   map[string]struct{}{},
 	}
+	s.applyConfiguredOverridesLocked(spec.configOverride, false)
 	if shouldMarkThreadReady(spec.threadID, publicThreadID) {
 		s.markThreadReady()
 	}

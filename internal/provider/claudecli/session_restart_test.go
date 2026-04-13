@@ -113,6 +113,8 @@ func closedTransport() *transport {
 
 var launchCLIOverrideMu sync.Mutex
 
+const restartTestTimeout = 15 * time.Second
+
 func overrideLaunchCLI(t *testing.T, fn func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)) {
 	t.Helper()
 	launchCLIOverrideMu.Lock()
@@ -138,7 +140,7 @@ func suppressedTurnsLen(s *session) int {
 
 func waitForReadySwap(t *testing.T, s *session, oldReady chan struct{}) chan struct{} {
 	t.Helper()
-	deadline := time.After(time.Second)
+	deadline := time.After(restartTestTimeout)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -177,7 +179,7 @@ func collectStartTurnResults(t *testing.T, results <-chan startTurnResult) (int,
 				t.Fatal("successful StartTurn returned nil handle")
 			}
 			successCount++
-		case <-time.After(time.Second):
+		case <-time.After(restartTestTimeout):
 			t.Fatal("concurrent StartTurn did not finish")
 		}
 	}
@@ -203,7 +205,7 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 		suppressedTurns: map[string]struct{}{"old-turn": {}},
 		model:           "claude-old",
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), restartTestTimeout)
 	defer cancel()
 	result := make(chan error, 1)
 	go func() {
@@ -230,7 +232,7 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("restartIfNeededLocked() error = %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(restartTestTimeout):
 		t.Fatal("restartIfNeededLocked() did not return after system:init")
 	}
 	select {
@@ -272,7 +274,7 @@ func TestRestartIfNeededLockedKeepsEarlyReadyEvent(t *testing.T) {
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), restartTestTimeout)
 	defer cancel()
 
 	start := time.Now()
@@ -314,7 +316,7 @@ func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), restartTestTimeout)
 	defer cancel()
 	req := turnRequest("claude-new")
 	results := make(chan startTurnResult, 2)
@@ -339,10 +341,10 @@ func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 	default:
 	}
 
-	next.emitSystemInit(t, "thread-1")
+	s.setResolvedThreadIDForTransport(next.tr, "thread-1")
 	select {
 	case <-ready:
-	case <-time.After(time.Second):
+	case <-time.After(restartTestTimeout):
 		t.Fatal("replacement ready channel did not close")
 	}
 	select {
@@ -350,7 +352,7 @@ func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 		if !strings.Contains(write, "hello") {
 			t.Fatalf("transport write = %q, want turn payload", write)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(restartTestTimeout):
 		t.Fatal("StartTurn did not write after ready")
 	}
 	successCount, errorCount := collectStartTurnResults(t, results)

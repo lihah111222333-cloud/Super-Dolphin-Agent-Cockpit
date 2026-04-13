@@ -28,19 +28,7 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if patch.Model != nil {
-		value := strings.TrimSpace(*patch.Model)
-		s.overrideModel = value
-		s.overrideModelSet = true
-		s.pendingModel = stringPtr(value)
-	}
-	if patch.Effort != nil {
-		value := strings.TrimSpace(*patch.Effort)
-		s.overrideEffort = value
-		s.overrideEffortSet = true
-		s.pendingEffort = stringPtr(value)
-	}
-	s.configDirty = s.pendingModel != nil || s.pendingEffort != nil
+	s.applyConfiguredOverridesLocked(patch, true)
 	return nil
 }
 
@@ -54,6 +42,28 @@ func threadConfigPatchHasUnsupportedFields(patch dto.ThreadConfigPatch) bool {
 
 func stringPtr(value string) *string {
 	return &value
+}
+
+func (s *session) applyConfiguredOverridesLocked(patch dto.ThreadConfigPatch, stagePending bool) {
+	if patch.Model != nil {
+		value := strings.TrimSpace(*patch.Model)
+		s.overrideModel = value
+		s.overrideModelSet = true
+		if stagePending {
+			s.pendingModel = stringPtr(value)
+		}
+	}
+	if patch.Effort != nil {
+		value := strings.TrimSpace(*patch.Effort)
+		s.overrideEffort = value
+		s.overrideEffortSet = true
+		if stagePending {
+			s.pendingEffort = stringPtr(value)
+		}
+	}
+	if stagePending {
+		s.configDirty = s.pendingModel != nil || s.pendingEffort != nil
+	}
 }
 
 func (s *session) effectiveModelLocked() string {
@@ -77,7 +87,11 @@ func (s *session) currentTransportModelLocked() string {
 }
 
 func (s *session) effectiveEffortLocked() string {
-	return normalizeEffort(s.currentTransportModelLocked(), s.config.Effort)
+	effort := s.config.Effort
+	if s.transport != nil && strings.TrimSpace(s.transportConfig.Effort) != "" {
+		effort = s.transportConfig.Effort
+	}
+	return normalizeEffort(s.currentTransportModelLocked(), effort)
 }
 
 func (s *session) configuredOverrideModelLocked() string {

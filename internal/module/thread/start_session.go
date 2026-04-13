@@ -158,20 +158,26 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
 	}
-	cwd := strings.TrimSpace(req.CWD)
+	resolvedReq, err := s.hydrateResumeSessionRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	cwd := strings.TrimSpace(resolvedReq.CWD)
 	if cwd == "" || cwd == "." {
 		if abs, err := os.Getwd(); err == nil {
 			cwd = abs
 		}
 	}
 	return s.starter.ResumeSession(ctx, dto.ResumeSessionRequest{
-		Provider:         req.Provider,
-		AgentID:          req.AgentID,
-		ThreadID:         req.ThreadID,
-		ProviderThreadID: req.ProviderThreadID,
-		Path:             req.Path,
+		Provider:         resolvedReq.Provider,
+		AgentID:          resolvedReq.AgentID,
+		ThreadID:         resolvedReq.ThreadID,
+		ProviderThreadID: resolvedReq.ProviderThreadID,
+		Path:             resolvedReq.Path,
 		CWD:              cwd,
-		Model:            req.Model,
+		Model:            resolvedReq.Model,
+		Effort:           resolvedReq.Effort,
+		ConfigOverride:   resolvedReq.ConfigOverride,
 	})
 }
 
@@ -189,6 +195,8 @@ type resumeState struct {
 	PublicThreadID   string
 	Prompt           string
 	Model            string
+	Effort           string
+	ConfigOverride   storedThreadConfig
 	CWD              string
 	RolloutPath      string
 	SessionUUID      string
@@ -208,7 +216,9 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
 	req.ProviderThreadID = shared.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
 	req.CWD = shared.FirstNonEmpty(req.CWD, req.Path, state.CWD)
-	req.Model = shared.FirstNonEmpty(req.Model, state.Model)
+	req.ConfigOverride = resolveResumeConfigOverride(req, state)
+	req.Model = resolveResumeModel(req, state)
+	req.Effort = resolveResumeEffort(req, state)
 	req.ThreadID = state.PublicThreadID
 	if req.Provider == "" {
 		return ResumeRequest{}, resumeState{}, errors.New("provider is required")
@@ -218,6 +228,7 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	}
 	state.CWD = req.CWD
 	state.Model = req.Model
+	state.Effort = req.Effort
 	return req, state, nil
 }
 
@@ -228,10 +239,109 @@ func trimResumeRequest(req ResumeRequest) (ResumeRequest, error) {
 	req.Path = strings.TrimSpace(req.Path)
 	req.CWD = strings.TrimSpace(req.CWD)
 	req.Model = strings.TrimSpace(req.Model)
+	req.Effort = strings.TrimSpace(req.Effort)
+	req.ConfigOverride.Model = trimThreadConfigPatchValue(req.ConfigOverride.Model)
+	req.ConfigOverride.Effort = trimThreadConfigPatchValue(req.ConfigOverride.Effort)
+	req.ConfigOverride.Personality = nil
+	req.ConfigOverride.Approvals = nil
 	if req.ThreadID == "" {
 		return ResumeRequest{}, errors.New("thread id is required")
 	}
 	return req, nil
+}
+
+func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeRequest) (ResumeRequest, error) {
+	req, err := trimResumeRequest(req)
+	if err != nil {
+		return ResumeRequest{}, err
+	}
+	state := s.lookupResumeState(ctx, req.ThreadID)
+	state.PublicThreadID = shared.FirstNonEmpty(state.PublicThreadID, req.ThreadID)
+	state.ProviderThreadID = shared.FirstNonEmpty(state.ProviderThreadID, req.ThreadID)
+	req.AgentID = shared.FirstNonEmpty(req.AgentID, state.AgentID)
+	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
+	req.ProviderThreadID = shared.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
+	req.CWD = shared.FirstNonEmpty(req.CWD, req.Path, state.CWD)
+	if req.ConfigOverride.Model == nil {
+		if value := strings.TrimSpace(state.ConfigOverride.Model); value != "" {
+			req.ConfigOverride.Model = &value
+		}
+	}
+	if req.ConfigOverride.Effort == nil {
+		if value := strings.TrimSpace(state.ConfigOverride.Effort); value != "" {
+			req.ConfigOverride.Effort = &value
+		}
+	}
+	if req.Model == "" {
+		req.Model = resolveResumeModel(req, state)
+	}
+	if req.Effort == "" {
+		req.Effort = resolveResumeEffort(req, state)
+	}
+	if req.Provider == "" {
+		return ResumeRequest{}, errors.New("provider is required")
+	}
+	if req.AgentID == "" {
+		return ResumeRequest{}, errors.New("agent id is required")
+	}
+	req.ThreadID = state.PublicThreadID
+	return req, nil
+}
+
+func resolveResumeConfigOverride(req ResumeRequest, state resumeState) dto.ThreadConfigPatch {
+	patch := dto.ThreadConfigPatch{
+		Model:       trimThreadConfigPatchValue(req.ConfigOverride.Model),
+		Effort:      trimThreadConfigPatchValue(req.ConfigOverride.Effort),
+		Personality: nil,
+		Approvals:   nil,
+	}
+	if patch.Model == nil {
+		if value := strings.TrimSpace(req.Model); value != "" {
+			patch.Model = &value
+		} else if value := strings.TrimSpace(state.ConfigOverride.Model); value != "" {
+			patch.Model = &value
+		}
+	}
+	if patch.Effort == nil {
+		if value := strings.TrimSpace(req.Effort); value != "" {
+			patch.Effort = &value
+		} else if value := strings.TrimSpace(state.ConfigOverride.Effort); value != "" {
+			patch.Effort = &value
+		}
+	}
+	return patch
+}
+
+func resolveResumeModel(req ResumeRequest, state resumeState) string {
+	if req.ConfigOverride.Model != nil {
+		if value := threadConfigPatchValue(req.ConfigOverride.Model); value != "" {
+			return value
+		}
+		if value := strings.TrimSpace(req.Model); value != "" {
+			return value
+		}
+		return strings.TrimSpace(state.Model)
+	}
+	if value := strings.TrimSpace(req.Model); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(state.ConfigOverride.Model); value != "" {
+		return value
+	}
+	return strings.TrimSpace(state.Model)
+}
+
+func resolveResumeEffort(req ResumeRequest, state resumeState) string {
+	if req.ConfigOverride.Effort != nil {
+		if value := threadConfigPatchValue(req.ConfigOverride.Effort); value != "" {
+			return value
+		}
+		return strings.TrimSpace(req.Effort)
+	}
+	if value := strings.TrimSpace(req.Effort); value != "" {
+		return value
+	}
+	return strings.TrimSpace(state.ConfigOverride.Effort)
 }
 
 func (s *service) lookupResumeState(ctx context.Context, threadID string) resumeState {
@@ -242,6 +352,8 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.PublicThreadID = strings.TrimSpace(thread.ThreadID)
 		state.Prompt = strings.TrimSpace(thread.Prompt)
 		state.Model = strings.TrimSpace(thread.Model)
+		state.ConfigOverride = decodeStoredThreadConfig(thread.ConfigOverride)
+		state.Effort = strings.TrimSpace(state.ConfigOverride.Effort)
 		state.CWD = strings.TrimSpace(thread.Cwd)
 		state.CreatedAt = thread.CreatedAt
 	}

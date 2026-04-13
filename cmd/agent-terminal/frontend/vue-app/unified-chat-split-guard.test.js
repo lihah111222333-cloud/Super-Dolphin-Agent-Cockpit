@@ -117,6 +117,19 @@ describe('UnifiedChatPage split guard coverage', () => {
     expect(vm.activePinnedPlan.value.key).toBe('id:plan-1'); const card = vm.pinnedPlanCardSpec(vm.activePinnedPlan.value); expect(card.children.some((item) => item.type === 'Markdown')).toBe(true); expect(card.children.some((item) => item.type === 'Text')).toBe(true); vm.dismissPinnedPlan(); expect(vm.activePinnedPlan.value).toBeNull();
   });
 
+  it('surfaces syncing status headers through the existing toolbar header chain', async () => {
+    const { vm } = await createVm({
+      status: { 'thread-active': 'syncing' },
+      header: { 'thread-active': 'Claude 重启中…' },
+      details: { 'thread-active': '正在应用新的 Claude 配置' },
+    });
+
+    expect(vm.activeStatus.value).toBe('syncing');
+    expect(vm.activeStatusHeader.value).toBe('Claude 重启中…');
+    expect(vm.displayStatusText.value).toBe('Claude 重启中…');
+    expect(vm.activeStatusMeta.value).toContain('正在应用新的 Claude 配置');
+  });
+
 
   it('covers public action methods', async () => {
     composer.state.text = 'hello'; composer.state.attachments = [{ name: 'a.txt' }]; skill.resolve.mockResolvedValue({ selectedSkills: ['skillA'], manualSkillSelection: true });

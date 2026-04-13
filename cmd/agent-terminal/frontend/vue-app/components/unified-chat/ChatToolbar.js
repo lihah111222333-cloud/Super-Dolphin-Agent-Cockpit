@@ -62,7 +62,7 @@ export const ChatToolbar = {
   template: `
     <div class="chat-toolbar unified-toolbar" style="position:relative" data-testid="chat-toolbar">
       <div
-        v-if="activeStatus === 'thinking' || activeStatus === 'responding' || activeStatus === 'running'"
+        v-if="activeStatus === 'thinking' || activeStatus === 'responding' || activeStatus === 'running' || activeStatus === 'syncing'"
         class="chat-running-card"
         role="status"
         aria-live="polite"

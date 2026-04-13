@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -97,6 +98,169 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	}
 	if !reflect.DeepEqual(orch.launchReq.Env, []string{"AGENT_PROVIDER=codex", "AGENT_MODEL=override-model"}) {
 		t.Fatalf("launch env = %#v", orch.launchReq.Env)
+	}
+}
+
+func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
+	t.Parallel()
+
+	model := "claude-sonnet-4-20250514[1m]"
+	effort := "max"
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:       "thread-1",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "sonnet",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: model, Effort: effort}),
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "claude",
+		ProviderThreadID: "provider-thread-1",
+		CodexThreadID:    "thread-1",
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			if req.Provider != "claude" {
+				t.Fatalf("Provider = %q, want claude", req.Provider)
+			}
+			if req.Model != model {
+				t.Fatalf("Model = %q, want %q", req.Model, model)
+			}
+			if req.Effort != effort {
+				t.Fatalf("Effort = %q, want %q", req.Effort, effort)
+			}
+			if req.ConfigOverride.Model == nil || *req.ConfigOverride.Model != model {
+				t.Fatalf("ConfigOverride.Model = %#v, want %q", req.ConfigOverride.Model, model)
+			}
+			if req.ConfigOverride.Effort == nil || *req.ConfigOverride.Effort != effort {
+				t.Fatalf("ConfigOverride.Effort = %#v, want %q", req.ConfigOverride.Effort, effort)
+			}
+			session := &stubSession{threadID: "provider-thread-1"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+	result, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"})
+	if err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if result.Model != model {
+		t.Fatalf("result.Model = %q, want %q", result.Model, model)
+	}
+	if !reflect.DeepEqual(orch.launchReq.Env, []string{"AGENT_PROVIDER=claude", "AGENT_MODEL=" + model}) {
+		t.Fatalf("launch env = %#v", orch.launchReq.Env)
+	}
+}
+
+func TestServiceResumeClaudeWithoutStoredOverrideDoesNotInventConfigOverride(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:      "thread-1",
+		AgentID:       "agent-1",
+		Prompt:        "resume",
+		Model:         "sonnet",
+		Cwd:           "/repo",
+		CreatedAt:     123,
+		Status:        statusCreated,
+		LastEventType: "",
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "claude",
+		ProviderThreadID: "provider-thread-1",
+		CodexThreadID:    "thread-1",
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			if req.Model != "sonnet" {
+				t.Fatalf("Model = %q, want sonnet", req.Model)
+			}
+			if req.Effort != "" {
+				t.Fatalf("Effort = %q, want empty", req.Effort)
+			}
+			if req.ConfigOverride.Model != nil || req.ConfigOverride.Effort != nil {
+				t.Fatalf("ConfigOverride = %#v, want empty", req.ConfigOverride)
+			}
+			session := &stubSession{threadID: "provider-thread-1"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"}); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if !reflect.DeepEqual(orch.launchReq.Env, []string{"AGENT_PROVIDER=claude", "AGENT_MODEL=sonnet"}) {
+		t.Fatalf("launch env = %#v", orch.launchReq.Env)
+	}
+}
+
+func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
+	t.Parallel()
+
+	model := "claude-sonnet-4-20250514[1m]"
+	effort := "max"
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:       "thread-1",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "sonnet",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: model, Effort: effort}),
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "claude",
+		ProviderThreadID: "provider-thread-1",
+		CodexThreadID:    "thread-1",
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	resumeReqCh := make(chan dto.ResumeSessionRequest, 1)
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			select {
+			case resumeReqCh <- req:
+			default:
+			}
+			session := &stubSession{threadID: "provider-thread-1"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	svc.backgroundResumeIfNeeded(context.Background(), "thread-1")
+
+	select {
+	case req := <-resumeReqCh:
+		if req.Model != model || req.Effort != effort {
+			t.Fatalf("ResumeSession request = %#v, want model/effort restored", req)
+		}
+		if req.ConfigOverride.Model == nil || *req.ConfigOverride.Model != model {
+			t.Fatalf("ConfigOverride.Model = %#v, want %q", req.ConfigOverride.Model, model)
+		}
+		if req.ConfigOverride.Effort == nil || *req.ConfigOverride.Effort != effort {
+			t.Fatalf("ConfigOverride.Effort = %#v, want %q", req.ConfigOverride.Effort, effort)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("backgroundResumeIfNeeded() did not trigger resume")
 	}
 }
 
