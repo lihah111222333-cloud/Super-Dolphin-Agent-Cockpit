@@ -101,8 +101,8 @@ func TestDecodeResultEventFailureFallsBackToDefaultError(t *testing.T) {
 	if payload["success"] != false {
 		t.Fatalf("payload[success] = %v, want false", payload["success"])
 	}
-	if payload["error"] != "claude result error" {
-		t.Fatalf("payload[error] = %v, want claude result error", payload["error"])
+	if payload["error"] != "Claude API temporarily unavailable" {
+		t.Fatalf("payload[error] = %v, want Claude API temporarily unavailable", payload["error"])
 	}
 }
 

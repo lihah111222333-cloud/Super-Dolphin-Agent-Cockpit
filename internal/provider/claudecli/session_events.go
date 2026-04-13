@@ -104,6 +104,9 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 	}
 	s.trackToolEvent(raw)
 	s.dispatchToolInterruptEvents(raw)
+	if shouldFinishTurnRaw(raw) && s.shouldRetryTransientError(raw) {
+		return
+	}
 	s.dispatch(raw)
 	if shouldFinishTurnRaw(raw) {
 		s.finishTurnFromRaw(raw)
@@ -262,8 +265,9 @@ type streamEvent struct {
 	SessionID  string          `json:"session_id"`
 	Timestamp  string          `json:"timestamp"`
 	Result     string          `json:"result"`
-	StopReason string          `json:"stop_reason"`
-	IsError    bool            `json:"is_error"`
+	StopReason     string          `json:"stop_reason"`
+	TerminalReason string          `json:"terminal_reason"`
+	IsError        bool            `json:"is_error"`
 	Error      json.RawMessage `json:"error"`
 }
 type contentBlock struct {
@@ -291,6 +295,9 @@ func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error)
 		return decodeMessageEvents(raw, base, "user")
 	case "result":
 		return decodeResultEvent(raw, base), nil
+	case "rate_limit_event":
+		pkglogger.Get().Info("claudecli: rate_limit_event received", "agent_id", base.AgentID, "session_id", raw.SessionID)
+		return nil, nil
 	default:
 		// Attempt to parse out streaming deltas to not break streaming
 		// Log the unparsed events to confirm if they contain the real deltas!
@@ -318,6 +325,7 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 			data["stop_reason"] = sr
 		}
 	} else {
+		terminalReason := strings.TrimSpace(raw.TerminalReason)
 		errStr := strings.TrimSpace(shared.FirstNonEmpty(raw.Result, raw.StopReason))
 		var objReq struct {
 			Message string `json:"message"`
@@ -326,9 +334,10 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 		_ = json.Unmarshal(raw.Error, &objReq)
 		_ = json.Unmarshal(raw.Error, &plainStr)
 		errStr = strings.TrimSpace(shared.FirstNonEmpty(errStr, objReq.Message, plainStr))
+		if terminalReason != "" { data["terminal_reason"] = terminalReason }
 		if errStr == "" {
-			errStr = "claude result error"
-			pkglogger.Get().Warn("claudecli: stream error result missing message", "agent_id", base.AgentID, "raw_error", string(raw.Error), "raw_message", string(raw.Message))
+			errStr = errorMessageFromTerminalReason(terminalReason)
+			pkglogger.Get().Warn("claudecli: stream error result missing message", "agent_id", base.AgentID, "terminal_reason", terminalReason, "raw_error", string(raw.Error), "raw_message", string(raw.Message))
 		}
 		data["error"] = errStr
 	}
