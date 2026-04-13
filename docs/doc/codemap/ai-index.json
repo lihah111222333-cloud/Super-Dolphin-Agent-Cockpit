@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-04-13",
+  "generated_at": "2026-04-14",
   "description": "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
   "codemaps": [
     {
@@ -52403,6 +52403,16 @@
       ]
     },
     "migrations/0028_binding_provider_thread_nullable.sql": {
+      "package": "sql",
+      "description": "sql",
+      "refs": []
+    },
+    "migrations/0029_agent_provider_binding_schema_repair.sql": {
+      "package": "sql",
+      "description": "sql",
+      "refs": []
+    },
+    "migrations/0030_baseline_schema_repair.sql": {
       "package": "sql",
       "description": "sql",
       "refs": []
