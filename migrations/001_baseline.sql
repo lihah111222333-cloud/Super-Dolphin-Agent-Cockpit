@@ -24,7 +24,7 @@ BEGIN
     IF NEW.provider IS DISTINCT FROM OLD.provider THEN
         RAISE EXCEPTION 'agent_provider_binding.provider is immutable for agent_id=%', OLD.agent_id;
     END IF;
-    IF NEW.provider_thread_id IS DISTINCT FROM OLD.provider_thread_id THEN
+    IF OLD.provider_thread_id <> '' AND NEW.provider_thread_id IS DISTINCT FROM OLD.provider_thread_id THEN
         RAISE EXCEPTION 'agent_provider_binding.provider_thread_id is immutable for agent_id=%', OLD.agent_id;
     END IF;
     RETURN NEW;
@@ -49,7 +49,10 @@ CREATE TABLE public.agent_provider_binding (
     agent_id text NOT NULL, provider text NOT NULL, provider_thread_id text NOT NULL,
     codex_thread_id text DEFAULT ''::text NOT NULL, rollout_path text DEFAULT ''::text NOT NULL,
     cwd text DEFAULT ''::text NOT NULL, archived boolean DEFAULT false NOT NULL,
-    created_at bigint DEFAULT 0 NOT NULL, updated_at bigint DEFAULT 0 NOT NULL
+    created_at bigint DEFAULT 0 NOT NULL, updated_at bigint DEFAULT 0 NOT NULL,
+    session_uuid text DEFAULT ''::text NOT NULL,
+    CONSTRAINT pk_agent_provider_binding PRIMARY KEY (agent_id),
+    CONSTRAINT chk_agent_provider_binding_provider_not_empty CHECK ((provider <> ''::text))
 );
 CREATE TABLE public.agent_status (
     agent_id text NOT NULL, agent_name text DEFAULT ''::text NOT NULL,
@@ -57,7 +60,8 @@ CREATE TABLE public.agent_status (
     stagnant_sec integer DEFAULT 0 NOT NULL, error text DEFAULT ''::text NOT NULL,
     output_tail jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT agent_status_pkey PRIMARY KEY (agent_id)
 );
 CREATE TABLE public.agent_threads (
     thread_id text NOT NULL, prompt text DEFAULT ''::text NOT NULL, model text DEFAULT ''::text NOT NULL,
@@ -66,7 +70,8 @@ CREATE TABLE public.agent_threads (
     created_at bigint DEFAULT 0 NOT NULL, updated_at bigint DEFAULT 0 NOT NULL,
     finished_at bigint, last_event_type text DEFAULT ''::text NOT NULL,
     error_message text DEFAULT ''::text NOT NULL, workspace_run_key text DEFAULT ''::text NOT NULL,
-    owner_thread_id text DEFAULT ''::text NOT NULL
+    owner_thread_id text DEFAULT ''::text NOT NULL,
+    CONSTRAINT agent_threads_pkey PRIMARY KEY (thread_id)
 );
 CREATE TABLE public.audit_events (
     id bigint NOT NULL, ts timestamp with time zone DEFAULT now() NOT NULL,
@@ -104,12 +109,14 @@ CREATE TABLE public.command_cards (
     risk_level text DEFAULT 'normal'::text NOT NULL, enabled boolean DEFAULT true NOT NULL,
     created_by text DEFAULT ''::text NOT NULL, updated_by text DEFAULT ''::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT command_cards_card_key_key UNIQUE (card_key)
 );
 CREATE TABLE public.cwd_instance_locks (
     cwd text NOT NULL, instance_id text NOT NULL, pid integer DEFAULT 0 NOT NULL,
     acquired_at timestamp with time zone DEFAULT now() NOT NULL,
-    heartbeat_at timestamp with time zone DEFAULT now() NOT NULL
+    heartbeat_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT cwd_instance_locks_pkey PRIMARY KEY (cwd)
 );
 CREATE TABLE public.prompt_template_versions (
     id bigint NOT NULL, prompt_key text NOT NULL, title text DEFAULT ''::text NOT NULL,
@@ -136,7 +143,8 @@ CREATE TABLE public.prompt_templates (
     created_by text DEFAULT ''::text NOT NULL, updated_by text DEFAULT ''::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    description text DEFAULT ''::text NOT NULL
+    description text DEFAULT ''::text NOT NULL,
+    CONSTRAINT prompt_templates_prompt_key_key UNIQUE (prompt_key)
 );
 CREATE TABLE public.prompts (
     id bigint NOT NULL, agent_key text NOT NULL, tool_name text NOT NULL,
@@ -152,7 +160,8 @@ CREATE TABLE public.schema_migrations (
 CREATE TABLE public.shared_files (
     path text NOT NULL, content text NOT NULL, updated_by text DEFAULT ''::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT shared_files_pkey PRIMARY KEY (path)
 );
 CREATE TABLE public.system_logs (
     id bigint NOT NULL, ts timestamp with time zone DEFAULT now() NOT NULL,
@@ -219,7 +228,8 @@ CREATE TABLE public.topology_approvals (
 CREATE TABLE public.ui_preferences (
     key text NOT NULL, value jsonb DEFAULT '{}'::jsonb NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    cwd text DEFAULT ''::text NOT NULL
+    cwd text DEFAULT ''::text NOT NULL,
+    CONSTRAINT ui_preferences_pkey PRIMARY KEY (cwd, key)
 );
 CREATE TABLE public.workspace_run_files (
     id bigint NOT NULL, run_key text NOT NULL, relative_path text NOT NULL,
@@ -228,7 +238,8 @@ CREATE TABLE public.workspace_run_files (
     source_sha256_after text DEFAULT ''::text NOT NULL,
     state text DEFAULT 'tracked'::text NOT NULL, last_error text DEFAULT ''::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT workspace_run_files_run_key_relative_path_key UNIQUE (run_key, relative_path)
 );
 CREATE TABLE public.workspace_runs (
     id bigint NOT NULL, run_key text NOT NULL, dag_key text DEFAULT ''::text NOT NULL,
@@ -237,12 +248,14 @@ CREATE TABLE public.workspace_runs (
     updated_by text DEFAULT ''::text NOT NULL, metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    finished_at timestamp with time zone
+    finished_at timestamp with time zone,
+    CONSTRAINT workspace_runs_run_key_key UNIQUE (run_key)
 );
 
 CREATE INDEX idx_acb_codex_thread ON public.agent_codex_binding USING btree (codex_thread_id);
 CREATE INDEX idx_acb_created_at_desc ON public.agent_codex_binding USING btree (created_at DESC);
 CREATE INDEX idx_acb_cwd ON public.agent_codex_binding USING btree (cwd);
+CREATE UNIQUE INDEX uq_agent_provider_binding_provider_thread ON public.agent_provider_binding USING btree (provider, provider_thread_id) WHERE (provider_thread_id <> ''::text);
 CREATE INDEX idx_agent_interactions_sender_receiver ON public.agent_interactions USING btree (sender, receiver);
 CREATE INDEX idx_agent_interactions_status_review ON public.agent_interactions USING btree (status, requires_review, created_at DESC);
 CREATE INDEX idx_agent_interactions_thread_created ON public.agent_interactions USING btree (thread_id, created_at DESC);
