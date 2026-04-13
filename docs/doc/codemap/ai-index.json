@@ -3383,6 +3383,11 @@
       "description": "frontend",
       "refs": []
     },
+    "cmd/agent-terminal/frontend/scripts/vitest-global-setup.js": {
+      "package": "frontend",
+      "description": "frontend",
+      "refs": []
+    },
     "cmd/agent-terminal/frontend/tests/e2e/app-dashboard-navigation.spec.js": {
       "package": "frontend",
       "description": "frontend",

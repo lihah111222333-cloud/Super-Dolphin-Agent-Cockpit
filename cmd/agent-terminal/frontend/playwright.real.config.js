@@ -15,6 +15,7 @@ export default defineConfig({
         ['list'],
         ['html', { open: 'never' }],
     ],
+    globalSetup: './scripts/vitest-global-setup.js',
     use: {
         baseURL: BASE_URL,
         testIdAttribute: 'data-testid',
