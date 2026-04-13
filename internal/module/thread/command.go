@@ -67,36 +67,34 @@ func commandPatch(command, args string) (dto.ThreadConfigPatch, error) {
 	}
 }
 
-type threadCommandResult struct {
-	Command  string `json:"command"`
-	ThreadID string `json:"threadId"`
-}
+type (
+	threadCommandResult struct {
+		Command  string `json:"command"`
+		ThreadID string `json:"threadId"`
+	}
 
-type configReaderSession interface {
-	ReadConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error)
-}
+	configReaderSession interface{ ReadConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error) }
+	modelCatalogSession interface{ AllowedModels(ctx context.Context) ([]string, error) }
+	compactSession      interface{ CompactThread(ctx context.Context, threadID, args string) error }
 
-type modelCatalogSession interface {
-	AllowedModels(ctx context.Context) ([]string, error)
-}
-
-type compactSession interface {
-	CompactThread(ctx context.Context, threadID, args string) error
-}
+	friendlyCapabilityError struct {
+		message string
+		cause   error
+	}
+)
 
 const (
 	errRuntimeModelSwitchUnsupported = "当前 provider 不支持运行时 model 切换"
 	errContextCompactUnsupported     = "当前 provider 不支持上下文压缩（context_compact）"
 )
 
-type friendlyCapabilityError struct {
-	message string
-	cause   error
-}
-
 func (e *friendlyCapabilityError) Error() string { return e.message }
 
 func (e *friendlyCapabilityError) Unwrap() error { return e.cause }
+
+func newThreadCommandResult(command, threadID string) threadCommandResult {
+	return threadCommandResult{Command: command, ThreadID: strings.TrimSpace(threadID)}
+}
 
 func sendConfigPatchCommand(
 	ctx context.Context,
@@ -112,10 +110,7 @@ func sendConfigPatchCommand(
 	if err := session.Configure(ctx, patch); err != nil {
 		return threadCommandResult{}, err
 	}
-	return threadCommandResult{
-		Command:  command,
-		ThreadID: strings.TrimSpace(threadID),
-	}, nil
+	return newThreadCommandResult(command, threadID), nil
 }
 
 func sendInterruptCommand(
@@ -125,17 +120,11 @@ func sendInterruptCommand(
 	threadID string,
 	args string,
 ) (threadCommandResult, error) {
-	req := dto.InterruptRequest{
-		ThreadID: historyTargetID(binding, threadID),
-		Source:   strings.TrimSpace(args),
-	}
+	req := dto.InterruptRequest{ThreadID: historyTargetID(binding, threadID), Source: strings.TrimSpace(args)}
 	if err := session.Interrupt(ctx, req); err != nil {
 		return threadCommandResult{}, err
 	}
-	return threadCommandResult{
-		Command:  "/interrupt",
-		ThreadID: strings.TrimSpace(threadID),
-	}, nil
+	return newThreadCommandResult("/interrupt", threadID), nil
 }
 
 func lowFrequencyCommandError(command string) error {
@@ -304,44 +293,35 @@ func normalizeThreadConfigPatch(
 	provider string,
 	patch dto.ThreadConfigPatch,
 ) (dto.ThreadConfigPatch, error) {
-	patch.Model = trimThreadConfigPatchValue(patch.Model)
-	patch.Effort = trimThreadConfigPatchValue(patch.Effort)
-	patch.Personality = trimThreadConfigPatchValue(patch.Personality)
-	patch.Approvals = trimThreadConfigPatchValue(patch.Approvals)
-	if model := threadConfigPatchValue(patch.Model); model != "" {
-		validated, err := validateModelName(model)
-		if err != nil {
-			return dto.ThreadConfigPatch{}, err
-		}
-		patch.Model = &validated
-		if err := ensureAllowedModel(ctx, session, validated, provider); err != nil {
-			return dto.ThreadConfigPatch{}, err
-		}
-	}
-	if err := validateThreadConfigEffort(provider, threadConfigPatchValue(patch.Effort)); err != nil {
-		return dto.ThreadConfigPatch{}, err
-	}
-	return patch, nil
+	return normalizeThreadConfigPatchBase(provider, patch, func(model string) error {
+		return ensureAllowedModel(ctx, session, model, provider)
+	})
 }
 
-// normalizeThreadConfigPatchOffline validates a thread config patch without
-// an active session. Model name format and effort range are checked, but
-// session-scoped model whitelist validation is skipped because we cannot
-// query the provider's allowed model catalog offline.
-func normalizeThreadConfigPatchOffline(
+// normalizeThreadConfigPatchOffline validates a thread config patch without an active session.
+// Model name format and effort range are checked, but session-scoped model whitelist validation is skipped.
+func normalizeThreadConfigPatchOffline(provider string, patch dto.ThreadConfigPatch) (dto.ThreadConfigPatch, error) {
+	return normalizeThreadConfigPatchBase(provider, patch, nil)
+}
+
+func normalizeThreadConfigPatchBase(
 	provider string,
 	patch dto.ThreadConfigPatch,
+	validateModel func(string) error,
 ) (dto.ThreadConfigPatch, error) {
-	patch.Model = trimThreadConfigPatchValue(patch.Model)
-	patch.Effort = trimThreadConfigPatchValue(patch.Effort)
-	patch.Personality = trimThreadConfigPatchValue(patch.Personality)
-	patch.Approvals = trimThreadConfigPatchValue(patch.Approvals)
+	patch.Model, patch.Effort = trimThreadConfigPatchValue(patch.Model), trimThreadConfigPatchValue(patch.Effort)
+	patch.Personality, patch.Approvals = trimThreadConfigPatchValue(patch.Personality), trimThreadConfigPatchValue(patch.Approvals)
 	if model := threadConfigPatchValue(patch.Model); model != "" {
 		validated, err := validateModelName(model)
 		if err != nil {
 			return dto.ThreadConfigPatch{}, err
 		}
 		patch.Model = &validated
+		if validateModel != nil {
+			if err := validateModel(validated); err != nil {
+				return dto.ThreadConfigPatch{}, err
+			}
+		}
 	}
 	if err := validateThreadConfigEffort(provider, threadConfigPatchValue(patch.Effort)); err != nil {
 		return dto.ThreadConfigPatch{}, err
@@ -357,25 +337,13 @@ func ensureAllowedModel(
 ) error {
 	catalog, ok := session.(modelCatalogSession)
 	if !ok {
-		return newFriendlyCapabilityError(
-			dto.CapModelSwitch,
-			provider,
-			errRuntimeModelSwitchUnsupported,
-		)
+		return newFriendlyCapabilityError(dto.CapModelSwitch, provider, errRuntimeModelSwitchUnsupported)
 	}
 	allowed, err := catalog.AllowedModels(ctx)
 	if err != nil {
-		return wrapFriendlyCapabilityError(
-			err,
-			dto.CapModelSwitch,
-			provider,
-			errRuntimeModelSwitchUnsupported,
-		)
+		return wrapFriendlyCapabilityError(err, dto.CapModelSwitch, provider, errRuntimeModelSwitchUnsupported)
 	}
-	if modelAllowed(model, allowed) {
-		return nil
-	}
-	if providerAllowsUnlistedThreadConfigModel(provider) {
+	if modelAllowed(model, allowed) || providerAllowsRelaxedThreadConfig(provider) {
 		return nil
 	}
 	if len(allowed) == 0 {
@@ -393,11 +361,7 @@ func modelAllowed(model string, allowed []string) bool {
 	return false
 }
 
-func providerAllowsUnlistedThreadConfigModel(provider string) bool {
-	return strings.EqualFold(strings.TrimSpace(provider), "claude")
-}
-
-func providerAllowsMaxThreadConfigEffort(provider string) bool {
+func providerAllowsRelaxedThreadConfig(provider string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "claude")
 }
 
@@ -414,10 +378,7 @@ func validateModelName(value string) (string, error) {
 	if model == "" {
 		return "", errors.New("model is required")
 	}
-	for _, r := range model {
-		if isModelRuneAllowed(r) {
-			continue
-		}
+	if strings.IndexFunc(model, func(r rune) bool { return !isModelRuneAllowed(r) }) >= 0 {
 		return "", fmt.Errorf("invalid model name %q", model)
 	}
 	return model, nil
@@ -428,7 +389,7 @@ func validateThreadConfigEffort(provider, value string) error {
 	case "", "none", "minimal", "low", "medium", "high", "xhigh":
 		return nil
 	case "max":
-		if providerAllowsMaxThreadConfigEffort(provider) {
+		if providerAllowsRelaxedThreadConfig(provider) {
 			return nil
 		}
 	}
@@ -436,37 +397,24 @@ func validateThreadConfigEffort(provider, value string) error {
 }
 
 func isModelRuneAllowed(r rune) bool {
-	switch {
-	case r >= 'a' && r <= 'z':
-		return true
-	case r >= 'A' && r <= 'Z':
-		return true
-	case r >= '0' && r <= '9':
-		return true
-	default:
-		return strings.ContainsRune("._:/@+-[]", r)
-	}
+	return r >= 'a' && r <= 'z' ||
+		r >= 'A' && r <= 'Z' ||
+		r >= '0' && r <= '9' ||
+		strings.ContainsRune("._:/@+-[]", r)
 }
 
 func (s *service) logConfigPatchApplied(op, threadID, provider string, patch dto.ThreadConfigPatch) {
 	if s.logger == nil {
 		return
 	}
-	attrs := []any{
-		"thread_id", threadID,
-		"provider", provider,
-	}
-	if patch.Model != nil {
-		attrs = append(attrs, "model", *patch.Model)
-	}
-	if patch.Effort != nil {
-		attrs = append(attrs, "effort", *patch.Effort)
-	}
-	if patch.Personality != nil {
-		attrs = append(attrs, "personality", *patch.Personality)
-	}
-	if patch.Approvals != nil {
-		attrs = append(attrs, "approvals", *patch.Approvals)
+	attrs := []any{"thread_id", threadID, "provider", provider}
+	for _, field := range []struct {
+		key   string
+		value *string
+	}{{"model", patch.Model}, {"effort", patch.Effort}, {"personality", patch.Personality}, {"approvals", patch.Approvals}} {
+		if field.value != nil {
+			attrs = append(attrs, field.key, *field.value)
+		}
 	}
 	s.logger.Info(op+": config patch applied", attrs...)
 }
