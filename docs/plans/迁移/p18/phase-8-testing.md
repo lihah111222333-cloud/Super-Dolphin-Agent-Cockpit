@@ -24,8 +24,12 @@
 
 - thread/start → PromptRegistry.Build() → instructions 正确
 - turn/start → UserContext 前置 → 模型收到
-- memory_write → MEMORY.md 更新 → memory_read 能读回
+- memory_write 新建 → MEMORY.md 更新 → memory_read 能读回
+- memory_write **upsert**：已有同名时更新而非重复创建
+- memory_search：keyword + type filter + limit + fail-soft
+- memory_forget：删除后索引同步更新
 - 缓存失效：clear 后 section 重算
+- 迁移脚本幂等性：重跑不重复造 memory
 
 ## 架构测试
 

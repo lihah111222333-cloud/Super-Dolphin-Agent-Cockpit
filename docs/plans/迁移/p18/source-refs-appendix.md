@@ -20,11 +20,11 @@
 | TYPES_SECTION_COMBINED | src/memdir/memoryTypes.ts | L37-106 |
 | TYPES_SECTION_INDIVIDUAL | src/memdir/memoryTypes.ts | L113-178 |
 | WHAT_NOT_TO_SAVE_SECTION | src/memdir/memoryTypes.ts | L183-195 |
-| MEMORY_FRONTMATTER_EXAMPLE | src/memdir/memoryTypes.ts | L261-270 |
+| MEMORY_FRONTMATTER_EXAMPLE | src/memdir/memoryTypes.ts | L261-271 |
 | getAutoMemPath | src/memdir/paths.ts | L223-235 |
 | getMemoryBaseDir | src/memdir/paths.ts | L85-90 |
 | validateMemoryPath | src/memdir/paths.ts | L109-150 |
-| findCanonicalGitRoot | src/utils/git.ts | L195-210 |
+| findCanonicalGitRoot | src/utils/git.ts | L195 (export), L197-210 (impl) |
 | sanitizePath | src/utils/sessionStoragePortable.ts | L311-319 |
 | isAutoMemoryEnabled | src/memdir/paths.ts | L30-55 |
 | isTeamMemoryEnabled | src/memdir/teamMemPaths.ts | L73-78 |
@@ -37,7 +37,7 @@
 | truncateEntrypointContent | src/memdir/memdir.ts | L57-103 |
 | parseMemoryFileContent | src/utils/claudemd.ts | L343-400 |
 | scanMemoryFiles | src/memdir/memoryScan.ts | L35-77 |
-| formatMemoryManifest | src/memdir/memoryScan.ts | L84-93 |
+| formatMemoryManifest | src/memdir/memoryScan.ts | L84-94 |
 | MAX_MEMORY_FILES | src/memdir/memoryScan.ts | L21 |
 | FRONTMATTER_MAX_LINES | src/memdir/memoryScan.ts | L22 |
 | findRelevantMemories | src/memdir/findRelevantMemories.ts | L39-75 |
