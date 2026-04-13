@@ -61,8 +61,10 @@
 
 - rollout flags：`enable_memory_system`、`enable_prompt_registry`、`enable_prompt_assembly`、`enable_memory_tools`
 - 开关统一收口到 `memory.Config` / `prompt.Config`，由 fx 注入，不把发布控制散落在 `StartRequest` / provider runtime config
+- **pre-rollout gate**：在真正启用前，必须先落地并验证 `flag/config 骨架 + prompt cache invalidate + memory tools 注册/feature_disabled + 子 Agent launch contract 统一`
 - 渐进顺序：先 internal dogfood，再 codex 单 provider，再 claude，再双 provider 切换场景
 - kill switch：任一 flag 关闭后应停止新写入/新注入，但**不破坏**既有 `shared_files` 协作链路
+- 当前最安全的 rollback 策略其实是**不放量启用**；只有当 flags/cache/tool/launch-contract 四个前置条件全部落地后，回滚 drill 才算可演练
 - 回滚步骤：关 flag → 清 section cache → 停迁移脚本/写入入口 → 保留磁盘 memory 文件（默认不删除）→ 仅在人工确认后做归档/清理
 - 可观测性：`memory_write/search/forget` 与 prompt cache invalidate 必须记录 `provider/threadID/reason/scope/result`
 
@@ -74,6 +76,12 @@
 - 迁移脚本任一步失败 → 输出 dry-run / apply 报告并停止后续写入，不自动清理用户原文档
 - 同一 memory root 下的迁移与 `memory_write/forget` 共享写锁，避免并发改坏 `MEMORY.md`
 - 迁移脚本按“批量 topic file + 单次 index rebuild”执行，避免每条 seed 都重写一次 `MEMORY.md`
+- `memory_read/list/search` 遇到 `MEMORY.md` 缺失/损坏时，可降级到 `scan headers` 生成 `degraded` 视图；返回必须显式带 `degraded=true` / `source=rebuilt_view`，且**不得自动覆写磁盘索引**
+- MCP error code 映射矩阵：
+  - 参数/ACL/path/type/frontmatter 错误 → `ErrCodeInvalidParams`
+  - topic/index 持久化失败 → `ErrCodePersistFailed`
+  - manifest / selector / scan 超时 → `ErrCodeTimeout`
+  - `feature_disabled` 暂保留业务错误字符串；若后续补独立 code，需在 DTO 层统一声明
 - observability / snapshot / search/list 默认不记录正文，防止二次泄露
 
 ## 任务清单
