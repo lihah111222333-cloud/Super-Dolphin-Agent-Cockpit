@@ -1,115 +1,92 @@
 # V3 迁移会话摘要
 
-> 更新时间：2026-04-12
-> 会话范围：**P16.1 统一 Diff** + **Codex/Claude 事件修复** + **P17 UI 功能修复** + **临时诊断日志清理收尾**
-> 本次验证：`go build ./internal/... ./cmd/...` + `go vet ./internal/... ./cmd/...` + `go test -run TestCodeSizeGuard ./internal/archtest/...` 全绿
+> 更新时间：2026-04-14
+> 会话范围：**P18 记忆系统+系统提示词架构** + **baseline PK 修复** + **Codex agent 启动修复**
+> 本次验证：`go build ./internal/... ./cmd/...` + `go vet ./internal/... ./cmd/...` + `go test ./internal/platform/db/...` 全绿
 
 ---
 
 ## 1. 当前结论
 
-- **P16.1 统一 Diff 已完成**：旧 diff 方案已清理，Codex / Claude 统一收敛到 toolbridge + difftracker 主链路。
-- **Codex / Claude 事件修复已完成**：`turn/diff/updated` 映射补齐，Claude `system:init` 重复 `AgentLaunched` 已修，前端 optimistic insert 已去重。
-- **P17 UI 功能修复已完成**：上下文空间、模型选择、压缩按钮三条链路已补齐。
-- **临时诊断日志已清理**：排查期临时 WARN 已删除或降为 Debug，保留 `toolbridge: proxy started` 启动确认日志。
-- **当前仓库验证通过**：build / vet / CodeSizeGuard 全部通过。
+- **baseline PK 修复已完成**：`001_baseline.sql` 补全 10 个表的 PRIMARY KEY/UNIQUE 约束 + `0029`/`0030` 幂等修复 migration
+- **P18 记忆系统+提示词计划已完成审查**：经 15+ 轮、500+ agent 审查轮次，最终评分 9.0/10 通过
+- **Claude/Codex 归一方案已确定**：新增 Phase 4.5 前置解耦，解决 BaseInstructions→Prompt 污染
+- **当前仓库验证通过**：build / vet / db 测试全绿
 
 ---
 
-## 2. 本会话核心成果（2026-04-12）
+## 2. 本会话核心成果（2026-04-14）
 
-### 2.1 P16.1 统一 Diff
+### 2.1 Baseline PK 修复
+- **根因**：`001_baseline.sql`（pg_dump 快照）丢失所有 PRIMARY KEY，后续 migration 用 `CREATE TABLE IF NOT EXISTS` 跳过
+- **修复**：
+  - `001_baseline.sql` 补全 10 个表的 PK/UNIQUE
+  - `0029_agent_provider_binding_schema_repair.sql` 幂等修复 binding 表
+  - `0030_baseline_schema_repair.sql` 幂等修复其余 9 个表
+  - 守护测试防回归
+- **commit**：`5c2c15b`
 
-- **Phase 0**：清理旧 diff 实现（`-1730` 行死代码），保留 `difftracker` 核心。
-- **Phase 1**：落地 `proxy.go` MCP HTTP proxy + manifest `ProxyHTTPAddr` 归一 + diff tracking + 安全加固。
-- **Phase 2**：补上 git diff 兜底（`ToolCallEnd` + `callId` 去重）。
-- **互审**：完成 `1:4` 互审 + 修复（编译错误 + proxy 安全 + family 路由）。
+### 2.2 P18 记忆系统+系统提示词架构
+- **基于**：Claude Code 官方源码逆向文档（4 份 mapping + source_refs）
+- **产出**：`docs/plans/迁移/p18/` 下 13 个文档（README + Phase 0-8 + Phase 4.5 + source-refs + review-summary）
+- **审查历程**：
+  - 第 1-6 轮：30 agent × 6 = 180 轮次 → 7.0 → 8.2
+  - 第 7 轮：30 agent 归一审查 → 新增 Phase 4.5
+  - 第 8-13 轮：30 agent 多维度/交叉 → 8.6 → 9.0
+  - 第 14 轮：50 agent 深度 + 50 agent 交叉 = 100 轮次
+- **关键设计决策**：
+  - 记忆存储：磁盘为主（对齐 Claude Code），DB shared_files 保留用于 agent 间协作
+  - 四种记忆类型：user/feedback/project/reference（Individual 版本）
+  - 提示词：7 静态 + 5 动态 section，按 name 缓存
+  - Provider 归一：PromptAssemblyService 放 internal/module/prompt，不放 provider 内部
+  - 解耦方案 C：Name 贯通 lifecycle，BaseInstructions 不污染 Prompt
+  - 工期：15-17 天
+  - Claude 源码对齐度：~87%
 
-### 2.2 Codex / Claude 事件修复
-
-- `turn/diff/updated` 事件映射补齐，并完成 `typedEventPublishers` 注册。
-- Claude `system:init` 不再重复发 `AgentLaunched`。
-- 前端 optimistic insert 去重，兼容 proxy 引入后的时序变化。
-
-### 2.3 P17 UI 功能修复
-
-#### Phase 1：上下文空间显示
-- `ui_tokens` 兼容 camelCase。
-- `tokenUsage.last` 优先，保持 V2 parity。
-- `contextWindow` 改为从 `tokenUsage` 层级继续搜索。
-
-#### Phase 2：模型选择
-- `applyAgentLaunched` 补 `Model`。
-- `SetConfig` 改为本地存储，不转发 Codex。
-- `model/list` 解析补齐 `data` 格式。
-- `runtimeConfig` 回填到 `turn/start`。
-- `AllowedModels` 支持 `data` key。
-
-#### Phase 3：压缩按钮
-- `capabilities` 从 provider 推断并投影到 `agentRuntimeById`。
-- 按钮禁用态补齐。
-- 错误提示补齐。
-- `compact` 可用性与 provider 能力保持一致。
-
-### 2.4 额外修复
-
-- 删除 `developerInstructions` 工具目录注入（上下文约 `77k → 16k`）。
-- `TokenUsage` JSON tag 改 camelCase，并新增 `usedTokens` / `usedPercent`。
-- `thread/config/set` 不再转发 codex，改为本地存储并在 `turn/start` 生效。
-- `threadResumeParams` 扩展字段。
-- `applyConfigSet` 改为本地 `runtimeConfig` 存储。
-- `effort` / `model` 从 `runtimeConfig` 补填到 `turn/start` params。
+### 2.3 额外修复
+- prompt_templates 表 description 列缺失（0027 migration 已覆盖）
+- codex agent 启动失败排查（根因同 baseline PK）
 
 ---
 
-## 3. 本次收尾：临时诊断日志清理
+## 3. P18 Phase 索引
 
-### 3.1 已清理/降级的日志
-
-- `internal/provider/unified/ui_tokens.go`
-  - 删除 `ui_tokens: tokensUpdatedEvent returned false`
-  - 删除 `ui_tokens: publishing UITokensUpdated`
-  - 删除 `ui_tokens: contextWindow parse`
-  - 删除 `mapKeys` helper
-  - 删除无用 `pkglogger` import
-- `internal/provider/codexapp/session.go`
-  - `codexapp: turn/start params`：`WARN -> DEBUG`
-- `internal/provider/codexapp/session_approval.go`
-  - 删除 `codexapp: onNotification received`
-- `internal/provider/codexapp/support.go`
-  - 删除 `codexapp: model/list raw response`
-- `internal/platform/toolbridge/proxy.go`
-  - `proxy: incoming request`：`WARN -> DEBUG`
-- `internal/platform/toolbridge/module.go`
-  - 保留 `toolbridge: proxy started`（启动确认日志仍有价值）
-
-### 3.2 本次验证结果
-
-```text
-✅ go build ./internal/... ./cmd/...
-✅ go vet ./internal/... ./cmd/...
-✅ go test -run TestCodeSizeGuard ./internal/archtest/...
-```
+| Phase | 内容 | 预计 |
+|-------|------|------|
+| 0 | 模块骨架 + fx 注册 | 1 天 |
+| 1 | 磁盘记忆存储层 | 2 天 |
+| 2 | 记忆行为规则注入 | 1 天 |
+| 3 | Section 注册表（静态+动态） | 2 天 |
+| 4.5 | Provider 归一前置解耦 | 3-5 天 |
+| 4 | Provider 链路注入 | 1 天 |
+| 5 | Agent 记忆隔离 | 1 天 |
+| 6 | 记忆检索 | 2 天 |
+| 7 | 迁移工具 + 兼容层 | 1 天 |
+| 8 | 测试 + 守护 | 1 天 |
 
 ---
 
 ## 4. 已知限制
 
-1. `modelContextWindow` 在切模型后不会更新（Codex 平台行为）。
-2. Claude `compact` 暂不支持，仍需摘要 + 重启方案，待排期。
-3. 前端 E2E 桥接测试仍不稳定（历史已知问题）。
+1. Claude `compact` 暂不支持，仍需摘要+重启方案
+2. nested_memory 排期到 P19
+3. KAIROS daily log / Team Memory 暂不实现
+4. 前端 E2E 桥接测试仍不稳定（历史已知）
 
 ---
 
 ## 5. 下一会话建议关注
 
-1. 继续观察真实长会话下的统一 diff 链路稳定性。
-2. 若要支持 Claude compact，需要设计“摘要后重启”方案。
-3. 前端 E2E 桥接测试需要单独稳定化治理。
+1. **开干 P18 Phase 0**：创建 memory/prompt 模块骨架
+2. **Phase 4.5 优先**：解耦 BaseInstructions→Prompt 污染（阻塞 Phase 4）
+3. **Phase 1+2 可并行**：记忆存储 + 行为规则无依赖
+4. 观察真实长会话下的统一 diff 链路稳定性
+5. prompt_templates description 列在新设备重启后自动修复
 
 ---
 
 ## 6. 交接结论
 
-- 今天这轮核心工作已经完成，可直接基于当前状态继续后续迭代。
-- 当前重点已从“功能补齐”转到“稳定性观察 + 后续能力排期”。
+- P18 计划已通过 500+ agent 审查，评分 9.0/10，可直接进入实施
+- baseline PK 修复已 commit + push，新设备不再报 42P10
+- 当前重点从"计划审查"转到"Phase 0 开工"
