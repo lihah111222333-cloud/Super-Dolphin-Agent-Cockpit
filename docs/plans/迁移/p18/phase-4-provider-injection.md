@@ -67,8 +67,10 @@ FormatUserContextMessage()      → 前置 synthetic user message
 
 实现约束：
 - 先 `ResolveClaudeMdSources() ([]ClaudeMdSource)`，再统一 render；不要把来源解析压扁成“只返回一个字符串”
+- 发现顺序按 **Managed → User → root→cwd Project/Local → additional dirs → AutoMem → TeamMem(未来)** 收敛；解析层负责 normalized-path / symlink 去重，并保留 nested worktree 特判
 - `.claude/rules` 必须区分 **unconditional rules** 与 **conditional rules**：只有 unconditional rules 进入基础 `claudeMd`，带 frontmatter/globs 的 conditional rules 保留给后续 attachment/target-path 链
-- 过滤语义分两段：先按 `filterInjectedMemoryFiles()` 过滤 AutoMem/TeamMem 注入文件，再按 Project/Local settingSources 决定是否跳过
+- 过滤语义分两段：先按 `filterInjectedMemoryFiles()` 过滤 AutoMem/TeamMem 注入文件，再按 Project/Local source gate 决定是否跳过
+- external include / additional dirs / bare mode / disable gates 属于 SourceResolver 责任；普通 load 与 warning path 必须区分，不把审批前探测与正常装配混成一条链
 - 普通注入文件使用 `Contents of {path}: ...` 形式，不是裸拼接
 - `getClaudeMds()` / filter 链会先做注入文件筛选，再做最终包装
 

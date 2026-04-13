@@ -15,12 +15,13 @@ type SectionRegistry struct {
 }
 ```
 
-缓存语义（审查修订 Agent 2/3/6/9/22/25）：
+缓存语义（审查修订 Agent 2/3/6/9/22/25/26）：
 - cache key 仍以 **`section.name` 为主**，但实现必须配合 generation / dependency invalidation，不能把 `name-only` 当成“永不失效”
 - **`nil` 结果默认可缓存**；若 `nil` 来自 feature gate / runtime gate，必须绑定 invalidate reason 或改为 dependency-aware cached/volatile
 - `Volatile` section **跳过读缓存、每轮重算，但仍写回 cache[name]=value**；仅在值变化时才真正打破 prompt cache
 - 静态区在 V3 只是静态分区，不等同于 Claude Code 的 section-name cache；Claude 的 boundary/global scope 属于 provider 级缓存机制，V3 不实现
-- 失效时机：`/clear`（同时 reset beta header latches）、`/compact`、worktree 切换、`/resume` worktree restore/exit、setup 状态翻转、**provider 切换**、language/model 变化、tool 集变化、session mode 变化、MCP 状态变化、memory/CLAUDE.md 变更与迁移写入
+- **全局/显式 invalidate reasons**：`/clear`（同时 reset beta header latches）、手动 `/compact`、**auto-compact**、**REPL partial compact**、worktree 切换、`/resume` worktree restore/exit、setup 状态翻转、**provider 切换**、**session cache/barrier mismatch（provider/providerThread/generation 不匹配）**
+- **dependency-aware invalidation**：language/model 变化、tool 集变化、session mode 变化、MCP 状态变化、memory/CLAUDE.md 变更与迁移写入；**不是所有 dependency 变化都要 clear all**，优先做 section-scoped invalidate 或 generation bump
 - 并发语义：`SectionRegistry.mu` 保护 cache 读写；非 volatile section 额外使用 `singleflight` 抑制并发重复计算；invalidate 走写锁 + generation bump，旧 generation 结果必须 compare-before-publish 后丢弃
 - 静态 section **不得读取 runtime/provider-specific 状态**；skill/tool/manual-selection/agent-mode 等 runtime bits 必须留在动态 section
 - fail-safe 分级：`required-safe` section 失败时回退到 conservative text / last-good；`optional` 可缺席；`volatile-observable` 缺席但必须打结构化日志/metric
