@@ -17,38 +17,83 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
-	if configurePatchEmpty(patch) {
+	if threadConfigPatchNoop(patch) {
 		return nil
 	}
-	return fmt.Errorf(
-		"claudecli: runtime Configure is not supported for active sessions: %w",
-		dto.NewCapabilityError(configureCapability(patch), "claude"),
-	)
-}
-
-func configurePatchEmpty(patch dto.ThreadConfigPatch) bool {
-	return strings.TrimSpace(configureValue(patch.Model)) == "" &&
-		strings.TrimSpace(configureValue(patch.Effort)) == "" &&
-		strings.TrimSpace(configureValue(patch.Personality)) == "" &&
-		strings.TrimSpace(configureValue(patch.Approvals)) == ""
-}
-
-func configureCapability(patch dto.ThreadConfigPatch) string {
-	if strings.TrimSpace(configureValue(patch.Model)) != "" {
-		return dto.CapModelSwitch
+	if threadConfigPatchHasUnsupportedFields(patch) {
+		return fmt.Errorf(
+			"claudecli: runtime Configure only supports model/effort overrides: %w",
+			dto.NewCapabilityError(capThreadConfigure, "claude"),
+		)
 	}
-	return capThreadConfigure
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if patch.Model != nil {
+		value := strings.TrimSpace(*patch.Model)
+		s.overrideModel = value
+		s.overrideModelSet = true
+		s.pendingModel = stringPtr(value)
+	}
+	if patch.Effort != nil {
+		value := strings.TrimSpace(*patch.Effort)
+		s.overrideEffort = value
+		s.overrideEffortSet = true
+		s.pendingEffort = stringPtr(value)
+	}
+	s.configDirty = s.pendingModel != nil || s.pendingEffort != nil
+	return nil
 }
 
-func configureValue(value *string) string {
-	if value == nil {
-		return ""
+func threadConfigPatchNoop(patch dto.ThreadConfigPatch) bool {
+	return patch.Model == nil && patch.Effort == nil && patch.Personality == nil && patch.Approvals == nil
+}
+
+func threadConfigPatchHasUnsupportedFields(patch dto.ThreadConfigPatch) bool {
+	return patch.Personality != nil || patch.Approvals != nil
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
+func (s *session) effectiveModelLocked() string {
+	if value := strings.TrimSpace(s.model); value != "" {
+		return value
 	}
-	return *value
+	return readClaudeSettingsModel(s.history)
+}
+
+func (s *session) currentTransportModel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.currentTransportModelLocked()
+}
+
+func (s *session) currentTransportModelLocked() string {
+	if value := strings.TrimSpace(s.transportModel); value != "" {
+		return value
+	}
+	return s.effectiveModelLocked()
+}
+
+func (s *session) desiredOverrideModelLocked() string {
+	if s.overrideModelSet {
+		return strings.TrimSpace(s.overrideModel)
+	}
+	return s.effectiveModelLocked()
+}
+
+func (s *session) desiredOverrideEffortLocked() string {
+	if s.overrideEffortSet {
+		return strings.TrimSpace(s.overrideEffort)
+	}
+	return strings.TrimSpace(s.config.Effort)
 }
 
 var claudeAllowedModels = []string{
+	"best",
 	"sonnet",
+	"sonnet[1m]",
 	"haiku",
 	"opus",
 	"opus[1m]",
@@ -58,7 +103,7 @@ func (s *session) AllowedModels(context.Context) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	models := append([]string(nil), claudeAllowedModels...)
-	current := strings.TrimSpace(s.model)
+	current := s.effectiveModelLocked()
 	if current == "" || modelAllowed(current, models) {
 		return models, nil
 	}
@@ -73,10 +118,15 @@ func (s *session) ReadConfig(context.Context, string) (dto.ThreadConfig, error) 
 		return dto.ThreadConfig{}, errors.New("claudecli: thread id is required")
 	}
 	return dto.ThreadConfig{
-		ThreadID: threadID,
-		Provider: "claude",
+		ThreadID:               threadID,
+		Provider:               "claude",
+		SupportsThreadOverride: true,
+		Override: dto.ThreadConfigValues{
+			Model:  s.desiredOverrideModelLocked(),
+			Effort: s.desiredOverrideEffortLocked(),
+		},
 		Effective: dto.ThreadConfigValues{
-			Model:     strings.TrimSpace(s.model),
+			Model:     s.effectiveModelLocked(),
 			Effort:    strings.TrimSpace(s.config.Effort),
 			Approvals: strings.TrimSpace(s.config.ApprovalPolicy),
 		},

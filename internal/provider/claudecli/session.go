@@ -17,32 +17,43 @@ import (
 )
 
 type session struct {
-	agentID           string
-	threadID          string
-	publicThreadID    string
-	sessionID         string
-	threadReady       chan struct{}
-	threadReadyOnce   sync.Once
-	transport         *transport
-	caps              dto.CapabilitySet
-	history           *historyBackend
-	logger            *slog.Logger
-	eventDispatcher   *unified.EventDispatcher
-	binaryPath        string
-	cwd               string
-	model             string
-	instructions      string
-	config            cliLaunchConfig
-	rawConfig         map[string]any
-	manifest          dto.MCPManifest
-	cleanup           func()
-	pidRegistry       *pidregistry.Registry
-	restartCancel     context.CancelFunc
-	restartGeneration uint64
-	mu                sync.Mutex
-	activeTurn        *turnHandle
-	activeToolCalls   map[string]string
-	suppressedTurns   map[string]struct{}
+	agentID              string
+	threadID             string
+	publicThreadID       string
+	sessionID            string
+	threadReady          chan struct{}
+	threadReadyOnce      sync.Once
+	transport            *transport
+	caps                 dto.CapabilitySet
+	history              *historyBackend
+	logger               *slog.Logger
+	eventDispatcher      *unified.EventDispatcher
+	binaryPath           string
+	cwd                  string
+	model                string
+	transportModel       string
+	overrideModel        string
+	overrideEffort       string
+	overrideModelSet     bool
+	overrideEffortSet    bool
+	pendingModel         *string
+	pendingEffort        *string
+	configDirty          bool
+	instructions         string
+	config               cliLaunchConfig
+	rawConfig            map[string]any
+	manifest             dto.MCPManifest
+	cleanup              func()
+	pidRegistry          *pidregistry.Registry
+	restartCancel        context.CancelFunc
+	restartGeneration    uint64
+	logWatcher           *sessionLogWatcher
+	logWatcherGen        uint64
+	sessionContextWindow int
+	mu                   sync.Mutex
+	activeTurn           *turnHandle
+	activeToolCalls      map[string]string
+	suppressedTurns      map[string]struct{}
 }
 
 type turnHandle struct {
@@ -225,14 +236,19 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	tr := s.transport
 	cleanup := s.cleanup
 	reg := s.pidRegistry
+	watcher := s.detachLogWatcherLocked()
 	toolEvents := s.takeActiveToolInterruptEventsLocked(turnID, reason)
 	s.restartCancel = nil
 	s.transport = nil
 	s.cleanup = nil
+	s.sessionContextWindow = 0
 	s.activeToolCalls = nil
 	s.mu.Unlock()
 	if restartCancel != nil {
 		restartCancel()
+	}
+	if watcher != nil {
+		watcher.stopAndWait()
 	}
 	cleanupInterruptedTransport(s.logger, reg, tr, cleanup)
 	if handle == nil {
@@ -270,11 +286,16 @@ func (s *session) stop(force bool) error {
 	cleanup := s.cleanup
 	handle := s.takeActiveTurnLocked()
 	reg := s.pidRegistry
+	watcher := s.detachLogWatcherLocked()
 	s.transport = nil
 	s.cleanup = nil
+	s.sessionContextWindow = 0
 	s.activeToolCalls = nil
 	s.mu.Unlock()
 
+	if watcher != nil {
+		watcher.stopAndWait()
+	}
 	unregisterTransportPID(reg, tr)
 	if handle != nil {
 		handle.finish(errors.New("claudecli: session stopped"))
@@ -310,66 +331,137 @@ func (s *session) buildStopEvent(tr *transport, force bool) dto.RawProviderEvent
 	return dto.RawProviderEvent{EventType: eventType, Data: data}
 }
 
+type stagedSessionState struct {
+	model                    string
+	displayModel             string
+	config                   cliLaunchConfig
+	manifest                 dto.MCPManifest
+	settingsChanged          bool
+	appliedPendingModel      bool
+	appliedPendingModelText  string
+	appliedPendingEffort     bool
+	appliedPendingEffortText string
+}
+
 func (s *session) restartIfNeededLocked(ctx context.Context, req dto.TurnRequest) error {
-	needsRestart := !s.transport.readyForSend()
-	prevModel := s.model
-	prevConfig := s.config
-	prevManifest := s.manifest
-	settingsChanged := s.applyTurnSettingsLocked(req)
-	resumeID := s.restartResumeIDLocked()
-	if !settingsChanged && !needsRestart {
-		return s.awaitThreadReadyLocked(ctx)
-	}
-	restartReason := "settings_changed"
-	if needsRestart {
-		restartReason = "transport_unavailable"
-	}
-	if s.logger != nil {
-		s.logger.Warn("claudecli: session restart triggered",
-			"agent_id", s.agentID,
-			"thread_id", s.threadID,
-			"session_id", s.sessionID,
-			"old_model", prevModel,
-			"new_model", s.model,
-			"resume_id", resumeID,
-			"reason", restartReason,
+	for {
+		if ready, _ := s.pendingThreadReadyLocked(); ready != nil && s.transport != nil {
+			if err := s.awaitThreadReadyLocked(ctx); err != nil {
+				return err
+			}
+			continue
+		}
+
+		needsRestart := !s.transport.readyForSend()
+		next := s.stagedTurnSettingsLocked(req)
+		resumeID := s.restartResumeIDLocked()
+		if !next.settingsChanged && !needsRestart {
+			s.consumeNoopPendingLocked(next)
+			return s.awaitThreadReadyLocked(ctx)
+		}
+
+		restartReason := "settings_changed"
+		if needsRestart {
+			restartReason = "transport_unavailable"
+		}
+		if s.logger != nil {
+			s.logger.Warn("claudecli: session restart triggered",
+				"agent_id", s.agentID,
+				"thread_id", s.threadID,
+				"session_id", s.sessionID,
+				"old_model", s.currentTransportModelLocked(),
+				"new_model", next.displayModel,
+				"resume_id", resumeID,
+				"reason", restartReason,
+			)
+		}
+
+		tr, cleanup, err := launchCLI(
+			s.binaryPath,
+			s.cwd,
+			next.model,
+			s.instructions,
+			next.config,
+			next.manifest,
+			resumeID,
 		)
+		if err != nil {
+			return err
+		}
+
+		oldTransport := s.transport
+		oldCleanup := s.cleanup
+		oldWatcher := s.detachLogWatcherLocked()
+		oldReady := s.threadReady
+		oldReadyClosed := readyChannelClosed(oldReady)
+		oldTransportModel := s.transportModel
+		oldContextWindow := s.sessionContextWindow
+		restartCtx, restartGeneration := s.beginRestartWaitLocked(ctx)
+		registerTransportPID(s.pidRegistry, tr, s.agentID)
+		s.resetThreadReadyLocked()
+		if shouldMarkThreadReady(resumeID, s.publicThreadID) {
+			s.markThreadReadyLocked()
+		}
+		s.activeTurn = nil
+		s.activeToolCalls = nil
+		s.suppressedTurns = map[string]struct{}{}
+		s.transport = tr
+		s.cleanup = cleanup
+		s.transportModel = next.displayModel
+		s.sessionContextWindow = 0
+		s.startReadLoop(tr)
+
+		s.mu.Unlock()
+		if oldWatcher != nil {
+			oldWatcher.stopAndWait()
+		}
+		s.mu.Lock()
+
+		err = s.awaitThreadReadyLocked(restartCtx)
+		if err != nil {
+			stagedCurrent := s.transport == tr
+			if stagedCurrent {
+				s.transport = oldTransport
+				s.cleanup = oldCleanup
+				s.transportModel = oldTransportModel
+				s.sessionContextWindow = oldContextWindow
+				if oldReadyClosed {
+					s.resetThreadReadyLocked()
+					s.markThreadReadyLocked()
+				} else {
+					s.threadReady = oldReady
+					s.threadReadyOnce = sync.Once{}
+				}
+			}
+			s.finishRestartWaitLocked(restartGeneration)
+			unregisterTransportPID(s.pidRegistry, tr)
+			go releaseTransport(tr, cleanup)
+			if !stagedCurrent && (oldTransport != nil || oldCleanup != nil) {
+				unregisterTransportPID(s.pidRegistry, oldTransport)
+				go releaseTransport(oldTransport, oldCleanup)
+			}
+			return err
+		}
+
+		s.model = next.model
+		s.config = next.config
+		s.manifest = next.manifest
+		if next.appliedPendingModel && s.pendingModel != nil && strings.TrimSpace(*s.pendingModel) == next.appliedPendingModelText {
+			s.pendingModel = nil
+		}
+		if next.appliedPendingEffort && s.pendingEffort != nil && strings.TrimSpace(*s.pendingEffort) == next.appliedPendingEffortText {
+			s.pendingEffort = nil
+		}
+		s.configDirty = s.pendingModel != nil || s.pendingEffort != nil
+		s.transportModel = next.displayModel
+		s.finishRestartWaitLocked(restartGeneration)
+
+		unregisterTransportPID(s.pidRegistry, oldTransport)
+		if oldTransport != nil || oldCleanup != nil {
+			go releaseTransport(oldTransport, oldCleanup)
+		}
+		return nil
 	}
-	oldTransport := s.transport
-	oldCleanup := s.cleanup
-	tr, cleanup, err := launchCLI(
-		s.binaryPath,
-		s.cwd,
-		s.model,
-		s.instructions,
-		s.config,
-		s.manifest,
-		resumeID,
-	)
-	if err != nil {
-		s.model = prevModel
-		s.config = prevConfig
-		s.manifest = prevManifest
-		return err
-	}
-	restartCtx, restartGeneration := s.beginRestartWaitLocked(ctx)
-	defer s.finishRestartWaitLocked(restartGeneration)
-	unregisterTransportPID(s.pidRegistry, oldTransport)
-	registerTransportPID(s.pidRegistry, tr, s.agentID)
-	s.resetThreadReadyLocked()
-	if shouldMarkThreadReady(resumeID, s.publicThreadID) {
-		s.markThreadReadyLocked()
-	}
-	s.activeTurn = nil
-	s.activeToolCalls = nil
-	s.suppressedTurns = map[string]struct{}{}
-	s.transport = tr
-	s.cleanup = cleanup
-	s.startReadLoop(tr)
-	if oldTransport != nil || oldCleanup != nil {
-		go releaseTransport(oldTransport, oldCleanup)
-	}
-	return s.awaitThreadReadyLocked(restartCtx)
 }
 
 func (s *session) restartResumeIDLocked() string {
@@ -382,23 +474,69 @@ func (s *session) restartResumeIDLocked() string {
 	return resumeID
 }
 
-func (s *session) applyTurnSettingsLocked(req dto.TurnRequest) bool {
-	changed := updateString(&s.model, req.Overrides.Model)
-	changed = updateString(&s.config.Effort, req.Overrides.Effort) || changed
-	if !manifestChanged(req.MCP, s.manifest) {
-		return changed
+func (s *session) stagedTurnSettingsLocked(req dto.TurnRequest) stagedSessionState {
+	next := stagedSessionState{
+		model:        strings.TrimSpace(s.model),
+		config:       s.config,
+		manifest:     s.manifest,
+		displayModel: claudeLaunchDisplayModel(s.model, s.history),
 	}
-	s.manifest = req.MCP
-	return true
+	if s.pendingModel != nil {
+		next.appliedPendingModel = true
+		next.appliedPendingModelText = strings.TrimSpace(*s.pendingModel)
+		if next.model != next.appliedPendingModelText {
+			next.settingsChanged = true
+		}
+		next.model = next.appliedPendingModelText
+	}
+	if s.pendingEffort != nil {
+		next.appliedPendingEffort = true
+		next.appliedPendingEffortText = strings.TrimSpace(*s.pendingEffort)
+		if strings.TrimSpace(next.config.Effort) != next.appliedPendingEffortText {
+			next.settingsChanged = true
+		}
+		next.config.Effort = next.appliedPendingEffortText
+	}
+	if value := strings.TrimSpace(req.Overrides.Model); value != "" {
+		if next.model != value {
+			next.settingsChanged = true
+		}
+		next.model = value
+	}
+	if value := strings.TrimSpace(req.Overrides.Effort); value != "" {
+		if strings.TrimSpace(next.config.Effort) != value {
+			next.settingsChanged = true
+		}
+		next.config.Effort = value
+	}
+	if manifestChanged(req.MCP, s.manifest) {
+		next.manifest = req.MCP
+		next.settingsChanged = true
+	}
+	next.displayModel = claudeLaunchDisplayModel(next.model, s.history)
+	return next
 }
 
-func updateString(dst *string, value string) bool {
-	value = strings.TrimSpace(value)
-	if value == "" || value == *dst {
+func (s *session) consumeNoopPendingLocked(next stagedSessionState) {
+	if next.appliedPendingModel && s.pendingModel != nil && strings.TrimSpace(*s.pendingModel) == strings.TrimSpace(s.model) {
+		s.pendingModel = nil
+	}
+	if next.appliedPendingEffort && s.pendingEffort != nil && strings.TrimSpace(*s.pendingEffort) == strings.TrimSpace(s.config.Effort) {
+		s.pendingEffort = nil
+	}
+	s.configDirty = s.pendingModel != nil || s.pendingEffort != nil
+}
+
+func readyChannelClosed(ch chan struct{}) bool {
+	if ch == nil {
 		return false
 	}
-	*dst = value
-	return true
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }
 
 func manifestChanged(next, current dto.MCPManifest) bool {

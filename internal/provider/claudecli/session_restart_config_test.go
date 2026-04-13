@@ -1,0 +1,114 @@
+package claudecli
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+)
+
+func TestRestartIfNeededLockedCommitsPendingConfigAfterReady(t *testing.T) {
+	next := newScriptedTransport()
+	defer next.finish()
+	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		return next.tr, nil, nil
+	})
+
+	pendingModel := "sonnet[1m]"
+	pendingEffort := "max"
+	oldReady := make(chan struct{})
+	close(oldReady)
+	s := &session{
+		threadID:        "pending",
+		sessionID:       "pending",
+		threadReady:     oldReady,
+		transport:       closedTransport(),
+		model:           "opus",
+		transportModel:  "opus",
+		config:          cliLaunchConfig{Effort: "high"},
+		pendingModel:    &pendingModel,
+		pendingEffort:   &pendingEffort,
+		configDirty:     true,
+		suppressedTurns: map[string]struct{}{},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		s.mu.Lock()
+		err := s.restartIfNeededLocked(ctx, dto.TurnRequest{})
+		s.mu.Unlock()
+		result <- err
+	}()
+
+	_ = waitForReadySwap(t, s, oldReady)
+	if s.model != "opus" || s.config.Effort != "high" {
+		t.Fatalf("live state mutated before ready: model=%q effort=%q", s.model, s.config.Effort)
+	}
+	if s.pendingModel == nil || *s.pendingModel != pendingModel || s.pendingEffort == nil || *s.pendingEffort != pendingEffort {
+		t.Fatalf("pending state lost before ready: %#v", s)
+	}
+
+	next.emitSystemInit(t, "thread-1")
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("restartIfNeededLocked() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("restartIfNeededLocked() did not return after ready")
+	}
+	if s.model != pendingModel || s.config.Effort != pendingEffort {
+		t.Fatalf("live state after commit = model:%q effort:%q, want %q/%q", s.model, s.config.Effort, pendingModel, pendingEffort)
+	}
+	if s.pendingModel != nil || s.pendingEffort != nil || s.configDirty {
+		t.Fatalf("pending state not cleared after commit: %#v", s)
+	}
+}
+
+func TestRestartIfNeededLockedPreservesPendingConfigOnWaitError(t *testing.T) {
+	next := newScriptedTransport()
+	defer next.finish()
+	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		return next.tr, nil, nil
+	})
+
+	pendingModel := "sonnet"
+	pendingEffort := "high"
+	old := newBufferedTransport(t, "thread-1")
+	oldReady := make(chan struct{})
+	close(oldReady)
+	s := &session{
+		threadID:        "pending",
+		sessionID:       "pending",
+		threadReady:     oldReady,
+		transport:       old.tr,
+		model:           "opus",
+		transportModel:  "opus",
+		config:          cliLaunchConfig{Effort: "low"},
+		pendingModel:    &pendingModel,
+		pendingEffort:   &pendingEffort,
+		configDirty:     true,
+		suppressedTurns: map[string]struct{}{},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+
+	s.mu.Lock()
+	err := s.restartIfNeededLocked(ctx, dto.TurnRequest{})
+	s.mu.Unlock()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("restartIfNeededLocked() error = %v, want context deadline exceeded", err)
+	}
+	if s.transport != old.tr {
+		t.Fatal("old transport was not restored after restart wait failure")
+	}
+	if s.model != "opus" || s.config.Effort != "low" {
+		t.Fatalf("live state changed on failed restart: model=%q effort=%q", s.model, s.config.Effort)
+	}
+	if s.pendingModel == nil || *s.pendingModel != pendingModel || s.pendingEffort == nil || *s.pendingEffort != pendingEffort || !s.configDirty {
+		t.Fatalf("pending state lost on failed restart: %#v", s)
+	}
+}

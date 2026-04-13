@@ -1,4 +1,4 @@
-import { watch, nextTick, onMounted, onUpdated, onBeforeUnmount } from '../../lib/vue.esm-browser.prod.js';
+import { computed, watch, nextTick, onMounted, onUpdated, onBeforeUnmount } from '../../lib/vue.esm-browser.prod.js';
 import { logDebug } from '../services/log.js';
 import { useComposerDragDrop } from '../composables/useComposerDragDrop.js';
 import { useComposerInterrupt } from '../composables/useComposerInterrupt.js';
@@ -31,6 +31,8 @@ export const ComposerBar = {
     threadConfigDraftEffort: { type: String, default: '' },
     threadConfigLoading: { type: Boolean, default: false },
     threadConfigSaving: { type: Boolean, default: false },
+    threadConfigNotice: { type: String, default: '' },
+    threadConfigNoticeLevel: { type: String, default: 'info' },
     threadConfigMeta: { type: Object, default: () => ({ override: {}, effective: {} }) },
   },
   emits: [
@@ -50,6 +52,23 @@ export const ComposerBar = {
     const { resetDropState, bindNativeFileDrop, unbindNativeFileDrop } = dragDrop;
     const threadConfig = useComposerThreadConfig(props, emit);
     const { onThreadConfigClickOutside } = threadConfig;
+    const threadConfigInlineNotice = computed(() => {
+      if (!threadConfig.threadConfigVisible.value || !threadConfig.threadConfigEditable.value) {
+        return '';
+      }
+      const explicitNotice = (props.threadConfigNotice || '').toString().trim();
+      return explicitNotice || '下次发送生效';
+    });
+    const threadConfigInlineNoticeColor = computed(() => {
+      const hasExplicitNotice = Boolean((props.threadConfigNotice || '').toString().trim());
+      if (!hasExplicitNotice) {
+        return 'var(--text-muted)';
+      }
+      const level = (props.threadConfigNoticeLevel || 'info').toString().trim().toLowerCase();
+      if (level === 'error') return 'var(--error, #f87171)';
+      if (level === 'warning') return 'var(--warning, #fbbf24)';
+      return 'var(--info, #60a5fa)';
+    });
     function hasReadyInput() {
       return props.composer.canSend.value;
     }
@@ -237,6 +256,8 @@ export const ComposerBar = {
       onToggleSkill,
       onSelectAllSkills,
       onClearSkills,
+      threadConfigInlineNotice,
+      threadConfigInlineNoticeColor,
 
       ...interrupt,
       ...dragDrop,
@@ -424,6 +445,14 @@ export const ComposerBar = {
                   替换：继承全局
                 </button>
               </div>
+            </div>
+            <div
+              v-if="threadConfigInlineNotice"
+              class="composer-thread-config-notice"
+              :title="threadConfigInlineNotice"
+              :style="{ fontSize: '11px', lineHeight: '1.35', minHeight: '16px', textAlign: 'right', color: threadConfigInlineNoticeColor }"
+            >
+              {{ threadConfigInlineNotice }}
             </div>
           </div>
         </div>

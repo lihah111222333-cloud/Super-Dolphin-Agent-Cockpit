@@ -278,7 +278,7 @@ func normalizeThreadConfigPatch(
 			return dto.ThreadConfigPatch{}, err
 		}
 	}
-	if err := validateThreadConfigEffort(threadConfigPatchValue(patch.Effort)); err != nil {
+	if err := validateThreadConfigEffort(provider, threadConfigPatchValue(patch.Effort)); err != nil {
 		return dto.ThreadConfigPatch{}, err
 	}
 	return patch, nil
@@ -307,11 +307,14 @@ func ensureAllowedModel(
 			errRuntimeModelSwitchUnsupported,
 		)
 	}
-	if len(allowed) == 0 {
-		return errors.New("provider model catalog is empty")
-	}
 	if modelAllowed(model, allowed) {
 		return nil
+	}
+	if providerAllowsUnlistedThreadConfigModel(provider) {
+		return nil
+	}
+	if len(allowed) == 0 {
+		return errors.New("provider model catalog is empty")
 	}
 	return fmt.Errorf("model %q is not supported by active provider", model)
 }
@@ -323,6 +326,14 @@ func modelAllowed(model string, allowed []string) bool {
 		}
 	}
 	return false
+}
+
+func providerAllowsUnlistedThreadConfigModel(provider string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), "claude")
+}
+
+func providerAllowsMaxThreadConfigEffort(provider string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), "claude")
 }
 
 func (s *service) storedThreadModel(ctx context.Context, threadID string) string {
@@ -347,13 +358,16 @@ func validateModelName(value string) (string, error) {
 	return model, nil
 }
 
-func validateThreadConfigEffort(value string) error {
+func validateThreadConfigEffort(provider, value string) error {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "none", "minimal", "low", "medium", "high", "xhigh":
 		return nil
-	default:
-		return fmt.Errorf("invalid effort %q", value)
+	case "max":
+		if providerAllowsMaxThreadConfigEffort(provider) {
+			return nil
+		}
 	}
+	return fmt.Errorf("invalid effort %q", value)
 }
 
 func isModelRuneAllowed(r rune) bool {
@@ -365,6 +379,6 @@ func isModelRuneAllowed(r rune) bool {
 	case r >= '0' && r <= '9':
 		return true
 	default:
-		return strings.ContainsRune("._:/@+-", r)
+		return strings.ContainsRune("._:/@+-[]", r)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,7 +48,7 @@ func (s *session) rawBaseLocked() rawBase {
 		SessionID: s.sessionID,
 		TurnID:    currentTurnID(s.activeTurn),
 		CWD:       s.cwd,
-		Model:     s.model,
+		Model:     s.currentTransportModelLocked(),
 	}
 }
 
@@ -120,9 +121,17 @@ func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 	if raw.EventType != "system:init" {
 		return
 	}
+	if contextWindow, ok := dataInt(raw.Data, "context_window", "contextWindow", "context_window_tokens", "contextWindowTokens"); ok {
+		s.setContextWindowForTransport(tr, contextWindow)
+	}
 	resolvedID := dataString(raw.Data, "session_id", "thread_id")
 	prevID := s.ThreadID()
 	s.setResolvedThreadIDForTransport(tr, resolvedID)
+	if s.isCurrentTransport(tr) {
+		shared.SafeGo(s.logger, func() {
+			s.startLogWatcherIfCurrent(tr)
+		})
+	}
 	if newID := s.ThreadID(); newID != prevID && newID != "" {
 		s.dispatch(dto.RawProviderEvent{
 			EventType: "agent:launched",
@@ -131,7 +140,7 @@ func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 				"thread_id":  s.EventThreadID(),
 				"session_id": newID,
 				"cwd":        s.cwd,
-				"model":      s.model,
+				"model":      s.currentTransportModel(),
 			},
 		})
 	}
@@ -393,4 +402,29 @@ func dataBool(data any, key string) bool {
 	m, _ := data.(map[string]any)
 	value, _ := m[key].(bool)
 	return value
+}
+
+func dataInt(data any, keys ...string) (int, bool) {
+	m, _ := data.(map[string]any)
+	for _, key := range keys {
+		value, ok := m[key]
+		if !ok {
+			continue
+		}
+		switch typed := value.(type) {
+		case float64:
+			return int(typed), true
+		case int:
+			return typed, true
+		case int64:
+			return int(typed), true
+		case json.Number:
+			parsed, err := typed.Int64()
+			return int(parsed), err == nil
+		case string:
+			parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+			return parsed, err == nil
+		}
+	}
+	return 0, false
 }

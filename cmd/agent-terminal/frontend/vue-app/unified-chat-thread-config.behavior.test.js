@@ -310,7 +310,7 @@ describe('UnifiedChatPage thread config behavior', () => {
 
 	expect(setThreadConfig).toHaveBeenNthCalledWith(1, 'thread-a', { model: 'gpt-5.2', effort: 'high' });
 	expect(getThreadConfig).toHaveBeenCalledTimes(1);
-	expect(vm.threadConfigUi.notice).toContain('已保存');
+	expect(vm.threadConfigUi.notice).toContain('下次发送生效');
 	expect(vm.threadConfigUi.meta.override.model).toBe('gpt-5.2');
 	expect(vm.threadConfigUi.meta.effective.effort).toBe('high');
 
