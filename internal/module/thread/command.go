@@ -198,7 +198,12 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
-		return dto.ThreadConfig{}, err
+		if !errors.Is(err, contract.ErrSessionNotFound) {
+			return dto.ThreadConfig{}, err
+		}
+		// Offline fallback: session not active (e.g. after restart).
+		// Persist the override so it takes effect on next resume.
+		return s.setConfigOffline(ctx, threadID, binding, patch)
 	}
 	provider := bindingProvider(binding)
 	patch, err = normalizeThreadConfigPatch(ctx, session, provider, patch)
@@ -218,8 +223,43 @@ func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.Thre
 	if err != nil {
 		return dto.ThreadConfig{}, err
 	}
+	s.logConfigPatchApplied("thread/config/set", threadID, provider, patch)
 	s.emitThreadModelUpdated(threadID, patch.Model)
 	return applyThreadConfigReturnPatch(cfg, patch), nil
+}
+
+// setConfigOffline persists a thread config patch when no live session is
+// available. Validation is limited to what can be checked without a session
+// (model name format and effort range). The persisted values will be picked
+// up by hydrateResumeSessionRequest when the session next starts.
+func (s *service) setConfigOffline(
+	ctx context.Context,
+	threadID string,
+	binding *bindingstore.Binding,
+	patch dto.ThreadConfigPatch,
+) (dto.ThreadConfig, error) {
+	provider := bindingProvider(binding)
+	patch, err := normalizeThreadConfigPatchOffline(provider, patch)
+	if err != nil {
+		return dto.ThreadConfig{}, err
+	}
+	if threadConfigPatchNoop(patch) {
+		offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
+		if offlineErr != nil {
+			return dto.ThreadConfig{}, offlineErr
+		}
+		return offline.Config, nil
+	}
+	if err := s.persistThreadConfig(ctx, threadID, patch, dto.ThreadConfig{}); err != nil {
+		return dto.ThreadConfig{}, err
+	}
+	offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
+	if offlineErr != nil {
+		return dto.ThreadConfig{}, offlineErr
+	}
+	s.logConfigPatchApplied("thread/config/set (offline)", threadID, provider, patch)
+	s.emitThreadModelUpdated(threadID, patch.Model)
+	return applyThreadConfigReturnPatch(offline.Config, patch), nil
 }
 
 func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.ThreadConfig, error) {
@@ -277,6 +317,31 @@ func normalizeThreadConfigPatch(
 		if err := ensureAllowedModel(ctx, session, validated, provider); err != nil {
 			return dto.ThreadConfigPatch{}, err
 		}
+	}
+	if err := validateThreadConfigEffort(provider, threadConfigPatchValue(patch.Effort)); err != nil {
+		return dto.ThreadConfigPatch{}, err
+	}
+	return patch, nil
+}
+
+// normalizeThreadConfigPatchOffline validates a thread config patch without
+// an active session. Model name format and effort range are checked, but
+// session-scoped model whitelist validation is skipped because we cannot
+// query the provider's allowed model catalog offline.
+func normalizeThreadConfigPatchOffline(
+	provider string,
+	patch dto.ThreadConfigPatch,
+) (dto.ThreadConfigPatch, error) {
+	patch.Model = trimThreadConfigPatchValue(patch.Model)
+	patch.Effort = trimThreadConfigPatchValue(patch.Effort)
+	patch.Personality = trimThreadConfigPatchValue(patch.Personality)
+	patch.Approvals = trimThreadConfigPatchValue(patch.Approvals)
+	if model := threadConfigPatchValue(patch.Model); model != "" {
+		validated, err := validateModelName(model)
+		if err != nil {
+			return dto.ThreadConfigPatch{}, err
+		}
+		patch.Model = &validated
 	}
 	if err := validateThreadConfigEffort(provider, threadConfigPatchValue(patch.Effort)); err != nil {
 		return dto.ThreadConfigPatch{}, err
@@ -381,4 +446,27 @@ func isModelRuneAllowed(r rune) bool {
 	default:
 		return strings.ContainsRune("._:/@+-[]", r)
 	}
+}
+
+func (s *service) logConfigPatchApplied(op, threadID, provider string, patch dto.ThreadConfigPatch) {
+	if s.logger == nil {
+		return
+	}
+	attrs := []any{
+		"thread_id", threadID,
+		"provider", provider,
+	}
+	if patch.Model != nil {
+		attrs = append(attrs, "model", *patch.Model)
+	}
+	if patch.Effort != nil {
+		attrs = append(attrs, "effort", *patch.Effort)
+	}
+	if patch.Personality != nil {
+		attrs = append(attrs, "personality", *patch.Personality)
+	}
+	if patch.Approvals != nil {
+		attrs = append(attrs, "approvals", *patch.Approvals)
+	}
+	s.logger.Info(op+": config patch applied", attrs...)
 }

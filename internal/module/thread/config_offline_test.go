@@ -327,3 +327,107 @@ func TestBuildOfflineRuntimeConfigIncludesModel(t *testing.T) {
 		t.Fatalf("runtime model = %#v, want %q", model, "claude-sonnet-4-20250514")
 	}
 }
+
+func TestSetConfigFallsBackToOfflinePersistWithoutSession(t *testing.T) {
+	t.Parallel()
+
+	model := "gpt-5.5"
+	effort := "high"
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		Model:     "o4-mini",
+		Cwd:       "/tmp/demo",
+		Status:    statusCreated,
+		CreatedAt: 100,
+		UpdatedAt: 100,
+	}}
+	// No session — stubSessionProvider with nil session returns ErrSessionNotFound.
+	svc, ok := NewService(
+		silentLogger(),
+		threads,
+		&stubBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "thread-1",
+			CodexThreadID:    "thread-1",
+		}},
+		&stubSessionProvider{},
+		nil,
+		nil,
+		nil,
+		nil,
+	).(*service)
+	if !ok {
+		t.Fatal("NewService() type assertion failed")
+	}
+
+	// SetConfig should succeed despite no session.
+	got, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{
+		Model:  &model,
+		Effort: &effort,
+	})
+	if err != nil {
+		t.Fatalf("SetConfig() error = %v, want nil (offline fallback)", err)
+	}
+	if got.Override.Model != model {
+		t.Fatalf("Override.Model = %q, want %q", got.Override.Model, model)
+	}
+	if got.Override.Effort != effort {
+		t.Fatalf("Override.Effort = %q, want %q", got.Override.Effort, effort)
+	}
+	// Verify persisted.
+	stored := decodeStoredThreadConfig(threads.thread.ConfigOverride)
+	if stored.Model != model || stored.Effort != effort {
+		t.Fatalf("stored override = %#v, want model=%q effort=%q", stored, model, effort)
+	}
+	if threads.thread.Model != model {
+		t.Fatalf("stored thread model = %q, want %q", threads.thread.Model, model)
+	}
+	// Verify readback via GetConfig (also offline) returns correct values.
+	offlineCfg, err := svc.GetConfig(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatalf("GetConfig() offline error = %v", err)
+	}
+	if offlineCfg.Override.Model != model || offlineCfg.Override.Effort != effort {
+		t.Fatalf("offline readback = %#v", offlineCfg)
+	}
+}
+
+func TestSetConfigOfflineRejectsInvalidEffort(t *testing.T) {
+	t.Parallel()
+
+	effort := "turbo"
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		Model:     "o4-mini",
+		Status:    statusCreated,
+		CreatedAt: 100,
+		UpdatedAt: 100,
+	}}
+	svc, ok := NewService(
+		silentLogger(),
+		threads,
+		&stubBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "thread-1",
+			CodexThreadID:    "thread-1",
+		}},
+		&stubSessionProvider{},
+		nil,
+		nil,
+		nil,
+		nil,
+	).(*service)
+	if !ok {
+		t.Fatal("NewService() type assertion failed")
+	}
+
+	_, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{
+		Effort: &effort,
+	})
+	if err == nil {
+		t.Fatal("SetConfig() error = nil, want invalid effort error")
+	}
+}
+
