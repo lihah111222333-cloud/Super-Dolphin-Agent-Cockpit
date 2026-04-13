@@ -30,10 +30,15 @@
 - memory_forget：删除后索引同步更新
 - 缓存失效：clear 后 section 重算
 - Phase 4.5 回归测试：
+  - PromptAssembly 契约存在：`AssemblyService` / `StartInput` / `TurnInput` / `PromptAssemblySnapshot`
+  - provider-specific 启动链：codex thread/start 收到 `baseInstructions + developerInstructions`；claude launch 收到完整 `--system-prompt`
+  - provider-specific turn 链：codex turn/start 收到前置 synthetic input；claude turn 在 `prepareTurnLocked()` 前缀注入 UserContext
   - BaseInstructions 不污染 thread name/store/resume/Fork/Recover/toRef/SetName
   - Provider 切换（codex→claude + claude→codex 双向）时 section cache 清空
   - 子 Agent 调用 AssembleStart() 且产物传到子 agent，不走旧折叠路径
   - legacy prompt 只喂给 BaseInstructions，不重新污染 Prompt/launch name
+  - `binding` / `rpc_types` / `service_handlers` / `resume` / `fork` / `recover` / `toRef` 回归覆盖
+  - Claude Restart/Recovery 从 `PromptAssemblySnapshot` 恢复的回归用例
 - rollout flags / kill switch：关闭后停止新 memory 写入与 prompt 注入，但不影响既有 `shared_files` 协作链路
 - 可观测性：`memory_write/search/forget` 与 prompt cache invalidate 日志包含 `provider/threadID/reason/scope/result`
 - 迁移脚本幂等性：重跑不重复造 memory
@@ -72,9 +77,9 @@ func TestPromptContainsKeyRules(t *testing.T) {
 ## 验证命令
 
 ```bash
-go build ./internal/module/memory/... ./internal/module/prompt/...
-go vet ./internal/module/memory/... ./internal/module/prompt/...
-go test ./internal/module/memory/... ./internal/module/prompt/...
+go build ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/... ./internal/provider/codexapp/... ./internal/provider/claudecli/...
+go vet ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/...
+go test ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/... ./internal/provider/codexapp/... ./internal/provider/claudecli/...
 go test -run TestCodeSizeGuard ./internal/archtest/...
 ```
 

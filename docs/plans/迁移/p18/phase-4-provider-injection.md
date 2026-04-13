@@ -49,11 +49,15 @@ PromptContext.BuildUserContext()     →  前置 synthetic 输入
 2. User CLAUDE.md + rules
 3. Project CLAUDE.md / .claude/CLAUDE.md / .claude/rules
 4. Local CLAUDE.local.md
-5. AutoMem MEMORY.md 入口文件（受 filter 影响）
+5. AutoMem MEMORY.md 入口文件（受 `filterInjectedMemoryFiles()` 过滤语义影响）
+6. 若未来恢复 Team Memory，还包含 team memory 注入片段；源码会以 `team-memory-content` 包装，但 **P18 本轮不实现该分支**
 
-包装格式：`Contents of {path}: ...`（不是裸拼接）
+包装语义：
+- 普通注入文件使用 `Contents of {path}: ...` 形式，不是裸拼接
+- `getClaudeMds()` / filter 链会先做注入文件筛选，再做最终包装
 
 > **来源**：`restored-src/src/context.ts:155-189`
+> **来源**：`restored-src/src/utils/claudemd.ts:1142-1195`
 
 ## System Context 内容
 
