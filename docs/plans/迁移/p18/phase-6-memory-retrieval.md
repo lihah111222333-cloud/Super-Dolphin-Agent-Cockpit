@@ -26,12 +26,14 @@
 
 ## Manifest 构建
 
-```
-scanMemoryFiles(memoryDir)
-  → 递归扫描 .md 文件
-  → 排除 MEMORY.md
-  → 每个文件只读前 30 行（FRONTMATTER_MAX_LINES）
-  → 解析 frontmatter: type / description
+```text
+memory_write / memory_forget / migrate
+  → 维护 retrieval sidecar（manifest.jsonl / sqlite / boltdb，三选一）
+turn prefetch
+  → 优先读取 sidecar header
+  → sidecar 缺失/损坏时才 repair scan .md 文件
+  → repair 后回写 sidecar
+  → 每个 header 只保留 type / description / lang / aliases / search_keys / mtimeMs / bytes / priority
   → 按 mtimeMs 倒序
   → 保留最新 200 个 header（MAX_MEMORY_FILES）
   → 格式化: "- [type] relative/path (ISO时间戳): description"
@@ -43,14 +45,15 @@ scanMemoryFiles(memoryDir)
 ## 选择逻辑
 
 1. `alreadySurfaced` **selector 前**先过滤，避免浪费名额
-2. 用 Sonnet `sideQuery()` + manifest 选择相关文件
-3. 每个目录由 prompt 建议"up to 5"（软约束），合并后 **全局 `.slice(0, 5)`**（硬约束）
-4. 只返回 **filename**，再由 `byFilename` 映射成绝对路径 + mtimeMs
-5. 没有明显相关 → 允许返回空数组
-6. Recent successful tools 会压低工具 reference/API docs 误召回
-7. 模型输出后再做 manifest 白名单过滤
-8. 若用户 `@` 提及带 memory 的 agent，切到该 agent 的 memory dir 检索（而非 AutoMem 根目录）
-9. 支持**多目录并行召回** `Promise.all(dirs.map(...))`
+2. 先做本地 cheap prefilter（basename/title/description/aliases/search_keys 的关键词 / trigram / BM25）缩到 Top 20
+3. 仅在低置信度时再发 Sonnet `sideQuery()`；高置信度命中可直接用本地排序结果
+4. 每个目录由 prompt 建议“up to 5”（软约束），合并后 **全局 `.slice(0, 5)`**（硬约束）
+5. 只返回 **filename**，再由 `byFilename` 映射成绝对路径 + mtimeMs
+6. 没有明显相关 → 允许返回空数组
+7. Recent successful tools 会压低工具 reference/API docs 误召回
+8. 模型输出后再做 manifest 白名单过滤
+9. 若用户 `@` 提及带 memory 的 agent，切到该 agent 的 memory dir 检索（而非 AutoMem 根目录）
+10. 多目录检索使用 **bounded worker pool**；`continue/继续/expand` 类 turn 优先复用上轮结果
 
 > **来源**：`restored-src/src/memdir/findRelevantMemories.ts:39-141`
 
@@ -59,6 +62,7 @@ scanMemoryFiles(memoryDir)
 - `memory/selector.go` 提供 provider-neutral `RelevantMemorySelector` 接口，统一封装 side-query
 - selector 只接收 manifest + 最后一条 user 输入 + recent successful tools 摘要，不直接依赖 provider DTO
 - 默认超时 **3s**、单轮只发一次 side-query；超时/预算不足直接 fail-soft 返回空
+- 增加 query cache：`normalizedUserText + manifestVersion + provider + recentToolSignature`
 - codex / claude 共用同一 selector 服务，provider 差异只体现在底层 query client 适配
 
 ## 三段式去重（交叉审查修订 Agent 5）
@@ -97,10 +101,11 @@ scanMemoryFiles(memoryDir)
 
 ## 任务清单
 - [ ] `memory/retrieval.go`：StartRelevantMemoryPrefetch / ConsumeIfReady
-- [ ] `memory/scan.go`：ScanMemoryFiles / FormatManifest
-- [ ] `memory/selector.go`：SelectRelevantMemories（provider-neutral side-query）
+- [ ] `memory/scan.go`：RepairScanMemoryFiles / BuildOrLoadManifest
+- [ ] `memory/selector.go`：SelectRelevantMemories（cheap prefilter + provider-neutral side-query）
+- [ ] `memory/manifest.go`：sidecar manifest 更新与版本管理
 - [ ] 集成到 turn 执行链路
-- [ ] 去重 + 截断 + fail-soft
+- [ ] 去重 + 截断 + fail-soft + query cache
 
 ## 验收
 - 异步预取不阻塞 turn

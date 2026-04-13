@@ -1,23 +1,26 @@
 # P18 审查汇总
 
-> 30 agent 多轮交叉审查结果 | 2026-04-14
+> 30 个 agent 多轮交叉审查结果 | 2026-04-14
+> 当前 authoritative source：第 13 轮“收官统一复核”；第 10 轮为首次整体通过，第 13 轮为最新收官结论。
 
-## 审查矩阵
+## 审查矩阵（首批专项审查 10 agent）
+
+> 该矩阵只覆盖首批 1-10 号专项审查；第 7-13 轮综合收敛结果见下文。
 
 | # | Agent | 范围 | 结论 | 已合并到 |
 |---|-------|------|------|---------|
-| 1 | p18-review-1-memory-modes | 三种运行模式 | ⚠️ | Phase 2 |
-| 2 | p18-review-2-memory-types | 四种记忆类型 | ⚠️ | Phase 0,1,2 |
-| 3 | p18-review-3-memory-storage | 记忆存储层 | ⚠️ | Phase 1 |
-| 4 | p18-review-4-memory-retrieval | 记忆检索 | ⚠️ | Phase 6 |
-| 5 | p18-review-5-static-sections | 静态 Sections | ⚠️ | Phase 3 |
-| 6 | p18-review-6-dynamic-sections | 动态 Sections | ⚠️ | Phase 3, README |
-| 7 | p18-review-7-injection-pipeline | 注入管线 | ⚠️ | Phase 4 |
-| 8 | p18-review-8-agent-memory | Agent 记忆 | ⚠️ | Phase 5 |
-| 9 | p18-review-9-cache-boundary | 缓存策略 | ⚠️ | Phase 3, README |
-| 10 | p18-review-10-source-refs | 源码锚点 | ✅ | source-refs-appendix |
+| 1 | p18-review-1-memory-modes | 三种运行模式 | ⚠️ | [Phase 2](phase-2-memory-prompt-rules.md) |
+| 2 | p18-review-2-memory-types | 四种记忆类型 | ⚠️ | [Phase 0](phase-0-infrastructure.md), [Phase 1](phase-1-memory-storage.md), [Phase 2](phase-2-memory-prompt-rules.md) |
+| 3 | p18-review-3-memory-storage | 记忆存储层 | ⚠️ | [Phase 1](phase-1-memory-storage.md) |
+| 4 | p18-review-4-memory-retrieval | 记忆检索 | ⚠️ | [Phase 6](phase-6-memory-retrieval.md) |
+| 5 | p18-review-5-static-sections | 静态 Sections | ⚠️ | [Phase 3](phase-3-prompt-registry.md) |
+| 6 | p18-review-6-dynamic-sections | 动态 Sections | ⚠️ | [Phase 3](phase-3-prompt-registry.md), [README](README.md) |
+| 7 | p18-review-7-injection-pipeline | 注入管线 | ⚠️ | [Phase 4](phase-4-provider-injection.md) |
+| 8 | p18-review-8-agent-memory | Agent 记忆 | ⚠️ | [Phase 5](phase-5-agent-memory.md) |
+| 9 | p18-review-9-cache-boundary | 缓存策略 | ⚠️ | [Phase 3](phase-3-prompt-registry.md), [README](README.md) |
+| 10 | p18-review-10-source-refs | 源码锚点 | ✅ | [source-refs-appendix.md](source-refs-appendix.md) |
 
-## 关键修订清单
+## 截至第 13 轮已修订清单
 
 ### 已修订 ✅
 1. MemoryEntry 区分 frontmatter 持久化字段 vs 运行时元数据（Agent 2）
@@ -45,7 +48,7 @@
 23. nested_memory 排期到 P19（Agent 4）
 24. 全量源码锚点附录（Agent 10）
 
-## 第 7 轮：Claude/Codex 归一审查（30 agent）
+## 第 7 轮：Claude/Codex 归一审查（30 个 agent）
 
 ### 关键发现
 - Prompt/BaseInstructions 语义污染需先解耦（方案 C：Name 贯通 lifecycle）
@@ -59,7 +62,7 @@
 
 ### 综合评分：7.5/10 → 需拆独立 Phase
 
-## 第 8+9 轮：多维度深度审查（30 agent × 2）
+## 第 8+9 轮：多维度深度审查（30 个 agent × 2）
 
 ### 审查维度
 安全 / 性能 / 一致性 / 可测试性 / 向后兼容 / 仓库契约 / 错误处理 / 并发安全 / 迁移回滚 / 可观测性 / 用户体验 / 文档质量 / 国际化 / 磁盘IO / fx集成 / 并行可行性 / 代码规模 / V2 parity
@@ -75,7 +78,7 @@
 
 ### 综合评分：8.9/10 → 通过
 
-## 第 10 轮：最终多视角收敛审查（30 agent）
+## 第 10 轮：最终多视角收敛审查（30 个 agent）
 
 ### 关键结论
 - 文档总体已达到实施门槛，可进入开发（最终压轴终评通过）
@@ -92,7 +95,7 @@
 
 ### 综合评分：9.0/10 → 文档通过，可进入实施
 
-## 第 11 轮：交叉终评收敛（30 agent）
+## 第 11 轮：交叉终评收敛（30 个 agent）
 
 ### 关键修订
 - Phase 4 补全 claudeMd 来源：补 `filterInjectedMemoryFiles()` 过滤语义、`getClaudeMds()` 包装链、未来 team-memory-content 包装说明
@@ -113,7 +116,7 @@
 - 重点独立评分中位数：**8.85/10**
 - 结论：**通过（保留 Agent 29 的少量实施层异议，但不再构成文档阻塞）**
 
-## 第 12 轮：最终统一评分（30 agent）
+## 第 12 轮：最终统一评分（30 个 agent）
 
 ### 统计
 - 已收齐 **30/30** agent 报告
@@ -137,7 +140,7 @@
 ### 最终结论
 **P18 文档终稿通过，可按 `0 → 1 → 2 → 3 → 4.5 → 4 → 5/6/7 → 8` 顺序进入实施。**
 
-## 第 13 轮：收官统一复核（30 agent）
+## 第 13 轮：收官统一复核（30 个 agent）
 
 ### 统计
 - 已收齐 **30/30** agent 报告

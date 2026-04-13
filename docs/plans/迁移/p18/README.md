@@ -2,7 +2,8 @@
 
 > 基于 Claude Code 官方源码逆向文档
 > 创建时间：2026-04-14 | 状态：**审查修订后**
-> 源码基线：`/Users/mac/Desktop/agnet/cluade/claude-code-sourcemap/restored-src/`
+> 源码基线：Claude restored-src 本地镜像（示例路径：`/Users/mac/Desktop/agnet/claude/claude-code-sourcemap/restored-src/`，**仅作个人环境示例，不是仓库契约**）
+> 当前实施口径以本目录下 `README.md`、`phase-0`~`phase-8`、`review-summary.md` 为准；[`../p18-memory-prompt-system-plan.md`](../p18-memory-prompt-system-plan.md) 仅保留历史背景/对照，不再作为最终实施口径。
 
 ---
 
@@ -33,9 +34,20 @@
 | 8 | [phase-8-testing.md](phase-8-testing.md) | 测试 + 守护 | 1 天 |
 | **合计** | | | **15-17 天** |
 
+## 实施前先看
+
+- [source-refs-appendix.md](source-refs-appendix.md) 的“V3 当前实现锚点”
+- `internal/module/thread/start_session.go:18-20`
+- `internal/module/thread/lifecycle.go:56,80,116,141,192,219,245,275`
+- `internal/dto/provider/session.go:5-24`
+- `internal/provider/codexapp/support.go:248-261`
+- `internal/provider/codexapp/session_turn.go:37-49,76-85`
+- `internal/provider/claudecli/transport_config.go:99-147`
+- `internal/provider/claudecli/session_turn.go:14-42,173-202`
+
 ## 审查状态
 
-30 agent 多轮交叉审查已完成，审查意见已持续合并到各 phase 文档；当前最终结论以第 10 轮终审为准。详见 [review-summary.md](review-summary.md)。
+30 个 agent 多轮交叉审查已完成，审查意见已持续合并到各 phase 文档；第 10 轮是首次整体通过，第 13 轮是当前最新收官结论。当前 authoritative source 为 [review-summary.md](review-summary.md) 的“第 13 轮：收官统一复核”。
 
 ## 暂不实现
 
@@ -56,8 +68,6 @@
 
 ## 参考文档
 
-- `claude_memory_system_mapping.md` — 记忆系统运行模式、四种类型、注入链路
-- `claude_memory_system_source_refs.md` — 记忆系统源码锚点
-- `claude_system_prompts_mapping.md` — 系统提示词三层架构
-- `claude_system_prompts_source_refs.md` — 提示词源码锚点
 - [source-refs-appendix.md](source-refs-appendix.md) — 全量源码锚点附录
+- [../p18-memory-prompt-system-plan.md](../p18-memory-prompt-system-plan.md) — 历史总纲/背景对照（**非当前实施口径**）
+- `claude_memory_system_mapping.md` / `claude_memory_system_source_refs.md` / `claude_system_prompts_mapping.md` / `claude_system_prompts_source_refs.md` 的历史内容已并入 `source-refs-appendix.md`，仓库内不再单独维护同名文件

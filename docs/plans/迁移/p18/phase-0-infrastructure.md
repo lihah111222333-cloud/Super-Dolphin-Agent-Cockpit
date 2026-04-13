@@ -24,9 +24,11 @@
 ## fx 装配与第一落点
 
 - 新模块沿用现有 `internal/module/*/module.go` 模式暴露 `var Module = fx.Module(...)`
-- Phase 0 先落 4 个骨架文件：`internal/module/memory/module.go`、`internal/module/prompt/module.go`、`internal/module/prompt/config.go`、`internal/module/prompt/buildctx.go`
+- Phase 0 至少落以下骨架：`internal/module/memory/module.go`、`internal/module/prompt/module.go`、`internal/module/prompt/config.go`、`internal/module/prompt/buildctx.go`、`internal/module/prompt/types.go`、`internal/module/prompt/service.go`（或 `registry.go`）
 - 配置集中在 `memory.Config` + `prompt.Config`，由 fx 注入 thread/turn/provider，避免开关散落在 `StartRequest` 或 provider runtime config
-- `BuildCtx` 只承载 prompt 计算所需只读上下文（cwd/git/language/provider/session flags），不直接持有 provider DTO
+- `BuildCtx` 只承载 prompt 计算所需只读上下文，不直接持有 provider DTO；最少应预留 `cwd/gitRoot/language/provider/model/enabledTools/additionalWorkingDirectories/mcpSnapshot/session flags`
+- 模块注册顺序按依赖方向固定：`memory.Module → prompt.Module → thread/turn/provider consumers`
+- `~/.multi-agent/memory/` 目录初始化放在 `fx.Invoke + Lifecycle.OnStart`，不要在 constructor 中做副作用
 
 ## 任务清单
 - [ ] 创建 `internal/module/memory/` 模块目录
@@ -52,41 +54,51 @@ const (
     MemoryTypeReference MemoryType = "reference"
 )
 
+// MemoryType 表示语义分类，不表示 scope；scope/namespace 需独立建模。
+type MemoryScope string
+
+// 持久化 frontmatter
+type MemoryFrontmatter struct {
+    Name        string      `yaml:"name"`
+    Description string      `yaml:"description"`
+    Type        *MemoryType `yaml:"type,omitempty"`
+}
+
 // MemoryEntry 是运行时表示，不是磁盘格式
 // 磁盘格式是 YAML frontmatter (name/description/type) + markdown body
 type MemoryEntry struct {
-    // --- frontmatter 字段（持久化） ---
-    Name        string     `yaml:"name"`
-    Description string     `yaml:"description"`
-    Type        MemoryType `yaml:"type"`
-    // --- 运行时字段（不持久化） ---
-    Content     string     `yaml:"-"`
-    FilePath    string     `yaml:"-"`
-    UpdatedAt   time.Time  `yaml:"-"`
+    Frontmatter MemoryFrontmatter `yaml:",inline"`
+    Content     string            `yaml:"-"`
+    FilePath    string            `yaml:"-"`
+    UpdatedAt   time.Time         `yaml:"-"`
 }
 ```
 
-> **审查修订**（Agent 2）：明确区分 frontmatter 持久化字段与运行时元数据。
-> MemoryType 需支持 legacy/unknown 降级：`parseMemoryType()` 对无法识别的 type 应返回空而不是报错。
+> **审查修订**（Agent 2/20）：明确区分 frontmatter 持久化字段与运行时元数据；`MemoryType` 需支持 legacy/unknown 降级，缺失/非法 type 不直接 hard fail。
 
 ### PromptSection
 ```go
 type PromptSection struct {
-    Name      string
-    Order     int
-    Region    PromptRegion // Static | Dynamic
-    Volatile  bool         // true = 每轮重算（DANGEROUS）
-    Compute   func(ctx *BuildCtx) *string
+    Name     string       // 唯一缓存键
+    Order    int
+    Region   PromptRegion // Static | Dynamic
+    Volatile bool         // true = 每轮重算（DANGEROUS）
+    Compute  func(ctx context.Context, b BuildCtx) (*string, error)
 }
 
 type PromptRegion int
 const (
-    PromptRegionStatic  PromptRegion = iota
+    PromptRegionStatic PromptRegion = iota
     PromptRegionDynamic
 )
 ```
 
-> **审查修订**（Agent 9）：用 Region + Volatile 替代 Static bool，避免混淆两层缓存。
+补充契约：
+- `Name` 是 section 的唯一缓存身份；`nil/null` 结果也可缓存
+- prompt 模块必须暴露统一失效入口（如 `InvalidateAll(reason)` / generation bump）
+- 静态 section 不读取 runtime/provider-specific 状态；runtime bits 必须留在动态 section
+
+> **审查修订**（Agent 9/20）：用 Region + Volatile 替代 Static bool，并把 context/error、缓存键、失效语义前置固化。
 
 ## 源码参考
 - `restored-src/src/memdir/memoryTypes.ts:14-31` — MemoryType 定义 + parseMemoryType
@@ -94,4 +106,5 @@ const (
 
 ## 验收
 - `go build ./internal/module/memory/... ./internal/module/prompt/...` 通过
-- fx 应用启动不报错
+- `fx.ValidateApp(...)` 通过
+- fx 应用启动 smoke test 不报错
