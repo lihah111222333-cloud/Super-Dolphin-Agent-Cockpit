@@ -154,14 +154,10 @@ func applyPendingMigrations(ctx context.Context, pool *pgxpool.Pool, dir string)
 
 	var toApply []string
 	for _, f := range files {
-		n := f.Name()
-		if f.IsDir() || !strings.HasSuffix(n, ".sql") || n == "001_baseline.sql" {
+		if !shouldApplyMigration(f, applied) {
 			continue
 		}
-		if strings.HasPrefix(n, "000") || strings.HasPrefix(n, "001") || applied[n] {
-			continue
-		}
-		toApply = append(toApply, n)
+		toApply = append(toApply, f.Name())
 	}
 	sort.Strings(toApply)
 
@@ -171,6 +167,17 @@ func applyPendingMigrations(ctx context.Context, pool *pgxpool.Pool, dir string)
 		}
 	}
 	return nil
+}
+
+func shouldApplyMigration(f os.DirEntry, applied map[string]bool) bool {
+	n := f.Name()
+	if f.IsDir() || !strings.HasSuffix(n, ".sql") || n == "001_baseline.sql" {
+		return false
+	}
+	if strings.HasPrefix(n, "000") || strings.HasPrefix(n, "001") || applied[n] {
+		return false
+	}
+	return true
 }
 
 func executeMigration(ctx context.Context, pool *pgxpool.Pool, dir, f string) error {
