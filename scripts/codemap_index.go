@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/devtools/codemapindex"
 )
 
 type Index struct {
@@ -70,17 +72,21 @@ func main() {
 		Description: "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
 		Files:       filesIndex,
 	}
+	readmeCodemaps := make([]codemapindex.ReadmeCodemap, 0, len(mds))
 	for _, md := range mds {
-		idx.Codemaps = append(idx.Codemaps, Codemap{
-			ID: md.id, File: md.file, Title: md.title,
-			TotalLines: len(md.lines), Sections: md.sections,
-		})
+		cm := Codemap{ID: md.id, File: md.file, Title: md.title, TotalLines: len(md.lines), Sections: md.sections}
+		idx.Codemaps = append(idx.Codemaps, cm)
+		readmeCodemaps = append(readmeCodemaps, codemapindex.ReadmeCodemap{ID: cm.ID, File: cm.File, Title: cm.Title})
 	}
 
 	outPath := filepath.Join(codemapDir, "ai-index.json")
 	data, _ := json.MarshalIndent(idx, "", "  ")
 	if err := os.WriteFile(outPath, data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "write: %v\n", err)
+		os.Exit(1)
+	}
+	if err := codemapindex.SyncREADME(filepath.Join(codemapDir, "README.md"), readmeCodemaps, idx.GeneratedAt); err != nil {
+		fmt.Fprintf(os.Stderr, "sync readme: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -118,7 +124,7 @@ func loadCodemaps(codemapDir string) []parsedMD {
 }
 
 func buildFilesIndex(root string, mds []parsedMD) map[string]*FileEntry {
-	srcFiles := scanSourceFiles(root)
+	srcFiles := codemapindex.ScanSourceFiles(root)
 	sort.Strings(srcFiles)
 	filesIndex := make(map[string]*FileEntry, len(srcFiles))
 	for _, src := range srcFiles {
@@ -155,28 +161,6 @@ func scanMDFiles(dir string) (r []string) {
 		}
 		return nil
 	})
-	return
-}
-
-func scanSourceFiles(root string) (r []string) {
-	exts := map[string]bool{".go": true, ".js": true, ".ts": true, ".vue": true, ".sql": true}
-	skip := map[string]bool{"node_modules": true, ".git": true, ".vite-cache": true, "dist": true,
-		".build-cache": true, ".workspace": true, "testdata": true, "playwright-report": true, "test-results": true}
-	for _, d := range []string{"cmd", "internal", "pkg", "sql", "migrations"} {
-		filepath.Walk(filepath.Join(root, d), func(p string, i os.FileInfo, e error) error {
-			if e != nil {
-				return nil
-			}
-			if i.IsDir() && skip[i.Name()] {
-				return filepath.SkipDir
-			}
-			if !i.IsDir() && exts[filepath.Ext(p)] && !strings.HasSuffix(p, "_test.go") {
-				rel, _ := filepath.Rel(root, p)
-				r = append(r, rel)
-			}
-			return nil
-		})
-	}
 	return
 }
 
@@ -243,6 +227,11 @@ func detectPackage(p string) string {
 		return "frontend"
 	case ".sql":
 		return "sql"
+	case ".sh":
+		return "shell"
+	}
+	if filepath.Base(p) == "Makefile" {
+		return "build"
 	}
 	d, err := os.ReadFile(p)
 	if err != nil {

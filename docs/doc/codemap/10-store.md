@@ -35,6 +35,8 @@
    - `uipreference`
 
 > 注意：`workspace_runs / workspace_run_files` 已有 sqlc 低层生成代码，但**没有**对应的 `internal/store/workspace...` 子包，也没有被注册进 `store.Module`。因此“17 个子 store”这一说法在当前源码中是准确的。
+>
+> 与第 11 卷的边界：本卷聚焦 `internal/store/*`、`sql/queries/*`、`migrations/*` 的持久化职责；`prompt snapshot` 在 thread / prompt 生命周期里的运行时语义请结合 `11-memory-prompt-thread.md` 阅读。
 
 ### 1.2 共性设计
 
@@ -280,8 +282,8 @@
 - **备注**：SQL 固定 `started_at=NOW(), finished_at=NULL`，所以当前实现更像“插入式 trace 快照”，而不是完整 span 生命周期仓储。
 
 ### 2.15 `thread`
-- **文件**：`contract.go` / `store.go` / `module.go` / `store_test.go`
-- **职责**：线程注册、服务发现、运行态恢复。
+- **文件**：`contract.go` / `store.go` / `module.go` / `store_test.go` / `snapshot_test.go`
+- **职责**：线程注册、服务发现、运行态恢复、prompt snapshot 持久化。
 - **contract**：
   - `GetByThreadID(ctx context.Context, threadID string) (*Thread, error)`
   - `GetByPort(ctx context.Context, port int32) (*Thread, error)`
@@ -290,6 +292,8 @@
   - `ListRecoverable(ctx context.Context) ([]Thread, error)`
   - `ListRunningAgents(ctx context.Context) ([]RunningAgent, error)`
   - `Upsert(ctx context.Context, params UpsertParams) error`
+  - `SavePromptSnapshot(ctx context.Context, threadID string, snapshot PromptSnapshot) error`
+  - `LoadPromptSnapshot(ctx context.Context, threadID string) (*PromptSnapshot, error)`
   - `UpdateStatus(ctx context.Context, params UpdateStatusParams) error`
   - `DeleteByThreadID(ctx context.Context, threadID string) error`
   - `ResetRunning(ctx context.Context) error`
@@ -299,16 +303,24 @@
   - `ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCwd, error)`
 - **关键实现**：
   - `Upsert`：写 `agent_threads` 主运行信息与 `config_override`。
+  - `SavePromptSnapshot`：把 `PromptSnapshot{base_instructions, developer_instructions, section_snapshot, generation}` 序列化为 JSON，写回 `agent_threads.prompt_snapshot`；若 `SectionSnapshot=nil` 会先归一化为空 map，避免落成 `null`。
+  - `LoadPromptSnapshot`：走独立 SQL 只取 `prompt_snapshot` 列；空 payload 或字面量 `null` 视为“没有快照”，反序列化后再次保证 `SectionSnapshot` 非 nil。
+  - `Save/LoadPromptSnapshot` 的 not-found 语义来自两条不同路径：`Save` 依赖 `UPDATE ... :execrows` 的 `RowsAffected==0` 主动返回 `ErrNotFound`，`Load` 则因为 `SELECT ... :one` 在缺行时产生 `pgx.ErrNoRows`，再经 `WrapStoreError` 统一归类为 `ErrNotFound`。
   - `GetByThreadID / GetByPort / List*`：SQL 会回查 `agent_provider_binding`，按 `provider_thread_id/codex_thread_id`，必要时还会利用 `owner_thread_id` 派生 `AgentID`。
   - `GetByPort`：只看 `status='running'`，按 `updated_at DESC` 取最新。
   - `ListRecoverable`：只返回 `status='created'`。
   - `ResetRunning`：批量把 `running -> created`。
   - `ExpireStale`：把过旧的 `created/running` 线程标为 `expired`。
   - `ListCwdsByPrefix`：SQL 为 `LIKE prefix || '%'`，是大小写敏感前缀匹配。
-- **表 / SQL**：`agent_threads`（并通过子查询关联 `agent_provider_binding`）/ `sql/queries/agent_thread.sql`
+- **表 / SQL**：`agent_threads`（并通过子查询关联 `agent_provider_binding`；prompt snapshot 走独立查询）/ `sql/queries/agent_thread.sql` + `sql/queries/agent_thread_prompt_snapshot.sql`
 - **备注**：
   - `created_at/updated_at/finished_at` 使用 Unix `BIGINT`，不是 `TIMESTAMPTZ`。
   - `config_override` 来自 `0025_agent_thread_config_override.sql`。
+  - `prompt_snapshot` 来自 `0031_prompt_snapshot.sql`，当前 `Thread` DTO 不直接暴露该列，而是通过 `Load/SavePromptSnapshot` 专门读写。
+  - `thread.PromptSnapshot` 是 store 本地持久化 DTO，不等同于 `internal/contract.PromptAssemblySnapshot` / `internal/dto/provider.PromptAssemblySnapshot`：它使用 snake_case JSON tag，仅保留 `base_instructions/developer_instructions/section_snapshot/generation`，缺少 runtime snapshot 的 `displayName/provider/version/hash`，且 `Generation` 在 runtime 侧是 `uint64`、在 store 侧落成 `int64`。
+  - 当前源码里还看不到 store/runtime snapshot 的生产桥接：`internal/module/prompt/assembler.go` 继续生成 `contract.PromptAssemblySnapshot`，`internal/module/thread/start_session_helpers.go` 再把它映射成 `dto.PromptAssemblySnapshot`；仓库内没有 `toStorePromptSnapshot/fromStorePromptSnapshot` 一类转换函数。
+  - 当前生产引用面仍为空：全仓 `SavePromptSnapshot(`/`LoadPromptSnapshot(` 检索只落在 `internal/store/thread/{contract,store}.go` 与 store 自测；跨包出现的方法实现仅限 `internal/module/prompt/e2e_test_support_test.go`、`internal/module/thread/{history,resume}_test.go`、`internal/platform/cachekeepalive/manager_test.go` 这些 test double，而且实现都是直接 `return nil` / `return nil, nil` 的 no-op stub。
+  - 测试覆盖已拆成两层：`store_test.go` 关注 round-trip、save 缺失线程、load nil payload；`snapshot_test.go` 关注 nil map 归一化、字面量 `null` 兼容、并发 save 安全性。`LoadPromptSnapshot` 的“缺失 thread 行 -> ErrNotFound”分支当前没有对应单测。
 
 ### 2.16 `topologyapproval`
 - **文件**：`contract.go` / `store.go` / `module.go`
@@ -371,11 +383,12 @@
 - `migrations/0023_dag_watcher_phase1.sql`
 - `migrations/0024_prompt_versions_description.sql`
 - `migrations/0025_agent_thread_config_override.sql`
+- `migrations/0031_prompt_snapshot.sql`
 
 这意味着：
 
-- **sqlc 生成 schema**：来自“`001_baseline` + 4 个补丁”。其中 `0022` 增补 `agent_provider_binding.session_uuid`，`0023` 增补 DAG watcher 相关列 / 表，`0024` 增补 `prompt_versions.description`，`0025_agent_thread_config_override` 增补 `agent_threads.config_override`。
-- **不在根 sqlc 输入里的后续迁移**：`0025_hook_pending_reviews.sql`、`0026_hook_pending_reviews_resolved_by.sql`、`0027_prompt_description_columns.sql` 没有被根 `sqlc.yaml` 读取；这也解释了 `hookstore` 为什么必须手写 SQL，而 `prompt_templates.description` 需要依赖 `001_baseline` 或运行时 `0027`。
+- **sqlc 生成 schema**：来自“`001_baseline` + 5 个补丁”。其中 `0022` 增补 `agent_provider_binding.session_uuid`，`0023` 增补 DAG watcher 相关列 / 表，`0024` 增补 `prompt_versions.description`，`0025_agent_thread_config_override` 增补 `agent_threads.config_override`，`0031_prompt_snapshot` 再为 `agent_threads` 增补 `prompt_snapshot JSONB`，供 `agent_thread_prompt_snapshot.sql` 生成独立 load/save 签名。
+- **不在根 sqlc 输入里的后续迁移**：`0025_hook_pending_reviews.sql`、`0026_hook_pending_reviews_resolved_by.sql`、`0027_prompt_description_columns.sql` 仍然没有被根 `sqlc.yaml` 读取；这也解释了 `hookstore` 为什么必须手写 SQL，而 `prompt_templates.description` 需要依赖 `001_baseline` 或运行时 `0027`。
 - **重要审查结论**：当前 `001_baseline.sql` 是 sqlc 可解析的扁平 schema 快照；它包含表、索引、触发器函数与触发器，但没有为大多数既有表写出 `PRIMARY KEY / UNIQUE / CHECK` 约束。因此，凡涉及“约束是否存在”的描述，必须同时看历史增量迁移（如 `0001/0003/0005/0006/0012/0020/0021/0006_workspace_runs`）或真实数据库，而不能只把 `001_baseline.sql` 当成完整 runtime DDL。
 
 `hook_pending_reviews` 整张表都没有进入 `sqlc.yaml`，这与 `hookstore` 采用手写 SQL 的设计完全对应。
@@ -400,6 +413,7 @@
    - `agent_provider_binding.sql.go`
    - `agent_status.sql.go`
    - `agent_thread.sql.go`
+   - `agent_thread_prompt_snapshot.sql.go`
    - `ai_log.sql.go`
    - `audit_log.sql.go`
    - `bus_log.sql.go`
@@ -416,7 +430,7 @@
    - `ui_preference.sql.go`
    - `workspace_run.sql.go`
 
-> 反向核对：`sql/queries/` 当前共有 18 个 `.sql` 文件，均已在本节或第 7 节提及；没有发现文档未提及的查询文件。
+> 反向核对：`internal/store/sqlc/*.sql.go` 当前能反查到 19 个 `// source:` 条目，其中新增的 `agent_thread_prompt_snapshot.sql.go` 对应 `sql/queries/agent_thread_prompt_snapshot.sql`；没有发现文档未提及的查询文件。
 
 ### 3.4 store 与 sqlc 的边界
 store 层的主要价值在于：
@@ -425,6 +439,8 @@ store 层的主要价值在于：
 - 把 `[]byte`、可空时间、查询结果行结构映射成领域 DTO
 - 把多个 SQL 文件拼装成统一仓储语义
   - 例如 `binding` 同时使用 `agent_provider_binding.sql` 与 `thread_binding.sql`
+  - `thread` 同时使用 `agent_thread.sql`（线程注册 / 查询）与 `agent_thread_prompt_snapshot.sql`（`prompt_snapshot` JSONB 专用读写）
+  - `agent_thread.sql` / `agent_thread.sql.go` 的常规线程 row 并不携带 `prompt_snapshot`；只有 `agent_thread_prompt_snapshot.sql.go` 暴露该列，且它在 xref 上只被 `internal/store/thread/store.go` 单点消费，说明 snapshot SQL 被刻意限制在 thread store 边界内
 - 统一错误语义（`WrapStoreError`）
 
 ### 3.5 sqlc 已覆盖、但 `internal/store` 没有直接包装成子 store 的能力
@@ -455,7 +471,7 @@ store 层的主要价值在于：
 ### 4.1 解读原则
 本节按“**当前源码实际依赖的列 / 索引**”描述 schema，并明确区分两类来源：
 
-- **sqlc 生成输入**：根 `sqlc.yaml` 读取 `001_baseline.sql + 0022_binding_session_uuid.sql + 0023_dag_watcher_phase1.sql + 0024_prompt_versions_description.sql + 0025_agent_thread_config_override.sql`。
+- **sqlc 生成输入**：根 `sqlc.yaml` 读取 `001_baseline.sql + 0022_binding_session_uuid.sql + 0023_dag_watcher_phase1.sql + 0024_prompt_versions_description.sql + 0025_agent_thread_config_override.sql + 0031_prompt_snapshot.sql`。
 - **手写 / 运行时补丁**：`hookstore` 依赖 `0025_hook_pending_reviews.sql + 0026_hook_pending_reviews_resolved_by.sql`；`0027_prompt_description_columns.sql` 对 `prompt_templates.description / prompt_versions.description` 做运行时幂等兜底，但不在根 sqlc 输入中。
 - **约束来源说明**：`001_baseline.sql` 对多数既有表只给出列、索引、触发器，不给出 PK/UNIQUE/CHECK；下文写到的主键、唯一约束、检查约束来自历史迁移链（例如 `0001/0003/0005/0006/0006_workspace_runs/0010/0012/0019/0020/0021`）或 post-baseline 手写迁移（例如 `0025_hook_pending_reviews`）。
 
@@ -475,10 +491,13 @@ store 层的主要价值在于：
 - **审查修正**：最新迁移里**没有**给该表增加 `cwd` 或 `created_at DESC` 二级索引；旧文档里这部分描述混入了 legacy `agent_codex_binding` 的索引信息。
 
 #### `agent_threads`
-- 最终主列：`thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, config_override`
+- 最终主列：`thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, config_override, prompt_snapshot`
 - 索引：`status / port / pid / owner_thread_id / workspace_run_key`（后两者出现在 `001_baseline.sql`；旧的 `0012_agent_threads.sql` 只建 `status/port/pid`）
 - 对应 store：`thread`
-- 备注：时间字段是 Unix `BIGINT`；更像运行时注册表而非纯审计表。
+- 备注：
+  - 时间字段是 Unix `BIGINT`；更像运行时注册表而非纯审计表。
+  - `prompt_snapshot` 是 `0031_prompt_snapshot.sql` 新增的 `JSONB` 列；常规线程查询仍主要使用 `agent_thread.sql`，而 snapshot 读写走独立的 `agent_thread_prompt_snapshot.sql`。
+  - `0031_prompt_snapshot.sql` 本身只有 `ADD COLUMN IF NOT EXISTS prompt_snapshot jsonb DEFAULT NULL`，没有回填、索引或额外约束；因此历史线程默认表现为“无 snapshot”。
 
 #### `agent_status`
 - 主列：`agent_id, agent_name, session_id, status, stagnant_sec, error, output_tail, created_at, updated_at`
