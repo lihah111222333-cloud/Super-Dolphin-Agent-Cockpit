@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/kelindar/event"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -88,17 +89,33 @@ func TestRestartIfNeededLockedPublishesRestartStatusPatch(t *testing.T) {
 
 func TestDriverStartCanonicalizesEffectiveEffort(t *testing.T) {
 	next := newBufferedTransport(t, "thread-1")
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	var launchedInstructions string
+	var launchedConfig cliLaunchConfig
+	overrideLaunchCLI(t, func(_, _, _, instructions string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+		launchedInstructions = instructions
+		launchedConfig = cfg
 		return next.tr, nil, nil
 	})
 
 	d := &driver{}
 	sess, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "claude",
-		AgentID:  "agent-1",
-		CWD:      "/tmp/repo",
-		Model:    "sonnet",
-		Config:   map[string]any{"effort": "max"},
+		Provider:     "claude",
+		AgentID:      "agent-1",
+		CWD:          "/tmp/repo",
+		Model:        "sonnet",
+		Instructions: "legacy base",
+		Config: map[string]any{
+			"effort":                "max",
+			"developerInstructions": "legacy developer",
+		},
+		StartAssembly: contract.StartAssembly{
+			BaseInstructions:      "assembled base",
+			DeveloperInstructions: "assembled developer",
+			Snapshot: contract.PromptAssemblySnapshot{
+				BaseInstructions:      "assembled base",
+				DeveloperInstructions: "assembled developer",
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -116,5 +133,17 @@ func TestDriverStartCanonicalizesEffectiveEffort(t *testing.T) {
 	}
 	if cfg.Effective.Model != "sonnet" || cfg.Effective.Effort != "high" {
 		t.Fatalf("Effective = %#v, want sonnet/high", cfg.Effective)
+	}
+	if launchedInstructions != "assembled base" {
+		t.Fatalf("launch instructions = %q, want assembled base", launchedInstructions)
+	}
+	if launchedConfig.PromptSnapshot.BaseInstructions != "assembled base" ||
+		launchedConfig.PromptSnapshot.DeveloperInstructions != "assembled developer" {
+		t.Fatalf("launch prompt snapshot = %#v", launchedConfig.PromptSnapshot)
+	}
+	runtimeCfg := s.RuntimeConfigSnapshot()
+	if runtimeCfg["baseInstructions"] != "assembled base" ||
+		runtimeCfg["developerInstructions"] != "assembled developer" {
+		t.Fatalf("RuntimeConfigSnapshot() = %#v", runtimeCfg)
 	}
 }

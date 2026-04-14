@@ -39,7 +39,7 @@ type startSpec struct {
 	publicThread   string
 	cwd            string
 	model          string
-	instructions   string
+	startAssembly  contract.StartAssembly
 	manifest       dto.MCPManifest
 	config         cliLaunchConfig
 	rawConfig      map[string]any
@@ -104,6 +104,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 func (d *driver) Name() string { return "claude" }
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	launchConfig := configFromMap(req.Config)
 	manifest := dto.BuildManifest(dto.ManifestContext{
 		AgentID:       strings.TrimSpace(req.AgentID),
 		CWD:           strings.TrimSpace(req.CWD),
@@ -114,15 +115,15 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
 	})
 	return d.start(ctx, startSpec{
-		agentID:      req.AgentID,
-		cwd:          req.CWD,
-		model:        req.Model,
-		instructions: req.Instructions,
-		manifest:     manifest,
-		config:       configFromMap(req.Config),
-		rawConfig:    cloneConfigMap(req.Config),
-		publicThread: req.AgentID,
-		historyDir:   providershared.ConfigString(req.Config, "history_dir", "claude_home"),
+		agentID:       req.AgentID,
+		cwd:           req.CWD,
+		model:         req.Model,
+		startAssembly: resolveStartAssembly(req, launchConfig, d.Name()),
+		manifest:      manifest,
+		config:        launchConfig,
+		rawConfig:     cloneConfigMap(req.Config),
+		publicThread:  req.AgentID,
+		historyDir:    providershared.ConfigString(req.Config, "history_dir", "claude_home"),
 	})
 }
 
@@ -166,13 +167,18 @@ func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, e
 func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, error) {
 	history := &historyBackend{sessionDir: spec.historyDir}
 	requestedModel, requestedConfig := resolveRequestedStartConfig(spec)
+	requestedConfig.DeveloperInstructions = promptDeveloperInstructions(cliLaunchConfig{
+		DeveloperInstructions: requestedConfig.DeveloperInstructions,
+		PromptSnapshot:        spec.startAssembly.Snapshot,
+	})
+	requestedConfig.PromptSnapshot = spec.startAssembly.Snapshot
 	launchModel := claudeLaunchDisplayModel(requestedModel, history)
 	launchConfig := canonicalizeClaudeLaunchConfig(launchModel, requestedConfig)
 	tr, cleanup, err := launchCLI(
 		d.binaryPath,
 		spec.cwd,
 		requestedModel,
-		spec.instructions,
+		promptBaseInstructions(spec.startAssembly.BaseInstructions, launchConfig.PromptSnapshot),
 		launchConfig,
 		spec.manifest,
 		spec.threadID,
@@ -205,6 +211,7 @@ func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {
 func (d *driver) newStartedSession(spec startSpec, started preparedStartSession) *session {
 	initialThreadID := fallbackThreadID(spec.agentID, spec.threadID)
 	publicThreadID := shared.FirstNonEmpty(spec.publicThread, spec.agentID, initialThreadID)
+	baseInstructions := promptBaseInstructions(spec.startAssembly.BaseInstructions, started.launchConfig.PromptSnapshot)
 	s := &session{
 		agentID:           strings.TrimSpace(spec.agentID),
 		threadID:          initialThreadID,
@@ -222,7 +229,7 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		transportModel:    started.launchModel,
 		transportConfig:   started.launchConfig,
 		transportManifest: spec.manifest,
-		instructions:      strings.TrimSpace(spec.instructions),
+		instructions:      strings.TrimSpace(baseInstructions),
 		config:            started.launchConfig,
 		rawConfig:         cloneConfigMap(spec.rawConfig),
 		manifest:          spec.manifest,

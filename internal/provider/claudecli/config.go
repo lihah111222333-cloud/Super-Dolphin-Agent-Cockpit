@@ -2,10 +2,12 @@ package claudecli
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
@@ -47,11 +49,49 @@ func configFromMap(cfg map[string]any) cliLaunchConfig {
 	}
 }
 
+func resolveStartAssembly(req dto.StartSessionRequest, cfg cliLaunchConfig, provider string) contract.StartAssembly {
+	assembly := req.StartAssembly
+	baseInstructions := promptSnapshotBaseInstructions(assembly.Snapshot, req.Instructions)
+	if value := strings.TrimSpace(assembly.BaseInstructions); value != "" {
+		baseInstructions = value
+	}
+	developerInstructions := promptDeveloperInstructions(cliLaunchConfig{
+		DeveloperInstructions: cfg.DeveloperInstructions,
+		PromptSnapshot:        assembly.Snapshot,
+	})
+	if value := strings.TrimSpace(assembly.DeveloperInstructions); value != "" {
+		developerInstructions = value
+	}
+	assembly.BaseInstructions = baseInstructions
+	assembly.DeveloperInstructions = developerInstructions
+	assembly.Snapshot = normalizePromptSnapshot(assembly.Snapshot, baseInstructions, developerInstructions, provider)
+	return assembly
+}
+
+func normalizePromptSnapshot(
+	snapshot contract.PromptAssemblySnapshot,
+	baseInstructions string,
+	developerInstructions string,
+	provider string,
+) contract.PromptAssemblySnapshot {
+	if strings.TrimSpace(snapshot.BaseInstructions) == "" {
+		snapshot.BaseInstructions = strings.TrimSpace(baseInstructions)
+	}
+	if strings.TrimSpace(snapshot.DeveloperInstructions) == "" {
+		snapshot.DeveloperInstructions = strings.TrimSpace(developerInstructions)
+	}
+	if strings.TrimSpace(snapshot.Provider) == "" {
+		snapshot.Provider = strings.TrimSpace(provider)
+	}
+	if snapshot.Version == 0 {
+		snapshot.Version = contract.PromptAssemblySnapshotVersion
+	}
+	return snapshot
+}
+
 func copyCapabilities(in dto.CapabilitySet) dto.CapabilitySet {
 	out := make(dto.CapabilitySet, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -62,17 +102,13 @@ func cloneConfigMap(cfg map[string]any) map[string]any {
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		out := make(map[string]any, len(cfg))
-		for key, value := range cfg {
-			out[key] = value
-		}
+		maps.Copy(out, cfg)
 		return out
 	}
 	var out map[string]any
 	if err := json.Unmarshal(raw, &out); err != nil {
 		out = make(map[string]any, len(cfg))
-		for key, value := range cfg {
-			out[key] = value
-		}
+		maps.Copy(out, cfg)
 	}
 	return out
 }

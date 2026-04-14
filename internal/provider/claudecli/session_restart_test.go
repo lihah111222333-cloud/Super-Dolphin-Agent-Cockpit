@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
@@ -162,6 +163,42 @@ func turnRequest(model string) dto.TurnRequest {
 		Overrides: dto.TurnOverrides{
 			Model: model,
 		},
+	}
+}
+func TestPrepareTurnLockedPrependsTurnAssemblyUserContextText(t *testing.T) {
+	ready := make(chan struct{}); close(ready)
+	s := &session{
+		threadID:        "thread-1",
+		sessionID:       "thread-1",
+		threadReady:     ready,
+		transport:       &transport{stdin: &recordingWriteCloser{}, done: make(chan struct{})},
+		suppressedTurns: map[string]struct{}{},
+	}
+
+	s.mu.Lock()
+	payload, _, _, err := s.prepareTurnLocked(context.Background(), dto.TurnRequest{
+		Inputs: []shareddto.InputItem{{Content: "hello"}},
+		TurnAssembly: contract.TurnAssembly{
+			UserContextText: "Always respond in Chinese.",
+		},
+	})
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatalf("prepareTurnLocked() error = %v", err)
+	}
+
+	var decoded struct {
+		Message struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got := decoded.Message.Content[0].Text; got != "Always respond in Chinese.\n\nhello" {
+		t.Fatalf("payload text = %q", got)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
@@ -68,6 +69,21 @@ func TestResolvePermissionModeAcceptsLegacyAndNewApprovalPolicies(t *testing.T) 
 				t.Fatalf("resolvePermissionMode(%q, \"\") = %q, want %q", tc.policy, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestComposeLaunchSystemPromptUsesPromptAssemblySnapshot(t *testing.T) {
+	t.Parallel()
+
+	got := composeLaunchSystemPrompt("", cliLaunchConfig{
+		DeveloperInstructions: "legacy developer",
+		PromptSnapshot: contract.PromptAssemblySnapshot{
+			BaseInstructions:      "assembled base",
+			DeveloperInstructions: "assembled developer",
+		},
+	})
+	if got != "assembled base\n\nassembled developer" {
+		t.Fatalf("composeLaunchSystemPrompt() = %q", got)
 	}
 }
 

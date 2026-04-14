@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -24,6 +26,7 @@ type cliLaunchConfig struct {
 	Effort                string
 	Personality           string
 	DeveloperInstructions string
+	PromptSnapshot        contract.PromptAssemblySnapshot
 }
 
 var launchCLI = launchCLIWithManifest
@@ -118,16 +121,14 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 }
 
 func hasFlag(args []string, flag string) bool {
-	for _, arg := range args {
-		if arg == flag {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(args, flag)
 }
 
 func composeLaunchSystemPrompt(instructions string, cfg cliLaunchConfig) string {
-	parts := nonEmptyStrings(strings.TrimSpace(instructions), strings.TrimSpace(cfg.DeveloperInstructions))
+	parts := nonEmptyStrings(
+		promptBaseInstructions(instructions, cfg.PromptSnapshot),
+		promptDeveloperInstructions(cfg),
+	)
 	meta := make([]string, 0, 5)
 	for _, pair := range [][2]string{
 		{"approval_policy", cfg.ApprovalPolicy},
@@ -144,6 +145,37 @@ func composeLaunchSystemPrompt(instructions string, cfg cliLaunchConfig) string 
 		parts = append(parts, strings.Join(meta, "\n"))
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
+func promptBaseInstructions(instructions string, snapshot contract.PromptAssemblySnapshot) string {
+	if value := strings.TrimSpace(instructions); value != "" {
+		return value
+	}
+	return strings.TrimSpace(snapshot.BaseInstructions)
+}
+
+func promptSnapshotBaseInstructions(snapshot contract.PromptAssemblySnapshot, fallback string) string {
+	if value := strings.TrimSpace(snapshot.BaseInstructions); value != "" {
+		return value
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func promptDeveloperInstructions(cfg cliLaunchConfig) string {
+	if value := strings.TrimSpace(cfg.PromptSnapshot.DeveloperInstructions); value != "" {
+		return value
+	}
+	return strings.TrimSpace(cfg.DeveloperInstructions)
+}
+
+func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
+	return strings.TrimSpace(snapshot.DisplayName) == "" &&
+		strings.TrimSpace(snapshot.BaseInstructions) == "" &&
+		strings.TrimSpace(snapshot.DeveloperInstructions) == "" &&
+		strings.TrimSpace(snapshot.Provider) == "" &&
+		snapshot.Version == 0 &&
+		strings.TrimSpace(snapshot.Hash) == "" &&
+		snapshot.Generation == 0
 }
 
 func resolvePermissionMode(approvalPolicy, sandbox string) string {

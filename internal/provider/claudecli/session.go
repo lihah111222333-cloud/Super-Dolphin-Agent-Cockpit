@@ -118,34 +118,54 @@ func (s *session) Capabilities() dto.CapabilitySet {
 func (s *session) RuntimeConfigSnapshot() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := cloneConfigMap(s.rawConfig)
-	if len(out) == 0 {
-		out = map[string]any{}
-	}
-	if value := strings.TrimSpace(s.model); value != "" {
-		out["model"] = value
-	}
-	if value := strings.TrimSpace(s.instructions); value != "" {
-		out["baseInstructions"] = value
-	}
-	if value := strings.TrimSpace(s.config.ApprovalPolicy); value != "" {
-		out["approvalPolicy"] = value
-	}
-	if value := strings.TrimSpace(s.config.DeveloperInstructions); value != "" {
-		out["developerInstructions"] = value
-	}
-	if value := strings.TrimSpace(s.config.Personality); value != "" {
-		out["personality"] = value
-	}
-	if _, ok := out["sandbox"]; !ok {
-		if value := strings.TrimSpace(s.config.Sandbox); value != "" {
-			out["sandbox"] = value
-		}
-	}
+	out := runtimeConfigMap(s.rawConfig)
+	s.applyRuntimeConfigSnapshotLocked(out)
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+func runtimeConfigMap(raw map[string]any) map[string]any {
+	out := cloneConfigMap(raw)
+	if len(out) != 0 {
+		return out
+	}
+	return map[string]any{}
+}
+
+func (s *session) applyRuntimeConfigSnapshotLocked(out map[string]any) {
+	snapshot := s.runtimePromptSnapshotLocked()
+	putRuntimeConfigString(out, "model", s.model)
+	putRuntimeConfigString(out, "baseInstructions", promptSnapshotBaseInstructions(snapshot, s.instructions))
+	putRuntimeConfigString(out, "approvalPolicy", s.config.ApprovalPolicy)
+	putRuntimeConfigString(out, "developerInstructions", promptDeveloperInstructions(cliLaunchConfig{
+		DeveloperInstructions: s.config.DeveloperInstructions,
+		PromptSnapshot:        snapshot,
+	}))
+	putRuntimeConfigString(out, "personality", s.config.Personality)
+	putRuntimeConfigStringIfMissing(out, "sandbox", s.config.Sandbox)
+}
+
+func (s *session) runtimePromptSnapshotLocked() contract.PromptAssemblySnapshot {
+	snapshot := s.transportConfig.PromptSnapshot
+	if promptSnapshotBlank(snapshot) {
+		return s.config.PromptSnapshot
+	}
+	return snapshot
+}
+
+func putRuntimeConfigString(out map[string]any, key, value string) {
+	if value = strings.TrimSpace(value); value != "" {
+		out[key] = value
+	}
+}
+
+func putRuntimeConfigStringIfMissing(out map[string]any, key, value string) {
+	if _, ok := out[key]; ok {
+		return
+	}
+	putRuntimeConfigString(out, key, value)
 }
 
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
