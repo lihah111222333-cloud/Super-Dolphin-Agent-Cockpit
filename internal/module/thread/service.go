@@ -12,6 +12,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
@@ -42,6 +43,8 @@ type service struct {
 	sessions       SessionProvider
 	starter        SessionStarter
 	promptAssembly contract.PromptAssemblyService
+	cfg            *platformconfig.Config
+	toolRegistry   contract.ToolRegistry
 	turns          turn.Service
 	orchestration  OrchestrationFacade
 	bus            *event.Dispatcher
@@ -66,6 +69,18 @@ type service struct {
 }
 
 var _ Service = (*service)(nil)
+
+func (s *service) invalidatePromptAssembly(ctx context.Context, reason contract.InvalidateReason) error {
+	if s == nil || s.promptAssembly == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	} else {
+		ctx = context.WithoutCancel(ctx)
+	}
+	return s.promptAssembly.Invalidate(ctx, reason)
+}
 
 func (s *service) List(ctx context.Context) ([]Ref, error) {
 	return s.listThreads(ctx, nil)

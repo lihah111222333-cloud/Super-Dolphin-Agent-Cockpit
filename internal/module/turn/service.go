@@ -23,6 +23,7 @@ type service struct {
 	skills                 *skillResolver
 	manifest               *manifestBuilder
 	tracker                *turnTracker
+	promptAssembly         contract.PromptAssemblyService
 	interruptSettleTimeout time.Duration
 }
 
@@ -31,6 +32,14 @@ type steerableSession interface {
 }
 
 func NewService(logger *slog.Logger) Service {
+	return newService(logger, nil)
+}
+
+func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
+	return newService(logger, promptAssembly)
+}
+
+func newService(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -40,6 +49,7 @@ func NewService(logger *slog.Logger) Service {
 		skills:                 &skillResolver{},
 		manifest:               newManifestBuilder(resolveBinaryDir()),
 		tracker:                newTurnTracker(),
+		promptAssembly:         promptAssembly,
 		interruptSettleTimeout: config.InterruptSettleTimeout,
 	}
 }
@@ -61,17 +71,91 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	if input.ManualSkillSelection {
 		candidateSkills = nil
 	}
-	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, s.assembler.PromptText(input))
-	return dto.TurnRequest{
+	userText := s.assembler.PromptText(input)
+	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
+	assembledInputs := s.assembler.Assemble(input)
+	req := dto.TurnRequest{
 		LocalID:              platformshared.NewID("turn"),
 		ThreadID:             threadID,
-		Inputs:               s.assembler.Assemble(input),
+		Inputs:               assembledInputs,
 		Skills:               resolvedSkills,
 		ManualSkillSelection: input.ManualSkillSelection,
 		OutputSchema:         input.OutputSchema,
 		Overrides:            s.buildOverrides(session.Capabilities(), input),
 		MCP:                  s.manifest.Build(input),
-	}, nil
+	}
+	assembly, err := s.prepareTurnAssembly(ctx, threadID, input, userText, req)
+	if err != nil {
+		return dto.TurnRequest{}, err
+	}
+	req.TurnAssembly = assembly
+	return req, nil
+}
+
+func (s *service) prepareTurnAssembly(ctx context.Context, threadID string, input PrepareInput, userText string, req dto.TurnRequest) (dto.TurnAssembly, error) {
+	if s == nil || s.promptAssembly == nil {
+		return dto.TurnAssembly{}, nil
+	}
+	assembly, err := s.promptAssembly.AssembleTurn(ctx, contract.TurnInput{
+		ThreadID:    threadID,
+		UserText:    strings.TrimSpace(userText),
+		SkillPrompt: turnSkillPrompt(req.Skills),
+		Attachments: turnAttachmentRefs(req.Inputs),
+		CurrentDate: time.Now().Format("2006-01-02"),
+		CWD:         strings.TrimSpace(input.CWD),
+		Model:       strings.TrimSpace(input.Model),
+		MCPSnapshot: turnMCPSnapshot(req.MCP),
+	})
+	if err != nil {
+		return dto.TurnAssembly{}, err
+	}
+	return assembly, nil
+}
+
+func turnSkillPrompt(skills []dto.SkillRef) string {
+	parts := make([]string, 0, len(skills))
+	for _, skill := range skills {
+		if prompt := strings.TrimSpace(skill.Prompt); prompt != "" {
+			parts = append(parts, prompt)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func turnAttachmentRefs(inputs []dto.InputItem) []string {
+	refs := make([]string, 0, len(inputs))
+	for _, item := range inputs {
+		for _, candidate := range []string{strings.TrimSpace(item.Path), strings.TrimSpace(item.URL), strings.TrimSpace(item.Name)} {
+			if candidate != "" {
+				refs = append(refs, candidate)
+				break
+			}
+		}
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	return refs
+}
+
+func turnMCPSnapshot(manifest dto.MCPManifest) contract.MCPSnapshot {
+	servers := make([]string, 0, len(manifest.Binaries))
+	seen := make(map[string]struct{}, len(manifest.Binaries))
+	for _, binary := range manifest.Binaries {
+		name := strings.TrimSpace(binary.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		servers = append(servers, name)
+	}
+	if len(servers) == 0 {
+		return contract.MCPSnapshot{}
+	}
+	return contract.MCPSnapshot{Servers: servers}
 }
 
 func (s *service) StartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error) {

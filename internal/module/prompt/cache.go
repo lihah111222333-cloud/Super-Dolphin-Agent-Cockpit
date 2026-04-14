@@ -67,7 +67,15 @@ func (c *sectionCache) InvalidateSections(names ...string) uint64 {
 	defer c.mu.Unlock()
 	c.generation++
 	for _, name := range names {
-		delete(c.values, strings.TrimSpace(name))
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		for key := range c.values {
+			if key == name || strings.HasPrefix(key, name+":") {
+				delete(c.values, key)
+			}
+		}
 	}
 	return c.generation
 }

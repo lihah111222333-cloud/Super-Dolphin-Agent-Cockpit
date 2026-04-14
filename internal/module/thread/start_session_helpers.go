@@ -25,15 +25,29 @@ func normalizeStartDisplayName(value string) string {
 	return string(runes[:startDisplayNameMaxRunes])
 }
 
-func buildStartAssemblyInput(req StartRequest, cwd string) contract.StartInput {
+func (s *service) buildStartAssemblyInput(req StartRequest, threadID string) contract.StartInput {
+	return buildStartAssemblyInput(req, threadID, buildStartCtx(req, s.cfg, s.toolRegistry))
+}
+
+func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contract.BuildCtx) contract.StartInput {
 	return contract.StartInput{
-		Name:                  req.Name,
-		Prompt:                req.Prompt,
-		BaseInstructions:      req.BaseInstructions,
-		DeveloperInstructions: req.DeveloperInstructions,
-		Provider:              req.Provider,
-		CWD:                   cwd,
-		Model:                 req.Model,
+		ThreadID:                     strings.TrimSpace(threadID),
+		ParentAgentID:                req.ParentAgentID,
+		AgentType:                    req.AgentType,
+		Name:                         req.Name,
+		Prompt:                       req.Prompt,
+		BaseInstructions:             req.BaseInstructions,
+		DeveloperInstructions:        req.DeveloperInstructions,
+		Provider:                     buildCtx.Provider,
+		CWD:                          buildCtx.CWD,
+		GitRoot:                      buildCtx.GitRoot,
+		IsWorktree:                   buildCtx.IsWorktree,
+		Language:                     buildCtx.Language,
+		Model:                        buildCtx.Model,
+		EnabledTools:                 buildCtx.EnabledTools,
+		AdditionalWorkingDirectories: buildCtx.AdditionalWorkingDirectories,
+		MCPSnapshot:                  buildCtx.MCPSnapshot,
+		SessionFlags:                 buildCtx.SessionFlags,
 	}
 }
 
@@ -45,12 +59,10 @@ func buildStartAssembly(req StartRequest) contract.StartAssembly {
 	}
 }
 
-func resolveStartPromptAssembly(ctx context.Context, req StartRequest, agentID string) (contract.StartAssembly, error) {
+func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input contract.StartInput) (contract.StartAssembly, error) {
 	if req.PromptAssemblyRef == nil {
 		return buildStartAssembly(req), nil
 	}
-	input := buildStartAssemblyInput(req, req.CWD)
-	input.ThreadID = strings.TrimSpace(agentID)
 	assembly, err := req.PromptAssemblyRef.AssembleStart(ctx, input)
 	if err != nil {
 		return contract.StartAssembly{}, err

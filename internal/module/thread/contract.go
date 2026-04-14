@@ -33,23 +33,32 @@ type Service interface {
 }
 
 type StartRequest struct {
-	Provider              string
-	AgentID               string
-	CWD                   string
-	Model                 string
-	ModelProvider         string
-	Name                  string
+	Provider      string
+	AgentID       string
+	ParentAgentID string
+	AgentType     string
+	CWD           string
+	Model         string
+	ModelProvider string
+	Name          string
 	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
-	Prompt                string
-	BaseInstructions      string
-	DeveloperInstructions string
-	ApprovalPolicy        string
-	Sandbox               json.RawMessage
-	Summary               string
-	Effort                string
-	Personality           string
-	PromptAssemblyRef     contract.PromptAssemblyService
-	Config                map[string]any
+	Prompt                       string
+	BaseInstructions             string
+	DeveloperInstructions        string
+	ApprovalPolicy               string
+	Sandbox                      json.RawMessage
+	Summary                      string
+	Effort                       string
+	Personality                  string
+	PromptAssemblyRef            contract.PromptAssemblyService
+	Language                     string
+	GitRoot                      string
+	IsWorktree                   bool
+	EnabledTools                 []string
+	AdditionalWorkingDirectories []string
+	MCPSnapshot                  contract.MCPSnapshot
+	SessionFlags                 map[string]bool
+	Config                       map[string]any
 }
 
 type StartResult struct {

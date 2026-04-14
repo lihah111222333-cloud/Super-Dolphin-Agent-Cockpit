@@ -230,6 +230,18 @@ func (r *ToolRegistry) GetInstance(key dto.LeaseKey) (contract.ToolInstance, boo
 	return toContractInstance(internal), true
 }
 
+func (r *ToolRegistry) ListInstances() []contract.ToolInstance {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	items := make([]contract.ToolInstance, 0, len(r.instances))
+	for _, instance := range r.instances {
+		if instance != nil {
+			items = append(items, toContractInstance(instance))
+		}
+	}
+	return items
+}
+
 func (r *ToolRegistry) NotifyBySubscription(ctx context.Context, topic, method string, params any) error {
 	return r.notifyTargets(ctx, r.snapshotTargets(r.bySubscription, topic), method, params)
 }

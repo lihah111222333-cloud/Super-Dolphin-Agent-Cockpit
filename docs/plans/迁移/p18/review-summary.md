@@ -211,3 +211,26 @@
 - 第 13 轮“**通过，可进入实施**”的总体判断维持不变。
 - 第 14 轮完成的是一次**自动化增量收口审查**：重点修正术语、验证命令、依赖图、源码锚点与测试覆盖口径。
 - 本轮未引入新的文档 blocker；P18 文档可继续按 `0 → 1 → 2 → 3 → 4.5 → 4 → 5/6/7 → 8` 顺序推进实施。
+
+## 第 15 轮（2026-04-14 最终代码收口审查）
+
+### 审查方式
+- **P1-P3 Claude 源码深度审计**：投入 **20 agent** 对 memory / prompt / source-resolver / section cache / assembly 主链做源码级逐点复核，并完成 **16 处修复** 收口。
+- **P4 / P5 / P6 代码实现收敛**：投入 **8 agent** 并行完成 provider 注入、agent memory、retrieval / start-turn 链、兼容层与测试补齐的最终闭环。
+
+### 本轮关键修复
+1. **配置透传**：补齐 provider / request config 的透传路径，避免 assembly 层和 provider DTO 之间字段丢失。
+2. **turn 链接线**：补齐 start → thread → turn 的接线关系，确保 prompt / retrieval / provider 注入按同一上下文演进。
+3. **Read 降级**：为 retrieval / read-path 增加失败降级与兼容兜底，避免单点读取异常放大为整链失败。
+4. **BOM 兼容**：补齐 `MEMORY.md` / index / topic file 的 UTF-8 BOM 兼容处理，保证入口文件与磁盘 memory 在混合编辑器场景下可稳定解析。
+5. **截断对齐**：统一 memory entrypoint / prompt 侧的截断口径，避免 Claude 对齐链路在边界长度上出现漂移。
+
+### 验证结果
+- **Phase 0-8 全部代码落地**：P18 范围内实现、兼容层、测试与 golden 已完成交付闭环。
+- **Claude 三条注入链全部打通**：主线程 entrypoint 链、agent memory 链、relevant memory / retrieval 链已收口到统一实现口径。
+- **87+ 测试 + golden 已纳入守护覆盖**：当前回归口径可作为后续演进基线。
+- **全量编译验证通过**：当前 HEAD 可进入最终全量验证、commit 整理与未实现部分迭代阶段。
+
+### 结论
+- 第 15 轮标志着 P18 已从“文档通过、等待实施”进入“代码完成、等待最终交付验证”状态。
+- 后续工作重点转为：**全量验证 + commit + P18 未实现部分迭代**。

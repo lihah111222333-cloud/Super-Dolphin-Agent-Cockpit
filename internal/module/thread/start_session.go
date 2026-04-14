@@ -31,6 +31,8 @@ func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 func trimStartRequest(req StartRequest) StartRequest {
 	req.Provider = strings.TrimSpace(req.Provider)
 	req.AgentID = strings.TrimSpace(req.AgentID)
+	req.ParentAgentID = strings.TrimSpace(req.ParentAgentID)
+	req.AgentType = strings.TrimSpace(req.AgentType)
 	req.CWD = strings.TrimSpace(req.CWD)
 	req.Model = strings.TrimSpace(req.Model)
 	req.ModelProvider = strings.TrimSpace(req.ModelProvider)
@@ -43,6 +45,8 @@ func trimStartRequest(req StartRequest) StartRequest {
 	req.Summary = strings.TrimSpace(req.Summary)
 	req.Effort = strings.TrimSpace(req.Effort)
 	req.Personality = strings.TrimSpace(req.Personality)
+	req.Language = strings.TrimSpace(req.Language)
+	req.GitRoot = strings.TrimSpace(req.GitRoot)
 	return req
 }
 

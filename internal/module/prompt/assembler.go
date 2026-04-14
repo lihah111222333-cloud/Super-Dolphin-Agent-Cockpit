@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"strings"
@@ -85,20 +86,21 @@ func (s *service) resolveSection(ctx context.Context, section PromptSection, inp
 	if section.StartOnly && input.Start == nil {
 		return nil, nil
 	}
+	cacheKey := sectionInputCacheKey(section, input)
 	generation := s.cache.Generation()
 	if !section.Volatile {
-		if cached, ok := s.cache.Lookup(section.Name, generation); ok {
+		if cached, ok := s.cache.Lookup(cacheKey, generation); ok {
 			return resolvedSection(section, cached), nil
 		}
 	}
-	value, err := s.computeSection(ctx, generation, section, input)
+	value, err := s.computeSection(ctx, generation, section, cacheKey, input)
 	if err != nil {
 		return nil, err
 	}
 	return resolvedSection(section, value), nil
 }
 
-func (s *service) computeSection(ctx context.Context, generation uint64, section PromptSection, input SectionContext) (*string, error) {
+func (s *service) computeSection(ctx context.Context, generation uint64, section PromptSection, cacheKey string, input SectionContext) (*string, error) {
 	if section.Compute == nil {
 		return nil, nil
 	}
@@ -107,26 +109,42 @@ func (s *service) computeSection(ctx context.Context, generation uint64, section
 		if err != nil {
 			return nil, err
 		}
-		s.cache.Store(section.Name, generation, value)
+		s.cache.Store(cacheKey, generation, value)
 		return cloneStringPtr(value), nil
 	}
 
-	key := fmt.Sprintf("%d:%s", generation, section.Name)
+	key := fmt.Sprintf("%d:%s", generation, cacheKey)
 	result, err, _ := s.flight.Do(key, func() (any, error) {
-		if cached, ok := s.cache.Lookup(section.Name, generation); ok {
+		if cached, ok := s.cache.Lookup(cacheKey, generation); ok {
 			return computedSectionValue{Value: cloneStringPtr(cached)}, nil
 		}
 		value, err := section.Compute(ctx, input)
 		if err != nil {
 			return nil, err
 		}
-		s.cache.Store(section.Name, generation, value)
+		s.cache.Store(cacheKey, generation, value)
 		return computedSectionValue{Value: cloneStringPtr(value)}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return result.(computedSectionValue).Value, nil
+}
+
+func sectionInputCacheKey(section PromptSection, input SectionContext) string {
+	payload := struct {
+		Start *StartInput `json:"start,omitempty"`
+		Turn  *TurnInput  `json:"turn,omitempty"`
+	}{
+		Start: input.Start,
+		Turn:  input.Turn,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return section.Name
+	}
+	digest := sha256.Sum256(encoded)
+	return section.Name + ":" + hex.EncodeToString(digest[:])
 }
 
 func (s *service) startSections() []PromptSection {

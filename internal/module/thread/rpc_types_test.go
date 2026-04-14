@@ -15,6 +15,8 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 		"model":"gpt-5.4",
 		"modelProvider":"openai",
 		"approvalPolicy":"never",
+		"parentAgentId":"agent-root",
+		"agentType":"worker",
 		"baseInstructions":"system prompt",
 		"developerInstructions":"dev prompt",
 		"sandbox":{"type":"danger-full-access"},
@@ -30,6 +32,9 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 	}
 	if params.ModelProvider != "openai" || params.ApprovalPolicy != "never" {
 		t.Fatalf("startParams provider fields = %#v", params)
+	}
+	if params.ParentAgentID != "agent-root" || params.AgentType != "worker" {
+		t.Fatalf("startParams agent fields = %#v", params)
 	}
 	if params.BaseInstructions != "system prompt" || params.DeveloperInstructions != "dev prompt" {
 		t.Fatalf("startParams instructions = %#v", params)
@@ -49,6 +54,8 @@ func TestStartParamsKeepLegacyAliases(t *testing.T) {
 	input := []byte(`{
 		"model_provider":"azure",
 		"approval_policy":"on-request",
+		"parentId":"agent-root",
+		"agent_type":"worker",
 		"base_instructions":"legacy base",
 		"developer_instructions":"legacy dev",
 		"prompt":"legacy prompt"
@@ -61,6 +68,9 @@ func TestStartParamsKeepLegacyAliases(t *testing.T) {
 	}
 	if params.BaseInstructions != "legacy base" || params.DeveloperInstructions != "legacy dev" {
 		t.Fatalf("legacy instructions = %#v", params)
+	}
+	if params.ParentAgentID != "agent-root" || params.AgentType != "worker" {
+		t.Fatalf("legacy agent fields = %#v", params)
 	}
 	if params.Name != "legacy prompt" || params.Prompt != "legacy prompt" {
 		t.Fatalf("legacy display name = %#v", params)
@@ -98,6 +108,8 @@ func TestStartParamsMarshalUsesSnakeCase(t *testing.T) {
 	data, err := json.Marshal(startParams{
 		ModelProvider:         "openai",
 		ApprovalPolicy:        "never",
+		ParentAgentID:         "agent-root",
+		AgentType:             "worker",
 		BaseInstructions:      "base",
 		DeveloperInstructions: "dev",
 	})
@@ -108,6 +120,8 @@ func TestStartParamsMarshalUsesSnakeCase(t *testing.T) {
 	for _, want := range []string{
 		`"model_provider":"openai"`,
 		`"approval_policy":"never"`,
+		`"parent_agent_id":"agent-root"`,
+		`"agent_type":"worker"`,
 		`"base_instructions":"base"`,
 		`"developer_instructions":"dev"`,
 	} {

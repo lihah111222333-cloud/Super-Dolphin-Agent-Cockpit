@@ -29,6 +29,8 @@ type startParams struct {
 	Model                 string          `json:"model,omitempty"`
 	ModelProvider         string          `json:"model_provider,omitempty"`
 	ApprovalPolicy        string          `json:"approval_policy,omitempty"`
+	ParentAgentID         string          `json:"parent_agent_id,omitempty"`
+	AgentType             string          `json:"agent_type,omitempty"`
 	BaseInstructions      string          `json:"base_instructions,omitempty"`
 	DeveloperInstructions string          `json:"developer_instructions,omitempty"`
 	Sandbox               json.RawMessage `json:"sandbox,omitempty"`
@@ -56,28 +58,33 @@ func (p *startParams) fillLegacyFields(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if err := assignCompatString(payload, &p.ModelProvider, "model provider", "model_provider", "modelProvider"); err != nil {
+	if err := p.fillLegacyStringFields(payload); err != nil {
 		return err
 	}
-	if err := assignCompatString(payload, &p.ApprovalPolicy, "approval policy", "approval_policy", "approvalPolicy"); err != nil {
-		return err
-	}
-	if err := assignCompatString(payload, &p.BaseInstructions, "base instructions", "base_instructions", "baseInstructions", "instructions"); err != nil {
-		return err
-	}
-	if err := assignCompatString(payload, &p.DeveloperInstructions, "developer instructions", "developer_instructions", "developerInstructions"); err != nil {
-		return err
-	}
-	if err := assignCompatString(payload, &p.Name, "display name", "name", "prompt"); err != nil {
-		return err
-	}
+	return p.fillLegacyPromptField(payload)
+}
+
+func (p *startParams) fillLegacyStringFields(payload map[string]json.RawMessage) error {
+	return assignCompatStrings(payload,
+		compatStringAssignment{target: &p.ModelProvider, field: "model provider", keys: []string{"model_provider", "modelProvider"}},
+		compatStringAssignment{target: &p.ApprovalPolicy, field: "approval policy", keys: []string{"approval_policy", "approvalPolicy"}},
+		compatStringAssignment{target: &p.ParentAgentID, field: "parent agent id", keys: []string{"parent_agent_id", "parentAgentId", "parentId", "parentID"}},
+		compatStringAssignment{target: &p.AgentType, field: "agent type", keys: []string{"agent_type", "agentType"}},
+		compatStringAssignment{target: &p.BaseInstructions, field: "base instructions", keys: []string{"base_instructions", "baseInstructions", "instructions"}},
+		compatStringAssignment{target: &p.DeveloperInstructions, field: "developer instructions", keys: []string{"developer_instructions", "developerInstructions"}},
+		compatStringAssignment{target: &p.Name, field: "display name", keys: []string{"name", "prompt"}},
+	)
+}
+
+func (p *startParams) fillLegacyPromptField(payload map[string]json.RawMessage) error {
 	prompt, present, err := resolveCompatString(payload, "prompt", "prompt")
 	if err != nil {
 		return err
 	}
-	if present {
-		p.Prompt = prompt
+	if !present {
+		return nil
 	}
+	p.Prompt = prompt
 	return nil
 }
 
@@ -87,12 +94,27 @@ type compatStringValue struct {
 	present bool
 }
 
+type compatStringAssignment struct {
+	target *string
+	field  string
+	keys   []string
+}
+
 func decodeCompatPayload(data []byte) (map[string]json.RawMessage, error) {
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil, err
 	}
 	return payload, nil
+}
+
+func assignCompatStrings(payload map[string]json.RawMessage, assignments ...compatStringAssignment) error {
+	for _, assignment := range assignments {
+		if err := assignCompatString(payload, assignment.target, assignment.field, assignment.keys...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func assignCompatString(payload map[string]json.RawMessage, target *string, field string, keys ...string) error {

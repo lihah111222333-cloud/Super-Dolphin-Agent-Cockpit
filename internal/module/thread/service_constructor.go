@@ -7,6 +7,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -23,7 +24,7 @@ func NewService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 ) Service {
-	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, nil)
+	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(
@@ -36,8 +37,10 @@ func NewServiceWithPromptAssembly(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 	promptAssembly contract.PromptAssemblyService,
+	cfg *platformconfig.Config,
+	toolRegistry contract.ToolRegistry,
 ) Service {
-	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly)
+	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry)
 }
 
 func newService(
@@ -50,6 +53,8 @@ func newService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 	promptAssembly contract.PromptAssemblyService,
+	cfg *platformconfig.Config,
+	toolRegistry contract.ToolRegistry,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -65,6 +70,8 @@ func newService(
 		sessions:         sessions,
 		starter:          starter,
 		promptAssembly:   promptAssembly,
+		cfg:              cfg,
+		toolRegistry:     toolRegistry,
 		turns:            turns,
 		orchestration:    orchestration,
 		bus:              dispatcher,

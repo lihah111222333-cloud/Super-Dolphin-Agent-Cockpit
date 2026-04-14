@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"context"
 	"strings"
 	"time"
 
@@ -81,17 +80,12 @@ type SaveIntent struct {
 	Type     MemoryType
 }
 
-type ExtractFunc func(ctx context.Context, prompt string) (string, error)
-
-type ExtractParams struct {
-	Transcript string
-	MaxItems   int
-}
-
-type ExtractedMemory struct {
-	Content string
-	Type    MemoryType
-	Tags    []string
+type ParsedMemory struct {
+	Content                string
+	RawContent             string
+	Frontmatter            MemoryFrontmatter
+	Includes               []string
+	ContentDiffersFromDisk bool
 }
 
 func (e MemoryEntry) Type() MemoryType {

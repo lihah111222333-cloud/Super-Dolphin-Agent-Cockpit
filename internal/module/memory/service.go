@@ -29,9 +29,12 @@ type service struct {
 
 type MemoryLifecycleHooks struct {
 	enabled             bool
+	extractOnStop       bool
 	rootDir             string
 	projectRoot         string
 	autoMemPathOverride string
+	consolidator        *AutoDreamConsolidator
+	extractFn           ExtractFunc
 	logger              *slog.Logger
 }
 
@@ -47,15 +50,21 @@ func NewService(cfg *Config, logger *slog.Logger) Service {
 	return &service{cfg: cfg, logger: logger}
 }
 
-func NewMemoryLifecycleHooks(cfg *Config, logger *slog.Logger) *MemoryLifecycleHooks {
+func NewMemoryLifecycleHooks(cfg *Config, consolidator *AutoDreamConsolidator, logger *slog.Logger) *MemoryLifecycleHooks {
 	if cfg == nil {
 		cfg = &Config{}
 	}
+	if consolidator == nil {
+		consolidator = NewAutoDreamConsolidator(nil)
+	}
 	return &MemoryLifecycleHooks{
-		enabled:             cfg.Enabled,
+		enabled:             cfg.IsMemoryEnabled(),
+		extractOnStop:       cfg.ExtractOnStop,
 		rootDir:             strings.TrimSpace(cfg.RootDir),
 		projectRoot:         strings.TrimSpace(cfg.ProjectRoot),
 		autoMemPathOverride: strings.TrimSpace(cfg.AutoMemPathOverride),
+		consolidator:        consolidator,
+		extractFn:           mockAutoDreamExtractFunc,
 		logger:              logger,
 	}
 }
@@ -116,6 +125,33 @@ func (h *MemoryLifecycleHooks) onTurnEnd(ctx context.Context, evt turndto.TurnCo
 	if err := h.writeIntent(intent); err != nil && h.logger != nil {
 		h.logger.Warn("memory explicit save failed", "thread_id", strings.TrimSpace(evt.ThreadID), "error", err)
 	}
+}
+
+func (h *MemoryLifecycleHooks) onThreadStopped(ctx context.Context, evt threaddto.Stopped) {
+	if h == nil || !h.extractOnStop {
+		return
+	}
+	if err := h.ExtractAndSave(ctx); err != nil && h.logger != nil {
+		h.logger.Warn("memory stop extraction failed", "thread_id", strings.TrimSpace(evt.ThreadID), "error", err)
+	}
+}
+
+func (h *MemoryLifecycleHooks) ExtractAndSave(ctx context.Context) error {
+	if h == nil || !h.extractOnStop {
+		return nil
+	}
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	store, err := h.diskStore()
+	if err != nil {
+		return err
+	}
+	consolidator := h.consolidator
+	if consolidator == nil {
+		consolidator = NewAutoDreamConsolidator(nil)
+	}
+	return consolidator.Consolidate(ctx, store.Root(), h.extractFn)
 }
 
 func (h *MemoryLifecycleHooks) writeIntent(intent SaveIntent) error {

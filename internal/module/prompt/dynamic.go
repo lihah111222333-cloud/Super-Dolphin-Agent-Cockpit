@@ -7,11 +7,21 @@ import (
 )
 
 const (
-	DynamicSectionSessionGuidance = "session_guidance"
-	DynamicSectionMemory          = "memory"
-	DynamicSectionEnvInfoSimple   = "env_info_simple"
-	DynamicSectionLanguage        = "language"
-	DynamicSectionMCPInstructions = "mcp_instructions"
+	DynamicSectionSessionGuidance  = "session_guidance"
+	DynamicSectionMemory           = "memory"
+	DynamicSectionAgentMemory      = "agent_memory"
+	DynamicSectionMemoryContext    = "memory_context"
+	DynamicSectionEnvInfoSimple    = "env_info_simple"
+	DynamicSectionLanguage         = "language"
+	DynamicSectionMCPInstructions  = "mcp_instructions"
+	DynamicSectionOutputStyle      = "output_style"
+	DynamicSectionScratchpad       = "scratchpad"
+	DynamicSectionFRC              = "frc"
+	DynamicSectionSummarizeToolResults = "summarize_tool_results"
+	DynamicSectionNumericLengthAnchors  = "numeric_length_anchors"
+	DynamicSectionTokenBudget      = "token_budget"
+	DynamicSectionBrief            = "brief"
+	DynamicSectionAntModelOverride = "ant_model_override"
 )
 
 type DynamicSectionProvider interface {
@@ -34,9 +44,19 @@ type dynamicSectionSpec struct {
 var dynamicSectionSpecs = []dynamicSectionSpec{
 	{name: DynamicSectionSessionGuidance, order: 110},
 	{name: DynamicSectionMemory, order: 120, startOnly: true},
+	{name: DynamicSectionAgentMemory, order: 123, startOnly: true},
+	{name: DynamicSectionMemoryContext, order: 125, volatile: true},
 	{name: DynamicSectionEnvInfoSimple, order: 130},
 	{name: DynamicSectionLanguage, order: 140},
 	{name: DynamicSectionMCPInstructions, order: 150, volatile: true},
+	{name: DynamicSectionOutputStyle, order: 200, volatile: true},
+	{name: DynamicSectionScratchpad, order: 210, volatile: true},
+	{name: DynamicSectionFRC, order: 220, volatile: true},
+	{name: DynamicSectionSummarizeToolResults, order: 230, volatile: true},
+	{name: DynamicSectionNumericLengthAnchors, order: 240, volatile: true},
+	{name: DynamicSectionTokenBudget, order: 250, volatile: true},
+	{name: DynamicSectionBrief, order: 260, volatile: true},
+	{name: DynamicSectionAntModelOverride, order: 270, volatile: true},
 }
 
 func (p DynamicTextProvider) SectionName() string {
@@ -119,7 +139,7 @@ func (s *service) RegisterDynamicProvider(provider DynamicSectionProvider) error
 	s.dynamicMu.Lock()
 	s.dynamic[name] = provider
 	s.dynamicMu.Unlock()
-	s.cache.InvalidateSections(name)
+	s.cache.InvalidateAll(InvalidateProviderSwitch)
 	return nil
 }
 
@@ -134,7 +154,7 @@ func (s *service) UnregisterDynamicProvider(name string) bool {
 	delete(s.dynamic, key)
 	s.dynamicMu.Unlock()
 	if ok {
-		s.cache.InvalidateSections(key)
+		s.cache.InvalidateAll(InvalidateProviderSwitch)
 	}
 	return ok
 }
