@@ -132,6 +132,9 @@ func ValidateMemoryRoot(raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if !isAbsoluteMemoryPath(expanded) {
+		return "", fmt.Errorf("%w: path must be absolute", ErrInvalidMemoryRoot)
+	}
 	cleaned, err := cleanAbsolutePath(expanded)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
@@ -285,6 +288,13 @@ func isWindowsDriveRoot(path string) bool {
 	}
 	rest := strings.Trim(path[2:], `/\\`)
 	return rest == ""
+}
+
+func isAbsoluteMemoryPath(path string) bool {
+	if filepath.IsAbs(path) {
+		return true
+	}
+	return len(path) >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/')
 }
 
 func isRootOrNearRoot(path string) bool {

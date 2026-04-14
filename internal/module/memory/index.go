@@ -53,7 +53,7 @@ func WriteMemoryIndex(root string, entries []MemoryEntry) error {
 	return writeAtomicFile(memoryIndexPath(root), []byte(formatMemoryIndex(indexEntries)), 0o644)
 }
 
-func RebuildMemoryIndex(root string) ([]MemoryIndexEntry, error) {
+func UpdateMemoryIndex(root string) ([]MemoryIndexEntry, error) {
 	entries, err := scanMemoryEntries(root)
 	if err != nil {
 		return nil, err
@@ -62,6 +62,10 @@ func RebuildMemoryIndex(root string) ([]MemoryIndexEntry, error) {
 		return nil, err
 	}
 	return buildMemoryIndex(root, entries)
+}
+
+func RebuildMemoryIndex(root string) ([]MemoryIndexEntry, error) {
+	return UpdateMemoryIndex(root)
 }
 
 func scanMemoryEntries(root string) ([]MemoryEntry, error) {
@@ -120,10 +124,9 @@ func readMemoryEntryFile(path string) (MemoryEntry, error) {
 }
 
 func buildMemoryIndex(root string, entries []MemoryEntry) ([]MemoryIndexEntry, error) {
-	cloned := append([]MemoryEntry(nil), entries...)
-	sortEntries(cloned)
-	indexEntries := make([]MemoryIndexEntry, 0, len(cloned))
-	for _, entry := range cloned {
+	uniqueEntries := uniqueEntriesByCanonicalName(entries)
+	indexEntries := make([]MemoryIndexEntry, 0, len(uniqueEntries))
+	for _, entry := range uniqueEntries {
 		rel, err := filepath.Rel(root, entry.FilePath)
 		if err != nil {
 			return nil, err
@@ -208,7 +211,7 @@ func splitMemoryFrontmatter(content string) (string, string, bool) {
 
 func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 	parsed := MemoryFrontmatter{}
-	for _, line := range strings.Split(frontmatter, "\n") {
+	for line := range strings.SplitSeq(frontmatter, "\n") {
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -305,7 +308,7 @@ func truncateRunes(text string, limit int) string {
 }
 
 func firstNonEmptyLine(text string) string {
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			return line
@@ -317,6 +320,36 @@ func firstNonEmptyLine(text string) string {
 func fallbackEntryName(path string) string {
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	return strings.Join(strings.Fields(base), " ")
+}
+
+func uniqueEntriesByCanonicalName(entries []MemoryEntry) []MemoryEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	selected := make(map[string]MemoryEntry, len(entries))
+	for _, entry := range entries {
+		key := entry.CanonicalName
+		if key == "" {
+			key = CanonicalName(entry.Frontmatter.Name)
+		}
+		current, exists := selected[key]
+		if !exists || preferMemoryEntry(entry, current) {
+			selected[key] = entry
+		}
+	}
+	uniqueEntries := make([]MemoryEntry, 0, len(selected))
+	for _, entry := range selected {
+		uniqueEntries = append(uniqueEntries, entry)
+	}
+	sortEntries(uniqueEntries)
+	return uniqueEntries
+}
+
+func preferMemoryEntry(candidate, current MemoryEntry) bool {
+	if candidate.UpdatedAt.Equal(current.UpdatedAt) {
+		return candidate.FilePath < current.FilePath
+	}
+	return candidate.UpdatedAt.After(current.UpdatedAt)
 }
 
 func sortEntries(entries []MemoryEntry) {

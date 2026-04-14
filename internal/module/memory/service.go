@@ -9,6 +9,12 @@ import (
 	"strings"
 )
 
+type Service interface {
+	Config() Config
+	RootDir() string
+	EnsureRoot(ctx context.Context) error
+}
+
 type service struct {
 	cfg    *Config
 	logger *slog.Logger

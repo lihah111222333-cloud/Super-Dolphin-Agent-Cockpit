@@ -18,6 +18,7 @@ type Config struct {
 	Enabled     bool
 	EnableTools bool
 	RootDir     string
+	ProjectRoot string
 }
 
 func NewConfig(platformCfg *platformconfig.Config) *Config {
@@ -25,6 +26,7 @@ func NewConfig(platformCfg *platformconfig.Config) *Config {
 		Enabled:     parseBoolEnv(envEnableMemorySystem, false),
 		EnableTools: parseBoolEnv(envEnableMemoryTools, false),
 		RootDir:     defaultRootDir(platformCfg),
+		ProjectRoot: defaultProjectRoot(platformCfg),
 	}
 	if root := strings.TrimSpace(os.Getenv(envMemoryRoot)); root != "" {
 		cfg.RootDir = root
@@ -38,6 +40,16 @@ func defaultRootDir(platformCfg *platformconfig.Config) string {
 	}
 	if platformCfg != nil && strings.TrimSpace(platformCfg.ProjectRoot) != "" {
 		return filepath.Join(platformCfg.ProjectRoot, ".multi-agent", "memory")
+	}
+	return ""
+}
+
+func defaultProjectRoot(platformCfg *platformconfig.Config) string {
+	if platformCfg != nil && strings.TrimSpace(platformCfg.ProjectRoot) != "" {
+		return platformCfg.ProjectRoot
+	}
+	if dir, err := os.Getwd(); err == nil {
+		return dir
 	}
 	return ""
 }

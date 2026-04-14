@@ -10,8 +10,11 @@ var Module = fx.Module("memory",
 	fx.Provide(
 		NewConfig,
 		NewService,
+		NewAgentMemoryManager,
+		NewMemoryRuleEngine,
+		NewRulesProvider,
 	),
-	fx.Invoke(registerLifecycle),
+	fx.Invoke(registerLifecycle, registerPromptProvider),
 )
 
 func registerLifecycle(lc fx.Lifecycle, svc Service) {
