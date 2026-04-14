@@ -155,6 +155,7 @@ func newSteerRequest(req dto.TurnRequest, expectedTurnID string) dto.SteerReques
 		ExpectedTurnID:       strings.TrimSpace(expectedTurnID),
 		Inputs:               append([]dto.InputItem(nil), req.Inputs...),
 		Skills:               cloneSkillRefs(req.Skills),
+		TurnAssembly:         req.TurnAssembly,
 		ManualSkillSelection: req.ManualSkillSelection,
 		OutputSchema:         append([]byte(nil), req.OutputSchema...),
 		Overrides:            req.Overrides,
