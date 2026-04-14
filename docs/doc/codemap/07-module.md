@@ -1,7 +1,8 @@
 # 07 业务模块层代码地图
 
 > 扫描范围：`internal/module/dashboard/`、`lspgui/`、`skill/`、`thread/`、`turn/`、`uistate/`（含 `timeline/`）  
-> 说明：地图主体聚焦生产代码（`*_test.go` 不展开），但目录内测试已用于辅助确认边界行为与实现意图。
+> 说明：地图主体聚焦生产代码（`*_test.go` 不展开），但目录内测试已用于辅助确认边界行为与实现意图。  
+> 边界：`internal/module/memory/` 与 `internal/module/prompt/` 的内部规则、组装链与 provider bridge 已拆到 **第 11 卷**；本卷只保留 dashboard / turn / thread / uistate 对这些能力的消费面与入口边界。
 
 ---
 
@@ -61,7 +62,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 ### 职责
 
-- 聚合 orchestration、日志、任务追踪、提示词、共享文件、技能信息。
+- 聚合 orchestration、日志、任务追踪、提示模板（`prompt` store）、共享文件（`sharedfile` store）、技能信息。
 - 提供 **运维视角** 的查询型 RPC：agent 详情、系统信息、日志、DAG、任意 DB Query、页面化 dashboard 数据。
 - 本质上是一个 **只读聚合服务**，没有事件驱动写模型。
 
@@ -76,6 +77,9 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 1. **仪表盘页面查询**
    - `ui/dashboard/get` → `GetDashboardPage` → `dashboardPageLoaders`
    - 按页面名分发到 `agents/tasks/skills/commands/memory`
+   - `commands` 页并发读取 `commandcard + prompt template`；`memory` 页读取 `sharedfile` 列表
+   - `dashboard/prompts` 实际只是 `GetDashboardPage("commands") -> page.Prompts` 的字段包装；`dashboard/sharedFiles` 实际只是 `GetDashboardPage("memory") -> page.Memory` 的字段包装
+   - 这里的 `dashboard/prompts` / dashboard `memory` 页面分别对应 **prompt template store / sharedfile store** 的查询面，不等于第 11 卷里的 `internal/module/prompt` system prompt assembly 或 `internal/module/memory` durable memory 主链
    - 使用 `errgroup` 并发加载页内数据
 
 2. **Agent 详情查询**
@@ -112,13 +116,15 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 ### 依赖特点
 
 - **contract**：`contract.OrchestrationService`
-- **store**：`agentstatus / ailog / auditlog / buslog / commandcard / dbquery / prompt / sharedfile / systemlog / tasktrace`
+- **store**：`agentstatus / ailog / auditlog / buslog / commandcard / dbquery / prompt / sharedfile / systemlog / tasktrace`（其中 `prompt` 指 prompt template store，`sharedfile` 是 dashboard `memory` 页的数据源）
 - **platform**：`platform/rpc`、`platform/shared`
 - **module**：依赖 `module/skill.Service` 用于技能页
 
 ### 备注
 
 - `GetDashboard` 存在于 Service 中，但 RPC 主入口实际偏向 `GetDashboardPage` 与各个细分查询。
+- `dashboard/prompts` 读的是 `internal/store/prompt` 的 prompt template；`dashboard/sharedFiles` / dashboard `memory` 页读的是 `internal/store/sharedfile`。两者都不是 prompt assembly 或 durable memory 主链。
+- `dashboard/prompts` / dashboard `memory` 页面只到 store 查询面为止；`MEMORY.md`、memory retrieval、system prompt section 等内部语义见第 11 卷。
 - 模块本身 **不订阅/不发布 event bus 事件**。
 
 ---
@@ -290,6 +296,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 - 管理 **public thread id / agent id / provider thread id / session UUID** 的绑定关系。
 - 管理线程生命周期：`start / resume / fork / recover / stop / archive / unarchive / delete`。
+- 在 `start` 路径接入 `PromptAssemblyService`，在 `resume` 路径透传 `PromptSnapshot`；但不拥有 section registry / memory rules / durable memory 文件格式。
 - 读写线程历史、线程配置、模型切换、上下文压缩。
 - 在线程停机前联动 `turn` 模块中断活动回合并清理 tracker。
 - 发布 thread 领域事件：`Started / Stopped / MessagesPage / Compacted`。
@@ -308,10 +315,12 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 #### A. 启动线程 `Start`
 
 `normalizeStartRequest`
-→ `resolveStartProvider/resolveStartApprovalPolicy`
+→ （若 `PromptAssemblyRef == nil` 则注入默认 `s.promptAssembly`）
+→ `resolveStartPromptAssembly`
 → `launchAgent`
 → `startSession`
 → `bindSessionGeneration`
+→ `lookupSession`
 → `enrichFromSessionConfig`
 → `persistThreadState`
 
@@ -323,6 +332,10 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 - `publishThreadStarted`
 
 关键点：
+- `resolveStartPromptAssembly` 会构造 `contract.StartInput` 并调用 `PromptAssemblyService.AssembleStart`；若未注入 assembly ref，则回退到只带 `name/base/dev` 的基础 assembly
+- launch bootstrap 只通过 `buildLaunchRequest` 传 `Name/Cwd` 与 `AGENT_PROVIDER/AGENT_MODEL`，不直接携带 `PromptSnapshot`
+- thread 只负责消费 assembly 并把结果送进 provider；static/dynamic sections、memory rules、cache/invalidate 见第 11 卷
+- `Prompt` 在 start 语义里已退化成 legacy display-name fallback；持久化到 `threadstore.Thread.Prompt` 的其实是 display name，而不是 base instructions
 - provider 只允许 `codex/claude`
 - `danger-full-access` sandbox 会把默认 approval policy 收敛为 `never`
 - public thread id 在 start 路径默认复用 `agentID`
@@ -341,8 +354,10 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 关键点：
 - 若 `SessionUUID` 与 `ProviderThreadID` 不同且看起来像真实 UUID，则优先用 `SessionUUID`
-- `persistThreadState` 成功时内部已通过 `persistStartedThread` 发布 `thread.Started`；源码当前随后还会**无条件**再发布一次 `thread.Started`
-- persist binding 失败时会记录 warning 并继续发 `thread.Started`，避免 UI 因 binding immutable 失败而卡死
+- `ResumeRequest` 的 service 能力面比当前 RPC 暴露面更大：service 支持 `PromptSnapshot / Effort / ConfigOverride`，但 `thread/resume` RPC 目前只公开 `threadId/path/cwd/model/provider`
+- resume 本地不会重新 assemble prompt，也不会从 `threadstore.LoadPromptSnapshot` 自动补 runtime snapshot
+- `persistThreadState` 成功时只会在内部通过 `persistStartedThread` 发布一次 `thread.Started`
+- 只有当 binding upsert 失败时，`Resume` 才会记录 warning 并手动 `publishThreadStarted`，避免 UI 因 binding immutable 失败而卡死
 
 #### C. Fork / Recover
 
@@ -350,13 +365,14 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
   - 调 `session.ForkThread`
   - 新 thread id 同时作为新的 public thread id / agent id
   - 再执行 `launchAgent + resumeSession + bindSessionGeneration + persistThreadState`
+  - fork 过程中本地不会显式传 `PromptSnapshot`；本地只继承 `displayName / model / cwd` 等元数据，system prompt 连续性主要依赖 provider 远端 fork 上下文
 
 - `Recover`
   - 先解析 binding 与 thread meta
   - 优先 `orchestration.Recover(agent)`；若恢复失败则回退到重新拉起 agent
-  - 如果本地 session 不存在，再执行 `resumeSession`
+  - 如果本地 session 不存在，再执行 `resumeSession(Provider/AgentID/ThreadID/ProviderThreadID)`；这里同样不会补传 `PromptSnapshot`
   - 最后重新持久化 thread state
-  - `persistThreadState` 成功时已发一次完整 `thread.Started`；源码当前随后还会用只含 `PublicThreadID/AgentID/Provider` 的简化 `threadState` 再发一次 `thread.Started`
+  - `persistThreadState` 成功时只会发布一次完整 `thread.Started`，没有额外的第二次简化 started 事件
 
 #### D. Stop / Archive / Delete / Unarchive
 
@@ -440,19 +456,22 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 | `events.go` | 订阅 `AgentLaunched`，更新 `SessionUUID`。 |
 | `factory.go` | `threadState`、thread event、offline config、binding chain 查找。 |
 | `history.go` | `thread/read`、消息分页、runtime config、compact。 |
+| `launch_request.go` | orchestration launch bootstrap；构造 `LaunchAgentRequest` 并通过 env 注入 provider/model。 |
 | `lifecycle.go` | `Start/Resume/Fork/Recover` 主流程。 |
 | `lifecycle_helpers.go` | started thread 持久化、history target 解析、persisted history fallback。 |
 | `module.go` | Fx 装配与订阅注册。 |
 | `rpc.go` | `thread/*` RPC 路由。 |
 | `rpc_types.go` | 线程 RPC 参数兼容解码。 |
+| `service_constructor.go` | plain / prompt-aware 双构造入口；thread 与 prompt 模块接入边界。 |
 | `service.go` | 主 service、List/Get/SetName/Delete、事件发射器。 |
 | `session_generation.go` | 将 session generation 绑定到 orchestration。 |
-| `start_session.go` | start/resume session 配置构造与请求归一化。 |
+| `start_session.go` | start/resume session 配置构造、resume state 补齐与 `PromptSnapshot` 透传。 |
+| `start_session_helpers.go` | StartAssembly 输入构造、PromptSnapshot/ResolvedSections 的 provider DTO 投影、start config 兼容桥接。 |
 | `stop.go` | 停线程、关 session、清理 turn、清 binding sessionUUID。 |
 
 ### 依赖特点
 
-- **contract**：`Session` 及 provider/session 相关错误抽象边界
+- **contract**：`Session`、`PromptAssemblyService` 及 provider/session 相关错误抽象边界
 - **store**：`binding`、`thread`
 - **platform**：`bus`、`db`、`historyjsonl`、`rpc`、`shared`
 - **module**：依赖 `module/turn.Service`
@@ -461,8 +480,11 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 ### 备注
 
 - `thread/loaded/list` 当前等价于 `ListByStatus(statusCreated)`。
-- `thread/debugMemory` 目前返回宿主 Go runtime `MemStats`，不是 provider 进程视角。
+- `thread/debugMemory` 目前返回宿主 Go runtime `MemStats`，不是 provider 进程视角，也与 durable memory / `MEMORY.md` / retrieval 主链无关。
 - public/provider/agent 三类线程标识的真实解析主要在 `resolveBindingChain`，不是 `thread/resolve` RPC 本身。
+- Start 路径可通过 `NewServiceWithPromptAssembly` 接入 prompt assembler；Resume/Fork/Recover 不会重新 assemble prompt。
+- `thread.Service.Resume` 在 service 层还支持 `Effort / PromptSnapshot / ConfigOverride`，但当前 `thread/resume` RPC surface 只暴露 `threadId/path/cwd/model/provider`，能力面并不对齐。
+- 交叉阅读：若要判断 `thread/start` / `resume` / `fork` 是否真的消费 prompt assembly / snapshot、Codex/Claude 行为是否一致，请转第 11 卷；若要看 `PromptSnapshot` 是否落库以及落到哪一列，请转第 10 卷；若要看 `thread/*`、`memory_read` 如何被 sidecar / tool 暴露，请转第 02 卷。
 
 ---
 
@@ -496,13 +518,14 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 `PrepareTurn` 内部会做：
 - `inputAssembler.Assemble`
-  - 收集 `prompt/input/images/files`
+  - 收集 `prompt/input/images/files`（这里的 `prompt` 是本轮用户输入项，不是 `thread/start` 阶段的 system prompt assembly；后者见第 11 卷）
   - 限制最多 256 个 item
   - 去重、截断
   - 白名单文件/图片扩展名
   - 拒绝可执行文件扩展名
 - `skillResolver.Resolve`
   - 合并显式技能与 `CandidateSkills`
+  - 第三个入参来自 `PromptText(input)`：它会把 `PrepareInput.Prompt` 与 text/filecontent 输入拼成用于技能解析的用户文本；这仍属于 turn 输入语义，不是 `thread/start` 的 base/dev/system prompt
   - **但当前 RPC / orchestration 路径只真正接入了显式 `selectedSkills` 与 `input.type=skill`，没有直接接入 `module/skill` 的候选技能列表**
 - `manifest.Build`
   - 基于 `CWD / ThreadCaps / binaryDir`
@@ -584,6 +607,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 ### 备注
 
 - 当前 turn 模块 **自身不直接发 event bus 事件**；uistate 消费的 `turn.* / tool.*` 事件主要来自 provider/session 层。
+- `PrepareTurn` 产出的是 `dto.TurnRequest{Inputs, Skills, Overrides, MCP}` 这一层用户回合请求；system prompt assembly 仍由 thread/start 路径接入，不在 turn 模块内完成。
 - `review/start` 仍是 `NotImplemented`。
 - `PrepareInput` 的 `CandidateSkills / AgentID / BinaryDir` 能力在 service 层已存在，但 RPC 路径尚未全部接通。
 
@@ -594,7 +618,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 ### 职责
 
 - 将 agent/thread/turn/tool/ui 事件投影成前端友好的 **UIState / Sidebar / Timeline / Patch**。
-- 管理 UI Preferences（按 cwd scope）、项目列表、diff 快照、runtime config 读取、LSP prompt hint 覆写。
+- 管理 UI Preferences（按 cwd scope）、项目列表、diff 快照、runtime config 读取、LSP prompt hint（共享文件默认值 + scoped preference override，不经过 prompt template store / prompt assembly）。
 - 作为事件消费中心消费大量领域事件，同时向前端发布 UI 增量事件。
 
 ### 核心类型
@@ -701,6 +725,8 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
   - `config/lspPromptHint/read|write`
     - 默认值来自共享文件 `prompts/lsp-mandatory-prefix.md`
     - 覆盖值来自 scoped preference `config/lspPromptHint.override`
+    - 这条链路读的是 sharedfile key + uipreference value，不经过 `internal/store/prompt` 的 prompt template
+    - 这是 UI 配置提示文本的读写链，不参与 `internal/module/prompt` 的 section registry / `StartAssembly`
 
 ### 文件地图
 
@@ -737,6 +763,7 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 ### 备注
 
 - `workspaceByKey` / `WorkspacePanel` 当前在本模块里主要还是状态容器，当前扫描范围内还没看到对应事件写入逻辑。
+- `config/lspPromptHint/*` 只影响 UI 侧提示文本的默认值/覆写；它既不是 prompt template store，也不等于第 11 卷里的 system prompt assembly。
 - `GetState` / `GetSidebar` 最后都会用 binding store 做一次“DB 真相”纠偏，这一点很关键。
 - 主 UI 状态与 timeline 对 `TurnOutputDelta` 的消费是分流的：message 流进主状态，reasoning 流进 timeline。
 
@@ -752,8 +779,8 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 - `dashboard/agentStatus`
 - `dashboard/taskTraces`
 - `dashboard/commandCards`
-- `dashboard/prompts`
-- `dashboard/sharedFiles`
+- `dashboard/prompts`（内部走 `GetDashboardPage("commands") -> page.Prompts`，数据源是 prompt template store）
+- `dashboard/sharedFiles`（内部走 `GetDashboardPage("memory") -> page.Memory`，数据源是 sharedfile store）
 - `dashboard/skills`
 - `dashboard/agent/detail`
 - `dashboard/system/info`

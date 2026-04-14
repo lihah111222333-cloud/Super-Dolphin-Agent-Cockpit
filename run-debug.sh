@@ -10,7 +10,63 @@ FORCE_NPM_REINSTALL="0"
 NPM_REGISTRY="https://registry.npmmirror.com"
 USE_FRIDA="1"
 USE_SERVER="0"
+AUTO_CODEMAP_REFRESH="${AUTO_CODEMAP_REFRESH:-1}"
 FRIDA_VERSION_FILE_REL="build/frida-version.txt"
+
+checksum_file() {
+  local file="$1"
+  if command -v md5 >/dev/null 2>&1; then
+    md5 -q "$file"
+  elif command -v md5sum >/dev/null 2>&1; then
+    md5sum "$file" | awk '{print $1}'
+  else
+    shasum -a 256 "$file" | awk '{print $1}'
+  fi
+}
+
+maybe_refresh_codemap() {
+  local build_dir="$1"
+  local codemap_src="$build_dir/scripts/codemap_index.go"
+  local codemap_dir="$build_dir/docs/doc/codemap"
+  local codemap_readme="$codemap_dir/README.md"
+  local codemap_makefile="$build_dir/Makefile"
+  local codemap_cache_dir="$build_dir/.build-cache"
+  local codemap_bin="$codemap_cache_dir/codemap-index"
+  local codemap_hash_file="$codemap_cache_dir/codemap-index.srchash"
+  local current_hash=""
+
+  if [ "$AUTO_CODEMAP_REFRESH" != "1" ]; then
+    echo "[pre-build] 跳过代码地图索引刷新 (AUTO_CODEMAP_REFRESH=$AUTO_CODEMAP_REFRESH)"
+    return 0
+  fi
+
+  if [ ! -f "$codemap_src" ] || [ ! -d "$codemap_dir" ] || [ ! -f "$codemap_readme" ] || [ ! -f "$codemap_makefile" ]; then
+    echo "[pre-build] 跳过代码地图索引刷新 (缺少 codemap 所需文件)"
+    return 0
+  fi
+
+  echo "[pre-build] 刷新代码地图索引 (ai-index.json / README.md)..."
+  mkdir -p "$codemap_cache_dir"
+  current_hash="$(checksum_file "$codemap_src" || echo nohash)"
+
+  if [ ! -f "$codemap_bin" ] || [ ! -f "$codemap_hash_file" ] || [ "$(cat "$codemap_hash_file")" != "$current_hash" ]; then
+    echo "  → 编译 codemap_index..."
+    if go build -o "$codemap_bin" "$codemap_src"; then
+      echo "$current_hash" > "$codemap_hash_file"
+    else
+      echo "  ⚠️  codemap_index 编译失败，跳过索引刷新并继续启动"
+      return 0
+    fi
+  else
+    echo "  → codemap_index 缓存命中，跳过编译"
+  fi
+
+  if "$codemap_bin" "$build_dir"; then
+    echo "  ✅ ai-index.json / README.md 已刷新"
+  else
+    echo "  ⚠️  代码地图索引刷新失败，跳过并继续启动"
+  fi
+}
 
 resolve_frida_version() {
   local base_dir="$1"
@@ -245,24 +301,7 @@ rm -rf "$HOME/Library/Caches/agent-terminal" \
 cd "$BUILD_DIR"
 
 # ── 代码地图索引刷新 ──────────────────────────────────────
-echo "[pre-build] 刷新代码地图索引 (ai-index.json)..."
-_CODEMAP_IDX_BIN="$BUILD_DIR/.build-cache/codemap-index"
-_CODEMAP_IDX_SRC="$BUILD_DIR/scripts/codemap_index.go"
-_CODEMAP_IDX_HASH_FILE="$BUILD_DIR/.build-cache/codemap-index.srchash"
-if [ -f "$_CODEMAP_IDX_SRC" ]; then
-  _CODEMAP_IDX_CUR_HASH=$(md5 -q "$_CODEMAP_IDX_SRC" 2>/dev/null || md5sum "$_CODEMAP_IDX_SRC" | awk '{print $1}')
-  if [ ! -f "$_CODEMAP_IDX_BIN" ] || [ ! -f "$_CODEMAP_IDX_HASH_FILE" ] || [ "$(cat "$_CODEMAP_IDX_HASH_FILE")" != "$_CODEMAP_IDX_CUR_HASH" ]; then
-    echo "  → 编译 codemap_index..."
-    go build -o "$_CODEMAP_IDX_BIN" "$_CODEMAP_IDX_SRC"
-    echo "$_CODEMAP_IDX_CUR_HASH" > "$_CODEMAP_IDX_HASH_FILE"
-  else
-    echo "  → codemap_index 缓存命中，跳过编译"
-  fi
-  "$_CODEMAP_IDX_BIN" "$BUILD_DIR"
-  echo "  ✅ ai-index.json 已刷新"
-else
-  echo "  ⚠️  scripts/codemap_index.go 不存在，跳过索引刷新"
-fi
+maybe_refresh_codemap "$BUILD_DIR"
 
 echo "[3/4] 后端代码守卫检查..."
 
