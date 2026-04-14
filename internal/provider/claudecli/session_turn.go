@@ -165,7 +165,7 @@ func errorMessageFromTerminalReason(reason string) string {
 }
 
 func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
-	text := buildTurnText(req)
+	text := composeTurnText(req)
 	if text == "" {
 		return nil, "", nil, errors.New("claudecli: empty turn input")
 	}
@@ -196,10 +196,11 @@ func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([
 }
 
 func buildSteerPayload(req dto.SteerRequest) ([]byte, error) {
-	text := buildTurnText(dto.TurnRequest{
+	text := composeTurnText(dto.TurnRequest{
 		ThreadID:             req.ThreadID,
 		Inputs:               req.Inputs,
 		Skills:               req.Skills,
+		TurnAssembly:         req.TurnAssembly,
 		ManualSkillSelection: req.ManualSkillSelection,
 		OutputSchema:         req.OutputSchema,
 		Overrides:            req.Overrides,
@@ -264,6 +265,13 @@ func marshalTurnPayload(text string) ([]byte, error) {
 			}},
 		},
 	})
+}
+
+func composeTurnText(req dto.TurnRequest) string {
+	return strings.TrimSpace(strings.Join(
+		nonEmptyStrings(req.TurnAssembly.UserContextText, buildTurnText(req)),
+		"\n\n",
+	))
 }
 
 func buildTurnText(req dto.TurnRequest) string {

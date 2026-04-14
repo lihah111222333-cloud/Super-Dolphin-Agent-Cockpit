@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
@@ -160,5 +161,69 @@ func TestRestartIfNeededLockedPreservesPendingConfigOnWaitError(t *testing.T) {
 	}
 	if s.pendingModel == nil || *s.pendingModel != pendingModel || s.pendingEffort == nil || *s.pendingEffort != pendingEffort || !s.configDirty {
 		t.Fatalf("pending state lost on failed restart: %#v", s)
+	}
+}
+
+func TestRestartIfNeededLockedUsesPromptSnapshot(t *testing.T) {
+	next := newScriptedTransport()
+	defer next.finish()
+	launched := make(chan struct{}, 1)
+	var launchedInstructions string
+	var launchedConfig cliLaunchConfig
+	overrideLaunchCLI(t, func(_, _, _, instructions string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+		launchedInstructions = instructions
+		launchedConfig = cfg
+		launched <- struct{}{}
+		return next.tr, nil, nil
+	})
+
+	oldReady := make(chan struct{})
+	close(oldReady)
+	snapshot := contract.PromptAssemblySnapshot{
+		BaseInstructions:      "assembled base",
+		DeveloperInstructions: "assembled developer",
+	}
+	s := &session{
+		threadID:        "pending",
+		sessionID:       "pending",
+		threadReady:     oldReady,
+		transport:       closedTransport(),
+		model:           "sonnet",
+		transportModel:  "sonnet",
+		instructions:    "legacy base",
+		config:          cliLaunchConfig{PromptSnapshot: snapshot},
+		transportConfig: cliLaunchConfig{PromptSnapshot: snapshot},
+		suppressedTurns: map[string]struct{}{},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		s.mu.Lock()
+		err := s.restartIfNeededLocked(ctx, dto.TurnRequest{})
+		s.mu.Unlock()
+		result <- err
+	}()
+
+	select {
+	case <-launched:
+		if launchedInstructions != "assembled base" {
+			t.Fatalf("launch instructions = %q, want assembled base", launchedInstructions)
+		}
+		if launchedConfig.PromptSnapshot.DeveloperInstructions != "assembled developer" {
+			t.Fatalf("launch config = %#v", launchedConfig)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("restart did not launch replacement transport")
+	}
+
+	next.emitSystemInit(t, "thread-1")
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("restartIfNeededLocked() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("restartIfNeededLocked() did not finish")
 	}
 }
