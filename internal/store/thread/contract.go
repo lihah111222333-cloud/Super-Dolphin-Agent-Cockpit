@@ -13,6 +13,8 @@ type Store interface {
 	ListRecoverable(ctx context.Context) ([]Thread, error)
 	ListRunningAgents(ctx context.Context) ([]RunningAgent, error)
 	Upsert(ctx context.Context, params UpsertParams) error
+	SavePromptSnapshot(ctx context.Context, threadID string, snapshot PromptSnapshot) error
+	LoadPromptSnapshot(ctx context.Context, threadID string) (*PromptSnapshot, error)
 	UpdateStatus(ctx context.Context, params UpdateStatusParams) error
 	DeleteByThreadID(ctx context.Context, threadID string) error
 	ResetRunning(ctx context.Context) error
@@ -64,6 +66,13 @@ type Thread struct {
 	WorkspaceRunKey string
 	OwnerThreadID   string
 	ConfigOverride  json.RawMessage
+}
+
+type PromptSnapshot struct {
+	BaseInstructions      string            `json:"base_instructions"`
+	DeveloperInstructions string            `json:"developer_instructions"`
+	SectionSnapshot       map[string]string `json:"section_snapshot"`
+	Generation            int64             `json:"generation"`
 }
 
 type RunningAgent struct {

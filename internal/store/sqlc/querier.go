@@ -70,6 +70,7 @@ type Querier interface {
 	ListUIPreferences(ctx context.Context, dollar_1 string) ([]ListUIPreferencesRow, error)
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
 	ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error)
+	LoadAgentThreadPromptSnapshot(ctx context.Context, threadID string) ([]byte, error)
 	// Runtime SQL template from V2 DBQueryStore.Query:
 	// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT $1;
 	// A true sqlc query cannot represent a runtime-supplied SELECT shape, so this
@@ -89,6 +90,7 @@ type Querier interface {
 	UpsertAgentProviderBinding(ctx context.Context, arg UpsertAgentProviderBindingParams) error
 	UpsertAgentStatus(ctx context.Context, arg UpsertAgentStatusParams) (AgentStatus, error)
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
+	SaveAgentThreadPromptSnapshot(ctx context.Context, arg SaveAgentThreadPromptSnapshotParams) (int64, error)
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (CommandCard, error)
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)
 	UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error)
