@@ -4,6 +4,8 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
@@ -41,6 +43,8 @@ var Module = fx.Options(
 	statemachine.Module,
 	store.Module,
 	dashboard.Module,
+	memory.Module,
+	prompt.Module,
 	skill.Module,
 	thread.Module,
 	turn.Module,
