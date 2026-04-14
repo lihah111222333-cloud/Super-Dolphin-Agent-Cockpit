@@ -47,10 +47,19 @@ func NewRelevantMemoryFinder() *RelevantMemoryFinder {
 }
 
 func (f *RelevantMemoryFinder) FindRelevantMemories(ctx context.Context, query string, manifest []MemoryEntry) ([]MemoryEntry, error) {
+	return f.FindRelevantMemoriesWithAlreadySurfaced(ctx, query, manifest, nil)
+}
+
+func (f *RelevantMemoryFinder) FindRelevantMemoriesWithAlreadySurfaced(
+	ctx context.Context,
+	query string,
+	manifest []MemoryEntry,
+	alreadySurfaced map[string]struct{},
+) ([]MemoryEntry, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	ranked := f.rankEntries(query, manifest)
+	ranked := f.rankEntries(query, filterAlreadySurfacedEntries(manifest, alreadySurfaced))
 	if len(ranked) == 0 {
 		return nil, nil
 	}
@@ -58,10 +67,19 @@ func (f *RelevantMemoryFinder) FindRelevantMemories(ctx context.Context, query s
 	if err != nil {
 		return nil, err
 	}
-	return f.SelectRelevantMemories(hydrated, f.budget()), nil
+	return f.SelectRelevantMemoriesWithAlreadySurfaced(hydrated, f.budget(), alreadySurfaced), nil
 }
 
 func (f *RelevantMemoryFinder) SelectRelevantMemories(entries []MemoryEntry, budget int) []MemoryEntry {
+	return f.SelectRelevantMemoriesWithAlreadySurfaced(entries, budget, nil)
+}
+
+func (f *RelevantMemoryFinder) SelectRelevantMemoriesWithAlreadySurfaced(
+	entries []MemoryEntry,
+	budget int,
+	alreadySurfaced map[string]struct{},
+) []MemoryEntry {
+	entries = filterAlreadySurfacedEntries(entries, alreadySurfaced)
 	remaining := resolveRelevantBudget(budget)
 	limit := f.maxResults()
 	if len(entries) == 0 || remaining <= 0 || limit <= 0 {
@@ -360,4 +378,58 @@ func minInt(left, right int) int {
 		return left
 	}
 	return right
+}
+
+func filterAlreadySurfacedEntries(entries []MemoryEntry, alreadySurfaced map[string]struct{}) []MemoryEntry {
+	if len(entries) == 0 || len(alreadySurfaced) == 0 {
+		return entries
+	}
+	filtered := make([]MemoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		if surfacedEntrySeen(alreadySurfaced, entry) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+
+func rememberSurfacedEntries(alreadySurfaced map[string]struct{}, entries []MemoryEntry) {
+	for _, entry := range entries {
+		for _, key := range surfacedEntryKeys(entry) {
+			alreadySurfaced[key] = struct{}{}
+		}
+	}
+}
+
+func surfacedEntrySeen(alreadySurfaced map[string]struct{}, entry MemoryEntry) bool {
+	for _, key := range surfacedEntryKeys(entry) {
+		if _, ok := alreadySurfaced[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func surfacedEntryKeys(entry MemoryEntry) []string {
+	pathKey, hashKey := memoryDedupKeys(entry)
+	keys := make([]string, 0, 2)
+	if pathKey != "" {
+		keys = append(keys, "path:"+pathKey)
+	}
+	if hashKey != "" {
+		keys = append(keys, "hash:"+hashKey)
+	}
+	return keys
+}
+
+func cloneSurfacedSet(entries map[string]struct{}) map[string]struct{} {
+	if len(entries) == 0 {
+		return nil
+	}
+	cloned := make(map[string]struct{}, len(entries))
+	for key := range entries {
+		cloned[key] = struct{}{}
+	}
+	return cloned
 }

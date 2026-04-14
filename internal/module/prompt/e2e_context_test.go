@@ -46,6 +46,5 @@ func TestStartAssemblyFullContext(t *testing.T) {
 
 	mcp := sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMCPInstructions)
 	mustContain(t, mcp, "## orch")
-	mustContain(t, mcp, "mcp__orch__task_get_dag")
 	mustContain(t, mcp, "Use DAG tools for orchestration state.")
 }

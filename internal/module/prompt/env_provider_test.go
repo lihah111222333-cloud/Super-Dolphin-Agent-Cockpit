@@ -20,7 +20,6 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 			EnabledTools:                 []string{"code_run", "lsp_file", "lsp_grep", "lsp_file"},
 			AdditionalWorkingDirectories: []string{"/repo/extra", " /repo/extra-two ", "/repo/extra"},
 		},
-		Turn: &TurnInput{CurrentDate: "2026-04-14"},
 	})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
@@ -36,14 +35,15 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 		"- Git root: /repo",
 		"- Git worktree: yes",
 		"- Worktree note: run all commands from this directory and do not cd to the original repository root",
-		"- Current date: 2026-04-14",
-		"- OS: ",
+		"- Platform: ",
 		"- Shell: zsh",
+		"- OS version: ",
 		"- Language server status: enabled (lsp_file, lsp_grep)",
 		"- Additional working directory: /repo/extra",
 		"- Additional working directory: /repo/extra-two",
 		"- Provider: codex",
-		"- Model: gpt-5.4",
+		"- Model metadata: GPT-5.4 (model ID: gpt-5.4)",
+		"- Knowledge cutoff: not published by the provider",
 	}
 	for _, check := range checks {
 		if !strings.Contains(*text, check) {

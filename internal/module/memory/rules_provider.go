@@ -4,26 +4,25 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"go.uber.org/fx"
 )
 
 var (
-	_ prompt.DynamicSectionProvider = (*MemoryRulesProvider)(nil)
-	_ prompt.DynamicSectionProvider = (*MemoryContextProvider)(nil)
+	_ prompt.DynamicSectionProvider    = (*MemoryRulesProvider)(nil)
+	_ prompt.DynamicSectionProvider    = (*MemoryContextProvider)(nil)
+	_ prompt.InvalidationAwareProvider = (*MemoryContextProvider)(nil)
 )
 
 type MemoryRulesProvider struct {
-	engine          *MemoryRuleEngine
-	autoEnabled     bool
-	skipIndex       bool
-	extraGuidelines []string
-	features        MemoryFeatureFlags
+	cfg    *Config
+	engine *MemoryRuleEngine
 }
 
 type promptProviderParams struct {
@@ -36,24 +35,11 @@ type promptProviderParams struct {
 }
 
 func NewRulesProvider(cfg *Config, engine *MemoryRuleEngine) *MemoryRulesProvider {
-	autoEnabled := cfg != nil && cfg.IsMemoryEnabled()
-	skipIndex := cfg != nil && cfg.SkipIndex
-	features := MemoryFeatureFlags{}
-	var extraGuidelines []string
-	if cfg != nil {
-		extraGuidelines = cloneStrings(cfg.ExtraGuidelines)
-		features = cfg.Features
-	}
+	cfg = memoryConfig(cfg)
 	if engine == nil {
 		engine = NewMemoryRuleEngine()
 	}
-	return &MemoryRulesProvider{
-		engine:          engine,
-		autoEnabled:     autoEnabled,
-		skipIndex:       skipIndex,
-		extraGuidelines: extraGuidelines,
-		features:        features,
-	}
+	return &MemoryRulesProvider{cfg: cfg, engine: engine}
 }
 
 func (p *MemoryRulesProvider) SectionName() string {
@@ -67,8 +53,9 @@ func (p *MemoryRulesProvider) Resolve(_ context.Context, input prompt.SectionCon
 	if _, ok := resolveChildAgentStart(input); ok {
 		return nil, nil
 	}
-	text := p.engine.LoadMemoryPrompt(MemoryModeStandard, p.autoEnabled, MemoryRuleOptions{
-		SkipIndex:       p.skipIndex,
+	gate := ResolveMemoryGate(input.BuildCtx, p.cfg)
+	text := p.engine.LoadMemoryPrompt(gate.EffectiveMemoryMode, gate.AutoEnabled, MemoryRuleOptions{
+		SkipIndex:       gate.SkipIndex,
 		ExtraGuidelines: p.resolvedExtraGuidelines(),
 	})
 	if text == nil || strings.TrimSpace(*text) == "" {
@@ -79,19 +66,10 @@ func (p *MemoryRulesProvider) Resolve(_ context.Context, input prompt.SectionCon
 }
 
 func (p *MemoryRulesProvider) resolvedExtraGuidelines() []string {
-	if p == nil {
+	if p == nil || p.cfg == nil {
 		return nil
 	}
-	guidelines := cloneStrings(p.extraGuidelines)
-	if p.features.Kairos {
-		guidelines = append(guidelines, "Feature flag `kairos` is enabled, but Kairos-specific memory prompts are not implemented yet; continue using the standard memory rules until that mode is wired.")
-	}
-	if p.features.TeamMemory {
-		guidelines = append(guidelines, "Feature flag `teammem` is enabled, but team-memory prompt composition is not implemented yet; continue using the standard memory rules until that mode is wired.")
-	}
-	if p.features.SearchPastContext {
-		guidelines = append(guidelines, "Feature flag `search_past_context` is enabled, but prompt-side search instructions still defer to runtime retrieval; keep relying on surfaced memory until that retrieval path is wired.")
-	}
+	guidelines := cloneStrings(p.cfg.ExtraGuidelines)
 	if len(guidelines) == 0 {
 		return nil
 	}
@@ -99,28 +77,27 @@ func (p *MemoryRulesProvider) resolvedExtraGuidelines() []string {
 }
 
 type MemoryContextProvider struct {
-	enabled    bool
+	cfg        *Config
 	memoryRoot string
+	timeNow    func() time.Time
 
 	mu    sync.Mutex
 	turns map[string]*prefetchTurnState
 }
 
 type prefetchTurnState struct {
-	query   string
-	turnID  string
 	manager *PrefetchManager
 	handle  *PrefetchHandle
+	gate    MemoryGateSnapshot
 }
 
 func NewContextProvider(cfg *Config) *MemoryContextProvider {
-	if cfg == nil {
-		cfg = &Config{}
-	}
+	cfg = memoryConfig(cfg)
 	root, _ := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
 	return &MemoryContextProvider{
-		enabled:    cfg.IsMemoryEnabled(),
+		cfg:        cfg,
 		memoryRoot: strings.TrimSpace(root),
+		timeNow:    time.Now,
 		turns:      map[string]*prefetchTurnState{},
 	}
 }
@@ -130,60 +107,85 @@ func (p *MemoryContextProvider) SectionName() string {
 }
 
 func (p *MemoryContextProvider) Resolve(_ context.Context, input prompt.SectionContext) (*string, error) {
-	if p == nil || !p.enabled || input.Turn == nil {
+	if p == nil || input.Turn == nil {
 		return nil, nil
 	}
-	p.rememberTurnQuery(input.Turn.ThreadID, input.Turn.UserText)
-	if text, ok := p.consumePrefetchText(input.Turn.ThreadID); ok {
-		return &text, nil
+	gate := ResolveMemoryGate(input.BuildCtx, p.cfg)
+	p.rememberTurnGate(input.Turn.ThreadID, gate)
+	if !gate.AutoEnabled && !gate.InjectMemoryIndex && !gate.EnableRelevantPrefetch {
+		return nil, nil
+	}
+	if !gate.InjectMemoryIndex {
+		return nil, nil
 	}
 	return p.loadMemoryIndexFallback()
 }
 
-func (p *MemoryContextProvider) rememberTurnQuery(threadID, query string) {
+func (p *MemoryContextProvider) PrepareTurnInputs(
+	ctx context.Context,
+	session contract.Session,
+	buildCtx contract.BuildCtx,
+	threadID, query string,
+) []shareddto.InputItem {
 	threadID = strings.TrimSpace(threadID)
 	query = strings.TrimSpace(query)
-	if p == nil || !p.enabled || threadID == "" || query == "" {
+	if p == nil || threadID == "" || query == "" {
+		return nil
+	}
+	gate := ResolveMemoryGate(buildCtx, p.cfg)
+	p.rememberTurnGate(threadID, gate)
+	attemptPrefetch := strings.TrimSpace(p.memoryRoot) != "" &&
+		ShouldStartRelevantMemoryPrefetch(gate, contract.TurnInput{UserText: query}, RelevantPrefetchSurfacedState{})
+	entries, ready := p.consumePrefetchEntries(ctx, threadID, query, gate)
+	memoryInputs := freezeRelevantMemoryInputs(entries, p.now())
+	if attemptPrefetch && !ready {
+		return memoryInputs
+	}
+	if !gate.SearchPastContextEnabled || !shouldSearchPastContextQuery(query) {
+		return memoryInputs
+	}
+	if len(entries) > 0 && !memoryRetrievalLowConfidence(query, entries) {
+		return memoryInputs
+	}
+	snippets := p.searchPastContext(ctx, session, threadID, query)
+	if len(snippets) == 0 {
+		return memoryInputs
+	}
+	return append(memoryInputs, freezeTranscriptInputs(snippets)...)
+}
+
+func (p *MemoryContextProvider) OnPromptInvalidate(reason prompt.InvalidateReason) {
+	if p == nil {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	state := p.turnStateLocked(threadID)
-	if strings.TrimSpace(state.turnID) != "" {
-		return
+	for _, state := range p.turns {
+		if state == nil {
+			continue
+		}
+		if state.handle != nil && state.handle.cancel != nil {
+			state.handle.cancel()
+		}
+		state.handle = nil
+		if state.manager != nil {
+			state.manager.ResetSurfaced(string(reason))
+		}
 	}
-	state.query = query
 }
 
-func (p *MemoryContextProvider) onTurnStarted(ctx context.Context, evt turndto.TurnStarted) {
-	threadID := strings.TrimSpace(evt.ThreadID)
-	turnID := strings.TrimSpace(evt.TurnID)
-	if p == nil || !p.enabled || threadID == "" || turnID == "" || p.memoryRoot == "" {
-		return
-	}
-	p.mu.Lock()
-	state := p.turnStateLocked(threadID)
-	state.turnID = turnID
-	if state.manager == nil {
-		state.manager = NewPrefetchManager(p.memoryRoot)
-	}
-	query := state.query
-	manager := state.manager
-	p.mu.Unlock()
-	if manager == nil || query == "" {
-		return
-	}
-	handle := manager.StartRelevantMemoryPrefetch(ctx, query)
-	p.mu.Lock()
-	if state := p.turnStateLocked(threadID); strings.EqualFold(strings.TrimSpace(state.turnID), turnID) {
-		state.handle = handle
-	}
-	p.mu.Unlock()
-}
-
-func (p *MemoryContextProvider) onTurnTerminated(threadID, turnID string) {
+func (p *MemoryContextProvider) rememberTurnGate(threadID string, gate MemoryGateSnapshot) {
 	threadID = strings.TrimSpace(threadID)
-	turnID = strings.TrimSpace(turnID)
+	if p == nil || threadID == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.turnStateLocked(threadID).gate = gate
+}
+
+func (p *MemoryContextProvider) onTurnTerminated(threadID, _ string) {
+	threadID = strings.TrimSpace(threadID)
 	if p == nil || threadID == "" {
 		return
 	}
@@ -191,52 +193,81 @@ func (p *MemoryContextProvider) onTurnTerminated(threadID, turnID string) {
 	defer p.mu.Unlock()
 	state, ok := p.turns[threadID]
 	if !ok {
-		return
-	}
-	if turnID != "" && strings.TrimSpace(state.turnID) != "" && !strings.EqualFold(strings.TrimSpace(state.turnID), turnID) {
 		return
 	}
 	if state.handle != nil && state.handle.cancel != nil {
 		state.handle.cancel()
 	}
-	state.query = ""
-	state.turnID = ""
 	state.handle = nil
 }
 
-func (p *MemoryContextProvider) consumePrefetchText(threadID string) (string, bool) {
-	entries, ok := p.consumePrefetchEntries(threadID)
-	if !ok {
-		return "", false
+func (p *MemoryContextProvider) consumePrefetchEntries(
+	ctx context.Context,
+	threadID, query string,
+	gate MemoryGateSnapshot,
+) ([]MemoryEntry, bool) {
+	manager, handle := p.startRelevantPrefetch(ctx, threadID, query, gate)
+	if manager == nil || handle == nil {
+		return nil, false
 	}
-	text := renderRelevantMemoryContext(entries)
-	return text, strings.TrimSpace(text) != ""
+	entries, ok := manager.ConsumeIfReady(handle)
+	if !ok {
+		return nil, false
+	}
+	filtered := manager.FilterAlreadySurfaced(entries)
+	manager.MarkSurfaced(filtered)
+	p.clearHandle(threadID, handle)
+	return filtered, true
 }
 
-func (p *MemoryContextProvider) consumePrefetchEntries(threadID string) ([]MemoryEntry, bool) {
-	threadID = strings.TrimSpace(threadID)
-	if p == nil || threadID == "" {
-		return nil, false
+func (p *MemoryContextProvider) startRelevantPrefetch(
+	ctx context.Context,
+	threadID, query string,
+	gate MemoryGateSnapshot,
+) (*PrefetchManager, *PrefetchHandle) {
+	if p == nil || strings.TrimSpace(p.memoryRoot) == "" {
+		return nil, nil
+	}
+	if !ShouldStartRelevantMemoryPrefetch(gate, contract.TurnInput{UserText: query}, RelevantPrefetchSurfacedState{}) {
+		return nil, nil
 	}
 	p.mu.Lock()
-	state, ok := p.turns[threadID]
-	if !ok || state.manager == nil || state.handle == nil {
-		p.mu.Unlock()
-		return nil, false
+	state := p.turnStateLocked(threadID)
+	state.gate = gate
+	if state.manager == nil {
+		state.manager = NewPrefetchManager(p.memoryRoot)
 	}
 	manager := state.manager
-	handle := state.handle
 	p.mu.Unlock()
-	entries, ok := manager.ConsumeIfReady(handle)
-	if !ok || len(entries) == 0 {
-		return nil, false
-	}
+	handle := manager.StartRelevantMemoryPrefetch(ctx, query)
 	p.mu.Lock()
-	if state := p.turnStateLocked(threadID); state.handle == handle {
+	p.turnStateLocked(threadID).handle = handle
+	p.mu.Unlock()
+	return manager, handle
+}
+
+func (p *MemoryContextProvider) clearHandle(threadID string, handle *PrefetchHandle) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	state := p.turnStateLocked(strings.TrimSpace(threadID))
+	if state.handle == handle {
 		state.handle = nil
 	}
-	p.mu.Unlock()
-	return entries, true
+}
+
+func (p *MemoryContextProvider) searchPastContext(
+	ctx context.Context,
+	session contract.Session,
+	threadID, query string,
+) []transcriptSnippet {
+	if p == nil || session == nil {
+		return nil
+	}
+	messages, err := session.ReadHistory(ctx, strings.TrimSpace(threadID), 200)
+	if err != nil {
+		return nil
+	}
+	return searchTranscriptSnippets(query, messages, defaultRelevantMemoryBudgetBytes/2)
 }
 
 func (p *MemoryContextProvider) loadMemoryIndexFallback() (*string, error) {
@@ -254,7 +285,7 @@ func (p *MemoryContextProvider) loadMemoryIndexFallback() (*string, error) {
 	if trimmed == "" {
 		return nil, nil
 	}
-	text := "# MEMORY.md\nContents of MEMORY.md:\n" + truncateAgentMemoryContent(trimmed).content
+	text := "# MEMORY.md\nContents of MEMORY.md:\n" + TruncateEntrypointContent(trimmed).Content
 	return &text, nil
 }
 
@@ -270,59 +301,11 @@ func (p *MemoryContextProvider) turnStateLocked(threadID string) *prefetchTurnSt
 	return state
 }
 
-func renderRelevantMemoryContext(entries []MemoryEntry) string {
-	sections := []string{
-		"# Relevant memory hints",
-		"Use these retrieved memory notes if they help with the current turn.",
+func (p *MemoryContextProvider) now() time.Time {
+	if p != nil && p.timeNow != nil {
+		return p.timeNow()
 	}
-	for _, entry := range entries {
-		if section := formatMemoryHint(entry); section != "" {
-			sections = append(sections, section)
-		}
-	}
-	if len(sections) == 2 {
-		return ""
-	}
-	return strings.Join(sections, "\n\n")
-}
-
-func formatMemoryHint(entry MemoryEntry) string {
-	snippet := memoryHintSnippet(entry)
-	if snippet == "" {
-		return ""
-	}
-	lines := []string{"## " + memoryHintTitle(entry)}
-	if path := strings.TrimSpace(entry.FilePath); path != "" {
-		lines = append(lines, "Path: "+filepath.ToSlash(path))
-	}
-	lines = append(lines, snippet)
-	return strings.Join(lines, "\n")
-}
-
-func memoryHintTitle(entry MemoryEntry) string {
-	if name := strings.TrimSpace(entry.Frontmatter.Name); name != "" {
-		return name
-	}
-	if base := strings.TrimSpace(strings.TrimSuffix(filepath.Base(entry.FilePath), filepath.Ext(entry.FilePath))); base != "" {
-		return base
-	}
-	return "memory note"
-}
-
-func memoryHintSnippet(entry MemoryEntry) string {
-	text := strings.TrimSpace(entry.Content)
-	if text == "" {
-		text = strings.TrimSpace(entry.Frontmatter.Description)
-	}
-	if text == "" {
-		return ""
-	}
-	const limit = 360
-	runes := []rune(text)
-	if len(runes) <= limit {
-		return text
-	}
-	return strings.TrimSpace(string(runes[:limit])) + "…"
+	return time.Now()
 }
 
 func registerPromptProviders(p promptProviderParams) error {

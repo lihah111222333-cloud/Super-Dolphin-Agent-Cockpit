@@ -9,8 +9,8 @@ type MemoryMode string
 
 const (
 	MemoryModeStandard MemoryMode = "standard"
+	MemoryModeCombined MemoryMode = "combined"
 	MemoryModeKairos   MemoryMode = "kairos"
-	MemoryModeTeam     MemoryMode = "team"
 )
 
 type MemoryRuleOptions struct {
@@ -138,9 +138,9 @@ var standardPlanRules = []string{
 }
 
 var standardSearchingPastContextRules = []string{
-	"`Searching past context` is intentionally deferred in V3 to runtime retrieval work instead of prompt-level directory or transcript grep.",
+	"`Searching past context` is a runtime retrieval path: durable memory is searched first, and budgeted transcript snippets may be surfaced only when memory misses or confidence is weak.",
 	"Do not probe memory directories, hidden roots, or session transcript logs from the prompt layer.",
-	"Only use memory surfaced by runtime or included in context, and apply the access/trust rules above before acting on it.",
+	"Only use runtime-surfaced memory or transcript snippets included in context, and apply the access/trust rules above before acting on them.",
 }
 
 var defaultMemoryRuleEngine = NewMemoryRuleEngine()
@@ -184,14 +184,30 @@ func (e *MemoryRuleEngine) LoadMemoryPrompt(mode MemoryMode, autoEnabled bool, o
 	}
 	switch strings.TrimSpace(string(mode)) {
 	case "", string(MemoryModeStandard):
-		text := strings.TrimSpace(resolvedRuleEngine(e).BuildMemoryLines(opts))
-		if text == "" {
-			return nil
-		}
-		return &text
+		return resolvedRuleEngine(e).loadStandardMemoryPrompt(opts)
+	case string(MemoryModeCombined):
+		return resolvedRuleEngine(e).loadCombinedMemoryPrompt(opts)
+	case string(MemoryModeKairos):
+		return resolvedRuleEngine(e).loadKairosMemoryPrompt(opts)
 	default:
 		return nil
 	}
+}
+
+func (e *MemoryRuleEngine) loadStandardMemoryPrompt(opts MemoryRuleOptions) *string {
+	text := strings.TrimSpace(e.BuildMemoryLines(opts))
+	if text == "" {
+		return nil
+	}
+	return &text
+}
+
+func (e *MemoryRuleEngine) loadCombinedMemoryPrompt(MemoryRuleOptions) *string {
+	return nil
+}
+
+func (e *MemoryRuleEngine) loadKairosMemoryPrompt(MemoryRuleOptions) *string {
+	return nil
 }
 
 func (e *MemoryRuleEngine) BuildMemoryLines(opts MemoryRuleOptions) string {

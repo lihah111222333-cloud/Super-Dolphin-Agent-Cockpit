@@ -11,18 +11,17 @@ func TestNewServiceRegistersBuiltInDynamicProviders(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 
 	assembly, err := svc.AssembleTurn(context.Background(), TurnInput{
-		CWD:         "/repo",
-		GitRoot:     "/repo",
-		Language:    "Chinese",
-		CurrentDate: "2026-04-14",
+		CWD:      "/repo",
+		GitRoot:  "/repo",
+		Language: "Chinese",
 		EnabledTools: []string{
 			"lsp_file",
 			"request_user_input",
 			"spawn_agent",
 		},
 		MCPSnapshot: MCPSnapshot{
-			Servers: []string{"lsp"},
-			Tools:   []string{"mcp__lsp__lsp_file"},
+			Servers:      []string{"lsp"},
+			Instructions: map[string]string{"lsp": "Use the LSP MCP first."},
 		},
 		SessionFlags: map[string]bool{"verification_required": true},
 	})
@@ -39,8 +38,17 @@ func TestNewServiceRegistersBuiltInDynamicProviders(t *testing.T) {
 		"# MCP Server Instructions",
 	}
 	for _, check := range checks {
-		if !strings.Contains(assembly.UserContextText, check) {
-			t.Fatalf("UserContextText = %q, want substring %q", assembly.UserContextText, check)
+		if !resolvedSectionsContain(assembly.ResolvedSections, check) {
+			t.Fatalf("ResolvedSections = %#v, want substring %q", assembly.ResolvedSections, check)
 		}
 	}
+}
+
+func resolvedSectionsContain(sections []ResolvedPromptSection, want string) bool {
+	for _, section := range sections {
+		if strings.Contains(section.Content, want) {
+			return true
+		}
+	}
+	return false
 }
