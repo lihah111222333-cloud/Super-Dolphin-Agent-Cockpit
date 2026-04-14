@@ -1,12 +1,16 @@
 package contract
 
-import "context"
+import (
+	"context"
 
-type PromptRegion int
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+)
+
+type PromptRegion = dto.PromptRegion
 
 const (
-	PromptRegionStatic PromptRegion = iota
-	PromptRegionDynamic
+	PromptRegionStatic  PromptRegion = dto.PromptRegionStatic
+	PromptRegionDynamic PromptRegion = dto.PromptRegionDynamic
 )
 
 type MCPSnapshot struct {
@@ -26,12 +30,7 @@ type BuildCtx struct {
 	SessionFlags                 map[string]bool
 }
 
-type ResolvedPromptSection struct {
-	Name     string
-	Region   PromptRegion
-	Volatile bool
-	Content  string
-}
+type ResolvedPromptSection = dto.ResolvedPromptSection
 
 type InvalidateReason string
 
@@ -79,28 +78,11 @@ type TurnInput struct {
 	SessionFlags                 map[string]bool
 }
 
-type StartAssembly struct {
-	DisplayName           string
-	BaseInstructions      string
-	DeveloperInstructions string
-	ResolvedSections      []ResolvedPromptSection
-	Snapshot              PromptAssemblySnapshot
-}
+type StartAssembly = dto.StartAssembly
 
-type TurnAssembly struct {
-	UserContextText  string
-	ResolvedSections []ResolvedPromptSection
-}
+type TurnAssembly = dto.TurnAssembly
 
-type PromptAssemblySnapshot struct {
-	DisplayName           string
-	BaseInstructions      string
-	DeveloperInstructions string
-	Provider              string
-	Version               int
-	Hash                  string
-	Generation            uint64
-}
+type PromptAssemblySnapshot = dto.PromptAssemblySnapshot
 
 // PromptAssemblyService 组装系统提示词。
 type PromptAssemblyService interface {
