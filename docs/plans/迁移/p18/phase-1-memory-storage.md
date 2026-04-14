@@ -68,8 +68,9 @@ search_keys: [{{optional retrieval hints...}}]
 
 约束：
 - 每条 memory 写到独立文件
-- `name/description/type` 必填；`lang/aliases/search_keys` 为 retrieval 辅助字段，可选
+- `name/description/type` 必填；`lang/aliases/search_keys` 为 retrieval 辅助字段，可选，**Phase 1 只做原样保留/透传，不参与唯一键、索引生成或核心写入语义**
 - 写入时派生 `canonical_name = NFC(name) + Unicode case fold + whitespace collapse`，作为逻辑唯一键；原始 `name` 只负责 display name
+- 规范样例：`" Foo\tBar " → "foo bar"`；`"é"` 与 `"e◌́"` 归一后相同；多个 Unicode 空白折叠为单空格；case fold 必须 locale-insensitive
 - `feedback` / `project` 正文固定结构：`rule/fact + Why: + How to apply:`
 - 写新 memory 前先检查是否存在可更新的旧 memory
 - legacy/unknown type 降级处理，不硬失败
@@ -121,6 +122,10 @@ search_keys: [{{optional retrieval hints...}}]
 5. 基于原始统计分别计算 `wasLineTruncated` / `wasByteTruncated`
 6. 触发任一截断 → 追加区分原因的 warning（只超行 / 只超字节 / 两者都超）
 
+计量语义说明：
+- 若目标是 **Claude 兼容**，`25KB` 计量以“字符串长度”语义为准，而不是 UTF-8 磁盘真实字节数
+- 若后续改成按 UTF-8 byte 计，必须显式标注为 **V3 有意偏离 Claude 基线**
+
 > **来源**：`restored-src/src/memdir/memdir.ts:34-38, 57-103`
 
 ## 保存协议
@@ -140,6 +145,13 @@ Standard 模式两阶段：
 
 skipIndex 模式（feature gate 控制）：
 - 只写 topic file，不更新索引
+
+## 删除与恢复协议
+
+- `DeleteMemory` 与正常写入共用同一事务锁；删除 topic file 后必须全量重建 `MEMORY.md`
+- `MEMORY.md` 缺失/损坏时，允许显式 `RebuildMemoryIndex()` 从现有 topic files 重建索引
+- 读取路径发现索引损坏时可走 degrade：fallback scan root + 返回告警；是否自动覆写磁盘只由显式 rebuild 触发
+- `skipIndex` 模式结束后，允许由显式 rebuild 恢复索引一致性，不做隐式后台修复
 
 > **来源**：`restored-src/src/memdir/memdir.ts:205-234, 359-365`
 
