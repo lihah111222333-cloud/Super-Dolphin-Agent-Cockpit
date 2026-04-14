@@ -3,27 +3,36 @@ package claudecli
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const keepaliveTimeout = 30 * time.Second
+
+func (s *session) keepaliveLogger() *slog.Logger {
+	if s != nil && s.logger != nil {
+		return s.logger
+	}
+	return slog.Default()
+}
 
 func (s *session) SendKeepalive(ctx context.Context) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
 
+	logger := s.keepaliveLogger()
 	s.mu.Lock()
 	payload, localID, handle, err := s.prepareSilentTurnLocked()
 	if err != nil {
 		s.mu.Unlock()
 		return err
 	}
+	logger.Info("claudecli: keepalive sending", "local_id", localID)
 	if err := s.transport.Send(payload); err != nil {
-		s.failSilentTurnSendLocked(localID, handle, err)
+		s.failSilentTurnSendLocked(handle, err)
 		return err
 	}
 	s.mu.Unlock()
@@ -33,7 +42,11 @@ func (s *session) SendKeepalive(ctx context.Context) error {
 
 	select {
 	case <-handle.Done():
-		return handle.Err()
+		err := handle.Err()
+		if err == nil {
+			logger.Info("claudecli: keepalive completed", "local_id", localID)
+		}
+		return err
 	case <-timer.C:
 		return s.timeoutSilentTurn(localID)
 	}
@@ -57,27 +70,23 @@ func (s *session) prepareSilentTurnLocked() ([]byte, string, *turnHandle, error)
 	localID := "keepalive_" + shared.NewID("ping")
 	handle := newTurnHandle(localID, localID)
 	s.activeTurn = handle
-	if s.silentTurnIDs == nil {
-		s.silentTurnIDs = map[string]struct{}{}
-	}
-	s.silentTurnIDs[localID] = struct{}{}
 	return payload, localID, handle, nil
 }
 
-func (s *session) failSilentTurnSendLocked(localID string, handle *turnHandle, err error) {
+func (s *session) failSilentTurnSendLocked(handle *turnHandle, err error) {
 	s.takeActiveTurnLocked()
-	delete(s.silentTurnIDs, localID)
 	s.mu.Unlock()
 	handle.finish(err)
 }
 
 func (s *session) timeoutSilentTurn(localID string) error {
+	logger := s.keepaliveLogger()
+	logger.Warn("claudecli: keepalive timeout, killing transport", "local_id", localID)
 	s.mu.Lock()
 	if s.transport != nil {
 		_ = s.transport.Kill()
 	}
 	handle := s.takeActiveTurnLocked()
-	delete(s.silentTurnIDs, localID)
 	s.mu.Unlock()
 	if handle != nil {
 		handle.finish(errors.New("claudecli: keepalive timeout, killed transport"))
@@ -85,39 +94,3 @@ func (s *session) timeoutSilentTurn(localID string) error {
 	return errors.New("claudecli: keepalive timeout")
 }
 
-func (s *session) isSilentTurn(raw dto.RawProviderEvent) bool {
-	turnID := dataString(raw.Data, "turn_id")
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if turnID == "" {
-		return false
-	}
-	_, silent := s.silentTurnIDs[turnID]
-	return silent
-}
-
-func (s *session) finishSilentTurn(raw dto.RawProviderEvent) {
-	turnID := dataString(raw.Data, "turn_id")
-	if turnID == "" {
-		return
-	}
-
-	handle := s.takeActiveTurn(turnID)
-	s.mu.Lock()
-	delete(s.silentTurnIDs, turnID)
-	s.mu.Unlock()
-	if handle == nil {
-		return
-	}
-	if raw.EventType == "turn:interrupted" {
-		handle.finish(context.Canceled)
-		return
-	}
-	if dataBool(raw.Data, "success") {
-		handle.finish(nil)
-		return
-	}
-	handle.finish(errors.New(dataString(raw.Data, "error")))
-}
