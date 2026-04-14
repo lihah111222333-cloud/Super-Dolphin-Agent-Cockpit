@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -154,21 +155,38 @@ func TestFullChainFromThreadToProvider(t *testing.T) {
 		Model:                 "gpt-5",
 		Language:              "Go",
 	}
-	start, result, err := startThroughAssembly(context.Background(), h.assembly, h.threadSvc, in)
+	result, err := h.threadSvc.Start(context.Background(), thread.StartRequest{
+		Provider:                     in.Provider,
+		ModelProvider:                in.Provider,
+		Name:                         in.Name,
+		Prompt:                       in.Prompt,
+		BaseInstructions:             in.BaseInstructions,
+		DeveloperInstructions:        in.DeveloperInstructions,
+		CWD:                          in.CWD,
+		Model:                        in.Model,
+		Language:                     in.Language,
+		GitRoot:                      in.GitRoot,
+		IsWorktree:                   in.IsWorktree,
+		EnabledTools:                 append([]string(nil), in.EnabledTools...),
+		AdditionalWorkingDirectories: append([]string(nil), in.AdditionalWorkingDirectories...),
+		MCPSnapshot:                  in.MCPSnapshot,
+		SessionFlags:                 maps.Clone(in.SessionFlags),
+	})
 	if err != nil {
-		t.Fatalf("startThroughAssembly() error = %v", err)
+		t.Fatalf("thread.Start() error = %v", err)
 	}
+	start := h.bridge.startReq.StartAssembly
 	mustContain(t, start.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.SectionIdentity))
 	mustContain(t, start.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory))
-	if h.bridge.startReq.Instructions != start.BaseInstructions {
-		t.Fatalf("provider Instructions = %q, want assembled base instructions", h.bridge.startReq.Instructions)
+	if h.bridge.startReq.Instructions != h.bridge.startReq.StartAssembly.BaseInstructions {
+		t.Fatalf("provider Instructions = %q, want provider StartAssembly.BaseInstructions %q", h.bridge.startReq.Instructions, h.bridge.startReq.StartAssembly.BaseInstructions)
 	}
 	if h.bridge.startReq.StartAssembly.DisplayName != start.DisplayName {
 		t.Fatalf("provider display name = %q, want %q", h.bridge.startReq.StartAssembly.DisplayName, start.DisplayName)
 	}
-	if h.bridge.startReq.StartAssembly.BaseInstructions != start.BaseInstructions {
-		t.Fatalf("provider base instructions mismatch")
-	}
+	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.SectionIdentity))
+	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory))
+	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, "existing base tail")
 	if got := configString(h.bridge.startReq.Config, "developerInstructions"); got != "be concise" {
 		t.Fatalf("developerInstructions = %q, want %q", got, "be concise")
 	}
@@ -231,24 +249,6 @@ func newFxHarness(t *testing.T) *fxHarness {
 		}
 	})
 	return h
-}
-
-func startThroughAssembly(ctx context.Context, assembly promptpkg.PromptAssemblyService, threads thread.Service, in promptpkg.StartInput) (promptpkg.StartAssembly, thread.StartResult, error) {
-	start, err := assembly.AssembleStart(ctx, in)
-	if err != nil {
-		return promptpkg.StartAssembly{}, thread.StartResult{}, err
-	}
-	result, err := threads.Start(ctx, thread.StartRequest{
-		Provider:              in.Provider,
-		ModelProvider:         in.Provider,
-		Name:                  in.Name,
-		Prompt:                in.Prompt,
-		BaseInstructions:      in.BaseInstructions,
-		DeveloperInstructions: in.DeveloperInstructions,
-		CWD:                   in.CWD,
-		Model:                 in.Model,
-	})
-	return start, result, err
 }
 
 func mustRegisterProvider(t *testing.T, registry promptpkg.PromptRegistry, name string, build func(promptpkg.SectionContext) string) {

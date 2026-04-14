@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/memory"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
@@ -44,6 +45,8 @@ func run() error {
 			newLogger,
 			newPool,
 			newQueries,
+			memory.NewConfig,
+			memory.NewService,
 			func(store storeworkspace.Store, dispatcher *event.Dispatcher) workspace.Service {
 				return workspace.NewService(store, dispatcher)
 			},
@@ -104,7 +107,7 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookConsumer orchestration.H
 	}
 	cfg.Capabilities = []string{
 		"tools/orchestration", "tools/task", "tools/workspace",
-		"tools/prompt", "tools/command", "tools/shared_file",
+		"tools/prompt", "tools/command", "tools/shared_file", "tools/memory",
 	}
 	cfg.Subscriptions = []string{"config/agent", "config/thread"}
 	cfg.FinalReport = func() *mcp.ReportRequest {

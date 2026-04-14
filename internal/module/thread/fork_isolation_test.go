@@ -236,6 +236,41 @@ func TestServiceRecoverReturnsRestoreEnvelopeWhenSessionActive(t *testing.T) {
 	}
 }
 
+func TestServiceRecoverInvalidatesPromptAssemblyAfterSuccess(t *testing.T) {
+	t.Parallel()
+
+	promptAssembly := &stubPromptAssemblyService{}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-parent",
+		Provider:         "codex",
+		ProviderThreadID: "provider-parent",
+		CodexThreadID:    "thread-parent",
+		Cwd:              "/repo",
+	}}
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-parent",
+		AgentID:   "agent-parent",
+		Prompt:    "Recovered Thread",
+		Model:     "gpt-5.4",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+	}}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		t.Fatal("ResumeSession should not be called when session is already active")
+		return nil, nil
+	}}
+	orch := &forkOrchestrationStub{}
+	svc := NewServiceWithPromptAssembly(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil, promptAssembly, nil, nil).(*service)
+
+	if _, err := svc.Recover(context.Background(), "thread-parent"); err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateResumeRestore {
+		t.Fatalf("Invalidate calls = %#v, want [%q]", got, contract.InvalidateResumeRestore)
+	}
+}
+
 type forkOrchestrationStub struct {
 	launch       LaunchAgentRequest
 	recovered    []string

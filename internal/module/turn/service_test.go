@@ -132,6 +132,83 @@ func TestPrepareTurnPrefersExplicitBinaryDir(t *testing.T) {
 	}
 }
 
+func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
+	t.Parallel()
+
+	assembly := &stubPromptAssemblyService{
+		turn: contract.TurnAssembly{UserContextText: "assembled user context"},
+	}
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly)
+	session := &stubSession{threadID: "thread-1"}
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+		Prompt: "please verify the cache",
+		CWD:    "/repo",
+		Model:  "claude-sonnet",
+	})
+	if err != nil {
+		t.Fatalf("PrepareTurn() error = %v", err)
+	}
+	if req.TurnAssembly.UserContextText != "assembled user context" {
+		t.Fatalf("TurnAssembly = %#v, want injected user context", req.TurnAssembly)
+	}
+	if assembly.lastTurnInput.ThreadID != "thread-1" {
+		t.Fatalf("last turn thread id = %q, want thread-1", assembly.lastTurnInput.ThreadID)
+	}
+	if assembly.lastTurnInput.UserText != "please verify the cache" {
+		t.Fatalf("last turn user text = %q, want prompt text", assembly.lastTurnInput.UserText)
+	}
+	if assembly.lastTurnInput.CWD != "/repo" {
+		t.Fatalf("last turn cwd = %q, want /repo", assembly.lastTurnInput.CWD)
+	}
+	if assembly.lastTurnInput.Model != "claude-sonnet" {
+		t.Fatalf("last turn model = %q, want claude-sonnet", assembly.lastTurnInput.Model)
+	}
+	if len(assembly.lastTurnInput.MCPSnapshot.Servers) == 0 {
+		t.Fatalf("MCP snapshot = %#v, want manifest-derived servers", assembly.lastTurnInput.MCPSnapshot)
+	}
+}
+
+func TestSteerTurnPropagatesTurnAssembly(t *testing.T) {
+	t.Parallel()
+
+	assembly := &stubPromptAssemblyService{
+		turn: contract.TurnAssembly{UserContextText: "assembled steer context"},
+	}
+	session := &stubSession{
+		threadID: "thread-1",
+		startTurn: func(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
+			return newStubTurnHandle(req.LocalID, "provider-2"), nil
+		},
+		steer: func(_ context.Context, req dto.SteerRequest) error {
+			if req.TurnAssembly.UserContextText != "assembled steer context" {
+				t.Fatalf("SteerTurn assembly = %#v, want injected user context", req.TurnAssembly)
+			}
+			return nil
+		},
+	}
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly)
+	started, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
+		LocalID:  "local-2",
+		ThreadID: "thread-1",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+	if _, err := svc.SteerTurn(context.Background(), session, "local-2", PrepareInput{Prompt: "steer this", CWD: "/repo"}); err != nil {
+		t.Fatalf("SteerTurn() error = %v", err)
+	}
+	if session.lastSteer.TurnAssembly.UserContextText != "assembled steer context" {
+		t.Fatalf("last steer assembly = %#v, want injected user context", session.lastSteer.TurnAssembly)
+	}
+	if started == nil {
+		t.Fatal("started handle = nil, want active handle")
+	}
+	if assembly.lastTurnInput.UserText != "steer this" {
+		t.Fatalf("last turn user text = %q, want steer prompt", assembly.lastTurnInput.UserText)
+	}
+}
+
 func TestInterruptTurnWaitsForSettle(t *testing.T) {
 	t.Parallel()
 
@@ -266,6 +343,24 @@ func TestForceCompleteTurnLeavesFinalStateToWatcher(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+type stubPromptAssemblyService struct {
+	turn          contract.TurnAssembly
+	lastTurnInput contract.TurnInput
+}
+
+func (s *stubPromptAssemblyService) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
+func (s *stubPromptAssemblyService) AssembleTurn(_ context.Context, input contract.TurnInput) (contract.TurnAssembly, error) {
+	s.lastTurnInput = input
+	return s.turn, nil
+}
+
+func (*stubPromptAssemblyService) Invalidate(context.Context, contract.InvalidateReason) error {
+	return nil
 }
 
 type stubSession struct {

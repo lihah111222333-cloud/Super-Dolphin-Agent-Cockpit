@@ -51,6 +51,10 @@ func TestRelevantMemoryFinderFindRelevantMemoriesSkipsFilesDeletedAfterManifest(
 	if err != nil {
 		t.Fatalf("BuildManifest() error = %v", err)
 	}
+	wantPath, err := ValidateMemoryReadPath(root, primaryPath)
+	if err != nil {
+		t.Fatalf("ValidateMemoryReadPath(%q) error = %v", primaryPath, err)
+	}
 	if err := os.Remove(stalePath); err != nil {
 		t.Fatalf("Remove(%q) error = %v", stalePath, err)
 	}
@@ -63,8 +67,8 @@ func TestRelevantMemoryFinderFindRelevantMemoriesSkipsFilesDeletedAfterManifest(
 	if len(got) != 1 {
 		t.Fatalf("FindRelevantMemories() entries = %d, want 1", len(got))
 	}
-	if got[0].FilePath != primaryPath {
-		t.Fatalf("FindRelevantMemories()[0].FilePath = %q, want %q", got[0].FilePath, primaryPath)
+	if got[0].FilePath != wantPath {
+		t.Fatalf("FindRelevantMemories()[0].FilePath = %q, want %q", got[0].FilePath, wantPath)
 	}
 	if got[0].Content == "" {
 		t.Fatalf("FindRelevantMemories() should hydrate surviving entry content")

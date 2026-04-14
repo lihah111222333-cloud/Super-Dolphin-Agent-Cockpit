@@ -1,11 +1,14 @@
 package memory
 
 import (
+	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDiskStoreCRUD(t *testing.T) {
@@ -175,6 +178,129 @@ func TestDiskStoreIndexUpdateFailureCanBeRepaired(t *testing.T) {
 	}
 	if len(rebuilt) != 1 {
 		t.Fatalf("RebuildIndex() entries = %d, want 1", len(rebuilt))
+	}
+}
+
+const (
+	diskStoreHelperEnv      = "GO_WANT_DISK_STORE_HELPER"
+	diskStoreHelperRootEnv  = "DISK_STORE_HELPER_ROOT"
+	diskStoreHelperReadyEnv = "DISK_STORE_HELPER_READY"
+	diskStoreHelperDoneEnv  = "DISK_STORE_HELPER_DONE"
+)
+
+func TestAcquireMemoryRootFileLockCreatesLockFileAndReleases(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	lockedFile, err := acquireMemoryRootFileLock(root, time.Second)
+	if err != nil {
+		t.Fatalf("acquireMemoryRootFileLock() error = %v", err)
+	}
+	lockPath := filepath.Join(root, diskStoreLockFileName)
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Fatalf("Stat(%q) error = %v", lockPath, err)
+	}
+	if err := closeMemoryRootFileLock(lockedFile); err != nil {
+		t.Fatalf("closeMemoryRootFileLock() error = %v", err)
+	}
+	lockedFile, err = acquireMemoryRootFileLock(root, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("re-acquireMemoryRootFileLock() error = %v", err)
+	}
+	if err := closeMemoryRootFileLock(lockedFile); err != nil {
+		t.Fatalf("closeMemoryRootFileLock(reacquired) error = %v", err)
+	}
+}
+
+func TestDiskStoreCreateWaitsForCrossProcessFileLock(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	lockedFile, err := acquireMemoryRootFileLock(root, time.Second)
+	if err != nil {
+		t.Fatalf("acquireMemoryRootFileLock() error = %v", err)
+	}
+	readyPath := filepath.Join(t.TempDir(), "helper.ready")
+	donePath := filepath.Join(t.TempDir(), "helper.done")
+	cmd, output := startDiskStoreCreateHelper(t, root, readyPath, donePath)
+	waitForTestFile(t, readyPath, time.Second)
+	time.Sleep(150 * time.Millisecond)
+	if _, err := os.Stat(donePath); !errors.Is(err, os.ErrNotExist) {
+		_ = closeMemoryRootFileLock(lockedFile)
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatalf("helper finished before lock release, err = %v, output = %s", err, output.String())
+	}
+	if err := closeMemoryRootFileLock(lockedFile); err != nil {
+		t.Fatalf("closeMemoryRootFileLock() error = %v", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("helper Wait() error = %v, output = %s", err, output.String())
+	}
+	if _, err := os.Stat(donePath); err != nil {
+		t.Fatalf("Stat(%q) error = %v", donePath, err)
+	}
+	entry, err := newTestDiskStore(t, root).Read("locked topic")
+	if err != nil {
+		t.Fatalf("Read() after helper Create() error = %v", err)
+	}
+	if entry.Content != "Write after lock release." {
+		t.Fatalf("Read() content = %q, want %q", entry.Content, "Write after lock release.")
+	}
+}
+
+func TestDiskStoreCreateHelperProcess(t *testing.T) {
+	if os.Getenv(diskStoreHelperEnv) != "1" {
+		t.Skip("helper process")
+	}
+	root := os.Getenv(diskStoreHelperRootEnv)
+	readyPath := os.Getenv(diskStoreHelperReadyEnv)
+	donePath := os.Getenv(diskStoreHelperDoneEnv)
+	if err := os.WriteFile(readyPath, []byte("ready"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", readyPath, err)
+	}
+	store := newTestDiskStore(t, root)
+	if _, err := store.Create(testMemoryEntry("Locked Topic", "wait for cross-process lock", MemoryTypeUser, "Write after lock release.")); err != nil {
+		t.Fatalf("helper Create() error = %v", err)
+	}
+	if err := os.WriteFile(donePath, []byte("done"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", donePath, err)
+	}
+}
+
+func startDiskStoreCreateHelper(t *testing.T, root, readyPath, donePath string) (*exec.Cmd, *bytes.Buffer) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDiskStoreCreateHelperProcess$")
+	cmd.Env = append(os.Environ(),
+		diskStoreHelperEnv+"=1",
+		diskStoreHelperRootEnv+"="+root,
+		diskStoreHelperReadyEnv+"="+readyPath,
+		diskStoreHelperDoneEnv+"="+donePath,
+	)
+	output := &bytes.Buffer{}
+	cmd.Stdout = output
+	cmd.Stderr = output
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("helper Start() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
+	return cmd, output
+}
+
+func waitForTestFile(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("Stat(%q) error = %v", path, err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %q", path)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

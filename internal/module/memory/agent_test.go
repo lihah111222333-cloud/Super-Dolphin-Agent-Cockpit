@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,6 +46,97 @@ func TestAgentMemoryManagerGetAgentMemoryDirFallsBackOnConflict(t *testing.T) {
 	}
 	if !strings.HasPrefix(base, "writer-") {
 		t.Fatalf("GetAgentMemoryDir() base = %q, want readable prefix fallback", base)
+	}
+}
+
+func TestEnsureAgentMemoryDirCreatesAllScopes(t *testing.T) {
+	manager, _, _ := newTestAgentMemoryManager(t)
+	for _, scope := range []MemoryScope{MemoryScopeUser, MemoryScopeProject, MemoryScopeLocal} {
+		t.Run(string(scope), func(t *testing.T) {
+			dir, err := manager.GetAgentMemoryDir("Writer", scope)
+			if err != nil {
+				t.Fatalf("GetAgentMemoryDir(%q, %q) error = %v", "Writer", scope, err)
+			}
+			if err := manager.EnsureAgentMemoryDir("Writer", scope); err != nil {
+				t.Fatalf("EnsureAgentMemoryDir(%q, %q) error = %v", "Writer", scope, err)
+			}
+			assertEmptyAgentMemoryEntrypoint(t, dir)
+		})
+	}
+}
+
+func TestLoadAgentMemoryPromptAutoCreatesDir(t *testing.T) {
+	manager, _, _ := newTestAgentMemoryManager(t)
+	dir, err := manager.GetAgentMemoryDir("Writer", MemoryScopeProject)
+	if err != nil {
+		t.Fatalf("GetAgentMemoryDir() error = %v", err)
+	}
+	prompt, err := manager.LoadAgentMemoryPrompt("Writer", MemoryScopeProject)
+	if err != nil {
+		t.Fatalf("LoadAgentMemoryPrompt() error = %v", err)
+	}
+	assertEmptyAgentMemoryEntrypoint(t, dir)
+	if !strings.Contains(prompt, emptyAgentMemoryPrompt) {
+		t.Fatalf("LoadAgentMemoryPrompt() missing empty placeholder: %q", prompt)
+	}
+}
+
+func TestAgentMemoryIsolation(t *testing.T) {
+	manager, _, _ := newTestAgentMemoryManager(t)
+	writerBody := "Remember writer-specific review preferences."
+	reviewerBody := "Remember reviewer-specific risk checklist."
+	writerDir := writeAgentMemoryEntrypoint(t, manager, "Writer", MemoryScopeProject, writerBody)
+	reviewerDir := writeAgentMemoryEntrypoint(t, manager, "Reviewer", MemoryScopeProject, reviewerBody)
+	if writerDir == reviewerDir {
+		t.Fatalf("agent memory dirs must differ: %q", writerDir)
+	}
+	writerPrompt, err := manager.LoadAgentMemoryPrompt("Writer", MemoryScopeProject)
+	if err != nil {
+		t.Fatalf("LoadAgentMemoryPrompt(writer) error = %v", err)
+	}
+	reviewerPrompt, err := manager.LoadAgentMemoryPrompt("Reviewer", MemoryScopeProject)
+	if err != nil {
+		t.Fatalf("LoadAgentMemoryPrompt(reviewer) error = %v", err)
+	}
+	assertPromptContainsOnly(t, writerPrompt, writerBody, reviewerBody)
+	assertPromptContainsOnly(t, reviewerPrompt, reviewerBody, writerBody)
+}
+
+func TestAgentMemoryScopePermissions(t *testing.T) {
+	manager, _, _ := newTestAgentMemoryManager(t)
+	contents := map[MemoryScope]string{
+		MemoryScopeUser:    "Remember cross-project writer context.",
+		MemoryScopeProject: "Remember repo-specific writer context.",
+		MemoryScopeLocal:   "Remember machine-local writer context.",
+	}
+	dirs := make(map[MemoryScope]string, len(contents))
+	for scope, body := range contents {
+		dir := writeAgentMemoryEntrypoint(t, manager, "Writer", scope, body)
+		dirs[scope] = dir
+		if _, err := ValidateMemoryWritePath(dir, memoryIndexPath(dir)); err != nil {
+			t.Fatalf("ValidateMemoryWritePath(%q, MEMORY.md) error = %v", scope, err)
+		}
+		escaped := filepath.Join(dir, "..", "escape.md")
+		if _, err := ValidateMemoryWritePath(dir, escaped); !errors.Is(err, ErrInvalidMemoryWritePath) {
+			t.Fatalf("ValidateMemoryWritePath(%q, %q) error = %v, want %v", scope, escaped, err, ErrInvalidMemoryWritePath)
+		}
+	}
+	for scope, body := range contents {
+		if dirs[scope] == "" {
+			t.Fatalf("missing dir for scope %q", scope)
+		}
+		prompt, err := manager.LoadAgentMemoryPrompt("Writer", scope)
+		if err != nil {
+			t.Fatalf("LoadAgentMemoryPrompt(%q) error = %v", scope, err)
+		}
+		if !strings.Contains(prompt, body) {
+			t.Fatalf("LoadAgentMemoryPrompt(%q) missing own scope content: %q", scope, prompt)
+		}
+		for otherScope, otherBody := range contents {
+			if otherScope != scope && strings.Contains(prompt, otherBody) {
+				t.Fatalf("LoadAgentMemoryPrompt(%q) leaked %q scope content: %q", scope, otherScope, prompt)
+			}
+		}
 	}
 }
 
@@ -170,4 +262,55 @@ func newTestAgentMemoryManager(t *testing.T) (*AgentMemoryManager, string, strin
 	projectRoot := filepath.Join(t.TempDir(), "project-root")
 	manager := NewAgentMemoryManager(&Config{RootDir: userRoot, ProjectRoot: projectRoot})
 	return manager, userRoot, projectRoot
+}
+
+func assertEmptyAgentMemoryEntrypoint(t *testing.T, dir string) {
+	t.Helper()
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", dir, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("path %q is not a directory", dir)
+	}
+	entrypoint := memoryIndexPath(dir)
+	info, err = os.Stat(entrypoint)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", entrypoint, err)
+	}
+	if info.IsDir() {
+		t.Fatalf("path %q is a directory, want file", entrypoint)
+	}
+	content, err := os.ReadFile(entrypoint)
+	if err != nil {
+		t.Fatalf("ReadFile(MEMORY.md) error = %v", err)
+	}
+	if strings.TrimSpace(stripUTF8BOM(string(content))) != "" {
+		t.Fatalf("MEMORY.md = %q, want empty entrypoint", string(content))
+	}
+}
+
+func writeAgentMemoryEntrypoint(t *testing.T, manager *AgentMemoryManager, agentType string, scope MemoryScope, body string) string {
+	t.Helper()
+	dir, err := manager.GetAgentMemoryDir(agentType, scope)
+	if err != nil {
+		t.Fatalf("GetAgentMemoryDir(%q, %q) error = %v", agentType, scope, err)
+	}
+	if err := manager.EnsureAgentMemoryDir(agentType, scope); err != nil {
+		t.Fatalf("EnsureAgentMemoryDir(%q, %q) error = %v", agentType, scope, err)
+	}
+	if err := os.WriteFile(memoryIndexPath(dir), []byte(body), 0o644); err != nil {
+		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
+	}
+	return dir
+}
+
+func assertPromptContainsOnly(t *testing.T, prompt, want, notWant string) {
+	t.Helper()
+	if !strings.Contains(prompt, want) {
+		t.Fatalf("prompt = %q, want substring %q", prompt, want)
+	}
+	if notWant != "" && strings.Contains(prompt, notWant) {
+		t.Fatalf("prompt = %q, want substring %q to stay isolated", prompt, notWant)
+	}
 }

@@ -97,6 +97,8 @@ func newStartHandler(svc Service) handler.Func {
 			CWD:                   p.CWD,
 			Model:                 p.Model,
 			ModelProvider:         p.ModelProvider,
+			ParentAgentID:         p.ParentAgentID,
+			AgentType:             p.AgentType,
 			Name:                  p.Name,
 			Prompt:                p.Prompt,
 			BaseInstructions:      p.BaseInstructions,

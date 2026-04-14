@@ -37,11 +37,15 @@ func TestManifestBuilderBuildManifestScansMemoryFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildManifest() error = %v", err)
 	}
+	wantNewerPath, err := ValidateMemoryReadPath(root, newerPath)
+	if err != nil {
+		t.Fatalf("ValidateMemoryReadPath(%q) error = %v", newerPath, err)
+	}
 	if len(manifest) != 2 {
 		t.Fatalf("BuildManifest() entries = %d, want 2", len(manifest))
 	}
-	if manifest[0].FilePath != newerPath {
-		t.Fatalf("BuildManifest()[0].FilePath = %q, want %q", manifest[0].FilePath, newerPath)
+	if manifest[0].FilePath != wantNewerPath {
+		t.Fatalf("BuildManifest()[0].FilePath = %q, want %q", manifest[0].FilePath, wantNewerPath)
 	}
 	if manifest[0].Content != "" || manifest[1].Content != "" {
 		t.Fatalf("BuildManifest() should not preload content, got %#v", manifest)
@@ -72,11 +76,15 @@ func TestScanHeadersSafeAndBuildManifestSkipUnsafeFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanHeadersSafe() error = %v", err)
 	}
+	wantPath, err := ValidateMemoryReadPath(root, insidePath)
+	if err != nil {
+		t.Fatalf("ValidateMemoryReadPath(%q) error = %v", insidePath, err)
+	}
 	if len(headers) != 1 {
 		t.Fatalf("ScanHeadersSafe() entries = %d, want 1", len(headers))
 	}
-	if headers[0].FilePath != insidePath {
-		t.Fatalf("ScanHeadersSafe()[0].FilePath = %q, want %q", headers[0].FilePath, insidePath)
+	if headers[0].FilePath != wantPath {
+		t.Fatalf("ScanHeadersSafe()[0].FilePath = %q, want %q", headers[0].FilePath, wantPath)
 	}
 	if headers[0].Content != "" {
 		t.Fatalf("ScanHeadersSafe() should not preload content, got %q", headers[0].Content)
@@ -89,8 +97,8 @@ func TestScanHeadersSafeAndBuildManifestSkipUnsafeFiles(t *testing.T) {
 	if len(manifest) != 1 {
 		t.Fatalf("BuildManifest() entries = %d, want 1", len(manifest))
 	}
-	if manifest[0].FilePath != insidePath {
-		t.Fatalf("BuildManifest()[0].FilePath = %q, want %q", manifest[0].FilePath, insidePath)
+	if manifest[0].FilePath != wantPath {
+		t.Fatalf("BuildManifest()[0].FilePath = %q, want %q", manifest[0].FilePath, wantPath)
 	}
 }
 

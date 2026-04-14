@@ -112,7 +112,7 @@ func scanMemoryEntries(root string) ([]MemoryEntry, error) {
 }
 
 func readMemoryEntryFile(path string) (MemoryEntry, error) {
-	content, err := os.ReadFile(path)
+	parsed, err := ParseMemoryFile(path)
 	if err != nil {
 		return MemoryEntry{}, err
 	}
@@ -120,14 +120,8 @@ func readMemoryEntryFile(path string) (MemoryEntry, error) {
 	if err != nil {
 		return MemoryEntry{}, err
 	}
-	normalizedContent := stripUTF8BOM(string(content))
-	frontmatter, body, ok := splitMemoryFrontmatter(normalizedContent)
-	entry := MemoryEntry{Content: strings.TrimSpace(body), FilePath: path, UpdatedAt: info.ModTime()}
-	if ok {
-		entry.Frontmatter = parseMemoryFrontmatter(frontmatter)
-	} else {
-		entry.Content = strings.TrimSpace(normalizedContent)
-	}
+	entry := MemoryEntry{Content: parsed.Content, FilePath: path, UpdatedAt: info.ModTime()}
+	entry.Frontmatter = parsed.Frontmatter
 	entry = normalizeLoadedEntry(entry)
 	if entry.Frontmatter.Name == "" {
 		entry.Frontmatter.Name = fallbackEntryName(path)

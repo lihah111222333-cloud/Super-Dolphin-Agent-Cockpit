@@ -48,6 +48,8 @@ const PromptAssemblySnapshotVersion = 1
 
 type StartInput struct {
 	ThreadID                     string
+	ParentAgentID                string
+	AgentType                    string
 	Name                         string
 	Prompt                       string
 	BaseInstructions             string

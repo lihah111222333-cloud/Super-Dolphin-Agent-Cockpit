@@ -41,11 +41,13 @@ func TestStartSessionUsesPromptAssembly(t *testing.T) {
 		nil,
 		orch,
 		nil,
-		stubPromptAssemblyService{start: contract.StartAssembly{
+		&stubPromptAssemblyService{start: contract.StartAssembly{
 			DisplayName:           "assembled name",
 			BaseInstructions:      "assembled system",
 			DeveloperInstructions: "assembled dev",
 		}},
+		nil,
+		nil,
 	).(*service)
 
 	if _, err := svc.Start(context.Background(), StartRequest{
@@ -161,6 +163,43 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 	}
 	if threads.upsert.Prompt != snapshot.DisplayName {
 		t.Fatalf("persisted prompt = %q, want %q", threads.upsert.Prompt, snapshot.DisplayName)
+	}
+}
+
+func TestResumeInvalidatesPromptAssemblyAfterSuccess(t *testing.T) {
+	t.Parallel()
+
+	promptAssembly := &stubPromptAssemblyService{}
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-resume",
+		AgentID:   "agent-resume",
+		Prompt:    "resume name",
+		Model:     "gpt-5.4",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-resume",
+		Provider:         "codex",
+		ProviderThreadID: "provider-thread-resume",
+		CodexThreadID:    "thread-resume",
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+		session := &stubSession{threadID: req.ProviderThreadID}
+		sessions.session = session
+		return session, nil
+	}}
+	orch := &stubThreadOrchestration{}
+	svc := NewServiceWithPromptAssembly(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil, promptAssembly, nil, nil).(*service)
+
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-resume"}); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateResumeRestore {
+		t.Fatalf("Invalidate calls = %#v, want [%q]", got, contract.InvalidateResumeRestore)
 	}
 }
 
@@ -291,21 +330,23 @@ func TestTurnAssemblyUserContextText(t *testing.T) {
 }
 
 type stubPromptAssemblyService struct {
-	start contract.StartAssembly
-	err   error
+	start       contract.StartAssembly
+	err         error
+	invalidated []contract.InvalidateReason
 }
 
-func (s stubPromptAssemblyService) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+func (s *stubPromptAssemblyService) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
 	if s.err != nil {
 		return contract.StartAssembly{}, s.err
 	}
 	return s.start, nil
 }
 
-func (stubPromptAssemblyService) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
+func (*stubPromptAssemblyService) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
 	return contract.TurnAssembly{}, nil
 }
 
-func (stubPromptAssemblyService) Invalidate(context.Context, contract.InvalidateReason) error {
+func (s *stubPromptAssemblyService) Invalidate(_ context.Context, reason contract.InvalidateReason) error {
+	s.invalidated = append(s.invalidated, reason)
 	return nil
 }

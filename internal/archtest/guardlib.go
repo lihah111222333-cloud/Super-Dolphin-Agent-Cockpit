@@ -343,8 +343,10 @@ func packageFileCountLimit(pkgDir string) int {
 	case "internal/provider/claudecli",
 		"internal/provider/codexapp":
 		return 30 // 核心 provider 包，逻辑密集，文件限制过低会导致逻辑分散
+	case "internal/module/memory":
+		return 18 // memory 按职责拆分 provider/retrieval/agent path 后已稳定超过默认阈值，保留较紧上限避免继续膨胀
 	case "internal/module/thread":
-		return 20
+		return 22 // thread 统一承接启动/恢复/prompt 装配链路，略高于默认阈值但仍受包总行数与函数复杂度守卫约束
 	case "internal/store/sqlc", "cmd/mcp-orch/store/sqlc":
 		// sqlc 输出按查询源文件拆分，包文件数对生成层噪声较大；仍保留包总行数与单文件/函数守卫。
 		return 0

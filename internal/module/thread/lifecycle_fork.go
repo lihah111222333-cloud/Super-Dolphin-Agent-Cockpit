@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -123,6 +124,9 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		SessionUUID:       shared.FirstNonEmpty(binding.SessionUUID, session.ThreadID()),
 		CreatedAt:         meta.CreatedAt,
 	}), true); err != nil {
+		return RecoverResult{}, err
+	}
+	if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
 		return RecoverResult{}, err
 	}
 	return RecoverResult{

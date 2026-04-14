@@ -155,9 +155,20 @@ Phase 7 ─> Phase 8
 - **nested_memory**：可延后，但要明确这不是 retrieval 的小补丁，而是 target-path 条件规则体系；复杂单仓/多目录项目的命中率会明显弱于 Claude。
 - **compact 机制对比**：Claude 的 compact 不只是“压缩消息”，还会联动 section cache、`getUserContext()` / entrypoint 重取、`loadedNestedMemoryPaths` 生命周期，以及 transcript 中 `relevant_memories` 的保留/清空语义。P18 当前的替代方案是 **PromptAssembly invalidate + retrieval generation/cancel + attachment replay roundtrip**，可覆盖主链，但不追求 Claude 的所有边缘 compact 行为一比一同构。
 
+## 后续迭代计划
+
+> P18 Phase 0-8 落地后，基于 20 Agent Claude 源码对照调研（2026-04-14），拆分为两轮迭代：
+
+| 计划 | 文件 | 内容 | 前置 |
+|------|------|------|------|
+| P18.2 | [p18.2-core-alignment.md](p18.2-core-alignment.md) | 核心对齐：Turn 上下文 + Cache 语义 + Prefetch 接线 + 门禁统一 + Section 实装 + 三层注入 | P18 Phase 0-8 |
+| P18.3 | [p18.3-advanced-alignment.md](p18.3-advanced-alignment.md) | 进阶对齐：claudeMd 多来源 + Section 全量 + Agent Memory 闭环 + extractMemories + Compact + KAIROS + Team Memory + nested_memory | **P18.2 全部完成** |
+
 ## 参考文档
 
-- [p18-unimplemented.md](p18-unimplemented.md) — P18 未实现部分汇总（原 P19 延后项）
+- [p18.2-core-alignment.md](p18.2-core-alignment.md) — P18.2 核心对齐执行计划
+- [p18.3-advanced-alignment.md](p18.3-advanced-alignment.md) — P18.3 进阶对齐执行计划
+- [p18-unimplemented.md](p18-unimplemented.md) — P18 未实现部分汇总（已被 P18.2/P18.3 取代）
 - [source-refs-appendix.md](source-refs-appendix.md) — 全量源码锚点附录
 - [../p18-memory-prompt-system-plan.md](../p18-memory-prompt-system-plan.md) — 历史总纲/背景对照（**非当前实施口径**）
 - `claude_memory_system_mapping.md` / `claude_memory_system_source_refs.md` / `claude_system_prompts_mapping.md` / `claude_system_prompts_source_refs.md` 的历史内容已并入 `source-refs-appendix.md`，仓库内不再单独维护同名文件

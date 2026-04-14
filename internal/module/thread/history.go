@@ -311,6 +311,9 @@ func (s *service) Compact(ctx context.Context, threadID, args string) (dto.Threa
 		Estimated:    true,
 	}
 	s.publishThreadCompacted(result)
+	if err := s.invalidatePromptAssembly(ctx, contract.InvalidateCompact); err != nil {
+		return dto.ThreadCompactResult{}, err
+	}
 	return result, nil
 }
 

@@ -16,7 +16,7 @@ func TestMemoryLifecycleHooksOnTurnEndWritesExplicitMemory(t *testing.T) {
 		Enabled:     true,
 		RootDir:     root,
 		ProjectRoot: projectRoot,
-	}, nil)
+	}, nil, nil)
 
 	hooks.onTurnEnd(context.Background(), turndto.TurnCompleted{
 		Success: true,
@@ -52,7 +52,7 @@ func TestMemoryLifecycleHooksOnTurnEndSkipsNonIntent(t *testing.T) {
 		Enabled:     true,
 		RootDir:     root,
 		ProjectRoot: projectRoot,
-	}, nil)
+	}, nil, nil)
 
 	hooks.onTurnEnd(context.Background(), turndto.TurnCompleted{
 		Success: true,
@@ -81,7 +81,7 @@ func TestMemoryLifecycleHooksOnTurnEndUsesAutoMemPathOverride(t *testing.T) {
 		RootDir:             root,
 		ProjectRoot:         projectRoot,
 		AutoMemPathOverride: override,
-	}, nil)
+	}, nil, nil)
 
 	hooks.onTurnEnd(context.Background(), turndto.TurnCompleted{
 		Success: true,

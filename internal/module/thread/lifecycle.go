@@ -46,6 +46,25 @@ type threadMeta struct {
 	CreatedAt int64
 }
 
+type sessionGenerationProvider interface {
+	SessionGeneration(agentID string) uint64
+}
+
+func (s *service) bindSessionGeneration(ctx context.Context, agentID string) error {
+	if s.orchestration == nil || s.sessions == nil {
+		return nil
+	}
+	provider, ok := s.sessions.(sessionGenerationProvider)
+	if !ok {
+		return nil
+	}
+	generation := provider.SessionGeneration(agentID)
+	if generation == 0 {
+		return errors.New("session generation is not available")
+	}
+	return s.orchestration.BindSessionGeneration(ctx, strings.TrimSpace(agentID), generation)
+}
+
 func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, error) {
 	ctx = shared.NonNilContext(ctx)
 	req, agentID, err := normalizeStartRequest(req)
@@ -55,7 +74,8 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	if req.PromptAssemblyRef == nil {
 		req.PromptAssemblyRef = s.promptAssembly
 	}
-	assembly, err := resolveStartPromptAssembly(ctx, req, agentID)
+	assemblyInput := s.buildStartAssemblyInput(req, agentID)
+	assembly, err := resolveStartPromptAssembly(ctx, req, assemblyInput)
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -168,6 +188,9 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 			)
 		}
 		s.publishThreadStarted(threadState)
+	}
+	if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
+		return ResumeResult{}, err
 	}
 	return ResumeResult{
 		ThreadID:  publicThreadID,

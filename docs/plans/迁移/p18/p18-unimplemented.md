@@ -24,6 +24,7 @@
 
 ## 2. Team Memory 完整体
 
+- 状态：骨架已实现（Go 侧 `TeamMemoryManager` 已预留并默认 hard-disabled）；sync service / secret guard / team entrypoint prompt 注入仍未实现。
 - 范围：sync service（pull/push/watcher/ETag/shutdown flush）+ team secret guard 双层防护 + team entrypoint/prompt 注入。
 - Claude 锚点：
   - `src/memdir/teamMemPrompts.ts:L22-100`
@@ -49,6 +50,7 @@
 - 预估工期：4-6 天。
 - 依赖关系：long-lived session 形态、daily log path、`date_change` attachment 注入、`/dream` 任务调度、topic file 回写策略。
 - 实现建议：若后续要做长期后台助手，应优先补 daily log 与 `/dream` 闭环，再考虑 brief/proactive 之类的上层能力。
+- 实现状态：骨架已实现。
 
 ## 4. nested_memory
 
@@ -62,6 +64,7 @@
 - 预估工期：4-5 天。
 - 依赖关系：target-file → nested rules 匹配器、`loadedNestedMemoryPaths` 生命周期、compact-clear 后重建、attachment 注入链路。
 - 实现建议：先定义 target-path 命中规则与生命周期清理，再接 `CLAUDE.local.md` / `.claude/rules` 物化；不要把它误当成 retrieval 小补丁来做。
+- 实现状态：骨架已实现。
 
 ## 5. Background extractMemories
 
@@ -76,6 +79,10 @@
 - 预估工期：3-4 天。
 - 依赖关系：stop-hook 生命周期、forked agent 执行器、manifest 去重、memory scan/写入 gate。
 - 实现建议：优先保证幂等与“失败不污染主链”；manifest 预注入和重复提取抑制要一起交付。
+- 当前 V3 进展：
+  - `internal/module/memory/module.go` 已订阅 `thread.Stopped`，并异步触发 `ExtractAndSave`
+  - `internal/module/memory/service.go` 已补 stop-hook 注册落点与 `Config.ExtractOnStop` 开关
+- 实现状态：骨架已实现（mock）。
 
 ## 6. Auto-dream / Consolidation
 
@@ -90,6 +97,10 @@
 - 预估工期：4-6 天。
 - 依赖关系：stop-hook 调度、consolidation lock、dream prompt、长期记忆写回协议、与 KAIROS daily log 的输入衔接。
 - 实现建议：与 daily log 共排更稳；若只做 consolidation 不做日志来源，蒸馏质量和可解释性都会偏弱。
+- 当前 V3 进展：
+  - `internal/module/memory/auto_dream.go` 已补 `AutoDreamConsolidator.Consolidate(ctx, memoryRoot, extractFn)`，可扫描 memory 文件、清理重复/空内容项并重建 `MEMORY.md`
+  - 当前 `ExtractFunc` 仍为 mock 骨架，尚未补齐 Claude parity 的 consolidation lock、dream prompt 与 daily log 输入
+- 实现状态：骨架已实现（mock）。
 
 ## 7. Compact 完整 Parity
 

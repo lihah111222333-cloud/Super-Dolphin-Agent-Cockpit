@@ -56,6 +56,14 @@ func NewService(cfg *Config, logger *slog.Logger) Service {
 	mustRegisterDynamicProvider(svc, EnvInfoProvider{})
 	mustRegisterDynamicProvider(svc, LanguageProvider{})
 	mustRegisterDynamicProvider(svc, MCPInstructionsProvider{})
+	mustRegisterDynamicProvider(svc, OutputStyleStubProvider{})
+	mustRegisterDynamicProvider(svc, ScratchpadStubProvider{})
+	mustRegisterDynamicProvider(svc, FRCStubProvider{})
+	mustRegisterDynamicProvider(svc, SummarizeToolResultsStubProvider{})
+	mustRegisterDynamicProvider(svc, NumericLengthAnchorsStubProvider{})
+	mustRegisterDynamicProvider(svc, TokenBudgetStubProvider{})
+	mustRegisterDynamicProvider(svc, BriefStubProvider{})
+	mustRegisterDynamicProvider(svc, AntModelOverrideStubProvider{})
 	return svc
 }
 
