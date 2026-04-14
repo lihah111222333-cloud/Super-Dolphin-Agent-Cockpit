@@ -69,6 +69,54 @@ func TestDiskStoreCRUD(t *testing.T) {
 	}
 }
 
+func TestDiskStoreReadStripsUTF8BOMFromTopicFile(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	store := newTestDiskStore(t, root)
+	path := filepath.Join(root, string(MemoryTypeUser), "bom-memory.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	content := "\uFEFF---\nname: BOM Memory\ndescription: Parsed despite BOM\ntype: user\n---\n\nRemember this preference."
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+	entry, err := store.Read("bom memory")
+	if err != nil {
+		t.Fatalf("Read() with BOM topic error = %v", err)
+	}
+	if entry.Frontmatter.Name != "BOM Memory" {
+		t.Fatalf("Read() with BOM topic name = %q, want %q", entry.Frontmatter.Name, "BOM Memory")
+	}
+	if entry.Frontmatter.Description != "Parsed despite BOM" {
+		t.Fatalf("Read() with BOM topic description = %q, want %q", entry.Frontmatter.Description, "Parsed despite BOM")
+	}
+	if entry.Content != "Remember this preference." {
+		t.Fatalf("Read() with BOM topic content = %q, want %q", entry.Content, "Remember this preference.")
+	}
+}
+
+func TestDiskStoreReadRemainsStrictWhenRootContainsUnsafeFile(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	store := newTestDiskStore(t, root)
+	writeTestTopicFile(t, filepath.Join(root, string(MemoryTypeUser), "review-style.md"), testMemoryEntry("Review Style", "Keep diffs focused", MemoryTypeUser, "Prefer focused diffs."))
+
+	outsideRoot := t.TempDir()
+	outsidePath := filepath.Join(outsideRoot, "escape.md")
+	writeTestTopicFile(t, outsidePath, testMemoryEntry("Escape", "outside root", MemoryTypeReference, "This should never be scanned."))
+
+	linkPath := filepath.Join(root, string(MemoryTypeReference), "escape-link.md")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(linkPath), err)
+	}
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("Symlink unsupported: %v", err)
+	}
+
+	if _, err := store.Read("review style"); !errors.Is(err, ErrInvalidMemoryReadPath) {
+		t.Fatalf("Read() error = %v, want %v", err, ErrInvalidMemoryReadPath)
+	}
+}
+
 func TestDiskStoreSkipIndexAndRebuild(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	store := newTestDiskStore(t, root)

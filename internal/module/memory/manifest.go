@@ -20,20 +20,10 @@ func NewManifestBuilder() *ManifestBuilder {
 }
 
 func (b *ManifestBuilder) BuildManifest(memoryRoot string) ([]MemoryEntry, error) {
-	root := strings.TrimSpace(memoryRoot)
-	if root == "" {
-		return nil, errors.New("memory root dir is empty")
-	}
-	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	entries, err := scanManifestEntries(root)
+	entries, err := ScanHeadersSafe(memoryRoot)
 	if err != nil {
 		return nil, err
 	}
-	sortManifestEntries(entries)
 	if maxFiles := b.maxFiles(); len(entries) > maxFiles {
 		entries = entries[:maxFiles]
 	}
@@ -51,23 +41,44 @@ func isMemoryFile(path string) bool {
 	return filepath.Ext(path) == ".md" && filepath.Base(path) != memoryIndexFileName
 }
 
-func scanManifestEntries(root string) ([]MemoryEntry, error) {
+func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
+	root := strings.TrimSpace(memoryRoot)
+	if root == "" {
+		return nil, errors.New("memory root dir is empty")
+	}
+	normalizedRoot, err := normalizeStoreRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(normalizedRoot); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
 	entries := make([]MemoryEntry, 0, 16)
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		entry, ok := manifestEntryFromPath(path, d, walkErr)
+	err = filepath.WalkDir(normalizedRoot, func(path string, d fs.DirEntry, walkErr error) error {
+		entry, ok := manifestEntryFromPathSafe(normalizedRoot, path, d, walkErr)
 		if ok {
 			entries = append(entries, entry)
 		}
 		return nil
 	})
-	return entries, err
+	if err != nil {
+		return nil, err
+	}
+	sortManifestEntries(entries)
+	return entries, nil
 }
 
-func manifestEntryFromPath(path string, d fs.DirEntry, walkErr error) (MemoryEntry, bool) {
+func manifestEntryFromPathSafe(root, path string, d fs.DirEntry, walkErr error) (MemoryEntry, bool) {
 	if walkErr != nil || d == nil || d.IsDir() || !isMemoryFile(path) {
 		return MemoryEntry{}, false
 	}
-	entry, err := readMemoryEntryFile(path)
+	validatedPath, err := ValidateMemoryReadPath(root, path)
+	if err != nil {
+		return MemoryEntry{}, false
+	}
+	entry, err := readMemoryEntryFile(validatedPath)
 	if err != nil {
 		return MemoryEntry{}, false
 	}

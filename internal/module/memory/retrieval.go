@@ -129,10 +129,7 @@ func (f *RelevantMemoryFinder) hydrateEntries(ctx context.Context, entries []Mem
 			continue
 		}
 		rememberKey(seenPaths, pathKey)
-		loaded, ok, err := hydrateMemoryEntry(entry, readEntry)
-		if err != nil {
-			return nil, err
-		}
+		loaded, ok := hydrateMemoryEntrySafe(entry, readEntry)
 		if ok {
 			hydrated = append(hydrated, loaded)
 		}
@@ -140,15 +137,15 @@ func (f *RelevantMemoryFinder) hydrateEntries(ctx context.Context, entries []Mem
 	return hydrated, nil
 }
 
-func hydrateMemoryEntry(entry MemoryEntry, readEntry func(string) (MemoryEntry, error)) (MemoryEntry, bool, error) {
+func hydrateMemoryEntrySafe(entry MemoryEntry, readEntry func(string) (MemoryEntry, error)) (MemoryEntry, bool) {
 	if strings.TrimSpace(entry.Content) != "" || strings.TrimSpace(entry.FilePath) == "" {
-		return cloneMemoryEntry(entry), true, nil
+		return cloneMemoryEntry(entry), true
 	}
 	loaded, err := readEntry(entry.FilePath)
 	if err != nil {
-		return MemoryEntry{}, false, nil
+		return MemoryEntry{}, false
 	}
-	return loaded, true, nil
+	return loaded, true
 }
 
 func scoreMemoryEntry(query string, terms []string, entry MemoryEntry) int {

@@ -25,6 +25,12 @@ func TestValidateMemoryRootNormalizesTrailingSeparator(t *testing.T) {
 	}
 }
 
+func TestValidateMemoryRootRejectsUNCLikeDoubleSlash(t *testing.T) {
+	if _, err := ValidateMemoryRoot("//server/share"); !errors.Is(err, ErrInvalidMemoryRoot) {
+		t.Fatalf("ValidateMemoryRoot(//server/share) error = %v, want %v", err, ErrInvalidMemoryRoot)
+	}
+}
+
 func TestValidateMemoryWritePathRejectsTraversal(t *testing.T) {
 	root := filepath.Join(newTestMemoryRoot(t), "allowed")
 	if _, err := ValidateMemoryWritePath(root, filepath.Join("..", "escape.md")); !errors.Is(err, ErrInvalidMemoryWritePath) {
@@ -43,5 +49,30 @@ func TestValidateMemoryWritePathRejectsDanglingSymlink(t *testing.T) {
 	}
 	if _, err := ValidateMemoryWritePath(root, filepath.Join("bad", "entry.md")); !errors.Is(err, ErrInvalidMemoryWritePath) {
 		t.Fatalf("ValidateMemoryWritePath(dangling symlink) error = %v, want %v", err, ErrInvalidMemoryWritePath)
+	}
+}
+
+func TestValidateMemoryReadPathRejectsTraversal(t *testing.T) {
+	root := filepath.Join(newTestMemoryRoot(t), "allowed")
+	if _, err := ValidateMemoryReadPath(root, filepath.Join("..", "escape.md")); !errors.Is(err, ErrInvalidMemoryReadPath) {
+		t.Fatalf("ValidateMemoryReadPath() error = %v, want %v", err, ErrInvalidMemoryReadPath)
+	}
+}
+
+func TestValidateMemoryReadPathRejectsSymlinkEscape(t *testing.T) {
+	root := filepath.Join(newTestMemoryRoot(t), "allowed")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", root, err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", outside, err)
+	}
+	linkPath := filepath.Join(root, "escaped.md")
+	if err := os.Symlink(outside, linkPath); err != nil {
+		t.Skipf("Symlink unsupported: %v", err)
+	}
+	if _, err := ValidateMemoryReadPath(root, linkPath); !errors.Is(err, ErrInvalidMemoryReadPath) {
+		t.Fatalf("ValidateMemoryReadPath(symlink escape) error = %v, want %v", err, ErrInvalidMemoryReadPath)
 	}
 }

@@ -51,6 +51,49 @@ func TestManifestBuilderBuildManifestScansMemoryFiles(t *testing.T) {
 	}
 }
 
+func TestScanHeadersSafeAndBuildManifestSkipUnsafeFiles(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	insidePath := filepath.Join(root, string(MemoryTypeUser), "inside.md")
+	writeTestTopicFile(t, insidePath, testMemoryEntry("Inside", "safe entry", MemoryTypeUser, "Keep this entry."))
+
+	outsideRoot := t.TempDir()
+	outsidePath := filepath.Join(outsideRoot, "outside.md")
+	writeTestTopicFile(t, outsidePath, testMemoryEntry("Outside", "should be skipped", MemoryTypeReference, "Do not load me."))
+
+	linkPath := filepath.Join(root, string(MemoryTypeReference), "outside-link.md")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(linkPath), err)
+	}
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("Symlink unsupported: %v", err)
+	}
+
+	headers, err := ScanHeadersSafe(root)
+	if err != nil {
+		t.Fatalf("ScanHeadersSafe() error = %v", err)
+	}
+	if len(headers) != 1 {
+		t.Fatalf("ScanHeadersSafe() entries = %d, want 1", len(headers))
+	}
+	if headers[0].FilePath != insidePath {
+		t.Fatalf("ScanHeadersSafe()[0].FilePath = %q, want %q", headers[0].FilePath, insidePath)
+	}
+	if headers[0].Content != "" {
+		t.Fatalf("ScanHeadersSafe() should not preload content, got %q", headers[0].Content)
+	}
+
+	manifest, err := NewManifestBuilder().BuildManifest(root)
+	if err != nil {
+		t.Fatalf("BuildManifest() error = %v", err)
+	}
+	if len(manifest) != 1 {
+		t.Fatalf("BuildManifest() entries = %d, want 1", len(manifest))
+	}
+	if manifest[0].FilePath != insidePath {
+		t.Fatalf("BuildManifest()[0].FilePath = %q, want %q", manifest[0].FilePath, insidePath)
+	}
+}
+
 func TestManifestBuilderBuildManifestMissingRoot(t *testing.T) {
 	builder := NewManifestBuilder()
 	manifest, err := builder.BuildManifest(filepath.Join(t.TempDir(), "missing-root"))

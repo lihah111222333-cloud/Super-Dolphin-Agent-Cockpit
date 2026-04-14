@@ -21,6 +21,7 @@ type MemoryIndexEntry struct {
 }
 
 func ParseMemoryIndex(content string) ([]MemoryIndexEntry, error) {
+	content = stripUTF8BOM(content)
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	entries := make([]MemoryIndexEntry, 0, len(lines))
 	for _, line := range lines {
@@ -37,8 +38,16 @@ func ParseMemoryIndex(content string) ([]MemoryIndexEntry, error) {
 	return entries, nil
 }
 
+func stripUTF8BOM(content string) string {
+	return strings.TrimPrefix(content, "\uFEFF")
+}
+
 func ReadMemoryIndex(path string) ([]MemoryIndexEntry, error) {
-	content, err := os.ReadFile(path)
+	validatedPath, err := ValidateMemoryReadPath(filepath.Dir(path), path)
+	if err != nil {
+		return nil, err
+	}
+	content, err := os.ReadFile(validatedPath)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +94,9 @@ func scanMemoryEntries(root string) ([]MemoryEntry, error) {
 		if filepath.Ext(path) != ".md" || filepath.Base(path) == memoryIndexFileName {
 			return nil
 		}
+		if _, err := ValidateMemoryReadPath(root, path); err != nil {
+			return err
+		}
 		entry, err := readMemoryEntryFile(path)
 		if err != nil {
 			return err
@@ -108,12 +120,13 @@ func readMemoryEntryFile(path string) (MemoryEntry, error) {
 	if err != nil {
 		return MemoryEntry{}, err
 	}
-	frontmatter, body, ok := splitMemoryFrontmatter(string(content))
+	normalizedContent := stripUTF8BOM(string(content))
+	frontmatter, body, ok := splitMemoryFrontmatter(normalizedContent)
 	entry := MemoryEntry{Content: strings.TrimSpace(body), FilePath: path, UpdatedAt: info.ModTime()}
 	if ok {
 		entry.Frontmatter = parseMemoryFrontmatter(frontmatter)
 	} else {
-		entry.Content = strings.TrimSpace(string(content))
+		entry.Content = strings.TrimSpace(normalizedContent)
 	}
 	entry = normalizeLoadedEntry(entry)
 	if entry.Frontmatter.Name == "" {
