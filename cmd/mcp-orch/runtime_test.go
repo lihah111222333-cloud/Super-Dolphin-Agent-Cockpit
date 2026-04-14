@@ -91,7 +91,7 @@ func TestBootstrapRunnerSkipsStartWhenRPCAddrMissing(t *testing.T) {
 }
 
 func TestBootstrapRunnerStartsAndSubscribesWhenRPCAddrPresent(t *testing.T) {
-	t.Parallel()
+	t.Setenv("GO_AGENT_PEER_MODE", "1")
 
 	client := &stubBootstrapClient{
 		started:    make(chan struct{}),
