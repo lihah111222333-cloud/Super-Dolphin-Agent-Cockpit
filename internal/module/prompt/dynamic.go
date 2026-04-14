@@ -58,6 +58,55 @@ func DynamicSlotNames() []string {
 	return names
 }
 
+var _ DynamicSectionProvider = SessionGuidanceProvider{}
+
+type SessionGuidanceProvider struct{}
+
+func (SessionGuidanceProvider) SectionName() string {
+	return DynamicSectionSessionGuidance
+}
+
+func (SessionGuidanceProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
+	enabled := sessionGuidanceToolSet(input.BuildCtx.EnabledTools)
+	items := make([]string, 0, 3)
+	if _, ok := enabled["request_user_input"]; ok {
+		items = append(items, "If a tool call is denied and the reason is unclear, use `request_user_input` to ask the user a focused follow-up.")
+	}
+	if _, ok := enabled["spawn_agent"]; ok {
+		items = append(items, "Use `spawn_agent` only for well-scoped parallel subtasks. Keep urgent blocking work local, give subagents clear ownership, and integrate their results before reporting completion.")
+		if sessionGuidanceFlagEnabled(input.BuildCtx.SessionFlags, "verification_required", "require_verification", "verification_agent") {
+			items = append(items, "When non-trivial implementation happens, schedule an independent verification pass before you report completion.")
+		}
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	lines := make([]string, 0, len(items)+1)
+	lines = append(lines, "# Session-specific guidance")
+	for _, item := range items {
+		lines = append(lines, "- "+item)
+	}
+	text := strings.Join(lines, "\n")
+	return &text, nil
+}
+
+func sessionGuidanceToolSet(tools []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(tools))
+	for _, tool := range sortedPromptValues(tools) {
+		set[tool] = struct{}{}
+	}
+	return set
+}
+
+func sessionGuidanceFlagEnabled(flags map[string]bool, keys ...string) bool {
+	for _, key := range keys {
+		if flags[key] {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *service) RegisterDynamicProvider(provider DynamicSectionProvider) error {
 	if provider == nil {
 		return fmt.Errorf("dynamic section provider is nil")

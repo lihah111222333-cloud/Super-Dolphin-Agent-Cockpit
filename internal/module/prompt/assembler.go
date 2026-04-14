@@ -20,7 +20,7 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		return StartAssembly{}, err
 	}
 
-	resolved, err := s.resolveSections(ctx, s.Sections(), buildStartSectionContext(in))
+	resolved, err := s.resolveSections(ctx, s.startSections(), buildStartSectionContext(in))
 	if err != nil {
 		s.logBuildFallback("start", err)
 		return s.fallbackStartAssembly(in), nil
@@ -129,11 +129,28 @@ func (s *service) computeSection(ctx context.Context, generation uint64, section
 	return result.(computedSectionValue).Value, nil
 }
 
+func (s *service) startSections() []PromptSection {
+	staticSections := s.staticSections()
+	dynamicSections := s.dynamicSections()
+	sections := make([]PromptSection, 0, len(staticSections)+len(dynamicSections))
+	sections = append(sections, staticSections...)
+	sections = append(sections, dynamicSections...)
+	return sections
+}
+
+func (s *service) staticSections() []PromptSection {
+	return s.regionSections(PromptRegionStatic)
+}
+
 func (s *service) dynamicSections() []PromptSection {
+	return s.regionSections(PromptRegionDynamic)
+}
+
+func (s *service) regionSections(region PromptRegion) []PromptSection {
 	all := s.Sections()
 	sections := make([]PromptSection, 0, len(all))
 	for _, section := range all {
-		if section.Region == PromptRegionDynamic {
+		if section.Region == region {
 			sections = append(sections, section)
 		}
 	}
@@ -183,12 +200,13 @@ func buildStartCtx(in StartInput) BuildCtx {
 	return BuildCtx{
 		CWD:                          strings.TrimSpace(in.CWD),
 		GitRoot:                      strings.TrimSpace(in.GitRoot),
+		IsWorktree:                   in.IsWorktree,
 		Language:                     strings.TrimSpace(in.Language),
 		Provider:                     strings.TrimSpace(in.Provider),
 		Model:                        strings.TrimSpace(in.Model),
 		EnabledTools:                 append([]string(nil), in.EnabledTools...),
 		AdditionalWorkingDirectories: append([]string(nil), in.AdditionalWorkingDirectories...),
-		MCPSnapshot:                  in.MCPSnapshot,
+		MCPSnapshot:                  copyMCPSnapshot(in.MCPSnapshot),
 		SessionFlags:                 copyFlags(in.SessionFlags),
 	}
 }
@@ -197,14 +215,27 @@ func buildTurnCtx(in TurnInput) BuildCtx {
 	return BuildCtx{
 		CWD:                          strings.TrimSpace(in.CWD),
 		GitRoot:                      strings.TrimSpace(in.GitRoot),
+		IsWorktree:                   in.IsWorktree,
 		Language:                     strings.TrimSpace(in.Language),
 		Provider:                     strings.TrimSpace(in.Provider),
 		Model:                        strings.TrimSpace(in.Model),
 		EnabledTools:                 append([]string(nil), in.EnabledTools...),
 		AdditionalWorkingDirectories: append([]string(nil), in.AdditionalWorkingDirectories...),
-		MCPSnapshot:                  in.MCPSnapshot,
+		MCPSnapshot:                  copyMCPSnapshot(in.MCPSnapshot),
 		SessionFlags:                 copyFlags(in.SessionFlags),
 	}
+}
+
+func copyMCPSnapshot(snapshot MCPSnapshot) MCPSnapshot {
+	cloned := MCPSnapshot{
+		Servers: append([]string(nil), snapshot.Servers...),
+		Tools:   append([]string(nil), snapshot.Tools...),
+	}
+	if len(snapshot.Instructions) > 0 {
+		cloned.Instructions = make(map[string]string, len(snapshot.Instructions))
+		maps.Copy(cloned.Instructions, snapshot.Instructions)
+	}
+	return cloned
 }
 
 func copyFlags(flags map[string]bool) map[string]bool {
@@ -235,7 +266,9 @@ func resolvedSection(section PromptSection, value *string) *ResolvedPromptSectio
 func renderResolvedSections(sections []ResolvedPromptSection) string {
 	blocks := make([]string, 0, len(sections))
 	for _, section := range sections {
-		blocks = append(blocks, "## "+section.Name+"\n"+strings.TrimSpace(section.Content))
+		if content := strings.TrimSpace(section.Content); content != "" {
+			blocks = append(blocks, content)
+		}
 	}
 	return strings.Join(blocks, "\n\n")
 }

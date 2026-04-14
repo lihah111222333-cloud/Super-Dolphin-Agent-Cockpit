@@ -14,6 +14,7 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 		BuildCtx: BuildCtx{
 			CWD:                          "/repo/worktree",
 			GitRoot:                      "/repo",
+			IsWorktree:                   true,
 			Provider:                     "codex",
 			Model:                        "gpt-5.4",
 			EnabledTools:                 []string{"code_run", "lsp_file", "lsp_grep", "lsp_file"},
@@ -33,6 +34,8 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 		"- Primary working directory: /repo/worktree",
 		"- Is a git repository: yes",
 		"- Git root: /repo",
+		"- Git worktree: yes",
+		"- Worktree note: run all commands from this directory and do not cd to the original repository root",
 		"- Current date: 2026-04-14",
 		"- OS: ",
 		"- Shell: zsh",

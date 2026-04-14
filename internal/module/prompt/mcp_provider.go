@@ -17,13 +17,17 @@ func (MCPInstructionsProvider) SectionName() string {
 
 func (MCPInstructionsProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	snapshot := input.BuildCtx.MCPSnapshot
-	if len(snapshot.Servers) == 0 && len(snapshot.Tools) == 0 {
+	if len(snapshot.Servers) == 0 && len(snapshot.Tools) == 0 && len(snapshot.Instructions) == 0 {
 		return nil, nil
 	}
 
 	servers := sortedPromptValues(snapshot.Servers)
 	groups, looseTools := groupMCPTools(snapshot.Tools)
+	instructions := normalizedMCPInstructions(snapshot.Instructions)
 	for server := range groups {
+		servers = append(servers, server)
+	}
+	for server := range instructions {
 		servers = append(servers, server)
 	}
 	servers = sortedPromptValues(servers)
@@ -33,7 +37,7 @@ func (MCPInstructionsProvider) Resolve(_ context.Context, input SectionContext) 
 		"The following MCP servers are currently connected. Prefer their tools and resources when they match the task, and call tools by their exact names.",
 	}
 	for _, server := range servers {
-		blocks = append(blocks, renderMCPServerBlock(server, groups[server]))
+		blocks = append(blocks, renderMCPServerBlock(server, groups[server], instructions[server]))
 	}
 	if len(looseTools) > 0 {
 		blocks = append(blocks, renderMCPAdditionalToolsBlock(looseTools))
@@ -72,10 +76,34 @@ func parseMCPServerName(tool string) (string, bool) {
 	return server, true
 }
 
-func renderMCPServerBlock(server string, tools []string) string {
+func normalizedMCPInstructions(raw map[string]string) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(raw))
+	for server, instructions := range raw {
+		server = strings.TrimSpace(server)
+		instructions = strings.TrimSpace(instructions)
+		if server == "" || instructions == "" {
+			continue
+		}
+		out[server] = instructions
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func renderMCPServerBlock(server string, tools []string, instructions string) string {
 	lines := []string{fmt.Sprintf("## %s", server)}
+	if instructions = strings.TrimSpace(instructions); instructions != "" {
+		lines = append(lines, instructions)
+	}
 	if len(tools) == 0 {
-		lines = append(lines, "- Connected, but no tool snapshot was provided.")
+		if len(lines) == 1 {
+			lines = append(lines, "- Connected, but no tool snapshot was provided.")
+		}
 		return strings.Join(lines, "\n")
 	}
 	lines = append(lines, "- Exact tool names:")
