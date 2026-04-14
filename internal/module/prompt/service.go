@@ -52,6 +52,7 @@ func NewService(cfg *Config, logger *slog.Logger) Service {
 		dynamic:  map[string]DynamicSectionProvider{},
 	}
 	svc.registerBuiltInSections()
+	mustRegisterDynamicProvider(svc, SessionGuidanceProvider{})
 	mustRegisterDynamicProvider(svc, EnvInfoProvider{})
 	mustRegisterDynamicProvider(svc, LanguageProvider{})
 	mustRegisterDynamicProvider(svc, MCPInstructionsProvider{})

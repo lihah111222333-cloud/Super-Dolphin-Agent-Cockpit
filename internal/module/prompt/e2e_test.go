@@ -65,7 +65,7 @@ func TestAssembleStartProducesValidOutput(t *testing.T) {
 		if !hasSection(start.ResolvedSections, section.Name) {
 			t.Fatalf("ResolvedSections missing %q: %#v", section.Name, start.ResolvedSections)
 		}
-		mustContain(t, start.BaseInstructions, "## "+section.Name)
+		mustContain(t, start.BaseInstructions, sectionContent(start.ResolvedSections, section.Name))
 	}
 	mustContain(t, start.BaseInstructions, "existing base tail")
 	if start.DisplayName != "Feature Thread" {
@@ -88,7 +88,7 @@ func TestAssembleTurnProducesUserContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleTurn() error = %v", err)
 	}
-	mustContain(t, turn.UserContextText, "## "+promptpkg.DynamicSectionSessionGuidance)
+	mustContain(t, turn.UserContextText, sectionContent(turn.ResolvedSections, promptpkg.DynamicSectionSessionGuidance))
 	mustContain(t, turn.UserContextText, "please verify the cache")
 	mustContain(t, turn.UserContextText, h.projectRoot)
 }
@@ -102,7 +102,7 @@ func TestMemoryRulesInjectIntoPrompt(t *testing.T) {
 	if !hasSection(start.ResolvedSections, promptpkg.DynamicSectionMemory) {
 		t.Fatalf("ResolvedSections missing %q: %#v", promptpkg.DynamicSectionMemory, start.ResolvedSections)
 	}
-	mustContain(t, start.BaseInstructions, "## "+promptpkg.DynamicSectionMemory)
+	mustContain(t, start.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory))
 	mustContain(t, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory), "### 2. taxonomy")
 }
 
@@ -158,8 +158,8 @@ func TestFullChainFromThreadToProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("startThroughAssembly() error = %v", err)
 	}
-	mustContain(t, start.BaseInstructions, "## "+promptpkg.SectionIdentity)
-	mustContain(t, start.BaseInstructions, "## "+promptpkg.DynamicSectionMemory)
+	mustContain(t, start.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.SectionIdentity))
+	mustContain(t, start.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory))
 	if h.bridge.startReq.Instructions != start.BaseInstructions {
 		t.Fatalf("provider Instructions = %q, want assembled base instructions", h.bridge.startReq.Instructions)
 	}

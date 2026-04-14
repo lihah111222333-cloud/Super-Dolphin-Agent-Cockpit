@@ -32,8 +32,21 @@ func TestAssembleStartIncludesBuiltinsAndDynamicSections(t *testing.T) {
 	if assembly.DisplayName != "legacy display" {
 		t.Fatalf("DisplayName = %q, want %q", assembly.DisplayName, "legacy display")
 	}
-	if !strings.Contains(assembly.BaseInstructions, "## "+SectionIdentity) {
-		t.Fatalf("BaseInstructions missing built-in section: %q", assembly.BaseInstructions)
+	identityContent := ""
+	for _, section := range assembly.ResolvedSections {
+		if section.Name == SectionIdentity {
+			identityContent = section.Content
+			break
+		}
+	}
+	if identityContent == "" {
+		t.Fatalf("ResolvedSections missing %q: %#v", SectionIdentity, assembly.ResolvedSections)
+	}
+	if !strings.Contains(assembly.BaseInstructions, identityContent) {
+		t.Fatalf("BaseInstructions missing built-in section content: %q", assembly.BaseInstructions)
+	}
+	if strings.Contains(assembly.BaseInstructions, "## "+SectionIdentity) {
+		t.Fatalf("BaseInstructions unexpectedly injected section heading: %q", assembly.BaseInstructions)
 	}
 	if !strings.Contains(assembly.BaseInstructions, "CWD: /repo") {
 		t.Fatalf("BaseInstructions missing dynamic section text: %q", assembly.BaseInstructions)
@@ -46,6 +59,45 @@ func TestAssembleStartIncludesBuiltinsAndDynamicSections(t *testing.T) {
 	}
 	if assembly.Snapshot.Version != SnapshotVersion || assembly.Snapshot.Hash == "" {
 		t.Fatalf("unexpected snapshot = %#v", assembly.Snapshot)
+	}
+}
+
+func TestAssembleStartKeepsStaticSectionsAheadOfDynamicSections(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	lateStatic := "late static sentinel"
+	earlyDynamic := "early dynamic sentinel"
+	if err := svc.RegisterSection(PromptSection{
+		Name:   "late_static_custom",
+		Order:  999,
+		Region: PromptRegionStatic,
+		Compute: func(context.Context, SectionContext) (*string, error) {
+			return &lateStatic, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterSection(static) error = %v", err)
+	}
+	if err := svc.RegisterSection(PromptSection{
+		Name:   "early_dynamic_custom",
+		Order:  1,
+		Region: PromptRegionDynamic,
+		Compute: func(context.Context, SectionContext) (*string, error) {
+			return &earlyDynamic, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterSection(dynamic) error = %v", err)
+	}
+
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	staticIdx := strings.Index(assembly.BaseInstructions, lateStatic)
+	dynamicIdx := strings.Index(assembly.BaseInstructions, earlyDynamic)
+	if staticIdx == -1 || dynamicIdx == -1 {
+		t.Fatalf("BaseInstructions missing custom sections: %q", assembly.BaseInstructions)
+	}
+	if staticIdx > dynamicIdx {
+		t.Fatalf("static section rendered after dynamic section: static=%d dynamic=%d\n%s", staticIdx, dynamicIdx, assembly.BaseInstructions)
 	}
 }
 

@@ -56,3 +56,39 @@ func TestUnregisterDynamicProviderRemovesRenderedContent(t *testing.T) {
 		t.Fatalf("UserContextText = %q, want provider content removed", assembly.UserContextText)
 	}
 }
+
+func TestSessionGuidanceProviderResolveUsesEnabledTools(t *testing.T) {
+	provider := SessionGuidanceProvider{}
+	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{
+		EnabledTools: []string{"spawn_agent", "request_user_input", "request_user_input"},
+		SessionFlags: map[string]bool{"verification_required": true},
+	}})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if text == nil {
+		t.Fatal("Resolve() = nil, want content")
+	}
+	checks := []string{
+		"# Session-specific guidance",
+		"request_user_input",
+		"spawn_agent",
+		"independent verification pass",
+	}
+	for _, check := range checks {
+		if !strings.Contains(*text, check) {
+			t.Fatalf("Resolve() = %q, want substring %q", *text, check)
+		}
+	}
+}
+
+func TestSessionGuidanceProviderResolveSkipsWithoutRelevantTools(t *testing.T) {
+	provider := SessionGuidanceProvider{}
+	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{EnabledTools: []string{"lsp_file"}}})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if text != nil {
+		t.Fatalf("Resolve() = %q, want nil", *text)
+	}
+}

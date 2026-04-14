@@ -16,6 +16,9 @@ func TestMCPInstructionsProviderResolveBuildsServerBlocks(t *testing.T) {
 			"shared_tool",
 			"mcp__lsp__lsp_file",
 		},
+		Instructions: map[string]string{
+			"orch": "Use DAG tools for orchestration state.",
+		},
 	}}})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
@@ -29,6 +32,7 @@ func TestMCPInstructionsProviderResolveBuildsServerBlocks(t *testing.T) {
 		"  - mcp__lsp__lsp_file",
 		"  - mcp__lsp__lsp_grep",
 		"## orch",
+		"Use DAG tools for orchestration state.",
 		"  - mcp__orch__task_get_dag",
 		"## additional_tools",
 		"  - shared_tool",

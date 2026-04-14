@@ -30,6 +30,12 @@ func (EnvInfoProvider) Resolve(_ context.Context, input SectionContext) (*string
 	if gitRoot := strings.TrimSpace(input.BuildCtx.GitRoot); gitRoot != "" {
 		lines = append(lines, fmt.Sprintf("- Git root: %s", gitRoot))
 	}
+	if input.BuildCtx.IsWorktree {
+		lines = append(lines,
+			"- Git worktree: yes",
+			"- Worktree note: run all commands from this directory and do not cd to the original repository root",
+		)
+	}
 	for _, dir := range sortedPromptValues(input.BuildCtx.AdditionalWorkingDirectories) {
 		lines = append(lines, fmt.Sprintf("- Additional working directory: %s", dir))
 	}
