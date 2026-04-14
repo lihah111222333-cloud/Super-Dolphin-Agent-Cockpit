@@ -114,6 +114,68 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
+	t.Parallel()
+
+	params := buildThreadStartParams(dto.StartSessionRequest{
+		CWD:          " /repo ",
+		Model:        " gpt-5.4 ",
+		Instructions: "legacy instructions",
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions:      "assembled base",
+			DeveloperInstructions: "assembled dev",
+		},
+		Config: map[string]any{"modelProvider": "openai"},
+	})
+	if params.BaseInstructions != "assembled base" {
+		t.Fatalf("BaseInstructions = %q, want assembled base", params.BaseInstructions)
+	}
+	if params.DeveloperInstructions != "assembled dev" {
+		t.Fatalf("DeveloperInstructions = %q, want assembled dev", params.DeveloperInstructions)
+	}
+	if params.Cwd != "/repo" || params.Model != "gpt-5.4" || params.ModelProvider != "openai" {
+		t.Fatalf("unexpected params = %#v", params)
+	}
+}
+
+func TestBuildThreadResumeParamsUsesPromptSnapshotInstructions(t *testing.T) {
+	t.Parallel()
+
+	params := buildThreadResumeParams(dto.ResumeSessionRequest{
+		CWD:    " /repo ",
+		Model:  " gpt-5.4 ",
+		Effort: " high ",
+		PromptSnapshot: dto.PromptAssemblySnapshot{
+			BaseInstructions:      "snapshot base",
+			DeveloperInstructions: "snapshot dev",
+		},
+	})
+	if params.BaseInstructions != "snapshot base" {
+		t.Fatalf("BaseInstructions = %q, want snapshot base", params.BaseInstructions)
+	}
+	if params.DeveloperInstructions != "snapshot dev" {
+		t.Fatalf("DeveloperInstructions = %q, want snapshot dev", params.DeveloperInstructions)
+	}
+	if params.Cwd != "/repo" || params.Model != "gpt-5.4" || params.Effort != "high" {
+		t.Fatalf("unexpected params = %#v", params)
+	}
+}
+
+func TestSessionRuntimeConfigSnapshotIncludesPromptInstructions(t *testing.T) {
+	t.Parallel()
+
+	s := &session{}
+	s.setRuntimeConfig(map[string]any{"developer_instructions": "legacy dev"})
+	s.setRuntimeConfigValue("baseInstructions", "base")
+	got := s.RuntimeConfigSnapshot()
+	if got["baseInstructions"] != "base" {
+		t.Fatalf("baseInstructions = %#v, want base", got["baseInstructions"])
+	}
+	if got["developerInstructions"] != "legacy dev" {
+		t.Fatalf("developerInstructions = %#v, want legacy dev", got["developerInstructions"])
+	}
+}
+
 func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 	t.Parallel()
 

@@ -18,6 +18,7 @@ func TestBuildTurnStartParams(t *testing.T) {
 			{Name: "planner", Prompt: "use the planner"},
 			{Name: " reviewer "},
 		},
+		TurnAssembly:         dto.TurnAssembly{UserContextText: "remember the workspace state"},
 		ManualSkillSelection: true,
 		OutputSchema:         []byte(`{"type":"object"}`),
 		Overrides:            dto.TurnOverrides{Model: "gpt-5.4", Effort: "high"},
@@ -26,7 +27,7 @@ func TestBuildTurnStartParams(t *testing.T) {
 	got := buildTurnStartParams("thread-1", req)
 	want := turnStartParams{
 		ThreadID:             "thread-1",
-		Input:                []turnInputItem{{Type: "text", Text: "[skill:planner]\nuse the planner", Content: "[skill:planner]\nuse the planner"}, {Type: "text", Text: "hello", Content: "hello"}},
+		Input:                []turnInputItem{{Type: "text", Text: "[skill:planner]\nuse the planner", Content: "[skill:planner]\nuse the planner"}, {Type: "text", Text: "remember the workspace state", Content: "remember the workspace state"}, {Type: "text", Text: "hello", Content: "hello"}},
 		SelectedSkills:       []string{"planner", "reviewer"},
 		ManualSkillSelection: true,
 		Model:                "gpt-5.4",
@@ -50,6 +51,7 @@ func TestBuildTurnSteerParams(t *testing.T) {
 			{Name: "planner", Prompt: "use the planner"},
 			{Name: " reviewer "},
 		},
+		TurnAssembly:         dto.TurnAssembly{UserContextText: "remember the workspace state"},
 		ManualSkillSelection: true,
 	}
 
@@ -57,7 +59,7 @@ func TestBuildTurnSteerParams(t *testing.T) {
 	want := map[string]any{
 		"threadId":             "thread-1",
 		"expectedTurnId":       "turn-1",
-		"input":                []turnInputItem{{Type: "text", Text: "[skill:planner]\nuse the planner", Content: "[skill:planner]\nuse the planner"}, {Type: "text", Text: "hello", Content: "hello"}},
+		"input":                []turnInputItem{{Type: "text", Text: "[skill:planner]\nuse the planner", Content: "[skill:planner]\nuse the planner"}, {Type: "text", Text: "remember the workspace state", Content: "remember the workspace state"}, {Type: "text", Text: "hello", Content: "hello"}},
 		"selectedSkills":       []string{"planner", "reviewer"},
 		"manualSkillSelection": true,
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -83,8 +84,9 @@ type threadResumeParams struct {
 	ThreadID              string `json:"threadId"`
 	Cwd                   string `json:"cwd,omitempty"`
 	Model                 string `json:"model,omitempty"`
+	BaseInstructions      string `json:"baseInstructions,omitempty"`
 	ApprovalPolicy        string `json:"approvalPolicy,omitempty"`
-	DeveloperInstructions string `json:"developerInstructions"`
+	DeveloperInstructions string `json:"developerInstructions,omitempty"`
 	Sandbox               string `json:"sandbox,omitempty"`
 	Summary               string `json:"summary,omitempty"`
 	Effort                string `json:"effort,omitempty"`
@@ -162,7 +164,14 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if err != nil {
 		return nil, err
 	}
+	baseInstructions, developerInstructions := startAssemblyInstructions(req)
 	s.setRuntimeConfig(req.Config)
+	if baseInstructions != "" {
+		s.setRuntimeConfigValue("baseInstructions", baseInstructions)
+	}
+	if developerInstructions != "" {
+		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
+	}
 	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
 	return d.startDynamicSession(ctx, s, req)
 }
@@ -180,6 +189,13 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	s.setThreadID(threadID)
 	if m := strings.TrimSpace(req.Model); m != "" {
 		s.setRuntimeConfigValue("model", m)
+	}
+	baseInstructions, developerInstructions := promptSnapshotInstructions(req.PromptSnapshot)
+	if baseInstructions != "" {
+		s.setRuntimeConfigValue("baseInstructions", baseInstructions)
+	}
+	if developerInstructions != "" {
+		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
 	}
 	d.restoreApprovalPolicy(ctx, s, threadID)
 	d.reportRuntime(s.agentID)
@@ -202,15 +218,70 @@ type startResult struct {
 
 func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (string, error) {
 	resumeID := shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID)
-	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/resume", threadResumeParams{
-		ThreadID: strings.TrimSpace(resumeID),
-		Cwd:      strings.TrimSpace(req.CWD),
-		Model:    strings.TrimSpace(req.Model),
-	})
+	params := buildThreadResumeParams(req)
+	params.ThreadID = strings.TrimSpace(resumeID)
+	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/resume", params)
 	if err != nil {
 		return "", err
 	}
 	return decodeThreadID(raw, resumeID)
+}
+
+func startAssemblyInstructions(req dto.StartSessionRequest) (string, string) {
+	base := strings.TrimSpace(shared.FirstNonEmpty(
+		req.StartAssembly.BaseInstructions,
+		req.StartAssembly.Snapshot.BaseInstructions,
+		req.Instructions,
+	))
+	developer := strings.TrimSpace(shared.FirstNonEmpty(
+		req.StartAssembly.DeveloperInstructions,
+		req.StartAssembly.Snapshot.DeveloperInstructions,
+		configString(req.Config, "developerInstructions"),
+		configString(req.Config, "developer_instructions"),
+	))
+	return base, developer
+}
+
+func promptSnapshotInstructions(snapshot dto.PromptAssemblySnapshot) (string, string) {
+	return strings.TrimSpace(snapshot.BaseInstructions), strings.TrimSpace(snapshot.DeveloperInstructions)
+}
+
+func buildThreadResumeParams(req dto.ResumeSessionRequest) threadResumeParams {
+	baseInstructions, developerInstructions := promptSnapshotInstructions(req.PromptSnapshot)
+	return threadResumeParams{
+		Cwd:                   strings.TrimSpace(req.CWD),
+		Model:                 strings.TrimSpace(req.Model),
+		BaseInstructions:      baseInstructions,
+		DeveloperInstructions: developerInstructions,
+		Effort:                strings.TrimSpace(req.Effort),
+	}
+}
+
+func configJSON(cfg map[string]any, key string) json.RawMessage {
+	if cfg == nil || cfg[key] == nil {
+		return nil
+	}
+	raw, err := json.Marshal(cfg[key])
+	if err != nil || string(raw) == "null" {
+		return nil
+	}
+	return raw
+}
+
+func sortedConfigKeys(cfg map[string]any) []string {
+	if len(cfg) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(cfg))
+	for key := range cfg {
+		keys = append(keys, strings.TrimSpace(key))
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func hasAnyConfigKey(cfg map[string]any, keys ...string) bool {
+	return hasAnyKey(cfg, keys...)
 }
 
 func decodeStartResult(raw json.RawMessage) (startResult, error) {

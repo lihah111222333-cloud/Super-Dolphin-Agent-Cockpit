@@ -36,7 +36,7 @@ type turnStartResult struct {
 
 func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams {
 	selectedSkills := selectedSkillNames(req.Skills)
-	inputs := turnInputsFromRequest(req.Inputs, req.Skills)
+	inputs := turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly)
 	return turnStartParams{
 		ThreadID:             threadID,
 		Input:                inputs,
@@ -52,7 +52,7 @@ func buildTurnSteerParams(threadID string, req dto.SteerRequest) map[string]any 
 	params := map[string]any{
 		"threadId":       threadID,
 		"expectedTurnId": strings.TrimSpace(req.ExpectedTurnID),
-		"input":          turnInputsFromRequest(req.Inputs, req.Skills),
+		"input":          turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly),
 	}
 	if selectedSkills := selectedSkillNames(req.Skills); len(selectedSkills) > 0 {
 		params["selectedSkills"] = selectedSkills
@@ -73,10 +73,13 @@ func selectedSkillNames(skills []dto.SkillRef) []string {
 	return selected
 }
 
-func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef) []turnInputItem {
-	items := make([]turnInputItem, 0, len(inputs)+1)
+func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assembly dto.TurnAssembly) []turnInputItem {
+	items := make([]turnInputItem, 0, len(inputs)+2)
 	if skillPrompt, ok := buildSkillPromptInput(skills); ok {
 		items = append(items, skillPrompt)
+	}
+	if userContext := strings.TrimSpace(assembly.UserContextText); userContext != "" {
+		items = append(items, newTextTurnInput("text", userContext))
 	}
 	for _, item := range inputs {
 		items = append(items, mapTurnInput(item))

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
 	"strings"
 	"time"
 
@@ -71,9 +71,7 @@ func (h *turnHandle) complete(err error) {
 
 func cloneCaps(src dto.CapabilitySet) dto.CapabilitySet {
 	out := make(dto.CapabilitySet, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
+	maps.Copy(out, src)
 	return out
 }
 
@@ -246,12 +244,13 @@ func resolveApprovalPolicy(cfg map[string]any) string {
 }
 
 func buildThreadStartParams(req dto.StartSessionRequest) threadStartParams {
+	baseInstructions, developerInstructions := startAssemblyInstructions(req)
 	return threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
 		ModelProvider:         configString(req.Config, "modelProvider"),
-		BaseInstructions:      strings.TrimSpace(req.Instructions),
-		DeveloperInstructions: configString(req.Config, "developerInstructions"),
+		BaseInstructions:      baseInstructions,
+		DeveloperInstructions: developerInstructions,
 		ApprovalPolicy:        resolveApprovalPolicy(req.Config),
 		Personality:           configString(req.Config, "personality"),
 		Summary:               configString(req.Config, "summary"),
@@ -387,31 +386,4 @@ func (d *driver) reportRuntime(agentID string) {
 	}); err != nil {
 		d.logger.Warn("codexapp: report runtime failed", "agent_id", agentID, "error", err)
 	}
-}
-
-func configJSON(cfg map[string]any, key string) json.RawMessage {
-	if cfg == nil || cfg[key] == nil {
-		return nil
-	}
-	raw, err := json.Marshal(cfg[key])
-	if err != nil || string(raw) == "null" {
-		return nil
-	}
-	return raw
-}
-
-func sortedConfigKeys(cfg map[string]any) []string {
-	if len(cfg) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(cfg))
-	for key := range cfg {
-		keys = append(keys, strings.TrimSpace(key))
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func hasAnyConfigKey(cfg map[string]any, keys ...string) bool {
-	return hasAnyKey(cfg, keys...)
 }

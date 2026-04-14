@@ -145,6 +145,18 @@ func (s *session) RuntimeConfigSnapshot() map[string]any {
 	if len(out) == 0 {
 		out = map[string]any{}
 	}
+	if value := strings.TrimSpace(shared.FirstNonEmpty(
+		configString(out, "baseInstructions"),
+		configString(out, "instructions"),
+	)); value != "" {
+		out["baseInstructions"] = value
+	}
+	if value := strings.TrimSpace(shared.FirstNonEmpty(
+		configString(out, "developerInstructions"),
+		configString(out, "developer_instructions"),
+	)); value != "" {
+		out["developerInstructions"] = value
+	}
 	if value := s.approvalPolicyValue(); value != "" {
 		out["approvalPolicy"] = value
 	}
