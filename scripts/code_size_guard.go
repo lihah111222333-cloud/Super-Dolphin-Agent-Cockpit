@@ -21,7 +21,7 @@ func main() {
 		ScanRoots: []string{"internal", "cmd", "scripts"},
 		SkipDirs:  archtest.DefaultSkipDirs(),
 	})
-	fmt.Printf("📏  代码守卫: 文件 ≤ %d 行, 函数 ≤ %d 行, 嵌套 ≤ %d 层, 圈复杂度 ≤ %d, 命名下划线 ≤ %d 个, 包文件数 ≤ %d, 包行数 ≤ %d\n",
+	fmt.Printf("📏  代码守卫: 默认 文件 ≤ %d 行, 函数 ≤ %d 行, 嵌套 ≤ %d 层, 圈复杂度 ≤ %d, 命名下划线 ≤ %d 个, 包文件数 ≤ %d, 包行数 ≤ %d\n",
 		archtest.MaxFileLines,
 		archtest.MaxFuncLines,
 		archtest.MaxNestingDepth,
@@ -29,6 +29,11 @@ func main() {
 		archtest.MaxUnderscores,
 		archtest.MaxPackageFiles,
 		archtest.MaxPackageLines,
+	)
+	fmt.Printf("   核心包(memory/prompt/thread/turn): 文件 ≤ %d 行, 包文件数 ≤ %d, 包行数 ≤ %d\n",
+		archtest.MaxCorePackageFileLines,
+		archtest.MaxCorePackageFiles,
+		archtest.MaxCorePackageLines,
 	)
 	if len(violations) > 0 {
 		fmt.Fprintf(os.Stderr, "\n❌  代码守卫: 发现 %d 项违规\n\n", len(violations))
