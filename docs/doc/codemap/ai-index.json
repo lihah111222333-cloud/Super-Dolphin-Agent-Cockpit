@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-04-14",
+  "generated_at": "2026-04-15",
   "description": "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
   "codemaps": [
     {
@@ -18936,6 +18936,11 @@
         }
       ]
     },
+    "internal/dto/provider/attachment.go": {
+      "package": "provider",
+      "description": "provider",
+      "refs": []
+    },
     "internal/dto/provider/capability.go": {
       "package": "provider",
       "description": "3. **大部分文件是纯数据定义**：少量辅助逻辑集中在 `shared/event.go`、`agent/state.go`、`provider/",
@@ -25093,6 +25098,16 @@
         }
       ]
     },
+    "internal/module/memory/agent_type.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/claudemd_sources.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
     "internal/module/memory/config.go": {
       "package": "memory",
       "description": "：解析 `ENABLE_MEMORY_SYSTEM`、`ENABLE_MEMORY_TOOLS`、`MULTI_AGENT_MEMORY_DIR`，生成 memory 根目录 / 项目\ufffd\ufffd",
@@ -25225,6 +25240,54 @@
         }
       ]
     },
+    "internal/module/memory/extract.go": {
+      "package": "memory",
+      "description": "`hooks_extract.go`：从 `replace_range` 工具结果抽取 patch/文件列表",
+      "refs": [
+        {
+          "codemap": "08",
+          "section": "2.4 `difftracker/`：工具调用差异追踪",
+          "start_line": 181,
+          "end_line": 181,
+          "context": "`hooks_extract.go`：从 `replace_range` 工具结果抽取 patch/文件列表"
+        }
+      ]
+    },
+    "internal/module/memory/extract_metadata.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/extract_runtime.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/extract_state.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/extract_transcript.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/freshness.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/gate.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/hooks_constructor.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
     "internal/module/memory/index.go": {
       "package": "memory",
       "description": "├── index.go            # MEMORY.md 索引读写、entry frontmatter 解析、全盘扫描",
@@ -25266,81 +25329,10 @@
         }
       ]
     },
-    "internal/module/memory/manifest.go": {
+    "internal/module/memory/manifest_headers.go": {
       "package": "memory",
-      "description": "3. **大部分文件是纯数据定义**：少量辅助逻辑集中在 `shared/event.go`、`agent/state.go`、`provider/",
-      "refs": [
-        {
-          "codemap": "05",
-          "section": "1. 模块概览",
-          "start_line": 13,
-          "end_line": 17,
-          "context": "3. **大部分文件是纯数据定义**：少量辅助逻辑集中在 `shared/event.go`、`agent/state.go`、`provider/"
-        },
-        {
-          "codemap": "05",
-          "section": "2. 子包与文件索引 \u003e 2.1 子包职责",
-          "start_line": 25,
-          "end_line": 35,
-          "context": "会话、Turn、线程配置、消息分页、MCP manifest、原始 provider 事件"
-        },
-        {
-          "codemap": "05",
-          "section": "2. 子包与文件索引 \u003e 2.2 逐文件职责 \u003e `provider`",
-          "start_line": 61,
-          "end_line": 61,
-          "context": "：`ToolFamily`、`MCPBinary`、`MCPManifest`、`ManifestContext`、`BuildManifest`"
-        },
-        {
-          "codemap": "06",
-          "section": "2.1 `internal/mcpserver/common/`",
-          "start_line": 97,
-          "end_line": 98,
-          "context": ""
-        },
-        {
-          "codemap": "06",
-          "section": "3. 核心类型 / 接口 \u003e 3.1 MCP 外层抽象",
-          "start_line": 354,
-          "end_line": 361,
-          "context": "静态工具声明 DTO"
-        },
-        {
-          "codemap": "07",
-          "section": "2.5 turn（回合管理） \u003e 文件地图",
-          "start_line": 580,
-          "end_line": 596,
-          "context": "MCP manifest 构造与 peer 发现。"
-        },
-        {
-          "codemap": "11",
-          "section": "2. 目录结构 \u003e 2.1 `internal/module/memory/`",
-          "start_line": 98,
-          "end_line": 113,
-          "context": "├── manifest.go         # 仅扫描 header 的 manifest builder"
-        },
-        {
-          "codemap": "11",
-          "section": "3. 核心类型 / 接口 \u003e 3.1 Memory 侧核心类型",
-          "start_line": 212,
-          "end_line": 224,
-          "context": "只扫描 frontmatter/header，不加载全文。"
-        },
-        {
-          "codemap": "11",
-          "section": "4. 关键函数 / 方法 \u003e 4.1 Memory：durable memory 主链路 \u003e `(*ManifestBuilder).BuildManifest` — `internal/module/memory/manifest.go`",
-          "start_line": 366,
-          "end_line": 369,
-          "context": "`(*ManifestBuilder).BuildManifest` —"
-        },
-        {
-          "codemap": "11",
-          "section": "8. 关键源码文件索引 \u003e 8.1 Memory 主文件",
-          "start_line": 986,
-          "end_line": 986,
-          "context": ""
-        }
-      ]
+      "description": "memory",
+      "refs": []
     },
     "internal/module/memory/module.go": {
       "package": "memory",
@@ -25740,6 +25732,11 @@
         }
       ]
     },
+    "internal/module/memory/module_extract_subscriptions.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
     "internal/module/memory/path.go": {
       "package": "memory",
       "description": "：负责 scope root 解析、路径 sanitize / resolve / authorize，以及 project/user/local 三种 scope 的根目\ufffd\ufffd",
@@ -25813,39 +25810,10 @@
         }
       ]
     },
-    "internal/module/memory/root.go": {
+    "internal/module/memory/retrieval_render.go": {
       "package": "memory",
-      "description": "├── root.go             # MemoryExtractor：把 transcript 蒸馏为 durable memory 候选",
-      "refs": [
-        {
-          "codemap": "11",
-          "section": "2. 目录结构 \u003e 2.1 `internal/module/memory/`",
-          "start_line": 98,
-          "end_line": 113,
-          "context": "├── root.go             # MemoryExtractor：把 transcript 蒸馏为 durable memory 候选"
-        },
-        {
-          "codemap": "11",
-          "section": "3. 核心类型 / 接口 \u003e 3.1 Memory 侧核心类型",
-          "start_line": 212,
-          "end_line": 224,
-          "context": "通过 LLM extractor 把 transcript 提炼为 durable memory 候选。"
-        },
-        {
-          "codemap": "11",
-          "section": "4. 关键函数 / 方法 \u003e 4.1 Memory：durable memory 主链路 \u003e `(*MemoryExtractor).Extract` — `internal/module/memory/root.go`",
-          "start_line": 376,
-          "end_line": 379,
-          "context": "`(*MemoryExtractor).Extract` —"
-        },
-        {
-          "codemap": "11",
-          "section": "8. 关键源码文件索引 \u003e 8.1 Memory 主文件",
-          "start_line": 988,
-          "end_line": 988,
-          "context": ""
-        }
-      ]
+      "description": "memory",
+      "refs": []
     },
     "internal/module/memory/rules.go": {
       "package": "memory",
@@ -25921,11 +25889,6 @@
           "context": ""
         }
       ]
-    },
-    "internal/module/memory/sanitize.go": {
-      "package": "memory",
-      "description": "memory",
-      "refs": []
     },
     "internal/module/memory/service.go": {
       "package": "memory",
@@ -26401,6 +26364,21 @@
         }
       ]
     },
+    "internal/module/memory/store_lock_unix.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/store_lock_windows.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/truncate.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
     "internal/module/memory/types.go": {
       "package": "memory",
       "description": "`rpc_types.go`：RPC 入参结构与旧字段兼容（如 `agentId` / `dagKey` / `selectedSkills` / `outputSchema`）。",
@@ -26768,6 +26746,11 @@
         }
       ]
     },
+    "internal/module/prompt/cache_keys.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
+    },
     "internal/module/prompt/config.go": {
       "package": "prompt",
       "description": "：解析 `ENABLE_MEMORY_SYSTEM`、`ENABLE_MEMORY_TOOLS`、`MULTI_AGENT_MEMORY_DIR`，生成 memory 根目录 / 项目\ufffd\ufffd",
@@ -26961,6 +26944,11 @@
         }
       ]
     },
+    "internal/module/prompt/invalidation.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
+    },
     "internal/module/prompt/language_provider.go": {
       "package": "prompt",
       "description": "├── language_provider.go# 语言偏好动态 section",
@@ -27014,6 +27002,11 @@
           "context": ""
         }
       ]
+    },
+    "internal/module/prompt/model_descriptor.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
     },
     "internal/module/prompt/module.go": {
       "package": "prompt",
@@ -27413,6 +27406,11 @@
         }
       ]
     },
+    "internal/module/prompt/output_style_provider.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
+    },
     "internal/module/prompt/registry.go": {
       "package": "prompt",
       "description": "：把各类 tool definition 汇总到 `Registry`。",
@@ -27523,6 +27521,11 @@
           "context": ""
         }
       ]
+    },
+    "internal/module/prompt/scratchpad_provider.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
     },
     "internal/module/prompt/section.go": {
       "package": "prompt",
@@ -27781,6 +27784,21 @@
         }
       ]
     },
+    "internal/module/prompt/stub_providers.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
+    },
+    "internal/module/prompt/summarize_provider.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
+    },
+    "internal/module/prompt/system_context_provider.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
+    },
     "internal/module/prompt/types.go": {
       "package": "prompt",
       "description": "`rpc_types.go`：RPC 入参结构与旧字段兼容（如 `agentId` / `dagKey` / `selectedSkills` / `outputSchema`）。",
@@ -28003,6 +28021,11 @@
           "context": ""
         }
       ]
+    },
+    "internal/module/prompt/user_context_builder.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
     },
     "internal/module/skill/contract.go": {
       "package": "skill",
@@ -30215,26 +30238,6 @@
         }
       ]
     },
-    "internal/module/thread/launch_request.go": {
-      "package": "thread",
-      "description": "orchestration launch bootstrap；构造 `LaunchAgentRequest` 并通过 env 注入 provider/model。",
-      "refs": [
-        {
-          "codemap": "07",
-          "section": "2.4 thread（线程管理） \u003e 文件地图",
-          "start_line": 449,
-          "end_line": 470,
-          "context": "orchestration launch bootstrap；构造 `LaunchAgentRequest` 并通过 env 注入 provider/model。"
-        },
-        {
-          "codemap": "11",
-          "section": "4. 关键函数 / 方法 \u003e 4.3 Thread：生命周期编排链路 \u003e `buildLaunchRequest` — `internal/module/thread/launch_request.go`",
-          "start_line": 526,
-          "end_line": 529,
-          "context": "`buildLaunchRequest` —"
-        }
-      ]
-    },
     "internal/module/thread/lifecycle.go": {
       "package": "thread",
       "description": "├── lifecycle.go                 # 退出拦截、pending quit、backend shutdown、硬超时强退",
@@ -30826,6 +30829,16 @@
         }
       ]
     },
+    "internal/module/thread/post_compact_cleanup.go": {
+      "package": "thread",
+      "description": "thread",
+      "refs": []
+    },
+    "internal/module/thread/prompt_snapshot.go": {
+      "package": "thread",
+      "description": "thread",
+      "refs": []
+    },
     "internal/module/thread/rpc.go": {
       "package": "thread",
       "description": "├── rpc.go                       # 注册 ui/code/*、ui/log、ui/select*、ui/openNewWindow 等 UI RPC",
@@ -31061,6 +31074,11 @@
           "context": "`thread/start` / `thread/resume` 的 RPC 暴露差 —  + `rpc.go`"
         }
       ]
+    },
+    "internal/module/thread/scratchpad.go": {
+      "package": "thread",
+      "description": "thread",
+      "refs": []
     },
     "internal/module/thread/service.go": {
       "package": "thread",
@@ -31326,32 +31344,15 @@
         }
       ]
     },
-    "internal/module/thread/session_generation.go": {
+    "internal/module/thread/start_prompt_context.go": {
       "package": "thread",
-      "description": "将 session generation 绑定到 orchestration。",
-      "refs": [
-        {
-          "codemap": "07",
-          "section": "2.4 thread（线程管理） \u003e 文件地图",
-          "start_line": 449,
-          "end_line": 470,
-          "context": "将 session generation 绑定到 orchestration。"
-        },
-        {
-          "codemap": "11",
-          "section": "2. 目录结构 \u003e 2.4 `internal/module/thread/` + `internal/store/thread/`",
-          "start_line": 157,
-          "end_line": 177,
-          "context": "├── session_generation.go    # generation 绑定"
-        },
-        {
-          "codemap": "11",
-          "section": "3. 核心类型 / 接口 \u003e 3.5 两种 generation 的区别 \u003e B. session generation：`bindSessionGeneration`",
-          "start_line": 323,
-          "end_line": 324,
-          "context": "来源："
-        }
-      ]
+      "description": "thread",
+      "refs": []
+    },
+    "internal/module/thread/start_prompt_context_style.go": {
+      "package": "thread",
+      "description": "thread",
+      "refs": []
     },
     "internal/module/thread/start_session.go": {
       "package": "thread",
@@ -32525,6 +32526,16 @@
         }
       ]
     },
+    "internal/module/turn/prompt_assembly.go": {
+      "package": "turn",
+      "description": "turn",
+      "refs": []
+    },
+    "internal/module/turn/prompt_context.go": {
+      "package": "turn",
+      "description": "turn",
+      "refs": []
+    },
     "internal/module/turn/rpc.go": {
       "package": "turn",
       "description": "├── rpc.go                       # 注册 ui/code/*、ui/log、ui/select*、ui/openNewWindow 等 UI RPC",
@@ -33011,6 +33022,11 @@
         }
       ]
     },
+    "internal/module/turn/service_memory.go": {
+      "package": "turn",
+      "description": "turn",
+      "refs": []
+    },
     "internal/module/turn/skills.go": {
       "package": "turn",
       "description": "显式技能与 candidate skills 合并。",
@@ -33036,6 +33052,16 @@
           "context": "线程停机时的 turn 中断与清理。"
         }
       ]
+    },
+    "internal/module/turn/tool_result_budget.go": {
+      "package": "turn",
+      "description": "turn",
+      "refs": []
+    },
+    "internal/module/turn/tool_result_storage.go": {
+      "package": "turn",
+      "description": "turn",
+      "refs": []
     },
     "internal/module/turn/tracker.go": {
       "package": "turn",
@@ -63130,6 +63156,11 @@
           "context": "本身只有 `ADD COLUMN IF NOT EXISTS prompt_snapshot jsonb DEFAULT NULL`，没有回填、索引或额外约束；因\ufffd"
         }
       ]
+    },
+    "migrations/0032_agent_memory_identity.sql": {
+      "package": "sql",
+      "description": "sql",
+      "refs": []
     },
     "pkg/logger/fields.go": {
       "package": "logger",
