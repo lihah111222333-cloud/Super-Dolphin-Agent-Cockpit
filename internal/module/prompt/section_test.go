@@ -9,12 +9,12 @@ func TestStaticSectionsExposeRequestedSlots(t *testing.T) {
 	sections := StaticSections()
 	want := []string{
 		SectionIdentity,
-		SectionConstraints,
-		SectionTools,
-		SectionMemoryRules,
+		SectionSystemConstraints,
+		SectionEngineering,
+		SectionActions,
 		SectionToolPreferences,
-		SectionProjectContext,
-		SectionUserPreferences,
+		SectionStyle,
+		SectionOutputEfficiency,
 	}
 	if len(sections) != len(want) {
 		t.Fatalf("len(StaticSections()) = %d, want %d", len(sections), len(want))

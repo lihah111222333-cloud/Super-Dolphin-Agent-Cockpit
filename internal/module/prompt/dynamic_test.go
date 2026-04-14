@@ -8,8 +8,9 @@ import (
 
 func TestRegisterDynamicProviderMakesSlotRenderable(t *testing.T) {
 	svc := NewService(&Config{}, nil)
-	if len(svc.Sections()) != 12 {
-		t.Fatalf("len(Sections()) = %d, want 12", len(svc.Sections()))
+	want := len(StaticSections()) + len(DynamicSlotNames())
+	if len(svc.Sections()) != want {
+		t.Fatalf("len(Sections()) = %d, want %d", len(svc.Sections()), want)
 	}
 	provider := DynamicTextProvider{
 		Name: DynamicSectionLanguage,

@@ -22,11 +22,12 @@ type SectionContext struct {
 type SectionComputeFunc func(context.Context, SectionContext) (*string, error)
 
 type PromptSection struct {
-	Name     string
-	Order    int
-	Region   PromptRegion
-	Volatile bool
-	Compute  SectionComputeFunc
+	Name      string
+	Order     int
+	Region    PromptRegion
+	Volatile  bool
+	StartOnly bool
+	Compute   SectionComputeFunc
 }
 
 type ResolvedPromptSection = contract.ResolvedPromptSection

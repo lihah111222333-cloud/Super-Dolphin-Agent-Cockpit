@@ -52,6 +52,9 @@ func NewService(cfg *Config, logger *slog.Logger) Service {
 		dynamic:  map[string]DynamicSectionProvider{},
 	}
 	svc.registerBuiltInSections()
+	mustRegisterDynamicProvider(svc, EnvInfoProvider{})
+	mustRegisterDynamicProvider(svc, LanguageProvider{})
+	mustRegisterDynamicProvider(svc, MCPInstructionsProvider{})
 	return svc
 }
 
@@ -89,6 +92,12 @@ func (s *service) registerBuiltInSections() {
 
 func mustRegisterSection(registry *SectionRegistry, section PromptSection) {
 	if err := registry.Register(section); err != nil {
+		panic(err)
+	}
+}
+
+func mustRegisterDynamicProvider(svc *service, provider DynamicSectionProvider) {
+	if err := svc.RegisterDynamicProvider(provider); err != nil {
 		panic(err)
 	}
 }
