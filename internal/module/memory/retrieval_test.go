@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -36,6 +37,37 @@ func TestRelevantMemoryFinderFindRelevantMemoriesHydratesAndDedupes(t *testing.T
 	}
 	if got[0].Content == "" {
 		t.Fatalf("FindRelevantMemories() should hydrate content")
+	}
+}
+
+func TestRelevantMemoryFinderFindRelevantMemoriesSkipsFilesDeletedAfterManifest(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	primaryPath := filepath.Join(root, string(MemoryTypeUser), "review-style.md")
+	stalePath := filepath.Join(root, string(MemoryTypeReference), "review-style-stale.md")
+	writeTestTopicFile(t, primaryPath, testMemoryEntry("Review Style", "Keep review diffs focused", MemoryTypeUser, "Keep diffs small and review focused."))
+	writeTestTopicFile(t, stalePath, testMemoryEntry("Review Style Archive", "Old review guidance", MemoryTypeReference, "Older review guidance."))
+
+	manifest, err := NewManifestBuilder().BuildManifest(root)
+	if err != nil {
+		t.Fatalf("BuildManifest() error = %v", err)
+	}
+	if err := os.Remove(stalePath); err != nil {
+		t.Fatalf("Remove(%q) error = %v", stalePath, err)
+	}
+
+	finder := NewRelevantMemoryFinder()
+	got, err := finder.FindRelevantMemories(context.Background(), "review", manifest)
+	if err != nil {
+		t.Fatalf("FindRelevantMemories() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("FindRelevantMemories() entries = %d, want 1", len(got))
+	}
+	if got[0].FilePath != primaryPath {
+		t.Fatalf("FindRelevantMemories()[0].FilePath = %q, want %q", got[0].FilePath, primaryPath)
+	}
+	if got[0].Content == "" {
+		t.Fatalf("FindRelevantMemories() should hydrate surviving entry content")
 	}
 }
 
