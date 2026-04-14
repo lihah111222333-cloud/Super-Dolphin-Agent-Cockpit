@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -119,6 +120,53 @@ func TestAutoDreamStopHookRequiresMinSessionsAndExcludesCurrent(t *testing.T) {
 	}
 	if got := stamp.lastSuccessTime(); got.IsZero() {
 		t.Fatal("lastSuccessTime() = zero, want recorded consolidation success")
+	}
+}
+
+func TestConsolidationRollbackOnExtractFailureRestoresPreviousLockMtime(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	cfg := &Config{Enabled: true, RootDir: root}
+	writeExtractFixture(t, filepath.Join(root, "feedback", "keep-answers-short.md"), testMemoryEntry(
+		"Keep answers short",
+		"legacy",
+		MemoryTypeFeedback,
+		"Keep answers short\nWhy: older guidance.",
+	))
+	lockPath, err := consolidationLockPath(root)
+	if err != nil {
+		t.Fatalf("consolidationLockPath() error = %v", err)
+	}
+	previous := time.Date(2026, 4, 14, 9, 0, 0, 0, time.UTC)
+	if err := os.WriteFile(lockPath, []byte(`{"pid":1}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(lock) error = %v", err)
+	}
+	if err := os.Chtimes(lockPath, previous, previous); err != nil {
+		t.Fatalf("Chtimes(lock) error = %v", err)
+	}
+	consolidator := newAutoDreamConsolidator(NewMemoryExtractor(), nil)
+	consolidator.cfg = cfg
+	err = consolidator.consolidateWithOptions(context.Background(), root, func(context.Context, string) (string, error) {
+		return "", errors.New("extract failed")
+	}, consolidationRunOptions{
+		cfg: cfg,
+		now: func() time.Time { return previous.Add(2 * defaultConsolidationLockTTL) },
+	})
+	if err == nil {
+		t.Fatal("consolidateWithOptions() error = nil, want extract failure")
+	}
+	info, err := os.Stat(lockPath)
+	if err != nil {
+		t.Fatalf("Stat(lock after extract failure) error = %v", err)
+	}
+	if !info.ModTime().Equal(previous) {
+		t.Fatalf("lock mtime after extract failure = %s, want %s", info.ModTime(), previous)
+	}
+	stamp, err := loadConsolidationStamp(root)
+	if err != nil {
+		t.Fatalf("loadConsolidationStamp() error = %v", err)
+	}
+	if got := stamp.lastSuccessTime(); !got.IsZero() {
+		t.Fatalf("lastSuccessTime() = %s, want zero on extract failure", got)
 	}
 }
 

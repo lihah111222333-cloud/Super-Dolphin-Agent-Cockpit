@@ -14,8 +14,11 @@ const (
 )
 
 type MemoryRuleOptions struct {
-	SkipIndex       bool
-	ExtraGuidelines []string
+	SkipIndex                bool
+	SearchPastContextEnabled bool
+	ExtraGuidelines          []string
+	AutoMemPath              string
+	TeamMemPath              string
 }
 
 type MemoryTypeBehavior struct {
@@ -137,8 +140,12 @@ var standardPlanRules = []string{
 	"Current step breakdowns, progress tracking, and task state belong in tasks, not memory.",
 }
 
+// V3 intentionally keeps `searching past context` runtime-driven rather than
+// Claude's model-driven directory/log search. Only surface this section when
+// the runtime SearchPastContext gate is enabled so the prompt never promises a
+// retrieval path that is unavailable in the current session.
 var standardSearchingPastContextRules = []string{
-	"`Searching past context` is a runtime retrieval path: durable memory is searched first, and budgeted transcript snippets may be surfaced only when memory misses or confidence is weak.",
+	"V3 intentionally keeps `searching past context` runtime-driven: durable memory is searched first, and budgeted transcript snippets may be surfaced only when memory misses or confidence is weak.",
 	"Do not probe memory directories, hidden roots, or session transcript logs from the prompt layer.",
 	"Only use runtime-surfaced memory or transcript snippets included in context, and apply the access/trust rules above before acting on them.",
 }
@@ -156,17 +163,19 @@ func NewMemoryRuleEngine() *MemoryRuleEngine {
 	return engine
 }
 
-func BuildMemoryLines(skipIndex bool, extraGuidelines []string) string {
+func BuildMemoryLines(skipIndex, searchPastContextEnabled bool, extraGuidelines []string) string {
 	return defaultMemoryRuleEngine.BuildMemoryLines(MemoryRuleOptions{
-		SkipIndex:       skipIndex,
-		ExtraGuidelines: extraGuidelines,
+		SkipIndex:                skipIndex,
+		SearchPastContextEnabled: searchPastContextEnabled,
+		ExtraGuidelines:          extraGuidelines,
 	})
 }
 
-func LoadMemoryPrompt(mode MemoryMode, autoEnabled, skipIndex bool, extraGuidelines []string) *string {
+func LoadMemoryPrompt(mode MemoryMode, autoEnabled, skipIndex, searchPastContextEnabled bool, extraGuidelines []string) *string {
 	return defaultMemoryRuleEngine.LoadMemoryPrompt(mode, autoEnabled, MemoryRuleOptions{
-		SkipIndex:       skipIndex,
-		ExtraGuidelines: extraGuidelines,
+		SkipIndex:                skipIndex,
+		SearchPastContextEnabled: searchPastContextEnabled,
+		ExtraGuidelines:          extraGuidelines,
 	})
 }
 
@@ -202,12 +211,16 @@ func (e *MemoryRuleEngine) loadStandardMemoryPrompt(opts MemoryRuleOptions) *str
 	return &text
 }
 
-func (e *MemoryRuleEngine) loadCombinedMemoryPrompt(MemoryRuleOptions) *string {
-	return nil
+func (e *MemoryRuleEngine) loadCombinedMemoryPrompt(opts MemoryRuleOptions) *string {
+	text := strings.TrimSpace(buildCombinedMemoryPrompt(resolvedRuleEngine(e), opts))
+	if text == "" {
+		return nil
+	}
+	return &text
 }
 
 func (e *MemoryRuleEngine) loadKairosMemoryPrompt(opts MemoryRuleOptions) *string {
-	text := strings.TrimSpace(BuildDailyLogPrompt(opts.SkipIndex, opts.ExtraGuidelines))
+	text := strings.TrimSpace(BuildDailyLogPrompt(opts.SkipIndex, opts.SearchPastContextEnabled, opts.ExtraGuidelines))
 	if text == "" {
 		return nil
 	}
@@ -232,8 +245,114 @@ func (e *MemoryRuleEngine) BuildMemoryLines(opts MemoryRuleOptions) string {
 	if extraLines := normalizeStringSlice(opts.ExtraGuidelines); len(extraLines) > 0 {
 		sections = append(sections, renderSection(nextTitle("extra guidelines"), extraLines))
 	}
-	sections = append(sections, renderSection(nextTitle("searching past context"), standardSearchingPastContextRules))
+	if section := searchingPastContextSection(nextTitle("searching past context"), opts.SearchPastContextEnabled); section != "" {
+		sections = append(sections, section)
+	}
 	return strings.Join(sections, "\n\n")
+}
+
+func buildCombinedMemoryPrompt(engine *MemoryRuleEngine, opts MemoryRuleOptions) string {
+	engine = resolvedRuleEngine(engine)
+	autoDir := strings.TrimSpace(opts.AutoMemPath)
+	teamDir := strings.TrimSpace(opts.TeamMemPath)
+	if autoDir == "" || teamDir == "" {
+		return ""
+	}
+	sections := make([]string, 0, 10)
+	sectionIndex := 0
+	nextTitle := func(name string) string {
+		sectionIndex++
+		return fmt.Sprintf("### %d. %s", sectionIndex, name)
+	}
+	sections = append(sections, renderSection(nextTitle("memory system"), combinedMemorySystemLines(autoDir, teamDir)))
+	sections = append(sections, renderSection(nextTitle("memory scope"), combinedMemoryScopeLines(autoDir, teamDir)))
+	sections = append(sections, renderSection(nextTitle("taxonomy"), combinedTaxonomyLines(engine)))
+	sections = append(sections, renderSection(nextTitle("exclusions"), combinedExclusionRules()))
+	sections = append(sections, renderSection(nextTitle("save rules / how to save memories"), combinedSaveRules(opts.SkipIndex, autoDir, teamDir)))
+	sections = append(sections, renderSection(nextTitle("access rules / when to access memories"), combinedAccessRules()))
+	sections = append(sections, renderSection(nextTitle("trust rules / before recommending from memory"), standardTrustRules))
+	sections = append(sections, renderSection(nextTitle("memory vs plan/tasks"), standardPlanRules))
+	if extraLines := normalizeStringSlice(opts.ExtraGuidelines); len(extraLines) > 0 {
+		sections = append(sections, renderSection(nextTitle("extra guidelines"), extraLines))
+	}
+	if section := searchingPastContextSection(nextTitle("searching past context"), opts.SearchPastContextEnabled); section != "" {
+		sections = append(sections, section)
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+func combinedMemorySystemLines(autoDir, teamDir string) []string {
+	return []string{
+		fmt.Sprintf("You have a persistent, file-based memory system with two directories: a private directory at `%s` and a shared team directory at `%s`.", autoDir, teamDir),
+		"Both directories already exist — write to them directly with the Write tool; do not run `mkdir` or probe for existence from the prompt layer.",
+		"Use memory to preserve durable user context, validated collaboration guidance, shared project context, and external pointers that are not derivable from current code or git state.",
+	}
+}
+
+func combinedMemoryScopeLines(autoDir, teamDir string) []string {
+	return []string{
+		fmt.Sprintf("`private` memories are shared only with the current user and are stored at `%s`.", autoDir),
+		fmt.Sprintf("`team` memories are shared across contributors in this project and are stored at `%s`.", teamDir),
+		"Choose scope deliberately: personal preferences stay private; project-wide conventions, coordination context, and shared external pointers usually belong in team memory.",
+	}
+}
+
+func combinedTaxonomyLines(engine *MemoryRuleEngine) []string {
+	engine = resolvedRuleEngine(engine)
+	scopes := map[MemoryType]string{
+		MemoryTypeUser:      "always private.",
+		MemoryTypeFeedback:  "default private; use team only for project-wide conventions every contributor should follow.",
+		MemoryTypeProject:   "private or team, but strongly bias toward team when the context affects collaborators.",
+		MemoryTypeReference: "usually team because external pointers are most useful when shared.",
+	}
+	lines := make([]string, 0, len(engine.order)+1)
+	for _, memoryType := range engine.order {
+		behavior := engine.rules[memoryType]
+		lines = append(lines, "`"+string(memoryType)+"`: "+behavior.Summary+" Scope: "+scopes[memoryType])
+	}
+	lines = append(lines, "`mode` and `scope` are separate dimensions, not a fifth memory type.")
+	return lines
+}
+
+func combinedExclusionRules() []string {
+	return append(
+		cloneStrings(standardExclusionRules),
+		"Never store secrets, credentials, tokens, API keys, or passwords in shared team memory.",
+	)
+}
+
+func combinedSaveRules(skipIndex bool, autoDir, teamDir string) []string {
+	indexPrivate := memoryIndexPath(autoDir)
+	indexTeam := memoryIndexPath(teamDir)
+	rules := []string{
+		"Choose the private or team directory according to the scope guidance for the memory type; `user` is always private, while shared project conventions and external pointers usually belong in team memory.",
+		"Keep `name`, `description`, and `type` frontmatter aligned with the body.",
+		"Organize memories semantically by topic, not chronologically.",
+		"Update or remove memories that turn out to be wrong or outdated.",
+		"Do not write duplicate memories. First check whether an existing memory should be updated instead.",
+	}
+	if skipIndex {
+		return append([]string{
+			"When `skipIndex` is enabled, write or update the topic file only and leave both `MEMORY.md` indexes rebuild to an explicit recovery step.",
+		}, rules...)
+	}
+	return append([]string{
+		fmt.Sprintf("Combined mode is a two-step save: write the topic file, then update the matching directory's `MEMORY.md` pointer index (`%s` for private or `%s` for team).", indexPrivate, indexTeam),
+		fmt.Sprintf("Each directory has its own `MEMORY.md` index. Keep both indexes pointer-only, one entry per line, and under roughly %d lines because oversized entrypoints are truncated before injection.", entrypointMaxLines),
+		"Never inline full memory bodies into either `MEMORY.md`; keep each entry to a short hook that points at the topic file.",
+	}, rules...)
+}
+
+func combinedAccessRules() []string {
+	return []string{
+		"Read private or team memory when it seems relevant, or when the user references prior work with teammates or others in the organization.",
+		"If the user explicitly asks to recall, check, or remember, you must read memory.",
+		"If the user says ignore or not use memory, act as if both `MEMORY.md` indexes were empty; do not apply, reference, compare, or mention remembered content.",
+		"Only use memory text surfaced by runtime or returned by tools; do not guess paths, scopes, or hidden entries from names.",
+		"Visibility is decided by runtime `sanitize + resolve + authorize`; knowing a `name`, `path`, or `@agent` does not grant access.",
+		"`scope` is an ACL boundary, not a fifth memory type.",
+		"Treat `deny`, `not_visible`, and `local_unavailable` as unavailable; do not retry via another root or scope.",
+	}
 }
 
 func (e *MemoryRuleEngine) taxonomyLines() []string {
@@ -270,6 +389,13 @@ func renderSection(title string, lines []string) string {
 	}
 	parts := []string{title, renderBullets(cleaned)}
 	return strings.Join(nonEmpty(parts), "\n")
+}
+
+func searchingPastContextSection(title string, enabled bool) string {
+	if !enabled {
+		return ""
+	}
+	return renderSection(title, standardSearchingPastContextRules)
 }
 
 func renderBullets(lines []string) string {

@@ -15,6 +15,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"go.uber.org/fx"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -22,11 +23,25 @@ type Service interface {
 	Config() Config
 	RootDir() string
 	EnsureRoot(ctx context.Context) error
+	RunConsolidation(ctx context.Context) error
+	GetDreamTaskStatus() DreamTaskSnapshot
+	KillDreamTask() error
 }
 
 type service struct {
-	cfg    *Config
-	logger *slog.Logger
+	cfg          *Config
+	logger       *slog.Logger
+	consolidator *AutoDreamConsolidator
+	dreamHooks   *MemoryLifecycleHooks
+}
+
+type serviceParams struct {
+	fx.In
+
+	Config       *Config                `optional:"true"`
+	Logger       *slog.Logger           `optional:"true"`
+	Consolidator *AutoDreamConsolidator `optional:"true"`
+	Hooks        *MemoryLifecycleHooks  `optional:"true"`
 }
 
 type MemoryLifecycleHooks struct {
@@ -62,11 +77,19 @@ var saveIntentPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?is)^\s*(?:记住了|已记住|我会记住|已经记住|已保存到记忆|保存到记忆了|帮你记住了)\s*(?:这个|这点|了)?\s*(?:[:：\-—,，]\s*|\s+)?(.+?)\s*$`),
 }
 
-func NewService(cfg *Config, logger *slog.Logger) Service {
+func NewService(p serviceParams) Service {
+	return newServiceWithConsolidator(p.Config, p.Logger, p.Consolidator, p.Hooks)
+}
+
+func newServiceWithConsolidator(cfg *Config, logger *slog.Logger, consolidator *AutoDreamConsolidator, hooks *MemoryLifecycleHooks) Service {
 	if cfg == nil {
 		cfg = &Config{}
 	}
-	return &service{cfg: cfg, logger: logger}
+	if consolidator == nil {
+		consolidator = NewAutoDreamConsolidator(nil)
+	}
+	consolidator.cfg = memoryConfig(cfg)
+	return &service{cfg: cfg, logger: logger, consolidator: consolidator, dreamHooks: hooks}
 }
 
 func (s *service) Config() Config {
@@ -102,6 +125,35 @@ func (s *service) EnsureRoot(ctx context.Context) error {
 		s.logger.Debug("memory root ready", "root_dir", filepath.Clean(root))
 	}
 	return nil
+}
+
+func (s *service) RunConsolidation(ctx context.Context) error {
+	if s == nil || s.consolidator == nil {
+		return ErrConsolidationExtractFuncRequired
+	}
+	if err := s.EnsureRoot(ctx); err != nil {
+		return err
+	}
+	cfg := s.Config()
+	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
+	if err != nil {
+		return err
+	}
+	return s.consolidator.Consolidate(ctx, root, nil)
+}
+
+func (s *service) GetDreamTaskStatus() DreamTaskSnapshot {
+	if s == nil || s.dreamHooks == nil {
+		return DreamTaskSnapshot{}
+	}
+	return s.dreamHooks.GetDreamTaskStatus()
+}
+
+func (s *service) KillDreamTask() error {
+	if s == nil || s.dreamHooks == nil {
+		return ErrDreamTaskNotRunning
+	}
+	return s.dreamHooks.KillDreamTask()
 }
 
 func (h *MemoryLifecycleHooks) onThreadStart(_ context.Context, evt threaddto.Started) {
@@ -233,7 +285,7 @@ func buildExplicitMemoryName(memoryType MemoryType, description string) string {
 
 func normalizeHookContent(text string) string {
 	lines := make([]string, 0, 4)
-	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		line = strings.TrimSpace(strings.TrimLeft(line, "-*• "))
 		line = strings.TrimSpace(strings.TrimLeft(line, ":：-—,，。.!！?？;；"))
 		line = strings.TrimSpace(strings.TrimPrefix(line, "that "))

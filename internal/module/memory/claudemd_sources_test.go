@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 )
 
 func TestResolveClaudeMdSourcesOrdersLayersAndPreservesRuleMetadata(t *testing.T) {
@@ -105,6 +107,91 @@ func TestFilterInjectedMemoryFilesAppliesLayeredGates(t *testing.T) {
 	}
 }
 
+func TestCombinedClaudeMdSourcesInjectTeamEntrypointThroughBuildBaseUserContext(t *testing.T) {
+	withTeamMemoryRuntimeReady(t, true)
+	base := t.TempDir()
+	repoRoot := filepath.Join(base, "repo")
+	autoRoot := filepath.Join(base, "automem")
+	teamRoot := filepath.Join(repoRoot, teamMemoryRootDirName)
+	for _, dir := range []string{repoRoot, autoRoot, teamRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	writeClaudeFile(t, memoryIndexPath(autoRoot), "- [Private](private.md) — private memory")
+	writeClaudeFile(t, memoryIndexPath(teamRoot), "<!-- hidden -->\n- [Team](team.md) — shared memory")
+
+	cfg := &Config{
+		Enabled:             true,
+		RootDir:             base,
+		ProjectRoot:         repoRoot,
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
+	}
+	provider := NewClaudeMdSourcesProvider(cfg, NewTeamMemoryManager(cfg), nil)
+	sources := provider.ResolveClaudeMdSources(context.Background(), contract.BuildCtx{
+		GitRoot: repoRoot,
+		CWD:     repoRoot,
+	})
+	teamSource := sourceByType(t, sources, sourceTypeTeamMem)
+	if teamSource.Path != mustResolvedClaudePath(t, memoryIndexPath(teamRoot)) {
+		t.Fatalf("team source path = %q, want %q", teamSource.Path, mustResolvedClaudePath(t, memoryIndexPath(teamRoot)))
+	}
+	if strings.Contains(teamSource.Content, "<!--") {
+		t.Fatalf("team source content still contains stripped comments: %q", teamSource.Content)
+	}
+	basePayload := prompt.BuildBaseUserContext(sources)
+	claudeMd := basePayload["claudeMd"]
+	for _, snippet := range []string{
+		"Contents of " + teamSource.Path,
+		"<team-memory-content source=\"shared\">",
+		"- [Team](team.md) — shared memory",
+	} {
+		if !strings.Contains(claudeMd, snippet) {
+			t.Fatalf("BuildBaseUserContext() missing %q:\n%s", snippet, claudeMd)
+		}
+	}
+}
+
+func TestCombinedClaudeMdSourcesSkipTeamEntrypointWhenKairosActive(t *testing.T) {
+	withTeamMemoryRuntimeReady(t, true)
+	base := t.TempDir()
+	repoRoot := filepath.Join(base, "repo")
+	autoRoot := filepath.Join(base, "automem")
+	teamRoot := filepath.Join(repoRoot, teamMemoryRootDirName)
+	for _, dir := range []string{repoRoot, autoRoot, teamRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	writeClaudeFile(t, memoryIndexPath(autoRoot), "- [Private](private.md) — private memory")
+	writeClaudeFile(t, memoryIndexPath(teamRoot), "- [Team](team.md) — shared memory")
+
+	cfg := &Config{
+		Enabled:             true,
+		RootDir:             base,
+		ProjectRoot:         repoRoot,
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true, Kairos: true},
+	}
+	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot}
+	gate := ResolveMemoryGate(buildCtx, cfg)
+	if !gate.KairosActive {
+		t.Fatalf("ResolveMemoryGate().KairosActive = false, want true")
+	}
+	if gate.InjectTeamMemIndex {
+		t.Fatalf("ResolveMemoryGate().InjectTeamMemIndex = true, want false during Kairos")
+	}
+	provider := NewClaudeMdSourcesProvider(cfg, NewTeamMemoryManager(cfg), nil)
+	sources := provider.ResolveClaudeMdSources(context.Background(), buildCtx)
+	if hasSourceType(sources, sourceTypeTeamMem) {
+		t.Fatalf("ResolveClaudeMdSources() unexpectedly retained %q source under Kairos: %#v", sourceTypeTeamMem, sources)
+	}
+	if !hasSourceType(sources, sourceTypeAutoMem) {
+		t.Fatalf("ResolveClaudeMdSources() missing %q source under Kairos: %#v", sourceTypeAutoMem, sources)
+	}
+}
+
 func writeClaudeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -132,6 +219,26 @@ func sourceByPath(t *testing.T, sources []ClaudeMdSource, path string) ClaudeMdS
 	}
 	t.Fatalf("source %q not found in %#v", path, sources)
 	return ClaudeMdSource{}
+}
+
+func sourceByType(t *testing.T, sources []ClaudeMdSource, sourceType string) ClaudeMdSource {
+	t.Helper()
+	for _, source := range sources {
+		if source.Type == sourceType {
+			return source
+		}
+	}
+	t.Fatalf("source type %q not found in %#v", sourceType, sources)
+	return ClaudeMdSource{}
+}
+
+func hasSourceType(sources []ClaudeMdSource, sourceType string) bool {
+	for _, source := range sources {
+		if source.Type == sourceType {
+			return true
+		}
+	}
+	return false
 }
 
 func mustResolvedClaudePath(t *testing.T, path string) string {

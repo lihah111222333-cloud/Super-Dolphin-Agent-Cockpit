@@ -22,7 +22,7 @@ func TestKairos(t *testing.T) {
 }
 
 func TestKairosLoadMemoryPromptUsesDailyLogProtocol(t *testing.T) {
-	text := goldenPromptString(LoadMemoryPrompt(MemoryModeKairos, true, false, []string{"Prefer absolute dates in daily logs."}))
+	text := goldenPromptString(LoadMemoryPrompt(MemoryModeKairos, true, false, true, []string{"Prefer absolute dates in daily logs."}))
 	for _, snippet := range []string{
 		"KAIROS daily log mode",
 		"logs/YYYY/MM/YYYY-MM-DD.md",

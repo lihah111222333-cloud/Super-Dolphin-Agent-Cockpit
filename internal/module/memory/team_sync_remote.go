@@ -1,0 +1,234 @@
+package memory
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const (
+	envTeamSyncBaseURL    = "MULTI_AGENT_TEAM_SYNC_BASE_URL"
+	envTeamSyncOAuthToken = "MULTI_AGENT_TEAM_SYNC_OAUTH_TOKEN"
+	teamSyncHTTPTimeout   = 10 * time.Second
+)
+
+var ErrTeamSyncOAuthRequired = errors.New("team sync oauth is not ready")
+
+type TeamSyncFile struct {
+	Content  string `json:"content,omitempty"`
+	Checksum string `json:"checksum,omitempty"`
+}
+
+type TeamSyncHashesResponse struct {
+	ETag        string            `json:"etag,omitempty"`
+	NotModified bool              `json:"notModified,omitempty"`
+	NotFound    bool              `json:"notFound,omitempty"`
+	Checksums   map[string]string `json:"checksums,omitempty"`
+}
+
+type TeamSyncPullResponse struct {
+	ETag        string                  `json:"etag,omitempty"`
+	NotModified bool                    `json:"notModified,omitempty"`
+	NotFound    bool                    `json:"notFound,omitempty"`
+	Checksums   map[string]string       `json:"checksums,omitempty"`
+	Files       map[string]TeamSyncFile `json:"files,omitempty"`
+}
+
+type TeamSyncPushRequest struct {
+	RepoSlug      string            `json:"repoSlug,omitempty"`
+	IfMatch       string            `json:"ifMatch,omitempty"`
+	Uploads       map[string]string `json:"uploads,omitempty"`
+	Deletes       []string          `json:"deletes,omitempty"`
+	BaseChecksums map[string]string `json:"baseChecksums,omitempty"`
+}
+
+type TeamSyncPushResponse struct {
+	ETag       string            `json:"etag,omitempty"`
+	Conflict   bool              `json:"conflict,omitempty"`
+	NotFound   bool              `json:"notFound,omitempty"`
+	MaxEntries int               `json:"maxEntries,omitempty"`
+	Applied    map[string]string `json:"applied,omitempty"`
+	Deleted    []string          `json:"deleted,omitempty"`
+	Failed     map[string]string `json:"failed,omitempty"`
+}
+
+type teamSyncRemote interface {
+	OAuthReady(context.Context) bool
+	PullHashes(context.Context, string, string) (TeamSyncHashesResponse, error)
+	PullFiles(context.Context, string, string) (TeamSyncPullResponse, error)
+	PushFiles(context.Context, TeamSyncPushRequest) (TeamSyncPushResponse, error)
+}
+
+type teamSyncHTTPRemote struct {
+	baseURL string
+	token   string
+	client  *http.Client
+}
+
+func newTeamSyncRemoteFromEnv() teamSyncRemote {
+	return &teamSyncHTTPRemote{
+		baseURL: strings.TrimRight(strings.TrimSpace(os.Getenv(envTeamSyncBaseURL)), "/"),
+		token:   strings.TrimSpace(os.Getenv(envTeamSyncOAuthToken)),
+		client:  &http.Client{Timeout: teamSyncHTTPTimeout},
+	}
+}
+
+func (r *teamSyncHTTPRemote) OAuthReady(context.Context) bool {
+	return r != nil && strings.TrimSpace(r.baseURL) != "" && strings.TrimSpace(r.token) != ""
+}
+
+func (r *teamSyncHTTPRemote) PullHashes(ctx context.Context, repoSlug, ifNoneMatch string) (TeamSyncHashesResponse, error) {
+	payload := TeamSyncHashesResponse{}
+	return payload, r.doJSON(ctx, http.MethodGet, teamSyncRemoteURL(r.baseURL, repoSlug, "hashes"), ifNoneMatch, nil, &payload)
+}
+
+func (r *teamSyncHTTPRemote) PullFiles(ctx context.Context, repoSlug, _ string) (TeamSyncPullResponse, error) {
+	payload := TeamSyncPullResponse{}
+	return payload, r.doJSON(ctx, http.MethodGet, teamSyncRemoteURL(r.baseURL, repoSlug, ""), "", nil, &payload)
+}
+
+func (r *teamSyncHTTPRemote) PushFiles(ctx context.Context, request TeamSyncPushRequest) (TeamSyncPushResponse, error) {
+	payload := TeamSyncPushResponse{}
+	return payload, r.doJSON(ctx, http.MethodPost, teamSyncRemoteURL(r.baseURL, request.RepoSlug, ""), request.IfMatch, request, &payload)
+}
+
+func (r *teamSyncHTTPRemote) doJSON(ctx context.Context, method, rawURL, match string, body any, out any) error {
+	if !r.OAuthReady(ctx) {
+		return ErrTeamSyncOAuthRequired
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var reader io.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, reader)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+r.token)
+	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if match = strings.TrimSpace(match); match != "" {
+		if method == http.MethodGet {
+			req.Header.Set("If-None-Match", match)
+		} else {
+			req.Header.Set("If-Match", match)
+		}
+	}
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	setTeamSyncETag(out, resp.Header.Get("ETag"))
+	setTeamSyncMaxEntries(out, resp.Header.Get("X-TeamSync-Max-Entries"))
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusMultiStatus:
+		if len(data) == 0 || out == nil {
+			return nil
+		}
+		return json.Unmarshal(data, out)
+	case http.StatusNotModified:
+		setTeamSyncNotModified(out)
+		return nil
+	case http.StatusNotFound:
+		setTeamSyncNotFound(out)
+		return nil
+	case http.StatusPreconditionFailed:
+		setTeamSyncConflict(out)
+		if len(data) > 0 {
+			_ = json.Unmarshal(data, out)
+		}
+		return nil
+	case http.StatusRequestEntityTooLarge:
+		if len(data) > 0 {
+			_ = json.Unmarshal(data, out)
+		}
+		return nil
+	default:
+		return fmt.Errorf("team sync remote %s %s failed: %s", method, rawURL, resp.Status)
+	}
+}
+
+func setTeamSyncETag(target any, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	switch typed := target.(type) {
+	case *TeamSyncHashesResponse:
+		typed.ETag = value
+	case *TeamSyncPullResponse:
+		typed.ETag = value
+	case *TeamSyncPushResponse:
+		typed.ETag = value
+	}
+}
+
+func setTeamSyncMaxEntries(target any, raw string) {
+	if strings.TrimSpace(raw) == "" {
+		return
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return
+	}
+	if typed, ok := target.(*TeamSyncPushResponse); ok {
+		typed.MaxEntries = value
+	}
+}
+
+func setTeamSyncNotModified(target any) {
+	switch typed := target.(type) {
+	case *TeamSyncHashesResponse:
+		typed.NotModified = true
+	case *TeamSyncPullResponse:
+		typed.NotModified = true
+	}
+}
+
+func setTeamSyncNotFound(target any) {
+	switch typed := target.(type) {
+	case *TeamSyncHashesResponse:
+		typed.NotFound = true
+	case *TeamSyncPullResponse:
+		typed.NotFound = true
+	case *TeamSyncPushResponse:
+		typed.NotFound = true
+	}
+}
+
+func setTeamSyncConflict(target any) {
+	if typed, ok := target.(*TeamSyncPushResponse); ok {
+		typed.Conflict = true
+	}
+}
+
+func teamSyncRemoteURL(baseURL, repoSlug, view string) string {
+	repoSlug = url.PathEscape(strings.TrimSpace(repoSlug))
+	if view = strings.TrimSpace(view); view != "" {
+		return baseURL + "/team-memory/" + repoSlug + "?view=" + url.QueryEscape(view)
+	}
+	return baseURL + "/team-memory/" + repoSlug
+}

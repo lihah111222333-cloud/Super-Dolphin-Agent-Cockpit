@@ -22,6 +22,7 @@ func NewDriverFactory(logger *slog.Logger, dispatcher *unified.EventDispatcher, 
 var Module = fx.Module("provider.claudecli",
 	fx.Provide(
 		fx.Annotate(NewDriverFactory, fx.ResultTags(`group:"drivers"`)),
+		fx.Annotate(provideDreamExecutorProvider, fx.ResultTags(`group:"dream_executors"`)),
 	),
 	fx.Invoke(RegisterTranslators),
 )

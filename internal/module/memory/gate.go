@@ -46,30 +46,46 @@ type RelevantPrefetchSurfacedState struct {
 
 func resolveMemoryGate(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapshot {
 	cfg = memoryConfig(cfg)
-	snapshot := MemoryGateSnapshot{
-		ForceEnabledByEnvFalsy:    isEnvDefinedFalsy(os.Getenv(envClaudeDisableAutoMemory)),
-		DisabledByEnvTruthy:       isEnvTruthy(os.Getenv(envClaudeDisableAutoMemory)),
-		SettingsAutoMemoryEnabled: settingsAutoMemoryEnabled(buildCtx),
-		RemoteMode:                parseBoolEnv(envClaudeRemote, false),
-		HasPersistentStorage:      hasPersistentMemoryStorage(cfg),
-		BareMode:                  parseBoolEnv(envClaudeSimple, false) || gateFlagEnabled(buildCtx.SessionFlags, "bare_mode", "bareMode", "bare"),
-		HasAdditionalDirsForBare:  len(buildCtx.AdditionalWorkingDirectories) > 0,
-		DisableClaudeMds:          gateFlagEnabled(buildCtx.SessionFlags, "disable_claude_mds", "disableClaudeMds"),
-		SkipProjectLocalClaudeMd:  gateFlagEnabled(buildCtx.SessionFlags, "tengu_paper_halyard", "paper_halyard"),
-		SkipIndex:                 cfg.SkipIndex || gateFlagEnabled(buildCtx.SessionFlags, "skip_index", "skipIndex", "tengu_moth_copse"),
-		KairosEnabled:             cfg.Features.Kairos || gateFlagEnabled(buildCtx.SessionFlags, "memory_kairos", "kairos"),
-		TeamMemEnabled:            cfg.Features.TeamMemory || gateFlagEnabled(buildCtx.SessionFlags, "team_memory", "teamMemory", "teammem"),
-		SearchPastContextEnabled:  cfg.Features.SearchPastContext || gateFlagEnabled(buildCtx.SessionFlags, "search_past_context", "searchPastContext"),
-		AutoMemPathSource:         resolveAutoMemPathSource(cfg),
-	}
+	snapshot := baseMemoryGateSnapshot(buildCtx, cfg)
 	snapshot.AutoEnabled = resolveAutoEnabled(snapshot, cfg)
 	snapshot.RequestedMemoryMode = selectRequestedMemoryMode(snapshot)
 	snapshot.KairosActive = snapshot.AutoEnabled && snapshot.RequestedMemoryMode == MemoryModeKairos
 	snapshot.EffectiveMemoryMode = effectiveMemoryMode(snapshot.RequestedMemoryMode)
 	snapshot.InjectMemoryIndex = snapshot.AutoEnabled && !snapshot.SkipIndex
-	snapshot.InjectTeamMemIndex = snapshot.AutoEnabled && snapshot.TeamMemEnabled && !snapshot.SkipIndex
+	snapshot.InjectTeamMemIndex = snapshot.AutoEnabled && snapshot.TeamMemEnabled && !snapshot.SkipIndex && !snapshot.KairosActive
 	snapshot.EnableRelevantPrefetch = resolveRelevantPrefetchGate(snapshot)
 	return snapshot
+}
+
+func baseMemoryGateSnapshot(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapshot {
+	return MemoryGateSnapshot{
+		ForceEnabledByEnvFalsy:    isEnvDefinedFalsy(os.Getenv(envClaudeDisableAutoMemory)),
+		DisabledByEnvTruthy:       isEnvTruthy(os.Getenv(envClaudeDisableAutoMemory)),
+		SettingsAutoMemoryEnabled: settingsAutoMemoryEnabled(buildCtx),
+		RemoteMode:                parseBoolEnv(envClaudeRemote, false),
+		HasPersistentStorage:      hasPersistentMemoryStorage(cfg),
+		BareMode:                  resolveBareMode(buildCtx),
+		HasAdditionalDirsForBare:  len(buildCtx.AdditionalWorkingDirectories) > 0,
+		DisableClaudeMds:          gateFlagEnabled(buildCtx.SessionFlags, "disable_claude_mds", "disableClaudeMds"),
+		SkipProjectLocalClaudeMd:  gateFlagEnabled(buildCtx.SessionFlags, "tengu_paper_halyard", "paper_halyard"),
+		SkipIndex:                 resolveFlagOrConfig(buildCtx, cfg.SkipIndex, "skip_index", "skipIndex", "tengu_moth_copse"),
+		KairosEnabled:             resolveFeatureFlag(buildCtx, cfg.Features.Kairos, "memory_kairos", "kairos"),
+		TeamMemEnabled:            resolveFeatureFlag(buildCtx, cfg.Features.TeamMemory, "team_memory", "teamMemory", "teammem"),
+		SearchPastContextEnabled:  resolveFeatureFlag(buildCtx, cfg.Features.SearchPastContext, "search_past_context", "searchPastContext"),
+		AutoMemPathSource:         resolveAutoMemPathSource(cfg),
+	}
+}
+
+func resolveBareMode(buildCtx contract.BuildCtx) bool {
+	return parseBoolEnv(envClaudeSimple, false) || gateFlagEnabled(buildCtx.SessionFlags, "bare_mode", "bareMode", "bare")
+}
+
+func resolveFlagOrConfig(buildCtx contract.BuildCtx, enabled bool, names ...string) bool {
+	return enabled || gateFlagEnabled(buildCtx.SessionFlags, names...)
+}
+
+func resolveFeatureFlag(buildCtx contract.BuildCtx, enabled bool, names ...string) bool {
+	return resolveFlagOrConfig(buildCtx, enabled, names...)
 }
 
 func resolveRelevantPrefetchGate(snapshot MemoryGateSnapshot) bool {

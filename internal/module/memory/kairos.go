@@ -36,7 +36,7 @@ var kairosConsolidationLines = []string{
 	"Treat daily logs as recent signal, not guaranteed current truth; verify current state before acting on time-sensitive details.",
 }
 
-func BuildDailyLogPrompt(skipIndex bool, extraGuidelines []string) string {
+func BuildDailyLogPrompt(skipIndex, searchPastContextEnabled bool, extraGuidelines []string) string {
 	sections := []string{
 		renderSection("### 1. KAIROS daily log mode", kairosOverviewLines),
 		renderSection("### 2. append-only write protocol", append(cloneStrings(kairosWriteRules), kairosSkipIndexRule(skipIndex))),
@@ -46,10 +46,14 @@ func BuildDailyLogPrompt(skipIndex bool, extraGuidelines []string) string {
 	}
 	if extra := normalizeStringSlice(extraGuidelines); len(extra) > 0 {
 		sections = append(sections, renderSection("### 6. extra guidelines", extra))
-		sections = append(sections, renderSection("### 7. searching past context", standardSearchingPastContextRules))
+		if section := searchingPastContextSection("### 7. searching past context", searchPastContextEnabled); section != "" {
+			sections = append(sections, section)
+		}
 		return strings.Join(nonEmpty(sections), "\n\n")
 	}
-	sections = append(sections, renderSection("### 6. searching past context", standardSearchingPastContextRules))
+	if section := searchingPastContextSection("### 6. searching past context", searchPastContextEnabled); section != "" {
+		sections = append(sections, section)
+	}
 	return strings.Join(nonEmpty(sections), "\n\n")
 }
 

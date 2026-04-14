@@ -3,9 +3,11 @@ package memory
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 )
 
@@ -107,7 +109,7 @@ func TestMemoryRulesProviderRegistersStartOnlyDynamicSection(t *testing.T) {
 		SkipIndex:       true,
 		ExtraGuidelines: []string{"Keep explanations short."},
 		Features:        MemoryFeatureFlags{SearchPastContext: true},
-	}, NewMemoryRuleEngine())
+	}, NewMemoryRuleEngine(), nil)
 	var dynamic prompt.DynamicSectionProvider = provider
 	if dynamic.SectionName() != prompt.DynamicSectionMemory {
 		t.Fatalf("SectionName() = %q, want %q", dynamic.SectionName(), prompt.DynamicSectionMemory)
@@ -167,7 +169,7 @@ func TestChildAgentStartUsesDedicatedAgentMemoryPrompt(t *testing.T) {
 		svc := prompt.NewService(&prompt.Config{}, nil)
 		if err := registerPromptProviders(promptProviderParams{
 			Registry:      svc,
-			Provider:      NewRulesProvider(cfg, NewMemoryRuleEngine()),
+			Provider:      NewRulesProvider(cfg, NewMemoryRuleEngine(), nil),
 			AgentProvider: NewAgentMemoryPromptProvider(cfg, manager, nil),
 		}); err != nil {
 			t.Fatalf("registerPromptProviders() error = %v", err)
@@ -292,5 +294,125 @@ func TestMemoryContextProviderSkipsEntrypointFallbackWhenInjectMemoryIndexDisabl
 	}
 	if turn != nil && strings.TrimSpace(*turn) != "" {
 		t.Fatalf("turn text = %q, want nil/empty fail-soft result", *turn)
+	}
+}
+
+func TestCombinedRulesProviderUsesDynamicSectionMemory(t *testing.T) {
+	withTeamMemoryRuntimeReady(t, true)
+	base := t.TempDir()
+	repoRoot := filepath.Join(base, "repo")
+	autoRoot := filepath.Join(base, "automem")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", repoRoot, err)
+	}
+	cfg := &Config{
+		Enabled:             true,
+		RootDir:             base,
+		ProjectRoot:         repoRoot,
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
+	}
+	svc := prompt.NewService(&prompt.Config{}, nil)
+	if err := svc.RegisterDynamicProvider(NewRulesProvider(cfg, NewMemoryRuleEngine(), NewTeamMemoryManager(cfg))); err != nil {
+		t.Fatalf("RegisterDynamicProvider() error = %v", err)
+	}
+
+	start, err := svc.AssembleStart(context.Background(), prompt.StartInput{
+		GitRoot: repoRoot,
+		CWD:     repoRoot,
+	})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	section, ok := findResolvedSection(start.ResolvedSections, prompt.DynamicSectionMemory)
+	if !ok {
+		t.Fatalf("ResolvedSections missing %q: %#v", prompt.DynamicSectionMemory, start.ResolvedSections)
+	}
+	for _, snippet := range []string{
+		"shared team directory",
+		memoryIndexPath(autoRoot),
+		memoryIndexPath(filepath.Join(repoRoot, teamMemoryRootDirName)),
+	} {
+		if !strings.Contains(section.Content, snippet) {
+			t.Fatalf("combined memory section missing %q:\n%s", snippet, section.Content)
+		}
+	}
+
+	turn, err := svc.AssembleTurn(context.Background(), prompt.TurnInput{
+		ThreadID: "thread-1",
+		GitRoot:  repoRoot,
+		CWD:      repoRoot,
+	})
+	if err != nil {
+		t.Fatalf("AssembleTurn() error = %v", err)
+	}
+	if strings.Contains(turn.UserContextText, "shared team directory") {
+		t.Fatalf("turn user context unexpectedly contains combined start-only prompt:\n%s", turn.UserContextText)
+	}
+}
+
+func TestCombinedRulesProviderFallsBackToStandardWithoutTeamRuntime(t *testing.T) {
+	withTeamMemoryRuntimeReady(t, false)
+	base := t.TempDir()
+	repoRoot := filepath.Join(base, "repo")
+	autoRoot := filepath.Join(base, "automem")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", repoRoot, err)
+	}
+	cfg := &Config{
+		Enabled:             true,
+		RootDir:             base,
+		ProjectRoot:         repoRoot,
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
+	}
+	text, err := NewRulesProvider(cfg, NewMemoryRuleEngine(), NewTeamMemoryManager(cfg)).Resolve(context.Background(), prompt.SectionContext{
+		BuildCtx: contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot},
+		Start:    &prompt.StartInput{},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if text == nil {
+		t.Fatal("Resolve() = nil, want standard memory rules")
+	}
+	if strings.Contains(*text, "shared team directory") {
+		t.Fatalf("standard fallback unexpectedly exposed combined team guidance:\n%s", *text)
+	}
+	if !strings.Contains(*text, "### 1. memory system") {
+		t.Fatalf("standard fallback missing baseline rules:\n%s", *text)
+	}
+}
+
+func TestCombinedRulesProviderSuppressesCombinedWhenKairosActive(t *testing.T) {
+	withTeamMemoryRuntimeReady(t, true)
+	base := t.TempDir()
+	repoRoot := filepath.Join(base, "repo")
+	autoRoot := filepath.Join(base, "automem")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", repoRoot, err)
+	}
+	cfg := &Config{
+		Enabled:             true,
+		RootDir:             base,
+		ProjectRoot:         repoRoot,
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true, Kairos: true},
+	}
+	text, err := NewRulesProvider(cfg, NewMemoryRuleEngine(), NewTeamMemoryManager(cfg)).Resolve(context.Background(), prompt.SectionContext{
+		BuildCtx: contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot},
+		Start:    &prompt.StartInput{},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if text == nil {
+		t.Fatal("Resolve() = nil, want Kairos prompt")
+	}
+	if strings.Contains(*text, "shared team directory") {
+		t.Fatalf("Kairos prompt unexpectedly exposed combined team guidance:\n%s", *text)
+	}
+	if !strings.Contains(*text, "### 1. KAIROS daily log mode") {
+		t.Fatalf("Kairos prompt missing daily-log guidance:\n%s", *text)
 	}
 }

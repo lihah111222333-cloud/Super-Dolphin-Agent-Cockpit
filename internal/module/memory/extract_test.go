@@ -108,6 +108,7 @@ func TestAutoDreamConsolidatorConsolidateRemovesDuplicatesAndRebuildsIndex(t *te
 	}
 
 	consolidator := NewAutoDreamConsolidator(NewMemoryExtractor())
+	consolidator.cfg = &Config{Enabled: true, RootDir: root}
 	called := 0
 	err := consolidator.Consolidate(context.Background(), root, func(_ context.Context, prompt string) (string, error) {
 		called++

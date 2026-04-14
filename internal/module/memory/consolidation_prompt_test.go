@@ -80,6 +80,28 @@ func TestConsolidationPromptRejectsAgentMemoryPath(t *testing.T) {
 	}
 }
 
+func TestConsolidationFailsClosedWithoutConfig(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll(root) error = %v", err)
+	}
+	if _, err := loadConsolidationPromptInput(root, nil); !errors.Is(err, ErrConsolidationAgentMemoryPath) {
+		t.Fatalf("loadConsolidationPromptInput(nil cfg) error = %v, want %v", err, ErrConsolidationAgentMemoryPath)
+	}
+	consolidator := NewAutoDreamConsolidator(NewMemoryExtractor())
+	called := false
+	err := consolidator.Consolidate(context.Background(), root, func(context.Context, string) (string, error) {
+		called = true
+		return `{"memories":[]}`, nil
+	})
+	if !errors.Is(err, ErrConsolidationAgentMemoryPath) {
+		t.Fatalf("Consolidate(nil cfg) error = %v, want %v", err, ErrConsolidationAgentMemoryPath)
+	}
+	if called {
+		t.Fatal("extract func should not run when consolidation config is unavailable")
+	}
+}
+
 func TestConsolidationConsolidateUsesMemoryIndexTopicsAndLogs(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	if err := os.MkdirAll(root, 0o755); err != nil {
