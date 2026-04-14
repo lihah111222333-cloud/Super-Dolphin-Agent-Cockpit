@@ -22,6 +22,10 @@ type phase45PromptAssemblyStub struct {
 	startAssembly contract.StartAssembly
 }
 
+type resumeMetadataPromptAssembly struct {
+	startInput contract.StartInput
+}
+
 func (s startSnapshotPromptAssembly) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
 	return s.start, nil
 }
@@ -51,6 +55,23 @@ func (phase45PromptAssemblyStub) AssembleTurn(context.Context, contract.TurnInpu
 }
 
 func (phase45PromptAssemblyStub) Invalidate(context.Context, contract.InvalidateReason) error {
+	return nil
+}
+
+func (p *resumeMetadataPromptAssembly) AssembleStart(_ context.Context, in contract.StartInput) (contract.StartAssembly, error) {
+	p.startInput = in
+	return contract.StartAssembly{
+		DisplayName:           in.Name,
+		BaseInstructions:      "rebuilt base",
+		DeveloperInstructions: "rebuilt dev",
+	}, nil
+}
+
+func (*resumeMetadataPromptAssembly) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
+	return contract.TurnAssembly{}, nil
+}
+
+func (*resumeMetadataPromptAssembly) Invalidate(context.Context, contract.InvalidateReason) error {
 	return nil
 }
 
@@ -138,6 +159,71 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 	}
 	if result.SessionID != "provider-thread-1" || result.Status != "resumed" {
 		t.Fatalf("Resume() result = %#v, want provider-thread-1/resumed", result)
+	}
+}
+
+func TestPhaseGResumeRebuildsPromptSnapshotFromStoredAgentIdentity(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:         "thread-1",
+		AgentID:          "agent-1",
+		ParentAgentID:    "agent-root",
+		AgentType:        "worker",
+		AgentMemoryScope: "local",
+		Prompt:           "resume name",
+		Model:            "gpt-5.4",
+		Cwd:              "/repo",
+		CreatedAt:        123,
+		Status:           statusCreated,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		ParentAgentID:    "agent-root",
+		AgentType:        "worker",
+		AgentMemoryScope: "local",
+		Provider:         "codex",
+		ProviderThreadID: "provider-thread-1",
+		CodexThreadID:    "thread-1",
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	assembly := &resumeMetadataPromptAssembly{}
+	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+		if req.PromptSnapshot.BaseInstructions != "rebuilt base" || req.PromptSnapshot.DeveloperInstructions != "rebuilt dev" {
+			t.Fatalf("PromptSnapshot = %#v, want rebuilt snapshot", req.PromptSnapshot)
+		}
+		session := &stubSession{threadID: "provider-thread-1"}
+		sessions.session = session
+		return session, nil
+	}}
+	orch := &stubThreadOrchestration{}
+	svc := NewServiceWithPromptAssembly(
+		silentLogger(),
+		threads,
+		bindings,
+		sessions,
+		starter,
+		nil,
+		orch,
+		nil,
+		assembly,
+		nil,
+		nil,
+	).(*service)
+
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"}); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if assembly.startInput.ParentAgentID != "agent-root" ||
+		assembly.startInput.AgentType != "worker" ||
+		assembly.startInput.AgentMemoryScope != "local" {
+		t.Fatalf("resume rebuild start input = %#v", assembly.startInput)
+	}
+	if orch.launchReq.ParentID != "agent-root" ||
+		orch.launchReq.AgentType != "worker" ||
+		orch.launchReq.MemoryScope != "local" {
+		t.Fatalf("launch request = %#v", orch.launchReq)
 	}
 }
 

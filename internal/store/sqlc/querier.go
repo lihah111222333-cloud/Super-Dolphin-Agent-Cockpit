@@ -26,8 +26,8 @@ type Querier interface {
 	DeleteStaleCwdLocks(ctx context.Context) (int64, error)
 	ExpireStaleAgentThreads(ctx context.Context, arg ExpireStaleAgentThreadsParams) (int64, error)
 	ForceAcquireCwdLock(ctx context.Context, arg ForceAcquireCwdLockParams) (int64, error)
-	GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (AgentProviderBinding, error)
-	GetAgentProviderBindingByProviderThread(ctx context.Context, arg GetAgentProviderBindingByProviderThreadParams) (AgentProviderBinding, error)
+	GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (GetAgentProviderBindingByAgentIDRow, error)
+	GetAgentProviderBindingByProviderThread(ctx context.Context, arg GetAgentProviderBindingByProviderThreadParams) (GetAgentProviderBindingByProviderThreadRow, error)
 	GetAgentStatus(ctx context.Context, agentID string) (AgentStatus, error)
 	GetAgentThreadByID(ctx context.Context, threadID string) (GetAgentThreadByIDRow, error)
 	GetAgentThreadByPort(ctx context.Context, port int32) (GetAgentThreadByPortRow, error)
@@ -49,7 +49,7 @@ type Querier interface {
 	ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]SystemLog, error)
 	ListAILogsByCategory(ctx context.Context, arg ListAILogsByCategoryParams) ([]ListAILogsByCategoryRow, error)
 	ListAgentStatuses(ctx context.Context, dollar_1 string) ([]AgentStatus, error)
-	ListAgentThreadBindings(ctx context.Context) ([]AgentProviderBinding, error)
+	ListAgentThreadBindings(ctx context.Context) ([]ListAgentThreadBindingsRow, error)
 	ListAgentThreadCwds(ctx context.Context) ([]ListAgentThreadCwdsRow, error)
 	ListAgentThreadCwdsByPrefix(ctx context.Context, dollar_1 *string) ([]ListAgentThreadCwdsByPrefixRow, error)
 	ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, error)
@@ -80,6 +80,7 @@ type Querier interface {
 	ReleaseCwdLock(ctx context.Context, arg ReleaseCwdLockParams) (int64, error)
 	ResetRunningAgentThreads(ctx context.Context) error
 	ReviewInteraction(ctx context.Context, arg ReviewInteractionParams) (AgentInteraction, error)
+	SaveAgentThreadPromptSnapshot(ctx context.Context, arg SaveAgentThreadPromptSnapshotParams) (int64, error)
 	TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (WorkspaceRun, error)
 	UnbindAgentThread(ctx context.Context, agentID string) error
 	UpdateAgentCwd(ctx context.Context, arg UpdateAgentCwdParams) error
@@ -90,7 +91,6 @@ type Querier interface {
 	UpsertAgentProviderBinding(ctx context.Context, arg UpsertAgentProviderBindingParams) error
 	UpsertAgentStatus(ctx context.Context, arg UpsertAgentStatusParams) (AgentStatus, error)
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
-	SaveAgentThreadPromptSnapshot(ctx context.Context, arg SaveAgentThreadPromptSnapshotParams) (int64, error)
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (CommandCard, error)
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)
 	UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error)

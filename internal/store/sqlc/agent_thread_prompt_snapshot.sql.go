@@ -5,7 +5,9 @@
 
 package sqlc
 
-import "context"
+import (
+	"context"
+)
 
 const loadAgentThreadPromptSnapshot = `-- name: LoadAgentThreadPromptSnapshot :one
 SELECT prompt_snapshot
@@ -16,9 +18,9 @@ LIMIT 1
 
 func (q *Queries) LoadAgentThreadPromptSnapshot(ctx context.Context, threadID string) ([]byte, error) {
 	row := q.db.QueryRow(ctx, loadAgentThreadPromptSnapshot, threadID)
-	var promptSnapshot []byte
-	err := row.Scan(&promptSnapshot)
-	return promptSnapshot, err
+	var prompt_snapshot []byte
+	err := row.Scan(&prompt_snapshot)
+	return prompt_snapshot, err
 }
 
 const saveAgentThreadPromptSnapshot = `-- name: SaveAgentThreadPromptSnapshot :execrows

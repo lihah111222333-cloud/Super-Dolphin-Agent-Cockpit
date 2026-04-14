@@ -25,19 +25,6 @@ type AgentInteraction struct {
 	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
 }
 
-type AgentProviderBinding struct {
-	AgentID          string `db:"agent_id" json:"agent_id"`
-	Provider         string `db:"provider" json:"provider"`
-	ProviderThreadID string `db:"provider_thread_id" json:"provider_thread_id"`
-	CodexThreadID    string `db:"codex_thread_id" json:"codex_thread_id"`
-	RolloutPath      string `db:"rollout_path" json:"rollout_path"`
-	Cwd              string `db:"cwd" json:"cwd"`
-	Archived         bool   `db:"archived" json:"archived"`
-	CreatedAt        int64  `db:"created_at" json:"created_at"`
-	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
-	SessionUUID      string `db:"session_uuid" json:"session_uuid"`
-}
-
 type AgentStatus struct {
 	AgentID     string    `db:"agent_id" json:"agent_id"`
 	AgentName   string    `db:"agent_name" json:"agent_name"`

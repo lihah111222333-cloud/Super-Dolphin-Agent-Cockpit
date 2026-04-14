@@ -30,6 +30,9 @@ type threadState struct {
 	ProviderThreadID string
 	OwnerThreadID    string
 	AgentID          string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
 	Provider         string
 	CWD              string
 	Model            string
@@ -42,11 +45,14 @@ type threadState struct {
 }
 
 type threadMeta struct {
-	Name           string
-	Model          string
-	CWD            string
-	ConfigOverride json.RawMessage
-	CreatedAt      int64
+	Name             string
+	Model            string
+	CWD              string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
+	ConfigOverride   json.RawMessage
+	CreatedAt        int64
 }
 
 type sessionGenerationProvider interface {
@@ -77,36 +83,105 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	if req.PromptAssemblyRef == nil {
 		req.PromptAssemblyRef = s.promptAssembly
 	}
-	assemblyInput := s.buildStartAssemblyInput(req, agentID)
+	assemblyInput, cleanupScratchpad, err := s.buildStartAssemblyInput(req, agentID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	cleanupOnFailure := true
+	defer func() {
+		if cleanupOnFailure && cleanupScratchpad != nil {
+			cleanupScratchpad()
+		}
+	}()
 	assembly, err := resolveStartPromptAssembly(ctx, req, assemblyInput)
 	if err != nil {
 		return StartResult{}, err
 	}
 	displayName := strings.TrimSpace(assembly.DisplayName)
-	if err := s.launchAgent(ctx, agentID, req.CWD, displayName, req.Provider, req.Model); err != nil {
+	if err := s.launchAgent(
+		ctx,
+		agentID,
+		req.CWD,
+		displayName,
+		req.ParentAgentID,
+		req.AgentType,
+		req.AgentMemoryScope,
+		req.Provider,
+		req.Model,
+	); err != nil {
 		return StartResult{}, err
 	}
-	if _, err := s.startSession(ctx, req, assemblyInput, assembly, agentID); err != nil {
-		s.stopAgent(ctx, agentID)
+	session, err := s.establishStartedSession(ctx, req, assemblyInput, assembly, agentID)
+	if err != nil {
 		return StartResult{}, err
+	}
+	result, err := s.persistStartedSession(ctx, req, assemblyInput, assembly, agentID, displayName, session)
+	if err != nil {
+		return StartResult{}, err
+	}
+	cleanupOnFailure = false
+	return result, nil
+}
+
+func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
+	ctx = shared.NonNilContext(ctx)
+	req, state, err := s.resolveResumeRequest(ctx, req)
+	if err != nil {
+		return ResumeResult{}, err
+	}
+	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
+	req.Model = shared.FirstNonEmpty(req.Model, state.Model)
+	req.CWD = shared.FirstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
+	displayName := strings.TrimSpace(state.Prompt)
+	session, err := s.establishResumedSession(ctx, req, state, displayName)
+	if err != nil {
+		return ResumeResult{}, err
+	}
+	return s.persistResumedSession(ctx, req, state, displayName, session)
+}
+
+func (s *service) establishStartedSession(
+	ctx context.Context,
+	req StartRequest,
+	input contract.StartInput,
+	assembly contract.StartAssembly,
+	agentID string,
+) (contract.Session, error) {
+	if _, err := s.startSession(ctx, req, input, assembly, agentID); err != nil {
+		s.stopAgent(ctx, agentID)
+		return nil, err
 	}
 	if err := s.bindSessionGeneration(ctx, agentID); err != nil {
 		s.stopAgent(ctx, agentID)
-		return StartResult{}, err
+		return nil, err
 	}
 	session, err := s.lookupSession(agentID)
 	if err != nil {
 		s.stopAgent(ctx, agentID)
-		return StartResult{}, err
+		return nil, err
 	}
+	return session, nil
+}
+
+func (s *service) persistStartedSession(
+	ctx context.Context,
+	req StartRequest,
+	input contract.StartInput,
+	assembly contract.StartAssembly,
+	agentID, displayName string,
+	session contract.Session,
+) (StartResult, error) {
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
-	configOverride, err := encodeStoredThreadConfig(buildStartStoredThreadConfig(req, assemblyInput, assembly))
+	configOverride, err := encodeStoredThreadConfig(buildStartStoredThreadConfig(req, input, assembly))
 	if err != nil {
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
 	state := newThreadState(threadStateStartKind, threadStateFields{
 		AgentID:          agentID,
+		ParentAgentID:    req.ParentAgentID,
+		AgentType:        req.AgentType,
+		AgentMemoryScope: req.AgentMemoryScope,
 		ProviderThreadID: session.ThreadID(),
 		Provider:         req.Provider,
 		CWD:              effectiveCWD,
@@ -141,41 +216,60 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	}, nil
 }
 
-func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
-	ctx = shared.NonNilContext(ctx)
-	req, state, err := s.resolveResumeRequest(ctx, req)
-	if err != nil {
-		return ResumeResult{}, err
-	}
-	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
-	req.Model = shared.FirstNonEmpty(req.Model, state.Model)
-	req.CWD = shared.FirstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
+func (s *service) establishResumedSession(
+	ctx context.Context,
+	req ResumeRequest,
+	state resumeState,
+	displayName string,
+) (contract.Session, error) {
 	if s.sessions != nil {
 		s.sessions.RemoveSession(req.AgentID)
 	}
-	displayName := strings.TrimSpace(state.Prompt)
-	if err := s.launchAgent(ctx, req.AgentID, req.CWD, displayName, req.Provider, req.Model); err != nil {
-		return ResumeResult{}, err
+	if err := s.launchAgent(
+		ctx,
+		req.AgentID,
+		req.CWD,
+		displayName,
+		state.ParentAgentID,
+		state.AgentType,
+		state.AgentMemoryScope,
+		req.Provider,
+		req.Model,
+	); err != nil {
+		return nil, err
 	}
 	if _, err := s.resumeSession(ctx, req); err != nil {
 		s.stopAgent(ctx, req.AgentID)
-		return ResumeResult{}, err
+		return nil, err
 	}
 	if err := s.bindSessionGeneration(ctx, req.AgentID); err != nil {
 		s.stopAgent(ctx, req.AgentID)
-		return ResumeResult{}, err
+		return nil, err
 	}
 	session, err := s.lookupSession(req.AgentID)
 	if err != nil {
 		s.stopAgent(ctx, req.AgentID)
-		return ResumeResult{}, err
+		return nil, err
 	}
+	return session, nil
+}
+
+func (s *service) persistResumedSession(
+	ctx context.Context,
+	req ResumeRequest,
+	state resumeState,
+	displayName string,
+	session contract.Session,
+) (ResumeResult, error) {
 	model := shared.FirstNonEmpty(req.Model, state.Model)
 	threadState := newThreadState(threadStateResumeKind, threadStateFields{
 		RequestedThreadID: req.ThreadID,
 		PublicThreadID:    state.PublicThreadID,
 		ProviderThreadID:  shared.FirstNonEmpty(req.ProviderThreadID, session.ThreadID()),
 		AgentID:           req.AgentID,
+		ParentAgentID:     state.ParentAgentID,
+		AgentType:         state.AgentType,
+		AgentMemoryScope:  state.AgentMemoryScope,
 		Provider:          req.Provider,
 		CWD:               req.CWD,
 		Model:             model,
@@ -189,18 +283,7 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	publicThreadID := threadState.PublicThreadID
 	providerThreadID := threadState.ProviderThreadID
 	if err := s.persistThreadState(ctx, threadState, true); err != nil {
-		// Binding upsert can fail when the DB immutability constraint
-		// rejects a changed provider_thread_id (e.g. Claude session UUID
-		// rotation). We must NOT suppress thread.Started — without it the
-		// UI never receives the correct ProviderThreadID or Model.
-		if s.logger != nil {
-			s.logger.Warn("thread: resume persist failed, continuing with event emission",
-				"error", err,
-				"agent_id", req.AgentID,
-				"thread_id", publicThreadID,
-				"provider_thread_id", providerThreadID,
-			)
-		}
+		s.logResumePersistFailure(req.AgentID, publicThreadID, providerThreadID, err)
 		s.publishThreadStarted(threadState)
 	}
 	if promptResumeRestoreRequiresInvalidation(state.StoredCWD, req.CWD, s.cfg) {
@@ -216,6 +299,18 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 		CWD:       req.CWD,
 	}, nil
 }
+
+func (s *service) logResumePersistFailure(agentID, threadID, providerThreadID string, err error) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Warn("thread: resume persist failed, continuing with event emission",
+		"error", err,
+		"agent_id", agentID,
+		"thread_id", threadID,
+		"provider_thread_id", providerThreadID,
+	)
+}
 func (s *service) persistThreadState(ctx context.Context, state threadState, updateBinding bool) error {
 	state, err := normalizeThreadState(state)
 	if err != nil {
@@ -230,6 +325,9 @@ func (s *service) persistThreadState(ctx context.Context, state threadState, upd
 	if s.logger != nil {
 		s.logger.Warn("thread: persistThreadState binding snapshot",
 			"agent_id", state.AgentID,
+			"parent_agent_id", state.ParentAgentID,
+			"agent_type", state.AgentType,
+			"agent_memory_scope", state.AgentMemoryScope,
 			"provider", state.Provider,
 			"provider_thread_id", state.ProviderThreadID,
 			"public_thread_id", state.PublicThreadID,
@@ -251,11 +349,14 @@ func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadM
 		return threadMeta{}
 	}
 	return threadMeta{
-		Name:           strings.TrimSpace(thread.Prompt),
-		Model:          strings.TrimSpace(thread.Model),
-		CWD:            strings.TrimSpace(thread.Cwd),
-		ConfigOverride: shared.CloneRawMessage(thread.ConfigOverride),
-		CreatedAt:      thread.CreatedAt,
+		Name:             strings.TrimSpace(thread.Prompt),
+		Model:            strings.TrimSpace(thread.Model),
+		CWD:              strings.TrimSpace(thread.Cwd),
+		ParentAgentID:    strings.TrimSpace(thread.ParentAgentID),
+		AgentType:        strings.TrimSpace(thread.AgentType),
+		AgentMemoryScope: strings.TrimSpace(thread.AgentMemoryScope),
+		ConfigOverride:   shared.CloneRawMessage(thread.ConfigOverride),
+		CreatedAt:        thread.CreatedAt,
 	}
 }
 

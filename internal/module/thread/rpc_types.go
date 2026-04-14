@@ -31,6 +31,7 @@ type startParams struct {
 	ApprovalPolicy        string          `json:"approval_policy,omitempty"`
 	ParentAgentID         string          `json:"parent_agent_id,omitempty"`
 	AgentType             string          `json:"agent_type,omitempty"`
+	AgentMemoryScope      string          `json:"agent_memory_scope,omitempty"`
 	BaseInstructions      string          `json:"base_instructions,omitempty"`
 	DeveloperInstructions string          `json:"developer_instructions,omitempty"`
 	Sandbox               json.RawMessage `json:"sandbox,omitempty"`
@@ -70,6 +71,7 @@ func (p *startParams) fillLegacyStringFields(payload map[string]json.RawMessage)
 		compatStringAssignment{target: &p.ApprovalPolicy, field: "approval policy", keys: []string{"approval_policy", "approvalPolicy"}},
 		compatStringAssignment{target: &p.ParentAgentID, field: "parent agent id", keys: []string{"parent_agent_id", "parentAgentId", "parentId", "parentID"}},
 		compatStringAssignment{target: &p.AgentType, field: "agent type", keys: []string{"agent_type", "agentType"}},
+		compatStringAssignment{target: &p.AgentMemoryScope, field: "agent memory scope", keys: []string{"agent_memory_scope", "agentMemoryScope", "memory_scope", "memoryScope"}},
 		compatStringAssignment{target: &p.BaseInstructions, field: "base instructions", keys: []string{"base_instructions", "baseInstructions", "instructions"}},
 		compatStringAssignment{target: &p.DeveloperInstructions, field: "developer instructions", keys: []string{"developer_instructions", "developerInstructions"}},
 		compatStringAssignment{target: &p.Name, field: "display name", keys: []string{"name", "prompt"}},

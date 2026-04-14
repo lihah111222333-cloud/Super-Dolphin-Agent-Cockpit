@@ -18,10 +18,7 @@ import (
 func (s *service) SendCommand(ctx context.Context, threadID, command, args string) (any, error) {
 	cmd := normalizeCommand(command)
 	if cmd == "/clear" {
-		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateClear); err != nil {
-			return nil, err
-		}
-		return newThreadCommandResult(cmd, threadID), nil
+		return s.sendClearCommand(ctx, threadID)
 	}
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -100,6 +97,13 @@ func (e *friendlyCapabilityError) Unwrap() error { return e.cause }
 
 func newThreadCommandResult(command, threadID string) threadCommandResult {
 	return threadCommandResult{Command: command, ThreadID: strings.TrimSpace(threadID)}
+}
+
+func (s *service) sendClearCommand(ctx context.Context, threadID string) (threadCommandResult, error) {
+	if err := s.invalidatePromptAssembly(ctx, contract.InvalidateClear); err != nil {
+		return threadCommandResult{}, err
+	}
+	return newThreadCommandResult("/clear", threadID), nil
 }
 
 func sendConfigPatchCommand(

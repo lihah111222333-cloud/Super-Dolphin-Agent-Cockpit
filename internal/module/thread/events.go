@@ -65,12 +65,8 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 }
 
 func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.Binding, threadID, nextCWD string) {
-	if s == nil || s.bindingStore == nil || binding == nil {
-		return
-	}
-	agentID := strings.TrimSpace(binding.AgentID)
-	nextCWD = comparablePromptCWD(nextCWD)
-	if agentID == "" || nextCWD == "" {
+	agentID, nextCWD, ok := normalizedAgentLaunchCWD(s, binding, nextCWD)
+	if !ok {
 		return
 	}
 	prevCWD := strings.TrimSpace(binding.Cwd)
@@ -94,6 +90,18 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.
 	if s.logger != nil {
 		s.logger.Info("thread: updated cwd from agent event", "thread_id", threadID, "agent_id", agentID, "cwd", nextCWD)
 	}
+}
+
+func normalizedAgentLaunchCWD(s *service, binding *bindingstore.Binding, nextCWD string) (string, string, bool) {
+	if s == nil || s.bindingStore == nil || binding == nil {
+		return "", "", false
+	}
+	agentID := strings.TrimSpace(binding.AgentID)
+	nextCWD = comparablePromptCWD(nextCWD)
+	if agentID == "" || nextCWD == "" {
+		return "", "", false
+	}
+	return agentID, nextCWD, true
 }
 
 // maxSessionRecoveryAttempts limits session-level recovery attempts per agent

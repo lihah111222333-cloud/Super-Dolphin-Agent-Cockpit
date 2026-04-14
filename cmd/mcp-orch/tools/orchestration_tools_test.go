@@ -12,10 +12,13 @@ import (
 
 func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	req, err := launchRequestFromExecutable(LaunchAgentInput{
-		Name:     " agent-1 ",
-		Prompt:   " hello ",
-		CWD:      " /tmp/work ",
-		Provider: " codex ",
+		Name:        " agent-1 ",
+		Prompt:      " hello ",
+		ParentID:    " agent-root ",
+		AgentType:   " worker ",
+		MemoryScope: " local ",
+		CWD:         " /tmp/work ",
+		Provider:    " codex ",
 	}, "/tmp/agent-terminal")
 	if err != nil {
 		t.Fatalf("launchRequestFromExecutable() error = %v", err)
@@ -25,6 +28,9 @@ func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	}
 	if req.Prompt != "hello" || req.Cwd != "/tmp/work" {
 		t.Fatalf("launch request prompt/cwd = (%q, %q)", req.Prompt, req.Cwd)
+	}
+	if req.ParentID != "agent-root" || req.AgentType != "worker" || req.MemoryScope != "local" {
+		t.Fatalf("launch request metadata = %#v", req)
 	}
 	if len(req.Command) != 1 || req.Command[0] != "/tmp/agent-terminal" {
 		t.Fatalf("launch request command = %#v, want [/tmp/agent-terminal]", req.Command)
@@ -48,10 +54,13 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 	})
 
 	input, err := json.Marshal(LaunchAgentInput{
-		Name:     "agent-1",
-		Prompt:   "hello",
-		CWD:      "/tmp/work",
-		Provider: "codex",
+		Name:        "agent-1",
+		Prompt:      "hello",
+		ParentID:    "agent-root",
+		AgentType:   "worker",
+		MemoryScope: "project",
+		CWD:         "/tmp/work",
+		Provider:    "codex",
 	})
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
@@ -80,6 +89,9 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 		}
 		if got.Prompt != "hello" || got.Cwd != "/tmp/work" {
 			t.Fatalf("launch request prompt/cwd = (%q, %q), want (hello, /tmp/work)", got.Prompt, got.Cwd)
+		}
+		if got.ParentID != "agent-root" || got.AgentType != "worker" || got.MemoryScope != "project" {
+			t.Fatalf("launch request metadata = %#v", got)
 		}
 		if len(got.Command) != 1 || got.Command[0] != "/tmp/mcp-orch" {
 			t.Fatalf("launch request command = %#v, want [/tmp/mcp-orch]", got.Command)

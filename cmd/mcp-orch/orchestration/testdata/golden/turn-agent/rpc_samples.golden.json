@@ -2,6 +2,7 @@
   "agent.launch": {
     "method": "agent.launch",
     "request": {
+      "agentType": "worker",
       "command": [
         "codex",
         "serve"
@@ -12,6 +13,7 @@
         "SANDBOX": "workspace-write"
       },
       "id": "agent-launch-1",
+      "memoryScope": "project",
       "name": "guard-launch-agent",
       "parentId": "parent-launch-1",
       "prompt": "launch golden agent"

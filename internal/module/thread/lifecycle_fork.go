@@ -34,7 +34,17 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	snapshot := s.resolveStablePromptSnapshot(ctx, threadID, provider, contract.PromptAssemblySnapshot{})
 	agentID := newThreadID
 	cwd := shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
-	if err := s.launchAgent(ctx, agentID, cwd, displayName, provider, meta.Model); err != nil {
+	if err := s.launchAgent(
+		ctx,
+		agentID,
+		cwd,
+		displayName,
+		meta.ParentAgentID,
+		meta.AgentType,
+		meta.AgentMemoryScope,
+		provider,
+		meta.Model,
+	); err != nil {
 		return ForkResult{}, err
 	}
 	forkedSession, err := s.resumeSession(ctx, ResumeRequest{
@@ -59,6 +69,9 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		ProviderThreadID: providerThreadID,
 		OwnerThreadID:    historyTargetID(binding, threadID),
 		AgentID:          agentID,
+		ParentAgentID:    meta.ParentAgentID,
+		AgentType:        meta.AgentType,
+		AgentMemoryScope: meta.AgentMemoryScope,
 		Provider:         provider,
 		CWD:              cwd,
 		Model:            meta.Model,
@@ -90,7 +103,15 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	publicThreadID := bindingPublicThreadID(binding, threadID)
 	providerThreadID := historyTargetID(binding, threadID)
 	mode := "restore_launch"
-	if err := s.recoverAgent(ctx, strings.TrimSpace(binding.AgentID), shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)), displayName); err != nil {
+	if err := s.recoverAgent(
+		ctx,
+		strings.TrimSpace(binding.AgentID),
+		shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
+		displayName,
+		meta.ParentAgentID,
+		meta.AgentType,
+		meta.AgentMemoryScope,
+	); err != nil {
 		return RecoverResult{}, err
 	}
 	if _, err := s.lookupSession(agentID); err != nil {
@@ -117,6 +138,9 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		PublicThreadID:    publicThreadID,
 		ProviderThreadID:  shared.FirstNonEmpty(providerThreadID, session.ThreadID()),
 		AgentID:           agentID,
+		ParentAgentID:     meta.ParentAgentID,
+		AgentType:         meta.AgentType,
+		AgentMemoryScope:  meta.AgentMemoryScope,
 		Provider:          provider,
 		CWD:               shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
 		Model:             meta.Model,

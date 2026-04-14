@@ -206,8 +206,12 @@ func (e *MemoryRuleEngine) loadCombinedMemoryPrompt(MemoryRuleOptions) *string {
 	return nil
 }
 
-func (e *MemoryRuleEngine) loadKairosMemoryPrompt(MemoryRuleOptions) *string {
-	return nil
+func (e *MemoryRuleEngine) loadKairosMemoryPrompt(opts MemoryRuleOptions) *string {
+	text := strings.TrimSpace(BuildDailyLogPrompt(opts.SkipIndex, opts.ExtraGuidelines))
+	if text == "" {
+		return nil
+	}
+	return &text
 }
 
 func (e *MemoryRuleEngine) BuildMemoryLines(opts MemoryRuleOptions) string {

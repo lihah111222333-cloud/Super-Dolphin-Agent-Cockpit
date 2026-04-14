@@ -4,8 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
+
+var resolverStubMu sync.Mutex
 
 func TestResolveBinaryDirPrefersExplicitConfig(t *testing.T) {
 	t.Parallel()
@@ -70,12 +73,14 @@ func TestResolveBinaryDirFallsBackToLookPathDir(t *testing.T) {
 
 func stubBinaryResolvers(t *testing.T, exe func() (string, error), lp func(string) (string, error)) {
 	t.Helper()
+	resolverStubMu.Lock()
 	origExe, origLookPath := executablePath, lookPath
 	executablePath = exe
 	lookPath = lp
 	t.Cleanup(func() {
 		executablePath = origExe
 		lookPath = origLookPath
+		resolverStubMu.Unlock()
 	})
 }
 

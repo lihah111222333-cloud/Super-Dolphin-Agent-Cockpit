@@ -7,6 +7,7 @@ sql:
       - "../../migrations/0022_binding_session_uuid.sql"
       - "../../migrations/0023_dag_watcher_phase1.sql"
       - "../../migrations/0024_prompt_versions_description.sql"
+      - "../../migrations/0032_agent_memory_identity.sql"
     gen:
       go:
         package: "sqlc"

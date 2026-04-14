@@ -120,11 +120,10 @@ func manifestEntryFromPathSafe(root, path string, d fs.DirEntry, walkErr error) 
 	if err != nil {
 		return MemoryEntry{}, false
 	}
-	entry, err := readMemoryEntryFile(validatedPath)
+	entry, err := readMemoryEntryHeader(validatedPath)
 	if err != nil {
 		return MemoryEntry{}, false
 	}
-	entry.Content = ""
 	return entry, true
 }
 
@@ -219,14 +218,30 @@ func (m *PrefetchManager) MarkSurfaced(entries []MemoryEntry) {
 	rememberSurfacedEntries(m.alreadySurfaced, entries)
 }
 
+func (m *PrefetchManager) Reset(reason string) {
+	if m == nil {
+		return
+	}
+	_ = strings.TrimSpace(reason)
+	m.mu.Lock()
+	m.generation++
+	current := m.current
+	m.current = nil
+	m.alreadySurfaced = map[string]struct{}{}
+	m.mu.Unlock()
+	if current != nil && current.cancel != nil {
+		current.cancel()
+	}
+}
+
 func (m *PrefetchManager) ResetSurfaced(reason string) {
 	if m == nil {
 		return
 	}
 	_ = strings.TrimSpace(reason)
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.alreadySurfaced = map[string]struct{}{}
+	m.mu.Unlock()
 }
 
 func (m *PrefetchManager) runPrefetch(ctx context.Context, handle *PrefetchHandle) {

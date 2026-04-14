@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"go.uber.org/fx"
@@ -86,9 +87,15 @@ type MemoryContextProvider struct {
 }
 
 type prefetchTurnState struct {
-	manager *PrefetchManager
-	handle  *PrefetchHandle
-	gate    MemoryGateSnapshot
+	manager  *PrefetchManager
+	handle   *PrefetchHandle
+	gate     MemoryGateSnapshot
+	lastDate string
+}
+
+type TurnContextPayload struct {
+	Inputs      []shareddto.InputItem
+	Attachments []dto.AttachmentEnvelope
 }
 
 func NewContextProvider(cfg *Config) *MemoryContextProvider {
@@ -111,7 +118,6 @@ func (p *MemoryContextProvider) Resolve(_ context.Context, input prompt.SectionC
 		return nil, nil
 	}
 	gate := ResolveMemoryGate(input.BuildCtx, p.cfg)
-	p.rememberTurnGate(input.Turn.ThreadID, gate)
 	if !gate.AutoEnabled && !gate.InjectMemoryIndex && !gate.EnableRelevantPrefetch {
 		return nil, nil
 	}
@@ -127,31 +133,46 @@ func (p *MemoryContextProvider) PrepareTurnInputs(
 	buildCtx contract.BuildCtx,
 	threadID, query string,
 ) []shareddto.InputItem {
+	return p.PrepareTurnContext(ctx, session, buildCtx, threadID, query).Inputs
+}
+
+func (p *MemoryContextProvider) PrepareTurnContext(
+	ctx context.Context,
+	session contract.Session,
+	buildCtx contract.BuildCtx,
+	threadID, query string,
+) TurnContextPayload {
 	threadID = strings.TrimSpace(threadID)
 	query = strings.TrimSpace(query)
-	if p == nil || threadID == "" || query == "" {
-		return nil
+	if invalidTurnContextRequest(p, threadID, query) {
+		return TurnContextPayload{}
 	}
 	gate := ResolveMemoryGate(buildCtx, p.cfg)
 	p.rememberTurnGate(threadID, gate)
 	attemptPrefetch := strings.TrimSpace(p.memoryRoot) != "" &&
 		ShouldStartRelevantMemoryPrefetch(gate, contract.TurnInput{UserText: query}, RelevantPrefetchSurfacedState{})
 	entries, ready := p.consumePrefetchEntries(ctx, threadID, query, gate)
-	memoryInputs := freezeRelevantMemoryInputs(entries, p.now())
+	payload := TurnContextPayload{Attachments: freezeRelevantMemoryAttachments(entries, p.now())}
+	payload.Attachments = p.appendKairosDateChangeAttachment(threadID, gate, payload.Attachments)
 	if attemptPrefetch && !ready {
-		return memoryInputs
+		return payload
 	}
 	if !gate.SearchPastContextEnabled || !shouldSearchPastContextQuery(query) {
-		return memoryInputs
+		return payload
 	}
 	if len(entries) > 0 && !memoryRetrievalLowConfidence(query, entries) {
-		return memoryInputs
+		return payload
 	}
 	snippets := p.searchPastContext(ctx, session, threadID, query)
 	if len(snippets) == 0 {
-		return memoryInputs
+		return payload
 	}
-	return append(memoryInputs, freezeTranscriptInputs(snippets)...)
+	payload.Inputs = freezeTranscriptInputs(snippets)
+	return payload
+}
+
+func invalidTurnContextRequest(p *MemoryContextProvider, threadID, query string) bool {
+	return p == nil || threadID == "" || query == ""
 }
 
 func (p *MemoryContextProvider) OnPromptInvalidate(reason prompt.InvalidateReason) {
@@ -164,13 +185,12 @@ func (p *MemoryContextProvider) OnPromptInvalidate(reason prompt.InvalidateReaso
 		if state == nil {
 			continue
 		}
-		if state.handle != nil && state.handle.cancel != nil {
+		if state.manager != nil {
+			state.manager.Reset(string(reason))
+		} else if state.handle != nil && state.handle.cancel != nil {
 			state.handle.cancel()
 		}
 		state.handle = nil
-		if state.manager != nil {
-			state.manager.ResetSurfaced(string(reason))
-		}
 	}
 }
 
@@ -225,6 +245,7 @@ func (p *MemoryContextProvider) startRelevantPrefetch(
 	threadID, query string,
 	gate MemoryGateSnapshot,
 ) (*PrefetchManager, *PrefetchHandle) {
+	query = strings.TrimSpace(query)
 	if p == nil || strings.TrimSpace(p.memoryRoot) == "" {
 		return nil, nil
 	}
@@ -238,6 +259,14 @@ func (p *MemoryContextProvider) startRelevantPrefetch(
 		state.manager = NewPrefetchManager(p.memoryRoot)
 	}
 	manager := state.manager
+	if state.handle != nil && state.handle.query == query {
+		stateValue := state.handle.state.Load()
+		if stateValue == prefetchStatePending || stateValue == prefetchStateReady {
+			handle := state.handle
+			p.mu.Unlock()
+			return manager, handle
+		}
+	}
 	p.mu.Unlock()
 	handle := manager.StartRelevantMemoryPrefetch(ctx, query)
 	p.mu.Lock()

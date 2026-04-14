@@ -1,0 +1,30 @@
+package claudecli
+
+import (
+	"testing"
+	"time"
+
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+)
+
+func TestComposeTurnTextIncludesAttachmentTextAfterUserContext(t *testing.T) {
+	attachment := dto.NewRelevantMemoryAttachment(
+		"project/commit-style.md",
+		"Memory (saved today): project/commit-style.md:",
+		"Use concise imperative commit messages.",
+		time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC),
+		720,
+		false,
+	).Envelope()
+	got := composeTurnText(dto.TurnRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+		TurnAssembly: dto.TurnAssembly{
+			UserContextText: "Always respond in Chinese.",
+			Attachments:     []dto.AttachmentEnvelope{attachment},
+		},
+	})
+	want := "Always respond in Chinese.\n\n" + attachment.RenderText() + "\n\nhello"
+	if got != want {
+		t.Fatalf("composeTurnText() = %q, want %q", got, want)
+	}
+}

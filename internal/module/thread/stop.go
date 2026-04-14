@@ -34,6 +34,7 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	if err := s.cleanupStoppedBinding(ctx, stopState.binding); err != nil {
 		return err
 	}
+	s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
 	for _, id := range stopState.targets {
 		s.forgetThreadAgent(id)
 	}

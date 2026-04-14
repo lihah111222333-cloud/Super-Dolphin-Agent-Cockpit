@@ -2,7 +2,6 @@ package memory
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,6 +63,14 @@ type Config struct {
 	NestedMemory        NestedMemoryConfig
 }
 
+type MemoryPathClass string
+
+const (
+	MemoryPathClassOther MemoryPathClass = "other"
+	MemoryPathClassAuto  MemoryPathClass = "auto"
+	MemoryPathClassAgent MemoryPathClass = "agent"
+)
+
 type TeamMemoryManager struct {
 	cfg *Config
 }
@@ -109,7 +116,15 @@ func (c *Config) HasAutoMemPathOverride() bool {
 }
 
 func (c *Config) IsAutoMemPath(path string) bool {
-	return isAutoMemPath(c, path)
+	return ClassifyMemoryPath(c, path) == MemoryPathClassAuto
+}
+
+func (c *Config) IsAgentMemoryPath(path string) bool {
+	return ClassifyMemoryPath(c, path) == MemoryPathClassAgent
+}
+
+func (c *Config) ClassifyMemoryPath(path string) MemoryPathClass {
+	return ClassifyMemoryPath(c, path)
 }
 
 func ResolveMemoryGate(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapshot {
@@ -120,40 +135,76 @@ func ShouldStartRelevantMemoryPrefetch(snapshot MemoryGateSnapshot, turnInput co
 	return shouldStartRelevantMemoryPrefetch(snapshot, turnInput, surfacedState)
 }
 
-func (m *TeamMemoryManager) GetTeamMemPath() string {
-	return ""
+func (m *TeamMemoryManager) GetTeamMemPath(buildCtx ...contract.BuildCtx) string {
+	return teamMemPath(m, firstTeamBuildCtx(buildCtx))
 }
 
-func (m *TeamMemoryManager) IsTeamMemoryEnabled() bool {
-	return false
+func ClassifyMemoryPath(cfg *Config, path string) MemoryPathClass {
+	switch {
+	case isAutoMemPath(cfg, path):
+		return MemoryPathClassAuto
+	case IsAgentMemoryPath(cfg, path):
+		return MemoryPathClassAgent
+	default:
+		return MemoryPathClassOther
+	}
+}
+
+func IsAutoMemoryPath(cfg *Config, path string) bool {
+	return ClassifyMemoryPath(cfg, path) == MemoryPathClassAuto
+}
+
+func IsAgentMemoryPath(cfg *Config, path string) bool {
+	if cfg == nil || strings.TrimSpace(path) == "" {
+		return false
+	}
+	return NewAgentMemoryManager(cfg).IsAgentMemoryPath(path)
+}
+
+func (m *TeamMemoryManager) IsTeamMemoryEnabled(buildCtx ...contract.BuildCtx) bool {
+	return isTeamMemoryEnabled(m, firstTeamBuildCtx(buildCtx))
+}
+
+func GetMemoryScopeDisplay(scope MemoryScope) string {
+	switch scope {
+	case MemoryScopeUser:
+		return "user-scoped agent memory"
+	case MemoryScopeLocal:
+		return "local-scoped agent memory"
+	default:
+		return "project-scoped agent memory"
+	}
+}
+
+func agentMemoryFailureStatus(scope MemoryScope, err error) string {
+	if err == nil {
+		return "loaded"
+	}
+	if errors.Is(err, ErrInvalidProjectDir) && scope == MemoryScopeLocal {
+		return "local_unavailable"
+	}
+	if errors.Is(err, ErrInvalidProjectDir) || errors.Is(err, ErrInvalidAgentScope) || errors.Is(err, ErrInvalidMemoryRoot) {
+		return "deny"
+	}
+	return "ensure_dir_failed"
+}
+
+func agentMemorySuccessStatus(result agentMemoryLoadResult) string {
+	if result.unreadable {
+		return "unreadable"
+	}
+	if result.wasTruncated || result.wasByteTruncated {
+		return "truncated"
+	}
+	return "loaded"
 }
 
 func (m *TeamMemoryManager) ValidateTeamMemWritePath(path string) error {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return fmt.Errorf("%w: empty path", ErrInvalidTeamMemWritePath)
-	}
-	if strings.ContainsRune(path, '\x00') {
-		return fmt.Errorf("%w: null byte", ErrInvalidTeamMemWritePath)
-	}
-	return ErrTeamMemoryDisabled
+	return validateTeamMemWriteRequest(m, path)
 }
 
 func (m *TeamMemoryManager) ValidateTeamMemKey(key string) error {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return fmt.Errorf("%w: empty key", ErrInvalidTeamMemKey)
-	}
-	if strings.ContainsRune(key, '\x00') {
-		return fmt.Errorf("%w: null byte", ErrInvalidTeamMemKey)
-	}
-	if strings.HasPrefix(key, "/") || strings.Contains(key, `\\`) {
-		return fmt.Errorf("%w: absolute or windows path separators are not allowed", ErrInvalidTeamMemKey)
-	}
-	if key == ".." || strings.HasPrefix(key, "../") || strings.Contains(key, "/../") || strings.HasSuffix(key, "/..") {
-		return fmt.Errorf("%w: traversal segments are not allowed", ErrInvalidTeamMemKey)
-	}
-	return ErrTeamMemoryDisabled
+	return validateTeamMemKeyRequest(m, key)
 }
 
 func hasPersistentMemoryStorage(cfg *Config) bool {
@@ -171,18 +222,10 @@ func hasPersistentMemoryStorage(cfg *Config) bool {
 	return strings.TrimSpace(cfg.AutoMemPathOverride) != ""
 }
 
-func BuildDailyLogPrompt() string {
-	return ""
-}
-
 func HandleDateChange() {}
 
 func LoadNestedMemoryPaths() []string {
 	return []string{}
-}
-
-func MatchTargetPath() bool {
-	return false
 }
 
 func defaultRootDir(platformCfg *platformconfig.Config) string {

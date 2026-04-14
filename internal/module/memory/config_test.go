@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -84,15 +85,15 @@ func TestSkeletonConfigsDefaultDisabledAndPlaceholderHelpers(t *testing.T) {
 	if cfg.NestedMemory.Enabled {
 		t.Fatal("NestedMemory.Enabled = true, want false")
 	}
-	if got := BuildDailyLogPrompt(); got != "" {
-		t.Fatalf("BuildDailyLogPrompt() = %q, want empty string", got)
+	if got := BuildDailyLogPrompt(false, nil); !strings.Contains(got, "KAIROS") {
+		t.Fatalf("BuildDailyLogPrompt() missing KAIROS section: %q", got)
 	}
 	HandleDateChange()
 	if got := LoadNestedMemoryPaths(); len(got) != 0 {
 		t.Fatalf("LoadNestedMemoryPaths() len = %d, want 0", len(got))
 	}
-	if MatchTargetPath() {
-		t.Fatal("MatchTargetPath() = true, want false")
+	if MatchTargetPath("/repo/docs/readme.md", []string{"src/**/*.go"}, "/repo") {
+		t.Fatal("MatchTargetPath(non-match) = true, want false")
 	}
 }
 
@@ -189,7 +190,7 @@ func TestMemoryConstructorsUseIsMemoryEnabled(t *testing.T) {
 	if contextText != nil {
 		t.Fatalf("MemoryContextProvider.Resolve() = %#v, want nil in simple mode", contextText)
 	}
-	if got := NewMemoryLifecycleHooks(cfg, nil, nil).enabled; got {
+	if got := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg}).enabled; got {
 		t.Fatal("NewMemoryLifecycleHooks() kept memory enabled in simple mode")
 	}
 	agentText, err := NewAgentMemoryPromptProvider(cfg, NewAgentMemoryManager(cfg), nil).Resolve(context.Background(), prompt.SectionContext{
@@ -236,11 +237,24 @@ func TestResolveMemoryGateSupportsSettingsAndModeSelection(t *testing.T) {
 	if gate.RequestedMemoryMode != MemoryModeKairos {
 		t.Fatalf("RequestedMemoryMode = %q, want %q", gate.RequestedMemoryMode, MemoryModeKairos)
 	}
-	if gate.EffectiveMemoryMode != MemoryModeStandard {
-		t.Fatalf("EffectiveMemoryMode = %q, want %q", gate.EffectiveMemoryMode, MemoryModeStandard)
+	if !gate.KairosActive {
+		t.Fatalf("KairosActive = false, want true")
+	}
+	if gate.EffectiveMemoryMode != MemoryModeKairos {
+		t.Fatalf("EffectiveMemoryMode = %q, want %q", gate.EffectiveMemoryMode, MemoryModeKairos)
 	}
 	if gate.AutoMemPathSource != AutoMemPathSourceSettings {
 		t.Fatalf("AutoMemPathSource = %q, want %q", gate.AutoMemPathSource, AutoMemPathSourceSettings)
+	}
+
+	gate = ResolveMemoryGate(contract.BuildCtx{}, &Config{Enabled: true})
+	if gate.EnableRelevantPrefetch {
+		t.Fatalf("ResolveMemoryGate(default).EnableRelevantPrefetch = true, want false")
+	}
+
+	gate = ResolveMemoryGate(contract.BuildCtx{}, &Config{Enabled: true, Features: MemoryFeatureFlags{SearchPastContext: true}})
+	if !gate.EnableRelevantPrefetch {
+		t.Fatalf("ResolveMemoryGate(searchPastContext).EnableRelevantPrefetch = false, want true")
 	}
 }
 

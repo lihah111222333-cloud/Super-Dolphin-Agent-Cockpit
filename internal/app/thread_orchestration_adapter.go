@@ -29,12 +29,14 @@ func newThreadOrchestrationFacade(p threadOrchestrationParams) thread.Orchestrat
 
 func (a threadOrchestrationAdapter) LaunchAgent(ctx context.Context, req thread.LaunchAgentRequest) error {
 	return a.svc.LaunchAgent(ctx, contract.LaunchRequest{
-		AgentID:  req.AgentID,
-		Name:     req.Name,
-		ParentID: req.ParentID,
-		Cwd:      req.Cwd,
-		Command:  req.Command,
-		Env:      req.Env,
+		AgentID:     req.AgentID,
+		Name:        req.Name,
+		ParentID:    req.ParentID,
+		AgentType:   req.AgentType,
+		MemoryScope: req.MemoryScope,
+		Cwd:         req.Cwd,
+		Command:     req.Command,
+		Env:         req.Env,
 	})
 }
 

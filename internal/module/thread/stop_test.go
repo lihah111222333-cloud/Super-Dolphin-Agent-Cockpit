@@ -2,7 +2,10 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -217,6 +220,66 @@ func TestDeleteStopsManagedAgentBeforeDeleting(t *testing.T) {
 	if callIndex(calls, "turn_cleanup:thread-1:thread_deleted") == -1 {
 		t.Fatalf("cleanup calls = %#v, want thread_deleted cleanup", calls)
 	}
+}
+
+func TestStopCleansManagedScratchpad(t *testing.T) {
+	t.Parallel()
+
+	svc, dir := newScratchpadCleanupService(t)
+	if err := svc.Stop(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("scratchpad dir stat error = %v, want %v", err, os.ErrNotExist)
+	}
+}
+
+func TestArchiveCleansManagedScratchpad(t *testing.T) {
+	t.Parallel()
+
+	svc, dir := newScratchpadCleanupService(t)
+	if err := svc.Archive(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("Archive() error = %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("scratchpad dir stat error = %v, want %v", err, os.ErrNotExist)
+	}
+}
+
+func newScratchpadCleanupService(t *testing.T) (*service, string) {
+	t.Helper()
+
+	cwd := t.TempDir()
+	dir, err := ensureManagedScratchpadDir(contract.BuildCtx{CWD: cwd}, StartRequest{CWD: cwd}, "thread-1", nil)
+	if err != nil {
+		t.Fatalf("ensureManagedScratchpadDir() error = %v", err)
+	}
+	marker := filepath.Join(dir, "scratch.txt")
+	if err := os.WriteFile(marker, []byte("scratch"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(dir)) })
+
+	raw, err := json.Marshal(storedThreadConfig{Runtime: map[string]any{"scratchpadDir": dir}})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	return &service{
+		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "provider-thread-1",
+			CodexThreadID:    "thread-1",
+		}},
+		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID:       "thread-1",
+			AgentID:        "agent-1",
+			Status:         statusCreated,
+			ConfigOverride: raw,
+		}},
+		orchestration: &stubThreadOrchestration{},
+	}, dir
 }
 
 type stubThreadBindingStore struct {

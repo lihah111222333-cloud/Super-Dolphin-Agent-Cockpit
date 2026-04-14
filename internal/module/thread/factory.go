@@ -30,6 +30,9 @@ type threadStateFields struct {
 	ProviderThreadID  string
 	OwnerThreadID     string
 	AgentID           string
+	ParentAgentID     string
+	AgentType         string
+	AgentMemoryScope  string
 	Provider          string
 	CWD               string
 	Model             string
@@ -44,13 +47,16 @@ type threadStateFields struct {
 func newThreadState(kind threadStateKind, fields threadStateFields) threadState {
 	displayName := strings.TrimSpace(shared.FirstNonEmpty(fields.Name, fields.Prompt))
 	state := threadState{
-		OwnerThreadID: fields.OwnerThreadID,
-		AgentID:       fields.AgentID,
-		Provider:      fields.Provider,
-		CWD:           fields.CWD,
-		Model:         fields.Model,
-		Name:          displayName,
-		Prompt:        displayName,
+		OwnerThreadID:    fields.OwnerThreadID,
+		AgentID:          fields.AgentID,
+		ParentAgentID:    strings.TrimSpace(fields.ParentAgentID),
+		AgentType:        strings.TrimSpace(fields.AgentType),
+		AgentMemoryScope: strings.TrimSpace(fields.AgentMemoryScope),
+		Provider:         fields.Provider,
+		CWD:              fields.CWD,
+		Model:            fields.Model,
+		Name:             displayName,
+		Prompt:           displayName,
 	}
 	switch kind {
 	case threadStateStartKind:
@@ -72,17 +78,20 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 
 func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
 	return threadstore.UpsertParams{
-		ThreadID:       strings.TrimSpace(thread.ThreadID),
-		Prompt:         strings.TrimSpace(thread.Prompt),
-		Model:          strings.TrimSpace(thread.Model),
-		Cwd:            strings.TrimSpace(thread.Cwd),
-		Status:         strings.TrimSpace(thread.Status),
-		Port:           thread.Port,
-		PID:            thread.PID,
-		CreatedAt:      thread.CreatedAt,
-		UpdatedAt:      thread.UpdatedAt,
-		OwnerThreadID:  strings.TrimSpace(thread.OwnerThreadID),
-		ConfigOverride: thread.ConfigOverride,
+		ThreadID:         strings.TrimSpace(thread.ThreadID),
+		Prompt:           strings.TrimSpace(thread.Prompt),
+		Model:            strings.TrimSpace(thread.Model),
+		Cwd:              strings.TrimSpace(thread.Cwd),
+		Status:           strings.TrimSpace(thread.Status),
+		Port:             thread.Port,
+		PID:              thread.PID,
+		CreatedAt:        thread.CreatedAt,
+		UpdatedAt:        thread.UpdatedAt,
+		OwnerThreadID:    strings.TrimSpace(thread.OwnerThreadID),
+		ParentAgentID:    strings.TrimSpace(thread.ParentAgentID),
+		AgentType:        strings.TrimSpace(thread.AgentType),
+		AgentMemoryScope: strings.TrimSpace(thread.AgentMemoryScope),
+		ConfigOverride:   thread.ConfigOverride,
 	}
 }
 
@@ -95,6 +104,9 @@ func newBindingUpsertParams(binding bindingstore.Binding) bindingstore.UpsertPar
 		RolloutPath:      strings.TrimSpace(binding.RolloutPath),
 		SessionUUID:      strings.TrimSpace(binding.SessionUUID),
 		Cwd:              strings.TrimSpace(binding.Cwd),
+		ParentAgentID:    strings.TrimSpace(binding.ParentAgentID),
+		AgentType:        strings.TrimSpace(binding.AgentType),
+		AgentMemoryScope: strings.TrimSpace(binding.AgentMemoryScope),
 		CreatedAt:        binding.CreatedAt,
 		UpdatedAt:        binding.UpdatedAt,
 	}

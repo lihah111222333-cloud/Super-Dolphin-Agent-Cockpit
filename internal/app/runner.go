@@ -21,10 +21,13 @@ type RunnerResult struct {
 type runtimeParams struct {
 	fx.In
 
-	Logger     *slog.Logger
-	Runners    []platformrunner.Runner `group:"runners"`
-	Shutdowner fx.Shutdowner
-	Lifecycle  *uiwails.WailsLifecycle `optional:"true"`
+	Logger            *slog.Logger
+	Runners           []platformrunner.Runner `group:"runners"`
+	Shutdowner        fx.Shutdowner
+	Lifecycle         *uiwails.WailsLifecycle `optional:"true"`
+	ExtractionDrainer interface {
+		DrainPendingExtraction(ctx context.Context) error
+	} `optional:"true"`
 }
 
 func BindRuntime(lc fx.Lifecycle, p runtimeParams) {
@@ -65,6 +68,9 @@ func BindRuntime(lc fx.Lifecycle, p runtimeParams) {
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
+			if p.ExtractionDrainer != nil {
+				platformshared.LogIgnoredError(p.Logger, "memory extraction drain failed", p.ExtractionDrainer.DrainPendingExtraction(ctx))
+			}
 			if cancel != nil {
 				cancel()
 			}

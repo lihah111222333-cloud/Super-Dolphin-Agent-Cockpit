@@ -32,6 +32,8 @@ type prepareInputSpec struct {
 	AdditionalWorkingDirectories []string
 	MCPSnapshot                  contract.MCPSnapshot
 	SessionFlags                 map[string]bool
+	OutputStyleConfig            *contract.OutputStyleConfig
+	ScratchpadDir                string
 	ThreadRuntimeConfig          map[string]any
 	BinaryDir                    string
 }
@@ -75,6 +77,8 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session p
 		AdditionalWorkingDirectories: append([]string(nil), spec.AdditionalWorkingDirectories...),
 		MCPSnapshot:                  cloneMCPSnapshot(spec.MCPSnapshot),
 		SessionFlags:                 clonePrepareFlags(spec.SessionFlags),
+		OutputStyleConfig:            cloneOutputStyleConfigValue(spec.OutputStyleConfig),
+		ScratchpadDir:                strings.TrimSpace(spec.ScratchpadDir),
 		ThreadRuntimeConfig:          platformshared.CloneRuntimeConfigMap(spec.ThreadRuntimeConfig),
 		ThreadCaps:                   caps,
 		BinaryDir:                    spec.BinaryDir,
@@ -105,6 +109,8 @@ func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInp
 	input.AdditionalWorkingDirectories = firstNonEmptyStrings(input.AdditionalWorkingDirectories, providershared.ConfigStringSlice(cfg, "additionalWorkingDirectories", "additional_working_directories"))
 	input.MCPSnapshot = mergeMCPSnapshot(input.MCPSnapshot, configMCPSnapshot(cfg))
 	input.SessionFlags = firstNonEmptyFlags(input.SessionFlags, configBoolMap(cfg, "sessionFlags", "session_flags"))
+	input.OutputStyleConfig = firstNonNilOutputStyle(input.OutputStyleConfig, configOutputStyle(cfg, "outputStyleConfig", "output_style_config"))
+	input.ScratchpadDir = platformshared.FirstNonEmpty(strings.TrimSpace(input.ScratchpadDir), configScratchpadDir(cfg, "scratchpadDir", "scratchpad_dir"))
 	return input
 }
 
@@ -213,10 +219,8 @@ func cloneMCPSnapshot(snapshot contract.MCPSnapshot) contract.MCPSnapshot {
 
 func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
 	out := contract.MCPSnapshot{
-		Servers:                  providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Servers...), extra.Servers...)),
-		Tools:                    providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Tools...), extra.Tools...)),
-		InstructionsDeltaEnabled: base.InstructionsDeltaEnabled || extra.InstructionsDeltaEnabled,
-		InstructionAttachments:   append(append([]contract.MCPAttachmentRef(nil), base.InstructionAttachments...), extra.InstructionAttachments...),
+		Servers: providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Servers...), extra.Servers...)),
+		Tools:   providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Tools...), extra.Tools...)),
 	}
 	if len(base.Instructions) > 0 || len(extra.Instructions) > 0 {
 		out.Instructions = make(map[string]string, len(base.Instructions)+len(extra.Instructions))

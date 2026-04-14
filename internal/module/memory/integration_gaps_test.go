@@ -39,9 +39,10 @@ func TestAgentMemoryInjectedOnSubAgentStart(t *testing.T) {
 	}
 
 	start, err := assembly.AssembleStart(context.Background(), prompt.StartInput{
-		ParentAgentID: "agent-root",
-		AgentType:     "Worker",
-		Name:          "Worker",
+		ParentAgentID:    "agent-root",
+		AgentType:        "Worker",
+		AgentMemoryScope: string(MemoryScopeProject),
+		Name:             "Worker",
 	})
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)

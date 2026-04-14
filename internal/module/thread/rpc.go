@@ -100,6 +100,7 @@ func newStartHandler(svc Service) handler.Func {
 			ModelProvider:         p.ModelProvider,
 			ParentAgentID:         p.ParentAgentID,
 			AgentType:             p.AgentType,
+			AgentMemoryScope:      p.AgentMemoryScope,
 			Name:                  p.Name,
 			Prompt:                p.Prompt,
 			BaseInstructions:      p.BaseInstructions,

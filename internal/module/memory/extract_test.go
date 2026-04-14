@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 func TestMemoryExtractorExtractParsesEnvelope(t *testing.T) {
@@ -22,7 +24,7 @@ func TestMemoryExtractorExtractParsesEnvelope(t *testing.T) {
 			t.Fatalf("prompt missing transcript body: %q", prompt)
 		}
 		return `{"memories":[{"content":"Always keep diffs focused.","type":"feedback","tags":["review","diff"]},{"content":"Grafana dashboard lives at https://grafana.example.com/team/core.","type":"reference","tags":["grafana"]}]}`, nil
-	}, ExtractParams{Transcript: "User: keep diffs focused", MaxItems: 2})
+	}, ExtractParams{Transcript: []providerdto.Message{{Role: "user", Content: "keep diffs focused"}}, MaxItems: 2})
 	if err != nil {
 		t.Fatalf("Extract() error = %v", err)
 	}
@@ -44,7 +46,7 @@ func TestMemoryExtractorExtractFiltersInvalidItems(t *testing.T) {
 	extractor := &MemoryExtractor{MaxItems: 3}
 	memories, err := extractor.Extract(context.Background(), func(_ context.Context, _ string) (string, error) {
 		return `[{"content":""},{"content":"你偏好简洁直接的回复风格。","tags":["style","style"]},{"content":"你偏好简洁直接的回复风格。","type":"user"}]`, nil
-	}, ExtractParams{Transcript: "User: remember my response style"})
+	}, ExtractParams{Transcript: []providerdto.Message{{Role: "user", Content: "remember my response style"}}})
 	if err != nil {
 		t.Fatalf("Extract() error = %v", err)
 	}

@@ -176,10 +176,51 @@ func decodeUserMessageBlock(rawBlock json.RawMessage, data map[string]any) ([]dt
 	if dataString(block, "type") != "tool_result" {
 		return nil, nil
 	}
+	success := true
+	if flag, ok := block["is_error"].(bool); ok {
+		success = !flag
+	}
 	data["call_id"] = dataString(block, "tool_use_id")
 	data["tool_name"] = dataString(block, "tool_name")
-	data["success"] = true
+	data["success"] = success
+	if content := toolResultContent(block["content"]); content != "" {
+		if success {
+			data["result"] = content
+		} else {
+			data["error"] = content
+		}
+	}
 	return []dto.RawProviderEvent{{EventType: "tool:use_end", Data: data}}, nil
+}
+
+func toolResultContent(raw any) string {
+	switch value := raw.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case []any:
+		parts := make([]string, 0, len(value))
+		for _, item := range value {
+			if content := toolResultContent(item); content != "" {
+				parts = append(parts, content)
+			}
+		}
+		return strings.TrimSpace(strings.Join(parts, "\n\n"))
+	case map[string]any:
+		if text := dataString(value, "text", "content"); text != "" {
+			return text
+		}
+		if marshaled, err := json.Marshal(value); err == nil {
+			return strings.TrimSpace(string(marshaled))
+		}
+	}
+	if raw == nil {
+		return ""
+	}
+	marshaled, err := json.Marshal(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(marshaled))
 }
 
 func messageDeltaEvent(data map[string]any, stream, delta string) (dto.RawProviderEvent, bool) {

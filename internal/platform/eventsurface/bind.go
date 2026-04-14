@@ -301,6 +301,14 @@ func toolCallEndPayload(ev tooldto.ToolCallEnd) map[string]any {
 	payload := toolCallHeaderPayload(ev.ToolCallHeader)
 	payload["success"] = ev.Success
 	setString(payload, "error", ev.Error)
+	setString(payload, "result", ev.Result)
+	setString(payload, "persistedPath", ev.PersistedPath)
+	if ev.Truncated {
+		payload["truncated"] = true
+	}
+	if ev.OriginalSize > 0 {
+		payload["originalSize"] = ev.OriginalSize
+	}
 	if ev.ElapsedMS > 0 {
 		payload["elapsedMs"] = ev.ElapsedMS
 	}

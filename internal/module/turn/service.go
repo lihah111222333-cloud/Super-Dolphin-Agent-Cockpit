@@ -25,7 +25,7 @@ type service struct {
 	manifest               *manifestBuilder
 	tracker                *turnTracker
 	promptAssembly         contract.PromptAssemblyService
-	prepareMemoryInputs    func(context.Context, contract.Session, contract.BuildCtx, string, string) []InputItem
+	prepareMemoryContext   func(context.Context, contract.Session, contract.BuildCtx, string, string) memorypkg.TurnContextPayload
 	interruptSettleTimeout time.Duration
 }
 
@@ -67,7 +67,7 @@ func newService(
 		interruptSettleTimeout: config.InterruptSettleTimeout,
 	}
 	if memoryContext != nil {
-		svc.prepareMemoryInputs = memoryContext.PrepareTurnInputs
+		svc.prepareMemoryContext = memoryContext.PrepareTurnContext
 	}
 	return svc
 }
@@ -92,11 +92,11 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	}
 	userText := s.assembler.PromptText(input)
 	mcp := s.manifest.Build(input)
-	syntheticInputs := s.syntheticMemoryInputs(ctx, session, input, threadID, userText, mcp)
+	synthetic := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
 	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
 	assembledInputs := s.assembler.Assemble(input)
-	if len(syntheticInputs) > 0 {
-		assembledInputs = append(syntheticInputs, assembledInputs...)
+	if len(synthetic.Inputs) > 0 {
+		assembledInputs = append(synthetic.Inputs, assembledInputs...)
 	}
 	req := dto.TurnRequest{
 		LocalID:              platformshared.NewID("turn"),
@@ -112,35 +112,11 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	if err != nil {
 		return dto.TurnRequest{}, err
 	}
+	if len(synthetic.Attachments) > 0 {
+		assembly.Attachments = append(append([]dto.AttachmentEnvelope(nil), assembly.Attachments...), synthetic.Attachments...)
+	}
 	req.TurnAssembly = assembly
 	return req, nil
-}
-
-func (s *service) prepareTurnAssembly(ctx context.Context, threadID string, input PrepareInput, userText string, req dto.TurnRequest) (dto.TurnAssembly, error) {
-	if s == nil || s.promptAssembly == nil {
-		return dto.TurnAssembly{}, nil
-	}
-	assembly, err := s.promptAssembly.AssembleTurn(ctx, contract.TurnInput{
-		ThreadID:                     threadID,
-		Provider:                     strings.TrimSpace(input.Provider),
-		UserText:                     strings.TrimSpace(userText),
-		SkillPrompt:                  turnSkillPrompt(req.Skills),
-		Attachments:                  turnAttachmentRefs(req.Inputs),
-		CurrentDate:                  time.Now().Format("2006-01-02"),
-		CWD:                          strings.TrimSpace(input.CWD),
-		GitRoot:                      strings.TrimSpace(input.GitRoot),
-		IsWorktree:                   input.IsWorktree,
-		Language:                     strings.TrimSpace(input.Language),
-		Model:                        strings.TrimSpace(input.Model),
-		EnabledTools:                 append([]string(nil), input.EnabledTools...),
-		AdditionalWorkingDirectories: append([]string(nil), input.AdditionalWorkingDirectories...),
-		MCPSnapshot:                  turnMCPSnapshot(input.MCPSnapshot, req.MCP),
-		SessionFlags:                 clonePrepareFlags(input.SessionFlags),
-	})
-	if err != nil {
-		return dto.TurnAssembly{}, err
-	}
-	return assembly, nil
 }
 
 func turnSkillPrompt(skills []dto.SkillRef) string {

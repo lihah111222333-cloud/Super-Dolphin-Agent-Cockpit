@@ -99,6 +99,35 @@ func TestPrefetchManagerDiscardsStaleGeneration(t *testing.T) {
 	}
 }
 
+func TestPrefetchManagerResetClearsSurfacedAndDiscardsCurrentHandle(t *testing.T) {
+	manager := NewPrefetchManager("/tmp/memory-root")
+	entry := MemoryEntry{FilePath: "alpha.md", Content: "alpha"}
+	manager.buildManifest = func(string) ([]MemoryEntry, error) {
+		return []MemoryEntry{{FilePath: "alpha.md"}}, nil
+	}
+	manager.findRelevant = func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
+		return []MemoryEntry{entry}, nil
+	}
+	manager.MarkSurfaced([]MemoryEntry{entry})
+
+	handle := manager.StartRelevantMemoryPrefetch(context.Background(), "review")
+	waitForHandle(t, handle)
+	manager.Reset("compact")
+
+	if got := manager.FilterAlreadySurfaced([]MemoryEntry{entry}); len(got) != 1 {
+		t.Fatalf("FilterAlreadySurfaced() after reset = %#v, want original entry", got)
+	}
+	if _, ok := manager.ConsumeIfReady(handle); ok {
+		t.Fatalf("ConsumeIfReady() reset handle = true, want false")
+	}
+	if state := handle.state.Load(); state != prefetchStateDiscarded {
+		t.Fatalf("prefetch state after reset = %d, want discarded", state)
+	}
+	if manager.current != nil {
+		t.Fatalf("manager.current = %#v, want nil after reset", manager.current)
+	}
+}
+
 func waitForHandle(t *testing.T, handle *PrefetchHandle) {
 	t.Helper()
 	select {

@@ -9,6 +9,7 @@ sql:
       - "migrations/0024_prompt_versions_description.sql"
       - "migrations/0025_agent_thread_config_override.sql"
       - "migrations/0031_prompt_snapshot.sql"
+      - "migrations/0032_agent_memory_identity.sql"
     gen:
       go:
         package: "sqlc"

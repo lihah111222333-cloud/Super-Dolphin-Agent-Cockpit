@@ -1,0 +1,230 @@
+package memory
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+)
+
+type transcriptMessage = providerdto.Message
+
+func normalizeTranscriptMessages(messages []providerdto.Message) []providerdto.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]providerdto.Message, 0, len(messages))
+	for idx, msg := range messages {
+		msg.ID = normalizedTranscriptID(msg.ID, idx)
+		msg.Role = normalizedTranscriptRole(msg)
+		msg.Content = strings.TrimSpace(msg.Content)
+		if msg.Content == "" {
+			continue
+		}
+		out = append(out, msg)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func normalizedTranscriptID(id int64, idx int) int64 {
+	if id > 0 {
+		return id
+	}
+	return int64(idx + 1)
+}
+
+func normalizedTranscriptRole(msg providerdto.Message) string {
+	role := strings.ToLower(strings.TrimSpace(msg.Role))
+	if role != "" {
+		return role
+	}
+	if strings.EqualFold(strings.TrimSpace(msg.EventType), "agent_message") {
+		return "assistant"
+	}
+	return "user"
+}
+
+func latestTranscriptCursor(messages []providerdto.Message) int64 {
+	if len(messages) == 0 {
+		return 0
+	}
+	return messages[len(messages)-1].ID
+}
+
+func transcriptWindow(messages []providerdto.Message, cursor int64) []providerdto.Message {
+	window := make([]providerdto.Message, 0, len(messages))
+	for _, msg := range normalizeTranscriptMessages(messages) {
+		if msg.ID <= cursor {
+			continue
+		}
+		window = append(window, msg)
+	}
+	return window
+}
+
+func (e *MemoryExtractor) Extract(ctx context.Context, fn ExtractFunc, params ExtractParams) ([]ExtractedMemory, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	transcript := normalizeTranscriptMessages(params.Transcript)
+	if len(transcript) == 0 {
+		return nil, nil
+	}
+	limit := extractLimit(params.MaxItems, e.limit())
+	if fn == nil {
+		return filterManifestDuplicates(extractInternalMemories(transcript, params.Manifest, limit), params.Manifest), nil
+	}
+	raw, err := fn(ctx, buildExtractPrompt(ExtractParams{
+		Transcript: transcript,
+		Manifest:   params.Manifest,
+		MaxItems:   limit,
+	}, e.limit()))
+	if err != nil {
+		return nil, err
+	}
+	items, err := parseExtractedMemories(raw, limit)
+	if err != nil {
+		return nil, err
+	}
+	return filterManifestDuplicates(items, params.Manifest), nil
+}
+
+func buildExtractPrompt(params ExtractParams, fallbackLimit int) string {
+	limit := extractLimit(params.MaxItems, fallbackLimit)
+	parts := []string{
+		"Distill only durable memory worth carrying into future sessions.",
+		"Prefer novel memories not already present in the existing manifest.",
+		"Return JSON in the form {\"memories\": [{\"content\":\"...\",\"type\":\"user|feedback|project|reference\",\"tags\":[\"...\"]}] }.",
+		fmt.Sprintf("Limit the response to %d memory items.", limit),
+		"Existing memory manifest (header-only):",
+		renderManifestHeaders(params.Manifest),
+		"Conversation transcript:",
+		renderTranscriptMessages(params.Transcript),
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func renderManifestHeaders(manifest []MemoryEntry) string {
+	if len(manifest) == 0 {
+		return "(empty)"
+	}
+	limit := minInt(len(manifest), 40)
+	lines := make([]string, 0, limit)
+	for _, entry := range manifest[:limit] {
+		lines = append(lines, fmt.Sprintf(
+			"- %s | type=%s | name=%s | description=%s",
+			relativeMemoryPath("", entry.FilePath),
+			entry.Type(),
+			strings.TrimSpace(entry.Frontmatter.Name),
+			strings.TrimSpace(entry.Frontmatter.Description),
+		))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderTranscriptMessages(messages []providerdto.Message) string {
+	transcript := normalizeTranscriptMessages(messages)
+	lines := make([]string, 0, len(transcript))
+	for _, msg := range transcript {
+		lines = append(lines, fmt.Sprintf("[%d] %s: %s", msg.ID, msg.Role, msg.Content))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func filterManifestDuplicates(items []ExtractedMemory, manifest []MemoryEntry) []ExtractedMemory {
+	if len(items) == 0 || len(manifest) == 0 {
+		return items
+	}
+	seen := make(map[string]struct{}, len(manifest)*2)
+	for _, entry := range manifest {
+		addManifestKey(seen, entry.CanonicalName)
+		addManifestKey(seen, CanonicalName(entry.Frontmatter.Description))
+	}
+	filtered := make([]ExtractedMemory, 0, len(items))
+	for _, item := range items {
+		key := CanonicalName(firstNonEmptyLine(item.Content))
+		if key == "" {
+			key = CanonicalName(item.Content)
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func addManifestKey(seen map[string]struct{}, key string) {
+	if key = strings.TrimSpace(key); key != "" {
+		seen[key] = struct{}{}
+	}
+}
+
+func extractInternalMemories(messages []providerdto.Message, manifest []MemoryEntry, limit int) []ExtractedMemory {
+	candidates := make([]ExtractedMemory, 0, minInt(len(messages), limit))
+	for _, msg := range messages {
+		item, ok := internalMemoryFromMessage(msg)
+		if !ok {
+			continue
+		}
+		candidates = append(candidates, item)
+	}
+	return normalizeExtractedMemories(filterManifestDuplicates(candidates, manifest), limit)
+}
+
+func internalMemoryFromMessage(msg providerdto.Message) (ExtractedMemory, bool) {
+	text := condensedMemoryText(msg.Content)
+	if text == "" || strings.Contains(text, "```") {
+		return ExtractedMemory{}, false
+	}
+	lower := strings.ToLower(text)
+	switch {
+	case strings.EqualFold(msg.Role, "user") && containsHeuristicCue(lower, userPreferenceCues...):
+		return ExtractedMemory{Content: text, Type: MemoryTypeUser}, true
+	case strings.EqualFold(msg.Role, "assistant") && containsHeuristicCue(lower, assistantPreferenceCues...):
+		return ExtractedMemory{Content: text, Type: MemoryTypeFeedback}, true
+	case containsHeuristicCue(lower, referenceCues...) && strings.Contains(text, "http"):
+		return ExtractedMemory{Content: text, Type: MemoryTypeReference}, true
+	case containsHeuristicCue(lower, projectCues...):
+		return ExtractedMemory{Content: text, Type: MemoryTypeProject}, true
+	default:
+		return ExtractedMemory{}, false
+	}
+}
+
+func condensedMemoryText(text string) string {
+	text = strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
+	if len([]rune(text)) < 12 {
+		return ""
+	}
+	return truncateRunes(text, 280)
+}
+
+func containsHeuristicCue(text string, cues ...string) bool {
+	for _, cue := range cues {
+		if strings.Contains(text, cue) {
+			return true
+		}
+	}
+	return false
+}
+
+var userPreferenceCues = []string{
+	"prefer", "preference", "i like", "keep diffs", "please keep", "以后请", "偏好", "喜欢", "记住",
+}
+
+var assistantPreferenceCues = []string{
+	"you prefer", "keep diffs", "偏好", "喜欢", "记住了",
+}
+
+var projectCues = []string{
+	"repo", "project", "build", "test", "deploy", "service", "branch", "ticket", "仓库", "项目", "构建", "测试", "部署",
+}
+
+var referenceCues = []string{
+	"http://", "https://", "dashboard", "doc", "wiki", "grafana", "链接", "地址",
+}

@@ -1,192 +1,269 @@
 package e2e
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
+	"context"
+	"encoding/json"
+	"maps"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
-	_ "unsafe"
-
-	"github.com/BurntSushi/toml"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	_ "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
+	"github.com/gorilla/websocket"
 )
 
-//go:linkname writeCodexMCPConfig github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.writeCodexMCPConfig
-func writeCodexMCPConfig(path string, manifest dto.MCPManifest, cwd string) error
+func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
+	recorder := &codexRPCRecorder{}
+	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
 
-func TestCodexMCPInjection_E2E(t *testing.T) {
-	requireCodexCLI(t)
+	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil)
+	factory.SetListTools(func(context.Context) ([]codexapp.DynamicToolSchema, error) {
+		return []codexapp.DynamicToolSchema{{
+			Name:        "tool.echo",
+			Description: "echo payload",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}}, nil
+	})
 
-	path := tempCodexConfigPath(t)
-	manifest := dto.BuildManifest(dto.ManifestContext{
-		BinaryDir: "/tmp/codex-e2e/bin",
-		Env: map[string]string{
-			"GO_AGENT_CTL_RPC_ADDR":      "127.0.0.1:9123",
-			"GO_AGENT_CTL_SESSION_TOKEN": "session-token",
+	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID: "agent-1",
+		CWD:     "/tmp/codex-e2e/work",
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions:      "base prompt",
+			DeveloperInstructions: "developer prompt",
+		},
+		Config: map[string]any{
+			"mcp": map[string]any{"legacy": true},
 		},
 	})
-	if err := writeCodexMCPConfig(path, manifest, "/tmp/codex-e2e/work"); err != nil {
-		t.Fatalf("writeCodexMCPConfig() error = %v", err)
-	}
-
-	raw := readCodexFile(t, path)
-	if !strings.Contains(raw, `[mcp_servers.lsp.env]`) {
-		t.Fatalf("config = %s, want env subtable for lsp", raw)
-	}
-	if !strings.Contains(raw, `[mcp_servers.orch.env]`) {
-		t.Fatalf("config = %s, want env subtable for orch", raw)
-	}
-
-	doc := readCodexDoc(t, path)
-	assertManagedCodexServer(t, codexServer(t, doc, "lsp"), "lsp")
-	assertManagedCodexServer(t, codexServer(t, doc, "orch"), "orch")
-}
-
-func TestCodexMCPConfig_PreservesUserKeys_E2E(t *testing.T) {
-	requireCodexCLI(t)
-
-	path := tempCodexConfigPath(t)
-	initial := strings.TrimSpace(`
-[mcp_servers.exa]
-command = "/Users/test/.codex/bin/mcp-exa.sh"
-args = ["serve"]
-env_vars = ["EXA_API_KEY", "NPM_CONFIG_CACHE", "MCP_REMOTE_CONFIG_DIR"]
-
-[mcp_servers.postgres]
-command = "/Users/test/.codex/bin/mcp-postgres.sh"
-env_vars = ["POSTGRES_CONNECTION_STRING"]
-startup_timeout_sec = 45
-`) + "\n"
-	if err := os.WriteFile(path, []byte(initial), 0o600); err != nil {
-		t.Fatalf("WriteFile(%q) error = %v", path, err)
-	}
-
-	manifest := dto.BuildManifest(dto.ManifestContext{
-		BinaryDir: "/tmp/codex-e2e/bin",
-		Env: map[string]string{
-			"GO_AGENT_CTL_RPC_ADDR": "127.0.0.1:9123",
-		},
-	})
-	if err := writeCodexMCPConfig(path, manifest, "/tmp/codex-e2e/work"); err != nil {
-		t.Fatalf("writeCodexMCPConfig() error = %v", err)
-	}
-
-	doc := readCodexDoc(t, path)
-	exa := codexServer(t, doc, "exa")
-	postgres := codexServer(t, doc, "postgres")
-	if exa["command"] != "/Users/test/.codex/bin/mcp-exa.sh" {
-		t.Fatalf("exa.command = %#v, want preserved command", exa["command"])
-	}
-	if postgres["command"] != "/Users/test/.codex/bin/mcp-postgres.sh" {
-		t.Fatalf("postgres.command = %#v, want preserved command", postgres["command"])
-	}
-	if !reflect.DeepEqual(readStringSlice(t, exa["env_vars"]), []string{"EXA_API_KEY", "NPM_CONFIG_CACHE", "MCP_REMOTE_CONFIG_DIR"}) {
-		t.Fatalf("exa.env_vars = %#v, want preserved env_vars", exa["env_vars"])
-	}
-	if !reflect.DeepEqual(readStringSlice(t, postgres["env_vars"]), []string{"POSTGRES_CONNECTION_STRING"}) {
-		t.Fatalf("postgres.env_vars = %#v, want preserved env_vars", postgres["env_vars"])
-	}
-	if _, ok := exa["env"]; ok {
-		t.Fatalf("exa.env = %#v, want no env subtable mutation", exa["env"])
-	}
-	if _, ok := postgres["env"]; ok {
-		t.Fatalf("postgres.env = %#v, want no env subtable mutation", postgres["env"])
-	}
-	if postgres["startup_timeout_sec"] != int64(45) {
-		t.Fatalf("postgres.startup_timeout_sec = %#v, want 45", postgres["startup_timeout_sec"])
-	}
-
-	assertManagedCodexServer(t, codexServer(t, doc, "lsp"), "lsp")
-	assertManagedCodexServer(t, codexServer(t, doc, "orch"), "orch")
-}
-
-func requireCodexCLI(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("codex"); err != nil {
-		t.Skip("codex not installed")
-	}
-}
-
-func tempCodexConfigPath(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	t.Setenv("CODEX_HOME", root)
-	return filepath.Join(root, "config.toml")
-}
-
-func readCodexFile(t *testing.T, path string) string {
-	t.Helper()
-	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("ReadFile(%q) error = %v", path, err)
+		t.Fatalf("StartSession() error = %v", err)
 	}
-	return string(raw)
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+
+	if session.ThreadID() != "provider-thread-1" {
+		t.Fatalf("ThreadID() = %q, want provider-thread-1", session.ThreadID())
+	}
+	if calls := recorder.calls("thread/start"); calls != 1 {
+		t.Fatalf("thread/start calls = %d, want 1", calls)
+	}
+
+	params := recorder.threadStartParamsSnapshot()
+	assertDynamicToolNames(t, params, []string{"tool.echo"})
+	assertNoLegacyMCPKeys(t, params)
+	if params["cwd"] != "/tmp/codex-e2e/work" {
+		t.Fatalf("cwd = %#v, want /tmp/codex-e2e/work", params["cwd"])
+	}
+	if params["approvalPolicy"] != "never" {
+		t.Fatalf("approvalPolicy = %#v, want never", params["approvalPolicy"])
+	}
+	if params["baseInstructions"] != "base prompt" {
+		t.Fatalf("baseInstructions = %#v, want base prompt", params["baseInstructions"])
+	}
+	if params["developerInstructions"] != "developer prompt" {
+		t.Fatalf("developerInstructions = %#v, want developer prompt", params["developerInstructions"])
+	}
 }
 
-func readCodexDoc(t *testing.T, path string) map[string]any {
-	t.Helper()
-	var doc map[string]any
-	if _, err := toml.Decode(readCodexFile(t, path), &doc); err != nil {
-		t.Fatalf("toml.Decode(%q) error = %v", path, err)
-	}
-	return doc
-}
+func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
+	recorder := &codexRPCRecorder{}
+	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
 
-func codexServer(t *testing.T, doc map[string]any, name string) map[string]any {
-	t.Helper()
-	servers, ok := doc["mcp_servers"].(map[string]any)
+	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil)
+	factory.SetListTools(func(context.Context) ([]codexapp.DynamicToolSchema, error) {
+		return []codexapp.DynamicToolSchema{
+			{
+				Name:        "tool.echo",
+				Description: "echo payload",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			},
+			{
+				Name:        "tool.sum",
+				Description: "sum payload",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			},
+		}, nil
+	})
+
+	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID: "agent-2",
+		CWD:     "/tmp/codex-e2e/work",
+		Model:   "gpt-5-codex",
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions:      "base prompt",
+			DeveloperInstructions: "developer prompt",
+		},
+		Config: map[string]any{
+			"approval_policy": "on-request",
+			"modelProvider":   "openai",
+			"personality":     "reviewer",
+			"summary":         "brief",
+			"effort":          "high",
+			"sandbox": map[string]any{
+				"mode":           "workspace-write",
+				"network_access": false,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+
+	params := recorder.threadStartParamsSnapshot()
+	assertDynamicToolNames(t, params, []string{"tool.echo", "tool.sum"})
+	if params["model"] != "gpt-5-codex" {
+		t.Fatalf("model = %#v, want gpt-5-codex", params["model"])
+	}
+	if params["approvalPolicy"] != "on-request" {
+		t.Fatalf("approvalPolicy = %#v, want on-request", params["approvalPolicy"])
+	}
+	if params["modelProvider"] != "openai" {
+		t.Fatalf("modelProvider = %#v, want openai", params["modelProvider"])
+	}
+	if params["personality"] != "reviewer" {
+		t.Fatalf("personality = %#v, want reviewer", params["personality"])
+	}
+	if params["summary"] != "brief" {
+		t.Fatalf("summary = %#v, want brief", params["summary"])
+	}
+	if params["effort"] != "high" {
+		t.Fatalf("effort = %#v, want high", params["effort"])
+	}
+	sandbox, ok := params["sandbox"].(map[string]any)
 	if !ok {
-		t.Fatalf("mcp_servers = %#v, want table", doc["mcp_servers"])
+		t.Fatalf("sandbox = %#v, want object", params["sandbox"])
 	}
-	server, ok := servers[name].(map[string]any)
-	if !ok {
-		t.Fatalf("mcp_servers[%q] = %#v, want table", name, servers[name])
+	if sandbox["mode"] != "workspace-write" {
+		t.Fatalf("sandbox.mode = %#v, want workspace-write", sandbox["mode"])
 	}
-	return server
-}
-
-func assertManagedCodexServer(t *testing.T, server map[string]any, name string) {
-	t.Helper()
-	command := "/tmp/codex-e2e/bin/mcp-" + name
-	if server["type"] != "stdio" {
-		t.Fatalf("%s.type = %#v, want stdio", name, server["type"])
-	}
-	if server["command"] != command {
-		t.Fatalf("%s.command = %#v, want %s", name, server["command"], command)
-	}
-	if server["cwd"] != "/tmp/codex-e2e/work" {
-		t.Fatalf("%s.cwd = %#v, want /tmp/codex-e2e/work", name, server["cwd"])
-	}
-	env, ok := server["env"].(map[string]any)
-	if !ok {
-		t.Fatalf("%s.env = %#v, want table", name, server["env"])
-	}
-	if env["GO_AGENT_CTL_RPC_ADDR"] != "127.0.0.1:9123" {
-		t.Fatalf("%s.env = %#v, want GO_AGENT_CTL_RPC_ADDR", name, env)
+	if sandbox["network_access"] != false {
+		t.Fatalf("sandbox.network_access = %#v, want false", sandbox["network_access"])
 	}
 }
 
-func readStringSlice(t *testing.T, value any) []string {
+type codexRPCRecorder struct {
+	mu                sync.Mutex
+	callCount         map[string]int
+	threadStartParams map[string]any
+}
+
+func (r *codexRPCRecorder) record(method string, raw json.RawMessage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.callCount == nil {
+		r.callCount = make(map[string]int)
+	}
+	r.callCount[method]++
+	if method != "thread/start" || len(raw) == 0 {
+		return
+	}
+	var params map[string]any
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return
+	}
+	r.threadStartParams = cloneAnyMap(params)
+}
+
+func (r *codexRPCRecorder) calls(method string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.callCount[method]
+}
+
+func (r *codexRPCRecorder) threadStartParamsSnapshot() map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return cloneAnyMap(r.threadStartParams)
+}
+
+func startCodexRPCServer(t *testing.T, recorder *codexRPCRecorder) string {
 	t.Helper()
-	switch v := value.(type) {
-	case []string:
-		return append([]string(nil), v...)
-	case []any:
-		out := make([]string, 0, len(v))
-		for _, item := range v {
-			text, ok := item.(string)
-			if !ok {
-				t.Fatalf("slice item = %#v, want string", item)
-			}
-			out = append(out, text)
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
 		}
-		return out
-	default:
-		t.Fatalf("value = %#v, want string slice", value)
+		defer conn.Close()
+		for {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg struct {
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+				Params json.RawMessage `json:"params"`
+			}
+			if err := json.Unmarshal(rawBytes, &msg); err != nil {
+				continue
+			}
+			recorder.record(msg.Method, msg.Params)
+			if len(msg.ID) == 0 {
+				continue
+			}
+			result := map[string]any{"ok": true}
+			if msg.Method == "thread/start" {
+				result = map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
+			}
+			resp, err := json.Marshal(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+				"result":  result,
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+	return "ws" + strings.TrimPrefix(server.URL, "http")
+}
+
+func assertDynamicToolNames(t *testing.T, params map[string]any, want []string) {
+	t.Helper()
+
+	rawTools, ok := params["dynamicTools"].([]any)
+	if !ok {
+		t.Fatalf("dynamicTools = %#v, want array", params["dynamicTools"])
+	}
+	got := make([]string, 0, len(rawTools))
+	for _, rawTool := range rawTools {
+		tool, ok := rawTool.(map[string]any)
+		if !ok {
+			t.Fatalf("dynamicTools item = %#v, want object", rawTool)
+		}
+		name, _ := tool["name"].(string)
+		got = append(got, name)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dynamic tool names = %#v, want %#v", got, want)
+	}
+}
+
+func assertNoLegacyMCPKeys(t *testing.T, params map[string]any) {
+	t.Helper()
+	for _, key := range []string{"mcp", "mcpConfig", "mcp_config", "mcpServers", "mcp_servers"} {
+		if _, ok := params[key]; ok {
+			t.Fatalf("%s = %#v, want omitted from thread/start", key, params[key])
+		}
+	}
+}
+
+func cloneAnyMap(src map[string]any) map[string]any {
+	if len(src) == 0 {
 		return nil
 	}
+	out := make(map[string]any, len(src))
+	maps.Copy(out, src)
+	return out
 }

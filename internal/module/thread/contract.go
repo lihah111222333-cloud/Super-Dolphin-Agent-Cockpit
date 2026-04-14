@@ -33,14 +33,15 @@ type Service interface {
 }
 
 type StartRequest struct {
-	Provider      string
-	AgentID       string
-	ParentAgentID string
-	AgentType     string
-	CWD           string
-	Model         string
-	ModelProvider string
-	Name          string
+	Provider         string
+	AgentID          string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
+	CWD              string
+	Model            string
+	ModelProvider    string
+	Name             string
 	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
 	Prompt                       string
 	BaseInstructions             string
@@ -107,12 +108,14 @@ type RecoverResult struct {
 }
 
 type LaunchAgentRequest struct {
-	AgentID  string
-	Name     string
-	ParentID string
-	Cwd      string
-	Command  []string
-	Env      []string
+	AgentID     string
+	Name        string
+	ParentID    string
+	AgentType   string
+	MemoryScope string
+	Cwd         string
+	Command     []string
+	Env         []string
 }
 
 type Ref struct {

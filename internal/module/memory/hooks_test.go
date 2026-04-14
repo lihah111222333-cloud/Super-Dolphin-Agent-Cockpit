@@ -12,11 +12,11 @@ import (
 func TestMemoryLifecycleHooksOnTurnEndWritesExplicitMemory(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
 	projectRoot := filepath.Join(t.TempDir(), "project")
-	hooks := NewMemoryLifecycleHooks(&Config{
+	hooks := newMemoryLifecycleHooks(&Config{
 		Enabled:     true,
 		RootDir:     root,
 		ProjectRoot: projectRoot,
-	}, nil, nil)
+	}, nil, nil, nil, nil, nil, nil, nil)
 
 	hooks.onTurnEnd(context.Background(), turndto.TurnCompleted{
 		Success: true,
@@ -48,11 +48,11 @@ func TestMemoryLifecycleHooksOnTurnEndWritesExplicitMemory(t *testing.T) {
 func TestMemoryLifecycleHooksOnTurnEndSkipsNonIntent(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
 	projectRoot := filepath.Join(t.TempDir(), "project")
-	hooks := NewMemoryLifecycleHooks(&Config{
+	hooks := newMemoryLifecycleHooks(&Config{
 		Enabled:     true,
 		RootDir:     root,
 		ProjectRoot: projectRoot,
-	}, nil, nil)
+	}, nil, nil, nil, nil, nil, nil, nil)
 
 	hooks.onTurnEnd(context.Background(), turndto.TurnCompleted{
 		Success: true,
@@ -76,12 +76,12 @@ func TestMemoryLifecycleHooksOnTurnEndUsesAutoMemPathOverride(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
 	projectRoot := filepath.Join(t.TempDir(), "project")
 	override := filepath.Join(t.TempDir(), "override", "memory")
-	hooks := NewMemoryLifecycleHooks(&Config{
+	hooks := newMemoryLifecycleHooks(&Config{
 		Enabled:             true,
 		RootDir:             root,
 		ProjectRoot:         projectRoot,
 		AutoMemPathOverride: override,
-	}, nil, nil)
+	}, nil, nil, nil, nil, nil, nil, nil)
 
 	hooks.onTurnEnd(context.Background(), turndto.TurnCompleted{
 		Success: true,

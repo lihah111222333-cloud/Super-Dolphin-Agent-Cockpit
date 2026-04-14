@@ -3,15 +3,17 @@ package memory
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
+	"log/slog"
 	"strings"
-	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
@@ -21,10 +23,6 @@ type RootManager struct {
 	svc Service
 }
 
-type AutoDreamConsolidator struct {
-	extractor *MemoryExtractor
-}
-
 type memoryHookParams struct {
 	fx.In
 
@@ -32,6 +30,90 @@ type memoryHookParams struct {
 	Dispatcher      *event.Dispatcher      `optional:"true"`
 	Hooks           *MemoryLifecycleHooks  `optional:"true"`
 	ContextProvider *MemoryContextProvider `optional:"true"`
+	NestedRuntime   *NestedRuntime         `optional:"true"`
+}
+
+type historySource interface {
+	ReadHistory(ctx context.Context, threadID string, limit int) ([]providerdto.Message, error)
+}
+
+type threadMetadataStore interface {
+	GetByThreadID(ctx context.Context, threadID string) (*threadstore.Thread, error)
+}
+
+type sectionInvalidator interface {
+	InvalidateSections(reason prompt.InvalidateReason, names ...string) uint64
+}
+
+type memoryLifecycleHookParams struct {
+	fx.In
+
+	Config          *Config                   `optional:"true"`
+	Consolidator    *AutoDreamConsolidator    `optional:"true"`
+	Logger          *slog.Logger              `optional:"true"`
+	Threads         historySource             `optional:"true"`
+	ThreadStore     threadMetadataStore       `optional:"true"`
+	Sections        prompt.SectionInvalidator `optional:"true"`
+	Extractor       *MemoryExtractor          `optional:"true"`
+	ManifestBuilder *ManifestBuilder          `optional:"true"`
+}
+
+func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) *MemoryLifecycleHooks {
+	return newMemoryLifecycleHooks(
+		p.Config,
+		p.Consolidator,
+		p.Logger,
+		p.Threads,
+		p.ThreadStore,
+		p.Sections,
+		p.Extractor,
+		p.ManifestBuilder,
+	)
+}
+
+func newMemoryLifecycleHooks(
+	cfg *Config,
+	consolidator *AutoDreamConsolidator,
+	logger *slog.Logger,
+	threads historySource,
+	threadStore threadMetadataStore,
+	sections sectionInvalidator,
+	extractor *MemoryExtractor,
+	manifestBuilder *ManifestBuilder,
+) *MemoryLifecycleHooks {
+	if cfg == nil {
+		cfg = &Config{}
+	}
+	if consolidator == nil {
+		consolidator = NewAutoDreamConsolidator(nil)
+	}
+	consolidator.cfg = memoryConfig(cfg)
+	if extractor == nil {
+		extractor = NewMemoryExtractor()
+	}
+	if manifestBuilder == nil {
+		manifestBuilder = NewManifestBuilder()
+	}
+	return &MemoryLifecycleHooks{
+		cfg:                 memoryConfig(cfg),
+		enabled:             ResolveMemoryGate(contract.BuildCtx{}, cfg).AutoEnabled,
+		extractOnStop:       cfg.ExtractOnStop,
+		rootDir:             strings.TrimSpace(cfg.RootDir),
+		projectRoot:         strings.TrimSpace(cfg.ProjectRoot),
+		autoMemPathOverride: strings.TrimSpace(cfg.AutoMemPathOverride),
+		consolidator:        consolidator,
+		extractFn:           nil,
+		extractor:           extractor,
+		manifestBuilder:     manifestBuilder,
+		threads:             threads,
+		threadStore:         threadStore,
+		sections:            sections,
+		logger:              logger,
+		states:              map[string]*ExtractionState{},
+		activeTurns:         map[string]string{},
+		callTurns:           map[string]toolCallScope{},
+		turnWrites:          map[string]map[string]struct{}{},
+	}
 }
 
 var Module = fx.Module("memory",
@@ -40,6 +122,9 @@ var Module = fx.Module("memory",
 		NewService,
 		NewAgentMemoryManager,
 		NewTeamMemoryManager,
+		NewTeamMemoryGuard,
+		NewNestedRuntime,
+		NewClaudeMdSourcesProvider,
 		NewMemoryRuleEngine,
 		NewRulesProvider,
 		NewAgentMemoryPromptProvider,
@@ -50,8 +135,6 @@ var Module = fx.Module("memory",
 	),
 	fx.Invoke(registerLifecycle, registerPromptProviders, registerMemoryHooks),
 )
-
-const extractOnStopTimeout = 5 * time.Second
 
 func NewRootManager(svc Service) *RootManager {
 	return &RootManager{svc: svc}
@@ -105,6 +188,9 @@ func registerMemoryHooks(p memoryHookParams) {
 			return nil
 		},
 		OnStop: func(context.Context) error {
+			if p.Hooks != nil {
+				p.Hooks.killDreamTask()
+			}
 			cancelSubscriptions(cancels)
 			cancels = nil
 			return nil
@@ -114,11 +200,41 @@ func registerMemoryHooks(p memoryHookParams) {
 
 func registerLifecycleSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
 	registerThreadHookSubscriptions(p, appendCancel)
-	registerExtractOnStopSubscription(p, appendCancel)
+	registerBackgroundExtractionSubscriptions(p, appendCancel)
 	registerContextProviderSubscriptions(p, appendCancel)
+	registerAutoDreamSubscriptions(p, appendCancel)
+}
+
+func registerBackgroundExtractionSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
+	if p.Hooks == nil || !p.Hooks.extractOnStop {
+		return
+	}
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStarted) {
+		p.Hooks.onTurnStarted(ev)
+	}, pkglogger.Get()))
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInterrupted) {
+		p.Hooks.onTurnTerminated(ev.ThreadID, ev.TurnID)
+	}, pkglogger.Get()))
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStalled) {
+		p.Hooks.onTurnTerminated(ev.ThreadID, ev.TurnID)
+	}, pkglogger.Get()))
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallBegin) {
+		p.Hooks.onToolCallBegin(ev)
+	}, pkglogger.Get()))
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolDiffUpdated) {
+		p.Hooks.onToolDiffUpdated(ev)
+	}, pkglogger.Get()))
 }
 
 func registerThreadHookSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
+	if p.NestedRuntime != nil {
+		appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
+			p.NestedRuntime.OnThreadStart(ev.ThreadID)
+		}, pkglogger.Get()))
+		appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallEnd) {
+			p.NestedRuntime.AddToolReadResult(ev.ThreadID, ev.ToolName, ev.Result, ev.PersistedPath)
+		}, pkglogger.Get()))
+	}
 	if p.Hooks == nil || !p.Hooks.enabled {
 		return
 	}
@@ -126,16 +242,7 @@ func registerThreadHookSubscriptions(p memoryHookParams, appendCancel func(conte
 		p.Hooks.onThreadStart(context.Background(), ev)
 	}, pkglogger.Get()))
 	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnCompleted) {
-		p.Hooks.onTurnEnd(context.Background(), ev)
-	}, pkglogger.Get()))
-}
-
-func registerExtractOnStopSubscription(p memoryHookParams, appendCancel func(context.CancelFunc)) {
-	if p.Hooks == nil || !p.Hooks.extractOnStop {
-		return
-	}
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Stopped) {
-		dispatchExtractOnStop(p.Hooks, ev)
+		p.Hooks.onTurnCompleted(context.Background(), ev)
 	}, pkglogger.Get()))
 }
 
@@ -167,221 +274,4 @@ func cancelSubscriptions(cancels []context.CancelFunc) {
 			cancel()
 		}
 	}
-}
-
-func dispatchExtractOnStop(hooks *MemoryLifecycleHooks, ev threaddto.Stopped) {
-	if hooks == nil || !hooks.extractOnStop {
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), extractOnStopTimeout)
-		defer cancel()
-		hooks.onThreadStopped(ctx, ev)
-	}()
-}
-
-func mockAutoDreamExtractFunc(context.Context, string) (string, error) {
-	return "", nil
-}
-
-func (c *AutoDreamConsolidator) Consolidate(ctx context.Context, memoryRoot string, extractFn ExtractFunc) error {
-	if err := contextErr(ctx); err != nil {
-		return err
-	}
-	root, err := normalizeStoreRoot(memoryRoot)
-	if err != nil {
-		return err
-	}
-	if extractFn == nil {
-		extractFn = mockAutoDreamExtractFunc
-	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return err
-	}
-	return withDiskStoreLock(root, func() error {
-		return c.consolidateLocked(ctx, root, extractFn)
-	})
-}
-
-func (c *AutoDreamConsolidator) consolidateLocked(ctx context.Context, memoryRoot string, extractFn ExtractFunc) error {
-	entries, err := scanMemoryEntries(memoryRoot)
-	if err != nil {
-		return err
-	}
-	if err := removeMemoryFiles(memoryRoot, staleMemoryPaths(entries)); err != nil {
-		return err
-	}
-	selected := consolidationCandidates(entries)
-	if len(selected) == 0 {
-		_, err = UpdateMemoryIndex(memoryRoot)
-		return err
-	}
-	limit := extractLimit(len(selected), c.limit())
-	raw, err := extractFn(ctx, buildConsolidationPrompt(memoryRoot, selected, limit))
-	if err != nil {
-		return err
-	}
-	items, err := parseExtractedMemories(raw, limit)
-	if err != nil {
-		return err
-	}
-	if err := writeConsolidatedMemories(memoryRoot, items); err != nil {
-		return err
-	}
-	_, err = UpdateMemoryIndex(memoryRoot)
-	return err
-}
-
-func (c *AutoDreamConsolidator) limit() int {
-	if c == nil || c.extractor == nil {
-		return defaultExtractMaxItems
-	}
-	return c.extractor.limit()
-}
-
-func consolidationCandidates(entries []MemoryEntry) []MemoryEntry {
-	unique := uniqueEntriesByCanonicalName(entries)
-	selected := make([]MemoryEntry, 0, len(unique))
-	for _, entry := range unique {
-		if hasMeaningfulMemoryContent(entry.Content) {
-			selected = append(selected, entry)
-		}
-	}
-	return selected
-}
-
-func staleMemoryPaths(entries []MemoryEntry) []string {
-	selected := make(map[string]MemoryEntry, len(entries))
-	stale := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !hasMeaningfulMemoryContent(entry.Content) {
-			if entry.FilePath != "" {
-				stale = append(stale, entry.FilePath)
-			}
-			continue
-		}
-		key := entry.CanonicalName
-		if key == "" {
-			key = CanonicalName(entry.Frontmatter.Name)
-		}
-		current, exists := selected[key]
-		if !exists || preferMemoryEntry(entry, current) {
-			if exists && current.FilePath != "" {
-				stale = append(stale, current.FilePath)
-			}
-			selected[key] = entry
-			continue
-		}
-		if entry.FilePath != "" {
-			stale = append(stale, entry.FilePath)
-		}
-	}
-	return uniqueNonEmptyStrings(stale)
-}
-
-func uniqueNonEmptyStrings(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(values))
-	cleaned := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
-		cleaned = append(cleaned, value)
-	}
-	return cleaned
-}
-
-func removeMemoryFiles(root string, paths []string) error {
-	for _, path := range paths {
-		validatedPath, err := ValidateMemoryWritePath(root, path)
-		if err != nil {
-			return err
-		}
-		if err := os.Remove(validatedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	return nil
-}
-
-func buildConsolidationPrompt(memoryRoot string, entries []MemoryEntry, limit int) string {
-	parts := []string{
-		"Review the current durable memory files and merge duplicate or outdated notes into a cleaner long-term set.",
-		"Return JSON in the form {\"memories\": [{\"content\":\"...\",\"type\":\"user|feedback|project|reference\",\"tags\":[\"...\"]}] }.",
-		fmt.Sprintf("Return at most %d consolidated memories.", limit),
-		"Existing memory files:",
-		formatConsolidationEntries(memoryRoot, entries),
-	}
-	return strings.Join(parts, "\n\n")
-}
-
-func formatConsolidationEntries(memoryRoot string, entries []MemoryEntry) string {
-	var builder strings.Builder
-	for i, entry := range entries {
-		if i > 0 {
-			builder.WriteString("\n\n")
-		}
-		_, _ = fmt.Fprintf(&builder, "### Memory %d\n", i+1)
-		builder.WriteString("Path: ")
-		builder.WriteString(relativeMemoryPath(memoryRoot, entry.FilePath))
-		builder.WriteString("\nName: ")
-		builder.WriteString(strings.TrimSpace(entry.Frontmatter.Name))
-		builder.WriteString("\nType: ")
-		builder.WriteString(string(entry.Type()))
-		builder.WriteString("\nContent:\n")
-		builder.WriteString(strings.TrimSpace(entry.Content))
-	}
-	return builder.String()
-}
-
-func relativeMemoryPath(root, path string) string {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return filepath.ToSlash(path)
-	}
-	return filepath.ToSlash(rel)
-}
-
-func writeConsolidatedMemories(root string, items []ExtractedMemory) error {
-	for _, item := range items {
-		if _, err := WriteMemoryFile(root, buildConsolidatedMemoryEntry(item)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func buildConsolidatedMemoryEntry(item ExtractedMemory) MemoryEntry {
-	item = normalizeExtractedMemory(item)
-	description := truncateRunes(firstNonEmptyLine(item.Content), memoryHookMaxRunes)
-	if description == "" {
-		description = truncateRunes(item.Content, memoryHookMaxRunes)
-	}
-	return MemoryEntry{
-		Frontmatter: MemoryFrontmatter{
-			Name:        consolidationName(item, description),
-			Description: description,
-			Type:        cloneMemoryType(item.Type),
-			SearchKeys:  normalizeStringSlice(item.Tags),
-		},
-		Content: item.Content,
-	}
-}
-
-func consolidationName(item ExtractedMemory, description string) string {
-	if description != "" {
-		return description
-	}
-	if item.Type.IsKnown() {
-		return fmt.Sprintf("%s dream note", item.Type)
-	}
-	return "Dream note"
 }

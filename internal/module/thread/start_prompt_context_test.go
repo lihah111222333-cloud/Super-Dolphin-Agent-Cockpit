@@ -25,6 +25,7 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 			"language":                     "Chinese",
 			"enabledTools":                 []any{"spawn_agent", "request_user_input", "spawn_agent"},
 			"additionalWorkingDirectories": []any{filepath.Join(repoRoot, "extra"), " " + filepath.Join(repoRoot, "extra-two") + " "},
+			"claudeMdExcludes":             []any{filepath.Join(repoRoot, "**", "CLAUDE.local.md")},
 			"sessionFlags":                 map[string]any{"verification_required": true},
 			"outputStyleConfig": map[string]any{
 				"name":                   "Explanatory",
@@ -56,6 +57,9 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 	wantDirs := []string{filepath.Join(repoRoot, "extra"), filepath.Join(repoRoot, "extra-two")}
 	if got := sortedStrings(ctx.AdditionalWorkingDirectories); !slices.Equal(got, wantDirs) {
 		t.Fatalf("AdditionalWorkingDirectories = %#v, want %#v", ctx.AdditionalWorkingDirectories, wantDirs)
+	}
+	if got := sortedStrings(ctx.ClaudeMdExcludes); !slices.Equal(got, []string{filepath.Join(repoRoot, "**", "CLAUDE.local.md")}) {
+		t.Fatalf("ClaudeMdExcludes = %#v", ctx.ClaudeMdExcludes)
 	}
 	if !ctx.SessionFlags["verification_required"] {
 		t.Fatalf("SessionFlags = %#v, want verification_required=true", ctx.SessionFlags)
@@ -102,14 +106,17 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 	).(*service)
 
 	if _, err := svc.Start(context.Background(), StartRequest{
-		AgentID:      "agent-ctx",
-		Provider:     "codex",
-		Name:         "display name",
-		CWD:          cwd,
-		Model:        "gpt-5.4",
-		Language:     "Chinese",
-		EnabledTools: []string{"lsp_file", "spawn_agent", "lsp_file"},
-		SessionFlags: map[string]bool{"verification_required": true},
+		AgentID:          "agent-ctx",
+		Provider:         "codex",
+		ParentAgentID:    "agent-root",
+		AgentType:        "worker",
+		AgentMemoryScope: "project",
+		Name:             "display name",
+		CWD:              cwd,
+		Model:            "gpt-5.4",
+		Language:         "Chinese",
+		EnabledTools:     []string{"lsp_file", "spawn_agent", "lsp_file"},
+		SessionFlags:     map[string]bool{"verification_required": true},
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -117,6 +124,9 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 	got := assembly.startInput
 	if got.ThreadID != "agent-ctx" {
 		t.Fatalf("ThreadID = %q, want agent-ctx", got.ThreadID)
+	}
+	if got.ParentAgentID != "agent-root" || got.AgentType != "worker" || got.AgentMemoryScope != "project" {
+		t.Fatalf("child agent metadata = %#v", got)
 	}
 	if got.CWD != cwd {
 		t.Fatalf("CWD = %q, want %q", got.CWD, cwd)
@@ -141,6 +151,9 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 	}
 	if got := sortedStrings(assembly.startInput.MCPSnapshot.Servers); !slices.Equal(got, []string{"lsp"}) {
 		t.Fatalf("MCPSnapshot.Servers = %#v, want [lsp]", assembly.startInput.MCPSnapshot.Servers)
+	}
+	if orch.launchReq.ParentID != "agent-root" || orch.launchReq.AgentType != "worker" || orch.launchReq.MemoryScope != "project" {
+		t.Fatalf("launch request metadata = %#v", orch.launchReq)
 	}
 }
 

@@ -3,44 +3,12 @@ package prompt
 import "context"
 
 var (
-	_ DynamicSectionProvider = OutputStyleStubProvider{}
-	_ DynamicSectionProvider = ScratchpadStubProvider{}
 	_ DynamicSectionProvider = FRCStubProvider{}
-	_ DynamicSectionProvider = SummarizeToolResultsStubProvider{}
 	_ DynamicSectionProvider = NumericLengthAnchorsStubProvider{}
 	_ DynamicSectionProvider = TokenBudgetStubProvider{}
 	_ DynamicSectionProvider = BriefStubProvider{}
 	_ DynamicSectionProvider = AntModelOverrideStubProvider{}
 )
-
-// OutputStyleStubProvider reserves the output_style section for future
-// outputStyleConfig-driven prompt rendering.
-// Claude reference: getOutputStyleSection(outputStyleConfig) plus the
-// outputStyleConfig-sensitive branches in getSimpleIntroSection() and
-// getSystemPrompt()'s doing_tasks assembly.
-type OutputStyleStubProvider struct{}
-
-func (OutputStyleStubProvider) SectionName() string {
-	return DynamicSectionOutputStyle
-}
-
-func (OutputStyleStubProvider) Resolve(context.Context, SectionContext) (*string, error) {
-	return nil, nil
-}
-
-// ScratchpadStubProvider reserves the scratchpad section for future exposure of
-// the session scratchpad directory contract and usage guidance.
-// Claude reference: the scratchpad branch in getSystemPrompt(), gated by
-// isScratchpadEnabled().
-type ScratchpadStubProvider struct{}
-
-func (ScratchpadStubProvider) SectionName() string {
-	return DynamicSectionScratchpad
-}
-
-func (ScratchpadStubProvider) Resolve(context.Context, SectionContext) (*string, error) {
-	return nil, nil
-}
 
 // FRCStubProvider reserves the frc section for future function result clearing
 // and microcompact guidance that reclaims stale tool-result context.
@@ -53,19 +21,6 @@ func (FRCStubProvider) SectionName() string {
 }
 
 func (FRCStubProvider) Resolve(context.Context, SectionContext) (*string, error) {
-	return nil, nil
-}
-
-// SummarizeToolResultsStubProvider reserves the summarize_tool_results section
-// for future instructions that prioritize tool-result summaries over raw output.
-// Claude reference: the summarize_tool_results branch in getSystemPrompt().
-type SummarizeToolResultsStubProvider struct{}
-
-func (SummarizeToolResultsStubProvider) SectionName() string {
-	return DynamicSectionSummarizeToolResults
-}
-
-func (SummarizeToolResultsStubProvider) Resolve(context.Context, SectionContext) (*string, error) {
 	return nil, nil
 }
 

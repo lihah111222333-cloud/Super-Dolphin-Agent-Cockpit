@@ -26,6 +26,9 @@ type UpsertParams struct {
 	RolloutPath      string
 	SessionUUID      string
 	Cwd              string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
 	CreatedAt        int64
 	UpdatedAt        int64
 }
@@ -63,6 +66,9 @@ type Binding struct {
 	CodexThreadID    string
 	RolloutPath      string
 	Cwd              string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
 	Archived         bool
 	CreatedAt        int64
 	UpdatedAt        int64
