@@ -131,13 +131,13 @@ func (g *consolidationLockGuard) RollbackMtime() error {
 	if g == nil || g.path == "" {
 		return nil
 	}
-	if !g.hadPrevious {
-		if err := os.Remove(g.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if g.hadPrevious {
+		if err := os.Chtimes(g.path, g.previousMtime, g.previousMtime); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		return nil
 	}
-	if err := os.Chtimes(g.path, g.previousMtime, g.previousMtime); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(g.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
@@ -151,6 +151,13 @@ func (g *consolidationLockGuard) Release() error {
 		return err
 	}
 	return nil
+}
+
+func (g *consolidationLockGuard) Complete(committed bool) error {
+	if committed {
+		return g.Release()
+	}
+	return g.RollbackMtime()
 }
 
 func resolvedConsolidationLockOptions(opts consolidationLockOptions) (func() time.Time, int, time.Duration) {

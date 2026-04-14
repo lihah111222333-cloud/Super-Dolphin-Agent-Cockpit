@@ -50,6 +50,7 @@ type memoryLifecycleHookParams struct {
 
 	Config          *Config                   `optional:"true"`
 	Consolidator    *AutoDreamConsolidator    `optional:"true"`
+	DreamExtractFn  ExtractFunc               `optional:"true"`
 	Logger          *slog.Logger              `optional:"true"`
 	Threads         historySource             `optional:"true"`
 	ThreadStore     threadMetadataStore       `optional:"true"`
@@ -58,8 +59,14 @@ type memoryLifecycleHookParams struct {
 	ManifestBuilder *ManifestBuilder          `optional:"true"`
 }
 
+type dreamExtractParams struct {
+	fx.In
+
+	Executor contract.DreamExecutor `optional:"true"`
+}
+
 func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) *MemoryLifecycleHooks {
-	return newMemoryLifecycleHooks(
+	hooks := newMemoryLifecycleHooks(
 		p.Config,
 		p.Consolidator,
 		p.Logger,
@@ -69,6 +76,10 @@ func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) *MemoryLifecycleHooks 
 		p.Extractor,
 		p.ManifestBuilder,
 	)
+	if hooks != nil && hooks.consolidator != nil && p.DreamExtractFn != nil {
+		hooks.consolidator.extractFn = p.DreamExtractFn
+	}
+	return hooks
 }
 
 func newMemoryLifecycleHooks(
@@ -119,7 +130,7 @@ func newMemoryLifecycleHooks(
 var Module = fx.Module("memory",
 	fx.Provide(
 		NewConfig,
-		NewService,
+		provideMemoryService,
 		NewAgentMemoryManager,
 		NewTeamMemoryManager,
 		NewTeamMemoryGuard,
@@ -129,7 +140,8 @@ var Module = fx.Module("memory",
 		NewRulesProvider,
 		NewAgentMemoryPromptProvider,
 		NewContextProvider,
-		NewAutoDreamConsolidator,
+		provideDreamExtractFunc,
+		provideAutoDreamConsolidator,
 		NewMemoryLifecycleHooks,
 		NewMemoryExtractor,
 	),
@@ -155,10 +167,34 @@ func (m *RootManager) EnsureRoot(ctx context.Context) error {
 }
 
 func NewAutoDreamConsolidator(extractor *MemoryExtractor) *AutoDreamConsolidator {
+	return newAutoDreamConsolidator(extractor, nil)
+}
+
+func newAutoDreamConsolidator(extractor *MemoryExtractor, extractFn ExtractFunc) *AutoDreamConsolidator {
 	if extractor == nil {
 		extractor = NewMemoryExtractor()
 	}
-	return &AutoDreamConsolidator{extractor: extractor}
+	return &AutoDreamConsolidator{extractor: extractor, extractFn: extractFn}
+}
+
+func provideDreamExtractFunc(p dreamExtractParams) ExtractFunc {
+	if p.Executor == nil {
+		return nil
+	}
+	return p.Executor.ExecuteDream
+}
+
+func provideAutoDreamConsolidator(extractor *MemoryExtractor, dreamExtractFn ExtractFunc) *AutoDreamConsolidator {
+	return newAutoDreamConsolidator(extractor, dreamExtractFn)
+}
+
+func provideMemoryService(
+	cfg *Config,
+	logger *slog.Logger,
+	consolidator *AutoDreamConsolidator,
+	hooks *MemoryLifecycleHooks,
+) Service {
+	return newServiceWithConsolidator(cfg, logger, consolidator, hooks)
 }
 
 func registerLifecycle(lc fx.Lifecycle, svc Service) {

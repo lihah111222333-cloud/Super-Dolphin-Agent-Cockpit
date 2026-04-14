@@ -31,7 +31,10 @@ func TestNewConfigFallsBackToProjectRoot(t *testing.T) {
 
 func TestServiceEnsureRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	svc := NewService(&Config{RootDir: root}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc := NewService(serviceParams{
+		Config: &Config{RootDir: root},
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
 	if err := svc.EnsureRoot(context.Background()); err != nil {
 		t.Fatalf("EnsureRoot() error = %v", err)
 	}
@@ -47,11 +50,14 @@ func TestServiceEnsureRoot(t *testing.T) {
 func TestServiceEnsureRootUsesAutoMemPathOverride(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
 	override := filepath.Join(t.TempDir(), "override", "memory")
-	svc := NewService(&Config{
-		RootDir:             root,
-		ProjectRoot:         filepath.Join(t.TempDir(), "project"),
-		AutoMemPathOverride: override,
-	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc := NewService(serviceParams{
+		Config: &Config{
+			RootDir:             root,
+			ProjectRoot:         filepath.Join(t.TempDir(), "project"),
+			AutoMemPathOverride: override,
+		},
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
 	if err := svc.EnsureRoot(context.Background()); err != nil {
 		t.Fatalf("EnsureRoot() error = %v", err)
 	}
@@ -66,7 +72,10 @@ func TestServiceEnsureRootUsesAutoMemPathOverride(t *testing.T) {
 
 func TestRootManagerEnsureRootDelegatesToService(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root-manager")
-	svc := NewService(&Config{RootDir: root}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc := NewService(serviceParams{
+		Config: &Config{RootDir: root},
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
 	manager := NewRootManager(svc)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -80,6 +89,49 @@ func TestRootManagerEnsureRootDelegatesToService(t *testing.T) {
 	}
 	if got := manager.RootDir(); got != root {
 		t.Fatalf("RootDir() = %q, want %q", got, root)
+	}
+}
+
+func TestAutoDreamServiceExposesDreamTaskLifecycle(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	hooks := newMemoryLifecycleHooks(
+		&Config{Enabled: true, RootDir: root},
+		NewAutoDreamConsolidator(NewMemoryExtractor()),
+		nil,
+		nil,
+		nil,
+		nil,
+		NewMemoryExtractor(),
+		NewManifestBuilder(),
+	)
+	taskCtx, started := hooks.startDreamTask("thread-1")
+	if !started {
+		t.Fatal("startDreamTask() = false, want true")
+	}
+	hooks.setDreamTaskPhase(dreamTaskPhaseUpdating)
+
+	svc := NewService(serviceParams{
+		Config: &Config{RootDir: root},
+		Hooks:  hooks,
+	})
+	got := svc.GetDreamTaskStatus()
+	if !got.Running || got.ThreadID != "thread-1" || got.Phase != dreamTaskPhaseUpdating {
+		t.Fatalf("GetDreamTaskStatus() = %#v", got)
+	}
+	if err := svc.KillDreamTask(); err != nil {
+		t.Fatalf("KillDreamTask() error = %v", err)
+	}
+	select {
+	case <-taskCtx.Done():
+	default:
+		t.Fatal("KillDreamTask() did not cancel the dream task context")
+	}
+	hooks.finishDreamTask()
+	if got := svc.GetDreamTaskStatus(); got.Running {
+		t.Fatalf("GetDreamTaskStatus() after finish = %#v, want idle", got)
+	}
+	if err := svc.KillDreamTask(); !errors.Is(err, ErrDreamTaskNotRunning) {
+		t.Fatalf("KillDreamTask() after finish error = %v, want %v", err, ErrDreamTaskNotRunning)
 	}
 }
 

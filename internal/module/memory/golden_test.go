@@ -10,8 +10,8 @@ func TestMemoryPromptGolden(t *testing.T) {
 	t.Parallel()
 
 	got := map[string]string{
-		"standard":   goldenPromptString(LoadMemoryPrompt(MemoryModeStandard, true, false, nil)),
-		"skip_index": goldenPromptString(LoadMemoryPrompt(MemoryModeStandard, true, true, []string{"Prefer absolute dates in summaries.", "Keep topic names canonical."})),
+		"standard":   goldenPromptString(LoadMemoryPrompt(MemoryModeStandard, true, false, true, nil)),
+		"skip_index": goldenPromptString(LoadMemoryPrompt(MemoryModeStandard, true, true, true, []string{"Prefer absolute dates in summaries.", "Keep topic names canonical."})),
 	}
 	goldentest.AssertJSON(t, goldentest.Case{
 		BaseDir: "testdata/golden",

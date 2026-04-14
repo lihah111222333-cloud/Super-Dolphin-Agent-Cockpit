@@ -62,7 +62,7 @@
 1. **F/H 修复收口**：F 的 output_style 判定 + scratchpad cleanup；H 的 metadata fail-closed + 补测试。
 2. **拉起 J/K/L 第二波**：按 p18.3 依赖图拉起 KAIROS + Team Memory + nested_memory，按子任务拆分（每 Agent ≤15 文件）。
 3. **全量回归验证**：J/K/L 完成后跑全量 build + test + archtest 守护。
-4. **仓库契约已调整**：核心包（memory/prompt/thread/turn/claudecli/codexapp）守卫放宽至 包文件≤30、单文件≤600行、包总行≤10000；函数/CC 不变。
+4. **仓库契约已调整**：核心包守卫放宽至 包文件≤30、单文件≤600行、包总行≤10000；`module/memory` 特例冻结 38文件/12000行（只减不增），拆分计划归后续契约整理。
 
 ---
 

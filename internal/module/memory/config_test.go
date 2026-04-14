@@ -85,7 +85,7 @@ func TestSkeletonConfigsDefaultDisabledAndPlaceholderHelpers(t *testing.T) {
 	if cfg.NestedMemory.Enabled {
 		t.Fatal("NestedMemory.Enabled = true, want false")
 	}
-	if got := BuildDailyLogPrompt(false, nil); !strings.Contains(got, "KAIROS") {
+	if got := BuildDailyLogPrompt(false, false, nil); !strings.Contains(got, "KAIROS") {
 		t.Fatalf("BuildDailyLogPrompt() missing KAIROS section: %q", got)
 	}
 	HandleDateChange()
@@ -172,7 +172,7 @@ func TestMemoryConstructorsUseIsMemoryEnabled(t *testing.T) {
 	t.Setenv(envClaudeSimple, "1")
 
 	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
-	rulesText, err := NewRulesProvider(cfg, nil).Resolve(context.Background(), prompt.SectionContext{
+	rulesText, err := NewRulesProvider(cfg, nil, nil).Resolve(context.Background(), prompt.SectionContext{
 		Start: &prompt.StartInput{},
 	})
 	if err != nil {
@@ -233,6 +233,9 @@ func TestResolveMemoryGateSupportsSettingsAndModeSelection(t *testing.T) {
 	}
 	if !gate.EnableRelevantPrefetch {
 		t.Fatalf("ResolveMemoryGate(skipIndex).EnableRelevantPrefetch = false, want true")
+	}
+	if gate.InjectTeamMemIndex {
+		t.Fatalf("ResolveMemoryGate(kairos).InjectTeamMemIndex = true, want false")
 	}
 	if gate.RequestedMemoryMode != MemoryModeKairos {
 		t.Fatalf("RequestedMemoryMode = %q, want %q", gate.RequestedMemoryMode, MemoryModeKairos)

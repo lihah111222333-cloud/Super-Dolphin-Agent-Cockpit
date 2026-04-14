@@ -25,6 +25,7 @@ var Module = fx.Module("provider.unified",
 		NewTurnSessionProvider,
 		fx.Annotate(NewSessionCleaner, fx.As(new(contract.OrchestrationSessionCleaner))),
 		NewSessionResolver,
+		NewDreamExecutor,
 	),
 	fx.Invoke(registerSessionShutdown),
 )

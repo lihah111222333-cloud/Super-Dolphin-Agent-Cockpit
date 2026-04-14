@@ -45,12 +45,33 @@ type consolidationStamp struct {
 	LastSuccessAt string `json:"last_success_at,omitempty"`
 }
 
+type preparedConsolidation struct {
+	root      string
+	cfg       *Config
+	now       func() time.Time
+	extractFn ExtractFunc
+	guard     *consolidationLockGuard
+}
 type autoDreamThreadLister interface {
 	ListAll(ctx context.Context) ([]threadstore.Thread, error)
 }
 
 func (c *AutoDreamConsolidator) Consolidate(ctx context.Context, memoryRoot string, extractFn ExtractFunc) error {
-	return c.consolidateWithOptions(ctx, memoryRoot, extractFn, consolidationRunOptions{cfg: c.cfg})
+	cfg, err := c.consolidationConfig(memoryRoot, nil)
+	if err != nil {
+		return err
+	}
+	return c.consolidateWithOptions(ctx, memoryRoot, extractFn, consolidationRunOptions{cfg: cfg})
+}
+
+func (c *AutoDreamConsolidator) consolidationConfig(path string, cfg *Config) (*Config, error) {
+	if cfg != nil {
+		return cfg, nil
+	}
+	if c != nil && c.cfg != nil {
+		return c.cfg, nil
+	}
+	return nil, rejectConsolidationPath(nil, path)
 }
 
 func (c *AutoDreamConsolidator) consolidateWithOptions(
@@ -59,24 +80,61 @@ func (c *AutoDreamConsolidator) consolidateWithOptions(
 	extractFn ExtractFunc,
 	opts consolidationRunOptions,
 ) (err error) {
-	if err := contextErr(ctx); err != nil {
-		return err
-	}
-	root, err := normalizeStoreRoot(memoryRoot)
+	run, err := c.prepareConsolidation(ctx, memoryRoot, extractFn, opts)
 	if err != nil {
 		return err
 	}
-	if opts.cfg == nil {
-		opts.cfg = c.cfg
-	}
-	if opts.cfg != nil {
-		if err := rejectConsolidationPath(opts.cfg, root); err != nil {
-			return err
+	committed := false
+	defer func() {
+		if cleanupErr := run.guard.Complete(committed); err == nil && cleanupErr != nil {
+			err = cleanupErr
 		}
+	}()
+	input, err := loadConsolidationPromptInput(run.root, run.cfg)
+	if err != nil {
+		return err
+	}
+	input.Limit = c.limit()
+	hasTopicContent := len(consolidationCandidates(input.TopicEntries)) > 0
+	indexContent := strings.TrimSpace(input.Index.Content)
+	hasIndexContent := indexContent != "" && indexContent != "(missing)" && indexContent != "(empty)"
+	if !hasTopicContent && len(input.LogDocuments) == 0 && !hasIndexContent {
+		err = withDiskStoreLock(run.root, func() error {
+			if _, err := UpdateMemoryIndex(run.root); err != nil {
+				return err
+			}
+			return recordConsolidation(run.root, run.now())
+		})
+		committed = err == nil
+		return err
+	}
+	err = c.runConsolidationExtract(ctx, run, input)
+	committed = err == nil
+	return err
+}
+
+func (c *AutoDreamConsolidator) prepareConsolidation(
+	ctx context.Context,
+	memoryRoot string,
+	extractFn ExtractFunc,
+	opts consolidationRunOptions,
+) (preparedConsolidation, error) {
+	if err := contextErr(ctx); err != nil {
+		return preparedConsolidation{}, err
+	}
+	root, err := normalizeStoreRoot(memoryRoot)
+	if err != nil {
+		return preparedConsolidation{}, err
+	}
+	if opts.cfg, err = c.consolidationConfig(root, opts.cfg); err != nil {
+		return preparedConsolidation{}, err
+	}
+	if err := rejectConsolidationPath(opts.cfg, root); err != nil {
+		return preparedConsolidation{}, err
 	}
 	extractFn = c.resolveExtractFunc(extractFn)
 	if extractFn == nil {
-		return ErrConsolidationExtractFuncRequired
+		return preparedConsolidation{}, ErrConsolidationExtractFuncRequired
 	}
 	now := opts.now
 	if now == nil {
@@ -84,36 +142,20 @@ func (c *AutoDreamConsolidator) consolidateWithOptions(
 	}
 	guard, err := acquireConsolidationLock(root, consolidationLockOptions{Now: now})
 	if err != nil {
-		return err
+		return preparedConsolidation{}, err
 	}
-	started := false
-	defer func() {
-		if err != nil && !started {
-			_ = guard.RollbackMtime()
-		}
-		_ = guard.Release()
-	}()
 	if opts.onLocked != nil {
 		opts.onLocked()
 	}
-	input, err := loadConsolidationPromptInput(root, opts.cfg)
-	if err != nil {
-		return err
-	}
-	hasTopicContent := len(consolidationCandidates(input.TopicEntries)) > 0
-	indexContent := strings.TrimSpace(input.Index.Content)
-	hasIndexContent := indexContent != "" && indexContent != "(missing)" && indexContent != "(empty)"
-	if !hasTopicContent && len(input.LogDocuments) == 0 && !hasIndexContent {
-		return withDiskStoreLock(root, func() error {
-			if _, updateErr := UpdateMemoryIndex(root); updateErr != nil {
-				return updateErr
-			}
-			return recordConsolidation(root, now())
-		})
-	}
-	input.Limit = c.limit()
-	started = true
-	raw, err := extractFn(ctx, buildConsolidationPrompt(input))
+	return preparedConsolidation{root: root, cfg: opts.cfg, now: now, extractFn: extractFn, guard: guard}, nil
+}
+
+func (c *AutoDreamConsolidator) runConsolidationExtract(
+	ctx context.Context,
+	run preparedConsolidation,
+	input consolidationPromptInput,
+) error {
+	raw, err := run.extractFn(ctx, buildConsolidationPrompt(input))
 	if err != nil {
 		return err
 	}
@@ -121,17 +163,17 @@ func (c *AutoDreamConsolidator) consolidateWithOptions(
 	if err != nil {
 		return err
 	}
-	return withDiskStoreLock(root, func() error {
-		if err := removeMemoryFiles(root, staleMemoryPaths(input.TopicEntries)); err != nil {
+	return withDiskStoreLock(run.root, func() error {
+		if err := removeMemoryFiles(run.root, staleMemoryPaths(input.TopicEntries)); err != nil {
 			return err
 		}
-		if err := writeConsolidatedMemories(root, items); err != nil {
+		if err := writeConsolidatedMemories(run.root, items); err != nil {
 			return err
 		}
-		if _, err := UpdateMemoryIndex(root); err != nil {
+		if _, err := UpdateMemoryIndex(run.root); err != nil {
 			return err
 		}
-		return recordConsolidation(root, now())
+		return recordConsolidation(run.root, run.now())
 	})
 }
 
@@ -220,7 +262,11 @@ func (h *MemoryLifecycleHooks) maybeScheduleAutoDream(ctx context.Context, threa
 	if sessionCount < autoDreamMinSessions {
 		return false, nil
 	}
-	if h.consolidator.resolveExtractFunc(h.extractFn) == nil {
+	dreamExtractFn := h.extractFn
+	if dreamExtractFn == nil {
+		dreamExtractFn = h.consolidator.resolveExtractFunc(nil)
+	}
+	if dreamExtractFn == nil {
 		return false, ErrConsolidationExtractFuncRequired
 	}
 	taskCtx, started := h.startDreamTask(threadID)
@@ -229,7 +275,7 @@ func (h *MemoryLifecycleHooks) maybeScheduleAutoDream(ctx context.Context, threa
 	}
 	go func() {
 		defer h.finishDreamTask()
-		err := h.consolidator.consolidateWithOptions(taskCtx, root, h.extractFn, consolidationRunOptions{
+		err := h.consolidator.consolidateWithOptions(taskCtx, root, dreamExtractFn, consolidationRunOptions{
 			cfg: h.cfg,
 			now: h.now,
 			onLocked: func() {

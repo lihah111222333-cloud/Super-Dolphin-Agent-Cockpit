@@ -81,6 +81,24 @@ func TestConsolidationLockRollbackRestoresMtime(t *testing.T) {
 	}
 }
 
+func TestConsolidationLockRollbackRemovesNewLock(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	guard, err := acquireConsolidationLock(root, consolidationLockOptions{})
+	if err != nil {
+		t.Fatalf("acquireConsolidationLock() error = %v", err)
+	}
+	path, err := consolidationLockPath(root)
+	if err != nil {
+		t.Fatalf("consolidationLockPath() error = %v", err)
+	}
+	if err := guard.RollbackMtime(); err != nil {
+		t.Fatalf("RollbackMtime() error = %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Stat(lock after rollback) error = %v, want not-exist", err)
+	}
+}
+
 func TestConsolidationLockIndependentFromDiskStoreLock(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	started := make(chan struct{})

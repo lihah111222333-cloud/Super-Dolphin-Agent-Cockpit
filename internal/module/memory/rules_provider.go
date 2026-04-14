@@ -24,23 +24,26 @@ var (
 type MemoryRulesProvider struct {
 	cfg    *Config
 	engine *MemoryRuleEngine
+	team   *TeamMemoryManager
 }
 
 type promptProviderParams struct {
 	fx.In
 
-	Registry        prompt.PromptRegistry      `optional:"true"`
-	Provider        *MemoryRulesProvider       `optional:"true"`
-	AgentProvider   *AgentMemoryPromptProvider `optional:"true"`
-	ContextProvider *MemoryContextProvider     `optional:"true"`
+	Registry         prompt.PromptRegistry      `optional:"true"`
+	PromptService    prompt.Service             `optional:"true"`
+	ClaudeMdProvider *ClaudeMdSourcesProvider   `optional:"true"`
+	Provider         *MemoryRulesProvider       `optional:"true"`
+	AgentProvider    *AgentMemoryPromptProvider `optional:"true"`
+	ContextProvider  *MemoryContextProvider     `optional:"true"`
 }
 
-func NewRulesProvider(cfg *Config, engine *MemoryRuleEngine) *MemoryRulesProvider {
+func NewRulesProvider(cfg *Config, engine *MemoryRuleEngine, team *TeamMemoryManager) *MemoryRulesProvider {
 	cfg = memoryConfig(cfg)
 	if engine == nil {
 		engine = NewMemoryRuleEngine()
 	}
-	return &MemoryRulesProvider{cfg: cfg, engine: engine}
+	return &MemoryRulesProvider{cfg: cfg, engine: engine, team: team}
 }
 
 func (p *MemoryRulesProvider) SectionName() string {
@@ -55,10 +58,12 @@ func (p *MemoryRulesProvider) Resolve(_ context.Context, input prompt.SectionCon
 		return nil, nil
 	}
 	gate := ResolveMemoryGate(input.BuildCtx, p.cfg)
-	text := p.engine.LoadMemoryPrompt(gate.EffectiveMemoryMode, gate.AutoEnabled, MemoryRuleOptions{
-		SkipIndex:       gate.SkipIndex,
-		ExtraGuidelines: p.resolvedExtraGuidelines(),
-	})
+	opts := MemoryRuleOptions{
+		SkipIndex:                gate.SkipIndex,
+		SearchPastContextEnabled: gate.SearchPastContextEnabled,
+		ExtraGuidelines:          p.resolvedExtraGuidelines(),
+	}
+	text := p.engine.LoadMemoryPrompt(p.promptMode(input.BuildCtx, gate, &opts), gate.AutoEnabled, opts)
 	if text == nil || strings.TrimSpace(*text) == "" {
 		return nil, nil
 	}
@@ -75,6 +80,39 @@ func (p *MemoryRulesProvider) resolvedExtraGuidelines() []string {
 		return nil
 	}
 	return guidelines
+}
+
+func (p *MemoryRulesProvider) promptMode(buildCtx contract.BuildCtx, gate MemoryGateSnapshot, opts *MemoryRuleOptions) MemoryMode {
+	if !gate.AutoEnabled {
+		return ""
+	}
+	if gate.KairosActive {
+		return MemoryModeKairos
+	}
+	autoDir, teamDir, ok := p.combinedMemoryPaths(buildCtx)
+	if !ok {
+		return MemoryModeStandard
+	}
+	if opts != nil {
+		opts.AutoMemPath = autoDir
+		opts.TeamMemPath = teamDir
+	}
+	return MemoryModeCombined
+}
+
+func (p *MemoryRulesProvider) combinedMemoryPaths(buildCtx contract.BuildCtx) (string, string, bool) {
+	if p == nil || p.team == nil {
+		return "", "", false
+	}
+	autoDir := autoMemRoot(ClaudeMdResolveConfig{
+		BuildCtx:     buildCtx,
+		MemoryConfig: p.cfg,
+	})
+	teamDir := providerTeamMemPath(p.team, buildCtx)
+	if autoDir == "" || teamDir == "" {
+		return "", "", false
+	}
+	return autoDir, teamDir, true
 }
 
 type MemoryContextProvider struct {
@@ -338,15 +376,24 @@ func (p *MemoryContextProvider) now() time.Time {
 }
 
 func registerPromptProviders(p promptProviderParams) error {
-	if p.Registry == nil {
-		return nil
-	}
-	providers := []prompt.DynamicSectionProvider{p.Provider, p.AgentProvider, p.ContextProvider}
-	for _, provider := range providers {
-		if provider == nil {
-			continue
+	if p.PromptService == nil {
+		if svc, ok := p.Registry.(prompt.Service); ok {
+			p.PromptService = svc
 		}
-		if err := p.Registry.RegisterDynamicProvider(provider); err != nil {
+	}
+	if p.Registry != nil {
+		providers := []prompt.DynamicSectionProvider{p.Provider, p.AgentProvider, p.ContextProvider}
+		for _, provider := range providers {
+			if provider == nil {
+				continue
+			}
+			if err := p.Registry.RegisterDynamicProvider(provider); err != nil {
+				return err
+			}
+		}
+	}
+	if p.PromptService != nil && p.ClaudeMdProvider != nil {
+		if err := p.PromptService.RegisterClaudeMdSourceProvider(p.ClaudeMdProvider); err != nil {
 			return err
 		}
 	}

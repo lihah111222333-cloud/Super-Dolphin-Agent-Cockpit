@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -168,7 +169,8 @@ func (m *AgentMemoryManager) loadAgentMemoryPrompt(agentType string, scope Memor
 		return agentMemoryLoadResult{}, err
 	}
 	entrypointResult := loadAgentMemoryEntrypoint(entrypoint)
-	rules := strings.TrimSpace(BuildMemoryLines(false, append(
+	gate := ResolveMemoryGate(contract.BuildCtx{}, m.config())
+	rules := strings.TrimSpace(BuildMemoryLines(false, gate.SearchPastContextEnabled, append(
 		agentMemoryGuidelines(scope),
 		cloneStrings(m.config().ExtraGuidelines)...,
 	)))

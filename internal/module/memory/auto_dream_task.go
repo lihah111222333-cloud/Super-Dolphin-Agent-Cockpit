@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"strings"
 )
 
@@ -16,6 +17,19 @@ type DreamTaskSnapshot struct {
 	Running  bool
 	ThreadID string
 	Phase    string
+}
+
+var ErrDreamTaskNotRunning = errors.New("dream task is not running")
+
+func (h *MemoryLifecycleHooks) GetDreamTaskStatus() DreamTaskSnapshot {
+	return h.dreamTaskSnapshot()
+}
+
+func (h *MemoryLifecycleHooks) KillDreamTask() error {
+	if !h.killDreamTask() {
+		return ErrDreamTaskNotRunning
+	}
+	return nil
 }
 
 func (h *MemoryLifecycleHooks) startDreamTask(threadID string) (context.Context, bool) {
