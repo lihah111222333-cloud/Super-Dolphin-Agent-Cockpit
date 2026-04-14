@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -17,8 +16,6 @@ import (
 const (
 	agentMemoryDirName           = "agents"
 	agentMemoryLocalDirName      = "local"
-	agentMemoryMaxLines          = 200
-	agentMemoryMaxCodeUnits      = 25_000
 	defaultChildAgentMemoryScope = MemoryScopeProject
 	emptyAgentMemoryPrompt       = "Your MEMORY.md is currently empty. Save only durable, agent-specific context here."
 	unreadableAgentMemoryMsg     = "WARNING: MEMORY.md could not be read; continuing with empty agent memory."
@@ -37,7 +34,7 @@ type AgentMemoryManager struct {
 }
 
 type AgentMemoryPromptProvider struct {
-	enabled bool
+	cfg     *Config
 	manager *AgentMemoryManager
 	logger  *slog.Logger
 }
@@ -48,15 +45,12 @@ type childAgentStart struct {
 }
 
 func NewAgentMemoryManager(cfg *Config) *AgentMemoryManager {
-	if cfg == nil {
-		cfg = &Config{}
-	}
-	return &AgentMemoryManager{cfg: cfg}
+	return &AgentMemoryManager{cfg: memoryConfig(cfg)}
 }
 
 func NewAgentMemoryPromptProvider(cfg *Config, manager *AgentMemoryManager, logger *slog.Logger) *AgentMemoryPromptProvider {
 	return &AgentMemoryPromptProvider{
-		enabled: cfg != nil && cfg.IsMemoryEnabled(),
+		cfg:     memoryConfig(cfg),
 		manager: manager,
 		logger:  logger,
 	}
@@ -99,7 +93,10 @@ func (p *AgentMemoryPromptProvider) SectionName() string {
 }
 
 func (p *AgentMemoryPromptProvider) Resolve(_ context.Context, input prompt.SectionContext) (*string, error) {
-	if p == nil || !p.enabled || p.manager == nil {
+	if p == nil || p.manager == nil {
+		return nil, nil
+	}
+	if !ResolveMemoryGate(input.BuildCtx, p.cfg).AutoEnabled {
 		return nil, nil
 	}
 	meta, ok := resolveChildAgentStart(input)
@@ -253,116 +250,6 @@ func loadAgentMemoryEntrypoint(path string) (string, string) {
 		return emptyAgentMemoryPrompt, ""
 	}
 	return parsed.Content, ""
-}
-
-type agentMemoryTruncation struct {
-	content          string
-	lineCount        int
-	codeUnitCount    int
-	wasLineTruncated bool
-	wasByteTruncated bool
-}
-
-func truncateAgentMemoryContent(raw string) agentMemoryTruncation {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return agentMemoryTruncation{}
-	}
-
-	contentLines := strings.Split(trimmed, "\n")
-	result := agentMemoryTruncation{
-		content:       trimmed,
-		lineCount:     len(contentLines),
-		codeUnitCount: jsStringLength(trimmed),
-	}
-	result.wasLineTruncated = result.lineCount > agentMemoryMaxLines
-	result.wasByteTruncated = result.codeUnitCount > agentMemoryMaxCodeUnits
-	if !result.wasLineTruncated && !result.wasByteTruncated {
-		return result
-	}
-
-	truncated := trimmed
-	if result.wasLineTruncated {
-		truncated = strings.Join(contentLines[:agentMemoryMaxLines], "\n")
-	}
-	if jsStringLength(truncated) > agentMemoryMaxCodeUnits {
-		truncated = truncateAtCodeUnitLimit(truncated, agentMemoryMaxCodeUnits)
-	}
-	result.content = truncated + "\n\n> WARNING: MEMORY.md is " + truncateAgentMemoryReason(result) + ". Only part of it was loaded. Keep index entries to one line under ~200 chars; move detail into topic files."
-	return result
-}
-
-func truncateAgentMemoryReason(result agentMemoryTruncation) string {
-	switch {
-	case result.wasByteTruncated && !result.wasLineTruncated:
-		return fmt.Sprintf("%s (limit: %s) — index entries are too long", formatEntrypointSize(result.codeUnitCount), formatEntrypointSize(agentMemoryMaxCodeUnits))
-	case result.wasLineTruncated && !result.wasByteTruncated:
-		return fmt.Sprintf("%d lines (limit: %d)", result.lineCount, agentMemoryMaxLines)
-	default:
-		return fmt.Sprintf("%d lines and %s", result.lineCount, formatEntrypointSize(result.codeUnitCount))
-	}
-}
-
-func truncateAtCodeUnitLimit(content string, limit int) string {
-	if limit <= 0 {
-		return ""
-	}
-	if jsStringLength(content) <= limit {
-		return content
-	}
-
-	bytePos := 0
-	codeUnits := 0
-	lastNewline := -1
-	for bytePos < len(content) {
-		r, size := utf8.DecodeRuneInString(content[bytePos:])
-		units := utf16CodeUnits(r)
-		if codeUnits+units > limit {
-			break
-		}
-		if r == '\n' {
-			lastNewline = bytePos
-		}
-		codeUnits += units
-		bytePos += size
-	}
-	if lastNewline > 0 {
-		return content[:lastNewline]
-	}
-	return content[:bytePos]
-}
-
-func jsStringLength(content string) int {
-	count := 0
-	for bytePos := 0; bytePos < len(content); {
-		r, size := utf8.DecodeRuneInString(content[bytePos:])
-		count += utf16CodeUnits(r)
-		bytePos += size
-	}
-	return count
-}
-
-func utf16CodeUnits(r rune) int {
-	if r > 0xFFFF {
-		return 2
-	}
-	return 1
-}
-
-func formatEntrypointSize(size int) string {
-	kb := float64(size) / 1024
-	if kb < 1 {
-		return fmt.Sprintf("%d bytes", size)
-	}
-	if kb < 1024 {
-		return strings.TrimSuffix(fmt.Sprintf("%.1f", kb), ".0") + "KB"
-	}
-	mb := kb / 1024
-	if mb < 1024 {
-		return strings.TrimSuffix(fmt.Sprintf("%.1f", mb), ".0") + "MB"
-	}
-	gb := mb / 1024
-	return strings.TrimSuffix(fmt.Sprintf("%.1f", gb), ".0") + "GB"
 }
 
 func resolveChildAgentStart(input prompt.SectionContext) (childAgentStart, bool) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestStaticSectionsExposeRequestedSlots(t *testing.T) {
@@ -32,7 +34,7 @@ func TestStaticSectionsExposeRequestedSlots(t *testing.T) {
 
 func TestStaticSectionsRenderNonEmptyContent(t *testing.T) {
 	for _, section := range StaticSections() {
-		content, err := section.Compute(context.Background(), SectionContext{})
+		content, err := section.Compute(context.Background(), SectionContext{BuildCtx: BuildCtx{}})
 		if err != nil {
 			t.Fatalf("section %q Compute() error = %v", section.Name, err)
 		}
@@ -58,7 +60,7 @@ func TestStaticSectionsCoverCriticalClaudeSemantics(t *testing.T) {
 	checks := map[string][]string{
 		SectionIdentity: {
 			"authorized security testing",
-			"Never invent or guess URLs",
+			"must NEVER generate or guess URLs",
 		},
 		SectionSystemConstraints: {
 			"<user-prompt-submit-hook>",
@@ -96,4 +98,45 @@ func TestStaticSectionsCoverCriticalClaudeSemantics(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestStaticSectionsIdentityUsesOutputStyleFraming(t *testing.T) {
+	for _, section := range StaticSections() {
+		if section.Name != SectionIdentity {
+			continue
+		}
+		content, err := section.Compute(context.Background(), SectionContext{
+			BuildCtx: BuildCtx{
+				OutputStyleConfig: &contract.OutputStyleConfig{Name: "Explanatory"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("identity Compute() error = %v", err)
+		}
+		if content == nil || !strings.Contains(*content, `according to your "Output Style" below`) {
+			t.Fatalf("identity content = %v, want output-style framing", content)
+		}
+		return
+	}
+	t.Fatal("identity section not found")
+}
+
+func TestStaticSectionsEngineeringSkipsWhenKeepCodingDisabled(t *testing.T) {
+	keepCodingInstructions := false
+	for _, section := range StaticSections() {
+		if section.Name != SectionEngineering {
+			continue
+		}
+		content, err := section.Compute(context.Background(), SectionContext{
+			BuildCtx: BuildCtx{KeepCodingInstructions: &keepCodingInstructions},
+		})
+		if err != nil {
+			t.Fatalf("engineering Compute() error = %v", err)
+		}
+		if content != nil {
+			t.Fatalf("engineering content = %q, want nil when keepCodingInstructions=false", *content)
+		}
+		return
+	}
+	t.Fatal("engineering section not found")
 }

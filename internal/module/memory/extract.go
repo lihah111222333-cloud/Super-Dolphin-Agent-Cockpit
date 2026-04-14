@@ -305,7 +305,7 @@ func truncateParsedMemoryContent(path, content string) string {
 	if trimmed == "" {
 		return ""
 	}
-	return truncateAgentMemoryContent(trimmed).content
+	return TruncateEntrypointContent(trimmed).Content
 }
 
 func startsHTMLCommentBlock(line string) bool {

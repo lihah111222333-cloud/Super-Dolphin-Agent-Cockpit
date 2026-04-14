@@ -4,24 +4,26 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
-	DynamicSectionSessionGuidance  = "session_guidance"
-	DynamicSectionMemory           = "memory"
-	DynamicSectionAgentMemory      = "agent_memory"
-	DynamicSectionMemoryContext    = "memory_context"
-	DynamicSectionEnvInfoSimple    = "env_info_simple"
-	DynamicSectionLanguage         = "language"
-	DynamicSectionMCPInstructions  = "mcp_instructions"
-	DynamicSectionOutputStyle      = "output_style"
-	DynamicSectionScratchpad       = "scratchpad"
-	DynamicSectionFRC              = "frc"
+	DynamicSectionSessionGuidance      = "session_guidance"
+	DynamicSectionMemory               = "memory"
+	DynamicSectionAgentMemory          = "agent_memory"
+	DynamicSectionMemoryContext        = "memory_context"
+	DynamicSectionEnvInfoSimple        = "env_info_simple"
+	DynamicSectionLanguage             = "language"
+	DynamicSectionMCPInstructions      = "mcp_instructions"
+	DynamicSectionOutputStyle          = "output_style"
+	DynamicSectionScratchpad           = "scratchpad"
+	DynamicSectionFRC                  = "frc"
 	DynamicSectionSummarizeToolResults = "summarize_tool_results"
-	DynamicSectionNumericLengthAnchors  = "numeric_length_anchors"
-	DynamicSectionTokenBudget      = "token_budget"
-	DynamicSectionBrief            = "brief"
-	DynamicSectionAntModelOverride = "ant_model_override"
+	DynamicSectionNumericLengthAnchors = "numeric_length_anchors"
+	DynamicSectionTokenBudget          = "token_budget"
+	DynamicSectionBrief                = "brief"
+	DynamicSectionAntModelOverride     = "ant_model_override"
 )
 
 type DynamicSectionProvider interface {
@@ -29,34 +31,46 @@ type DynamicSectionProvider interface {
 	Resolve(ctx context.Context, input SectionContext) (*string, error)
 }
 
+type InvalidationAwareProvider interface {
+	OnPromptInvalidate(reason InvalidateReason)
+}
+
 type DynamicTextProvider struct {
 	Name        string
 	ResolveFunc func(context.Context, SectionContext) (*string, error)
 }
 
+type CachePolicy int
+
+const (
+	CacheByName CachePolicy = iota
+	Uncached
+	InputScoped
+)
+
 type dynamicSectionSpec struct {
-	name      string
-	order     int
-	volatile  bool
-	startOnly bool
+	name        string
+	order       int
+	cachePolicy CachePolicy
+	startOnly   bool
 }
 
 var dynamicSectionSpecs = []dynamicSectionSpec{
-	{name: DynamicSectionSessionGuidance, order: 110},
-	{name: DynamicSectionMemory, order: 120, startOnly: true},
-	{name: DynamicSectionAgentMemory, order: 123, startOnly: true},
-	{name: DynamicSectionMemoryContext, order: 125, volatile: true},
-	{name: DynamicSectionEnvInfoSimple, order: 130},
-	{name: DynamicSectionLanguage, order: 140},
-	{name: DynamicSectionMCPInstructions, order: 150, volatile: true},
-	{name: DynamicSectionOutputStyle, order: 200, volatile: true},
-	{name: DynamicSectionScratchpad, order: 210, volatile: true},
-	{name: DynamicSectionFRC, order: 220, volatile: true},
-	{name: DynamicSectionSummarizeToolResults, order: 230, volatile: true},
-	{name: DynamicSectionNumericLengthAnchors, order: 240, volatile: true},
-	{name: DynamicSectionTokenBudget, order: 250, volatile: true},
-	{name: DynamicSectionBrief, order: 260, volatile: true},
-	{name: DynamicSectionAntModelOverride, order: 270, volatile: true},
+	{name: DynamicSectionSessionGuidance, order: 110, cachePolicy: InputScoped},
+	{name: DynamicSectionMemory, order: 120, cachePolicy: InputScoped, startOnly: true},
+	{name: DynamicSectionAgentMemory, order: 123, cachePolicy: InputScoped, startOnly: true},
+	{name: DynamicSectionMemoryContext, order: 125, cachePolicy: InputScoped},
+	{name: DynamicSectionEnvInfoSimple, order: 130, cachePolicy: InputScoped},
+	{name: DynamicSectionLanguage, order: 140, cachePolicy: InputScoped},
+	{name: DynamicSectionMCPInstructions, order: 150, cachePolicy: Uncached},
+	{name: DynamicSectionOutputStyle, order: 200, cachePolicy: CacheByName},
+	{name: DynamicSectionScratchpad, order: 210, cachePolicy: CacheByName},
+	{name: DynamicSectionFRC, order: 220, cachePolicy: CacheByName},
+	{name: DynamicSectionSummarizeToolResults, order: 230, cachePolicy: CacheByName},
+	{name: DynamicSectionNumericLengthAnchors, order: 240, cachePolicy: CacheByName},
+	{name: DynamicSectionTokenBudget, order: 250, cachePolicy: CacheByName},
+	{name: DynamicSectionBrief, order: 260, cachePolicy: CacheByName},
+	{name: DynamicSectionAntModelOverride, order: 270, cachePolicy: CacheByName},
 }
 
 func (p DynamicTextProvider) SectionName() string {
@@ -139,7 +153,7 @@ func (s *service) RegisterDynamicProvider(provider DynamicSectionProvider) error
 	s.dynamicMu.Lock()
 	s.dynamic[name] = provider
 	s.dynamicMu.Unlock()
-	s.cache.InvalidateAll(InvalidateProviderSwitch)
+	s.cache.InvalidateSections(name)
 	return nil
 }
 
@@ -154,7 +168,7 @@ func (s *service) UnregisterDynamicProvider(name string) bool {
 	delete(s.dynamic, key)
 	s.dynamicMu.Unlock()
 	if ok {
-		s.cache.InvalidateAll(InvalidateProviderSwitch)
+		s.cache.InvalidateSections(key)
 	}
 	return ok
 }
@@ -169,11 +183,12 @@ func (s *service) dynamicSlotSections() []PromptSection {
 
 func (s *service) dynamicSlotSection(spec dynamicSectionSpec) PromptSection {
 	return PromptSection{
-		Name:      spec.name,
-		Order:     spec.order,
-		Region:    PromptRegionDynamic,
-		Volatile:  spec.volatile,
-		StartOnly: spec.startOnly,
+		Name:        spec.name,
+		Order:       spec.order,
+		Region:      PromptRegionDynamic,
+		Volatile:    spec.cachePolicy == Uncached,
+		CachePolicy: spec.cachePolicy,
+		StartOnly:   spec.startOnly,
 		Compute: func(ctx context.Context, input SectionContext) (*string, error) {
 			return s.resolveDynamicSection(ctx, spec.name, input)
 		},
@@ -197,4 +212,108 @@ func dynamicSectionSpecForName(name string) (dynamicSectionSpec, bool) {
 		}
 	}
 	return dynamicSectionSpec{}, false
+}
+
+func inputScopedSectionDependency(section PromptSection, input SectionContext) any {
+	switch section.Name {
+	case DynamicSectionSessionGuidance:
+		return struct {
+			Section      string   `json:"section"`
+			EnabledTools []string `json:"enabledTools,omitempty"`
+			SessionFlags []string `json:"sessionFlags,omitempty"`
+		}{
+			Section:      section.Name,
+			EnabledTools: sortedPromptValues(input.BuildCtx.EnabledTools),
+			SessionFlags: trueFlagKeys(input.BuildCtx.SessionFlags),
+		}
+	case DynamicSectionMemory, DynamicSectionAgentMemory:
+		isChild, agentType := childAgentCacheDependency(input)
+		return struct {
+			Section   string `json:"section"`
+			IsChild   bool   `json:"isChild,omitempty"`
+			AgentType string `json:"agentType,omitempty"`
+		}{Section: section.Name, IsChild: isChild, AgentType: agentType}
+	case DynamicSectionMemoryContext:
+		threadID := ""
+		userText := ""
+		if input.Turn != nil {
+			threadID = strings.TrimSpace(input.Turn.ThreadID)
+			userText = strings.TrimSpace(input.Turn.UserText)
+		}
+		return struct {
+			Section  string `json:"section"`
+			ThreadID string `json:"threadId,omitempty"`
+			UserText string `json:"userText,omitempty"`
+		}{Section: section.Name, ThreadID: threadID, UserText: userText}
+	case DynamicSectionEnvInfoSimple:
+		return struct {
+			Section                      string   `json:"section"`
+			CWD                          string   `json:"cwd,omitempty"`
+			GitRoot                      string   `json:"gitRoot,omitempty"`
+			IsWorktree                   bool     `json:"isWorktree,omitempty"`
+			Platform                     string   `json:"platform,omitempty"`
+			Shell                        string   `json:"shell,omitempty"`
+			OSVersion                    string   `json:"osVersion,omitempty"`
+			LanguageServerTools          []string `json:"languageServerTools,omitempty"`
+			AdditionalWorkingDirectories []string `json:"additionalWorkingDirectories,omitempty"`
+			Provider                     string   `json:"provider,omitempty"`
+			ModelMetadata                string   `json:"modelMetadata,omitempty"`
+			KnowledgeCutoff              string   `json:"knowledgeCutoff,omitempty"`
+			FrontierGuidance             string   `json:"frontierGuidance,omitempty"`
+		}{
+			Section:                      section.Name,
+			CWD:                          currentPromptCWD(input.BuildCtx),
+			GitRoot:                      strings.TrimSpace(input.BuildCtx.GitRoot),
+			IsWorktree:                   input.BuildCtx.IsWorktree,
+			Platform:                     promptPlatform(),
+			Shell:                        promptShellName(),
+			OSVersion:                    promptUnameSR(),
+			LanguageServerTools:          sectionLanguageServerTools(input.BuildCtx),
+			AdditionalWorkingDirectories: sortedPromptValues(input.BuildCtx.AdditionalWorkingDirectories),
+			Provider:                     strings.TrimSpace(input.BuildCtx.Provider),
+			ModelMetadata:                promptModelMetadata(input.BuildCtx),
+			KnowledgeCutoff:              promptKnowledgeCutoff(input.BuildCtx),
+			FrontierGuidance:             promptFrontierGuidance(input.BuildCtx),
+		}
+	case DynamicSectionLanguage:
+		return struct {
+			Section  string `json:"section"`
+			Language string `json:"language,omitempty"`
+		}{Section: section.Name, Language: strings.TrimSpace(input.BuildCtx.Language)}
+	default:
+		return struct {
+			Section string `json:"section"`
+		}{Section: section.Name}
+	}
+}
+
+func childAgentCacheDependency(input SectionContext) (bool, string) {
+	if input.Start == nil || input.Turn != nil || strings.TrimSpace(input.Start.ParentAgentID) == "" {
+		return false, ""
+	}
+	agentType := strings.TrimSpace(shared.FirstNonEmpty(input.Start.AgentType, input.Start.Name))
+	if agentType == "" {
+		return false, ""
+	}
+	return true, agentType
+}
+
+func trueFlagKeys(flags map[string]bool) []string {
+	keys := make([]string, 0, len(flags))
+	for key, enabled := range flags {
+		if enabled {
+			keys = append(keys, key)
+		}
+	}
+	return sortedPromptValues(keys)
+}
+
+func sectionLanguageServerTools(build BuildCtx) []string {
+	tools := make([]string, 0, len(build.EnabledTools))
+	for _, tool := range sortedPromptValues(build.EnabledTools) {
+		if strings.HasPrefix(tool, "lsp_") {
+			tools = append(tools, tool)
+		}
+	}
+	return tools
 }

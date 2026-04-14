@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -58,7 +59,7 @@ func NewMemoryLifecycleHooks(cfg *Config, consolidator *AutoDreamConsolidator, l
 		consolidator = NewAutoDreamConsolidator(nil)
 	}
 	return &MemoryLifecycleHooks{
-		enabled:             cfg.IsMemoryEnabled(),
+		enabled:             ResolveMemoryGate(contract.BuildCtx{}, cfg).AutoEnabled,
 		extractOnStop:       cfg.ExtractOnStop,
 		rootDir:             strings.TrimSpace(cfg.RootDir),
 		projectRoot:         strings.TrimSpace(cfg.ProjectRoot),

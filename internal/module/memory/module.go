@@ -140,12 +140,9 @@ func registerExtractOnStopSubscription(p memoryHookParams, appendCancel func(con
 }
 
 func registerContextProviderSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
-	if p.ContextProvider == nil || !p.ContextProvider.enabled {
+	if p.ContextProvider == nil {
 		return
 	}
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStarted) {
-		p.ContextProvider.onTurnStarted(context.Background(), ev)
-	}, pkglogger.Get()))
 	registerTurnTerminationSubscriptions(p, appendCancel)
 }
 

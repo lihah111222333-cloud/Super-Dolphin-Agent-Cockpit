@@ -14,9 +14,24 @@ const (
 )
 
 type MCPSnapshot struct {
-	Servers      []string
-	Tools        []string
-	Instructions map[string]string
+	Servers                  []string
+	Tools                    []string
+	Instructions             map[string]string
+	InstructionsDeltaEnabled bool
+	InstructionAttachments   []MCPAttachmentRef
+}
+
+type MCPAttachmentRef struct {
+	Name string
+	URI  string
+}
+
+type OutputStyleConfig struct {
+	Name                   string
+	Description            string
+	Prompt                 string
+	Source                 string
+	KeepCodingInstructions *bool
 }
 
 type BuildCtx struct {
@@ -30,6 +45,8 @@ type BuildCtx struct {
 	AdditionalWorkingDirectories []string
 	MCPSnapshot                  MCPSnapshot
 	SessionFlags                 map[string]bool
+	OutputStyleConfig            *OutputStyleConfig
+	KeepCodingInstructions       *bool
 }
 
 type ResolvedPromptSection = dto.ResolvedPromptSection
@@ -64,6 +81,8 @@ type StartInput struct {
 	AdditionalWorkingDirectories []string
 	MCPSnapshot                  MCPSnapshot
 	SessionFlags                 map[string]bool
+	OutputStyleConfig            *OutputStyleConfig
+	KeepCodingInstructions       *bool
 }
 
 type TurnInput struct {
@@ -82,6 +101,8 @@ type TurnInput struct {
 	AdditionalWorkingDirectories []string
 	MCPSnapshot                  MCPSnapshot
 	SessionFlags                 map[string]bool
+	OutputStyleConfig            *OutputStyleConfig
+	KeepCodingInstructions       *bool
 }
 
 type StartAssembly = dto.StartAssembly

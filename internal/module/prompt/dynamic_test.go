@@ -27,8 +27,9 @@ func TestRegisterDynamicProviderMakesSlotRenderable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleTurn() error = %v", err)
 	}
-	if !strings.Contains(assembly.UserContextText, "Always respond in Chinese.") {
-		t.Fatalf("UserContextText = %q, want registered dynamic text", assembly.UserContextText)
+	language, ok := resolvedSectionContent(assembly.ResolvedSections, DynamicSectionLanguage)
+	if !ok || !strings.Contains(language, "Always respond in Chinese.") {
+		t.Fatalf("ResolvedSections = %#v, want registered dynamic text", assembly.ResolvedSections)
 	}
 }
 

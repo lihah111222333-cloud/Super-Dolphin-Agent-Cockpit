@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	defaultManifestFileLimit = 200
-	prefetchStatePending int32 = iota
+	defaultManifestFileLimit       = 200
+	prefetchStatePending     int32 = iota
 	prefetchStateReady
 	prefetchStateConsumed
 	prefetchStateDiscarded
@@ -51,9 +51,10 @@ type PrefetchManager struct {
 	findRelevant  func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error)
 	timeNow       func() time.Time
 
-	mu         sync.Mutex
-	generation uint64
-	current    *PrefetchHandle
+	mu              sync.Mutex
+	generation      uint64
+	current         *PrefetchHandle
+	alreadySurfaced map[string]struct{}
 }
 
 func NewManifestBuilder() *ManifestBuilder {
@@ -139,15 +140,19 @@ func sortManifestEntries(entries []MemoryEntry) {
 func NewPrefetchManager(memoryRoot string) *PrefetchManager {
 	finder := NewRelevantMemoryFinder()
 	builder := NewManifestBuilder()
-	return &PrefetchManager{
-		memoryRoot:    memoryRoot,
-		finder:        finder,
-		builder:       builder,
-		buildManifest: builder.BuildManifest,
-		findRelevant:  finder.FindRelevantMemories,
-		timeNow:       time.Now,
-		generation:    0,
+	manager := &PrefetchManager{
+		memoryRoot:      memoryRoot,
+		finder:          finder,
+		builder:         builder,
+		buildManifest:   builder.BuildManifest,
+		timeNow:         time.Now,
+		generation:      0,
+		alreadySurfaced: map[string]struct{}{},
 	}
+	manager.findRelevant = func(ctx context.Context, query string, manifest []MemoryEntry) ([]MemoryEntry, error) {
+		return finder.FindRelevantMemoriesWithAlreadySurfaced(ctx, query, manifest, manager.surfacedSnapshot())
+	}
+	return manager
 }
 
 func (m *PrefetchManager) StartRelevantMemoryPrefetch(ctx context.Context, query string) *PrefetchHandle {
@@ -193,6 +198,35 @@ func (m *PrefetchManager) ConsumeIfReady(handle *PrefetchHandle) ([]MemoryEntry,
 	}
 	handle.consumedOnIteration.CompareAndSwap(-1, 0)
 	return handle.snapshot(), true
+}
+
+func (m *PrefetchManager) FilterAlreadySurfaced(entries []MemoryEntry) []MemoryEntry {
+	if m == nil || len(entries) == 0 {
+		return entries
+	}
+	return filterAlreadySurfacedEntries(entries, m.surfacedSnapshot())
+}
+
+func (m *PrefetchManager) MarkSurfaced(entries []MemoryEntry) {
+	if m == nil || len(entries) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.alreadySurfaced == nil {
+		m.alreadySurfaced = map[string]struct{}{}
+	}
+	rememberSurfacedEntries(m.alreadySurfaced, entries)
+}
+
+func (m *PrefetchManager) ResetSurfaced(reason string) {
+	if m == nil {
+		return
+	}
+	_ = strings.TrimSpace(reason)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.alreadySurfaced = map[string]struct{}{}
 }
 
 func (m *PrefetchManager) runPrefetch(ctx context.Context, handle *PrefetchHandle) {
@@ -250,6 +284,15 @@ func (m *PrefetchManager) isCurrentGeneration(generation uint64) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.generation == generation && m.current != nil && m.current.generation == generation
+}
+
+func (m *PrefetchManager) surfacedSnapshot() map[string]struct{} {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return cloneSurfacedSet(m.alreadySurfaced)
 }
 
 func newPrefetchHandle(generation uint64, query string, cancel context.CancelFunc) *PrefetchHandle {

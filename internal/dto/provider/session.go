@@ -23,6 +23,7 @@ type PromptAssemblySnapshot struct {
 	Provider              string `json:"provider,omitempty"`
 	Version               int    `json:"version,omitempty"`
 	Hash                  string `json:"hash,omitempty"`
+	SectionSnapshot       map[string]string `json:"sectionSnapshot,omitempty"`
 	Generation            uint64 `json:"generation,omitempty"`
 }
 

@@ -10,14 +10,9 @@ func TestMCPInstructionsProviderResolveBuildsServerBlocks(t *testing.T) {
 	provider := MCPInstructionsProvider{}
 	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{MCPSnapshot: MCPSnapshot{
 		Servers: []string{"orch", "lsp"},
-		Tools: []string{
-			"mcp__lsp__lsp_grep",
-			"mcp__orch__task_get_dag",
-			"shared_tool",
-			"mcp__lsp__lsp_file",
-		},
 		Instructions: map[string]string{
 			"orch": "Use DAG tools for orchestration state.",
+			"lsp":  "Use the LSP MCP first.",
 		},
 	}}})
 	if err != nil {
@@ -29,31 +24,35 @@ func TestMCPInstructionsProviderResolveBuildsServerBlocks(t *testing.T) {
 	checks := []string{
 		"# MCP Server Instructions",
 		"## lsp",
-		"  - mcp__lsp__lsp_file",
-		"  - mcp__lsp__lsp_grep",
+		"Use the LSP MCP first.",
 		"## orch",
 		"Use DAG tools for orchestration state.",
-		"  - mcp__orch__task_get_dag",
-		"## additional_tools",
-		"  - shared_tool",
 	}
 	for _, check := range checks {
 		if !strings.Contains(*text, check) {
 			t.Fatalf("Resolve() = %q, want substring %q", *text, check)
 		}
 	}
+	if strings.Contains(*text, "mcp__") {
+		t.Fatalf("Resolve() = %q, want instructions-only output", *text)
+	}
 	if strings.Index(*text, "## lsp") > strings.Index(*text, "## orch") {
 		t.Fatalf("Resolve() = %q, want servers sorted", *text)
 	}
 }
 
-func TestMCPInstructionsProviderResolveSkipsEmptySnapshot(t *testing.T) {
+func TestMCPInstructionsProviderResolveSkipsServersWithoutInstructions(t *testing.T) {
 	provider := MCPInstructionsProvider{}
-	text, err := provider.Resolve(context.Background(), SectionContext{})
+	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{MCPSnapshot: MCPSnapshot{
+		Servers: []string{"orch"},
+		Instructions: map[string]string{
+			"lsp": "Use the LSP MCP first.",
+		},
+	}}})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
 	if text != nil {
-		t.Fatalf("Resolve() = %q, want nil", *text)
+		t.Fatalf("Resolve() = %q, want nil when no connected server has instructions", *text)
 	}
 }

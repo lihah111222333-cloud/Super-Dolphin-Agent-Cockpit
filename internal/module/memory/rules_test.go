@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 )
 
@@ -68,7 +66,7 @@ func TestBuildMemoryLinesIncludesDeterministicCompleteSections(t *testing.T) {
 		"what was surprising or non-obvious about it",
 		"Standard mode is a two-step save",
 		"Each durable fact belongs in its own topic file",
-		"runtime retrieval work instead of prompt-level directory or transcript grep",
+		"durable memory is searched first, and budgeted transcript snippets may be surfaced",
 	} {
 		if !strings.Contains(text, snippet) {
 			t.Fatalf("prompt missing required snippet %q", snippet)
@@ -136,13 +134,13 @@ func TestMemoryRulesProviderRegistersStartOnlyDynamicSection(t *testing.T) {
 		"When `skipIndex` is enabled",
 		"### 8. extra guidelines",
 		"Keep explanations short.",
-		"Feature flag `kairos` is enabled",
-		"Feature flag `teammem` is enabled",
-		"Feature flag `search_past_context` is enabled",
 	} {
 		if !strings.Contains(start.BaseInstructions, snippet) {
 			t.Fatalf("BaseInstructions missing %q:\n%s", snippet, start.BaseInstructions)
 		}
+	}
+	if strings.Contains(start.BaseInstructions, "Feature flag `") {
+		t.Fatalf("BaseInstructions still contains feature-placeholder guidance:\n%s", start.BaseInstructions)
 	}
 
 	turn, err := svc.AssembleTurn(context.Background(), prompt.TurnInput{})
@@ -243,36 +241,36 @@ func TestMemoryContextProviderInjectsEntrypointIntoTurnUserContext(t *testing.T)
 		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
 	}
 
-	svc := prompt.NewService(&prompt.Config{}, nil)
 	provider := NewContextProvider(cfg)
 	if provider.SectionName() != prompt.DynamicSectionMemoryContext {
 		t.Fatalf("SectionName() = %q, want %q", provider.SectionName(), prompt.DynamicSectionMemoryContext)
 	}
-	if err := svc.RegisterDynamicProvider(provider); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
-
-	turn, err := svc.AssembleTurn(context.Background(), prompt.TurnInput{})
+	turn, err := provider.Resolve(context.Background(), prompt.SectionContext{
+		Turn: &prompt.TurnInput{ThreadID: "thread-1", UserText: "review notes"},
+	})
 	if err != nil {
-		t.Fatalf("AssembleTurn() error = %v", err)
+		t.Fatalf("Resolve(turn) error = %v", err)
+	}
+	if turn == nil {
+		t.Fatal("Resolve(turn) = nil, want MEMORY.md fallback text")
 	}
 	for _, snippet := range []string{"Contents of MEMORY.md:", body} {
-		if !strings.Contains(turn.UserContextText, snippet) {
-			t.Fatalf("UserContextText missing %q:\n%s", snippet, turn.UserContextText)
+		if !strings.Contains(*turn, snippet) {
+			t.Fatalf("turn text missing %q:\n%s", snippet, *turn)
 		}
 	}
 
-	start, err := svc.AssembleStart(context.Background(), prompt.StartInput{})
+	start, err := provider.Resolve(context.Background(), prompt.SectionContext{Start: &prompt.StartInput{}})
 	if err != nil {
-		t.Fatalf("AssembleStart() error = %v", err)
+		t.Fatalf("Resolve(start) error = %v", err)
 	}
-	if strings.Contains(start.BaseInstructions, body) {
-		t.Fatalf("BaseInstructions unexpectedly contains MEMORY.md entrypoint:\n%s", start.BaseInstructions)
+	if start != nil {
+		t.Fatalf("Resolve(start) = %#v, want nil", start)
 	}
 }
 
-func TestMemoryContextProviderPrefersPrefetchedRelevantEntries(t *testing.T) {
-	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+func TestMemoryContextProviderSkipsEntrypointFallbackWhenInjectMemoryIndexDisabled(t *testing.T) {
+	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
 	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
@@ -283,94 +281,18 @@ func TestMemoryContextProviderPrefersPrefetchedRelevantEntries(t *testing.T) {
 	if err := os.WriteFile(memoryIndexPath(root), []byte("- [fallback](fallback.md) — old index"), 0o644); err != nil {
 		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
 	}
-
 	provider := NewContextProvider(cfg)
-	provider.rememberTurnQuery("thread-1", "commit preference")
-	provider.mu.Lock()
-	state := provider.turnStateLocked("thread-1")
-	state.manager = NewPrefetchManager(root)
-	state.manager.buildManifest = func(string) ([]MemoryEntry, error) {
-		return []MemoryEntry{{FilePath: "project/commit-style.md"}}, nil
-	}
-	state.manager.findRelevant = func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
-		return []MemoryEntry{{
-			FilePath: "project/commit-style.md",
-			Frontmatter: MemoryFrontmatter{
-				Name:        "Commit style",
-				Description: "Use concise imperative commit messages.",
-			},
-			Content: "Use concise imperative commit messages, and mention the subsystem first when it helps reviewers.",
-		}}, nil
-	}
-	provider.mu.Unlock()
-
-	provider.onTurnStarted(context.Background(), newTurnStarted("thread-1", "turn-1"))
-	provider.mu.Lock()
-	handle := provider.turnStateLocked("thread-1").handle
-	provider.mu.Unlock()
-	if handle == nil {
-		t.Fatal("prefetch handle = nil, want started prefetch")
-	}
-	waitForHandle(t, handle)
-
-	svc := prompt.NewService(&prompt.Config{}, nil)
-	if err := svc.RegisterDynamicProvider(provider); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
-	turn, err := svc.AssembleTurn(context.Background(), prompt.TurnInput{
-		ThreadID: "thread-1",
-		UserText: "continue",
-	})
+	turn, err := provider.Resolve(context.Background(), prompt.SectionContext{Turn: &prompt.TurnInput{
+		ThreadID: "thread-3",
+		UserText: "review plan",
+	}})
 	if err != nil {
-		t.Fatalf("AssembleTurn() error = %v", err)
+		t.Fatalf("Resolve() error = %v", err)
 	}
-	for _, snippet := range []string{
-		"# Relevant memory hints",
-		"Commit style",
-		"project/commit-style.md",
-		"Use concise imperative commit messages",
-	} {
-		if !strings.Contains(turn.UserContextText, snippet) {
-			t.Fatalf("UserContextText missing %q:\n%s", snippet, turn.UserContextText)
-		}
+	if turn != nil && strings.Contains(*turn, "Contents of MEMORY.md:") {
+		t.Fatalf("turn text unexpectedly fell back to MEMORY.md:\n%s", *turn)
 	}
-	if strings.Contains(turn.UserContextText, "Contents of MEMORY.md:") {
-		t.Fatalf("UserContextText unexpectedly fell back to MEMORY.md:\n%s", turn.UserContextText)
-	}
-}
-
-func TestMemoryContextProviderClearsPrefetchStateOnTurnTermination(t *testing.T) {
-	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
-	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
-	if err != nil {
-		t.Fatalf("resolvedStoreRoot() error = %v", err)
-	}
-	provider := NewContextProvider(cfg)
-	provider.rememberTurnQuery("thread-2", "review notes")
-	provider.mu.Lock()
-	state := provider.turnStateLocked("thread-2")
-	state.manager = NewPrefetchManager(root)
-	provider.mu.Unlock()
-
-	provider.onTurnStarted(context.Background(), newTurnStarted("thread-2", "turn-2"))
-	provider.onTurnTerminated("thread-2", "turn-2")
-
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	state = provider.turnStateLocked("thread-2")
-	if state.query != "" || state.turnID != "" || state.handle != nil {
-		t.Fatalf("turn state = %#v, want cleared query/turn/handle", state)
-	}
-}
-
-func newTurnStarted(threadID, turnID string) turndto.TurnStarted {
-	return turndto.TurnStarted{
-		TurnHeader: shareddto.TurnHeader{
-			AgentHeader: shareddto.AgentHeader{
-				ThreadHeader: shareddto.ThreadHeader{ThreadID: threadID},
-				AgentID:      "agent-1",
-			},
-			TurnIDHeader: shareddto.TurnIDHeader{TurnID: turnID},
-		},
+	if turn != nil && strings.TrimSpace(*turn) != "" {
+		t.Fatalf("turn text = %q, want nil/empty fail-soft result", *turn)
 	}
 }

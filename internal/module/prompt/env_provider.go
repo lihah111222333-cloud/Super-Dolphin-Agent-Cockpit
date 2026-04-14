@@ -2,12 +2,14 @@ package prompt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"sort"
 	"strings"
-	"time"
+	"sync"
 )
 
 var _ DynamicSectionProvider = EnvInfoProvider{}
@@ -22,9 +24,9 @@ func (EnvInfoProvider) Resolve(_ context.Context, input SectionContext) (*string
 	lines := []string{
 		fmt.Sprintf("- Primary working directory: %s", currentPromptCWD(input.BuildCtx)),
 		fmt.Sprintf("- Is a git repository: %s", yesNo(strings.TrimSpace(input.BuildCtx.GitRoot) != "")),
-		fmt.Sprintf("- Current date: %s", currentPromptDate(input)),
-		fmt.Sprintf("- OS: %s", promptOSLabel()),
+		fmt.Sprintf("- Platform: %s", promptPlatform()),
 		fmt.Sprintf("- Shell: %s", promptShellName()),
+		fmt.Sprintf("- OS version: %s", promptUnameSR()),
 		fmt.Sprintf("- Language server status: %s", promptLanguageServerStatus(input.BuildCtx)),
 	}
 	if gitRoot := strings.TrimSpace(input.BuildCtx.GitRoot); gitRoot != "" {
@@ -42,8 +44,14 @@ func (EnvInfoProvider) Resolve(_ context.Context, input SectionContext) (*string
 	if provider := strings.TrimSpace(input.BuildCtx.Provider); provider != "" {
 		lines = append(lines, fmt.Sprintf("- Provider: %s", provider))
 	}
-	if model := strings.TrimSpace(input.BuildCtx.Model); model != "" {
-		lines = append(lines, fmt.Sprintf("- Model: %s", model))
+	if metadata := promptModelMetadata(input.BuildCtx); metadata != "" {
+		lines = append(lines,
+			fmt.Sprintf("- Model metadata: %s", metadata),
+			fmt.Sprintf("- Knowledge cutoff: %s", promptKnowledgeCutoff(input.BuildCtx)),
+		)
+	}
+	if guidance := promptFrontierGuidance(input.BuildCtx); guidance != "" {
+		lines = append(lines, fmt.Sprintf("- Frontier guidance: %s", guidance))
 	}
 
 	text := strings.Join(append([]string{
@@ -64,17 +72,8 @@ func currentPromptCWD(build BuildCtx) string {
 	return cwd
 }
 
-func currentPromptDate(input SectionContext) string {
-	if input.Turn != nil {
-		if currentDate := strings.TrimSpace(input.Turn.CurrentDate); currentDate != "" {
-			return currentDate
-		}
-	}
-	return time.Now().Format("2006-01-02")
-}
-
-func promptOSLabel() string {
-	return runtime.GOOS + "/" + runtime.GOARCH
+func promptPlatform() string {
+	return runtime.GOOS
 }
 
 func promptShellName() string {
@@ -95,17 +94,64 @@ func promptShellName() string {
 	return shell
 }
 
+var promptUnameSRValue = sync.OnceValue(loadPromptUnameSR)
+
+func promptUnameSR() string {
+	return promptUnameSRValue()
+}
+
+func loadPromptUnameSR() string {
+	if runtime.GOOS == "windows" {
+		return "windows"
+	}
+	output, err := exec.Command("uname", "-sr").Output()
+	if err == nil {
+		if value := strings.TrimSpace(string(output)); value != "" {
+			return value
+		}
+	}
+	var exitErr *exec.ExitError
+	if err != nil && !errors.As(err, &exitErr) {
+		return runtime.GOOS + "/" + runtime.GOARCH
+	}
+	return runtime.GOOS + "/" + runtime.GOARCH
+}
+
 func promptLanguageServerStatus(build BuildCtx) string {
+	tools := promptLanguageServerTools(build)
+	if len(tools) == 0 {
+		return "not enabled in this session"
+	}
+	return "enabled (" + strings.Join(tools, ", ") + ")"
+}
+
+func promptLanguageServerTools(build BuildCtx) []string {
 	tools := make([]string, 0, len(build.EnabledTools))
 	for _, tool := range sortedPromptValues(build.EnabledTools) {
 		if strings.HasPrefix(tool, "lsp_") {
 			tools = append(tools, tool)
 		}
 	}
-	if len(tools) == 0 {
-		return "not enabled in this session"
+	return tools
+}
+
+func promptModelMetadata(build BuildCtx) string {
+	return LookupModelDescriptor(build.Model).MetadataText()
+}
+
+func promptKnowledgeCutoff(build BuildCtx) string {
+	descriptor := LookupModelDescriptor(build.Model)
+	if descriptor.IsZero() {
+		return ""
 	}
-	return "enabled (" + strings.Join(tools, ", ") + ")"
+	if cutoff := strings.TrimSpace(descriptor.KnowledgeCutoff); cutoff != "" {
+		return cutoff
+	}
+	return "not published by the provider"
+}
+
+func promptFrontierGuidance(build BuildCtx) string {
+	return strings.TrimSpace(LookupModelDescriptor(build.Model).FrontierGuidance)
 }
 
 func sortedPromptValues(values []string) []string {

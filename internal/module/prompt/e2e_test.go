@@ -89,9 +89,11 @@ func TestAssembleTurnProducesUserContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleTurn() error = %v", err)
 	}
-	mustContain(t, turn.UserContextText, sectionContent(turn.ResolvedSections, promptpkg.DynamicSectionSessionGuidance))
-	mustContain(t, turn.UserContextText, "please verify the cache")
-	mustContain(t, turn.UserContextText, h.projectRoot)
+	mustContain(t, turn.UserContextText, "<system-reminder>")
+	mustContain(t, turn.UserContextText, "# currentDate")
+	mustContain(t, turn.UserContextText, "# runtimeExtras")
+	mustContain(t, sectionContent(turn.ResolvedSections, promptpkg.DynamicSectionSessionGuidance), "please verify the cache")
+	mustContain(t, sectionContent(turn.ResolvedSections, promptpkg.DynamicSectionSessionGuidance), h.projectRoot)
 }
 
 func TestMemoryRulesInjectIntoPrompt(t *testing.T) {
@@ -125,8 +127,10 @@ func TestSectionCacheInvalidation(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("dynamic provider calls = %d, want 1 before invalidate", calls)
 	}
-	if first.UserContextText != second.UserContextText {
-		t.Fatalf("cached turn mismatch: first=%q second=%q", first.UserContextText, second.UserContextText)
+	firstContent := sectionContent(first.ResolvedSections, promptpkg.DynamicSectionSessionGuidance)
+	secondContent := sectionContent(second.ResolvedSections, promptpkg.DynamicSectionSessionGuidance)
+	if firstContent != secondContent {
+		t.Fatalf("cached turn mismatch: first=%q second=%q", firstContent, secondContent)
 	}
 	if err := h.assembly.Invalidate(context.Background(), promptpkg.InvalidateClear); err != nil {
 		t.Fatalf("Invalidate() error = %v", err)
@@ -138,8 +142,9 @@ func TestSectionCacheInvalidation(t *testing.T) {
 	if calls != 2 {
 		t.Fatalf("dynamic provider calls = %d, want 2 after invalidate", calls)
 	}
-	if third.UserContextText == first.UserContextText {
-		t.Fatalf("UserContextText did not rebuild after invalidate: %q", third.UserContextText)
+	thirdContent := sectionContent(third.ResolvedSections, promptpkg.DynamicSectionSessionGuidance)
+	if thirdContent == firstContent {
+		t.Fatalf("resolved section did not rebuild after invalidate: %q", thirdContent)
 	}
 }
 
@@ -187,8 +192,8 @@ func TestFullChainFromThreadToProvider(t *testing.T) {
 	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.SectionIdentity))
 	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory))
 	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, "existing base tail")
-	if got := configString(h.bridge.startReq.Config, "developerInstructions"); got != "be concise" {
-		t.Fatalf("developerInstructions = %q, want %q", got, "be concise")
+	if got := configString(h.bridge.startReq.Config, "developerInstructions"); !strings.Contains(got, "be concise") || !strings.Contains(got, "Git status:") {
+		t.Fatalf("developerInstructions = %q, want system context + developer tail", got)
 	}
 	if result.Status != "running" || result.Provider != "codex" {
 		t.Fatalf("unexpected StartResult = %#v", result)
