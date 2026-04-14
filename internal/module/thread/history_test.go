@@ -288,6 +288,14 @@ func (s *historyTestThreadStore) ListRunningAgents(context.Context) ([]threadsto
 	return nil, nil
 }
 
+func (*historyTestThreadStore) SavePromptSnapshot(context.Context, string, threadstore.PromptSnapshot) error {
+	return nil
+}
+
+func (*historyTestThreadStore) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
+	return nil, nil
+}
+
 func (s *historyTestThreadStore) Upsert(_ context.Context, params threadstore.UpsertParams) error {
 	s.upserts = append(s.upserts, params)
 	if s.threads == nil {

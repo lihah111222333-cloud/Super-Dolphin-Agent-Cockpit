@@ -3,9 +3,8 @@ package thread
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
-
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type threadIDParams struct {
@@ -38,7 +37,8 @@ type startParams struct {
 	Personality           string          `json:"personality,omitempty"`
 	Config                json.RawMessage `json:"config,omitempty"`
 	Name                  string          `json:"name,omitempty"`
-	Prompt                string          `json:"-"`
+	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
+	Prompt string `json:"-"`
 }
 
 func (p *startParams) UnmarshalJSON(data []byte) error {
@@ -52,42 +52,97 @@ func (p *startParams) UnmarshalJSON(data []byte) error {
 }
 
 func (p *startParams) fillLegacyFields(data []byte) error {
-	var legacy struct {
-		ModelProvider         string `json:"modelProvider"`
-		ModelProviderAlt      string `json:"model_provider"`
-		ApprovalPolicy        string `json:"approvalPolicy"`
-		ApprovalPolicyAlt     string `json:"approval_policy"`
-		BaseInstructions      string `json:"baseInstructions"`
-		BaseInstructionsAlt   string `json:"base_instructions"`
-		DeveloperInstructions string `json:"developerInstructions"`
-		DeveloperAlt          string `json:"developer_instructions"`
-		Instructions          string `json:"instructions"`
-		Prompt                string `json:"prompt"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
+	payload, err := decodeCompatPayload(data)
+	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(p.ModelProvider) == "" {
-		p.ModelProvider = shared.FirstNonEmpty(legacy.ModelProvider, legacy.ModelProviderAlt)
+	if err := assignCompatString(payload, &p.ModelProvider, "model provider", "model_provider", "modelProvider"); err != nil {
+		return err
 	}
-	if strings.TrimSpace(p.ApprovalPolicy) == "" {
-		p.ApprovalPolicy = shared.FirstNonEmpty(legacy.ApprovalPolicy, legacy.ApprovalPolicyAlt)
+	if err := assignCompatString(payload, &p.ApprovalPolicy, "approval policy", "approval_policy", "approvalPolicy"); err != nil {
+		return err
 	}
-	if strings.TrimSpace(p.Prompt) == "" {
-		p.Prompt = strings.TrimSpace(legacy.Prompt)
+	if err := assignCompatString(payload, &p.BaseInstructions, "base instructions", "base_instructions", "baseInstructions", "instructions"); err != nil {
+		return err
 	}
-	if strings.TrimSpace(p.DeveloperInstructions) == "" {
-		p.DeveloperInstructions = shared.FirstNonEmpty(legacy.DeveloperInstructions, legacy.DeveloperAlt)
+	if err := assignCompatString(payload, &p.DeveloperInstructions, "developer instructions", "developer_instructions", "developerInstructions"); err != nil {
+		return err
 	}
-	if strings.TrimSpace(p.BaseInstructions) == "" {
-		p.BaseInstructions = shared.FirstNonEmpty(
-			legacy.BaseInstructions,
-			legacy.BaseInstructionsAlt,
-			legacy.Instructions,
-			legacy.Prompt,
-		)
+	if err := assignCompatString(payload, &p.Name, "display name", "name", "prompt"); err != nil {
+		return err
+	}
+	prompt, present, err := resolveCompatString(payload, "prompt", "prompt")
+	if err != nil {
+		return err
+	}
+	if present {
+		p.Prompt = prompt
 	}
 	return nil
+}
+
+type compatStringValue struct {
+	key     string
+	value   string
+	present bool
+}
+
+func decodeCompatPayload(data []byte) (map[string]json.RawMessage, error) {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func assignCompatString(payload map[string]json.RawMessage, target *string, field string, keys ...string) error {
+	value, present, err := resolveCompatString(payload, field, keys...)
+	if err != nil {
+		return err
+	}
+	if present {
+		*target = value
+	}
+	return nil
+}
+
+func resolveCompatString(payload map[string]json.RawMessage, field string, keys ...string) (string, bool, error) {
+	var resolved compatStringValue
+	for _, key := range keys {
+		item, err := readCompatString(payload, key)
+		if err != nil {
+			return "", false, err
+		}
+		if !item.present {
+			continue
+		}
+		if !resolved.present {
+			resolved = item
+			continue
+		}
+		if resolved.value != item.value {
+			return "", false, fmt.Errorf("thread/start: conflicting %s values for %q and %q", field, resolved.key, item.key)
+		}
+	}
+	if !resolved.present {
+		return "", false, nil
+	}
+	return resolved.value, true, nil
+}
+
+func readCompatString(payload map[string]json.RawMessage, key string) (compatStringValue, error) {
+	raw, ok := payload[key]
+	if !ok {
+		return compatStringValue{}, nil
+	}
+	var value *string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return compatStringValue{}, fmt.Errorf("thread/start: %s must be a string", key)
+	}
+	if value == nil {
+		return compatStringValue{key: key, present: true}, nil
+	}
+	return compatStringValue{key: key, value: strings.TrimSpace(*value), present: true}, nil
 }
 
 type resumeParams struct {

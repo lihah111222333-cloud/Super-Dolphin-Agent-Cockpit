@@ -12,7 +12,6 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
@@ -37,14 +36,15 @@ type providerThreadNameSetter interface {
 }
 
 type service struct {
-	logger        *slog.Logger
-	threadStore   threadstore.Store
-	bindingStore  bindingstore.Store
-	sessions      SessionProvider
-	starter       SessionStarter
-	turns         turn.Service
-	orchestration OrchestrationFacade
-	bus           *event.Dispatcher
+	logger         *slog.Logger
+	threadStore    threadstore.Store
+	bindingStore   bindingstore.Store
+	sessions       SessionProvider
+	starter        SessionStarter
+	promptAssembly contract.PromptAssemblyService
+	turns          turn.Service
+	orchestration  OrchestrationFacade
+	bus            *event.Dispatcher
 
 	emitStarted      func(threaddto.Started)
 	emitStopped      func(threaddto.Stopped)
@@ -66,41 +66,6 @@ type service struct {
 }
 
 var _ Service = (*service)(nil)
-
-func NewService(
-	logger *slog.Logger,
-	threadStore threadstore.Store,
-	bindingStore bindingstore.Store,
-	sessions SessionProvider,
-	starter SessionStarter,
-	turns turn.Service,
-	orchestration OrchestrationFacade,
-	threadEvents *bus.ThreadEmitters,
-) Service {
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-	var dispatcher *event.Dispatcher
-	if threadEvents != nil {
-		dispatcher = threadEvents.Dispatcher()
-	}
-	return &service{
-		logger:           logger,
-		threadStore:      threadStore,
-		bindingStore:     bindingStore,
-		sessions:         sessions,
-		starter:          starter,
-		turns:            turns,
-		orchestration:    orchestration,
-		bus:              dispatcher,
-		emitStarted:      bus.NewEmitter[threaddto.Started](dispatcher),
-		emitStopped:      bus.NewEmitter[threaddto.Stopped](dispatcher),
-		emitUpdated:      bus.NewEmitter[threaddto.Updated](dispatcher),
-		emitMessagesPage: bus.NewEmitter[threaddto.MessagesPage](dispatcher),
-		emitCompacted:    bus.NewEmitter[threaddto.Compacted](dispatcher),
-		threadAgents:     make(map[string]string),
-	}
-}
 
 func (s *service) List(ctx context.Context) ([]Ref, error) {
 	return s.listThreads(ctx, nil)
@@ -339,17 +304,6 @@ func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string)
 		// Only clear on success so subsequent ReadMessages can detect a live session.
 		s.resumeInFlight.Delete(agentID)
 	})
-}
-
-func (s *service) closeSessionIfActive(ctx context.Context, threadID string) error {
-	if s.bindingStore == nil || s.sessions == nil {
-		return nil
-	}
-	binding, err := s.resolveBinding(ctx, threadID)
-	if err != nil {
-		return nil
-	}
-	return s.closeSessionForAgent(ctx, binding.AgentID)
 }
 
 func (s *service) closeSessionForAgent(ctx context.Context, agentID string) error {

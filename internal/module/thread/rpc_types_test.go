@@ -62,8 +62,33 @@ func TestStartParamsKeepLegacyAliases(t *testing.T) {
 	if params.BaseInstructions != "legacy base" || params.DeveloperInstructions != "legacy dev" {
 		t.Fatalf("legacy instructions = %#v", params)
 	}
-	if params.Prompt != "legacy prompt" {
-		t.Fatalf("legacy prompt = %q, want %q", params.Prompt, "legacy prompt")
+	if params.Name != "legacy prompt" || params.Prompt != "legacy prompt" {
+		t.Fatalf("legacy display name = %#v", params)
+	}
+}
+
+func TestStartParamsPromptOnlyPopulatesName(t *testing.T) {
+	t.Parallel()
+
+	var params startParams
+	if err := json.Unmarshal([]byte(`{"prompt":"legacy prompt"}`), &params); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if params.Name != "legacy prompt" || params.Prompt != "legacy prompt" {
+		t.Fatalf("legacy prompt = %#v", params)
+	}
+	if params.BaseInstructions != "" {
+		t.Fatalf("baseInstructions = %q, want empty", params.BaseInstructions)
+	}
+}
+
+func TestStartParamsRejectsConflictingInstructionAliases(t *testing.T) {
+	t.Parallel()
+
+	var params startParams
+	err := json.Unmarshal([]byte(`{"baseInstructions":"explicit","instructions":"legacy"}`), &params)
+	if err == nil || !strings.Contains(err.Error(), "conflicting base instructions") {
+		t.Fatalf("json.Unmarshal() error = %v, want conflicting base instructions", err)
 	}
 }
 
@@ -110,7 +135,7 @@ func TestResumeParamsAcceptThreadBodyFields(t *testing.T) {
 	}
 }
 
-func TestNormalizeStartRequestDefaultsProvider(t *testing.T) {
+func TestNormalizeStartRequestDefaultsProviderWithoutPromptPollution(t *testing.T) {
 	t.Parallel()
 
 	req, agentID, err := normalizeStartRequest(StartRequest{
@@ -122,10 +147,22 @@ func TestNormalizeStartRequestDefaultsProvider(t *testing.T) {
 	if req.Provider != defaultStartProvider {
 		t.Fatalf("provider = %q, want %q", req.Provider, defaultStartProvider)
 	}
-	if req.Prompt != "launch me" {
-		t.Fatalf("prompt = %q, want %q", req.Prompt, "launch me")
+	if req.Name != "" || req.Prompt != "" {
+		t.Fatalf("display fields = %#v, want empty name/prompt", req)
 	}
 	if agentID == "" || req.AgentID == "" {
 		t.Fatalf("agent id = %q, want generated id", agentID)
+	}
+}
+
+func TestNormalizeStartRequestDerivesNameFromDeprecatedPrompt(t *testing.T) {
+	t.Parallel()
+
+	req, _, err := normalizeStartRequest(StartRequest{Prompt: "  launch me  "})
+	if err != nil {
+		t.Fatalf("normalizeStartRequest() error = %v", err)
+	}
+	if req.Name != "launch me" || req.Prompt != "launch me" {
+		t.Fatalf("normalizeStartRequest() = %#v, want name/prompt launch me", req)
 	}
 }

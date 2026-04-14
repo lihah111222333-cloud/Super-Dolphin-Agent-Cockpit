@@ -139,8 +139,11 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	if orch.launchReq.Cwd != wantStartCWD(t) {
 		t.Fatalf("launch cwd = %q, want %q", orch.launchReq.Cwd, wantStartCWD(t))
 	}
-	if orch.launchReq.Name != "launch me" {
-		t.Fatalf("launch name = %q, want launch me", orch.launchReq.Name)
+	if orch.launchReq.Name != "" {
+		t.Fatalf("launch name = %q, want empty", orch.launchReq.Name)
+	}
+	if threads.upsert.Prompt != "" {
+		t.Fatalf("persisted prompt = %q, want empty", threads.upsert.Prompt)
 	}
 	if threads.upsert.Cwd != wantStartCWD(t) || bindings.upsert.Cwd != wantStartCWD(t) {
 		t.Fatalf("persisted cwd = %q/%q, want %q", threads.upsert.Cwd, bindings.upsert.Cwd, wantStartCWD(t))
@@ -150,6 +153,85 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	}
 	if bindings.upsert.ProviderThreadID != "provider-thread-1" || bindings.upsert.CodexThreadID != "agent-start" {
 		t.Fatalf("binding upsert = %#v", bindings.upsert)
+	}
+}
+
+func TestServiceStartPrefersExplicitNameForLaunchAndPersist(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+			if req.Instructions != "system prompt" {
+				t.Fatalf("instructions = %q, want system prompt", req.Instructions)
+			}
+			session := &stubSession{threadID: "provider-thread-name"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, orch, nil).(*service)
+
+	if _, err := svc.Start(context.Background(), StartRequest{
+		AgentID:          "agent-name",
+		Provider:         "codex",
+		Name:             "display name",
+		Prompt:           "legacy prompt",
+		BaseInstructions: "system prompt",
+	}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if orch.launchReq.Name != "display name" {
+		t.Fatalf("launch name = %q, want display name", orch.launchReq.Name)
+	}
+	if threads.upsert.Prompt != "display name" {
+		t.Fatalf("persisted prompt = %q, want display name", threads.upsert.Prompt)
+	}
+}
+
+func TestServiceStartUsesPromptAssemblyRef(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+			if req.Instructions != "assembled system" {
+				t.Fatalf("instructions = %q, want assembled system", req.Instructions)
+			}
+			if got := req.Config["developerInstructions"]; got != "assembled dev" {
+				t.Fatalf("developerInstructions = %#v, want assembled dev", got)
+			}
+			session := &stubSession{threadID: "provider-thread-assembly"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, orch, nil).(*service)
+
+	if _, err := svc.Start(context.Background(), StartRequest{
+		AgentID:          "agent-assembly",
+		Provider:         "codex",
+		Name:             "display name",
+		BaseInstructions: "system prompt",
+		PromptAssemblyRef: promptAssemblyStub{
+			startAssembly: contract.StartAssembly{
+				DisplayName:           "assembled name",
+				BaseInstructions:      "assembled system",
+				DeveloperInstructions: "assembled dev",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if orch.launchReq.Name != "assembled name" {
+		t.Fatalf("launch name = %q, want assembled name", orch.launchReq.Name)
+	}
+	if threads.upsert.Prompt != "assembled name" {
+		t.Fatalf("persisted prompt = %q, want assembled name", threads.upsert.Prompt)
 	}
 }
 
@@ -187,6 +269,22 @@ func (s *startOnlySessionStarter) StartSession(ctx context.Context, req dto.Star
 
 func (s *startOnlySessionStarter) ResumeSession(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
 	return nil, errors.New("unexpected resume session")
+}
+
+type promptAssemblyStub struct {
+	startAssembly contract.StartAssembly
+}
+
+func (p promptAssemblyStub) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+	return p.startAssembly, nil
+}
+
+func (promptAssemblyStub) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
+	return contract.TurnAssembly{}, nil
+}
+
+func (promptAssemblyStub) Invalidate(context.Context, contract.InvalidateReason) error {
+	return nil
 }
 
 func wantStartCWD(t *testing.T) string {

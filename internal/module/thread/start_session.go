@@ -17,7 +17,7 @@ const defaultStartProvider = "codex"
 
 func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 	req = trimStartRequest(req)
-	req.Prompt = shared.FirstNonEmpty(req.Prompt, req.BaseInstructions)
+	req.Name = normalizeStartDisplayName(shared.FirstNonEmpty(req.Name, req.Prompt))
 	if req.AgentID == "" {
 		req.AgentID = shared.NewID("agent")
 	}
@@ -34,6 +34,7 @@ func trimStartRequest(req StartRequest) StartRequest {
 	req.CWD = strings.TrimSpace(req.CWD)
 	req.Model = strings.TrimSpace(req.Model)
 	req.ModelProvider = strings.TrimSpace(req.ModelProvider)
+	req.Name = strings.TrimSpace(req.Name)
 	req.Prompt = strings.TrimSpace(req.Prompt)
 	req.BaseInstructions = strings.TrimSpace(req.BaseInstructions)
 	req.DeveloperInstructions = strings.TrimSpace(req.DeveloperInstructions)
@@ -133,7 +134,7 @@ func isDangerFullAccessValue(value string) bool {
 	return normalized == "dangerfullaccess"
 }
 
-func (s *service) startSession(ctx context.Context, req StartRequest, agentID string) (contract.Session, error) {
+func (s *service) startSession(ctx context.Context, req StartRequest, assembly contract.StartAssembly, agentID string) (contract.Session, error) {
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
 	}
@@ -144,12 +145,13 @@ func (s *service) startSession(ctx context.Context, req StartRequest, agentID st
 		}
 	}
 	return s.starter.StartSession(ctx, dto.StartSessionRequest{
-		Provider:     req.Provider,
-		AgentID:      agentID,
-		CWD:          cwd,
-		Model:        req.Model,
-		Instructions: shared.FirstNonEmpty(req.BaseInstructions, req.Prompt),
-		Config:       buildStartSessionConfig(req),
+		Provider:      req.Provider,
+		AgentID:       agentID,
+		CWD:           cwd,
+		Model:         req.Model,
+		Instructions:  assembly.BaseInstructions,
+		StartAssembly: toProviderStartAssembly(assembly),
+		Config:        buildStartSessionConfig(req, assembly),
 	})
 }
 
@@ -176,6 +178,7 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 		CWD:              cwd,
 		Model:            resolvedReq.Model,
 		Effort:           resolvedReq.Effort,
+		PromptSnapshot:   toProviderPromptSnapshot(resolvedReq.PromptSnapshot),
 		ConfigOverride:   resolvedReq.ConfigOverride,
 	})
 }
@@ -380,4 +383,3 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 	}
 	return state
 }
-

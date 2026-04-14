@@ -79,6 +79,9 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 	if threads.upsert.ThreadID != "thread-fork" || threads.upsert.OwnerThreadID != "thread-parent" {
 		t.Fatalf("thread upsert = %#v", threads.upsert)
 	}
+	if threads.upsert.Prompt != "Forked Thread" {
+		t.Fatalf("persisted prompt = %q, want Forked Thread", threads.upsert.Prompt)
+	}
 }
 
 func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
@@ -131,6 +134,9 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 	}
 	if threads.upsert.ThreadID != "thread-parent" {
 		t.Fatalf("thread upsert = %#v", threads.upsert)
+	}
+	if threads.upsert.Prompt != "Recovered Thread" {
+		t.Fatalf("persisted prompt = %q, want Recovered Thread", threads.upsert.Prompt)
 	}
 }
 

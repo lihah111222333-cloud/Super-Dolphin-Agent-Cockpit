@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
@@ -38,6 +39,7 @@ type StartRequest struct {
 	Model                 string
 	ModelProvider         string
 	Name                  string
+	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
 	Prompt                string
 	BaseInstructions      string
 	DeveloperInstructions string
@@ -46,6 +48,7 @@ type StartRequest struct {
 	Summary               string
 	Effort                string
 	Personality           string
+	PromptAssemblyRef     contract.PromptAssemblyService
 	Config                map[string]any
 }
 
@@ -70,6 +73,7 @@ type ResumeRequest struct {
 	CWD              string
 	Model            string
 	Effort           string
+	PromptSnapshot   contract.PromptAssemblySnapshot
 	ConfigOverride   dto.ThreadConfigPatch
 }
 
