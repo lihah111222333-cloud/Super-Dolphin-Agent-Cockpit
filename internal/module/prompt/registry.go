@@ -1,0 +1,50 @@
+package prompt
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+)
+
+type SectionRegistry struct {
+	mu       sync.RWMutex
+	sections map[string]PromptSection
+}
+
+func NewSectionRegistry() *SectionRegistry {
+	return &SectionRegistry{sections: map[string]PromptSection{}}
+}
+
+func (r *SectionRegistry) Register(section PromptSection) error {
+	name := strings.TrimSpace(section.Name)
+	if name == "" {
+		return fmt.Errorf("section name is required")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.sections[name]; exists {
+		return fmt.Errorf("section %q already registered", name)
+	}
+	section.Name = name
+	r.sections[name] = section
+	return nil
+}
+
+func (r *SectionRegistry) Sections() []PromptSection {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make([]PromptSection, 0, len(r.sections))
+	for _, section := range r.sections {
+		out = append(out, section)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Order == out[j].Order {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Order < out[j].Order
+	})
+	return out
+}
