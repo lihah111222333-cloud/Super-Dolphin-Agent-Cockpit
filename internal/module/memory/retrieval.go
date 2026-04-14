@@ -1,0 +1,366 @@
+package memory
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+)
+
+const (
+	defaultRelevantMemoryBudgetBytes = 60 * 1024
+	defaultRelevantMemoryLimit       = 5
+	defaultRelevantMemoryCandidates  = 20
+)
+
+type RelevantMemoryFinder struct {
+	BudgetBytes    int
+	MaxResults     int
+	CandidateLimit int
+	readEntry      func(string) (MemoryEntry, error)
+}
+
+type scoredMemoryEntry struct {
+	entry MemoryEntry
+	score int
+}
+
+type memorySearchFields struct {
+	name        []string
+	base        []string
+	description []string
+	path        []string
+	aliases     []string
+	searchKeys  []string
+}
+
+func NewRelevantMemoryFinder() *RelevantMemoryFinder {
+	return &RelevantMemoryFinder{
+		BudgetBytes:    defaultRelevantMemoryBudgetBytes,
+		MaxResults:     defaultRelevantMemoryLimit,
+		CandidateLimit: defaultRelevantMemoryCandidates,
+		readEntry:      readMemoryEntryFile,
+	}
+}
+
+func (f *RelevantMemoryFinder) FindRelevantMemories(ctx context.Context, query string, manifest []MemoryEntry) ([]MemoryEntry, error) {
+	if err := contextErr(ctx); err != nil {
+		return nil, err
+	}
+	ranked := f.rankEntries(query, manifest)
+	if len(ranked) == 0 {
+		return nil, nil
+	}
+	hydrated, err := f.hydrateEntries(ctx, ranked)
+	if err != nil {
+		return nil, err
+	}
+	return f.SelectRelevantMemories(hydrated, f.budget()), nil
+}
+
+func (f *RelevantMemoryFinder) SelectRelevantMemories(entries []MemoryEntry, budget int) []MemoryEntry {
+	remaining := resolveRelevantBudget(budget)
+	limit := f.maxResults()
+	if len(entries) == 0 || remaining <= 0 || limit <= 0 {
+		return nil
+	}
+
+	seenPaths := make(map[string]struct{}, len(entries))
+	seenHashes := make(map[string]struct{}, len(entries))
+	selected := make([]MemoryEntry, 0, minInt(len(entries), limit))
+	for _, entry := range entries {
+		if len(selected) >= limit || remaining <= 0 {
+			break
+		}
+		pathKey, hashKey := memoryDedupKeys(entry)
+		if isSeen(seenPaths, pathKey) || isSeen(seenHashes, hashKey) {
+			continue
+		}
+		size := memoryBudgetBytes(entry)
+		if size > remaining {
+			continue
+		}
+		rememberKey(seenPaths, pathKey)
+		rememberKey(seenHashes, hashKey)
+		selected = append(selected, cloneMemoryEntry(entry))
+		remaining -= size
+	}
+	return selected
+}
+
+func (f *RelevantMemoryFinder) rankEntries(query string, manifest []MemoryEntry) []MemoryEntry {
+	normalizedQuery, terms := searchTerms(query)
+	if normalizedQuery == "" || len(terms) == 0 || len(manifest) == 0 {
+		return nil
+	}
+
+	ranked := make([]scoredMemoryEntry, 0, len(manifest))
+	for _, entry := range manifest {
+		score := scoreMemoryEntry(normalizedQuery, terms, entry)
+		if score <= 0 {
+			continue
+		}
+		ranked = append(ranked, scoredMemoryEntry{entry: cloneMemoryEntry(entry), score: score})
+	}
+	sortScoredMemories(ranked)
+	if limit := f.candidateLimit(); len(ranked) > limit {
+		ranked = ranked[:limit]
+	}
+	entries := make([]MemoryEntry, 0, len(ranked))
+	for _, item := range ranked {
+		entries = append(entries, item.entry)
+	}
+	return entries
+}
+
+func (f *RelevantMemoryFinder) hydrateEntries(ctx context.Context, entries []MemoryEntry) ([]MemoryEntry, error) {
+	readEntry := f.entryReader()
+	seenPaths := make(map[string]struct{}, len(entries))
+	hydrated := make([]MemoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		if err := contextErr(ctx); err != nil {
+			return nil, err
+		}
+		pathKey, _ := memoryDedupKeys(entry)
+		if isSeen(seenPaths, pathKey) {
+			continue
+		}
+		rememberKey(seenPaths, pathKey)
+		loaded, ok, err := hydrateMemoryEntry(entry, readEntry)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			hydrated = append(hydrated, loaded)
+		}
+	}
+	return hydrated, nil
+}
+
+func hydrateMemoryEntry(entry MemoryEntry, readEntry func(string) (MemoryEntry, error)) (MemoryEntry, bool, error) {
+	if strings.TrimSpace(entry.Content) != "" || strings.TrimSpace(entry.FilePath) == "" {
+		return cloneMemoryEntry(entry), true, nil
+	}
+	loaded, err := readEntry(entry.FilePath)
+	if err != nil {
+		return MemoryEntry{}, false, nil
+	}
+	return loaded, true, nil
+}
+
+func scoreMemoryEntry(query string, terms []string, entry MemoryEntry) int {
+	fields := searchableFields(entry)
+	score := 0
+	score += matchWeight(fields.name, query, 18)
+	score += matchWeight(fields.base, query, 16)
+	score += matchWeight(fields.aliases, query, 12)
+	score += matchWeight(fields.searchKeys, query, 12)
+	score += matchWeight(fields.description, query, 8)
+	score += matchWeight(fields.path, query, 6)
+	for _, term := range terms {
+		score += matchWeight(fields.name, term, 8)
+		score += matchWeight(fields.base, term, 7)
+		score += matchWeight(fields.aliases, term, 6)
+		score += matchWeight(fields.searchKeys, term, 6)
+		score += matchWeight(fields.description, term, 4)
+		score += matchWeight(fields.path, term, 3)
+	}
+	if score > 0 {
+		score += matchedTermCount(fields, terms) * 5
+	}
+	return score
+}
+
+func searchableFields(entry MemoryEntry) memorySearchFields {
+	return memorySearchFields{
+		name:        []string{CanonicalName(entry.Frontmatter.Name)},
+		base:        []string{CanonicalName(strings.TrimSuffix(filepath.Base(entry.FilePath), filepath.Ext(entry.FilePath)))},
+		description: []string{CanonicalName(entry.Frontmatter.Description)},
+		path:        []string{CanonicalName(filepath.ToSlash(entry.FilePath))},
+		aliases:     normalizeSearchValues(entry.Frontmatter.Aliases),
+		searchKeys:  normalizeSearchValues(entry.Frontmatter.SearchKeys),
+	}
+}
+
+func matchedTermCount(fields memorySearchFields, terms []string) int {
+	count := 0
+	for _, term := range terms {
+		if matchWeight(flattenSearchFields(fields), term, 1) == 0 {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func normalizeSearchValues(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		if canonical := CanonicalName(value); canonical != "" {
+			normalized = append(normalized, canonical)
+		}
+	}
+	return normalized
+}
+
+func matchWeight(fields []string, needle string, weight int) int {
+	if needle == "" || weight <= 0 {
+		return 0
+	}
+	for _, field := range fields {
+		if field != "" && strings.Contains(field, needle) {
+			return weight
+		}
+	}
+	return 0
+}
+
+func flattenSearchFields(fields memorySearchFields) []string {
+	flattened := make([]string, 0, 4+len(fields.aliases)+len(fields.searchKeys))
+	flattened = append(flattened, fields.name...)
+	flattened = append(flattened, fields.base...)
+	flattened = append(flattened, fields.description...)
+	flattened = append(flattened, fields.path...)
+	flattened = append(flattened, fields.aliases...)
+	flattened = append(flattened, fields.searchKeys...)
+	return flattened
+}
+
+func sortScoredMemories(entries []scoredMemoryEntry) {
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].score != entries[j].score {
+			return entries[i].score > entries[j].score
+		}
+		if !entries[i].entry.UpdatedAt.Equal(entries[j].entry.UpdatedAt) {
+			return entries[i].entry.UpdatedAt.After(entries[j].entry.UpdatedAt)
+		}
+		return entries[i].entry.FilePath < entries[j].entry.FilePath
+	})
+}
+
+func searchTerms(query string) (string, []string) {
+	normalized := CanonicalName(query)
+	if normalized == "" {
+		return "", nil
+	}
+	seen := map[string]struct{}{normalized: {}}
+	terms := []string{normalized}
+	for _, part := range strings.Fields(normalized) {
+		if _, ok := seen[part]; ok || part == "" {
+			continue
+		}
+		seen[part] = struct{}{}
+		terms = append(terms, part)
+	}
+	return normalized, terms
+}
+
+func resolveRelevantBudget(budget int) int {
+	if budget > 0 {
+		return budget
+	}
+	return defaultRelevantMemoryBudgetBytes
+}
+
+func memoryBudgetBytes(entry MemoryEntry) int {
+	content := strings.TrimSpace(entry.Content)
+	if content != "" {
+		return len([]byte(content))
+	}
+	fallback := entry.Frontmatter.Description + entry.Frontmatter.Name + entry.FilePath
+	return len([]byte(strings.TrimSpace(fallback)))
+}
+
+func memoryDedupKeys(entry MemoryEntry) (string, string) {
+	pathKey := CanonicalName(filepath.ToSlash(filepath.Clean(entry.FilePath)))
+	content := strings.TrimSpace(entry.Content)
+	if content == "" {
+		content = strings.TrimSpace(entry.Frontmatter.Name + "\n" + entry.Frontmatter.Description)
+	}
+	sum := sha256.Sum256([]byte(content))
+	return pathKey, hex.EncodeToString(sum[:])
+}
+
+func rememberKey(seen map[string]struct{}, key string) {
+	if key != "" {
+		seen[key] = struct{}{}
+	}
+}
+
+func isSeen(seen map[string]struct{}, key string) bool {
+	if key == "" {
+		return false
+	}
+	_, ok := seen[key]
+	return ok
+}
+
+func (f *RelevantMemoryFinder) budget() int {
+	if f == nil || f.BudgetBytes <= 0 {
+		return defaultRelevantMemoryBudgetBytes
+	}
+	return f.BudgetBytes
+}
+
+func (f *RelevantMemoryFinder) maxResults() int {
+	if f == nil || f.MaxResults <= 0 {
+		return defaultRelevantMemoryLimit
+	}
+	return f.MaxResults
+}
+
+func (f *RelevantMemoryFinder) candidateLimit() int {
+	if f == nil || f.CandidateLimit <= 0 {
+		return defaultRelevantMemoryCandidates
+	}
+	return f.CandidateLimit
+}
+
+func (f *RelevantMemoryFinder) entryReader() func(string) (MemoryEntry, error) {
+	if f != nil && f.readEntry != nil {
+		return f.readEntry
+	}
+	return readMemoryEntryFile
+}
+
+func contextErr(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+func cloneEntries(entries []MemoryEntry) []MemoryEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	cloned := make([]MemoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		cloned = append(cloned, cloneMemoryEntry(entry))
+	}
+	return cloned
+}
+
+func cloneMemoryEntry(entry MemoryEntry) MemoryEntry {
+	entry.Frontmatter.Aliases = slices.Clone(entry.Frontmatter.Aliases)
+	entry.Frontmatter.SearchKeys = slices.Clone(entry.Frontmatter.SearchKeys)
+	if entry.Frontmatter.Type != nil {
+		entry.Frontmatter.Type = cloneMemoryType(*entry.Frontmatter.Type)
+	}
+	return entry
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
