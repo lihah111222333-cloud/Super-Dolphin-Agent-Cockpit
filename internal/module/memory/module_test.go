@@ -35,6 +35,26 @@ func TestServiceEnsureRoot(t *testing.T) {
 	}
 }
 
+func TestServiceEnsureRootUsesAutoMemPathOverride(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "memory-root")
+	override := filepath.Join(t.TempDir(), "override", "memory")
+	svc := NewService(&Config{
+		RootDir:             root,
+		ProjectRoot:         filepath.Join(t.TempDir(), "project"),
+		AutoMemPathOverride: override,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := svc.EnsureRoot(context.Background()); err != nil {
+		t.Fatalf("EnsureRoot() error = %v", err)
+	}
+	info, err := os.Stat(override)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", override, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%q is not a directory", override)
+	}
+}
+
 func TestRootManagerEnsureRootDelegatesToService(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root-manager")
 	svc := NewService(&Config{RootDir: root}, slog.New(slog.NewTextHandler(io.Discard, nil)))

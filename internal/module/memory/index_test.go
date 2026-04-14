@@ -21,6 +21,19 @@ func TestParseMemoryIndex(t *testing.T) {
 	}
 }
 
+func TestParseMemoryIndexStripsUTF8BOM(t *testing.T) {
+	entries, err := ParseMemoryIndex("\uFEFF- [Alpha](user/alpha.md) — first hook\n")
+	if err != nil {
+		t.Fatalf("ParseMemoryIndex() with BOM error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("ParseMemoryIndex() with BOM entries = %d, want 1", len(entries))
+	}
+	if entries[0].Title != "Alpha" {
+		t.Fatalf("ParseMemoryIndex() with BOM title = %q, want %q", entries[0].Title, "Alpha")
+	}
+}
+
 func TestUpdateMemoryIndexDedupesCanonicalName(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	olderPath := filepath.Join(root, string(MemoryTypeUser), "foo.md")

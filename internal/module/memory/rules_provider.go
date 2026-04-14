@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"go.uber.org/fx"
@@ -25,10 +26,20 @@ type promptProviderParams struct {
 
 func NewRulesProvider(cfg *Config, engine *MemoryRuleEngine) *MemoryRulesProvider {
 	autoEnabled := cfg != nil && cfg.Enabled
+	skipIndex := cfg != nil && cfg.SkipIndex
+	var extraGuidelines []string
+	if cfg != nil {
+		extraGuidelines = cloneStrings(cfg.ExtraGuidelines)
+	}
 	if engine == nil {
 		engine = NewMemoryRuleEngine()
 	}
-	return &MemoryRulesProvider{engine: engine, autoEnabled: autoEnabled}
+	return &MemoryRulesProvider{
+		engine:          engine,
+		autoEnabled:     autoEnabled,
+		skipIndex:       skipIndex,
+		extraGuidelines: extraGuidelines,
+	}
 }
 
 func (p *MemoryRulesProvider) SectionName() string {
@@ -39,10 +50,15 @@ func (p *MemoryRulesProvider) Resolve(_ context.Context, input prompt.SectionCon
 	if p == nil || input.Start == nil || input.Turn != nil {
 		return nil, nil
 	}
-	return p.engine.LoadMemoryPrompt(MemoryModeStandard, p.autoEnabled, MemoryRuleOptions{
+	text := p.engine.LoadMemoryPrompt(MemoryModeStandard, p.autoEnabled, MemoryRuleOptions{
 		SkipIndex:       p.skipIndex,
 		ExtraGuidelines: p.extraGuidelines,
-	}), nil
+	})
+	if text == nil || strings.TrimSpace(*text) == "" {
+		return nil, nil
+	}
+	wrapped := "## " + prompt.DynamicSectionMemory + "\n\n" + strings.TrimSpace(*text)
+	return &wrapped, nil
 }
 
 func registerPromptProvider(p promptProviderParams) error {

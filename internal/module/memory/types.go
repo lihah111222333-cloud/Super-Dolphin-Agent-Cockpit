@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -72,6 +73,25 @@ type MemoryEntry struct {
 	FilePath      string            `yaml:"-"`
 	CanonicalName string            `yaml:"-"`
 	UpdatedAt     time.Time         `yaml:"-"`
+}
+
+type SaveIntent struct {
+	Detected bool
+	Content  string
+	Type     MemoryType
+}
+
+type ExtractFunc func(ctx context.Context, prompt string) (string, error)
+
+type ExtractParams struct {
+	Transcript string
+	MaxItems   int
+}
+
+type ExtractedMemory struct {
+	Content string
+	Type    MemoryType
+	Tags    []string
 }
 
 func (e MemoryEntry) Type() MemoryType {
