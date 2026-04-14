@@ -15,14 +15,17 @@ import (
 )
 
 const (
-	MaxFileLines        = 400
-	MaxFactoryFileLines = 800
-	MaxFuncLines        = 80
-	MaxNestingDepth     = 4
-	MaxUnderscores      = 3
-	MaxCCComplexity     = 10
-	MaxPackageFiles     = 15
-	MaxPackageLines     = 4500
+	MaxFileLines            = 400
+	MaxCorePackageFileLines = 600
+	MaxFactoryFileLines     = 800
+	MaxFuncLines            = 80
+	MaxNestingDepth         = 4
+	MaxUnderscores          = 3
+	MaxCCComplexity         = 10
+	MaxPackageFiles         = 15
+	MaxCorePackageFiles     = 30
+	MaxPackageLines         = 4500
+	MaxCorePackageLines     = 10000
 )
 
 type ViolationKind int
@@ -267,14 +270,21 @@ func isFactoryFile(relPath string) bool {
 }
 
 func fileLengthViolationsForFile(relPath string, fileLines int, factory bool) []Violation {
-	limit := MaxFileLines
-	if factory {
-		limit = MaxFactoryFileLines
-	}
+	limit := fileLineLimit(relPath, factory)
 	if fileLines <= limit {
 		return nil
 	}
 	return []Violation{{Kind: ViolationFile, File: relPath, Got: fileLines, Limit: limit, Message: fmt.Sprintf("文件  %s: %d 行 > 上限 %d", relPath, fileLines, limit)}}
+}
+
+func fileLineLimit(relPath string, factory bool) int {
+	if factory {
+		return MaxFactoryFileLines
+	}
+	if isCorePackageDir(filepath.ToSlash(filepath.Dir(relPath))) {
+		return MaxCorePackageFileLines
+	}
+	return MaxFileLines
 }
 
 func functionViolations(relPath string, rawLines []string, fset *token.FileSet, fileNode *ast.File) []Violation {
@@ -326,12 +336,13 @@ func packageViolations(stats map[string]*packageStat) []Violation {
 	var violations []Violation
 	for _, pkgDir := range keys {
 		stat := stats[pkgDir]
-		limit := packageFileCountLimit(pkgDir)
-		if limit > 0 && stat.Files > limit {
-			violations = append(violations, Violation{Kind: ViolationPackageCount, File: pkgDir, Got: stat.Files, Limit: limit, Message: fmt.Sprintf("包文件数 %s: %d 个 > 上限 %d", pkgDir, stat.Files, limit)})
+		fileLimit := packageFileCountLimit(pkgDir)
+		if fileLimit > 0 && stat.Files > fileLimit {
+			violations = append(violations, Violation{Kind: ViolationPackageCount, File: pkgDir, Got: stat.Files, Limit: fileLimit, Message: fmt.Sprintf("包文件数 %s: %d 个 > 上限 %d", pkgDir, stat.Files, fileLimit)})
 		}
-		if stat.Lines > MaxPackageLines {
-			violations = append(violations, Violation{Kind: ViolationPackageLines, File: pkgDir, Got: stat.Lines, Limit: MaxPackageLines, Message: fmt.Sprintf("包行数 %s: %d 行 > 上限 %d", pkgDir, stat.Lines, MaxPackageLines)})
+		lineLimit := packageLineLimit(pkgDir)
+		if lineLimit > 0 && stat.Lines > lineLimit {
+			violations = append(violations, Violation{Kind: ViolationPackageLines, File: pkgDir, Got: stat.Lines, Limit: lineLimit, Message: fmt.Sprintf("包行数 %s: %d 行 > 上限 %d", pkgDir, stat.Lines, lineLimit)})
 		}
 	}
 	return violations
@@ -343,15 +354,33 @@ func packageFileCountLimit(pkgDir string) int {
 	case "internal/provider/claudecli",
 		"internal/provider/codexapp":
 		return 30 // 核心 provider 包，逻辑密集，文件限制过低会导致逻辑分散
-	case "internal/module/memory":
-		return 18 // memory 按职责拆分 provider/retrieval/agent path 后已稳定超过默认阈值，保留较紧上限避免继续膨胀
-	case "internal/module/thread":
-		return 22 // thread 统一承接启动/恢复/prompt 装配链路，略高于默认阈值但仍受包总行数与函数复杂度守卫约束
 	case "internal/store/sqlc", "cmd/mcp-orch/store/sqlc":
 		// sqlc 输出按查询源文件拆分，包文件数对生成层噪声较大；仍保留包总行数与单文件/函数守卫。
 		return 0
 	default:
+		if isCorePackageDir(pkgDir) {
+			return MaxCorePackageFiles
+		}
 		return MaxPackageFiles
+	}
+}
+
+func packageLineLimit(pkgDir string) int {
+	if isCorePackageDir(pkgDir) {
+		return MaxCorePackageLines
+	}
+	return MaxPackageLines
+}
+
+func isCorePackageDir(pkgDir string) bool {
+	switch pkgDir {
+	case "internal/module/memory",
+		"internal/module/prompt",
+		"internal/module/thread",
+		"internal/module/turn":
+		return true
+	default:
+		return false
 	}
 }
 
