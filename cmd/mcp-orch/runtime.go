@@ -16,7 +16,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -213,15 +212,8 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 		return err
 	}
 	// P15: subscribe to lifecycle hooks so hookConsumer receives
-	// turn/completed, item/completed, state/changed etc.
-	if _, err := r.client.SubscribeHooks(ctx, "orch-peer", []string{
-		"agent.session.start",
-		"agent.turn.after",
-		"agent.turn.failed",
-		"agent.turn.progress",
-		"agent.state.change",
-		"agent.process.exit",
-	}, mcp.Selector{}, nil, "after"); err != nil {
+	// agent.session.start / agent.turn.* / agent.state.change / agent.process.exit.
+	if err := subscribeOrchestrationHooks(ctx, r.client); err != nil {
 		pkglogger.Warn("mcp-orch hook subscribe failed", "error", err)
 	}
 	<-ctx.Done()

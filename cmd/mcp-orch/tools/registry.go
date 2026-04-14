@@ -14,6 +14,7 @@ type Dependencies struct {
 	Prompt        promptstore.Store
 	CommandCard   commandcardstore.Store
 	SharedFile    sharedfilestore.Store
+	Memory        contract.MemoryService
 }
 
 type Registry struct {
@@ -27,6 +28,7 @@ func NewRegistry(deps Dependencies) Registry {
 	tools = append(tools, promptToolDefinitions(deps.Prompt)...)
 	tools = append(tools, commandToolDefinitions(deps.CommandCard)...)
 	tools = append(tools, sharedFileToolDefinitions(deps.SharedFile)...)
+	tools = append(tools, memoryToolDefinitions(deps.Memory)...)
 	byName := make(map[string]ToolDefinition, len(tools))
 	for _, tool := range tools {
 		byName[tool.Name] = tool
