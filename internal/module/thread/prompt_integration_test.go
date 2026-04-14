@@ -279,8 +279,8 @@ func TestTurnAssemblyUserContextText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleTurn() error = %v", err)
 	}
-	if !strings.Contains(turnAssembly.UserContextText, "## "+promptpkg.DynamicSectionSessionGuidance) {
-		t.Fatalf("UserContextText = %q, want session guidance heading", turnAssembly.UserContextText)
+	if strings.Contains(turnAssembly.UserContextText, "## "+promptpkg.DynamicSectionSessionGuidance) {
+		t.Fatalf("UserContextText = %q, want raw section content without synthetic heading", turnAssembly.UserContextText)
 	}
 	if !strings.Contains(turnAssembly.UserContextText, "please verify the cache") {
 		t.Fatalf("UserContextText = %q, want user text", turnAssembly.UserContextText)
