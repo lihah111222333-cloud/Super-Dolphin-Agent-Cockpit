@@ -25,14 +25,15 @@ type DynamicTextProvider struct {
 }
 
 type dynamicSectionSpec struct {
-	name     string
-	order    int
-	volatile bool
+	name      string
+	order     int
+	volatile  bool
+	startOnly bool
 }
 
 var dynamicSectionSpecs = []dynamicSectionSpec{
 	{name: DynamicSectionSessionGuidance, order: 110},
-	{name: DynamicSectionMemory, order: 120},
+	{name: DynamicSectionMemory, order: 120, startOnly: true},
 	{name: DynamicSectionEnvInfoSimple, order: 130},
 	{name: DynamicSectionLanguage, order: 140},
 	{name: DynamicSectionMCPInstructions, order: 150, volatile: true},
@@ -99,10 +100,11 @@ func (s *service) dynamicSlotSections() []PromptSection {
 
 func (s *service) dynamicSlotSection(spec dynamicSectionSpec) PromptSection {
 	return PromptSection{
-		Name:     spec.name,
-		Order:    spec.order,
-		Region:   PromptRegionDynamic,
-		Volatile: spec.volatile,
+		Name:      spec.name,
+		Order:     spec.order,
+		Region:    PromptRegionDynamic,
+		Volatile:  spec.volatile,
+		StartOnly: spec.startOnly,
 		Compute: func(ctx context.Context, input SectionContext) (*string, error) {
 			return s.resolveDynamicSection(ctx, spec.name, input)
 		},

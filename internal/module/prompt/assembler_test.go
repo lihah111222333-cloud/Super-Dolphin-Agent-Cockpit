@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -102,5 +103,74 @@ func TestVolatileDynamicSectionRecomputesEveryTurn(t *testing.T) {
 	}
 	if first.UserContextText == second.UserContextText {
 		t.Fatalf("volatile section did not change: first=%q second=%q", first.UserContextText, second.UserContextText)
+	}
+}
+
+func TestStartOnlyDynamicSectionCachesStartWithoutLeakingToTurn(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	calls := 0
+	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+		Name: DynamicSectionMemory,
+		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
+			calls++
+			text := fmt.Sprintf("memory build #%d", calls)
+			return &text, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterDynamicProvider() error = %v", err)
+	}
+
+	firstTurn, err := svc.AssembleTurn(context.Background(), TurnInput{})
+	if err != nil {
+		t.Fatalf("first AssembleTurn() error = %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("memory provider calls after turn = %d, want 0", calls)
+	}
+	if strings.Contains(firstTurn.UserContextText, "memory build #") {
+		t.Fatalf("turn unexpectedly rendered memory content: %q", firstTurn.UserContextText)
+	}
+
+	firstStart, err := svc.AssembleStart(context.Background(), StartInput{})
+	if err != nil {
+		t.Fatalf("first AssembleStart() error = %v", err)
+	}
+	secondStart, err := svc.AssembleStart(context.Background(), StartInput{})
+	if err != nil {
+		t.Fatalf("second AssembleStart() error = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("memory provider calls after repeated start = %d, want 1", calls)
+	}
+	if !strings.Contains(firstStart.BaseInstructions, "memory build #1") {
+		t.Fatalf("start missing cached memory content: %q", firstStart.BaseInstructions)
+	}
+	if firstStart.BaseInstructions != secondStart.BaseInstructions {
+		t.Fatalf("cached start mismatch: first=%q second=%q", firstStart.BaseInstructions, secondStart.BaseInstructions)
+	}
+
+	secondTurn, err := svc.AssembleTurn(context.Background(), TurnInput{})
+	if err != nil {
+		t.Fatalf("second AssembleTurn() error = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("memory provider calls after second turn = %d, want 1", calls)
+	}
+	if strings.Contains(secondTurn.UserContextText, "memory build #") {
+		t.Fatalf("turn unexpectedly reused cached memory content: %q", secondTurn.UserContextText)
+	}
+
+	if err := svc.Invalidate(context.Background(), InvalidateClear); err != nil {
+		t.Fatalf("Invalidate() error = %v", err)
+	}
+	thirdStart, err := svc.AssembleStart(context.Background(), StartInput{})
+	if err != nil {
+		t.Fatalf("third AssembleStart() error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("memory provider calls after invalidate = %d, want 2", calls)
+	}
+	if !strings.Contains(thirdStart.BaseInstructions, "memory build #2") {
+		t.Fatalf("start missing rebuilt memory content: %q", thirdStart.BaseInstructions)
 	}
 }

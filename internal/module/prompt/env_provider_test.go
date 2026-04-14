@@ -1,0 +1,61 @@
+package prompt
+
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
+	t.Setenv("SHELL", "/bin/zsh")
+	provider := EnvInfoProvider{}
+
+	text, err := provider.Resolve(context.Background(), SectionContext{
+		BuildCtx: BuildCtx{
+			CWD:                          "/repo/worktree",
+			GitRoot:                      "/repo",
+			Provider:                     "codex",
+			Model:                        "gpt-5.4",
+			EnabledTools:                 []string{"code_run", "lsp_file", "lsp_grep", "lsp_file"},
+			AdditionalWorkingDirectories: []string{"/repo/extra", " /repo/extra-two ", "/repo/extra"},
+		},
+		Turn: &TurnInput{CurrentDate: "2026-04-14"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if text == nil {
+		t.Fatal("Resolve() = nil, want content")
+	}
+
+	checks := []string{
+		"# Environment",
+		"- Primary working directory: /repo/worktree",
+		"- Is a git repository: yes",
+		"- Git root: /repo",
+		"- Current date: 2026-04-14",
+		"- OS: ",
+		"- Shell: zsh",
+		"- Language server status: enabled (lsp_file, lsp_grep)",
+		"- Additional working directory: /repo/extra",
+		"- Additional working directory: /repo/extra-two",
+		"- Provider: codex",
+		"- Model: gpt-5.4",
+	}
+	for _, check := range checks {
+		if !strings.Contains(*text, check) {
+			t.Fatalf("Resolve() = %q, want substring %q", *text, check)
+		}
+	}
+}
+
+func TestEnvInfoProviderResolveWithoutLSPToolsMarksUnavailable(t *testing.T) {
+	provider := EnvInfoProvider{}
+	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{EnabledTools: []string{"code_run"}}})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if text == nil || !strings.Contains(*text, "- Language server status: not enabled in this session") {
+		t.Fatalf("Resolve() = %v, want missing-LSP notice", text)
+	}
+}

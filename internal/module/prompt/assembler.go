@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"strings"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -81,6 +82,9 @@ func (s *service) resolveSections(ctx context.Context, sections []PromptSection,
 }
 
 func (s *service) resolveSection(ctx context.Context, section PromptSection, input SectionContext) (*ResolvedPromptSection, error) {
+	if section.StartOnly && input.Start == nil {
+		return nil, nil
+	}
 	generation := s.cache.Generation()
 	if !section.Volatile {
 		if cached, ok := s.cache.Lookup(section.Name, generation); ok {
@@ -108,7 +112,7 @@ func (s *service) computeSection(ctx context.Context, generation uint64, section
 	}
 
 	key := fmt.Sprintf("%d:%s", generation, section.Name)
-	result, err, _ := s.flight.Do(key, func() (interface{}, error) {
+	result, err, _ := s.flight.Do(key, func() (any, error) {
 		if cached, ok := s.cache.Lookup(section.Name, generation); ok {
 			return computedSectionValue{Value: cloneStringPtr(cached)}, nil
 		}
@@ -208,9 +212,7 @@ func copyFlags(flags map[string]bool) map[string]bool {
 		return nil
 	}
 	cloned := make(map[string]bool, len(flags))
-	for key, value := range flags {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, flags)
 	return cloned
 }
 

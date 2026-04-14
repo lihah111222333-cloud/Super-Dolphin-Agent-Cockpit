@@ -1,0 +1,301 @@
+package prompt_test
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	memory "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
+	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
+	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"go.uber.org/fx"
+)
+
+type fxHarness struct {
+	assembly      promptpkg.PromptAssemblyService
+	registry      promptpkg.PromptRegistry
+	memorySvc     memory.Service
+	threadSvc     thread.Service
+	bridge        *capturingSessionBridge
+	threadStore   *capturingThreadStore
+	bindingStore  *capturingBindingStore
+	orchestration *capturingOrchestration
+	projectRoot   string
+}
+
+func TestFxMemoryPromptIntegration(t *testing.T) {
+	h := newFxHarness(t)
+	if h.assembly == nil || h.registry == nil || h.memorySvc == nil || h.threadSvc == nil {
+		t.Fatalf("fx wiring incomplete: assembly=%v registry=%v memory=%v thread=%v", h.assembly != nil, h.registry != nil, h.memorySvc != nil, h.threadSvc != nil)
+	}
+	start, err := h.assembly.AssembleStart(context.Background(), promptpkg.StartInput{Provider: "codex"})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	if !hasSection(start.ResolvedSections, promptpkg.DynamicSectionMemory) {
+		t.Fatalf("ResolvedSections missing %q: %#v", promptpkg.DynamicSectionMemory, start.ResolvedSections)
+	}
+}
+
+func TestAssembleStartProducesValidOutput(t *testing.T) {
+	h := newFxHarness(t)
+	start, err := h.assembly.AssembleStart(context.Background(), promptpkg.StartInput{
+		Name:                  "Feature Thread",
+		Prompt:                "legacy prompt",
+		BaseInstructions:      "existing base tail",
+		DeveloperInstructions: "developer tail",
+		Provider:              "codex",
+		CWD:                   h.projectRoot,
+		Language:              "Go",
+	})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	for _, section := range promptpkg.StaticSections() {
+		if !hasSection(start.ResolvedSections, section.Name) {
+			t.Fatalf("ResolvedSections missing %q: %#v", section.Name, start.ResolvedSections)
+		}
+		mustContain(t, start.BaseInstructions, "## "+section.Name)
+	}
+	mustContain(t, start.BaseInstructions, "existing base tail")
+	if start.DisplayName != "Feature Thread" {
+		t.Fatalf("DisplayName = %q, want %q", start.DisplayName, "Feature Thread")
+	}
+	if start.Snapshot.Provider != "codex" || start.Snapshot.Hash == "" {
+		t.Fatalf("unexpected snapshot = %#v", start.Snapshot)
+	}
+}
+
+func TestAssembleTurnProducesUserContext(t *testing.T) {
+	h := newFxHarness(t)
+	mustRegisterProvider(t, h.registry, promptpkg.DynamicSectionSessionGuidance, func(in promptpkg.SectionContext) string {
+		return fmt.Sprintf("user=%s cwd=%s", in.Turn.UserText, in.BuildCtx.CWD)
+	})
+	turn, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{
+		UserText: "please verify the cache",
+		CWD:      h.projectRoot,
+	})
+	if err != nil {
+		t.Fatalf("AssembleTurn() error = %v", err)
+	}
+	mustContain(t, turn.UserContextText, "## "+promptpkg.DynamicSectionSessionGuidance)
+	mustContain(t, turn.UserContextText, "please verify the cache")
+	mustContain(t, turn.UserContextText, h.projectRoot)
+}
+
+func TestMemoryRulesInjectIntoPrompt(t *testing.T) {
+	h := newFxHarness(t)
+	start, err := h.assembly.AssembleStart(context.Background(), promptpkg.StartInput{Provider: "codex"})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	if !hasSection(start.ResolvedSections, promptpkg.DynamicSectionMemory) {
+		t.Fatalf("ResolvedSections missing %q: %#v", promptpkg.DynamicSectionMemory, start.ResolvedSections)
+	}
+	mustContain(t, start.BaseInstructions, "## "+promptpkg.DynamicSectionMemory)
+	mustContain(t, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory), "### 2. taxonomy")
+}
+
+func TestSectionCacheInvalidation(t *testing.T) {
+	h := newFxHarness(t)
+	calls := 0
+	mustRegisterProvider(t, h.registry, promptpkg.DynamicSectionSessionGuidance, func(promptpkg.SectionContext) string {
+		calls++
+		return fmt.Sprintf("session guidance build #%d", calls)
+	})
+	first, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{})
+	if err != nil {
+		t.Fatalf("first AssembleTurn() error = %v", err)
+	}
+	second, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{})
+	if err != nil {
+		t.Fatalf("second AssembleTurn() error = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("dynamic provider calls = %d, want 1 before invalidate", calls)
+	}
+	if first.UserContextText != second.UserContextText {
+		t.Fatalf("cached turn mismatch: first=%q second=%q", first.UserContextText, second.UserContextText)
+	}
+	if err := h.assembly.Invalidate(context.Background(), promptpkg.InvalidateClear); err != nil {
+		t.Fatalf("Invalidate() error = %v", err)
+	}
+	third, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{})
+	if err != nil {
+		t.Fatalf("third AssembleTurn() error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("dynamic provider calls = %d, want 2 after invalidate", calls)
+	}
+	if third.UserContextText == first.UserContextText {
+		t.Fatalf("UserContextText did not rebuild after invalidate: %q", third.UserContextText)
+	}
+}
+
+func TestFullChainFromThreadToProvider(t *testing.T) {
+	h := newFxHarness(t)
+	in := promptpkg.StartInput{
+		Name:                  "E2E Thread",
+		Prompt:                "ship the feature",
+		BaseInstructions:      "existing base tail",
+		DeveloperInstructions: "be concise",
+		Provider:              "codex",
+		CWD:                   h.projectRoot,
+		Model:                 "gpt-5",
+		Language:              "Go",
+	}
+	start, result, err := startThroughAssembly(context.Background(), h.assembly, h.threadSvc, in)
+	if err != nil {
+		t.Fatalf("startThroughAssembly() error = %v", err)
+	}
+	mustContain(t, start.BaseInstructions, "## "+promptpkg.SectionIdentity)
+	mustContain(t, start.BaseInstructions, "## "+promptpkg.DynamicSectionMemory)
+	if h.bridge.startReq.Instructions != start.BaseInstructions {
+		t.Fatalf("provider Instructions = %q, want assembled base instructions", h.bridge.startReq.Instructions)
+	}
+	if h.bridge.startReq.StartAssembly.DisplayName != start.DisplayName {
+		t.Fatalf("provider display name = %q, want %q", h.bridge.startReq.StartAssembly.DisplayName, start.DisplayName)
+	}
+	if h.bridge.startReq.StartAssembly.BaseInstructions != start.BaseInstructions {
+		t.Fatalf("provider base instructions mismatch")
+	}
+	if got := configString(h.bridge.startReq.Config, "developerInstructions"); got != "be concise" {
+		t.Fatalf("developerInstructions = %q, want %q", got, "be concise")
+	}
+	if result.Status != "running" || result.Provider != "codex" {
+		t.Fatalf("unexpected StartResult = %#v", result)
+	}
+	if h.orchestration.launchReq.Name != start.DisplayName {
+		t.Fatalf("launch display name = %q, want %q", h.orchestration.launchReq.Name, start.DisplayName)
+	}
+	if h.threadStore.upsert.Prompt != start.DisplayName {
+		t.Fatalf("persisted prompt = %q, want %q", h.threadStore.upsert.Prompt, start.DisplayName)
+	}
+	if h.bindingStore.upsert.ProviderThreadID != "provider-thread-1" {
+		t.Fatalf("binding provider thread id = %q, want %q", h.bindingStore.upsert.ProviderThreadID, "provider-thread-1")
+	}
+	if !containsString(h.orchestration.launchReq.Env, "AGENT_PROVIDER=codex") || !containsString(h.orchestration.launchReq.Env, "AGENT_MODEL=gpt-5") {
+		t.Fatalf("launch env = %#v, want provider/model injection", h.orchestration.launchReq.Env)
+	}
+}
+
+func newFxHarness(t *testing.T) *fxHarness {
+	t.Helper()
+	h := &fxHarness{projectRoot: t.TempDir()}
+	t.Setenv("ENABLE_MEMORY_SYSTEM", "1")
+	t.Setenv("MULTI_AGENT_MEMORY_DIR", filepath.Join(h.projectRoot, "memory"))
+	h.bridge = &capturingSessionBridge{session: newMockSession("provider-thread-1")}
+	h.threadStore = &capturingThreadStore{}
+	h.bindingStore = &capturingBindingStore{}
+	h.orchestration = &capturingOrchestration{}
+	app := fx.New(
+		fx.NopLogger,
+		fx.Supply(&platformconfig.Config{ProjectRoot: h.projectRoot}),
+		fx.Supply(slog.New(slog.NewTextHandler(io.Discard, nil))),
+		fx.Provide(
+			func() thread.SessionStarter { return h.bridge },
+			func() thread.SessionProvider { return h.bridge },
+			func() threadstore.Store { return h.threadStore },
+			func() bindingstore.Store { return h.bindingStore },
+			func() turnpkg.Service { return &noopTurnService{} },
+			func() thread.OrchestrationFacade { return h.orchestration },
+		),
+		promptpkg.Module,
+		memory.Module,
+		thread.Module,
+		fx.Populate(&h.assembly, &h.registry, &h.memorySvc, &h.threadSvc),
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("fx.New() error = %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := app.Start(ctx); err != nil {
+		t.Fatalf("app.Start() error = %v", err)
+	}
+	t.Cleanup(func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stopCancel()
+		if err := app.Stop(stopCtx); err != nil {
+			t.Fatalf("app.Stop() error = %v", err)
+		}
+	})
+	return h
+}
+
+func startThroughAssembly(ctx context.Context, assembly promptpkg.PromptAssemblyService, threads thread.Service, in promptpkg.StartInput) (promptpkg.StartAssembly, thread.StartResult, error) {
+	start, err := assembly.AssembleStart(ctx, in)
+	if err != nil {
+		return promptpkg.StartAssembly{}, thread.StartResult{}, err
+	}
+	result, err := threads.Start(ctx, thread.StartRequest{
+		Provider:              in.Provider,
+		ModelProvider:         in.Provider,
+		Name:                  in.Name,
+		Prompt:                in.Prompt,
+		BaseInstructions:      in.BaseInstructions,
+		DeveloperInstructions: in.DeveloperInstructions,
+		CWD:                   in.CWD,
+		Model:                 in.Model,
+	})
+	return start, result, err
+}
+
+func mustRegisterProvider(t *testing.T, registry promptpkg.PromptRegistry, name string, build func(promptpkg.SectionContext) string) {
+	t.Helper()
+	err := registry.RegisterDynamicProvider(promptpkg.DynamicTextProvider{
+		Name: name,
+		ResolveFunc: func(_ context.Context, in promptpkg.SectionContext) (*string, error) {
+			text := strings.TrimSpace(build(in))
+			if text == "" {
+				return nil, nil
+			}
+			return &text, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("RegisterDynamicProvider(%q) error = %v", name, err)
+	}
+}
+
+func mustContain(t *testing.T, got, want string) {
+	t.Helper()
+	if !strings.Contains(got, want) {
+		t.Fatalf("text missing %q:\n%s", want, got)
+	}
+}
+
+func hasSection(sections []promptpkg.ResolvedPromptSection, name string) bool {
+	return sectionContent(sections, name) != ""
+}
+
+func sectionContent(sections []promptpkg.ResolvedPromptSection, name string) string {
+	for _, section := range sections {
+		if section.Name == name {
+			return section.Content
+		}
+	}
+	return ""
+}
+
+func configString(cfg map[string]any, key string) string {
+	if cfg == nil {
+		return ""
+	}
+	value, _ := cfg[key].(string)
+	return strings.TrimSpace(value)
+}
+
+func containsString(values []string, want string) bool {
+	return slices.Contains(values, want)
+}
