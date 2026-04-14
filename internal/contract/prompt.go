@@ -14,13 +14,15 @@ const (
 )
 
 type MCPSnapshot struct {
-	Servers []string
-	Tools   []string
+	Servers      []string
+	Tools        []string
+	Instructions map[string]string
 }
 
 type BuildCtx struct {
 	CWD                          string
 	GitRoot                      string
+	IsWorktree                   bool
 	Language                     string
 	Provider                     string
 	Model                        string
@@ -53,6 +55,7 @@ type StartInput struct {
 	Provider                     string
 	CWD                          string
 	GitRoot                      string
+	IsWorktree                   bool
 	Language                     string
 	Model                        string
 	EnabledTools                 []string
@@ -70,6 +73,7 @@ type TurnInput struct {
 	CurrentDate                  string
 	CWD                          string
 	GitRoot                      string
+	IsWorktree                   bool
 	Language                     string
 	Model                        string
 	EnabledTools                 []string
