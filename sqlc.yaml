@@ -8,6 +8,7 @@ sql:
       - "migrations/0023_dag_watcher_phase1.sql"
       - "migrations/0024_prompt_versions_description.sql"
       - "migrations/0025_agent_thread_config_override.sql"
+      - "migrations/0031_prompt_snapshot.sql"
     gen:
       go:
         package: "sqlc"
