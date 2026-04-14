@@ -90,12 +90,6 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 		}
 		return
 	}
-	if s.isSilentTurn(raw) {
-		if shouldFinishTurnRaw(raw) {
-			s.finishSilentTurn(raw)
-		}
-		return
-	}
 	if s.shouldSuppressTurn(raw) {
 		if s.logger != nil {
 			s.logger.Warn("claudecli: applyRaw: turn suppressed",

@@ -2,8 +2,6 @@ package claudecli
 
 import (
 	"context"
-	"errors"
-	"io"
 	"strings"
 	"testing"
 	"time"
@@ -15,15 +13,15 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
-func newSilentTurnTestSession(t *testing.T, tr *transport) (*session, chan dto.RawProviderEvent, chan turndto.TurnCompleted) {
+func newSilentTurnTestSession(t *testing.T, tr *transport) (*session, chan dto.BusRawProviderEvent, chan turndto.TurnCompleted) {
 	t.Helper()
 	bus := event.NewDispatcher()
 	t.Cleanup(func() { _ = bus.Close() })
 	dispatcher := unified.NewEventDispatcher(bus, nil)
 	RegisterTranslators(dispatcher)
-	rawEvents := make(chan dto.RawProviderEvent, 4)
+	rawEvents := make(chan dto.BusRawProviderEvent, 4)
 	turnCompleted := make(chan turndto.TurnCompleted, 4)
-	cancelRaw := event.Subscribe(bus, func(ev dto.RawProviderEvent) { rawEvents <- ev })
+	cancelRaw := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) { rawEvents <- ev })
 	cancelCompleted := event.Subscribe(bus, func(ev turndto.TurnCompleted) { turnCompleted <- ev })
 	t.Cleanup(cancelRaw)
 	t.Cleanup(cancelCompleted)
@@ -34,7 +32,6 @@ func newSilentTurnTestSession(t *testing.T, tr *transport) (*session, chan dto.R
 		sessionID:       "thread-1",
 		transport:       tr,
 		eventDispatcher: dispatcher,
-		silentTurnIDs:   map[string]struct{}{},
 	}, rawEvents, turnCompleted
 }
 
@@ -42,15 +39,6 @@ func currentActiveTurnID(s *session) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return currentTurnID(s.activeTurn)
-}
-
-func assertNoEvent[T any](t *testing.T, ch <-chan T) {
-	t.Helper()
-	select {
-	case ev := <-ch:
-		t.Fatalf("unexpected event: %#v", ev)
-	case <-time.After(100 * time.Millisecond):
-	}
 }
 
 func TestSendKeepaliveNormalFlow(t *testing.T) {
@@ -83,16 +71,33 @@ func TestSendKeepaliveNormalFlow(t *testing.T) {
 	if got := currentActiveTurnID(s); got != "" {
 		t.Fatalf("activeTurn = %q, want cleared", got)
 	}
-	if s.isSilentTurn(dto.RawProviderEvent{Data: map[string]any{"turn_id": turnID}}) {
-		t.Fatal("silent turn marker was not cleared")
+	select {
+	case raw := <-rawEvents:
+		if raw.Event.EventType != "turn:complete" {
+			t.Fatalf("raw.EventType = %q, want turn:complete", raw.Event.EventType)
+		}
+		if got := dataString(raw.Event.Data, "turn_id"); got != turnID {
+			t.Fatalf("raw turn_id = %q, want %q", got, turnID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected raw keepalive completion event")
 	}
-	assertNoEvent(t, rawEvents)
-	assertNoEvent(t, turnCompleted)
+	select {
+	case completed := <-turnCompleted:
+		if !completed.Success {
+			t.Fatalf("turnCompleted.Success = false, want true (error=%q)", completed.Error)
+		}
+		if completed.TurnID != turnID {
+			t.Fatalf("turnCompleted.TurnID = %q, want %q", completed.TurnID, turnID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected translated keepalive completion event")
+	}
 }
 
 func TestSendKeepaliveTimeout(t *testing.T) {
 	tr := newInterruptTestTransport(t, "while :; do sleep 1; done")
-	s := &session{transport: tr, silentTurnIDs: map[string]struct{}{}}
+	s := &session{transport: tr}
 	s.mu.Lock()
 	_, turnID, handle, err := s.prepareSilentTurnLocked()
 	s.mu.Unlock()
@@ -113,56 +118,15 @@ func TestSendKeepaliveTimeout(t *testing.T) {
 	if got := currentActiveTurnID(s); got != "" {
 		t.Fatalf("activeTurn = %q, want cleared", got)
 	}
-	if s.isSilentTurn(dto.RawProviderEvent{Data: map[string]any{"turn_id": turnID}}) {
-		t.Fatal("silent turn marker was not cleared after timeout")
-	}
 	if tr.readyForSend() {
 		t.Fatal("transport remained ready after keepalive timeout kill")
 	}
 }
 
-func TestIsSilentTurnFiltering(t *testing.T) {
-	s := &session{silentTurnIDs: map[string]struct{}{"silent-1": {}}}
-	if !s.isSilentTurn(dto.RawProviderEvent{Data: map[string]any{"turn_id": "silent-1"}}) {
-		t.Fatal("isSilentTurn() = false, want true for silent turn")
-	}
-	if s.isSilentTurn(dto.RawProviderEvent{Data: map[string]any{"turn_id": "normal-1"}}) {
-		t.Fatal("isSilentTurn() = true, want false for non-silent turn")
-	}
-	if s.isSilentTurn(dto.RawProviderEvent{Data: map[string]any{"turn_id": ""}}) {
-		t.Fatal("isSilentTurn() = true, want false for empty turn_id")
-	}
-}
-
-func TestHandleReceiveExitSilentTurn(t *testing.T) {
-	tr := &transport{}
-	s, rawEvents, turnCompleted := newSilentTurnTestSession(t, tr)
-	handle := newTurnHandle("keepalive-1", "keepalive-1")
-	s.activeTurn = handle
-	s.silentTurnIDs[handle.LocalID()] = struct{}{}
-	s.handleReceiveExit(tr, io.EOF)
-	select {
-	case <-handle.Done():
-	case <-time.After(time.Second):
-		t.Fatal("handleReceiveExit() did not finish silent handle")
-	}
-	if !errors.Is(handle.Err(), io.EOF) {
-		t.Fatalf("handle.Err() = %v, want EOF", handle.Err())
-	}
-	if got := currentActiveTurnID(s); got != "" {
-		t.Fatalf("activeTurn = %q, want cleared", got)
-	}
-	if s.isSilentTurn(dto.RawProviderEvent{Data: map[string]any{"turn_id": handle.LocalID()}}) {
-		t.Fatal("silent turn marker was not cleared after receive exit")
-	}
-	assertNoEvent(t, rawEvents)
-	assertNoEvent(t, turnCompleted)
-}
-
 func TestSendKeepaliveLockModel(t *testing.T) {
 	writer := &blockingWriteCloser{started: make(chan struct{}), release: make(chan struct{}), writes: make(chan string, 1)}
 	tr := &transport{stdin: writer, stderr: newLimitedBuffer(stderrLimitBytes), done: make(chan struct{})}
-	s := &session{transport: tr, silentTurnIDs: map[string]struct{}{}}
+	s := &session{transport: tr}
 	errCh := make(chan error, 1)
 	go func() { errCh <- s.SendKeepalive(context.Background()) }()
 	select {

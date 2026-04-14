@@ -57,7 +57,6 @@ type session struct {
 	pendingRetry         *turnRetryState
 	activeToolCalls      map[string]string
 	suppressedTurns      map[string]struct{}
-	silentTurnIDs        map[string]struct{}
 }
 
 type turnHandle struct {

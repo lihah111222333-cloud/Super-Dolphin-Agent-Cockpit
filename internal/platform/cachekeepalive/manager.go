@@ -76,26 +76,36 @@ func (m *Manager) HandleAgentLaunched(ev agentdto.AgentLaunched) {
 		return
 	}
 
-	agentID := m.resolveLaunchAgentID(context.Background(), strings.TrimSpace(ev.AgentID), threadID)
+	agentID, fallbackUsed := m.resolveLaunchAgentID(context.Background(), strings.TrimSpace(ev.AgentID), threadID)
 	if agentID == "" {
 		return
 	}
+	if fallbackUsed && m.logger != nil {
+		m.logger.Debug("cachekeepalive: agentID fallback via threadStore", "thread_id", threadID, "resolved_agent_id", agentID)
+	}
 
 	m.register(sessionUUID, agentID, threadID)
+	if m.logger != nil {
+		m.logger.Info("cachekeepalive: session registered", "session_uuid", sessionUUID, "agent_id", agentID, "thread_id", threadID)
+	}
 }
 
-func (m *Manager) resolveLaunchAgentID(ctx context.Context, agentID, threadID string) string {
+func (m *Manager) resolveLaunchAgentID(ctx context.Context, agentID, threadID string) (string, bool) {
 	if agentID != "" && m.hasBinding(ctx, agentID) {
-		return agentID
+		return agentID, false
 	}
 	if m.threadStore == nil || threadID == "" {
-		return ""
+		return "", false
 	}
 	threadRef, err := m.threadStore.GetByThreadID(ctx, threadID)
 	if err != nil || threadRef == nil {
-		return ""
+		return "", false
 	}
-	return strings.TrimSpace(threadRef.AgentID)
+	resolvedAgentID := strings.TrimSpace(threadRef.AgentID)
+	if resolvedAgentID == "" {
+		return "", false
+	}
+	return resolvedAgentID, true
 }
 
 func (m *Manager) ResetTimerByAgent(agentID string) {
@@ -155,9 +165,15 @@ func (m *Manager) executePing(sessionUUID string, fired *time.Timer) {
 	if timerRef == nil {
 		return
 	}
+	if m.logger != nil {
+		m.logger.Info("cachekeepalive: timer fired, executing ping", "session_uuid", sessionUUID, "agent_id", timerRef.agentID)
+	}
 
 	ctx := context.Background()
 	if !m.canPing(ctx, timerRef) {
+		if m.logger != nil {
+			m.logger.Debug("cachekeepalive: ping skipped, condition not met", "session_uuid", sessionUUID, "agent_id", timerRef.agentID)
+		}
 		m.removeTimer(sessionUUID, fired)
 		return
 	}
@@ -175,6 +191,9 @@ func (m *Manager) executePing(sessionUUID string, fired *time.Timer) {
 	}
 
 	m.ResetTimerByAgent(timerRef.agentID)
+	if m.logger != nil {
+		m.logger.Info("cachekeepalive: keepalive success, timer reset", "session_uuid", sessionUUID, "agent_id", timerRef.agentID)
+	}
 }
 
 func (m *Manager) canPing(ctx context.Context, t *agentTimer) bool {
