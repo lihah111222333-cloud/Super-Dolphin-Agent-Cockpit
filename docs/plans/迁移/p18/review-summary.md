@@ -45,7 +45,7 @@
 20. 缓存改用 Region + Volatile 模型（Agent 9）
 21. 缓存语义补全：name-only / nil 也缓存（Agent 6/9）
 22. boundary marker 降级为非核心（Agent 9）
-23. nested_memory 排期到 P19（Agent 4）
+23. nested_memory 转记为 P18 未实现部分（Agent 4）
 24. 全量源码锚点附录（Agent 10）
 25. `PromptAssemblyService` / `StartAssembly` / `TurnAssembly` 术语统一（第 14 轮，7 文件）
 26. P18 总工期口径修正为 15-18 天（第 14 轮）

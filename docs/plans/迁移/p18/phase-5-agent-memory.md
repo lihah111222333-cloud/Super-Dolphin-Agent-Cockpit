@@ -5,6 +5,17 @@
 ## 目标
 实现 Agent 专用记忆，支持三种 scope，与主线程记忆隔离。
 
+## Claude 源码核对补充（2026-04-14）
+
+- `getAgentMemoryDir()` 当前真实路径：
+  - `user` = `<getMemoryBaseDir()>/agent-memory/<sanitizeAgentTypeForPath(agentType)>/`
+  - `project` = `<getCwd()>/.claude/agent-memory/<dir>/`
+  - `local` = 无 remote 时 `<getCwd()>/.claude/agent-memory-local/<dir>/`；有 `CLAUDE_CODE_REMOTE_MEMORY_DIR` 时 `<remote>/projects/<sanitizePath(findCanonicalGitRoot(getProjectRoot()) ?? getProjectRoot())>/agent-memory-local/<dir>/`
+- **重要**：Claude 当前只有 `local + remote` 分支用了 canonical git root；`project` scope 仍然直接锚定 `getCwd()`。因此本计划要求 `project/local` 统一锚定 canonical root，属于 **V3 有意偏离 parity 的防漂移修正**，不是 Claude 现状。
+- `sanitizeAgentTypeForPath()` 当前只做 `:` → `-`；**没有** NFC、危险段拒绝、Windows 保留名处理、hash 退化或大小写冲突探测。文中更严格的 sanitizer 规则是 **V3 安全增强**，不是 Claude 原样实现。
+- `loadAgentMemoryPrompt()` 的真实链路是 `scopeNote -> getAgentMemoryDir() -> void ensureMemoryDirExists() -> buildMemoryPrompt()`；`buildMemoryPrompt()` 同步读取 `MEMORY.md`，任何 `readFileSync` 失败都会被吞掉并按“空记忆”处理。也就是说，文中 `unreadable/corrupt` 与 `not_found/empty` 的分级处理属于 **V3 fail-soft 增强**，并非 Claude 现状。
+- `buildMemoryPrompt()` 复用 `buildMemoryLines()` 并始终追加 `buildSearchingPastContextSection(memoryDir)`；只有 `MEMORY.md` 非空时，Claude 才会记录 `content_length / line_count / was_truncated / was_byte_truncated / memory_type=agent` 与目录计数 telemetry。
+
 ## 三种 Scope 目录结构（审查修订 Agent 8）
 
 | scope | 目录 | 语义 |
