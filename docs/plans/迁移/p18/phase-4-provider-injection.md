@@ -13,19 +13,27 @@
 |----------------|---------|---------|
 | System Prompt | `system` 参数 | `thread/start` BaseInstructions |
 | System Context | system 尾部追加 | `thread/start` DeveloperInstructions 或 system tail |
-| User Context | 前置 synthetic user message | `turn/start` 前置 synthetic 输入 |
+| User Context | 前置 synthetic user message | `TurnAssembly.UserContextText` → codex 前置 synthetic text input / claude provider-local prepend block |
 
-> **关键修订**：User Context **不放 thread/start**，而是放 **turn/start 前置**。
-> 这与 Claude Code 的真实架构一致：`prependUserContext()` 在 `query.ts:660` 每次调模型前临时装配。
+> **关键修订**：User Context **不放 thread/start**，而是放 **turn 级 assemble 后的 provider-specific 前置位**。
+> 这与 Claude Code 的真实架构一致：`prependUserContext()` 在 `query.ts:660` 每次调模型前临时装配；V3 再由 thread/turn adapter 分别映射到 codex synthetic text input 与 claude provider-local prepend block。
 
 ## 两阶段装配
 
 > **硬 gate**：Phase 4.5 未完成前，Phase 4 不得启动实现；本 Phase 的 provider 只消费 assembly 产物，不重新计算 prompt。
 
+### 合规前置
+- `internal/provider/*` 不得 import `internal/module/prompt`
+- `PromptAssemblyService` 这类跨 layer 接口放 `internal/contract/*`
+- `StartInput` / `TurnInput` / `StartAssembly` / `TurnAssembly` / `PromptAssemblySnapshot` 这类跨 layer 载荷放 `internal/dto/*`
+- `internal/module/prompt` 只保留实现、registry、context 等模块内部细节；provider / `cmd/mcp-*` 只消费 contract + dto 产物
+
 ### 阶段 A：会话启动（thread/start）
 ```text
-PromptRegistry.BuildSystemPrompt()  →  BaseInstructions
-PromptContext.BuildSystemContext()   →  DeveloperInstructions (gitStatus 等)
+PromptAssemblyService.AssembleStart()
+  → PromptRegistry.BuildSystemPrompt()  → BaseInstructions
+  → PromptContext.BuildSystemContext()  → DeveloperInstructions (gitStatus 等)
+  → StartAssembly{BaseInstructions, DeveloperInstructions, Snapshot}
 ```
 
 > **❗实施警告**（Agent 24 终审发现）：
@@ -35,24 +43,26 @@ PromptContext.BuildSystemContext()   →  DeveloperInstructions (gitStatus 等)
 
 ### 阶段 B：每轮 turn（turn/start 前）
 ```text
-BuildBaseUserContext()          → cached base payload
-  - claudeMd（由 SourceResolver + renderer 产出）
-  - currentDate（固定句式：Today's date is YYYY-MM-DD.）
-MergeRuntimeUserContext()       → merge turn-scoped extras
-  - (未来) coordinator workerToolsContext
-  - (未来) terminalFocus
-FormatUserContextMessage()      → 前置 synthetic user message
-  - hidden/meta
-  - <system-reminder>...</system-reminder>
-  - # key 分节 + relevance disclaimer
+PromptAssemblyService.AssembleTurn()
+  → BuildBaseUserContext()          → cached base payload
+    - claudeMd（由 SourceResolver + renderer 产出）
+    - currentDate（固定句式：Today's date is YYYY-MM-DD.）
+  → MergeRuntimeUserContext()       → merge turn-scoped extras
+    - (未来) coordinator workerToolsContext
+    - (未来) terminalFocus
+  → FormatUserContextMessage()      → TurnAssembly.UserContextText
+    - hidden/meta
+    - <system-reminder>...</system-reminder>
+    - # key 分节 + relevance disclaimer
 ```
 
 补充约束：
-- 基础 UserContext 只有 `claudeMd + currentDate`；turn 级 extras 不得误缓存进会话级 base payload
+- 基础 UserContext 只有 `claudeMd + currentDate`；turn 级 extras 不得误缓存进跨 turn 复用的 base payload
 - `claudeMd` 被禁用、payload 为空、测试 bypass 场景下，不注入 synthetic message
 - turn 注入语义按 **per-attempt / per-turn assemble** 实现，不能固化进 thread/start lifecycle
-- Codex 必须同时覆盖 `turn/start` 与 `turn/steer`
-- Claude 必须让普通 turn / steer 复用同一 prepend helper，避免顺序漂移
+- `TurnAssembly.UserContextText` 是唯一交接载体；thread/turn 层负责把它交给 provider adapter，**禁止** provider 自己再从 runtime 状态二次拼装同内容
+- `codex` 路径：`TurnAssembly.UserContextText` 由 thread/turn adapter 消费为**前置 synthetic text input**（在 skill prompt 之后），同时覆盖 `turn/start` 与 `turn/steer`
+- `claude` 路径：`TurnAssembly.UserContextText` 由 `prepareTurnLocked()` 消费为 **provider-local prepend block**；**不回写**普通 `dto.TurnRequest.Inputs`，普通 turn / steer 必须复用同一 helper，避免顺序漂移
 - provider 只消费 assembly 产物，不在 provider 内部二次构造 UserContext
 
 ## User Context 的 claudeMd 来源（完整）
@@ -104,20 +114,23 @@ type SystemContext struct {
 ## 统一 Builder（不复制两套）
 
 > **审查修订**（Agent 7）：不复制 Claude 的 REPL/SDK 两套组装。
-> 用一个共享 `PromptAssemblyService` 统一产出 SystemPromptParts + SystemContext + UserContext。
+> 用一个共享 `PromptAssemblyService` 统一产出 `StartAssembly / TurnAssembly`（内部再调用 `PromptRegistry + PromptContext`）。
 > Provider 只传不同 policy（是否 custom prompt、是否 coordinator）。
 > cache boundary 也应收口到 `PromptAssemblyService`：provider 只消费 assembly 产物，不各自维护一套 user-context/system-tail 拼装缓存。
 
 ## 任务清单
+- [ ] 先落 `internal/contract/*` 中的 `PromptAssemblyService` 契约，以及 `internal/dto/*` 中的 `StartInput / TurnInput / StartAssembly / TurnAssembly / PromptAssemblySnapshot`
 - [ ] `prompt/context.go`：`BuildBaseUserContext()` + `MergeRuntimeUserContext()` + `FormatUserContextMessage()` + `BuildSystemContext()`
-- [ ] 修改 `internal/provider/codexapp/support.go:248-261`：thread/start 接入 PromptAssemblyService（通过 start_session.go 注入，不在 provider 内部）
-- [ ] 修改 `internal/provider/codexapp/session_turn.go:37-49,76-85`：`turn/start` + `turn/steer` 前注入 UserContext
-- [ ] 修改 `internal/provider/claudecli/transport_config.go:129`：Claude CLI launch prompt 接入
-- [ ] 修改 Claude turn helper：普通 turn / steer 共用 UserContext prepend 逻辑
+- [ ] 修改 `internal/provider/codexapp/support.go:248-261`：thread/start 接入 `PromptAssemblyService.AssembleStart()`，消费 `StartAssembly.BaseInstructions / DeveloperInstructions / Snapshot`（通过 start_session.go / thread adapter 注入，不在 provider 内部，也不新增对 `internal/module/prompt` 的 import）
+- [ ] 修改 `internal/provider/codexapp/session_turn.go:37-49,76-85`：`turn/start` + `turn/steer` 消费 `TurnAssembly.UserContextText`，映射为前置 synthetic text input（在 skill prompt 之后）
+- [ ] 修改 `internal/provider/claudecli/transport_config.go:129`：Claude CLI launch prompt 接入 `StartAssembly`
+- [ ] 修改 Claude turn helper：普通 turn / steer 共用 `TurnAssembly.UserContextText` prepend helper，消费为 provider-local prepend block，且不把 UserContext 塞回普通 user inputs
+- [ ] 明确 turn 层与 provider adapter 的 `TurnAssembly` 交接契约，不允许再走 `FirstNonEmpty(req.BaseInstructions, req.Prompt)` 兜底
 - [ ] 缓存失效注册：`/clear`、`/compact`、worktree、`/resume`、provider switch、auto-compact、partial compact
 
 ## 验收
-- thread/start 的 instructions 来自 PromptAssemblyService.AssembleStart()
-- Codex `turn/start` 与 `turn/steer` 都正确前置 UserContext
-- Claude 普通 turn / steer 顺序一致，且 provider 未二次构造 UserContext
+- thread/start 消费 `PromptAssemblyService.AssembleStart()` 返回的 `StartAssembly{BaseInstructions, DeveloperInstructions, Snapshot}`
+- `start_session.go:146-152` 不再用 `Prompt` 兜底 provider `Instructions`
+- Codex `turn/start` 与 `turn/steer` 都把 `TurnAssembly.UserContextText` 映射为前置 synthetic text input（在 skill prompt 之后）
+- Claude 普通 turn / steer 顺序一致，且 `TurnAssembly.UserContextText` 只作为 provider-local prepend block 消费，不回写普通用户输入，provider 也不二次构造 UserContext
 - 缓存失效测试

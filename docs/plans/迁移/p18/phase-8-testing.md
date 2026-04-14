@@ -1,21 +1,26 @@
 # P18 Phase 8：测试 + 守护
 
-> 预计：1 天 | 依赖：Phase 0-7 + Phase 4.5
+> 预计：1-2 天（建议拆 P0 / P1） | 依赖：Phase 0-7 + Phase 4.5
 
 ## 目标
 全覆盖测试 + 架构守护 + 回归防护。
+
+## 执行分层
+- **P0（blocking）**：PromptAssembly / provider 注入 / memory store / retrieval 去重并发 / 安全负例 / rollback drill / roundtrip
+- **P1（扩展）**：benchmark 基线、额外 golden、更多 compat matrix、长期 arch guard
 
 ## 单元测试
 
 | 模块 | 测试重点 |
 |------|---------|
-| memory/store | CRUD + 索引更新 + skipIndex + `memory_index_update_failed` 修复路径 |
+| memory/store | CRUD + `canonical_name`（NFC/case fold/whitespace collapse）+ 索引更新 + skipIndex + Delete/Rebuild + `memory_index_update_failed` 修复路径 |
 | memory/paths | canonical git root + `ValidateMemoryRoot/WritePath` + sanitize + override / trusted-source 规则 |
-| memory/truncate | 200 行截断 + 25 KB 截断 + warning + last-newline byte truncate |
+| memory/truncate | 200 行截断 + 25 KB 字符串长度语义 + warning + last-newline 边界截断 |
 | memory/scan | 递归扫描 + MEMORY.md 排除 + frontmatter 解析 + 200 header 上限 + partial timeout |
-| memory/prompt_builder | taxonomy 完整性 + 排除列表 + save/access/trust 规则 + ignore-memory 强提示 |
+| memory/prompt_builder | taxonomy 完整性 + 排除列表 + save/access/trust 规则 + ignore-memory 强提示 + `skipIndex/extraGuidelines` API + `Searching past context` gated/deferred |
 | memory/agent_memory | 单 scope 目录 + sanitize + 空态分级 + telemetry + 截断 |
-| memory/retrieval | structured selector parse + whitelist + readFileState 时序 + cooldown |
+| memory/retrieval | structured selector parse + whitelist + readFileState 时序 + query cache key + attachment/replay identity + cooldown |
+| memory/migration | authoritative source 优先级（`review-summary/README > session-summary`）+ stale source skip + `shared_files` 默认排除 + `canonical_name` 去重 + manifest/provenance 输出 |
 | prompt/registry | name-cache + nil-cache + volatile 重算 + generation invalidate + singleflight |
 | prompt/sections | 12 个 section 内容关键字 + tool/session/mode 变更失效 |
 | prompt/builder | 输出 `ResolvedPromptSection/Snapshot`，不直接丢失结构 |
@@ -24,40 +29,53 @@
 ## 集成测试
 
 - fx app start/stop smoke + `fx.ValidateApp` 通过
-- thread/start → PromptAssemblyService.AssembleStart() → instructions 正确
+- thread/start → `PromptAssemblyService.AssembleStart()` → `StartAssembly{BaseInstructions, DeveloperInstructions, Snapshot}` 落点正确
 - 新会话自动加载 `MEMORY.md`，且 200 行索引上限在启动链路生效
 - 四种 memory type（user/feedback/project/reference）端到端写入/读回/检索矩阵
-- turn/start → UserContext 前置 → 模型收到
+- turn/start → `PromptAssemblyService.AssembleTurn()` → `TurnAssembly.UserContextText` 前置 → 模型收到
 - memory_write 新建 → MEMORY.md 更新 → memory_read 能读回
 - memory_write **upsert**：已有同名时更新而非重复创建
 - memory_search：keyword + type filter + limit + fail-soft
 - memory_list：scope/type 过滤、排序、forget 后同步更新
 - memory_forget：删除后索引同步更新
-- Agent memory：不同 agentType 隔离、单 scope 加载、preview/runtime 一致
-- Relevant memories：非阻塞预取、结构化 selector 输出、三段式去重、60KB 阈值、cancel/singleflight/CAS consume
+- `shared_file_read/write` V2 兼容矩阵：path canonicalization、`file <path> not found`、固定 `agent` actor、10 MiB 上限、flags 关闭时旧 `shared_files` 链路不受影响
+- 种子迁移矩阵：`review-summary/README > session-summary` authoritative source 优先级、stale source skip、`shared_files` 默认排除、跨文档 `canonical_name` 去重、apply manifest provenance
+- repair/debug 面：显式 `RebuildMemoryIndex()` 可修复索引；`memory_read/list/search` degraded 视图可用；默认 registry 不额外暴露第 6 个 public memory tool
+- `skipIndex` → topic-only write；仅显式 `RebuildMemoryIndex()` 恢复索引一致性，不做隐式后台修复
+- Agent memory：不同 agentType 隔离、单 scope 加载、preview/runtime 一致，且 `@agent` 仅在当前线程授权链可见
+- Relevant memories：非阻塞预取、`manifest.jsonl` sidecar / query cache key、结构化 selector 输出、三段式去重、history/replay roundtrip、60KB 阈值、cancel/singleflight/CAS consume，且与 `TurnAssembly.UserContextText` 分离、走 attachment/hint 链
 - `claudeMd` source resolver 专项矩阵：来源顺序、二段过滤、additional dirs、external include warning vs normal load、disable/bare gates、nested worktree 去重
-- 缓存失效：clear 后 section 重算
+- 缓存失效矩阵：`/clear`、`/compact`、worktree、`/resume restore`、provider switch、auto-compact、partial compact
 - Phase 4.5 回归测试：
-  - PromptAssembly 契约存在：`AssemblyService` / `StartInput` / `TurnInput` / `PromptAssemblySnapshot`
-  - provider-specific 启动链：codex thread/start 收到 `baseInstructions + developerInstructions`；claude launch 收到完整 `--system-prompt`
+  - PromptAssembly 契约存在：`PromptAssemblyService` / `StartInput` / `TurnInput` / `StartAssembly` / `TurnAssembly` / `PromptAssemblySnapshot`
+  - provider-specific 启动链：codex thread/start 收到 `StartAssembly.BaseInstructions + StartAssembly.DeveloperInstructions`；claude launch 收到由同一 `StartAssembly` 映射出的完整 `--system-prompt`
   - start payload golden：codex / claude 各有一份固定 fixture，明确 `DisplayName / BaseInstructions / DeveloperInstructions / Snapshot` 的最终落点
-  - provider-specific turn 链：codex `turn/start + turn/steer` 收到前置 synthetic input；claude turn 在 `prepareTurnLocked()` 前缀注入 UserContext
+  - provider-specific turn 链：codex `turn/start + turn/steer` 消费 `TurnAssembly.UserContextText` 生成前置 synthetic input；claude turn 在 `prepareTurnLocked()` 消费同一 `TurnAssembly.UserContextText` 前缀注入 UserContext
   - turn/steer payload golden：明确 `skill prompt / UserContext / attachment hint / user text / output schema` 的最终顺序
+  - `internal/module/prompt/service.go` 服务级契约：`AssembleStart()` 必须产出 `{DisplayName, BaseInstructions, DeveloperInstructions, Provider, Version, Hash}` 一致快照；`AssembleTurn()` 是 `TurnAssembly.UserContextText` 的唯一生产者，provider adapter 只能消费不能重算
   - BaseInstructions 不污染 thread name/store/resume/Fork/Recover/toRef/SetName
+  - displayName / snapshot 的 store roundtrip：start/upsert/reload/lookupThreadMeta/resume/fork/recover 后保持一致
   - Provider 切换（codex→claude + claude→codex 双向）时 section cache 清空
   - auto-compact / partial compact cleanup hook 会触发 section cache invalidate
-  - 子 Agent 调用 AssembleStart() 且产物传到子 agent，不走旧折叠路径
+  - `TurnAssembly` 交接契约：thread/turn → provider adapter 不再走 `FirstNonEmpty(req.BaseInstructions, req.Prompt)` 兜底
+  - Resume/Recover 不重复发布 `thread.Started`；Recover 不发送会冲空 UI 字段的缩水 Started 事件
+  - unified optional capability / `SessionIdentity` 合同与 roundtrip 序列化测试
+  - 子 Agent 调用 `PromptAssemblyService.AssembleStart()` 且产物传到子 agent，不走旧折叠路径
+  - orchestration bridge 协议测试：thread launch request → orchestration contract → remote launcher payload 不丢 `displayName / baseInstructions / developerInstructions`
   - legacy prompt 只做 displayName fallback，不重新污染 BaseInstructions/launch name
   - `binding` / `rpc_types` / `service_handlers` / `resume` / `fork` / `recover` / `toRef` 回归覆盖
+  - Wails `LaunchAgent(name,prompt,cwd)` 旧入口兼容用例：未显式传 `Name` 时仍能得到正确 `displayName`，且 legacy `prompt` 不再回灌成 provider instructions
+  - `SetName()` / `thread/name/set` 回归：只更新 displayName 槽位与 provider rename sync，不得把 `BaseInstructions` / snapshot 回写到旧 `Prompt` 污染链
   - presence-aware bool alias 冲突（显式 `false` 不被 legacy `true` 覆盖）与 config alias 归一测试
   - Claude Restart/Recovery 从 `PromptAssemblySnapshot` 恢复的回归用例
   - `PromptAssemblySnapshot` 的 `Version + Hash + Provider` 校验与 compat fallback 用例
-- 并发安全：并发 `memory_write/forget` 不产生重复索引或损坏 `MEMORY.md`；section cache 并发 build/invalidate 不串 provider；`go test -race` 覆盖 memory/prompt/retrieval/provider switch
+- 并发安全：并发 `memory_write/forget` 不产生重复索引或损坏 `MEMORY.md`；section cache 并发 build/invalidate 不串 provider；`./scripts/go_with_guard.sh test -race ...` 覆盖 memory/prompt/retrieval/provider switch
 - rollout flags / kill switch：关闭后停止新 memory 写入与 prompt 注入，但不影响既有 `shared_files` 协作链路
-- 错误处理：`feature_disabled`、敏感信息校验失败、frontmatter/type 校验失败、manifest timeout、selector invalid JSON、PromptRegistry 顶层 build 失败都返回显式错误且无半写文件
-- 安全负例：path traversal / symlink race / ACL deny / secret redaction / 恶意 memory 注入 / selector 不继承主链高权限
+- 错误处理：`feature_disabled`、敏感信息校验失败、frontmatter/type 校验失败、manifest timeout、selector invalid JSON、PromptRegistry 顶层 build 失败都返回显式错误且无半写文件；敏感信息规则集版本 / 稳定错误码 / fixture 样例可验证
+- 安全负例：path traversal / symlink race / ACL deny / `@agent` 越权读取 / cross-machine local scope replay / secret redaction / 恶意 memory 注入 / selector 不继承主链高权限
 - 可观测性：`memory_write/search/forget` 与 prompt cache invalidate 日志包含 `provider/threadID/reason/scope/result`
 - 迁移脚本幂等性：重跑不重复造 memory，且对被跳过内容输出 skip reason
+- 兼容/迁移：`memory_write` 与迁移脚本共用 `ExclusionClassifier`；`memory_read/list/search` 在索引损坏时返回 `degraded=true` / `source=rebuilt_view`；dry-run/apply 报告可验证
 - `MEMORY.md` repair drill：故意打坏 index 后，可从 topic files 重建并恢复 hook 顺序
 
 ## 性能守护
@@ -74,6 +92,18 @@
 ```go
 func TestMemoryModuleNoDependOnProvider(t *testing.T) {
     // memory 模块不依赖 provider 模块（单向依赖）
+}
+
+func TestPromptModuleDoesNotDependOnProviderTransport(t *testing.T) {
+    // prompt 只产 assembly，不直接依赖 provider transport 细节
+}
+
+func TestProviderConsumesAssemblyButDoesNotImportPromptBuilders(t *testing.T) {
+    // provider 只消费 assembly 结果，不反向依赖 memory/prompt builder 实现
+}
+
+func TestPromptStoreImportsUsePromptstoreAlias(t *testing.T) {
+    // 凡 import internal/store/prompt 必须使用 promptstore 别名，避免与 internal/module/prompt 混淆
 }
 ```
 
@@ -106,13 +136,16 @@ func TestPromptContainsKeyRules(t *testing.T) {
 
 ## 验证命令
 
+> Go 构建/测试默认走 guarded wrapper，避免绕过仓库级 code-size / raw-go guard。
+
 ```bash
-go build ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/... ./internal/provider/codexapp/... ./internal/provider/claudecli/...
-go vet ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/...
-go test ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/... ./internal/provider/codexapp/... ./internal/provider/claudecli/...
-go test -race ./internal/module/memory/... ./internal/module/prompt/... ./internal/provider/unified/...
-go test -run TestCodeSizeGuard ./internal/archtest/...
-golangci-lint run ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/...
+./scripts/go_with_guard.sh build ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/... ./internal/provider/codexapp/... ./internal/provider/claudecli/... ./cmd/mcp-orch/orchestration/... ./cmd/mcp-orch/tools/...
+./scripts/go_with_guard.sh vet ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/... ./cmd/mcp-orch/orchestration/...
+./scripts/go_with_guard.sh test ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/... ./internal/provider/codexapp/... ./internal/provider/claudecli/... ./cmd/mcp-orch/orchestration/... ./cmd/mcp-orch/tools/...
+./scripts/go_with_guard.sh test -race ./internal/module/memory/... ./internal/module/prompt/... ./internal/provider/unified/... ./cmd/mcp-orch/orchestration/...
+./scripts/go_with_guard.sh test -bench 'BenchmarkAssembleStart|BenchmarkRelevantMemoryPrefetch|BenchmarkCacheInvalidate' -run '^$' ./internal/module/prompt/... ./internal/module/memory/...
+./scripts/go_with_guard.sh test -run 'TestCodeSizeGuard|TestMemoryModuleNoDependOnProvider|TestPromptModuleDoesNotDependOnProviderTransport|TestProviderConsumesAssemblyButDoesNotImportPromptBuilders|TestPromptStoreImportsUsePromptstoreAlias' ./internal/archtest/...
+golangci-lint run ./internal/module/memory/... ./internal/module/prompt/... ./internal/module/thread/... ./cmd/mcp-orch/orchestration/... ./cmd/mcp-orch/tools/...
 ```
 
 ## 验收

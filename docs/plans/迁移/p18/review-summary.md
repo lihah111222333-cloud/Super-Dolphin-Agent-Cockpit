@@ -1,7 +1,7 @@
 # P18 审查汇总
 
 > 30 个 agent 多轮交叉审查结果 | 2026-04-14
-> 当前 authoritative source：第 13 轮“收官统一复核”；第 10 轮为首次整体通过，第 13 轮为最新收官结论。
+> 当前 authoritative source：第 14 轮“20 Agent 自动化审查”；第 10 轮为首次整体通过，第 13 轮为最后一次完整综合评分结论，第 14 轮为最新增量收口结论。
 
 ## 审查矩阵（首批专项审查 10 agent）
 
@@ -20,7 +20,7 @@
 | 9 | p18-review-9-cache-boundary | 缓存策略 | ⚠️ | [Phase 3](phase-3-prompt-registry.md), [README](README.md) |
 | 10 | p18-review-10-source-refs | 源码锚点 | ✅ | [source-refs-appendix.md](source-refs-appendix.md) |
 
-## 截至第 13 轮已修订清单
+## 截至第 14 轮已修订清单
 
 ### 已修订 ✅
 1. MemoryEntry 区分 frontmatter 持久化字段 vs 运行时元数据（Agent 2）
@@ -41,12 +41,21 @@
 16. UserContext 从 thread/start 移到 turn/start（Agent 7）
 17. 两阶段装配架构（Agent 7）
 18. Agent memory 三种 scope 完整目录（Agent 8）
-19. local ≠ 会话级，是持久非版本控制（Agent 8）
+19. local scope 明确为持久但不进版本控制（Agent 8）
 20. 缓存改用 Region + Volatile 模型（Agent 9）
 21. 缓存语义补全：name-only / nil 也缓存（Agent 6/9）
 22. boundary marker 降级为非核心（Agent 9）
 23. nested_memory 排期到 P19（Agent 4）
 24. 全量源码锚点附录（Agent 10）
+25. `PromptAssemblyService` / `StartAssembly` / `TurnAssembly` 术语统一（第 14 轮，7 文件）
+26. P18 总工期口径修正为 15-18 天（第 14 轮）
+27. Phase 5 local scope 生命周期 + ACL / 可见性边界补齐（第 14 轮）
+28. guarded wrapper 全量替换：构建/测试/静态检查命令统一收口到 `./scripts/go_with_guard.sh`（第 14 轮）
+29. Phase 4 ↔ 4.5 `UserContextText` 字段口径、依赖图与职责边界同步（第 14 轮）
+30. README 补入 13% 对齐差距分析（第 14 轮）
+31. Phase 4.5 补 Prompt 污染 16 位置完整地图（第 14 轮）
+32. `source-refs-appendix.md` 补完 `SetName` / `LaunchAgent` / Phase 0-7 关键路径锚点（第 14 轮）
+33. Phase 8 测试条目扩充覆盖（第 14 轮）
 
 ## 第 7 轮：Claude/Codex 归一审查（30 个 agent）
 
@@ -161,3 +170,44 @@
 
 ### 结论
 **第13轮收官后，文档结论维持通过；剩余分歧主要集中在实施期风险偏好，不再构成文档阻塞。**
+
+## 第 14 轮（2026-04-14 20 Agent 自动化审查）
+
+### 审查方式
+- 本轮采用 **20 Agent 自动化复核**，基于仓库当前 `git diff --stat` 对 P18 全量文档做术语、一致性、依赖关系、验证口径与源码锚点回归审查。
+- 本轮以收口修订为主，不重复进行第 13 轮那类综合打分；重点确认本轮增量修改是否消除新的文档歧义与实施偏差。
+
+### git diff --stat（追加本记录前）
+- `README.md`
+- `docs/plans/迁移/p18-memory-prompt-system-plan.md`
+- `docs/plans/迁移/p18/README.md`
+- `docs/plans/迁移/p18/phase-0-infrastructure.md`
+- `docs/plans/迁移/p18/phase-1-memory-storage.md`
+- `docs/plans/迁移/p18/phase-2-memory-prompt-rules.md`
+- `docs/plans/迁移/p18/phase-3-prompt-registry.md`
+- `docs/plans/迁移/p18/phase-4-provider-injection.md`
+- `docs/plans/迁移/p18/phase-4.5-provider-unification.md`
+- `docs/plans/迁移/p18/phase-5-agent-memory.md`
+- `docs/plans/迁移/p18/phase-6-memory-retrieval.md`
+- `docs/plans/迁移/p18/phase-7-migration-compat.md`
+- `docs/plans/迁移/p18/phase-8-testing.md`
+- `docs/plans/迁移/p18/source-refs-appendix.md`
+- `docs/plans/迁移/session-summary.md`
+- `internal/app/modules.go`
+- 统计：**16 files changed, 361 insertions(+), 127 deletions(-)**
+
+### 本轮已完成修订
+1. **术语统一**：`PromptAssemblyService` / `StartAssembly` / `TurnAssembly` 在 **7 个文件**内完成统一，收口旧术语混用。
+2. **工期修正**：P18 总工期口径统一修正为 **15-18 天**。
+3. **Phase 5 local scope 修正**：补齐 local scope 的生命周期说明，并明确 ACL / 可见性边界与线程可见范围。
+4. **guarded wrapper 全量替换**：P18 phase 文档中的构建/测试/静态检查命令已统一切换到 `./scripts/go_with_guard.sh`。
+5. **Phase 4 ↔ 4.5 `UserContextText` 同步**：补齐跨 phase 的字段口径、职责边界与依赖图，避免 provider 适配与 assembly 设计脱节。
+6. **13% 对齐差距分析写入 README**：将当前与 Claude 设计的差距分析显式写入 README，避免实施期误判“文档已 100% 对齐”。
+7. **Prompt 污染 16 位置完整地图写入 Phase 4.5**：把污染来源、旧路径兼容点与收口目标集中成图，便于迁移时按点清除。
+8. **source-refs 锚点补完**：补齐 `SetName` / `LaunchAgent` / Phase 0-7 关键路径源码锚点，降低实现落点歧义。
+9. **Phase 8 测试条目扩充覆盖**：补强 provider 注入、assembly snapshot、orchestration bridge、guarded 命令、roundtrip 与回归场景覆盖。
+
+### 结论
+- 第 13 轮“**通过，可进入实施**”的总体判断维持不变。
+- 第 14 轮完成的是一次**自动化增量收口审查**：重点修正术语、验证命令、依赖图、源码锚点与测试覆盖口径。
+- 本轮未引入新的文档 blocker；P18 文档可继续按 `0 → 1 → 2 → 3 → 4.5 → 4 → 5/6/7 → 8` 顺序推进实施。
