@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/creachadair/jrpc2"
@@ -14,7 +15,21 @@ import (
 func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 	t.Parallel()
 
-	session := &rpcHelperSession{caps: dto.CapabilitySet{dto.CapMessageSend: true}}
+	session := &rpcHelperSession{
+		caps: dto.CapabilitySet{dto.CapMessageSend: true},
+		runtimeConfig: map[string]any{
+			"provider":                     "codex-runtime",
+			"cwd":                          "/runtime/work",
+			"model":                        "runtime-model",
+			"gitRoot":                      "/runtime-repo",
+			"language":                     "Chinese",
+			"enabledTools":                 []string{"lsp_file", "spawn_agent"},
+			"additionalWorkingDirectories": []string{"/repo/runtime-extra"},
+			"mcpTools":                     []string{"mcp__orch__orchestration_send_message"},
+			"mcpInstructions":              map[string]any{"orch": "Use orchestration runtime fallback."},
+			"sessionFlags":                 map[string]any{"runtime_only": true},
+		},
+	}
 	items, inputSkills := buildTurnStartInputs([]turnInputItemParams{
 		{Type: "text", Text: "typed text"},
 		{Type: "skill", Name: "debug"},
@@ -26,14 +41,28 @@ func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 		Files:                []string{"file-1"},
 		Inputs:               items,
 		ManualSkillSelection: true,
+		Provider:             "claude",
 		CWD:                  "/tmp/work",
 		Model:                "gpt-5",
-		Effort:               "high",
-		OutputSchema:         []byte(`{"type":"object"}`),
+		GitRoot:              "/override-repo",
+		Language:             "Japanese",
+		EnabledTools:         []string{"code_run"},
+		ThreadRuntimeConfig: map[string]any{
+			"provider":                     "claude-thread",
+			"gitRoot":                      "/thread-repo",
+			"isWorktree":                   true,
+			"language":                     "German",
+			"additionalWorkingDirectories": []string{"/repo/thread-extra"},
+			"mcpTools":                     []string{"mcp__lsp__lsp_grep"},
+			"mcpInstructions":              map[string]any{"lsp": "Use the LSP thread fallback."},
+			"sessionFlags":                 map[string]any{"verification_required": true},
+		},
+		Effort:       "high",
+		OutputSchema: []byte(`{"type":"object"}`),
 	}, prepareSkillSpec{
 		Selected: []string{"review", "debug"},
 		Derived:  inputSkills,
-	}, session.Capabilities())
+	}, session)
 
 	if len(input.Inputs) != 2 {
 		t.Fatalf("len(input.Inputs) = %d, want 2", len(input.Inputs))
@@ -49,6 +78,30 @@ func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 	}
 	if !input.ManualSkillSelection || input.CWD != "/tmp/work" || string(input.OutputSchema) != `{"type":"object"}` {
 		t.Fatalf("prepare input = %#v", input)
+	}
+	if input.Provider != "claude" || input.Model != "gpt-5" || input.GitRoot != "/override-repo" || input.Language != "Japanese" {
+		t.Fatalf("prepare input context = %#v", input)
+	}
+	if !input.IsWorktree {
+		t.Fatal("IsWorktree = false, want true from thread-state fallback")
+	}
+	if got := input.EnabledTools; len(got) != 1 || got[0] != "code_run" {
+		t.Fatalf("EnabledTools = %#v, want request override", got)
+	}
+	if got := input.AdditionalWorkingDirectories; len(got) != 1 || got[0] != "/repo/thread-extra" {
+		t.Fatalf("AdditionalWorkingDirectories = %#v, want thread-state fallback", got)
+	}
+	if got := input.MCPSnapshot.Tools; !slices.Contains(got, "mcp__lsp__lsp_grep") {
+		t.Fatalf("MCPSnapshot.Tools = %#v, want thread-state tool present", got)
+	}
+	if input.MCPSnapshot.Instructions["lsp"] != "Use the LSP thread fallback." {
+		t.Fatalf("MCPSnapshot.Instructions = %#v", input.MCPSnapshot.Instructions)
+	}
+	if !input.SessionFlags["verification_required"] {
+		t.Fatalf("SessionFlags = %#v, want thread-state fallback", input.SessionFlags)
+	}
+	if input.SessionFlags["runtime_only"] {
+		t.Fatalf("SessionFlags = %#v, want thread-state to win over runtime", input.SessionFlags)
 	}
 }
 
@@ -88,8 +141,9 @@ func (r rpcHelperResolver) ResolveSession(context.Context, string) (contract.Ses
 }
 
 type rpcHelperSession struct {
-	caps      dto.CapabilitySet
-	lastPatch dto.ThreadConfigPatch
+	caps          dto.CapabilitySet
+	runtimeConfig map[string]any
+	lastPatch     dto.ThreadConfigPatch
 }
 
 func (s rpcHelperSession) ThreadID() string { return "thread-1" }
@@ -97,6 +151,8 @@ func (s rpcHelperSession) ThreadID() string { return "thread-1" }
 func (s rpcHelperSession) RolloutPath() string { return "" }
 
 func (s rpcHelperSession) Capabilities() dto.CapabilitySet { return s.caps }
+
+func (s rpcHelperSession) RuntimeConfigSnapshot() map[string]any { return s.runtimeConfig }
 
 func (s rpcHelperSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, errors.New("unexpected StartTurn call")

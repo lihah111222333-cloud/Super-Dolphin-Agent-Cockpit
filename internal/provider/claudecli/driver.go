@@ -128,6 +128,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+	snapshot := req.PromptSnapshot
 	manifest := dto.BuildManifest(dto.ManifestContext{
 		AgentID:       strings.TrimSpace(req.AgentID),
 		CWD:           strings.TrimSpace(req.CWD),
@@ -141,8 +142,17 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		publicThread:   req.ThreadID,
 		cwd:            req.CWD,
 		model:          req.Model,
+		startAssembly: contract.StartAssembly{
+			DisplayName:           strings.TrimSpace(snapshot.DisplayName),
+			BaseInstructions:      strings.TrimSpace(snapshot.BaseInstructions),
+			DeveloperInstructions: strings.TrimSpace(snapshot.DeveloperInstructions),
+			Snapshot:              snapshot,
+		},
 		manifest:       manifest,
-		config:         cliLaunchConfig{Effort: strings.TrimSpace(req.Effort)},
+		config: cliLaunchConfig{
+			Effort:         strings.TrimSpace(req.Effort),
+			PromptSnapshot: snapshot,
+		},
 		configOverride: req.ConfigOverride,
 	})
 }

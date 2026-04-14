@@ -26,6 +26,11 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 			"enabledTools":                 []any{"spawn_agent", "request_user_input", "spawn_agent"},
 			"additionalWorkingDirectories": []any{filepath.Join(repoRoot, "extra"), " " + filepath.Join(repoRoot, "extra-two") + " "},
 			"sessionFlags":                 map[string]any{"verification_required": true},
+			"outputStyleConfig": map[string]any{
+				"name":                   "Explanatory",
+				"prompt":                 "Explain decisions.",
+				"keepCodingInstructions": true,
+			},
 		},
 	}, &platformconfig.Config{ProjectRoot: repoRoot}, promptToolRegistryStub{instances: []contract.ToolInstance{
 		{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive},
@@ -54,6 +59,12 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 	}
 	if !ctx.SessionFlags["verification_required"] {
 		t.Fatalf("SessionFlags = %#v, want verification_required=true", ctx.SessionFlags)
+	}
+	if ctx.OutputStyleConfig == nil || ctx.OutputStyleConfig.Name != "Explanatory" {
+		t.Fatalf("OutputStyleConfig = %#v, want typed style config", ctx.OutputStyleConfig)
+	}
+	if ctx.KeepCodingInstructions == nil || !*ctx.KeepCodingInstructions {
+		t.Fatalf("KeepCodingInstructions = %#v, want true", ctx.KeepCodingInstructions)
 	}
 	if got := sortedStrings(ctx.MCPSnapshot.Servers); !slices.Equal(got, []string{"lsp", "orch"}) {
 		t.Fatalf("MCPSnapshot.Servers = %#v, want [lsp orch]", ctx.MCPSnapshot.Servers)
@@ -124,6 +135,9 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 	}
 	if !assembly.startInput.SessionFlags["verification_required"] {
 		t.Fatalf("SessionFlags = %#v, want verification_required=true", assembly.startInput.SessionFlags)
+	}
+	if assembly.startInput.OutputStyleConfig != nil {
+		t.Fatalf("OutputStyleConfig = %#v, want nil when not configured", assembly.startInput.OutputStyleConfig)
 	}
 	if got := sortedStrings(assembly.startInput.MCPSnapshot.Servers); !slices.Equal(got, []string{"lsp"}) {
 		t.Fatalf("MCPSnapshot.Servers = %#v, want [lsp]", assembly.startInput.MCPSnapshot.Servers)

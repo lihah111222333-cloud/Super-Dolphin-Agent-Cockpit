@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
@@ -57,6 +58,81 @@ func TestSetConfigConfiguresModelAndEffort(t *testing.T) {
 	}
 	if cfg.Effective.Model != model || cfg.Effective.Effort != effort {
 		t.Fatalf("SetConfig() = %#v", cfg)
+	}
+}
+
+func TestSetConfigInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
+	t.Parallel()
+
+	model := "gpt-5.4"
+	effort := "high"
+	promptAssembly := &stubPromptAssemblyService{}
+	session := &stubSession{
+		threadID:      "thread-1",
+		allowedModels: []string{"gpt-5.4"},
+		readConfigResult: dto.ThreadConfig{
+			ThreadID: "thread-1",
+			Provider: "codex",
+			Effective: dto.ThreadConfigValues{
+				Model:  "gpt-5.4",
+				Effort: "high",
+			},
+		},
+	}
+	svc := NewServiceWithPromptAssembly(
+		silentLogger(),
+		nil,
+		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubSessionProvider{session: session},
+		nil,
+		nil,
+		nil,
+		nil,
+		promptAssembly,
+		nil,
+		nil,
+	).(*service)
+
+	if _, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{Model: &model, Effort: &effort}); err != nil {
+		t.Fatalf("SetConfig() error = %v", err)
+	}
+	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateProviderSwitch {
+		t.Fatalf("Invalidate calls = %#v, want [%q]", got, contract.InvalidateProviderSwitch)
+	}
+}
+
+func TestSetModelInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
+	t.Parallel()
+
+	promptAssembly := &stubPromptAssemblyService{}
+	session := &stubSession{
+		threadID:      "thread-1",
+		allowedModels: []string{"gpt-5.4"},
+		readConfigResult: dto.ThreadConfig{
+			ThreadID: "thread-1",
+			Provider: "codex",
+			Effective: dto.ThreadConfigValues{Model: "gpt-5.4"},
+		},
+	}
+	svc := NewServiceWithPromptAssembly(
+		silentLogger(),
+		nil,
+		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
+		&stubSessionProvider{session: session},
+		nil,
+		nil,
+		nil,
+		nil,
+		promptAssembly,
+		nil,
+		nil,
+	).(*service)
+
+	if _, err := svc.SetModel(context.Background(), "thread-1", "gpt-5.4"); err != nil {
+		t.Fatalf("SetModel() error = %v", err)
+	}
+	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateProviderSwitch {
+		t.Fatalf("Invalidate calls = %#v, want [%q]", got, contract.InvalidateProviderSwitch)
 	}
 }
 

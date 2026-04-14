@@ -31,17 +31,19 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if provider == "" {
 		return ForkResult{}, errors.New("fork provider is required")
 	}
+	snapshot := s.resolveStablePromptSnapshot(ctx, threadID, provider, contract.PromptAssemblySnapshot{})
 	agentID := newThreadID
 	cwd := shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
 	if err := s.launchAgent(ctx, agentID, cwd, displayName, provider, meta.Model); err != nil {
 		return ForkResult{}, err
 	}
 	forkedSession, err := s.resumeSession(ctx, ResumeRequest{
-		Provider: provider,
-		AgentID:  agentID,
-		ThreadID: newThreadID,
-		CWD:      cwd,
-		Model:    meta.Model,
+		Provider:       provider,
+		AgentID:        agentID,
+		ThreadID:       newThreadID,
+		CWD:            cwd,
+		Model:          meta.Model,
+		PromptSnapshot: snapshot,
 	})
 	if err != nil {
 		s.stopAgent(ctx, agentID)
@@ -122,12 +124,16 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		Prompt:            displayName,
 		RolloutPath:       shared.FirstNonEmpty(binding.RolloutPath, session.RolloutPath()),
 		SessionUUID:       shared.FirstNonEmpty(binding.SessionUUID, session.ThreadID()),
+		ConfigOverride:    shared.CloneRawMessage(meta.ConfigOverride),
 		CreatedAt:         meta.CreatedAt,
 	}), true); err != nil {
 		return RecoverResult{}, err
 	}
-	if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
-		return RecoverResult{}, err
+	restoredCWD := shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
+	if promptResumeRestoreRequiresInvalidation(restoredCWD, restoredCWD, s.cfg) {
+		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
+			return RecoverResult{}, err
+		}
 	}
 	return RecoverResult{
 		ThreadID:  publicThreadID,

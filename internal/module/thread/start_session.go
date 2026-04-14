@@ -138,7 +138,7 @@ func isDangerFullAccessValue(value string) bool {
 	return normalized == "dangerfullaccess"
 }
 
-func (s *service) startSession(ctx context.Context, req StartRequest, assembly contract.StartAssembly, agentID string) (contract.Session, error) {
+func (s *service) startSession(ctx context.Context, req StartRequest, input contract.StartInput, assembly contract.StartAssembly, agentID string) (contract.Session, error) {
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
 	}
@@ -155,7 +155,7 @@ func (s *service) startSession(ctx context.Context, req StartRequest, assembly c
 		Model:         req.Model,
 		Instructions:  assembly.BaseInstructions,
 		StartAssembly: toProviderStartAssembly(assembly),
-		Config:        buildStartSessionConfig(req, assembly),
+		Config:        buildStartSessionConfig(req, input, assembly),
 	})
 }
 
@@ -195,18 +195,20 @@ func (s *service) lookupSession(agentID string) (contract.Session, error) {
 }
 
 type resumeState struct {
-	AgentID          string
-	Provider         string
-	ProviderThreadID string
-	PublicThreadID   string
-	Prompt           string
-	Model            string
-	Effort           string
-	ConfigOverride   storedThreadConfig
-	CWD              string
-	RolloutPath      string
-	SessionUUID      string
-	CreatedAt        int64
+	AgentID           string
+	Provider          string
+	ProviderThreadID  string
+	PublicThreadID    string
+	Prompt            string
+	Model             string
+	Effort            string
+	ConfigOverride    storedThreadConfig
+	ConfigOverrideRaw json.RawMessage
+	CWD               string
+	StoredCWD         string
+	RolloutPath       string
+	SessionUUID       string
+	CreatedAt         int64
 }
 
 func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (ResumeRequest, resumeState, error) {
@@ -268,6 +270,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
 	req.ProviderThreadID = shared.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
 	req.CWD = shared.FirstNonEmpty(req.CWD, req.Path, state.CWD)
+	req.PromptSnapshot = s.resolveStablePromptSnapshot(ctx, state.PublicThreadID, req.Provider, req.PromptSnapshot)
 	if req.ConfigOverride.Model == nil {
 		if value := strings.TrimSpace(state.ConfigOverride.Model); value != "" {
 			req.ConfigOverride.Model = &value
@@ -358,6 +361,7 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.PublicThreadID = strings.TrimSpace(thread.ThreadID)
 		state.Prompt = strings.TrimSpace(thread.Prompt)
 		state.Model = strings.TrimSpace(thread.Model)
+		state.ConfigOverrideRaw = shared.CloneRawMessage(thread.ConfigOverride)
 		state.ConfigOverride = decodeStoredThreadConfig(thread.ConfigOverride)
 		state.Effort = strings.TrimSpace(state.ConfigOverride.Effort)
 		state.CWD = strings.TrimSpace(thread.Cwd)
@@ -385,5 +389,6 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 			state.ProviderThreadID = state.SessionUUID
 		}
 	}
+	state.StoredCWD = state.CWD
 	return state
 }

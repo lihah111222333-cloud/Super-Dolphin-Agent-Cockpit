@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -37,18 +38,15 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
 	sessionID := strings.TrimSpace(ev.SessionID)
-	if sessionID == "" || !looksLikeUUID(sessionID) {
-		return
-	}
-
 	ctx := context.Background()
 	// Claude system:init may not carry agent_id; resolve from threadID → binding.
 	binding, err := s.resolveBindingForEvent(ctx, agentID, threadID)
 	if err != nil || binding == nil {
 		return
 	}
+	s.syncAgentLaunchCWD(ctx, binding, threadID, ev.CWD)
 	agentID = strings.TrimSpace(binding.AgentID)
-	if agentID == "" {
+	if agentID == "" || sessionID == "" || !looksLikeUUID(sessionID) {
 		return
 	}
 	if strings.TrimSpace(binding.SessionUUID) == sessionID {
@@ -62,7 +60,40 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 		s.logger.Warn("thread: update session_uuid from agent event failed", "thread_id", threadID, "agent_id", agentID, "session_uuid", sessionID, "error", err)
 		return
 	}
+	binding.SessionUUID = sessionID
 	s.logger.Info("thread: updated session_uuid from agent event", "thread_id", threadID, "agent_id", agentID, "session_uuid", sessionID)
+}
+
+func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.Binding, threadID, nextCWD string) {
+	if s == nil || s.bindingStore == nil || binding == nil {
+		return
+	}
+	agentID := strings.TrimSpace(binding.AgentID)
+	nextCWD = comparablePromptCWD(nextCWD)
+	if agentID == "" || nextCWD == "" {
+		return
+	}
+	prevCWD := strings.TrimSpace(binding.Cwd)
+	if comparablePromptCWD(prevCWD) == nextCWD {
+		return
+	}
+	if err := s.bindingStore.UpdateAgentCwd(ctx, bindingstore.UpdateAgentCwdParams{
+		AgentID:   agentID,
+		Cwd:       nextCWD,
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		s.logger.Warn("thread: update cwd from agent event failed", "thread_id", threadID, "agent_id", agentID, "cwd", nextCWD, "error", err)
+		return
+	}
+	binding.Cwd = nextCWD
+	if promptWorktreeSwitchRequiresInvalidation(prevCWD, nextCWD, s.cfg) {
+		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateWorktree); err != nil {
+			s.logger.Warn("thread: prompt invalidate after cwd change failed", "thread_id", threadID, "agent_id", agentID, "cwd", nextCWD, "reason", contract.InvalidateWorktree, "error", err)
+		}
+	}
+	if s.logger != nil {
+		s.logger.Info("thread: updated cwd from agent event", "thread_id", threadID, "agent_id", agentID, "cwd", nextCWD)
+	}
 }
 
 // maxSessionRecoveryAttempts limits session-level recovery attempts per agent

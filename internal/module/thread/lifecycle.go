@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -36,14 +37,16 @@ type threadState struct {
 	Prompt           string
 	RolloutPath      string
 	SessionUUID      string
+	ConfigOverride   json.RawMessage
 	CreatedAt        int64
 }
 
 type threadMeta struct {
-	Name      string
-	Model     string
-	CWD       string
-	CreatedAt int64
+	Name           string
+	Model          string
+	CWD            string
+	ConfigOverride json.RawMessage
+	CreatedAt      int64
 }
 
 type sessionGenerationProvider interface {
@@ -83,7 +86,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	if err := s.launchAgent(ctx, agentID, req.CWD, displayName, req.Provider, req.Model); err != nil {
 		return StartResult{}, err
 	}
-	if _, err := s.startSession(ctx, req, assembly, agentID); err != nil {
+	if _, err := s.startSession(ctx, req, assemblyInput, assembly, agentID); err != nil {
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
@@ -97,6 +100,11 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		return StartResult{}, err
 	}
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
+	configOverride, err := encodeStoredThreadConfig(buildStartStoredThreadConfig(req, assemblyInput, assembly))
+	if err != nil {
+		s.stopAgent(ctx, agentID)
+		return StartResult{}, err
+	}
 	state := newThreadState(threadStateStartKind, threadStateFields{
 		AgentID:          agentID,
 		ProviderThreadID: session.ThreadID(),
@@ -107,11 +115,16 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		Prompt:           displayName,
 		RolloutPath:      session.RolloutPath(),
 		SessionUUID:      session.ThreadID(),
+		ConfigOverride:   configOverride,
 		CreatedAt:        time.Now().Unix(),
 	})
 	publicThreadID := state.PublicThreadID
 	providerThreadID := state.ProviderThreadID
 	if err := s.persistThreadState(ctx, state, true); err != nil {
+		s.stopAgent(ctx, agentID)
+		return StartResult{}, err
+	}
+	if err := s.savePromptSnapshot(ctx, publicThreadID, assembly); err != nil {
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
@@ -170,6 +183,7 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 		Prompt:            displayName,
 		RolloutPath:       shared.FirstNonEmpty(state.RolloutPath, session.RolloutPath()),
 		SessionUUID:       shared.FirstNonEmpty(state.SessionUUID, session.ThreadID()),
+		ConfigOverride:    shared.CloneRawMessage(state.ConfigOverrideRaw),
 		CreatedAt:         state.CreatedAt,
 	})
 	publicThreadID := threadState.PublicThreadID
@@ -189,8 +203,10 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 		}
 		s.publishThreadStarted(threadState)
 	}
-	if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
-		return ResumeResult{}, err
+	if promptResumeRestoreRequiresInvalidation(state.StoredCWD, req.CWD, s.cfg) {
+		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
+			return ResumeResult{}, err
+		}
 	}
 	return ResumeResult{
 		ThreadID:  publicThreadID,
@@ -234,7 +250,13 @@ func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadM
 	if err != nil || thread == nil {
 		return threadMeta{}
 	}
-	return threadMeta{Name: strings.TrimSpace(thread.Prompt), Model: strings.TrimSpace(thread.Model), CWD: strings.TrimSpace(thread.Cwd), CreatedAt: thread.CreatedAt}
+	return threadMeta{
+		Name:           strings.TrimSpace(thread.Prompt),
+		Model:          strings.TrimSpace(thread.Model),
+		CWD:            strings.TrimSpace(thread.Cwd),
+		ConfigOverride: shared.CloneRawMessage(thread.ConfigOverride),
+		CreatedAt:      thread.CreatedAt,
+	}
 }
 
 func (s *service) stopAgent(ctx context.Context, agentID string) {

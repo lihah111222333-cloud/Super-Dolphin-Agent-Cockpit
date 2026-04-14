@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -80,7 +81,7 @@ func TestPrepareTurnTruncatesInputCount(t *testing.T) {
 	t.Parallel()
 
 	items := make([]InputItem, 0, maxTurnInputItems+32)
-	for i := 0; i < maxTurnInputItems+32; i++ {
+	for i := range maxTurnInputItems + 32 {
 		items = append(items, InputItem{Type: "mention", Path: fmt.Sprintf("./doc-%03d.md", i)})
 	}
 
@@ -139,11 +140,34 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 		turn: contract.TurnAssembly{UserContextText: "assembled user context"},
 	}
 	svc := NewServiceWithPromptAssembly(silentLogger(), assembly)
-	session := &stubSession{threadID: "thread-1"}
+	session := &stubSession{
+		threadID: "thread-1",
+		runtimeConfig: map[string]any{
+			"provider":                     "codex-runtime",
+			"gitRoot":                      "/runtime-repo",
+			"language":                     "Chinese",
+			"enabledTools":                 []string{"spawn_agent"},
+			"additionalWorkingDirectories": []string{"/repo/runtime-extra"},
+			"mcpTools":                     []string{"mcp__orch__orchestration_send_message"},
+			"mcpInstructions":              map[string]any{"orch": "Use orchestration runtime fallback."},
+			"sessionFlags":                 map[string]any{"runtime_only": true},
+		},
+	}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt: "please verify the cache",
 		CWD:    "/repo",
 		Model:  "claude-sonnet",
+		ThreadRuntimeConfig: map[string]any{
+			"provider":                     "codex-thread",
+			"gitRoot":                      "/thread-repo",
+			"isWorktree":                   true,
+			"language":                     "Japanese",
+			"enabledTools":                 []string{"lsp_file", "lsp_grep"},
+			"additionalWorkingDirectories": []string{"/repo/thread-extra"},
+			"mcpTools":                     []string{"mcp__lsp__lsp_grep"},
+			"mcpInstructions":              map[string]any{"lsp": "Use LSP thread fallback."},
+			"sessionFlags":                 map[string]any{"verification_required": true},
+		},
 	})
 	if err != nil {
 		t.Fatalf("PrepareTurn() error = %v", err)
@@ -163,8 +187,32 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 	if assembly.lastTurnInput.Model != "claude-sonnet" {
 		t.Fatalf("last turn model = %q, want claude-sonnet", assembly.lastTurnInput.Model)
 	}
+	if assembly.lastTurnInput.Provider != "codex-thread" || assembly.lastTurnInput.GitRoot != "/thread-repo" || !assembly.lastTurnInput.IsWorktree {
+		t.Fatalf("last turn env context = %#v", assembly.lastTurnInput)
+	}
+	if assembly.lastTurnInput.Language != "Japanese" {
+		t.Fatalf("last turn language = %q, want Japanese", assembly.lastTurnInput.Language)
+	}
+	if got := assembly.lastTurnInput.EnabledTools; len(got) != 2 || got[0] != "lsp_file" || got[1] != "lsp_grep" {
+		t.Fatalf("EnabledTools = %#v, want LSP tool set", got)
+	}
+	if got := assembly.lastTurnInput.AdditionalWorkingDirectories; len(got) != 1 || got[0] != "/repo/thread-extra" {
+		t.Fatalf("AdditionalWorkingDirectories = %#v, want thread-state dirs", got)
+	}
 	if len(assembly.lastTurnInput.MCPSnapshot.Servers) == 0 {
 		t.Fatalf("MCP snapshot = %#v, want manifest-derived servers", assembly.lastTurnInput.MCPSnapshot)
+	}
+	if got := assembly.lastTurnInput.MCPSnapshot.Tools; !slices.Contains(got, "mcp__lsp__lsp_grep") {
+		t.Fatalf("MCPSnapshot.Tools = %#v, want thread-state tool present", got)
+	}
+	if assembly.lastTurnInput.MCPSnapshot.Instructions["lsp"] != "Use LSP thread fallback." {
+		t.Fatalf("MCPSnapshot.Instructions = %#v", assembly.lastTurnInput.MCPSnapshot.Instructions)
+	}
+	if !assembly.lastTurnInput.SessionFlags["verification_required"] {
+		t.Fatalf("SessionFlags = %#v, want verification_required", assembly.lastTurnInput.SessionFlags)
+	}
+	if assembly.lastTurnInput.SessionFlags["runtime_only"] {
+		t.Fatalf("SessionFlags = %#v, want thread-state fallback to win", assembly.lastTurnInput.SessionFlags)
 	}
 }
 
@@ -366,6 +414,7 @@ func (*stubPromptAssemblyService) Invalidate(context.Context, contract.Invalidat
 type stubSession struct {
 	threadID          string
 	caps              dto.CapabilitySet
+	runtimeConfig     map[string]any
 	startTurn         func(context.Context, dto.TurnRequest) (contract.TurnHandle, error)
 	steer             func(context.Context, dto.SteerRequest) error
 	interrupt         func(context.Context, dto.InterruptRequest) error
@@ -380,6 +429,8 @@ func (s *stubSession) ThreadID() string { return s.threadID }
 func (s *stubSession) RolloutPath() string { return "" }
 
 func (s *stubSession) Capabilities() dto.CapabilitySet { return s.caps }
+
+func (s *stubSession) RuntimeConfigSnapshot() map[string]any { return s.runtimeConfig }
 
 func (s *stubSession) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
 	if s.startTurn != nil {

@@ -10,12 +10,56 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
+type startSnapshotPromptAssembly struct {
+	start contract.StartAssembly
+}
+
+type phase45StartOnlySessionStarter struct {
+	onStart func(context.Context, dto.StartSessionRequest) (contract.Session, error)
+}
+
+type phase45PromptAssemblyStub struct {
+	startAssembly contract.StartAssembly
+}
+
+func (s startSnapshotPromptAssembly) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+	return s.start, nil
+}
+
+func (startSnapshotPromptAssembly) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
+	return contract.TurnAssembly{}, nil
+}
+
+func (startSnapshotPromptAssembly) Invalidate(context.Context, contract.InvalidateReason) error {
+	return nil
+}
+
+func (s phase45StartOnlySessionStarter) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	return s.onStart(ctx, req)
+}
+
+func (phase45StartOnlySessionStarter) ResumeSession(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+	panic("unexpected ResumeSession call")
+}
+
+func (p phase45PromptAssemblyStub) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+	return p.startAssembly, nil
+}
+
+func (phase45PromptAssemblyStub) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
+	return contract.TurnAssembly{}, nil
+}
+
+func (phase45PromptAssemblyStub) Invalidate(context.Context, contract.InvalidateReason) error {
+	return nil
+}
+
 func TestPhase45BaseInstructionsStayOutOfPromptStorage(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{}
 	sessions := &stubSessionProvider{}
-	starter := &startOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	starter := &phase45StartOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 		if req.Instructions != "system prompt" {
 			t.Fatalf("instructions = %q, want system prompt", req.Instructions)
 		}
@@ -97,12 +141,66 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 	}
 }
 
+func TestPhase45StartPersistsPromptSnapshot(t *testing.T) {
+	t.Parallel()
+
+	startAssembly := contract.StartAssembly{
+		DisplayName:           "start name",
+		BaseInstructions:      "start base",
+		DeveloperInstructions: "start dev",
+		Snapshot: contract.PromptAssemblySnapshot{
+			DisplayName:           "start name",
+			BaseInstructions:      "start base",
+			DeveloperInstructions: "start dev",
+			Provider:              "codex",
+			Version:               contract.PromptAssemblySnapshotVersion,
+			Hash:                  "start-hash",
+		},
+	}
+	threads := &stubThreadStore{}
+	sessions := &stubSessionProvider{}
+	starter := &phase45StartOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+		session := &stubSession{threadID: "provider-thread-start"}
+		sessions.session = session
+		return session, nil
+	}}
+	orch := &stubThreadOrchestration{}
+	svc := NewServiceWithPromptAssembly(
+		silentLogger(),
+		threads,
+		nil,
+		sessions,
+		starter,
+		nil,
+		orch,
+		nil,
+		startSnapshotPromptAssembly{start: startAssembly},
+		nil,
+		nil,
+	).(*service)
+
+	_, err := svc.Start(context.Background(), StartRequest{
+		AgentID:  "agent-start",
+		Provider: "codex",
+		Name:     "start name",
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if threads.promptSnapshot == nil {
+		t.Fatal("promptSnapshot = nil, want saved snapshot")
+	}
+	if threads.promptSnapshot.BaseInstructions != "start base" || threads.promptSnapshot.DeveloperInstructions != "start dev" {
+		t.Fatalf("promptSnapshot = %#v, want start snapshot", threads.promptSnapshot)
+	}
+}
+
 func TestPhase45ExplicitNameWinsOverLegacyPromptFallback(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{}
 	sessions := &stubSessionProvider{}
-	starter := &startOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	starter := &phase45StartOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 		if req.Instructions != "assembled system" {
 			t.Fatalf("instructions = %q, want assembled system", req.Instructions)
 		}
@@ -121,7 +219,7 @@ func TestPhase45ExplicitNameWinsOverLegacyPromptFallback(t *testing.T) {
 		Provider: "codex",
 		Name:     "clean name",
 		Prompt:   "legacy prompt",
-		PromptAssemblyRef: promptAssemblyStub{startAssembly: contract.StartAssembly{
+		PromptAssemblyRef: phase45PromptAssemblyStub{startAssembly: contract.StartAssembly{
 			BaseInstructions:      "assembled system",
 			DeveloperInstructions: "assembled dev",
 		}},

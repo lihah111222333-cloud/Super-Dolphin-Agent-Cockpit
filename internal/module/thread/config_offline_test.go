@@ -328,6 +328,58 @@ func TestBuildOfflineRuntimeConfigIncludesModel(t *testing.T) {
 	}
 }
 
+func TestReadRuntimeConfigIncludesStoredPromptContext(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID: "thread-context-offline",
+		Model:    "gpt-5.4",
+		Cwd:      "/repo",
+		Status:   "running",
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{
+			"provider":                     "codex",
+			"gitRoot":                      "/repo",
+			"isWorktree":                   true,
+			"language":                     "Chinese",
+			"enabledTools":                 []any{"lsp_file", "lsp_grep"},
+			"additionalWorkingDirectories": []any{"/repo/extra"},
+			"mcpTools":                     []any{"mcp__lsp__lsp_grep"},
+			"mcpInstructions":              map[string]any{"lsp": "Use the LSP thread fallback."},
+			"sessionFlags":                 map[string]any{"verification_required": true},
+		}}),
+	}}
+	svc, ok := NewService(
+		silentLogger(),
+		threads,
+		&stubBindingStore{binding: &bindingstore.Binding{Provider: "codex"}},
+		&stubSessionProvider{session: nil},
+		nil,
+		nil,
+		nil,
+		nil,
+	).(*service)
+	if !ok {
+		t.Fatal("NewService() type assertion failed")
+	}
+
+	runtime, err := svc.ReadRuntimeConfig(context.Background(), "thread-context-offline")
+	if err != nil {
+		t.Fatalf("ReadRuntimeConfig() error = %v", err)
+	}
+	if runtime["gitRoot"] != "/repo" || runtime["language"] != "Chinese" || runtime["provider"] != "codex" {
+		t.Fatalf("offline runtime context = %#v", runtime)
+	}
+	if runtime["isWorktree"] != true {
+		t.Fatalf("offline runtime isWorktree = %#v, want true", runtime["isWorktree"])
+	}
+	if got, ok := runtime["mcpInstructions"].(map[string]any); !ok || got["lsp"] != "Use the LSP thread fallback." {
+		t.Fatalf("offline runtime mcpInstructions = %#v", runtime["mcpInstructions"])
+	}
+	if got, ok := runtime["sessionFlags"].(map[string]any); !ok || got["verification_required"] != true {
+		t.Fatalf("offline runtime sessionFlags = %#v", runtime["sessionFlags"])
+	}
+}
+
 func TestSetConfigFallsBackToOfflinePersistWithoutSession(t *testing.T) {
 	t.Parallel()
 
@@ -430,4 +482,3 @@ func TestSetConfigOfflineRejectsInvalidEffort(t *testing.T) {
 		t.Fatal("SetConfig() error = nil, want invalid effort error")
 	}
 }
-

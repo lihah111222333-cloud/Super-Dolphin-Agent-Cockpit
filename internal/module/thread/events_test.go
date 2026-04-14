@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
@@ -60,6 +61,35 @@ func TestOnAgentLaunchedSkipsUnchangedSessionUUID(t *testing.T) {
 	}
 }
 
+func TestOnAgentLaunchedUpdatesCWDAndInvalidatesWorktreePromptCache(t *testing.T) {
+	t.Parallel()
+
+	repoRoot, worktreeCWD := newPromptGitFixture(t)
+	promptAssembly := &stubPromptAssemblyService{}
+	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: repoRoot}}
+	svc := NewServiceWithPromptAssembly(silentLogger(), nil, bindings, nil, nil, nil, nil, nil, promptAssembly, nil, nil).(*service)
+
+	ev := newAgentLaunchedEvent("agent-1", "thread-1", "")
+	ev.CWD = worktreeCWD
+	svc.onAgentLaunched(ev)
+
+	if len(bindings.cwdUpdates) != 1 {
+		t.Fatalf("cwd updates = %#v, want 1 update", bindings.cwdUpdates)
+	}
+	if got := bindings.cwdUpdates[0]; got.AgentID != "agent-1" || got.Cwd != worktreeCWD || got.UpdatedAt == 0 {
+		t.Fatalf("cwd update = %#v", got)
+	}
+	if bindings.binding.Cwd != worktreeCWD {
+		t.Fatalf("binding.Cwd = %q, want %q", bindings.binding.Cwd, worktreeCWD)
+	}
+	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateWorktree {
+		t.Fatalf("Invalidate calls = %#v, want [%q]", got, contract.InvalidateWorktree)
+	}
+	if len(bindings.sessionUpdates) != 0 {
+		t.Fatalf("session updates = %#v, want none", bindings.sessionUpdates)
+	}
+}
+
 func newAgentLaunchedEvent(agentID, threadID, sessionID string) agentdto.AgentLaunched {
 	return agentdto.AgentLaunched{
 		AgentSessionHeader: sharedto.AgentSessionHeader{
@@ -83,6 +113,7 @@ func cancelThreadSubscriptions(cancels []context.CancelFunc) {
 type eventBindingStore struct {
 	binding        *bindingstore.Binding
 	sessionUpdates []bindingstore.UpdateSessionUUIDParams
+	cwdUpdates     []bindingstore.UpdateAgentCwdParams
 	updateCh       chan struct{}
 }
 
@@ -123,6 +154,10 @@ func (s *eventBindingStore) ListAgentThreadBindings(context.Context) ([]bindings
 func (s *eventBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
 	return "", errors.New("not found")
 }
-func (s *eventBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
+func (s *eventBindingStore) UpdateAgentCwd(_ context.Context, params bindingstore.UpdateAgentCwdParams) error {
+	s.cwdUpdates = append(s.cwdUpdates, params)
+	if s.binding != nil && s.binding.AgentID == params.AgentID {
+		s.binding.Cwd = params.Cwd
+	}
 	return nil
 }

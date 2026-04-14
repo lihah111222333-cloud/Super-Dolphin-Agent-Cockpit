@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -64,6 +65,12 @@ func TestStartSessionUsesPromptAssembly(t *testing.T) {
 	}
 	if threads.upsert.Prompt != "assembled name" {
 		t.Fatalf("persisted prompt = %q, want assembled name", threads.upsert.Prompt)
+	}
+	if threads.promptSnapshot == nil || threads.promptSnapshotID != "agent-assembly" {
+		t.Fatalf("saved prompt snapshot = %#v, thread = %q", threads.promptSnapshot, threads.promptSnapshotID)
+	}
+	if threads.promptSnapshot.BaseInstructions != "assembled system" || threads.promptSnapshot.DeveloperInstructions != "assembled dev" {
+		t.Fatalf("stored prompt snapshot = %#v", threads.promptSnapshot)
 	}
 }
 
@@ -137,7 +144,7 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 			if req.ProviderThreadID != "provider-thread-assembly" {
 				t.Fatalf("ProviderThreadID = %q, want provider-thread-assembly", req.ProviderThreadID)
 			}
-			if req.PromptSnapshot != snapshot {
+			if !reflect.DeepEqual(req.PromptSnapshot, snapshot) {
 				t.Fatalf("PromptSnapshot = %#v, want %#v", req.PromptSnapshot, snapshot)
 			}
 			session := &stubSession{threadID: "provider-thread-assembly"}
@@ -166,7 +173,7 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 	}
 }
 
-func TestResumeInvalidatesPromptAssemblyAfterSuccess(t *testing.T) {
+func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.T) {
 	t.Parallel()
 
 	promptAssembly := &stubPromptAssemblyService{}
@@ -198,8 +205,68 @@ func TestResumeInvalidatesPromptAssemblyAfterSuccess(t *testing.T) {
 	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-resume"}); err != nil {
 		t.Fatalf("Resume() error = %v", err)
 	}
+	if got := promptAssembly.invalidated; len(got) != 0 {
+		t.Fatalf("Invalidate calls = %#v, want none", got)
+	}
+}
+
+func TestResumeInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
+	t.Parallel()
+
+	_, worktreeCWD := newPromptGitFixture(t)
+	promptAssembly := &stubPromptAssemblyService{}
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-resume",
+		AgentID:   "agent-resume",
+		Prompt:    "resume name",
+		Model:     "gpt-5.4",
+		Cwd:       worktreeCWD,
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-resume",
+		Provider:         "codex",
+		ProviderThreadID: "provider-thread-resume",
+		CodexThreadID:    "thread-resume",
+		Cwd:              worktreeCWD,
+	}}
+	sessions := &stubSessionProvider{}
+	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+		session := &stubSession{threadID: req.ProviderThreadID}
+		sessions.session = session
+		return session, nil
+	}}
+	orch := &stubThreadOrchestration{}
+	svc := NewServiceWithPromptAssembly(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil, promptAssembly, nil, nil).(*service)
+
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-resume"}); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
 	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateResumeRestore {
 		t.Fatalf("Invalidate calls = %#v, want [%q]", got, contract.InvalidateResumeRestore)
+	}
+}
+
+func TestSendCommandClearInvalidatesPromptAssembly(t *testing.T) {
+	t.Parallel()
+
+	promptAssembly := &stubPromptAssemblyService{}
+	svc := NewServiceWithPromptAssembly(silentLogger(), nil, nil, nil, nil, nil, nil, nil, promptAssembly, nil, nil).(*service)
+
+	got, err := svc.SendCommand(context.Background(), "thread-clear", "/clear", "")
+	if err != nil {
+		t.Fatalf("SendCommand(/clear) error = %v", err)
+	}
+	result, ok := got.(threadCommandResult)
+	if !ok {
+		t.Fatalf("SendCommand(/clear) result type = %T, want threadCommandResult", got)
+	}
+	if result.Command != "/clear" || result.ThreadID != "thread-clear" {
+		t.Fatalf("SendCommand(/clear) result = %#v", result)
+	}
+	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateClear {
+		t.Fatalf("Invalidate calls = %#v, want [%q]", got, contract.InvalidateClear)
 	}
 }
 
@@ -318,14 +385,17 @@ func TestTurnAssemblyUserContextText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleTurn() error = %v", err)
 	}
-	if strings.Contains(turnAssembly.UserContextText, "## "+promptpkg.DynamicSectionSessionGuidance) {
-		t.Fatalf("UserContextText = %q, want raw section content without synthetic heading", turnAssembly.UserContextText)
+	if !strings.Contains(turnAssembly.UserContextText, "<system-reminder>") {
+		t.Fatalf("UserContextText = %q, want system reminder envelope", turnAssembly.UserContextText)
 	}
-	if !strings.Contains(turnAssembly.UserContextText, "please verify the cache") {
-		t.Fatalf("UserContextText = %q, want user text", turnAssembly.UserContextText)
+	if !strings.Contains(turnAssembly.UserContextText, "# currentDate") {
+		t.Fatalf("UserContextText = %q, want currentDate section", turnAssembly.UserContextText)
 	}
-	if !strings.Contains(turnAssembly.UserContextText, "/repo") {
-		t.Fatalf("UserContextText = %q, want cwd", turnAssembly.UserContextText)
+	if !strings.Contains(turnAssembly.UserContextText, "# runtimeExtras") {
+		t.Fatalf("UserContextText = %q, want runtimeExtras section", turnAssembly.UserContextText)
+	}
+	if content, ok := sectionContent(turnAssembly.ResolvedSections, promptpkg.DynamicSectionSessionGuidance); !ok || !strings.Contains(content, "please verify the cache") || !strings.Contains(content, "/repo") {
+		t.Fatalf("ResolvedSections = %#v, want session guidance content", turnAssembly.ResolvedSections)
 	}
 }
 
@@ -349,4 +419,13 @@ func (*stubPromptAssemblyService) AssembleTurn(context.Context, contract.TurnInp
 func (s *stubPromptAssemblyService) Invalidate(_ context.Context, reason contract.InvalidateReason) error {
 	s.invalidated = append(s.invalidated, reason)
 	return nil
+}
+
+func sectionContent(sections []contract.ResolvedPromptSection, name string) (string, bool) {
+	for _, section := range sections {
+		if section.Name == name {
+			return section.Content, true
+		}
+	}
+	return "", false
 }

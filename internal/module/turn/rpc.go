@@ -12,10 +12,11 @@ func NewTurnHandlers(
 	resolver contract.SessionResolver,
 	approver contract.ApprovalResponder,
 	capResolver rpc.CapabilityResolver,
+	runtimeReader ThreadStateConfigReader,
 ) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"turn/start":         turnStartHandler(svc, resolver, capResolver),
-		"turn/steer":         turnSteerHandler(svc, resolver, capResolver),
+		"turn/start":         turnStartHandler(svc, resolver, capResolver, runtimeReader),
+		"turn/steer":         turnSteerHandler(svc, resolver, capResolver, runtimeReader),
 		"turn/interrupt":     turnInterruptHandler(svc, resolver),
 		"turn/forceComplete": turnForceCompleteHandler(svc, resolver),
 		"review/start":       reviewStartHandler(),

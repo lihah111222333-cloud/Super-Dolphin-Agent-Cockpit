@@ -9,6 +9,7 @@ import (
 
 	"github.com/kelindar/event"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -145,9 +146,15 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 	defer cancel()
 
 	next := newBufferedTransport(t, "provider-thread-1")
-	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+	overrideLaunchCLI(t, func(_, _, _, instructions string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
 		if resumeID != "provider-thread-1" {
 			t.Fatalf("resumeID = %q, want provider-thread-1", resumeID)
+		}
+		if instructions != "stored base" {
+			t.Fatalf("instructions = %q, want stored base", instructions)
+		}
+		if cfg.PromptSnapshot.BaseInstructions != "stored base" || cfg.PromptSnapshot.DeveloperInstructions != "stored dev" {
+			t.Fatalf("PromptSnapshot = %#v, want stored snapshot", cfg.PromptSnapshot)
 		}
 		return next.tr, nil, nil
 	})
@@ -159,6 +166,14 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 		ThreadID:         "thread-public",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/tmp/repo",
+		PromptSnapshot: dto.PromptAssemblySnapshot{
+			DisplayName:           "thread-public",
+			BaseInstructions:      "stored base",
+			DeveloperInstructions: "stored dev",
+			Provider:              "claude",
+			Version:               contract.PromptAssemblySnapshotVersion,
+			Hash:                  "snapshot-hash",
+		},
 	})
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
