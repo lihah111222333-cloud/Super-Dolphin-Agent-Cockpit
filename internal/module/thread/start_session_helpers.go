@@ -2,18 +2,111 @@ package thread
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-func buildStartSessionConfig(req StartRequest) map[string]any {
+const startDisplayNameMaxRunes = 160
+
+func normalizeStartDisplayName(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= startDisplayNameMaxRunes {
+		return value
+	}
+	return string(runes[:startDisplayNameMaxRunes])
+}
+
+func buildStartAssemblyInput(req StartRequest, cwd string) contract.StartInput {
+	return contract.StartInput{
+		Name:                  req.Name,
+		Prompt:                req.Prompt,
+		BaseInstructions:      req.BaseInstructions,
+		DeveloperInstructions: req.DeveloperInstructions,
+		Provider:              req.Provider,
+		CWD:                   cwd,
+		Model:                 req.Model,
+	}
+}
+
+func buildStartAssembly(req StartRequest) contract.StartAssembly {
+	return contract.StartAssembly{
+		DisplayName:           normalizeStartDisplayName(req.Name),
+		BaseInstructions:      strings.TrimSpace(req.BaseInstructions),
+		DeveloperInstructions: strings.TrimSpace(req.DeveloperInstructions),
+	}
+}
+
+func resolveStartPromptAssembly(ctx context.Context, req StartRequest, agentID string) (contract.StartAssembly, error) {
+	if req.PromptAssemblyRef == nil {
+		return buildStartAssembly(req), nil
+	}
+	input := buildStartAssemblyInput(req, req.CWD)
+	input.ThreadID = strings.TrimSpace(agentID)
+	assembly, err := req.PromptAssemblyRef.AssembleStart(ctx, input)
+	if err != nil {
+		return contract.StartAssembly{}, err
+	}
+	assembly.DisplayName = normalizeStartDisplayName(shared.FirstNonEmpty(strings.TrimSpace(assembly.DisplayName), req.Name, req.Prompt))
+	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
+	assembly.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
+	return assembly, nil
+}
+
+func toProviderStartAssembly(assembly contract.StartAssembly) dto.StartAssembly {
+	return dto.StartAssembly{
+		DisplayName:           strings.TrimSpace(assembly.DisplayName),
+		BaseInstructions:      strings.TrimSpace(assembly.BaseInstructions),
+		DeveloperInstructions: strings.TrimSpace(assembly.DeveloperInstructions),
+		ResolvedSections:      toProviderResolvedSections(assembly.ResolvedSections),
+		Snapshot:              toProviderPromptSnapshot(assembly.Snapshot),
+	}
+}
+
+func toProviderPromptSnapshot(snapshot contract.PromptAssemblySnapshot) dto.PromptAssemblySnapshot {
+	return dto.PromptAssemblySnapshot{
+		DisplayName:           strings.TrimSpace(snapshot.DisplayName),
+		BaseInstructions:      strings.TrimSpace(snapshot.BaseInstructions),
+		DeveloperInstructions: strings.TrimSpace(snapshot.DeveloperInstructions),
+		Provider:              strings.TrimSpace(snapshot.Provider),
+		Version:               snapshot.Version,
+		Hash:                  strings.TrimSpace(snapshot.Hash),
+		Generation:            snapshot.Generation,
+	}
+}
+
+func toProviderResolvedSections(sections []contract.ResolvedPromptSection) []dto.ResolvedPromptSection {
+	if len(sections) == 0 {
+		return nil
+	}
+	out := make([]dto.ResolvedPromptSection, 0, len(sections))
+	for _, section := range sections {
+		out = append(out, dto.ResolvedPromptSection{
+			Name:     strings.TrimSpace(section.Name),
+			Region:   dto.PromptRegion(section.Region),
+			Volatile: section.Volatile,
+			Content:  strings.TrimSpace(section.Content),
+		})
+	}
+	return out
+}
+
+func buildStartSessionConfig(req StartRequest, assembly contract.StartAssembly) map[string]any {
 	cfg := map[string]any{}
 	putConfigString(cfg, "approvalPolicy", req.ApprovalPolicy)
 	putConfigString(cfg, "approval_policy", req.ApprovalPolicy)
 	putConfigString(cfg, "approvals", req.ApprovalPolicy)
 	putConfigString(cfg, "modelProvider", req.ModelProvider)
-	putConfigString(cfg, "developerInstructions", req.DeveloperInstructions)
-	putConfigString(cfg, "developer_instructions", req.DeveloperInstructions)
+	putConfigString(cfg, "developerInstructions", assembly.DeveloperInstructions)
+	putConfigString(cfg, "developer_instructions", assembly.DeveloperInstructions)
 	putConfigString(cfg, "summary", req.Summary)
 	putConfigString(cfg, "effort", req.Effort)
 	putConfigString(cfg, "personality", req.Personality)

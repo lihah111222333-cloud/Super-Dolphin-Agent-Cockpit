@@ -3,7 +3,6 @@ package thread
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"time"
 
@@ -41,7 +40,7 @@ type threadState struct {
 }
 
 type threadMeta struct {
-	Prompt    string
+	Name      string
 	Model     string
 	CWD       string
 	CreatedAt int64
@@ -53,10 +52,18 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	if err != nil {
 		return StartResult{}, err
 	}
-	if err := s.launchAgent(ctx, agentID, req.CWD, req.Prompt, req.Provider, req.Model); err != nil {
+	if req.PromptAssemblyRef == nil {
+		req.PromptAssemblyRef = s.promptAssembly
+	}
+	assembly, err := resolveStartPromptAssembly(ctx, req, agentID)
+	if err != nil {
 		return StartResult{}, err
 	}
-	if _, err := s.startSession(ctx, req, agentID); err != nil {
+	displayName := strings.TrimSpace(assembly.DisplayName)
+	if err := s.launchAgent(ctx, agentID, req.CWD, displayName, req.Provider, req.Model); err != nil {
+		return StartResult{}, err
+	}
+	if _, err := s.startSession(ctx, req, assembly, agentID); err != nil {
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
@@ -76,8 +83,8 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		Provider:         req.Provider,
 		CWD:              effectiveCWD,
 		Model:            effectiveModel,
-		Name:             req.Name,
-		Prompt:           req.Prompt,
+		Name:             displayName,
+		Prompt:           displayName,
 		RolloutPath:      session.RolloutPath(),
 		SessionUUID:      session.ThreadID(),
 		CreatedAt:        time.Now().Unix(),
@@ -113,7 +120,8 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	if s.sessions != nil {
 		s.sessions.RemoveSession(req.AgentID)
 	}
-	if err := s.launchAgent(ctx, req.AgentID, req.CWD, state.Prompt, req.Provider, req.Model); err != nil {
+	displayName := strings.TrimSpace(state.Prompt)
+	if err := s.launchAgent(ctx, req.AgentID, req.CWD, displayName, req.Provider, req.Model); err != nil {
 		return ResumeResult{}, err
 	}
 	if _, err := s.resumeSession(ctx, req); err != nil {
@@ -138,7 +146,8 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 		Provider:          req.Provider,
 		CWD:               req.CWD,
 		Model:             model,
-		Prompt:            state.Prompt,
+		Name:              displayName,
+		Prompt:            displayName,
 		RolloutPath:       shared.FirstNonEmpty(state.RolloutPath, session.RolloutPath()),
 		SessionUUID:       shared.FirstNonEmpty(state.SessionUUID, session.ThreadID()),
 		CreatedAt:         state.CreatedAt,
@@ -158,8 +167,8 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 				"provider_thread_id", providerThreadID,
 			)
 		}
+		s.publishThreadStarted(threadState)
 	}
-	s.publishThreadStarted(threadState)
 	return ResumeResult{
 		ThreadID:  publicThreadID,
 		SessionID: shared.FirstNonEmpty(providerThreadID, publicThreadID),
@@ -168,126 +177,6 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 		CWD:       req.CWD,
 	}, nil
 }
-func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error) {
-	ctx = shared.NonNilContext(ctx)
-	session, binding, err := s.resolveSession(ctx, threadID)
-	if err != nil {
-		return ForkResult{}, err
-	}
-	result, err := session.ForkThread(ctx, dto.ForkRequest{ThreadID: historyTargetID(binding, threadID)})
-	if err != nil {
-		return ForkResult{}, err
-	}
-	meta := s.lookupThreadMeta(ctx, threadID)
-	newThreadID := strings.TrimSpace(result.NewThreadID)
-	if newThreadID == "" {
-		return ForkResult{}, errors.New("fork thread id is required")
-	}
-	provider := strings.TrimSpace(binding.Provider)
-	if provider == "" {
-		return ForkResult{}, errors.New("fork provider is required")
-	}
-	agentID := newThreadID
-	cwd := shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
-	if err := s.launchAgent(ctx, agentID, cwd, meta.Prompt, provider, meta.Model); err != nil {
-		return ForkResult{}, err
-	}
-	forkedSession, err := s.resumeSession(ctx, ResumeRequest{
-		Provider: provider,
-		AgentID:  agentID,
-		ThreadID: newThreadID,
-		CWD:      cwd,
-		Model:    meta.Model,
-	})
-	if err != nil {
-		s.stopAgent(ctx, agentID)
-		return ForkResult{}, err
-	}
-	if err := s.bindSessionGeneration(ctx, agentID); err != nil {
-		s.stopAgent(ctx, agentID)
-		return ForkResult{}, err
-	}
-	providerThreadID := strings.TrimSpace(forkedSession.ThreadID())
-	if err := s.persistThreadState(ctx, newThreadState(threadStateForkKind, threadStateFields{
-		PublicThreadID:   newThreadID,
-		ProviderThreadID: providerThreadID,
-		OwnerThreadID:    historyTargetID(binding, threadID),
-		AgentID:          agentID,
-		Provider:         provider,
-		CWD:              cwd,
-		Model:            meta.Model,
-		Prompt:           meta.Prompt,
-		RolloutPath:      forkedSession.RolloutPath(),
-		SessionUUID:      forkedSession.ThreadID(),
-		CreatedAt:        time.Now().Unix(),
-	}), true); err != nil {
-		s.stopAgent(ctx, agentID)
-		return ForkResult{}, err
-	}
-	return ForkResult{
-		NewThreadID: newThreadID,
-		ForkedFrom:  bindingPublicThreadID(binding, threadID),
-	}, nil
-}
-
-func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, error) {
-	ctx = shared.NonNilContext(ctx)
-	binding, err := s.resolveBinding(ctx, threadID)
-	if err != nil {
-		return RecoverResult{}, err
-	}
-	meta := s.lookupThreadMeta(ctx, threadID)
-	agentID := strings.TrimSpace(binding.AgentID)
-	provider := strings.TrimSpace(binding.Provider)
-	publicThreadID := bindingPublicThreadID(binding, threadID)
-	providerThreadID := historyTargetID(binding, threadID)
-	mode := "restore_launch"
-	if err := s.recoverAgent(ctx, strings.TrimSpace(binding.AgentID), shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)), meta.Prompt); err != nil {
-		return RecoverResult{}, err
-	}
-	if _, err := s.lookupSession(agentID); err != nil {
-		mode = "relaunch_resume"
-		if _, err := s.resumeSession(ctx, ResumeRequest{
-			Provider:         provider,
-			AgentID:          agentID,
-			ThreadID:         publicThreadID,
-			ProviderThreadID: providerThreadID,
-		}); err != nil {
-			return RecoverResult{}, err
-		}
-		if err := s.bindSessionGeneration(ctx, binding.AgentID); err != nil {
-			s.stopAgent(ctx, binding.AgentID)
-			return RecoverResult{}, err
-		}
-	}
-	session, err := s.lookupSession(agentID)
-	if err != nil {
-		return RecoverResult{}, err
-	}
-	if err := s.persistThreadState(ctx, newThreadState(threadStateRecoverKind, threadStateFields{
-		RequestedThreadID: threadID,
-		PublicThreadID:    publicThreadID,
-		ProviderThreadID:  shared.FirstNonEmpty(providerThreadID, session.ThreadID()),
-		AgentID:           agentID,
-		Provider:          provider,
-		CWD:               shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
-		Model:             meta.Model,
-		Prompt:            meta.Prompt,
-		RolloutPath:       shared.FirstNonEmpty(binding.RolloutPath, session.RolloutPath()),
-		SessionUUID:       shared.FirstNonEmpty(binding.SessionUUID, session.ThreadID()),
-		CreatedAt:         meta.CreatedAt,
-	}), true); err != nil {
-		return RecoverResult{}, err
-	}
-	s.publishThreadStarted(threadState{PublicThreadID: publicThreadID, AgentID: agentID, Provider: provider})
-	return RecoverResult{
-		ThreadID:  publicThreadID,
-		Status:    "recovering",
-		Recovered: true,
-		Mode:      mode,
-	}, nil
-}
-
 func (s *service) persistThreadState(ctx context.Context, state threadState, updateBinding bool) error {
 	state, err := normalizeThreadState(state)
 	if err != nil {
@@ -322,65 +211,13 @@ func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadM
 	if err != nil || thread == nil {
 		return threadMeta{}
 	}
-	return threadMeta{Prompt: strings.TrimSpace(thread.Prompt), Model: strings.TrimSpace(thread.Model), CWD: strings.TrimSpace(thread.Cwd), CreatedAt: thread.CreatedAt}
-}
-
-func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
-	if s.bindingStore == nil {
-		return ""
-	}
-	binding, err := s.bindingStore.GetByAgentID(ctx, strings.TrimSpace(agentID))
-	if err != nil || binding == nil {
-		return ""
-	}
-	s.rememberBinding(binding)
-	return strings.TrimSpace(binding.Cwd)
-}
-
-func (s *service) launchAgent(ctx context.Context, agentID, cwd, name, provider, model string) error {
-	if s.orchestration == nil {
-		return nil
-	}
-	req, err := buildLaunchRequest(agentID, cwd, name, provider, model)
-	if err != nil {
-		return err
-	}
-	return s.orchestration.LaunchAgent(ctx, req)
+	return threadMeta{Name: strings.TrimSpace(thread.Prompt), Model: strings.TrimSpace(thread.Model), CWD: strings.TrimSpace(thread.Cwd), CreatedAt: thread.CreatedAt}
 }
 
 func (s *service) stopAgent(ctx context.Context, agentID string) {
 	shared.LogIgnoredError(s.logger, "stop managed agent failed", s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true))
 }
 
-func (s *service) recoverAgent(ctx context.Context, agentID, cwd, name string) error {
-	if s.orchestration == nil {
-		return nil
-	}
-	agentID = strings.TrimSpace(agentID)
-	if err := s.orchestration.Recover(ctx, agentID); err == nil {
-		return nil
-	}
-	return s.launchAgent(ctx, agentID, cwd, name, "", "")
-}
-
-func buildLaunchRequest(agentID, cwd, name, provider, model string) (LaunchAgentRequest, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return LaunchAgentRequest{}, err
-	}
-	return LaunchAgentRequest{AgentID: strings.TrimSpace(agentID), Name: strings.TrimSpace(name), Cwd: strings.TrimSpace(cwd), Command: []string{exe}, Env: launchConfigEnv(provider, model)}, nil
-}
-
-func launchConfigEnv(provider, model string) []string {
-	var env []string
-	if provider = strings.TrimSpace(provider); provider != "" {
-		env = append(env, "AGENT_PROVIDER="+provider)
-	}
-	if model = strings.TrimSpace(model); model != "" {
-		env = append(env, "AGENT_MODEL="+model)
-	}
-	return env
-}
 func (s *service) rememberBinding(binding *bindingstore.Binding) {
 	if binding == nil {
 		return

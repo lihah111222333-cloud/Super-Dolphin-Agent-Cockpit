@@ -97,6 +97,12 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	if orch.launchReq.Cwd != "/repo" {
 		t.Fatalf("launch cwd = %q, want /repo", orch.launchReq.Cwd)
 	}
+	if orch.launchReq.Name != "resume" {
+		t.Fatalf("launch name = %q, want resume", orch.launchReq.Name)
+	}
+	if threads.upsert.Prompt != "resume" {
+		t.Fatalf("persisted prompt = %q, want resume", threads.upsert.Prompt)
+	}
 	if !reflect.DeepEqual(orch.launchReq.Env, []string{"AGENT_PROVIDER=codex", "AGENT_MODEL=override-model"}) {
 		t.Fatalf("launch env = %#v", orch.launchReq.Env)
 	}
@@ -482,6 +488,14 @@ func (s *stubThreadStore) ListRecoverable(context.Context) ([]threadstore.Thread
 }
 
 func (s *stubThreadStore) ListRunningAgents(context.Context) ([]threadstore.RunningAgent, error) {
+	return nil, nil
+}
+
+func (*stubThreadStore) SavePromptSnapshot(context.Context, string, threadstore.PromptSnapshot) error {
+	return nil
+}
+
+func (*stubThreadStore) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
 	return nil, nil
 }
 

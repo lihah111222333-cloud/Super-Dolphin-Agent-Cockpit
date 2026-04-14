@@ -15,10 +15,6 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
-func resolveProviderThreadID(values ...string) string {
-	return shared.FirstNonEmpty(values...)
-}
-
 // enrichFromSessionConfig extracts model/cwd from the session's runtime config
 // when the original request values are empty. codex app-server assigns model
 // server-side; the resolved value is captured in runtimeConfig during StartSession.
@@ -56,6 +52,40 @@ func resolveRelativeCWD(cwd string) string {
 		return abs
 	}
 	return cwd
+}
+
+func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
+	if s.bindingStore == nil {
+		return ""
+	}
+	binding, err := s.bindingStore.GetByAgentID(ctx, strings.TrimSpace(agentID))
+	if err != nil || binding == nil {
+		return ""
+	}
+	s.rememberBinding(binding)
+	return strings.TrimSpace(binding.Cwd)
+}
+
+func (s *service) launchAgent(ctx context.Context, agentID, cwd, name, provider, model string) error {
+	if s.orchestration == nil {
+		return nil
+	}
+	req, err := buildLaunchRequest(agentID, cwd, name, provider, model)
+	if err != nil {
+		return err
+	}
+	return s.orchestration.LaunchAgent(ctx, req)
+}
+
+func (s *service) recoverAgent(ctx context.Context, agentID, cwd, name string) error {
+	if s.orchestration == nil {
+		return nil
+	}
+	agentID = strings.TrimSpace(agentID)
+	if err := s.orchestration.Recover(ctx, agentID); err == nil {
+		return nil
+	}
+	return s.launchAgent(ctx, agentID, cwd, name, "", "")
 }
 
 func bindingPublicThreadID(binding *bindingstore.Binding, fallback string) string {
@@ -106,9 +136,10 @@ func (s *service) upsertPublicThread(
 	if s.threadStore == nil {
 		return nil
 	}
+	displayName := strings.TrimSpace(shared.FirstNonEmpty(state.Name, state.Prompt))
 	err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{
 		ThreadID:      state.PublicThreadID,
-		Prompt:        state.Prompt,
+		Prompt:        displayName,
 		Model:         state.Model,
 		Cwd:           state.CWD,
 		Status:        statusCreated,
@@ -146,7 +177,7 @@ func historyTargetID(binding *bindingstore.Binding, threadID string) string {
 func toRef(thread threadstore.Thread) Ref {
 	name := strings.TrimSpace(thread.Prompt)
 	if name == "" {
-		name = strings.TrimSpace(thread.ThreadID)
+		name = shared.FirstNonEmpty(strings.TrimSpace(thread.ThreadID), strings.TrimSpace(thread.AgentID))
 	}
 	return Ref{ID: strings.TrimSpace(thread.ThreadID), Name: name, AgentID: strings.TrimSpace(thread.AgentID)}
 }

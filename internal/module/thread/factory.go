@@ -41,14 +41,15 @@ type threadStateFields struct {
 }
 
 func newThreadState(kind threadStateKind, fields threadStateFields) threadState {
+	displayName := strings.TrimSpace(shared.FirstNonEmpty(fields.Name, fields.Prompt))
 	state := threadState{
 		OwnerThreadID: fields.OwnerThreadID,
 		AgentID:       fields.AgentID,
 		Provider:      fields.Provider,
 		CWD:           fields.CWD,
 		Model:         fields.Model,
-		Name:          fields.Name,
-		Prompt:        fields.Prompt,
+		Name:          displayName,
+		Prompt:        displayName,
 	}
 	switch kind {
 	case threadStateStartKind:
