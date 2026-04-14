@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 )
 
 func TestAgentMemoryManagerGetAgentMemoryDirScopeIsolation(t *testing.T) {
@@ -140,6 +142,43 @@ func TestAgentMemoryScopePermissions(t *testing.T) {
 	}
 }
 
+func TestAgentMemoryHelpersExposeEntrypointAndClassification(t *testing.T) {
+	manager, userRoot, projectRoot := newTestAgentMemoryManager(t)
+	entrypoint, err := manager.GetAgentMemoryEntrypoint("Writer", MemoryScopeProject)
+	if err != nil {
+		t.Fatalf("GetAgentMemoryEntrypoint() error = %v", err)
+	}
+	wantEntrypoint := filepath.Join(projectRoot, "memory", "agents", "Writer", "MEMORY.md")
+	if entrypoint != wantEntrypoint {
+		t.Fatalf("GetAgentMemoryEntrypoint() = %q, want %q", entrypoint, wantEntrypoint)
+	}
+	if got := GetMemoryScopeDisplay(MemoryScopeLocal); got != "local-scoped agent memory" {
+		t.Fatalf("GetMemoryScopeDisplay(local) = %q", got)
+	}
+	cfg := &Config{
+		RootDir:             userRoot,
+		ProjectRoot:         projectRoot,
+		AutoMemPathOverride: filepath.Join(t.TempDir(), "auto-memory"),
+	}
+	agentPath := writeAgentMemoryEntrypoint(t, manager, "Writer", MemoryScopeProject, "remember writer context")
+	autoPath := filepath.Join(cfg.AutoMemPathOverride, "entry.md")
+	if err := os.MkdirAll(filepath.Dir(autoPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(auto path) error = %v", err)
+	}
+	if err := os.WriteFile(autoPath, []byte("auto"), 0o644); err != nil {
+		t.Fatalf("WriteFile(auto path) error = %v", err)
+	}
+	if !manager.IsAgentMemoryPath(filepath.Join(agentPath, "MEMORY.md")) {
+		t.Fatal("IsAgentMemoryPath(agent MEMORY.md) = false, want true")
+	}
+	if got := ClassifyMemoryPath(cfg, filepath.Join(agentPath, "MEMORY.md")); got != MemoryPathClassAgent {
+		t.Fatalf("ClassifyMemoryPath(agent) = %q, want %q", got, MemoryPathClassAgent)
+	}
+	if got := ClassifyMemoryPath(cfg, autoPath); got != MemoryPathClassAuto {
+		t.Fatalf("ClassifyMemoryPath(auto) = %q, want %q", got, MemoryPathClassAuto)
+	}
+}
+
 func TestAgentMemoryManagerLoadAgentMemoryPromptIncludesEntrypoint(t *testing.T) {
 	manager, _, projectRoot := newTestAgentMemoryManager(t)
 	dir := filepath.Join(projectRoot, "memory", "agents", "Writer")
@@ -180,6 +219,31 @@ func TestAgentMemoryManagerLoadAgentMemoryPromptStripsUTF8BOM(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "Remember the preferred review style.") {
 		t.Fatalf("LoadAgentMemoryPrompt() missing BOM-stripped entrypoint in prompt: %q", prompt)
+	}
+}
+
+func TestResolveChildAgentStartRequiresExplicitTypeAndScope(t *testing.T) {
+	meta, ok := resolveChildAgentStart(prompt.SectionContext{
+		Start: &prompt.StartInput{
+			ParentAgentID:    "agent-root",
+			AgentType:        "worker",
+			AgentMemoryScope: "project",
+			Name:             "Worker UI",
+		},
+	})
+	if !ok {
+		t.Fatal("resolveChildAgentStart() = false, want true")
+	}
+	if meta.agentType != "worker" || meta.scope != MemoryScopeProject {
+		t.Fatalf("resolveChildAgentStart() = %+v", meta)
+	}
+	if _, ok := resolveChildAgentStart(prompt.SectionContext{
+		Start: &prompt.StartInput{
+			ParentAgentID: "agent-root",
+			Name:          "Worker UI",
+		},
+	}); ok {
+		t.Fatal("resolveChildAgentStart() used display name fallback, want false")
 	}
 }
 

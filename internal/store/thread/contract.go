@@ -26,17 +26,20 @@ type Store interface {
 }
 
 type UpsertParams struct {
-	ThreadID       string
-	Prompt         string
-	Model          string
-	Cwd            string
-	Status         string
-	Port           int32
-	PID            int32
-	CreatedAt      int64
-	UpdatedAt      int64
-	OwnerThreadID  string
-	ConfigOverride json.RawMessage
+	ThreadID         string
+	Prompt           string
+	Model            string
+	Cwd              string
+	Status           string
+	Port             int32
+	PID              int32
+	CreatedAt        int64
+	UpdatedAt        int64
+	OwnerThreadID    string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
+	ConfigOverride   json.RawMessage
 }
 
 type UpdateStatusParams struct {
@@ -51,22 +54,25 @@ type ExpireStaleParams struct {
 }
 
 type Thread struct {
-	ThreadID        string
-	AgentID         string
-	Prompt          string
-	Model           string
-	Cwd             string
-	Status          string
-	Port            int32
-	PID             int32
-	CreatedAt       int64
-	UpdatedAt       int64
-	FinishedAt      *int64
-	LastEventType   string
-	ErrorMessage    string
-	WorkspaceRunKey string
-	OwnerThreadID   string
-	ConfigOverride  json.RawMessage
+	ThreadID         string
+	AgentID          string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
+	Prompt           string
+	Model            string
+	Cwd              string
+	Status           string
+	Port             int32
+	PID              int32
+	CreatedAt        int64
+	UpdatedAt        int64
+	FinishedAt       *int64
+	LastEventType    string
+	ErrorMessage     string
+	WorkspaceRunKey  string
+	OwnerThreadID    string
+	ConfigOverride   json.RawMessage
 }
 
 type PromptSnapshot struct {
@@ -80,27 +86,40 @@ type PromptSnapshot struct {
 	Generation            uint64            `json:"generation,omitempty"`
 }
 
+type legacyPromptSnapshot struct {
+	DisplayName           string            `json:"display_name,omitempty"`
+	BaseInstructions      string            `json:"base_instructions,omitempty"`
+	DeveloperInstructions string            `json:"developer_instructions,omitempty"`
+	Provider              string            `json:"provider,omitempty"`
+	Version               int               `json:"version,omitempty"`
+	Hash                  string            `json:"hash,omitempty"`
+	SectionSnapshot       map[string]string `json:"section_snapshot,omitempty"`
+	Generation            int64             `json:"generation,omitempty"`
+}
+
 func (p *PromptSnapshot) UnmarshalJSON(data []byte) error {
-	type modern PromptSnapshot
-	type legacy struct {
-		DisplayName           string            `json:"display_name,omitempty"`
-		BaseInstructions      string            `json:"base_instructions,omitempty"`
-		DeveloperInstructions string            `json:"developer_instructions,omitempty"`
-		Provider              string            `json:"provider,omitempty"`
-		Version               int               `json:"version,omitempty"`
-		Hash                  string            `json:"hash,omitempty"`
-		SectionSnapshot       map[string]string `json:"section_snapshot,omitempty"`
-		Generation            int64             `json:"generation,omitempty"`
+	snapshot, err := unmarshalPromptSnapshot(data)
+	if err != nil {
+		return err
 	}
+	*p = snapshot
+	return nil
+}
+
+func unmarshalPromptSnapshot(data []byte) (PromptSnapshot, error) {
+	type modern PromptSnapshot
 	var current modern
 	if err := json.Unmarshal(data, &current); err != nil {
-		return err
+		return PromptSnapshot{}, err
 	}
-	var old legacy
+	var old legacyPromptSnapshot
 	if err := json.Unmarshal(data, &old); err != nil {
-		return err
+		return PromptSnapshot{}, err
 	}
-	snapshot := PromptSnapshot(current)
+	return mergeLegacyPromptSnapshot(PromptSnapshot(current), old), nil
+}
+
+func mergeLegacyPromptSnapshot(snapshot PromptSnapshot, old legacyPromptSnapshot) PromptSnapshot {
 	if snapshot.DisplayName == "" {
 		snapshot.DisplayName = strings.TrimSpace(old.DisplayName)
 	}
@@ -119,16 +138,18 @@ func (p *PromptSnapshot) UnmarshalJSON(data []byte) error {
 	if snapshot.Hash == "" {
 		snapshot.Hash = strings.TrimSpace(old.Hash)
 	}
-	if len(snapshot.SectionSnapshot) == 0 {
-		snapshot.SectionSnapshot = clonePromptSnapshotSectionMap(old.SectionSnapshot)
-	} else {
-		snapshot.SectionSnapshot = clonePromptSnapshotSectionMap(snapshot.SectionSnapshot)
-	}
+	snapshot.SectionSnapshot = resolvePromptSnapshotSections(snapshot.SectionSnapshot, old.SectionSnapshot)
 	if snapshot.Generation == 0 && old.Generation > 0 {
 		snapshot.Generation = uint64(old.Generation)
 	}
-	*p = snapshot
-	return nil
+	return snapshot
+}
+
+func resolvePromptSnapshotSections(current, legacy map[string]string) map[string]string {
+	if len(current) == 0 {
+		return clonePromptSnapshotSectionMap(legacy)
+	}
+	return clonePromptSnapshotSectionMap(current)
 }
 
 func clonePromptSnapshotSectionMap(src map[string]string) map[string]string {

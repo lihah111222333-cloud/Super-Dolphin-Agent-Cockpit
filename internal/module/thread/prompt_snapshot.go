@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
@@ -134,6 +135,109 @@ func (s *service) resolveStablePromptSnapshot(
 		s.logger.Warn("thread: load stored prompt snapshot failed", "thread_id", threadID, "error", err)
 	}
 	return normalizeCallerPromptSnapshot(fallback, provider)
+}
+
+func (s *service) resolveResumePromptSnapshot(
+	ctx context.Context,
+	req ResumeRequest,
+	state resumeState,
+) contract.PromptAssemblySnapshot {
+	provider := strings.TrimSpace(shared.FirstNonEmpty(req.Provider, state.Provider))
+	if stored, ok := s.preferredStoredPromptSnapshot(ctx, state.PublicThreadID, provider); ok {
+		return stored
+	}
+	caller := normalizeCallerPromptSnapshot(req.PromptSnapshot, provider)
+	if !promptSnapshotBlank(caller) {
+		return caller
+	}
+	rebuilt, err := s.rebuildResumePromptSnapshot(ctx, state, provider)
+	if err != nil {
+		s.logResumePromptRebuildFailure(state, err)
+		return contract.PromptAssemblySnapshot{}
+	}
+	s.logResumePromptRebuilt(state, rebuilt)
+	return rebuilt
+}
+
+func (s *service) rebuildResumePromptSnapshot(
+	ctx context.Context,
+	state resumeState,
+	provider string,
+) (contract.PromptAssemblySnapshot, error) {
+	if s == nil || s.promptAssembly == nil {
+		return contract.PromptAssemblySnapshot{}, nil
+	}
+	if strings.TrimSpace(state.ParentAgentID) == "" ||
+		strings.TrimSpace(state.AgentType) == "" ||
+		strings.TrimSpace(state.AgentMemoryScope) == "" {
+		return contract.PromptAssemblySnapshot{}, nil
+	}
+	req := StartRequest{
+		Provider:          strings.TrimSpace(provider),
+		CWD:               strings.TrimSpace(state.CWD),
+		Model:             strings.TrimSpace(state.Model),
+		ParentAgentID:     strings.TrimSpace(state.ParentAgentID),
+		AgentType:         strings.TrimSpace(state.AgentType),
+		AgentMemoryScope:  strings.TrimSpace(state.AgentMemoryScope),
+		Name:              strings.TrimSpace(state.Prompt),
+		PromptAssemblyRef: s.promptAssembly,
+	}
+	input, cleanupScratchpad, err := s.buildStartAssemblyInput(req, state.PublicThreadID)
+	if cleanupScratchpad != nil {
+		defer cleanupScratchpad()
+	}
+	if err != nil {
+		return contract.PromptAssemblySnapshot{}, err
+	}
+	assembly, err := resolveStartPromptAssembly(ctx, req, input)
+	if err != nil {
+		return contract.PromptAssemblySnapshot{}, err
+	}
+	assembly = ensureStartAssemblySnapshot(assembly, provider)
+	return normalizeCallerPromptSnapshot(assembly.Snapshot, provider), nil
+}
+
+func (s *service) preferredStoredPromptSnapshot(
+	ctx context.Context,
+	threadID, provider string,
+) (contract.PromptAssemblySnapshot, bool) {
+	stored, err := s.loadStoredPromptSnapshot(ctx, threadID)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("thread: load stored prompt snapshot failed", "thread_id", threadID, "error", err)
+		}
+		return contract.PromptAssemblySnapshot{}, false
+	}
+	if storedPromptSnapshotValid(stored, provider) {
+		return stored, true
+	}
+	if !promptSnapshotBlank(stored) && s.logger != nil {
+		s.logger.Warn("thread: ignore incompatible stored prompt snapshot", "thread_id", threadID)
+	}
+	return contract.PromptAssemblySnapshot{}, false
+}
+
+func (s *service) logResumePromptRebuildFailure(state resumeState, err error) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Warn("thread: rebuild resume prompt snapshot failed",
+		"thread_id", state.PublicThreadID,
+		"agent_type", state.AgentType,
+		"agent_memory_scope", state.AgentMemoryScope,
+		"error", err,
+	)
+}
+
+func (s *service) logResumePromptRebuilt(state resumeState, snapshot contract.PromptAssemblySnapshot) {
+	if s == nil || s.logger == nil || promptSnapshotBlank(snapshot) {
+		return
+	}
+	s.logger.Info("thread: rebuilt resume prompt snapshot from agent identity metadata",
+		"thread_id", state.PublicThreadID,
+		"agent_type", state.AgentType,
+		"agent_memory_scope", state.AgentMemoryScope,
+	)
 }
 
 func (s *service) loadStoredPromptSnapshot(ctx context.Context, threadID string) (contract.PromptAssemblySnapshot, error) {

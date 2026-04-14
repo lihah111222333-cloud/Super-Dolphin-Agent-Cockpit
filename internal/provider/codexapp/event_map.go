@@ -11,6 +11,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -146,8 +147,10 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 
 func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	if isTurnTerminalEvent(eventType) {
+		header := buildTurnHeader(payload)
+		turnpkg.ResetToolResultScope(header.ThreadID, header.TurnID)
 		return turndto.TurnCompleted{
-			TurnHeader: buildTurnHeader(payload),
+			TurnHeader: header,
 			Success:    turnTerminalSuccess(eventType, payload),
 			Error:      stringValue(payload, "error", "message", "reason"),
 			Status:     stringValue(payload, "status"),
@@ -261,11 +264,22 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 		if !looksLikeToolCall(payload) {
 			return nil, false
 		}
+		header := buildToolCallHeader(payload)
+		result := turnpkg.CaptureToolResult(turnpkg.ToolResultMeta{
+			ThreadID:  header.ThreadID,
+			TurnID:    header.TurnID,
+			CallID:    header.CallID,
+			ToolName:  header.ToolName,
+			Timestamp: eventTime(payload),
+		}, jsonPreview(payload, "result", "content"))
 		return tooldto.ToolCallEnd{
-			ToolCallHeader: buildToolCallHeader(payload),
+			ToolCallHeader: header,
 			Success:        turnTerminalSuccess(eventType, payload),
 			Error:          stringValue(payload, "error", "message", "reason"),
-			Result:         jsonPreview(payload, "result", "content"),
+			Result:         result.Preview,
+			PersistedPath:  result.PersistedPath,
+			Truncated:      result.Truncated,
+			OriginalSize:   result.OriginalSize,
 			ElapsedMS:      int64Value(payload, "elapsedMs", "elapsed_ms"),
 		}, true
 	case "approval/resolved", "tool.approval.resolved":

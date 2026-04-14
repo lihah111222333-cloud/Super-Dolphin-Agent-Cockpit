@@ -121,6 +121,34 @@ func TestStaticSectionsIdentityUsesOutputStyleFraming(t *testing.T) {
 	t.Fatal("identity section not found")
 }
 
+func TestStaticSectionsIdentitySkipsOutputStyleFramingForNonRenderableConfig(t *testing.T) {
+	keepCodingInstructions := false
+	for _, section := range StaticSections() {
+		if section.Name != SectionIdentity {
+			continue
+		}
+		content, err := section.Compute(context.Background(), SectionContext{
+			BuildCtx: BuildCtx{
+				OutputStyleConfig: &contract.OutputStyleConfig{
+					Source:                  "user-config",
+					KeepCodingInstructions: &keepCodingInstructions,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("identity Compute() error = %v", err)
+		}
+		if content == nil {
+			t.Fatal("identity content = nil, want base identity instructions")
+		}
+		if strings.Contains(*content, `according to your "Output Style" below`) {
+			t.Fatalf("identity content = %q, want default framing when output style is not renderable", *content)
+		}
+		return
+	}
+	t.Fatal("identity section not found")
+}
+
 func TestStaticSectionsEngineeringSkipsWhenKeepCodingDisabled(t *testing.T) {
 	keepCodingInstructions := false
 	for _, section := range StaticSections() {

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -11,8 +12,11 @@ import (
 	"testing"
 	"time"
 
-	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -79,25 +83,23 @@ func TestRootManagerEnsureRootDelegatesToService(t *testing.T) {
 	}
 }
 
-func TestRegisterMemoryHooksSubscribesThreadStoppedAsync(t *testing.T) {
+func TestRegisterMemoryHooksSubscribesTurnCompletedAsync(t *testing.T) {
 	root := newTestMemoryRoot(t)
-	store := newTestDiskStore(t, root)
-	written, err := store.Create(testMemoryEntry(
-		"Stop hook seed note",
-		"seed",
-		MemoryTypeProject,
-		"Stop hook seed note\nWhy: created before stop.",
-	))
-	if err != nil {
-		t.Fatalf("Create() error = %v", err)
-	}
-
 	dispatcher := event.NewDispatcher()
-	hooks := NewMemoryLifecycleHooks(&Config{
+	hooks := newMemoryLifecycleHooks(&Config{
 		Enabled:       true,
 		ExtractOnStop: true,
 		RootDir:       root,
-	}, NewAutoDreamConsolidator(NewMemoryExtractor()), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)),
+		historyStub{messages: []providerdto.Message{{Role: "user", Content: "Please keep build commands guarded in this repo."}}},
+		threadLookupStub{thread: &threadstore.Thread{
+			ThreadID:       "thread-1",
+			ConfigOverride: mustStoredRuntimeConfig(t, map[string]any{"threadKind": "main"}),
+		}},
+		nil,
+		NewMemoryExtractor(),
+		NewManifestBuilder(),
+	)
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -105,9 +107,12 @@ func TestRegisterMemoryHooksSubscribesThreadStoppedAsync(t *testing.T) {
 		if prompt == "" {
 			t.Fatal("extract prompt should not be empty")
 		}
+		if !strings.Contains(prompt, "Conversation transcript:") {
+			t.Fatalf("extract prompt missing transcript: %q", prompt)
+		}
 		close(started)
 		<-release
-		return `{"memories":[{"content":"Stop hook seed note\nWhy: preserve durable stop-hook output.\nHow to apply: keep this note consolidated after thread shutdown.","type":"project","tags":["stop-hook"]}]}`, nil
+		return `{"memories":[{"content":"Keep build commands guarded in this repo.","type":"project","tags":["build"]}]}`, nil
 	}
 
 	lifecycle := &testLifecycle{}
@@ -130,7 +135,13 @@ func TestRegisterMemoryHooksSubscribesThreadStoppedAsync(t *testing.T) {
 
 	published := make(chan struct{})
 	go func() {
-		event.Publish(dispatcher, threaddto.Stopped{ThreadID: "thread-1"})
+		event.Publish(dispatcher, turndto.TurnCompleted{
+			TurnHeader: shareddto.TurnHeader{
+				AgentHeader:  shareddto.AgentHeader{ThreadHeader: shareddto.ThreadHeader{ThreadID: "thread-1"}},
+				TurnIDHeader: shareddto.TurnIDHeader{TurnID: "turn-1"},
+			},
+			Success: true,
+		})
 		close(published)
 	}()
 
@@ -142,11 +153,11 @@ func TestRegisterMemoryHooksSubscribesThreadStoppedAsync(t *testing.T) {
 	select {
 	case <-started:
 	case <-time.After(time.Second):
-		t.Fatal("extract hook not triggered on thread stopped")
+		t.Fatal("extract hook not triggered on turn completed")
 	}
 
 	close(release)
-	waitForExtractedContent(t, written.FilePath, "How to apply: keep this note consolidated")
+	waitForExtractedMemory(t, root, "Keep build commands guarded in this repo.")
 }
 
 type testLifecycle struct {
@@ -169,4 +180,47 @@ func waitForExtractedContent(t *testing.T, path, needle string) {
 	}
 	entry, err := readMemoryEntryFile(path)
 	t.Fatalf("readMemoryEntryFile(%q) final err=%v content=%q, want %q", path, err, entry.Content, needle)
+}
+
+func waitForExtractedMemory(t *testing.T, root, needle string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		entries, err := scanMemoryEntries(root)
+		if err == nil {
+			for _, entry := range entries {
+				if strings.Contains(entry.Content, needle) {
+					return
+				}
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	entries, err := scanMemoryEntries(root)
+	t.Fatalf("scanMemoryEntries(%q) final err=%v entries=%#v, want %q", root, err, entries, needle)
+}
+
+type historyStub struct {
+	messages []providerdto.Message
+}
+
+func (s historyStub) ReadHistory(context.Context, string, int) ([]providerdto.Message, error) {
+	return append([]providerdto.Message(nil), s.messages...), nil
+}
+
+type threadLookupStub struct {
+	thread *threadstore.Thread
+}
+
+func (s threadLookupStub) GetByThreadID(context.Context, string) (*threadstore.Thread, error) {
+	return s.thread, nil
+}
+
+func mustStoredRuntimeConfig(t *testing.T, runtime map[string]any) json.RawMessage {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"runtime": runtime})
+	if err != nil {
+		t.Fatalf("json.Marshal(runtime) error = %v", err)
+	}
+	return payload
 }

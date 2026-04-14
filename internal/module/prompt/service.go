@@ -24,18 +24,23 @@ type AssemblyService = PromptAssemblyService
 type Service interface {
 	PromptRegistry
 	contract.PromptAssemblyService
+	SectionInvalidator
+	RegisterClaudeMdSourceProvider(provider contract.ClaudeMdSourceProvider) error
 	Config() Config
 }
 
 type service struct {
-	cfg      *Config
-	logger   *slog.Logger
-	registry *SectionRegistry
-	cache    *sectionCache
-	flight   singleflight.Group
+	cfg              *Config
+	logger           *slog.Logger
+	registry         *SectionRegistry
+	cache            *sectionCache
+	userContextCache *userContextCache
+	flight           singleflight.Group
 
 	dynamicMu sync.RWMutex
 	dynamic   map[string]DynamicSectionProvider
+
+	claudeMdProvider contract.ClaudeMdSourceProvider
 }
 
 var _ contract.PromptAssemblyService = (*service)(nil)
@@ -45,21 +50,22 @@ func NewService(cfg *Config, logger *slog.Logger) Service {
 		cfg = &Config{}
 	}
 	svc := &service{
-		cfg:      cfg,
-		logger:   logger,
-		registry: NewSectionRegistry(),
-		cache:    newSectionCache(),
-		dynamic:  map[string]DynamicSectionProvider{},
+		cfg:              cfg,
+		logger:           logger,
+		registry:         NewSectionRegistry(),
+		cache:            newSectionCache(),
+		userContextCache: newUserContextCache(),
+		dynamic:          map[string]DynamicSectionProvider{},
 	}
 	svc.registerBuiltInSections()
 	mustRegisterDynamicProvider(svc, SessionGuidanceProvider{})
 	mustRegisterDynamicProvider(svc, EnvInfoProvider{})
 	mustRegisterDynamicProvider(svc, LanguageProvider{})
 	mustRegisterDynamicProvider(svc, MCPInstructionsProvider{})
-	mustRegisterDynamicProvider(svc, OutputStyleStubProvider{})
-	mustRegisterDynamicProvider(svc, ScratchpadStubProvider{})
+	mustRegisterDynamicProvider(svc, OutputStyleProvider{})
+	mustRegisterDynamicProvider(svc, ScratchpadProvider{})
 	mustRegisterDynamicProvider(svc, FRCStubProvider{})
-	mustRegisterDynamicProvider(svc, SummarizeToolResultsStubProvider{})
+	mustRegisterDynamicProvider(svc, SummarizeToolResultsProvider{})
 	mustRegisterDynamicProvider(svc, NumericLengthAnchorsStubProvider{})
 	mustRegisterDynamicProvider(svc, TokenBudgetStubProvider{})
 	mustRegisterDynamicProvider(svc, BriefStubProvider{})
@@ -84,6 +90,14 @@ func (s *service) Config() Config {
 
 func (s *service) RegisterSection(section PromptSection) error {
 	return s.registry.Register(section)
+}
+
+func (s *service) RegisterClaudeMdSourceProvider(provider contract.ClaudeMdSourceProvider) error {
+	s.claudeMdProvider = provider
+	if s.userContextCache != nil {
+		s.userContextCache.InvalidateAll()
+	}
+	return nil
 }
 
 func (s *service) Sections() []PromptSection {

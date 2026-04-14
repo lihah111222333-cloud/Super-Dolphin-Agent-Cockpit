@@ -63,7 +63,7 @@ func staticSectionContent(text string) func(BuildCtx) *string {
 
 func resolveIdentitySection(build BuildCtx) *string {
 	introFraming := "with software engineering tasks."
-	if build.OutputStyleConfig != nil {
+	if hasRenderableOutputStyle(build.OutputStyleConfig) {
 		introFraming = `according to your "Output Style" below, which describes how you should respond to user queries.`
 	}
 	text := strings.TrimSpace(`You are an interactive agent that helps users ` + introFraming + ` Use the instructions below and the tools available to you to assist the user.

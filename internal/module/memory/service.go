@@ -8,9 +8,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -29,6 +30,7 @@ type service struct {
 }
 
 type MemoryLifecycleHooks struct {
+	cfg                 *Config
 	enabled             bool
 	extractOnStop       bool
 	rootDir             string
@@ -36,7 +38,23 @@ type MemoryLifecycleHooks struct {
 	autoMemPathOverride string
 	consolidator        *AutoDreamConsolidator
 	extractFn           ExtractFunc
+	extractor           *MemoryExtractor
+	manifestBuilder     *ManifestBuilder
+	threads             historySource
+	threadStore         threadMetadataStore
+	sections            sectionInvalidator
 	logger              *slog.Logger
+	timeNow             func() time.Time
+
+	stateMu     sync.Mutex
+	states      map[string]*ExtractionState
+	activeTurns map[string]string
+	callTurns   map[string]toolCallScope
+	turnWrites  map[string]map[string]struct{}
+	extractWG   sync.WaitGroup
+
+	dreamMu   sync.Mutex
+	dreamTask *dreamTaskState
 }
 
 var saveIntentPatterns = []*regexp.Regexp{
@@ -49,25 +67,6 @@ func NewService(cfg *Config, logger *slog.Logger) Service {
 		cfg = &Config{}
 	}
 	return &service{cfg: cfg, logger: logger}
-}
-
-func NewMemoryLifecycleHooks(cfg *Config, consolidator *AutoDreamConsolidator, logger *slog.Logger) *MemoryLifecycleHooks {
-	if cfg == nil {
-		cfg = &Config{}
-	}
-	if consolidator == nil {
-		consolidator = NewAutoDreamConsolidator(nil)
-	}
-	return &MemoryLifecycleHooks{
-		enabled:             ResolveMemoryGate(contract.BuildCtx{}, cfg).AutoEnabled,
-		extractOnStop:       cfg.ExtractOnStop,
-		rootDir:             strings.TrimSpace(cfg.RootDir),
-		projectRoot:         strings.TrimSpace(cfg.ProjectRoot),
-		autoMemPathOverride: strings.TrimSpace(cfg.AutoMemPathOverride),
-		consolidator:        consolidator,
-		extractFn:           mockAutoDreamExtractFunc,
-		logger:              logger,
-	}
 }
 
 func (s *service) Config() Config {
@@ -123,36 +122,9 @@ func (h *MemoryLifecycleHooks) onTurnEnd(ctx context.Context, evt turndto.TurnCo
 	if !intent.Detected || strings.TrimSpace(intent.Content) == "" {
 		return
 	}
-	if err := h.writeIntent(intent); err != nil && h.logger != nil {
+	if err := h.writeDetectedIntent(ctx, evt, intent); err != nil && h.logger != nil {
 		h.logger.Warn("memory explicit save failed", "thread_id", strings.TrimSpace(evt.ThreadID), "error", err)
 	}
-}
-
-func (h *MemoryLifecycleHooks) onThreadStopped(ctx context.Context, evt threaddto.Stopped) {
-	if h == nil || !h.extractOnStop {
-		return
-	}
-	if err := h.ExtractAndSave(ctx); err != nil && h.logger != nil {
-		h.logger.Warn("memory stop extraction failed", "thread_id", strings.TrimSpace(evt.ThreadID), "error", err)
-	}
-}
-
-func (h *MemoryLifecycleHooks) ExtractAndSave(ctx context.Context) error {
-	if h == nil || !h.extractOnStop {
-		return nil
-	}
-	if err := contextErr(ctx); err != nil {
-		return err
-	}
-	store, err := h.diskStore()
-	if err != nil {
-		return err
-	}
-	consolidator := h.consolidator
-	if consolidator == nil {
-		consolidator = NewAutoDreamConsolidator(nil)
-	}
-	return consolidator.Consolidate(ctx, store.Root(), h.extractFn)
 }
 
 func (h *MemoryLifecycleHooks) writeIntent(intent SaveIntent) error {

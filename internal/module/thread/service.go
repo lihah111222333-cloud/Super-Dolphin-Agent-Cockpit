@@ -162,6 +162,7 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 			return err
 		}
 	}
+	s.cleanupThreadScratchpad(ctx, id, binding)
 	if s.bindingStore != nil && binding != nil {
 		if err := s.bindingStore.DeleteByAgentID(ctx, strings.TrimSpace(binding.AgentID)); err != nil {
 			return err

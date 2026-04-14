@@ -16,10 +16,13 @@ type ToolCallBegin struct {
 // ToolCallEnd reports the end of a tool invocation.
 type ToolCallEnd struct {
 	shared.ToolCallHeader
-	Success   bool   `json:"success"`
-	Error     string `json:"error,omitempty"`
-	Result    string `json:"result,omitempty"`
-	ElapsedMS int64  `json:"elapsed_ms,omitempty"`
+	Success       bool   `json:"success"`
+	Error         string `json:"error,omitempty"`
+	Result        string `json:"result,omitempty"`
+	PersistedPath string `json:"persisted_path,omitempty"`
+	Truncated     bool   `json:"truncated,omitempty"`
+	OriginalSize  int    `json:"original_size,omitempty"`
+	ElapsedMS     int64  `json:"elapsed_ms,omitempty"`
 }
 
 // ToolApprovalRequested reports a tool call waiting for approval.

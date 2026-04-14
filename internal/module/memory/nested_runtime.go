@@ -1,0 +1,352 @@
+package memory
+
+import (
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	prompt "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+)
+
+const nestedGlobalThreadKey = "_global"
+
+type NestedRuntime struct {
+	cfg  *Config
+	team *TeamMemoryManager
+
+	mu       sync.Mutex
+	sessions map[string]*nestedSessionState
+}
+
+type nestedSessionState struct {
+	LoadedPaths     map[string]struct{}
+	PendingTriggers map[string]struct{}
+	Generation      uint64
+	MatcherRoot     string
+	BuildCtx        contract.BuildCtx
+}
+
+func NewNestedRuntime(cfg *Config, team *TeamMemoryManager) *NestedRuntime {
+	return &NestedRuntime{
+		cfg:      memoryConfig(cfg),
+		team:     team,
+		sessions: map[string]*nestedSessionState{},
+	}
+}
+
+func (r *NestedRuntime) OnThreadStart(threadID string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sessions[nestedThreadKey(threadID)] = newNestedSessionState(1)
+}
+
+func (r *NestedRuntime) OnPromptInvalidate(reason prompt.InvalidateReason) {
+	if r == nil || !shouldResetNestedRuntime(reason) {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, state := range r.sessions {
+		resetNestedSessionState(state)
+	}
+}
+
+func (r *NestedRuntime) ObserveBuildContext(threadID string, buildCtx contract.BuildCtx) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.stateLocked(threadID)
+	r.ensureMatcherRootLocked(state, buildCtx)
+	state.BuildCtx = cloneNestedBuildCtx(buildCtx)
+}
+
+func (r *NestedRuntime) AddTriggers(threadID string, buildCtx contract.BuildCtx, triggers []string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.stateLocked(threadID)
+	r.ensureMatcherRootLocked(state, buildCtx)
+	state.BuildCtx = cloneNestedBuildCtx(buildCtx)
+	for _, trigger := range triggers {
+		normalized, ok := r.normalizeTrigger(buildCtx, trigger)
+		if ok {
+			state.PendingTriggers[normalized] = struct{}{}
+		}
+	}
+}
+
+func (r *NestedRuntime) ConsumePending(threadID string, buildCtx contract.BuildCtx) []string {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.stateLocked(threadID)
+	r.ensureMatcherRootLocked(state, buildCtx)
+	state.BuildCtx = cloneNestedBuildCtx(buildCtx)
+	pending := sortedNestedKeys(state.PendingTriggers)
+	state.PendingTriggers = map[string]struct{}{}
+	return pending
+}
+
+func (r *NestedRuntime) MarkLoaded(threadID string, buildCtx contract.BuildCtx, source ClaudeMdSource) bool {
+	if r == nil {
+		return false
+	}
+	key := nestedSourceKey(source)
+	if strings.TrimSpace(key) == "" {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.stateLocked(threadID)
+	r.ensureMatcherRootLocked(state, buildCtx)
+	state.BuildCtx = cloneNestedBuildCtx(buildCtx)
+	if _, ok := state.LoadedPaths[key]; ok {
+		return false
+	}
+	state.LoadedPaths[key] = struct{}{}
+	return true
+}
+
+func (r *NestedRuntime) AddToolReadResult(threadID, toolName, result, persistedPath string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.stateLocked(threadID)
+	if strings.TrimSpace(state.BuildCtx.CWD) == "" && strings.TrimSpace(state.BuildCtx.GitRoot) == "" {
+		return
+	}
+	for _, trigger := range extractNestedReadToolPaths(toolName, result, persistedPath) {
+		normalized, ok := r.normalizeTrigger(state.BuildCtx, trigger)
+		if ok {
+			state.PendingTriggers[normalized] = struct{}{}
+		}
+	}
+}
+
+func (r *NestedRuntime) snapshot(threadID string) nestedSessionState {
+	if r == nil {
+		return nestedSessionState{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.stateLocked(threadID)
+	return nestedSessionState{
+		LoadedPaths:     cloneNestedSet(state.LoadedPaths),
+		PendingTriggers: cloneNestedSet(state.PendingTriggers),
+		Generation:      state.Generation,
+		MatcherRoot:     state.MatcherRoot,
+	}
+}
+
+func (r *NestedRuntime) stateLocked(threadID string) *nestedSessionState {
+	if r.sessions == nil {
+		r.sessions = map[string]*nestedSessionState{}
+	}
+	key := nestedThreadKey(threadID)
+	state, ok := r.sessions[key]
+	if !ok {
+		state = newNestedSessionState(1)
+		r.sessions[key] = state
+	}
+	return state
+}
+
+func (r *NestedRuntime) ensureMatcherRootLocked(state *nestedSessionState, buildCtx contract.BuildCtx) {
+	root := nestedMatcherRoot(buildCtx)
+	if state == nil || root == "" {
+		return
+	}
+	if state.MatcherRoot == "" {
+		state.MatcherRoot = root
+		return
+	}
+	if state.MatcherRoot == root {
+		return
+	}
+	state.MatcherRoot = root
+	resetNestedSessionState(state)
+}
+
+func (r *NestedRuntime) normalizeTrigger(buildCtx contract.BuildCtx, raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || platformshared.IsRemoteTurnInput(raw) {
+		return "", false
+	}
+	if !filepath.IsAbs(raw) && strings.TrimSpace(buildCtx.CWD) != "" {
+		raw = filepath.Join(strings.TrimSpace(buildCtx.CWD), raw)
+	}
+	path, err := cleanAbsolutePath(raw)
+	if err != nil || r.isDeniedTrigger(path) {
+		return "", false
+	}
+	return path, true
+}
+
+func (r *NestedRuntime) isDeniedTrigger(path string) bool {
+	cfg := memoryConfig(r.cfg)
+	teamRoot, _ := configuredTeamMemRoot(cfg)
+	switch {
+	case IsAgentMemoryPath(cfg, path):
+		return true
+	case isAutoMemPath(cfg, path):
+		return true
+	default:
+		return nestedContainsPath(teamRoot, path)
+	}
+}
+
+func newNestedSessionState(generation uint64) *nestedSessionState {
+	if generation == 0 {
+		generation = 1
+	}
+	return &nestedSessionState{
+		LoadedPaths:     map[string]struct{}{},
+		PendingTriggers: map[string]struct{}{},
+		Generation:      generation,
+	}
+}
+
+func resetNestedSessionState(state *nestedSessionState) {
+	if state == nil {
+		return
+	}
+	state.Generation++
+	if state.Generation == 0 {
+		state.Generation = 1
+	}
+	state.LoadedPaths = map[string]struct{}{}
+	state.PendingTriggers = map[string]struct{}{}
+}
+
+func shouldResetNestedRuntime(reason prompt.InvalidateReason) bool {
+	switch reason {
+	case prompt.InvalidateClear,
+		prompt.InvalidateCompact,
+		prompt.InvalidateWorktree,
+		prompt.InvalidateResumeRestore,
+		prompt.InvalidateMemoryWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+func nestedThreadKey(threadID string) string {
+	if threadID = strings.TrimSpace(threadID); threadID != "" {
+		return threadID
+	}
+	return nestedGlobalThreadKey
+}
+
+func nestedMatcherRoot(buildCtx contract.BuildCtx) string {
+	root := strings.TrimSpace(buildCtx.GitRoot)
+	if root == "" {
+		root = strings.TrimSpace(buildCtx.CWD)
+	}
+	root = cleanClaudeMdPath(root)
+	cwd := cleanClaudeMdPath(buildCtx.CWD)
+	if root == "" && cwd == "" {
+		return ""
+	}
+	return root + "\n" + cwd
+}
+
+func nestedContainsPath(root, child string) bool {
+	root = strings.TrimSpace(root)
+	child = strings.TrimSpace(child)
+	if root == "" || child == "" {
+		return false
+	}
+	cleanRoot, err := cleanAbsolutePath(root)
+	if err != nil {
+		return false
+	}
+	cleanChild, err := cleanAbsolutePath(child)
+	if err != nil {
+		return false
+	}
+	return platformshared.ContainsPath(cleanRoot, cleanChild)
+}
+
+func sortedNestedKeys(values map[string]struct{}) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for value := range values {
+		keys = append(keys, value)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func cloneNestedSet(values map[string]struct{}) map[string]struct{} {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string]struct{}, len(values))
+	for value := range values {
+		cloned[value] = struct{}{}
+	}
+	return cloned
+}
+
+func cloneNestedBuildCtx(buildCtx contract.BuildCtx) contract.BuildCtx {
+	return contract.BuildCtx{
+		CWD:                          strings.TrimSpace(buildCtx.CWD),
+		GitRoot:                      strings.TrimSpace(buildCtx.GitRoot),
+		AdditionalWorkingDirectories: append([]string(nil), buildCtx.AdditionalWorkingDirectories...),
+		EnabledTools:                 append([]string(nil), buildCtx.EnabledTools...),
+	}
+}
+
+func extractNestedReadToolPaths(toolName, preview, persistedPath string) []string {
+	if !isNestedReadTool(toolName) {
+		return nil
+	}
+	raw := strings.TrimSpace(preview)
+	if path := strings.TrimSpace(persistedPath); path != "" {
+		if content, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(content)) != "" {
+			raw = string(content)
+		}
+	}
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	paths := make(map[string]struct{}, 4)
+	for line := range strings.SplitSeq(strings.ReplaceAll(raw, "\r\n", "\n"), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "Contents of ") || !strings.HasSuffix(trimmed, ":") {
+			continue
+		}
+		path := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "Contents of "), ":"))
+		if path != "" {
+			paths[path] = struct{}{}
+		}
+	}
+	return sortedNestedKeys(paths)
+}
+
+func isNestedReadTool(toolName string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "read", "fileread", "file_read", "readfile", "file_read_tool":
+		return true
+	default:
+		return false
+	}
+}

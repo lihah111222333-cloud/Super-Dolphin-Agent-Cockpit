@@ -26,8 +26,10 @@ type MemoryGateSnapshot struct {
 	BareMode                  bool
 	HasAdditionalDirsForBare  bool
 	DisableClaudeMds          bool
+	SkipProjectLocalClaudeMd  bool
 	SkipIndex                 bool
 	KairosEnabled             bool
+	KairosActive              bool
 	TeamMemEnabled            bool
 	InjectMemoryIndex         bool
 	InjectTeamMemIndex        bool
@@ -53,6 +55,7 @@ func resolveMemoryGate(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapsh
 		BareMode:                  parseBoolEnv(envClaudeSimple, false) || gateFlagEnabled(buildCtx.SessionFlags, "bare_mode", "bareMode", "bare"),
 		HasAdditionalDirsForBare:  len(buildCtx.AdditionalWorkingDirectories) > 0,
 		DisableClaudeMds:          gateFlagEnabled(buildCtx.SessionFlags, "disable_claude_mds", "disableClaudeMds"),
+		SkipProjectLocalClaudeMd:  gateFlagEnabled(buildCtx.SessionFlags, "tengu_paper_halyard", "paper_halyard"),
 		SkipIndex:                 cfg.SkipIndex || gateFlagEnabled(buildCtx.SessionFlags, "skip_index", "skipIndex", "tengu_moth_copse"),
 		KairosEnabled:             cfg.Features.Kairos || gateFlagEnabled(buildCtx.SessionFlags, "memory_kairos", "kairos"),
 		TeamMemEnabled:            cfg.Features.TeamMemory || gateFlagEnabled(buildCtx.SessionFlags, "team_memory", "teamMemory", "teammem"),
@@ -61,11 +64,19 @@ func resolveMemoryGate(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapsh
 	}
 	snapshot.AutoEnabled = resolveAutoEnabled(snapshot, cfg)
 	snapshot.RequestedMemoryMode = selectRequestedMemoryMode(snapshot)
+	snapshot.KairosActive = snapshot.AutoEnabled && snapshot.RequestedMemoryMode == MemoryModeKairos
 	snapshot.EffectiveMemoryMode = effectiveMemoryMode(snapshot.RequestedMemoryMode)
 	snapshot.InjectMemoryIndex = snapshot.AutoEnabled && !snapshot.SkipIndex
 	snapshot.InjectTeamMemIndex = snapshot.AutoEnabled && snapshot.TeamMemEnabled && !snapshot.SkipIndex
-	snapshot.EnableRelevantPrefetch = snapshot.AutoEnabled
+	snapshot.EnableRelevantPrefetch = resolveRelevantPrefetchGate(snapshot)
 	return snapshot
+}
+
+func resolveRelevantPrefetchGate(snapshot MemoryGateSnapshot) bool {
+	if !snapshot.AutoEnabled {
+		return false
+	}
+	return snapshot.SkipIndex || snapshot.SearchPastContextEnabled
 }
 
 func shouldStartRelevantMemoryPrefetch(snapshot MemoryGateSnapshot, turnInput contract.TurnInput, surfacedState RelevantPrefetchSurfacedState) bool {
@@ -149,7 +160,9 @@ func selectRequestedMemoryMode(snapshot MemoryGateSnapshot) MemoryMode {
 
 func effectiveMemoryMode(mode MemoryMode) MemoryMode {
 	switch mode {
-	case MemoryModeKairos, MemoryModeCombined:
+	case MemoryModeKairos:
+		return MemoryModeKairos
+	case MemoryModeCombined:
 		return MemoryModeStandard
 	default:
 		return mode

@@ -166,7 +166,8 @@ func turnRequest(model string) dto.TurnRequest {
 	}
 }
 func TestPrepareTurnLockedPrependsTurnAssemblyUserContextText(t *testing.T) {
-	ready := make(chan struct{}); close(ready)
+	ready := make(chan struct{})
+	close(ready)
 	s := &session{
 		threadID:        "thread-1",
 		sessionID:       "thread-1",
@@ -199,6 +200,55 @@ func TestPrepareTurnLockedPrependsTurnAssemblyUserContextText(t *testing.T) {
 	}
 	if got := decoded.Message.Content[0].Text; got != "Always respond in Chinese.\n\nhello" {
 		t.Fatalf("payload text = %q", got)
+	}
+}
+
+func TestPrepareTurnLockedIncludesAttachmentTextAfterUserContext(t *testing.T) {
+	ready := make(chan struct{})
+	close(ready)
+	attachment := dto.NewRelevantMemoryAttachment(
+		"project/commit-style.md",
+		"Memory (saved today): project/commit-style.md:",
+		"Use concise imperative commit messages.",
+		time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC),
+		720,
+		false,
+	).Envelope()
+	s := &session{
+		threadID:        "thread-1",
+		sessionID:       "thread-1",
+		threadReady:     ready,
+		transport:       &transport{stdin: &recordingWriteCloser{}, done: make(chan struct{})},
+		suppressedTurns: map[string]struct{}{},
+	}
+
+	s.mu.Lock()
+	payload, _, _, err := s.prepareTurnLocked(context.Background(), dto.TurnRequest{
+		Inputs: []shareddto.InputItem{{Content: "hello"}},
+		TurnAssembly: contract.TurnAssembly{
+			UserContextText: "Always respond in Chinese.",
+			Attachments:     []dto.AttachmentEnvelope{attachment},
+		},
+	})
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatalf("prepareTurnLocked() error = %v", err)
+	}
+
+	var decoded struct {
+		Message struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	got := decoded.Message.Content[0].Text
+	want := "Always respond in Chinese.\n\n" + attachment.RenderText() + "\n\nhello"
+	if got != want {
+		t.Fatalf("payload text = %q, want %q", got, want)
 	}
 }
 

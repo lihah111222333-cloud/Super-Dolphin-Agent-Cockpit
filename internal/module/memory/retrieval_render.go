@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -27,23 +28,19 @@ type scoredTranscriptSnippet struct {
 	score   int
 }
 
-func freezeRelevantMemoryInputs(entries []MemoryEntry, now time.Time) []shareddto.InputItem {
-	items := make([]shareddto.InputItem, 0, len(entries))
+func freezeRelevantMemoryAttachments(entries []MemoryEntry, now time.Time) []dto.AttachmentEnvelope {
+	attachments := make([]dto.AttachmentEnvelope, 0, len(entries))
 	for _, entry := range entries {
-		content := renderRelevantMemoryBlock(entry, now)
-		if content == "" {
+		attachment, ok := relevantMemoryAttachment(entry, now)
+		if !ok {
 			continue
 		}
-		items = append(items, shareddto.InputItem{
-			Type:    "filecontent",
-			Name:    filepath.Base(memoryDisplayPath(entry)),
-			Content: content,
-		})
+		attachments = append(attachments, attachment)
 	}
-	if len(items) == 0 {
+	if len(attachments) == 0 {
 		return nil
 	}
-	return items
+	return attachments
 }
 
 func freezeTranscriptInputs(snippets []transcriptSnippet) []shareddto.InputItem {
@@ -65,12 +62,101 @@ func freezeTranscriptInputs(snippets []transcriptSnippet) []shareddto.InputItem 
 	return items
 }
 
-func renderRelevantMemoryBlock(entry MemoryEntry, now time.Time) string {
-	body := truncateRenderedText(memoryRenderBody(entry), maxRenderedMemoryRunes)
+func relevantMemoryAttachment(entry MemoryEntry, now time.Time) (dto.AttachmentEnvelope, bool) {
+	body, truncated := truncateRenderedTextWithFlag(memoryRenderBody(entry), maxRenderedMemoryRunes)
 	if body == "" {
+		return dto.AttachmentEnvelope{}, false
+	}
+	attachment := dto.NewRelevantMemoryAttachment(
+		memoryDisplayPath(entry),
+		memoryHeader(now, entry),
+		body,
+		entry.UpdatedAt,
+		maxRenderedMemoryRunes,
+		truncated,
+	).Envelope()
+	return attachment, attachment.IsValid()
+}
+
+func memoryAgeDays(now, updatedAt time.Time) int {
+	if updatedAt.IsZero() {
+		return -1
+	}
+	loc := now.Location()
+	if loc == nil {
+		loc = time.UTC
+	}
+	nowDay := time.Date(now.In(loc).Year(), now.In(loc).Month(), now.In(loc).Day(), 0, 0, 0, 0, loc)
+	savedDay := time.Date(updatedAt.In(loc).Year(), updatedAt.In(loc).Month(), updatedAt.In(loc).Day(), 0, 0, 0, 0, loc)
+	if savedDay.After(nowDay) {
+		return 0
+	}
+	return int(nowDay.Sub(savedDay).Hours() / 24)
+}
+
+func memoryAge(now, updatedAt time.Time) string {
+	switch days := memoryAgeDays(now, updatedAt); {
+	case days < 0:
+		return ""
+	case days == 0:
+		return "today"
+	case days == 1:
+		return "yesterday"
+	case days == 2:
+		return "2 days ago"
+	default:
+		return fmt.Sprintf("%d days ago", days)
+	}
+}
+
+func memoryFreshnessText(now, updatedAt time.Time) string {
+	if memoryAgeDays(now, updatedAt) <= 1 {
 		return ""
 	}
-	return memoryHeader(now, entry) + "\n" + body
+	age := memoryAge(now, updatedAt)
+	if age == "" {
+		age = "some time ago"
+	}
+	return "This memory was saved " + age + ", so it may not reflect live state. File or line references may be outdated; verify the current code before relying on it."
+}
+
+func memoryHeader(now time.Time, entry MemoryEntry) string {
+	path := memoryDisplayPath(entry)
+	switch memoryAgeDays(now, entry.UpdatedAt) {
+	case 0:
+		return "Memory (saved today): " + path + ":"
+	case 1:
+		return "Memory (saved yesterday): " + path + ":"
+	}
+	warning := memoryFreshnessText(now, entry.UpdatedAt)
+	if warning == "" {
+		return "Memory: " + path + ":"
+	}
+	return warning + "\n\nMemory: " + path + ":"
+}
+
+func memoryDisplayPath(entry MemoryEntry) string {
+	path := strings.TrimSpace(filepath.ToSlash(entry.FilePath))
+	if path == "" {
+		name := strings.TrimSpace(entry.Frontmatter.Name)
+		if name == "" {
+			base := strings.TrimSpace(strings.TrimSuffix(filepath.Base(entry.FilePath), filepath.Ext(entry.FilePath)))
+			if base == "" {
+				return "memory note"
+			}
+			return base
+		}
+		return name
+	}
+	return path
+}
+
+func renderRelevantMemoryBlock(entry MemoryEntry, now time.Time) string {
+	attachment, ok := relevantMemoryAttachment(entry, now)
+	if !ok {
+		return ""
+	}
+	return attachment.Header + "\n" + attachment.Content
 }
 
 func renderTranscriptBlock(snippet transcriptSnippet) string {
@@ -222,13 +308,18 @@ func transcriptMatchedTerms(fields []string, terms []string) int {
 }
 
 func truncateRenderedText(text string, limit int) string {
+	truncated, _ := truncateRenderedTextWithFlag(text, limit)
+	return truncated
+}
+
+func truncateRenderedTextWithFlag(text string, limit int) (string, bool) {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return ""
+		return "", false
 	}
 	runes := []rune(text)
 	if len(runes) <= limit {
-		return text
+		return text, false
 	}
-	return strings.TrimSpace(string(runes[:limit])) + "…"
+	return strings.TrimSpace(string(runes[:limit])) + "…", true
 }

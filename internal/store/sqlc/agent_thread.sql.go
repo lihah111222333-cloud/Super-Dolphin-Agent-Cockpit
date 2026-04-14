@@ -56,7 +56,7 @@ func (q *Queries) ExpireStaleAgentThreads(ctx context.Context, arg ExpireStaleAg
 }
 
 const getAgentThreadByID = `-- name: GetAgentThreadByID :one
-SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, config_override,
+SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -75,22 +75,25 @@ LIMIT 1
 `
 
 type GetAgentThreadByIDRow struct {
-	ThreadID        string      `db:"thread_id" json:"thread_id"`
-	Prompt          string      `db:"prompt" json:"prompt"`
-	Model           string      `db:"model" json:"model"`
-	Cwd             string      `db:"cwd" json:"cwd"`
-	Status          string      `db:"status" json:"status"`
-	Port            int32       `db:"port" json:"port"`
-	Pid             int32       `db:"pid" json:"pid"`
-	CreatedAt       int64       `db:"created_at" json:"created_at"`
-	UpdatedAt       int64       `db:"updated_at" json:"updated_at"`
-	FinishedAt      *int64      `db:"finished_at" json:"finished_at"`
-	LastEventType   string      `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage    string      `db:"error_message" json:"error_message"`
-	WorkspaceRunKey string      `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID   string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ConfigOverride  []byte      `db:"config_override" json:"config_override"`
-	AgentID         interface{} `db:"agent_id" json:"agent_id"`
+	ThreadID         string      `db:"thread_id" json:"thread_id"`
+	Prompt           string      `db:"prompt" json:"prompt"`
+	Model            string      `db:"model" json:"model"`
+	Cwd              string      `db:"cwd" json:"cwd"`
+	Status           string      `db:"status" json:"status"`
+	Port             int32       `db:"port" json:"port"`
+	Pid              int32       `db:"pid" json:"pid"`
+	CreatedAt        int64       `db:"created_at" json:"created_at"`
+	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64      `db:"finished_at" json:"finished_at"`
+	LastEventType    string      `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string      `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string      `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string      `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   []byte      `db:"config_override" json:"config_override"`
+	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) GetAgentThreadByID(ctx context.Context, threadID string) (GetAgentThreadByIDRow, error) {
@@ -111,6 +114,9 @@ func (q *Queries) GetAgentThreadByID(ctx context.Context, threadID string) (GetA
 		&i.ErrorMessage,
 		&i.WorkspaceRunKey,
 		&i.OwnerThreadID,
+		&i.ParentAgentID,
+		&i.AgentType,
+		&i.AgentMemoryScope,
 		&i.ConfigOverride,
 		&i.AgentID,
 	)
@@ -118,7 +124,7 @@ func (q *Queries) GetAgentThreadByID(ctx context.Context, threadID string) (GetA
 }
 
 const getAgentThreadByPort = `-- name: GetAgentThreadByPort :one
-SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, config_override,
+SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -138,22 +144,25 @@ LIMIT 1
 `
 
 type GetAgentThreadByPortRow struct {
-	ThreadID        string      `db:"thread_id" json:"thread_id"`
-	Prompt          string      `db:"prompt" json:"prompt"`
-	Model           string      `db:"model" json:"model"`
-	Cwd             string      `db:"cwd" json:"cwd"`
-	Status          string      `db:"status" json:"status"`
-	Port            int32       `db:"port" json:"port"`
-	Pid             int32       `db:"pid" json:"pid"`
-	CreatedAt       int64       `db:"created_at" json:"created_at"`
-	UpdatedAt       int64       `db:"updated_at" json:"updated_at"`
-	FinishedAt      *int64      `db:"finished_at" json:"finished_at"`
-	LastEventType   string      `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage    string      `db:"error_message" json:"error_message"`
-	WorkspaceRunKey string      `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID   string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ConfigOverride  []byte      `db:"config_override" json:"config_override"`
-	AgentID         interface{} `db:"agent_id" json:"agent_id"`
+	ThreadID         string      `db:"thread_id" json:"thread_id"`
+	Prompt           string      `db:"prompt" json:"prompt"`
+	Model            string      `db:"model" json:"model"`
+	Cwd              string      `db:"cwd" json:"cwd"`
+	Status           string      `db:"status" json:"status"`
+	Port             int32       `db:"port" json:"port"`
+	Pid              int32       `db:"pid" json:"pid"`
+	CreatedAt        int64       `db:"created_at" json:"created_at"`
+	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64      `db:"finished_at" json:"finished_at"`
+	LastEventType    string      `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string      `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string      `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string      `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   []byte      `db:"config_override" json:"config_override"`
+	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) GetAgentThreadByPort(ctx context.Context, port int32) (GetAgentThreadByPortRow, error) {
@@ -174,6 +183,9 @@ func (q *Queries) GetAgentThreadByPort(ctx context.Context, port int32) (GetAgen
 		&i.ErrorMessage,
 		&i.WorkspaceRunKey,
 		&i.OwnerThreadID,
+		&i.ParentAgentID,
+		&i.AgentType,
+		&i.AgentMemoryScope,
 		&i.ConfigOverride,
 		&i.AgentID,
 	)
@@ -246,7 +258,7 @@ func (q *Queries) ListAgentThreadCwdsByPrefix(ctx context.Context, dollar_1 *str
 }
 
 const listAgentThreads = `-- name: ListAgentThreads :many
-SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, config_override,
+SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -264,22 +276,25 @@ ORDER BY created_at DESC
 `
 
 type ListAgentThreadsRow struct {
-	ThreadID        string      `db:"thread_id" json:"thread_id"`
-	Prompt          string      `db:"prompt" json:"prompt"`
-	Model           string      `db:"model" json:"model"`
-	Cwd             string      `db:"cwd" json:"cwd"`
-	Status          string      `db:"status" json:"status"`
-	Port            int32       `db:"port" json:"port"`
-	Pid             int32       `db:"pid" json:"pid"`
-	CreatedAt       int64       `db:"created_at" json:"created_at"`
-	UpdatedAt       int64       `db:"updated_at" json:"updated_at"`
-	FinishedAt      *int64      `db:"finished_at" json:"finished_at"`
-	LastEventType   string      `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage    string      `db:"error_message" json:"error_message"`
-	WorkspaceRunKey string      `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID   string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ConfigOverride  []byte      `db:"config_override" json:"config_override"`
-	AgentID         interface{} `db:"agent_id" json:"agent_id"`
+	ThreadID         string      `db:"thread_id" json:"thread_id"`
+	Prompt           string      `db:"prompt" json:"prompt"`
+	Model            string      `db:"model" json:"model"`
+	Cwd              string      `db:"cwd" json:"cwd"`
+	Status           string      `db:"status" json:"status"`
+	Port             int32       `db:"port" json:"port"`
+	Pid              int32       `db:"pid" json:"pid"`
+	CreatedAt        int64       `db:"created_at" json:"created_at"`
+	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64      `db:"finished_at" json:"finished_at"`
+	LastEventType    string      `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string      `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string      `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string      `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   []byte      `db:"config_override" json:"config_override"`
+	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, error) {
@@ -306,6 +321,9 @@ func (q *Queries) ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, 
 			&i.ErrorMessage,
 			&i.WorkspaceRunKey,
 			&i.OwnerThreadID,
+			&i.ParentAgentID,
+			&i.AgentType,
+			&i.AgentMemoryScope,
 			&i.ConfigOverride,
 			&i.AgentID,
 		); err != nil {
@@ -320,7 +338,7 @@ func (q *Queries) ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, 
 }
 
 const listRecoverableAgentThreads = `-- name: ListRecoverableAgentThreads :many
-SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, config_override,
+SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -339,22 +357,25 @@ ORDER BY created_at ASC
 `
 
 type ListRecoverableAgentThreadsRow struct {
-	ThreadID        string      `db:"thread_id" json:"thread_id"`
-	Prompt          string      `db:"prompt" json:"prompt"`
-	Model           string      `db:"model" json:"model"`
-	Cwd             string      `db:"cwd" json:"cwd"`
-	Status          string      `db:"status" json:"status"`
-	Port            int32       `db:"port" json:"port"`
-	Pid             int32       `db:"pid" json:"pid"`
-	CreatedAt       int64       `db:"created_at" json:"created_at"`
-	UpdatedAt       int64       `db:"updated_at" json:"updated_at"`
-	FinishedAt      *int64      `db:"finished_at" json:"finished_at"`
-	LastEventType   string      `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage    string      `db:"error_message" json:"error_message"`
-	WorkspaceRunKey string      `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID   string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ConfigOverride  []byte      `db:"config_override" json:"config_override"`
-	AgentID         interface{} `db:"agent_id" json:"agent_id"`
+	ThreadID         string      `db:"thread_id" json:"thread_id"`
+	Prompt           string      `db:"prompt" json:"prompt"`
+	Model            string      `db:"model" json:"model"`
+	Cwd              string      `db:"cwd" json:"cwd"`
+	Status           string      `db:"status" json:"status"`
+	Port             int32       `db:"port" json:"port"`
+	Pid              int32       `db:"pid" json:"pid"`
+	CreatedAt        int64       `db:"created_at" json:"created_at"`
+	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64      `db:"finished_at" json:"finished_at"`
+	LastEventType    string      `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string      `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string      `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string      `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   []byte      `db:"config_override" json:"config_override"`
+	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) ListRecoverableAgentThreads(ctx context.Context) ([]ListRecoverableAgentThreadsRow, error) {
@@ -381,6 +402,9 @@ func (q *Queries) ListRecoverableAgentThreads(ctx context.Context) ([]ListRecove
 			&i.ErrorMessage,
 			&i.WorkspaceRunKey,
 			&i.OwnerThreadID,
+			&i.ParentAgentID,
+			&i.AgentType,
+			&i.AgentMemoryScope,
 			&i.ConfigOverride,
 			&i.AgentID,
 		); err != nil {
@@ -395,7 +419,7 @@ func (q *Queries) ListRecoverableAgentThreads(ctx context.Context) ([]ListRecove
 }
 
 const listRunningAgentThreads = `-- name: ListRunningAgentThreads :many
-SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, config_override,
+SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -414,22 +438,25 @@ ORDER BY created_at ASC
 `
 
 type ListRunningAgentThreadsRow struct {
-	ThreadID        string      `db:"thread_id" json:"thread_id"`
-	Prompt          string      `db:"prompt" json:"prompt"`
-	Model           string      `db:"model" json:"model"`
-	Cwd             string      `db:"cwd" json:"cwd"`
-	Status          string      `db:"status" json:"status"`
-	Port            int32       `db:"port" json:"port"`
-	Pid             int32       `db:"pid" json:"pid"`
-	CreatedAt       int64       `db:"created_at" json:"created_at"`
-	UpdatedAt       int64       `db:"updated_at" json:"updated_at"`
-	FinishedAt      *int64      `db:"finished_at" json:"finished_at"`
-	LastEventType   string      `db:"last_event_type" json:"last_event_type"`
-	ErrorMessage    string      `db:"error_message" json:"error_message"`
-	WorkspaceRunKey string      `db:"workspace_run_key" json:"workspace_run_key"`
-	OwnerThreadID   string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ConfigOverride  []byte      `db:"config_override" json:"config_override"`
-	AgentID         interface{} `db:"agent_id" json:"agent_id"`
+	ThreadID         string      `db:"thread_id" json:"thread_id"`
+	Prompt           string      `db:"prompt" json:"prompt"`
+	Model            string      `db:"model" json:"model"`
+	Cwd              string      `db:"cwd" json:"cwd"`
+	Status           string      `db:"status" json:"status"`
+	Port             int32       `db:"port" json:"port"`
+	Pid              int32       `db:"pid" json:"pid"`
+	CreatedAt        int64       `db:"created_at" json:"created_at"`
+	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64      `db:"finished_at" json:"finished_at"`
+	LastEventType    string      `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string      `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string      `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string      `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   []byte      `db:"config_override" json:"config_override"`
+	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) ListRunningAgentThreads(ctx context.Context) ([]ListRunningAgentThreadsRow, error) {
@@ -456,6 +483,9 @@ func (q *Queries) ListRunningAgentThreads(ctx context.Context) ([]ListRunningAge
 			&i.ErrorMessage,
 			&i.WorkspaceRunKey,
 			&i.OwnerThreadID,
+			&i.ParentAgentID,
+			&i.AgentType,
+			&i.AgentMemoryScope,
 			&i.ConfigOverride,
 			&i.AgentID,
 		); err != nil {
@@ -549,9 +579,12 @@ INSERT INTO agent_threads (
     created_at,
     updated_at,
     owner_thread_id,
+    parent_agent_id,
+    agent_type,
+    agent_memory_scope,
     config_override
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '{}'::jsonb))
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE($14, '{}'::jsonb))
 ON CONFLICT (thread_id) DO UPDATE
 SET prompt = $2,
     model = $3,
@@ -561,21 +594,27 @@ SET prompt = $2,
     pid = $7,
     updated_at = $9,
     owner_thread_id = $10,
-    config_override = COALESCE($11, '{}'::jsonb)
+    parent_agent_id = $11,
+    agent_type = $12,
+    agent_memory_scope = $13,
+    config_override = COALESCE($14, '{}'::jsonb)
 `
 
 type UpsertAgentThreadParams struct {
-	ThreadID       string      `db:"thread_id" json:"thread_id"`
-	Prompt         string      `db:"prompt" json:"prompt"`
-	Model          string      `db:"model" json:"model"`
-	Cwd            string      `db:"cwd" json:"cwd"`
-	Status         string      `db:"status" json:"status"`
-	Port           int32       `db:"port" json:"port"`
-	Pid            int32       `db:"pid" json:"pid"`
-	CreatedAt      int64       `db:"created_at" json:"created_at"`
-	UpdatedAt      int64       `db:"updated_at" json:"updated_at"`
-	OwnerThreadID  string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ConfigOverride interface{} `db:"config_override" json:"config_override"`
+	ThreadID         string      `db:"thread_id" json:"thread_id"`
+	Prompt           string      `db:"prompt" json:"prompt"`
+	Model            string      `db:"model" json:"model"`
+	Cwd              string      `db:"cwd" json:"cwd"`
+	Status           string      `db:"status" json:"status"`
+	Port             int32       `db:"port" json:"port"`
+	Pid              int32       `db:"pid" json:"pid"`
+	CreatedAt        int64       `db:"created_at" json:"created_at"`
+	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
+	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string      `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   interface{} `db:"config_override" json:"config_override"`
 }
 
 func (q *Queries) UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error {
@@ -590,6 +629,9 @@ func (q *Queries) UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadPa
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.OwnerThreadID,
+		arg.ParentAgentID,
+		arg.AgentType,
+		arg.AgentMemoryScope,
 		arg.ConfigOverride,
 	)
 	return err

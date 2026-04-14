@@ -74,12 +74,17 @@ func selectedSkillNames(skills []dto.SkillRef) []string {
 }
 
 func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assembly dto.TurnAssembly) []turnInputItem {
-	items := make([]turnInputItem, 0, len(inputs)+2)
+	items := make([]turnInputItem, 0, len(inputs)+len(assembly.Attachments)+2)
 	if skillPrompt, ok := buildSkillPromptInput(skills); ok {
 		items = append(items, skillPrompt)
 	}
 	if userContext := strings.TrimSpace(assembly.UserContextText); userContext != "" {
 		items = append(items, newTextTurnInput("text", userContext))
+	}
+	for _, attachment := range assembly.Attachments {
+		if text := strings.TrimSpace(attachment.RenderText()); text != "" {
+			items = append(items, newTextTurnInput("text", text))
+		}
 	}
 	for _, item := range inputs {
 		items = append(items, mapTurnInput(item))

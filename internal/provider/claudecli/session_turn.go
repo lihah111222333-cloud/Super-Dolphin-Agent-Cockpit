@@ -269,9 +269,19 @@ func marshalTurnPayload(text string) ([]byte, error) {
 
 func composeTurnText(req dto.TurnRequest) string {
 	return strings.TrimSpace(strings.Join(
-		nonEmptyStrings(req.TurnAssembly.UserContextText, buildTurnText(req)),
+		nonEmptyStrings(req.TurnAssembly.UserContextText, buildAttachmentText(req.TurnAssembly.Attachments), buildTurnText(req)),
 		"\n\n",
 	))
+}
+
+func buildAttachmentText(attachments []dto.AttachmentEnvelope) string {
+	blocks := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		if text := strings.TrimSpace(attachment.RenderText()); text != "" {
+			blocks = append(blocks, text)
+		}
+	}
+	return strings.TrimSpace(strings.Join(blocks, "\n\n"))
 }
 
 func buildTurnText(req dto.TurnRequest) string {

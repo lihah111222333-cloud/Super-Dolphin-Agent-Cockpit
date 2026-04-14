@@ -15,6 +15,8 @@ type launchParams struct {
 	Instructions string            `json:"instructions,omitempty"`
 	Command      []string          `json:"command,omitempty"`
 	ParentID     string            `json:"parent_id,omitempty"`
+	AgentType    string            `json:"agent_type,omitempty"`
+	MemoryScope  string            `json:"memory_scope,omitempty"`
 	Env          map[string]string `json:"env,omitempty"`
 }
 
@@ -22,6 +24,12 @@ type launchConfigParams struct {
 	ParentID       string `json:"parent_id,omitempty"`
 	ParentIDAlt    string `json:"parentId,omitempty"`
 	ParentIDLegacy string `json:"parentID,omitempty"`
+	AgentType      string `json:"agent_type,omitempty"`
+	AgentTypeAlt   string `json:"agentType,omitempty"`
+	MemoryScope    string `json:"memory_scope,omitempty"`
+	MemoryScopeAlt string `json:"memoryScope,omitempty"`
+	AgentScope     string `json:"agent_memory_scope,omitempty"`
+	AgentScopeAlt  string `json:"agentMemoryScope,omitempty"`
 }
 
 func (p *launchParams) UnmarshalJSON(data []byte) error {
@@ -31,6 +39,11 @@ func (p *launchParams) UnmarshalJSON(data []byte) error {
 		AgentIDSnake string             `json:"agent_id"`
 		ParentID     string             `json:"parentId"`
 		ParentIDAlt  string             `json:"parentID"`
+		AgentType    string             `json:"agentType"`
+		AgentTypeAlt string             `json:"agent_type"`
+		MemoryScope  string             `json:"memoryScope"`
+		MemoryAlt    string             `json:"memory_scope"`
+		AgentScope   string             `json:"agent_memory_scope"`
 		Config       launchConfigParams `json:"config"`
 	}) error {
 		*p = launchParams(*raw)
@@ -44,6 +57,25 @@ func (p *launchParams) UnmarshalJSON(data []byte) error {
 				legacy.Config.ParentID,
 				legacy.Config.ParentIDAlt,
 				legacy.Config.ParentIDLegacy,
+			)
+		}
+		if strings.TrimSpace(p.AgentType) == "" {
+			p.AgentType = shared.FirstTrimmed(
+				legacy.AgentTypeAlt,
+				legacy.AgentType,
+				legacy.Config.AgentType,
+				legacy.Config.AgentTypeAlt,
+			)
+		}
+		if strings.TrimSpace(p.MemoryScope) == "" {
+			p.MemoryScope = shared.FirstTrimmed(
+				legacy.MemoryAlt,
+				legacy.MemoryScope,
+				legacy.AgentScope,
+				legacy.Config.MemoryScope,
+				legacy.Config.MemoryScopeAlt,
+				legacy.Config.AgentScope,
+				legacy.Config.AgentScopeAlt,
 			)
 		}
 		return nil

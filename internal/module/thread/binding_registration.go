@@ -19,6 +19,9 @@ type bindingRegistration struct {
 	CWD              string
 	RolloutPath      string
 	SessionUUID      string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
 	CreatedAt        int64
 }
 
@@ -33,6 +36,9 @@ func normalizeThreadState(state threadState) (threadState, error) {
 	state.ProviderThreadID = strings.TrimSpace(state.ProviderThreadID)
 	state.OwnerThreadID = strings.TrimSpace(state.OwnerThreadID)
 	state.AgentID = strings.TrimSpace(state.AgentID)
+	state.ParentAgentID = strings.TrimSpace(state.ParentAgentID)
+	state.AgentType = strings.TrimSpace(state.AgentType)
+	state.AgentMemoryScope = strings.TrimSpace(state.AgentMemoryScope)
 	state.Provider = strings.TrimSpace(state.Provider)
 	state.CWD = strings.TrimSpace(state.CWD)
 	state.Model = strings.TrimSpace(state.Model)
@@ -63,6 +69,9 @@ func normalizeBindingRegistration(state threadState) (bindingRegistration, error
 		CWD:              state.CWD,
 		RolloutPath:      state.RolloutPath,
 		SessionUUID:      state.SessionUUID,
+		ParentAgentID:    state.ParentAgentID,
+		AgentType:        state.AgentType,
+		AgentMemoryScope: state.AgentMemoryScope,
 		CreatedAt:        state.CreatedAt,
 	}, nil
 }
@@ -183,6 +192,9 @@ func validateBindingRegistration(existing *bindingstore.Binding, registration bi
 		validateBindingProviderThread,
 		validateBindingPublicThread,
 		validateBindingCWD,
+		validateBindingParentAgentID,
+		validateBindingAgentType,
+		validateBindingMemoryScope,
 	} {
 		if err := validate(existing, registration); err != nil {
 			return err
@@ -195,18 +207,12 @@ func shouldPersistBinding(existing *bindingstore.Binding, registration bindingRe
 	if existing == nil {
 		return true
 	}
-	// provider_thread_id changed (e.g. Claude session UUID rotation on resume).
-	if strings.TrimSpace(existing.ProviderThreadID) != registration.ProviderThreadID &&
-		registration.ProviderThreadID != "" {
-		return true
-	}
-	if strings.TrimSpace(existing.CodexThreadID) == "" && registration.PublicThreadID != "" {
-		return true
-	}
-	if strings.TrimSpace(existing.Cwd) == "" && registration.CWD != "" {
-		return true
-	}
-	return false
+	return bindingNeedsProviderThreadUpdate(existing, registration) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexThreadID), registration.PublicThreadID) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.Cwd), registration.CWD) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.ParentAgentID), registration.ParentAgentID) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentType), registration.AgentType) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentMemoryScope), registration.AgentMemoryScope)
 }
 
 func (s *service) verifyThreadBinding(ctx context.Context, registration bindingRegistration) error {
@@ -220,17 +226,18 @@ func (s *service) verifyThreadBinding(ctx context.Context, registration bindingR
 	if binding == nil {
 		return fmt.Errorf("binding verification failed for agent %q", registration.AgentID)
 	}
-	if strings.TrimSpace(binding.Provider) != registration.Provider {
-		return fmt.Errorf("binding verification failed: provider mismatch for agent %q", registration.AgentID)
-	}
-	if strings.TrimSpace(binding.ProviderThreadID) != registration.ProviderThreadID {
-		return fmt.Errorf("binding verification failed: provider thread mismatch for agent %q", registration.AgentID)
-	}
-	if strings.TrimSpace(binding.CodexThreadID) != registration.PublicThreadID {
-		return fmt.Errorf("binding verification failed: public thread mismatch for agent %q", registration.AgentID)
-	}
-	if registration.CWD != "" && strings.TrimSpace(binding.Cwd) != registration.CWD {
-		return fmt.Errorf("binding verification failed: cwd mismatch for agent %q", registration.AgentID)
+	for _, check := range []bindingVerification{
+		{label: "provider", actual: strings.TrimSpace(binding.Provider), expected: registration.Provider},
+		{label: "provider thread", actual: strings.TrimSpace(binding.ProviderThreadID), expected: registration.ProviderThreadID},
+		{label: "public thread", actual: strings.TrimSpace(binding.CodexThreadID), expected: registration.PublicThreadID},
+		{label: "cwd", actual: strings.TrimSpace(binding.Cwd), expected: registration.CWD, optional: true},
+		{label: "parent agent", actual: strings.TrimSpace(binding.ParentAgentID), expected: registration.ParentAgentID, optional: true},
+		{label: "agent type", actual: strings.TrimSpace(binding.AgentType), expected: registration.AgentType, optional: true},
+		{label: "memory scope", actual: strings.TrimSpace(binding.AgentMemoryScope), expected: registration.AgentMemoryScope, optional: true},
+	} {
+		if check.mismatch() {
+			return fmt.Errorf("binding verification failed: %s mismatch for agent %q", check.label, registration.AgentID)
+		}
 	}
 	return nil
 }
@@ -261,6 +268,9 @@ func (s *service) persistRegisteredBinding(ctx context.Context, registration bin
 		RolloutPath:      registration.RolloutPath,
 		SessionUUID:      registration.SessionUUID,
 		Cwd:              registration.CWD,
+		ParentAgentID:    registration.ParentAgentID,
+		AgentType:        registration.AgentType,
+		AgentMemoryScope: registration.AgentMemoryScope,
 		CreatedAt:        registration.CreatedAt,
 		UpdatedAt:        time.Now().Unix(),
 	}))
@@ -316,6 +326,56 @@ func validateBindingCWD(existing *bindingstore.Binding, registration bindingRegi
 	return nil
 }
 
+type bindingVerification struct {
+	label    string
+	actual   string
+	expected string
+	optional bool
+}
+
+func (v bindingVerification) mismatch() bool {
+	if v.optional && v.expected == "" {
+		return false
+	}
+	return v.actual != v.expected
+}
+
+func bindingNeedsProviderThreadUpdate(existing *bindingstore.Binding, registration bindingRegistration) bool {
+	return strings.TrimSpace(existing.ProviderThreadID) != registration.ProviderThreadID &&
+		registration.ProviderThreadID != ""
+}
+
+func bindingNeedsInitialValue(existing, incoming string) bool {
+	return existing == "" && incoming != ""
+}
+
+func validateBindingParentAgentID(existing *bindingstore.Binding, registration bindingRegistration) error {
+	if parentID := strings.TrimSpace(existing.ParentAgentID); parentID != "" &&
+		registration.ParentAgentID != "" &&
+		parentID != registration.ParentAgentID {
+		return fmt.Errorf("agent %q parent_agent_id is immutable", registration.AgentID)
+	}
+	return nil
+}
+
+func validateBindingAgentType(existing *bindingstore.Binding, registration bindingRegistration) error {
+	if agentType := strings.TrimSpace(existing.AgentType); agentType != "" &&
+		registration.AgentType != "" &&
+		agentType != registration.AgentType {
+		return fmt.Errorf("agent %q agent_type is immutable", registration.AgentID)
+	}
+	return nil
+}
+
+func validateBindingMemoryScope(existing *bindingstore.Binding, registration bindingRegistration) error {
+	if scope := strings.TrimSpace(existing.AgentMemoryScope); scope != "" &&
+		registration.AgentMemoryScope != "" &&
+		scope != registration.AgentMemoryScope {
+		return fmt.Errorf("agent %q agent_memory_scope is immutable", registration.AgentID)
+	}
+	return nil
+}
+
 func (s *service) rollbackThreadBinding(ctx context.Context, outcome bindingWriteOutcome) error {
 	if s == nil || s.bindingStore == nil || !outcome.Persisted {
 		return nil
@@ -333,6 +393,9 @@ func (s *service) rollbackThreadBinding(ctx context.Context, outcome bindingWrit
 		CodexThreadID:    strings.TrimSpace(outcome.Previous.CodexThreadID),
 		RolloutPath:      strings.TrimSpace(outcome.Previous.RolloutPath),
 		Cwd:              strings.TrimSpace(outcome.Previous.Cwd),
+		ParentAgentID:    strings.TrimSpace(outcome.Previous.ParentAgentID),
+		AgentType:        strings.TrimSpace(outcome.Previous.AgentType),
+		AgentMemoryScope: strings.TrimSpace(outcome.Previous.AgentMemoryScope),
 		CreatedAt:        outcome.Previous.CreatedAt,
 		UpdatedAt:        time.Now().Unix(),
 	}))

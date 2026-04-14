@@ -1,0 +1,99 @@
+package turn
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+type ToolResultMeta struct {
+	ThreadID  string
+	TurnID    string
+	CallID    string
+	ToolName  string
+	Timestamp time.Time
+}
+
+type ToolResultRecord struct {
+	Preview       string
+	PersistedPath string
+	Truncated     bool
+	OriginalSize  int
+}
+
+func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
+	originalSize := toolResultCharCount(raw)
+	if originalSize == 0 {
+		return ToolResultRecord{}
+	}
+	previewSource := raw
+	if originalSize > toolResultPersistThresholdChars {
+		previewSource = truncateToolResultChars(raw, toolResultPersistThresholdChars)
+	}
+	preview, budgetTruncated := takeToolResultPreview(meta.ThreadID, meta.TurnID, previewSource)
+	record := ToolResultRecord{
+		Preview:      preview,
+		Truncated:    toolResultCharCount(preview) < originalSize,
+		OriginalSize: originalSize,
+	}
+	if originalSize > toolResultPersistThresholdChars || budgetTruncated {
+		record.PersistedPath = persistToolResult(meta, raw)
+	}
+	return record
+}
+
+func persistToolResult(meta ToolResultMeta, raw string) string {
+	dir, err := toolResultStorageDir()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Join(dir, toolResultFileName(meta))
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		return ""
+	}
+	return path
+}
+
+func toolResultStorageDir() (string, error) {
+	base, err := os.UserCacheDir()
+	if err != nil || strings.TrimSpace(base) == "" {
+		base = os.TempDir()
+	}
+	dir := filepath.Join(base, "super-agent-v3", "tool-results")
+	return dir, os.MkdirAll(dir, 0o755)
+}
+
+func toolResultFileName(meta ToolResultMeta) string {
+	ts := meta.Timestamp
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	parts := []string{ts.UTC().Format("20060102-150405.000000000")}
+	for _, raw := range []string{meta.TurnID, meta.CallID, meta.ToolName, meta.ThreadID} {
+		if segment := sanitizeToolResultSegment(raw); segment != "" {
+			parts = append(parts, segment)
+		}
+	}
+	return strings.Join(parts, "_") + ".txt"
+}
+
+func sanitizeToolResultSegment(raw string) string {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" {
+		return ""
+	}
+	var builder strings.Builder
+	builder.Grow(len(raw))
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('-')
+		}
+	}
+	return strings.Trim(builder.String(), "-")
+}

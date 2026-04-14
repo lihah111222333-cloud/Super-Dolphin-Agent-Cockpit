@@ -4,11 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"golang.org/x/sync/errgroup"
 )
@@ -49,8 +50,18 @@ func (s *service) AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly,
 		s.logBuildFallback("turn", err)
 		return TurnAssembly{}, nil
 	}
+	buildCtx := buildTurnCtx(in)
+	sources := s.resolveClaudeMdSources(ctx, buildCtx)
+	base := s.buildBaseUserContext(ctx, sources)
+	extras := CollectRuntimeUserContext(in, resolved)
+	merged := MergeRuntimeUserContext(base, extras)
+	var attachments []dto.AttachmentEnvelope
+	if provider, ok := s.claudeMdProvider.(contract.TurnAttachmentProvider); ok {
+		attachments = append([]dto.AttachmentEnvelope(nil), provider.ResolveTurnAttachments(ctx, buildCtx, in, sources)...)
+	}
 	return TurnAssembly{
-		UserContextText:  buildTurnUserContext(in, resolved),
+		UserContextText:  FormatUserContextMessage(merged),
+		Attachments:      attachments,
 		ResolvedSections: resolved,
 	}, nil
 }
@@ -60,6 +71,9 @@ func (s *service) Invalidate(ctx context.Context, reason InvalidateReason) error
 		return err
 	}
 	generation := s.cache.InvalidateAll(reason)
+	if s.userContextCache != nil {
+		s.userContextCache.InvalidateAll()
+	}
 	s.notifyInvalidationProviders(reason)
 	if s.logger != nil {
 		s.logger.Debug("prompt cache invalidated", "reason", reason, "generation", generation)
@@ -146,22 +160,6 @@ func (s *service) computeSection(ctx context.Context, generation uint64, section
 	return result.(computedSectionValue).Value, nil
 }
 
-func sectionInputCacheKey(section PromptSection, input SectionContext) (string, bool) {
-	switch section.CachePolicy {
-	case Uncached:
-		return "", false
-	case InputScoped:
-		encoded, err := json.Marshal(inputScopedSectionDependency(section, input))
-		if err != nil {
-			return section.Name, true
-		}
-		digest := sha256.Sum256(encoded)
-		return section.Name + ":" + hex.EncodeToString(digest[:]), true
-	default:
-		return section.Name, true
-	}
-}
-
 func (s *service) startSections() []PromptSection {
 	staticSections := s.staticSections()
 	dynamicSections := s.dynamicSections()
@@ -238,6 +236,9 @@ func (s *service) notifyInvalidationProviders(reason InvalidateReason) {
 			aware.OnPromptInvalidate(reason)
 		}
 	}
+	if aware, ok := s.claudeMdProvider.(InvalidationAwareProvider); ok {
+		aware.OnPromptInvalidate(reason)
+	}
 }
 
 func buildStartSectionContext(in StartInput) SectionContext {
@@ -258,9 +259,11 @@ func buildStartCtx(in StartInput) BuildCtx {
 		Model:                        strings.TrimSpace(in.Model),
 		EnabledTools:                 append([]string(nil), in.EnabledTools...),
 		AdditionalWorkingDirectories: append([]string(nil), in.AdditionalWorkingDirectories...),
+		ClaudeMdExcludes:             append([]string(nil), in.ClaudeMdExcludes...),
 		MCPSnapshot:                  copyMCPSnapshot(in.MCPSnapshot),
 		SessionFlags:                 copyFlags(in.SessionFlags),
 		OutputStyleConfig:            copyOutputStyleConfig(in.OutputStyleConfig),
+		ScratchpadDir:                strings.TrimSpace(in.ScratchpadDir),
 		KeepCodingInstructions:       copyOptionalBool(in.KeepCodingInstructions),
 	}
 }
@@ -275,9 +278,11 @@ func buildTurnCtx(in TurnInput) BuildCtx {
 		Model:                        strings.TrimSpace(in.Model),
 		EnabledTools:                 append([]string(nil), in.EnabledTools...),
 		AdditionalWorkingDirectories: append([]string(nil), in.AdditionalWorkingDirectories...),
+		ClaudeMdExcludes:             append([]string(nil), in.ClaudeMdExcludes...),
 		MCPSnapshot:                  copyMCPSnapshot(in.MCPSnapshot),
 		SessionFlags:                 copyFlags(in.SessionFlags),
 		OutputStyleConfig:            copyOutputStyleConfig(in.OutputStyleConfig),
+		ScratchpadDir:                strings.TrimSpace(in.ScratchpadDir),
 		KeepCodingInstructions:       copyOptionalBool(in.KeepCodingInstructions),
 	}
 }

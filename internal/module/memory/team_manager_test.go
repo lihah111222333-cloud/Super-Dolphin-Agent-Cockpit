@@ -1,0 +1,80 @@
+package memory
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+)
+
+func TestTeamManagerRuntimeGateDefaultsClosed(t *testing.T) {
+	manager := NewTeamMemoryManager(&Config{
+		Enabled:     true,
+		ProjectRoot: t.TempDir(),
+		Features:    MemoryFeatureFlags{TeamMemory: true},
+	})
+	if manager.IsTeamMemoryEnabled() {
+		t.Fatal("IsTeamMemoryEnabled() = true, want false")
+	}
+	if got := manager.GetTeamMemPath(); got != "" {
+		t.Fatalf("GetTeamMemPath() = %q, want empty", got)
+	}
+	if got := manager.GetTeamMemEntrypoint(); got != "" {
+		t.Fatalf("GetTeamMemEntrypoint() = %q, want empty", got)
+	}
+	if got, err := configuredTeamMemPath(manager); err != nil {
+		t.Fatalf("configuredTeamMemPath() error = %v", err)
+	} else if want := filepath.Join(manager.config().ProjectRoot, teamMemoryRootDirName); got != want {
+		t.Fatalf("configuredTeamMemPath() = %q, want %q", got, want)
+	}
+}
+
+func TestTeamManagerComputesPathWhenRuntimeReady(t *testing.T) {
+	withTeamMemoryRuntimeReady(t, true)
+	projectRoot := t.TempDir()
+	manager := NewTeamMemoryManager(&Config{
+		Enabled:     true,
+		ProjectRoot: projectRoot,
+		Features:    MemoryFeatureFlags{TeamMemory: true},
+	})
+	wantRoot := filepath.Join(projectRoot, teamMemoryRootDirName)
+	if !manager.IsTeamMemoryEnabled() {
+		t.Fatal("IsTeamMemoryEnabled() = false, want true")
+	}
+	if got := manager.GetTeamMemPath(); got != wantRoot {
+		t.Fatalf("GetTeamMemPath() = %q, want %q", got, wantRoot)
+	}
+	if got := manager.GetTeamMemEntrypoint(); got != memoryIndexPath(wantRoot) {
+		t.Fatalf("GetTeamMemEntrypoint() = %q, want %q", got, memoryIndexPath(wantRoot))
+	}
+}
+
+func TestTeamManagerKairosBlocksRuntimePathInjection(t *testing.T) {
+	withTeamMemoryRuntimeReady(t, true)
+	manager := NewTeamMemoryManager(&Config{
+		Enabled:     true,
+		ProjectRoot: t.TempDir(),
+		Features: MemoryFeatureFlags{
+			TeamMemory: true,
+		},
+	})
+	buildCtx := contract.BuildCtx{SessionFlags: map[string]bool{"memory_kairos": true}}
+	if manager.IsTeamMemoryEnabled(buildCtx) {
+		t.Fatal("IsTeamMemoryEnabled() = true, want false when Kairos is active")
+	}
+	if got := manager.GetTeamMemPath(buildCtx); got != "" {
+		t.Fatalf("GetTeamMemPath() = %q, want empty when Kairos is active", got)
+	}
+	if got := manager.GetTeamMemEntrypoint(buildCtx); got != "" {
+		t.Fatalf("GetTeamMemEntrypoint() = %q, want empty when Kairos is active", got)
+	}
+}
+
+func withTeamMemoryRuntimeReady(t *testing.T, ready bool) {
+	t.Helper()
+	prev := teamMemoryRuntimeReadyFunc
+	teamMemoryRuntimeReadyFunc = func() bool { return ready }
+	t.Cleanup(func() {
+		teamMemoryRuntimeReadyFunc = prev
+	})
+}

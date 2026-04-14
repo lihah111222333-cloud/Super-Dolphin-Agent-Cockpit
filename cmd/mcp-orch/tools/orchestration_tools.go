@@ -15,10 +15,13 @@ import (
 var osExecutable = os.Executable
 
 type LaunchAgentInput struct {
-	Name     string `json:"name"`
-	Prompt   string `json:"prompt,omitempty"`
-	CWD      string `json:"cwd,omitempty"`
-	Provider string `json:"provider,omitempty"`
+	Name        string `json:"name"`
+	Prompt      string `json:"prompt,omitempty"`
+	ParentID    string `json:"parent_id,omitempty"`
+	AgentType   string `json:"agent_type,omitempty"`
+	MemoryScope string `json:"memory_scope,omitempty"`
+	CWD         string `json:"cwd,omitempty"`
+	Provider    string `json:"provider,omitempty"`
 }
 
 type SendMessageInput struct {
@@ -97,10 +100,13 @@ func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
 func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("orchestration_launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{
-			"name":     StringSchema("Agent name. Used as the orchestration agent ID; no separate agent_id field is required."),
-			"prompt":   StringSchema("Optional initial prompt to persist on the launch request."),
-			"cwd":      StringSchema("Optional working directory for the launched agent."),
-			"provider": EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", "codex", "claude"),
+			"name":         StringSchema("Agent name. Used as the orchestration agent ID and default UI display name."),
+			"prompt":       StringSchema("Optional initial prompt to persist on the launch request."),
+			"parent_id":    StringSchema("Optional parent agent ID for child-agent launches."),
+			"agent_type":   StringSchema("Optional stable agent identity. Required for agent memory routing; display name is not used as a fallback."),
+			"memory_scope": EnumStringSchema("Optional agent memory scope for child-agent launches.", "project", "user", "local"),
+			"cwd":          StringSchema("Optional working directory for the launched agent."),
+			"provider":     EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", "codex", "claude"),
 		}, "name"), HandleLaunchAgent(svc)),
 		defineTool("orchestration_send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
@@ -139,13 +145,20 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
+	memoryScope, err := validateMemoryScope(in.MemoryScope)
+	if err != nil {
+		return contract.LaunchRequest{}, err
+	}
 	return contract.LaunchRequest{
-		AgentID: name,
-		Name:    name,
-		Prompt:  strings.TrimSpace(in.Prompt),
-		Cwd:     strings.TrimSpace(in.CWD),
-		Command: []string{strings.TrimSpace(exe)},
-		Env:     launchEnv(provider),
+		AgentID:     name,
+		Name:        name,
+		Prompt:      strings.TrimSpace(in.Prompt),
+		ParentID:    strings.TrimSpace(in.ParentID),
+		AgentType:   strings.TrimSpace(in.AgentType),
+		MemoryScope: memoryScope,
+		Cwd:         strings.TrimSpace(in.CWD),
+		Command:     []string{strings.TrimSpace(exe)},
+		Env:         launchEnv(provider),
 	}, nil
 }
 
@@ -159,6 +172,16 @@ func validateLaunchProvider(raw string) (string, error) {
 		return p, nil
 	default:
 		return "", fmt.Errorf("invalid provider %q: must be codex or claude", raw)
+	}
+}
+
+func validateMemoryScope(raw string) (string, error) {
+	scope := strings.ToLower(strings.TrimSpace(raw))
+	switch scope {
+	case "", "project", "user", "local":
+		return scope, nil
+	default:
+		return "", fmt.Errorf("invalid memory_scope %q: must be project, user, or local", raw)
 	}
 }
 

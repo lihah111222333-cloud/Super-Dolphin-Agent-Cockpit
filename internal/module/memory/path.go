@@ -47,6 +47,10 @@ func GetAutoMemPath(baseRoot, projectRoot string) (string, error) {
 	return filepath.Join(root, memoryProjectsDir, SanitizePath(canonicalRoot), memoryProjectDirName), nil
 }
 
+func GetAutoMemDailyLogPath(baseRoot, projectRoot string, now time.Time) (string, error) {
+	return getAutoMemDailyLogPath(baseRoot, projectRoot, now)
+}
+
 func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()

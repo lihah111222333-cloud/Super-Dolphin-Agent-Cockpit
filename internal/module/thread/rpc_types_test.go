@@ -17,6 +17,7 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 		"approvalPolicy":"never",
 		"parentAgentId":"agent-root",
 		"agentType":"worker",
+		"agentMemoryScope":"local",
 		"baseInstructions":"system prompt",
 		"developerInstructions":"dev prompt",
 		"sandbox":{"type":"danger-full-access"},
@@ -33,7 +34,7 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 	if params.ModelProvider != "openai" || params.ApprovalPolicy != "never" {
 		t.Fatalf("startParams provider fields = %#v", params)
 	}
-	if params.ParentAgentID != "agent-root" || params.AgentType != "worker" {
+	if params.ParentAgentID != "agent-root" || params.AgentType != "worker" || params.AgentMemoryScope != "local" {
 		t.Fatalf("startParams agent fields = %#v", params)
 	}
 	if params.BaseInstructions != "system prompt" || params.DeveloperInstructions != "dev prompt" {
@@ -56,6 +57,7 @@ func TestStartParamsKeepLegacyAliases(t *testing.T) {
 		"approval_policy":"on-request",
 		"parentId":"agent-root",
 		"agent_type":"worker",
+		"memory_scope":"project",
 		"base_instructions":"legacy base",
 		"developer_instructions":"legacy dev",
 		"prompt":"legacy prompt"
@@ -69,7 +71,7 @@ func TestStartParamsKeepLegacyAliases(t *testing.T) {
 	if params.BaseInstructions != "legacy base" || params.DeveloperInstructions != "legacy dev" {
 		t.Fatalf("legacy instructions = %#v", params)
 	}
-	if params.ParentAgentID != "agent-root" || params.AgentType != "worker" {
+	if params.ParentAgentID != "agent-root" || params.AgentType != "worker" || params.AgentMemoryScope != "project" {
 		t.Fatalf("legacy agent fields = %#v", params)
 	}
 	if params.Name != "legacy prompt" || params.Prompt != "legacy prompt" {
@@ -110,6 +112,7 @@ func TestStartParamsMarshalUsesSnakeCase(t *testing.T) {
 		ApprovalPolicy:        "never",
 		ParentAgentID:         "agent-root",
 		AgentType:             "worker",
+		AgentMemoryScope:      "user",
 		BaseInstructions:      "base",
 		DeveloperInstructions: "dev",
 	})
@@ -122,6 +125,7 @@ func TestStartParamsMarshalUsesSnakeCase(t *testing.T) {
 		`"approval_policy":"never"`,
 		`"parent_agent_id":"agent-root"`,
 		`"agent_type":"worker"`,
+		`"agent_memory_scope":"user"`,
 		`"base_instructions":"base"`,
 		`"developer_instructions":"dev"`,
 	} {

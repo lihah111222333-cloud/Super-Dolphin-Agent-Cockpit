@@ -11,10 +11,10 @@ import (
 type querier interface {
 	BindAgentThread(ctx context.Context, arg sqlc.BindAgentThreadParams) error
 	DeleteAgentProviderBindingByAgentID(ctx context.Context, agentID string) error
-	GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (sqlc.AgentProviderBinding, error)
-	GetAgentProviderBindingByProviderThread(ctx context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error)
+	GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (sqlc.GetAgentProviderBindingByAgentIDRow, error)
+	GetAgentProviderBindingByProviderThread(ctx context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error)
 	GetThreadByAgent(ctx context.Context, agentID string) (string, error)
-	ListAgentThreadBindings(ctx context.Context) ([]sqlc.AgentProviderBinding, error)
+	ListAgentThreadBindings(ctx context.Context) ([]sqlc.ListAgentThreadBindingsRow, error)
 	UnbindAgentThread(ctx context.Context, agentID string) error
 	UpdateAgentCwd(ctx context.Context, arg sqlc.UpdateAgentCwdParams) error
 	UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error
@@ -38,7 +38,21 @@ func (s *store) GetByProviderThread(ctx context.Context, provider, providerThrea
 	if err != nil {
 		return nil, wrapBindingError(err, "get_by_provider_thread")
 	}
-	result := mapBinding(row)
+	result := mapBinding(bindingRow{
+		AgentID:          row.AgentID,
+		Provider:         row.Provider,
+		ProviderThreadID: row.ProviderThreadID,
+		CodexThreadID:    row.CodexThreadID,
+		RolloutPath:      row.RolloutPath,
+		Cwd:              row.Cwd,
+		ParentAgentID:    row.ParentAgentID,
+		AgentType:        row.AgentType,
+		AgentMemoryScope: row.AgentMemoryScope,
+		Archived:         row.Archived,
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
+		SessionUUID:      row.SessionUUID,
+	})
 	return &result, nil
 }
 
@@ -50,6 +64,9 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		CodexThreadID:    params.CodexThreadID,
 		RolloutPath:      params.RolloutPath,
 		Cwd:              params.Cwd,
+		ParentAgentID:    params.ParentAgentID,
+		AgentType:        params.AgentType,
+		AgentMemoryScope: params.AgentMemoryScope,
 		CreatedAt:        params.CreatedAt,
 		UpdatedAt:        params.UpdatedAt,
 		SessionUUID:      params.SessionUUID,
@@ -98,7 +115,21 @@ func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, err
 	if err != nil {
 		return nil, wrapBindingError(err, "get_by_agent_id")
 	}
-	result := mapBinding(row)
+	result := mapBinding(bindingRow{
+		AgentID:          row.AgentID,
+		Provider:         row.Provider,
+		ProviderThreadID: row.ProviderThreadID,
+		CodexThreadID:    row.CodexThreadID,
+		RolloutPath:      row.RolloutPath,
+		Cwd:              row.Cwd,
+		ParentAgentID:    row.ParentAgentID,
+		AgentType:        row.AgentType,
+		AgentMemoryScope: row.AgentMemoryScope,
+		Archived:         row.Archived,
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
+		SessionUUID:      row.SessionUUID,
+	})
 	return &result, nil
 }
 
@@ -130,7 +161,21 @@ func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) 
 	}
 	result := make([]Binding, len(rows))
 	for i, row := range rows {
-		result[i] = mapBinding(row)
+		result[i] = mapBinding(bindingRow{
+			AgentID:          row.AgentID,
+			Provider:         row.Provider,
+			ProviderThreadID: row.ProviderThreadID,
+			CodexThreadID:    row.CodexThreadID,
+			RolloutPath:      row.RolloutPath,
+			Cwd:              row.Cwd,
+			ParentAgentID:    row.ParentAgentID,
+			AgentType:        row.AgentType,
+			AgentMemoryScope: row.AgentMemoryScope,
+			Archived:         row.Archived,
+			CreatedAt:        row.CreatedAt,
+			UpdatedAt:        row.UpdatedAt,
+			SessionUUID:      row.SessionUUID,
+		})
 	}
 	return result, nil
 }
@@ -155,7 +200,7 @@ func (s *store) UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams)
 	}), "update_agent_cwd")
 }
 
-func mapBinding(row sqlc.AgentProviderBinding) Binding {
+func mapBinding(row bindingRow) Binding {
 	return Binding{
 		AgentID:          row.AgentID,
 		Provider:         row.Provider,
@@ -163,11 +208,30 @@ func mapBinding(row sqlc.AgentProviderBinding) Binding {
 		CodexThreadID:    row.CodexThreadID,
 		RolloutPath:      row.RolloutPath,
 		Cwd:              row.Cwd,
+		ParentAgentID:    row.ParentAgentID,
+		AgentType:        row.AgentType,
+		AgentMemoryScope: row.AgentMemoryScope,
 		Archived:         row.Archived,
 		CreatedAt:        row.CreatedAt,
 		UpdatedAt:        row.UpdatedAt,
 		SessionUUID:      row.SessionUUID,
 	}
+}
+
+type bindingRow struct {
+	AgentID          string
+	Provider         string
+	ProviderThreadID string
+	CodexThreadID    string
+	RolloutPath      string
+	Cwd              string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
+	Archived         bool
+	CreatedAt        int64
+	UpdatedAt        int64
+	SessionUUID      string
 }
 
 func wrapBindingError(err error, operation string) error {

@@ -33,13 +33,15 @@ func TestOrchestrationGoldenTurnAgentSamples(t *testing.T) {
 	server.Register(NewOrchestrationHandlers(svc).Handlers)
 
 	launchRequest := map[string]any{
-		"id":       "agent-launch-1",
-		"name":     "guard-launch-agent",
-		"prompt":   "launch golden agent",
-		"cwd":      "/tmp/agent-launch",
-		"command":  []string{"codex", "serve"},
-		"env":      map[string]string{"PROVIDER": "codex", "SANDBOX": "workspace-write"},
-		"parentId": "parent-launch-1",
+		"id":          "agent-launch-1",
+		"name":        "guard-launch-agent",
+		"prompt":      "launch golden agent",
+		"cwd":         "/tmp/agent-launch",
+		"command":     []string{"codex", "serve"},
+		"env":         map[string]string{"PROVIDER": "codex", "SANDBOX": "workspace-write"},
+		"parentId":    "parent-launch-1",
+		"agentType":   "worker",
+		"memoryScope": "project",
 	}
 	launchResponse := dispatchJSON(t, server, "agent.launch", launchRequest)
 	assertLaunchRequest(t, launchReq)
@@ -114,6 +116,9 @@ func assertLaunchRequest(t *testing.T, req contract.LaunchRequest) {
 
 	if req.AgentID != "agent-launch-1" || req.ParentID != "parent-launch-1" {
 		t.Fatalf("launch request ids = %#v", req)
+	}
+	if req.AgentType != "worker" || req.MemoryScope != "project" {
+		t.Fatalf("launch request metadata = %#v", req)
 	}
 	if req.Name != "guard-launch-agent" || req.Cwd != "/tmp/agent-launch" {
 		t.Fatalf("launch request routing = %#v", req)

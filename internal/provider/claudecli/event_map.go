@@ -9,6 +9,7 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -118,8 +119,10 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			Reason:     dataString(raw.Data, "reason"),
 		}, true
 	case "turn:complete":
+		header := turnHeader(raw.Data)
+		turnpkg.ResetToolResultScope(header.ThreadID, header.TurnID)
 		return turndto.TurnCompleted{
-			TurnHeader: turnHeader(raw.Data),
+			TurnHeader: header,
 			Success:    dataBool(raw.Data, "success"),
 			Error:      dataString(raw.Data, "error"),
 			Status:     dataString(raw.Data, "status"),
@@ -142,11 +145,22 @@ func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 			ArgumentsPreview: dataString(raw.Data, "arguments_preview"),
 		}, true
 	case "tool:use_end":
+		header := toolHeader(raw.Data)
+		result := turnpkg.CaptureToolResult(turnpkg.ToolResultMeta{
+			ThreadID:  header.ThreadID,
+			TurnID:    header.TurnID,
+			CallID:    header.CallID,
+			ToolName:  header.ToolName,
+			Timestamp: eventTime(raw.Data),
+		}, dataString(raw.Data, "result"))
 		return tooldto.ToolCallEnd{
-			ToolCallHeader: toolHeader(raw.Data),
+			ToolCallHeader: header,
 			Success:        dataBool(raw.Data, "success"),
 			Error:          dataString(raw.Data, "error"),
-			Result:         dataString(raw.Data, "result"),
+			Result:         result.Preview,
+			PersistedPath:  result.PersistedPath,
+			Truncated:      result.Truncated,
+			OriginalSize:   result.OriginalSize,
 		}, true
 	default:
 		return nil, false

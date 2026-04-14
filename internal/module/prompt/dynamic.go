@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -287,11 +285,42 @@ func inputScopedSectionDependency(section PromptSection, input SectionContext) a
 	}
 }
 
+func cacheByNameSectionDependency(section PromptSection, input SectionContext) any {
+	switch section.Name {
+	case DynamicSectionOutputStyle:
+		style := input.BuildCtx.OutputStyleConfig
+		if style == nil {
+			return nil
+		}
+		return struct {
+			Section     string `json:"section"`
+			Name        string `json:"name,omitempty"`
+			Description string `json:"description,omitempty"`
+			Prompt      string `json:"prompt,omitempty"`
+			Source      string `json:"source,omitempty"`
+		}{Section: section.Name, Name: strings.TrimSpace(style.Name), Description: strings.TrimSpace(style.Description), Prompt: strings.TrimSpace(style.Prompt), Source: strings.TrimSpace(style.Source)}
+	case DynamicSectionScratchpad:
+		dir := strings.TrimSpace(input.BuildCtx.ScratchpadDir)
+		if dir == "" {
+			return nil
+		}
+		return struct {
+			Section       string `json:"section"`
+			ScratchpadDir string `json:"scratchpadDir,omitempty"`
+		}{Section: section.Name, ScratchpadDir: dir}
+	default:
+		return nil
+	}
+}
+
 func childAgentCacheDependency(input SectionContext) (bool, string) {
 	if input.Start == nil || input.Turn != nil || strings.TrimSpace(input.Start.ParentAgentID) == "" {
 		return false, ""
 	}
-	agentType := strings.TrimSpace(shared.FirstNonEmpty(input.Start.AgentType, input.Start.Name))
+	agentType := strings.TrimSpace(input.Start.AgentType)
+	if agentType == "" {
+		agentType = strings.TrimSpace(input.Start.Name)
+	}
 	if agentType == "" {
 		return false, ""
 	}

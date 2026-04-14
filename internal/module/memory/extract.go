@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 const defaultExtractMaxItems = 8
@@ -20,7 +22,8 @@ var (
 type ExtractFunc func(ctx context.Context, prompt string) (string, error)
 
 type ExtractParams struct {
-	Transcript string
+	Transcript []providerdto.Message
+	Manifest   []MemoryEntry
 	MaxItems   int
 }
 
@@ -55,40 +58,11 @@ func NewMemoryExtractor() *MemoryExtractor {
 	return &MemoryExtractor{MaxItems: defaultExtractMaxItems}
 }
 
-func (e *MemoryExtractor) Extract(ctx context.Context, fn ExtractFunc, params ExtractParams) ([]ExtractedMemory, error) {
-	if err := contextErr(ctx); err != nil {
-		return nil, err
-	}
-	if fn == nil {
-		return nil, fmt.Errorf("extract func is nil")
-	}
-	if strings.TrimSpace(params.Transcript) == "" {
-		return nil, nil
-	}
-	raw, err := fn(ctx, buildExtractPrompt(params, e.limit()))
-	if err != nil {
-		return nil, err
-	}
-	return parseExtractedMemories(raw, extractLimit(params.MaxItems, e.limit()))
-}
-
 func (e *MemoryExtractor) limit() int {
 	if e == nil || e.MaxItems <= 0 {
 		return defaultExtractMaxItems
 	}
 	return e.MaxItems
-}
-
-func buildExtractPrompt(params ExtractParams, fallbackLimit int) string {
-	limit := extractLimit(params.MaxItems, fallbackLimit)
-	parts := []string{
-		"Distill only durable memory worth carrying into future sessions.",
-		"Return JSON in the form {\"memories\": [{\"content\":\"...\",\"type\":\"user|feedback|project|reference\",\"tags\":[\"...\"]}] }.",
-		fmt.Sprintf("Limit the response to %d memory items.", limit),
-		"Conversation transcript:",
-		strings.TrimSpace(params.Transcript),
-	}
-	return strings.Join(parts, "\n\n")
 }
 
 func parseExtractedMemories(raw string, limit int) ([]ExtractedMemory, error) {

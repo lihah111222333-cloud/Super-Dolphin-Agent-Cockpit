@@ -6,7 +6,7 @@ import (
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 )
 
-func TestPublishUITokensUpdatedSupportsCodexTokenUsageTotal(t *testing.T) {
+func TestPublishUITokensUpdatedPrefersCodexTokenUsageLastForIO(t *testing.T) {
 	t.Parallel()
 
 	got := mustPublishTokensUpdated(t, map[string]any{
@@ -31,7 +31,7 @@ func TestPublishUITokensUpdatedSupportsCodexTokenUsageTotal(t *testing.T) {
 	if got.ThreadID != "thread-codex" || got.TurnID != "turn-codex" {
 		t.Fatalf("token event identity = %#v", got)
 	}
-	if got.InputTokens != 70 || got.OutputTokens != 50 {
+	if got.InputTokens != 7 || got.OutputTokens != 5 {
 		t.Fatalf("token event io = %#v", got)
 	}
 	if got.TotalTokens != 120 || got.ContextWindowTokens != 100 {

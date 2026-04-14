@@ -14,11 +14,10 @@ import (
 )
 
 const (
-	agentMemoryDirName           = "agents"
-	agentMemoryLocalDirName      = "local"
-	defaultChildAgentMemoryScope = MemoryScopeProject
-	emptyAgentMemoryPrompt       = "Your MEMORY.md is currently empty. Save only durable, agent-specific context here."
-	unreadableAgentMemoryMsg     = "WARNING: MEMORY.md could not be read; continuing with empty agent memory."
+	agentMemoryDirName       = "agents"
+	agentMemoryLocalDirName  = "local"
+	emptyAgentMemoryPrompt   = "Your MEMORY.md is currently empty. Save only durable, agent-specific context here."
+	unreadableAgentMemoryMsg = "WARNING: MEMORY.md could not be read; continuing with empty agent memory."
 )
 
 var (
@@ -42,6 +41,25 @@ type AgentMemoryPromptProvider struct {
 type childAgentStart struct {
 	agentType string
 	scope     MemoryScope
+}
+
+type agentMemoryLoadResult struct {
+	prompt           string
+	contentLength    int
+	lineCount        int
+	wasTruncated     bool
+	wasByteTruncated bool
+	unreadable       bool
+}
+
+type agentEntrypointLoadResult struct {
+	content          string
+	warning          string
+	contentLength    int
+	lineCount        int
+	wasTruncated     bool
+	wasByteTruncated bool
+	unreadable       bool
 }
 
 func NewAgentMemoryManager(cfg *Config) *AgentMemoryManager {
@@ -77,15 +95,93 @@ func (m *AgentMemoryManager) EnsureAgentMemoryDir(agentType string, scope Memory
 }
 
 func (m *AgentMemoryManager) LoadAgentMemoryPrompt(agentType string, scope MemoryScope) (string, error) {
+	result, err := m.loadAgentMemoryPrompt(agentType, scope)
+	if err != nil {
+		return "", err
+	}
+	return result.prompt, nil
+}
+
+func loadAgentMemoryEntrypoint(path string) agentEntrypointLoadResult {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return agentEntrypointLoadResult{
+			content:    emptyAgentMemoryPrompt,
+			warning:    "> " + unreadableAgentMemoryMsg,
+			unreadable: true,
+		}
+	}
+	trimmed := strings.TrimSpace(stripUTF8BOM(string(raw)))
+	if trimmed == "" {
+		return agentEntrypointLoadResult{content: emptyAgentMemoryPrompt}
+	}
+	truncated := truncateAgentMemoryContent(trimmed)
+	return agentEntrypointLoadResult{
+		content:          truncated.content,
+		contentLength:    len(trimmed),
+		lineCount:        truncated.lineCount,
+		wasTruncated:     truncated.wasLineTruncated || truncated.wasByteTruncated,
+		wasByteTruncated: truncated.wasByteTruncated,
+	}
+}
+
+func (r agentEntrypointLoadResult) contentBlock() string {
+	return strings.TrimSpace(r.content)
+}
+
+func (r agentEntrypointLoadResult) warningBlock() string {
+	return strings.TrimSpace(r.warning)
+}
+
+func (m *AgentMemoryManager) GetAgentMemoryEntrypoint(agentType string, scope MemoryScope) (string, error) {
 	dir, err := m.GetAgentMemoryDir(agentType, scope)
 	if err != nil {
 		return "", err
 	}
-	_ = ensureAgentMemoryDir(dir)
-	content, warning := loadAgentMemoryEntrypoint(memoryIndexPath(dir))
-	rules := strings.TrimSpace(BuildMemoryLines(false, agentMemoryGuidelines(scope)))
-	parts := nonEmpty([]string{rules, warning, "## MEMORY.md", content})
-	return strings.Join(parts, "\n\n"), nil
+	return memoryIndexPath(dir), nil
+}
+
+func (m *AgentMemoryManager) IsAgentMemoryPath(path string) bool {
+	candidate, err := cleanAbsolutePath(path)
+	if err != nil {
+		return false
+	}
+	for _, scope := range []MemoryScope{MemoryScopeUser, MemoryScopeProject, MemoryScopeLocal} {
+		parent, err := m.scopeParentDir(scope)
+		if err != nil {
+			continue
+		}
+		root, err := cleanAbsolutePath(parent)
+		if err == nil && platformshared.ContainsPath(root, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *AgentMemoryManager) loadAgentMemoryPrompt(agentType string, scope MemoryScope) (agentMemoryLoadResult, error) {
+	entrypoint, err := m.GetAgentMemoryEntrypoint(agentType, scope)
+	if err != nil {
+		return agentMemoryLoadResult{}, err
+	}
+	if err := ensureAgentMemoryDir(filepath.Dir(entrypoint)); err != nil {
+		return agentMemoryLoadResult{}, err
+	}
+	entrypointResult := loadAgentMemoryEntrypoint(entrypoint)
+	rules := strings.TrimSpace(BuildMemoryLines(false, append(
+		agentMemoryGuidelines(scope),
+		cloneStrings(m.config().ExtraGuidelines)...,
+	)))
+	parts := nonEmpty([]string{rules, "## MEMORY.md", entrypointResult.warningBlock(), entrypointResult.contentBlock()})
+	promptText := strings.TrimSpace(strings.Join(parts, "\n\n"))
+	return agentMemoryLoadResult{
+		prompt:           promptText,
+		contentLength:    entrypointResult.contentLength,
+		lineCount:        entrypointResult.lineCount,
+		wasTruncated:     entrypointResult.wasTruncated,
+		wasByteTruncated: entrypointResult.wasByteTruncated,
+		unreadable:       entrypointResult.unreadable,
+	}, nil
 }
 
 func (p *AgentMemoryPromptProvider) SectionName() string {
@@ -103,21 +199,50 @@ func (p *AgentMemoryPromptProvider) Resolve(_ context.Context, input prompt.Sect
 	if !ok {
 		return nil, nil
 	}
-	text, err := p.manager.LoadAgentMemoryPrompt(meta.agentType, meta.scope)
+	result, err := p.manager.loadAgentMemoryPrompt(meta.agentType, meta.scope)
 	if err != nil {
 		if p.logger != nil {
 			p.logger.Warn("agent memory prompt load failed",
+				"memory_type", "agent",
 				"agent_type", meta.agentType,
 				"scope", string(meta.scope),
+				"scope_display", GetMemoryScopeDisplay(meta.scope),
+				"status", agentMemoryFailureStatus(meta.scope, err),
 				"error", err,
 			)
 		}
 		return nil, nil
 	}
+	text := result.prompt
 	if text = strings.TrimSpace(text); text == "" {
 		return nil, nil
 	}
+	if p.logger != nil {
+		p.logger.Info("agent memory prompt loaded",
+			"memory_type", "agent",
+			"agent_type", meta.agentType,
+			"scope", string(meta.scope),
+			"scope_display", GetMemoryScopeDisplay(meta.scope),
+			"content_length", result.contentLength,
+			"line_count", result.lineCount,
+			"was_truncated", result.wasTruncated,
+			"was_byte_truncated", result.wasByteTruncated,
+			"status", agentMemorySuccessStatus(result),
+		)
+	}
 	return &text, nil
+}
+
+func resolveChildAgentStart(input prompt.SectionContext) (childAgentStart, bool) {
+	if input.Start == nil || input.Turn != nil || strings.TrimSpace(input.Start.ParentAgentID) == "" {
+		return childAgentStart{}, false
+	}
+	scope, ok := parseAgentMemoryScope(input.Start.AgentMemoryScope)
+	agentType := strings.TrimSpace(input.Start.AgentType)
+	if !ok || agentType == "" {
+		return childAgentStart{}, false
+	}
+	return childAgentStart{agentType: agentType, scope: scope}, true
 }
 
 func ensureAgentMemoryDir(dir string) error {
@@ -182,7 +307,14 @@ func (m *AgentMemoryManager) projectRootDir() (string, error) {
 	if projectRoot == "" {
 		return "", ErrInvalidProjectDir
 	}
-	cleaned, err := cleanAbsolutePath(projectRoot)
+	canonical, err := FindCanonicalGitRoot(context.Background(), projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidProjectDir, err)
+	}
+	if canonical == "" {
+		return "", ErrInvalidProjectDir
+	}
+	cleaned, err := cleanAbsolutePath(canonical)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidProjectDir, err)
 	}
@@ -194,6 +326,19 @@ func (m *AgentMemoryManager) config() Config {
 		return Config{}
 	}
 	return *m.cfg
+}
+
+func parseAgentMemoryScope(raw string) (MemoryScope, bool) {
+	switch MemoryScope(strings.ToLower(strings.TrimSpace(raw))) {
+	case MemoryScopeUser:
+		return MemoryScopeUser, true
+	case MemoryScopeLocal:
+		return MemoryScopeLocal, true
+	case MemoryScopeProject:
+		return MemoryScopeProject, true
+	default:
+		return "", false
+	}
 }
 
 func resolveAgentDirName(parent, agentType string) (string, error) {
@@ -236,35 +381,4 @@ func agentMemoryGuidelines(scope MemoryScope) []string {
 	default:
 		return guidelines
 	}
-}
-
-func loadAgentMemoryEntrypoint(path string) (string, string) {
-	parsed, err := ParseMemoryFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return emptyAgentMemoryPrompt, ""
-		}
-		return emptyAgentMemoryPrompt, unreadableAgentMemoryMsg
-	}
-	if strings.TrimSpace(parsed.Content) == "" {
-		return emptyAgentMemoryPrompt, ""
-	}
-	return parsed.Content, ""
-}
-
-func resolveChildAgentStart(input prompt.SectionContext) (childAgentStart, bool) {
-	if input.Start == nil || input.Turn != nil {
-		return childAgentStart{}, false
-	}
-	if strings.TrimSpace(input.Start.ParentAgentID) == "" {
-		return childAgentStart{}, false
-	}
-	agentType := strings.TrimSpace(platformshared.FirstNonEmpty(input.Start.AgentType, input.Start.Name))
-	if agentType == "" {
-		return childAgentStart{}, false
-	}
-	return childAgentStart{
-		agentType: agentType,
-		scope:     defaultChildAgentMemoryScope,
-	}, true
 }

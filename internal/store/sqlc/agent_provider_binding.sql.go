@@ -20,14 +20,30 @@ func (q *Queries) DeleteAgentProviderBindingByAgentID(ctx context.Context, agent
 }
 
 const getAgentProviderBindingByAgentID = `-- name: GetAgentProviderBindingByAgentID :one
-SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, archived, created_at, updated_at, session_uuid
+SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
 FROM agent_provider_binding
 WHERE agent_id = $1
 `
 
-func (q *Queries) GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (AgentProviderBinding, error) {
+type GetAgentProviderBindingByAgentIDRow struct {
+	AgentID          string `db:"agent_id" json:"agent_id"`
+	Provider         string `db:"provider" json:"provider"`
+	ProviderThreadID string `db:"provider_thread_id" json:"provider_thread_id"`
+	CodexThreadID    string `db:"codex_thread_id" json:"codex_thread_id"`
+	RolloutPath      string `db:"rollout_path" json:"rollout_path"`
+	Cwd              string `db:"cwd" json:"cwd"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	Archived         bool   `db:"archived" json:"archived"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	SessionUUID      string `db:"session_uuid" json:"session_uuid"`
+}
+
+func (q *Queries) GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (GetAgentProviderBindingByAgentIDRow, error) {
 	row := q.db.QueryRow(ctx, getAgentProviderBindingByAgentID, agentID)
-	var i AgentProviderBinding
+	var i GetAgentProviderBindingByAgentIDRow
 	err := row.Scan(
 		&i.AgentID,
 		&i.Provider,
@@ -35,6 +51,9 @@ func (q *Queries) GetAgentProviderBindingByAgentID(ctx context.Context, agentID 
 		&i.CodexThreadID,
 		&i.RolloutPath,
 		&i.Cwd,
+		&i.ParentAgentID,
+		&i.AgentType,
+		&i.AgentMemoryScope,
 		&i.Archived,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -44,7 +63,7 @@ func (q *Queries) GetAgentProviderBindingByAgentID(ctx context.Context, agentID 
 }
 
 const getAgentProviderBindingByProviderThread = `-- name: GetAgentProviderBindingByProviderThread :one
-SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, archived, created_at, updated_at, session_uuid
+SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
 FROM agent_provider_binding
 WHERE provider = $1 AND provider_thread_id = $2
 `
@@ -54,9 +73,25 @@ type GetAgentProviderBindingByProviderThreadParams struct {
 	ProviderThreadID string `db:"provider_thread_id" json:"provider_thread_id"`
 }
 
-func (q *Queries) GetAgentProviderBindingByProviderThread(ctx context.Context, arg GetAgentProviderBindingByProviderThreadParams) (AgentProviderBinding, error) {
+type GetAgentProviderBindingByProviderThreadRow struct {
+	AgentID          string `db:"agent_id" json:"agent_id"`
+	Provider         string `db:"provider" json:"provider"`
+	ProviderThreadID string `db:"provider_thread_id" json:"provider_thread_id"`
+	CodexThreadID    string `db:"codex_thread_id" json:"codex_thread_id"`
+	RolloutPath      string `db:"rollout_path" json:"rollout_path"`
+	Cwd              string `db:"cwd" json:"cwd"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	Archived         bool   `db:"archived" json:"archived"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	SessionUUID      string `db:"session_uuid" json:"session_uuid"`
+}
+
+func (q *Queries) GetAgentProviderBindingByProviderThread(ctx context.Context, arg GetAgentProviderBindingByProviderThreadParams) (GetAgentProviderBindingByProviderThreadRow, error) {
 	row := q.db.QueryRow(ctx, getAgentProviderBindingByProviderThread, arg.Provider, arg.ProviderThreadID)
-	var i AgentProviderBinding
+	var i GetAgentProviderBindingByProviderThreadRow
 	err := row.Scan(
 		&i.AgentID,
 		&i.Provider,
@@ -64,6 +99,9 @@ func (q *Queries) GetAgentProviderBindingByProviderThread(ctx context.Context, a
 		&i.CodexThreadID,
 		&i.RolloutPath,
 		&i.Cwd,
+		&i.ParentAgentID,
+		&i.AgentType,
+		&i.AgentMemoryScope,
 		&i.Archived,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -110,14 +148,17 @@ func (q *Queries) UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg
 
 const upsertAgentProviderBinding = `-- name: UpsertAgentProviderBinding :exec
 INSERT INTO agent_provider_binding (
-    agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, archived, created_at, updated_at, session_uuid
-) VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8, $9)
+    agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12)
 ON CONFLICT (agent_id) DO UPDATE
 SET provider = EXCLUDED.provider,
     provider_thread_id = EXCLUDED.provider_thread_id,
     codex_thread_id = EXCLUDED.codex_thread_id,
     rollout_path = EXCLUDED.rollout_path,
     cwd = EXCLUDED.cwd,
+    parent_agent_id = EXCLUDED.parent_agent_id,
+    agent_type = EXCLUDED.agent_type,
+    agent_memory_scope = EXCLUDED.agent_memory_scope,
     session_uuid = EXCLUDED.session_uuid,
     updated_at = EXCLUDED.updated_at
 `
@@ -129,6 +170,9 @@ type UpsertAgentProviderBindingParams struct {
 	CodexThreadID    string `db:"codex_thread_id" json:"codex_thread_id"`
 	RolloutPath      string `db:"rollout_path" json:"rollout_path"`
 	Cwd              string `db:"cwd" json:"cwd"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
 	CreatedAt        int64  `db:"created_at" json:"created_at"`
 	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
 	SessionUUID      string `db:"session_uuid" json:"session_uuid"`
@@ -142,6 +186,9 @@ func (q *Queries) UpsertAgentProviderBinding(ctx context.Context, arg UpsertAgen
 		arg.CodexThreadID,
 		arg.RolloutPath,
 		arg.Cwd,
+		arg.ParentAgentID,
+		arg.AgentType,
+		arg.AgentMemoryScope,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.SessionUUID,

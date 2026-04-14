@@ -41,6 +41,7 @@ const (
 	InvalidateWorktree       = contract.InvalidateWorktree
 	InvalidateResumeRestore  = contract.InvalidateResumeRestore
 	InvalidateProviderSwitch = contract.InvalidateProviderSwitch
+	InvalidateMemoryWrite    = contract.InvalidateMemoryWrite
 )
 
 const SnapshotVersion = contract.PromptAssemblySnapshotVersion

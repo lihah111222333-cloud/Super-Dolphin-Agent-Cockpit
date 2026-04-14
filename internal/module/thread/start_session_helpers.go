@@ -25,8 +25,13 @@ func normalizeStartDisplayName(value string) string {
 	return string(runes[:startDisplayNameMaxRunes])
 }
 
-func (s *service) buildStartAssemblyInput(req StartRequest, threadID string) contract.StartInput {
-	return buildStartAssemblyInput(req, threadID, buildStartCtx(req, s.cfg, s.toolRegistry))
+func (s *service) buildStartAssemblyInput(req StartRequest, threadID string) (contract.StartInput, func(), error) {
+	buildCtx := buildStartCtx(req, s.cfg, s.toolRegistry)
+	buildCtx, cleanup, err := s.prepareScratchpadBuildCtx(req, threadID, buildCtx)
+	if err != nil {
+		return contract.StartInput{}, nil, err
+	}
+	return buildStartAssemblyInput(req, threadID, buildCtx), cleanup, nil
 }
 
 func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contract.BuildCtx) contract.StartInput {
@@ -34,6 +39,7 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		ThreadID:                     strings.TrimSpace(threadID),
 		ParentAgentID:                req.ParentAgentID,
 		AgentType:                    req.AgentType,
+		AgentMemoryScope:             req.AgentMemoryScope,
 		Name:                         req.Name,
 		Prompt:                       req.Prompt,
 		BaseInstructions:             req.BaseInstructions,
@@ -49,6 +55,7 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		MCPSnapshot:                  buildCtx.MCPSnapshot,
 		SessionFlags:                 buildCtx.SessionFlags,
 		OutputStyleConfig:            buildCtx.OutputStyleConfig,
+		ScratchpadDir:                buildCtx.ScratchpadDir,
 		KeepCodingInstructions:       buildCtx.KeepCodingInstructions,
 	}
 }
@@ -93,7 +100,6 @@ func toProviderPromptSnapshot(snapshot contract.PromptAssemblySnapshot) dto.Prom
 		Provider:              strings.TrimSpace(snapshot.Provider),
 		Version:               snapshot.Version,
 		Hash:                  strings.TrimSpace(snapshot.Hash),
-		SectionSnapshot:       clonePromptSectionMap(snapshot.SectionSnapshot),
 		Generation:            snapshot.Generation,
 	}
 }
@@ -129,14 +135,26 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 	putConfigString(cfg, "cwd", input.CWD)
 	putConfigString(cfg, "model", input.Model)
 	putConfigString(cfg, "gitRoot", input.GitRoot)
+	putConfigString(cfg, "parentAgentId", input.ParentAgentID)
+	putConfigString(cfg, "parent_agent_id", input.ParentAgentID)
+	putConfigString(cfg, "agentType", input.AgentType)
+	putConfigString(cfg, "agent_type", input.AgentType)
+	putConfigString(cfg, "threadKind", startThreadKind(input))
+	putConfigString(cfg, "thread_kind", startThreadKind(input))
 	putConfigBool(cfg, "isWorktree", input.IsWorktree)
 	putConfigString(cfg, "language", input.Language)
 	putConfigStrings(cfg, "enabledTools", input.EnabledTools)
 	putConfigStrings(cfg, "additionalWorkingDirectories", input.AdditionalWorkingDirectories)
+	putConfigStrings(cfg, "claudeMdExcludes", input.ClaudeMdExcludes)
+	putConfigStrings(cfg, "claude_md_excludes", input.ClaudeMdExcludes)
 	putConfigStrings(cfg, "mcpServers", input.MCPSnapshot.Servers)
 	putConfigStrings(cfg, "mcpTools", input.MCPSnapshot.Tools)
 	putConfigStringMap(cfg, "mcpInstructions", input.MCPSnapshot.Instructions)
 	putConfigBoolMap(cfg, "sessionFlags", input.SessionFlags)
+	putConfigOutputStyleConfig(cfg, "outputStyleConfig", input.OutputStyleConfig)
+	putConfigOutputStyleConfig(cfg, "output_style_config", input.OutputStyleConfig)
+	putConfigString(cfg, "scratchpadDir", input.ScratchpadDir)
+	putConfigString(cfg, "scratchpad_dir", input.ScratchpadDir)
 	putConfigJSON(cfg, "sandbox", req.Sandbox)
 	for key, value := range req.Config {
 		if _, exists := cfg[key]; !exists {
@@ -147,6 +165,13 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 		return nil
 	}
 	return cfg
+}
+
+func startThreadKind(input contract.StartInput) string {
+	if strings.TrimSpace(input.ParentAgentID) != "" {
+		return "child_agent"
+	}
+	return "main"
 }
 
 func buildStartStoredThreadConfig(req StartRequest, input contract.StartInput, assembly contract.StartAssembly) storedThreadConfig {
@@ -210,6 +235,23 @@ func putConfigBoolMap(cfg map[string]any, key string, values map[string]bool) {
 		if name != "" {
 			out[name] = value
 		}
+	}
+	if len(out) > 0 {
+		cfg[key] = out
+	}
+}
+
+func putConfigOutputStyleConfig(cfg map[string]any, key string, style *contract.OutputStyleConfig) {
+	if style == nil {
+		return
+	}
+	out := map[string]any{}
+	putConfigString(out, "name", style.Name)
+	putConfigString(out, "description", style.Description)
+	putConfigString(out, "prompt", style.Prompt)
+	putConfigString(out, "source", style.Source)
+	if style.KeepCodingInstructions != nil {
+		out["keepCodingInstructions"] = *style.KeepCodingInstructions
 	}
 	if len(out) > 0 {
 		cfg[key] = out

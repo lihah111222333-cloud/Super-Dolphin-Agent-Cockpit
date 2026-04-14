@@ -49,6 +49,8 @@ type LaunchRequest struct {
 	Prompt       string
 	Instructions string
 	ParentID     string
+	AgentType    string
+	MemoryScope  string
 	Cwd          string
 	Command      []string
 	Env          []string

@@ -3,6 +3,7 @@ package codexapp
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
@@ -37,6 +38,41 @@ func TestBuildTurnStartParams(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildTurnStartParams() = %#v, want %#v", got, want)
 	}
+}
+
+func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
+	t.Parallel()
+
+	attachment := dto.NewRelevantMemoryAttachment(
+		"project/commit-style.md",
+		"Memory (saved today): project/commit-style.md:",
+		"Use concise imperative commit messages.",
+		testAttachmentTime(),
+		720,
+		false,
+	).Envelope()
+	req := dto.TurnRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+		TurnAssembly: dto.TurnAssembly{
+			UserContextText: "remember the workspace state",
+			Attachments:     []dto.AttachmentEnvelope{attachment},
+		},
+	}
+
+	got := buildTurnStartParams("thread-1", req)
+	if len(got.Input) != 3 {
+		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 3", len(got.Input))
+	}
+	if got.Input[1].Text != attachment.RenderText() {
+		t.Fatalf("attachment input = %q, want rendered attachment text", got.Input[1].Text)
+	}
+	if got.Input[2].Text != "hello" {
+		t.Fatalf("final input = %q, want original user text", got.Input[2].Text)
+	}
+}
+
+func testAttachmentTime() time.Time {
+	return time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
 }
 
 func TestBuildTurnSteerParams(t *testing.T) {

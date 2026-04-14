@@ -55,12 +55,21 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 		"thread/stop": handler.New(func(_ context.Context, req map[string]any) (struct{}, error) { stopped = req; return struct{}{}, nil }),
 	})
 	agent := &agentRuntime{id: "agent-1"}
-	got, err := launcher.Launch(context.Background(), agent, LaunchRequest{Prompt: "hello", Name: "worker", ParentID: "agent-root"})
+	got, err := launcher.Launch(context.Background(), agent, LaunchRequest{
+		Prompt:      "hello",
+		Name:        "Worker UI",
+		ParentID:    "agent-root",
+		AgentType:   "worker",
+		MemoryScope: "local",
+	})
 	if err != nil || got.ThreadID != "thread-1" || agent.remoteThreadID != "thread-1" || started["prompt"] != "hello" {
 		t.Fatalf("Launch() got=%#v err=%v started=%#v agent=%#v", got, err, started, agent)
 	}
-	if started["agent_type"] != "worker" || started["parent_agent_id"] != "agent-root" {
-		t.Fatalf("Launch() metadata = %#v, want agent_type/parent_agent_id", started)
+	if started["name"] != "Worker UI" {
+		t.Fatalf("Launch() name = %#v, want Worker UI", started["name"])
+	}
+	if started["agent_type"] != "worker" || started["parent_agent_id"] != "agent-root" || started["agent_memory_scope"] != "local" {
+		t.Fatalf("Launch() metadata = %#v, want agent_type/parent_agent_id/agent_memory_scope", started)
 	}
 	if err := launcher.Stop(context.Background(), agent); err != nil || stopped["thread_id"] != "thread-1" {
 		t.Fatalf("Stop() err=%v stopped=%#v", err, stopped)

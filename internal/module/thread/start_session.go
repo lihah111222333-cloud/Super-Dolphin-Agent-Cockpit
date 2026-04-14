@@ -33,6 +33,7 @@ func trimStartRequest(req StartRequest) StartRequest {
 	req.AgentID = strings.TrimSpace(req.AgentID)
 	req.ParentAgentID = strings.TrimSpace(req.ParentAgentID)
 	req.AgentType = strings.TrimSpace(req.AgentType)
+	req.AgentMemoryScope = strings.TrimSpace(req.AgentMemoryScope)
 	req.CWD = strings.TrimSpace(req.CWD)
 	req.Model = strings.TrimSpace(req.Model)
 	req.ModelProvider = strings.TrimSpace(req.ModelProvider)
@@ -196,6 +197,9 @@ func (s *service) lookupSession(agentID string) (contract.Session, error) {
 
 type resumeState struct {
 	AgentID           string
+	ParentAgentID     string
+	AgentType         string
+	AgentMemoryScope  string
 	Provider          string
 	ProviderThreadID  string
 	PublicThreadID    string
@@ -270,7 +274,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
 	req.ProviderThreadID = shared.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
 	req.CWD = shared.FirstNonEmpty(req.CWD, req.Path, state.CWD)
-	req.PromptSnapshot = s.resolveStablePromptSnapshot(ctx, state.PublicThreadID, req.Provider, req.PromptSnapshot)
+	req.PromptSnapshot = s.resolveResumePromptSnapshot(ctx, req, state)
 	if req.ConfigOverride.Model == nil {
 		if value := strings.TrimSpace(state.ConfigOverride.Model); value != "" {
 			req.ConfigOverride.Model = &value
@@ -358,6 +362,9 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 	thread, err := s.getThread(ctx, threadID)
 	if err == nil && thread != nil {
 		state.AgentID = strings.TrimSpace(thread.AgentID)
+		state.ParentAgentID = strings.TrimSpace(thread.ParentAgentID)
+		state.AgentType = strings.TrimSpace(thread.AgentType)
+		state.AgentMemoryScope = strings.TrimSpace(thread.AgentMemoryScope)
 		state.PublicThreadID = strings.TrimSpace(thread.ThreadID)
 		state.Prompt = strings.TrimSpace(thread.Prompt)
 		state.Model = strings.TrimSpace(thread.Model)
@@ -370,6 +377,9 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err == nil && binding != nil {
 		state.AgentID = shared.FirstNonEmpty(state.AgentID, binding.AgentID)
+		state.ParentAgentID = shared.FirstNonEmpty(state.ParentAgentID, strings.TrimSpace(binding.ParentAgentID))
+		state.AgentType = shared.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
+		state.AgentMemoryScope = shared.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
 		state.Provider = strings.TrimSpace(binding.Provider)
 		state.ProviderThreadID = shared.FirstNonEmpty(state.ProviderThreadID, binding.ProviderThreadID)
 		state.PublicThreadID = shared.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)

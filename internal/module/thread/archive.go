@@ -41,6 +41,7 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 	if err := s.setBindingArchived(ctx, stopState.stoppedID, true); err != nil {
 		return err
 	}
+	s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
 	s.cleanupThreadTurns(ctx, "thread_archived", stopState.targets...)
 	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusArchived, "archived")
 	pkglogger.Info("thread: Archive() COMPLETED",

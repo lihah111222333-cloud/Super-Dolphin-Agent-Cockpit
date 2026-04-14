@@ -6,6 +6,9 @@ INSERT INTO agent_provider_binding (
     codex_thread_id,
     rollout_path,
     cwd,
+    parent_agent_id,
+    agent_type,
+    agent_memory_scope,
     archived,
     created_at,
     updated_at,
@@ -17,6 +20,9 @@ INSERT INTO agent_provider_binding (
     sqlc.arg(thread_id),
     '',
     sqlc.arg(cwd),
+    '',
+    '',
+    '',
     false,
     sqlc.arg(created_at),
     sqlc.arg(updated_at),
@@ -32,7 +38,7 @@ DELETE FROM agent_provider_binding
 WHERE agent_id = $1;
 
 -- name: ListAgentThreadBindings :many
-SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, archived, created_at, updated_at, session_uuid
+SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
 FROM agent_provider_binding
 ORDER BY created_at DESC, agent_id DESC;
 

@@ -17,6 +17,9 @@ INSERT INTO agent_provider_binding (
     codex_thread_id,
     rollout_path,
     cwd,
+    parent_agent_id,
+    agent_type,
+    agent_memory_scope,
     archived,
     created_at,
     updated_at,
@@ -28,6 +31,9 @@ INSERT INTO agent_provider_binding (
     $2,
     '',
     $3,
+    '',
+    '',
+    '',
     false,
     $4,
     $5,
@@ -72,20 +78,36 @@ func (q *Queries) GetThreadByAgent(ctx context.Context, agentID string) (string,
 }
 
 const listAgentThreadBindings = `-- name: ListAgentThreadBindings :many
-SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, archived, created_at, updated_at, session_uuid
+SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
 FROM agent_provider_binding
 ORDER BY created_at DESC, agent_id DESC
 `
 
-func (q *Queries) ListAgentThreadBindings(ctx context.Context) ([]AgentProviderBinding, error) {
+type ListAgentThreadBindingsRow struct {
+	AgentID          string `db:"agent_id" json:"agent_id"`
+	Provider         string `db:"provider" json:"provider"`
+	ProviderThreadID string `db:"provider_thread_id" json:"provider_thread_id"`
+	CodexThreadID    string `db:"codex_thread_id" json:"codex_thread_id"`
+	RolloutPath      string `db:"rollout_path" json:"rollout_path"`
+	Cwd              string `db:"cwd" json:"cwd"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	Archived         bool   `db:"archived" json:"archived"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	SessionUUID      string `db:"session_uuid" json:"session_uuid"`
+}
+
+func (q *Queries) ListAgentThreadBindings(ctx context.Context) ([]ListAgentThreadBindingsRow, error) {
 	rows, err := q.db.Query(ctx, listAgentThreadBindings)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AgentProviderBinding{}
+	items := []ListAgentThreadBindingsRow{}
 	for rows.Next() {
-		var i AgentProviderBinding
+		var i ListAgentThreadBindingsRow
 		if err := rows.Scan(
 			&i.AgentID,
 			&i.Provider,
@@ -93,6 +115,9 @@ func (q *Queries) ListAgentThreadBindings(ctx context.Context) ([]AgentProviderB
 			&i.CodexThreadID,
 			&i.RolloutPath,
 			&i.Cwd,
+			&i.ParentAgentID,
+			&i.AgentType,
+			&i.AgentMemoryScope,
 			&i.Archived,
 			&i.CreatedAt,
 			&i.UpdatedAt,

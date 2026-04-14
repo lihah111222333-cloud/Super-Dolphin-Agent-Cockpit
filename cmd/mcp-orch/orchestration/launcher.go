@@ -145,14 +145,15 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	start := time.Now()
 	pkglogger.Info("remoteLauncher: thread/start RPC begin", "agent_id", agent.id, "rpc_addr", r.addr)
 	resp, err := rpcCall[map[string]any](ctx, r, "thread/start", map[string]any{
-		"cwd":               strings.TrimSpace(req.Cwd),
-		"prompt":            shared.FirstTrimmed(req.Prompt, req.Name),
-		"name":              strings.TrimSpace(req.Name),
-		"agent_type":        strings.TrimSpace(req.Name),
-		"parent_agent_id":   strings.TrimSpace(req.ParentID),
-		"base_instructions": strings.TrimSpace(req.Instructions),
-		"provider":          launchProvider(req),
-		"model":             shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model")),
+		"cwd":                strings.TrimSpace(req.Cwd),
+		"prompt":             shared.FirstTrimmed(req.Prompt, req.Name),
+		"name":               strings.TrimSpace(req.Name),
+		"agent_type":         strings.TrimSpace(req.AgentType),
+		"agent_memory_scope": strings.TrimSpace(req.MemoryScope),
+		"parent_agent_id":    strings.TrimSpace(req.ParentID),
+		"base_instructions":  strings.TrimSpace(req.Instructions),
+		"provider":           launchProvider(req),
+		"model":              shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model")),
 	})
 	elapsed := time.Since(start)
 	if err != nil {

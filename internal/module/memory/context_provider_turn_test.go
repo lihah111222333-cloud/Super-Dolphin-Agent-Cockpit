@@ -15,7 +15,7 @@ import (
 )
 
 func TestMemoryContextProviderPrepareTurnInputsStartsWithoutTurnStartedEvent(t *testing.T) {
-	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
 	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
@@ -82,6 +82,53 @@ func TestMemoryContextProviderPrepareTurnInputsSearchesTranscriptWhenEnabled(t *
 		if !strings.Contains(strings.ToLower(inputs[0].Content), strings.ToLower(snippet)) {
 			t.Fatalf("transcript content missing %q:\n%s", snippet, inputs[0].Content)
 		}
+	}
+}
+
+func TestMemoryContextProviderPrepareTurnContextReturnsRelevantMemoryAttachments(t *testing.T) {
+	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
+	if err != nil {
+		t.Fatalf("resolvedStoreRoot() error = %v", err)
+	}
+	provider := NewContextProvider(cfg)
+	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	provider.timeNow = func() time.Time { return now }
+	manager := NewPrefetchManager(root)
+	manager.buildManifest = func(string) ([]MemoryEntry, error) {
+		return []MemoryEntry{{FilePath: "project/commit-style.md"}}, nil
+	}
+	manager.findRelevant = func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
+		return []MemoryEntry{{
+			FilePath:  "project/commit-style.md",
+			Content:   "Use concise imperative commit messages.",
+			UpdatedAt: now,
+		}}, nil
+	}
+	provider.mu.Lock()
+	provider.turnStateLocked("thread-1").manager = manager
+	provider.mu.Unlock()
+
+	first := provider.PrepareTurnContext(context.Background(), historyStubSession{}, contract.BuildCtx{}, "thread-1", "commit messages")
+	if len(first.Attachments) != 0 || len(first.Inputs) != 0 {
+		t.Fatalf("first PrepareTurnContext() = %#v, want pending empty payload", first)
+	}
+	handle := waitForPrefetchHandle(t, provider, "thread-1")
+	waitForHandle(t, handle)
+
+	payload := provider.PrepareTurnContext(context.Background(), historyStubSession{}, contract.BuildCtx{}, "thread-1", "commit messages")
+	if len(payload.Attachments) != 1 {
+		t.Fatalf("len(payload.Attachments) = %d, want 1", len(payload.Attachments))
+	}
+	attachment := payload.Attachments[0]
+	if attachment.Kind != dto.AttachmentKindRelevantMemory {
+		t.Fatalf("attachment kind = %q, want %q", attachment.Kind, dto.AttachmentKindRelevantMemory)
+	}
+	if attachment.Path != "project/commit-style.md" {
+		t.Fatalf("attachment path = %q, want project/commit-style.md", attachment.Path)
+	}
+	if !strings.Contains(attachment.Header, "saved today") || !strings.Contains(attachment.Content, "concise imperative") {
+		t.Fatalf("attachment = %#v, want freshness header + content", attachment)
 	}
 }
 

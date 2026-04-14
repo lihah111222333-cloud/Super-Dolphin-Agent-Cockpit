@@ -111,17 +111,29 @@ func (s *service) ReadThreadStateRuntimeConfig(ctx context.Context, threadID str
 	return shared.CloneRuntimeConfigMap(offline.Runtime), nil
 }
 
-func buildLaunchRequest(agentID, cwd, name, provider, model string) (LaunchAgentRequest, error) {
+func buildLaunchRequest(
+	agentID,
+	cwd,
+	name,
+	parentID,
+	agentType,
+	memoryScope,
+	provider,
+	model string,
+) (LaunchAgentRequest, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return LaunchAgentRequest{}, err
 	}
 	return LaunchAgentRequest{
-		AgentID: strings.TrimSpace(agentID),
-		Name:    strings.TrimSpace(name),
-		Cwd:     strings.TrimSpace(cwd),
-		Command: []string{exe},
-		Env:     launchConfigEnv(provider, model),
+		AgentID:     strings.TrimSpace(agentID),
+		Name:        strings.TrimSpace(name),
+		ParentID:    strings.TrimSpace(parentID),
+		AgentType:   strings.TrimSpace(agentType),
+		MemoryScope: strings.TrimSpace(memoryScope),
+		Cwd:         strings.TrimSpace(cwd),
+		Command:     []string{exe},
+		Env:         launchConfigEnv(provider, model),
 	}, nil
 }
 
@@ -136,18 +148,36 @@ func launchConfigEnv(provider, model string) []string {
 	return env
 }
 
-func (s *service) launchAgent(ctx context.Context, agentID, cwd, name, provider, model string) error {
+func (s *service) launchAgent(
+	ctx context.Context,
+	agentID,
+	cwd,
+	name,
+	parentID,
+	agentType,
+	memoryScope,
+	provider,
+	model string,
+) error {
 	if s.orchestration == nil {
 		return nil
 	}
-	req, err := buildLaunchRequest(agentID, cwd, name, provider, model)
+	req, err := buildLaunchRequest(agentID, cwd, name, parentID, agentType, memoryScope, provider, model)
 	if err != nil {
 		return err
 	}
 	return s.orchestration.LaunchAgent(ctx, req)
 }
 
-func (s *service) recoverAgent(ctx context.Context, agentID, cwd, name string) error {
+func (s *service) recoverAgent(
+	ctx context.Context,
+	agentID,
+	cwd,
+	name,
+	parentID,
+	agentType,
+	memoryScope string,
+) error {
 	if s.orchestration == nil {
 		return nil
 	}
@@ -155,7 +185,7 @@ func (s *service) recoverAgent(ctx context.Context, agentID, cwd, name string) e
 	if err := s.orchestration.Recover(ctx, agentID); err == nil {
 		return nil
 	}
-	return s.launchAgent(ctx, agentID, cwd, name, "", "")
+	return s.launchAgent(ctx, agentID, cwd, name, parentID, agentType, memoryScope, "", "")
 }
 
 func bindingPublicThreadID(binding *bindingstore.Binding, fallback string) string {

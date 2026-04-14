@@ -106,11 +106,7 @@ func TestMemoryRulesProviderRegistersStartOnlyDynamicSection(t *testing.T) {
 		Enabled:         true,
 		SkipIndex:       true,
 		ExtraGuidelines: []string{"Keep explanations short."},
-		Features: MemoryFeatureFlags{
-			Kairos:            true,
-			TeamMemory:        true,
-			SearchPastContext: true,
-		},
+		Features:        MemoryFeatureFlags{SearchPastContext: true},
 	}, NewMemoryRuleEngine())
 	var dynamic prompt.DynamicSectionProvider = provider
 	if dynamic.SectionName() != prompt.DynamicSectionMemory {
@@ -188,9 +184,10 @@ func TestChildAgentStartUsesDedicatedAgentMemoryPrompt(t *testing.T) {
 	}
 
 	childStart, err := newAssembly().AssembleStart(context.Background(), prompt.StartInput{
-		ParentAgentID: "agent-root",
-		AgentType:     "Worker",
-		Name:          "Worker",
+		ParentAgentID:    "agent-root",
+		AgentType:        "Worker",
+		AgentMemoryScope: string(MemoryScopeProject),
+		Name:             "Worker",
 	})
 	if err != nil {
 		t.Fatalf("AssembleStart(child) error = %v", err)
@@ -209,8 +206,9 @@ func TestAgentMemoryPromptProviderEnsuresProjectScopeDir(t *testing.T) {
 	provider := NewAgentMemoryPromptProvider(cfg, manager, nil)
 
 	text, err := provider.Resolve(context.Background(), prompt.SectionContext{Start: &prompt.StartInput{
-		ParentAgentID: "agent-root",
-		AgentType:     "Worker",
+		ParentAgentID:    "agent-root",
+		AgentType:        "Worker",
+		AgentMemoryScope: string(MemoryScopeProject),
 	}})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)

@@ -10,6 +10,7 @@ func TestBuildStartAssemblyInputCarriesChildAgentMetadata(t *testing.T) {
 	input := buildStartAssemblyInput(StartRequest{
 		ParentAgentID:         "agent-root",
 		AgentType:             "worker",
+		AgentMemoryScope:      "project",
 		Name:                  "Worker",
 		Prompt:                "legacy prompt",
 		BaseInstructions:      "system prompt",
@@ -19,7 +20,7 @@ func TestBuildStartAssemblyInputCarriesChildAgentMetadata(t *testing.T) {
 		CWD:      "/tmp/project",
 		Model:    "gpt-5.4",
 	})
-	if input.ParentAgentID != "agent-root" || input.AgentType != "worker" {
+	if input.ParentAgentID != "agent-root" || input.AgentType != "worker" || input.AgentMemoryScope != "project" {
 		t.Fatalf("buildStartAssemblyInput() = %#v, want child-agent metadata", input)
 	}
 	if input.CWD != "/tmp/project" || input.Provider != "codex" || input.Model != "gpt-5.4" {
@@ -35,6 +36,8 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 		Effort:         "high",
 		Personality:    "strict",
 	}, contract.StartInput{
+		ParentAgentID:                "agent-root",
+		AgentType:                    "worker",
 		Provider:                     "codex",
 		CWD:                          "/repo",
 		Model:                        "gpt-5.4",
@@ -43,6 +46,7 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 		Language:                     "Chinese",
 		EnabledTools:                 []string{"lsp_file", "spawn_agent"},
 		AdditionalWorkingDirectories: []string{"/repo/extra"},
+		ClaudeMdExcludes:             []string{"/repo/**/CLAUDE.local.md"},
 		MCPSnapshot: contract.MCPSnapshot{
 			Servers:      []string{"lsp"},
 			Tools:        []string{"mcp__lsp__lsp_grep"},
@@ -64,5 +68,11 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 	}
 	if got, ok := cfg["sessionFlags"].(map[string]any); !ok || got["verification_required"] != true {
 		t.Fatalf("buildStartSessionConfig() sessionFlags = %#v", cfg["sessionFlags"])
+	}
+	if got, ok := cfg["claudeMdExcludes"].([]string); !ok || len(got) != 1 || got[0] != "/repo/**/CLAUDE.local.md" {
+		t.Fatalf("buildStartSessionConfig() claudeMdExcludes = %#v", cfg["claudeMdExcludes"])
+	}
+	if cfg["parentAgentId"] != "agent-root" || cfg["agentType"] != "worker" || cfg["threadKind"] != "child_agent" {
+		t.Fatalf("buildStartSessionConfig() child metadata = %#v", cfg)
 	}
 }

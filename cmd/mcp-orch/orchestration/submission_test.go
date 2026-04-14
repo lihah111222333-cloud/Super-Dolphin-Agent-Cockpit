@@ -304,7 +304,7 @@ func TestLaunchParamsCompatibility(t *testing.T) {
 	t.Parallel()
 
 	var legacy launchParams
-	input := []byte(`{"id":"agent-1","name":"demo","prompt":"hello","cwd":"/tmp","instructions":"follow","config":{"parentID":"parent-1"}}`)
+	input := []byte(`{"id":"agent-1","name":"demo","prompt":"hello","cwd":"/tmp","instructions":"follow","config":{"parentID":"parent-1","agentType":"worker","memoryScope":"local"}}`)
 	if err := json.Unmarshal(input, &legacy); err != nil {
 		t.Fatalf("legacy launchParams err = %v", err)
 	}
@@ -314,14 +314,20 @@ func TestLaunchParamsCompatibility(t *testing.T) {
 	if legacy.ParentID != "parent-1" {
 		t.Fatalf("legacy ParentID = %q, want parent-1", legacy.ParentID)
 	}
+	if legacy.AgentType != "worker" || legacy.MemoryScope != "local" {
+		t.Fatalf("legacy metadata = %#v", legacy)
+	}
 
 	var current launchParams
-	input = []byte(`{"agentId":"agent-2","parentId":"parent-2","prompt":"hi","instructions":"careful"}`)
+	input = []byte(`{"agentId":"agent-2","parentId":"parent-2","agentType":"reviewer","memoryScope":"user","prompt":"hi","instructions":"careful"}`)
 	if err := json.Unmarshal(input, &current); err != nil {
 		t.Fatalf("current launchParams err = %v", err)
 	}
 	if current.AgentID != "agent-2" || current.ParentID != "parent-2" {
 		t.Fatalf("current launchParams = %#v", current)
+	}
+	if current.AgentType != "reviewer" || current.MemoryScope != "user" {
+		t.Fatalf("current metadata = %#v", current)
 	}
 }
 
@@ -332,6 +338,9 @@ func TestLaunchRequestFromParamsCarriesPromptAndInstructions(t *testing.T) {
 		AgentID:      "agent-1",
 		Prompt:       "hello",
 		Instructions: "follow",
+		ParentID:     "agent-root",
+		AgentType:    "worker",
+		MemoryScope:  "project",
 		Env: map[string]string{
 			"B": "2",
 			"A": "1",
@@ -339,6 +348,9 @@ func TestLaunchRequestFromParamsCarriesPromptAndInstructions(t *testing.T) {
 	})
 	if req.Prompt != "hello" || req.Instructions != "follow" {
 		t.Fatalf("launchRequestFromParams() = %#v", req)
+	}
+	if req.ParentID != "agent-root" || req.AgentType != "worker" || req.MemoryScope != "project" {
+		t.Fatalf("launchRequestFromParams() metadata = %#v", req)
 	}
 	if !reflect.DeepEqual(req.Env, []string{"A=1", "B=2"}) {
 		t.Fatalf("launchRequestFromParams() env = %#v, want sorted env", req.Env)

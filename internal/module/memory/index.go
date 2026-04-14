@@ -1,8 +1,10 @@
 package memory
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,7 +13,10 @@ import (
 	"strings"
 )
 
-const memoryHookMaxRunes = 150
+const (
+	memoryHookMaxRunes      = 150
+	manifestHeaderScanLimit = 32 * 1024
+)
 
 type MemoryIndexEntry struct {
 	Title         string
@@ -54,6 +59,62 @@ func ReadMemoryIndex(path string) ([]MemoryIndexEntry, error) {
 	return ParseMemoryIndex(string(content))
 }
 
+func readMemoryEntryHeader(path string) (MemoryEntry, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return MemoryEntry{}, err
+	}
+	defer func() { _ = file.Close() }()
+
+	header, err := readFrontmatterHeader(file)
+	if err != nil {
+		return MemoryEntry{}, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return MemoryEntry{}, err
+	}
+	entry := parseMemoryHeader(path, header)
+	entry.FilePath = path
+	entry.UpdatedAt = info.ModTime()
+	entry.CanonicalName = CanonicalName(entry.Frontmatter.Name)
+	return normalizeLoadedEntry(entry), nil
+}
+
+func readFrontmatterHeader(r io.Reader) (string, error) {
+	scanner := bufio.NewScanner(io.LimitReader(r, manifestHeaderScanLimit))
+	scanner.Buffer(make([]byte, 0, 4096), manifestHeaderScanLimit)
+	var builder strings.Builder
+	openMarkers := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		builder.WriteString(line)
+		builder.WriteByte('\n')
+		if strings.TrimSpace(line) == "---" {
+			openMarkers++
+			if openMarkers >= 2 {
+				break
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return builder.String(), nil
+}
+
+func parseMemoryHeader(path, header string) MemoryEntry {
+	content := stripUTF8BOM(header)
+	frontmatter, _, ok := splitMemoryFrontmatter(content)
+	if !ok {
+		return MemoryEntry{FilePath: path}
+	}
+	return MemoryEntry{
+		Frontmatter: parseMemoryFrontmatter(frontmatter),
+		FilePath:    path,
+	}
+}
+
 func WriteMemoryIndex(root string, entries []MemoryEntry) error {
 	indexEntries, err := buildMemoryIndex(root, entries)
 	if err != nil {
@@ -89,9 +150,12 @@ func scanMemoryEntries(root string) ([]MemoryEntry, error) {
 			return walkErr
 		}
 		if d.IsDir() {
+			if isConsolidationLogPath(root, path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
-		if filepath.Ext(path) != ".md" || filepath.Base(path) == memoryIndexFileName {
+		if filepath.Ext(path) != ".md" || filepath.Base(path) == memoryIndexFileName || isConsolidationLogPath(root, path) {
 			return nil
 		}
 		if _, err := ValidateMemoryReadPath(root, path); err != nil {

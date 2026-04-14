@@ -17,14 +17,14 @@ type ResolvedPromptSection struct {
 }
 
 type PromptAssemblySnapshot struct {
-	DisplayName           string `json:"displayName,omitempty"`
-	BaseInstructions      string `json:"baseInstructions,omitempty"`
-	DeveloperInstructions string `json:"developerInstructions,omitempty"`
-	Provider              string `json:"provider,omitempty"`
-	Version               int    `json:"version,omitempty"`
-	Hash                  string `json:"hash,omitempty"`
+	DisplayName           string            `json:"displayName,omitempty"`
+	BaseInstructions      string            `json:"baseInstructions,omitempty"`
+	DeveloperInstructions string            `json:"developerInstructions,omitempty"`
+	Provider              string            `json:"provider,omitempty"`
+	Version               int               `json:"version,omitempty"`
+	Hash                  string            `json:"hash,omitempty"`
 	SectionSnapshot       map[string]string `json:"sectionSnapshot,omitempty"`
-	Generation            uint64 `json:"generation,omitempty"`
+	Generation            uint64            `json:"generation,omitempty"`
 }
 
 type StartAssembly struct {
@@ -37,6 +37,7 @@ type StartAssembly struct {
 
 type TurnAssembly struct {
 	UserContextText  string                  `json:"userContextText,omitempty"`
+	Attachments      []AttachmentEnvelope    `json:"attachments,omitempty"`
 	ResolvedSections []ResolvedPromptSection `json:"resolvedSections,omitempty"`
 }
 
