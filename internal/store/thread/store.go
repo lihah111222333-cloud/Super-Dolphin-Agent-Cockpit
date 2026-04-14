@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -20,7 +21,9 @@ type querier interface {
 	ListRecoverableAgentThreads(ctx context.Context) ([]sqlc.ListRecoverableAgentThreadsRow, error)
 	ListRunningAgentThreads(ctx context.Context) ([]sqlc.ListRunningAgentThreadsRow, error)
 	ListRunningAgents(ctx context.Context) ([]sqlc.ListRunningAgentsRow, error)
+	LoadAgentThreadPromptSnapshot(ctx context.Context, threadID string) ([]byte, error)
 	ResetRunningAgentThreads(ctx context.Context) error
+	SaveAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error)
 	UpdateAgentThreadStatus(ctx context.Context, arg sqlc.UpdateAgentThreadStatusParams) error
 	UpsertAgentThread(ctx context.Context, arg sqlc.UpsertAgentThreadParams) error
 }
@@ -106,6 +109,48 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		OwnerThreadID:  params.OwnerThreadID,
 		ConfigOverride: params.ConfigOverride,
 	}), "upsert")
+}
+
+func (s *store) SavePromptSnapshot(ctx context.Context, threadID string, snapshot PromptSnapshot) error {
+	if snapshot.SectionSnapshot == nil {
+		snapshot.SectionSnapshot = map[string]string{}
+	}
+	payload, err := json.Marshal(snapshot)
+	if err != nil {
+		return wrapThreadError(err, "save_prompt_snapshot")
+	}
+	rows, err := s.q.SaveAgentThreadPromptSnapshot(ctx, sqlc.SaveAgentThreadPromptSnapshotParams{
+		ThreadID:       threadID,
+		PromptSnapshot: payload,
+	})
+	if err != nil {
+		return wrapThreadError(err, "save_prompt_snapshot")
+	}
+	if rows == 0 {
+		return wrapThreadError(platformdb.ErrNotFound, "save_prompt_snapshot")
+	}
+	return nil
+}
+
+func (s *store) LoadPromptSnapshot(ctx context.Context, threadID string) (*PromptSnapshot, error) {
+	payload, err := s.q.LoadAgentThreadPromptSnapshot(ctx, threadID)
+	if err != nil {
+		return nil, wrapThreadError(err, "load_prompt_snapshot")
+	}
+	if len(payload) == 0 {
+		return nil, nil
+	}
+	var snapshot *PromptSnapshot
+	if err := json.Unmarshal(payload, &snapshot); err != nil {
+		return nil, wrapThreadError(err, "load_prompt_snapshot")
+	}
+	if snapshot == nil {
+		return nil, nil
+	}
+	if snapshot.SectionSnapshot == nil {
+		snapshot.SectionSnapshot = map[string]string{}
+	}
+	return snapshot, nil
 }
 
 func (s *store) UpdateStatus(ctx context.Context, params UpdateStatusParams) error {

@@ -3,17 +3,21 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 type threadQuerierStub struct {
-	getByIDFn         func(context.Context, string) (sqlc.GetAgentThreadByIDRow, error)
-	listAllFn         func(context.Context) ([]sqlc.ListAgentThreadsRow, error)
-	listRecoverableFn func(context.Context) ([]sqlc.ListRecoverableAgentThreadsRow, error)
-	listRunningFn     func(context.Context) ([]sqlc.ListRunningAgentThreadsRow, error)
-	upsertFn          func(context.Context, sqlc.UpsertAgentThreadParams) error
+	getByIDFn            func(context.Context, string) (sqlc.GetAgentThreadByIDRow, error)
+	listAllFn            func(context.Context) ([]sqlc.ListAgentThreadsRow, error)
+	listRecoverableFn    func(context.Context) ([]sqlc.ListRecoverableAgentThreadsRow, error)
+	listRunningFn        func(context.Context) ([]sqlc.ListRunningAgentThreadsRow, error)
+	loadPromptSnapshotFn func(context.Context, string) ([]byte, error)
+	savePromptSnapshotFn func(context.Context, sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error)
+	upsertFn             func(context.Context, sqlc.UpsertAgentThreadParams) error
 }
 
 func (s *threadQuerierStub) AgentThreadRunningExists(context.Context, string) (bool, error) {
@@ -70,7 +74,21 @@ func (*threadQuerierStub) ListRunningAgents(context.Context) ([]sqlc.ListRunning
 	return nil, nil
 }
 
+func (s *threadQuerierStub) LoadAgentThreadPromptSnapshot(ctx context.Context, threadID string) ([]byte, error) {
+	if s.loadPromptSnapshotFn != nil {
+		return s.loadPromptSnapshotFn(ctx, threadID)
+	}
+	return nil, nil
+}
+
 func (*threadQuerierStub) ResetRunningAgentThreads(context.Context) error { return nil }
+
+func (s *threadQuerierStub) SaveAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error) {
+	if s.savePromptSnapshotFn != nil {
+		return s.savePromptSnapshotFn(ctx, arg)
+	}
+	return 1, nil
+}
 
 func (*threadQuerierStub) UpdateAgentThreadStatus(context.Context, sqlc.UpdateAgentThreadStatusParams) error {
 	return nil
@@ -166,4 +184,95 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 		t.Fatalf("ListRecoverable() error = %v", err)
 	}
 	assertListConfigOverride("ListRecoverable()", recoverable)
+}
+
+func TestSaveAndLoadPromptSnapshot(t *testing.T) {
+	t.Parallel()
+
+	want := PromptSnapshot{
+		BaseInstructions:      "base",
+		DeveloperInstructions: "dev",
+		SectionSnapshot: map[string]string{
+			"cwd":  "/tmp/project",
+			"date": "2026-04-14",
+		},
+		Generation: 9,
+	}
+	var saved sqlc.SaveAgentThreadPromptSnapshotParams
+	s := &store{q: &threadQuerierStub{
+		savePromptSnapshotFn: func(_ context.Context, arg sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error) {
+			saved = arg
+			return 1, nil
+		},
+		loadPromptSnapshotFn: func(context.Context, string) ([]byte, error) {
+			return []byte(`{"base_instructions":"base","developer_instructions":"dev","section_snapshot":{"cwd":"/tmp/project","date":"2026-04-14"},"generation":9}`), nil
+		},
+	}}
+
+	if err := s.SavePromptSnapshot(context.Background(), "thread-1", want); err != nil {
+		t.Fatalf("SavePromptSnapshot() error = %v", err)
+	}
+	if saved.ThreadID != "thread-1" {
+		t.Fatalf("SavePromptSnapshot() thread_id = %q, want %q", saved.ThreadID, "thread-1")
+	}
+	var stored PromptSnapshot
+	if err := json.Unmarshal(saved.PromptSnapshot, &stored); err != nil {
+		t.Fatalf("json.Unmarshal(saved prompt_snapshot) error = %v", err)
+	}
+	if stored.BaseInstructions != want.BaseInstructions ||
+		stored.DeveloperInstructions != want.DeveloperInstructions ||
+		stored.Generation != want.Generation ||
+		len(stored.SectionSnapshot) != len(want.SectionSnapshot) ||
+		stored.SectionSnapshot["cwd"] != want.SectionSnapshot["cwd"] ||
+		stored.SectionSnapshot["date"] != want.SectionSnapshot["date"] {
+		t.Fatalf("stored prompt snapshot = %#v, want %#v", stored, want)
+	}
+
+	got, err := s.LoadPromptSnapshot(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatalf("LoadPromptSnapshot() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("LoadPromptSnapshot() = nil, want snapshot")
+	}
+	if got.BaseInstructions != want.BaseInstructions ||
+		got.DeveloperInstructions != want.DeveloperInstructions ||
+		got.Generation != want.Generation ||
+		got.SectionSnapshot["cwd"] != want.SectionSnapshot["cwd"] ||
+		got.SectionSnapshot["date"] != want.SectionSnapshot["date"] {
+		t.Fatalf("LoadPromptSnapshot() = %#v, want %#v", got, want)
+	}
+}
+
+func TestSavePromptSnapshotMissingThread(t *testing.T) {
+	t.Parallel()
+
+	s := &store{q: &threadQuerierStub{
+		savePromptSnapshotFn: func(context.Context, sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error) {
+			return 0, nil
+		},
+	}}
+
+	err := s.SavePromptSnapshot(context.Background(), "missing-thread", PromptSnapshot{})
+	if !errors.Is(err, platformdb.ErrNotFound) {
+		t.Fatalf("SavePromptSnapshot() error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestLoadPromptSnapshotNilPayload(t *testing.T) {
+	t.Parallel()
+
+	s := &store{q: &threadQuerierStub{
+		loadPromptSnapshotFn: func(context.Context, string) ([]byte, error) {
+			return nil, nil
+		},
+	}}
+
+	got, err := s.LoadPromptSnapshot(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatalf("LoadPromptSnapshot() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("LoadPromptSnapshot() = %#v, want nil", got)
+	}
 }
