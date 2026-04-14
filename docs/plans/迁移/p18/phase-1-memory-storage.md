@@ -5,6 +5,8 @@
 ## 目标
 实现磁盘记忆的 CRUD + 索引管理 + 路径安全。
 
+> **现状审查结论（2026-04-14）**：V3 已落地 `internal/module/memory/path.go` / `index.go` / `store.go` 的基础 CRUD、`canonical_name` 去重、atomic rewrite 与路径校验；但 `GetAutoMemPath()` 目前还未被 runtime store 主链消费，也还没有 Claude `scanMemoryFiles()` / `parseMemoryFileContent()` 对应的读路径实现。故本 Phase 的剩余工作重点是 **Claude 对齐 + runtime 接线**，不是从零起步。
+
 ## 目录结构（默认布局）
 
 ```text
@@ -28,13 +30,18 @@
 2. 受信配置（policy/local/user 级）
 3. 默认 `~/.multi-agent/memory/projects/<sanitized-root>/memory/`
 
+> **Claude 对照细节**：
+> - Claude 先用 `getMemoryBaseDir()` 解析 **base dir**（`CLAUDE_CODE_REMOTE_MEMORY_DIR` → `~/.claude`），再由 `getAutoMemPath()` 解析 **最终 auto-memory 目录**
+> - `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE` / trusted settings 覆盖的是**最终 full path**，不是 base dir
+> - V3 可以把 base dir 换成 `~/.multi-agent/memory` / `MULTI_AGENT_MEMORY_DIR`，但文档与实现都要区分“base dir”和“project memory path”两层语义
+
 硬规则：
 - **仓库内 project/repo 级配置不得重定向 memory 根目录**
 - project key 需先 sanitize；超长时截断并追加短 hash，保证跨平台安全且稳定可复现
 
 ### 启停门禁契约
 - `IsAutoMemoryEnabled` / `ResolveMemoryMode` 作为统一门禁
-- `memory_write` / `memory_delete` / prompt 注入 / retrieval 都必须走同一门禁，避免“prompt 已关但仍写盘”
+- hook 写盘 / `/forget` / prompt 注入 / retrieval 都必须走同一门禁，避免“prompt 已关但仍写盘”
 
 ## MEMORY.md 索引格式
 
@@ -81,9 +88,9 @@ search_keys: [{{optional retrieval hints...}}]
 
 - topic file 文件名优先由 `name` 生成 **Unicode-safe slug**；若标题不适合安全落盘，则退化为 `mem-<short-hash>.md`
 - 逻辑唯一键改为 `canonical_name`（NFC + Unicode case fold + whitespace collapse）；slug 冲突时在文件名后追加短 hash，避免大小写/同名冲突
-- 更新已有 memory 时默认**复用原文件路径**；仅在显式迁移脚本中改文件名，不在普通 `memory_write` 中隐式 rename
+- 更新已有 memory 时默认**复用原文件路径**；仅在显式迁移脚本中改文件名，不在普通写盘入口中隐式 rename
 - `MEMORY.md` 采用**全量重写**策略，按 `canonical_name` 稳定排序；hook 由 `description` 或正文首句生成，不做局部增量 patch
-- `legacy/unknown type` 在 scan/search/read 路径继续保留并返回；`memory_write` 不允许新写入 unknown type；迁移脚本仅在显式映射规则下修复 type
+- `legacy/unknown type` 在 scan/search/read 路径继续保留并返回；普通写盘入口不允许新写入 unknown type；迁移脚本仅在显式映射规则下修复 type
 
 ## 路径安全校验
 
@@ -126,7 +133,13 @@ search_keys: [{{optional retrieval hints...}}]
 - 若目标是 **Claude 兼容**，`25KB` 计量以“字符串长度”语义为准，而不是 UTF-8 磁盘真实字节数
 - 若后续改成按 UTF-8 byte 计，必须显式标注为 **V3 有意偏离 Claude 基线**
 
+读路径语义补充：
+- Claude **不会在写 topic file 时截断正文**；`truncateEntrypointContent()` 只用于读/注入 `MEMORY.md` / TeamMem entrypoint
+- 主线程路径由 `parseMemoryFileContent()` 在 frontmatter/comment 处理后，对 `AutoMem` / `TeamMem` 执行截断；agent 路径由 `buildMemoryPrompt()` sync 读取 `MEMORY.md` 后复用同一截断器
+- `parseMemoryFileContent()` 还会跳过非文本文件、移除 HTML comments、提取 `@include` 路径，并在内容被改写时回传 `rawContent`；这些属于 Phase 4/6 的**读路径语义**，不要混入 Phase 1 的写路径事务里
+
 > **来源**：`restored-src/src/memdir/memdir.ts:34-38, 57-103`
+> **来源**：`restored-src/src/utils/claudemd.ts:343-400` (parseMemoryFileContent)
 
 ## 保存协议
 
@@ -154,6 +167,13 @@ skipIndex 模式（feature gate 控制）：
 - `skipIndex` 模式结束后，允许由显式 rebuild 恢复索引一致性，不做隐式后台修复
 
 > **来源**：`restored-src/src/memdir/memdir.ts:205-234, 359-365`
+
+## Claude `scanMemoryFiles()` 对照（不要与 index rebuild 扫描混用）
+- `scanMemoryFiles(memoryDir, signal)` 递归查找 `.md`，排除 `MEMORY.md`
+- 只读取前 30 行 frontmatter（`readFileInRange`），提取 `description/type`，并保留 `mtimeMs`
+- 单文件失败不会整体失败：Claude 用 `Promise.allSettled()` 丢弃失败项
+- 输出按 `mtime desc` 排序并截到最新 200 个；这是 retrieval / extract 路径的 header scan，不是索引重建排序
+- 当前 V3 `index.go:scanMemoryEntries()` 为重建索引而全文件扫描并按 `canonical_name` 排序；保留该行为即可，但要**新增独立 header scan** 才能对齐 Claude retrieval/extract 语义
 
 ## 任务清单
 - [ ] `memory/store.go`：ReadMemoryIndex / WriteMemoryFile / UpdateMemoryIndex / DeleteMemory / RebuildMemoryIndex

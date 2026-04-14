@@ -153,7 +153,7 @@
 | internal/store/sharedfile/contract.go | 10-27 | `shared_files` 读侧契约 |
 | internal/store/sharedfile/store.go | 16-38 | `Get/List` 读侧实现 |
 
-## 延后功能锚点（P19 参考）
+## 未实现功能锚点（供 p18-unimplemented.md 引用）
 
 > 状态口径：
 > - `待实现`：已有显式保留位/结构字段，但功能主链尚未落地

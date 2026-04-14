@@ -329,13 +329,13 @@ turn/start
 - [ ] `@agent` 检索复用 Phase 5 的 `sanitize + resolve + authorize` 规则
 - [ ] Fail-soft：检索失败不阻塞主流程
 
-### Phase 7：迁移工具 + 兼容层（预计 1 天）
-- [ ] Memory MCP 工具：
-  - `memory_read` / `memory_write` / `memory_search` / `memory_list` / `memory_forget`
-  - `user/project/local` scope ACL、path authorizer、degraded/feature_disabled/error-code 语义
-- [ ] rollout flags + kill switch：`enable_memory_system` / `enable_prompt_registry` / `enable_prompt_assembly` / `enable_memory_tools`
-- [ ] 现有 `shared_file_read/write` 保持兼容
-- [ ] 迁移脚本：将现有 `docs/plans/迁移/session-summary.md` 和 `会话习惯.md` 抽取为 memory 格式（幂等 + dry-run + rollback 报告）
+### Phase 7：Hook 注入 + 记忆读取工具 + 迁移兼容（预计 0.5-1 天）
+- [ ] `thread/start` hook：加载 `MEMORY.md` + memory 文件 → `PromptAssemblyService.AssembleStart()`
+- [ ] `turn/end` hook：保存意图检测 → `extractMemory()` → 写盘 → 更新索引
+- [ ] `session/stop` hook：仅预留 `extractMemories / autoDream` 扩展点（P19）
+- [ ] `memory_read` 作为唯一 Memory MCP 工具；统一 `sanitize + resolve + authorize`，只读无副作用
+- [ ] `/memory` / `/forget` 走 slash command + skill 框架
+- [ ] 现有 `shared_file_read/write` 保持兼容；保留 `shared_files → 磁盘记忆` 迁移脚本（幂等 + dry-run + rollback 报告）
 
 ### Phase 8：测试 + 守护（预计 1-2 天）
 - [ ] **P0（blocking）**：PromptAssembly / provider 注入 / memory store / retrieval 去重并发 / ACL / rollback drill / roundtrip
@@ -413,7 +413,7 @@ turn/start
 ## 七、验收标准
 
 1. ✅ 新会话启动时自动加载记忆（MEMORY.md 索引 ≤ 200 行）
-2. ✅ Agent / MCP 工具可通过 `memory_write` 保存四种类型记忆，且 `memory_forget` / ACL / degraded 语义闭合
+2. ✅ Hook / slash command 可完成记忆保存、查看、删除；MCP 面仅保留 `memory_read`，且 ACL / degraded 语义闭合
 3. ✅ 系统提示词分静态/动态，并通过 `PromptAssemblyService` 产出 `StartAssembly / TurnAssembly`
 4. ✅ 子 Agent 有独立记忆空间（按 agent type 隔离），并经 `PromptAssemblyService.AssembleStart()` 注入
 5. ✅ 记忆检索异步执行，不阻塞 turn；relevant memories 走 attachment/hint，不进入 `TurnAssembly.UserContextText`
@@ -434,9 +434,9 @@ turn/start
 | 4 | Provider 链路注入 | 1 天 |
 | 5 | Agent 记忆 | 1 天 |
 | 6 | 记忆检索 | 2 天 |
-| 7 | 迁移工具 + 兼容层 | 1 天 |
+| 7 | Hook 注入 + 记忆读取工具 + 迁移兼容 | 0.5-1 天 |
 | 8 | 测试 + 守护 | 1-2 天 |
-| **合计** | | **17-20 天** |
+| **合计** | | **16.5-20 天** |
 
 ---
 

@@ -20,7 +20,7 @@
 | memory/prompt_builder | taxonomy 完整性 + 排除列表 + save/access/trust 规则 + ignore-memory 强提示 + `skipIndex/extraGuidelines` API + `Searching past context` gated/deferred |
 | memory/agent_memory | 单 scope 目录 + sanitize + 空态分级 + telemetry + 截断 |
 | memory/retrieval | structured selector parse + whitelist + readFileState 时序 + query cache key + attachment/replay identity + cooldown |
-| memory/migration | authoritative source 优先级（`review-summary/README > session-summary`）+ stale source skip + `shared_files` 默认排除 + `canonical_name` 去重 + manifest/provenance 输出 |
+| memory/migration | `shared_files → 磁盘记忆` owner/scope 归属 + 幂等 + dry-run/apply/rollback manifest + skip reason 输出 |
 | prompt/registry | name-cache + nil-cache + volatile 重算 + generation invalidate + singleflight |
 | prompt/sections | 12 个 section 内容关键字 + tool/session/mode 变更失效 |
 | prompt/builder | 输出 `ResolvedPromptSection/Snapshot`，不直接丢失结构 |
@@ -31,17 +31,16 @@
 - fx app start/stop smoke + `fx.ValidateApp` 通过
 - thread/start → `PromptAssemblyService.AssembleStart()` → `StartAssembly{BaseInstructions, DeveloperInstructions, Snapshot}` 落点正确
 - 新会话自动加载 `MEMORY.md`，且 200 行索引上限在启动链路生效
-- 四种 memory type（user/feedback/project/reference）端到端写入/读回/检索矩阵
+- 四种 memory type（user/feedback/project/reference）在 hook / slash command / `memory_read` 链路上的端到端覆盖矩阵
 - turn/start → `PromptAssemblyService.AssembleTurn()` → `TurnAssembly.UserContextText` 前置 → 模型收到
-- memory_write 新建 → MEMORY.md 更新 → memory_read 能读回
-- memory_write **upsert**：已有同名时更新而非重复创建
-- memory_search：keyword + type filter + limit + fail-soft
-- memory_list：scope/type 过滤、排序、forget 后同步更新
-- memory_forget：删除后索引同步更新
+- `turn/end` hook 命中保存意图 → topic file / `MEMORY.md` 更新 → `memory_read` 能读回
+- `/memory`：当前作用域可见记忆视图正确，线程/agent 可见集符合 ACL
+- `/forget`：删除后 topic file / `MEMORY.md` / 索引同步更新
+- `cmd/mcp-orch` registry 仅暴露 `memory_read`，不再注册 `memory_write/search/list/forget`
 - `shared_file_read/write` V2 兼容矩阵：path canonicalization、`file <path> not found`、固定 `agent` actor、10 MiB 上限、flags 关闭时旧 `shared_files` 链路不受影响
-- 种子迁移矩阵：`review-summary/README > session-summary` authoritative source 优先级、stale source skip、`shared_files` 默认排除、跨文档 `canonical_name` 去重、apply manifest provenance
-- repair/debug 面：显式 `RebuildMemoryIndex()` 可修复索引；`memory_read/list/search` degraded 视图可用；默认 registry 不额外暴露第 6 个 public memory tool
-- `skipIndex` → topic-only write；仅显式 `RebuildMemoryIndex()` 恢复索引一致性，不做隐式后台修复
+- 种子迁移矩阵：`shared_files → 磁盘记忆` owner/scope 归属、幂等、dry-run/apply/rollback manifest、skip reason 可验证
+- repair/debug 面：显式 `RebuildMemoryIndex()` 可修复索引；`memory_read` degraded 视图可用；默认 registry 不额外暴露写入/删除类 public memory tool
+- hook / slash command / migrate 共享 authorizer 与写锁，不做隐式后台修复
 - Agent memory：不同 agentType 隔离、单 scope 加载、preview/runtime 一致，且 `@agent` 仅在当前线程授权链可见
 - Relevant memories：非阻塞预取、`manifest.jsonl` sidecar / query cache key、结构化 selector 输出、三段式去重、history/replay roundtrip、60KB 阈值、cancel/singleflight/CAS consume，且与 `TurnAssembly.UserContextText` 分离、走 attachment/hint 链
 - `claudeMd` source resolver 专项矩阵：来源顺序、二段过滤、additional dirs、external include warning vs normal load、disable/bare gates、nested worktree 去重
@@ -69,13 +68,13 @@
   - presence-aware bool alias 冲突（显式 `false` 不被 legacy `true` 覆盖）与 config alias 归一测试
   - Claude Restart/Recovery 从 `PromptAssemblySnapshot` 恢复的回归用例
   - `PromptAssemblySnapshot` 的 `Version + Hash + Provider` 校验与 compat fallback 用例
-- 并发安全：并发 `memory_write/forget` 不产生重复索引或损坏 `MEMORY.md`；section cache 并发 build/invalidate 不串 provider；`./scripts/go_with_guard.sh test -race ...` 覆盖 memory/prompt/retrieval/provider switch
+- 并发安全：并发 `turn/end` hook 写盘与 `/forget` 不产生重复索引或损坏 `MEMORY.md`；section cache 并发 build/invalidate 不串 provider；`./scripts/go_with_guard.sh test -race ...` 覆盖 memory/prompt/retrieval/provider switch
 - rollout flags / kill switch：关闭后停止新 memory 写入与 prompt 注入，但不影响既有 `shared_files` 协作链路
 - 错误处理：`feature_disabled`、敏感信息校验失败、frontmatter/type 校验失败、manifest timeout、selector invalid JSON、PromptRegistry 顶层 build 失败都返回显式错误且无半写文件；敏感信息规则集版本 / 稳定错误码 / fixture 样例可验证
 - 安全负例：path traversal / symlink race / ACL deny / `@agent` 越权读取 / cross-machine local scope replay / secret redaction / 恶意 memory 注入 / selector 不继承主链高权限
-- 可观测性：`memory_write/search/forget` 与 prompt cache invalidate 日志包含 `provider/threadID/reason/scope/result`
+- 可观测性：`turn/end` hook 写盘、`memory_read`、`/forget` 与 prompt cache invalidate 日志包含 `provider/threadID/reason/scope/result`
 - 迁移脚本幂等性：重跑不重复造 memory，且对被跳过内容输出 skip reason
-- 兼容/迁移：`memory_write` 与迁移脚本共用 `ExclusionClassifier`；`memory_read/list/search` 在索引损坏时返回 `degraded=true` / `source=rebuilt_view`；dry-run/apply 报告可验证
+- 兼容/迁移：`turn/end` hook 写盘与迁移脚本共用 `ExclusionClassifier`；`memory_read` 在索引损坏时返回 `degraded=true` / `source=rebuilt_view`；dry-run/apply 报告可验证
 - `MEMORY.md` repair drill：故意打坏 index 后，可从 topic files 重建并恢复 hook 顺序
 
 ## 性能守护

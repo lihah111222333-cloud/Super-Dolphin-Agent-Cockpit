@@ -5,6 +5,16 @@
 ## 目标
 实现基于相关性的异步记忆召回，不阻塞主 turn。
 
+## Claude 源码核对补充（2026-04-14）
+
+- `query.ts` 在每个 user turn 的 `queryLoop` 进入 `while` 前只启动一次 `using pendingMemoryPrefetch = startRelevantMemoryPrefetch(...)`；consume block 位于工具循环末尾、skill discovery 注入前，条件是 `settledAt != nil && consumedOnIteration == -1`，未 ready 时直接跳过、不等待。
+- Claude 当前 prefetch handle 只有 `promise / settledAt / consumedOnIteration / [Symbol.dispose]()`；计划中的 `generation / turnID / singleflight / CAS state` 属于 **V3 并发安全增强**，不是 Claude 现状。
+- `startRelevantMemoryPrefetch()` 的真实 gate 是：`isAutoMemoryEnabled()`、GrowthBook `tengu_moth_copse`、存在最后一条非 meta user message、输入不是单词级 prompt、`collectSurfacedMemories(messages).totalBytes < 60 * 1024`。它通过 `createChildAbortController(toolUseContext.abortController)` 绑定 turn 生命周期。
+- `getRelevantMemoryAttachments()` 若命中 `@agent` 且对应 agent 定义带 `memory` scope，则**仅**检索这些 agent 目录；否则退回 auto-memory 目录。多目录当前实现是 `Promise.all(dirs.map(...))`，随后 `.flat().filter(!readFileState.has && !alreadySurfaced.has).slice(0, 5)`，**没有** bounded worker pool。
+- Claude 当前没有 `manifest.jsonl` sidecar / 本地 cheap prefilter / “低置信度才 side-query” / query cache / cooldown。`findRelevantMemories()` 每次都 `scanMemoryFiles()` + `selectRelevantMemories()`：递归 `readdir`，读取前 30 行 frontmatter，按 `mtimeMs` 倒序截前 200 个 header，然后直接发一次 Sonnet sideQuery 做 JSON 选择。
+- 去重的 Claude 原始三段式是：`alreadySurfaced` 在 selector 前过滤、`getRelevantMemoryAttachments()` 合并后再次用 `readFileState + alreadySurfaced` 过滤、consume 时 `filterDuplicateMemoryAttachments()` 先过滤再写回 `readFileState`。这一点与本计划一致，应保持不变。
+- 当前硬阈值来自源码：每文件 `200 lines / 4096 bytes`、全局选择 `slice(0, 5)`、session surfaced 正文累计 `60 * 1024`。其中 `60KB` 是 parity 阈值；文档里出现的 `manifest sidecar`、`Top20 prefilter`、`worker pool` 等均应视为 **V3 设计增强**，不是 Claude 原样行为。
+
 ## 异步预取机制（审查修订 Agent 4/6/22）
 
 ### 触发
@@ -50,7 +60,7 @@ turn start
 ## Manifest 构建
 
 ```text
-memory_write / memory_forget / migrate
+turn/end hook 写盘 / `/forget` / migrate
   → 维护 retrieval sidecar（**默认 `manifest.jsonl`**；sqlite / boltdb 留作后续优化选项）
 turn prefetch
   → 优先读取 sidecar header
@@ -151,10 +161,10 @@ turn prefetch
 - consume 通过 CAS `ready → injected` 保证只注入一次；被 cancel / stale-generation 标记的 handle 即使晚到 ready 也只能进入 discarded，不得再转 injected
 - selector / prefetch / consume 共享去重状态时，只允许在同一 turn generation 内读写，避免跨 provider/跨轮次串味
 
-## Nested Memory（暂不实现，排期 P19）
+## Nested Memory（P18 未实现，详见 p18-unimplemented.md）
 
 > nested_memory 是另一套机制（按目标文件路径补充 CLAUDE.md/rules），
-> 复杂度高，与 relevant_memories 独立，P18 不纳入。
+> 复杂度高，与 relevant_memories 独立，当前转记入 [p18-unimplemented.md](p18-unimplemented.md)。
 
 ## 任务清单
 - [ ] `memory/retrieval.go`：StartRelevantMemoryPrefetch / ConsumeIfReady / cancel + CAS consume + turn-scoped ctx / worker drain

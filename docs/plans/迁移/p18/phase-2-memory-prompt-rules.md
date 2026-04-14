@@ -6,8 +6,9 @@
 生成记忆系统的行为规则 prompt（taxonomy + save/access/trust），注入到 system prompt **dynamic memory slot**。
 
 > 范围澄清：本 Phase 只对齐 `loadMemoryPrompt()` 产出的 **behavioral rules**，**不包含** `buildMemoryPrompt()` 那条把 `MEMORY.md` 正文/entrypoint 内容直接注入 prompt 的路径。
+> - Claude 的 agent 路径里，`buildMemoryPrompt()` 会 sync 读取 `MEMORY.md`、调用 `truncateEntrypointContent()`，并由 `loadAgentMemoryPrompt()` 在 fire-and-forget `ensureMemoryDirExists()` 后拼接 scope note；这条链保持在 **Phase 5**，不要回灌到本 Phase。
 >
-> **现状审查结论（2026-04-14）**：当前 `internal/module/memory/` 只有类型/根目录骨架；`internal/module/prompt/` 的 `AssembleStart()` 仅透传 `BaseInstructions/DeveloperInstructions`、`AssembleTurn()` 仍返回空 `TurnAssembly`；`internal/` 内也不存在可复用的 `OnTurnStart` memory hook。故本 Phase 交付的是 **behavior builder 契约 + 规则文案**，不是已经接入运行链路的能力。
+> **现状审查结论（2026-04-14）**：当前 V3 已有 `internal/module/memory/rules.go` / `rules_provider.go` 与 `prompt.DynamicSectionMemory` 接线；`MemoryRulesProvider.Resolve()` 会在 start assembly 注入 Standard behavior rules。但 `MEMORY.md` / AutoMem entrypoint / relevant memories 仍未接入主链，`AssembleTurn()` 也还没有 Claude 等价的 retrieval 注入。因此本 Phase 交付的是 **behavior builder + start-stage wiring 契约**，不是 Claude 全量 prompt parity。
 
 ## 运行模式分派（优先级严格）
 
@@ -29,6 +30,7 @@
 - `LoadMemoryPrompt(mode, autoEnabled, skipIndex, extraGuidelines)`：负责模式分派、禁用分支、runtime ensure 等外层调度
 - `BuildMemoryLines(skipIndex, extraGuidelines)`：负责 Standard memory 规则正文
 - 源码里的 `skipIndex` 来自 feature flag、`extraGuidelines` 来自 env/source config；**V3 对外实现**可以把它们提升为显式 API 参数
+- Claude 当前 `extraGuidelines` 直接取 `CLAUDE_COWORK_MEMORY_EXTRA_GUIDELINES`；目录 `ensureMemoryDirExists()` 发生在 `loadMemoryPrompt()` / `loadAgentMemoryPrompt()` 这种 dispatcher，**不在** `BuildMemoryLines()` / `buildMemoryPrompt()` builder 内部
 - 若保留 `BuildMemoryPrompt(...)` 作为 façade，只能把它视为 V3 统一入口名，**不能**暗示内部只有一个 builder
 
 ### 1. 四种记忆类型 Taxonomy（Individual 版本）
@@ -94,7 +96,18 @@
 > **来源**：`restored-src/src/memdir/memdir.ts:254-257`
 
 ### 7. Standard 模式输出合同（`BuildMemoryLines`）
-固定骨架按以下顺序输出，避免测试与运行时漂移：
+Claude `buildMemoryLines()` 的**原始顺序**是：
+1. 持久记忆系统简述
+2. taxonomy（仅 4 种 type）
+3. exclusions（`WHAT_NOT_TO_SAVE`）
+4. save rules（`How to save memories`）
+5. access rules（`WHEN_TO_ACCESS`）
+6. trust rules（`TRUSTING_RECALL`）
+7. memory vs plan/tasks
+8. `extraGuidelines`
+9. feature-gated `Searching past context`
+
+P18 / V3 当前 builder 的**实现顺序**允许显式调整为：
 1. 持久记忆系统简述（可短，不和 entrypoint 注入混写）
 2. taxonomy（仅 4 种 type）
 3. save rules
@@ -102,16 +115,19 @@
 5. trust rules
 6. exclusions
 7. memory vs plan/tasks
-8. `extraGuidelines`（如有，**追加在末尾**，不得覆盖核心 save/access/trust 规则）
+8. `extraGuidelines`（如有，作为 **V3 已实现正文的尾段**）
 
 补充约束：
-- 该顺序必须稳定，测试按固定 section 顺序断言
+- 若保持上述 V3 顺序，必须把它视为**有意偏离 Claude 原始段落顺序**，并在测试里按 V3 顺序断言；不能一边声称 Claude parity，一边静默重排
 - `skipIndex` 只影响“保存动作如何写索引”的文案，不改变 taxonomy/access/trust/exclusions 语义
 - `extraGuidelines` 是扩展位，不是 override 位；不得削弱核心安全边界、授权边界、ignore-memory 语义
+- “`extraGuidelines` 追加在末尾”指 **V3 已实现正文的末尾**；Claude 原始 builder 里它后面还可能跟一个 feature-gated `Searching past context`
 
 ### 8. Searching past context（本 Phase 决策）
-- Claude `buildMemoryLines()` 末尾存在一个 **feature-gated** 的 `Searching past context` 段
+- Claude `buildMemoryLines()` / `buildAssistantDailyLogPrompt()` / `buildCombinedMemoryPrompt()` 都会在末尾调用 `buildSearchingPastContextSection(autoMemDir)`，但前提是 feature flag `tengu_coral_fern` 打开
+- 该段正文会明确教模型：先在 memory dir 中搜索 `*.md`，再把 session transcript `*.jsonl` 作为 last resort；embedded/repl 环境下甚至直接给 shell `grep` 形态
 - **P18 Phase 2 的主线程 behavioral rules 选择显式 deferred**：本期不把 Claude 原段落直接迁入 Standard memory rules
+- 因而 Phase 2 的 `extraGuidelines` 可视为 V3 实现正文的尾段，但文档/测试必须保留“Claude 原始实现后面还有 feature-gated search section”的注记
 - 该 omission 必须在文档与测试中被视为**有意延后**，而不是默默漏掉
 - Phase 6 的 memory retrieval 负责检索链；若 Phase 5 的 agent-memory builder 需要更高 Claude parity，须在各自任务与测试中单列恢复，不能偷偷回灌到本 Phase
 

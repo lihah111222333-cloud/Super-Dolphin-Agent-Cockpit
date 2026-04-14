@@ -3,7 +3,9 @@
 > 预计：2 天 | 依赖：Phase 0, Phase 2
 
 ## 目标
-实现 Section 注册表 + 7 个静态 slot + 5 个本期动态 slot，并明确另外 **8 个动态 section** 延后到 P19；本期覆盖 Claude registry 的 **7/7 static + 5/13 dynamic = 12/20 total**，**实际渲染出的非 nil section 数量可以小于 12**。
+实现 Section 注册表 + 7 个静态 slot + 5 个本期动态 slot，并把另外 **8 个动态 section** 归档为 P18 未实现部分（详见 `p18-unimplemented.md`）；本期覆盖 Claude registry 的 **7/7 static + 5/13 dynamic = 12/20 total**，**实际渲染出的非 nil section 数量可以小于 12**。
+
+> 审计口径（2026-04-14）：上面的 **7 静态 + 5 动态 + 8 未实现** 是 **P18 目标设计**，不是当前仓库运行态的既成事实。当前 `internal/module/prompt` 只落了 registry/cache/slot 骨架，且尚未接入 `thread/start` / provider 主链；后文“审计差异矩阵”以此为准。
 
 ## Section 注册表
 
@@ -174,7 +176,7 @@ Always respond in {language}. Technical terms remain in original form.
 | user_context | `getUserContext()` + `prependUserContext()` | ❌ 否（Phase 4 注入点） | Phase 4 `TurnAssembly.UserContextText` provider-local prepend |
 | mcp delta attachment 分支 | `getMcpInstructionsSection()` 返回 `null` 后改走 delta | ❌ 否（运行时附件分支） | 本轮不实现 |
 
-因此，**5 个动态 slot ≠ Claude 全部动态注入点**；P18 Phase 3 只实现 registry 范围内的 **5/13 动态 sections**，其余 8 个作为 P19 backlog 明确登记。
+因此，**5 个动态 slot ≠ Claude 全部动态注入点**；P18 Phase 3 只实现 registry 范围内的 **5/13 动态 sections**，其余 8 个转记入 `p18-unimplemented.md` 统一维护。
 
 ## Claude Code 13 个动态 section 完整对照
 
@@ -182,32 +184,69 @@ Always respond in {language}. Technical terms remain in original form.
 |---|---------|---------|------|
 | 1 | session_guidance | ✅ 实现 | |
 | 2 | memory | ✅ 实现 | |
-| 3 | ant_model_override | ⏸ 延后到 P19 | ant-only，V3 无 ant 内部模型覆写链路 |
+| 3 | ant_model_override | ⏸ P18 未实现 | ant-only，V3 无 ant 内部模型覆写链路 |
 | 4 | env_info_simple | ✅ 实现 | |
 | 5 | language | ✅ 实现 | |
-| 6 | output_style | ⏸ 延后到 P19 | 依赖 `outputStyleConfig` / 插件 style 通道；V3 本期仅保留 CLAUDE.md + `style` section |
+| 6 | output_style | ⏸ P18 未实现 | 依赖 `outputStyleConfig` / 插件 style 通道；V3 本期仅保留 CLAUDE.md + `style` section |
 | 7 | mcp_instructions | ✅ 实现 | Volatile |
-| 8 | scratchpad | ⏸ 延后到 P19 | 需 Claude 式 session scratchpad 目录；V3 当前只有 workspace/shared file |
-| 9 | frc | ⏸ 延后到 P19 | 依赖 `CACHED_MICROCOMPACT` + FRC 配置 |
-| 10 | summarize_tool_results | ⏸ 延后到 P19 | 源码独立动态注入；V3 暂不做工具结果摘要层 |
-| 11 | numeric_length_anchors | ⏸ 延后到 P19 | ant-only 长度锚点 |
-| 12 | token_budget | ⏸ 延后到 P19 | 依赖 user token target / auto-continue 预算模型 |
-| 13 | brief | ⏸ 延后到 P19 | 依赖 `KAIROS` / `KAIROS_BRIEF` + `briefToolModule` + proactive 去重 |
+| 8 | scratchpad | ⏸ P18 未实现 | 需 Claude 式 session scratchpad 目录；V3 当前只有 workspace/shared file |
+| 9 | frc | ⏸ P18 未实现 | 依赖 `CACHED_MICROCOMPACT` + FRC 配置 |
+| 10 | summarize_tool_results | ⏸ P18 未实现 | 源码独立动态注入；V3 暂不做工具结果摘要层 |
+| 11 | numeric_length_anchors | ⏸ P18 未实现 | ant-only 长度锚点 |
+| 12 | token_budget | ⏸ P18 未实现 | 依赖 user token target / auto-continue 预算模型 |
+| 13 | brief | ⏸ P18 未实现 | 依赖 `KAIROS` / `KAIROS_BRIEF` + `briefToolModule` + proactive 去重 |
 
-## 延后动态 Sections（P19）
+## 未实现动态 Sections（详见 p18-unimplemented.md）
 
-| section | 功能 | 触发条件 | 延后理由 | 当前风险 |
+> 这 8 个动态 section 已归档到 [p18-unimplemented.md](p18-unimplemented.md)。
+> 子文档统一维护风险评级、Claude 锚点、预估工期与依赖关系。
+
+## 审计差异矩阵（Claude 20 sections × P18 设计 × 当前 V3 代码）
+
+> 重要：当前 V3 prompt assembly 尚未进入运行主链。`internal/module/thread/start_session.go:146-152` 仍直接把 `FirstNonEmpty(req.BaseInstructions, req.Prompt)` 作为 launch instructions；`internal/provider/claudecli/transport_config.go:129-146` 直接拼 `instructions + DeveloperInstructions`；turn 侧也仍走平面文本（`internal/provider/claudecli/session_turn.go:167-196`）。`internal/module/thread/prompt_integration_test.go:5-44` 仍是 TODO/Skip，因此下表中的 **V3 代码** 列表示“模块现状”，不是当前生产运行效果。
+
+| Section | Claude 行为 | P18 设计 | V3 代码 | 一致? | 差异详情 |
+|---|---|---|---|---|---|
+| 1. intro / identity | 静态 #1；始终包含；`getSimpleIntroSection(outputStyleConfig)` 会随 `outputStyleConfig` 改写 framing，并携带 `CYBER_RISK_INSTRUCTION` + 禁止猜 URL（`prompts.ts:175-184`） | `identity`；保留 software-engineering framing、安全底线、URL 禁令 | `SectionIdentity` 固定三行文案（`internal/module/prompt/section.go:55-57`） | 设计部分一致，代码未落地 | V3 没有 Claude Code branding，也没有 `outputStyleConfig` 对 intro 的动态影响 |
+| 2. system / system_constraints | 静态 #2；始终包含；Markdown、权限拒绝不重试、system tags、prompt injection、hooks、无限上下文（`prompts.ts:186-197`） | `system_constraints`；目标上基本承接该 section | `SectionConstraints` 仅保留 4 条概要（`internal/module/prompt/section.go:59-63`） | 设计部分一致，代码未落地 | 当前 V3 缺 hooks、prompt-injection 显式提示、自动压缩/无限上下文描述 |
+| 3. doing_tasks / engineering | 静态 #3；默认包含；仅当 `outputStyleConfig.keepCodingInstructions == false` 时跳过；ant 分支附加多条约束（`prompts.ts:199-253`） | `engineering`；承接 Claude doing-tasks 规则 | `SectionTools` 仅保留“先读再改/优先改老文件/先诊断/先验证/防过度设计”（`internal/module/prompt/section.go:65-70`） | 设计部分一致，代码未落地 | V3 没有 `keepCodingInstructions` gate、ant 分支、时间估计/OWASP/反馈指引 |
+| 4. actions | 静态 #4；始终包含；高风险动作确认边界与 scope 规则（`prompts.ts:255-267`） | 独立 `actions` section | 无独立 section；当前 7 静态里不存在对应槽位 | 设计一致，代码未落地 | 当前实现把 `memory_rules/project_context/user_preferences` 放进静态 7 槽，挤掉了 `actions` |
+| 5. using_your_tools / tool_preferences | 静态 #5；普通模式始终包含；REPL 下可能只输出 task tool 提示，甚至返回空字符串；内容依赖 `enabledTools` / embedded search / task tool（`prompts.ts:269-314`） | `tool_preferences`；改写为 V3 LSP 工具链优先 | `SectionToolPreferences` 只有 4 条静态 bullet（`internal/module/prompt/section.go:78-82`） | 设计部分一致，代码未落地 | V3 没有 REPL / task tool / embedded search / dedicated-tool availability 分支 |
+| 6. tone_and_style / style | 静态 #6；始终包含；ant 分支去掉“short and concise” bullet（`prompts.ts:430-442`） | 独立 `style` section | 无独立 `style`；仅 `SectionUserPreferences` 吸收少量输出偏好（`internal/module/prompt/section.go:89-93`） | 设计一致，代码未落地 | emoji、GitHub issue/PR 格式、tool-call 前禁冒号等 Claude 规则均未落到当前代码 |
+| 7. output_efficiency | 静态 #7；始终包含；ant/non-ant 文案分叉（`prompts.ts:403-428`） | 独立 `output_efficiency`；明确采用 Claude 非 ant concise 分支 | 无独立 section；仅在 `SectionUserPreferences` 中零散表达“lead with answer / concise”（`internal/module/prompt/section.go:89-93`） | 设计一致，代码未落地 | 当前 V3 缺完整 section，也没有 ant vs non-ant 分支 |
+| 8. session_guidance | 动态 #1；`systemPromptSection`；内容取决于 ask-user、interactive、skills、agent、verification 等，若无条目则返回 `null`（`prompts.ts:352-400, 492-494`） | 本期实现 | 动态槽位存在（`internal/module/prompt/dynamic.go:34`），但仓库内无默认 provider | 设计一致，代码未落地 | 当前默认渲染为 nil，除非外部显式 `RegisterDynamicProvider()` |
+| 9. memory | 动态 #2；**cached**；`loadMemoryPrompt()` 依 KAIROS / TEAMMEM / auto-memory / disabled 分支决定内容或 `null`（`memdir.ts:419-507`, `prompts.ts:495`） | 本期实现；计划复用 Phase 2 memory prompt | 槽位存在但被标成 `volatile`（`internal/module/prompt/dynamic.go:35`）；memory 模块会自动注册 provider（`internal/module/memory/module.go:9-17`），且 provider 只在 `AssembleStart()` 渲染、turn 返回 nil（`rules_provider.go:38-45`） | 设计与代码均不一致 | Claude 把 memory 当 cached dynamic section；当前 V3 把它做成 volatile start-only，同时还额外存在静态 `memory_rules`，语义重复 |
+| 10. ant_model_override | 动态 #3；cached；仅 `USER_TYPE == ant` 且非 undercover 才返回文本（`prompts.ts:136-140, 496-498`） | P18 未实现（见 `p18-unimplemented.md`） | 无 | 按未实现清单登记 | 若未来要补 parity，需要连同 ant-only provider/model 分支一起落地 |
+| 11. env_info_simple | 动态 #4；cached；`computeSimpleEnvInfo()` 包含 worktree、git、平台、shell、OS、model、knowledge cutoff、frontier guidance（`prompts.ts:651-710, 499-501`） | 本期实现；先保留 simple env info | 槽位存在（`internal/module/prompt/dynamic.go:36`），但仓库内无默认 provider；`BuildCtx` 仅承载字段（`internal/contract/prompt.go:17-27`） | 设计一致，代码未落地 | 当前没有任何默认 env renderer，也没有 worktree/model prompt 文案 |
+| 12. language | 动态 #5；cached；仅当 `settings.language` 非空时返回（`prompts.ts:142-149, 502-504`） | 本期实现 | 槽位存在（`internal/module/prompt/dynamic.go:37`），但无默认 provider；只有测试用 provider（`internal/module/prompt/dynamic_test.go:9-32`） | 设计一致，代码未落地 | 语言偏好尚未接到 settings/runtime source |
+| 13. output_style | 动态 #6；cached；`getOutputStyleSection(outputStyleConfig)`；同时还会影响 intro 与 doing_tasks 的静态装配（`prompts.ts:151-158, 505-507, 562-567`） | P18 未实现（见 `p18-unimplemented.md`） | 无 | 按未实现清单登记 | 这不是独立 section 缺失而已，还连带缺 `intro` / `doing_tasks` 的 style-sensitive 分支 |
+| 14. mcp_instructions | 动态 #7；`DANGEROUS_uncachedSystemPromptSection`；每轮重算；若 delta 模式开启则返回 `null`，否则按已连接且带 instructions 的 server 聚合（`prompts.ts:508-520, 579-604`） | 本期实现；保留 volatile 语义，delta 分支延后 | 槽位存在且 `volatile=true`（`internal/module/prompt/dynamic.go:38`），但没有默认 provider；`BuildCtx` 只有 `MCPSnapshot`，没有 Claude 那套 client instructions 聚合器 | 设计部分一致，代码未落地 | 当前没有 delta/late-connect 处理，也没有与 provider prompt cache 绑定的 `DANGEROUS` 语义 |
+| 15. scratchpad | 动态 #8；cached；`isScratchpadEnabled()` 为真时提示使用 session scratchpad 目录（`prompts.ts:521, 797-819`） | P18 未实现（见 `p18-unimplemented.md`） | 无 | 按未实现清单登记 | 需补 Claude 式 scratchpad 目录与权限模型 |
+| 16. frc | 动态 #9；cached；依赖 `CACHED_MICROCOMPACT`、配置开关、model 支持（`prompts.ts:522, 821-839`） | P18 未实现（见 `p18-unimplemented.md`） | 无 | 按未实现清单登记 | 需与 compact/microcompact 生态一起设计 |
+| 17. summarize_tool_results | 动态 #10；cached 常量字符串；始终注册（`prompts.ts:523-526, 841`） | P18 未实现（见 `p18-unimplemented.md`） | 无 | 按未实现清单登记 | 当前 V3 没有对应摘要层 |
+| 18. numeric_length_anchors | 动态 #11；cached；仅 ant 分支注册（`prompts.ts:527-537`） | P18 未实现（见 `p18-unimplemented.md`） | 无 | 按未实现清单登记 | ant-only 低优先级缺口 |
+| 19. token_budget | 动态 #12；cached；仅 `feature('TOKEN_BUDGET')` 时注册（`prompts.ts:538-550`） | P18 未实现（见 `p18-unimplemented.md`） | 无 | 按未实现清单登记 | 需要与 auto-continue / token target 预算模型一起补 |
+| 20. brief | 动态 #13；cached；依赖 `KAIROS` / `KAIROS_BRIEF` + brief module，且 proactive 激活时要跳过以避免重复（`prompts.ts:552-554, 843-858`） | P18 未实现（见 `p18-unimplemented.md`） | 无 | 按未实现清单登记 | 依赖 KAIROS / brief 工具链，当前仓库完全未接 |
+
+### 审计结论（section 级）
+- **P18 设计层**：已经把 Claude 的 20 个 registry sections 正确拆成 **7 静态 + 5 本期动态 + 8 未实现** 的目标清单，但这仍然是设计口径，不等于当前代码已落地。
+- **当前 V3 代码层**：`internal/module/prompt` 只具备 **12 个 slot 骨架**（`section.go:24-32` + `dynamic.go:33-39`），其中默认真正有 provider 的只有 `memory`，其行为还与 Claude / P18 设计不一致。
+- **当前 V3 静态 7 槽** 实际顺序为：`identity → constraints → tools → memory_rules → tool_preferences → project_context → user_preferences`；这与 P18 目标中的 `identity → system_constraints → engineering → actions → tool_preferences → style → output_efficiency` 不同。
+- **当前 V3 动态 5 槽** 实际顺序为：`session_guidance → memory → env_info_simple → language → mcp_instructions`；`AssembleStart()` 会把所有非 nil section 拼进 `BaseInstructions`，而 `AssembleTurn()` 只渲染动态区（`internal/module/prompt/assembler.go:18-54`）。这与 Claude 单函数 `getSystemPrompt()` 的一体化产物模型并不相同。
+
+## 审计补充：section cache / invalidation / boundary 差异
+
+| 主题 | Claude 源码 | P18 设计 | 当前 V3 代码 | 结论 |
 |---|---|---|---|---|
-| output_style | 根据 `outputStyleConfig` / 插件 style 通道改写 intro 与输出风格 | 存在 output-style 配置，或插件提供 style 覆写 | V3 本期不迁移独立 output-style 来源，统一由 CLAUDE.md + `style` section 承载 | 无法做到 Claude 式独立开关/插件化 style parity，风格控制粒度较粗 |
-| scratchpad | 暴露 session scratchpad 目录，供无权限临时写入 / 跨步骤暂存 | 会话启用 scratchpad 且 scratchpad 目录可用 | V3 仅有 workspace/shared file，未设计 Claude 式 scratchpad 目录 | 缺少隔离 scratch space；未来若需要跨 worker 暂存需另补协议 |
-| frc | 执行 function result clearing / microcompact，清理旧 tool result 占用 | `CACHED_MICROCOMPACT` + FRC 配置开启 | 依赖 Claude 特定 compact/cache 机制，P18 不做 | 工具密集长会话的上下文回收效率、compact parity 与 stale tool-result 清理弱于 Claude |
-| summarize_tool_results | 在 system prompt 中要求先概括工具结果，降低原始输出占用 | Claude 动态 slot 总是注册该 section（源码独立注入，无额外 gate） | V3 先保留原始 tool-result 链路，不额外引入摘要层 | 长 tool output 更占 token，总结节奏依赖模型自行处理 |
-| numeric_length_anchors | 提供数值长度锚点，约束回答篇幅 | ant model 分支启用 | ant-only；V3 当前不做 ant 分支 | 当前主链低风险，但未来 ant parity 缺口明确存在 |
-| token_budget | 注入 user token target / auto-continue 预算约束 | 开启 token budget / auto-continue 交互模型 | V3 / Codex 交互模型不同，当前无同构预算接口 | 长回复预算不可显式对齐 Claude，长度可预测性较弱 |
-| brief | 注入 brief / proactive dedupe 规则，驱动阶段性 recap 压缩 | `KAIROS` / `KAIROS_BRIEF` + `briefToolModule` + proactive 去重链路可用 | 依赖 KAIROS 生态与 brief 模块，P18 不实现 | 长寿命会话缺少主动 recap / 去重，记忆噪声控制弱于 Claude |
-| ant_model_override | ant 模型分支下覆写系统提示词细节 | ant family / ant-specific branch 选中 | ant-only，V3 无 ant 内部模型覆写链路 | 当前主链低风险；若未来接 ant family 需补专门分支 |
-
-> 其中 `ant_model_override` / `numeric_length_anchors` 为 ant-only，可在 P19 内继续后置为低优先级子任务。
+| 缓存容器 | `bootstrap/state.ts:203,1641-1654`：`Map<string, string \| null>`，key 只有 section name | name cache + generation / dependency-aware invalidation | `internal/module/prompt/cache.go:8-73`：`generation + map[string]*string` | V3 更接近 P18，而不是 Claude 的纯 name-only map |
+| `nil` 是否缓存 | 是；`cache.has(name)` + `cache.get(name) ?? null`（`systemPromptSections.ts:46-56`） | 是；明确要求 `nil` 默认可缓存 | 是；`Store(nil)` 有单测覆盖（`cache_test.go:5-29`） | 此项基本对齐 |
+| volatile / DANGEROUS 语义 | `cacheBreak=true` 时跳过读缓存、每轮重算、仍写回 cache；值变化会打破 provider prompt cache（`systemPromptSections.ts:32-58`） | `Volatile` 同样每轮重算但仍写 cache；仅值变化时真正打破 prompt cache | `assembler.go:84-127`：`Volatile` 跳过 `Lookup()`、每次 `Compute()` 后 `Store()`；但仓库没有 Claude 那套 provider prompt cache / boundary 机制 | 语义只实现到“每轮重算 + 写回”，未实现 Claude 的 cache-scope/bust 效果 |
+| 并发抑制 | `Promise.all()` 并行 resolve；无 singleflight（`systemPromptSections.ts:43-58`） | 非 volatile section 要 singleflight | `service.go:35` + `assembler.go:111-126`：非 volatile 用 `singleflight.Group`，volatile 不做抑制 | V3 已按 P18 补了 Claude 没有的 singleflight |
+| 失效触发 | `/clear` 通过 `runPostCompactCleanup()` 清空；post-compact、worktree enter/exit、resume restore/exit、setup undercover flip 都会 clear（`commands/clear/caches.ts:71-84`, `postCompactCleanup.ts:31-77`, `EnterWorktreeTool.ts:98-102`, `ExitWorktreeTool.ts:143-145`, `sessionRestore.ts:360-389`, `setup.ts:337-347`） | clear/compact/worktree/resume/provider switch + dependency-aware invalidate + barrier mismatch | `InvalidateReason` 枚举已定义（`internal/contract/prompt.go:36-44`），但 `service.Invalidate()` 无引用（`assembler.go:56-65` 的 xref 为空）；`InvalidateSections()` 目前只在 provider register/unregister 时调用（`dynamic.go:72,87`） | 当前 V3 只有“API 能力”，没有生产失效链路 |
+| section-scoped invalidate | Claude 只有全量 clear，缺 section-scoped invalidate | 明确要求 section-scoped invalidate / generation bump | `InvalidateSections(names...)` 已实现（`cache.go:65-73`） | 能力存在，但尚未和 language/model/tool/MCP/worktree 等真实依赖绑定 |
+| boundary / global cache scope | `SYSTEM_PROMPT_DYNAMIC_BOUNDARY` + `splitSysPromptPrefix()` + `buildSystemPromptBlocks()` 把 static/dynamic 切成 `global/null` cacheScope（`prompts.ts:105-115, 572-575`, `utils/api.ts:321-435`, `services/api/claude.ts:3213-3237`） | 文档明确 **不实现** Claude literal boundary/global scope | 当前 V3 也未实现 boundary 或 provider 级 prompt cache | 这里是有意不对齐，而不是漏实现 |
+| beta header latches | `clearSystemPromptSections()` 还会 `clearBetaHeaderLatches()`（`systemPromptSections.ts:65-68`） | 文档已记录“/clear 同时 reset beta header latches” | 当前 V3 没有对应 beta latch 状态 | 该项若未来引入 provider 级 cache/header 状态，需要一并设计 |
+| 主链接入状态 | `getSystemPrompt()` 已被 REPL / agent / compact cache-sharing 等主链消费（`call_hierarchy` incoming） | Phase 4/4.5 再接 thread/provider 主链 | 当前 `AssembleStart/AssembleTurn` 只被 prompt/memory 单测直接调用；thread/provider 主链仍绕过 prompt 模块 | 这是当前最大落差：模块已存在，但运行态还没用它 |
 
 ## 组装顺序
 ```text

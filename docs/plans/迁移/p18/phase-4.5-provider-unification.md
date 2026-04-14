@@ -65,12 +65,13 @@ BaseInstructions
 ## 任务 2：PromptAssemblyService 接线与补全
 
 > 审查补记（2026-04-14）：
-> - `internal/module/prompt/types.go` / `service.go` 已有 `StartInput/TurnInput/StartAssembly/PromptAssemblySnapshot` 与 `AssembleStart()` 骨架实现；
-> - `AssembleTurn()` 目前仍返回空结构，且 `thread` 模块尚未注入/调用 `PromptAssemblyService`；
-> - 因此本任务的真实范围是 **接线 + 补 turn 组装 + 落 durability contract**，不是从零定义接口。
+> - `internal/contract/prompt.go` 已经定义了 `PromptAssemblyService`、`StartInput/TurnInput`、`StartAssembly/TurnAssembly/PromptAssemblySnapshot`；`internal/module/prompt/types.go` 主要是别名桥接，不再是“从零起草 contract”的状态；
+> - `internal/module/prompt/assembler.go` 的 `AssembleStart()` 已能产出 `Snapshot`，`AssembleTurn()` 也不再是空实现，而是会渲染 **registered dynamic sections**；
+> - 但生产链路里 `thread/provider/orchestration` 仍**没有接线**到 `AssembleStart()/AssembleTurn()`，且现有 turn 组装还没有落实计划中的 `claudeMd + currentDate + runtime extras` 两阶段语义；
+> - 因此本任务的真实范围是 **接线 + 校正现有 contract 描述 + 把 turn 组装补齐到计划语义 + 落 durability contract**。
 
 ```go
-package prompt
+package contract
 
 type PromptAssemblyService interface {
     // 会话启动时组装
@@ -132,8 +133,8 @@ type PromptAssemblySnapshot struct {
 }
 ```
 
-**现状落点**：当前仓库代码仍在 `internal/module/prompt/types.go` + `service.go`
-**目标落点**：`internal/contract/*`（接口）+ `internal/dto/*`（跨 layer 载荷）；`internal/module/prompt` 只保留实现
+**现状落点**：`internal/contract/prompt.go` 已承载 interface + payload contract，`internal/module/prompt/types.go` 主要提供 alias，`internal/module/prompt/assembler.go` / `service.go` 负责实现
+**目标落点**：保持 contract 单点定义；若后续仍坚持 `internal/dto/*` 承载跨 layer payload，需要做**迁移/收口**而不是在 provider 内重复再定义一套
 **不放**：provider 内部，也不允许 provider / `cmd/mcp-*` 反向 import `internal/module/prompt`
 
 ### Snapshot 持久化契约
@@ -208,6 +209,15 @@ type PromptAssemblySnapshot struct {
 - cold restart / recovery 仍需读取 `thread_states.prompt_snapshot`，重建 `PromptAssembly` 后再做 provider-specific 映射
 - snapshot 以**结构化字段 + hash/version/provider** 为主，不长期持久化完整拼装后的 provider 最终字符串，避免安全泄露与 provider 串味
 
+## 审计补记：Claude / Codex 当前统一阻塞（2026-04-14）
+
+- **launch prompt wire format 仍分叉**：Claude `composeLaunchSystemPrompt()` 还会把 `approval/sandbox/summary/effort/personality` 拼进单字符串 `--system-prompt`；Codex `threadStartParams` 则把这些字段保持为结构化 RPC 参数。
+- **developerInstructions alias 仍不对齐**：Claude `configFromMap()` 同时接受 `developer_instructions` / `developerInstructions`；Codex `buildThreadStartParams()` 当前只读 camelCase `developerInstructions`，仍依赖线程层双写兜底。
+- **turn 入口顺序差异仍是现状事实**：Claude 当前基线顺序是 `附件提示 -> user text -> skill section -> output_schema`；Codex 当前基线顺序是 `skill prompt synthetic input -> 用户结构化 inputs`。两边都还没有 `UserContextText` 注入位。
+- **resume/restart live 能力不对称**：Claude live restart 会复用内存态 `s.instructions + next.config`；Codex `ResumeSession()` / `resumeThreadAfterRecovery()` 只发 `threadId/cwd/model` 到 `thread/resume`，没有 instructions 回补。
+- **snapshot 现状不对称且都不够**：Claude `RuntimeConfigSnapshot()` 会暴露 `baseInstructions/developerInstructions`，Codex `RuntimeConfigSnapshot()` 完全不带 instructions；但两者都不是跨进程 durable `prompt_snapshot`，仍不足以覆盖 cold resume/recovery。
+- **PromptAssemblyService 已存在但未接线**：contract + assembler 已落地，生产代码里 `thread/provider/orchestration` 仍没有真实调用链，说明本 Phase 的重点是接线与 durability，而不是再发明一套新接口。
+
 ---
 
 ## 任务 5：缓存失效补充
@@ -270,7 +280,7 @@ Phase 3 缓存失效点需补充：
 ## 验收
 
 - [ ] `BaseInstructions` 不再污染 thread name / store / resume / Fork / Recover / `toRef()` / `SetName()`
-- [ ] `PromptAssemblyService` 已按 `internal/contract/*` + `internal/dto/*` 边界落位，并真正接入 `thread/start` + turn 入口，`AssembleTurn()` 不再是空实现
+- [ ] `PromptAssemblyService` 现有 contract/impl 真正接入 `thread/start` + turn 入口；`AssembleTurn()` 从“仅渲染 dynamic sections”升级为符合计划语义的 `claudeMd + currentDate + runtime extras` 两阶段产物
 - [ ] `AssembleStart()` 直接产出 `StartAssembly.Snapshot`，并写入 thread/session runtime snapshot 层
 - [ ] Resume/Recovery/Restart 显式依赖 `PromptAssemblySnapshot`（含 `Version + Hash + Provider` 校验），不再只靠污染后的 `Prompt`
 - [ ] Resume/Recover 不再重复发布 `thread.Started`；Recover 不再发送会冲空 UI 字段的缩水 Started 事件
@@ -320,14 +330,20 @@ PromptAssemblyService.AssembleTurn()
 | internal/module/thread/rpc.go | 51-53 | thread/name/set handler |
 | internal/module/thread/rpc_types.go | 54-91 | legacy 字段兼容 |
 | internal/ui/wails/binding.go | 60-66 | Wails LaunchAgent 旧入口兼容 |
-| internal/provider/codexapp/support.go | 248-261 | codex buildThreadStartParams |
+| internal/provider/codexapp/support.go | 248-261 | codex buildThreadStartParams（当前只读 camelCase developerInstructions） |
+| internal/provider/codexapp/support.go | 305-312 | codex startRemoteThreadWithDynamicTools |
+| internal/provider/codexapp/session.go | 141-155 | codex RuntimeConfigSnapshot（不含 instructions） |
 | internal/provider/codexapp/session_turn.go | 37-49 | codex buildTurnStartParams |
+| internal/provider/codexapp/session_turn.go | 51-63 | codex buildTurnSteerParams |
 | internal/provider/codexapp/session_turn.go | 76-85 | codex turnInputsFromRequest |
 | internal/provider/codexapp/module.go | 231-248 | skill prompt 先例 |
-| internal/provider/claudecli/session.go | 128-159 | RuntimeConfigSnapshot（字段写入见 136-152） |
+| internal/provider/codexapp/driver.go | 203-214 | codex ResumeSession → thread/resume |
+| internal/provider/codexapp/recovery.go | 164-182 | codex recovery resumeThreadAfterRecovery |
+| internal/provider/claudecli/config.go | 39-47 | claude configFromMap alias 兼容 |
+| internal/provider/claudecli/session.go | 118-149 | claude RuntimeConfigSnapshot（含 base/dev instructions） |
 | internal/provider/claudecli/transport_config.go | 99-147 | claude --system-prompt 拼装 |
-| internal/provider/claudecli/session_turn.go | 173-202 | claude turn prepareTurnLocked |
-| internal/provider/claudecli/session_log_watcher_integration.go | 231-236 | claude restart instructions 恢复 |
+| internal/provider/claudecli/session_turn.go | 167-210 | claude turn prepareTurnLocked / buildSteerPayload |
+| internal/provider/claudecli/session_log_watcher_integration.go | 230-253 | claude restart instructions 恢复 |
 | internal/provider/claudecli/driver.go | 106-127 | claude StartSession launch 入口 |
 | internal/provider/claudecli/driver.go | 149-191 | claude start / prepareSessionStart |
 | internal/provider/unified/client.go | 30-68 | 统一 driver 分发 |

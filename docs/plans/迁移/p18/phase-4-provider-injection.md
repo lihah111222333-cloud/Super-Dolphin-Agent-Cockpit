@@ -111,6 +111,16 @@ type SystemContext struct {
 | `internal/provider/codexapp/session_turn.go` | 37-84 | buildTurnStartParams() + turn 输入拼装 |
 | `internal/provider/claudecli/session.go` | 137-145 | runtime snapshot |
 
+## 源码审计补记（2026-04-14）
+
+| 环节 | Claude CLI | Codex App | P18 统一方案 | Gap |
+|------|------------|-----------|--------------|-----|
+| system prompt 组装 | `thread/start` 仍把 `Instructions = FirstNonEmpty(req.BaseInstructions, req.Prompt)` 传入 provider；`driver.StartSession -> prepareSessionStart -> launchCLI -> buildCLIArgs -> composeLaunchSystemPrompt()` 最终把 `instructions + DeveloperInstructions + approval/sandbox/summary/effort/personality` **拼成单个** `--system-prompt` | `thread/start` 同样吃到污染后的 `Instructions`，但 `buildThreadStartParams()` 会把它拆到 `baseInstructions`，再把 `developerInstructions/approvalPolicy/personality/summary/effort/sandbox` 作为**独立字段**发给 `thread/start` | `AssembleStart()` 只产出 `BaseInstructions + DeveloperInstructions + Snapshot`；runtime flags 继续走 config/rpc 字段 | 必须先切断 `Prompt -> Instructions` 污染；Claude 还要显式定义“单字符串 bridge”与“runtime flags 字段”边界，避免把 approval/sandbox 等继续塞进 system tail |
+| turn 输入组装 | `prepareTurnLocked()` / `buildSteerPayload()` 都复用 `buildTurnText()`；当前顺序是 **附件提示 -> user text -> skill section -> output_schema**，完全没有 UserContext 前置块 | `buildTurnStartParams()` / `buildTurnSteerParams()` 都复用 `turnInputsFromRequest()`；当前顺序是 **skill prompt synthetic text input -> 用户结构化 inputs**，附件保持 `mention/image/localImage` 结构，不存在 UserContext synthetic input | `AssembleTurn().UserContextText` 统一交给 thread/turn adapter：Codex 在 skill prompt 后插入 synthetic text input；Claude 在附件提示前插 provider-local prepend block | 目前两条 turn 链都**未消费** `TurnAssembly.UserContextText`；Claude/Codex 需要统一从 thread/turn adapter 注入，而不是各自二次拼装 |
+| instructions 传递 | `configFromMap()` 同时接受 `developer_instructions` 与 `developerInstructions`；live session 会把 `s.instructions + s.config.DeveloperInstructions` 留在内存态与 runtime snapshot | `buildThreadStartParams()` 只读取 camelCase `developerInstructions`；虽然线程层当前双写 camel/snake，但 provider 自身尚未统一 alias 入口 | 在线程边界统一 `NormalizeStartConfig(...)` / assembly DTO，provider 只消费 canonical `BaseInstructions/DeveloperInstructions` | Codex 侧还存在 camelCase-only 入口；Claude/Codex 当前都依赖线程层的 legacy alias 双写与 `Prompt` 兜底，语义仍未解耦 |
+| resume / restart 恢复 | live restart `prepareSessionRestartLocked()` 会复用 `s.instructions` 与 `next.config` 重新 `launchCLI(...)`；但 cold `ResumeSession()` 本身不携带 instructions，只能靠内存态/外层恢复链 | `ResumeSession()` 与 `resumeThreadAfterRecovery()` 都只发 `threadId/cwd/model` 到 `thread/resume`，没有 base/dev instructions 回灌路径 | Resume / Restart / Recovery 全部先读 `PromptAssemblySnapshot`，再按 provider-specific wire format 重建注入 | Claude 只覆盖 live restart，Codex 甚至 live recovery 都不带 instructions；必须引入统一 durability source of truth |
+| snapshot 持久化 | `RuntimeConfigSnapshot()` 会回写 `baseInstructions + developerInstructions + approvalPolicy + personality + sandbox`，但这是 provider live snapshot，不是线程持久化 contract | `RuntimeConfigSnapshot()` 只保留 runtimeConfig/approvalPolicy，**不包含任何 instructions**；thread store 侧同样没有 `prompt_snapshot` | `thread/start_session` 持久化 `PromptAssemblySnapshot`，provider runtime snapshot 只作为可选优化 | 目前没有真正跨进程稳定的 prompt snapshot；Claude/Codex 只是在 live session 上保留了不同程度的内存态信息 |
+
 ## 统一 Builder（不复制两套）
 
 > **审查修订**（Agent 7）：不复制 Claude 的 REPL/SDK 两套组装。
@@ -119,7 +129,7 @@ type SystemContext struct {
 > cache boundary 也应收口到 `PromptAssemblyService`：provider 只消费 assembly 产物，不各自维护一套 user-context/system-tail 拼装缓存。
 
 ## 任务清单
-- [ ] 先落 `internal/contract/*` 中的 `PromptAssemblyService` 契约，以及 `internal/dto/*` 中的 `StartInput / TurnInput / StartAssembly / TurnAssembly / PromptAssemblySnapshot`
+- [ ] 先校正并复用现有 `internal/contract/prompt.go` / `internal/module/prompt/*` contract+impl；`thread/provider/orchestration` 改为真正接入该契约，再决定是否需要把跨 layer payload 继续外提到 `internal/dto/*`
 - [ ] `prompt/context.go`：`BuildBaseUserContext()` + `MergeRuntimeUserContext()` + `FormatUserContextMessage()` + `BuildSystemContext()`
 - [ ] 修改 `internal/provider/codexapp/support.go:248-261`：thread/start 接入 `PromptAssemblyService.AssembleStart()`，消费 `StartAssembly.BaseInstructions / DeveloperInstructions / Snapshot`（通过 start_session.go / thread adapter 注入，不在 provider 内部，也不新增对 `internal/module/prompt` 的 import）
 - [ ] 修改 `internal/provider/codexapp/session_turn.go:37-49,76-85`：`turn/start` + `turn/steer` 消费 `TurnAssembly.UserContextText`，映射为前置 synthetic text input（在 skill prompt 之后）
@@ -127,10 +137,13 @@ type SystemContext struct {
 - [ ] 修改 Claude turn helper：普通 turn / steer 共用 `TurnAssembly.UserContextText` prepend helper，消费为 provider-local prepend block，且不把 UserContext 塞回普通 user inputs
 - [ ] 明确 turn 层与 provider adapter 的 `TurnAssembly` 交接契约，不允许再走 `FirstNonEmpty(req.BaseInstructions, req.Prompt)` 兜底
 - [ ] 缓存失效注册：`/clear`、`/compact`、worktree、`/resume`、provider switch、auto-compact、partial compact
+- [ ] 统一 provider config alias：Codex/Claude 都只消费 canonical `developerInstructions` 语义，不再依赖 camel/snake_case 双写差异
+- [ ] 明确 Claude 单字符串 `--system-prompt` bridge 规则：`approval/sandbox/summary/effort/personality` 继续走 runtime/config 字段，不再被误记成 PromptAssembly 的 developer tail
 
 ## 验收
 - thread/start 消费 `PromptAssemblyService.AssembleStart()` 返回的 `StartAssembly{BaseInstructions, DeveloperInstructions, Snapshot}`
 - `start_session.go:146-152` 不再用 `Prompt` 兜底 provider `Instructions`
 - Codex `turn/start` 与 `turn/steer` 都把 `TurnAssembly.UserContextText` 映射为前置 synthetic text input（在 skill prompt 之后）
 - Claude 普通 turn / steer 顺序一致，且 `TurnAssembly.UserContextText` 只作为 provider-local prepend block 消费，不回写普通用户输入，provider 也不二次构造 UserContext
+- Codex / Claude 都只消费 canonical `developerInstructions`；resume / recovery 不再依赖 provider live runtime snapshot 或内存态 `instructions`
 - 缓存失效测试

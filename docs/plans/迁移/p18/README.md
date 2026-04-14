@@ -30,9 +30,9 @@
 | 4 | [phase-4-provider-injection.md](phase-4-provider-injection.md) | Provider 链路注入（依赖 Phase 3 / 4.5） | 1 天 |
 | 5 | [phase-5-agent-memory.md](phase-5-agent-memory.md) | Agent 记忆隔离 | 1 天 |
 | 6 | [phase-6-memory-retrieval.md](phase-6-memory-retrieval.md) | 记忆检索 | 2 天 |
-| 7 | [phase-7-migration-compat.md](phase-7-migration-compat.md) | 迁移工具 + 兼容层 | 1 天 |
+| 7 | [phase-7-migration-compat.md](phase-7-migration-compat.md) | Hook 注入 + 记忆读取工具 + 迁移兼容 | 0.5-1 天 |
 | 8 | [phase-8-testing.md](phase-8-testing.md) | 测试 + 守护 | 1-2 天 |
-| **合计** | | | **17-20 天** |
+| **合计** | | | **16.5-20 天** |
 
 ## Phase 依赖图（文本）
 
@@ -83,31 +83,72 @@ Phase 7 ─> Phase 8
 - Claude 完整 memory 体系不只是 `loadMemoryPrompt()` 行为规则；还包含磁盘 memory 文件、主线程 `MEMORY.md` / TeamMem entrypoint 注入链、agent memory 特例、relevant memories、nested memory，以及 stop-hook 后台 extract / auto-dream / team sync 服务层。
 - **主线程常规路径**里：`loadMemoryPrompt()` 只负责行为规则；`MEMORY.md` / TeamMem 内容实际走 Phase 4 的 `claudeMd` source-resolver + filter + render + UserContext prepend 链进入模型，**不是**像 agent memory 那样直接内联。
 - **agent memory** 是单独特例：`LoadAgentMemoryPrompt()` 直接读取并内联 agent 自己的 `MEMORY.md`，因此不能把主线程与 agent 路径混写成同一种注入方式。
-- 当前 P18 的 ~87% 对齐度，主要覆盖 **单用户 + Standard 主链 + agent memory + relevant memories + prompt/provider 注入重构**；剩余差距主要集中在 **KAIROS / Team Memory / nested memory / 后台服务层 / exact compact-adjacent parity**。
+- 截至 **2026-04-14**，若按仓库内 `internal/` 实码逐项复核，当前状态已不适合继续沿用 README 早先的“~87% 对齐”口径；最新 authoritative status 以本页下方“功能对齐矩阵”为准。
 
-## 暂不实现 / 明确延后
+## 功能对齐矩阵
 
-| 功能 | 当前状态 | 延后原因 / 风险 |
-|------|----------|----------------|
-| KAIROS daily log 模式 | P18 不实现 | V3 当前不是 long-lived autonomous agent；但若后续引入长寿命 assistant，会缺少 append-only daily logs、`date_change` 跨日切换，以及 `/dream` 蒸馏回 topic files + `MEMORY.md` 的闭环 |
-| Team Memory 双目录 | P18 不实现 | V3 当前单用户；**必须与 Team sync service 一起延后**，不能只做 prompt/目录壳，否则会落入“看似支持 team scope、实际没有同步/冲突处理/共享一致性”的半成品状态 |
-| Team Memory sync service（pull/push/watcher/conflict resolution） | README 先前未显式登记，现补记为随 Team Memory 一并延后 | Claude 原生 team memory 不是只多一个 `team/` 目录，还包含 OAuth、repo-scoped API、watcher、ETag optimistic locking、partial success、suppression 与 shutdown flush；若未来单独放出 team 写入但没有这层服务，会有共享不一致与数据回滚风险 |
-| Team Memory secret guard（write/edit-time + pre-push scan） | 随 Team Memory 一并延后 | Claude 对 shared team memory 有双层敏感信息防护；P18 只做通用 memory 写入敏感信息拦截，**不等价**于 team-sync 前的二次扫描与 skip-upload 语义 |
-| Background extract memories（stop-hook 补漏提取） | README 先前未显式登记，P18 不实现 | Claude 会在 stop-hook 后 fork agent 做补漏提取，并把 manifest 预注入避免重复；P18 缺少这条被动补漏链，意味着 Standard 模式更依赖主 agent 显式 remember |
-| Auto-dream / consolidation（stop-hook 蒸馏） | README 先前未显式登记，P18 不实现 | Claude 会在 gate 满足时做 consolidation，把会话沉淀回长期记忆；P18 当前只做主链 CRUD / retrieval，不做后台蒸馏，长期运行时记忆噪声控制会弱于 Claude |
-| exact `tengu_moth_copse` parity | 不复刻同名 feature flag，只吸收必要语义 | P18 会吸收 `filterInjectedMemoryFiles()` / `skipIndex` / relevant memories 的关键语义，但**不承诺**一比一复刻 Claude 的“移除 entrypoint index、更多依赖 retrieval backfill”的完整开关模式 |
-| nested_memory | 复杂度高，单独排期到 P19 | 这是按目标文件路径补充 nested `CLAUDE.md` / `.claude/rules` 的机制，不是 AutoMem retrieval；延后本身可控，但会让复杂多目录项目缺少 file-targeted instruction recall |
-| Global cache scope | P18 不实现 | Claude first-party/provider 级 global cache scope / boundary 机制，V3 当前 provider 链路不实现 |
-| Token budget section | P18 不实现 | Claude 的 user token target / auto-continue 机制，V3 暂不支持该交互模型 |
-| Output Style section | P18 不实现 | 不迁移 Claude 的 outputStyle 配置/插件通道，统一由 CLAUDE.md 承载风格约束 |
-| ant_model_override | P18 不实现 | ant-only，V3 无 ant 内部模型覆写 |
-| numeric_length_anchors | P18 不实现 | ant-only，V3 不需要 |
-| scratchpad | P18 不实现 | V3 暂不引入 Claude 式 session scratchpad 目录；若后续需无权限临时目录/跨 worker 暂存，再单列实现 |
-| frc (function result clearing) | P18 不实现 | 依赖 Claude 侧 `CACHED_MICROCOMPACT` + FRC 配置 |
-| summarize_tool_results | P18 不实现 | 源码独立注入无 gate，但 V3 延后 |
-| brief | P18 不实现 | 依赖 KAIROS/KAIROS_BRIEF + briefToolModule + proactive 去重 |
+> 统计口径：按“**功能族 / 导出函数组**”统计；同一行内的 helper 函数属于同一条 Claude 功能链，因此合并展示，但函数名全部保留。
+>
+> 状态口径：
+> - ✅ 已实现：`internal/` 已有对应实现，且从符号/测试可见主行为已落地
+> - 🔄 进行中：已有模块、slot、contract 或测试骨架，但未全量接线或语义仍有缺口
+> - ❌ 未实现：`internal/` 未找到对应实现
+> - ⏳ P18未实现：已归入 P18 范围但尚未实现，详见 `p18-unimplemented.md`
 
-## 延后风险结论（给排期决策人）
+| Claude 函数 | 文件 | 功能 | V3 对应 | 状态 | 所属 Phase |
+|---|---|---|---|---|---|
+| `parseMemoryType` | `src/memdir/memoryTypes.ts` | 解析四类 memory type frontmatter | `internal/module/memory/types.go:ParseMemoryType` | ✅已实现 | P0 / P2 |
+| `isAutoMemoryEnabled` | `src/memdir/paths.ts` | auto memory 总开关与门禁判定 | `internal/module/memory/config.go:NewConfig`<br>`internal/module/memory/rules_provider.go:NewRulesProvider` | 🔄进行中 | P0 / P1 |
+| `getMemoryBaseDir`<br>`getAutoMemPath`<br>`getAutoMemEntrypoint` | `src/memdir/paths.ts` | 解析 memory root、project-scoped auto memory 目录与 `MEMORY.md` 入口 | `internal/module/memory/config.go:defaultRootDir`<br>`internal/module/memory/path.go:GetAutoMemPath`<br>`internal/module/memory/index.go:WriteMemoryIndex` | ✅已实现 | P1 |
+| `hasAutoMemPathOverride`<br>`isAutoMemPath` | `src/memdir/paths.ts` | override 探测与 auto-memory 路径归属判断 | `internal/module/memory/config.go:envMemoryRoot`<br>`internal/module/memory/path.go:ValidateMemoryWritePath` | 🔄进行中 | P1 |
+| `truncateEntrypointContent` | `src/memdir/memdir.ts` | 对 `MEMORY.md` 做行数 / 字节双阈值截断并附告警 | 无 | ❌未实现 | P1 |
+| `buildMemoryLines` | `src/memdir/memdir.ts` | 渲染 Standard memory behavioral rules | `internal/module/memory/rules.go:BuildMemoryLines` | ✅已实现 | P2 |
+| `loadMemoryPrompt` | `src/memdir/memdir.ts` | 按模式 / gate 分派 memory prompt，并挂入 system prompt | `internal/module/memory/rules.go:LoadMemoryPrompt`<br>`internal/module/memory/rules_provider.go:Resolve` | 🔄进行中 | P2 → P4.5 |
+| `buildSearchingPastContextSection` | `src/memdir/memdir.ts` | 提示模型如何搜索 memory dir / transcript | 无（Phase 2 文档显式 deferred） | ❌未实现 | P6 |
+| `isExtractModeActive`<br>`formatMemoryManifest` | `src/memdir/paths.ts`<br>`src/memdir/memoryScan.ts` | stop-hook extractMemories gate 与 manifest 格式化 | 无 | ⏳P18未实现 | P18 未实现 |
+| `buildAssistantDailyLogPrompt`<br>`getAutoMemDailyLogPath`<br>`getDateChangeAttachments` | `src/memdir/memdir.ts`<br>`src/memdir/paths.ts`<br>`src/utils/attachments.ts` | KAIROS daily log、跨午夜 rollover、`date_change` 提醒 | 无 | ⏳P18未实现 | P18 未实现 |
+| `buildCombinedMemoryPrompt`<br>`isTeamMemoryEnabled`<br>`getTeamMemPath`<br>`getTeamMemEntrypoint` | `src/memdir/teamMemPrompts.ts`<br>`src/memdir/teamMemPaths.ts` | private + team 双目录 prompt 与 team entrypoint | 无 | ⏳P18未实现 | P18 未实现 |
+| `isTeamMemPath`<br>`isTeamMemFile`<br>`validateTeamMemWritePath`<br>`validateTeamMemKey` | `src/memdir/teamMemPaths.ts` | Team memory 归属判断与 anti-traversal / symlink escape 校验 | 无 | ⏳P18未实现 | P18 未实现 |
+| `memoryAgeDays`<br>`memoryAge`<br>`memoryFreshnessText`<br>`memoryFreshnessNote`<br>`memoryHeader` | `src/memdir/memoryAge.ts`<br>`src/utils/attachments.ts` | surfaced relevant memories 的 freshness/header 文案 | 无 | ❌未实现 | P6 |
+| `startRelevantMemoryPrefetch`<br>`collectSurfacedMemories`<br>`filterDuplicateMemoryAttachments` | `src/utils/attachments.ts` | relevant memory 异步预取、历史去重、read-state 去重 | 无 | ❌未实现 | P6 |
+| `getDirectoriesToProcess`<br>`memoryFilesToAttachments` | `src/utils/attachments.ts` | nested memory 目录遍历与 attachment 物化 | 无 | ⏳P18未实现 | P18 未实现 |
+| `buildMemoryPrompt`<br>`loadAgentMemoryPrompt` | `src/memdir/memdir.ts`<br>`src/tools/AgentTool/agentMemory.ts` | agent 特例：直接内联 agent `MEMORY.md` | 无 | ❌未实现 | P5 |
+| `getAgentMemoryDir`<br>`isAgentMemoryPath`<br>`getAgentMemoryEntrypoint`<br>`getMemoryScopeDisplay` | `src/tools/AgentTool/agentMemory.ts` | agent memory scope/path 隔离与展示 | 无 | ❌未实现 | P5 |
+| `systemPromptSection`<br>`DANGEROUS_uncachedSystemPromptSection` | `src/constants/systemPromptSections.ts` | 定义 cached / volatile section 描述符 | `internal/module/prompt/section.go:PromptSection`<br>`internal/module/prompt/dynamic.go:dynamicSlotSection` | ✅已实现 | P3 |
+| `resolveSystemPromptSections`<br>`clearSystemPromptSections` | `src/constants/systemPromptSections.ts` | section 解析、缓存命中、clear/compact invalidation | `internal/module/prompt/assembler.go:resolveSections`<br>`internal/module/prompt/assembler.go:Invalidate`<br>`internal/module/prompt/cache.go` | ✅已实现 | P3 |
+| `getSystemPrompt` | `src/constants/prompts.ts` | 组装 static + dynamic system prompt 主树 | `internal/module/prompt/assembler.go:AssembleStart`<br>`internal/module/prompt/assembler.go:AssembleTurn` | 🔄进行中 | P3 → P4.5 |
+| `getSimpleIntroSection` | `src/constants/prompts.ts` | identity / baseline / no-guess-URL intro | `internal/module/prompt/section.go:sectionIdentityText` | 🔄进行中 | P3 |
+| `getSimpleSystemSection` | `src/constants/prompts.ts` | 系统约束、deny 语义、注入防御提醒 | `internal/module/prompt/section.go:sectionSystemConstraintsText` | ✅已实现 | P3 |
+| `getSimpleDoingTasksSection` | `src/constants/prompts.ts` | 工程纪律、避免过度设计、完成前验证 | `internal/module/prompt/section.go:sectionEngineeringText` | ✅已实现 | P3 |
+| `getActionsSection` | `src/constants/prompts.ts` | 高风险动作确认策略 | `internal/module/prompt/section.go:sectionActionsText` | ✅已实现 | P3 |
+| `getUsingYourToolsSection` | `src/constants/prompts.ts` | 专用工具优先、并行独立调用、避免 shell 绕过 | `internal/module/prompt/section.go:sectionToolPreferencesText` | ✅已实现 | P3 |
+| `getSimpleToneAndStyleSection` | `src/constants/prompts.ts` | no emoji、`file:line`、无冒号 tool-call 前缀 | `internal/module/prompt/section.go:sectionStyleText` | ✅已实现 | P3 |
+| `getOutputEfficiencySection` | `src/constants/prompts.ts` | lead with answer / concise / milestone-only updates | `internal/module/prompt/section.go:sectionOutputEfficiencyText` | ✅已实现 | P3 |
+| `getLanguageSection` | `src/constants/prompts.ts` | language 动态 section | `internal/module/prompt/dynamic.go:DynamicSectionLanguage` slot | 🔄进行中 | P3 |
+| `getMcpInstructionsSection` | `src/constants/prompts.ts` | MCP server instructions 动态 section | `internal/module/prompt/dynamic.go:DynamicSectionMCPInstructions` slot | 🔄进行中 | P3 |
+| `computeSimpleEnvInfo`<br>`computeEnvInfo`<br>`getUnameSR` | `src/constants/prompts.ts` | 汇总 CWD / git / shell / OS / model 环境信息 | `internal/contract/prompt.go:BuildCtx`<br>`internal/module/prompt/dynamic.go:DynamicSectionEnvInfoSimple` slot | 🔄进行中 | P3 → P4 |
+| `prependBullets` | `src/constants/prompts.ts` | prompt bullet 渲染 helper | `internal/module/memory/rules.go:renderBullets` | ✅已实现 | P3 |
+| `getScratchpadInstructions` | `src/constants/prompts.ts` | session scratchpad 目录说明 | 无 | ⏳P18未实现 | P18 未实现 |
+| `getFunctionResultClearingSection` | `src/constants/prompts.ts` | FRC / microcompact 提示 | 无 | ⏳P18未实现 | P18 未实现 |
+| `getBriefSection` | `src/constants/prompts.ts` | KAIROS brief / proactive 去重提示 | 无 | ⏳P18未实现 | P18 未实现 |
+
+### 统计（截至 2026-04-14）
+
+- 总功能数：**34**
+- ✅ 已实现：**7 / 34 = 20.6%**
+- 🔄 进行中：**12 / 34 = 35.3%**
+- ❌ 未实现：**7 / 34 = 20.6%**
+- ⏳ P18未实现：**8 / 34 = 23.5%**
+
+> 结论：当前 `internal/` 实码已经把 **Phase 1/2 的 memory store / rules** 与 **Phase 3 的 prompt registry 骨架**搭起来了，但 **Phase 4.5 的 thread/provider 接线、Phase 5 agent memory、Phase 6 relevant memories** 仍是主缺口；Team Memory / KAIROS / nested memory / scratchpad / FRC / brief 已归档为 **P18 未实现部分**，详见 `p18-unimplemented.md`。
+
+## P18 未实现部分
+
+> 原先标注为“P19 延后”的条目，现统一纳入 P18 未实现范围。
+> 详见 [p18-unimplemented.md](p18-unimplemented.md)。
+
+
+## 未实现风险结论（给排期决策人）
 
 - **KAIROS daily log**：在“非长寿命 autonomous session”前提下可安全延后；一旦 V3 引入长期后台助手，应优先补 `/dream` + daily log，而不是继续沿用 Standard 目录写法硬撑。
 - **Team Memory**：只有在 **完全不暴露 team scope** 时才安全延后；若未来要开放 team scope，必须把双目录、sync service、secret guard、team `MEMORY.md` entrypoint 注入一起打包上线。
@@ -116,6 +157,7 @@ Phase 7 ─> Phase 8
 
 ## 参考文档
 
+- [p18-unimplemented.md](p18-unimplemented.md) — P18 未实现部分汇总（原 P19 延后项）
 - [source-refs-appendix.md](source-refs-appendix.md) — 全量源码锚点附录
 - [../p18-memory-prompt-system-plan.md](../p18-memory-prompt-system-plan.md) — 历史总纲/背景对照（**非当前实施口径**）
 - `claude_memory_system_mapping.md` / `claude_memory_system_source_refs.md` / `claude_system_prompts_mapping.md` / `claude_system_prompts_source_refs.md` 的历史内容已并入 `source-refs-appendix.md`，仓库内不再单独维护同名文件
