@@ -11,10 +11,11 @@ type TurnRequest struct {
 	ThreadID             string          `json:"threadId"`
 	Inputs               []InputItem     `json:"inputs"`
 	Skills               []SkillRef      `json:"skills,omitempty"`
+	TurnAssembly         TurnAssembly    `json:"turnAssembly"`
 	ManualSkillSelection bool            `json:"manualSkillSelection,omitempty"`
 	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
-	Overrides            TurnOverrides   `json:"overrides,omitempty"`
-	MCP                  MCPManifest     `json:"mcp,omitempty"`
+	Overrides            TurnOverrides   `json:"overrides"`
+	MCP                  MCPManifest     `json:"mcp"`
 }
 
 type TurnOverrides struct {
@@ -46,9 +47,10 @@ type SteerRequest struct {
 	ExpectedTurnID       string          `json:"expectedTurnId,omitempty"`
 	Inputs               []InputItem     `json:"inputs"`
 	Skills               []SkillRef      `json:"skills,omitempty"`
+	TurnAssembly         TurnAssembly    `json:"turnAssembly"`
 	ManualSkillSelection bool            `json:"manualSkillSelection,omitempty"`
 	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
-	Overrides            TurnOverrides   `json:"overrides,omitempty"`
+	Overrides            TurnOverrides   `json:"overrides"`
 }
 
 type ForceCompleteRequest struct {
