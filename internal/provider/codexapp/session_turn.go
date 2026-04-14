@@ -91,6 +91,8 @@ func mapTurnInput(item dto.InputItem) turnInputItem {
 	switch strings.ToLower(strings.TrimSpace(item.Type)) {
 	case "", "text":
 		return textTurnInput(item)
+	case "filecontent":
+		return textTurnInput(dto.InputItem{Content: item.Content})
 	case "image":
 		return imageTurnInput(item)
 	case "local_image", "localimage":

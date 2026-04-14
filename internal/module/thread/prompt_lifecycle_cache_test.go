@@ -13,9 +13,10 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
-func TestLifecycleInvalidationClearsCache(t *testing.T) {
+func TestWorktreeResumeInvalidationClearsCache(t *testing.T) {
 	t.Parallel()
 
+	_, worktreeCWD := newPromptGitFixture(t)
 	promptAssembly := promptpkg.NewService(&promptpkg.Config{}, nil)
 	calls := 0
 	if err := promptAssembly.RegisterDynamicProvider(promptpkg.DynamicTextProvider{
@@ -45,7 +46,7 @@ func TestLifecycleInvalidationClearsCache(t *testing.T) {
 		AgentID:   "agent-resume",
 		Prompt:    "resume name",
 		Model:     "gpt-5.4",
-		Cwd:       "/repo",
+		Cwd:       worktreeCWD,
 		CreatedAt: 123,
 		Status:    statusCreated,
 	}}
@@ -54,7 +55,7 @@ func TestLifecycleInvalidationClearsCache(t *testing.T) {
 		Provider:         "codex",
 		ProviderThreadID: "provider-thread-resume",
 		CodexThreadID:    "thread-resume",
-		Cwd:              "/repo",
+		Cwd:              worktreeCWD,
 	}}
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {

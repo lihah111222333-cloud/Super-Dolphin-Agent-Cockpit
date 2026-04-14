@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	memorypkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -24,6 +25,7 @@ type service struct {
 	manifest               *manifestBuilder
 	tracker                *turnTracker
 	promptAssembly         contract.PromptAssemblyService
+	prepareMemoryInputs    func(context.Context, contract.Session, contract.BuildCtx, string, string) []InputItem
 	interruptSettleTimeout time.Duration
 }
 
@@ -32,18 +34,30 @@ type steerableSession interface {
 }
 
 func NewService(logger *slog.Logger) Service {
-	return newService(logger, nil)
+	return newService(logger, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
-	return newService(logger, promptAssembly)
+	return newService(logger, promptAssembly, nil)
 }
 
-func newService(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
+func NewServiceWithPromptAssemblyAndMemoryContext(
+	logger *slog.Logger,
+	promptAssembly contract.PromptAssemblyService,
+	memoryContext *memorypkg.MemoryContextProvider,
+) Service {
+	return newService(logger, promptAssembly, memoryContext)
+}
+
+func newService(
+	logger *slog.Logger,
+	promptAssembly contract.PromptAssemblyService,
+	memoryContext *memorypkg.MemoryContextProvider,
+) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &service{
+	svc := &service{
 		logger:                 logger,
 		assembler:              &inputAssembler{},
 		skills:                 &skillResolver{},
@@ -52,6 +66,10 @@ func newService(logger *slog.Logger, promptAssembly contract.PromptAssemblyServi
 		promptAssembly:         promptAssembly,
 		interruptSettleTimeout: config.InterruptSettleTimeout,
 	}
+	if memoryContext != nil {
+		svc.prepareMemoryInputs = memoryContext.PrepareTurnInputs
+	}
+	return svc
 }
 
 func resolveBinaryDir() string {
@@ -67,13 +85,19 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	if err != nil {
 		return dto.TurnRequest{}, err
 	}
+	input = hydratePrepareInput(input, session)
 	candidateSkills := input.CandidateSkills
 	if input.ManualSkillSelection {
 		candidateSkills = nil
 	}
 	userText := s.assembler.PromptText(input)
+	mcp := s.manifest.Build(input)
+	syntheticInputs := s.syntheticMemoryInputs(ctx, session, input, threadID, userText, mcp)
 	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
 	assembledInputs := s.assembler.Assemble(input)
+	if len(syntheticInputs) > 0 {
+		assembledInputs = append(syntheticInputs, assembledInputs...)
+	}
 	req := dto.TurnRequest{
 		LocalID:              platformshared.NewID("turn"),
 		ThreadID:             threadID,
@@ -82,7 +106,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		ManualSkillSelection: input.ManualSkillSelection,
 		OutputSchema:         input.OutputSchema,
 		Overrides:            s.buildOverrides(session.Capabilities(), input),
-		MCP:                  s.manifest.Build(input),
+		MCP:                  mcp,
 	}
 	assembly, err := s.prepareTurnAssembly(ctx, threadID, input, userText, req)
 	if err != nil {
@@ -97,14 +121,21 @@ func (s *service) prepareTurnAssembly(ctx context.Context, threadID string, inpu
 		return dto.TurnAssembly{}, nil
 	}
 	assembly, err := s.promptAssembly.AssembleTurn(ctx, contract.TurnInput{
-		ThreadID:    threadID,
-		UserText:    strings.TrimSpace(userText),
-		SkillPrompt: turnSkillPrompt(req.Skills),
-		Attachments: turnAttachmentRefs(req.Inputs),
-		CurrentDate: time.Now().Format("2006-01-02"),
-		CWD:         strings.TrimSpace(input.CWD),
-		Model:       strings.TrimSpace(input.Model),
-		MCPSnapshot: turnMCPSnapshot(req.MCP),
+		ThreadID:                     threadID,
+		Provider:                     strings.TrimSpace(input.Provider),
+		UserText:                     strings.TrimSpace(userText),
+		SkillPrompt:                  turnSkillPrompt(req.Skills),
+		Attachments:                  turnAttachmentRefs(req.Inputs),
+		CurrentDate:                  time.Now().Format("2006-01-02"),
+		CWD:                          strings.TrimSpace(input.CWD),
+		GitRoot:                      strings.TrimSpace(input.GitRoot),
+		IsWorktree:                   input.IsWorktree,
+		Language:                     strings.TrimSpace(input.Language),
+		Model:                        strings.TrimSpace(input.Model),
+		EnabledTools:                 append([]string(nil), input.EnabledTools...),
+		AdditionalWorkingDirectories: append([]string(nil), input.AdditionalWorkingDirectories...),
+		MCPSnapshot:                  turnMCPSnapshot(input.MCPSnapshot, req.MCP),
+		SessionFlags:                 clonePrepareFlags(input.SessionFlags),
 	})
 	if err != nil {
 		return dto.TurnAssembly{}, err
@@ -138,24 +169,14 @@ func turnAttachmentRefs(inputs []dto.InputItem) []string {
 	return refs
 }
 
-func turnMCPSnapshot(manifest dto.MCPManifest) contract.MCPSnapshot {
+func turnMCPSnapshot(snapshot contract.MCPSnapshot, manifest dto.MCPManifest) contract.MCPSnapshot {
 	servers := make([]string, 0, len(manifest.Binaries))
-	seen := make(map[string]struct{}, len(manifest.Binaries))
 	for _, binary := range manifest.Binaries {
-		name := strings.TrimSpace(binary.Name)
-		if name == "" {
-			continue
+		if name := strings.TrimSpace(binary.Name); name != "" {
+			servers = append(servers, name)
 		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		servers = append(servers, name)
 	}
-	if len(servers) == 0 {
-		return contract.MCPSnapshot{}
-	}
-	return contract.MCPSnapshot{Servers: servers}
+	return mergeMCPSnapshot(snapshot, contract.MCPSnapshot{Servers: servers})
 }
 
 func (s *service) StartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error) {

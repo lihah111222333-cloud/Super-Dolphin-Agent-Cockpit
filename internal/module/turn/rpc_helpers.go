@@ -16,22 +16,31 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-func buildRPCPrepareInput(p turnStartParams, session contract.Session) PrepareInput {
+func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRuntimeConfig map[string]any) PrepareInput {
 	items, inputSkills := buildTurnStartInputs(p.Input)
 	return buildPrepareInput(prepareInputSpec{
-		Inputs:               items,
-		Prompt:               p.Prompt,
-		Images:               p.Images,
-		Files:                p.Files,
-		ManualSkillSelection: p.ManualSkillSelection,
-		Model:                p.Model,
-		Effort:               p.Effort,
-		OutputSchema:         p.OutputSchema,
-		CWD:                  p.CWD,
+		Inputs:                       items,
+		Prompt:                       p.Prompt,
+		Images:                       p.Images,
+		Files:                        p.Files,
+		ManualSkillSelection:         p.ManualSkillSelection,
+		Provider:                     p.Provider,
+		Model:                        p.Model,
+		Effort:                       p.Effort,
+		OutputSchema:                 p.OutputSchema,
+		CWD:                          p.CWD,
+		GitRoot:                      p.GitRoot,
+		IsWorktree:                   p.IsWorktree,
+		Language:                     p.Language,
+		EnabledTools:                 p.EnabledTools,
+		AdditionalWorkingDirectories: p.AdditionalWorkingDirectories,
+		MCPSnapshot:                  p.MCPSnapshot,
+		SessionFlags:                 p.SessionFlags,
+		ThreadRuntimeConfig:          threadRuntimeConfig,
 	}, prepareSkillSpec{
 		Selected: p.SelectedSkills,
 		Derived:  inputSkills,
-	}, session.Capabilities())
+	}, session)
 }
 
 func buildTurnStartInputs(raw []turnInputItemParams) ([]InputItem, []string) {
@@ -147,14 +156,15 @@ func applyTurnStartConfig(ctx context.Context, session contract.Session, p turnS
 	return session.Configure(ctx, dto.ThreadConfigPatch{Approvals: &policy})
 }
 
-func turnStartHandler(svc Service, resolver contract.SessionResolver, capResolver rpc.CapabilityResolver) handler.Func {
+func turnStartHandler(svc Service, resolver contract.SessionResolver, capResolver rpc.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
 	return rpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
 		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
 			if !session.Capabilities().Has(dto.CapMessageSend) {
 				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")
 			}
-			input := buildRPCPrepareInput(p, session)
+			threadRuntimeConfig := readThreadRuntimeConfig(ctx, runtimeReader, rpc.ThreadIDFrom(ctx))
+			input := buildRPCPrepareInput(p, session, threadRuntimeConfig)
 			if err := applyTurnStartConfig(ctx, session, p); err != nil {
 				return nil, err
 			}
@@ -171,7 +181,7 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, capResolve
 	})
 }
 
-func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolver rpc.CapabilityResolver) handler.Func {
+func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolver rpc.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
 	return rpc.ThreadHandler(func(ctx context.Context, p turnSteerParams) (any, error) {
 		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
@@ -179,14 +189,26 @@ func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolve
 				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")
 			}
 			items, inputSkills := buildTurnStartInputs(p.Input)
+			threadRuntimeConfig := readThreadRuntimeConfig(ctx, runtimeReader, rpc.ThreadIDFrom(ctx))
 			handle, err := svc.SteerTurn(ctx, session, p.ExpectedTurnID, buildPrepareInput(prepareInputSpec{
-				Inputs:               items,
-				Prompt:               p.Prompt,
-				ManualSkillSelection: p.ManualSkillSelection,
+				Inputs:                       items,
+				Prompt:                       p.Prompt,
+				ManualSkillSelection:         p.ManualSkillSelection,
+				Provider:                     p.Provider,
+				Model:                        p.Model,
+				CWD:                          p.CWD,
+				GitRoot:                      p.GitRoot,
+				IsWorktree:                   p.IsWorktree,
+				Language:                     p.Language,
+				EnabledTools:                 p.EnabledTools,
+				AdditionalWorkingDirectories: p.AdditionalWorkingDirectories,
+				MCPSnapshot:                  p.MCPSnapshot,
+				SessionFlags:                 p.SessionFlags,
+				ThreadRuntimeConfig:          threadRuntimeConfig,
 			}, prepareSkillSpec{
 				Selected: p.SelectedSkills,
 				Derived:  inputSkills,
-			}, session.Capabilities()))
+			}, session))
 			if err != nil {
 				return nil, err
 			}

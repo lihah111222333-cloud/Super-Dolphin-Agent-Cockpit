@@ -48,15 +48,17 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		AdditionalWorkingDirectories: buildCtx.AdditionalWorkingDirectories,
 		MCPSnapshot:                  buildCtx.MCPSnapshot,
 		SessionFlags:                 buildCtx.SessionFlags,
+		OutputStyleConfig:            buildCtx.OutputStyleConfig,
+		KeepCodingInstructions:       buildCtx.KeepCodingInstructions,
 	}
 }
 
 func buildStartAssembly(req StartRequest) contract.StartAssembly {
-	return contract.StartAssembly{
+	return ensureStartAssemblySnapshot(contract.StartAssembly{
 		DisplayName:           normalizeStartDisplayName(req.Name),
 		BaseInstructions:      strings.TrimSpace(req.BaseInstructions),
 		DeveloperInstructions: strings.TrimSpace(req.DeveloperInstructions),
-	}
+	}, req.Provider)
 }
 
 func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input contract.StartInput) (contract.StartAssembly, error) {
@@ -70,7 +72,7 @@ func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input con
 	assembly.DisplayName = normalizeStartDisplayName(shared.FirstNonEmpty(strings.TrimSpace(assembly.DisplayName), req.Name, req.Prompt))
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
 	assembly.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
-	return assembly, nil
+	return ensureStartAssemblySnapshot(assembly, input.Provider), nil
 }
 
 func toProviderStartAssembly(assembly contract.StartAssembly) dto.StartAssembly {
@@ -91,6 +93,7 @@ func toProviderPromptSnapshot(snapshot contract.PromptAssemblySnapshot) dto.Prom
 		Provider:              strings.TrimSpace(snapshot.Provider),
 		Version:               snapshot.Version,
 		Hash:                  strings.TrimSpace(snapshot.Hash),
+		SectionSnapshot:       clonePromptSectionMap(snapshot.SectionSnapshot),
 		Generation:            snapshot.Generation,
 	}
 }
@@ -111,7 +114,7 @@ func toProviderResolvedSections(sections []contract.ResolvedPromptSection) []dto
 	return out
 }
 
-func buildStartSessionConfig(req StartRequest, assembly contract.StartAssembly) map[string]any {
+func buildStartSessionConfig(req StartRequest, input contract.StartInput, assembly contract.StartAssembly) map[string]any {
 	cfg := map[string]any{}
 	putConfigString(cfg, "approvalPolicy", req.ApprovalPolicy)
 	putConfigString(cfg, "approval_policy", req.ApprovalPolicy)
@@ -122,6 +125,18 @@ func buildStartSessionConfig(req StartRequest, assembly contract.StartAssembly) 
 	putConfigString(cfg, "summary", req.Summary)
 	putConfigString(cfg, "effort", req.Effort)
 	putConfigString(cfg, "personality", req.Personality)
+	putConfigString(cfg, "provider", input.Provider)
+	putConfigString(cfg, "cwd", input.CWD)
+	putConfigString(cfg, "model", input.Model)
+	putConfigString(cfg, "gitRoot", input.GitRoot)
+	putConfigBool(cfg, "isWorktree", input.IsWorktree)
+	putConfigString(cfg, "language", input.Language)
+	putConfigStrings(cfg, "enabledTools", input.EnabledTools)
+	putConfigStrings(cfg, "additionalWorkingDirectories", input.AdditionalWorkingDirectories)
+	putConfigStrings(cfg, "mcpServers", input.MCPSnapshot.Servers)
+	putConfigStrings(cfg, "mcpTools", input.MCPSnapshot.Tools)
+	putConfigStringMap(cfg, "mcpInstructions", input.MCPSnapshot.Instructions)
+	putConfigBoolMap(cfg, "sessionFlags", input.SessionFlags)
 	putConfigJSON(cfg, "sandbox", req.Sandbox)
 	for key, value := range req.Config {
 		if _, exists := cfg[key]; !exists {
@@ -134,9 +149,70 @@ func buildStartSessionConfig(req StartRequest, assembly contract.StartAssembly) 
 	return cfg
 }
 
+func buildStartStoredThreadConfig(req StartRequest, input contract.StartInput, assembly contract.StartAssembly) storedThreadConfig {
+	return storedThreadConfig{
+		Model:       strings.TrimSpace(input.Model),
+		Effort:      strings.TrimSpace(req.Effort),
+		Approvals:   strings.TrimSpace(req.ApprovalPolicy),
+		Personality: strings.TrimSpace(req.Personality),
+		Runtime:     shared.CloneRuntimeConfigMap(buildStartSessionConfig(req, input, assembly)),
+	}
+}
+
 func putConfigString(cfg map[string]any, key, value string) {
 	if value = strings.TrimSpace(value); value != "" {
 		cfg[key] = value
+	}
+}
+
+func putConfigBool(cfg map[string]any, key string, value bool) {
+	if value {
+		cfg[key] = true
+	}
+}
+
+func putConfigStrings(cfg map[string]any, key string, values []string) {
+	cleaned := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			cleaned = append(cleaned, value)
+		}
+	}
+	if len(cleaned) > 0 {
+		cfg[key] = cleaned
+	}
+}
+
+func putConfigStringMap(cfg map[string]any, key string, values map[string]string) {
+	if len(values) == 0 {
+		return
+	}
+	out := make(map[string]any, len(values))
+	for name, value := range values {
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if name != "" && value != "" {
+			out[name] = value
+		}
+	}
+	if len(out) > 0 {
+		cfg[key] = out
+	}
+}
+
+func putConfigBoolMap(cfg map[string]any, key string, values map[string]bool) {
+	if len(values) == 0 {
+		return
+	}
+	out := make(map[string]any, len(values))
+	for name, value := range values {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			out[name] = value
+		}
+	}
+	if len(out) > 0 {
+		cfg[key] = out
 	}
 }
 

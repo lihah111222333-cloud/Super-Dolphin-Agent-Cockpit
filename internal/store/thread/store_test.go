@@ -190,8 +190,12 @@ func TestSaveAndLoadPromptSnapshot(t *testing.T) {
 	t.Parallel()
 
 	want := PromptSnapshot{
+		DisplayName:           "thread-1",
 		BaseInstructions:      "base",
 		DeveloperInstructions: "dev",
+		Provider:              "codex",
+		Version:               1,
+		Hash:                  "hash-1",
 		SectionSnapshot: map[string]string{
 			"cwd":  "/tmp/project",
 			"date": "2026-04-14",
@@ -205,7 +209,7 @@ func TestSaveAndLoadPromptSnapshot(t *testing.T) {
 			return 1, nil
 		},
 		loadPromptSnapshotFn: func(context.Context, string) ([]byte, error) {
-			return []byte(`{"base_instructions":"base","developer_instructions":"dev","section_snapshot":{"cwd":"/tmp/project","date":"2026-04-14"},"generation":9}`), nil
+			return []byte(`{"display_name":"thread-1","base_instructions":"base","developer_instructions":"dev","provider":"codex","version":1,"hash":"hash-1","section_snapshot":{"cwd":"/tmp/project","date":"2026-04-14"},"generation":9}`), nil
 		},
 	}}
 
@@ -219,8 +223,12 @@ func TestSaveAndLoadPromptSnapshot(t *testing.T) {
 	if err := json.Unmarshal(saved.PromptSnapshot, &stored); err != nil {
 		t.Fatalf("json.Unmarshal(saved prompt_snapshot) error = %v", err)
 	}
-	if stored.BaseInstructions != want.BaseInstructions ||
+	if stored.DisplayName != want.DisplayName ||
+		stored.BaseInstructions != want.BaseInstructions ||
 		stored.DeveloperInstructions != want.DeveloperInstructions ||
+		stored.Provider != want.Provider ||
+		stored.Version != want.Version ||
+		stored.Hash != want.Hash ||
 		stored.Generation != want.Generation ||
 		len(stored.SectionSnapshot) != len(want.SectionSnapshot) ||
 		stored.SectionSnapshot["cwd"] != want.SectionSnapshot["cwd"] ||
@@ -235,8 +243,12 @@ func TestSaveAndLoadPromptSnapshot(t *testing.T) {
 	if got == nil {
 		t.Fatal("LoadPromptSnapshot() = nil, want snapshot")
 	}
-	if got.BaseInstructions != want.BaseInstructions ||
+	if got.DisplayName != want.DisplayName ||
+		got.BaseInstructions != want.BaseInstructions ||
 		got.DeveloperInstructions != want.DeveloperInstructions ||
+		got.Provider != want.Provider ||
+		got.Version != want.Version ||
+		got.Hash != want.Hash ||
 		got.Generation != want.Generation ||
 		got.SectionSnapshot["cwd"] != want.SectionSnapshot["cwd"] ||
 		got.SectionSnapshot["date"] != want.SectionSnapshot["date"] {

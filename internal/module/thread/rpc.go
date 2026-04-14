@@ -55,6 +55,7 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
 		"thread/config/set": newThreadConfigSetHandler(svc),
 		"thread/model/set":  newModelSetHandler(svc),
+		"thread/clear":      newThreadCommandHandler(svc, "/clear"),
 		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
 		"thread/personality/set": newThreadCommandHandler(svc, "/personality"),
 		"thread/approvals/set":   newApprovalsSetHandler(svc),

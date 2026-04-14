@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/historyjsonl"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
@@ -54,6 +56,40 @@ func resolveRelativeCWD(cwd string) string {
 	return cwd
 }
 
+func comparablePromptCWD(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" || cwd == "." {
+		return ""
+	}
+	if abs, err := filepath.Abs(cwd); err == nil {
+		return abs
+	}
+	return cwd
+}
+
+func promptWorktreeState(cwd string, cfg *platformconfig.Config) (string, bool) {
+	resolved := comparablePromptCWD(cwd)
+	if resolved == "" {
+		return "", false
+	}
+	return resolved, resolvePromptGitContext(resolved, "", cfg).IsWorktree
+}
+
+func promptResumeRestoreRequiresInvalidation(prevCWD, nextCWD string, cfg *platformconfig.Config) bool {
+	_, prevWorktree := promptWorktreeState(prevCWD, cfg)
+	_, nextWorktree := promptWorktreeState(nextCWD, cfg)
+	return prevWorktree || nextWorktree
+}
+
+func promptWorktreeSwitchRequiresInvalidation(prevCWD, nextCWD string, cfg *platformconfig.Config) bool {
+	prevResolved, prevWorktree := promptWorktreeState(prevCWD, cfg)
+	nextResolved, nextWorktree := promptWorktreeState(nextCWD, cfg)
+	if prevResolved == nextResolved {
+		return false
+	}
+	return prevWorktree || nextWorktree
+}
+
 func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
 	if s.bindingStore == nil {
 		return ""
@@ -64,6 +100,15 @@ func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
 	}
 	s.rememberBinding(binding)
 	return strings.TrimSpace(binding.Cwd)
+}
+
+func (s *service) ReadThreadStateRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
+	binding, _ := s.resolveBinding(ctx, threadID)
+	offline, err := s.buildOfflineConfig(ctx, threadID, binding)
+	if err != nil {
+		return nil, err
+	}
+	return shared.CloneRuntimeConfigMap(offline.Runtime), nil
 }
 
 func buildLaunchRequest(agentID, cwd, name, provider, model string) (LaunchAgentRequest, error) {
@@ -163,14 +208,15 @@ func (s *service) upsertPublicThread(
 	}
 	displayName := strings.TrimSpace(shared.FirstNonEmpty(state.Name, state.Prompt))
 	err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{
-		ThreadID:      state.PublicThreadID,
-		Prompt:        displayName,
-		Model:         state.Model,
-		Cwd:           state.CWD,
-		Status:        statusCreated,
-		CreatedAt:     state.CreatedAt,
-		UpdatedAt:     time.Now().Unix(),
-		OwnerThreadID: state.OwnerThreadID,
+		ThreadID:       state.PublicThreadID,
+		Prompt:         displayName,
+		Model:          state.Model,
+		Cwd:            state.CWD,
+		Status:         statusCreated,
+		CreatedAt:      state.CreatedAt,
+		UpdatedAt:      time.Now().Unix(),
+		OwnerThreadID:  state.OwnerThreadID,
+		ConfigOverride: shared.CloneRawMessage(state.ConfigOverride),
 	}))
 	if err == nil {
 		return nil

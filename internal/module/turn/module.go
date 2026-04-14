@@ -7,13 +7,16 @@ import (
 var Module = fx.Module("turn",
 	fx.Provide(
 		fx.Annotate(
-			NewServiceWithPromptAssembly,
-			fx.ParamTags("", `optional:"true"`),
+			NewServiceWithPromptAssemblyAndMemoryContext,
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`),
 		),
-		NewOrchestrationTurnStarter,
+		fx.Annotate(
+			NewOrchestrationTurnStarter,
+			fx.ParamTags("", "", `optional:"true"`),
+		),
 		fx.Annotate(
 			NewTurnHandlers,
-			fx.ParamTags("", `optional:"true"`, "", `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, "", `optional:"true"`, `optional:"true"`),
 		),
 	),
 )

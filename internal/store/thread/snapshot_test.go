@@ -23,8 +23,12 @@ func TestPromptSnapshotRoundTripNormalizesNilSectionMap(t *testing.T) {
 		},
 	}}
 	want := PromptSnapshot{
+		DisplayName:           "thread-1",
 		BaseInstructions:      "base",
 		DeveloperInstructions: "dev",
+		Provider:              "codex",
+		Version:               1,
+		Hash:                  "hash-1",
 		Generation:            7,
 	}
 
@@ -66,8 +70,12 @@ func TestSavePromptSnapshotConcurrentSafety(t *testing.T) {
 	t.Parallel()
 
 	snapshot := PromptSnapshot{
+		DisplayName:           "thread-1",
 		BaseInstructions:      "base",
 		DeveloperInstructions: "dev",
+		Provider:              "codex",
+		Version:               1,
+		Hash:                  "hash-1",
 		SectionSnapshot:       map[string]string{"cwd": "/repo"},
 		Generation:            3,
 	}
@@ -118,6 +126,10 @@ func assertPromptSnapshotEqual(t *testing.T, got, want PromptSnapshot) {
 
 	if got.BaseInstructions != want.BaseInstructions ||
 		got.DeveloperInstructions != want.DeveloperInstructions ||
+		got.DisplayName != want.DisplayName ||
+		got.Provider != want.Provider ||
+		got.Version != want.Version ||
+		got.Hash != want.Hash ||
 		got.Generation != want.Generation ||
 		len(got.SectionSnapshot) != len(want.SectionSnapshot) {
 		t.Fatalf("PromptSnapshot = %#v, want %#v", got, want)

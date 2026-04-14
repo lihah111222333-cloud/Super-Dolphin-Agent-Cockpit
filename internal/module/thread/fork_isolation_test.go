@@ -2,6 +2,8 @@ package thread
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -9,6 +11,40 @@ import (
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
+
+type forkPromptAssemblyStub struct {
+	invalidated []contract.InvalidateReason
+}
+
+func (s *forkPromptAssemblyStub) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
+func (s *forkPromptAssemblyStub) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
+	return contract.TurnAssembly{}, nil
+}
+
+func (s *forkPromptAssemblyStub) Invalidate(_ context.Context, reason contract.InvalidateReason) error {
+	s.invalidated = append(s.invalidated, reason)
+	return nil
+}
+
+func forkPromptGitFixture(t *testing.T) (string, string) {
+	t.Helper()
+	repoRoot := t.TempDir()
+	worktreeRoot := filepath.Join(repoRoot, "worktree")
+	gitDir := filepath.Join(repoRoot, ".git", "worktrees", "feature")
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir worktree: %v", err)
+	}
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatalf("mkdir gitdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeRoot, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o644); err != nil {
+		t.Fatalf("write worktree .git: %v", err)
+	}
+	return repoRoot, filepath.Join(worktreeRoot, "pkg")
+}
 
 func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 	t.Parallel()
@@ -32,6 +68,13 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 		Model:     "gpt-5.4",
 		Cwd:       "/repo",
 		CreatedAt: 123,
+	}, promptSnapshot: &threadstore.PromptSnapshot{
+		DisplayName:           "Forked Thread",
+		BaseInstructions:      "stored base",
+		DeveloperInstructions: "stored dev",
+		Provider:              "codex",
+		Version:               contract.PromptAssemblySnapshotVersion,
+		Hash:                  promptSnapshotHash("Forked Thread", "stored base", "stored dev", "codex"),
 	}}
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
@@ -46,6 +89,9 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 			}
 			if req.Model != "gpt-5.4" {
 				t.Fatalf("Model = %q, want gpt-5.4", req.Model)
+			}
+			if req.PromptSnapshot.BaseInstructions != "stored base" || req.PromptSnapshot.DeveloperInstructions != "stored dev" {
+				t.Fatalf("PromptSnapshot = %#v, want stored snapshot", req.PromptSnapshot)
 			}
 			sessions.session = forkedSession
 			return forkedSession, nil
@@ -103,6 +149,13 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 		Model:     "gpt-5.4",
 		Cwd:       "/repo",
 		CreatedAt: 123,
+	}, promptSnapshot: &threadstore.PromptSnapshot{
+		DisplayName:           "Recovered Thread",
+		BaseInstructions:      "stored base",
+		DeveloperInstructions: "stored dev",
+		Provider:              "codex",
+		Version:               contract.PromptAssemblySnapshotVersion,
+		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex"),
 	}}
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
@@ -111,6 +164,9 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 			}
 			if req.ProviderThreadID != "provider-parent" {
 				t.Fatalf("ProviderThreadID = %q, want provider-parent", req.ProviderThreadID)
+			}
+			if req.PromptSnapshot.BaseInstructions != "stored base" || req.PromptSnapshot.DeveloperInstructions != "stored dev" {
+				t.Fatalf("PromptSnapshot = %#v, want stored snapshot", req.PromptSnapshot)
 			}
 			sessions.session = resumedSession
 			return resumedSession, nil
@@ -236,10 +292,10 @@ func TestServiceRecoverReturnsRestoreEnvelopeWhenSessionActive(t *testing.T) {
 	}
 }
 
-func TestServiceRecoverInvalidatesPromptAssemblyAfterSuccess(t *testing.T) {
+func TestServiceRecoverDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.T) {
 	t.Parallel()
 
-	promptAssembly := &stubPromptAssemblyService{}
+	promptAssembly := &forkPromptAssemblyStub{}
 	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-parent",
@@ -254,6 +310,42 @@ func TestServiceRecoverInvalidatesPromptAssemblyAfterSuccess(t *testing.T) {
 		Prompt:    "Recovered Thread",
 		Model:     "gpt-5.4",
 		Cwd:       "/repo",
+		CreatedAt: 123,
+	}}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		t.Fatal("ResumeSession should not be called when session is already active")
+		return nil, nil
+	}}
+	orch := &forkOrchestrationStub{}
+	svc := NewServiceWithPromptAssembly(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil, promptAssembly, nil, nil).(*service)
+
+	if _, err := svc.Recover(context.Background(), "thread-parent"); err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	if got := promptAssembly.invalidated; len(got) != 0 {
+		t.Fatalf("Invalidate calls = %#v, want none", got)
+	}
+}
+
+func TestServiceRecoverInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
+	t.Parallel()
+
+	_, worktreeCWD := forkPromptGitFixture(t)
+	promptAssembly := &forkPromptAssemblyStub{}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-parent",
+		Provider:         "codex",
+		ProviderThreadID: "provider-parent",
+		CodexThreadID:    "thread-parent",
+		Cwd:              worktreeCWD,
+	}}
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-parent",
+		AgentID:   "agent-parent",
+		Prompt:    "Recovered Thread",
+		Model:     "gpt-5.4",
+		Cwd:       worktreeCWD,
 		CreatedAt: 123,
 	}}
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {

@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 type Store interface {
@@ -69,10 +70,83 @@ type Thread struct {
 }
 
 type PromptSnapshot struct {
-	BaseInstructions      string            `json:"base_instructions"`
-	DeveloperInstructions string            `json:"developer_instructions"`
-	SectionSnapshot       map[string]string `json:"section_snapshot"`
-	Generation            int64             `json:"generation"`
+	DisplayName           string            `json:"displayName,omitempty"`
+	BaseInstructions      string            `json:"baseInstructions,omitempty"`
+	DeveloperInstructions string            `json:"developerInstructions,omitempty"`
+	Provider              string            `json:"provider,omitempty"`
+	Version               int               `json:"version,omitempty"`
+	Hash                  string            `json:"hash,omitempty"`
+	SectionSnapshot       map[string]string `json:"sectionSnapshot,omitempty"`
+	Generation            uint64            `json:"generation,omitempty"`
+}
+
+func (p *PromptSnapshot) UnmarshalJSON(data []byte) error {
+	type modern PromptSnapshot
+	type legacy struct {
+		DisplayName           string            `json:"display_name,omitempty"`
+		BaseInstructions      string            `json:"base_instructions,omitempty"`
+		DeveloperInstructions string            `json:"developer_instructions,omitempty"`
+		Provider              string            `json:"provider,omitempty"`
+		Version               int               `json:"version,omitempty"`
+		Hash                  string            `json:"hash,omitempty"`
+		SectionSnapshot       map[string]string `json:"section_snapshot,omitempty"`
+		Generation            int64             `json:"generation,omitempty"`
+	}
+	var current modern
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	var old legacy
+	if err := json.Unmarshal(data, &old); err != nil {
+		return err
+	}
+	snapshot := PromptSnapshot(current)
+	if snapshot.DisplayName == "" {
+		snapshot.DisplayName = strings.TrimSpace(old.DisplayName)
+	}
+	if snapshot.BaseInstructions == "" {
+		snapshot.BaseInstructions = strings.TrimSpace(old.BaseInstructions)
+	}
+	if snapshot.DeveloperInstructions == "" {
+		snapshot.DeveloperInstructions = strings.TrimSpace(old.DeveloperInstructions)
+	}
+	if snapshot.Provider == "" {
+		snapshot.Provider = strings.TrimSpace(old.Provider)
+	}
+	if snapshot.Version == 0 {
+		snapshot.Version = old.Version
+	}
+	if snapshot.Hash == "" {
+		snapshot.Hash = strings.TrimSpace(old.Hash)
+	}
+	if len(snapshot.SectionSnapshot) == 0 {
+		snapshot.SectionSnapshot = clonePromptSnapshotSectionMap(old.SectionSnapshot)
+	} else {
+		snapshot.SectionSnapshot = clonePromptSnapshotSectionMap(snapshot.SectionSnapshot)
+	}
+	if snapshot.Generation == 0 && old.Generation > 0 {
+		snapshot.Generation = uint64(old.Generation)
+	}
+	*p = snapshot
+	return nil
+}
+
+func clonePromptSnapshotSectionMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(src))
+	for key, value := range src {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key != "" && value != "" {
+			out[key] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 type RunningAgent struct {

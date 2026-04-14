@@ -34,10 +34,10 @@ func TestNewThreadHandlersRegistersExpectedRoutes(t *testing.T) {
 	t.Parallel()
 
 	got := NewThreadHandlers(&stubThreadService{}, nil).Handlers
-	if len(got) != 30 {
-		t.Fatalf("len(Handlers) = %d, want 30", len(got))
+	if len(got) != 31 {
+		t.Fatalf("len(Handlers) = %d, want 31", len(got))
 	}
-	for _, method := range []string{"thread/start", "thread/stop", "thread/list", "thread/model/set", "thread/realtime/start"} {
+	for _, method := range []string{"thread/start", "thread/stop", "thread/list", "thread/model/set", "thread/clear", "thread/realtime/start"} {
 		if _, ok := got[method]; !ok {
 			t.Fatalf("Handlers missing %q", method)
 		}
@@ -272,6 +272,19 @@ func TestNewThreadHandlersDispatchApprovalsSetRejectsConflictingArgs(t *testing.
 	_, err := server.Dispatch(context.Background(), "thread/approvals/set", json.RawMessage(`{"threadId":"thread-3","policy":"never","args":"always"}`))
 	if err == nil || !strings.Contains(err.Error(), errApprovalsSetArgsConflict.Error()) {
 		t.Fatalf("Dispatch(thread/approvals/set) error = %v", err)
+	}
+}
+
+func TestNewThreadHandlersDispatchClear(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{sendCommandResult: map[string]any{"command": "/clear"}}
+	server := newThreadTestServer(stub)
+	if _, err := server.Dispatch(context.Background(), "thread/clear", json.RawMessage(`{"threadId":"thread-2"}`)); err != nil {
+		t.Fatalf("Dispatch(thread/clear) error = %v", err)
+	}
+	if stub.sendCommandThread != "thread-2" || stub.sendCommandName != "/clear" || stub.sendCommandArgs != "" {
+		t.Fatalf("SendCommand(thread/clear) = (%q, %q, %q)", stub.sendCommandThread, stub.sendCommandName, stub.sendCommandArgs)
 	}
 }
 

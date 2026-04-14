@@ -26,3 +26,43 @@ func TestBuildStartAssemblyInputCarriesChildAgentMetadata(t *testing.T) {
 		t.Fatalf("buildStartAssemblyInput() basic fields = %#v", input)
 	}
 }
+
+func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
+	cfg := buildStartSessionConfig(StartRequest{
+		ApprovalPolicy: "on-request",
+		ModelProvider:  "openai",
+		Summary:        "summary",
+		Effort:         "high",
+		Personality:    "strict",
+	}, contract.StartInput{
+		Provider:                     "codex",
+		CWD:                          "/repo",
+		Model:                        "gpt-5.4",
+		GitRoot:                      "/repo",
+		IsWorktree:                   true,
+		Language:                     "Chinese",
+		EnabledTools:                 []string{"lsp_file", "spawn_agent"},
+		AdditionalWorkingDirectories: []string{"/repo/extra"},
+		MCPSnapshot: contract.MCPSnapshot{
+			Servers:      []string{"lsp"},
+			Tools:        []string{"mcp__lsp__lsp_grep"},
+			Instructions: map[string]string{"lsp": "Use the LSP MCP first."},
+		},
+		SessionFlags: map[string]bool{"verification_required": true},
+	}, contract.StartAssembly{DeveloperInstructions: "dev prompt"})
+	if cfg["provider"] != "codex" || cfg["gitRoot"] != "/repo" || cfg["language"] != "Chinese" {
+		t.Fatalf("buildStartSessionConfig() basic context = %#v", cfg)
+	}
+	if cfg["isWorktree"] != true {
+		t.Fatalf("buildStartSessionConfig() isWorktree = %#v, want true", cfg["isWorktree"])
+	}
+	if got, ok := cfg["enabledTools"].([]string); !ok || len(got) != 2 || got[0] != "lsp_file" || got[1] != "spawn_agent" {
+		t.Fatalf("buildStartSessionConfig() enabledTools = %#v", cfg["enabledTools"])
+	}
+	if got, ok := cfg["mcpInstructions"].(map[string]any); !ok || got["lsp"] != "Use the LSP MCP first." {
+		t.Fatalf("buildStartSessionConfig() mcpInstructions = %#v", cfg["mcpInstructions"])
+	}
+	if got, ok := cfg["sessionFlags"].(map[string]any); !ok || got["verification_required"] != true {
+		t.Fatalf("buildStartSessionConfig() sessionFlags = %#v", cfg["sessionFlags"])
+	}
+}

@@ -23,6 +23,7 @@ type toolInstanceLister interface {
 
 func buildStartCtx(req StartRequest, cfg *platformconfig.Config, registry contract.ToolRegistry) contract.BuildCtx {
 	cwd := resolvePromptCWD(req.CWD)
+	outputStyleConfig := configOutputStyle(req.Config, "outputStyleConfig", "output_style_config")
 	gitCtx := resolvePromptGitContext(
 		cwd,
 		shared.FirstNonEmpty(req.GitRoot, providershared.ConfigString(req.Config, "gitRoot", "git_root")),
@@ -44,7 +45,9 @@ func buildStartCtx(req StartRequest, cfg *platformconfig.Config, registry contra
 			mergeMCPSnapshot(req.MCPSnapshot, configMCPSnapshot(req.Config)),
 			registryMCPSnapshot(registry),
 		),
-		SessionFlags: firstNonEmptyFlags(req.SessionFlags, configBoolMap(req.Config, "sessionFlags", "session_flags")),
+		SessionFlags:           firstNonEmptyFlags(req.SessionFlags, configBoolMap(req.Config, "sessionFlags", "session_flags")),
+		OutputStyleConfig:      outputStyleConfig,
+		KeepCodingInstructions: firstNonNilBool(configOptionalBool(req.Config, "keepCodingInstructions", "keep_coding_instructions"), styleKeepCodingInstructions(outputStyleConfig)),
 	}
 }
 
@@ -151,6 +154,17 @@ func configBool(cfg map[string]any, keys ...string) bool {
 	return false
 }
 
+func configOptionalBool(cfg map[string]any, keys ...string) *bool {
+	for _, key := range keys {
+		value, ok := cfg[key].(bool)
+		if ok {
+			cloned := value
+			return &cloned
+		}
+	}
+	return nil
+}
+
 func configBoolMap(cfg map[string]any, keys ...string) map[string]bool {
 	for _, key := range keys {
 		value, ok := cfg[key]
@@ -184,6 +198,69 @@ func normalizeBoolMap(value any) map[string]bool {
 		}
 	}
 	return nil
+}
+
+func configOutputStyle(cfg map[string]any, keys ...string) *contract.OutputStyleConfig {
+	for _, key := range keys {
+		value, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		if style := normalizeOutputStyleConfig(value); style != nil {
+			return style
+		}
+	}
+	return nil
+}
+
+func normalizeOutputStyleConfig(value any) *contract.OutputStyleConfig {
+	switch typed := value.(type) {
+	case contract.OutputStyleConfig:
+		return cloneOutputStyleConfig(typed)
+	case *contract.OutputStyleConfig:
+		if typed == nil {
+			return nil
+		}
+		return cloneOutputStyleConfig(*typed)
+	case map[string]any:
+		style := contract.OutputStyleConfig{
+			Name:        providershared.ConfigString(typed, "name"),
+			Description: providershared.ConfigString(typed, "description"),
+			Prompt:      providershared.ConfigString(typed, "prompt"),
+			Source:      providershared.ConfigString(typed, "source"),
+		}
+		style.KeepCodingInstructions = configOptionalBool(typed, "keepCodingInstructions", "keep_coding_instructions")
+		if strings.TrimSpace(style.Name) == "" &&
+			strings.TrimSpace(style.Description) == "" &&
+			strings.TrimSpace(style.Prompt) == "" &&
+			strings.TrimSpace(style.Source) == "" &&
+			style.KeepCodingInstructions == nil {
+			return nil
+		}
+		return &style
+	default:
+		return nil
+	}
+}
+
+func cloneOutputStyleConfig(style contract.OutputStyleConfig) *contract.OutputStyleConfig {
+	cloned := style
+	cloned.KeepCodingInstructions = cloneOptionalBool(style.KeepCodingInstructions)
+	if strings.TrimSpace(cloned.Name) == "" &&
+		strings.TrimSpace(cloned.Description) == "" &&
+		strings.TrimSpace(cloned.Prompt) == "" &&
+		strings.TrimSpace(cloned.Source) == "" &&
+		cloned.KeepCodingInstructions == nil {
+		return nil
+	}
+	return &cloned
+}
+
+func styleKeepCodingInstructions(style *contract.OutputStyleConfig) *bool {
+	if style == nil {
+		return nil
+	}
+	return cloneOptionalBool(style.KeepCodingInstructions)
 }
 
 func configMCPSnapshot(cfg map[string]any) contract.MCPSnapshot {
@@ -235,8 +312,10 @@ func mcpServerName(instance contract.ToolInstance) string {
 
 func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
 	out := contract.MCPSnapshot{
-		Servers: uniquePromptStrings(base.Servers, extra.Servers),
-		Tools:   uniquePromptStrings(base.Tools, extra.Tools),
+		Servers:                  uniquePromptStrings(base.Servers, extra.Servers),
+		Tools:                    uniquePromptStrings(base.Tools, extra.Tools),
+		InstructionsDeltaEnabled: base.InstructionsDeltaEnabled || extra.InstructionsDeltaEnabled,
+		InstructionAttachments:   append(append([]contract.MCPAttachmentRef(nil), base.InstructionAttachments...), extra.InstructionAttachments...),
 	}
 	if len(base.Instructions) > 0 || len(extra.Instructions) > 0 {
 		out.Instructions = make(map[string]string, len(base.Instructions)+len(extra.Instructions))

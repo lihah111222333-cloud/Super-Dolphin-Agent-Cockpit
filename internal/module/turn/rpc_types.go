@@ -3,6 +3,8 @@ package turn
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 type turnStartParams struct {
@@ -12,13 +14,21 @@ type turnStartParams struct {
 	Files    []string              `json:"files,omitempty"`
 	Input    []turnInputItemParams `json:"input,omitempty"`
 
-	SelectedSkills       []string        `json:"selected_skills,omitempty"`
-	ManualSkillSelection bool            `json:"manual_skill_selection,omitempty"`
-	CWD                  string          `json:"cwd,omitempty"`
-	ApprovalPolicy       string          `json:"approval_policy,omitempty"`
-	Model                string          `json:"model,omitempty"`
-	Effort               string          `json:"effort,omitempty"`
-	OutputSchema         json.RawMessage `json:"output_schema,omitempty"`
+	SelectedSkills               []string             `json:"selected_skills,omitempty"`
+	ManualSkillSelection         bool                 `json:"manual_skill_selection,omitempty"`
+	CWD                          string               `json:"cwd,omitempty"`
+	ApprovalPolicy               string               `json:"approval_policy,omitempty"`
+	Provider                     string               `json:"provider,omitempty"`
+	Model                        string               `json:"model,omitempty"`
+	GitRoot                      string               `json:"git_root,omitempty"`
+	IsWorktree                   bool                 `json:"is_worktree,omitempty"`
+	Language                     string               `json:"language,omitempty"`
+	EnabledTools                 []string             `json:"enabled_tools,omitempty"`
+	AdditionalWorkingDirectories []string             `json:"additional_working_directories,omitempty"`
+	MCPSnapshot                  contract.MCPSnapshot `json:"mcp_snapshot,omitempty"`
+	SessionFlags                 map[string]bool      `json:"session_flags,omitempty"`
+	Effort                       string               `json:"effort,omitempty"`
+	OutputSchema                 json.RawMessage      `json:"output_schema,omitempty"`
 }
 
 func (p *turnStartParams) UnmarshalJSON(data []byte) error {
@@ -66,12 +76,22 @@ type turnInputItemParams struct {
 }
 
 type turnSteerParams struct {
-	ThreadID             string                `json:"thread_id"`
-	ExpectedTurnID       string                `json:"expected_turn_id,omitempty"`
-	Prompt               string                `json:"prompt,omitempty"`
-	Input                []turnInputItemParams `json:"input,omitempty"`
-	SelectedSkills       []string              `json:"selected_skills,omitempty"`
-	ManualSkillSelection bool                  `json:"manual_skill_selection,omitempty"`
+	ThreadID                     string                `json:"thread_id"`
+	ExpectedTurnID               string                `json:"expected_turn_id,omitempty"`
+	Prompt                       string                `json:"prompt,omitempty"`
+	Input                        []turnInputItemParams `json:"input,omitempty"`
+	SelectedSkills               []string              `json:"selected_skills,omitempty"`
+	ManualSkillSelection         bool                  `json:"manual_skill_selection,omitempty"`
+	Provider                     string                `json:"provider,omitempty"`
+	CWD                          string                `json:"cwd,omitempty"`
+	Model                        string                `json:"model,omitempty"`
+	GitRoot                      string                `json:"git_root,omitempty"`
+	IsWorktree                   bool                  `json:"is_worktree,omitempty"`
+	Language                     string                `json:"language,omitempty"`
+	EnabledTools                 []string              `json:"enabled_tools,omitempty"`
+	AdditionalWorkingDirectories []string              `json:"additional_working_directories,omitempty"`
+	MCPSnapshot                  contract.MCPSnapshot  `json:"mcp_snapshot,omitempty"`
+	SessionFlags                 map[string]bool       `json:"session_flags,omitempty"`
 }
 
 func (p *turnSteerParams) UnmarshalJSON(data []byte) error {

@@ -129,12 +129,9 @@ func composeLaunchSystemPrompt(instructions string, cfg cliLaunchConfig) string 
 		promptBaseInstructions(instructions, cfg.PromptSnapshot),
 		promptDeveloperInstructions(cfg),
 	)
-	meta := make([]string, 0, 5)
+	meta := make([]string, 0, 2)
 	for _, pair := range [][2]string{
-		{"approval_policy", cfg.ApprovalPolicy},
-		{"sandbox", cfg.Sandbox},
 		{"summary", cfg.Summary},
-		{"effort", cfg.Effort},
 		{"personality", cfg.Personality},
 	} {
 		if value := strings.TrimSpace(pair[1]); value != "" {
@@ -175,6 +172,7 @@ func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
 		strings.TrimSpace(snapshot.Provider) == "" &&
 		snapshot.Version == 0 &&
 		strings.TrimSpace(snapshot.Hash) == "" &&
+		len(snapshot.SectionSnapshot) == 0 &&
 		snapshot.Generation == 0
 }
 

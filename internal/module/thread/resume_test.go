@@ -108,6 +108,64 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	}
 }
 
+func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
+	t.Parallel()
+
+	stored := threadstore.PromptSnapshot{
+		DisplayName:           "resume",
+		BaseInstructions:      "stored base",
+		DeveloperInstructions: "stored dev",
+		Provider:              "codex",
+		Version:               contract.PromptAssemblySnapshotVersion,
+		Hash:                  promptSnapshotHash("resume", "stored base", "stored dev", "codex"),
+	}
+	threads := &stubThreadStore{
+		thread: &threadstore.Thread{
+			ThreadID:      "thread-1",
+			AgentID:       "agent-1",
+			Prompt:        "resume",
+			Model:         "stored-model",
+			Cwd:           "/repo",
+			CreatedAt:     123,
+			Status:        statusCreated,
+			LastEventType: "",
+		},
+		promptSnapshot: &stored,
+	}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "provider-thread-1",
+		CodexThreadID:    "thread-1",
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			if req.PromptSnapshot.BaseInstructions != stored.BaseInstructions || req.PromptSnapshot.DeveloperInstructions != stored.DeveloperInstructions {
+				t.Fatalf("PromptSnapshot = %#v, want stored snapshot", req.PromptSnapshot)
+			}
+			session := &stubSession{threadID: "provider-thread-1"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	_, err := svc.Resume(context.Background(), ResumeRequest{
+		ThreadID: "thread-1",
+		PromptSnapshot: contract.PromptAssemblySnapshot{
+			DisplayName:           "caller",
+			BaseInstructions:      "caller base",
+			DeveloperInstructions: "caller dev",
+			Provider:              "codex",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+}
+
 func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 	t.Parallel()
 
@@ -461,10 +519,13 @@ func (s *stubSession) SetThreadName(_ context.Context, threadID, name string) er
 }
 
 type stubThreadStore struct {
-	thread    *threadstore.Thread
-	upsert    threadstore.UpsertParams
-	upsertErr error
-	status    threadstore.UpdateStatusParams
+	thread              *threadstore.Thread
+	upsert              threadstore.UpsertParams
+	upsertErr           error
+	status              threadstore.UpdateStatusParams
+	promptSnapshot      *threadstore.PromptSnapshot
+	promptSnapshotError error
+	promptSnapshotID    string
 }
 
 func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
@@ -491,12 +552,27 @@ func (s *stubThreadStore) ListRunningAgents(context.Context) ([]threadstore.Runn
 	return nil, nil
 }
 
-func (*stubThreadStore) SavePromptSnapshot(context.Context, string, threadstore.PromptSnapshot) error {
+func (s *stubThreadStore) SavePromptSnapshot(_ context.Context, threadID string, snapshot threadstore.PromptSnapshot) error {
+	if s.promptSnapshotError != nil {
+		return s.promptSnapshotError
+	}
+	s.promptSnapshotID = threadID
+	snapshotCopy := snapshot
+	snapshotCopy.SectionSnapshot = clonePromptSectionMap(snapshot.SectionSnapshot)
+	s.promptSnapshot = &snapshotCopy
 	return nil
 }
 
-func (*stubThreadStore) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
-	return nil, nil
+func (s *stubThreadStore) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
+	if s.promptSnapshotError != nil {
+		return nil, s.promptSnapshotError
+	}
+	if s.promptSnapshot == nil {
+		return nil, nil
+	}
+	snapshotCopy := *s.promptSnapshot
+	snapshotCopy.SectionSnapshot = clonePromptSectionMap(snapshotCopy.SectionSnapshot)
+	return &snapshotCopy, nil
 }
 
 func (s *stubThreadStore) Upsert(_ context.Context, params threadstore.UpsertParams) error {

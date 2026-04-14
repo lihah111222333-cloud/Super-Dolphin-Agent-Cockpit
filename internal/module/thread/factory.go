@@ -37,6 +37,7 @@ type threadStateFields struct {
 	Prompt            string
 	RolloutPath       string
 	SessionUUID       string
+	ConfigOverride    json.RawMessage
 	CreatedAt         int64
 }
 
@@ -64,6 +65,7 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	state.ProviderThreadID = strings.TrimSpace(fields.ProviderThreadID)
 	state.RolloutPath = fields.RolloutPath
 	state.SessionUUID = fields.SessionUUID
+	state.ConfigOverride = shared.CloneRawMessage(fields.ConfigOverride)
 	state.CreatedAt = firstNonZero(fields.CreatedAt)
 	return state
 }
@@ -178,10 +180,11 @@ const (
 )
 
 type storedThreadConfig struct {
-	Model       string `json:"model,omitempty"`
-	Effort      string `json:"effort,omitempty"`
-	Approvals   string `json:"approvals,omitempty"`
-	Personality string `json:"personality,omitempty"`
+	Model       string         `json:"model,omitempty"`
+	Effort      string         `json:"effort,omitempty"`
+	Approvals   string         `json:"approvals,omitempty"`
+	Personality string         `json:"personality,omitempty"`
+	Runtime     map[string]any `json:"runtime,omitempty"`
 }
 
 type offlineConfigSnapshot struct {
@@ -258,6 +261,7 @@ func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Th
 			"timeoutSec":          8,
 		},
 	}
+	cfg = mergeRuntimeConfig(cfg, shared.CloneRuntimeConfigMap(stored.Runtime))
 	if value := strings.TrimSpace(stored.Approvals); value != "" {
 		cfg["approvalPolicy"] = value
 	}

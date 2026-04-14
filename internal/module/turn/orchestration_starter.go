@@ -13,14 +13,15 @@ import (
 )
 
 type orchestrationTurnStarter struct {
-	turns    Service
-	sessions SessionProvider
+	turns         Service
+	sessions      SessionProvider
+	runtimeReader ThreadStateConfigReader
 }
 
 const sessionReadyPollInterval = 50 * time.Millisecond
 
-func NewOrchestrationTurnStarter(turns Service, sessions SessionProvider) contract.OrchestrationTurnStarter {
-	return orchestrationTurnStarter{turns: turns, sessions: sessions}
+func NewOrchestrationTurnStarter(turns Service, sessions SessionProvider, runtimeReader ThreadStateConfigReader) contract.OrchestrationTurnStarter {
+	return orchestrationTurnStarter{turns: turns, sessions: sessions, runtimeReader: runtimeReader}
 }
 
 func (s orchestrationTurnStarter) WaitForSessionReady(ctx context.Context, agentID string, timeout time.Duration) error {
@@ -72,14 +73,16 @@ func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission cont
 	if err != nil {
 		return "", sessionLookupError(err)
 	}
-	req, err := s.turns.PrepareTurn(ctx, session, prepareQueuedTurnInput(session, submission))
+	threadID := queuedThreadID(session, submission)
+	threadRuntimeConfig := readThreadRuntimeConfig(ctx, s.runtimeReader, threadID)
+	req, err := s.turns.PrepareTurn(ctx, session, prepareQueuedTurnInput(session, submission, threadRuntimeConfig))
 	if err != nil {
 		return "", err
 	}
 	if turnID := strings.TrimSpace(submission.ExpectedTurnID); turnID != "" {
 		req.LocalID = turnID
 	}
-	if threadID := queuedThreadID(session, submission); threadID != "" {
+	if threadID != "" {
 		req.ThreadID = threadID
 	}
 	handle, err := s.turns.StartTurn(ctx, session, req)
@@ -96,15 +99,16 @@ func sessionLookupError(err error) error {
 	return err
 }
 
-func prepareQueuedTurnInput(session sessionCaps, submission contract.TurnSubmission) PrepareInput {
+func prepareQueuedTurnInput(session sessionCaps, submission contract.TurnSubmission, threadRuntimeConfig map[string]any) PrepareInput {
 	return buildPrepareInput(prepareInputSpec{
 		Inputs:               submission.Inputs,
 		ManualSkillSelection: submission.ManualSkillSelection,
 		OutputSchema:         append(json.RawMessage(nil), submission.OutputSchema...),
 		AgentID:              strings.TrimSpace(submission.AgentID),
+		ThreadRuntimeConfig:  threadRuntimeConfig,
 	}, prepareSkillSpec{
 		Selected: submission.SelectedSkills,
-	}, session.Capabilities())
+	}, session)
 }
 
 type sessionCaps interface {
