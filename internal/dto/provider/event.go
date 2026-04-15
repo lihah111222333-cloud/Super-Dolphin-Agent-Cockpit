@@ -16,6 +16,3 @@ type BusRawProviderEvent struct {
 }
 
 func (BusRawProviderEvent) Type() uint32 { return shared.EventTypeProviderRaw }
-
-// EventTranslator translates raw driver events into typed events.
-type EventTranslator func(raw RawProviderEvent, publish func(ev any))

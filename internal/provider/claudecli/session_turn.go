@@ -272,7 +272,7 @@ func composeTurnText(req dto.TurnRequest) string {
 	return strings.TrimSpace(strings.Join(
 		nonEmptyStrings(
 			contract.FormatSystemContextBlock(req.TurnAssembly.SystemContext),
-			req.TurnAssembly.RenderUserContextMessage(),
+			contract.RenderUserContextMessage(req.TurnAssembly),
 			buildAttachmentText(req.TurnAssembly.Attachments),
 			buildTurnText(req),
 		),
@@ -283,7 +283,7 @@ func composeTurnText(req dto.TurnRequest) string {
 func buildAttachmentText(attachments []dto.AttachmentEnvelope) string {
 	blocks := make([]string, 0, len(attachments))
 	for _, attachment := range attachments {
-		if text := strings.TrimSpace(attachment.RenderText()); text != "" {
+		if text := strings.TrimSpace(contract.RenderAttachmentText(attachment)); text != "" {
 			blocks = append(blocks, text)
 		}
 	}

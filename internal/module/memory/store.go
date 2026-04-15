@@ -36,36 +36,59 @@ type MemoryWriteRequest struct {
 	Body        string
 }
 
-type DiskStore struct {
-	root string
+type memoryWriteGuard interface {
+	ValidateWrite(path, content string) (string, error)
+}
+
+type memoryStructuredStore interface {
+	Read(name string) (MemoryEntry, error)
+	CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
+	UpdateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
+	Delete(name string, opts ...WriteOptions) error
+}
+
+type memoryWriteStore interface {
+	memoryStructuredStore
+	Root() string
+	Create(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error)
+	Update(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error)
+}
+
+type diskStore struct {
+	root  string
+	guard memoryWriteGuard
 }
 
 var diskStoreLocks sync.Map
 
-func NewDiskStore(root string) (*DiskStore, error) {
+func newDiskStore(root string) (*diskStore, error) {
+	return newDiskStoreWithGuard(root, nil)
+}
+
+func newDiskStoreWithGuard(root string, guard memoryWriteGuard) (*diskStore, error) {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
 		return nil, err
 	}
-	return &DiskStore{root: normalizedRoot}, nil
+	return &diskStore{root: normalizedRoot, guard: guard}, nil
 }
 
-func (s *DiskStore) Root() string {
+func (s *diskStore) Root() string {
 	if s == nil {
 		return ""
 	}
 	return s.root
 }
 
-func (s *DiskStore) CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
+func (s *diskStore) CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.Create(buildMemoryEntryFromWriteRequest(req), opts...)
 }
 
-func (s *DiskStore) Create(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error) {
+func (s *diskStore) Create(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.write(entry, false, resolveWriteOptions(opts))
 }
 
-func (s *DiskStore) Read(name string) (MemoryEntry, error) {
+func (s *diskStore) Read(name string) (MemoryEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
 		return MemoryEntry{}, err
@@ -84,15 +107,15 @@ func (s *DiskStore) Read(name string) (MemoryEntry, error) {
 	return entry, nil
 }
 
-func (s *DiskStore) Update(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error) {
+func (s *diskStore) Update(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.write(entry, true, resolveWriteOptions(opts))
 }
 
-func (s *DiskStore) UpdateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
+func (s *diskStore) UpdateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.Update(buildMemoryEntryFromWriteRequest(req), opts...)
 }
 
-func (s *DiskStore) Delete(name string, opts ...WriteOptions) error {
+func (s *diskStore) Delete(name string, opts ...WriteOptions) error {
 	root, err := s.rootOrError()
 	if err != nil {
 		return err
@@ -106,7 +129,7 @@ func (s *DiskStore) Delete(name string, opts ...WriteOptions) error {
 	})
 }
 
-func (s *DiskStore) RebuildIndex() ([]MemoryIndexEntry, error) {
+func (s *diskStore) RebuildIndex() ([]MemoryIndexEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
 		return nil, err
@@ -114,12 +137,12 @@ func (s *DiskStore) RebuildIndex() ([]MemoryIndexEntry, error) {
 	return RebuildMemoryIndex(root)
 }
 
-func (s *DiskStore) write(entry MemoryEntry, requireExisting bool, options WriteOptions) (MemoryEntry, error) {
+func (s *diskStore) write(entry MemoryEntry, requireExisting bool, options WriteOptions) (MemoryEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
 		return MemoryEntry{}, err
 	}
-	prepared, err := normalizeWritableEntry(entry)
+	prepared, err := prepareWritableEntry(entry, false)
 	if err != nil {
 		return MemoryEntry{}, err
 	}
@@ -132,7 +155,7 @@ func (s *DiskStore) write(entry MemoryEntry, requireExisting bool, options Write
 		if err := validateMutationMode(exists, requireExisting); err != nil {
 			return err
 		}
-		written, err = WriteMemoryFile(root, prepared)
+		written, err = writePreparedMemoryFile(root, prepared, s.guard)
 		if err != nil {
 			return err
 		}
@@ -142,11 +165,15 @@ func (s *DiskStore) write(entry MemoryEntry, requireExisting bool, options Write
 }
 
 func WriteMemoryFile(root string, entry MemoryEntry) (MemoryEntry, error) {
-	normalizedRoot, err := normalizeStoreRoot(root)
+	prepared, err := prepareWritableEntry(entry, false)
 	if err != nil {
 		return MemoryEntry{}, err
 	}
-	prepared, err := normalizeWritableEntry(entry)
+	return writePreparedMemoryFile(root, prepared, nil)
+}
+
+func writePreparedMemoryFile(root string, prepared MemoryEntry, guard memoryWriteGuard) (MemoryEntry, error) {
+	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
 		return MemoryEntry{}, err
 	}
@@ -154,8 +181,18 @@ func WriteMemoryFile(root string, entry MemoryEntry) (MemoryEntry, error) {
 	if err != nil {
 		return MemoryEntry{}, err
 	}
+	raw := formatMemoryEntry(prepared)
+	if guard != nil {
+		targetPath, err = guard.ValidateWrite(targetPath, raw)
+		if err != nil {
+			return MemoryEntry{}, err
+		}
+	}
+	if err := ValidateMemoryEntryContent(prepared); err != nil {
+		return MemoryEntry{}, err
+	}
 	prepared.FilePath = targetPath
-	if err := writeAtomicFile(targetPath, []byte(formatMemoryEntry(prepared)), 0o644); err != nil {
+	if err := writeAtomicFile(targetPath, []byte(raw), 0o644); err != nil {
 		return MemoryEntry{}, err
 	}
 	return readMemoryEntryFile(targetPath)
@@ -197,7 +234,7 @@ func normalizeStoreRoot(root string) (string, error) {
 	return strings.TrimSuffix(validatedRoot, string(os.PathSeparator)), nil
 }
 
-func normalizeWritableEntry(entry MemoryEntry) (MemoryEntry, error) {
+func prepareWritableEntry(entry MemoryEntry, validateContent bool) (MemoryEntry, error) {
 	entry = normalizeLoadedEntry(entry)
 	if strings.TrimSpace(entry.Content) == "" {
 		return MemoryEntry{}, fmt.Errorf("%w: content is required", ErrInvalidMemoryEntry)
@@ -206,8 +243,10 @@ func normalizeWritableEntry(entry MemoryEntry) (MemoryEntry, error) {
 		return MemoryEntry{}, err
 	}
 	memoryType := entry.Type()
-	if err := ValidateMemoryEntryContent(entry); err != nil {
-		return MemoryEntry{}, err
+	if validateContent {
+		if err := ValidateMemoryEntryContent(entry); err != nil {
+			return MemoryEntry{}, err
+		}
 	}
 	if err := validateStructuredMemoryContent(memoryType, entry.Content); err != nil {
 		return MemoryEntry{}, err
@@ -515,7 +554,7 @@ func withDiskStoreLock(root string, fn func() error) (err error) {
 	return fn()
 }
 
-func (s *DiskStore) rootOrError() (string, error) {
+func (s *diskStore) rootOrError() (string, error) {
 	if s == nil {
 		return "", fmt.Errorf("%w: nil store", ErrInvalidMemoryRoot)
 	}

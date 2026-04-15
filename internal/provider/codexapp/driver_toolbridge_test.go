@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/gorilla/websocket"
 )
 
@@ -34,16 +35,16 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	manager := &ServerManager{}
 
 	listToolsCalls := 0
-	got, ok := newDriver(nil, nil, nil, nil, manager, func(context.Context) ([]DynamicToolSchema, error) {
+	got, ok := newDriver(nil, nil, nil, nil, manager, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		listToolsCalls++
-		return []DynamicToolSchema{{
+		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
 			Description: "echo payload",
 			InputSchema: json.RawMessage(`{"type":"object"}`),
 		}}, nil
 	}).(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, manager, func(context.Context) ([]DynamicToolSchema, error) {
+		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, manager, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 			return nil, nil
 		}))
 	}

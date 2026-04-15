@@ -13,6 +13,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -105,7 +106,7 @@ func (d *driver) Name() string { return "claude" }
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	launchConfig := configFromMap(req.Config)
-	manifest := dto.BuildManifest(dto.ManifestContext{
+	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:       strings.TrimSpace(req.AgentID),
 		CWD:           strings.TrimSpace(req.CWD),
 		ThreadCaps:    copyCapabilities(claudeCapabilities),
@@ -129,7 +130,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	snapshot := req.PromptSnapshot
-	manifest := dto.BuildManifest(dto.ManifestContext{
+	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:       strings.TrimSpace(req.AgentID),
 		CWD:           strings.TrimSpace(req.CWD),
 		ThreadCaps:    copyCapabilities(claudeCapabilities),
@@ -137,18 +138,18 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
 	})
 	return d.start(ctx, startSpec{
-		agentID:        req.AgentID,
-		threadID:       shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID),
-		publicThread:   req.ThreadID,
-		cwd:            req.CWD,
-		model:          req.Model,
+		agentID:      req.AgentID,
+		threadID:     shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID),
+		publicThread: req.ThreadID,
+		cwd:          req.CWD,
+		model:        req.Model,
 		startAssembly: contract.StartAssembly{
 			DisplayName:           strings.TrimSpace(snapshot.DisplayName),
 			BaseInstructions:      strings.TrimSpace(snapshot.BaseInstructions),
 			DeveloperInstructions: strings.TrimSpace(snapshot.DeveloperInstructions),
 			Snapshot:              snapshot,
 		},
-		manifest:       manifest,
+		manifest: manifest,
 		config: cliLaunchConfig{
 			Effort:         strings.TrimSpace(req.Effort),
 			PromptSnapshot: snapshot,

@@ -55,6 +55,7 @@ type PrepareInput struct {
 	OutputStyleConfig            *contract.OutputStyleConfig
 	ScratchpadDir                string
 	FRCConfig                    *contract.FRCConfig
+	RuntimeUserContext           map[string]string
 	ThreadRuntimeConfig          map[string]any
 	ThreadCaps                   dto.CapabilitySet
 	BinaryDir                    string

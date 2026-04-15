@@ -23,6 +23,8 @@ import (
 
 type typedEventPublisher func(*event.Dispatcher, any) bool
 
+type EventTranslator func(raw dto.RawProviderEvent, publish func(ev any))
+
 var typedEventPublishers = map[reflect.Type]typedEventPublisher{
 	typedEventType[agentdto.StateChanged]():         publishEvent[agentdto.StateChanged],
 	typedEventType[agentdto.AgentLaunched]():        publishEvent[agentdto.AgentLaunched],
@@ -69,7 +71,7 @@ var typedEventPublishers = map[reflect.Type]typedEventPublisher{
 // EventDispatcher manages raw driver events and republishes translated typed events.
 type EventDispatcher struct {
 	mu          sync.RWMutex
-	translators []dto.EventTranslator
+	translators []EventTranslator
 	bus         *event.Dispatcher
 	logger      *slog.Logger
 }
@@ -79,14 +81,14 @@ func NewEventDispatcher(bus *event.Dispatcher, logger *slog.Logger) *EventDispat
 		logger = pkglogger.Get()
 	}
 	return &EventDispatcher{
-		translators: []dto.EventTranslator{translateCommonRawEvent},
+		translators: []EventTranslator{translateCommonRawEvent},
 		bus:         bus,
 		logger:      logger,
 	}
 }
 
 // Register registers one event translator from a driver.
-func (d *EventDispatcher) Register(t dto.EventTranslator) {
+func (d *EventDispatcher) Register(t EventTranslator) {
 	if t == nil {
 		return
 	}
@@ -100,7 +102,7 @@ func (d *EventDispatcher) Register(t dto.EventTranslator) {
 // Dispatch sends one raw driver event through all registered translators.
 func (d *EventDispatcher) Dispatch(raw dto.RawProviderEvent) {
 	d.mu.RLock()
-	translators := make([]dto.EventTranslator, len(d.translators))
+	translators := make([]EventTranslator, len(d.translators))
 	copy(translators, d.translators)
 	d.mu.RUnlock()
 
@@ -222,7 +224,7 @@ func commonAgentSessionHeader(payload map[string]any) shareddto.AgentSessionHead
 	return shareddto.AgentSessionHeader{
 		AgentHeader: shareddto.AgentHeader{
 			ThreadHeader: shareddto.ThreadHeader{
-				EventHeader: shareddto.EventHeader{Timestamp: shareddto.FirstEventTime(shareddto.EventTimeFromPayload(payload))},
+				EventHeader: shareddto.EventHeader{Timestamp: shared.FirstEventTime(shared.EventTimeFromPayload(payload))},
 				ThreadID:    threadID,
 			},
 			AgentID: shared.FirstNonEmpty(

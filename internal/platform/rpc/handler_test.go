@@ -23,7 +23,7 @@ func TestNewCapabilityResolverReturnsCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolver() error = %v", err)
 	}
-	if !caps.Has(dto.CapMessageSend) {
+	if !contract.HasCapability(caps, dto.CapMessageSend) {
 		t.Fatal("resolver() missing CapMessageSend")
 	}
 }

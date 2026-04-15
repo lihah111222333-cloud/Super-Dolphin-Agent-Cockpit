@@ -208,14 +208,14 @@ func TestPrepareTurnLockedPrependsStructuredTurnAssemblyUserContext(t *testing.T
 func TestPrepareTurnLockedIncludesAttachmentTextAfterUserContext(t *testing.T) {
 	ready := make(chan struct{})
 	close(ready)
-	attachment := dto.NewRelevantMemoryAttachment(
+	attachment := contract.NewRelevantMemoryAttachment(
 		"project/commit-style.md",
 		"Memory (saved today): project/commit-style.md:",
 		"Use concise imperative commit messages.",
 		time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC),
 		720,
 		false,
-	).Envelope()
+	)
 	s := &session{
 		threadID:        "thread-1",
 		sessionID:       "thread-1",
@@ -250,7 +250,7 @@ func TestPrepareTurnLockedIncludesAttachmentTextAfterUserContext(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	got := decoded.Message.Content[0].Text
-	want := "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\n" + attachment.RenderText() + "\n\nhello"
+	want := "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\n" + contract.RenderAttachmentText(attachment) + "\n\nhello"
 	if got != want {
 		t.Fatalf("payload text = %q, want %q", got, want)
 	}

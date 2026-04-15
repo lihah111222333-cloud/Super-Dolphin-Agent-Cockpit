@@ -11,6 +11,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	_ "github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
 )
 
 //go:linkname writeManifestConfig github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli.writeManifestConfig
@@ -29,7 +30,7 @@ type claudeManifestServer struct {
 }
 
 func TestClaudeMCPManifest_E2E(t *testing.T) {
-	manifest := dto.BuildManifest(dto.ManifestContext{
+	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		BinaryDir: "/tmp/claude-e2e/bin",
 		Env: map[string]string{
 			"GO_AGENT_CTL_RPC_ADDR": "127.0.0.1:9191",

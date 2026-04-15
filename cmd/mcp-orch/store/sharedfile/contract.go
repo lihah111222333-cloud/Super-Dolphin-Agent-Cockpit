@@ -2,17 +2,29 @@ package sharedfile
 
 import (
 	"context"
-
-	sf "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"time"
 )
 
-// Re-export shared types from internal/store/sharedfile.
-type SharedFile = sf.SharedFile
-type ListFilter = sf.ListFilter
+type Reader interface {
+	Get(ctx context.Context, path string) (*SharedFile, error)
+	List(ctx context.Context, filter ListFilter) ([]SharedFile, error)
+}
 
-// Store extends the shared Reader with write operations.
+type ListFilter struct {
+	Prefix string
+	Limit  int32
+}
+
+type SharedFile struct {
+	Path      string    `json:"path"`
+	Content   string    `json:"content"`
+	UpdatedBy string    `json:"updated_by"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Store interface {
-	sf.Reader
+	Reader
 	Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error)
 	Delete(ctx context.Context, path string) (int64, error)
 }

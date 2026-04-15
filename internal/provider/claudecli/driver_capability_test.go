@@ -120,7 +120,7 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 	s := &session{caps: copyCapabilities(claudeCapabilities)}
 	got := s.Capabilities()
 	got[dto.CapMessageSend] = false
-	if !s.caps.Has(dto.CapMessageSend) {
+	if !contract.HasCapability(s.caps, dto.CapMessageSend) {
 		t.Fatal("Capabilities() returned aliased map")
 	}
 }
@@ -128,7 +128,7 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 func TestClaudeDeclarationOmitsContextCompact(t *testing.T) {
 	t.Parallel()
 
-	if claudeCapabilities.Has(dto.CapContextCompact) {
+	if contract.HasCapability(claudeCapabilities, dto.CapContextCompact) {
 		t.Fatalf("claudeCapabilities unexpectedly declares %q", dto.CapContextCompact)
 	}
 }

@@ -8,10 +8,10 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -99,7 +99,7 @@ func dispatchObservedAfter(manager *Manager, logger *pkglogger.Logger, topic str
 		return
 	}
 	go func() {
-		ctx := sharedto.WithEventTime(context.Background(), timestamp)
+		ctx := platformshared.WithEventTime(context.Background(), timestamp)
 		if _, err := manager.DispatchAfter(ctx, topic, payload); err != nil {
 			logger.Warn("hooks: observed event relay failed",
 				"topic", topic,

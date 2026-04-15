@@ -10,7 +10,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/kelindar/event"
 )
 
@@ -211,7 +210,7 @@ func TestMemoryContextProviderOnPromptInvalidateResetsSurfacedLedger(t *testing.
 	state.surfacedBytes = len(entry.Content)
 	provider.mu.Unlock()
 
-	provider.OnPromptInvalidate(prompt.InvalidateClear)
+	provider.OnPromptInvalidate(contract.InvalidateClear)
 	if got := state.manager.FilterAlreadySurfaced([]MemoryEntry{entry}); len(got) != 1 {
 		t.Fatalf("FilterAlreadySurfaced() after reset = %#v, want original entry", got)
 	}

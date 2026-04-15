@@ -3,11 +3,12 @@ package memory
 import (
 	"fmt"
 	"path/filepath"
-	"strconv"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
@@ -68,15 +69,15 @@ func relevantMemoryAttachment(entry MemoryEntry, now time.Time) (dto.AttachmentE
 	if body == "" {
 		return dto.AttachmentEnvelope{}, false
 	}
-	attachment := dto.NewRelevantMemoryAttachment(
+	attachment := contract.NewRelevantMemoryAttachment(
 		memoryDisplayPath(entry),
 		memoryHeader(now, entry),
 		body,
 		entry.UpdatedAt,
 		maxRenderedMemoryRunes,
 		truncated,
-	).Envelope()
-	return attachment, attachment.IsValid()
+	)
+	return attachment, contract.IsValidAttachmentEnvelope(attachment)
 }
 
 func memoryAgeDays(now, updatedAt time.Time) int {

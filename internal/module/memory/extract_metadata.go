@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type threadRuntimeMetadata struct {
@@ -41,7 +41,7 @@ func (h *MemoryLifecycleHooks) resolveThreadRuntimeMetadata(ctx context.Context,
 	return resolveThreadRuntimeMetadataFromThread(thread)
 }
 
-func resolveThreadRuntimeMetadataFromThread(thread *threadstore.Thread) threadRuntimeMetadata {
+func resolveThreadRuntimeMetadataFromThread(thread *contract.ThreadMetadata) threadRuntimeMetadata {
 	if thread == nil {
 		return threadRuntimeMetadata{}
 	}
@@ -64,7 +64,7 @@ func resolveThreadRuntimeMetadataFromThread(thread *threadstore.Thread) threadRu
 	return meta
 }
 
-func decodeStoredThreadRuntime(thread *threadstore.Thread) map[string]any {
+func decodeStoredThreadRuntime(thread *contract.ThreadMetadata) map[string]any {
 	if thread == nil || len(thread.ConfigOverride) == 0 {
 		return nil
 	}

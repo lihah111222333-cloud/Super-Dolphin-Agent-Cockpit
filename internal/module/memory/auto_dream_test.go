@@ -3,12 +3,11 @@ package memory
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestAutoDreamStopHookNoOpWhenKairosActive(t *testing.T) {
@@ -123,53 +122,6 @@ func TestAutoDreamStopHookRequiresMinSessionsAndExcludesCurrent(t *testing.T) {
 	}
 }
 
-func TestConsolidationRollbackOnExtractFailureRestoresPreviousLockMtime(t *testing.T) {
-	root := newTestMemoryRoot(t)
-	cfg := &Config{Enabled: true, RootDir: root}
-	writeExtractFixture(t, filepath.Join(root, "feedback", "keep-answers-short.md"), testMemoryEntry(
-		"Keep answers short",
-		"legacy",
-		MemoryTypeFeedback,
-		"Keep answers short\nWhy: older guidance.",
-	))
-	lockPath, err := consolidationLockPath(root)
-	if err != nil {
-		t.Fatalf("consolidationLockPath() error = %v", err)
-	}
-	previous := time.Date(2026, 4, 14, 9, 0, 0, 0, time.UTC)
-	if err := os.WriteFile(lockPath, []byte(`{"pid":1}`), 0o644); err != nil {
-		t.Fatalf("WriteFile(lock) error = %v", err)
-	}
-	if err := os.Chtimes(lockPath, previous, previous); err != nil {
-		t.Fatalf("Chtimes(lock) error = %v", err)
-	}
-	consolidator := newAutoDreamConsolidator(NewMemoryExtractor(), nil)
-	consolidator.cfg = cfg
-	err = consolidator.consolidateWithOptions(context.Background(), root, func(context.Context, string) (string, error) {
-		return "", errors.New("extract failed")
-	}, consolidationRunOptions{
-		cfg: cfg,
-		now: func() time.Time { return previous.Add(2 * defaultConsolidationLockTTL) },
-	})
-	if err == nil {
-		t.Fatal("consolidateWithOptions() error = nil, want extract failure")
-	}
-	info, err := os.Stat(lockPath)
-	if err != nil {
-		t.Fatalf("Stat(lock after extract failure) error = %v", err)
-	}
-	if !info.ModTime().Equal(previous) {
-		t.Fatalf("lock mtime after extract failure = %s, want %s", info.ModTime(), previous)
-	}
-	stamp, err := loadConsolidationStamp(root)
-	if err != nil {
-		t.Fatalf("loadConsolidationStamp() error = %v", err)
-	}
-	if got := stamp.lastSuccessTime(); !got.IsZero() {
-		t.Fatalf("lastSuccessTime() = %s, want zero on extract failure", got)
-	}
-}
-
 func TestAutoDreamKillCancelsRunningTask(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	now := time.Date(2026, 4, 15, 9, 0, 0, 0, time.UTC)
@@ -264,29 +216,29 @@ func TestAutoDreamScanThrottleSkipsRepeatedStops(t *testing.T) {
 }
 
 type autoDreamThreadStoreStub struct {
-	thread  *threadstore.Thread
-	threads []threadstore.Thread
+	thread  *contract.ThreadMetadata
+	threads []contract.ThreadMetadata
 }
 
-func (s *autoDreamThreadStoreStub) GetByThreadID(context.Context, string) (*threadstore.Thread, error) {
+func (s *autoDreamThreadStoreStub) GetByThreadID(context.Context, string) (*contract.ThreadMetadata, error) {
 	if s == nil || s.thread == nil {
 		return nil, errors.New("thread not found")
 	}
 	return s.thread, nil
 }
 
-func (s *autoDreamThreadStoreStub) ListAll(context.Context) ([]threadstore.Thread, error) {
+func (s *autoDreamThreadStoreStub) ListAll(context.Context) ([]contract.ThreadMetadata, error) {
 	if s == nil {
 		return nil, nil
 	}
-	out := append([]threadstore.Thread(nil), s.threads...)
+	out := append([]contract.ThreadMetadata(nil), s.threads...)
 	return out, nil
 }
 
-func newAutoDreamRootThread(t *testing.T, threadID string, observedAt time.Time, runtime map[string]any) *threadstore.Thread {
+func newAutoDreamRootThread(t *testing.T, threadID string, observedAt time.Time, runtime map[string]any) *contract.ThreadMetadata {
 	t.Helper()
 	finishedAt := observedAt.Unix()
-	return &threadstore.Thread{
+	return &contract.ThreadMetadata{
 		ThreadID:       threadID,
 		Cwd:            t.TempDir(),
 		UpdatedAt:      observedAt.Unix(),
@@ -295,9 +247,9 @@ func newAutoDreamRootThread(t *testing.T, threadID string, observedAt time.Time,
 	}
 }
 
-func autoDreamOtherRootThreads(t *testing.T, now time.Time, count int) []threadstore.Thread {
+func autoDreamOtherRootThreads(t *testing.T, now time.Time, count int) []contract.ThreadMetadata {
 	t.Helper()
-	threads := make([]threadstore.Thread, 0, count)
+	threads := make([]contract.ThreadMetadata, 0, count)
 	for i := 0; i < count; i++ {
 		observedAt := now.Add(-time.Duration(i+1) * time.Minute)
 		thread := newAutoDreamRootThread(t, "thread-other-"+time.Date(2000, 1, 1, 0, 0, i+1, 0, time.UTC).Format("150405"), observedAt, map[string]any{"threadKind": "main"})

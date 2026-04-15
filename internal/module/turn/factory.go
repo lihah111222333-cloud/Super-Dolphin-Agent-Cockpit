@@ -227,33 +227,36 @@ func cloneMCPSnapshot(snapshot contract.MCPSnapshot) contract.MCPSnapshot {
 }
 
 func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
-	out := contract.MCPSnapshot{
+	return contract.MCPSnapshot{
 		Servers:                  providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Servers...), extra.Servers...)),
 		Tools:                    providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Tools...), extra.Tools...)),
+		Instructions:             mergeMCPInstructions(base.Instructions, extra.Instructions),
 		InstructionsDeltaEnabled: base.InstructionsDeltaEnabled || extra.InstructionsDeltaEnabled,
 		InstructionAttachments:   append(append([]contract.MCPAttachmentRef(nil), base.InstructionAttachments...), extra.InstructionAttachments...),
 	}
-	if len(base.Instructions) > 0 || len(extra.Instructions) > 0 {
-		out.Instructions = make(map[string]string, len(base.Instructions)+len(extra.Instructions))
-		for key, value := range extra.Instructions {
-			key = strings.TrimSpace(key)
-			value = strings.TrimSpace(value)
-			if key != "" && value != "" {
-				out.Instructions[key] = value
-			}
-		}
-		for key, value := range base.Instructions {
-			key = strings.TrimSpace(key)
-			value = strings.TrimSpace(value)
-			if key != "" && value != "" {
-				out.Instructions[key] = value
-			}
-		}
-		if len(out.Instructions) == 0 {
-			out.Instructions = nil
-		}
+}
+
+func mergeMCPInstructions(base, extra map[string]string) map[string]string {
+	if len(base) == 0 && len(extra) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(extra))
+	appendMCPInstructions(out, extra)
+	appendMCPInstructions(out, base)
+	if len(out) == 0 {
+		return nil
 	}
 	return out
+}
+
+func appendMCPInstructions(dst, src map[string]string) {
+	for key, value := range src {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key != "" && value != "" {
+			dst[key] = value
+		}
+	}
 }
 
 func readThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfigReader, threadID string) map[string]any {

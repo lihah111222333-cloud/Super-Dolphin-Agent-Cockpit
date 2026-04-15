@@ -6,7 +6,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	memorypkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 )
 
 func (s *service) syntheticMemoryContext(
@@ -15,9 +14,9 @@ func (s *service) syntheticMemoryContext(
 	input PrepareInput,
 	threadID, userText string,
 	mcp dto.MCPManifest,
-) memorypkg.TurnContextPayload {
-	if s == nil || s.prepareMemoryContext == nil {
-		return memorypkg.TurnContextPayload{}
+) contract.TurnContextPayload {
+	if s == nil || s.turnContextProvider == nil {
+		return contract.TurnContextPayload{}
 	}
 	buildCtx := contract.BuildCtx{
 		CWD:                          strings.TrimSpace(input.CWD),
@@ -31,5 +30,5 @@ func (s *service) syntheticMemoryContext(
 		MCPSnapshot:                  turnMCPSnapshot(input.MCPSnapshot, mcp),
 		SessionFlags:                 clonePrepareFlags(input.SessionFlags),
 	}
-	return s.prepareMemoryContext(ctx, session, buildCtx, threadID, userText)
+	return s.turnContextProvider.PrepareTurnContext(ctx, session, buildCtx, threadID, userText)
 }

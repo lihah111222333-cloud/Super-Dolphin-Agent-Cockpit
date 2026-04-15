@@ -13,10 +13,8 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
@@ -37,31 +35,40 @@ type memoryHookParams struct {
 	NestedRuntime   *NestedRuntime         `optional:"true"`
 }
 
+type promptProviderParams struct {
+	fx.In
+
+	Registry          contract.DynamicSectionRegistrar         `optional:"true"`
+	ClaudeMdRegistrar contract.ClaudeMdSourceProviderRegistrar `optional:"true"`
+	ClaudeMdProvider  *ClaudeMdSourcesProvider                 `optional:"true"`
+	Provider          *MemoryRulesProvider                     `optional:"true"`
+	AgentProvider     *AgentMemoryPromptProvider               `optional:"true"`
+	ContextProvider   *MemoryContextProvider                   `optional:"true"`
+}
+
 type historySource interface {
 	ReadHistory(ctx context.Context, threadID string, limit int) ([]providerdto.Message, error)
 }
 
-type threadMetadataStore interface {
-	GetByThreadID(ctx context.Context, threadID string) (*threadstore.Thread, error)
-}
+type threadMetadataStore = contract.ThreadMetadataStore
 
 type sectionInvalidator interface {
-	InvalidateSections(reason prompt.InvalidateReason, names ...string) uint64
+	InvalidateSections(reason contract.InvalidateReason, names ...string) uint64
 }
 
 type memoryLifecycleHookParams struct {
 	fx.In
 
-	Config          *Config                   `optional:"true"`
-	Team            *TeamMemoryManager        `optional:"true"`
-	Consolidator    *AutoDreamConsolidator    `optional:"true"`
-	DreamExtractFn  ExtractFunc               `optional:"true"`
-	Logger          *slog.Logger              `optional:"true"`
-	Threads         historySource             `optional:"true"`
-	ThreadStore     threadMetadataStore       `optional:"true"`
-	Sections        prompt.SectionInvalidator `optional:"true"`
-	Extractor       *MemoryExtractor          `optional:"true"`
-	ManifestBuilder *ManifestBuilder          `optional:"true"`
+	Config          *Config                     `optional:"true"`
+	Team            *TeamMemoryManager          `optional:"true"`
+	Consolidator    *AutoDreamConsolidator      `optional:"true"`
+	DreamExtractFn  ExtractFunc                 `optional:"true"`
+	Logger          *slog.Logger                `optional:"true"`
+	Threads         historySource               `optional:"true"`
+	ThreadStore     threadMetadataStore         `optional:"true"`
+	Sections        contract.SectionInvalidator `optional:"true"`
+	Extractor       *MemoryExtractor            `optional:"true"`
+	ManifestBuilder *ManifestBuilder            `optional:"true"`
 }
 
 type dreamExtractParams struct {
@@ -162,6 +169,7 @@ var Module = fx.Module("memory",
 		NewRulesProvider,
 		NewAgentMemoryPromptProvider,
 		NewContextProvider,
+		AsTurnContextProvider,
 		provideDreamExtractFunc,
 		provideAutoDreamConsolidator,
 		NewMemoryLifecycleHooks,
@@ -216,7 +224,7 @@ func provideMemoryService(
 	consolidator *AutoDreamConsolidator,
 	hooks *MemoryLifecycleHooks,
 ) Service {
-	return newServiceWithConsolidator(cfg, logger, consolidator, hooks)
+	return NewService(cfg, logger, consolidator, hooks)
 }
 
 func NewMemoryHandlers(svc Service) rpc.HandlerMapResult {

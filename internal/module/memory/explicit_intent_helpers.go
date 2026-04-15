@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func (h *MemoryLifecycleHooks) intentDiskStores(ctx context.Context, threadID string, memoryType MemoryType) (*DiskStore, *DiskStore, error) {
+func (h *MemoryLifecycleHooks) intentDiskStores(ctx context.Context, threadID string, memoryType MemoryType) (memoryStructuredStore, memoryStructuredStore, error) {
 	privateStore, err := h.diskStore()
 	if err != nil {
 		return nil, nil, err
@@ -24,7 +24,7 @@ func (h *MemoryLifecycleHooks) intentDiskStores(ctx context.Context, threadID st
 	return privateStore, teamStore, nil
 }
 
-func (h *MemoryLifecycleHooks) teamDiskStore(ctx context.Context, threadID string) (*DiskStore, error) {
+func (h *MemoryLifecycleHooks) teamDiskStore(ctx context.Context, threadID string) (memoryStructuredStore, error) {
 	if h == nil || h.team == nil {
 		return nil, nil
 	}
@@ -36,11 +36,11 @@ func (h *MemoryLifecycleHooks) teamDiskStore(ctx context.Context, threadID strin
 	if err != nil {
 		return nil, err
 	}
-	return NewDiskStore(root)
+	return newDiskStoreWithGuard(root, NewTeamMemoryGuard(h.team))
 }
 
-func selectExplicitWriteStore(name string, primary, secondary *DiskStore) (*DiskStore, error) {
-	for _, store := range []*DiskStore{primary, secondary} {
+func selectExplicitWriteStore(name string, primary, secondary memoryStructuredStore) (memoryStructuredStore, error) {
+	for _, store := range []memoryStructuredStore{primary, secondary} {
 		if store == nil {
 			continue
 		}
@@ -57,7 +57,7 @@ func selectExplicitWriteStore(name string, primary, secondary *DiskStore) (*Disk
 	return nil, errors.New("memory store is nil")
 }
 
-func upsertStructuredMemory(store *DiskStore, entry MemoryWriteRequest, options WriteOptions) error {
+func upsertStructuredMemory(store memoryStructuredStore, entry MemoryWriteRequest, options WriteOptions) error {
 	if store == nil {
 		return errors.New("memory store is nil")
 	}
@@ -70,7 +70,7 @@ func upsertStructuredMemory(store *DiskStore, entry MemoryWriteRequest, options 
 	return err
 }
 
-func deleteMemoryAcrossStores(name string, options WriteOptions, stores ...*DiskStore) error {
+func deleteMemoryAcrossStores(name string, options WriteOptions, stores ...memoryStructuredStore) error {
 	deleted := false
 	for _, store := range stores {
 		if store == nil {

@@ -7,6 +7,7 @@ import (
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type store struct {
@@ -72,11 +73,11 @@ func fromSQLC(row sqlc.TaskTrace) TaskTrace {
 	}
 }
 
-func toTraceSince(ts *time.Time) sqlc.Timestamptz {
+func toTraceSince(ts *time.Time) pgtype.Timestamptz {
 	if ts == nil {
-		return sqlc.Timestamptz{}
+		return pgtype.Timestamptz{}
 	}
-	return sqlc.Timestamptz{Time: *ts, Valid: true}
+	return pgtype.Timestamptz{Time: *ts, Valid: true}
 }
 
 func wrapTaskTraceError(err error, operation string) error {

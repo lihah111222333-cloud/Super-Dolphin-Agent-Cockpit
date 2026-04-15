@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"golang.org/x/text/unicode/norm"
 )
@@ -130,7 +131,7 @@ func findCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	gitCtx, cancel := context.WithTimeout(ctx, gitResolveTimeout)
+	gitCtx, cancel := platformconfig.WithTimeout(ctx, gitResolveTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(gitCtx, "git", "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
 	cmd.Dir = fallback

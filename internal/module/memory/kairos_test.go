@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestKairos(t *testing.T) {
@@ -73,7 +72,7 @@ func TestKairosDailyLogWriterAppendsAndRollsOver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	thread := &threadstore.Thread{
+	thread := &contract.ThreadMetadata{
 		ThreadID: "thread-1",
 		ConfigOverride: mustStoredRuntimeConfig(t, map[string]any{
 			"threadKind":   "main",
@@ -142,7 +141,7 @@ func TestKairosDurableTurnWritesWithoutExplicitRemember(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	thread := &threadstore.Thread{
+	thread := &contract.ThreadMetadata{
 		ThreadID: "thread-1",
 		ConfigOverride: mustStoredRuntimeConfig(t, map[string]any{
 			"threadKind":   "main",
@@ -180,7 +179,7 @@ func TestKairosDailyLogSkipsChildAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	thread := &threadstore.Thread{
+	thread := &contract.ThreadMetadata{
 		ThreadID:         "thread-1",
 		ParentAgentID:    "agent-root",
 		AgentMemoryScope: "project",

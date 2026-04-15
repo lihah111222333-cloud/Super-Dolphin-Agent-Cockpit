@@ -12,7 +12,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	memorypkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
@@ -26,7 +25,7 @@ type service struct {
 	manifest               *manifestBuilder
 	tracker                *turnTracker
 	promptAssembly         contract.PromptAssemblyService
-	prepareMemoryContext   func(context.Context, contract.Session, contract.BuildCtx, string, string) memorypkg.TurnContextPayload
+	turnContextProvider    contract.TurnContextProvider
 	interruptSettleTimeout time.Duration
 }
 
@@ -42,18 +41,18 @@ func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.P
 	return newService(logger, promptAssembly, nil)
 }
 
-func NewServiceWithPromptAssemblyAndMemoryContext(
+func NewServiceWithPromptAssemblyAndTurnContext(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
-	memoryContext *memorypkg.MemoryContextProvider,
+	turnContextProvider contract.TurnContextProvider,
 ) Service {
-	return newService(logger, promptAssembly, memoryContext)
+	return newService(logger, promptAssembly, turnContextProvider)
 }
 
 func newService(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
-	memoryContext *memorypkg.MemoryContextProvider,
+	turnContextProvider contract.TurnContextProvider,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -67,8 +66,8 @@ func newService(
 		promptAssembly:         promptAssembly,
 		interruptSettleTimeout: config.InterruptSettleTimeout,
 	}
-	if memoryContext != nil {
-		svc.prepareMemoryContext = memoryContext.PrepareTurnContext
+	if turnContextProvider != nil {
+		svc.turnContextProvider = turnContextProvider
 	}
 	return svc
 }
@@ -361,11 +360,11 @@ func (s *service) waitForTrackedTerminal(ctx context.Context, localID string, de
 }
 
 func (s *service) buildOverrides(caps dto.CapabilitySet, input PrepareInput) dto.TurnOverrides {
-	if !caps.Has(dto.CapTurnOverride) {
+	if !contract.HasCapability(caps, dto.CapTurnOverride) {
 		return dto.TurnOverrides{}
 	}
 	overrides := dto.TurnOverrides{}
-	if model := strings.TrimSpace(input.Model); model != "" && caps.Has(dto.CapModelSwitch) {
+	if model := strings.TrimSpace(input.Model); model != "" && contract.HasCapability(caps, dto.CapModelSwitch) {
 		overrides.Model = model
 	}
 	if effort := strings.TrimSpace(input.Effort); effort != "" {

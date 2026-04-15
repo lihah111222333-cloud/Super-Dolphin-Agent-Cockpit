@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
+	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -100,7 +101,7 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	return result, nil
 }
 
-func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexapp.DynamicToolSchema, error) {
+func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 	orchTools, err := h.listPeerTools(ctx, dto.ClientKindOrch)
 	if err != nil {
 		return nil, err
@@ -166,10 +167,10 @@ func adaptMCPResponse(resp peerToolCallResponse) *ToolCallResult {
 	return &ToolCallResult{ContentItems: items, Success: true}
 }
 
-func toCodexDynamicTools(tools []common.MCPTool) []codexapp.DynamicToolSchema {
-	out := make([]codexapp.DynamicToolSchema, 0, len(tools))
+func toCodexDynamicTools(tools []common.MCPTool) []codexprotocol.DynamicToolSchema {
+	out := make([]codexprotocol.DynamicToolSchema, 0, len(tools))
 	for _, tool := range tools {
-		schema := codexapp.DynamicToolSchema{
+		schema := codexprotocol.DynamicToolSchema{
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
@@ -263,7 +264,7 @@ func toolDeferLoading(tool common.MCPTool) bool {
 	return field.IsValid() && field.Kind() == reflect.Bool && field.Bool()
 }
 
-func setDynamicToolDeferLoading(schema *codexapp.DynamicToolSchema, enabled bool) {
+func setDynamicToolDeferLoading(schema *codexprotocol.DynamicToolSchema, enabled bool) {
 	if schema == nil {
 		return
 	}

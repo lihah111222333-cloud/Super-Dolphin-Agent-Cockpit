@@ -7,26 +7,25 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 // Compile-time interface check.
-var _ contract.HookReviewStore = (*Store)(nil)
+var _ contract.HookReviewStore = (*store)(nil)
 
-// hookstore uses handwritten SQL via sqlc.Queryable instead of generated sqlc
+// hookstore uses handwritten SQL via platformdb.Queryable instead of generated sqlc
 // queries because hook_pending_reviews requires dynamic status transitions and
 // idempotency logic that do not map cleanly to sqlc's static query model. This
 // is an explicit exception to the sqlc convention documented in
 // docs/契约/sqlc-convention.md.
 //
-// Store implements contract.HookReviewStore for hook_pending_reviews.
-type Store struct {
-	db sqlc.Queryable
+// store implements contract.HookReviewStore for hook_pending_reviews.
+type store struct {
+	db platformdb.Queryable
 }
 
-// NewStore creates a new HookReviewStore backed by the shared sqlc query handle.
-func NewStore(q *sqlc.Queries) contract.HookReviewStore {
-	return &Store{db: q.Queryable()}
+// NewStore creates a new HookReviewStore backed by a shared queryable DB handle.
+func NewStore(db platformdb.Queryable) contract.HookReviewStore {
+	return &store{db: db}
 }
 
 type scanRow interface {
@@ -41,7 +40,7 @@ type scanRows interface {
 }
 
 // SavePendingReview inserts a new pending hook review row.
-func (s *Store) SavePendingReview(ctx context.Context, review mcp.PendingHookReview) error {
+func (s *store) SavePendingReview(ctx context.Context, review mcp.PendingHookReview) error {
 	const q = `
 		INSERT INTO hook_pending_reviews (
 			hook_call_id, topic, agent_id, subscriber_lease, default_action,
@@ -62,7 +61,7 @@ func (s *Store) SavePendingReview(ctx context.Context, review mcp.PendingHookRev
 }
 
 // GetPendingReview retrieves a single pending hook review by its call ID.
-func (s *Store) GetPendingReview(ctx context.Context, hookCallID string) (mcp.PendingHookReview, error) {
+func (s *store) GetPendingReview(ctx context.Context, hookCallID string) (mcp.PendingHookReview, error) {
 	const q = `
 		SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
 		       status, created_at, deadline_at
@@ -81,7 +80,7 @@ func (s *Store) GetPendingReview(ctx context.Context, hookCallID string) (mcp.Pe
 }
 
 // ListPendingReviews returns all pending reviews for a given agent.
-func (s *Store) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error) {
+func (s *store) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error) {
 	const q = `
 		SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
 		       status, created_at, deadline_at
@@ -109,7 +108,7 @@ func (s *Store) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.P
 }
 
 // ResolvePendingReview marks a pending review as resolved with the given decision.
-func (s *Store) ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey, resolvedBy string) error {
+func (s *store) ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey, resolvedBy string) error {
 	const qCheck = `
 		SELECT 1
 		FROM hook_pending_reviews
@@ -138,7 +137,7 @@ func (s *Store) ResolvePendingReview(ctx context.Context, hookCallID, decision, 
 }
 
 // GetResolvedReview returns the canonical decision metadata plus subscriber lease for a resolved review.
-func (s *Store) GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, string, error) {
+func (s *store) GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, string, error) {
 	const q = `
 		SELECT decision, resolved_at, subscriber_lease
 		FROM hook_pending_reviews
@@ -158,7 +157,7 @@ func (s *Store) GetResolvedReview(ctx context.Context, hookCallID string) (strin
 }
 
 // CancelPendingReviewsByLease marks all pending reviews for the given subscriber lease as cancelled.
-func (s *Store) CancelPendingReviewsByLease(ctx context.Context, subscriberLease string) (int, error) {
+func (s *store) CancelPendingReviewsByLease(ctx context.Context, subscriberLease string) (int, error) {
 	const q = `
 		UPDATE hook_pending_reviews
 		SET status = 'cancelled', resolved_at = $2
@@ -172,7 +171,7 @@ func (s *Store) CancelPendingReviewsByLease(ctx context.Context, subscriberLease
 }
 
 // CancelPendingReviewsByAgent marks all pending reviews for the given agent as cancelled.
-func (s *Store) CancelPendingReviewsByAgent(ctx context.Context, agentID string) (int, error) {
+func (s *store) CancelPendingReviewsByAgent(ctx context.Context, agentID string) (int, error) {
 	const q = `
 		UPDATE hook_pending_reviews
 		SET status = 'cancelled', resolved_at = $2
@@ -187,7 +186,7 @@ func (s *Store) CancelPendingReviewsByAgent(ctx context.Context, agentID string)
 
 // CancelExpiredReviews transitions all expired pending reviews to their default action.
 // Returns the number of reviews cancelled.
-func (s *Store) CancelExpiredReviews(ctx context.Context) (int, error) {
+func (s *store) CancelExpiredReviews(ctx context.Context) (int, error) {
 	const q = `
 		UPDATE hook_pending_reviews
 		SET status = 'expired', decision = default_action, resolved_at = $1
@@ -201,7 +200,7 @@ func (s *Store) CancelExpiredReviews(ctx context.Context) (int, error) {
 }
 
 // RecoverOnStartup returns all reviews that are still pending (used at process start).
-func (s *Store) RecoverOnStartup(ctx context.Context) ([]mcp.PendingHookReview, error) {
+func (s *store) RecoverOnStartup(ctx context.Context) ([]mcp.PendingHookReview, error) {
 	const q = `
 		SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
 		       status, created_at, deadline_at

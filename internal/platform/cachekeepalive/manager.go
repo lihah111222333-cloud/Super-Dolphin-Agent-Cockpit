@@ -11,8 +11,6 @@ import (
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"github.com/kelindar/event"
-	"go.uber.org/fx"
 )
 
 const keepaliveInterval = 55 * time.Minute
@@ -37,14 +35,6 @@ type Manager struct {
 
 	mu     sync.Mutex
 	timers map[string]*agentTimer
-}
-
-type keepaliveIn struct {
-	fx.In
-
-	Dispatcher *event.Dispatcher
-	Manager    *Manager
-	Logger     *pkglogger.Logger `optional:"true"`
 }
 
 func NewManager(

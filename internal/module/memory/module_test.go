@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -32,10 +32,12 @@ func TestNewConfigFallsBackToProjectRoot(t *testing.T) {
 
 func TestServiceEnsureRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	svc := NewService(serviceParams{
-		Config: &Config{RootDir: root},
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
+	svc := NewService(
+		&Config{RootDir: root},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		nil,
+		nil,
+	)
 	if err := svc.EnsureRoot(context.Background()); err != nil {
 		t.Fatalf("EnsureRoot() error = %v", err)
 	}
@@ -51,14 +53,16 @@ func TestServiceEnsureRoot(t *testing.T) {
 func TestServiceEnsureRootUsesAutoMemPathOverride(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
 	override := filepath.Join(t.TempDir(), "override", "memory")
-	svc := NewService(serviceParams{
-		Config: &Config{
+	svc := NewService(
+		&Config{
 			RootDir:             root,
 			ProjectRoot:         filepath.Join(t.TempDir(), "project"),
 			AutoMemPathOverride: override,
 		},
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		nil,
+		nil,
+	)
 	if err := svc.EnsureRoot(context.Background()); err != nil {
 		t.Fatalf("EnsureRoot() error = %v", err)
 	}
@@ -73,10 +77,12 @@ func TestServiceEnsureRootUsesAutoMemPathOverride(t *testing.T) {
 
 func TestRootManagerEnsureRootDelegatesToService(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root-manager")
-	svc := NewService(serviceParams{
-		Config: &Config{RootDir: root},
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
+	svc := NewService(
+		&Config{RootDir: root},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		nil,
+		nil,
+	)
 	manager := NewRootManager(svc)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -111,10 +117,12 @@ func TestAutoDreamServiceExposesDreamTaskLifecycle(t *testing.T) {
 	}
 	hooks.setDreamTaskPhase(dreamTaskPhaseUpdating)
 
-	svc := NewService(serviceParams{
-		Config: &Config{RootDir: root},
-		Hooks:  hooks,
-	})
+	svc := NewService(
+		&Config{RootDir: root},
+		nil,
+		nil,
+		hooks,
+	)
 	got := svc.GetDreamTaskStatus()
 	if !got.Running || got.ThreadID != "thread-1" || got.Phase != dreamTaskPhaseUpdating {
 		t.Fatalf("GetDreamTaskStatus() = %#v", got)
@@ -166,7 +174,7 @@ func TestRegisterMemoryHooksSubscribesTurnCompletedAsync(t *testing.T) {
 		RootDir:       root,
 	}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)),
 		historyStub{messages: []providerdto.Message{{Role: "user", Content: "Please keep build commands guarded in this repo."}}},
-		threadLookupStub{thread: &threadstore.Thread{
+		threadLookupStub{thread: &contract.ThreadMetadata{
 			ThreadID:       "thread-1",
 			ConfigOverride: mustStoredRuntimeConfig(t, map[string]any{"threadKind": "main"}),
 		}},
@@ -283,11 +291,18 @@ func (s historyStub) ReadHistory(context.Context, string, int) ([]providerdto.Me
 }
 
 type threadLookupStub struct {
-	thread *threadstore.Thread
+	thread *contract.ThreadMetadata
 }
 
-func (s threadLookupStub) GetByThreadID(context.Context, string) (*threadstore.Thread, error) {
+func (s threadLookupStub) GetByThreadID(context.Context, string) (*contract.ThreadMetadata, error) {
 	return s.thread, nil
+}
+
+func (s threadLookupStub) ListAll(context.Context) ([]contract.ThreadMetadata, error) {
+	if s.thread == nil {
+		return nil, nil
+	}
+	return []contract.ThreadMetadata{*s.thread}, nil
 }
 
 func mustStoredRuntimeConfig(t *testing.T, runtime map[string]any) json.RawMessage {

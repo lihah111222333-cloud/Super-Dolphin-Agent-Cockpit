@@ -5,14 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	editpkg "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/edit"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
-	memorymod "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 )
 
 type applyWorkspaceEditResult struct {
@@ -70,115 +68,6 @@ type functionContext struct {
 	Body  string
 }
 
-type teamMemoryToolContext struct {
-	guard    *memorymod.TeamMemoryGuard
-	teamRoot string
-}
-
-func guardTeamMemoryWrite(path, content string) error {
-	ctx, ok, err := resolveTeamMemoryToolContext(path)
-	if err != nil || !ok {
-		return err
-	}
-	_, err = ctx.guard.ValidateWrite(path, content)
-	return err
-}
-
-func filterTeamMemoryBatchWrites(updated map[string]string) (map[string]string, string, error) {
-	if len(updated) == 0 {
-		return nil, "", nil
-	}
-	allowed := make(map[string]string, len(updated))
-	grouped := make(map[string]map[string]string)
-	contexts := make(map[string]teamMemoryToolContext)
-	for _, path := range sortedKeys(updated) {
-		ctx, ok, err := resolveTeamMemoryToolContext(path)
-		if err != nil {
-			return nil, "", err
-		}
-		if !ok {
-			allowed[path] = updated[path]
-			continue
-		}
-		if _, exists := grouped[ctx.teamRoot]; !exists {
-			grouped[ctx.teamRoot] = make(map[string]string)
-			contexts[ctx.teamRoot] = ctx
-		}
-		grouped[ctx.teamRoot][path] = updated[path]
-	}
-	warnings := make([]string, 0, len(grouped))
-	for _, teamRoot := range sortedKeys(grouped) {
-		result := contexts[teamRoot].guard.FilterPushFiles(grouped[teamRoot])
-		for path, content := range result.Allowed {
-			allowed[path] = content
-		}
-		if warning := formatTeamMemorySkippedWarning(result.Skipped); warning != "" {
-			warnings = append(warnings, warning)
-		}
-	}
-	if len(allowed) == 0 {
-		allowed = nil
-	}
-	return allowed, strings.Join(warnings, "; "), nil
-}
-
-func resolveTeamMemoryToolContext(path string) (teamMemoryToolContext, bool, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return teamMemoryToolContext{}, false, nil
-	}
-	absolutePath, err := filepath.Abs(path)
-	if err != nil {
-		return teamMemoryToolContext{}, false, err
-	}
-	if !strings.EqualFold(filepath.Ext(absolutePath), ".md") {
-		return teamMemoryToolContext{}, false, nil
-	}
-	teamRoot, ok := detectTeamMemoryRoot(absolutePath)
-	if !ok {
-		return teamMemoryToolContext{}, false, nil
-	}
-	cfg := memorymod.NewConfig(nil)
-	cfg.ProjectRoot = filepath.Dir(teamRoot)
-	ctx := teamMemoryToolContext{
-		guard:    memorymod.NewTeamMemoryGuard(memorymod.NewTeamMemoryManager(cfg)),
-		teamRoot: teamRoot,
-	}
-	return ctx, true, nil
-}
-
-func detectTeamMemoryRoot(path string) (string, bool) {
-	for dir := filepath.Clean(path); ; dir = filepath.Dir(dir) {
-		if filepath.Base(dir) == "team" {
-			projectRoot := filepath.Dir(dir)
-			if projectRoot == dir || strings.TrimSpace(projectRoot) == "" {
-				return "", false
-			}
-			return dir, true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", false
-		}
-	}
-}
-
-func formatTeamMemorySkippedWarning(skipped []memorymod.TeamMemSkippedFile) string {
-	if len(skipped) == 0 {
-		return ""
-	}
-	paths := make([]string, 0, len(skipped))
-	for _, item := range skipped {
-		if path := strings.TrimSpace(item.Path); path != "" {
-			paths = append(paths, path)
-		}
-	}
-	if len(paths) == 0 {
-		return "skipped team memory files due to secret detection"
-	}
-	return fmt.Sprintf("skipped %d team memory file(s) due to secret detection: %s", len(paths), strings.Join(paths, ", "))
-}
-
 func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (any, error) {
 	path, err := resolveFilePath(req.FilePath)
 	if err != nil {
@@ -212,9 +101,6 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 		}, nil
 	}
 	updatedContent := file.diskContent(plan.updatedContent)
-	if err := guardTeamMemoryWrite(path, updatedContent); err != nil {
-		return h.replaceFailure(ctx, manager, path, content, req.Line, err), nil
-	}
 	if err := os.WriteFile(path, []byte(updatedContent), file.mode); err != nil {
 		return h.replaceFailure(ctx, manager, path, content, req.Line, err), nil
 	}
@@ -277,25 +163,18 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.
 	if len(updated) == 0 {
 		return applyWorkspaceEditResult{}, nil
 	}
-	guarded, guardWarning, err := filterTeamMemoryBatchWrites(updated)
+	written, err := writeWorkspaceEditFiles(originals, updated)
 	if err != nil {
-		return applyWorkspaceEditResult{}, err
-	}
-	if len(guarded) == 0 {
-		return applyWorkspaceEditResult{Warning: guardWarning}, nil
-	}
-	written, err := writeWorkspaceEditFiles(originals, guarded)
-	if err != nil {
-		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, guarded))
+		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, updated))
 	}
 	lspSync, warning, err := h.syncDocuments(ctx, manager, written, version)
 	if err != nil {
-		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, guarded))
+		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, updated))
 	}
 	return applyWorkspaceEditResult{
-		AppliedCount: len(guarded),
+		AppliedCount: len(updated),
 		LSPSync:      lspSync,
-		Warning:      combineWorkspaceEditWarnings(guardWarning, warning),
+		Warning:      warning,
 	}, nil
 }
 
@@ -333,16 +212,6 @@ func writeWorkspaceEditFiles(originals map[string]editableFile, guarded map[stri
 		}
 	}
 	return written, nil
-}
-
-func combineWorkspaceEditWarnings(guardWarning, syncWarning string) string {
-	if guardWarning == "" {
-		return syncWarning
-	}
-	if syncWarning == "" {
-		return guardWarning
-	}
-	return guardWarning + "; " + syncWarning
 }
 
 func (h EditHandler) syncDocuments(ctx context.Context, manager lspmanager.Manager, updated map[string]string, version int) (bool, string, error) {

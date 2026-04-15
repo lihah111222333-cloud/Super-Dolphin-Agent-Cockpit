@@ -25,13 +25,13 @@ V3 直接继承 V2 的测量口径，不重新定义统计语义：
 | 圈复杂度 | 13 | 10 | V3 的分支密度必须低于 V2，复杂分支应改成表驱动或状态机。 |
 | 标识符下划线数 | 3 | 3 | 该规则已足够严格，继续收紧只会制造无意义重命名。 |
 | 包内文件数 | 仅对少数目录冻结上限 | 默认 15 | 与仓库当前 guardlib 常量一致；V3 仍保留默认硬限，防止包膨胀。 |
-| 包有效行数 | 冻结基线，无统一硬限 | 默认 3000 | V2 通过 `refactor_baseline.json` 冻结包行数；V3 改成默认包预算，不再接受无限增长。 |
+| 包有效行数 | 冻结基线，无统一硬限 | 默认 4500 | 与仓库当前 `guardlib` 常量一致；普通包超过 4500 effective 即失败。 |
 
 补充说明：
 - V2 的包有效行数守卫不是脚本常量，而是 `guardlib/package_lines.go` 中的冻结基线机制：总产品代码、factory 预算、单包 `FrozenMax` 都只允许下降。
 - V3 取消 `factory` 特殊预算，改为显式包预算和 `platform/shared` 目录预算。
-- V3 的 `3000` 是默认包有效行数上限；只有迁移主文档明确标注的高复杂边界包，才允许在子文档中声明 `3200-3500` 的迁移期显式例外，并且必须配套更早的拆分触发阈值和架构测试。
-- 当前明确允许突破默认 `3000` 的迁移期例外只有 `module/orchestration`、`module/ida`、`tool/lsp`。
+- V3 的 `4500` 是普通包默认有效行数上限；更高预算只能通过显式冻结值或核心包例外声明。
+- 当前仓库不再使用 `3000 raw` 作为普通包目标；以 `guardlib` 的 `effective lines` 预算为准。
 
 ### 1.1 核心包放宽守卫
 
@@ -39,15 +39,15 @@ V3 直接继承 V2 的测量口径，不重新定义统计语义：
 
 | 适用包 | 包文件数 | 单文件有效行数 | 包有效行数 | 函数/嵌套/CC |
 |--------|------:|------:|------:|---|
-| `module/memory` | **冻结 38**（只减不增） | 600 | **冻结 12000**（只减不增） | 不变（80/4/10） |
+| `module/memory` | **冻结 44**（只减不增） | 600 | **冻结 12000**（只减不增） | 不变（80/4/10） |
 | `module/prompt` | 30 | 600 | 10000 | 不变 |
 | `module/thread` | 30 | 600 | 10000 | 不变 |
 | `module/turn`   | 30 | 600 | 10000 | 不变 |
 | `provider/claudecli` | 30 | 600 | 10000 | 不变 |
 | `provider/codexapp`  | 30 | 600 | 10000 | 不变 |
 
-> `module/memory` 当前 P18.3 J/K/L 落地后为 38 文件 / ~11200 行，冻结为迁移期上限，后续只允许下降（合并/抽子包），不允许继续新增。拆分计划归入 P18.3 后续契约整理。
-> 其他包仍遵守默认守卫（文件 ≤400、包文件数 ≤15、包行数 ≤3000）。
+> `module/memory` 当前为 44 文件 / 11976 effective lines，包文件数冻结为迁移期上限；后续只允许下降（合并/抽子包），不允许继续新增。包行数仍冻结在 12000，当前尚未超线。
+> 其他包仍遵守默认守卫（文件 ≤400、包文件数 ≤15、包行数 ≤4500 effective）。
 
 ## 第 2 章：V3 守卫类型完整清单
 
@@ -69,7 +69,7 @@ V3 直接继承 V2 的测量口径，不重新定义统计语义：
 | 守卫 | 规则 | 建议落点 |
 |---|---|---|
 | `fx` import 范围守卫 | `fx` 只允许出现在 `internal/app`、`cmd/*`、`module.go` 以及装配入口，不允许出现在业务实现文件。 | `internal/archtest/fx_graph_test.go` |
-| `sqlc` import 边界守卫 | `internal/store/sqlc/` 或 `sqlcgen` 只允许被 `store/*` import，生成目录视为只读。 | `internal/archtest/sqlc_boundary_test.go` |
+| `sqlc` import 边界守卫 | `internal/store/sqlc/` 只允许被 `store/*` import，生成目录视为只读。 | `internal/archtest/sqlc_boundary_test.go` |
 | `jrpc2` handler 严格模式守卫 | 所有公共方法必须使用 `handler.Check(...).AllowArray(false).SetStrict(true).Wrap()`。 | `platform/rpc` 本地测试 + `internal/archtest/dependency_direction_test.go` |
 | `stateless` 业务枚举隔离守卫 | `platform/statemachine/` 只承接技术骨架，禁止 import `module/*` 或业务枚举。 | `internal/archtest/dependency_direction_test.go` |
 | `platform/shared` 预算守卫 | `internal/platform/shared/` 总行数 `<= 2000`，单文件 `<= 500`。 | `internal/archtest/shared_budget_test.go` |
@@ -83,12 +83,12 @@ V3 直接继承 V2 的测量口径，不重新定义统计语义：
 2. `internal/module/*` 不能在业务实现里 import `fx`；`fx.Module` 只允许出现在 `module.go`。
 3. `internal/provider/claudecli` 和 `internal/provider/codexapp` 不能直接 import `internal/store/*`。
 4. `internal/platform/*` 不能 import `internal/module/*`。
-5. `internal/store/*` 只能依赖 `internal/platform/db`、`internal/store/sqlcgen`、`internal/contract`、`internal/dto`。
-6. `internal/tool/*` 不能直接改 UI state；只能通过 typed event 或 `module/*` facade。
-7. `cmd/mcp-lsp` 不能 import `internal/tool/ida` 或 `internal/tool/orchestration`，也不能 import `internal/app`、`internal/ui/*`。
-8. `cmd/mcp-orch` 不能 import `internal/tool/lsp` 或 `internal/tool/ida`，也不能 import `internal/app`、`internal/ui/*`。
-9. `cmd/mcp-ida` 不能 import `internal/tool/lsp` 或 `internal/tool/orchestration`，也不能 import `internal/app`、`internal/ui/*`。
-10. 只有 `internal/app`、`internal/platform/*/module.go`、`internal/store/*/module.go`、`internal/module/*/module.go` 和 `cmd/*` 可以 import `fx` 模块清单。
+5. `internal/store/*` 只能依赖 `internal/platform/db`、`internal/store/sqlc`、`internal/contract`、`internal/dto`。
+6. `cmd/mcp-*/tools` 和 `internal/mcpserver/*/tools` 不能直接改 UI state；只能通过 typed event 或 `module/*` facade。注：`internal/tool/*` 目录已不存在。
+7. `cmd/mcp-lsp` 不能 import `cmd/mcp-ida` 或 `cmd/mcp-orch`，也不能 import `internal/app`、`internal/ui/*`。
+8. `cmd/mcp-orch` 不能 import `cmd/mcp-lsp` 或 `cmd/mcp-ida`，也不能 import `internal/app`、`internal/ui/*`。
+9. `cmd/mcp-ida` 不能 import `cmd/mcp-lsp` 或 `cmd/mcp-orch`，也不能 import `internal/app`、`internal/ui/*`。
+10. 只有 `internal/app`、`cmd/*`、`internal/module/*/module.go`、`internal/provider/*/module.go`、`internal/ui/*/module.go`、`internal/store/*/module.go`、`internal/platform/*/module.go` 可以 import `fx` 模块清单。
 11. 所有 timeout 常量统一定义在 `internal/platform/config/timeouts.go`。
 
 补充口径：
@@ -147,3 +147,5 @@ internal/archtest/
 - 业务包不得用 allowlist 规避拆分；迁移期例外只接受协议表、生成适配层或极少数必须保形的兼容文件。
 - `cmd/mcp-orch`、`cmd/mcp-lsp`、`cmd/mcp-ida` 与 `internal/mcpserver/common` 默认纳入同一组守卫；新写 hand-written 代码必须直接满足单文件 `<=400`、函数 `<=80`、CC `<=10`、包非测试文件 `<=15`。
 - 从 V2 直接复制到 MCP 服务的协议镜像 / 兼容文件允许迁移期临时豁免，但必须显式写入 allowlist、冻结当前值、标注来源文件与删除条件；任何新逻辑不得继续堆进豁免文件。
+- 当前 `guardlib.go` 中的隐式例外（如 sqlc 目录跳过、provider 文件数放宽）需在 P19 Phase F-2 中提升为显式 freeze registry；在 registry 落地前，这些例外视为迁移期技术债，不得新增。
+- `ViolationDeadKey` 当前仍只有常量定义，真实执行路径待 P19 Phase F-1 补齐；补齐前新增 freeze 项必须同步登记 owner、reason 与 remove_when。

@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 )
 
 const (
@@ -107,7 +106,7 @@ func (p *ClaudeMdSourcesProvider) ResolveClaudeMdSources(ctx context.Context, bu
 	return cloneClaudeMdSources(sources)
 }
 
-func (p *ClaudeMdSourcesProvider) OnPromptInvalidate(reason prompt.InvalidateReason) {
+func (p *ClaudeMdSourcesProvider) OnPromptInvalidate(reason contract.InvalidateReason) {
 	if p == nil {
 		return
 	}

@@ -3,8 +3,18 @@ package cachekeepalive
 import (
 	"context"
 
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
+
+type keepaliveIn struct {
+	fx.In
+
+	Dispatcher *event.Dispatcher
+	Manager    *Manager
+	Logger     *pkglogger.Logger `optional:"true"`
+}
 
 var Module = fx.Module("platform.cachekeepalive",
 	fx.Provide(NewManager),

@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const (
@@ -45,7 +47,7 @@ func systemContextRepoDir(buildCtx BuildCtx) string {
 }
 
 func runSystemContextGitStatus(ctx context.Context, dir string) string {
-	ctx, cancel := context.WithTimeout(ctx, systemContextCommandTimeout)
+	ctx, cancel := platformconfig.WithTimeout(ctx, systemContextCommandTimeout)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, "git", "-C", dir, "status", "--short", "--branch").CombinedOutput()
 	if err != nil {

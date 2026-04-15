@@ -14,7 +14,6 @@ import (
 
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"go.uber.org/fx"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -32,15 +31,6 @@ type service struct {
 	logger       *slog.Logger
 	consolidator *AutoDreamConsolidator
 	dreamHooks   *MemoryLifecycleHooks
-}
-
-type serviceParams struct {
-	fx.In
-
-	Config       *Config                `optional:"true"`
-	Logger       *slog.Logger           `optional:"true"`
-	Consolidator *AutoDreamConsolidator `optional:"true"`
-	Hooks        *MemoryLifecycleHooks  `optional:"true"`
 }
 
 type MemoryLifecycleHooks struct {
@@ -91,8 +81,8 @@ var forgetIntentPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?is)^\s*把\s+(.+?)\s*(?:从记忆里删除|从记忆中删除|从记忆删除|从记忆里移除)\s*$`),
 }
 
-func NewService(p serviceParams) Service {
-	return newServiceWithConsolidator(p.Config, p.Logger, p.Consolidator, p.Hooks)
+func NewService(cfg *Config, logger *slog.Logger, consolidator *AutoDreamConsolidator, hooks *MemoryLifecycleHooks) Service {
+	return newServiceWithConsolidator(cfg, logger, consolidator, hooks)
 }
 
 func newServiceWithConsolidator(cfg *Config, logger *slog.Logger, consolidator *AutoDreamConsolidator, hooks *MemoryLifecycleHooks) Service {
@@ -284,12 +274,12 @@ func (h *MemoryLifecycleHooks) deleteIntent(ctx context.Context, threadID string
 	return deleteMemoryAcrossStores(intent.Query, options, primary, secondary)
 }
 
-func (h *MemoryLifecycleHooks) diskStore() (*DiskStore, error) {
+func (h *MemoryLifecycleHooks) diskStore() (memoryWriteStore, error) {
 	root, err := resolvedStoreRoot(h.rootDir, h.projectRoot, h.autoMemPathOverride)
 	if err != nil {
 		return nil, err
 	}
-	return NewDiskStore(root)
+	return newDiskStore(root)
 }
 
 type ForgetIntent struct {

@@ -3,8 +3,31 @@ package memory
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+const (
+	autoDreamMinInterval  = 24 * time.Hour
+	autoDreamMinSessions  = 5
+	autoDreamScanThrottle = 10 * time.Minute
+
+	dreamTaskPhaseStarting = "starting"
+	dreamTaskPhaseUpdating = "updating"
+)
+
+type autoDreamExecutionPlan struct {
+	root         string
+	lastSuccess  time.Time
+	sessionCount int
+	extractFn    ExtractFunc
+}
 
 type dreamTaskState struct {
 	threadID string
@@ -127,4 +150,250 @@ func (h *MemoryLifecycleHooks) waitDreamTask(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func registerAutoDreamSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
+	if p.Hooks == nil || !p.Hooks.enabled {
+		return
+	}
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Stopped) {
+		p.Hooks.onThreadStopped(context.Background(), ev)
+	}, pkglogger.Get()))
+}
+
+func (h *MemoryLifecycleHooks) onThreadStopped(ctx context.Context, evt threaddto.Stopped) {
+	if h == nil {
+		return
+	}
+	threadID := strings.TrimSpace(evt.ThreadID)
+	if threadID == "" {
+		return
+	}
+	go func() {
+		if _, err := h.maybeScheduleAutoDream(ctx, threadID); err != nil && h.logger != nil && !errors.Is(err, context.Canceled) {
+			h.logger.Warn("memory auto-dream stop hook failed", "thread_id", threadID, "error", err)
+		}
+	}()
+}
+
+func (h *MemoryLifecycleHooks) maybeScheduleAutoDream(ctx context.Context, threadID string) (bool, error) {
+	threadID, ok := h.autoDreamThreadEligible(ctx, threadID)
+	if !ok {
+		return false, nil
+	}
+	plan, ok, err := h.prepareAutoDreamExecution(ctx, threadID)
+	if err != nil || !ok {
+		return false, err
+	}
+	taskCtx, started := h.startDreamTask(threadID)
+	if !started {
+		return false, nil
+	}
+	h.launchAutoDreamTask(taskCtx, threadID, plan)
+	return true, nil
+}
+
+func (h *MemoryLifecycleHooks) autoDreamThreadEligible(ctx context.Context, threadID string) (string, bool) {
+	if h == nil || h.consolidator == nil {
+		return "", false
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return "", false
+	}
+	meta := h.resolveThreadRuntimeMetadata(ctx, threadID)
+	if !h.autoDreamAllowed(meta) {
+		return "", false
+	}
+	return threadID, true
+}
+
+func (h *MemoryLifecycleHooks) autoDreamAllowed(meta threadRuntimeMetadata) bool {
+	return meta.isAutoMemoryRootThread() && !meta.hasAgentMemoryScope() && h.isGateOpen(meta)
+}
+
+func (h *MemoryLifecycleHooks) prepareAutoDreamExecution(ctx context.Context, threadID string) (autoDreamExecutionPlan, bool, error) {
+	root, err := h.autoDreamRoot()
+	if err != nil {
+		return autoDreamExecutionPlan{}, false, err
+	}
+	lastSuccess, ok, err := h.prepareAutoDreamWindow(root)
+	if err != nil || !ok {
+		return autoDreamExecutionPlan{}, false, err
+	}
+	sessionCount, err := h.autoDreamSessionCount(ctx, threadID, lastSuccess)
+	if err != nil {
+		return autoDreamExecutionPlan{}, false, err
+	}
+	if sessionCount < autoDreamMinSessions {
+		return autoDreamExecutionPlan{}, false, nil
+	}
+	extractFn, err := h.resolveDreamExtractFunc()
+	if err != nil {
+		return autoDreamExecutionPlan{}, false, err
+	}
+	return autoDreamExecutionPlan{
+		root:         root,
+		lastSuccess:  lastSuccess,
+		sessionCount: sessionCount,
+		extractFn:    extractFn,
+	}, true, nil
+}
+
+func (h *MemoryLifecycleHooks) autoDreamRoot() (string, error) {
+	root, err := resolvedStoreRoot(h.rootDir, h.projectRoot, h.autoMemPathOverride)
+	if err != nil {
+		return "", err
+	}
+	if err := rejectConsolidationPath(h.cfg, root); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+func (h *MemoryLifecycleHooks) prepareAutoDreamWindow(root string) (time.Time, bool, error) {
+	stamp, err := loadConsolidationStamp(root)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	now := h.now()
+	if !shouldAutoDreamScan(stamp, now) {
+		return time.Time{}, false, nil
+	}
+	if err := recordConsolidationScan(root, now); err != nil {
+		return time.Time{}, false, err
+	}
+	lastSuccess := stamp.lastSuccessTime()
+	if !lastSuccess.IsZero() && now.Sub(lastSuccess) < autoDreamMinInterval {
+		return time.Time{}, false, nil
+	}
+	return lastSuccess, true, nil
+}
+
+func (h *MemoryLifecycleHooks) resolveDreamExtractFunc() (ExtractFunc, error) {
+	extractFn := h.extractFn
+	if extractFn == nil {
+		extractFn = h.consolidator.resolveExtractFunc(nil)
+	}
+	if extractFn == nil {
+		return nil, ErrConsolidationExtractFuncRequired
+	}
+	return extractFn, nil
+}
+
+func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, threadID string, plan autoDreamExecutionPlan) {
+	go func() {
+		defer h.finishDreamTask()
+		err := h.consolidator.consolidateWithOptions(taskCtx, plan.root, plan.extractFn, consolidationRunOptions{
+			cfg:            h.cfg,
+			now:            h.now,
+			runtimeContext: buildConsolidationRuntimeContext("background auto-dream stop hook", plan.sessionCount, plan.lastSuccess, threadID),
+			onLocked: func() {
+				h.setDreamTaskPhase(dreamTaskPhaseUpdating)
+			},
+		})
+		if err != nil && h.logger != nil && !errors.Is(err, context.Canceled) {
+			h.logger.Warn("memory auto-dream execution failed", "thread_id", threadID, "error", err)
+		}
+	}()
+}
+
+func (h *MemoryLifecycleHooks) isGateOpen(meta threadRuntimeMetadata) bool {
+	if h == nil || !meta.isAutoMemoryRootThread() || meta.hasAgentMemoryScope() {
+		return false
+	}
+	gate := ResolveMemoryGate(meta.buildCtx(), h.cfg)
+	if gate.KairosActive {
+		return false
+	}
+	return gate.AutoEnabled
+}
+
+func (h *MemoryLifecycleHooks) autoDreamSessionCount(ctx context.Context, currentThreadID string, since time.Time) (int, error) {
+	if h == nil || h.threadStore == nil {
+		return 0, nil
+	}
+	threads, err := h.threadStore.ListAll(ctx)
+	if err != nil {
+		return 0, err
+	}
+	projectKey := h.autoDreamProjectKey()
+	count := 0
+	for idx := range threads {
+		if shouldCountAutoDreamThread(threads[idx], currentThreadID, projectKey, since) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func shouldCountAutoDreamThread(thread contract.ThreadMetadata, currentThreadID, projectKey string, since time.Time) bool {
+	threadID := strings.TrimSpace(thread.ThreadID)
+	if threadID == "" || threadID == currentThreadID {
+		return false
+	}
+	meta := resolveThreadRuntimeMetadataFromThread(&thread)
+	if !meta.isAutoMemoryRootThread() || meta.hasAgentMemoryScope() {
+		return false
+	}
+	if projectKey != "" && !sameAutoDreamProject(projectKey, strings.TrimSpace(thread.Cwd)) {
+		return false
+	}
+	observedAt := threadObservedAt(thread)
+	return since.IsZero() || observedAt.After(since)
+}
+
+func (h *MemoryLifecycleHooks) autoDreamProjectKey() string {
+	if h == nil || strings.TrimSpace(h.autoMemPathOverride) != "" {
+		return ""
+	}
+	return autoDreamProjectKey(strings.TrimSpace(h.projectRoot))
+}
+
+func autoDreamProjectKey(projectRoot string) string {
+	projectRoot = strings.TrimSpace(projectRoot)
+	if projectRoot == "" {
+		return ""
+	}
+	if canonical, err := FindCanonicalGitRoot(context.Background(), projectRoot); err == nil && strings.TrimSpace(canonical) != "" {
+		return filepath.Clean(canonical)
+	}
+	if cleaned, err := cleanAbsolutePath(projectRoot); err == nil {
+		return cleaned
+	}
+	return projectRoot
+}
+
+func sameAutoDreamProject(currentKey, cwd string) bool {
+	if strings.TrimSpace(currentKey) == "" {
+		return true
+	}
+	if strings.TrimSpace(cwd) == "" {
+		return false
+	}
+	return autoDreamProjectKey(cwd) == currentKey
+}
+
+func threadObservedAt(thread contract.ThreadMetadata) time.Time {
+	switch {
+	case thread.FinishedAt != nil && *thread.FinishedAt > 0:
+		return time.Unix(*thread.FinishedAt, 0)
+	case thread.UpdatedAt > 0:
+		return time.Unix(thread.UpdatedAt, 0)
+	case thread.CreatedAt > 0:
+		return time.Unix(thread.CreatedAt, 0)
+	default:
+		return time.Time{}
+	}
+}
+
+func shouldAutoDreamScan(stamp consolidationStamp, now time.Time) bool {
+	lastScan := stamp.lastScanTime()
+	if lastScan.IsZero() {
+		return true
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	return now.Sub(lastScan) >= autoDreamScanThrottle
 }

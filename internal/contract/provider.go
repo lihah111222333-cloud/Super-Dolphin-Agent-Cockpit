@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"fmt"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
@@ -44,4 +45,33 @@ type TurnHandle interface {
 	ProviderID() string
 	Done() <-chan struct{}
 	Err() error
+}
+
+type CapabilityError struct {
+	Capability string
+	Driver     string
+}
+
+func (e *CapabilityError) Error() string {
+	return fmt.Sprintf("capability %q is not supported by %s driver", e.Capability, e.Driver)
+}
+
+func NewCapabilityError(cap, driver string) error {
+	return &CapabilityError{Capability: cap, Driver: driver}
+}
+
+func HasCapability(caps dto.CapabilitySet, cap string) bool {
+	if caps == nil {
+		return false
+	}
+	return caps[cap]
+}
+
+func HasAllCapabilities(caps dto.CapabilitySet, want ...string) bool {
+	for _, cap := range want {
+		if !HasCapability(caps, cap) {
+			return false
+		}
+	}
+	return true
 }

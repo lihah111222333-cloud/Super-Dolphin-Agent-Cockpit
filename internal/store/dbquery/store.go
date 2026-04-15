@@ -12,22 +12,30 @@ import (
 const defaultQueryTimeout = 10 * time.Second
 
 type store struct {
-	q       *sqlc.Queries
+	q       sqlc.Querier
+	db      platformdb.Queryable
 	timeout time.Duration
 }
 
-func NewStore(q *sqlc.Queries, timeout time.Duration) Store {
+func NewStore(q sqlc.Querier, db platformdb.Queryable, timeout time.Duration) Store {
 	if timeout <= 0 {
 		timeout = defaultQueryTimeout
 	}
-	return &store{q: q, timeout: timeout}
+	return &store{q: q, db: db, timeout: timeout}
+}
+
+func NewQueryStore(db platformdb.Queryable, timeout time.Duration) Store {
+	if timeout <= 0 {
+		timeout = defaultQueryTimeout
+	}
+	return &store{db: db, timeout: timeout}
 }
 
 func (s *store) Query(ctx context.Context, query string, args ...any) ([]map[string]any, error) {
-	if s == nil || s.q == nil {
+	if s == nil || s.db == nil {
 		return nil, wrapDBQueryError(errors.New("dbquery store is not initialized"), "query")
 	}
-	rows, err := executeQuery(ctx, s.q.Queryable(), s.timeout, query, args...)
+	rows, err := executeQuery(ctx, s.db, s.timeout, query, args...)
 	if err != nil {
 		return nil, wrapDBQueryError(err, "query")
 	}
@@ -37,6 +45,9 @@ func (s *store) Query(ctx context.Context, query string, args ...any) ([]map[str
 // TODO(p7w2): replace PlaceholderDBQuery with a real sql/queries-backed dbquery
 // contract once the V3 dbquery migration surface is defined.
 func (s *store) Placeholder(ctx context.Context) ([]PlaceholderRow, error) {
+	if s == nil || s.q == nil {
+		return nil, wrapDBQueryError(errors.New("dbquery store is not initialized"), "placeholder")
+	}
 	rows, err := s.q.PlaceholderDBQuery(ctx)
 	if err != nil {
 		return nil, wrapDBQueryError(err, "placeholder")

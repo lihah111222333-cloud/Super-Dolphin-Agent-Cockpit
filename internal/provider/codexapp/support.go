@@ -12,6 +12,7 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -301,7 +302,7 @@ func (d *driver) finishStartedSession(s *session, result startResult) contract.S
 	return s
 }
 
-func startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []DynamicToolSchema) (startResult, error) {
+func startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []codexprotocol.DynamicToolSchema) (startResult, error) {
 	params := buildThreadStartParams(req)
 	params.DynamicTools = tools
 	// dynamicTools schema is exposed to the model by the codex app-server

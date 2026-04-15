@@ -9,33 +9,20 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	"go.uber.org/fx"
 )
 
 var (
-	_ prompt.DynamicSectionProvider    = (*MemoryRulesProvider)(nil)
-	_ prompt.DynamicSectionProvider    = (*MemoryContextProvider)(nil)
-	_ prompt.InvalidationAwareProvider = (*MemoryContextProvider)(nil)
+	_ contract.DynamicSectionProvider    = (*MemoryRulesProvider)(nil)
+	_ contract.DynamicSectionProvider    = (*MemoryContextProvider)(nil)
+	_ contract.InvalidationAwareProvider = (*MemoryContextProvider)(nil)
+	_ contract.TurnContextProvider       = (*MemoryContextProvider)(nil)
 )
 
 type MemoryRulesProvider struct {
 	cfg    *Config
 	engine *MemoryRuleEngine
 	team   *TeamMemoryManager
-}
-
-type promptProviderParams struct {
-	fx.In
-
-	Registry         prompt.PromptRegistry      `optional:"true"`
-	PromptService    prompt.Service             `optional:"true"`
-	ClaudeMdProvider *ClaudeMdSourcesProvider   `optional:"true"`
-	Provider         *MemoryRulesProvider       `optional:"true"`
-	AgentProvider    *AgentMemoryPromptProvider `optional:"true"`
-	ContextProvider  *MemoryContextProvider     `optional:"true"`
 }
 
 func NewRulesProvider(cfg *Config, engine *MemoryRuleEngine, team *TeamMemoryManager) *MemoryRulesProvider {
@@ -47,10 +34,10 @@ func NewRulesProvider(cfg *Config, engine *MemoryRuleEngine, team *TeamMemoryMan
 }
 
 func (p *MemoryRulesProvider) SectionName() string {
-	return prompt.DynamicSectionMemory
+	return contract.DynamicSectionMemory
 }
 
-func (p *MemoryRulesProvider) Resolve(_ context.Context, input prompt.SectionContext) (*string, error) {
+func (p *MemoryRulesProvider) Resolve(_ context.Context, input contract.SectionContext) (*string, error) {
 	if p == nil || input.Start == nil || input.Turn != nil {
 		return nil, nil
 	}
@@ -70,7 +57,7 @@ func (p *MemoryRulesProvider) Resolve(_ context.Context, input prompt.SectionCon
 	if text == nil || strings.TrimSpace(*text) == "" {
 		return nil, nil
 	}
-	wrapped := "## " + prompt.DynamicSectionMemory + "\n\n" + strings.TrimSpace(*text)
+	wrapped := "## " + contract.DynamicSectionMemory + "\n\n" + strings.TrimSpace(*text)
 	return &wrapped, nil
 }
 
@@ -147,17 +134,14 @@ type MemoryContextProvider struct {
 }
 
 type prefetchTurnState struct {
-	manager      *PrefetchManager
-	handle       *PrefetchHandle
-	gate         MemoryGateSnapshot
-	lastDate     string
+	manager       *PrefetchManager
+	handle        *PrefetchHandle
+	gate          MemoryGateSnapshot
+	lastDate      string
 	surfacedBytes int
 }
 
-type TurnContextPayload struct {
-	Inputs      []shareddto.InputItem
-	Attachments []dto.AttachmentEnvelope
-}
+type TurnContextPayload = contract.TurnContextPayload
 
 func NewContextProvider(cfg *Config) *MemoryContextProvider {
 	cfg = memoryConfig(cfg)
@@ -170,11 +154,15 @@ func NewContextProvider(cfg *Config) *MemoryContextProvider {
 	}
 }
 
-func (p *MemoryContextProvider) SectionName() string {
-	return prompt.DynamicSectionMemoryContext
+func AsTurnContextProvider(provider *MemoryContextProvider) contract.TurnContextProvider {
+	return provider
 }
 
-func (p *MemoryContextProvider) Resolve(_ context.Context, input prompt.SectionContext) (*string, error) {
+func (p *MemoryContextProvider) SectionName() string {
+	return contract.DynamicSectionMemoryContext
+}
+
+func (p *MemoryContextProvider) Resolve(_ context.Context, input contract.SectionContext) (*string, error) {
 	if p == nil || input.Turn == nil {
 		return nil, nil
 	}
@@ -273,7 +261,7 @@ func invalidTurnContextRequest(p *MemoryContextProvider, threadID, query string)
 	return p == nil || threadID == "" || query == ""
 }
 
-func (p *MemoryContextProvider) OnPromptInvalidate(reason prompt.InvalidateReason) {
+func (p *MemoryContextProvider) OnPromptInvalidate(reason contract.InvalidateReason) {
 	if p == nil {
 		return
 	}
@@ -472,13 +460,13 @@ func (p *MemoryContextProvider) now() time.Time {
 }
 
 func registerPromptProviders(p promptProviderParams) error {
-	if p.PromptService == nil {
-		if svc, ok := p.Registry.(prompt.Service); ok {
-			p.PromptService = svc
+	if p.ClaudeMdRegistrar == nil {
+		if registrar, ok := p.Registry.(contract.ClaudeMdSourceProviderRegistrar); ok {
+			p.ClaudeMdRegistrar = registrar
 		}
 	}
 	if p.Registry != nil {
-		providers := []prompt.DynamicSectionProvider{p.Provider, p.AgentProvider, p.ContextProvider}
+		providers := []contract.DynamicSectionProvider{p.Provider, p.AgentProvider, p.ContextProvider}
 		for _, provider := range providers {
 			if provider == nil {
 				continue
@@ -488,8 +476,8 @@ func registerPromptProviders(p promptProviderParams) error {
 			}
 		}
 	}
-	if p.PromptService != nil && p.ClaudeMdProvider != nil {
-		if err := p.PromptService.RegisterClaudeMdSourceProvider(p.ClaudeMdProvider); err != nil {
+	if p.ClaudeMdRegistrar != nil && p.ClaudeMdProvider != nil {
+		if err := p.ClaudeMdRegistrar.RegisterClaudeMdSourceProvider(p.ClaudeMdProvider); err != nil {
 			return err
 		}
 	}

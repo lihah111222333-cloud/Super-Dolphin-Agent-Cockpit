@@ -13,6 +13,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
+	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/gorilla/websocket"
 )
 
@@ -21,8 +22,8 @@ func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
 
 	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil)
-	factory.SetListTools(func(context.Context) ([]codexapp.DynamicToolSchema, error) {
-		return []codexapp.DynamicToolSchema{{
+	factory.SetListTools(func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
 			Description: "echo payload",
 			InputSchema: json.RawMessage(`{"type":"object"}`),
@@ -74,8 +75,8 @@ func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
 
 	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil)
-	factory.SetListTools(func(context.Context) ([]codexapp.DynamicToolSchema, error) {
-		return []codexapp.DynamicToolSchema{
+	factory.SetListTools(func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+		return []codexprotocol.DynamicToolSchema{
 			{
 				Name:        "tool.echo",
 				Description: "echo payload",

@@ -46,14 +46,14 @@ func TestBuildTurnStartParams(t *testing.T) {
 func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 	t.Parallel()
 
-	attachment := dto.NewRelevantMemoryAttachment(
+	attachment := contract.NewRelevantMemoryAttachment(
 		"project/commit-style.md",
 		"Memory (saved today): project/commit-style.md:",
 		"Use concise imperative commit messages.",
 		testAttachmentTime(),
 		720,
 		false,
-	).Envelope()
+	)
 	req := dto.TurnRequest{
 		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 		TurnAssembly: dto.TurnAssembly{
@@ -65,17 +65,17 @@ func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 	}
 
 	got := buildTurnStartParams("thread-1", req)
-	if len(got.Input) != 4 {
-		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 4", len(got.Input))
+	if len(got.Input) != 3 {
+		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 3", len(got.Input))
 	}
-	if got.Input[1].Text != "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>" {
-		t.Fatalf("user context input = %q, want rendered structured user context", got.Input[1].Text)
+	if got.Input[0].Text != "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>" {
+		t.Fatalf("user context input = %q, want rendered structured user context", got.Input[0].Text)
 	}
-	if got.Input[2].Text != attachment.RenderText() {
-		t.Fatalf("attachment input = %q, want rendered attachment text", got.Input[2].Text)
+	if got.Input[1].Text != contract.RenderAttachmentText(attachment) {
+		t.Fatalf("attachment input = %q, want rendered attachment text", got.Input[1].Text)
 	}
-	if got.Input[3].Text != "hello" {
-		t.Fatalf("final input = %q, want original user text", got.Input[3].Text)
+	if got.Input[2].Text != "hello" {
+		t.Fatalf("final input = %q, want original user text", got.Input[2].Text)
 	}
 }
 

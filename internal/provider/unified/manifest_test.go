@@ -6,11 +6,12 @@ import (
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
 )
 
 func TestBuildManifest_DefaultFamilies(t *testing.T) {
 	binaryDir := "/tmp/default-bin"
-	got := dto.BuildManifest(dto.ManifestContext{BinaryDir: binaryDir})
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{BinaryDir: binaryDir})
 	if len(got.Binaries) != 2 || got.Binaries[0].Name != "lsp" || got.Binaries[1].Name != "orch" {
 		t.Fatalf("unexpected default manifest: %+v", got.Binaries)
 	}
@@ -25,14 +26,14 @@ func TestBuildManifest_DefaultFamilies(t *testing.T) {
 }
 
 func TestBuildManifest_WithIDA(t *testing.T) {
-	got := dto.BuildManifest(dto.ManifestContext{ThreadCaps: dto.CapabilitySet{"ida": true}})
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{ThreadCaps: dto.CapabilitySet{"ida": true}})
 	if len(got.Binaries) != 3 || got.Binaries[2].Name != "ida" {
 		t.Fatalf("unexpected ida manifest: %+v", got.Binaries)
 	}
 }
 
 func TestBuildManifest_BinaryPaths(t *testing.T) {
-	got := dto.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
 	want := []string{
 		filepath.Join("/tmp/bin", "mcp-lsp"),
 		filepath.Join("/tmp/bin", "mcp-orch"),
@@ -45,7 +46,7 @@ func TestBuildManifest_BinaryPaths(t *testing.T) {
 }
 
 func TestBuildManifest_EmptyBinaryDirUsesRelativeCommands(t *testing.T) {
-	got := dto.BuildManifest(dto.ManifestContext{})
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{})
 	want := []string{
 		filepath.Join("", "mcp-lsp"),
 		filepath.Join("", "mcp-orch"),
@@ -58,7 +59,7 @@ func TestBuildManifest_EmptyBinaryDirUsesRelativeCommands(t *testing.T) {
 }
 
 func TestBuildManifest_UsesProxyHTTPAddr(t *testing.T) {
-	got := dto.BuildManifest(dto.ManifestContext{
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:       "agent-1",
 		ProxyHTTPAddr: "127.0.0.1:39001",
 		ThreadCaps:    dto.CapabilitySet{"ida": true},
@@ -79,7 +80,7 @@ func TestBuildManifest_UsesProxyHTTPAddr(t *testing.T) {
 }
 
 func TestBuildManifest_DoesNotInjectAgentIDEnvWhenAgentIDIsSet(t *testing.T) {
-	got := dto.BuildManifest(dto.ManifestContext{
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:     "agent-42",
 		Env:         map[string]string{"FOO": "bar"},
 		AutoApprove: []string{"tool.alpha", "tool.beta"},
@@ -101,7 +102,7 @@ func TestBuildManifest_DoesNotInjectAgentIDEnvWhenAgentIDIsSet(t *testing.T) {
 }
 
 func TestBuildManifest_OmitsAgentIDEnvWhenEmpty(t *testing.T) {
-	got := dto.BuildManifest(dto.ManifestContext{
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
 		Env: map[string]string{"FOO": "bar"},
 	})
 	if len(got.Binaries) == 0 {
@@ -118,7 +119,7 @@ func TestBuildManifest_OmitsAgentIDEnvWhenEmpty(t *testing.T) {
 }
 
 func TestBuildManifest_NormalizesControlEnvNames(t *testing.T) {
-	got := dto.BuildManifest(dto.ManifestContext{
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
 		Env: map[string]string{
 			"FOO":                        "bar",
 			"RPC_ADDR":                   "127.0.0.1:9000",
@@ -178,7 +179,7 @@ func TestBuildManifest_NormalizesControlEnvNames(t *testing.T) {
 func TestBuildManifest_PreservesDatabaseURLFromEnvironment(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable")
 
-	got := dto.BuildManifest(dto.ManifestContext{})
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{})
 	if len(got.Binaries) == 0 {
 		t.Fatal("expected manifest binaries")
 	}

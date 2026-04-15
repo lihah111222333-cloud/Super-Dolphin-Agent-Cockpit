@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -28,7 +27,7 @@ var (
 	ErrInvalidProjectDir = errors.New("invalid agent project root")
 )
 
-var _ prompt.DynamicSectionProvider = (*AgentMemoryPromptProvider)(nil)
+var _ contract.DynamicSectionProvider = (*AgentMemoryPromptProvider)(nil)
 
 type AgentMemoryManager struct {
 	cfg *Config
@@ -189,10 +188,10 @@ func (m *AgentMemoryManager) loadAgentMemoryPrompt(agentType string, scope Memor
 }
 
 func (p *AgentMemoryPromptProvider) SectionName() string {
-	return prompt.DynamicSectionAgentMemory
+	return contract.DynamicSectionAgentMemory
 }
 
-func (p *AgentMemoryPromptProvider) Resolve(_ context.Context, input prompt.SectionContext) (*string, error) {
+func (p *AgentMemoryPromptProvider) Resolve(_ context.Context, input contract.SectionContext) (*string, error) {
 	if p == nil || p.manager == nil {
 		return nil, nil
 	}
@@ -203,70 +202,54 @@ func (p *AgentMemoryPromptProvider) Resolve(_ context.Context, input prompt.Sect
 	if !ok {
 		return nil, nil
 	}
-	if !p.ensureAgentMemoryDir(meta) {
+	if err := p.manager.EnsureAgentMemoryDir(meta.agentType, meta.scope); err != nil {
+		if p.logger != nil {
+			p.logger.Warn("agent memory prompt preload failed",
+				"memory_type", "agent",
+				"agent_type", meta.agentType,
+				"scope", string(meta.scope),
+				"scope_display", GetMemoryScopeDisplay(meta.scope),
+				"status", agentMemoryFailureStatus(meta.scope, err),
+				"error", err,
+			)
+		}
 		return nil, nil
 	}
-	result, ok := p.loadAgentMemoryPrompt(meta)
-	if !ok {
+	result, err := p.manager.loadAgentMemoryPrompt(meta.agentType, meta.scope)
+	if err != nil {
+		if p.logger != nil {
+			p.logger.Warn("agent memory prompt load failed",
+				"memory_type", "agent",
+				"agent_type", meta.agentType,
+				"scope", string(meta.scope),
+				"scope_display", GetMemoryScopeDisplay(meta.scope),
+				"status", agentMemoryFailureStatus(meta.scope, err),
+				"error", err,
+			)
+		}
 		return nil, nil
 	}
 	text := result.prompt
 	if text = strings.TrimSpace(text); text == "" {
 		return nil, nil
 	}
-	p.logAgentMemoryPromptLoaded(meta, result)
+	if p.logger != nil {
+		p.logger.Info("agent memory prompt loaded",
+			"memory_type", "agent",
+			"agent_type", meta.agentType,
+			"scope", string(meta.scope),
+			"scope_display", GetMemoryScopeDisplay(meta.scope),
+			"content_length", result.contentLength,
+			"line_count", result.lineCount,
+			"was_truncated", result.wasTruncated,
+			"was_byte_truncated", result.wasByteTruncated,
+			"status", agentMemorySuccessStatus(result),
+		)
+	}
 	return &text, nil
 }
 
-func (p *AgentMemoryPromptProvider) ensureAgentMemoryDir(meta childAgentStart) bool {
-	if err := p.manager.EnsureAgentMemoryDir(meta.agentType, meta.scope); err != nil {
-		p.logAgentMemoryPromptFailure("agent memory prompt preload failed", meta, err)
-		return false
-	}
-	return true
-}
-
-func (p *AgentMemoryPromptProvider) loadAgentMemoryPrompt(meta childAgentStart) (agentMemoryLoadResult, bool) {
-	result, err := p.manager.loadAgentMemoryPrompt(meta.agentType, meta.scope)
-	if err != nil {
-		p.logAgentMemoryPromptFailure("agent memory prompt load failed", meta, err)
-		return agentMemoryLoadResult{}, false
-	}
-	return result, true
-}
-
-func (p *AgentMemoryPromptProvider) logAgentMemoryPromptFailure(message string, meta childAgentStart, err error) {
-	if p == nil || p.logger == nil || err == nil {
-		return
-	}
-	p.logger.Warn(message,
-		"memory_type", "agent",
-		"agent_type", meta.agentType,
-		"scope", string(meta.scope),
-		"scope_display", GetMemoryScopeDisplay(meta.scope),
-		"status", agentMemoryFailureStatus(meta.scope, err),
-		"error", err,
-	)
-}
-
-func (p *AgentMemoryPromptProvider) logAgentMemoryPromptLoaded(meta childAgentStart, result agentMemoryLoadResult) {
-	if p == nil || p.logger == nil {
-		return
-	}
-	p.logger.Info("agent memory prompt loaded",
-		"memory_type", "agent",
-		"agent_type", meta.agentType,
-		"scope", string(meta.scope),
-		"scope_display", GetMemoryScopeDisplay(meta.scope),
-		"content_length", result.contentLength,
-		"line_count", result.lineCount,
-		"was_truncated", result.wasTruncated,
-		"was_byte_truncated", result.wasByteTruncated,
-		"status", agentMemorySuccessStatus(result),
-	)
-}
-
-func resolveChildAgentStart(input prompt.SectionContext) (childAgentStart, bool) {
+func resolveChildAgentStart(input contract.SectionContext) (childAgentStart, bool) {
 	if input.Start == nil || input.Turn != nil || strings.TrimSpace(input.Start.ParentAgentID) == "" {
 		return childAgentStart{}, false
 	}

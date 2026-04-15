@@ -455,7 +455,7 @@ func agentHeader(agent *agentState) shareddto.AgentHeader {
 
 func agentEventTime(agent *agentState) time.Time {
 	if agent == nil {
-		return shareddto.FirstEventTime()
+		return shared.FirstEventTime()
 	}
 	if !agent.updatedAt.IsZero() {
 		return agent.updatedAt
@@ -466,7 +466,7 @@ func agentEventTime(agent *agentState) time.Time {
 	if agent.exitedAt != nil && !agent.exitedAt.IsZero() {
 		return *agent.exitedAt
 	}
-	return shareddto.FirstEventTime()
+	return shared.FirstEventTime()
 }
 
 func agentSessionID(agent *agentState) string {

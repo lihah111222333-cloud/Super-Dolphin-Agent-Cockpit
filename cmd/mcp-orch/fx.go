@@ -21,7 +21,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	internalStore "github.com/anthropic-ai/super-agent-v3/internal/store"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -34,7 +33,6 @@ func run() error {
 		fx.NopLogger,
 		platformconfig.Module,
 		platformbus.Module,
-		internalStore.Module,
 		promptstore.Module,
 		commandcardstore.Module,
 		sharedfilestore.Module,

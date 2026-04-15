@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,16 +14,18 @@ import (
 	"time"
 	"unicode"
 
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"golang.org/x/text/unicode/norm"
 )
 
 const (
-	memoryIndexFileName  = "MEMORY.md"
-	memoryProjectsDir    = "projects"
-	memoryProjectDirName = "memory"
-	sanitizePathMaxLen   = 96
-	gitResolveTimeout    = 4 * time.Second
+	memoryIndexFileName    = "MEMORY.md"
+	memoryProjectsDir      = "projects"
+	memoryProjectDirName   = "memory"
+	sanitizePathMaxLen     = 96
+	gitResolveTimeout      = 4 * time.Second
+	consolidationStampFile = ".consolidation.stamp.json"
 )
 
 var (
@@ -30,6 +33,11 @@ var (
 	ErrInvalidMemoryReadPath  = errors.New("invalid memory read path")
 	ErrInvalidMemoryWritePath = errors.New("invalid memory write path")
 )
+
+type consolidationStamp struct {
+	LastScanAt    string `json:"last_scan_at,omitempty"`
+	LastSuccessAt string `json:"last_success_at,omitempty"`
+}
 
 func GetAutoMemPath(baseRoot, projectRoot string) (string, error) {
 	validatedRoot, err := ValidateMemoryRoot(baseRoot)
@@ -59,7 +67,7 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
 	}
-	gitCtx, cancel := context.WithTimeout(ctx, gitResolveTimeout)
+	gitCtx, cancel := platformconfig.WithTimeout(ctx, gitResolveTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(gitCtx, "git", "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
@@ -362,4 +370,200 @@ func isRootOrNearRoot(path string) bool {
 func shortHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:4])
+}
+
+func loadConsolidationStamp(root string) (consolidationStamp, error) {
+	path, err := consolidationStampPath(root)
+	if err != nil {
+		return consolidationStamp{}, err
+	}
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return consolidationStamp{}, nil
+	}
+	if err != nil {
+		return consolidationStamp{}, err
+	}
+	if len(raw) == 0 {
+		return consolidationStamp{}, nil
+	}
+	var stamp consolidationStamp
+	if err := json.Unmarshal(raw, &stamp); err != nil {
+		return consolidationStamp{}, err
+	}
+	return stamp, nil
+}
+
+func saveConsolidationStamp(root string, stamp consolidationStamp) error {
+	path, err := consolidationStampPath(root)
+	if err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(stamp, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeAtomicFile(path, raw, 0o644)
+}
+
+func consolidationStampPath(root string) (string, error) {
+	normalizedRoot, err := normalizeStoreRoot(root)
+	if err != nil {
+		return "", err
+	}
+	return ValidateMemoryWritePath(normalizedRoot, filepath.Join(normalizedRoot, consolidationStampFile))
+}
+
+func recordConsolidation(root string, when time.Time) error {
+	stamp, err := loadConsolidationStamp(root)
+	if err != nil {
+		return err
+	}
+	stamp.LastSuccessAt = stampTimeString(when)
+	return saveConsolidationStamp(root, stamp)
+}
+
+func recordConsolidationScan(root string, when time.Time) error {
+	stamp, err := loadConsolidationStamp(root)
+	if err != nil {
+		return err
+	}
+	stamp.LastScanAt = stampTimeString(when)
+	return saveConsolidationStamp(root, stamp)
+}
+
+func stampTimeString(when time.Time) string {
+	if when.IsZero() {
+		when = time.Now()
+	}
+	return when.UTC().Format(time.RFC3339Nano)
+}
+
+func (s consolidationStamp) lastScanTime() time.Time {
+	return parseStampTime(s.LastScanAt)
+}
+
+func (s consolidationStamp) lastSuccessTime() time.Time {
+	return parseStampTime(s.LastSuccessAt)
+}
+
+func parseStampTime(raw string) time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
+}
+
+func consolidationCandidates(entries []MemoryEntry) []MemoryEntry {
+	unique := uniqueEntriesByCanonicalName(entries)
+	selected := make([]MemoryEntry, 0, len(unique))
+	for _, entry := range unique {
+		if hasMeaningfulMemoryContent(entry.Content) {
+			selected = append(selected, entry)
+		}
+	}
+	return selected
+}
+
+func staleMemoryPaths(entries []MemoryEntry) []string {
+	selected := make(map[string]MemoryEntry, len(entries))
+	stale := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !hasMeaningfulMemoryContent(entry.Content) {
+			if entry.FilePath != "" {
+				stale = append(stale, entry.FilePath)
+			}
+			continue
+		}
+		key := entry.CanonicalName
+		if key == "" {
+			key = CanonicalName(entry.Frontmatter.Name)
+		}
+		current, exists := selected[key]
+		if !exists || preferMemoryEntry(entry, current) {
+			if exists && current.FilePath != "" {
+				stale = append(stale, current.FilePath)
+			}
+			selected[key] = entry
+			continue
+		}
+		if entry.FilePath != "" {
+			stale = append(stale, entry.FilePath)
+		}
+	}
+	return uniqueNonEmptyStrings(stale)
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	cleaned := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		cleaned = append(cleaned, value)
+	}
+	return cleaned
+}
+
+func removeMemoryFiles(root string, paths []string) error {
+	for _, path := range paths {
+		validatedPath, err := ValidateMemoryWritePath(root, path)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(validatedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeConsolidatedMemories(root string, items []ExtractedMemory) error {
+	for _, item := range items {
+		if _, err := WriteMemoryFile(root, buildConsolidatedMemoryEntry(item)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func buildConsolidatedMemoryEntry(item ExtractedMemory) MemoryEntry {
+	item = normalizeExtractedMemory(item)
+	description := truncateRunes(firstNonEmptyLine(item.Content), memoryHookMaxRunes)
+	if description == "" {
+		description = truncateRunes(item.Content, memoryHookMaxRunes)
+	}
+	return MemoryEntry{
+		Frontmatter: MemoryFrontmatter{
+			Name:        consolidationName(item, description),
+			Description: description,
+			Type:        cloneMemoryType(item.Type),
+			SearchKeys:  normalizeStringSlice(item.Tags),
+		},
+		Content: item.Content,
+	}
+}
+
+func consolidationName(item ExtractedMemory, description string) string {
+	if description != "" {
+		return description
+	}
+	if item.Type.IsKnown() {
+		return fmt.Sprintf("%s dream note", item.Type)
+	}
+	return "Dream note"
 }
