@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	memory "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
@@ -93,7 +94,7 @@ func TestAssembleTurnProducesUserContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleTurn() error = %v", err)
 	}
-	mustContain(t, turn.RenderUserContextMessage(), "<system-reminder>")
+	mustContain(t, contract.RenderUserContextMessage(turn), "<system-reminder>")
 	mustContain(t, turn.UserContextText, "# currentDate")
 	mustContain(t, turn.UserContextText, "# workerToolsContext")
 	mustContain(t, turn.UserContextText, "# terminalFocus")

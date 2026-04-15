@@ -1,10 +1,12 @@
 package prompt
 
-import "strings"
+import (
+	"strings"
 
-type SectionInvalidator interface {
-	InvalidateSections(reason InvalidateReason, names ...string) uint64
-}
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+)
+
+type SectionInvalidator = contract.SectionInvalidator
 
 func AsSectionInvalidator(svc Service) SectionInvalidator {
 	return svc

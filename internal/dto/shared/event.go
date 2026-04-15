@@ -1,12 +1,6 @@
 package shared
 
-import (
-	"context"
-	"strings"
-	"time"
-
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-)
+import "time"
 
 const (
 	EventTypeAgentStateChanged    uint32 = 1000
@@ -137,67 +131,4 @@ type UIProjectionHeader struct {
 type UITurnHeader struct {
 	UIProjectionHeader
 	TurnIDHeader
-}
-
-type eventTimeKey struct{}
-
-func WithEventTime(ctx context.Context, timestamp time.Time) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if timestamp.IsZero() {
-		return ctx
-	}
-	return context.WithValue(ctx, eventTimeKey{}, timestamp)
-}
-
-func ResolveEventTime(ctx context.Context, payload map[string]any, fallbacks ...time.Time) time.Time {
-	if timestamp := eventTimeFromContext(ctx); !timestamp.IsZero() {
-		return timestamp
-	}
-	if timestamp := EventTimeFromPayload(payload); !timestamp.IsZero() {
-		return timestamp
-	}
-	return FirstEventTime(fallbacks...)
-}
-
-func FirstEventTime(fallbacks ...time.Time) time.Time {
-	for _, timestamp := range fallbacks {
-		if !timestamp.IsZero() {
-			return timestamp
-		}
-	}
-	return time.Now()
-}
-
-func EventTimeFromPayload(payload map[string]any) time.Time {
-	if len(payload) == 0 {
-		return time.Time{}
-	}
-	return ParseEventTime(strings.TrimSpace(platformshared.FirstPayloadString(
-		payload,
-		"timestamp",
-		"ts",
-		"createdAt",
-		"created_at",
-		"updatedAt",
-		"updated_at",
-	)))
-}
-
-func ParseEventTime(raw string) time.Time {
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
-		if parsed, err := time.Parse(layout, raw); err == nil {
-			return parsed
-		}
-	}
-	return time.Time{}
-}
-
-func eventTimeFromContext(ctx context.Context) time.Time {
-	if ctx == nil {
-		return time.Time{}
-	}
-	timestamp, _ := ctx.Value(eventTimeKey{}).(time.Time)
-	return timestamp
 }

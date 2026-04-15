@@ -385,8 +385,9 @@ func TestTurnAssemblyUserContextText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleTurn() error = %v", err)
 	}
-	if !strings.Contains(turnAssembly.RenderUserContextMessage(), "<system-reminder>") {
-		t.Fatalf("RenderUserContextMessage() = %q, want system reminder envelope", turnAssembly.RenderUserContextMessage())
+	renderedUserContext := contract.RenderUserContextMessage(turnAssembly)
+	if !strings.Contains(renderedUserContext, "<system-reminder>") {
+		t.Fatalf("RenderUserContextMessage() = %q, want system reminder envelope", renderedUserContext)
 	}
 	if turnAssembly.UserContext["currentDate"] == "" {
 		t.Fatalf("UserContext = %#v, want currentDate entry", turnAssembly.UserContext)

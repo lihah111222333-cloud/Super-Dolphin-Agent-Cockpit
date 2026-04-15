@@ -25285,6 +25285,11 @@
       "description": "memory",
       "refs": []
     },
+    "internal/module/memory/explicit_intent_helpers.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
     "internal/module/memory/extract.go": {
       "package": "memory",
       "description": "`hooks_extract.go`：从 `replace_range` 工具结果抽取 patch/文件列表",

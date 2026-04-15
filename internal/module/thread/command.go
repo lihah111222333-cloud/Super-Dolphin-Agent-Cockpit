@@ -76,9 +76,15 @@ type (
 		ThreadID string `json:"threadId"`
 	}
 
-	configReaderSession interface{ ReadConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error) }
-	modelCatalogSession interface{ AllowedModels(ctx context.Context) ([]string, error) }
-	compactSession      interface{ CompactThread(ctx context.Context, threadID, args string) error }
+	configReaderSession interface {
+		ReadConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error)
+	}
+	modelCatalogSession interface {
+		AllowedModels(ctx context.Context) ([]string, error)
+	}
+	compactSession interface {
+		CompactThread(ctx context.Context, threadID, args string) error
+	}
 
 	friendlyCapabilityError struct {
 		message string
@@ -144,12 +150,12 @@ func lowFrequencyCommandError(command string) error {
 func newFriendlyCapabilityError(capability, provider, message string) error {
 	return &friendlyCapabilityError{
 		message: message,
-		cause:   dto.NewCapabilityError(capability, providerLabel(provider)),
+		cause:   contract.NewCapabilityError(capability, providerLabel(provider)),
 	}
 }
 
 func wrapFriendlyCapabilityError(err error, capability, provider, message string) error {
-	var capErr *dto.CapabilityError
+	var capErr *contract.CapabilityError
 	if !errors.As(err, &capErr) || capErr.Capability != capability {
 		return err
 	}

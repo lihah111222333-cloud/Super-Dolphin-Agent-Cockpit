@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestAgentMemoryManagerGetAgentMemoryDirScopeIsolation(t *testing.T) {
@@ -217,7 +217,7 @@ func TestAgentMemoryManagerLoadAgentMemoryPromptIncludesEntrypoint(t *testing.T)
 
 func TestAgentMemoryManagerLoadAgentMemoryPromptStripsUTF8BOM(t *testing.T) {
 	manager, _, projectRoot := newTestAgentMemoryManager(t)
-	dir := filepath.Join(projectRoot, "memory", "agents", "Writer")
+	dir := filepath.Join(projectRoot, ".claude", "agent-memory", "Writer")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", dir, err)
 	}
@@ -238,8 +238,8 @@ func TestAgentMemoryManagerLoadAgentMemoryPromptStripsUTF8BOM(t *testing.T) {
 }
 
 func TestResolveChildAgentStartRequiresExplicitTypeAndScope(t *testing.T) {
-	meta, ok := resolveChildAgentStart(prompt.SectionContext{
-		Start: &prompt.StartInput{
+	meta, ok := resolveChildAgentStart(contract.SectionContext{
+		Start: &contract.StartInput{
 			ParentAgentID:    "agent-root",
 			AgentType:        "worker",
 			AgentMemoryScope: "project",
@@ -252,8 +252,8 @@ func TestResolveChildAgentStartRequiresExplicitTypeAndScope(t *testing.T) {
 	if meta.agentType != "worker" || meta.scope != MemoryScopeProject {
 		t.Fatalf("resolveChildAgentStart() = %+v", meta)
 	}
-	if _, ok := resolveChildAgentStart(prompt.SectionContext{
-		Start: &prompt.StartInput{
+	if _, ok := resolveChildAgentStart(contract.SectionContext{
+		Start: &contract.StartInput{
 			ParentAgentID: "agent-root",
 			Name:          "Worker UI",
 		},

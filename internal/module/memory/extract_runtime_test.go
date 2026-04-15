@@ -12,12 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestMemoryLifecycleHooksSkipHandledAutoMemoryWrites(t *testing.T) {
@@ -30,7 +29,7 @@ func TestMemoryLifecycleHooksSkipHandledAutoMemoryWrites(t *testing.T) {
 		nil,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		history,
-		threadLookupStub{thread: &threadstore.Thread{
+		threadLookupStub{thread: &contract.ThreadMetadata{
 			ThreadID:       "thread-1",
 			ConfigOverride: mustStoredRuntimeConfig(t, map[string]any{"threadKind": "main"}),
 		}},
@@ -72,7 +71,7 @@ func TestMemoryLifecycleHooksCoalescesPendingExtraction(t *testing.T) {
 		nil,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		history,
-		threadLookupStub{thread: &threadstore.Thread{
+		threadLookupStub{thread: &contract.ThreadMetadata{
 			ThreadID:       "thread-1",
 			ConfigOverride: mustStoredRuntimeConfig(t, map[string]any{"threadKind": "main"}),
 		}},
@@ -135,7 +134,7 @@ func TestMemoryLifecycleHooksFailureFreezesCursorUntilRetry(t *testing.T) {
 		nil,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		history,
-		threadLookupStub{thread: &threadstore.Thread{
+		threadLookupStub{thread: &contract.ThreadMetadata{
 			ThreadID:       "thread-1",
 			ConfigOverride: mustStoredRuntimeConfig(t, map[string]any{"threadKind": "main"}),
 		}},
@@ -227,7 +226,7 @@ func TestMemoryLifecycleHooksAgentMemoryPathExclusionDoesNotSuppressExtraction(t
 		nil,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		history,
-		threadLookupStub{thread: &threadstore.Thread{
+		threadLookupStub{thread: &contract.ThreadMetadata{
 			ThreadID:       "thread-1",
 			ConfigOverride: mustStoredRuntimeConfig(t, map[string]any{"threadKind": "main"}),
 		}},
@@ -301,10 +300,10 @@ func TestMemoryLifecycleHooksExtractAndSaveInvalidatesPromptSections(t *testing.
 	if err != nil {
 		t.Fatalf("ExtractAndSave() error = %v", err)
 	}
-	if invalidator.reason != prompt.InvalidateMemoryWrite {
-		t.Fatalf("InvalidateSections() reason = %q, want %q", invalidator.reason, prompt.InvalidateMemoryWrite)
+	if invalidator.reason != contract.InvalidateMemoryWrite {
+		t.Fatalf("InvalidateSections() reason = %q, want %q", invalidator.reason, contract.InvalidateMemoryWrite)
 	}
-	if len(invalidator.names) != 2 || invalidator.names[0] != prompt.DynamicSectionMemory || invalidator.names[1] != prompt.DynamicSectionMemoryContext {
+	if len(invalidator.names) != 2 || invalidator.names[0] != contract.DynamicSectionMemory || invalidator.names[1] != contract.DynamicSectionMemoryContext {
 		t.Fatalf("InvalidateSections() names = %#v", invalidator.names)
 	}
 }
@@ -374,11 +373,11 @@ func (s *mutableHistoryStub) setMessages(messages []providerdto.Message) {
 }
 
 type sectionInvalidatorStub struct {
-	reason prompt.InvalidateReason
+	reason contract.InvalidateReason
 	names  []string
 }
 
-func (s *sectionInvalidatorStub) InvalidateSections(reason prompt.InvalidateReason, names ...string) uint64 {
+func (s *sectionInvalidatorStub) InvalidateSections(reason contract.InvalidateReason, names ...string) uint64 {
 	s.reason = reason
 	s.names = append([]string(nil), names...)
 	return 1

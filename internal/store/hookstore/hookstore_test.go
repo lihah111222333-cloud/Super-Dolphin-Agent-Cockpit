@@ -12,7 +12,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 // Keep these compacted SQL strings aligned with hookstore.go so the test stub
@@ -60,16 +59,16 @@ func TestSavePendingReview(t *testing.T) {
 func TestNewStore(t *testing.T) {
 	t.Parallel()
 
-	got := NewStore(sqlc.New(nil))
+	got := NewStore(nil)
 	if got == nil {
 		t.Fatal("NewStore() = nil, want non-nil store")
 	}
-	store, ok := got.(*Store)
+	store, ok := got.(*store)
 	if !ok {
-		t.Fatalf("NewStore() type = %T, want *Store", got)
+		t.Fatalf("NewStore() type = %T, want *store", got)
 	}
 	if store.db != nil {
-		t.Fatalf("NewStore().db = %#v, want nil queryable for nil sqlc DB", store.db)
+		t.Fatalf("NewStore().db = %#v, want nil queryable for nil DB", store.db)
 	}
 }
 

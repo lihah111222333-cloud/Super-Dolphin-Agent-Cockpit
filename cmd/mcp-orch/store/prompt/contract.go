@@ -4,17 +4,37 @@ import (
 	"context"
 	"encoding/json"
 	"time"
-
-	pt "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
-// Re-export shared types from internal/store/prompt.
-type PromptTemplate = pt.PromptTemplate
-type ListFilter = pt.ListFilter
+type Reader interface {
+	List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)
+}
 
-// Store extends the shared Reader with write operations.
+type ListFilter struct {
+	AgentKey string
+	Keyword  string
+	Limit    int32
+}
+
+type PromptTemplate struct {
+	ID          int64           `json:"id"`
+	PromptKey   string          `json:"prompt_key"`
+	Title       string          `json:"title"`
+	AgentKey    string          `json:"agent_key"`
+	ToolName    string          `json:"tool_name"`
+	PromptText  string          `json:"prompt_text"`
+	Variables   json.RawMessage `json:"variables"`
+	Tags        json.RawMessage `json:"tags"`
+	Enabled     bool            `json:"enabled"`
+	CreatedBy   string          `json:"created_by"`
+	UpdatedBy   string          `json:"updated_by"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	Description string          `json:"description"`
+}
+
 type Store interface {
-	pt.Reader
+	Reader
 	WithTx(ctx context.Context, fn func(txStore Store) error) error
 	Get(ctx context.Context, promptKey string) (*PromptTemplate, error)
 	Delete(ctx context.Context, promptKey string) error

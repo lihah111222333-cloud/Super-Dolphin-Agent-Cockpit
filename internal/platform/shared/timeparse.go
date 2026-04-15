@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -35,4 +36,62 @@ func CloneTime(value *time.Time) *time.Time {
 	}
 	cloned := *value
 	return &cloned
+}
+
+type eventTimeKey struct{}
+
+func WithEventTime(ctx context.Context, timestamp time.Time) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timestamp.IsZero() {
+		return ctx
+	}
+	return context.WithValue(ctx, eventTimeKey{}, timestamp)
+}
+
+func ResolveEventTime(ctx context.Context, payload map[string]any, fallbacks ...time.Time) time.Time {
+	if timestamp := eventTimeFromContext(ctx); !timestamp.IsZero() {
+		return timestamp
+	}
+	if timestamp := EventTimeFromPayload(payload); !timestamp.IsZero() {
+		return timestamp
+	}
+	return FirstEventTime(fallbacks...)
+}
+
+func FirstEventTime(fallbacks ...time.Time) time.Time {
+	for _, timestamp := range fallbacks {
+		if !timestamp.IsZero() {
+			return timestamp
+		}
+	}
+	return time.Now()
+}
+
+func EventTimeFromPayload(payload map[string]any) time.Time {
+	if len(payload) == 0 {
+		return time.Time{}
+	}
+	return ParseEventTime(strings.TrimSpace(FirstPayloadString(
+		payload,
+		"timestamp",
+		"ts",
+		"createdAt",
+		"created_at",
+		"updatedAt",
+		"updated_at",
+	)))
+}
+
+func ParseEventTime(raw string) time.Time {
+	return ParseRFC3339Loose(raw)
+}
+
+func eventTimeFromContext(ctx context.Context) time.Time {
+	if ctx == nil {
+		return time.Time{}
+	}
+	timestamp, _ := ctx.Value(eventTimeKey{}).(time.Time)
+	return timestamp
 }

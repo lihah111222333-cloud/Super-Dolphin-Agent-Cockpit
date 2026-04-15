@@ -111,15 +111,7 @@ func assertStoreAndToolDependencyRules(t *testing.T, root string) {
 		if !dirExists(root, "internal/store") {
 			t.Skip("directory not yet created")
 		}
-		files := parseImportFiles(t, root, "internal/store")
-		var storeFiles []parsedFile
-		for _, file := range files {
-			dir := filepath.ToSlash(filepath.Dir(file.RelPath))
-			if dir == "internal/store" || strings.HasPrefix(file.RelPath, "internal/store/sqlc/") {
-				continue
-			}
-			storeFiles = append(storeFiles, file)
-		}
+		storeFiles := parseImportFiles(t, root, "internal/store")
 		if len(storeFiles) == 0 {
 			t.Skip("directory not yet created")
 		}
@@ -135,7 +127,11 @@ func assertStoreAndToolDependencyRules(t *testing.T, root string) {
 				if isStdlibImport(imp) || strings.HasPrefix(imp, modulePath+"/internal/store/"+packageSuffix(file.RelPath)) {
 					continue
 				}
-				if filepath.Base(file.RelPath) == "module.go" && imp == "go.uber.org/fx" {
+				if file.RelPath == "internal/store/module.go" {
+					if imp == "go.uber.org/fx" || imp == "github.com/jackc/pgx/v5/pgxpool" || hasAllowedPrefix(imp, []string{internalPrefix("internal/store/")}) {
+						continue
+					}
+				} else if filepath.Base(file.RelPath) == "module.go" && imp == "go.uber.org/fx" {
 					continue
 				}
 				if !hasAllowedPrefix(imp, allowed) {
@@ -146,11 +142,12 @@ func assertStoreAndToolDependencyRules(t *testing.T, root string) {
 		failIfViolations(t, violations)
 	})
 
-	t.Run("rule6_tool_cannot_import_ui_state_directly", func(t *testing.T) {
-		if !dirExists(root, "internal/tool") {
-			t.Skip("directory not yet created")
+	t.Run("rule6_tooling_runtime_cannot_import_ui_state_directly", func(t *testing.T) {
+		dirs := existingDirs(root, "cmd/mcp-lsp", "cmd/mcp-orch", "cmd/mcp-ida", "internal/mcpserver/common")
+		if len(dirs) == 0 {
+			t.Skip("tooling runtime directories not yet created")
 		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/tool"), []string{internalPrefix("internal/uistate"), internalPrefix("internal/ui/")})
+		assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), []string{internalPrefix("internal/uistate"), internalPrefix("internal/module/uistate"), internalPrefix("internal/ui/")})
 	})
 
 	t.Run("rule10_fx_import_scope", func(t *testing.T) {
@@ -175,6 +172,13 @@ func assertMCPServerDependencyRules(t *testing.T, root string) {
 			t.Skip("directory not yet created")
 		}
 		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/mcpserver/lsp"), []string{internalPrefix("internal/tool/ida"), internalPrefix("internal/tool/orchestration")})
+	})
+
+	t.Run("rule7b_mcpserver_lsp_cannot_import_module", func(t *testing.T) {
+		if !dirExists(root, "internal/mcpserver/lsp") {
+			t.Skip("directory not yet created")
+		}
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/mcpserver/lsp"), []string{internalPrefix("internal/module/")})
 	})
 
 	t.Run("rule8_mcpserver_orch_family", func(t *testing.T) {
@@ -271,7 +275,15 @@ func parseImportFiles(t *testing.T, root string, relRoots ...string) []parsedFil
 		if err != nil {
 			t.Fatalf("rel path for %s: %v", absPath, err)
 		}
-		out = append(out, parsedFile{AbsPath: absPath, RelPath: filepath.ToSlash(relPath), Imports: parseImports(t, absPath)})
+		relPath = filepath.ToSlash(relPath)
+		data, err := os.ReadFile(absPath)
+		if err != nil {
+			t.Fatalf("read %s: %v", absPath, err)
+		}
+		if archtest.IsGeneratedSQLCFile(relPath, data) {
+			continue
+		}
+		out = append(out, parsedFile{AbsPath: absPath, RelPath: relPath, Imports: parseImports(t, absPath)})
 	}
 	return out
 }
@@ -350,35 +362,20 @@ func assertNoImportPrefixes(t *testing.T, files []parsedFile, prefixes []string)
 	failIfViolations(t, violations)
 }
 
-func hasImport(imports []string, target string) bool {
-	for _, imp := range imports {
-		if imp == target {
-			return true
-		}
-	}
-	return false
-}
+func hasImport(imports []string, target string) bool { return slices.Contains(imports, target) }
 
 func hasAllowedPrefix(path string, allowed []string) bool {
-	for _, prefix := range allowed {
-		if path == prefix || strings.HasPrefix(path, prefix+"/") {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(allowed, func(prefix string) bool {
+		return path == prefix || strings.HasPrefix(path, prefix+"/")
+	})
 }
 
-func isStdlibImport(path string) bool {
-	return !strings.Contains(path, ".")
-}
+func isStdlibImport(path string) bool { return !strings.Contains(path, ".") }
 
-func internalPrefix(rel string) string {
-	return modulePath + "/" + strings.TrimPrefix(rel, "/")
-}
+func internalPrefix(rel string) string { return modulePath + "/" + strings.TrimPrefix(rel, "/") }
 
 func packageSuffix(relPath string) string {
-	dir := filepath.ToSlash(filepath.Dir(relPath))
-	return strings.TrimPrefix(dir, "internal/store/")
+	return strings.TrimPrefix(filepath.ToSlash(filepath.Dir(relPath)), "internal/store/")
 }
 
 func externalModuleRoot(path string) string {

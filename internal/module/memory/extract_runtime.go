@@ -6,10 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const backgroundExtractTimeout = 5 * time.Second
@@ -286,7 +287,7 @@ func (h *MemoryLifecycleHooks) executeBackgroundExtraction(
 	cursor int64,
 	handled bool,
 ) (int64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), backgroundExtractTimeout)
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), backgroundExtractTimeout)
 	defer cancel()
 	messages, err := h.readTranscript(ctx, threadID)
 	if err != nil {
@@ -359,9 +360,9 @@ func (h *MemoryLifecycleHooks) invalidateMemorySections() {
 		return
 	}
 	h.sections.InvalidateSections(
-		prompt.InvalidateMemoryWrite,
-		prompt.DynamicSectionMemory,
-		prompt.DynamicSectionMemoryContext,
+		contract.InvalidateMemoryWrite,
+		contract.DynamicSectionMemory,
+		contract.DynamicSectionMemoryContext,
 	)
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -23,7 +24,7 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 	if threadConfigPatchHasUnsupportedFields(patch) {
 		return fmt.Errorf(
 			"claudecli: runtime Configure only supports model/effort overrides: %w",
-			dto.NewCapabilityError(capThreadConfigure, "claude"),
+			contract.NewCapabilityError(capThreadConfigure, "claude"),
 		)
 	}
 	s.mu.Lock()

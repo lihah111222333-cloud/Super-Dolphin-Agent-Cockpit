@@ -29,14 +29,14 @@ type hookStoreDBStub struct {
 	beforeCancelExpired func(now time.Time)
 }
 
-func newTestStore(records ...testRecord) (*Store, *hookStoreDBStub) {
+func newTestStore(records ...testRecord) (*store, *hookStoreDBStub) {
 	db := &hookStoreDBStub{records: make(map[string]*testRecord, len(records))}
 	for i := range records {
 		record := records[i]
 		recordCopy := record
 		db.records[record.review.HookCallID] = &recordCopy
 	}
-	return &Store{db: db}, db
+	return &store{db: db}, db
 }
 
 func (db *hookStoreDBStub) Exec(_ context.Context, query string, args ...any) (pgconn.CommandTag, error) {

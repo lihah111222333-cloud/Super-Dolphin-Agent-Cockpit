@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func (s *TeamSyncService) pullLocked(ctx context.Context, trigger TeamSyncTrigger) (TeamSyncPullResult, error) {
@@ -104,7 +104,7 @@ func (s *TeamSyncService) invalidateLocked(ctx context.Context, trigger TeamSync
 	} else {
 		ctx = context.WithoutCancel(ctx)
 	}
-	if err := s.invalidator.Invalidate(ctx, promptpkg.InvalidateMemoryWrite); err != nil && s.logger != nil {
+	if err := s.invalidator.Invalidate(ctx, contract.InvalidateMemoryWrite); err != nil && s.logger != nil {
 		s.logger.Warn("team sync invalidate failed", "trigger", trigger, "error", err)
 	}
 }

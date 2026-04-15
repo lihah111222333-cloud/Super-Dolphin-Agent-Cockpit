@@ -5,6 +5,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
 )
 
 type manifestBuilder struct {
@@ -16,7 +17,7 @@ func newManifestBuilder(binaryDir string) *manifestBuilder {
 }
 
 func (b *manifestBuilder) Build(input PrepareInput) dto.MCPManifest {
-	return dto.BuildManifest(dto.ManifestContext{
+	return manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:       input.AgentID,
 		CWD:           input.CWD,
 		ThreadCaps:    input.ThreadCaps,

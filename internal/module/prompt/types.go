@@ -1,10 +1,6 @@
 package prompt
 
-import (
-	"context"
-
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-)
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 type PromptRegion = contract.PromptRegion
 
@@ -13,23 +9,11 @@ const (
 	PromptRegionDynamic = contract.PromptRegionDynamic
 )
 
-type SectionContext struct {
-	BuildCtx BuildCtx
-	Start    *StartInput
-	Turn     *TurnInput
-}
+type SectionContext = contract.SectionContext
 
-type SectionComputeFunc func(context.Context, SectionContext) (*string, error)
+type SectionComputeFunc = contract.SectionComputeFunc
 
-type PromptSection struct {
-	Name        string
-	Order       int
-	Region      PromptRegion
-	Volatile    bool
-	CachePolicy CachePolicy
-	StartOnly   bool
-	Compute     SectionComputeFunc
-}
+type PromptSection = contract.PromptSection
 
 type ResolvedPromptSection = contract.ResolvedPromptSection
 

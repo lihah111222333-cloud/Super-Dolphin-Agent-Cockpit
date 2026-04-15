@@ -160,7 +160,7 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, capResolve
 	_ = capResolver
 	return rpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
 		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
-			if !session.Capabilities().Has(dto.CapMessageSend) {
+			if !contract.HasCapability(session.Capabilities(), dto.CapMessageSend) {
 				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")
 			}
 			threadRuntimeConfig := readThreadRuntimeConfig(ctx, runtimeReader, rpc.ThreadIDFrom(ctx))
@@ -185,7 +185,7 @@ func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolve
 	_ = capResolver
 	return rpc.ThreadHandler(func(ctx context.Context, p turnSteerParams) (any, error) {
 		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
-			if !session.Capabilities().Has(dto.CapMessageSend) {
+			if !contract.HasCapability(session.Capabilities(), dto.CapMessageSend) {
 				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")
 			}
 			items, inputSkills := buildTurnStartInputs(p.Input)

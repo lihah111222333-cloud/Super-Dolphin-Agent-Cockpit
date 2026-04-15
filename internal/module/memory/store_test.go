@@ -318,9 +318,9 @@ func waitForTestFile(t *testing.T, path string, timeout time.Duration) {
 	}
 }
 
-func newTestDiskStore(t *testing.T, root string) *DiskStore {
+func newTestDiskStore(t *testing.T, root string) *diskStore {
 	t.Helper()
-	store, err := NewDiskStore(root)
+	store, err := newDiskStore(root)
 	if err != nil {
 		t.Fatalf("NewDiskStore(%q) error = %v", root, err)
 	}

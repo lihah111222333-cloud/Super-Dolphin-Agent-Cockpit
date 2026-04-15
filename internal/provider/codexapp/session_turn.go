@@ -79,14 +79,14 @@ func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assemb
 	if skillPrompt, ok := buildSkillPromptInput(skills); ok {
 		items = append(items, skillPrompt)
 	}
-	if userContext := assembly.RenderUserContextMessage(); userContext != "" {
+	if userContext := contract.RenderUserContextMessage(assembly); userContext != "" {
 		items = append(items, newTextTurnInput("text", userContext))
 	}
 	if systemContext := contract.FormatSystemContextBlock(assembly.SystemContext); systemContext != "" {
 		items = append(items, newTextTurnInput("text", systemContext))
 	}
 	for _, attachment := range assembly.Attachments {
-		if text := strings.TrimSpace(attachment.RenderText()); text != "" {
+		if text := strings.TrimSpace(contract.RenderAttachmentText(attachment)); text != "" {
 			items = append(items, newTextTurnInput("text", text))
 		}
 	}

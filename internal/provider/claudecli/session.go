@@ -279,11 +279,11 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 }
 
 func (s *session) ListThreads(context.Context) ([]dto.ThreadRef, error) {
-	return nil, dto.NewCapabilityError(dto.CapThreadList, "claude")
+	return nil, contract.NewCapabilityError(dto.CapThreadList, "claude")
 }
 
 func (s *session) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
-	return dto.ForkResult{}, dto.NewCapabilityError(dto.CapThreadFork, "claude")
+	return dto.ForkResult{}, contract.NewCapabilityError(dto.CapThreadFork, "claude")
 }
 
 func (s *session) Close(context.Context) error {

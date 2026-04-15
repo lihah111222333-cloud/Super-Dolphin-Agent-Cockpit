@@ -7,12 +7,13 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
 )
 
 func TestWriteManifestConfigIncludesEnvAndAutoApprove(t *testing.T) {
 	t.Parallel()
 
-	manifest := dto.BuildManifest(dto.ManifestContext{
+	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		BinaryDir: "/tmp/bin",
 		Env:       map[string]string{"CLAUDE_TEST_ENV": "1"},
 	})
@@ -112,7 +113,7 @@ func TestBuildCLIArgsSplitsBoundaryBlocksIntoRepeatedSystemPrompts(t *testing.T)
 func TestWriteManifestConfigAcceptsShortFamilyName(t *testing.T) {
 	t.Parallel()
 
-	manifest := dto.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
+	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
 	path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
 	if err != nil {
 		t.Fatalf("writeManifestConfig() error = %v", err)
@@ -141,7 +142,7 @@ func TestWriteManifestConfigAcceptsShortFamilyName(t *testing.T) {
 func TestClaude_MCP_SmokeTest(t *testing.T) {
 	t.Parallel()
 
-	manifest := dto.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
+	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{BinaryDir: "/tmp/bin"})
 	path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
 	if err != nil {
 		t.Fatalf("writeManifestConfig() error = %v", err)

@@ -112,13 +112,13 @@ func MergeRuntimeUserContext(base, extras map[string]string) map[string]string {
 }
 
 func FormatUserContextMessage(payload map[string]string) string {
-	return dto.TurnAssembly{
+	return contract.RenderUserContextMessage(dto.TurnAssembly{
 		UserContext: map[string]string(cloneUserContextPayload(payload)),
-	}.RenderUserContextMessage()
+	})
 }
 
 func FormatUserContextText(payload map[string]string) string {
-	return dto.FormatUserContextText(payload)
+	return contract.FormatUserContextText(payload)
 }
 
 func includeRuntimeExtraSection(section ResolvedPromptSection) bool {

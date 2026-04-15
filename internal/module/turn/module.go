@@ -7,7 +7,7 @@ import (
 var Module = fx.Module("turn",
 	fx.Provide(
 		fx.Annotate(
-			NewServiceWithPromptAssemblyAndMemoryContext,
+			NewServiceWithPromptAssemblyAndTurnContext,
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`),
 		),
 		fx.Annotate(

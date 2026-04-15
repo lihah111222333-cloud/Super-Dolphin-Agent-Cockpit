@@ -319,11 +319,11 @@ super-agent-v3/
 | 层 | 目录 | 职责 | 允许依赖 |
 |---|---|---|---|
 | 桌面入口层 | `cmd/agent-terminal` | 只组装桌面应用 `fx.New(...)`，不写业务逻辑 | `internal/app` |
-| MCP 服务入口层 | `cmd/mcp-*` | 组装独立 MCP binary，通过 stdio JSON-RPC 对外提供工具能力；MCP tool 的 schema + handler 壳只允许定义在这里 | `internal/contract/*`、`internal/dto/*`、`internal/platform/{config,db}`、各自本地包 |
+| MCP 服务入口层 | `cmd/mcp-*` | 组装独立 MCP binary，通过 stdio JSON-RPC 对外提供工具能力；MCP tool 的 schema + handler 壳只允许定义在这里 | `internal/contract/*`、`internal/dto/*`、`internal/platform/{config,db,shared,bus,rpc,runner,statemachine,rlimit}`、`internal/mcpserver/common{,/bootstrap}`、各自本地包 |
 | 应用层 | `internal/app` | 聚合桌面应用模块，定义启动顺序 | `platform`、`provider`、`store`、`module`、`ui` |
 | 平台层 | `internal/platform/*` | 提供基础设施能力 | 标准库、第三方库 |
 | Provider 收敛层 | `internal/provider/*` | 统一 provider 语义，屏蔽 Claude CLI / Codex transport 差异，对上暴露 session / capability / manifest | `contract`、`dto`、`platform` |
-| MCP 公共层 | `internal/mcpserver/common` | 历史共享协议层；不再是 P8 `cmd/mcp-orch` 的目标态依赖 | `contract`、`dto`、`platform/{config,db}` |
+| MCP 公共层 | `internal/mcpserver/common` | MCP binary 共享协议 / bootstrap 壳层；允许 `cmd/mcp-*` 复用，但不应承载宿主业务 runtime | `contract`、`dto`、`platform/{config,db}` |
 | 存储层 | `internal/store/*` | 包装 `sqlc` 和 DB 访问，对外暴露 store 接口；commandcard/prompt/sharedfile 已迁至 `cmd/mcp-orch/store/*` | `platform/db`、`internal/store/sqlc` |
 | 业务层 | `internal/module/*` | 承载前端 UI 所需领域逻辑、核心 RPC 注册、事件处理；不再内嵌 MCP stdio tool binary | `contract`、`dto`、`platform`、`provider/unified`、`store` |
 | UI 视图层 | `internal/ui/*` | 运行时事件投影、timeline、dashboard SSE / code_open 等视图适配 | `contract`、`dto`、`platform`、`provider`、`module` |
@@ -360,16 +360,17 @@ super-agent-v3/
 - `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 是独立二进制入口，不属于 `internal/module/*`。
 - 它们通过 stdio JSON-RPC 与宿主通信，并可通过 `ctl/*` 控制面自举回连核心；桌面/UI 宿主 RPC 仍由 `internal/platform/rpc` 承担。
 - `cmd/` 与 `internal/` 同属模块根 `github.com/anthropic-ai/super-agent-v3`，因此 `cmd/mcp-*` 合法 import `internal/*`；这符合 Go `internal` 包规则。
-- `cmd/mcp-orch` 只允许 import `internal/contract/*`、`internal/dto/*`、`internal/platform/{config,db}` 与 `cmd/mcp-orch/*` 本地包；不得 import `internal/module/*`、`internal/store/*`、`internal/store/sqlc/*`。
+- `cmd/mcp-orch` 只允许 import `internal/contract/*`、`internal/dto/*`（含子包）、`internal/platform/{config,db,shared,bus,rpc,runner,statemachine,rlimit}`、`internal/mcpserver/common`（含 `bootstrap`）与 `cmd/mcp-orch/*` 本地包；不得 import `internal/module/*`、`internal/store/*`（当前 3 处正在治理）、`internal/store/sqlc/*`。
 - 其他 MCP binary 也应优先把 runtime / store / transport 保持在各自入口层，本地化依赖优先于反向复用宿主层。
 - `cmd/mcp-*` 不可以 import 其他 `cmd/*` 下的代码，也禁止 import `internal/app`、`internal/ui/*`。
 - `internal/module/*` 不可以 import `cmd/mcp-*`；这是严格单向依赖，MCP binary 只能下游复用核心层。
 - `cmd/mcp-*` 禁止调用 `New*Handlers`、禁止依赖 `rpc.go` 中的 `handler.Map`、禁止 import `Module` 做整包装配。
 - MCP 工具定义中的 schema、manifest 组装和 handler 壳只允许出现在 `cmd/mcp-*`；核心层禁止放置这些协议面定义。
 - `cmd/mcp-*` 自身代码必须遵守单文件 `<=400`、函数 `<=80`、CC `<=10`、包非测试文件 `<=15` 的守卫标准。
-- **核心包放宽守卫**：`module/memory`、`module/prompt`、`module/thread`、`module/turn`、`provider/claudecli`、`provider/codexapp` 适用放宽上限：单文件 `<=600`、包文件数 `<=30`、包有效行数 `<=10000`；函数 `<=80`、CC `<=10` 不变。详见 `v3-code-guard-spec.md` §1.1。
+- **核心包放宽守卫**：`module/memory` 适用迁移期冻结值：包文件数 **44**（只减不增）、包有效行数 **12000**（只减不增）、单文件 `<=600`；`module/prompt`、`module/thread`、`module/turn`、`provider/claudecli`、`provider/codexapp` 维持 `包文件数 <=30`、`包有效行数 <=10000`、单文件 `<=600`；函数 `<=80`、CC `<=10` 不变。详见 `v3-code-guard-spec.md` §1.1。
 - `cmd/mcp-orch/orchestration/*` 是迁移后的本地编排组件；P8 完成后 `cmd/mcp-orch/orchestration/*` 必须删除，`orchestration_*` 与 `task_*` 都在 `cmd/mcp-orch` 内部执行。
 - `cmd/mcp-orch/store/*` 与 `cmd/mcp-orch/store/sqlc/*` 是迁移后的本地数据层；P8 完成后 `cmd/mcp-orch` 运行时不得继续依赖 `internal/store/*` 或 `internal/store/sqlc/*`。
+- 显式架构例外：`internal/store/module.go` 作为 store 层根装配器，允许 import 各 `internal/store/*` 子包并统一装配 shared store provider；该例外不计为违规，但不得向其他根包扩散。
 - LSP、orchestration、IDA 家族逻辑必须留在各自工具层或二进制装配层。
 
 说明：文中的 `service` / `store` 是语义分层，不代表 `cmd/mcp-*` 可以回头 import `internal/module/*`；MCP 入口层只能依赖允许集合与各自本地包。

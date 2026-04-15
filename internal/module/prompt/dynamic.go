@@ -4,46 +4,43 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 const (
-	DynamicSectionSessionGuidance      = "session_guidance"
-	DynamicSectionMemory               = "memory"
-	DynamicSectionAgentMemory          = "agent_memory"
-	DynamicSectionMemoryContext        = "memory_context"
-	DynamicSectionEnvInfoSimple        = "env_info_simple"
-	DynamicSectionLanguage             = "language"
-	DynamicSectionMCPInstructions      = "mcp_instructions"
-	DynamicSectionOutputStyle          = "output_style"
-	DynamicSectionScratchpad           = "scratchpad"
-	DynamicSectionFRC                  = "frc"
-	DynamicSectionSummarizeToolResults = "summarize_tool_results"
-	DynamicSectionNumericLengthAnchors = "numeric_length_anchors"
-	DynamicSectionTokenBudget          = "token_budget"
-	DynamicSectionBrief                = "brief"
-	DynamicSectionAntModelOverride     = "ant_model_override"
+	DynamicSectionSessionGuidance      = contract.DynamicSectionSessionGuidance
+	DynamicSectionMemory               = contract.DynamicSectionMemory
+	DynamicSectionAgentMemory          = contract.DynamicSectionAgentMemory
+	DynamicSectionMemoryContext        = contract.DynamicSectionMemoryContext
+	DynamicSectionEnvInfoSimple        = contract.DynamicSectionEnvInfoSimple
+	DynamicSectionLanguage             = contract.DynamicSectionLanguage
+	DynamicSectionMCPInstructions      = contract.DynamicSectionMCPInstructions
+	DynamicSectionOutputStyle          = contract.DynamicSectionOutputStyle
+	DynamicSectionScratchpad           = contract.DynamicSectionScratchpad
+	DynamicSectionFRC                  = contract.DynamicSectionFRC
+	DynamicSectionSummarizeToolResults = contract.DynamicSectionSummarizeToolResults
+	DynamicSectionNumericLengthAnchors = contract.DynamicSectionNumericLengthAnchors
+	DynamicSectionTokenBudget          = contract.DynamicSectionTokenBudget
+	DynamicSectionBrief                = contract.DynamicSectionBrief
+	DynamicSectionAntModelOverride     = contract.DynamicSectionAntModelOverride
 )
 
-type DynamicSectionProvider interface {
-	SectionName() string
-	Resolve(ctx context.Context, input SectionContext) (*string, error)
-}
+type DynamicSectionProvider = contract.DynamicSectionProvider
 
-type InvalidationAwareProvider interface {
-	OnPromptInvalidate(reason InvalidateReason)
-}
+type InvalidationAwareProvider = contract.InvalidationAwareProvider
 
 type DynamicTextProvider struct {
 	Name        string
 	ResolveFunc func(context.Context, SectionContext) (*string, error)
 }
 
-type CachePolicy int
+type CachePolicy = contract.CachePolicy
 
 const (
-	CacheByName CachePolicy = iota
-	Uncached
-	InputScoped
+	CacheByName = contract.CacheByName
+	Uncached    = contract.Uncached
+	InputScoped = contract.InputScoped
 )
 
 type dynamicSectionSpec struct {

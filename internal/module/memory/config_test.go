@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
@@ -172,8 +171,8 @@ func TestMemoryConstructorsUseIsMemoryEnabled(t *testing.T) {
 	t.Setenv(envClaudeSimple, "1")
 
 	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
-	rulesText, err := NewRulesProvider(cfg, nil, nil).Resolve(context.Background(), prompt.SectionContext{
-		Start: &prompt.StartInput{},
+	rulesText, err := NewRulesProvider(cfg, nil, nil).Resolve(context.Background(), contract.SectionContext{
+		Start: &contract.StartInput{},
 	})
 	if err != nil {
 		t.Fatalf("MemoryRulesProvider.Resolve() error = %v", err)
@@ -181,8 +180,8 @@ func TestMemoryConstructorsUseIsMemoryEnabled(t *testing.T) {
 	if rulesText != nil {
 		t.Fatalf("MemoryRulesProvider.Resolve() = %#v, want nil in simple mode", rulesText)
 	}
-	contextText, err := NewContextProvider(cfg).Resolve(context.Background(), prompt.SectionContext{
-		Turn: &prompt.TurnInput{ThreadID: "thread-1"},
+	contextText, err := NewContextProvider(cfg).Resolve(context.Background(), contract.SectionContext{
+		Turn: &contract.TurnInput{ThreadID: "thread-1"},
 	})
 	if err != nil {
 		t.Fatalf("MemoryContextProvider.Resolve() error = %v", err)
@@ -193,8 +192,8 @@ func TestMemoryConstructorsUseIsMemoryEnabled(t *testing.T) {
 	if got := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg}).enabled; got {
 		t.Fatal("NewMemoryLifecycleHooks() kept memory enabled in simple mode")
 	}
-	agentText, err := NewAgentMemoryPromptProvider(cfg, NewAgentMemoryManager(cfg), nil).Resolve(context.Background(), prompt.SectionContext{
-		Start: &prompt.StartInput{ParentAgentID: "agent-root", AgentType: "Worker"},
+	agentText, err := NewAgentMemoryPromptProvider(cfg, NewAgentMemoryManager(cfg), nil).Resolve(context.Background(), contract.SectionContext{
+		Start: &contract.StartInput{ParentAgentID: "agent-root", AgentType: "Worker"},
 	})
 	if err != nil {
 		t.Fatalf("AgentMemoryPromptProvider.Resolve() error = %v", err)
@@ -358,8 +357,8 @@ func TestGatePathOverrideProvenanceLayering(t *testing.T) {
 
 func TestGateRulesProvidersRespectProductKillSwitch(t *testing.T) {
 	cfg := &Config{Enabled: false, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
-	rulesText, err := NewRulesProvider(cfg, nil, nil).Resolve(context.Background(), prompt.SectionContext{
-		Start: &prompt.StartInput{},
+	rulesText, err := NewRulesProvider(cfg, nil, nil).Resolve(context.Background(), contract.SectionContext{
+		Start: &contract.StartInput{},
 	})
 	if err != nil {
 		t.Fatalf("MemoryRulesProvider.Resolve() error = %v", err)
@@ -367,8 +366,8 @@ func TestGateRulesProvidersRespectProductKillSwitch(t *testing.T) {
 	if rulesText != nil {
 		t.Fatalf("MemoryRulesProvider.Resolve() = %#v, want nil when product kill switch is off", rulesText)
 	}
-	contextText, err := NewContextProvider(cfg).Resolve(context.Background(), prompt.SectionContext{
-		Turn: &prompt.TurnInput{ThreadID: "thread-1", UserText: "review notes"},
+	contextText, err := NewContextProvider(cfg).Resolve(context.Background(), contract.SectionContext{
+		Turn: &contract.TurnInput{ThreadID: "thread-1", UserText: "review notes"},
 	})
 	if err != nil {
 		t.Fatalf("MemoryContextProvider.Resolve() error = %v", err)

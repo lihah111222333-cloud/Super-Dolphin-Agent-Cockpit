@@ -1,7 +1,5 @@
 package provider
 
-import "fmt"
-
 type CapabilitySet map[string]bool
 
 const (
@@ -14,31 +12,20 @@ const (
 	CapTurnOverride   = "turn_override"
 )
 
-type CapabilityError struct {
-	Capability string
-	Driver     string
-}
-
-func (e *CapabilityError) Error() string {
-	return fmt.Sprintf("capability %q is not supported by %s driver", e.Capability, e.Driver)
-}
-
-func NewCapabilityError(cap, driver string) error {
-	return &CapabilityError{Capability: cap, Driver: driver}
-}
-
-func (c CapabilitySet) Has(cap string) bool {
-	if c == nil {
+func (caps CapabilitySet) Has(cap string) bool {
+	if caps == nil {
 		return false
 	}
-	return c[cap]
+	return caps[cap]
 }
 
-func (c CapabilitySet) All(caps ...string) bool {
-	for _, cap := range caps {
-		if !c.Has(cap) {
-			return false
-		}
+func (caps CapabilitySet) All() map[string]bool {
+	if len(caps) == 0 {
+		return map[string]bool{}
 	}
-	return true
+	out := make(map[string]bool, len(caps))
+	for key, value := range caps {
+		out[key] = value
+	}
+	return out
 }

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 )
 
 func TestNestedRuntimeLifecycleResetAndMatcherRoot(t *testing.T) {
@@ -30,7 +29,7 @@ func TestNestedRuntimeLifecycleResetAndMatcherRoot(t *testing.T) {
 		t.Fatalf("snapshot after load = %#v, want generation=1 loaded=1 pending=0", snapshot)
 	}
 
-	runtime.OnPromptInvalidate(promptpkg.InvalidateProviderSwitch)
+	runtime.OnPromptInvalidate(contract.InvalidateProviderSwitch)
 	snapshot = runtime.snapshot("thread-1")
 	if snapshot.Generation != 1 || len(snapshot.LoadedPaths) != 1 {
 		t.Fatalf("provider switch snapshot = %#v, want unchanged generation+loaded", snapshot)
@@ -48,7 +47,7 @@ func TestNestedRuntimeLifecycleResetAndMatcherRoot(t *testing.T) {
 		t.Fatalf("ConsumePending(second) = %#v, want [%q]", pending, secondTarget)
 	}
 
-	runtime.OnPromptInvalidate(promptpkg.InvalidateCompact)
+	runtime.OnPromptInvalidate(contract.InvalidateCompact)
 	snapshot = runtime.snapshot("thread-1")
 	if snapshot.Generation != 3 || len(snapshot.LoadedPaths) != 0 || len(snapshot.PendingTriggers) != 0 {
 		t.Fatalf("snapshot after compact = %#v, want generation=3 and cleared state", snapshot)
@@ -65,7 +64,7 @@ func TestNestedRuntimeHardDeniesManagedRoots(t *testing.T) {
 	base := t.TempDir()
 	projectRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
-	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
+	teamRoot := filepath.Join(projectRoot, teamMemoryRootDirName)
 	cfg := &Config{RootDir: base, ProjectRoot: projectRoot, AutoMemPathOverride: autoRoot}
 	runtime := NewNestedRuntime(cfg, nil)
 	manager := NewAgentMemoryManager(cfg)
@@ -86,27 +85,24 @@ func TestNestedRuntimeHardDeniesManagedRoots(t *testing.T) {
 
 func TestNestedRuntimeHardDeniesTeamRootWhenKairosActive(t *testing.T) {
 	projectRoot := t.TempDir()
-	autoRoot := filepath.Join(t.TempDir(), "automem")
 	cfg := &Config{
-		RootDir:             t.TempDir(),
-		ProjectRoot:         projectRoot,
-		AutoMemPathOverride: autoRoot,
-		Features:            MemoryFeatureFlags{Kairos: true},
+		ProjectRoot: projectRoot,
+		Features:    MemoryFeatureFlags{Kairos: true},
 	}
 	runtime := NewNestedRuntime(cfg, nil)
 	buildCtx := contract.BuildCtx{GitRoot: projectRoot, CWD: projectRoot}
-	runtime.AddTriggers("thread-1", buildCtx, []string{filepath.Join(autoRoot, teamMemoryRootDirName, "shared.md")})
+	runtime.AddTriggers("thread-1", buildCtx, []string{filepath.Join(projectRoot, teamMemoryRootDirName, "shared.md")})
 	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
 		t.Fatalf("ConsumePending(kairos team root) = %#v, want none", got)
 	}
 }
 
 func TestNestedRuntimeResetsForClearWorktreeResumeRestoreAndMemoryWrite(t *testing.T) {
-	reasons := []promptpkg.InvalidateReason{
-		promptpkg.InvalidateClear,
-		promptpkg.InvalidateWorktree,
-		promptpkg.InvalidateResumeRestore,
-		promptpkg.InvalidateMemoryWrite,
+	reasons := []contract.InvalidateReason{
+		contract.InvalidateClear,
+		contract.InvalidateWorktree,
+		contract.InvalidateResumeRestore,
+		contract.InvalidateMemoryWrite,
 	}
 	for _, reason := range reasons {
 		t.Run(string(reason), func(t *testing.T) {

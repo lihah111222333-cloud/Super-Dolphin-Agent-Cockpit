@@ -1,3 +1,6 @@
+//go:build e2e
+// +build e2e
+
 package memory
 
 import (
@@ -90,7 +93,7 @@ func TestRegisterPromptProvidersInjectsTeamMemoryIntoTurnUserContext(t *testing.
 	assembly := prompt.NewService(&prompt.Config{}, nil)
 	if err := registerPromptProviders(promptProviderParams{
 		Registry:         assembly,
-		PromptService:    assembly,
+		ClaudeMdRegistrar: assembly,
 		ClaudeMdProvider: NewClaudeMdSourcesProvider(cfg, teamManager, nil),
 	}); err != nil {
 		t.Fatalf("registerPromptProviders() error = %v", err)
@@ -138,7 +141,7 @@ func TestRegisterPromptProvidersSkipsTeamMemoryTurnLaneWhenKairosActive(t *testi
 	assembly := prompt.NewService(&prompt.Config{}, nil)
 	if err := registerPromptProviders(promptProviderParams{
 		Registry:         assembly,
-		PromptService:    assembly,
+		ClaudeMdRegistrar: assembly,
 		ClaudeMdProvider: NewClaudeMdSourcesProvider(cfg, NewTeamMemoryManager(cfg), nil),
 	}); err != nil {
 		t.Fatalf("registerPromptProviders() error = %v", err)

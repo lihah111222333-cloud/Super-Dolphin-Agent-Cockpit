@@ -9,14 +9,14 @@ import (
 )
 
 func TestComposeTurnTextIncludesAttachmentTextAfterUserContext(t *testing.T) {
-	attachment := dto.NewRelevantMemoryAttachment(
+	attachment := contract.NewRelevantMemoryAttachment(
 		"project/commit-style.md",
 		"Memory (saved today): project/commit-style.md:",
 		"Use concise imperative commit messages.",
 		time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC),
 		720,
 		false,
-	).Envelope()
+	)
 	got := composeTurnText(dto.TurnRequest{
 		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 		TurnAssembly: dto.TurnAssembly{
@@ -26,7 +26,7 @@ func TestComposeTurnTextIncludesAttachmentTextAfterUserContext(t *testing.T) {
 			Attachments: []dto.AttachmentEnvelope{attachment},
 		},
 	})
-	want := "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\n" + attachment.RenderText() + "\n\nhello"
+	want := "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\n" + contract.RenderAttachmentText(attachment) + "\n\nhello"
 	if got != want {
 		t.Fatalf("composeTurnText() = %q, want %q", got, want)
 	}

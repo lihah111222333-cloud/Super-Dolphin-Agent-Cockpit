@@ -36,11 +36,11 @@ func TestTeamWriteIntentRoutesProjectMemoryToTeamStore(t *testing.T) {
 		t.Fatalf("writeIntent() error = %v", err)
 	}
 
-	privateStore, err := NewDiskStore(autoRoot)
+	privateStore, err := newDiskStore(autoRoot)
 	if err != nil {
 		t.Fatalf("NewDiskStore(private) error = %v", err)
 	}
-	teamStore, err := NewDiskStore(filepath.Join(autoRoot, teamMemoryRootDirName))
+	teamStore, err := newDiskStore(filepath.Join(autoRoot, teamMemoryRootDirName))
 	if err != nil {
 		t.Fatalf("NewDiskStore(team) error = %v", err)
 	}
@@ -89,11 +89,11 @@ func TestTeamWriteIntentKeepsUserMemoryPrivate(t *testing.T) {
 		t.Fatalf("writeIntent() error = %v", err)
 	}
 
-	privateStore, err := NewDiskStore(autoRoot)
+	privateStore, err := newDiskStore(autoRoot)
 	if err != nil {
 		t.Fatalf("NewDiskStore(private) error = %v", err)
 	}
-	teamStore, err := NewDiskStore(filepath.Join(autoRoot, teamMemoryRootDirName))
+	teamStore, err := newDiskStore(filepath.Join(autoRoot, teamMemoryRootDirName))
 	if err != nil {
 		t.Fatalf("NewDiskStore(team) error = %v", err)
 	}

@@ -366,7 +366,7 @@ func TestSetModelReturnsFriendlyCapabilityError(t *testing.T) {
 	sessions := &stubSessionProvider{session: &stubSession{
 		threadID:      "thread-1",
 		allowedModels: []string{"sonnet"},
-		configureErr:  dto.NewCapabilityError(dto.CapModelSwitch, "claude"),
+		configureErr:  contract.NewCapabilityError(dto.CapModelSwitch, "claude"),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
@@ -383,7 +383,7 @@ func TestSetModelReturnsFriendlyCapabilityError(t *testing.T) {
 	if err.Error() != errRuntimeModelSwitchUnsupported {
 		t.Fatalf("error = %q, want %q", err.Error(), errRuntimeModelSwitchUnsupported)
 	}
-	var capErr *dto.CapabilityError
+	var capErr *contract.CapabilityError
 	if !errors.As(err, &capErr) {
 		t.Fatalf("error = %v, want CapabilityError", err)
 	}
@@ -411,7 +411,7 @@ func TestCompactReturnsFriendlyCapabilityError(t *testing.T) {
 	if err.Error() != errContextCompactUnsupported {
 		t.Fatalf("error = %q, want %q", err.Error(), errContextCompactUnsupported)
 	}
-	var capErr *dto.CapabilityError
+	var capErr *contract.CapabilityError
 	if !errors.As(err, &capErr) {
 		t.Fatalf("error = %v, want CapabilityError", err)
 	}

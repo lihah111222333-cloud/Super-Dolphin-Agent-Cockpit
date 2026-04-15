@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/kelindar/event"
 	"github.com/qmuntal/stateless"
 	"go.uber.org/fx"
@@ -238,11 +238,11 @@ func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 }
 
 func withEventTime(ctx context.Context, timestamp time.Time) context.Context {
-	return sharedto.WithEventTime(ctx, timestamp)
+	return platformshared.WithEventTime(ctx, timestamp)
 }
 
 func resolveEventTime(ctx context.Context, fallbacks ...time.Time) time.Time {
-	return sharedto.ResolveEventTime(ctx, nil, fallbacks...)
+	return platformshared.ResolveEventTime(ctx, nil, fallbacks...)
 }
 
 type runtimeReporter struct {

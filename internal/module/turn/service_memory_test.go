@@ -7,27 +7,32 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	memorypkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 )
+
+type turnContextProviderFunc func(context.Context, contract.Session, contract.BuildCtx, string, string) contract.TurnContextPayload
+
+func (fn turnContextProviderFunc) PrepareTurnContext(ctx context.Context, session contract.Session, buildCtx contract.BuildCtx, threadID, query string) contract.TurnContextPayload {
+	return fn(ctx, session, buildCtx, threadID, query)
+}
 
 func TestPrepareTurnPrependsSyntheticMemoryInputs(t *testing.T) {
 	assembly := &stubPromptAssemblyService{turn: contract.TurnAssembly{UserContextText: "assembled user context"}}
 	svc := NewServiceWithPromptAssembly(silentLogger(), assembly).(*service)
-	svc.prepareMemoryContext = func(context.Context, contract.Session, contract.BuildCtx, string, string) memorypkg.TurnContextPayload {
-		return memorypkg.TurnContextPayload{
+	svc.turnContextProvider = turnContextProviderFunc(func(context.Context, contract.Session, contract.BuildCtx, string, string) contract.TurnContextPayload {
+		return contract.TurnContextPayload{
 			Inputs: []InputItem{{Type: "filecontent", Content: "Past context transcript:\nUse concise imperative commit messages."}},
 			Attachments: []providerdto.AttachmentEnvelope{
-				providerdto.NewRelevantMemoryAttachment(
+				contract.NewRelevantMemoryAttachment(
 					"project/commit-style.md",
 					"Memory (saved today): project/commit-style.md:",
 					"Use concise imperative commit messages.",
 					time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC),
 					720,
 					false,
-				).Envelope(),
+				),
 			},
 		}
-	}
+	})
 	session := &stubSession{threadID: "thread-1"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{Prompt: "please verify the cache"})
 	if err != nil {

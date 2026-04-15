@@ -24,6 +24,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Module is the explicit store root assembler exception: this file may import
+// store subpackages to wire the shared sqlc queries provider, but the pattern
+// must not spread to other root packages and this file must stay free of
+// business logic.
 var Module = fx.Module("store",
 	fx.Provide(func(pool *pgxpool.Pool) *sqlc.Queries { return sqlc.New(pool) }),
 	agentstatus.Module,

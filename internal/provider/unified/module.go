@@ -15,6 +15,12 @@ type RegistryParams struct {
 	Drivers []contract.DriverFactory `group:"drivers"`
 }
 
+type dreamExecutorParams struct {
+	fx.In
+
+	Providers []contract.DreamExecutorProvider `group:"dream_executors"`
+}
+
 var Module = fx.Module("provider.unified",
 	fx.Provide(
 		NewEventDispatcher,
@@ -25,10 +31,14 @@ var Module = fx.Module("provider.unified",
 		NewTurnSessionProvider,
 		fx.Annotate(NewSessionCleaner, fx.As(new(contract.OrchestrationSessionCleaner))),
 		NewSessionResolver,
-		NewDreamExecutor,
+		provideDreamExecutor,
 	),
 	fx.Invoke(registerSessionShutdown),
 )
+
+func provideDreamExecutor(p dreamExecutorParams) contract.DreamExecutor {
+	return NewDreamExecutor(p.Providers)
+}
 
 func registerSessionShutdown(lc fx.Lifecycle, sessions *SessionManager) {
 	if sessions == nil {

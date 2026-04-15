@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -102,21 +103,21 @@ func approvalHeader(req ApprovalRequest, timestamp time.Time) shareddto.ToolAppr
 
 func approvalRequestedAt(pending *pendingApproval) time.Time {
 	if pending == nil {
-		return shareddto.FirstEventTime()
+		return shared.FirstEventTime()
 	}
-	return shareddto.ResolveEventTime(nil, pending.request.Payload, pending.createdAt)
+	return shared.ResolveEventTime(context.TODO(), pending.request.Payload, pending.createdAt)
 }
 
 func approvalResolvedAt(decision contract.ApprovalDecision) time.Time {
-	return shareddto.ResolveEventTime(nil, approvalDecisionPayload(decision))
+	return shared.ResolveEventTime(context.TODO(), approvalDecisionPayload(decision))
 }
 
 func approvalRequestTime(req ApprovalRequest) time.Time {
-	return shareddto.EventTimeFromPayload(req.Payload)
+	return shared.EventTimeFromPayload(req.Payload)
 }
 
 func approvalDecisionTime(decision contract.ApprovalDecision) time.Time {
-	return shareddto.EventTimeFromPayload(approvalDecisionPayload(decision))
+	return shared.EventTimeFromPayload(approvalDecisionPayload(decision))
 }
 
 func approvalDecisionPayload(decision contract.ApprovalDecision) map[string]any {

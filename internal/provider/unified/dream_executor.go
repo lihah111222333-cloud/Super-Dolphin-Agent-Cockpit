@@ -8,23 +8,16 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"go.uber.org/fx"
 )
-
-type dreamExecutorParams struct {
-	fx.In
-
-	Providers []contract.DreamExecutorProvider `group:"dream_executors"`
-}
 
 type dreamExecutor struct {
 	order     []string
 	executors map[string]contract.DreamExecutor
 }
 
-func NewDreamExecutor(p dreamExecutorParams) contract.DreamExecutor {
-	resolver := &dreamExecutor{executors: make(map[string]contract.DreamExecutor, len(p.Providers))}
-	for _, provider := range p.Providers {
+func NewDreamExecutor(providers []contract.DreamExecutorProvider) contract.DreamExecutor {
+	resolver := &dreamExecutor{executors: make(map[string]contract.DreamExecutor, len(providers))}
+	for _, provider := range providers {
 		name := strings.TrimSpace(provider.Name)
 		if name == "" || provider.Executor == nil {
 			continue

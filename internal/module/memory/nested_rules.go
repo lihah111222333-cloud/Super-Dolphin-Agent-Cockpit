@@ -118,15 +118,15 @@ func nestedMemoryAttachment(source ClaudeMdSource) (dto.AttachmentEnvelope, bool
 		return dto.AttachmentEnvelope{}, false
 	}
 	updatedAt := info.ModTime().UTC()
-	attachment := dto.AttachmentEnvelope{
+	attachment := contract.NormalizeAttachmentEnvelope(dto.AttachmentEnvelope{
 		Kind:      dto.AttachmentKindNestedMemory,
 		Path:      strings.TrimSpace(source.Path),
 		Header:    nestedMemoryHeader(source),
 		Content:   content,
 		MtimeMs:   updatedAt.UnixMilli(),
 		UpdatedAt: updatedAt.Format(time.RFC3339),
-	}.Normalize()
-	return attachment, attachment.IsValid()
+	})
+	return attachment, contract.IsValidAttachmentEnvelope(attachment)
 }
 
 func nestedMemoryHeader(source ClaudeMdSource) string {

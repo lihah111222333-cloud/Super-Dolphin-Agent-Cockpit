@@ -54,14 +54,14 @@ func (m *mockSession) StartTurn(_ context.Context, req dto.TurnRequest) (contrac
 	return newMockTurnHandle(req.LocalID, "provider-"+m.threadID, nil), nil
 }
 func (m *mockSession) ListThreads(context.Context) ([]dto.ThreadRef, error) {
-	if !m.caps.Has(dto.CapThreadList) {
-		return nil, dto.NewCapabilityError(dto.CapThreadList, "mock")
+	if !contract.HasCapability(m.caps, dto.CapThreadList) {
+		return nil, contract.NewCapabilityError(dto.CapThreadList, "mock")
 	}
 	return []dto.ThreadRef{{ID: m.threadID}}, nil
 }
 func (m *mockSession) ForkThread(_ context.Context, req dto.ForkRequest) (dto.ForkResult, error) {
-	if !m.caps.Has(dto.CapThreadFork) {
-		return dto.ForkResult{}, dto.NewCapabilityError(dto.CapThreadFork, "mock")
+	if !contract.HasCapability(m.caps, dto.CapThreadFork) {
+		return dto.ForkResult{}, contract.NewCapabilityError(dto.CapThreadFork, "mock")
 	}
 	return dto.ForkResult{NewThreadID: req.ThreadID + "-fork"}, nil
 }
@@ -130,7 +130,7 @@ func TestSessionContract_ThreadID(t *testing.T) {
 func TestSessionContract_Capabilities(t *testing.T) {
 	caps := dto.CapabilitySet{dto.CapMessageSend: true}
 	s := &mockSession{caps: caps}
-	if !s.Capabilities().Has(dto.CapMessageSend) {
+	if !contract.HasCapability(s.Capabilities(), dto.CapMessageSend) {
 		t.Fatal("expected CapMessageSend")
 	}
 }
@@ -148,7 +148,7 @@ func TestSessionContract_ReadHistory(t *testing.T) {
 
 func TestSessionContract_ListThreads_Unsupported(t *testing.T) {
 	_, err := (&mockSession{threadID: "thread-1"}).ListThreads(context.Background())
-	var capErr *dto.CapabilityError
+	var capErr *contract.CapabilityError
 	if !errors.As(err, &capErr) || capErr.Capability != dto.CapThreadList {
 		t.Fatalf("expected thread list capability error, got %v", err)
 	}
@@ -156,7 +156,7 @@ func TestSessionContract_ListThreads_Unsupported(t *testing.T) {
 
 func TestSessionContract_ForkThread_Unsupported(t *testing.T) {
 	_, err := (&mockSession{threadID: "thread-1"}).ForkThread(context.Background(), dto.ForkRequest{ThreadID: "thread-1"})
-	var capErr *dto.CapabilityError
+	var capErr *contract.CapabilityError
 	if !errors.As(err, &capErr) || capErr.Capability != dto.CapThreadFork {
 		t.Fatalf("expected thread fork capability error, got %v", err)
 	}

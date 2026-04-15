@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	prompt "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -47,7 +46,7 @@ func (r *NestedRuntime) OnThreadStart(threadID string) {
 	r.sessions[nestedThreadKey(threadID)] = newNestedSessionState(1)
 }
 
-func (r *NestedRuntime) OnPromptInvalidate(reason prompt.InvalidateReason) {
+func (r *NestedRuntime) OnPromptInvalidate(reason contract.InvalidateReason) {
 	if r == nil || !shouldResetNestedRuntime(reason) {
 		return
 	}
@@ -233,13 +232,13 @@ func resetNestedSessionState(state *nestedSessionState) {
 	state.PendingTriggers = map[string]struct{}{}
 }
 
-func shouldResetNestedRuntime(reason prompt.InvalidateReason) bool {
+func shouldResetNestedRuntime(reason contract.InvalidateReason) bool {
 	switch reason {
-	case prompt.InvalidateClear,
-		prompt.InvalidateCompact,
-		prompt.InvalidateWorktree,
-		prompt.InvalidateResumeRestore,
-		prompt.InvalidateMemoryWrite:
+	case contract.InvalidateClear,
+		contract.InvalidateCompact,
+		contract.InvalidateWorktree,
+		contract.InvalidateResumeRestore,
+		contract.InvalidateMemoryWrite:
 		return true
 	default:
 		return false

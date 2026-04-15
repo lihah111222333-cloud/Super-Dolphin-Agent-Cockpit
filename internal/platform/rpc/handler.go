@@ -87,7 +87,7 @@ func CapabilityGate(cap string, resolver CapabilityResolver) Middleware {
 			if err != nil {
 				return nil, capabilityResolverError(ctx, err)
 			}
-			if !caps.Has(cap) {
+			if !contract.HasCapability(caps, cap) {
 				return nil, rpcErrorData(CodeCapabilityGate, "capability not supported by active provider", map[string]any{
 					"capability": cap,
 				})

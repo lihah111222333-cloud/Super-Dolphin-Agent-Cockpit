@@ -109,7 +109,7 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 	s := &session{caps: cloneCaps(codexCapabilities)}
 	got := s.Capabilities()
 	got[dto.CapThreadList] = false
-	if !s.caps.Has(dto.CapThreadList) {
+	if !contract.HasCapability(s.caps, dto.CapThreadList) {
 		t.Fatal("Capabilities() returned aliased map")
 	}
 }

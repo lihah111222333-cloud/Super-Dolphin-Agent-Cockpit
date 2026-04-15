@@ -4,17 +4,36 @@ import (
 	"context"
 	"encoding/json"
 	"time"
-
-	cc "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 )
 
-// Re-export shared types from internal/store/commandcard.
-type CommandCard = cc.CommandCard
-type ListFilter = cc.ListFilter
+type Reader interface {
+	List(ctx context.Context, filter ListFilter) ([]CommandCard, error)
+}
 
-// Store extends the shared Reader with write operations.
+type ListFilter struct {
+	Keyword string
+	Limit   int32
+}
+
+type CommandCard struct {
+	ID              int64           `json:"id"`
+	CardKey         string          `json:"card_key"`
+	Title           string          `json:"title"`
+	Description     string          `json:"description"`
+	CommandTemplate string          `json:"command_template"`
+	ArgsSchema      json.RawMessage `json:"args_schema"`
+	RiskLevel       string          `json:"risk_level"`
+	Enabled         bool            `json:"enabled"`
+	CreatedBy       string          `json:"created_by"`
+	UpdatedBy       string          `json:"updated_by"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	LastRunAt       *time.Time      `json:"last_run_at,omitempty"`
+	RunCount        int64           `json:"run_count"`
+}
+
 type Store interface {
-	cc.Reader
+	Reader
 	Get(ctx context.Context, cardKey string) (*CommandCard, error)
 	Delete(ctx context.Context, cardKey string) error
 	InsertVersion(ctx context.Context, version CommandCardVersion) error

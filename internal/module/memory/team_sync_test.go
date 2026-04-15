@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 )
 
 type teamSyncRemoteStub struct {
@@ -68,10 +67,10 @@ func (s *teamSyncRemoteStub) PushFiles(ctx context.Context, req TeamSyncPushRequ
 type teamSyncInvalidatorStub struct {
 	mu      sync.Mutex
 	calls   int
-	reasons []promptpkg.InvalidateReason
+	reasons []contract.InvalidateReason
 }
 
-func (s *teamSyncInvalidatorStub) Invalidate(_ context.Context, reason promptpkg.InvalidateReason) error {
+func (s *teamSyncInvalidatorStub) Invalidate(_ context.Context, reason contract.InvalidateReason) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
@@ -82,13 +81,7 @@ func (s *teamSyncInvalidatorStub) Invalidate(_ context.Context, reason promptpkg
 func TestTeamSyncKairosActiveSkipsWatcher(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := t.TempDir()
-	cfg := &Config{
-		Enabled:             true,
-		RootDir:             t.TempDir(),
-		ProjectRoot:         projectRoot,
-		AutoMemPathOverride: filepath.Join(t.TempDir(), "automem"),
-		Features:            MemoryFeatureFlags{TeamMemory: true},
-	}
+	cfg := &Config{Enabled: true, ProjectRoot: projectRoot, Features: MemoryFeatureFlags{TeamMemory: true}}
 	manager := NewTeamMemoryManager(cfg)
 	remote := &teamSyncRemoteStub{oauthReady: true}
 	invalidator := &teamSyncInvalidatorStub{}
@@ -115,13 +108,7 @@ func TestTeamSyncKairosActiveSkipsWatcher(t *testing.T) {
 func TestTeamSyncInitialAndRemotePullInvalidateWithoutSelfPush(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := t.TempDir()
-	cfg := &Config{
-		Enabled:             true,
-		RootDir:             t.TempDir(),
-		ProjectRoot:         projectRoot,
-		AutoMemPathOverride: filepath.Join(t.TempDir(), "automem"),
-		Features:            MemoryFeatureFlags{TeamMemory: true},
-	}
+	cfg := &Config{Enabled: true, ProjectRoot: projectRoot, Features: MemoryFeatureFlags{TeamMemory: true}}
 	manager := NewTeamMemoryManager(cfg)
 	guard := NewTeamMemoryGuard(manager)
 	invalidator := &teamSyncInvalidatorStub{}
@@ -171,22 +158,13 @@ func TestTeamSyncInitialAndRemotePullInvalidateWithoutSelfPush(t *testing.T) {
 
 func TestTeamSyncConflictRetryPullsLatestState(t *testing.T) {
 	projectRoot := t.TempDir()
-	cfg := &Config{
-		Enabled:             true,
-		RootDir:             t.TempDir(),
-		ProjectRoot:         projectRoot,
-		AutoMemPathOverride: filepath.Join(t.TempDir(), "automem"),
-		Features:            MemoryFeatureFlags{TeamMemory: true},
-	}
-	manager := NewTeamMemoryManager(cfg)
-	teamRoot, err := configuredTeamMemPath(manager)
-	if err != nil {
-		t.Fatalf("configuredTeamMemPath() error = %v", err)
-	}
+	teamRoot := filepath.Join(projectRoot, teamMemoryRootDirName)
 	if err := os.MkdirAll(teamRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", teamRoot, err)
 	}
 	writeTeamSyncTestFile(t, filepath.Join(teamRoot, "a.md"), "A")
+	cfg := &Config{Enabled: true, ProjectRoot: projectRoot, Features: MemoryFeatureFlags{TeamMemory: true}}
+	manager := NewTeamMemoryManager(cfg)
 	guard := NewTeamMemoryGuard(manager)
 	remote := &teamSyncRemoteStub{oauthReady: true}
 	conflicted := true
@@ -241,23 +219,14 @@ func TestTeamSyncConflictRetryPullsLatestState(t *testing.T) {
 
 func TestTeamSync413LearnsServerMaxEntriesForNextPush(t *testing.T) {
 	projectRoot := t.TempDir()
-	cfg := &Config{
-		Enabled:             true,
-		RootDir:             t.TempDir(),
-		ProjectRoot:         projectRoot,
-		AutoMemPathOverride: filepath.Join(t.TempDir(), "automem"),
-		Features:            MemoryFeatureFlags{TeamMemory: true},
-	}
-	manager := NewTeamMemoryManager(cfg)
-	teamRoot, err := configuredTeamMemPath(manager)
-	if err != nil {
-		t.Fatalf("configuredTeamMemPath() error = %v", err)
-	}
+	teamRoot := filepath.Join(projectRoot, teamMemoryRootDirName)
 	if err := os.MkdirAll(teamRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", teamRoot, err)
 	}
 	writeTeamSyncTestFile(t, filepath.Join(teamRoot, "a.md"), "A")
 	writeTeamSyncTestFile(t, filepath.Join(teamRoot, "b.md"), "B")
+	cfg := &Config{Enabled: true, ProjectRoot: projectRoot, Features: MemoryFeatureFlags{TeamMemory: true}}
+	manager := NewTeamMemoryManager(cfg)
 	guard := NewTeamMemoryGuard(manager)
 	invalidator := &teamSyncInvalidatorStub{}
 	remote := &teamSyncRemoteStub{oauthReady: true}

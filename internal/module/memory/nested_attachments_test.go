@@ -8,7 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 )
 
 func TestNestedResolveTurnAttachmentsLifecycle(t *testing.T) {
@@ -53,7 +52,7 @@ func TestNestedResolveTurnAttachmentsLifecycle(t *testing.T) {
 		t.Fatalf("ResolveTurnAttachments(second) = %#v, want no duplicate attachments", second)
 	}
 
-	provider.OnPromptInvalidate(promptpkg.InvalidateCompact)
+	provider.OnPromptInvalidate(contract.InvalidateCompact)
 	third := provider.ResolveTurnAttachments(context.Background(), buildCtx, turn, baseSources)
 	if len(third) != 1 {
 		t.Fatalf("ResolveTurnAttachments(after compact) len = %d, want 1", len(third))

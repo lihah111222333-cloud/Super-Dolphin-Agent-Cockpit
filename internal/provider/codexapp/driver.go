@@ -15,6 +15,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -27,7 +28,7 @@ type DriverFactory struct {
 	approvals       *rpc.ApprovalManager
 	reporter        contract.RuntimeReporter
 	manager         *ServerManager
-	listTools       func(context.Context) ([]DynamicToolSchema, error)
+	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 }
 
 type driver struct {
@@ -37,7 +38,7 @@ type driver struct {
 	approvals       *rpc.ApprovalManager
 	reporter        contract.RuntimeReporter
 	manager         *ServerManager
-	listTools       func(context.Context) ([]DynamicToolSchema, error)
+	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 }
 
 var _ contract.Driver = (*driver)(nil)
@@ -60,24 +61,18 @@ type threadRPCResult struct {
 	ModelProvider string `json:"modelProvider"`
 }
 
-type DynamicToolSchema struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"inputSchema"`
-}
-
 type threadStartParams struct {
-	Cwd                   string              `json:"cwd,omitempty"`
-	Model                 string              `json:"model,omitempty"`
-	ModelProvider         string              `json:"modelProvider,omitempty"`
-	BaseInstructions      string              `json:"baseInstructions,omitempty"`
-	DeveloperInstructions string              `json:"developerInstructions,omitempty"`
-	ApprovalPolicy        string              `json:"approvalPolicy,omitempty"`
-	Personality           string              `json:"personality,omitempty"`
-	Summary               string              `json:"summary,omitempty"`
-	Effort                string              `json:"effort,omitempty"`
-	Sandbox               json.RawMessage     `json:"sandbox,omitempty"`
-	DynamicTools          []DynamicToolSchema `json:"dynamicTools,omitempty"`
+	Cwd                   string                            `json:"cwd,omitempty"`
+	Model                 string                            `json:"model,omitempty"`
+	ModelProvider         string                            `json:"modelProvider,omitempty"`
+	BaseInstructions      string                            `json:"baseInstructions,omitempty"`
+	DeveloperInstructions string                            `json:"developerInstructions,omitempty"`
+	ApprovalPolicy        string                            `json:"approvalPolicy,omitempty"`
+	Personality           string                            `json:"personality,omitempty"`
+	Summary               string                            `json:"summary,omitempty"`
+	Effort                string                            `json:"effort,omitempty"`
+	Sandbox               json.RawMessage                   `json:"sandbox,omitempty"`
+	DynamicTools          []codexprotocol.DynamicToolSchema `json:"dynamicTools,omitempty"`
 }
 
 type threadResumeParams struct {
@@ -116,7 +111,7 @@ func NewDriverFactory(
 	return factory
 }
 
-func (f *DriverFactory) SetListTools(fn func(context.Context) ([]DynamicToolSchema, error)) {
+func (f *DriverFactory) SetListTools(fn func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) {
 	if f == nil {
 		return
 	}
@@ -125,7 +120,7 @@ func (f *DriverFactory) SetListTools(fn func(context.Context) ([]DynamicToolSche
 	f.listTools = fn
 }
 
-func (f *DriverFactory) currentListTools() func(context.Context) ([]DynamicToolSchema, error) {
+func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 	if f == nil {
 		return nil
 	}
@@ -134,7 +129,7 @@ func (f *DriverFactory) currentListTools() func(context.Context) ([]DynamicToolS
 	return f.listTools
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, listTools ...func(context.Context) ([]DynamicToolSchema, error)) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -142,7 +137,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 	if serverURL == "" && manager != nil && manager.Running() {
 		serverURL = manager.ServerURL()
 	}
-	var listToolsFn func(context.Context) ([]DynamicToolSchema, error)
+	var listToolsFn func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 	if len(listTools) != 0 {
 		listToolsFn = listTools[0]
 	}
