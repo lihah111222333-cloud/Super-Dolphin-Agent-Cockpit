@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestConsolidationPromptIncludesIndexTopicsAndLogs(t *testing.T) {
@@ -157,5 +158,52 @@ func TestConsolidationConsolidateUsesMemoryIndexTopicsAndLogs(t *testing.T) {
 	indexEntries := readIndexEntries(t, root)
 	if len(indexEntries) != 1 || strings.HasPrefix(indexEntries[0].Path, "logs/") {
 		t.Fatalf("index entries = %#v, want one durable topic entry without logs", indexEntries)
+	}
+}
+
+func TestConsolidationPromptIncludesRuntimeContext(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll(root) error = %v", err)
+	}
+	cfg := &Config{Enabled: true, RootDir: root}
+	consolidator := NewAutoDreamConsolidator(NewMemoryExtractor())
+	consolidator.cfg = cfg
+	logPath := filepath.Join(root, "logs", "2026", "04", "2026-04-15.md")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(logs) error = %v", err)
+	}
+	if err := os.WriteFile(logPath, []byte("- [09:31] prefer absolute dates in incident summaries\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(log) error = %v", err)
+	}
+
+	runtimeContext := buildConsolidationRuntimeContext(
+		"background auto-dream stop hook",
+		3,
+		time.Date(2026, 4, 14, 16, 0, 0, 0, time.UTC),
+		"thread-7",
+	)
+	called := 0
+	err := consolidator.consolidateWithOptions(context.Background(), root, func(_ context.Context, prompt string) (string, error) {
+		called++
+		for _, snippet := range []string{
+			"### Runtime context — execution envelope",
+			"Execution source: background auto-dream stop hook.",
+			"Sessions since last consolidation: 3.",
+			"Triggering thread: thread-7.",
+			"Last successful consolidation: 2026-04-14T16:00:00Z.",
+			"read-only during consolidation",
+		} {
+			if !strings.Contains(prompt, snippet) {
+				t.Fatalf("prompt missing %q:\n%s", snippet, prompt)
+			}
+		}
+		return `{"memories":[]}`, nil
+	}, consolidationRunOptions{cfg: cfg, runtimeContext: runtimeContext})
+	if err != nil {
+		t.Fatalf("consolidateWithOptions() error = %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("extract func calls = %d, want 1", called)
 	}
 }

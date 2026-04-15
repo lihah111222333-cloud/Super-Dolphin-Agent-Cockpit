@@ -18,15 +18,22 @@ const (
 )
 
 var (
-	ErrMemoryAlreadyExists      = errors.New("memory already exists")
-	ErrMemoryLockTimeout        = errors.New("memory store lock timeout")
-	ErrMemoryNotFound           = errors.New("memory not found")
-	ErrInvalidMemoryEntry       = errors.New("invalid memory entry")
-	ErrMemoryIndexUpdateFailed  = errors.New("memory_index_update_failed")
+	ErrMemoryAlreadyExists     = errors.New("memory already exists")
+	ErrMemoryLockTimeout       = errors.New("memory store lock timeout")
+	ErrMemoryNotFound          = errors.New("memory not found")
+	ErrInvalidMemoryEntry      = errors.New("invalid memory entry")
+	ErrMemoryIndexUpdateFailed = errors.New("memory_index_update_failed")
 )
 
 type WriteOptions struct {
 	SkipIndex bool
+}
+
+type MemoryWriteRequest struct {
+	Name        string
+	Description string
+	Type        MemoryType
+	Body        string
 }
 
 type DiskStore struct {
@@ -48,6 +55,10 @@ func (s *DiskStore) Root() string {
 		return ""
 	}
 	return s.root
+}
+
+func (s *DiskStore) CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
+	return s.Create(buildMemoryEntryFromWriteRequest(req), opts...)
 }
 
 func (s *DiskStore) Create(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error) {
@@ -77,18 +88,18 @@ func (s *DiskStore) Update(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry
 	return s.write(entry, true, resolveWriteOptions(opts))
 }
 
+func (s *DiskStore) UpdateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
+	return s.Update(buildMemoryEntryFromWriteRequest(req), opts...)
+}
+
 func (s *DiskStore) Delete(name string, opts ...WriteOptions) error {
 	root, err := s.rootOrError()
 	if err != nil {
 		return err
 	}
-	canonicalName, err := canonicalLookupName(name)
-	if err != nil {
-		return err
-	}
 	options := resolveWriteOptions(opts)
 	return withDiskStoreLock(root, func() error {
-		if err := DeleteMemory(root, canonicalName); err != nil {
+		if err := DeleteMemory(root, name); err != nil {
 			return err
 		}
 		return updateIndexAfterMutation(root, options)
@@ -155,11 +166,7 @@ func DeleteMemory(root, name string) error {
 	if err != nil {
 		return err
 	}
-	canonicalName, err := canonicalLookupName(name)
-	if err != nil {
-		return err
-	}
-	entry, exists, err := findMemoryEntry(normalizedRoot, canonicalName)
+	entry, exists, err := findMemoryEntryForDelete(normalizedRoot, name)
 	if err != nil {
 		return err
 	}
@@ -192,24 +199,71 @@ func normalizeStoreRoot(root string) (string, error) {
 
 func normalizeWritableEntry(entry MemoryEntry) (MemoryEntry, error) {
 	entry = normalizeLoadedEntry(entry)
-	if strings.TrimSpace(entry.Frontmatter.Description) == "" {
-		entry.Frontmatter.Description = firstNonEmptyLine(entry.Content)
-	}
-	if strings.TrimSpace(entry.Frontmatter.Name) == "" {
-		return MemoryEntry{}, fmt.Errorf("%w: name is required", ErrInvalidMemoryEntry)
-	}
-	if strings.TrimSpace(entry.Frontmatter.Description) == "" {
-		return MemoryEntry{}, fmt.Errorf("%w: description is required", ErrInvalidMemoryEntry)
-	}
 	if strings.TrimSpace(entry.Content) == "" {
 		return MemoryEntry{}, fmt.Errorf("%w: content is required", ErrInvalidMemoryEntry)
 	}
-	if !entry.Type().IsKnown() {
-		return MemoryEntry{}, fmt.Errorf("%w: unknown type", ErrInvalidMemoryEntry)
+	if err := validateRequiredMemoryFrontmatter(entry.Frontmatter); err != nil {
+		return MemoryEntry{}, err
 	}
-	entry.Frontmatter.Type = cloneMemoryType(entry.Type())
+	memoryType := entry.Type()
+	if err := ValidateMemoryEntryContent(entry); err != nil {
+		return MemoryEntry{}, err
+	}
+	if err := validateStructuredMemoryContent(memoryType, entry.Content); err != nil {
+		return MemoryEntry{}, err
+	}
+	entry.Frontmatter.Type = cloneMemoryType(memoryType)
 	entry.CanonicalName = CanonicalName(entry.Frontmatter.Name)
 	return entry, nil
+}
+
+func validateRequiredMemoryFrontmatter(frontmatter MemoryFrontmatter) error {
+	if strings.TrimSpace(frontmatter.Name) == "" {
+		return fmt.Errorf("%w: name is required", ErrInvalidMemoryEntry)
+	}
+	if strings.TrimSpace(frontmatter.Description) == "" {
+		return fmt.Errorf("%w: description is required", ErrInvalidMemoryEntry)
+	}
+	if frontmatter.Type == nil {
+		return fmt.Errorf("%w: type is required", ErrInvalidMemoryEntry)
+	}
+	if !ParseMemoryType(string(*frontmatter.Type)).IsKnown() {
+		return fmt.Errorf("%w: unknown type", ErrInvalidMemoryEntry)
+	}
+	return nil
+}
+
+func validateStructuredMemoryContent(memoryType MemoryType, content string) error {
+	switch memoryType {
+	case MemoryTypeFeedback, MemoryTypeProject:
+		if !hasStructuredMemorySection(content, "why") || !hasStructuredMemorySection(content, "how to apply") {
+			return fmt.Errorf("%w: %s memory content must include Why: and How to apply:", ErrInvalidMemoryEntry, memoryType)
+		}
+	}
+	return nil
+}
+
+func hasStructuredMemorySection(content, label string) bool {
+	for line := range strings.SplitSeq(content, "\n") {
+		normalized := strings.ToLower(strings.TrimSpace(line))
+		normalized = strings.TrimPrefix(normalized, "- ")
+		normalized = strings.ReplaceAll(normalized, "**", "")
+		if strings.HasPrefix(normalized, label+":") {
+			return true
+		}
+	}
+	return false
+}
+
+func buildMemoryEntryFromWriteRequest(req MemoryWriteRequest) MemoryEntry {
+	return MemoryEntry{
+		Frontmatter: MemoryFrontmatter{
+			Name:        strings.TrimSpace(req.Name),
+			Description: strings.TrimSpace(req.Description),
+			Type:        cloneMemoryType(req.Type),
+		},
+		Content: strings.TrimSpace(req.Body),
+	}
 }
 
 func canonicalLookupName(name string) (string, error) {
@@ -231,6 +285,76 @@ func findMemoryEntry(root, canonicalName string) (MemoryEntry, bool, error) {
 		}
 	}
 	return MemoryEntry{}, false, nil
+}
+
+func findMemoryEntryForDelete(root, name string) (MemoryEntry, bool, error) {
+	if _, err := canonicalLookupName(name); err != nil {
+		return MemoryEntry{}, false, err
+	}
+	entry, exists, err := findMemoryEntry(root, CanonicalName(name))
+	if err != nil || exists {
+		return entry, exists, err
+	}
+	return findMatchingMemoryEntry(root, name)
+}
+
+func findMatchingMemoryEntry(root, query string) (MemoryEntry, bool, error) {
+	entries, err := scanMemoryEntries(root)
+	if err != nil {
+		return MemoryEntry{}, false, err
+	}
+	query = canonicalMemoryMatchText(query)
+	if query == "" {
+		return MemoryEntry{}, false, nil
+	}
+	var best MemoryEntry
+	bestScore := 0
+	found := false
+	for _, entry := range uniqueEntriesByCanonicalName(entries) {
+		score := memoryDeleteMatchScore(query, entry)
+		if score == 0 {
+			continue
+		}
+		if !found || score > bestScore || (score == bestScore && preferMemoryEntry(entry, best)) {
+			best = entry
+			bestScore = score
+			found = true
+		}
+	}
+	return best, found, nil
+}
+
+func memoryDeleteMatchScore(query string, entry MemoryEntry) int {
+	fields := []struct {
+		text  string
+		exact int
+		fuzzy int
+	}{
+		{text: entry.Frontmatter.Name, exact: 100, fuzzy: 80},
+		{text: entry.Frontmatter.Description, exact: 95, fuzzy: 75},
+		{text: hookFromEntry(entry), exact: 90, fuzzy: 70},
+		{text: entry.Content, exact: 85, fuzzy: 65},
+	}
+	best := 0
+	for _, field := range fields {
+		target := canonicalMemoryMatchText(field.text)
+		if target == "" {
+			continue
+		}
+		if target == query {
+			return field.exact
+		}
+		if strings.Contains(target, query) || strings.Contains(query, target) {
+			if field.fuzzy > best {
+				best = field.fuzzy
+			}
+		}
+	}
+	return best
+}
+
+func canonicalMemoryMatchText(text string) string {
+	return CanonicalName(strings.ReplaceAll(strings.TrimSpace(text), "\n", " "))
 }
 
 func resolveMemoryFilePath(root string, entry MemoryEntry) (string, error) {

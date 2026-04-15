@@ -270,25 +270,9 @@ func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Mana
 }
 
 func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.Manager, workspaceEdit *protocol.WorkspaceEdit, version int) (applyWorkspaceEditResult, error) {
-	files, err := collectWorkspaceEdits(workspaceEdit)
+	originals, updated, err := loadWorkspaceEditUpdates(workspaceEdit)
 	if err != nil {
 		return applyWorkspaceEditResult{}, err
-	}
-	originals := make(map[string]editableFile, len(files))
-	updated := make(map[string]string, len(files))
-	for _, path := range sortedKeys(files) {
-		file, err := readFileWithMode(path)
-		if err != nil {
-			return applyWorkspaceEditResult{}, err
-		}
-		next, err := applyTextEdits(file.content, files[path])
-		if err != nil {
-			return applyWorkspaceEditResult{}, err
-		}
-		originals[path] = file
-		if next != file.content {
-			updated[path] = next
-		}
 	}
 	if len(updated) == 0 {
 		return applyWorkspaceEditResult{}, nil
@@ -300,28 +284,65 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.
 	if len(guarded) == 0 {
 		return applyWorkspaceEditResult{Warning: guardWarning}, nil
 	}
-	written := make(map[string]string, len(guarded))
-	for _, path := range sortedKeys(guarded) {
-		file := originals[path]
-		written[path] = file.diskContent(guarded[path])
-		if err := os.WriteFile(path, []byte(written[path]), file.mode); err != nil {
-			return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, guarded))
-		}
+	written, err := writeWorkspaceEditFiles(originals, guarded)
+	if err != nil {
+		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, guarded))
 	}
 	lspSync, warning, err := h.syncDocuments(ctx, manager, written, version)
 	if err != nil {
 		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, guarded))
 	}
-	if guardWarning != "" && warning != "" {
-		warning = guardWarning + "; " + warning
-	} else if guardWarning != "" {
-		warning = guardWarning
-	}
 	return applyWorkspaceEditResult{
 		AppliedCount: len(guarded),
 		LSPSync:      lspSync,
-		Warning:      warning,
+		Warning:      combineWorkspaceEditWarnings(guardWarning, warning),
 	}, nil
+}
+
+func loadWorkspaceEditUpdates(workspaceEdit *protocol.WorkspaceEdit) (map[string]editableFile, map[string]string, error) {
+	files, err := collectWorkspaceEdits(workspaceEdit)
+	if err != nil {
+		return nil, nil, err
+	}
+	originals := make(map[string]editableFile, len(files))
+	updated := make(map[string]string, len(files))
+	for _, path := range sortedKeys(files) {
+		file, err := readFileWithMode(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		next, err := applyTextEdits(file.content, files[path])
+		if err != nil {
+			return nil, nil, err
+		}
+		originals[path] = file
+		if next != file.content {
+			updated[path] = next
+		}
+	}
+	return originals, updated, nil
+}
+
+func writeWorkspaceEditFiles(originals map[string]editableFile, guarded map[string]string) (map[string]string, error) {
+	written := make(map[string]string, len(guarded))
+	for _, path := range sortedKeys(guarded) {
+		file := originals[path]
+		written[path] = file.diskContent(guarded[path])
+		if err := os.WriteFile(path, []byte(written[path]), file.mode); err != nil {
+			return nil, err
+		}
+	}
+	return written, nil
+}
+
+func combineWorkspaceEditWarnings(guardWarning, syncWarning string) string {
+	if guardWarning == "" {
+		return syncWarning
+	}
+	if syncWarning == "" {
+		return guardWarning
+	}
+	return guardWarning + "; " + syncWarning
 }
 
 func (h EditHandler) syncDocuments(ctx context.Context, manager lspmanager.Manager, updated map[string]string, version int) (bool, string, error) {

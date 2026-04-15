@@ -145,3 +145,15 @@ func runtimeBoolValue(value any) (bool, bool) {
 	}
 	return false, false
 }
+
+func (h *MemoryLifecycleHooks) resolvedMemoryGate(ctx context.Context, threadID string) MemoryGateSnapshot {
+	if h == nil {
+		return MemoryGateSnapshot{}
+	}
+	meta := h.resolveThreadRuntimeMetadata(ctx, strings.TrimSpace(threadID))
+	return ResolveMemoryGate(meta.buildCtx(), h.cfg)
+}
+
+func (h *MemoryLifecycleHooks) writeOptions(ctx context.Context, threadID string) WriteOptions {
+	return WriteOptions{SkipIndex: h.resolvedMemoryGate(ctx, threadID).SkipIndex}
+}

@@ -26,7 +26,7 @@ var staticSectionSpecs = []staticSectionSpec{
 	{name: SectionSystemConstraints, order: 20, resolve: staticSectionContent(sectionSystemConstraintsText)},
 	{name: SectionEngineering, order: 30, resolve: resolveEngineeringSection},
 	{name: SectionActions, order: 40, resolve: staticSectionContent(sectionActionsText)},
-	{name: SectionToolPreferences, order: 50, resolve: staticSectionContent(sectionToolPreferencesText)},
+	{name: SectionToolPreferences, order: 50, resolve: resolveToolPreferencesSection},
 	{name: SectionStyle, order: 60, resolve: staticSectionContent(sectionStyleText)},
 	{name: SectionOutputEfficiency, order: 70, resolve: staticSectionContent(sectionOutputEfficiencyText)},
 }
@@ -59,6 +59,75 @@ func staticSectionContent(text string) func(BuildCtx) *string {
 		value := text
 		return &value
 	}
+}
+
+const (
+	toolPreferenceModeStandard = "standard"
+	toolPreferenceModeRepl     = "repl"
+)
+
+func resolveToolPreferencesSection(build BuildCtx) *string {
+	text := strings.TrimSpace(renderToolPreferencesSectionText(build))
+	if text == "" {
+		return nil
+	}
+	return &text
+}
+
+func renderToolPreferencesSectionText(build BuildCtx) string {
+	if toolPreferenceMode(build) == toolPreferenceModeRepl {
+		return renderToolPreferenceBullets([]string{
+			"In REPL mode, follow the host's direct tool protocol instead of narrating shell-equivalent fallbacks that the host already abstracts.",
+			toolPreferencePlanningLine(build.EnabledTools),
+			"Batch independent tool calls in parallel and run dependent calls sequentially.",
+		})
+	}
+	return renderToolPreferenceBullets([]string{
+		"Prefer repository-aware tools first: use lsp_file for reading, lsp_edit for edits, and lsp_grep for search.",
+		"Use code_run for shell execution only when a dedicated tool cannot do the job, and use it for new-file creation when needed.",
+		"Do not reach for shell fallbacks like cat, head, tail, sed, awk, grep, rg, find, or ls when a dedicated tool fits.",
+		toolPreferencePlanningLine(build.EnabledTools),
+		"Batch independent tool calls in parallel and run dependent calls sequentially.",
+	})
+}
+
+func renderToolPreferenceBullets(items []string) string {
+	cleaned := make([]string, 0, len(items))
+	for _, item := range items {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	if len(cleaned) == 0 {
+		return ""
+	}
+	return "Tool preferences:\n- " + strings.Join(cleaned, "\n- ")
+}
+
+func toolPreferencePlanningLine(enabledTools []string) string {
+	if hasToolPreferencePlanner(enabledTools) {
+		return "If a planning tool such as update_plan or task_create_dag is available, break larger tasks into explicit steps and keep progress current instead of batching status updates."
+	}
+	return "Break larger tasks into explicit steps and keep tool usage stable instead of churning approaches."
+}
+
+func hasToolPreferencePlanner(enabledTools []string) bool {
+	for _, tool := range sortedPromptValues(enabledTools) {
+		switch tool {
+		case "update_plan", "task_create_dag":
+			return true
+		}
+	}
+	return false
+}
+
+func toolPreferenceMode(build BuildCtx) string {
+	for _, key := range []string{"repl_mode", "repl", "repl_only_tools"} {
+		if build.SessionFlags[key] {
+			return toolPreferenceModeRepl
+		}
+	}
+	return toolPreferenceModeStandard
 }
 
 func resolveIdentitySection(build BuildCtx) *string {
@@ -105,14 +174,17 @@ const sectionEngineeringText = `Engineering principles:
 - When an instruction is unclear or generic, interpret it in the context of the current codebase and requested engineering work instead of replying with a detached guess.
 - Read the relevant code before proposing or making changes.
 - Solve the requested task without adding unrelated features, refactors, or abstractions.
-- Do not add docstrings, type annotations, or comments to untouched code; only add comments when the reason would not be obvious from the code itself.
+- Do not add docstrings, type annotations, or comments to untouched code; only add comments when the reason would not be obvious from the code itself, and do not use comments to explain WHAT the code does or to leave 'used by' / 'added for' task-history notes.
 - Prefer editing existing files; create new files only when they are truly necessary.
 - Avoid speculative defenses, impossible-case validation, compatibility shims, feature flags, or abstractions for one-off cases.
 - Trust internal invariants and framework guarantees unless you are working at a real boundary such as user input or an external API.
 - Do not estimate timelines; focus on the next concrete engineering step.
+- If the user's premise is mistaken or you notice an adjacent bug while doing the task, say so clearly instead of silently working around it.
 - When an approach fails, inspect the error, verify assumptions, and adjust deliberately instead of thrashing or escalating immediately.
+- Escalate with AskUserQuestion only after investigation when you are genuinely stuck; friction or a single failed attempt is not enough.
 - Watch for security issues such as injection, XSS, SQL injection, and unsafe shell usage.
 - Delete truly unused code instead of leaving backwards-compatibility hacks behind.
+- Minimum necessary complexity still requires a complete, working result; do not stop at a half-finished implementation and call it done.
 - Verify the result before reporting completion, and report outcomes truthfully if checks fail or were not run.
 - Respect the user's judgment about task scope instead of expanding work into a larger rewrite on your own.`
 
@@ -120,19 +192,12 @@ const sectionActionsText = `Executing actions with care:
 - Local, reversible actions like editing files or running tests usually do not need confirmation.
 - Ask before destructive, hard-to-reverse, shared-state, or third-party upload actions.
 - Destructive examples include deleting files or branches, dropping tables, killing processes, rm -rf, and overwriting uncommitted work.
-- Hard-to-reverse examples include force-push, git reset --hard, rewriting published commits, dependency downgrades, and CI or CD changes.
-- Shared-state examples include pushing code, editing PRs or issues, sending messages, and changing shared infrastructure or permissions.
+- Hard-to-reverse examples include force-push, git reset --hard, rewriting published commits, dependency downgrades, CI or CD changes, and bypassing safeguards with flags like '--no-verify'.
+- Shared-state examples include pushing code, creating, closing, or commenting on PRs or issues, sending messages, publishing to external services, and changing shared infrastructure or permissions.
 - Uploads to third-party services may be cached or indexed, so treat them as potentially public.
 - If the user has explicitly requested more autonomy or durable instructions pre-authorize an action, you may proceed within that scope while still accounting for risk.
-- Do not use destructive actions as shortcuts around safety checks or unexpected state; investigate unfamiliar files, locks, or conflicts before deleting or overwriting.
+- Do not use destructive actions as shortcuts around safety checks or unexpected state; investigate unfamiliar files, branches, configuration, locks, or conflicts before deleting or overwriting.
 - Approval applies only to the confirmed action and scope, not to future risky actions by default.`
-
-const sectionToolPreferencesText = `Tool preferences:
-- Prefer repository-aware tools first: use lsp_file for reading, lsp_edit for edits, and lsp_grep for search.
-- Use code_run for shell execution only when a dedicated tool cannot do the job, and use it for new-file creation when needed.
-- Do not reach for shell fallbacks like cat, head, tail, sed, awk, grep, rg, find, or ls when a dedicated tool fits.
-- Break larger tasks into explicit steps and keep tool usage stable instead of churning approaches.
-- Batch independent tool calls in parallel and run dependent calls sequentially.`
 
 const sectionStyleText = `Tone and style:
 - Do not use emojis unless the user explicitly asks for them.

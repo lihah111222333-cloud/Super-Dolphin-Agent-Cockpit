@@ -44,6 +44,7 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		Prompt:                       req.Prompt,
 		BaseInstructions:             req.BaseInstructions,
 		DeveloperInstructions:        req.DeveloperInstructions,
+		Summary:                      buildCtx.Summary,
 		Provider:                     buildCtx.Provider,
 		CWD:                          buildCtx.CWD,
 		GitRoot:                      buildCtx.GitRoot,
@@ -56,6 +57,7 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		SessionFlags:                 buildCtx.SessionFlags,
 		OutputStyleConfig:            buildCtx.OutputStyleConfig,
 		ScratchpadDir:                buildCtx.ScratchpadDir,
+		FRCConfig:                    buildCtx.FRCConfig,
 		KeepCodingInstructions:       buildCtx.KeepCodingInstructions,
 	}
 }
@@ -135,21 +137,15 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 	putConfigString(cfg, "cwd", input.CWD)
 	putConfigString(cfg, "model", input.Model)
 	putConfigString(cfg, "gitRoot", input.GitRoot)
-	putConfigString(cfg, "parentAgentId", input.ParentAgentID)
-	putConfigString(cfg, "parent_agent_id", input.ParentAgentID)
-	putConfigString(cfg, "agentType", input.AgentType)
-	putConfigString(cfg, "agent_type", input.AgentType)
-	putConfigString(cfg, "threadKind", startThreadKind(input))
-	putConfigString(cfg, "thread_kind", startThreadKind(input))
 	putConfigBool(cfg, "isWorktree", input.IsWorktree)
 	putConfigString(cfg, "language", input.Language)
 	putConfigStrings(cfg, "enabledTools", input.EnabledTools)
 	putConfigStrings(cfg, "additionalWorkingDirectories", input.AdditionalWorkingDirectories)
-	putConfigStrings(cfg, "claudeMdExcludes", input.ClaudeMdExcludes)
-	putConfigStrings(cfg, "claude_md_excludes", input.ClaudeMdExcludes)
 	putConfigStrings(cfg, "mcpServers", input.MCPSnapshot.Servers)
 	putConfigStrings(cfg, "mcpTools", input.MCPSnapshot.Tools)
 	putConfigStringMap(cfg, "mcpInstructions", input.MCPSnapshot.Instructions)
+	putConfigBool(cfg, "mcpInstructionsDeltaEnabled", input.MCPSnapshot.InstructionsDeltaEnabled)
+	putConfigBool(cfg, "mcp_instructions_delta_enabled", input.MCPSnapshot.InstructionsDeltaEnabled)
 	putConfigBoolMap(cfg, "sessionFlags", input.SessionFlags)
 	putConfigOutputStyleConfig(cfg, "outputStyleConfig", input.OutputStyleConfig)
 	putConfigOutputStyleConfig(cfg, "output_style_config", input.OutputStyleConfig)
@@ -165,13 +161,6 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 		return nil
 	}
 	return cfg
-}
-
-func startThreadKind(input contract.StartInput) string {
-	if strings.TrimSpace(input.ParentAgentID) != "" {
-		return "child_agent"
-	}
-	return "main"
 }
 
 func buildStartStoredThreadConfig(req StartRequest, input contract.StartInput, assembly contract.StartAssembly) storedThreadConfig {

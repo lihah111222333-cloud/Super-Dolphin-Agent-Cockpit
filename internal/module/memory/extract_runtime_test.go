@@ -2,8 +2,10 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -304,6 +306,38 @@ func TestMemoryLifecycleHooksExtractAndSaveInvalidatesPromptSections(t *testing.
 	}
 	if len(invalidator.names) != 2 || invalidator.names[0] != prompt.DynamicSectionMemory || invalidator.names[1] != prompt.DynamicSectionMemoryContext {
 		t.Fatalf("InvalidateSections() names = %#v", invalidator.names)
+	}
+}
+
+func TestMemoryLifecycleHooksExtractAndSaveHonorsSkipIndex(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	hooks := newMemoryLifecycleHooks(
+		&Config{Enabled: true, ExtractOnStop: true, SkipIndex: true, RootDir: root},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		NewMemoryExtractor(),
+		NewManifestBuilder(),
+	)
+	hooks.extractFn = func(context.Context, string) (string, error) {
+		return `{"memories":[{"content":"Keep diffs focused.","type":"feedback"}]}`, nil
+	}
+
+	err := hooks.ExtractAndSave(context.Background(), []providerdto.Message{{Role: "user", Content: "Keep diffs focused."}}, nil)
+	if err != nil {
+		t.Fatalf("ExtractAndSave(skipIndex) error = %v", err)
+	}
+	if _, err := os.Stat(memoryIndexPath(root)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Stat(MEMORY.md) error = %v, want %v", err, os.ErrNotExist)
+	}
+	entries, err := scanMemoryEntries(root)
+	if err != nil {
+		t.Fatalf("scanMemoryEntries() error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("scanMemoryEntries() entries = %d, want 1", len(entries))
 	}
 }
 

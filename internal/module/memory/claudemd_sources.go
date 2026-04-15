@@ -84,7 +84,7 @@ func NewClaudeMdSourcesProvider(cfg *Config, team *TeamMemoryManager, nested *Ne
 
 func (p *ClaudeMdSourcesProvider) ResolveClaudeMdSources(ctx context.Context, buildCtx contract.BuildCtx) []contract.ClaudeMdSource {
 	gate := ResolveMemoryGate(buildCtx, p.cfg)
-	if gate.DisableClaudeMds {
+	if shouldDisableClaudeMdSources(gate) {
 		return nil
 	}
 	resolveCfg := ClaudeMdResolveConfig{
@@ -95,13 +95,14 @@ func (p *ClaudeMdSourcesProvider) ResolveClaudeMdSources(ctx context.Context, bu
 		ManagedRoots:      defaultManagedClaudeMdRoots(),
 		UserRoot:          defaultUserClaudeMdRoot(),
 	}
-	manifestDigest := digestClaudeMdCandidates(resolveClaudeMdCandidates(resolveCfg))
+	candidates := resolveClaudeMdCandidates(resolveCfg, gate)
+	manifestDigest := digestClaudeMdCandidates(candidates)
 	cacheKey := claudeMdSourceCacheKey(buildCtx, gate, manifestDigest)
 	if sources, ok := p.lookup(cacheKey); ok {
 		return sources
 	}
-	sources := ResolveClaudeMdSources(ctx, resolveCfg)
-	sources = FilterInjectedMemoryFiles(sources, gate, buildCtx.ClaudeMdExcludes)
+	sources := loadClaudeMdSources(ctx, candidates)
+	sources = FilterInjectedMemoryFiles(sources, buildCtx, gate, buildCtx.ClaudeMdExcludes)
 	p.store(cacheKey, sources)
 	return cloneClaudeMdSources(sources)
 }
@@ -119,12 +120,21 @@ func (p *ClaudeMdSourcesProvider) OnPromptInvalidate(reason prompt.InvalidateRea
 }
 
 func ResolveClaudeMdSources(ctx context.Context, cfg ClaudeMdResolveConfig) []ClaudeMdSource {
-	candidates := resolveClaudeMdCandidates(cfg)
+	gate := ResolveMemoryGate(cfg.BuildCtx, cfg.MemoryConfig)
+	if shouldDisableClaudeMdSources(gate) {
+		return nil
+	}
+	candidates := resolveClaudeMdCandidates(cfg, gate)
 	return loadClaudeMdSources(ctx, candidates)
 }
 
-func FilterInjectedMemoryFiles(sources []ClaudeMdSource, gate MemoryGateSnapshot, excludes []string) []ClaudeMdSource {
+func shouldDisableClaudeMdSources(gate MemoryGateSnapshot) bool {
+	return gate.DisableClaudeMds || (gate.BareMode && !gate.HasAdditionalDirsForBare)
+}
+
+func FilterInjectedMemoryFiles(sources []ClaudeMdSource, buildCtx contract.BuildCtx, gate MemoryGateSnapshot, excludes []string) []ClaudeMdSource {
 	patterns := normalizeClaudeMdExcludePatterns(excludes)
+	projectFilter := resolveProjectSourceFilter(buildCtx, gate)
 	filtered := make([]ClaudeMdSource, 0, len(sources))
 	for _, source := range sources {
 		if shouldSkipInjectedSource(source, gate) {
@@ -133,7 +143,7 @@ func FilterInjectedMemoryFiles(sources []ClaudeMdSource, gate MemoryGateSnapshot
 		if shouldExcludeClaudeMdSource(source, patterns) {
 			continue
 		}
-		if gate.SkipProjectLocalClaudeMd && isProjectOrLocalClaudeMdSource(source) {
+		if shouldSkipProjectSource(source, projectFilter) {
 			continue
 		}
 		filtered = append(filtered, cloneClaudeMdSource(source))
@@ -169,9 +179,11 @@ func (p *ClaudeMdSourcesProvider) store(key string, sources []ClaudeMdSource) {
 func claudeMdSourceCacheKey(buildCtx contract.BuildCtx, gate MemoryGateSnapshot, manifestDigest string) string {
 	payload := []string{
 		strings.TrimSpace(manifestDigest),
+		boolToken(gate.DisableClaudeMds),
 		boolToken(gate.InjectMemoryIndex),
 		boolToken(gate.InjectTeamMemIndex),
 		boolToken(gate.SkipProjectLocalClaudeMd),
+		boolToken(buildCtx.IsWorktree),
 		strings.Join(normalizeStringSlice(buildCtx.ClaudeMdExcludes), "|"),
 		strings.Join(normalizeStringSlice(buildCtx.AdditionalWorkingDirectories), "|"),
 	}
@@ -179,13 +191,17 @@ func claudeMdSourceCacheKey(buildCtx contract.BuildCtx, gate MemoryGateSnapshot,
 	return hex.EncodeToString(digest[:])
 }
 
-func resolveClaudeMdCandidates(cfg ClaudeMdResolveConfig) []claudeMdCandidate {
+func resolveClaudeMdCandidates(cfg ClaudeMdResolveConfig, gate MemoryGateSnapshot) []claudeMdCandidate {
 	seen := make(map[string]struct{}, 16)
 	candidates := make([]claudeMdCandidate, 0, 16)
 	appendManagedClaudeMdCandidates(&candidates, seen, cfg)
 	appendUserClaudeMdCandidates(&candidates, seen, cfg)
-	appendProjectClaudeMdCandidates(&candidates, seen, cfg)
-	appendAdditionalDirClaudeMdCandidates(&candidates, seen, cfg)
+	if !gate.BareMode {
+		appendProjectClaudeMdCandidates(&candidates, seen, cfg)
+	}
+	if !gate.BareMode || gate.HasAdditionalDirsForBare {
+		appendAdditionalDirClaudeMdCandidates(&candidates, seen, cfg)
+	}
 	appendMemoryEntrypointCandidate(&candidates, seen, sourceTypeAutoMem, sourceOriginAutoMem, autoMemRoot(cfg), "")
 	appendMemoryEntrypointCandidate(&candidates, seen, sourceTypeTeamMem, sourceOriginTeamMem, strings.TrimSpace(cfg.TeamMemPath), strings.TrimSpace(cfg.TeamMemEntrypoint))
 	return candidates
@@ -383,16 +399,39 @@ func isExcludeEligibleClaudeMdSource(source ClaudeMdSource) bool {
 	}
 }
 
-func isProjectOrLocalClaudeMdSource(source ClaudeMdSource) bool {
+type projectSourceFilter struct {
+	enabled      bool
+	worktree     bool
+	worktreeRoot string
+}
+
+func resolveProjectSourceFilter(buildCtx contract.BuildCtx, gate MemoryGateSnapshot) projectSourceFilter {
+	return projectSourceFilter{
+		enabled:      gate.SkipProjectLocalClaudeMd,
+		worktree:     buildCtx.IsWorktree,
+		worktreeRoot: cleanClaudeMdPath(buildCtx.GitRoot),
+	}
+}
+
+func shouldSkipProjectSource(source ClaudeMdSource, filter projectSourceFilter) bool {
+	if !filter.enabled || !isCheckedInProjectClaudeMdSource(source) {
+		return false
+	}
+	if !filter.worktree || filter.worktreeRoot == "" {
+		return true
+	}
+	baseDir := cleanClaudeMdPath(source.BaseDir)
+	if baseDir == "" {
+		baseDir = cleanClaudeMdPath(filepath.Dir(source.Path))
+	}
+	return baseDir != "" && baseDir != filter.worktreeRoot && isAncestorOrSame(baseDir, filter.worktreeRoot)
+}
+
+func isCheckedInProjectClaudeMdSource(source ClaudeMdSource) bool {
 	if source.Origin == sourceOriginAddDir {
 		return false
 	}
-	switch source.Type {
-	case sourceTypeProject, sourceTypeLocal:
-		return true
-	default:
-		return false
-	}
+	return source.Type == sourceTypeProject
 }
 
 func normalizeClaudeMdExcludePatterns(excludes []string) []string {

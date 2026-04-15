@@ -224,7 +224,7 @@ func resolveNestedConditionalSources(
 		appendProjectStyleCandidates(&candidates, seen, dir, sourceTypeProject, sourceOriginProject, true)
 	}
 	sources := loadClaudeMdSources(ctx, candidates)
-	sources = FilterInjectedMemoryFiles(sources, ResolveMemoryGate(buildCtx, cfg), buildCtx.ClaudeMdExcludes)
+	sources = FilterInjectedMemoryFiles(sources, buildCtx, ResolveMemoryGate(buildCtx, cfg), buildCtx.ClaudeMdExcludes)
 	return filterNestedConditionalDelta(sources, target, baseSources)
 }
 

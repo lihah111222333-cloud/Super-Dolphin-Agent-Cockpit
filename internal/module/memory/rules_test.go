@@ -28,7 +28,7 @@ func TestMemoryRuleEngineRulesForKnownTypes(t *testing.T) {
 }
 
 func TestBuildMemoryLinesIncludesDeterministicCompleteSections(t *testing.T) {
-	text := NewMemoryRuleEngine().BuildMemoryLines(MemoryRuleOptions{})
+	text := NewMemoryRuleEngine().BuildMemoryLines(MemoryRuleOptions{SearchPastContextEnabled: true})
 	orderedHeadings := []string{
 		"### 1. memory system",
 		"### 2. taxonomy",
@@ -78,8 +78,9 @@ func TestBuildMemoryLinesIncludesDeterministicCompleteSections(t *testing.T) {
 
 func TestBuildMemoryLinesSkipIndexAndExtraGuidelines(t *testing.T) {
 	text := NewMemoryRuleEngine().BuildMemoryLines(MemoryRuleOptions{
-		SkipIndex:       true,
-		ExtraGuidelines: []string{"Keep explanations short.", "Prefer absolute dates in summaries."},
+		SkipIndex:                true,
+		SearchPastContextEnabled: true,
+		ExtraGuidelines:          []string{"Keep explanations short.", "Prefer absolute dates in summaries."},
 	})
 	if !strings.Contains(text, "When `skipIndex` is enabled, write or update the topic file only") {
 		t.Fatalf("skipIndex rule missing from prompt:\n%s", text)
@@ -100,6 +101,61 @@ func TestBuildMemoryLinesSkipIndexAndExtraGuidelines(t *testing.T) {
 	}
 	if searchIndex <= extraIndex {
 		t.Fatalf("searching past context section should appear after extra guidelines")
+	}
+}
+
+func TestRulesLoadMemoryPromptSearchPastContextGateAcrossModes(t *testing.T) {
+	engine := NewMemoryRuleEngine()
+	cases := []struct {
+		name string
+		mode MemoryMode
+		opts MemoryRuleOptions
+	}{
+		{name: "standard", mode: MemoryModeStandard},
+		{name: "combined", mode: MemoryModeCombined, opts: MemoryRuleOptions{AutoMemPath: "/tmp/auto", TeamMemPath: "/tmp/team"}},
+		{name: "kairos", mode: MemoryModeKairos},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			disabled := engine.LoadMemoryPrompt(tc.mode, true, tc.opts)
+			if disabled == nil {
+				t.Fatalf("LoadMemoryPrompt(%s, gate off) returned nil", tc.mode)
+			}
+			if strings.Contains(*disabled, "searching past context") {
+				t.Fatalf("LoadMemoryPrompt(%s, gate off) unexpectedly included searching section:\n%s", tc.mode, *disabled)
+			}
+			enabledOpts := tc.opts
+			enabledOpts.SearchPastContextEnabled = true
+			enabled := engine.LoadMemoryPrompt(tc.mode, true, enabledOpts)
+			if enabled == nil {
+				t.Fatalf("LoadMemoryPrompt(%s, gate on) returned nil", tc.mode)
+			}
+			if !strings.Contains(*enabled, "searching past context") {
+				t.Fatalf("LoadMemoryPrompt(%s, gate on) missing searching section:\n%s", tc.mode, *enabled)
+			}
+		})
+	}
+}
+
+func TestRulesProviderOmitsSearchingPastContextWhenFeatureDisabled(t *testing.T) {
+	provider := NewRulesProvider(&Config{
+		Enabled:         true,
+		SkipIndex:       true,
+		ExtraGuidelines: []string{"Keep explanations short."},
+	}, NewMemoryRuleEngine(), nil)
+	svc := prompt.NewService(&prompt.Config{}, nil)
+	if err := svc.RegisterDynamicProvider(provider); err != nil {
+		t.Fatalf("RegisterDynamicProvider() error = %v", err)
+	}
+	start, err := svc.AssembleStart(context.Background(), prompt.StartInput{})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	if !strings.Contains(start.BaseInstructions, "### 1. memory system") {
+		t.Fatalf("BaseInstructions missing rendered memory rules:\n%s", start.BaseInstructions)
+	}
+	if strings.Contains(start.BaseInstructions, "searching past context") {
+		t.Fatalf("BaseInstructions unexpectedly contains searching past context with feature disabled:\n%s", start.BaseInstructions)
 	}
 }
 
@@ -132,6 +188,7 @@ func TestMemoryRulesProviderRegistersStartOnlyDynamicSection(t *testing.T) {
 		"When `skipIndex` is enabled",
 		"### 8. extra guidelines",
 		"Keep explanations short.",
+		"### 9. searching past context",
 	} {
 		if !strings.Contains(start.BaseInstructions, snippet) {
 			t.Fatalf("BaseInstructions missing %q:\n%s", snippet, start.BaseInstructions)
@@ -331,7 +388,7 @@ func TestCombinedRulesProviderUsesDynamicSectionMemory(t *testing.T) {
 	for _, snippet := range []string{
 		"shared team directory",
 		memoryIndexPath(autoRoot),
-		memoryIndexPath(filepath.Join(repoRoot, teamMemoryRootDirName)),
+		memoryIndexPath(filepath.Join(autoRoot, teamMemoryRootDirName)),
 	} {
 		if !strings.Contains(section.Content, snippet) {
 			t.Fatalf("combined memory section missing %q:\n%s", snippet, section.Content)

@@ -4,14 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 )
 
 func sectionInputCacheKey(section PromptSection, input SectionContext) (string, bool) {
 	switch section.CachePolicy {
 	case Uncached:
-		return "", false
+		return strings.TrimSpace(section.Name), strings.TrimSpace(section.Name) != ""
 	case InputScoped:
-		encoded, err := json.Marshal(inputScopedSectionDependency(section, input))
+		encoded, err := json.Marshal(inputScopedCacheDependency(section, input))
 		if err != nil {
 			return section.Name, true
 		}
@@ -26,5 +27,23 @@ func sectionInputCacheKey(section PromptSection, input SectionContext) (string, 
 			}
 		}
 		return section.Name, true
+	}
+}
+
+func inputScopedCacheDependency(section PromptSection, input SectionContext) any {
+	dependency := inputScopedSectionDependency(section, input)
+	if section.Name != DynamicSectionAgentMemory {
+		return dependency
+	}
+	scope := ""
+	if input.Start != nil && input.Turn == nil {
+		scope = strings.ToLower(strings.TrimSpace(input.Start.AgentMemoryScope))
+	}
+	return struct {
+		Dependency       any    `json:"dependency"`
+		AgentMemoryScope string `json:"agentMemoryScope,omitempty"`
+	}{
+		Dependency:       dependency,
+		AgentMemoryScope: scope,
 	}
 }

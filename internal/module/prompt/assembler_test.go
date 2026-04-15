@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +62,24 @@ func TestAssembleStartIncludesBuiltinsAndDynamicSections(t *testing.T) {
 	}
 	if assembly.Snapshot.Version != SnapshotVersion || assembly.Snapshot.Hash == "" {
 		t.Fatalf("unexpected snapshot = %#v", assembly.Snapshot)
+	}
+	if assembly.Boundary == nil {
+		t.Fatalf("Boundary = nil, want cached/uncached split metadata")
+	}
+	if !strings.Contains(assembly.Boundary.CachedPrefix, identityContent) {
+		t.Fatalf("CachedPrefix = %q, want identity section", assembly.Boundary.CachedPrefix)
+	}
+	if strings.Contains(assembly.Boundary.CachedPrefix, "CWD: /repo") {
+		t.Fatalf("CachedPrefix unexpectedly contains dynamic section: %q", assembly.Boundary.CachedPrefix)
+	}
+	if !strings.Contains(assembly.Boundary.UncachedTail, "CWD: /repo") || !strings.Contains(assembly.Boundary.UncachedTail, "legacy base") {
+		t.Fatalf("UncachedTail = %q, want dynamic section and legacy base", assembly.Boundary.UncachedTail)
+	}
+	if joinBlocks(assembly.Boundary.CachedPrefix, assembly.Boundary.UncachedTail) != assembly.BaseInstructions {
+		t.Fatalf("boundary blocks do not recompose base instructions: boundary=%#v base=%q", assembly.Boundary, assembly.BaseInstructions)
+	}
+	if assembly.Snapshot.Boundary == nil || *assembly.Snapshot.Boundary != *assembly.Boundary {
+		t.Fatalf("Snapshot.Boundary = %#v, want %#v", assembly.Snapshot.Boundary, assembly.Boundary)
 	}
 }
 
@@ -132,7 +152,7 @@ func TestAssembleStartFallsBackOnBuildError(t *testing.T) {
 	}
 }
 
-func TestAssembleStartAppendsSystemContextToDeveloperInstructions(t *testing.T) {
+func TestAssembleStartKeepsDeveloperInstructionsSeparateFromSystemContext(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{
 		CWD:                   t.TempDir(),
@@ -141,14 +161,103 @@ func TestAssembleStartAppendsSystemContextToDeveloperInstructions(t *testing.T) 
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
-	if !strings.Contains(assembly.DeveloperInstructions, "# System Context") {
-		t.Fatalf("DeveloperInstructions = %q, want system context header", assembly.DeveloperInstructions)
-	}
-	if !strings.Contains(assembly.DeveloperInstructions, "Git status:") {
-		t.Fatalf("DeveloperInstructions = %q, want git status block", assembly.DeveloperInstructions)
-	}
-	if !strings.Contains(assembly.DeveloperInstructions, "developer tail") {
+	if assembly.DeveloperInstructions != "developer tail" {
 		t.Fatalf("DeveloperInstructions = %q, want developer tail", assembly.DeveloperInstructions)
+	}
+}
+
+func TestAssembleTurnIncludesSystemContext(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	assembly, err := svc.AssembleTurn(context.Background(), TurnInput{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("AssembleTurn() error = %v", err)
+	}
+	if strings.TrimSpace(assembly.SystemContext["gitStatus"]) == "" {
+		t.Fatalf("SystemContext = %#v, want gitStatus entry", assembly.SystemContext)
+	}
+}
+
+func TestAssembleTurnRefreshesSystemContextEachTurn(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	svc := NewService(&Config{}, nil)
+	first, err := svc.AssembleTurn(context.Background(), TurnInput{CWD: dir})
+	if err != nil {
+		t.Fatalf("first AssembleTurn() error = %v", err)
+	}
+	if strings.Contains(first.SystemContext["gitStatus"], "note.txt") {
+		t.Fatalf("first gitStatus = %q, want clean initial status", first.SystemContext["gitStatus"])
+	}
+	if err := os.WriteFile(dir+"/note.txt", []byte("draft"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	second, err := svc.AssembleTurn(context.Background(), TurnInput{CWD: dir})
+	if err != nil {
+		t.Fatalf("second AssembleTurn() error = %v", err)
+	}
+	if first.SystemContext["gitStatus"] == second.SystemContext["gitStatus"] {
+		t.Fatalf("gitStatus did not refresh: first=%q second=%q", first.SystemContext["gitStatus"], second.SystemContext["gitStatus"])
+	}
+	if !strings.Contains(second.SystemContext["gitStatus"], "note.txt") {
+		t.Fatalf("second gitStatus = %q, want note.txt entry", second.SystemContext["gitStatus"])
+	}
+}
+
+func TestSimpleAssembleStartHardEarlyReturn(t *testing.T) {
+	t.Setenv(envClaudeSimple, "1")
+	svc := NewService(&Config{}, nil)
+	called := false
+	text := "should never render"
+	if err := svc.RegisterSection(PromptSection{
+		Name:   "simple_static_guard",
+		Order:  999,
+		Region: PromptRegionStatic,
+		Compute: func(context.Context, SectionContext) (*string, error) {
+			called = true
+			return &text, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterSection() error = %v", err)
+	}
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{CWD: "/repo", DeveloperInstructions: "developer tail", BaseInstructions: "legacy base"})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	if called {
+		t.Fatal("simple mode still evaluated registered sections")
+	}
+	if len(assembly.ResolvedSections) != 0 {
+		t.Fatalf("ResolvedSections = %#v, want nil/empty in simple mode", assembly.ResolvedSections)
+	}
+	lines := strings.Split(assembly.BaseInstructions, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("BaseInstructions lines = %#v, want 3-line simple prompt", lines)
+	}
+	if lines[0] != simpleStartIdentityLine || lines[1] != "CWD: /repo" || lines[2] != "Date: "+time.Now().Format("2006-01-02") {
+		t.Fatalf("BaseInstructions = %#v, want simple prompt lines", lines)
+	}
+	if strings.Contains(assembly.BaseInstructions, "legacy base") || strings.Contains(assembly.BaseInstructions, text) {
+		t.Fatalf("BaseInstructions unexpectedly kept normal-path content: %q", assembly.BaseInstructions)
+	}
+	if assembly.DeveloperInstructions != "developer tail" {
+		t.Fatalf("DeveloperInstructions = %q, want developer tail", assembly.DeveloperInstructions)
+	}
+}
+
+func TestSimpleAssembleStartUsesSessionFlag(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{
+		CWD:          "/flagged",
+		SessionFlags: map[string]bool{"simple_mode": true},
+	})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	if len(assembly.ResolvedSections) != 0 {
+		t.Fatalf("ResolvedSections = %#v, want nil/empty under simple session flag", assembly.ResolvedSections)
+	}
+	if got := strings.Split(assembly.BaseInstructions, "\n"); len(got) != 3 || got[1] != "CWD: /flagged" {
+		t.Fatalf("BaseInstructions = %#v, want simple prompt with flagged cwd", got)
 	}
 }
 
@@ -178,6 +287,42 @@ func TestUncachedDynamicSectionRecomputesEveryTurn(t *testing.T) {
 	secondContent, _ := resolvedSectionContent(second.ResolvedSections, DynamicSectionMCPInstructions)
 	if firstContent == secondContent {
 		t.Fatalf("uncached section did not change: first=%q second=%q", firstContent, secondContent)
+	}
+}
+
+func TestUncachedDynamicSectionRetainsStableLastValue(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	calls := 0
+	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+		Name: DynamicSectionMCPInstructions,
+		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
+			calls++
+			text := "stable mcp instructions"
+			return &text, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterDynamicProvider() error = %v", err)
+	}
+
+	first, err := svc.AssembleStart(context.Background(), StartInput{})
+	if err != nil {
+		t.Fatalf("first AssembleStart() error = %v", err)
+	}
+	second, err := svc.AssembleStart(context.Background(), StartInput{})
+	if err != nil {
+		t.Fatalf("second AssembleStart() error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("stable uncached provider calls = %d, want 2", calls)
+	}
+	if first.Snapshot.Hash != second.Snapshot.Hash {
+		t.Fatalf("stable uncached section changed snapshot hash: first=%q second=%q", first.Snapshot.Hash, second.Snapshot.Hash)
+	}
+	internal := svc.(*service)
+	generation := internal.cache.Generation()
+	cached, ok := internal.cache.Lookup(DynamicSectionMCPInstructions, generation)
+	if !ok || cached == nil || *cached != "stable mcp instructions" {
+		t.Fatalf("volatile cache = %#v, %v, want stable retained value", cached, ok)
 	}
 }
 
@@ -405,15 +550,27 @@ func TestResolveSectionsRunsIndependentSectionsInParallel(t *testing.T) {
 	}
 }
 
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v error = %v\n%s", args, err, string(output))
+	}
+}
+
 func resolvedSectionContent(sections []ResolvedPromptSection, name string) (string, bool) {
 	for _, section := range sections {
-		if section.Name == name { return section.Content, true }
+		if section.Name == name {
+			return section.Content, true
+		}
 	}
 	return "", false
 }
 func resolvedSectionIndex(sections []ResolvedPromptSection, name string) int {
 	for idx, section := range sections {
-		if section.Name == name { return idx }
+		if section.Name == name {
+			return idx
+		}
 	}
 	return -1
 }

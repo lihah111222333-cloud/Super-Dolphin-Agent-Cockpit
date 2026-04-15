@@ -87,6 +87,28 @@ func TestComposeLaunchSystemPromptUsesPromptAssemblySnapshot(t *testing.T) {
 	}
 }
 
+func TestBuildCLIArgsSplitsBoundaryBlocksIntoRepeatedSystemPrompts(t *testing.T) {
+	t.Parallel()
+
+	args := buildCLIArgs("claude-sonnet", "", "", cliLaunchConfig{
+		DeveloperInstructions: "legacy developer",
+		PromptSnapshot: contract.PromptAssemblySnapshot{
+			BaseInstructions: "assembled base",
+			Boundary: &dto.PromptAssemblyBoundary{
+				CachedPrefix: "cached prefix",
+				UncachedTail: "uncached tail",
+			},
+			DeveloperInstructions: "assembled developer",
+		},
+	})
+	if got := flagValues(args, "--system-prompt"); len(got) != 3 ||
+		got[0] != "cached prefix" ||
+		got[1] != "uncached tail" ||
+		got[2] != "assembled developer" {
+		t.Fatalf("flagValues(--system-prompt) = %#v, want cached/uncached/developer blocks", got)
+	}
+}
+
 func TestWriteManifestConfigAcceptsShortFamilyName(t *testing.T) {
 	t.Parallel()
 
@@ -140,4 +162,14 @@ func TestClaude_MCP_SmokeTest(t *testing.T) {
 		return
 	}
 	t.Fatalf("buildCLIArgs() args = %#v, want --mcp-config %q", args, path)
+}
+
+func flagValues(args []string, flag string) []string {
+	values := make([]string, 0, len(args)/2)
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == flag {
+			values = append(values, args[i+1])
+		}
+	}
+	return values
 }

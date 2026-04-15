@@ -13,32 +13,30 @@ const (
 	systemContextMaxStatusLines = 20
 )
 
-type SystemContext struct {
-	GitStatus    string
-	CacheBreaker string
-}
-
-func (s *service) renderSystemContext(ctx context.Context, in StartInput) string {
-	return formatSystemContext(s.buildSystemContext(ctx, in))
-}
-
-func (s *service) buildSystemContext(ctx context.Context, in StartInput) SystemContext {
-	return SystemContext{
-		GitStatus:    loadSystemContextGitStatus(ctx, in),
-		CacheBreaker: systemContextCacheBreaker(s.cfg),
+func (s *service) buildSystemContext(ctx context.Context, buildCtx BuildCtx) SystemContext {
+	systemContext := SystemContext{}
+	if gitStatus := loadSystemContextGitStatus(ctx, buildCtx); gitStatus != "" {
+		systemContext["gitStatus"] = gitStatus
 	}
+	if cacheBreaker := systemContextCacheBreaker(s.cfg); cacheBreaker != "" {
+		systemContext["cacheBreaker"] = cacheBreaker
+	}
+	if len(systemContext) == 0 {
+		return nil
+	}
+	return systemContext
 }
 
-func loadSystemContextGitStatus(ctx context.Context, in StartInput) string {
-	dir := systemContextRepoDir(in)
+func loadSystemContextGitStatus(ctx context.Context, buildCtx BuildCtx) string {
+	dir := systemContextRepoDir(buildCtx)
 	if dir == "" {
 		return ""
 	}
 	return runSystemContextGitStatus(ctx, dir)
 }
 
-func systemContextRepoDir(in StartInput) string {
-	for _, value := range []string{strings.TrimSpace(in.CWD), strings.TrimSpace(in.GitRoot)} {
+func systemContextRepoDir(buildCtx BuildCtx) string {
+	for _, value := range []string{strings.TrimSpace(buildCtx.CWD), strings.TrimSpace(buildCtx.GitRoot)} {
 		if value != "" {
 			return value
 		}
@@ -76,20 +74,6 @@ func trimSystemContextGitStatus(output string) string {
 	trimmed := append([]string(nil), lines[:systemContextMaxStatusLines]...)
 	trimmed = append(trimmed, fmt.Sprintf("... (+%d more lines)", len(lines)-systemContextMaxStatusLines))
 	return strings.Join(trimmed, "\n")
-}
-
-func formatSystemContext(ctx SystemContext) string {
-	if strings.TrimSpace(ctx.GitStatus) == "" && strings.TrimSpace(ctx.CacheBreaker) == "" {
-		return ""
-	}
-	lines := []string{"# System Context"}
-	if gitStatus := strings.TrimSpace(ctx.GitStatus); gitStatus != "" {
-		lines = append(lines, "Git status:", gitStatus)
-	}
-	if cacheBreaker := strings.TrimSpace(ctx.CacheBreaker); cacheBreaker != "" {
-		lines = append(lines, "Cache breaker: "+cacheBreaker)
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func systemContextCacheBreaker(cfg *Config) string {

@@ -139,33 +139,25 @@ func RebuildMemoryIndex(root string) ([]MemoryIndexEntry, error) {
 }
 
 func scanMemoryEntries(root string) ([]MemoryEntry, error) {
-	if _, err := os.Stat(root); errorsIsNotExist(err) {
-		return nil, nil
-	} else if err != nil {
+	exists, err := memoryEntriesRootExists(root)
+	if err != nil {
 		return nil, err
 	}
+	if !exists {
+		return nil, nil
+	}
 	entries := make([]MemoryEntry, 0, 16)
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			if isConsolidationLogPath(root, path) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if filepath.Ext(path) != ".md" || filepath.Base(path) == memoryIndexFileName || isConsolidationLogPath(root, path) {
-			return nil
-		}
-		if _, err := ValidateMemoryReadPath(root, path); err != nil {
-			return err
-		}
-		entry, err := readMemoryEntryFile(path)
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		entry, skipDir, ok, err := scannedMemoryEntry(root, path, d, walkErr)
 		if err != nil {
 			return err
 		}
-		entries = append(entries, entry)
+		if skipDir {
+			return filepath.SkipDir
+		}
+		if ok {
+			entries = append(entries, entry)
+		}
 		return nil
 	})
 	if err != nil {
@@ -173,6 +165,41 @@ func scanMemoryEntries(root string) ([]MemoryEntry, error) {
 	}
 	sortEntries(entries)
 	return entries, nil
+}
+
+func memoryEntriesRootExists(root string) (bool, error) {
+	if _, err := os.Stat(root); errorsIsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func scannedMemoryEntry(root, path string, d fs.DirEntry, walkErr error) (MemoryEntry, bool, bool, error) {
+	if walkErr != nil {
+		return MemoryEntry{}, false, false, walkErr
+	}
+	if d.IsDir() {
+		return MemoryEntry{}, isConsolidationLogPath(root, path), false, nil
+	}
+	if shouldSkipScannedMemoryPath(root, path) {
+		return MemoryEntry{}, false, false, nil
+	}
+	if _, err := ValidateMemoryReadPath(root, path); err != nil {
+		return MemoryEntry{}, false, false, err
+	}
+	entry, err := readMemoryEntryFile(path)
+	if err != nil {
+		return MemoryEntry{}, false, false, err
+	}
+	return entry, false, true, nil
+}
+
+func shouldSkipScannedMemoryPath(root, path string) bool {
+	return filepath.Ext(path) != ".md" ||
+		filepath.Base(path) == memoryIndexFileName ||
+		isConsolidationLogPath(root, path)
 }
 
 func readMemoryEntryFile(path string) (MemoryEntry, error) {

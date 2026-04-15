@@ -14,7 +14,6 @@ import (
 
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"go.uber.org/fx"
 	"golang.org/x/text/unicode/norm"
 )
@@ -46,6 +45,7 @@ type serviceParams struct {
 
 type MemoryLifecycleHooks struct {
 	cfg                 *Config
+	team                *TeamMemoryManager
 	enabled             bool
 	extractOnStop       bool
 	rootDir             string
@@ -61,20 +61,34 @@ type MemoryLifecycleHooks struct {
 	logger              *slog.Logger
 	timeNow             func() time.Time
 
-	stateMu     sync.Mutex
-	states      map[string]*ExtractionState
-	activeTurns map[string]string
-	callTurns   map[string]toolCallScope
-	turnWrites  map[string]map[string]struct{}
-	extractWG   sync.WaitGroup
+	stateMu           sync.Mutex
+	states            map[string]*ExtractionState
+	activeTurns       map[string]string
+	callTurns         map[string]toolCallScope
+	turnWrites        map[string]map[string]struct{}
+	turnInputs        map[string]string
+	handledTurnInputs map[string]struct{}
+	extractWG         sync.WaitGroup
 
 	dreamMu   sync.Mutex
 	dreamTask *dreamTaskState
 }
 
 var saveIntentPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?is)^\s*(?:i(?:'|’)ll remember|i will remember|i(?:'|’)ve noted|noted|saved to memory|saved in memory|i(?:'|’)ll save this to memory)\s*(?:that\s+)?(?:[:：\-—,，]\s*|\s+)?(.+?)\s*$`),
-	regexp.MustCompile(`(?is)^\s*(?:记住了|已记住|我会记住|已经记住|已保存到记忆|保存到记忆了|帮你记住了)\s*(?:这个|这点|了)?\s*(?:[:：\-—,，]\s*|\s+)?(.+?)\s*$`),
+	regexp.MustCompile(`(?is)^\s*remember\s+that\s+(.+?)\s*$`),
+	regexp.MustCompile(`(?is)^\s*remember\s*[:：\-—,，]\s*(.+?)\s*$`),
+	regexp.MustCompile(`(?is)^\s*(?:save|store)\s+(.+?)\s+(?:to|in)\s+memory\s*$`),
+	regexp.MustCompile(`(?is)^\s*(?:save|store)\s+to\s+memory\s*(?:[:：\-—,，]\s*|\s+)(.+?)\s*$`),
+	regexp.MustCompile(`(?is)^\s*(?:请)?记住(?:这个|这点)?\s*(?:[:：\-—,，]\s*|\s+)(.+?)\s*$`),
+	regexp.MustCompile(`(?is)^\s*(?:把\s+)?(.+?)\s*(?:记到记忆里|保存到记忆里|保存到记忆中)\s*$`),
+}
+
+var forgetIntentPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?is)^\s*forget\s+that\s+(.+?)\s*$`),
+	regexp.MustCompile(`(?is)^\s*forget\s*[:：\-—,，]\s*(.+?)\s*$`),
+	regexp.MustCompile(`(?is)^\s*(?:remove|delete)\s+(.+?)\s+from\s+memory\s*$`),
+	regexp.MustCompile(`(?is)^\s*(?:请)?(?:忘记|忘掉)(?:这个|这点|这条)?\s*(?:[:：\-—,，]\s*|\s+)(.+?)\s*$`),
+	regexp.MustCompile(`(?is)^\s*把\s+(.+?)\s*(?:从记忆里删除|从记忆中删除|从记忆删除|从记忆里移除)\s*$`),
 }
 
 func NewService(p serviceParams) Service {
@@ -121,6 +135,15 @@ func (s *service) EnsureRoot(ctx context.Context) error {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
+	if teamMemoryConfigured(cfg) {
+		teamRoot, err := configuredTeamMemRoot(&cfg)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(teamRoot, 0o755); err != nil {
+			return err
+		}
+	}
 	if s.logger != nil {
 		s.logger.Debug("memory root ready", "root_dir", filepath.Clean(root))
 	}
@@ -139,7 +162,7 @@ func (s *service) RunConsolidation(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.consolidator.Consolidate(ctx, root, nil)
+	return s.consolidator.consolidateWithOptions(ctx, root, nil, s.consolidationRunOptions(ctx, root))
 }
 
 func (s *service) GetDreamTaskStatus() DreamTaskSnapshot {
@@ -156,6 +179,28 @@ func (s *service) KillDreamTask() error {
 	return s.dreamHooks.KillDreamTask()
 }
 
+func (s *service) consolidationRunOptions(ctx context.Context, root string) consolidationRunOptions {
+	return consolidationRunOptions{
+		cfg:            s.cfg,
+		runtimeContext: s.manualConsolidationRuntimeContext(ctx, root),
+	}
+}
+
+func (s *service) manualConsolidationRuntimeContext(ctx context.Context, root string) string {
+	if s == nil || s.dreamHooks == nil {
+		return ""
+	}
+	stamp, err := loadConsolidationStamp(root)
+	if err != nil {
+		return ""
+	}
+	sessions, err := s.dreamHooks.autoDreamSessionCount(ctx, "", stamp.lastSuccessTime())
+	if err != nil {
+		sessions = 0
+	}
+	return buildConsolidationRuntimeContext("manual consolidation request", sessions, stamp.lastSuccessTime(), "")
+}
+
 func (h *MemoryLifecycleHooks) onThreadStart(_ context.Context, evt threaddto.Started) {
 	if h == nil || !h.enabled || h.logger == nil {
 		return
@@ -164,13 +209,39 @@ func (h *MemoryLifecycleHooks) onThreadStart(_ context.Context, evt threaddto.St
 }
 
 func (h *MemoryLifecycleHooks) onTurnEnd(ctx context.Context, evt turndto.TurnCompleted) {
+	if h.shouldSkipTurnEnd(ctx, evt) {
+		return
+	}
+	if h.handleTrackedTurnIntent(ctx, evt) {
+		return
+	}
+	h.writeDetectedTurnIntent(ctx, evt)
+}
+
+func (h *MemoryLifecycleHooks) shouldSkipTurnEnd(ctx context.Context, evt turndto.TurnCompleted) bool {
 	if h == nil || !h.enabled || !evt.Success {
-		return
+		return true
 	}
-	if err := contextErr(ctx); err != nil {
-		return
+	return contextErr(ctx) != nil
+}
+
+func (h *MemoryLifecycleHooks) handleTrackedTurnIntent(ctx context.Context, evt turndto.TurnCompleted) bool {
+	key := turnTrackingKey(evt.ThreadID, evt.TurnID)
+	if h.consumeHandledTurnInput(key) {
+		h.clearTurnInput(key)
+		return true
 	}
-	intent := DetectSaveIntent(platformshared.FirstTrimmed(evt.Message, evt.Result, evt.Summary))
+	text, ok := h.consumeTurnInput(key)
+	if !ok {
+		return false
+	}
+	handled, err := h.handleExplicitUserMemoryIntent(ctx, evt, text)
+	h.handleExplicitIntentError(evt.ThreadID, handled, err)
+	return handled || err != nil
+}
+
+func (h *MemoryLifecycleHooks) writeDetectedTurnIntent(ctx context.Context, evt turndto.TurnCompleted) {
+	intent := h.detectTurnIntent(ctx, evt)
 	if !intent.Detected || strings.TrimSpace(intent.Content) == "" {
 		return
 	}
@@ -179,20 +250,38 @@ func (h *MemoryLifecycleHooks) onTurnEnd(ctx context.Context, evt turndto.TurnCo
 	}
 }
 
-func (h *MemoryLifecycleHooks) writeIntent(intent SaveIntent) error {
-	store, err := h.diskStore()
+func (h *MemoryLifecycleHooks) detectTurnIntent(ctx context.Context, evt turndto.TurnCompleted) SaveIntent {
+	meta := h.resolveThreadRuntimeMetadata(ctx, strings.TrimSpace(evt.ThreadID))
+	gate := ResolveMemoryGate(meta.buildCtx(), h.cfg)
+	if gate.KairosActive {
+		if intent := DetectKairosWriteIntent(evt); intent.Detected {
+			return intent
+		}
+	}
+	return SaveIntent{}
+}
+
+func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string, intent SaveIntent) error {
+	entry := buildExplicitMemoryWrite(intent)
+	options := h.writeOptions(ctx, threadID)
+	primary, secondary, err := h.intentDiskStores(ctx, threadID, entry.Type)
 	if err != nil {
 		return err
 	}
-	entry := buildExplicitMemoryEntry(intent)
-	if _, err := store.Create(entry); err != nil {
-		if !errors.Is(err, ErrMemoryAlreadyExists) {
-			return err
-		}
-		_, err = store.Update(entry)
+	store, err := selectExplicitWriteStore(entry.Name, primary, secondary)
+	if err != nil {
 		return err
 	}
-	return nil
+	return upsertStructuredMemory(store, entry, options)
+}
+
+func (h *MemoryLifecycleHooks) deleteIntent(ctx context.Context, threadID string, intent ForgetIntent) error {
+	options := h.writeOptions(ctx, threadID)
+	primary, secondary, err := h.intentDiskStores(ctx, threadID, MemoryTypeUnknown)
+	if err != nil {
+		return err
+	}
+	return deleteMemoryAcrossStores(intent.Query, options, primary, secondary)
 }
 
 func (h *MemoryLifecycleHooks) diskStore() (*DiskStore, error) {
@@ -203,8 +292,13 @@ func (h *MemoryLifecycleHooks) diskStore() (*DiskStore, error) {
 	return NewDiskStore(root)
 }
 
-func DetectSaveIntent(assistantResponse string) SaveIntent {
-	response := strings.TrimSpace(strings.ReplaceAll(assistantResponse, "\r\n", "\n"))
+type ForgetIntent struct {
+	Detected bool
+	Query    string
+}
+
+func DetectSaveIntent(userText string) SaveIntent {
+	response := normalizeIntentText(userText)
 	if response == "" {
 		return SaveIntent{}
 	}
@@ -220,6 +314,47 @@ func DetectSaveIntent(assistantResponse string) SaveIntent {
 		return SaveIntent{Detected: true, Content: content, Type: inferMemoryType(content)}
 	}
 	return SaveIntent{}
+}
+
+func DetectForgetIntent(userText string) ForgetIntent {
+	response := normalizeIntentText(userText)
+	if response == "" {
+		return ForgetIntent{}
+	}
+	for _, pattern := range forgetIntentPatterns {
+		matches := pattern.FindStringSubmatch(response)
+		if len(matches) == 0 {
+			continue
+		}
+		query := normalizeHookContent(matches[len(matches)-1])
+		if !hasMeaningfulMemoryContent(query) || isGenericForgetTarget(query) {
+			continue
+		}
+		return ForgetIntent{Detected: true, Query: query}
+	}
+	return ForgetIntent{}
+}
+
+func (h *MemoryLifecycleHooks) handleExplicitUserMemoryIntent(
+	ctx context.Context,
+	evt turndto.TurnCompleted,
+	text string,
+) (bool, error) {
+	if forget := DetectForgetIntent(text); forget.Detected {
+		return true, h.deleteIntent(ctx, evt.ThreadID, forget)
+	}
+	intent := DetectSaveIntent(text)
+	if !intent.Detected {
+		return false, nil
+	}
+	return true, h.writeDetectedIntent(ctx, evt, intent)
+}
+
+func (h *MemoryLifecycleHooks) handleExplicitIntentError(threadID string, handled bool, err error) {
+	if !handled || err == nil || h == nil || h.logger == nil {
+		return
+	}
+	h.logger.Warn("memory explicit intent failed", "thread_id", strings.TrimSpace(threadID), "error", err)
 }
 
 func resolvedStoreRoot(baseRoot, projectRoot, autoMemPathOverride string) (string, error) {
@@ -245,23 +380,52 @@ func resolvedStoreRoot(baseRoot, projectRoot, autoMemPathOverride string) (strin
 	return baseRoot, nil
 }
 
-func buildExplicitMemoryEntry(intent SaveIntent) MemoryEntry {
+func buildExplicitMemoryWrite(intent SaveIntent) MemoryWriteRequest {
 	content := normalizeHookContent(intent.Content)
 	memoryType := intent.Type
 	if !memoryType.IsKnown() {
 		memoryType = inferMemoryType(content)
 	}
+	description := buildExplicitMemoryDescription(content)
+	return MemoryWriteRequest{
+		Name:        buildExplicitMemoryName(memoryType, description),
+		Description: description,
+		Type:        memoryType,
+		Body:        buildExplicitMemoryBody(memoryType, content),
+	}
+}
+
+func buildExplicitMemoryDescription(content string) string {
 	description := truncateRunes(firstNonEmptyLine(content), memoryHookMaxRunes)
 	if description == "" {
 		description = truncateRunes(content, memoryHookMaxRunes)
 	}
-	return MemoryEntry{
-		Frontmatter: MemoryFrontmatter{
-			Name:        buildExplicitMemoryName(memoryType, description),
-			Description: description,
-			Type:        cloneMemoryType(memoryType),
-		},
-		Content: content,
+	return description
+}
+
+func buildExplicitMemoryBody(memoryType MemoryType, content string) string {
+	content = strings.TrimSpace(content)
+	switch memoryType {
+	case MemoryTypeFeedback:
+		if hasStructuredMemorySection(content, "why") && hasStructuredMemorySection(content, "how to apply") {
+			return content
+		}
+		return strings.Join([]string{
+			content,
+			"Why: user explicitly asked to remember this working guidance.",
+			"How to apply: follow this guidance when future work touches the same area.",
+		}, "\n")
+	case MemoryTypeProject:
+		if hasStructuredMemorySection(content, "why") && hasStructuredMemorySection(content, "how to apply") {
+			return content
+		}
+		return strings.Join([]string{
+			content,
+			"Why: user explicitly asked to preserve this project context.",
+			"How to apply: use this context when making project recommendations or planning follow-up work.",
+		}, "\n")
+	default:
+		return content
 	}
 }
 

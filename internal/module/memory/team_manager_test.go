@@ -8,10 +8,13 @@ import (
 )
 
 func TestTeamManagerRuntimeGateDefaultsClosed(t *testing.T) {
+	autoRoot := filepath.Join(t.TempDir(), "automem")
 	manager := NewTeamMemoryManager(&Config{
-		Enabled:     true,
-		ProjectRoot: t.TempDir(),
-		Features:    MemoryFeatureFlags{TeamMemory: true},
+		Enabled:             true,
+		RootDir:             t.TempDir(),
+		ProjectRoot:         t.TempDir(),
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
 	})
 	if manager.IsTeamMemoryEnabled() {
 		t.Fatal("IsTeamMemoryEnabled() = true, want false")
@@ -24,7 +27,7 @@ func TestTeamManagerRuntimeGateDefaultsClosed(t *testing.T) {
 	}
 	if got, err := configuredTeamMemPath(manager); err != nil {
 		t.Fatalf("configuredTeamMemPath() error = %v", err)
-	} else if want := filepath.Join(manager.config().ProjectRoot, teamMemoryRootDirName); got != want {
+	} else if want := filepath.Join(autoRoot, teamMemoryRootDirName); got != want {
 		t.Fatalf("configuredTeamMemPath() = %q, want %q", got, want)
 	}
 }
@@ -32,12 +35,15 @@ func TestTeamManagerRuntimeGateDefaultsClosed(t *testing.T) {
 func TestTeamManagerComputesPathWhenRuntimeReady(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := t.TempDir()
+	autoRoot := filepath.Join(t.TempDir(), "automem")
 	manager := NewTeamMemoryManager(&Config{
-		Enabled:     true,
-		ProjectRoot: projectRoot,
-		Features:    MemoryFeatureFlags{TeamMemory: true},
+		Enabled:             true,
+		RootDir:             t.TempDir(),
+		ProjectRoot:         projectRoot,
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
 	})
-	wantRoot := filepath.Join(projectRoot, teamMemoryRootDirName)
+	wantRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
 	if !manager.IsTeamMemoryEnabled() {
 		t.Fatal("IsTeamMemoryEnabled() = false, want true")
 	}
@@ -52,8 +58,10 @@ func TestTeamManagerComputesPathWhenRuntimeReady(t *testing.T) {
 func TestTeamManagerKairosBlocksRuntimePathInjection(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)
 	manager := NewTeamMemoryManager(&Config{
-		Enabled:     true,
-		ProjectRoot: t.TempDir(),
+		Enabled:             true,
+		RootDir:             t.TempDir(),
+		ProjectRoot:         t.TempDir(),
+		AutoMemPathOverride: filepath.Join(t.TempDir(), "automem"),
 		Features: MemoryFeatureFlags{
 			TeamMemory: true,
 		},

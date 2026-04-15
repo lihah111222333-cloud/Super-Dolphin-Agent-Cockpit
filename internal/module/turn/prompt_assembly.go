@@ -20,6 +20,7 @@ func (s *service) prepareTurnAssembly(ctx context.Context, threadID string, inpu
 		SkillPrompt:                  turnSkillPrompt(req.Skills),
 		Attachments:                  turnAttachmentRefs(req.Inputs),
 		CurrentDate:                  time.Now().Format("2006-01-02"),
+		Summary:                      strings.TrimSpace(input.Summary),
 		CWD:                          strings.TrimSpace(input.CWD),
 		GitRoot:                      strings.TrimSpace(input.GitRoot),
 		IsWorktree:                   input.IsWorktree,
@@ -31,6 +32,7 @@ func (s *service) prepareTurnAssembly(ctx context.Context, threadID string, inpu
 		SessionFlags:                 clonePrepareFlags(input.SessionFlags),
 		OutputStyleConfig:            cloneOutputStyleConfigValue(input.OutputStyleConfig),
 		ScratchpadDir:                strings.TrimSpace(input.ScratchpadDir),
+		FRCConfig:                    normalizeFRCConfig(input.FRCConfig),
 	})
 	if err != nil {
 		return dto.TurnAssembly{}, err

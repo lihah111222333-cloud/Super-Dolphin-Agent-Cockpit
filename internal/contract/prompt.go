@@ -2,6 +2,8 @@ package contract
 
 import (
 	"context"
+	"sort"
+	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
@@ -46,8 +48,10 @@ type BuildCtx struct {
 	ClaudeMdExcludes             []string
 	MCPSnapshot                  MCPSnapshot
 	SessionFlags                 map[string]bool
+	Summary                      string
 	OutputStyleConfig            *OutputStyleConfig
 	ScratchpadDir                string
+	FRCConfig                    *FRCConfig
 	KeepCodingInstructions       *bool
 }
 
@@ -65,6 +69,10 @@ type ClaudeMdSource struct {
 }
 
 type ResolvedPromptSection = dto.ResolvedPromptSection
+
+type SystemContext = dto.SystemContext
+
+type PromptAssemblyBoundary = dto.PromptAssemblyBoundary
 
 type InvalidateReason string
 
@@ -88,6 +96,7 @@ type StartInput struct {
 	Prompt                       string
 	BaseInstructions             string
 	DeveloperInstructions        string
+	Summary                      string
 	Provider                     string
 	CWD                          string
 	GitRoot                      string
@@ -101,6 +110,7 @@ type StartInput struct {
 	SessionFlags                 map[string]bool
 	OutputStyleConfig            *OutputStyleConfig
 	ScratchpadDir                string
+	FRCConfig                    *FRCConfig
 	KeepCodingInstructions       *bool
 }
 
@@ -111,6 +121,8 @@ type TurnInput struct {
 	SkillPrompt                  string
 	Attachments                  []string
 	CurrentDate                  string
+	RuntimeUserContext           map[string]string
+	Summary                      string
 	CWD                          string
 	GitRoot                      string
 	IsWorktree                   bool
@@ -123,6 +135,7 @@ type TurnInput struct {
 	SessionFlags                 map[string]bool
 	OutputStyleConfig            *OutputStyleConfig
 	ScratchpadDir                string
+	FRCConfig                    *FRCConfig
 	KeepCodingInstructions       *bool
 }
 
@@ -138,6 +151,61 @@ type ClaudeMdSourceProvider interface {
 
 type TurnAttachmentProvider interface {
 	ResolveTurnAttachments(ctx context.Context, buildCtx BuildCtx, turn TurnInput, baseSources []ClaudeMdSource) []dto.AttachmentEnvelope
+}
+
+func AppendSystemContextTail(base string, ctx SystemContext) string {
+	block := FormatSystemContextBlock(ctx)
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return block
+	}
+	if block == "" {
+		return base
+	}
+	return base + "\n\n" + block
+}
+
+func FormatSystemContextBlock(ctx SystemContext) string {
+	if len(ctx) == 0 {
+		return ""
+	}
+	lines := []string{"# System Context"}
+	for _, key := range orderedSystemContextKeys(ctx) {
+		value := strings.TrimSpace(ctx[key])
+		if value == "" {
+			continue
+		}
+		switch key {
+		case "gitStatus":
+			lines = append(lines, "Git status:", value)
+		case "cacheBreaker":
+			lines = append(lines, "Cache breaker: "+value)
+		default:
+			lines = append(lines, key+":", value)
+		}
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func orderedSystemContextKeys(ctx SystemContext) []string {
+	keys := make([]string, 0, len(ctx))
+	for _, key := range []string{"gitStatus", "cacheBreaker"} {
+		if value := strings.TrimSpace(ctx[key]); value != "" {
+			keys = append(keys, key)
+		}
+	}
+	extra := make([]string, 0, len(ctx))
+	for key, value := range ctx {
+		if key == "gitStatus" || key == "cacheBreaker" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		extra = append(extra, key)
+	}
+	sort.Strings(extra)
+	return append(keys, extra...)
 }
 
 // PromptAssemblyService 组装系统提示词。

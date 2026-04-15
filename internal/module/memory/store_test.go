@@ -38,7 +38,7 @@ func TestDiskStoreCRUD(t *testing.T) {
 		t.Fatalf("Read() FilePath = %q, want %q", readEntry.FilePath, created.FilePath)
 	}
 
-	updated, err := store.Update(testMemoryEntry(" café  preference ", "", MemoryTypeUser, "Prefer focused diffs.\nWhy: it keeps reviews short.\nHow to apply: land changes in small slices."))
+	updated, err := store.Update(testMemoryEntry(" café  preference ", "Prefer focused diffs.", MemoryTypeUser, "Prefer focused diffs.\nWhy: it keeps reviews short.\nHow to apply: land changes in small slices."))
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -124,7 +124,7 @@ func TestDiskStoreSkipIndexAndRebuild(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	store := newTestDiskStore(t, root)
 
-	created, err := store.Create(testMemoryEntry("Project Rule", "Keep build commands consistent", MemoryTypeProject, "Use ./scripts/go_with_guard.sh for local builds."), WriteOptions{SkipIndex: true})
+	created, err := store.Create(testMemoryEntry("Project Rule", "Keep build commands consistent", MemoryTypeProject, "Use ./scripts/go_with_guard.sh for local builds.\nWhy: local builds should stay aligned with guarded project scripts.\nHow to apply: prefer the guarded wrapper for routine local build commands."), WriteOptions{SkipIndex: true})
 	if err != nil {
 		t.Fatalf("Create(skipIndex) error = %v", err)
 	}
@@ -157,7 +157,7 @@ func TestDiskStoreIndexUpdateFailureCanBeRepaired(t *testing.T) {
 		t.Fatalf("Mkdir(MEMORY.md) error = %v", err)
 	}
 
-	_, err := store.Create(testMemoryEntry("Repair Me", "Index failure should not lose topic data", MemoryTypeFeedback, "State the rule clearly.\nWhy: we need an index repair path."))
+	_, err := store.Create(testMemoryEntry("Repair Me", "Index failure should not lose topic data", MemoryTypeFeedback, "State the rule clearly.\nWhy: we need an index repair path.\nHow to apply: rebuild the index after restoring the store root."))
 	if !errors.Is(err, ErrMemoryIndexUpdateFailed) {
 		t.Fatalf("Create() error = %v, want %v", err, ErrMemoryIndexUpdateFailed)
 	}
@@ -178,6 +178,20 @@ func TestDiskStoreIndexUpdateFailureCanBeRepaired(t *testing.T) {
 	}
 	if len(rebuilt) != 1 {
 		t.Fatalf("RebuildIndex() entries = %d, want 1", len(rebuilt))
+	}
+}
+
+func TestDiskStoreRejectsStructuredTypesWithoutWhyAndHowToApply(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	store := newTestDiskStore(t, root)
+	_, err := store.Create(testMemoryEntry(
+		"Project Rule",
+		"Guard build commands",
+		MemoryTypeProject,
+		"Use guarded build commands in this repo.",
+	))
+	if !errors.Is(err, ErrInvalidMemoryEntry) {
+		t.Fatalf("Create() error = %v, want %v", err, ErrInvalidMemoryEntry)
 	}
 }
 

@@ -35,12 +35,11 @@ type service struct {
 	registry         *SectionRegistry
 	cache            *sectionCache
 	userContextCache *userContextCache
+	claudeMdProvider contract.ClaudeMdSourceProvider
 	flight           singleflight.Group
 
 	dynamicMu sync.RWMutex
 	dynamic   map[string]DynamicSectionProvider
-
-	claudeMdProvider contract.ClaudeMdSourceProvider
 }
 
 var _ contract.PromptAssemblyService = (*service)(nil)
@@ -64,11 +63,11 @@ func NewService(cfg *Config, logger *slog.Logger) Service {
 	mustRegisterDynamicProvider(svc, MCPInstructionsProvider{})
 	mustRegisterDynamicProvider(svc, OutputStyleProvider{})
 	mustRegisterDynamicProvider(svc, ScratchpadProvider{})
-	mustRegisterDynamicProvider(svc, FRCStubProvider{})
+	mustRegisterDynamicProvider(svc, FRCProvider{})
 	mustRegisterDynamicProvider(svc, SummarizeToolResultsProvider{})
-	mustRegisterDynamicProvider(svc, NumericLengthAnchorsStubProvider{})
-	mustRegisterDynamicProvider(svc, TokenBudgetStubProvider{})
-	mustRegisterDynamicProvider(svc, BriefStubProvider{})
+	mustRegisterDynamicProvider(svc, NumericLengthAnchorsProvider{})
+	mustRegisterDynamicProvider(svc, TokenBudgetProvider{})
+	mustRegisterDynamicProvider(svc, BriefProvider{})
 	mustRegisterDynamicProvider(svc, AntModelOverrideStubProvider{})
 	return svc
 }

@@ -78,12 +78,18 @@ type Thread struct {
 type PromptSnapshot struct {
 	DisplayName           string            `json:"displayName,omitempty"`
 	BaseInstructions      string            `json:"baseInstructions,omitempty"`
+	Boundary              *PromptBoundary   `json:"boundary,omitempty"`
 	DeveloperInstructions string            `json:"developerInstructions,omitempty"`
 	Provider              string            `json:"provider,omitempty"`
 	Version               int               `json:"version,omitempty"`
 	Hash                  string            `json:"hash,omitempty"`
 	SectionSnapshot       map[string]string `json:"sectionSnapshot,omitempty"`
 	Generation            uint64            `json:"generation,omitempty"`
+}
+
+type PromptBoundary struct {
+	CachedPrefix string `json:"cachedPrefix,omitempty"`
+	UncachedTail string `json:"uncachedTail,omitempty"`
 }
 
 type legacyPromptSnapshot struct {

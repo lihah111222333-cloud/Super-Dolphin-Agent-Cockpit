@@ -14,51 +14,194 @@ import (
 
 var _ DynamicSectionProvider = EnvInfoProvider{}
 
+const (
+	promptWorktreeNote           = "run all commands from this directory and do not cd to the original repository root"
+	promptWindowsShellSyntaxNote = "use Unix shell syntax"
+)
+
 type EnvInfoProvider struct{}
+
+type promptEnvRenderMode int
+
+const (
+	promptEnvRenderSimple promptEnvRenderMode = iota
+	promptEnvRenderSubagent
+)
+
+type promptEnvSnapshot struct {
+	CWD                          string
+	GitRoot                      string
+	IsGitRepo                    bool
+	IsWorktree                   bool
+	Platform                     string
+	Shell                        string
+	ShellNote                    string
+	OSVersion                    string
+	LanguageServerStatus         string
+	AdditionalWorkingDirectories []string
+	Provider                     string
+	ModelMetadata                string
+	KnowledgeCutoff              string
+	LatestModelFamily            string
+	ProductSurfaces              string
+	FastMode                     string
+	FrontierGuidance             string
+}
+
+var promptEnvXMLEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&quot;",
+	"'", "&apos;",
+)
 
 func (EnvInfoProvider) SectionName() string {
 	return DynamicSectionEnvInfoSimple
 }
 
 func (EnvInfoProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
-	lines := []string{
-		fmt.Sprintf("- Primary working directory: %s", currentPromptCWD(input.BuildCtx)),
-		fmt.Sprintf("- Is a git repository: %s", yesNo(strings.TrimSpace(input.BuildCtx.GitRoot) != "")),
-		fmt.Sprintf("- Platform: %s", promptPlatform()),
-		fmt.Sprintf("- Shell: %s", promptShellName()),
-		fmt.Sprintf("- OS version: %s", promptUnameSR()),
-		fmt.Sprintf("- Language server status: %s", promptLanguageServerStatus(input.BuildCtx)),
+	snapshot := buildPromptEnvSnapshot(input)
+	text := renderSimpleEnvInfo(snapshot)
+	if promptEnvRenderModeForInput(input) == promptEnvRenderSubagent {
+		text = renderSubagentEnvInfo(snapshot)
 	}
-	if gitRoot := strings.TrimSpace(input.BuildCtx.GitRoot); gitRoot != "" {
-		lines = append(lines, fmt.Sprintf("- Git root: %s", gitRoot))
-	}
-	if input.BuildCtx.IsWorktree {
-		lines = append(lines,
-			"- Git worktree: yes",
-			"- Worktree note: run all commands from this directory and do not cd to the original repository root",
-		)
-	}
-	for _, dir := range sortedPromptValues(input.BuildCtx.AdditionalWorkingDirectories) {
-		lines = append(lines, fmt.Sprintf("- Additional working directory: %s", dir))
-	}
-	if provider := strings.TrimSpace(input.BuildCtx.Provider); provider != "" {
-		lines = append(lines, fmt.Sprintf("- Provider: %s", provider))
-	}
-	if metadata := promptModelMetadata(input.BuildCtx); metadata != "" {
-		lines = append(lines,
-			fmt.Sprintf("- Model metadata: %s", metadata),
-			fmt.Sprintf("- Knowledge cutoff: %s", promptKnowledgeCutoff(input.BuildCtx)),
-		)
-	}
-	if guidance := promptFrontierGuidance(input.BuildCtx); guidance != "" {
-		lines = append(lines, fmt.Sprintf("- Frontier guidance: %s", guidance))
-	}
+	return &text, nil
+}
 
-	text := strings.Join(append([]string{
+func promptEnvRenderModeForInput(input SectionContext) promptEnvRenderMode {
+	if input.Start != nil && input.Turn == nil && strings.TrimSpace(input.Start.ParentAgentID) != "" {
+		return promptEnvRenderSubagent
+	}
+	return promptEnvRenderSimple
+}
+
+func (m promptEnvRenderMode) String() string {
+	if m == promptEnvRenderSubagent {
+		return "subagent"
+	}
+	return "simple"
+}
+
+func buildPromptEnvSnapshot(input SectionContext) promptEnvSnapshot {
+	build := input.BuildCtx
+	descriptor := LookupModelDescriptor(build.Model)
+	return promptEnvSnapshot{
+		CWD:                          currentPromptCWD(build),
+		GitRoot:                      strings.TrimSpace(build.GitRoot),
+		IsGitRepo:                    strings.TrimSpace(build.GitRoot) != "",
+		IsWorktree:                   build.IsWorktree,
+		Platform:                     promptPlatform(),
+		Shell:                        promptShellName(),
+		ShellNote:                    promptShellNote(),
+		OSVersion:                    promptUnameSR(),
+		LanguageServerStatus:         promptLanguageServerStatus(build),
+		AdditionalWorkingDirectories: sortedPromptValues(build.AdditionalWorkingDirectories),
+		Provider:                     strings.TrimSpace(build.Provider),
+		ModelMetadata:                descriptor.MetadataText(),
+		KnowledgeCutoff:              descriptor.KnowledgeCutoffText(),
+		LatestModelFamily:            descriptor.LatestModelFamilyText(),
+		ProductSurfaces:              promptProductSurfaces(),
+		FastMode:                     promptFastModeNote(),
+		FrontierGuidance:             strings.TrimSpace(descriptor.FrontierGuidance),
+	}
+}
+
+func renderSimpleEnvInfo(snapshot promptEnvSnapshot) string {
+	lines := []string{
 		"# Environment",
 		"You have been invoked in the following environment:",
-	}, lines...), "\n")
-	return &text, nil
+		fmt.Sprintf("- Primary working directory: %s", snapshot.CWD),
+	}
+	if snapshot.IsWorktree {
+		lines = append(lines, "- Git worktree: yes", "- Worktree note: "+promptWorktreeNote)
+	}
+	lines = append(lines,
+		fmt.Sprintf("- Is a git repository: %s", yesNo(snapshot.IsGitRepo)),
+		fmt.Sprintf("- Platform: %s", snapshot.Platform),
+		fmt.Sprintf("- Shell: %s", snapshot.Shell),
+	)
+	if snapshot.ShellNote != "" {
+		lines = append(lines, "- Shell note: "+snapshot.ShellNote)
+	}
+	lines = append(lines,
+		fmt.Sprintf("- OS version: %s", snapshot.OSVersion),
+		fmt.Sprintf("- Language server status: %s", snapshot.LanguageServerStatus),
+	)
+	if snapshot.GitRoot != "" {
+		lines = append(lines, fmt.Sprintf("- Git root: %s", snapshot.GitRoot))
+	}
+	for _, dir := range snapshot.AdditionalWorkingDirectories {
+		lines = append(lines, fmt.Sprintf("- Additional working directory: %s", dir))
+	}
+	if snapshot.Provider != "" {
+		lines = append(lines, fmt.Sprintf("- Provider: %s", snapshot.Provider))
+	}
+	if snapshot.ModelMetadata != "" {
+		lines = append(lines,
+			fmt.Sprintf("- Model metadata: %s", snapshot.ModelMetadata),
+			fmt.Sprintf("- Knowledge cutoff: %s", snapshot.KnowledgeCutoff),
+		)
+	}
+	if snapshot.LatestModelFamily != "" {
+		lines = append(lines, fmt.Sprintf("- Latest model family: %s", snapshot.LatestModelFamily))
+	}
+	lines = append(lines,
+		fmt.Sprintf("- Available platforms: %s", snapshot.ProductSurfaces),
+		fmt.Sprintf("- Fast mode: %s", snapshot.FastMode),
+	)
+	if snapshot.FrontierGuidance != "" {
+		lines = append(lines, fmt.Sprintf("- Frontier guidance: %s", snapshot.FrontierGuidance))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderSubagentEnvInfo(snapshot promptEnvSnapshot) string {
+	lines := []string{"Environment details for this subagent are below.", "<env>"}
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("primaryWorkingDirectory", snapshot.CWD))
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("isGitRepository", promptBoolText(snapshot.IsGitRepo)))
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("gitRoot", snapshot.GitRoot))
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("isWorktree", promptBoolText(snapshot.IsWorktree)))
+	if snapshot.IsWorktree {
+		lines = appendPromptEnvLine(lines, promptEnvXMLLine("worktreeNote", promptWorktreeNote))
+	}
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("platform", snapshot.Platform))
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("shell", snapshot.Shell))
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("shellNote", snapshot.ShellNote))
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("osVersion", snapshot.OSVersion))
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("languageServerStatus", snapshot.LanguageServerStatus))
+	for _, dir := range snapshot.AdditionalWorkingDirectories {
+		lines = appendPromptEnvLine(lines, promptEnvXMLLine("additionalWorkingDirectory", dir))
+	}
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("provider", snapshot.Provider))
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("modelMetadata", snapshot.ModelMetadata))
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("knowledgeCutoff", snapshot.KnowledgeCutoff))
+	lines = appendPromptEnvLine(lines, promptEnvXMLLine("frontierGuidance", snapshot.FrontierGuidance))
+	lines = append(lines, "</env>")
+	return strings.Join(lines, "\n")
+}
+
+func appendPromptEnvLine(lines []string, line string) []string {
+	if strings.TrimSpace(line) == "" {
+		return lines
+	}
+	return append(lines, line)
+}
+
+func promptEnvXMLLine(tag, value string) string {
+	tag = strings.TrimSpace(tag)
+	value = strings.TrimSpace(value)
+	if tag == "" || value == "" {
+		return ""
+	}
+	return fmt.Sprintf("  <%s>%s</%s>", tag, promptEnvXMLEscaper.Replace(value), tag)
+}
+
+func promptBoolText(ok bool) string {
+	if ok {
+		return "true"
+	}
+	return "false"
 }
 
 func currentPromptCWD(build BuildCtx) string {
@@ -92,6 +235,13 @@ func promptShellName() string {
 		return "unknown"
 	}
 	return shell
+}
+
+func promptShellNote() string {
+	if runtime.GOOS == "windows" {
+		return promptWindowsShellSyntaxNote
+	}
+	return ""
 }
 
 var promptUnameSRValue = sync.OnceValue(loadPromptUnameSR)
@@ -140,18 +290,23 @@ func promptModelMetadata(build BuildCtx) string {
 }
 
 func promptKnowledgeCutoff(build BuildCtx) string {
-	descriptor := LookupModelDescriptor(build.Model)
-	if descriptor.IsZero() {
-		return ""
-	}
-	if cutoff := strings.TrimSpace(descriptor.KnowledgeCutoff); cutoff != "" {
-		return cutoff
-	}
-	return "not published by the provider"
+	return LookupModelDescriptor(build.Model).KnowledgeCutoffText()
+}
+
+func promptLatestModelFamily(build BuildCtx) string {
+	return LookupModelDescriptor(build.Model).LatestModelFamilyText()
 }
 
 func promptFrontierGuidance(build BuildCtx) string {
 	return strings.TrimSpace(LookupModelDescriptor(build.Model).FrontierGuidance)
+}
+
+func promptProductSurfaces() string {
+	return "CLI, desktop app on macOS and Windows, web, and IDE extensions for VS Code and JetBrains"
+}
+
+func promptFastModeNote() string {
+	return "uses the same model but aims for faster responses; switch with /fast when available"
 }
 
 func sortedPromptValues(values []string) []string {

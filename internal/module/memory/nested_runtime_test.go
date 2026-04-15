@@ -65,7 +65,7 @@ func TestNestedRuntimeHardDeniesManagedRoots(t *testing.T) {
 	base := t.TempDir()
 	projectRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
-	teamRoot := filepath.Join(projectRoot, teamMemoryRootDirName)
+	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
 	cfg := &Config{RootDir: base, ProjectRoot: projectRoot, AutoMemPathOverride: autoRoot}
 	runtime := NewNestedRuntime(cfg, nil)
 	manager := NewAgentMemoryManager(cfg)
@@ -86,13 +86,16 @@ func TestNestedRuntimeHardDeniesManagedRoots(t *testing.T) {
 
 func TestNestedRuntimeHardDeniesTeamRootWhenKairosActive(t *testing.T) {
 	projectRoot := t.TempDir()
+	autoRoot := filepath.Join(t.TempDir(), "automem")
 	cfg := &Config{
-		ProjectRoot: projectRoot,
-		Features:    MemoryFeatureFlags{Kairos: true},
+		RootDir:             t.TempDir(),
+		ProjectRoot:         projectRoot,
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{Kairos: true},
 	}
 	runtime := NewNestedRuntime(cfg, nil)
 	buildCtx := contract.BuildCtx{GitRoot: projectRoot, CWD: projectRoot}
-	runtime.AddTriggers("thread-1", buildCtx, []string{filepath.Join(projectRoot, teamMemoryRootDirName, "shared.md")})
+	runtime.AddTriggers("thread-1", buildCtx, []string{filepath.Join(autoRoot, teamMemoryRootDirName, "shared.md")})
 	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
 		t.Fatalf("ConsumePending(kairos team root) = %#v, want none", got)
 	}

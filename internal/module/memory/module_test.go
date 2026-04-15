@@ -16,6 +16,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
@@ -132,6 +133,27 @@ func TestAutoDreamServiceExposesDreamTaskLifecycle(t *testing.T) {
 	}
 	if err := svc.KillDreamTask(); !errors.Is(err, ErrDreamTaskNotRunning) {
 		t.Fatalf("KillDreamTask() after finish error = %v, want %v", err, ErrDreamTaskNotRunning)
+	}
+}
+
+func TestConsolidationHandlerDispatch(t *testing.T) {
+	stub := &stubMemoryService{}
+	server := rpcpkg.NewServer(rpcpkg.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(NewMemoryHandlers(stub).Handlers)
+
+	raw, err := server.Dispatch(context.Background(), "memory/consolidate", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch(memory/consolidate) error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(memory/consolidate) error = %v", err)
+	}
+	if !stub.runCalled {
+		t.Fatal("RunConsolidation() was not called")
+	}
+	if got["status"] != "completed" {
+		t.Fatalf("Dispatch(memory/consolidate) = %#v", got)
 	}
 }
 
@@ -275,4 +297,19 @@ func mustStoredRuntimeConfig(t *testing.T, runtime map[string]any) json.RawMessa
 		t.Fatalf("json.Marshal(runtime) error = %v", err)
 	}
 	return payload
+}
+
+type stubMemoryService struct {
+	runCalled bool
+	runErr    error
+}
+
+func (s *stubMemoryService) Config() Config                        { return Config{} }
+func (s *stubMemoryService) RootDir() string                       { return "" }
+func (s *stubMemoryService) EnsureRoot(context.Context) error      { return nil }
+func (s *stubMemoryService) GetDreamTaskStatus() DreamTaskSnapshot { return DreamTaskSnapshot{} }
+func (s *stubMemoryService) KillDreamTask() error                  { return nil }
+func (s *stubMemoryService) RunConsolidation(context.Context) error {
+	s.runCalled = true
+	return s.runErr
 }

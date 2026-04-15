@@ -108,30 +108,16 @@ func (r *teamSyncHTTPRemote) doJSON(ctx context.Context, method, rawURL, match s
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var reader io.Reader
-	if body != nil {
-		payload, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reader = bytes.NewReader(payload)
+	reader, err := teamSyncJSONBodyReader(body)
+	if err != nil {
+		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, reader)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+r.token)
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if match = strings.TrimSpace(match); match != "" {
-		if method == http.MethodGet {
-			req.Header.Set("If-None-Match", match)
-		} else {
-			req.Header.Set("If-Match", match)
-		}
-	}
+	setTeamSyncJSONHeaders(req, r.token, body != nil)
+	applyTeamSyncMatchHeader(req, method, match)
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return err
@@ -143,12 +129,43 @@ func (r *teamSyncHTTPRemote) doJSON(ctx context.Context, method, rawURL, match s
 	}
 	setTeamSyncETag(out, resp.Header.Get("ETag"))
 	setTeamSyncMaxEntries(out, resp.Header.Get("X-TeamSync-Max-Entries"))
-	switch resp.StatusCode {
+	return handleTeamSyncJSONResponse(method, rawURL, resp.StatusCode, resp.Status, data, out)
+}
+
+func teamSyncJSONBodyReader(body any) (io.Reader, error) {
+	if body == nil {
+		return nil, nil
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(payload), nil
+}
+
+func setTeamSyncJSONHeaders(req *http.Request, token string, hasBody bool) {
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	if hasBody {
+		req.Header.Set("Content-Type", "application/json")
+	}
+}
+
+func applyTeamSyncMatchHeader(req *http.Request, method, match string) {
+	if match = strings.TrimSpace(match); match == "" {
+		return
+	}
+	if method == http.MethodGet {
+		req.Header.Set("If-None-Match", match)
+		return
+	}
+	req.Header.Set("If-Match", match)
+}
+
+func handleTeamSyncJSONResponse(method, rawURL string, statusCode int, status string, data []byte, out any) error {
+	switch statusCode {
 	case http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusMultiStatus:
-		if len(data) == 0 || out == nil {
-			return nil
-		}
-		return json.Unmarshal(data, out)
+		return decodeOptionalTeamSyncJSON(data, out)
 	case http.StatusNotModified:
 		setTeamSyncNotModified(out)
 		return nil
@@ -157,18 +174,25 @@ func (r *teamSyncHTTPRemote) doJSON(ctx context.Context, method, rawURL, match s
 		return nil
 	case http.StatusPreconditionFailed:
 		setTeamSyncConflict(out)
-		if len(data) > 0 {
-			_ = json.Unmarshal(data, out)
-		}
+		decodeBestEffortTeamSyncJSON(data, out)
 		return nil
 	case http.StatusRequestEntityTooLarge:
-		if len(data) > 0 {
-			_ = json.Unmarshal(data, out)
-		}
+		decodeBestEffortTeamSyncJSON(data, out)
 		return nil
 	default:
-		return fmt.Errorf("team sync remote %s %s failed: %s", method, rawURL, resp.Status)
+		return fmt.Errorf("team sync remote %s %s failed: %s", method, rawURL, status)
 	}
+}
+
+func decodeOptionalTeamSyncJSON(data []byte, out any) error {
+	if len(data) == 0 || out == nil {
+		return nil
+	}
+	return json.Unmarshal(data, out)
+}
+
+func decodeBestEffortTeamSyncJSON(data []byte, out any) {
+	_ = decodeOptionalTeamSyncJSON(data, out)
 }
 
 func setTeamSyncETag(target any, value string) {

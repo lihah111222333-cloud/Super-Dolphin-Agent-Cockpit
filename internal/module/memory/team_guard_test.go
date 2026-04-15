@@ -7,10 +7,13 @@ import (
 )
 
 func TestTeamSecretGuardBlocksToolTimeWrite(t *testing.T) {
+	autoRoot := filepath.Join(t.TempDir(), "automem")
 	guard := NewTeamMemoryGuard(NewTeamMemoryManager(&Config{
-		Enabled:     true,
-		ProjectRoot: t.TempDir(),
-		Features:    MemoryFeatureFlags{TeamMemory: true},
+		Enabled:             true,
+		RootDir:             t.TempDir(),
+		ProjectRoot:         t.TempDir(),
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}))
 	_, err := guard.ValidateWrite("notes/secret.md", "token = \"ghp_abcdefghijklmnopqrstuvwxyz1234567890AB\"\n")
 	if !errors.Is(err, ErrTeamMemSecretDetected) {
@@ -27,16 +30,19 @@ func TestTeamSecretGuardBlocksToolTimeWrite(t *testing.T) {
 
 func TestTeamSecretGuardAllowsSafeToolTimeWrite(t *testing.T) {
 	projectRoot := t.TempDir()
+	autoRoot := filepath.Join(t.TempDir(), "automem")
 	guard := NewTeamMemoryGuard(NewTeamMemoryManager(&Config{
-		Enabled:     true,
-		ProjectRoot: projectRoot,
-		Features:    MemoryFeatureFlags{TeamMemory: true},
+		Enabled:             true,
+		RootDir:             t.TempDir(),
+		ProjectRoot:         projectRoot,
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}))
 	got, err := guard.ValidateWrite(`notes\\safe.md`, "# Notes\n- share roadmap only\n")
 	if err != nil {
 		t.Fatalf("ValidateWrite(safe) error = %v", err)
 	}
-	want := filepath.Join(projectRoot, teamMemoryRootDirName, "notes", "safe.md")
+	want := filepath.Join(autoRoot, teamMemoryRootDirName, "notes", "safe.md")
 	if got != want {
 		t.Fatalf("ValidateWrite(safe) path = %q, want %q", got, want)
 	}

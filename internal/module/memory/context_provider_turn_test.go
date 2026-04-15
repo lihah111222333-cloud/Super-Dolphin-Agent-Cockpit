@@ -132,6 +132,70 @@ func TestMemoryContextProviderPrepareTurnContextReturnsRelevantMemoryAttachments
 	}
 }
 
+func TestGateRelevantPrefetchSurfacedBytesLedger(t *testing.T) {
+	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
+	if err != nil {
+		t.Fatalf("resolvedStoreRoot() error = %v", err)
+	}
+	provider := NewContextProvider(cfg)
+	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	manager := NewPrefetchManager(root)
+	calls := 0
+	huge := strings.Repeat("x", defaultRelevantMemoryBudgetBytes)
+	manager.buildManifest = func(string) ([]MemoryEntry, error) {
+		return []MemoryEntry{{FilePath: "project/huge.md"}}, nil
+	}
+	manager.findRelevant = func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
+		calls++
+		return []MemoryEntry{{
+			FilePath:  "project/huge.md",
+			Content:   huge,
+			UpdatedAt: now,
+		}}, nil
+	}
+	provider.mu.Lock()
+	provider.turnStateLocked("thread-1").manager = manager
+	provider.mu.Unlock()
+
+	first := provider.PrepareTurnContext(context.Background(), historyStubSession{}, contract.BuildCtx{}, "thread-1", "review notes")
+	if len(first.Attachments) != 0 || len(first.Inputs) != 0 {
+		t.Fatalf("first PrepareTurnContext() = %#v, want pending empty payload", first)
+	}
+	handle := waitForPrefetchHandle(t, provider, "thread-1")
+	waitForHandle(t, handle)
+
+	payload := provider.PrepareTurnContext(context.Background(), historyStubSession{}, contract.BuildCtx{}, "thread-1", "review notes")
+	if len(payload.Attachments) != 1 {
+		t.Fatalf("len(payload.Attachments) = %d, want 1", len(payload.Attachments))
+	}
+	provider.mu.Lock()
+	state := provider.turnStateLocked("thread-1")
+	surfacedBytes := state.surfacedBytes
+	handle = state.handle
+	provider.mu.Unlock()
+	if surfacedBytes < defaultRelevantMemoryBudgetBytes {
+		t.Fatalf("surfacedBytes = %d, want at least %d", surfacedBytes, defaultRelevantMemoryBudgetBytes)
+	}
+	if handle != nil {
+		t.Fatalf("prefetch handle after consume = %#v, want nil", handle)
+	}
+
+	again := provider.PrepareTurnContext(context.Background(), historyStubSession{}, contract.BuildCtx{}, "thread-1", "review notes")
+	if len(again.Attachments) != 0 {
+		t.Fatalf("second PrepareTurnContext() attachments = %#v, want no new retrieval after budget is exhausted", again.Attachments)
+	}
+	provider.mu.Lock()
+	handle = provider.turnStateLocked("thread-1").handle
+	provider.mu.Unlock()
+	if handle != nil {
+		t.Fatalf("prefetch restarted despite surfaced-byte budget: %#v", handle)
+	}
+	if calls != 1 {
+		t.Fatalf("findRelevant calls = %d, want 1", calls)
+	}
+}
+
 func TestMemoryContextProviderOnPromptInvalidateResetsSurfacedLedger(t *testing.T) {
 	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
 	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
@@ -144,11 +208,15 @@ func TestMemoryContextProviderOnPromptInvalidateResetsSurfacedLedger(t *testing.
 	state := provider.turnStateLocked("thread-1")
 	state.manager = NewPrefetchManager(root)
 	state.manager.MarkSurfaced([]MemoryEntry{entry})
+	state.surfacedBytes = len(entry.Content)
 	provider.mu.Unlock()
 
 	provider.OnPromptInvalidate(prompt.InvalidateClear)
 	if got := state.manager.FilterAlreadySurfaced([]MemoryEntry{entry}); len(got) != 1 {
 		t.Fatalf("FilterAlreadySurfaced() after reset = %#v, want original entry", got)
+	}
+	if state.surfacedBytes != 0 {
+		t.Fatalf("surfacedBytes after reset = %d, want 0", state.surfacedBytes)
 	}
 }
 

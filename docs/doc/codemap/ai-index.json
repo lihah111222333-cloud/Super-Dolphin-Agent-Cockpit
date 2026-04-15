@@ -17965,6 +17965,11 @@
         }
       ]
     },
+    "internal/contract/dream.go": {
+      "package": "contract",
+      "description": "contract",
+      "refs": []
+    },
     "internal/contract/errors.go": {
       "package": "contract",
       "description": "通用哨兵错误：`ErrSessionNotFound`。",
@@ -18026,6 +18031,11 @@
           "context": "/ `errors_helper.go`：平台自定义 RPC 错误码"
         }
       ]
+    },
+    "internal/contract/frc.go": {
+      "package": "contract",
+      "description": "contract",
+      "refs": []
     },
     "internal/contract/hooks.go": {
       "package": "contract",
@@ -19429,6 +19439,11 @@
           "context": "`prompt.AssembleTurn`、`internal/provider/codexapp/session_turn.go`、`internal/provider/claudecli/session_turn.go` 三"
         }
       ]
+    },
+    "internal/dto/provider/user_context.go": {
+      "package": "provider",
+      "description": "provider",
+      "refs": []
     },
     "internal/dto/shared/errors.go": {
       "package": "shared",
@@ -25103,6 +25118,21 @@
       "description": "memory",
       "refs": []
     },
+    "internal/module/memory/auto_dream.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/auto_dream_task.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/claudemd_candidates.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
     "internal/module/memory/claudemd_sources.go": {
       "package": "memory",
       "description": "memory",
@@ -25240,6 +25270,21 @@
         }
       ]
     },
+    "internal/module/memory/consolidation_lock.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/consolidation_prompt.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/content_validator.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
     "internal/module/memory/extract.go": {
       "package": "memory",
       "description": "`hooks_extract.go`：从 `replace_range` 工具结果抽取 patch/文件列表",
@@ -25273,17 +25318,7 @@
       "description": "memory",
       "refs": []
     },
-    "internal/module/memory/freshness.go": {
-      "package": "memory",
-      "description": "memory",
-      "refs": []
-    },
     "internal/module/memory/gate.go": {
-      "package": "memory",
-      "description": "memory",
-      "refs": []
-    },
-    "internal/module/memory/hooks_constructor.go": {
       "package": "memory",
       "description": "memory",
       "refs": []
@@ -25329,7 +25364,7 @@
         }
       ]
     },
-    "internal/module/memory/manifest_headers.go": {
+    "internal/module/memory/kairos.go": {
       "package": "memory",
       "description": "memory",
       "refs": []
@@ -25732,7 +25767,12 @@
         }
       ]
     },
-    "internal/module/memory/module_extract_subscriptions.go": {
+    "internal/module/memory/nested_rules.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/nested_runtime.go": {
       "package": "memory",
       "description": "memory",
       "refs": []
@@ -26374,6 +26414,56 @@
       "description": "memory",
       "refs": []
     },
+    "internal/module/memory/team_guard.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/team_manager.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/team_path.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/team_sync.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/team_sync_fs.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/team_sync_pull.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/team_sync_push.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/team_sync_remote.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/team_sync_state.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
+    "internal/module/memory/team_sync_watcher.go": {
+      "package": "memory",
+      "description": "memory",
+      "refs": []
+    },
     "internal/module/memory/truncate.go": {
       "package": "memory",
       "description": "memory",
@@ -26671,6 +26761,11 @@
         }
       ]
     },
+    "internal/module/prompt/brief_provider.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
+    },
     "internal/module/prompt/buildctx.go": {
       "package": "prompt",
       "description": "├── buildctx.go         # BuildCtx / MCPSnapshot 类型别名",
@@ -26943,6 +27038,11 @@
           "context": ""
         }
       ]
+    },
+    "internal/module/prompt/frc_provider.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
     },
     "internal/module/prompt/invalidation.go": {
       "package": "prompt",
@@ -27406,6 +27506,11 @@
         }
       ]
     },
+    "internal/module/prompt/numeric_anchors_provider.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
+    },
     "internal/module/prompt/output_style_provider.go": {
       "package": "prompt",
       "description": "prompt",
@@ -27795,6 +27900,11 @@
       "refs": []
     },
     "internal/module/prompt/system_context_provider.go": {
+      "package": "prompt",
+      "description": "prompt",
+      "refs": []
+    },
+    "internal/module/prompt/token_budget_provider.go": {
       "package": "prompt",
       "description": "prompt",
       "refs": []
@@ -30176,6 +30286,11 @@
         }
       ]
     },
+    "internal/module/thread/frc_config.go": {
+      "package": "thread",
+      "description": "thread",
+      "refs": []
+    },
     "internal/module/thread/history.go": {
       "package": "thread",
       "description": "`thread/read`、消息分页、runtime config、compact。",
@@ -32013,6 +32128,11 @@
         }
       ]
     },
+    "internal/module/turn/frc_config.go": {
+      "package": "turn",
+      "description": "turn",
+      "refs": []
+    },
     "internal/module/turn/interrupt_envelope.go": {
       "package": "turn",
       "description": "中断结果 envelope 与状态归一化。",
@@ -33054,6 +33174,11 @@
       ]
     },
     "internal/module/turn/tool_result_budget.go": {
+      "package": "turn",
+      "description": "turn",
+      "refs": []
+    },
+    "internal/module/turn/tool_result_lifecycle.go": {
       "package": "turn",
       "description": "turn",
       "refs": []
@@ -41748,6 +41873,11 @@
       "description": "claudecli",
       "refs": []
     },
+    "internal/provider/claudecli/dream_executor.go": {
+      "package": "claudecli",
+      "description": "claudecli",
+      "refs": []
+    },
     "internal/provider/claudecli/driver.go": {
       "package": "claudecli",
       "description": "Claude driver 入口，负责 start / resume / runtime report",
@@ -43002,6 +43132,11 @@
           "context": ""
         }
       ]
+    },
+    "internal/provider/codexapp/dream_executor.go": {
+      "package": "codexapp",
+      "description": "codexapp",
+      "refs": []
     },
     "internal/provider/codexapp/driver.go": {
       "package": "codexapp",
@@ -44430,6 +44565,11 @@
           "context": ""
         }
       ]
+    },
+    "internal/provider/unified/dream_executor.go": {
+      "package": "unified",
+      "description": "unified",
+      "refs": []
     },
     "internal/provider/unified/event_map.go": {
       "package": "unified",

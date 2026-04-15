@@ -57,6 +57,9 @@ func (p *MemoryRulesProvider) Resolve(_ context.Context, input prompt.SectionCon
 	if _, ok := resolveChildAgentStart(input); ok {
 		return nil, nil
 	}
+	if !memoryProductEnabled(p.cfg) {
+		return nil, nil
+	}
 	gate := ResolveMemoryGate(input.BuildCtx, p.cfg)
 	opts := MemoryRuleOptions{
 		SkipIndex:                gate.SkipIndex,
@@ -86,30 +89,49 @@ func (p *MemoryRulesProvider) promptMode(buildCtx contract.BuildCtx, gate Memory
 	if !gate.AutoEnabled {
 		return ""
 	}
+	autoDir := p.resolvedAutoMemPath(buildCtx)
+	if opts != nil {
+		opts.AutoMemPath = autoDir
+	}
 	if gate.KairosActive {
 		return MemoryModeKairos
 	}
-	autoDir, teamDir, ok := p.combinedMemoryPaths(buildCtx)
+	_, teamDir, ok := p.combinedMemoryPaths(buildCtx)
 	if !ok {
 		return MemoryModeStandard
 	}
 	if opts != nil {
-		opts.AutoMemPath = autoDir
 		opts.TeamMemPath = teamDir
 	}
 	return MemoryModeCombined
+}
+
+func (p *MemoryRulesProvider) resolvedAutoMemPath(buildCtx contract.BuildCtx) string {
+	cfg := memoryConfig(p.cfg)
+	projectRoot := strings.TrimSpace(buildCtx.GitRoot)
+	if projectRoot == "" {
+		projectRoot = strings.TrimSpace(buildCtx.CWD)
+	}
+	if projectRoot == "" {
+		projectRoot = strings.TrimSpace(cfg.ProjectRoot)
+	}
+	autoDir, err := resolvedStoreRoot(cfg.RootDir, projectRoot, configuredAutoMemPathOverride(cfg))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(autoDir)
 }
 
 func (p *MemoryRulesProvider) combinedMemoryPaths(buildCtx contract.BuildCtx) (string, string, bool) {
 	if p == nil || p.team == nil {
 		return "", "", false
 	}
-	autoDir := autoMemRoot(ClaudeMdResolveConfig{
-		BuildCtx:     buildCtx,
-		MemoryConfig: p.cfg,
-	})
+	autoDir := p.resolvedAutoMemPath(buildCtx)
+	if autoDir == "" {
+		return "", "", false
+	}
 	teamDir := providerTeamMemPath(p.team, buildCtx)
-	if autoDir == "" || teamDir == "" {
+	if teamDir == "" {
 		return "", "", false
 	}
 	return autoDir, teamDir, true
@@ -125,10 +147,11 @@ type MemoryContextProvider struct {
 }
 
 type prefetchTurnState struct {
-	manager  *PrefetchManager
-	handle   *PrefetchHandle
-	gate     MemoryGateSnapshot
-	lastDate string
+	manager      *PrefetchManager
+	handle       *PrefetchHandle
+	gate         MemoryGateSnapshot
+	lastDate     string
+	surfacedBytes int
 }
 
 type TurnContextPayload struct {
@@ -138,7 +161,7 @@ type TurnContextPayload struct {
 
 func NewContextProvider(cfg *Config) *MemoryContextProvider {
 	cfg = memoryConfig(cfg)
-	root, _ := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
+	root, _ := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, configuredAutoMemPathOverride(cfg))
 	return &MemoryContextProvider{
 		cfg:        cfg,
 		memoryRoot: strings.TrimSpace(root),
@@ -153,6 +176,9 @@ func (p *MemoryContextProvider) SectionName() string {
 
 func (p *MemoryContextProvider) Resolve(_ context.Context, input prompt.SectionContext) (*string, error) {
 	if p == nil || input.Turn == nil {
+		return nil, nil
+	}
+	if !memoryProductEnabled(p.cfg) {
 		return nil, nil
 	}
 	gate := ResolveMemoryGate(input.BuildCtx, p.cfg)
@@ -185,28 +211,62 @@ func (p *MemoryContextProvider) PrepareTurnContext(
 	if invalidTurnContextRequest(p, threadID, query) {
 		return TurnContextPayload{}
 	}
+	if !memoryProductEnabled(p.cfg) {
+		return TurnContextPayload{}
+	}
 	gate := ResolveMemoryGate(buildCtx, p.cfg)
 	p.rememberTurnGate(threadID, gate)
-	attemptPrefetch := strings.TrimSpace(p.memoryRoot) != "" &&
-		ShouldStartRelevantMemoryPrefetch(gate, contract.TurnInput{UserText: query}, RelevantPrefetchSurfacedState{})
-	entries, ready := p.consumePrefetchEntries(ctx, threadID, query, gate)
+	surfacedState := p.surfacedState(threadID)
+	entries, ready, attemptPrefetch := p.prepareTurnAttachments(ctx, threadID, query, gate, surfacedState)
 	payload := TurnContextPayload{Attachments: freezeRelevantMemoryAttachments(entries, p.now())}
 	payload.Attachments = p.appendKairosDateChangeAttachment(threadID, gate, payload.Attachments)
 	if attemptPrefetch && !ready {
 		return payload
 	}
+	payload.Inputs = p.searchPastContextInputs(ctx, session, threadID, query, gate, entries)
+	return payload
+}
+
+func (p *MemoryContextProvider) prepareTurnAttachments(
+	ctx context.Context,
+	threadID, query string,
+	gate MemoryGateSnapshot,
+	surfacedState RelevantPrefetchSurfacedState,
+) ([]MemoryEntry, bool, bool) {
+	attemptPrefetch := p.shouldAttemptTurnPrefetch(gate, query, surfacedState)
+	entries, ready := p.consumePrefetchEntries(ctx, threadID, query, gate)
+	return entries, ready, attemptPrefetch
+}
+
+func (p *MemoryContextProvider) shouldAttemptTurnPrefetch(
+	gate MemoryGateSnapshot,
+	query string,
+	surfacedState RelevantPrefetchSurfacedState,
+) bool {
+	if strings.TrimSpace(p.memoryRoot) == "" {
+		return false
+	}
+	return ShouldStartRelevantMemoryPrefetch(gate, contract.TurnInput{UserText: query}, surfacedState)
+}
+
+func (p *MemoryContextProvider) searchPastContextInputs(
+	ctx context.Context,
+	session contract.Session,
+	threadID, query string,
+	gate MemoryGateSnapshot,
+	entries []MemoryEntry,
+) []shareddto.InputItem {
 	if !gate.SearchPastContextEnabled || !shouldSearchPastContextQuery(query) {
-		return payload
+		return nil
 	}
 	if len(entries) > 0 && !memoryRetrievalLowConfidence(query, entries) {
-		return payload
+		return nil
 	}
 	snippets := p.searchPastContext(ctx, session, threadID, query)
 	if len(snippets) == 0 {
-		return payload
+		return nil
 	}
-	payload.Inputs = freezeTranscriptInputs(snippets)
-	return payload
+	return freezeTranscriptInputs(snippets)
 }
 
 func invalidTurnContextRequest(p *MemoryContextProvider, threadID, query string) bool {
@@ -229,6 +289,7 @@ func (p *MemoryContextProvider) OnPromptInvalidate(reason prompt.InvalidateReaso
 			state.handle.cancel()
 		}
 		state.handle = nil
+		state.surfacedBytes = 0
 	}
 }
 
@@ -273,7 +334,7 @@ func (p *MemoryContextProvider) consumePrefetchEntries(
 		return nil, false
 	}
 	filtered := manager.FilterAlreadySurfaced(entries)
-	manager.MarkSurfaced(filtered)
+	p.markSurfacedEntries(threadID, manager, filtered)
 	p.clearHandle(threadID, handle)
 	return filtered, true
 }
@@ -284,15 +345,16 @@ func (p *MemoryContextProvider) startRelevantPrefetch(
 	gate MemoryGateSnapshot,
 ) (*PrefetchManager, *PrefetchHandle) {
 	query = strings.TrimSpace(query)
-	if p == nil || strings.TrimSpace(p.memoryRoot) == "" {
-		return nil, nil
-	}
-	if !ShouldStartRelevantMemoryPrefetch(gate, contract.TurnInput{UserText: query}, RelevantPrefetchSurfacedState{}) {
+	if p == nil || strings.TrimSpace(p.memoryRoot) == "" || !memoryProductEnabled(p.cfg) {
 		return nil, nil
 	}
 	p.mu.Lock()
 	state := p.turnStateLocked(threadID)
 	state.gate = gate
+	if !ShouldStartRelevantMemoryPrefetch(gate, contract.TurnInput{UserText: query}, RelevantPrefetchSurfacedState{TotalBytes: state.surfacedBytes}) {
+		p.mu.Unlock()
+		return nil, nil
+	}
 	if state.manager == nil {
 		state.manager = NewPrefetchManager(p.memoryRoot)
 	}
@@ -320,6 +382,40 @@ func (p *MemoryContextProvider) clearHandle(threadID string, handle *PrefetchHan
 	if state.handle == handle {
 		state.handle = nil
 	}
+}
+
+func (p *MemoryContextProvider) surfacedState(threadID string) RelevantPrefetchSurfacedState {
+	threadID = strings.TrimSpace(threadID)
+	if p == nil || threadID == "" {
+		return RelevantPrefetchSurfacedState{}
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return RelevantPrefetchSurfacedState{TotalBytes: p.turnStateLocked(threadID).surfacedBytes}
+}
+
+func (p *MemoryContextProvider) markSurfacedEntries(threadID string, manager *PrefetchManager, entries []MemoryEntry) {
+	if manager != nil {
+		manager.MarkSurfaced(entries)
+	}
+	if p == nil || len(entries) == 0 {
+		return
+	}
+	surfacedBytes := surfacedEntryBytes(entries)
+	if surfacedBytes == 0 {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.turnStateLocked(strings.TrimSpace(threadID)).surfacedBytes += surfacedBytes
+}
+
+func surfacedEntryBytes(entries []MemoryEntry) int {
+	total := 0
+	for _, entry := range entries {
+		total += len(memoryRenderBody(entry))
+	}
+	return total
 }
 
 func (p *MemoryContextProvider) searchPastContext(

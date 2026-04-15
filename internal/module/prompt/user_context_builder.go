@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 const runtimeExtrasRelevanceDisclaimer = "Only use the following runtime extras when they are directly relevant to the user's current request."
@@ -84,11 +85,14 @@ func CollectRuntimeUserContext(input TurnInput, resolved []ResolvedPromptSection
 	if currentDateValue == "" {
 		currentDateValue = time.Now().Format("2006-01-02")
 	}
-	return userContextPayload{
-		"currentDate":   fmt.Sprintf("Today's date is %s.", currentDateValue),
-		"runtimeExtras": strings.TrimSpace(joinBlocks(runtimeExtraContents(resolved)...)),
-		"disclaimer":    runtimeExtrasRelevanceDisclaimer,
+	extras := userContextPayload{
+		"currentDate": fmt.Sprintf("Today's date is %s.", currentDateValue),
+		"runtimeExtras": strings.TrimSpace(joinBlocks(
+			runtimeExtrasRelevanceDisclaimer,
+			joinBlocks(runtimeExtraContents(resolved)...),
+		)),
 	}
+	return MergeRuntimeUserContext(extras, input.RuntimeUserContext)
 }
 
 func MergeRuntimeUserContext(base, extras map[string]string) map[string]string {
@@ -108,19 +112,13 @@ func MergeRuntimeUserContext(base, extras map[string]string) map[string]string {
 }
 
 func FormatUserContextMessage(payload map[string]string) string {
-	blocks := []string{"<system-reminder>"}
-	if block := userContextSection("claudeMd", payload["claudeMd"]); block != "" {
-		blocks = append(blocks, block)
-	}
-	if block := userContextSection("currentDate", payload["currentDate"]); block != "" {
-		blocks = append(blocks, block)
-	}
-	runtimeBody := joinBlocks(payload["disclaimer"], payload["runtimeExtras"])
-	if block := userContextSection("runtimeExtras", runtimeBody); block != "" {
-		blocks = append(blocks, block)
-	}
-	blocks = append(blocks, "</system-reminder>")
-	return strings.Join(blocks, "\n\n")
+	return dto.TurnAssembly{
+		UserContext: map[string]string(cloneUserContextPayload(payload)),
+	}.RenderUserContextMessage()
+}
+
+func FormatUserContextText(payload map[string]string) string {
+	return dto.FormatUserContextText(payload)
 }
 
 func includeRuntimeExtraSection(section ResolvedPromptSection) bool {
@@ -130,8 +128,7 @@ func includeRuntimeExtraSection(section ResolvedPromptSection) bool {
 	switch strings.TrimSpace(section.Name) {
 	case DynamicSectionSessionGuidance,
 		DynamicSectionEnvInfoSimple,
-		DynamicSectionLanguage,
-		DynamicSectionMCPInstructions:
+		DynamicSectionLanguage:
 		return false
 	default:
 		return true
@@ -216,14 +213,6 @@ func renderClaudeMdSource(source contract.ClaudeMdSource) string {
 	return header + ":\n" + content
 }
 
-func userContextSection(key, body string) string {
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return ""
-	}
-	return "# " + strings.TrimSpace(key) + "\n" + body
-}
-
 func sourceDigest(source contract.ClaudeMdSource) string {
 	if digest := strings.TrimSpace(source.Digest); digest != "" {
 		return digest
@@ -238,7 +227,9 @@ func cloneUserContextPayload(payload map[string]string) userContextPayload {
 	}
 	cloned := make(userContextPayload, len(payload))
 	for key, value := range payload {
-		if key = strings.TrimSpace(key); key != "" {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key != "" && value != "" {
 			cloned[key] = value
 		}
 	}

@@ -126,37 +126,22 @@ func scanConsolidationLogDocuments(root string, cfg *Config) ([]consolidationDoc
 	if err := rejectConsolidationPath(cfg, logRoot); err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(logRoot); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	} else if err != nil {
+	exists, err := consolidationLogRootExists(logRoot)
+	if err != nil {
 		return nil, err
 	}
+	if !exists {
+		return nil, nil
+	}
 	docs := make([]consolidationDocument, 0, 8)
-	err := filepath.WalkDir(logRoot, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	err = filepath.WalkDir(logRoot, func(path string, d os.DirEntry, walkErr error) error {
+		doc, ok, readErr := readConsolidationLogDocument(root, cfg, path, d, walkErr)
+		if readErr != nil {
+			return readErr
 		}
-		if d.IsDir() {
-			return nil
+		if ok {
+			docs = append(docs, doc)
 		}
-		if filepath.Ext(path) != ".md" {
-			return nil
-		}
-		if err := rejectConsolidationPath(cfg, path); err != nil {
-			return err
-		}
-		validatedPath, err := ValidateMemoryReadPath(root, path)
-		if err != nil {
-			return err
-		}
-		raw, err := os.ReadFile(validatedPath)
-		if err != nil {
-			return err
-		}
-		docs = append(docs, consolidationDocument{
-			Path:    relativeMemoryPath(root, validatedPath),
-			Content: strings.TrimSpace(stripUTF8BOM(string(raw))),
-		})
 		return nil
 	})
 	if err != nil {
@@ -164,6 +149,39 @@ func scanConsolidationLogDocuments(root string, cfg *Config) ([]consolidationDoc
 	}
 	sort.Slice(docs, func(i, j int) bool { return docs[i].Path < docs[j].Path })
 	return docs, nil
+}
+
+func consolidationLogRootExists(logRoot string) (bool, error) {
+	if _, err := os.Stat(logRoot); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func readConsolidationLogDocument(root string, cfg *Config, path string, d os.DirEntry, walkErr error) (consolidationDocument, bool, error) {
+	if walkErr != nil {
+		return consolidationDocument{}, false, walkErr
+	}
+	if d.IsDir() || filepath.Ext(path) != ".md" {
+		return consolidationDocument{}, false, nil
+	}
+	if err := rejectConsolidationPath(cfg, path); err != nil {
+		return consolidationDocument{}, false, err
+	}
+	validatedPath, err := ValidateMemoryReadPath(root, path)
+	if err != nil {
+		return consolidationDocument{}, false, err
+	}
+	raw, err := os.ReadFile(validatedPath)
+	if err != nil {
+		return consolidationDocument{}, false, err
+	}
+	return consolidationDocument{
+		Path:    relativeMemoryPath(root, validatedPath),
+		Content: strings.TrimSpace(stripUTF8BOM(string(raw))),
+	}, true, nil
 }
 
 func rejectConsolidationPath(cfg *Config, path string) error {

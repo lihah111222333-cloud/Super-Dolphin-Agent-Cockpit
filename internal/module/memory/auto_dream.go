@@ -35,9 +35,10 @@ type AutoDreamConsolidator struct {
 }
 
 type consolidationRunOptions struct {
-	cfg      *Config
-	now      func() time.Time
-	onLocked func()
+	cfg            *Config
+	now            func() time.Time
+	onLocked       func()
+	runtimeContext string
 }
 
 type consolidationStamp struct {
@@ -46,11 +47,19 @@ type consolidationStamp struct {
 }
 
 type preparedConsolidation struct {
-	root      string
-	cfg       *Config
-	now       func() time.Time
-	extractFn ExtractFunc
-	guard     *consolidationLockGuard
+	root           string
+	cfg            *Config
+	now            func() time.Time
+	extractFn      ExtractFunc
+	guard          *consolidationLockGuard
+	runtimeContext string
+}
+
+type autoDreamExecutionPlan struct {
+	root         string
+	lastSuccess  time.Time
+	sessionCount int
+	extractFn    ExtractFunc
 }
 type autoDreamThreadLister interface {
 	ListAll(ctx context.Context) ([]threadstore.Thread, error)
@@ -95,22 +104,34 @@ func (c *AutoDreamConsolidator) consolidateWithOptions(
 		return err
 	}
 	input.Limit = c.limit()
-	hasTopicContent := len(consolidationCandidates(input.TopicEntries)) > 0
-	indexContent := strings.TrimSpace(input.Index.Content)
-	hasIndexContent := indexContent != "" && indexContent != "(missing)" && indexContent != "(empty)"
-	if !hasTopicContent && len(input.LogDocuments) == 0 && !hasIndexContent {
-		err = withDiskStoreLock(run.root, func() error {
-			if _, err := UpdateMemoryIndex(run.root); err != nil {
-				return err
-			}
-			return recordConsolidation(run.root, run.now())
-		})
+	if !shouldRunConsolidationExtract(input) {
+		err = refreshConsolidationWithoutExtract(run.root, run.now)
 		committed = err == nil
 		return err
 	}
 	err = c.runConsolidationExtract(ctx, run, input)
 	committed = err == nil
 	return err
+}
+
+func shouldRunConsolidationExtract(input consolidationPromptInput) bool {
+	if len(consolidationCandidates(input.TopicEntries)) > 0 {
+		return true
+	}
+	if len(input.LogDocuments) > 0 {
+		return true
+	}
+	indexContent := strings.TrimSpace(input.Index.Content)
+	return indexContent != "" && indexContent != "(missing)" && indexContent != "(empty)"
+}
+
+func refreshConsolidationWithoutExtract(root string, now func() time.Time) error {
+	return withDiskStoreLock(root, func() error {
+		if _, err := UpdateMemoryIndex(root); err != nil {
+			return err
+		}
+		return recordConsolidation(root, now())
+	})
 }
 
 func (c *AutoDreamConsolidator) prepareConsolidation(
@@ -147,7 +168,7 @@ func (c *AutoDreamConsolidator) prepareConsolidation(
 	if opts.onLocked != nil {
 		opts.onLocked()
 	}
-	return preparedConsolidation{root: root, cfg: opts.cfg, now: now, extractFn: extractFn, guard: guard}, nil
+	return preparedConsolidation{root: root, cfg: opts.cfg, now: now, extractFn: extractFn, guard: guard, runtimeContext: opts.runtimeContext}, nil
 }
 
 func (c *AutoDreamConsolidator) runConsolidationExtract(
@@ -155,7 +176,8 @@ func (c *AutoDreamConsolidator) runConsolidationExtract(
 	run preparedConsolidation,
 	input consolidationPromptInput,
 ) error {
-	raw, err := run.extractFn(ctx, buildConsolidationPrompt(input))
+	promptText := appendConsolidationRuntimeContext(buildConsolidationPrompt(input), run.runtimeContext)
+	raw, err := run.extractFn(ctx, promptText)
 	if err != nil {
 		return err
 	}
@@ -219,65 +241,117 @@ func (h *MemoryLifecycleHooks) onThreadStopped(ctx context.Context, evt threaddt
 }
 
 func (h *MemoryLifecycleHooks) maybeScheduleAutoDream(ctx context.Context, threadID string) (bool, error) {
-	if h == nil || h.consolidator == nil {
+	threadID, ok := h.autoDreamThreadEligible(ctx, threadID)
+	if !ok {
 		return false, nil
 	}
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
-		return false, nil
-	}
-	meta := h.resolveThreadRuntimeMetadata(ctx, threadID)
-	if !meta.isAutoMemoryRootThread() || meta.hasAgentMemoryScope() {
-		return false, nil
-	}
-	if !h.isGateOpen(meta) {
-		return false, nil
-	}
-	root, err := resolvedStoreRoot(h.rootDir, h.projectRoot, h.autoMemPathOverride)
-	if err != nil {
+	plan, ok, err := h.prepareAutoDreamExecution(ctx, threadID)
+	if err != nil || !ok {
 		return false, err
-	}
-	if err := rejectConsolidationPath(h.cfg, root); err != nil {
-		return false, err
-	}
-	stamp, err := loadConsolidationStamp(root)
-	if err != nil {
-		return false, err
-	}
-	now := h.now()
-	if !shouldAutoDreamScan(stamp, now) {
-		return false, nil
-	}
-	if err := recordConsolidationScan(root, now); err != nil {
-		return false, err
-	}
-	lastSuccess := stamp.lastSuccessTime()
-	if !lastSuccess.IsZero() && now.Sub(lastSuccess) < autoDreamMinInterval {
-		return false, nil
-	}
-	sessionCount, err := h.autoDreamSessionCount(ctx, threadID, lastSuccess)
-	if err != nil {
-		return false, err
-	}
-	if sessionCount < autoDreamMinSessions {
-		return false, nil
-	}
-	dreamExtractFn := h.extractFn
-	if dreamExtractFn == nil {
-		dreamExtractFn = h.consolidator.resolveExtractFunc(nil)
-	}
-	if dreamExtractFn == nil {
-		return false, ErrConsolidationExtractFuncRequired
 	}
 	taskCtx, started := h.startDreamTask(threadID)
 	if !started {
 		return false, nil
 	}
+	h.launchAutoDreamTask(taskCtx, threadID, plan)
+	return true, nil
+}
+
+func (h *MemoryLifecycleHooks) autoDreamThreadEligible(ctx context.Context, threadID string) (string, bool) {
+	if h == nil || h.consolidator == nil {
+		return "", false
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return "", false
+	}
+	meta := h.resolveThreadRuntimeMetadata(ctx, threadID)
+	if !h.autoDreamAllowed(meta) {
+		return "", false
+	}
+	return threadID, true
+}
+
+func (h *MemoryLifecycleHooks) autoDreamAllowed(meta threadRuntimeMetadata) bool {
+	return meta.isAutoMemoryRootThread() && !meta.hasAgentMemoryScope() && h.isGateOpen(meta)
+}
+
+func (h *MemoryLifecycleHooks) prepareAutoDreamExecution(ctx context.Context, threadID string) (autoDreamExecutionPlan, bool, error) {
+	root, err := h.autoDreamRoot()
+	if err != nil {
+		return autoDreamExecutionPlan{}, false, err
+	}
+	lastSuccess, ok, err := h.prepareAutoDreamWindow(root)
+	if err != nil || !ok {
+		return autoDreamExecutionPlan{}, false, err
+	}
+	sessionCount, err := h.autoDreamSessionCount(ctx, threadID, lastSuccess)
+	if err != nil {
+		return autoDreamExecutionPlan{}, false, err
+	}
+	if sessionCount < autoDreamMinSessions {
+		return autoDreamExecutionPlan{}, false, nil
+	}
+	extractFn, err := h.resolveDreamExtractFunc()
+	if err != nil {
+		return autoDreamExecutionPlan{}, false, err
+	}
+	return autoDreamExecutionPlan{
+		root:         root,
+		lastSuccess:  lastSuccess,
+		sessionCount: sessionCount,
+		extractFn:    extractFn,
+	}, true, nil
+}
+
+func (h *MemoryLifecycleHooks) autoDreamRoot() (string, error) {
+	root, err := resolvedStoreRoot(h.rootDir, h.projectRoot, h.autoMemPathOverride)
+	if err != nil {
+		return "", err
+	}
+	if err := rejectConsolidationPath(h.cfg, root); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+func (h *MemoryLifecycleHooks) prepareAutoDreamWindow(root string) (time.Time, bool, error) {
+	stamp, err := loadConsolidationStamp(root)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	now := h.now()
+	if !shouldAutoDreamScan(stamp, now) {
+		return time.Time{}, false, nil
+	}
+	if err := recordConsolidationScan(root, now); err != nil {
+		return time.Time{}, false, err
+	}
+	lastSuccess := stamp.lastSuccessTime()
+	if !lastSuccess.IsZero() && now.Sub(lastSuccess) < autoDreamMinInterval {
+		return time.Time{}, false, nil
+	}
+	return lastSuccess, true, nil
+}
+
+func (h *MemoryLifecycleHooks) resolveDreamExtractFunc() (ExtractFunc, error) {
+	extractFn := h.extractFn
+	if extractFn == nil {
+		extractFn = h.consolidator.resolveExtractFunc(nil)
+	}
+	if extractFn == nil {
+		return nil, ErrConsolidationExtractFuncRequired
+	}
+	return extractFn, nil
+}
+
+func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, threadID string, plan autoDreamExecutionPlan) {
 	go func() {
 		defer h.finishDreamTask()
-		err := h.consolidator.consolidateWithOptions(taskCtx, root, dreamExtractFn, consolidationRunOptions{
-			cfg: h.cfg,
-			now: h.now,
+		err := h.consolidator.consolidateWithOptions(taskCtx, plan.root, plan.extractFn, consolidationRunOptions{
+			cfg:            h.cfg,
+			now:            h.now,
+			runtimeContext: buildConsolidationRuntimeContext("background auto-dream stop hook", plan.sessionCount, plan.lastSuccess, threadID),
 			onLocked: func() {
 				h.setDreamTaskPhase(dreamTaskPhaseUpdating)
 			},
@@ -286,7 +360,6 @@ func (h *MemoryLifecycleHooks) maybeScheduleAutoDream(ctx context.Context, threa
 			h.logger.Warn("memory auto-dream execution failed", "thread_id", threadID, "error", err)
 		}
 	}()
-	return true, nil
 }
 
 func (h *MemoryLifecycleHooks) isGateOpen(meta threadRuntimeMetadata) bool {
@@ -315,24 +388,27 @@ func (h *MemoryLifecycleHooks) autoDreamSessionCount(ctx context.Context, curren
 	projectKey := h.autoDreamProjectKey()
 	count := 0
 	for idx := range threads {
-		thread := threads[idx]
-		if strings.TrimSpace(thread.ThreadID) == "" || strings.TrimSpace(thread.ThreadID) == currentThreadID {
-			continue
+		if shouldCountAutoDreamThread(threads[idx], currentThreadID, projectKey, since) {
+			count++
 		}
-		meta := resolveThreadRuntimeMetadataFromThread(&thread)
-		if !meta.isAutoMemoryRootThread() || meta.hasAgentMemoryScope() {
-			continue
-		}
-		if projectKey != "" && !sameAutoDreamProject(projectKey, strings.TrimSpace(thread.Cwd)) {
-			continue
-		}
-		observedAt := threadObservedAt(thread)
-		if !since.IsZero() && !observedAt.After(since) {
-			continue
-		}
-		count++
 	}
 	return count, nil
+}
+
+func shouldCountAutoDreamThread(thread threadstore.Thread, currentThreadID, projectKey string, since time.Time) bool {
+	threadID := strings.TrimSpace(thread.ThreadID)
+	if threadID == "" || threadID == currentThreadID {
+		return false
+	}
+	meta := resolveThreadRuntimeMetadataFromThread(&thread)
+	if !meta.isAutoMemoryRootThread() || meta.hasAgentMemoryScope() {
+		return false
+	}
+	if projectKey != "" && !sameAutoDreamProject(projectKey, strings.TrimSpace(thread.Cwd)) {
+		return false
+	}
+	observedAt := threadObservedAt(thread)
+	return since.IsZero() || observedAt.After(since)
 }
 
 func (h *MemoryLifecycleHooks) autoDreamProjectKey() string {

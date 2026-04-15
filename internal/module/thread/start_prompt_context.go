@@ -42,14 +42,13 @@ func buildStartCtx(req StartRequest, cfg *platformconfig.Config, registry contra
 		EnabledTools:                 firstNonEmptyStrings(req.EnabledTools, providershared.ConfigStringSlice(req.Config, "enabledTools", "enabled_tools", "tools")),
 		AdditionalWorkingDirectories: firstNonEmptyStrings(req.AdditionalWorkingDirectories, providershared.ConfigStringSlice(req.Config, "additionalWorkingDirectories", "additional_working_directories")),
 		ClaudeMdExcludes:             providershared.ConfigStringSlice(req.Config, "claudeMdExcludes", "claude_md_excludes"),
-		MCPSnapshot: mergeMCPSnapshot(
-			mergeMCPSnapshot(req.MCPSnapshot, configMCPSnapshot(req.Config)),
-			registryMCPSnapshot(registry),
-		),
-		SessionFlags:           firstNonEmptyFlags(req.SessionFlags, configBoolMap(req.Config, "sessionFlags", "session_flags")),
-		OutputStyleConfig:      outputStyleConfig,
-		ScratchpadDir:          configScratchpadDir(req.Config, "scratchpadDir", "scratchpad_dir"),
-		KeepCodingInstructions: firstNonNilBool(configOptionalBool(req.Config, "keepCodingInstructions", "keep_coding_instructions"), styleKeepCodingInstructions(outputStyleConfig)),
+		MCPSnapshot:                  buildPromptMCPSnapshot(req.MCPSnapshot, configMCPSnapshot(req.Config), registryMCPSnapshot(registry)),
+		SessionFlags:                 firstNonEmptyFlags(req.SessionFlags, configBoolMap(req.Config, "sessionFlags", "session_flags")),
+		Summary:                      shared.FirstNonEmpty(req.Summary, providershared.ConfigString(req.Config, "summary")),
+		OutputStyleConfig:            outputStyleConfig,
+		ScratchpadDir:                configScratchpadDir(req.Config, "scratchpadDir", "scratchpad_dir"),
+		FRCConfig:                    configFRCConfig(req.Config, "frcConfig", "frc_config"),
+		KeepCodingInstructions:       firstNonNilBool(configOptionalBool(req.Config, "keepCodingInstructions", "keep_coding_instructions"), styleKeepCodingInstructions(outputStyleConfig)),
 	}
 }
 
@@ -219,9 +218,10 @@ func cloneOptionalBool(value *bool) *bool {
 
 func configMCPSnapshot(cfg map[string]any) contract.MCPSnapshot {
 	return contract.MCPSnapshot{
-		Servers:      providershared.ConfigStringSlice(cfg, "mcpServers", "mcp_servers"),
-		Tools:        providershared.ConfigStringSlice(cfg, "mcpTools", "mcp_tools"),
-		Instructions: configStringMap(cfg, "mcpInstructions", "mcp_instructions"),
+		Servers:                  providershared.ConfigStringSlice(cfg, "mcpServers", "mcp_servers"),
+		Tools:                    providershared.ConfigStringSlice(cfg, "mcpTools", "mcp_tools"),
+		Instructions:             configStringMap(cfg, "mcpInstructions", "mcp_instructions"),
+		InstructionsDeltaEnabled: configBool(cfg, "mcpInstructionsDeltaEnabled", "mcp_instructions_delta_enabled"),
 	}
 }
 
@@ -254,6 +254,15 @@ func registryMCPSnapshot(registry contract.ToolRegistry) contract.MCPSnapshot {
 		}
 	}
 	return contract.MCPSnapshot{Servers: providershared.NormalizeConfigStringSlice(servers)}
+}
+
+func buildPromptMCPSnapshot(base, configured, live contract.MCPSnapshot) contract.MCPSnapshot {
+	merged := mergeMCPSnapshot(base, configured)
+	merged.Servers = append([]string(nil), live.Servers...)
+	if len(merged.Servers) == 0 {
+		merged.Servers = nil
+	}
+	return merged
 }
 
 func mcpServerName(instance contract.ToolInstance) string {

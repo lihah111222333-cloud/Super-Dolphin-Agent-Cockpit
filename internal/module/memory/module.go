@@ -3,8 +3,10 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -13,8 +15,10 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -49,6 +53,7 @@ type memoryLifecycleHookParams struct {
 	fx.In
 
 	Config          *Config                   `optional:"true"`
+	Team            *TeamMemoryManager        `optional:"true"`
 	Consolidator    *AutoDreamConsolidator    `optional:"true"`
 	DreamExtractFn  ExtractFunc               `optional:"true"`
 	Logger          *slog.Logger              `optional:"true"`
@@ -66,8 +71,9 @@ type dreamExtractParams struct {
 }
 
 func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) *MemoryLifecycleHooks {
-	hooks := newMemoryLifecycleHooks(
+	hooks := newMemoryLifecycleHooksWithTeam(
 		p.Config,
+		p.Team,
 		p.Consolidator,
 		p.Logger,
 		p.Threads,
@@ -92,6 +98,20 @@ func newMemoryLifecycleHooks(
 	extractor *MemoryExtractor,
 	manifestBuilder *ManifestBuilder,
 ) *MemoryLifecycleHooks {
+	return newMemoryLifecycleHooksWithTeam(cfg, nil, consolidator, logger, threads, threadStore, sections, extractor, manifestBuilder)
+}
+
+func newMemoryLifecycleHooksWithTeam(
+	cfg *Config,
+	team *TeamMemoryManager,
+	consolidator *AutoDreamConsolidator,
+	logger *slog.Logger,
+	threads historySource,
+	threadStore threadMetadataStore,
+	sections sectionInvalidator,
+	extractor *MemoryExtractor,
+	manifestBuilder *ManifestBuilder,
+) *MemoryLifecycleHooks {
 	if cfg == nil {
 		cfg = &Config{}
 	}
@@ -107,6 +127,7 @@ func newMemoryLifecycleHooks(
 	}
 	return &MemoryLifecycleHooks{
 		cfg:                 memoryConfig(cfg),
+		team:                team,
 		enabled:             ResolveMemoryGate(contract.BuildCtx{}, cfg).AutoEnabled,
 		extractOnStop:       cfg.ExtractOnStop,
 		rootDir:             strings.TrimSpace(cfg.RootDir),
@@ -131,6 +152,7 @@ var Module = fx.Module("memory",
 	fx.Provide(
 		NewConfig,
 		provideMemoryService,
+		NewMemoryHandlers,
 		NewAgentMemoryManager,
 		NewTeamMemoryManager,
 		NewTeamMemoryGuard,
@@ -145,7 +167,7 @@ var Module = fx.Module("memory",
 		NewMemoryLifecycleHooks,
 		NewMemoryExtractor,
 	),
-	fx.Invoke(registerLifecycle, registerPromptProviders, registerMemoryHooks),
+	fx.Invoke(registerTeamMemoryRuntime, registerLifecycle, registerPromptProviders, registerMemoryHooks),
 )
 
 func NewRootManager(svc Service) *RootManager {
@@ -197,6 +219,55 @@ func provideMemoryService(
 	return newServiceWithConsolidator(cfg, logger, consolidator, hooks)
 }
 
+func NewMemoryHandlers(svc Service) rpc.HandlerMapResult {
+	return rpc.HandlerMapResult{Handlers: handler.Map{
+		"memory/consolidate": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+			if err := svc.RunConsolidation(ctx); err != nil {
+				return nil, err
+			}
+			return map[string]any{"status": "completed"}, nil
+		}),
+	}}
+}
+
+func buildConsolidationRuntimeContext(source string, sessionsSinceLast int, lastSuccess time.Time, threadID string) string {
+	source = strings.TrimSpace(source)
+	threadID = strings.TrimSpace(threadID)
+	if source == "" {
+		source = "manual consolidation request"
+	}
+	if sessionsSinceLast < 0 {
+		sessionsSinceLast = 0
+	}
+	lines := []string{
+		"Execution source: " + source + ".",
+		"The runtime is read-only during consolidation; return JSON memories only and let the host apply writes.",
+		fmt.Sprintf("Sessions since last consolidation: %d.", sessionsSinceLast),
+	}
+	if threadID != "" {
+		lines = append(lines, "Triggering thread: "+threadID+".")
+	}
+	if lastSuccess.IsZero() {
+		lines = append(lines, "No successful consolidation has been recorded yet.")
+	} else {
+		lines = append(lines, "Last successful consolidation: "+lastSuccess.UTC().Format(time.RFC3339)+".")
+	}
+	return renderSection("### Runtime context — execution envelope", lines)
+}
+
+func appendConsolidationRuntimeContext(promptText, runtimeContext string) string {
+	promptText = strings.TrimSpace(promptText)
+	runtimeContext = strings.TrimSpace(runtimeContext)
+	switch {
+	case promptText == "":
+		return runtimeContext
+	case runtimeContext == "":
+		return promptText
+	default:
+		return promptText + "\n\n" + runtimeContext
+	}
+}
+
 func registerLifecycle(lc fx.Lifecycle, svc Service) {
 	if svc == nil {
 		return
@@ -204,6 +275,19 @@ func registerLifecycle(lc fx.Lifecycle, svc Service) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			return svc.EnsureRoot(ctx)
+		},
+	})
+}
+
+func registerTeamMemoryRuntime(lc fx.Lifecycle) {
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			setTeamMemoryRuntimeReady(true)
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			setTeamMemoryRuntimeReady(false)
+			return nil
 		},
 	})
 }
@@ -276,6 +360,9 @@ func registerThreadHookSubscriptions(p memoryHookParams, appendCancel func(conte
 	}
 	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
 		p.Hooks.onThreadStart(context.Background(), ev)
+	}, pkglogger.Get()))
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInputReceived) {
+		p.Hooks.onTurnInputReceived(context.Background(), ev)
 	}, pkglogger.Get()))
 	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnCompleted) {
 		p.Hooks.onTurnCompleted(context.Background(), ev)

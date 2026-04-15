@@ -37,6 +37,124 @@ func (h *MemoryLifecycleHooks) onTurnCompleted(ctx context.Context, evt turndto.
 	h.enqueueBackgroundExtraction(strings.TrimSpace(evt.ThreadID), handled)
 }
 
+func (h *MemoryLifecycleHooks) onTurnInputReceived(ctx context.Context, ev turndto.TurnInputReceived) {
+	if h == nil || !h.enabled {
+		return
+	}
+	if err := contextErr(ctx); err != nil {
+		return
+	}
+	key, text, ok := h.rememberTurnInput(ev)
+	if !ok {
+		return
+	}
+	handled, err := h.handleExplicitUserMemoryIntent(ctx, turnCompletedFromInput(ev), text)
+	h.handleExplicitIntentError(ev.ThreadID, handled, err)
+	if handled && err == nil {
+		h.markHandledTurnInput(key)
+	}
+}
+
+func (h *MemoryLifecycleHooks) rememberTurnInput(ev turndto.TurnInputReceived) (string, string, bool) {
+	if !isExplicitMemoryUserInput(ev) {
+		return "", "", false
+	}
+	threadID := strings.TrimSpace(ev.ThreadID)
+	turnID := strings.TrimSpace(ev.TurnID)
+	if threadID == "" || turnID == "" {
+		return "", "", false
+	}
+	text := strings.TrimSpace(ev.Text)
+	key := turnTrackingKey(threadID, turnID)
+	h.stateMu.Lock()
+	if h.turnInputs == nil {
+		h.turnInputs = map[string]string{}
+	}
+	h.turnInputs[key] = text
+	h.stateMu.Unlock()
+	return key, text, true
+}
+
+func (h *MemoryLifecycleHooks) consumeTurnInput(key string) (string, bool) {
+	if h == nil || key == "" {
+		return "", false
+	}
+	h.stateMu.Lock()
+	defer h.stateMu.Unlock()
+	text, ok := h.turnInputs[key]
+	if ok {
+		delete(h.turnInputs, key)
+	}
+	return text, ok
+}
+
+func (h *MemoryLifecycleHooks) clearTurnInput(key string) {
+	if h == nil || key == "" {
+		return
+	}
+	h.stateMu.Lock()
+	defer h.stateMu.Unlock()
+	delete(h.turnInputs, key)
+}
+
+func (h *MemoryLifecycleHooks) markHandledTurnInput(key string) {
+	if h == nil || key == "" {
+		return
+	}
+	h.stateMu.Lock()
+	defer h.stateMu.Unlock()
+	if h.handledTurnInputs == nil {
+		h.handledTurnInputs = map[string]struct{}{}
+	}
+	h.handledTurnInputs[key] = struct{}{}
+}
+
+func (h *MemoryLifecycleHooks) consumeHandledTurnInput(key string) bool {
+	if h == nil || key == "" {
+		return false
+	}
+	h.stateMu.Lock()
+	defer h.stateMu.Unlock()
+	_, ok := h.handledTurnInputs[key]
+	if ok {
+		delete(h.handledTurnInputs, key)
+	}
+	return ok
+}
+
+func turnCompletedFromInput(ev turndto.TurnInputReceived) turndto.TurnCompleted {
+	return turndto.TurnCompleted{TurnHeader: ev.TurnHeader, Success: true}
+}
+
+func isExplicitMemoryUserInput(ev turndto.TurnInputReceived) bool {
+	if strings.TrimSpace(ev.Text) == "" {
+		return false
+	}
+	source := strings.TrimSpace(ev.Source)
+	if source != "" && !strings.EqualFold(source, "user") {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(ev.InputType)) {
+	case "", "message", "text":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeIntentText(text string) string {
+	return strings.TrimSpace(strings.ReplaceAll(text, "\r\n", "\n"))
+}
+
+func isGenericForgetTarget(text string) bool {
+	switch CanonicalName(text) {
+	case "it", "this", "that", "memory", "这", "这个", "这点", "这条":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *MemoryLifecycleHooks) onTurnTerminated(threadID, turnID string) {
 	if h == nil {
 		return
@@ -105,6 +223,15 @@ func (h *MemoryLifecycleHooks) ExtractAndSave(
 	transcript []providerdto.Message,
 	manifest []MemoryEntry,
 ) error {
+	return h.extractAndSave(ctx, transcript, manifest, h.writeOptions(ctx, ""))
+}
+
+func (h *MemoryLifecycleHooks) extractAndSave(
+	ctx context.Context,
+	transcript []providerdto.Message,
+	manifest []MemoryEntry,
+	options WriteOptions,
+) error {
 	if h == nil || !h.extractOnStop {
 		return nil
 	}
@@ -115,7 +242,7 @@ func (h *MemoryLifecycleHooks) ExtractAndSave(
 	if err != nil || len(items) == 0 {
 		return err
 	}
-	if err := h.saveExtractedMemories(items); err != nil {
+	if err := h.saveExtractedMemories(items, options); err != nil {
 		return err
 	}
 	h.invalidateMemorySections()
@@ -180,7 +307,7 @@ func (h *MemoryLifecycleHooks) executeBackgroundExtraction(
 	if err != nil {
 		return cursor, err
 	}
-	if err := h.ExtractAndSave(ctx, window, manifest); err != nil {
+	if err := h.extractAndSave(ctx, window, manifest, h.writeOptions(ctx, threadID)); err != nil {
 		return cursor, err
 	}
 	return latest, nil
@@ -208,24 +335,23 @@ func (h *MemoryLifecycleHooks) buildManifest(ctx context.Context) ([]MemoryEntry
 	return h.manifestBuilderOrDefault().BuildManifest(store.Root())
 }
 
-func (h *MemoryLifecycleHooks) saveExtractedMemories(items []ExtractedMemory) error {
+func (h *MemoryLifecycleHooks) saveExtractedMemories(items []ExtractedMemory, options WriteOptions) error {
 	store, err := h.diskStore()
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
 		entry := buildConsolidatedMemoryEntry(item)
-		if _, err := store.Create(entry, WriteOptions{SkipIndex: true}); err == nil {
+		if _, err := store.Create(entry, options); err == nil {
 			continue
 		} else if !errors.Is(err, ErrMemoryAlreadyExists) {
 			return err
 		}
-		if _, err := store.Update(entry, WriteOptions{SkipIndex: true}); err != nil {
+		if _, err := store.Update(entry, options); err != nil {
 			return err
 		}
 	}
-	_, err = UpdateMemoryIndex(store.Root())
-	return err
+	return nil
 }
 
 func (h *MemoryLifecycleHooks) invalidateMemorySections() {

@@ -11,6 +11,12 @@ type sectionCache struct {
 	values     map[string]*string
 }
 
+// sectionCache stores resolved prompt sections by the cache key generated in
+// cache_keys.go. Claude often relies on section-name reuse, but V3
+// intentionally keeps dependency-aware keys for sections whose output changes
+// with render inputs such as enabled tools or output style. This is a deliberate
+// freshness-over-parity choice: stable sections can still reuse bare names,
+// while dependency-sensitive sections avoid stale prompt reuse.
 func newSectionCache() *sectionCache {
 	return &sectionCache{values: map[string]*string{}}
 }
@@ -54,6 +60,26 @@ func (c *sectionCache) Store(name string, generation uint64, value *string) bool
 	return true
 }
 
+func (c *sectionCache) ObserveVolatile(name string, generation uint64, value *string) (*string, bool) {
+	key := strings.TrimSpace(name)
+	if key == "" {
+		return cloneStringPtr(value), false
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if generation != c.generation {
+		return cloneStringPtr(value), false
+	}
+	current, ok := c.values[key]
+	changed := !ok || !stringPtrEqual(current, value)
+	if changed {
+		c.values[key] = cloneStringPtr(value)
+		current = c.values[key]
+	}
+	return cloneStringPtr(current), changed
+}
+
 func (c *sectionCache) InvalidateAll(_ InvalidateReason) uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -86,4 +112,15 @@ func cloneStringPtr(value *string) *string {
 	}
 	cloned := *value
 	return &cloned
+}
+
+func stringPtrEqual(left, right *string) bool {
+	switch {
+	case left == nil && right == nil:
+		return true
+	case left == nil || right == nil:
+		return false
+	default:
+		return *left == *right
+	}
 }

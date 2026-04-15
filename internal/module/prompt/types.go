@@ -33,6 +33,8 @@ type PromptSection struct {
 
 type ResolvedPromptSection = contract.ResolvedPromptSection
 
+type SystemContext = contract.SystemContext
+
 type InvalidateReason = contract.InvalidateReason
 
 const (

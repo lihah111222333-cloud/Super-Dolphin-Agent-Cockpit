@@ -31,7 +31,6 @@ func TestBuildBaseUserContextSkipsConditionalAndWrapsTeamMemory(t *testing.T) {
 	})
 	text := FormatUserContextMessage(MergeRuntimeUserContext(base, map[string]string{
 		"currentDate": "Today's date is 2026-04-15.",
-		"disclaimer":  runtimeExtrasRelevanceDisclaimer,
 	}))
 	for _, check := range []string{
 		"<system-reminder>",

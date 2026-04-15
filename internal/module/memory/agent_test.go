@@ -17,9 +17,9 @@ func TestAgentMemoryManagerGetAgentMemoryDirScopeIsolation(t *testing.T) {
 		scope MemoryScope
 		want  string
 	}{
-		{scope: MemoryScopeUser, want: filepath.Join(userRoot, "agents", "Writer")},
-		{scope: MemoryScopeProject, want: filepath.Join(projectRoot, "memory", "agents", "Writer")},
-		{scope: MemoryScopeLocal, want: filepath.Join(projectRoot, "memory", "local", "Writer")},
+		{scope: MemoryScopeUser, want: filepath.Join(userRoot, "agent-memory", "Writer")},
+		{scope: MemoryScopeProject, want: filepath.Join(projectRoot, ".claude", "agent-memory", "Writer")},
+		{scope: MemoryScopeLocal, want: filepath.Join(projectRoot, ".claude", "agent-memory-local", "Writer")},
 	}
 	for _, tc := range cases {
 		got, err := manager.GetAgentMemoryDir("Writer", tc.scope)
@@ -32,9 +32,24 @@ func TestAgentMemoryManagerGetAgentMemoryDirScopeIsolation(t *testing.T) {
 	}
 }
 
+func TestAgentMemoryManagerLocalScopeUsesRemoteMemoryMount(t *testing.T) {
+	manager, _, projectRoot := newTestAgentMemoryManager(t)
+	remoteRoot := filepath.Join(t.TempDir(), "remote-memory")
+	t.Setenv(envClaudeRemoteMemoryDir, remoteRoot)
+
+	got, err := manager.GetAgentMemoryDir("Writer", MemoryScopeLocal)
+	if err != nil {
+		t.Fatalf("GetAgentMemoryDir(%q, %q) error = %v", "Writer", MemoryScopeLocal, err)
+	}
+	want := filepath.Join(remoteRoot, "projects", SanitizePath(projectRoot), "agent-memory-local", "Writer")
+	if got != want {
+		t.Fatalf("GetAgentMemoryDir(%q, %q) = %q, want %q", "Writer", MemoryScopeLocal, got, want)
+	}
+}
+
 func TestAgentMemoryManagerGetAgentMemoryDirFallsBackOnConflict(t *testing.T) {
 	manager, _, projectRoot := newTestAgentMemoryManager(t)
-	parent := filepath.Join(projectRoot, "memory", "agents")
+	parent := filepath.Join(projectRoot, ".claude", "agent-memory")
 	if err := os.MkdirAll(filepath.Join(parent, "Writer"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(conflict dir) error = %v", err)
 	}
@@ -148,7 +163,7 @@ func TestAgentMemoryHelpersExposeEntrypointAndClassification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgentMemoryEntrypoint() error = %v", err)
 	}
-	wantEntrypoint := filepath.Join(projectRoot, "memory", "agents", "Writer", "MEMORY.md")
+	wantEntrypoint := filepath.Join(projectRoot, ".claude", "agent-memory", "Writer", "MEMORY.md")
 	if entrypoint != wantEntrypoint {
 		t.Fatalf("GetAgentMemoryEntrypoint() = %q, want %q", entrypoint, wantEntrypoint)
 	}
@@ -181,7 +196,7 @@ func TestAgentMemoryHelpersExposeEntrypointAndClassification(t *testing.T) {
 
 func TestAgentMemoryManagerLoadAgentMemoryPromptIncludesEntrypoint(t *testing.T) {
 	manager, _, projectRoot := newTestAgentMemoryManager(t)
-	dir := filepath.Join(projectRoot, "memory", "agents", "Writer")
+	dir := filepath.Join(projectRoot, ".claude", "agent-memory", "Writer")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", dir, err)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,13 +18,15 @@ import (
 const dateChangeAttachmentKind = "date_change"
 
 var kairosOverviewLines = []string{
-	"KAIROS mode writes durable remember-worthy facts to today's append-only daily log instead of editing topic files inline.",
+	"KAIROS mode continuously records durable remember-worthy facts to today's append-only daily log instead of editing topic files inline.",
 	"The daily log lives under `logs/YYYY/MM/YYYY-MM-DD.md` inside the auto-memory root.",
+	"`MEMORY.md` remains a read-only orientation summary in KAIROS: read it for context, but never edit it inline during the live session.",
 	"Only root-thread auto-memory sessions write to that log; child agents and agent-memory scopes do not.",
 }
 
 var kairosWriteRules = []string{
-	"When the user explicitly asks you to remember something, append exactly one new bullet to today's log using `- [HH:MM] content` in local time.",
+	"Whenever durable remember-worthy information becomes clear, append exactly one new bullet to today's log using `- [HH:MM] content` in local time.",
+	"Explicit `remember` requests are a strong signal, but KAIROS should keep recording other durable facts, preferences, project notes, workflow rules, and reference pointers as they emerge.",
 	"Create the parent directories and today's file on first write if needed.",
 	"Never rewrite, reorder, deduplicate, or retroactively edit older bullets in the daily log; it is append-only.",
 	"Keep each bullet self-contained, convert relative dates to absolute dates, and make the durable fact understandable when read later in isolation.",
@@ -34,6 +37,11 @@ var kairosConsolidationLines = []string{
 	"Runtime may surface a `date_change` attachment instead of rebuilding cached base instructions; use the new date silently.",
 	"Later `/dream` or manual consolidation distills daily logs into typed topic files and refreshes `MEMORY.md`.",
 	"Treat daily logs as recent signal, not guaranteed current truth; verify current state before acting on time-sensitive details.",
+}
+
+var kairosAckPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?is)^\s*(?:i(?:'|’)ll remember|i will remember|i(?:'|’)ve noted|noted|saved to memory|saved in memory|i(?:'|’)ll save this to memory)\s*(?:that\s+)?(?:[:：\-—,，]\s*|\s+)?(.+?)\s*$`),
+	regexp.MustCompile(`(?is)^\s*(?:记住了|已记住|我会记住|已经记住|已保存到记忆|保存到记忆了|帮你记住了)\s*(?:这个|这点|了)?\s*(?:[:：\-—,，]\s*|\s+)?(.+?)\s*$`),
 }
 
 func BuildDailyLogPrompt(skipIndex, searchPastContextEnabled bool, extraGuidelines []string) string {
@@ -89,11 +97,57 @@ func autoMemDailyLogRelativePath(now time.Time) string {
 	return filepath.ToSlash(filepath.Join("logs", now.Format("2006"), now.Format("01"), now.Format("2006-01-02")+".md"))
 }
 
+func DetectKairosWriteIntent(evt turndto.TurnCompleted) SaveIntent {
+	for _, text := range kairosIntentTexts(evt) {
+		if intent := detectKairosAcknowledgement(text); intent.Detected {
+			return intent
+		}
+	}
+	for _, text := range kairosIntentTexts(evt) {
+		if intent := DetectSaveIntent(text); intent.Detected {
+			return intent
+		}
+	}
+	for _, text := range kairosIntentTexts(evt) {
+		item, ok := internalMemoryFromMessage(dto.Message{Role: "assistant", Content: text})
+		if !ok {
+			continue
+		}
+		content := normalizeHookContent(item.Content)
+		if hasMeaningfulMemoryContent(content) {
+			return SaveIntent{Detected: true, Content: content, Type: item.Type}
+		}
+	}
+	return SaveIntent{}
+}
+
+func detectKairosAcknowledgement(text string) SaveIntent {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return SaveIntent{}
+	}
+	for _, pattern := range kairosAckPatterns {
+		matches := pattern.FindStringSubmatch(text)
+		if len(matches) == 0 {
+			continue
+		}
+		content := normalizeHookContent(matches[len(matches)-1])
+		if hasMeaningfulMemoryContent(content) {
+			return SaveIntent{Detected: true, Content: content, Type: inferMemoryType(content)}
+		}
+	}
+	return SaveIntent{}
+}
+
+func kairosIntentTexts(evt turndto.TurnCompleted) []string {
+	return uniqueNonEmptyStrings([]string{evt.Message, evt.Summary, evt.Result})
+}
+
 func (h *MemoryLifecycleHooks) writeDetectedIntent(ctx context.Context, evt turndto.TurnCompleted, intent SaveIntent) error {
 	if written, err := h.tryAppendKairosDailyLog(ctx, evt, intent); written || err != nil {
 		return err
 	}
-	return h.writeIntent(intent)
+	return h.writeIntent(ctx, evt.ThreadID, intent)
 }
 
 func (h *MemoryLifecycleHooks) tryAppendKairosDailyLog(ctx context.Context, evt turndto.TurnCompleted, intent SaveIntent) (bool, error) {
