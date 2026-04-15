@@ -85,13 +85,21 @@ func TestAssembleTurnProducesUserContext(t *testing.T) {
 	turn, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{
 		UserText: "please verify the cache",
 		CWD:      h.projectRoot,
+		RuntimeUserContext: map[string]string{
+			"workerToolsContext": "Workers can use bash and read tools.",
+			"terminalFocus":      "The terminal is unfocused — the user is not actively watching.",
+		},
 	})
 	if err != nil {
 		t.Fatalf("AssembleTurn() error = %v", err)
 	}
-	mustContain(t, turn.UserContextText, "<system-reminder>")
+	mustContain(t, turn.RenderUserContextMessage(), "<system-reminder>")
 	mustContain(t, turn.UserContextText, "# currentDate")
+	mustContain(t, turn.UserContextText, "# workerToolsContext")
+	mustContain(t, turn.UserContextText, "# terminalFocus")
 	mustContain(t, turn.UserContextText, "# runtimeExtras")
+	mustContain(t, turn.UserContext["workerToolsContext"], "Workers can use bash and read tools.")
+	mustContain(t, turn.UserContext["terminalFocus"], "The terminal is unfocused")
 	mustContain(t, sectionContent(turn.ResolvedSections, promptpkg.DynamicSectionSessionGuidance), "please verify the cache")
 	mustContain(t, sectionContent(turn.ResolvedSections, promptpkg.DynamicSectionSessionGuidance), h.projectRoot)
 }
@@ -192,8 +200,8 @@ func TestFullChainFromThreadToProvider(t *testing.T) {
 	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.SectionIdentity))
 	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory))
 	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, "existing base tail")
-	if got := configString(h.bridge.startReq.Config, "developerInstructions"); !strings.Contains(got, "be concise") || !strings.Contains(got, "Git status:") {
-		t.Fatalf("developerInstructions = %q, want system context + developer tail", got)
+	if got := configString(h.bridge.startReq.Config, "developerInstructions"); got != "be concise" {
+		t.Fatalf("developerInstructions = %q, want developer tail only", got)
 	}
 	if result.Status != "running" || result.Provider != "codex" {
 		t.Fatalf("unexpected StartResult = %#v", result)

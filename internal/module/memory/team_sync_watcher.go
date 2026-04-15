@@ -116,42 +116,67 @@ func (w *teamSyncWatcher) suppressed() bool {
 func (w *teamSyncWatcher) loop() {
 	defer close(w.done)
 	defer w.closeWatcher()
+	timer := newStoppedTeamSyncTimer()
+	var dirty bool
+	for {
+		if w.handleLoopIteration(timer, &dirty) {
+			return
+		}
+	}
+}
+
+func newStoppedTeamSyncTimer() *time.Timer {
 	timer := time.NewTimer(time.Hour)
 	if !timer.Stop() {
 		<-timer.C
 	}
-	var dirty bool
-	for {
-		select {
-		case <-w.closed:
-			return
-		case err, ok := <-w.watcher.Errors:
-			if ok && err != nil {
-				w.warn("team sync watcher failed", "error", err)
-			}
-			return
-		case event, ok := <-w.watcher.Events:
-			if !ok {
-				return
-			}
-			changed, err := w.handleEvent(event)
-			if err != nil {
-				w.warn("team sync watcher fail-closed", "error", err)
-				return
-			}
-			if changed {
-				dirty = true
-				resetTeamSyncTimer(timer, w.debounce)
-			}
-		case <-timer.C:
-			if !dirty {
-				continue
-			}
-			dirty = false
-			if _, err := w.service.pushLocalChanges(context.Background(), TeamSyncTriggerWatcher); err != nil {
-				w.warn("team sync watcher push failed", "error", err)
-			}
-		}
+	return timer
+}
+
+func (w *teamSyncWatcher) handleLoopIteration(timer *time.Timer, dirty *bool) bool {
+	select {
+	case <-w.closed:
+		return true
+	case err, ok := <-w.watcher.Errors:
+		return w.handleWatcherLoopError(err, ok)
+	case event, ok := <-w.watcher.Events:
+		return w.handleWatcherLoopEvent(timer, dirty, event, ok)
+	case <-timer.C:
+		w.flushWatcherLoopPush(dirty)
+		return false
+	}
+}
+
+func (w *teamSyncWatcher) handleWatcherLoopError(err error, ok bool) bool {
+	if ok && err != nil {
+		w.warn("team sync watcher failed", "error", err)
+	}
+	return true
+}
+
+func (w *teamSyncWatcher) handleWatcherLoopEvent(timer *time.Timer, dirty *bool, event fsnotify.Event, ok bool) bool {
+	if !ok {
+		return true
+	}
+	changed, err := w.handleEvent(event)
+	if err != nil {
+		w.warn("team sync watcher fail-closed", "error", err)
+		return true
+	}
+	if changed {
+		*dirty = true
+		resetTeamSyncTimer(timer, w.debounce)
+	}
+	return false
+}
+
+func (w *teamSyncWatcher) flushWatcherLoopPush(dirty *bool) {
+	if !*dirty {
+		return
+	}
+	*dirty = false
+	if _, err := w.service.pushLocalChanges(context.Background(), TeamSyncTriggerWatcher); err != nil {
+		w.warn("team sync watcher push failed", "error", err)
 	}
 }
 

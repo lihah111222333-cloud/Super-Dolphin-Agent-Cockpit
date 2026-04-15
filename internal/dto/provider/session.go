@@ -16,27 +16,38 @@ type ResolvedPromptSection struct {
 	Content  string       `json:"content,omitempty"`
 }
 
+type SystemContext map[string]string
+
+type PromptAssemblyBoundary struct {
+	CachedPrefix string `json:"cachedPrefix,omitempty"`
+	UncachedTail string `json:"uncachedTail,omitempty"`
+}
+
 type PromptAssemblySnapshot struct {
-	DisplayName           string            `json:"displayName,omitempty"`
-	BaseInstructions      string            `json:"baseInstructions,omitempty"`
-	DeveloperInstructions string            `json:"developerInstructions,omitempty"`
-	Provider              string            `json:"provider,omitempty"`
-	Version               int               `json:"version,omitempty"`
-	Hash                  string            `json:"hash,omitempty"`
-	SectionSnapshot       map[string]string `json:"sectionSnapshot,omitempty"`
-	Generation            uint64            `json:"generation,omitempty"`
+	DisplayName           string                  `json:"displayName,omitempty"`
+	BaseInstructions      string                  `json:"baseInstructions,omitempty"`
+	Boundary              *PromptAssemblyBoundary `json:"boundary,omitempty"`
+	DeveloperInstructions string                  `json:"developerInstructions,omitempty"`
+	Provider              string                  `json:"provider,omitempty"`
+	Version               int                     `json:"version,omitempty"`
+	Hash                  string                  `json:"hash,omitempty"`
+	SectionSnapshot       map[string]string       `json:"sectionSnapshot,omitempty"`
+	Generation            uint64                  `json:"generation,omitempty"`
 }
 
 type StartAssembly struct {
 	DisplayName           string                  `json:"displayName,omitempty"`
 	BaseInstructions      string                  `json:"baseInstructions,omitempty"`
+	Boundary              *PromptAssemblyBoundary `json:"boundary,omitempty"`
 	DeveloperInstructions string                  `json:"developerInstructions,omitempty"`
 	ResolvedSections      []ResolvedPromptSection `json:"resolvedSections,omitempty"`
 	Snapshot              PromptAssemblySnapshot  `json:"snapshot"`
 }
 
 type TurnAssembly struct {
+	UserContext      map[string]string       `json:"userContext,omitempty"`
 	UserContextText  string                  `json:"userContextText,omitempty"`
+	SystemContext    SystemContext           `json:"systemContext,omitempty"`
 	Attachments      []AttachmentEnvelope    `json:"attachments,omitempty"`
 	ResolvedSections []ResolvedPromptSection `json:"resolvedSections,omitempty"`
 }

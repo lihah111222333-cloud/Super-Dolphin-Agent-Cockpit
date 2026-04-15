@@ -13,6 +13,7 @@ func TestMergePrepareInputRuntimeHydratesOutputStyleAndScratchpad(t *testing.T) 
 			"prompt":                 "Explain each decision.",
 			"keepCodingInstructions": true,
 		},
+		"summary":       "brief",
 		"scratchpadDir": "/tmp/agent/scratchpad",
 	})
 	if input.OutputStyleConfig == nil || input.OutputStyleConfig.Name != "Explanatory" || input.OutputStyleConfig.Prompt != "Explain each decision." {
@@ -20,6 +21,9 @@ func TestMergePrepareInputRuntimeHydratesOutputStyleAndScratchpad(t *testing.T) 
 	}
 	if input.OutputStyleConfig.KeepCodingInstructions == nil || !*input.OutputStyleConfig.KeepCodingInstructions {
 		t.Fatalf("KeepCodingInstructions = %#v", input.OutputStyleConfig)
+	}
+	if input.Summary != "brief" {
+		t.Fatalf("Summary = %q, want runtime config value", input.Summary)
 	}
 	if input.ScratchpadDir != "/tmp/agent/scratchpad" {
 		t.Fatalf("ScratchpadDir = %q, want runtime config value", input.ScratchpadDir)

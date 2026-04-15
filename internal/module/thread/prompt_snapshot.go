@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -14,6 +15,7 @@ import (
 func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider string) contract.StartAssembly {
 	assembly.DisplayName = normalizeStartDisplayName(strings.TrimSpace(assembly.DisplayName))
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
+	assembly.Boundary = clonePromptBoundary(assembly.Boundary)
 	assembly.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
 	snapshot := normalizePromptSnapshotContent(assembly.Snapshot)
 	if snapshot.DisplayName == "" {
@@ -21,6 +23,9 @@ func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider strin
 	}
 	if snapshot.BaseInstructions == "" {
 		snapshot.BaseInstructions = assembly.BaseInstructions
+	}
+	if snapshot.Boundary == nil {
+		snapshot.Boundary = clonePromptBoundary(assembly.Boundary)
 	}
 	if snapshot.DeveloperInstructions == "" {
 		snapshot.DeveloperInstructions = assembly.DeveloperInstructions
@@ -34,7 +39,14 @@ func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider strin
 	if len(snapshot.SectionSnapshot) == 0 {
 		snapshot.SectionSnapshot = promptSnapshotSectionMap(assembly.ResolvedSections)
 	}
-	snapshot.Hash = promptSnapshotHash(snapshot.DisplayName, snapshot.BaseInstructions, snapshot.DeveloperInstructions, snapshot.Provider)
+	snapshot.Hash = promptSnapshotHash(
+		snapshot.DisplayName,
+		snapshot.BaseInstructions,
+		snapshot.DeveloperInstructions,
+		snapshot.Provider,
+		snapshot.Boundary,
+	)
+	assembly.Boundary = clonePromptBoundary(snapshot.Boundary)
 	assembly.Snapshot = snapshot
 	return assembly
 }
@@ -42,11 +54,65 @@ func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider strin
 func normalizePromptSnapshotContent(snapshot contract.PromptAssemblySnapshot) contract.PromptAssemblySnapshot {
 	snapshot.DisplayName = strings.TrimSpace(snapshot.DisplayName)
 	snapshot.BaseInstructions = strings.TrimSpace(snapshot.BaseInstructions)
+	snapshot.Boundary = clonePromptBoundary(snapshot.Boundary)
 	snapshot.DeveloperInstructions = strings.TrimSpace(snapshot.DeveloperInstructions)
 	snapshot.Provider = strings.TrimSpace(snapshot.Provider)
 	snapshot.Hash = strings.TrimSpace(snapshot.Hash)
 	snapshot.SectionSnapshot = clonePromptSectionMap(snapshot.SectionSnapshot)
 	return snapshot
+}
+
+func clonePromptBoundary(boundary *dto.PromptAssemblyBoundary) *dto.PromptAssemblyBoundary {
+	if boundary == nil {
+		return nil
+	}
+	cloned := dto.PromptAssemblyBoundary{
+		CachedPrefix: strings.TrimSpace(boundary.CachedPrefix),
+		UncachedTail: strings.TrimSpace(boundary.UncachedTail),
+	}
+	if cloned.CachedPrefix == "" && cloned.UncachedTail == "" {
+		return nil
+	}
+	return &cloned
+}
+
+func promptBoundaryBlank(boundary *dto.PromptAssemblyBoundary) bool {
+	return boundary == nil ||
+		(strings.TrimSpace(boundary.CachedPrefix) == "" && strings.TrimSpace(boundary.UncachedTail) == "")
+}
+
+func promptBoundaryCachedPrefix(boundary *dto.PromptAssemblyBoundary) string {
+	if boundary == nil {
+		return ""
+	}
+	return strings.TrimSpace(boundary.CachedPrefix)
+}
+
+func promptBoundaryUncachedTail(boundary *dto.PromptAssemblyBoundary) string {
+	if boundary == nil {
+		return ""
+	}
+	return strings.TrimSpace(boundary.UncachedTail)
+}
+
+func toStoredPromptBoundary(boundary *dto.PromptAssemblyBoundary) *threadstore.PromptBoundary {
+	if promptBoundaryBlank(boundary) {
+		return nil
+	}
+	return &threadstore.PromptBoundary{
+		CachedPrefix: promptBoundaryCachedPrefix(boundary),
+		UncachedTail: promptBoundaryUncachedTail(boundary),
+	}
+}
+
+func fromStoredPromptBoundary(boundary *threadstore.PromptBoundary) *dto.PromptAssemblyBoundary {
+	if boundary == nil {
+		return nil
+	}
+	return clonePromptBoundary(&dto.PromptAssemblyBoundary{
+		CachedPrefix: strings.TrimSpace(boundary.CachedPrefix),
+		UncachedTail: strings.TrimSpace(boundary.UncachedTail),
+	})
 }
 
 func promptSnapshotSectionMap(sections []contract.ResolvedPromptSection) map[string]string {
@@ -85,9 +151,19 @@ func clonePromptSectionMap(src map[string]string) map[string]string {
 	return out
 }
 
-func promptSnapshotHash(displayName, base, dev, provider string) string {
+func promptSnapshotHash(
+	displayName, base, dev, provider string,
+	boundary *dto.PromptAssemblyBoundary,
+) string {
 	h := sha256.New()
-	for _, part := range []string{displayName, base, dev, provider} {
+	for _, part := range []string{
+		displayName,
+		base,
+		dev,
+		provider,
+		promptBoundaryCachedPrefix(boundary),
+		promptBoundaryUncachedTail(boundary),
+	} {
 		_, _ = h.Write([]byte(strings.TrimSpace(part)))
 		_, _ = h.Write([]byte{0})
 	}
@@ -109,6 +185,7 @@ func toStoredPromptSnapshot(snapshot contract.PromptAssemblySnapshot) threadstor
 	return threadstore.PromptSnapshot{
 		DisplayName:           snapshot.DisplayName,
 		BaseInstructions:      snapshot.BaseInstructions,
+		Boundary:              toStoredPromptBoundary(snapshot.Boundary),
 		DeveloperInstructions: snapshot.DeveloperInstructions,
 		Provider:              snapshot.Provider,
 		Version:               snapshot.Version,
@@ -258,6 +335,7 @@ func fromStoredPromptSnapshot(snapshot *threadstore.PromptSnapshot) contract.Pro
 	return contract.PromptAssemblySnapshot{
 		DisplayName:           strings.TrimSpace(snapshot.DisplayName),
 		BaseInstructions:      strings.TrimSpace(snapshot.BaseInstructions),
+		Boundary:              fromStoredPromptBoundary(snapshot.Boundary),
 		DeveloperInstructions: strings.TrimSpace(snapshot.DeveloperInstructions),
 		Provider:              strings.TrimSpace(snapshot.Provider),
 		Version:               snapshot.Version,
@@ -275,7 +353,13 @@ func storedPromptSnapshotValid(snapshot contract.PromptAssemblySnapshot, provide
 	if provider = strings.TrimSpace(provider); provider != "" && snapshot.Provider != provider {
 		return false
 	}
-	return snapshot.Hash == promptSnapshotHash(snapshot.DisplayName, snapshot.BaseInstructions, snapshot.DeveloperInstructions, snapshot.Provider)
+	return snapshot.Hash == promptSnapshotHash(
+		snapshot.DisplayName,
+		snapshot.BaseInstructions,
+		snapshot.DeveloperInstructions,
+		snapshot.Provider,
+		snapshot.Boundary,
+	)
 }
 
 func normalizeCallerPromptSnapshot(snapshot contract.PromptAssemblySnapshot, provider string) contract.PromptAssemblySnapshot {
@@ -290,7 +374,13 @@ func normalizeCallerPromptSnapshot(snapshot contract.PromptAssemblySnapshot, pro
 		snapshot.Version = contract.PromptAssemblySnapshotVersion
 	}
 	if snapshot.Hash == "" {
-		snapshot.Hash = promptSnapshotHash(snapshot.DisplayName, snapshot.BaseInstructions, snapshot.DeveloperInstructions, snapshot.Provider)
+		snapshot.Hash = promptSnapshotHash(
+			snapshot.DisplayName,
+			snapshot.BaseInstructions,
+			snapshot.DeveloperInstructions,
+			snapshot.Provider,
+			snapshot.Boundary,
+		)
 	}
 	return snapshot
 }
@@ -299,6 +389,7 @@ func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
 	snapshot = normalizePromptSnapshotContent(snapshot)
 	return snapshot.DisplayName == "" &&
 		snapshot.BaseInstructions == "" &&
+		promptBoundaryBlank(snapshot.Boundary) &&
 		snapshot.DeveloperInstructions == "" &&
 		snapshot.Provider == "" &&
 		snapshot.Version == 0 &&

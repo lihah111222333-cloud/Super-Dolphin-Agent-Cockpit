@@ -31,47 +31,22 @@ func teamSyncTargetPath(root, rel string) (string, string, error) {
 }
 
 func scanTeamMarkdownFiles(root string) (map[string]teamSyncLocalFile, error) {
-	root = strings.TrimSpace(root)
-	if root == "" {
+	root, ok, err := validateTeamSyncScanRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
 		return nil, nil
 	}
-	if _, err := os.Stat(root); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if _, err := resolveTeamMemRealPath(root, invalidTeamMemWritePath); err != nil {
-		return nil, err
-	}
 	files := map[string]teamSyncLocalFile{}
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		normalized, file, ok, readErr := readTeamSyncMarkdownFile(root, path, d, err)
+		if readErr != nil {
+			return readErr
 		}
-		if d.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%w: symlink path is not allowed", ErrInvalidTeamMemWritePath)
+		if ok {
+			files[normalized] = file
 		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		if shouldIgnoreTeamSyncPath(rel) {
-			return nil
-		}
-		normalized, validated, err := teamSyncTargetPath(root, rel)
-		if err != nil {
-			return err
-		}
-		content, err := os.ReadFile(validated)
-		if err != nil {
-			return err
-		}
-		files[normalized] = teamSyncLocalFile{Checksum: checksumContent(content), Content: string(content), Path: validated}
 		return nil
 	})
 	if err != nil {
@@ -81,6 +56,56 @@ func scanTeamMarkdownFiles(root string) (map[string]teamSyncLocalFile, error) {
 		return nil, nil
 	}
 	return files, nil
+}
+
+func validateTeamSyncScanRoot(root string) (string, bool, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return "", false, nil
+	}
+	if _, err := os.Stat(root); err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if _, err := resolveTeamMemRealPath(root, invalidTeamMemWritePath); err != nil {
+		return "", false, err
+	}
+	return root, true, nil
+}
+
+func readTeamSyncMarkdownFile(root, path string, d fs.DirEntry, walkErr error) (string, teamSyncLocalFile, bool, error) {
+	if walkErr != nil {
+		return "", teamSyncLocalFile{}, false, walkErr
+	}
+	if d.Type()&os.ModeSymlink != 0 {
+		return "", teamSyncLocalFile{}, false, fmt.Errorf("%w: symlink path is not allowed", ErrInvalidTeamMemWritePath)
+	}
+	if d.IsDir() {
+		return "", teamSyncLocalFile{}, false, nil
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", teamSyncLocalFile{}, false, err
+	}
+	rel = filepath.ToSlash(rel)
+	if shouldIgnoreTeamSyncPath(rel) {
+		return "", teamSyncLocalFile{}, false, nil
+	}
+	normalized, validated, err := teamSyncTargetPath(root, rel)
+	if err != nil {
+		return "", teamSyncLocalFile{}, false, err
+	}
+	content, err := os.ReadFile(validated)
+	if err != nil {
+		return "", teamSyncLocalFile{}, false, err
+	}
+	return normalized, teamSyncLocalFile{
+		Checksum: checksumContent(content),
+		Content:  string(content),
+		Path:     validated,
+	}, true, nil
 }
 
 func shouldIgnoreTeamSyncPath(path string) bool {

@@ -17,6 +17,7 @@ func TestKairos(t *testing.T) {
 	t.Run("LoadMemoryPromptUsesDailyLogProtocol", TestKairosLoadMemoryPromptUsesDailyLogProtocol)
 	t.Run("GetAutoMemDailyLogPath", TestKairosGetAutoMemDailyLogPath)
 	t.Run("DailyLogWriterAppendsAndRollsOver", TestKairosDailyLogWriterAppendsAndRollsOver)
+	t.Run("DurableTurnWritesWithoutExplicitRemember", TestKairosDurableTurnWritesWithoutExplicitRemember)
 	t.Run("DailyLogSkipsChildAgent", TestKairosDailyLogSkipsChildAgent)
 	t.Run("DateChangeAttachmentTail", TestKairosDateChangeAttachmentTail)
 }
@@ -28,6 +29,8 @@ func TestKairosLoadMemoryPromptUsesDailyLogProtocol(t *testing.T) {
 		"logs/YYYY/MM/YYYY-MM-DD.md",
 		"- [HH:MM] content",
 		"date_change",
+		"Whenever durable remember-worthy information becomes clear",
+		"read-only orientation summary",
 		"Prefer absolute dates in daily logs.",
 	} {
 		if !strings.Contains(text, snippet) {
@@ -123,6 +126,44 @@ func TestKairosDailyLogWriterAppendsAndRollsOver(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(dayTwoRaw)); got != "- [00:05] start a fresh daily bucket after midnight" {
 		t.Fatalf("day two log = %q", got)
+	}
+}
+
+func TestKairosDurableTurnWritesWithoutExplicitRemember(t *testing.T) {
+	baseRoot := newTestMemoryRoot(t)
+	projectRoot := t.TempDir()
+	cfg := &Config{
+		Enabled:     true,
+		RootDir:     baseRoot,
+		ProjectRoot: projectRoot,
+		Features:    MemoryFeatureFlags{Kairos: true},
+	}
+	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
+	if err != nil {
+		t.Fatalf("resolvedStoreRoot() error = %v", err)
+	}
+	thread := &threadstore.Thread{
+		ThreadID: "thread-1",
+		ConfigOverride: mustStoredRuntimeConfig(t, map[string]any{
+			"threadKind":   "main",
+			"sessionFlags": map[string]any{"memory_kairos": true},
+		}),
+	}
+	hooks := newMemoryLifecycleHooks(cfg, nil, nil, nil, threadLookupStub{thread: thread}, nil, NewMemoryExtractor(), NewManifestBuilder())
+	current := time.Date(2026, 4, 15, 10, 45, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	hooks.timeNow = func() time.Time { return current }
+
+	evt := turnCompletedEvent("thread-1", "turn-1")
+	evt.Message = "This project prefers guarded build commands and absolute dates in incident summaries."
+	hooks.onTurnCompleted(context.Background(), evt)
+
+	raw, err := os.ReadFile(autoMemDailyLogPath(root, current))
+	if err != nil {
+		t.Fatalf("ReadFile(daily log) error = %v", err)
+	}
+	want := "- [10:45] This project prefers guarded build commands and absolute dates in incident summaries."
+	if got := strings.TrimSpace(string(raw)); got != want {
+		t.Fatalf("daily log = %q, want %q", got, want)
 	}
 }
 

@@ -11,83 +11,36 @@ type teamSyncBatch struct {
 	Deletes []string
 }
 
+type preparedTeamSyncPush struct {
+	localChecksums map[string]string
+	localTree      string
+	filtered       TeamMemPrePushScanResult
+	batches        []teamSyncBatch
+}
+
 func (s *TeamSyncService) pushLocked(ctx context.Context, trigger TeamSyncTrigger, retried bool) (TeamSyncPushResult, error) {
 	result := TeamSyncPushResult{}
-	if !s.runtimeReadyLocked() {
-		return result, nil
-	}
-	local, err := scanTeamMarkdownFiles(s.root)
-	if err != nil {
+	plan, ok, err := s.preparePushLocked()
+	if err != nil || !ok {
 		return result, err
 	}
-	localChecksums := localChecksumMap(local)
-	localTree := checksumTree(localChecksums)
-	if localTree == strings.TrimSpace(s.state.LastKnownChecksum) {
+	result.Skipped = plan.filtered.Skipped
+	if len(plan.batches) == 0 {
+		result.Failed = skippedFailures(plan.filtered.Skipped)
 		return result, nil
 	}
-	uploads, deletes := diffServerChecksums(local, s.state.ServerChecksums)
-	filtered := s.guard.FilterPushFiles(uploads)
-	result.Skipped = filtered.Skipped
-	batches := buildTeamSyncBatches(filtered.Allowed, deletes, s.state.ServerMaxEntries)
-	if len(batches) == 0 {
-		result.Failed = skippedFailures(filtered.Skipped)
-		return result, nil
-	}
-	for _, batch := range batches {
-		response, err := s.remote.PushFiles(ctx, TeamSyncPushRequest{
-			RepoSlug:      s.repoSlug,
-			IfMatch:       strings.TrimSpace(s.state.ServerETag),
-			Uploads:       batch.Uploads,
-			Deletes:       batch.Deletes,
-			BaseChecksums: cloneChecksumMap(s.state.ServerChecksums),
-		})
+	for _, batch := range plan.batches {
+		response, err := s.pushBatchLocked(ctx, batch)
 		if err != nil {
 			return result, err
 		}
-		if response.MaxEntries > 0 {
-			s.state.ServerMaxEntries = response.MaxEntries
-			if err := s.persistStateLocked(); err != nil {
-				return result, err
-			}
-			result.LearnedMaxEntries = true
-			if len(response.Applied) == 0 && len(response.Deleted) == 0 && len(response.Failed) == 0 && !response.Conflict {
-				break
-			}
+		stop, final, err := s.handlePushBatchResponseLocked(ctx, trigger, retried, plan.filtered, result, response)
+		if err != nil || stop {
+			return final, err
 		}
-		if response.Conflict {
-			if retried {
-				result.Failed = mergeFailures(result.Failed, mergeFailures(response.Failed, skippedFailures(filtered.Skipped)))
-				return result, nil
-			}
-			if _, err := s.pullLocked(ctx, TeamSyncTriggerConflict); err != nil {
-				return result, err
-			}
-			retry, err := s.pushLocked(ctx, trigger, true)
-			if err != nil {
-				return retry, err
-			}
-			retry.Retried = true
-			return retry, nil
-		}
-		if response.NotFound {
-			result.Failed = mergeFailures(result.Failed, map[string]string{"remote": "not_found"})
-			break
-		}
-		applyPushResponse(&s.state, response)
-		result.Applied = result.Applied || len(response.Applied) > 0 || len(response.Deleted) > 0
-		result.Failed = mergeFailures(result.Failed, response.Failed)
+		result = final
 	}
-	if checksumMapsEqual(localChecksums, s.state.ServerChecksums) {
-		s.state.LastKnownChecksum = localTree
-	}
-	if err := s.persistStateLocked(); err != nil {
-		return result, err
-	}
-	result.Failed = mergeFailures(result.Failed, skippedFailures(filtered.Skipped))
-	if result.Applied {
-		s.invalidateLocked(ctx, trigger)
-	}
-	return result, nil
+	return s.finalizePushLocked(ctx, trigger, result, plan)
 }
 
 func buildTeamSyncBatches(uploads map[string]string, deletes []string, limit int) []teamSyncBatch {
@@ -97,6 +50,10 @@ func buildTeamSyncBatches(uploads map[string]string, deletes []string, limit int
 	if limit <= 0 || len(uploads)+len(deletes) <= limit {
 		return []teamSyncBatch{{Uploads: cloneStringMap(uploads), Deletes: append([]string(nil), deletes...)}}
 	}
+	return buildLimitedTeamSyncBatches(uploads, deletes, limit)
+}
+
+func buildLimitedTeamSyncBatches(uploads map[string]string, deletes []string, limit int) []teamSyncBatch {
 	uploadKeys := sortedMapKeys(uploads)
 	deleteKeys := append([]string(nil), deletes...)
 	var batches []teamSyncBatch
@@ -113,22 +70,161 @@ func buildTeamSyncBatches(uploads map[string]string, deletes []string, limit int
 		current = teamSyncBatch{Uploads: map[string]string{}}
 		count = 0
 	}
-	for _, key := range uploadKeys {
-		if count == limit {
+	appendTeamSyncUploads(&current, uploads, uploadKeys, limit, &count, flush)
+	appendTeamSyncDeletes(&current, deleteKeys, limit, &count, flush)
+	flush()
+	return batches
+}
+
+func (s *TeamSyncService) preparePushLocked() (preparedTeamSyncPush, bool, error) {
+	if !s.runtimeReadyLocked() {
+		return preparedTeamSyncPush{}, false, nil
+	}
+	local, err := scanTeamMarkdownFiles(s.root)
+	if err != nil {
+		return preparedTeamSyncPush{}, false, err
+	}
+	localChecksums := localChecksumMap(local)
+	localTree := checksumTree(localChecksums)
+	if localTree == strings.TrimSpace(s.state.LastKnownChecksum) {
+		return preparedTeamSyncPush{}, false, nil
+	}
+	uploads, deletes := diffServerChecksums(local, s.state.ServerChecksums)
+	filtered := s.guard.FilterPushFiles(uploads)
+	return preparedTeamSyncPush{
+		localChecksums: localChecksums,
+		localTree:      localTree,
+		filtered:       filtered,
+		batches:        buildTeamSyncBatches(filtered.Allowed, deletes, s.state.ServerMaxEntries),
+	}, true, nil
+}
+
+func (s *TeamSyncService) pushBatchLocked(ctx context.Context, batch teamSyncBatch) (TeamSyncPushResponse, error) {
+	return s.remote.PushFiles(ctx, TeamSyncPushRequest{
+		RepoSlug:      s.repoSlug,
+		IfMatch:       strings.TrimSpace(s.state.ServerETag),
+		Uploads:       batch.Uploads,
+		Deletes:       batch.Deletes,
+		BaseChecksums: cloneChecksumMap(s.state.ServerChecksums),
+	})
+}
+
+func (s *TeamSyncService) handlePushBatchResponseLocked(
+	ctx context.Context,
+	trigger TeamSyncTrigger,
+	retried bool,
+	filtered TeamMemPrePushScanResult,
+	result TeamSyncPushResult,
+	response TeamSyncPushResponse,
+) (bool, TeamSyncPushResult, error) {
+	stop, updated, err := s.applyPushBatchLimitsLocked(result, response)
+	if err != nil || stop {
+		return stop, updated, err
+	}
+	if response.Conflict {
+		return s.handlePushConflictLocked(ctx, trigger, retried, filtered, updated, response)
+	}
+	if response.NotFound {
+		updated.Failed = mergeFailures(updated.Failed, map[string]string{"remote": "not_found"})
+		return true, updated, nil
+	}
+	applyPushResponse(&s.state, response)
+	updated.Applied = updated.Applied || len(response.Applied) > 0 || len(response.Deleted) > 0
+	updated.Failed = mergeFailures(updated.Failed, response.Failed)
+	return false, updated, nil
+}
+
+func (s *TeamSyncService) applyPushBatchLimitsLocked(
+	result TeamSyncPushResult,
+	response TeamSyncPushResponse,
+) (bool, TeamSyncPushResult, error) {
+	if response.MaxEntries <= 0 {
+		return false, result, nil
+	}
+	s.state.ServerMaxEntries = response.MaxEntries
+	if err := s.persistStateLocked(); err != nil {
+		return false, result, err
+	}
+	result.LearnedMaxEntries = true
+	if len(response.Applied) == 0 && len(response.Deleted) == 0 && len(response.Failed) == 0 && !response.Conflict {
+		return true, result, nil
+	}
+	return false, result, nil
+}
+
+func (s *TeamSyncService) handlePushConflictLocked(
+	ctx context.Context,
+	trigger TeamSyncTrigger,
+	retried bool,
+	filtered TeamMemPrePushScanResult,
+	result TeamSyncPushResult,
+	response TeamSyncPushResponse,
+) (bool, TeamSyncPushResult, error) {
+	if retried {
+		result.Failed = mergeFailures(result.Failed, mergeFailures(response.Failed, skippedFailures(filtered.Skipped)))
+		return true, result, nil
+	}
+	if _, err := s.pullLocked(ctx, TeamSyncTriggerConflict); err != nil {
+		return true, result, err
+	}
+	retry, err := s.pushLocked(ctx, trigger, true)
+	if err != nil {
+		return true, retry, err
+	}
+	retry.Retried = true
+	return true, retry, nil
+}
+
+func (s *TeamSyncService) finalizePushLocked(
+	ctx context.Context,
+	trigger TeamSyncTrigger,
+	result TeamSyncPushResult,
+	plan preparedTeamSyncPush,
+) (TeamSyncPushResult, error) {
+	if checksumMapsEqual(plan.localChecksums, s.state.ServerChecksums) {
+		s.state.LastKnownChecksum = plan.localTree
+	}
+	if err := s.persistStateLocked(); err != nil {
+		return result, err
+	}
+	result.Failed = mergeFailures(result.Failed, skippedFailures(plan.filtered.Skipped))
+	if result.Applied {
+		s.invalidateLocked(ctx, trigger)
+	}
+	return result, nil
+}
+
+func appendTeamSyncUploads(
+	current *teamSyncBatch,
+	uploads map[string]string,
+	keys []string,
+	limit int,
+	count *int,
+	flush func(),
+) {
+	for _, key := range keys {
+		if *count == limit {
 			flush()
 		}
 		current.Uploads[key] = uploads[key]
-		count++
+		*count = *count + 1
 	}
-	for _, key := range deleteKeys {
-		if count == limit {
+}
+
+func appendTeamSyncDeletes(
+	current *teamSyncBatch,
+	keys []string,
+	limit int,
+	count *int,
+	flush func(),
+) {
+	for _, key := range keys {
+		if *count == limit {
 			flush()
 		}
 		current.Deletes = append(current.Deletes, key)
-		count++
+		*count = *count + 1
 	}
-	flush()
-	return batches
 }
 
 func applyPushResponse(state *SyncState, response TeamSyncPushResponse) {

@@ -17,6 +17,7 @@ const (
 	envClaudeMemoryPathOverride    = "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"
 	envEnableMemorySystem          = "ENABLE_MEMORY_SYSTEM"
 	envClaudeDisableAutoMemory     = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"
+	envClaudeDisableClaudeMds      = "CLAUDE_CODE_DISABLE_CLAUDE_MDS"
 	envClaudeSimple                = "CLAUDE_CODE_SIMPLE"
 	envClaudeRemote                = "CLAUDE_CODE_REMOTE"
 	envEnableMemoryTools           = "ENABLE_MEMORY_TOOLS"
@@ -49,18 +50,35 @@ type NestedMemoryConfig struct {
 	Enabled bool
 }
 
+type TrustedPathSettingSource string
+
+const (
+	TrustedPathSettingSourceNone   TrustedPathSettingSource = ""
+	TrustedPathSettingSourcePolicy TrustedPathSettingSource = "policy"
+	TrustedPathSettingSourceFlag   TrustedPathSettingSource = "flag"
+	TrustedPathSettingSourceLocal  TrustedPathSettingSource = "local"
+	TrustedPathSettingSourceUser   TrustedPathSettingSource = "user"
+)
+
+type TrustedAutoMemPathOverride struct {
+	Path   string
+	Source TrustedPathSettingSource
+}
+
 type Config struct {
-	Enabled             bool
-	EnableTools         bool
-	RootDir             string
-	ProjectRoot         string
-	AutoMemPathOverride string
-	SkipIndex           bool
-	ExtractOnStop       bool
-	ExtraGuidelines     []string
-	Features            MemoryFeatureFlags
-	Kairos              KairosConfig
-	NestedMemory        NestedMemoryConfig
+	Enabled                    bool
+	EnableTools                bool
+	RootDir                    string
+	ProjectRoot                string
+	EnvAutoMemPathOverride     string
+	TrustedAutoMemPathOverride TrustedAutoMemPathOverride
+	AutoMemPathOverride        string
+	SkipIndex                  bool
+	ExtractOnStop              bool
+	ExtraGuidelines            []string
+	Features                   MemoryFeatureFlags
+	Kairos                     KairosConfig
+	NestedMemory               NestedMemoryConfig
 }
 
 type MemoryPathClass string
@@ -77,15 +95,17 @@ type TeamMemoryManager struct {
 
 func NewConfig(platformCfg *platformconfig.Config) *Config {
 	kairosEnabled := parseBoolEnv(envFeatureKairos, false)
+	envOverride := firstNonEmptyEnv(envMemoryPathOverride, envClaudeMemoryPathOverride)
 	cfg := &Config{
-		Enabled:             parseBoolEnv(envEnableMemorySystem, false),
-		EnableTools:         parseBoolEnv(envEnableMemoryTools, false),
-		RootDir:             defaultRootDir(platformCfg),
-		ProjectRoot:         defaultProjectRoot(platformCfg),
-		AutoMemPathOverride: firstNonEmptyEnv(envMemoryPathOverride, envClaudeMemoryPathOverride),
-		SkipIndex:           parseBoolEnv(envMemorySkipIndex, false),
-		ExtractOnStop:       parseBoolEnv(envMemoryExtractOnStop, false),
-		ExtraGuidelines:     parseGuidelinesEnv(envMemoryExtraGuidelines, envClaudeMemoryExtraGuidelines),
+		Enabled:                parseBoolEnv(envEnableMemorySystem, false),
+		EnableTools:            parseBoolEnv(envEnableMemoryTools, false),
+		RootDir:                defaultRootDir(platformCfg),
+		ProjectRoot:            defaultProjectRoot(platformCfg),
+		EnvAutoMemPathOverride: envOverride,
+		AutoMemPathOverride:    envOverride,
+		SkipIndex:              parseBoolEnv(envMemorySkipIndex, false),
+		ExtractOnStop:          parseBoolEnv(envMemoryExtractOnStop, false),
+		ExtraGuidelines:        parseGuidelinesEnv(envMemoryExtraGuidelines, envClaudeMemoryExtraGuidelines),
 		Features: MemoryFeatureFlags{
 			Kairos:            kairosEnabled,
 			TeamMemory:        parseBoolEnv(envFeatureTeamMemory, false),
@@ -108,11 +128,19 @@ func NewTeamMemoryManager(cfg *Config) *TeamMemoryManager {
 }
 
 func (c *Config) IsMemoryEnabled() bool {
-	return ResolveMemoryGate(contract.BuildCtx{}, c).AutoEnabled
+	return memoryProductEnabled(c) && ResolveMemoryGate(contract.BuildCtx{}, c).AutoEnabled
 }
 
 func (c *Config) HasAutoMemPathOverride() bool {
-	return hasAutoMemPathOverride(c)
+	return configuredAutoMemPathOverride(c) != ""
+}
+
+func (c *Config) ResolvedAutoMemPathOverride() string {
+	return configuredAutoMemPathOverride(c)
+}
+
+func (c *Config) TrustedAutoMemPathSource() TrustedPathSettingSource {
+	return resolveTrustedAutoMemPathSource(c)
 }
 
 func (c *Config) IsAutoMemPath(path string) bool {
@@ -207,19 +235,63 @@ func (m *TeamMemoryManager) ValidateTeamMemKey(key string) error {
 	return validateTeamMemKeyRequest(m, key)
 }
 
+func memoryProductEnabled(cfg *Config) bool {
+	return cfg == nil || cfg.Enabled
+}
+
+func envAutoMemPathOverride(cfg *Config) string {
+	if override := firstNonEmptyEnv(envMemoryPathOverride, envClaudeMemoryPathOverride); override != "" {
+		return override
+	}
+	if cfg == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.EnvAutoMemPathOverride)
+}
+
+func trustedAutoMemPathOverride(cfg *Config) (string, TrustedPathSettingSource) {
+	if cfg == nil {
+		return "", TrustedPathSettingSourceNone
+	}
+	if override := strings.TrimSpace(cfg.TrustedAutoMemPathOverride.Path); override != "" {
+		return override, normalizeTrustedPathSettingSource(cfg.TrustedAutoMemPathOverride.Source)
+	}
+	if override := strings.TrimSpace(cfg.AutoMemPathOverride); override != "" {
+		return override, TrustedPathSettingSourceLocal
+	}
+	return "", TrustedPathSettingSourceNone
+}
+
+func configuredAutoMemPathOverride(cfg *Config) string {
+	if override := envAutoMemPathOverride(cfg); override != "" {
+		return override
+	}
+	override, _ := trustedAutoMemPathOverride(cfg)
+	return override
+}
+
+func resolveTrustedAutoMemPathSource(cfg *Config) TrustedPathSettingSource {
+	_, source := trustedAutoMemPathOverride(cfg)
+	return source
+}
+
+func normalizeTrustedPathSettingSource(source TrustedPathSettingSource) TrustedPathSettingSource {
+	switch source {
+	case TrustedPathSettingSourcePolicy, TrustedPathSettingSourceFlag, TrustedPathSettingSourceLocal, TrustedPathSettingSourceUser:
+		return source
+	default:
+		return TrustedPathSettingSourceLocal
+	}
+}
+
 func hasPersistentMemoryStorage(cfg *Config) bool {
 	if firstNonEmptyEnv(
 		envMemoryRoot,
 		envClaudeRemoteMemoryDir,
-		envMemoryPathOverride,
-		envClaudeMemoryPathOverride,
 	) != "" {
 		return true
 	}
-	if cfg == nil {
-		return false
-	}
-	return strings.TrimSpace(cfg.AutoMemPathOverride) != ""
+	return configuredAutoMemPathOverride(cfg) != ""
 }
 
 func HandleDateChange() {}

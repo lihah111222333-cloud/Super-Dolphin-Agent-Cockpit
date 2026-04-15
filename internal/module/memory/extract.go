@@ -12,7 +12,12 @@ import (
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-const defaultExtractMaxItems = 8
+const (
+	defaultExtractMaxItems    = 8
+	extractScopePrivate       = "private"
+	extractScopeTeam          = "team"
+	extractedMemoryNameMaxLen = 96
+)
 
 var (
 	htmlCommentLinePattern = regexp.MustCompile(`<!--.*?-->`)
@@ -28,9 +33,12 @@ type ExtractParams struct {
 }
 
 type ExtractedMemory struct {
-	Content string
-	Type    MemoryType
-	Tags    []string
+	Scope       string
+	Name        string
+	Description string
+	Type        MemoryType
+	Content     string
+	Tags        []string
 }
 
 type MemoryExtractor struct {
@@ -106,9 +114,9 @@ func normalizeExtractedMemories(items []ExtractedMemory, limit int) []ExtractedM
 		if strings.TrimSpace(item.Content) == "" {
 			continue
 		}
-		key := CanonicalName(firstNonEmptyLine(item.Content))
+		key := extractedMemoryDedupKey(item)
 		if key == "" {
-			key = CanonicalName(item.Content)
+			continue
 		}
 		if _, ok := seen[key]; ok {
 			continue
@@ -123,16 +131,166 @@ func normalizeExtractedMemories(items []ExtractedMemory, limit int) []ExtractedM
 }
 
 func normalizeExtractedMemory(item ExtractedMemory) ExtractedMemory {
-	item.Content = normalizeHookContent(item.Content)
+	item.Scope = normalizeExtractedMemoryScope(item.Scope)
 	item.Type = ParseMemoryType(string(item.Type))
 	if !item.Type.IsKnown() {
-		item.Type = inferMemoryType(item.Content)
+		item.Type = inferMemoryType(strings.Join(nonEmptyExtractedParts(item.Name, item.Description, item.Content), "\n"))
 	}
+	item.Content = normalizeExtractedMemoryContent(item)
+	item.Description = normalizeExtractedMemoryDescription(item)
+	item.Name = normalizeExtractedMemoryName(item)
 	item.Tags = normalizeStringSlice(item.Tags)
 	if len(item.Tags) > 6 {
 		item.Tags = item.Tags[:6]
 	}
 	return item
+}
+
+func normalizeExtractedMemoryScope(scope string) string {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case extractScopeTeam:
+		return extractScopeTeam
+	default:
+		return extractScopePrivate
+	}
+}
+
+func normalizeExtractedMemoryContent(item ExtractedMemory) string {
+	content := normalizeHookContent(firstNonEmptyExtractedPart(item.Content, item.Description, item.Name))
+	if content == "" {
+		return ""
+	}
+	return ensureStructuredExtractedContent(item.Type, content)
+}
+
+func normalizeExtractedMemoryDescription(item ExtractedMemory) string {
+	description := normalizeHookContent(item.Description)
+	if description == "" {
+		description = firstNonEmptyLine(item.Content)
+	}
+	description = strings.Join(strings.Fields(description), " ")
+	return truncateRunes(description, memoryHookMaxRunes)
+}
+
+func normalizeExtractedMemoryName(item ExtractedMemory) string {
+	name := normalizeHookContent(item.Name)
+	if name == "" {
+		name = item.Description
+	}
+	name = strings.Join(strings.Fields(name), " ")
+	if name == "" {
+		if item.Type.IsKnown() {
+			name = string(item.Type) + " note"
+		} else {
+			name = "memory note"
+		}
+	}
+	return truncateRunes(name, extractedMemoryNameMaxLen)
+}
+
+func ensureStructuredExtractedContent(memoryType MemoryType, content string) string {
+	if strings.TrimSpace(content) == "" {
+		return ""
+	}
+	switch memoryType {
+	case MemoryTypeFeedback, MemoryTypeProject:
+		return appendMissingStructuredSections(memoryType, content)
+	default:
+		return content
+	}
+}
+
+func appendMissingStructuredSections(memoryType MemoryType, content string) string {
+	lines := []string{strings.TrimSpace(content)}
+	if !hasStructuredExtractedLabel(content, "why") {
+		lines = append(lines, defaultStructuredWhy(memoryType))
+	}
+	if !hasStructuredExtractedLabel(content, "how to apply") {
+		lines = append(lines, defaultStructuredHowToApply(memoryType))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func hasStructuredExtractedLabel(content, label string) bool {
+	for line := range strings.SplitSeq(content, "\n") {
+		normalized := strings.ToLower(strings.TrimSpace(line))
+		normalized = strings.TrimPrefix(normalized, "- ")
+		normalized = strings.ReplaceAll(normalized, "**", "")
+		if strings.HasPrefix(normalized, label+":") {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultStructuredWhy(memoryType MemoryType) string {
+	switch memoryType {
+	case MemoryTypeProject:
+		return "Why: This preserves non-obvious project context that may not be derivable from the current code or git history."
+	default:
+		return "Why: This is confirmed working guidance that should shape similar future work."
+	}
+}
+
+func defaultStructuredHowToApply(memoryType MemoryType) string {
+	switch memoryType {
+	case MemoryTypeProject:
+		return "How to apply: Re-check the current code, docs, and user input before acting, then use this context to guide follow-up work."
+	default:
+		return "How to apply: Apply this rule in similar work unless newer evidence or direct user input overrides it."
+	}
+}
+
+func extractedMemoryDedupKey(item ExtractedMemory) string {
+	for _, candidate := range []string{
+		CanonicalName(item.Name),
+		CanonicalName(item.Description),
+		CanonicalName(firstNonEmptyLine(item.Content)),
+		CanonicalName(item.Content),
+	} {
+		if candidate != "" {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyExtractedPart(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func nonEmptyExtractedParts(values ...string) []string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return parts
+}
+
+func extractPromptTaxonomySection() string {
+	engine := resolvedRuleEngine(nil)
+	lines := make([]string, 0, len(engine.order)+1)
+	for _, memoryType := range engine.order {
+		behavior := engine.rules[memoryType]
+		line := fmt.Sprintf("`%s`: %s", memoryType, behavior.Summary)
+		if memoryType == MemoryTypeFeedback || memoryType == MemoryTypeProject {
+			line += " Body must be structured as the main rule/fact followed by `Why:` and `How to apply:` lines."
+		}
+		lines = append(lines, line)
+	}
+	lines = append(lines, "`scope` must be `private` or `team`; default to `private` unless the memory is safe and broadly useful to collaborators.")
+	return renderSection("Memory taxonomy", lines)
+}
+
+func extractPromptExclusionsSection() string {
+	return renderSection("What not to save", standardExclusionRules)
 }
 
 func extractLimit(limit, fallback int) int {

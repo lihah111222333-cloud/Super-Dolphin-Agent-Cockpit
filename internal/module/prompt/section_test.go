@@ -168,3 +168,47 @@ func TestStaticSectionsEngineeringSkipsWhenKeepCodingDisabled(t *testing.T) {
 	}
 	t.Fatal("engineering section not found")
 }
+
+func TestStaticSectionsToolPreferencesUsePlannerAwareHint(t *testing.T) {
+	for _, section := range StaticSections() {
+		if section.Name != SectionToolPreferences {
+			continue
+		}
+		content, err := section.Compute(context.Background(), SectionContext{
+			BuildCtx: BuildCtx{EnabledTools: []string{"lsp_file", "update_plan"}},
+		})
+		if err != nil {
+			t.Fatalf("tool_preferences Compute() error = %v", err)
+		}
+		if content == nil || !strings.Contains(*content, "update_plan or task_create_dag") {
+			t.Fatalf("tool_preferences content = %v, want planner-aware hint", content)
+		}
+		return
+	}
+	t.Fatal("tool_preferences section not found")
+}
+
+func TestStaticSectionsToolPreferencesUseReplModeBranch(t *testing.T) {
+	for _, section := range StaticSections() {
+		if section.Name != SectionToolPreferences {
+			continue
+		}
+		content, err := section.Compute(context.Background(), SectionContext{
+			BuildCtx: BuildCtx{
+				EnabledTools: []string{"update_plan"},
+				SessionFlags: map[string]bool{"repl_mode": true},
+			},
+		})
+		if err != nil {
+			t.Fatalf("tool_preferences Compute() error = %v", err)
+		}
+		if content == nil || !strings.Contains(*content, "In REPL mode") {
+			t.Fatalf("tool_preferences content = %v, want repl branch", content)
+		}
+		if strings.Contains(*content, "Do not reach for shell fallbacks") {
+			t.Fatalf("tool_preferences content = %q, want repl branch without default shell-fallback bullet", *content)
+		}
+		return
+	}
+	t.Fatal("tool_preferences section not found")
+}

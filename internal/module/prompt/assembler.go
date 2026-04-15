@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -18,9 +19,14 @@ type computedSectionValue struct {
 	Value *string
 }
 
+const simpleStartIdentityLine = "You are Claude Code, Anthropic's official CLI for Claude."
+
 func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssembly, error) {
 	if err := ctx.Err(); err != nil {
 		return StartAssembly{}, err
+	}
+	if simpleStartEnabled(in) {
+		return s.simpleStartAssembly(in), nil
 	}
 
 	resolved, err := s.resolveSections(ctx, s.startSections(), buildStartSectionContext(in))
@@ -28,16 +34,46 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		s.logBuildFallback("start", err)
 		return s.fallbackStartAssembly(ctx, in), nil
 	}
-	base := joinBlocks(renderResolvedSections(resolved), strings.TrimSpace(in.BaseInstructions))
-	dev := joinBlocks(s.renderSystemContext(ctx, in), strings.TrimSpace(in.DeveloperInstructions))
+	boundary := startAssemblyBoundary(resolved, strings.TrimSpace(in.BaseInstructions))
+	base := joinBlocks(boundaryCachedPrefix(boundary), boundaryUncachedTail(boundary))
+	dev := strings.TrimSpace(in.DeveloperInstructions)
 	displayName := shared.FirstNonEmpty(strings.TrimSpace(in.Name), strings.TrimSpace(in.Prompt))
 	return StartAssembly{
 		DisplayName:           displayName,
 		BaseInstructions:      base,
+		Boundary:              clonePromptBoundary(boundary),
 		DeveloperInstructions: dev,
 		ResolvedSections:      resolved,
-		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, resolved),
+		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, boundary, resolved),
 	}, nil
+}
+
+func simpleStartEnabled(in StartInput) bool {
+	if parseBoolEnv(envClaudeSimple, false) {
+		return true
+	}
+	for _, key := range []string{"simple_mode", "simpleMode", "simple"} {
+		if in.SessionFlags[key] {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *service) simpleStartAssembly(in StartInput) StartAssembly {
+	displayName := shared.FirstNonEmpty(strings.TrimSpace(in.Name), strings.TrimSpace(in.Prompt))
+	base := strings.Join([]string{
+		simpleStartIdentityLine,
+		"CWD: " + currentPromptCWD(buildStartCtx(in)),
+		"Date: " + time.Now().Format("2006-01-02"),
+	}, "\n")
+	dev := strings.TrimSpace(in.DeveloperInstructions)
+	return StartAssembly{
+		DisplayName:           displayName,
+		BaseInstructions:      base,
+		DeveloperInstructions: dev,
+		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, nil, nil),
+	}
 }
 
 func (s *service) AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly, error) {
@@ -45,22 +81,25 @@ func (s *service) AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly,
 		return TurnAssembly{}, err
 	}
 
-	resolved, err := s.resolveSections(ctx, s.dynamicSections(), buildTurnSectionContext(in))
+	sectionCtx := buildTurnSectionContext(in)
+	resolved, err := s.resolveSections(ctx, s.dynamicSections(), sectionCtx)
 	if err != nil {
 		s.logBuildFallback("turn", err)
 		return TurnAssembly{}, nil
 	}
-	buildCtx := buildTurnCtx(in)
+	buildCtx := sectionCtx.BuildCtx
 	sources := s.resolveClaudeMdSources(ctx, buildCtx)
 	base := s.buildBaseUserContext(ctx, sources)
 	extras := CollectRuntimeUserContext(in, resolved)
 	merged := MergeRuntimeUserContext(base, extras)
-	var attachments []dto.AttachmentEnvelope
+	attachments := s.resolveDynamicTurnAttachments(ctx, sectionCtx)
 	if provider, ok := s.claudeMdProvider.(contract.TurnAttachmentProvider); ok {
-		attachments = append([]dto.AttachmentEnvelope(nil), provider.ResolveTurnAttachments(ctx, buildCtx, in, sources)...)
+		attachments = append(attachments, provider.ResolveTurnAttachments(ctx, buildCtx, in, sources)...)
 	}
 	return TurnAssembly{
-		UserContextText:  FormatUserContextMessage(merged),
+		UserContext:      map[string]string(cloneUserContextPayload(merged)),
+		UserContextText:  FormatUserContextText(merged),
+		SystemContext:    s.buildSystemContext(ctx, buildCtx),
 		Attachments:      attachments,
 		ResolvedSections: resolved,
 	}, nil
@@ -118,7 +157,7 @@ func (s *service) resolveSection(ctx context.Context, section PromptSection, inp
 	}
 	cacheKey, cacheable := sectionInputCacheKey(section, input)
 	generation := s.cache.Generation()
-	if cacheable {
+	if cacheable && !section.Volatile {
 		if cached, ok := s.cache.Lookup(cacheKey, generation); ok {
 			return resolvedSection(section, cached), nil
 		}
@@ -133,6 +172,17 @@ func (s *service) resolveSection(ctx context.Context, section PromptSection, inp
 func (s *service) computeSection(ctx context.Context, generation uint64, section PromptSection, cacheKey string, cacheable bool, input SectionContext) (*string, error) {
 	if section.Compute == nil {
 		return nil, nil
+	}
+	if section.Volatile {
+		value, err := section.Compute(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		if !cacheable {
+			return cloneStringPtr(value), nil
+		}
+		stable, _ := s.cache.ObserveVolatile(cacheKey, generation, value)
+		return stable, nil
 	}
 	if !cacheable {
 		value, err := section.Compute(ctx, input)
@@ -188,27 +238,32 @@ func (s *service) regionSections(region PromptRegion) []PromptSection {
 	return sections
 }
 
-func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) StartAssembly {
+func (s *service) fallbackStartAssembly(_ context.Context, in StartInput) StartAssembly {
 	displayName := shared.FirstNonEmpty(strings.TrimSpace(in.Name), strings.TrimSpace(in.Prompt))
 	base := strings.TrimSpace(in.BaseInstructions)
-	dev := joinBlocks(s.renderSystemContext(ctx, in), strings.TrimSpace(in.DeveloperInstructions))
+	dev := strings.TrimSpace(in.DeveloperInstructions)
 	return StartAssembly{
 		DisplayName:           displayName,
 		BaseInstructions:      base,
 		DeveloperInstructions: dev,
-		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, nil),
+		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, nil, nil),
 	}
 }
 
-func (s *service) newSnapshot(displayName, base, dev, provider string, sections []ResolvedPromptSection) PromptAssemblySnapshot {
+func (s *service) newSnapshot(
+	displayName, base, dev, provider string,
+	boundary *dto.PromptAssemblyBoundary,
+	sections []ResolvedPromptSection,
+) PromptAssemblySnapshot {
 	provider = strings.TrimSpace(provider)
 	return PromptAssemblySnapshot{
 		DisplayName:           displayName,
 		BaseInstructions:      base,
+		Boundary:              clonePromptBoundary(boundary),
 		DeveloperInstructions: dev,
 		Provider:              provider,
 		Version:               SnapshotVersion,
-		Hash:                  snapshotHash(displayName, base, dev, provider),
+		Hash:                  snapshotHash(snapshotHashParts(displayName, base, dev, provider, boundary)...),
 		SectionSnapshot:       resolvedSectionSnapshot(sections),
 		Generation:            s.cache.Generation(),
 	}
@@ -262,8 +317,10 @@ func buildStartCtx(in StartInput) BuildCtx {
 		ClaudeMdExcludes:             append([]string(nil), in.ClaudeMdExcludes...),
 		MCPSnapshot:                  copyMCPSnapshot(in.MCPSnapshot),
 		SessionFlags:                 copyFlags(in.SessionFlags),
+		Summary:                      strings.TrimSpace(in.Summary),
 		OutputStyleConfig:            copyOutputStyleConfig(in.OutputStyleConfig),
 		ScratchpadDir:                strings.TrimSpace(in.ScratchpadDir),
+		FRCConfig:                    copyFRCConfig(in.FRCConfig),
 		KeepCodingInstructions:       copyOptionalBool(in.KeepCodingInstructions),
 	}
 }
@@ -281,8 +338,10 @@ func buildTurnCtx(in TurnInput) BuildCtx {
 		ClaudeMdExcludes:             append([]string(nil), in.ClaudeMdExcludes...),
 		MCPSnapshot:                  copyMCPSnapshot(in.MCPSnapshot),
 		SessionFlags:                 copyFlags(in.SessionFlags),
+		Summary:                      strings.TrimSpace(in.Summary),
 		OutputStyleConfig:            copyOutputStyleConfig(in.OutputStyleConfig),
 		ScratchpadDir:                strings.TrimSpace(in.ScratchpadDir),
+		FRCConfig:                    copyFRCConfig(in.FRCConfig),
 		KeepCodingInstructions:       copyOptionalBool(in.KeepCodingInstructions),
 	}
 }
@@ -301,6 +360,32 @@ func copyMCPSnapshot(snapshot MCPSnapshot) MCPSnapshot {
 	return cloned
 }
 
+type dynamicTurnAttachmentProvider interface {
+	ResolveTurnAttachments(context.Context, SectionContext) []dto.AttachmentEnvelope
+}
+
+func (s *service) resolveDynamicTurnAttachments(ctx context.Context, sectionCtx SectionContext) []dto.AttachmentEnvelope {
+	if s == nil {
+		return nil
+	}
+	sections := s.dynamicSections()
+	attachments := make([]dto.AttachmentEnvelope, 0, len(sections))
+	s.dynamicMu.RLock()
+	defer s.dynamicMu.RUnlock()
+	for _, section := range sections {
+		provider, ok := s.dynamic[section.Name]
+		if !ok || section.StartOnly {
+			continue
+		}
+		attachmentProvider, ok := provider.(dynamicTurnAttachmentProvider)
+		if !ok {
+			continue
+		}
+		attachments = append(attachments, attachmentProvider.ResolveTurnAttachments(ctx, sectionCtx)...)
+	}
+	return attachments
+}
+
 func copyOutputStyleConfig(cfg *OutputStyleConfig) *OutputStyleConfig {
 	if cfg == nil {
 		return nil
@@ -308,6 +393,13 @@ func copyOutputStyleConfig(cfg *OutputStyleConfig) *OutputStyleConfig {
 	cloned := *cfg
 	cloned.KeepCodingInstructions = copyOptionalBool(cfg.KeepCodingInstructions)
 	return &cloned
+}
+
+func copyFRCConfig(cfg *contract.FRCConfig) *contract.FRCConfig {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.Normalize()
 }
 
 func copyOptionalBool(value *bool) *bool {
@@ -343,14 +435,29 @@ func resolvedSection(section PromptSection, value *string) *ResolvedPromptSectio
 	}
 }
 
-func renderResolvedSections(sections []ResolvedPromptSection) string {
+func renderResolvedSectionsByRegion(sections []ResolvedPromptSection, region PromptRegion) string {
 	blocks := make([]string, 0, len(sections))
 	for _, section := range sections {
+		if section.Region != region {
+			continue
+		}
 		if content := strings.TrimSpace(section.Content); content != "" {
 			blocks = append(blocks, content)
 		}
 	}
 	return strings.Join(blocks, "\n\n")
+}
+
+func startAssemblyBoundary(resolved []ResolvedPromptSection, baseTail string) *dto.PromptAssemblyBoundary {
+	prefix := renderResolvedSectionsByRegion(resolved, PromptRegionStatic)
+	tail := joinBlocks(renderResolvedSectionsByRegion(resolved, PromptRegionDynamic), baseTail)
+	if prefix == "" && tail == "" {
+		return nil
+	}
+	return &dto.PromptAssemblyBoundary{
+		CachedPrefix: prefix,
+		UncachedTail: tail,
+	}
 }
 
 func resolvedSectionSnapshot(sections []ResolvedPromptSection) map[string]string {
@@ -380,6 +487,39 @@ func joinBlocks(parts ...string) string {
 		}
 	}
 	return strings.Join(blocks, "\n\n")
+}
+
+func clonePromptBoundary(boundary *dto.PromptAssemblyBoundary) *dto.PromptAssemblyBoundary {
+	if boundary == nil {
+		return nil
+	}
+	cloned := dto.PromptAssemblyBoundary{
+		CachedPrefix: strings.TrimSpace(boundary.CachedPrefix),
+		UncachedTail: strings.TrimSpace(boundary.UncachedTail),
+	}
+	if cloned.CachedPrefix == "" && cloned.UncachedTail == "" {
+		return nil
+	}
+	return &cloned
+}
+
+func boundaryCachedPrefix(boundary *dto.PromptAssemblyBoundary) string {
+	if boundary == nil {
+		return ""
+	}
+	return strings.TrimSpace(boundary.CachedPrefix)
+}
+
+func boundaryUncachedTail(boundary *dto.PromptAssemblyBoundary) string {
+	if boundary == nil {
+		return ""
+	}
+	return strings.TrimSpace(boundary.UncachedTail)
+}
+
+func snapshotHashParts(displayName, base, dev, provider string, boundary *dto.PromptAssemblyBoundary) []string {
+	parts := []string{displayName, base, dev, provider}
+	return append(parts, boundaryCachedPrefix(boundary), boundaryUncachedTail(boundary))
 }
 
 func snapshotHash(parts ...string) string {

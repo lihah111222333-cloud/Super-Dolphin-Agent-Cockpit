@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	agentMemoryDirName       = "agents"
-	agentMemoryLocalDirName  = "local"
+	agentMemoryDirName       = "agent-memory"
+	agentMemoryLocalDirName  = "agent-memory-local"
+	agentMemoryConfigDirName = ".claude"
 	emptyAgentMemoryPrompt   = "Your MEMORY.md is currently empty. Save only durable, agent-specific context here."
 	unreadableAgentMemoryMsg = "WARNING: MEMORY.md could not be read; continuing with empty agent memory."
 )
@@ -96,6 +97,9 @@ func (m *AgentMemoryManager) EnsureAgentMemoryDir(agentType string, scope Memory
 }
 
 func (m *AgentMemoryManager) LoadAgentMemoryPrompt(agentType string, scope MemoryScope) (string, error) {
+	if err := m.EnsureAgentMemoryDir(agentType, scope); err != nil {
+		return "", err
+	}
 	result, err := m.loadAgentMemoryPrompt(agentType, scope)
 	if err != nil {
 		return "", err
@@ -165,11 +169,9 @@ func (m *AgentMemoryManager) loadAgentMemoryPrompt(agentType string, scope Memor
 	if err != nil {
 		return agentMemoryLoadResult{}, err
 	}
-	if err := ensureAgentMemoryDir(filepath.Dir(entrypoint)); err != nil {
-		return agentMemoryLoadResult{}, err
-	}
 	entrypointResult := loadAgentMemoryEntrypoint(entrypoint)
-	gate := ResolveMemoryGate(contract.BuildCtx{}, m.config())
+	cfg := m.config()
+	gate := ResolveMemoryGate(contract.BuildCtx{}, &cfg)
 	rules := strings.TrimSpace(BuildMemoryLines(false, gate.SearchPastContextEnabled, append(
 		agentMemoryGuidelines(scope),
 		cloneStrings(m.config().ExtraGuidelines)...,
@@ -201,38 +203,67 @@ func (p *AgentMemoryPromptProvider) Resolve(_ context.Context, input prompt.Sect
 	if !ok {
 		return nil, nil
 	}
-	result, err := p.manager.loadAgentMemoryPrompt(meta.agentType, meta.scope)
-	if err != nil {
-		if p.logger != nil {
-			p.logger.Warn("agent memory prompt load failed",
-				"memory_type", "agent",
-				"agent_type", meta.agentType,
-				"scope", string(meta.scope),
-				"scope_display", GetMemoryScopeDisplay(meta.scope),
-				"status", agentMemoryFailureStatus(meta.scope, err),
-				"error", err,
-			)
-		}
+	if !p.ensureAgentMemoryDir(meta) {
+		return nil, nil
+	}
+	result, ok := p.loadAgentMemoryPrompt(meta)
+	if !ok {
 		return nil, nil
 	}
 	text := result.prompt
 	if text = strings.TrimSpace(text); text == "" {
 		return nil, nil
 	}
-	if p.logger != nil {
-		p.logger.Info("agent memory prompt loaded",
-			"memory_type", "agent",
-			"agent_type", meta.agentType,
-			"scope", string(meta.scope),
-			"scope_display", GetMemoryScopeDisplay(meta.scope),
-			"content_length", result.contentLength,
-			"line_count", result.lineCount,
-			"was_truncated", result.wasTruncated,
-			"was_byte_truncated", result.wasByteTruncated,
-			"status", agentMemorySuccessStatus(result),
-		)
-	}
+	p.logAgentMemoryPromptLoaded(meta, result)
 	return &text, nil
+}
+
+func (p *AgentMemoryPromptProvider) ensureAgentMemoryDir(meta childAgentStart) bool {
+	if err := p.manager.EnsureAgentMemoryDir(meta.agentType, meta.scope); err != nil {
+		p.logAgentMemoryPromptFailure("agent memory prompt preload failed", meta, err)
+		return false
+	}
+	return true
+}
+
+func (p *AgentMemoryPromptProvider) loadAgentMemoryPrompt(meta childAgentStart) (agentMemoryLoadResult, bool) {
+	result, err := p.manager.loadAgentMemoryPrompt(meta.agentType, meta.scope)
+	if err != nil {
+		p.logAgentMemoryPromptFailure("agent memory prompt load failed", meta, err)
+		return agentMemoryLoadResult{}, false
+	}
+	return result, true
+}
+
+func (p *AgentMemoryPromptProvider) logAgentMemoryPromptFailure(message string, meta childAgentStart, err error) {
+	if p == nil || p.logger == nil || err == nil {
+		return
+	}
+	p.logger.Warn(message,
+		"memory_type", "agent",
+		"agent_type", meta.agentType,
+		"scope", string(meta.scope),
+		"scope_display", GetMemoryScopeDisplay(meta.scope),
+		"status", agentMemoryFailureStatus(meta.scope, err),
+		"error", err,
+	)
+}
+
+func (p *AgentMemoryPromptProvider) logAgentMemoryPromptLoaded(meta childAgentStart, result agentMemoryLoadResult) {
+	if p == nil || p.logger == nil {
+		return
+	}
+	p.logger.Info("agent memory prompt loaded",
+		"memory_type", "agent",
+		"agent_type", meta.agentType,
+		"scope", string(meta.scope),
+		"scope_display", GetMemoryScopeDisplay(meta.scope),
+		"content_length", result.contentLength,
+		"line_count", result.lineCount,
+		"was_truncated", result.wasTruncated,
+		"was_byte_truncated", result.wasByteTruncated,
+		"status", agentMemorySuccessStatus(result),
+	)
 }
 
 func resolveChildAgentStart(input prompt.SectionContext) (childAgentStart, bool) {
@@ -277,17 +308,9 @@ func (m *AgentMemoryManager) scopeParentDir(scope MemoryScope) (string, error) {
 	case MemoryScopeUser:
 		return m.userScopeParentDir()
 	case MemoryScopeProject:
-		root, err := m.projectRootDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(root, "memory", agentMemoryDirName), nil
+		return m.projectScopeParentDir()
 	case MemoryScopeLocal:
-		root, err := m.projectRootDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(root, "memory", agentMemoryLocalDirName), nil
+		return m.localScopeParentDir()
 	default:
 		return "", fmt.Errorf("%w: %q", ErrInvalidAgentScope, scope)
 	}
@@ -304,19 +327,54 @@ func (m *AgentMemoryManager) userScopeParentDir() (string, error) {
 	return filepath.Join(strings.TrimSuffix(root, string(os.PathSeparator)), agentMemoryDirName), nil
 }
 
+func (m *AgentMemoryManager) projectScopeParentDir() (string, error) {
+	root, err := m.projectRootDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, agentMemoryConfigDirName, agentMemoryDirName), nil
+}
+
+func (m *AgentMemoryManager) localScopeParentDir() (string, error) {
+	root, err := m.projectRootDir()
+	if err != nil {
+		return "", err
+	}
+	remoteRoot, err := m.localScopeRemoteRoot()
+	if err != nil {
+		return "", err
+	}
+	if remoteRoot == "" {
+		return filepath.Join(root, agentMemoryConfigDirName, agentMemoryLocalDirName), nil
+	}
+	canonicalRoot, err := FindCanonicalGitRoot(context.Background(), root)
+	if err != nil || strings.TrimSpace(canonicalRoot) == "" {
+		canonicalRoot = root
+	}
+	return filepath.Join(remoteRoot, memoryProjectsDir, SanitizePath(canonicalRoot), agentMemoryLocalDirName), nil
+}
+
+func (m *AgentMemoryManager) localScopeRemoteRoot() (string, error) {
+	remoteRoot := strings.TrimSpace(os.Getenv(envClaudeRemoteMemoryDir))
+	if remoteRoot == "" {
+		return "", nil
+	}
+	validatedRoot, err := ValidateMemoryRoot(remoteRoot)
+	if err != nil {
+		return "", err
+	}
+	if validatedRoot == "" {
+		return "", fmt.Errorf("%w: empty root", ErrInvalidMemoryRoot)
+	}
+	return strings.TrimSuffix(validatedRoot, string(os.PathSeparator)), nil
+}
+
 func (m *AgentMemoryManager) projectRootDir() (string, error) {
 	projectRoot := strings.TrimSpace(m.config().ProjectRoot)
 	if projectRoot == "" {
 		return "", ErrInvalidProjectDir
 	}
-	canonical, err := FindCanonicalGitRoot(context.Background(), projectRoot)
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidProjectDir, err)
-	}
-	if canonical == "" {
-		return "", ErrInvalidProjectDir
-	}
-	cleaned, err := cleanAbsolutePath(canonical)
+	cleaned, err := cleanAbsolutePath(projectRoot)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidProjectDir, err)
 	}

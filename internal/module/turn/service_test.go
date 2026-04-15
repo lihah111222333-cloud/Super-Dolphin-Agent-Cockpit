@@ -157,6 +157,10 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 		Prompt: "please verify the cache",
 		CWD:    "/repo",
 		Model:  "claude-sonnet",
+		RuntimeUserContext: map[string]string{
+			"workerToolsContext": "Workers can use bash and read tools.",
+			"terminalFocus":      "The terminal is unfocused — the user is not actively watching.",
+		},
 		ThreadRuntimeConfig: map[string]any{
 			"provider":                     "codex-thread",
 			"gitRoot":                      "/thread-repo",
@@ -213,6 +217,12 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 	}
 	if assembly.lastTurnInput.SessionFlags["runtime_only"] {
 		t.Fatalf("SessionFlags = %#v, want thread-state fallback to win", assembly.lastTurnInput.SessionFlags)
+	}
+	if assembly.lastTurnInput.RuntimeUserContext["workerToolsContext"] != "Workers can use bash and read tools." {
+		t.Fatalf("RuntimeUserContext = %#v, want propagated worker tools context", assembly.lastTurnInput.RuntimeUserContext)
+	}
+	if assembly.lastTurnInput.RuntimeUserContext["terminalFocus"] == "" {
+		t.Fatalf("RuntimeUserContext = %#v, want terminal focus enhancement", assembly.lastTurnInput.RuntimeUserContext)
 	}
 }
 

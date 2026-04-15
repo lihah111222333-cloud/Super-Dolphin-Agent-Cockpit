@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -269,7 +270,12 @@ func marshalTurnPayload(text string) ([]byte, error) {
 
 func composeTurnText(req dto.TurnRequest) string {
 	return strings.TrimSpace(strings.Join(
-		nonEmptyStrings(req.TurnAssembly.UserContextText, buildAttachmentText(req.TurnAssembly.Attachments), buildTurnText(req)),
+		nonEmptyStrings(
+			contract.FormatSystemContextBlock(req.TurnAssembly.SystemContext),
+			req.TurnAssembly.RenderUserContextMessage(),
+			buildAttachmentText(req.TurnAssembly.Attachments),
+			buildTurnText(req),
+		),
 		"\n\n",
 	))
 }

@@ -32,8 +32,10 @@ type prepareInputSpec struct {
 	AdditionalWorkingDirectories []string
 	MCPSnapshot                  contract.MCPSnapshot
 	SessionFlags                 map[string]bool
+	Summary                      string
 	OutputStyleConfig            *contract.OutputStyleConfig
 	ScratchpadDir                string
+	FRCConfig                    *contract.FRCConfig
 	ThreadRuntimeConfig          map[string]any
 	BinaryDir                    string
 }
@@ -77,8 +79,10 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session p
 		AdditionalWorkingDirectories: append([]string(nil), spec.AdditionalWorkingDirectories...),
 		MCPSnapshot:                  cloneMCPSnapshot(spec.MCPSnapshot),
 		SessionFlags:                 clonePrepareFlags(spec.SessionFlags),
+		Summary:                      strings.TrimSpace(spec.Summary),
 		OutputStyleConfig:            cloneOutputStyleConfigValue(spec.OutputStyleConfig),
 		ScratchpadDir:                strings.TrimSpace(spec.ScratchpadDir),
+		FRCConfig:                    configFRCConfig(map[string]any{"frc": spec.FRCConfig}, "frc"),
 		ThreadRuntimeConfig:          platformshared.CloneRuntimeConfigMap(spec.ThreadRuntimeConfig),
 		ThreadCaps:                   caps,
 		BinaryDir:                    spec.BinaryDir,
@@ -109,8 +113,12 @@ func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInp
 	input.AdditionalWorkingDirectories = firstNonEmptyStrings(input.AdditionalWorkingDirectories, providershared.ConfigStringSlice(cfg, "additionalWorkingDirectories", "additional_working_directories"))
 	input.MCPSnapshot = mergeMCPSnapshot(input.MCPSnapshot, configMCPSnapshot(cfg))
 	input.SessionFlags = firstNonEmptyFlags(input.SessionFlags, configBoolMap(cfg, "sessionFlags", "session_flags"))
+	input.Summary = platformshared.FirstNonEmpty(strings.TrimSpace(input.Summary), providershared.ConfigString(cfg, "summary"))
 	input.OutputStyleConfig = firstNonNilOutputStyle(input.OutputStyleConfig, configOutputStyle(cfg, "outputStyleConfig", "output_style_config"))
 	input.ScratchpadDir = platformshared.FirstNonEmpty(strings.TrimSpace(input.ScratchpadDir), configScratchpadDir(cfg, "scratchpadDir", "scratchpad_dir"))
+	if input.FRCConfig == nil {
+		input.FRCConfig = configFRCConfig(cfg, "frcConfig", "frc_config")
+	}
 	return input
 }
 
@@ -160,9 +168,10 @@ func normalizePrepareBoolMap(value any) map[string]bool {
 
 func configMCPSnapshot(cfg map[string]any) contract.MCPSnapshot {
 	return contract.MCPSnapshot{
-		Servers:      providershared.ConfigStringSlice(cfg, "mcpServers", "mcp_servers"),
-		Tools:        providershared.ConfigStringSlice(cfg, "mcpTools", "mcp_tools"),
-		Instructions: configStringMap(cfg, "mcpInstructions", "mcp_instructions"),
+		Servers:                  providershared.ConfigStringSlice(cfg, "mcpServers", "mcp_servers"),
+		Tools:                    providershared.ConfigStringSlice(cfg, "mcpTools", "mcp_tools"),
+		Instructions:             configStringMap(cfg, "mcpInstructions", "mcp_instructions"),
+		InstructionsDeltaEnabled: configBool(cfg, "mcpInstructionsDeltaEnabled", "mcp_instructions_delta_enabled"),
 	}
 }
 
@@ -219,8 +228,10 @@ func cloneMCPSnapshot(snapshot contract.MCPSnapshot) contract.MCPSnapshot {
 
 func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
 	out := contract.MCPSnapshot{
-		Servers: providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Servers...), extra.Servers...)),
-		Tools:   providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Tools...), extra.Tools...)),
+		Servers:                  providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Servers...), extra.Servers...)),
+		Tools:                    providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Tools...), extra.Tools...)),
+		InstructionsDeltaEnabled: base.InstructionsDeltaEnabled || extra.InstructionsDeltaEnabled,
+		InstructionAttachments:   append(append([]contract.MCPAttachmentRef(nil), base.InstructionAttachments...), extra.InstructionAttachments...),
 	}
 	if len(base.Instructions) > 0 || len(extra.Instructions) > 0 {
 		out.Instructions = make(map[string]string, len(base.Instructions)+len(extra.Instructions))

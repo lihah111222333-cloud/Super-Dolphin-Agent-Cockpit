@@ -58,38 +58,99 @@ func TestUnregisterDynamicProviderRemovesRenderedContent(t *testing.T) {
 	}
 }
 
-func TestSessionGuidanceProviderResolveUsesEnabledTools(t *testing.T) {
-	provider := SessionGuidanceProvider{}
-	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{
-		EnabledTools: []string{"spawn_agent", "request_user_input", "request_user_input"},
-		SessionFlags: map[string]bool{"verification_required": true},
-	}})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
+type sessionGuidanceCase struct {
+	name         string
+	enabledTools []string
+	flags        map[string]bool
+	want         []string
+	absent       []string
+	wantNil      bool
+}
+
+func TestSessionGuidanceProviderResolveBranchMatrix(t *testing.T) {
+	for _, tc := range sessionGuidanceCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			text := mustSessionGuidanceText(t, tc.enabledTools, tc.flags)
+			if tc.wantNil {
+				if text != nil {
+					t.Fatalf("Resolve() = %q, want nil", *text)
+				}
+				return
+			}
+			if text == nil {
+				t.Fatal("Resolve() = nil, want content")
+			}
+			for _, check := range tc.want {
+				if !strings.Contains(*text, check) {
+					t.Fatalf("Resolve() = %q, want substring %q", *text, check)
+				}
+			}
+			for _, check := range tc.absent {
+				if strings.Contains(*text, check) {
+					t.Fatalf("Resolve() = %q, want substring %q to be absent", *text, check)
+				}
+			}
+		})
 	}
+}
+
+func sessionGuidanceCases() []sessionGuidanceCase {
+	return []sessionGuidanceCase{
+		{name: "headless_without_other_branches_returns_nil", enabledTools: []string{"lsp_file"}, flags: map[string]bool{"non_interactive": true}, wantNil: true},
+		{name: "interactive_session_shows_login_reminder", enabledTools: []string{"lsp_file"}, want: []string{"# Session-specific guidance", "! <command>", "gcloud auth login"}, absent: []string{"Verification protocol", "/<skill-name>"}},
+		{
+			name:         "traditional_agent_skills_discover_and_verification",
+			enabledTools: []string{"request_user_input", "spawn_agent", "lsp_grep", "lsp_file"},
+			flags:        map[string]bool{"explore_agent_enabled": true, "user_invocable_skills": true, "discover_skills_enabled": true, "verification_required": true},
+			want:         []string{"request_user_input", "! <command>", "Use `spawn_agent` only for well-scoped parallel subtasks.", "explore-oriented `spawn_agent` subtask", "`lsp_grep` and `lsp_file`", "/<skill-name>", "discovery flow", "Verification protocol", "3+ file edits", "`PASS`, `FAIL`, or `PARTIAL`"},
+		},
+		{
+			name:         "fork_mode_suppresses_explore_guidance",
+			enabledTools: []string{"spawn_agent"},
+			flags:        map[string]bool{"fork_subagent": true, "explore_agent_enabled": true},
+			want:         []string{"fork-style delegation"},
+			absent:       []string{"explore-oriented `spawn_agent` subtask", "Use `spawn_agent` only for well-scoped parallel subtasks."},
+		},
+		{name: "skills_without_discovery_show_only_slash_guidance", flags: map[string]bool{"non_interactive": true, "user_invocable_skills": true}, want: []string{"/<skill-name>"}, absent: []string{"discovery flow", "! <command>"}},
+		{name: "discover_requires_surfaced_skills", flags: map[string]bool{"non_interactive": true, "discover_skills_enabled": true}, wantNil: true},
+	}
+}
+
+func TestSessionGuidanceVerificationProtocolIncludesVerifierInputsAndLoop(t *testing.T) {
+	text := mustSessionGuidanceText(t, []string{"spawn_agent"}, map[string]bool{
+		"non_interactive":      true,
+		"verification_required": true,
+	})
 	if text == nil {
-		t.Fatal("Resolve() = nil, want content")
+		t.Fatal("Resolve() = nil, want verification guidance")
 	}
-	checks := []string{
-		"# Session-specific guidance",
-		"request_user_input",
-		"spawn_agent",
-		"independent verification pass",
-	}
-	for _, check := range checks {
+	for _, check := range []string{
+		"original user request",
+		"every changed file",
+		"implementation approach",
+		"plan path",
+		"do not preload the verifier with your own test verdicts",
+		"`PASS`, `FAIL`, or `PARTIAL`",
+		"On `FAIL`, fix the issues and rerun the verifier.",
+		"On `PARTIAL`, report only the verified subset",
+		"On `PASS`, spot-check the verifier",
+		"2-3 commands",
+	} {
 		if !strings.Contains(*text, check) {
 			t.Fatalf("Resolve() = %q, want substring %q", *text, check)
 		}
 	}
 }
 
-func TestSessionGuidanceProviderResolveSkipsWithoutRelevantTools(t *testing.T) {
+func mustSessionGuidanceText(t *testing.T, enabledTools []string, flags map[string]bool) *string {
+	t.Helper()
 	provider := SessionGuidanceProvider{}
-	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{EnabledTools: []string{"lsp_file"}}})
+	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{
+		EnabledTools: enabledTools,
+		SessionFlags: flags,
+	}})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if text != nil {
-		t.Fatalf("Resolve() = %q, want nil", *text)
-	}
+	return text
 }

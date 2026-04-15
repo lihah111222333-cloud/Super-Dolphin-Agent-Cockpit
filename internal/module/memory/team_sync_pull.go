@@ -135,35 +135,11 @@ func (s *TeamSyncService) applyRemoteFilesLocked(remoteFiles map[string]TeamSync
 	if err != nil {
 		return nil, nil, err
 	}
+	normalizedRemote := normalizeRemoteTeamSyncFiles(remoteFiles)
 	changed := map[string]struct{}{}
-	var suppress []string
-	for rel, file := range remoteFiles {
-		rel = strings.TrimSpace(filepath.ToSlash(rel))
-		if rel == "" || shouldIgnoreTeamSyncPath(rel) {
-			continue
-		}
-		normalized, target, err := teamSyncTargetPath(s.root, rel)
-		if err != nil {
-			return nil, nil, err
-		}
-		suppress = append(suppress, target)
-		if existing, ok := current[normalized]; ok && existing.Content == file.Content {
-			continue
-		}
-		if err := writeTeamSyncFile(target, file.Content); err != nil {
-			return nil, nil, err
-		}
-		changed[normalized] = struct{}{}
-	}
-	for rel, file := range current {
-		if _, ok := remoteFiles[rel]; ok {
-			continue
-		}
-		suppress = append(suppress, file.Path)
-		if err := os.Remove(file.Path); err != nil && !os.IsNotExist(err) {
-			return nil, nil, err
-		}
-		changed[rel] = struct{}{}
+	suppress, err := s.syncRemoteTeamFilesLocked(current, normalizedRemote, changed)
+	if err != nil {
+		return nil, nil, err
 	}
 	s.suppressWatcherWrites(suppress)
 	if err := pruneEmptyTeamDirs(s.root); err != nil {
@@ -174,6 +150,82 @@ func (s *TeamSyncService) applyRemoteFilesLocked(remoteFiles map[string]TeamSync
 		return nil, nil, err
 	}
 	return sortedStringSet(changed), updated, nil
+}
+
+func normalizeRemoteTeamSyncFiles(remoteFiles map[string]TeamSyncFile) map[string]TeamSyncFile {
+	if len(remoteFiles) == 0 {
+		return nil
+	}
+	normalized := make(map[string]TeamSyncFile, len(remoteFiles))
+	for rel, file := range remoteFiles {
+		rel = strings.TrimSpace(filepath.ToSlash(rel))
+		if rel == "" || shouldIgnoreTeamSyncPath(rel) {
+			continue
+		}
+		normalized[rel] = file
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func (s *TeamSyncService) syncRemoteTeamFilesLocked(
+	current map[string]teamSyncLocalFile,
+	remoteFiles map[string]TeamSyncFile,
+	changed map[string]struct{},
+) ([]string, error) {
+	suppress, err := s.writeRemoteTeamFilesLocked(current, remoteFiles, changed)
+	if err != nil {
+		return nil, err
+	}
+	removed, err := s.removeMissingRemoteTeamFilesLocked(current, remoteFiles, changed)
+	if err != nil {
+		return nil, err
+	}
+	return append(suppress, removed...), nil
+}
+
+func (s *TeamSyncService) writeRemoteTeamFilesLocked(
+	current map[string]teamSyncLocalFile,
+	remoteFiles map[string]TeamSyncFile,
+	changed map[string]struct{},
+) ([]string, error) {
+	suppress := make([]string, 0, len(remoteFiles))
+	for rel, file := range remoteFiles {
+		normalized, target, err := teamSyncTargetPath(s.root, rel)
+		if err != nil {
+			return nil, err
+		}
+		suppress = append(suppress, target)
+		if existing, ok := current[normalized]; ok && existing.Content == file.Content {
+			continue
+		}
+		if err := writeTeamSyncFile(target, file.Content); err != nil {
+			return nil, err
+		}
+		changed[normalized] = struct{}{}
+	}
+	return suppress, nil
+}
+
+func (s *TeamSyncService) removeMissingRemoteTeamFilesLocked(
+	current map[string]teamSyncLocalFile,
+	remoteFiles map[string]TeamSyncFile,
+	changed map[string]struct{},
+) ([]string, error) {
+	suppress := make([]string, 0, len(current))
+	for rel, file := range current {
+		if _, ok := remoteFiles[rel]; ok {
+			continue
+		}
+		suppress = append(suppress, file.Path)
+		if err := os.Remove(file.Path); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		changed[rel] = struct{}{}
+	}
+	return suppress, nil
 }
 
 func (s *TeamSyncService) clearLocalTeamRootLocked() (bool, error) {

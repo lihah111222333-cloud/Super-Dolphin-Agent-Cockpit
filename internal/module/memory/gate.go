@@ -38,6 +38,7 @@ type MemoryGateSnapshot struct {
 	RequestedMemoryMode       MemoryMode
 	EffectiveMemoryMode       MemoryMode
 	AutoMemPathSource         AutoMemPathSource
+	TrustedAutoMemPathSource  TrustedPathSettingSource
 }
 
 type RelevantPrefetchSurfacedState struct {
@@ -58,26 +59,48 @@ func resolveMemoryGate(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapsh
 }
 
 func baseMemoryGateSnapshot(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapshot {
+	pathSource := resolveAutoMemPathSource(cfg)
+	trustedSource := TrustedPathSettingSourceNone
+	if pathSource == AutoMemPathSourceSettings {
+		trustedSource = resolveTrustedAutoMemPathSource(cfg)
+	}
+	bareMode := resolveBareMode(buildCtx)
+	hasAdditionalDirs := len(buildCtx.AdditionalWorkingDirectories) > 0
 	return MemoryGateSnapshot{
 		ForceEnabledByEnvFalsy:    isEnvDefinedFalsy(os.Getenv(envClaudeDisableAutoMemory)),
 		DisabledByEnvTruthy:       isEnvTruthy(os.Getenv(envClaudeDisableAutoMemory)),
 		SettingsAutoMemoryEnabled: settingsAutoMemoryEnabled(buildCtx),
 		RemoteMode:                parseBoolEnv(envClaudeRemote, false),
 		HasPersistentStorage:      hasPersistentMemoryStorage(cfg),
-		BareMode:                  resolveBareMode(buildCtx),
-		HasAdditionalDirsForBare:  len(buildCtx.AdditionalWorkingDirectories) > 0,
-		DisableClaudeMds:          gateFlagEnabled(buildCtx.SessionFlags, "disable_claude_mds", "disableClaudeMds"),
+		BareMode:                  bareMode,
+		HasAdditionalDirsForBare:  hasAdditionalDirs,
+		DisableClaudeMds:          resolveDisableClaudeMds(buildCtx, bareMode, hasAdditionalDirs),
 		SkipProjectLocalClaudeMd:  gateFlagEnabled(buildCtx.SessionFlags, "tengu_paper_halyard", "paper_halyard"),
 		SkipIndex:                 resolveFlagOrConfig(buildCtx, cfg.SkipIndex, "skip_index", "skipIndex", "tengu_moth_copse"),
 		KairosEnabled:             resolveFeatureFlag(buildCtx, cfg.Features.Kairos, "memory_kairos", "kairos"),
 		TeamMemEnabled:            resolveFeatureFlag(buildCtx, cfg.Features.TeamMemory, "team_memory", "teamMemory", "teammem"),
 		SearchPastContextEnabled:  resolveFeatureFlag(buildCtx, cfg.Features.SearchPastContext, "search_past_context", "searchPastContext"),
-		AutoMemPathSource:         resolveAutoMemPathSource(cfg),
+		AutoMemPathSource:         pathSource,
+		TrustedAutoMemPathSource:  trustedSource,
 	}
 }
 
+func resolveSimpleMode(buildCtx contract.BuildCtx) bool {
+	return parseBoolEnv(envClaudeSimple, false) || gateFlagEnabled(buildCtx.SessionFlags, "simple_mode", "simpleMode", "simple")
+}
+
 func resolveBareMode(buildCtx contract.BuildCtx) bool {
-	return parseBoolEnv(envClaudeSimple, false) || gateFlagEnabled(buildCtx.SessionFlags, "bare_mode", "bareMode", "bare")
+	return resolveSimpleMode(buildCtx) || gateFlagEnabled(buildCtx.SessionFlags, "bare_mode", "bareMode", "bare")
+}
+
+func resolveDisableClaudeMds(buildCtx contract.BuildCtx, bareMode, hasAdditionalDirs bool) bool {
+	if isEnvTruthy(os.Getenv(envClaudeDisableClaudeMds)) {
+		return true
+	}
+	if gateFlagEnabled(buildCtx.SessionFlags, "disable_claude_mds", "disableClaudeMds") {
+		return true
+	}
+	return bareMode && !hasAdditionalDirs
 }
 
 func resolveFlagOrConfig(buildCtx contract.BuildCtx, enabled bool, names ...string) bool {
@@ -92,7 +115,7 @@ func resolveRelevantPrefetchGate(snapshot MemoryGateSnapshot) bool {
 	if !snapshot.AutoEnabled {
 		return false
 	}
-	return snapshot.SkipIndex || snapshot.SearchPastContextEnabled
+	return snapshot.SkipIndex
 }
 
 func shouldStartRelevantMemoryPrefetch(snapshot MemoryGateSnapshot, turnInput contract.TurnInput, surfacedState RelevantPrefetchSurfacedState) bool {
@@ -116,10 +139,7 @@ func memoryConfig(cfg *Config) *Config {
 }
 
 func hasAutoMemPathOverride(cfg *Config) bool {
-	if cfg == nil {
-		return false
-	}
-	return strings.TrimSpace(cfg.AutoMemPathOverride) != ""
+	return configuredAutoMemPathOverride(cfg) != ""
 }
 
 func isAutoMemPath(cfg *Config, path string) bool {
@@ -130,7 +150,7 @@ func isAutoMemPath(cfg *Config, path string) bool {
 	if err != nil {
 		return false
 	}
-	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
+	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, configuredAutoMemPathOverride(cfg))
 	if err != nil || strings.TrimSpace(root) == "" {
 		return false
 	}
@@ -141,14 +161,12 @@ func isAutoMemPath(cfg *Config, path string) bool {
 	return platformshared.ContainsPath(root, candidate)
 }
 
-func resolveAutoEnabled(snapshot MemoryGateSnapshot, cfg *Config) bool {
+func resolveAutoEnabled(snapshot MemoryGateSnapshot, _ *Config) bool {
 	switch {
 	case snapshot.DisabledByEnvTruthy:
 		return false
 	case snapshot.ForceEnabledByEnvFalsy:
 		return true
-	case cfg == nil || !cfg.Enabled:
-		return false
 	case !snapshot.SettingsAutoMemoryEnabled:
 		return false
 	case snapshot.BareMode:
@@ -187,15 +205,12 @@ func effectiveMemoryMode(mode MemoryMode) MemoryMode {
 
 func resolveAutoMemPathSource(cfg *Config) AutoMemPathSource {
 	switch {
-	case firstNonEmptyEnv(
-		envMemoryPathOverride,
-		envClaudeMemoryPathOverride,
-		envMemoryRoot,
-		envClaudeRemoteMemoryDir,
-	) != "":
+	case envAutoMemPathOverride(cfg) != "":
 		return AutoMemPathSourceEnv
 	case hasAutoMemPathOverride(cfg):
 		return AutoMemPathSourceSettings
+	case firstNonEmptyEnv(envMemoryRoot, envClaudeRemoteMemoryDir) != "":
+		return AutoMemPathSourceEnv
 	default:
 		return AutoMemPathSourceDefault
 	}

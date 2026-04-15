@@ -99,27 +99,118 @@ func (SessionGuidanceProvider) SectionName() string {
 }
 
 func (SessionGuidanceProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
-	enabled := sessionGuidanceToolSet(input.BuildCtx.EnabledTools)
-	items := make([]string, 0, 3)
-	if _, ok := enabled["request_user_input"]; ok {
-		items = append(items, "If a tool call is denied and the reason is unclear, use `request_user_input` to ask the user a focused follow-up.")
-	}
-	if _, ok := enabled["spawn_agent"]; ok {
-		items = append(items, "Use `spawn_agent` only for well-scoped parallel subtasks. Keep urgent blocking work local, give subagents clear ownership, and integrate their results before reporting completion.")
-		if sessionGuidanceFlagEnabled(input.BuildCtx.SessionFlags, "verification_required", "require_verification", "verification_agent") {
-			items = append(items, "When non-trivial implementation happens, schedule an independent verification pass before you report completion.")
-		}
-	}
+	items := buildSessionGuidanceItems(
+		sessionGuidanceToolSet(input.BuildCtx.EnabledTools),
+		input.BuildCtx.SessionFlags,
+	)
 	if len(items) == 0 {
 		return nil, nil
 	}
+	text := renderSessionGuidance(items)
+	return &text, nil
+}
+
+func buildSessionGuidanceItems(enabled map[string]struct{}, flags map[string]bool) []string {
+	items := make([]string, 0, 12)
+	if item, ok := sessionGuidanceAskUserItem(enabled); ok {
+		items = append(items, item)
+	}
+	if item, ok := sessionGuidanceInteractiveCommandItem(flags); ok {
+		items = append(items, item)
+	}
+	items = append(items, sessionGuidanceAgentItems(enabled, flags)...)
+	items = append(items, sessionGuidanceSkillItems(enabled, flags)...)
+	return items
+}
+
+func renderSessionGuidance(items []string) string {
 	lines := make([]string, 0, len(items)+1)
 	lines = append(lines, "# Session-specific guidance")
 	for _, item := range items {
 		lines = append(lines, "- "+item)
 	}
-	text := strings.Join(lines, "\n")
-	return &text, nil
+	return strings.Join(lines, "\n")
+}
+
+func sessionGuidanceAskUserItem(enabled map[string]struct{}) (string, bool) {
+	if !sessionGuidanceToolEnabled(enabled, "request_user_input") {
+		return "", false
+	}
+	return "If a tool call is denied and the reason is unclear, use `request_user_input` to ask the user a focused follow-up.", true
+}
+
+func sessionGuidanceInteractiveCommandItem(flags map[string]bool) (string, bool) {
+	if sessionGuidanceFlagEnabled(flags, "non_interactive", "nonInteractive", "headless", "headless_mode") {
+		return "", false
+	}
+	return "If you need the user to run an interactive shell command themselves (for example, `gcloud auth login`), ask them to type `! <command>` so it runs in the current session and the output lands in the conversation.", true
+}
+
+func sessionGuidanceAgentItems(enabled map[string]struct{}, flags map[string]bool) []string {
+	if !sessionGuidanceToolEnabled(enabled, "spawn_agent") {
+		return nil
+	}
+	items := []string{sessionGuidanceAgentDelegationItem(flags)}
+	if sessionGuidanceExploreEnabled(flags) && !sessionGuidanceForkMode(flags) {
+		items = append(items, sessionGuidanceExploreItem(enabled))
+	}
+	if sessionGuidanceVerificationEnabled(flags) {
+		items = append(items, sessionGuidanceVerificationItems()...)
+	}
+	return items
+}
+
+func sessionGuidanceAgentDelegationItem(flags map[string]bool) string {
+	if sessionGuidanceForkMode(flags) {
+		return "This session is using fork-style delegation: use `spawn_agent` for longer background research or implementation that would otherwise flood the main context. If you are already the delegated worker, execute directly and do not bounce the same task into another fork."
+	}
+	return "Use `spawn_agent` only for well-scoped parallel subtasks. Keep urgent blocking work local, avoid duplicating delegated work, give each subagent clear ownership, and integrate its results before reporting completion."
+}
+
+func sessionGuidanceExploreItem(enabled map[string]struct{}) string {
+	searchTools := sessionGuidanceDirectedSearchTools(enabled)
+	return "For simple, directed codebase searches, use " + searchTools + " directly. Use an explore-oriented `spawn_agent` subtask only when targeted searches are insufficient or the task clearly needs broad, multi-query exploration."
+}
+
+func sessionGuidanceDirectedSearchTools(enabled map[string]struct{}) string {
+	tools := make([]string, 0, 3)
+	for _, name := range []string{"lsp_grep", "lsp_file", "lsp_inspect"} {
+		if sessionGuidanceToolEnabled(enabled, name) {
+			tools = append(tools, "`"+name+"`")
+		}
+	}
+	switch len(tools) {
+	case 0:
+		return "the repository-aware search tools"
+	case 1:
+		return tools[0]
+	case 2:
+		return tools[0] + " and " + tools[1]
+	default:
+		return strings.Join(tools[:len(tools)-1], ", ") + " and " + tools[len(tools)-1]
+	}
+}
+
+func sessionGuidanceSkillItems(enabled map[string]struct{}, flags map[string]bool) []string {
+	if !sessionGuidanceSkillsAvailable(enabled, flags) {
+		return nil
+	}
+	items := []string{
+		"`/<skill-name>` refers only to surfaced user-invocable skills. Use only the surfaced skill names and prompts for this session; do not guess skill names or treat built-in slash commands as skills.",
+	}
+	if sessionGuidanceDiscoverEnabled(enabled, flags) {
+		items = append(items, "If skill discovery is enabled and the currently surfaced skills do not cover the next action, use the discovery flow to surface more skills before improvising a new skill name. Discovery availability alone is not a reason to call it.")
+	}
+	return items
+}
+
+func sessionGuidanceVerificationItems() []string {
+	return []string{
+		"Verification protocol: when non-trivial implementation happens, independent verification must happen before you report completion. Treat non-trivial as 3+ file edits, backend or API changes, or infrastructure changes. Your own checks, the implementer's self-checks, and fork self-checks do not count.",
+		"Launch the verifier with `spawn_agent`. Pass the original user request, every changed file, the implementation approach, and the plan path if one exists. You may include concerns, but do not preload the verifier with your own test verdicts or claim the change already works.",
+		"The verifier owns the verdict: `PASS`, `FAIL`, or `PARTIAL`. You cannot self-assign `PARTIAL`. On `FAIL`, fix the issues and rerun the verifier. On `PARTIAL`, report only the verified subset plus the remaining gap.",
+		"On `PASS`, spot-check the verifier before reporting completion: rerun 2-3 commands from its report and confirm each `PASS` includes a command and output consistent with your spot check.",
+	}
 }
 
 func sessionGuidanceToolSet(tools []string) map[string]struct{} {
@@ -130,6 +221,15 @@ func sessionGuidanceToolSet(tools []string) map[string]struct{} {
 	return set
 }
 
+func sessionGuidanceToolEnabled(enabled map[string]struct{}, names ...string) bool {
+	for _, name := range names {
+		if _, ok := enabled[strings.TrimSpace(name)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func sessionGuidanceFlagEnabled(flags map[string]bool, keys ...string) bool {
 	for _, key := range keys {
 		if flags[key] {
@@ -137,6 +237,59 @@ func sessionGuidanceFlagEnabled(flags map[string]bool, keys ...string) bool {
 		}
 	}
 	return false
+}
+
+func sessionGuidanceForkMode(flags map[string]bool) bool {
+	return sessionGuidanceFlagEnabled(flags,
+		"fork_subagent",
+		"forkSubagent",
+		"fork_mode",
+		"forkMode",
+		"fork_subagent_enabled",
+	)
+}
+
+func sessionGuidanceExploreEnabled(flags map[string]bool) bool {
+	return sessionGuidanceFlagEnabled(flags,
+		"explore_agent",
+		"exploreAgent",
+		"explore_agent_enabled",
+		"exploreAgentEnabled",
+		"explore_plan_agents_enabled",
+	)
+}
+
+func sessionGuidanceSkillsAvailable(enabled map[string]struct{}, flags map[string]bool) bool {
+	if sessionGuidanceFlagEnabled(flags,
+		"user_invocable_skills",
+		"userInvocableSkills",
+		"skills_enabled",
+		"skillsEnabled",
+		"skill_tool_enabled",
+	) {
+		return true
+	}
+	return sessionGuidanceToolEnabled(enabled, "skill", "skills", "skills/list", "thread/skills/list")
+}
+
+func sessionGuidanceDiscoverEnabled(enabled map[string]struct{}, flags map[string]bool) bool {
+	if !sessionGuidanceSkillsAvailable(enabled, flags) {
+		return false
+	}
+	if sessionGuidanceFlagEnabled(flags,
+		"discover_skills",
+		"discoverSkills",
+		"discover_skills_enabled",
+		"discoverSkillsEnabled",
+		"experimental_skill_search",
+	) {
+		return true
+	}
+	return sessionGuidanceToolEnabled(enabled, "discover_skills")
+}
+
+func sessionGuidanceVerificationEnabled(flags map[string]bool) bool {
+	return sessionGuidanceFlagEnabled(flags, "verification_required", "require_verification", "verification_agent")
 }
 
 func (s *service) RegisterDynamicProvider(provider DynamicSectionProvider) error {
@@ -246,31 +399,37 @@ func inputScopedSectionDependency(section PromptSection, input SectionContext) a
 	case DynamicSectionEnvInfoSimple:
 		return struct {
 			Section                      string   `json:"section"`
+			RenderMode                   string   `json:"renderMode,omitempty"`
 			CWD                          string   `json:"cwd,omitempty"`
 			GitRoot                      string   `json:"gitRoot,omitempty"`
 			IsWorktree                   bool     `json:"isWorktree,omitempty"`
 			Platform                     string   `json:"platform,omitempty"`
 			Shell                        string   `json:"shell,omitempty"`
+			ShellNote                    string   `json:"shellNote,omitempty"`
 			OSVersion                    string   `json:"osVersion,omitempty"`
 			LanguageServerTools          []string `json:"languageServerTools,omitempty"`
 			AdditionalWorkingDirectories []string `json:"additionalWorkingDirectories,omitempty"`
 			Provider                     string   `json:"provider,omitempty"`
 			ModelMetadata                string   `json:"modelMetadata,omitempty"`
 			KnowledgeCutoff              string   `json:"knowledgeCutoff,omitempty"`
+			LatestModelFamily            string   `json:"latestModelFamily,omitempty"`
 			FrontierGuidance             string   `json:"frontierGuidance,omitempty"`
 		}{
 			Section:                      section.Name,
+			RenderMode:                   promptEnvRenderModeForInput(input).String(),
 			CWD:                          currentPromptCWD(input.BuildCtx),
 			GitRoot:                      strings.TrimSpace(input.BuildCtx.GitRoot),
 			IsWorktree:                   input.BuildCtx.IsWorktree,
 			Platform:                     promptPlatform(),
 			Shell:                        promptShellName(),
+			ShellNote:                    promptShellNote(),
 			OSVersion:                    promptUnameSR(),
 			LanguageServerTools:          sectionLanguageServerTools(input.BuildCtx),
 			AdditionalWorkingDirectories: sortedPromptValues(input.BuildCtx.AdditionalWorkingDirectories),
 			Provider:                     strings.TrimSpace(input.BuildCtx.Provider),
 			ModelMetadata:                promptModelMetadata(input.BuildCtx),
 			KnowledgeCutoff:              promptKnowledgeCutoff(input.BuildCtx),
+			LatestModelFamily:            promptLatestModelFamily(input.BuildCtx),
 			FrontierGuidance:             promptFrontierGuidance(input.BuildCtx),
 		}
 	case DynamicSectionLanguage:
@@ -308,6 +467,42 @@ func cacheByNameSectionDependency(section PromptSection, input SectionContext) a
 			Section       string `json:"section"`
 			ScratchpadDir string `json:"scratchpadDir,omitempty"`
 		}{Section: section.Name, ScratchpadDir: dir}
+	case DynamicSectionFRC:
+		cfg := input.BuildCtx.FRCConfig.Normalize()
+		if cfg == nil {
+			return nil
+		}
+		return struct {
+			Section                      string   `json:"section"`
+			Model                        string   `json:"model,omitempty"`
+			Enabled                      bool     `json:"enabled,omitempty"`
+			SystemPromptSuggestSummaries bool     `json:"systemPromptSuggestSummaries,omitempty"`
+			KeepRecent                   int      `json:"keepRecent,omitempty"`
+			SupportedModels              []string `json:"supportedModels,omitempty"`
+		}{
+			Section:                      section.Name,
+			Model:                        strings.TrimSpace(input.BuildCtx.Model),
+			Enabled:                      cfg.Enabled,
+			SystemPromptSuggestSummaries: cfg.SystemPromptSuggestSummaries,
+			KeepRecent:                   cfg.KeepRecentCount(),
+			SupportedModels:              append([]string(nil), cfg.SupportedModels...),
+		}
+	case DynamicSectionNumericLengthAnchors:
+		return struct {
+			Section  string `json:"section"`
+			UserType string `json:"userType,omitempty"`
+		}{Section: section.Name, UserType: strings.TrimSpace(promptUserType())}
+	case DynamicSectionTokenBudget:
+		return struct {
+			Section string `json:"section"`
+			Enabled bool   `json:"enabled,omitempty"`
+		}{Section: section.Name, Enabled: tokenBudgetEnabled(input.BuildCtx)}
+	case DynamicSectionBrief:
+		return struct {
+			Section string `json:"section"`
+			Enabled bool   `json:"enabled,omitempty"`
+			Summary string `json:"summary,omitempty"`
+		}{Section: section.Name, Enabled: briefEnabled(input.BuildCtx), Summary: strings.TrimSpace(input.BuildCtx.Summary)}
 	default:
 		return nil
 	}

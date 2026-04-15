@@ -165,7 +165,7 @@ func turnRequest(model string) dto.TurnRequest {
 		},
 	}
 }
-func TestPrepareTurnLockedPrependsTurnAssemblyUserContextText(t *testing.T) {
+func TestPrepareTurnLockedPrependsStructuredTurnAssemblyUserContext(t *testing.T) {
 	ready := make(chan struct{})
 	close(ready)
 	s := &session{
@@ -180,7 +180,9 @@ func TestPrepareTurnLockedPrependsTurnAssemblyUserContextText(t *testing.T) {
 	payload, _, _, err := s.prepareTurnLocked(context.Background(), dto.TurnRequest{
 		Inputs: []shareddto.InputItem{{Content: "hello"}},
 		TurnAssembly: contract.TurnAssembly{
-			UserContextText: "Always respond in Chinese.",
+			UserContext: map[string]string{
+				"currentDate": "Today's date is 2026-04-15.",
+			},
 		},
 	})
 	s.mu.Unlock()
@@ -198,7 +200,7 @@ func TestPrepareTurnLockedPrependsTurnAssemblyUserContextText(t *testing.T) {
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if got := decoded.Message.Content[0].Text; got != "Always respond in Chinese.\n\nhello" {
+	if got := decoded.Message.Content[0].Text; got != "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\nhello" {
 		t.Fatalf("payload text = %q", got)
 	}
 }
@@ -226,8 +228,10 @@ func TestPrepareTurnLockedIncludesAttachmentTextAfterUserContext(t *testing.T) {
 	payload, _, _, err := s.prepareTurnLocked(context.Background(), dto.TurnRequest{
 		Inputs: []shareddto.InputItem{{Content: "hello"}},
 		TurnAssembly: contract.TurnAssembly{
-			UserContextText: "Always respond in Chinese.",
-			Attachments:     []dto.AttachmentEnvelope{attachment},
+			UserContext: map[string]string{
+				"currentDate": "Today's date is 2026-04-15.",
+			},
+			Attachments: []dto.AttachmentEnvelope{attachment},
 		},
 	})
 	s.mu.Unlock()
@@ -246,7 +250,7 @@ func TestPrepareTurnLockedIncludesAttachmentTextAfterUserContext(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	got := decoded.Message.Content[0].Text
-	want := "Always respond in Chinese.\n\n" + attachment.RenderText() + "\n\nhello"
+	want := "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\n" + attachment.RenderText() + "\n\nhello"
 	if got != want {
 		t.Fatalf("payload text = %q, want %q", got, want)
 	}

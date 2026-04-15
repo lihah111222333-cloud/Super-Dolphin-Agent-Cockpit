@@ -11,6 +11,7 @@ const (
 	envEnablePromptRegistry            = "ENABLE_PROMPT_REGISTRY"
 	envEnablePromptAssembly            = "ENABLE_PROMPT_ASSEMBLY"
 	envEnableSystemContextCacheBreaker = "ENABLE_PROMPT_SYSTEM_CONTEXT_CACHE_BREAKER"
+	envClaudeSimple                    = "CLAUDE_CODE_SIMPLE"
 )
 
 type Config struct {

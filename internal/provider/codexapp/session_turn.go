@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -74,12 +75,15 @@ func selectedSkillNames(skills []dto.SkillRef) []string {
 }
 
 func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assembly dto.TurnAssembly) []turnInputItem {
-	items := make([]turnInputItem, 0, len(inputs)+len(assembly.Attachments)+2)
+	items := make([]turnInputItem, 0, len(inputs)+len(assembly.Attachments)+3)
 	if skillPrompt, ok := buildSkillPromptInput(skills); ok {
 		items = append(items, skillPrompt)
 	}
-	if userContext := strings.TrimSpace(assembly.UserContextText); userContext != "" {
+	if userContext := assembly.RenderUserContextMessage(); userContext != "" {
 		items = append(items, newTextTurnInput("text", userContext))
+	}
+	if systemContext := contract.FormatSystemContextBlock(assembly.SystemContext); systemContext != "" {
+		items = append(items, newTextTurnInput("text", systemContext))
 	}
 	for _, attachment := range assembly.Attachments {
 		if text := strings.TrimSpace(attachment.RenderText()); text != "" {

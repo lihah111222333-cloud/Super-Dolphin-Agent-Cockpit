@@ -92,11 +92,22 @@ var standardOverviewLines = []string{
 	"Use memory to preserve behaviorally relevant context while keeping authorization, visibility, and retrieval boundaries intact.",
 }
 
+func standardMemorySystemLines(autoDir string) []string {
+	root := strings.TrimSpace(autoDir)
+	if root == "" {
+		root = "<auto-memory-root>"
+	}
+	return append([]string{
+		fmt.Sprintf("Standard mode uses a single auto-memory root at `%s`; treat `%s` as the pointer index entrypoint and keep durable topic files organized beneath that root.", root, memoryIndexPath(root)),
+	}, standardOverviewLines...)
+}
+
 var standardSaveRules = []string{
 	"Explicit `remember` saves immediately; explicit `forget` finds and deletes the matching memory.",
 	"Each durable fact belongs in its own topic file; `MEMORY.md` stays a pointer index rather than a second copy of the body.",
 	"Prefer updating an existing topic over creating duplicates.",
 	"Keep `name`, `description`, and `type` frontmatter aligned with the body.",
+	"Use the standard topic-file frontmatter template:\n  ---\n  name: <memory name>\n  description: <specific one-line relevance hook>\n  type: user|feedback|project|reference\n  ---\n  <durable memory body>",
 	"Organize memory by semantic topic, not by time.",
 	"Save or delete only after runtime `sanitize + resolve + authorize` succeeds; `deny`, `not_visible`, and `local_unavailable` are hard stop conditions.",
 	"The prompt layer must not probe or `mkdir` memory directories; runtime may ensure them separately.",
@@ -235,7 +246,7 @@ func (e *MemoryRuleEngine) BuildMemoryLines(opts MemoryRuleOptions) string {
 		sectionIndex++
 		return fmt.Sprintf("### %d. %s", sectionIndex, name)
 	}
-	sections = append(sections, renderSection(nextTitle("memory system"), standardOverviewLines))
+	sections = append(sections, renderSection(nextTitle("memory system"), standardMemorySystemLines(opts.AutoMemPath)))
 	sections = append(sections, renderSection(nextTitle("taxonomy"), engine.taxonomyLines()))
 	sections = append(sections, renderSection(nextTitle("exclusions"), standardExclusionRules))
 	sections = append(sections, engine.renderBehaviorSection(nextTitle("save rules / how to save memories"), append(cloneStrings(standardSaveRules), indexRule(opts.SkipIndex)), func(b MemoryTypeBehavior) []string { return b.Save }))
@@ -286,6 +297,8 @@ func combinedMemorySystemLines(autoDir, teamDir string) []string {
 		fmt.Sprintf("You have a persistent, file-based memory system with two directories: a private directory at `%s` and a shared team directory at `%s`.", autoDir, teamDir),
 		"Both directories already exist — write to them directly with the Write tool; do not run `mkdir` or probe for existence from the prompt layer.",
 		"Use memory to preserve durable user context, validated collaboration guidance, shared project context, and external pointers that are not derivable from current code or git state.",
+		"Explicit `remember` saves immediately; explicit `forget` finds and deletes the matching memory in the appropriate scope.",
+		"Team memory is synced for the session only when runtime readiness, auth, and feature gates allow it; treat sync as best-effort and do not assume every session saw the latest shared state.",
 	}
 }
 
@@ -325,7 +338,7 @@ func combinedSaveRules(skipIndex bool, autoDir, teamDir string) []string {
 	indexPrivate := memoryIndexPath(autoDir)
 	indexTeam := memoryIndexPath(teamDir)
 	rules := []string{
-		"Choose the private or team directory according to the scope guidance for the memory type; `user` is always private, while shared project conventions and external pointers usually belong in team memory.",
+		"Choose the private or team directory according to the scope guidance for the memory type; `user` is always private, `feedback` stays private unless every collaborator should follow it, and shared project conventions or external pointers usually belong in team memory.",
 		"Keep `name`, `description`, and `type` frontmatter aligned with the body.",
 		"Organize memories semantically by topic, not chronologically.",
 		"Update or remove memories that turn out to be wrong or outdated.",

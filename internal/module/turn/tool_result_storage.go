@@ -40,6 +40,7 @@ func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 	if originalSize > toolResultPersistThresholdChars || budgetTruncated {
 		record.PersistedPath = persistToolResult(meta, raw)
 	}
+	registerToolResultLifecycle(meta, record)
 	return record
 }
 

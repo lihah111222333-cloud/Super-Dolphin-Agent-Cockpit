@@ -107,7 +107,7 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 		"--verbose",
 	}
 	args = appendFlagIfSet(args, "--model", model)
-	args = appendFlagIfSet(args, "--system-prompt", composeLaunchSystemPrompt(instructions, cfg))
+	args = appendSystemPromptFlags(args, instructions, cfg)
 	args = appendFlagIfSet(args, "--permission-mode", resolvePermissionMode(cfg.ApprovalPolicy, cfg.Sandbox))
 	args = appendFlagIfSet(args, "--effort", normalizeEffort(model, cfg.Effort))
 	if mcpConfigPath = strings.TrimSpace(mcpConfigPath); mcpConfigPath != "" {
@@ -124,11 +124,21 @@ func hasFlag(args []string, flag string) bool {
 	return slices.Contains(args, flag)
 }
 
+func appendSystemPromptFlags(args []string, instructions string, cfg cliLaunchConfig) []string {
+	for _, block := range composeLaunchSystemPromptBlocks(instructions, cfg) {
+		args = append(args, "--system-prompt", block)
+	}
+	return args
+}
+
 func composeLaunchSystemPrompt(instructions string, cfg cliLaunchConfig) string {
-	parts := nonEmptyStrings(
-		promptBaseInstructions(instructions, cfg.PromptSnapshot),
-		promptDeveloperInstructions(cfg),
-	)
+	parts := composeLaunchSystemPromptBlocks(instructions, cfg)
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
+func composeLaunchSystemPromptBlocks(instructions string, cfg cliLaunchConfig) []string {
+	parts := promptBaseInstructionBlocks(instructions, cfg.PromptSnapshot)
+	parts = append(parts, promptDeveloperInstructions(cfg))
 	meta := make([]string, 0, 2)
 	for _, pair := range [][2]string{
 		{"summary", cfg.Summary},
@@ -141,7 +151,14 @@ func composeLaunchSystemPrompt(instructions string, cfg cliLaunchConfig) string 
 	if len(meta) > 0 {
 		parts = append(parts, strings.Join(meta, "\n"))
 	}
-	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+	return nonEmptyStrings(parts...)
+}
+
+func promptBaseInstructionBlocks(instructions string, snapshot contract.PromptAssemblySnapshot) []string {
+	if boundary := normalizePromptBoundary(snapshot.Boundary); boundary != nil {
+		return nonEmptyStrings(boundary.CachedPrefix, boundary.UncachedTail)
+	}
+	return nonEmptyStrings(promptBaseInstructions(instructions, snapshot))
 }
 
 func promptBaseInstructions(instructions string, snapshot contract.PromptAssemblySnapshot) string {
@@ -168,12 +185,31 @@ func promptDeveloperInstructions(cfg cliLaunchConfig) string {
 func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
 	return strings.TrimSpace(snapshot.DisplayName) == "" &&
 		strings.TrimSpace(snapshot.BaseInstructions) == "" &&
+		promptBoundaryBlank(snapshot.Boundary) &&
 		strings.TrimSpace(snapshot.DeveloperInstructions) == "" &&
 		strings.TrimSpace(snapshot.Provider) == "" &&
 		snapshot.Version == 0 &&
 		strings.TrimSpace(snapshot.Hash) == "" &&
 		len(snapshot.SectionSnapshot) == 0 &&
 		snapshot.Generation == 0
+}
+
+func normalizePromptBoundary(boundary *dto.PromptAssemblyBoundary) *dto.PromptAssemblyBoundary {
+	if boundary == nil {
+		return nil
+	}
+	cloned := dto.PromptAssemblyBoundary{
+		CachedPrefix: strings.TrimSpace(boundary.CachedPrefix),
+		UncachedTail: strings.TrimSpace(boundary.UncachedTail),
+	}
+	if cloned.CachedPrefix == "" && cloned.UncachedTail == "" {
+		return nil
+	}
+	return &cloned
+}
+
+func promptBoundaryBlank(boundary *dto.PromptAssemblyBoundary) bool {
+	return normalizePromptBoundary(boundary) == nil
 }
 
 func resolvePermissionMode(approvalPolicy, sandbox string) string {

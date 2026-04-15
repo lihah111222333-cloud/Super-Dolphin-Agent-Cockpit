@@ -5,16 +5,18 @@ import "strings"
 // ModelDescriptor centralizes prompt-visible model metadata so env_info and
 // future model-aware sections can reuse the same source of truth.
 type ModelDescriptor struct {
-	ID               string
-	MarketingName    string
-	KnowledgeCutoff  string
-	FrontierGuidance string
+	ID                string
+	MarketingName     string
+	KnowledgeCutoff   string
+	FrontierGuidance  string
+	LatestModelFamily string
 }
 
 var knownModelDescriptors = map[string]ModelDescriptor{
 	"gpt-5.4": {
-		ID:            "gpt-5.4",
-		MarketingName: "GPT-5.4",
+		ID:                "gpt-5.4",
+		MarketingName:     "GPT-5.4",
+		LatestModelFamily: "GPT-5.4 (model ID: gpt-5.4)",
 	},
 }
 
@@ -49,4 +51,18 @@ func (d ModelDescriptor) MetadataText() string {
 	default:
 		return ""
 	}
+}
+
+func (d ModelDescriptor) KnowledgeCutoffText() string {
+	if d.IsZero() {
+		return ""
+	}
+	if cutoff := strings.TrimSpace(d.KnowledgeCutoff); cutoff != "" {
+		return cutoff
+	}
+	return "not published by the provider"
+}
+
+func (d ModelDescriptor) LatestModelFamilyText() string {
+	return strings.TrimSpace(d.LatestModelFamily)
 }

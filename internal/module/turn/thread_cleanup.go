@@ -23,5 +23,6 @@ func (s *service) InterruptActiveTurn(ctx context.Context, session contract.Sess
 
 func (s *service) CleanupThread(_ context.Context, threadID, reason string) error {
 	s.tracker.AbortThread(threadID, reason)
+	resetToolResultLifecycle(threadID)
 	return nil
 }

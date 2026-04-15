@@ -51,8 +51,10 @@ type PrepareInput struct {
 	AdditionalWorkingDirectories []string
 	MCPSnapshot                  contract.MCPSnapshot
 	SessionFlags                 map[string]bool
+	Summary                      string
 	OutputStyleConfig            *contract.OutputStyleConfig
 	ScratchpadDir                string
+	FRCConfig                    *contract.FRCConfig
 	ThreadRuntimeConfig          map[string]any
 	ThreadCaps                   dto.CapabilitySet
 	BinaryDir                    string

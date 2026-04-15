@@ -15,6 +15,7 @@ import (
 	memorypkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -91,6 +92,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		candidateSkills = nil
 	}
 	userText := s.assembler.PromptText(input)
+	s.cleanupStaleToolResults(threadID, input)
 	mcp := s.manifest.Build(input)
 	synthetic := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
 	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
@@ -145,14 +147,27 @@ func turnAttachmentRefs(inputs []dto.InputItem) []string {
 	return refs
 }
 
+func (s *service) cleanupStaleToolResults(threadID string, input PrepareInput) {
+	result := cleanupToolResultLifecycle(threadID, input.Model, input.FRCConfig)
+	if s == nil || s.logger == nil || result.Cleared == 0 {
+		return
+	}
+	s.logger.Debug("turn tool-result lifecycle cleanup", "thread_id", threadID, "cleared", result.Cleared, "kept", result.Kept, "deleted_files", result.DeletedFiles)
+}
+
 func turnMCPSnapshot(snapshot contract.MCPSnapshot, manifest dto.MCPManifest) contract.MCPSnapshot {
+	cloned := cloneMCPSnapshot(snapshot)
 	servers := make([]string, 0, len(manifest.Binaries))
 	for _, binary := range manifest.Binaries {
 		if name := strings.TrimSpace(binary.Name); name != "" {
 			servers = append(servers, name)
 		}
 	}
-	return mergeMCPSnapshot(snapshot, contract.MCPSnapshot{Servers: servers})
+	cloned.Servers = providershared.NormalizeConfigStringSlice(servers)
+	if len(cloned.Servers) == 0 {
+		cloned.Servers = nil
+	}
+	return cloned
 }
 
 func (s *service) StartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error) {

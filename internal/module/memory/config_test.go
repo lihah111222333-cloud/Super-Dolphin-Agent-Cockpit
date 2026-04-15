@@ -149,10 +149,10 @@ func TestConfigIsMemoryEnabledHonorsGateConditions(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "defined falsy auto memory env forces enable",
+			name: "defined falsy auto memory env does not bypass product kill switch",
 			env:  map[string]string{envClaudeDisableAutoMemory: "0"},
 			cfg:  Config{Enabled: false},
-			want: true,
+			want: false,
 		},
 	}
 	for _, tc := range tests {
@@ -256,8 +256,34 @@ func TestResolveMemoryGateSupportsSettingsAndModeSelection(t *testing.T) {
 	}
 
 	gate = ResolveMemoryGate(contract.BuildCtx{}, &Config{Enabled: true, Features: MemoryFeatureFlags{SearchPastContext: true}})
-	if !gate.EnableRelevantPrefetch {
-		t.Fatalf("ResolveMemoryGate(searchPastContext).EnableRelevantPrefetch = false, want true")
+	if gate.EnableRelevantPrefetch {
+		t.Fatalf("ResolveMemoryGate(searchPastContext).EnableRelevantPrefetch = true, want false without skipIndex")
+	}
+}
+
+func TestResolveMemoryGateDisableClaudeMdsHonorsCompatEnvAndBareAddDirs(t *testing.T) {
+	cfg := &Config{Enabled: true}
+	t.Setenv(envClaudeDisableClaudeMds, "1")
+	gate := ResolveMemoryGate(contract.BuildCtx{}, cfg)
+	if !gate.DisableClaudeMds {
+		t.Fatalf("ResolveMemoryGate(env disable).DisableClaudeMds = false, want true")
+	}
+
+	t.Setenv(envClaudeDisableClaudeMds, "")
+	gate = ResolveMemoryGate(contract.BuildCtx{SessionFlags: map[string]bool{"bare_mode": true}}, cfg)
+	if !gate.DisableClaudeMds {
+		t.Fatalf("ResolveMemoryGate(bare).DisableClaudeMds = false, want true")
+	}
+
+	gate = ResolveMemoryGate(contract.BuildCtx{
+		SessionFlags:                 map[string]bool{"bare_mode": true},
+		AdditionalWorkingDirectories: []string{t.TempDir()},
+	}, cfg)
+	if gate.DisableClaudeMds {
+		t.Fatalf("ResolveMemoryGate(bare+add-dir).DisableClaudeMds = true, want false")
+	}
+	if !gate.HasAdditionalDirsForBare {
+		t.Fatalf("ResolveMemoryGate(bare+add-dir).HasAdditionalDirsForBare = false, want true")
 	}
 }
 
@@ -272,11 +298,83 @@ func TestConfigAutoMemPathHelpers(t *testing.T) {
 	if !cfg.HasAutoMemPathOverride() {
 		t.Fatal("HasAutoMemPathOverride() = false, want true")
 	}
+	if got := cfg.ResolvedAutoMemPathOverride(); got != override {
+		t.Fatalf("ResolvedAutoMemPathOverride() = %q, want %q", got, override)
+	}
 	if !cfg.IsAutoMemPath(filepath.Join(override, "project.md")) {
 		t.Fatal("IsAutoMemPath(override child) = false, want true")
 	}
 	if cfg.IsAutoMemPath(filepath.Join(t.TempDir(), "other", "project.md")) {
 		t.Fatal("IsAutoMemPath(outside path) = true, want false")
+	}
+}
+
+func TestGateAutoEnabledSeparatesProductKillSwitch(t *testing.T) {
+	cfg := &Config{Enabled: false}
+	if cfg.IsMemoryEnabled() {
+		t.Fatal("IsMemoryEnabled() = true, want false when product kill switch is off")
+	}
+	gate := ResolveMemoryGate(contract.BuildCtx{}, cfg)
+	if !gate.AutoEnabled {
+		t.Fatalf("ResolveMemoryGate().AutoEnabled = false, want true with Claude defaults: %+v", gate)
+	}
+}
+
+func TestGatePathOverrideProvenanceLayering(t *testing.T) {
+	trusted := filepath.Join(t.TempDir(), "trusted-memory")
+	cfg := &Config{
+		Enabled: true,
+		TrustedAutoMemPathOverride: TrustedAutoMemPathOverride{
+			Path:   trusted,
+			Source: TrustedPathSettingSourcePolicy,
+		},
+	}
+	gate := ResolveMemoryGate(contract.BuildCtx{}, cfg)
+	if gate.AutoMemPathSource != AutoMemPathSourceSettings {
+		t.Fatalf("AutoMemPathSource = %q, want %q", gate.AutoMemPathSource, AutoMemPathSourceSettings)
+	}
+	if gate.TrustedAutoMemPathSource != TrustedPathSettingSourcePolicy {
+		t.Fatalf("TrustedAutoMemPathSource = %q, want %q", gate.TrustedAutoMemPathSource, TrustedPathSettingSourcePolicy)
+	}
+	if got := cfg.ResolvedAutoMemPathOverride(); got != trusted {
+		t.Fatalf("ResolvedAutoMemPathOverride() = %q, want %q", got, trusted)
+	}
+	if got := NewContextProvider(cfg).memoryRoot; got != trusted {
+		t.Fatalf("NewContextProvider().memoryRoot = %q, want %q", got, trusted)
+	}
+	envOverride := filepath.Join(t.TempDir(), "env-memory")
+	t.Setenv(envClaudeMemoryPathOverride, envOverride)
+	gate = ResolveMemoryGate(contract.BuildCtx{}, cfg)
+	if gate.AutoMemPathSource != AutoMemPathSourceEnv {
+		t.Fatalf("env AutoMemPathSource = %q, want %q", gate.AutoMemPathSource, AutoMemPathSourceEnv)
+	}
+	if gate.TrustedAutoMemPathSource != TrustedPathSettingSourceNone {
+		t.Fatalf("env TrustedAutoMemPathSource = %q, want empty provenance", gate.TrustedAutoMemPathSource)
+	}
+	if got := cfg.ResolvedAutoMemPathOverride(); got != envOverride {
+		t.Fatalf("env ResolvedAutoMemPathOverride() = %q, want %q", got, envOverride)
+	}
+}
+
+func TestGateRulesProvidersRespectProductKillSwitch(t *testing.T) {
+	cfg := &Config{Enabled: false, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+	rulesText, err := NewRulesProvider(cfg, nil, nil).Resolve(context.Background(), prompt.SectionContext{
+		Start: &prompt.StartInput{},
+	})
+	if err != nil {
+		t.Fatalf("MemoryRulesProvider.Resolve() error = %v", err)
+	}
+	if rulesText != nil {
+		t.Fatalf("MemoryRulesProvider.Resolve() = %#v, want nil when product kill switch is off", rulesText)
+	}
+	contextText, err := NewContextProvider(cfg).Resolve(context.Background(), prompt.SectionContext{
+		Turn: &prompt.TurnInput{ThreadID: "thread-1", UserText: "review notes"},
+	})
+	if err != nil {
+		t.Fatalf("MemoryContextProvider.Resolve() error = %v", err)
+	}
+	if contextText != nil {
+		t.Fatalf("MemoryContextProvider.Resolve() = %#v, want nil when product kill switch is off", contextText)
 	}
 }
 

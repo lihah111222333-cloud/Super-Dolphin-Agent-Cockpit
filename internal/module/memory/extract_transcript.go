@@ -97,7 +97,12 @@ func buildExtractPrompt(params ExtractParams, fallbackLimit int) string {
 	parts := []string{
 		"Distill only durable memory worth carrying into future sessions.",
 		"Prefer novel memories not already present in the existing manifest.",
-		"Return JSON in the form {\"memories\": [{\"content\":\"...\",\"type\":\"user|feedback|project|reference\",\"tags\":[\"...\"]}] }.",
+		"Every returned memory MUST include a `type` selected from the four-type taxonomy below. If you cannot justify a taxonomy type, omit the memory instead of returning an untyped item.",
+		renderExtractTaxonomy(),
+		renderExtractExclusions(),
+		"Return JSON in the form {\"memories\": [{\"scope\":\"private|team\",\"name\":\"...\",\"description\":\"...\",\"type\":\"user|feedback|project|reference\",\"content\":\"...\"}]} with one object per durable memory.",
+		"Every memory item must include `scope`, `name`, `description`, `type`, and `content`.",
+		"For `feedback` and `project` memories, `content` must be structured as the main rule/fact followed by `Why:` and `How to apply:` lines.",
 		fmt.Sprintf("Limit the response to %d memory items.", limit),
 		"Existing memory manifest (header-only):",
 		renderManifestHeaders(params.Manifest),
@@ -105,6 +110,30 @@ func buildExtractPrompt(params ExtractParams, fallbackLimit int) string {
 		renderTranscriptMessages(params.Transcript),
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func renderExtractTaxonomy() string {
+	parts := []string{
+		"## Four memory types",
+		"Use only `user`, `feedback`, `project`, or `reference`.",
+		"Choose `type` by semantic meaning of the content. Storage path, scope, and mode are separate concerns.",
+	}
+	for _, memoryType := range diskMemoryTypes {
+		behavior := standardMemoryTypeBehaviors[memoryType]
+		section := []string{
+			"### " + string(memoryType),
+			renderBullets(append([]string{behavior.Summary}, behavior.Save...)),
+		}
+		parts = append(parts, strings.Join(nonEmpty(section), "\n"))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func renderExtractExclusions() string {
+	return strings.Join(nonEmpty([]string{
+		"## What not to save",
+		renderBullets(standardExclusionRules),
+	}), "\n")
 }
 
 func renderManifestHeaders(manifest []MemoryEntry) string {
@@ -145,9 +174,9 @@ func filterManifestDuplicates(items []ExtractedMemory, manifest []MemoryEntry) [
 	}
 	filtered := make([]ExtractedMemory, 0, len(items))
 	for _, item := range items {
-		key := CanonicalName(firstNonEmptyLine(item.Content))
+		key := extractedMemoryDedupKey(item)
 		if key == "" {
-			key = CanonicalName(item.Content)
+			continue
 		}
 		if _, ok := seen[key]; ok {
 			continue
@@ -184,13 +213,13 @@ func internalMemoryFromMessage(msg providerdto.Message) (ExtractedMemory, bool) 
 	lower := strings.ToLower(text)
 	switch {
 	case strings.EqualFold(msg.Role, "user") && containsHeuristicCue(lower, userPreferenceCues...):
-		return ExtractedMemory{Content: text, Type: MemoryTypeUser}, true
+		return ExtractedMemory{Scope: extractScopePrivate, Content: text, Type: MemoryTypeUser}, true
 	case strings.EqualFold(msg.Role, "assistant") && containsHeuristicCue(lower, assistantPreferenceCues...):
-		return ExtractedMemory{Content: text, Type: MemoryTypeFeedback}, true
+		return ExtractedMemory{Scope: extractScopePrivate, Content: text, Type: MemoryTypeFeedback}, true
 	case containsHeuristicCue(lower, referenceCues...) && strings.Contains(text, "http"):
-		return ExtractedMemory{Content: text, Type: MemoryTypeReference}, true
+		return ExtractedMemory{Scope: extractScopePrivate, Content: text, Type: MemoryTypeReference}, true
 	case containsHeuristicCue(lower, projectCues...):
-		return ExtractedMemory{Content: text, Type: MemoryTypeProject}, true
+		return ExtractedMemory{Scope: extractScopePrivate, Content: text, Type: MemoryTypeProject}, true
 	default:
 		return ExtractedMemory{}, false
 	}

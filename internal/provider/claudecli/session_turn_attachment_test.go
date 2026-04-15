@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
@@ -19,11 +20,30 @@ func TestComposeTurnTextIncludesAttachmentTextAfterUserContext(t *testing.T) {
 	got := composeTurnText(dto.TurnRequest{
 		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 		TurnAssembly: dto.TurnAssembly{
-			UserContextText: "Always respond in Chinese.",
-			Attachments:     []dto.AttachmentEnvelope{attachment},
+			UserContext: map[string]string{
+				"currentDate": "Today's date is 2026-04-15.",
+			},
+			Attachments: []dto.AttachmentEnvelope{attachment},
 		},
 	})
-	want := "Always respond in Chinese.\n\n" + attachment.RenderText() + "\n\nhello"
+	want := "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\n" + attachment.RenderText() + "\n\nhello"
+	if got != want {
+		t.Fatalf("composeTurnText() = %q, want %q", got, want)
+	}
+}
+
+func TestComposeTurnTextPrependsSystemContextBeforeUserContext(t *testing.T) {
+	systemContext := dto.SystemContext{"gitStatus": "## main\n M changed.go"}
+	got := composeTurnText(dto.TurnRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+		TurnAssembly: dto.TurnAssembly{
+			SystemContext: systemContext,
+			UserContext: map[string]string{
+				"currentDate": "Today's date is 2026-04-15.",
+			},
+		},
+	})
+	want := contract.FormatSystemContextBlock(systemContext) + "\n\n<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\nhello"
 	if got != want {
 		t.Fatalf("composeTurnText() = %q, want %q", got, want)
 	}

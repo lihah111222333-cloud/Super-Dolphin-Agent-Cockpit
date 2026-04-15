@@ -68,7 +68,7 @@ func TestRegisterPromptProvidersInjectsTeamMemoryIntoTurnUserContext(t *testing.
 	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := t.TempDir()
 	autoRoot := filepath.Join(t.TempDir(), "automem")
-	teamRoot := filepath.Join(projectRoot, teamMemoryRootDirName)
+	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
 	for _, dir := range []string{autoRoot, teamRoot} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
@@ -118,7 +118,7 @@ func TestRegisterPromptProvidersSkipsTeamMemoryTurnLaneWhenKairosActive(t *testi
 	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := t.TempDir()
 	autoRoot := filepath.Join(t.TempDir(), "automem")
-	teamRoot := filepath.Join(projectRoot, teamMemoryRootDirName)
+	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
 	for _, dir := range []string{autoRoot, teamRoot} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("MkdirAll(%q) error = %v", dir, err)

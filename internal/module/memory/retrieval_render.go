@@ -3,6 +3,7 @@ package memory
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"sort"
 	"strings"
 	"time"
@@ -168,10 +169,37 @@ func renderTranscriptBlock(snippet transcriptSnippet) string {
 }
 
 func memoryRenderBody(entry MemoryEntry) string {
-	if text := strings.TrimSpace(entry.Content); text != "" {
-		return text
+	frontmatter := relevantMemoryFrontmatter(entry)
+	body := strings.TrimSpace(entry.Content)
+	switch {
+	case frontmatter == "":
+		return body
+	case body == "":
+		return frontmatter
+	default:
+		return frontmatter + "\n\n" + body
 	}
-	return strings.TrimSpace(entry.Frontmatter.Description)
+}
+
+func relevantMemoryFrontmatter(entry MemoryEntry) string {
+	lines := make([]string, 0, 5)
+	if name := strings.TrimSpace(entry.Frontmatter.Name); name != "" {
+		lines = append(lines, "name: "+strconv.Quote(name))
+	}
+	if description := strings.TrimSpace(entry.Frontmatter.Description); description != "" {
+		lines = append(lines, "description: "+strconv.Quote(description))
+	}
+	if entry.Frontmatter.Type != nil {
+		if raw := strings.TrimSpace(string(*entry.Frontmatter.Type)); raw != "" {
+			lines = append(lines, "type: "+strconv.Quote(raw))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	lines = append([]string{"---"}, lines...)
+	lines = append(lines, "---")
+	return strings.Join(lines, "\n")
 }
 
 func transcriptHeader(snippet transcriptSnippet) string {

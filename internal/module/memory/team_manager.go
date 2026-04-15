@@ -1,18 +1,24 @@
 package memory
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 const teamMemoryRootDirName = "team"
 
+var teamMemoryRuntimeReady atomic.Bool
+
 var teamMemoryRuntimeReadyFunc = func() bool {
-	return false
+	return teamMemoryRuntimeReady.Load()
+}
+
+func setTeamMemoryRuntimeReady(ready bool) {
+	teamMemoryRuntimeReady.Store(ready)
 }
 
 func (m *TeamMemoryManager) GetTeamMemEntrypoint(buildCtx ...contract.BuildCtx) string {
@@ -27,7 +33,7 @@ func teamMemPath(m *TeamMemoryManager, buildCtx contract.BuildCtx) string {
 	if m == nil || !m.IsTeamMemoryEnabled(buildCtx) {
 		return ""
 	}
-	root, err := configuredTeamMemPath(m)
+	root, err := configuredTeamMemPath(m, buildCtx)
 	if err != nil {
 		return ""
 	}
@@ -41,7 +47,7 @@ func isTeamMemoryEnabled(m *TeamMemoryManager, buildCtx contract.BuildCtx) bool 
 	if !teamMemoryRuntimeAvailable(buildCtx, m.config()) {
 		return false
 	}
-	_, err := configuredTeamMemPath(m)
+	_, err := configuredTeamMemPath(m, buildCtx)
 	return err == nil
 }
 
@@ -57,27 +63,41 @@ func teamMemoryRuntimeAvailable(buildCtx contract.BuildCtx, cfg Config) bool {
 }
 
 func teamMemoryConfigured(cfg Config) bool {
-	return cfg.Enabled && cfg.Features.TeamMemory && strings.TrimSpace(cfg.ProjectRoot) != ""
+	return cfg.Enabled && cfg.Features.TeamMemory
 }
 
-func configuredTeamMemRoot(cfg *Config) (string, error) {
+func configuredTeamMemRoot(cfg *Config, buildCtx ...contract.BuildCtx) (string, error) {
 	cfg = memoryConfig(cfg)
-	projectRoot := strings.TrimSpace(cfg.ProjectRoot)
-	if projectRoot == "" {
+	projectRoot := teamMemoryProjectRoot(cfg, firstTeamBuildCtx(buildCtx))
+	if projectRoot == "" && strings.TrimSpace(cfg.AutoMemPathOverride) == "" {
 		return "", ErrInvalidProjectDir
 	}
-	canonical, err := FindCanonicalGitRoot(context.Background(), projectRoot)
+	root, err := resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidProjectDir, err)
+		return "", err
 	}
-	cleaned, err := cleanAbsolutePath(canonical)
+	cleaned, err := cleanAbsolutePath(root)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidProjectDir, err)
+		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
 	}
 	return filepath.Join(cleaned, teamMemoryRootDirName), nil
 }
 
-func configuredTeamMemPath(m *TeamMemoryManager) (string, error) {
+func teamMemoryProjectRoot(cfg *Config, buildCtx contract.BuildCtx) string {
+	cfg = memoryConfig(cfg)
+	for _, candidate := range []string{
+		strings.TrimSpace(buildCtx.GitRoot),
+		strings.TrimSpace(buildCtx.CWD),
+		strings.TrimSpace(cfg.ProjectRoot),
+	} {
+		if candidate != "" {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func configuredTeamMemPath(m *TeamMemoryManager, buildCtx ...contract.BuildCtx) (string, error) {
 	if m == nil {
 		return "", ErrTeamMemoryDisabled
 	}
@@ -85,7 +105,7 @@ func configuredTeamMemPath(m *TeamMemoryManager) (string, error) {
 	if !teamMemoryConfigured(cfg) {
 		return "", ErrTeamMemoryDisabled
 	}
-	return configuredTeamMemRoot(&cfg)
+	return configuredTeamMemRoot(&cfg, firstTeamBuildCtx(buildCtx))
 }
 
 func validateTeamMemWriteRequest(m *TeamMemoryManager, raw string) error {

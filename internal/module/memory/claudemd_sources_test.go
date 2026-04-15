@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -85,6 +86,65 @@ func TestResolveClaudeMdSourcesOrdersLayersAndPreservesRuleMetadata(t *testing.T
 	}
 }
 
+func TestResolveClaudeMdSourcesBareWithoutAdditionalDirsDisablesAll(t *testing.T) {
+	base := t.TempDir()
+	managedRoot := filepath.Join(base, "managed")
+	userRoot := filepath.Join(base, "user")
+	repoRoot := filepath.Join(base, "repo")
+	for _, dir := range []string{managedRoot, userRoot, repoRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	writeClaudeFile(t, filepath.Join(managedRoot, "CLAUDE.md"), "managed base")
+	writeClaudeFile(t, filepath.Join(userRoot, "CLAUDE.md"), "user base")
+	writeClaudeFile(t, filepath.Join(repoRoot, "CLAUDE.md"), "project base")
+	if got := ResolveClaudeMdSources(context.Background(), ClaudeMdResolveConfig{
+		BuildCtx:     contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot, SessionFlags: map[string]bool{"bare_mode": true}},
+		ManagedRoots: []string{managedRoot},
+		UserRoot:     userRoot,
+	}); len(got) != 0 {
+		t.Fatalf("ResolveClaudeMdSources() = %#v, want nil/empty under bare mode without add-dir", got)
+	}
+}
+
+func TestResolveClaudeMdSourcesBareHonorsExplicitAdditionalDirs(t *testing.T) {
+	t.Setenv(envAdditionalDirectoriesClaudeMd, "1")
+	base := t.TempDir()
+	managedRoot := filepath.Join(base, "managed")
+	userRoot := filepath.Join(base, "user")
+	repoRoot := filepath.Join(base, "repo")
+	addDir := filepath.Join(base, "extra")
+	for _, dir := range []string{managedRoot, userRoot, repoRoot, addDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	writeClaudeFile(t, filepath.Join(managedRoot, "CLAUDE.md"), "managed base")
+	writeClaudeFile(t, filepath.Join(userRoot, "CLAUDE.md"), "user base")
+	writeClaudeFile(t, filepath.Join(repoRoot, "CLAUDE.md"), "project base")
+	writeClaudeFile(t, filepath.Join(addDir, "CLAUDE.md"), "add-dir base")
+	sources := ResolveClaudeMdSources(context.Background(), ClaudeMdResolveConfig{
+		BuildCtx: contract.BuildCtx{
+			GitRoot:                      repoRoot,
+			CWD:                          repoRoot,
+			SessionFlags:                 map[string]bool{"bare_mode": true},
+			AdditionalWorkingDirectories: []string{addDir},
+		},
+		ManagedRoots: []string{managedRoot},
+		UserRoot:     userRoot,
+	})
+	got := sourcePaths(sources)
+	want := []string{
+		mustResolvedClaudePath(t, filepath.Join(managedRoot, "CLAUDE.md")),
+		mustResolvedClaudePath(t, filepath.Join(userRoot, "CLAUDE.md")),
+		mustResolvedClaudePath(t, filepath.Join(addDir, "CLAUDE.md")),
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ResolveClaudeMdSources() under bare add-dir = %#v, want %#v", got, want)
+	}
+}
+
 func TestFilterInjectedMemoryFilesAppliesLayeredGates(t *testing.T) {
 	sources := []ClaudeMdSource{
 		{Path: "/user/CLAUDE.md", Type: sourceTypeUser, Origin: sourceOriginUser},
@@ -95,15 +155,39 @@ func TestFilterInjectedMemoryFilesAppliesLayeredGates(t *testing.T) {
 		{Path: "/memory/MEMORY.md", Type: sourceTypeAutoMem, Origin: sourceOriginAutoMem},
 		{Path: "/team/MEMORY.md", Type: sourceTypeTeamMem, Origin: sourceOriginTeamMem},
 	}
-	filtered := FilterInjectedMemoryFiles(sources, MemoryGateSnapshot{
+	filtered := FilterInjectedMemoryFiles(sources, contract.BuildCtx{}, MemoryGateSnapshot{
 		InjectMemoryIndex:        false,
 		InjectTeamMemIndex:       false,
 		SkipProjectLocalClaudeMd: true,
 	}, []string{"/user/*"})
 	got := sourcePaths(filtered)
-	want := []string{"/extra/CLAUDE.md", "/etc/claude-code/CLAUDE.md"}
+	want := []string{"/repo/CLAUDE.local.md", "/extra/CLAUDE.md", "/etc/claude-code/CLAUDE.md"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("FilterInjectedMemoryFiles() paths = %#v, want %#v", got, want)
+	}
+}
+
+func TestFilterInjectedMemoryFilesNestedWorktreeSkipsCheckedInAncestorsOnly(t *testing.T) {
+	repoRoot, worktreeRoot, cwd := newNestedWorktreeClaudeFixture(t)
+	sources := []ClaudeMdSource{
+		{Path: filepath.Join(repoRoot, "CLAUDE.md"), Type: sourceTypeProject, Origin: sourceOriginProject, BaseDir: repoRoot},
+		{Path: filepath.Join(repoRoot, "CLAUDE.local.md"), Type: sourceTypeLocal, Origin: sourceOriginProject, BaseDir: repoRoot},
+		{Path: filepath.Join(worktreeRoot, "CLAUDE.md"), Type: sourceTypeProject, Origin: sourceOriginProject, BaseDir: worktreeRoot},
+		{Path: filepath.Join(worktreeRoot, "CLAUDE.local.md"), Type: sourceTypeLocal, Origin: sourceOriginProject, BaseDir: worktreeRoot},
+	}
+	filtered := FilterInjectedMemoryFiles(sources, contract.BuildCtx{
+		CWD:        cwd,
+		GitRoot:    worktreeRoot,
+		IsWorktree: true,
+	}, MemoryGateSnapshot{SkipProjectLocalClaudeMd: true}, nil)
+	got := sourcePaths(filtered)
+	want := []string{
+		filepath.Join(repoRoot, "CLAUDE.local.md"),
+		filepath.Join(worktreeRoot, "CLAUDE.md"),
+		filepath.Join(worktreeRoot, "CLAUDE.local.md"),
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("FilterInjectedMemoryFiles(nested worktree) paths = %#v, want %#v", got, want)
 	}
 }
 
@@ -112,7 +196,7 @@ func TestCombinedClaudeMdSourcesInjectTeamEntrypointThroughBuildBaseUserContext(
 	base := t.TempDir()
 	repoRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
-	teamRoot := filepath.Join(repoRoot, teamMemoryRootDirName)
+	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
 	for _, dir := range []string{repoRoot, autoRoot, teamRoot} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
@@ -158,7 +242,7 @@ func TestCombinedClaudeMdSourcesSkipTeamEntrypointWhenKairosActive(t *testing.T)
 	base := t.TempDir()
 	repoRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
-	teamRoot := filepath.Join(repoRoot, teamMemoryRootDirName)
+	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
 	for _, dir := range []string{repoRoot, autoRoot, teamRoot} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
@@ -248,4 +332,35 @@ func mustResolvedClaudePath(t *testing.T, path string) string {
 		t.Fatalf("resolveClaudeMdCandidatePath(%q) = false", path)
 	}
 	return resolved
+}
+
+func newNestedWorktreeClaudeFixture(t *testing.T) (string, string, string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not available: %v", err)
+	}
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "Test User")
+	writeClaudeFile(t, filepath.Join(repoRoot, "README.md"), "root")
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "init")
+	worktreeRoot := filepath.Join(repoRoot, ".claude", "worktrees", "feature")
+	runGit(t, repoRoot, "worktree", "add", "-b", "feature", worktreeRoot)
+	cwd := filepath.Join(worktreeRoot, "pkg")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", cwd, err)
+	}
+	return repoRoot, worktreeRoot, cwd
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v in %q error = %v\n%s", args, dir, err, string(out))
+	}
 }
