@@ -126,6 +126,9 @@ P19
 
 ### B-1：memory 包拆子包（2-4 天）
 
+> 状态：✅ 完成
+> 2026-04-17 更新：子包拆分已完成（team + nested + retrieval + agent + shared），主包从 82/19,777 降到 52/12,356（raw）；按 archtest / freeze 口径已收缩到 30 non-test / 7161 effective。path canonical / bridge owner / TeamSync 生产链均已收口。
+
 | 候选切片 | 当前判断 | 备注 |
 |---------|---------|------|
 | `memory/team` | 首波优先拆出 | 含 `team_sync*` + `TeamMemoryManager` |
@@ -133,7 +136,7 @@ P19
 | `memory/kairos` | 暂不建议与 extract 硬拆成两个完全独立子包 | 先抽 shared core / consolidation slice |
 | `memory/extract` | 与 kairos 存在双向耦合，第二波处理 | 先清 manifest/header/shared helper |
 
-> 目标：先让主包回到 **≤30 文件 / ≤10000 effective**；首波以 `team + nested` 为主。
+> 结果：子包拆分已完成；主包已降到 **30 non-test / 7161 effective**（freeze 基线），物理 `.go` 文件数为 52，后续只继续做第三波余量治理。
 
 ### B-2：uistate 守卫对齐与余量治理（0.5-1 天，已校准）
 

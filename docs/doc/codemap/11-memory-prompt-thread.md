@@ -97,20 +97,28 @@ provider bridge
 
 ```text
 internal/module/memory/
-├── agent.go            # AgentMemoryManager：按 scope 读取 agent 专属 MEMORY.md prompt
-├── config.go           # memory 开关、root、feature flags、skipIndex 等配置
-├── index.go            # MEMORY.md 索引读写、entry frontmatter 解析、全盘扫描
-├── manifest.go         # 仅扫描 header 的 manifest builder
-├── module.go           # fx.Module；注册 lifecycle / prompt provider / event hooks
-├── path.go             # root/path 校验、auto-mem 路径推导、原子写文件
-├── retrieval.go        # RelevantMemoryFinder：按 query 做 ranking + budget 选取
-├── root.go             # MemoryExtractor：把 transcript 蒸馏为 durable memory 候选
-├── rules.go            # memory taxonomy / access/save/trust rules 的系统提示词模板
-├── rules_provider.go   # 把 rules 作为 prompt dynamic section 注入 prompt assembler
-├── service.go          # root 准备、显式 save intent 检测、turn-completed hook
-├── store.go            # DiskStore：Create/Read/Update/Delete/RebuildIndex
-└── types.go            # MemoryType/Scope/Entry/ExtractedMemory 等领域类型
+├── agent/                    # Agent Memory 子包：manager / prompt provider / type sanitize / module
+├── team/                     # Team Memory 子包：manager / path / guard / sync / watcher / module
+├── nested/                   # nested_memory 子包：nested runtime/rules + claudeMd source/filter/parse
+├── retrieval/                # relevant memory 子包：manifest / finder / ranking / prefetch / render / module
+├── shared/                   # shared types + pathsafe helpers
+├── agent_bridge.go           # root compat bridge（owner: agent split；待 root caller 迁走后删除）
+├── nested_shim.go            # root compat shim（owner: nested split；待 dependency/contract 收口后删除）
+├── retrieval_bridge.go       # root compat bridge（owner: retrieval split；待 root caller 迁走后删除）
+├── retrieval_helpers_bridge.go # root helper bridge：searchTerms/contextErr/minInt 兼容层
+├── team_bridge.go            # root compat bridge（owner: team split；待 root caller 迁走后删除）
+├── config.go                 # memory 开关、root、feature flags、skipIndex 等配置
+├── module.go                 # root fx.Module；聚合 team/nested/retrieval/agent module + lifecycle/hook wiring
+├── path.go                   # root/path 校验、auto-mem 路径推导、原子写文件
+├── rules.go                  # memory taxonomy / access/save/trust rules 的系统提示词模板
+├── rules_provider.go         # 把 rules / memory context 注入 prompt assembler
+├── service.go                # root 准备、显式 save intent 检测、turn-completed hook
+├── store.go                  # DiskStore：Create/Read/Update/Delete/RebuildIndex
+├── truncate.go               # 通用 MEMORY.md 截断 / size helper
+└── types.go                  # root 领域类型别名与 SaveIntent 等聚合类型
 ```
+
+补充：root 层的 5 个 compat bridge/shim 只承接迁移期兼容，不是长期 canonical 归属；新调用方应优先直接依赖 `memory/{agent,team,nested,retrieval,shared}`。
 
 ### 2.2 `cmd/mcp-orch/memory/` 与工具暴露
 
@@ -217,10 +225,10 @@ internal/provider/claudecli/
 | `DiskStore` | `internal/module/memory/store.go` | durable memory 的 CRUD 与索引更新器。 |
 | `MemoryRuleEngine` | `internal/module/memory/rules.go` | 生成“如何保存/访问/信任 memory”的 system prompt 文本。 |
 | `MemoryRulesProvider` | `internal/module/memory/rules_provider.go` | 实现 `prompt.DynamicSectionProvider`，把 memory rules 注入 prompt。 |
-| `RelevantMemoryFinder` | `internal/module/memory/retrieval.go` | 基于 query 对 manifest entry 做 ranking + budget 裁剪。 |
-| `MemoryExtractor` | `internal/module/memory/root.go` | 通过 LLM extractor 把 transcript 提炼为 durable memory 候选。 |
-| `ManifestBuilder` | `internal/module/memory/manifest.go` | 只扫描 frontmatter/header，不加载全文。 |
-| `AgentMemoryManager` | `internal/module/memory/agent.go` | 生成 agent-scope MEMORY prompt，包含截断与 scope 文案。 |
+| `RelevantMemoryFinder` | `internal/module/memory/retrieval/finder.go` | 基于 query 对 manifest entry 做 ranking + budget 裁剪；ranking helper 已拆到 `retrieval/ranking.go`。 |
+| `MemoryExtractor` | `internal/module/memory/extract.go` | 通过 LLM extractor 把 transcript 提炼为 durable memory 候选。 |
+| `ManifestBuilder` | `internal/module/memory/retrieval/manifest.go` | 只扫描 frontmatter/header，不加载全文。 |
+| `AgentMemoryManager` | `internal/module/memory/agent/agent.go` | 生成 agent-scope MEMORY prompt，包含截断与 scope 文案。 |
 | `contract.MemoryService` | `internal/contract/memory.go` + `cmd/mcp-orch/memory/service.go` | tool/read 侧只读查询接口，供 `memory_read` 工具使用。 |
 
 #### 补充：`type` / `scope` / `mode` 的语义边界
@@ -363,17 +371,17 @@ internal/provider/claudecli/
 - 解析 frontmatter，构建 `MemoryIndexEntry{Title, Path, Hook}`。
 - 最终重写 `MEMORY.md`，把 topic file 变成扁平入口索引。
 
-#### `(*ManifestBuilder).BuildManifest` — `internal/module/memory/manifest.go`
+#### `(*ManifestBuilder).BuildManifest` — `internal/module/memory/retrieval/manifest.go`
 - 只扫描 header，不读取正文内容。
 - 输出 header-only 的 `[]MemoryEntry`，供 retrieval/ranking 使用。
 - 默认上限 `defaultManifestFileLimit=200`。
 
-#### `(*RelevantMemoryFinder).FindRelevantMemories` — `internal/module/memory/retrieval.go`
+#### `(*RelevantMemoryFinder).FindRelevantMemories` — `internal/module/memory/retrieval/finder.go`
 - `rankEntries(query, manifest)` 先做基于名字/别名/description/path 的轻量 ranking。
 - `hydrateEntries` 只对 top candidates 读正文，避免全量 IO。
 - `SelectRelevantMemories` 再按 budget / 去重 / 最大条数裁剪。
 
-#### `(*MemoryExtractor).Extract` — `internal/module/memory/root.go`
+#### `(*MemoryExtractor).Extract` — `internal/module/memory/extract.go`
 - 把 transcript 包装成严格 JSON 输出格式的 extractor prompt。
 - 允许 envelope/list/single 三种 JSON 返回结构。
 - `normalizeExtractedMemories` 做去重、type 规范化、tags 截断。
@@ -389,7 +397,7 @@ internal/provider/claudecli/
   - `## memory`
   - 后跟由 `MemoryRuleEngine` 生成的多级标题文本。
 
-#### `(*AgentMemoryManager).LoadAgentMemoryPrompt` — `internal/module/memory/agent.go`
+#### `(*AgentMemoryManager).LoadAgentMemoryPrompt` — `internal/module/memory/agent/agent.go`
 - 按 `MemoryScopeUser / Project / Local` 选择 agent memory 目录：
   - `user` → `<validatedRoot>/agents/<agentType>/MEMORY.md`
   - `project` → `<projectRoot>/memory/agents/<agentType>/MEMORY.md`
@@ -895,11 +903,11 @@ memory 模块自己的 `MemoryRulesProvider` 并不是这里硬编码注册，�
   - 校验 turn-completed 后显式 memory 能落盘。
 - `internal/module/memory/rules_test.go`
   - 校验 memory prompt 文本结构与 skip-index 行为。
-- `internal/module/memory/retrieval_test.go`
+- `internal/module/memory/retrieval/retrieval_test.go`
   - 校验 ranking / budget / 去重逻辑。
 - `internal/module/memory/index_test.go`、`manifest_test.go`、`store_test.go`
   - 校验 entry/frontmatter/index 的 round-trip 与磁盘行为。
-- `internal/module/memory/agent_test.go`
+- `internal/module/memory/agent/agent_test.go`
   - 校验 agent MEMORY prompt 的 entrypoint 读取与截断/BOM 行为。
 
 #### Prompt 侧
@@ -983,12 +991,12 @@ memory 模块自己的 `MemoryRulesProvider` 并不是这里硬编码注册，�
 - `internal/module/memory/service.go`
 - `internal/module/memory/store.go`
 - `internal/module/memory/index.go`
-- `internal/module/memory/manifest.go`
-- `internal/module/memory/retrieval.go`
-- `internal/module/memory/root.go`
+- `internal/module/memory/retrieval/manifest.go`
+- `internal/module/memory/retrieval/finder.go`
+- `internal/module/memory/extract.go`
 - `internal/module/memory/rules.go`
 - `internal/module/memory/rules_provider.go`
-- `internal/module/memory/agent.go`
+- `internal/module/memory/agent/agent.go`
 - `cmd/mcp-orch/memory/service.go`
 - `cmd/mcp-orch/tools/memory_tools.go`
 
