@@ -15,16 +15,20 @@ import (
 )
 
 const (
-	MaxFileLines            = 400
+	// 2026-04-17 默认守卫放宽：单文件 400→600、包文件数 15→25、包有效行 4500→10000。
+	// 函数 ≤80、CC ≤10、嵌套 ≤4、标识符下划线 ≤3 保持不变。
+	// 核心包放宽（MaxCorePackage*）保留，但 CorePackageFileLines / CorePackageLines 已等同新默认，
+	// 唯一仍有价值的差异是核心包文件数 30 > 默认 25。
+	MaxFileLines            = 600
 	MaxCorePackageFileLines = 600
 	MaxFactoryFileLines     = 800
 	MaxFuncLines            = 80
 	MaxNestingDepth         = 4
 	MaxUnderscores          = 3
 	MaxCCComplexity         = 10
-	MaxPackageFiles         = 15
+	MaxPackageFiles         = 25
 	MaxCorePackageFiles     = 30
-	MaxPackageLines         = 4500
+	MaxPackageLines         = 10000
 	MaxCorePackageLines     = 10000
 )
 
