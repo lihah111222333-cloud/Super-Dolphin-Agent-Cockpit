@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-04-15",
+  "generated_at": "2026-04-16",
   "description": "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
   "codemaps": [
     {
@@ -17919,6 +17919,21 @@
         }
       ]
     },
+    "internal/archtest/effective_lines.go": {
+      "package": "archtest",
+      "description": "archtest",
+      "refs": []
+    },
+    "internal/archtest/freeze_registry.go": {
+      "package": "archtest",
+      "description": "archtest",
+      "refs": []
+    },
+    "internal/archtest/freeze_registry_autofix.go": {
+      "package": "archtest",
+      "description": "archtest",
+      "refs": []
+    },
     "internal/archtest/guardlib.go": {
       "package": "archtest",
       "description": "archtest",
@@ -18228,6 +18243,11 @@
         }
       ]
     },
+    "internal/contract/prompt_attachment.go": {
+      "package": "contract",
+      "description": "contract",
+      "refs": []
+    },
     "internal/contract/provider.go": {
       "package": "contract",
       "description": "provider 三层抽象：`Driver` / `Session` / `TurnHandle`。",
@@ -18407,6 +18427,11 @@
         }
       ]
     },
+    "internal/contract/thread_metadata.go": {
+      "package": "contract",
+      "description": "contract",
+      "refs": []
+    },
     "internal/devtools/codemapindex/readme_sync.go": {
       "package": "codemapindex",
       "description": "codemapindex",
@@ -18566,19 +18591,6 @@
           "start_line": 449,
           "end_line": 470,
           "context": "发布 `threaddto.Compacted`。"
-        }
-      ]
-    },
-    "internal/dto/agent/guard.go": {
-      "package": "agent",
-      "description": "：`TransitionGuard`",
-      "refs": [
-        {
-          "codemap": "05",
-          "section": "2. 子包与文件索引 \u003e 2.2 逐文件职责 \u003e `agent`",
-          "start_line": 47,
-          "end_line": 47,
-          "context": "：`TransitionGuard`"
         }
       ]
     },
@@ -19439,11 +19451,6 @@
           "context": "`prompt.AssembleTurn`、`internal/provider/codexapp/session_turn.go`、`internal/provider/claudecli/session_turn.go` 三"
         }
       ]
-    },
-    "internal/dto/provider/user_context.go": {
-      "package": "provider",
-      "description": "provider",
-      "refs": []
     },
     "internal/dto/shared/errors.go": {
       "package": "shared",
@@ -20780,82 +20787,6 @@
           "start_line": 706,
           "end_line": 706,
           "context": "6.3 MCP HTTP transport（`common/http_transport.go`）"
-        }
-      ]
-    },
-    "internal/mcpserver/common/manifest.go": {
-      "package": "common",
-      "description": "3. **大部分文件是纯数据定义**：少量辅助逻辑集中在 `shared/event.go`、`agent/state.go`、`provider/",
-      "refs": [
-        {
-          "codemap": "05",
-          "section": "1. 模块概览",
-          "start_line": 13,
-          "end_line": 17,
-          "context": "3. **大部分文件是纯数据定义**：少量辅助逻辑集中在 `shared/event.go`、`agent/state.go`、`provider/"
-        },
-        {
-          "codemap": "05",
-          "section": "2. 子包与文件索引 \u003e 2.1 子包职责",
-          "start_line": 25,
-          "end_line": 35,
-          "context": "会话、Turn、线程配置、消息分页、MCP manifest、原始 provider 事件"
-        },
-        {
-          "codemap": "05",
-          "section": "2. 子包与文件索引 \u003e 2.2 逐文件职责 \u003e `provider`",
-          "start_line": 61,
-          "end_line": 61,
-          "context": "：`ToolFamily`、`MCPBinary`、`MCPManifest`、`ManifestContext`、`BuildManifest`"
-        },
-        {
-          "codemap": "06",
-          "section": "2.1 `internal/mcpserver/common/`",
-          "start_line": 97,
-          "end_line": 98,
-          "context": ""
-        },
-        {
-          "codemap": "06",
-          "section": "3. 核心类型 / 接口 \u003e 3.1 MCP 外层抽象",
-          "start_line": 354,
-          "end_line": 361,
-          "context": "静态工具声明 DTO"
-        },
-        {
-          "codemap": "07",
-          "section": "2.5 turn（回合管理） \u003e 文件地图",
-          "start_line": 580,
-          "end_line": 596,
-          "context": "MCP manifest 构造与 peer 发现。"
-        },
-        {
-          "codemap": "11",
-          "section": "2. 目录结构 \u003e 2.1 `internal/module/memory/`",
-          "start_line": 98,
-          "end_line": 113,
-          "context": "├── manifest.go         # 仅扫描 header 的 manifest builder"
-        },
-        {
-          "codemap": "11",
-          "section": "3. 核心类型 / 接口 \u003e 3.1 Memory 侧核心类型",
-          "start_line": 212,
-          "end_line": 224,
-          "context": "只扫描 frontmatter/header，不加载全文。"
-        },
-        {
-          "codemap": "11",
-          "section": "4. 关键函数 / 方法 \u003e 4.1 Memory：durable memory 主链路 \u003e `(*ManifestBuilder).BuildManifest` — `internal/module/memory/manifest.go`",
-          "start_line": 366,
-          "end_line": 369,
-          "context": "`(*ManifestBuilder).BuildManifest` — `internal/module/memory/manifest.go`"
-        },
-        {
-          "codemap": "11",
-          "section": "8. 关键源码文件索引 \u003e 8.1 Memory 主文件",
-          "start_line": 986,
-          "end_line": 986,
-          "context": "`internal/module/memory/manifest.go`"
         }
       ]
     },
@@ -43954,6 +43885,11 @@
         }
       ]
     },
+    "internal/provider/codexapp/protocol/dynamic_tool.go": {
+      "package": "protocol",
+      "description": "protocol",
+      "refs": []
+    },
     "internal/provider/codexapp/recovery.go": {
       "package": "codexapp",
       "description": "│   ├── recovery.go",
@@ -44466,6 +44402,82 @@
           "start_line": 737,
           "end_line": 737,
           "context": "：包级说明仍描述“Codex: MCPManifest -\u003e config.toml -\u003e reload -\u003e poll ready”。"
+        }
+      ]
+    },
+    "internal/provider/manifestbuilder/manifest.go": {
+      "package": "manifestbuilder",
+      "description": "3. **大部分文件是纯数据定义**：少量辅助逻辑集中在 `shared/event.go`、`agent/state.go`、`provider/",
+      "refs": [
+        {
+          "codemap": "05",
+          "section": "1. 模块概览",
+          "start_line": 13,
+          "end_line": 17,
+          "context": "3. **大部分文件是纯数据定义**：少量辅助逻辑集中在 `shared/event.go`、`agent/state.go`、`provider/"
+        },
+        {
+          "codemap": "05",
+          "section": "2. 子包与文件索引 \u003e 2.1 子包职责",
+          "start_line": 25,
+          "end_line": 35,
+          "context": "会话、Turn、线程配置、消息分页、MCP manifest、原始 provider 事件"
+        },
+        {
+          "codemap": "05",
+          "section": "2. 子包与文件索引 \u003e 2.2 逐文件职责 \u003e `provider`",
+          "start_line": 61,
+          "end_line": 61,
+          "context": "：`ToolFamily`、`MCPBinary`、`MCPManifest`、`ManifestContext`、`BuildManifest`"
+        },
+        {
+          "codemap": "06",
+          "section": "2.1 `internal/mcpserver/common/`",
+          "start_line": 97,
+          "end_line": 98,
+          "context": ""
+        },
+        {
+          "codemap": "06",
+          "section": "3. 核心类型 / 接口 \u003e 3.1 MCP 外层抽象",
+          "start_line": 354,
+          "end_line": 361,
+          "context": "静态工具声明 DTO"
+        },
+        {
+          "codemap": "07",
+          "section": "2.5 turn（回合管理） \u003e 文件地图",
+          "start_line": 580,
+          "end_line": 596,
+          "context": "MCP manifest 构造与 peer 发现。"
+        },
+        {
+          "codemap": "11",
+          "section": "2. 目录结构 \u003e 2.1 `internal/module/memory/`",
+          "start_line": 98,
+          "end_line": 113,
+          "context": "├── manifest.go         # 仅扫描 header 的 manifest builder"
+        },
+        {
+          "codemap": "11",
+          "section": "3. 核心类型 / 接口 \u003e 3.1 Memory 侧核心类型",
+          "start_line": 212,
+          "end_line": 224,
+          "context": "只扫描 frontmatter/header，不加载全文。"
+        },
+        {
+          "codemap": "11",
+          "section": "4. 关键函数 / 方法 \u003e 4.1 Memory：durable memory 主链路 \u003e `(*ManifestBuilder).BuildManifest` — `internal/module/memory/manifest.go`",
+          "start_line": 366,
+          "end_line": 369,
+          "context": "`(*ManifestBuilder).BuildManifest` — `internal/module/memory/manifest.go`"
+        },
+        {
+          "codemap": "11",
+          "section": "8. 关键源码文件索引 \u003e 8.1 Memory 主文件",
+          "start_line": 986,
+          "end_line": 986,
+          "context": "`internal/module/memory/manifest.go`"
         }
       ]
     },
@@ -56798,26 +56810,6 @@
         }
       ]
     },
-    "internal/store/sqlc/db_ext.go": {
-      "package": "sqlc",
-      "description": "：事务辅助 `WithTx()` / `WithTxOrReuse()`。",
-      "refs": [
-        {
-          "codemap": "02",
-          "section": "2. 目录结构 \u003e `store/`",
-          "start_line": 156,
-          "end_line": 161,
-          "context": "：事务辅助 `WithTx()` / `WithTxOrReuse()`。"
-        },
-        {
-          "codemap": "10",
-          "section": "3. sqlc 使用 \u003e 3.3 生成代码目录结构",
-          "start_line": 401,
-          "end_line": 403,
-          "context": "：手写 `Queryable()` 与顶层 `sqlc.WithTx(ctx, q, fn)`；后者要求 `q.db` 实际是 `*pgxpool.Pool`"
-        }
-      ]
-    },
     "internal/store/sqlc/db_query.sql.go": {
       "package": "sqlc",
       "description": "sqlc",
@@ -56911,26 +56903,6 @@
         }
       ]
     },
-    "internal/store/sqlc/read_only_tx.go": {
-      "package": "sqlc",
-      "description": "：运行时只读事务辅助；优先 `BeginTx(..., pgx.ReadOnly)`，不支持事务时回退直查",
-      "refs": [
-        {
-          "codemap": "10",
-          "section": "3. sqlc 使用 \u003e 3.3 生成代码目录结构",
-          "start_line": 402,
-          "end_line": 403,
-          "context": "：运行时只读事务辅助；优先 `BeginTx(..., pgx.ReadOnly)`，不支持事务时回退直查"
-        },
-        {
-          "codemap": "10",
-          "section": "5. 查询引擎：`dbquery` 设计 \u003e 5.2 只读事务策略",
-          "start_line": 660,
-          "end_line": 661,
-          "context": "提供了统一封装："
-        }
-      ]
-    },
     "internal/store/sqlc/shared_file.sql.go": {
       "package": "sqlc",
       "description": "`command_card.sql.go`、`prompt_template.sql.go`、、`workspace_run.sql.go`：资源 / workspace SQL 的 Go 封装。",
@@ -57007,26 +56979,6 @@
           "start_line": 429,
           "end_line": 431,
           "context": ""
-        }
-      ]
-    },
-    "internal/store/sqlc/types_ext.go": {
-      "package": "sqlc",
-      "description": "：pgtype/time/string/int64 转换。",
-      "refs": [
-        {
-          "codemap": "02",
-          "section": "2. 目录结构 \u003e `store/`",
-          "start_line": 157,
-          "end_line": 161,
-          "context": "：pgtype/time/string/int64 转换。"
-        },
-        {
-          "codemap": "10",
-          "section": "3. sqlc 使用 \u003e 3.3 生成代码目录结构",
-          "start_line": 403,
-          "end_line": 403,
-          "context": "：`RowsFieldNames` 等小扩展"
         }
       ]
     },
@@ -59267,6 +59219,11 @@
           "context": ""
         }
       ]
+    },
+    "internal/store/thread/metadata_adapter.go": {
+      "package": "thread",
+      "description": "thread",
+      "refs": []
     },
     "internal/store/thread/module.go": {
       "package": "thread",
