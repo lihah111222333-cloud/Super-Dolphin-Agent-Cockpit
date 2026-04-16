@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -146,7 +147,7 @@ func isAutoMemPath(cfg *Config, path string) bool {
 	if cfg == nil || strings.TrimSpace(path) == "" {
 		return false
 	}
-	candidate, err := cleanAbsolutePath(path)
+	candidate, err := shared.CleanAbsolutePath(path)
 	if err != nil {
 		return false
 	}
@@ -154,7 +155,7 @@ func isAutoMemPath(cfg *Config, path string) bool {
 	if err != nil || strings.TrimSpace(root) == "" {
 		return false
 	}
-	root, err = cleanAbsolutePath(root)
+	root, err = shared.CleanAbsolutePath(root)
 	if err != nil {
 		return false
 	}

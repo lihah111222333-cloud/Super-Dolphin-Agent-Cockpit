@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 )
 
@@ -113,7 +114,7 @@ func (a teamConfigAdapter) TeamRoot(buildCtx contract.BuildCtx) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	cleaned, err := cleanAbsolutePath(root)
+	cleaned, err := shared.CleanAbsolutePath(root)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
 	}

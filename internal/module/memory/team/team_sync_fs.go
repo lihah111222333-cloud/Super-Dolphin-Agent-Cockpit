@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 type teamSyncLocalFile struct {
@@ -132,7 +134,7 @@ func writeTeamSyncFile(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	stagePath := filepath.Join(filepath.Dir(path), ".team-sync-staging-"+shortHash(path)+".tmp")
+	stagePath := filepath.Join(filepath.Dir(path), ".team-sync-staging-"+shared.ShortHash(path)+".tmp")
 	if err := os.WriteFile(stagePath, []byte(content), 0o644); err != nil {
 		return err
 	}

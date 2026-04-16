@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"golang.org/x/text/unicode/norm"
 )
@@ -85,7 +86,7 @@ func validateTeamMemCandidate(root, file string, wrap teamPathError) (string, er
 }
 
 func validateTeamMemRoot(root string, wrap teamPathError) (string, error) {
-	cleaned, err := cleanAbsolutePath(root)
+	cleaned, err := shared.CleanAbsolutePath(root)
 	if err != nil {
 		return "", wrap(err.Error())
 	}
@@ -108,14 +109,14 @@ func prepareTeamMemCandidate(root, file string, wrap teamPathError) (string, err
 		}
 		candidate = filepath.Join(root, filepath.FromSlash(key))
 	}
-	candidate, err = cleanAbsolutePath(candidate)
+	candidate, err = shared.CleanAbsolutePath(candidate)
 	if err != nil {
 		return "", wrap(err.Error())
 	}
-	if err := ensureResolvablePath(root); err != nil {
+	if err := shared.EnsureResolvablePath(root); err != nil {
 		return "", wrap(err.Error())
 	}
-	if err := ensureResolvablePath(candidate); err != nil {
+	if err := shared.EnsureResolvablePath(candidate); err != nil {
 		return "", wrap(err.Error())
 	}
 	return candidate, nil
@@ -135,7 +136,7 @@ func normalizeTeamWriteInput(raw string, wrap teamPathError) (string, bool, erro
 	if !isTeamAbsolutePath(normalized) {
 		return normalized, false, nil
 	}
-	cleaned, err := cleanAbsolutePath(filepath.FromSlash(normalized))
+	cleaned, err := shared.CleanAbsolutePath(filepath.FromSlash(normalized))
 	if err != nil {
 		return "", false, wrap(err.Error())
 	}
@@ -202,7 +203,7 @@ func decodeTeamPathEscapes(raw string) (string, error) {
 }
 
 func resolveTeamMemRealPath(path string, wrap teamPathError) (string, error) {
-	resolved, err := realPathDeepestExisting(path)
+	resolved, err := shared.RealPathDeepestExisting(path)
 	if err != nil {
 		return "", wrap(err.Error())
 	}

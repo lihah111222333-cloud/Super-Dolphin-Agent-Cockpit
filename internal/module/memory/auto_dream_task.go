@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -358,7 +359,7 @@ func autoDreamProjectKey(projectRoot string) string {
 	if canonical, err := FindCanonicalGitRoot(context.Background(), projectRoot); err == nil && strings.TrimSpace(canonical) != "" {
 		return filepath.Clean(canonical)
 	}
-	if cleaned, err := cleanAbsolutePath(projectRoot); err == nil {
+	if cleaned, err := shared.CleanAbsolutePath(projectRoot); err == nil {
 		return cleaned
 	}
 	return projectRoot

@@ -2,16 +2,13 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -122,7 +119,7 @@ func fallbackAgentTypeName(raw string) string {
 	if prefix == "" {
 		prefix = "agent"
 	}
-	return prefix + "-" + shortHash(raw)
+	return prefix + "-" + shared.ShortHash(raw)
 }
 
 func readableAgentTypePrefix(raw string) string {
@@ -148,11 +145,6 @@ func readableAgentTypePrefix(raw string) string {
 		}
 	}
 	return strings.Trim(builder.String(), " ._-")
-}
-
-func shortHash(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:4])
 }
 
 func truncateRunes(text string, limit int) string {
@@ -305,19 +297,19 @@ func (defaultPathHelper) ValidateRoot(raw string) (string, error) {
 	if raw == "" {
 		return "", nil
 	}
-	cleaned, err := cleanAbsolutePathFallback(raw)
+	cleaned, err := shared.ValidateMemoryRoot(raw)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
 	}
-	return strings.TrimRight(cleaned, string(os.PathSeparator)) + string(os.PathSeparator), nil
+	return cleaned, nil
 }
 
 func (defaultPathHelper) CleanAbsolute(raw string) (string, error) {
-	return cleanAbsolutePathFallback(raw)
+	return shared.CleanAbsolutePath(raw)
 }
 
 func (defaultPathHelper) CanonicalGitRoot(_ context.Context, projectRoot string) (string, error) {
-	return cleanAbsolutePathFallback(projectRoot)
+	return shared.CleanAbsolutePath(projectRoot)
 }
 
 func (defaultPathHelper) SanitizePath(raw string) string {
@@ -342,17 +334,4 @@ func (defaultPathHelper) SanitizePath(raw string) string {
 
 func (defaultPathHelper) MemoryIndexPath(root string) string { return filepath.Join(root, "MEMORY.md") }
 
-func cleanAbsolutePathFallback(raw string) (string, error) {
-	if strings.TrimSpace(raw) == "" {
-		return "", errors.New("path is empty")
-	}
-	cleaned := filepath.Clean(strings.TrimSpace(raw))
-	if !filepath.IsAbs(cleaned) {
-		absolute, err := filepath.Abs(cleaned)
-		if err != nil {
-			return "", err
-		}
-		cleaned = filepath.Clean(absolute)
-	}
-	return cleaned, nil
-}
+var cleanAbsolutePathFallback = shared.CleanAbsolutePath

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 const (
@@ -224,7 +226,7 @@ func DeleteMemory(root, name string) error {
 }
 
 func normalizeStoreRoot(root string) (string, error) {
-	validatedRoot, err := ValidateMemoryRoot(root)
+	validatedRoot, err := shared.ValidateMemoryRoot(root)
 	if err != nil {
 		return "", err
 	}
@@ -411,7 +413,7 @@ func resolveMemoryFilePath(root string, entry MemoryEntry) (string, error) {
 
 func reserveMemoryFilePath(root, dir, base, canonicalName string) (string, error) {
 	candidates := []string{filepath.Join(dir, base+".md")}
-	hash := shortHash(canonicalName)
+	hash := shared.ShortHash(canonicalName)
 	for attempt := range 8 {
 		name := fmt.Sprintf("%s-%s", base, hash)
 		if attempt > 0 {
@@ -445,7 +447,7 @@ func memoryPathAvailable(path string) (bool, error) {
 
 func memoryFileBase(name string) string {
 	if !hasSlugRune(name) {
-		return "mem-" + shortHash(CanonicalName(name))
+		return "mem-" + shared.ShortHash(CanonicalName(name))
 	}
 	return SanitizePath(name)
 }

@@ -1,3 +1,6 @@
+// Package memory compatibility bridge for the retrieval subpackage migration.
+// Owned by the retrieval subpackage split; keep here until root callers move
+// to direct memory/retrieval imports, then delete.
 package memory
 
 import (

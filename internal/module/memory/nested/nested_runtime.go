@@ -1,7 +1,6 @@
 package nested
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,8 +8,8 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	"golang.org/x/text/unicode/norm"
 )
 
 const nestedGlobalThreadKey = "_global"
@@ -189,7 +188,7 @@ func (r *NestedRuntime) normalizeTrigger(buildCtx contract.BuildCtx, raw string)
 	if !filepath.IsAbs(raw) && strings.TrimSpace(buildCtx.CWD) != "" {
 		raw = filepath.Join(strings.TrimSpace(buildCtx.CWD), raw)
 	}
-	path, err := cleanAbsolutePath(raw)
+	path, err := shared.CleanAbsolutePath(raw)
 	if err != nil || r.isDeniedTrigger(buildCtx, path) {
 		return "", false
 	}
@@ -269,11 +268,11 @@ func nestedContainsPath(root, child string) bool {
 	if root == "" || child == "" {
 		return false
 	}
-	cleanRoot, err := cleanAbsolutePath(root)
+	cleanRoot, err := shared.CleanAbsolutePath(root)
 	if err != nil {
 		return false
 	}
-	cleanChild, err := cleanAbsolutePath(child)
+	cleanChild, err := shared.CleanAbsolutePath(child)
 	if err != nil {
 		return false
 	}
@@ -346,19 +345,4 @@ func isNestedReadTool(toolName string) bool {
 	default:
 		return false
 	}
-}
-
-func cleanAbsolutePath(raw string) (string, error) {
-	if strings.TrimSpace(raw) == "" {
-		return "", errors.New("path is empty")
-	}
-	cleaned := filepath.Clean(norm.NFC.String(strings.TrimSpace(raw)))
-	if !filepath.IsAbs(cleaned) {
-		absolute, err := filepath.Abs(cleaned)
-		if err != nil {
-			return "", err
-		}
-		cleaned = filepath.Clean(absolute)
-	}
-	return cleaned, nil
 }
