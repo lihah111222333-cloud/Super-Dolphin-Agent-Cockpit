@@ -28,7 +28,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/memory",
 		Kind:       ViolationPackageCount,
-		Limit:      44,
+		Limit:      30,
 		Reason:     "memory 子包拆分尚未完成，包文件数冻结到当前值",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "memory 子包拆分完成并回落到默认包文件预算 15 个",
@@ -36,7 +36,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/memory",
 		Kind:       ViolationPackageLines,
-		Limit:      11922,
+		Limit:      7161,
 		Reason:     "memory 迁移期仍承载聚合逻辑，包有效行数冻结到已裁决上限",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "memory 主链拆分完成并回落到默认包行数预算 4500 行",

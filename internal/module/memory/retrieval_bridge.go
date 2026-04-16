@@ -1,0 +1,70 @@
+package memory
+
+import (
+	"time"
+
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
+)
+
+type ManifestBuilder = retrievalpkg.ManifestBuilder
+type RelevantMemoryFinder = retrievalpkg.RelevantMemoryFinder
+type PrefetchManager = retrievalpkg.PrefetchManager
+type PrefetchHandle = retrievalpkg.PrefetchHandle
+type transcriptSnippet = retrievalpkg.TranscriptSnippet
+
+const (
+	defaultManifestFileLimit         = retrievalpkg.DefaultManifestFileLimit
+	defaultRelevantMemoryBudgetBytes = retrievalpkg.DefaultRelevantMemoryBudgetBytes
+	defaultRelevantMemoryLimit       = retrievalpkg.DefaultRelevantMemoryLimit
+	defaultRelevantMemoryCandidates  = retrievalpkg.DefaultRelevantMemoryCandidates
+	prefetchStatePending             = retrievalpkg.PrefetchStatePending
+	prefetchStateReady               = retrievalpkg.PrefetchStateReady
+	prefetchStateConsumed            = retrievalpkg.PrefetchStateConsumed
+	prefetchStateDiscarded           = retrievalpkg.PrefetchStateDiscarded
+)
+
+func NewManifestBuilder() *ManifestBuilder {
+	return retrievalpkg.NewManifestBuilder()
+}
+
+func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
+	return retrievalpkg.ScanHeadersSafe(memoryRoot)
+}
+
+func NewRelevantMemoryFinder() *RelevantMemoryFinder {
+	return retrievalpkg.NewRelevantMemoryFinder()
+}
+
+func NewPrefetchManager(memoryRoot string) *PrefetchManager {
+	return retrievalpkg.NewPrefetchManager(memoryRoot)
+}
+
+func freezeRelevantMemoryAttachments(entries []MemoryEntry, now time.Time) []dto.AttachmentEnvelope {
+	return retrievalpkg.FreezeRelevantMemoryAttachments(entries, now)
+}
+
+func freezeTranscriptInputs(snippets []transcriptSnippet) []shareddto.InputItem {
+	return retrievalpkg.FreezeTranscriptInputs(snippets)
+}
+
+func memoryHeader(now time.Time, entry MemoryEntry) string {
+	return retrievalpkg.MemoryHeader(now, entry)
+}
+
+func shouldSearchPastContextQuery(query string) bool {
+	return retrievalpkg.ShouldSearchPastContextQuery(query)
+}
+
+func memoryRetrievalLowConfidence(query string, entries []MemoryEntry) bool {
+	return retrievalpkg.MemoryRetrievalLowConfidence(query, entries)
+}
+
+func searchTranscriptSnippets(query string, messages []dto.Message, budget int) []transcriptSnippet {
+	return retrievalpkg.SearchTranscriptSnippets(query, messages, budget)
+}
+
+func memoryRenderBody(entry MemoryEntry) string {
+	return retrievalpkg.MemoryRenderBody(entry)
+}

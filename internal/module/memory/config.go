@@ -1,12 +1,12 @@
 package memory
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
@@ -31,9 +31,9 @@ const (
 )
 
 var (
-	ErrTeamMemoryDisabled      = errors.New("team memory is disabled")
-	ErrInvalidTeamMemWritePath = errors.New("invalid team memory write path")
-	ErrInvalidTeamMemKey       = errors.New("invalid team memory key")
+	ErrTeamMemoryDisabled      = teampkg.ErrTeamMemoryDisabled
+	ErrInvalidTeamMemWritePath = teampkg.ErrInvalidTeamMemWritePath
+	ErrInvalidTeamMemKey       = teampkg.ErrInvalidTeamMemKey
 )
 
 type MemoryFeatureFlags struct {
@@ -89,10 +89,6 @@ const (
 	MemoryPathClassAgent MemoryPathClass = "agent"
 )
 
-type TeamMemoryManager struct {
-	cfg *Config
-}
-
 func NewConfig(platformCfg *platformconfig.Config) *Config {
 	kairosEnabled := parseBoolEnv(envFeatureKairos, false)
 	envOverride := firstNonEmptyEnv(envMemoryPathOverride, envClaudeMemoryPathOverride)
@@ -118,13 +114,6 @@ func NewConfig(platformCfg *platformconfig.Config) *Config {
 		cfg.RootDir = root
 	}
 	return cfg
-}
-
-func NewTeamMemoryManager(cfg *Config) *TeamMemoryManager {
-	if cfg == nil {
-		cfg = &Config{}
-	}
-	return &TeamMemoryManager{cfg: cfg}
 }
 
 func (c *Config) IsMemoryEnabled() bool {
@@ -163,10 +152,6 @@ func ShouldStartRelevantMemoryPrefetch(snapshot MemoryGateSnapshot, turnInput co
 	return shouldStartRelevantMemoryPrefetch(snapshot, turnInput, surfacedState)
 }
 
-func (m *TeamMemoryManager) GetTeamMemPath(buildCtx ...contract.BuildCtx) string {
-	return teamMemPath(m, firstTeamBuildCtx(buildCtx))
-}
-
 func ClassifyMemoryPath(cfg *Config, path string) MemoryPathClass {
 	switch {
 	case isAutoMemPath(cfg, path):
@@ -187,81 +172,6 @@ func IsAgentMemoryPath(cfg *Config, path string) bool {
 		return false
 	}
 	return NewAgentMemoryManager(cfg).IsAgentMemoryPath(path)
-}
-
-func (m *TeamMemoryManager) IsTeamMemoryEnabled(buildCtx ...contract.BuildCtx) bool {
-	return isTeamMemoryEnabled(m, firstTeamBuildCtx(buildCtx))
-}
-
-func GetMemoryScopeDisplay(scope MemoryScope) string {
-	switch scope {
-	case MemoryScopeUser:
-		return "user-scoped agent memory"
-	case MemoryScopeLocal:
-		return "local-scoped agent memory"
-	default:
-		return "project-scoped agent memory"
-	}
-}
-
-func resolveChildAgentStart(input contract.SectionContext) (childAgentStart, bool) {
-	if input.Start == nil || input.Turn != nil || strings.TrimSpace(input.Start.ParentAgentID) == "" {
-		return childAgentStart{}, false
-	}
-	scope, ok := parseAgentMemoryScope(input.Start.AgentMemoryScope)
-	agentType := strings.TrimSpace(input.Start.AgentType)
-	if !ok || agentType == "" {
-		return childAgentStart{}, false
-	}
-	return childAgentStart{agentType: agentType, scope: scope}, true
-}
-
-func agentMemoryGuidelines(scope MemoryScope) []string {
-	guidelines := []string{
-		"This prompt is for agent-specific memory. Keep it isolated from the main thread and other agent types.",
-		"Searching past context: consult the MEMORY.md section below before assuming nothing has been remembered for this agent.",
-	}
-	switch scope {
-	case MemoryScopeUser:
-		return append(guidelines, "This user-scoped agent memory is shared across projects for the same agent type.")
-	case MemoryScopeProject:
-		return append(guidelines, "This project-scoped agent memory is isolated to the current project and can be shared with the repo.")
-	case MemoryScopeLocal:
-		return append(guidelines, "This local agent memory is isolated to the current project on this machine only.")
-	default:
-		return guidelines
-	}
-}
-
-func agentMemoryFailureStatus(scope MemoryScope, err error) string {
-	if err == nil {
-		return "loaded"
-	}
-	if errors.Is(err, ErrInvalidProjectDir) && scope == MemoryScopeLocal {
-		return "local_unavailable"
-	}
-	if errors.Is(err, ErrInvalidProjectDir) || errors.Is(err, ErrInvalidAgentScope) || errors.Is(err, ErrInvalidMemoryRoot) {
-		return "deny"
-	}
-	return "ensure_dir_failed"
-}
-
-func agentMemorySuccessStatus(result agentMemoryLoadResult) string {
-	if result.unreadable {
-		return "unreadable"
-	}
-	if result.wasTruncated || result.wasByteTruncated {
-		return "truncated"
-	}
-	return "loaded"
-}
-
-func (m *TeamMemoryManager) ValidateTeamMemWritePath(path string) error {
-	return validateTeamMemWriteRequest(m, path)
-}
-
-func (m *TeamMemoryManager) ValidateTeamMemKey(key string) error {
-	return validateTeamMemKeyRequest(m, key)
 }
 
 func memoryProductEnabled(cfg *Config) bool {

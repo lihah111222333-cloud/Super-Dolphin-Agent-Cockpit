@@ -13,6 +13,10 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	memagent "github.com/anthropic-ai/super-agent-v3/internal/module/memory/agent"
+	nestedpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested"
+	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
+	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -33,6 +37,8 @@ type memoryHookParams struct {
 	Hooks           *MemoryLifecycleHooks  `optional:"true"`
 	ContextProvider *MemoryContextProvider `optional:"true"`
 	NestedRuntime   *NestedRuntime         `optional:"true"`
+	ThreadStore     threadMetadataStore    `optional:"true"`
+	TeamSync        teampkg.Lifecycle      `optional:"true"`
 }
 
 type promptProviderParams struct {
@@ -40,9 +46,9 @@ type promptProviderParams struct {
 
 	Registry          contract.DynamicSectionRegistrar         `optional:"true"`
 	ClaudeMdRegistrar contract.ClaudeMdSourceProviderRegistrar `optional:"true"`
-	ClaudeMdProvider  *ClaudeMdSourcesProvider                 `optional:"true"`
+	ClaudeMdProvider  contract.ClaudeMdSourceProvider          `optional:"true"`
 	Provider          *MemoryRulesProvider                     `optional:"true"`
-	AgentProvider     *AgentMemoryPromptProvider               `optional:"true"`
+	AgentProvider     *memagent.PromptProvider                 `optional:"true"`
 	ContextProvider   *MemoryContextProvider                   `optional:"true"`
 }
 
@@ -155,19 +161,74 @@ func newMemoryLifecycleHooksWithTeam(
 	}
 }
 
+func asTeamSyncLifecycle(svc *teampkg.TeamSyncService) teampkg.Lifecycle { return svc }
+
+func provideNestedDependencies(cfg *Config) nestedpkg.Dependencies {
+	cfg = memoryConfig(cfg)
+	return nestedpkg.Dependencies{
+		NestedEnabled: cfg.NestedMemory.Enabled,
+		Gate: func(buildCtx contract.BuildCtx) nestedpkg.GateSnapshot {
+			snapshot := ResolveMemoryGate(buildCtx, cfg)
+			return nestedpkg.GateSnapshot{
+				BareMode:                 snapshot.BareMode,
+				HasAdditionalDirsForBare: snapshot.HasAdditionalDirsForBare,
+				DisableClaudeMds:         snapshot.DisableClaudeMds,
+				SkipProjectLocalClaudeMd: snapshot.SkipProjectLocalClaudeMd,
+				InjectMemoryIndex:        snapshot.InjectMemoryIndex,
+				InjectTeamMemIndex:       snapshot.InjectTeamMemIndex,
+			}
+		},
+		AutoMemRoot: func(buildCtx contract.BuildCtx) string {
+			projectRoot := strings.TrimSpace(buildCtx.GitRoot)
+			if projectRoot == "" {
+				projectRoot = strings.TrimSpace(buildCtx.CWD)
+			}
+			root, err := resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
+			if err != nil {
+				return ""
+			}
+			cleaned, err := cleanAbsolutePath(root)
+			if err != nil {
+				return ""
+			}
+			return cleaned
+		},
+		TeamRoot: func(buildCtx contract.BuildCtx) string {
+			root, err := configuredTeamMemRoot(cfg, buildCtx)
+			if err != nil {
+				return ""
+			}
+			cleaned, err := cleanAbsolutePath(root)
+			if err != nil {
+				return ""
+			}
+			return cleaned
+		},
+		IsAgentMemoryPath: func(path string) bool {
+			return IsAgentMemoryPath(cfg, path)
+		},
+	}
+}
+
+func provideTeamMemoryManagerContract(manager *TeamMemoryManager) contract.TeamMemoryManager {
+	return manager
+}
+
 var Module = fx.Module("memory",
 	fx.Provide(
 		NewConfig,
+		provideAgentMemoryConfig,
+		provideAgentMemoryPathHelper,
+		provideAgentMemoryPromptBuilder,
+		provideAgentMemoryGateResolver,
+		provideNestedDependencies,
+		provideTeamConfig,
+		provideTeamMemoryManagerContract,
+		asTeamSyncLifecycle,
 		provideMemoryService,
 		NewMemoryHandlers,
-		NewAgentMemoryManager,
-		NewTeamMemoryManager,
-		NewTeamMemoryGuard,
-		NewNestedRuntime,
-		NewClaudeMdSourcesProvider,
 		NewMemoryRuleEngine,
 		NewRulesProvider,
-		NewAgentMemoryPromptProvider,
 		NewContextProvider,
 		AsTurnContextProvider,
 		provideDreamExtractFunc,
@@ -175,6 +236,10 @@ var Module = fx.Module("memory",
 		NewMemoryLifecycleHooks,
 		NewMemoryExtractor,
 	),
+	fx.Options(memagent.Module),
+	fx.Options(nestedpkg.Module),
+	fx.Options(retrievalpkg.Module),
+	fx.Options(teampkg.Module),
 	fx.Invoke(registerTeamMemoryRuntime, registerLifecycle, registerPromptProviders, registerMemoryHooks),
 )
 
@@ -363,6 +428,9 @@ func registerThreadHookSubscriptions(p memoryHookParams, appendCancel func(conte
 			p.NestedRuntime.AddToolReadResult(ev.ThreadID, ev.ToolName, ev.Result, ev.PersistedPath)
 		}, pkglogger.Get()))
 	}
+	if p.TeamSync != nil {
+		registerTeamSyncSubscriptions(p, appendCancel)
+	}
 	if p.Hooks == nil || !p.Hooks.enabled {
 		return
 	}
@@ -374,6 +442,19 @@ func registerThreadHookSubscriptions(p memoryHookParams, appendCancel func(conte
 	}, pkglogger.Get()))
 	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnCompleted) {
 		p.Hooks.onTurnCompleted(context.Background(), ev)
+	}, pkglogger.Get()))
+}
+
+func registerTeamSyncSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
+		if err := teampkg.StartSessionFromThreadEvent(p.TeamSync, p.ThreadStore, ev); err != nil {
+			pkglogger.Get().Warn("memory: team sync start session failed", "thread_id", ev.ThreadID, "error", err)
+		}
+	}, pkglogger.Get()))
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Stopped) {
+		if err := teampkg.StopSessionFromThreadEvent(p.TeamSync, ev); err != nil {
+			pkglogger.Get().Warn("memory: team sync stop session failed", "thread_id", ev.ThreadID, "error", err)
+		}
 	}, pkglogger.Get()))
 }
 

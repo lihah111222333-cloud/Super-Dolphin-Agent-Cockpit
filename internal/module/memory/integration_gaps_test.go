@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	nestedpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 )
 
@@ -92,9 +93,9 @@ func TestRegisterPromptProvidersInjectsTeamMemoryIntoTurnUserContext(t *testing.
 	teamManager := NewTeamMemoryManager(cfg)
 	assembly := prompt.NewService(&prompt.Config{}, nil)
 	if err := registerPromptProviders(promptProviderParams{
-		Registry:         assembly,
+		Registry:          assembly,
 		ClaudeMdRegistrar: assembly,
-		ClaudeMdProvider: NewClaudeMdSourcesProvider(cfg, teamManager, nil),
+		ClaudeMdProvider:  nestedpkg.NewClaudeMdSourcesProvider(provideNestedDependencies(cfg), teamManager, nil),
 	}); err != nil {
 		t.Fatalf("registerPromptProviders() error = %v", err)
 	}
@@ -140,9 +141,9 @@ func TestRegisterPromptProvidersSkipsTeamMemoryTurnLaneWhenKairosActive(t *testi
 	}
 	assembly := prompt.NewService(&prompt.Config{}, nil)
 	if err := registerPromptProviders(promptProviderParams{
-		Registry:         assembly,
+		Registry:          assembly,
 		ClaudeMdRegistrar: assembly,
-		ClaudeMdProvider: NewClaudeMdSourcesProvider(cfg, NewTeamMemoryManager(cfg), nil),
+		ClaudeMdProvider:  nestedpkg.NewClaudeMdSourcesProvider(provideNestedDependencies(cfg), NewTeamMemoryManager(cfg), nil),
 	}); err != nil {
 		t.Fatalf("registerPromptProviders() error = %v", err)
 	}
