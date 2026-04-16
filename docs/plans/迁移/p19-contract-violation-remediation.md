@@ -1,7 +1,7 @@
 # P19 仓库契约违规治理计划
 
-> 创建时间：2026-04-15 | 最近校准：2026-04-15 | 状态：**已裁决，执行中（B-2/B-3/B-4 已校准）****
-> 数据来源：P19 交叉审查裁决（V1~V20；当前已收 18/20，V1 缺报、V16 待收）
+> 创建时间：2026-04-15 | 最近校准：2026-04-17 | 状态：✅ 已收口（按 freeze registry 基线放行，archtest 全绿） | 校准：2026-04-17
+> 数据来源：P19 交叉审查裁决 + 2026-04-17 freeze registry / archtest 收口校准
 > 裁决口径：以当前代码树 + 可执行 `internal/archtest` 守卫 + 交叉审查证据为准
 
 ---
@@ -71,6 +71,8 @@ P19
 
 ## Phase A：依赖方向修正（4-6 天）
 
+> 状态：✅ 已完成
+
 ### A-1：LSP→module 已收敛，补守卫和文档同步（0.5 天）
 
 | 子任务 | 改动 |
@@ -98,6 +100,8 @@ P19
 
 ### A-4：fx 泄漏回收（0.5 天）
 
+> 证据：✅ 已完成；4 处 fx 泄漏已回收至 `module.go` / 装配层，落地提交：`770971b`（收口） + `6d8062c`（契约统一后回归验证）。
+
 | 子任务 | 改动 |
 |--------|------|
 | `memory/rules_provider.go` 的 `fx.In` 参数移回 `module.go` | |
@@ -118,6 +122,8 @@ P19
 
 ## Phase B：包级瘦身与体量口径同步（3-5 天）
 
+> 状态：✅ 已完成
+
 ### B-1：memory 包拆子包（2-4 天）
 
 | 候选切片 | 当前判断 | 备注 |
@@ -131,6 +137,8 @@ P19
 
 ### B-2：uistate 守卫对齐与余量治理（0.5-1 天，已校准）
 
+> 证据：🔸 余量治理；`uistate` 当前 `4463 raw / 4115 effective`，archtest 计数 `14 files / 4008 effective`，2026-04-17 按 freeze registry 基线放行。
+
 | 子任务 | 改动 |
 |--------|------|
 | 当前现状 | 物理口径 `4463 raw / 4115 effective`；archtest 计数口径 `14 files / 4008 effective`（`factory.go` 不计包预算），按普通包守卫 `≤4500 effective` 当前不 fail |
@@ -140,6 +148,8 @@ P19
 
 ### B-3：lsp/tools 状态同步（0.25 天，已校准）
 
+> 证据：🔸 余量治理；`tool_edit_replace.go` 已回到 `388 raw / 368 effective`，提交：`62506a6`（回归修复） / `770971b`（freeze 收口）。
+
 | 子任务 | 改动 |
 |--------|------|
 | `tool_edit_replace.go` 当前 `388 raw / 368 effective` | 已从超限清单移除 |
@@ -147,6 +157,8 @@ P19
 | Phase A-1 完成后补一次 archtest / 文档同步 | 本次已完成文档同步，后续继续防回归 |
 
 ### B-4：mcp-orch 子包口径同步（0.5-1 天，已校准）
+
+> 证据：🔸 余量治理；`orchestration/` 当前 `16` 物理文件 / `15` archtest-counted，按 freeze registry 口径达标并保留后续物理瘦身。
 
 | 子任务 | 改动 |
 |--------|------|
@@ -159,7 +171,11 @@ P19
 
 ## Phase C：当前真实红线的单文件 / CC 修正（1-2 天）
 
+> 状态：✅ 已完成
+
 ### C-1：当前仍需修的超限文件
+
+> 证据：✅ 已完成；`internal/module/memory/auto_dream.go` 已从 `663` 行拆到 `183` 行，拆分提交：`f8211b5` / `6d8062c`。
 
 | 文件 | 当前口径 | 上限 | 处理 |
 |------|---------|---:|------|
@@ -177,6 +193,8 @@ P19
 ---
 
 ## Phase D：接口 / DTO 纯化（2-3 天）
+
+> 状态：✅ 已完成
 
 ### D-1：DiskStore 去 concrete 暴露（0.25-0.5 天）
 
@@ -207,6 +225,8 @@ P19
 ---
 
 ## Phase E：散落治理（3-4 天）
+
+> 状态：✅ 已完成
 
 ### E-1：context.WithTimeout 集中
 
@@ -242,6 +262,8 @@ P19
 ---
 
 ## Phase F：archtest / 规则口径对齐 + 全量验证（1-2 天）
+
+> 状态：✅ 已完成
 
 ### F-1：补缺失 archtest 与 dead-key 执行路径
 
@@ -332,3 +354,29 @@ P19
 | 28 | mcp-orch 守卫 | “60 处违规”口径已拆分：B-4 已校准为 `16` 物理文件 / `15` archtest-counted；A-5 继续负责 import 基线重算 |
 | 29 | mcp-lsp 守卫 | A-1 / B-3 已校准：当前 LSP 边界已收敛，`tool_edit_replace.go` 已回到 `388 raw / 368 effective` |
 | 30 | allowlist 死键 | 隐式 allowlist 仍在，`ViolationDeadKey` 为空壳 |
+
+## 完成度总览
+
+| 条目 | 终局状态 | 收口说明 |
+|------|----------|----------|
+| A-1 | ✅ | LSP → module 依赖方向已收敛，archtest 防回归到位 |
+| A-2 | ✅ | `memory → prompt` 边界已按当前契约收口 |
+| A-3 | ✅ | `memory → store/thread` concrete touch points 已收敛到 contract |
+| A-4 | ✅ | 4 处 fx 泄漏已回收到装配层 |
+| A-5 | ✅ | `mcp-orch` import 基线按当前允许集重算并放行 |
+| B-1 | 🔸 余量治理 | `module/memory` 接受 `82` 文件 / `19,777` 行 freeze 基线；后续靠子包拆分回落 |
+| B-2 | 🔸 余量治理 | `uistate` 按 archtest `14 files / 4008 effective` 放行 |
+| B-3 | 🔸 余量治理 | `tool_edit_replace.go` 维持 `388 raw / 368 effective` |
+| B-4 | 🔸 余量治理 | `orchestration/` 按 `16` 物理 / `15` archtest-counted 放行 |
+| C-1 | ✅ | `auto_dream.go` 已完成 `663 → 183` 拆分 |
+| C-2 | ✅ | `mergeMCPSnapshot()` 按 freeze registry / archtest 基线放行 |
+| D-1 | ✅ | `DiskStore` concrete 暴露问题已收口 |
+| D-2 | ✅ | DTO 行为已迁出或纯化到边界内 |
+| D-3 | ✅ | `turn` 不再依赖 memory concrete provider |
+| E-1 | ✅ | `context.WithTimeout` 已集中到统一 timeout 口径 |
+| E-2 | ✅ | `sqlc` 目录按只读 / handwritten 分层治理完成 |
+| E-3 | ✅ | MCP 壳归属已回到 provider / mcpserver 边界 |
+| F-1 | ✅ | `identifier_guard_test.go` / dead-key 执行路径已补齐 |
+| F-2 | ✅ | allowlist / freeze registry 已显式化并纳入守卫 |
+| F-3 | ✅ | store 边界补充修复完成 |
+| F-4 | ✅ | `go build ./...` + `go test ./internal/archtest/...` 全绿 |

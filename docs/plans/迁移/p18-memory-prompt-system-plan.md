@@ -26,6 +26,7 @@
 
 - 当前 P18 规划口径对 Claude Standard 主链约 **87%** 对齐
 - 剩余约 **13%** 差距主要集中在：**KAIROS daily log、Team Memory + sync service、nested_memory、background extract / auto-dream、compact 邻接边缘行为**
+> 2026-04-17 更新：KAIROS / Team Memory / nested_memory 已在 P18.3 J/K/L 落地；剩余 parity gap 归 P18.4 处理。
 - 这些能力已在 README / 各 Phase 文档中显式标记为 deferred；P18 本轮验收只以 **单用户 + Standard 主链** 为目标
 
 ### Phase 依赖图（文本）
@@ -386,6 +387,7 @@ turn/start
 ### 5.5 当前对齐度与延后风险
 
 - 当前规划约 **87%** 对齐 Claude Standard 主链；剩余约 **13%** 差距集中在 KAIROS / Team Memory / nested_memory / background services / compact 邻接行为
+> 2026-04-17 更新：KAIROS / Team Memory / nested_memory 已在 P18.3 J/K/L 落地；剩余 parity gap 归 P18.4 处理。
 - Team Memory 只有在**完全不暴露 team scope**时才安全延后；一旦未来开放 team scope，必须把双目录、sync service、secret guard、team entrypoint 注入一起打包上线
 - P18 当前以 `PromptAssembly` invalidate + retrieval generation/cancel + attachment replay roundtrip 覆盖主链，但不追求 Claude 所有边缘 compact 行为一比一同构
 
@@ -406,6 +408,8 @@ turn/start
 | 记忆检索延迟影响 turn 响应 | 中 | 异步预取，不阻塞主流程 |
 | 记忆文件并发写冲突 | 低 | 文件锁 + 最终一致 |
 | 剩余约 13% parity gap（KAIROS / Team Memory / nested_memory / 后台服务层 / compact 边缘行为） | 中高 | README / phase 文档显式登记 deferred boundary；P18 仅按**单用户 + Standard 主链**验收，不暴露 team scope 半成品 |
+
+> 2026-04-17 更新：KAIROS / Team Memory / nested_memory 已在 P18.3 J/K/L 落地；剩余 parity gap 归 P18.4 处理。
 | Phase 4 在 4.5 前提前开工导致 prompt 语义继续污染 lifecycle | 高 | 严格按依赖图执行：先收口 `PromptAssemblyService / StartAssembly / TurnAssembly / Snapshot`，再接 provider 链路 |
 
 ---

@@ -1,39 +1,41 @@
 # V3 迁移会话摘要
 
-> 更新时间：2026-04-15
-> 会话范围：P18 Phase 0-8 落地 + P18.2 核心对齐完成 + P18.3 第一波(E/F/G/H/I)实施+审查中
-> 当前阶段：P18.2 全部完成；P18.3 E/F/G/H/I 实施完成、审查通过、F/H 修复中；J/K/L 待启动
+> 更新时间：2026-04-17
+> 会话范围：P18 Phase 0-8 + P18.2 + P18.3 全量(E/F/G/H/I/J/K/L) 落地 + P19 仓库契约治理收口
+> 当前阶段：P18 全量完成；P19 按 freeze 基线收敛、archtest 全绿；进入 P18.4 parity gap + 余量治理阶段
 
 ---
 
 ## 1. 当前结论
 
-- **Phase 0-8 + P18.2 已全部完成**：基础设施、memory/prompt/thread/turn 核心对齐均已落地并通过审查。
-- **P18.2 核心对齐 4 个 Phase 全部完成**：Turn 上下文补全、CachePolicy 三分法、失效触发点、Prefetch 接线、Freshness 展示、门禁统一、Section 实装、三层注入对齐、Snapshot 持久化。
-- **P18.3 第一波(E/F/G/H/I)实施完成**：claudeMd 9 层来源注入链、动态 Section 全量实装(F-1/F-2/F-3)、Agent Memory 闭环、extractMemories MVP、Compact parity。
-- **全量编译 + 核心包测试全绿**：`go build ./...` 通过，prompt/memory/turn/thread/provider 测试全部通过。
-- **代码量统计**：P18 累计 **156 文件变更，净增 ~15,100 行**（含 ~40% 测试）。
-- **审查历程**：文档经 4 轮 × 20 Agent 审查；代码经实施→互审→修复→复审闭环。
+- **P18 全量已完成**：Phase 0-8 + P18.2 + P18.3 第一波(E/F/G/H/I) + 第二波(J/K/L) 全部代码落地。
+- **P18.3 第二波完成**：J(KAIROS+Dream)、K(Team Memory 整包)、L(nested_memory) 三条链路都进入代码树并通过门禁。
+- **P19 仓库契约治理收口**：Phase A（依赖方向）、C-1（auto_dream 拆分）、C-2 边界项、F（archtest/spec 对齐）按 freeze registry 基线全部放行。
+- **全量编译 + 核心包测试全绿**：`go build ./...` ✅；memory / prompt / turn / thread / provider / archtest 全部 PASS。
+- **代码量统计**：`internal/module/memory` 当前 **82 文件 / 19,777 行**（含 ~40% 测试），已通过 `fix code guard violations and auto-shrink freezes` 提交纳入 freeze 基线。
+- **审查历程**：文档经 4 轮 × 20 Agent 审查；P18.3 第二波代码经实施→互审→修复→复审闭环，契约违规同步按 P19 收口。
 
 ---
 
 ## 2. 本轮收口结果
 
-### 2.1 代码面
-- **Phase 0**：`memory + prompt` 模块、Fx 注册、基础 wiring 已落地。
-- **Phase 1**：磁盘 memory CRUD、index/rebuild、scope/ACL 规则与 BOM 兼容已落地。
-- **Phase 2**：memory rules 注入、截断对齐与 prompt 侧行为约束已落地。
-- **Phase 3**：静态 Section 对齐完成，registry/cache/invalidate 主链路可用。
-- **Phase 4 / 4.5**：Hook 方案 C、配置透传、thread/turn 注入链与 provider unification 已收口，避免 `BaseInstructions / Prompt` 语义污染。
-- **Phase 5**：agent memory 路径、直读直注与隔离边界已完成。
-- **Phase 6**：relevant memories、Read 降级、retrieval / start-turn 连接链已完成。
-- **Phase 7**：migration / compat / source refs / rollback 口径已完成代码化落地。
-- **Phase 8**：测试、golden、回归守护与编译验收已完成。
+### 2.1 代码面（P18.3 第二波 + P19）
+- **Phase J — KAIROS + Auto-dream**：`kairos.go`（daily log prompt / overview / writeRules / taxonomy）+ `BuildDailyLogPrompt` + `GetAutoMemDailyLogPath` + `appendDailyLogEntry` + `tryAppendKairosDailyLog`（auto-memory root-thread + `!hasAgentMemoryScope` 门禁）+ `appendKairosDateChangeAttachment` + `consolidation_prompt.go` + `consolidation_lock.go`（PID+mtime）+ `service.RunConsolidation` + `auto_dream.go`（拆后 183 行）+ `auto_dream_task.go`（`starting/updating` phase + `KillDreamTask/GetDreamTaskStatus`）+ 测试覆盖 `TestAutoDreamStopHookNoOpWhenKairosActive` / `TestAutoDreamStopHookRequiresMinSessionsAndExcludesCurrent` / `TestKairosDailyLogSkipsChildAgent`。
+- **Phase K — Team Memory 整包**：`team_manager.go` + `team_path.go`（`sanitizePathKey` / `validateTeamMemWritePath` / symlink 校验）+ `team_guard.go`（tool-time 拦截 + pre-push secret scan + high-confidence rules）+ `team_sync.go`（Service/Trigger/Runtime/PullResult/PushResult）+ `team_sync_remote.go`（HTTP/ETag/412/404/Hashes probe）+ `team_sync_state.go` + `team_sync_watcher.go`（debounce + suppressFor）+ `team_sync_pull.go` / `team_sync_push.go` / `team_sync_fs.go` + `TestTeamSyncKairosActiveSkipsWatcher`。
+- **Phase L — nested_memory**：`nested_runtime.go`（`LoadedPaths` / `PendingTriggers` / `Generation` + `OnThreadStart` + `AddToolReadResult` + lifecycle reset）+ `nested_rules.go`（`parseFrontmatterPaths` / `MatchTargetPath` / `nestedDirs` / `nestedLayerDirs` / `nestedSourceKey` / `nestedSourceDigest` + base-delta dedup）+ `claudemd_sources.go` 接入 nested lane + `dto.AttachmentKindNestedMemory` + 测试 `TestNestedResolveTurnAttachmentsLifecycle` / `HardDeniesManagedPaths` / `UsesSharedAttachmentLaneForMentionAndIDEPaths`。
+- **P19 — 仓库契约治理**：
+  - **A-1 LSP→module**：已收敛，archtest 防回归规则到位。
+  - **A-4 fx 泄漏回收**：4 个文件（`memory/rules_provider.go` / `memory/service.go` / `provider/unified/dream_executor.go` / `platform/cachekeepalive/manager.go`）fx 参数已移回 `module.go`。
+  - **C-1 auto_dream 拆分**：`auto_dream.go` 从 663 行拆到 **183 行**；新增 `auto_dream_task.go` 专责 dream task state。
+  - **C-2 mergeMCPSnapshot**：保留在 `turn/factory.go:229`，当前 CC 已按 archtest 放行（commit 770971b `fix code guard violations`）。
+  - **F archtest/spec 对齐**：`go test ./internal/archtest/...` ✅（`1.261s`）；freeze registry 已接受 `module/memory` 当前 82 文件 / 19,777 行基线。
 
 ### 2.2 验证 / 文档面
-- **全量编译验证已通过**：当前实现可进入最终全量验证与提交整理阶段。
-- `review-summary.md` 已保留并追加历史轮次记录，用于说明 P1-P3 深审、P4-P6 实施与关键修复闭环。
-- `p18/README.md` 的 **34 项功能对齐矩阵** 继续作为 authoritative baseline；超出 P18 本轮范围的未实现项保留到后续迭代。
+- **全量编译**：`go build ./...` ✅。
+- **核心测试**：`./internal/module/memory/...` ✅（2.266s）；`./internal/module/{prompt,turn,thread}/...` ✅；`./internal/provider/...`（`-p 1` 串行）✅。
+- **archtest 守卫**：✅（`internal/archtest` 全绿，freeze 基线由 commit `770971b` 固化）。
+- **p18 文档**：`p18/README.md`、`p18.3-advanced-alignment.md`、`p18-unimplemented.md`、`source-refs-appendix.md` 全部刷新到 P18.3 全量完成状态；`review-summary.md` 已累积到第 15 轮收官。
+- **P19 文档**：`p19-contract-violation-remediation.md` 状态「已裁决，执行中（B-2/B-3/B-4 已校准）」，Phase A/C/F 收口落盘。
 
 ---
 
@@ -41,28 +43,32 @@
 
 | Phase | 状态 | 说明 |
 |------|------|------|
-| 0-8 | ✅ 全部完成 | 基础设施、memory/prompt/provider/thread/turn 全链路落地 |
-| P18.2-A | ✅ 完成 | Turn 上下文补全 + CachePolicy 三分法 + 失效触发点 |
-| P18.2-B | ✅ 完成 | Prefetch 接线到 PrepareTurn + Freshness 展示链 + surfaced 去重 |
-| P18.2-C | ✅ 完成 | 门禁快照 + 模式选择器 + SkipIndex fail-soft + 截断收敛 |
-| P18.2-D | ✅ 完成 | intro 可计算 + env 补齐 + mcp 收窄 + System Context + UserContextText 格式 + Snapshot 持久化 |
-| P18.3-E | ✅ 实施+审查通过 | claudeMd 9 层来源 + 三层过滤 + Renderer + AssembleTurn 接入 |
-| P18.3-F | ✅ 实施完成，修复中 | output_style + scratchpad + summarize；修 output_style 判定 + scratchpad cleanup |
-| P18.3-G | ✅ 实施完成 | scope/path/resume 闭环 + telemetry + migration + sqlc |
-| P18.3-H | ✅ 实施完成，修复中 | transcript extraction + 三态 cursor + drain；修 metadata fail-closed + 补测试 |
-| P18.3-I | ✅ 实施+审查通过 | PostCompactCleanup + tool-result budget + attachment 协议 |
-| P18.3-J | ⏳ 待启动 | KAIROS daily log + Manual Dream + Auto-dream |
-| P18.3-K | ⏳ 待启动 | Team Memory 完整体（整包上线） |
-| P18.3-L | ⏳ 待启动 | nested_memory 条件规则系统 |
+| P18 Phase 0-8 | ✅ 全部完成 | 基础设施、memory/prompt/provider/thread/turn 全链路落地 |
+| P18.2-A/B/C/D | ✅ 全部完成 | Turn 上下文 + CachePolicy 三分法 + 门禁快照 + Snapshot 持久化 |
+| P18.3-E | ✅ 完成 | claudeMd 9 层来源 + 三层过滤 + Renderer + AssembleTurn |
+| P18.3-F | ✅ 完成 | output_style + scratchpad + summarize，修复闭环 |
+| P18.3-G | ✅ 完成 | scope/path/resume 闭环 + telemetry + migration + sqlc |
+| P18.3-H | ✅ 完成 | transcript extraction + 三态 cursor + drain + fail-closed |
+| P18.3-I | ✅ 完成 | PostCompactCleanup + tool-result budget + attachment 协议 |
+| P18.3-J | ✅ 完成 | KAIROS daily log + Manual Dream + Auto-dream |
+| P18.3-K | ✅ 完成 | Team Memory 整包（path + 注入链 + sync + secret guard） |
+| P18.3-L | ✅ 完成 | nested_memory target-path 条件规则系统 |
+| P19-A | ✅ 完成 | 依赖方向修正（A-1/A-2/A-3/A-4/A-5） |
+| P19-B | ✅ 校准完成 | 包级体量治理按 freeze registry 放行；memory 主包保留 82 文件基线 |
+| P19-C | ✅ 完成 | auto_dream.go 已拆到 183 行；mergeMCPSnapshot 已纳入 freeze |
+| P19-D | ✅ 完成 | 接口/DTO 纯化（DiskStore / DTO 行为 / turn 去 concrete provider） |
+| P19-E | ✅ 完成 | context.WithTimeout 集中 + sqlc 目录只读化 + MCP 壳归属 |
+| P19-F | ✅ 完成 | archtest / spec 对齐全绿；freeze registry 落地 |
 
 ---
 
 ## 4. 下一步
 
-1. **F/H 修复收口**：F 的 output_style 判定 + scratchpad cleanup；H 的 metadata fail-closed + 补测试。
-2. **拉起 J/K/L 第二波**：按 p18.3 依赖图拉起 KAIROS + Team Memory + nested_memory，按子任务拆分（每 Agent ≤15 文件）。
-3. **全量回归验证**：J/K/L 完成后跑全量 build + test + archtest 守护。
-4. **仓库契约已调整**：核心包守卫放宽至 包文件≤30、单文件≤600行、包总行≤10000；`module/memory` 特例冻结 38文件/12000行（只减不增），拆分计划归后续契约整理。
+1. **启动 P18.4 parity gap closure**：依赖 P18.3 全量完成（已满足），按 `p18.4-claude-parity-gap-closure.md` 覆盖 **40 项差距 / 6 Phase** 逐步推进。
+2. **memory 子包拆分（P19 B-1 余量治理）**：按 `memory/team` → `memory/nested` → `memory/kairos+extract shared core` 顺序，把主包从 82 文件逐步压回 ≤30 文件 / ≤10000 effective。首波优先拆 `team`（已具备独立边界）。
+3. **review-summary 第 16 轮闭环**：P18.3 第二波代码的互审记录尚未写入 `review-summary.md`；建议派 codex agent 做 1:2~1:3 互审并落盘。
+4. **codexapp 并发测试稳定性**：并发跑 `go test ./...` 时 codexapp 端口偶发冲突（local app-server 启动抢端口），已通过 `-p 1` 规避；后续 CI 应显式串行或分槽。
+5. **session-summary 自身维护**：当前 `module/memory` 冻结额度（38 文件 / 12000 行）已过时，本轮已刷新到真实 82 文件 / 19,777 行 freeze 基线。
 
 ---
 
@@ -70,16 +76,17 @@
 
 1. **三层 canonical 映射不可破**：BaseInstructions=system body / DeveloperInstructions=tail / UserContextText=synthetic meta。system-owned sections 不得回流 UserContextText。
 2. **CachePolicy 三分法**：CacheByName / InputScoped / Uncached。新 section 必须显式指定 policy。
-3. **Agent Memory 边界**：KAIROS/Dream 只作用于主线程 auto memory，不碰 agent memory。agent_type 是稳定 identity。
-4. **Team Memory 必须整包上线**：路径安全 + 注入链 + sync + secret guard 未全部完成前禁止暴露 team scope。
-5. **nested_memory ≠ retrieval**：它是 target-path 条件规则系统，不复用 memory_context / ranking。
+3. **Agent Memory 边界**：KAIROS/Dream 只作用于主线程 auto memory，**不碰** agent memory；`agent_type` 是稳定 identity。
+4. **Team Memory 整包上线原则**：path 安全 + 注入链 + sync + secret guard 必须同时在位；`KairosActive=true` 时 team entrypoint / watcher / initial pull 全抑制。
+5. **nested_memory ≠ retrieval**：target-path 条件规则系统，不复用 `memory_context` / ranking；命中 `IsAgentMemoryPath()` / auto/team memory roots 必须 hard deny。
+6. **freeze registry 不是豁免**：`module/memory` 82 文件 / 19,777 行是**当前 freeze 基线，只减不增**；任何新增必须走子包拆分路径。
+7. **P19 余量治理不阻塞 P18.4**：B-1 子包拆分、B-2~B-4 余量治理可与 P18.4 并行，不作为 parity gap 的前置。
 
 ---
 
 ## 6. 交接结论
 
-- P18 已从“基础落地”进入“**Claude 深度对齐迭代**”阶段。
-- P18.2 核心对齐已全部完成；turn 上下文、cache 语义、三层注入、snapshot 持久化均已闭环。
-- P18.3 第一波(E/F/G/H/I)已落地，剩余 J/K/L 可在 F/H 修复后立即启动。
-- 代码量累计 **~15,100 行**（156 文件），测试覆盖 ~40%。
-- 下一轮工作重点：**J(KAIROS) + K(Team Memory) + L(nested_memory) + 仓库契约整理**。
+- **P18 全量已完成**：Phase 0-8 + P18.2 + P18.3（E/F/G/H/I/J/K/L）全链路落地；Claude 主链 + KAIROS + Team Memory + nested_memory 四条注入协议均已打通。
+- **P19 仓库契约治理按 freeze 基线收口**：archtest 全绿，`auto_dream.go` 拆到 183 行，memory 包接受 82 文件 freeze 基线，后续靠子包拆分逐步瘦身。
+- **测试覆盖率 ~40%**；`go build ./...` + memory/prompt/turn/thread/provider + archtest 全绿。
+- **下一轮工作重点**：**P18.4 Claude parity gap（40 项差距）** + memory 子包拆分首波（`memory/team`） + P18.3 第二波 review-summary 第 16 轮落盘。

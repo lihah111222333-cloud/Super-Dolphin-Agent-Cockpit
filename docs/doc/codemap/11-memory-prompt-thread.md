@@ -55,7 +55,7 @@ provider bridge
 - **`type`、`scope`、`mode` 是三条正交维度**：
   - `type=user/feedback/project/reference` 表示 memory 内容语义分类。
   - `scope=user/project/local` 表示可见性 / 存储边界；它是 ACL 维度，不是第五种 memory type。
-  - `mode=standard/kairos/team` 只影响 memory 规则提示词的组织方式；当前生产接线里只有 `standard` 真正返回 dynamic section 内容。
+  - `mode=standard/kairos/team` 只影响 memory 规则提示词的组织方式；P18.3 J/K 已把 `standard` / `kairos` / `team` 接进真实 dynamic section 产物，`LoadMemoryPrompt()` 会分发 Standard / KAIROS daily-log / Team Combined prompt。
 - **disk/index 与 contract/tool 是两层模型**：
   - `internal/module/memory` 维护 rich disk schema（frontmatter、`aliases/search_keys/lang`、topic file、`MEMORY.md` index）与写入链路。
   - `internal/contract/memory.go` + `cmd/mcp-orch/memory` 只暴露 flattened、只读的 `Read` contract，不暴露 write/delete/rule injection。
@@ -227,8 +227,8 @@ internal/provider/claudecli/
 
 - `MemoryType` 在 `internal/module/memory/types.go` 与 `internal/contract/memory.go` 都定义了同样的枚举；前者服务于 rich disk model，后者服务于 tool/read DTO。
 - `MemoryScope` 在 contract 与 mcp-orch 读侧是 runtime ACL 输入；在 `internal/module/memory` 当前生产路径里，scope 主要被 `AgentMemoryManager` 用来分 agent memory 目录，`DiskStore` 主写链路本身并不按 `MemoryScope` 分支。
-- `MemoryMode` 只存在于 `internal/module/memory/rules.go` 的规则引擎层；`MemoryRulesProvider.Resolve()` 当前固定请求 `MemoryModeStandard`。
-- `MemoryModeKairos` / `MemoryModeTeam` 已声明，但当前 xref 仍停留在常量定义与 `LoadMemoryPrompt()` 的分支判断，没有接入生产调用链。
+- `MemoryMode` 仍位于 `internal/module/memory/rules.go` 的规则引擎层，但 P18.3 J/K 已通过 `MemoryRulesProvider.Resolve()` + `LoadMemoryPrompt()` 把 `standard / kairos / team` 接到真实生产链路。
+- `MemoryModeKairos` / `MemoryModeTeam` 已在 P18.3 J/K 落地 —— `LoadMemoryPrompt()` 真实分发 KAIROS daily-log / Team Combined prompt，生产调用链已打通（参见 `kairos.go`、`team_manager.go`、`team_sync.go`、`auto_dream_task.go`）。
 
 ### 3.2 Prompt / system prompt 侧核心类型
 
