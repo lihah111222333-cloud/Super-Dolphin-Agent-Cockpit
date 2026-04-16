@@ -90,9 +90,17 @@ func NewTeamSyncService(
 	}
 }
 
+func (s *TeamSyncService) startSessionDisabled(threadID string) bool {
+	return s == nil || threadID == ""
+}
+
+func (s *TeamSyncService) canReuseWatcherLocked(runtime teamSyncRuntime) bool {
+	return s.watcher != nil && s.root == runtime.root && s.repoSlug == runtime.repoSlug
+}
+
 func (s *TeamSyncService) StartSession(ctx context.Context, threadID string, buildCtx contract.BuildCtx) error {
 	threadID = strings.TrimSpace(threadID)
-	if s == nil || threadID == "" {
+	if s.startSessionDisabled(threadID) {
 		return nil
 	}
 	runtime, ok, err := s.resolveRuntime(ctx, buildCtx)
@@ -101,7 +109,7 @@ func (s *TeamSyncService) StartSession(ctx context.Context, threadID string, bui
 	}
 	var oldWatcher *teamSyncWatcher
 	s.mu.Lock()
-	if s.watcher != nil && s.root == runtime.root && s.repoSlug == runtime.repoSlug {
+	if s.canReuseWatcherLocked(runtime) {
 		s.sessions[threadID] = cloneBuildCtx(buildCtx)
 		s.mu.Unlock()
 		return nil
@@ -192,12 +200,31 @@ func (s *TeamSyncService) pushLocalChanges(ctx context.Context, trigger TeamSync
 	return s.pushLocked(ctx, trigger, false)
 }
 
+func (s *TeamSyncService) runtimeUnavailable() bool {
+	return s == nil || s.manager == nil || s.remote == nil
+}
+
+func teamSyncGateEnabled(gate MemoryGateSnapshot) bool {
+	return gate.AutoEnabled && gate.TeamMemEnabled && !gate.KairosActive
+}
+
+func (s *TeamSyncService) projectRootForRuntime(buildCtx contract.BuildCtx, root string) string {
+	projectRoot := strings.TrimSpace(buildCtx.GitRoot)
+	if projectRoot == "" {
+		projectRoot = strings.TrimSpace(s.cfg.ProjectRoot)
+	}
+	if projectRoot == "" {
+		projectRoot = filepath.Dir(root)
+	}
+	return projectRoot
+}
+
 func (s *TeamSyncService) resolveRuntime(ctx context.Context, buildCtx contract.BuildCtx) (teamSyncRuntime, bool, error) {
-	if s == nil || s.manager == nil || s.remote == nil {
+	if s.runtimeUnavailable() {
 		return teamSyncRuntime{}, false, nil
 	}
 	gate := ResolveMemoryGate(buildCtx, s.cfg)
-	if !gate.AutoEnabled || !gate.TeamMemEnabled || gate.KairosActive {
+	if !teamSyncGateEnabled(gate) {
 		return teamSyncRuntime{}, false, nil
 	}
 	root := strings.TrimSpace(s.manager.GetTeamMemPath(buildCtx))
@@ -212,13 +239,7 @@ func (s *TeamSyncService) resolveRuntime(ctx context.Context, buildCtx contract.
 	if err != nil {
 		return teamSyncRuntime{}, false, err
 	}
-	projectRoot := strings.TrimSpace(buildCtx.GitRoot)
-	if projectRoot == "" {
-		projectRoot = strings.TrimSpace(s.cfg.ProjectRoot)
-	}
-	if projectRoot == "" {
-		projectRoot = filepath.Dir(root)
-	}
+	projectRoot := s.projectRootForRuntime(buildCtx, root)
 	repoSlug, err := s.resolveRepoSlug(ctx, projectRoot)
 	if err != nil || strings.TrimSpace(repoSlug) == "" {
 		return teamSyncRuntime{}, false, err

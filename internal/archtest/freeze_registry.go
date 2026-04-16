@@ -20,7 +20,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/memory",
 		Kind:       ViolationFile,
-		Limit:      600,
+		Limit:      527,
 		Reason:     "memory 迁移期仍存在高密度文件，单文件上限冻结到当前裁决值",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "memory 拆包后恢复到默认单文件预算 400 行",
@@ -36,7 +36,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/memory",
 		Kind:       ViolationPackageLines,
-		Limit:      12000,
+		Limit:      11922,
 		Reason:     "memory 迁移期仍承载聚合逻辑，包有效行数冻结到已裁决上限",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "memory 主链拆分完成并回落到默认包行数预算 4500 行",
@@ -44,7 +44,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/prompt",
 		Kind:       ViolationFile,
-		Limit:      600,
+		Limit:      492,
 		Reason:     "prompt 动态装配文件仍高于默认单文件预算，冻结到当前裁决值",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "prompt 装配逻辑拆分后恢复到默认单文件预算 400 行",
@@ -52,23 +52,15 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/prompt",
 		Kind:       ViolationPackageCount,
-		Limit:      30,
+		Limit:      26,
 		Reason:     "prompt 迁移期文件数高于默认预算，冻结到当前裁决上限",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "prompt 子包梳理完成并回落到默认包文件预算 15 个",
 	},
 	{
 		Path:       "internal/module/thread",
-		Kind:       ViolationFile,
-		Limit:      600,
-		Reason:     "thread 工厂/回放链路仍高于默认单文件预算，冻结到当前裁决值",
-		Owner:      "P19-Phase-F",
-		RemoveWhen: "thread 组装与回放逻辑拆分后恢复到默认单文件预算 400 行",
-	},
-	{
-		Path:       "internal/module/thread",
 		Kind:       ViolationPackageCount,
-		Limit:      30,
+		Limit:      24,
 		Reason:     "thread 迁移期文件数高于默认预算，冻结到当前裁决上限",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "thread 子包梳理完成并回落到默认包文件预算 15 个",
@@ -76,7 +68,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/thread",
 		Kind:       ViolationPackageLines,
-		Limit:      10000,
+		Limit:      5296,
 		Reason:     "thread 主链仍高于默认包行数预算，冻结到当前裁决上限",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "thread 拆分完成并回落到默认包行数预算 4500 行",
@@ -84,7 +76,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/turn",
 		Kind:       ViolationPackageCount,
-		Limit:      30,
+		Limit:      21,
 		Reason:     "turn 迁移期文件数高于默认预算，冻结到当前裁决上限",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "turn 子包梳理完成并回落到默认包文件预算 15 个",
@@ -92,7 +84,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/provider/claudecli",
 		Kind:       ViolationPackageCount,
-		Limit:      30,
+		Limit:      23,
 		Reason:     "claudecli provider 迁移期文件数高于默认预算，冻结到当前裁决上限",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "claudecli provider 收敛后回落到默认包文件预算 15 个",
@@ -100,7 +92,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/provider/codexapp",
 		Kind:       ViolationPackageCount,
-		Limit:      30,
+		Limit:      17,
 		Reason:     "codexapp provider 迁移期文件数高于默认预算，冻结到当前裁决上限",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "codexapp provider 收敛后回落到默认包文件预算 15 个",
