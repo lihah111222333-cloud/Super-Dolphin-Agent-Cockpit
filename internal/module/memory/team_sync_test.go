@@ -108,7 +108,14 @@ func TestTeamSyncKairosActiveSkipsWatcher(t *testing.T) {
 func TestTeamSyncInitialAndRemotePullInvalidateWithoutSelfPush(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)
 	projectRoot := t.TempDir()
-	cfg := &Config{Enabled: true, ProjectRoot: projectRoot, Features: MemoryFeatureFlags{TeamMemory: true}}
+	autoRoot := filepath.Join(t.TempDir(), "automem")
+	cfg := &Config{
+		Enabled:             true,
+		RootDir:             t.TempDir(),
+		ProjectRoot:         projectRoot,
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
+	}
 	manager := NewTeamMemoryManager(cfg)
 	guard := NewTeamMemoryGuard(manager)
 	invalidator := &teamSyncInvalidatorStub{}
@@ -155,7 +162,6 @@ func TestTeamSyncInitialAndRemotePullInvalidateWithoutSelfPush(t *testing.T) {
 		t.Fatalf("pushCalls after self-write pull = %d, want 0", remote.pushCalls)
 	}
 }
-
 func TestTeamSyncConflictRetryPullsLatestState(t *testing.T) {
 	projectRoot := t.TempDir()
 	teamRoot := filepath.Join(projectRoot, teamMemoryRootDirName)

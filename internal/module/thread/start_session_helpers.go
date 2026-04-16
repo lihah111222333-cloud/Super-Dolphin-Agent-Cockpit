@@ -53,6 +53,7 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		Model:                        buildCtx.Model,
 		EnabledTools:                 buildCtx.EnabledTools,
 		AdditionalWorkingDirectories: buildCtx.AdditionalWorkingDirectories,
+		ClaudeMdExcludes:             buildCtx.ClaudeMdExcludes,
 		MCPSnapshot:                  buildCtx.MCPSnapshot,
 		SessionFlags:                 buildCtx.SessionFlags,
 		OutputStyleConfig:            buildCtx.OutputStyleConfig,
@@ -124,33 +125,49 @@ func toProviderResolvedSections(sections []contract.ResolvedPromptSection) []dto
 
 func buildStartSessionConfig(req StartRequest, input contract.StartInput, assembly contract.StartAssembly) map[string]any {
 	cfg := map[string]any{}
-	putConfigString(cfg, "approvalPolicy", req.ApprovalPolicy)
-	putConfigString(cfg, "approval_policy", req.ApprovalPolicy)
-	putConfigString(cfg, "approvals", req.ApprovalPolicy)
-	putConfigString(cfg, "modelProvider", req.ModelProvider)
-	putConfigString(cfg, "developerInstructions", assembly.DeveloperInstructions)
-	putConfigString(cfg, "developer_instructions", assembly.DeveloperInstructions)
-	putConfigString(cfg, "summary", req.Summary)
-	putConfigString(cfg, "effort", req.Effort)
-	putConfigString(cfg, "personality", req.Personality)
-	putConfigString(cfg, "provider", input.Provider)
-	putConfigString(cfg, "cwd", input.CWD)
-	putConfigString(cfg, "model", input.Model)
-	putConfigString(cfg, "gitRoot", input.GitRoot)
+	for _, field := range []struct {
+		value string
+		keys  []string
+	}{
+		{req.ApprovalPolicy, []string{"approvalPolicy", "approval_policy", "approvals"}},
+		{req.ModelProvider, []string{"modelProvider"}},
+		{assembly.DeveloperInstructions, []string{"developerInstructions", "developer_instructions"}},
+		{req.Summary, []string{"summary"}},
+		{req.Effort, []string{"effort"}},
+		{req.Personality, []string{"personality"}},
+		{input.ParentAgentID, []string{"parentAgentId", "parent_agent_id"}},
+		{input.AgentType, []string{"agentType", "agent_type"}},
+		{input.AgentMemoryScope, []string{"agentMemoryScope", "agent_memory_scope"}},
+		{input.Provider, []string{"provider"}},
+		{input.CWD, []string{"cwd"}},
+		{input.Model, []string{"model"}},
+		{input.GitRoot, []string{"gitRoot"}},
+		{input.Language, []string{"language"}},
+		{input.ScratchpadDir, []string{"scratchpadDir", "scratchpad_dir"}},
+	} {
+		for _, key := range field.keys {
+			putConfigString(cfg, key, field.value)
+		}
+	}
+	threadKind := threadKindForStart(input.ParentAgentID)
+	putConfigString(cfg, "threadKind", threadKind)
+	putConfigString(cfg, "thread_kind", threadKind)
 	putConfigBool(cfg, "isWorktree", input.IsWorktree)
-	putConfigString(cfg, "language", input.Language)
 	putConfigStrings(cfg, "enabledTools", input.EnabledTools)
 	putConfigStrings(cfg, "additionalWorkingDirectories", input.AdditionalWorkingDirectories)
+	for _, key := range []string{"claudeMdExcludes", "claude_md_excludes"} {
+		putConfigStrings(cfg, key, input.ClaudeMdExcludes)
+	}
 	putConfigStrings(cfg, "mcpServers", input.MCPSnapshot.Servers)
 	putConfigStrings(cfg, "mcpTools", input.MCPSnapshot.Tools)
 	putConfigStringMap(cfg, "mcpInstructions", input.MCPSnapshot.Instructions)
-	putConfigBool(cfg, "mcpInstructionsDeltaEnabled", input.MCPSnapshot.InstructionsDeltaEnabled)
-	putConfigBool(cfg, "mcp_instructions_delta_enabled", input.MCPSnapshot.InstructionsDeltaEnabled)
+	for _, key := range []string{"mcpInstructionsDeltaEnabled", "mcp_instructions_delta_enabled"} {
+		putConfigBool(cfg, key, input.MCPSnapshot.InstructionsDeltaEnabled)
+	}
 	putConfigBoolMap(cfg, "sessionFlags", input.SessionFlags)
-	putConfigOutputStyleConfig(cfg, "outputStyleConfig", input.OutputStyleConfig)
-	putConfigOutputStyleConfig(cfg, "output_style_config", input.OutputStyleConfig)
-	putConfigString(cfg, "scratchpadDir", input.ScratchpadDir)
-	putConfigString(cfg, "scratchpad_dir", input.ScratchpadDir)
+	for _, key := range []string{"outputStyleConfig", "output_style_config"} {
+		putConfigOutputStyleConfig(cfg, key, input.OutputStyleConfig)
+	}
 	putConfigJSON(cfg, "sandbox", req.Sandbox)
 	for key, value := range req.Config {
 		if _, exists := cfg[key]; !exists {
@@ -183,6 +200,13 @@ func putConfigBool(cfg map[string]any, key string, value bool) {
 	if value {
 		cfg[key] = true
 	}
+}
+
+func threadKindForStart(parentAgentID string) string {
+	if strings.TrimSpace(parentAgentID) == "" {
+		return ""
+	}
+	return "child_agent"
 }
 
 func putConfigStrings(cfg map[string]any, key string, values []string) {

@@ -8,6 +8,7 @@ var Module = fx.Module("prompt",
 		NewService,
 		AsPromptRegistry,
 		AsPromptAssemblyService,
+		AsDynamicSectionRegistrar,
 		AsSectionInvalidator,
 	),
 )

@@ -14,6 +14,7 @@ const (
 	HealthCheckPeriod      = 5 * time.Second
 	StallDetectDelay       = 90 * time.Second
 	DBQueryTimeout         = 10 * time.Second
+	TxCleanupTimeout       = 1 * time.Second
 	RPCRequestTimeout      = 30 * time.Second
 	InterruptSettleTimeout = 6 * time.Second
 	AsyncLaunchTimeout     = 60 * time.Second
@@ -52,6 +53,10 @@ func WithSessionCloseTimeout(ctx context.Context) (context.Context, context.Canc
 
 func WithDBQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return WithTimeout(ctx, DBQueryTimeout)
+}
+
+func WithTxCleanupTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return WithTimeout(ctx, TxCleanupTimeout)
 }
 
 func WithRPCRequestTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
