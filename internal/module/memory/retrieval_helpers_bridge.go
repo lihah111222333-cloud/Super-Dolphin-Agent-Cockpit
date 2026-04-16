@@ -1,3 +1,6 @@
+// Package memory helper bridge for the retrieval subpackage migration.
+// Owned by the retrieval subpackage split; keep here until root callers no
+// longer need searchTerms/contextErr/minInt proxies, then delete.
 package memory
 
 import (

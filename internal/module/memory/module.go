@@ -16,6 +16,7 @@ import (
 	memagent "github.com/anthropic-ai/super-agent-v3/internal/module/memory/agent"
 	nestedpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested"
 	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -187,7 +188,7 @@ func provideNestedDependencies(cfg *Config) nestedpkg.Dependencies {
 			if err != nil {
 				return ""
 			}
-			cleaned, err := cleanAbsolutePath(root)
+			cleaned, err := shared.CleanAbsolutePath(root)
 			if err != nil {
 				return ""
 			}
@@ -198,7 +199,7 @@ func provideNestedDependencies(cfg *Config) nestedpkg.Dependencies {
 			if err != nil {
 				return ""
 			}
-			cleaned, err := cleanAbsolutePath(root)
+			cleaned, err := shared.CleanAbsolutePath(root)
 			if err != nil {
 				return ""
 			}

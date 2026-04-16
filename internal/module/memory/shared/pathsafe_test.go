@@ -1,21 +1,24 @@
-package memory
+package memshared_test
 
 import (
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	memory "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 func TestValidateMemoryRootRejectsRelativePath(t *testing.T) {
-	if _, err := ValidateMemoryRoot("relative/path"); !errors.Is(err, ErrInvalidMemoryRoot) {
-		t.Fatalf("ValidateMemoryRoot(relative/path) error = %v, want %v", err, ErrInvalidMemoryRoot)
+	if _, err := shared.ValidateMemoryRoot("relative/path"); !errors.Is(err, shared.ErrInvalidMemoryRoot) {
+		t.Fatalf("ValidateMemoryRoot(relative/path) error = %v, want %v", err, shared.ErrInvalidMemoryRoot)
 	}
 }
 
 func TestValidateMemoryRootNormalizesTrailingSeparator(t *testing.T) {
 	root := filepath.Join(newTestMemoryRoot(t), "nested")
-	validated, err := ValidateMemoryRoot(root + string(os.PathSeparator))
+	validated, err := shared.ValidateMemoryRoot(root + string(os.PathSeparator))
 	if err != nil {
 		t.Fatalf("ValidateMemoryRoot() error = %v", err)
 	}
@@ -26,15 +29,15 @@ func TestValidateMemoryRootNormalizesTrailingSeparator(t *testing.T) {
 }
 
 func TestValidateMemoryRootRejectsUNCLikeDoubleSlash(t *testing.T) {
-	if _, err := ValidateMemoryRoot("//server/share"); !errors.Is(err, ErrInvalidMemoryRoot) {
-		t.Fatalf("ValidateMemoryRoot(//server/share) error = %v, want %v", err, ErrInvalidMemoryRoot)
+	if _, err := shared.ValidateMemoryRoot("//server/share"); !errors.Is(err, shared.ErrInvalidMemoryRoot) {
+		t.Fatalf("ValidateMemoryRoot(//server/share) error = %v, want %v", err, shared.ErrInvalidMemoryRoot)
 	}
 }
 
 func TestValidateMemoryWritePathRejectsTraversal(t *testing.T) {
 	root := filepath.Join(newTestMemoryRoot(t), "allowed")
-	if _, err := ValidateMemoryWritePath(root, filepath.Join("..", "escape.md")); !errors.Is(err, ErrInvalidMemoryWritePath) {
-		t.Fatalf("ValidateMemoryWritePath() error = %v, want %v", err, ErrInvalidMemoryWritePath)
+	if _, err := memory.ValidateMemoryWritePath(root, filepath.Join("..", "escape.md")); !errors.Is(err, memory.ErrInvalidMemoryWritePath) {
+		t.Fatalf("ValidateMemoryWritePath() error = %v, want %v", err, memory.ErrInvalidMemoryWritePath)
 	}
 }
 
@@ -47,15 +50,15 @@ func TestValidateMemoryWritePathRejectsDanglingSymlink(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "missing-target"), linkPath); err != nil {
 		t.Skipf("Symlink unsupported: %v", err)
 	}
-	if _, err := ValidateMemoryWritePath(root, filepath.Join("bad", "entry.md")); !errors.Is(err, ErrInvalidMemoryWritePath) {
-		t.Fatalf("ValidateMemoryWritePath(dangling symlink) error = %v, want %v", err, ErrInvalidMemoryWritePath)
+	if _, err := memory.ValidateMemoryWritePath(root, filepath.Join("bad", "entry.md")); !errors.Is(err, memory.ErrInvalidMemoryWritePath) {
+		t.Fatalf("ValidateMemoryWritePath(dangling symlink) error = %v, want %v", err, memory.ErrInvalidMemoryWritePath)
 	}
 }
 
 func TestValidateMemoryReadPathRejectsTraversal(t *testing.T) {
 	root := filepath.Join(newTestMemoryRoot(t), "allowed")
-	if _, err := ValidateMemoryReadPath(root, filepath.Join("..", "escape.md")); !errors.Is(err, ErrInvalidMemoryReadPath) {
-		t.Fatalf("ValidateMemoryReadPath() error = %v, want %v", err, ErrInvalidMemoryReadPath)
+	if _, err := memory.ValidateMemoryReadPath(root, filepath.Join("..", "escape.md")); !errors.Is(err, memory.ErrInvalidMemoryReadPath) {
+		t.Fatalf("ValidateMemoryReadPath() error = %v, want %v", err, memory.ErrInvalidMemoryReadPath)
 	}
 }
 
@@ -72,7 +75,12 @@ func TestValidateMemoryReadPathRejectsSymlinkEscape(t *testing.T) {
 	if err := os.Symlink(outside, linkPath); err != nil {
 		t.Skipf("Symlink unsupported: %v", err)
 	}
-	if _, err := ValidateMemoryReadPath(root, linkPath); !errors.Is(err, ErrInvalidMemoryReadPath) {
-		t.Fatalf("ValidateMemoryReadPath(symlink escape) error = %v, want %v", err, ErrInvalidMemoryReadPath)
+	if _, err := memory.ValidateMemoryReadPath(root, linkPath); !errors.Is(err, memory.ErrInvalidMemoryReadPath) {
+		t.Fatalf("ValidateMemoryReadPath(symlink escape) error = %v, want %v", err, memory.ErrInvalidMemoryReadPath)
 	}
+}
+
+func newTestMemoryRoot(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "memory-root")
 }

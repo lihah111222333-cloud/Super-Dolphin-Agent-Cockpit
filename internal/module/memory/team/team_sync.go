@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
@@ -289,7 +290,7 @@ func cloneBuildCtx(buildCtx contract.BuildCtx) contract.BuildCtx {
 }
 
 func resolveTeamRepoSlug(ctx context.Context, projectRoot string) (string, error) {
-	projectRoot, err := cleanAbsolutePath(projectRoot)
+	projectRoot, err := shared.CleanAbsolutePath(projectRoot)
 	if err != nil {
 		return "", err
 	}

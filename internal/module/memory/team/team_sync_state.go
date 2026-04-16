@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 const teamSyncStateFileName = ".team-sync-state.json"
@@ -22,7 +24,7 @@ type teamSyncStateStore struct {
 }
 
 func newTeamSyncStateStore(root string) (*teamSyncStateStore, error) {
-	cleaned, err := cleanAbsolutePath(root)
+	cleaned, err := shared.CleanAbsolutePath(root)
 	if err != nil {
 		return nil, err
 	}

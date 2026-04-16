@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	memagent "github.com/anthropic-ai/super-agent-v3/internal/module/memory/agent"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 var (
@@ -154,7 +155,7 @@ func provideAgentMemoryGateResolver(cfg *Config) memagent.GateResolver {
 type agentPathHelper struct{}
 
 func (agentPathHelper) ValidateRoot(raw string) (string, error) {
-	validated, err := ValidateMemoryRoot(raw)
+	validated, err := shared.ValidateMemoryRoot(raw)
 	if errors.Is(err, ErrInvalidMemoryRoot) {
 		return "", fmt.Errorf("%w: %v", memagent.ErrInvalidMemoryRoot, err)
 	}
@@ -162,7 +163,7 @@ func (agentPathHelper) ValidateRoot(raw string) (string, error) {
 }
 
 func (agentPathHelper) CleanAbsolute(raw string) (string, error) {
-	return cleanAbsolutePath(raw)
+	return shared.CleanAbsolutePath(raw)
 }
 
 func (agentPathHelper) CanonicalGitRoot(ctx context.Context, projectRoot string) (string, error) {

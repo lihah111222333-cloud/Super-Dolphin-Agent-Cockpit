@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"github.com/fsnotify/fsnotify"
 	"log/slog"
 )
@@ -337,7 +338,7 @@ func cleanWatchPath(path string) string {
 	if path == "" {
 		return ""
 	}
-	cleaned, err := cleanAbsolutePath(path)
+	cleaned, err := shared.CleanAbsolutePath(path)
 	if err != nil {
 		return ""
 	}

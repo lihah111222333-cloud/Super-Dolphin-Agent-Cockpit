@@ -2,8 +2,6 @@ package memory
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"golang.org/x/text/unicode/norm"
@@ -29,7 +28,7 @@ const (
 )
 
 var (
-	ErrInvalidMemoryRoot      = errors.New("invalid memory root")
+	ErrInvalidMemoryRoot      = shared.ErrInvalidMemoryRoot
 	ErrInvalidMemoryReadPath  = errors.New("invalid memory read path")
 	ErrInvalidMemoryWritePath = errors.New("invalid memory write path")
 )
@@ -40,7 +39,7 @@ type consolidationStamp struct {
 }
 
 func GetAutoMemPath(baseRoot, projectRoot string) (string, error) {
-	validatedRoot, err := ValidateMemoryRoot(baseRoot)
+	validatedRoot, err := shared.ValidateMemoryRoot(baseRoot)
 	if err != nil || validatedRoot == "" {
 		return "", err
 	}
@@ -63,7 +62,7 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	fallback, err := cleanAbsolutePath(projectRoot)
+	fallback, err := shared.CleanAbsolutePath(projectRoot)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
 	}
@@ -115,7 +114,7 @@ func SanitizePath(raw string) string {
 	}
 	slug := strings.Trim(builder.String(), "-")
 	if slug == "" {
-		return "project-" + shortHash(normalized)
+		return "project-" + shared.ShortHash(normalized)
 	}
 	if len(slug) <= sanitizePathMaxLen {
 		return slug
@@ -124,42 +123,11 @@ func SanitizePath(raw string) string {
 	if prefix == "" {
 		prefix = "project"
 	}
-	return prefix + "-" + shortHash(normalized)
-}
-
-func ValidateMemoryRoot(raw string) (string, error) {
-	raw = norm.NFC.String(strings.TrimSpace(raw))
-	if raw == "" {
-		return "", nil
-	}
-	if strings.ContainsRune(raw, '\x00') {
-		return "", fmt.Errorf("%w: null byte", ErrInvalidMemoryRoot)
-	}
-	if strings.HasPrefix(raw, `\\`) || strings.HasPrefix(raw, "//") {
-		return "", fmt.Errorf("%w: UNC path is not allowed", ErrInvalidMemoryRoot)
-	}
-	if isWindowsDriveRoot(raw) {
-		return "", fmt.Errorf("%w: drive root is not allowed", ErrInvalidMemoryRoot)
-	}
-	expanded, err := expandHomePath(raw)
-	if err != nil {
-		return "", err
-	}
-	if !isAbsoluteMemoryPath(expanded) {
-		return "", fmt.Errorf("%w: path must be absolute", ErrInvalidMemoryRoot)
-	}
-	cleaned, err := cleanAbsolutePath(expanded)
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
-	}
-	if isRootOrNearRoot(cleaned) {
-		return "", fmt.Errorf("%w: path is too broad", ErrInvalidMemoryRoot)
-	}
-	return strings.TrimRight(cleaned, string(os.PathSeparator)) + string(os.PathSeparator), nil
+	return prefix + "-" + shared.ShortHash(normalized)
 }
 
 func ValidateMemoryWritePath(root, file string) (string, error) {
-	validatedRoot, err := ValidateMemoryRoot(root)
+	validatedRoot, err := shared.ValidateMemoryRoot(root)
 	if err != nil {
 		return "", err
 	}
@@ -185,7 +153,7 @@ func ValidateMemoryWritePath(root, file string) (string, error) {
 }
 
 func ValidateMemoryReadPath(root, file string) (string, error) {
-	validatedRoot, err := ValidateMemoryRoot(root)
+	validatedRoot, err := shared.ValidateMemoryRoot(root)
 	if err != nil {
 		return "", err
 	}
@@ -228,21 +196,21 @@ func prepareMemoryPath(validatedRoot, file string, wrap func(string) error) (str
 	if !filepath.IsAbs(candidate) {
 		candidate = filepath.Join(rootDir, candidate)
 	}
-	candidate, err := cleanAbsolutePath(candidate)
+	candidate, err := shared.CleanAbsolutePath(candidate)
 	if err != nil {
 		return "", "", wrap(err.Error())
 	}
-	if err := ensureResolvablePath(rootDir); err != nil {
+	if err := shared.EnsureResolvablePath(rootDir); err != nil {
 		return "", "", wrap(err.Error())
 	}
-	if err := ensureResolvablePath(candidate); err != nil {
+	if err := shared.EnsureResolvablePath(candidate); err != nil {
 		return "", "", wrap(err.Error())
 	}
 	return rootDir, candidate, nil
 }
 
 func resolveMemoryWritePath(path string) (string, error) {
-	resolved, err := realPathDeepestExisting(path)
+	resolved, err := shared.RealPathDeepestExisting(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", invalidMemoryWritePath(err.Error())
 	}
@@ -253,7 +221,7 @@ func resolveMemoryWritePath(path string) (string, error) {
 }
 
 func resolveExistingMemoryPath(path string) (string, error) {
-	resolved, err := realPathDeepestExisting(path)
+	resolved, err := shared.RealPathDeepestExisting(path)
 	if err != nil {
 		return "", err
 	}
@@ -318,58 +286,6 @@ func writeAtomicFile(path string, data []byte, perm os.FileMode) error {
 	}
 	cleanup = false
 	return nil
-}
-
-func expandHomePath(raw string) (string, error) {
-	switch {
-	case raw == "~", raw == "~/", raw == `~\\`:
-		return "", fmt.Errorf("%w: home root is not allowed", ErrInvalidMemoryRoot)
-	case strings.HasPrefix(raw, "~/") || strings.HasPrefix(raw, `~\\`):
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
-		}
-		tail := strings.TrimLeft(raw[1:], `/\\`)
-		if strings.TrimSpace(tail) == "" || filepath.Clean(tail) == "." {
-			return "", fmt.Errorf("%w: home root is not allowed", ErrInvalidMemoryRoot)
-		}
-		return filepath.Join(home, tail), nil
-	case strings.HasPrefix(raw, "~"):
-		return "", fmt.Errorf("%w: unsupported home path", ErrInvalidMemoryRoot)
-	default:
-		return raw, nil
-	}
-}
-
-func isWindowsDriveRoot(path string) bool {
-	if len(path) < 2 || path[1] != ':' {
-		return false
-	}
-	rest := strings.Trim(path[2:], `/\\`)
-	return rest == ""
-}
-
-func isAbsoluteMemoryPath(path string) bool {
-	if filepath.IsAbs(path) {
-		return true
-	}
-	return len(path) >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/')
-}
-
-func isRootOrNearRoot(path string) bool {
-	volume := filepath.VolumeName(path)
-	trimmed := strings.TrimPrefix(path, volume)
-	trimmed = strings.TrimRight(trimmed, string(os.PathSeparator))
-	if trimmed == "" || trimmed == string(os.PathSeparator) {
-		return true
-	}
-	trimmed = strings.TrimPrefix(trimmed, string(os.PathSeparator))
-	return !strings.Contains(trimmed, string(os.PathSeparator))
-}
-
-func shortHash(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:4])
 }
 
 func loadConsolidationStamp(root string) (consolidationStamp, error) {
