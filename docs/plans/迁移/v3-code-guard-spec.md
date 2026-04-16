@@ -39,14 +39,16 @@ V3 直接继承 V2 的测量口径，不重新定义统计语义：
 
 | 适用包 | 包文件数 | 单文件有效行数 | 包有效行数 | 函数/嵌套/CC |
 |--------|------:|------:|------:|---|
-| `module/memory` | **冻结 44**（只减不增） | 600 | **冻结 12000**（只减不增） | 不变（80/4/10） |
+| `module/memory` | **冻结 30**（只减不增） | 600 | **冻结 7161**（只减不增） | 不变（80/4/10） |
 | `module/prompt` | 30 | 600 | 10000 | 不变 |
 | `module/thread` | 30 | 600 | 10000 | 不变 |
 | `module/turn`   | 30 | 600 | 10000 | 不变 |
 | `provider/claudecli` | 30 | 600 | 10000 | 不变 |
 | `provider/codexapp`  | 30 | 600 | 10000 | 不变 |
 
-> `module/memory` 当前为 44 文件 / 11976 effective lines，包文件数冻结为迁移期上限；后续只允许下降（合并/抽子包），不允许继续新增。包行数仍冻结在 12000，当前尚未超线。
+> `module/memory` 当前为 30 个非测试文件 / 7161 effective lines，freeze registry 已按最新基线自动收缩；后续只允许下降（合并/抽子包），不允许继续新增或回弹。
+> `module/memory` 迁移期间新拆出的直接子包（如 `module/memory/agent`）继承 **单文件 600 effective** 上限，避免拆包后重新落回默认 400 文件守卫。
+> `module/memory/{agent,team,nested,retrieval,shared}` 当前都已是合规 leaf 包；主包 freeze 只覆盖 `internal/module/memory` 根包自身的非测试文件数与有效行数。
 > 其他包仍遵守默认守卫（文件 ≤400、包文件数 ≤15、包行数 ≤4500 effective）。
 
 ## 第 2 章：V3 守卫类型完整清单
