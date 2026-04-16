@@ -1,4 +1,4 @@
-package memory
+package retrieval
 
 import memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 
@@ -12,33 +12,12 @@ const (
 	MemoryTypeReference = memshared.MemoryTypeReference
 )
 
-var diskMemoryTypes = []MemoryType{
-	MemoryTypeUser,
-	MemoryTypeFeedback,
-	MemoryTypeProject,
-	MemoryTypeReference,
-}
-
-func ParseMemoryType(raw string) MemoryType { return memshared.ParseMemoryType(raw) }
-func CanonicalName(raw string) string       { return memshared.CanonicalName(raw) }
-
-type MemoryScope string
-
-const (
-	MemoryScopeUser    MemoryScope = "user"
-	MemoryScopeProject MemoryScope = "project"
-	MemoryScopeLocal   MemoryScope = "local"
-)
-
 type MemoryFrontmatter = memshared.MemoryFrontmatter
 type MemoryEntry = memshared.MemoryEntry
 type ParsedMemory = memshared.ParsedMemory
 
-type SaveIntent struct {
-	Detected bool
-	Content  string
-	Type     MemoryType
-}
+func ParseMemoryType(raw string) MemoryType { return memshared.ParseMemoryType(raw) }
+func CanonicalName(raw string) string       { return memshared.CanonicalName(raw) }
 
 func cloneMemoryType(t MemoryType) *MemoryType {
 	return memshared.CloneMemoryType(t)

@@ -286,6 +286,9 @@ func fileLineLimit(relPath string, factory bool) int {
 	if limit, ok := frozenLimit(pkgDir, ViolationFile); ok {
 		return limit
 	}
+	if isCorePackageDir(pkgDir) {
+		return MaxCorePackageFileLines
+	}
 	return MaxFileLines
 }
 
@@ -385,6 +388,7 @@ func isSQLCPackageDir(pkgDir string) bool {
 func isCorePackageDir(pkgDir string) bool {
 	switch pkgDir {
 	case "internal/module/memory",
+		"internal/module/memory/agent",
 		"internal/module/prompt",
 		"internal/module/thread",
 		"internal/module/turn":

@@ -22,14 +22,14 @@ func TestMemoryContextProviderPrepareTurnInputsStartsWithoutTurnStartedEvent(t *
 	provider := NewContextProvider(cfg)
 	manager := NewPrefetchManager(root)
 	started := make(chan struct{})
-	manager.buildManifest = func(string) ([]MemoryEntry, error) {
+	manager.SetBuildManifestFunc(func(string) ([]MemoryEntry, error) {
 		return []MemoryEntry{{FilePath: "project/commit-style.md"}}, nil
-	}
-	manager.findRelevant = func(ctx context.Context, _ string, _ []MemoryEntry) ([]MemoryEntry, error) {
+	})
+	manager.SetFindRelevantFunc(func(ctx context.Context, _ string, _ []MemoryEntry) ([]MemoryEntry, error) {
 		close(started)
 		<-ctx.Done()
 		return nil, ctx.Err()
-	}
+	})
 	provider.mu.Lock()
 	provider.turnStateLocked("thread-1").manager = manager
 	provider.mu.Unlock()
@@ -94,16 +94,16 @@ func TestMemoryContextProviderPrepareTurnContextReturnsRelevantMemoryAttachments
 	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
 	provider.timeNow = func() time.Time { return now }
 	manager := NewPrefetchManager(root)
-	manager.buildManifest = func(string) ([]MemoryEntry, error) {
+	manager.SetBuildManifestFunc(func(string) ([]MemoryEntry, error) {
 		return []MemoryEntry{{FilePath: "project/commit-style.md"}}, nil
-	}
-	manager.findRelevant = func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
+	})
+	manager.SetFindRelevantFunc(func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
 		return []MemoryEntry{{
 			FilePath:  "project/commit-style.md",
 			Content:   "Use concise imperative commit messages.",
 			UpdatedAt: now,
 		}}, nil
-	}
+	})
 	provider.mu.Lock()
 	provider.turnStateLocked("thread-1").manager = manager
 	provider.mu.Unlock()
@@ -142,17 +142,17 @@ func TestGateRelevantPrefetchSurfacedBytesLedger(t *testing.T) {
 	manager := NewPrefetchManager(root)
 	calls := 0
 	huge := strings.Repeat("x", defaultRelevantMemoryBudgetBytes)
-	manager.buildManifest = func(string) ([]MemoryEntry, error) {
+	manager.SetBuildManifestFunc(func(string) ([]MemoryEntry, error) {
 		return []MemoryEntry{{FilePath: "project/huge.md"}}, nil
-	}
-	manager.findRelevant = func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
+	})
+	manager.SetFindRelevantFunc(func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
 		calls++
 		return []MemoryEntry{{
 			FilePath:  "project/huge.md",
 			Content:   huge,
 			UpdatedAt: now,
 		}}, nil
-	}
+	})
 	provider.mu.Lock()
 	provider.turnStateLocked("thread-1").manager = manager
 	provider.mu.Unlock()

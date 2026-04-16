@@ -117,7 +117,7 @@ func (p *MemoryRulesProvider) combinedMemoryPaths(buildCtx contract.BuildCtx) (s
 	if autoDir == "" {
 		return "", "", false
 	}
-	teamDir := providerTeamMemPath(p.team, buildCtx)
+	teamDir := strings.TrimSpace(p.team.GetTeamMemPath(buildCtx))
 	if teamDir == "" {
 		return "", "", false
 	}
@@ -273,8 +273,8 @@ func (p *MemoryContextProvider) OnPromptInvalidate(reason contract.InvalidateRea
 		}
 		if state.manager != nil {
 			state.manager.Reset(string(reason))
-		} else if state.handle != nil && state.handle.cancel != nil {
-			state.handle.cancel()
+		} else if state.handle != nil {
+			state.handle.Cancel()
 		}
 		state.handle = nil
 		state.surfacedBytes = 0
@@ -302,8 +302,8 @@ func (p *MemoryContextProvider) onTurnTerminated(threadID, _ string) {
 	if !ok {
 		return
 	}
-	if state.handle != nil && state.handle.cancel != nil {
-		state.handle.cancel()
+	if state.handle != nil {
+		state.handle.Cancel()
 	}
 	state.handle = nil
 }
@@ -313,8 +313,11 @@ func (p *MemoryContextProvider) consumePrefetchEntries(
 	threadID, query string,
 	gate MemoryGateSnapshot,
 ) ([]MemoryEntry, bool) {
-	manager, handle := p.startRelevantPrefetch(ctx, threadID, query, gate)
+	manager, handle, startedNew := p.startRelevantPrefetch(ctx, threadID, query, gate)
 	if manager == nil || handle == nil {
+		return nil, false
+	}
+	if startedNew {
 		return nil, false
 	}
 	entries, ok := manager.ConsumeIfReady(handle)
@@ -331,28 +334,28 @@ func (p *MemoryContextProvider) startRelevantPrefetch(
 	ctx context.Context,
 	threadID, query string,
 	gate MemoryGateSnapshot,
-) (*PrefetchManager, *PrefetchHandle) {
+) (*PrefetchManager, *PrefetchHandle, bool) {
 	query = strings.TrimSpace(query)
 	if p == nil || strings.TrimSpace(p.memoryRoot) == "" || !memoryProductEnabled(p.cfg) {
-		return nil, nil
+		return nil, nil, false
 	}
 	p.mu.Lock()
 	state := p.turnStateLocked(threadID)
 	state.gate = gate
 	if !ShouldStartRelevantMemoryPrefetch(gate, contract.TurnInput{UserText: query}, RelevantPrefetchSurfacedState{TotalBytes: state.surfacedBytes}) {
 		p.mu.Unlock()
-		return nil, nil
+		return nil, nil, false
 	}
 	if state.manager == nil {
 		state.manager = NewPrefetchManager(p.memoryRoot)
 	}
 	manager := state.manager
-	if state.handle != nil && state.handle.query == query {
-		stateValue := state.handle.state.Load()
+	if state.handle != nil && state.handle.Query() == query {
+		stateValue := state.handle.State()
 		if stateValue == prefetchStatePending || stateValue == prefetchStateReady {
 			handle := state.handle
 			p.mu.Unlock()
-			return manager, handle
+			return manager, handle, false
 		}
 	}
 	p.mu.Unlock()
@@ -360,7 +363,7 @@ func (p *MemoryContextProvider) startRelevantPrefetch(
 	p.mu.Lock()
 	p.turnStateLocked(threadID).handle = handle
 	p.mu.Unlock()
-	return manager, handle
+	return manager, handle, true
 }
 
 func (p *MemoryContextProvider) clearHandle(threadID string, handle *PrefetchHandle) {
