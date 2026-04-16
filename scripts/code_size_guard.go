@@ -16,11 +16,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "❌  代码守卫: %v\n", err)
 		os.Exit(1)
 	}
-	violations := archtest.CheckAll(archtest.CheckOptions{
+	opts := archtest.CheckOptions{
 		RepoRoot:  repoRoot,
 		ScanRoots: []string{"internal", "cmd", "scripts"},
 		SkipDirs:  archtest.DefaultSkipDirs(),
-	})
+	}
+	fixes, err := archtest.AutoRepairFreezeRegistry(opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌  代码守卫: auto-fix freeze registry 失败: %v\n", err)
+		os.Exit(1)
+	}
+	for _, fix := range fixes {
+		fmt.Printf("🧹  代码守卫: %s\n", fix.String())
+	}
+	violations := archtest.CheckAll(opts)
 	fmt.Printf("📏  代码守卫: 默认 文件 ≤ %d 行, 函数 ≤ %d 行, 嵌套 ≤ %d 层, 圈复杂度 ≤ %d, 命名下划线 ≤ %d 个, 包文件数 ≤ %d, 包行数 ≤ %d\n",
 		archtest.MaxFileLines,
 		archtest.MaxFuncLines,

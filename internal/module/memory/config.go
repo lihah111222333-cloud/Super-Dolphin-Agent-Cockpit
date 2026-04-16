@@ -204,6 +204,35 @@ func GetMemoryScopeDisplay(scope MemoryScope) string {
 	}
 }
 
+func resolveChildAgentStart(input contract.SectionContext) (childAgentStart, bool) {
+	if input.Start == nil || input.Turn != nil || strings.TrimSpace(input.Start.ParentAgentID) == "" {
+		return childAgentStart{}, false
+	}
+	scope, ok := parseAgentMemoryScope(input.Start.AgentMemoryScope)
+	agentType := strings.TrimSpace(input.Start.AgentType)
+	if !ok || agentType == "" {
+		return childAgentStart{}, false
+	}
+	return childAgentStart{agentType: agentType, scope: scope}, true
+}
+
+func agentMemoryGuidelines(scope MemoryScope) []string {
+	guidelines := []string{
+		"This prompt is for agent-specific memory. Keep it isolated from the main thread and other agent types.",
+		"Searching past context: consult the MEMORY.md section below before assuming nothing has been remembered for this agent.",
+	}
+	switch scope {
+	case MemoryScopeUser:
+		return append(guidelines, "This user-scoped agent memory is shared across projects for the same agent type.")
+	case MemoryScopeProject:
+		return append(guidelines, "This project-scoped agent memory is isolated to the current project and can be shared with the repo.")
+	case MemoryScopeLocal:
+		return append(guidelines, "This local agent memory is isolated to the current project on this machine only.")
+	default:
+		return guidelines
+	}
+}
+
 func agentMemoryFailureStatus(scope MemoryScope, err error) string {
 	if err == nil {
 		return "loaded"
