@@ -355,32 +355,44 @@ func (s *session) lastReadTime() time.Time {
 }
 
 func (s *session) startReadLoop() {
-	done, ok := s.prepareReadLoop()
+	done, readCtx, ok := s.prepareReadLoop()
 	if !ok {
 		return
 	}
-	go s.runReadLoop(done)
+	go s.runReadLoop(readCtx, done)
 }
 
-func (s *session) prepareReadLoop() (chan struct{}, bool) {
+func (s *session) prepareReadLoop() (chan struct{}, context.Context, bool) {
 	s.readLoopMu.Lock()
 	defer s.readLoopMu.Unlock()
 	if s.readLoopDone != nil {
 		select {
 		case <-s.readLoopDone:
 			s.readLoopDone = nil
+			s.readLoopCancel = nil
 		default:
-			return nil, false
+			return nil, nil, false
 		}
 	}
 	done := make(chan struct{})
+	readCtx, cancel := context.WithCancel(s.ctx)
 	s.readLoopDone = done
-	return done, true
+	s.readLoopCancel = cancel
+	return done, readCtx, true
 }
 
-func (s *session) runReadLoop(done chan struct{}) {
+func (s *session) stopReadLoop() {
+	s.readLoopMu.Lock()
+	cancel := s.readLoopCancel
+	s.readLoopMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (s *session) runReadLoop(ctx context.Context, done chan struct{}) {
 	defer s.finishReadLoop(done)
-	s.transport.ReadLoop(s.ctx, s.onInboundMessage)
+	s.transport.ReadLoop(ctx, s.onInboundMessage)
 }
 
 func (s *session) finishReadLoop(done chan struct{}) {
@@ -396,6 +408,7 @@ func (s *session) finishReadLoop(done chan struct{}) {
 	defer s.readLoopMu.Unlock()
 	if s.readLoopDone == done {
 		s.readLoopDone = nil
+		s.readLoopCancel = nil
 	}
 }
 

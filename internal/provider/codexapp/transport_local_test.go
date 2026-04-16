@@ -207,6 +207,9 @@ func runServeHelper(listenURL string, withChild bool) error {
 		return err
 	}
 	defer listener.Close()
+	if err := announceHelperListenURL(listener); err != nil {
+		return err
+	}
 	upgrader := &websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	serveErr := make(chan error, 1)
 	go func() {
@@ -219,6 +222,22 @@ func runServeHelper(listenURL string, withChild bool) error {
 		}))
 	}()
 	return waitForHelperSignal(listener, serveErr)
+}
+
+func announceHelperListenURL(listener net.Listener) error {
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return fmt.Errorf("unexpected listener addr %T", listener.Addr())
+	}
+	serverURL := fmt.Sprintf("ws://127.0.0.1:%d", addr.Port)
+	_, err := fmt.Fprintf(
+		os.Stderr,
+		"codex app-server (WebSockets)\n  listening on: %s\n  readyz: http://127.0.0.1:%d/readyz\n  healthz: http://127.0.0.1:%d/healthz\n  note: binds localhost only (use SSH port-forwarding for remote access)\n",
+		serverURL,
+		addr.Port,
+		addr.Port,
+	)
+	return err
 }
 
 func waitForHelperSignal(listener net.Listener, serveErr chan error) error {

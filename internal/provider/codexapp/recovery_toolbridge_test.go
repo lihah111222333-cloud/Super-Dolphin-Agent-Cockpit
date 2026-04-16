@@ -27,7 +27,7 @@ func waitCodexTestConn(t *testing.T, ch <-chan *websocket.Conn) *websocket.Conn 
 	}
 }
 
-func sendCodexToolCall(t *testing.T, conn *websocket.Conn, id int, name string, arguments map[string]any) {
+func sendCodexToolCall(t *testing.T, writeMu *sync.Mutex, conn *websocket.Conn, id int, name string, arguments map[string]any) {
 	t.Helper()
 	raw := mustJSON(map[string]any{
 		"jsonrpc": "2.0",
@@ -38,12 +38,14 @@ func sendCodexToolCall(t *testing.T, conn *websocket.Conn, id int, name string, 
 			"arguments": arguments,
 		},
 	})
+	writeMu.Lock()
+	defer writeMu.Unlock()
 	if err := conn.WriteMessage(websocket.TextMessage, raw); err != nil {
 		t.Fatalf("WriteMessage(tool call) error = %v", err)
 	}
 }
 
-func startRecoveryToolBridgeServer(t *testing.T, connections chan<- *websocket.Conn, responses chan<- jsonRPCMessage, mu *sync.Mutex, initializeCount, threadResumes *int) *httptest.Server {
+func startRecoveryToolBridgeServer(t *testing.T, connections chan<- *websocket.Conn, responses chan<- jsonRPCMessage, mu *sync.Mutex, writeMu *sync.Mutex, initializeCount, threadResumes *int) *httptest.Server {
 	t.Helper()
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,22 +85,27 @@ func startRecoveryToolBridgeServer(t *testing.T, connections chan<- *websocket.C
 			}
 			mu.Unlock()
 			resp := mustJSON(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(append([]byte(nil), msg.ID...)), "result": json.RawMessage(append([]byte(nil), result...))})
+			writeMu.Lock()
 			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+				writeMu.Unlock()
 				return
 			}
+			writeMu.Unlock()
 		}
 	}))
 }
 
 func stopReadLoopForReconnect(t *testing.T, s *session) {
 	t.Helper()
-	s.cancel()
+	s.transport.closed.Store(true)
+	defer s.transport.closed.Store(false)
+	s.transport.closeSocket()
+	s.stopReadLoop()
 	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := s.waitReadLoopStopped(stopCtx); err != nil {
 		t.Fatalf("waitReadLoopStopped() error = %v", err)
 	}
-	s.ctx, s.cancel = context.WithCancel(context.Background())
 }
 
 func assertToolResponse(t *testing.T, responses <-chan jsonRPCMessage, wantID string) {
@@ -141,6 +148,7 @@ func TestToolBridge_Recovery_CancelInflight(t *testing.T) {
 	})
 
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	var writeMu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -157,11 +165,14 @@ func TestToolBridge_Recovery_CancelInflight(t *testing.T) {
 				continue
 			}
 			resp := mustJSON(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(append([]byte(nil), msg.ID...)), "result": map[string]any{"ok": true}})
+			writeMu.Lock()
 			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+				writeMu.Unlock()
 				return
 			}
+			writeMu.Unlock()
 			if msg.Method == "initialize" {
-				sendCodexToolCall(t, conn, 77, "lsp_ping", map[string]any{"value": 77})
+				sendCodexToolCall(t, &writeMu, conn, 77, "lsp_ping", map[string]any{"value": 77})
 			}
 		}
 	}))
@@ -214,8 +225,9 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 	})
 
 	var mu sync.Mutex
+	var writeMu sync.Mutex
 	initializeCount, threadResumes := 0, 0
-	server := startRecoveryToolBridgeServer(t, connections, responses, &mu, &initializeCount, &threadResumes)
+	server := startRecoveryToolBridgeServer(t, connections, responses, &mu, &writeMu, &initializeCount, &threadResumes)
 	defer server.Close()
 
 	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil, manager)
@@ -239,7 +251,7 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 	if err := s.resumeThreadAfterRecovery(s.ctx); err != nil {
 		t.Fatalf("resumeThreadAfterRecovery() error = %v", err)
 	}
-	sendCodexToolCall(t, second, 88, "code_run", map[string]any{"command": "pwd"})
+	sendCodexToolCall(t, &writeMu, second, 88, "code_run", map[string]any{"command": "pwd"})
 	select {
 	case msg := <-toolCalls:
 		if msg.Method != "item/tool/call" {

@@ -38,6 +38,7 @@ type session struct {
 	recoveryMu         sync.Mutex
 	readLoopMu         sync.Mutex
 	readLoopDone       chan struct{}
+	readLoopCancel     context.CancelFunc
 	lastReadAt         atomic.Int64
 	recoveryCount      atomic.Int32
 	turns              map[string]*turnHandle

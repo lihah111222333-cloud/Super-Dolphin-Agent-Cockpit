@@ -136,8 +136,10 @@ func (m *ServerManager) start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	startupCtx, cancel := withTimeout(ctx, transportReadyTimeout)
+	defer cancel()
 	t := &transport{}
-	if err := t.spawnLocal(); err != nil {
+	if err := t.spawnLocal(startupCtx); err != nil {
 		m.err = err
 		return err
 	}
@@ -147,8 +149,6 @@ func (m *ServerManager) start(ctx context.Context) error {
 	}
 	// Perform a single health-check connection+initialize to verify the
 	// process started correctly. Sessions will each create their own WS.
-	startupCtx, cancel := withTimeout(ctx, transportReadyTimeout)
-	defer cancel()
 	if err := t.establish(startupCtx); err != nil {
 		_ = t.Kill()
 		m.err = err
