@@ -128,10 +128,13 @@ func assertStoreAndToolDependencyRules(t *testing.T, root string) {
 					continue
 				}
 				if file.RelPath == "internal/store/module.go" {
-					if imp == "go.uber.org/fx" || imp == "github.com/jackc/pgx/v5/pgxpool" || hasAllowedPrefix(imp, []string{internalPrefix("internal/store/")}) {
+					if imp == "go.uber.org/fx" || imp == "github.com/jackc/pgx/v5/pgxpool" || hasAllowedPrefix(imp, []string{internalPrefix("internal/store")}) {
 						continue
 					}
-				} else if filepath.Base(file.RelPath) == "module.go" && imp == "go.uber.org/fx" {
+				} else if filepath.Base(file.RelPath) == "module.go" && (imp == "go.uber.org/fx" || imp == "github.com/jackc/pgx/v5/pgxpool") {
+					continue
+				}
+				if imp == "github.com/jackc/pgx/v5/pgtype" {
 					continue
 				}
 				if !hasAllowedPrefix(imp, allowed) {

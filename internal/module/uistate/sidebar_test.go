@@ -226,7 +226,10 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 		if err != nil {
 			t.Fatalf("GetSidebar() error = %v", err)
 		}
-		if sidebar.ActiveTurn == nil && sidebar.Statuses["thread-1"] == "idle" {
+		if sidebar.ActiveTurn == nil &&
+			sidebar.Statuses["thread-1"] == "idle" &&
+			len(sidebar.Threads) > 0 &&
+			sidebar.Threads[0].LastMessage == "hello world" {
 			break
 		}
 		if time.Now().After(deadline) {

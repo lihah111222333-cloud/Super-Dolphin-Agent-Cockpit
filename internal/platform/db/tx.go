@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -92,5 +92,5 @@ func rollbackTx(ctx context.Context, tx pgx.Tx, queryErr error) error {
 }
 
 func txCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	return platformconfig.WithTxCleanupTimeout(context.WithoutCancel(ctx))
 }

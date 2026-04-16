@@ -80,6 +80,10 @@ func AsPromptAssemblyService(svc Service) contract.PromptAssemblyService {
 	return svc
 }
 
+func AsDynamicSectionRegistrar(svc Service) contract.DynamicSectionRegistrar {
+	return svc
+}
+
 func (s *service) Config() Config {
 	if s == nil || s.cfg == nil {
 		return Config{}

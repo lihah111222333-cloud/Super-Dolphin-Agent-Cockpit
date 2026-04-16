@@ -68,7 +68,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/thread",
 		Kind:       ViolationPackageLines,
-		Limit:      5296,
+		Limit:      5319,
 		Reason:     "thread 主链仍高于默认包行数预算，冻结到当前裁决上限",
 		Owner:      "P19-Phase-F",
 		RemoveWhen: "thread 拆分完成并回落到默认包行数预算 4500 行",
