@@ -1,13 +1,16 @@
 # P18 未实现部分
 
-> 原标注为"P19 延后"的功能，现归入 P18 范围但尚未实现。
-> 更新时间：2026-04-14
+> 原标注为"P19 延后"的功能，现保留为 P18 施工期历史记录。
+> 更新时间：2026-04-17
+> ⚠️ 本文档已过时：所列条目（KAIROS Daily Log、Team Memory、nested_memory、brief、auto-dream）均已在 P18.3 J/K/L 落地，保留本文档用于施工历史追溯，不再作为待办清单。
 
 ---
 
 > 说明：风险评级沿用 README 当前排期语义做归类（高 / 中 / 条件安全 / 低），工期为单人净工时估算；如 thread/provider 主链范围扩张，需整体顺延。
 
 ## 1. 未实现动态 Sections（8 个）
+
+> `brief`：✅ 已在 P18.3 落地 —— 详见 `p18.3-advanced-alignment.md` §Phase F / §Phase J
 
 > Claude 主锚点来自 [source-refs-appendix.md](./source-refs-appendix.md) 的“系统提示词”章节：`getSystemPrompt (src/constants/prompts.ts:L444-577)` 与 `动态 slots 注册 (src/constants/prompts.ts:L491-555)`；下表补充 `phase-3-prompt-registry.md` 已拆开的 section 级子锚点，便于实施。
 
@@ -24,6 +27,8 @@
 
 ## 2. Team Memory 完整体
 
+> ✅ 已在 P18.3 落地 —— 详见 `p18.3-advanced-alignment.md` §Phase K
+
 - 状态：骨架已实现（Go 侧 `TeamMemoryManager` 已预留并默认 hard-disabled）；sync service / secret guard / team entrypoint prompt 注入仍未实现。
 - 范围：sync service（pull/push/watcher/ETag/shutdown flush）+ team secret guard 双层防护 + team entrypoint/prompt 注入。
 - Claude 锚点：
@@ -39,6 +44,8 @@
 
 ## 3. KAIROS Daily Log
 
+> ✅ 已在 P18.3 落地 —— 详见 `p18.3-advanced-alignment.md` §Phase J
+
 - 范围：`date_change` 跨日切换 + `/dream` 蒸馏回 `MEMORY.md` / topic files。
 - Claude 锚点：
   - `src/memdir/memdir.ts:L327-369, L419-438, L448-471`
@@ -53,6 +60,8 @@
 - 实现状态：骨架已实现。
 
 ## 4. nested_memory
+
+> ✅ 已在 P18.3 落地 —— 详见 `p18.3-advanced-alignment.md` §Phase L
 
 - 范围：target-path 条件规则体系，而非普通 retrieval 补丁。
 - Claude 锚点：
@@ -85,6 +94,8 @@
 - 实现状态：骨架已实现（mock）。
 
 ## 6. Auto-dream / Consolidation
+
+> ✅ 已在 P18.3 落地 —— 详见 `p18.3-advanced-alignment.md` §Phase J
 
 - 范围：stop-hook 蒸馏服务，把会话沉淀回长期记忆。
 - Claude 锚点：
