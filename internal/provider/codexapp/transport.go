@@ -41,7 +41,7 @@ func newTransport(ctx context.Context, serverURL string) (*transport, error) {
 	defer cancel()
 	t := &transport{serverURL: normalizeServerURL(serverURL)}
 	if t.serverURL == "" {
-		if err := t.spawnLocal(); err != nil {
+		if err := t.spawnLocal(startupCtx); err != nil {
 			return nil, err
 		}
 	}
@@ -142,7 +142,7 @@ func (t *transport) reconnect(ctx context.Context) error {
 	t.closed.Store(false)
 	t.closeSocket()
 	if t.local && !t.processRunning() {
-		if err := t.spawnLocal(); err != nil {
+		if err := t.spawnLocal(ctx); err != nil {
 			return err
 		}
 	}

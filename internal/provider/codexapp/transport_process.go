@@ -1,7 +1,9 @@
 package codexapp
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -17,14 +19,20 @@ import (
 )
 
 type localProcess struct {
-	cmd        *exec.Cmd
-	stderr     *limitedBuffer
-	stderrR    io.ReadCloser
-	done       chan struct{}
-	stderrDone chan struct{}
-	waitErr    error
-	waitMu     sync.Mutex
-	exited     atomic.Bool
+	cmd         *exec.Cmd
+	stderr      *limitedBuffer
+	stderrR     io.ReadCloser
+	done        chan struct{}
+	stderrDone  chan struct{}
+	listenReady chan struct{}
+	waitErr     error
+	waitMu      sync.Mutex
+	listenURL   string
+	listenErr   error
+	listenSet   bool
+	listenMu    sync.Mutex
+	listenOnce  sync.Once
+	exited      atomic.Bool
 }
 
 type limitedBuffer struct {
@@ -56,11 +64,12 @@ func (b *limitedBuffer) String() string {
 
 func newLocalProcess(cmd *exec.Cmd, stderrR io.ReadCloser) *localProcess {
 	return &localProcess{
-		cmd:        cmd,
-		stderr:     newLimitedBuffer(transportStderrLimitBytes),
-		stderrR:    stderrR,
-		done:       make(chan struct{}),
-		stderrDone: make(chan struct{}),
+		cmd:         cmd,
+		stderr:      newLimitedBuffer(transportStderrLimitBytes),
+		stderrR:     stderrR,
+		done:        make(chan struct{}),
+		stderrDone:  make(chan struct{}),
+		listenReady: make(chan struct{}),
 	}
 }
 
@@ -78,6 +87,15 @@ func (p *localProcess) waitErrValue() error {
 	p.waitMu.Lock()
 	defer p.waitMu.Unlock()
 	return p.waitErr
+}
+
+func (p *localProcess) waitAsync() {
+	go func() {
+		err := p.cmd.Wait()
+		p.exited.Store(true)
+		p.setWaitErr(err)
+		close(p.done)
+	}()
 }
 
 func (p *localProcess) waitForExit(timeout time.Duration) bool {
@@ -101,6 +119,47 @@ func (p *localProcess) stderrSummary() string {
 		return ""
 	}
 	return strings.TrimSpace(p.stderr.String())
+}
+
+func (p *localProcess) setListenResult(url string, err error) {
+	p.listenOnce.Do(func() {
+		p.listenMu.Lock()
+		p.listenURL = url
+		p.listenErr = err
+		p.listenSet = true
+		p.listenMu.Unlock()
+		close(p.listenReady)
+	})
+}
+
+func (p *localProcess) listenResult() (string, error, bool) {
+	p.listenMu.Lock()
+	defer p.listenMu.Unlock()
+	return p.listenURL, p.listenErr, p.listenSet
+}
+
+func (p *localProcess) waitForListenURL(ctx context.Context) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if url, err, ok := p.listenResult(); ok {
+		return url, err
+	}
+	select {
+	case <-p.listenReady:
+		url, err, _ := p.listenResult()
+		if url == "" && err == nil {
+			return "", errors.New("codexapp: app-server did not report listen url")
+		}
+		return url, err
+	case <-p.done:
+		if url, err, ok := p.listenResult(); ok {
+			return url, err
+		}
+		return "", p.exitError()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }
 
 func (p *localProcess) exitError() error {
@@ -135,15 +194,34 @@ func (p *localProcess) signal(sig syscall.Signal) error {
 	return err
 }
 
-func (t *transport) spawnLocal() error {
+func parseListenURLLine(line string) string {
+	line = strings.TrimSpace(line)
+	const prefix = "listening on:"
+	if !strings.HasPrefix(strings.ToLower(line), prefix) {
+		return ""
+	}
+	return normalizeServerURL(strings.TrimSpace(line[len(prefix):]))
+}
+
+func enrichSpawnError(err error, proc *localProcess) error {
+	if err == nil {
+		return nil
+	}
+	stderr := proc.stderrSummary()
+	if stderr == "" || strings.Contains(err.Error(), stderr) {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, stderr)
+}
+
+func (t *transport) spawnLocal(ctx context.Context) error {
 	if t.processRunning() {
 		return nil
 	}
-	serverURL, err := reserveServerURL()
-	if err != nil {
-		return err
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	argv := []string{"codex", "app-server", "--listen", serverURL}
+	argv := []string{"codex", "app-server", "--listen", localSpawnListenURL()}
 	pkglogger.Info("codexapp: spawning local app-server", "argv", argv)
 	// Wrap in shell to raise fd limit before exec. On macOS, GUI-launched
 	// processes inherit launchd's default soft limit (often 256), which is
@@ -167,13 +245,21 @@ func (t *transport) spawnLocal() error {
 		return err
 	}
 	proc := newLocalProcess(cmd, stderr)
+	proc.waitAsync()
+	go t.collectProcessStderr(proc, stderr)
+	serverURL, err := proc.waitForListenURL(ctx)
+	if err != nil {
+		_ = proc.signal(syscall.SIGKILL)
+		proc.waitForExit(transportKillWaitTimeout)
+		proc.waitForStderr(time.Second)
+		return enrichSpawnError(err, proc)
+	}
 	t.stateMu.Lock()
 	t.local = true
 	t.serverURL = serverURL
 	t.process = proc
 	t.processErr = nil
 	t.stateMu.Unlock()
-	go t.collectProcessStderr(proc, stderr)
 	go t.watchLocalProcess(proc)
 	return nil
 }
@@ -181,17 +267,37 @@ func (t *transport) spawnLocal() error {
 func (t *transport) collectProcessStderr(proc *localProcess, stderr io.ReadCloser) {
 	defer close(proc.stderrDone)
 	if stderr == nil {
+		proc.setListenResult("", errors.New("codexapp: local process stderr unavailable"))
 		return
 	}
-	_, _ = io.Copy(proc.stderr, stderr)
-	_ = stderr.Close()
+	defer func() { _ = stderr.Close() }()
+	scanner := bufio.NewScanner(stderr)
+	scanner.Buffer(make([]byte, 0, 1024), 64*1024)
+	foundListenURL := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		_, _ = proc.stderr.Write(append([]byte(line), '\n'))
+		if foundListenURL {
+			continue
+		}
+		if listenURL := parseListenURLLine(line); listenURL != "" {
+			foundListenURL = true
+			proc.setListenResult(listenURL, nil)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		if !foundListenURL {
+			proc.setListenResult("", fmt.Errorf("codexapp: read app-server stderr: %w", err))
+		}
+		return
+	}
+	if !foundListenURL {
+		proc.setListenResult("", errors.New("codexapp: app-server did not report listen url"))
+	}
 }
 
 func (t *transport) watchLocalProcess(proc *localProcess) {
-	err := proc.cmd.Wait()
-	proc.exited.Store(true)
-	proc.setWaitErr(err)
-	close(proc.done)
+	<-proc.done
 	proc.waitForStderr(time.Second)
 	if t.closed.Load() {
 		t.clearProcess(proc, nil)
