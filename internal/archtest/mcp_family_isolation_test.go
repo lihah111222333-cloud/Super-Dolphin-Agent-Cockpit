@@ -15,9 +15,9 @@ func TestMCPFamilyIsolation(t *testing.T) {
 		relPkg    string
 		forbidden []string
 	}{
-		{name: "mcp_lsp", relPkg: "cmd/mcp-lsp", forbidden: []string{"internal/tool/ida", "internal/tool/orchestration"}},
-		{name: "mcp_orch", relPkg: mcpOrchRelPkg, forbidden: []string{"internal/tool/lsp", "internal/tool/ida"}},
-		{name: "mcp_ida", relPkg: "cmd/mcp-ida", forbidden: []string{"internal/tool/lsp", "internal/tool/orchestration"}},
+		{name: "mcp_lsp", relPkg: "cmd/mcp-lsp", forbidden: []string{"cmd/mcp-orch", "cmd/mcp-ida"}},
+		{name: "mcp_orch", relPkg: mcpOrchRelPkg, forbidden: []string{"cmd/mcp-lsp", "cmd/mcp-ida"}},
+		{name: "mcp_ida", relPkg: "cmd/mcp-ida", forbidden: []string{"cmd/mcp-lsp", "cmd/mcp-orch"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

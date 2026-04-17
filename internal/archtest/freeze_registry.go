@@ -23,7 +23,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 		Limit:      30,
 		Reason:     "memory 子包拆分尚未完成，包文件数冻结到当前值",
 		Owner:      "P19-Phase-F",
-		RemoveWhen: "memory 子包拆分完成并回落到默认包文件预算 15 个",
+		RemoveWhen: "memory 子包拆分完成并回落到默认包文件预算 25 个（2026-04-17 放宽后）",
 	},
 	{
 		Path:       "internal/module/prompt",
@@ -31,7 +31,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 		Limit:      26,
 		Reason:     "prompt 迁移期文件数高于默认预算，冻结到当前裁决上限",
 		Owner:      "P19-Phase-F",
-		RemoveWhen: "prompt 子包梳理完成并回落到默认包文件预算 15 个",
+		RemoveWhen: "prompt 子包梳理完成并回落到默认包文件预算 25 个（2026-04-17 放宽后）",
 	},
 }
 

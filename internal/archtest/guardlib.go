@@ -290,6 +290,9 @@ func fileLineLimit(relPath string, factory bool) int {
 	if limit, ok := frozenLimit(pkgDir, ViolationFile); ok {
 		return limit
 	}
+	// 2026-04-17 守卫放宽后 MaxCorePackageFileLines == MaxFileLines == 600，此分支在文件行数维度已归一。
+	// 保留的原因：与 `MaxCorePackageFiles (30)` / `MaxCorePackageLines (10000)` 一同承担 core package
+	// 路由语义，供 freeze registry / 未来再次调整用；勿自行删除。
 	if isCorePackageDir(pkgDir) {
 		return MaxCorePackageFileLines
 	}
