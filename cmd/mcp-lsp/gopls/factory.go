@@ -1,0 +1,396 @@
+package gopls
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"sync"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+)
+
+type documentParamsBuilder func(documentRef) any
+
+type documentDecodeFunc[T any] func(json.RawMessage) (T, error)
+
+type documentMissingFunc[T any] func(documentRef) (T, error)
+
+type unionDecodeFunc[T any] func(json.RawMessage) (T, bool, error)
+
+type hierarchyResolveFunc[I any, R any] func(context.Context, Client, I, string) (R, error)
+
+type hierarchyMissingFunc[R any] func(documentRef) ([]R, error)
+
+type hierarchyDirectionStep[I any, R any] struct {
+	enabled func(string) bool
+	method  string
+	params  func(I) any
+	label   string
+	assign  func(*R, json.RawMessage) error
+}
+
+type snapshotSyncRequest struct {
+	key      lspCacheKey
+	version  int
+	cached   bool
+	previous bootstrapStatus
+	openOnly bool
+}
+
+func requestDocument[T any](
+	ctx context.Context,
+	m *manager,
+	uri string,
+	method string,
+	build documentParamsBuilder,
+	decode documentDecodeFunc[T],
+	missing documentMissingFunc[T],
+) (T, error) {
+	var zero T
+	client, ref, err := m.documentClient(ctx, uri)
+	if err != nil {
+		return zero, err
+	}
+	if client == nil {
+		if missing == nil {
+			return zero, nil
+		}
+		return missing(ref)
+	}
+	raw, err := m.request(ctx, client, method, buildDocumentParams(ref, build))
+	if err != nil {
+		return zero, err
+	}
+	if decode == nil {
+		return zero, nil
+	}
+	return decode(raw)
+}
+
+func buildDocumentParams(ref documentRef, build documentParamsBuilder) any {
+	if build == nil {
+		return nil
+	}
+	return build(ref)
+}
+
+func unsupportedDocument[T any](operation string) documentMissingFunc[T] {
+	return func(ref documentRef) (T, error) {
+		var zero T
+		return zero, fmt.Errorf("%s is unsupported for %s", operation, ref.languageID)
+	}
+}
+
+func fallbackDocument[T any](value T) documentMissingFunc[T] {
+	return func(documentRef) (T, error) {
+		return value, nil
+	}
+}
+
+func (m *manager) notifyDocument(
+	ctx context.Context,
+	uri string,
+	languageID string,
+	notify func(context.Context, Client, documentRef) error,
+) error {
+	ref, err := m.resolveDocumentRef(uri, languageID)
+	if err != nil {
+		return err
+	}
+	if !shouldUseClientForLanguage(ref.languageID) {
+		return nil
+	}
+	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
+	if err != nil {
+		return err
+	}
+	return m.withPooledClient(client, func() error {
+		return notify(ctx, client, ref)
+	})
+}
+
+func (m *manager) withPooledClient(client Client, fn func() error) error {
+	if client == nil {
+		return fn()
+	}
+	if m.pool != nil {
+		m.pool.acquire(client)
+		defer m.pool.release(client)
+	}
+	return fn()
+}
+
+func (m *manager) forEachCurrentDiagnostic(filter map[string]struct{}, fn func(diagnosticSnapshot)) {
+	if m == nil || fn == nil {
+		return
+	}
+	withReadLock(&m.diagMu, func() struct{} {
+		current := m.CurrentDiagnosticGeneration()
+		for _, snapshot := range m.diagnostics {
+			if snapshot.generation != current || !matchesDiagnosticFilter(filter, snapshot.params.URI) {
+				continue
+			}
+			fn(snapshot)
+		}
+		return struct{}{}
+	})
+}
+
+func matchesDiagnosticFilter(filter map[string]struct{}, uri string) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	_, ok := filter[uri]
+	return ok
+}
+
+func queryHierarchy[I any, R any](
+	ctx context.Context,
+	m *manager,
+	uri string,
+	prepareMethod string,
+	position protocol.Position,
+	direction string,
+	resolve hierarchyResolveFunc[I, R],
+	missing hierarchyMissingFunc[R],
+) ([]R, error) {
+	client, ref, err := m.documentClient(ctx, uri)
+	if err != nil {
+		return nil, err
+	}
+	if client == nil {
+		if missing == nil {
+			return nil, nil
+		}
+		return missing(ref)
+	}
+	items, err := prepareHierarchy[I](ctx, m, client, prepareMethod, ref.uri, position)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]R, 0, len(items))
+	for _, item := range items {
+		result, err := resolve(ctx, client, item, direction)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func unsupportedHierarchy[R any](operation string) hierarchyMissingFunc[R] {
+	return func(ref documentRef) ([]R, error) {
+		return nil, fmt.Errorf("%s is unsupported for %s", operation, ref.languageID)
+	}
+}
+
+func resolveHierarchyDirections[I any, R any](
+	ctx context.Context,
+	m *manager,
+	client Client,
+	item I,
+	direction string,
+	result R,
+	steps []hierarchyDirectionStep[I, R],
+) (R, error) {
+	for _, step := range steps {
+		if step.enabled != nil && !step.enabled(direction) {
+			continue
+		}
+		raw, err := m.request(ctx, client, step.method, step.params(item))
+		if err != nil {
+			return result, err
+		}
+		if err := step.assign(&result, raw); err != nil {
+			return result, fmt.Errorf("decode %s: %w", step.label, err)
+		}
+	}
+	return result, nil
+}
+
+func decodeUnionList[T any](raw json.RawMessage, decode unionDecodeFunc[T]) ([]T, error) {
+	return decodeUnionListWithMode(raw, false, decode)
+}
+
+func decodeUnionListWithMode[T any](raw json.RawMessage, allowSingle bool, decode unionDecodeFunc[T]) ([]T, error) {
+	payloads, err := decodeRawMessages(raw, allowSingle)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]T, 0, len(payloads))
+	for _, payload := range payloads {
+		item, ok, err := decode(payload)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			results = append(results, item)
+		}
+	}
+	return results, nil
+}
+
+func decodeRawMessages(raw json.RawMessage, allowSingle bool) ([]json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+	if allowSingle && trimmed[0] != '[' {
+		trimmed = append([]byte{'['}, append(trimmed, ']')...)
+	}
+	var payloads []json.RawMessage
+	if err := json.Unmarshal(trimmed, &payloads); err != nil {
+		return nil, err
+	}
+	return payloads, nil
+}
+
+func withReadLock[T any](mu *sync.RWMutex, fn func() T) T {
+	mu.RLock()
+	defer mu.RUnlock()
+	return fn()
+}
+
+func withWriteLock[T any](mu *sync.RWMutex, fn func() T) T {
+	mu.Lock()
+	defer mu.Unlock()
+	return fn()
+}
+
+func (s *lspCacheStore) persistOnMutation(changed bool) {
+	if !changed {
+		return
+	}
+	if err := s.persistLocked(); err != nil {
+		s.fallbackToMemory(err)
+	}
+}
+
+func (c *bootstrapCoordinator) syncSnapshotToClient(
+	ctx context.Context,
+	m *manager,
+	cfg workspaceConfig,
+	snapshot documentSnapshot,
+	req snapshotSyncRequest,
+) error {
+	client, err := m.ensureClient(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	err = m.withPooledClient(client, func() error {
+		if req.openOnly {
+			return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
+		}
+		return applyBootstrapUpdate(ctx, client, snapshot, req.previous, req.cached, req.version)
+	})
+	if err != nil {
+		return err
+	}
+	c.cache.Upsert(cacheValueFromSnapshot(req.key, snapshot, req.version))
+	c.states.complete(cfg.key, snapshot.ref.uri, snapshot.fingerprint, req.version)
+	return nil
+}
+
+func cacheValueFromSnapshot(key lspCacheKey, snapshot documentSnapshot, version int) lspCacheValue {
+	return lspCacheValue{
+		Key:             key,
+		Version:         version,
+		Fingerprint:     snapshot.fingerprint,
+		ModTimeUnixNano: snapshot.modTimeNano,
+		Size:            snapshot.size,
+	}
+}
+
+func requestMessage(
+	ctx context.Context,
+	method string,
+	params any,
+	request func(context.Context, string, any) (json.RawMessage, error),
+) (json.RawMessage, error) {
+	raw, err := request(ctx, method, params)
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func notifyMessage(
+	ctx context.Context,
+	method string,
+	params any,
+	notify func(context.Context, string, any) error,
+) error {
+	return notify(ctx, method, params)
+}
+
+func (c *client) notifyTextDocument(ctx context.Context, method string, params any) error {
+	return c.Notify(ctx, method, params)
+}
+
+func decodeDocumentSymbolUnion(payload json.RawMessage) (protocol.DocumentSymbol, bool, error) {
+	var symbol protocol.DocumentSymbol
+	if err := json.Unmarshal(payload, &symbol); err == nil {
+		return symbol, true, nil
+	}
+	var info protocol.SymbolInformation
+	if err := json.Unmarshal(payload, &info); err != nil {
+		return protocol.DocumentSymbol{}, false, fmt.Errorf("decode document symbols: %w", err)
+	}
+	return protocol.DocumentSymbol{
+		Name:           info.Name,
+		Kind:           info.Kind,
+		Range:          info.Location.Range,
+		SelectionRange: info.Location.Range,
+	}, true, nil
+}
+
+func decodeWorkspaceSymbolUnion(payload json.RawMessage) (protocol.WorkspaceSymbolResult, bool, error) {
+	var symbol protocol.WorkspaceSymbol
+	if err := json.Unmarshal(payload, &symbol); err == nil && symbol.Name != "" {
+		return protocol.WorkspaceSymbolResult{WorkspaceSymbol: &symbol}, true, nil
+	}
+	var info protocol.SymbolInformation
+	if err := json.Unmarshal(payload, &info); err != nil {
+		return protocol.WorkspaceSymbolResult{}, false, fmt.Errorf("decode workspace symbols: %w", err)
+	}
+	if info.Name == "" {
+		return protocol.WorkspaceSymbolResult{}, false, nil
+	}
+	return protocol.WorkspaceSymbolResult{SymbolInformation: &info}, true, nil
+}
+
+func decodeCodeActionUnion(payload json.RawMessage) (protocol.CodeActionResult, bool, error) {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &keys); err != nil {
+		return protocol.CodeActionResult{}, false, fmt.Errorf("decode code action entry: %w", err)
+	}
+	if rawCommand, ok := keys["command"]; ok && len(rawCommand) > 0 && rawCommand[0] == '"' {
+		var cmd protocol.Command
+		if err := json.Unmarshal(payload, &cmd); err != nil {
+			return protocol.CodeActionResult{}, false, fmt.Errorf("decode command action: %w", err)
+		}
+		return protocol.CodeActionResult{Command: &cmd}, true, nil
+	}
+	var action protocol.CodeAction
+	if err := json.Unmarshal(payload, &action); err != nil {
+		return protocol.CodeActionResult{}, false, fmt.Errorf("decode structured code action: %w", err)
+	}
+	return protocol.CodeActionResult{CodeAction: &action}, true, nil
+}
+
+func decodeLocationUnion(payload json.RawMessage) (protocol.LocationResult, bool, error) {
+	var location protocol.Location
+	if err := json.Unmarshal(payload, &location); err == nil && location.URI != "" {
+		return protocol.LocationResult{Location: &location, Canonical: &location}, true, nil
+	}
+	var link protocol.LocationLink
+	if err := json.Unmarshal(payload, &link); err != nil {
+		return protocol.LocationResult{}, false, fmt.Errorf("decode locations: %w", err)
+	}
+	if link.TargetURI == "" {
+		return protocol.LocationResult{}, false, nil
+	}
+	return protocol.LocationResult{LocationLink: &link}, true, nil
+}
