@@ -7,8 +7,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// querier is the narrow subset of sqlc.Queries this store depends on.
+// NewStore still accepts the concrete *sqlc.Queries for fx wiring.
+type querier interface {
+	AcquireCwdLock(ctx context.Context, arg sqlc.AcquireCwdLockParams) (int64, error)
+	ForceAcquireCwdLock(ctx context.Context, arg sqlc.ForceAcquireCwdLockParams) (int64, error)
+	ReleaseCwdLock(ctx context.Context, arg sqlc.ReleaseCwdLockParams) (int64, error)
+	HeartbeatCwdLock(ctx context.Context, arg sqlc.HeartbeatCwdLockParams) error
+	DeleteStaleCwdLocks(ctx context.Context) (int64, error)
+	GetCwdLockHolder(ctx context.Context, cwd string) (sqlc.GetCwdLockHolderRow, error)
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Store {
