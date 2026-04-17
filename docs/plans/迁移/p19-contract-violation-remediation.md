@@ -78,7 +78,7 @@ P19
 | 子任务 | 改动 |
 |--------|------|
 | 将 A-1 标记为“当前树已收敛” | P19 / 审查基线同步 |
-| 在 archtest 增补 `cmd/mcp-lsp/* -> internal/module/*` 禁止规则 | 防回归 |
+| 在 archtest 增补 `internal/mcpserver/lsp -> internal/module/*` 禁止规则 | 防回归 |
 | 复核 `tool_edit_replace.go` 保持 ≤400 行 | 当前已回到 388 raw / 368 effective |
 
 ### A-2：memory→prompt 解耦（2-3 天）
@@ -127,16 +127,23 @@ P19
 ### B-1：memory 包拆子包（2-4 天）
 
 > 状态：✅ 完成
-> 2026-04-17 更新：子包拆分已完成（team + nested + retrieval + agent + shared），主包从 82/19,777 降到 52/12,356（raw）；按 archtest / freeze 口径已收缩到 30 non-test / 7161 effective。path canonical / bridge owner / TeamSync 生产链均已收口。
+
+> 2026-04-17 更新：子包拆分首波已完成（team + nested + retrieval + agent + shared），主包从 82/19,777 降到 52/12,356（raw）；按 archtest 实测口径当前为 30 non-test / 7020 effective。path canonical / bridge owner / TeamSync 生产链均已收口。
 
 | 候选切片 | 当前判断 | 备注 |
 |---------|---------|------|
 | `memory/team` | 首波优先拆出 | 含 `team_sync*` + `TeamMemoryManager` |
 | `memory/nested` | 可拆，但需连 `claudemd_sources.go` / `claudemd_candidates.go` 一起重画边界 | 不能只搬 `nested_*` |
-| `memory/kairos` | 暂不建议与 extract 硬拆成两个完全独立子包 | 先抽 shared core / consolidation slice |
-| `memory/extract` | 与 kairos 存在双向耦合，第二波处理 | 先清 manifest/header/shared helper |
+| `memory/kairos` | 第三波单独子包拆分（待执行） | 依赖 extract 先拆；方案 A 串行 |
+| `memory/extract` | 第三波独立子包拆分（待执行） | 先行；shared core 已抽出 |
 
-> 结果：子包拆分已完成；主包已降到 **30 non-test / 7161 effective**（freeze 基线），物理 `.go` 文件数为 52，后续只继续做第三波余量治理。
+> 结果：子包拆分首波已完成（team / nested / retrieval / agent / shared）；shared core 已在首波抽出；主包当前 **52 物理 `.go` / 30 non-test / 7020 effective**；第三波（kairos + extract 串行拆分 + freeze 回落到 25）待执行。
+
+#### B-1 第三波（2026-04-17 待执行）
+- 现状：`memory/kairos`、`memory/extract` 仍在 root 主包；freeze 仍为 30
+- 计划：方案 A 串行 — extract 先 → kairos 后 → freeze 收口到 ≤25（或删 entry）
+- 依据：`kairos_test.go` 直接调 `NewMemoryExtractor()`，顺序强制 extract 先于 kairos；`module.go` / `service.go` / `auto_dream.go` 三处共享 wiring 不能并行改
+- 提交拆分：`refactor(memory/extract)` → `refactor(memory/kairos)` → `chore(archtest: shrink memory freeze)` → `docs`
 
 ### B-2：uistate 守卫对齐与余量治理（0.5-1 天，已校准）
 
