@@ -9,6 +9,7 @@ import (
 	"go.uber.org/fx"
 
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 )
@@ -47,7 +48,7 @@ func BindRuntime(lc fx.Lifecycle, p runtimeParams) {
 			runCtx, runCancel := context.WithCancel(context.Background())
 			cancel = runCancel
 
-			platformshared.SafeGo(p.Logger, func() {
+			runtimesafe.SafeGo(runCtx, p.Logger, "app.runtime.runGroup", func(context.Context) {
 				err := platformrunner.RunGroup(runCtx, p.Runners, platformrunner.GroupOptions{
 					EnableSignals: false,
 				})

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
@@ -333,7 +334,7 @@ func (s *Server) serveConn(ctx context.Context, ch channel.Channel, wg *sync.Wai
 	defer s.removeActive(srv)
 	s.notifyConnected(srv)
 
-	platformshared.SafeGo(s.logger, func() {
+	runtimesafe.SafeGo(connCtx, s.logger, "rpc.serveConn.cancelWatcher", func(context.Context) {
 		<-connCtx.Done()
 		srv.Stop()
 	})

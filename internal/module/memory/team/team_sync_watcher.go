@@ -9,6 +9,7 @@ import (
 	"time"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/fsnotify/fsnotify"
 	"log/slog"
 )
@@ -32,6 +33,8 @@ type teamSyncWatcher struct {
 	suppressedPaths map[string]time.Time
 	closed          chan struct{}
 	done            chan struct{}
+	loopCtx         context.Context
+	loopCancel      context.CancelFunc
 }
 
 func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logger) (*teamSyncWatcher, error) {
@@ -43,6 +46,7 @@ func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logg
 	if err != nil {
 		return nil, err
 	}
+	loopCtx, loopCancel := context.WithCancel(context.Background())
 	w := &teamSyncWatcher{
 		service:         service,
 		logger:          logger,
@@ -55,6 +59,8 @@ func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logg
 		suppressedPaths: map[string]time.Time{},
 		closed:          make(chan struct{}),
 		done:            make(chan struct{}),
+		loopCtx:         loopCtx,
+		loopCancel:      loopCancel,
 	}
 	if err := w.addRecursive(root); err != nil {
 		_ = watcher.Close()
@@ -67,7 +73,9 @@ func (w *teamSyncWatcher) Start() {
 	if w == nil {
 		return
 	}
-	go w.loop()
+	runtimesafe.SafeGo(w.loopCtx, w.logger, "memory.teamSyncWatcher.loop", func(context.Context) {
+		w.loop()
+	})
 }
 
 func (w *teamSyncWatcher) Close(ctx context.Context, flush bool) error {
@@ -81,6 +89,9 @@ func (w *teamSyncWatcher) Close(ctx context.Context, flush bool) error {
 		close(w.closed)
 	}
 	w.mu.Unlock()
+	if w.loopCancel != nil {
+		w.loopCancel()
+	}
 	select {
 	case <-w.done:
 	case <-contextDoneChan(ctx):
@@ -176,7 +187,14 @@ func (w *teamSyncWatcher) flushWatcherLoopPush(dirty *bool) {
 		return
 	}
 	*dirty = false
-	if _, err := w.service.pushLocalChanges(context.Background(), TeamSyncTriggerWatcher); err != nil {
+	pushCtx := w.loopCtx
+	if pushCtx == nil {
+		pushCtx = context.Background()
+	}
+	if pushCtx.Err() != nil {
+		return
+	}
+	if _, err := w.service.pushLocalChanges(pushCtx, TeamSyncTriggerWatcher); err != nil {
 		w.warn("team sync watcher push failed", "error", err)
 	}
 }

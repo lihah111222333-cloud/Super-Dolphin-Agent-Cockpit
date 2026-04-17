@@ -13,6 +13,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
@@ -308,11 +309,11 @@ func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string)
 	if _, loaded := s.resumeInFlight.LoadOrStore(agentID, struct{}{}); loaded {
 		return
 	}
-	shared.SafeGo(s.logger, func() {
+	runtimesafe.SafeGo(context.Background(), s.logger, "thread.backgroundResume", func(ctx context.Context) {
 		if s.logger != nil {
 			s.logger.Info("thread: background resume", "thread_id", threadID, "agent_id", agentID)
 		}
-		if _, err := s.Resume(context.Background(), ResumeRequest{ThreadID: threadID}); err != nil {
+		if _, err := s.Resume(ctx, ResumeRequest{ThreadID: threadID}); err != nil {
 			shared.LogIgnoredError(s.logger, "thread: background resume failed", err)
 			// Keep resumeInFlight entry to block further retries.
 			return

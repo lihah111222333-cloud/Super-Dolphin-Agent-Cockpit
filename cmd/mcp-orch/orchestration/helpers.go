@@ -58,7 +58,7 @@ func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) 
 	})
 }
 
-func (s *service) claimMonitorTargetsLocked() []monitorTarget {
+func (s *service) claimMonitorTargets() []monitorTarget {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

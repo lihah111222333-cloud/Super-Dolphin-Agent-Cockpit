@@ -11,6 +11,7 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -29,7 +30,7 @@ func (s *session) handleApprovalRequest(method string, params json.RawMessage) {
 		return
 	}
 	payload := append(json.RawMessage(nil), params...)
-	shared.SafeGo(s.logger, func() {
+	runtimesafe.SafeGo(context.Background(), s.logger, "codexapp.session.toolApprovalRequest", func(context.Context) {
 		if err := s.requestToolApproval(strings.TrimSpace(method), payload); err != nil && s.logger != nil {
 			s.logger.Warn("codexapp: approval request failed", "method", method, "error", err)
 		}

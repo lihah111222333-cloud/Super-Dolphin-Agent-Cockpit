@@ -241,13 +241,16 @@ func (m *Manager) register(sessionUUID, agentID, threadID string) {
 	if existing := m.timers[sessionUUID]; existing != nil {
 		existing.agentID = agentID
 		existing.threadID = threadID
+		m.scheduleLocked(existing)
 		return
 	}
-	m.timers[sessionUUID] = &agentTimer{
+	newTimer := &agentTimer{
 		sessionUUID: sessionUUID,
 		agentID:     agentID,
 		threadID:    threadID,
 	}
+	m.timers[sessionUUID] = newTimer
+	m.scheduleLocked(newTimer)
 }
 
 func (m *Manager) timerByAgentLocked(agentID string) *agentTimer {

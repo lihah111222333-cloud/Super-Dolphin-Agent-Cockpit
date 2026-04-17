@@ -32,7 +32,9 @@ func (s *session) SendKeepalive(ctx context.Context) error {
 	}
 	logger.Info("claudecli: keepalive sending", "local_id", localID)
 	if err := s.transport.Send(payload); err != nil {
-		s.failSilentTurnSendLocked(handle, err)
+		s.clearSilentTurnStateLocked(handle)
+		s.mu.Unlock()
+		handle.finish(err)
 		return err
 	}
 	s.mu.Unlock()
@@ -73,10 +75,19 @@ func (s *session) prepareSilentTurnLocked() ([]byte, string, *turnHandle, error)
 	return payload, localID, handle, nil
 }
 
-func (s *session) failSilentTurnSendLocked(handle *turnHandle, err error) {
+// clearSilentTurnStateLocked clears the silent-turn bookkeeping for handle
+// while the caller holds s.mu. It does NOT release the lock and does NOT
+// finish the handle; the caller is responsible for both so the lock/IO
+// ordering stays explicit at the call site.
+//
+// Safe to call with handle == nil (no-op), but production call sites are
+// guaranteed non-nil because prepareSilentTurnLocked never returns a nil
+// handle on success.
+func (s *session) clearSilentTurnStateLocked(handle *turnHandle) {
+	if handle == nil {
+		return
+	}
 	s.takeActiveTurnLocked()
-	s.mu.Unlock()
-	handle.finish(err)
 }
 
 func (s *session) timeoutSilentTurn(localID string) error {

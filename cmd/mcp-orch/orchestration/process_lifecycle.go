@@ -106,7 +106,7 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	if agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
 		s.publishAgentStopped(agent, agent.stopReason)
 	}
-	agent.stopReason = ""
+	clearAgentStopReasonLocked(agent)
 }
 
 func (s *service) recordProcessExitError(agent *agentRuntime, err error) {
@@ -218,7 +218,7 @@ func (a *runnerActor) Run(ctx context.Context) error {
 }
 
 func (a *runnerActor) startWaiters(ctx context.Context, results chan<- waitResult) {
-	for _, target := range a.service.claimMonitorTargetsLocked() {
+	for _, target := range a.service.claimMonitorTargets() {
 		go a.waitForExit(ctx, target, results)
 	}
 }

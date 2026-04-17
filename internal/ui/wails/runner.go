@@ -6,7 +6,7 @@ import (
 	"time"
 
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -24,7 +24,7 @@ func (r *runner) Run(ctx context.Context) error {
 		return errors.New("wails runner: application is not configured")
 	}
 	done := make(chan error, 1)
-	platformshared.SafeGo(pkglogger.Get(), func() {
+	runtimesafe.SafeGo(ctx, pkglogger.Get(), "wails.runner.appRun", func(context.Context) {
 		done <- r.app.Run()
 	})
 	select {

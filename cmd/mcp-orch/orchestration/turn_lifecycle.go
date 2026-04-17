@@ -19,12 +19,25 @@ const (
 )
 
 func handleTurnCompletedEvent(svc *service, logger *slog.Logger, ev turndto.TurnCompleted) {
+	handleTurnCompletedEventWithCtx(svc, logger, ev, context.Background())
+}
+
+func handleTurnCompletedEventWithCtx(svc *service, logger *slog.Logger, ev turndto.TurnCompleted, parent context.Context) {
 	if svc == nil {
 		return
 	}
-	ctx := withEventTime(context.Background(), ev.Timestamp)
+	if parent == nil {
+		parent = context.Background()
+	}
+	if parent.Err() != nil {
+		return
+	}
+	ctx := withEventTime(parent, ev.Timestamp)
 	err := svc.CompleteTurn(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
 	if shouldIgnoreTurnLifecycleErr(svc, ev.AgentID, ev.TurnID, err) {
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 	recovered, recoverErr := svc.forceIdleAfterCompletionError(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
@@ -32,12 +45,25 @@ func handleTurnCompletedEvent(svc *service, logger *slog.Logger, ev turndto.Turn
 }
 
 func handleTurnInterruptedEvent(svc *service, logger *slog.Logger, ev turndto.TurnInterrupted) {
+	handleTurnInterruptedEventWithCtx(svc, logger, ev, context.Background())
+}
+
+func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev turndto.TurnInterrupted, parent context.Context) {
 	if svc == nil {
 		return
 	}
-	ctx := withEventTime(context.Background(), ev.Timestamp)
+	if parent == nil {
+		parent = context.Background()
+	}
+	if parent.Err() != nil {
+		return
+	}
+	ctx := withEventTime(parent, ev.Timestamp)
 	err := svc.interruptTurn(ctx, ev.AgentID, ev.TurnID, ev.Reason)
 	if shouldIgnoreTurnLifecycleErr(svc, ev.AgentID, ev.TurnID, err) {
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 	recovered, recoverErr := svc.forceIdleAfterInterruptionError(ctx, ev.AgentID, ev.TurnID, ev.Reason)

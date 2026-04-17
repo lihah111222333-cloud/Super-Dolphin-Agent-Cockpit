@@ -15,7 +15,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -170,7 +170,7 @@ func stopFXApp(parent context.Context, app *fx.App) error {
 
 func watchFXShutdown(app *fx.App, lifecycle *uiwails.WailsLifecycle) chan struct{} {
 	stop := make(chan struct{})
-	platformshared.SafeGo(pkglogger.Get(), func() {
+	runtimesafe.SafeGo(context.Background(), pkglogger.Get(), "app.watchFXShutdown", func(context.Context) {
 		select {
 		case <-app.Done():
 			lifecycle.NotifyBackendFailed()

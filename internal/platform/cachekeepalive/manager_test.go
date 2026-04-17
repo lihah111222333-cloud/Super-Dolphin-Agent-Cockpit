@@ -127,6 +127,17 @@ func newTestManager(resolver contract.SessionResolver, bindings bindingstore.Sto
 	return &Manager{resolver: resolver, bindingStore: bindings, threadStore: threads, timers: make(map[string]*agentTimer)}
 }
 
+func TestRegisterSchedulesInitialTimer(t *testing.T) {
+	t.Parallel()
+	m := newTestManager(nil, nil, nil)
+	t.Cleanup(m.Shutdown)
+	m.register("session-1", "agent-1", "thread-1")
+	first := m.snapshotTimer("session-1", nil)
+	if first == nil || first.timer == nil {
+		t.Fatalf("register() should schedule initial timer; got %#v", first)
+	}
+}
+
 func TestResetTimer(t *testing.T) {
 	t.Parallel()
 	m := newTestManager(nil, nil, nil)
@@ -186,6 +197,7 @@ func TestHandleAgentLaunchedFallback(t *testing.T) {
 	t.Parallel()
 	threads := &threadStoreStub{byThread: map[string]*threadstore.Thread{"thread-1": {ThreadID: "thread-1", AgentID: "agent-2"}}}
 	m := newTestManager(nil, &bindingStoreStub{}, threads)
+	t.Cleanup(m.Shutdown)
 	ev := agentdto.AgentLaunched{}
 	ev.AgentID, ev.ThreadID, ev.SessionID = "missing-agent", "thread-1", "session-1"
 	m.HandleAgentLaunched(ev)

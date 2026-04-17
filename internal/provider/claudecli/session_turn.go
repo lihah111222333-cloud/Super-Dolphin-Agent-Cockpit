@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -95,7 +96,7 @@ func (s *session) shouldRetryTransientError(raw dto.RawProviderEvent) bool {
 	}
 
 	s.dispatch(statusPatchEvent)
-	shared.SafeGo(s.logger, func() {
+	runtimesafe.SafeGo(retryCtx, s.logger, "claudecli.session.executeRetry", func(context.Context) {
 		s.executeRetry(retryCtx, retry, handle, payload)
 	})
 	return true

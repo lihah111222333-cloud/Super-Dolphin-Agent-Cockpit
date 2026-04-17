@@ -184,23 +184,40 @@ func registerTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 	startedCancel := func() {}
 	completedCancel := func() {}
 	interruptedCancel := func() {}
+	var (
+		lifecycleCtx    context.Context
+		lifecycleCancel context.CancelFunc
+	)
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+			lifecycleCtx, lifecycleCancel = context.WithCancel(context.Background())
 			startedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnStarted) {
-				ctx := withEventTime(context.Background(), ev.Timestamp)
+				if lifecycleCtx.Err() != nil {
+					return
+				}
+				ctx := withEventTime(lifecycleCtx, ev.Timestamp)
 				if err := svc.BindActiveTurnID(ctx, ev.AgentID, ev.TurnID); err != nil && !errors.Is(err, errAgentNotFound) && !errors.Is(err, errTurnNotActive) {
 					logger.Warn("orchestration: failed to bind active turn id", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
 				}
 			}, logger)
 			completedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
-				handleTurnCompletedEvent(svc, logger, ev)
+				if lifecycleCtx.Err() != nil {
+					return
+				}
+				handleTurnCompletedEventWithCtx(svc, logger, ev, lifecycleCtx)
 			}, logger)
 			interruptedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
-				handleTurnInterruptedEvent(svc, logger, ev)
+				if lifecycleCtx.Err() != nil {
+					return
+				}
+				handleTurnInterruptedEventWithCtx(svc, logger, ev, lifecycleCtx)
 			}, logger)
 			return nil
 		},
 		OnStop: func(context.Context) error {
+			if lifecycleCancel != nil {
+				lifecycleCancel()
+			}
 			startedCancel()
 			completedCancel()
 			interruptedCancel()
