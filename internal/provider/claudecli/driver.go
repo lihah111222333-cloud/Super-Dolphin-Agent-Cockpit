@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -344,7 +343,6 @@ func (s *session) restoreRestartSnapshotLocked(snapshot restartSnapshot) {
 		return
 	}
 	s.threadReady = snapshot.ready
-	s.threadReadyOnce = sync.Once{}
 }
 
 func (s *session) commitRestartSuccessLocked(next stagedSessionState) {

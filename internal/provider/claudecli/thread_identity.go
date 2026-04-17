@@ -6,7 +6,6 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"strings"
-	"sync"
 )
 
 func requiresResolvedThreadID(threadID string) bool {
@@ -63,20 +62,33 @@ func (s *session) markThreadReady() {
 	s.markThreadReadyLocked()
 }
 
+// markThreadReadyLocked closes threadReady at most once using an idempotent
+// select/default pattern. Caller must hold s.mu, which serializes the check
+// and the close so the double-close panic is impossible.
+//
+// This replaces the previous sync.Once-per-session pattern whose reset
+// path (s.threadReadyOnce = sync.Once{}) was a reassignment of a struct
+// containing a Mutex — an idiom that, while safe under s.mu here, is
+// flagged by race detectors and by govet in stricter settings.
 func (s *session) markThreadReadyLocked() {
 	if s == nil || s.threadReady == nil {
 		return
 	}
-	s.threadReadyOnce.Do(func() {
+	select {
+	case <-s.threadReady:
+		// Already closed; nothing to do.
+	default:
 		close(s.threadReady)
-	})
+	}
 }
 
+// resetThreadReadyLocked replaces the threadReady channel with a fresh
+// unclosed one so the next markThreadReadyLocked call can close it again.
+// Caller must hold s.mu.
 func (s *session) resetThreadReadyLocked() {
 	if s == nil {
 		return
 	}
-	s.threadReadyOnce = sync.Once{}
 	s.threadReady = make(chan struct{})
 }
 
