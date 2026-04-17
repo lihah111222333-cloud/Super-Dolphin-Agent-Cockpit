@@ -165,13 +165,11 @@ func resetLaunchState(agent *agentState) {
 	agent.cmd = nil
 	agent.monitoredSeq = 0
 	agent.stopRequested = false
-	agent.activeTurnID = ""
-	agent.threadID = ""
+	clearAgentTurnStateLocked(agent)
 	agent.remoteThreadID = ""
 	agent.remoteAgentID = ""
 	agent.startedAt = time.Time{}
 	agent.updatedAt = time.Time{}
-	agent.exitedAt = nil
 }
 
 func cleanupAgentState(agent *agentState) {
@@ -181,8 +179,10 @@ func cleanupAgentState(agent *agentState) {
 	if agent.queue != nil {
 		agent.queue.Clear()
 	}
-	agent.activeTurnID = ""
-	agent.threadID = ""
+	// Stop path: the active turn is being torn down, so turn-state fields
+	// must all go to zero together. clearAgentTurnStateLocked covers
+	// activeTurnID + threadID + exitedAt in one place.
+	clearAgentTurnStateLocked(agent)
 }
 
 func (s *service) prepareLaunchLocked(ctx context.Context, agent *agentState) error {
