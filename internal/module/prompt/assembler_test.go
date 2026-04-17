@@ -75,8 +75,11 @@ func TestAssembleStartIncludesBuiltinsAndDynamicSections(t *testing.T) {
 	if !strings.Contains(assembly.Boundary.UncachedTail, "CWD: /repo") || !strings.Contains(assembly.Boundary.UncachedTail, "legacy base") {
 		t.Fatalf("UncachedTail = %q, want dynamic section and legacy base", assembly.Boundary.UncachedTail)
 	}
-	if joinBlocks(assembly.Boundary.CachedPrefix, assembly.Boundary.UncachedTail) != assembly.BaseInstructions {
-		t.Fatalf("boundary blocks do not recompose base instructions: boundary=%#v base=%q", assembly.Boundary, assembly.BaseInstructions)
+	// The boundary blocks compose the boundary portion of BaseInstructions;
+	// the full BaseInstructions also includes the appended system prompt.
+	boundaryComposed := joinBlocks(assembly.Boundary.CachedPrefix, assembly.Boundary.UncachedTail)
+	if !strings.HasPrefix(assembly.BaseInstructions, boundaryComposed) {
+		t.Fatalf("BaseInstructions does not start with boundary blocks: boundary=%#v base=%q", assembly.Boundary, assembly.BaseInstructions)
 	}
 	if assembly.Snapshot.Boundary == nil || *assembly.Snapshot.Boundary != *assembly.Boundary {
 		t.Fatalf("Snapshot.Boundary = %#v, want %#v", assembly.Snapshot.Boundary, assembly.Boundary)
@@ -144,8 +147,11 @@ func TestAssembleStartFallsBackOnBuildError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
-	if assembly.BaseInstructions != "base" || assembly.DeveloperInstructions != "dev" {
+	if !strings.Contains(assembly.BaseInstructions, "base") || assembly.DeveloperInstructions != "dev" {
 		t.Fatalf("fallback assembly = %#v", assembly)
+	}
+	if !strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
+		t.Fatalf("fallback BaseInstructions missing system-reminder: %q", assembly.BaseInstructions)
 	}
 	if len(assembly.ResolvedSections) != 0 {
 		t.Fatalf("ResolvedSections = %d, want 0 on fallback", len(assembly.ResolvedSections))
@@ -229,12 +235,11 @@ func TestSimpleAssembleStartHardEarlyReturn(t *testing.T) {
 	if len(assembly.ResolvedSections) != 0 {
 		t.Fatalf("ResolvedSections = %#v, want nil/empty in simple mode", assembly.ResolvedSections)
 	}
-	lines := strings.Split(assembly.BaseInstructions, "\n")
-	if len(lines) != 3 {
-		t.Fatalf("BaseInstructions lines = %#v, want 3-line simple prompt", lines)
+	if !strings.HasPrefix(assembly.BaseInstructions, simpleStartIdentityLine+"\nCWD: /repo") {
+		t.Fatalf("BaseInstructions does not start with simple prompt: %q", assembly.BaseInstructions)
 	}
-	if lines[0] != simpleStartIdentityLine || lines[1] != "CWD: /repo" || lines[2] != "Date: "+time.Now().Format("2006-01-02") {
-		t.Fatalf("BaseInstructions = %#v, want simple prompt lines", lines)
+	if !strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
+		t.Fatalf("BaseInstructions missing system-reminder in simple mode: %q", assembly.BaseInstructions)
 	}
 	if strings.Contains(assembly.BaseInstructions, "legacy base") || strings.Contains(assembly.BaseInstructions, text) {
 		t.Fatalf("BaseInstructions unexpectedly kept normal-path content: %q", assembly.BaseInstructions)
@@ -256,8 +261,11 @@ func TestSimpleAssembleStartUsesSessionFlag(t *testing.T) {
 	if len(assembly.ResolvedSections) != 0 {
 		t.Fatalf("ResolvedSections = %#v, want nil/empty under simple session flag", assembly.ResolvedSections)
 	}
-	if got := strings.Split(assembly.BaseInstructions, "\n"); len(got) != 3 || got[1] != "CWD: /flagged" {
-		t.Fatalf("BaseInstructions = %#v, want simple prompt with flagged cwd", got)
+	if !strings.HasPrefix(assembly.BaseInstructions, simpleStartIdentityLine+"\nCWD: /flagged") {
+		t.Fatalf("BaseInstructions = %q, want simple prompt starting with identity+CWD", assembly.BaseInstructions)
+	}
+	if !strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
+		t.Fatalf("BaseInstructions missing system-reminder: %q", assembly.BaseInstructions)
 	}
 }
 

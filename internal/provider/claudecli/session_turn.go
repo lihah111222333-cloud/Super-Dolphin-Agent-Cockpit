@@ -271,8 +271,8 @@ func marshalTurnPayload(text string) ([]byte, error) {
 func composeTurnText(req dto.TurnRequest) string {
 	return strings.TrimSpace(strings.Join(
 		nonEmptyStrings(
-			contract.FormatSystemContextBlock(req.TurnAssembly.SystemContext),
-			contract.RenderUserContextMessage(req.TurnAssembly),
+			// NOTE: system-reminder (currentDate, runtimeExtras) and SystemContext (git status)
+			// are now injected once via baseInstructions at session start.
 			buildAttachmentText(req.TurnAssembly.Attachments),
 			buildTurnText(req),
 		),

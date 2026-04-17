@@ -252,9 +252,9 @@ func FormatUserContextText(payload map[string]string) string {
 
 func RenderUserContextMessage(assembly TurnAssembly) string {
 	if text := FormatUserContextText(assembly.UserContext); text != "" {
-		return wrapSystemReminder(text)
+		return WrapSystemReminder(text)
 	}
-	return wrapSystemReminder(assembly.UserContextText)
+	return WrapSystemReminder(assembly.UserContextText)
 }
 
 func orderedUserContextKeys(payload map[string]string) []string {
@@ -305,7 +305,9 @@ func renderUserContextSection(key, body string) string {
 	return "# " + key + "\n" + body
 }
 
-func wrapSystemReminder(text string) string {
+// WrapSystemReminder wraps the given text in <system-reminder> tags.
+// Exported so the prompt assembler can embed system context into baseInstructions.
+func WrapSystemReminder(text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return ""
