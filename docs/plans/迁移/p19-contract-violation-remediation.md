@@ -78,7 +78,7 @@ P19
 | 子任务 | 改动 |
 |--------|------|
 | 将 A-1 标记为“当前树已收敛” | P19 / 审查基线同步 |
-| 在 archtest 增补 `internal/mcpserver/lsp -> internal/module/*` 禁止规则 | 防回归 |
+| 在 archtest 增补 `cmd/mcp-lsp/* -> internal/module/*` 禁止规则 | 防回归 |
 | 复核 `tool_edit_replace.go` 保持 ≤400 行 | 当前已回到 388 raw / 368 effective |
 
 ### A-2：memory→prompt 解耦（2-3 天）

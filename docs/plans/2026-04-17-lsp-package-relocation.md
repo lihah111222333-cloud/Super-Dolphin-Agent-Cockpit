@@ -1,5 +1,9 @@
 # LSP 包迁移计划：`internal/mcpserver/lsp` → `cmd/mcp-lsp`
 
+> **✅ 状态：已完成** | 执行时间：2026-04-17 | 审查通过：2026-04-17
+>
+> 本文档为迁移历史记录。文中出现的 `internal/mcpserver/lsp/` 均为旧路径，实际代码已全部迁移至 `cmd/mcp-lsp/`。
+
 > 目标：将 LSP 实现代码从 `internal/mcpserver/lsp/` 迁移至 `cmd/mcp-lsp/`，与 `mcp-orch` 保持一致的项目结构。
 >
 > 版本：**第 3 版** | 修订时间：2026-04-17
@@ -161,20 +165,20 @@ grep -rln --include='*.go' 'internal/mcpserver/lsp' . | wc -l  # 38
 find cmd/mcp-lsp -name '*.go' | wc -l                           # 68（Step 1 完成后）
 ```
 
-38 文件清单按子包分组：
+38 文件实测分组（来自 `grep -rln --include='*.go' 'internal/mcpserver/lsp' .`）：
 
-| 位置 | 生产 | 测试 |
-|------|-----:|-----:|
-| `cmd/mcp-lsp/` 入口（`runtime.go` + `tools.go`） | 2 | 0 |
-| `cmd/mcp-lsp/edit/` | 4 | 4（其中 4 含旧路径） |
-| `cmd/mcp-lsp/format/` | 4 | 0 |
-| `cmd/mcp-lsp/gopls/` | 15 | 1 |
-| `cmd/mcp-lsp/manager/` | 2 | 2 |
-| `cmd/mcp-lsp/search/` | 2 | 1 |
-| `cmd/mcp-lsp/tools/` | 13 | 3 |
-| `internal/archtest/dependency_direction_test.go` | — | 1 |
+| 位置 | 命中数 | 说明 |
+|------|------:|------|
+| `cmd/mcp-lsp/` 入口（`runtime.go` + `tools.go`） | 2 | 引用 `gopls/installer/manager/protocol/tools` |
+| `cmd/mcp-lsp/format/` | 4 | 全部引用 `protocol` |
+| `cmd/mcp-lsp/gopls/` | 10 | client/manager/transport 等引用 `format/manager/protocol` |
+| `cmd/mcp-lsp/manager/` | 4 | 含 2 测试；引用 `installer/gopls/protocol` |
+| `cmd/mcp-lsp/search/` | 1 | `fileutil.go` → `format` |
+| `cmd/mcp-lsp/tools/` | 16 | 含 3 测试；广泛引用 edit/format/manager/middleware/protocol/search |
+| `internal/archtest/dependency_direction_test.go` | 1 | rule7/7b 路径字符串 |
+| **合计** | **38** | |
 
-> 剩余 30 个 Go 文件（`cmd/mcp-lsp/` 的 4 个纯入口 + `protocol/exec/installer/middleware` 的 12 个 + 子包内不 import 同胞的文件）不含旧路径字符串，sed 对它们 no-op。
+> 剩余 30 个 Go 文件（`cmd/mcp-lsp/` 的 4 个纯入口 `main/fx/http_runner/schema` + `edit/exec/installer/middleware/protocol` 的 15 个 + 其他独立文件）不含旧路径字符串，sed 对它们 no-op。
 
 **跨平台 sed（兼容 BSD/GNU）**：
 
@@ -238,20 +242,23 @@ t.Run("rule7b_cmd_mcp_lsp_cannot_import_module", func(t *testing.T) {
 
 （原 `internal/tool/*` 禁用项已废弃。）
 
-#### 4.3 `internal/archtest/dependency_direction_test.go:156-168`（rule10_fx_import_scope 收窄）
+#### 4.3 `internal/archtest/dependency_direction_test.go:156-168`（rule10_fx_import_scope 针对 `cmd/mcp-lsp/**` 收窄）
 
 原规则对 `cmd/**` 所有文件全放行 `fx`；迁移后 `cmd/mcp-lsp/{edit,exec,...}` 子包也会被自动豁免，会丢失 fx 越界检查。
 
-**收窄方案**：只放行装配入口文件，其余 `cmd/mcp-*/子包/**` 跟核心层一样只能在 `module.go` 或装配入口里 import `fx`：
+**收窄方案（只收窄 cmd/mcp-lsp）**：`cmd/mcp-orch` / `cmd/mcp-ida` 目前有活跃的子包 fx import（例如 `cmd/mcp-orch/orchestration/service.go:20`），且属于旧布局 TODO，**本次不收窄它们**，避免扩散修复。只把 `cmd/mcp-lsp/**` 子包纳入严格规则：
 
 ```go
-// 放行条件（逻辑层面，具体写法在 rule10 body 内）：
+// 放行条件：
 //   a) 文件位于 internal/app 下；
 //   b) 文件名为 module.go；
 //   c) 文件位于 cmd/<binary>/ 根目录（main.go / fx.go / runtime.go / tools.go / schema.go / http_runner.go）；
-//   d) 文件位于 cmd/<binary>/ 子包内 且 filename ∈ {module.go, fx.go}。
-// 其余 fx import 即为违规。
+//   d) 文件位于 cmd/mcp-orch/** 或 cmd/mcp-ida/**（整体放行，旧布局兼容）；
+//   e) 文件位于 cmd/mcp-lsp/<子包>/ 且 filename ∈ {module.go, fx.go}。
+// 其余（即 cmd/mcp-lsp/子包里非 module.go/fx.go 的业务文件）fx import 视为违规。
 ```
+
+> 迁移时核对：`cmd/mcp-lsp/{edit,exec,format,gopls,installer,manager,middleware,protocol,search,tools}/*.go` 任何文件不得 import `go.uber.org/fx`；实测当前 0 处违反。mcp-orch/ida 的子包 fx 收窄留给后续迁移阶段处理（应在各自 binary 的搬迁/瘦身计划里跟进）。
 
 ### Step 5：文档同步（独立章节，**10 份**）
 
@@ -270,17 +277,41 @@ t.Run("rule7b_cmd_mcp_lsp_cannot_import_module", func(t *testing.T) {
 | `docs/plans/迁移/p19-contract-violation-remediation.md:81` | 防回归规则路径同步 |
 | `docs/plans/迁移/p9-implementation-plan.md` | **不只追加注记**：验证命令、回滚、路径引用全部改写 |
 
-命令辅助：
+**10 份口径说明**：`grep -rln 'internal/mcpserver/lsp' docs/` 当前命中 9 份（含本计划文档）；Step 5 清单额外补 `docs/doc/codemap/README.md` 与 `docs/契约/modularity-convention.md`，构成 `8（非本文命中）+ 2（补充）= 10` 份。
+
+**命令辅助**（先改全部 md，最后跑 refresh）：
 
 ```bash
 grep -rln 'internal/mcpserver/lsp' docs/
-make codemap-refresh   # ai-index.json 自动重建
+# 逐份手改 md（共 10 份）
+make codemap-refresh   # 无参可跑；内部调 `go run scripts/codemap_index.go`，会刷新 docs/doc/codemap/ai-index.json
 ```
 
 #### 额外：session-summary 与本迁移 review note
 
-- 在 `docs/plans/迁移/session-summary.md` §2 新增一条「LSP 包搬迁 2026-04-17」，列出 commit、影响面与验证结论。
-- **不**写入 `p18/review-summary.md` 第 17 轮（不属 P18 链路）；另建 `docs/plans/迁移/2026-04-17-lsp-relocation-review.md` 记录 3 轮 codex 审查与裁决。
+**① `docs/plans/迁移/session-summary.md §2` 追加模板**（3-5 行）：
+
+```markdown
+### 2.N LSP 包搬迁（2026-04-17）
+- 动作：`internal/mcpserver/lsp/{edit,exec,format,gopls,installer,manager,middleware,protocol,search,tools}` → `cmd/mcp-lsp/*`
+- commits：`<-1 守卫>`、`<1 搬迁>`、`<2 archtest 重设计>`、`<3 文档同步>`
+- 验证：`go build ./...` ✅；`go test -p 1 ./...` ✅；`TestCodeSizeGuard` / `TestMCPFamilyIsolation` 全绿
+- 守卫变更：默认 25/10000/600（见 `docs/plans/迁移/v3-code-guard-spec.md §1`）
+```
+
+**② 本迁移 review note** —— 另建 `docs/plans/迁移/2026-04-17-lsp-relocation-review.md`，目录：
+
+```
+1. 背景与目标
+2. 审查轮次清单（每轮 agent ID + 视角 + 裁决）
+   - 轮 1：第 2 版计划互审（reviewer-A/B/C）
+   - 轮 2：第 3 版 + 守卫放宽复审（re-reviewer-A/B/C）
+3. 问题清单与修复记录（High/Medium/Low）
+4. 最终裁决（PASS / 需修复 / 阻塞）
+5. 落地 commit 清单 + 遗留项
+```
+
+> **不**写入 `docs/plans/迁移/p18/review-summary.md` 第 17 轮（本次迁移不属 P18 链路）。
 
 ### Step 6：编译验证
 
@@ -376,3 +407,26 @@ internal/mcpserver/             ← 只剩 common/
 - Step 6-7 编译测试：~10 分钟
 - **总预计**：60-70 分钟
 - **风险等级**：低（无逻辑变更，守卫数字改动与规则收窄由 `TestCodeSizeGuard` + `TestMCPFamilyIsolation` 兜底）
+
+## 遗留项（不阻塞本次迁移，顺其自然落盘）
+
+以下 3 项在第 2 轮 codex 复审中被识别为本迁移条件下 **不必同 PR 处理** 的项，已从阻塞清单移出；后续相关批次规划时要回收。
+
+### 遗留 1：archtest rule7 与 `TestMCPFamilyIsolation` forbidden set 重叠
+
+- **现状**：Step 4.1 的 `rule7_cmd_mcp_lsp_family` 与 `internal/archtest/mcp_family_isolation_test.go:17-21` 都禁 `cmd/mcp-lsp` 导入 `cmd/mcp-orch` / `cmd/mcp-ida`，双处维护。
+- **不合并理由**：语义不完全重叠—— rule7 额外禁 `internal/app` / `internal/ui/`，`TestMCPFamilyIsolation` 额外覆盖 orch/ida 自身。彻底合并需重新设计用例矩阵，成本 > 收益。
+- **应对**：后续批次可抽一个共享 `forbiddenForeignMCPBinaries(name string) []string` 帮函数，无需反改规则本体。
+
+### 遗留 2：`cmd/mcp-orch/**` 与 `cmd/mcp-ida/**` 子包的 `fx` import 未收窄
+
+- **现状**：本次 rule10 仅把 `cmd/mcp-lsp/<子包>/` 收窄到「只允许 `module.go` / `fx.go` import `fx`」；`cmd/mcp-orch`、`cmd/mcp-ida` 子包仍整体放行。
+- **具体存量**：`cmd/mcp-orch/orchestration/service.go:20` 等多处子包中 `fx` import。它们属于 P8 残留的旧布局，正在待重构。
+- **应对**：在 `cmd/mcp-orch`、`cmd/mcp-ida` 的后续搬迁 / 瘦身计划里同步把 rule10 的规则 d) 处理成与 `cmd/mcp-lsp` 同样的白名单约束。
+
+### 遗留 3：历史计划文档残留旧守卫数字
+
+- **现状**：仓内仍有多份已落幕的计划写着 `≤400 行 / ≤ 15 文件 / ≤ 4500 行`：`docs/plans/2026-03-27-a4g-d1-timeline-offline-merge.md`、`docs/plans/迁移/p1-v2v3-fix-plan.md`、`p9-implementation-plan.md`、`p13-factory-repair-plan.md`、`p16-ui-diff-toolcall-plan.md`、`p16.1-unified-diff-plan.md`、`p17-ui-context-model-compact-plan.md`、`docs/plans/claude缓存保活计划.md`。
+- **不回改理由**：这些文档是历史执行快照（P1 / P9 / P13 / P16 / P17 等已结案批次），批量改数字会破坏当时的分阶段记账内气。
+- **应对**：新修计划一律引用 `docs/契约/modularity-convention.md §2.4` 与 `docs/plans/迁移/v3-code-guard-spec.md §1` 的当前默认；旧文档通过 v3-code-guard-spec §1 的「2026-04-17 补充」小节统一指向最新守卫值，不再逐份追改。
+

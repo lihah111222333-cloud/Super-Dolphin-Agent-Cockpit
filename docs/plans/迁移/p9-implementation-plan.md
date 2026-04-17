@@ -28,7 +28,7 @@
   - Codex#2: 10.0k-10.5k (修正后)
   - Claude#1: ~9,800 (修正后)
   - Claude#2: ~9,200 (修正后)
-  - **四方原始估算区间: 9,200-10,800；本计划按“最终唯一新增代码”记账: 8,236（cmd 210 + internal/mcpserver/lsp 8,026）**
+- **四方原始估算区间: 9,200-10,800；本计划按“最终唯一新增代码”记账: 8,236（cmd/mcp-lsp 根装配 210 + cmd/mcp-lsp 本地子包 8,026）**
 
 ---
 
@@ -68,7 +68,8 @@ cmd/mcp-lsp/                              # 薄装配层 (新增 ~210 行)
 ├── runtime.go                             # 启动/关闭编排 (~50)
 └── tools.go                               # 工具注册表 (~40)
 
-internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 210 cmd层，按新增代码记账)
+cmd/mcp-lsp/{edit,exec,format,gopls,installer,manager,middleware,protocol,search,tools}/
+                                          # 本地子包核心实现 (~8,026 行 = 8,236 - 210 根装配，按新增代码记账)
 ├── protocol/                              # LSP 协议层 (~520, Agent A)
 │   ├── types.go                           #   LSP 基础类型定义 (~130)
 │   ├── methods.go                         #   LSP 方法常量 (~40)
@@ -134,7 +135,7 @@ internal/mcpserver/lsp/                    # 核心实现 (~8,026 行 = 8,236 - 
 | 决策 | 依据 |
 |---|---|
 | cmd/mcp-lsp/ 薄装配层 | v3-migration-plan.md cmd 目录约定 |
-| internal/mcpserver/lsp/ 核心实现 | archtest rule7 family 隔离 + modularity-convention.md |
+| cmd/mcp-lsp/{edit,exec,format,gopls,installer,manager,middleware,protocol,search,tools}/ 核心实现 | archtest rule7 family 隔离 + modularity-convention.md |
 | 混合方案 | 四方最终共识 (Codex#1 最终同意); mcp-orch 先例 |
 | gopls/ 子目录独立 | V2 manager* 文件群 (~2,400 行) 天然内聚 |
 | edit/ 子目录独立 | patch+seek+context ~776 行，高度内聚 |
@@ -675,8 +676,8 @@ t=5.5h           ✅ 完成
 
 | 验证项 | 内容 |
 |---|---|
-| 编译验证 | `go build ./cmd/mcp-lsp/...` + `go build ./internal/mcpserver/lsp/...` |
-| go vet | `go vet ./internal/mcpserver/lsp/...` |
+| 编译验证 | `go build ./cmd/mcp-lsp/...` + `go build ./...` |
+| go vet | `go vet ./cmd/mcp-lsp/...` |
 | archtest | 运行现有 + 新增 archtest 规则 |
 | schema 快照 | 9 工具 JSON Schema 与 V2 对比 |
 | 冒烟测试 | 每工具至少 1 个 happy path |
@@ -1172,10 +1173,10 @@ B↔G 接口契约：
 
 ### 1. 编译验证
 go build ./cmd/mcp-lsp/...
-go build ./internal/mcpserver/lsp/...
+go build ./...
 
 ### 2. 静态分析
-go vet ./internal/mcpserver/lsp/...
+go vet ./cmd/mcp-lsp/...
 
 ### 3. archtest 验证
 go test ./internal/archtest/ -run TestMCPLSPDependencyDirection
@@ -1228,10 +1229,10 @@ go test ./internal/archtest/ -run TestCodeSizeGuard
 
 | 检查 | 命令 | 期望 |
 |---|---|---|
-| 编译 cmd | `go build ./cmd/mcp-lsp/...` | 0 errors |
-| 编译 internal | `go build ./internal/mcpserver/lsp/...` | 0 errors |
-| go vet | `go vet ./internal/mcpserver/lsp/...` | 0 warnings |
-| LSP diagnostics | `lsp_file(diagnostics, internal/mcpserver/lsp/)` | 0 diagnostics |
+| 编译 mcp-lsp 全族 | `go build ./cmd/mcp-lsp/...` | 0 errors |
+| 全仓回归编译 | `go build ./...` | 0 errors |
+| go vet | `go vet ./cmd/mcp-lsp/...` | 0 warnings |
+| LSP diagnostics | `lsp_file(diagnostics, cmd/mcp-lsp/)` | 0 diagnostics |
 
 ### 8.2 功能验证 (Gate 2 — 9 工具 × N actions)
 
@@ -1322,7 +1323,7 @@ go test ./internal/archtest/ -run TestCodeSizeGuard
 > ℹ️ **以下为伪代码示意**，实际实现需使用 internal/archtest 现有框架（非 testify）。
 
 ```go
-// 伪代码 — 验证 internal/mcpserver/lsp/ 的依赖方向:
+// 伪代码 — 验证 cmd/mcp-lsp 本地子包的依赖方向:
 // - protocol/ 不依赖任何 lsp 子包
 // - format/ 只依赖 protocol/
 // - edit/ 不依赖 gopls/ 或 tools/
@@ -1330,7 +1331,7 @@ go test ./internal/archtest/ -run TestCodeSizeGuard
 // - gopls/ 依赖 protocol/, 不依赖 tools/
 // - tools/ 依赖 protocol/ + format/ + gopls/ + edit/ + search/
 // - middleware/ 不依赖 tools/ (被 tools/ 调用，不反向)
-// - cmd/mcp-lsp/ 只依赖 internal/mcpserver/lsp 的公开 API
+// - cmd/mcp-lsp 根装配只依赖本地子包的公开 API
 func TestMCPLSPDependencyDirection(t *testing.T) {
     // 禁止的导入方向
     forbidden := map[string][]string{
@@ -1368,9 +1369,9 @@ func TestMCPLSPExactToolSet(t *testing.T) {
 > ℹ️ **伪代码示意**
 
 ```go
-// 伪代码 — 验证 internal/mcpserver/lsp/ 不直接导入 V2 包
+// 伪代码 — 验证 cmd/mcp-lsp 本地子包不直接导入 V2 包
 func TestMCPLSPNoDirectV2Import(t *testing.T) {
-    // 扫描 internal/mcpserver/lsp/ 下所有 .go 文件
+    // 扫描 cmd/mcp-lsp/ 下所有 .go 文件
     // 禁止 import "xxx/pkg/toolsdk/lsp"
 }
 ```
@@ -1420,9 +1421,9 @@ func TestMCPLSPBudgetConstants(t *testing.T) {
 
 ### 10.3 回滚策略
 
-- 所有代码在独立目录 `internal/mcpserver/lsp/`，不影响现有 `internal/mcpserver/common/`
+- LSP 本体位于独立的 `cmd/mcp-lsp/` 二进制目录及其本地子包，不影响现有 `internal/mcpserver/common/`
 - `cmd/mcp-lsp/` 是新二进制，不影响 `cmd/mcp-orch/` 或其他二进制
-- 可随时删除整个 `internal/mcpserver/lsp/` 目录回滚
+- 可随时回退 `cmd/mcp-lsp/{edit,exec,format,gopls,installer,manager,middleware,protocol,search,tools}` 的搬迁提交
 
 ---
 

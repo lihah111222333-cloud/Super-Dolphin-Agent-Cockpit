@@ -1590,7 +1590,7 @@
 
 ## MCP Server 层
 
-### 25. mcpserver/common + mcpserver/lsp + mcpserver/orch + mcpserver/ida
+### 25. mcpserver/common + cmd/mcp-lsp + mcpserver/orch + mcpserver/ida
 
 #### 迁移来源（V2）
 - `go-agent-v2/internal/mcp/server.go`
@@ -1605,13 +1605,16 @@
 - `internal/mcpserver/common/runtime.go`
 - `internal/mcpserver/common/stdio.go`
 - `internal/mcpserver/common/manifest.go`
-- `internal/mcpserver/lsp/module.go`
-- `internal/mcpserver/lsp/tools.go`
+- `cmd/mcp-lsp/main.go`
+- `cmd/mcp-lsp/fx.go`
+- `cmd/mcp-lsp/runtime.go`
+- `cmd/mcp-lsp/http_runner.go`
+- `cmd/mcp-lsp/schema.go`
+- `cmd/mcp-lsp/tools.go`
 - `internal/mcpserver/orch/module.go`
 - `internal/mcpserver/orch/tools.go`
 - `internal/mcpserver/ida/module.go`
 - `internal/mcpserver/ida/tools.go`
-- `cmd/mcp-lsp/*`
 - `cmd/mcp-orch/*`
 - `cmd/mcp-ida/*`
 

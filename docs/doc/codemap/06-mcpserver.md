@@ -1,8 +1,7 @@
 # 06 MCP Server 框架层代码地图
 
-> 阅读范围：`internal/mcpserver/common/` 与 `internal/mcpserver/lsp/` 下 **63 个生产源码文件**（不含 `_test.go`）。
-> 为串起工具注册链路，额外参考了少量装配代码：`cmd/mcp-lsp/tools.go`、`cmd/mcp-lsp/schema.go`、`cmd/mcp-lsp/fx.go`、`cmd/mcp-lsp/runtime.go`。
-> 本次审查按源码反向核对了 63 个生产 `.go` 文件：`common` 5 个、`common/bootstrap` 7 个、`lsp` 各子包 51 个；重点补齐了 `common` 层抽象、`bootstrap` 生命周期与公开 API、`lsp/gopls` 子包职责、中间件真实挂载顺序，以及各工具的实现细节遗漏。
+> 阅读范围：`internal/mcpserver/common/` 与 `cmd/mcp-lsp/` 下 **68 个生产源码文件**（不含 `_test.go`）。
+> 本次审查按迁移后布局反向核对了 68 个生产 `.go` 文件：`common` 4 个、`common/bootstrap` 7 个、`cmd/mcp-lsp` 根目录 6 个、`cmd/mcp-lsp` 各子包 51 个；重点补齐了 `common` 层抽象、`bootstrap` 生命周期与公开 API、`cmd/mcp-lsp/gopls` 子包职责、中间件真实挂载顺序，以及各工具的实现细节遗漏。
 
 ---
 
@@ -30,7 +29,7 @@
      - `OnToolsList` / `OnToolsCall` 反向回调
    - 断线后可重连，并在恢复后 **flush 报告队列 + replay hook 订阅**。
 
-3. **LSP 工具能力层（`lsp`）**
+3. **LSP 工具能力层（`cmd/mcp-lsp`）**
    - `tools/`：MCP tool 入口与参数/结果整形。
    - `manager/`：按语言或文件路由 manager。
    - `gopls/`：虽然名字保留了历史包名，但现在是**通用 LSP 子进程客户端/管理骨架**。
@@ -43,7 +42,7 @@
 MCP Client
   -> common.Server / common.HTTPServer
   -> ToolProvider
-  -> lsp/tools/* handler
+  -> cmd/mcp-lsp/tools/* handler
   -> manager.Registry
   -> 对应语言的 manager（大多数由 gopls.manager 承担）
   -> gopls.transport
@@ -94,8 +93,8 @@ MCP 子进程
     - `WritePeerDiscovery()` / `CleanupPeerDiscovery()`（按当前进程父 PID 处理）
     - `DiscoverPeerHTTPAddr()`
     - `IsValidHTTPAddr()`
-- `manifest.go`
-  - `ToolManifest` / `FamilyManifest`，用于工具清单 DTO 描述。
+- `server.go`（补记）
+  - `ToolProvider` / `MCPTool` 以及 JSON-RPC envelope 类型也定义在这里；`common/` 下不存在独立 `manifest.go`。
 
 ### 2.1.1 `common/bootstrap/`
 
@@ -140,9 +139,23 @@ MCP 子进程
   - 连接恢复时补发；`Close()` 时还可发送 `FinalReport()`。
   - 断网时 `Report()` 返回 `queued_offline` 响应。
 
-## 2.2 `internal/mcpserver/lsp/`
+## 2.2 `cmd/mcp-lsp/`
 
-> 生产源码文件分布：`edit` 4、`exec` 1、`format` 4、`gopls` 15、`installer` 1、`manager` 2、`middleware` 4、`protocol` 5、`search` 2、`tools` 13；以下逐项覆盖。
+> 迁移后 `cmd/mcp-lsp/` 下生产源码分布为：根目录 6 个入口文件，子包合计 51 个文件；其中子包分布为 `edit` 4、`exec` 1、`format` 4、`gopls` 15、`installer` 1、`manager` 2、`middleware` 4、`protocol` 5、`search` 2、`tools` 13；以下逐项覆盖。
+
+### 2.2.0 入口层（`cmd/mcp-lsp/*.go`）
+- `main.go`（36 行，入口）
+  - 进程入口；限制 `GOMAXPROCS`、重定向 MCP stdout/stderr，并把 `run()` 的错误转换为退出码。
+- `fx.go`（237 行，DI 组装）
+  - Fx 装配根文件；注册 bootstrap / stdio / HTTP runners，并把 tool manifest 通过 `registryToolProvider` 暴露给 `common` 层。
+- `runtime.go`（172 行，生命周期）
+  - 运行时资源装配；构建多语言 manager registry、installer 与 stdio runner，并在退出时统一关闭 manager。
+- `http_runner.go`（58 行，HTTP transport runner）
+  - peer mode 下启动 HTTP MCP server，写入/清理 discovery 文件，并处理优雅停机。
+- `schema.go`（138 行，工具 schema 注册）
+  - 集中定义 9 个 MCP tool 的 input schema 与字段 helper。
+- `tools.go`（87 行，tool handler 绑定）
+  - 声明 tool manifest 列表，并把 cmd 层 handler 名称映射到 `cmd/mcp-lsp/tools` 的具体实现。
 
 ### `edit/`：补丁与 replace_range 算法层
 - `patchparse.go`
@@ -358,7 +371,7 @@ MCP 子进程
 | `Server` | `common/server.go` | stdio MCP Server 主体 |
 | `StdioTransport` | `common/stdio.go` | stdio 消息读写器，支持 raw JSON / framed JSON-RPC |
 | `HTTPServer` | `common/http_transport.go` | HTTP MCP Server，暴露 `POST /mcp` |
-| `ToolManifest` | `common/manifest.go` | 静态工具声明 DTO |
+| `jsonRPCRequest` / `jsonRPCResponse` | `common/server.go` | stdio / HTTP 两条入口共享的 JSON-RPC envelope |
 
 **设计观察：**
 - `common` 层没有单独的 `Transport` interface。
@@ -383,11 +396,11 @@ MCP 子进程
 
 | 类型 | 位置 | 作用 |
 |---|---|---|
-| `manager.Manager` | `lsp/manager/manager.go` | 对工具层暴露统一 LSP 能力接口 |
-| `manager.Registry` | `lsp/manager/registry.go` | 按文件/语言路由 manager，并聚合 diagnostics |
-| `installer.Provider` | `lsp/installer/installer.go` | 确保语言服务器 binary 可用 |
-| `middleware.Handler` | `lsp/middleware/logging.go` | 工具处理器统一签名 |
-| `middleware.Middleware` | `lsp/middleware/logging.go` | 工具中间件签名 |
+| `manager.Manager` | `cmd/mcp-lsp/manager/manager.go` | 对工具层暴露统一 LSP 能力接口 |
+| `manager.Registry` | `cmd/mcp-lsp/manager/registry.go` | 按文件/语言路由 manager，并聚合 diagnostics |
+| `installer.Provider` | `cmd/mcp-lsp/installer/installer.go` | 确保语言服务器 binary 可用 |
+| `middleware.Handler` | `cmd/mcp-lsp/middleware/logging.go` | 工具处理器统一签名 |
+| `middleware.Middleware` | `cmd/mcp-lsp/middleware/logging.go` | 工具中间件签名 |
 
 ### 3.4 `gopls/` 内部核心抽象
 
@@ -408,7 +421,7 @@ MCP 子进程
 
 ---
 
-## 4. 工具实现：lsp 下各子包如何落成具体能力
+## 4. 工具实现：`cmd/mcp-lsp` 下各子包如何落成具体能力
 
 ## 4.1 工具装配方式
 
@@ -425,7 +438,7 @@ MCP 子进程
   - `lsp_file`、`lsp_grep` 额外挂了 `WithOutputBudget()`。
   - `lsp_edit` 也没有走 `newManagerTool()`，而是保留了自定义 handler 以支持多文件 apply/rollback 流程。
 
-> 实际 MCP tool name / schema / handler 注册在 `cmd/mcp-lsp/tools.go`；`lsp/tools` 负责“工具逻辑”，装配层负责“把逻辑暴露成 MCP tool”。
+> 实际 MCP tool name / schema / handler 注册在 `cmd/mcp-lsp/tools.go`；`cmd/mcp-lsp/tools` 负责“工具逻辑”，装配层负责“把逻辑暴露成 MCP tool”。
 
 ## 4.2 工具能力总表
 
@@ -776,7 +789,7 @@ Recovery -> Logging -> Timeout -> 具体 handler
 
 ## 7. 关键设计观察
 
-1. **`common` 层非常薄，真正复杂度在 `bootstrap/` 与 `lsp/`。**
+1. **`common` 层非常薄，真正复杂度在 `bootstrap/` 与 `cmd/mcp-lsp/`。**
 2. **`ToolProvider` 是 MCP server 与工具框架的关键解耦点。**
 3. **`common` 没有统一 transport 抽象，而是 `Server + StdioTransport` 与 `HTTPServer` 双实现并存。**
 4. **`bootstrap.Client` 已经不只是 register/heartbeat 客户端，而是完整的 control-plane peer。**
@@ -794,10 +807,10 @@ Recovery -> Logging -> Timeout -> 具体 handler
 
 1. `common/server.go` + `stdio.go`
 2. `common/bootstrap/client.go` + `lifecycle.go` + `reconnect.go`
-3. `tools/factory.go` + `cmd/mcp-lsp/tools.go`
-4. `manager/registry.go` + `gopls/manager*.go`
-5. `gopls/client.go` + `transport*.go`
-6. `tool_edit*.go` + `edit/*.go`
+3. `cmd/mcp-lsp/tools/factory.go` + `cmd/mcp-lsp/tools.go`
+4. `cmd/mcp-lsp/manager/registry.go` + `cmd/mcp-lsp/gopls/manager*.go`
+5. `cmd/mcp-lsp/gopls/client.go` + `cmd/mcp-lsp/gopls/transport*.go`
+6. `cmd/mcp-lsp/tools/tool_edit*.go` + `cmd/mcp-lsp/edit/*.go`
 
 这样能最快建立“从 MCP 调用入口到 LSP 子进程，再到控制面生命周期”的完整心智模型。
 

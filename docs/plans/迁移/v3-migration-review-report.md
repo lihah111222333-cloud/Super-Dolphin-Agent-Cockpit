@@ -19,7 +19,7 @@
 - `orchestration` 的复杂度判断成立。`go-agent-v2/internal/runner/manager.go` 为 521 行，`go-agent-v2/internal/runner/manager_event.go` 为 530 行，`go-agent-v2/internal/store/task_dag_phase1.go` 为 555 行，`go-agent-v2/internal/apiserver/dagwatcher/` 实际有 11 个源文件。
 - `workspace` 的复杂度判断成立。`go-agent-v2/internal/service/workspace.go:176-727` 与 `go-agent-v2/internal/service/workspace_file_ops.go:12-153` 构成真实核心；`MergeRun` 还被 `workspace_methods.go`、`tool_provider_adapters.go`、`resource_adapters.go` 多点调用。
 - `uistate` 的高扇入判断成立。`go-agent-v2/internal/uistate/runtime_timeline.go` 为 546 行，`go-agent-v2/internal/apiserver/server_event_handler.go` 为 558 行，`go-agent-v2/internal/dashboard/state_service.go` 为 366 行。
-- 子文档对“当前 V3 只有前置骨架”的描述基本准确。LSP 已确认 `internal/rpc/module.go`、`internal/bus/event_bus.go`、`internal/store/module.go`、`internal/app/module.go`、`internal/runner/state_machine.go` 存在；`internal/module/thread/module.go`、`internal/platform/rpc/module.go`、`internal/provider/unified/module.go`、`internal/tool/lsp/module.go`、`internal/mcpserver/lsp/module.go` 当前均不存在。
+- 子文档对“当前 V3 只有前置骨架”的描述基本准确。LSP 已确认 `internal/rpc/module.go`、`internal/bus/event_bus.go`、`internal/store/module.go`、`internal/app/module.go`、`internal/runner/state_machine.go` 存在；`internal/module/thread/module.go`、`internal/platform/rpc/module.go`、`internal/provider/unified/module.go`、`internal/tool/lsp/module.go` 当前仍不存在；LSP 家族已迁至 `cmd/mcp-lsp/*`，因此也不存在 `cmd/mcp-lsp/module.go` 这类独立 module 骨架。
 - `v3-framework-usage-guide.md` 对当前骨架的两条矫正是准确的：`internal/bus/event_bus.go` 仍在使用包级 `event.Emit` / `event.On`；`internal/store/module.go` 确实把 DB 与 store 装配混在一个文件。
 
 ### 2.2 偏差项（需修正）
