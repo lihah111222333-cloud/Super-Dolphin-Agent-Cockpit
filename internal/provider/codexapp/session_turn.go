@@ -79,12 +79,9 @@ func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assemb
 	if skillPrompt, ok := buildSkillPromptInput(skills); ok {
 		items = append(items, skillPrompt)
 	}
-	if userContext := contract.RenderUserContextMessage(assembly); userContext != "" {
-		items = append(items, newTextTurnInput("text", userContext))
-	}
-	if systemContext := contract.FormatSystemContextBlock(assembly.SystemContext); systemContext != "" {
-		items = append(items, newTextTurnInput("text", systemContext))
-	}
+	// NOTE: system-reminder (currentDate, runtimeExtras) and SystemContext (git status)
+	// are now injected once via baseInstructions in thread/start.
+	// Removed per-turn RenderUserContextMessage and FormatSystemContextBlock to save tokens.
 	for _, attachment := range assembly.Attachments {
 		if text := strings.TrimSpace(contract.RenderAttachmentText(attachment)); text != "" {
 			items = append(items, newTextTurnInput("text", text))

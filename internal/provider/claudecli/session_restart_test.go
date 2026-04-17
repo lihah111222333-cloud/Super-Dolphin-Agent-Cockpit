@@ -200,8 +200,9 @@ func TestPrepareTurnLockedPrependsStructuredTurnAssemblyUserContext(t *testing.T
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if got := decoded.Message.Content[0].Text; got != "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\nhello" {
-		t.Fatalf("payload text = %q", got)
+	// system-reminder is now injected once at session start, not per-turn.
+	if got := decoded.Message.Content[0].Text; got != "hello" {
+		t.Fatalf("payload text = %q, want %q", got, "hello")
 	}
 }
 
@@ -250,7 +251,8 @@ func TestPrepareTurnLockedIncludesAttachmentTextAfterUserContext(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	got := decoded.Message.Content[0].Text
-	want := "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\n" + contract.RenderAttachmentText(attachment) + "\n\nhello"
+	// system-reminder is now injected once at session start, not per-turn.
+	want := contract.RenderAttachmentText(attachment) + "\n\nhello"
 	if got != want {
 		t.Fatalf("payload text = %q, want %q", got, want)
 	}

@@ -31,7 +31,7 @@ func TestBuildTurnStartParams(t *testing.T) {
 	got := buildTurnStartParams("thread-1", req)
 	want := turnStartParams{
 		ThreadID:             "thread-1",
-		Input:                []turnInputItem{{Type: "text", Text: "[skill:planner]\nuse the planner", Content: "[skill:planner]\nuse the planner"}, {Type: "text", Text: "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>", Content: "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>"}, {Type: "text", Text: "hello", Content: "hello"}},
+		Input:                []turnInputItem{{Type: "text", Text: "[skill:planner]\nuse the planner", Content: "[skill:planner]\nuse the planner"}, {Type: "text", Text: "hello", Content: "hello"}},
 		SelectedSkills:       []string{"planner", "reviewer"},
 		ManualSkillSelection: true,
 		Model:                "gpt-5.4",
@@ -65,17 +65,15 @@ func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 	}
 
 	got := buildTurnStartParams("thread-1", req)
-	if len(got.Input) != 3 {
-		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 3", len(got.Input))
+	// system-reminder is now injected once at session start; per-turn only has attachment + user text.
+	if len(got.Input) != 2 {
+		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 2", len(got.Input))
 	}
-	if got.Input[0].Text != "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>" {
-		t.Fatalf("user context input = %q, want rendered structured user context", got.Input[0].Text)
+	if got.Input[0].Text != contract.RenderAttachmentText(attachment) {
+		t.Fatalf("attachment input = %q, want rendered attachment text", got.Input[0].Text)
 	}
-	if got.Input[1].Text != contract.RenderAttachmentText(attachment) {
-		t.Fatalf("attachment input = %q, want rendered attachment text", got.Input[1].Text)
-	}
-	if got.Input[2].Text != "hello" {
-		t.Fatalf("final input = %q, want original user text", got.Input[2].Text)
+	if got.Input[1].Text != "hello" {
+		t.Fatalf("final input = %q, want original user text", got.Input[1].Text)
 	}
 }
 
@@ -87,14 +85,12 @@ func TestBuildTurnStartParamsIncludesSystemContext(t *testing.T) {
 		Inputs:       []dto.InputItem{{Type: "text", Content: "hello"}},
 		TurnAssembly: dto.TurnAssembly{SystemContext: systemContext},
 	})
-	if len(got.Input) != 2 {
-		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 2", len(got.Input))
+	// SystemContext is now injected once at session start; per-turn only has user text.
+	if len(got.Input) != 1 {
+		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 1", len(got.Input))
 	}
-	if got.Input[0].Text != contract.FormatSystemContextBlock(systemContext) {
-		t.Fatalf("system context input = %q, want formatted system context", got.Input[0].Text)
-	}
-	if got.Input[1].Text != "hello" {
-		t.Fatalf("final input = %q, want original user text", got.Input[1].Text)
+	if got.Input[0].Text != "hello" {
+		t.Fatalf("final input = %q, want original user text", got.Input[0].Text)
 	}
 }
 
@@ -124,7 +120,7 @@ func TestBuildTurnSteerParams(t *testing.T) {
 	want := map[string]any{
 		"threadId":             "thread-1",
 		"expectedTurnId":       "turn-1",
-		"input":                []turnInputItem{{Type: "text", Text: "[skill:planner]\nuse the planner", Content: "[skill:planner]\nuse the planner"}, {Type: "text", Text: "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>", Content: "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>"}, {Type: "text", Text: "hello", Content: "hello"}},
+		"input":                []turnInputItem{{Type: "text", Text: "[skill:planner]\nuse the planner", Content: "[skill:planner]\nuse the planner"}, {Type: "text", Text: "hello", Content: "hello"}},
 		"selectedSkills":       []string{"planner", "reviewer"},
 		"manualSkillSelection": true,
 	}

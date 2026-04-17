@@ -26,7 +26,9 @@ func TestComposeTurnTextIncludesAttachmentTextAfterUserContext(t *testing.T) {
 			Attachments: []dto.AttachmentEnvelope{attachment},
 		},
 	})
-	want := "<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\n" + contract.RenderAttachmentText(attachment) + "\n\nhello"
+	// system-reminder is now injected once via baseInstructions at start,
+	// so composeTurnText only includes attachments + user text.
+	want := contract.RenderAttachmentText(attachment) + "\n\nhello"
 	if got != want {
 		t.Fatalf("composeTurnText() = %q, want %q", got, want)
 	}
@@ -43,7 +45,9 @@ func TestComposeTurnTextPrependsSystemContextBeforeUserContext(t *testing.T) {
 			},
 		},
 	})
-	want := contract.FormatSystemContextBlock(systemContext) + "\n\n<system-reminder>\n\n# currentDate\nToday's date is 2026-04-15.\n\n</system-reminder>\n\nhello"
+	// system-reminder and SystemContext are now injected once at start,
+	// so composeTurnText only returns the user text.
+	want := "hello"
 	if got != want {
 		t.Fatalf("composeTurnText() = %q, want %q", got, want)
 	}
