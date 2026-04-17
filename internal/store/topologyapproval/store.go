@@ -8,8 +8,17 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// querier is the narrow subset of sqlc.Queries this store depends on.
+// NewStore still accepts the concrete *sqlc.Queries for fx wiring.
+type querier interface {
+	CreateTopologyApproval(ctx context.Context, arg sqlc.CreateTopologyApprovalParams) (sqlc.TopologyApproval, error)
+	ApproveTopologyApproval(ctx context.Context, arg sqlc.ApproveTopologyApprovalParams) (int64, error)
+	RejectTopologyApproval(ctx context.Context, arg sqlc.RejectTopologyApprovalParams) (int64, error)
+	ListPendingTopologyApprovals(ctx context.Context) ([]sqlc.TopologyApproval, error)
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
