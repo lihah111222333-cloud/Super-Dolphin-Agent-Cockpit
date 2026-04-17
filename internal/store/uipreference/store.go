@@ -8,8 +8,16 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// querier is the narrow subset of sqlc.Queries this store depends on.
+// NewStore still accepts the concrete *sqlc.Queries for fx wiring.
+type querier interface {
+	GetUIPreferenceValue(ctx context.Context, arg sqlc.GetUIPreferenceValueParams) ([]byte, error)
+	UpsertUIPreference(ctx context.Context, arg sqlc.UpsertUIPreferenceParams) error
+	ListUIPreferences(ctx context.Context, dollar_1 string) ([]sqlc.ListUIPreferencesRow, error)
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Store {
