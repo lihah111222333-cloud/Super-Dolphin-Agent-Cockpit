@@ -1,0 +1,194 @@
+package uipreference
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/jackc/pgx/v5"
+)
+
+type uiPreferenceQuerierStub struct {
+	getValueFn func(context.Context, sqlc.GetUIPreferenceValueParams) ([]byte, error)
+	upsertFn   func(context.Context, sqlc.UpsertUIPreferenceParams) error
+	listFn     func(context.Context, string) ([]sqlc.ListUIPreferencesRow, error)
+}
+
+func (s *uiPreferenceQuerierStub) GetUIPreferenceValue(ctx context.Context, arg sqlc.GetUIPreferenceValueParams) ([]byte, error) {
+	if s.getValueFn != nil {
+		return s.getValueFn(ctx, arg)
+	}
+	return nil, nil
+}
+
+func (s *uiPreferenceQuerierStub) UpsertUIPreference(ctx context.Context, arg sqlc.UpsertUIPreferenceParams) error {
+	if s.upsertFn != nil {
+		return s.upsertFn(ctx, arg)
+	}
+	return nil
+}
+
+func (s *uiPreferenceQuerierStub) ListUIPreferences(ctx context.Context, dollar_1 string) ([]sqlc.ListUIPreferencesRow, error) {
+	if s.listFn != nil {
+		return s.listFn(ctx, dollar_1)
+	}
+	return nil, nil
+}
+
+func TestGetValueForwardsParamsAndReturnsBytes(t *testing.T) {
+	t.Parallel()
+
+	var captured sqlc.GetUIPreferenceValueParams
+	s := &store{q: &uiPreferenceQuerierStub{
+		getValueFn: func(_ context.Context, arg sqlc.GetUIPreferenceValueParams) ([]byte, error) {
+			captured = arg
+			return []byte(`{"theme":"dark"}`), nil
+		},
+	}}
+
+	got, err := s.GetValue(context.Background(), "/proj", "theme")
+	if err != nil {
+		t.Fatalf("GetValue() error = %v", err)
+	}
+	if captured.Cwd != "/proj" || captured.Key != "theme" {
+		t.Fatalf("GetValue() forwarded wrong params: %+v", captured)
+	}
+	if string(got) != `{"theme":"dark"}` {
+		t.Fatalf("GetValue() = %s", got)
+	}
+	// Type assertion: RawMessage is the declared return type.
+	var _ json.RawMessage = got
+}
+
+func TestGetValueWrapsPgxErrNoRowsAsNotFound(t *testing.T) {
+	t.Parallel()
+
+	s := &store{q: &uiPreferenceQuerierStub{
+		getValueFn: func(context.Context, sqlc.GetUIPreferenceValueParams) ([]byte, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}}
+
+	got, err := s.GetValue(context.Background(), "/proj", "missing")
+	if got != nil {
+		t.Fatalf("GetValue() got = %s, want nil on error", got)
+	}
+	if !errors.Is(err, platformdb.ErrNotFound) {
+		t.Fatalf("GetValue() error = %v, want wrap of ErrNotFound", err)
+	}
+	var storeErr *platformdb.StoreError
+	if !errors.As(err, &storeErr) || storeErr.Operation != "get" || storeErr.Entity != "ui_preference" {
+		t.Fatalf("GetValue() error metadata = %+v", err)
+	}
+}
+
+func TestUpsertForwardsParamsAndReturnsNilOnSuccess(t *testing.T) {
+	t.Parallel()
+
+	var captured sqlc.UpsertUIPreferenceParams
+	s := &store{q: &uiPreferenceQuerierStub{
+		upsertFn: func(_ context.Context, arg sqlc.UpsertUIPreferenceParams) error {
+			captured = arg
+			return nil
+		},
+	}}
+
+	err := s.Upsert(context.Background(), UpsertParams{
+		Cwd:   "/proj",
+		Key:   "theme",
+		Value: json.RawMessage(`{"theme":"light"}`),
+	})
+	if err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+	if captured.Cwd != "/proj" || captured.Key != "theme" || string(captured.Value) != `{"theme":"light"}` {
+		t.Fatalf("Upsert() forwarded wrong params: %+v", captured)
+	}
+}
+
+func TestUpsertWrapsQuerierError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("write fail")
+	s := &store{q: &uiPreferenceQuerierStub{
+		upsertFn: func(context.Context, sqlc.UpsertUIPreferenceParams) error { return sentinel },
+	}}
+
+	err := s.Upsert(context.Background(), UpsertParams{})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Upsert() error = %v, want wrap of sentinel", err)
+	}
+	var storeErr *platformdb.StoreError
+	if !errors.As(err, &storeErr) || storeErr.Operation != "upsert" || storeErr.Entity != "ui_preference" {
+		t.Fatalf("Upsert() error metadata = %+v", err)
+	}
+}
+
+func TestListForwardsCwdAndMapsRows(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1_700_000_000, 0).UTC()
+	var capturedCwd string
+	s := &store{q: &uiPreferenceQuerierStub{
+		listFn: func(_ context.Context, cwd string) ([]sqlc.ListUIPreferencesRow, error) {
+			capturedCwd = cwd
+			return []sqlc.ListUIPreferencesRow{
+				{Key: "theme", Value: []byte(`"dark"`), Cwd: "", UpdatedAt: now},
+				{Key: "layout", Value: []byte(`"wide"`), Cwd: "/proj", UpdatedAt: now},
+			}, nil
+		},
+	}}
+
+	got, err := s.List(context.Background(), "/proj")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if capturedCwd != "/proj" {
+		t.Fatalf("List() forwarded cwd = %q, want /proj", capturedCwd)
+	}
+	if len(got) != 2 {
+		t.Fatalf("List() len = %d, want 2", len(got))
+	}
+	if got[0].Key != "theme" || got[0].Cwd != "" || string(got[0].Value) != `"dark"` || !got[0].UpdatedAt.Equal(now) {
+		t.Fatalf("List()[0] = %+v", got[0])
+	}
+	if got[1].Key != "layout" || got[1].Cwd != "/proj" || string(got[1].Value) != `"wide"` {
+		t.Fatalf("List()[1] = %+v", got[1])
+	}
+}
+
+func TestListReturnsEmptySliceWhenNoRows(t *testing.T) {
+	t.Parallel()
+
+	s := &store{q: &uiPreferenceQuerierStub{
+		listFn: func(context.Context, string) ([]sqlc.ListUIPreferencesRow, error) { return nil, nil },
+	}}
+	got, err := s.List(context.Background(), "")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("List() = %+v, want non-nil empty slice", got)
+	}
+}
+
+func TestListWrapsQuerierError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("list fail")
+	s := &store{q: &uiPreferenceQuerierStub{
+		listFn: func(context.Context, string) ([]sqlc.ListUIPreferencesRow, error) { return nil, sentinel },
+	}}
+	_, err := s.List(context.Background(), "/proj")
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("List() error = %v, want wrap of sentinel", err)
+	}
+	var storeErr *platformdb.StoreError
+	if !errors.As(err, &storeErr) || storeErr.Operation != "list" {
+		t.Fatalf("List() error metadata = %+v", err)
+	}
+}
