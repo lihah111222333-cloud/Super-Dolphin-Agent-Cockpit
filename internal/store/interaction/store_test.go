@@ -1,0 +1,294 @@
+package interaction
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/jackc/pgx/v5"
+)
+
+type interactionQuerierStub struct {
+	createFn func(context.Context, sqlc.CreateInteractionParams) (sqlc.AgentInteraction, error)
+	getFn    func(context.Context, int64) (sqlc.AgentInteraction, error)
+	listFn   func(context.Context, sqlc.ListInteractionsParams) ([]sqlc.AgentInteraction, error)
+	reviewFn func(context.Context, sqlc.ReviewInteractionParams) (sqlc.AgentInteraction, error)
+}
+
+func (s *interactionQuerierStub) CreateInteraction(ctx context.Context, arg sqlc.CreateInteractionParams) (sqlc.AgentInteraction, error) {
+	if s.createFn != nil {
+		return s.createFn(ctx, arg)
+	}
+	return sqlc.AgentInteraction{}, nil
+}
+
+func (s *interactionQuerierStub) GetInteraction(ctx context.Context, id int64) (sqlc.AgentInteraction, error) {
+	if s.getFn != nil {
+		return s.getFn(ctx, id)
+	}
+	return sqlc.AgentInteraction{}, nil
+}
+
+func (s *interactionQuerierStub) ListInteractions(ctx context.Context, arg sqlc.ListInteractionsParams) ([]sqlc.AgentInteraction, error) {
+	if s.listFn != nil {
+		return s.listFn(ctx, arg)
+	}
+	return nil, nil
+}
+
+func (s *interactionQuerierStub) ReviewInteraction(ctx context.Context, arg sqlc.ReviewInteractionParams) (sqlc.AgentInteraction, error) {
+	if s.reviewFn != nil {
+		return s.reviewFn(ctx, arg)
+	}
+	return sqlc.AgentInteraction{}, nil
+}
+
+func fullAgentInteractionFixture() sqlc.AgentInteraction {
+	parent := int64(42)
+	reviewed := time.Unix(1700000000, 0).UTC()
+	created := time.Unix(1699000000, 0).UTC()
+	updated := time.Unix(1699500000, 0).UTC()
+	return sqlc.AgentInteraction{
+		ID:             1,
+		ThreadID:       "thread-1",
+		ParentID:       &parent,
+		Sender:         "orchestrator",
+		Receiver:       "agent-A",
+		MsgType:        "request",
+		Status:         "pending",
+		RequiresReview: true,
+		ReviewedBy:     "reviewer-1",
+		ReviewNote:     "ok",
+		ReviewedAt:     &reviewed,
+		Payload:        []byte(`{"a":1}`),
+		CreatedAt:      created,
+		UpdatedAt:      updated,
+	}
+}
+
+func TestCreateForwardsParamsAndMapsResult(t *testing.T) {
+	t.Parallel()
+
+	fixture := fullAgentInteractionFixture()
+	var captured sqlc.CreateInteractionParams
+	s := &store{q: &interactionQuerierStub{
+		createFn: func(_ context.Context, arg sqlc.CreateInteractionParams) (sqlc.AgentInteraction, error) {
+			captured = arg
+			return fixture, nil
+		},
+	}}
+
+	input := Interaction{
+		ThreadID:       "thread-1",
+		ParentID:       fixture.ParentID,
+		Sender:         "orchestrator",
+		Receiver:       "agent-A",
+		MsgType:        "request",
+		Status:         "pending",
+		RequiresReview: true,
+		Payload:        json.RawMessage(`{"a":1}`),
+	}
+
+	got, err := s.Create(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("Create() returned nil *Interaction")
+	}
+	if captured.ThreadID != "thread-1" ||
+		captured.Sender != "orchestrator" ||
+		captured.Receiver != "agent-A" ||
+		captured.MsgType != "request" ||
+		captured.Status != "pending" ||
+		!captured.RequiresReview ||
+		captured.ParentID == nil || *captured.ParentID != 42 ||
+		string(captured.Column8) != `{"a":1}` {
+		t.Fatalf("Create() forwarded wrong params: %+v", captured)
+	}
+	if got.ID != fixture.ID || got.ThreadID != fixture.ThreadID ||
+		got.Sender != fixture.Sender || got.Receiver != fixture.Receiver ||
+		got.Status != fixture.Status || !got.RequiresReview ||
+		got.ReviewedBy != fixture.ReviewedBy || got.ReviewNote != fixture.ReviewNote ||
+		got.ParentID == nil || *got.ParentID != 42 ||
+		got.ReviewedAt == nil || !got.ReviewedAt.Equal(*fixture.ReviewedAt) ||
+		!got.CreatedAt.Equal(fixture.CreatedAt) || !got.UpdatedAt.Equal(fixture.UpdatedAt) {
+		t.Fatalf("Create() mapped result = %+v", got)
+	}
+	if string(got.Payload) != `{"a":1}` {
+		t.Fatalf("Create() payload mapping = %s", got.Payload)
+	}
+}
+
+func TestCreateWrapsQuerierError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("insert failed")
+	s := &store{q: &interactionQuerierStub{
+		createFn: func(context.Context, sqlc.CreateInteractionParams) (sqlc.AgentInteraction, error) {
+			return sqlc.AgentInteraction{}, sentinel
+		},
+	}}
+
+	got, err := s.Create(context.Background(), Interaction{})
+	if got != nil {
+		t.Fatalf("Create() got = %+v, want nil on error", got)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Create() error = %v, want wrap of sentinel", err)
+	}
+	var storeErr *platformdb.StoreError
+	if !errors.As(err, &storeErr) || storeErr.Operation != "create" || storeErr.Entity != "interaction" {
+		t.Fatalf("Create() error metadata = %+v", err)
+	}
+}
+
+func TestGetForwardsIDAndMapsResult(t *testing.T) {
+	t.Parallel()
+
+	fixture := fullAgentInteractionFixture()
+	var capturedID int64
+	s := &store{q: &interactionQuerierStub{
+		getFn: func(_ context.Context, id int64) (sqlc.AgentInteraction, error) {
+			capturedID = id
+			return fixture, nil
+		},
+	}}
+
+	got, err := s.Get(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if capturedID != 1 {
+		t.Fatalf("Get() forwarded id = %d, want 1", capturedID)
+	}
+	if got == nil || got.ID != fixture.ID || got.ThreadID != fixture.ThreadID {
+		t.Fatalf("Get() = %+v", got)
+	}
+}
+
+func TestGetWrapsPgxErrNoRowsAsNotFound(t *testing.T) {
+	t.Parallel()
+
+	s := &store{q: &interactionQuerierStub{
+		getFn: func(context.Context, int64) (sqlc.AgentInteraction, error) {
+			return sqlc.AgentInteraction{}, pgx.ErrNoRows
+		},
+	}}
+
+	got, err := s.Get(context.Background(), 99)
+	if got != nil {
+		t.Fatalf("Get() got = %+v, want nil on error", got)
+	}
+	if !errors.Is(err, platformdb.ErrNotFound) {
+		t.Fatalf("Get() error = %v, want wrap of ErrNotFound", err)
+	}
+}
+
+func TestListForwardsFilterAndMapsRows(t *testing.T) {
+	t.Parallel()
+
+	fixture := fullAgentInteractionFixture()
+	var captured sqlc.ListInteractionsParams
+	s := &store{q: &interactionQuerierStub{
+		listFn: func(_ context.Context, arg sqlc.ListInteractionsParams) ([]sqlc.AgentInteraction, error) {
+			captured = arg
+			return []sqlc.AgentInteraction{fixture}, nil
+		},
+	}}
+
+	got, err := s.List(context.Background(), ListFilter{ThreadID: "thread-1", Keyword: "agent", Limit: 20})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if captured.Column1 != "thread-1" || captured.Column2 != "agent" || captured.Limit != 20 {
+		t.Fatalf("List() forwarded wrong params: %+v", captured)
+	}
+	if len(got) != 1 || got[0].ID != fixture.ID || got[0].ThreadID != fixture.ThreadID {
+		t.Fatalf("List() = %+v", got)
+	}
+	if string(got[0].Payload) != `{"a":1}` {
+		t.Fatalf("List() payload = %s", got[0].Payload)
+	}
+}
+
+func TestListReturnsEmptySliceWhenNoRows(t *testing.T) {
+	t.Parallel()
+
+	s := &store{q: &interactionQuerierStub{
+		listFn: func(context.Context, sqlc.ListInteractionsParams) ([]sqlc.AgentInteraction, error) {
+			return nil, nil
+		},
+	}}
+	got, err := s.List(context.Background(), ListFilter{})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("List() = %+v, want non-nil empty slice", got)
+	}
+}
+
+func TestListWrapsQuerierError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("list fail")
+	s := &store{q: &interactionQuerierStub{
+		listFn: func(context.Context, sqlc.ListInteractionsParams) ([]sqlc.AgentInteraction, error) {
+			return nil, sentinel
+		},
+	}}
+	_, err := s.List(context.Background(), ListFilter{})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("List() error = %v, want wrap of sentinel", err)
+	}
+}
+
+func TestReviewForwardsInputAndMapsResult(t *testing.T) {
+	t.Parallel()
+
+	fixture := fullAgentInteractionFixture()
+	fixture.Status = "approved"
+	fixture.ReviewedBy = "reviewer-2"
+	fixture.ReviewNote = "looks good"
+	var captured sqlc.ReviewInteractionParams
+	s := &store{q: &interactionQuerierStub{
+		reviewFn: func(_ context.Context, arg sqlc.ReviewInteractionParams) (sqlc.AgentInteraction, error) {
+			captured = arg
+			return fixture, nil
+		},
+	}}
+
+	got, err := s.Review(context.Background(), ReviewInput{ID: 1, Status: "approved", ReviewedBy: "reviewer-2", ReviewNote: "looks good"})
+	if err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	if captured.ID != 1 || captured.Status != "approved" || captured.ReviewedBy != "reviewer-2" || captured.ReviewNote != "looks good" {
+		t.Fatalf("Review() forwarded wrong params: %+v", captured)
+	}
+	if got == nil || got.Status != "approved" || got.ReviewedBy != "reviewer-2" || got.ReviewNote != "looks good" {
+		t.Fatalf("Review() = %+v", got)
+	}
+}
+
+func TestReviewWrapsQuerierError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("review fail")
+	s := &store{q: &interactionQuerierStub{
+		reviewFn: func(context.Context, sqlc.ReviewInteractionParams) (sqlc.AgentInteraction, error) {
+			return sqlc.AgentInteraction{}, sentinel
+		},
+	}}
+	got, err := s.Review(context.Background(), ReviewInput{ID: 1})
+	if got != nil {
+		t.Fatalf("Review() got = %+v, want nil on error", got)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Review() error = %v, want wrap of sentinel", err)
+	}
+}
