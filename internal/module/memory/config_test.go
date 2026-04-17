@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	nestedpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
@@ -91,7 +92,7 @@ func TestSkeletonConfigsDefaultDisabledAndPlaceholderHelpers(t *testing.T) {
 	if got := LoadNestedMemoryPaths(); len(got) != 0 {
 		t.Fatalf("LoadNestedMemoryPaths() len = %d, want 0", len(got))
 	}
-	if MatchTargetPath("/repo/docs/readme.md", []string{"src/**/*.go"}, "/repo") {
+	if nestedpkg.MatchTargetPath("/repo/docs/readme.md", []string{"src/**/*.go"}, "/repo") {
 		t.Fatal("MatchTargetPath(non-match) = true, want false")
 	}
 }

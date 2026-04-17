@@ -1,9 +1,14 @@
 // Package memory compatibility bridge for the retrieval subpackage migration.
 // Owned by the retrieval subpackage split; keep here until root callers move
 // to direct memory/retrieval imports, then delete.
+//
+// This file also absorbs the former retrieval_helpers_bridge.go (searchTerms /
+// contextErr / minInt) to conserve the main-package file budget.
 package memory
 
 import (
+	"context"
+	"strings"
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -70,4 +75,45 @@ func searchTranscriptSnippets(query string, messages []dto.Message, budget int) 
 
 func memoryRenderBody(entry MemoryEntry) string {
 	return retrievalpkg.MemoryRenderBody(entry)
+}
+
+// searchTerms / contextErr / minInt — moved from retrieval_helpers_bridge.go.
+
+func searchTerms(query string) (string, []string) {
+	normalized := CanonicalName(query)
+	if normalized == "" {
+		return "", nil
+	}
+	seen := map[string]struct{}{normalized: {}}
+	terms := []string{normalized}
+	for _, part := range strings.Fields(normalized) {
+		if part == "" {
+			continue
+		}
+		if _, ok := seen[part]; ok {
+			continue
+		}
+		seen[part] = struct{}{}
+		terms = append(terms, part)
+	}
+	return normalized, terms
+}
+
+func contextErr(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
