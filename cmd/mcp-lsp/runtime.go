@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/gopls"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/gopls"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/installer"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/manager"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/lsp/protocol"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
