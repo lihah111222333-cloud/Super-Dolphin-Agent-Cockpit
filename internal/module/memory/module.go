@@ -37,7 +37,7 @@ type memoryHookParams struct {
 	Dispatcher      *event.Dispatcher      `optional:"true"`
 	Hooks           *MemoryLifecycleHooks  `optional:"true"`
 	ContextProvider *MemoryContextProvider `optional:"true"`
-	NestedRuntime   *NestedRuntime         `optional:"true"`
+	NestedRuntime   *nestedpkg.NestedRuntime `optional:"true"`
 	ThreadStore     threadMetadataStore    `optional:"true"`
 	TeamSync        teampkg.Lifecycle      `optional:"true"`
 }
