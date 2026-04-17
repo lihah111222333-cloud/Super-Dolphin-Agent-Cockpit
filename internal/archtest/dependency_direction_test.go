@@ -159,7 +159,16 @@ func assertStoreAndToolDependencyRules(t *testing.T, root string) {
 			if !hasImport(file.Imports, "go.uber.org/fx") {
 				continue
 			}
-			if strings.HasPrefix(file.RelPath, "cmd/") || strings.HasPrefix(file.RelPath, "internal/app/") || filepath.Base(file.RelPath) == "module.go" {
+			if strings.HasPrefix(file.RelPath, "internal/app/") || filepath.Base(file.RelPath) == "module.go" {
+				continue
+			}
+			if strings.HasPrefix(file.RelPath, "cmd/mcp-orch/") || strings.HasPrefix(file.RelPath, "cmd/mcp-ida/") {
+				continue
+			}
+			if rel, ok := strings.CutPrefix(file.RelPath, "cmd/"); ok && len(strings.Split(rel, "/")) == 2 {
+				continue
+			}
+			if strings.HasPrefix(file.RelPath, "cmd/mcp-lsp/") && filepath.Base(file.RelPath) == "fx.go" {
 				continue
 			}
 			violations = append(violations, fmt.Sprintf("%s imports go.uber.org/fx outside an assembly entry", file.RelPath))
@@ -170,18 +179,23 @@ func assertStoreAndToolDependencyRules(t *testing.T, root string) {
 
 func assertMCPServerDependencyRules(t *testing.T, root string) {
 	t.Helper()
-	t.Run("rule7_mcpserver_lsp_family", func(t *testing.T) {
-		if !dirExists(root, "internal/mcpserver/lsp") {
+	t.Run("rule7_cmd_mcp_lsp_family", func(t *testing.T) {
+		if !dirExists(root, "cmd/mcp-lsp") {
 			t.Skip("directory not yet created")
 		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/mcpserver/lsp"), []string{internalPrefix("internal/tool/ida"), internalPrefix("internal/tool/orchestration")})
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "cmd/mcp-lsp"), []string{
+			internalPrefix("cmd/mcp-orch"),
+			internalPrefix("cmd/mcp-ida"),
+			internalPrefix("internal/app"),
+			internalPrefix("internal/ui/"),
+		})
 	})
 
-	t.Run("rule7b_mcpserver_lsp_cannot_import_module", func(t *testing.T) {
-		if !dirExists(root, "internal/mcpserver/lsp") {
+	t.Run("rule7b_cmd_mcp_lsp_cannot_import_module", func(t *testing.T) {
+		if !dirExists(root, "cmd/mcp-lsp") {
 			t.Skip("directory not yet created")
 		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/mcpserver/lsp"), []string{internalPrefix("internal/module/")})
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "cmd/mcp-lsp"), []string{internalPrefix("internal/module/")})
 	})
 
 	t.Run("rule8_mcpserver_orch_family", func(t *testing.T) {
