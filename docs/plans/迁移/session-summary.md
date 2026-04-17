@@ -44,7 +44,7 @@
 
 ### 2.3 LSP 包搬迁（2026-04-17）
 - 动作：LSP 10 个子包（`edit/exec/format/gopls/installer/manager/middleware/protocol/search/tools`）迁入 `cmd/mcp-lsp/*`
-- commits（5 个，Step -1 实际拆成 A/B 两步）：`ff4083d`（Step -1A 守卫常量 + autofix 串入）、`ec96cab`（Step -1B spec / 契约 / 会话习惯 / codemap / 计划文档同步 + 中间态 ai-index）、`1bac4c1`（Step 1-3 搬迁 git mv+sed）、`70bb462`（Step 4 archtest rule7/7b/10 + mcp_family_isolation 重设计 + guardlib/freeze 残差）、`<HEAD>`（Step 5 剩余文档同步 + 新 review note + 最新 ai-index）
+- commits（5 个，Step -1 实际拆成 A/B 两步）：`ff4083d`（Step -1A 守卫常量 + autofix 串入）、`ec96cab`（Step -1B spec / 契约 / 会话习惯 / codemap / 计划文档同步 + 中间态 ai-index）、`1bac4c1`（Step 1-3 搬迁 git mv+sed）、`70bb462`（Step 4 archtest rule7/7b/10 + mcp_family_isolation 重设计 + guardlib/freeze 残差）、`f3b228a`（Step 5 剩余文档同步 + 新 review note + 最新 ai-index）
 - 验证：`go build ./...` ✅；`go test -p 1 ./...` ✅；`TestCodeSizeGuard` / `TestMCPFamilyIsolation` 全绿
 - 守卫变更：默认 `25/10000/600`（见 `docs/plans/迁移/v3-code-guard-spec.md §1`）
 

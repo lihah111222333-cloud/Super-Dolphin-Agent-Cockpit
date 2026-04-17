@@ -73,7 +73,7 @@
 - `ec96cab` **Step -1B 配套文档 + 计划本体**：`v3-code-guard-spec.md §1/§1.1`、`modularity-convention.md §2.4`、两份 `会话习惯.md`、`codemap/README.md`、本计划文档、中间态 `ai-index.json` 同步。
 - `1bac4c1` **Step 1-3 搬迁**：LSP 10 个子包 `git mv` 迁入 `cmd/mcp-lsp/*`；跨平台 sed 改 import；入口 wiring / schema / tool registry 同步。
 - `70bb462` **Step 4 archtest 重设计**：`rule7/rule7b` 路径改 `cmd/mcp-lsp` + forbidden set 换成 `cmd/mcp-orch` / `cmd/mcp-ida` / `internal/app` / `internal/ui/` / `internal/module/`；`rule10_fx_import_scope` 只收窄 `cmd/mcp-lsp/<子包>/`；`mcp_family_isolation_test.go` 三族 forbidden 同步；`guardlib.go` core 分支注释；`freeze_registry.go` RemoveWhen 15→25。
-- `<HEAD>` **Step 5 剩余文档同步**：`plans/{v3-workflow,v3-migration-review-report,v3-module-migration-details,p9,p19}.md`、`codemap/{03,06}.md`、`modularity-convention.md §2.1` 目录树、本 review note、最终 `ai-index.json`（`make codemap-refresh`）、session-summary `§2.3` 回填。
+- `f3b228a` **Step 5 剩余文档同步**：`plans/{v3-workflow,v3-migration-review-report,v3-module-migration-details,p9,p19}.md`、`codemap/{03,06}.md`、`modularity-convention.md §2.1` 目录树、本 review note、最终 `ai-index.json`（`make codemap-refresh`）、session-summary `§2.3` 回填。
 - 遗留项：引用 `docs/plans/2026-04-17-lsp-package-relocation.md`《遗留项》章节。
   1. archtest rule7 与 `TestMCPFamilyIsolation` forbidden set 重叠。
   2. `cmd/mcp-orch/**` 与 `cmd/mcp-ida/**` 子包的 `fx` import 未收窄。
