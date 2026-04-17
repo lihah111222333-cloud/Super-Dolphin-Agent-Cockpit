@@ -1,0 +1,125 @@
+package sharedfile
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+)
+
+type sharedFileQuerierStub struct {
+	getFn  func(context.Context, string) (sqlc.SharedFile, error)
+	listFn func(context.Context, sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error)
+}
+
+func (s *sharedFileQuerierStub) GetSharedFile(ctx context.Context, path string) (sqlc.SharedFile, error) {
+	if s.getFn != nil {
+		return s.getFn(ctx, path)
+	}
+	return sqlc.SharedFile{}, nil
+}
+
+func (s *sharedFileQuerierStub) ListSharedFiles(ctx context.Context, arg sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error) {
+	if s.listFn != nil {
+		return s.listFn(ctx, arg)
+	}
+	return nil, nil
+}
+
+func TestGetMapsRow(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_000_000, 0).UTC()
+	var captured string
+	s := &store{q: &sharedFileQuerierStub{
+		getFn: func(_ context.Context, path string) (sqlc.SharedFile, error) {
+			captured = path
+			return sqlc.SharedFile{
+				Path:      "/docs/readme.md",
+				Content:   "hello",
+				UpdatedBy: "alice",
+				CreatedAt: now,
+				UpdatedAt: now,
+			}, nil
+		},
+	}}
+	got, err := s.Get(context.Background(), "/docs/readme.md")
+	if err != nil {
+		t.Fatalf("Get() unexpected error: %v", err)
+	}
+	if captured != "/docs/readme.md" {
+		t.Fatalf("Get() forwarded path = %q", captured)
+	}
+	if got == nil || got.Path != "/docs/readme.md" || got.Content != "hello" || got.UpdatedBy != "alice" {
+		t.Fatalf("Get() row mapped incorrectly: %+v", got)
+	}
+}
+
+func TestGetWrapsError(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("not found")
+	s := &store{q: &sharedFileQuerierStub{
+		getFn: func(context.Context, string) (sqlc.SharedFile, error) {
+			return sqlc.SharedFile{}, sentinel
+		},
+	}}
+	_, err := s.Get(context.Background(), "any")
+	if err == nil || !errors.Is(err, sentinel) {
+		t.Fatalf("Get() err = %v, want wrap of sentinel", err)
+	}
+}
+
+func TestListForwardsPrefixAndLimit(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(2_000_000, 0).UTC()
+	var captured sqlc.ListSharedFilesParams
+	s := &store{q: &sharedFileQuerierStub{
+		listFn: func(_ context.Context, arg sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error) {
+			captured = arg
+			return []sqlc.SharedFile{
+				{Path: "/a/x.md", Content: "a", UpdatedBy: "u", CreatedAt: now, UpdatedAt: now},
+				{Path: "/a/y.md", Content: "b", UpdatedBy: "u", CreatedAt: now, UpdatedAt: now},
+			}, nil
+		},
+	}}
+	got, err := s.List(context.Background(), ListFilter{Prefix: "/a/", Limit: 20})
+	if err != nil {
+		t.Fatalf("List() unexpected error: %v", err)
+	}
+	if captured.Column1 != "/a/" || captured.Limit != 20 {
+		t.Fatalf("List() forwarded wrong params: %+v", captured)
+	}
+	if len(got) != 2 {
+		t.Fatalf("List() len = %d, want 2", len(got))
+	}
+	if got[0].Path != "/a/x.md" || got[1].Path != "/a/y.md" {
+		t.Fatalf("List() rows mapped out of order: %+v", got)
+	}
+}
+
+func TestListReturnsEmptySliceWhenNoRows(t *testing.T) {
+	t.Parallel()
+	s := &store{q: &sharedFileQuerierStub{}}
+	got, err := s.List(context.Background(), ListFilter{})
+	if err != nil {
+		t.Fatalf("List() unexpected error: %v", err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("List() got = %v, want non-nil empty slice", got)
+	}
+}
+
+func TestListWrapsQuerierError(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("db timeout")
+	s := &store{q: &sharedFileQuerierStub{
+		listFn: func(context.Context, sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error) {
+			return nil, sentinel
+		},
+	}}
+	_, err := s.List(context.Background(), ListFilter{})
+	if err == nil || !errors.Is(err, sentinel) {
+		t.Fatalf("List() err = %v, want wrap of sentinel", err)
+	}
+}

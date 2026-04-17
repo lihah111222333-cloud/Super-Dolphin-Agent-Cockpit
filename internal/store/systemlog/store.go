@@ -8,8 +8,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+type querier interface {
+	ListSystemLogs(ctx context.Context, arg sqlc.ListSystemLogsParams) ([]sqlc.SystemLog, error)
+	InsertSystemLog(ctx context.Context, arg sqlc.InsertSystemLogParams) error
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Store {

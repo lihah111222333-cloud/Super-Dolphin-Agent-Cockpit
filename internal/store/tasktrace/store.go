@@ -10,8 +10,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type querier interface {
+	InsertTaskTrace(ctx context.Context, arg sqlc.InsertTaskTraceParams) (sqlc.TaskTrace, error)
+	ListTaskTraces(ctx context.Context, arg sqlc.ListTaskTracesParams) ([]sqlc.TaskTrace, error)
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
