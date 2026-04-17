@@ -12,7 +12,7 @@ import (
 // level, everything else at Info. Aligned with V2 stderr_collector.go.
 func NewStderrCollector(prefix string) io.WriteCloser {
 	pr, pw := io.Pipe()
-	go collectStderr(prefix, pr)
+	safeGo("logger.collectStderr", func() { collectStderr(prefix, pr) })
 	return pw
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -27,6 +28,12 @@ type service struct {
 	promptAssembly         contract.PromptAssemblyService
 	turnContextProvider    contract.TurnContextProvider
 	interruptSettleTimeout time.Duration
+
+	// ctx/cancel bound to the service lifetime. Shutdown cancels ctx so
+	// background goroutines (watchTurn) can exit instead of waiting out
+	// full trackerTTL after the module stops.
+	ctx       context.Context
+	ctxCancel context.CancelFunc
 }
 
 type steerableSession interface {
@@ -57,6 +64,7 @@ func newService(
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	svc := &service{
 		logger:                 logger,
 		assembler:              &inputAssembler{},
@@ -65,6 +73,8 @@ func newService(
 		tracker:                newTurnTracker(),
 		promptAssembly:         promptAssembly,
 		interruptSettleTimeout: config.InterruptSettleTimeout,
+		ctx:                    ctx,
+		ctxCancel:              cancel,
 	}
 	if turnContextProvider != nil {
 		svc.turnContextProvider = turnContextProvider
@@ -286,13 +296,21 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 	if localID == "" {
 		return
 	}
-	platformshared.SafeGo(s.logger, func() {
+	svcCtx := s.ctx
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+	runtimesafe.SafeGo(svcCtx, s.logger, "turn.watchTurn", func(ctx context.Context) {
 		timer := time.NewTimer(trackerTTL)
 		defer timer.Stop()
 		select {
 		case <-timer.C:
 			s.tracker.Stall(localID, "turn watch timed out")
 			s.logger.Warn("turn watcher TTL expired", "localID", localID)
+			return
+		case <-ctx.Done():
+			// service shutdown; drop the watcher without marking the turn
+			// stalled so the outer tracker entry expires naturally.
 			return
 		case <-handle.Done():
 		}
@@ -386,4 +404,14 @@ func isTerminalTurnState(state string) bool {
 		return true
 	}
 	return false
+}
+
+// Shutdown cancels the service-level ctx so background goroutines
+// (watchTurn) can exit promptly instead of waiting out the full
+// trackerTTL. Safe to call multiple times and on a nil service.
+func (s *service) Shutdown() {
+	if s == nil || s.ctxCancel == nil {
+		return
+	}
+	s.ctxCancel()
 }

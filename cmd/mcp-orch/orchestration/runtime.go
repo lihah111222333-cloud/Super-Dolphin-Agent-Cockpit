@@ -143,6 +143,42 @@ func resetRuntimeStateLocked(agent *agentRuntime) {
 	agent.remoteAgentID = ""
 }
 
+// clearAgentLifecycleErrorLocked zeroes the per-lifecycle error + stop
+// intent fields on agent. It is the single write-site for these two
+// fields outside the state machine, used when we start a fresh launch
+// cycle or resolve a prior stop intent. Caller must hold s.mu.
+func clearAgentLifecycleErrorLocked(agent *agentRuntime) {
+	if agent == nil {
+		return
+	}
+	agent.lastError = ""
+	agent.stopRequested = false
+}
+
+// clearAgentStopReasonLocked clears the free-form stop reason note.
+// Intentionally separated from clearAgentLifecycleErrorLocked because
+// restart paths preserve the reason for audit while new-agent paths
+// clear it. Caller must hold s.mu.
+func clearAgentStopReasonLocked(agent *agentRuntime) {
+	if agent == nil {
+		return
+	}
+	agent.stopReason = ""
+}
+
+// clearAgentTurnStateLocked zeroes all fields tied to a single turn
+// instance (active turn id / provider thread id / exit timestamp).
+// Called from launch-prepare and interrupt-recovery paths.
+// Caller must hold s.mu.
+func clearAgentTurnStateLocked(agent *agentRuntime) {
+	if agent == nil {
+		return
+	}
+	agent.activeTurnID = ""
+	agent.threadID = ""
+	agent.exitedAt = nil
+}
+
 func snapshotPort(agent *agentRuntime) (int, string) {
 	if agent != nil && agent.runtimePort > 0 {
 		source := strings.TrimSpace(agent.portSource)

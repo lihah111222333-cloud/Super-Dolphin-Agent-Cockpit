@@ -10,12 +10,13 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func (s *session) startReadLoop(tr *transport) {
-	shared.SafeGo(s.logger, func() {
+	runtimesafe.SafeGo(context.Background(), s.logger, "claudecli.session.readLoop", func(context.Context) {
 		for {
 			line, err := tr.Receive()
 			if err != nil {
@@ -122,7 +123,7 @@ func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 	prevID := s.ThreadID()
 	s.setResolvedThreadIDForTransport(tr, resolvedID)
 	if s.isCurrentTransport(tr) {
-		shared.SafeGo(s.logger, func() {
+		runtimesafe.SafeGo(context.Background(), s.logger, "claudecli.session.startLogWatcher", func(context.Context) {
 			s.startLogWatcherIfCurrent(tr)
 		})
 	}

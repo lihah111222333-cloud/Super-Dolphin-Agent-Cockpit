@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -113,7 +114,7 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 		)
 		return
 	}
-	shared.SafeGo(s.logger, func() {
+	runtimesafe.SafeGo(context.Background(), s.logger, "codexapp.session.backgroundRecovery", func(context.Context) {
 		shared.LogIgnoredError(s.logger, "background recovery failed", s.attemptRecovery(reason))
 	})
 }
@@ -305,7 +306,7 @@ func shouldReconnect(err error) bool {
 }
 
 func (s *session) startHealthLoop() {
-	shared.SafeGo(s.logger, func() {
+	runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.healthLoop", func(context.Context) {
 		ticker := time.NewTicker(healthCheckInterval)
 		defer ticker.Stop()
 		for {

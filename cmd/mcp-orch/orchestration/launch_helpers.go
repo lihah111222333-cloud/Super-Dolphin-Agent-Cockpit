@@ -89,9 +89,8 @@ func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
 	agent.provider = launchProvider(req)
 	agent.providerSource = inferredLaunchSourceString(agent.provider)
 	resetRuntimeStateLocked(agent)
-	agent.lastError = ""
-	agent.stopRequested = false
-	agent.stopReason = ""
+	clearAgentLifecycleErrorLocked(agent)
+	clearAgentStopReasonLocked(agent)
 	return agent
 }
 
@@ -100,11 +99,8 @@ func (s *service) prepareLaunchStateLocked(ctx context.Context, agent *agentRunt
 		return err
 	}
 	resetRuntimeStateLocked(agent)
-	agent.lastError = ""
-	agent.stopRequested = false
-	agent.activeTurnID = ""
-	agent.threadID = ""
-	agent.exitedAt = nil
+	clearAgentLifecycleErrorLocked(agent)
+	clearAgentTurnStateLocked(agent)
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 	return nil
 }

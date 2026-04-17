@@ -218,7 +218,7 @@ func InitWithFileOptions(logDir string, opts FileOptions) error {
 	logFileMu.Unlock()
 
 	rebuildLoggerWithFile(f)
-	go watchLogFile(absPath, stopCh)
+	safeGo("logger.watchLogFile", func() { watchLogFile(absPath, stopCh) })
 	Info("log file opened", "path", absPath, "run", run)
 	return nil
 }

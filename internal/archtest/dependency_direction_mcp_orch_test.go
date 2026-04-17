@@ -23,7 +23,7 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 		allowed := []string{
 			internalPrefix("internal/contract"), internalPrefix("internal/dto"), internalPrefix("internal/platform/config"),
 			internalPrefix("internal/platform/db"), internalPrefix("internal/platform/bus"), internalPrefix("internal/platform/runner"),
-			internalPrefix("internal/platform/rpc"), internalPrefix("internal/platform/shared"), internalPrefix("internal/platform/statemachine"), internalPrefix("internal/platform/eventsurface"),
+			internalPrefix("internal/platform/rpc"), internalPrefix("internal/platform/runtimesafe"), internalPrefix("internal/platform/shared"), internalPrefix("internal/platform/statemachine"), internalPrefix("internal/platform/eventsurface"),
 			internalPrefix("internal/platform/rlimit"),
 			internalPrefix("internal/store"), internalPrefix("internal/mcpserver/common"), internalPrefix("internal/module"),
 		}

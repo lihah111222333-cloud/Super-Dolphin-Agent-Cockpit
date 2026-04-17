@@ -9,7 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -177,7 +177,7 @@ func closeSession(ctx context.Context, session contract.Session) error {
 		return nil
 	}
 	done := make(chan error, 1)
-	platformshared.SafeGo(pkglogger.Get(), func() {
+	runtimesafe.SafeGo(ctx, pkglogger.Get(), "provider.unified.sessionClose", func(context.Context) {
 		done <- session.Close(ctx)
 	})
 	select {

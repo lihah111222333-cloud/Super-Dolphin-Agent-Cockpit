@@ -1,13 +1,14 @@
 package skill
 
 import (
+	"context"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -45,7 +46,7 @@ func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 	seq := s.skillsChangedSeq
 	s.skillsChangedMu.Unlock()
 
-	platformshared.SafeGo(pkglogger.Get(), func() {
+	runtimesafe.SafeGo(context.Background(), pkglogger.Get(), "skill.scheduleSkillsChangedFlush", func(context.Context) {
 		time.Sleep(skillsChangedDebounceWindow)
 		s.flushSkillsChanged(seq)
 	})

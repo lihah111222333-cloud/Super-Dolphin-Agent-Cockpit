@@ -8,6 +8,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -144,9 +145,9 @@ func (s *service) onAgentFailed(ev agentdto.AgentFailed) {
 	s.evictZombieSession(context.Background(), target)
 	// Give Codex a moment to finish closing the thread — it returns
 	// "thread is closing; retry after closed" if we resume too fast.
-	shared.SafeGo(s.logger, func() {
+	runtimesafe.SafeGo(context.Background(), s.logger, "thread.codexReconnectDelay", func(ctx context.Context) {
 		time.Sleep(3 * time.Second)
-		s.backgroundResumeIfNeeded(context.Background(), target)
+		s.backgroundResumeIfNeeded(ctx, target)
 	})
 }
 
