@@ -1042,7 +1042,7 @@ sequenceDiagram
 
 - 任务描述：建立 LSP family 的 tool registry、module wiring 和 `cmd/mcp-lsp` 二进制。
 - 输入：Day 1 common runtime、LSP/RUN 工具清单、P4 manifest 需求。
-- 输出：`internal/mcpserver/lsp/*`、`internal/tool/lsp/*`、`cmd/mcp-lsp/main.go`。
+- 输出：`cmd/mcp-lsp/*`、`internal/tool/lsp/*`。
 - 验证方式：`mcp-lsp` 仅导出 LSP + RUN 工具；可独立 build。
 - 预估时间：`1 人天`。
 

@@ -36,21 +36,20 @@ V3 直接继承 V2 的测量口径，不重新定义统计语义：
 
 ### 1.1 核心包放宽守卫
 
-以下 6 个核心包因功能密度高、跨 Phase 持续增长，适用放宽后的守卫上限：
+2026-04-17 守卫放宽后，核心包与默认的唯一差异是 **包文件数 30 > 默认 25**。其余维度（单文件 600、包有效行数 10000、函数/嵌套/CC）已与默认等值。
 
 | 适用包 | 包文件数 | 单文件有效行数 | 包有效行数 | 函数/嵌套/CC |
 |--------|------:|------:|------:|---|
-| `module/memory` | **冻结 30**（只减不增） | 600 | **冻结 7161**（只减不增） | 不变（80/4/10） |
+| `module/memory` | 30 | 600 | 10000 | 不变（80/4/10） |
 | `module/prompt` | 30 | 600 | 10000 | 不变 |
 | `module/thread` | 30 | 600 | 10000 | 不变 |
 | `module/turn`   | 30 | 600 | 10000 | 不变 |
 | `provider/claudecli` | 30 | 600 | 10000 | 不变 |
 | `provider/codexapp`  | 30 | 600 | 10000 | 不变 |
 
-> `module/memory` 当前为 30 个非测试文件 / 7161 effective lines，freeze registry 已按最新基线自动收缩；后续只允许下降（合并/抽子包），不允许继续新增或回弹。
-> `module/memory` 迁移期间新拆出的直接子包（如 `module/memory/agent`）与新默认 **单文件 600 effective** 一致，无需额外继承项。
-> `module/memory/{agent,team,nested,retrieval,shared}` 当前都已是合规 leaf 包；主包 freeze 只覆盖 `internal/module/memory` 根包自身的非测试文件数与有效行数。
-> **其他包仍遵守 2026-04-17 新默认（单文件 ≤600、包文件数 ≤25、包行数 ≤10000 effective）。**
+> 2026-04-17 autofix 已清理过期 freeze（memory file/package_lines、prompt file、thread package_count/package_lines、turn package_count、claudecli package_count、codexapp package_count 共 8 条），全部回落到新默认预算；后续由 `TestCodeSizeGuard` 在守卫运行时自动 shrink / delete，无需手工维护。
+> `module/memory/{agent,team,nested,retrieval,shared}` 当前都已是合规 leaf 包。
+> 所有未列入本表的包按新默认守卫（单文件 ≤600、包文件数 ≤25、包行数 ≤10000 effective）。
 
 ## 第 2 章：V3 守卫类型完整清单
 
@@ -148,7 +147,7 @@ internal/archtest/
 - allowlist 只允许冻结当前值，只减不增；任何上调都视为新增技术债，直接拒绝。
 - allowlist 一旦存在，死键守卫必须开启；找不到真实文件或函数的冻结项一律失败。
 - 业务包不得用 allowlist 规避拆分；迁移期例外只接受协议表、生成适配层或极少数必须保形的兼容文件。
-- `cmd/mcp-orch`、`cmd/mcp-lsp`、`cmd/mcp-ida` 与 `internal/mcpserver/common` 默认纳入同一组守卫；新写 hand-written 代码必须直接满足单文件 `<=400`、函数 `<=80`、CC `<=10`、包非测试文件 `<=15`。
+- `cmd/mcp-orch`、`cmd/mcp-lsp`、`cmd/mcp-ida` 与 `internal/mcpserver/common` 默认纳入同一组守卫；新写 hand-written 代码必须直接满足 2026-04-17 新默认：单文件 `<=600`、函数 `<=80`、CC `<=10`、包非测试文件 `<=25`、包有效行数 `<=10000`。
 - 从 V2 直接复制到 MCP 服务的协议镜像 / 兼容文件允许迁移期临时豁免，但必须显式写入 allowlist、冻结当前值、标注来源文件与删除条件；任何新逻辑不得继续堆进豁免文件。
 - 当前 `guardlib.go` 中的隐式例外（如 sqlc 目录跳过、provider 文件数放宽）需在 P19 Phase F-2 中提升为显式 freeze registry；在 registry 落地前，这些例外视为迁移期技术债，不得新增。
 - `ViolationDeadKey` 当前仍只有常量定义，真实执行路径待 P19 Phase F-1 补齐；补齐前新增 freeze 项必须同步登记 owner、reason 与 remove_when。

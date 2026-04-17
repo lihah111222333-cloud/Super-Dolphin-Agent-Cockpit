@@ -6,7 +6,7 @@
 >
 > - `cmd/mcp-lsp/*.go`
 > - `cmd/mcp-ida/*.go`
-> - `internal/mcpserver/lsp/{edit,exec,format,gopls,installer,manager,middleware,protocol,search,tools}/*.go`
+> - `cmd/mcp-lsp/{edit,exec,format,gopls,installer,manager,middleware,protocol,search,tools}/*.go`
 >
 > 目录树中同时列出生产文件和当前存在的 `*_test.go`，避免把测试文件误认为“未覆盖”。
 
@@ -34,9 +34,9 @@
    - `registryToolProvider` 同时被 MCP stdio/http server 和 bootstrap `OnToolsList` / `OnToolsCall` 复用。
 
 4. **LSP / 搜索 / 编辑 / 执行实现层**
-   - 真正工具语义落在 `internal/mcpserver/lsp/tools`；
-   - 语言服务抽象在 `internal/mcpserver/lsp/manager`；
-   - 底层多语言 LSP client / manager 基座在 `internal/mcpserver/lsp/gopls`；
+   - 真正工具语义落在 `cmd/mcp-lsp/tools`；
+   - 语言服务抽象在 `cmd/mcp-lsp/manager`；
+   - 底层多语言 LSP client / manager 基座在 `cmd/mcp-lsp/gopls`；
    - 搜索、补丁匹配、显示整形、沙箱执行分别在 `search`、`edit`、`format`、`exec` 子包。
 
 **一句话总结：**`mcp-lsp` 是项目里的多语言代码理解 / 编辑 / 搜索 / 沙箱执行 MCP 侧车。
@@ -50,7 +50,7 @@
 - 响应配置变更、关闭请求、退出 final report；
 - 没有 `common.Server` / `common.HTTPServer`；
 - 没有 tool manifest、schema、handler 映射；
-- 没有对 `internal/mcpserver/lsp` 的直接依赖。
+- 没有对 `cmd/mcp-lsp` 的直接依赖。
 
 另外，`mcp-lsp` 的 bootstrap 注册还要求 `GO_AGENT_PEER_MODE=1`，而 `mcp-ida` 只要 `RPCAddr` 有值就会尝试启动 bootstrap client，这一点与 `mcp-lsp` 不同。
 
@@ -66,84 +66,82 @@ cmd/
 │   ├── main.go
 │   ├── runtime.go
 │   ├── schema.go
-│   └── tools.go
+│   ├── tools.go
+│   ├── edit/
+│   │   ├── patchmatch.go
+│   │   ├── patchmatch_test.go
+│   │   ├── patchparse.go
+│   │   ├── patchparse_test.go
+│   │   ├── replaceutil.go
+│   │   ├── replaceutil_test.go
+│   │   ├── seeksequence.go
+│   │   └── seeksequence_test.go
+│   ├── exec/
+│   │   └── sandbox.go
+│   ├── format/
+│   │   ├── compact.go
+│   │   ├── display.go
+│   │   ├── funcrange.go
+│   │   └── render.go
+│   ├── gopls/
+│   │   ├── bootstrap_doc.go
+│   │   ├── cache.go
+│   │   ├── client.go
+│   │   ├── factory.go
+│   │   ├── gomod.go
+│   │   ├── gomod_test.go
+│   │   ├── manager.go
+│   │   ├── manager_diagnostics.go
+│   │   ├── manager_lifecycle.go
+│   │   ├── manager_symbols.go
+│   │   ├── manager_symbols_fallback.go
+│   │   ├── pool.go
+│   │   ├── recycler.go
+│   │   ├── state.go
+│   │   ├── transport.go
+│   │   └── transport_conn.go
+│   ├── installer/
+│   │   └── installer.go
+│   ├── manager/
+│   │   ├── manager.go
+│   │   ├── registry.go
+│   │   ├── registry_e2e_test.go
+│   │   └── registry_multilang_e2e_test.go
+│   ├── middleware/
+│   │   ├── budget.go
+│   │   ├── logging.go
+│   │   ├── recovery.go
+│   │   └── timeout.go
+│   ├── protocol/
+│   │   ├── codec.go
+│   │   ├── ext.go
+│   │   ├── methods.go
+│   │   ├── notification.go
+│   │   └── types.go
+│   ├── search/
+│   │   ├── fileutil.go
+│   │   ├── language_inference_test.go
+│   │   └── searchutil.go
+│   └── tools/
+│       ├── factory.go
+│       ├── tool_coderun.go
+│       ├── tool_coderuntest.go
+│       ├── tool_completion.go
+│       ├── tool_diagnostics.go
+│       ├── tool_edit.go
+│       ├── tool_edit_replace.go
+│       ├── tool_edit_support.go
+│       ├── tool_edit_support_test.go
+│       ├── tool_file.go
+│       ├── tool_grep.go
+│       ├── tool_inspect.go
+│       ├── tool_middleware_test.go
+│       ├── tool_structure.go
+│       ├── tool_structure_test.go
+│       └── tool_xref.go
 └── mcp-ida/
     ├── fx.go
     └── main.go
-
-internal/mcpserver/lsp/
-├── edit/
-│   ├── patchmatch.go
-│   ├── patchmatch_test.go
-│   ├── patchparse.go
-│   ├── patchparse_test.go
-│   ├── replaceutil.go
-│   ├── replaceutil_test.go
-│   ├── seeksequence.go
-│   └── seeksequence_test.go
-├── exec/
-│   └── sandbox.go
-├── format/
-│   ├── compact.go
-│   ├── display.go
-│   ├── funcrange.go
-│   └── render.go
-├── gopls/
-│   ├── bootstrap_doc.go
-│   ├── cache.go
-│   ├── client.go
-│   ├── factory.go
-│   ├── gomod.go
-│   ├── gomod_test.go
-│   ├── manager.go
-│   ├── manager_diagnostics.go
-│   ├── manager_lifecycle.go
-│   ├── manager_symbols.go
-│   ├── manager_symbols_fallback.go
-│   ├── pool.go
-│   ├── recycler.go
-│   ├── state.go
-│   ├── transport.go
-│   └── transport_conn.go
-├── installer/
-│   └── installer.go
-├── manager/
-│   ├── manager.go
-│   ├── registry.go
-│   ├── registry_e2e_test.go
-│   └── registry_multilang_e2e_test.go
-├── middleware/
-│   ├── budget.go
-│   ├── logging.go
-│   ├── recovery.go
-│   └── timeout.go
-├── protocol/
-│   ├── codec.go
-│   ├── ext.go
-│   ├── methods.go
-│   ├── notification.go
-│   └── types.go
-├── search/
-│   ├── fileutil.go
-│   ├── language_inference_test.go
-│   └── searchutil.go
-└── tools/
-    ├── factory.go
-    ├── tool_coderun.go
-    ├── tool_coderuntest.go
-    ├── tool_completion.go
-    ├── tool_diagnostics.go
-    ├── tool_edit.go
-    ├── tool_edit_replace.go
-    ├── tool_edit_support.go
-    ├── tool_edit_support_test.go
-    ├── tool_file.go
-    ├── tool_grep.go
-    ├── tool_inspect.go
-    ├── tool_middleware_test.go
-    ├── tool_structure.go
-    ├── tool_structure_test.go
-    └── tool_xref.go
 ```
 
 ---
@@ -197,7 +195,7 @@ internal/mcpserver/lsp/
 
 - `tools.go`
   - 维护完整 tool manifest 列表；
-  - `newToolHandlers()` 绑定到 `internal/mcpserver/lsp/tools`；
+  - `newToolHandlers()` 绑定到 `cmd/mcp-lsp/tools`；
   - `toolDefinitions()` 在 handler 缺失时会回退到 `stubToolHandler`，但当前 9 个 manifest 都有实际 handler。
 
 ### 3.2 `cmd/mcp-ida`
@@ -249,7 +247,7 @@ common.Server / common.HTTPServer
       └─ registryToolProvider.CallTool
           └─ handleToolCall
               └─ toolDefinition.Handler
-                  └─ internal/mcpserver/lsp/tools handler
+                  └─ cmd/mcp-lsp/tools handler
                       ├─ middleware.Recovery / Logging / Timeout
                       ├─ lsp_file 与 lsp_grep 额外套 middleware.WithOutputBudget
                       └─ decode + action dispatch + 具体实现
@@ -267,7 +265,7 @@ bootstrap.Config.OnToolsCall
 各 handler 的主要落点：
 
 ```text
-internal/mcpserver/lsp/tools
+cmd/mcp-lsp/tools
   ├─ manager.Registry.GetManagerForFile/GetManagerForLanguage
   ├─ manager.Manager.*                         # hover/rename/symbol/diagnostics/...
   ├─ search.SearchText/SearchAST               # lsp_grep
@@ -398,7 +396,7 @@ main
 | `EditRequest` / `ReplaceEdit` | `tools/tool_edit.go` | `lsp_edit` 请求体；支持隐藏字段 `persist_to_disk`、`version` |
 | `CodeRunRequest` | `tools/tool_coderun.go` | `code_run` 与 `code_run_test` 共用请求载体 |
 | `SandboxRunner` | `tools/tool_coderun.go` | 沙箱运行抽象 |
-| `edit.Hunk` / `edit.Match` / `edit.MatchMode` | `internal/mcpserver/lsp/edit/*` | patch 解析、上下文匹配、宽松匹配模式 |
+| `edit.Hunk` / `edit.Match` / `edit.MatchMode` | `cmd/mcp-lsp/edit/*` | patch 解析、上下文匹配、宽松匹配模式 |
 | `protocol.LocationResult` | `protocol/ext.go` | LSP location union 包装，带 `func_start/func_end` 扩展字段 |
 | `protocol.GroupedLocationResult` | `protocol/ext.go` | `references` compact 结果结构 |
 | `protocol.WorkspaceSymbolResult` / `CodeActionResult` | `protocol/ext.go` | 兼容 union 返回体 |
@@ -406,7 +404,7 @@ main
 
 ---
 
-## 7. `internal/mcpserver/lsp` 各子包职责
+## 7. `cmd/mcp-lsp` 各子包职责
 
 | 子包 | 主要职责 | 关键文件 / 细节 |
 |---|---|---|
@@ -429,8 +427,8 @@ main
 
 | cmd 文件 | 核心直接依赖 | 作用 |
 |---|---|---|
-| `runtime.go` | `common` `pkg/logger` `lsp/gopls` `lsp/installer` `lsp/manager` `lsp/protocol` `platform/runner` | 构造 registry、通用 LSP manager、installer、client factory、stdio runner |
-| `tools.go` | `common` `internal/mcpserver/lsp/tools` | 绑定所有 tool handler 与 manifest |
+| `runtime.go` | `common` `pkg/logger` `cmd/mcp-lsp/gopls` `cmd/mcp-lsp/installer` `cmd/mcp-lsp/manager` `cmd/mcp-lsp/protocol` `platform/runner` | 构造 registry、通用 LSP manager、installer、client factory、stdio runner |
+| `tools.go` | `common` `cmd/mcp-lsp/tools` | 绑定所有 tool handler 与 manifest |
 | `fx.go` | `dto/mcp` `common` `common/bootstrap` `platform/config` `platform/runner` `pkg/logger` | MCP stdio server 与 bootstrap 控制面集成，组装 runners |
 | `http_runner.go` | `common` `platform/config` `platform/runner` `pkg/logger` | HTTP MCP server + peer discovery |
 
@@ -465,7 +463,7 @@ main
 - `pkg/logger`
 - `go.uber.org/fx`
 
-它不在 `internal/mcpserver/lsp` 体系内，也没有本地 MCP tool server。
+它不在 `cmd/mcp-lsp` 体系内，也没有本地 MCP tool server。
 
 ---
 
@@ -473,7 +471,7 @@ main
 
 1. **`mcp-lsp` 的 cmd 层主要是装配层。**
    - schema、manifest、runner、bootstrap 都在 cmd 层；
-   - 真正工具实现集中在 `internal/mcpserver/lsp/tools`。
+   - 真正工具实现集中在 `cmd/mcp-lsp/tools`。
 
 2. **MCP tool 名称、action 列表、schema properties 已与 `tools.go` / `schema.go` 对齐。**
    - 当前 tool 总数为 9；
@@ -509,4 +507,4 @@ main
 
 8. **`mcp-ida` 目前仍是“能力占位 + 生命周期代理”。**
    - 代码中没有落地 MCP tool surface；
-   - 也没有与 `internal/mcpserver/lsp` 形成直接耦合。
+   - 也没有与 `cmd/mcp-lsp` 形成直接耦合。
