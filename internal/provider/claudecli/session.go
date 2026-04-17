@@ -22,7 +22,6 @@ type session struct {
 	publicThreadID       string
 	sessionID            string
 	threadReady          chan struct{}
-	threadReadyOnce      sync.Once
 	transport            *transport
 	caps                 dto.CapabilitySet
 	history              *historyBackend
