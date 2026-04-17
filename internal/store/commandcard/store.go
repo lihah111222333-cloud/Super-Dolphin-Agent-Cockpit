@@ -9,8 +9,16 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// querier is the narrow subset of sqlc.Queries that this store actually uses.
+// Accepting an interface in tests keeps the dependency on the generated
+// sqlc types loose; NewStore still takes the concrete *sqlc.Queries for
+// production wiring.
+type querier interface {
+	ListCommandCards(ctx context.Context, arg sqlc.ListCommandCardsParams) ([]sqlc.ListCommandCardsRow, error)
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Reader { return &store{q: q} }

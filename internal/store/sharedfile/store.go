@@ -7,8 +7,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+type querier interface {
+	GetSharedFile(ctx context.Context, path string) (sqlc.SharedFile, error)
+	ListSharedFiles(ctx context.Context, arg sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error)
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Reader { return &store{q: q} }
