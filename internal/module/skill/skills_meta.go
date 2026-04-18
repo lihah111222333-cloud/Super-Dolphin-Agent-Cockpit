@@ -17,21 +17,23 @@ type skillRecord struct {
 }
 
 func (s *service) scanSkills() ([]skillRecord, error) {
-	root := strings.TrimSpace(s.root)
-	if root == "" {
+	roots := s.skillRoots()
+	if len(roots) == 0 {
 		return nil, nil
-	}
-	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
 	}
 	records := make([]skillRecord, 0, 16)
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		return s.visitSkillEntry(root, path, entry, walkErr, &records)
-	})
-	if err != nil {
-		return nil, err
+	for _, root := range roots {
+		if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return nil, err
+		}
+		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			return s.visitSkillEntry(root, path, entry, walkErr, &records)
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	sort.Slice(records, func(i, j int) bool {
 		return strings.ToLower(records[i].info.Name) < strings.ToLower(records[j].info.Name)
