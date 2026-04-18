@@ -148,37 +148,102 @@ function attachByPaths(paths, source = 'external') {
   return added;
 }
 
-async function handlePaste(event) {
-  const items = event?.clipboardData?.items;
-  if (!items || items.length === 0) return false;
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+const IMAGE_REF_PLACEHOLDER_RE = /<image\s+name\s*=\s*\[?[^>\]]*\]?\s*>.*?<\/image>/i;
 
-  for (const item of items) {
-    if (!item.type.startsWith('image/')) continue;
-    event.preventDefault();
+function extractClipboardImages(event) {
+  const out = [];
+  const seen = new Set();
+  const push = (blob) => {
+    if (!blob || seen.has(blob)) return;
+    seen.add(blob);
+    out.push(blob);
+  };
+  const clipboard = event?.clipboardData;
+  if (!clipboard) return out;
 
-    const blob = item.getAsFile();
-    if (!blob) continue;
-    try {
-      const dataUrl = await blobToDataURL(blob);
-      const base64 = dataUrl.split(',')[1] || '';
-      const tempPath = await saveClipboardImage(base64);
-
-      pushAttachment({
-        kind: 'image',
-        name: `screenshot-${Date.now()}.png`,
-        path: tempPath || '',
-        previewUrl: dataUrl,
-      });
-      logInfo('composer', 'paste.image.added', { has_path: Boolean(tempPath) });
-      return true;
-    } catch (error) {
-      logWarn('composer', 'paste.image.failed', { error });
-      return false;
+  // 1) files[] 是最可靠的图像载体（原生截屏 / 外部应用 copy image）
+  const files = clipboard.files;
+  if (files && files.length > 0) {
+    for (const file of Array.from(files)) {
+      const type = (file?.type || '').toLowerCase();
+      const name = (file?.name || '').toLowerCase();
+      if (type.startsWith('image/') || IMAGE_EXT_RE.test(name)) push(file);
     }
   }
 
-  logDebug('composer', 'paste.ignored', {});
-  return false;
+  // 2) items[] 补漏：部分 WebKit 场景下 kind=file 但 type 为空 / 非标准 MIME
+  const items = clipboard.items;
+  if (items && items.length > 0) {
+    for (const item of Array.from(items)) {
+      if (!item) continue;
+      const type = (item.type || '').toLowerCase();
+      if (type.startsWith('image/')) {
+        const blob = item.getAsFile?.();
+        if (blob) push(blob);
+        continue;
+      }
+      if (item.kind === 'file' && typeof item.getAsFile === 'function') {
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        const blobType = (blob.type || '').toLowerCase();
+        const blobName = (blob.name || '').toLowerCase();
+        if (blobType.startsWith('image/') || IMAGE_EXT_RE.test(blobName)) push(blob);
+      }
+    }
+  }
+  return out;
+}
+
+function describeClipboardShape(clipboard) {
+  const items = clipboard?.items;
+  const files = clipboard?.files;
+  const text = typeof clipboard?.getData === 'function' ? (clipboard.getData('text/plain') || '') : '';
+  return {
+    item_count: items?.length || 0,
+    file_count: files?.length || 0,
+    item_types: items ? Array.from(items).map((it) => `${it?.kind || '?'}:${it?.type || ''}`) : [],
+    text_preview: text.slice(0, 120),
+    has_image_ref_placeholder: IMAGE_REF_PLACEHOLDER_RE.test(text),
+  };
+}
+
+async function saveOnePastedImage(blob, index) {
+  const dataUrl = await blobToDataURL(blob);
+  const base64 = dataUrl.split(',')[1] || '';
+  const tempPath = await saveClipboardImage(base64);
+  pushAttachment({
+    kind: 'image',
+    name: (blob?.name || `screenshot-${Date.now()}-${index}.png`).toString(),
+    path: tempPath || '',
+    previewUrl: dataUrl,
+  });
+  logInfo('composer', 'paste.image.added', { has_path: Boolean(tempPath), index });
+}
+
+async function handlePaste(event) {
+  const blobs = extractClipboardImages(event);
+  if (blobs.length === 0) {
+    const shape = describeClipboardShape(event?.clipboardData);
+    if (shape.has_image_ref_placeholder) {
+      logWarn('composer', 'paste.ignored.imageRefPlaceholder', shape);
+    } else {
+      logDebug('composer', 'paste.ignored', shape);
+    }
+    return false;
+  }
+
+  event.preventDefault();
+  let added = 0;
+  for (let index = 0; index < blobs.length; index += 1) {
+    try {
+      await saveOnePastedImage(blobs[index], index);
+      added += 1;
+    } catch (error) {
+      logWarn('composer', 'paste.image.failed', { error, index });
+    }
+  }
+  return added > 0;
 }
 
 async function handleDrop(event) {
