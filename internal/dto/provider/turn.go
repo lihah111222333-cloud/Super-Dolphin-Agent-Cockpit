@@ -104,6 +104,18 @@ const (
 	SkillSourceNative SkillSource = "native"
 )
 
+// Valid 拒绝未知来源字符串（对称 SkillMode.Valid）。空值视为合法（后兼容：旧 server
+// 发的 SkillRef 无 source 字段）。观测 / 日志层拿到未知值时可告警：说明上游
+// 可能在正在迭代新来源分类，或 payload 被伪造。
+func (s SkillSource) Valid() bool {
+	switch s {
+	case SkillSourceUnspecified, SkillSourceManual, SkillSourceForce,
+		SkillSourceTrigger, SkillSourceExpand, SkillSourceNative:
+		return true
+	}
+	return false
+}
+
 type TurnResult struct {
 	LocalID    string `json:"localId"`
 	ProviderID string `json:"providerId,omitempty"`

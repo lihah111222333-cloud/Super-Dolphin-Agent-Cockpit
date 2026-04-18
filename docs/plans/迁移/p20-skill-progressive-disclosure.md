@@ -193,34 +193,46 @@
 
 ### 3.2 SkillRef 新 DTO
 
+> ⚠️ 本小节框图是设计指导（历史版）。**实际落地规格以 `internal/dto/provider/turn.go` + §6.1 "实施决策" 为准**：实施采纳方案 B（保留 `Prompt` 字段名），未采纳方案 A 的 `Body` 字段重命名。
+
+实际 DTO（2026-04-18 落地）：
+
 ```go
 // internal/dto/provider/turn.go
 type SkillRef struct {
-    Name    string     `json:"name"`
-    Version string     `json:"version,omitempty"` // 从 SKILL.md frontmatter 或内容 hash
-    Mode    SkillMode  `json:"mode,omitempty"`    // "full"|"summary"|"none"（零值 = full 兼容旧）
-    Body    string     `json:"body,omitempty"`    // Mode=Full 时填正文；Mode=Summary 时为空
-    Summary string     `json:"summary,omitempty"` // Mode=Summary 时填 ≤160c 摘要
-    Source  SkillSource `json:"source,omitempty"` // "manual"|"force"|"trigger"|"expand"（追踪决策来源）
+    Name    string      `json:"name"`
+    Version string      `json:"version,omitempty"` // skill 版本 / 内容 hash
+    Mode    SkillMode   `json:"mode,omitempty"`    // ""|full|summary|none；零值 = Effective() 的 Full
+    Prompt  string      `json:"prompt,omitempty"`  // Mode=Full 时填全文；语义等价方案 A 的 Body
+    Summary string      `json:"summary,omitempty"` // Mode=Summary 时填 ≤160c 摘要
+    Source  SkillSource `json:"source,omitempty"`  // 追踪决策来源
 }
 
 type SkillMode string
 const (
-    SkillModeFull    SkillMode = "full"
-    SkillModeSummary SkillMode = "summary"
-    SkillModeNone    SkillMode = "none"
+    SkillModeUnspecified SkillMode = ""         // 空值；由 Effective() 规范化为 Full
+    SkillModeFull        SkillMode = "full"
+    SkillModeSummary     SkillMode = "summary"
+    SkillModeNone        SkillMode = "none"
 )
+
+// Effective：Unspecified 与未知非法值均兑底 Full（失败展开）。
+func (m SkillMode) Effective() SkillMode { ... }
+func (m SkillMode) Valid() bool          { ... }
 
 type SkillSource string
 const (
-    SkillSourceManual  SkillSource = "manual"
-    SkillSourceForce   SkillSource = "force"
-    SkillSourceTrigger SkillSource = "trigger"
-    SkillSourceExpand  SkillSource = "expand" // 由 skill_expand 触发的二次注入
+    SkillSourceUnspecified SkillSource = ""
+    SkillSourceManual      SkillSource = "manual"
+    SkillSourceForce       SkillSource = "force"
+    SkillSourceTrigger     SkillSource = "trigger"
+    SkillSourceExpand      SkillSource = "expand" // skill_expand 触发的二次注入
+    SkillSourceNative      SkillSource = "native" // Claude CLI 原生（Phase 7 设计）
 )
+func (s SkillSource) Valid() bool { ... }
 ```
 
-> **向后兼容**：`Mode == ""` 等价于旧 `Full` 行为；旧 payload 只有 `{Name, Prompt}` 时，`Body` 字段通过 JSON alias 映射（见 §6）。
+> **向后兼容**：`Mode == ""` 等价 Full。旧 payload `{Name, Prompt}` 无需 UnmarshalJSON alias——新 DTO 直接复用 `prompt` JSON tag。
 
 ### 3.3 Resolver 决策矩阵
 
