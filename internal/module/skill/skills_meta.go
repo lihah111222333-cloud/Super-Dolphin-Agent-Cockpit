@@ -1,6 +1,8 @@
 package skill
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -58,7 +60,10 @@ func (s *service) visitSkillEntry(root, path string, entry os.DirEntry, walkErr 
 	if !strings.EqualFold(entry.Name(), skillMainFile) {
 		return nil
 	}
-	record, err := parseSkillRecord(root, path)
+	// 根据当前 root 和 service 状态排定 defaultTrust：项目级 root → untrusted，用户级 → trusted。
+	// frontmatter 中显式 `trust:` 会在 parseSkillInfo 内覆盖此默认值。
+	defaultTrust := s.defaultTrustForRoot(root)
+	record, err := parseSkillRecord(root, path, defaultTrust)
 	if err != nil {
 		return nil
 	}
@@ -66,7 +71,12 @@ func (s *service) visitSkillEntry(root, path string, entry os.DirEntry, walkErr 
 	return nil
 }
 
-func parseSkillRecord(root, path string) (skillRecord, error) {
+// defaultTrustForRoot 根据 root 路径在 service 两个配置 root 中的归属，推断默认信任域。
+func (s *service) defaultTrustForRoot(root string) TrustScope {
+	return inferTrustFromRoot(root, s.projectSkillsRoot, s.root)
+}
+
+func parseSkillRecord(root, path string, defaultTrust TrustScope) (skillRecord, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return skillRecord{}, err
@@ -76,11 +86,11 @@ func parseSkillRecord(root, path string) (skillRecord, error) {
 	if err != nil {
 		return skillRecord{}, err
 	}
-	info := parseSkillInfo(rel, dir, string(data))
+	info := parseSkillInfo(rel, dir, string(data), defaultTrust)
 	return skillRecord{info: info, path: path, rel: filepath.ToSlash(rel)}, nil
 }
 
-func parseSkillInfo(rel, dir, content string) SkillInfo {
+func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo {
 	info := SkillInfo{Name: fallbackSkillName(rel), Dir: dir}
 	frontmatter, body, ok := splitFrontmatter(content)
 	if ok {
@@ -105,6 +115,19 @@ func parseSkillInfo(rel, dir, content string) SkillInfo {
 	info.Summary = truncateRunes(info.Summary, 220)
 	info.TriggerWords = uniqStrings(append(info.TriggerWords, "@"+info.Name, "[skill:"+info.Name+"]"))
 	info.ForceWords = uniqStrings(info.ForceWords)
+	// P20 Phase 1: 信任域与安全字段回填
+	info.AllowedTools = uniqStrings(info.AllowedTools)
+	if info.Trust == TrustUnknown {
+		if defaultTrust.Valid() {
+			info.Trust = defaultTrust
+		} else {
+			info.Trust = TrustProject // 安全兑底：未知源按不受信任处理
+		}
+	}
+	// ContentHash: SHA-256 of the raw SKILL.md full content (frontmatter + body),
+	// 用于审批缓存 (name, hash) 的 TOCTOU 防护 — frontmatter/body 任一改动都重审。
+	sum := sha256.Sum256([]byte(content))
+	info.ContentHash = hex.EncodeToString(sum[:])
 	return info
 }
 
@@ -157,8 +180,30 @@ func applyMetaLine(info *SkillInfo, key, value string, tail []string) int {
 		words, used := parseWordList(value, tail)
 		info.ForceWords = append(info.ForceWords, words...)
 		return used
+	case "trust", "trust_scope", "trustscope":
+		// P20 Phase 1: 显式覆盖由 root 推断的信任域。未知值被视为未设置（保留推断结果）。
+		if scope := parseTrustScope(parseScalar(value)); scope != TrustUnknown {
+			info.Trust = scope
+		}
+	case "allowed-tools", "allowed_tools", "allowedtools", "tools":
+		words, used := parseWordList(value, tail)
+		info.AllowedTools = append(info.AllowedTools, words...)
+		return used
+	case "disable-model-invocation", "disable_model_invocation", "disablemodelinvocation":
+		if parseBoolScalar(parseScalar(value)) {
+			info.DisableModelInvocation = true
+		}
 	}
 	return 0
+}
+
+// parseBoolScalar 识别常见的布尔表示法：true/yes/on/1 为 true，其余（包括空）为 false。不区分大小写。
+func parseBoolScalar(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "yes", "y", "on", "1":
+		return true
+	}
+	return false
 }
 
 func parseWordList(value string, tail []string) ([]string, int) {
