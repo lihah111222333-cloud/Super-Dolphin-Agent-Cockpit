@@ -38,7 +38,17 @@ type ApprovalCache struct {
 	writeMu sync.Mutex
 }
 
-// ApprovalEntry 是单条审批记录。
+// ApprovalEntry 是单条审批记录，持久化到 skills-trust.json 的 entries 数组中。
+//
+// 字段语义：
+//   - Name：skill 标识符，已经 validateSkillName 规范化（小写、trim）。
+//   - ContentHash：SKILL.md 全文 SHA-256 (hex lowercase)；任一字符改动都会导致 hash 变化
+//     从而失效本条审批，强制重审（TOCTOU 防御）。
+//   - Trust：审批时的信任归属结果（从 frontmatter 或 inferTrustFromRoot 得到）。
+//     注意：entry.Trust 记录的是审批当时的快照；若 skill 被移至不同 root，
+//     新 scan 产生的 SkillInfo.Trust 会不同，审批条目并不自动迁移。
+//   - ApprovedAt：UTC 时标；重复 Approve 同一 (name, hash) 会覆盖。
+//   - ApprovedBy：批准人标识（用户名 / OAuth subject / “ci” 等）；可为空。
 type ApprovalEntry struct {
 	Name        string     `json:"name"`
 	ContentHash string     `json:"content_hash"`
@@ -130,7 +140,27 @@ func (c *ApprovalCache) Lookup(name, contentHash string) (ApprovalEntry, bool) {
 	return entry, true
 }
 
-// Approve 写入审批记录并持久化。approvedBy 可为空。
+// Approve 写入审批记录并持久化到盘上。
+//
+// 输入校验：
+//   - name：经 validateSkillName 验证，不合法返回 ErrInvalidSkillName 的 wrapped error
+//     （调用方可 errors.Is(err, ErrInvalidSkillName) 检查）。
+//   - contentHash：不能为空，无格式强制但建议传 SHA-256 hex（8-64 字符）。
+//   - trust：若非法，兑底为 TrustProject（最不受信任）。
+//   - approvedBy：可为空字符串。
+//
+// 并发语义：
+//   - 多个 Approve/Revoke 调用被 writeMu 串行化，保证 snapshot 与 rename 顺序一致、
+//     不会出现“先写盘的被后写盘覆盖”的丢失写入。
+//   - 读路径 Lookup/Entries 不被盘 IO 阻塞。
+//
+// 幂等性：同一 (name, contentHash) 重复 Approve 会更新 ApprovedAt/ApprovedBy/Trust
+// 字段（修诂效果是“刷新批准时间戳”），返回值为最新 entry。
+//
+// 部分失败：写盘失败时，entry 已经写入内存 map、但盘上未更新，函数返回非 nil err
+// 与最新 entry。调用方应：
+//   - 记录错误日志，但可继续使用内存 cache（下次 Approve 会重试整 snapshot）。
+//   - 若需硬保证持久化，应将 err 向上传递给用户、让其重试。
 func (c *ApprovalCache) Approve(name, contentHash string, trust TrustScope, approvedBy string) (ApprovalEntry, error) {
 	if c == nil {
 		return ApprovalEntry{}, errors.New("approval cache is nil")
