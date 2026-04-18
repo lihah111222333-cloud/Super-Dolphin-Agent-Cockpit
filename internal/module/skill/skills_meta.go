@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -77,6 +78,16 @@ func (s *service) defaultTrustForRoot(root string) TrustScope {
 }
 
 func parseSkillRecord(root, path string, defaultTrust TrustScope) (skillRecord, error) {
+	// P20 Phase 1 安全加固：扫盘期严格限制 SKILL.md 大小。旧实现裸走 os.ReadFile
+	// 没有 size check，恶意项目可在 .agent/skills/evil/SKILL.md 放 10GB 垂垃引发启动期 OOM
+	// （与 ReadLocal/WriteLocal/ReadRemote 的 maxSkillFileBytes 限制保持一致）。
+	stat, err := os.Stat(path)
+	if err != nil {
+		return skillRecord{}, err
+	}
+	if stat.Size() > maxSkillFileBytes {
+		return skillRecord{}, fmt.Errorf("skill file too large: %s is %d bytes, limit %d", path, stat.Size(), maxSkillFileBytes)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return skillRecord{}, err
