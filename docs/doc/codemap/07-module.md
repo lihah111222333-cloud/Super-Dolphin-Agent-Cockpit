@@ -193,11 +193,13 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 ### 职责
 
-- 管理本地技能目录（默认 `CODEX_HOME/skills` 或 `~/.codex/skills`）。
+- 管理本地技能目录，双根设计：
+  - **系统根**：`$SKILLS_ROOT`（若设置）或 `~/.multi-agent/skills`（`UserHomeDir` 失败时兜底到 `$TMPDIR/multi-agent-skills`）；
+  - **项目根**：`<projectRoot>/.agent/skills`（`projectRoot` 为空时省略）。
 - 解析 `SKILL.md` frontmatter，生成技能元数据、摘要、触发词与强触发词。
 - 提供两类文件能力：
-  - **skills root** 下的技能写入/导入/删除；
-  - **project root** 下的本地文件读写/列目录（`skills/local/*`）。
+  - 任一 skills root 内的技能写入/导入/删除；
+  - 任一 skills root 内的本地文件读写/列目录（`skills/local/*`）。
 - 提供 `skills/match/preview` 的技能命中预览。
 - 提供受限 `command/exec` 执行环境，并发布 `uidto.SkillsChanged`。
 
@@ -212,25 +214,26 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 
 1. **技能扫描 / 列表**
    - `skills/list` → `ListSkills` → `scanSkills`
-   - 遍历 skills root 下所有 `SKILL.md`
+   - 依次遍历 **项目根**（若有）与 **系统根** 下所有 `SKILL.md`（详见 `service.skillRoots`）
    - `parseSkillInfo` 解析 `name/description/summary/trigger_words/force_words`
    - 若无 `summary`，则从正文中自动提取首段可读文本
 
 2. **skills root 本地文件操作**
    - `skills/local/read` / `skills/local/listFiles` / `skills/local/write`
-   - 统一经 `resolveSkillPath` 做路径归一化与越界校验（根为 `s.root`，即 `~/.codex/skills` 或 `$CODEX_HOME/skills`）
+   - 统一经 `resolveSkillPath` 做路径归一化与越界校验：只要路径落在 **任一 skills root**（项目根 `<projectRoot>/.agent/skills` 或系统根 `~/.multi-agent/skills`）内即可
    - `ReadLocal` 读取的是 **skills root 内现有普通文件**，并返回生成摘要
    - `WriteLocal` 也要求目标文件已存在，会保留原文件权限位后回写内容
 
 3. **skills root 技能写入 / 导入 / 删除**
    - `skills/local/importDir`
      - 支持 `path` 或 `paths`，并支持 glob 展开
-     - 接受任意绝对/相对路径作为导入源（不再受 project root 约束），但拒绝源位于 skills root 内以避免循环导入
+     - 接受任意绝对/相对路径作为导入源，但拒绝源位于任一 skills root 内以避免循环导入
+     - 导入目标目录固定写入系统根（`s.root`）
      - 禁止 symlink
    - `skills/local/delete`
-     - 先 `resolveSkill(name)`，再删除对应技能目录
+     - 先 `resolveSkill(name)`，再删除对应技能目录（能命中任一根下的技能）
    - `skills/config/write` / `skills/remote/write` / `skills/remote/export`
-     - 最终都走 `writeSkill(name, content)`，写到 skills root 下 `SKILL.md`
+     - 最终都走 `writeSkill(name, content)`，写到系统根下 `SKILL.md`
    - `skills/summary/write`
      - 通过 `upsertSkillSummary` 更新 frontmatter `summary`
 

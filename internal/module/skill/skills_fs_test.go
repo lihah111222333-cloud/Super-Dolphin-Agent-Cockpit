@@ -112,6 +112,90 @@ func TestWriteLocalRejectsPathOutsideSkillsRoot(t *testing.T) {
 	}
 }
 
+func TestReadLocalAcceptsPathInsideProjectSkillsRoot(t *testing.T) {
+	t.Parallel()
+
+	systemRoot := t.TempDir()
+	projectSkillsRoot := t.TempDir()
+	skillPath := filepath.Join(projectSkillsRoot, "demo", skillMainFile)
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(skillPath, []byte("# demo"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	svc := &service{root: systemRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+
+	out, err := svc.ReadLocal(context.Background(), skillPath)
+	if err != nil {
+		t.Fatalf("ReadLocal() error = %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("ReadLocal() result type = %T", out)
+	}
+	skill, ok := result["skill"].(map[string]any)
+	if !ok {
+		t.Fatalf("ReadLocal() skill type = %T", result["skill"])
+	}
+	if got, _ := skill["content"].(string); got != "# demo" {
+		t.Fatalf("ReadLocal() content = %q, want # demo", got)
+	}
+}
+
+func TestListSkillsMergesProjectAndSystemRoots(t *testing.T) {
+	t.Parallel()
+
+	systemRoot := t.TempDir()
+	projectSkillsRoot := t.TempDir()
+	writeTestSkill(t, systemRoot, "from-system", "# system")
+	writeTestSkill(t, projectSkillsRoot, "from-project", "# project")
+	svc := &service{root: systemRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+
+	skills, err := svc.ListSkills(context.Background())
+	if err != nil {
+		t.Fatalf("ListSkills() error = %v", err)
+	}
+	names := make(map[string]bool, len(skills))
+	for _, skill := range skills {
+		names[skill.Name] = true
+	}
+	if !names["from-system"] || !names["from-project"] {
+		t.Fatalf("ListSkills() names = %#v, want both roots covered", names)
+	}
+}
+
+func TestImportLocalDirRejectsSourceInsideProjectSkillsRoot(t *testing.T) {
+	t.Parallel()
+
+	systemRoot := t.TempDir()
+	projectSkillsRoot := t.TempDir()
+	sourceDir := filepath.Join(projectSkillsRoot, "demo-skill")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	svc := &service{root: systemRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+
+	out, err := svc.ImportLocalDir(context.Background(), importSkillDirParams{Path: sourceDir})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("ImportLocalDir() result type = %T", out)
+	}
+	failures, ok := result["failures"].([]map[string]any)
+	if !ok || len(failures) != 1 {
+		t.Fatalf("ImportLocalDir() failures = %#v, want single failure", result["failures"])
+	}
+	if got := failures[0]["error"]; got != "source is inside skills root: "+sourceDir {
+		t.Fatalf("ImportLocalDir() failure error = %#v", got)
+	}
+}
+
 func TestImportLocalDirAcceptsSourceOutsideProjectRoot(t *testing.T) {
 	t.Parallel()
 

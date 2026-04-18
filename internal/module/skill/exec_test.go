@@ -108,7 +108,38 @@ func TestNewServiceConfiguresProjectRootAndHTTPTimeout(t *testing.T) {
 	if impl.projectRoot != "/tmp/project" {
 		t.Fatalf("projectRoot mismatch: got %q", impl.projectRoot)
 	}
+	if got, want := impl.projectSkillsRoot, "/tmp/project/.agent/skills"; got != want {
+		t.Fatalf("projectSkillsRoot mismatch: got %q want %q", got, want)
+	}
 	if impl.http == nil || impl.http.Timeout != 15*time.Second {
 		t.Fatalf("http timeout mismatch: %#v", impl.http)
+	}
+}
+
+func TestNewServiceOmitsProjectSkillsRootWhenProjectRootEmpty(t *testing.T) {
+	t.Parallel()
+
+	impl, ok := NewService("   ").(*service)
+	if !ok {
+		t.Fatal("NewService type assertion failed")
+	}
+	if impl.projectRoot != "" {
+		t.Fatalf("projectRoot mismatch: got %q", impl.projectRoot)
+	}
+	if impl.projectSkillsRoot != "" {
+		t.Fatalf("projectSkillsRoot mismatch: got %q want empty", impl.projectSkillsRoot)
+	}
+}
+
+func TestDefaultSkillsRootHonorsSkillsRootEnvOverride(t *testing.T) {
+	override := t.TempDir()
+	t.Setenv("SKILLS_ROOT", "  "+override+"  ")
+
+	impl, ok := NewService("").(*service)
+	if !ok {
+		t.Fatal("NewService type assertion failed")
+	}
+	if impl.root != override {
+		t.Fatalf("root mismatch: got %q want %q", impl.root, override)
 	}
 }

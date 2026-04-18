@@ -266,7 +266,7 @@ func (s *service) importSource(source, name string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureSourceOutsideRoot(root, resolvedSource, source); err != nil {
+	if err := ensureSourceOutsideRoots(s.skillRoots(), resolvedSource, source); err != nil {
 		return nil, err
 	}
 	targetName := strings.TrimSpace(name)
@@ -314,18 +314,20 @@ func (s *service) prepareSkillsRoot() (string, error) {
 	return root, nil
 }
 
-// ensureSourceOutsideRoot 防止将技能库内部目录再套娃导入成新技能。
-func ensureSourceOutsideRoot(root, resolvedSource, originalSource string) error {
-	rootPath, err := canonicalProjectPath(root)
-	if err != nil {
-		return nil
-	}
-	outside, err := pathEscapesRoot(rootPath, resolvedSource)
-	if err != nil {
-		return nil
-	}
-	if !outside {
-		return fmt.Errorf("source is inside skills root: %s", originalSource)
+// ensureSourceOutsideRoots 防止将任一技能根内的目录再套娃导入成新技能。
+func ensureSourceOutsideRoots(roots []string, resolvedSource, originalSource string) error {
+	for _, root := range roots {
+		rootPath, err := canonicalProjectPath(root)
+		if err != nil {
+			continue
+		}
+		outside, err := pathEscapesRoot(rootPath, resolvedSource)
+		if err != nil {
+			continue
+		}
+		if !outside {
+			return fmt.Errorf("source is inside skills root: %s", originalSource)
+		}
 	}
 	return nil
 }
@@ -376,26 +378,28 @@ func (s *service) resolveSkillPath(target string) (string, error) {
 	if target == "" {
 		return "", errors.New("path is required")
 	}
-	root := strings.TrimSpace(s.root)
-	if root == "" {
+	roots := s.skillRoots()
+	if len(roots) == 0 {
 		return "", errors.New("skills root is not configured")
-	}
-	rootPath, err := canonicalProjectPath(root)
-	if err != nil {
-		return "", err
 	}
 	targetPath, err := canonicalProjectPath(target)
 	if err != nil {
 		return "", err
 	}
-	outside, err := pathEscapesRoot(rootPath, targetPath)
-	if err != nil {
-		return "", err
+	for _, root := range roots {
+		rootPath, err := canonicalProjectPath(root)
+		if err != nil {
+			return "", err
+		}
+		outside, err := pathEscapesRoot(rootPath, targetPath)
+		if err != nil {
+			return "", err
+		}
+		if !outside {
+			return targetPath, nil
+		}
 	}
-	if outside {
-		return "", fmt.Errorf("path escapes skills root: %s", target)
-	}
-	return targetPath, nil
+	return "", fmt.Errorf("path escapes skills root: %s", target)
 }
 
 func canonicalProjectPath(path string) (string, error) {

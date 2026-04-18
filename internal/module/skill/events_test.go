@@ -14,12 +14,12 @@ func TestWriteSkillContentPublishesSkillsChanged(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	t.Setenv("CODEX_HOME", t.TempDir())
 	got := make(chan uidto.SkillsChanged, 1)
 	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
 	defer cancel()
 
 	svc := NewService("").(*service)
+	svc.root = t.TempDir()
 	svc.bindDispatcher(dispatcher)
 	if _, err := svc.WriteSkillContent(context.Background(), "demo-skill", "# Demo"); err != nil {
 		t.Fatalf("WriteSkillContent() error = %v", err)
