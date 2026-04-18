@@ -126,7 +126,10 @@
 ┌────────────────────────────────────────────────────────┐
 │ L2：skill_expand(name, section?, max_bytes=20000)       │
 │   ↓                                                    │
-│   skill.Service.ReadLocal(name)                        │
+│   skill.Service.Expand(ctx, name, section, maxBytes)   │
+│   (Phase 6 新增 API：name→path 解析 + section 抽取 +    │
+│    扁平化返回；不直接复用 ReadLocal(ctx, path)，后者    │
+│    签名吃 path 非 name 且返回嵌套 map)                  │
 │   → { name, path, version, summary, content,          │
 │       truncated, total_bytes }                         │
 └────────────────────────────────────────────────────────┘
@@ -213,16 +216,16 @@ const (
 
 | # | 维度 | 判定 | 最关键问题 | 对应章节 |
 |---|---|---|---|---|
-| 1 | 官方范式对齐度 | 需优化 6.5/10 | trigger/force_words 硬路由抢走模型判断权 | §5.3（Phase 3） |
-| 2 | Token 预算 | 需优化 | L1+turn 双重注入摘要；应 token 维度、两级清单 | §3.1 §5.2 |
-| 3 | 模型自主调用率 | 需优化（裸方案 50%）| 必加元指令 + `<system-reminder>` 兜底 | §5.5（Phase 5） |
-| 4 | DTO 兼容性 | 可行（需优化）| trim 读端必须先放宽再切写端 | §5.4（Phase 4 顺序）|
-| 5 | Resolver 决策 | 需优化 | 缺 top-k / 子串匹配 / 已展开状态持久化 | §3.3 §5.3 |
-| 6 | Rollout 清理 | 需优化（致命）| 摘要/展开变体会被当用户输入回放 | §3.4 §5.4 |
-| 7 | skill_expand 工具设计 | 需优化 | 签名过瘦；MCP 规范符合度不足 | §5.6（Phase 6）|
-| 8 | 多 provider 一致性 | 可行（需抽象）| claudecli + 原生 skills = 双倍 token | §5.7（Phase 7）|
-| 9 | 安全（最严峻）| 需优化（高危）| 项目级 skill = 不受信任源 → 间接 prompt injection | §5.1（Phase 1）|
-| 10 | 可观测性/灰度 | 需优化 | 默认 true 违反 flag 原则；5 处改动需共享 Policy | §7 |
+| 1 | 官方范式对齐度 | 需优化 6.5/10 | trigger/force_words 硬路由抢走模型判断权 | Phase 8 + Phase 9 |
+| 2 | Token 预算 | 需优化 | L1+turn 双重注入摘要；应 token 维度、两级清单 | §3.1 + Phase 8 |
+| 3 | 模型自主调用率 | 需优化（裸方案 50%）| 必加元指令 + `<system-reminder>` 兜底 | Phase 9 |
+| 4 | DTO 兼容性 | 可行（需优化）| trim 读端必须先放宽再切写端 | Phase 2 → Phase 3 → Phase 4（严格顺序）|
+| 5 | Resolver 决策 | 需优化 | 缺 top-k / 子串匹配 / 已展开状态持久化 | Phase 5 |
+| 6 | Rollout 清理 | 需优化（致命）| 摘要/展开变体会被当用户输入回放 | §3.4 + Phase 3 |
+| 7 | skill_expand 工具设计 | 需优化 | 签名过瘦；MCP 规范符合度不足 | Phase 6 |
+| 8 | 多 provider 一致性 | 可行（需抽象）| claudecli + 原生 skills = 双倍 token | Phase 7 |
+| 9 | 安全（最严峻）| 需优化（高危）| 项目级 skill = 不受信任源 → 间接 prompt injection | Phase 1 |
+| 10 | 可观测性/灰度 | 需优化 | 默认 true 违反 flag 原则；5 处改动需共享 Policy | Phase 10 |
 
 **4 条红线（上线阻断项）**：
 1. **安全信任边界**（审查9）—— 项目级 skill 默认 untrusted + `skill_expand` 按 hash 审批 + name 正则 + path 归一
@@ -374,8 +377,9 @@ const (
 | 文件 | 改动 |
 |------|------|
 | `internal/module/skill/rpc_skill_types.go` | 新增 `skillExpandParams { Name, Section?, MaxBytes int64 }`、`skillExpandResult { Name, Path, Version, Summary, Content, Truncated, TotalBytes }` |
-| `internal/module/skill/rpc_skill.go`（新建或扩展） | 方法 `skill/expand`、`skill/list`；`expand` 调用 `ReadLocal` + section 抽取 + 审批检查 |
-| `internal/module/skill/contract.go` | Service 接口加 `Expand(ctx, name, section, maxBytes)` |
+| `internal/module/skill/rpc_skill.go`（新建或扩展） | 方法 `skill/expand`、`skill/list`；`expand` 调用**新增** `Service.Expand(ctx, name, section, maxBytes)` + 审批检查。**不直接复用现有 `ReadLocal(ctx, path)`**（签名吃 path 非 name，返回嵌套 `map[string]any{"skill":{...}}`），须在 Service 层新增 name→path 解析 + section 抽取 + 扁平化结构的专用 API |
+| `internal/module/skill/contract.go:8` | `Service` 接口新增 `Expand(ctx context.Context, name, section string, maxBytes int64) (SkillExpandResult, error)`；`SkillExpandResult { Name, Path, Version, Summary, Content string; Truncated bool; TotalBytes int64 }`；现有 `ReadLocal(ctx, path)` 保持不变 |
+| `internal/module/skill/skills_fs.go` | 实现 `Service.Expand`：复用 `resolveSkillPath` / `scanSkills` 做 name→path 解析，再 `os.ReadFile` + section 抽取（Markdown H2/H3 锚点）+ `maxBytes` 截断 |
 | `cmd/mcp-orch/`（若需要） | 将 `skill_expand` / `skill_list` 注册为 MCP tool，统一暴露给底层 LLM（Codex/Claude）|
 | `internal/module/skill/rpc_skill_test.go` | expand 错误路径：不存在 → `is_error:true` + 附可用列表；路径逃逸 → 拒绝；超 max_bytes → `truncated:true` |
 
@@ -437,8 +441,8 @@ if `name` doesn't exist.
 | 文件 | 改动 |
 |------|------|
 | `internal/module/prompt/skill_catalog_provider.go`（新建） | 实现 `DynamicSectionProvider`；`CacheByName` 缓存；token 预算 `SKILL_MANIFEST_TOKEN_BUDGET=3000`（env 可覆盖）|
-| `internal/module/prompt/dynamic.go:69`（`dynamicSectionSpecs`）| 注册 `DynamicSectionSkillCatalog` spec |
-| `internal/module/prompt/service.go:60-71`（`NewService`）| `mustRegisterDynamicProvider(NewSkillCatalogProvider(skillSvc))` |
+| `internal/module/prompt/dynamic.go:53`（`var dynamicSectionSpecs`）| 注册 `DynamicSectionSkillCatalog` spec |
+| `internal/module/prompt/service.go:47-73`（`NewService`）| 在现有 `mustRegisterDynamicProvider` 调用链（60-64 行）后追加：`mustRegisterDynamicProvider(svc, NewSkillCatalogProvider(skillSvc))`（注意第一个参数是 `svc` 自身，对齐 `SessionGuidanceProvider{}` 等同款签名）|
 | `internal/module/prompt/skill_catalog_provider_test.go` | L1 核心/索引分层；pinned 优先；token 预算截断；空 skill 列表返回空 section |
 
 #### 渲染格式
@@ -637,7 +641,7 @@ Phase 7 Port  ────────┴─→ Phase 9 元指令 ─→ Phase 1
 
 ## 9. 验收标准（全项必过）
 
-- [ ] 10 Phase 全部代码就绪，`go build ./...` 成功
+- [ ] 11 Phase 全部代码就绪，`go build ./...` 成功
 - [ ] `go test ./internal/module/skill/... ./internal/module/turn/... ./internal/module/prompt/... ./internal/provider/...` 全绿
 - [ ] Golden-file：rollout trim 覆盖 5 种场景（legacy / new full / summary / expanded / mixed）
 - [ ] 人工评测：10 种典型任务，`skill_expand` 调用正确率 ≥ 80%
@@ -685,7 +689,7 @@ Phase 7 Port  ────────┴─→ Phase 9 元指令 ─→ Phase 1
 - Martin Fowler — Feature Toggles
 - 本仓库：`docs/plans/迁移/p18/p18.3-advanced-alignment.md`（注入链前置方案）
 
-### C. 本方案被否决的偏离点（审查1）
+### C. 刻意保留的偏离点（审查1 提出，权衡后保留）
 
 | 偏离 | 官方做法 | 本方案抉择 | 理由 |
 |---|---|---|---|
