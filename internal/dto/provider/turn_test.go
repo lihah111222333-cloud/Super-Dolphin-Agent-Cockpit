@@ -169,6 +169,57 @@ func TestSkillRef_UnmarshalKeepsUnknownMode(t *testing.T) {
 	}
 }
 
+// TestSkillSource_Valid 对称 TestSkillMode_Valid——确保未来延伸 SkillSource 枚举时
+// 什么值是合法的由 Valid() 单点控制，而不是散在各个 switch 里。
+func TestSkillSource_Valid(t *testing.T) {
+	valid := []SkillSource{SkillSourceUnspecified, SkillSourceManual, SkillSourceForce, SkillSourceTrigger, SkillSourceExpand, SkillSourceNative}
+	for _, s := range valid {
+		if !s.Valid() {
+			t.Fatalf("%q should be Valid", s)
+		}
+	}
+	invalid := []SkillSource{"MANUAL", "auto", "robot", " force ", "system"}
+	for _, s := range invalid {
+		if s.Valid() {
+			t.Fatalf("%q should NOT be Valid", s)
+		}
+	}
+}
+
+// TestSkillRef_SteerRequestEmbedding 对称 TurnRequest——确保 SteerRequest 路径上的 skills
+// 反序列化行为在 Phase 2 扩展后仍保留字段完整性。
+func TestSkillRef_SteerRequestEmbedding(t *testing.T) {
+	req := SteerRequest{
+		ThreadID:             "t1",
+		ExpectedTurnID:       "t1-turn-2",
+		ManualSkillSelection: true,
+		Skills: []SkillRef{
+			{Name: "a", Mode: SkillModeSummary, Summary: "hi", Source: SkillSourceManual},
+			{Name: "b", Version: "v2", Prompt: "body", Source: SkillSourceForce},
+		},
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var back SteerRequest
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(back.Skills) != 2 {
+		t.Fatalf("skills len = %d", len(back.Skills))
+	}
+	if back.Skills[0].Source != SkillSourceManual || back.Skills[0].Mode != SkillModeSummary {
+		t.Fatalf("skill[0] lost: %+v", back.Skills[0])
+	}
+	if back.Skills[1].Version != "v2" || back.Skills[1].Source != SkillSourceForce {
+		t.Fatalf("skill[1] lost: %+v", back.Skills[1])
+	}
+	if !back.ManualSkillSelection {
+		t.Fatalf("ManualSkillSelection lost")
+	}
+}
+
 // TestSkillRef_TurnRequestEmbedding 确认 SkillRef 嵌入 TurnRequest 序列化正常。
 func TestSkillRef_TurnRequestEmbedding(t *testing.T) {
 	req := TurnRequest{
