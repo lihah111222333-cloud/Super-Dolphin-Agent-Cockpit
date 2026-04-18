@@ -52,6 +52,25 @@ func TestParseSkillInfo_SafetyFallbackToProject(t *testing.T) {
 	}
 }
 
+// 非法 trust 值（如 "banana"）应被 parseTrustScope 返回 TrustUnknown，
+// 使 parseSkillInfo 的回填逻辑回落到 defaultTrust，而不是被误写为 TrustUnknown。
+func TestParseSkillInfo_InvalidFrontmatterTrustUsesDefault(t *testing.T) {
+	content := "---\nname: foo\ntrust: banana\n---\nbody"
+	info := helperParse(t, content, TrustUser)
+	if info.Trust != TrustUser {
+		t.Fatalf("invalid trust value should fall back to default (TrustUser): got %q", info.Trust)
+	}
+}
+
+// defaultTrust 也非法时（TrustUnknown）最终应回落到安全兑底 TrustProject。
+func TestParseSkillInfo_InvalidFrontmatterAndInvalidDefault_FallbackToProject(t *testing.T) {
+	content := "---\nname: foo\ntrust: nonsense\n---\nbody"
+	info := helperParse(t, content, TrustUnknown)
+	if info.Trust != TrustProject {
+		t.Fatalf("both invalid should safety-fallback to TrustProject: got %q", info.Trust)
+	}
+}
+
 func TestParseSkillInfo_AllowedTools(t *testing.T) {
 	content := "---\nname: foo\nallowed-tools: [Read, skill_expand]\n---\n\nbody"
 	info := helperParse(t, content, TrustProject)
