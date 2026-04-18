@@ -27,7 +27,7 @@ func (s *service) ListSkills(context.Context) ([]SkillInfo, error) {
 }
 
 func (s *service) ReadLocal(_ context.Context, path string) (any, error) {
-	path, err := s.resolveProjectPath(path)
+	path, err := s.resolveSkillPath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (s *service) ListLocalFiles(_ context.Context, p listSkillFilesParams) (any
 	if dir == "" {
 		return nil, errors.New("dir or path is required")
 	}
-	dir, err := s.resolveProjectPath(dir)
+	dir, err := s.resolveSkillPath(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (s *service) ListLocalFiles(_ context.Context, p listSkillFilesParams) (any
 }
 
 func (s *service) WriteLocal(_ context.Context, path, content string) (any, error) {
-	path, err := s.resolveProjectPath(path)
+	path, err := s.resolveSkillPath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -258,36 +258,87 @@ func (s *service) importSources(sources []string, singleName string) ([]map[stri
 }
 
 func (s *service) importSource(source, name string) (map[string]any, error) {
-	source, err := s.resolveProjectPath(source)
+	resolvedSource, err := validateImportSource(source)
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(source)
+	root, err := s.prepareSkillsRoot()
 	if err != nil {
 		return nil, err
 	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("path is not a directory: %s", source)
+	if err := ensureSourceOutsideRoot(root, resolvedSource, source); err != nil {
+		return nil, err
 	}
 	targetName := strings.TrimSpace(name)
 	if targetName == "" {
-		targetName = filepath.Base(source)
-	}
-	root := strings.TrimSpace(s.root)
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, err
+		targetName = filepath.Base(resolvedSource)
 	}
 	targetDir := filepath.Join(root, skillSlug(targetName))
-	if _, err := os.Stat(targetDir); err == nil {
-		return nil, fmt.Errorf("skill already exists: %s", targetName)
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if err := ensureSkillDirAbsent(targetDir, targetName); err != nil {
 		return nil, err
 	}
-	files, bytes, err := copySkillDir(source, targetDir)
+	files, bytes, err := copySkillDir(resolvedSource, targetDir)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"name": targetName, "dir": targetDir, "skill_file": filepath.Join(targetDir, skillMainFile), "source": source, "files": files, "bytes": bytes}, nil
+	return map[string]any{"name": targetName, "dir": targetDir, "skill_file": filepath.Join(targetDir, skillMainFile), "source": resolvedSource, "files": files, "bytes": bytes}, nil
+}
+
+func validateImportSource(source string) (string, error) {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return "", errors.New("path is required")
+	}
+	resolved, err := canonicalProjectPath(source)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("path is not a directory: %s", resolved)
+	}
+	return resolved, nil
+}
+
+func (s *service) prepareSkillsRoot() (string, error) {
+	root := strings.TrimSpace(s.root)
+	if root == "" {
+		return "", errors.New("skills root is not configured")
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+// ensureSourceOutsideRoot 防止将技能库内部目录再套娃导入成新技能。
+func ensureSourceOutsideRoot(root, resolvedSource, originalSource string) error {
+	rootPath, err := canonicalProjectPath(root)
+	if err != nil {
+		return nil
+	}
+	outside, err := pathEscapesRoot(rootPath, resolvedSource)
+	if err != nil {
+		return nil
+	}
+	if !outside {
+		return fmt.Errorf("source is inside skills root: %s", originalSource)
+	}
+	return nil
+}
+
+func ensureSkillDirAbsent(targetDir, targetName string) error {
+	_, err := os.Stat(targetDir)
+	if err == nil {
+		return fmt.Errorf("skill already exists: %s", targetName)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func copySkillDir(source, target string) (int, int64, error) {
@@ -320,14 +371,14 @@ func copySkillDir(source, target string) (int, int64, error) {
 	return files, total, err
 }
 
-func (s *service) resolveProjectPath(target string) (string, error) {
+func (s *service) resolveSkillPath(target string) (string, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return "", errors.New("path is required")
 	}
-	root := strings.TrimSpace(s.projectRoot)
+	root := strings.TrimSpace(s.root)
 	if root == "" {
-		return "", errors.New("project root is not configured")
+		return "", errors.New("skills root is not configured")
 	}
 	rootPath, err := canonicalProjectPath(root)
 	if err != nil {
@@ -342,7 +393,7 @@ func (s *service) resolveProjectPath(target string) (string, error) {
 		return "", err
 	}
 	if outside {
-		return "", fmt.Errorf("path escapes project root: %s", target)
+		return "", fmt.Errorf("path escapes skills root: %s", target)
 	}
 	return targetPath, nil
 }
