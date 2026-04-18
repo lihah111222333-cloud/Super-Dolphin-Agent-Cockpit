@@ -1,11 +1,58 @@
 package skill
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
+
+// TestApprovalCache_HashPrefixCollision 验证 Lookup 在 12 位 key 前缀碰撞场景下
+// 依然严格按全 hash 返回。由于 sha256 48-bit 前缀碰撞概率极低，此处用手工
+// 构造的 64 hex 字符串模拟 —— Approve 时 map key 只取前 12 位，新写入会覆盖条目数据，
+// 但 Lookup 的全 hash 对比能拦截误中。该 case 保障未来重构误改成 short-hash 对比不会静默失效。
+func TestApprovalCache_HashPrefixCollisionStrictLookup(t *testing.T) {
+	cache := newTestCache(t)
+	shared := "abcdef012345" // 共享前 12 位
+	firstHash := shared + strings.Repeat("0", 52)
+	secondHash := shared + strings.Repeat("f", 52)
+	if _, err := cache.Approve("foo", firstHash, TrustProject, ""); err != nil {
+		t.Fatalf("approve first: %v", err)
+	}
+	// 二次 Approve 同 name 的不同 hash 但同前缀——会覆盖 map entry
+	if _, err := cache.Approve("foo", secondHash, TrustProject, ""); err != nil {
+		t.Fatalf("approve second: %v", err)
+	}
+	// 旧 hash 必须 miss（已被覆盖）
+	if _, ok := cache.Lookup("foo", firstHash); ok {
+		t.Fatalf("first hash should miss after overwrite")
+	}
+	// 新 hash 命中
+	if _, ok := cache.Lookup("foo", secondHash); !ok {
+		t.Fatalf("second hash should hit")
+	}
+}
+
+func TestDefaultApprovalCachePath_EnvOverride(t *testing.T) {
+	t.Setenv("SKILLS_TRUST_PATH", "/tmp/test-skills-trust.json")
+	if got := DefaultApprovalCachePath(); got != "/tmp/test-skills-trust.json" {
+		t.Fatalf("env override failed: got %q", got)
+	}
+}
+
+func TestDefaultApprovalCachePath_DefaultsToHome(t *testing.T) {
+	t.Setenv("SKILLS_TRUST_PATH", "")
+	got := DefaultApprovalCachePath()
+	if got == "" {
+		t.Fatalf("default path must not be empty")
+	}
+	// 要么是 ~/.multi-agent/skills-trust.json 或 tmp fallback
+	if !strings.HasSuffix(got, "skills-trust.json") {
+		t.Fatalf("default path should end with skills-trust.json, got %q", got)
+	}
+}
 
 func newTestCache(t *testing.T) *ApprovalCache {
 	t.Helper()
@@ -186,6 +233,41 @@ func TestApprovalCache_CorruptedFile(t *testing.T) {
 	}
 	if len(cache.Entries()) != 0 {
 		t.Fatalf("corrupted file should yield empty entries")
+	}
+}
+
+// TestApprovalCache_ConcurrentApproveAllEntriesPersisted 盗写修复回归：并发 Approve 时
+// 盘上终态必须包含所有 entry（snapshot 时序被 writeMu 串行化）。
+func TestApprovalCache_ConcurrentApproveAllEntriesPersisted(t *testing.T) {
+	cache := newTestCache(t)
+	const N = 20
+	var wg sync.WaitGroup
+	wg.Add(N)
+	for i := 0; i < N; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			name := fmt.Sprintf("skill-%02d", i)
+			hash := fmt.Sprintf("%064x", i+1) // 64 hex chars, unique
+			if _, err := cache.Approve(name, hash, TrustProject, ""); err != nil {
+				t.Errorf("Approve(%s) error = %v", name, err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	// 内存中应服 N 条
+	if got := len(cache.Entries()); got != N {
+		t.Fatalf("in-memory entries = %d want %d", got, N)
+	}
+
+	// 盘上重新加载应也是 N 条（验证 writeMu 串行化有效）
+	reloaded, err := NewApprovalCache(cache.Path())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := len(reloaded.Entries()); got != N {
+		t.Fatalf("reloaded entries = %d want %d (concurrent write lost)", got, N)
 	}
 }
 
