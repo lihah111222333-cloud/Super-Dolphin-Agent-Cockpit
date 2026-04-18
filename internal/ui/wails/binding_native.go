@@ -1,26 +1,79 @@
 package wails
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-func (a *App) SaveClipboardImage(filename string) (string, error) {
-	path, err := resolveClipboardPath(filename)
+// SaveClipboardImage 接受前端从 `ClipboardEvent`/`Blob` 读取并编码好的 base64 图像数据，
+// 解码后写入临时 PNG 文件并返回其路径。允许载荷带 `data:image/...;base64,` 前缀。
+func (a *App) SaveClipboardImage(base64Payload string) (string, error) {
+	data, err := decodeClipboardImagePayload(base64Payload)
 	if err != nil {
 		return "", err
 	}
-	if err := saveClipboardImage(path); err != nil {
-		return "", err
+	file, err := os.CreateTemp("", "clipboard-*.png")
+	if err != nil {
+		return "", fmt.Errorf("clipboard image: create temp file: %w", err)
+	}
+	path := file.Name()
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return "", fmt.Errorf("clipboard image: write file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("clipboard image: close file: %w", err)
 	}
 	return path, nil
+}
+
+func decodeClipboardImagePayload(payload string) ([]byte, error) {
+	payload = strings.TrimSpace(payload)
+	if payload == "" {
+		return nil, errors.New("clipboard image: base64 payload is empty")
+	}
+	// 容错 data URL 前缀 (data:image/png;base64,XXXX) 与裸 base64。
+	if strings.HasPrefix(payload, "data:") {
+		if idx := strings.Index(payload, ","); idx >= 0 {
+			payload = payload[idx+1:]
+		}
+	}
+	payload = stripBase64Whitespace(payload)
+	data, err := decodeBase64Flexible(payload)
+	if err != nil {
+		return nil, fmt.Errorf("clipboard image: decode base64: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, errors.New("clipboard image: payload decoded to zero bytes")
+	}
+	return data, nil
+}
+
+// stripBase64Whitespace 剔除 MIME 换行 / 空格 / 制表符等软包装字符，
+// 便于 base64 解码器容错多行载荷。
+func stripBase64Whitespace(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == ' ' || r == '\t' {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// decodeBase64Flexible 先按标准 base64 解码，失败时自动回退到 Raw 变体。
+func decodeBase64Flexible(payload string) ([]byte, error) {
+	if data, err := base64.StdEncoding.DecodeString(payload); err == nil {
+		return data, nil
+	}
+	return base64.RawStdEncoding.DecodeString(payload)
 }
 
 func (a *App) SelectProjectDir() (string, error) {
@@ -149,84 +202,4 @@ func (a *App) CopyText(text string) (bool, error) {
 		return false, err
 	}
 	return app.Clipboard.SetText(text), nil
-}
-
-func resolveClipboardPath(name string) (string, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		file, err := os.CreateTemp("", "clipboard-*.png")
-		if err != nil {
-			return "", err
-		}
-		defer file.Close()
-		return file.Name(), nil
-	}
-	if filepath.Ext(name) == "" {
-		name += ".png"
-	}
-	path, err := filepath.Abs(name)
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func saveClipboardImage(path string) error {
-	switch runtime.GOOS {
-	case "darwin":
-		return saveClipboardImageDarwin(path)
-	case "linux":
-		return saveClipboardImageLinux(path)
-	case "windows":
-		return saveClipboardImageWindows(path)
-	default:
-		return fmt.Errorf("clipboard image is not supported on %s", runtime.GOOS)
-	}
-}
-
-func saveClipboardImageDarwin(path string) error {
-	command, err := exec.LookPath("pngpaste")
-	if err != nil {
-		return errors.New("clipboard image capture on darwin requires pngpaste")
-	}
-	return exec.Command(command, path).Run()
-}
-
-func saveClipboardImageLinux(path string) error {
-	if command, err := exec.LookPath("wl-paste"); err == nil {
-		return pipeCommandToFile(command, []string{"--no-newline", "--type", "image/png"}, path)
-	}
-	if command, err := exec.LookPath("xclip"); err == nil {
-		return pipeCommandToFile(command, []string{"-selection", "clipboard", "-t", "image/png", "-o"}, path)
-	}
-	return errors.New("clipboard image capture on linux requires wl-paste or xclip")
-}
-
-func saveClipboardImageWindows(path string) error {
-	command, err := exec.LookPath("powershell")
-	if err != nil {
-		return errors.New("clipboard image capture on windows requires powershell")
-	}
-	script := fmt.Sprintf(
-		"Add-Type -AssemblyName System.Drawing; "+
-			"$img = Get-Clipboard -Format Image; "+
-			"if ($null -eq $img) { throw 'clipboard does not contain an image' }; "+
-			"$img.Save('%s', [System.Drawing.Imaging.ImageFormat]::Png)",
-		strings.ReplaceAll(path, "'", "''"),
-	)
-	return exec.Command(command, "-NoProfile", "-NonInteractive", "-Command", script).Run()
-}
-
-func pipeCommandToFile(command string, args []string, path string) error {
-	data, err := exec.Command(command, args...).Output()
-	if err != nil {
-		return err
-	}
-	if len(data) == 0 {
-		return errors.New("clipboard does not contain a PNG image")
-	}
-	return os.WriteFile(path, data, 0o600)
 }
