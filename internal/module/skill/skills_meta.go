@@ -175,37 +175,112 @@ func parseMetaLine(line string) (string, string, bool) {
 	return key, strings.TrimSpace(value), true
 }
 
-func applyMetaLine(info *SkillInfo, key, value string, tail []string) int {
-	switch key {
-	case "name":
+var metaScalarAppliers = map[string]func(*SkillInfo, string){
+	"name": func(info *SkillInfo, value string) {
 		info.Name = parseScalar(value)
-	case "description":
+	},
+	"description": func(info *SkillInfo, value string) {
 		info.Description = parseScalar(value)
-	case "summary", "digest":
+	},
+	"summary": func(info *SkillInfo, value string) {
 		info.Summary = parseScalar(value)
-	case "trigger_words", "triggerwords", "triggers", "aliases", "tags", "keywords":
-		words, used := parseWordList(value, tail)
-		info.TriggerWords = append(info.TriggerWords, words...)
+	},
+	"digest": func(info *SkillInfo, value string) {
+		info.Summary = parseScalar(value)
+	},
+}
+
+var triggerWordMetaKeys = map[string]struct{}{
+	"trigger_words": {},
+	"triggerwords":  {},
+	"triggers":      {},
+	"aliases":       {},
+	"tags":          {},
+	"keywords":      {},
+}
+
+var forceWordMetaKeys = map[string]struct{}{
+	"force_words":     {},
+	"forcewords":      {},
+	"mandatory_words": {},
+	"must_words":      {},
+}
+
+var allowedToolsMetaKeys = map[string]struct{}{
+	"allowed-tools": {},
+	"allowed_tools": {},
+	"allowedtools":  {},
+	"tools":         {},
+}
+
+var trustMetaKeys = map[string]struct{}{
+	"trust":       {},
+	"trust_scope": {},
+	"trustscope":  {},
+}
+
+var disableModelInvocationMetaKeys = map[string]struct{}{
+	"disable-model-invocation": {},
+	"disable_model_invocation": {},
+	"disablemodelinvocation":   {},
+}
+
+func applyMetaLine(info *SkillInfo, key, value string, tail []string) int {
+	if handler, ok := metaScalarAppliers[key]; ok {
+		handler(info, value)
+		return 0
+	}
+	if used, ok := applyMetaWordList(info, key, value, tail); ok {
 		return used
-	case "force_words", "forcewords", "mandatory_words", "must_words":
-		words, used := parseWordList(value, tail)
-		info.ForceWords = append(info.ForceWords, words...)
-		return used
-	case "trust", "trust_scope", "trustscope":
-		// P20 Phase 1: 显式覆盖由 root 推断的信任域。未知值被视为未设置（保留推断结果）。
-		if scope := parseTrustScope(parseScalar(value)); scope != TrustUnknown {
-			info.Trust = scope
-		}
-	case "allowed-tools", "allowed_tools", "allowedtools", "tools":
-		words, used := parseWordList(value, tail)
-		info.AllowedTools = append(info.AllowedTools, words...)
-		return used
-	case "disable-model-invocation", "disable_model_invocation", "disablemodelinvocation":
-		if parseBoolScalar(parseScalar(value)) {
-			info.DisableModelInvocation = true
-		}
+	}
+	if applyMetaTrust(info, key, value) {
+		return 0
+	}
+	if applyDisableModelInvocationMeta(info, key, value) {
+		return 0
 	}
 	return 0
+}
+
+func applyMetaWordList(info *SkillInfo, key, value string, tail []string) (int, bool) {
+	words, used := parseWordList(value, tail)
+	switch {
+	case metaKeyMatch(key, triggerWordMetaKeys):
+		info.TriggerWords = append(info.TriggerWords, words...)
+	case metaKeyMatch(key, forceWordMetaKeys):
+		info.ForceWords = append(info.ForceWords, words...)
+	case metaKeyMatch(key, allowedToolsMetaKeys):
+		info.AllowedTools = append(info.AllowedTools, words...)
+	default:
+		return 0, false
+	}
+	return used, true
+}
+
+func applyMetaTrust(info *SkillInfo, key, value string) bool {
+	if !metaKeyMatch(key, trustMetaKeys) {
+		return false
+	}
+	// P20 Phase 1: 显式覆盖由 root 推断的信任域。未知值被视为未设置（保留推断结果）。
+	if scope := parseTrustScope(parseScalar(value)); scope != TrustUnknown {
+		info.Trust = scope
+	}
+	return true
+}
+
+func applyDisableModelInvocationMeta(info *SkillInfo, key, value string) bool {
+	if !metaKeyMatch(key, disableModelInvocationMetaKeys) {
+		return false
+	}
+	if parseBoolScalar(parseScalar(value)) {
+		info.DisableModelInvocation = true
+	}
+	return true
+}
+
+func metaKeyMatch(key string, aliases map[string]struct{}) bool {
+	_, ok := aliases[key]
+	return ok
 }
 
 // parseBoolScalar 识别常见的布尔表示法：true/yes/on/1 为 true，其余（包括空）为 false。不区分大小写。
