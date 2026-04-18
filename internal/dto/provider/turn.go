@@ -72,9 +72,16 @@ func (m SkillMode) Valid() bool {
 	return false
 }
 
-// Effective 将 Unspecified 规范化为 Full。Phase 4 写端代码调用此函数做分支。
+// Effective 规范化原始值为 Phase 4 写端可用的枚举字面量。
+//
+// 兑底策略：Unspecified 与未知非法值（如 wire 中 `mode: "banana"`）均返回 SkillModeFull，
+// 遵循“失败展开”策略——宁可注全文不漏掉，也不隐藏信息。这样考虑：
+//   - 前向兼容：旧 server 读新 client 发的未知 mode 时不会静默跳过。
+//   - 防御式：恶意 payload 伪造 mode="skip" 不能让我们无声丢失 skill 选中状态。
+//
+// Summary/None 模式如果真需要失败隐藏语义，应显式用 SkillModeNone 而非依赖未知值回落。
 func (m SkillMode) Effective() SkillMode {
-	if m == SkillModeUnspecified {
+	if !m.Valid() || m == SkillModeUnspecified {
 		return SkillModeFull
 	}
 	return m

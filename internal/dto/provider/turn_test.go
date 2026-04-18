@@ -124,7 +124,7 @@ func TestSkillMode_Valid(t *testing.T) {
 	}
 }
 
-// TestSkillMode_Effective 空值必须规范化为 Full，其它值保持不变。
+// TestSkillMode_Effective 空值必须规范化为 Full，合法值保持不变。
 func TestSkillMode_Effective(t *testing.T) {
 	if SkillModeUnspecified.Effective() != SkillModeFull {
 		t.Fatalf("Unspecified → Full")
@@ -134,6 +134,38 @@ func TestSkillMode_Effective(t *testing.T) {
 	}
 	if SkillModeNone.Effective() != SkillModeNone {
 		t.Fatalf("None should stay")
+	}
+}
+
+// TestSkillMode_EffectiveUnknownFallsBackToFull 防御未知 mode 值（wire 伪造 / 未来旧 server
+// 遇到新枚举时）的失败展开行为：兑底返回 Full，不能静默跳过。
+// 这条单测同时限定“Effective 不返回任意未知值”，重构时保护该不变量。
+func TestSkillMode_EffectiveUnknownFallsBackToFull(t *testing.T) {
+	unknowns := []SkillMode{"banana", "FULL", "body", " full ", "partial", "skip"}
+	for _, m := range unknowns {
+		if got := m.Effective(); got != SkillModeFull {
+			t.Fatalf("Effective(%q) = %q, want Full (fail-open fallback)", m, got)
+		}
+	}
+}
+
+// TestSkillRef_UnmarshalKeepsUnknownMode 确认反序列化本身保留原始未知 mode
+// （供诊断 / 对端调试），规范化必须由 Effective() 显式完成。防止未来
+// “偏到 UnmarshalJSON 里 rewrite” 与“保留原值交给观测层” 两种路径混淆。
+func TestSkillRef_UnmarshalKeepsUnknownMode(t *testing.T) {
+	data := []byte(`{"name":"foo","mode":"banana"}`)
+	var ref SkillRef
+	if err := json.Unmarshal(data, &ref); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if string(ref.Mode) != "banana" {
+		t.Fatalf("Mode should keep raw wire value for observability: got %q", ref.Mode)
+	}
+	if ref.Mode.Valid() {
+		t.Fatalf("unknown mode should NOT be Valid")
+	}
+	if ref.Mode.Effective() != SkillModeFull {
+		t.Fatalf("Effective should fail-open to Full")
 	}
 }
 

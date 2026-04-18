@@ -639,7 +639,7 @@ func (m SkillMode) Effective() SkillMode
 - `TestSkillRef_OldServerReadsNewPayload`：新 client marshal 后的新 payload，旧 server 只读 name+prompt 可恢复全文注入
 - `TestSkillRef_NewPayloadRoundTrip` / `TestSkillRef_OmitemptyZeroValues` / `TestSkillMode_Valid|Effective` / `TestSkillRef_TurnRequestEmbedding`
 
-下文 UnmarshalJSON 示例 仅作为历史参考保留：
+> ⚠️ **以下代码块属于被放弃的方案 A（方案采纳请看上方决策表）**。保留仅作为历史参考，请勿按此实施。实际 DTO 见 `internal/dto/provider/turn.go`（無 UnmarshalJSON，直接 struct tag 追加字段）。
 
 
 ```go
