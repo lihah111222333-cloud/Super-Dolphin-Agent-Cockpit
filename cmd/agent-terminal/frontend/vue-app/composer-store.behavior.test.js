@@ -70,7 +70,7 @@ describe('composer store behavior', () => {
     const ok = await store.handlePaste({
       preventDefault: prevented,
       clipboardData: {
-        items: [{ type: 'image/png', getAsFile: () => ({}) }],
+        items: [{ kind: 'file', type: 'image/png', getAsFile: () => ({}) }],
       },
     });
 
@@ -78,6 +78,80 @@ describe('composer store behavior', () => {
     expect(prevented).toHaveBeenCalled();
     expect(apiMock.saveClipboardImage).toHaveBeenCalledWith('ZmFrZQ==');
     expect(store.state.attachments[0].path).toBe('/tmp/pasted.png');
+  });
+
+  it('picks images from clipboardData.files when items are absent', async () => {
+    const store = useComposerStore();
+    apiMock.saveClipboardImage.mockResolvedValueOnce('/tmp/paste-via-files.png');
+    vi.stubGlobal('FileReader', class {
+      readAsDataURL() {
+        this.result = 'data:image/png;base64,ZmlsZXM=';
+        this.onload();
+      }
+    });
+
+    const prevented = vi.fn();
+    const ok = await store.handlePaste({
+      preventDefault: prevented,
+      clipboardData: {
+        files: [{ type: 'image/png', name: 'screenshot.png' }],
+        items: [],
+      },
+    });
+
+    expect(ok).toBe(true);
+    expect(prevented).toHaveBeenCalled();
+    expect(store.state.attachments[0].path).toBe('/tmp/paste-via-files.png');
+    expect(store.state.attachments[0].name).toBe('screenshot.png');
+  });
+
+  it('extracts images from items whose type is empty but kind=file and name suggests image', async () => {
+    const store = useComposerStore();
+    apiMock.saveClipboardImage.mockResolvedValueOnce('/tmp/paste-kind-file.png');
+    vi.stubGlobal('FileReader', class {
+      readAsDataURL() {
+        this.result = 'data:image/png;base64,a2luZA==';
+        this.onload();
+      }
+    });
+
+    const prevented = vi.fn();
+    const ok = await store.handlePaste({
+      preventDefault: prevented,
+      clipboardData: {
+        files: [],
+        items: [
+          {
+            kind: 'file',
+            type: '',
+            getAsFile: () => ({ type: '', name: 'Capture.PNG' }),
+          },
+        ],
+      },
+    });
+
+    expect(ok).toBe(true);
+    expect(prevented).toHaveBeenCalled();
+    expect(store.state.attachments[0].path).toBe('/tmp/paste-kind-file.png');
+  });
+
+  it('does not swallow paste when clipboard only carries an <image name=[Image #1]> placeholder', async () => {
+    const store = useComposerStore();
+
+    const prevented = vi.fn();
+    const ok = await store.handlePaste({
+      preventDefault: prevented,
+      clipboardData: {
+        files: [],
+        items: [{ kind: 'string', type: 'text/plain' }],
+        getData: (mime) => (mime === 'text/plain' ? '<image name=[Image #1]></image>' : ''),
+      },
+    });
+
+    expect(ok).toBe(false);
+    expect(prevented).not.toHaveBeenCalled();
+    expect(apiMock.saveClipboardImage).not.toHaveBeenCalled();
+    expect(store.state.attachments).toHaveLength(0);
   });
 
   it('handles dropped pathful files and returns true when anything is added', async () => {
