@@ -401,14 +401,18 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
       const { threadStore } = makeAutoScrollThreadStore();
       const projectStore = { ...makeProjectStore(), state: reactive({ active: '.', showModal: false, projects: ['.'] }) };
       const vm = UnifiedChatPage.setup({ threadStore, projectStore, mode: 'chat' });
+      expect(globalThis.window.setInterval).toHaveBeenCalledWith(expect.any(Function), 1000);
       vi.setSystemTime(new Date('2026-03-09T00:00:05Z')); intervalCallback(); expect(vm.activeStatusMeta.value).toContain('5s');
       projectStore.state.showModal = true; await flushTicks(); expect(globalThis.window.clearInterval).toHaveBeenCalled();
+
       vi.setSystemTime(new Date('2026-03-09T00:00:15Z')); projectStore.state.showModal = false; await flushTicks();
       vi.setSystemTime(new Date('2026-03-09T00:00:17Z')); intervalCallback(); expect(vm.activeStatusMeta.value).toContain('7s');
       vm.showPathChoiceModal.value = true; await flushTicks(); expect(globalThis.window.clearInterval).toHaveBeenCalledTimes(2);
       vi.setSystemTime(new Date('2026-03-09T00:00:23Z')); vm.showPathChoiceModal.value = false; await flushTicks();
+      expect(globalThis.window.setInterval.mock.calls.every(([, delay]) => delay === 1000)).toBe(true);
       vi.setSystemTime(new Date('2026-03-09T00:00:25Z')); intervalCallback(); expect(vm.activeStatusMeta.value).toContain('9s');
     } finally { vi.useRealTimers(); }
+
   });
 
   it('submits inline rename on Enter and keeps edit mode for save-button blur', async () => {
