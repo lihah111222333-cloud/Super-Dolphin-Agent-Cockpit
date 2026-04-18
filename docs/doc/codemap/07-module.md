@@ -216,16 +216,16 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
    - `parseSkillInfo` 解析 `name/description/summary/trigger_words/force_words`
    - 若无 `summary`，则从正文中自动提取首段可读文本
 
-2. **project root 本地文件操作**
+2. **skills root 本地文件操作**
    - `skills/local/read` / `skills/local/listFiles` / `skills/local/write`
-   - 统一经 `resolveProjectPath` 做路径归一化与越界校验
-   - `ReadLocal` 读取的是 **project root 内现有普通文件**，并返回生成摘要
+   - 统一经 `resolveSkillPath` 做路径归一化与越界校验（根为 `s.root`，即 `~/.codex/skills` 或 `$CODEX_HOME/skills`）
+   - `ReadLocal` 读取的是 **skills root 内现有普通文件**，并返回生成摘要
    - `WriteLocal` 也要求目标文件已存在，会保留原文件权限位后回写内容
 
 3. **skills root 技能写入 / 导入 / 删除**
    - `skills/local/importDir`
      - 支持 `path` 或 `paths`，并支持 glob 展开
-     - 从 project root 复制目录到 skills root
+     - 接受任意绝对/相对路径作为导入源（不再受 project root 约束），但拒绝源位于 skills root 内以避免循环导入
      - 禁止 symlink
    - `skills/local/delete`
      - 先 `resolveSkill(name)`，再删除对应技能目录

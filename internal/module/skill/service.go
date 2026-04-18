@@ -42,9 +42,10 @@ func defaultSkillsRoot() string {
 	if root := strings.TrimSpace(os.Getenv("CODEX_HOME")); root != "" {
 		return filepath.Join(root, "skills")
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Join(home, ".codex", "skills")
 	}
-	return filepath.Join(home, ".codex", "skills")
+	// UserHomeDir 失败（如无 $HOME 的受限环境）时兜底到临时目录，
+	// 避免 s.root 为空导致整个技能功能静默失效。
+	return filepath.Join(os.TempDir(), "codex-skills")
 }
