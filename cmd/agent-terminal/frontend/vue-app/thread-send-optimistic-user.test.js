@@ -44,4 +44,55 @@ describe('sendMessage optimistic user message', () => {
     expect(userItems.length).toBeGreaterThan(0);
     expect(userItems[0].text).toBe('hello world');
   });
+
+  it('preserves image attachments on optimistic user messages', async () => {
+    const ctx = buildCtx();
+
+    await sendMessage(ctx, 'thread-1', '', [{
+      kind: 'image',
+      name: 'shot.png',
+      path: '/tmp/shot.png',
+      previewUrl: 'file:///tmp/shot.png',
+    }]);
+
+    expect(ctx.state.timelinesByThread['thread-1']).toEqual([expect.objectContaining({
+      kind: 'user',
+      text: '',
+      attachments: [expect.objectContaining({
+        kind: 'image',
+        name: 'shot.png',
+        path: '/tmp/shot.png',
+        previewUrl: 'file:///tmp/shot.png',
+      })],
+    })]);
+  });
+
+  it('merges optimistic attachments into an existing matching user item instead of duplicating it', async () => {
+    const ctx = buildCtx({
+      state: {
+        timelinesByThread: {
+          'thread-1': [{ id: 'existing-user', kind: 'user', text: 'hello world', ts: '2026-03-10T12:00:00Z' }],
+        },
+      },
+    });
+
+    await sendMessage(ctx, 'thread-1', 'hello world', [{
+      kind: 'image',
+      name: 'shot.png',
+      path: '/tmp/shot.png',
+      previewUrl: 'file:///tmp/shot.png',
+    }]);
+
+    expect(ctx.state.timelinesByThread['thread-1']).toEqual([expect.objectContaining({
+      id: 'existing-user',
+      kind: 'user',
+      text: 'hello world',
+      attachments: [expect.objectContaining({
+        kind: 'image',
+        name: 'shot.png',
+        path: '/tmp/shot.png',
+        previewUrl: 'file:///tmp/shot.png',
+      })],
+    })]);
+  });
 });

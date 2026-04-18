@@ -25,6 +25,116 @@ export function waitMs(ms) {
   });
 }
 
+function normalizeOptimisticAttachment(attachment) {
+  const kind = (attachment?.kind || '').toString().trim() === 'image' ? 'image' : 'file';
+  const path = (attachment?.path || '').toString().trim();
+  const previewUrl = (attachment?.previewUrl || '').toString().trim();
+  const key = path || previewUrl;
+  if (!key) return null;
+  const name = (attachment?.name || (path ? path.split(/[\\/]/).pop() : '') || key).toString().trim();
+  return {
+    kind,
+    name,
+    path,
+    previewUrl,
+  };
+}
+
+function cloneOptimisticAttachments(attachments) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    const normalized = normalizeOptimisticAttachment(item);
+    if (!normalized) continue;
+    const dedupeKey = `${normalized.kind}:${normalized.path || normalized.previewUrl}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function sameOptimisticAttachment(left, right) {
+  return (left?.kind || '') === (right?.kind || '')
+    && (left?.name || '') === (right?.name || '')
+    && (left?.path || '') === (right?.path || '')
+    && (left?.previewUrl || '') === (right?.previewUrl || '');
+}
+
+function sameOptimisticAttachmentList(left, right) {
+  if (!Array.isArray(left) && !Array.isArray(right)) return true;
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (!sameOptimisticAttachment(left[index], right[index])) return false;
+  }
+  return true;
+}
+
+function freezeOptimisticAttachments(attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return undefined;
+  return Object.freeze(attachments.map((item) => Object.freeze({ ...item })));
+}
+
+function upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments) {
+  const existing = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
+  const normalizedAttachments = cloneOptimisticAttachments(attachments);
+  const frozenAttachments = freezeOptimisticAttachments(normalizedAttachments);
+  const matchingIndex = userText
+    ? existing.findIndex((item) => item?.kind === 'user' && (item?.text || '').trim() === userText)
+    : -1;
+
+  if (matchingIndex >= 0) {
+    const current = existing[matchingIndex];
+    const currentAttachments = Array.isArray(current?.attachments) ? current.attachments : [];
+    if (sameOptimisticAttachmentList(currentAttachments, normalizedAttachments)) {
+      ctx.logWarn('ui', 'chat.send.optimistic_skip', {
+        thread_id: threadId,
+        reason: 'matching_user_message_exists',
+        text_preview: userText.slice(0, 80),
+      });
+      return;
+    }
+    const nextTimeline = existing.slice();
+    const nextItem = {
+      ...current,
+      text: userText,
+    };
+    if (frozenAttachments) nextItem.attachments = frozenAttachments;
+    else delete nextItem.attachments;
+    nextTimeline[matchingIndex] = Object.freeze(nextItem);
+    ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: nextTimeline };
+    ctx.logWarn('ui', 'chat.send.optimistic_attachments_merged', {
+      thread_id: threadId,
+      item_id: (current?.id || '').toString(),
+      attachment_count: normalizedAttachments.length,
+      text_preview: userText.slice(0, 80),
+    });
+    return;
+  }
+
+  const optimisticItem = {
+    id: `${threadId}-optimistic-user-${Date.now()}`,
+    kind: 'user',
+    text: userText,
+    ts: new Date().toISOString(),
+  };
+  if (frozenAttachments) optimisticItem.attachments = frozenAttachments;
+  const frozenItem = Object.freeze(optimisticItem);
+  ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: [...existing, frozenItem] };
+  ctx.logWarn('ui', 'chat.send.optimistic_insert', {
+    thread_id: threadId,
+    item_id: frozenItem.id,
+    text_preview: userText.slice(0, 80),
+    attachment_count: normalizedAttachments.length,
+    timeline_len_before: existing.length,
+    timeline_len_after: existing.length + 1,
+    existing_user_count: existing.filter((item) => item?.kind === 'user').length,
+    existing_optimistic_count: existing.filter((item) => (item?.id || '').toString().includes('-optimistic-')).length,
+  });
+}
+
 export function tokenUsageSignature(state, threadId) {
   const usage = state.tokenUsageByThread?.[threadId];
   if (!usage || typeof usage !== 'object') return '';
@@ -326,28 +436,7 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     // Optimistic UI: insert user message into local timeline immediately so
     // it renders before the backend writes the JSONL / completes the turn.
     const userText = input.filter((i) => i?.type === 'text').map((i) => i.text).join('\n').trim();
-    if (userText) {
-      const existing = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
-      // P16.1 fix: skip optimistic insert if a matching user message already
-      // arrived via turn:input_received (proxy makes MCP init instant, so
-      // the real event can beat the optimistic insert).
-      const alreadyHasMatch = existing.some((it) => it?.kind === 'user' && (it?.text || '').trim() === userText);
-      if (alreadyHasMatch) {
-        logWarn('ui', 'chat.send.optimistic_skip', { thread_id: threadId, reason: 'matching_user_message_exists', text_preview: userText.slice(0, 80) });
-        return;
-      }
-      const optimisticItem = Object.freeze({ id: `${threadId}-optimistic-user-${Date.now()}`, kind: 'user', text: userText, ts: new Date().toISOString() });
-      ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: [...existing, optimisticItem] };
-      logWarn('ui', 'chat.send.optimistic_insert', {
-        thread_id: threadId,
-        item_id: optimisticItem.id,
-        text_preview: userText.slice(0, 80),
-        timeline_len_before: existing.length,
-        timeline_len_after: existing.length + 1,
-        existing_user_count: existing.filter((it) => it?.kind === 'user').length,
-        existing_optimistic_count: existing.filter((it) => (it?.id || '').toString().includes('-optimistic-')).length,
-      });
-    }
+    if (userText || attachments.length > 0) upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments);
     // Note: syncThreadState and loadMessages are NOT called here.
     // They would overwrite the optimistic user message with backend state
     // that doesn't contain user text yet (JSONL not written until turn completes).
