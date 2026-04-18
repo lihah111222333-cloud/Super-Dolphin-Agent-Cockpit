@@ -81,6 +81,7 @@ function createThreadActions(overrides = {}) {
 
 beforeEach(() => {
   apiMock.callAPI.mockReset().mockResolvedValue({});
+  globalThis.window = { ...(globalThis.window || {}), alert: vi.fn() };
 });
 
 describe('useThreadActions', () => {
@@ -283,5 +284,7 @@ describe('useThreadActions', () => {
     expect(vm.recoveringSelected.value).toBe(false);
     expect(result).toEqual(expect.objectContaining({ ok: true, threadId: 'thread-live' }));
     expect(result.message).toContain('恢复');
+    expect(globalThis.window.alert).toHaveBeenCalledWith('已触发进程恢复，请等待连接重建。');
+
   });
 });

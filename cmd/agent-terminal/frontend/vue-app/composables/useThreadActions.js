@@ -59,6 +59,16 @@ function warnUserMessage(message, extra = {}) {
   console.warn(detail, extra);
 }
 
+function alertOrWarnUserMessage(message, extra = {}) {
+  const detail = (message || '').toString().trim();
+  if (!detail) return;
+  if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+    window.alert(detail);
+    return;
+  }
+  warnUserMessage(detail, extra);
+}
+
 function formatCompactErrorMessage(error) {
   const code = (error?.code || '').toString().trim().toLowerCase();
   if (code === 'compact_timeout') return '压缩超时：未收到完成信号，请重试。';
@@ -271,18 +281,18 @@ export function useThreadActions(props, deps) {
       }
       const message = '已触发进程恢复，请等待连接重建。';
       logInfo('ui', 'chat.recover.done', { thread_id: threadId, message });
+      alertOrWarnUserMessage(message);
       return { ok: true, threadId, message };
     } catch (error) {
-      const detail = (error && typeof error === 'object' && error.message)
-        ? error.message
-        : String(error || 'unknown error');
+      const detail = error && typeof error === 'object' && error.message ? error.message : String(error || 'unknown error');
       const message = `进程恢复失败: ${detail}`;
       logWarn('ui', 'chat.recover.failed', {
         thread_id: threadId,
         error,
       });
-      warnUserMessage(message, { threadId, action: 'recover' });
+      alertOrWarnUserMessage(message, { threadId, action: 'recover' });
       return { ok: false, code: 'recover_failed', threadId, message, error };
+
     } finally {
       recoveringSelected.value = false;
     }

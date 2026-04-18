@@ -112,7 +112,7 @@ export function useThreadStatus(props, selectedThreadId, activeStatus, showPathC
     if (typeof window === 'undefined' || typeof window.setInterval !== 'function') return;
     statusTickTimer = window.setInterval(() => {
       statusTick.value = Date.now();
-    }, 15000);
+    }, 1000);
   }
 
   function stopStatusTickTimer() {
