@@ -355,9 +355,9 @@ func (a *App) SelectProjectDir() (string, error)
 func (a *App) SelectProjectDirs(defaultPath string) ([]string, error)
 func (a *App) SelectFiles() ([]string, error)
 func (a *App) CopyText(text string) (bool, error)
-func (a *App) SaveClipboardImage(filename string) (string, error)
+func (a *App) SaveClipboardImage(base64Payload string) (string, error)
 ```
-- 原生能力绑定：目录/文件选择、Wails 剪贴板文本写入、以及通过系统工具从**当前系统剪贴板**抓取图片保存为 PNG。`SaveClipboardImage` 的 Go 形参是目标文件名/路径，不解析 base64 字符串。
+- 原生能力绑定：目录/文件选择、Wails 剪贴板文本写入、以及将前端从 `ClipboardEvent`/`Blob` 读取到的 base64 图像载荷**在 Go 侧解码**后写入临时 PNG 文件。`SaveClipboardImage` 的 Go 形参为 base64 字符串（容错 `data:image/...;base64,` 前缀与换行空白），返回补全后的临时文件路径；不再依赖 pngpaste / wl-paste / xclip / PowerShell 等外部工具，也不再读取系统剪贴板。
 
 ```go
 func (a *App) GetGroup() string
@@ -980,7 +980,7 @@ AppRoot
 
 - `internal/ui/wails/binding.go` 中 `LaunchAgent/StopAgent/ListAgents` 仍是**旧版桌面绑定兼容接口**，真实执行已切到 `thread/*` RPC。
 - `services/api.js` 现在不仅有 `callAPI()`，还有 by-ID 直连：`GetBuildInfo`、无 `defaultPath` 的 `SelectProjectDir`、`SelectFiles`、`SaveClipboardImage` 可直连；`SelectProjectDirs` 只通过 `ui/selectProjectDirs` RPC。
-- Go 侧 `SaveClipboardImage(filename string)` 通过 `pngpaste` / `wl-paste` / `xclip` / PowerShell 从系统剪贴板写 PNG；前端 wrapper 的 `base64Payload` 形参名不代表 Go 侧会解码 base64。
+- Go 侧 `SaveClipboardImage(base64Payload string)` 在 Go 侧直接解码 base64 载荷并写临时 PNG，容错 `data:image/...;base64,` 前缀与换行空白；不再依赖 pngpaste / wl-paste / xclip / PowerShell 等外部工具，与前端 `services/api.js` 包装函数的 `base64Payload` 语义对齐。
 - `internal/ui/wails/rpc.go` 的 `ui/code/save` 虽然保留 `CreateNew` 字段，但 `resolveSaveTarget(..., _ bool)` 仍要求文件已存在，**新建文件尚未真正打通**。
 - 多窗口后端路径已经完整：`ui/openNewWindow`、snapshot codec、`ao_ui_bootstrap/ao_window_cwd` URL 参数、`ui/windowBootstrap/get` 全都存在；**缺口在前端消费**。
 - `internal/ui/wails/GetLSPStatus()` 目前仍是 stub，固定返回空数组。
