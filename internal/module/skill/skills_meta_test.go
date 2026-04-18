@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -166,5 +167,140 @@ func TestParseBoolScalar(t *testing.T) {
 	}
 	if parseBoolScalar("false") || parseBoolScalar("") || parseBoolScalar("maybe") {
 		t.Fatalf("falsy cases failed")
+	}
+}
+
+func TestApplyMetaLine_ScalarAliases(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+		check func(t *testing.T, info SkillInfo)
+	}{
+		{
+			name:  "name",
+			key:   "name",
+			value: ` "demo" `,
+			check: func(t *testing.T, info SkillInfo) {
+				t.Helper()
+				if info.Name != "demo" {
+					t.Fatalf("name = %q, want demo", info.Name)
+				}
+			},
+		},
+		{
+			name:  "description",
+			key:   "description",
+			value: ` "short summary" `,
+			check: func(t *testing.T, info SkillInfo) {
+				t.Helper()
+				if info.Description != "short summary" {
+					t.Fatalf("description = %q", info.Description)
+				}
+			},
+		},
+		{
+			name:  "digest alias writes summary",
+			key:   "digest",
+			value: ` "headline" `,
+			check: func(t *testing.T, info SkillInfo) {
+				t.Helper()
+				if info.Summary != "headline" {
+					t.Fatalf("summary = %q", info.Summary)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var info SkillInfo
+			if used := applyMetaLine(&info, tt.key, tt.value, nil); used != 0 {
+				t.Fatalf("used = %d, want 0", used)
+			}
+			tt.check(t, info)
+		})
+	}
+}
+
+func TestApplyMetaLine_ListAliasesConsumeTail(t *testing.T) {
+	tests := []struct {
+		name     string
+		key      string
+		tail     []string
+		wantUsed int
+		check    func(t *testing.T, info SkillInfo)
+	}{
+		{
+			name:     "keywords append trigger words",
+			key:      "keywords",
+			tail:     []string{"- alpha", "- beta", "stop"},
+			wantUsed: 2,
+			check: func(t *testing.T, info SkillInfo) {
+				t.Helper()
+				if !reflect.DeepEqual(info.TriggerWords, []string{"alpha", "beta"}) {
+					t.Fatalf("trigger words = %v", info.TriggerWords)
+				}
+			},
+		},
+		{
+			name:     "must_words append force words",
+			key:      "must_words",
+			tail:     []string{"- gamma", "- delta", "stop"},
+			wantUsed: 2,
+			check: func(t *testing.T, info SkillInfo) {
+				t.Helper()
+				if !reflect.DeepEqual(info.ForceWords, []string{"gamma", "delta"}) {
+					t.Fatalf("force words = %v", info.ForceWords)
+				}
+			},
+		},
+		{
+			name:     "tools append allowed tools",
+			key:      "tools",
+			tail:     []string{"- Read", "- Bash", "stop"},
+			wantUsed: 2,
+			check: func(t *testing.T, info SkillInfo) {
+				t.Helper()
+				if !reflect.DeepEqual(info.AllowedTools, []string{"Read", "Bash"}) {
+					t.Fatalf("allowed tools = %v", info.AllowedTools)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var info SkillInfo
+			used := applyMetaLine(&info, tt.key, "", tt.tail)
+			if used != tt.wantUsed {
+				t.Fatalf("used = %d, want %d", used, tt.wantUsed)
+			}
+			tt.check(t, info)
+		})
+	}
+}
+
+func TestApplyMetaLine_TrustAliases(t *testing.T) {
+	info := SkillInfo{Trust: TrustUser}
+	if used := applyMetaLine(&info, "trustscope", "banana", nil); used != 0 {
+		t.Fatalf("used = %d, want 0", used)
+	}
+	if info.Trust != TrustUser {
+		t.Fatalf("invalid trust should preserve existing value: %q", info.Trust)
+	}
+	applyMetaLine(&info, "trust_scope", "signed", nil)
+	if info.Trust != TrustSigned {
+		t.Fatalf("trust alias should set signed, got %q", info.Trust)
+	}
+}
+
+func TestApplyMetaLine_DisableModelInvocationAliases(t *testing.T) {
+	var info SkillInfo
+	if used := applyMetaLine(&info, "disable_model_invocation", "yes", nil); used != 0 {
+		t.Fatalf("used = %d, want 0", used)
+	}
+	if !info.DisableModelInvocation {
+		t.Fatalf("disable model invocation should be true")
 	}
 }
