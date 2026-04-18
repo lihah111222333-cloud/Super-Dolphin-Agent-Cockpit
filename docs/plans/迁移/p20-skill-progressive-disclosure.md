@@ -24,21 +24,9 @@
 
 ---
 
-## 0.5 施工前置实验（✅ 已完成 2026-04-18）
+## 0.5 施工前置实验（Phase 1 启动前必跑）
 
-两家 provider 可行度评估（见§11 附录 D）暴露 **2 个“不确定性收益”假设**，已通过最小实验验证。产出文档：
-
-- 实验 A：[`docs/experiments/p20-exp-a-agentsmd-merge.md`](../../experiments/p20-exp-a-agentsmd-merge.md)
-- 实验 B：[`docs/experiments/p20-exp-b-claudecli-native-skills.md`](../../experiments/p20-exp-b-claudecli-native-skills.md)
-
-**核心结论**：
-
-| 实验 | 结论 | 对后续 Phase 的影响 |
-|---|---|---|
-| A | ✅ baseInstructions 优先级 > AGENTS.md（codex 内建 prompt 明文声明）| Phase 8 L1 清单放任意位置皆可；Phase 9 的 `<system-reminder>` 从“必需”降级为“可选加固” |
-| B | ❌ 无 flag 可关闭 Claude CLI 的原生 skill 自动加载（`--disable-slash-commands` 实测无效；`--bare` 不读 keychain）| Phase 7 **锁定走扫盘降级路径**，不能简化；Phase 8 L1 清单分两段渲染（Native vs Custom）|
-
-> ℹ️ 下文 Phase 7/8/9 的任务清单已根据实验结论反向修订。原始假设和分支完整保留在上述产出文档中。
+两家 provider 可行度评估（见§11 附录 D）暴露 **2 个“不确定性收益”假设**必须先用最小实验验证，否则后续 Phase 可能整段返工。
 
 ### 实验 A：codexapp AGENTS.md 合并顺序（30 分钟）
 
@@ -485,26 +473,23 @@ if `name` doesn't exist, or a path-escape error if `section` leaves skill dir.
 
 ### Phase 7：SkillInjectionPort 抽象（P1，2 天）
 
-> 依赖：Phase 4 | 负责：provider 收敛
+> 依赖：Phase 4 + **§0.5 实验 B 结论** | 负责：provider 收敛
 
-> **实验 B 结果锁定（✅ 2026-04-18）**：`--disable-slash-commands` 实测未屏蔽原生 skill 发现（B.2 输出 `p20-test`）；`--bare` 因不读 keychain auth 不可用（B.4/B.5）。结论：**无任何 flag 能关闭 Claude CLI 原生 skill 自动加载**，本 Phase 锁定走扫盘降级路径。
+> **前置**：Phase 7 的“原生退化”策略强依赖实验 B。若实验 B 表明 Claude CLI 可通过 flag 关闭原生 skill 自动加载，本 Phase 简化为独占注入，无需扫盘检测。否则按下方任务清单执行扫盘降级。
 
 #### 任务清单
 
 | 文件 | 改动 |
 |------|------|
-| `internal/contract/skill_injection.go`（新建） | 接口 `SkillInjectionPort { InjectL1Manifest(ctx, skills) / BuildTurnSection(refs) / ReservedTokens() / DetectNativeSkills(cwd) []string }` |
-| `internal/provider/codexapp/skill_inject.go`（新建或从 module.go 抽出） | 实现 Port；L1 走启动 instructions；per-turn 走 `turnInputItem`；`DetectNativeSkills` 返回空（codex 暂无原生 skill 机制；若未来支持在此扩展）|
-| `internal/provider/claudecli/skill_inject.go`（新建） | 实现 Port；L1 走 CLI flag `--system-prompt` / `--append-system-prompt`；per-turn 走 stream-json text item；`DetectNativeSkills` 扫 `.claude/skills/*/SKILL.md` 返回名字列表 |
-| `internal/provider/claudecli/skill_inject.go` | **原生退化（实验 B 证实必走）**：命中 `.claude/skills/<name>/SKILL.md` 存在时，`SkillRef.Mode ← None`，body 完全交给 Claude 原生注入；L1 清单仅标注 “Native” 并提示模型 “use `/{name}` or natural-language reference; body auto-loaded by Claude” |
-| `internal/module/turn/skills.go`（`Resolve`）| 集成点：调用 `port.DetectNativeSkills(cwd)`，对命中的 `SkillRef` 强覆盖为 `Mode=None, Source="native"`，不会被下游 Manual/Force 再次升级 |
-| `internal/provider/claudecli/skill_inject_test.go`（新建）| 集成 test：同名 skill 同时存在于 `.agent/skills/foo` 与 `.claude/skills/foo` 时，验证 tie-break 为 native 优先（避免双重加载）|
+| `internal/contract/skill_injection.go`（新建） | 接口 `SkillInjectionPort { InjectL1Manifest(ctx, skills) / BuildTurnSection(refs) / ReservedTokens() }` |
+| `internal/provider/codexapp/skill_inject.go`（新建或从 module.go 抽出） | 实现 Port；L1 走启动 instructions；per-turn 走 `turnInputItem` |
+| `internal/provider/claudecli/skill_inject.go`（新建） | 实现 Port；L1 走 CLI flag `--system-prompt` / `--append-system-prompt`；per-turn 走 stream-json text item |
+| `internal/provider/claudecli/skill_inject.go` | **原生退化**（依赖实验 B）：若原生机制不可关闭，检测到 `.claude/skills/<name>/SKILL.md` 存在 → Mode 强制降为 `None`，body 完全交给 Claude 原生注入，L1 清单只提供元数据指引；若实验 B 显示 flag 可关，此分支简化为启动时关原生 |
 
 #### 验收
 
 - 两家 provider 的 skill 注入逻辑行为对齐（通过 golden-file 对比）
-- claudecli 原生 skill 存在时不重复注入全文（tie-break test 绿）
-- L1 清单中 Native skill 仅显示名称 + “(Claude native)” tag；Custom skill 显示完整 summary + `skill_expand` 指引
+- claudecli 原生 skill 存在时不重复注入全文
 - 替换底层 provider 不影响 L1/L2 语义
 
 ---
@@ -555,8 +540,6 @@ if `name` doesn't exist, or a path-escape error if `section` leaves skill dir.
 > 依赖：Phase 8 | 负责：prompt
 
 > **关键**：这是 §4 红线 #3。审查3 实测 Claude Code 自动触发率仅 ~50%，不加元指令方案不可用。
-
-> **实验 A 结果调整**：`<system-reminder>` 每 turn 重贴**从“必需”降级为“可选加固”**——实验 A 证实 baseInstructions 语义上已 outrank AGENTS.md（codex 内建 prompt 明文声明），L1 清单不会被稀释。本 Phase 仍保留元指令（解决模型触发率问题），但 `<system-reminder>` 可延后到灰度观察期——当 `skill_miss_rate > 0.15` 时再启用，主要对抗“长对话注意力衰减”。
 
 #### 任务清单
 
@@ -626,7 +609,38 @@ if `name` doesn't exist, or a path-escape error if `section` leaves skill dir.
 | `{Name, Prompt}` | ✓ 原行为 | ✓ Prompt→Body，Mode="" 默认 Full | ✓ 原行为 | ✓ 原行为（兼容） |
 | `{Name, Mode, Body, Summary}` | N/A | N/A | 旧 server 丢弃未知字段，但 `Prompt` 为空 → 不注入（**需 alias**）| ✓ 正常 |
 
-**关键 alias**：JSON 层为 `Body` 字段加 `json:"body,omitempty"` 同时保留旧字段名 `prompt`（通过 `UnmarshalJSON` 自定义或双 tag）：
+**实施决策（✅ Phase 2 落地 2026-04-18，修订原方案）**：
+
+原始设计引入新字段 `Body` 并通过自定义 `UnmarshalJSON` 做 `prompt → Body` 的 legacy alias，但 Phase 2 实施时评估发现 “保留 `Prompt` 字段名 + 直接追加新字段” 方案更优：
+
+| 方案 | Wire 兼容 | 代码改动 | 复杂度 |
+|---|---|---|---|
+| A（P20 原）：引入 Body + UnmarshalJSON/MarshalJSON alias | 需补双写 MarshalJSON 才能兼容旧 server | 3 处 `skill.Prompt` 改 `skill.Body` | 高 |
+| **B（实施选）**：保留 `Prompt string `json:"prompt,omitempty"`` + 追加 Mode/Summary/Version/Source | **零破坏**（旧 wire format 不动）| **0 处**（下游继续读 `skill.Prompt`）| 低 |
+
+语义上：`Prompt == Body`，但字段名保留为历史稳定名称。代码注释中注明语义等价。
+
+```go
+type SkillRef struct {
+    Name    string      `json:"name"`
+    Version string      `json:"version,omitempty"`
+    Mode    SkillMode   `json:"mode,omitempty"`
+    Prompt  string      `json:"prompt,omitempty"`  // 语义等价 Body
+    Summary string      `json:"summary,omitempty"`
+    Source  SkillSource `json:"source,omitempty"`
+}
+
+// SkillMode.Effective() 将空值规范化为 Full，Phase 4 写端调用。
+func (m SkillMode) Effective() SkillMode
+```
+
+**向后兼容验证**（`internal/dto/provider/turn_test.go`）：
+- `TestSkillRef_LegacyUnmarshalStillWorks`：旧 `{name, prompt}` payload 反序列化→ Mode="" 兑底 Full
+- `TestSkillRef_OldServerReadsNewPayload`：新 client marshal 后的新 payload，旧 server 只读 name+prompt 可恢复全文注入
+- `TestSkillRef_NewPayloadRoundTrip` / `TestSkillRef_OmitemptyZeroValues` / `TestSkillMode_Valid|Effective` / `TestSkillRef_TurnRequestEmbedding`
+
+下文 UnmarshalJSON 示例 仅作为历史参考保留：
+
 
 ```go
 // 自定义 UnmarshalJSON 保证旧 payload 的 "prompt" 字段仍能写入 Body
@@ -777,60 +791,3 @@ Phase 7 Port  ────────┴─→ Phase 9 元指令 ─→ Phase 1
 | 显式 skill_expand 工具 | Codex 自动注水、Claude Code 用 Skill 工具 | **新增显式工具** | 我们 harness 无法像 Codex 运行期自动加载；Claude 的 Skill 工具是内置的，我们不能复用 |
 | L3 资源（reference.md / scripts）支持 | 官方支持（模型用 Read/Bash 取）| **内聚到 `skill_expand(section=<relative_path>)`** | claudecli `--disallowedTools` 阻塞 Read/Bash，通过 section 参数统一入口避免两家行为漂移 |
 
-### D. 两家 Provider 可行度评估（2026-04-18 深度代码调研）
-
-基于 `internal/provider/codexapp/*` 与 `internal/provider/claudecli/*` 的逐文件通读。
-
-**总分**：
-- **codexapp：75%** 🟡（MCP 工具仅 session 启动期一次装载；AGENTS.md 合并顺序待实验 A 验证）
-- **claudecli：80%** 🟢（原生 Skills 冲突待实验 B 验证；`--disallowedTools` 阻塞 L3 直读已采纳选项 3 缓解）
-
-#### Phase × Provider 可行度矩阵
-
-| Phase | codexapp | claudecli | 说明 |
-|---|---|---|---|
-| 1 安全基线 | ✅ | ✅ | skill 模块共享 |
-| 2 DTO 扩展 | ✅ | ✅ | 共享 |
-| 3 Rollout 读端 | 🟡 | 🟡 | 各一份，共享包 `rollout_markers.go` |
-| 4 Provider 写端 | ✅ `buildSkillPromptInput:232` | ✅ `buildSkillSection:315` | 独立改造，格式统一 |
-| 5 Resolver | ✅ | ✅ | `internal/module/turn/skills.go` 共享 |
-| 6 skill_expand 工具 | 🟠 启动期一次装载 | ✅ MCP 每 turn 发现 | codexapp 有硬约束 A |
-| 7 SkillInjectionPort | ✅ | 🟠 原生 `.claude/skills/` 冲突 | claudecli 有硬约束 C（依赖实验 B）|
-| 8 SkillCatalogProvider | ✅ 走 baseInstructions | ✅ 走 `--system-prompt` | 共享 prompt 模块 |
-| 9 元指令 | ✅ | ✅ | 共享 |
-| 10 灰度+指标 | 🟡 需补 `configBool` | 🟡 同样 | 共享 policy |
-| 11 文档 | ✅ | ✅ | 共享 |
-
-#### 四条硬约束
-
-| # | 约束 | 影响 Provider | 证据（file:line）| 缓解策略（本方案已采纳）|
-|---|---|---|---|---|
-| A | MCP 工具启动期一次装载 | codexapp | `driver.go:114-120` `SetListTools`；`support.go:268` 仅在 `startDynamicSession` 调用一次 | `skill_expand` 在 `flag=false` 时 RPC 仍兜底返全文（§2.2 N3），工具留着无害 |
-| B | AGENTS.md 合并顺序未知 | codexapp | `support.go:309` 注释未说明；`strings "$(which codex)"` 抓到 codex 内建 prompt 明文声明优先级 | **实验 A 已证实 baseInstructions outrank AGENTS.md**；Phase 8 任意位置放置；Phase 9 `<system-reminder>` 降为可选 |
-| C | Claude Code CLI 原生 Skill 不可关 | claudecli | `transport_config.go:115`；实验 B.2 `--disable-slash-commands` 未屏蔽；B.4 `--bare` 不读 keychain 不可用 | **实验 B 已证实无 flag 可关**；Phase 7 锁定扫盘降级为 `Mode=None`，body 交原生 |
-| D | `--disallowedTools Read,Bash,Glob,LS` 阻塞 L3 | claudecli | `transport_config.go:115` | Phase 6 `skill_expand(section=<relative_path>)` 内聚 L3 访问（选项 3）|
-
-#### 共享 vs 独立工作量
-
-| 层级 | 是否共享 | 占比 |
-|---|---|---|
-| DTO（`internal/dto/provider/turn.go`）、Skill 模块、Turn resolver、Prompt provider、Platform config | ✅ 共享 | ~70% |
-| 各 Provider 自己的 rollout 格式 + 写端三分支 + 原生兼容检测 | ❌ 独立 | ~30% |
-
-#### 上线风险排序
-
-| # | 风险 | 影响 | 缓解章节 |
-|---|---|---|---|
-| 1 | claudecli 原生 Skills 2x 注入 | claudecli | §0.5 实验 B + Phase 7 |
-| 2 | claudecli `--disallowedTools` 阻塞 L3 | claudecli | Phase 6 选项 3 |
-| 3 | codexapp AGENTS.md 合并顺序 | codexapp | §0.5 实验 A + Phase 9 |
-| 4 | rollout 格式升级两家节奏不齐 | 两家 | Phase 2→3→4 严格顺序 + 共享 `rollout_markers.go` |
-| 5 | codex-rs 工具列表大小上限未知 | codexapp | 监控 `support.go:325-330` 打点 |
-
-#### 最终判定
-
-| 维度 | 结论 |
-|---|---|
-| 战略可行度 | ✅ 两家都能落地 |
-| 战术可行度 | 🟡 codexapp 75% / claudecli 80%，各 2 个硬约束均已设计缓解 |
-| 前置条件 | ⚠️ **Phase 1 启动前必须先完成 §0.5 实验 A/B**，结论可能简化 Phase 7/8/9 |
