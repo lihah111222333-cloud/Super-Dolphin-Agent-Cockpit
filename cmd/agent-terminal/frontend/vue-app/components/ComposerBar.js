@@ -314,7 +314,8 @@ export const ComposerBar = {
       </div>
 
       <div v-if="composer.state.attachments.length > 0" class="chat-attachment-list composer-attachments">
-        <span v-for="(att, idx) in composer.state.attachments" :key="att.path + idx" class="chat-attachment-pill">
+        <span v-for="(att, idx) in composer.state.attachments" :key="att.path + idx" class="chat-attachment-pill" :class="{ 'chat-attachment-pill--image': att.kind === 'image' && att.previewUrl }">
+          <img v-if="att.kind === 'image' && att.previewUrl" class="chat-attachment-pill__thumb" :src="att.previewUrl" :alt="att.name" loading="lazy" />
           <span class="attachment-kind">{{ att.kind === 'image' ? 'IMG' : 'FILE' }}</span>
           <span class="attachment-name">{{ att.name }}</span>
           <button class="attachment-remove" @click="onRemoveAttachment(idx)" aria-label="移除附件">×</button>

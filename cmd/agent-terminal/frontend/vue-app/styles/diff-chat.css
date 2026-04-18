@@ -2793,6 +2793,20 @@
   background: var(--chat-pill-bg);
 }
 
+.chat-attachment-pill--image {
+  padding-left: 3px;
+}
+
+.chat-attachment-pill__thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.35);
+}
+
 .attachment-kind {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.14);
