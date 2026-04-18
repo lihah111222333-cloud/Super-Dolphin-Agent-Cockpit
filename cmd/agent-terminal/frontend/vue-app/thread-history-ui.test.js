@@ -44,6 +44,42 @@ describe('thread-history-ui immediate hydration', () => {
     }]);
   });
 
+  it('rehydrates image inputs into timeline attachments and strips raw image placeholders', () => {
+    const state = { timelinesByThread: {} };
+    const applied = applyImmediateTimelineFromMessages({
+      threadId: 'thread-image',
+      response: {
+        messages: [{
+          id: 1,
+          role: 'user',
+          content: '请帮我看这张图\n<image name=[Image #1]></image>',
+          createdAt: '2026-03-10T12:00:00Z',
+          metadata: {
+            input: [{ type: 'image', url: 'file:///tmp/screenshot.png' }],
+          },
+        }],
+      },
+      state,
+      normalizeThreadID: (value) => value,
+      freezeTimelineItemsAtomic: (items) => ({ changed: true, items }),
+      logInfo: vi.fn(),
+    });
+
+    expect(applied).toBe(true);
+    expect(state.timelinesByThread['thread-image']).toEqual([expect.objectContaining({
+      id: 'thread-image-history-1',
+      kind: 'user',
+      text: '请帮我看这张图',
+      ts: '2026-03-10T12:00:00Z',
+      attachments: [expect.objectContaining({
+        kind: 'image',
+        name: 'screenshot.png',
+        path: '/tmp/screenshot.png',
+        previewUrl: 'file:///tmp/screenshot.png',
+      })],
+    })]);
+  });
+
   it('normalizes thread/messages pages to chronological timeline order', () => {
     const state = { timelinesByThread: {} };
     const applied = applyImmediateTimelineFromMessages({

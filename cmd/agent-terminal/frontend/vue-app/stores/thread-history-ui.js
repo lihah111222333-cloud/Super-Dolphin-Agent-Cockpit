@@ -10,6 +10,8 @@ function parseHistoryMetadata(raw) {
   return typeof raw === 'object' ? raw : null;
 }
 
+const IMAGE_PLACEHOLDER_RE = /<image\b[^>]*>[\s\S]*?<\/image>/gi;
+
 function extractFirstString(source, keys) {
   if (!source || typeof source !== 'object') return '';
   for (const key of keys) {
@@ -17,6 +19,76 @@ function extractFirstString(source, keys) {
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return '';
+}
+
+function extractHistoryInputEntries(metadata) {
+  return Array.isArray(metadata?.input) ? metadata.input.filter(Boolean) : [];
+}
+
+function isHistoryImageInput(entry) {
+  const inputType = extractFirstString(entry, ['type', 'kind', 'inputType', 'input_type']).toLowerCase();
+  return inputType === 'image' || inputType === 'input_image' || inputType === 'local_image' || inputType === 'localimage';
+}
+
+function isRemoteImageSource(value) {
+  const raw = (value || '').toString().trim().toLowerCase();
+  return raw.startsWith('http://')
+    || raw.startsWith('https://')
+    || raw.startsWith('data:image/')
+    || raw.startsWith('file://');
+}
+
+function decodeFileURLToPath(rawValue) {
+  const raw = (rawValue || '').toString().trim();
+  if (!raw.toLowerCase().startsWith('file://')) return raw;
+  try {
+    const url = new URL(raw);
+    const pathname = decodeURIComponent(url.pathname || '');
+    if (url.host) return `//${url.host}${pathname}`;
+    if (/^\/[A-Za-z]:\//.test(pathname)) return pathname.slice(1);
+    return pathname || raw.replace(/^file:\/\//i, '');
+  } catch {
+    return decodeURIComponent(raw.replace(/^file:\/\//i, ''));
+  }
+}
+
+function basenameFromPath(rawValue) {
+  const raw = (rawValue || '').toString().trim();
+  if (!raw) return '';
+  if (raw.toLowerCase().startsWith('data:image/')) return '';
+  const resolved = raw.toLowerCase().startsWith('file://') ? decodeFileURLToPath(raw) : raw;
+  const withoutQuery = resolved.split('?')[0].split('#')[0];
+  const parts = withoutQuery.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
+function buildHistoryImageAttachments(metadata) {
+  const inputs = extractHistoryInputEntries(metadata);
+  const attachments = [];
+  let imageCount = 0;
+  for (const entry of inputs) {
+    if (!isHistoryImageInput(entry)) continue;
+    const source = extractFirstString(entry, ['url', 'imageUrl', 'image_url', 'path', 'filePath', 'file_path']);
+    const explicitName = extractFirstString(entry, ['name', 'fileName', 'filename', 'label', 'title']);
+    const previewUrl = source && isRemoteImageSource(source) ? source : '';
+    const path = !source || source.toLowerCase().startsWith('data:image/')
+      ? ''
+      : (source.toLowerCase().startsWith('file://') ? decodeFileURLToPath(source) : source);
+    const name = explicitName || basenameFromPath(path || source) || `image-${imageCount + 1}`;
+    attachments.push({ kind: 'image', name, path, previewUrl });
+    imageCount += 1;
+  }
+  return attachments;
+}
+
+function stripImagePlaceholders(text, enabled) {
+  const source = (text || '').toString();
+  if (!enabled || !source) return source;
+  return source
+    .replace(IMAGE_PLACEHOLDER_RE, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function toCreatedAtMillis(value) {
@@ -78,7 +150,17 @@ function historyMessageToTimelineItem(threadId, message, index) {
   const ts = rawCreatedAt instanceof Date ? rawCreatedAt.toISOString() : (rawCreatedAt || '').toString();
   const rawID = Number(message?.id);
   const itemID = Number.isFinite(rawID) && rawID > 0 ? `${threadId}-history-${Math.floor(rawID)}` : `${threadId}-history-${index + 1}`;
-  const item = { id: itemID, kind, text: (message?.content || '').toString(), ts };
+  const metadata = kind === 'user' ? parseHistoryMetadata(message?.metadata) : null;
+  const attachments = kind === 'user' ? buildHistoryImageAttachments(metadata) : [];
+  const item = {
+    id: itemID,
+    kind,
+    text: kind === 'user'
+      ? stripImagePlaceholders(message?.content, attachments.length > 0)
+      : (message?.content || '').toString(),
+    ts,
+  };
+  if (attachments.length > 0) item.attachments = attachments;
   
   if (kind === 'user') {
     // 诊断日志：打印被解析出的 user 消息
@@ -86,7 +168,6 @@ function historyMessageToTimelineItem(threadId, message, index) {
   }
 
   if (kind !== 'user') return item;
-  const metadata = parseHistoryMetadata(message?.metadata);
   if (!metadata) return item;
   if (metadata.internal === true) item.internal = true;
   const sourceKind = extractFirstString(metadata, ['sourceKind', 'source_kind']);
