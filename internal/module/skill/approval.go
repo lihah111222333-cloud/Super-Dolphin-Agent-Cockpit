@@ -32,6 +32,10 @@ type ApprovalCache struct {
 	path    string
 	mu      sync.RWMutex
 	entries map[string]ApprovalEntry
+	// writeMu 系列化盘面写入，避免并发 Approve/Revoke 因 snapshot 时序不同
+	// 而相互覆盖（A.unlock 后比 B.rename 晚就会丢失 B 的写入）。
+	// writeMu 与 mu 分开：读路径（Lookup/Entries）不被盘 IO 阻塞。
+	writeMu sync.Mutex
 }
 
 // ApprovalEntry 是单条审批记录。
@@ -149,6 +153,9 @@ func (c *ApprovalCache) Approve(name, contentHash string, trust TrustScope, appr
 		ApprovedAt:  time.Now().UTC(),
 		ApprovedBy:  strings.TrimSpace(approvedBy),
 	}
+	// 写路径串行化：先拿 writeMu，再在其内部操作 mu，保证 snapshot 与 rename 的顺序一致。
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	c.mu.Lock()
 	c.entries[approvalKey(normalizedName, hash)] = entry
 	snapshot := c.snapshotLocked()
@@ -168,6 +175,9 @@ func (c *ApprovalCache) Revoke(name string) (int, error) {
 	if normalized == "" {
 		return 0, errors.New("name is required")
 	}
+	// 同 Approve：写路径串行化避免并发丢失。
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	c.mu.Lock()
 	removed := 0
 	for key, entry := range c.entries {
