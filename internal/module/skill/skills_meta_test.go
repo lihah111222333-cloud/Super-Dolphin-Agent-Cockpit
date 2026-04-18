@@ -1,11 +1,59 @@
 package skill
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// TestParseSkillRecord_RejectsOversizedFile 防 DoS：恶意项目在 .agent/skills/evil/SKILL.md
+// 塞进大于 maxSkillFileBytes (1MB) 的内容，扫盘期必须拒绝而不是读入内存。
+// 这条回归防止未来重构误删 size check 。
+func TestParseSkillRecord_RejectsOversizedFile(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "evil")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(dir, skillMainFile)
+	// 书写比 maxSkillFileBytes 略大的内容（1MB + 1 字节）
+	big := bytes.Repeat([]byte("x"), maxSkillFileBytes+1)
+	if err := os.WriteFile(path, big, 0o644); err != nil {
+		t.Fatalf("write oversized: %v", err)
+	}
+	_, err := parseSkillRecord(tmp, path, TrustProject)
+	if err == nil {
+		t.Fatalf("expected error for oversized SKILL.md, got nil")
+	}
+	if !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("error should mention size limit: %v", err)
+	}
+}
+
+// TestParseSkillRecord_AcceptsNormalFile 确保大小检查不会误伤正常文件。
+func TestParseSkillRecord_AcceptsNormalFile(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "foo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(dir, skillMainFile)
+	content := "---\nname: foo\ndescription: hi\n---\nbody"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	rec, err := parseSkillRecord(tmp, path, TrustProject)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.info.Name != "foo" {
+		t.Fatalf("name = %q", rec.info.Name)
+	}
+}
 
 // helperParse wraps parseSkillInfo with a fixed rel/dir so tests focus on content parsing.
 func helperParse(t *testing.T, content string, defaultTrust TrustScope) SkillInfo {
