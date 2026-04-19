@@ -1,6 +1,10 @@
 package claudecli
 
-import "strings"
+import (
+	"strings"
+
+	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+)
 
 const claudeSystemNoiseTrimLeftCutset = "\ufeff \t\r\n"
 
@@ -11,14 +15,6 @@ var claudeSystemNoiseTagPairs = []struct {
 	{open: "<environment_context>", close: "</environment_context>"},
 	{open: "<instructions>", close: "</instructions>"},
 	{open: "<permissions instructions>", close: "</permissions instructions>"},
-}
-
-var claudeInjectedSkillMarkers = []struct {
-	label         string
-	allowContains bool
-}{
-	{label: "摘要:", allowContains: true},
-	{label: "使用方式: ", allowContains: false},
 }
 
 func normalizeClaudeHistory(messages []Message) []Message {
@@ -60,53 +56,9 @@ func trimInjectedClaudeLSPHint(text string) string {
 	return text
 }
 
+// trimInjectedClaudeSkillBlock 委托给共享包。P20 Phase 3 两家 provider 统一 trim 逻辑。
 func trimInjectedClaudeSkillBlock(text string) string {
-	lines := strings.Split(text, "\n")
-	for i, raw := range lines {
-		line := strings.TrimSpace(raw)
-		if strings.HasPrefix(line, "[skill:") && strings.Contains(line, "]") && looksLikeInjectedClaudeSkillBlock(lines, i) {
-			return strings.TrimRight(strings.Join(lines[:i], "\n"), "\n")
-		}
-	}
-	return text
-}
-
-func looksLikeInjectedClaudeSkillBlock(lines []string, start int) bool {
-	if start < 0 || start >= len(lines) {
-		return false
-	}
-	const lookahead = 8
-	matched := map[string]bool{}
-	markInjectedSkillMarkers(strings.TrimSpace(lines[start]), matched)
-	for i := start + 1; i < len(lines) && i <= start+lookahead; i++ {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "[skill:") {
-			break
-		}
-		markInjectedSkillMarkers(line, matched)
-		if len(matched) == len(claudeInjectedSkillMarkers) {
-			return true
-		}
-	}
-	return len(matched) == len(claudeInjectedSkillMarkers)
-}
-
-func markInjectedSkillMarkers(line string, matched map[string]bool) {
-	for _, marker := range claudeInjectedSkillMarkers {
-		if matchClaudeInjectedSkillMarker(line, marker.label, marker.allowContains) {
-			matched[marker.label] = true
-		}
-	}
-}
-
-func matchClaudeInjectedSkillMarker(line, marker string, allowContains bool) bool {
-	if allowContains {
-		return strings.Contains(line, marker)
-	}
-	return strings.HasPrefix(line, marker)
+	return skillpkg.TrimInjectedSkillBlocks(text)
 }
 
 func isClaudeSystemNoiseText(text string) bool {
