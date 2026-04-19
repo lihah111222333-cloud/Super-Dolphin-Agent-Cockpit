@@ -1,6 +1,8 @@
 package claudecli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -58,5 +60,83 @@ func TestBuildSkillList_EmptyWhenAllFiltered(t *testing.T) {
 	}
 	if list := buildSkillList(skills); list != "" {
 		t.Fatalf("all-filtered case should yield empty list, got %q", list)
+	}
+}
+
+// ============================================================================
+// P20.1 Phase 7 SkillInjectionPort (claudecli)
+// ============================================================================
+
+
+func TestClaudecliSkillInjectionPort_DetectNativeSkills_Empty(t *testing.T) {
+	port := NewSkillInjectionPort()
+	if got := port.DetectNativeSkills(""); got != nil {
+		t.Fatalf("empty cwd: %v", got)
+	}
+	if got := port.DetectNativeSkills(t.TempDir()); got != nil {
+		t.Fatalf("tmp dir without .claude/skills: %v", got)
+	}
+}
+
+func TestClaudecliSkillInjectionPort_DetectNativeSkills_ScansClaudeSkillsDir(t *testing.T) {
+	tmp := t.TempDir()
+	skillsRoot := filepath.Join(tmp, ".claude", "skills")
+	// 构造 2 个合法 skill 目录 + 1 个无 SKILL.md + 1 个普通文件
+	for _, name := range []string{"foo", "bar-baz", "extra"} {
+		if err := os.MkdirAll(filepath.Join(skillsRoot, name), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", name, err)
+		}
+	}
+	// foo, bar-baz 有 SKILL.md；extra 无
+	if err := os.WriteFile(filepath.Join(skillsRoot, "foo", "SKILL.md"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write foo: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsRoot, "bar-baz", "SKILL.md"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write bar-baz: %v", err)
+	}
+	// 普通文件混进去应被跳过
+	if err := os.WriteFile(filepath.Join(skillsRoot, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	// `.` 开头隐藏目录应被跳过
+	if err := os.MkdirAll(filepath.Join(skillsRoot, ".hidden"), 0o755); err != nil {
+		t.Fatalf("mkdir hidden: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsRoot, ".hidden", "SKILL.md"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write hidden: %v", err)
+	}
+
+	port := NewSkillInjectionPort()
+	got := port.DetectNativeSkills(tmp)
+	// 期望：只 foo 和 bar-baz，按字典序 (bar-baz, foo)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 skills, got %d: %v", len(got), got)
+	}
+	if got[0] != "bar-baz" || got[1] != "foo" {
+		t.Fatalf("result should be sorted lowercase, got %v", got)
+	}
+}
+
+func TestClaudecliSkillInjectionPort_DetectNativeSkills_NameNormalized(t *testing.T) {
+	tmp := t.TempDir()
+	skillsRoot := filepath.Join(tmp, ".claude", "skills")
+	// 目录名含大写——实测：macOS 默认文件系统不区分大小写，但仍返回原样
+	if err := os.MkdirAll(filepath.Join(skillsRoot, "MixedCase"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsRoot, "MixedCase", "SKILL.md"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	port := NewSkillInjectionPort()
+	got := port.DetectNativeSkills(tmp)
+	if len(got) != 1 || got[0] != "mixedcase" {
+		t.Fatalf("names should be lowered, got %v", got)
+	}
+}
+
+func TestClaudecliSkillInjectionPort_ReservedTokens(t *testing.T) {
+	port := NewSkillInjectionPort()
+	if got := port.ReservedTokens(); got != 3000 {
+		t.Fatalf("token budget = %d, want 3000", got)
 	}
 }
