@@ -52,5 +52,16 @@ func NewSkillHandlers(svc Service) rpc.HandlerMapResult {
 		"skills/match/preview": rpc.StrictHandler(func(ctx context.Context, p skillMatchPreviewParams) (any, error) {
 			return svc.MatchPreview(ctx, p.AgentID, p.ThreadID, p.Text, p.Input)
 		}),
+		// P20.1 Phase 6：按名读 SKILL.md body（可选 Markdown 锚点切片）。
+		// 对外暴露为 MCP 工具 `skill_expand_body` 时，由 mcp-orch 将本方法签名
+		// 映射为符合 P20.1 §3.1 的工具 schema。
+		"skills/expandBody": rpc.StrictHandler(func(ctx context.Context, p ExpandBodyParams) (any, error) {
+			return svc.ExpandBody(ctx, p)
+		}),
+		// P20.1 Phase 6：按名 + 相对路径读取 skill 目录内资源文件。
+		// 对外暴露为 MCP 工具 `skill_read_resource`。
+		"skills/readResource": rpc.StrictHandler(func(ctx context.Context, p ReadResourceParams) (any, error) {
+			return svc.ReadResource(ctx, p)
+		}),
 	}}
 }
