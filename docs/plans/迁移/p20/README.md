@@ -1,8 +1,15 @@
 # P20 Skill 渐进披露迁移拆分
 
 > 创建时间：2026-04-19 | 更新时间：2026-04-19 | 状态：**30% 已落 / 40% 部分 / 30% 未落（4 / 9 / 10）**
-> 当前 authoritative 文档：`README.md`、`status-checkpoint-2026-04-19.md`、`source-refs-appendix.md`、各 `p20.X-*.md`
+> 当前 authoritative 文档：`README.md`、`status-checkpoint-2026-04-19.md`、`source-refs-appendix.md`、各 `p20.X-*.md`，以及上层修订文档 `../p20.1-skill-progressive-disclosure-hardening.md` / `../p20.1-hardening-implementation-checklist.md`
 > 历史总纲留档：`p20-original-plan.md`
+
+## 最新施工快照（2026-04-19 第六轮）
+
+- **P20.1 §4 Phase 5 · resolver 升级**：`skillDedupKey` 改为 `name@version`；`internal/module/turn/expanded_state.go` 已落盘（`(name, kind, locator, hash)` key、TTL=5 turns），待 `p20.8` resolver 矩阵接入。
+- **p20.2 §5 step 4 · codex fallback**：`buildSkillPromptInput` 与 `claudecli buildSkillSection` 对齐——non-None skill 始终产出 `skills:\n- name`，彻底消除 `Prompt==""` 的 silent drop。
+- **p20.2 critical-path 首段全部关闭**：`PrepareTurn()` 前置新增 `(*service).hydrateSkillRefs`（ListSkills+ReadLocal 补 Prompt/Summary/Version/Source），`turn.service` 通过 fx 第 4 个 optional 参注入 `skill.Service`；`internal/module/turn/service_skill_hydrate_test.go` 5 组测例覆盖 hydrate 全/部分字段 + nil lookup + 错误路径。
+- **验证**：`go build ./...`、`go test ./internal/module/turn/... ./internal/module/skill/...` 全绿；`internal/provider/codexapp` 测试子集全绿。
 
 ---
 
@@ -12,7 +19,7 @@
 
 ## 实施边界（给开工同学）
 
-- authoritative 口径只认本目录 `README.md`、`source-refs-appendix.md`、`status-checkpoint-2026-04-19.md` 与各 `p20.X-*.md`。
+- authoritative 口径只认本目录 `README.md`、`source-refs-appendix.md`、`status-checkpoint-2026-04-19.md` 与各 `p20.X-*.md`，以及上层 `../p20.1-skill-progressive-disclosure-hardening.md` / `../p20.1-hardening-implementation-checklist.md`。
 - P20 不做“顺手重构”；写集只允许落在任务单显式列出的包/目录内。
 - launch 主链 authoritative path：`frontend thread/start` → `internal/module/thread` → `contract.StartInput` / `dto.StartSessionRequest` → `provider start`。
 - per-turn 主链 authoritative path：`Composer / useSkillPreview` → `thread/send` → `internal/module/turn` → `provider skill inject / rollout trim`。
@@ -187,8 +194,10 @@ flowchart LR
 
 ## 7. 必读文档
 
-1. `p20-original-plan.md` — 历史总纲与原始阶段设计
-2. `status-checkpoint-2026-04-19.md` — 当前落地真相 / 两个 Bug / 优先级
-3. `source-refs-appendix.md` — 经 LSP 复核后的全量锚点索引与合规结论
-4. `docs/plans/迁移/p18/README.md` — 风格基线
-5. `docs/会话习惯.md` — 仓库契约 / agent 派单规范 / LSP 强制要求
+1. `../p20.1-skill-progressive-disclosure-hardening.md` — P20.1 风险修订与最新设计基线
+2. `../p20.1-hardening-implementation-checklist.md` — P20.1 可执行实施清单 / 验收勾选表
+3. `p20-original-plan.md` — 历史总纲与原始阶段设计
+4. `status-checkpoint-2026-04-19.md` — 当前落地真相 / 两个 Bug / 优先级
+5. `source-refs-appendix.md` — 经 LSP 复核后的全量锚点索引与合规结论
+6. `docs/plans/迁移/p18/README.md` — 风格基线
+7. `docs/会话习惯.md` — 仓库契约 / agent 派单规范 / LSP 强制要求
