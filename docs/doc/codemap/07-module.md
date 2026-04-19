@@ -277,6 +277,11 @@ uistate   ──投影──> thread + bindings + preferences + sharedfile + eve
 | `skills_match.go` | MatchPreview、configured/local 自动匹配。 |
 | `skills_meta.go` | `SKILL.md` frontmatter 解析、摘要生成、slug。 |
 | `types.go` | `ExecResult`、`SkillInfo`。 |
+| `trust.go` | P20.1：`TrustScope`、`validateSkillName`、`RepoFingerprint`、`NormalizeArtifactLocator`、`ArtifactKind` 等共享基础。 |
+| `approval.go` | P20.1：artifact 级 `ApprovalCache`（5-tuple key = repo_fingerprint + name + kind + locator + hash），miss 计入 `skill_artifact_approval_miss_total`。 |
+| `rollout_markers.go` | P20.1 Phase 3：`[skill:name::mode@v1]` pair-fenced trim；footer 缺失计入 `skill_trim_corruption_fallback_count`（legacy 路径不计）；shared `RenderSkillBlock`。 |
+| `skills_expand.go` | P20.1 Phase 6：`ExpandBody(name[, anchor])` + `ReadResource(name, path)`；NormalizeArtifactLocator + ContainsPath 路径加固；进入两个入口时 +1 `skill_expand_invoke_rate`。 |
+| 外部 `pkg/skillmetrics` | P20.1 Phase 10：5 个 atomic counter（invalid mode / redaction / trim corruption / approval miss / expand invoke）；Snapshot/Read/ResetForTesting。放在叶子包避免 dto↔skill import 成环。 |
 
 ### 依赖特点
 

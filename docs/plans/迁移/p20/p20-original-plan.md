@@ -1,5 +1,5 @@
 # P20 Skill 渐进披露（Progressive Disclosure）注入改造
-> 创建时间：2026-04-18 | 更新时间：2026-04-19 | 状态：⚠️ 已迁入 `docs/plans/迁移/p20/`；原文保留为历史总纲，当前 authoritative 口径见同目录 `README.md` / `status-checkpoint-2026-04-19.md`
+> 创建时间：2026-04-18 | 更新时间：2026-04-19 | 状态：⚠️ 已迁入 `docs/plans/迁移/p20/`；原文保留为历史总纲，当前 authoritative 口径见同目录 `README.md` / `status-checkpoint-2026-04-19.md` 与上层 `../p20.1-skill-progressive-disclosure-hardening.md`
 > 前置依赖：现有 `internal/module/skill/*` 扫描与元数据骨架（已就绪）
 > 数据来源：
 > - Claude Code Skills 官方文档（code.claude.com / platform.claude.com / anthropic.com engineering blog）
@@ -15,7 +15,7 @@
 **硬约束（10 路审查共识）**：方案战略方向正确，但有 4 条红线必须先补齐才能上线 —— **安全信任边界 > rollout 回放 bug > 模型调用率兜底 > DTO 迁移顺序**。
 > [!IMPORTANT]
 > 2026-04-19 checkpoint：本文已从 `../p20-skill-progressive-disclosure.md` 迁入当前目录并冻结为“原方案留档”。
-> 后续实施、并行派单、依赖图、Bug 拆分、验收口径请以 `docs/plans/迁移/p20/README.md`、`status-checkpoint-2026-04-19.md` 与各 `p20.1` ~ `p20.16` 任务单为准。
+> 后续实施、并行派单、依赖图、Bug 拆分、验收口径请以 `docs/plans/迁移/p20/README.md`、`status-checkpoint-2026-04-19.md`、`docs/plans/迁移/p20.1-skill-progressive-disclosure-hardening.md`、`docs/plans/迁移/p20.1-hardening-implementation-checklist.md` 与各 `p20.1` ~ `p20.16` 任务单为准。
 > 原文章节**不删除**，仅补充状态横幅、§0.1 落地对照与 Phase 状态标记。
 ## 0.1 2026-04-19 落地对照（新增）
 - **总体口径**：P20 整体进度为 **30% 已落地 / 40% 部分落地 / 30% 未落地（4 / 9 / 10）**；对应任务已拆分为 `p20.1` ~ `p20.16`。

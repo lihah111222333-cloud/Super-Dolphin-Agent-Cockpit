@@ -219,3 +219,54 @@
 - ✅ `p20.10` vs `p20.13` `rpc_skill.go` 冲突 — 已解决：`p20.10 §4` 改为复用现有 `internal/module/skill/rpc.go` / `rpc_skill_types.go`，不新建文件；`p20.13` 多处禁止同步确认
 - ✅ `p20.3/4` vs `p20.7` `threadStartParams` 冲突 — 已解决：`p20.3/4` 收敛到 DTO 层 (`StartSessionRequest` additive)，provider manifest 注入归 `p20.7 InjectL1Manifest` 单点
 - ✅ 子单内一致性 — 已解决：`p20.2/5/7/15/16` 已补修（fallback 统一 `skills:\n- name`、test 文件冲突消除、签名描述更新、store 合同补注、覆盖矩阵补 7 入口 + 缩到 ≤15 文件）
+
+## 2026-04-19 第六轮增量施工（已落盘 / 待 commit）
+
+| 项 | 状态 | 文件 | 备注 |
+|---|---|---|---|
+| P20.1 §4 Phase 5 · resolver 去重键升级为 `name@version` | ✅ | `internal/module/turn/skills.go` | `skillDedupKey()` + `normalizeSkillRefs()`、`Resolve()` 全切换；autoMatch 查 seen 使用同格式 |
+| P20.1 §4 Phase 5 · `expandedStateStore` 落盘 | ✅ | `internal/module/turn/expanded_state.go`（新文件） | `(Name,Kind,Locator,Hash)` key、TTL=5 turns、hash 变即失效；待 `p20.8` resolver 矩阵接入 |
+| P20.1 §4 Phase 5 · 单测 | ✅ | `internal/module/turn/skills_test.go`、`internal/module/turn/expanded_state_test.go`（均新文件） | `TestSkillDedupKey/TestNormalizeSkillRefsDedupesByNameAndVersion/TestSkillResolverKeepsSameNameDifferentVersion/TestSkillResolverAutoMatchSkipsAlreadyExplicitVersion` + 6 项 `TestExpandedStateStore*` 与 `TestExpandedKeyValidation/TestNormalizeArtifactLocator` |
+| **p20.2 §5 step 4 · codex `buildSkillPromptInput` name-list fallback** | ✅ | `internal/provider/codexapp/module.go` | 与 `claudecli buildSkillSection` 对齐：non-None skill 始终产出 `skills:\n- name`，block 部分按 `RenderSkillBlock` 正常渲染；消除 `Prompt==""` 时的 silent drop |
+| p20.2 §5 step 4 · codex 补测 + 对齐旧测 | ✅ | `internal/provider/codexapp/skill_injection_test.go`、`internal/provider/codexapp/input_map_test.go` | 新增 `TestBuildSkillPromptInput_NameListFallbackWhenBodyMissing` / `TestBuildSkillPromptInput_NameListFallbackSkipsNoneAndInvalid`；`TestBuildSkillPromptInput_FullMode` / `LegacyPayloadEmptyModeUsesFull` / `AllSkippedReturnsFalse` 跟进新格式；`TestBuildTurnStartParams` / `TestBuildTurnSteerParams` 更新为 name-list+block 拼接期望 |
+| **未完成—p20.2 step 1-3 / 5** | ⚠️ 次会话代发 | `internal/module/turn/service.go` / `module.go`；`internal/module/turn/service_test.go` | skill.Service 作为 optional fx 参注入 + `PrepareTurn()` 前置 hydrate（`ListSkills`+`ReadLocal`）；新增 `TestPrepareTurnHydratesNameOnlySkill` / `TestPrepareTurnPreservesSummaryWhenBodyMissing` |
+
+测证门禁（2026-04-19）：
+- `go test ./internal/module/turn/... ./internal/module/skill/...` ✅（含新增 dedup / expanded_state / render 测例）
+- `go test ./internal/provider/codexapp/ -run '^(TestBuild|TestMap|TestResolveLocalTurnID|TestTextTurnInput|TestHistory|TestSession|TestTransport|TestSkill|TestProcess|TestEvent|TestDriver|TestInput)'` ✅（子集全绿）
+- `go build ./...` ✅
+
+### 2026-04-19 第七轮增量施工（p20.2 critical-path 关闭）
+
+| 项 | 状态 | 文件 | 备注 |
+|---|---|---|---|
+| p20.2 §5 step 1 · skillHydrationPort + fx 4th optional 注入 | ✅ | `internal/module/turn/service.go`、`internal/module/turn/module.go` | turn.service 现持可选 `skillLookup`；`NewServiceWithPromptAssemblyAndTurnContext` 增第 4 参 `skill.Service`（fx `optional:"true"`），`NewService`/`NewServiceWithPromptAssembly` 保持零值 `nil` 兼容 |
+| p20.2 §5 step 2-3 · PrepareTurn 前置 hydrate | ✅ | `internal/module/turn/skills.go` | 新增 `(*service).hydrateSkillRefs` + `(*service).readSkillBody` + `shortSkillHash`：ListSkills → name map → 对每条 `SkillRef` 补 `Summary/Version/Source`，Prompt 空时 `ReadLocal(<dir>/SKILL.md)`；failure/空值均保留原字段，不做破坏性覆盖 |
+| p20.2 §5 step 5 · turn 侧定向测试 | ✅ | `internal/module/turn/service_skill_hydrate_test.go`（新文件） | 5 组测例：hydrate 全字段 / body 缺失仅 Summary+Version / lookup=nil 直通 / 已填充字段不覆写 / ListSkills 错误保留原输入 |
+| 合规 | ✅ | — | `go build ./...` 通过；`go test ./internal/module/turn/... ./internal/module/skill/...` 全绿；`internal/provider/codexapp` 子集全绿（含 name-list fallback） |
+
+**p20.2 critical-path 首段（`PrepareTurn` hydrate + codex fallback）本轮全部关闭**；`p20.3` / `p20.4`（launch 断点 A + StartAssembly 接线）仍未开工。
+
+### 2026-04-19 第八轮增量施工（p20.3 launch skill 契约打通）
+
+| 项 | 状态 | 文件 | 备注 |
+|---|---|---|---|
+| p20.3 §4.3 · public RPC payload 扩展 | ✅ | `internal/module/thread/rpc_types.go` | `startParams` 新增 `SelectedSkills`（snake_case 主 tag）+ `ManualSkillSelection`；`fillLegacyLaunchSkillFields` 读 camelCase 别名；非字符串数组直接报错 |
+| p20.3 §4.3 · thread 合同 + service 映射 | ✅ | `internal/module/thread/contract.go`、`internal/module/thread/rpc.go`、`internal/module/thread/start_session.go` | `StartRequest` 内部字段 `LaunchSkillNames/ForceLaunchSkills` → `newStartHandler` 从 payload 投影 → `startSession` 透传到 `dto.StartSessionRequest`；nil/false 下游路径与旧 payload 完全一致 |
+| p20.3 §4.3 · DTO additive carrier | ✅ | `internal/dto/provider/session.go` | `StartSessionRequest` 新增 `LaunchSkillNames []string` / `ForceLaunchSkills bool`，均 `omitempty`；等待 p20.4 / p20.7 消费 |
+| p20.3 §4.3 · 前端 launch payload | ✅ | `cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js` | `startThread(ctx, cwd, options)` 接受 `options.selectedSkills/manualSkillSelection`，空数组/false 不下发 |
+| p20.3 §4.3 · 定向测试 | ✅ | `internal/module/thread/rpc_types_test.go`、`internal/module/thread/start_session_guard_test.go` | 新增 4 项 `TestStartParamsAccepts/Omits/Rejects…` + 2 项 `TestServiceStart(Forwards|LeavesEmpty)LaunchSkills` |
+| 合规 | ✅ | — | `go build ./...` 通过；`go test ./internal/module/thread ./internal/module/turn ./internal/module/skill ./internal/dto/provider ./internal/provider/unified` 全绿 |
+
+**p20.3 transport 层打通已完成**；`p20.4`（StartAssembly / provider start 真正消费 `LaunchSkillNames`）与 `p20.7`（codex `InjectL1Manifest` 在 baseInstructions 层并入）仍未开工。
+
+### 2026-04-19 第九轮增量施工（P20.1 Phase 8 / 9 / 10 / 11 全部落地）
+
+| 项 | 状态 | Commit | 备注 |
+|---|---|---|---|
+| Phase 8 — SkillCatalogProvider 安全投影 + 分组 | ✅ | `c1ead48` + `f890dc4` | 四分组 Core / Native / Manual-only / Redacted；Trust filter 前置于 DisableModelInvocation |
+| Phase 9 — 元指令 + 规模兜底 | ✅ | `3cd3144` + `6013457` | Append "How to use skills"；Native skill guard clause；budget 超限 fallback |
+| Phase 10 — fx 接线 + 灰度 + 5 counter + 3 env flag | ✅ | `00b073f` + `9f0f4bd` | pkg/skillmetrics 新叶子包；`compositeNativeSkillDetector` + `RegisterSkillCatalogProviderIfEnabled`；legacy 路径不再误报 corruption |
+| Phase 11 — 文档与 codemap 同步 | ✅ | （本轮 commit） | hardening / checklist / checkpoint / codemap 07+11 + ai-index.json 全部同步 |
+
+**本轮把 P20.1 加固基线从 Phase 7 推进到 Phase 11 完整闭环**；剩余工作只有跨 phase 的 shadow 阶段评测（P0）和 P20.2/3/4 的 per-turn hydrate 真实生产联调（不属于 P20.1 范畴）。

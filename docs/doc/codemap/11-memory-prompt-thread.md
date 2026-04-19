@@ -145,20 +145,30 @@ cmd/mcp-orch/tools/memory_tools.go
 
 ```text
 internal/module/prompt/
-├── assembler.go        # AssembleStart / AssembleTurn / snapshot / cache invalidation
-├── buildctx.go         # BuildCtx / MCPSnapshot 类型别名
-├── cache.go            # sectionCache：generation + per-section cache
-├── config.go           # ENABLE_PROMPT_* 配置
-├── dynamic.go          # dynamic section 声明、注册、session guidance provider
-├── env_provider.go     # 环境信息动态 section
-├── language_provider.go# 语言偏好动态 section
-├── mcp_provider.go     # MCP server instructions 动态 section
-├── module.go           # fx.Module
-├── registry.go         # SectionRegistry：注册/排序 section
-├── section.go          # static system prompt sections 文本
-├── service.go          # NewService；注册 static + dynamic providers
-└── types.go            # PromptSection / SectionContext / snapshot / invalidate reason
+├── assembler.go              # AssembleStart / AssembleTurn / snapshot / cache invalidation
+├── buildctx.go               # BuildCtx / MCPSnapshot 类型别名
+├── cache.go                  # sectionCache：generation + per-section cache
+├── config.go                 # ENABLE_PROMPT_* 配置 + P20.1 Phase 10 skill progressive disclosure env
+├── dynamic.go                # dynamic section 声明、注册、session guidance provider
+├── env_provider.go           # 环境信息动态 section
+├── language_provider.go      # 语言偏好动态 section
+├── mcp_provider.go           # MCP server instructions 动态 section
+├── module.go                 # fx.Module；包含 composite detector 与 skill_catalog 灰度 Invoke
+├── registry.go               # SectionRegistry：注册/排序 section
+├── section.go                # static system prompt sections 文本
+├── service.go                # NewService；注册 static + dynamic providers
+├── skill_catalog_provider.go # P20.1 Phase 8：L1 manifest 安全投影，4 分组 Core/Native/Manual-only/Redacted
+├── skill_catalog_fx.go       # P20.1 Phase 10：compositeNativeSkillDetector + NewSkillCatalogProviderFx + RegisterSkillCatalogProviderIfEnabled
+└── types.go                  # PromptSection / SectionContext / snapshot / invalidate reason
 ```
+
+**P20.1 Phase 8-10 Skill progressive disclosure 召回规则**：
+
+- `DynamicSectionSkillCatalog`（`"skill_catalog"`）在 `dynamicSectionSpecs` 常驻注册，order=280，`Uncached`。
+- `SkillCatalogProvider` 按 trust 分组：User/Signed → Core；project+unapproved → Redacted（出于安全考虑，**不暴露作者原始 description/summary**）；Claude CLI 已自动加载 → Native；`disable-model-invocation=true` → Manual-only。
+- 灰度闸门 `RegisterSkillCatalogProviderIfEnabled` 根据 `cfg.EnableSkillProgressiveDisclosure`（env `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE`，默认 false）决定是否注册 provider；flag 关时注册表不绑 provider→slot 渲染为空，`skill_expand_body` / `skill_read_resource` 工具仍走原 `skill.Service` 路径。
+- Token 预算 env `SKILL_CATALOG_TOKEN_BUDGET`（默认 3000 tokens，≤0/非法回落）；元指令 env `SKILL_CATALOG_META_INSTRUCTIONS`（默认 true）。
+- Provider 侧（claudecli / codexapp）用共享常量 `prompt.SkillInjectionPortGroupTag` 向 fx group `"skill_injection_ports"` 注入 `contract.SkillInjectionPort`；`compositeNativeSkillDetector` 聚合后去重 + 字典序。
 
 ### 2.4 `internal/module/thread/` + `internal/store/thread/`
 
