@@ -260,6 +260,76 @@ func TestSkillCatalogProvider_MetaInstructionsDisabled(t *testing.T) {
 	}
 }
 
+// TestSkillCatalogProvider_MetaInstructionsNativeGuardClause 锁定 Phase 9 审核
+// 补充：元指令必须明确告知模型 Native 区 skill 不需 skill_expand_body，
+// 避免“看到 Native entry 说 auto-loaded 但元指令说 call skill_expand_body”的矛盾。
+func TestSkillCatalogProvider_MetaInstructionsNativeGuardClause(t *testing.T) {
+	p := NewSkillCatalogProvider(fakeSkillLister{infos: []skillpkg.SkillInfo{
+		{Name: "foo", Description: "hi", Trust: skillpkg.TrustUser},
+	}}, nil, 0)
+	out, err := p.Resolve(context.Background(), baseCtx(""))
+	if err != nil || out == nil {
+		t.Fatalf("Resolve: err=%v out=%v", err, out)
+	}
+	text := *out
+	if !strings.Contains(text, "do NOT need") || !strings.Contains(text, "skill_expand_body") {
+		t.Fatalf("meta-instructions should have Native guard clause: %q", text)
+	}
+	if !strings.Contains(text, "use `/<name>`") && !strings.Contains(text, "natural-language reference") {
+		t.Fatalf("should explain Native alternative trigger: %q", text)
+	}
+}
+
+// TestSkillCatalogProvider_NativeOnlyProjectScenario 项目只含 Claude CLI native skill
+// 的场景下，manifest 依然渲染 Native 组 + 元指令；模型应能从元指令得到
+// 正确指引（不对 Native skill 调 skill_expand_body）。
+func TestSkillCatalogProvider_NativeOnlyProjectScenario(t *testing.T) {
+	p := NewSkillCatalogProvider(
+		fakeSkillLister{infos: []skillpkg.SkillInfo{
+			{Name: "claude-foo", Description: "cfg", Trust: skillpkg.TrustUser},
+		}},
+		fakeNativeDetector{names: []string{"claude-foo"}},
+		0,
+	)
+	out, err := p.Resolve(context.Background(), baseCtx("/proj"))
+	if err != nil || out == nil {
+		t.Fatalf("Resolve: err=%v out=%v", err, out)
+	}
+	text := *out
+	if !strings.Contains(text, "### Native (Claude CLI auto-loaded)") {
+		t.Fatalf("should render Native section: %q", text)
+	}
+	if !strings.Contains(text, "do NOT need") {
+		t.Fatalf("meta-instructions Native guard missing in native-only scenario: %q", text)
+	}
+	if strings.Contains(text, "### Core (trusted)") {
+		t.Fatalf("should NOT render Core when only Native: %q", text)
+	}
+}
+
+// TestSkillCatalogProvider_Idempotent 防御：Resolve 多次调用返回相同结果。
+// Phase 8 选用 CacheByName 缓存策略，缓存 key 安全的前提是 Resolve 在相同输入下
+// deterministic。将来有人无心加时间戳或随机 observability tag 会被本测卡住。
+func TestSkillCatalogProvider_Idempotent(t *testing.T) {
+	p := NewSkillCatalogProvider(fakeSkillLister{infos: []skillpkg.SkillInfo{
+		{Name: "alpha", Description: "d1", Trust: skillpkg.TrustUser},
+		{Name: "beta", Description: "d2", Trust: skillpkg.TrustProject},
+	}}, fakeNativeDetector{names: []string{"gamma"}}, 0)
+	first, err := p.Resolve(context.Background(), baseCtx("/proj"))
+	if err != nil || first == nil {
+		t.Fatalf("first Resolve: err=%v out=%v", err, first)
+	}
+	for i := 0; i < 5; i++ {
+		next, err := p.Resolve(context.Background(), baseCtx("/proj"))
+		if err != nil || next == nil {
+			t.Fatalf("iter %d: err=%v out=%v", i, err, next)
+		}
+		if *next != *first {
+			t.Fatalf("iter %d non-deterministic; diff detected:\nfirst  %q\nlater  %q", i, *first, *next)
+		}
+	}
+}
+
 func TestSkillCatalogProvider_MetaInstructionsFallbackWhenTooLarge(t *testing.T) {
 	// 构造极紧预算 — 恰好能放下 manifest 主体 + fallback，但放不下完整元指令
 	p := NewSkillCatalogProvider(fakeSkillLister{infos: []skillpkg.SkillInfo{
