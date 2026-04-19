@@ -170,18 +170,9 @@ func (s *service) ReadResource(_ context.Context, p ReadResourceParams) (ReadRes
 	}
 	maxBytes := resolveMaxBytes(p.MaxBytes)
 
-	skillDir := filepath.Clean(rec.info.Dir)
-	// EvalSymlinks 规范化 skillDir（macOS /tmp → /private/tmp 之类 symlink 场景），
-	// 然后与 target 的 EvalSymlinks 结果阅同一 namespace 做 ContainsPath 比较。
-	if resolved, err := filepath.EvalSymlinks(skillDir); err == nil {
-		skillDir = resolved
-	}
-	target := filepath.Clean(filepath.Join(skillDir, relPath))
-	if resolved, err := filepath.EvalSymlinks(target); err == nil {
-		target = resolved
-	}
-	if !platformshared.ContainsPath(skillDir, target) {
-		return ReadResourceResult{}, fmt.Errorf("resource path escapes skill dir: %s", relPath)
+	target, skillDir, err := resolveResourceTarget(rec.info.Dir, relPath)
+	if err != nil {
+		return ReadResourceResult{}, err
 	}
 
 	stat, err := os.Stat(target)
@@ -201,9 +192,6 @@ func (s *service) ReadResource(_ context.Context, p ReadResourceParams) (ReadRes
 	total := int64(len(data))
 	content, truncated := truncateBytes(string(data), maxBytes)
 
-	// Resource Version 用读到的 data 自身 hash 的前 12 位 hex，不要用 rec.info.ContentHash
-	// （那是 SKILL.md hash）——资源文件与 SKILL.md 可能各自演化，版本字段
-	// 必须准确反映本次返回内容所对应的 resource 实际 hash。
 	resourceSum := sha256.Sum256(data)
 	version := hex.EncodeToString(resourceSum[:])
 	if len(version) > 12 {
@@ -219,6 +207,23 @@ func (s *service) ReadResource(_ context.Context, p ReadResourceParams) (ReadRes
 		Truncated:  truncated,
 		TotalBytes: total,
 	}, nil
+}
+
+// resolveResourceTarget 解析 symlink、规范化路径并验证 target 未逃逸 skill 目录。
+func resolveResourceTarget(dir, relPath string) (target, skillDir string, err error) {
+	skillDir = filepath.Clean(dir)
+	// EvalSymlinks 规范化 skillDir（macOS /tmp → /private/tmp 之类 symlink 场景）。
+	if resolved, resolveErr := filepath.EvalSymlinks(skillDir); resolveErr == nil {
+		skillDir = resolved
+	}
+	target = filepath.Clean(filepath.Join(skillDir, relPath))
+	if resolved, resolveErr := filepath.EvalSymlinks(target); resolveErr == nil {
+		target = resolved
+	}
+	if !platformshared.ContainsPath(skillDir, target) {
+		return "", "", fmt.Errorf("resource path escapes skill dir: %s", relPath)
+	}
+	return target, skillDir, nil
 }
 
 // sliceMarkdownSection 从 Markdown body 中提取指定 H2/H3/... 锚点下的段落。
@@ -244,20 +249,8 @@ func sliceMarkdownSection(body, anchor string) (string, bool) {
 		return body, true
 	}
 	lines := strings.Split(body, "\n")
-	startIdx, startLevel := -1, 0
-	for i, line := range lines {
-		level, title, ok := parseMarkdownHeading(line)
-		if !ok {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(title), lowerAnchor) ||
-			strings.EqualFold(normalizeAnchorSlug(title), lowerAnchor) {
-			startIdx = i
-			startLevel = level
-			break
-		}
-	}
-	if startIdx < 0 {
+	startIdx, startLevel, found := findAnchorLine(lines, lowerAnchor)
+	if !found {
 		return "", false
 	}
 	end := len(lines)
@@ -270,6 +263,21 @@ func sliceMarkdownSection(body, anchor string) (string, bool) {
 	}
 	sliceText := strings.TrimRight(strings.Join(lines[startIdx:end], "\n"), "\n")
 	return sliceText, true
+}
+
+// findAnchorLine 在 lines 中查找匹配 anchor 的标题行，返回索引、级别和是否找到。
+func findAnchorLine(lines []string, lowerAnchor string) (idx, level int, found bool) {
+	for i, line := range lines {
+		lvl, title, ok := parseMarkdownHeading(line)
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(title), lowerAnchor) ||
+			strings.EqualFold(normalizeAnchorSlug(title), lowerAnchor) {
+			return i, lvl, true
+		}
+	}
+	return -1, 0, false
 }
 
 // parseMarkdownHeading 识别 ATX heading 行并返回 (level, title, ok)。
