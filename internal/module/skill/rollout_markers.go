@@ -168,10 +168,11 @@ func TrimInjectedSkillBlocksWithDiag(text string) TrimResult {
 			return res
 		case SkillBlockFormatLegacy:
 			if looksLikeLegacyInjectedBlock(lines, i) {
-				// legacy 遗留语义：剪到 EOF
+				// legacy 遗留语义：剪到 EOF。
+				// 注：legacy 格式是预期的历史数据路径，不是 P20.1 §3.4 定义的
+				// "corruption fallback"；因此不计入 skillmetrics.IncTrimCorruptionFallback()
+				// ——后者仅涉及 pair-fenced footer 缺失这一真正的异常场景。
 				res.LegacyTrimmed = true
-				// P20.1 Phase 10 Step C: legacy pair-less 格式 → 降级计数。
-				skillmetrics.IncTrimCorruptionFallback()
 				res.Text = strings.TrimRight(strings.Join(kept, "\n"), "\n")
 				return res
 			}
