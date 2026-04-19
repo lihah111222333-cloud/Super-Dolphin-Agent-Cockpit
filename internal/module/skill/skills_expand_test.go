@@ -167,6 +167,39 @@ func TestExpandBody_DefaultMaxBytes(t *testing.T) {
 	}
 }
 
+// TestExpandBody_OnlyFrontmatterYieldsEmptyBody 锁定 splitFrontmatter fallback bug 修复：
+// SKILL.md 仅有 frontmatter 时，ExpandBody 返回内容必须为空（而非泄漏 frontmatter
+// 作为 body）。P20.1 §3.3 untrusted metadata 纯化依赖该不变量。
+func TestExpandBody_OnlyFrontmatterYieldsEmptyBody(t *testing.T) {
+	svc, root := newExpandTestService(t)
+	// 内容只有 frontmatter，后续 body 为空
+	writeExpandTestSkill(t, root, "fmonly", "---\nname: fmonly\ndescription: secret metadata\nsummary: leaked!\n---\n")
+	res, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "fmonly"})
+	if err != nil {
+		t.Fatalf("ExpandBody: %v", err)
+	}
+	if res.Content != "" {
+		t.Fatalf("body-only frontmatter MUST yield empty content (bug: leaked frontmatter), got %q", res.Content)
+	}
+	// frontmatter 内的任何字段（含“secret metadata”/"leaked!"）都不得出现在 Content
+	if strings.Contains(res.Content, "secret") || strings.Contains(res.Content, "leaked") {
+		t.Fatalf("frontmatter must NOT leak into content: %q", res.Content)
+	}
+}
+
+// TestExpandBody_NoFrontmatterReturnsFullFile 无 frontmatter 时，整个文件作为 body。
+func TestExpandBody_NoFrontmatterReturnsFullFile(t *testing.T) {
+	svc, root := newExpandTestService(t)
+	writeExpandTestSkill(t, root, "nofm", "just body content\nline 2")
+	res, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "nofm"})
+	if err != nil {
+		t.Fatalf("ExpandBody: %v", err)
+	}
+	if !strings.Contains(res.Content, "just body content") || !strings.Contains(res.Content, "line 2") {
+		t.Fatalf("no-frontmatter file should be returned as body, got %q", res.Content)
+	}
+}
+
 // ---- ReadResource ----
 
 func TestReadResource_Normal(t *testing.T) {
@@ -242,6 +275,28 @@ func TestReadResource_DirectoryRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "directory") {
 		t.Fatalf("error text: %v", err)
+	}
+}
+
+// TestReadResource_EmptyFile 空文件（0 字节）合法读取，返回 Content="" TotalBytes=0。
+func TestReadResource_EmptyFile(t *testing.T) {
+	svc, root := newExpandTestService(t)
+	dir := writeExpandTestSkill(t, root, "foo", "---\nname: foo\n---\nbody")
+	if err := os.WriteFile(filepath.Join(dir, "empty.txt"), []byte{}, 0o644); err != nil {
+		t.Fatalf("write empty: %v", err)
+	}
+	res, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "empty.txt"})
+	if err != nil {
+		t.Fatalf("ReadResource empty file: %v", err)
+	}
+	if res.Content != "" {
+		t.Fatalf("empty file should yield empty content, got %q", res.Content)
+	}
+	if res.TotalBytes != 0 {
+		t.Fatalf("empty file TotalBytes = %d, want 0", res.TotalBytes)
+	}
+	if res.Truncated {
+		t.Fatalf("empty file should not be truncated")
 	}
 }
 
