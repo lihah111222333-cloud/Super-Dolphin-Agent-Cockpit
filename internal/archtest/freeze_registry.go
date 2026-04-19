@@ -28,9 +28,9 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/prompt",
 		Kind:       ViolationPackageCount,
-		Limit:      26,
-		Reason:     "prompt 迁移期文件数高于默认预算，冻结到当前裁决上限",
-		Owner:      "P19-Phase-F",
+		Limit:      28,
+		Reason:     "prompt 迁移期文件数高于默认预算；P20.1 Phase 8/10 新增 skill_catalog_provider.go + skill_catalog_fx.go",
+		Owner:      "P20.1-Phase-10",
 		RemoveWhen: "prompt 子包梳理完成并回落到默认包文件预算 25 个（2026-04-17 放宽后）",
 	},
 }

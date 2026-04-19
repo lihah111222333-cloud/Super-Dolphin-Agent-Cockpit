@@ -49,7 +49,7 @@
 | `internal/contract/skill_injection.go` | 文件缺失 | `p20.6` / `p20.7` |
 | `internal/module/turn/expanded_state.go` | 文件缺失 | `p20.8` |
 | `config.skill.progressive_disclosure` + skillPolicy + metrics | `internal/platform/config/config.go:9-25` 未含 | `p20.12` |
-| MCP tool 注册 `skill_expand` / `skill_list` | `cmd/mcp-orch/tools/` 无命中 | `p20.11` |
+| MCP tool 注册 `skill_expand` / `skill_list` | `cmd/mcp-orch/tools/` 无命中 | ~~`p20.11`~~ **已废弃**：skill 是宿主独有能力，不属于编排层 |
 
 ## 3. 两个 Bug 的 smoking-gun 一页纸
 
@@ -103,7 +103,7 @@
 ### Medium
 - `p20.9` — rollout markers
 - `p20.10` — host RPC expand/list
-- `p20.11` — MCP tools
+- `p20.11` — ~~MCP tools~~ **已废弃**：skill 是宿主独有能力，不属于 mcp-orch 编排层
 - `p20.12` — config / policy / metrics
 - `p20.15` — 前端 404 fallback（可先做页面降级，最终等 `p20.1`）
 - `p20.16` — 集成测试收口（必须最后）
@@ -166,11 +166,10 @@
 - **修订方案**：host RPC 继续 slash、MCP tool 继续 underscore；`skill/expand` response 返回 `content_hash`，请求侧不带 hash；老 `skills/*` surface 不回退。
 - **受影响文档**：`p20.10`、`README`
 
-### 修正 10 — p20.11 显式依赖 p20.10，且直调 `skill.Service`
+### 修正 10 — ~~p20.11 显式依赖 p20.10，且直调 `skill.Service`~~ **已废弃**
 - **原方案**：MCP 可独立推进，或复用 host `Server.Dispatch()`/handler map。
-- **证据**：`docs/plans/迁移/p20/p20.11-mcp-skill-tools.md:3,9-11,23-32,42-52` 已写明依赖 `p20.10` 的 `skill.Service.Expand(...)`，并禁止 `Server.Dispatch("skill/...")`。
-- **修订方案**：MCP facade 只注入 `skill.Service`；`cmd/mcp-orch/fx.go` 的 provider 与 `tools/skill` capability 同步修改，避免 capability 漂移。
-- **受影响文档**：`p20.11`、`README`
+- **废弃原因**：skill 是宿主主程序独有能力，`cmd/mcp-orch` 是独立二进制，无法直接访问 skill 数据（文件系统 `.agent/skills/`）。编排层拉起的子进程也在宿主中运行，只要提示词有 skill 清单，即可触发 skill 行为，无需额外 MCP 工具入口。
+- **受影响文档**：`p20.11`、`README`、`p20.16`
 
 ### 修正 11 — p20.12 缩到 1 文件且 metrics 改 snake_case
 - **原方案**：按 3 个新文件拆 config / policy / metrics，且命名风格未锁。
@@ -270,3 +269,28 @@
 | Phase 11 — 文档与 codemap 同步 | ✅ | （本轮 commit） | hardening / checklist / checkpoint / codemap 07+11 + ai-index.json 全部同步 |
 
 **本轮把 P20.1 加固基线从 Phase 7 推进到 Phase 11 完整闭环**；剩余工作只有跨 phase 的 shadow 阶段评测（P0）和 P20.2/3/4 的 per-turn hydrate 真实生产联调（不属于 P20.1 范畴）。
+
+### 2026-04-19 第十轮 · 文档状态同步（修正落地口径）
+
+> ⚠️ **口径修正**：本文件 §2 "30% / 40% / 30%（4 / 9 / 10）" 为 P20.1 Phase 8 之前的快照，已严重滞后。以下为截至 `b0d2555`（HEAD）的真实落地状态。
+
+| 任务单 | 状态 | 关闭提交 | 说明 |
+|---|---|---|---|
+| `p20.1`（Bug #1 prompts handler） | ❌ 未开工 | — | 仍需恢复 `prompts/list\|write\|delete` handler |
+| `p20.2`（Bug #2 断点 B） | ✅ 已完成 | `78c6907` | PrepareTurn hydrate + codex name-list fallback |
+| `p20.3`（Bug #2 断点 A） | ✅ 已完成 | `cec26fe` | thread/start selectedSkills 契约端到端打通 |
+| `p20.4`（launch assembly） | ✅ 已完成 | `b0d2555` | AssembleStart 消费 LaunchSkillNames（pin/force） |
+| `p20.5`（SkillCatalogProvider） | ✅ Phase 8-10 完成 | `c1ead48`→`00b073f` | 安全投影 + 元指令 + fx 灰度 + 5 counter |
+| `p20.6`（claudecli Port） | ⚠️ 基础落地 | `9b0f7e1`/`9707764` | 契约 + 实现 + native scan；carrier/registry 集成待收口 |
+| `p20.7`（codexapp Port） | ⚠️ 基础落地 | `9b0f7e1` | 契约 + 实现；carrier/registry 集成待收口 |
+| `p20.8`（resolver 矩阵） | ⚠️ 基础落地 | `3fbed75`/`b12df84` | expanded_state 已落；矩阵 + matcher 待完成 |
+| `p20.9`（rollout markers） | ⚠️ 读端落地 | `e5947dc`/`25af3d7` | 读端 helper 已落；provider 切换 + 写端待 p20.6/7 |
+| `p20.10`（host RPC） | ❌ 未开工 | — | |
+| `p20.11`（MCP tools） | 🚫 已废弃 | — | skill 是宿主独有能力，不属于编排层；子进程在宿主中，skill 通过提示词触发 |
+| `p20.12`（config/policy/metrics） | ✅ Phase 10 吸收 | `00b073f`/`9f0f4bd` | `pkg/skillmetrics/` + `prompt/config.go` |
+| `p20.13`（审批接线） | ❌ 未开工 | — | |
+| `p20.14`（前端 LaunchSkillPicker） | ❌ 未开工 | — | |
+| `p20.15`（前端 404 降级） | ❌ 未开工 | — | |
+| `p20.16`（集成测试） | ❌ 未开工 | — | |
+
+**修正后口径**：16 个任务单中 **5 个 ✅ 已完成 + 4 个 ⚠️ 基础/读端已落地 + 1 个 🚫 已废弃 + 6 个 ❌ 未开工**。实际完成度约 **55-60%**（代码行数加权更高）。
