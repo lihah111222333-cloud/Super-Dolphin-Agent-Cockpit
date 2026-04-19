@@ -202,16 +202,22 @@ const (
 // RenderSkillBlock 按 P20.1 Phase 4 规范产出单个 skill 注入块的成对文本。
 //
 // 输入：
-//   - name : skill 名（已由调用方确保经 validateSkillName，这里只做基础 trim）
-//   - body : Full 模式写入的完整正文
-//   - summary : Summary 模式写入的摘要
+//   - name : skill 名。经 validateSkillName 白名单校验（^[a-z0-9][a-z0-9-]{0,63}$），
+//            非法值→ 拒渲染。这是防御最后一道闸：即使上游忘校验，
+//            恶意或畸形 name（如 "foo]\n[skill:victim"、"Foo Bar"）也不会产生非法 header。
+//   - body : Full 模式写入的完整正文。禁止内部含 skill header/footer 模式，
+//            避免 body 伪造 footer 导致读端提前截断、尾部残留内容被当用户文本注入。
+//   - summary : Summary 模式写入的摘要，同样拒绝伪造 header/footer。
 //   - mode : 字符串 "full"/"summary"/"none"/""；空值视同 full（legacy 兼容），
 //            未知非法值→ 视同 none（与 dto.SkillMode.Effective() P20.1 修订对齐）。
 //
-// 返回 (text, ok)； ok=false 表示无需注入（None / 空 name / 相应内容空）。
+// 返回 (text, ok)； ok=false 表示无需注入（None / name 非法 / body或summary含
+// 伪造标记 / 内容为空）。
 func RenderSkillBlock(name, body, summary, mode string) (string, bool) {
-	normalizedName := strings.TrimSpace(name)
-	if normalizedName == "" {
+	// P20.1 安全加固 A：name 白名单过滤。非法 name 拒渲染，保证产出的 header
+	// 与 Phase 3 skillBlockHeaderNewFormat 正则一致（不会漏到 legacy 分支）。
+	normalizedName, err := validateSkillName(name)
+	if err != nil {
 		return "", false
 	}
 	effective := effectiveRenderMode(mode)
@@ -221,10 +227,17 @@ func RenderSkillBlock(name, body, summary, mode string) (string, bool) {
 		if trimmedBody == "" {
 			return "", false
 		}
+		// P20.1 安全加固 B：拒绝 body 含伪造 skill header/footer。
+		if containsSkillBlockMarker(trimmedBody) {
+			return "", false
+		}
 		return wrapSkillBlock(normalizedName, "full", trimmedBody), true
 	case "summary":
 		trimmedSummary := strings.TrimSpace(summary)
 		if trimmedSummary == "" {
+			return "", false
+		}
+		if containsSkillBlockMarker(trimmedSummary) {
 			return "", false
 		}
 		inner := trimmedSummary + "\n\u2192 Call " + skillExpandBodyToolName + "(\"" + normalizedName + "\") for full body"
@@ -232,6 +245,18 @@ func RenderSkillBlock(name, body, summary, mode string) (string, bool) {
 	default: // "none" / unknown / ""
 		return "", false
 	}
+}
+
+// containsSkillBlockMarker 扫描文本行内是否出现 skill header 或 footer 模式（新格式
+// 或 legacy）。用于阻止 body/summary 伪造标记出现在渲染块内部。
+func containsSkillBlockMarker(text string) bool {
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "[skill:") || strings.HasPrefix(line, "[/skill:") {
+			return true
+		}
+	}
+	return false
 }
 
 // effectiveRenderMode 对齐 dto.SkillMode.Effective() 的 P20.1 §3.5 策略：
