@@ -220,6 +220,105 @@ func TestParseSkillBlockFooter(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// P20.1 Phase 4 RenderSkillBlock 写端渲染
+// ============================================================================
+
+func TestRenderSkillBlock_FullMode(t *testing.T) {
+	text, ok := RenderSkillBlock("foo", "FULL BODY\nmultiple lines", "", "full")
+	if !ok {
+		t.Fatalf("full mode should produce block")
+	}
+	want := "[skill:foo::full@v1]\nFULL BODY\nmultiple lines\n[/skill:foo::full@v1]"
+	if text != want {
+		t.Fatalf("full mode:\ngot  %q\nwant %q", text, want)
+	}
+}
+
+func TestRenderSkillBlock_SummaryMode(t *testing.T) {
+	text, ok := RenderSkillBlock("rpc-tracing", "", "Trace JSON-RPC flow.", "summary")
+	if !ok {
+		t.Fatalf("summary mode should produce block")
+	}
+	want := "[skill:rpc-tracing::summary@v1]\nTrace JSON-RPC flow.\n\u2192 Call skill_expand_body(\"rpc-tracing\") for full body\n[/skill:rpc-tracing::summary@v1]"
+	if text != want {
+		t.Fatalf("summary mode:\ngot  %q\nwant %q", text, want)
+	}
+}
+
+func TestRenderSkillBlock_NoneMode(t *testing.T) {
+	text, ok := RenderSkillBlock("foo", "body", "summary", "none")
+	if ok || text != "" {
+		t.Fatalf("none mode must produce nothing: got (%q, %v)", text, ok)
+	}
+}
+
+func TestRenderSkillBlock_EmptyModeDefaultsToFull(t *testing.T) {
+	// P20.1 §3.5：空值兼容 legacy payload，按 full 处理
+	text, ok := RenderSkillBlock("legacy", "body", "", "")
+	if !ok {
+		t.Fatalf("empty mode should default to full")
+	}
+	if !strings.Contains(text, "[skill:legacy::full@v1]") || !strings.Contains(text, "[/skill:legacy::full@v1]") {
+		t.Fatalf("empty mode should render as full: %q", text)
+	}
+}
+
+func TestRenderSkillBlock_InvalidModeSkips(t *testing.T) {
+	// P20.1 §3.5：非空非合法值保守降级为 none，不注入。
+	// 注意："FULL" / "  full  " 经 ToLower+TrimSpace 后归为 "full"，属合法值
+	// （写端容错），故不列入非法集合。
+	for _, mode := range []string{"banana", "partial", "skip", "exec", "metadata", "body"} {
+		if text, ok := RenderSkillBlock("foo", "body", "sum", mode); ok || text != "" {
+			t.Fatalf("invalid mode %q MUST skip: got (%q, %v)", mode, text, ok)
+		}
+	}
+}
+
+func TestRenderSkillBlock_EmptyNameSkips(t *testing.T) {
+	if _, ok := RenderSkillBlock("", "body", "", "full"); ok {
+		t.Fatalf("empty name should skip")
+	}
+	if _, ok := RenderSkillBlock("  ", "body", "", "full"); ok {
+		t.Fatalf("whitespace-only name should skip")
+	}
+}
+
+func TestRenderSkillBlock_FullWithEmptyBodySkips(t *testing.T) {
+	// Full 模式但 body 为空 → 应该不注入（对齐旧版 buildSkillPromptInput skip 的语义）
+	if _, ok := RenderSkillBlock("foo", "", "", "full"); ok {
+		t.Fatalf("full mode with empty body should skip")
+	}
+	if _, ok := RenderSkillBlock("foo", "   ", "", "full"); ok {
+		t.Fatalf("full mode with whitespace-only body should skip")
+	}
+}
+
+func TestRenderSkillBlock_SummaryWithEmptySummarySkips(t *testing.T) {
+	if _, ok := RenderSkillBlock("foo", "body here", "", "summary"); ok {
+		t.Fatalf("summary mode with empty summary should skip")
+	}
+}
+
+// TestRenderSkillBlock_RoundtripWithTrim 验证写端产出的块能被 Phase 3 的
+// TrimInjectedSkillBlocks 成对裁剪（写读闭环信心测试）。
+func TestRenderSkillBlock_RoundtripWithTrim(t *testing.T) {
+	fullBlock, _ := RenderSkillBlock("foo", "body", "", "full")
+	summaryBlock, _ := RenderSkillBlock("bar", "", "a short summary", "summary")
+
+	userText := "user prompt before\n" + fullBlock + "\nuser middle\n" + summaryBlock + "\nuser after"
+	result := TrimInjectedSkillBlocksWithDiag(userText)
+	if result.NewBlocksTrimmed != 2 {
+		t.Fatalf("expected 2 blocks trimmed, got %d", result.NewBlocksTrimmed)
+	}
+	// 成对裁剪仅删除 [header..footer] 行范围（包含块之前/后的 \n 会自然合并），
+	// 不保留空行。
+	want := "user prompt before\nuser middle\nuser after"
+	if result.Text != want {
+		t.Fatalf("roundtrip:\ngot  %q\nwant %q", result.Text, want)
+	}
+}
+
 // TestTrimInjectedSkillBlocks_NewFormatWithoutFooter 新格式 header 无 footer 时
 // 仍然剥离（P20 §3.4 决策：header 严格正则即触发，不依赖 footer）。
 func TestTrimInjectedSkillBlocks_NewFormatWithoutFooter(t *testing.T) {

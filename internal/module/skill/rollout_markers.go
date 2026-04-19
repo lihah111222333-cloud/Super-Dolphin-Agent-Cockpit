@@ -187,6 +187,76 @@ func TrimInjectedSkillBlocksWithDiag(text string) TrimResult {
 	return res
 }
 
+// ============================================================================
+// P20.1 Phase 4 写端渲染
+// ============================================================================
+
+// 新格式输出常量。skill_expand_body 是 P20.1 §3.1 拆分后的新工具名，代替旧
+// skill_expand；Phase 6 会真正注册该工具。写端在摘要块中提示模型调用该工具。
+const (
+	skillBlockSchemaVersion = 1
+	skillBlockVersionSuffix = "@v1"
+	skillExpandBodyToolName = "skill_expand_body"
+)
+
+// RenderSkillBlock 按 P20.1 Phase 4 规范产出单个 skill 注入块的成对文本。
+//
+// 输入：
+//   - name : skill 名（已由调用方确保经 validateSkillName，这里只做基础 trim）
+//   - body : Full 模式写入的完整正文
+//   - summary : Summary 模式写入的摘要
+//   - mode : 字符串 "full"/"summary"/"none"/""；空值视同 full（legacy 兼容），
+//            未知非法值→ 视同 none（与 dto.SkillMode.Effective() P20.1 修订对齐）。
+//
+// 返回 (text, ok)； ok=false 表示无需注入（None / 空 name / 相应内容空）。
+func RenderSkillBlock(name, body, summary, mode string) (string, bool) {
+	normalizedName := strings.TrimSpace(name)
+	if normalizedName == "" {
+		return "", false
+	}
+	effective := effectiveRenderMode(mode)
+	switch effective {
+	case "full":
+		trimmedBody := strings.TrimSpace(body)
+		if trimmedBody == "" {
+			return "", false
+		}
+		return wrapSkillBlock(normalizedName, "full", trimmedBody), true
+	case "summary":
+		trimmedSummary := strings.TrimSpace(summary)
+		if trimmedSummary == "" {
+			return "", false
+		}
+		inner := trimmedSummary + "\n\u2192 Call " + skillExpandBodyToolName + "(\"" + normalizedName + "\") for full body"
+		return wrapSkillBlock(normalizedName, "summary", inner), true
+	default: // "none" / unknown / ""
+		return "", false
+	}
+}
+
+// effectiveRenderMode 对齐 dto.SkillMode.Effective() 的 P20.1 §3.5 策略：
+//   - "" → full（legacy payload 兼容）
+//   - full/summary/none → 原值
+//   - 其他 → none（保守降级不注入）
+func effectiveRenderMode(mode string) string {
+	switch strings.TrimSpace(strings.ToLower(mode)) {
+	case "":
+		return "full"
+	case "full", "summary", "none":
+		return strings.TrimSpace(strings.ToLower(mode))
+	default:
+		return "none"
+	}
+}
+
+// wrapSkillBlock 组装成对 header/footer 块。顺序与 Phase 3 TrimInjectedSkillBlocks
+// 成对裁剪逻辑一致：`[skill:name::mode@v1]\n<inner>\n[/skill:name::mode@v1]`。
+func wrapSkillBlock(name, mode, inner string) string {
+	header := "[skill:" + name + "::" + mode + skillBlockVersionSuffix + "]"
+	footer := "[/skill:" + name + "::" + mode + skillBlockVersionSuffix + "]"
+	return header + "\n" + inner + "\n" + footer
+}
+
 // findMatchingSkillBlockFooter 从 lines[start:] 扫描对应 header 的 footer（按 name/mode/
 // version 严格匹配）。未找到返回 -1。
 func findMatchingSkillBlockFooter(lines []string, start int, header SkillBlockHeader) int {
