@@ -14,6 +14,7 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
@@ -229,17 +230,20 @@ func cleanResidualProcesses() {
 	}
 }
 
+// buildSkillPromptInput 按 P20.1 Phase 4 规格渲染 skill 注入块。
+//
+// 三分支（通过 skillpkg.RenderSkillBlock 统一）：
+//   - Mode=Full (含 legacy 空值) → [skill:name::full@v1]\n<Prompt>\n[/skill:name::full@v1]
+//   - Mode=Summary → [skill:name::summary@v1]\n<Summary>\n→ Call skill_expand_body("name") for full body\n[/skill:name::summary@v1]
+//   - Mode=None / 非法值 → 不注入。
 func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {
 	sections := make([]string, 0, len(skills))
 	for _, skill := range skills {
-		section := strings.TrimSpace(skill.Prompt)
-		if section == "" {
+		block, ok := skillpkg.RenderSkillBlock(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode))
+		if !ok {
 			continue
 		}
-		if name := strings.TrimSpace(skill.Name); name != "" {
-			section = "[skill:" + name + "]\n" + section
-		}
-		sections = append(sections, section)
+		sections = append(sections, block)
 	}
 	if len(sections) == 0 {
 		return turnInputItem{}, false

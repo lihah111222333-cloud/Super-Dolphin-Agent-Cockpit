@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -336,17 +337,19 @@ func buildSkillList(skills []dto.SkillRef) string {
 	return strings.Join(lines, "\n")
 }
 
+// buildSkillPromptText 按 P20.1 Phase 4 规格渲染 skill 注入块（与 codexapp 对称）。
+// 三分支（通过 skillpkg.RenderSkillBlock 统一）：
+//   - Mode=Full   → [skill:name::full@v1]\n<Prompt>\n[/skill:name::full@v1]
+//   - Mode=Summary → [skill:name::summary@v1]\n<Summary>\n→ Call skill_expand_body("name") for full body\n[/skill:name::summary@v1]
+//   - Mode=None / 非法值 → 跳过不注入（保守降级）。
 func buildSkillPromptText(skills []dto.SkillRef) string {
 	sections := make([]string, 0, len(skills))
 	for _, skill := range skills {
-		section := strings.TrimSpace(skill.Prompt)
-		if section == "" {
+		block, ok := skillpkg.RenderSkillBlock(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode))
+		if !ok {
 			continue
 		}
-		if name := strings.TrimSpace(skill.Name); name != "" {
-			section = "[skill:" + name + "]\n" + section
-		}
-		sections = append(sections, section)
+		sections = append(sections, block)
 	}
 	return strings.Join(sections, "\n\n")
 }
