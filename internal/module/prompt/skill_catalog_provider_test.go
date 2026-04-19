@@ -255,6 +255,88 @@ func TestGroupSkillsForManifest_NativeWinsOverOtherGroupings(t *testing.T) {
 	}
 }
 
+// TestSkillCatalogProvider_UntrustedDisableModelInvocation_NoLeak 锁定 §3.3 安全不变量：
+// untrusted (Trust=Project) + disable-model-invocation=true 的 skill，名字和 description
+// 都不得出现在 Manual-only 区。之前版本将其放入 Manual-only 属于安全漏洞：
+// 攻击者可通过恶意 frontmatter (disable-model-invocation=true) 绕过净化。
+func TestSkillCatalogProvider_UntrustedDisableModelInvocation_NoLeak(t *testing.T) {
+	p := NewSkillCatalogProvider(fakeSkillLister{infos: []skillpkg.SkillInfo{
+		{
+			Name:                   "evil-manual",
+			Description:            "SECRET_MANUAL_PAYLOAD",
+			Summary:                "SECRET_MANUAL_SUMMARY",
+			Trust:                  skillpkg.TrustProject,
+			DisableModelInvocation: true,
+		},
+	}}, nil, 0)
+	out, err := p.Resolve(context.Background(), baseCtx(""))
+	if err != nil || out == nil {
+		t.Fatalf("Resolve: err=%v out=%v", err, out)
+	}
+	text := *out
+	// 净化不变量：任何用户建快内容不得泄露
+	if strings.Contains(text, "SECRET_MANUAL_PAYLOAD") || strings.Contains(text, "SECRET_MANUAL_SUMMARY") {
+		t.Fatalf("untrusted payload leaked: %q", text)
+	}
+	// 必须进 Redacted 区，而非 Manual-only
+	if !strings.Contains(text, "### Untrusted (metadata redacted until approval)") {
+		t.Fatalf("should be in Redacted: %q", text)
+	}
+	if strings.Contains(text, "### Manual-only") {
+		t.Fatalf("untrusted + disable-model-invocation MUST NOT land in Manual-only: %q", text)
+	}
+	// Redacted 渲染包含 name + skill_expand_body 提示（不泄露内容）
+	if !strings.Contains(text, "skill_expand_body(\"evil-manual\")") {
+		t.Fatalf("redacted entry should guide to skill_expand_body: %q", text)
+	}
+	// 特别：不得出现 `/evil-manual` 这种 slash 调用提示（那是 Manual-only 渲染的标志）
+	if strings.Contains(text, "`/evil-manual`") {
+		t.Fatalf("slash invocation hint MUST NOT appear for untrusted skill: %q", text)
+	}
+}
+
+// TestGroupSkillsForManifest_UntrustedGoesToRedactedNotManualOnly 直接验证 group 函数。
+func TestGroupSkillsForManifest_UntrustedGoesToRedactedNotManualOnly(t *testing.T) {
+	infos := []skillpkg.SkillInfo{
+		{Name: "untrusted-plain", Trust: skillpkg.TrustProject},
+		{Name: "untrusted-manual", Trust: skillpkg.TrustProject, DisableModelInvocation: true},
+		{Name: "trusted-manual", Trust: skillpkg.TrustUser, DisableModelInvocation: true},
+		{Name: "trusted-plain", Trust: skillpkg.TrustUser},
+	}
+	g := groupSkillsForManifest(infos, nil)
+	if len(g.Redacted) != 2 {
+		t.Fatalf("both untrusted should land in Redacted, got %d: %+v", len(g.Redacted), g.Redacted)
+	}
+	if len(g.ManualOnly) != 1 || g.ManualOnly[0].Name != "trusted-manual" {
+		t.Fatalf("only trusted-manual should be in ManualOnly: %+v", g.ManualOnly)
+	}
+	if len(g.Core) != 1 || g.Core[0].Name != "trusted-plain" {
+		t.Fatalf("trusted-plain should be in Core: %+v", g.Core)
+	}
+}
+
+// TestIsUntrustedScope 锁定隐式契约：仅 TrustUser / TrustSigned 解锁，其余均 untrusted。
+func TestIsUntrustedScope(t *testing.T) {
+	trustedCases := []skillpkg.TrustScope{skillpkg.TrustUser, skillpkg.TrustSigned}
+	for _, s := range trustedCases {
+		if isUntrustedScope(s) {
+			t.Fatalf("%q should be trusted", s)
+		}
+	}
+	untrustedCases := []skillpkg.TrustScope{
+		skillpkg.TrustProject,
+		skillpkg.TrustUnknown,
+		"",
+		"banana",
+		"admin",
+	}
+	for _, s := range untrustedCases {
+		if !isUntrustedScope(s) {
+			t.Fatalf("%q should be untrusted (conservative)", s)
+		}
+	}
+}
+
 func TestGroupSkillsForManifest_UnknownTrustDefaultsToRedacted(t *testing.T) {
 	infos := []skillpkg.SkillInfo{{Name: "foo", Trust: "banana"}}
 	g := groupSkillsForManifest(infos, nil)
