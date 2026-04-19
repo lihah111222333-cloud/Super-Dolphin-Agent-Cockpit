@@ -179,6 +179,90 @@ func TestExpandedArtifactState_ShortHashCollisionStrictCompare(t *testing.T) {
 	}
 }
 
+// TestExpandedArtifactState_CompactStale 验证 CompactStale 正确清理超 TTL 的
+// 条目，保留 fresh 条目，并支持 turnIdx 倒退时保留全部条目。
+func TestExpandedArtifactState_CompactStale(t *testing.T) {
+	s := NewExpandedArtifactState(5)
+	s.MarkArtifact("old", "body", "SKILL.md", "h1", 0)   // 0 turn
+	s.MarkArtifact("mid", "body", "SKILL.md", "h2", 3)   // 3 turn
+	s.MarkArtifact("new", "body", "SKILL.md", "h3", 10) // 10 turn
+
+	// 当前 turn=10，old(10-0=10>=5) 和 mid(10-3=7>=5) 应被清除，new 保留
+	removed := s.CompactStale(10)
+	if removed != 2 {
+		t.Fatalf("CompactStale(10) removed = %d, want 2", removed)
+	}
+	if s.Len() != 1 {
+		t.Fatalf("remaining = %d, want 1", s.Len())
+	}
+	if !s.IsArtifactFresh("new", "body", "SKILL.md", "h3", 10) {
+		t.Fatalf("fresh entry should survive compaction")
+	}
+	if s.IsArtifactFresh("old", "body", "SKILL.md", "h1", 10) {
+		t.Fatalf("old entry should be gone")
+	}
+}
+
+// TestExpandedArtifactState_CompactStaleTurnRegression turnIdx 倒退时 CompactStale
+// 不应清掉 “未来”条目（resume 场景保平安）。
+func TestExpandedArtifactState_CompactStaleTurnRegression(t *testing.T) {
+	s := NewExpandedArtifactState(5)
+	s.MarkArtifact("future", "body", "SKILL.md", "h", 100)
+	removed := s.CompactStale(0) // 用较小 turnIdx
+	if removed != 0 {
+		t.Fatalf("CompactStale with turnIdx regression should keep entries: removed=%d", removed)
+	}
+	if s.Len() != 1 {
+		t.Fatalf("entry should be preserved: Len=%d", s.Len())
+	}
+}
+
+// TestExpandedArtifactState_LenReflectsAdditions Len() 作为诊断辅助，准确反映内部 map 大小。
+func TestExpandedArtifactState_LenReflectsAdditions(t *testing.T) {
+	s := NewExpandedArtifactState(5)
+	if s.Len() != 0 {
+		t.Fatalf("empty state should have Len=0")
+	}
+	s.MarkArtifact("a", "body", "SKILL.md", "h1", 0)
+	if s.Len() != 1 {
+		t.Fatalf("after one Mark Len=%d", s.Len())
+	}
+	s.MarkArtifact("a", "body", "SKILL.md", "h2", 0) // 同 key（short hash = h 2 字符） — 实际不同 key
+	if s.Len() != 2 {
+		t.Fatalf("different hash should add new entry: Len=%d", s.Len())
+	}
+	// nil Len
+	var nilState *ExpandedArtifactState
+	if nilState.Len() != 0 {
+		t.Fatalf("nil Len should be 0")
+	}
+}
+
+// TestExpandedArtifactState_ShortHashCollisionOverwrites 锁定当前实现的副作用：
+// 两个不同全 hash 但前 12 位碰撞时，后 Mark 会覆盖前 Mark。结果前一个
+// hash 的 fresh 状态丢失。如果未来重构为 map[string][]entry，本测会 break，
+// 提醒设计评议是否要保留覆盖语义。
+func TestExpandedArtifactState_ShortHashCollisionOverwrites(t *testing.T) {
+	s := NewExpandedArtifactState(5)
+	shared := "abcdef012345"
+	h1 := shared + strings.Repeat("1", 52)
+	h2 := shared + strings.Repeat("2", 52)
+	s.MarkArtifact("foo", "body", "SKILL.md", h1, 0)
+	s.MarkArtifact("foo", "body", "SKILL.md", h2, 1)
+	// 后 Mark 覆盖前 Mark：整个 map 仍只一个 entry
+	if s.Len() != 1 {
+		t.Fatalf("short-hash collision means single map slot (Len=%d)", s.Len())
+	}
+	// h2 对应的 entry 仍 fresh
+	if !s.IsArtifactFresh("foo", "body", "SKILL.md", h2, 1) {
+		t.Fatalf("h2 must remain fresh after overwrite")
+	}
+	// h1 的 fresh 状态丢失（被覆盖） —— 锁定本规范作为实现选项断言
+	if s.IsArtifactFresh("foo", "body", "SKILL.md", h1, 1) {
+		t.Fatalf("h1 should become stale (overwritten by h2 via short-hash collision)")
+	}
+}
+
 func TestExpandedArtifactState_ConcurrentMarkAndFresh(t *testing.T) {
 	// -race 验证：N 个 goroutine 并发 Mark + IsFresh 应无数据竞争。
 	s := NewExpandedArtifactState(5)
