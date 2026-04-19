@@ -172,14 +172,32 @@ func TestParseSkillBlockHeader_None(t *testing.T) {
 	cases := []string{
 		"",
 		"plain text",
-		"[tool:foo]",
-		"[skill:foo::invalid]", // 缺 @vN，不是严格 new-format，也不是 legacy（含 "::"）
-		"[skill:]",             // 空 name，legacy regex 要求 [^]:]+ 至少一个
+		"[tool:foo]",          // 不是 skill 前缀
+		"[skill:foo",          // 没有闭合 ]
+		"plain [skill:foo]",   // 非行首
 	}
 	for _, line := range cases {
 		h := ParseSkillBlockHeader(line)
 		if h.Format != SkillBlockFormatNone {
 			t.Fatalf("%q should be None, got %+v", line, h)
+		}
+	}
+}
+
+// TestParseSkillBlockHeader_EdgeCasesFallToLegacy 验证放宽后的 regex 将 new-format
+// 不完整的 header 与空 name header 当作 legacy 处理，与旧实现一致。
+// 这些本身不会触发剥离（还需 AND 命中 markers），但有助于匹配旧 rollout 内的
+// 人工编辑或 bug 产生的残留标记。
+func TestParseSkillBlockHeader_EdgeCasesFallToLegacy(t *testing.T) {
+	cases := []string{
+		"[skill:]",             // 空 name
+		"[skill:foo:bar]",      // name 含单冒号
+		"[skill:foo::invalid]", // new-format 不完整（缺 @vN）
+	}
+	for _, line := range cases {
+		h := ParseSkillBlockHeader(line)
+		if h.Format != SkillBlockFormatLegacy {
+			t.Fatalf("%q should be Legacy after regex relaxation, got %+v", line, h)
 		}
 	}
 }
@@ -209,5 +227,93 @@ func TestTrimInjectedSkillBlocks_NewFormatWithoutFooter(t *testing.T) {
 	want := "question"
 	if got := TrimInjectedSkillBlocks(input); got != want {
 		t.Fatalf("new-format no-footer: got %q want %q", got, want)
+	}
+}
+
+// TestTrimInjectedSkillBlocks_LegacyEmptyName 确认空 name 的 legacy header
+// 与旧实现行为一致：配合 AND 命中仍可被剥离。旧 codexapp/claudecli 只检查
+// `strings.HasPrefix("[skill:")` + `Contains("]")`，[skill:] 合格。
+func TestTrimInjectedSkillBlocks_LegacyEmptyName(t *testing.T) {
+	input := strings.Join([]string{
+		"user prompt",
+		"[skill:]",
+		"摘要: anything",
+		"使用方式: whatever",
+	}, "\n")
+	if got := TrimInjectedSkillBlocks(input); got != "user prompt" {
+		t.Fatalf("legacy empty-name: got %q want %q", got, "user prompt")
+	}
+}
+
+// TestTrimInjectedSkillBlocks_LegacyNameWithColon 确认 name 内部含 `:` 的 legacy
+// header（如 [skill:foo:bar]）与旧实现行为一致。放宽后的 regex `[^\]]*` 溢出
+// 被限制为“不可含 `]`”，其他内容（含 `:`、空格）全部当 name 正文处理。
+func TestTrimInjectedSkillBlocks_LegacyNameWithColon(t *testing.T) {
+	input := strings.Join([]string{
+		"user prompt",
+		"[skill:foo:bar]",
+		"摘要: text",
+		"使用方式: text",
+	}, "\n")
+	if got := TrimInjectedSkillBlocks(input); got != "user prompt" {
+		t.Fatalf("legacy name-with-colon: got %q want %q", got, "user prompt")
+	}
+}
+
+// TestTrimInjectedSkillBlocks_LegacyOnlyOneMarker 防御 AND 退化为 OR：
+// 仅命中 "摘要:" 但没有 "使用方式: " 时，legacy 判定必须不剥离。
+// 未来有人误改 `len(matched) == len(legacySkillMarkers)` 为 `>= 1` 会被卡住。
+func TestTrimInjectedSkillBlocks_LegacyOnlyOneMarker(t *testing.T) {
+	input := strings.Join([]string{
+		"normal user text",
+		"[skill:foo]",
+		"摘要: only summary, missing the second marker",
+		"...",
+	}, "\n")
+	if got := TrimInjectedSkillBlocks(input); got != input {
+		t.Fatalf("single-marker MUST NOT trim, got %q", got)
+	}
+}
+
+// TestTrimInjectedSkillBlocks_LegacyLookaheadBoundary 防御 legacySkillLookahead
+// 被改小：第二个 marker 移到第 10 行（超出 lookahead=8）时，AND 不命→不剥离。
+func TestTrimInjectedSkillBlocks_LegacyLookaheadBoundary(t *testing.T) {
+	lines := []string{
+		"user msg",
+		"[skill:foo]",
+		"摘要: first marker",
+		// 7 行填充（使用方式: 出现在超 lookahead=8 的位置）
+		"filler 1", "filler 2", "filler 3", "filler 4",
+		"filler 5", "filler 6", "filler 7", "filler 8",
+		"使用方式: too late", // 在 header 后第 10 行，超 lookahead
+	}
+	input := strings.Join(lines, "\n")
+	if got := TrimInjectedSkillBlocks(input); got != input {
+		t.Fatalf("out-of-lookahead marker MUST NOT count, got %q", got)
+	}
+}
+
+// TestTrimInjectedSkillBlocks_LegacyBreakOnNextHeader 防御 "碰到下一个 [skill:] 时
+// break" 逻辑被删：第一个 header 和第二个 header 之间无 marker，只在第二个 header
+// 之后才出现；AND 判定应在遇到第二个 header 时立刻停止，不该把后面的 marker 算进来。
+func TestTrimInjectedSkillBlocks_LegacyBreakOnNextHeader(t *testing.T) {
+	input := strings.Join([]string{
+		"user text",
+		"[skill:foo]", // 第一个 header——被测对象
+		"unrelated content",
+		"[skill:bar]", // 第二个 header——应该导致 break
+		"摘要: only here",
+		"使用方式: only here",
+	}, "\n")
+	// 第一个 header 的 AND 判定应在碰到第二个 header 时停止，不命中 → 不剥离。
+	// 但第二个 header [skill:bar] + 后续两行 markers → 第二个 header 处命中剥离。
+	// 最终结果应保留到第二个 header 之前。
+	want := strings.Join([]string{
+		"user text",
+		"[skill:foo]",
+		"unrelated content",
+	}, "\n")
+	if got := TrimInjectedSkillBlocks(input); got != want {
+		t.Fatalf("break-on-next-header:\ngot  %q\nwant %q", got, want)
 	}
 }

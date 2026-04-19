@@ -19,13 +19,20 @@ var skillBlockHeaderNewFormat = regexp.MustCompile(`^\[skill:([a-z0-9][a-z0-9-]{
 // 的多块场景使用。
 var skillBlockFooterNewFormat = regexp.MustCompile(`^\[/skill:([a-z0-9][a-z0-9-]{0,63})::([a-z]+)@v(\d+)\]\s*$`)
 
-// skillBlockHeaderLegacy 识别旧格式 header：[skill:<anything>]。不要求 header 独占一行
-// （具有还原 codexapp/claudecli 旧实现的较宽容性：原版本仅检查
-// `strings.HasPrefix(line, "[skill:")` + `strings.Contains(line, "]")`，
-// 允许单行内同时包含 header 与 marker）。排除包含 "::"（属于新格式）。
-// 用户文本里偶尔出现这种写法，因此 legacy 识别必须配合 AND
-// 命中 legacySkillMarkers 才能判定为注入块。
-var skillBlockHeaderLegacy = regexp.MustCompile(`^\[skill:[^\]:]+\]`)
+// skillBlockHeaderLegacy 识别旧格式 header：[skill:<anything>]。
+//
+// 行为等价还原 codexapp/claudecli 旧实现：
+//   strings.HasPrefix(line, "[skill:") && strings.Contains(line, "]")
+// 即 legacy header 只要开头是 `[skill:` 且行内有 `]` 即认识。不作任何名字内容
+// 制约（空、含 `:`、含空格均允许），因为：
+//   - 新格式已在 ParseSkillBlockHeader 中优先匹配，如果 `[skill:foo::full@v1]`
+//     先命中不会进 legacy 分支。
+//   - legacy AND 判定仍要求后续命中 "摘要:" + "使用方式: " 两 marker，
+//     用户文本里偶尔出现 [skill:foo] 不会误剥。
+// 这样覆盖旧实现能识别但严格 regex 会漏掉的两个 edge case：
+//   [skill:]           → 空 name
+//   [skill:foo:bar]    → name 内部含 `:`
+var skillBlockHeaderLegacy = regexp.MustCompile(`^\[skill:[^\]]*\]`)
 
 // legacySkillMarkers 是旧格式注入块必须在 lookahead 窗口内 AND 命中的两个标记。
 // 对齐 codexapp/history_rollout.go 与 claudecli/history_trim.go 的原始实现，
