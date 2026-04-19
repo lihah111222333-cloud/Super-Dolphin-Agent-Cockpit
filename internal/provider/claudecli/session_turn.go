@@ -324,12 +324,22 @@ func buildSkillSection(skills []dto.SkillRef) string {
 	return strings.Join(sections, "\n\n")
 }
 
+// buildSkillList 列出要传递给模型的 skill 名字。
+//
+// P20.1 §3.3 加固：按 Mode.Effective() 过滤——Mode=None 的 skill 本就不注入正文，
+// 名字也不应出现在这份列表里（避免模型看到 "有 skill foo" 但上下文里找不到其内容）。
 func buildSkillList(skills []dto.SkillRef) string {
 	lines := []string{"skills:"}
 	for _, skill := range skills {
-		if name := strings.TrimSpace(skill.Name); name != "" {
-			lines = append(lines, "- "+name)
+		name := strings.TrimSpace(skill.Name)
+		if name == "" {
+			continue
 		}
+		// Mode.Effective() 规范化为 Full/Summary/None；None 和非法值不曝露给模型。
+		if skill.Mode.Effective() == dto.SkillModeNone {
+			continue
+		}
+		lines = append(lines, "- "+name)
 	}
 	if len(lines) == 1 {
 		return ""
