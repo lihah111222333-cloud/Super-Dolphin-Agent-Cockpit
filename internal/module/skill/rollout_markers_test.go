@@ -344,6 +344,43 @@ func TestRenderSkillBlock_RejectsForgedMarkerInSummary(t *testing.T) {
 	}
 }
 
+// TestContainsSkillBlockMarker 独立锁定安全加固 B 的行为：仅行首是
+// "[skill:" 或 "[/skill:" 的行视为伪造标记。防止重构时误改成“包含即命中”
+// 导致 body 里的 inline 引用（如 "the [skill:foo] tag"）被误杀。
+func TestContainsSkillBlockMarker(t *testing.T) {
+	must := []string{
+		"[skill:foo::full@v1]",
+		"[/skill:foo::full@v1]",
+		"  [skill:foo]  ",              // 首尾空白会被 TrimSpace
+		"good\n[skill:bar]\nrest",       // 中间行是 header
+		"leading\n[/skill:any::x@v9]",   // 尾行是 footer
+	}
+	for _, s := range must {
+		if !containsSkillBlockMarker(s) {
+			t.Fatalf("should detect marker in %q", s)
+		}
+	}
+	mustNot := []string{
+		"",
+		"plain text",
+		"the [skill:foo] tag is used",   // 行内非行首
+		"prefix\nthe [/skill:bar] ref",   // 同上
+		// 注意："```\n[skill:foo]\n```"（代码块内 header）当前保守策略下 会
+		// 被判定为命中，不属于 mustNot。见下方的 sentinel 断言锁定该策略。
+	}
+	// 手工确认 code-block 里的 [skill:foo]：当前实现会视为命中（有意为之：
+	// SKILL.md 不应该在 code block 里写自指 skill header，用户如需引用写成
+	// "\[skill:foo\]" 或 "[`skill:foo`]"。本断言锁定当前保守策略）。
+	if !containsSkillBlockMarker("```\n[skill:foo]\n```") {
+		t.Fatalf("sentinel: code-block case SHOULD be detected under conservative policy")
+	}
+	for _, s := range mustNot {
+		if containsSkillBlockMarker(s) {
+			t.Fatalf("should NOT detect marker in %q", s)
+		}
+	}
+}
+
 // TestRenderSkillBlock_RoundtripWithTrim 验证写端产出的块能被 Phase 3 的
 // TrimInjectedSkillBlocks 成对裁剪（写读闭环信心测试）。
 func TestRenderSkillBlock_RoundtripWithTrim(t *testing.T) {
