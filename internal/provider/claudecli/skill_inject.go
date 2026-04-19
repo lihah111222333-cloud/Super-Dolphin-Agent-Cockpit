@@ -39,17 +39,25 @@ func NewSkillInjectionPort() contract.SkillInjectionPort {
 // 检测规则：
 //   - 目录结构：<cwd>/.claude/skills/<name>/SKILL.md
 //   - 只认目录形态的 entry（跳过普通文件）
-//   - 只有含 SKILL.md 的子目录才算有效 skill
+//   - SKILL.md 必须是普通文件（stat.IsDir()==false）；若同名目录为 `SKILL.md/`
+//     子目录则视为错误布局，跳过。
 //   - 返回的 name 已规范化（lower + trim）并按字典序排序，便于 tie-break 稳定
+//
+// Symlink 行为（与 Claude CLI 保持一致）：
+//   - os.ReadDir 默认返回 entry 元数据；IsDir()/Type() 跳过 symlink 简单指向判断
+//   - os.Stat(skillMD) 会跟随 symlink，指向的 SKILL.md 如果真实存在且是文件，就认
+//   - 故“`.claude/skills/foo` 是指向目录的 symlink”的场景会被识别为有效
+//     skill（同 Claude CLI）
+//   - 安全视角：最终 body 由 Claude CLI 原生加载，harness 只记录名字，
+//     不读内容，因此 symlink 路径逃逸不会通过 harness 导致任何数据泄露
+//     （防御责任回到 Claude CLI 本身，不在本函数范围）
 //
 // 错误处理：cwd 不存在 / 无权限 / 目录不存在都返回 nil，不报错——这是常态
 // （大量项目不含 .claude/skills/）。
 //
 // 注意事项：
-//   - 跟随 symlink：filepath.WalkDir 默认不跟随，我们也不主动跟随，避免
-//     `.claude/skills/foo -> /etc/passwd` 路径逃逸风险
-//   - 跳过隐藏文件/目录（以 . 开头除 .claude 自身外，但 .claude/skills 下
-//     不期望出现 `.` 开头子目录）
+//   - 跳过隐藏文件/目录（以 . 开头，防止 `.git` / `.DS_Store` / `.hidden` 等混入）
+//   - 返回字典序保证下游 Resolver ApplyNativeSkillOverride() 的覆盖顺序稳定
 func (claudecliSkillInjectionPort) DetectNativeSkills(cwd string) []string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
