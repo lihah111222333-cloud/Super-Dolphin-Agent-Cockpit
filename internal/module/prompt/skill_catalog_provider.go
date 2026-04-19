@@ -154,12 +154,15 @@ func (g skillManifestGroups) isEmpty() bool {
 	return len(g.Core) == 0 && len(g.Redacted) == 0 && len(g.Native) == 0 && len(g.ManualOnly) == 0
 }
 
-// groupSkillsForManifest 按优先级分组：
+// groupSkillsForManifest 按优先级分组（P20.1 §3.3 红线 A：untrusted 元数据净化）：
 //
-//	native 命中 → Native 组（最高优先级：provider 接管 body，harness 只标注存在）
-//	DisableModelInvocation=true → ManualOnly 组
-//	Trust=Project → Redacted 组（未审批 project skill 的 metadata 视为不可信）
-//	Trust=User/Signed → Core 组
+//	1. native 命中 → Native 组（最高优先级：provider 接管 body，harness 只标注存在）
+//	2. Trust=Project/Unknown → Redacted 组（净化优先级 > DisableModelInvocation）
+//	   ⏱ 关键安全不变量：untrusted skill 无论是否标 disable-model-invocation，
+//	   其 name + description + summary 都不得以明文或 "/" slash 提示的形式
+//	   出现，否则攻击者通过 .agent/skills/evil 的恶意 frontmatter 可绕过净化。
+//	3. 剩下 trusted (User/Signed) + DisableModelInvocation=true → ManualOnly
+//	4. 剩下 trusted (User/Signed) → Core
 //
 // 同一 skill 仅进入一个组。排序在每组内按 Name 字典序。
 func groupSkillsForManifest(infos []skillpkg.SkillInfo, nativeNames map[string]struct{}) skillManifestGroups {
@@ -169,29 +172,40 @@ func groupSkillsForManifest(infos []skillpkg.SkillInfo, nativeNames map[string]s
 		if lowerName == "" {
 			continue
 		}
+		// 1. native 最高优先级
 		if _, ok := nativeNames[lowerName]; ok {
 			g.Native = append(g.Native, info)
 			continue
 		}
+		// 2. 净化优先级 > disable-model-invocation：
+		// 任何 untrusted skill 先走 Redacted，无论是否标 manual-only。
+		if isUntrustedScope(info.Trust) {
+			g.Redacted = append(g.Redacted, info)
+			continue
+		}
+		// 3. trusted + disable-model-invocation → ManualOnly
 		if info.DisableModelInvocation {
 			g.ManualOnly = append(g.ManualOnly, info)
 			continue
 		}
-		switch info.Trust {
-		case skillpkg.TrustUser, skillpkg.TrustSigned:
-			g.Core = append(g.Core, info)
-		case skillpkg.TrustProject, skillpkg.TrustUnknown:
-			g.Redacted = append(g.Redacted, info)
-		default:
-			// 未知 trust 值：按最保守 → Redacted
-			g.Redacted = append(g.Redacted, info)
-		}
+		// 4. trusted 普通示例
+		g.Core = append(g.Core, info)
 	}
 	sortInfosByName(g.Core)
 	sortInfosByName(g.Redacted)
 	sortInfosByName(g.Native)
 	sortInfosByName(g.ManualOnly)
 	return g
+}
+
+// isUntrustedScope 判定 Trust 是否属于“非 User/Signed”。Project / Unknown / 任何
+// 未知非合法值均视为 untrusted（默认最保守）。仅 TrustUser、TrustSigned 解锁。
+func isUntrustedScope(t skillpkg.TrustScope) bool {
+	switch t {
+	case skillpkg.TrustUser, skillpkg.TrustSigned:
+		return false
+	}
+	return true
 }
 
 func sortInfosByName(infos []skillpkg.SkillInfo) {
