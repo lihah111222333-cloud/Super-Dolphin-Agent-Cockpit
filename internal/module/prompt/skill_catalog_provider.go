@@ -55,20 +55,42 @@ const defaultSkillCatalogCharBudget = 12000 // ≈ 3000 tokens
 // 线程安全：字段仅在构造期赋值后只读，Resolve() 纯函数（ListSkills/DetectNativeSkills
 // 自身线程安全由实现保证）。
 type SkillCatalogProvider struct {
-	skills      SkillLister
-	nativePort  NativeSkillDetector
-	charBudget  int // 0 = 使用 defaultSkillCatalogCharBudget
+	skills               SkillLister
+	nativePort           NativeSkillDetector
+	charBudget           int  // 0 = 使用 defaultSkillCatalogCharBudget
+	emitMetaInstructions bool // 尾部是否追加元指令（P20.1 Phase 9）
 }
 
 var _ DynamicSectionProvider = SkillCatalogProvider{}
 
 // NewSkillCatalogProvider 构造 provider。nativePort 可为 nil（codexapp 无原生机制
 // 的场景等价传 nil），将跳过 Native 分组。charBudget ≤0 用默认 12000。
+//
+// 默认开启元指令（P20.1 Phase 9 行为）。如需关闭用 NewSkillCatalogProviderWithOptions。
 func NewSkillCatalogProvider(skills SkillLister, nativePort NativeSkillDetector, charBudget int) SkillCatalogProvider {
 	return SkillCatalogProvider{
-		skills:     skills,
-		nativePort: nativePort,
-		charBudget: charBudget,
+		skills:               skills,
+		nativePort:           nativePort,
+		charBudget:           charBudget,
+		emitMetaInstructions: true,
+	}
+}
+
+// SkillCatalogOptions P20.1 Phase 9 可扩展选项结构（方便 Phase 10 config 映射）。
+type SkillCatalogOptions struct {
+	// EmitMetaInstructions 控制尾部是否追加元指令。默认 true。
+	// 实验 A 结果表明 baseInstructions 优先级已 outrank AGENTS.md，
+	// 元指令主要解决 Claude Code skill 自动触发率仅 ~50% 的问题。
+	EmitMetaInstructions bool
+}
+
+// NewSkillCatalogProviderWithOptions 带选项的构造口。Phase 10 config 可直接映射。
+func NewSkillCatalogProviderWithOptions(skills SkillLister, nativePort NativeSkillDetector, charBudget int, opts SkillCatalogOptions) SkillCatalogProvider {
+	return SkillCatalogProvider{
+		skills:               skills,
+		nativePort:           nativePort,
+		charBudget:           charBudget,
+		emitMetaInstructions: opts.EmitMetaInstructions,
 	}
 }
 
@@ -107,7 +129,48 @@ func (p SkillCatalogProvider) Resolve(ctx context.Context, input SectionContext)
 	if strings.TrimSpace(text) == "" {
 		return nil, nil
 	}
+	if p.emitMetaInstructions {
+		text = appendSkillCatalogMetaInstructions(text, p.effectiveCharBudget())
+	}
 	return &text, nil
+}
+
+// skillCatalogMetaInstructions 是 P20.1 Phase 9 追加的固定元指令。
+//
+// 背景（P20.1 §4 Phase 9 + 审查3 实测数据）：
+//   - Claude Code 原生 skill 自动触发率实测仅 ~50%（社区反馈）
+//   - 模型需要主动调 skill_expand_body 才能读完整内容
+//   - 不加元指令可能导致模型"看到 manifest 但不调工具"
+//
+// 文案原则：
+//   - 明文列出两个工具名称（skill_expand_body / skill_read_resource）
+//   - 鼓励 false-positive over false-negative
+//   - 明确 Redacted skill 需先审批，避免模型对未审批 skill 精刀细研
+const skillCatalogMetaInstructions = "\n\n" +
+	"## How to use skills\n\n" +
+	"Before starting a task, scan the Available Skills list above. If any skill\n" +
+	"name / description / summary plausibly matches the task, call\n" +
+	"`skill_expand_body(\"<name>\")` to load its full instructions before\n" +
+	"proceeding. Prefer false-positive (one extra call) over false-negative\n" +
+	"(missing important context).\n\n" +
+	"If a skill's body references resource files (e.g. under `references/` or\n" +
+	"`scripts/`), call `skill_read_resource(\"<name>\", \"<relative/path>\")`\n" +
+	"to fetch them on demand — do not use generic Read / Bash tools for that.\n\n" +
+	"Skills listed under \"Untrusted\" have their metadata hidden until approval;\n" +
+	"request approval via the UI before inspecting them."
+
+// appendSkillCatalogMetaInstructions 安全追加元指令：超预算时不追加（避免截断
+// 中间文本）。若元指令本身超 budget，宁可丢掉全部也不给不完整片段。
+func appendSkillCatalogMetaInstructions(catalog string, charBudget int) string {
+	if len(catalog)+len(skillCatalogMetaInstructions) <= charBudget {
+		return catalog + skillCatalogMetaInstructions
+	}
+	// 元指令放不下 → 保留 manifest 本体，追加一条精简 fallback
+	const fallback = "\n\n(Skills: call `skill_expand_body(<name>)` for full body, `skill_read_resource(<name>, <path>)` for resources.)"
+	if len(catalog)+len(fallback) > charBudget {
+		return catalog
+	}
+	return catalog + fallback
 }
 
 func (p SkillCatalogProvider) effectiveCharBudget() int {
