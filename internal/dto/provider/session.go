@@ -60,6 +60,14 @@ type StartSessionRequest struct {
 	Instructions  string         `json:"instructions,omitempty"`
 	StartAssembly StartAssembly  `json:"startAssembly"`
 	Config        map[string]any `json:"config,omitempty"`
+
+	// LaunchSkillNames p20.3 §4.3：UI launch 时已知的 skill 名称列表。
+	// additive optional carrier：旧 caller 不写时行为完全不变。p20.3
+	// 只打通，不消费；p20.4/p20.7 将把它们并入 baseInstructions / manifest。
+	LaunchSkillNames []string `json:"launchSkillNames,omitempty"`
+	// ForceLaunchSkills 对应 UI `manualSkillSelection`：true 时 launch 不再做
+	// auto-match / derivation，所选即所用。同样是 additive optional。
+	ForceLaunchSkills bool `json:"forceLaunchSkills,omitempty"`
 }
 
 type ResumeSessionRequest struct {

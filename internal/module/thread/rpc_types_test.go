@@ -184,3 +184,77 @@ func TestNormalizeStartRequestDerivesNameFromDeprecatedPrompt(t *testing.T) {
 		t.Fatalf("normalizeStartRequest() = %#v, want name/prompt launch me", req)
 	}
 }
+
+// TestStartParamsAcceptsSelectedSkillsCamelCase p20.3 §4.3：前端 send path 用
+// camelCase；launch payload 对齐后 startParams 必须同时接受 camelCase 别名。
+func TestStartParamsAcceptsSelectedSkillsCamelCase(t *testing.T) {
+	t.Parallel()
+
+	var params startParams
+	input := []byte(`{
+		"cwd":"/tmp/project",
+		"selectedSkills":["planner"," reviewer "],
+		"manualSkillSelection":true
+	}`)
+	if err := json.Unmarshal(input, &params); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if !params.ManualSkillSelection {
+		t.Fatalf("ManualSkillSelection should parse from camelCase alias")
+	}
+	if len(params.SelectedSkills) != 2 || params.SelectedSkills[0] != "planner" || strings.TrimSpace(params.SelectedSkills[1]) != "reviewer" {
+		t.Fatalf("SelectedSkills = %#v", params.SelectedSkills)
+	}
+}
+
+// TestStartParamsAcceptsSelectedSkillsSnakeCase p20.3 §4.3：主 tag 仍是
+// snake_case；camelCase 别名只作兼容读取，主路径必须保留。
+func TestStartParamsAcceptsSelectedSkillsSnakeCase(t *testing.T) {
+	t.Parallel()
+
+	var params startParams
+	input := []byte(`{
+		"cwd":"/tmp/project",
+		"selected_skills":["debug"],
+		"manual_skill_selection":true
+	}`)
+	if err := json.Unmarshal(input, &params); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if !params.ManualSkillSelection {
+		t.Fatalf("ManualSkillSelection snake_case should parse")
+	}
+	if len(params.SelectedSkills) != 1 || params.SelectedSkills[0] != "debug" {
+		t.Fatalf("SelectedSkills = %#v", params.SelectedSkills)
+	}
+}
+
+// TestStartParamsOmitsLaunchSkillsWhenAbsent p20.3 §4.3：旧 payload 不写新字段时
+// 行为不变；null / 缺失 / 空数组均导致 SelectedSkills==nil、ManualSkillSelection==false。
+func TestStartParamsOmitsLaunchSkillsWhenAbsent(t *testing.T) {
+	t.Parallel()
+
+	var params startParams
+	if err := json.Unmarshal([]byte(`{"cwd":"/tmp"}`), &params); err != nil {
+		t.Fatalf("empty payload error = %v", err)
+	}
+	if params.SelectedSkills != nil {
+		t.Fatalf("SelectedSkills = %#v, want nil", params.SelectedSkills)
+	}
+	if params.ManualSkillSelection {
+		t.Fatalf("ManualSkillSelection should default false")
+	}
+}
+
+// TestStartParamsRejectsInvalidSelectedSkillsType p20.3 §4.3：非字符串数组的
+// camelCase payload 要报错，防止客户端把对象 / 数字塞进来。
+func TestStartParamsRejectsInvalidSelectedSkillsType(t *testing.T) {
+	t.Parallel()
+
+	var params startParams
+	err := json.Unmarshal([]byte(`{"selectedSkills":"planner"}`), &params)
+	if err == nil || !strings.Contains(err.Error(), "selectedSkills") {
+		t.Fatalf("expected selectedSkills type error, got %v", err)
+	}
+}
+

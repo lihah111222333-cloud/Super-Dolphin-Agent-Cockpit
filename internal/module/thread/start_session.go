@@ -157,6 +157,11 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 		Instructions:  assembly.BaseInstructions,
 		StartAssembly: toProviderStartAssembly(assembly),
 		Config:        buildStartSessionConfig(req, input, assembly),
+		// p20.3 §4.3：additive optional carrier。nil/false 时整个代码路径
+		// 等同于旧 payload；p20.4 / p20.7 消费时再他者在 snapshot / manifest
+		// 层面施工，本单仍不涉及。
+		LaunchSkillNames:  append([]string(nil), req.LaunchSkillNames...),
+		ForceLaunchSkills: req.ForceLaunchSkills,
 	})
 }
 
