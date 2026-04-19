@@ -1,7 +1,10 @@
 package skill
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -32,6 +35,118 @@ func validateSkillName(name string) (string, error) {
 		return "", errors.Join(ErrInvalidSkillName, errors.New("name must match ^[a-z0-9][a-z0-9-]{0,63}$"))
 	}
 	return normalized, nil
+}
+
+// ============================================================================
+// P20.1 §3.2 审批粒度升级：artifact-level identity helpers
+// ============================================================================
+
+// ArtifactKind 分类 skill 内容产物的类型。用于审批缓存的粒度区分。
+const (
+	// ArtifactKindMetadata 指 skill 的元数据（name / description / summary）。
+	ArtifactKindMetadata = "metadata"
+	// ArtifactKindBody 指 SKILL.md 正文（或其 anchor 切片）。
+	ArtifactKindBody = "body"
+	// ArtifactKindResource 指 skill 目录内的资源文件（references/* / scripts/* / assets/*）。
+	ArtifactKindResource = "resource"
+)
+
+// validArtifactKinds 是所有合法 kind 的集合，供 Approve/Lookup 入口校验。
+func validArtifactKinds() map[string]bool {
+	return map[string]bool{
+		ArtifactKindMetadata: true,
+		ArtifactKindBody:     true,
+		ArtifactKindResource: true,
+	}
+}
+
+// IsValidArtifactKind 导出给 RPC / test 使用。
+func IsValidArtifactKind(kind string) bool { return validArtifactKinds()[kind] }
+
+// RepoFingerprint 生成项目根目录的稳定指纹，作为审批缓存 key 的第一维数据——
+// 同一个用户机器上两个不同项目即使侥存相同 name+hash 的 skill，也应走各自审批。
+//
+// 策略：
+//   - 空/空白输入 → 返回空串（等价旧版的全局审批缓存，Phase 1 向后兼容）。
+//   - 项目路径→ absolute + filepath.Clean + EvalSymlinks，然后 sha256 hex[:16]
+//     作为稳定 ID。使用 hex[:16]（64 bits）对个人设备碰撞概率安全。
+//   - 未来如需增强谁谁性，可在此治反为 git remote URL + HEAD（不强制 git repo）。
+func RepoFingerprint(projectRoot string) string {
+	projectRoot = strings.TrimSpace(projectRoot)
+	if projectRoot == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return ""
+	}
+	abs = filepath.Clean(abs)
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+// NormalizeArtifactLocator 将 kind + 原始 locator 规范化为审批 key 中的稳定字符串。
+//
+// 规则：
+//   - metadata ：locator 必须为空（整个 skill 级元数据是单一产物）。
+//   - body：`SKILL.md` 或 `SKILL.md#Anchor`；anchor 不包含 `/` 或 `..`；空 anchor 时仅
+//     返回 `SKILL.md`。
+//   - resource：相对路径，filepath.Clean 后不得包含 `..` 段；不得以 `/` 开头。
+func NormalizeArtifactLocator(kind, locator string) (string, error) {
+	if !IsValidArtifactKind(kind) {
+		return "", fmt.Errorf("invalid artifact kind: %q", kind)
+	}
+	trimmed := strings.TrimSpace(locator)
+	switch kind {
+	case ArtifactKindMetadata:
+		if trimmed != "" {
+			return "", errors.New("metadata artifact must have empty locator")
+		}
+		return "", nil
+	case ArtifactKindBody:
+		if trimmed == "" {
+			return "SKILL.md", nil
+		}
+		// 允许 SKILL.md#Anchor 或 #Anchor 或 SKILL.md
+		base, anchor, hasAnchor := strings.Cut(trimmed, "#")
+		base = strings.TrimSpace(base)
+		if base == "" {
+			base = "SKILL.md"
+		}
+		if base != "SKILL.md" {
+			return "", fmt.Errorf("body locator must reference SKILL.md, got %q", base)
+		}
+		if !hasAnchor {
+			return base, nil
+		}
+		anchor = strings.TrimSpace(anchor)
+		if strings.ContainsAny(anchor, "/\\") || strings.Contains(anchor, "..") {
+			return "", fmt.Errorf("anchor must not contain path separators: %q", anchor)
+		}
+		if anchor == "" {
+			return base, nil
+		}
+		return base + "#" + anchor, nil
+	case ArtifactKindResource:
+		if trimmed == "" {
+			return "", errors.New("resource locator cannot be empty")
+		}
+		if strings.HasPrefix(trimmed, "/") {
+			return "", fmt.Errorf("resource locator must be relative, got %q", trimmed)
+		}
+		cleaned := filepath.ToSlash(filepath.Clean(trimmed))
+		if cleaned == "." || cleaned == "" {
+			return "", errors.New("resource locator normalized to empty")
+		}
+		if strings.HasPrefix(cleaned, "../") || cleaned == ".." || strings.Contains(cleaned, "/../") {
+			return "", fmt.Errorf("resource locator escapes skill dir: %q", trimmed)
+		}
+		return cleaned, nil
+	}
+	return "", fmt.Errorf("unreachable artifact kind: %q", kind)
 }
 
 // TrustScope 描述 skill 的信任边界，决定其自主调用权、审批策略、工具白名单默认值。

@@ -107,6 +107,138 @@ func TestTrustScopeMethods(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// P20.1 §3.2 artifact helpers
+// ============================================================================
+
+func TestIsValidArtifactKind(t *testing.T) {
+	for _, ok := range []string{ArtifactKindMetadata, ArtifactKindBody, ArtifactKindResource} {
+		if !IsValidArtifactKind(ok) {
+			t.Fatalf("%q should be valid", ok)
+		}
+	}
+	for _, bad := range []string{"", "body ", "BODY", "exec", "unknown"} {
+		if IsValidArtifactKind(bad) {
+			t.Fatalf("%q should NOT be valid", bad)
+		}
+	}
+}
+
+func TestRepoFingerprint_EmptyInputReturnsEmpty(t *testing.T) {
+	if got := RepoFingerprint(""); got != "" {
+		t.Fatalf("empty input → empty, got %q", got)
+	}
+	if got := RepoFingerprint("   "); got != "" {
+		t.Fatalf("whitespace input → empty, got %q", got)
+	}
+}
+
+func TestRepoFingerprint_StableForSamePath(t *testing.T) {
+	tmp := t.TempDir()
+	a := RepoFingerprint(tmp)
+	b := RepoFingerprint(tmp)
+	if a == "" || b == "" {
+		t.Fatalf("expected non-empty fingerprint, got %q %q", a, b)
+	}
+	if a != b {
+		t.Fatalf("fingerprint not stable for same path: %q vs %q", a, b)
+	}
+	// 16 hex chars = 64 bits
+	if len(a) != 16 {
+		t.Fatalf("fingerprint should be 16 hex chars, got %d: %q", len(a), a)
+	}
+}
+
+func TestRepoFingerprint_DifferentPathsYieldDifferentFingerprints(t *testing.T) {
+	tmp1 := t.TempDir()
+	tmp2 := t.TempDir()
+	fp1 := RepoFingerprint(tmp1)
+	fp2 := RepoFingerprint(tmp2)
+	if fp1 == fp2 {
+		t.Fatalf("different paths should yield different fingerprints; got both %q", fp1)
+	}
+}
+
+func TestNormalizeArtifactLocator_Metadata(t *testing.T) {
+	if got, err := NormalizeArtifactLocator(ArtifactKindMetadata, ""); err != nil || got != "" {
+		t.Fatalf("metadata empty → empty/nil, got (%q, %v)", got, err)
+	}
+	if _, err := NormalizeArtifactLocator(ArtifactKindMetadata, "anything"); err == nil {
+		t.Fatalf("metadata non-empty locator should reject")
+	}
+}
+
+func TestNormalizeArtifactLocator_Body(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"", "SKILL.md", true},
+		{"SKILL.md", "SKILL.md", true},
+		{"SKILL.md#Usage", "SKILL.md#Usage", true},
+		{"SKILL.md#", "SKILL.md", true},           // 空 anchor 视同无 anchor
+		{"  SKILL.md#Overview  ", "SKILL.md#Overview", true},
+		{"README.md", "", false},                  // 非 SKILL.md
+		{"SKILL.md#../evil", "", false},           // anchor 含 ..
+		{"SKILL.md#a/b", "", false},               // anchor 含 /
+	}
+	for _, c := range cases {
+		got, err := NormalizeArtifactLocator(ArtifactKindBody, c.in)
+		if c.ok {
+			if err != nil {
+				t.Fatalf("body %q: unexpected err %v", c.in, err)
+			}
+			if got != c.want {
+				t.Fatalf("body %q → %q, want %q", c.in, got, c.want)
+			}
+		} else {
+			if err == nil {
+				t.Fatalf("body %q should reject, got %q", c.in, got)
+			}
+		}
+	}
+}
+
+func TestNormalizeArtifactLocator_Resource(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"references/api.md", "references/api.md", true},
+		{"scripts/setup.sh", "scripts/setup.sh", true},
+		{"./references/api.md", "references/api.md", true}, // Clean 去掉 ./
+		{"references//api.md", "references/api.md", true},  // Clean 压缩
+		{"", "", false},
+		{"/abs/path", "", false},                // 绝对路径
+		{"../etc/passwd", "", false},            // 路径逃逸
+		{"references/../../escape", "", false},  // 中间 ..
+		{"..", "", false},
+	}
+	for _, c := range cases {
+		got, err := NormalizeArtifactLocator(ArtifactKindResource, c.in)
+		if c.ok {
+			if err != nil {
+				t.Fatalf("resource %q: unexpected err %v", c.in, err)
+			}
+			if got != c.want {
+				t.Fatalf("resource %q → %q, want %q", c.in, got, c.want)
+			}
+		} else {
+			if err == nil {
+				t.Fatalf("resource %q should reject, got %q", c.in, got)
+			}
+		}
+	}
+}
+
+func TestNormalizeArtifactLocator_InvalidKind(t *testing.T) {
+	if _, err := NormalizeArtifactLocator("exec", "anything"); err == nil {
+		t.Fatalf("invalid kind should reject")
+	}
+}
+
 func TestInferTrustFromRoot(t *testing.T) {
 	tmp := t.TempDir()
 	projectRoot := filepath.Join(tmp, "proj", ".agent", "skills")

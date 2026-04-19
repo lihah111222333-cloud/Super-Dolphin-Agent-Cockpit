@@ -137,21 +137,26 @@ func TestSkillMode_Effective(t *testing.T) {
 	}
 }
 
-// TestSkillMode_EffectiveUnknownFallsBackToFull 防御未知 mode 值（wire 伪造 / 未来旧 server
-// 遇到新枚举时）的失败展开行为：兑底返回 Full，不能静默跳过。
-// 这条单测同时限定“Effective 不返回任意未知值”，重构时保护该不变量。
-func TestSkillMode_EffectiveUnknownFallsBackToFull(t *testing.T) {
+// TestSkillMode_EffectiveUnknownFallsBackToNone （P20.1 §3.5 修订）
+// 非空非法值 → None（保守降级），不再“失败展开 Full”。空值仍→ Full（legacy 兼容）。
+func TestSkillMode_EffectiveUnknownFallsBackToNone(t *testing.T) {
 	unknowns := []SkillMode{"banana", "FULL", "body", " full ", "partial", "skip"}
 	for _, m := range unknowns {
-		if got := m.Effective(); got != SkillModeFull {
-			t.Fatalf("Effective(%q) = %q, want Full (fail-open fallback)", m, got)
+		if got := m.Effective(); got != SkillModeNone {
+			t.Fatalf("Effective(%q) = %q, want None (P20.1 conservative downgrade)", m, got)
 		}
+	}
+	// 空值仍是 Full
+	if got := SkillModeUnspecified.Effective(); got != SkillModeFull {
+		t.Fatalf("Unspecified → Full (legacy compat), got %q", got)
 	}
 }
 
 // TestSkillRef_UnmarshalKeepsUnknownMode 确认反序列化本身保留原始未知 mode
-// （供诊断 / 对端调试），规范化必须由 Effective() 显式完成。防止未来
-// “偏到 UnmarshalJSON 里 rewrite” 与“保留原值交给观测层” 两种路径混淆。
+// （供诊断 / 对端调试），规范化由 Effective() 显式完成。
+//
+// P20.1 后 Effective("banana") → None（不注入），限定的稳定行为——防止未来有人
+// 在 UnmarshalJSON 里悄悄 rewrite（那样会丢失 raw mode 的观测性）。
 func TestSkillRef_UnmarshalKeepsUnknownMode(t *testing.T) {
 	data := []byte(`{"name":"foo","mode":"banana"}`)
 	var ref SkillRef
@@ -164,8 +169,8 @@ func TestSkillRef_UnmarshalKeepsUnknownMode(t *testing.T) {
 	if ref.Mode.Valid() {
 		t.Fatalf("unknown mode should NOT be Valid")
 	}
-	if ref.Mode.Effective() != SkillModeFull {
-		t.Fatalf("Effective should fail-open to Full")
+	if ref.Mode.Effective() != SkillModeNone {
+		t.Fatalf("P20.1: Effective should conservatively downgrade to None for unknown mode")
 	}
 }
 

@@ -111,30 +111,95 @@ func ParseSkillBlockFooter(line string) (SkillBlockHeader, bool) {
 	return SkillBlockHeader{}, false
 }
 
-// TrimInjectedSkillBlocks 扫描 text，剥离首个识别到的注入 skill 块及其之后所有内容。
+// TrimInjectedSkillBlocks 扫描 text，剥离所有识别到的注入 skill 块。
 //
-// 行为与 codexapp/history_rollout.go:trimInjectedSkillBlock 及
-// claudecli/history_trim.go:trimInjectedClaudeSkillBlock 保持一致（"剪到文末"
-// 语义），但扩展识别范围：
-//   - 新格式（Phase 4 写端产出）：header 严格匹配即剥离，无需 footer 或 AND 标记
-//   - legacy 格式（旧 rollout 回放）：保留原有 AND 标记 + lookahead 判定逻辑
+// 策略（P20.1 §3.4 加固）：
+//   - **新格式**按 header/footer **成对裁剪**：仅删除 [header..footer] 闭区间，
+//     保留 block 后面的正常用户文本；支持同一 payload 内多个 block 顺序出现。
+//   - 新格式 header 存在但 footer 缺失 → 走损坏兑底：从 header 剪到 EOF，并记录
+//     `skill_trim_corruption_fallback_count` 指标（通过 *WithDiag 返回观测）。
+//   - **legacy 格式**保留“剪到 EOF”旧语义（旧格式无 footer 概念）；仅用于兼容
+//     旧 rollout 回放，新写端不得再产 legacy 块。
 //
-// 未命中返回原 text。Phase 3 只做"剪到文末"单块处理，多块精细化留给 Phase 4+。
+// 未命中返回原 text。调用方须诂类诊断时用 TrimInjectedSkillBlocksWithDiag。
 func TrimInjectedSkillBlocks(text string) string {
+	return TrimInjectedSkillBlocksWithDiag(text).Text
+}
+
+// TrimResult 包装 trim 操作的诊断信息（P20.1 Phase 10 指标用途）。
+type TrimResult struct {
+	// Text 是裁剪后的文本。
+	Text string
+	// NewBlocksTrimmed 是成功成对裁剪的新格式 skill 块数量。
+	NewBlocksTrimmed int
+	// LegacyTrimmed 表示是否触发了 legacy “剪到 EOF”语义。
+	LegacyTrimmed bool
+	// FooterMissingCount 是新格式 header 存在但找不到对应 footer，走损坏兑底裁的次数。
+	// Phase 10 应将该值接入 skill_trim_corruption_fallback_count 指标。
+	FooterMissingCount int
+}
+
+// TrimInjectedSkillBlocksWithDiag 是带诊断的完整实现。见 TrimInjectedSkillBlocks
+// 的策略注释；本函数额外返回监测数据。
+func TrimInjectedSkillBlocksWithDiag(text string) TrimResult {
 	lines := strings.Split(text, "\n")
-	for i, raw := range lines {
-		header := ParseSkillBlockHeader(raw)
+	kept := make([]string, 0, len(lines))
+	res := TrimResult{}
+
+	i := 0
+	for i < len(lines) {
+		header := ParseSkillBlockHeader(lines[i])
 		switch header.Format {
 		case SkillBlockFormatNew:
-			// 新格式严格正则匹配 → 直接剥离
-			return strings.TrimRight(strings.Join(lines[:i], "\n"), "\n")
+			footerIdx := findMatchingSkillBlockFooter(lines, i+1, header)
+			if footerIdx >= 0 {
+				// 成对裁剪：跳过 [i..footerIdx]（含 header 与 footer）
+				res.NewBlocksTrimmed++
+				i = footerIdx + 1
+				continue
+			}
+			// footer 缺失 → 损坏兑底：剪到 EOF
+			res.FooterMissingCount++
+			res.Text = strings.TrimRight(strings.Join(kept, "\n"), "\n")
+			return res
 		case SkillBlockFormatLegacy:
 			if looksLikeLegacyInjectedBlock(lines, i) {
-				return strings.TrimRight(strings.Join(lines[:i], "\n"), "\n")
+				// legacy 遗留语义：剪到 EOF
+				res.LegacyTrimmed = true
+				res.Text = strings.TrimRight(strings.Join(kept, "\n"), "\n")
+				return res
 			}
+			// AND 不命中，保留该行继续扰描
+			kept = append(kept, lines[i])
+			i++
+		default:
+			kept = append(kept, lines[i])
+			i++
 		}
 	}
-	return text
+
+	if res.NewBlocksTrimmed == 0 && !res.LegacyTrimmed && res.FooterMissingCount == 0 {
+		// 未命中，返回原 text（保留 trailing 等原样不动）
+		res.Text = text
+		return res
+	}
+	res.Text = strings.TrimRight(strings.Join(kept, "\n"), "\n")
+	return res
+}
+
+// findMatchingSkillBlockFooter 从 lines[start:] 扫描对应 header 的 footer（按 name/mode/
+// version 严格匹配）。未找到返回 -1。
+func findMatchingSkillBlockFooter(lines []string, start int, header SkillBlockHeader) int {
+	for i := start; i < len(lines); i++ {
+		footer, ok := ParseSkillBlockFooter(lines[i])
+		if !ok {
+			continue
+		}
+		if footer.Name == header.Name && footer.Mode == header.Mode && footer.Version == header.Version {
+			return i
+		}
+	}
+	return -1
 }
 
 // looksLikeLegacyInjectedBlock 复刻 codexapp/claudecli 双边原实现 looksLike* 逻辑：
