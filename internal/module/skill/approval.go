@@ -50,11 +50,30 @@ type ApprovalCache struct {
 //   - ApprovedAt：UTC 时标；重复 Approve 同一 (name, hash) 会覆盖。
 //   - ApprovedBy：批准人标识（用户名 / OAuth subject / “ci” 等）；可为空。
 type ApprovalEntry struct {
-	Name        string     `json:"name"`
-	ContentHash string     `json:"content_hash"`
-	Trust       TrustScope `json:"trust"`
-	ApprovedAt  time.Time  `json:"approved_at"`
-	ApprovedBy  string     `json:"approved_by,omitempty"`
+	// RepoFingerprint：P20.1 新增。项目根稳定指纹（RepoFingerprint() 生成）；空串表示
+	// 旧 JSON / 全局审批范围。换项目后即使 name+hash 相同也会审批独立。
+	RepoFingerprint string `json:"repo_fingerprint,omitempty"`
+	Name            string `json:"name"`
+	// ArtifactKind：P20.1 新增。metadata/body/resource。空串视同 body（旧 JSON 兼容）。
+	ArtifactKind string `json:"artifact_kind,omitempty"`
+	// ArtifactLocator：P20.1 新增。经 NormalizeArtifactLocator 规范化后的稳定字符串。
+	ArtifactLocator string     `json:"artifact_locator,omitempty"`
+	ContentHash     string     `json:"content_hash"`
+	Trust           TrustScope `json:"trust"`
+	ApprovedAt      time.Time  `json:"approved_at"`
+	ApprovedBy      string     `json:"approved_by,omitempty"`
+}
+
+// ApprovalRequest 是 P20.1 artifact-level API（ApproveArtifact / LookupArtifact）的入参。
+// 旧 Approve / Lookup 等价于 "Kind=body, Locator=SKILL.md, RepoFingerprint=\"\"" 的特例。
+type ApprovalRequest struct {
+	RepoFingerprint string
+	Name            string
+	ArtifactKind    string
+	ArtifactLocator string
+	ContentHash     string
+	Trust           TrustScope // Approve 时必填；Lookup 无意义
+	ApprovedBy      string     // Approve 时可选；Lookup 无意义
 }
 
 // approvalFile 是盘上 JSON 的外层结构。
@@ -102,7 +121,20 @@ func NewApprovalCache(path string) (*ApprovalCache, error) {
 			if entry.Name == "" || entry.ContentHash == "" {
 				continue
 			}
-			cache.entries[approvalKey(entry.Name, entry.ContentHash)] = entry
+			// P20.1：旧 JSON 缺失新字段 → 按 body/SKILL.md 兑底（向后兼容）。
+			if entry.ArtifactKind == "" {
+				entry.ArtifactKind = ArtifactKindBody
+			}
+			if entry.ArtifactKind == ArtifactKindBody && entry.ArtifactLocator == "" {
+				entry.ArtifactLocator = "SKILL.md"
+			}
+			cache.entries[artifactApprovalKey(ApprovalRequest{
+				RepoFingerprint: entry.RepoFingerprint,
+				Name:            entry.Name,
+				ArtifactKind:    entry.ArtifactKind,
+				ArtifactLocator: entry.ArtifactLocator,
+				ContentHash:     entry.ContentHash,
+			})] = entry
 		}
 		return cache, nil
 	case errors.Is(err, os.ErrNotExist):
@@ -112,29 +144,51 @@ func NewApprovalCache(path string) (*ApprovalCache, error) {
 	}
 }
 
-// approvalKey 生成 map key。取 hash 前 12 位（48 bits），在 skill 数量级 < 10⁴ 时
-// 碰撞概率忽略不计；全 hash 还是写进 entry 便于严格对比。
-func approvalKey(name, contentHash string) string {
-	trimmed := strings.ToLower(strings.TrimSpace(contentHash))
-	if len(trimmed) > 12 {
-		trimmed = trimmed[:12]
+// artifactApprovalKey 生成 P20.1 §3.2 规定的五元组 map key。
+//
+// key 格式：<repo_fp>::<name>::<kind>::<locator>@<hash[:12]>
+//   - 字段均经过 lower/trim 规范化
+//   - repo_fp 为空时等价“全局范围 / legacy”（旧 JSON 向后兼容）
+//   - kind 为空视同 body
+//   - hash 取 12 位短 key；全 hash 写进 entry，Lookup 再做严格全匹配
+func artifactApprovalKey(req ApprovalRequest) string {
+	repoFp := strings.ToLower(strings.TrimSpace(req.RepoFingerprint))
+	name := strings.ToLower(strings.TrimSpace(req.Name))
+	kind := strings.TrimSpace(req.ArtifactKind)
+	if kind == "" {
+		kind = ArtifactKindBody
 	}
-	return strings.ToLower(strings.TrimSpace(name)) + "@" + trimmed
+	locator := strings.TrimSpace(req.ArtifactLocator)
+	hash := strings.ToLower(strings.TrimSpace(req.ContentHash))
+	if len(hash) > 12 {
+		hash = hash[:12]
+	}
+	return repoFp + "::" + name + "::" + kind + "::" + locator + "@" + hash
 }
 
 // Lookup 查询是否存在 (name, contentHash) 的审批记录。严格按全 hash 比对，
 // 防止 12 位短 key 碰撞导致的误判。
 func (c *ApprovalCache) Lookup(name, contentHash string) (ApprovalEntry, bool) {
+	return c.LookupArtifact(ApprovalRequest{
+		Name:            name,
+		ArtifactKind:    ArtifactKindBody,
+		ArtifactLocator: "SKILL.md",
+		ContentHash:     contentHash,
+	})
+}
+
+// LookupArtifact 是 P20.1 §3.2 artifact-level 查询入口。严格按全 hash 比对防碰撞。
+func (c *ApprovalCache) LookupArtifact(req ApprovalRequest) (ApprovalEntry, bool) {
 	if c == nil {
 		return ApprovalEntry{}, false
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	entry, ok := c.entries[approvalKey(name, contentHash)]
+	entry, ok := c.entries[artifactApprovalKey(req)]
 	if !ok {
 		return ApprovalEntry{}, false
 	}
-	if !strings.EqualFold(entry.ContentHash, contentHash) {
+	if !strings.EqualFold(entry.ContentHash, req.ContentHash) {
 		return ApprovalEntry{}, false
 	}
 	return entry, true
@@ -162,32 +216,69 @@ func (c *ApprovalCache) Lookup(name, contentHash string) (ApprovalEntry, bool) {
 //   - 记录错误日志，但可继续使用内存 cache（下次 Approve 会重试整 snapshot）。
 //   - 若需硬保证持久化，应将 err 向上传递给用户、让其重试。
 func (c *ApprovalCache) Approve(name, contentHash string, trust TrustScope, approvedBy string) (ApprovalEntry, error) {
+	return c.ApproveArtifact(ApprovalRequest{
+		Name:            name,
+		ArtifactKind:    ArtifactKindBody,
+		ArtifactLocator: "SKILL.md",
+		ContentHash:     contentHash,
+		Trust:           trust,
+		ApprovedBy:      approvedBy,
+	})
+}
+
+// ApproveArtifact 是 P20.1 §3.2 artifact-level 写入入口。
+//
+// 额外校验：
+//   - ArtifactKind：空 → 视同 body；非空时必须是合法 kind。
+//   - ArtifactLocator：经 NormalizeArtifactLocator 规范化，非法路径直接拒绝。
+func (c *ApprovalCache) ApproveArtifact(req ApprovalRequest) (ApprovalEntry, error) {
 	if c == nil {
 		return ApprovalEntry{}, errors.New("approval cache is nil")
 	}
-	normalizedName, err := validateSkillName(name)
+	normalizedName, err := validateSkillName(req.Name)
 	if err != nil {
 		return ApprovalEntry{}, err
 	}
-	hash := strings.ToLower(strings.TrimSpace(contentHash))
+	hash := strings.ToLower(strings.TrimSpace(req.ContentHash))
 	if hash == "" {
 		return ApprovalEntry{}, errors.New("content hash is required")
 	}
+	kind := strings.TrimSpace(req.ArtifactKind)
+	if kind == "" {
+		kind = ArtifactKindBody
+	}
+	if !IsValidArtifactKind(kind) {
+		return ApprovalEntry{}, fmt.Errorf("invalid artifact kind: %q", kind)
+	}
+	normalizedLocator, err := NormalizeArtifactLocator(kind, req.ArtifactLocator)
+	if err != nil {
+		return ApprovalEntry{}, err
+	}
+	trust := req.Trust
 	if !trust.Valid() {
-		trust = TrustProject // 兜底最不信任档
+		trust = TrustProject
 	}
 	entry := ApprovalEntry{
-		Name:        normalizedName,
-		ContentHash: hash,
-		Trust:       trust,
-		ApprovedAt:  time.Now().UTC(),
-		ApprovedBy:  strings.TrimSpace(approvedBy),
+		RepoFingerprint: strings.TrimSpace(req.RepoFingerprint),
+		Name:            normalizedName,
+		ArtifactKind:    kind,
+		ArtifactLocator: normalizedLocator,
+		ContentHash:     hash,
+		Trust:           trust,
+		ApprovedAt:      time.Now().UTC(),
+		ApprovedBy:      strings.TrimSpace(req.ApprovedBy),
 	}
-	// 写路径串行化：先拿 writeMu，再在其内部操作 mu，保证 snapshot 与 rename 的顺序一致。
+	key := artifactApprovalKey(ApprovalRequest{
+		RepoFingerprint: entry.RepoFingerprint,
+		Name:            entry.Name,
+		ArtifactKind:    entry.ArtifactKind,
+		ArtifactLocator: entry.ArtifactLocator,
+		ContentHash:     entry.ContentHash,
+	})
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	c.mu.Lock()
-	c.entries[approvalKey(normalizedName, hash)] = entry
+	c.entries[key] = entry
 	snapshot := c.snapshotLocked()
 	c.mu.Unlock()
 	if err := writeApprovalFile(c.path, snapshot); err != nil {

@@ -293,6 +293,160 @@ func TestTrimInjectedSkillBlocks_LegacyLookaheadBoundary(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// P20.1 §3.4 加固：成对裁剪 / block 后正常文本保留 / footer 缺失兑底
+// ============================================================================
+
+// TestTrimInjectedSkillBlocks_P20_1_PreserveTrailingText P20.1 核心新能力：
+// 新格式 block 裁剪后，block 后面的普通用户文本必须保留。旧实现会剪到 EOF
+// 将后面的用户文本丢失——这正是 P20.1 §3.4 指出的安全隐患。
+func TestTrimInjectedSkillBlocks_P20_1_PreserveTrailingText(t *testing.T) {
+	input := strings.Join([]string{
+		"user prompt before",
+		"[skill:foo::summary@v1]",
+		"summary text",
+		"[/skill:foo::summary@v1]",
+		"user continues writing after block",
+		"additional question or detail",
+	}, "\n")
+	want := strings.Join([]string{
+		"user prompt before",
+		"user continues writing after block",
+		"additional question or detail",
+	}, "\n")
+	if got := TrimInjectedSkillBlocks(input); got != want {
+		t.Fatalf("trailing text MUST be preserved:\ngot  %q\nwant %q", got, want)
+	}
+}
+
+// TestTrimInjectedSkillBlocks_P20_1_MultipleNewBlocks 同一 payload 内多个新格式
+// block 应逐个裁剪，block 间的用户文本保留。
+func TestTrimInjectedSkillBlocks_P20_1_MultipleNewBlocks(t *testing.T) {
+	input := strings.Join([]string{
+		"intro",
+		"[skill:first::full@v1]",
+		"body1",
+		"[/skill:first::full@v1]",
+		"middle text",
+		"[skill:second::summary@v1]",
+		"summary2",
+		"[/skill:second::summary@v1]",
+		"outro",
+	}, "\n")
+	want := strings.Join([]string{
+		"intro",
+		"middle text",
+		"outro",
+	}, "\n")
+	if got := TrimInjectedSkillBlocks(input); got != want {
+		t.Fatalf("multi-block pair trim:\ngot  %q\nwant %q", got, want)
+	}
+	res := TrimInjectedSkillBlocksWithDiag(input)
+	if res.NewBlocksTrimmed != 2 {
+		t.Fatalf("NewBlocksTrimmed = %d, want 2", res.NewBlocksTrimmed)
+	}
+	if res.FooterMissingCount != 0 {
+		t.Fatalf("no footer missing expected, got %d", res.FooterMissingCount)
+	}
+}
+
+// TestTrimInjectedSkillBlocks_P20_1_FooterMissingFallback P20.1 §3.4：header
+// 存在但 footer 缺失 → 走损坏兑底（剪到 EOF）+ FooterMissingCount 递增。
+func TestTrimInjectedSkillBlocks_P20_1_FooterMissingFallback(t *testing.T) {
+	input := strings.Join([]string{
+		"user msg",
+		"[skill:foo::full@v1]",
+		"body without closing footer...",
+		"orphaned content",
+	}, "\n")
+	res := TrimInjectedSkillBlocksWithDiag(input)
+	if res.Text != "user msg" {
+		t.Fatalf("fallback text = %q, want %q", res.Text, "user msg")
+	}
+	if res.FooterMissingCount != 1 {
+		t.Fatalf("FooterMissingCount = %d, want 1", res.FooterMissingCount)
+	}
+	if res.NewBlocksTrimmed != 0 {
+		t.Fatalf("NewBlocksTrimmed should be 0 on fallback, got %d", res.NewBlocksTrimmed)
+	}
+}
+
+// TestTrimInjectedSkillBlocks_P20_1_MismatchedFooter header/footer name 不匹配时
+// footer 不算成对 → 整段走 fallback 剪到 EOF。
+func TestTrimInjectedSkillBlocks_P20_1_MismatchedFooter(t *testing.T) {
+	input := strings.Join([]string{
+		"question",
+		"[skill:foo::full@v1]",
+		"body",
+		"[/skill:different-name::full@v1]", // name 不匹配
+		"still within block?",
+	}, "\n")
+	res := TrimInjectedSkillBlocksWithDiag(input)
+	if res.Text != "question" {
+		t.Fatalf("mismatched footer should fallback: got %q", res.Text)
+	}
+	if res.FooterMissingCount != 1 {
+		t.Fatalf("FooterMissingCount = %d, want 1", res.FooterMissingCount)
+	}
+}
+
+// TestTrimInjectedSkillBlocks_P20_1_SameSkillMultipleExpands 同一 skill 多次
+// skill_expand 的场景（每次模型触发会先出个 new block）。
+func TestTrimInjectedSkillBlocks_P20_1_SameSkillMultipleExpands(t *testing.T) {
+	input := strings.Join([]string{
+		"task 1",
+		"[skill:foo::expanded@v1]",
+		"first expand",
+		"[/skill:foo::expanded@v1]",
+		"task 2",
+		"[skill:foo::expanded@v1]",
+		"second expand",
+		"[/skill:foo::expanded@v1]",
+		"final",
+	}, "\n")
+	want := strings.Join([]string{
+		"task 1",
+		"task 2",
+		"final",
+	}, "\n")
+	if got := TrimInjectedSkillBlocks(input); got != want {
+		t.Fatalf("same-skill multi-expand trim: got %q want %q", got, want)
+	}
+}
+
+// TestTrimInjectedSkillBlocks_P20_1_LegacyStillEOFTrim legacy 保留旧语义（剪到
+// EOF），新格式 §3.4 的成对裁剪不应引起 legacy 语义漂移。
+func TestTrimInjectedSkillBlocks_P20_1_LegacyStillEOFTrim(t *testing.T) {
+	input := strings.Join([]string{
+		"preserved text",
+		"[skill:old]",
+		"摘要: old summary",
+		"使用方式: usage",
+		"THIS MUST be dropped (legacy EOF trim)",
+		"AND this too",
+	}, "\n")
+	res := TrimInjectedSkillBlocksWithDiag(input)
+	if res.Text != "preserved text" {
+		t.Fatalf("legacy EOF-trim: got %q want %q", res.Text, "preserved text")
+	}
+	if !res.LegacyTrimmed {
+		t.Fatalf("LegacyTrimmed should be true")
+	}
+}
+
+// TestTrimInjectedSkillBlocks_P20_1_WithDiagNoMatch 未命中时返回原 text，所有
+// 诊断指标为零值。
+func TestTrimInjectedSkillBlocks_P20_1_WithDiagNoMatch(t *testing.T) {
+	input := "plain user prompt without any skill block"
+	res := TrimInjectedSkillBlocksWithDiag(input)
+	if res.Text != input {
+		t.Fatalf("no-match must preserve original text: got %q", res.Text)
+	}
+	if res.NewBlocksTrimmed != 0 || res.LegacyTrimmed || res.FooterMissingCount != 0 {
+		t.Fatalf("no-match diagnostics should be zero, got %+v", res)
+	}
+}
+
 // TestTrimInjectedSkillBlocks_LegacyBreakOnNextHeader 防御 "碰到下一个 [skill:] 时
 // break" 逻辑被删：第一个 header 和第二个 header 之间无 marker，只在第二个 header
 // 之后才出现；AND 判定应在遇到第二个 header 时立刻停止，不该把后面的 marker 算进来。

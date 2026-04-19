@@ -271,6 +271,188 @@ func TestApprovalCache_ConcurrentApproveAllEntriesPersisted(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// P20.1 §3.2 artifact-level 审批新测
+// ============================================================================
+
+func TestApprovalCache_ApproveArtifact_BodyAndResourceIsolated(t *testing.T) {
+	cache := newTestCache(t)
+	hashBody := strings.Repeat("a", 64)
+	hashRes := strings.Repeat("b", 64)
+	// 同 name 下，body 和 resource 写入不同 hash。
+	if _, err := cache.ApproveArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
+		ContentHash: hashBody, Trust: TrustProject,
+	}); err != nil {
+		t.Fatalf("approve body: %v", err)
+	}
+	if _, err := cache.ApproveArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: ArtifactKindResource, ArtifactLocator: "references/api.md",
+		ContentHash: hashRes, Trust: TrustProject,
+	}); err != nil {
+		t.Fatalf("approve resource: %v", err)
+	}
+	// body Lookup 仅命中 body hash、不命中 resource hash
+	if _, ok := cache.LookupArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
+		ContentHash: hashBody,
+	}); !ok {
+		t.Fatalf("body lookup should hit")
+	}
+	if _, ok := cache.LookupArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
+		ContentHash: hashRes, // 用 resource hash 查 body → miss
+	}); ok {
+		t.Fatalf("body lookup with resource hash MUST miss")
+	}
+	// resource 反向同理
+	if _, ok := cache.LookupArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: ArtifactKindResource, ArtifactLocator: "references/api.md",
+		ContentHash: hashRes,
+	}); !ok {
+		t.Fatalf("resource lookup should hit")
+	}
+}
+
+func TestApprovalCache_ApproveArtifact_RepoFingerprintIsolation(t *testing.T) {
+	cache := newTestCache(t)
+	hash := strings.Repeat("a", 64)
+	fp1 := "repo-alpha"
+	fp2 := "repo-beta"
+	if _, err := cache.ApproveArtifact(ApprovalRequest{
+		RepoFingerprint: fp1, Name: "foo",
+		ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
+		ContentHash: hash, Trust: TrustProject,
+	}); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	// 相同 (name, kind, locator, hash) 但不同 repo 必须互不命中
+	if _, ok := cache.LookupArtifact(ApprovalRequest{
+		RepoFingerprint: fp2, Name: "foo",
+		ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
+		ContentHash: hash,
+	}); ok {
+		t.Fatalf("different repo fingerprint MUST miss (P20.1 §3.2)")
+	}
+	if _, ok := cache.LookupArtifact(ApprovalRequest{
+		RepoFingerprint: fp1, Name: "foo",
+		ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
+		ContentHash: hash,
+	}); !ok {
+		t.Fatalf("same repo fingerprint should hit")
+	}
+}
+
+func TestApprovalCache_ApproveArtifact_AnchorIsolation(t *testing.T) {
+	cache := newTestCache(t)
+	hash := strings.Repeat("a", 64)
+	if _, err := cache.ApproveArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: ArtifactKindBody,
+		ArtifactLocator: "SKILL.md#Usage",
+		ContentHash: hash, Trust: TrustProject,
+	}); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if _, ok := cache.LookupArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: ArtifactKindBody,
+		ArtifactLocator: "SKILL.md", // 无 anchor 应 miss
+		ContentHash: hash,
+	}); ok {
+		t.Fatalf("different anchor MUST miss")
+	}
+	if _, ok := cache.LookupArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: ArtifactKindBody,
+		ArtifactLocator: "SKILL.md#Usage", // 同 anchor 必命
+		ContentHash: hash,
+	}); !ok {
+		t.Fatalf("same anchor should hit")
+	}
+}
+
+func TestApprovalCache_ApproveArtifact_InvalidKindRejected(t *testing.T) {
+	cache := newTestCache(t)
+	hash := strings.Repeat("a", 64)
+	_, err := cache.ApproveArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: "exec",
+		ArtifactLocator: "irrelevant", ContentHash: hash,
+	})
+	if err == nil {
+		t.Fatalf("invalid kind should be rejected")
+	}
+}
+
+func TestApprovalCache_ApproveArtifact_InvalidLocatorRejected(t *testing.T) {
+	cache := newTestCache(t)
+	hash := strings.Repeat("a", 64)
+	// resource 路径逃逸
+	_, err := cache.ApproveArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: ArtifactKindResource,
+		ArtifactLocator: "../../etc/passwd",
+		ContentHash: hash, Trust: TrustProject,
+	})
+	if err == nil {
+		t.Fatalf("path escape in resource locator MUST be rejected")
+	}
+}
+
+func TestApprovalCache_LegacyApproveStillWorks(t *testing.T) {
+	// 旧 wrapper Approve(name, hash, trust, by) 内部会走 body / SKILL.md 默认值。
+	cache := newTestCache(t)
+	hash := strings.Repeat("a", 64)
+	if _, err := cache.Approve("foo", hash, TrustProject, ""); err != nil {
+		t.Fatalf("legacy Approve: %v", err)
+	}
+	// 旧 Lookup 应当命中
+	if _, ok := cache.Lookup("foo", hash); !ok {
+		t.Fatalf("legacy Lookup should hit")
+	}
+	// 新 LookupArtifact 传 body/SKILL.md 亦应命中
+	if _, ok := cache.LookupArtifact(ApprovalRequest{
+		Name: "foo", ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
+		ContentHash: hash,
+	}); !ok {
+		t.Fatalf("artifact Lookup should hit the same entry")
+	}
+}
+
+func TestApprovalCache_LegacyJSONRoundtrip(t *testing.T) {
+	// 模拟旧版写盘的 JSON（无 ArtifactKind/Locator/RepoFingerprint 字段）
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "skills-trust.json")
+	legacyJSON := `{
+  "version": 1,
+  "entries": [
+    {
+      "name": "legacy-skill",
+      "content_hash": "abc123def456789012345678901234567890123456789012345678901234cdef",
+      "trust": "project",
+      "approved_at": "2026-01-01T00:00:00Z",
+      "approved_by": "legacy-user"
+    }
+  ]
+}`
+	if err := os.WriteFile(path, []byte(legacyJSON), 0o600); err != nil {
+		t.Fatalf("write legacy JSON: %v", err)
+	}
+	cache, err := NewApprovalCache(path)
+	if err != nil {
+		t.Fatalf("load legacy: %v", err)
+	}
+	// 旧 Lookup(name, hash) 必须能命中
+	hash := "abc123def456789012345678901234567890123456789012345678901234cdef"
+	if _, ok := cache.Lookup("legacy-skill", hash); !ok {
+		t.Fatalf("legacy JSON should be lookupable via legacy API")
+	}
+	// entries 返回时 ArtifactKind/Locator 自动回填为 body/SKILL.md
+	entries := cache.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].ArtifactKind != ArtifactKindBody || entries[0].ArtifactLocator != "SKILL.md" {
+		t.Fatalf("legacy entry should default to body/SKILL.md, got %+v", entries[0])
+	}
+}
+
 func TestApprovalCache_AtomicWriteNoLeftoverTemp(t *testing.T) {
 	cache := newTestCache(t)
 	hash := strings.Repeat("1", 64)
