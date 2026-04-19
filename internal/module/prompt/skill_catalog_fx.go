@@ -29,12 +29,10 @@ import (
 // 保持 group 名 (skill_injection_ports) 与本模块内部 fx.ParamTags 一致，避免手写字符串不对齐。
 
 // SkillInjectionPortGroupTag 是 claudecli / codexapp 等 provider 向 prompt 聚合 detector
-// 注入 SkillInjectionPort 时使用的 fx result tag。保持常量供 provider.Module 引用。
+// 注入 SkillInjectionPort 时使用的 fx result tag。保持常量供 provider.Module 引用；
+// 与下面 NewCompositeNativeSkillDetectorParams 的 struct tag 语义同源——Go 不允许 struct
+// tag 使用常量，所以 struct tag 侧必须写字面量，件下的注释告知两处必须一致。
 const SkillInjectionPortGroupTag = `group:"skill_injection_ports"`
-
-// skillInjectionPortGroupParamTag 本模块内部 ParamTags 字符串；与上面 ResultTag
-// 对齐（两侧缺一不可，fx 不会校验；我们通过常量同源规避 drift）。
-const skillInjectionPortGroupParamTag = `group:"skill_injection_ports"`
 
 // compositeNativeSkillDetector 聚合多个 provider 的 DetectNativeSkills 结果。
 //
@@ -114,6 +112,10 @@ type skillCatalogProviderDeps struct {
 // budget：cfg.SkillCatalogTokenBudget (token) × 4 chars/token 换算为 char budget；
 // ≤0 时 provider 用默认 12000 chars。
 func NewSkillCatalogProviderFx(deps skillCatalogProviderDeps) SkillCatalogProvider {
+	// deps.Cfg 依赖 prompt.NewConfig 保证非 nil；定义防御兑底避免未来替换/注入为 nil 导致 panic。
+	if deps.Cfg == nil {
+		return NewSkillCatalogProvider(deps.Skills, deps.Detector, 0)
+	}
 	charBudget := deps.Cfg.SkillCatalogTokenBudget * 4
 	return NewSkillCatalogProviderWithOptions(
 		deps.Skills,
