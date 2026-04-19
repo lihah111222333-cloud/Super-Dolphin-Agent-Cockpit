@@ -176,6 +176,46 @@ func (s *ExpandedArtifactState) Reset() {
 	s.entries = make(map[string]ExpandedArtifact)
 }
 
+// CompactStale 淘汰 (currentTurnIdx - entry.LastTurnIdx) >= TTL 的条目。
+//
+// 用途：long session 下 Mark 只增不删，map 会无界增长。外部（如 Phase 7
+// SkillInjectionPort）可在每个 turn 结尾或每 N 个 turn 调用该方法回收内存。
+// 返回被移除的条目数作为指标输出。
+//
+// 与 Reset() 的区别：
+//   - Reset 无条件全清（resume/compact 语义），所有条目失效
+//   - CompactStale 仅清逻辑上已经失效的条目（当前 turn 无人使用），保留 fresh
+//     条目的去重效果
+func (s *ExpandedArtifactState) CompactStale(currentTurnIdx int) int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := 0
+	for key, entry := range s.entries {
+		// turnIdx 倒退不视为 stale（可能是 resume 到旧 turn ，保留条目等 resume 后再评）
+		if currentTurnIdx < entry.LastTurnIdx {
+			continue
+		}
+		if (currentTurnIdx - entry.LastTurnIdx) >= s.ttl {
+			delete(s.entries, key)
+			removed++
+		}
+	}
+	return removed
+}
+
+// Len 返回当前条目数（诊断 / 指标用）。
+func (s *ExpandedArtifactState) Len() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.entries)
+}
+
 // Snapshot 返回当前所有 entries 的副本（诊断用，不可修改内部状态）。
 func (s *ExpandedArtifactState) Snapshot() []ExpandedArtifact {
 	if s == nil {
