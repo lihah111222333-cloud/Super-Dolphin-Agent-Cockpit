@@ -60,6 +60,14 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		ScratchpadDir:                buildCtx.ScratchpadDir,
 		FRCConfig:                    buildCtx.FRCConfig,
 		KeepCodingInstructions:       buildCtx.KeepCodingInstructions,
+		// P20.4：把 req 上的 launch skill 选择透传到 StartInput，再由 assembler
+		// 的 buildStartCtx 转进 BuildCtx；SkillCatalogProvider 按 force/pin 策略
+		// 决定 L1 manifest 的渲染形态。两个字段沿 req 零值语义：
+		//   - 空 / false → provider 原本的全量扫盘 + 元指令不变
+		//   - 非空 + Force=false → 命中的 skill 置顶，其余保留
+		//   - 非空 + Force=true  → 只渲染命中的 skill，其余隐藏
+		LaunchSkillNames:  append([]string(nil), req.LaunchSkillNames...),
+		ForceLaunchSkills: req.ForceLaunchSkills,
 	}
 }
 

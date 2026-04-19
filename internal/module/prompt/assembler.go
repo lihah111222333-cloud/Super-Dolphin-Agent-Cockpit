@@ -353,6 +353,9 @@ func buildStartCtx(in StartInput) BuildCtx {
 		ScratchpadDir:                strings.TrimSpace(in.ScratchpadDir),
 		FRCConfig:                    copyFRCConfig(in.FRCConfig),
 		KeepCodingInstructions:       copyOptionalBool(in.KeepCodingInstructions),
+		// P20.4：透传创线期选中 skill 到 BuildCtx，供 SkillCatalogProvider 按 pin/force 策略渲染。
+		LaunchSkillNames:  append([]string(nil), in.LaunchSkillNames...),
+		ForceLaunchSkills: in.ForceLaunchSkills,
 	}
 }
 
