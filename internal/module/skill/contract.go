@@ -16,4 +16,8 @@ type Service interface {
 	WriteSkillContent(ctx context.Context, name, content string) (any, error)
 	WriteSummary(ctx context.Context, name, summary string) (any, error)
 	MatchPreview(ctx context.Context, agentID, threadID, text string, input []UserInput) (any, error)
+	// ExpandBody P20.1 Phase 6：按 name 读取 SKILL.md body（可选 Markdown 锚点切片）。
+	ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBodyResult, error)
+	// ReadResource P20.1 Phase 6：按 name + 相对路径读取 skill 目录内资源文件。
+	ReadResource(ctx context.Context, p ReadResourceParams) (ReadResourceResult, error)
 }
