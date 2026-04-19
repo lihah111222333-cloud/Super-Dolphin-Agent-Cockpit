@@ -64,6 +64,13 @@ func (s *service) findSkillRecordByName(name string) (skillRecord, error) {
 //   - skill 不存在：fmt.Errorf("skill not found: ...")
 //   - anchor 找不到：fmt.Errorf("anchor not found: ...")
 //   - 文件过大超硬上限：fmt.Errorf("skill file too large: ...")
+//
+// TODO(P20.1 Phase 7 - SkillInjectionPort)：本方法目前未集成以下侧效，均由 Port 层接入后补齐：
+//   1. ApprovalCache.LookupArtifact：未受信任项目级 skill 应在调用前弹审批
+//      （按 artifactKind=body, locator=SKILL.md[#Anchor] 校验）
+//   2. ExpandedArtifactState.MarkArtifact：记录注入历史供后续去重
+//   3. SkillInfo.DisableModelInvocation：根据 frontmatter 拒绝模型自主调用
+// 未集成时调用方（带格 Phase 7 Port）需自行保证该等策略。
 func (s *service) ExpandBody(_ context.Context, p ExpandBodyParams) (ExpandBodyResult, error) {
 	rec, err := s.findSkillRecordByName(p.Name)
 	if err != nil {
@@ -84,8 +91,13 @@ func (s *service) ExpandBody(_ context.Context, p ExpandBodyParams) (ExpandBodyR
 	}
 	full := string(data)
 	// Body 不包括 frontmatter（保持与 summarize 语义一致）。
-	_, body, _ := splitFrontmatter(full)
-	if body == "" {
+	// splitFrontmatter 返回 (fm, tail, ok)：
+	//   - ok=true  + tail=="" → SKILL.md 仅有 frontmatter，body 本来就是空
+	//   - ok=false → 无 frontmatter，整个文件作为 body
+	// 不能用 `if body == "" { body = full }` fallback，那样会把 frontmatter 泄漏为 body。
+	fm, body, hasFM := splitFrontmatter(full)
+	_ = fm
+	if !hasFM {
 		body = full
 	}
 
@@ -129,6 +141,14 @@ func (s *service) ExpandBody(_ context.Context, p ExpandBodyParams) (ExpandBodyR
 //   - NormalizeArtifactLocator 拒绝 `/abs`、`..` 段、空路径
 //   - 归一化后再与 skill dir join，os.Stat + platformshared.ContainsPath 二次验证
 //   - 按 maxBytes 截断
+//
+// 内容类型：Content 以 Go string 返回，**仅保证 UTF-8 文本文件正确性**
+// （references/*.md、scripts/*.sh 等）。二进制资源（assets/*.png 等）会
+// 被 JSON 序列化器按 UTF-8 校验转义为 \ufffd，不在本工具的爆护方案内。
+// 未来如需支持二进制可扩展为 base64 encoding 或新工具 skill_read_asset。
+//
+// TODO(P20.1 Phase 7 - SkillInjectionPort)：与 ExpandBody 同，尚未接 ApprovalCache /
+// ExpandedArtifactState。由 Port 层接入时补齐。
 func (s *service) ReadResource(_ context.Context, p ReadResourceParams) (ReadResourceResult, error) {
 	rec, err := s.findSkillRecordByName(p.Name)
 	if err != nil {
