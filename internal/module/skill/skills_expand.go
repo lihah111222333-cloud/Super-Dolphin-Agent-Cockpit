@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -191,9 +190,14 @@ func (s *service) ReadResource(_ context.Context, p ReadResourceParams) (ReadRes
 	total := int64(len(data))
 	content, truncated := truncateBytes(string(data), maxBytes)
 
-	// Resource 的 version 用 skill 的 SKILL.md content hash（对齐 SkillRef.Version）。
-	// 未来可考虑按 artifact 自身 hash 独立追踪；当前保持 skill 级版本即可。
-	version := shortVersionFromContentHash(rec.info.ContentHash)
+	// Resource Version 用读到的 data 自身 hash 的前 12 位 hex，不要用 rec.info.ContentHash
+	// （那是 SKILL.md hash）——资源文件与 SKILL.md 可能各自演化，版本字段
+	// 必须准确反映本次返回内容所对应的 resource 实际 hash。
+	resourceSum := sha256.Sum256(data)
+	version := hex.EncodeToString(resourceSum[:])
+	if len(version) > 12 {
+		version = version[:12]
+	}
 
 	return ReadResourceResult{
 		Name:       rec.info.Name,
@@ -204,16 +208,6 @@ func (s *service) ReadResource(_ context.Context, p ReadResourceParams) (ReadRes
 		Truncated:  truncated,
 		TotalBytes: total,
 	}, nil
-}
-
-// shortVersionFromContentHash 取 skill info 的 ContentHash 的前 12 位 hex。
-// info.ContentHash 为空时返回空字符串，调用方应容忍（version 字段 omitempty）。
-func shortVersionFromContentHash(hash string) string {
-	hash = strings.ToLower(strings.TrimSpace(hash))
-	if len(hash) > 12 {
-		return hash[:12]
-	}
-	return hash
 }
 
 // sliceMarkdownSection 从 Markdown body 中提取指定 H2/H3/... 锚点下的段落。
@@ -309,5 +303,3 @@ func truncateBytes(s string, limit int64) (string, bool) {
 	return s[:limit], true
 }
 
-// 确保 platformshared 被导入使用（静态检查辅助）。
-var _ = errors.New
