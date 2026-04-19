@@ -69,6 +69,9 @@ func (s *service) findSkillRecordByName(name string) (skillRecord, error) {
 //      （按 artifactKind=body, locator=SKILL.md[#Anchor] 校验）
 //   2. ExpandedArtifactState.MarkArtifact：记录注入历史供后续去重
 //   3. SkillInfo.DisableModelInvocation：根据 frontmatter 拒绝模型自主调用
+//   4. 返回值净化（P20.1 §3.3）：对 untrusted + unapproved skill，
+//      - Summary 字段可能含攻击载荷，Port 层应替换为占位符或置空
+//      - Path / Content 如果包含恶意指令同样需过滤
 // 未集成时调用方（带格 Phase 7 Port）需自行保证该等策略。
 func (s *service) ExpandBody(_ context.Context, p ExpandBodyParams) (ExpandBodyResult, error) {
 	rec, err := s.findSkillRecordByName(p.Name)
@@ -146,8 +149,11 @@ func (s *service) ExpandBody(_ context.Context, p ExpandBodyParams) (ExpandBodyR
 // 被 JSON 序列化器按 UTF-8 校验转义为 \ufffd，不在本工具的爆护方案内。
 // 未来如需支持二进制可扩展为 base64 encoding 或新工具 skill_read_asset。
 //
-// TODO(P20.1 Phase 7 - SkillInjectionPort)：与 ExpandBody 同，尚未接 ApprovalCache /
-// ExpandedArtifactState。由 Port 层接入时补齐。
+// TODO(P20.1 Phase 7 - SkillInjectionPort)：与 ExpandBody 同，尚未集成：
+//   1. ApprovalCache.LookupArtifact（artifactKind=resource, locator=相对路径）
+//   2. ExpandedArtifactState.MarkArtifact
+//   3. 返回值净化：SkillDir / Path / Content 对 untrusted skill 需按 trust 策略过滤
+// 由 Port 层接入时补齐。
 func (s *service) ReadResource(_ context.Context, p ReadResourceParams) (ReadResourceResult, error) {
 	rec, err := s.findSkillRecordByName(p.Name)
 	if err != nil {
