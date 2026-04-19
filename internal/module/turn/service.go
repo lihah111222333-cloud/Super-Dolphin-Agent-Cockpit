@@ -12,12 +12,23 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+// skillHydrationPort 是 turn service 平时读取 skill 元数据/正文的最小入口。
+//
+// p20.2 §5 step 2：PrepareTurn 前置需要把 name-only skill 补全为
+// `{Prompt, Summary, Version}`。但为了让测试不必拉起整个 skill 模块，
+// 这里只声明具体依赖的两个方法；skill.Service 自动满足。
+type skillHydrationPort interface {
+	ListSkills(ctx context.Context) ([]skillpkg.SkillInfo, error)
+	ReadLocal(ctx context.Context, path string) (any, error)
+}
 
 type service struct {
 	logger                 *slog.Logger
@@ -27,6 +38,7 @@ type service struct {
 	tracker                *turnTracker
 	promptAssembly         contract.PromptAssemblyService
 	turnContextProvider    contract.TurnContextProvider
+	skillLookup            skillHydrationPort
 	interruptSettleTimeout time.Duration
 
 	// ctx/cancel bound to the service lifetime. Shutdown cancels ctx so
@@ -41,25 +53,35 @@ type steerableSession interface {
 }
 
 func NewService(logger *slog.Logger) Service {
-	return newService(logger, nil, nil)
+	return newService(logger, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
-	return newService(logger, promptAssembly, nil)
+	return newService(logger, promptAssembly, nil, nil)
 }
 
+// NewServiceWithPromptAssemblyAndTurnContext p20.2 §5 step 1：第 4 个
+// skill.Service 参数按 fx `optional:"true"` 注入，用于 PrepareTurn 的
+// name-only skill hydrate。传 nil 时 hydrate 步骤自动跳过，行为与原来
+// 的三参签名等价。
 func NewServiceWithPromptAssemblyAndTurnContext(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
+	skillSvc skillpkg.Service,
 ) Service {
-	return newService(logger, promptAssembly, turnContextProvider)
+	var lookup skillHydrationPort
+	if skillSvc != nil {
+		lookup = skillSvc
+	}
+	return newService(logger, promptAssembly, turnContextProvider, lookup)
 }
 
 func newService(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
+	skillLookup skillHydrationPort,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -72,6 +94,7 @@ func newService(
 		manifest:               newManifestBuilder(resolveBinaryDir()),
 		tracker:                newTurnTracker(),
 		promptAssembly:         promptAssembly,
+		skillLookup:            skillLookup,
 		interruptSettleTimeout: config.InterruptSettleTimeout,
 		ctx:                    ctx,
 		ctxCancel:              cancel,
@@ -96,6 +119,12 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		return dto.TurnRequest{}, err
 	}
 	input = hydratePrepareInput(input, session)
+	// p20.2 §5 step 2-3：在 skillResolver.Resolve 之前先把 manual/name-only
+	// skill 补全为带 Prompt/Summary/Version 的实体，避免 provider 侧遇到
+	// Prompt=="" 时只能走 name-list fallback。hydrate 是 optional 依赖：
+	// skillLookup==nil 时（NewService / NewServiceWithPromptAssembly 或 fx 未
+	// 注入 skill.Service）原路直通。
+	input.Skills = s.hydrateSkillRefs(ctx, input.Skills)
 	candidateSkills := input.CandidateSkills
 	if input.ManualSkillSelection {
 		candidateSkills = nil
