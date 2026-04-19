@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
 // ============================================================================
@@ -247,6 +248,9 @@ func groupSkillsForManifest(infos []skillpkg.SkillInfo, nativeNames map[string]s
 		// 任何 untrusted skill 先走 Redacted，无论是否标 manual-only。
 		if isUntrustedScope(info.Trust) {
 			g.Redacted = append(g.Redacted, info)
+			// P20.1 Phase 10 Step C：每条 redacted 条目 +1。放在入栈之后才计，
+			// 过滤掉 lowerName=="" 早返 continue 的器航闲置条目。
+			skillmetrics.IncUntrustedManifestRedaction()
 			continue
 		}
 		// 3. trusted + disable-model-invocation → ManualOnly

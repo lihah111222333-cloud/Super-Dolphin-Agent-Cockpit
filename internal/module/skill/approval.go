@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
 // ApprovalCache 是 P20 Phase 1 的 skill 审批决议持久化层。
@@ -178,6 +180,9 @@ func (c *ApprovalCache) Lookup(name, contentHash string) (ApprovalEntry, bool) {
 }
 
 // LookupArtifact 是 P20.1 §3.2 artifact-level 查询入口。严格按全 hash 比对防碰撞。
+// P20.1 Phase 10 Step C：miss (未备案 / hash mismatch) 时计数；
+// nil receiver 的默认 no-approval 路径不计数（持有者未配置备案 cache，
+// 不属于 "合法查询但未命中" 的有效 miss）。
 func (c *ApprovalCache) LookupArtifact(req ApprovalRequest) (ApprovalEntry, bool) {
 	if c == nil {
 		return ApprovalEntry{}, false
@@ -186,9 +191,11 @@ func (c *ApprovalCache) LookupArtifact(req ApprovalRequest) (ApprovalEntry, bool
 	defer c.mu.RUnlock()
 	entry, ok := c.entries[artifactApprovalKey(req)]
 	if !ok {
+		skillmetrics.IncArtifactApprovalMiss()
 		return ApprovalEntry{}, false
 	}
 	if !strings.EqualFold(entry.ContentHash, req.ContentHash) {
+		skillmetrics.IncArtifactApprovalMiss()
 		return ApprovalEntry{}, false
 	}
 	return entry, true
