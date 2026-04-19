@@ -300,6 +300,51 @@ func TestReadResource_EmptyFile(t *testing.T) {
 	}
 }
 
+// TestReadResource_VersionReflectsResourceContent P20.1 Phase 6 审核第 2 轮
+// 发现的 bug：ReadResource 的 Version 必须反映读取到的资源文件 hash，
+// 不能错用 SKILL.md hash——否则资源文件改动时调用方无法感知。
+func TestReadResource_VersionReflectsResourceContent(t *testing.T) {
+	svc, root := newExpandTestService(t)
+	dir := writeExpandTestSkill(t, root, "foo", "---\nname: foo\n---\nbody")
+	refPath := filepath.Join(dir, "ref.md")
+
+	// 版本 1
+	if err := os.WriteFile(refPath, []byte("content v1"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	r1, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "ref.md"})
+	if err != nil {
+		t.Fatalf("read v1: %v", err)
+	}
+	if r1.Version == "" {
+		t.Fatalf("Version must be non-empty")
+	}
+
+	// 仅改动 resource 文件、不改 SKILL.md。之前的 bug 下 Version 会沉默不变。
+	if err := os.WriteFile(refPath, []byte("content v2 different bytes"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	r2, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "ref.md"})
+	if err != nil {
+		t.Fatalf("read v2: %v", err)
+	}
+	if r1.Version == r2.Version {
+		t.Fatalf("Version MUST change when resource content changes (was %q, still %q)", r1.Version, r2.Version)
+	}
+
+	// SKILL.md 改动但 ref.md 不改——Version 不变（此时不再用 skill hash）
+	if err := os.WriteFile(filepath.Join(dir, skillMainFile), []byte("---\nname: foo\n---\nALTERED SKILL BODY"), 0o644); err != nil {
+		t.Fatalf("alter SKILL.md: %v", err)
+	}
+	r3, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "ref.md"})
+	if err != nil {
+		t.Fatalf("read v3: %v", err)
+	}
+	if r3.Version != r2.Version {
+		t.Fatalf("SKILL.md change should NOT affect resource Version (was %q, now %q)", r2.Version, r3.Version)
+	}
+}
+
 func TestReadResource_Truncation(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	dir := writeExpandTestSkill(t, root, "foo", "---\nname: foo\n---\nbody")
