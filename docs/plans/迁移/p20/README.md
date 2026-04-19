@@ -1,15 +1,17 @@
 # P20 Skill 渐进披露迁移拆分
 
-> 创建时间：2026-04-19 | 更新时间：2026-04-19 | 状态：**30% 已落 / 40% 部分 / 30% 未落（4 / 9 / 10）**
+> 创建时间：2026-04-19 | 更新时间：2026-04-19 | 状态：**critical-path 已关闭 / 9 of 16 已完成或实质完成 / 1 废弃 / 6 待做**
 > 当前 authoritative 文档：`README.md`、`status-checkpoint-2026-04-19.md`、`source-refs-appendix.md`、各 `p20.X-*.md`，以及上层修订文档 `../p20.1-skill-progressive-disclosure-hardening.md` / `../p20.1-hardening-implementation-checklist.md`
 > 历史总纲留档：`p20-original-plan.md`
 
-## 最新施工快照（2026-04-19 第六轮）
+## 最新施工快照（2026-04-19 第十轮 · 状态同步）
 
-- **P20.1 §4 Phase 5 · resolver 升级**：`skillDedupKey` 改为 `name@version`；`internal/module/turn/expanded_state.go` 已落盘（`(name, kind, locator, hash)` key、TTL=5 turns），待 `p20.8` resolver 矩阵接入。
-- **p20.2 §5 step 4 · codex fallback**：`buildSkillPromptInput` 与 `claudecli buildSkillSection` 对齐——non-None skill 始终产出 `skills:\n- name`，彻底消除 `Prompt==""` 的 silent drop。
-- **p20.2 critical-path 首段全部关闭**：`PrepareTurn()` 前置新增 `(*service).hydrateSkillRefs`（ListSkills+ReadLocal 补 Prompt/Summary/Version/Source），`turn.service` 通过 fx 第 4 个 optional 参注入 `skill.Service`；`internal/module/turn/service_skill_hydrate_test.go` 5 组测例覆盖 hydrate 全/部分字段 + nil lookup + 错误路径。
-- **验证**：`go build ./...`、`go test ./internal/module/turn/... ./internal/module/skill/...` 全绿；`internal/provider/codexapp` 测试子集全绿。
+- **Critical-path 全部关闭**：P20.2 (`78c6907`) → P20.3 (`cec26fe`) → P20.4 (`b0d2555`) 已依次合入 `main`。
+- **P20.1 Phase 1-11 全部落地**：SkillCatalogProvider（Phase 8, `c1ead48`）、元指令（Phase 9, `3cd3144`）、fx 灰度 + 5 counter（Phase 10, `00b073f`）、文档同步（Phase 11, `a07067c`）；功能闸门默认关闭，进入 shadow 灰度阶段。
+- **P20.1 加固连带实质性完成的子单**：P20.5 SkillCatalogProvider（`c1ead48`）、P20.6/P20.7 SkillInjectionPort 契约+双端基础实现（`9b0f7e1`）、P20.8 expanded_state 数据结构（`3fbed75`）、P20.9 rollout markers 读端（`e5947dc`/`25af3d7`）、P20.12 被 Phase 10 完全吸收（`00b073f`）。
+- **仍未完成**：P20.1（Bug#1 prompts handler）、P20.10（host RPC）、P20.13（审批接线）、P20.14（前端 LaunchSkillPicker）、P20.15（前端 404 降级）、P20.16（集成测试）。
+- **已废弃**：P20.11（MCP 工具）— skill 是宿主独有能力，不属于 mcp-orch 编排层；子进程运行在宿主中，skill 通过提示词触发即可。
+- **验证**：`go build ./...` 全绿；所有相关包测试全绿。
 
 ---
 
@@ -27,24 +29,24 @@
 
 ## 1. 拆分总表（16 / 16）
 
-| 任务单 | 目标 | 依赖 | 并行组 | 合流门槛 | 预算 |
-|---|---|---|---|---|---|
-| `p20.1` | 恢复 `prompts/list|write|delete` 宿主 handler | 独立（先核 archtest） | α | 先确认 prompt archtest 真值后按方案 B 落地 | 1 agent / ≤6 文件 |
-| `p20.2` | 修 Bug #2 断点 B：PrepareTurn hydrate + codex fallback | 独立 | critical | 无 | 1 agent / ≤6 文件 |
-| `p20.3` | 修 Bug #2 断点 A：`thread/start` 增 `selectedSkills` 契约 | `p20.2` | critical | `p20.2` 已合入 | 1 agent / ≤7 文件 |
-| `p20.4` | 把 launch skill 接进 StartAssembly / provider 启动链 | `p20.3` | critical | `p20.3` 已合入 | 1 agent / ≤6 文件 |
-| `p20.5` | 新增 L1 `SkillCatalogProvider` + dynamic slot | `p20.4` | β | `p20.4` 已合入 | 1 agent / ≤5 文件 |
-| `p20.6` | claudecli `SkillInjectionPort` + native 降级 | `p20.4` | β | `p20.4` 已合入 | 1 agent / ≤5 文件 |
-| `p20.7` | codexapp `SkillInjectionPort` + 三分支 marker | `p20.4` | β | `p20.4` 已合入 | 1 agent / ≤6 文件 |
-| `p20.8` | resolver 决策矩阵 + expanded TTL | `p20.2` | γ | `p20.2` 已合入 | 1 agent / ≤6 文件 |
-| `p20.9` | rollout marker 扩容与共享 trim | 读端独立；写端切换合入 `p20.6/p20.7` | α | 读端可先发；写端切换跟随 provider 单 | 1 agent / ≤4 文件 |
-| `p20.10` | `skill/list` + `skill/expand` host RPC | 独立 | α | 无 | 1 agent / ≤6 文件 |
-| `p20.11` | MCP `skill_list` / `skill_expand` tool 注册 | `p20.10` | δ | `skill.Service.Expand(...)` 已就位 | 1 agent / ≤7 文件 |
-| `p20.12` | config + policy + metrics 基础设施（已缩到 1 文件） | 独立 | α | 无 | 1 agent / ≤5 文件 |
-| `p20.13` | `(name,hash)` 审批缓存生产化接线 | `p20.10` + `p20.6` | ε | `skill/expand` host 消费点 + 审批事件链已就位 | 1 agent / ≤6 文件 |
-| `p20.14` | 前端 LaunchSkillPicker | `p20.3` | γ' | `p20.3` 已合入 | 1 agent / ≤9 文件 |
-| `p20.15` | 前端 SystemPromptPage 404 降级 | 独立（与 `p20.1` 联调退出 fallback） | α | 无 | 1 agent / ≤4 文件 |
-| `p20.16` | 集成测试与尾部收口 | 全部前置任务 | 终 | 全部 feature 合流 | 1 agent / ≤10 文件 |
+| 任务单 | 目标 | 状态 | 关闭提交 | 备注 |
+|---|---|---|---|---|
+| `p20.1` | 恢复 `prompts/list\|write\|delete` 宿主 handler | ❌ 未开工 | — | 独立；方案 B 保持 0 新增 prompt prod 文件 |
+| `p20.2` | 修 Bug #2 断点 B：PrepareTurn hydrate + codex fallback | ✅ 已完成 | `78c6907` | hydrate + codex name-list fallback 全部关闭 |
+| `p20.3` | 修 Bug #2 断点 A：`thread/start` 增 `selectedSkills` 契约 | ✅ 已完成 | `cec26fe` | 前后端 + DTO + thread 合同全部打通 |
+| `p20.4` | 把 launch skill 接进 StartAssembly / provider 启动链 | ✅ 已完成 | `b0d2555` | pin/force policy 消费 LaunchSkillNames |
+| `p20.5` | 新增 L1 `SkillCatalogProvider` + dynamic slot | ✅ P20.1 Phase 8-10 已完成 | `c1ead48`→`00b073f` | 安全投影 + 元指令 + fx 灰度 + 5 counter；落点改到 `prompt` 包 |
+| `p20.6` | claudecli `SkillInjectionPort` + native 降级 | ⚠️ 基础已落地 | `9b0f7e1`/`9707764` | Port 契约 + claude 实现 + native scan 已落地；per-turn carrier/registry 集成待收口 |
+| `p20.7` | codexapp `SkillInjectionPort` + 三分支 marker | ⚠️ 基础已落地 | `9b0f7e1` | Port 契约 + codex 实现已落地；per-turn carrier/registry 集成待收口 |
+| `p20.8` | resolver 决策矩阵 + expanded TTL | ⚠️ 基础已落地 | `3fbed75`/`b12df84` | `expanded_state.go` 数据结构已落地；resolver 矩阵升级 + runtime matcher 待完成 |
+| `p20.9` | rollout marker 扩容与共享 trim | ⚠️ 读端已落地 | `e5947dc`/`25af3d7`/`9f0f4bd` | `rollout_markers.go` 读端 helper 已落地；provider 读端切换 + 写端分流待 p20.6/7 |
+| `p20.10` | `skill/list` + `skill/expand` host RPC | ❌ 未开工 | — | 独立可开工 |
+| `p20.11` | ~~MCP `skill_list` / `skill_expand` tool 注册~~ | 🚫 已废弃 | — | skill 是宿主独有能力，不属于编排层；子进程在宿主中运行，skill 通过提示词触发 |
+| `p20.12` | config + policy + metrics 基础设施 | ✅ 被 P20.1 Phase 10 吸收 | `00b073f`/`9f0f4bd` | env flag + token budget + 5 counter 落在 `prompt/config.go` + `pkg/skillmetrics/` |
+| `p20.13` | `(name,hash)` 审批缓存生产化接线 | ❌ 未开工 | — | 依赖 p20.10 + p20.6 |
+| `p20.14` | 前端 LaunchSkillPicker | ❌ 未开工 | — | 依赖 p20.3 ✅ → 可开工 |
+| `p20.15` | 前端 SystemPromptPage 404 降级 | ❌ 未开工 | — | 独立可开工 |
+| `p20.16` | 集成测试与尾部收口 | ❌ 未开工 | — | 全部前置任务完成后 |
 
 ## 2. 依赖图（DAG，无环）
 
@@ -65,7 +67,7 @@ flowchart LR
   P206 -.写端切换合入.-> P209
   P207 -.写端切换合入.-> P209
 
-  P2010[p20.10] --> P2011[p20.11]
+  P2010[p20.10]
   P2010 --> P2013[p20.13]
   P206 --> P2013
 
@@ -79,7 +81,7 @@ flowchart LR
   P208 --> P2016
   P209 --> P2016
   P2010 --> P2016
-  P2011 --> P2016
+
   P2012[p20.12] --> P2016
   P2013 --> P2016
   P2014 --> P2016
@@ -89,7 +91,7 @@ flowchart LR
 ## 依赖图合规 ✅
 
 - 2026-04-19 本地按 Mermaid 边做 DAG 校验：**无环**。
-- 新增/修订关键依赖边共 6 条：`p20.10 → p20.11`、`p20.10 → p20.13`、`p20.6 → p20.13`、`p20.6 → p20.9`、`p20.7 → p20.9`、`p20.3 → p20.14`（替换旧 `p20.4 → p20.14`）。
+- 修订依赖边：`p20.10 → p20.13`、`p20.6 → p20.13`、`p20.6 → p20.9`、`p20.7 → p20.9`、`p20.3 → p20.14`；`p20.10 → p20.11` 已随 P20.11 废弃移除。
 - 解释：`p20.9` 的**读端独立**，但写端切换必须随 `p20.6/p20.7` provider 单合入；`p20.11` 只依赖 `p20.10` 的 `skill.Service.Expand(...)` / host RPC 消费点，而 `p20.13` 还要额外等待 `p20.6` 固定审批事件链 / `skill/requestApproval` 兼容面；`p20.14` 只依赖 launch-time contract 打通（`p20.3`），不再错误挂到 `p20.4`（见 `docs/plans/迁移/p20/p20.11-mcp-skill-tools.md:3,9-11,29-32`、`docs/plans/迁移/p20/p20.13-approval-cache-wiring.md:3,16-18,67-71`、`docs/plans/迁移/p20/p20.14-frontend-launch-skill-ui.md:3,17-20`）。
 
 ## 3. 可并行分组（修订后）
@@ -99,7 +101,7 @@ flowchart LR
 - **β（`p20.4` 完成）**：`p20.5` / `p20.6` / `p20.7`
 - **γ（`p20.2` 完成）**：`p20.8`
 - **γ'（`p20.3` 完成）**：`p20.14`
-- **δ（`p20.10` 完成）**：`p20.11`
+- ~~**δ（`p20.10` 完成）**：`p20.11`~~ — 已废弃
 - **ε（`p20.10` + `p20.6` 完成）**：`p20.13`
 - **终**：`p20.16`
 
@@ -117,7 +119,7 @@ flowchart LR
 | `p20.8` | `internal/module/turn` | ≤6 文件 | M | P2 | `turn` 最终预计 `24`；`expanded_state` 内存态，TTL 5 turns |
 | `p20.9` | `internal/module/skill` + provider rollout trim path | ≤4 文件 | M | P1 | 读端可先落；写端切换并入 `p20.6/p20.7` |
 | `p20.10` | `internal/module/skill` | ≤6 文件 | M | P1 | host RPC 新增 `skill/list` / `skill/expand`；保留 `skills/match/preview` 共存 |
-| `p20.11` | `cmd/mcp-orch/tools` | ≤7 文件 | M | P2 | 依赖 `p20.10`；直调 `skill.Service`，禁走 `Server.Dispatch()` |
+| `p20.11` | ~~`cmd/mcp-orch/tools`~~ | — | — | 🚫 废弃 | skill 是宿主独有能力，mcp-orch 不应持有 skill 工具 |
 | `p20.12` | `internal/platform/config` + `internal/module/skill` | ≤5 文件 | M | P2 | `internal/module/skill` 目录当前 `24` 个 `.go`（含 tests），本单**只允 +1** `policy_metrics.go` |
 | `p20.13` | `internal/module/skill` + `eventsurface` + `codexapp/factory` | ≤6 文件 | H | P2 | 依赖 `p20.10` + `p20.6`；默认 `(name,hash)` 全局批准，`scope=session` 只走内存态 |
 | `p20.14` | frontend `vue-app` | ≤9 文件 | M | P2 | 依赖 `p20.3`；`thread-actions-helpers.js` 已 613 行，只做极小 payload diff |
@@ -129,26 +131,26 @@ flowchart LR
 2. 并行派 α：`p20.9`（读端）/ `p20.10` / `p20.12` / `p20.15`；`p20.1` 在确认方案 B 后并入实施。
 3. `p20.2` 合入后立即分叉：`p20.3` 与 `p20.8`。
 4. `p20.3` 合入后先起 γ'：`p20.14`；`p20.4` 合入后再平行派 β：`p20.5 / p20.6 / p20.7`。
-5. `p20.10` 合入后立刻起 δ：`p20.11`；待 `p20.6` 合流后再起 ε：`p20.13`。
+5. 待 `p20.10` + `p20.6` 合流后起 ε：`p20.13`。（~~`p20.11` 已废弃~~）
 6. 所有 feature 合流后，单独派未参与实装的 agent 做 `p20.16`。
 
 ## 5. 合规结论
 
-### 5.1 包文件预算
+### 5.1 包文件预算（2026-04-19 第十轮修正）
 
-- **`internal/module/prompt`**：2026-04-19 archtest 权威真值为 **`26` 个 prod `.go` 文件 / `2858` effective lines**（见 `docs/plans/迁移/p20/p20.1-bug-prompts-list-handler.md:20-28`）；`p20.1` 采用方案 B、`p20.5` provider 改落 `skill` 后，P20 **不再增加 prompt prod 文件**。
-- **`internal/module/skill`**：审查 working-set 口径为 **24 个 `.go` 文件（含 tests）**；archtest prod 口径当前仍安全，但 `p20.12` 已明确收缩为仅 +1 `policy_metrics.go`，避免无上限拆新文件（见 `docs/plans/迁移/p20/p20.12-config-policy-metrics.md:12,20-27,69-72`）。
-- **`internal/module/thread`**：当前 **`25` 个 prod `.go` 文件**；`p20.3/p20.4` 只能改现有文件，**不可再新增 prod 文件**。
-- **`internal/provider/claudecli`**：当前 **`24`**；`p20.6` 仅允 +1 `skill_inject.go`，压线但合规。
-- **`internal/module/turn`**：当前 **`22`**；`p20.2/p20.8` 合并后预计 **`24`**，安全。
-- **`internal/provider/codexapp`**：当前 **`19`**；`p20.7` 后预计 **`20`**，安全。
-- **`internal/contract`**：当前 **`15`**；共享 `skill_injection.go` 落地后预计 **`16`**，安全。
+- **`internal/module/prompt`**：当前实际 **`28` 个 prod `.go` 文件**（较原 archtest 真值 `26` 新增了 `skill_catalog_provider.go` + `skill_catalog_fx.go`，均由 P20.1 Phase 8/10 引入）；`p20.1` 采用方案 B，P20 后续 **不再增加 prompt prod 文件**。
+- **`internal/module/skill`**：当前 **`18` 个 prod `.go` 文件**（working-set 含 test 共约 30+）；archtest prod 口径安全。
+- **`internal/module/thread`**：当前 **`25` 个 prod `.go` 文件**（未变）；**禁止新增 prod 文件**。
+- **`internal/provider/claudecli`**：当前 **`25`**（较原 `24` 新增了 `skill_inject.go`，P20.1 Phase 7）；**已用满 +1 配额，不再允许新增**。
+- **`internal/module/turn`**：当前 **`23`**（较原 `22` 新增了 `expanded_state.go`，P20.1 Phase 5）；`p20.8` resolver 矩阵升级后预计 `24`，安全。
+- **`internal/provider/codexapp`**：当前 **`20`**（较原 `19` 新增了 `skill_inject.go`，P20.1 Phase 7）；安全。
+- **`internal/contract`**：当前 **`16`**（较原 `15` 新增了 `skill_injection.go`，P20.1 Phase 7）；安全。
 - **effective lines**：本轮受影响包都显著低于 `10000`；当前真正的硬边界是 `prompt/thread/claudecli` 的**包文件数**而非行数。
 
 ### 5.2 freeze registry 预估总影响（修订后）
 
 - 当前显式 freeze 仅有 `internal/module/memory:27` 与 `internal/module/prompt:26`（`internal/archtest/freeze_registry.go:19-35`）。
-- 修订后 P20 **不再要求**把 `prompt` 的 freeze `26 → 28`：原因是 `p20.1` 改为 merge-in-place，`p20.5` 的 catalog provider 改落 `internal/module/skill`。
+- ⚠️ **注意**：`prompt` 实际已增至 `28` 个 prod 文件（P20.1 Phase 8/10 新增 `skill_catalog_provider.go` + `skill_catalog_fx.go`）；若 freeze guard 当前仍为 `26`，需同步更新 `freeze_registry.go` 至 `28`，否则 archtest 将 fail。
 - 其它 P20 相关包在当前写集假设下**不需要新增 freeze entry**。
 - 若未来另开单坚持新增 `internal/module/prompt/rpc.go`，需重新走 A/C 方案与 freeze 评审；不属于当前 README 默认路径。
 
@@ -158,7 +160,7 @@ flowchart LR
 - `p20.2/p20.8/p20.6/p20.7/p20.9` 是 per-turn chain 的 authoritative owner：`turn` 返回结构化 `SkillRef`，provider 只负责 provider-specific render / inject / trim。
 - `p20.2` 已锁定为 **PrepareTurn hydrate + codex fallback**；禁止新建 `skill_hydrator.go`。
 - `p20.9` 采用 **dual-read / single-write**：读端独立落地，写端切换跟随 `p20.6/p20.7`。
-- `p20.10` 提供 `skill/list` / `skill/expand` host API；`p20.11` 只依赖这一层 `skill.Service` 能力，而 `p20.13` 还额外依赖 `p20.6` 提供稳定的审批事件链 / `skill/requestApproval` 兼容面；两者都不直接复用 host handler map。
+- `p20.10` 提供 `skill/list` / `skill/expand` host API；`p20.13` 依赖 `p20.10` 的 service 能力，还额外依赖 `p20.6` 提供稳定的审批事件链 / `skill/requestApproval` 兼容面；不直接复用 host handler map。（`p20.11` 已废弃：skill 是宿主独有能力，不属于编排层。）
 
 ## 6. 跨模块依赖总图
 
@@ -187,7 +189,7 @@ flowchart LR
   EventSurface --> CodexBridge[internal/provider/codexapp/factory]
 
   MCP[cmd/mcp-orch/tools] --> PromptStore
-  MCP --> SkillSvc
+
 ```
 
 > 守卫结论：允许 `turn → skill.Service`、`thread → promptAssembly → provider DTO`、`mcp-orch → skill.Service`；不允许 `provider ↔ prompt` 成环，也不允许 `cmd/mcp-orch` 通过宿主 RPC handler map 反向耦合 `internal/module/*`。

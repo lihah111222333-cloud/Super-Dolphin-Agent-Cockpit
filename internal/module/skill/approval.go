@@ -119,31 +119,39 @@ func NewApprovalCache(path string) (*ApprovalCache, error) {
 		if unmarshalErr := json.Unmarshal(data, &payload); unmarshalErr != nil {
 			return cache, fmt.Errorf("approval cache %s is corrupted: %w", path, unmarshalErr)
 		}
-		for _, entry := range payload.Entries {
-			if entry.Name == "" || entry.ContentHash == "" {
-				continue
-			}
-			// P20.1：旧 JSON 缺失新字段 → 按 body/SKILL.md 兑底（向后兼容）。
-			if entry.ArtifactKind == "" {
-				entry.ArtifactKind = ArtifactKindBody
-			}
-			if entry.ArtifactKind == ArtifactKindBody && entry.ArtifactLocator == "" {
-				entry.ArtifactLocator = "SKILL.md"
-			}
-			cache.entries[artifactApprovalKey(ApprovalRequest{
-				RepoFingerprint: entry.RepoFingerprint,
-				Name:            entry.Name,
-				ArtifactKind:    entry.ArtifactKind,
-				ArtifactLocator: entry.ArtifactLocator,
-				ContentHash:     entry.ContentHash,
-			})] = entry
-		}
+		cache.entries = loadEntriesFromPayload(payload)
 		return cache, nil
 	case errors.Is(err, os.ErrNotExist):
 		return cache, nil
 	default:
 		return cache, fmt.Errorf("approval cache %s read failed: %w", path, err)
 	}
+}
+
+// loadEntriesFromPayload 从反序列化后的 JSON 载荷构建 entries map，
+// 并为旧 JSON 缺失的 P20.1 新字段提供向后兼容兜底。
+func loadEntriesFromPayload(payload approvalFile) map[string]ApprovalEntry {
+	entries := make(map[string]ApprovalEntry, len(payload.Entries))
+	for _, entry := range payload.Entries {
+		if entry.Name == "" || entry.ContentHash == "" {
+			continue
+		}
+		// P20.1：旧 JSON 缺失新字段 → 按 body/SKILL.md 兜底（向后兼容）。
+		if entry.ArtifactKind == "" {
+			entry.ArtifactKind = ArtifactKindBody
+		}
+		if entry.ArtifactKind == ArtifactKindBody && entry.ArtifactLocator == "" {
+			entry.ArtifactLocator = "SKILL.md"
+		}
+		entries[artifactApprovalKey(ApprovalRequest{
+			RepoFingerprint: entry.RepoFingerprint,
+			Name:            entry.Name,
+			ArtifactKind:    entry.ArtifactKind,
+			ArtifactLocator: entry.ArtifactLocator,
+			ContentHash:     entry.ContentHash,
+		})] = entry
+	}
+	return entries
 }
 
 // artifactApprovalKey 生成 P20.1 §3.2 规定的五元组 map key。

@@ -102,51 +102,66 @@ func NormalizeArtifactLocator(kind, locator string) (string, error) {
 	trimmed := strings.TrimSpace(locator)
 	switch kind {
 	case ArtifactKindMetadata:
-		if trimmed != "" {
-			return "", errors.New("metadata artifact must have empty locator")
-		}
-		return "", nil
+		return normalizeMetadataLocator(trimmed)
 	case ArtifactKindBody:
-		if trimmed == "" {
-			return "SKILL.md", nil
-		}
-		// 允许 SKILL.md#Anchor 或 #Anchor 或 SKILL.md
-		base, anchor, hasAnchor := strings.Cut(trimmed, "#")
-		base = strings.TrimSpace(base)
-		if base == "" {
-			base = "SKILL.md"
-		}
-		if base != "SKILL.md" {
-			return "", fmt.Errorf("body locator must reference SKILL.md, got %q", base)
-		}
-		if !hasAnchor {
-			return base, nil
-		}
-		anchor = strings.TrimSpace(anchor)
-		if strings.ContainsAny(anchor, "/\\") || strings.Contains(anchor, "..") {
-			return "", fmt.Errorf("anchor must not contain path separators: %q", anchor)
-		}
-		if anchor == "" {
-			return base, nil
-		}
-		return base + "#" + anchor, nil
+		return normalizeBodyLocator(trimmed)
 	case ArtifactKindResource:
-		if trimmed == "" {
-			return "", errors.New("resource locator cannot be empty")
-		}
-		if strings.HasPrefix(trimmed, "/") {
-			return "", fmt.Errorf("resource locator must be relative, got %q", trimmed)
-		}
-		cleaned := filepath.ToSlash(filepath.Clean(trimmed))
-		if cleaned == "." || cleaned == "" {
-			return "", errors.New("resource locator normalized to empty")
-		}
-		if strings.HasPrefix(cleaned, "../") || cleaned == ".." || strings.Contains(cleaned, "/../") {
-			return "", fmt.Errorf("resource locator escapes skill dir: %q", trimmed)
-		}
-		return cleaned, nil
+		return normalizeResourceLocator(trimmed)
 	}
 	return "", fmt.Errorf("unreachable artifact kind: %q", kind)
+}
+
+// normalizeMetadataLocator 验证 metadata 产物的 locator 必须为空。
+func normalizeMetadataLocator(trimmed string) (string, error) {
+	if trimmed != "" {
+		return "", errors.New("metadata artifact must have empty locator")
+	}
+	return "", nil
+}
+
+// normalizeBodyLocator 规范化 body 产物的 locator：`SKILL.md` 或 `SKILL.md#Anchor`。
+func normalizeBodyLocator(trimmed string) (string, error) {
+	if trimmed == "" {
+		return "SKILL.md", nil
+	}
+	// 允许 SKILL.md#Anchor 或 #Anchor 或 SKILL.md
+	base, anchor, hasAnchor := strings.Cut(trimmed, "#")
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "SKILL.md"
+	}
+	if base != "SKILL.md" {
+		return "", fmt.Errorf("body locator must reference SKILL.md, got %q", base)
+	}
+	if !hasAnchor {
+		return base, nil
+	}
+	anchor = strings.TrimSpace(anchor)
+	if strings.ContainsAny(anchor, "/\\") || strings.Contains(anchor, "..") {
+		return "", fmt.Errorf("anchor must not contain path separators: %q", anchor)
+	}
+	if anchor == "" {
+		return base, nil
+	}
+	return base + "#" + anchor, nil
+}
+
+// normalizeResourceLocator 规范化 resource 产物的 locator：必须为相对路径，不得逃逸 skill 目录。
+func normalizeResourceLocator(trimmed string) (string, error) {
+	if trimmed == "" {
+		return "", errors.New("resource locator cannot be empty")
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return "", fmt.Errorf("resource locator must be relative, got %q", trimmed)
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(trimmed))
+	if cleaned == "." || cleaned == "" {
+		return "", errors.New("resource locator normalized to empty")
+	}
+	if strings.HasPrefix(cleaned, "../") || cleaned == ".." || strings.Contains(cleaned, "/../") {
+		return "", fmt.Errorf("resource locator escapes skill dir: %q", trimmed)
+	}
+	return cleaned, nil
 }
 
 // TrustScope 描述 skill 的信任边界，决定其自主调用权、审批策略、工具白名单默认值。
