@@ -3,6 +3,8 @@ package skill
 import (
 	"regexp"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
 // skillBlockHeaderNewFormat 匹配 P20 新格式的 skill 注入块头行：
@@ -160,12 +162,16 @@ func TrimInjectedSkillBlocksWithDiag(text string) TrimResult {
 			}
 			// footer 缺失 → 损坏兑底：剪到 EOF
 			res.FooterMissingCount++
+			// P20.1 Phase 10 Step C: 成对 footer 缺失 → trim 降级计数。
+			skillmetrics.IncTrimCorruptionFallback()
 			res.Text = strings.TrimRight(strings.Join(kept, "\n"), "\n")
 			return res
 		case SkillBlockFormatLegacy:
 			if looksLikeLegacyInjectedBlock(lines, i) {
 				// legacy 遗留语义：剪到 EOF
 				res.LegacyTrimmed = true
+				// P20.1 Phase 10 Step C: legacy pair-less 格式 → 降级计数。
+				skillmetrics.IncTrimCorruptionFallback()
 				res.Text = strings.TrimRight(strings.Join(kept, "\n"), "\n")
 				return res
 			}

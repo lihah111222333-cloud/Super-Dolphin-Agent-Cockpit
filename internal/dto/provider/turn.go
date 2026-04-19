@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
 type TurnRequest struct {
@@ -91,6 +92,10 @@ func (m SkillMode) Effective() SkillMode {
 	case SkillModeFull, SkillModeSummary, SkillModeNone:
 		return m
 	default:
+		// P20.1 Phase 10 Step C：非法 mode 字面量计数。计数点放在降级分支
+		// ——确保每次真正触发 "unknown mode → None" 时才 +1，
+		// 空值 / 合法值 不干扰计数。
+		skillmetrics.IncSkillInvalidMode()
 		return SkillModeNone
 	}
 }
