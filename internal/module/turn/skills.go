@@ -133,6 +133,17 @@ func mergePromptText(prompt, extra string) string {
 // nativeNames 为空或 refs 为空时原样返回。name 匹配大小写不敏感，
 // 经 trim。调用方应在 skillResolver.Resolve() 之后、写回 dto.TurnRequest
 // 前调用（service 层 Phase 8 fx 集成时接线）。
+//
+// Source 覆盖决策（重要）：
+// 若用户在 UI 手动勾选了某个 skill（上游给 Source=SkillSourceManual），而同
+// 名 skill 恰好在 `.claude/skills/` 里被 Claude CLI 原生接管，本函数会
+// **覆盖 Source 为 Native**。这是 P20.1 §4 明文要求的行为——因为一旦 Mode=None，
+// harness 就不再注入 body：从“harness 内部责任归属”的视角，Source=Manual 是前提“
+// harness 正在代用户注入”，不再注入时维持 Manual 就不准确。用户“想要 foo”
+// 这个意图仍然会被满足（Claude CLI 原生照样注入），只是“谁注入”变了。
+//
+// 若未来需保留“用户显式勾选 vs 自动检测”的分组，建议另加独立字段
+// （如 dto.SkillRef.UserSelected bool），而不是动 Source 枚举语义。
 func ApplyNativeSkillOverride(refs []dto.SkillRef, nativeNames []string) []dto.SkillRef {
 	if len(nativeNames) == 0 || len(refs) == 0 {
 		return refs

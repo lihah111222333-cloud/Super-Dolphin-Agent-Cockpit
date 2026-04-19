@@ -140,3 +140,59 @@ func TestClaudecliSkillInjectionPort_ReservedTokens(t *testing.T) {
 		t.Fatalf("token budget = %d, want 3000", got)
 	}
 }
+
+// TestClaudecliSkillInjectionPort_DetectNativeSkills_SkillMdAsDirectoryIgnored
+// 防御错误布局：若某个 skill 目录下的 "SKILL.md" 自身是一个子目录（而非普通
+// 文件），该 skill 应被跳过，不得误判为有效原生 skill。
+func TestClaudecliSkillInjectionPort_DetectNativeSkills_SkillMdAsDirectoryIgnored(t *testing.T) {
+	tmp := t.TempDir()
+	skillsRoot := filepath.Join(tmp, ".claude", "skills")
+
+	// foo: SKILL.md 是子目录（布局错误）
+	if err := os.MkdirAll(filepath.Join(skillsRoot, "foo", "SKILL.md"), 0o755); err != nil {
+		t.Fatalf("mkdir foo/SKILL.md as dir: %v", err)
+	}
+	// bar: SKILL.md 是普通文件（正常）
+	if err := os.MkdirAll(filepath.Join(skillsRoot, "bar"), 0o755); err != nil {
+		t.Fatalf("mkdir bar: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsRoot, "bar", "SKILL.md"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write bar: %v", err)
+	}
+
+	port := NewSkillInjectionPort()
+	got := port.DetectNativeSkills(tmp)
+	if len(got) != 1 || got[0] != "bar" {
+		t.Fatalf("foo should be skipped (SKILL.md is a directory), got %v", got)
+	}
+}
+
+// TestClaudecliSkillInjectionPort_DetectNativeSkills_StableOrdering 连续多次
+// 调用，结果必须按字典序一致——防御未来有人删 sort.Strings() 破坏
+// ApplyNativeSkillOverride 下游的 tie-break 稳定性。
+func TestClaudecliSkillInjectionPort_DetectNativeSkills_StableOrdering(t *testing.T) {
+	tmp := t.TempDir()
+	skillsRoot := filepath.Join(tmp, ".claude", "skills")
+	// 故意以非字典序创建
+	for _, name := range []string{"zulu", "alpha", "mike", "charlie"} {
+		if err := os.MkdirAll(filepath.Join(skillsRoot, name), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(skillsRoot, name, "SKILL.md"), []byte("x"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	port := NewSkillInjectionPort()
+	expected := []string{"alpha", "charlie", "mike", "zulu"}
+	for i := 0; i < 3; i++ {
+		got := port.DetectNativeSkills(tmp)
+		if len(got) != 4 {
+			t.Fatalf("run %d: len=%d", i, len(got))
+		}
+		for j, want := range expected {
+			if got[j] != want {
+				t.Fatalf("run %d: got[%d]=%q want %q (full=%v)", i, j, got[j], want, got)
+			}
+		}
+	}
+}
