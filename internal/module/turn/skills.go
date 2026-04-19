@@ -1,9 +1,12 @@
 package turn
 
 import (
+	"context"
+	"path/filepath"
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
 type skillResolver struct{}
@@ -15,7 +18,7 @@ func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillR
 	seen := make(map[string]bool, len(explicit)+len(autoCandidates))
 
 	for _, ref := range explicit {
-		key := strings.ToLower(ref.Name)
+		key := skillDedupKey(ref)
 		if key == "" || seen[key] {
 			continue
 		}
@@ -23,7 +26,7 @@ func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillR
 		seen[key] = true
 	}
 	for _, matched := range r.autoMatch(prompt, autoCandidates, seen) {
-		key := strings.ToLower(matched.Name)
+		key := skillDedupKey(matched)
 		if key == "" || seen[key] {
 			continue
 		}
@@ -36,26 +39,33 @@ func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillR
 	return resolved
 }
 
+// normalizeSkillRefs 把多组 SkillRef 合并去重；P20.1 §4 Phase 5 起去重键升级
+// 为 lower(name)+"@"+version。同 (name, version) 视为同一引用，会合并 Prompt；
+// version 不同则保留为两条，避免 hash 已变的新版本被旧版本静默覆盖。
 func normalizeSkillRefs(groups ...[]dto.SkillRef) []dto.SkillRef {
 	total := 0
 	for _, refs := range groups {
 		total += len(refs)
 	}
 	resolved := make([]dto.SkillRef, 0, total)
-	indexByName := make(map[string]int, total)
+	indexByKey := make(map[string]int, total)
 	for _, refs := range groups {
 		for _, ref := range refs {
 			ref.Name = strings.TrimSpace(ref.Name)
+			ref.Version = strings.TrimSpace(ref.Version)
 			ref.Prompt = strings.TrimSpace(ref.Prompt)
 			if ref.Name == "" {
 				continue
 			}
-			key := strings.ToLower(ref.Name)
-			if idx, ok := indexByName[key]; ok {
+			key := skillDedupKey(ref)
+			if key == "" {
+				continue
+			}
+			if idx, ok := indexByKey[key]; ok {
 				resolved[idx].Prompt = mergePromptText(resolved[idx].Prompt, ref.Prompt)
 				continue
 			}
-			indexByName[key] = len(resolved)
+			indexByKey[key] = len(resolved)
 			resolved = append(resolved, ref)
 		}
 	}
@@ -65,6 +75,20 @@ func normalizeSkillRefs(groups ...[]dto.SkillRef) []dto.SkillRef {
 	return resolved
 }
 
+// skillDedupKey 构造 SkillResolver 的 lower(name)+"@"+version 去重键。
+//
+// P20.1 §4 Phase 5：把原来的纯 name 升级为 name@version，配合 expanded_state
+// 的 (name, kind, locator, hash) 工件键，让同一 skill 不同版本 / body / resource
+// 不再被错误折叠成单条。空 name 返回 ""，调用方应跳过；空 version 退化为
+// `name@`，等价于历史按 name 去重的语义，保证旧 payload 兼容。
+func skillDedupKey(ref dto.SkillRef) string {
+	name := strings.ToLower(strings.TrimSpace(ref.Name))
+	if name == "" {
+		return ""
+	}
+	return name + "@" + strings.TrimSpace(ref.Version)
+}
+
 func (r *skillResolver) autoMatch(prompt string, refs []dto.SkillRef, seen map[string]bool) []dto.SkillRef {
 	prompt = strings.ToLower(strings.TrimSpace(prompt))
 	if prompt == "" || len(refs) == 0 {
@@ -72,8 +96,13 @@ func (r *skillResolver) autoMatch(prompt string, refs []dto.SkillRef, seen map[s
 	}
 	matches := make([]dto.SkillRef, 0, len(refs))
 	for _, ref := range refs {
-		key := strings.ToLower(strings.TrimSpace(ref.Name))
-		if key == "" || seen[key] || !matchesSkillPrompt(prompt, key) {
+		name := strings.ToLower(strings.TrimSpace(ref.Name))
+		if name == "" {
+			continue
+		}
+		// seen 由 Resolve 传入，key 格式为 name@version（skillDedupKey）；
+		// autoMatch 需同格式查询，避免同 name 不同 version 被误认为已被显式选中。
+		if seen[skillDedupKey(ref)] || !matchesSkillPrompt(prompt, name) {
 			continue
 		}
 		matches = append(matches, ref)
@@ -91,6 +120,45 @@ func mergePromptText(prompt, extra string) string {
 	return prompt + "\n" + extra
 }
 
+// ApplyNativeSkillOverride 对命中 nativeNames 的 SkillRef 强制覆盖为
+// Mode=SkillModeNone + Source=SkillSourceNative。其他字段原样保留。
+//
+// P20.1 §4 Phase 7 + §0.5 实验 B 的核心退化策略：
+//   - Claude Code CLI 会自动加载 `.claude/skills/<name>/SKILL.md`、无 flag 可关
+//   - harness 若再注入同名 skill body 会造成双倍 token + 版本漂移
+//   - 对策：通过 SkillInjectionPort.DetectNativeSkills(cwd) 拿到原生名单，
+//     本函数将这些 skill 降为 Mode=None（不注入 body）+ Source=Native
+//     （提示下游 L1 清单标注来源为 “Claude native”）。
+//
+// nativeNames 为空或 refs 为空时原样返回。name 匹配大小写不敏感，
+// 经 trim。调用方应在 skillResolver.Resolve() 之后、写回 dto.TurnRequest
+// 前调用（service 层 Phase 8 fx 集成时接线）。
+func ApplyNativeSkillOverride(refs []dto.SkillRef, nativeNames []string) []dto.SkillRef {
+	if len(nativeNames) == 0 || len(refs) == 0 {
+		return refs
+	}
+	native := make(map[string]struct{}, len(nativeNames))
+	for _, n := range nativeNames {
+		normalized := strings.ToLower(strings.TrimSpace(n))
+		if normalized == "" {
+			continue
+		}
+		native[normalized] = struct{}{}
+	}
+	if len(native) == 0 {
+		return refs
+	}
+	out := make([]dto.SkillRef, len(refs))
+	for i, ref := range refs {
+		if _, hit := native[strings.ToLower(strings.TrimSpace(ref.Name))]; hit {
+			ref.Mode = dto.SkillModeNone
+			ref.Source = dto.SkillSourceNative
+		}
+		out[i] = ref
+	}
+	return out
+}
+
 func matchesSkillPrompt(prompt string, skillName string) bool {
 	if strings.Contains(prompt, "[skill:"+skillName+"]") {
 		return true
@@ -99,4 +167,132 @@ func matchesSkillPrompt(prompt string, skillName string) bool {
 		return true
 	}
 	return strings.Contains(prompt, skillName)
+}
+
+// hydrateSkillRefs p20.2 §5 step 2-3：给 PrepareTurn 收到的 manual skill
+// 补全 Prompt/Summary/Version。当 skillLookup 为 nil（optional fx 依赖未注入）
+// 或所有引用均已有正文/摘要/版本时，直接返回原列表，不做任何多余 I/O。
+func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef) []dto.SkillRef {
+	if s == nil || s.skillLookup == nil || len(refs) == 0 {
+		return refs
+	}
+	if !refsNeedHydration(refs) {
+		return refs
+	}
+	infos, err := s.skillLookup.ListSkills(ctx)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("turn skill hydrate: ListSkills failed", "error", err)
+		}
+		return refs
+	}
+	if len(infos) == 0 {
+		return refs
+	}
+	index := skillInfoIndex(infos)
+	out := make([]dto.SkillRef, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, s.applyHydration(ctx, ref, index))
+	}
+	return out
+}
+
+// refsNeedHydration 扫一遍判断是否有任何 skill 缺 Prompt/Summary/Version；
+// 全部已填充时直接省掉 ListSkills/ReadLocal 调用。
+func refsNeedHydration(refs []dto.SkillRef) bool {
+	for _, r := range refs {
+		if strings.TrimSpace(r.Name) == "" {
+			continue
+		}
+		if strings.TrimSpace(r.Prompt) == "" ||
+			strings.TrimSpace(r.Summary) == "" ||
+			strings.TrimSpace(r.Version) == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// skillInfoIndex 把 ListSkills 结果按 lower(name) 索引，空名跳过。
+func skillInfoIndex(infos []skillpkg.SkillInfo) map[string]skillpkg.SkillInfo {
+	index := make(map[string]skillpkg.SkillInfo, len(infos))
+	for _, info := range infos {
+		key := strings.ToLower(strings.TrimSpace(info.Name))
+		if key == "" {
+			continue
+		}
+		index[key] = info
+	}
+	return index
+}
+
+// applyHydration 对单个 SkillRef 执行字段补全。未命中 lookup 的 ref 原样
+// 返回；命中后按以下优先级填充空字段，旧值不覆写：
+//   - Summary 空 + SkillInfo.Summary 非空 → 拷回
+//   - Version 空 + SkillInfo.ContentHash 非空 → 前 12 位 hex
+//   - Prompt 空 → 试读 `<dir>/SKILL.md`，失败保留空串
+//   - Source == Unspecified → SkillSourceManual
+func (s *service) applyHydration(ctx context.Context, ref dto.SkillRef, index map[string]skillpkg.SkillInfo) dto.SkillRef {
+	name := strings.ToLower(strings.TrimSpace(ref.Name))
+	info, ok := index[name]
+	if !ok {
+		return ref
+	}
+	if strings.TrimSpace(ref.Summary) == "" && strings.TrimSpace(info.Summary) != "" {
+		ref.Summary = info.Summary
+	}
+	if strings.TrimSpace(ref.Version) == "" && info.ContentHash != "" {
+		ref.Version = shortSkillHash(info.ContentHash)
+	}
+	if strings.TrimSpace(ref.Prompt) == "" {
+		if body := s.readSkillBody(ctx, info.Dir); body != "" {
+			ref.Prompt = body
+		}
+	}
+	if ref.Source == dto.SkillSourceUnspecified {
+		ref.Source = dto.SkillSourceManual
+	}
+	return ref
+}
+
+// readSkillBody 通过 skill.Service.ReadLocal 读取 <dir>/SKILL.md 正文。
+// ReadLocal 返回 `map[string]any{"skill": map[string]any{"content":...}}`；
+// 失败、空结果、类型断言不中等情形均返回空串，不影响调用链。
+func (s *service) readSkillBody(ctx context.Context, dir string) string {
+	if s == nil || s.skillLookup == nil {
+		return ""
+	}
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return ""
+	}
+	target := filepath.Join(dir, "SKILL.md")
+	result, err := s.skillLookup.ReadLocal(ctx, target)
+	if err != nil || result == nil {
+		if err != nil && s.logger != nil {
+			s.logger.Debug("turn skill hydrate: ReadLocal failed", "path", target, "error", err)
+		}
+		return ""
+	}
+	outer, ok := result.(map[string]any)
+	if !ok {
+		return ""
+	}
+	inner, ok := outer["skill"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	body, _ := inner["content"].(string)
+	return strings.TrimSpace(body)
+}
+
+// shortSkillHash 取前 12 位 hex 作为 SkillRef.Version 的稳定版本标识。
+// 完整 sha256 太长，P20.1 §3.7 的 manifest cache key 也用短 hash；保持一致
+// 方便日后结合 skillRevision / approvalRevision 做统一的版本参考。
+func shortSkillHash(hash string) string {
+	hash = strings.TrimSpace(hash)
+	if len(hash) > 12 {
+		return hash[:12]
+	}
+	return hash
 }
