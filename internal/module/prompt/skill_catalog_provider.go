@@ -156,6 +156,9 @@ const skillCatalogMetaInstructions = "\n\n" +
 	"If a skill's body references resource files (e.g. under `references/` or\n" +
 	"`scripts/`), call `skill_read_resource(\"<name>\", \"<relative/path>\")`\n" +
 	"to fetch them on demand — do not use generic Read / Bash tools for that.\n\n" +
+	"Skills listed under \"Native (Claude CLI auto-loaded)\" do NOT need\n" +
+	"skill_expand_body — their body is already available to you; use `/<name>`\n" +
+	"or natural-language reference instead.\n\n" +
 	"Skills listed under \"Untrusted\" have their metadata hidden until approval;\n" +
 	"request approval via the UI before inspecting them."
 
