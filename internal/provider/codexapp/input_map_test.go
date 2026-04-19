@@ -29,9 +29,11 @@ func TestBuildTurnStartParams(t *testing.T) {
 	}
 
 	got := buildTurnStartParams("thread-1", req)
+	// P20.2 §4：name-list 与 block 同时出现；reviewer 没 body 也不会再被 silent drop。
+	skillText := "skills:\n- planner\n- reviewer\n\n[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]"
 	want := turnStartParams{
 		ThreadID:             "thread-1",
-		Input:                []turnInputItem{{Type: "text", Text: "[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]", Content: "[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]"}, {Type: "text", Text: "hello", Content: "hello"}},
+		Input:                []turnInputItem{{Type: "text", Text: skillText, Content: skillText}, {Type: "text", Text: "hello", Content: "hello"}},
 		SelectedSkills:       []string{"planner", "reviewer"},
 		ManualSkillSelection: true,
 		Model:                "gpt-5.4",
@@ -117,10 +119,12 @@ func TestBuildTurnSteerParams(t *testing.T) {
 	}
 
 	got := buildTurnSteerParams("thread-1", req)
+	// P20.2 §4：name-list 与 block 同时出现。
+	skillText := "skills:\n- planner\n- reviewer\n\n[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]"
 	want := map[string]any{
 		"threadId":             "thread-1",
 		"expectedTurnId":       "turn-1",
-		"input":                []turnInputItem{{Type: "text", Text: "[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]", Content: "[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]"}, {Type: "text", Text: "hello", Content: "hello"}},
+		"input":                []turnInputItem{{Type: "text", Text: skillText, Content: skillText}, {Type: "text", Text: "hello", Content: "hello"}},
 		"selectedSkills":       []string{"planner", "reviewer"},
 		"manualSkillSelection": true,
 	}
