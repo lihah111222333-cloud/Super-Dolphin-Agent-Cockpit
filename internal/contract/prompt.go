@@ -54,6 +54,14 @@ type BuildCtx struct {
 	ScratchpadDir                string
 	FRCConfig                    *FRCConfig
 	KeepCodingInstructions       *bool
+	// P20.4 launch skill wire：从 StartRequest 透传的创线期选中 skill。
+	// 上游仅在 AssembleStart 时填充；turn 路径将保持为空。
+	// SkillCatalogProvider 读到后可选：
+	//   - 空列表 + Force=false → 按原来的全量扫盘渲染
+	//   - 非空列表 + Force=false → 把命中的 skill 置顶 + 非命中的继续保留
+	//   - 非空列表 + Force=true  → 只渲染命中的 skill，其余隰藏
+	LaunchSkillNames  []string
+	ForceLaunchSkills bool
 }
 
 type ClaudeMdSource struct {
@@ -134,6 +142,10 @@ type StartInput struct {
 	ScratchpadDir                string
 	FRCConfig                    *FRCConfig
 	KeepCodingInstructions       *bool
+	// P20.4：契约从 dto.StartSessionRequest 透传的 launch skill 选择。
+	// thread.startSession 在构造 StartInput 时从 req.LaunchSkillNames / req.ForceLaunchSkills 映射。
+	LaunchSkillNames  []string
+	ForceLaunchSkills bool
 }
 
 type TurnInput struct {

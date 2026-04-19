@@ -117,6 +117,21 @@ func (p SkillCatalogProvider) Resolve(ctx context.Context, input SectionContext)
 		return nil, nil
 	}
 
+	// P20.4: launch-time 选中的 skill 名（经 StartRequest → StartInput → BuildCtx）。
+	// force=true 时 infos 先按白名单高选，其余隐藏；force=false 仅排序置顶。
+	// 空白名单（未走 p20.3 launch picker 的  会话）完全回落原有全量行为。
+	infos = applyLaunchSkillSelection(infos, input.BuildCtx.LaunchSkillNames, input.BuildCtx.ForceLaunchSkills)
+	if len(infos) == 0 {
+		return nil, nil
+	}
+
+	// P20.4: 应用 launch-time 选中的 skill（经 StartRequest → StartInput → BuildCtx）。
+	// 空白名单→完全回落原有全量行为；仅排序置顶（force=false）或只渲染白名单（force=true）。
+	infos = applyLaunchSkillSelection(infos, input.BuildCtx.LaunchSkillNames, input.BuildCtx.ForceLaunchSkills)
+	if len(infos) == 0 {
+		return nil, nil
+	}
+
 	// 收集 native skill 名
 	nativeNames := p.collectNativeNames(input)
 
@@ -282,6 +297,47 @@ func sortInfosByName(infos []skillpkg.SkillInfo) {
 	sort.SliceStable(infos, func(i, j int) bool {
 		return strings.ToLower(infos[i].Name) < strings.ToLower(infos[j].Name)
 	})
+}
+
+// applyLaunchSkillSelection 是 P20.4 的 pin/force 策略实现。
+//
+// 输入：scanSkills() 返回的 SkillInfo 列表 + BuildCtx 上的 launch 选中名单 + force 开关。
+// 名单名不区分大小写，infos 读到的 Name 是什么就保什么——同下游分组时的命名约束保持一致。
+//
+// 策略：
+//   - 空白名单 → 原样返回（全量渲染）
+//   - 非空 + force=false → 命中的 skill 置顶、非命中的保留，两段内部保持原顺序
+//   - 非空 + force=true → 只返回命中的 skill（精准白名单行为）
+//
+// 返回的是 **新切片**，不修改输入切片的元素顺序和内容。
+func applyLaunchSkillSelection(infos []skillpkg.SkillInfo, names []string, force bool) []skillpkg.SkillInfo {
+	selected := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		key := strings.ToLower(strings.TrimSpace(n))
+		if key == "" {
+			continue
+		}
+		selected[key] = struct{}{}
+	}
+	if len(selected) == 0 {
+		return infos
+	}
+	pinned := make([]skillpkg.SkillInfo, 0, len(selected))
+	rest := make([]skillpkg.SkillInfo, 0, len(infos))
+	for _, info := range infos {
+		key := strings.ToLower(strings.TrimSpace(info.Name))
+		if _, hit := selected[key]; hit {
+			pinned = append(pinned, info)
+			continue
+		}
+		if !force {
+			rest = append(rest, info)
+		}
+	}
+	out := make([]skillpkg.SkillInfo, 0, len(pinned)+len(rest))
+	out = append(out, pinned...)
+	out = append(out, rest...)
+	return out
 }
 
 // renderSkillCatalog 组装最终 Markdown 文本。预算超出时按 section 截断尾部。
