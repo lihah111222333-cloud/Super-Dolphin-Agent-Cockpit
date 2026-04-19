@@ -210,6 +210,77 @@ func TestSkillCatalogProvider_TokenBudgetTruncation(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// P20.1 Phase 9: 元指令
+// ============================================================================
+
+func TestSkillCatalogProvider_MetaInstructionsAppendedByDefault(t *testing.T) {
+	p := NewSkillCatalogProvider(fakeSkillLister{infos: []skillpkg.SkillInfo{
+		{Name: "foo", Description: "hi", Trust: skillpkg.TrustUser},
+	}}, nil, 0)
+	out, err := p.Resolve(context.Background(), baseCtx(""))
+	if err != nil || out == nil {
+		t.Fatalf("Resolve: err=%v out=%v", err, out)
+	}
+	text := *out
+	// P20.1 Phase 9 必需内容
+	if !strings.Contains(text, "## How to use skills") {
+		t.Fatalf("missing meta-instructions header: %q", text)
+	}
+	if !strings.Contains(text, `skill_expand_body("<name>")`) {
+		t.Fatalf("missing skill_expand_body hint: %q", text)
+	}
+	if !strings.Contains(text, `skill_read_resource("<name>", "<relative/path>")`) {
+		t.Fatalf("missing skill_read_resource hint: %q", text)
+	}
+	if !strings.Contains(text, "false-positive") {
+		t.Fatalf("should encourage false-positive over false-negative: %q", text)
+	}
+}
+
+func TestSkillCatalogProvider_MetaInstructionsDisabled(t *testing.T) {
+	p := NewSkillCatalogProviderWithOptions(
+		fakeSkillLister{infos: []skillpkg.SkillInfo{
+			{Name: "foo", Description: "hi", Trust: skillpkg.TrustUser},
+		}},
+		nil, 0,
+		SkillCatalogOptions{EmitMetaInstructions: false},
+	)
+	out, err := p.Resolve(context.Background(), baseCtx(""))
+	if err != nil || out == nil {
+		t.Fatalf("Resolve: err=%v out=%v", err, out)
+	}
+	text := *out
+	if strings.Contains(text, "## How to use skills") {
+		t.Fatalf("meta-instructions should NOT be present when disabled: %q", text)
+	}
+	// 仍然有主列表
+	if !strings.Contains(text, "### Core (trusted)") {
+		t.Fatalf("main catalog should still render: %q", text)
+	}
+}
+
+func TestSkillCatalogProvider_MetaInstructionsFallbackWhenTooLarge(t *testing.T) {
+	// 构造极紧预算 — 恰好能放下 manifest 主体 + fallback，但放不下完整元指令
+	p := NewSkillCatalogProvider(fakeSkillLister{infos: []skillpkg.SkillInfo{
+		{Name: "foo", Description: "d", Trust: skillpkg.TrustUser},
+	}}, nil, 350) // manifest 小，fallback 能放下，但完整元指令过大
+	out, err := p.Resolve(context.Background(), baseCtx(""))
+	if err != nil || out == nil {
+		t.Fatalf("Resolve: err=%v out=%v", err, out)
+	}
+	text := *out
+	if strings.Contains(text, "## How to use skills") {
+		t.Fatalf("full meta-instructions should NOT fit in tight budget: %q", text)
+	}
+	if !strings.Contains(text, "skill_expand_body") {
+		t.Fatalf("fallback should mention skill_expand_body: %q", text)
+	}
+	if !strings.Contains(text, "skill_read_resource") {
+		t.Fatalf("fallback should mention skill_read_resource: %q", text)
+	}
+}
+
 func TestSkillCatalogProvider_SectionNameMatchesContract(t *testing.T) {
 	p := NewSkillCatalogProvider(nil, nil, 0)
 	if p.SectionName() != DynamicSectionSkillCatalog {
