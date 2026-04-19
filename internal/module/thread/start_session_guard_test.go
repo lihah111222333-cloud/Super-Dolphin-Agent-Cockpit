@@ -256,6 +256,74 @@ func TestNewThreadHandlersDispatchStartRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+// TestServiceStartForwardsLaunchSkills p20.3 §4.3：StartRequest.LaunchSkillNames /
+// ForceLaunchSkills 必须原样进入 dto.StartSessionRequest，且不覆写其它字段。
+func TestServiceStartForwardsLaunchSkills(t *testing.T) {
+	t.Parallel()
+
+	var got dto.StartSessionRequest
+	threads := &stubThreadStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+			got = req
+			session := &stubSession{threadID: "provider-thread-launch-skills"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, orch, nil).(*service)
+
+	if _, err := svc.Start(context.Background(), StartRequest{
+		AgentID:           "agent-launch-skills",
+		Provider:          "codex",
+		LaunchSkillNames:  []string{"planner", "reviewer"},
+		ForceLaunchSkills: true,
+	}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if len(got.LaunchSkillNames) != 2 || got.LaunchSkillNames[0] != "planner" || got.LaunchSkillNames[1] != "reviewer" {
+		t.Fatalf("LaunchSkillNames = %#v", got.LaunchSkillNames)
+	}
+	if !got.ForceLaunchSkills {
+		t.Fatalf("ForceLaunchSkills should be true")
+	}
+}
+
+// TestServiceStartLeavesLaunchSkillsEmptyByDefault p20.3 §4.3：旧 caller 不填
+// LaunchSkillNames/ForceLaunchSkills 时，DTO 必须保持零值，不下发任何 skill 字段。
+func TestServiceStartLeavesLaunchSkillsEmptyByDefault(t *testing.T) {
+	t.Parallel()
+
+	var got dto.StartSessionRequest
+	threads := &stubThreadStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+			got = req
+			session := &stubSession{threadID: "provider-thread-legacy"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, orch, nil).(*service)
+
+	if _, err := svc.Start(context.Background(), StartRequest{
+		AgentID:  "agent-legacy",
+		Provider: "codex",
+	}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if got.LaunchSkillNames != nil {
+		t.Fatalf("LaunchSkillNames should be nil by default, got %#v", got.LaunchSkillNames)
+	}
+	if got.ForceLaunchSkills {
+		t.Fatalf("ForceLaunchSkills should default false")
+	}
+}
+
 type startOnlySessionStarter struct {
 	onStart func(context.Context, dto.StartSessionRequest) (contract.Session, error)
 }

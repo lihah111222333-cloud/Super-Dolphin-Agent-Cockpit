@@ -42,6 +42,11 @@ type startParams struct {
 	Name                  string          `json:"name,omitempty"`
 	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
 	Prompt string `json:"-"`
+	// SelectedSkills / ManualSkillSelection p20.3 §4.3：launch 时 UI 已知的 skill 载荷。
+	// 主使用 snake_case；`fillLegacyFields` 额外读 camelCase 别名（与
+	// send path `selectedSkills` / `manualSkillSelection` 对齐）。
+	SelectedSkills       []string `json:"selected_skills,omitempty"`
+	ManualSkillSelection bool     `json:"manual_skill_selection,omitempty"`
 }
 
 func (p *startParams) UnmarshalJSON(data []byte) error {
@@ -62,7 +67,35 @@ func (p *startParams) fillLegacyFields(data []byte) error {
 	if err := p.fillLegacyStringFields(payload); err != nil {
 		return err
 	}
-	return p.fillLegacyPromptField(payload)
+	if err := p.fillLegacyPromptField(payload); err != nil {
+		return err
+	}
+	return p.fillLegacyLaunchSkillFields(payload)
+}
+
+// fillLegacyLaunchSkillFields p20.3 §4.3：容忍 camelCase `selectedSkills` /
+// `manualSkillSelection` 别名。主 tag 仍为 snake_case，前端 send path 早已发
+// camelCase，launch payload 对齐后不会额外介绍接口表面。
+func (p *startParams) fillLegacyLaunchSkillFields(payload map[string]json.RawMessage) error {
+	if len(p.SelectedSkills) == 0 {
+		if raw, ok := payload["selectedSkills"]; ok {
+			var names []string
+			if err := json.Unmarshal(raw, &names); err != nil {
+				return fmt.Errorf("thread/start: selectedSkills must be a string array")
+			}
+			p.SelectedSkills = names
+		}
+	}
+	if !p.ManualSkillSelection {
+		if raw, ok := payload["manualSkillSelection"]; ok {
+			var flag bool
+			if err := json.Unmarshal(raw, &flag); err != nil {
+				return fmt.Errorf("thread/start: manualSkillSelection must be a boolean")
+			}
+			p.ManualSkillSelection = flag
+		}
+	}
+	return nil
 }
 
 func (p *startParams) fillLegacyStringFields(payload map[string]json.RawMessage) error {

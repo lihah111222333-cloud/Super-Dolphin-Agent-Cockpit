@@ -293,7 +293,18 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     const pref = await callAPI('ui/preferences/get', ctx.withPreferenceScope({ key: 'settings.provider.active' }));
     if (typeof pref === 'string' && pref.trim()) modelProvider = pref.trim();
   } catch {}
-  const res = await callAPI('thread/start', { cwd, modelProvider });
+  // p20.3 §4.3：launch payload 可携带 UI 已知的 skill 选择。空数组 / false 不下发，
+  // 完全对旧 payload 做 additive 兼容；名称与 send path 对齐（selectedSkills /
+  // manualSkillSelection）。backend 的 rpc_types.go 同时兼容 snake_case 别名。
+  const payload = { cwd, modelProvider };
+  const rawSelected = Array.isArray(options?.selectedSkills) ? options.selectedSkills : [];
+  const selectedSkills = rawSelected
+    .map((name) => (typeof name === 'string' ? name.trim() : ''))
+    .filter((name) => name !== '');
+  const manualSkillSelection = options?.manualSkillSelection === true;
+  if (selectedSkills.length > 0) payload.selectedSkills = selectedSkills;
+  if (manualSkillSelection) payload.manualSkillSelection = true;
+  const res = await callAPI('thread/start', payload);
   const id = res?.thread?.id;
   if (!id) return '';
   if (!ctx.state.threads.some((t) => t.id === id)) ctx.state.threads = [...ctx.state.threads, { id, name: id, state: 'idle' }];

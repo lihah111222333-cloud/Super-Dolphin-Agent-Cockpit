@@ -111,6 +111,10 @@ func newStartHandler(svc Service) handler.Func {
 			Effort:                p.Effort,
 			Personality:           p.Personality,
 			Config:                decodeConfigMap(p.Config),
+			// p20.3 §4.3：public payload 用 `selectedSkills` / `manualSkillSelection`，
+			// 内部合同归一化为 `LaunchSkillNames` / `ForceLaunchSkills`。
+			LaunchSkillNames:  append([]string(nil), p.SelectedSkills...),
+			ForceLaunchSkills: p.ManualSkillSelection,
 		})
 		if err != nil {
 			return nil, err
