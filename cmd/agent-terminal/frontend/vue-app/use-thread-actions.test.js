@@ -11,11 +11,13 @@ vi.mock('./services/api.js', () => ({
 }));
 
 vi.mock('./services/log.js', () => ({
+  logDebug: vi.fn(),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
 }));
 
 import { useThreadActions } from './composables/useThreadActions.js';
+import { resolveLaunchSkillSelectionFeature } from './composables/useLaunchSkillSelection.js';
 
 function createThreadActions(overrides = {}) {
   const threadStore = {
@@ -64,6 +66,12 @@ function createThreadActions(overrides = {}) {
       selectedSkills: [],
       manualSkillSelection: false,
     }),
+    resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
+      enabled: false,
+      selectedSkills: [],
+      manualSkillSelection: false,
+    }),
+    clearLaunchSkillSelection: vi.fn(),
     resetSelectedComposerSkills: vi.fn(),
     showArchivedThreadList: ref(false),
     compacting: ref(false),
@@ -85,12 +93,51 @@ beforeEach(() => {
 });
 
 describe('useThreadActions', () => {
-  it('launches a thread and switches the selection to the new id', async () => {
-    const vm = createThreadActions();
+  it('feature precedence resolves launchSkillSelection from thread, then project, then false', () => {
+    expect(resolveLaunchSkillSelectionFeature({}, { launchSkillSelection: true })).toBe(true);
+    expect(resolveLaunchSkillSelectionFeature({ launchSkillSelection: undefined }, { launchSkillSelection: true })).toBe(true);
+    expect(resolveLaunchSkillSelectionFeature({ launchSkillSelection: false }, { launchSkillSelection: true })).toBe(false);
+    expect(resolveLaunchSkillSelectionFeature({}, {})).toBe(false);
+  });
+
+  it('launchOne omits launch skills when launch selection is disabled', async () => {
+    const vm = createThreadActions({
+      deps: {
+        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
+          enabled: false,
+          selectedSkills: ['skillA'],
+          manualSkillSelection: true,
+        }),
+      },
+    });
 
     await vm.launchOne();
 
+    expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('');
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat' });
+    expect(vm.deps.selectedThreadId.value).toBe('thread-started');
+  });
+
+  it('launchOne forwards launch skills into startThread payload when enabled', async () => {
+    const vm = createThreadActions({
+      deps: {
+        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
+          enabled: true,
+          selectedSkills: ['skillA', ' skillB '],
+          manualSkillSelection: true,
+        }),
+      },
+    });
+
+    await vm.launchOne();
+
+    expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('');
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
+      focusMode: 'chat',
+      selectedSkills: ['skillA', 'skillB'],
+      manualSkillSelection: true,
+    });
+    expect(vm.deps.clearLaunchSkillSelection).toHaveBeenCalledTimes(1);
     expect(vm.deps.selectedThreadId.value).toBe('thread-started');
   });
 
@@ -176,7 +223,69 @@ describe('useThreadActions', () => {
       [],
       expect.objectContaining({ cwd: '/repo' }),
     );
+    expect(vm.deps.resolveComposerSkillSelectionForSend).not.toHaveBeenCalled();
     expect(vm.deps.scheduleScrollToBottom).toHaveBeenCalledWith(true);
+  });
+
+  it('send: resolves launch skill state before startThread and reuses it for launch + send payloads', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'boot launch',
+      attachments: [{ path: '/tmp/a.txt' }],
+      deps: {
+        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
+          enabled: true,
+          selectedSkills: ['skillA', ' skillB '],
+          manualSkillSelection: true,
+        }),
+      },
+    });
+
+    await vm.send();
+
+    expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('boot launch');
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
+      focusMode: 'chat',
+      selectedSkills: ['skillA', 'skillB'],
+      manualSkillSelection: true,
+    });
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-started',
+      'boot launch',
+      [{ path: '/tmp/a.txt' }],
+      {
+        selectedSkills: ['skillA', 'skillB'],
+        manualSkillSelection: true,
+        cwd: '/repo',
+      },
+    );
+    expect(vm.deps.resolveComposerSkillSelectionForSend).not.toHaveBeenCalled();
+    expect(vm.deps.clearLaunchSkillSelection).toHaveBeenCalledTimes(1);
+    expect(vm.deps.resolveLaunchSkillSelectionForStart.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.startThread.mock.invocationCallOrder[0]);
+    expect(vm.threadStore.startThread.mock.invocationCallOrder[0]).toBeLessThan(vm.deps.clearLaunchSkillSelection.mock.invocationCallOrder[0]);
+    expect(vm.deps.clearLaunchSkillSelection.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.sendMessage.mock.invocationCallOrder[0]);
+  });
+
+  it('send: keeps launch skill state when startThread fails', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'boot launch',
+      threadStore: {
+        startThread: vi.fn().mockResolvedValue(''),
+      },
+      deps: {
+        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
+          enabled: true,
+          selectedSkills: ['skillA'],
+          manualSkillSelection: false,
+        }),
+      },
+    });
+
+    await vm.send();
+
+    expect(vm.deps.clearLaunchSkillSelection).not.toHaveBeenCalled();
+    expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
   });
 
   it('send: sends on existing thread without starting a new one', async () => {

@@ -85,6 +85,38 @@ function setCmdCardColsValue(cmdCardCols, value) {
   cmdCardCols.value = value;
 }
 
+const EMPTY_SKILL_SELECTION = Object.freeze({
+  enabled: false,
+  selectedSkills: [],
+  manualSkillSelection: false,
+});
+
+function normalizeSelectedSkillNames(rawSelectedSkills) {
+  return Array.isArray(rawSelectedSkills)
+    ? rawSelectedSkills.map((item) => (item || '').toString().trim()).filter(Boolean)
+    : [];
+}
+
+async function resolveLaunchStartPayload(text, focusMode, resolveLaunchSkillSelectionForStart) {
+  const rawSelection = typeof resolveLaunchSkillSelectionForStart === 'function'
+    ? await resolveLaunchSkillSelectionForStart(text)
+    : EMPTY_SKILL_SELECTION;
+  const selectedSkills = normalizeSelectedSkillNames(rawSelection?.selectedSkills);
+  const manualSkillSelection = rawSelection?.manualSkillSelection === true;
+  const enabled = rawSelection?.enabled === true;
+  const startOptions = { focusMode };
+  if (enabled && (selectedSkills.length > 0 || manualSkillSelection)) {
+    startOptions.selectedSkills = selectedSkills;
+    startOptions.manualSkillSelection = manualSkillSelection;
+  }
+  return {
+    enabled,
+    selectedSkills,
+    manualSkillSelection,
+    startOptions,
+  };
+}
+
 async function performSend({
   selectedThreadId,
   composer,
@@ -92,6 +124,8 @@ async function performSend({
   threadStore,
   projectStore,
   resolveComposerSkillSelectionForSend,
+  resolveLaunchSkillSelectionForStart,
+  clearLaunchSkillSelection,
   resetSelectedComposerSkills,
   scheduleScrollToBottom,
 }) {
@@ -100,18 +134,21 @@ async function performSend({
   const attachments = [...composer.state.attachments];
   if (!text.trim() && attachments.length === 0) return;
 
+  let skillSelection = EMPTY_SKILL_SELECTION;
   if (!threadId) {
-    threadId = await threadStore.startThread(projectStore?.state?.active || '.', {
-      focusMode: modeKey.value,
-    });
+    skillSelection = await resolveLaunchStartPayload(text, modeKey.value, resolveLaunchSkillSelectionForStart);
+    threadId = await threadStore.startThread(projectStore?.state?.active || '.', skillSelection.startOptions);
     if (!threadId) return;
     selectedThreadId.value = threadId;
+    if (typeof clearLaunchSkillSelection === 'function') {
+      clearLaunchSkillSelection();
+    }
+  } else {
+    skillSelection = await resolveComposerSkillSelectionForSend(threadId, text);
   }
 
-  const {
-    selectedSkills,
-    manualSkillSelection,
-  } = await resolveComposerSkillSelectionForSend(threadId, text);
+  const selectedSkills = normalizeSelectedSkillNames(skillSelection?.selectedSkills);
+  const manualSkillSelection = skillSelection?.manualSkillSelection === true;
 
   const savedText = text;
   const savedAttachments = attachments;
@@ -151,37 +188,37 @@ export function useThreadActions(props, deps) {
     beginInlineRename,
     scheduleScrollToBottom,
     resolveComposerSkillSelectionForSend,
+    resolveLaunchSkillSelectionForStart,
+    clearLaunchSkillSelection,
     resetSelectedComposerSkills,
     showArchivedThreadList,
   } = deps;
 
   const recoveringSelected = ref(false);
 
-  function launchOne() {
-    return props.threadStore.startThread(props.projectStore.state.active || '.', {
-      focusMode: modeKey.value,
-    }).then((id) => {
-      if (id) {
-        selectedThreadId.value = id;
-      }
+  const launchOne = () => resolveLaunchStartPayload(composer?.state?.text || '', modeKey.value, resolveLaunchSkillSelectionForStart)
+    .then(({ startOptions }) => props.threadStore.startThread(props.projectStore.state.active || '.', startOptions))
+    .then((id) => {
+      if (!id) return;
+      if (typeof clearLaunchSkillSelection === 'function') clearLaunchSkillSelection();
+      selectedThreadId.value = id;
     });
-  }
 
   const getThreadConfig = (threadId) => getThreadConfigFromStore(props.threadStore, threadId);
   const setThreadConfig = (threadId, config) => setThreadConfigFromStore(props.threadStore, threadId, config);
 
-  function send() {
-    return performSend({
-      selectedThreadId,
-      composer,
-      modeKey,
-      threadStore: props.threadStore,
-      projectStore: props.projectStore,
-      resolveComposerSkillSelectionForSend,
-      resetSelectedComposerSkills,
-      scheduleScrollToBottom,
-    });
-  }
+  const send = () => performSend({
+    selectedThreadId,
+    composer,
+    modeKey,
+    threadStore: props.threadStore,
+    projectStore: props.projectStore,
+    resolveComposerSkillSelectionForSend,
+    resolveLaunchSkillSelectionForStart,
+    clearLaunchSkillSelection,
+    resetSelectedComposerSkills,
+    scheduleScrollToBottom,
+  });
 
   async function interruptCurrent(control) {
     const threadId = (control?.threadId || selectedThreadId.value || '').toString();

@@ -303,7 +303,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     .filter((name) => name !== '');
   const manualSkillSelection = options?.manualSkillSelection === true;
   if (selectedSkills.length > 0) payload.selectedSkills = selectedSkills;
-  if (manualSkillSelection) payload.manualSkillSelection = true;
+  if (manualSkillSelection || selectedSkills.length > 0) payload.manualSkillSelection = manualSkillSelection;
   const res = await callAPI('thread/start', payload);
   const id = res?.thread?.id;
   if (!id) return '';

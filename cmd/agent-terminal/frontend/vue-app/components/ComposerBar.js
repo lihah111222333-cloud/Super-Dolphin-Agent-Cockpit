@@ -13,6 +13,7 @@ export const ComposerBar = {
     composer: { type: Object, required: true },
     disabled: { type: Boolean, default: false },
     threadId: { type: String, default: '' },
+    launchSkillSelectionEnabled: { type: Boolean, default: false },
     interruptible: { type: Boolean, default: false },
     compacting: { type: Boolean, default: false },
     canCompact: { type: Boolean, default: true },
@@ -73,9 +74,13 @@ export const ComposerBar = {
       return props.composer.canSend.value;
     }
 
-
-
-
+    const showLegacySkillSelector = computed(() => {
+      const hasThreadId = Boolean((props.threadId || '').toString().trim());
+      if (!hasThreadId && props.launchSkillSelectionEnabled) {
+        return false;
+      }
+      return true;
+    });
 
     const interrupt = useComposerInterrupt(props, emit, { hasReadyInput, onSend });
     const { pauseAcknowledged, resetInterruptState } = interrupt;
@@ -249,6 +254,7 @@ export const ComposerBar = {
       compactResultToneClass,
       onAttach,
       onRemoveAttachment,
+      showLegacySkillSelector,
       skillMatchClass,
       skillMatchReason,
       skillMatchKey,
@@ -278,7 +284,7 @@ export const ComposerBar = {
     >
       <div v-if="compacting" class="agent-loading-bar"></div>
       <div v-if="dropActive" class="composer-drop-hint" aria-live="polite">松开即可添加附件</div>
-      <div class="composer-skill-selector" :class="{ 'is-expanded': skillMatches.length > 8 }" role="status" aria-live="polite" data-testid="composer-skill-selector">
+      <div v-if="showLegacySkillSelector" class="composer-skill-selector" :class="{ 'is-expanded': skillMatches.length > 8 }" role="status" aria-live="polite" data-testid="composer-skill-selector">
         <div class="composer-skill-selector-head">
           <span class="composer-skill-selector-title" :class="{ 'loading-shimmer': skillMatchesLoading }">
             {{ skillMatchesLoading ? '技能匹配中…' : ('技能选择 ' + selectedSkillNames.length + '/' + skillMatches.length) }}

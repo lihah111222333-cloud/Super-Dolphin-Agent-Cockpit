@@ -126,11 +126,24 @@ export const template = `
             <div class="workspace-bottom-row" :class="{ 'is-cmd': isCmd }" :style="activityPanelRowStyle">
               <div class="chat-composer-shell" :class="{ 'for-chat': !isCmd }" :style="chatComposerShellStyle">
                 <div v-if="!isCmd" ref="presenceAnchorRef" class="chat-status-presence-anchor"></div>
+                <LaunchSkillPicker
+                  v-if="launchSkillSelectionEnabled && !selectedThreadId"
+                  :enabled="launchSkillSelectionEnabled"
+                  :skills="launchSkillPickerSkills"
+                  :matches="launchSkillMatches"
+                  :selected-skill-names="launchSelectedSkillNames"
+                  :loading="launchSkillSelectionLoading"
+                  @toggle-skill="toggleLaunchSelectedSkill"
+                  @select-all="selectAllLaunchSuggestedSkills"
+                  @clear="clearLaunchSelectedSkills"
+                  @refresh="refreshLaunchSkillSelection"
+                />
                 <ComposerBar
                   ref="composerBarRef"
                   :is-cmd="isCmd"
                   :composer="composer"
                   :thread-id="selectedThreadId"
+                  :launch-skill-selection-enabled="launchSkillSelectionEnabled"
                   :interruptible="canInterrupt"
                   :compacting="compacting"
                   :can-compact="canCompact"
