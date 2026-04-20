@@ -40,23 +40,49 @@ func (s *service) ListSkills(context.Context) ([]SkillInfo, error) {
 	return skills, nil
 }
 
+type skillExpandPrepared struct {
+	record    skillRecord
+	result    skillExpandResult
+	cacheable bool
+}
+
 func (s *service) Expand(_ context.Context, p skillExpandParams) (skillExpandResult, error) {
-	record, err := s.resolveSkillRecordByName(p.Name)
+	prepared, err := s.prepareSkillExpand(p)
 	if err != nil {
 		return skillExpandResult{}, err
 	}
+	return prepared.result, nil
+}
+
+func (s *service) prepareSkillExpand(p skillExpandParams) (skillExpandPrepared, error) {
+	record, err := s.resolveSkillRecordByName(p.Name)
+	if err != nil {
+		return skillExpandPrepared{}, err
+	}
 	maxBytes, err := normalizeSkillExpandMaxBytes(p.MaxBytes)
 	if err != nil {
-		return skillExpandResult{}, err
+		return skillExpandPrepared{}, err
 	}
 	section := strings.TrimSpace(p.Section)
 	switch {
 	case section == "":
-		return s.expandSkillFile(record, maxBytes)
+		result, err := s.expandSkillFile(record, maxBytes)
+		if err != nil {
+			return skillExpandPrepared{}, err
+		}
+		return skillExpandPrepared{record: record, result: result, cacheable: true}, nil
 	case strings.HasPrefix(section, "#"):
-		return s.expandSkillSection(record, section, maxBytes)
+		result, err := s.expandSkillSection(record, section, maxBytes)
+		if err != nil {
+			return skillExpandPrepared{}, err
+		}
+		return skillExpandPrepared{record: record, result: result}, nil
 	default:
-		return s.expandSkillResource(record, section, maxBytes)
+		result, err := s.expandSkillResource(record, section, maxBytes)
+		if err != nil {
+			return skillExpandPrepared{}, err
+		}
+		return skillExpandPrepared{record: record, result: result}, nil
 	}
 }
 

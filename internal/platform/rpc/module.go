@@ -23,11 +23,59 @@ var Module = fx.Module("rpc",
 		NewCapabilityResolver,
 		provideWSRoute,
 		func(m *ApprovalManager) contract.ApprovalResponder { return m },
+		func(m *ApprovalManager, bridge *PushBridge, server *Server) contract.ApprovalRequester {
+			return approvalRequester{
+				manager: m,
+				bridge:  bridge,
+				server:  server,
+			}
+		},
 	),
 	fx.Invoke(registerAllHandlers),
 	fx.Invoke(bindEventBridge),
 	fx.Invoke(bindApprovalLifecycle),
 )
+
+type approvalRequester struct {
+	manager *ApprovalManager
+	bridge  *PushBridge
+	server  *Server
+}
+
+var _ contract.ApprovalRequester = approvalRequester{}
+
+func (r approvalRequester) RequestApproval(ctx context.Context, req contract.ApprovalRequest) (contract.ApprovalDecision, error) {
+	if r.manager == nil {
+		return contract.ApprovalDecision{}, ErrInvalidState("approval manager is nil")
+	}
+	return r.manager.RequestApproval(ctx, r.bridge, r.activeServer(), ApprovalRequest{
+		CallID:       req.CallID,
+		ApprovalID:   req.ApprovalID,
+		ToolName:     req.ToolName,
+		AgentID:      req.AgentID,
+		ThreadID:     req.ThreadID,
+		TurnID:       req.TurnID,
+		Reason:       req.Reason,
+		Kind:         req.Kind,
+		SourceMethod: req.SourceMethod,
+		Payload:      req.Payload,
+	})
+}
+
+func (r approvalRequester) activeServer() *jrpc2.Server {
+	if r.server == nil {
+		return nil
+	}
+	for _, current := range r.server.snapshotActive() {
+		if r.server.PeerKind(current) == dto.PeerKindUI {
+			return current
+		}
+	}
+	for _, current := range r.server.snapshotActive() {
+		return current
+	}
+	return nil
+}
 
 type Params struct {
 	fx.In

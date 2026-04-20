@@ -8,6 +8,7 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -45,12 +46,21 @@ func skillRPCError(err error) error {
 		return rpc.ErrNotFound(err.Error())
 	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, errInvalidSkillExpandParam):
 		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
+	case errors.Is(err, errSkillApprovalDenied), errors.Is(err, errSkillApprovalRequesterUnavailable), errors.Is(err, errSkillApprovalProjectCacheMissing):
+		return jrpc2.Errorf(jrpc2.InternalError, "%s", err.Error())
 	default:
 		return err
 	}
 }
 
-func NewSkillHandlers(svc Service) rpc.HandlerMapResult {
+func NewSkillHandlers(svc Service, requester contract.ApprovalRequester) rpc.HandlerMapResult {
+	return newSkillHandlers(svc, requester)
+}
+
+func newSkillHandlers(svc Service, requester contract.ApprovalRequester) rpc.HandlerMapResult {
+	if impl, ok := svc.(*service); ok {
+		impl.approvalRequester = requester
+	}
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"command/exec": rpc.StrictHandler(func(ctx context.Context, p execParams) (any, error) {
 			return svc.ExecCommand(ctx, p.Command, p.Args, p.CWD, p.Env)
@@ -63,7 +73,7 @@ func NewSkillHandlers(svc Service) rpc.HandlerMapResult {
 			return skillListPayload(list), nil
 		}),
 		"skill/expand": rpc.StrictHandler(func(ctx context.Context, p skillExpandParams) (skillExpandResult, error) {
-			result, err := svc.Expand(ctx, p)
+			result, err := expandSkillWithApproval(ctx, svc, p)
 			if err != nil {
 				return skillExpandResult{}, skillRPCError(err)
 			}
@@ -114,4 +124,11 @@ func NewSkillHandlers(svc Service) rpc.HandlerMapResult {
 			return svc.ReadResource(ctx, p)
 		}),
 	}}
+}
+
+func expandSkillWithApproval(ctx context.Context, svc Service, p skillExpandParams) (skillExpandResult, error) {
+	if impl, ok := svc.(*service); ok {
+		return impl.expandWithApproval(ctx, p)
+	}
+	return svc.Expand(ctx, p)
 }

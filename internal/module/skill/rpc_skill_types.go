@@ -75,9 +75,15 @@ type skillListResult struct {
 }
 
 type skillExpandParams struct {
-	Name     string `json:"name"`
-	Section  string `json:"section,omitempty"`
-	MaxBytes int64  `json:"max_bytes,omitempty"`
+	Name          string `json:"name"`
+	Section       string `json:"section,omitempty"`
+	MaxBytes      int64  `json:"max_bytes,omitempty"`
+	ApprovalScope string `json:"approval_scope,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+	AgentID       string `json:"agentId,omitempty"`
+	ThreadID      string `json:"threadId,omitempty"`
+	SessionID     string `json:"sessionId,omitempty"`
+	TurnID        string `json:"turnId,omitempty"`
 }
 
 type skillExpandResult struct {
