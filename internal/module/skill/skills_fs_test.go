@@ -2,11 +2,14 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -162,6 +165,90 @@ func TestListSkillsMergesProjectAndSystemRoots(t *testing.T) {
 	}
 	if !names["from-system"] || !names["from-project"] {
 		t.Fatalf("ListSkills() names = %#v, want both roots covered", names)
+	}
+}
+
+func TestExpandReturnsNotFoundForMissingSkill(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newExpandTestService(t)
+	_, err := svc.Expand(context.Background(), skillExpandParams{Name: "ghost"})
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Expand() error = %v, want os.ErrNotExist", err)
+	}
+	if err == nil || err.Error() != "skill not found: ghost" {
+		t.Fatalf("Expand() error text = %v, want skill not found", err)
+	}
+}
+
+func TestExpandRejectsPathEscapeSection(t *testing.T) {
+	t.Parallel()
+
+	svc, root := newExpandTestService(t)
+	writeExpandTestSkill(t, root, "demo", "---\nname: demo\n---\nbody")
+
+	_, err := svc.Expand(context.Background(), skillExpandParams{Name: "demo", Section: "../escape"})
+	if !errors.Is(err, errInvalidSkillExpandParam) {
+		t.Fatalf("Expand() error = %v, want invalid params", err)
+	}
+}
+
+func TestExpandFullSkillContentHashUsesPreTruncationBytes(t *testing.T) {
+	t.Parallel()
+
+	svc, root := newExpandTestService(t)
+	content := "---\nname: demo\nsummary: short\n---\n## Usage\nhello world"
+	path := writeExpandTestSkill(t, root, "demo", content)
+
+	res, err := svc.Expand(context.Background(), skillExpandParams{Name: "demo", MaxBytes: 10})
+	if err != nil {
+		t.Fatalf("Expand() error = %v", err)
+	}
+	if res.Path != filepath.Join(path, skillMainFile) {
+		t.Fatalf("Expand() path = %q", res.Path)
+	}
+	if res.Section != "" {
+		t.Fatalf("Expand() section = %q, want empty", res.Section)
+	}
+	if !res.Truncated || res.Content != content[:10] {
+		t.Fatalf("Expand() truncation = (%v, %q)", res.Truncated, res.Content)
+	}
+	if res.TotalBytes != int64(len(content)) {
+		t.Fatalf("Expand() total_bytes = %d, want %d", res.TotalBytes, len(content))
+	}
+	wantHash := sha256.Sum256([]byte(content))
+	if res.ContentHash != hex.EncodeToString(wantHash[:]) {
+		t.Fatalf("Expand() content_hash = %q", res.ContentHash)
+	}
+}
+
+func TestExpandMarkdownSectionTruncatesAndHashesSelection(t *testing.T) {
+	t.Parallel()
+
+	svc, root := newExpandTestService(t)
+	body := "---\nname: demo\nsummary: short\n---\n## Intro\nhello\n\n### Details\n" + strings.Repeat("x", 32) + "\n\n## Done\nbye"
+	path := writeExpandTestSkill(t, root, "demo", body)
+	selected := "### Details\n" + strings.Repeat("x", 32)
+
+	res, err := svc.Expand(context.Background(), skillExpandParams{Name: "demo", Section: "### Details", MaxBytes: 12})
+	if err != nil {
+		t.Fatalf("Expand() error = %v", err)
+	}
+	if res.Path != filepath.Join(path, skillMainFile) {
+		t.Fatalf("Expand() path = %q", res.Path)
+	}
+	if res.Section != "### Details" {
+		t.Fatalf("Expand() section = %q", res.Section)
+	}
+	if !res.Truncated || res.Content != selected[:12] {
+		t.Fatalf("Expand() truncation = (%v, %q)", res.Truncated, res.Content)
+	}
+	if res.TotalBytes != int64(len(selected)) {
+		t.Fatalf("Expand() total_bytes = %d, want %d", res.TotalBytes, len(selected))
+	}
+	wantHash := sha256.Sum256([]byte(selected))
+	if res.ContentHash != hex.EncodeToString(wantHash[:]) {
+		t.Fatalf("Expand() content_hash = %q", res.ContentHash)
 	}
 }
 

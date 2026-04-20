@@ -59,6 +59,39 @@ type skillMatchPreviewParams struct {
 	Input    []UserInput `json:"input,omitempty"`
 }
 
+type skillListParams struct{}
+
+type skillListItem struct {
+	Name                   string     `json:"name"`
+	Summary                string     `json:"summary"`
+	Description            string     `json:"description"`
+	Trust                  TrustScope `json:"trust"`
+	ContentHash            string     `json:"content_hash"`
+	DisableModelInvocation bool       `json:"disable_model_invocation"`
+}
+
+type skillListResult struct {
+	Skills []skillListItem `json:"skills"`
+}
+
+type skillExpandParams struct {
+	Name     string `json:"name"`
+	Section  string `json:"section,omitempty"`
+	MaxBytes int64  `json:"max_bytes,omitempty"`
+}
+
+type skillExpandResult struct {
+	Name        string     `json:"name"`
+	Section     string     `json:"section"`
+	Path        string     `json:"path"`
+	Summary     string     `json:"summary"`
+	Content     string     `json:"content"`
+	Truncated   bool       `json:"truncated"`
+	TotalBytes  int64      `json:"total_bytes"`
+	ContentHash string     `json:"content_hash"`
+	Trust       TrustScope `json:"trust"`
+}
+
 // ============================================================================
 // P20.1 Phase 6 工具拆分：skill_expand_body / skill_read_resource
 // ============================================================================
