@@ -183,6 +183,8 @@ export const MemoryCenterPage = {
 
     function clearSearch() { searchText.value = ''; }
     function toggleAllScopes() { showAllScopes.value = !showAllScopes.value; }
+    function clearMemoryContent() { memoryEditor.form.content = ''; }
+    function clearAgentContent() { agentEditor.form.content = ''; }
 
     function toggleGuide() {
       guideCollapsed.value = !guideCollapsed.value;
@@ -245,6 +247,8 @@ export const MemoryCenterPage = {
       handleRefresh,
       toggleEmptyScope,
       isScopeExpanded,
+      clearMemoryContent,
+      clearAgentContent,
       openSharedFiles: () => emit('open-shared-files'),
     };
   },
@@ -557,6 +561,7 @@ export const MemoryCenterPage = {
           </div>
           <div class="memory-form-helper">
             <button class="btn btn-secondary btn-xs" data-testid="memory-center-editor-template" @click="memoryEditor.fillTemplate">套用当前类型模板</button>
+            <button class="btn btn-ghost btn-xs" data-testid="memory-center-editor-clear" :disabled="!memoryEditor.form.content" @click="clearMemoryContent">清空内容</button>
             <span>feedback / project 类型需要包含 <code>Why:</code> 和 <code>How to apply:</code>。</span>
           </div>
           <div class="memory-editor-actions">
@@ -601,7 +606,8 @@ export const MemoryCenterPage = {
             </div>
           </div>
           <div class="memory-form-helper">
-            Agent 记忆只在子 Agent 启动时注入。清空内容后保存即可把该 Agent 的 <code>MEMORY.md</code> 重置为空。
+            <button class="btn btn-ghost btn-xs" data-testid="memory-center-agent-clear" :disabled="!agentEditor.form.content" @click="clearAgentContent">清空内容</button>
+            <span>清空后保存即可重置该 Agent 的 <code>MEMORY.md</code>。</span>
           </div>
           <div class="memory-editor-actions">
             <button class="btn btn-ghost" data-testid="memory-center-agent-cancel" @click="agentEditor.close">取消</button>
