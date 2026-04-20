@@ -49,6 +49,22 @@ MCP Client
   -> LSP Server 子进程（gopls / tsserver / pyright / jdtls ...）
 ```
 
+```mermaid
+sequenceDiagram
+  participant C as MCP client
+  participant S as common.Server
+  participant T as tools handler
+  participant R as manager.Registry
+  participant G as gopls transport
+  participant L as LSP process
+  C->>S: tools/call
+  S->>T: handler
+  T->>R: resolve manager
+  R->>G: send request
+  G->>L: JSON RPC LSP
+  L-->>C: response
+```
+
 ### 1.2 Bootstrap 生命周期调用链
 
 ```text
@@ -114,7 +130,7 @@ MCP 子进程
   - `beginStart()`、`dial()`、`registerConn()`、`activateLocked()` 等启动流程。
   - 传输层是 **TCP + `jrpc2/channel.Line`**。
   - `handleCallback()` 会把 `tools/list` / `tools/call` 转发给 `Config.OnToolsList / OnToolsCall`。
-  - `dispatchRequest()` 只识别 lifecycle 侧的 `shutdown` / `config_changed`。
+  - `dispatchRequest()` 只识别 lifecycle 侧的 `ctl/shutdown` / `ctl/config/changed`（即 `MethodShutdown` / `MethodConfigChanged`）。
 - `heartbeat.go`
   - 心跳循环、抖动等待、失败告警、下一次心跳间隔更新。
   - lease 被 core 判为 stale/not found 时，会走 `refreshLease()` 在**同一连接**上重新 register。
@@ -142,6 +158,8 @@ MCP 子进程
 ## 2.2 `cmd/mcp-lsp/`
 
 > 迁移后 `cmd/mcp-lsp/` 下生产源码分布为：根目录 6 个入口文件，子包合计 51 个文件；其中子包分布为 `edit` 4、`exec` 1、`format` 4、`gopls` 15、`installer` 1、`manager` 2、`middleware` 4、`protocol` 5、`search` 2、`tools` 13；以下逐项覆盖。
+>
+> 迁移补记（2026-04-17）：当前仓库 `internal/mcpserver/` 仅保留 `common/` 与 `common/bootstrap/`；LSP 真实落点已经迁到 `cmd/mcp-lsp/{tools,manager,gopls,middleware,...}`，本仓未见 `internal/mcpserver/lsp/` 子包。
 
 ### 2.2.0 入口层（`cmd/mcp-lsp/*.go`）
 - `main.go`（36 行，入口）
@@ -376,6 +394,7 @@ MCP 子进程
 **设计观察：**
 - `common` 层没有单独的 `Transport` interface。
 - `ToolProvider.CallTool()` 返回 `any`，由 `common` 层统一序列化后包装成 MCP text content。
+- stdio/HTTP 入口没有独立的 Router/Dispatcher interface；真实分发点就是 `Server.dispatch()` / `HTTPServer.dispatch()`，而 control-plane 对已注册 peer 的 fanout / callback 则落在 `internal/platform/mcpcontrol.ToolRegistry`。
 
 ### 3.2 Bootstrap 生命周期抽象
 
@@ -750,7 +769,10 @@ Recovery -> Logging -> Timeout -> 具体 handler
 - 运行时通道包含：
   - request：`register / heartbeat / context / approval / report / hook/subscribe / hook/resolve / hook/pending`
   - notify：`event / log`
-  - callback：`tools/list / tools/call / hook/before / hook/check / hook/after / shutdown / config_changed`
+  - callback：`tools/list / tools/call / hook/before / hook/check / hook/after / ctl/shutdown / ctl/config/changed`
+- core/control-plane 侧真实发起点在 `internal/platform/mcpcontrol.ToolRegistry`：
+  - `NotifyConfigChanged()` 通过 notify 下发 `ctl/config/changed`
+  - `ShutdownInstance()` 通过 callback 下发 `ctl/shutdown`
 - 断连后会：
   - mark disconnected
   - reconnect with exponential backoff
@@ -817,7 +839,7 @@ Recovery -> Logging -> Timeout -> 具体 handler
 ## 审查补遗
 
 1. **已更正 `report_queue.go` 的性质**：当前实现是**有界内存队列**，并不会落磁盘；原地图里“durable queue”的说法不准确。
-2. **已补齐 bootstrap 生命周期缺口**：`Context/EmitEvent/Log/Approval`、`shutdown/config_changed` 回调、hook 默认决策、断连退化/不可退化行为，现在都已写入地图。
+2. **已补齐 bootstrap 生命周期缺口**：`Context/EmitEvent/Log/Approval`、`ctl/shutdown + ctl/config/changed` 回调、hook 默认决策、断连退化/不可退化行为，现在都已写入地图。
 3. **已补齐 `gopls/factory.go` 的职责**：它不是对外注册工厂，而是 `gopls` 包内的泛型公共胶水层；原地图缺了这一层。
 4. **已更正 `StdioTransport` 描述**：它只有 raw JSON / framed 两种探测模式；没有公开 `Flush()` API，只是在底层 writer 支持时由 `WriteMessage()` 顺手 flush。
 5. **已补齐 bootstrap API 与注册细节**：
@@ -826,10 +848,31 @@ Recovery -> Logging -> Timeout -> 具体 handler
    - `ctl/register` 的实际字段、`AgentID` 当前不入注册请求的事实，已按源码写明
 6. **已更正中间件链描述**：`wrapToolHandler()` 默认只挂 `Recovery + Logging + Timeout`；`Budget` 是工具级 opt-in，不是全局默认链。
 7. **已补齐工具细节遗漏**：
-   - `lsp_file diagnostics` 支持“不传路径时读取所有当前 diagnostics”
-   - `lsp_grep` 的 `text_search` 与 `ast_search` 过滤边界并不相同；前者走 Go-side 文件筛选，后者主要委托给 `sg`
-   - `lsp_edit` 会保留文件权限与行尾风格，并在 LSP 同步失败时回滚
-   - `replace_range` 的匹配策略已按 `seeksequence.go + patchmatch.go` 更正，补上了 `substring_exact` fallback 与多候选歧义行为
-   - `code_run` 的非零退出与执行器错误是两种不同返回模型
+    - `lsp_file diagnostics` 支持“不传路径时读取所有当前 diagnostics”
+    - `lsp_grep` 的 `text_search` 与 `ast_search` 过滤边界并不相同；前者走 Go-side 文件筛选，后者主要委托给 `sg`
+    - `lsp_edit` 会保留文件权限与行尾风格，并在 LSP 同步失败时回滚
+    - `replace_range` 的匹配策略已按 `seeksequence.go + patchmatch.go` 更正，补上了 `substring_exact` fallback 与多候选歧义行为
+    - `code_run` 的非零退出与执行器错误是两种不同返回模型
 8. **已补齐 `gopls` 子包遗漏职责**：JSTS/Java bootstrap、cache 持久化开关、bootstrap 文档协调器、fallback-only 语言策略都已纳入，并注明当前 runtime 尚未注册 markdown/json/yaml manager。
 9. **保留一条实现观察**：`ManagerPool.snapshotManagers()` 当前只返回 primary manager；`recycler` 的重建路径也仍带明显 Go-centric 痕迹，说明池化/回收基础设施仍在演进中。
+
+---
+
+## 9. 测试入口 + archtest freeze 映射
+
+| 包 | 测试文件 | 核心 Test* | freeze |
+|---|---|---|---|
+| `common` | `server_test.go` | `TestServerHandlesToolsList` / +1 | — |
+| `common/bootstrap` | `hooks_test.go` / +2 | `TestResolveHook_CallsHookResolveRPC` / +10 | — |
+
+补记：
+- `common/bootstrap` 当前另有 `env_test.go` 与 `shared_mode_test.go`，覆盖环境变量兼容与 shared-service/空 `AgentID` 路径。
+- 本层当前未见独立 archtest freeze 条目；freeze 列保持 `—`。
+
+## 10. How-to：本层常见扩展入口
+
+| 场景 | 触发 | 步骤 | 源码锚点 | 验证 |
+|---|---|---|---|---|
+| common server | 新 sidecar / binary 需要暴露 MCP 工具 | 1) 实现 `ToolProvider` 2) 选择 `NewServer()` 或 `NewHTTPServer()` 3) 在 runner/Fx 装配里入组 | `type ToolProvider interface`@`internal/mcpserver/common/server.go`；`registryToolProvider`@`cmd/mcp-lsp/fx.go` | grep `NewServer` / `NewHTTPServer` builder |
+| callback | peer 需要承接 `tools/list` / `tools/call` / `ctl/shutdown` / `ctl/config/changed` 等回调 | 1) 扩 `bootstrap.Config` 2) 在启动装配时填充回调 3) 由 `handleCallback()` + `dispatchRequest()` 接住 | `handleCallback()` / `dispatchRequest()`@`internal/mcpserver/common/bootstrap/lifecycle.go` | grep callback route + 常量名 |
+| middleware | tool 需要 timeout / budget 治理 | 1) 在 `middleware/` 增补中间件 2) 经 `wrapToolHandler()` 挂链 3) 需要输出裁剪时显式接 `WithOutputBudget()` | `wrapToolHandler()`@`cmd/mcp-lsp/tools/factory.go`；`WithOutputBudget()`@`cmd/mcp-lsp/middleware/budget.go` | `tool_middleware_test.go` / 相关 tool 测试 |

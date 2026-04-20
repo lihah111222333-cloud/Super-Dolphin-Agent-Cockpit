@@ -1,519 +1,767 @@
-# super-agent-v3 DTO 数据传输对象层代码地图
+# 05 DTO 数据传输对象层代码地图
 
-> 扫描范围：`internal/dto/agent/`、`internal/dto/mcp/`、`internal/dto/provider/`、`internal/dto/shared/`、`internal/dto/task/`、`internal/dto/thread/`、`internal/dto/tool/`、`internal/dto/turn/`、`internal/dto/ui/`
+> 扫描范围：`internal/dto/{agent,mcp,provider,shared,task,thread,tool,turn,ui}`
 >
-> 审查基准：以仓库当前源码逐文件核对 30 个 Go 文件：29 个生产定义文件 + `internal/dto/provider/message_test.go`（用于校验 `provider.Message` 的 JSON 字段名契约）。
+> 校验方式：`lsp_structure` 遍历 9 个子包；`lsp_grep` 校对 DTO/锚点；`lsp_xref(references)` 核对核心 DTO 的生产/消费两侧；`lsp_file` 精读定义。
 >
-> 审查目标：补齐 `struct` / 常量 / 事件类型，校正事件编号表，核对 Header 继承关系，并补完 DTO 间引用关系。
+> 当前快照：**9 个子包 / 29 个生产 Go 文件 / 2 个 DTO 合约测试**。
+>
+> 重要说明：当前代码里**没有**名为 `ThreadEvent` / `TurnEvent` / `SkillEvent` 的总和类型；实际是若干 concrete DTO family。本文按 family 展开。
 
-## 1. 模块概览
+## 1. 子包矩阵
 
-DTO 层是 super-agent-v3 在 **运行时事件总线、Provider 驱动边界、MCP 控制协议、任务编排、UI 投影** 之间的统一数据边界层，特点如下：
+| 子包 | 用途 | 消费方（RPC / 事件总线 / UI 投影） | 产出方 | 代表锚点 |
+|---|---|---|---|---|
+| `shared` | 事件编号、Header 骨架、通用输入/错误 | 事件总线：`agent/thread/tool/turn/task/ui` 全部嵌入；Provider translator 复用 Header | 各模块 emitter / translator 在构造事件时嵌入 | `internal/dto/shared/event.go:5` |
+| `agent` | Agent 生命周期、运行态、告警/错误 DTO | 事件总线：orchestration / memory / uistate；UI：eventsurface 下发 agent 相关投影 | `claudecli` / `codexapp` translator；orchestration 生命周期 | `internal/dto/agent/event.go:6` |
+| `mcp` | `ctl/*` 控制面 RPC/notify/hook/report 协议 | RPC：`cmd/mcp-orch/orchestration`、`internal/platform/mcpcontrol` | orch 控制面、sidecar/peer 客户端 | `internal/dto/mcp/protocol.go:6` |
+| `provider` | Provider 启停/turn/config/history/raw-event 边界 | RPC：`contract.Driver` / `contract.Session`；事件总线：`RawProviderEvent` 进 `unified.EventDispatcher`；UI：历史/线程配置查询 | `thread` 模块、`turn` 模块、`prompt` 装配、provider drivers | `internal/dto/provider/session.go:55` |
+| `task` | DAG / node / wakeup typed event | 事件总线：task watcher / orchestration / UI projector | task DAG service / watcher | `internal/dto/task/event.go:6` |
+| `thread` | Thread 生命周期 typed event | 事件总线：memory team sync、uistate、eventsurface；UI：sidebar/state patch | `internal/module/thread` service/factory | `internal/dto/thread/event.go:6` |
+| `tool` | Tool 调用/审批/DIFF typed event | 事件总线：uistate timeline、eventsurface、memory/FRC 相关模块 | provider translators、toolbridge diff fallback | `internal/dto/tool/event.go:10` |
+| `turn` | Turn 生命周期、计划进度、提交模型 | 事件总线：orchestration hook consumer、memory hooks、uistate；RPC：turn submit payload | provider translators、unified common translator、orchestration turn lifecycle | `internal/dto/turn/event.go:6` |
+| `ui` | UI projection event 与 thread live patch | UI 投影：eventsurface / rpc push / frontend live patch；事件总线：uistate projector | `uistate`、`skill` 服务、Claude status patch translator | `internal/dto/ui/event.go:6` |
 
-1. **共享骨架集中在 `shared`**：事件编号、Header 继承链、通用输入项、通用错误、事件时间解析都放在一个包里。
-2. **内部事件与外部协议分层明确**：`agent/turn/tool/task/thread/ui` 主要承载事件总线 DTO；`provider/mcp` 主要承载驱动协议与控制面协议 DTO。
-3. **大部分文件是纯数据定义**：少量辅助逻辑集中在 `shared/event.go`、`agent/state.go`、`provider/capability.go`、`provider/manifest.go`；`provider/message_test.go` 是唯一测试文件。
-4. **字段风格按边界区分但并非单一规则**：内部事件多为 `snake_case`；Provider DTO 与 `ui.UIThreadPatch` 多为 `camelCase`；UI 投影事件仍混用 `snake_case` Header/字段与个别 `camelCase` 字段。
-5. **兼容性显式保留**：`mcp` 中存在若干 deprecated 字段；`turn`/`agent`/`mcp`/`provider` 中使用 `json.RawMessage` 保留协议扩展槽位。
+## 2. 文件锚点索引（grep 1-based）
 
----
+### 2.1 `shared`
+- `errors.go`：统一错误变量。锚点：`internal/dto/shared/errors.go:5`
+- `event.go`：`EventType*` 常量 + Header 骨架。锚点：`internal/dto/shared/event.go:5`, `:55`
+- `input.go`：共享输入条目 `InputItem`。锚点：`internal/dto/shared/input.go:3`
 
-## 2. 子包与文件索引
+### 2.2 `agent`
+- `diagnostic.go`：`AgentWarning` / `AgentError`。锚点：`internal/dto/agent/diagnostic.go:10`, `:19`
+- `event.go`：`StateChanged` / `AgentLaunched` / `AgentStopped` / `AgentRecovering` / `AgentFailed`。锚点：`internal/dto/agent/event.go:6`, `:14`, `:23`, `:29`, `:36`
+- `runtime.go`：`RuntimeReport` / `AgentRuntimeReported`。锚点：`internal/dto/agent/runtime.go:5`, `:11`
+- `state.go`：状态/触发器/转移矩阵。锚点：`internal/dto/agent/state.go:3`, `:16`, `:30`, `:35`, `:40`
 
-### 2.1 子包职责
+### 2.3 `mcp`
+- `approval_response.go`：审批响应 DTO。锚点：`internal/dto/mcp/approval_response.go:6`
+- `constants.go`：`ctl/*` 方法、状态、hook decision 常量。锚点：`internal/dto/mcp/constants.go:3`
+- `errors.go`：协议错误码。锚点：`internal/dto/mcp/errors.go:4`
+- `hook.go`：hook subscribe / resolve / pending DTO。锚点：`internal/dto/mcp/hook.go:11`, `:25`, `:57`, `:76`, `:93`, `:105`
+- `protocol.go`：register / heartbeat / context / event / report / shutdown / selector DTO。锚点：`internal/dto/mcp/protocol.go:6`, `:12`, `:29`, `:46`, `:66`, `:85`, `:108`, `:123`, `:153`, `:162`, `:182`, `:192`, `:200`, `:207`
 
-| 子包 | 责任边界 | 代表文件 | 说明 |
+### 2.4 `provider`
+- `attachment.go`：`AttachmentEnvelope`。锚点：`internal/dto/provider/attachment.go:8`
+- `capability.go`：`CapabilitySet`。锚点：`internal/dto/provider/capability.go:3`
+- `event.go`：`RawProviderEvent` / `BusRawProviderEvent`。锚点：`internal/dto/provider/event.go:6`, `:14`
+- `manifest.go`：`ToolFamily` / `MCPBinary` / `MCPManifest` / `ManifestContext`。锚点：`internal/dto/provider/manifest.go:3`, `:11`, `:20`, `:24`
+- `message.go`：`Message` / `ThreadMessagesResult`。锚点：`internal/dto/provider/message.go:5`, `:16`
+- `session.go`：prompt assembly / session start-resume carrier。锚点：`internal/dto/provider/session.go:12`, `:19`, `:21`, `:26`, `:38`, `:47`, `:55`, `:73`
+- `thread.go`：`ThreadRef`。锚点：`internal/dto/provider/thread.go:3`
+- `thread_config.go`：thread override/config/compact DTO。锚点：`internal/dto/provider/thread_config.go:3`, `:10`, `:16`, `:24`
+- `turn.go`：turn/steer/skill/fork carrier。锚点：`internal/dto/provider/turn.go:10`, `:22`, `:44`, `:54`, `:104`, `:132`, `:139`, `:144`, `:155`, `:160`, `:164`
+- `message_test.go`：`createdAt` JSON 契约测试。锚点：`internal/dto/provider/message_test.go:10`
+- `turn_test.go`：`SkillRef` 兼容/枚举/嵌入契约测试。锚点：`internal/dto/provider/turn_test.go:12`
+
+### 2.5 其余事件包
+- `task/event.go`：`TaskDagCreated` / `TaskNodeStatusChanged` / `TaskWakeupDispatched` / `TaskWakeupCompleted`。锚点：`internal/dto/task/event.go:6`, `:14`, `:24`, `:31`
+- `thread/event.go`：`Started` / `Stopped` / `MessagesPage` / `Compacted` / `Updated`。锚点：`internal/dto/thread/event.go:6`, `:18`, `:27`, `:35`, `:46`
+- `tool/event.go`：tool begin/end/approval/diff。锚点：`internal/dto/tool/event.go:10`, `:17`, `:29`, `:37`, `:46`
+- `turn/event.go`：turn lifecycle。锚点：`internal/dto/turn/event.go:6`, `:11`, `:24`, `:30`, `:37`, `:43`, `:52`
+- `turn/model.go`：`TurnSubmission`。锚点：`internal/dto/turn/model.go:11`
+- `turn/progress.go`：plan/item 进度事件。锚点：`internal/dto/turn/progress.go:10`, `:18`, `:25`, `:37`
+- `ui/event.go`：projection/tokens/skills/preferences/patch。锚点：`internal/dto/ui/event.go:6`, `:12`, `:21`, `:30`, `:40`, `:47`, `:53`, `:60`
+- `ui/patch_types.go`：`PatchActivityStats` / `PatchTimelineItem` / `PatchAlert`。锚点：`internal/dto/ui/patch_types.go:4`, `:12`, `:33`
+
+## 3. 核心事件 DTO（按 family 展开）
+
+### 3.1 ThreadEvent family
+
+> 当前没有单独 `ThreadEvent` struct；实际是 `thread.Started/Stopped/MessagesPage/Compacted/Updated` 五个 concrete DTO。定义锚点：`internal/dto/thread/event.go:6/18/27/35/46`。
+>
+> 生产侧：`internal/module/thread/factory.go:138`、`internal/module/thread/service.go:128`。
+>
+> 消费侧：`internal/module/uistate/projector_handlers.go:182`、`internal/module/memory/module.go:450`、`internal/platform/eventsurface/bind.go:127`。
+
+| concrete DTO | 字段 | JSON | 说明 |
 |---|---|---|---|
-| `shared` | DTO 公共基座 | `event.go`, `input.go`, `errors.go` | 统一事件编号、Header、通用输入项、通用错误、时间辅助 |
-| `agent` | Agent 生命周期/状态机/诊断 | `event.go`, `diagnostic.go`, `runtime.go`, `state.go` | 描述 agent 的生命周期事件与状态转移定义 |
-| `mcp` | 控制面 RPC/通知协议 | `protocol.go`, `constants.go`, `hook.go`, `errors.go` | 定义 `ctl/*` 协议方法、Hook DTO、错误码与 report 载荷 |
-| `provider` | Provider 驱动边界 | `session.go`, `turn.go`, `thread_config.go`, `manifest.go`, `event.go`, `message.go` | 会话、Turn、线程配置、消息分页、MCP manifest、原始 provider 事件 |
-| `task` | DAG/节点/wakeup 事件 | `event.go` | 面向任务编排系统的强类型事件 |
-| `thread` | Thread 生命周期摘要 | `event.go` | 线程启动/停止/消息分页/压缩事件 |
-| `tool` | 工具调用与审批事件 | `event.go` | 工具调用开始/结束/审批/DIFF 更新 |
-| `turn` | Turn 输入与执行进度 | `model.go`, `event.go`, `progress.go` | Turn 提交模型与 turn 级生命周期/计划进度事件 |
-| `ui` | UI 投影与线程 patch | `event.go`, `patch_types.go` | UI 投影视图事件与线程 patch 契约 |
+| 全部 | `EventHeader.Timestamp` | `timestamp` | 统一事件时间 |
+| `Started` | `ThreadID` | `thread_id` | public thread id |
+| `Started` | `AgentID` | `agent_id` | 归属 agent |
+| `Started` | `Provider` | `provider` | provider 名 |
+| `Started` | `ProviderThreadID` | `provider_thread_id` | provider 侧 thread id |
+| `Started` | `CWD` / `Model` / `Name` | `cwd` / `model` / `name` | 初始化运行态与展示名 |
+| `Stopped` | `ThreadID` / `AgentID` | `thread_id` / `agent_id` | 停止对象 |
+| `Stopped` | `Status` / `Reason` | `status` / `reason` | 停止状态与原因 |
+| `MessagesPage` | `ThreadID` | `thread_id` | 历史页刷新目标 |
+| `MessagesPage` | `TotalCount` / `Pages` | `total_count` / `pages` | 历史分页摘要 |
+| `Compacted` | `ThreadID` | `thread_id` | compact 目标 |
+| `Compacted` | `Command` | `command` | compact 命令 |
+| `Compacted` | `BeforeTokens` / `AfterTokens` | `before_tokens` / `after_tokens` | 压缩前后 token |
+| `Compacted` | `Compacted` / `Estimated` | `compacted` / `estimated` | 是否真的压缩 / 是否估算 |
+| `Updated` | `ThreadID` | `thread_id` | 更新目标 |
+| `Updated` | `Name` / `Model` | `name` / `model` | thread 名或模型变更 |
 
-### 2.2 逐文件职责
+### 3.2 TurnEvent family
 
-#### `shared`
-- `errors.go`：通用错误变量 `ErrNotFound` / `ErrAlreadyExists` / `ErrInvalidState` / `ErrRequired`
-- `event.go`：全部 `EventType*` 常量、Header 继承链、事件时间工具
-- `input.go`：统一输入条目 `InputItem`
+> 当前没有单独 `TurnEvent` struct；实际由 `turn/event.go` 的生命周期事件和 `turn/progress.go` 的计划/条目进度事件组成。定义锚点：`internal/dto/turn/event.go:6/11/24/30/37/43/52`、`internal/dto/turn/progress.go:10/18/25/37`。
+>
+> 生产侧：`internal/provider/claudecli/event_map.go:92`、`internal/provider/codexapp/event_map.go:148`、`internal/provider/unified/event_map.go:151`、`cmd/mcp-orch/orchestration/turn_lifecycle.go:21`。
+>
+> 消费侧：`cmd/mcp-orch/orchestration/hook_consumer.go:97`、`internal/module/memory/service.go:201`、`internal/module/uistate/projector_handlers.go:296`。
 
-#### `agent`
-- `diagnostic.go`：`AgentWarning`、`AgentError`
-- `event.go`：`StateChanged`、`AgentLaunched`、`AgentStopped`、`AgentRecovering`、`AgentFailed`
-- `guard.go`：`TransitionGuard`
-- `runtime.go`：`RuntimeReport`、`AgentRuntimeReported`
-- `state.go`：状态/触发器常量、定义切片、转移矩阵、`AllowedTriggers`
+| concrete DTO | 字段 | JSON | 说明 |
+|---|---|---|---|
+| 全部 | `TurnHeader` | `timestamp/thread_id/agent_id/turn_id` | turn 级统一 Header |
+| `TurnStarted` | — | — | 只有 Header，无附加字段 |
+| `TurnCompleted` | `Success` | `success` | 是否成功结束 |
+| `TurnCompleted` | `Error` / `Status` / `Reason` | `error` / `status` / `reason` | 终态原因 |
+| `TurnCompleted` | `Result` / `Summary` / `Message` | `result` / `summary` / `message` | 文本结果摘要 |
+| `TurnCompleted` | `StopReason` | `stop_reason` | provider stop reason |
+| `TurnInterrupted` | `Reason` | `reason` | 中断原因 |
+| `TurnStalled` | `Reason` / `StalledMS` | `reason` / `stalled_ms` | 卡住原因与时长 |
+| `TurnResumed` | `Reason` | `reason` | 恢复原因 |
+| `TurnInputReceived` | `InputType` | `input_type` | 输入类型 |
+| `TurnInputReceived` | `RequestID` / `Source` / `Text` | `request_id` / `source` / `text` | 输入来源与文本 |
+| `TurnOutputDelta` | `Stream` / `Delta` | `stream` / `delta` | 流式输出分片 |
+| `PlanDelta` | `RawType` / `Delta` / `Payload` | `raw_type` / `delta` / `payload` | 增量计划事件 |
+| `PlanUpdated` | `RawType` / `Payload` | `raw_type` / `payload` | 全量计划快照 |
+| `ItemStarted` | `RawType` / `ItemType` | `raw_type` / `item_type` | item 起始类型 |
+| `ItemStarted` | `Command` / `File` / `ToolName` / `CallID` | `command` / `file` / `tool_name` / `call_id` | 命令/文件/工具锚点 |
+| `ItemStarted` | `Payload` | `payload` | 原始载荷保留槽 |
+| `ItemCompleted` | `RawType` / `ItemType` | `raw_type` / `item_type` | item 终态类型 |
+| `ItemCompleted` | `Command` / `File` / `ToolName` / `CallID` | `command` / `file` / `tool_name` / `call_id` | 对齐起始 item |
+| `ItemCompleted` | `ExitCode` / `Success` / `Error` | `exit_code` / `success` / `error` | 完成结果 |
+| `ItemCompleted` | `Payload` | `payload` | 原始载荷保留槽 |
 
-#### `mcp`
-- `approval_response.go`：`ApprovalResponse`
-- `constants.go`：协议方法、状态、report variant、decision source、hook 常量
-- `errors.go`：协议错误码
-- `hook.go`：Hook 订阅、决策、待审列表 DTO
-- `protocol.go`：注册、心跳、上下文、事件、日志、审批、report、shutdown、selector DTO
+### 3.3 SkillEvent family
 
-#### `provider`
-- `capability.go`：`CapabilitySet`、能力常量、`CapabilityError`
-- `event.go`：`RawProviderEvent`、`BusRawProviderEvent`、`EventTranslator`
-- `manifest.go`：`ToolFamily`、`MCPBinary`、`MCPManifest`、`ManifestContext`、`BuildManifest`
-- `message.go`：`Message`、`ThreadMessagesResult`
-- `message_test.go`：验证 `Message.Timestamp` 序列化为 `createdAt`，且不输出 `timestamp`
-- `session.go`：`StartSessionRequest`、`ResumeSessionRequest`
-- `thread.go`：`ThreadRef`
-- `thread_config.go`：`ThreadConfigPatch`、`ThreadConfigValues`、`ThreadConfig`、`ThreadCompactResult`
-- `turn.go`：`TurnRequest`、`TurnOverrides`、`InputItem` 别名、`SkillRef`、`TurnResult`、`InterruptRequest`、`SteerRequest`、`ForceCompleteRequest`、`ForkRequest`、`ForkResult`
+> 当前没有 `skill.Event` DTO；技能目录变更通过 **`ui.SkillsChanged`** 承载。定义锚点：`internal/dto/ui/event.go:30`。
+>
+> 生产侧：`internal/module/skill/events.go:31`。
+>
+> 消费侧：`internal/platform/eventsurface/bind.go:164`、`internal/platform/rpc/push.go:74`。
 
-#### `task` / `thread` / `tool` / `turn` / `ui`
-- `task/event.go`：`TaskDagCreated`、`TaskNodeStatusChanged`、`TaskWakeupDispatched`、`TaskWakeupCompleted`
-- `thread/event.go`：`Started`、`Stopped`、`MessagesPage`、`Compacted`
-- `tool/event.go`：`ToolCallBegin`、`ToolCallEnd`、`ToolApprovalRequested`、`ToolApprovalResolved`、`ToolDiffUpdated`
-- `turn/event.go`：`TurnStarted`、`TurnCompleted`、`TurnInterrupted`、`TurnStalled`、`TurnResumed`、`TurnInputReceived`、`TurnOutputDelta`
-- `turn/model.go`：`InputItem` 别名、`TurnSubmission`
-- `turn/progress.go`：`PlanDelta`、`PlanUpdated`、`ItemStarted`、`ItemCompleted`
-- `ui/event.go`：`UIProjectionUpdated`、`UITimelineAppended`、`UITokensUpdated`、`SkillsChanged`、`UIPreferencesChanged`、`ThreadPatchThread`、`ThreadPatchTokenUsage`、`UIThreadPatch`
-- `ui/patch_types.go`：`PatchActivityStats`、`PatchTimelineItem`、`PatchAlert`
+| 字段 | JSON | 说明 |
+|---|---|---|
+| `EventHeader.Timestamp` | `timestamp` | 事件时间 |
+| `SkillsDir` | `skillsDir` | 技能根目录 |
+| `Name` | `name` | 被改动 skill 名 |
+| `Action` | `action` | 聚合后单动作；多动作时可为空 |
+| `Actions` | `actions` | 去重后的动作集合 |
+| `Count` | `count` | 本次聚合动作数 |
 
----
+### 3.4 UIState Patch family
 
-## 3. `shared`：事件编号、Header 继承与公共骨架
+> 当前 UI 状态补丁就是 `ui.UIThreadPatch`；定义锚点：`internal/dto/ui/event.go:60`，嵌套类型锚点：`internal/dto/ui/event.go:47/53`、`internal/dto/ui/patch_types.go:4/12/33`。
+>
+> 生产侧：`internal/module/uistate/patch.go:114`、`internal/module/uistate/projector_handlers.go:49`、`internal/provider/claudecli/event_map.go:44`。
+>
+> 消费侧：`internal/platform/eventsurface/bind.go:170`、`internal/platform/rpc/push.go:75`、frontend `ui/thread/patch` 订阅面。
 
-### 3.1 事件编号核对表
+| 字段 | JSON | 说明 |
+|---|---|---|
+| `ThreadID` / `Source` / `Sequence` | `threadId` / `source` / `sequence` | patch 目标、来源、单线程递增序号 |
+| `Thread` | `thread` | `ThreadPatchThread{id,name,state}` 摘要 |
+| `Status` / `StatusHeader` / `StatusDetails` | `status` / `statusHeader` / `statusDetails` | UI 主状态文案 |
+| `OverlayText` / `OverlayType` / `OverlayPriority` | `overlayText` / `overlayType` / `overlayPriority` | 覆层文本与优先级 |
+| `TokenUsage` | `tokenUsage` | `ThreadPatchTokenUsage{usedTokens,contextWindowTokens,usedPercent}` |
+| `DiffText` / `DiffRevision` | `diffText` / `diffRevision` | 当前 diff 文本与版本 |
+| `Interruptible` | `interruptible` | 当前状态是否可中断 |
+| `AgentMeta` | `agentMeta` | 附加 agent 元数据 |
+| `ActivityStats` | `activityStats` | `PatchActivityStats{lspCalls,commands,fileEdits,toolCalls}` |
+| `Alerts` | `alerts` | `[]PatchAlert{id,time,level,message}` |
+| `TimelineItems` | `timelineItems` | `[]PatchTimelineItem` 增量 timeline |
+| `RemovedItemIds` / `TimelineOrder` | `removedItemIds` / `timelineOrder` | timeline 删除/排序 |
+| `Recover` / `RefreshRequired` / `FallbackReason` | `recover` / `refreshRequired` / `fallbackReason` | 降级恢复信号 |
+| `ActiveThreadID` / `ActiveCmdThreadID` | `activeThreadId` / `activeCmdThreadId` | 当前激活线程/命令线程 |
+| `MainAgentID` / `MainAgentState` | `mainAgentId` / `mainAgentState` | 主 agent 身份与状态 |
+| `Partial` | `partial` | 是否为部分 patch |
 
-下表按 `internal/dto/shared/event.go` 的实际定义列出全部 `EventType*` 常量，并核对每个 concrete event 的 `Type()` 返回值：
+## 4. Provider 协议 DTO 与映射
 
-| 编号 | 常量 | concrete 类型 | Header / 载荷骨架 |
-|---:|---|---|---|
-| 1000 | `EventTypeAgentStateChanged` | `agent.StateChanged` | `shared.AgentSessionHeader` |
-| 1001 | `EventTypeAgentLaunched` | `agent.AgentLaunched` | `shared.AgentSessionHeader` |
-| 1002 | `EventTypeAgentStopped` | `agent.AgentStopped` | `shared.AgentSessionHeader` |
-| 1003 | `EventTypeAgentRecovering` | `agent.AgentRecovering` | `shared.AgentSessionHeader` |
-| 1004 | `EventTypeAgentFailed` | `agent.AgentFailed` | `shared.AgentSessionHeader` |
-| 1005 | `EventTypeAgentRuntimeReported` | `agent.AgentRuntimeReported` | `shared.AgentSessionHeader` |
-| 1006 | `EventTypeAgentWarning` | `agent.AgentWarning` | `shared.AgentSessionHeader` |
-| 1007 | `EventTypeAgentError` | `agent.AgentError` | `shared.AgentSessionHeader` |
-| 1100 | `EventTypeTurnStarted` | `turn.TurnStarted` | `shared.TurnHeader` |
-| 1101 | `EventTypeTurnCompleted` | `turn.TurnCompleted` | `shared.TurnHeader` |
-| 1102 | `EventTypeTurnInterrupted` | `turn.TurnInterrupted` | `shared.TurnHeader` |
-| 1103 | `EventTypeTurnStalled` | `turn.TurnStalled` | `shared.TurnHeader` |
-| 1104 | `EventTypeTurnResumed` | `turn.TurnResumed` | `shared.TurnHeader` |
-| 1105 | `EventTypeTurnInputReceived` | `turn.TurnInputReceived` | `shared.TurnHeader` |
-| 1106 | `EventTypeTurnOutputDelta` | `turn.TurnOutputDelta` | `shared.TurnHeader` |
-| 1107 | `EventTypeTurnPlanDelta` | `turn.PlanDelta` | `shared.TurnHeader` |
-| 1108 | `EventTypeTurnPlanUpdated` | `turn.PlanUpdated` | `shared.TurnHeader` |
-| 1109 | `EventTypeTurnItemStarted` | `turn.ItemStarted` | `shared.TurnHeader` |
-| 1110 | `EventTypeTurnItemCompleted` | `turn.ItemCompleted` | `shared.TurnHeader` |
-| 1200 | `EventTypeToolCallBegin` | `tool.ToolCallBegin` | `shared.ToolCallHeader` |
-| 1201 | `EventTypeToolCallEnd` | `tool.ToolCallEnd` | `shared.ToolCallHeader` |
-| 1202 | `EventTypeToolApprovalRequested` | `tool.ToolApprovalRequested` | `shared.ToolApprovalHeader` |
-| 1203 | `EventTypeToolApprovalResolved` | `tool.ToolApprovalResolved` | `shared.ToolApprovalHeader` |
-| 1204 | `EventTypeToolDiffUpdated` | `tool.ToolDiffUpdated` | 独立字段：`Timestamp/ThreadID/AgentID/CallID/ToolName/DiffText/Files/Revision`，**未嵌入** `shared.*Header` |
-| 1300 | `EventTypeTaskDagCreated` | `task.TaskDagCreated` | `shared.TaskDAGHeader` |
-| 1301 | `EventTypeTaskNodeStatusChanged` | `task.TaskNodeStatusChanged` | `shared.TaskNodeHeader` |
-| 1302 | `EventTypeTaskWakeupDispatched` | `task.TaskWakeupDispatched` | `shared.TaskWakeupHeader` |
-| 1303 | `EventTypeTaskWakeupCompleted` | `task.TaskWakeupCompleted` | `shared.TaskWakeupHeader` |
-| 1350 | `EventTypeThreadStarted` | `thread.Started` | `shared.EventHeader` + 扁平 `ThreadID/...` 字段 |
-| 1351 | `EventTypeThreadStopped` | `thread.Stopped` | `shared.EventHeader` + 扁平 `ThreadID/...` 字段 |
-| 1352 | `EventTypeThreadMessagesPage` | `thread.MessagesPage` | `shared.EventHeader` + 扁平 `ThreadID/...` 字段 |
-| 1353 | `EventTypeThreadCompacted` | `thread.Compacted` | `shared.EventHeader` + 扁平 `ThreadID/...` 字段 |
-| 1500 | `EventTypeUIProjectionUpdated` | `ui.UIProjectionUpdated` | `shared.UIProjectionHeader` |
-| 1501 | `EventTypeUITimelineAppended` | `ui.UITimelineAppended` | `shared.UITurnHeader` |
-| 1502 | `EventTypeUITokensUpdated` | `ui.UITokensUpdated` | `shared.UITurnHeader` |
-| 1503 | `EventTypeUISkillsChanged` | `ui.SkillsChanged` | `shared.EventHeader` |
-| 1504 | `EventTypeUIThreadPatch` | `ui.UIThreadPatch` | 独立 patch 载荷，**未嵌入** `shared.*Header` |
-| 1505 | `EventTypeUIPreferencesChanged` | `ui.UIPreferencesChanged` | `shared.EventHeader` |
-| 1600 | `EventTypeProviderRaw` | `provider.RawProviderEvent`、`provider.BusRawProviderEvent` | 无公共 Header；原始 provider 事件封装 |
+### 4.1 出站：内部 DTO → provider 驱动 / RPC
 
-**核对结果**：源码中的 `Type() uint32` 实现与上述编号表完全一致，没有发现错号或漏号。
-
-### 3.2 Header 继承关系
+| DTO | 生产侧 | 消费侧 | 锚点 |
+|---|---|---|---|
+| `StartSessionRequest` | `internal/module/thread/start_session.go:152` | `internal/provider/claudecli/driver.go:106`、`internal/provider/codexapp/driver.go:157` | `internal/dto/provider/session.go:55` |
+| `ResumeSessionRequest` | `thread` 恢复链路 | `claudecli.Driver.ResumeSession`、`codexapp.Driver.ResumeSession` | `internal/dto/provider/session.go:73` |
+| `TurnAssembly` | `internal/module/turn/prompt_assembly.go:13` | `internal/dto/provider/turn.go:15`, `:149`、`internal/provider/codexapp/session_turn.go:77` | `internal/dto/provider/session.go:47` |
+| `AttachmentEnvelope` | `internal/module/memory/retrieval/render.go:33`、`internal/module/memory/nested/nested_rules.go:18` | `contract.RenderAttachmentText`、provider turn input builder | `internal/dto/provider/attachment.go:8` |
+| `TurnRequest` / `SteerRequest` | `turn` 提交/引导 | provider session turn builder | `internal/dto/provider/turn.go:10`, `:144` |
+| `InterruptRequest` / `ForceCompleteRequest` / `ForkRequest` | thread/turn 管理命令 | `contract.Session` 实现 | `internal/dto/provider/turn.go:139`, `:155`, `:160` |
+| `ThreadConfigPatch` | thread config/set RPC | `contract.Session.Configure` | `internal/dto/provider/thread_config.go:3` |
+| `ThreadRef` / `Message` | provider history/list API | thread/history 查询面 | `internal/dto/provider/thread.go:3`, `internal/dto/provider/message.go:5` |
 
 ```mermaid
-flowchart TD
-  EH[shared.EventHeader]
-  TH[shared.ThreadHeader]
-  AH[shared.AgentHeader]
-  ASH[shared.AgentSessionHeader]
-  TIH[shared.TurnIDHeader]
-  TUH[shared.TurnHeader]
-  TCH[shared.ToolCallHeader]
-  TAH[shared.ToolApprovalHeader]
-  DH[shared.DAGHeader]
-  TDH[shared.TaskDAGHeader]
-  TNH[shared.TaskNodeHeader]
-  TWH[shared.TaskWakeupHeader]
-  UPH[shared.UIProjectionHeader]
-  UTH[shared.UITurnHeader]
-
-  EH --> TH
-  TH --> AH
-  AH --> ASH
-  AH --> TUH
-  TIH --> TUH
-  TUH --> TCH
-  TCH --> TAH
-
-  EH --> DH
-  DH --> TDH
-  TDH --> TNH
-  TNH --> TWH
-
-  TH --> UPH
-  UPH --> UTH
-  TIH --> UTH
+flowchart LR
+  subgraph Outbound[内部请求 → Provider]
+    TS[thread/start\nStartSessionRequest] --> CL1[claudecli.Driver.StartSession]
+    TS --> CX1[codexapp.Driver.StartSession]
+    RS[thread/resume\nResumeSessionRequest] --> CL2[claudecli.Driver.ResumeSession]
+    RS --> CX2[codexapp.Driver.ResumeSession]
+    TR[turn/start\nTurnRequest] --> CL3[provider session.StartTurn]
+    TR --> CX3[provider session.StartTurn]
+    SR[turn/steer\nSteerRequest] --> CL4[Claude steer path]
+    SR --> CX4[Codex input map]
+    CFG[thread/config\nThreadConfigPatch] --> SS[contract.Session.Configure]
+  end
 ```
 
-需要特别注意的四类例外/旁路：
+### 4.2 入站：Claude / Codex raw event → 内部事件
 
-1. `thread.*` 事件没有复用 `shared.ThreadHeader`，而是 `shared.EventHeader + 扁平 ThreadID/...`。
-2. `tool.ToolDiffUpdated` 虽然是事件，但没有复用 `shared.ToolCallHeader`。
-3. `ui.UIThreadPatch` 虽然实现了 `Type()`，但本体是 UI patch 契约，不携带 `timestamp`/`projection` 等共享 Header 字段。
-4. `provider.RawProviderEvent` / `provider.BusRawProviderEvent` 都返回 `EventTypeProviderRaw`，但不嵌入任何 `shared.*Header`。
+> `provider.RawProviderEvent` 先进入 `internal/provider/unified/event_map.go:103`；公共 translator 先处理 warning/error/plan/item，再进入 provider 专属 translator。
 
-### 3.3 `shared` 类型、变量与工具函数
+```mermaid
+flowchart LR
+  RAW[provider.RawProviderEvent] --> DISPATCH[unified.EventDispatcher]
+  DISPATCH --> COMMON[translateCommonRawEvent]
+  COMMON --> COMMON_OUT[AgentWarning / AgentError / PlanDelta / PlanUpdated / ItemStarted / ItemCompleted / UITokensUpdated]
 
-#### 结构体
-- `EventHeader`：仅含 `Timestamp`
-- `ThreadHeader`：`EventHeader + ThreadID`
-- `AgentHeader`：`ThreadHeader + AgentID`
-- `AgentSessionHeader`：`AgentHeader + SessionID`
-- `TurnIDHeader`：仅含 `TurnID`
-- `TurnHeader`：`AgentHeader + TurnIDHeader`
-- `ToolCallHeader`：`TurnHeader + CallID + ToolName`
-- `ToolApprovalHeader`：`ToolCallHeader + ApprovalID`
-- `DAGHeader`：`EventHeader + DagKey`
-- `TaskDAGHeader`：空包装，单纯继承 `DAGHeader`
-- `TaskNodeHeader`：`TaskDAGHeader + NodeKey`
-- `TaskWakeupHeader`：`TaskNodeHeader + WakeupID`
-- `UIProjectionHeader`：`ThreadHeader + Projection`
-- `UITurnHeader`：`UIProjectionHeader + TurnIDHeader`
-- `InputItem`：统一输入条目，字段为 `Type` / `Content` / `Path` / `Name` / `URL`
-- `eventTimeKey`：`shared/event.go` 内部使用的零字段 struct context key（非导出）
+  DISPATCH --> CLAUDE[claudecli/event_map.go]
+  CLAUDE --> C1[agent:status_patch]
+  CLAUDE --> C2[agent:launched / system:init]
+  CLAUDE --> C3[turn:started / turn:complete / assistant:message_delta]
+  CLAUDE --> C4[tool:use_begin / tool:use_end]
+  C1 --> UI1[UIThreadPatch]
+  C2 --> AG1[AgentLaunched / AgentRuntimeReported / StateChanged / AgentStopped / AgentFailed]
+  C3 --> TU1[TurnStarted / TurnInputReceived / TurnOutputDelta / TurnInterrupted / TurnCompleted]
+  C4 --> TL1[ToolCallBegin / ToolCallEnd]
 
-#### 错误变量
-- `ErrNotFound`
-- `ErrAlreadyExists`
-- `ErrInvalidState`
-- `ErrRequired`
+  DISPATCH --> CODEX[codexapp/event_map.go]
+  CODEX --> X1[thread/started / session.configured / thread/status/changed]
+  CODEX --> X2[turn/completed / turn.aborted / message.delta / reasoning.delta]
+  CODEX --> X3[item/tool/call / approval/resolved / turn/diff/updated]
+  X1 --> AG2[AgentLaunched / StateChanged / AgentStopped / AgentRecovering / AgentFailed]
+  X2 --> TU2[TurnStarted / TurnInterrupted / TurnOutputDelta / TurnCompleted]
+  X3 --> TL2[ToolCallBegin / ToolCallEnd / ToolApprovalRequested / ToolApprovalResolved / ToolDiffUpdated]
+```
 
-#### 时间辅助函数
-- `WithEventTime(ctx, timestamp)`：向 context 注入事件时间
-- `ResolveEventTime(ctx, payload, fallbacks...)`：依次从 context、payload、fallbacks 解析事件时间
-- `FirstEventTime(fallbacks...)`：返回第一项非零时间，否则回退到 `time.Now()`
-- `EventTimeFromPayload(payload)`：从 `timestamp`、`ts`、`createdAt`、`created_at`、`updatedAt`、`updated_at` 提取时间字符串
-- `ParseEventTime(raw)`：按 `time.RFC3339Nano` / `time.RFC3339` 解析
-- `eventTimeFromContext(ctx)`：`shared/event.go` 内部非导出辅助函数，从 context 读取 `eventTimeKey{}` 注入的 `time.Time`
-
----
-
-## 4. 各子包明细
-
-### 4.1 `agent`
-
-#### 事件类型
-| 类型 | Header | 关键字段 |
+| Raw 事件 | 内部 DTO | 映射锚点 |
 |---|---|---|
-| `StateChanged` | `shared.AgentSessionHeader` | `OldState`、`NewState`、`Trigger` |
-| `AgentLaunched` | `shared.AgentSessionHeader` | `Model`、`CWD`、`Name`、`Provider` |
-| `AgentStopped` | `shared.AgentSessionHeader` | `Reason` |
-| `AgentRecovering` | `shared.AgentSessionHeader` | `Reason`、`Attempt` |
-| `AgentFailed` | `shared.AgentSessionHeader` | `Error`、`Recoverable` |
-| `AgentRuntimeReported` | `shared.AgentSessionHeader` | `Port`、`Provider` |
-| `AgentWarning` | `shared.AgentSessionHeader` | `RawType`、`Message`、`Code`、`Payload` |
-| `AgentError` | `shared.AgentSessionHeader` | `RawType`、`Message`、`Code`、`Recoverable`、`Payload` |
+| Claude `agent:status_patch` | `ui.UIThreadPatch` | `internal/provider/claudecli/event_map.go:44` |
+| Claude `agent:launched` | `agent.AgentLaunched` | `internal/provider/claudecli/event_map.go:62` |
+| Claude `system:init` | `agent.AgentRuntimeReported` | `internal/provider/claudecli/event_map.go:68` |
+| Claude `turn:complete` | `turn.TurnCompleted` | `internal/provider/claudecli/event_map.go:121` |
+| Claude `tool:use_end` | `tool.ToolCallEnd` | `internal/provider/claudecli/event_map.go:147` |
+| Codex `thread/started` / `session.configured` | `agent.AgentLaunched` | `internal/provider/codexapp/event_map.go:116` |
+| Codex `thread/status/changed` | `agent.StateChanged` | `internal/provider/codexapp/event_map.go:124` |
+| Codex `turn/completed` / `turn/aborted` | `turn.TurnCompleted` | `internal/provider/codexapp/event_map.go:149` |
+| Codex `item/tool/call` | `tool.ToolCallBegin` | `internal/provider/codexapp/event_map.go:257` |
+| Codex `approval/resolved` | `tool.ToolApprovalResolved` | `internal/provider/codexapp/event_map.go:285` |
+| Codex `turn/diff/updated` | `tool.ToolDiffUpdated` | `internal/provider/codexapp/event_map.go:292` |
+| Common raw warning/error | `agent.AgentWarning` / `agent.AgentError` | `internal/provider/unified/event_map.go:161` |
+| Common plan/item raw | `turn.PlanDelta` / `PlanUpdated` / `ItemStarted` / `ItemCompleted` | `internal/provider/unified/event_map.go:178`, `:185`, `:191`, `:202` |
 
-#### 其他类型
-- `RuntimeReport`：普通 DTO，字段为 `AgentID` / `Port` / `Provider`，**不是** typed event。
-- `StateDefinition`：`Name` / `Description`
-- `TriggerDefinition`：`Name` / `Description`
-- `TransitionDefinition`：`From` / `Trigger` / `To`
-- `TransitionGuard`：`func(ctx context.Context, agentID string) bool`
+## 5. 新增 DTO 如何落地（3 步）
 
-#### 常量
-- 状态常量：`StateProvisioning="provisioning"`、`StateIdle="idle"`、`StateTurnQueued="turn_queued"`、`StateTurnStarting="turn_starting"`、`StateTurnRunning="turn_running"`、`StateAwaitingUserInput="awaiting_user_input"`、`StateRecovering="recovering"`、`StateStopping="stopping"`、`StateStopped="stopped"`、`StateFailed="failed"`
-- 触发器常量：`TriggerLaunchSucceeded="launch_succeeded"`、`TriggerLaunchFailed="launch_failed"`、`TriggerTurnEnqueued="turn_enqueued"`、`TriggerTurnAccepted="turn_accepted"`、`TriggerTurnCompleted="turn_completed"`、`TriggerTurnAborted="turn_aborted"`、`TriggerUserInputRequested="user_input_requested"`、`TriggerUserInputResolved="user_input_resolved"`、`TriggerRecoverRequested="recover_requested"`、`TriggerStopRequested="stop_requested"`、`TriggerProcessExited="process_exited"`
+1. **定义 struct**：在 `internal/dto/<pkg>` 新增 DTO；若是 typed event，同步补 `shared.EventType*` 和 `Type() uint32`，并给出稳定 JSON tag。
+2. **添加转换函数**：
+   - 入站 provider/raw 事件：改 `internal/provider/{claudecli,codexapp}/event_map.go` 或 `internal/provider/unified/event_map.go`；
+   - 出站请求 DTO：改 `thread/start_session.go`、`turn/prompt_assembly.go`、provider driver 的参数投影函数。
+3. **注册 bus / endpoint**：
+   - 事件总线：把 typed event 接入 `internal/provider/unified/event_map.go:28` 的 `typedEventPublishers`，或在模块里增加 emitter；
+   - UI / RPC：需要外发时补 `internal/platform/eventsurface/bind.go`，需要投影时补 `internal/module/uistate/*` handler。
 
-#### 导出变量与函数
-- `StateDefinitions []StateDefinition`
-- `TriggerDefinitions []TriggerDefinition`
-- `TransitionDefinitions []TransitionDefinition`：源码当前 33 条转移定义，`AllowedTriggers` 直接遍历该切片过滤 `From == state`
-- `AllowedTriggers(state string) []string`
+## 6. 近期稳定 API（P18 / P19 / P20 落地后）
 
-**核对修正**：源码中 **没有** `AllStates()`、`AllTriggers()`、`StateLabel()`；旧地图这里有误。
+| Phase | 稳定 DTO / 变更 | 现状 | 锚点 |
+|---|---|---|---|
+| P18（prompt/memory bridge） | `PromptAssemblyBoundary`、`PromptAssemblySnapshot{Boundary,SectionSnapshot,Generation}`、`StartAssembly`、`TurnAssembly{UserContext,SystemContext,Attachments,ResolvedSections}` | 已成为 thread→provider 主链稳定 carrier | `internal/dto/provider/session.go:21`, `:26`, `:38`, `:47` |
+| P18（memory attachment） | `AttachmentEnvelope` + `AttachmentKindRelevantMemory/NestedMemory` | 已被 retrieval/nested memory 生产、provider turn 消费 | `internal/dto/provider/attachment.go:3`, `:8` |
+| P18（大结果降级） | `tool.ToolCallEnd` 新增 `PersistedPath` / `Truncated` / `OriginalSize` | UI timeline / diff fallback / tool result store 已消费 | `internal/dto/tool/event.go:17` |
+| P19（DTO 纯化） | `ManifestContext` 保留为 carrier，`BuildManifest` 移到 `internal/provider/manifestbuilder/manifest.go:16` | **P19 没有新增 wire 字段，但稳定了 DTO 只承载数据的边界** | `internal/dto/provider/manifest.go:24` |
+| P19（DTO 纯化） | `RawProviderEvent` / `BusRawProviderEvent` 保留，`EventTranslator` 移到 `internal/provider/unified/event_map.go:26` | raw carrier 与 translator contract 彻底分层 | `internal/dto/provider/event.go:6`, `:14` |
+| P19（DTO 纯化） | `shared.EventHeader` 家族保留，事件时间 helper 移到 `internal/platform/shared/timeparse.go:43` | shared DTO 现仅保留常量与 Header | `internal/dto/shared/event.go:55` |
+| P20.1（skill progressive disclosure） | `SkillRef` 扩成 `Name/Version/Mode/Prompt/Summary/Source`；新增 `SkillMode` / `SkillSource` | 已有 DTO 合约测试锁定兼容行为 | `internal/dto/provider/turn.go:44`, `:54`, `:104`; `internal/dto/provider/turn_test.go:12` |
+| P20.3（launch skill carrier） | `StartSessionRequest` 新增 `LaunchSkillNames` / `ForceLaunchSkills` | `thread/start` 已透传到两家 provider driver | `internal/dto/provider/session.go:64`, `:68`; `internal/module/thread/start_session.go:152` |
 
-### 4.2 `mcp`
+## 7. 文档 / 代码不符项（本轮核对结论）
 
-#### 协议/方法常量（`constants.go`）
-- 主协议方法：`MethodRegister="ctl/register"`、`MethodHeartbeat="ctl/heartbeat"`、`MethodContext="ctl/context"`、`MethodEvent="ctl/event"`、`MethodLog="ctl/log"`、`MethodApproval="ctl/approval/request"`、`MethodReport="ctl/report"`、`MethodShutdown="ctl/shutdown"`、`MethodConfigChanged="ctl/config/changed"`
-- 协议版本：`ProtocolVersion="ctl/v1"`
-- Client kind：`ClientKindOrch="orch"`、`ClientKindLSP="lsp"`、`ClientKindIDA="ida"`、`ClientKindCustom="custom"`
-- Peer kind：`PeerKindTool="tool"`、`PeerKindUI="ui"`
-- Context scope：`ScopeAgentRuntime="agent.runtime"`、`ScopeThreadBinding="thread.binding"`、`ScopeWorkspaceRun="workspace.run"`、`ScopeConfigSnapshot="config.snapshot"`
-- Context source：`ContextSourceLive="live"`、`ContextSourceBootSnapshot="boot_snapshot"`、`ContextSourceDBRebuild="db_rebuild"`
-- lease/runtime 状态：`StatusActive="active"`、`StatusStale="stale"`、`StatusDisconnected="disconnected"`
-- report variant：`ReportVariantRuntime="runtime"`、`ReportVariantCompletion="completion"`、`ReportVariantProgress="progress"`、`ReportVariantDiagnostic="diagnostic"`
-- decision source：`DecisionSourceUI="ui"`、`DecisionSourceAutoApprove="auto_approve"`、`DecisionSourceStatic="static"`
-- Hook 方法：`MethodHookSubscribe="ctl/hook/subscribe"`、`MethodHookBefore="ctl/hook/before"`、`MethodHookCheck="ctl/hook/check"`、`MethodHookAfter="ctl/hook/after"`、`MethodHookResolve="ctl/hook/resolve"`、`MethodHookPending="ctl/hook/pending"`
-- Hook 决策：`HookDecisionAllow="allow"`、`HookDecisionDeny="deny"`、`HookDecisionWait="wait"`、`HookDecisionModify="modify"`、`HookDecisionContinue="continue"`、`HookDecisionWarn="warn"`、`HookDecisionAbort="abort"`、`HookDecisionApprove="approve"`、`HookDecisionReject="reject"`、`HookDecisionEscalate="escalate"`
+1. **thread 事件不是 4 个而是 5 个**：当前多了 `thread.Updated`，对应 `EventTypeThreadUpdated=1354`（`internal/dto/shared/event.go:42`, `internal/dto/thread/event.go:46`）。
+2. **`provider/manifest.go` 已不再包含 `BuildManifest`**：组装逻辑已迁到 `internal/provider/manifestbuilder/manifest.go:16`；DTO 层只保留 `ToolFamily/MCPBinary/MCPManifest/ManifestContext`。
+3. **`provider/event.go` 已不再定义 `EventTranslator`**：translator contract 在 `internal/provider/unified/event_map.go:26`。
+4. **`shared/event.go` 已不再放事件时间 helper**：`WithEventTime/ResolveEventTime/...` 已迁到 `internal/platform/shared/timeparse.go:43`。
+5. **当前仓库没有 `agent/guard.go`、`provider/user_context.go`**；旧地图若仍引用这两个文件，已过期。
+6. **当前代码没有名为 `ThreadEvent` / `TurnEvent` / `SkillEvent` 的统一 DTO**；若文档继续把它们写成单一 struct，会和源码不符。
 
-#### 错误码（`errors.go`）
-| 常量 | 数值 |
-|---|---:|
-| `ErrCodeInternal` | -32603 |
-| `ErrCodeInvalidParams` | -32602 |
-| `ErrCodeLeaseNotFound` | 4101 |
-| `ErrCodeLeaseStale` | 4102 |
-| `ErrCodeCapabilityMismatch` | 4103 |
-| `ErrCodeScopeNotAllowed` | 4104 |
-| `ErrCodeApprovalUnavailable` | 4105 |
-| `ErrCodePersistFailed` | 4106 |
-| `ErrCodePeerUnavailable` | 4107 |
-| `ErrCodeAuthFailed` | 4108 |
-| `ErrCodeBusy` | 4109 |
-| `ErrCodeTimeout` | 4110 |
-| `ErrCodeReportConflict` | `ErrCodePersistFailed` 的兼容别名 |
+## 8. 深化补遗（2026-04-20）
 
-#### 结构体与协议 DTO
-- `ApprovalResponse`：`ctl/approval/request` 的响应；字段为 `Approved`、`Reason`、`Detail`、`DecisionSource`
-- Hook 体系：
-  - `HookPayload`
-  - `BeforeDecision`
-  - `CheckDecision`
-  - `AfterDecision`
-  - `HookSubscribeRequest`
-  - `HookSubscribeResponse`
-  - `HookResolveRequest`
-  - `HookResolveResponse`
-  - `HookPendingRequest`
-  - `HookPendingResponse`
-  - `PendingHookReview`
-- 核心协议 DTO：
-  - `LeaseKey`
-  - `RegisterRequest` / `RegisterResponse`
-  - `HeartbeatRequest` / `HeartbeatResponse`
-  - `ContextRequest` / `ContextResponse`
-  - `EventNotify` / `LogNotify`
-  - `ApprovalRequest`
-  - `ReportRequest` / `ReportResponse`
-  - `ShutdownRequest`
-  - `SelectorScope`
-  - `Selector`
-  - `ConfigChangedNotify`
-- report 变体：
-  - `RuntimeReport`
-  - `CompletionReport`
-  - `ProgressReport`
-  - `DiagnosticReport`
-  - `ReportEnvelope`
+### 8.1 九个子包逐包矩阵（按文件展开）
 
-#### 类型引用关系
-- `RegisterResponse.Lease`、`HeartbeatRequest.Lease`、`ContextRequest.Lease`、`EventNotify.Lease`、`LogNotify.Lease`、`ApprovalRequest.Lease`、`ReportRequest.Lease`、`ShutdownRequest.Lease` 都直接引用 `LeaseKey`
-- `Selector.Scope` 是 `*SelectorScope`
-- `HookSubscribeRequest.Scope` / `HookSubscribeResponse.EffectiveScope` / `ConfigChangedNotify.Selector` 都直接引用 `Selector`
-- `HookPendingResponse.Reviews` 是 `[]PendingHookReview`
-- `ReportEnvelope` 是判别联合：`Runtime` / `Completion` / `Progress` / `Diagnostic`
-- `ReportRequest.Report` 直接引用 `ReportEnvelope`
+#### 8.1.1 `shared`
 
-#### 兼容性字段
-- `RegisterResponse.LeaseID` 标记为 deprecated，将在 **2026-06-30** 后移除
-- `HeartbeatRequest.LeaseID` 标记为 deprecated，将在 **2026-06-30** 后移除
-- `ApprovalRequest.LeaseID` 标记为 deprecated，将在 **2026-06-30** 后移除
-- `ReportRequest.LeaseID` 标记为 deprecated，将在 **2026-06-30** 后移除
-- `ContextRequest.InstanceID/AgentID`、`EventNotify.InstanceID`、`LogNotify.InstanceID`、`ApprovalRequest.InstanceID`、`ReportRequest.InstanceID` 属于兼容镜像字段
+| 文件 | 用途 | 消费方 | 产出方 | 锚点 |
+|---|---|---|---|---|
+| `errors.go` | 导出 DTO 层共用错误变量，给上层 wrap / compare | `thread/turn/provider` 相关调用链、契约测试 | `shared` 包自身初始化 | `internal/dto/shared/errors.go:5` |
+| `event.go` | 定义 `EventType*` 常量与 Header 继承骨架 | `agent/thread/tool/turn/task/ui` 全部 typed event；`internal/provider/unified/event_map.go:28` 的 publisher 注册表 | 所有 emitter / translator 在构造 typed event 时嵌入 | `internal/dto/shared/event.go:5`, `:55`, `:83`, `:125` |
+| `input.go` | 定义唯一共享输入条目 `InputItem` | `turn/model.go`、`provider/turn.go` 别名复用；thread/turn 提交链 | UI turn submit、thread start/steer 请求装配 | `internal/dto/shared/input.go:3` |
 
-### 4.3 `provider`
+#### 8.1.2 `agent`
 
-#### 常量与基础类型
-- `CapabilitySet`：`map[string]bool`
-- 能力常量：`CapMessageSend="message_send"`、`CapThreadList="thread_list"`、`CapThreadFork="thread_fork"`、`CapThreadRealtime="realtime"`、`CapModelSwitch="model_switch"`、`CapContextCompact="context_compact"`、`CapTurnOverride="turn_override"`
-- `CapabilityError`
-- `ToolFamily`：底层类型为 `string`
-- 工具家族常量：`FamilyLSP="lsp"`、`FamilyOrch="orch"`、`FamilyIDA="ida"`
+| 文件 | 用途 | 消费方 | 产出方 | 锚点 |
+|---|---|---|---|---|
+| `diagnostic.go` | `AgentWarning` / `AgentError` typed diagnostic DTO | memory hooks、uistate、eventsurface、日志/审计下游 | `internal/provider/unified/event_map.go:161`, `:169` 公共 raw translator | `internal/dto/agent/diagnostic.go:10`, `:19` |
+| `event.go` | Agent 生命周期 typed event：launch/state/stop/recover/fail | orchestration、uistate sidebar、eventsurface push | `internal/provider/claudecli/event_map.go:62`, `internal/provider/codexapp/event_map.go:116` | `internal/dto/agent/event.go:6`, `:14`, `:23`, `:29`, `:36` |
+| `runtime.go` | 运行时端口/provider runtime report DTO | uistate runtime patch、mcp report 对账 | `claudecli system:init` / mcp runtime report 生产 | `internal/dto/agent/runtime.go:5`, `:11` |
+| `state.go` | agent 状态常量、触发器、转移矩阵 | `codexapp.validatedStateChangedEvent`、orchestration 状态机、测试断言 | 生命周期实现与状态校验逻辑 | `internal/dto/agent/state.go:3`, `:16`, `:30`, `:40` |
 
-#### 原始 provider 事件
-- `RawProviderEvent`：字段为 `EventType string`、`Data any`
-- `BusRawProviderEvent`：字段为 `Event RawProviderEvent`
-- `EventTranslator`：`func(raw RawProviderEvent, publish func(ev any))`
+#### 8.1.3 `mcp`
 
-#### Manifest / MCP 配置 DTO
-- `MCPBinary`：`Name`、`Type`、`URL`、`Command`、`Env`、`AutoApprove`
-- `MCPManifest`：`Binaries []MCPBinary`
-- `ManifestContext`：`AgentID`、`CWD`、`ThreadCaps CapabilitySet`、`BinaryDir`、`Env`、`AutoApprove`、`PeerHTTPAddrs map[ToolFamily]string`
-- `BuildManifest(ctx ManifestContext) MCPManifest`
+| 文件 | 用途 | 消费方 | 产出方 | 锚点 |
+|---|---|---|---|---|
+| `approval_response.go` | 统一 approval 回调响应 DTO | peer callback、approval bridge | UI / orch 审批结果写回方 | `internal/dto/mcp/approval_response.go:6` |
+| `constants.go` | `ctl/*` 方法、scope、status、report variant、hook decision 常量 | `cmd/mcp-orch`、`internal/mcpserver/common/bootstrap`、peer 客户端 | 所有协议调用方按常量拼装 | `internal/dto/mcp/constants.go:3` |
+| `errors.go` | MCP 协议稳定错误码 | server 错误映射、客户端重试/分流 | protocol handler 返回错误时引用 | `internal/dto/mcp/errors.go:4` |
+| `hook.go` | hook subscribe / resolve / pending review 全套 DTO | hookstore、bootstrap lifecycle、peer review UI | tool sidecar / orch hook peer | `internal/dto/mcp/hook.go:11`, `:57`, `:76`, `:105` |
+| `protocol.go` | register / heartbeat / context / event / report / shutdown / selector 核心 wire contract | `cmd/mcp-orch/runtime.go`、`internal/mcpserver/common/server.go`、sidecar client | tool / orch / lsp / ida 进程 | `internal/dto/mcp/protocol.go:12`, `:46`, `:85`, `:153`, `:182`, `:200` |
 
-#### 其他结构体
-- 会话：`StartSessionRequest`、`ResumeSessionRequest`
-- 线程：`ThreadRef`、`ThreadConfigPatch`、`ThreadConfigValues`、`ThreadConfig`、`ThreadCompactResult`
-- 消息：`Message`、`ThreadMessagesResult`
-- Turn：`InputItem = shareddto.InputItem`、`TurnRequest`、`TurnOverrides`、`SkillRef`、`TurnResult`、`InterruptRequest`、`SteerRequest`、`ForceCompleteRequest`、`ForkRequest`、`ForkResult`
+#### 8.1.4 `provider`
 
-#### 关键字段与关系
-- `TurnRequest` 引用：`[]InputItem`、`[]SkillRef`、`TurnOverrides`、`MCPManifest`
-- `SteerRequest` 引用：`[]InputItem`、`[]SkillRef`、`TurnOverrides`（**不含** `MCPManifest`）
-- `ThreadConfig.Override` / `ThreadConfig.Effective` 都是 `ThreadConfigValues`
-- `ThreadMessagesResult.Messages` 是 `[]Message`
-- `Message.Timestamp` 的 JSON tag 是 `createdAt`；`message_test.go` 断言序列化输出包含 `createdAt` 且不包含 `timestamp`
-- `ManifestContext.ThreadCaps` 是 `CapabilitySet`
-- `ManifestContext.PeerHTTPAddrs` 是 `map[ToolFamily]string`
+| 文件 | 用途 | 消费方 | 产出方 | 锚点 |
+|---|---|---|---|---|
+| `attachment.go` | prompt / memory 附件信封 | provider turn input builder、attachment renderer | `memory/retrieval`、`memory/nested` | `internal/dto/provider/attachment.go:8` |
+| `capability.go` | `CapabilitySet` 与 capability 常量 | manifest builder、thread capability 判断 | thread start / provider factory 配置 | `internal/dto/provider/capability.go:3`, `:5` |
+| `event.go` | `RawProviderEvent` / `BusRawProviderEvent` raw carrier | `internal/provider/unified/event_map.go`、bus sink、事件审计 | claude/codex session read loop | `internal/dto/provider/event.go:6`, `:14` |
+| `manifest.go` | provider 可见的 `ToolFamily/MCPBinary/MCPManifest/ManifestContext` | `internal/provider/manifestbuilder/manifest.go:16`、drivers、manifest tests | thread 启动配置组装 | `internal/dto/provider/manifest.go:3`, `:11`, `:20`, `:24` |
+| `message.go` | provider history message / thread message page 结果 | thread/history API、UI 历史页 | provider history loader | `internal/dto/provider/message.go:5`, `:16` |
+| `session.go` | prompt assembly snapshot、start/resume session carrier | `contract.Driver.StartSession/ResumeSession`、driver config builder | `internal/module/thread/start_session.go:152`、prompt assembly | `internal/dto/provider/session.go:21`, `:26`, `:47`, `:55`, `:73` |
+| `thread.go` | provider thread 轻量引用 | thread list/history 查询 | provider list/history 实现 | `internal/dto/provider/thread.go:3` |
+| `thread_config.go` | thread override/config/compact result carrier | thread config/set RPC、session.Configure、compact UI | `internal/module/thread` config 读写链 | `internal/dto/provider/thread_config.go:3`, `:16`, `:24` |
+| `turn.go` | turn / steer / interrupt / force-complete / fork / skill 引用 carrier | `internal/module/turn`、provider session methods、契约测试 | turn service / thread service / tests | `internal/dto/provider/turn.go:10`, `:44`, `:132`, `:144`, `:155`, `:160` |
 
-#### 辅助变量/函数
-- 方法：`(*CapabilityError).Error()`、`NewCapabilityError(cap, driver)`、`(CapabilitySet).Has(cap)`、`(CapabilitySet).All(caps...)`
-- manifest 包级变量：`mcpRequiredEnvKeys`、`mcpPassthroughEnvKeys`、`mcpLegacyEnvAliases`
-- manifest 非导出辅助函数：`cloneManifestEnv`、`normalizeManifestEnv`、`promoteManifestEnv`
+#### 8.1.5 `task`
 
-#### 需要特别标注的源码事实
-- `ThreadConfigPatch` 有 `Personality *string`，但 `ThreadConfigValues` **没有** `Personality` 字段；地图中需要保留这个不对称事实。
-- `TurnRequest.LocalID` / `TurnResult.LocalID` / `TurnResult.ProviderID` 采用 `camelCase` JSON。
-- `ResumeSessionRequest` 比旧地图多出 `Path`、`CWD`、`Model` 三个恢复上下文字段。
-- `BuildManifest` 默认只放入 `FamilyLSP` 与 `FamilyOrch`；仅当 `ctx.ThreadCaps.Has("ida")` 为真时才追加 `FamilyIDA`。
-- `CapThreadRealtime` 的源码值是 `"realtime"`，不是 `"thread_realtime"`；`BuildManifest` 对 IDA 的判断使用字符串 `"ida"`，不是上述 `Cap*` 常量。
+| 文件 | 用途 | 消费方 | 产出方 | 锚点 |
+|---|---|---|---|---|
+| `event.go` | DAG / node / wakeup typed event | watcher、orchestration、UI task 投影 | taskdag store / watcher / scheduler | `internal/dto/task/event.go:6`, `:14`, `:24`, `:31` |
 
-### 4.4 `task`
+#### 8.1.6 `thread`
 
-`task/event.go` 只包含 4 个 typed event：
+| 文件 | 用途 | 消费方 | 产出方 | 锚点 |
+|---|---|---|---|---|
+| `event.go` | thread start/stop/messages/compact/update typed event | memory、uistate、eventsurface、hooks relay | `internal/module/thread/factory.go:138`, `internal/module/thread/service.go:128` | `internal/dto/thread/event.go:6`, `:18`, `:27`, `:35`, `:46` |
 
-| 类型 | Header | 关键字段 |
-|---|---|---|
-| `TaskDagCreated` | `shared.TaskDAGHeader` | `Title`、`Status`、`CreatedBy` |
-| `TaskNodeStatusChanged` | `shared.TaskNodeHeader` | `AssignedTo`、`OldStatus`、`NewStatus`、`ActiveTurnID`、`ActiveWakeupID` |
-| `TaskWakeupDispatched` | `shared.TaskWakeupHeader` | `WakeupKind`、`TargetAgentID` |
-| `TaskWakeupCompleted` | `shared.TaskWakeupHeader` | `TargetAgentID`、`Status`、`BoundTurnID` |
+#### 8.1.7 `tool`
 
-### 4.5 `thread`
+| 文件 | 用途 | 消费方 | 产出方 | 锚点 |
+|---|---|---|---|---|
+| `event.go` | tool begin/end/approval/diff typed event | uistate timeline、eventsurface、approval bridge、diff 展示 | provider translators、toolbridge diff emitter | `internal/dto/tool/event.go:10`, `:17`, `:29`, `:37`, `:46` |
 
-`thread/event.go` 包含 4 个线程事件，全部以 `shared.EventHeader` 为基础，再显式铺平线程字段：
+#### 8.1.8 `turn`
 
-| 类型 | Header | 关键字段 |
-|---|---|---|
-| `Started` | `shared.EventHeader` | `ThreadID`、`AgentID`、`Provider`、`ProviderThreadID`、`CWD`、`Model`、`Name` |
-| `Stopped` | `shared.EventHeader` | `ThreadID`、`AgentID`、`Status`、`Reason` |
-| `MessagesPage` | `shared.EventHeader` | `ThreadID`、`TotalCount`、`Pages` |
-| `Compacted` | `shared.EventHeader` | `ThreadID`、`Command`、`BeforeTokens`、`AfterTokens`、`Compacted`、`Estimated` |
+| 文件 | 用途 | 消费方 | 产出方 | 锚点 |
+|---|---|---|---|---|
+| `event.go` | turn 生命周期 DTO | orchestration hook consumer、memory hooks、uistate | provider translators、orchestration lifecycle | `internal/dto/turn/event.go:6`, `:11`, `:24`, `:30`, `:37`, `:43`, `:52` |
+| `model.go` | UI / RPC 提交模型 `TurnSubmission` | turn RPC handler、service 层 | 前端 composer / rpc client | `internal/dto/turn/model.go:11` |
+| `progress.go` | plan/item 增量事件 DTO | uistate timeline、memory metadata、eventsurface | `internal/provider/unified/event_map.go:178`, `:191`, `:202` | `internal/dto/turn/progress.go:10`, `:18`, `:25`, `:37` |
 
-补充：`thread.Compacted` 与 `provider.ThreadCompactResult` 语义相近，但前者是事件 DTO（带 `timestamp`），后者是 provider 接口返回 DTO（`camelCase` 字段、无 Header）。
+#### 8.1.9 `ui`
 
-### 4.6 `tool`
+| 文件 | 用途 | 消费方 | 产出方 | 锚点 |
+|---|---|---|---|---|
+| `event.go` | projection revision、timeline、tokens、skills、preferences、thread patch DTO | eventsurface、rpc push、frontend 订阅端 | `uistate` projector、skill watcher、provider translator | `internal/dto/ui/event.go:6`, `:21`, `:30`, `:40`, `:60` |
+| `patch_types.go` | `UIThreadPatch` 嵌套 patch 结构 | `uistate/patch.go`、前端 patch reducer | uistate patch builder | `internal/dto/ui/patch_types.go:4`, `:12`, `:33` |
 
-| 类型 | Header | 关键字段 |
-|---|---|---|
-| `ToolCallBegin` | `shared.ToolCallHeader` | `RequestID`、`ArgumentsPreview` |
-| `ToolCallEnd` | `shared.ToolCallHeader` | `Success`、`Error`、`Result`、`ElapsedMS` |
-| `ToolApprovalRequested` | `shared.ToolApprovalHeader` | `RequestID`、`Reason`、`Kind` |
-| `ToolApprovalResolved` | `shared.ToolApprovalHeader` | `Approved`、`Decision`、`ReviewedBy`、`Kind` |
-| `ToolDiffUpdated` | 无 | `Timestamp`、`ThreadID`、`AgentID`、`CallID`、`ToolName`、`DiffText`、`Files`、`Revision` |
+### 8.2 Header 继承关系（对应 B17 §3.2 Mermaid）
 
-### 4.7 `turn`
+```mermaid
+graph TD
+  eh[EventHeader] --> th[ThreadHeader]
+  th --> ah[AgentHeader]
+  ah --> ash[AgentSessionHeader]
+  ah --> tuh[TurnHeader]
+  tih[TurnIDHeader] --> tuh
+  tuh --> tch[ToolCallHeader]
+  tch --> tah[ToolApprovalHeader]
+```
 
-#### 输入模型
-- `InputItem = shareddto.InputItem`
-- `TurnSubmission`
-  - 字段：`AgentID`、`ThreadID`、`ExpectedTurnID`、`Inputs`、`SelectedSkills`、`ManualSkillSelection`、`OutputSchema`
-  - 需要注意：`Inputs` 的 JSON tag 是 **`input`**，不是 `inputs`
+| Header | 直接嵌入 / 继承 | 新增字段 | 主要承载场景 | 锚点 |
+|---|---|---|---|---|
+| `EventHeader` | — | `Timestamp` | 所有 typed event 的统一事件时间 | `internal/dto/shared/event.go:55` |
+| `ThreadHeader` | `EventHeader` | `ThreadID` | thread / UI projection 级事件 | `internal/dto/shared/event.go:60` |
+| `AgentHeader` | `ThreadHeader` | `AgentID` | agent / turn / tool 事件 | `internal/dto/shared/event.go:66` |
+| `AgentSessionHeader` | `AgentHeader` | `SessionID` | provider session 绑定的 agent 事件 | `internal/dto/shared/event.go:72` |
+| `TurnIDHeader` | — | `TurnID` | 作为可复用 turn 标识碎片被二次组合 | `internal/dto/shared/event.go:78` |
+| `TurnHeader` | `AgentHeader` + `TurnIDHeader` | — | turn 生命周期、plan/item 进度 | `internal/dto/shared/event.go:83` |
+| `ToolCallHeader` | `TurnHeader` | `CallID`、`ToolName` | tool begin/end | `internal/dto/shared/event.go:89` |
+| `ToolApprovalHeader` | `ToolCallHeader` | `ApprovalID` | tool approval request / resolve | `internal/dto/shared/event.go:96` |
+| `DAGHeader` | `EventHeader` | `DagKey` | task DAG 级事件 | `internal/dto/shared/event.go:102` |
+| `TaskNodeHeader` | `TaskDAGHeader` | `NodeKey` | task node 状态变化 | `internal/dto/shared/event.go:113` |
+| `TaskWakeupHeader` | `TaskNodeHeader` | `WakeupID` | task wakeup 派发 / 完成 | `internal/dto/shared/event.go:119` |
+| `UIProjectionHeader` | `ThreadHeader` | `Projection` | UI projection revision / tokens | `internal/dto/shared/event.go:125` |
+| `UITurnHeader` | `UIProjectionHeader` + `TurnIDHeader` | — | UI turn timeline / token usage | `internal/dto/shared/event.go:131` |
 
-#### 生命周期与进度事件
-| 类型 | Header | 关键字段 |
-|---|---|---|
-| `TurnStarted` | `shared.TurnHeader` | 无附加字段 |
-| `TurnCompleted` | `shared.TurnHeader` | `Success`、`Error`、`Status`、`Reason`、`Result`、`Summary`、`Message`、`StopReason` |
-| `TurnInterrupted` | `shared.TurnHeader` | `Reason` |
-| `TurnStalled` | `shared.TurnHeader` | `Reason`、`StalledMS` |
-| `TurnResumed` | `shared.TurnHeader` | `Reason` |
-| `TurnInputReceived` | `shared.TurnHeader` | `InputType`、`RequestID`、`Source` |
-| `TurnOutputDelta` | `shared.TurnHeader` | `Stream`、`Delta` |
-| `PlanDelta` | `shared.TurnHeader` | `RawType`、`Delta`、`Payload` |
-| `PlanUpdated` | `shared.TurnHeader` | `RawType`、`Payload` |
-| `ItemStarted` | `shared.TurnHeader` | `RawType`、`ItemType`、`Command`、`File`、`ToolName`、`CallID`、`Payload` |
-| `ItemCompleted` | `shared.TurnHeader` | `RawType`、`ItemType`、`Command`、`File`、`ToolName`、`CallID`、`ExitCode`、`Success`、`Error`、`Payload` |
+### 8.3 `Thread` 字段级展开（补全继承字段）
 
-### 4.8 `ui`
+> 对应源码：`internal/dto/thread/event.go:6/18/27/35/46`。这里把嵌入的 `EventHeader.Timestamp` 一并展开，不再只写“公共 Header”。
 
-#### 事件类型
-| 类型 | Header | 关键字段 |
-|---|---|---|
-| `UIProjectionUpdated` | `shared.UIProjectionHeader` | `Revision` |
-| `UITimelineAppended` | `shared.UITurnHeader` | `ItemID`、`ItemKind`、`RequestID`、`CallID` |
-| `UITokensUpdated` | `shared.UITurnHeader` | `InputTokens`、`OutputTokens`、`TotalTokens`、`ContextWindowTokens` |
-| `SkillsChanged` | `shared.EventHeader` | `SkillsDir`、`Name`、`Action`、`Actions`、`Count` |
-| `UIPreferencesChanged` | `shared.EventHeader` | `Cwd`、`Key`、`Value` |
-| `UIThreadPatch` | 无 | 面向 UI 的线程 patch 载荷 |
+| DTO | 字段 | JSON | 来源 | 说明 |
+|---|---|---|---|---|
+| `Started` / `Stopped` / `MessagesPage` / `Compacted` / `Updated` | `Timestamp` | `timestamp` | `shared.EventHeader` | typed event 统一事件时间 |
+| `Started` | `ThreadID` | `thread_id` | 直接字段 | 内部 thread id |
+| `Started` | `AgentID` | `agent_id` | 直接字段 | 启动该 thread 的 agent |
+| `Started` | `Provider` | `provider` | 直接字段 | provider 名 |
+| `Started` | `ProviderThreadID` | `provider_thread_id` | 直接字段 | provider 侧 thread id |
+| `Started` | `CWD` | `cwd` | 直接字段 | 会话 cwd |
+| `Started` | `Model` | `model` | 直接字段 | 启动模型 |
+| `Started` | `Name` | `name` | 直接字段 | UI 展示名 |
+| `Stopped` | `ThreadID` | `thread_id` | 直接字段 | 被停止 thread |
+| `Stopped` | `AgentID` | `agent_id` | 直接字段 | 所属 agent |
+| `Stopped` | `Status` | `status` | 直接字段 | 停止后的线程状态 |
+| `Stopped` | `Reason` | `reason` | 直接字段 | 停止原因 |
+| `MessagesPage` | `ThreadID` | `thread_id` | 直接字段 | 历史分页所属 thread |
+| `MessagesPage` | `TotalCount` | `total_count` | 直接字段 | 历史消息总数 |
+| `MessagesPage` | `Pages` | `pages` | 直接字段 | 历史分页页数 |
+| `Compacted` | `ThreadID` | `thread_id` | 直接字段 | 被 compact 的 thread |
+| `Compacted` | `Command` | `command` | 直接字段 | 触发 compact 的命令 |
+| `Compacted` | `BeforeTokens` | `before_tokens` | 直接字段 | 压缩前 token |
+| `Compacted` | `AfterTokens` | `after_tokens` | 直接字段 | 压缩后 token |
+| `Compacted` | `Compacted` | `compacted` | 直接字段 | 是否真的发生压缩 |
+| `Compacted` | `Estimated` | `estimated` | 直接字段 | token 是否为估算值 |
+| `Updated` | `ThreadID` | `thread_id` | 直接字段 | 被更新 thread |
+| `Updated` | `Name` | `name` | 直接字段 | thread 名变更 |
+| `Updated` | `Model` | `model` | 直接字段 | 模型变更；可空表示未改 |
 
-#### Patch 相关结构体
-- `ThreadPatchThread`：`ID`、`Name`、`State`
-- `ThreadPatchTokenUsage`：`UsedTokens`、`ContextWindowTokens`、`UsedPercent`
-- `PatchActivityStats`：`LSPCalls`、`Commands`、`FileEdits`、`ToolCalls`
-- `PatchTimelineItem`：`ID`、`Ts`、`Kind`、`Tool`、`Text`、`Command`、`File`、`Status`、`CallID`、`RequestID`、`ElapsedMS`、`Preview`、`Output`、`ExitCode`、`Done`、`Internal`、`Attachments`
-- `PatchAlert`：`ID`、`Time`、`Level`、`Message`
+### 8.4 `Turn` 字段级展开（补全继承字段）
 
-#### `UIThreadPatch` 引用关系
-`UIThreadPatch` 的字段直接引用以下嵌套类型：
-- `Thread *ThreadPatchThread`
-- `TokenUsage *ThreadPatchTokenUsage`
-- `ActivityStats *PatchActivityStats`
-- `Alerts []PatchAlert`
-- `TimelineItems []PatchTimelineItem`
+> 对应源码：`internal/dto/turn/event.go:6/11/24/30/37/43/52`、`internal/dto/turn/progress.go:10/18/25/37`。
 
-此外它还承载：`ThreadID`、`Source`、`Sequence`、`Status`、`StatusHeader`、`StatusDetails`、`OverlayText`、`OverlayType`、`OverlayPriority`、`DiffText`、`DiffRevision`、`Interruptible`、`AgentMeta`、`RemovedItemIds`、`TimelineOrder`、`Recover`、`RefreshRequired`、`FallbackReason`、`ActiveThreadID`、`ActiveCmdThreadID`、`MainAgentID`、`MainAgentState`、`Partial`。
+| DTO | 字段 | JSON | 来源 | 说明 |
+|---|---|---|---|---|
+| 全部 turn family | `Timestamp` | `timestamp` | `shared.EventHeader` | 统一事件时间 |
+| 全部 turn family | `ThreadID` | `thread_id` | `shared.ThreadHeader` | 所属 thread |
+| 全部 turn family | `AgentID` | `agent_id` | `shared.AgentHeader` | 所属 agent |
+| 全部 turn family | `TurnID` | `turn_id` | `shared.TurnIDHeader` | 所属 turn |
+| `TurnStarted` | — | — | `TurnHeader` only | 无附加业务字段 |
+| `TurnCompleted` | `Success` | `success` | 直接字段 | 是否成功终止 |
+| `TurnCompleted` | `Error` | `error` | 直接字段 | 错误文本 |
+| `TurnCompleted` | `Status` | `status` | 直接字段 | provider 返回的终态 |
+| `TurnCompleted` | `Reason` | `reason` | 直接字段 | 中止/完成原因 |
+| `TurnCompleted` | `Result` | `result` | 直接字段 | 结果摘要文本 |
+| `TurnCompleted` | `Summary` | `summary` | 直接字段 | provider summary |
+| `TurnCompleted` | `Message` | `message` | 直接字段 | 完整消息或简化文本 |
+| `TurnCompleted` | `StopReason` | `stop_reason` | 直接字段 | provider stop reason |
+| `TurnInterrupted` | `Reason` | `reason` | 直接字段 | 中断原因 |
+| `TurnStalled` | `Reason` | `reason` | 直接字段 | 卡住原因 |
+| `TurnStalled` | `StalledMS` | `stalled_ms` | 直接字段 | 卡住时长毫秒 |
+| `TurnResumed` | `Reason` | `reason` | 直接字段 | 恢复原因 |
+| `TurnInputReceived` | `InputType` | `input_type` | 直接字段 | 输入类别 |
+| `TurnInputReceived` | `RequestID` | `request_id` | 直接字段 | 审批/输入 request id |
+| `TurnInputReceived` | `Source` | `source` | 直接字段 | 输入来源 |
+| `TurnInputReceived` | `Text` | `text` | 直接字段 | 文本输入 |
+| `TurnOutputDelta` | `Stream` | `stream` | 直接字段 | `message` / `reasoning` / `stdout` |
+| `TurnOutputDelta` | `Delta` | `delta` | 直接字段 | 增量文本 |
+| `PlanDelta` | `RawType` | `raw_type` | 直接字段 | 原始 provider raw type |
+| `PlanDelta` | `Delta` | `delta` | 直接字段 | 增量 plan 文本 |
+| `PlanDelta` | `Payload` | `payload` | 直接字段 | 原始 JSON 保留槽 |
+| `PlanUpdated` | `RawType` | `raw_type` | 直接字段 | 原始 raw type |
+| `PlanUpdated` | `Payload` | `payload` | 直接字段 | 全量 plan JSON |
+| `ItemStarted` | `RawType` | `raw_type` | 直接字段 | 原始 item started 类型 |
+| `ItemStarted` | `ItemType` | `item_type` | 直接字段 | item 子类型 |
+| `ItemStarted` | `Command` | `command` | 直接字段 | 命令项命令文本 |
+| `ItemStarted` | `File` | `file` | 直接字段 | 文件路径 |
+| `ItemStarted` | `ToolName` | `tool_name` | 直接字段 | 工具名 |
+| `ItemStarted` | `CallID` | `call_id` | 直接字段 | tool call id |
+| `ItemStarted` | `Payload` | `payload` | 直接字段 | 原始 JSON 保留槽 |
+| `ItemCompleted` | `RawType` | `raw_type` | 直接字段 | 原始 item completed 类型 |
+| `ItemCompleted` | `ItemType` | `item_type` | 直接字段 | item 子类型 |
+| `ItemCompleted` | `Command` | `command` | 直接字段 | 命令文本 |
+| `ItemCompleted` | `File` | `file` | 直接字段 | 文件路径 |
+| `ItemCompleted` | `ToolName` | `tool_name` | 直接字段 | 工具名 |
+| `ItemCompleted` | `CallID` | `call_id` | 直接字段 | tool call id |
+| `ItemCompleted` | `ExitCode` | `exit_code` | 直接字段 | 退出码 |
+| `ItemCompleted` | `Success` | `success` | 直接字段 | 是否成功 |
+| `ItemCompleted` | `Error` | `error` | 直接字段 | 错误文本 |
+| `ItemCompleted` | `Payload` | `payload` | 直接字段 | 原始 JSON 保留槽 |
 
----
+### 8.5 `Skill` / `UIThreadPatch` / `UIState` 字段级展开
 
-## 5. 跨包关系与审查结论
+#### 8.5.1 `Skill`（实际 carrier=`ui.SkillsChanged`）
 
-### 5.1 类型引用关系总表
+| 字段 | JSON | 来源 | 说明 | 锚点 |
+|---|---|---|---|---|
+| `Timestamp` | `timestamp` | `shared.EventHeader` | 事件时间 | `internal/dto/ui/event.go:30` |
+| `SkillsDir` | `skillsDir` | 直接字段 | 发生变更的 skills 根目录 | `internal/dto/ui/event.go:32` |
+| `Name` | `name` | 直接字段 | 被改动的 skill 名 | `internal/dto/ui/event.go:33` |
+| `Action` | `action` | 直接字段 | 单动作聚合值 | `internal/dto/ui/event.go:34` |
+| `Actions` | `actions` | 直接字段 | 去重后的动作集合 | `internal/dto/ui/event.go:35` |
+| `Count` | `count` | 直接字段 | 动作数量 | `internal/dto/ui/event.go:36` |
 
-| 来源类型 | 目标类型 | 关系 |
-|---|---|---|
-| `provider.InputItem` | `shared.InputItem` | 类型别名 |
-| `turn.InputItem` | `shared.InputItem` | 类型别名 |
-| `turn.TurnSubmission` | `turn.InputItem`（即 `shared.InputItem`） | `Inputs []InputItem` |
-| `provider.TurnRequest` | `provider.InputItem`（即 `shared.InputItem`）、`provider.SkillRef`、`provider.TurnOverrides`、`provider.MCPManifest` | 字段引用 |
-| `provider.SteerRequest` | `provider.InputItem`（即 `shared.InputItem`）、`provider.SkillRef`、`provider.TurnOverrides` | 字段引用 |
-| `provider.MCPManifest` | `provider.MCPBinary` | `Binaries []MCPBinary` |
-| `provider.ManifestContext` | `provider.CapabilitySet`、`provider.ToolFamily` | `ThreadCaps`、`PeerHTTPAddrs map[ToolFamily]string` |
-| `provider.ThreadConfig` | `provider.ThreadConfigValues` | `Override`、`Effective` |
-| `provider.ThreadMessagesResult` | `provider.Message` | `Messages []Message` |
-| `provider.BusRawProviderEvent` | `provider.RawProviderEvent` | `Event RawProviderEvent` |
-| `mcp.RegisterResponse` 等 8 个协议 DTO | `mcp.LeaseKey` | `Lease` 字段复用 |
-| `mcp.Selector` | `mcp.SelectorScope` | `Scope *SelectorScope` |
-| `mcp.HookSubscribeRequest` / `HookSubscribeResponse` / `ConfigChangedNotify` | `mcp.Selector` | 字段引用 |
-| `mcp.HookPendingResponse` | `mcp.PendingHookReview` | `Reviews []PendingHookReview` |
-| `mcp.ReportEnvelope` | `mcp.RuntimeReport` / `mcp.CompletionReport` / `mcp.ProgressReport` / `mcp.DiagnosticReport` | 判别联合 |
-| `mcp.ReportRequest` | `mcp.ReportEnvelope` | `Report` 字段 |
-| `agent.*` typed events | `shared.AgentSessionHeader` | 事件 Header |
-| `task.*` | `shared.TaskDAGHeader` / `shared.TaskNodeHeader` / `shared.TaskWakeupHeader` | 事件 Header |
-| `thread.*` | `shared.EventHeader` | 事件 Header（未使用 `shared.ThreadHeader`） |
-| `tool.ToolCall*` | `shared.ToolCallHeader` | 事件 Header |
-| `tool.ToolApproval*` | `shared.ToolApprovalHeader` | 事件 Header |
-| `turn.*` | `shared.TurnHeader` | 事件 Header |
-| `ui.UIProjectionUpdated` | `shared.UIProjectionHeader` | 事件 Header |
-| `ui.UITimelineAppended` / `ui.UITokensUpdated` | `shared.UITurnHeader` | 事件 Header |
-| `ui.UIThreadPatch` | `ui.ThreadPatchThread`、`ui.ThreadPatchTokenUsage`、`ui.PatchActivityStats`、`ui.PatchAlert`、`ui.PatchTimelineItem` | patch 嵌套模型 |
+#### 8.5.2 `UIThreadPatch` 顶层字段
 
-### 5.2 名称相近但并非同一类型的 DTO
+| 字段 | JSON | 类型 | 说明 | 锚点 |
+|---|---|---|---|---|
+| `ThreadID` | `threadId` | `string` | patch 目标 thread | `internal/dto/ui/event.go:61` |
+| `Source` | `source` | `string` | patch 来源（uistate / provider / recover） | `internal/dto/ui/event.go:62` |
+| `Sequence` | `sequence` | `int64` | 单线程增量序号 | `internal/dto/ui/event.go:63` |
+| `Thread` | `thread` | `*ThreadPatchThread` | thread 摘要 | `internal/dto/ui/event.go:64` |
+| `Status` | `status` | `string` | 主状态文案 | `internal/dto/ui/event.go:65` |
+| `StatusHeader` | `statusHeader` | `string` | 状态标题 | `internal/dto/ui/event.go:66` |
+| `StatusDetails` | `statusDetails` | `string` | 状态详情 | `internal/dto/ui/event.go:67` |
+| `OverlayText` | `overlayText` | `string` | 覆层文本 | `internal/dto/ui/event.go:68` |
+| `OverlayType` | `overlayType` | `string` | 覆层类别 | `internal/dto/ui/event.go:69` |
+| `OverlayPriority` | `overlayPriority` | `int` | 覆层优先级 | `internal/dto/ui/event.go:70` |
+| `TokenUsage` | `tokenUsage` | `*ThreadPatchTokenUsage` | token 百分比摘要 | `internal/dto/ui/event.go:71` |
+| `DiffText` | `diffText` | `string` | 当前 diff 预览 | `internal/dto/ui/event.go:72` |
+| `DiffRevision` | `diffRevision` | `int64` | diff 修订号 | `internal/dto/ui/event.go:73` |
+| `Interruptible` | `interruptible` | `*bool` | 是否可中断 | `internal/dto/ui/event.go:74` |
+| `AgentMeta` | `agentMeta` | `map[string]any` | 附加 agent metadata | `internal/dto/ui/event.go:75` |
+| `ActivityStats` | `activityStats` | `*PatchActivityStats` | 活动统计 | `internal/dto/ui/event.go:76` |
+| `Alerts` | `alerts` | `[]PatchAlert` | 告警列表 | `internal/dto/ui/event.go:77` |
+| `TimelineItems` | `timelineItems` | `[]PatchTimelineItem` | timeline 增量条目 | `internal/dto/ui/event.go:78` |
+| `RemovedItemIds` | `removedItemIds` | `[]string` | 需要删除的 timeline item id | `internal/dto/ui/event.go:79` |
+| `TimelineOrder` | `timelineOrder` | `[]string` | timeline 排序结果 | `internal/dto/ui/event.go:80` |
+| `Recover` | `recover` | `bool` | 标记为恢复性 patch | `internal/dto/ui/event.go:81` |
+| `RefreshRequired` | `refreshRequired` | `bool` | 前端需全量刷新 | `internal/dto/ui/event.go:82` |
+| `FallbackReason` | `fallbackReason` | `string` | fallback 原因 | `internal/dto/ui/event.go:83` |
+| `ActiveThreadID` | `activeThreadId` | `string` | 当前激活聊天线程 | `internal/dto/ui/event.go:84` |
+| `ActiveCmdThreadID` | `activeCmdThreadId` | `string` | 当前激活命令线程 | `internal/dto/ui/event.go:85` |
+| `MainAgentID` | `mainAgentId` | `string` | 当前主 agent | `internal/dto/ui/event.go:86` |
+| `MainAgentState` | `mainAgentState` | `string` | 当前主 agent 状态 | `internal/dto/ui/event.go:87` |
+| `Partial` | `partial` | `bool` | 是否为部分 patch | `internal/dto/ui/event.go:88` |
 
-这部分在源码里很容易看漏，地图需要明确区分：
+#### 8.5.3 `UIThreadPatch` 嵌套补丁类型
 
-- `agent.RuntimeReport`：agent 运行态普通 DTO
-- `agent.AgentRuntimeReported`：agent 运行态 typed event
-- `mcp.RuntimeReport`：`ctl/report` 的 runtime variant
-- `mcp.ApprovalResponse`：控制面协议响应
-- `tool.ToolApprovalResolved`：内部事件总线里的工具审批结果事件
+| 类型 | 字段 | JSON | 说明 | 锚点 |
+|---|---|---|---|---|
+| `ThreadPatchThread` | `ID` | `id` | thread id | `internal/dto/ui/event.go:47` |
+| `ThreadPatchThread` | `Name` | `name` | thread 名 | `internal/dto/ui/event.go:49` |
+| `ThreadPatchThread` | `State` | `state` | thread/state 聚合状态 | `internal/dto/ui/event.go:50` |
+| `ThreadPatchTokenUsage` | `UsedTokens` | `usedTokens` | 已用 token | `internal/dto/ui/event.go:53` |
+| `ThreadPatchTokenUsage` | `ContextWindowTokens` | `contextWindowTokens` | 上下文窗口 | `internal/dto/ui/event.go:55` |
+| `ThreadPatchTokenUsage` | `UsedPercent` | `usedPercent` | 使用百分比 | `internal/dto/ui/event.go:56` |
+| `PatchActivityStats` | `LSPCalls` | `lspCalls` | LSP 调用次数 | `internal/dto/ui/patch_types.go:4` |
+| `PatchActivityStats` | `Commands` | `commands` | command 次数 | `internal/dto/ui/patch_types.go:6` |
+| `PatchActivityStats` | `FileEdits` | `fileEdits` | 文件编辑次数 | `internal/dto/ui/patch_types.go:7` |
+| `PatchActivityStats` | `ToolCalls` | `toolCalls` | 每工具调用计数 | `internal/dto/ui/patch_types.go:8` |
+| `PatchTimelineItem` | `ID` | `id` | item id | `internal/dto/ui/patch_types.go:12` |
+| `PatchTimelineItem` | `Ts` | `ts` | 时间戳字符串 | `internal/dto/ui/patch_types.go:14` |
+| `PatchTimelineItem` | `Kind` | `kind` | item 种类 | `internal/dto/ui/patch_types.go:15` |
+| `PatchTimelineItem` | `Tool` | `tool` | 工具名 | `internal/dto/ui/patch_types.go:16` |
+| `PatchTimelineItem` | `Text` | `text` | 文本内容 | `internal/dto/ui/patch_types.go:17` |
+| `PatchTimelineItem` | `Command` | `command` | 命令文本 | `internal/dto/ui/patch_types.go:18` |
+| `PatchTimelineItem` | `File` | `file` | 文件路径 | `internal/dto/ui/patch_types.go:19` |
+| `PatchTimelineItem` | `Status` | `status` | 条目状态 | `internal/dto/ui/patch_types.go:20` |
+| `PatchTimelineItem` | `CallID` | `callId` | 工具调用 id | `internal/dto/ui/patch_types.go:21` |
+| `PatchTimelineItem` | `RequestID` | `requestId` | 审批/输入请求 id | `internal/dto/ui/patch_types.go:22` |
+| `PatchTimelineItem` | `ElapsedMS` | `elapsedMs` | 耗时毫秒 | `internal/dto/ui/patch_types.go:23` |
+| `PatchTimelineItem` | `Preview` | `preview` | 预览文本 | `internal/dto/ui/patch_types.go:24` |
+| `PatchTimelineItem` | `Output` | `output` | 输出全文/截断文本 | `internal/dto/ui/patch_types.go:25` |
+| `PatchTimelineItem` | `ExitCode` | `exitCode` | 退出码 | `internal/dto/ui/patch_types.go:26` |
+| `PatchTimelineItem` | `Done` | `done` | 是否完成 | `internal/dto/ui/patch_types.go:27` |
+| `PatchTimelineItem` | `Internal` | `internal` | 是否内部条目 | `internal/dto/ui/patch_types.go:28` |
+| `PatchTimelineItem` | `Attachments` | `attachments` | 附件列表 | `internal/dto/ui/patch_types.go:29` |
+| `PatchAlert` | `ID` | `id` | alert id | `internal/dto/ui/patch_types.go:33` |
+| `PatchAlert` | `Time` | `time` | 时间字符串 | `internal/dto/ui/patch_types.go:35` |
+| `PatchAlert` | `Level` | `level` | 告警级别 | `internal/dto/ui/patch_types.go:36` |
+| `PatchAlert` | `Message` | `message` | 告警文本 | `internal/dto/ui/patch_types.go:37` |
 
-### 5.3 审查结论
+#### 8.5.4 `UIState`（下游投影快照，不在 `internal/dto/`，但 `05-dto` 需要补全消费者视角）
 
-1. **事件编号表已核对无误**：`shared/event.go` 中的 39 个事件编号，与各包的 `Type()` 实现完全一致。
-2. **Header 继承关系已修正为源码真实情况**：尤其补正了 `thread.*`、`tool.ToolDiffUpdated`、`ui.UIThreadPatch`、`provider.RawProviderEvent` / `provider.BusRawProviderEvent` 这些“非标准 Header”事件/旁路事件。
-3. **原地图存在遗漏**：`agent.RuntimeReport`、`provider.ToolFamily`、`provider.BusRawProviderEvent`、`ui.ThreadPatchThread`、`ui.ThreadPatchTokenUsage`、`shared.FirstEventTime`、`mcp.Status*`、`mcp.ReportVariant*`、`mcp.DecisionSource*` 等已补齐。
-4. **原地图存在错误描述**：`agent/state.go` 并没有 `AllStates()`、`AllTriggers()`、`StateLabel()`；现已按源码修正。
-5. **类型引用关系已补完**：尤其是 `provider` / `mcp` / `turn` / `ui` 组合 DTO 与 `provider.BusRawProviderEvent` 的嵌套关系，旧图描述不完整。
+> 对应源码：`internal/module/uistate/state.go:13`。该结构不是 wire DTO，而是 `ui/state/get` / `ui/state/changed` 消费端最终快照。
 
-## 审查补遗
+| 字段 | JSON | 说明 | 锚点 |
+|---|---|---|---|
+| `Threads` | `threads` | sidebar thread 摘要列表 | `internal/module/uistate/state.go:14` |
+| `Agents` | `agents` | agent 摘要列表 | `internal/module/uistate/state.go:15` |
+| `ActiveTurn` | `active_turn` | 当前活动 turn 摘要 | `internal/module/uistate/state.go:16` |
+| `RecentTurns` | `recent_turns` | 最近 turn 摘要 | `internal/module/uistate/state.go:17` |
+| `TokenUsage` | `token_usage` | 聚合 token 使用量 | `internal/module/uistate/state.go:18` |
+| `Statuses` | `statuses` | 各 thread 状态文本 map | `internal/module/uistate/state.go:19` |
+| `InterruptibleByThread` | `interruptibleByThread` | thread 是否可中断 | `internal/module/uistate/state.go:20` |
+| `StatusHeadersByThread` | `statusHeadersByThread` | thread 状态标题 | `internal/module/uistate/state.go:21` |
+| `StatusDetailsByThread` | `statusDetailsByThread` | thread 状态详情 | `internal/module/uistate/state.go:22` |
+| `TokenUsageByThread` | `tokenUsageByThread` | thread 级 token patch 缓存 | `internal/module/uistate/state.go:23` |
+| `AgentMetaByID` | `agentMetaById` | agent metadata map | `internal/module/uistate/state.go:24` |
+| `AgentRuntimeByID` | `agentRuntimeById` | agent runtime map | `internal/module/uistate/state.go:25` |
+| `DiffTextByAgent` | `diffTextByThread` | thread/agent diff 文本缓存 | `internal/module/uistate/state.go:26` |
+| `DiffRevisionByAgent` | `diffRevisionByThread` | diff revision 缓存 | `internal/module/uistate/state.go:27` |
+| `TimelineByThread` | `timelinesByThread` | 每 thread 的 timeline item | `internal/module/uistate/state.go:28` |
+| `ActivityStatsByThread` | `activityStatsByThread` | 每 thread 的活动统计 | `internal/module/uistate/state.go:29` |
+| `AlertsByThread` | `alertsByThread` | 每 thread 的 alert 列表 | `internal/module/uistate/state.go:30` |
+| `Unchanged` | `unchanged` | 是否本次投影无变化 | `internal/module/uistate/state.go:31` |
+| `ActiveThreadID` | `activeThreadId` | 当前激活 chat thread | `internal/module/uistate/state.go:32` |
+| `ActiveCmdThreadID` | `activeCmdThreadId` | 当前激活 cmd thread | `internal/module/uistate/state.go:33` |
+| `MainAgentID` | `mainAgentId` | 主 agent id | `internal/module/uistate/state.go:34` |
+| `MainAgentState` | `mainAgentState` | 主 agent 状态 | `internal/module/uistate/state.go:35` |
+| `StallThresholdSec` | `-` | 仅服务端内部阈值，不下发 JSON | `internal/module/uistate/state.go:36` |
+| `ShowInjectedPromptInChat` | `settings.showInjectedPromptInChat` | 聊天中是否显示注入 prompt | `internal/module/uistate/state.go:37` |
+| `ViewPrefsChat` | `viewPrefs.chat` | chat 视图偏好 | `internal/module/uistate/state.go:38` |
+| `ViewPrefsCmd` | `viewPrefs.cmd` | cmd 视图偏好 | `internal/module/uistate/state.go:39` |
+| `ThreadPinsChat` | `threadPins.chat` | chat pin 时间戳 | `internal/module/uistate/state.go:40` |
+| `ThreadArchivesChat` | `threadArchives.chat` | chat archive 时间戳 | `internal/module/uistate/state.go:41` |
+| `Groups` | `groups` | thread 分组 | `internal/module/uistate/state.go:42` |
 
-- 本次审查以 **2026-04-12** 的仓库本地源码为准，未引入外部资料；逐文件覆盖 30 个 `.go` 文件，其中 `provider/message_test.go` 用作 `Message` JSON 契约佐证。
-- 已补记 `mcp` 中带明确移除日期的 deprecated 字段：`LeaseID` 相关兼容字段计划在 **2026-06-30** 后移除。
-- 已补记三个容易误读的字段事实：
-  - `turn.TurnSubmission.Inputs` 的 JSON tag 是 `input`
-  - `provider.ThreadConfigPatch` 有 `Personality`，但 `provider.ThreadConfigValues` 没有对应字段
-  - `provider.Message.Timestamp` 的 JSON tag 是 `createdAt`，并由 `provider/message_test.go` 验证不会输出 `timestamp`
-- 已补记四类 Header 例外/旁路：`thread.*`、`tool.ToolDiffUpdated`、`ui.UIThreadPatch`、`provider.RawProviderEvent` / `provider.BusRawProviderEvent`。
+### 8.6 Provider 协议双向映射（对应 B17 §5.1）
+
+#### 8.6.1 主链双向矩阵
+
+| 方向 | DTO / carrier | 生产侧 | 消费侧 | 锚点 |
+|---|---|---|---|---|
+| 出站 | `StartSessionRequest` | `internal/module/thread/start_session.go:152` | `claudecli.Driver.StartSession` / `codexapp.Driver.StartSession` | `internal/dto/provider/session.go:55` |
+| 出站 | `ResumeSessionRequest` | thread resume 链路 | `claudecli.Driver.ResumeSession` / `codexapp.Driver.ResumeSession` | `internal/dto/provider/session.go:73` |
+| 出站 | `TurnRequest` | `internal/module/turn/service.go:119` | provider `session.StartTurn` | `internal/dto/provider/turn.go:10` |
+| 出站 | `SteerRequest` | `internal/module/turn/service.go:153` | provider `session.Steer` | `internal/dto/provider/turn.go:144` |
+| 出站 | `InterruptRequest` | interrupt / approval / input flow | provider `session.Interrupt` | `internal/dto/provider/turn.go:139` |
+| 出站 | `ForceCompleteRequest` | turn 终止/清理流 | provider `session.ForceComplete` | `internal/dto/provider/turn.go:155` |
+| 出站 | `ForkRequest` | thread fork 流 | provider `session.Fork` | `internal/dto/provider/turn.go:160` |
+| 出站 | `ThreadConfigPatch` | thread config/set | provider `session.Configure` | `internal/dto/provider/thread_config.go:3` |
+| 出站 | `AttachmentEnvelope` / `TurnAssembly` | prompt assembly / memory retrieval | provider prompt/input builder | `internal/dto/provider/attachment.go:8`, `internal/dto/provider/session.go:47` |
+| 入站 | `RawProviderEvent` | claude/codex read loop | `internal/provider/unified/event_map.go:103` | `internal/dto/provider/event.go:6` |
+| 入站 | `BusRawProviderEvent` | unified dispatcher raw bus bridge | bus raw 订阅方 / 审计 | `internal/dto/provider/event.go:14` |
+| 入站 | `TurnResult` | provider turn/start 返回值 | `internal/module/turn/service.go` | `internal/dto/provider/turn.go:132` |
+| 入站 | `ForkResult` | provider fork 返回值 | thread fork 调用方 | `internal/dto/provider/turn.go:164` |
+| 入站 | `ThreadRef` / `Message` / `ThreadMessagesResult` | provider history/list API | thread/history、UI 历史页 | `internal/dto/provider/thread.go:3`, `internal/dto/provider/message.go:5`, `:16` |
+| 入站 | `ThreadCompactResult` | compact 执行结果 | thread compact / UI thread summary | `internal/dto/provider/thread_config.go:24` |
+
+```mermaid
+flowchart LR
+  subgraph Outbound[内部 DTO -> Provider]
+    ssr[provider.StartSessionRequest] --> d1[driver.StartSession]
+    rsr[provider.ResumeSessionRequest] --> d2[driver.ResumeSession]
+    tr[provider.TurnRequest / SteerRequest] --> s1[session.StartTurn / Steer]
+    ctrl[Interrupt / ForceComplete / Fork] --> s2[session lifecycle methods]
+    cfg[provider.ThreadConfigPatch] --> s3[session.Configure]
+    ta[provider.TurnAssembly + AttachmentEnvelope] --> s4[input builder / prompt builder]
+  end
+  subgraph Inbound[Provider -> 内部 DTO]
+    raw[provider.RawProviderEvent] --> disp[unified.EventDispatcher]
+    disp --> typed[agent / tool / turn / ui typed events]
+    hist[ThreadRef / Message] --> th[thread history/list]
+    ret[TurnResult / ForkResult / ThreadCompactResult] --> mod[module/thread + module/turn]
+  end
+```
+
+#### 8.6.2 类型引用图（B17 §5.1 Mermaid）
+
+```mermaid
+graph TD
+  sub[turn.TurnSubmission] --> tin[turn.InputItem]
+  tin --> sin[shared.InputItem]
+  req[provider.TurnRequest] --> pin[provider.InputItem]
+  pin --> sin
+  req --> skill[provider.SkillRef]
+  req --> mcp[provider.MCPManifest]
+  mcp --> bin[provider.MCPBinary]
+```
+
+### 8.7 Claude / Codex raw event → 内部事件全量映射
+
+#### 8.7.1 公共 raw translator（两家 provider 都会先走）
+
+| Raw event type | 内部 DTO | 映射锚点 | 备注 |
+|---|---|---|---|
+| 任意 payload 含 `usage` / `tokenUsage` / `contextWindowTokens` 等 token 字段 | `ui.UITokensUpdated` | `internal/provider/unified/ui_tokens.go:14` | `claudecli/event_map.go:26` 与 `codexapp/event_map.go:47` 都会先调用 |
+| `warning` / `configWarning` / `windows/worldWritableWarning` / `deprecationNotice` | `agent.AgentWarning` | `internal/provider/unified/event_map.go:161` | 统一落 `RawType/Message/Code/Payload` |
+| `error` / `stream_error` | `agent.AgentError` | `internal/provider/unified/event_map.go:169` | 统一 recoverable 判定 |
+| `item/plan/delta` / `plan_delta` / `agent/event/plan_delta` | `turn.PlanDelta` | `internal/provider/unified/event_map.go:178` | 保留原始 `Payload` |
+| `turn/plan/updated` / `plan_update` / `turn_plan` | `turn.PlanUpdated` | `internal/provider/unified/event_map.go:185` | 全量 plan 快照 |
+| `item/started` / `item_started` / `agent/event/item_started` | `turn.ItemStarted` | `internal/provider/unified/event_map.go:191` | command/file/tool/call 聚合 |
+| `item/completed` / `item_completed` / `agent/event/item_completed` / `rawResponseItem/completed` | `turn.ItemCompleted` | `internal/provider/unified/event_map.go:202` | 若 payload 同时像 tool call，codex 侧还会再产出 `ToolCallEnd` |
+
+#### 8.7.2 Claude raw translator
+
+| Claude raw event type | 内部 DTO | 锚点 | 备注 |
+|---|---|---|---|
+| `agent:status_patch` | `ui.UIThreadPatch` | `internal/provider/claudecli/event_map.go:44` | 仅填 `ThreadID/Source/Status/StatusHeader/StatusDetails/Partial` |
+| `agent:launched` | `agent.AgentLaunched` | `internal/provider/claudecli/event_map.go:62` | 会话启动 |
+| `system:init` | `agent.AgentRuntimeReported` | `internal/provider/claudecli/event_map.go:68` | 用真实 session UUID 回填 runtime |
+| `agent:state_changed` | `agent.StateChanged` | `internal/provider/claudecli/event_map.go:74` | old/new state 来自 payload |
+| `agent:stopped` | `agent.AgentStopped` | `internal/provider/claudecli/event_map.go:80` | 停止事件 |
+| `agent:failed` | `agent.AgentFailed` | `internal/provider/claudecli/event_map.go:82` | 错误文本映射到 `Error` |
+| `turn:started` | `turn.TurnStarted` | `internal/provider/claudecli/event_map.go:94` | 仅 header |
+| `turn:input_received` | `turn.TurnInputReceived` | `internal/provider/claudecli/event_map.go:96` | 输入类型/来源/文本 |
+| `assistant:message_delta` | `turn.TurnOutputDelta` | `internal/provider/claudecli/event_map.go:103` | `stream` 原样透传 |
+| `turn:interrupted` | `turn.TurnInterrupted` | `internal/provider/claudecli/event_map.go:116` | 原因文本 |
+| `turn:complete` | `turn.TurnCompleted` | `internal/provider/claudecli/event_map.go:121` | 先 reset tool result scope 再发布 |
+| `tool:use_begin` | `tool.ToolCallBegin` | `internal/provider/claudecli/event_map.go:142` | `ArgumentsPreview` 直接取 payload |
+| `tool:use_end` | `tool.ToolCallEnd` | `internal/provider/claudecli/event_map.go:147` | 结果会经 `CaptureToolResult` 得到 `PersistedPath/Truncated/OriginalSize` |
+
+#### 8.7.3 Codex raw translator
+
+| Codex raw event type | 内部 DTO | 锚点 | 备注 |
+|---|---|---|---|
+| `thread/started` / `session.configured` | `agent.AgentLaunched` | `internal/provider/codexapp/event_map.go:116` | 启动/配置完成共用一个 launch DTO |
+| `thread/status/changed` | `agent.StateChanged` | `internal/provider/codexapp/event_map.go:124` | `active/idle` 会规范化成 `turn_running/idle` |
+| `shutdown.complete` / `shutdown_complete` | `agent.AgentStopped` | `internal/provider/codexapp/event_map.go:126` | 停止原因来自 `reason/message` |
+| `recovery.attempt` | `agent.AgentRecovering` | `internal/provider/codexapp/event_map.go:131` | `Attempt` 来自 payload |
+| `connection.dead` | `agent.AgentFailed` | `internal/provider/codexapp/event_map.go:137` | recoverable 读 `recoverable/willRetry` |
+| `turn/completed` / `turn.completed` | `turn.TurnCompleted` | `internal/provider/codexapp/factory.go:156`, `internal/provider/codexapp/event_map.go:148` | `turnTerminalSuccess` 判定成功 |
+| `turn/aborted` / `turn.aborted` | `turn.TurnCompleted` | `internal/provider/codexapp/factory.go:156`, `internal/provider/codexapp/event_map.go:148` | 同 DTO，但 `Success=false` |
+| `turn/started` / `turn.started` | `turn.TurnStarted` | `internal/provider/codexapp/event_map.go:161` | turn 开始 |
+| `turn/interrupted` / `turn.interrupted` | `turn.TurnInterrupted` | `internal/provider/codexapp/event_map.go:163` | turn 被打断 |
+| `item/agentMessage/delta` / `message.delta` / `agent_message_delta` | `turn.TurnOutputDelta` | `internal/provider/codexapp/event_map.go:168` | `Stream=message` |
+| `item/reasoning/summaryTextDelta` / `item/reasoning/textDelta` / `reasoning.delta` | `turn.TurnOutputDelta` | `internal/provider/codexapp/event_map.go:177` | `Stream=reasoning` |
+| `item/commandExecution/outputDelta` / `exec_output_delta` | `turn.TurnOutputDelta` | `internal/provider/codexapp/event_map.go:186` | `Stream=stdout` |
+| `approval/request` / `tool/approval/request` / `item/commandExecution/requestApproval` / `item/fileChange/requestApproval` / `skill/requestApproval` / `tool.approval.requested` / `request_user_input` / `codex/event/request_user_input` / `item/commandExecution/requestUserInput` / `item/commandExecution/request_user_input` / `item/tool/requestUserInput` / `item/tool/request_user_input` / `mcpServer/elicitation/request` | `tool.ToolApprovalRequested` | `internal/provider/codexapp/factory.go:41`, `internal/provider/codexapp/event_map.go:249`, `internal/provider/codexapp/session_approval.go:214` | 全部经 `approvalBridgeMethods` 归一；`request_user_input` 也走同一 DTO |
+| `item/tool/call` / `dynamic_tool_call` / `tool.call.begin` | `tool.ToolCallBegin` | `internal/provider/codexapp/event_map.go:257` | tool begin |
+| `item/completed` / `tool.call.end` | `tool.ToolCallEnd` | `internal/provider/codexapp/event_map.go:263` | 仅当 payload 同时有 `call_id + tool_name`；否则只保留公共 `ItemCompleted` |
+| `approval/resolved` / `tool.approval.resolved` | `tool.ToolApprovalResolved` | `internal/provider/codexapp/event_map.go:285` | 最终审批决策 |
+| `turn/diff/updated` | `tool.ToolDiffUpdated` | `internal/provider/codexapp/event_map.go:292` | diff 文本直出 |
+| `mcpServer/startupStatus/update` / `mcpServer/startupStatus/updated` | — | `internal/provider/codexapp/event_map.go:70` | 只写日志，不生成 typed event |
+
+### 8.8 P18 / P19 / P20 稳定 API 补充注记
+
+| Phase | 稳定点 | 为什么现在可视为稳定 | 复核锚点 |
+|---|---|---|---|
+| P18 | `PromptAssemblyBoundary` / `PromptAssemblySnapshot` / `StartAssembly` / `TurnAssembly` | 已成为 thread→provider prompt 组装的唯一路径；start/resume/turn 三条链都复用 | `internal/dto/provider/session.go:21`, `:26`, `:38`, `:47` |
+| P18 | `AttachmentEnvelope` | retrieval / nested memory 都产出它，provider input builder 统一消费它 | `internal/dto/provider/attachment.go:8` |
+| P18 | `ToolCallEnd.PersistedPath/Truncated/OriginalSize` | Claude/Codex 两条 tool end 路径都经 `CaptureToolResult` 回填，已被 timeline/UI 消费 | `internal/dto/tool/event.go:17`, `internal/provider/claudecli/event_map.go:147`, `internal/provider/codexapp/event_map.go:263` |
+| P19 | `ManifestContext` 只承载数据 | `BuildManifest` 已迁出 DTO 层，DTO 不再夹带组装逻辑 | `internal/dto/provider/manifest.go:24`, `internal/provider/manifestbuilder/manifest.go:16` |
+| P19 | `RawProviderEvent` / `BusRawProviderEvent` 与 `EventTranslator` 分层 | raw carrier 与 translator contract 已彻底拆开，职责稳定 | `internal/dto/provider/event.go:6`, `:14`, `internal/provider/unified/event_map.go:26` |
+| P19 | `shared.EventHeader` 家族只保留头结构 | 事件时间 helper 已迁到 platform 层，DTO 纯数据边界稳定 | `internal/dto/shared/event.go:55`, `internal/platform/shared/timeparse.go:43` |
+| P20 | `SkillRef/SkillMode/SkillSource` | DTO 合约测试已锁定兼容读取、非法 mode 降级、source 校验 | `internal/dto/provider/turn.go:44`, `:54`, `:104`, `internal/dto/provider/turn_test.go:12`, `:112`, `:179` |
+| P20 | `StartSessionRequest.LaunchSkillNames/ForceLaunchSkills` | launch skill carrier 已打通 thread→driver，旧 caller 不写时行为保持不变 | `internal/dto/provider/session.go:67`, `:70`, `internal/module/thread/start_session.go:152` |
+
+### 8.9 旧名纠偏复核
+
+1. `internal/dto/provider/manifest.go.BuildManifest` **不存在**；实际实现已迁到 `internal/provider/manifestbuilder/manifest.go:16`。
+2. `EventTranslator` **不在** `internal/dto/provider/event.go`；当前定义在 `internal/provider/unified/event_map.go:26`。
+3. 仓内**没有** `internal/dto/agent/guard.go`；agent 状态/触发器真实入口是 `internal/dto/agent/state.go:3`。
+4. 仓内**没有** `internal/dto/provider/user_context.go`；user/system context 已并入 `internal/dto/provider/session.go:47` 的 `TurnAssembly`。
+5. `shared` 包也不再放事件时间 helper；若需要时间解析，看 `internal/platform/shared/timeparse.go:43`，不是 DTO 层。
+
+### 8.10 逐文件补充锚点（31/31 文件覆盖，显式列出 120+ 条 `file.go:line`）
+
+> 下表全部锚点都已按 `lsp_grep` 的 1-based 行号口径复核。
+
+| 包 | 文件 | 可 grep 锚点（1-based） | 覆盖说明 |
+|---|---|---|---|
+| `agent` | `diagnostic.go` | `internal/dto/agent/diagnostic.go:10`, `:19` | warning / error |
+| `agent` | `event.go` | `internal/dto/agent/event.go:6`, `:14`, `:23`, `:29`, `:36` | 五个生命周期事件 |
+| `agent` | `runtime.go` | `internal/dto/agent/runtime.go:5`, `:11` | runtime report |
+| `agent` | `state.go` | `internal/dto/agent/state.go:3`, `:16`, `:30`, `:35`, `:40` | 状态、触发器、转移 |
+| `mcp` | `approval_response.go` | `internal/dto/mcp/approval_response.go:6` | approval response |
+| `mcp` | `constants.go` | `internal/dto/mcp/constants.go:3` | ctl 常量块 |
+| `mcp` | `errors.go` | `internal/dto/mcp/errors.go:4` | error code 常量块 |
+| `mcp` | `hook.go` | `internal/dto/mcp/hook.go:11`, `:25`, `:44`, `:57`, `:76`, `:105` | hook payload / decision / request / pending |
+| `mcp` | `protocol.go` | `internal/dto/mcp/protocol.go:6`, `:12`, `:29`, `:46`, `:66`, `:85`, `:108`, `:153`, `:182`, `:200`, `:207` | register/heartbeat/context/event/report/shutdown/selector |
+| `provider` | `attachment.go` | `internal/dto/provider/attachment.go:3`, `:8` | kind 常量 + envelope |
+| `provider` | `capability.go` | `internal/dto/provider/capability.go:3`, `:5` | capability set + const |
+| `provider` | `event.go` | `internal/dto/provider/event.go:6`, `:14` | raw/bus raw |
+| `provider` | `manifest.go` | `internal/dto/provider/manifest.go:3`, `:11`, `:20`, `:24` | family/binary/manifest/context |
+| `provider` | `message.go` | `internal/dto/provider/message.go:5`, `:16` | message/history result |
+| `provider` | `message_test.go` | `internal/dto/provider/message_test.go:10` | JSON 契约测试 |
+| `provider` | `session.go` | `internal/dto/provider/session.go:5`, `:12`, `:21`, `:26`, `:38`, `:47`, `:55`, `:73` | prompt assembly + start/resume |
+| `provider` | `thread.go` | `internal/dto/provider/thread.go:3` | thread ref |
+| `provider` | `thread_config.go` | `internal/dto/provider/thread_config.go:3`, `:10`, `:16`, `:24` | patch/values/config/compact |
+| `provider` | `turn.go` | `internal/dto/provider/turn.go:10`, `:22`, `:44`, `:54`, `:104`, `:132`, `:139`, `:144`, `:155`, `:160`, `:164` | turn/skill/control DTO |
+| `provider` | `turn_test.go` | `internal/dto/provider/turn_test.go:12`, `:36`, `:112`, `:128`, `:160`, `:179`, `:196`, `:229` | SkillRef / SkillMode / SkillSource 契约测试 |
+| `shared` | `errors.go` | `internal/dto/shared/errors.go:5` | 共享错误变量 |
+| `shared` | `event.go` | `internal/dto/shared/event.go:5`, `:55`, `:60`, `:66`, `:72`, `:78`, `:83`, `:89`, `:96`, `:102`, `:108`, `:113`, `:119`, `:125`, `:131` | event type + 全套 header |
+| `shared` | `input.go` | `internal/dto/shared/input.go:3` | InputItem |
+| `task` | `event.go` | `internal/dto/task/event.go:6`, `:14`, `:24`, `:31` | DAG/node/wakeup |
+| `thread` | `event.go` | `internal/dto/thread/event.go:6`, `:18`, `:27`, `:35`, `:46` | started/stopped/messages/compact/updated |
+| `tool` | `event.go` | `internal/dto/tool/event.go:10`, `:17`, `:29`, `:37`, `:46` | tool begin/end/approval/diff |
+| `turn` | `event.go` | `internal/dto/turn/event.go:6`, `:11`, `:24`, `:30`, `:37`, `:43`, `:52` | lifecycle 七个事件 |
+| `turn` | `model.go` | `internal/dto/turn/model.go:9`, `:11` | Input alias + submission |
+| `turn` | `progress.go` | `internal/dto/turn/progress.go:10`, `:18`, `:25`, `:37` | plan/item 进度 |
+| `ui` | `event.go` | `internal/dto/ui/event.go:6`, `:12`, `:21`, `:30`, `:40`, `:47`, `:53`, `:60` | projection/timeline/tokens/skills/preferences/patch |
+| `ui` | `patch_types.go` | `internal/dto/ui/patch_types.go:4`, `:12`, `:33` | activity/timeline/alert |
+
+## 9. 测试入口 + archtest freeze 映射
+
+| 包 | 测试文件 | 核心 Test* | freeze |
+|---|---|---|---|
+| `provider` | `internal/dto/provider/turn_test.go:1` | `TestSkillRef_LegacyUnmarshalStillWorks`（`internal/dto/provider/turn_test.go:12`） | — |
+
+## 10. how-to 三条
+
+| 场景 | 触发 | 步骤 | 锚点 | 验证 |
+|---|---|---|---|---|
+| typed event | 新增强类型事件 | 1) 在对应 `internal/dto/<pkg>` 定义 struct；2) 如需总线分发，同步补 `shared.EventType*` 与 `Type()`；3) 生产侧补 emitter / translator | `EventTypeUIThreadPatch@internal/dto/shared/event.go:48` | `lsp_grep "EventType..."` + `Type()` |
+| session 字段 | start / resume 扩字段 | 1) 改 `StartSessionRequest` / `ResumeSessionRequest`；2) 改 thread snapshot / prompt assembly 构造；3) 对齐 driver 消费 | `type StartSessionRequest struct@internal/dto/provider/session.go:55` | `lsp_grep` 三层字段透传 |
+| turn / ui 字段 | 输入或 patch additive 扩展 | 1) 改 `turn/model.go` 或 `ui/event.go`；2) 同步 producer / consumer；3) 必要时补前端 reducer | `type TurnSubmission struct@internal/dto/turn/model.go:11` | `lsp_grep` DTO + producer + consumer |

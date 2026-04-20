@@ -42,7 +42,7 @@
 
 1. **接口优先**
    - 大多数包暴露 `Store` 接口。
-   - `prompt`、`commandcard`、`sharedfile` 只暴露 `Reader`，说明内部 `store.Module` 刻意只注册读侧。
+   - `commandcard`、`sharedfile` 只暴露 `Reader`；`prompt` 模块同时提供 `Store` 与 `AsReader(store Store) Reader`，保留给 dashboard 等 caller 的只读视图。
    - `hookstore` 暴露的是 `internal/contract.HookReviewStore`，不再重复定义本地接口。
 
 2. **sqlc 作为主访问层**
@@ -58,7 +58,7 @@
 
 5. **显式例外**
    - `dbquery`：不是静态 CRUD 仓储，而是“受限运行时只读 SQL 查询引擎”。
-   - `hookstore`：明确绕过 sqlc 生成查询，直接基于 `sqlc.Queryable()` 执行手写 SQL。
+   - `hookstore`：明确绕过 sqlc 生成查询，直接基于 `internal/platform/db.Queryable` 执行手写 SQL。
 
 ### 1.3 按职责划分的 5 类存储面
 
@@ -158,7 +158,7 @@
 
 ### 2.6 `commandcard`
 - **文件**：`contract.go` / `store.go` / `module.go`
-- **职责**：命令卡只读查询。
+- **职责**：命令卡读取 / 列表查询。
 - **contract**：`Reader` 接口：`List(ctx context.Context, filter ListFilter) ([]CommandCard, error)`
 - **关键实现**：
   - `List`：查询 `command_cards`，并左连接 `command_card_runs` 聚合 `last_run_at` 与 `run_count`。
@@ -217,7 +217,7 @@
   - `CancelExpiredReviews`：把过期 `pending` 置为 `expired`，同时把 `decision = default_action` 并写 `resolved_at`。
 - **表**：`hook_pending_reviews`
 - **备注**：
-  - 明确是 **sqlc 例外**：`NewStore(*sqlc.Queries)` 只取 `q.Queryable()`，后续全部走手写 SQL。
+  - 明确是 **sqlc 例外**：`NewStore(platformdb.Queryable)` 直接对 `Exec/Query/QueryRow` 发手写 SQL；`module.go` 里实际把 `*pgxpool.Pool` 作为 `Queryable` 注入。
   - schema 已有 `thread_id/turn_id/payload/resolved_by` 等列；当前 contract 只暴露其中一部分，`GetResolvedReview` 也尚未把 `resolved_by` 暴露出来。
 
 ### 2.10 `interaction`
@@ -236,18 +236,22 @@
 
 ### 2.11 `prompt`
 - **文件**：`contract.go` / `store.go` / `module.go`
-- **职责**：提示模板只读查询。
-- **contract**：`Reader` 接口：`List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)`
+- **职责**：提示模板读写；对只读 caller 额外暴露 `Reader` adapter。
+- **contract**：
+  - `Reader`：`List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)`
+  - `Store`：`Reader + WithTx/Get/Delete/InsertVersion/Upsert`
 - **关键实现**：
-  - `List`：按 `agent_key + keyword` 查询 `prompt_templates`。
-- **表 / SQL**：`prompt_templates` / `sql/queries/prompt_template.sql`
+  - `List`：按 `agent_key + keyword` 查询 `prompt_templates`；`ListFilter.CWD` 已进入 contract，但 `sql/queries/prompt_template.sql` 还没有把它下推进 SQL，当前仍由 caller 后置过滤。`dashboard/ui_page.go` 会先传 `ListFilter{CWD: cwd}`，再执行 `filterDashboardPromptsByCWD(...)`。
+  - `WithTx`：`prompt/module.go` 的 `newStoreWithPool` 用共享 `*sqlc.Queries` 绑定 tx，供归档 + 修改共用。
+  - `Get / Upsert / Delete / InsertVersion`：`internal/module/prompt/service.go` 已在真实创建 / 更新 / 归档 / 删除路径使用。
+- **表 / SQL**：`prompt_templates` + `prompt_versions` / `sql/queries/prompt_template.sql`
 - **备注**：
-  - `store.Module` 只暴露读接口。
-  - 底层 sqlc 已有 `GetPromptTemplate / UpsertPromptTemplate / DeletePromptTemplate / InsertPromptVersion`，但没有单独的 `prompt version list` store 包装。
+  - `prompt.Module` 同时提供 `Store` 与 `AsReader(store Store) Reader`；`dashboard` 取只读 `Reader`，`prompt/service` 取可写 `Store`。
+  - 底层 sqlc 已有 `GetPromptTemplate / UpsertPromptTemplate / DeletePromptTemplate / InsertPromptVersion`，但仍没有单独的 `prompt version list` store 包装。
 
 ### 2.12 `sharedfile`
 - **文件**：`contract.go` / `store.go` / `module.go`
-- **职责**：共享文件只读查询。
+- **职责**：共享文件读取。
 - **contract**：
   - `Get(ctx context.Context, path string) (*SharedFile, error)`
   - `List(ctx context.Context, filter ListFilter) ([]SharedFile, error)`
@@ -303,8 +307,8 @@
   - `ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCwd, error)`
 - **关键实现**：
   - `Upsert`：写 `agent_threads` 主运行信息与 `config_override`。
-  - `SavePromptSnapshot`：把 `PromptSnapshot{base_instructions, developer_instructions, section_snapshot, generation}` 序列化为 JSON，写回 `agent_threads.prompt_snapshot`；若 `SectionSnapshot=nil` 会先归一化为空 map，避免落成 `null`。
-  - `LoadPromptSnapshot`：走独立 SQL 只取 `prompt_snapshot` 列；空 payload 或字面量 `null` 视为“没有快照”，反序列化后再次保证 `SectionSnapshot` 非 nil。
+  - `SavePromptSnapshot`：把 `PromptSnapshot{displayName, baseInstructions, boundary, developerInstructions, provider, version, hash, sectionSnapshot, generation}` 序列化为 JSON，写回 `agent_threads.prompt_snapshot`；若 `SectionSnapshot=nil` 会先归一化为空 map，避免落成 `null`。
+  - `LoadPromptSnapshot`：走独立 SQL 只取 `prompt_snapshot` 列；空 payload 或字面量 `null` 视为“没有快照”，反序列化后再次保证 `SectionSnapshot` 非 nil；`UnmarshalJSON` 会同时兼容 modern camelCase 与 legacy snake_case 字段。
   - `Save/LoadPromptSnapshot` 的 not-found 语义来自两条不同路径：`Save` 依赖 `UPDATE ... :execrows` 的 `RowsAffected==0` 主动返回 `ErrNotFound`，`Load` 则因为 `SELECT ... :one` 在缺行时产生 `pgx.ErrNoRows`，再经 `WrapStoreError` 统一归类为 `ErrNotFound`。
   - `GetByThreadID / GetByPort / List*`：SQL 会回查 `agent_provider_binding`，按 `provider_thread_id/codex_thread_id`，必要时还会利用 `owner_thread_id` 派生 `AgentID`。
   - `GetByPort`：只看 `status='running'`，按 `updated_at DESC` 取最新。
@@ -317,9 +321,10 @@
   - `created_at/updated_at/finished_at` 使用 Unix `BIGINT`，不是 `TIMESTAMPTZ`。
   - `config_override` 来自 `0025_agent_thread_config_override.sql`。
   - `prompt_snapshot` 来自 `0031_prompt_snapshot.sql`，当前 `Thread` DTO 不直接暴露该列，而是通过 `Load/SavePromptSnapshot` 专门读写。
-  - `thread.PromptSnapshot` 是 store 本地持久化 DTO，不等同于 `internal/contract.PromptAssemblySnapshot` / `internal/dto/provider.PromptAssemblySnapshot`：它使用 snake_case JSON tag，仅保留 `base_instructions/developer_instructions/section_snapshot/generation`，缺少 runtime snapshot 的 `displayName/provider/version/hash`，且 `Generation` 在 runtime 侧是 `uint64`、在 store 侧落成 `int64`。
-  - 当前源码里还看不到 store/runtime snapshot 的生产桥接：`internal/module/prompt/assembler.go` 继续生成 `contract.PromptAssemblySnapshot`，`internal/module/thread/start_session_helpers.go` 再把它映射成 `dto.PromptAssemblySnapshot`；仓库内没有 `toStorePromptSnapshot/fromStorePromptSnapshot` 一类转换函数。
-  - 当前生产引用面仍为空：全仓 `SavePromptSnapshot(`/`LoadPromptSnapshot(` 检索只落在 `internal/store/thread/{contract,store}.go` 与 store 自测；跨包出现的方法实现仅限 `internal/module/prompt/e2e_test_support_test.go`、`internal/module/thread/{history,resume}_test.go`、`internal/platform/cachekeepalive/manager_test.go` 这些 test double，而且实现都是直接 `return nil` / `return nil, nil` 的 no-op stub。
+  - `parent_agent_id/agent_type/agent_memory_scope` 来自 `0032_agent_memory_identity.sql`，当前 `Thread` / `UpsertParams` 已同步承载这些字段。
+  - `thread.PromptSnapshot` 已是与 runtime 对齐的 modern 持久化 DTO：包含 `DisplayName/Boundary/Provider/Version/Hash` 等字段；自定义 `UnmarshalJSON` 再兼容 legacy snake_case payload 与 `int64` generation。
+  - store/runtime snapshot 的生产桥接已经存在：`internal/module/thread/prompt_snapshot.go` 里有 `toStoredPromptSnapshot(...)` 写入 store，也有 `fromStoredPromptSnapshot(...)` 在恢复 / resume 路径回转为 `contract.PromptAssemblySnapshot`。
+  - 当前真实调用面不再只在测试：`internal/module/thread/lifecycle.go` 启动时调用 `savePromptSnapshot(...)`，`internal/module/thread/prompt_snapshot.go` 的 `loadStoredPromptSnapshot(...)` / `resolveResumePromptSnapshot(...)` 会在恢复与 resume 路径读取。
   - 测试覆盖已拆成两层：`store_test.go` 关注 round-trip、save 缺失线程、load nil payload；`snapshot_test.go` 关注 nil map 归一化、字面量 `null` 兼容、并发 save 安全性。`LoadPromptSnapshot` 的“缺失 thread 行 -> ErrNotFound”分支当前没有对应单测。
 
 ### 2.16 `topologyapproval`
@@ -384,10 +389,11 @@
 - `migrations/0024_prompt_versions_description.sql`
 - `migrations/0025_agent_thread_config_override.sql`
 - `migrations/0031_prompt_snapshot.sql`
+- `migrations/0032_agent_memory_identity.sql`
 
 这意味着：
 
-- **sqlc 生成 schema**：来自“`001_baseline` + 5 个补丁”。其中 `0022` 增补 `agent_provider_binding.session_uuid`，`0023` 增补 DAG watcher 相关列 / 表，`0024` 增补 `prompt_versions.description`，`0025_agent_thread_config_override` 增补 `agent_threads.config_override`，`0031_prompt_snapshot` 再为 `agent_threads` 增补 `prompt_snapshot JSONB`，供 `agent_thread_prompt_snapshot.sql` 生成独立 load/save 签名。
+- **sqlc 生成 schema**：来自“`001_baseline` + 6 个补丁”。其中 `0022` 增补 `agent_provider_binding.session_uuid`，`0023` 增补 DAG watcher 相关列 / 表，`0024` 增补 `prompt_versions.description`，`0025_agent_thread_config_override` 增补 `agent_threads.config_override`，`0031_prompt_snapshot` 再为 `agent_threads` 增补 `prompt_snapshot JSONB`，`0032_agent_memory_identity` 则把 `parent_agent_id/agent_type/agent_memory_scope` 同步补到 `agent_threads` 与 `agent_provider_binding`。
 - **不在根 sqlc 输入里的后续迁移**：`0025_hook_pending_reviews.sql`、`0026_hook_pending_reviews_resolved_by.sql`、`0027_prompt_description_columns.sql` 仍然没有被根 `sqlc.yaml` 读取；这也解释了 `hookstore` 为什么必须手写 SQL，而 `prompt_templates.description` 需要依赖 `001_baseline` 或运行时 `0027`。
 - **重要审查结论**：当前 `001_baseline.sql` 是 sqlc 可解析的扁平 schema 快照；它包含表、索引、触发器函数与触发器，但没有为大多数既有表写出 `PRIMARY KEY / UNIQUE / CHECK` 约束。因此，凡涉及“约束是否存在”的描述，必须同时看历史增量迁移（如 `0001/0003/0005/0006/0012/0020/0021/0006_workspace_runs`）或真实数据库，而不能只把 `001_baseline.sql` 当成完整 runtime DDL。
 
@@ -396,11 +402,8 @@
 ### 3.3 生成代码目录结构
 `internal/store/sqlc/` 可以分成 4 类：
 
-1. **基础设施 / 手写扩展**
+1. **基础生成类型**
    - `db.go`：sqlc 生成的 `DBTX`、`Queries`、`Queries.WithTx(tx pgx.Tx)`
-   - `db_ext.go`：手写 `Queryable()` 与顶层 `sqlc.WithTx(ctx, q, fn)`；后者要求 `q.db` 实际是 `*pgxpool.Pool`
-   - `read_only_tx.go`：运行时只读事务辅助；优先 `BeginTx(..., pgx.ReadOnly)`，不支持事务时回退直查
-   - `types_ext.go`：`RowsFieldNames` 等小扩展
 
 2. **全量接口**
    - `querier.go`：sqlc 生成的总接口 `Querier`
@@ -431,6 +434,8 @@
    - `workspace_run.sql.go`
 
 > 反向核对：`internal/store/sqlc/*.sql.go` 当前能反查到 19 个 `// source:` 条目，其中新增的 `agent_thread_prompt_snapshot.sql.go` 对应 `sql/queries/agent_thread_prompt_snapshot.sql`；没有发现文档未提及的查询文件。
+>
+> 补充：只读事务封装与 `RowsFieldNames(...)` 这类运行时辅助当前位于 `internal/platform/db/tx.go`，不在 `internal/store/sqlc/` 目录下。
 
 ### 3.4 store 与 sqlc 的边界
 store 层的主要价值在于：
@@ -471,7 +476,7 @@ store 层的主要价值在于：
 ### 4.1 解读原则
 本节按“**当前源码实际依赖的列 / 索引**”描述 schema，并明确区分两类来源：
 
-- **sqlc 生成输入**：根 `sqlc.yaml` 读取 `001_baseline.sql + 0022_binding_session_uuid.sql + 0023_dag_watcher_phase1.sql + 0024_prompt_versions_description.sql + 0025_agent_thread_config_override.sql + 0031_prompt_snapshot.sql`。
+- **sqlc 生成输入**：根 `sqlc.yaml` 读取 `001_baseline.sql + 0022_binding_session_uuid.sql + 0023_dag_watcher_phase1.sql + 0024_prompt_versions_description.sql + 0025_agent_thread_config_override.sql + 0031_prompt_snapshot.sql + 0032_agent_memory_identity.sql`。
 - **手写 / 运行时补丁**：`hookstore` 依赖 `0025_hook_pending_reviews.sql + 0026_hook_pending_reviews_resolved_by.sql`；`0027_prompt_description_columns.sql` 对 `prompt_templates.description / prompt_versions.description` 做运行时幂等兜底，但不在根 sqlc 输入中。
 - **约束来源说明**：`001_baseline.sql` 对多数既有表只给出列、索引、触发器，不给出 PK/UNIQUE/CHECK；下文写到的主键、唯一约束、检查约束来自历史迁移链（例如 `0001/0003/0005/0006/0006_workspace_runs/0010/0012/0019/0020/0021`）或 post-baseline 手写迁移（例如 `0025_hook_pending_reviews`）。
 
@@ -480,7 +485,7 @@ store 层的主要价值在于：
 ### 4.2 运行态 / 绑定相关表
 
 #### `agent_provider_binding`
-- 最终主列：`agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, archived, created_at, updated_at, session_uuid`
+- 最终主列：`agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid`
 - 约束：
   - `PRIMARY KEY (agent_id)`
   - `UNIQUE (provider, provider_thread_id)`
@@ -491,7 +496,7 @@ store 层的主要价值在于：
 - **审查修正**：最新迁移里**没有**给该表增加 `cwd` 或 `created_at DESC` 二级索引；旧文档里这部分描述混入了 legacy `agent_codex_binding` 的索引信息。
 
 #### `agent_threads`
-- 最终主列：`thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, config_override, prompt_snapshot`
+- 最终主列：`thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, prompt_snapshot`
 - 索引：`status / port / pid / owner_thread_id / workspace_run_key`（后两者出现在 `001_baseline.sql`；旧的 `0012_agent_threads.sql` 只建 `status/port/pid`）
 - 对应 store：`thread`
 - 备注：
@@ -653,12 +658,24 @@ store 层的主要价值在于：
   1. `prepareQueryContext`：校验 `ctx/queryer/query` 是否有效
   2. `validateQuery`：做 SQL 文本、安全、占位符、白名单校验
   3. `withQueryTimeout`：默认加 10 秒 deadline
-  4. `sqlc.OpenReadOnlyRows`：优先在只读事务中执行
-  5. `sqlc.RowsFieldNames(rows)` + `rows.Values()`：逐行组装 `[]map[string]any`
+  4. `platformdb.OpenReadOnlyRows`：优先在只读事务中执行
+  5. `platformdb.RowsFieldNames(rows)` + `rows.Values()`：逐行组装 `[]map[string]any`
   6. 超过 `maxQueryRows = 10000` 直接拒绝
 
+```mermaid
+flowchart LR
+  q[store.Query] --> e[executeQuery]
+  e --> p[prepareQueryContext]
+  p --> v[validateQuery]
+  v --> t[withQueryTimeout]
+  t --> r[platformdb.OpenReadOnlyRows]
+  r --> m[platformdb.RowsFieldNames + rows.Values]
+  m --> g[max rows guard]
+  g --> out[result rows]
+```
+
 ### 5.2 只读事务策略
-`internal/store/sqlc/read_only_tx.go` 提供了统一封装：
+`internal/platform/db/tx.go` 提供了统一封装：
 
 - 若底层 `Queryable` 支持 `BeginTx`（例如 `*pgxpool.Pool`），则以 `pgx.TxOptions{AccessMode: pgx.ReadOnly}` 打开只读事务。
 - 若底层不支持 `BeginTx`，则回退为 `openDirectRows(...)` 直接查询，不强行造事务。
@@ -781,8 +798,9 @@ var Module = fx.Module("store",
 - 普通型：`fx.Provide(NewStore)`
 - 特例：
   - `dbquery.Module`：`fx.Provide(newDefaultStore)`，其中注入默认超时 `10s`
-  - `hookstore.Module`：`NewStore` 返回 `contract.HookReviewStore`
-  - `prompt / commandcard / sharedfile`：`NewStore` 返回 `Reader`
+  - `hookstore.Module`：`NewStore(platformdb.Queryable)` 返回 `contract.HookReviewStore`
+  - `prompt.Module`：`newStoreWithPool(...)` 返回 `Store`，再通过 `AsReader(store Store) Reader` 补一个只读 adapter
+  - `commandcard / sharedfile`：`NewStore` 返回 `Reader`
 
 ### 6.3 DI 最终暴露的接口类型
 store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
@@ -795,9 +813,9 @@ store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
 - `commandcard.NewStore(*sqlc.Queries) Reader`
 - `cwdlock.NewStore(*sqlc.Queries) Store`
 - `dbquery.NewStore(*sqlc.Queries, time.Duration) Store`；fx 实际通过 `newDefaultStore(*sqlc.Queries) Store` 注入默认 `10s` 超时
-- `hookstore.NewStore(*sqlc.Queries) contract.HookReviewStore`
+- `hookstore.NewStore(platformdb.Queryable) contract.HookReviewStore`
 - `interaction.NewStore(*sqlc.Queries) Store`
-- `prompt.NewStore(*sqlc.Queries) Reader`
+- `prompt.newStoreWithPool(*pgxpool.Pool, *sqlc.Queries) Store`；同时 `prompt.AsReader(Store) Reader`
 - `sharedfile.NewStore(*sqlc.Queries) Reader`
 - `systemlog.NewStore(*sqlc.Queries) Store`
 - `tasktrace.NewStore(*sqlc.Queries) Store`
@@ -822,16 +840,48 @@ store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
 | `buslog` | `buslog.Store` | `bus_exception_logs` | `bus_log.sql` |
 | `commandcard` | `commandcard.Reader` | `command_cards` + `command_card_runs` | `command_card.sql` |
 | `cwdlock` | `cwdlock.Store` | `cwd_instance_locks` | `cwd_lock.sql` |
-| `dbquery` | `dbquery.Store` | 多表白名单只读查询 | `db_query.sql`（占位） + 手写执行器 |
+| `dbquery` | `dbquery.Store` | 多表白名单查询 | `db_query.sql`（占位） + 手写执行器 |
 | `hookstore` | `contract.HookReviewStore` | `hook_pending_reviews` | 手写 SQL |
 | `interaction` | `interaction.Store` | `agent_interactions` | `interaction.sql` |
-| `prompt` | `prompt.Reader` | `prompt_templates` | `prompt_template.sql` |
+| `prompt` | `prompt.Store` + `prompt.Reader` adapter | `prompt_templates` + `prompt_versions` | `prompt_template.sql` |
 | `sharedfile` | `sharedfile.Reader` | `shared_files` | `shared_file.sql` |
 | `systemlog` | `systemlog.Store` | `system_logs` | `system_log.sql` |
 | `tasktrace` | `tasktrace.Store` | `task_traces` | `task_trace.sql` |
 | `thread` | `thread.Store` | `agent_threads`（并关联 `agent_provider_binding`） | `agent_thread.sql` |
 | `topologyapproval` | `topologyapproval.Store` | `topology_approvals` | `topology_approval.sql` |
 | `uipreference` | `uipreference.Store` | `ui_preferences` | `ui_preference.sql` |
+
+### 7.1 测试入口 + archtest freeze 映射（17 子包）
+
+> `internal/archtest/freeze_registry.go` 当前只登记 `internal/module/memory` 与 `internal/module/prompt`，没有 `internal/store/` 项；因此下表 freeze 一列统一记为 `—`。
+
+| 子包 | 入口测试文件 | 代表性 Test* | freeze |
+| --- | --- | --- | --- |
+| `agentstatus` | `contract_test.go` | `TestAgentStatusJSONUsesSnakeCase` | `—` |
+| `ailog` | `store_test.go` | `TestList` | `—` |
+| `auditlog` | `contract_test.go` | `TestAuditEventJSONUsesSnakeCase` | `—` |
+| `binding` | `store_test.go` | `TestUpsertAgentProviderBinding` | `—` |
+| `buslog` | `contract_test.go` | `TestBusExceptionLogJSONUsesSnakeCase` | `—` |
+| `commandcard` | `store_test.go` | `TestListForwardsFilterAndMapsRows` | `—` |
+| `cwdlock` | `store_test.go` | `TestAcquireForwardsParamsAndReturnsCount` | `—` |
+| `dbquery` | `executor_test.go` | `TestValidateQuery` | `—` |
+| `hookstore` | `hookstore_resolve_test.go` | `TestResolvePendingReview` | `—` |
+| `interaction` | `store_test.go` | `TestCreateForwardsParamsAndMapsResult` | `—` |
+| `prompt` | `store_test.go` | `TestListForwardsAgentKeyKeywordAndLimit` | `—` |
+| `sharedfile` | `store_test.go` | `TestGetMapsRow` | `—` |
+| `systemlog` | `store_test.go` | `TestListForwardsAll9ColumnsAndLimit` | `—` |
+| `tasktrace` | `store_test.go` | `TestInsertForwardsAllColumnsAndMapsResult` | `—` |
+| `thread` | `store_test.go` | `TestUpsertPersistsConfigOverride` | `—` |
+| `topologyapproval` | `store_test.go` | `TestCreateForwardsParamsAndMapsResult` | `—` |
+| `uipreference` | `store_test.go` | `TestGetValueForwardsParamsAndReturnsBytes` | `—` |
+
+### 7.2 Store 侧维护 how-to（三条）
+
+| 场景 | 最小步骤 | 源码锚点 | 最小验证 |
+| --- | --- | --- | --- |
+| 新增子 store | 1) 建 `contract.go/store.go/module.go`；2) 在 `sql/queries/` 补 SQL；3) 把子模块接入 `internal/store/module.go` | `internal/store/module.go` 的 `var Module = fx.Module("store",` | `lsp_grep "var Module = fx.Module(\"store\"" internal/store/module.go` |
+| 给已有 store 增读写 SQL | 1) 改 `sql/queries/*.sql` 新 query；2) 重新生成 `internal/store/sqlc/*.sql.go`；3) 在 `store.go` 做 DTO 映射 + `WrapStoreError` | `sql/queries/prompt_template.sql` 的 `UpsertPromptTemplate`，以及 `internal/store/prompt/store.go` 对应映射 | `internal/store/prompt/store_test.go` |
+| 新增 prompt snapshot / 其它持久化字段 | 1) 迁移 + `sqlc.yaml` schema 列表一起更新；2) 在 `sql/queries/agent_thread_prompt_snapshot.sql` 增 load/save；3) `internal/store/thread/store.go` 与 `internal/module/thread/prompt_snapshot.go` 同步桥接 store/runtime DTO | `SaveAgentThreadPromptSnapshot` + `toStoredPromptSnapshot(...)` | `internal/store/thread/{store_test,snapshot_test}.go` |
 
 ---
 
@@ -842,7 +892,7 @@ store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
 1. **对上层坚持接口化、DTO 化**：把 `sqlc` 细节压在仓储内部。
 2. **对底层坚持 SQL-first**：查询定义集中在 `sql/queries/`，`sqlc` 只做生成。
 3. **允许显式例外**：`dbquery` 与 `hookstore` 都绕过了“普通静态 sqlc CRUD”路径。
-4. **读写面刻意拆分**：`prompt / commandcard / sharedfile` 在 `store.Module` 中只暴露读能力；底层 sqlc 仍保留更完整的写侧方法。
+4. **读写面按场景拆分**：`commandcard / sharedfile` 仍只暴露读能力；`prompt` 同一实现同时暴露可写 `Store` 与只读 `Reader` adapter。
 5. **schema 明显大于 17 个子 store 的注册面**：workspace、dag、legacy 表仍存在于 schema 或 sqlc 低层，但未全部被注册成统一 store。
 
 如果从代码地图视角看，`internal/store` 更像“**项目核心数据访问骨架**”，而不是“数据库全部访问能力的唯一入口”。
@@ -852,7 +902,11 @@ store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
 1. 已逐一核对 `internal/store/`、`internal/store/sqlc/`、`migrations/`、`sql/queries/`，当前 `store.Module` 注册的 **17 个子 store 均已覆盖**；`thread` 与 `hookstore` 的 contract 也已改成完整方法签名。
 2. 修正了 `agent_provider_binding` 的 schema 描述：最新迁移并**没有**为它建立 `cwd / created_at DESC` 二级索引；旧描述混入了 `agent_codex_binding` 的遗留索引信息。
 3. 修正了 `binding.BindAgentThread` 的行为说明：它在插入路径会写入 `provider='codex'` 与 `provider_thread_id=thread_id`，但在 `agent_id` 冲突路径只更新 `codex_thread_id/cwd/updated_at`。
-4. 补强了 sqlc 组织描述：补充 `sql_driver`，确认 `command_card.sql.go` 还生成了 `ListCommandCardVersions`，`workspace_run.sql.go` 已完整生成但未包装成 store 子包，并反向确认 `sql/queries/` 的 18 个 `.sql` 文件没有遗漏。
+4. 补强了 sqlc 组织描述：补充 `sql_driver`，确认 `command_card.sql.go` 还生成了 `ListCommandCardVersions`，`workspace_run.sql.go` 已完整生成但未包装成 store 子包，并反向确认 `sql/queries/` 的 19 个 `.sql` 文件没有遗漏。
 5. 修正了 schema 解读口径：列 / 索引以 `001_baseline.sql + 0022/0023/0024/0025_agent_thread_config_override` 为主，`hook_pending_reviews` 来自 `0025_hook_pending_reviews + 0026`；但 `001_baseline.sql` 自身缺少多数 PK/UNIQUE/CHECK，约束说明必须结合历史迁移链。
 6. 补全了 `hookstore` 手写 SQL 说明：明确 `SavePendingReview` 当前不写 `thread_id/turn_id/payload`，`GetResolvedReview` 不返回 `resolved_by`，cancel 与 expire 的更新列不同。
 7. 补全了 `dbquery` 安全校验说明：新增写明了**引号内容屏蔽、表白名单必须命中、CTE 外层 SELECT 仍需引用表、只读事务回退策略、10 秒超时、10000 行上限**等关键细节。
+8. 修正了 `prompt` store 口径：当前已是**可读写 Store + Reader adapter**，真实写路径已被 `internal/module/prompt/service.go` 生产使用；`ListFilter.CWD` 已进入 contract，但 SQL 仍未下推，继续由 caller 后置过滤。
+9. 修正了 `thread.PromptSnapshot` 口径：当前持久化 DTO 已包含 modern 字段（`DisplayName/Boundary/Provider/Version/Hash/...`），同时通过自定义 `UnmarshalJSON` 兼容 legacy snake_case payload。
+10. 修正了 `sqlc.yaml` 输入集：根配置现在已包含 `0032_agent_memory_identity.sql`，`agent_threads` / `agent_provider_binding` 的 agent identity 列不能再按“只到 0031”理解。
+11. 追加了 `dbquery` 数据流 Mermaid、17 个 store 子包测试入口 + freeze 表，以及 3 条 store 维护 how-to，便于后续按锚点增量维护。
