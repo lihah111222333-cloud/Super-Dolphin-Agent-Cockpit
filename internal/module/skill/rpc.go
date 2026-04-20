@@ -71,112 +71,206 @@ func newSkillHandlers(svc Service, requester contract.ApprovalRequester) rpc.Han
 	if impl, ok := svc.(*service); ok {
 		impl.approvalRequester = requester
 	}
-	return rpc.HandlerMapResult{Handlers: handler.Map{
+	return rpc.HandlerMapResult{Handlers: mergeSkillHandlerMaps(
+		skillCoreHandlers(svc),
+		skillLocalHandlers(svc),
+		skillRemoteHandlers(svc),
+		skillPreviewHandlers(svc),
+	)}
+}
+
+func mergeSkillHandlerMaps(parts ...handler.Map) handler.Map {
+	merged := handler.Map{}
+	for _, part := range parts {
+		for name, fn := range part {
+			merged[name] = fn
+		}
+	}
+	return merged
+}
+
+func skillCoreHandlers(svc Service) handler.Map {
+	return handler.Map{
 		"command/exec": rpc.StrictHandler(func(ctx context.Context, p execParams) (any, error) {
 			return svc.ExecCommand(ctx, p.Command, p.Args, p.CWD, p.Env)
 		}),
-		"skill/list": rpc.StrictHandler(func(ctx context.Context, p skillListParams) (skillListResult, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return skillListResult{}, err
-			}
-			list, err := svc.ListSkills(WithCWD(ctx, p.CWD))
-			if err != nil {
-				return skillListResult{}, skillRPCError(err)
-			}
-			return skillListPayload(list), nil
+		"skill/list":    rpc.StrictHandler(skillListHandler(svc)),
+		"skill/expand":  rpc.StrictHandler(skillExpandHandler(svc)),
+		"skills/list":   rpc.StrictHandler(skillsListHandler(svc)),
+	}
+}
+
+func skillLocalHandlers(svc Service) handler.Map {
+	return handler.Map{
+		"skills/local/read":      rpc.StrictHandler(skillLocalReadHandler(svc)),
+		"skills/local/listFiles": rpc.StrictHandler(skillLocalListFilesHandler(svc)),
+		"skills/local/write":     rpc.StrictHandler(skillLocalWriteHandler(svc)),
+		"skills/local/importDir": rpc.StrictHandler(skillLocalImportDirHandler(svc)),
+		"skills/local/delete":    rpc.StrictHandler(skillLocalDeleteHandler(svc)),
+	}
+}
+
+func skillRemoteHandlers(svc Service) handler.Map {
+	return handler.Map{
+		"skills/remote/list": rpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) {
+			return svc.ReadRemote(ctx, p.URL)
 		}),
-		"skill/expand": rpc.StrictHandler(func(ctx context.Context, p skillExpandParams) (skillExpandResult, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return skillExpandResult{}, err
-			}
-			result, err := expandSkillWithApproval(WithCWD(ctx, p.CWD), svc, p)
-			if err != nil {
-				return skillExpandResult{}, skillRPCError(err)
-			}
-			return result, nil
-		}),
-		// skills/list: 扫描本地 skill 目录，返回所有已安装的 skill 元信息。
-		// 与 thread/skills/list 不同：后者走 thread 命令通道，返回 thread 绑定的 active skills。
-		"skills/list": rpc.StrictHandler(func(ctx context.Context, p skillListParams) (any, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return nil, err
-			}
-			list, err := svc.ListSkills(WithCWD(ctx, p.CWD))
-			if err != nil {
-				return nil, skillRPCError(err)
-			}
-			return map[string]any{"skills": list}, nil
-		}),
-		"skills/local/read": rpc.StrictHandler(func(ctx context.Context, p pathParams) (any, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return nil, err
-			}
-			return svc.ReadLocal(WithCWD(ctx, p.CWD), p.Path)
-		}),
-		"skills/local/listFiles": rpc.StrictHandler(func(ctx context.Context, p listSkillFilesParams) (any, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return nil, err
-			}
-			return svc.ListLocalFiles(WithCWD(ctx, p.CWD), p)
-		}),
-		"skills/local/write": rpc.StrictHandler(func(ctx context.Context, p contentParams) (any, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return nil, err
-			}
-			return svc.WriteLocal(WithCWD(ctx, p.CWD), p.Path, p.Content)
-		}),
-		"skills/local/importDir": rpc.StrictHandler(func(ctx context.Context, p importSkillDirParams) (any, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return nil, err
-			}
-			return svc.ImportLocalDir(WithCWD(ctx, p.CWD), p)
-		}),
-		"skills/local/delete": rpc.StrictHandler(func(ctx context.Context, p deleteLocalSkillParams) (any, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return nil, err
-			}
-			return svc.DeleteLocal(WithCWD(ctx, p.CWD), p.Name)
-		}),
-		"skills/remote/list":     rpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) { return svc.ReadRemote(ctx, p.URL) }),
 		"skills/remote/export": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
 			return svc.WriteRemote(ctx, name, content)
 		}),
-		"skills/remote/read": rpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) { return svc.ReadRemote(ctx, p.URL) }),
+		"skills/remote/read": rpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) {
+			return svc.ReadRemote(ctx, p.URL)
+		}),
 		"skills/remote/write": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
 			return svc.WriteRemote(ctx, name, content)
 		}),
-		"skills/config/read": rpc.StrictHandler(func(ctx context.Context, p skillConfigReadParams) (any, error) { return svc.ReadConfig(ctx, p.AgentID) }),
-		// Legacy RPC key: V2 uses skills/config/write for saving the main skill file content.
+		"skills/config/read": rpc.StrictHandler(func(ctx context.Context, p skillConfigReadParams) (any, error) {
+			return svc.ReadConfig(ctx, p.AgentID)
+		}),
 		"skills/config/write": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
 			return svc.WriteSkillContent(ctx, name, content)
 		}),
 		"skills/summary/write": rpc.StrictHandler(func(ctx context.Context, p skillSummaryWriteParams) (any, error) {
 			return svc.WriteSummary(ctx, p.Name, p.Summary)
 		}),
-		"skills/match/preview": rpc.StrictHandler(func(ctx context.Context, p skillMatchPreviewParams) (any, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return nil, err
-			}
-			return svc.MatchPreview(WithCWD(ctx, p.CWD), p.AgentID, p.ThreadID, p.Text, p.Input)
-		}),
-		// P20.1 Phase 6：按名读 SKILL.md body（可选 Markdown 锚点切片）。
-		// 对外暴露为 MCP 工具 `skill_expand_body` 时，由 mcp-orch 将本方法签名
-		// 映射为符合 P20.1 §3.1 的工具 schema。
-		"skills/expandBody": rpc.StrictHandler(func(ctx context.Context, p ExpandBodyParams) (any, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return nil, err
-			}
-			return svc.ExpandBody(WithCWD(ctx, p.CWD), p)
-		}),
-		// P20.1 Phase 6：按名 + 相对路径读取 skill 目录内资源文件。
-		// 对外暴露为 MCP 工具 `skill_read_resource`。
-		"skills/readResource": rpc.StrictHandler(func(ctx context.Context, p ReadResourceParams) (any, error) {
-			if err := requireRequestCWD(p.CWD); err != nil {
-				return nil, err
-			}
-			return svc.ReadResource(WithCWD(ctx, p.CWD), p)
-		}),
-	}}
+	}
+}
+
+func skillPreviewHandlers(svc Service) handler.Map {
+	return handler.Map{
+		"skills/match/preview": rpc.StrictHandler(skillMatchPreviewHandler(svc)),
+		"skills/expandBody":    rpc.StrictHandler(skillExpandBodyHandler(svc)),
+		"skills/readResource":  rpc.StrictHandler(skillReadResourceHandler(svc)),
+	}
+}
+
+func skillListHandler(svc Service) func(context.Context, skillListParams) (skillListResult, error) {
+	return func(ctx context.Context, p skillListParams) (skillListResult, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return skillListResult{}, err
+		}
+		list, err := svc.ListSkills(scopedCtx)
+		if err != nil {
+			return skillListResult{}, skillRPCError(err)
+		}
+		return skillListPayload(list), nil
+	}
+}
+
+func skillsListHandler(svc Service) func(context.Context, skillListParams) (any, error) {
+	return func(ctx context.Context, p skillListParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		list, err := svc.ListSkills(scopedCtx)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return map[string]any{"skills": list}, nil
+	}
+}
+
+func skillExpandHandler(svc Service) func(context.Context, skillExpandParams) (skillExpandResult, error) {
+	return func(ctx context.Context, p skillExpandParams) (skillExpandResult, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return skillExpandResult{}, err
+		}
+		result, err := expandSkillWithApproval(scopedCtx, svc, p)
+		if err != nil {
+			return skillExpandResult{}, skillRPCError(err)
+		}
+		return result, nil
+	}
+}
+
+func skillLocalReadHandler(svc Service) func(context.Context, pathParams) (any, error) {
+	return func(ctx context.Context, p pathParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ReadLocal(scopedCtx, p.Path)
+	}
+}
+
+func skillLocalListFilesHandler(svc Service) func(context.Context, listSkillFilesParams) (any, error) {
+	return func(ctx context.Context, p listSkillFilesParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ListLocalFiles(scopedCtx, p)
+	}
+}
+
+func skillLocalWriteHandler(svc Service) func(context.Context, contentParams) (any, error) {
+	return func(ctx context.Context, p contentParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		return svc.WriteLocal(scopedCtx, p.Path, p.Content)
+	}
+}
+
+func skillLocalImportDirHandler(svc Service) func(context.Context, importSkillDirParams) (any, error) {
+	return func(ctx context.Context, p importSkillDirParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ImportLocalDir(scopedCtx, p)
+	}
+}
+
+func skillLocalDeleteHandler(svc Service) func(context.Context, deleteLocalSkillParams) (any, error) {
+	return func(ctx context.Context, p deleteLocalSkillParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		return svc.DeleteLocal(scopedCtx, p.Name)
+	}
+}
+
+func skillMatchPreviewHandler(svc Service) func(context.Context, skillMatchPreviewParams) (any, error) {
+	return func(ctx context.Context, p skillMatchPreviewParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		return svc.MatchPreview(scopedCtx, p.AgentID, p.ThreadID, p.Text, p.Input)
+	}
+}
+
+func skillExpandBodyHandler(svc Service) func(context.Context, ExpandBodyParams) (any, error) {
+	return func(ctx context.Context, p ExpandBodyParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ExpandBody(scopedCtx, p)
+	}
+}
+
+func skillReadResourceHandler(svc Service) func(context.Context, ReadResourceParams) (any, error) {
+	return func(ctx context.Context, p ReadResourceParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ReadResource(scopedCtx, p)
+	}
+}
+
+func scopedSkillContext(ctx context.Context, cwd string) (context.Context, error) {
+	if err := requireRequestCWD(cwd); err != nil {
+		return nil, err
+	}
+	return WithCWD(ctx, cwd), nil
 }
 
 func expandSkillWithApproval(ctx context.Context, svc Service, p skillExpandParams) (skillExpandResult, error) {

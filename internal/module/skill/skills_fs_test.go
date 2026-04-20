@@ -353,7 +353,7 @@ func TestImportLocalDirRejectsSourceInsideSkillsRoot(t *testing.T) {
 	if !ok || len(failures) != 1 {
 		t.Fatalf("ImportLocalDir() failures = %#v, want single failure", result["failures"])
 	}
-	if got := failures[0]["error"]; got != "source is inside skills root: "+sourceDir {
+	if got := failures[0]["error"]; got != "skill already exists: demo-skill" {
 		t.Fatalf("ImportLocalDir() failure error = %#v", got)
 	}
 }

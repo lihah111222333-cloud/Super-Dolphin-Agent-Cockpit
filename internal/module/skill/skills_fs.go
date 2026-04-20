@@ -290,24 +290,12 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 	if err != nil {
 		return nil, err
 	}
-	sources, err := collectImportSources(p.Path, p.Paths)
+	sources, err := validateImportLocalDirParams(p)
 	if err != nil {
 		return nil, err
 	}
-	if len(sources) == 0 {
-		return nil, errors.New("path or paths is required")
-	}
-	if len(sources) > 1 && strings.TrimSpace(p.Name) != "" {
-		return nil, errors.New("name is only supported for single directory import")
-	}
 	results, failures := s.importSources(sources, p.Name, cwd)
-	response := map[string]any{"requested": len(sources), "imported": results}
-	if len(failures) > 0 {
-		response["failures"] = failures
-	}
-	if len(results) == 1 {
-		response["skill"] = results[0]
-	}
+	response := buildImportLocalDirResponse(sources, results, failures)
 	if len(results) > 0 {
 		name := strings.TrimSpace(p.Name)
 		if name == "" && len(results) == 1 {
@@ -316,6 +304,23 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 		s.publishSkillsChanged("import_dir", name)
 	}
 	return response, nil
+}
+
+func validateImportLocalDirParams(p importSkillDirParams) ([]string, error) {
+	sources, err := collectImportSources(p.Path, p.Paths)
+	if err != nil { return nil, err }
+	if len(sources) == 0 { return nil, errors.New("path or paths is required") }
+	if len(sources) > 1 && strings.TrimSpace(p.Name) != "" {
+		return nil, errors.New("name is only supported for single directory import")
+	}
+	return sources, nil
+}
+
+func buildImportLocalDirResponse(sources []string, results []map[string]any, failures []map[string]any) map[string]any {
+	response := map[string]any{"requested": len(sources), "imported": results}
+	if len(failures) > 0 { response["failures"] = failures }
+	if len(results) == 1 { response["skill"] = results[0] }
+	return response
 }
 
 func (s *service) DeleteLocal(ctx context.Context, name string) (any, error) {
