@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
@@ -145,9 +146,53 @@ func (s *service) listDashboardCommandCards(ctx context.Context) ([]commandcards
 }
 
 func (s *service) listDashboardPrompts(ctx context.Context) ([]promptstore.PromptTemplate, error) {
+	cwd := dashboardPromptScopeCWDFromContext(ctx)
 	return safeList(s.prompts != nil, func() ([]promptstore.PromptTemplate, error) {
-		return s.prompts.List(ctx, promptstore.ListFilter{Limit: dashboardPageDefaultLimit})
+		items, err := s.prompts.List(ctx, promptstore.ListFilter{CWD: cwd, Limit: dashboardPageDefaultLimit})
+		if err != nil {
+			return nil, err
+		}
+		return filterDashboardPromptsByCWD(items, cwd), nil
 	})
+}
+
+func filterDashboardPromptsByCWD(items []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
+	requestScope := strings.TrimSpace(cwd)
+	if requestScope == "" {
+		return items
+	}
+	filtered := make([]promptstore.PromptTemplate, 0, len(items))
+	for _, item := range items {
+		if dashboardPromptVisibleForCWD(item, requestScope) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func dashboardPromptVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
+	storedScope := dashboardPromptScopeFromTags(template.Tags)
+	return storedScope == "" || storedScope == strings.TrimSpace(cwd)
+}
+
+func dashboardPromptScopeFromTags(raw json.RawMessage) string {
+	for _, tag := range dashboardPromptTags(raw) {
+		if value, ok := strings.CutPrefix(tag, "scope.cwd:"); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func dashboardPromptTags(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return []string{}
+	}
+	var tags []string
+	if err := json.Unmarshal(raw, &tags); err != nil {
+		return []string{}
+	}
+	return tags
 }
 
 func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.SharedFile, error) {

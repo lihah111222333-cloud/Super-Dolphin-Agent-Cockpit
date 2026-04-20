@@ -48,6 +48,8 @@ type service struct {
 	startedAt     time.Time
 }
 
+type dashboardPromptScopeCWDKey struct{}
+
 var _ Service = (*service)(nil)
 
 func NewService(
@@ -79,6 +81,21 @@ func NewService(
 		skills:        skills,
 		startedAt:     time.Now(),
 	}
+}
+
+func withDashboardPromptScopeCWD(ctx context.Context, cwd string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, dashboardPromptScopeCWDKey{}, strings.TrimSpace(cwd))
+}
+
+func dashboardPromptScopeCWDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(dashboardPromptScopeCWDKey{}).(string)
+	return strings.TrimSpace(value)
 }
 
 func (s *service) GetDashboard(ctx context.Context) (*Dashboard, error) {
