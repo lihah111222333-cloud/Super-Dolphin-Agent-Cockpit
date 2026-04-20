@@ -27,6 +27,10 @@ type cliLaunchConfig struct {
 	Personality           string
 	DeveloperInstructions string
 	PromptSnapshot        contract.PromptAssemblySnapshot
+	// DisallowedTools overrides the upstream Claude CLI built-in tool disable
+	// list. A nil slice keeps the legacy hardcoded default; a non-nil slice
+	// (including empty) expresses an explicit user choice.
+	DisallowedTools []string
 }
 
 var launchCLI = launchCLIWithManifest
@@ -112,7 +116,9 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 	args = appendFlagIfSet(args, "--effort", normalizeEffort(model, cfg.Effort))
 	if mcpConfigPath = strings.TrimSpace(mcpConfigPath); mcpConfigPath != "" {
 		args = appendFlagIfSet(args, "--mcp-config", mcpConfigPath)
-		args = append(args, "--disallowedTools", "Read,Write,Edit,MultiEdit,Bash,Grep,Glob,LS")
+		if disallowed := resolveDisallowedToolsFlag(cfg.DisallowedTools); disallowed != "" {
+			args = append(args, "--disallowedTools", disallowed)
+		}
 		if !hasFlag(args, "--permission-mode") {
 			args = appendFlagIfSet(args, "--permission-mode", "bypassPermissions")
 		}
@@ -122,6 +128,30 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 
 func hasFlag(args []string, flag string) bool {
 	return slices.Contains(args, flag)
+}
+
+// defaultDisallowedBuiltinTools mirrors the legacy hardcoded list kept for
+// backwards compatibility when the caller has not provided an explicit
+// DisallowedTools override.
+var defaultDisallowedBuiltinTools = []string{"Read", "Write", "Edit", "MultiEdit", "Bash", "Grep", "Glob", "LS"}
+
+// resolveDisallowedToolsFlag turns the configured list into the --disallowedTools
+// flag value. nil → legacy default; non-nil empty → "" (caller skips the flag);
+// otherwise the trimmed IDs are comma-joined.
+func resolveDisallowedToolsFlag(override []string) string {
+	source := override
+	if source == nil {
+		source = defaultDisallowedBuiltinTools
+	}
+	ids := make([]string, 0, len(source))
+	for _, raw := range source {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return strings.Join(ids, ",")
 }
 
 func appendSystemPromptFlags(args []string, instructions string, cfg cliLaunchConfig) []string {

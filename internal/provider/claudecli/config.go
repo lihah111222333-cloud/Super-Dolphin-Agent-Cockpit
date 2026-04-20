@@ -46,7 +46,27 @@ func configFromMap(cfg map[string]any) cliLaunchConfig {
 		Effort:                providershared.ConfigString(cfg, "effort"),
 		Personality:           providershared.ConfigString(cfg, "personality"),
 		DeveloperInstructions: providershared.ConfigString(cfg, "developer_instructions", "developerInstructions"),
+		DisallowedTools:       disallowedBuiltinToolsFromMap(cfg),
 	}
+}
+
+// disallowedBuiltinToolsFromMap preserves nil when no override key is present
+// so callers fall back to the legacy default disallow list, while an explicit
+// empty array in the config map yields a non-nil empty slice meaning "enable
+// every upstream built-in tool".
+func disallowedBuiltinToolsFromMap(cfg map[string]any) []string {
+	for _, key := range []string{"disallowed_tools", "disallowedTools", "disallowed_builtin_tools", "disallowedBuiltinTools"} {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		ids := providershared.NormalizeConfigStringSlice(raw)
+		if ids == nil {
+			return []string{}
+		}
+		return ids
+	}
+	return nil
 }
 
 func resolveStartAssembly(req dto.StartSessionRequest, cfg cliLaunchConfig, provider string) contract.StartAssembly {
