@@ -56,6 +56,10 @@ export const SkillsPage = {
 
     const sourcePath = ref('');
     const activeSkillFilePath = ref('');
+    const activeCwdSource = computed(() => {
+      const active = (props.projectStore?.state?.active || '').toString().trim();
+      return active && active !== '.' ? active : '';
+    });
     const isEditingMainSkillFile = computed(() => {
       const candidate = (activeSkillFilePath.value || sourcePath.value || '').toString().trim();
       if (!candidate) return true;
@@ -70,6 +74,7 @@ export const SkillsPage = {
     });
     const fileNavigation = useSkillFileNavigation({
       activeSkillFilePath,
+      activeCwdSource,
       form: editor.form,
       onEditSkill: editor.onEditSkill,
       readSkillFile: editor.readSkillFile,

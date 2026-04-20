@@ -9,6 +9,11 @@ import {
   skillDirFromFilePath,
 } from '../utils/skill-parser.js';
 
+function withSkillsCwd(deps, payload = {}) {
+  const cwd = (deps?.activeCwdSource?.value || '').toString().trim();
+  return cwd ? { ...payload, cwd } : payload;
+}
+
 /**
  * 管理 SkillsPage 的子文件打开与 Markdown 预览跳转。
  *
@@ -24,7 +29,7 @@ export function useSkillFileNavigation(deps) {
         deps.setNotice('info', '已切换到主文件 SKILL.md');
         return;
       }
-      const raw = await callAPI('skills/local/read', { path });
+      const raw = await callAPI('skills/local/read', withSkillsCwd(deps, { path }));
       deps.form.body = (raw?.skill?.content || '').toString();
       deps.sourcePath.value = path;
       deps.activeSkillFilePath.value = path;

@@ -296,6 +296,7 @@ describe('SkillsPage', () => {
     await vm.onSaveSkill();
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/write', {
+      cwd: '/repo',
       path: '/skills/deploy/references/prompt.md',
       content: '# prompt body',
     });
@@ -465,7 +466,7 @@ describe('SkillsPage', () => {
 
     await vm.onDeleteSkill({ name: 'DeploySkill' });
 
-    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/delete', { name: 'DeploySkill' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/delete', { name: 'DeploySkill', cwd: '/repo' });
     expect(emit).toHaveBeenCalledWith('refresh-skills');
     expect(vm.isEditorOpen.value).toBe(false);
     expect(vm.form.name).toBe('');
@@ -563,7 +564,7 @@ describe('SkillsPage', () => {
       stopPropagation: vi.fn(),
     });
 
-    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/read', { path: '/skills/deploy/references/prompt.md' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/read', { path: '/skills/deploy/references/prompt.md', cwd: '/repo' });
     expect(vm.activeSkillFilePath.value).toBe('/skills/deploy/references/prompt.md');
     expect(vm.form.body).toBe('# prompt body');
   });
@@ -601,7 +602,7 @@ describe('SkillsPage', () => {
       stopPropagation: vi.fn(),
     });
 
-    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/read', { path: '/skills/deploy/SKILL.md' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/read', { path: '/skills/deploy/SKILL.md', cwd: '/repo' });
     expect(vm.activeSkillFilePath.value).toBe('/skills/deploy/SKILL.md');
     expect(vm.notice.message).toContain('已切换到主文件 SKILL.md');
   });
@@ -630,8 +631,8 @@ describe('SkillsPage', () => {
       stopPropagation: vi.fn(),
     });
 
-    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/read', { path: '/skills/docs/SKILL.md' });
-    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/listFiles', { dir: '/skills/docs' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/read', { path: '/skills/docs/SKILL.md', cwd: '/repo' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/listFiles', { dir: '/skills/docs', cwd: '/repo' });
     expect(vm.selectedSkillName.value).toBe('DocsSkill');
     expect(vm.sourcePath.value).toBe('/skills/docs/SKILL.md');
   });

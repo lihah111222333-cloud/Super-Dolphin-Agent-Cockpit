@@ -13,6 +13,16 @@ function updateNotice(notice, level, message) {
   notice.message = (message || '').toString();
 }
 
+function resolveSkillsCwd(props) {
+  const activeProject = (props?.projectStore?.state?.active || '').toString().trim();
+  return activeProject && activeProject !== '.' ? activeProject : '';
+}
+
+function withSkillsCwd(props, payload = {}) {
+  const cwd = resolveSkillsCwd(props);
+  return cwd ? { ...payload, cwd } : payload;
+}
+
 function applyParsedSkillState(state, parsed, rawContent, path = '', fallbackSummary = '', fallbackSource = '') {
   state.form.name = parsed.name || state.form.name || '';
   state.form.description = parsed.description || '';
@@ -41,9 +51,9 @@ function applyParsedSkillState(state, parsed, rawContent, path = '', fallbackSum
   });
 }
 
-function createSkillFileReaders(state) {
+function createSkillFileReaders(props, state) {
   async function loadSkillFiles(dir, preferredPath = '') {
-    const raw = await callAPI('skills/local/listFiles', { dir });
+    const raw = await callAPI('skills/local/listFiles', withSkillsCwd(props, { dir }));
     const files = Array.isArray(raw?.files) ? raw.files : [];
     const normalized = files
       .map((item) => ({
@@ -67,7 +77,7 @@ function createSkillFileReaders(state) {
   }
 
   async function readSkillFile(path, fallbackName = '', fallbackSummary = '', fallbackSource = '') {
-    const raw = await callAPI('skills/local/read', { path });
+    const raw = await callAPI('skills/local/read', withSkillsCwd(props, { path }));
     const content = (raw?.skill?.content || '').toString();
     if (!content.trim()) {
       throw new Error('读取的技能文件为空');
@@ -125,9 +135,7 @@ function createImportActions(props, emit, deps, state, readers) {
         state.setNotice('info', `将覆盖已有技能：${summarizeItems(overwriteNames)}，继续导入中...`);
       }
 
-      const activeProject = (props.projectStore?.state?.active || '').toString().trim();
-      const cwd = activeProject && activeProject !== '.' ? activeProject : '';
-      const imported = await callAPI('skills/local/importDir', { paths: folderPaths, cwd });
+      const imported = await callAPI('skills/local/importDir', withSkillsCwd(props, { paths: folderPaths }));
       const importedSkills = Array.isArray(imported?.skills) ? imported.skills : [];
       const failures = Array.isArray(imported?.failures) ? imported.failures : [];
       state.importFailures.value = failures.map((item) => {
@@ -161,7 +169,7 @@ function createImportActions(props, emit, deps, state, readers) {
   return { onUploadSkill };
 }
 
-function createEditorActions(emit, state, readers) {
+function createEditorActions(props, emit, state, readers) {
   function onCreateSkill() {
     state.selectedSkillName.value = '';
     state.summarySource.value = '';
@@ -226,7 +234,7 @@ function createEditorActions(emit, state, readers) {
     if (!confirmed) return;
     state.deletingSkillName.value = skillName;
     try {
-      await callAPI('skills/local/delete', { name: skillName });
+      await callAPI('skills/local/delete', withSkillsCwd(props, { name: skillName }));
       const skillKey = skillName.toLowerCase();
       if ((state.selectedSkillName.value || '').toLowerCase() === skillKey) {
         state.selectedSkillName.value = '';
@@ -264,7 +272,7 @@ function createEditorActions(emit, state, readers) {
         if (!targetPath) {
           throw new Error('缺少子文件路径，无法保存');
         }
-        await callAPI('skills/local/write', { path: targetPath, content: (state.form.body || '').toString() });
+        await callAPI('skills/local/write', withSkillsCwd(props, { path: targetPath, content: (state.form.body || '').toString() }));
         state.setNotice('success', `子文件已保存：${fileNameFromPath(targetPath) || targetPath}`);
         return;
       }
@@ -406,9 +414,9 @@ export function useSkillEditor(props, emit, deps) {
     setNotice: (level, message) => updateNotice(notice, level, message),
   };
 
-  const readers = createSkillFileReaders(state);
+  const readers = createSkillFileReaders(props, state);
   const importActions = createImportActions(props, emit, deps, state, readers);
-  const editorActions = createEditorActions(emit, state, readers);
+  const editorActions = createEditorActions(props, emit, state, readers);
 
   watch(deps.skillCards, (nextCards) => {
     const current = (selectedSkillName.value || '').toString().trim().toLowerCase();

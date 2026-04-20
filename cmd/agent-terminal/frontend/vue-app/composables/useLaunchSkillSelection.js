@@ -46,8 +46,18 @@ function normalizeSkills(rawSkills) {
   return next;
 }
 
+function resolveActiveCwd(activeCwdSource) {
+  return (activeCwdSource?.value || '').toString().trim();
+}
+
 export function useLaunchSkillSelection(opts) {
-  const { composer, selectedThreadId, skillRevision, featureSource } = opts;
+  const {
+    composer,
+    selectedThreadId,
+    skillRevision,
+    featureSource,
+    activeCwdSource,
+  } = opts;
   const launchAvailableSkills = ref([]);
   const launchSkillMatches = ref([]);
   const launchManualSkillNames = ref([]);
@@ -120,7 +130,7 @@ export function useLaunchSkillSelection(opts) {
     }
     launchSkillCatalogLoading.value = true;
     try {
-      launchAvailableSkills.value = normalizeSkills(await listSkills());
+      launchAvailableSkills.value = normalizeSkills(await listSkills(resolveActiveCwd(activeCwdSource)));
     } catch (error) {
       launchAvailableSkills.value = [];
       logWarn('ui', 'launchSkillSelection.list.failed', { error });
@@ -140,7 +150,7 @@ export function useLaunchSkillSelection(opts) {
     const startedAt = Date.now();
     launchSkillPreviewLoading.value = true;
     try {
-      const raw = await previewSkillMatches({ threadId: '', text: normalizedText });
+      const raw = await previewSkillMatches({ threadId: '', text: normalizedText, cwd: resolveActiveCwd(activeCwdSource) });
       if (requestSeq !== launchSkillPreviewSeq) return launchSkillMatches.value;
       const matches = normalizeSkillPreviewMatches(raw?.matches);
       launchSkillMatches.value = matches;
@@ -197,7 +207,7 @@ export function useLaunchSkillSelection(opts) {
     let forceMatchedSkillNames = [...launchForceMatchedSkillNames.value];
     if (normalizedText) {
       try {
-        const raw = await previewSkillMatches({ threadId: '', text: normalizedText });
+        const raw = await previewSkillMatches({ threadId: '', text: normalizedText, cwd: resolveActiveCwd(activeCwdSource) });
         const latestMatches = normalizeSkillPreviewMatches(raw?.matches);
         launchSkillMatches.value = latestMatches;
         launchSkillPreviewSignature = buildSkillPreviewSignature(latestMatches);
@@ -235,6 +245,12 @@ export function useLaunchSkillSelection(opts) {
 
   watch(() => Number(skillRevision?.value || 0), () => {
     if (!launchSkillSelectionEnabled.value) return;
+    refreshLaunchSkillCatalog().catch(() => {});
+    scheduleLaunchSkillPreview();
+  });
+
+  watch(() => resolveActiveCwd(activeCwdSource), (next, prev) => {
+    if (next === prev || !launchSkillSelectionEnabled.value) return;
     refreshLaunchSkillCatalog().catch(() => {});
     scheduleLaunchSkillPreview();
   });
