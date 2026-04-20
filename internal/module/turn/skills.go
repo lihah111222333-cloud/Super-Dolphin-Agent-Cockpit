@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 
@@ -183,19 +184,39 @@ func matchesSkillPrompt(prompt string, skillName string) bool {
 // hydrateSkillRefs p20.2 §5 step 2-3：给 PrepareTurn 收到的 manual skill
 // 补全 Prompt/Summary/Version。当 skillLookup 为 nil（optional fx 依赖未注入）
 // 或所有引用均已有正文/摘要/版本时，直接返回原列表，不做任何多余 I/O。
-func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef) []dto.SkillRef {
+//
+// p20.17 §7：`ErrMissingCWD`（契约违反）必须 fail-fast 传回，由 PrepareTurn
+// 失败暴露；其他 scan 失败仍保持容忍（原 p20.2 行为），不阻断 turn 启动。
+func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef) ([]dto.SkillRef, error) {
 	if s == nil || s.skillLookup == nil || len(refs) == 0 {
-		return refs
+		return refs, nil
 	}
 	if !refsNeedHydration(refs) {
-		return refs
+		return refs, nil
 	}
+	scopedCtx, index, err := s.skillHydrationIndex(ctx)
+	if err != nil {
+		if errors.Is(err, skillpkg.ErrMissingCWD) {
+			return refs, err
+		}
+		return refs, nil
+	}
+	if len(index) == 0 {
+		return refs, nil
+	}
+	out := make([]dto.SkillRef, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, s.applyHydration(scopedCtx, ref, index))
+	}
+	return out, nil
+}
+
+// skillHydrationIndex 返 err：ErrMissingCWD 代表契约违反（由 caller fail-fast），
+// 其他 err 代表 scan/list 失败（由 hydrateSkillRefs 按容忍口径吞掉）。
+func (s *service) skillHydrationIndex(ctx context.Context) (context.Context, map[string]skillpkg.SkillInfo, error) {
 	cwd, err := skillpkg.RequireCWD(ctx)
 	if err != nil {
-		if s.logger != nil {
-			s.logger.Warn("turn skill hydrate: cwd missing", "error", err)
-		}
-		return refs
+		return ctx, nil, err
 	}
 	scopedCtx := skillpkg.WithCWD(ctx, cwd)
 	infos, err := s.skillLookup.ListSkills(scopedCtx)
@@ -203,17 +224,9 @@ func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef) []d
 		if s.logger != nil {
 			s.logger.Warn("turn skill hydrate: ListSkills failed", "error", err)
 		}
-		return refs
+		return scopedCtx, nil, err
 	}
-	if len(infos) == 0 {
-		return refs
-	}
-	index := skillInfoIndex(infos)
-	out := make([]dto.SkillRef, 0, len(refs))
-	for _, ref := range refs {
-		out = append(out, s.applyHydration(ctx, ref, index))
-	}
-	return out
+	return scopedCtx, skillInfoIndex(infos), nil
 }
 
 // refsNeedHydration 扫一遍判断是否有任何 skill 缺 Prompt/Summary/Version；

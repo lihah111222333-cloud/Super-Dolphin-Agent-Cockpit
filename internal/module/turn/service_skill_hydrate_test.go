@@ -193,7 +193,7 @@ func TestHydrateSkillRefsListSkillsErrorReturnsOriginal(t *testing.T) {
 	lookup := &stubSkillLookup{listErr: errors.New("boom")}
 	svc := newService(silentLogger(), nil, nil, lookup).(*service)
 	original := []dto.SkillRef{{Name: "debug"}}
-	out := svc.hydrateSkillRefs(skillpkg.WithCWD(context.Background(), "/repo"), original)
+	out, _ := svc.hydrateSkillRefs(skillpkg.WithCWD(context.Background(), "/repo"), original)
 	if len(out) != 1 || out[0].Name != "debug" || out[0].Prompt != "" {
 		t.Fatalf("ListSkills error must preserve input, got %+v", out)
 	}
