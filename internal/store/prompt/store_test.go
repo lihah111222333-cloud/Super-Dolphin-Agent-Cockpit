@@ -9,6 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// promptQuerierStub 满足 p20.1 扩容后的 `querier` 接口。
+// 除 list 以外的方法默认返回零值 / nil，这份 test suite 只关心 List。
 type promptQuerierStub struct {
 	listFn func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error)
 }
@@ -18,6 +20,19 @@ func (s *promptQuerierStub) ListPromptTemplates(ctx context.Context, arg sqlc.Li
 		return s.listFn(ctx, arg)
 	}
 	return nil, nil
+}
+
+func (s *promptQuerierStub) GetPromptTemplate(context.Context, string) (sqlc.GetPromptTemplateRow, error) {
+	return sqlc.GetPromptTemplateRow{}, nil
+}
+func (s *promptQuerierStub) DeletePromptTemplate(context.Context, string) (int64, error) {
+	return 0, nil
+}
+func (s *promptQuerierStub) UpsertPromptTemplate(context.Context, sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error) {
+	return sqlc.UpsertPromptTemplateRow{}, nil
+}
+func (s *promptQuerierStub) InsertPromptVersion(context.Context, sqlc.InsertPromptVersionParams) error {
+	return nil
 }
 
 func TestListForwardsAgentKeyKeywordAndLimit(t *testing.T) {
