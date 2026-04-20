@@ -410,11 +410,11 @@ export const SharedFilesPage = {
           <div class="memory-center-callout-head">
             <div>
               <div class="memory-center-callout-title">
-                共享文件适合协作草稿、中间结果和交接上下文
+                共享文件 · Agent 协作中转站
                 <span class="jr-badge jr-badge-default">{{ items.length }} 条</span>
               </div>
               <div v-if="!guideCollapsed" class="memory-center-callout-subtitle">
-                这些内容不会自动变成长期记忆。确认值得长期保留后，再人工 Promote 成 durable memory，避免把计划、过程状态或噪音写入长期知识库。
+                协作草稿不会自动进入长期记忆；值得保留的内容点"提升为长期记忆"。
               </div>
             </div>
             <div class="memory-center-callout-actions">
@@ -501,7 +501,7 @@ export const SharedFilesPage = {
               <div class="memory-entry-updated">{{ formatTimestamp(item.updated_at) }}</div>
             </div>
             <div class="memory-entry-meta">
-              <span>更新者 {{ item.updated_by || '-' }}</span>
+              <span>{{ item.updated_by || '-' }}</span>
               <span class="shared-files-size-hint">{{ formatBytes((item.content || '').length) }}</span>
             </div>
             <pre class="memory-entry-preview">{{ previewText(item.content) }}</pre>
@@ -519,7 +519,7 @@ export const SharedFilesPage = {
                 @click="openPromote(item)"
               >提升为长期记忆</button>
               <button
-                class="btn btn-ghost btn-warning btn-xs"
+                class="btn btn-danger btn-xs"
                 :data-testid="'shared-files-delete-' + idx"
                 :disabled="deletingPath === item.path"
                 @click="askDelete(item)"
@@ -577,7 +577,7 @@ export const SharedFilesPage = {
               @click="cancelDelete"
             >取消</button>
             <button
-              class="btn btn-ghost btn-warning"
+              class="btn btn-danger"
               data-testid="shared-files-delete-confirm"
               :disabled="deletingPath === confirmDeletePath"
               @click="confirmDelete"

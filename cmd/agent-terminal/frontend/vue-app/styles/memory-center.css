@@ -615,3 +615,143 @@
 #page-shared-files .btn-primary {
   color: #111;
 }
+
+/* ========================================================================
+ * Unified danger button for destructive actions on memory center / shared
+ * files pages. Replaces btn-ghost + btn-warning which reads as orange
+ * ("attention") rather than red ("destructive").
+ * ====================================================================== */
+
+#page-memory-center .btn-danger,
+#page-shared-files .btn-danger {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error) 32%, transparent);
+  color: #fca5a5;
+}
+
+#page-memory-center .btn-danger:hover:not(:disabled),
+#page-shared-files .btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 20%, transparent);
+  border-color: color-mix(in srgb, var(--error) 55%, transparent);
+  color: #fecaca;
+}
+
+#page-memory-center .btn-secondary,
+#page-shared-files .btn-secondary {
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+}
+
+#page-memory-center .btn-secondary:hover:not(:disabled),
+#page-shared-files .btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--card) 78%, transparent);
+}
+
+/* ========================================================================
+ * Layout tightening pass.
+ * ====================================================================== */
+
+.memory-center-body {
+  gap: 12px;
+}
+
+.memory-center-callout.is-collapsed {
+  padding: 10px 14px;
+}
+
+.memory-center-callout.is-collapsed .memory-center-callout-title {
+  font-size: 13px;
+}
+
+.memory-scope-card {
+  padding: 10px 14px;
+  gap: 6px;
+}
+
+.memory-scope-card .data-row-vue {
+  font-size: 12px;
+}
+
+.memory-scope-card .data-row-vue strong {
+  min-width: 62px;
+}
+
+.memory-center-overview-card {
+  padding: 10px 14px;
+  gap: 6px;
+}
+
+.memory-center-overview-card .data-row-vue {
+  font-size: 12px;
+}
+
+.memory-center-section {
+  padding: 2px 2px 2px;
+  margin-top: 0;
+}
+
+.memory-entry-card {
+  padding: 10px 12px;
+}
+
+.memory-entry-card:hover {
+  transform: translateY(-1px);
+}
+
+.memory-empty {
+  padding: 24px 20px;
+}
+
+.memory-scope-empty {
+  padding: 20px 16px;
+}
+
+.memory-agent-scope-card {
+  padding: 10px 14px;
+}
+
+.memory-center-footer-note {
+  font-size: 11px;
+  padding: 6px 2px;
+  opacity: 0.7;
+}
+
+/* Ensure toolbar buttons sit at matching heights even when the primary
+ * refresh button shows a spinner. */
+.memory-center-toolbar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* One-line scope summary replacing the verbose 3-row scope card. Shows only
+   the most useful field (rootPath) with any notice inline; full metadata is
+   available via the title attribute on hover. */
+.memory-scope-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--text-subtle);
+  flex-wrap: wrap;
+}
+
+.memory-scope-summary-path {
+  font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 520px;
+  color: var(--text-muted);
+}
+
+.memory-scope-summary .memory-scope-note {
+  font-size: 11px;
+  color: var(--warning);
+}
+
+/* Styled "memory system is off" banner. */
+.memory-system-off {
+  font-size: 12px;
+}
