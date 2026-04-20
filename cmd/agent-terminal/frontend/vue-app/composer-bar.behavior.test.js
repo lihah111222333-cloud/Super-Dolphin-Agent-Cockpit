@@ -69,7 +69,8 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
       removeAttachment: vi.fn(),
     },
     disabled: overrides.disabled ?? false,
-    threadId: overrides.threadId ?? 'thread-1',
+    threadId: Object.prototype.hasOwnProperty.call(overrides, 'threadId') ? overrides.threadId : 'thread-1',
+    launchSkillSelectionEnabled: overrides.launchSkillSelectionEnabled ?? false,
     interruptible: overrides.interruptible ?? false,
     compacting: overrides.compacting ?? false,
     canCompact: overrides.canCompact ?? true,
@@ -152,6 +153,24 @@ describe('ComposerBar behavior', () => {
 
     expect(preventDefault).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('shows the legacy skill selector on blank-thread launch when launch picker is disabled', () => {
+    const { vm } = createComposerBar({ threadId: null, launchSkillSelectionEnabled: false });
+
+    expect(vm.showLegacySkillSelector.value).toBe(true);
+  });
+
+  it('hides the legacy skill selector on blank-thread launch when launch picker is enabled', () => {
+    const { vm } = createComposerBar({ threadId: null, launchSkillSelectionEnabled: true });
+
+    expect(vm.showLegacySkillSelector.value).toBe(false);
+    expect(ComposerBar.template).toContain('v-if="showLegacySkillSelector"');
+  });
+
+  it('keeps the legacy skill selector visible for active threads regardless of launch picker gate', () => {
+    expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: false }).vm.showLegacySkillSelector.value).toBe(true);
+    expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: true }).vm.showLegacySkillSelector.value).toBe(true);
   });
 
   it('emits interrupt payloads and resolves pause acknowledgement on confirm', () => {
