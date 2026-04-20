@@ -47,8 +47,10 @@ import {
   applyComposerTextareaAutoHeight,
   ComposerBar,
 } from './components/ComposerBar.js';
+import { LaunchSkillPicker } from './components/LaunchSkillPicker.js';
 import { useComposerTextarea } from './composables/useComposerTextarea.js';
 import { useComposerThreadConfig } from './composables/useComposerThreadConfig.js';
+import { reactive } from '../lib/vue.esm-browser.prod.js';
 
 let registeredNativeDropHandler = null;
 let registeredNativeDropDispose = vi.fn();
@@ -94,6 +96,25 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     threadConfigMeta: overrides.threadConfigMeta ?? { override: {}, effective: {} },
   };
   const vm = ComposerBar.setup(props, { emit });
+  return { props, emit, vm };
+}
+
+function createLaunchSkillPicker(overrides = {}, emit = vi.fn()) {
+  const props = reactive({
+    enabled: true,
+    skills: overrides.skills ?? [
+      { name: 'ProjectSkill', summary: 'project skill', trust: 'project' },
+      { name: 'SystemSkill', summary: 'system skill', trust: 'user' },
+    ],
+    projectSkills: overrides.projectSkills ?? [{ name: 'ProjectSkill', summary: 'project skill', trust: 'project' }],
+    systemSkills: overrides.systemSkills ?? [{ name: 'SystemSkill', summary: 'system skill', trust: 'user' }],
+    scope: Object.prototype.hasOwnProperty.call(overrides, 'scope') ? overrides.scope : '',
+    scopeTabsEnabled: overrides.scopeTabsEnabled ?? false,
+    matches: overrides.matches ?? [],
+    selectedSkillNames: overrides.selectedSkillNames ?? [],
+    loading: overrides.loading ?? false,
+  });
+  const vm = LaunchSkillPicker.setup(props, { emit });
   return { props, emit, vm };
 }
 
@@ -171,6 +192,37 @@ describe('ComposerBar behavior', () => {
   it('keeps the legacy skill selector visible for active threads regardless of launch picker gate', () => {
     expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: false }).vm.showLegacySkillSelector.value).toBe(true);
     expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: true }).vm.showLegacySkillSelector.value).toBe(true);
+  });
+
+  it('keeps launch picker scope tabs hidden when scope prop is empty', () => {
+    const { vm } = createLaunchSkillPicker({ scope: '', scopeTabsEnabled: true });
+
+    expect(vm.showScopeTabs.value).toBe(false);
+    expect(LaunchSkillPicker.template).toContain('data-testid="launch-skill-scope-tabs"');
+  });
+
+  it('switches launch picker entries by scope tab without changing entry ordering helpers', () => {
+    const emit = vi.fn();
+    const { props, vm } = createLaunchSkillPicker({
+      scope: 'project',
+      scopeTabsEnabled: true,
+      projectSkills: [
+        { name: 'ProjectSkill', summary: 'project skill', trust: 'project' },
+      ],
+      systemSkills: [
+        { name: 'SystemSkill', summary: 'system skill', trust: 'user' },
+      ],
+      matches: [],
+      selectedSkillNames: [],
+    }, emit);
+
+    expect(vm.skillEntries.value.map((entry) => entry.name)).toEqual(['ProjectSkill']);
+
+    vm.updateScope('system');
+    expect(emit).toHaveBeenCalledWith('update:scope', 'system');
+
+    props.scope = 'system';
+    expect(vm.skillEntries.value.map((entry) => entry.name)).toEqual(['SystemSkill']);
   });
 
   it('emits interrupt payloads and resolves pause acknowledgement on confirm', () => {
