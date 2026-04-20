@@ -77,3 +77,4 @@ __pycache__/
 /.build-cache/
 /cmd/agent-terminal/frontend/.build-cache/
 /cmd/agent-terminal/frontend/.vite-cache/
+.claude/

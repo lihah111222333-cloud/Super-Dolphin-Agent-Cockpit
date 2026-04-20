@@ -270,3 +270,188 @@
 | Phase 11 — 文档与 codemap 同步 | ✅ | （本轮 commit） | hardening / checklist / checkpoint / codemap 07+11 + ai-index.json 全部同步 |
 
 **本轮把 P20.1 加固基线从 Phase 7 推进到 Phase 11 完整闭环**；剩余工作只有跨 phase 的 shadow 阶段评测（P0）和 P20.2/3/4 的 per-turn hydrate 真实生产联调（不属于 P20.1 范畴）。
+
+### 2026-04-19 第十轮增量施工（p20.4 StartAssembly / Snapshot launch skill 接线闭环）
+
+| 项 | 状态 | 文件 | 备注 |
+|---|---|---|---|
+| p20.4 §4.4 · dto 双端加 launch 字段 | ✅ | `internal/dto/provider/session.go` | `PromptAssemblySnapshot` 与 `StartAssembly` 均新增 `LaunchSkillNames []string` / `ForceLaunchSkills bool`，`omitempty` + `launchSkillNames/forceLaunchSkills` camelCase tag |
+| p20.4 §4.4 · stored snapshot schema 扩展 | ✅ | `internal/store/thread/contract.go` | `PromptSnapshot` + `legacyPromptSnapshot` 新增字段；`mergeLegacyPromptSnapshot` 抽出 `mergeLegacyLaunchSkill` helper（同时压 CC，不再超 10） |
+| p20.4 §4.4 · runtime snapshot 全链扩展 | ✅ | `internal/module/thread/prompt_snapshot.go` | `promptSnapshotHash(...)` 签名加 `launchSkillNames/forceLaunchSkills`；`ensureStartAssemblySnapshot` 双向镜像；新增 `normalizeLaunchSkillNames` / `mergeLaunchSkillSelection` / `promptSnapshotLaunchSkillBlank` 三个 helper；`toStoredPromptSnapshot` / `fromStoredPromptSnapshot` 双向映射；`storedPromptSnapshotValid` / `normalizeCallerPromptSnapshot` hash 调用更新；`promptSnapshotBlank` 同步纳入 launch skill blank 判定 |
+| p20.4 §4.4 · start_session_helpers 映射 launch fields | ✅ | `internal/module/thread/start_session_helpers.go` | `buildStartAssembly` 从 req 注入；`resolveStartPromptAssembly` 在 PromptAssemblyRef 分支回填 input.LaunchSkillNames；`toProviderStartAssembly` / `toProviderPromptSnapshot` 映射 launch fields 下发到 provider DTO |
+| p20.4 §4.4 · hash 签名 fan-out 修复 | ✅ | `internal/module/thread/fork_isolation_test.go`、`internal/module/thread/resume_test.go` | 3 处 `promptSnapshotHash(...)` 测试调用补两个新参 (`nil, false`) |
+| p20.4 §4.4 · round-trip 定向测试 | ✅ | `internal/module/thread/start_session_helpers_test.go` | 新增 3 个测试：`TestBuildStartAssemblyInputCarriesLaunchSkills` / `TestBuildStartAssemblyMirrorsLaunchSkillsIntoSnapshot` / `TestToProviderStartAssemblyMirrorsLaunchSkills`；覆盖 StartInput 投影 / assembly↔Snapshot 镜像 / launch skill 差异导致 Hash 失效 / provider DTO 映射 |
+| p20.4 §4.4 · golden refresh | ✅ | `internal/module/prompt/testdata/golden/integration/start_assembly.golden.json` | `TestStartAssemblyGolden` 受 hash 字段扩展影响，`-update` 后 regenerate；其余 prompt 测试保持绿色 |
+| 合规 | ✅ | — | 0 新增 prod 文件（thread 仍 25 / prompt 不碰）；我引入的 3 条 CC 违规全部清零；`go build ./...` / `go test ./internal/module/thread ./internal/module/prompt ./internal/store/thread ./internal/dto/provider ./internal/provider/unified ./internal/module/skill ./internal/module/turn ./internal/provider/codexapp ./internal/provider/claudecli` 全部通过 |
+
+**p20.4 critical-path 末段闭环完成**：launch skill 现沿 `StartRequest → contract.StartInput → contract.StartAssembly / contract.PromptAssemblySnapshot → threadstore.PromptSnapshot → dto.StartAssembly / dto.PromptAssemblySnapshot → dto.StartSessionRequest` 完整落盘，`promptSnapshotHash` 把 launch skill 选择纳入 resume/fork/recover 的失效因子，避免旧 snapshot 被错误复用。codex provider 侧的 `InjectL1Manifest(baseInstructions, manifest)` 按 §4.6 交接给 `p20.7`，本单不触碰 `threadStartParams` / `startAssemblyInstructions()`。
+
+**已知剩余 archtest 违规（均为 HEAD 遗留，不归 p20.4）**：`internal/module/prompt: 28 > 26`（P20.1 Phase 10 新增 `skill_catalog_fx.go` / `skill_catalog_provider.go` 未同步 freeze registry）；`skill/approval.go:NewApprovalCache` CC 11、`skill/skills_expand.go:ReadResource/sliceMarkdownSection` CC 11、`skill/trust.go:NormalizeArtifactLocator` CC 20（均在 `p20.12` / `p20.13` 之前的本轮之外已存在）。
+
+### 2026-04-19 第十一轮增量施工（β 组 p20.5 / p20.6 / p20.7 整合闭环）
+
+| 项 | 状态 | 文件 | 备注 |
+|---|---|---|---|
+| p20.5 §4 · L1 `SkillCatalogProvider` 落 skill 模块 | ✅ | `internal/module/skill/skill_catalog_provider.go`（新建 ~215 行）、`internal/module/skill/module.go`、`internal/module/skill/service.go`、`internal/module/skill/skills_fs.go` | Core≤8 + Index 两级渲染；按 name case-insensitive 排序；token budget 默认 4096 chars，Core 单条 summary ≤96 chars；通过 `contract.DynamicSectionRegistrar` + skill 包 `fx.Invoke` 反向注册，prompt 侧 0 新增 prod 文件 |
+| p20.5 §4 · dynamic slot 注册 | ✅ | `internal/contract/prompt.go`、`internal/module/prompt/dynamic.go` | 新增 `DynamicSectionSkillCatalog` 常量；`startOnly=true` / `order=124` / `cachePolicy=CacheByName`；write/import/delete/summary 变更后触发 `InvalidateSections(contract.InvalidateSkillCatalogWrite, DynamicSectionSkillCatalog)` 保证 CacheByName 不陈旧 |
+| p20.5 §4 · 定向测试 | ✅ | `internal/module/skill/skills_meta_test.go` | 并入既有文件（≥2 项新测例：`TestSkillCatalogProviderResolveRendersCoreAndIndex` / `TestSkillCatalogMutationsInvalidatePromptSection`）；无新增 skill prod 文件 |
+| p20.6 §4 · 共享 `SkillInjectionPort` 合同 | ✅ | `internal/contract/skill_injection.go`（新建 40 行） | Method set 逐字与 p20.7 对齐：`InjectL1Manifest(base, manifest string) string` / `BuildTurnSection(refs []dto.SkillRef) (string, bool)` / `ReservedTokens() int`；分离 `NativeSkillDetector` + `NativeSkillOverridePort` 扩展接口 + `SkillInjectionPortDescriptor` + `SkillInjectionPortResolver` |
+| p20.6 §4 · carrier + provider-name registry | ✅ | `internal/dto/provider/turn.go`、`internal/provider/unified/registry.go`、`internal/provider/unified/module.go`、`internal/module/turn/service.go`、`internal/module/turn/module.go` | `TurnRequest` / `SteerRequest` 新增 `SkillPrompt string (omitempty)` carrier；`unified.registry` 加 `ResolveSkillInjectionPort(provider)`；`turn.service` 按 `input.Provider` 解析 port + 调 `BuildTurnSection(req.Skills)` 写入 `req.SkillPrompt`，无 port 时 legacy fallback |
+| p20.6 §4 · claudecli port + native skill 降级 | ✅ | `internal/provider/claudecli/skill_inject.go`（新建 ~190 行）、`internal/provider/claudecli/module.go`、`internal/provider/claudecli/session_turn.go` | `DetectNativeSkills()` 扫盘顺序 `gitRoot > cwd`；命中 `.claude/skills/<name>/SKILL.md` 强制 `Mode=None, Source=Native`，清 body/summary 但保留 name list；`session_turn.buildSkillList()` 对 `Source=Native` 保留 `skills:\n- name` |
+| p20.6 §4 · 2 个遗漏测试修复（由 parent agent 兜底） | ✅ | `internal/module/prompt/skill_catalog_fx_test.go`、`internal/provider/codexapp/skill_inject.go`、`internal/provider/codexapp/module.go` | ① `fakeSkillInjectionPort` 补 3 方法 stub + `dto` import（适配 p20.6 新 contract）；② `codexapp.NewSkillInjectionPort()` 返回值改 concrete 类型与 claudecli 对齐；`module.go` 加 `fx.As(new(contract.SkillInjectionPort))` + 包级静态断言 |
+| p20.7 §5 · codexapp port 扩充 | ✅ | `internal/provider/codexapp/skill_inject.go`（+87/-18） | `InjectL1Manifest(base, manifest)` 尾部拼接语义（`base + "\n\n" + manifest`）；`BuildTurnSection` 走 `buildSkillPromptInput`；`DetectNativeSkills` 返回 nil（codex 无原生机制）；`ReservedTokens()=3000` |
+| p20.7 §5 · baseInstructions 单点合并 | ✅ | `internal/provider/codexapp/driver.go`（+18/-0） | `startAssemblyInstructions()` 新增 `startAssemblySkillManifest(assembly)` helper：优先 `Snapshot.SectionSnapshot[DynamicSectionSkillCatalog]`，fallback `ResolvedSections[Name==skill_catalog]`；`StartSession()` / `buildThreadStartParams()` 两个 caller 经同一入口，runtime config 与 remote `thread/start` 同源 |
+| p20.7 §5 · descriptor 注册 + provider-name resolve 就位 | ✅ | `internal/provider/codexapp/module.go`（+7/-48） | 新增 `newSkillInjectionPortDescriptor()` → `contract.NewSkillInjectionPortDescriptor("codex", NewSkillInjectionPort())`；`fx.Annotate(NewSkillInjectionPort, fx.As(new(contract.SkillInjectionPort)), fx.ResultTags(promptpkg.SkillInjectionPortGroupTag))` + `fx.Annotate(newSkillInjectionPortDescriptor, fx.ResultTags(contract.SkillInjectionDescriptorGroupTag))` 与 claudecli 完全对齐；删除 legacy `buildSkillPromptInput` 的对外导出，收敛为 port 内部 helper |
+| p20.7 §5 · session_turn 消费 `req.SkillPrompt` | ✅ | `internal/provider/codexapp/session_turn.go`（+5/-5） | `turnInputsFromRequest(inputs, assembly, skillPrompt string)` 改签名；`buildTurnStartParams` / `buildTurnSteerParams` 两处 caller 同步传 `req.SkillPrompt`；`buildSkillPromptInput` 仅剩 port 内部 + 测试消费 |
+| p20.7 §5 · 定向测试 | ✅ | `internal/provider/codexapp/driver_session_test.go`、`input_map_test.go`、`skill_injection_test.go` | `TestBuildThreadStartParamsUsesStartAssemblyInstructions` / `TestStartAssemblyInstructionsFallsBackToResolvedSectionsSkillCatalog` + port 单测更新；0 新增 codexapp 测试文件 |
+| 合规 | ✅ | — | `go build ./...` 通过；`go test` 9 目标包全绿：skill / prompt / turn / thread / claudecli / codexapp / unified / dto-provider / store/thread；archtest 仍旧 8 条 HEAD 遗留（prompt:28 + skill 4 条 CC + prompt/skill_catalog_fx.go fx scope x2 + store/prompt pgx boundary x2），**β 组三单均无新引入违规** |
+
+**β 组整条闭环完成 🎯**：launch skill 的 catalog 渲染（p20.5）+ turn 注入的 provider-neutral port 化（p20.6）+ codex 启动链 baseInstructions 合并（p20.7）已经串起完整的 progressive disclosure 基座。`SkillInjectionPort` 单一合同 + provider-name registry + `SkillPrompt` carrier 在 module / provider / contract 三层之间只需一条单向链路，没有循环；codex 与 claude 两家 provider 的 descriptor 注册模式完全对称。
+
+**剩余 β 组边界**：`p20.9` rollout markers（写端 gate 仍锁在 legacy `摘要:` / `使用方式:` marker，等读端 helper 先落）仍未开工；`p20.6` / `p20.7` 的 provider 实现在 summary 渲染上与 legacy marker 兼容。
+
+**p20 整体进度**：✅ p20.1 / p20.2 / p20.3 / p20.4 / p20.5 / p20.6 / p20.7（7 / 16，43%）；⚠️ 未开工 p20.8 / p20.9 / p20.10 / p20.11 / p20.12 / p20.13 / p20.14 / p20.15 / p20.16（9 / 16）。critical-path + β 组均已闭环；下一可派并行组：γ（p20.8 resolver 矩阵 · 依赖已满足）/ γ'（p20.14 LaunchSkillPicker · 依赖已满足）/ α（p20.9 rollout 读端 · 独立）/ δ 预备（p20.10 host RPC · 独立）。
+
+### 2026-04-19 第十二轮增量施工（γ/γ'/α 四单 p20.8 / p20.10 / p20.14 / p20.9 整合闭环）
+
+| 项 | 状态 | 文件 | 备注 |
+|---|---|---|---|
+| p20.8 §4 · resolver 决策矩阵 12 格 | ✅ | `internal/module/turn/skills.go`（+382） | `(*skillResolver).ResolveThread(...)` 升级 thread-aware matrix：explicit wins / force top-k=5 / trigger top-k=3 / miss=None；去重键 `strings.ToLower(name)+"@"+version`；Mode `Full>Summary>None`；Source `manual>force>trigger>unspecified` |
+| p20.8 §4 · runtime matcher seam | ✅ | `internal/module/skill/skills_match.go`（+72） | 新增 `RuntimeMatcher` interface + `RuntimeSkillMatch{Skill, Kind, MatchedTerms}` + `MatchRuntime(ctx, params)`；turn service 通过类型断言消费，skill 包无倒依赖 |
+| p20.8 §4 · expanded_state 接入 | ✅ | `internal/module/turn/expanded_state.go`（+182）、`internal/module/turn/service.go`（+137） | preview→resolve→commit 三段：`previewExpandedTurn(threadID)` → `ShouldInject(...)` 做 carry 判定 → 成功后 `commitExpandedTurn(...)`；TTL=5 turns；hash 变即失效；thread 隔离 |
+| p20.8 §4 · 定向测试 | ✅ | `internal/module/turn/service_test.go`（+287）、`internal/module/turn/expanded_state_test.go`（+55） | `TestPrepareTurnSkillResolverMatrix`（12 格全覆盖）+ `TestPrepareTurnSkillResolverTopK` + `TestPrepareTurnExpandedStateTTLHashAndThreadIsolation`；factory/module 未动 |
+| p20.10 §5 · skill/list host RPC | ✅ | `internal/module/skill/rpc.go`、`internal/module/skill/rpc_skill_types.go`、`internal/module/skill/rpc_types_test.go` | name-based API，strict decode 拒绝未知字段；response 只带 `{name, summary, description, trust, content_hash, disable_model_invocation}`，**禁止** 暴露 `dir` / `trigger_words` / `force_words` / `allowed_tools` |
+| p20.10 §5 · skill/expand host RPC | ✅ | `internal/module/skill/rpc.go`、`internal/module/skill/rpc_skill_types.go`、`internal/module/skill/contract.go`、`internal/module/skill/skills_fs.go`、`internal/module/skill/skills_fs_test.go` | `Expand(ctx, p) (r, error)` 合同供 p20.11 / p20.13 消费；`ContainsPath` 防 path-escape；`content_hash` 按截断前内容 SHA-256（同 section 改 `max_bytes` 时 hash 稳定）；错误语义 `-32602` invalid params / `-31001` not found；`skill.Service.Expand` 单入口 |
+| p20.10 §5 · 共存策略 | ✅ | — | 老 `skills/list` / `skills/match/preview` 保持不变（编辑器/UI/preview 已有 caller）；新 `skill/*` 是 name-based progressive-disclosure 独立 surface；**host RPC 用 slash，MCP tool 用 underscore**（留给 p20.11） |
+| p20.14 §5 · launch skill UI | ✅ | `cmd/agent-terminal/frontend/vue-app/components/LaunchSkillPicker.js`（101 行）、`composables/useLaunchSkillSelection.js`（206 行）、`services/skills-api.js`（19 行） | 3 层分工：`services/skills-api.js` 唯一 RPC 入口（`listSkills` / `previewSkillMatches`）；`useLaunchSkillSelection` 状态层（feature gate + selectedSkills/manualSkillSelection 产出）；`LaunchSkillPicker.js` 纯展示组件（props/emits），**禁止**直连 `callAPI` |
+| p20.14 §7 · performSend 新顺序 | ✅ | `cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js`、`pages/UnifiedChatPage.js`、`pages/UnifiedChatPage.template.js`、`components/ComposerBar.js` | blank-thread 首发：**launch state → `startThread(cwd, {selectedSkills, manualSkillSelection})` → `sendMessage`**；feature gate 默认 disabled 不渲染；legacy `ComposerBar` selector 在 `threadId` 为空时隐藏；`stores/thread-actions-helpers.js` **diff 0 行**（p20.3 已打通 payload，只消费无需改） |
+| p20.14 §9 · 行为测试 | ✅ | `cmd/agent-terminal/frontend/vue-app/composer-bar.behavior.test.js`、`use-thread-actions.test.js` | 目标回归 **78/78 tests passed**；全量 `npm test` 33 红项全部为**仓库既有基线**（`thread-store.runtime-sync / streaming-sync-fix / use-auto-scroll` 等），不归本单；agent 诚实自报"未全绿"有清晰根因 |
+| p20.9 §4 · 共享 rollout helper | ✅ | `internal/module/skill/rollout_markers.go`（217 行）、`internal/module/skill/rollout_markers_test.go`（104 行） | 纯函数 helper（string in / string out）：`TrimInjectedSkillBlocks` / `ParseSkillBlockHeader` / `ParseSkillBlockFooter` / `RenderSkillBlock`；**无 fx / store / provider 反向依赖** |
+| p20.9 §4 · dual-read + fail-open | ✅ | `internal/provider/codexapp/history_rollout.go`、`internal/provider/claudecli/history_trim.go` | v1 语法 `[skill:<name>::<mode>@v<ver>]` ... `[/skill:<name>]` 与 legacy `[skill:<name>]\n摘要:\n使用方式:` 双读；v1 header 找不到匹配 footer → **fail-open 保留原文**；Claude `skills:` prelude **不被吞噬**；两家 provider 共享同一 helper，不再重复 trim util |
+| p20.9 §4 · 写端 gate 保持 | ✅ | — | `codexapp/session_turn.go` / `codexapp/module.go` / `claudecli/session_turn.go` **0 行改动**；writer 切换留给 p20.6/p20.7 后续迭代，本单严格 reader-only，避免 dual-write 双倍耗 token |
+| p20.9 §6 · Claude prelude 保留测试 | ✅ | `internal/module/skill/rollout_markers_test.go` | `TestTrimInjectedSkillBlocks_PreservesClaudeSkillsPrelude` + `TestTrimInjectedSkillBlocks_FailOpenMalformedV1` 明确 fail-open 与 prelude 独立保留 |
+| parent 兜底修复 2 处 p20.6 agent 漏改（本轮已落盘） | ✅ | — | p20.5/6/7 审核时发现并已处理：`prompt/skill_catalog_fx_test.go` fake 补 3 方法 stub + dto import；`codexapp.NewSkillInjectionPort()` 返回 concrete 类型对齐 claudecli + `fx.As(new(contract.SkillInjectionPort))` + 包级静态断言 |
+| 合规（本轮整体） | ✅ | — | `go build ./...` 通过；`go test` 9 目标包全绿：skill / prompt / turn / thread / claudecli / codexapp / unified / dto-provider / store/thread；archtest 仍 8 条 HEAD 遗留（prompt:28 + skill 4 条 CC + prompt/skill_catalog_fx.go fx scope x2 + store/prompt pgx boundary x2），**γ/γ'/α 四单均无新引入违规** |
+
+**γ/γ'/α 四单整条闭环完成 🎯**：turn resolver 生产线（manual>force>trigger>miss）+ expanded_state 5-turn TTL 内存态 + skill host RPC name-based 表层 + 前端 launch UI progressive-disclosure + rollout dual-read 共享 helper 彻底打通。critical-path（p20.1-4）+ β 组（p20.5-7）+ γ/γ'/α（p20.8/10/14/9）合并后，progressive disclosure 从 catalog 到 turn 注入到 rollout 兼容构成完整 runtime 闭环。
+
+**剩余边界**：
+- ⏳ `p20.11` MCP adapter（依赖 p20.10 ✅ 已满足，下一批并行派）
+- ⏳ `p20.12` config/policy/metrics（独立 α，下一批并行派）
+- ⏳ `p20.13` 审批缓存生产化（依赖 p20.10 ✅ + p20.6 ✅ 已满足，下一批并行派）
+- ⏳ `p20.15` 前端 SystemPromptPage 404 降级（独立 α，下一批并行派）
+- ⏳ `p20.16` 集成测试尾部收口（依赖全部前置，最后派）
+- 🔶 写端切 v1 marker（p20.6/p20.7 迭代项，等 p20.9 helper 稳定 + shadow 观测后再开 gate）
+- 🔶 双 SkillCatalogProvider 并存隐患（prompt-side P20.1 Phase 8 + skill-side p20.5，默认 flag=false 安全；建议专单清理）
+
+**p20 整体进度更新**：✅ **11/16 已闭环**（69%）；⏳ 5/16 未开工（p20.11 / p20.12 / p20.13 / p20.15 / p20.16）。下一批可并行派 4 单：**p20.11 / p20.12 / p20.13 / p20.15**。
+
+### 2026-04-19/20 第十三轮增量施工（p20.11 / p20.12 / p20.15 并行 + p20.13 串行闭环）
+
+| 项 | 状态 | 文件 | 备注 |
+|---|---|---|---|
+| p20.11 §4 · MCP `skill_list` / `skill_expand` | ✅ | `cmd/mcp-orch/tools/skill_tools.go`（164 行）、`cmd/mcp-orch/tools/skill_tools_test.go`（182 行）、`cmd/mcp-orch/tools/registry.go`、`cmd/mcp-orch/runtime.go`、`cmd/mcp-orch/fx.go`、`cmd/mcp-orch/tools/handler_regression_test.go`、`cmd/mcp-orch/runtime_memory_test.go` | 2 新建 + 5 改既有；`skill_list` 独立 schema（keyword filter）；`skill_expand` 独立 schema（`name + section? + max_bytes?`），**未生搬** `resourceToolDefinitions()`；MCP 错误映射 `IsExpandInvalidParams` / `IsExpandNotFound` → `isError: true` + available skill names；`fx.go` 用 `fx.Provide(func(cfg) skill.Service)` 轻量注入，**未引** `skill.Module`（host RPC wiring 不外溢） |
+| p20.12 §4 · config + policy + metrics 骨架 | ✅ | `internal/module/skill/policy_metrics.go`（新建 78 行，合并 policy + metrics）、`internal/platform/config/config.go`、`internal/module/skill/service.go`、`internal/module/skill/module.go` | 配置纯数据 + policy 代码接口混合：`Config.Skill{ProgressiveDisclosure bool, TokenBudget int}` + env fallback（`SKILL_PROGRESSIVE_DISCLOSURE` / `SKILL_TOKEN_BUDGET`）；`SkillPolicy` interface 含 `ProgressiveDisclosure()`, `TokenBudget()`, `Mode(ctx, input)`；default fallback `false/3000`；metrics 7 个 snake_case 常量（`skill_l1_tokens`, `skill_expand_total`, `skill_expand_error_total`, `skill_cache_hit_total`, `skill_cache_miss_total`, `skill_injection_decision_total`, `skill_context_tokens_saved_total`）；backend-agnostic no-op recorder 骨架；agent report 丢失但代码经验证合规 |
+| p20.15 §4 · SystemPromptPage 404 降级 | ✅ | `cmd/agent-terminal/frontend/vue-app/pages/SystemPromptPage.js`（+117/-19）、`system-prompt-page.behavior.test.js`（+116/-0） | 2 改既有，0 新建；`fallbackMode / readonlyReason / fallbackSource` 三态；白名单 detector（`404` / `method not found` / `not found`）；**仅**对 `prompts/list` 命中进入 fallback；`prompts/list` 成功后自动清 fallback；`warn`（首次）/ `info`（稳态/恢复）日志分流；`+新建/保存/删除` 禁用、editor view-only；实现 `dashboard/prompts` list-only adapter（`title→name / prompt_text→content / agent_key→agentType`）best-effort 映射；目标回归 **21/21 tests passed** |
+| p20.13 §5 · approval cache 生产化 | ✅ | `internal/module/skill/approval_flow_test.go`（新建 184 行）、`internal/module/skill/service.go`（+269）、`internal/module/skill/skills_fs.go`（+188）、`internal/module/skill/rpc.go`（+62）、`internal/module/skill/rpc_skill_types.go`（+64） | **叠在 p20.12 struct 改动上**（共改 `service.go`，串行无冲突）；方案 A：service 内注入 `skillApprovalRequester` + `jrpc2.ServerFromContext(ctx)` 动态拿 `*rpc.Server`（**避开** `*rpc.Server` wiring cycle，**无需** contract port 改动）；trusted bypass：`record.info.Trust.Trusted() == user || signed` → `ApprovalSource=trusted` + `ApprovalResult=bypassed` 直接放行；`scope=project` → `approval.Approve(name, hash, trust, approvedBy)` 落盘 `ApprovalCache`；`scope=session` → `rememberSessionApproval()` 只写内存态（**绝不**落盘 `skills-trust.json`）；hash 变化 → `lookupPersistedApproval` miss → `requestExpandApproval(...)` 走 `skill/requestApproval` 事件；**未新建** `rpc_skill.go` |
+| p20.13 §5 · approval_flow_test 覆盖场景 | ✅ | `internal/module/skill/approval_flow_test.go` | `TrustedBypass` / `ProjectMissRequestsAndPersists` / `ProjectCacheHitSkipsRequester` / `HashChangeReRequests` / `SessionScopeStaysInMemory` 五大场景 |
+| 合规（本轮整体） | ✅ | — | `go build ./...` 通过；`go test` 13 目标包全绿：skill / prompt / turn / thread / claudecli / codexapp / unified / dto-provider / store/thread / platform/config / platform/rpc / cmd/mcp-orch（含 tools / memory / orchestration / store/taskdag / store/workspace）；archtest 仍 8 条 HEAD 遗留（prompt:28 + skill 4 条 CC + prompt/skill_catalog_fx.go fx scope x2 + store/prompt pgx boundary x2），**p20.11/12/13/15 均无新引入违规** |
+
+**第十三轮四单彻底闭环 🎯**：
+- **p20.11** 把 host RPC `skill/list` / `skill/expand` 通过 `cmd/mcp-orch/tools/skill_tools.go` 平移到 MCP underscore tools，实现"共享 service，不共享 handler map"，MCP 层与 host 层解耦
+- **p20.12** 把 progressive disclosure 的**策略 / 配置 / 指标**最小骨架放进仓库：env 读的 config + policy interface + no-op metrics，为后续 shadow 观测做准备
+- **p20.13** 把 3/15 日就躺在仓库里的 `ApprovalCache` 真正接到 `skill/expand` 生产链：trusted bypass、project hash-global 审批、session 纯内存、hash 变即重审，5 场景集成测试全绿
+- **p20.15** 把 p20.1 前 `prompts/list` 404 的 UI 降级收口到只读 banner + `dashboard/prompts` adapter，即使后端挂掉用户也能只读浏览
+
+**剩余边界**：
+- ⏳ `p20.16` 集成测试尾部收口（最后派，收敛跨模块 E2E 断言）
+- 🔶 写端切 v1 marker（p20.6/p20.7 迭代项，等 p20.9 helper 稳定 + shadow 观测后再开 gate）
+- 🔶 双 SkillCatalogProvider 并存隐患（prompt-side P20.1 Phase 8 + skill-side p20.5，默认 flag=false 安全；建议专单清理）
+- 🔶 p20.12 agent report 丢失（代码已写盘并验证合规，但 orchestration report 通道可能有个别 agent 异常，不影响本轮交付）
+
+**p20 整体进度终审**：✅ **15/16 已闭环**（94%）；⏳ 1/16 未开工：p20.16（终单 · 集成测试 · 依赖全部前置已满足）。
+
+### 2026-04-20 第十四轮增量施工（p20.16 集成测试尾部收口 · P20 整套 16 单完整闭环 🏁）
+
+| 项 | 状态 | 文件 | 备注 |
+|---|---|---|---|
+| p20.16 §4.1 · 新建 3 个 integration test | ✅ | `internal/module/thread/p20_launch_skill_integration_test.go`（~120 行）、`internal/provider/codexapp/p20_skill_integration_test.go`（~95 行）、`internal/provider/claudecli/p20_skill_integration_test.go`（~85 行） | launch `selectedSkills` round-trip 断言；codex / claude 双 provider launch/per-turn skill carry + rollout marker 跨场景集成 |
+| p20.16 §4.2 · 扩既有 9 个 test 文件 | ✅ | `internal/module/turn/service_test.go`、`internal/module/skill/rollout_markers_test.go`、`internal/dto/provider/turn_test.go`、`internal/provider/unified/registry_test.go`、`cmd/mcp-orch/tools/handler_regression_test.go`、`cmd/agent-terminal/frontend/vue-app/composer-bar.behavior.test.js`、`system-prompt-page.behavior.test.js`、`thread-store.actions.test.js`、`unified-chat-preflight-coverage.test.js` | 12/15 write set 在预算内 ✅ 未超 15 文件上限；resolver matrix / SkillPrompt carrier / provider-name registry / MCP registry lookup / 前端 4 个 behavior 测试全部扩 |
+| p20.16 §4.4 · Bug #1 永久回归（prompts/list 404 readonly fallback） | ✅ | `system-prompt-page.behavior.test.js` | 断言：`fallbackMode` 被触发 / `+新建/保存/删除` disabled / `prompts/list` 成功后自动清 fallback / `warn`（首次）`info`（稳态）日志分流 |
+| p20.16 §4.4 · Bug #2 永久回归（launch skill 丢） | ✅ | `internal/module/thread/p20_launch_skill_integration_test.go` + `thread-store.actions.test.js` + `unified-chat-preflight-coverage.test.js` | 断言：空线程 launch 选中 skills → `thread/start` payload 带 `selectedSkills/manualSkillSelection` → StartAssembly/Snapshot 含 launch skill → `promptSnapshotHash` 把 launch skill 纳入失效因子；codex 用 `InjectL1Manifest` 追到 baseInstructions；claude native skill 优先 |
+| 合规（终单验证） | ✅ | — | `go build ./...` 通过；独立终验 8 包 go test 全绿：skill / prompt / turn / thread / claudecli / codexapp / dashboard / cmd/mcp-orch/tools；archtest 仍是 8 条 HEAD 遗留（prompt:28 + skill 4 条 CC + prompt/skill_catalog_fx.go fx scope x2 + store/prompt pgx boundary x2），**p20.16 零新增违规** |
+| p20.16 agent report 丢失（观察项） | ⚠️ | — | agent 写完 12 文件后于 02:55 停止写入，但未出 report 且 state 保持 thinking；独立终验确认工作成果全部落盘且功能合规；可能卡在 `npm test` 全量跑或某个慢测试的 stdout 解析。`p20.12` agent 也有相同 report 丢失观察 → 后续可排查 orchestration report 通道 |
+
+**🎯 P20 整套 16 单完整闭环 — 所有 critical-path / β / γ / γ' / α / δ / ε / 终 组全部合并**：
+- **critical-path**（p20.1~p20.4）：prompts host RPC 恢复 + PrepareTurn hydrate + launch skill 契约 + StartAssembly/Snapshot 全链
+- **β 组**（p20.5~p20.7）：SkillCatalogProvider + claudecli SkillInjectionPort + codex InjectL1Manifest baseInstructions merge
+- **γ 组**（p20.8）：resolver 决策矩阵 12 格 + expanded_state TTL=5 turns + hash 变即失效
+- **γ' 组**（p20.14）：前端 LaunchSkillPicker + `useLaunchSkillSelection` composable + `services/skills-api.js` 唯一 RPC 入口
+- **α 组**（p20.9 / p20.10 / p20.12 / p20.15）：rollout markers 共享 helper dual-read / host `skill/list`+`skill/expand` name-based RPC / config+policy+metrics 骨架 / SystemPromptPage 404 readonly fallback
+- **δ 组**（p20.11）：MCP `skill_list` / `skill_expand` tools 轻量 fx 注入（不引 skill.Module）
+- **ε 组**（p20.13）：`(name,hash)` approval cache 生产化接线 + trusted bypass + session 纯内存 / project 落盘 + hash 重审
+- **终单**（p20.16）：2 个 Bug 永久回归固化 + 15 条集成矩阵断言 + 12 文件 write set 在 15 预算内
+
+### Progressive Disclosure 完整 runtime 闭环
+```
+[UI 前端]
+  LaunchSkillPicker → useLaunchSkillSelection → services/skills-api
+    ↓ thread/start payload: {selectedSkills, manualSkillSelection}
+[thread 模块]
+  StartRequest → contract.StartInput → StartAssembly → PromptAssemblySnapshot → threadstore.PromptSnapshot
+    ↓ promptSnapshotHash 把 launch skill 纳入失效因子
+[prompt 模块]
+  SkillCatalogProvider → DynamicSectionSkillCatalog slot → Core/Index 渲染 + CacheByName 失效链
+[turn 模块]
+  PrepareTurn hydrate → resolver 决策矩阵（manual>force>trigger>miss）→ expanded_state TTL=5 turns → SkillPrompt carrier
+    ↓ contract.SkillInjectionPortResolver 按 provider name 解析 port
+[contract 层]
+  SkillInjectionPort{InjectL1Manifest, BuildTurnSection, ReservedTokens}
+  + NativeSkillDetector / NativeSkillOverridePort 扩展接口
+[provider 层]
+  codex: startAssemblyInstructions → InjectL1Manifest(base, manifest) → baseInstructions 尾部追加
+  claude: ApplyNativeOverrides（gitRoot>cwd）→ 命中 .claude/skills/* 强制 Mode=None/Source=Native → 保留 skills: name list
+[skill 模块]
+  Service.Expand(name, section, max_bytes) → trusted bypass or approval cache lookup/request
+    ↓ scope=project 落盘 ApprovalCache / scope=session 纯内存
+  rollout_markers helper → legacy+v1 dual-read + fail-open
+[MCP 层]
+  cmd/mcp-orch/tools/skill_tools → skill_list / skill_expand → 共享 skill.Service（不共享 handler map）
+```
+
+### 剩余边界（P20 完整闭环后的观察项）
+- 🔶 **写端切 v1 marker**（p20.6/p20.7 迭代）：等 p20.9 helper 稳定 shadow 观测 2 周后再开 gate
+- 🔶 **双 SkillCatalogProvider 并存**：prompt-side P20.1 Phase 8 + skill-side p20.5 共存；默认 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false` 安全；建议后续专单清理 prompt-side 陈旧 `skill_catalog_provider.go` + `skill_catalog_fx.go`（顺便把 prompt 包 freeze 从 28 回收到 26）
+- 🔶 **metrics 真实 backend 接线**：p20.12 只落 no-op 骨架 + snake_case 常量；等 Prometheus/OTel 基础设施就绪后专单接线
+- 🔶 **orchestration agent report 通道异常**：p20.12 + p20.16 两个 agent 都出现"代码写盘但 report 空/不收尾"；功能不受影响，但建议后续排查 orchestration wiring
+- 🔶 **HEAD 遗留 8 条 archtest 违规**（P20.1 Phase 10 + skill 模块历史债）：`prompt:28` + `prompt/skill_catalog_fx.go` fx scope x2 + `skill/approval.go` CC11 + `skill/skills_expand.go` CC11 x2 + `skill/trust.go` CC20 + `store/prompt/store.go` pgx boundary x2；建议后续专单清理
+
+### P20 上线路径建议
+1. 先 commit 本批（第十一~十四轮）所有 P20 改动落 git（分拆成清晰的 feature commit 链）
+2. `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false` 默认关（灰度前）
+3. 内部灰度：开 flag 观察 1 周 → 开 launch skill UI → 观察 token 消耗与用户反馈
+4. shadow 观测 2 周 rollout marker v1 写端切换准备 → p20.6/p20.7 迭代开 gate
+5. 专单清理双 Provider 并存（prompt 侧陈旧文件 + freeze 回收）
+6. metrics Prometheus/OTel 专单接线
+
+**🏁 P20 进度终审：16/16 = 100% 已闭环**
+- 两个 Bug 永久回归固化（Bug #1 prompts/list 404 + Bug #2 launch skill 丢失）
+- 全链 progressive disclosure：UI → thread → prompt → turn → contract → provider → skill → MCP
+- codex + claude 两家 provider 完全对称
+- host RPC + MCP tool 双 surface 解耦
+- 0 新增 archtest 违规，仅 8 条 HEAD 遗留
+
+### 🔖 收官后续隐患跟踪（authoritative）
+
+5 条隐患详细条目已落盘 → `docs/plans/迁移/p20/post-p20-followups.md`（247 行）。按优先级派单：
+
+| 优先级 | 专单（建议命名） | 闭合隐患 | 派单时机 |
+|---|---|---|---|
+| **P1** | `p21.x-cleanup-prompt-side-catalog` | 隐患 1（双 SkillCatalogProvider 并存）+ 隐患 5 的 #1/#6/#8（prompt:28 超限 + fx scope ×2） | **灰度 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=true` 前必做** |
+| **P1** | `p21.x-skill-metrics-wire` | 隐患 3（metrics 只落 no-op 骨架） | 灰度观测前必做 |
+| **P2** | `p21.x-skill-cc-cleanup` | 隐患 5 的 #2/#3/#4/#5（skill/approval.go + skills_expand.go ×2 + trust.go CC 超标） | 随时机方便 |
+| **P2** | `p21.x-store-prompt-boundary` | 隐患 5 的 #7（store/prompt/store.go pgx boundary ×2） | 随时机方便 |
+| **P2** | `p21.x-writer-v1-marker-switch` | 隐患 2（写端未切 v1 marker） | shadow 观测 ≥2 周后 |
+| **P3** | `infra.orchestration-report-timeout` | 隐患 4（orchestration agent report 通道异常） | 下次 orchestration 场景触发 |
+
+**authoritative 规则**：专单完工时只在 `post-p20-followups.md` 的跟踪状态表打 ✅ + commit hash + 日期；**禁止**另建重复 checklist；保持 single source of truth。

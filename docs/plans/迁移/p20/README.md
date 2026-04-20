@@ -199,5 +199,6 @@ flowchart LR
 3. `p20-original-plan.md` — 历史总纲与原始阶段设计
 4. `status-checkpoint-2026-04-19.md` — 当前落地真相 / 两个 Bug / 优先级
 5. `source-refs-appendix.md` — 经 LSP 复核后的全量锚点索引与合规结论
-6. `docs/plans/迁移/p18/README.md` — 风格基线
+6. `post-p20-followups.md` — **P20 收官后 5 条隐患跟踪**（authoritative 不另建 checklist；灰度 flag=true 前先清隐患 1+3）
+7. `docs/plans/迁移/p18/README.md` — 风格基线
 7. `docs/会话习惯.md` — 仓库契约 / agent 派单规范 / LSP 强制要求
