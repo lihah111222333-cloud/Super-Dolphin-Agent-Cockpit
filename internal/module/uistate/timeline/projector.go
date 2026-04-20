@@ -29,7 +29,8 @@ func RegisterSubscriptions(
 		platformbus.ResilientSubscribe(dispatcher, turnStartedHandler(svc, onUpdated), logger),
 		platformbus.ResilientSubscribe(dispatcher, turnCompletedHandler(svc, onUpdated), logger),
 		platformbus.ResilientSubscribe(dispatcher, turnInterruptedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, turnInputReceivedHandler(svc, onUpdated), logger),
+		// TurnInputReceived no longer projects a user timeline item; dialog
+		// comes from thread/messages history RPC exclusively.
 		platformbus.ResilientSubscribe(dispatcher, planDeltaHandler(svc, onUpdated), logger),
 		platformbus.ResilientSubscribe(dispatcher, planUpdatedHandler(svc, onUpdated), logger),
 		platformbus.ResilientSubscribe(dispatcher, agentErrorHandler(svc, onUpdated), logger),
@@ -69,18 +70,9 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 		}
 		agentID := strings.TrimSpace(ev.AgentID)
 		turnID := strings.TrimSpace(ev.TurnID)
-		// Append assistant message as a timeline item so the frontend can
-		// render it from the GetState snapshot without needing loadMessages.
-		if msg := strings.TrimSpace(ev.Message); msg != "" {
-			svc.Append(threadID, agentID, Item{
-				ID:      timelineID("assistant", turnID),
-				Kind:    "assistant",
-				Text:    msg,
-				Ts:      ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-				AgentID: agentID,
-				TurnID:  turnID,
-			})
-		}
+		// Dialog (user/assistant) items are no longer projected into the uistate
+		// timeline. They come exclusively from the thread/messages history RPC so
+		// that live and history paths share a single source of truth and id format.
 		failed := !ev.Success && shared.FirstNonEmpty(
 			strings.TrimSpace(ev.Error),
 			strings.TrimSpace(ev.Reason),

@@ -12,7 +12,7 @@ import (
 	"github.com/kelindar/event"
 )
 
-func TestRegisterSubscriptions_PlanAndUserParity(t *testing.T) {
+func TestRegisterSubscriptions_PlanParity(t *testing.T) {
 	svc := timeline.New(nil, nil, 50)
 	dispatcher := event.NewDispatcher()
 	cancels := timeline.RegisterSubscriptions(dispatcher, svc, nil, nil)
@@ -53,6 +53,8 @@ func TestRegisterSubscriptions_PlanAndUserParity(t *testing.T) {
 		return len(items) == 1 && items[0].Kind == "plan" && items[0].Text == `{"steps":["a"]}`
 	}, "expected plan update to merge into existing plan item")
 
+	// TurnInputReceived no longer projects a user timeline item; dialog
+	// (user/assistant) comes from thread/messages history RPC exclusively.
 	event.Publish(dispatcher, turndto.TurnInputReceived{
 		TurnHeader: shared.TurnHeader{
 			AgentHeader: shared.AgentHeader{
@@ -65,10 +67,8 @@ func TestRegisterSubscriptions_PlanAndUserParity(t *testing.T) {
 		RequestID: 7,
 		Source:    "user",
 	})
-	waitForCondition(t, func() bool {
-		items := svc.GetByThread("t1")
-		return len(items) == 2 && items[1].Kind == "user" && items[1].Text == "user" && items[1].RequestID == 7
-	}, "expected one user item after turn input received")
+	// Give the dispatcher a brief moment; the timeline must stay at one plan item.
+	assertStableItemCount(t, svc, "t1", 1, "TurnInputReceived should not add a user item to the timeline")
 }
 
 func TestPlanUpdated_StructuredCodexPayload(t *testing.T) {

@@ -197,26 +197,17 @@ function pruneTouchedThreadPayloadCache(keepThreadIDs) {
 function mergeTimelineWithLocalItems(newItems, oldItems, threadId, requestedThreadId, logWarn) {
   if (!Array.isArray(oldItems) || oldItems.length === 0 || newItems.length === 0) return newItems;
   const newIds = new Set(newItems.map((i) => i?.id).filter(Boolean));
-  const newTexts = new Set(newItems.filter((i) => i?.kind === 'user' && i?.text).map((i) => i.text.trim()));
+  // Dialog items (user/assistant) are now sourced exclusively from the
+  // thread/messages history RPC path. The uistate snapshot never carries
+  // dialog items, so mergeTimelineWithLocalItems only has to reconcile
+  // non-dialog items (tools, plan, turn markers) plus strip optimistic
+  // holders once any remote dialog is visible on the thread.
   const remoteHasDialog = newItems.some((i) => i?.kind === 'user' || i?.kind === 'assistant');
 
   const localItems = oldItems.filter((i) => {
     if (newIds.has(i?.id)) return false;
     // Strip old optimistic items when incoming has actual new messages.
     if (remoteHasDialog && (i?.id || '').toString().includes('-optimistic-')) return false;
-    
-    // Explicit deduplication for user messages by text
-    // Handles case where backend live patch (turn/started) and history provide different IDs
-    if (i?.kind === 'user' && i?.text && newTexts.has(i.text.trim())) {
-      if (typeof logWarn === 'function') {
-        logWarn('thread', 'snapshot.timeline.user_deduped_by_text', {
-          thread_id: threadId,
-          duplicate_id: i.id,
-          text_preview: i.text.slice(0, 30),
-        });
-      }
-      return false;
-    }
     return true;
   });
 

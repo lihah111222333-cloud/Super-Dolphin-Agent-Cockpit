@@ -11,32 +11,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-func turnInputReceivedHandler(svc Service, onUpdated func(string)) func(turndto.TurnInputReceived) {
-	return func(ev turndto.TurnInputReceived) {
-		threadID := strings.TrimSpace(ev.ThreadID)
-		if threadID == "" {
-			return
-		}
-		source := strings.ToLower(strings.TrimSpace(ev.Source))
-		if source == "tool_yield" {
-			return
-		}
-		text := ev.Text
-		if text == "" {
-			text = shared.FirstNonEmpty(strings.TrimSpace(ev.Source), strings.TrimSpace(ev.InputType), "input")
-		}
-		svc.Append(threadID, strings.TrimSpace(ev.AgentID), Item{
-			ID:        timelineID("user", ev.TurnID, ev.Source, ev.InputType),
-			Kind:      "user",
-			Text:      text,
-			RequestID: ev.RequestID,
-			AgentID:   strings.TrimSpace(ev.AgentID),
-			TurnID:    strings.TrimSpace(ev.TurnID),
-			Ts:        ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-		})
-		emitTimelineUpdated(onUpdated, threadID)
-	}
-}
 
 func planDeltaHandler(svc Service, onUpdated func(string)) func(turndto.PlanDelta) {
 	return func(ev turndto.PlanDelta) {
