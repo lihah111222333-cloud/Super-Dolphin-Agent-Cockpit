@@ -183,8 +183,14 @@ export const MemoryCenterPage = {
 
     function clearSearch() { searchText.value = ''; }
     function toggleAllScopes() { showAllScopes.value = !showAllScopes.value; }
-    function clearMemoryContent() { memoryEditor.form.content = ''; }
-    function clearAgentContent() { agentEditor.form.content = ''; }
+    async function resetAgentMemory() {
+      // One-click reset: empty the textarea, then hit save so the MEMORY.md
+      // is actually written back as empty. Save() already owns the saving
+      // flag and error notice path.
+      if (agentEditor.saving) return;
+      agentEditor.form.content = '';
+      await agentEditor.save();
+    }
 
     function toggleGuide() {
       guideCollapsed.value = !guideCollapsed.value;
@@ -247,8 +253,7 @@ export const MemoryCenterPage = {
       handleRefresh,
       toggleEmptyScope,
       isScopeExpanded,
-      clearMemoryContent,
-      clearAgentContent,
+      resetAgentMemory,
       openSharedFiles: () => emit('open-shared-files'),
     };
   },
@@ -561,8 +566,6 @@ export const MemoryCenterPage = {
           </div>
           <div class="memory-form-helper">
             <button class="btn btn-secondary btn-xs" data-testid="memory-center-editor-template" @click="memoryEditor.fillTemplate">套用当前类型模板</button>
-            <button class="btn btn-ghost btn-xs" data-testid="memory-center-editor-clear" :disabled="!memoryEditor.form.content" @click="clearMemoryContent">清空内容</button>
-            <span>feedback / project 类型需要包含 <code>Why:</code> 和 <code>How to apply:</code>。</span>
           </div>
           <div class="memory-editor-actions">
             <button class="btn btn-ghost" data-testid="memory-center-editor-cancel" @click="memoryEditor.close">取消</button>
@@ -605,12 +608,15 @@ export const MemoryCenterPage = {
               <textarea v-model="agentEditor.form.content" rows="12" class="modal-input" data-testid="memory-center-agent-content" placeholder="保存该 Agent 专属的长期偏好、检查清单或角色上下文"></textarea>
             </div>
           </div>
-          <div class="memory-form-helper">
-            <button class="btn btn-ghost btn-xs" data-testid="memory-center-agent-clear" :disabled="!agentEditor.form.content" @click="clearAgentContent">清空内容</button>
-            <span>清空后保存即可重置该 Agent 的 <code>MEMORY.md</code>。</span>
-          </div>
           <div class="memory-editor-actions">
             <button class="btn btn-ghost" data-testid="memory-center-agent-cancel" @click="agentEditor.close">取消</button>
+            <button
+              v-if="agentEditor.form.path"
+              class="btn btn-danger"
+              data-testid="memory-center-agent-reset"
+              :disabled="agentEditor.saving"
+              @click="resetAgentMemory"
+            >重置</button>
             <button class="btn btn-primary" data-testid="memory-center-agent-save" :disabled="agentEditor.saving" @click="agentEditor.save">
               {{ agentEditor.saving ? '保存中...' : '保存 Agent 记忆' }}
             </button>
