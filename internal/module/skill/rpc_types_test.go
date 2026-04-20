@@ -47,7 +47,7 @@ func TestExecParamsUnmarshalLegacyArgvEnvShape(t *testing.T) {
 func newSkillRPCTestServer(t *testing.T, svc Service) *platformrpc.Server {
 	t.Helper()
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(NewSkillHandlers(svc).Handlers)
+	server.Register(newSkillHandlers(svc, nil).Handlers)
 	return server
 }
 
