@@ -74,7 +74,7 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 		DeveloperInstructions: "stored dev",
 		Provider:              "codex",
 		Version:               contract.PromptAssemblySnapshotVersion,
-		Hash:                  promptSnapshotHash("Forked Thread", "stored base", "stored dev", "codex", nil),
+		Hash:                  promptSnapshotHash("Forked Thread", "stored base", "stored dev", "codex", nil, nil, false),
 	}}
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
@@ -155,7 +155,7 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 		DeveloperInstructions: "stored dev",
 		Provider:              "codex",
 		Version:               contract.PromptAssemblySnapshotVersion,
-		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex", nil),
+		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex", nil, nil, false),
 	}}
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {

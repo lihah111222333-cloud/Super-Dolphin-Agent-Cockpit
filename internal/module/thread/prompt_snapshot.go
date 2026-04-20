@@ -17,6 +17,9 @@ func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider strin
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
 	assembly.Boundary = clonePromptBoundary(assembly.Boundary)
 	assembly.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
+	// p20.4 §4.4：assembly-level launch skill 归一化；nil/false 时保持零值，
+	// 不会引入新的 snapshot 语义。
+	assembly.LaunchSkillNames = normalizeLaunchSkillNames(assembly.LaunchSkillNames)
 	snapshot := normalizePromptSnapshotContent(assembly.Snapshot)
 	if snapshot.DisplayName == "" {
 		snapshot.DisplayName = assembly.DisplayName
@@ -39,14 +42,25 @@ func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider strin
 	if len(snapshot.SectionSnapshot) == 0 {
 		snapshot.SectionSnapshot = promptSnapshotSectionMap(assembly.ResolvedSections)
 	}
+	// p20.4 §4.4：snapshot 端若未显式带 launch skill，则从 assembly 同源回填；
+	// 两端完成后再一起写进 hash 种子，保证 resume/fork 时 skill 选择变化会失效旧 snapshot。
+	snapshot.LaunchSkillNames, snapshot.ForceLaunchSkills = mergeLaunchSkillSelection(
+		snapshot.LaunchSkillNames, snapshot.ForceLaunchSkills,
+		assembly.LaunchSkillNames, assembly.ForceLaunchSkills,
+	)
 	snapshot.Hash = promptSnapshotHash(
 		snapshot.DisplayName,
 		snapshot.BaseInstructions,
 		snapshot.DeveloperInstructions,
 		snapshot.Provider,
 		snapshot.Boundary,
+		snapshot.LaunchSkillNames,
+		snapshot.ForceLaunchSkills,
 	)
 	assembly.Boundary = clonePromptBoundary(snapshot.Boundary)
+	// 写回 assembly 端 launch skill，保证与 snapshot 同源（单向 snapshot → assembly 对齐）。
+	assembly.LaunchSkillNames = append([]string(nil), snapshot.LaunchSkillNames...)
+	assembly.ForceLaunchSkills = snapshot.ForceLaunchSkills
 	assembly.Snapshot = snapshot
 	return assembly
 }
@@ -59,7 +73,48 @@ func normalizePromptSnapshotContent(snapshot contract.PromptAssemblySnapshot) co
 	snapshot.Provider = strings.TrimSpace(snapshot.Provider)
 	snapshot.Hash = strings.TrimSpace(snapshot.Hash)
 	snapshot.SectionSnapshot = clonePromptSectionMap(snapshot.SectionSnapshot)
+	// p20.4 §4.4：launch skill 字段归一化；空 / 纯空白名称直接剔除。
+	snapshot.LaunchSkillNames = normalizeLaunchSkillNames(snapshot.LaunchSkillNames)
 	return snapshot
+}
+
+// normalizeLaunchSkillNames p20.4 §4.4：把 launch skill 名称列表 trim + drop-empty，
+// 保持输入顺序（UI 优先级即 hash 优先级）；空列表归零为 nil，保证与旧 snapshot 可直接比较。
+func normalizeLaunchSkillNames(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if name = strings.TrimSpace(name); name != "" {
+			out = append(out, name)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// mergeLaunchSkillSelection p20.4 §4.4：统一 launch skill 合并口径。
+// 规则：主端（snapshot / stored modern）字段优先；主端为空/false 时从副端
+// （assembly / legacy）回填；结果始终归一化 + 克隆，避免 alias 回写污染。
+func mergeLaunchSkillSelection(
+	primaryNames []string, primaryForce bool,
+	fallbackNames []string, fallbackForce bool,
+) ([]string, bool) {
+	names := primaryNames
+	if len(names) == 0 {
+		names = fallbackNames
+	}
+	force := primaryForce || fallbackForce
+	return normalizeLaunchSkillNames(append([]string(nil), names...)), force
+}
+
+// promptSnapshotLaunchSkillBlank p20.4 §4.4：blank 判定的 launch skill 子谓词，
+// 独立出来以压 promptSnapshotBlank / ensureStartAssemblySnapshot 的 CC。
+func promptSnapshotLaunchSkillBlank(snapshot contract.PromptAssemblySnapshot) bool {
+	return len(snapshot.LaunchSkillNames) == 0 && !snapshot.ForceLaunchSkills
 }
 
 func clonePromptBoundary(boundary *dto.PromptAssemblyBoundary) *dto.PromptAssemblyBoundary {
@@ -154,6 +209,8 @@ func clonePromptSectionMap(src map[string]string) map[string]string {
 func promptSnapshotHash(
 	displayName, base, dev, provider string,
 	boundary *dto.PromptAssemblyBoundary,
+	launchSkillNames []string,
+	forceLaunchSkills bool,
 ) string {
 	h := sha256.New()
 	for _, part := range []string{
@@ -165,6 +222,18 @@ func promptSnapshotHash(
 		promptBoundaryUncachedTail(boundary),
 	} {
 		_, _ = h.Write([]byte(strings.TrimSpace(part)))
+		_, _ = h.Write([]byte{0})
+	}
+	// p20.4 §4.4：launch skill 参与 hash；保留输入顺序（UI 优先级即 hash 优先级），
+	// 每个名字用 ASCII unit separator (0x1F) 分隔，避免 "ab" 与 "a","b" 同 hash 碰撞。
+	for _, name := range normalizeLaunchSkillNames(launchSkillNames) {
+		_, _ = h.Write([]byte(name))
+		_, _ = h.Write([]byte{0x1f})
+	}
+	_, _ = h.Write([]byte{0})
+	if forceLaunchSkills {
+		_, _ = h.Write([]byte{1})
+	} else {
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
@@ -192,6 +261,10 @@ func toStoredPromptSnapshot(snapshot contract.PromptAssemblySnapshot) threadstor
 		Hash:                  snapshot.Hash,
 		SectionSnapshot:       clonePromptSectionMap(snapshot.SectionSnapshot),
 		Generation:            snapshot.Generation,
+		// p20.4 §4.4：runtime → stored launch skill 双向映射；nil/false 时
+		// 因 omitempty 不写入 stored blob，保持 legacy 兼容。
+		LaunchSkillNames:  append([]string(nil), snapshot.LaunchSkillNames...),
+		ForceLaunchSkills: snapshot.ForceLaunchSkills,
 	}
 }
 
@@ -342,6 +415,9 @@ func fromStoredPromptSnapshot(snapshot *threadstore.PromptSnapshot) contract.Pro
 		Hash:                  strings.TrimSpace(snapshot.Hash),
 		SectionSnapshot:       clonePromptSectionMap(snapshot.SectionSnapshot),
 		Generation:            snapshot.Generation,
+		// p20.4 §4.4：stored → runtime launch skill 映射；空 slice 归 nil 保持零值。
+		LaunchSkillNames:  append([]string(nil), snapshot.LaunchSkillNames...),
+		ForceLaunchSkills: snapshot.ForceLaunchSkills,
 	}
 }
 
@@ -359,6 +435,8 @@ func storedPromptSnapshotValid(snapshot contract.PromptAssemblySnapshot, provide
 		snapshot.DeveloperInstructions,
 		snapshot.Provider,
 		snapshot.Boundary,
+		snapshot.LaunchSkillNames,
+		snapshot.ForceLaunchSkills,
 	)
 }
 
@@ -380,6 +458,8 @@ func normalizeCallerPromptSnapshot(snapshot contract.PromptAssemblySnapshot, pro
 			snapshot.DeveloperInstructions,
 			snapshot.Provider,
 			snapshot.Boundary,
+			snapshot.LaunchSkillNames,
+			snapshot.ForceLaunchSkills,
 		)
 	}
 	return snapshot
@@ -395,5 +475,8 @@ func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
 		snapshot.Version == 0 &&
 		snapshot.Hash == "" &&
 		len(snapshot.SectionSnapshot) == 0 &&
-		snapshot.Generation == 0
+		snapshot.Generation == 0 &&
+		// p20.4 §4.4：launch skill 空值也纳入 blank 判定，否则 snapshot 只带
+		// launch skill 时会错误进入 rebuild 路径。
+		promptSnapshotLaunchSkillBlank(snapshot)
 }

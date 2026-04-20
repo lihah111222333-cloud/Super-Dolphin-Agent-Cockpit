@@ -76,6 +76,10 @@ func buildStartAssembly(req StartRequest) contract.StartAssembly {
 		DisplayName:           normalizeStartDisplayName(req.Name),
 		BaseInstructions:      strings.TrimSpace(req.BaseInstructions),
 		DeveloperInstructions: strings.TrimSpace(req.DeveloperInstructions),
+		// p20.4 §4.4：launch skill 从 StartRequest 直接进入 assembly，
+		// ensureStartAssemblySnapshot 会把它镜像进 snapshot 并纳入 hash。
+		LaunchSkillNames:  append([]string(nil), req.LaunchSkillNames...),
+		ForceLaunchSkills: req.ForceLaunchSkills,
 	}, req.Provider)
 }
 
@@ -90,6 +94,14 @@ func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input con
 	assembly.DisplayName = normalizeStartDisplayName(shared.FirstNonEmpty(strings.TrimSpace(assembly.DisplayName), req.Name, req.Prompt))
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
 	assembly.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
+	// p20.4 §4.4：若 PromptAssemblyRef.AssembleStart 没填 launch skill，
+	// 从 StartInput 回填；assembly 提供的值优先，保证 prompt 端可自主决定是否覆写。
+	if len(assembly.LaunchSkillNames) == 0 && len(input.LaunchSkillNames) > 0 {
+		assembly.LaunchSkillNames = append([]string(nil), input.LaunchSkillNames...)
+	}
+	if !assembly.ForceLaunchSkills && input.ForceLaunchSkills {
+		assembly.ForceLaunchSkills = true
+	}
 	return ensureStartAssemblySnapshot(assembly, input.Provider), nil
 }
 
@@ -100,6 +112,9 @@ func toProviderStartAssembly(assembly contract.StartAssembly) dto.StartAssembly 
 		DeveloperInstructions: strings.TrimSpace(assembly.DeveloperInstructions),
 		ResolvedSections:      toProviderResolvedSections(assembly.ResolvedSections),
 		Snapshot:              toProviderPromptSnapshot(assembly.Snapshot),
+		// p20.4 §4.4：assembly-level launch skill 镜像（与 Snapshot 同源）。
+		LaunchSkillNames:  append([]string(nil), assembly.LaunchSkillNames...),
+		ForceLaunchSkills: assembly.ForceLaunchSkills,
 	}
 }
 
@@ -112,6 +127,10 @@ func toProviderPromptSnapshot(snapshot contract.PromptAssemblySnapshot) dto.Prom
 		Version:               snapshot.Version,
 		Hash:                  strings.TrimSpace(snapshot.Hash),
 		Generation:            snapshot.Generation,
+		// p20.4 §4.4：snapshot 端 launch skill 透传到 provider DTO；
+		// hash 已经在 ensureStartAssemblySnapshot 阶段纳入这些字段。
+		LaunchSkillNames:  append([]string(nil), snapshot.LaunchSkillNames...),
+		ForceLaunchSkills: snapshot.ForceLaunchSkills,
 	}
 }
 

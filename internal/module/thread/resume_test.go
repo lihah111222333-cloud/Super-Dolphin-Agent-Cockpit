@@ -117,7 +117,7 @@ func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
 		DeveloperInstructions: "stored dev",
 		Provider:              "codex",
 		Version:               contract.PromptAssemblySnapshotVersion,
-		Hash:                  promptSnapshotHash("resume", "stored base", "stored dev", "codex", nil),
+		Hash:                  promptSnapshotHash("resume", "stored base", "stored dev", "codex", nil, nil, false),
 	}
 	threads := &stubThreadStore{
 		thread: &threadstore.Thread{
