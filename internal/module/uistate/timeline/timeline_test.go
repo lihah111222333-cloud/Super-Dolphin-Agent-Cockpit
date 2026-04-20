@@ -861,6 +861,18 @@ func waitForCondition(t *testing.T, fn func() bool, message string) {
 	t.Fatal(message)
 }
 
+func assertStableItemCount(t *testing.T, svc timeline.Service, threadID string, want int, message string) {
+	t.Helper()
+
+	deadline := time.Now().Add(150 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if got := len(svc.GetByThread(threadID)); got != want {
+			t.Fatalf("%s: got %d items, want %d", message, got, want)
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+}
+
 func mustReceiveTimelineAppended(t *testing.T, ch <-chan uidto.UITimelineAppended) uidto.UITimelineAppended {
 	t.Helper()
 

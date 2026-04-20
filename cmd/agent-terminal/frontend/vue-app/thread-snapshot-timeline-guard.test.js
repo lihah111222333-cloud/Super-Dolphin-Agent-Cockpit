@@ -131,4 +131,5 @@ describe('applyRuntimeSnapshot timeline guard', () => {
     expect(state.mainAgentState).toBe('');
     expect(state.partial).toBe(false);
   });
+
 });
