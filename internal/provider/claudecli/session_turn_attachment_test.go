@@ -1,6 +1,7 @@
 package claudecli
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -50,5 +51,27 @@ func TestComposeTurnTextPrependsSystemContextBeforeUserContext(t *testing.T) {
 	want := "hello"
 	if got != want {
 		t.Fatalf("composeTurnText() = %q, want %q", got, want)
+	}
+}
+
+func TestComposeTurnTextIncludesSkillPromptCarrierAndNativeSkillList(t *testing.T) {
+	t.Parallel()
+
+	got := composeTurnText(dto.TurnRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+		Skills: []dto.SkillRef{
+			{Name: "native-tool", Mode: dto.SkillModeNone, Source: dto.SkillSourceNative},
+			{Name: "planner", Mode: dto.SkillModeSummary, Summary: "do planning"},
+		},
+		SkillPrompt: "[skill:planner]\n摘要: do planning\n使用方式: Call skill_expand_body(\"planner\") for full body",
+	})
+	if !strings.Contains(got, "hello") {
+		t.Fatalf("composeTurnText() = %q, want user text", got)
+	}
+	if !strings.Contains(got, "skills:\n- native-tool\n- planner") {
+		t.Fatalf("composeTurnText() = %q, want native name list fallback", got)
+	}
+	if !strings.Contains(got, "[skill:planner]\n摘要: do planning") {
+		t.Fatalf("composeTurnText() = %q, want skill prompt carrier", got)
 	}
 }

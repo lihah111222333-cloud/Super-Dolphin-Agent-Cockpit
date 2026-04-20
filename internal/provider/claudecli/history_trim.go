@@ -56,7 +56,7 @@ func trimInjectedClaudeLSPHint(text string) string {
 	return text
 }
 
-// trimInjectedClaudeSkillBlock 委托给共享包。P20 Phase 3 两家 provider 统一 trim 逻辑。
+// trimInjectedClaudeSkillBlock 仅裁 marker block；Claude 专有 skills: prelude 保留。
 func trimInjectedClaudeSkillBlock(text string) string {
 	return skillpkg.TrimInjectedSkillBlocks(text)
 }

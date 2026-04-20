@@ -25,7 +25,8 @@ var Module = fx.Module("provider.claudecli",
 		fx.Annotate(NewDriverFactory, fx.ResultTags(`group:"drivers"`)),
 		fx.Annotate(provideDreamExecutorProvider, fx.ResultTags(`group:"dream_executors"`)),
 		// P20.1 Phase 10: 注册 Claude CLI 原生 skill detector 到 prompt 模块的聚合 group。
-		fx.Annotate(NewSkillInjectionPort, fx.ResultTags(promptpkg.SkillInjectionPortGroupTag)),
+		fx.Annotate(NewSkillInjectionPort, fx.As(new(contract.SkillInjectionPort)), fx.ResultTags(promptpkg.SkillInjectionPortGroupTag)),
+		fx.Annotate(newSkillInjectionPortDescriptor, fx.ResultTags(contract.SkillInjectionDescriptorGroupTag)),
 	),
 	fx.Invoke(RegisterTranslators),
 )

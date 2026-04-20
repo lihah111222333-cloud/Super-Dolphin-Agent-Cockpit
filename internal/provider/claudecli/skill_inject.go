@@ -1,12 +1,15 @@
 package claudecli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
 // defaultSkillManifestTokenBudget 与 P20.1 §3.7 建议保持一致。
@@ -30,8 +33,48 @@ const claudeSkillMainFile = "SKILL.md"
 type claudecliSkillInjectionPort struct{}
 
 // NewSkillInjectionPort 构造 claudecli provider 的 Port 实例。
-func NewSkillInjectionPort() contract.SkillInjectionPort {
+func NewSkillInjectionPort() claudecliSkillInjectionPort {
 	return claudecliSkillInjectionPort{}
+}
+
+func newSkillInjectionPortDescriptor() contract.SkillInjectionPortDescriptor {
+	descriptor, _ := contract.NewSkillInjectionPortDescriptor("claude", NewSkillInjectionPort())
+	return descriptor
+}
+
+func (claudecliSkillInjectionPort) InjectL1Manifest(baseInstructions, manifest string) string {
+	baseInstructions = strings.TrimSpace(baseInstructions)
+	manifest = strings.TrimSpace(manifest)
+	switch {
+	case baseInstructions == "":
+		return manifest
+	case manifest == "":
+		return baseInstructions
+	default:
+		return baseInstructions + "\n\n" + manifest
+	}
+}
+
+func (claudecliSkillInjectionPort) BuildTurnSection(refs []dto.SkillRef) (string, bool) {
+	sections := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		switch ref.Mode.Effective() {
+		case dto.SkillModeFull:
+			block, ok := skillpkg.RenderSkillBlock(ref.Name, ref.Prompt, ref.Summary, string(ref.Mode))
+			if ok {
+				sections = append(sections, block)
+			}
+		case dto.SkillModeSummary:
+			block, ok := renderLegacySummarySkillBlock(ref.Name, ref.Summary)
+			if ok {
+				sections = append(sections, block)
+			}
+		}
+	}
+	if len(sections) == 0 {
+		return "", false
+	}
+	return strings.Join(sections, "\n\n"), true
 }
 
 // DetectNativeSkills 扫描 cwd 下的原生 skill 目录，返回已安装 skill 的名字列表。
@@ -88,7 +131,60 @@ func (claudecliSkillInjectionPort) DetectNativeSkills(cwd string) []string {
 	return names
 }
 
+func (p claudecliSkillInjectionPort) ApplyNativeOverrides(refs []dto.SkillRef, gitRoot, cwd string) []dto.SkillRef {
+	out := append([]dto.SkillRef(nil), refs...)
+	names := p.detectPreferredNativeSkills(gitRoot, cwd)
+	if len(names) == 0 {
+		return out
+	}
+	native := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		key := strings.ToLower(strings.TrimSpace(name))
+		if key != "" {
+			native[key] = struct{}{}
+		}
+	}
+	for i := range out {
+		key := strings.ToLower(strings.TrimSpace(out[i].Name))
+		if _, ok := native[key]; !ok {
+			continue
+		}
+		out[i].Mode = dto.SkillModeNone
+		out[i].Source = dto.SkillSourceNative
+		out[i].Prompt = ""
+		out[i].Summary = ""
+	}
+	return out
+}
+
 // ReservedTokens 见 contract.SkillInjectionPort 接口文档。
 func (claudecliSkillInjectionPort) ReservedTokens() int {
 	return defaultSkillManifestTokenBudget
+}
+
+func (p claudecliSkillInjectionPort) detectPreferredNativeSkills(gitRoot, cwd string) []string {
+	seen := make(map[string]struct{}, 2)
+	for _, root := range []string{strings.TrimSpace(gitRoot), strings.TrimSpace(cwd)} {
+		if root == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		if _, ok := seen[root]; ok {
+			continue
+		}
+		seen[root] = struct{}{}
+		if names := p.DetectNativeSkills(root); len(names) > 0 {
+			return names
+		}
+	}
+	return nil
+}
+
+func renderLegacySummarySkillBlock(name, summary string) (string, bool) {
+	name = strings.TrimSpace(name)
+	summary = strings.TrimSpace(summary)
+	if _, ok := skillpkg.RenderSkillBlock(name, "", summary, string(dto.SkillModeSummary)); !ok {
+		return "", false
+	}
+	return fmt.Sprintf("[skill:%s]\n摘要: %s\n使用方式: Call skill_expand_body(%q) for full body", name, summary, name), true
 }

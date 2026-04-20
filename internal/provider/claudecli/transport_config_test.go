@@ -3,6 +3,8 @@ package claudecli
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -85,6 +87,74 @@ func TestComposeLaunchSystemPromptUsesPromptAssemblySnapshot(t *testing.T) {
 	})
 	if got != "assembled base\n\nassembled developer" {
 		t.Fatalf("composeLaunchSystemPrompt() = %q", got)
+	}
+}
+
+func TestClaudeSkillInjectionPortInjectL1ManifestAppendsManifest(t *testing.T) {
+	t.Parallel()
+
+	port := NewSkillInjectionPort()
+	if got := port.InjectL1Manifest("base instructions", "skills manifest"); got != "base instructions\n\nskills manifest" {
+		t.Fatalf("InjectL1Manifest() = %q", got)
+	}
+}
+
+func TestClaudeSkillInjectionPortBuildTurnSectionUsesLegacySummaryMarkers(t *testing.T) {
+	t.Parallel()
+
+	port := NewSkillInjectionPort()
+	section, ok := port.BuildTurnSection([]dto.SkillRef{
+		{Name: "planner", Mode: dto.SkillModeSummary, Summary: "do planning"},
+		{Name: "implementer", Mode: dto.SkillModeFull, Prompt: "full body"},
+	})
+	if !ok {
+		t.Fatal("BuildTurnSection() ok = false, want true")
+	}
+	if !strings.Contains(section, "[skill:planner]\n摘要: do planning\n使用方式: Call skill_expand_body(\"planner\") for full body") {
+		t.Fatalf("BuildTurnSection() = %q, want legacy summary block", section)
+	}
+	if !strings.Contains(section, "[skill:implementer::full@v1]") {
+		t.Fatalf("BuildTurnSection() = %q, want full block", section)
+	}
+}
+
+func TestClaudeSkillInjectionPortApplyNativeOverridesPrefersGitRoot(t *testing.T) {
+	t.Parallel()
+
+	port := NewSkillInjectionPort()
+	overridePort := contract.NativeSkillOverridePort(port)
+
+	gitRoot := t.TempDir()
+	cwd := t.TempDir()
+	for _, tc := range []struct {
+		root string
+		name string
+	}{
+		{root: gitRoot, name: "planner"},
+		{root: cwd, name: "cwd-only"},
+	} {
+		path := filepath.Join(tc.root, ".claude", "skills", tc.name)
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", path, err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("# skill"), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", path, err)
+		}
+	}
+
+	refs := []dto.SkillRef{
+		{Name: "planner", Mode: dto.SkillModeFull, Prompt: "custom body", Summary: "custom summary"},
+		{Name: "cwd-only", Mode: dto.SkillModeFull, Prompt: "cwd body", Summary: "cwd summary"},
+	}
+	got := overridePort.ApplyNativeOverrides(refs, gitRoot, cwd)
+	if got[0].Mode != dto.SkillModeNone || got[0].Source != dto.SkillSourceNative || got[0].Prompt != "" || got[0].Summary != "" {
+		t.Fatalf("planner override = %#v, want native none/body cleared", got[0])
+	}
+	if got[1].Mode != dto.SkillModeFull || got[1].Prompt != "cwd body" {
+		t.Fatalf("cwd fallback should be ignored when gitRoot wins, got %#v", got[1])
+	}
+	if refs[0].Prompt != "custom body" {
+		t.Fatalf("ApplyNativeOverrides mutated input slice: %#v", refs)
 	}
 }
 
