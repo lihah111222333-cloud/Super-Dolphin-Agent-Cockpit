@@ -19,6 +19,7 @@ import (
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
+	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/kelindar/event"
@@ -45,6 +46,9 @@ func run() error {
 			newQueries,
 			memory.NewConfig,
 			memory.NewService,
+			func(cfg *platformconfig.Config) skillmodule.Service {
+				return skillmodule.NewService(cfg.ProjectRoot)
+			},
 			func(store storeworkspace.Store, dispatcher *event.Dispatcher) workspace.Service {
 				return workspace.NewService(store, dispatcher)
 			},
@@ -105,7 +109,7 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookConsumer orchestration.H
 	}
 	cfg.Capabilities = []string{
 		"tools/orchestration", "tools/task", "tools/workspace",
-		"tools/prompt", "tools/command", "tools/shared_file", "tools/memory",
+		"tools/prompt", "tools/skill", "tools/command", "tools/shared_file", "tools/memory",
 	}
 	cfg.Subscriptions = []string{"config/agent", "config/thread"}
 	cfg.FinalReport = func() *mcp.ReportRequest {

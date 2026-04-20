@@ -22,7 +22,7 @@ func (s stubRegistryMemoryService) Read(ctx context.Context, req contract.Memory
 
 func TestNewRegistryIncludesMemoryTool(t *testing.T) {
 	var gotReq contract.MemoryReadRequest
-	registry := newRegistry(nil, nil, nil, nil, nil, stubRegistryMemoryService{read: func(_ context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
+	registry := newRegistry(nil, nil, nil, nil, nil, nil, stubRegistryMemoryService{read: func(_ context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
 		gotReq = req
 		return contract.MemoryReadResult{IndexHit: true}, nil
 	}})
@@ -51,9 +51,20 @@ func TestNewRegistryIncludesMemoryTool(t *testing.T) {
 	}
 }
 
-func TestBuildBootstrapConfigAdvertisesMemoryCapability(t *testing.T) {
-	cfg := buildBootstrapConfig(nil, nil, newRegistry(nil, nil, nil, nil, nil, stubRegistryMemoryService{}))
-	if !slices.Contains(cfg.Capabilities, "tools/memory") {
-		t.Fatalf("Capabilities = %#v, want tools/memory", cfg.Capabilities)
+func TestBuildBootstrapConfigAdvertisesToolCapabilities(t *testing.T) {
+	cfg := buildBootstrapConfig(nil, nil, newRegistry(nil, nil, nil, nil, nil, nil, stubRegistryMemoryService{}))
+	for _, capability := range []string{"tools/memory", "tools/skill"} {
+		if !slices.Contains(cfg.Capabilities, capability) {
+			t.Fatalf("Capabilities = %#v, want %s", cfg.Capabilities, capability)
+		}
+	}
+}
+
+func TestNewRegistryIncludesSkillTools(t *testing.T) {
+	registry := newRegistry(nil, nil, nil, nil, nil, nil, stubRegistryMemoryService{})
+	for _, name := range []string{"skill_list", "skill_expand"} {
+		if _, ok := registry.Lookup(name); !ok {
+			t.Fatalf("registry missing %s", name)
+		}
 	}
 }

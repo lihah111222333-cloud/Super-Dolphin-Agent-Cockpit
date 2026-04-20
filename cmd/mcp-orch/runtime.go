@@ -18,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
+	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -111,6 +112,7 @@ func newRegistry(
 	orchestration contract.OrchestrationService,
 	ws workspace.Service,
 	prompt promptstore.Store,
+	skillSvc skillmodule.Service,
 	command commandcardstore.Store,
 	sharedFile sharedfilestore.Store,
 	memory contract.MemoryService,
@@ -119,6 +121,7 @@ func newRegistry(
 		Orchestration: orchestration,
 		Workspace:     ws,
 		Prompt:        prompt,
+		Skill:         skillSvc,
 		CommandCard:   command,
 		SharedFile:    sharedFile,
 		Memory:        memory,

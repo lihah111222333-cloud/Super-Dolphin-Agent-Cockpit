@@ -86,3 +86,12 @@ func TestOrchestrationNilGuardsUseConsistentMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestRegistryIncludesSkillTools(t *testing.T) {
+	registry := NewRegistry(Dependencies{})
+	for _, name := range []string{"skill_list", "skill_expand"} {
+		if _, ok := registry.Lookup(name); !ok {
+			t.Fatalf("registry missing %s", name)
+		}
+	}
+}

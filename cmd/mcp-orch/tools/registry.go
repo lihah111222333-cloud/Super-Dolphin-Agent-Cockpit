@@ -6,12 +6,14 @@ import (
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
 type Dependencies struct {
 	Orchestration contract.OrchestrationService
 	Workspace     workspace.Service
 	Prompt        promptstore.Store
+	Skill         skillmodule.Service
 	CommandCard   commandcardstore.Store
 	SharedFile    sharedfilestore.Store
 	Memory        contract.MemoryService
@@ -26,6 +28,7 @@ func NewRegistry(deps Dependencies) Registry {
 	tools := append(orchestrationToolDefinitions(deps.Orchestration), taskToolDefinitions(deps.Orchestration)...)
 	tools = append(tools, workspaceToolDefinitions(deps.Workspace)...)
 	tools = append(tools, promptToolDefinitions(deps.Prompt)...)
+	tools = append(tools, skillToolDefinitions(deps.Skill)...)
 	tools = append(tools, commandToolDefinitions(deps.CommandCard)...)
 	tools = append(tools, sharedFileToolDefinitions(deps.SharedFile)...)
 	tools = append(tools, memoryToolDefinitions(deps.Memory)...)
