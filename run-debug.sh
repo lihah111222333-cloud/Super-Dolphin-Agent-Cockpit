@@ -392,6 +392,7 @@ ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true
 # memory center UI would show the "system off" banner on every launch.
 export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
 export ENABLE_MEMORY_TOOLS="${ENABLE_MEMORY_TOOLS:-1}"
+export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM="${MULTI_AGENT_MEMORY_FEATURE_TEAMMEM:-1}"
 
 if [ "$MODE" = "debug" ]; then
   if [ -n "$VITE_DEV_URL" ]; then

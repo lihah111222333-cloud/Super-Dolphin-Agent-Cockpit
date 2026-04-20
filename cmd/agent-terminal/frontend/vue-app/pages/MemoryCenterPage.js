@@ -398,7 +398,10 @@ export const MemoryCenterPage = {
             <path d="M22 40c0-6 6-10 10-10s10 4 10 10" opacity="0.6"/>
           </svg>
           <div class="memory-empty-title">暂无 Team durable memory</div>
-          <div class="memory-empty-text">Team memory 跨项目共享，适合保存团队级约定、代码规范、共享链接等。</div>
+          <div class="memory-empty-text">
+            Team memory 跨项目共享，适合保存团队级约定、代码规范、共享链接等。
+            <span v-if="!teamMemory.rootPath">当前未解析到 team 目录；通过 <code>MULTI_AGENT_MEMORY_FEATURE_TEAMMEM=1</code> 启用后重启。</span>
+          </div>
         </div>
         <div v-else-if="filteredTeamEntries.length === 0" class="memory-empty" data-testid="memory-center-team-filter-empty">
           <div class="memory-empty-title">当前搜索没有匹配的 Team 条目</div>
