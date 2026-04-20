@@ -308,8 +308,12 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 
 func validateImportLocalDirParams(p importSkillDirParams) ([]string, error) {
 	sources, err := collectImportSources(p.Path, p.Paths)
-	if err != nil { return nil, err }
-	if len(sources) == 0 { return nil, errors.New("path or paths is required") }
+	if err != nil {
+		return nil, err
+	}
+	if len(sources) == 0 {
+		return nil, errors.New("path or paths is required")
+	}
 	if len(sources) > 1 && strings.TrimSpace(p.Name) != "" {
 		return nil, errors.New("name is only supported for single directory import")
 	}
@@ -318,8 +322,12 @@ func validateImportLocalDirParams(p importSkillDirParams) ([]string, error) {
 
 func buildImportLocalDirResponse(sources []string, results []map[string]any, failures []map[string]any) map[string]any {
 	response := map[string]any{"requested": len(sources), "imported": results}
-	if len(failures) > 0 { response["failures"] = failures }
-	if len(results) == 1 { response["skill"] = results[0] }
+	if len(failures) > 0 {
+		response["failures"] = failures
+	}
+	if len(results) == 1 {
+		response["skill"] = results[0]
+	}
 	return response
 }
 

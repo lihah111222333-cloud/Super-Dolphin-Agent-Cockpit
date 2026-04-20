@@ -168,11 +168,11 @@ func normalizeResourceLocator(trimmed string) (string, error) {
 //
 // 三档来源：
 //   - TrustUser    : 位于用户级 skills root（`~/.multi-agent/skills` 或 $SKILLS_ROOT），
-//                    视为本地信任域，默认允许模型自主调用。
+//     视为本地信任域，默认允许模型自主调用。
 //   - TrustProject : 位于项目级 skills root（`<cwd>/.agent/skills`），通常来自 git clone，
-//                    视为不受信任源；首次扫描需弹审批，且 `skill_expand` 每次 body hash 变更重审。
+//     视为不受信任源；首次扫描需弹审批，且 `skill_expand` 每次 body hash 变更重审。
 //   - TrustSigned  : 由 frontmatter `trust: signed` 显式声明；验签逻辑延后到 P21，当前与
-//                    TrustUser 等价处理但保留字段便于未来升级。
+//     TrustUser 等价处理但保留字段便于未来升级。
 //
 // 若 frontmatter 显式写了 `trust:`，解析时覆盖推断结果；否则根据 skill 所在 root 推断。
 type TrustScope string
@@ -222,17 +222,25 @@ func parseTrustScope(raw string) TrustScope {
 // 匹配策略：先看 projectRoot（优先级高，命中即 untrusted）、再看 userRoot。都不匹配
 // 时返回 TrustProject 作为安全兜底——宁可多弹一次审批也不放过未知源。
 func inferTrustFromRoot(dir, projectRoot, userRoot string) TrustScope {
-	dir = filepath.Clean(strings.TrimSpace(dir))
-	if dir == "" || dir == "." {
+	dir = normalizeTrustRoot(dir)
+	if dir == "" {
 		return TrustProject
 	}
-	projectRoot = filepath.Clean(strings.TrimSpace(projectRoot))
-	userRoot = filepath.Clean(strings.TrimSpace(userRoot))
-	if projectRoot != "" && projectRoot != "." && platformshared.ContainsPath(projectRoot, dir) {
+	projectRoot = normalizeTrustRoot(projectRoot)
+	userRoot = normalizeTrustRoot(userRoot)
+	if projectRoot != "" && platformshared.ContainsPath(projectRoot, dir) {
 		return TrustProject
 	}
-	if userRoot != "" && userRoot != "." && platformshared.ContainsPath(userRoot, dir) {
+	if userRoot != "" && platformshared.ContainsPath(userRoot, dir) {
 		return TrustUser
 	}
 	return TrustProject
+}
+
+func normalizeTrustRoot(path string) string {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "." {
+		return ""
+	}
+	return path
 }
