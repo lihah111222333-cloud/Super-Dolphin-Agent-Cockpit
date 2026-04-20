@@ -141,6 +141,8 @@ export const MemoryCenterPage = {
     const teamMemory = computed(() => ensureObject(props.model?.team));
     const agentScopes = computed(() => ensureArray(props.model?.agentScopes));
     const currentCwd = computed(() => firstNonEmpty(overview.value.projectRoot));
+    const systemDisabled = computed(() => overview.value.enabled === false);
+    const showAllScopes = ref(false);
 
     const privateEntries = computed(() => ensureArray(privateMemory.value?.entries));
     const teamEntries = computed(() => ensureArray(teamMemory.value?.entries));
@@ -148,6 +150,15 @@ export const MemoryCenterPage = {
     const filteredTeamEntries = computed(() => filterEntries(teamEntries.value, searchText.value));
     const filteredAgentScopes = computed(() => filterAgentScopes(agentScopes.value, searchText.value));
     const totalEntries = computed(() => privateEntries.value.length + teamEntries.value.length);
+    const nonEmptyAgentScopes = computed(
+      () => filteredAgentScopes.value.filter((scope) => ensureArray(scope?.entries).length > 0),
+    );
+    const hiddenEmptyScopeCount = computed(
+      () => filteredAgentScopes.value.length - nonEmptyAgentScopes.value.length,
+    );
+    const visibleAgentScopes = computed(() => (
+      showAllScopes.value ? filteredAgentScopes.value : nonEmptyAgentScopes.value
+    ));
 
     function setNotice(level, message) {
       notice.level = level || 'info';
@@ -171,6 +182,7 @@ export const MemoryCenterPage = {
     );
 
     function clearSearch() { searchText.value = ''; }
+    function toggleAllScopes() { showAllScopes.value = !showAllScopes.value; }
 
     function toggleGuide() {
       guideCollapsed.value = !guideCollapsed.value;
@@ -217,6 +229,11 @@ export const MemoryCenterPage = {
       searchText,
       guideCollapsed,
       refreshing,
+      systemDisabled,
+      showAllScopes,
+      visibleAgentScopes,
+      hiddenEmptyScopeCount,
+      toggleAllScopes,
       formatTimestamp,
       countLabel,
       statusLabel,
@@ -271,11 +288,11 @@ export const MemoryCenterPage = {
           <div class="memory-center-callout-head">
             <div>
               <div class="memory-center-callout-title">
-                这里展示真正的长期记忆与 Agent 专属记忆
-                <span class="jr-badge jr-badge-default">{{ totalEntries }} 条 durable</span>
+                长期记忆与 Agent 专属记忆
+                <span class="jr-badge jr-badge-default">{{ totalEntries }} 条</span>
               </div>
               <div v-if="!guideCollapsed" class="memory-center-callout-subtitle">
-                Shared Files 仍然保留在"共享文件"页，用于草稿、中间结果和协作交接，不会自动沉淀成长期记忆。
+                仅保存值得跨会话复用的稳定内容；临时草稿请放到"共享文件"。
               </div>
             </div>
             <div class="memory-center-callout-actions">
@@ -305,31 +322,20 @@ export const MemoryCenterPage = {
         <div v-if="notice.message" class="settings-prompt-notice memory-notice-fade" :class="'is-' + notice.level" data-testid="memory-center-notice">{{ notice.message }}</div>
         <div v-if="model.error" class="settings-prompt-notice is-error" data-testid="memory-center-error">{{ model.error }}</div>
 
-        <div class="memory-center-section"><span class="memory-center-section-title">当前状态</span></div>
-        <div class="data-card-vue memory-center-overview-card" data-testid="memory-center-overview">
-          <div class="data-row-vue"><strong>Memory 系统</strong><span>{{ statusLabel(overview.enabled) }}</span></div>
-          <div class="data-row-vue"><strong>Memory 工具</strong><span>{{ statusLabel(overview.toolsEnabled) }}</span></div>
-          <div class="data-row-vue"><strong>项目根</strong><span>{{ overview.projectRoot || '-' }}</span></div>
-          <div class="data-row-vue"><strong>Private root</strong><span>{{ overview.privateRoot || '-' }}</span></div>
-          <div class="data-row-vue"><strong>Team memory</strong><span>{{ overview.teamFeatureEnabled ? '已配置' : '未配置' }}</span></div>
+        <div v-if="systemDisabled" class="settings-prompt-notice is-error memory-system-off" data-testid="memory-center-overview">
+          Memory 系统已关闭，durable memory 不会被注入。可在 Settings 中启用。
         </div>
 
         <div class="memory-center-section memory-center-section--private">
-          <span class="memory-center-section-title">长期记忆 · Private</span>
+          <span class="memory-center-section-title">Private 长期记忆</span>
           <span class="memory-center-section-count">{{ filteredPrivateEntries.length }}/{{ privateEntries.length }}</span>
           <div class="memory-center-section-tail">
-            <button class="btn btn-primary btn-xs" data-testid="memory-center-private-create" @click="memoryEditor.openCreate('private')">新建 durable memory</button>
+            <button class="btn btn-primary btn-xs" data-testid="memory-center-private-create" @click="memoryEditor.openCreate('private')">新建</button>
           </div>
         </div>
-        <div class="data-card-vue memory-scope-card" data-testid="memory-center-private-summary">
-          <div class="memory-scope-head">
-            <div class="memory-scope-head-main">
-              <div class="data-row-vue"><strong>索引文件</strong><span>{{ privateMemory.indexPath || '-' }}</span></div>
-              <div class="data-row-vue"><strong>目录</strong><span>{{ privateMemory.rootPath || '-' }}</span></div>
-              <div class="data-row-vue"><strong>条目数</strong><span>{{ countLabel(privateEntries, 'entries') }}</span></div>
-            </div>
-          </div>
-          <div v-if="privateMemory.notice" class="memory-scope-note">{{ privateMemory.notice }}</div>
+        <div v-if="privateMemory.rootPath || privateMemory.notice" class="memory-scope-summary" data-testid="memory-center-private-summary">
+          <span v-if="privateMemory.rootPath" class="memory-scope-summary-path" :title="privateMemory.rootPath">{{ privateMemory.rootPath }}</span>
+          <span v-if="privateMemory.notice" class="memory-scope-note">{{ privateMemory.notice }}</span>
         </div>
         <div v-if="privateEntries.length === 0" class="memory-empty memory-scope-empty" data-testid="memory-center-private-empty">
           <svg class="memory-empty-illustration" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
@@ -365,27 +371,21 @@ export const MemoryCenterPage = {
               <button class="btn btn-secondary btn-xs" :data-testid="'memory-center-private-edit-' + idx" :disabled="busyPath === 'private:' + entry.path" @click="memoryEditor.openEdit('private', entry)">
                 {{ busyPath === 'private:' + entry.path ? '加载中...' : '编辑' }}
               </button>
-              <button class="btn btn-ghost btn-warning btn-xs" :data-testid="'memory-center-private-delete-' + idx" @click="inlineDelete.ask('private', entry)">删除</button>
+              <button class="btn btn-danger btn-xs" :data-testid="'memory-center-private-delete-' + idx" @click="inlineDelete.ask('private', entry)">删除</button>
             </div>
           </article>
         </div>
 
         <div class="memory-center-section memory-center-section--team">
-          <span class="memory-center-section-title">长期记忆 · Team</span>
+          <span class="memory-center-section-title">Team 长期记忆</span>
           <span class="memory-center-section-count">{{ filteredTeamEntries.length }}/{{ teamEntries.length }}</span>
           <div class="memory-center-section-tail">
-            <button class="btn btn-primary btn-xs" data-testid="memory-center-team-create" :disabled="!teamMemory.rootPath" @click="memoryEditor.openCreate('team')">新建 team memory</button>
+            <button class="btn btn-primary btn-xs" data-testid="memory-center-team-create" :disabled="!teamMemory.rootPath" @click="memoryEditor.openCreate('team')">新建</button>
           </div>
         </div>
-        <div class="data-card-vue memory-scope-card" data-testid="memory-center-team-summary">
-          <div class="memory-scope-head">
-            <div class="memory-scope-head-main">
-              <div class="data-row-vue"><strong>索引文件</strong><span>{{ teamMemory.indexPath || '-' }}</span></div>
-              <div class="data-row-vue"><strong>目录</strong><span>{{ teamMemory.rootPath || '-' }}</span></div>
-              <div class="data-row-vue"><strong>条目数</strong><span>{{ countLabel(teamEntries, 'entries') }}</span></div>
-            </div>
-          </div>
-          <div v-if="teamMemory.notice" class="memory-scope-note">{{ teamMemory.notice }}</div>
+        <div v-if="teamMemory.rootPath || teamMemory.notice" class="memory-scope-summary" data-testid="memory-center-team-summary">
+          <span v-if="teamMemory.rootPath" class="memory-scope-summary-path" :title="teamMemory.rootPath">{{ teamMemory.rootPath }}</span>
+          <span v-if="teamMemory.notice" class="memory-scope-note">{{ teamMemory.notice }}</span>
         </div>
         <div v-if="teamEntries.length === 0" class="memory-empty memory-scope-empty" data-testid="memory-center-team-empty">
           <svg class="memory-empty-illustration" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
@@ -419,17 +419,22 @@ export const MemoryCenterPage = {
               <button class="btn btn-secondary btn-xs" :data-testid="'memory-center-team-edit-' + idx" :disabled="busyPath === 'team:' + entry.path" @click="memoryEditor.openEdit('team', entry)">
                 {{ busyPath === 'team:' + entry.path ? '加载中...' : '编辑' }}
               </button>
-              <button class="btn btn-ghost btn-warning btn-xs" :data-testid="'memory-center-team-delete-' + idx" @click="inlineDelete.ask('team', entry)">删除</button>
+              <button class="btn btn-danger btn-xs" :data-testid="'memory-center-team-delete-' + idx" @click="inlineDelete.ask('team', entry)">删除</button>
             </div>
           </article>
         </div>
 
         <div class="memory-center-section memory-center-section--agent">
           <span class="memory-center-section-title">Agent 记忆</span>
-          <span class="memory-center-section-count">{{ agentScopes.length }} scopes</span>
+          <span class="memory-center-section-count">{{ visibleAgentScopes.length }}/{{ agentScopes.length }} scope</span>
+          <div v-if="hiddenEmptyScopeCount > 0" class="memory-center-section-tail">
+            <button class="btn btn-ghost btn-toolbar-sm" data-testid="memory-center-agent-show-all" @click="toggleAllScopes">
+              {{ showAllScopes ? '隐藏空 scope' : '显示空 scope (' + hiddenEmptyScopeCount + ')' }}
+            </button>
+          </div>
         </div>
         <div class="memory-agent-scope-list" data-testid="memory-center-agent-scopes">
-          <article v-for="scope in filteredAgentScopes" :key="scope.scope" class="data-card-vue memory-agent-scope-card">
+          <article v-for="scope in visibleAgentScopes" :key="scope.scope" class="data-card-vue memory-agent-scope-card">
             <div class="memory-agent-scope-head">
               <div>
                 <div class="memory-agent-scope-title">
@@ -471,8 +476,9 @@ export const MemoryCenterPage = {
           </article>
         </div>
 
-        <div class="memory-center-footer-note">
-          推荐工作流：先在"共享文件"沉淀协作草稿，再把确认值得长期保留的内容整理为 durable memory 或特定 Agent 的 MEMORY.md。
+        <div v-if="visibleAgentScopes.length === 0 && agentScopes.length > 0" class="memory-empty" data-testid="memory-center-agent-all-empty">
+          <div class="memory-empty-title">所有 scope 都还没有 Agent MEMORY.md</div>
+          <div class="memory-empty-text">点击上方"显示空 scope"可展开并创建。</div>
         </div>
       </div>
 
@@ -488,7 +494,7 @@ export const MemoryCenterPage = {
           <div class="memory-form-helper">删除后对应的 topic file 也会被移除，无法恢复。如果后续可能重用，建议先"编辑"备份内容。</div>
           <div class="memory-editor-actions">
             <button class="btn btn-ghost" :disabled="inlineDelete.deleting" @click="inlineDelete.cancel">取消</button>
-            <button class="btn btn-ghost btn-warning" data-testid="memory-center-inline-delete-confirm" :disabled="inlineDelete.deleting" @click="inlineDelete.confirm">
+            <button class="btn btn-danger" data-testid="memory-center-inline-delete-confirm" :disabled="inlineDelete.deleting" @click="inlineDelete.confirm">
               {{ inlineDelete.deleting ? '删除中...' : '确认删除' }}
             </button>
           </div>
@@ -549,7 +555,7 @@ export const MemoryCenterPage = {
           </div>
           <div class="memory-editor-actions">
             <button class="btn btn-ghost" data-testid="memory-center-editor-cancel" @click="memoryEditor.close">取消</button>
-            <button v-if="memoryEditor.form.existingPath" class="btn btn-ghost btn-warning" data-testid="memory-center-editor-delete" :disabled="memoryEditor.deleting" @click="memoryEditor.remove">
+            <button v-if="memoryEditor.form.existingPath" class="btn btn-danger" data-testid="memory-center-editor-delete" :disabled="memoryEditor.deleting" @click="memoryEditor.remove">
               {{ memoryEditor.deleting ? '删除中...' : '删除' }}
             </button>
             <button class="btn btn-primary" data-testid="memory-center-editor-save" :disabled="memoryEditor.saving" @click="memoryEditor.save">

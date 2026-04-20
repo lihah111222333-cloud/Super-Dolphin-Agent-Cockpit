@@ -103,6 +103,7 @@ test('sidebar pages load dashboard data and tasks tabs switch correctly', async 
 
   await page.getByTestId('nav-memory').click();
   await expect(page.getByTestId('shared-files-page')).toBeVisible();
-  await expect(page.getByTestId('shared-files-callout')).toContainText('共享文件适合协作草稿、中间结果和交接上下文');
+  await expect(page.getByTestId('shared-files-callout')).toContainText('共享文件');
+  await expect(page.getByTestId('shared-files-callout')).toContainText('Agent 协作中转站');
   await expect(page.getByTestId('shared-files-list')).toContainText('/workspace/project-alpha/memory.md');
 });
