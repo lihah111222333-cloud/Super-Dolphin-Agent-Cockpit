@@ -47,7 +47,7 @@ func skillRPCError(err error) error {
 		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
 	case errors.Is(err, os.ErrNotExist):
 		return rpc.ErrNotFound(err.Error())
-	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, errInvalidSkillExpandParam):
+	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, errInvalidSkillExpandParam), errors.Is(err, ErrInvalidSkillScope):
 		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
 	case errors.Is(err, errSkillApprovalDenied), errors.Is(err, errSkillApprovalRequesterUnavailable), errors.Is(err, errSkillApprovalProjectCacheMissing):
 		return jrpc2.Errorf(jrpc2.InternalError, "%s", err.Error())
@@ -94,9 +94,9 @@ func skillCoreHandlers(svc Service) handler.Map {
 		"command/exec": rpc.StrictHandler(func(ctx context.Context, p execParams) (any, error) {
 			return svc.ExecCommand(ctx, p.Command, p.Args, p.CWD, p.Env)
 		}),
-		"skill/list":    rpc.StrictHandler(skillListHandler(svc)),
-		"skill/expand":  rpc.StrictHandler(skillExpandHandler(svc)),
-		"skills/list":   rpc.StrictHandler(skillsListHandler(svc)),
+		"skill/list":   rpc.StrictHandler(skillListHandler(svc)),
+		"skill/expand": rpc.StrictHandler(skillExpandHandler(svc)),
+		"skills/list":  rpc.StrictHandler(skillsListHandler(svc)),
 	}
 }
 
@@ -212,7 +212,7 @@ func skillLocalWriteHandler(svc Service) func(context.Context, contentParams) (a
 		if err != nil {
 			return nil, err
 		}
-		return svc.WriteLocal(scopedCtx, p.Path, p.Content)
+		return svc.WriteLocal(scopedCtx, p.Path, p.Content, p.Scope)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 type skillCWDContextKey struct{}
 
 var ErrMissingCWD = errors.New("cwd is required")
+var ErrInvalidSkillScope = errors.New("invalid skill scope")
 
 // WithCWD scopes a skill request to a specific cwd. Empty cwd is a no-op so
 // downstream callers can detect the missing scope explicitly.
@@ -48,7 +49,7 @@ type Service interface {
 	ListSkills(ctx context.Context) ([]SkillInfo, error)
 	ReadLocal(ctx context.Context, path string) (any, error)
 	ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error)
-	WriteLocal(ctx context.Context, path, content string) (any, error)
+	WriteLocal(ctx context.Context, path, content string, scope ...string) (any, error)
 	ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error)
 	DeleteLocal(ctx context.Context, name string) (any, error)
 	ReadRemote(ctx context.Context, url string) (any, error)

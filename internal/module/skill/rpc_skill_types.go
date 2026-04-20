@@ -8,6 +8,7 @@ type pathParams struct {
 type contentParams struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+	Scope   string `json:"scope,omitempty"`
 	CWD     string `json:"cwd,omitempty"`
 }
 
@@ -21,6 +22,7 @@ type importSkillDirParams struct {
 	Path  string   `json:"path"`
 	Paths []string `json:"paths,omitempty"`
 	Name  string   `json:"name,omitempty"`
+	Scope string   `json:"scope,omitempty"`
 	CWD   string   `json:"cwd,omitempty"`
 }
 
