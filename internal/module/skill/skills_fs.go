@@ -214,7 +214,7 @@ func (s *service) ReadLocal(ctx context.Context, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	path, err = s.resolveSkillPath(path, cwd)
+	path, err = s.resolveSkillPath(path, cwd, "")
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func (s *service) ListLocalFiles(ctx context.Context, p listSkillFilesParams) (a
 	if dir == "" {
 		return nil, errors.New("dir or path is required")
 	}
-	dir, err = s.resolveSkillPath(dir, cwd)
+	dir, err = s.resolveSkillPath(dir, cwd, "")
 	if err != nil {
 		return nil, err
 	}
@@ -259,30 +259,30 @@ func (s *service) ListLocalFiles(ctx context.Context, p listSkillFilesParams) (a
 	return map[string]any{"dir": dir, "files": files}, nil
 }
 
-func (s *service) WriteLocal(ctx context.Context, path, content string) (any, error) {
+func (s *service) WriteLocal(ctx context.Context, path, content string, scope ...string) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
 		return nil, err
 	}
-	path, err = s.resolveSkillPath(path, cwd)
+	path, err = s.resolveSkillPath(path, cwd, resolveRequestedSkillScope(scope...))
 	if err != nil {
 		return nil, err
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if info.IsDir() {
-		return nil, fmt.Errorf("path is directory: %s", path)
 	}
 	if len(content) > maxSkillFileBytes {
 		return nil, fmt.Errorf("content too large: %d bytes", len(content))
 	}
-	if err := os.WriteFile(path, []byte(content), info.Mode().Perm()); err != nil {
+	mode, err := writableSkillFileMode(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, []byte(content), mode); err != nil {
 		return nil, err
 	}
 	s.publishSkillsChanged("local_write", filepath.Base(filepath.Dir(path)))
-	return map[string]any{"ok": true, "path": path, "bytes": len(content)}, nil
+	return map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}, nil
 }
 
 func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error) {
@@ -294,7 +294,7 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 	if err != nil {
 		return nil, err
 	}
-	results, failures := s.importSources(sources, p.Name, cwd)
+	results, failures := s.importSources(sources, p.Name, cwd, p.Scope)
 	response := buildImportLocalDirResponse(sources, results, failures)
 	if len(results) > 0 {
 		name := strings.TrimSpace(p.Name)
@@ -455,7 +455,7 @@ func collectImportSources(primary string, extra []string) ([]string, error) {
 	return uniqStrings(sources), nil
 }
 
-func (s *service) importSources(sources []string, singleName, cwd string) ([]map[string]any, []map[string]any) {
+func (s *service) importSources(sources []string, singleName, cwd, scope string) ([]map[string]any, []map[string]any) {
 	results := make([]map[string]any, 0, len(sources))
 	failures := make([]map[string]any, 0)
 	for _, source := range sources {
@@ -463,7 +463,7 @@ func (s *service) importSources(sources []string, singleName, cwd string) ([]map
 		if len(sources) > 1 {
 			name = filepath.Base(source)
 		}
-		result, err := s.importSource(source, name, cwd)
+		result, err := s.importSource(source, name, cwd, scope)
 		if err != nil {
 			failures = append(failures, map[string]any{"source": source, "error": err.Error()})
 			continue
@@ -473,16 +473,16 @@ func (s *service) importSources(sources []string, singleName, cwd string) ([]map
 	return results, failures
 }
 
-func (s *service) importSource(source, name, cwd string) (map[string]any, error) {
+func (s *service) importSource(source, name, cwd, scope string) (map[string]any, error) {
 	resolvedSource, err := validateImportSource(source)
 	if err != nil {
 		return nil, err
 	}
-	root, err := s.prepareSkillsRoot()
+	root, err := s.prepareScopedSkillsRoot(cwd, scope)
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureSourceOutsideRoots(s.skillRoots(cwd), resolvedSource, source); err != nil {
+	if err := ensureSourceOutsideRoots(s.allSkillRoots(cwd), resolvedSource, source); err != nil {
 		return nil, err
 	}
 	targetName := strings.TrimSpace(name)
@@ -517,17 +517,6 @@ func validateImportSource(source string) (string, error) {
 		return "", fmt.Errorf("path is not a directory: %s", resolved)
 	}
 	return resolved, nil
-}
-
-func (s *service) prepareSkillsRoot() (string, error) {
-	root := strings.TrimSpace(s.root)
-	if root == "" {
-		return "", errors.New("skills root is not configured")
-	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return "", err
-	}
-	return root, nil
 }
 
 // ensureSourceOutsideRoots 防止将任一技能根内的目录再套娃导入成新技能。
@@ -587,35 +576,6 @@ func copySkillDir(source, target string) (int, int64, error) {
 		return os.WriteFile(dst, data, 0o644)
 	})
 	return files, total, err
-}
-
-func (s *service) resolveSkillPath(target, cwd string) (string, error) {
-	target = strings.TrimSpace(target)
-	if target == "" {
-		return "", errors.New("path is required")
-	}
-	roots := s.skillRoots(cwd)
-	if len(roots) == 0 {
-		return "", errors.New("skills root is not configured")
-	}
-	targetPath, err := canonicalProjectPath(target)
-	if err != nil {
-		return "", err
-	}
-	for _, root := range roots {
-		rootPath, err := canonicalProjectPath(root)
-		if err != nil {
-			return "", err
-		}
-		outside, err := pathEscapesRoot(rootPath, targetPath)
-		if err != nil {
-			return "", err
-		}
-		if !outside {
-			return targetPath, nil
-		}
-	}
-	return "", fmt.Errorf("path escapes skills root: %s", target)
 }
 
 func canonicalProjectPath(path string) (string, error) {

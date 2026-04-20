@@ -94,25 +94,6 @@ func defaultProjectSkillsRoot(projectRoot string) string {
 	return filepath.Join(projectRoot, ".agent", "skills")
 }
 
-// skillRoots 返回扫描/校验时按优先级排列的技能根目录：
-// 项目根（若有）优先于系统根。空根会被过滤。
-func (s *service) skillRoots(cwd string) []string {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return nil
-	}
-	roots := make([]string, 0, 2)
-	if v := strings.TrimSpace(s.projectSkillsRootForCWD(cwd)); v != "" {
-		roots = append(roots, v)
-	}
-	if v := strings.TrimSpace(s.root); v != "" {
-		if projectKey := platformshared.ProjectKeyFromCwd(cwd); projectKey != "" {
-			roots = append(roots, filepath.Join(v, projectKey))
-		}
-	}
-	return roots
-}
-
 func (s *service) projectSkillsRootForCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -143,7 +124,7 @@ func normalizeSkillScope(scope string) (string, error) {
 	case skillScopeSystem:
 		return skillScopeSystem, nil
 	default:
-		return "", fmt.Errorf("invalid skill scope: %s", scope)
+		return "", fmt.Errorf("%w: %s", ErrInvalidSkillScope, scope)
 	}
 }
 
@@ -216,6 +197,85 @@ func (s *service) prepareScopedSkillsRoot(cwd, scope string) (string, error) {
 		return "", err
 	}
 	return root, nil
+}
+
+func resolveRequestedSkillScope(scope ...string) string {
+	if len(scope) == 0 {
+		return ""
+	}
+	return scope[0]
+}
+
+func writableSkillFileMode(path string) (os.FileMode, error) {
+	info, err := os.Stat(path)
+	switch {
+	case err == nil:
+		if info.IsDir() {
+			return 0, fmt.Errorf("path is directory: %s", path)
+		}
+		if mode := info.Mode().Perm(); mode != 0 {
+			return mode, nil
+		}
+		return 0o644, nil
+	case errors.Is(err, os.ErrNotExist):
+		return 0o644, nil
+	default:
+		return 0, err
+	}
+}
+
+func (s *service) resolveSkillPath(target, cwd, scope string) (string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", errors.New("path is required")
+	}
+	if filepath.IsAbs(target) {
+		return s.resolveExistingSkillPath(target, cwd)
+	}
+	return s.resolveScopedSkillPath(cwd, target, scope)
+}
+
+func (s *service) resolveExistingSkillPath(target, cwd string) (string, error) {
+	roots := s.allSkillRoots(cwd)
+	if len(roots) == 0 {
+		return "", errors.New("skills root is not configured")
+	}
+	targetPath, err := canonicalProjectPath(target)
+	if err != nil {
+		return "", err
+	}
+	for _, root := range roots {
+		rootPath, err := canonicalProjectPath(root)
+		if err != nil {
+			return "", err
+		}
+		outside, err := pathEscapesRoot(rootPath, targetPath)
+		if err != nil {
+			return "", err
+		}
+		if !outside {
+			return targetPath, nil
+		}
+	}
+	return "", fmt.Errorf("path escapes skills root: %s", target)
+}
+
+func (s *service) resolveScopedSkillPath(cwd, target, scope string) (string, error) {
+	root, err := s.resolveScopeRoot(cwd, scope)
+	if err != nil {
+		return "", err
+	}
+	cleaned := filepath.Clean(strings.TrimSpace(target))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes skills root: %s", target)
+	}
+	if strings.EqualFold(filepath.Base(cleaned), skillMainFile) {
+		return filepath.Join(root, cleaned), nil
+	}
+	if strings.Contains(cleaned, string(filepath.Separator)) {
+		return filepath.Join(root, cleaned), nil
+	}
+	return filepath.Join(root, skillSlug(cleaned), skillMainFile), nil
 }
 
 func (s *service) expandWithApproval(ctx context.Context, p skillExpandParams) (skillExpandResult, error) {
