@@ -238,10 +238,10 @@ P20 合流后 `go test ./internal/archtest -run 'TestCodeSizeGuard|TestDependenc
 
 | # | 隐患 | 状态 | 专单 | 关闭日期 |
 |---|---|---|---|---|
-| 1 | 双 SkillCatalogProvider 并存 | ⏳ 未开工 | - | - |
+| 1 | 双 SkillCatalogProvider 并存 | ⚠️ 部分关闭 | 远程 `0b4ad39` 已删 `prompt/skill_catalog_fx.go`；`skill_catalog_provider.go` 仍双存 | 2026-04-20 |
 | 2 | 写端未切 v1 marker | ⏳ 未开工 | - | - |
-| 3 | metrics 只落 no-op 骨架 | ⏳ 未开工 | - | - |
+| 3 | metrics 只落 no-op 骨架 | ⏳ 未开工 | `policy_metrics.go` 骨架已落 (本分支)；真实 backend 接线仍待专单 | - |
 | 4 | orchestration agent report 通道异常 | ⏳ 未开工 | - | - |
-| 5 | HEAD 8 条 archtest 历史债 | ⏳ 未开工 | - | - |
+| 5 | HEAD 8 条 archtest 历史债 | ✅ **已全部关闭** | 远程 `72d3300` refactor 修 skill CC；prompt/fx scope + store/prompt pgx boundary 同步已清；archtest 全绿 | 2026-04-20 |
 
 关闭本表记录时规则：在"状态"列改 ✅ + 填专单 commit hash + 日期；禁止删除条目（保留审计轨迹）。
