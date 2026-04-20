@@ -240,7 +240,7 @@ P20 合流后 `go test ./internal/archtest -run 'TestCodeSizeGuard|TestDependenc
 |---|---|---|---|---|
 | 1 | 双 SkillCatalogProvider 并存 | ⚠️ 部分关闭 | 远程 `0b4ad39` 已删 `prompt/skill_catalog_fx.go`；`skill_catalog_provider.go` 仍双存 | 2026-04-20 |
 | 2 | 写端未切 v1 marker | ⏳ 未开工 | - | - |
-| 3 | metrics 只落 no-op 骨架 | ⏳ 未开工 | `policy_metrics.go` 骨架已落 (本分支)；真实 backend 接线仍待专单 | - |
+| 3 | metrics 只落 no-op 骨架 | ✅ **已全部关闭** | 远程 Phase 10 已落 `pkg/skillmetrics/` 5 atomic counter + `prompt.Config` 完整配置；本分支误加的 `skill/policy_metrics.go` + `platform/config.Skill` 冗余已回滚 | 2026-04-20 |
 | 4 | orchestration agent report 通道异常 | ⏳ 未开工 | - | - |
 | 5 | HEAD 8 条 archtest 历史债 | ✅ **已全部关闭** | 远程 `72d3300` refactor 修 skill CC；prompt/fx scope + store/prompt pgx boundary 同步已清；archtest 全绿 | 2026-04-20 |
 
