@@ -4,7 +4,6 @@ import {
   useDurableMemoryEditor,
   useAgentMemoryEditor,
   useInlineDeleteConfirm,
-  resetAgentForm,
 } from '../composables/useMemoryEditors.js';
 
 const GUIDE_PREF_KEY = 'memory-center.guide-collapsed';
@@ -184,12 +183,46 @@ export const MemoryCenterPage = {
 
     function clearSearch() { searchText.value = ''; }
     function toggleAllScopes() { showAllScopes.value = !showAllScopes.value; }
-    function resetAgentMemory() {
-      // Full form reset: wipe scope / agentType / path / content back to the
-      // blank new-entry state. Pure client-side, no save — the user still
-      // needs to click 保存 to actually commit whatever they enter next.
-      if (agentEditor.saving) return;
-      resetAgentForm(agentEditor.form, 'project');
+
+    // Agent memory has no dedicated delete endpoint — the backend treats
+    // saving empty content as a reset. Wrap the save-empty call in a confirm
+    // flow so the card-level 删除 looks like a real delete.
+    const agentDeleteTarget = ref(null); // { scope, agentType }
+    const agentDeleting = ref(false);
+
+    function askAgentDelete(scope, entry) {
+      const agentType = (entry?.agentType || '').toString().trim();
+      if (!agentType) return;
+      agentDeleteTarget.value = { scope, agentType };
+    }
+
+    function cancelAgentDelete() {
+      if (agentDeleting.value) return;
+      agentDeleteTarget.value = null;
+    }
+
+    async function confirmAgentDelete() {
+      const req = agentDeleteTarget.value;
+      if (!req || agentDeleting.value) return;
+      agentDeleting.value = true;
+      try {
+        await callAPI('ui/memory/agent/save', {
+          cwd: currentCwd.value,
+          scope: req.scope,
+          agentType: req.agentType,
+          content: '',
+        });
+        setNotice('info', `Agent 记忆已删除：${req.agentType}`);
+        agentDeleteTarget.value = null;
+        emit('refresh');
+      } catch (error) {
+        setNotice(
+          'error',
+          `删除 Agent 记忆失败：${(error && error.message) || String(error || '')}`,
+        );
+      } finally {
+        agentDeleting.value = false;
+      }
     }
 
     function toggleGuide() {
@@ -253,7 +286,11 @@ export const MemoryCenterPage = {
       handleRefresh,
       toggleEmptyScope,
       isScopeExpanded,
-      resetAgentMemory,
+      agentDeleteTarget,
+      agentDeleting,
+      askAgentDelete,
+      cancelAgentDelete,
+      confirmAgentDelete,
       openSharedFiles: () => emit('open-shared-files'),
     };
   },
@@ -485,6 +522,7 @@ export const MemoryCenterPage = {
                   <button class="btn btn-secondary btn-xs" :data-testid="'memory-center-agent-edit-' + scope.scope + '-' + entry.agentType" :disabled="busyPath === 'agent:' + scope.scope + ':' + entry.agentType" @click="agentEditor.openEdit(scope.scope, entry)">
                     {{ busyPath === 'agent:' + scope.scope + ':' + entry.agentType ? '加载中...' : '编辑' }}
                   </button>
+                  <button class="btn btn-danger btn-xs" :data-testid="'memory-center-agent-delete-' + scope.scope + '-' + entry.agentType" @click="askAgentDelete(scope.scope, entry)">删除</button>
                 </div>
               </article>
             </div>
@@ -582,6 +620,25 @@ export const MemoryCenterPage = {
         </div>
       </div>
 
+      <div v-if="agentDeleteTarget" class="modal-overlay" data-testid="memory-center-agent-delete-overlay" @click.self="cancelAgentDelete">
+        <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="memory-center-agent-delete-modal">
+          <div class="memory-modal-head">
+            <div>
+              <div class="modal-title">删除 Agent 记忆</div>
+              <div class="memory-modal-tip">{{ agentDeleteTarget.agentType }} · {{ scopeTitle(agentDeleteTarget.scope) }}</div>
+            </div>
+            <button class="btn btn-ghost" :disabled="agentDeleting" @click="cancelAgentDelete">关闭</button>
+          </div>
+          <div class="memory-form-helper">将该 Agent 在当前 scope 下的 <code>MEMORY.md</code> 置空，下次启动时不再注入。</div>
+          <div class="memory-editor-actions">
+            <button class="btn btn-ghost" :disabled="agentDeleting" @click="cancelAgentDelete">取消</button>
+            <button class="btn btn-danger" data-testid="memory-center-agent-delete-confirm" :disabled="agentDeleting" @click="confirmAgentDelete">
+              {{ agentDeleting ? '删除中...' : '确认删除' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="agentEditor.open" class="modal-overlay" data-testid="memory-center-agent-editor-overlay" @click.self="agentEditor.close">
         <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="memory-center-agent-editor">
           <div class="memory-modal-head">
@@ -613,12 +670,6 @@ export const MemoryCenterPage = {
           </div>
           <div class="memory-editor-actions">
             <button class="btn btn-ghost" data-testid="memory-center-agent-cancel" @click="agentEditor.close">取消</button>
-            <button
-              class="btn btn-danger"
-              data-testid="memory-center-agent-reset"
-              :disabled="agentEditor.saving || (!agentEditor.form.agentType && !agentEditor.form.content)"
-              @click="resetAgentMemory"
-            >重置</button>
             <button
               class="btn btn-primary"
               data-testid="memory-center-agent-save"
