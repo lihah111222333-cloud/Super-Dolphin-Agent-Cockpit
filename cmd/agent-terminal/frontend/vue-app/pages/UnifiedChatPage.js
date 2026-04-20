@@ -85,7 +85,23 @@ function handlePageTimelineCitation(payload, fileRefPreview, threads, selectedTh
   });
 }
 
+function resolvePageActiveCwdSource(props) {
+  return computed(() => {
+    if (typeof props.threadStore?.getPreferenceScopeCwd === 'function') {
+      const scopedCwd = (props.threadStore.getPreferenceScopeCwd() || '').toString().trim();
+      if (scopedCwd) return scopedCwd;
+    }
+    return (
+      props.threadStore?.state?.cwd
+      || props.projectStore?.state?.cwd
+      || props.projectStore?.state?.active
+      || ''
+    ).toString().trim();
+  });
+}
+
 function createPageLaunchSkillSelection(props, composer, selectedThreadId, skillRevision) {
+  const activeCwdSource = resolvePageActiveCwdSource(props);
   const featureSource = computed(() => ({
     threadFeatures: props.threadStore?.state?.features ?? {},
     projectFeatures: props.projectStore?.state?.features ?? {},
@@ -94,7 +110,13 @@ function createPageLaunchSkillSelection(props, composer, selectedThreadId, skill
       props.projectStore?.state?.features ?? {},
     ),
   }));
-  return useLaunchSkillSelection({ composer, selectedThreadId, skillRevision, featureSource });
+  return useLaunchSkillSelection({
+    composer,
+    selectedThreadId,
+    skillRevision,
+    featureSource,
+    activeCwdSource,
+  });
 }
 
 function bindPageThreadSelection(props, ctx) {
@@ -345,6 +367,7 @@ export const UnifiedChatPage = {
       composer,
       selectedThreadId,
       skillRevision,
+      activeCwdSource: resolvePageActiveCwdSource(props),
     });
     const {
       launchSkillSelectionEnabled,

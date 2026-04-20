@@ -223,7 +223,8 @@ export const AppRoot = {
 
     async function refreshDashboardByPage(/** @type {AppPage} */ targetPage) {
       if (targetPage === 'chat' || targetPage === 'settings') return;
-      const res = await callAPI('ui/dashboard/get', { page: targetPage });
+      const cwd = (threadScopeCwd.value || '').toString().trim();
+      const res = await callAPI('ui/dashboard/get', cwd ? { page: targetPage, cwd } : { page: targetPage });
       dashboard.agents = Array.isArray(res?.agents) ? res.agents : [];
       dashboard.dags = Array.isArray(res?.dags) ? res.dags : [];
       dashboard.taskAcks = Array.isArray(res?.taskAcks) ? res.taskAcks : [];

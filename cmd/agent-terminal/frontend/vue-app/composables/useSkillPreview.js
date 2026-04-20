@@ -21,6 +21,7 @@ export function useSkillPreview(opts) {
     composer,
     selectedThreadId,
     skillRevision,
+    activeCwdSource,
   } = opts;
 
   const composerSkillMatches = /** @type {{ value: any[] }} */ (ref([]));
@@ -33,6 +34,10 @@ export function useSkillPreview(opts) {
   let hasComposerSkillPreviewQueued = false;
   let composerSkillPreviewLastSignature = '';
   let composerSkillPreviewLastWarnAt = 0;
+
+  function resolveActiveCwd() {
+    return (activeCwdSource?.value || '').toString().trim();
+  }
 
   function clearComposerSkillPreviewTimer() {
     if (!composerSkillPreviewTimer) return;
@@ -118,6 +123,7 @@ export function useSkillPreview(opts) {
       const raw = await callAPI('skills/match/preview', {
         threadId,
         text,
+        cwd: resolveActiveCwd(),
       });
       if (requestSeq !== composerSkillPreviewSeq) return;
       const matches = normalizeSkillPreviewMatches(raw?.matches);
@@ -185,6 +191,7 @@ export function useSkillPreview(opts) {
       const raw = await callAPI('skills/match/preview', {
         threadId,
         text,
+        cwd: resolveActiveCwd(),
       });
       const latestMatches = normalizeSkillPreviewMatches(raw?.matches);
       composerSkillMatches.value = latestMatches;

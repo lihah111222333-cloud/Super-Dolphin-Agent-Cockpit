@@ -195,6 +195,6 @@ describe('AppRoot behavior', () => {
 
     apiMock.bridgeCb?.({ method: 'skills/changed' });
     await flush();
-    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'skills' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'skills', cwd: '/repo' });
   });
 });

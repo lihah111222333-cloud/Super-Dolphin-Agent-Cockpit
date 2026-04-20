@@ -31,11 +31,13 @@ function createSkillPreview({ text = '', threadId = '', revision = 0 } = {}) {
   };
   const selectedThreadId = ref(threadId);
   const skillRevision = ref(revision);
-  const vm = useSkillPreview({ composer, selectedThreadId, skillRevision });
+  const activeCwdSource = ref('/repo');
+  const vm = useSkillPreview({ composer, selectedThreadId, skillRevision, activeCwdSource });
   return {
     composer,
     selectedThreadId,
     skillRevision,
+    activeCwdSource,
     ...vm,
   };
 }
@@ -98,6 +100,7 @@ describe('useSkillPreview', () => {
     const result = await vm.resolveComposerSkillSelectionForSend('thread-1', 'please @force and manual');
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('skills/match/preview', {
+      cwd: '/repo',
       threadId: 'thread-1',
       text: 'please @force and manual',
     });
@@ -194,6 +197,7 @@ describe('useSkillPreview', () => {
     await flushPromises();
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('skills/match/preview', {
+      cwd: '/repo',
       threadId: 'thread-1',
       text: 'need preview',
     });

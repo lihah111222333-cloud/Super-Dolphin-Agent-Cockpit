@@ -367,6 +367,26 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
     expect(autoScrollMock.scheduleScrollToBottom).toHaveBeenCalledWith(true);
   });
 
+  it('passes active cwd to launch skill catalog requests', async () => {
+    const counters = { display: [], status: [], header: [], interrupt: [] };
+    const threadStore = makeThreadStore(counters);
+    threadStore.state.features = { launchSkillSelection: true };
+    threadStore.getPreferenceScopeCwd = () => '/scoped/project';
+    const projectStore = {
+      ...makeProjectStore(),
+      state: reactive({ active: '/project-fallback', showModal: false, projects: ['/project-fallback'], features: {} }),
+    };
+    vi.mocked(callAPI).mockImplementation(async (method) => {
+      if (method === 'skills/list') return { skills: [] };
+      return {};
+    });
+
+    UnifiedChatPage.setup({ threadStore, projectStore, mode: 'chat' });
+    await flushTicks(4);
+
+    expect(callAPI).toHaveBeenCalledWith('skills/list', { cwd: '/scoped/project' });
+  });
+
   it('confirms interruptCurrent when stopThread settles', async () => {
     const { threadStore } = makeAutoScrollThreadStore();
     const projectStore = { ...makeProjectStore(), state: reactive({ active: '.', showModal: false, projects: ['.'] }) };
