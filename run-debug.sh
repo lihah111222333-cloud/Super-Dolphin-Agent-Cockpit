@@ -387,6 +387,12 @@ echo "════════════════════════�
 # (每个 agent session 占用 WS 连接 + MCP server pipe，100 agents ≈ 300+ fd)
 ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true
 
+# Memory subsystem env defaults. Override in your shell (export
+# ENABLE_MEMORY_SYSTEM=0) if you really want memory off; otherwise the
+# memory center UI would show the "system off" banner on every launch.
+export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
+export ENABLE_MEMORY_TOOLS="${ENABLE_MEMORY_TOOLS:-1}"
+
 if [ "$MODE" = "debug" ]; then
   if [ -n "$VITE_DEV_URL" ]; then
     echo "▶ 启动 debug 模式 (前端热更新 → $VITE_DEV_URL)..."

@@ -290,6 +290,11 @@ export const MemoryCenterPage = {
               <div class="memory-center-callout-title">
                 长期记忆与 Agent 专属记忆
                 <span class="jr-badge jr-badge-default">{{ totalEntries }} 条</span>
+                <span
+                  class="jr-badge"
+                  :class="systemDisabled ? 'jr-badge-error' : 'jr-badge-success'"
+                  data-testid="memory-center-system-status"
+                >Memory 系统 · {{ systemDisabled ? '未启用' : '已启用' }}</span>
               </div>
               <div v-if="!guideCollapsed" class="memory-center-callout-subtitle">
                 仅保存值得跨会话复用的稳定内容；临时草稿请放到"共享文件"。
@@ -322,10 +327,7 @@ export const MemoryCenterPage = {
         <div v-if="notice.message" class="settings-prompt-notice memory-notice-fade" :class="'is-' + notice.level" data-testid="memory-center-notice">{{ notice.message }}</div>
         <div v-if="model.error" class="settings-prompt-notice is-error" data-testid="memory-center-error">{{ model.error }}</div>
 
-        <div v-if="systemDisabled" class="settings-prompt-notice is-error memory-system-off" data-testid="memory-center-overview">
-          Memory 系统已关闭，durable memory 不会被注入。设置环境变量
-          <code>ENABLE_MEMORY_SYSTEM=1</code>（可选 <code>ENABLE_MEMORY_TOOLS=1</code>）再重启应用即可启用。
-        </div>
+
 
         <div class="memory-center-section memory-center-section--private">
           <span class="memory-center-section-title">Private 长期记忆</span>
