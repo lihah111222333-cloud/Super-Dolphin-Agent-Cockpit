@@ -86,12 +86,13 @@ type PromptAssemblyBoundary = dto.PromptAssemblyBoundary
 type InvalidateReason string
 
 const (
-	InvalidateClear          InvalidateReason = "clear"
-	InvalidateCompact        InvalidateReason = "compact"
-	InvalidateWorktree       InvalidateReason = "worktree"
-	InvalidateResumeRestore  InvalidateReason = "resume_restore"
-	InvalidateProviderSwitch InvalidateReason = "provider_switch"
-	InvalidateMemoryWrite    InvalidateReason = "memory_write"
+	InvalidateClear             InvalidateReason = "clear"
+	InvalidateCompact           InvalidateReason = "compact"
+	InvalidateWorktree          InvalidateReason = "worktree"
+	InvalidateResumeRestore     InvalidateReason = "resume_restore"
+	InvalidateProviderSwitch    InvalidateReason = "provider_switch"
+	InvalidateMemoryWrite       InvalidateReason = "memory_write"
+	InvalidateSkillCatalogWrite InvalidateReason = "skill_catalog_write"
 )
 
 const (
@@ -110,8 +111,7 @@ const (
 	DynamicSectionTokenBudget          = "token_budget"
 	DynamicSectionBrief                = "brief"
 	DynamicSectionAntModelOverride     = "ant_model_override"
-	// DynamicSectionSkillCatalog P20.1 Phase 8：L1 skill manifest 清单，按 trust
-	// 分组渲染（Core / Redacted / Native / Manual-only），符合 §3.3 安全投影原则。
+	// DynamicSectionSkillCatalog P20.5：启动期 skill 静态清单，按 Core / Index 两层渲染。
 	DynamicSectionSkillCatalog = "skill_catalog"
 )
 
