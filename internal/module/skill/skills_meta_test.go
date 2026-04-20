@@ -2,13 +2,17 @@ package skill
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // TestParseSkillRecord_RejectsOversizedFile 防 DoS：恶意项目在 .agent/skills/evil/SKILL.md
@@ -302,5 +306,202 @@ func TestApplyMetaLine_DisableModelInvocationAliases(t *testing.T) {
 	}
 	if !info.DisableModelInvocation {
 		t.Fatalf("disable model invocation should be true")
+	}
+}
+
+type skillCatalogListStub struct {
+	Service
+	infos []SkillInfo
+	err   error
+}
+
+func (s skillCatalogListStub) ListSkills(context.Context) ([]SkillInfo, error) {
+	return s.infos, s.err
+}
+
+type skillCatalogRegistrarStub struct {
+	registered []string
+	err        error
+}
+
+func (s *skillCatalogRegistrarStub) RegisterDynamicProvider(provider contract.DynamicSectionProvider) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.registered = append(s.registered, provider.SectionName())
+	return nil
+}
+
+type skillCatalogInvalidatorStub struct {
+	reason contract.InvalidateReason
+	names  []string
+	calls  int
+}
+
+func (s *skillCatalogInvalidatorStub) InvalidateSections(reason contract.InvalidateReason, names ...string) uint64 {
+	s.reason = reason
+	s.names = append([]string(nil), names...)
+	s.calls++
+	return uint64(s.calls)
+}
+
+func TestSkillCatalogProviderResolveRendersCoreAndIndex(t *testing.T) {
+	provider := &SkillCatalogProvider{skills: skillCatalogListStub{infos: []SkillInfo{
+		{Name: "juliet", Description: "desc juliet", Summary: "summary juliet"},
+		{Name: "bravo", Description: "desc bravo", Summary: "summary bravo"},
+		{Name: "hotel", Description: "desc hotel", Summary: "summary hotel"},
+		{Name: "alpha", Description: "desc alpha", Summary: "summary alpha"},
+		{Name: "echo", Description: "desc echo", Summary: "summary echo"},
+		{Name: "golf", Description: "desc golf", Summary: "summary golf"},
+		{Name: "india", Description: "desc india", Summary: "summary india"},
+		{Name: "delta", Description: "desc delta", Summary: "summary delta"},
+		{Name: "foxtrot", Description: "desc foxtrot", Summary: "summary foxtrot"},
+		{Name: "charlie", Description: "desc charlie", Summary: "summary charlie"},
+	}}}
+
+	out, err := provider.Resolve(context.Background(), contract.SectionContext{})
+	if err != nil || out == nil {
+		t.Fatalf("Resolve() err=%v out=%v", err, out)
+	}
+	text := *out
+	if !strings.Contains(text, "## Core") || !strings.Contains(text, "## Index") {
+		t.Fatalf("missing Core/Index sections: %q", text)
+	}
+	if !strings.Contains(text, "- alpha: desc alpha — summary alpha") {
+		t.Fatalf("alpha core entry missing: %q", text)
+	}
+	if !strings.Contains(text, "india, juliet") {
+		t.Fatalf("index should contain remaining names: %q", text)
+	}
+	if strings.Index(text, "- alpha:") > strings.Index(text, "- bravo:") {
+		t.Fatalf("core entries should be sorted: %q", text)
+	}
+}
+
+func TestSkillCatalogProviderResolveReturnsNilForEmptyList(t *testing.T) {
+	provider := &SkillCatalogProvider{skills: skillCatalogListStub{infos: nil}}
+	out, err := provider.Resolve(context.Background(), contract.SectionContext{})
+	if err != nil || out != nil {
+		t.Fatalf("Resolve() err=%v out=%v, want nil,nil", err, out)
+	}
+}
+
+func TestSkillCatalogProviderBudgetTruncatesLargeCatalog(t *testing.T) {
+	infos := make([]SkillInfo, 0, 60)
+	for i := 59; i >= 0; i-- {
+		infos = append(infos, SkillInfo{
+			Name:        fmt.Sprintf("skill-%02d", i),
+			Description: "description",
+			Summary:     strings.Repeat("x", 24),
+		})
+	}
+	provider := &SkillCatalogProvider{skills: skillCatalogListStub{infos: infos}, charBudget: 220}
+
+	out, err := provider.Resolve(context.Background(), contract.SectionContext{})
+	if err != nil || out == nil {
+		t.Fatalf("Resolve() err=%v out=%v", err, out)
+	}
+	text := *out
+	if len(text) > 220 {
+		t.Fatalf("catalog length = %d, want <= 220: %q", len(text), text)
+	}
+	if !strings.Contains(text, "## Index") {
+		t.Fatalf("truncated catalog should retain index: %q", text)
+	}
+	if !strings.Contains(text, "(+") {
+		t.Fatalf("truncated catalog should advertise hidden entries: %q", text)
+	}
+}
+
+func TestRegisterSkillCatalogPromptProviderRegistersSlot(t *testing.T) {
+	registrar := &skillCatalogRegistrarStub{}
+	if err := registerSkillCatalogPromptProvider(skillCatalogPromptProviderParams{
+		Registrar: registrar,
+		Provider:  NewSkillCatalogProvider(nil),
+	}); err != nil {
+		t.Fatalf("registerSkillCatalogPromptProvider() error = %v", err)
+	}
+	if !reflect.DeepEqual(registrar.registered, []string{contract.DynamicSectionSkillCatalog}) {
+		t.Fatalf("registered = %v", registrar.registered)
+	}
+}
+
+func TestSkillCatalogMutationsInvalidatePromptSection(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func(t *testing.T, svc *service)
+	}{
+		{
+			name: "write_local",
+			run: func(t *testing.T, svc *service) {
+				path := writeTestSkill(t, svc.root, "local-demo", "# before")
+				if _, err := svc.WriteLocal(context.Background(), path, "# after"); err != nil {
+					t.Fatalf("WriteLocal() error = %v", err)
+				}
+			},
+		},
+		{
+			name: "import_local_dir",
+			run: func(t *testing.T, svc *service) {
+				sourceRoot := t.TempDir()
+				sourceDir := filepath.Join(sourceRoot, "import-demo")
+				writeTestSkill(t, sourceRoot, "import-demo", "# imported")
+				if _, err := svc.ImportLocalDir(context.Background(), importSkillDirParams{Path: sourceDir}); err != nil {
+					t.Fatalf("ImportLocalDir() error = %v", err)
+				}
+			},
+		},
+		{
+			name: "delete_local",
+			run: func(t *testing.T, svc *service) {
+				writeTestSkill(t, svc.root, "delete-demo", "# delete")
+				if _, err := svc.DeleteLocal(context.Background(), "delete-demo"); err != nil {
+					t.Fatalf("DeleteLocal() error = %v", err)
+				}
+			},
+		},
+		{
+			name: "write_remote",
+			run: func(t *testing.T, svc *service) {
+				if _, err := svc.WriteRemote(context.Background(), "remote-demo", "# remote"); err != nil {
+					t.Fatalf("WriteRemote() error = %v", err)
+				}
+			},
+		},
+		{
+			name: "write_skill_content",
+			run: func(t *testing.T, svc *service) {
+				if _, err := svc.WriteSkillContent(context.Background(), "config-demo", "# config"); err != nil {
+					t.Fatalf("WriteSkillContent() error = %v", err)
+				}
+			},
+		},
+		{
+			name: "write_summary",
+			run: func(t *testing.T, svc *service) {
+				writeTestSkill(t, svc.root, "summary-demo", "# summary")
+				if _, err := svc.WriteSummary(context.Background(), "summary-demo", "updated summary"); err != nil {
+					t.Fatalf("WriteSummary() error = %v", err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newTestSkillService(t)
+			invalidator := &skillCatalogInvalidatorStub{}
+			svc.sections = invalidator
+			tt.run(t, svc)
+			if invalidator.calls != 1 {
+				t.Fatalf("InvalidateSections() calls = %d, want 1", invalidator.calls)
+			}
+			if invalidator.reason != contract.InvalidateSkillCatalogWrite {
+				t.Fatalf("InvalidateSections() reason = %q", invalidator.reason)
+			}
+			if !reflect.DeepEqual(invalidator.names, []string{contract.DynamicSectionSkillCatalog}) {
+				t.Fatalf("InvalidateSections() names = %v", invalidator.names)
+			}
+		})
 	}
 }

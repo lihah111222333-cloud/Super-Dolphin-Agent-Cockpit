@@ -5,11 +5,39 @@ import (
 	"strings"
 )
 
+type RuntimeMatchKind string
+
+const (
+	RuntimeMatchKindUnknown  RuntimeMatchKind = ""
+	RuntimeMatchKindExplicit RuntimeMatchKind = "explicit"
+	RuntimeMatchKindForce    RuntimeMatchKind = "force"
+	RuntimeMatchKindTrigger  RuntimeMatchKind = "trigger"
+)
+
+type RuntimeMatchParams struct {
+	AgentID  string
+	ThreadID string
+	Text     string
+	Input    []UserInput
+}
+
+type RuntimeSkillMatch struct {
+	Skill        SkillInfo
+	Kind         RuntimeMatchKind
+	MatchedTerms []string
+}
+
+type RuntimeMatcher interface {
+	MatchRuntime(ctx context.Context, p RuntimeMatchParams) ([]RuntimeSkillMatch, error)
+}
+
 type matchItem struct {
 	Name         string   `json:"name"`
 	MatchedBy    string   `json:"matched_by"`
 	MatchedTerms []string `json:"matched_terms,omitempty"`
 }
+
+var _ RuntimeMatcher = (*service)(nil)
 
 func (s *service) MatchPreview(ctx context.Context, agentID, threadID, text string, input []UserInput) (any, error) {
 	resolvedThreadID := resolveSkillMatchPreviewThreadID(agentID, threadID)
@@ -25,6 +53,30 @@ func (s *service) MatchPreview(ctx context.Context, agentID, threadID, text stri
 		}
 	}
 	return map[string]any{"thread_id": resolvedThreadID, "matches": items}, nil
+}
+
+func (s *service) MatchRuntime(ctx context.Context, p RuntimeMatchParams) ([]RuntimeSkillMatch, error) {
+	skills, err := s.ListSkills(ctx)
+	if err != nil {
+		return nil, err
+	}
+	prompt := strings.ToLower(strings.TrimSpace(joinMatchText(p.Text, p.Input)))
+	if prompt == "" || len(skills) == 0 {
+		return nil, nil
+	}
+	matches := make([]RuntimeSkillMatch, 0, len(skills))
+	for _, skill := range skills {
+		kind, terms := classifySkillMatch(prompt, skill)
+		switch RuntimeMatchKind(kind) {
+		case RuntimeMatchKindExplicit, RuntimeMatchKindForce, RuntimeMatchKindTrigger:
+			matches = append(matches, RuntimeSkillMatch{
+				Skill:        skill,
+				Kind:         RuntimeMatchKind(kind),
+				MatchedTerms: append([]string(nil), terms...),
+			})
+		}
+	}
+	return dedupeRuntimeSkillMatches(matches), nil
 }
 
 func resolveSkillMatchPreviewThreadID(agentID, threadID string) string {
@@ -126,6 +178,26 @@ func dedupeAutoMatchedSkills(matches []autoMatchedSkill) []autoMatchedSkill {
 		}
 		seen[key] = struct{}{}
 		match.Name = name
+		uniq = append(uniq, match)
+	}
+	return uniq
+}
+
+func dedupeRuntimeSkillMatches(matches []RuntimeSkillMatch) []RuntimeSkillMatch {
+	uniq := make([]RuntimeSkillMatch, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		name := strings.TrimSpace(match.Skill.Name)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name + "\x00" + string(match.Kind))
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		match.Skill.Name = name
+		match.MatchedTerms = append([]string(nil), match.MatchedTerms...)
 		uniq = append(uniq, match)
 	}
 	return uniq

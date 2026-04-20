@@ -59,6 +59,70 @@ type skillMatchPreviewParams struct {
 	Input    []UserInput `json:"input,omitempty"`
 }
 
+type SkillListParams struct{}
+
+type SkillListItem struct {
+	Name                   string     `json:"name"`
+	Summary                string     `json:"summary"`
+	Description            string     `json:"description"`
+	Trust                  TrustScope `json:"trust"`
+	ContentHash            string     `json:"content_hash"`
+	DisableModelInvocation bool       `json:"disable_model_invocation"`
+}
+
+type SkillListResult struct {
+	Skills []SkillListItem `json:"skills"`
+}
+
+type SkillApprovalScope string
+
+const (
+	SkillApprovalScopeSession SkillApprovalScope = "session"
+	SkillApprovalScopeProject SkillApprovalScope = "project"
+)
+
+type SkillApprovalSource string
+
+const (
+	SkillApprovalSourceTrusted      SkillApprovalSource = "trusted"
+	SkillApprovalSourceProjectCache SkillApprovalSource = "project_cache"
+	SkillApprovalSourceSessionCache SkillApprovalSource = "session_cache"
+	SkillApprovalSourceRequest      SkillApprovalSource = "request"
+)
+
+type SkillApprovalResult string
+
+const (
+	SkillApprovalResultBypassed SkillApprovalResult = "bypassed"
+	SkillApprovalResultCached   SkillApprovalResult = "cached"
+	SkillApprovalResultApproved SkillApprovalResult = "approved"
+)
+
+type SkillExpandParams struct {
+	Name      string             `json:"name"`
+	Section   string             `json:"section,omitempty"`
+	MaxBytes  *int64             `json:"max_bytes,omitempty"`
+	Scope     SkillApprovalScope `json:"scope,omitempty"`
+	Source    string             `json:"source,omitempty"`
+	ThreadID  string             `json:"thread_id,omitempty"`
+	SessionID string             `json:"session_id,omitempty"`
+}
+
+type SkillExpandResult struct {
+	Name           string               `json:"name"`
+	Section        string               `json:"section"`
+	Path           string               `json:"path"`
+	Summary        string               `json:"summary"`
+	Content        string               `json:"content"`
+	Truncated      bool                 `json:"truncated"`
+	TotalBytes     int64                `json:"total_bytes"`
+	ContentHash    string               `json:"content_hash"`
+	Trust          TrustScope           `json:"trust"`
+	ApprovalScope  SkillApprovalScope   `json:"approval_scope,omitempty"`
+	ApprovalSource SkillApprovalSource  `json:"approval_source,omitempty"`
+	ApprovalResult SkillApprovalResult  `json:"approval_result,omitempty"`
+}
+
 // ============================================================================
 // P20.1 Phase 6 工具拆分：skill_expand_body / skill_read_resource
 // ============================================================================

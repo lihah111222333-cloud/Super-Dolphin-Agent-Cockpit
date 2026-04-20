@@ -2,6 +2,8 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +16,10 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+var errInvalidSkillExpandRequest = errors.New("invalid skill expand request")
+
+type skillExpandSection struct{ responseSection, anchor, resourcePath string }
+
 func (s *service) ListSkills(context.Context) ([]SkillInfo, error) {
 	records, err := s.scanSkills()
 	if err != nil {
@@ -24,6 +30,182 @@ func (s *service) ListSkills(context.Context) ([]SkillInfo, error) {
 		skills = append(skills, record.info)
 	}
 	return skills, nil
+}
+
+func (s *service) Expand(ctx context.Context, p SkillExpandParams) (SkillExpandResult, error) {
+	record, err := s.findSkillRecordByName(p.Name)
+	if err != nil {
+		return SkillExpandResult{}, normalizeExpandLookupError(err)
+	}
+	maxBytes, err := resolveExpandMaxBytesParam(p.MaxBytes)
+	if err != nil {
+		return SkillExpandResult{}, err
+	}
+	section, err := normalizeExpandSection(p.Section)
+	if err != nil {
+		return SkillExpandResult{}, err
+	}
+	approvalMeta, err := s.ensureExpandApproved(ctx, record, p)
+	if err != nil {
+		return SkillExpandResult{}, err
+	}
+	var result SkillExpandResult
+	if section.resourcePath != "" {
+		result, err = s.expandSkillResource(record, section, maxBytes)
+		if err != nil {
+			return SkillExpandResult{}, err
+		}
+		return withExpandApprovalMeta(result, approvalMeta), nil
+	}
+	result, err = s.expandSkillBody(record, section, maxBytes)
+	if err != nil {
+		return SkillExpandResult{}, err
+	}
+	return withExpandApprovalMeta(result, approvalMeta), nil
+}
+
+func wrapInvalidExpand(err error) error {
+	if err == nil {
+		return errInvalidSkillExpandRequest
+	}
+	return fmt.Errorf("%w: %v", errInvalidSkillExpandRequest, err)
+}
+
+func resolveExpandMaxBytesParam(raw *int64) (int64, error) {
+	if raw == nil {
+		return defaultExpandMaxBytes, nil
+	}
+	if *raw <= 0 {
+		return 0, wrapInvalidExpand(errors.New("max_bytes must be greater than zero"))
+	}
+	if *raw > int64(maxSkillFileBytes) {
+		return 0, wrapInvalidExpand(fmt.Errorf("max_bytes must be <= %d", maxSkillFileBytes))
+	}
+	return *raw, nil
+}
+
+func normalizeExpandSection(raw string) (skillExpandSection, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return skillExpandSection{}, nil
+	}
+	if strings.HasPrefix(trimmed, "#") {
+		_, title, ok := parseMarkdownHeading(trimmed)
+		if !ok {
+			return skillExpandSection{}, wrapInvalidExpand(fmt.Errorf("section must be a markdown heading: %q", trimmed))
+		}
+		return skillExpandSection{responseSection: trimmed, anchor: title}, nil
+	}
+	relPath, err := NormalizeArtifactLocator(ArtifactKindResource, trimmed)
+	if err != nil {
+		return skillExpandSection{}, wrapInvalidExpand(err)
+	}
+	return skillExpandSection{responseSection: relPath, resourcePath: relPath}, nil
+}
+
+func normalizeExpandLookupError(err error) error {
+	if err == nil || errors.Is(err, ErrInvalidSkillName) {
+		return err
+	}
+	if strings.HasPrefix(err.Error(), "skill not found:") {
+		return fmt.Errorf("%w: %v", os.ErrNotExist, err)
+	}
+	return err
+}
+
+func (s *service) expandSkillBody(record skillRecord, section skillExpandSection, maxBytes int64) (SkillExpandResult, error) {
+	stat, err := os.Stat(record.path)
+	if err != nil {
+		return SkillExpandResult{}, err
+	}
+	if stat.Size() > maxSkillFileBytes {
+		return SkillExpandResult{}, fmt.Errorf("skill file too large: %s is %d bytes, limit %d", record.path, stat.Size(), maxSkillFileBytes)
+	}
+	data, err := os.ReadFile(record.path)
+	if err != nil {
+		return SkillExpandResult{}, err
+	}
+	full := string(data)
+	_, body, hasFrontmatter := splitFrontmatter(full)
+	if !hasFrontmatter {
+		body = full
+	}
+	slice := body
+	if section.anchor != "" {
+		sliceText, ok := sliceMarkdownSection(body, section.anchor)
+		if !ok {
+			return SkillExpandResult{}, wrapInvalidExpand(fmt.Errorf("section not found: %q", section.responseSection))
+		}
+		slice = sliceText
+	}
+	return buildExpandResult(record, record.path, section.responseSection, slice, maxBytes), nil
+}
+
+func (s *service) expandSkillResource(record skillRecord, section skillExpandSection, maxBytes int64) (SkillExpandResult, error) {
+	targetPath, err := resolveExpandResourcePath(record.info.Dir, section.resourcePath)
+	if err != nil {
+		return SkillExpandResult{}, err
+	}
+	stat, err := os.Stat(targetPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return SkillExpandResult{}, wrapInvalidExpand(fmt.Errorf("resource not found: %s", section.resourcePath))
+		}
+		return SkillExpandResult{}, err
+	}
+	if stat.IsDir() {
+		return SkillExpandResult{}, wrapInvalidExpand(fmt.Errorf("resource path is directory: %s", section.resourcePath))
+	}
+	if stat.Size() > maxSkillFileBytes {
+		return SkillExpandResult{}, fmt.Errorf("resource file too large: %s is %d bytes, limit %d", section.resourcePath, stat.Size(), maxSkillFileBytes)
+	}
+	data, err := os.ReadFile(targetPath)
+	if err != nil {
+		return SkillExpandResult{}, err
+	}
+	return buildExpandResult(record, targetPath, section.responseSection, string(data), maxBytes), nil
+}
+
+func resolveExpandResourcePath(skillDir, relPath string) (string, error) {
+	skillDir = filepath.Clean(strings.TrimSpace(skillDir))
+	if skillDir == "" {
+		return "", errors.New("skill dir is required")
+	}
+	if resolved, err := filepath.EvalSymlinks(skillDir); err == nil {
+		skillDir = resolved
+	}
+	targetPath := filepath.Clean(filepath.Join(skillDir, relPath))
+	if resolved, err := filepath.EvalSymlinks(targetPath); err == nil {
+		targetPath = resolved
+	}
+	if !platformshared.ContainsPath(skillDir, targetPath) {
+		return "", wrapInvalidExpand(fmt.Errorf("resource path escapes skill dir: %s", relPath))
+	}
+	return targetPath, nil
+}
+
+func buildExpandResult(record skillRecord, path, section, fullContent string, maxBytes int64) SkillExpandResult {
+	totalBytes := int64(len(fullContent))
+	content, truncated := truncateBytes(fullContent, maxBytes)
+	sum := sha256.Sum256([]byte(fullContent))
+	return SkillExpandResult{
+		Name:        record.info.Name,
+		Section:     section,
+		Path:        path,
+		Summary:     record.info.Summary,
+		Content:     content,
+		Truncated:   truncated,
+		TotalBytes:  totalBytes,
+		ContentHash: hex.EncodeToString(sum[:]),
+		Trust:       record.info.Trust,
+	}
+}
+
+func withExpandApprovalMeta(result SkillExpandResult, meta skillExpandApprovalMeta) SkillExpandResult {
+	result.ApprovalScope = meta.Scope
+	result.ApprovalSource = meta.Source
+	result.ApprovalResult = meta.Result
+	return result
 }
 
 func (s *service) ReadLocal(_ context.Context, path string) (any, error) {
@@ -87,6 +269,7 @@ func (s *service) WriteLocal(_ context.Context, path, content string) (any, erro
 		return nil, err
 	}
 	s.publishSkillsChanged("local_write", filepath.Base(filepath.Dir(path)))
+	s.invalidateSkillCatalog()
 	return map[string]any{"ok": true, "path": path, "bytes": len(content)}, nil
 }
 
@@ -115,6 +298,7 @@ func (s *service) ImportLocalDir(_ context.Context, p importSkillDirParams) (any
 			name, _ = results[0]["name"].(string)
 		}
 		s.publishSkillsChanged("import_dir", name)
+		s.invalidateSkillCatalog()
 	}
 	return response, nil
 }
@@ -128,6 +312,7 @@ func (s *service) DeleteLocal(_ context.Context, name string) (any, error) {
 		return nil, err
 	}
 	s.publishSkillsChanged("delete_local", record.info.Name)
+	s.invalidateSkillCatalog()
 	return map[string]any{"ok": true, "name": record.info.Name, "dir": record.info.Dir, "removed_agent_bindings": 0}, nil
 }
 
@@ -161,6 +346,7 @@ func (s *service) WriteRemote(_ context.Context, name, content string) (any, err
 		return nil, err
 	}
 	s.publishSkillsChanged("remote_write", name)
+	s.invalidateSkillCatalog()
 	return map[string]any{"ok": true, "path": path}, nil
 }
 
@@ -189,6 +375,7 @@ func (s *service) WriteSkillContent(_ context.Context, name, content string) (an
 		return nil, err
 	}
 	s.publishSkillsChanged("config_write", name)
+	s.invalidateSkillCatalog()
 	return map[string]any{"ok": true, "path": path}, nil
 }
 
@@ -201,6 +388,7 @@ func (s *service) WriteSummary(_ context.Context, name, summary string) (any, er
 		return nil, err
 	}
 	s.publishSkillsChanged("summary_write", resolvedName)
+	s.invalidateSkillCatalog()
 	return map[string]any{"ok": true, "path": path, "name": resolvedName, "summary": strings.TrimSpace(summary)}, nil
 }
 

@@ -2,6 +2,8 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -296,6 +298,119 @@ func TestImportLocalDirRejectsExistingTarget(t *testing.T) {
 	}
 	if got := failures[0]["error"]; got != "skill already exists: demo-skill" {
 		t.Fatalf("ImportLocalDir() failure error = %#v", got)
+	}
+}
+
+func TestExpandRejectsInvalidSkillName(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	writeTestSkill(t, svc.root, "demo-skill", "---\ndescription: Demo skill\n---\n# demo")
+
+	_, err := svc.Expand(context.Background(), SkillExpandParams{Name: "demo/skill"})
+	if !IsExpandInvalidParams(err) {
+		t.Fatalf("Expand() error = %v, want invalid params", err)
+	}
+}
+
+func TestExpandSkillNotFound(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	_, err := svc.Expand(context.Background(), SkillExpandParams{Name: "ghost"})
+	if !IsExpandNotFound(err) {
+		t.Fatalf("Expand() error = %v, want not found", err)
+	}
+}
+
+func TestExpandMarkdownSectionUsesPreTruncationContentHash(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	writeTestSkill(t, svc.root, "demo-skill", "---\ndescription: Demo skill\n---\n# Demo\nintro\n\n## Usage\nstep one\nstep two\n\n## Other\nignored\n")
+	shortLimit := int64(12)
+	fullLimit := int64(1024)
+
+	short, err := svc.Expand(context.Background(), SkillExpandParams{Name: "demo-skill", Section: "## Usage", MaxBytes: &shortLimit})
+	if err != nil {
+		t.Fatalf("Expand(short) error = %v", err)
+	}
+	full, err := svc.Expand(context.Background(), SkillExpandParams{Name: "demo-skill", Section: "## Usage", MaxBytes: &fullLimit})
+	if err != nil {
+		t.Fatalf("Expand(full) error = %v", err)
+	}
+
+	expectedSection := "## Usage\nstep one\nstep two"
+	expectedHash := sha256.Sum256([]byte(expectedSection))
+	if short.Section != "## Usage" || short.Path != filepath.Join(svc.root, "demo-skill", skillMainFile) {
+		t.Fatalf("Expand(short) metadata = %+v", short)
+	}
+	if !short.Truncated || full.Truncated {
+		t.Fatalf("truncation mismatch: short=%v full=%v", short.Truncated, full.Truncated)
+	}
+	if short.TotalBytes != int64(len(expectedSection)) || full.TotalBytes != int64(len(expectedSection)) {
+		t.Fatalf("total_bytes mismatch: short=%d full=%d want=%d", short.TotalBytes, full.TotalBytes, len(expectedSection))
+	}
+	if short.ContentHash != full.ContentHash {
+		t.Fatalf("content_hash should be stable across max_bytes: short=%s full=%s", short.ContentHash, full.ContentHash)
+	}
+	if short.ContentHash != hex.EncodeToString(expectedHash[:]) {
+		t.Fatalf("content_hash = %s, want %s", short.ContentHash, hex.EncodeToString(expectedHash[:]))
+	}
+	truncatedHash := sha256.Sum256([]byte(short.Content))
+	if short.ContentHash == hex.EncodeToString(truncatedHash[:]) {
+		t.Fatalf("content_hash should be computed before truncation: %s", short.ContentHash)
+	}
+	if full.Content != expectedSection {
+		t.Fatalf("full content = %q, want %q", full.Content, expectedSection)
+	}
+}
+
+func TestExpandResourcePathEscapeRejected(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	writeTestSkill(t, svc.root, "demo-skill", "# demo")
+
+	_, err := svc.Expand(context.Background(), SkillExpandParams{Name: "demo-skill", Section: "../secret.txt"})
+	if !IsExpandInvalidParams(err) {
+		t.Fatalf("Expand() error = %v, want invalid params", err)
+	}
+}
+
+func TestExpandResourceReadsRelativeFile(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	writeTestSkill(t, svc.root, "demo-skill", "# demo")
+	resourcePath := filepath.Join(svc.root, "demo-skill", "references", "api.md")
+	if err := os.MkdirAll(filepath.Dir(resourcePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(resourcePath, []byte("api docs"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	maxBytes := int64(32)
+
+	result, err := svc.Expand(context.Background(), SkillExpandParams{Name: "demo-skill", Section: "references/api.md", MaxBytes: &maxBytes})
+	if err != nil {
+		t.Fatalf("Expand() error = %v", err)
+	}
+	if resolvedPath, err := filepath.EvalSymlinks(resourcePath); err == nil {
+		resourcePath = resolvedPath
+	}
+	if result.Section != "references/api.md" || result.Path != resourcePath {
+		t.Fatalf("Expand() metadata = %+v", result)
+	}
+	if result.Content != "api docs" || result.Truncated {
+		t.Fatalf("Expand() content = %q truncated=%v", result.Content, result.Truncated)
+	}
+	if result.TotalBytes != int64(len("api docs")) {
+		t.Fatalf("Expand() total_bytes = %d, want %d", result.TotalBytes, len("api docs"))
+	}
+	resourceHash := sha256.Sum256([]byte("api docs"))
+	if want := hex.EncodeToString(resourceHash[:]); result.ContentHash != want {
+		t.Fatalf("Expand() content_hash = %s, want %s", result.ContentHash, want)
 	}
 }
 
