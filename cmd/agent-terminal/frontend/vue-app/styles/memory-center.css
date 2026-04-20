@@ -605,3 +605,13 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* Primary button text was the same light gray as the primary background
+   (tokens: --primary #b4b9c3 vs --text #b0b0b0), making the label vanish
+   and the button read as a blank white block. Other pages already override
+   this via a page-scoped rule in shell-layout.css; mirror it here so the
+   memory center and shared files pages get readable primary buttons too. */
+#page-memory-center .btn-primary,
+#page-shared-files .btn-primary {
+  color: #111;
+}
