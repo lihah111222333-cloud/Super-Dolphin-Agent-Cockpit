@@ -32,6 +32,10 @@ function resolveProjectCwd(projectStore) {
   return (projectStore?.state?.active || '').toString().trim();
 }
 
+function resolveReadonlyFallbackCwd(props) {
+  return (props?.threadStore?.state?.cwd || props?.projectStore?.state?.cwd || '').toString().trim();
+}
+
 function withCwd(cwd, payload) {
   if (!cwd) return payload;
   return { ...payload, cwd };
@@ -51,23 +55,61 @@ function countStats(text) {
   return { lines: text.split('\n').length, chars: text.length };
 }
 
+function toErrorMessage(error) {
+  return (
+    (error && typeof error === 'object' && typeof error.message === 'string' ? error.message : '')
+    || String(error || '')
+  ).toString().trim();
+}
+
+function normalizeFallbackErrorToken(value) {
+  return (value == null ? '' : String(value)).trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+export function isReadonlyFallbackListError(error) {
+  if (!error || typeof error !== 'object') return false;
+  const status = Number(error.status ?? error.statusCode);
+  if (status === 404) return true;
+  if (error.code === -32601 || Number(error.code) === -32601) return true;
+  const normalizedName = normalizeFallbackErrorToken(error.name);
+  if (normalizedName === 'method_not_found' || normalizedName === 'notfounderror') return true;
+  const normalizedCode = normalizeFallbackErrorToken(error.code);
+  return normalizedCode === 'method_not_found';
+}
+
 /** Normalize a prompt item from API response. */
 function normalizePromptItem(raw, agentType) {
   return {
-    id: (raw?.id || generateId()).toString(),
-    name: (raw?.name || raw?.title || '').toString(),
-    content: (raw?.content || raw?.hint || '').toString(),
+    id: (raw?.id || raw?.prompt_key || generateId()).toString(),
+    name: (raw?.name || raw?.title || raw?.prompt_key || '').toString(),
+    content: (raw?.content || raw?.prompt_text || raw?.hint || '').toString(),
     description: (raw?.description || '').toString(),
-    agentType: (raw?.agentType || agentType || 'main').toString(),
+    agentType: (raw?.agentType || raw?.agent_key || agentType || 'main').toString(),
     isDefault: Boolean(raw?.isDefault),
     createdAt: (raw?.createdAt || raw?.created_at || '').toString(),
   };
+}
+
+function normalizePromptList(items) {
+  return Array.isArray(items)
+    ? items.map(item => normalizePromptItem(item))
+    : [];
+}
+
+function normalizeFallbackPromptList(items) {
+  if (!Array.isArray(items)) return null;
+  const normalized = items
+    .map(item => normalizePromptItem(item))
+    .filter(item => item.name || item.content);
+  if (items.length > 0 && normalized.length === 0) return null;
+  return normalized;
 }
 
 export const SystemPromptPage = {
   name: 'SystemPromptPage',
   props: {
     projectStore: { type: Object, default: null },
+    threadStore: { type: Object, default: null },
     windowCwd: { type: String, default: '' },
   },
   setup(props) {
@@ -77,6 +119,9 @@ export const SystemPromptPage = {
     const promptCards = ref([]); // all prompt cards
     const loading = ref(false);
     const notice = reactive({ level: 'info', message: '' });
+    const fallbackMode = ref(false);
+    const readonlyReason = ref('');
+    const fallbackSource = ref('');
 
     // Editor state
     const editorOpen = ref(false);
@@ -94,10 +139,23 @@ export const SystemPromptPage = {
     const filteredCards = computed(() =>
       promptCards.value.filter(c => c.agentType === activeTab.value)
     );
-
     const cwdDisplay = computed(() =>
       currentScopeCwd.value || props.windowCwd || '未知'
     );
+    const editorViewOnly = computed(() => fallbackMode.value);
+    const createDisabled = computed(() => fallbackMode.value);
+    const saveDisabled = computed(() => fallbackMode.value || saving.value);
+    const deleteDisabled = computed(() => fallbackMode.value || Boolean(deletingId.value));
+    const readonlyBannerMessage = computed(() => {
+      if (!fallbackMode.value) return '';
+      const dataSourceTip = fallbackSource.value === 'dashboard/prompts'
+        ? '当前列表来自 dashboard/prompts 只读旁路。'
+        : '当前保留已有列表或空态。';
+      const reasonTip = readonlyReason.value
+        ? `原因：${readonlyReason.value}。`
+        : '';
+      return `prompts/list 暂不可用，页面已切换为只读模式；新建/保存/删除已禁用，后端恢复后会自动恢复。${dataSourceTip}${reasonTip}`;
+    });
 
     // ── Helpers ─────────────────────────────────────
     function setNotice(level, message) {
@@ -107,6 +165,46 @@ export const SystemPromptPage = {
 
     function getCwd() {
       return resolveProjectCwd(props.projectStore);
+    }
+
+    function setReadonlyActionNotice(action) {
+      setNotice('info', `当前为只读降级，暂不支持${action}`);
+    }
+
+    function enterReadonlyFallback(reason) {
+      const nextReason = (reason || 'prompts/list not found').trim();
+      const wasFallback = fallbackMode.value;
+      fallbackMode.value = true;
+      readonlyReason.value = nextReason;
+      fallbackSource.value = 'prompts/list';
+      const fields = { reason: nextReason, method: 'prompts/list' };
+      if (wasFallback) {
+        logInfo('system-prompt', 'fallback.retry', fields);
+        return;
+      }
+      logWarn('system-prompt', 'fallback.enter', fields);
+    }
+
+    function clearReadonlyFallback(recoveredBy = 'prompts/list') {
+      const hadFallback = fallbackMode.value || readonlyReason.value || fallbackSource.value;
+      if (!hadFallback) return;
+      fallbackMode.value = false;
+      readonlyReason.value = '';
+      fallbackSource.value = '';
+      logInfo('system-prompt', 'fallback.recovered', { source: recoveredBy });
+    }
+
+    async function hydrateReadonlyPrompts() {
+      try {
+        const res = await callAPI('dashboard/prompts', { cwd: resolveReadonlyFallbackCwd(props) });
+        const nextCards = normalizeFallbackPromptList(res?.prompts);
+        if (!nextCards) return false;
+        promptCards.value = nextCards;
+        fallbackSource.value = 'dashboard/prompts';
+        return true;
+      } catch {
+        return false;
+      }
     }
 
     function switchTab(tab) {
@@ -121,18 +219,30 @@ export const SystemPromptPage = {
       loading.value = true;
       try {
         const res = await callAPI('prompts/list', withCwd(getCwd(), {}));
-        const list = Array.isArray(res?.prompts) ? res.prompts : [];
-        promptCards.value = list.map(item => normalizePromptItem(item));
+        promptCards.value = normalizePromptList(res?.prompts);
+        clearReadonlyFallback('prompts/list');
         setNotice('info', '');
+        return promptCards.value;
       } catch (error) {
+        if (isReadonlyFallbackListError(error)) {
+          enterReadonlyFallback(toErrorMessage(error));
+          await hydrateReadonlyPrompts();
+          setNotice('info', '');
+          return promptCards.value;
+        }
         logWarn('system-prompt', 'load.failed', { error });
-        setNotice('error', `加载失败：${error?.message || error}`);
+        setNotice('error', `加载失败：${toErrorMessage(error)}`);
+        throw error;
       } finally {
         loading.value = false;
       }
     }
 
     async function savePrompt() {
+      if (fallbackMode.value) {
+        setReadonlyActionNotice('保存');
+        return;
+      }
       if (saving.value) return;
       const name = (form.name || '').trim();
       if (!name) {
@@ -154,13 +264,17 @@ export const SystemPromptPage = {
         setNotice('info', `提示词已保存：${name}`);
       } catch (error) {
         logWarn('system-prompt', 'save.failed', { error });
-        setNotice('error', `保存失败：${error?.message || error}`);
+        setNotice('error', `保存失败：${toErrorMessage(error)}`);
       } finally {
         saving.value = false;
       }
     }
 
     async function deletePrompt(item) {
+      if (fallbackMode.value) {
+        setReadonlyActionNotice('删除');
+        return;
+      }
       const id = (item?.id || '').toString();
       if (!id || deletingId.value) return;
       deletingId.value = id;
@@ -173,7 +287,7 @@ export const SystemPromptPage = {
         setNotice('info', `已删除：${item?.name || ''}`);
       } catch (error) {
         logWarn('system-prompt', 'delete.failed', { error });
-        setNotice('error', `删除失败：${error?.message || error}`);
+        setNotice('error', `删除失败：${toErrorMessage(error)}`);
       } finally {
         deletingId.value = '';
       }
@@ -189,12 +303,16 @@ export const SystemPromptPage = {
         const ok = await copyTextToClipboard(text);
         setNotice(ok ? 'info' : 'error', ok ? '已复制提示词内容' : '复制失败');
       } catch (error) {
-        setNotice('error', `复制失败：${error?.message || error}`);
+        setNotice('error', `复制失败：${toErrorMessage(error)}`);
       }
     }
 
     // ── Editor ──────────────────────────────────────
     function openCreate() {
+      if (fallbackMode.value) {
+        setReadonlyActionNotice('新建');
+        return;
+      }
       form.id = '';
       form.name = '';
       form.content = '';
@@ -226,14 +344,20 @@ export const SystemPromptPage = {
       try {
         const cfg = await callAPI('config/read', {});
         currentScopeCwd.value = (cfg?.cwd || '').toString().trim();
-      } catch { currentScopeCwd.value = ''; }
+      } catch {
+        currentScopeCwd.value = '';
+      }
+    }
+
+    function refreshPromptsSilently() {
+      loadPrompts().catch(() => {});
     }
 
     // ── Lifecycle ───────────────────────────────────
     onMounted(() => {
       logInfo('system-prompt', 'page.mounted');
       loadCurrentScopeCwd();
-      loadPrompts();
+      refreshPromptsSilently();
     });
 
     watch(
@@ -241,13 +365,16 @@ export const SystemPromptPage = {
       (next, prev) => {
         if (next === prev) return;
         loadCurrentScopeCwd();
-        loadPrompts();
+        refreshPromptsSilently();
       },
     );
 
     return {
       activeTab, promptCards, filteredCards, loading,
-      notice, editorOpen, editorMode, saving, deletingId,
+      notice, fallbackMode, readonlyReason, fallbackSource,
+      readonlyBannerMessage, editorViewOnly,
+      editorOpen, editorMode, saving, deletingId,
+      createDisabled, saveDisabled, deleteDisabled,
       form, cwdDisplay,
       switchTab, loadPrompts, savePrompt, deletePrompt,
       copyPromptContent, openCreate, openEdit, closeEditor,
@@ -285,10 +412,18 @@ export const SystemPromptPage = {
 
         <!-- Toolbar -->
         <div class="sp-toolbar" data-testid="sp-toolbar">
-          <button class="btn btn-secondary" data-testid="sp-create-btn" @click="openCreate">+ 新建提示词</button>
+          <button class="btn btn-secondary" data-testid="sp-create-btn" :disabled="createDisabled" @click="openCreate">+ 新建提示词</button>
           <button class="btn btn-ghost" data-testid="sp-refresh-btn" :disabled="loading" @click="loadPrompts">
             {{ loading ? '加载中...' : '刷新' }}
           </button>
+        </div>
+
+        <div
+          v-if="fallbackMode"
+          class="sp-notice is-warn sp-readonly-banner"
+          data-testid="sp-readonly-banner"
+        >
+          {{ readonlyBannerMessage }}
         </div>
 
         <!-- Empty state -->
@@ -300,7 +435,7 @@ export const SystemPromptPage = {
             </svg>
           </div>
           <h3>暂无{{ activeTab === 'main' ? '主 Agent' : '子 Agent' }}提示词</h3>
-          <p>点击"新建提示词"开始创建</p>
+          <p>{{ fallbackMode ? '当前为只读降级；待后端恢复后会自动恢复。' : '点击"新建提示词"开始创建' }}</p>
         </div>
 
         <!-- Loading -->
@@ -328,9 +463,9 @@ export const SystemPromptPage = {
             <div class="sp-card-preview">{{ truncate(item.content) }}</div>
             <div class="sp-card-meta">{{ countStats(item.content).lines }} 行 · {{ countStats(item.content).chars }} 字符</div>
             <div class="sp-card-actions">
-              <button class="btn btn-secondary btn-xs" :data-testid="'sp-edit-btn-' + idx" @click="openEdit(item)">编辑</button>
+              <button class="btn btn-secondary btn-xs" :data-testid="'sp-edit-btn-' + idx" @click="openEdit(item)">{{ editorViewOnly ? '查看' : '编辑' }}</button>
               <button class="btn btn-ghost btn-xs" :data-testid="'sp-copy-btn-' + idx" @click="copyPromptContent(item)">复制</button>
-              <button class="btn btn-ghost btn-xs btn-warning" :data-testid="'sp-delete-btn-' + idx" :disabled="Boolean(deletingId)" @click="deletePrompt(item)">
+              <button class="btn btn-ghost btn-xs btn-warning" :data-testid="'sp-delete-btn-' + idx" :disabled="deleteDisabled" @click="deletePrompt(item)">
                 {{ deletingId === item.id ? '删除中...' : '删除' }}
               </button>
             </div>
@@ -355,21 +490,25 @@ export const SystemPromptPage = {
         <div class="modal-box sp-editor-modal" role="dialog" aria-modal="true" data-testid="sp-editor-panel">
           <div class="sp-editor-head">
             <div>
-              <div class="modal-title">{{ editorMode === 'create' ? '新建提示词' : '编辑提示词' }}</div>
+              <div class="modal-title">{{ editorViewOnly ? '查看提示词' : (editorMode === 'create' ? '新建提示词' : '编辑提示词') }}</div>
               <div class="sp-editor-tip">{{ activeTab === 'main' ? '主 Agent' : '子 Agent' }} · 作用域 {{ cwdDisplay }}</div>
             </div>
             <button class="btn btn-ghost" data-testid="sp-editor-close-btn" @click="closeEditor">关闭</button>
           </div>
 
           <div class="sp-editor-body">
+            <div v-if="editorViewOnly" class="sp-notice is-warn" data-testid="sp-editor-readonly-banner">
+              {{ readonlyBannerMessage }}
+            </div>
+
             <div class="sp-field">
               <label>名称</label>
-              <input class="modal-input" data-testid="sp-name-input" v-model="form.name" placeholder="例如：代码审查专家" :disabled="saving" />
+              <input class="modal-input" data-testid="sp-name-input" v-model="form.name" placeholder="例如：代码审查专家" :disabled="saving || editorViewOnly" />
             </div>
 
             <div class="sp-field">
               <label>描述（可选）</label>
-              <input class="modal-input" data-testid="sp-desc-input" v-model="form.description" placeholder="一句话描述用途" :disabled="saving" />
+              <input class="modal-input" data-testid="sp-desc-input" v-model="form.description" placeholder="一句话描述用途" :disabled="saving || editorViewOnly" />
             </div>
 
             <div class="sp-field">
@@ -380,7 +519,7 @@ export const SystemPromptPage = {
                 rows="12"
                 v-model="form.content"
                 placeholder="输入 System Prompt 内容..."
-                :disabled="saving"
+                :disabled="saving || editorViewOnly"
               ></textarea>
               <div class="sp-field-meta">{{ countStats(form.content).lines }} 行 · {{ countStats(form.content).chars }} 字符</div>
             </div>
@@ -393,8 +532,8 @@ export const SystemPromptPage = {
             <!-- Actions -->
             <div class="sp-editor-actions" data-testid="sp-editor-actions">
               <button class="btn btn-ghost" @click="closeEditor">取消</button>
-              <button class="btn btn-primary sp-save-btn" data-testid="sp-save-btn" :disabled="saving" @click="savePrompt">
-                {{ saving ? '保存中...' : '保存' }}
+              <button class="btn btn-primary sp-save-btn" data-testid="sp-save-btn" :disabled="saveDisabled" @click="savePrompt">
+                {{ editorViewOnly ? '只读模式' : (saving ? '保存中...' : '保存') }}
               </button>
             </div>
           </div>
