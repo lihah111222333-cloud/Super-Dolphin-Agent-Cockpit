@@ -64,7 +64,13 @@ function createThreadActions(overrides = {}) {
       selectedSkills: [],
       manualSkillSelection: false,
     }),
+    resolveLaunchSkillSelectionForSend: vi.fn().mockResolvedValue({
+      selectedSkills: ['LaunchSkill'],
+      manualSkillSelection: true,
+    }),
+    launchSkillSelectionEnabled: ref(overrides.launchSkillSelectionEnabled ?? false),
     resetSelectedComposerSkills: vi.fn(),
+    resetLaunchSkillSelection: vi.fn(),
     showArchivedThreadList: ref(false),
     compacting: ref(false),
     ...overrides.deps,
@@ -160,23 +166,52 @@ describe('useThreadActions', () => {
 
   // ── regression guards for send / interrupt / recover ──
 
-  it('send: auto-starts a thread when none is selected, then sends message', async () => {
+  it('send: resolves launch skills before startThread on blank-thread send', async () => {
     const vm = createThreadActions({
       selectedThreadId: '',
       text: 'hello world',
+      launchSkillSelectionEnabled: true,
     });
 
     await vm.send();
 
-    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat' });
+    expect(vm.deps.resolveLaunchSkillSelectionForSend).toHaveBeenCalledWith('hello world');
+    expect(vm.deps.resolveComposerSkillSelectionForSend).not.toHaveBeenCalled();
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
+      focusMode: 'chat',
+      selectedSkills: ['LaunchSkill'],
+      manualSkillSelection: true,
+    });
+    expect(vm.deps.resetLaunchSkillSelection).toHaveBeenCalledTimes(1);
     expect(vm.deps.selectedThreadId.value).toBe('thread-started');
     expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
       'thread-started',
       'hello world',
       [],
-      expect.objectContaining({ cwd: '/repo' }),
+      expect.objectContaining({
+        cwd: '/repo',
+        selectedSkills: ['LaunchSkill'],
+        manualSkillSelection: true,
+      }),
     );
     expect(vm.deps.scheduleScrollToBottom).toHaveBeenCalledWith(true);
+  });
+
+  it('send: keeps launch state when startThread fails', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'hello world',
+      launchSkillSelectionEnabled: true,
+      threadStore: {
+        startThread: vi.fn().mockResolvedValue(''),
+      },
+    });
+
+    await vm.send();
+
+    expect(vm.deps.resolveLaunchSkillSelectionForSend).toHaveBeenCalledWith('hello world');
+    expect(vm.deps.resetLaunchSkillSelection).not.toHaveBeenCalled();
+    expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
   });
 
   it('send: sends on existing thread without starting a new one', async () => {
@@ -189,6 +224,8 @@ describe('useThreadActions', () => {
     await vm.send();
 
     expect(vm.threadStore.startThread).not.toHaveBeenCalled();
+    expect(vm.deps.resolveLaunchSkillSelectionForSend).not.toHaveBeenCalled();
+    expect(vm.deps.resolveComposerSkillSelectionForSend).toHaveBeenCalledWith('thread-live', 'ping');
     expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
       'thread-live',
       'ping',

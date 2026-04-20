@@ -11,6 +11,7 @@ import { CmdOverviewPanel } from '../components/unified-chat/CmdOverviewPanel.js
 import { WorkspaceChatPanel } from '../components/unified-chat/WorkspaceChatPanel.js';
 import { DiffPanel } from '../components/DiffPanel.js';
 import { ComposerBar } from '../components/ComposerBar.js';
+import { LaunchSkillPicker } from '../components/LaunchSkillPicker.js';
 import { ActivityPanel } from '../components/ActivityPanel.js';
 import { PathChoiceModal } from '../components/PathChoiceModal.js';
 import { normalizeStatus } from '../services/status.js';
@@ -21,6 +22,7 @@ import { useProviderMode } from '../composables/useProviderMode.js';
 import { useAutoScroll } from '../composables/useAutoScroll.js';
 import { useResizePanels } from '../composables/useResizePanels.js';
 import { useSkillPreview } from '../composables/useSkillPreview.js';
+import { useLaunchSkillSelection } from '../composables/useLaunchSkillSelection.js';
 import { useDiffPreview } from '../composables/useDiffPreview.js';
 import { useThreadStatus } from '../composables/useThreadStatus.js';
 import { useThreadCards } from '../composables/useThreadCards.js';
@@ -80,6 +82,110 @@ function handlePageTimelineCitation(payload, fileRefPreview, threads, selectedTh
   });
 }
 
+function resolveLaunchFeatureSource(props) {
+  return props.threadStore?.state?.features
+    || props.threadStore?.state?.runtimeFeatures
+    || props.projectStore?.state?.features
+    || props.projectStore?.state?.runtimeFeatures
+    || {};
+}
+
+function useLaunchSkillPageState(props, composer, selectedThreadId, skillRevision) {
+  const featureSource = computed(() => resolveLaunchFeatureSource(props));
+  const launchState = useLaunchSkillSelection({
+    composer,
+    selectedThreadId,
+    skillRevision,
+    featureSource,
+  });
+  return {
+    ...launchState,
+    showLegacyComposerSkillSelector: computed(() => Boolean(
+      selectedThreadId.value || !launchState.features.value.launchSkillSelection
+    )),
+  };
+}
+
+function assignLaunchSkillExposed(exposed, launchState) {
+  Object.defineProperties(exposed, {
+    features: { value: launchState.features, enumerable: false },
+    launchSkills: { value: launchState.skills, enumerable: false },
+    launchSkillMatches: { value: launchState.matches, enumerable: false },
+    launchSelectedSkillNames: { value: launchState.selectedSkillNames, enumerable: false },
+    launchSkillLoading: { value: launchState.loading, enumerable: false },
+    showLegacyComposerSkillSelector: { value: launchState.showLegacyComposerSkillSelector, enumerable: false },
+    toggleLaunchSkill: { value: launchState.toggleSkill, enumerable: false },
+    selectAllLaunchSkills: { value: launchState.selectAll, enumerable: false },
+    clearLaunchSkills: { value: launchState.clear, enumerable: false },
+    refreshLaunchSkills: { value: launchState.refresh, enumerable: false },
+  });
+}
+
+function setupThreadSelection(selectedThreadId, threadStore, pendingFileRefFocus, focusedDiffPath, focusedDiffLine, fallbackDiffText, fallbackMediaPreview, fallbackMarkdownPreview, scheduleScrollToBottom, resetScrollState) {
+  useThreadSelection({
+    selectedThreadId,
+    threadStore,
+    pendingFileRefFocus,
+    focusedDiffPath,
+    focusedDiffLine,
+    fallbackDiffText,
+    fallbackMediaPreview,
+    fallbackMarkdownPreview,
+    scheduleScrollToBottom,
+    resetScrollState,
+  });
+}
+
+function setupPageLifecycleState(composer, keyboardShortcuts, loadProviderPreference, copyThreadInfoCleanup, stopStatusTickTimer) {
+  const { registerFileDrop } = useFileDrop(composer);
+  usePageLifecycle({
+    keyboardShortcuts,
+    registerFileDrop,
+    loadProviderPreference,
+    copyThreadInfoCleanup,
+    stopStatusTickTimer,
+  });
+}
+
+function createPageThreadActions(props, selectedThreadId, modeKey, isCmd, composer, layoutMode, cmdCardCols, compacting, isThreadInterruptible, beginInlineRename, scheduleScrollToBottom, resolveComposerSkillSelectionForSend, resolveLaunchSkillSelectionForSend, launchSkillSelectionEnabled, resetSelectedComposerSkills, resetLaunchSkillSelection, showArchivedThreadList) {
+  return useThreadActions(props, {
+    selectedThreadId,
+    modeKey,
+    isCmd,
+    composer,
+    layoutMode,
+    cmdCardCols,
+    compacting,
+    isThreadInterruptible,
+    beginInlineRename,
+    scheduleScrollToBottom,
+    resolveComposerSkillSelectionForSend,
+    resolveLaunchSkillSelectionForSend,
+    launchSkillSelectionEnabled,
+    resetSelectedComposerSkills,
+    resetLaunchSkillSelection,
+    showArchivedThreadList,
+  });
+}
+
+function createPageFileRefPreview(props, selectedThreadId, activeTimeline, activeThreadDiffText, focusedDiffPath, focusedDiffLine, fallbackDiffText, fallbackMediaPreview, fallbackMarkdownPreview, requestPathChoice, confirmAbandonDirtyPreview, threads, toggleComposerSelectedSkill, composer, scheduleScrollToBottom) {
+  const fileRefPreview = useFileRefPreview(props, {
+    selectedThreadId,
+    activeTimeline,
+    activeThreadDiffText,
+    focusedDiffPath,
+    focusedDiffLine,
+    fallbackDiffText,
+    fallbackMediaPreview,
+    fallbackMarkdownPreview,
+    requestPathChoice,
+    confirmAbandonDirtyPreview,
+  });
+  return {
+    fileRefPreview,
+    onTimelineCitationClick: (payload) => handlePageTimelineCitation(payload, fileRefPreview, threads.value, selectedThreadId, toggleComposerSelectedSkill, composer, scheduleScrollToBottom),
+  };
+}
 
 /**
  * @typedef {'force' | 'explicit' | 'trigger'} SkillMatchType
@@ -139,6 +245,7 @@ export const UnifiedChatPage = {
     WorkspaceChatPanel,
     DiffPanel,
     ComposerBar,
+    LaunchSkillPicker,
     ActivityPanel,
     PathChoiceModal,
   },
@@ -248,6 +355,8 @@ export const UnifiedChatPage = {
       selectedThreadId,
       skillRevision,
     });
+    const launchSkillState = useLaunchSkillPageState(props, composer, selectedThreadId, skillRevision);
+    const { resolveLaunchSkillSelectionForSend, resetLaunchSkillSelection } = launchSkillState;
     const activeThread = computed(() => threads.value.find((/** @type {any} */ item) => item.id === selectedThreadId.value) || null);
     const activeProjectCwd = computed(() => (props.projectStore?.state?.active || '').toString().trim());
     const chatThreadOptions = computed(() => {
@@ -320,38 +429,12 @@ export const UnifiedChatPage = {
       threadStore: props.threadStore,
     });
 
-    const threadSelectionArgs = /** @type {any} */ ({
-      selectedThreadId,
-      threadStore: props.threadStore,
-      pendingFileRefFocus,
-      focusedDiffPath,
-      focusedDiffLine,
-      fallbackDiffText,
-      fallbackMediaPreview,
-      fallbackMarkdownPreview,
-      scheduleScrollToBottom,
-      resetScrollState,
-    });
-    useThreadSelection(threadSelectionArgs);
+    setupThreadSelection(selectedThreadId, props.threadStore, pendingFileRefFocus, focusedDiffPath, focusedDiffLine, fallbackDiffText, fallbackMediaPreview, fallbackMarkdownPreview, scheduleScrollToBottom, resetScrollState);
 
     const selectThread = (threadId) => selectThreadInPage(selectedThreadId, props.threadStore, threadId);
     const inlineRename = useInlineRename(props, threadCards.visibleChatThreadCards, selectThread);
 
-    const threadActions = useThreadActions(props, {
-      selectedThreadId,
-      modeKey,
-      isCmd,
-      composer,
-      layoutMode,
-      cmdCardCols,
-      compacting: threadStatus.compacting,
-      isThreadInterruptible: threadStatus.isThreadInterruptible,
-      beginInlineRename: inlineRename.beginInlineRename,
-      scheduleScrollToBottom,
-      resolveComposerSkillSelectionForSend,
-      resetSelectedComposerSkills,
-      showArchivedThreadList,
-    });
+    const threadActions = createPageThreadActions(props, selectedThreadId, modeKey, isCmd, composer, layoutMode, cmdCardCols, threadStatus.compacting, threadStatus.isThreadInterruptible, inlineRename.beginInlineRename, scheduleScrollToBottom, resolveComposerSkillSelectionForSend, resolveLaunchSkillSelectionForSend, launchSkillState.enabled, resetSelectedComposerSkills, resetLaunchSkillSelection, showArchivedThreadList);
 
     const threadConfigController = createThreadConfigController({ threadStore: props.threadStore, threadActions, selectedThreadId, isCmd });
 
@@ -375,28 +458,9 @@ export const UnifiedChatPage = {
       return confirmed;
     }
 
-    const fileRefPreview = useFileRefPreview(props, {
-      selectedThreadId,
-      activeTimeline,
-      activeThreadDiffText,
-      focusedDiffPath,
-      focusedDiffLine,
-      fallbackDiffText,
-      fallbackMediaPreview,
-      fallbackMarkdownPreview,
-      requestPathChoice: pathChoiceController.requestPathChoice,
-      confirmAbandonDirtyPreview,
-    });
-    const onTimelineCitationClick = (payload) => handlePageTimelineCitation(payload, fileRefPreview, threads.value, selectedThreadId, toggleComposerSelectedSkill, composer, scheduleScrollToBottom);
+    const { fileRefPreview, onTimelineCitationClick } = createPageFileRefPreview(props, selectedThreadId, activeTimeline, activeThreadDiffText, focusedDiffPath, focusedDiffLine, fallbackDiffText, fallbackMediaPreview, fallbackMarkdownPreview, pathChoiceController.requestPathChoice, confirmAbandonDirtyPreview, threads, toggleComposerSelectedSkill, composer, scheduleScrollToBottom);
 
-    const { registerFileDrop } = useFileDrop(composer);
-    usePageLifecycle({
-      keyboardShortcuts,
-      registerFileDrop,
-      loadProviderPreference,
-      copyThreadInfoCleanup: copyThreadInfo.cleanup,
-      stopStatusTickTimer: threadStatus.stopStatusTickTimer,
-    });
+    setupPageLifecycleState(composer, keyboardShortcuts, loadProviderPreference, copyThreadInfo.cleanup, threadStatus.stopStatusTickTimer);
 
     const exposed = buildUnifiedChatPageExposed({
       composer, isCmd, threads, selectedThreadId, activeThread,
@@ -429,6 +493,7 @@ export const UnifiedChatPage = {
       pinnedPlanCardSpec,
       isAtBottom, scheduleScrollToBottom, scrollToTop, resetScrollState,
     });
+    assignLaunchSkillExposed(exposed, launchSkillState);
     Object.defineProperty(exposed, 'onTimelineCitationClick', { value: onTimelineCitationClick, enumerable: false });
     Object.defineProperty(exposed, 'onPreviewDirtyChange', { value: onPreviewDirtyChange, enumerable: false });
     Object.defineProperty(exposed, 'isPreviewDirty', { value: isPreviewDirty, enumerable: false });

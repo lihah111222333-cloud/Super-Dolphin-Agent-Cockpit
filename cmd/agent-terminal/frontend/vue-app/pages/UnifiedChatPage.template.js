@@ -126,6 +126,18 @@ export const template = `
             <div class="workspace-bottom-row" :class="{ 'is-cmd': isCmd }" :style="activityPanelRowStyle">
               <div class="chat-composer-shell" :class="{ 'for-chat': !isCmd }" :style="chatComposerShellStyle">
                 <div v-if="!isCmd" ref="presenceAnchorRef" class="chat-status-presence-anchor"></div>
+                <LaunchSkillPicker
+                  v-if="!selectedThreadId && features.launchSkillSelection"
+                  :skills="launchSkills"
+                  :matches="launchSkillMatches"
+                  :selected-skill-names="launchSelectedSkillNames"
+                  :loading="launchSkillLoading"
+                  :enabled="features.launchSkillSelection"
+                  @toggle-skill="toggleLaunchSkill"
+                  @select-all="selectAllLaunchSkills"
+                  @clear="clearLaunchSkills"
+                  @refresh="refreshLaunchSkills"
+                />
                 <ComposerBar
                   ref="composerBarRef"
                   :is-cmd="isCmd"
@@ -140,6 +152,7 @@ export const template = `
                   :token-inline="activeTokenInline"
                   :token-tooltip="activeTokenTooltip"
                   :disabled="false"
+                  :show-legacy-skill-selector="showLegacyComposerSkillSelector"
                   :skill-matches="composerSkillMatches"
                   :skill-matches-loading="composerSkillPreviewLoading"
                   :selected-skill-names="composerEffectiveSelectedSkillNames"

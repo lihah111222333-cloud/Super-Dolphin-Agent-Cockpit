@@ -21,6 +21,7 @@ export const ComposerBar = {
     compactSuccessCount: { type: Number, default: 0 },
     tokenInline: { type: String, default: '' },
     tokenTooltip: { type: String, default: '' },
+    showLegacySkillSelector: { type: Boolean, default: true },
     skillMatches: { type: Array, default: () => [] },
     skillMatchesLoading: { type: Boolean, default: false },
     selectedSkillNames: { type: Array, default: () => [] },
@@ -278,7 +279,7 @@ export const ComposerBar = {
     >
       <div v-if="compacting" class="agent-loading-bar"></div>
       <div v-if="dropActive" class="composer-drop-hint" aria-live="polite">松开即可添加附件</div>
-      <div class="composer-skill-selector" :class="{ 'is-expanded': skillMatches.length > 8 }" role="status" aria-live="polite" data-testid="composer-skill-selector">
+      <div v-if="showLegacySkillSelector" class="composer-skill-selector" :class="{ 'is-expanded': skillMatches.length > 8 }" role="status" aria-live="polite" data-testid="composer-skill-selector">
         <div class="composer-skill-selector-head">
           <span class="composer-skill-selector-title" :class="{ 'loading-shimmer': skillMatchesLoading }">
             {{ skillMatchesLoading ? '技能匹配中…' : ('技能选择 ' + selectedSkillNames.length + '/' + skillMatches.length) }}

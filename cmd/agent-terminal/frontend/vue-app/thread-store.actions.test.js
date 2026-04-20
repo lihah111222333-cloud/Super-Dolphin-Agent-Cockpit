@@ -124,6 +124,32 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', { cwd: '/repo', modelProvider: 'claude-3.7-sonnet' });
   });
 
+  it('starts a thread with launch-selected skills when provided', async () => {
+    const store = useThreadStore();
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'ui/preferences/get') return 'claude-3.7-sonnet';
+      if (method === 'thread/start') return { thread: { id: 'thread-skill' } };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-skill', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    const id = await store.startThread('/repo', {
+      focusMode: 'chat',
+      selectedSkills: [' git ', '', 'planner'],
+      manualSkillSelection: true,
+    });
+    await flushAsync();
+
+    expect(id).toBe('thread-skill');
+    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
+      cwd: '/repo',
+      modelProvider: 'claude-3.7-sonnet',
+      selectedSkills: ['git', 'planner'],
+      manualSkillSelection: true,
+    });
+  });
+
   it('gets and sets thread config via dedicated backend RPCs', async () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
@@ -302,7 +328,7 @@ describe('thread store actions', () => {
       return {};
     });
 
-    store.toggleThreadPin('thread-live');
+    await store.toggleThreadPin('thread-live');
     await flushAsync();
 
     expect(store.getThreadPinnedAt('thread-live')).toBeGreaterThan(0);

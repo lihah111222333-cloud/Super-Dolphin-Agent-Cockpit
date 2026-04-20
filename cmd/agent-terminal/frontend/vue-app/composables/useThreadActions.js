@@ -85,6 +85,16 @@ function setCmdCardColsValue(cmdCardCols, value) {
   cmdCardCols.value = value;
 }
 
+function launchThread(threadStore, projectStore, modeKey, selectedThreadId) {
+  return threadStore.startThread(projectStore.state.active || '.', {
+    focusMode: modeKey.value,
+  }).then((id) => {
+    if (id) {
+      selectedThreadId.value = id;
+    }
+  });
+}
+
 async function performSend({
   selectedThreadId,
   composer,
@@ -92,7 +102,10 @@ async function performSend({
   threadStore,
   projectStore,
   resolveComposerSkillSelectionForSend,
+  resolveLaunchSkillSelectionForSend,
+  launchSkillSelectionEnabled,
   resetSelectedComposerSkills,
+  resetLaunchSkillSelection,
   scheduleScrollToBottom,
 }) {
   let threadId = (selectedThreadId.value || '').toString().trim();
@@ -100,18 +113,34 @@ async function performSend({
   const attachments = [...composer.state.attachments];
   if (!text.trim() && attachments.length === 0) return;
 
-  if (!threadId) {
-    threadId = await threadStore.startThread(projectStore?.state?.active || '.', {
-      focusMode: modeKey.value,
-    });
-    if (!threadId) return;
-    selectedThreadId.value = threadId;
-  }
+  let selectedSkills = [];
+  let manualSkillSelection = false;
 
-  const {
-    selectedSkills,
-    manualSkillSelection,
-  } = await resolveComposerSkillSelectionForSend(threadId, text);
+  const shouldUseLaunchSkillSelection = !threadId && Boolean(launchSkillSelectionEnabled?.value || launchSkillSelectionEnabled === true);
+
+  if (shouldUseLaunchSkillSelection) {
+    const launchSelection = typeof resolveLaunchSkillSelectionForSend === 'function'
+      ? await resolveLaunchSkillSelectionForSend(text)
+      : { selectedSkills: [], manualSkillSelection: false };
+    selectedSkills = Array.isArray(launchSelection?.selectedSkills) ? launchSelection.selectedSkills : [];
+    manualSkillSelection = launchSelection?.manualSkillSelection === true;
+    const startOptions = { focusMode: modeKey.value };
+    if (selectedSkills.length > 0) startOptions.selectedSkills = selectedSkills;
+    if (manualSkillSelection) startOptions.manualSkillSelection = true;
+    threadId = await threadStore.startThread(projectStore?.state?.active || '.', startOptions);
+    if (!threadId) return;
+    if (typeof resetLaunchSkillSelection === 'function') resetLaunchSkillSelection();
+    selectedThreadId.value = threadId;
+  } else {
+    if (!threadId) {
+      threadId = await threadStore.startThread(projectStore?.state?.active || '.', {
+        focusMode: modeKey.value,
+      });
+      if (!threadId) return;
+      selectedThreadId.value = threadId;
+    }
+    ({ selectedSkills, manualSkillSelection } = await resolveComposerSkillSelectionForSend(threadId, text));
+  }
 
   const savedText = text;
   const savedAttachments = attachments;
@@ -151,21 +180,16 @@ export function useThreadActions(props, deps) {
     beginInlineRename,
     scheduleScrollToBottom,
     resolveComposerSkillSelectionForSend,
+    resolveLaunchSkillSelectionForSend,
+    launchSkillSelectionEnabled,
     resetSelectedComposerSkills,
+    resetLaunchSkillSelection,
     showArchivedThreadList,
   } = deps;
 
   const recoveringSelected = ref(false);
 
-  function launchOne() {
-    return props.threadStore.startThread(props.projectStore.state.active || '.', {
-      focusMode: modeKey.value,
-    }).then((id) => {
-      if (id) {
-        selectedThreadId.value = id;
-      }
-    });
-  }
+  const launchOne = () => launchThread(props.threadStore, props.projectStore, modeKey, selectedThreadId);
 
   const getThreadConfig = (threadId) => getThreadConfigFromStore(props.threadStore, threadId);
   const setThreadConfig = (threadId, config) => setThreadConfigFromStore(props.threadStore, threadId, config);
@@ -178,7 +202,10 @@ export function useThreadActions(props, deps) {
       threadStore: props.threadStore,
       projectStore: props.projectStore,
       resolveComposerSkillSelectionForSend,
+      resolveLaunchSkillSelectionForSend,
+      launchSkillSelectionEnabled,
       resetSelectedComposerSkills,
+      resetLaunchSkillSelection,
       scheduleScrollToBottom,
     });
   }

@@ -78,6 +78,7 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     compactSuccessCount: overrides.compactSuccessCount ?? 0,
     tokenInline: '',
     tokenTooltip: '',
+    showLegacySkillSelector: overrides.showLegacySkillSelector ?? true,
     skillMatches: overrides.skillMatches ?? [],
     skillMatchesLoading: false,
     selectedSkillNames: overrides.selectedSkillNames ?? [],
@@ -365,6 +366,14 @@ describe('ComposerBar behavior', () => {
     expect(emit.mock.calls.map((call) => call[0])).toEqual(['toggle-skill', 'select-all-skills', 'clear-skills']);
   });
 
+  it('hides the legacy selector when launch picker owns blank-thread skill selection', () => {
+    const { props } = createComposerBar({ threadId: '', showLegacySkillSelector: false });
+
+    expect(props.threadId).toBe('');
+    expect(props.showLegacySkillSelector).toBe(false);
+    expect(ComposerBar.template).toContain('v-if="showLegacySkillSelector"');
+  });
+
   it('auto grows composer textarea and clamps overflow', () => {
     const textarea = { style: {}, scrollHeight: 512 };
 
@@ -607,6 +616,7 @@ describe('ComposerBar behavior', () => {
     expect(ComposerBar.template).toContain('@click="onCompact"');
     expect(ComposerBar.template).toContain('@click="onAttach"');
     expect(ComposerBar.template).toContain('@click="onRemoveAttachment(idx)"');
+    expect(ComposerBar.template).toContain('v-if="showLegacySkillSelector"');
   });
 
   it('binds textarea ref as a callback ref in the template', () => {
