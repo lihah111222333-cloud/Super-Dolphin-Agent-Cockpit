@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
@@ -15,8 +16,12 @@ type fakeSkillInjectionPort struct {
 	names []string
 }
 
-func (f fakeSkillInjectionPort) DetectNativeSkills(_ string) []string { return f.names }
-func (f fakeSkillInjectionPort) ReservedTokens() int                  { return 3000 }
+// p20.6 §4 将 SkillInjectionPort 裁剪为 3 方法（Inject/Build/Reserved），这里补齐 stub；
+// DetectNativeSkills 走 contract.NativeSkillDetector 扩展接口（运行时类型断言消费）。
+func (f fakeSkillInjectionPort) InjectL1Manifest(base, _ string) string         { return base }
+func (f fakeSkillInjectionPort) BuildTurnSection(_ []dto.SkillRef) (string, bool) { return "", false }
+func (f fakeSkillInjectionPort) ReservedTokens() int                             { return 3000 }
+func (f fakeSkillInjectionPort) DetectNativeSkills(_ string) []string            { return f.names }
 
 // ---------------------------------------------------------------------------
 // P20.1 Phase 10 Step B: compositeNativeSkillDetector 聚合测试

@@ -58,7 +58,11 @@ func (d compositeNativeSkillDetector) DetectNativeSkills(cwd string) []string {
 		if port == nil {
 			continue
 		}
-		for _, name := range port.DetectNativeSkills(cwd) {
+		detector, ok := any(port).(contract.NativeSkillDetector)
+		if !ok {
+			continue
+		}
+		for _, name := range detector.DetectNativeSkills(cwd) {
 			key := strings.ToLower(strings.TrimSpace(name))
 			if key == "" {
 				continue
