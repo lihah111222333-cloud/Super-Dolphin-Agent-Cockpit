@@ -1,6 +1,7 @@
 import { computed, nextTick, reactive, ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI, selectProjectDirs } from '../services/api.js';
 import { logInfo, logWarn } from '../services/log.js';
+import { importSkills, writeSkill } from '../services/skills-api.js';
 import { renderAssistantMarkdown } from '../utils/assistant-markdown.js';
 import {
   listToText, inferSkillNameFromPath, summarizeItems,
@@ -21,6 +22,15 @@ function resolveSkillsCwd(props) {
 function withSkillsCwd(props, payload = {}) {
   const cwd = resolveSkillsCwd(props);
   return cwd ? { ...payload, cwd } : payload;
+}
+
+function normalizeSkillScope(scope) {
+  return (scope || '').toString().trim().toLowerCase() === 'system' ? 'system' : 'project';
+}
+
+function scopeFromTrust(trust) {
+  const normalized = (trust || '').toString().trim().toLowerCase();
+  return normalized === 'user' || normalized === 'signed' ? 'system' : 'project';
 }
 
 function applyParsedSkillState(state, parsed, rawContent, path = '', fallbackSummary = '', fallbackSource = '') {
@@ -135,7 +145,7 @@ function createImportActions(props, emit, deps, state, readers) {
         state.setNotice('info', `将覆盖已有技能：${summarizeItems(overwriteNames)}，继续导入中...`);
       }
 
-      const imported = await callAPI('skills/local/importDir', withSkillsCwd(props, { paths: folderPaths }));
+       const imported = await importSkills(resolveSkillsCwd(props), folderPaths, state.importScope.value);
       const importedSkills = Array.isArray(imported?.skills) ? imported.skills : [];
       const failures = Array.isArray(imported?.failures) ? imported.failures : [];
       state.importFailures.value = failures.map((item) => {
@@ -148,6 +158,7 @@ function createImportActions(props, emit, deps, state, readers) {
       emit('refresh-skills');
       if (firstSkill?.skill_file) {
         await readers.readSkillFile(firstSkill.skill_file, firstSkill.name || '');
+        state.form.scope = normalizeSkillScope(state.importScope.value);
       }
       if (failures.length > 0) {
         state.setNotice('error', `导入完成：成功 ${importedSkills.length}，失败 ${failures.length}`);
@@ -174,15 +185,16 @@ function createEditorActions(props, emit, state, readers) {
     state.selectedSkillName.value = '';
     state.summarySource.value = '';
     state.sourcePath.value = '';
-    state.skillFiles.value = [];
-    state.activeSkillFilePath.value = '';
-    state.form.name = '';
-    state.form.description = '';
-    state.form.summary = '';
-    state.form.triggerWordsText = '';
-    state.form.forceWordsText = '';
-    state.form.body = '';
-    state.isBodyEditing.value = true;
+     state.skillFiles.value = [];
+     state.activeSkillFilePath.value = '';
+     state.form.name = '';
+     state.form.description = '';
+     state.form.summary = '';
+     state.form.triggerWordsText = '';
+     state.form.forceWordsText = '';
+     state.form.body = '';
+     state.form.scope = 'project';
+     state.isBodyEditing.value = true;
     state.bodyEditorFocused.value = false;
     state.isEditorOpen.value = true;
     state.setNotice('info', '已打开新建表单，填写后点击保存。');
@@ -206,8 +218,9 @@ function createEditorActions(props, emit, state, readers) {
         state.activeSkillFilePath.value = skillPath;
         logWarn('skills', 'load.subfiles.failed', { error, dir: item.dir, path: skillPath });
       }
-      state.selectedSkillName.value = item.name || '';
-      state.isBodyEditing.value = false;
+       state.selectedSkillName.value = item.name || '';
+       state.form.scope = normalizeSkillScope(scopeFromTrust(item?.trust));
+       state.isBodyEditing.value = false;
       state.bodyEditorFocused.value = false;
       state.isEditorOpen.value = true;
       if (filesLoadErrorMessage) {
@@ -246,6 +259,7 @@ function createEditorActions(props, emit, state, readers) {
         state.form.triggerWordsText = '';
         state.form.forceWordsText = '';
         state.form.body = '';
+        state.form.scope = 'project';
         state.summarySource.value = '';
         state.sourcePath.value = '';
         state.skillFiles.value = [];
@@ -272,7 +286,7 @@ function createEditorActions(props, emit, state, readers) {
         if (!targetPath) {
           throw new Error('缺少子文件路径，无法保存');
         }
-        await callAPI('skills/local/write', withSkillsCwd(props, { path: targetPath, content: (state.form.body || '').toString() }));
+        await writeSkill(resolveSkillsCwd(props), targetPath, (state.form.body || '').toString(), normalizeSkillScope(state.form.scope));
         state.setNotice('success', `子文件已保存：${fileNameFromPath(targetPath) || targetPath}`);
         return;
       }
@@ -283,11 +297,16 @@ function createEditorActions(props, emit, state, readers) {
         return;
       }
       const content = buildSkillMarkdown(state.form);
-      await callAPI('skills/config/write', { name, content });
+      state.form.scope = normalizeSkillScope(state.form.scope);
+      const saved = await writeSkill(resolveSkillsCwd(props), name, content, state.form.scope);
       state.selectedSkillName.value = name;
       state.summarySource.value = 'frontmatter';
+      if (saved?.path) {
+        state.sourcePath.value = saved.path;
+        state.activeSkillFilePath.value = saved.path;
+      }
       emit('refresh-skills');
-      state.setNotice('success', `技能已保存：${name}`);
+      state.setNotice('success', `技能已保存：${name}（${state.form.scope === 'system' ? 'system' : 'project'}）`);
     } catch (error) {
       logWarn('skills', 'save.failed', {
         error,
@@ -364,6 +383,7 @@ export function useSkillEditor(props, emit, deps) {
   const isBodyEditing = ref(false);
   const bodyEditorFocused = ref(false);
   const bodyInputRef = ref(null);
+  const importScope = ref('project');
   const form = reactive({
     name: '',
     description: '',
@@ -371,6 +391,7 @@ export function useSkillEditor(props, emit, deps) {
     triggerWordsText: '',
     forceWordsText: '',
     body: '',
+    scope: 'project',
   });
 
   const summarySourceLabel = computed(() => {
@@ -409,6 +430,7 @@ export function useSkillEditor(props, emit, deps) {
     isBodyEditing,
     bodyEditorFocused,
     bodyInputRef,
+    importScope,
     form,
     resolvedIsEditingMainSkillFile,
     setNotice: (level, message) => updateNotice(notice, level, message),
@@ -443,6 +465,16 @@ export function useSkillEditor(props, emit, deps) {
     }
   });
 
+  watch(() => form.scope, (next) => {
+    const normalized = normalizeSkillScope(next);
+    if (normalized !== next) form.scope = normalized;
+  }, { immediate: true });
+
+  watch(importScope, (next) => {
+    const normalized = normalizeSkillScope(next);
+    if (normalized !== next) importScope.value = normalized;
+  }, { immediate: true });
+
   return {
     selectedSkillName,
     summarySource,
@@ -460,6 +492,7 @@ export function useSkillEditor(props, emit, deps) {
     isBodyEditing,
     bodyEditorFocused,
     bodyInputRef,
+    importScope,
     form,
     skillBodyMarkdownHtml,
     setNotice: state.setNotice,

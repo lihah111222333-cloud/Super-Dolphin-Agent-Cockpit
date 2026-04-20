@@ -33,6 +33,7 @@ function createSkillsPage(overrides = {}, emit = vi.fn()) {
         dir: '/skills/deploy',
         description: 'Deploy the current project',
         summary: 'Helps shipping releases',
+        trust: 'project',
         trigger_words: ['ship'],
         force_words: ['@deploy'],
       },
@@ -41,6 +42,7 @@ function createSkillsPage(overrides = {}, emit = vi.fn()) {
         dir: '/skills/docs',
         description: 'Write docs',
         summary: 'Documentation helper',
+        trust: 'user',
         trigger_words: ['docs'],
         force_words: [],
       },
@@ -90,12 +92,15 @@ describe('SkillsPage', () => {
       skillBodyMarkdownHtml: expect.anything(),
       onDeleteSkill: expect.any(Function),
       onCreateSkill: expect.any(Function),
+      importScope: expect.anything(),
     }));
   });
 
   it('preserves template contract for save and import entry points', () => {
     expect(SkillsPage.template).toContain('data-testid="skills-save-button"');
     expect(SkillsPage.template).toContain('data-testid="skills-import-button"');
+    expect(SkillsPage.template).toContain('data-testid="skills-editor-scope-project"');
+    expect(SkillsPage.template).toContain('data-testid="skills-import-scope-system"');
   });
 
   it('filters skills by name, summary and trigger words', () => {
@@ -164,6 +169,7 @@ describe('SkillsPage', () => {
       triggerWordsText: '',
       forceWordsText: '',
       body: '',
+      scope: 'project',
     });
     expect(vm.isBodyEditing.value).toBe(true);
     expect(vm.bodyEditorFocused.value).toBe(false);
@@ -248,14 +254,34 @@ describe('SkillsPage', () => {
 
     await vm.onSaveSkill();
 
-    const saveCall = apiMock.callAPI.mock.calls.find(([method]) => method === 'skills/config/write');
+    const saveCall = apiMock.callAPI.mock.calls.find(([method]) => method === 'skills/local/write');
     expect(saveCall).toBeTruthy();
-    expect(saveCall[1].name).toBe('DocsSkill');
+    expect(saveCall[1].path).toBe('DocsSkill');
     expect(saveCall[1].content).toContain('DocsSkill');
     expect(saveCall[1].content).toContain('## docs body');
+    expect(saveCall[1].scope).toBe('project');
     expect(emit).toHaveBeenCalledWith('refresh-skills');
     expect(vm.summarySource.value).toBe('frontmatter');
     expect(vm.notice.message).toContain('技能已保存：DocsSkill');
+  });
+
+  it('saves main skill files to system scope when selected', async () => {
+    const { vm } = createSkillsPage();
+
+    vm.form.name = 'SharedDocs';
+    vm.form.summary = 'share me';
+    vm.form.body = '## shared';
+    vm.form.scope = 'system';
+
+    await vm.onSaveSkill();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/write', {
+      cwd: '/repo',
+      path: 'SharedDocs',
+      content: expect.stringContaining('## shared'),
+      scope: 'system',
+    });
+    expect(vm.notice.message).toContain('system');
   });
 
   it('surfaces main skill save failures and clears saving state', async () => {
@@ -299,6 +325,7 @@ describe('SkillsPage', () => {
       cwd: '/repo',
       path: '/skills/deploy/references/prompt.md',
       content: '# prompt body',
+      scope: 'project',
     });
     expect(emit).not.toHaveBeenCalledWith('refresh-skills');
     expect(vm.notice.message).toContain('子文件已保存');
@@ -351,6 +378,7 @@ describe('SkillsPage', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/importDir', {
       paths: ['/imports/ImportedSkill'],
       cwd: '/repo',
+      scope: 'project',
     });
     expect(emit).toHaveBeenCalledWith('refresh-skills');
     expect(vm.selectedSkillName.value).toBe('ImportedSkill');
@@ -448,6 +476,42 @@ describe('SkillsPage', () => {
     expect(vm.importFailures.value).toEqual([]);
     expect(vm.notice.level).toBe('info');
     expect(vm.notice.message).toContain('未导入任何技能目录');
+  });
+
+  it('uploads directories to system scope when selected', async () => {
+    const { vm } = createSkillsPage();
+    vm.importScope.value = 'system';
+    apiMock.selectProjectDirs.mockResolvedValue(['/imports/SystemSkill']);
+    apiMock.callAPI.mockResolvedValueOnce({ skills: [], failures: [] });
+
+    await vm.onUploadSkill({ type: 'click' });
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/importDir', {
+      paths: ['/imports/SystemSkill'],
+      cwd: '/repo',
+      scope: 'system',
+    });
+  });
+
+  it('loads saved skills into matching editor scopes from trust', async () => {
+    const { vm } = createSkillsPage();
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/read' && payload?.path === '/skills/docs/SKILL.md') {
+        return {
+          skill: {
+            content: '---\nname: DocsSkill\nsummary: Documentation helper\n---\n# body',
+            summary: 'Documentation helper',
+            summary_source: 'frontmatter',
+          },
+        };
+      }
+      if (method === 'skills/local/listFiles') return { files: [] };
+      return {};
+    });
+
+    await vm.onEditSkill({ name: 'DocsSkill', dir: '/skills/docs', summary: 'Documentation helper', trust: 'user' });
+
+    expect(vm.form.scope).toBe('system');
   });
 
   it('deletes the selected skill, clears editor state and emits refresh', async () => {

@@ -31,6 +31,7 @@ export const SkillsPage = {
         dir: (item?.dir || '').toString(),
         description: (item?.description || '').toString(),
         summary: (item?.summary || item?.description || '').toString(),
+        trust: (item?.trust || '').toString(),
         triggerWords: Array.isArray(item?.trigger_words) ? item.trigger_words : [],
         forceWords: Array.isArray(item?.force_words) ? item.force_words : [],
       }));
@@ -109,6 +110,16 @@ export const SkillsPage = {
               <button class="btn btn-ghost" data-testid="skills-create-button" @click="onCreateSkill">
                 新建 Skill
               </button>
+              <div class="skills-inline-radio-group" data-testid="skills-import-scope-group">
+                <label class="skills-inline-radio">
+                  <input v-model="importScope" data-testid="skills-import-scope-project" type="radio" value="project" />
+                  <span>导入到 project</span>
+                </label>
+                <label class="skills-inline-radio">
+                  <input v-model="importScope" data-testid="skills-import-scope-system" type="radio" value="system" />
+                  <span>导入到 system</span>
+                </label>
+              </div>
               <div class="skills-search-wrap">
                 <input
                   v-model="searchQuery"
@@ -225,6 +236,20 @@ export const SkillsPage = {
               <label>摘要（注入内容）</label>
               <textarea v-model="form.summary" :disabled="!isEditingMainSkillFile" class="modal-input" data-testid="skills-editor-summary-input" rows="3" placeholder="用于运行时注入的摘要，建议 1-3 句"></textarea>
               <div class="skills-inline-tip">摘要来源：{{ summarySourceLabel }}</div>
+            </div>
+            <div class="skills-field">
+              <label>保存范围</label>
+              <div class="skills-inline-radio-group" data-testid="skills-editor-scope-group">
+                <label class="skills-inline-radio">
+                  <input v-model="form.scope" data-testid="skills-editor-scope-project" type="radio" value="project" :disabled="!isEditingMainSkillFile" />
+                  <span>project（当前 cwd）</span>
+                </label>
+                <label class="skills-inline-radio">
+                  <input v-model="form.scope" data-testid="skills-editor-scope-system" type="radio" value="system" :disabled="!isEditingMainSkillFile" />
+                  <span>system（全局共享）</span>
+                </label>
+              </div>
+              <div class="skills-inline-tip">project → &lt;cwd&gt;/.agent/skills；system → ~/.multi-agent/skills。</div>
             </div>
             <div class="skills-field two-col">
               <div>
