@@ -17,15 +17,23 @@ vi.mock('./services/log.js', () => ({
   logWarn: vi.fn(),
 }));
 
-import { SystemPromptPage } from './pages/SystemPromptPage.js';
+import { SystemPromptPage, isReadonlyFallbackListError } from './pages/SystemPromptPage.js';
 
 function createPage(overrides = {}) {
   const props = {
     projectStore: overrides.projectStore ?? { state: { active: '/test-repo' } },
+    threadStore: overrides.threadStore ?? null,
     windowCwd: overrides.windowCwd ?? '/fallback-cwd',
   };
   return { props, vm: SystemPromptPage.setup(props) };
 }
+
+function createStatusOnlyError(status, message = `status ${status}`) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
 
 beforeEach(() => {
   apiMock.callAPI.mockReset();
@@ -52,6 +60,22 @@ describe('SystemPromptPage behavior', () => {
     vm.notice.message = 'keep';
     vm.switchTab('main');
     expect(vm.notice.message).toBe('keep');
+  });
+
+  it('message-only user not found does not trigger readonly fallback detector', () => {
+    expect(isReadonlyFallbackListError(new Error('user not found'))).toBe(false);
+  });
+
+  it('code-only -32601 triggers readonly fallback detector', () => {
+    expect(isReadonlyFallbackListError({ code: -32601 })).toBe(true);
+  });
+
+  it('status-only 404 triggers readonly fallback detector', () => {
+    expect(isReadonlyFallbackListError({ status: 404 })).toBe(true);
+  });
+
+  it('name-only NotFoundError triggers readonly fallback detector', () => {
+    expect(isReadonlyFallbackListError({ name: 'NotFoundError' })).toBe(true);
   });
 
   it('loadPrompts populates promptCards from API', async () => {
@@ -87,6 +111,104 @@ describe('SystemPromptPage behavior', () => {
     vm.switchTab('sub');
     expect(vm.filteredCards.value).toHaveLength(1);
     expect(vm.filteredCards.value[0].name).toBe('Sub');
+  });
+
+  it('prompts/list 404 enters readonly fallback, disables mutations, and hydrates with cwd', async () => {
+    apiMock.callAPI
+      .mockRejectedValueOnce(createStatusOnlyError(404, '404 prompts/list not found'))
+      .mockResolvedValueOnce({
+        prompts: [
+          {
+            prompt_key: 'readonly-main',
+            title: 'Readonly Prompt',
+            prompt_text: 'dashboard copy',
+            agent_key: 'main',
+          },
+        ],
+      });
+
+    const { vm } = createPage({
+      projectStore: { state: { active: '/test-repo', cwd: '/project-cwd' } },
+      threadStore: { state: { cwd: '/thread-cwd' } },
+    });
+    await vm.loadPrompts();
+
+    expect(vm.fallbackMode.value).toBe(true);
+    expect(vm.readonlyReason.value).toContain('404 prompts/list not found');
+    expect(vm.fallbackSource.value).toBe('dashboard/prompts');
+    expect(vm.readonlyBannerMessage.value).toContain('只读模式');
+    expect(vm.createDisabled.value).toBe(true);
+    expect(vm.saveDisabled.value).toBe(true);
+    expect(vm.deleteDisabled.value).toBe(true);
+    expect(vm.promptCards.value[0].name).toBe('Readonly Prompt');
+    expect(apiMock.callAPI.mock.calls[1]).toEqual(['dashboard/prompts', { cwd: '/thread-cwd' }]);
+
+    vm.openCreate();
+    expect(vm.editorOpen.value).toBe(false);
+
+    vm.openEdit(vm.promptCards.value[0]);
+    expect(vm.editorViewOnly.value).toBe(true);
+  });
+
+  it('loadPrompts rethrows message-only user not found errors without readonly fallback', async () => {
+    apiMock.callAPI.mockRejectedValueOnce(new Error('user not found'));
+
+    const { vm } = createPage();
+
+    await expect(vm.loadPrompts()).rejects.toThrow('user not found');
+    expect(vm.fallbackMode.value).toBe(false);
+    expect(vm.readonlyReason.value).toBe('');
+    expect(vm.notice.message).toContain('加载失败');
+    expect(apiMock.callAPI).toHaveBeenCalledTimes(1);
+  });
+
+  it('loadPrompts rethrows non-404 errors', async () => {
+    apiMock.callAPI.mockRejectedValueOnce(new Error('boom'));
+
+    const { vm } = createPage();
+
+    await expect(vm.loadPrompts()).rejects.toThrow('boom');
+    expect(vm.fallbackMode.value).toBe(false);
+    expect(vm.readonlyReason.value).toBe('');
+    expect(vm.notice.message).toContain('加载失败');
+    expect(apiMock.callAPI).toHaveBeenCalledTimes(1);
+  });
+
+  it('successful prompts/list clears fallback state after recovery', async () => {
+    apiMock.callAPI
+      .mockRejectedValueOnce(createStatusOnlyError(404, '404 prompts/list not found'))
+      .mockResolvedValueOnce({
+        prompts: [
+          {
+            prompt_key: 'readonly-main',
+            title: 'Readonly Prompt',
+            prompt_text: 'dashboard copy',
+            agent_key: 'main',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        prompts: [
+          { id: 'live-main', name: 'Recovered Prompt', content: 'live content', agentType: 'main' },
+        ],
+      });
+
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    expect(vm.fallbackMode.value).toBe(true);
+
+    await vm.loadPrompts();
+
+    expect(vm.fallbackMode.value).toBe(false);
+    expect(vm.readonlyReason.value).toBe('');
+    expect(vm.fallbackSource.value).toBe('');
+    expect(vm.createDisabled.value).toBe(false);
+    expect(vm.saveDisabled.value).toBe(false);
+    expect(vm.deleteDisabled.value).toBe(false);
+    expect(vm.promptCards.value[0].name).toBe('Recovered Prompt');
+
+    vm.openEdit(vm.promptCards.value[0]);
+    expect(vm.editorViewOnly.value).toBe(false);
   });
 
   it('openCreate clears form and sets create mode', () => {
