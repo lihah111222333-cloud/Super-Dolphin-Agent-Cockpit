@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"os"
 	"strings"
 	"time"
 
@@ -19,7 +20,10 @@ type computedSectionValue struct {
 	Value *string
 }
 
-const simpleStartIdentityLine = "You are Claude Code, Anthropic's official CLI for Claude."
+const (
+	simpleStartIdentityLine   = "You are Claude Code, Anthropic's official CLI for Claude."
+	envPromptStartCurrentDate = "PROMPT_START_CURRENT_DATE"
+)
 
 func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssembly, error) {
 	if err := ctx.Err(); err != nil {
@@ -266,7 +270,7 @@ func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) Star
 // runtimeExtras, and system context (git status). This avoids the previous
 // per-turn injection which wasted tokens by repeating on every message.
 func (s *service) buildStartSystemPrompt(ctx context.Context, buildCtx BuildCtx, resolved []ResolvedPromptSection) string {
-	date := fmt.Sprintf("Today's date is %s.", time.Now().Format("2006-01-02"))
+	date := fmt.Sprintf("Today's date is %s.", startPromptCurrentDate())
 	extraContents := runtimeExtraContents(resolved)
 	runtimeExtras := strings.TrimSpace(joinBlocks(
 		runtimeExtrasRelevanceDisclaimer,
@@ -279,6 +283,13 @@ func (s *service) buildStartSystemPrompt(ctx context.Context, buildCtx BuildCtx,
 	reminder := contract.WrapSystemReminder(userCtxText)
 	systemCtx := contract.FormatSystemContextBlock(s.buildSystemContext(ctx, buildCtx))
 	return joinBlocks(reminder, systemCtx)
+}
+
+func startPromptCurrentDate() string {
+	if value := strings.TrimSpace(os.Getenv(envPromptStartCurrentDate)); value != "" {
+		return value
+	}
+	return time.Now().Format("2006-01-02")
 }
 
 func (s *service) newSnapshot(

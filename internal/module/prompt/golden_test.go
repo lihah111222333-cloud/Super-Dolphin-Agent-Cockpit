@@ -8,7 +8,7 @@ import (
 )
 
 func TestStartAssemblyGolden(t *testing.T) {
-	t.Parallel()
+	t.Setenv(envPromptStartCurrentDate, "2026-04-17")
 
 	svc := NewService(&Config{}, nil)
 	registerGoldenPromptProvider(t, svc, DynamicSectionMemory, "# Memory\n- Durable user preferences only.\n- Never store secrets.")
