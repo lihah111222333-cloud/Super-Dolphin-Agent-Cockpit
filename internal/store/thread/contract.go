@@ -85,6 +85,11 @@ type PromptSnapshot struct {
 	Hash                  string            `json:"hash,omitempty"`
 	SectionSnapshot       map[string]string `json:"sectionSnapshot,omitempty"`
 	Generation            uint64            `json:"generation,omitempty"`
+	// LaunchSkillNames p20.4 §4.4：launch skill 名称列表（stored snapshot 端）。
+	// resume/fork/recover 时优先读取该字段恢复 launch skill 选择；nil 表示未显式选择。
+	LaunchSkillNames []string `json:"launchSkillNames,omitempty"`
+	// ForceLaunchSkills p20.4 §4.4：对应 UI manualSkillSelection 持久化端。
+	ForceLaunchSkills bool `json:"forceLaunchSkills,omitempty"`
 }
 
 type PromptBoundary struct {
@@ -101,6 +106,9 @@ type legacyPromptSnapshot struct {
 	Hash                  string            `json:"hash,omitempty"`
 	SectionSnapshot       map[string]string `json:"section_snapshot,omitempty"`
 	Generation            int64             `json:"generation,omitempty"`
+	// p20.4 §4.4：legacy snake_case tag，兼容旧 snapshot 序列化输出。
+	LaunchSkillNames  []string `json:"launch_skill_names,omitempty"`
+	ForceLaunchSkills bool     `json:"force_launch_skills,omitempty"`
 }
 
 func (p *PromptSnapshot) UnmarshalJSON(data []byte) error {
@@ -148,7 +156,32 @@ func mergeLegacyPromptSnapshot(snapshot PromptSnapshot, old legacyPromptSnapshot
 	if snapshot.Generation == 0 && old.Generation > 0 {
 		snapshot.Generation = uint64(old.Generation)
 	}
+	// p20.4 §4.4：legacy snake_case launch skill 回落；旧 snapshot 缺省
+	// 时保持 nil/false，与 modern 零值语义一致（分支抽到 helper 以压 CC）。
+	snapshot.LaunchSkillNames, snapshot.ForceLaunchSkills = mergeLegacyLaunchSkill(
+		snapshot.LaunchSkillNames, snapshot.ForceLaunchSkills,
+		old.LaunchSkillNames, old.ForceLaunchSkills,
+	)
 	return snapshot
+}
+
+// mergeLegacyLaunchSkill p20.4 §4.4：把 modern + legacy launch skill 字段按
+// "modern 优先 / legacy 回落" 的规则合并。抽出独立函数避免 mergeLegacy
+// PromptSnapshot 的 CC 超标。
+func mergeLegacyLaunchSkill(
+	modernNames []string, modernForce bool,
+	legacyNames []string, legacyForce bool,
+) ([]string, bool) {
+	names := modernNames
+	if len(names) == 0 {
+		names = legacyNames
+	}
+	if len(names) == 0 {
+		names = nil
+	} else {
+		names = append([]string(nil), names...)
+	}
+	return names, modernForce || legacyForce
 }
 
 func resolvePromptSnapshotSections(current, legacy map[string]string) map[string]string {

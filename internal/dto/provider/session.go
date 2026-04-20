@@ -33,6 +33,12 @@ type PromptAssemblySnapshot struct {
 	Hash                  string                  `json:"hash,omitempty"`
 	SectionSnapshot       map[string]string       `json:"sectionSnapshot,omitempty"`
 	Generation            uint64                  `json:"generation,omitempty"`
+	// LaunchSkillNames p20.4 §4.4：launch 时 UI 选中的 skill 名称列表；纳入
+	// promptSnapshotHash，保证 resume/fork 时 skill 选择变化会失效旧 snapshot。
+	LaunchSkillNames []string `json:"launchSkillNames,omitempty"`
+	// ForceLaunchSkills p20.4 §4.4：对应 UI manualSkillSelection，true 时
+	// launch skill catalog provider 仅渲染命中条目，其余隐藏。
+	ForceLaunchSkills bool `json:"forceLaunchSkills,omitempty"`
 }
 
 type StartAssembly struct {
@@ -42,6 +48,11 @@ type StartAssembly struct {
 	DeveloperInstructions string                  `json:"developerInstructions,omitempty"`
 	ResolvedSections      []ResolvedPromptSection `json:"resolvedSections,omitempty"`
 	Snapshot              PromptAssemblySnapshot  `json:"snapshot"`
+	// LaunchSkillNames p20.4 §4.4：runtime assembly 上的 launch skill 镜像，
+	// 与 Snapshot 同源，方便 provider-neutral 消费者不必深挖 Snapshot。
+	LaunchSkillNames []string `json:"launchSkillNames,omitempty"`
+	// ForceLaunchSkills p20.4 §4.4：runtime assembly 上的 manualSkillSelection 镜像。
+	ForceLaunchSkills bool `json:"forceLaunchSkills,omitempty"`
 }
 
 type TurnAssembly struct {

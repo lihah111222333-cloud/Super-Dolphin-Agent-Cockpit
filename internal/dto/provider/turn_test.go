@@ -252,3 +252,55 @@ func TestSkillRef_TurnRequestEmbedding(t *testing.T) {
 		t.Fatalf("mode not preserved: %+v", back.Skills)
 	}
 }
+
+func TestSkillPromptCarrierRoundTrip(t *testing.T) {
+	carrier := "skills:\n- planner\n\n[skill:planner::full@v1]\nfull body\n[/skill:planner::full@v1]"
+
+	turn := TurnRequest{ThreadID: "t1", SkillPrompt: carrier}
+	turnData, err := json.Marshal(turn)
+	if err != nil {
+		t.Fatalf("Marshal TurnRequest: %v", err)
+	}
+	var turnWire map[string]any
+	if err := json.Unmarshal(turnData, &turnWire); err != nil {
+		t.Fatalf("Unmarshal TurnRequest wire: %v", err)
+	}
+	if turnWire["skillPrompt"] != carrier {
+		t.Fatalf("TurnRequest skillPrompt wire = %#v, want %q", turnWire["skillPrompt"], carrier)
+	}
+	var turnBack TurnRequest
+	if err := json.Unmarshal(turnData, &turnBack); err != nil {
+		t.Fatalf("Unmarshal TurnRequest round-trip: %v", err)
+	}
+	if turnBack.SkillPrompt != carrier {
+		t.Fatalf("TurnRequest SkillPrompt = %q, want %q", turnBack.SkillPrompt, carrier)
+	}
+
+	steer := SteerRequest{ThreadID: "t1", SkillPrompt: carrier}
+	steerData, err := json.Marshal(steer)
+	if err != nil {
+		t.Fatalf("Marshal SteerRequest: %v", err)
+	}
+	var steerWire map[string]any
+	if err := json.Unmarshal(steerData, &steerWire); err != nil {
+		t.Fatalf("Unmarshal SteerRequest wire: %v", err)
+	}
+	if steerWire["skillPrompt"] != carrier {
+		t.Fatalf("SteerRequest skillPrompt wire = %#v, want %q", steerWire["skillPrompt"], carrier)
+	}
+	var steerBack SteerRequest
+	if err := json.Unmarshal(steerData, &steerBack); err != nil {
+		t.Fatalf("Unmarshal SteerRequest round-trip: %v", err)
+	}
+	if steerBack.SkillPrompt != carrier {
+		t.Fatalf("SteerRequest SkillPrompt = %q, want %q", steerBack.SkillPrompt, carrier)
+	}
+
+	minimal, err := json.Marshal(TurnRequest{ThreadID: "t1"})
+	if err != nil {
+		t.Fatalf("Marshal minimal TurnRequest: %v", err)
+	}
+	if strings.Contains(string(minimal), "skillPrompt") {
+		t.Fatalf("empty SkillPrompt should be omitted, got %s", minimal)
+	}
+}

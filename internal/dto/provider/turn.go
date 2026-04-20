@@ -12,6 +12,7 @@ type TurnRequest struct {
 	ThreadID             string          `json:"threadId"`
 	Inputs               []InputItem     `json:"inputs"`
 	Skills               []SkillRef      `json:"skills,omitempty"`
+	SkillPrompt          string          `json:"skillPrompt,omitempty"`
 	TurnAssembly         TurnAssembly    `json:"turnAssembly"`
 	ManualSkillSelection bool            `json:"manualSkillSelection,omitempty"`
 	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
@@ -146,6 +147,7 @@ type SteerRequest struct {
 	ExpectedTurnID       string          `json:"expectedTurnId,omitempty"`
 	Inputs               []InputItem     `json:"inputs"`
 	Skills               []SkillRef      `json:"skills,omitempty"`
+	SkillPrompt          string          `json:"skillPrompt,omitempty"`
 	TurnAssembly         TurnAssembly    `json:"turnAssembly"`
 	ManualSkillSelection bool            `json:"manualSkillSelection,omitempty"`
 	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
