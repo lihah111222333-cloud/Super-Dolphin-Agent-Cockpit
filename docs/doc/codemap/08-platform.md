@@ -20,9 +20,9 @@
 
 可以把 platform 层粗分为三组：
 
-1. **基础原语**：`config`、`db`、`shared`、`runner`、`statemachine`、`pidregistry`
+1. **基础原语**：`config`、`db`、`shared`、`runner`、`statemachine`、`pidregistry`、`rlimit`、`runtimesafe`
 2. **通信/控制基础设施**：`bus`、`eventsurface`、`rpc`、`hooks`、`mcpcontrol`、`toolbridge`
-3. **状态快照/旁路数据**：`difftracker`、`historyjsonl`
+3. **运行时维持 / 旁路数据**：`cachekeepalive`、`difftracker`、`historyjsonl`
 
 ---
 
@@ -152,46 +152,42 @@
 
 **职责**
 
-- 聚合每个 agent 的工具改动 diff，供 UI/事件流使用
-- 优先从 hook/工具结果中提取 patch；失败时回退到 git diff
-- 隔离多 agent、多 repoRoot / 多 cwd 的累计 diff 会话
+- 提供 git-backed snapshot/diff 原语，供 `toolbridge` 在工具调用前后提取改动
+- 记录调用前工作树状态，并在调用后渲染 unified diff
+- 提供“无 snapshot 时直接看当前 working tree”的 fallback diff 能力
 
 **核心类型**
 
-- `DiffAggregator`
-- `MergeRequest`
-- `DiffResult`
 - `Snapshot`
+- `DiffResult`
 - `DiffEmitter`
 - `WorkDirResolver`
+- `FileDiff`
 
 **关键 API**
 
-- `NewDiffAggregator(...)` / `WithEmitter(...)`
-- `(*DiffAggregator).Start()` / `Stop()` / `Merge()` / `CleanupAgent()`
-- `WithToolCallContext(ctx, threadID, args, snapshot)`
-- `BeginSnapshot(ctx, path)` / `EmitGitDiff(ctx, snapshot)`
+- `BeginSnapshot(ctx, path)`
+- `EmitGitDiff(ctx, snapshot)`
+- `EmitCurrentGitDiff(ctx, path)`
 
 **文件导览**
 
-- `doc.go`：说明“hook patch 优先，git diff 回退；按 agent 隔离”
-- `aggregator.go`：会话管理、CallID 去重、TTL sweeper、Emitter 回调
-- `git_diff.go`：拍快照、比较 working tree 与 HEAD、按文件生成 unified diff
+- `doc.go`：说明当前包只保留 git snapshot/diff 原语与少量支撑类型，供 `toolbridge` 复用
+- `git_diff.go`：拍快照、比较调用前后 working tree，与 `HEAD` 渲染 unified diff
 - `git_ops.go`：git root/dirty file/HEAD 内容读取，带 timeout 和 `index.lock` retry
-- `hooks_extract.go`：从 `replace_range` 工具结果抽取 patch/文件列表
-- `tool_context.go`：把 threadID、arguments、snapshot 附着到 context，并据此构造 merge request
-- `unified.go`：按文件拆分/替换 unified diff block，维护累计 diff
-- `types.go`：公开类型、大小限制与二进制扩展名黑名单
 - `resolver.go`：工作目录解析接口
+- `types.go`：`Snapshot` / `DiffResult` / 限流常量 / 二进制扩展名黑名单
 
 **实现要点**
 
-- 会话 key = `agentID + repoRoot/cwd`，避免同线程多 agent 相互覆盖
-- `processedIDs` 对 `CallID` 去重，重复工具回调不会重复叠加 diff
-- `Merge()` 先尝试 hook/`replace_range` 提取，再尝试 git diff；只有 `ErrReplaceRangePatchNotFound` 才会触发显式 fallback 逻辑
+- `BeginSnapshot()` 会先找 git root，再记录当前 dirty 文件集与调用前 working tree / `HEAD` 状态
+- `EmitGitDiff()` 会重新计算调用后 dirty 路径，对每个受影响文件生成 unified diff，并返回 `affected files`
+- `EmitCurrentGitDiff()` 是无前置 snapshot 的兜底路径，供 `diffFallbackTracker.handleToolCallEnd()` 在 bus 侧补发 diff
+- 当前主链路是：`toolbridge.Handler.beginToolDiffSnapshot()` -> `difftracker.BeginSnapshot()`；peer callback 返回后由 `toolbridge.Handler.emitToolDiff()` -> `difftracker.EmitGitDiff()`
+- 若 Phase 1 未发出 diff，则由 `diffFallbackTracker` 配合 `shouldFallbackDiffTool()` 改走 git diff fallback
 - git 模式有安全阈值：`MaxTrackedFiles=200`、单文件 `1MB`、总 diff `5MB`
-- session TTL / sweep 默认值来自 `types.go`：`DefaultSessionTTL=30m`、`DefaultSweepInterval=1m`
-- 测试覆盖了 agent 隔离、CallID 幂等、TTL 清理、fallback、预脏文件排除
+- fallback 遇到 `ErrNotGitRepository` 视为“当前 cwd 不在 git 仓库”，直接静默退出；其他 git 错误只记 warning
+- 测试覆盖了 git root 解析、dirty file 枚举，以及 toolbridge 侧的 Phase 1 / fallback diff 发射
 
 ---
 
@@ -569,25 +565,30 @@
 **职责**
 
 - 把 Provider（当前主要是 `codexapp`）收到的 tool call / list tools 请求，转发给 MCP tool peer
-- 在转发前后挂接 `difftracker`
+- 在调用前后挂接 `difftracker`，并在必要时走 ToolCallEnd fallback
+- 对外暴露本地 MCP proxy，给 `/mcp/{family}/{agentID}` 提供 `tools/list` / `tools/call`
 
 **核心类型**
 
 - `Handler`
 - `ToolCallRequest`
 - `ToolCallResult`
+- `diffFallbackTracker`
 
 **关键 API**
 
 - `NewHandler(in)`
 - `HandleToolCall(ctx, codexapp.RawMessage)`
 - `ListToolsForCodex(ctx)`
+- `ServeProxy(ln)`
 
 **文件导览**
 
-- `handler.go`：tool call 解析、peer 路由、`tools/list` 汇总、diff snapshot 与 merge
-- `types.go`：请求/响应结构、错误、tool -> clientKind 分类
-- `module.go`：把 handler 注入 `codexapp.ServerManager` 与 `DriverFactory`，并装配 diff aggregator/emitter/workdir resolver/cleanup lifecycle
+- `handler.go`：tool call 解析、peer 路由、`tools/list` 汇总、`beginToolDiffSnapshot()` / `emitToolDiff()`
+- `diff_gen.go`：Phase 1 snapshot 触发条件、`emitToolDiff()`、`shouldTrackDiff()`
+- `diff_fallback.go`：`diffFallbackTracker`、`handleToolCallEnd()`、`shouldFallbackDiffTool()`
+- `proxy.go`：HTTP JSON-RPC proxy，支持 `initialize` / `notifications/initialized` / `tools/list` / `tools/call`
+- `types.go`：请求/响应结构、错误、tool -> clientKind 分类、timeout 常量
 
 **实现要点**
 
@@ -598,9 +599,96 @@
 - `ListToolsForCodex()` 会分别等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），调用各自的 `tools/list`，再转换成 `codexapp.DynamicToolSchema`
 - `tools/call` peer callback 的 timeout 是 `toolCallTimeout = 120s`
 - 当前 `tools/list` 只取每类 client kind 的第一个活跃 peer；而 `tools/call` 则要求同类 peer 唯一
-- 只有 `code_run`、`code_run_test`，以及 `lsp_edit(rename/format/code_action/replace_range)` 会在调用前拍 git snapshot
-- `mergeContext()` 会把 `threadID + arguments + snapshot` 注入 `difftracker.WithToolCallContext()`，调用完成后再执行 `aggregator.Merge(...)`
-- agent 停止、失败或不可恢复 `AgentError` 时会清理该 agent 的 diff session
+- Phase 1 只有 `lsp_edit(rename/replace_range)` 会在调用前进入 `beginToolDiffSnapshot()`；`code_run` / `code_run_test` 走 bus 侧 fallback
+- `emitToolDiff()` 成功发出 `ToolDiffUpdated` 后会 `MarkSeen(callID)`，避免 fallback 重复补发
+- `diffFallbackTracker.handleToolCallEnd()` 会在 `ToolCallEnd` 上检查 `shouldFallbackDiffTool()`，命中时走 `difftracker.EmitCurrentGitDiff()`
+- `toolbridge.Module` 会额外装配 `provideDiffEmitter()`、`bindCodexHandlers()`、`registerDiffFallbackLifecycle()`、`registerProxyLifecycle()`
+- `ServeProxy()` 会校验 family 与 tool 分类一致性；`lookupProxyThreadID()` 则通过 binding store 给 proxy 补 thread 语义
+
+---
+
+## 2.15 `cachekeepalive/`：长会话静默保活
+
+**职责**
+
+- 为支持静默保活的 provider session 定时发送 keepalive turn，避免长 idle 会话被动掉线
+- 维护 `sessionUUID -> timer` 映射，并根据 agent/thread 绑定恢复 agent 语义
+- 通过 bus 事件把 launched / idle / turn completed / stopped 生命周期接入定时器管理
+
+**核心类型**
+
+- `Manager`
+- `KeepaliveCapable`
+
+**关键 API**
+
+- `NewManager(...)`
+- `HandleAgentLaunched(ev)`
+- `ResetTimerByAgent(agentID)` / `StopTimerByAgent(agentID)`
+- `Shutdown()`
+
+**文件导览**
+
+- `manager.go`：timer 注册/重置/停用、binding/thread fallback、`SendKeepalive()` 执行
+- `relay.go`：把 `AgentLaunched` / idle `StateChanged` / `TurnCompleted` / `Stopped` 接到 manager
+- `module.go`：fx 装配，启动时注册 relay，停止时统一 `Shutdown()`
+
+**实现要点**
+
+- 定时周期固定为 `keepaliveInterval = 55m`
+- `HandleAgentLaunched()` 在事件缺少有效 agent 绑定时，会回退到 `threadStore.GetByThreadID()` 恢复 agentID
+- 只有“binding 仍存在且未 archived、session 实现了 `SendKeepalive(ctx)`”时才真正发静默保活
+- keepalive 成功后会再次 `ResetTimerByAgent()`，失败仅记 warning，不会把主进程拖死
+
+---
+
+## 2.16 `rlimit/`：进程文件句柄上限提升
+
+**职责**
+
+- 通过 blank import 副作用在进程启动早期提升 `RLIMIT_NOFILE`
+- 给桌面端与 MCP sidecar 统一提供更高的 fd 上限，降低大量 socket / pipe / watcher 并发下的句柄耗尽风险
+
+**关键入口**
+
+- `init()` -> `raiseLimit()`
+- `applyFallbackLimit(rLimit, oldLimit)`
+
+**文件导览**
+
+- `rlimit_unix.go`：非 Windows 平台的实际提额逻辑
+- `rlimit_windows.go`：Windows 空实现占位
+
+**实现要点**
+
+- `cmd/agent-terminal`、`cmd/mcp-orch`、`cmd/mcp-lsp`、`cmd/mcp-ida` 都会 blank-import 这个包
+- Unix 路径优先把 soft limit 提到 `rLimit.Max`，但会把目标值封顶在 `1048576`
+- 若直接提到 max 失败，会依次回退尝试 `250000 / 65535 / 10240 / 4096`
+- 结果直接写 `stderr`，便于在最早启动阶段留下诊断痕迹
+
+---
+
+## 2.17 `runtimesafe/`：panic-safe goroutine 入口
+
+**职责**
+
+- 统一封装后台 goroutine 的 panic recovery，避免业务 goroutine 直接崩掉整个主进程
+- 把 `ctx + label + panic + stack` 打到 logger，便于后续 grep 与归因
+
+**关键 API**
+
+- `SafeGo(ctx, logger, label, fn)`
+
+**文件导览**
+
+- `safego.go`：全部实现，当前是单文件包
+
+**实现要点**
+
+- `fn == nil` 时直接 no-op；`ctx == nil` 时会回退成 `context.Background()`
+- panic 时优先使用调用者传入 logger；若 logger 为空则回退全局 logger
+- `label` 设计成短且稳定的 grep 锚点，当前被 `app`、`rpc`、`thread`、`turn`、`claudecli`、`codexapp`、`unified` 等路径广泛使用
+- `internal/archtest/safego_guard_test.go` 会强制新 goroutine 走 `runtimesafe.SafeGo(...)`，避免继续扩散到旧 `shared/safe_go.go`
 
 ---
 
@@ -617,13 +705,31 @@ platform 的事件链路大致是：
      - rpc.subscribeRawProviderEventPushes（provider raw event -> push 白名单）
      - hooks.startEventRelay
      - mcpcontrol.registerConfigChangeSubscriptions
-     - toolbridge cleanup lifecycle
-  -> rpc.PushBridge.NotifyAll / Hook after / MCP config changed / structured logs
+     - toolbridge diff fallback lifecycle
+  -> rpc.PushBridge.NotifyAll / Hook after / MCP config changed / fallback diff / structured logs
 
 MCP peer ctl/event
   -> mcpcontrol.defaultEventSink
   -> bus controlEvent
 ```
+
+### B17 Mermaid：bus 数据流
+
+```mermaid
+flowchart LR
+  emit[typed emitters] --> disp[event.Dispatcher]
+  disp --> log[LogSink]
+  disp --> surf[eventsurface.Bind]
+  disp --> raw[rpc raw pushes]
+  disp --> hook[hooks relay]
+  disp --> cfg[mcpcontrol config change]
+  surf --> push[PushBridge NotifyAll]
+  cfg --> peer[ctl/event peer]
+  peer --> sink[defaultEventSink]
+  sink --> disp
+```
+
+补充：图里没展开 `toolbridge` 的 `registerDiffFallbackLifecycle()` 支路；它也是挂在同一个 `event.Dispatcher` 上，消费 `ToolCallEnd` 后再补发 `ToolDiffUpdated`。
 
 ### 3.1 发布
 
@@ -651,7 +757,7 @@ MCP peer ctl/event
 - **`rpc.PushBridge`**：把 `eventsurface` 通知和 provider raw event 白名单广播给 UI/RPC 客户端
 - **`hooks.event_relay`**：把 bus 观察事件转成 Hook after topic
 - **`mcpcontrol.config_change`**：把 agent/thread 生命周期变化通知到已注册的 MCP peer
-- **`toolbridge` cleanup lifecycle**：在 agent 停止/失败时清理 diff session
+- **`toolbridge` diff fallback lifecycle**：在 `ToolCallEnd` 上执行 `handleToolCallEnd()`，必要时补发 git diff fallback
 - **`LogSink`**：统一日志落盘
 
 ---
@@ -777,11 +883,18 @@ Codex session 收到 inbound tool request
   -> ServerManager.getToolHandler()
   -> toolbridge.Handler.HandleToolCall()
   -> decodeToolCallRequest()
-  -> mergeContext(threadID, arguments, optional snapshot)
+  -> beginToolDiffSnapshot() [仅 `lsp_edit(rename/replace_range)`]
   -> mcpcontrol.ToolRegistry.FindActiveByKind()
   -> 选中 MCP peer，发起 peer.Callback("tools/call")
   -> adaptMCPResponse()
-  -> difftracker.Merge()
+  -> emitToolDiff() -> difftracker.EmitGitDiff()
+  -> emit tooldto.ToolDiffUpdated
+
+未命中 Phase 1 时的补偿链路：
+  ToolCallEnd on bus
+  -> diffFallbackTracker.handleToolCallEnd()
+  -> shouldFallbackDiffTool()
+  -> difftracker.EmitCurrentGitDiff()
   -> emit tooldto.ToolDiffUpdated
 ```
 
@@ -790,6 +903,7 @@ Codex session 收到 inbound tool request
 - `toolbridge.Module` 在 `bindCodexHandlers()` 中调用：
   - `codexapp.ServerManager.SetToolHandler(h.HandleToolCall)`
   - `codexapp.DriverFactory.SetListTools(h.ListToolsForCodex)`
+- 同一模块还会通过 `registerProxyLifecycle()` 起一个本地 TCP listener，把 `ServeProxy()` 暴露给外部 `/mcp/{family}/{agentID}` 路径
 - `codexapp.session.onInboundMessage()` 遇到 `item/tool/call` / `dynamic_tool_call` / `tool.call.begin` 时，会异步转给 `toolHandler`
 
 ### 6.2 MCP tool 侧接入点
@@ -797,6 +911,7 @@ Codex session 收到 inbound tool request
 - `cmd/mcp-orch/fx.go` 在 bootstrap config 中显式注册：
   - `OnToolsList`
   - `OnToolsCall`
+- proxy 模式下同样不是直调内部 Go 对象，而是仍然回到 `routeToolCall()` -> `mcpcontrol.ToolRegistry.FindActiveByKind()` -> peer callback 这条路径
 - 也就是说，toolbridge 面向的是一组**注册到 mcpcontrol 的外部工具 peer**，而不是直接调用内部 Go 对象
 
 ### 6.3 路由规则
@@ -807,20 +922,21 @@ Codex session 收到 inbound tool request
 - `routeToolCall()` 要求同类活跃 peer 唯一；否则直接 fail fast
 - `ListToolsForCodex()` 会分别等待 orch / lsp peer 就绪后再调 `tools/list`；默认最多等待 10 秒，每 300ms 轮询一次
 - `tools/list` 当前只使用每类 client kind 的第一个活跃 peer
+- `ServeProxy()` 还会校验 URL family 与 tool 归属是否一致，避免把 `orch` tool 误打到 `lsp` family
 
 ### 6.4 与 difftracker 的耦合
 
-- `mergeContext()` 会把 `threadID`、原始 `arguments`、以及可选 git snapshot 放进 `context.Context`
-- 只有可能改文件的调用会先 `beginSnapshot()`：`code_run`、`code_run_test`，以及 `lsp_edit(rename/format/code_action/replace_range)`
-- 调用完成后执行 `aggregator.Merge(...)`
-- diff 变化通过 `ToolDiffUpdated` 事件抛回总线
-- agent 停止、失败或不可恢复 error 时自动清理 diff session
+- Phase 1 先走 `emitToolDiff()`：前提是 `beginToolDiffSnapshot()` 成功拿到 snapshot，且当前调用命中 `lsp_edit(rename/replace_range)`
+- `emitToolDiff()` 内部调用 `difftracker.EmitGitDiff()`，成功后经 `provideDiffEmitter()` 发布 `ToolDiffUpdated`
+- Phase 1 未命中时，不再依赖任何旧 sentinel；而是由 `diffFallbackTracker` + `shouldFallbackDiffTool()` 在 `ToolCallEnd` 后做 git diff fallback
+- fallback 覆盖 `code_run`、`code_run_test`、`lsp_edit`；内部改走 `difftracker.EmitCurrentGitDiff()`
+- `MarkSeen(callID)` 会在 Phase 1 与 fallback 之间做去重，防止同一次工具调用重复推送 diff
 
 ### 6.5 错误语义
 
 - 找不到 peer / peer 歧义时，`toolbridge` 返回 Go error
 - 已找到 peer 但 `tools/call` callback 失败时，会返回 `Success=false` 的 `ToolCallResult` 给 Provider，而不是直接上抛异常
-- diff merge 是 best-effort：失败只记 warning，不影响主工具结果
+- diff 发射是 best-effort：无论是 `emitToolDiff()` 还是 fallback 失败，都只记 warning，不影响主工具结果
 
 **结论**：`toolbridge` 不是工具执行器，而是 **Provider 协议层 与 MCP 工具进程层之间的转接器**。
 
@@ -836,6 +952,7 @@ Codex session 收到 inbound tool request
   - `bus.Module`
   - `rpc.Module`
   - `hooks.Module`
+  - `cachekeepalive.Module`
   - `mcpcontrol.Module`
   - `runner.Module`
   - `statemachine.Module`
@@ -863,6 +980,7 @@ Codex session 收到 inbound tool request
 
 - `cmd/mcp-orch`：根进程装配依赖 `config`、`bus`、`db`、`runner`；其 orchestration/workspace/store 子包还会用到 `rpc`、`shared`、`statemachine`
 - `cmd/mcp-lsp` / `cmd/mcp-ida`：依赖 `config`、`runner`
+- `cmd/agent-terminal` / `cmd/mcp-orch` / `cmd/mcp-lsp` / `cmd/mcp-ida` 都会 blank-import `internal/platform/rlimit`
 
 ## 7.5 Store 与基础 IO 层
 
@@ -881,6 +999,36 @@ Codex session 收到 inbound tool request
 5. **tool call result -> difftracker -> ToolDiffUpdated -> UI push**
 6. **orchestration service -> statemachine**
    - agent runtime state 由平台状态机承载
+7. **agent launched / idle / turn completed / stopped -> cachekeepalive**
+   - bus 生命周期事件 -> `Manager` timer -> provider `SendKeepalive(ctx)`
+
+---
+
+## 7.7 测试入口 + archtest freeze 映射（13 子包）
+
+| 包 | 测试文件 | 核心 Test* | freeze |
+|---|---|---|---|
+| `bus` | `bus_test.go` / +2 | `TestPublishSubscribe` / +7 | — |
+| `cachekeepalive` | `manager_test.go` | `TestRegisterSchedulesInitialTimer` / +6 | — |
+| `config` | `config_test.go` / +1 | `TestNew_PrefersCanonicalRPCAddr` / +5 | — |
+| `db` | `agent_provider_binding_migration_test.go` / +1 | `TestBaselineAgentProviderBindingIncludesConflictTargetSupport` / +3 | — |
+| `difftracker` | `git_ops_test.go` | `TestFindGitRoot_InGitRepo` / +2 | — |
+| `eventsurface` | `bind_test.go` / +1 | `TestBindPublishesExpandedSurface` / +6 | — |
+| `hooks` | `merge_test.go` / +14 | `TestMergeBeforePrefersDenyOverAllow` / +58 | — |
+| `mcpcontrol` | `handlers_test.go` / +8 | `TestRegistryContextProvider_UsesRequestedAgentSnapshotForRuntimeScope` / +34 | — |
+| `pidregistry` | `pidregistry_test.go` | `TestRegistryRegisterAndPersist` / +8 | — |
+| `rpc` | `approval_test.go` / +8 | `TestRegisterPendingAssignsUniqueRequestIDForDuplicateCallID` / +41 | — |
+| `runtimesafe` | `safego_test.go` | `TestSafeGoRunsFn` / +3 | — |
+| `shared` | `retry_test.go` / +7 | `TestRetryWithPolicyCallsOnRetry` / +23 | — |
+| `toolbridge` | `handler_test.go` / +2 | `TestToolBridge_FreshSession_ToolCallForward` / +16 | — |
+
+## 7.8 How-to：platform 常见改动落点
+
+| 场景 | 步骤 | 锚点 | 验证 |
+|---|---|---|---|
+| bus 链 | 1. DTO 2. emit/publish 3. `ResilientSubscribe()` 4. `eventsurface.Bind()` | `ResilientSubscribe` @ `internal/platform/bus/resilient.go` | bus tests / `bind_test.go` |
+| push/approval | 1. `HandlerMapResult` 2. `registerAllHandlers()` 3. `bindApprovalLifecycle()` | `bindApprovalLifecycle` @ `internal/platform/rpc/module.go` | `approval_lifecycle_test.go` |
+| toolbridge | 1. `handler.go` 2. `bindCodexHandlers()` 3. `provideDiffEmitter()` / `registerProxyLifecycle()` | `registerProxyLifecycle` @ `internal/platform/toolbridge/module.go` | `handler_test.go` / `phase1_diff_test.go` / `diff_fallback_test.go` |
 
 ---
 
@@ -891,8 +1039,8 @@ platform 层不是单一“工具包”，而是一组彼此协作的基础设�
 - `bus + eventsurface + rpc` 负责**事件传播与对外推送**
 - `hooks + mcpcontrol` 负责**外部进程协作与控制面治理**
 - `toolbridge + difftracker` 负责**Provider 到 MCP tool 的执行桥与改动回流**
-- `config + db + shared + runner + statemachine + pidregistry` 负责**基础运行时语义**
-- `historyjsonl` 负责**Provider 历史回放旁路**
+- `config + db + shared + runner + statemachine + pidregistry + rlimit + runtimesafe` 负责**基础运行时语义**
+- `cachekeepalive + historyjsonl` 负责**长会话维持与 Provider 历史旁路**
 
 如果从项目架构角度看，platform 层承担的是 super-agent-v3 的“内核底座”角色：
 
@@ -908,3 +1056,6 @@ platform 层不是单一“工具包”，而是一组彼此协作的基础设�
 - 补充了 `mcpcontrol` 的 selector 交集、context scope、`ctl/event` 入总线、report 幂等与 unsupported variant 说明。
 - 补充了 `toolbridge` 的 peer 就绪轮询、`tools/call` 失败返回 `Success=false`、以及 snapshot 触发条件的精确范围。
 - 本轮又按源码补全了 `config` 的完整环境变量/默认值、`mcpcontrol` 的注册/心跳/清扫常量、`rpc` 的 middleware 实际执行顺序、`historyjsonl` 的路径发现候选顺序，以及 `toolbridge` 的 `120s` callback timeout。
+- 本轮同步清理了 `difftracker/toolbridge` 的旧聚合器口径，改成 `Handler + BeginSnapshot/EmitGitDiff + diffFallbackTracker` 的现状描述。
+- 追加了 `cachekeepalive`、`rlimit`、`runtimesafe` 三个漏记子包，以及 §3 的 B17 bus Mermaid 数据流图。
+- 追加了 platform 13 子包测试入口 / freeze 表与 3 条 how-to 改动手册。
