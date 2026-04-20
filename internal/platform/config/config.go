@@ -3,14 +3,21 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 )
+
+type SkillConfig struct {
+	ProgressiveDisclosure bool
+	TokenBudget           int
+}
 
 type Config struct {
 	DatabaseURL string
 	RPCAddr     string
 	LogLevel    string
 	ProjectRoot string
+	Skill       SkillConfig
 }
 
 func New() *Config {
@@ -19,6 +26,10 @@ func New() *Config {
 		RPCAddr:     envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8090"),
 		LogLevel:    envOr("LOG_LEVEL", "info"),
 		ProjectRoot: resolveProjectRoot(),
+		Skill: SkillConfig{
+			ProgressiveDisclosure: envBoolOr("SKILL_PROGRESSIVE_DISCLOSURE", false),
+			TokenBudget:           envPositiveIntOr("SKILL_TOKEN_BUDGET", 3000),
+		},
 	}
 	exportRPCAddrIfMissing(cfg.RPCAddr)
 	exportDatabaseURLIfMissing(cfg.DatabaseURL)
@@ -78,4 +89,28 @@ func envOrCompat(canonical, legacy, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envBoolOr(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envPositiveIntOr(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
