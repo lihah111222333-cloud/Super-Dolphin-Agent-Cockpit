@@ -3,6 +3,7 @@ import { callAPI } from '../services/api.js';
 import { logError, logInfo, logWarn, readLogBuffer, readLogLevel } from '../services/log.js';
 import { ProviderSettings } from './settings/ProviderSettings.ts';
 import { LspPromptSettings } from './settings/LspPromptSettings.ts';
+import { BuiltinToolsSettings } from './settings/BuiltinToolsSettings.ts';
 import { useSettingsScope } from './settings/useSettingsScope.ts';
 
 type SettingsBuildInfo = { version?: string; runtime?: string; buildTime?: string; commit?: string };
@@ -146,7 +147,7 @@ function setupSettingsPage(props: SettingsPageProps, { emit }: { emit: (event: '
 
 export const SettingsPage = {
   name: 'SettingsPage',
-  components: { ProviderSettings, LspPromptSettings },
+  components: { ProviderSettings, LspPromptSettings, BuiltinToolsSettings },
   props: {
     buildInfo: { type: Object, required: true },
     projectStore: { type: Object, required: false, default: null },
@@ -198,6 +199,7 @@ export const SettingsPage = {
 
         <ProviderSettings :project-store="projectStore" />
         <LspPromptSettings :project-store="projectStore" />
+        <BuiltinToolsSettings :project-store="projectStore" />
 
         <div class="section-header">UI LOG</div>
         <div class="data-card-vue settings-log-card" data-testid="settings-log-card">
