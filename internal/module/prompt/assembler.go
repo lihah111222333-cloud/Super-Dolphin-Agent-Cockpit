@@ -266,9 +266,10 @@ func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) Star
 }
 
 // buildStartSystemPrompt constructs the one-time system prompt block that is
-// injected into baseInstructions at session start. It includes currentDate,
-// runtimeExtras, and system context (git status). This avoids the previous
-// per-turn injection which wasted tokens by repeating on every message.
+// injected into baseInstructions at session start. It includes the user-
+// configurable LSP prompt hint, currentDate, runtimeExtras, and system context
+// (git status). This avoids the previous per-turn injection which wasted
+// tokens by repeating on every message.
 func (s *service) buildStartSystemPrompt(ctx context.Context, buildCtx BuildCtx, resolved []ResolvedPromptSection) string {
 	date := fmt.Sprintf("Today's date is %s.", startPromptCurrentDate())
 	extraContents := runtimeExtraContents(resolved)
@@ -282,7 +283,8 @@ func (s *service) buildStartSystemPrompt(ctx context.Context, buildCtx BuildCtx,
 	})
 	reminder := contract.WrapSystemReminder(userCtxText)
 	systemCtx := contract.FormatSystemContextBlock(s.buildSystemContext(ctx, buildCtx))
-	return joinBlocks(reminder, systemCtx)
+	hint := s.resolvePromptHint(ctx, buildCtx.CWD)
+	return joinBlocks(hint, reminder, systemCtx)
 }
 
 func startPromptCurrentDate() string {

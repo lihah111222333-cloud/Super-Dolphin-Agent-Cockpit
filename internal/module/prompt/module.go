@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -8,13 +9,15 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 var Module = fx.Module("prompt",
 	fx.Provide(
 		NewConfig,
-		NewService,
+		NewServiceFx,
 		AsPromptRegistry,
 		AsPromptAssemblyService,
 		AsDynamicSectionRegistrar,
@@ -25,6 +28,23 @@ var Module = fx.Module("prompt",
 	),
 	fx.Invoke(RegisterSkillCatalogProviderIfEnabled),
 )
+
+// ServiceFxParams resolves optional dependencies needed to surface the
+// user-configurable LSP prompt hint in the start system prompt.
+type ServiceFxParams struct {
+	fx.In
+	Cfg         *Config
+	Logger      *slog.Logger           `optional:"true"`
+	Prefs       uipreference.Store     `optional:"true"`
+	SharedFiles sharedfilestore.Reader `optional:"true"`
+}
+
+// NewServiceFx is the fx-facing constructor that wires the preference store
+// and shared-file reader into the prompt Service so the configured LSP prompt
+// hint actually reaches the assembled system prompt.
+func NewServiceFx(p ServiceFxParams) Service {
+	return NewService(p.Cfg, p.Logger, WithPromptHintSources(p.Prefs, p.SharedFiles))
+}
 
 const SkillInjectionPortGroupTag = `group:"skill_injection_ports"`
 

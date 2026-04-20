@@ -18,6 +18,8 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 type PromptRegistry interface {
@@ -50,8 +52,24 @@ type service struct {
 	claudeMdProvider contract.ClaudeMdSourceProvider
 	flight           singleflight.Group
 
+	prefs       uipreference.Store
+	sharedFiles sharedfilestore.Reader
+
 	dynamicMu sync.RWMutex
 	dynamic   map[string]DynamicSectionProvider
+}
+
+// ServiceOption configures optional dependencies of the prompt Service.
+type ServiceOption func(*service)
+
+// WithPromptHintSources injects the preference store and shared-file reader
+// used to resolve the user-configurable LSP prompt hint that is prepended to
+// the start system prompt.
+func WithPromptHintSources(prefs uipreference.Store, sharedFiles sharedfilestore.Reader) ServiceOption {
+	return func(s *service) {
+		s.prefs = prefs
+		s.sharedFiles = sharedFiles
+	}
 }
 
 const (
@@ -115,7 +133,7 @@ type promptRPCItem struct {
 var _ contract.PromptAssemblyService = (*service)(nil)
 var _ PromptService = (*promptService)(nil)
 
-func NewService(cfg *Config, logger *slog.Logger) Service {
+func NewService(cfg *Config, logger *slog.Logger, opts ...ServiceOption) Service {
 	if cfg == nil {
 		cfg = &Config{}
 	}
@@ -126,6 +144,11 @@ func NewService(cfg *Config, logger *slog.Logger) Service {
 		cache:            newSectionCache(),
 		userContextCache: newUserContextCache(),
 		dynamic:          map[string]DynamicSectionProvider{},
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(svc)
+		}
 	}
 	svc.registerBuiltInSections()
 	mustRegisterDynamicProvider(svc, SessionGuidanceProvider{})
