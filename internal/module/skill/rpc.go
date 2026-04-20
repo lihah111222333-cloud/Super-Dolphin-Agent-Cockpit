@@ -2,7 +2,10 @@ package skill
 
 import (
 	"context"
+	"errors"
+	"os"
 
+	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -14,10 +17,57 @@ func namedContentHandler(fn func(context.Context, string, string) (any, error)) 
 	})
 }
 
+func skillListPayload(skills []SkillInfo) skillListResult {
+	items := make([]skillListItem, 0, len(skills))
+	for _, info := range skills {
+		items = append(items, skillListItem{
+			Name:                   info.Name,
+			Summary:                info.Summary,
+			Description:            info.Description,
+			Trust:                  info.Trust,
+			ContentHash:            info.ContentHash,
+			DisableModelInvocation: info.DisableModelInvocation,
+		})
+	}
+	return skillListResult{Skills: items}
+}
+
+func skillRPCError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var rpcErr *jrpc2.Error
+	if errors.As(err, &rpcErr) {
+		return err
+	}
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return rpc.ErrNotFound(err.Error())
+	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, errInvalidSkillExpandParam):
+		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
+	default:
+		return err
+	}
+}
+
 func NewSkillHandlers(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"command/exec": rpc.StrictHandler(func(ctx context.Context, p execParams) (any, error) {
 			return svc.ExecCommand(ctx, p.Command, p.Args, p.CWD, p.Env)
+		}),
+		"skill/list": rpc.StrictHandler(func(ctx context.Context, _ skillListParams) (skillListResult, error) {
+			list, err := svc.ListSkills(ctx)
+			if err != nil {
+				return skillListResult{}, err
+			}
+			return skillListPayload(list), nil
+		}),
+		"skill/expand": rpc.StrictHandler(func(ctx context.Context, p skillExpandParams) (skillExpandResult, error) {
+			result, err := svc.Expand(ctx, p)
+			if err != nil {
+				return skillExpandResult{}, skillRPCError(err)
+			}
+			return result, nil
 		}),
 		// skills/list: 扫描本地 skill 目录，返回所有已安装的 skill 元信息。
 		// 与 thread/skills/list 不同：后者走 thread 命令通道，返回 thread 绑定的 active skills。
