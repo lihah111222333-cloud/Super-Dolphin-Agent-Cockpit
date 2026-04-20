@@ -304,7 +304,7 @@ func TestImportLocalDirAcceptsSourceOutsideProjectRoot(t *testing.T) {
 	}
 	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: "system"})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -353,8 +353,8 @@ func TestImportLocalDirRejectsSourceInsideSkillsRoot(t *testing.T) {
 	if !ok || len(failures) != 1 {
 		t.Fatalf("ImportLocalDir() failures = %#v, want single failure", result["failures"])
 	}
-	if got := failures[0]["error"]; got != "skill already exists: demo-skill" {
-		t.Fatalf("ImportLocalDir() failure error = %#v", got)
+	if got, want := failures[0]["error"], "source is inside skills root: "+sourceDir; got != want {
+		t.Fatalf("ImportLocalDir() failure error = %#v, want %q", got, want)
 	}
 }
 
@@ -376,7 +376,7 @@ func TestImportLocalDirRejectsExistingTarget(t *testing.T) {
 	}
 	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: "system"})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
