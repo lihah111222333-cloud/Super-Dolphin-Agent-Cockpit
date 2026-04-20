@@ -131,6 +131,93 @@ func (s *service) projectSkillsRootForCWD(cwd string) string {
 	return defaultProjectSkillsRoot(cwd)
 }
 
+const (
+	skillScopeProject = "project"
+	skillScopeSystem  = "system"
+)
+
+func normalizeSkillScope(scope string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "", skillScopeProject:
+		return skillScopeProject, nil
+	case skillScopeSystem:
+		return skillScopeSystem, nil
+	default:
+		return "", fmt.Errorf("invalid skill scope: %s", scope)
+	}
+}
+
+func (s *service) systemGlobalSkillsRoot() string {
+	return strings.TrimSpace(s.root)
+}
+
+func (s *service) legacySystemSkillsRoot(cwd string) string {
+	root := s.systemGlobalSkillsRoot()
+	if root == "" {
+		return ""
+	}
+	projectKey := platformshared.ProjectKeyFromCwd(cwd)
+	if projectKey == "" {
+		return ""
+	}
+	return filepath.Join(root, projectKey, "by-id")
+}
+
+func (s *service) allSkillRoots(cwd string) []string {
+	roots := make([]string, 0, 3)
+	seen := make(map[string]struct{}, 3)
+	appendUniqueSkillRoot := func(root string) {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			return
+		}
+		cleaned := filepath.Clean(root)
+		if _, ok := seen[cleaned]; ok {
+			return
+		}
+		seen[cleaned] = struct{}{}
+		roots = append(roots, cleaned)
+	}
+	appendUniqueSkillRoot(s.projectSkillsRootForCWD(cwd))
+	appendUniqueSkillRoot(s.systemGlobalSkillsRoot())
+	appendUniqueSkillRoot(s.legacySystemSkillsRoot(cwd))
+	return roots
+}
+
+func (s *service) resolveScopeRoot(cwd, scope string) (string, error) {
+	normalizedScope, err := normalizeSkillScope(scope)
+	if err != nil {
+		return "", err
+	}
+	switch normalizedScope {
+	case skillScopeProject:
+		root := strings.TrimSpace(s.projectSkillsRootForCWD(cwd))
+		if root == "" {
+			return "", errors.New("project skills root is not configured")
+		}
+		return root, nil
+	case skillScopeSystem:
+		root := s.systemGlobalSkillsRoot()
+		if root == "" {
+			return "", errors.New("skills root is not configured")
+		}
+		return root, nil
+	default:
+		return "", fmt.Errorf("invalid skill scope: %s", normalizedScope)
+	}
+}
+
+func (s *service) prepareScopedSkillsRoot(cwd, scope string) (string, error) {
+	root, err := s.resolveScopeRoot(cwd, scope)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
 func (s *service) expandWithApproval(ctx context.Context, p skillExpandParams) (skillExpandResult, error) {
 	prepared, err := s.prepareSkillExpand(ctx, p)
 	if err != nil {
