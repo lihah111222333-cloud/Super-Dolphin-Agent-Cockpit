@@ -4,6 +4,7 @@ import {
   useDurableMemoryEditor,
   useAgentMemoryEditor,
   useInlineDeleteConfirm,
+  resetAgentForm,
 } from '../composables/useMemoryEditors.js';
 
 const GUIDE_PREF_KEY = 'memory-center.guide-collapsed';
@@ -183,13 +184,12 @@ export const MemoryCenterPage = {
 
     function clearSearch() { searchText.value = ''; }
     function toggleAllScopes() { showAllScopes.value = !showAllScopes.value; }
-    async function resetAgentMemory() {
-      // One-click reset: empty the textarea, then hit save so the MEMORY.md
-      // is actually written back as empty. Save() already owns the saving
-      // flag and error notice path.
+    function resetAgentMemory() {
+      // Full form reset: wipe scope / agentType / path / content back to the
+      // blank new-entry state. Pure client-side, no save — the user still
+      // needs to click 保存 to actually commit whatever they enter next.
       if (agentEditor.saving) return;
-      agentEditor.form.content = '';
-      await agentEditor.save();
+      resetAgentForm(agentEditor.form, 'project');
     }
 
     function toggleGuide() {
@@ -611,10 +611,9 @@ export const MemoryCenterPage = {
           <div class="memory-editor-actions">
             <button class="btn btn-ghost" data-testid="memory-center-agent-cancel" @click="agentEditor.close">取消</button>
             <button
-              v-if="agentEditor.form.path"
               class="btn btn-danger"
               data-testid="memory-center-agent-reset"
-              :disabled="agentEditor.saving"
+              :disabled="agentEditor.saving || (!agentEditor.form.agentType && !agentEditor.form.content)"
               @click="resetAgentMemory"
             >重置</button>
             <button class="btn btn-primary" data-testid="memory-center-agent-save" :disabled="agentEditor.saving" @click="agentEditor.save">
