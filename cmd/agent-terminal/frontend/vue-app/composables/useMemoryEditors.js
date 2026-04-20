@@ -142,7 +142,10 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
     form.content = memoryTemplateForType(form.type);
   }
 
-  return { open, mode, saving, deleting, form, openCreate, openEdit, close, save, remove, fillTemplate };
+  // Wrap in reactive so property access in templates auto-unwraps nested refs.
+  // Vue 3 only auto-unwraps refs that are returned directly from setup(); nested
+  // refs inside a plain object require reactive() or explicit .value access.
+  return reactive({ open, mode, saving, deleting, form, openCreate, openEdit, close, save, remove, fillTemplate });
 }
 
 /**
@@ -208,7 +211,7 @@ export function useAgentMemoryEditor({ currentCwd, setNotice, setBusy, emit }) {
     }
   }
 
-  return { open, saving, form, openCreate, openEdit, close, save };
+  return reactive({ open, saving, form, openCreate, openEdit, close, save });
 }
 
 /**
@@ -253,5 +256,5 @@ export function useInlineDeleteConfirm({ currentCwd, setNotice, emit }) {
     }
   }
 
-  return { target, deleting, ask, cancel, confirm };
+  return reactive({ target, deleting, ask, cancel, confirm });
 }

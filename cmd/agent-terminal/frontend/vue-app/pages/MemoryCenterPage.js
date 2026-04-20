@@ -165,7 +165,9 @@ export const MemoryCenterPage = {
     const inlineDelete = useInlineDeleteConfirm({ currentCwd, setNotice, emit });
 
     const memoryIdentityLocked = computed(
-      () => memoryEditor.mode.value === 'edit' && Boolean(memoryEditor.form.existingPath),
+      // memoryEditor is a reactive() wrapper — property access auto-unwraps the
+      // mode ref, so .mode gives the current value directly (no .value needed).
+      () => memoryEditor.mode === 'edit' && Boolean(memoryEditor.form.existingPath),
     );
 
     function clearSearch() { searchText.value = ''; }
