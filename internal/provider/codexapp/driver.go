@@ -228,6 +228,9 @@ func startAssemblyInstructions(req dto.StartSessionRequest) (string, string) {
 		req.StartAssembly.Snapshot.BaseInstructions,
 		req.Instructions,
 	))
+	if manifest := startAssemblySkillManifest(req.StartAssembly); manifest != "" {
+		base = NewSkillInjectionPort().InjectL1Manifest(base, manifest)
+	}
 	developer := strings.TrimSpace(shared.FirstNonEmpty(
 		req.StartAssembly.DeveloperInstructions,
 		req.StartAssembly.Snapshot.DeveloperInstructions,
@@ -235,6 +238,21 @@ func startAssemblyInstructions(req dto.StartSessionRequest) (string, string) {
 		configString(req.Config, "developer_instructions"),
 	))
 	return base, developer
+}
+
+func startAssemblySkillManifest(assembly dto.StartAssembly) string {
+	if manifest := strings.TrimSpace(assembly.Snapshot.SectionSnapshot[contract.DynamicSectionSkillCatalog]); manifest != "" {
+		return manifest
+	}
+	for _, section := range assembly.ResolvedSections {
+		if strings.TrimSpace(section.Name) != contract.DynamicSectionSkillCatalog {
+			continue
+		}
+		if manifest := strings.TrimSpace(section.Content); manifest != "" {
+			return manifest
+		}
+	}
+	return ""
 }
 
 func promptSnapshotInstructions(snapshot dto.PromptAssemblySnapshot) (string, string) {

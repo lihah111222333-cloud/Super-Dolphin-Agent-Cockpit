@@ -1,38 +1,107 @@
 package codexapp
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
-// defaultSkillManifestTokenBudget 与 P20.1 §3.7 建议保持一致，
-// 后续 Phase 10 可通过 config.skill.token_budget 覆盖。
+var (
+	_ contract.SkillInjectionPort  = codexSkillInjectionPort{}
+	_ contract.NativeSkillDetector = codexSkillInjectionPort{}
+)
+
 const defaultSkillManifestTokenBudget = 3000
 
-// codexSkillInjectionPort 实现 contract.SkillInjectionPort。
-//
-// Codex CLI 当前版本没有类似 Claude Code 的 `.claude/skills/` 自动加载机制，
-// 所有 skill body 都走本 harness 的 buildSkillPromptInput 注入。因此
-// DetectNativeSkills 返回空切片，Resolver 不会把任何 skill 强制降级为 None。
-//
-// 若未来 Codex 推出类似 agents-md 外的原生 skill 路径（P20 调研时官方文档
-// 已有 Skills 设计），在此扩展即可，不需要改 Resolver 消费侧。
 type codexSkillInjectionPort struct{}
 
-// NewSkillInjectionPort 构造 codex provider 的 Port 实例。
-//
-// Phase 7 集成点：driver / fx module 可注入这个 Port 给 turn resolver /
-// prompt catalog provider 消费。目前返回值类型是 interface，便于单测 mock。
-func NewSkillInjectionPort() contract.SkillInjectionPort {
+func NewSkillInjectionPort() codexSkillInjectionPort {
 	return codexSkillInjectionPort{}
 }
 
-// DetectNativeSkills 见 contract.SkillInjectionPort 接口文档。
-// codexapp 返回空切片：没有原生 skill 机制。
+func (codexSkillInjectionPort) InjectL1Manifest(baseInstructions, manifest string) string {
+	baseInstructions = strings.TrimSpace(baseInstructions)
+	manifest = strings.TrimSpace(manifest)
+	switch {
+	case baseInstructions == "":
+		return manifest
+	case manifest == "":
+		return baseInstructions
+	default:
+		return baseInstructions + "\n\n" + manifest
+	}
+}
+
+func (codexSkillInjectionPort) BuildTurnSection(refs []dto.SkillRef) (string, bool) {
+	item, ok := buildSkillPromptInput(refs)
+	if !ok {
+		return "", false
+	}
+	return strings.TrimSpace(item.Text), true
+}
+
 func (codexSkillInjectionPort) DetectNativeSkills(_ string) []string {
 	return nil
 }
 
-// ReservedTokens 见 contract.SkillInjectionPort 接口文档。
 func (codexSkillInjectionPort) ReservedTokens() int {
 	return defaultSkillManifestTokenBudget
+}
+
+func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {
+	parts := make([]string, 0, 2)
+	if list := buildSkillNameList(skills); list != "" {
+		parts = append(parts, list)
+	}
+	if blocks := buildSkillBlocks(skills); len(blocks) > 0 {
+		parts = append(parts, strings.Join(blocks, "\n\n"))
+	}
+	if len(parts) == 0 {
+		return turnInputItem{}, false
+	}
+	return newTextTurnInput("text", strings.Join(parts, "\n\n")), true
+}
+
+func buildSkillNameList(skills []dto.SkillRef) string {
+	lines := []string{"skills:"}
+	for _, skill := range skills {
+		name := strings.TrimSpace(skill.Name)
+		if name == "" || skill.Mode.Effective() == dto.SkillModeNone {
+			continue
+		}
+		lines = append(lines, "- "+name)
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildSkillBlocks(skills []dto.SkillRef) []string {
+	blocks := make([]string, 0, len(skills))
+	for _, skill := range skills {
+		switch skill.Mode.Effective() {
+		case dto.SkillModeFull:
+			if block, ok := skillpkg.RenderSkillBlock(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode)); ok {
+				blocks = append(blocks, block)
+			}
+		case dto.SkillModeSummary:
+			if block, ok := renderLegacySummarySkillBlock(skill.Name, skill.Summary); ok {
+				blocks = append(blocks, block)
+			}
+		}
+	}
+	return blocks
+}
+
+func renderLegacySummarySkillBlock(name, summary string) (string, bool) {
+	name = strings.TrimSpace(name)
+	summary = strings.TrimSpace(summary)
+	if _, ok := skillpkg.RenderSkillBlock(name, "", summary, string(dto.SkillModeSummary)); !ok {
+		return "", false
+	}
+	return fmt.Sprintf("[skill:%s]\n摘要: %s\n使用方式: Call skill_expand_body(%q) for full body", name, summary, name), true
 }

@@ -12,6 +12,7 @@ import (
 func TestBuildTurnStartParams(t *testing.T) {
 	t.Parallel()
 
+	skillText := "skills:\n- planner\n- reviewer\n\n[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]"
 	req := dto.TurnRequest{
 		Inputs: []dto.InputItem{
 			{Type: "text", Content: "hello"},
@@ -20,6 +21,7 @@ func TestBuildTurnStartParams(t *testing.T) {
 			{Name: "planner", Prompt: "use the planner"},
 			{Name: " reviewer "},
 		},
+		SkillPrompt: skillText,
 		TurnAssembly: dto.TurnAssembly{UserContext: map[string]string{
 			"currentDate": "Today's date is 2026-04-15.",
 		}},
@@ -29,8 +31,6 @@ func TestBuildTurnStartParams(t *testing.T) {
 	}
 
 	got := buildTurnStartParams("thread-1", req)
-	// P20.2 §4：name-list 与 block 同时出现；reviewer 没 body 也不会再被 silent drop。
-	skillText := "skills:\n- planner\n- reviewer\n\n[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]"
 	want := turnStartParams{
 		ThreadID:             "thread-1",
 		Input:                []turnInputItem{{Type: "text", Text: skillText, Content: skillText}, {Type: "text", Text: "hello", Content: "hello"}},
@@ -103,6 +103,7 @@ func testAttachmentTime() time.Time {
 func TestBuildTurnSteerParams(t *testing.T) {
 	t.Parallel()
 
+	skillText := "skills:\n- planner\n- reviewer\n\n[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]"
 	req := dto.SteerRequest{
 		ExpectedTurnID: " turn-1 ",
 		Inputs: []dto.InputItem{
@@ -112,6 +113,7 @@ func TestBuildTurnSteerParams(t *testing.T) {
 			{Name: "planner", Prompt: "use the planner"},
 			{Name: " reviewer "},
 		},
+		SkillPrompt: skillText,
 		TurnAssembly: dto.TurnAssembly{UserContext: map[string]string{
 			"currentDate": "Today's date is 2026-04-15.",
 		}},
@@ -119,8 +121,6 @@ func TestBuildTurnSteerParams(t *testing.T) {
 	}
 
 	got := buildTurnSteerParams("thread-1", req)
-	// P20.2 §4：name-list 与 block 同时出现。
-	skillText := "skills:\n- planner\n- reviewer\n\n[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]"
 	want := map[string]any{
 		"threadId":             "thread-1",
 		"expectedTurnId":       "turn-1",

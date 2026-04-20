@@ -13,9 +13,7 @@ import (
 	"time"
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
@@ -27,13 +25,17 @@ var Module = fx.Module("provider.codexapp",
 		NewDriverFactory,
 		fx.Annotate(provideContractDriverFactory, fx.ResultTags(`group:"drivers"`)),
 		fx.Annotate(provideDreamExecutorProvider, fx.ResultTags(`group:"dream_executors"`)),
-		// P20.1 Phase 10: codexapp 无原生 skill 机制，但仍注册空实现进聚合 group
-		// ——保持 detector 成员不因 provider 组合误差而缺失。
-		fx.Annotate(NewSkillInjectionPort, fx.ResultTags(promptpkg.SkillInjectionPortGroupTag)),
+		fx.Annotate(NewSkillInjectionPort, fx.As(new(contract.SkillInjectionPort)), fx.ResultTags(promptpkg.SkillInjectionPortGroupTag)),
+		fx.Annotate(newSkillInjectionPortDescriptor, fx.ResultTags(contract.SkillInjectionDescriptorGroupTag)),
 	),
 	fx.Invoke(RegisterTranslators),
 	fx.Invoke(spawnToolbridgePeers),
 )
+
+func newSkillInjectionPortDescriptor() contract.SkillInjectionPortDescriptor {
+	descriptor, _ := contract.NewSkillInjectionPortDescriptor("codex", NewSkillInjectionPort())
+	return descriptor
+}
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {
 	if factory == nil {
@@ -232,49 +234,6 @@ func cleanResidualProcesses() {
 		pkglogger.Info("server_manager: cleaned residual app-server processes at shutdown",
 			"killed", killed)
 	}
-}
-
-// buildSkillPromptInput 按 P20.1 Phase 4 规格渲染 skill 注入块，并补 P20.2 §4
-// 兜底：non-None skill 始终以 `skills:\n- name` 名单形式出现在模型上下文。
-//
-// 两段结构（与 claudecli buildSkillSection 对称）：
-//  1. name-list：所有 Mode.Effective()!=None 的 skill 名都会列出，即便
-//     RenderSkillBlock 因 Prompt/Summary 为空而返回 ok=false —— 避免手动
-//     选中的 skill 在 PrepareTurn 未完成 hydrate 时被 provider silent drop。
-//  2. block-sections：按 RenderSkillBlock 渲染的成对 header/footer 块：
-//     - Mode=Full (含 legacy 空值) → [skill:name::full@v1]\n<Prompt>\n[/skill:name::full@v1]
-//     - Mode=Summary → [skill:name::summary@v1]\n<Summary>\n→ Call skill_expand_body("name") for full body\n[/skill:name::summary@v1]
-//     - Mode=None / 非法值 → 跳过（与 name-list 一起剥离，对齐 claudecli buildSkillList）。
-func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {
-	listLines := make([]string, 0, len(skills)+1)
-	listLines = append(listLines, "skills:")
-	sections := make([]string, 0, len(skills))
-	for _, skill := range skills {
-		name := strings.TrimSpace(skill.Name)
-		if name == "" {
-			continue
-		}
-		// Mode.Effective()：None/invalid 既不进 name-list 也不进 block，
-		// 保持与 claudecli session_turn.go:339 buildSkillList 语义一致。
-		if skill.Mode.Effective() == dto.SkillModeNone {
-			continue
-		}
-		listLines = append(listLines, "- "+name)
-		if block, ok := skillpkg.RenderSkillBlock(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode)); ok {
-			sections = append(sections, block)
-		}
-	}
-	parts := make([]string, 0, 2)
-	if len(listLines) > 1 {
-		parts = append(parts, strings.Join(listLines, "\n"))
-	}
-	if len(sections) > 0 {
-		parts = append(parts, strings.Join(sections, "\n\n"))
-	}
-	if len(parts) == 0 {
-		return turnInputItem{}, false
-	}
-	return newTextTurnInput("text", strings.Join(parts, "\n\n")), true
 }
 
 func resolveLocalTurnID(requested, fallback string) string {

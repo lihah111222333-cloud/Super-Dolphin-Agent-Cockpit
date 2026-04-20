@@ -124,17 +124,41 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions:      "assembled base",
 			DeveloperInstructions: "assembled dev",
+			Snapshot: dto.PromptAssemblySnapshot{
+				SectionSnapshot: map[string]string{contract.DynamicSectionSkillCatalog: "skills:\n- planner"},
+			},
 		},
 		Config: map[string]any{"modelProvider": "openai"},
 	})
-	if params.BaseInstructions != "assembled base" {
-		t.Fatalf("BaseInstructions = %q, want assembled base", params.BaseInstructions)
+	if params.BaseInstructions != "assembled base\n\nskills:\n- planner" {
+		t.Fatalf("BaseInstructions = %q, want merged skill manifest", params.BaseInstructions)
 	}
 	if params.DeveloperInstructions != "assembled dev" {
 		t.Fatalf("DeveloperInstructions = %q, want assembled dev", params.DeveloperInstructions)
 	}
 	if params.Cwd != "/repo" || params.Model != "gpt-5.4" || params.ModelProvider != "openai" {
 		t.Fatalf("unexpected params = %#v", params)
+	}
+}
+
+func TestStartAssemblyInstructionsFallsBackToResolvedSectionsSkillCatalog(t *testing.T) {
+	t.Parallel()
+
+	base, developer := startAssemblyInstructions(dto.StartSessionRequest{
+		Instructions: " legacy base ",
+		StartAssembly: dto.StartAssembly{
+			ResolvedSections: []dto.ResolvedPromptSection{{
+				Name:    contract.DynamicSectionSkillCatalog,
+				Content: "skills:\n- reviewer",
+			}},
+		},
+		Config: map[string]any{"developerInstructions": " dev "},
+	})
+	if base != "legacy base\n\nskills:\n- reviewer" {
+		t.Fatalf("base = %q, want resolved-section manifest appended", base)
+	}
+	if developer != "dev" {
+		t.Fatalf("developer = %q, want dev", developer)
 	}
 }
 

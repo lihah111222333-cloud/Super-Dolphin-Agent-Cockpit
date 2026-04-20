@@ -23,7 +23,7 @@ func TestBuildSkillPromptInput_FullMode(t *testing.T) {
 	}
 }
 
-// TestBuildSkillPromptInput_SummaryMode Summary 模式产出带 skill_expand_body 指针的块。
+// TestBuildSkillPromptInput_SummaryMode Summary 模式仍保留 legacy marker，直到 p20.9 读端先发。
 func TestBuildSkillPromptInput_SummaryMode(t *testing.T) {
 	skills := []dto.SkillRef{
 		{Name: "rpc-tracing", Mode: dto.SkillModeSummary, Summary: "trace bus/router flow"},
@@ -32,14 +32,9 @@ func TestBuildSkillPromptInput_SummaryMode(t *testing.T) {
 	if !ok {
 		t.Fatalf("summary mode should inject")
 	}
-	if !strings.Contains(item.Text, "[skill:rpc-tracing::summary@v1]") {
-		t.Fatalf("missing summary header: %q", item.Text)
-	}
-	if !strings.Contains(item.Text, `skill_expand_body("rpc-tracing")`) {
-		t.Fatalf("summary block must include skill_expand_body pointer: %q", item.Text)
-	}
-	if !strings.Contains(item.Text, "[/skill:rpc-tracing::summary@v1]") {
-		t.Fatalf("missing summary footer: %q", item.Text)
+	want := "skills:\n- rpc-tracing\n\n[skill:rpc-tracing]\n摘要: trace bus/router flow\n使用方式: Call skill_expand_body(\"rpc-tracing\") for full body"
+	if item.Text != want {
+		t.Fatalf("summary mode output:\ngot  %q\nwant %q", item.Text, want)
 	}
 }
 
@@ -77,7 +72,7 @@ func TestBuildSkillPromptInput_MixedModes(t *testing.T) {
 	if !ok {
 		t.Fatalf("at least 2 skills should inject")
 	}
-	for _, must := range []string{"[skill:alpha::full@v1]", "[skill:delta::summary@v1]"} {
+	for _, must := range []string{"[skill:alpha::full@v1]", "[skill:delta]", `skill_expand_body("delta")`} {
 		if !strings.Contains(item.Text, must) {
 			t.Fatalf("missing %q in output: %q", must, item.Text)
 		}
@@ -126,9 +121,9 @@ func TestBuildSkillPromptInput_NameListFallbackWhenBodyMissing(t *testing.T) {
 // None 与非法 mode 的 skill 既不进 name-list也不进 block；仅 Full/Summary skill 出现在名单里。
 func TestBuildSkillPromptInput_NameListFallbackSkipsNoneAndInvalid(t *testing.T) {
 	skills := []dto.SkillRef{
-		{Name: "visible"},                          // legacy Full → name-list ok
-		{Name: "hidden", Mode: dto.SkillModeNone},   // 剩 name-list 也要跳
-		{Name: "bogus", Mode: "banana"},             // invalid 同理
+		{Name: "visible"},                         // legacy Full → name-list ok
+		{Name: "hidden", Mode: dto.SkillModeNone}, // 剩 name-list 也要跳
+		{Name: "bogus", Mode: "banana"},           // invalid 同理
 		{Name: "sumonly", Mode: dto.SkillModeSummary, Summary: "s"},
 	}
 	item, ok := buildSkillPromptInput(skills)
@@ -151,8 +146,8 @@ func TestBuildSkillPromptInput_AllSkippedReturnsFalse(t *testing.T) {
 	skills := []dto.SkillRef{
 		{Name: "a", Mode: dto.SkillModeNone},
 		{Name: "b", Mode: "banana"},
-		{Name: ""},     // 空 name
-		{Name: "   "},  // trim 后空
+		{Name: ""},    // 空 name
+		{Name: "   "}, // trim 后空
 	}
 	_, ok := buildSkillPromptInput(skills)
 	if ok {
@@ -175,6 +170,38 @@ func TestCodexSkillInjectionPort_DetectNativeSkills_AlwaysEmpty(t *testing.T) {
 	}
 	if got := port.DetectNativeSkills(t.TempDir()); got != nil {
 		t.Fatalf("real tmp dir should also return nil, got %v", got)
+	}
+}
+
+func TestCodexSkillInjectionPort_BuildTurnSectionUsesLegacySummaryMarkerAndNameListFallback(t *testing.T) {
+	port := NewSkillInjectionPort()
+	got, ok := port.BuildTurnSection([]dto.SkillRef{
+		{Name: "planner", Prompt: "plan before coding"},
+		{Name: "reviewer", Mode: dto.SkillModeSummary, Summary: "review the diff"},
+		{Name: "silent", Mode: dto.SkillModeNone, Prompt: "hidden"},
+	})
+	if !ok {
+		t.Fatal("BuildTurnSection() ok = false, want true")
+	}
+	for _, want := range []string{
+		"skills:\n- planner\n- reviewer",
+		"[skill:planner::full@v1]",
+		"[skill:reviewer]\n摘要: review the diff",
+		`skill_expand_body("reviewer")`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("BuildTurnSection() missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "silent") {
+		t.Fatalf("BuildTurnSection() should skip none-mode skill, got %q", got)
+	}
+}
+
+func TestCodexSkillInjectionPort_InjectL1ManifestAppendsManifest(t *testing.T) {
+	port := NewSkillInjectionPort()
+	if got := port.InjectL1Manifest("base instructions", "skills manifest"); got != "base instructions\n\nskills manifest" {
+		t.Fatalf("InjectL1Manifest() = %q", got)
 	}
 }
 

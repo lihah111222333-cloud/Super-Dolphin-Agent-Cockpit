@@ -37,7 +37,7 @@ type turnStartResult struct {
 
 func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams {
 	selectedSkills := selectedSkillNames(req.Skills)
-	inputs := turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly)
+	inputs := turnInputsFromRequest(req.Inputs, req.TurnAssembly, req.SkillPrompt)
 	return turnStartParams{
 		ThreadID:             threadID,
 		Input:                inputs,
@@ -53,7 +53,7 @@ func buildTurnSteerParams(threadID string, req dto.SteerRequest) map[string]any 
 	params := map[string]any{
 		"threadId":       threadID,
 		"expectedTurnId": strings.TrimSpace(req.ExpectedTurnID),
-		"input":          turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly),
+		"input":          turnInputsFromRequest(req.Inputs, req.TurnAssembly, req.SkillPrompt),
 	}
 	if selectedSkills := selectedSkillNames(req.Skills); len(selectedSkills) > 0 {
 		params["selectedSkills"] = selectedSkills
@@ -74,10 +74,10 @@ func selectedSkillNames(skills []dto.SkillRef) []string {
 	return selected
 }
 
-func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assembly dto.TurnAssembly) []turnInputItem {
+func turnInputsFromRequest(inputs []dto.InputItem, assembly dto.TurnAssembly, skillPrompt string) []turnInputItem {
 	items := make([]turnInputItem, 0, len(inputs)+len(assembly.Attachments)+3)
-	if skillPrompt, ok := buildSkillPromptInput(skills); ok {
-		items = append(items, skillPrompt)
+	if prompt := strings.TrimSpace(skillPrompt); prompt != "" {
+		items = append(items, newTextTurnInput("text", prompt))
 	}
 	// NOTE: system-reminder (currentDate, runtimeExtras) and SystemContext (git status)
 	// are now injected once via baseInstructions in thread/start.

@@ -236,8 +236,8 @@ func trimInjectedLSPHint(text string) string {
 	return text
 }
 
-// trimInjectedSkillBlock 委托给共享包。P20 Phase 3 统一两家 provider 的识别逻辑，
-// 日后新增格式（如 Phase 4 的 [skill:name::mode@v1]）只需在 rollout_markers.go 中升级。
+// trimInjectedSkillBlock 走 shared rollout marker helper，双读 legacy + v1。
+// v1 缺闭合时 fail-open 保留原文，避免误删用户输入。
 func trimInjectedSkillBlock(text string) string {
 	return skillpkg.TrimInjectedSkillBlocks(text)
 }
