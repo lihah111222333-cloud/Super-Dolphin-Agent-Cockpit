@@ -34,13 +34,17 @@
 
 /* --- Panel toolbar (search + refresh) --- */
 
+/* Sit inline with the panel title on the same 52px row. Do NOT wrap —
+ * items shrink instead so the search box stays flexible. */
 .memory-center-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
-  width: 100%;
+  flex-wrap: nowrap;
   margin-left: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
 }
 
 .memory-center-toolbar-spacer {
@@ -51,8 +55,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  flex: 0 1 260px;
-  min-width: 160px;
+  flex: 1 1 240px;
+  min-width: 120px;
+  max-width: 320px;
 }
 
 .memory-center-search-icon {
@@ -591,6 +596,19 @@
   .memory-center-section {
     top: -8px;
   }
+
+  .memory-center-search {
+    max-width: 100%;
+    flex: 1 1 140px;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Drop the search box from the header on very narrow screens so the
+   * title stays on one line with the action buttons. */
+  .memory-center-search {
+    display: none;
+  }
 }
 
 /* sr-only for preserving full-path text content (testids / screen readers) */
@@ -754,4 +772,21 @@
 /* Styled "memory system is off" banner. */
 .memory-system-off {
   font-size: 12px;
+}
+
+/* Keep the panel title and toolbar on the same row even when the title is
+ * short enough to collapse and when cards below are tall. */
+#page-memory-center .panel-header,
+#page-shared-files .panel-header {
+  flex-wrap: nowrap;
+}
+
+#page-memory-center .ph-text,
+#page-shared-files .ph-text {
+  flex-shrink: 0;
+}
+
+#page-memory-center .ph-text h2,
+#page-shared-files .ph-text h2 {
+  white-space: nowrap;
 }
