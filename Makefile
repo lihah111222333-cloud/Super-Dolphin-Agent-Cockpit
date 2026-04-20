@@ -46,8 +46,10 @@ run-plain:
 # want memory off, e.g. 'make run-agent-terminal-debug ENABLE_MEMORY_SYSTEM=0').
 ENABLE_MEMORY_SYSTEM ?= 1
 ENABLE_MEMORY_TOOLS ?= 1
+MULTI_AGENT_MEMORY_FEATURE_TEAMMEM ?= 1
 export ENABLE_MEMORY_SYSTEM
 export ENABLE_MEMORY_TOOLS
+export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM
 
 run-agent-terminal-debug:
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
