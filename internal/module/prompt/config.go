@@ -14,7 +14,9 @@ const (
 	envEnableSystemContextCacheBreaker = "ENABLE_PROMPT_SYSTEM_CONTEXT_CACHE_BREAKER"
 	envClaudeSimple                    = "CLAUDE_CODE_SIMPLE"
 	// P20.1 Phase 10 — skill progressive disclosure 灰度开关与预算。
-	// 默认关闭 (ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false) 等同回滚语义：
+	// 默认开启：侧边栏 launch skill 选择（LaunchSkillNames / ForceLaunchSkills）
+	// 需要 SkillCatalogProvider 被注册才能到达 BaseInstructions。
+	// 显式设 ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false 可回到旧语义：
 	// SkillCatalogProvider 不注入，skill_catalog dynamic slot 渲染为空；
 	// 上游旧 skill_expand_body / skill_read_resource 工具仍可通过 skill.Service 调用。
 	envEnableSkillProgressiveDisclosure = "ENABLE_SKILL_PROGRESSIVE_DISCLOSURE"
@@ -48,8 +50,9 @@ func NewConfig(_ *platformconfig.Config) *Config {
 		EnableRegistry:                  parseBoolEnv(envEnablePromptRegistry, false),
 		EnableAssembly:                  parseBoolEnv(envEnablePromptAssembly, false),
 		EnableSystemContextCacheBreaker: parseBoolEnv(envEnableSystemContextCacheBreaker, false),
-		// Phase 10 defaults：灰度默认关闭；meta-instructions 默认开启（Phase 9 行为）。
-		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, false),
+		// Phase 10 defaults：灰度默认开启，保证侧边栏的 launch skill 选择能真正落地到
+		// BaseInstructions；meta-instructions 默认开启（Phase 9 行为）。
+		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, true),
 		SkillCatalogTokenBudget:          parseIntEnv(envSkillCatalogTokenBudget, 0),
 		EmitSkillCatalogMetaInstructions: parseBoolEnv(envSkillCatalogMetaInstructions, true),
 		SkillWriterFormat:                parseSkillWriterFormat(envSkillWriterFormat, "legacy"),
