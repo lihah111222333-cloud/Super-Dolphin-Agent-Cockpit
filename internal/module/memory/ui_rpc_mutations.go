@@ -49,6 +49,12 @@ type uiAgentMemorySaveParams struct {
 	Content   string `json:"content"`
 }
 
+type uiAgentMemoryDeleteParams struct {
+	CWD       string `json:"cwd,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+	AgentType string `json:"agentType"`
+}
+
 type uiSharedFileGetParams struct {
 	Path string `json:"path"`
 }
@@ -111,6 +117,12 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 		}),
 		"ui/memory/agent/save": rpc.StrictHandler(func(ctx context.Context, req uiAgentMemorySaveParams) (UIAgentMemoryDetail, error) {
 			return saveUIAgentMemory(ctx, p, req)
+		}),
+		"ui/memory/agent/delete": rpc.StrictHandler(func(ctx context.Context, req uiAgentMemoryDeleteParams) (map[string]any, error) {
+			if err := deleteUIAgentMemory(ctx, p, req); err != nil {
+				return nil, err
+			}
+			return map[string]any{"deleted": true}, nil
 		}),
 		"ui/memory/shared-file/get": rpc.StrictHandler(func(ctx context.Context, req uiSharedFileGetParams) (UISharedFileDetail, error) {
 			return getUISharedFile(ctx, p, req)
@@ -213,6 +225,32 @@ func getUIAgentMemory(ctx context.Context, deps memoryHandlerDeps, req uiAgentMe
 		return UIAgentMemoryDetail{}, err
 	}
 	return detail, nil
+}
+
+func deleteUIAgentMemory(ctx context.Context, deps memoryHandlerDeps, req uiAgentMemoryDeleteParams) error {
+	manager, scope, err := resolveUIAgentManager(deps.Service, req.CWD, req.Scope)
+	if err != nil {
+		return err
+	}
+	agentType := strings.TrimSpace(req.AgentType)
+	if agentType == "" {
+		return errors.New("agentType is required")
+	}
+	entrypoint, err := manager.GetAgentMemoryEntrypoint(agentType, scope)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(entrypoint); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	// Best-effort: drop the now-empty agent-type directory so the scope scan
+	// no longer surfaces the agent as an existing (empty) entry. Ignore errors
+	// here — the MEMORY.md file is already gone, which is the contract.
+	if agentDir, err := manager.GetAgentMemoryDir(agentType, scope); err == nil {
+		_ = os.Remove(agentDir)
+	}
+	invalidateAgentMemorySections(deps.Sections)
+	return nil
 }
 
 func saveUIAgentMemory(ctx context.Context, deps memoryHandlerDeps, req uiAgentMemorySaveParams) (UIAgentMemoryDetail, error) {
