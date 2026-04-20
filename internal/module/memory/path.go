@@ -456,3 +456,49 @@ func consolidationName(item ExtractedMemory, description string) string {
 	}
 	return "Dream note"
 }
+
+type MemoryType = shared.MemoryType
+
+const (
+	MemoryTypeUnknown   = shared.MemoryTypeUnknown
+	MemoryTypeUser      = shared.MemoryTypeUser
+	MemoryTypeFeedback  = shared.MemoryTypeFeedback
+	MemoryTypeProject   = shared.MemoryTypeProject
+	MemoryTypeReference = shared.MemoryTypeReference
+)
+
+var diskMemoryTypes = []MemoryType{
+	MemoryTypeUser,
+	MemoryTypeFeedback,
+	MemoryTypeProject,
+	MemoryTypeReference,
+}
+
+func ParseMemoryType(raw string) MemoryType { return shared.ParseMemoryType(raw) }
+func CanonicalName(raw string) string       { return shared.CanonicalName(raw) }
+
+type MemoryScope string
+
+const (
+	MemoryScopeUser    MemoryScope = "user"
+	MemoryScopeProject MemoryScope = "project"
+	MemoryScopeLocal   MemoryScope = "local"
+)
+
+type MemoryFrontmatter = shared.MemoryFrontmatter
+type MemoryEntry = shared.MemoryEntry
+type ParsedMemory = shared.ParsedMemory
+
+type SaveIntent struct {
+	Detected bool
+	Content  string
+	Type     MemoryType
+}
+
+func cloneMemoryType(t MemoryType) *MemoryType {
+	return shared.CloneMemoryType(t)
+}
+
+func normalizeStringSlice(values []string) []string {
+	return shared.NormalizeStringSlice(values)
+}
