@@ -80,6 +80,12 @@ func NewConfigHandlers(
 		"config/lspPromptHint/write": rpc.StrictHandler(func(ctx context.Context, p lspPromptHintWriteParams) (any, error) {
 			return writeLSPPromptHint(ctx, prefs, sharedFiles, p.Cwd, p.Hint)
 		}),
+		"config/builtinTools/read": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
+			return readBuiltinTools(ctx, prefs, p.Cwd)
+		}),
+		"config/builtinTools/write": rpc.StrictHandler(func(ctx context.Context, p builtinToolsWriteParams) (any, error) {
+			return writeBuiltinTool(ctx, prefs, p)
+		}),
 	}}
 }
 
