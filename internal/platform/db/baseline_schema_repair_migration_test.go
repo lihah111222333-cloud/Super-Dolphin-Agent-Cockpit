@@ -51,3 +51,18 @@ func TestBaselineSchemaRepairMigrationRebuildsConflictTargetConstraints(t *testi
 		"ADD CONSTRAINT workspace_run_files_run_key_relative_path_key",
 	})
 }
+
+func TestPromptIDSequenceRepairMigrationAttachesSequences(t *testing.T) {
+	t.Parallel()
+
+	assertMigrationContains(t, "0033_prompt_id_sequence_repair.sql", []string{
+		"pg_get_serial_sequence('public.prompt_templates', 'id') IS NULL",
+		"CREATE SEQUENCE IF NOT EXISTS public.prompt_templates_id_seq",
+		"ALTER COLUMN id SET DEFAULT nextval('public.prompt_templates_id_seq')",
+		"OWNED BY public.prompt_templates.id",
+		"pg_get_serial_sequence('public.prompt_versions', 'id') IS NULL",
+		"CREATE SEQUENCE IF NOT EXISTS public.prompt_versions_id_seq",
+		"ALTER COLUMN id SET DEFAULT nextval('public.prompt_versions_id_seq')",
+		"OWNED BY public.prompt_versions.id",
+	})
+}
