@@ -10,6 +10,8 @@ export const DataPage = {
     items: { type: Array, default: () => [] },
     emptyText: { type: String, default: '暂无数据' },
     fields: { type: Array, default: () => [] },
+    description: { type: String, default: '' },
+    tips: { type: Array, default: () => [] },
   },
   setup(props) {
     watch(
@@ -45,6 +47,16 @@ export const DataPage = {
         </div>
       </div>
       <div class="panel-body" :data-testid="'data-page-body-' + pageId">
+        <div
+          v-if="description || tips.length > 0"
+          class="data-card-vue data-page-intro-card"
+          :data-testid="'data-page-intro-' + pageId"
+        >
+          <div v-if="description" class="data-page-intro-text">{{ description }}</div>
+          <ul v-if="tips.length > 0" class="data-page-intro-list">
+            <li v-for="(tip, idx) in tips" :key="idx">{{ tip }}</li>
+          </ul>
+        </div>
         <div v-if="items.length === 0" class="empty-state" :data-testid="'data-page-empty-' + pageId">
           <div class="es-icon">{{ icon }}</div>
           <h3>{{ emptyText }}</h3>

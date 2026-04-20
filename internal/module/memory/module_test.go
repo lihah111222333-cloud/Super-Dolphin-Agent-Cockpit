@@ -147,7 +147,7 @@ func TestAutoDreamServiceExposesDreamTaskLifecycle(t *testing.T) {
 func TestConsolidationHandlerDispatch(t *testing.T) {
 	stub := &stubMemoryService{}
 	server := rpcpkg.NewServer(rpcpkg.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(NewMemoryHandlers(stub).Handlers)
+	server.Register(NewMemoryHandlers(memoryHandlerDeps{Service: stub}).Handlers)
 
 	raw, err := server.Dispatch(context.Background(), "memory/consolidate", json.RawMessage(`{}`))
 	if err != nil {

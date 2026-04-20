@@ -10,8 +10,9 @@ import (
 )
 
 type sharedFileQuerierStub struct {
-	getFn  func(context.Context, string) (sqlc.SharedFile, error)
-	listFn func(context.Context, sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error)
+	getFn    func(context.Context, string) (sqlc.SharedFile, error)
+	listFn   func(context.Context, sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error)
+	deleteFn func(context.Context, string) (int64, error)
 }
 
 func (s *sharedFileQuerierStub) GetSharedFile(ctx context.Context, path string) (sqlc.SharedFile, error) {
@@ -26,6 +27,13 @@ func (s *sharedFileQuerierStub) ListSharedFiles(ctx context.Context, arg sqlc.Li
 		return s.listFn(ctx, arg)
 	}
 	return nil, nil
+}
+
+func (s *sharedFileQuerierStub) DeleteSharedFile(ctx context.Context, path string) (int64, error) {
+	if s.deleteFn != nil {
+		return s.deleteFn(ctx, path)
+	}
+	return 0, nil
 }
 
 func TestGetMapsRow(t *testing.T) {
@@ -121,5 +129,40 @@ func TestListWrapsQuerierError(t *testing.T) {
 	_, err := s.List(context.Background(), ListFilter{})
 	if err == nil || !errors.Is(err, sentinel) {
 		t.Fatalf("List() err = %v, want wrap of sentinel", err)
+	}
+}
+
+func TestDeleteForwardsPathAndReturnsCount(t *testing.T) {
+	t.Parallel()
+	var captured string
+	s := &store{q: &sharedFileQuerierStub{
+		deleteFn: func(_ context.Context, path string) (int64, error) {
+			captured = path
+			return 1, nil
+		},
+	}}
+	count, err := s.Delete(context.Background(), "/docs/readme.md")
+	if err != nil {
+		t.Fatalf("Delete() unexpected error: %v", err)
+	}
+	if captured != "/docs/readme.md" {
+		t.Fatalf("Delete() forwarded path = %q", captured)
+	}
+	if count != 1 {
+		t.Fatalf("Delete() count = %d, want 1", count)
+	}
+}
+
+func TestDeleteWrapsQuerierError(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("db gone")
+	s := &store{q: &sharedFileQuerierStub{
+		deleteFn: func(context.Context, string) (int64, error) {
+			return 0, sentinel
+		},
+	}}
+	_, err := s.Delete(context.Background(), "x")
+	if err == nil || !errors.Is(err, sentinel) {
+		t.Fatalf("Delete() err = %v, want wrap of sentinel", err)
 	}
 }

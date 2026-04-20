@@ -12,6 +12,17 @@ type Reader interface {
 	List(ctx context.Context, filter ListFilter) ([]SharedFile, error)
 }
 
+// Deleter removes a shared file by path. Returns the number of rows deleted.
+type Deleter interface {
+	Delete(ctx context.Context, path string) (int64, error)
+}
+
+// Store combines read and mutation access to shared files.
+type Store interface {
+	Reader
+	Deleter
+}
+
 type ListFilter struct {
 	Prefix string
 	Limit  int32

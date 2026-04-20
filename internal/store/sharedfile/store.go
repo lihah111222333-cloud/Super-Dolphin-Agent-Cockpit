@@ -10,13 +10,14 @@ import (
 type querier interface {
 	GetSharedFile(ctx context.Context, path string) (sqlc.SharedFile, error)
 	ListSharedFiles(ctx context.Context, arg sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error)
+	DeleteSharedFile(ctx context.Context, path string) (int64, error)
 }
 
 type store struct {
 	q querier
 }
 
-func NewStore(q *sqlc.Queries) Reader { return &store{q: q} }
+func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	row, err := s.q.GetSharedFile(ctx, path)
@@ -25,6 +26,14 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	}
 	mapped := fromSQLCRow(row)
 	return &mapped, nil
+}
+
+func (s *store) Delete(ctx context.Context, path string) (int64, error) {
+	count, err := s.q.DeleteSharedFile(ctx, path)
+	if err != nil {
+		return 0, platformdb.WrapStoreError(err, "delete", "shared_file")
+	}
+	return count, nil
 }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {

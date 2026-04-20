@@ -77,6 +77,8 @@ vi.mock('./pages/SkillsPage.js', () => ({ SkillsPage: { name: 'SkillsPage' } }))
 vi.mock('./pages/TasksPage.js', () => ({ TasksPage: { name: 'TasksPage' } }));
 vi.mock('./pages/CommandsPage.js', () => ({ CommandsPage: { name: 'CommandsPage' } }));
 vi.mock('./pages/SettingsPage.ts', () => ({ SettingsPage: { name: 'SettingsPage' } }));
+vi.mock('./pages/MemoryCenterPage.js', () => ({ MemoryCenterPage: { name: 'MemoryCenterPage' } }));
+vi.mock('./pages/SharedFilesPage.js', () => ({ SharedFilesPage: { name: 'SharedFilesPage' } }));
 
 import { AppRoot } from './app.js';
 
