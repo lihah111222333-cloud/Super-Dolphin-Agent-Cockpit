@@ -12,7 +12,8 @@ import (
 type RegistryParams struct {
 	fx.In
 
-	Drivers []contract.DriverFactory `group:"drivers"`
+	Drivers    []contract.DriverFactory                `group:"drivers"`
+	SkillPorts []contract.SkillInjectionPortDescriptor `group:"skill_injection_descriptors"`
 }
 
 type dreamExecutorParams struct {
@@ -25,6 +26,7 @@ var Module = fx.Module("provider.unified",
 	fx.Provide(
 		NewEventDispatcher,
 		NewRegistry,
+		provideSkillInjectionResolver,
 		fx.Annotate(NewClient, fx.As(new(thread.SessionStarter))),
 		NewSessionManager,
 		fx.Annotate(NewSessionProvider, fx.As(new(thread.SessionProvider))),
@@ -38,6 +40,10 @@ var Module = fx.Module("provider.unified",
 
 func provideDreamExecutor(p dreamExecutorParams) contract.DreamExecutor {
 	return NewDreamExecutor(p.Providers)
+}
+
+func provideSkillInjectionResolver(registry *Registry) contract.SkillInjectionPortResolver {
+	return registry
 }
 
 func registerSessionShutdown(lc fx.Lifecycle, sessions *SessionManager) {

@@ -9,7 +9,8 @@ import (
 )
 
 type Registry struct {
-	drivers map[string]contract.DriverFactory
+	drivers    map[string]contract.DriverFactory
+	skillPorts map[string]contract.SkillInjectionPort
 }
 
 func NewRegistry(params RegistryParams) *Registry {
@@ -21,7 +22,15 @@ func NewRegistry(params RegistryParams) *Registry {
 		}
 		drivers[name] = factory
 	}
-	return &Registry{drivers: drivers}
+	skillPorts := make(map[string]contract.SkillInjectionPort, len(params.SkillPorts))
+	for _, descriptor := range params.SkillPorts {
+		name := normalizeProviderName(descriptor.Name)
+		if name == "" || descriptor.Port == nil {
+			continue
+		}
+		skillPorts[name] = descriptor.Port
+	}
+	return &Registry{drivers: drivers, skillPorts: skillPorts}
 }
 
 func (r *Registry) Resolve(provider string) (contract.Driver, error) {
@@ -49,6 +58,17 @@ func (r *Registry) Names() []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+func (r *Registry) ResolveSkillInjectionPort(provider string) (contract.SkillInjectionPort, bool) {
+	if r == nil {
+		return nil, false
+	}
+	port, ok := r.skillPorts[normalizeProviderName(provider)]
+	if !ok || port == nil {
+		return nil, false
+	}
+	return port, true
 }
 
 func normalizeProviderName(name string) string {

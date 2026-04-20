@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
@@ -46,3 +47,38 @@ func TestRegistry_Names(t *testing.T) {
 		t.Fatalf("unexpected names: %v", got)
 	}
 }
+
+func TestRegistry_ResolveSkillInjectionPort_NormalizesProviderName(t *testing.T) {
+	port := stubSkillInjectionPort{}
+	registry := unified.NewRegistry(unified.RegistryParams{
+		SkillPorts: []contract.SkillInjectionPortDescriptor{{Name: " Claude ", Port: port}},
+	})
+	got, ok := registry.ResolveSkillInjectionPort(" claude ")
+	if !ok || got != port {
+		t.Fatalf("ResolveSkillInjectionPort() = (%v, %v), want (%v, true)", got, ok, port)
+	}
+}
+
+func TestRegistry_ResolveSkillInjectionPort_MissingPortFallback(t *testing.T) {
+	registry := unified.NewRegistry(unified.RegistryParams{
+		SkillPorts: []contract.SkillInjectionPortDescriptor{{Name: "codex", Port: nil}},
+	})
+	if got, ok := registry.ResolveSkillInjectionPort("codex"); ok || got != nil {
+		t.Fatalf("ResolveSkillInjectionPort(codex) = (%v, %v), want (nil, false)", got, ok)
+	}
+	if got, ok := registry.ResolveSkillInjectionPort("missing"); ok || got != nil {
+		t.Fatalf("ResolveSkillInjectionPort(missing) = (%v, %v), want (nil, false)", got, ok)
+	}
+}
+
+type stubSkillInjectionPort struct{}
+
+func (stubSkillInjectionPort) InjectL1Manifest(baseInstructions, manifest string) string {
+	return baseInstructions + manifest
+}
+
+func (stubSkillInjectionPort) BuildTurnSection([]dto.SkillRef) (string, bool) {
+	return "", false
+}
+
+func (stubSkillInjectionPort) ReservedTokens() int { return 0 }
