@@ -23,6 +23,14 @@ export const SkillsPage = {
   emits: ['refresh-skills'],
   setup(props, { emit }) {
     const searchQuery = ref('');
+    const scopeFilter = ref('all');
+
+    const scopeForTrust = (trust) => {
+      const value = (trust || '').toString().trim().toLowerCase();
+      if (value === 'user' || value === 'system') return 'system';
+      if (value === 'signed') return 'signed';
+      return 'project';
+    };
 
     const skillCards = computed(() => {
       const list = Array.isArray(props.skills) ? props.skills : [];
@@ -32,15 +40,34 @@ export const SkillsPage = {
         description: (item?.description || '').toString(),
         summary: (item?.summary || item?.description || '').toString(),
         trust: (item?.trust || '').toString(),
+        scope: scopeForTrust(item?.trust),
         triggerWords: Array.isArray(item?.trigger_words) ? item.trigger_words : [],
         forceWords: Array.isArray(item?.force_words) ? item.force_words : [],
       }));
     });
 
+    const scopeCounts = computed(() => {
+      const counts = { all: 0, project: 0, system: 0, signed: 0 };
+      skillCards.value.forEach((item) => {
+        counts.all += 1;
+        if (item.scope === 'system') counts.system += 1;
+        else if (item.scope === 'signed') counts.signed += 1;
+        else counts.project += 1;
+      });
+      return counts;
+    });
+
+    const scopedSkillCards = computed(() => {
+      const scope = (scopeFilter.value || 'all').toString().toLowerCase();
+      if (scope === 'all') return skillCards.value;
+      return skillCards.value.filter((item) => item.scope === scope);
+    });
+
     const filteredSkillCards = computed(() => {
+      const baseList = scopedSkillCards.value;
       const keyword = (searchQuery.value || '').toString().trim().toLowerCase();
-      if (!keyword) return skillCards.value;
-      return skillCards.value.filter((item) => {
+      if (!keyword) return baseList;
+      return baseList.filter((item) => {
         const haystack = [
           item.name,
           item.description,
@@ -87,6 +114,8 @@ export const SkillsPage = {
     });
     return {
       searchQuery,
+      scopeFilter,
+      scopeCounts,
       filteredSkillCards,
       skillCards,
       ...editor,
@@ -110,16 +139,6 @@ export const SkillsPage = {
               <button class="btn btn-ghost" data-testid="skills-create-button" @click="onCreateSkill">
                 新建 Skill
               </button>
-              <div class="skills-inline-radio-group" data-testid="skills-import-scope-group">
-                <label class="skills-inline-radio">
-                  <input v-model="importScope" data-testid="skills-import-scope-project" type="radio" value="project" />
-                  <span>导入到 project</span>
-                </label>
-                <label class="skills-inline-radio">
-                  <input v-model="importScope" data-testid="skills-import-scope-system" type="radio" value="system" />
-                  <span>导入到 system</span>
-                </label>
-              </div>
               <div class="skills-search-wrap">
                 <input
                   v-model="searchQuery"
@@ -129,15 +148,75 @@ export const SkillsPage = {
                 />
               </div>
             </div>
+            <div class="skills-subtoolbar" data-testid="skills-subtoolbar">
+              <div class="skills-segmented skills-scope-filter" data-testid="skills-scope-filter" role="tablist">
+                <button
+                  type="button"
+                  class="skills-segmented-item"
+                  :class="{ active: scopeFilter === 'all' }"
+                  data-testid="skills-scope-filter-all"
+                  role="tab"
+                  @click="scopeFilter = 'all'"
+                >
+                  <span>全部</span>
+                  <span class="skills-segmented-count">{{ scopeCounts.all }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="skills-segmented-item"
+                  :class="{ active: scopeFilter === 'project' }"
+                  data-testid="skills-scope-filter-project"
+                  role="tab"
+                  @click="scopeFilter = 'project'"
+                >
+                  <span class="skills-scope-dot skills-scope-dot-project" aria-hidden="true"></span>
+                  <span>project</span>
+                  <span class="skills-segmented-count">{{ scopeCounts.project }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="skills-segmented-item"
+                  :class="{ active: scopeFilter === 'system' }"
+                  data-testid="skills-scope-filter-system"
+                  role="tab"
+                  @click="scopeFilter = 'system'"
+                >
+                  <span class="skills-scope-dot skills-scope-dot-system" aria-hidden="true"></span>
+                  <span>system</span>
+                  <span class="skills-segmented-count">{{ scopeCounts.system }}</span>
+                </button>
+              </div>
+              <div class="skills-segmented skills-import-scope" data-testid="skills-import-scope-group" role="group" aria-label="导入位置">
+                <span class="skills-segmented-label">导入位置</span>
+                <label class="skills-segmented-item" :class="{ active: importScope === 'project' }">
+                  <input v-model="importScope" data-testid="skills-import-scope-project" type="radio" value="project" />
+                  <span class="skills-scope-dot skills-scope-dot-project" aria-hidden="true"></span>
+                  <span>project</span>
+                </label>
+                <label class="skills-segmented-item" :class="{ active: importScope === 'system' }">
+                  <input v-model="importScope" data-testid="skills-import-scope-system" type="radio" value="system" />
+                  <span class="skills-scope-dot skills-scope-dot-system" aria-hidden="true"></span>
+                  <span>system</span>
+                </label>
+              </div>
+            </div>
             <div v-if="skillCards.length === 0" class="empty-state" data-testid="skills-empty-state">
-              <div class="es-icon">S</div>
+              <div class="es-icon skills-empty-icon">
+                <svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true">
+                  <path fill="currentColor" d="M12 2 3 7v6c0 5 3.8 8.7 9 9 5.2-.3 9-4 9-9V7l-9-5zm0 2.2 7 3.9v4.9c0 4-2.9 6.9-7 7.2-4.1-.3-7-3.2-7-7.2V8.1l7-3.9zM11 8v4H7v2h4v4h2v-4h4v-2h-4V8h-2z"/>
+                </svg>
+              </div>
               <h3>暂无 Skill</h3>
               <p>支持一次导入多个目录（每个目录需包含 SKILL.md）</p>
             </div>
             <div v-else-if="filteredSkillCards.length === 0" class="empty-state" data-testid="skills-search-empty-state">
-              <div class="es-icon">?</div>
+              <div class="es-icon skills-empty-icon">
+                <svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true">
+                  <path fill="currentColor" d="M10 2a8 8 0 1 0 5 14.3l5 5 1.4-1.4-5-5A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/>
+                </svg>
+              </div>
               <h3>没有匹配技能</h3>
-              <p>尝试更换关键词，支持按名称、描述、摘要、触发词搜索</p>
+              <p>尝试更换关键词或切换 scope，支持按名称、描述、摘要、触发词搜索</p>
             </div>
             <div v-else class="skills-card-grid" data-testid="skills-list">
               <article
@@ -152,7 +231,15 @@ export const SkillsPage = {
                     <div class="skill-card-title">{{ item.name }}</div>
                     <div class="skill-card-path" :title="item.dir">{{ item.dir || '-' }}</div>
                   </div>
-                  <span v-if="selectedSkillName.toLowerCase() === item.name.toLowerCase()" class="skill-card-badge">编辑中</span>
+                  <div class="skill-card-tags">
+                    <span
+                      class="skill-card-scope-tag"
+                      :class="'skill-card-scope-' + (item.scope || 'project')"
+                      :title="'scope: ' + (item.scope || 'project')"
+                      :data-testid="'skills-card-scope-' + idx"
+                    >{{ item.scope || 'project' }}</span>
+                    <span v-if="selectedSkillName.toLowerCase() === item.name.toLowerCase()" class="skill-card-badge">编辑中</span>
+                  </div>
                 </div>
                 <div class="skill-card-description">{{ item.description || '暂无描述' }}</div>
                 <div class="skill-card-summary-preview">{{ item.summary || '暂无摘要，点击编辑补充。' }}</div>
@@ -239,13 +326,15 @@ export const SkillsPage = {
             </div>
             <div class="skills-field">
               <label>保存范围</label>
-              <div class="skills-inline-radio-group" data-testid="skills-editor-scope-group">
-                <label class="skills-inline-radio">
+              <div class="skills-segmented skills-editor-scope" data-testid="skills-editor-scope-group">
+                <label class="skills-segmented-item" :class="{ active: form.scope === 'project', disabled: !isEditingMainSkillFile }">
                   <input v-model="form.scope" data-testid="skills-editor-scope-project" type="radio" value="project" :disabled="!isEditingMainSkillFile" />
+                  <span class="skills-scope-dot skills-scope-dot-project" aria-hidden="true"></span>
                   <span>project（当前 cwd）</span>
                 </label>
-                <label class="skills-inline-radio">
+                <label class="skills-segmented-item" :class="{ active: form.scope === 'system', disabled: !isEditingMainSkillFile }">
                   <input v-model="form.scope" data-testid="skills-editor-scope-system" type="radio" value="system" :disabled="!isEditingMainSkillFile" />
+                  <span class="skills-scope-dot skills-scope-dot-system" aria-hidden="true"></span>
                   <span>system（全局共享）</span>
                 </label>
               </div>

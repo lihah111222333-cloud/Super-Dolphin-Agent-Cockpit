@@ -130,35 +130,45 @@ export const LaunchSkillPicker = {
         <span class="composer-skill-selector-title" :class="{ 'loading-shimmer': loading }">
           {{ loading ? '首发技能准备中…' : ('Launch 技能 ' + selectedSkillNames.length + '/' + skillEntries.length) }}
         </span>
-        <div v-if="showScopeTabs" class="composer-skill-selector-tabs" data-testid="launch-skill-scope-tabs">
+        <div class="composer-skill-selector-actions">
+          <button class="composer-skill-selector-btn" type="button" @click="onRefresh">刷新</button>
           <button
             class="composer-skill-selector-btn"
-            :class="{ selected: scope === 'project' }"
-            data-testid="launch-skill-scope-tab-project"
             type="button"
-            @click="updateScope('project')"
-          >project {{ projectSkills.length }}</button>
+            :disabled="matches.length === 0"
+            @click="onSelectAll"
+          >全选匹配</button>
           <button
             class="composer-skill-selector-btn"
-            :class="{ selected: scope === 'system' }"
-            data-testid="launch-skill-scope-tab-system"
             type="button"
-            @click="updateScope('system')"
-          >system {{ systemSkills.length }}</button>
+            :disabled="selectedSkillNames.length === 0"
+            @click="onClear"
+          >清空</button>
         </div>
-        <button class="composer-skill-selector-btn" type="button" @click="onRefresh">刷新</button>
+      </div>
+      <div v-if="showScopeTabs" class="composer-skill-selector-tabs" data-testid="launch-skill-scope-tabs">
         <button
-          class="composer-skill-selector-btn"
+          class="composer-skill-selector-tab"
+          :class="{ selected: scope === 'project' }"
+          data-testid="launch-skill-scope-tab-project"
           type="button"
-          :disabled="matches.length === 0"
-          @click="onSelectAll"
-        >全选匹配</button>
+          @click="updateScope('project')"
+        >
+          <span class="composer-skill-scope-dot composer-skill-scope-dot-project" aria-hidden="true"></span>
+          <span>project</span>
+          <span class="composer-skill-scope-count">{{ projectSkills.length }}</span>
+        </button>
         <button
-          class="composer-skill-selector-btn"
+          class="composer-skill-selector-tab"
+          :class="{ selected: scope === 'system' }"
+          data-testid="launch-skill-scope-tab-system"
           type="button"
-          :disabled="selectedSkillNames.length === 0"
-          @click="onClear"
-        >清空</button>
+          @click="updateScope('system')"
+        >
+          <span class="composer-skill-scope-dot composer-skill-scope-dot-system" aria-hidden="true"></span>
+          <span>system</span>
+          <span class="composer-skill-scope-count">{{ systemSkills.length }}</span>
+        </button>
       </div>
       <div class="composer-skill-selector-list">
         <button
@@ -171,6 +181,7 @@ export const LaunchSkillPicker = {
           :title="entryReason(entry)"
           @click="toggleEntry(entry)"
         >
+          <span v-if="entry.selected" class="composer-skill-selector-item-check" aria-hidden="true">✓</span>
           <span class="composer-skill-selector-item-name">{{ entry.name }}</span>
           <span class="composer-skill-selector-item-reason">{{ entryReason(entry) }}</span>
         </button>
