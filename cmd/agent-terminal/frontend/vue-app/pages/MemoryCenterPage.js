@@ -206,11 +206,10 @@ export const MemoryCenterPage = {
       if (!req || agentDeleting.value) return;
       agentDeleting.value = true;
       try {
-        await callAPI('ui/memory/agent/save', {
+        await callAPI('ui/memory/agent/delete', {
           cwd: currentCwd.value,
           scope: req.scope,
           agentType: req.agentType,
-          content: '',
         });
         setNotice('info', `Agent 记忆已删除：${req.agentType}`);
         agentDeleteTarget.value = null;

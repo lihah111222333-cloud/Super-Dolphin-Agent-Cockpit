@@ -255,6 +255,17 @@ function browserInstaller({
     return { scopeItem, index, entry: index >= 0 ? scopeItem.entries[index] : null };
   }
 
+  function deleteAgentEntry(params) {
+    const agentType = (params.agentType || '').toString().trim();
+    const scope = (params.scope || 'project').toString().trim() || 'project';
+    if (!agentType) throw new Error('agentType is required');
+    const { scopeItem, index } = getAgentEntry(scope, agentType);
+    if (index >= 0) {
+      scopeItem.entries.splice(index, 1);
+    }
+    return { deleted: index >= 0 };
+  }
+
   function saveAgentEntry(params) {
     const normalizedAgentType = (params.agentType || '').toString().trim();
     const content = (params.content || '').toString();
@@ -655,6 +666,8 @@ function browserInstaller({
             scope: (params.scope || 'project').toString(),
             ...saveAgentEntry(params),
           });
+        case 'ui/memory/agent/delete':
+          return clone(deleteAgentEntry(params));
         case 'ui/memory/shared-file/get': {
           const file = findSharedFile(params.path);
           if (!file) throw new Error(`shared file not found: ${params.path || ''}`);
