@@ -238,7 +238,7 @@ P20 合流后 `go test ./internal/archtest -run 'TestCodeSizeGuard|TestDependenc
 
 | # | 隐患 | 状态 | 专单 | 关闭日期 |
 |---|---|---|---|---|
-| 1 | 双 SkillCatalogProvider 并存 | ✅ **已全部关闭** | 远程 `0b4ad39` + 本分支 `08947d5` 联合清理：4 个 prompt-side skill_catalog_* 文件 + fx wiring；prompt prod 27→26，freeze 同步 | 2026-04-20 |
+| 1 | 双 SkillCatalogProvider 并存 | 🔁 **已重新开启** | 本分支 `08947d5` 的 prompt-side 删除被远程 `e5f2d1b` revert：独立核查发现 `internal/module/skill/skill_catalog_*` 根本不存在，authoritative 实现**仍在 prompt 侧**；我之前假设 "catalog 落点已在 skill 模块" 是错的。当前 prompt-side 文件已恢复 + fail-fast 补充。重新评估：新专单需要先**真的把 catalog 迁到 skill 侧**（或放弃迁移保持 prompt 侧 authoritative），再清旧文件 | 2026-04-20 |
 | 2 | 写端未切 v1 marker | ⚠️ 准备期（feature flag 就绪） | 本分支 `a1fa2d6` 已落 `skill.RenderSkillBlockV1` 纯函数 + `SKILL_WRITER_FORMAT=v1` env gate；**默认 legacy**；codex/claude 双 writer 支持切换；shadow 2 周后改默认 → 删 legacy renderer 走独立专单 | - |
 | 3 | metrics 只落 no-op 骨架 | ✅ **已全部关闭** | 远程 Phase 10 已落 `pkg/skillmetrics/` 5 atomic counter + `prompt.Config` 完整配置；本分支误加的 `skill/policy_metrics.go` + `platform/config.Skill` 冗余已回滚 | 2026-04-20 |
 | 4 | orchestration agent report 通道异常 | ⏳ 未开工 | - | - |
