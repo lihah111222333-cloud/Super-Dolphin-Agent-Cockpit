@@ -10,6 +10,7 @@ import {
 } from '../utils/skill-match-utils.js';
 
 const EMPTY_LAUNCH_SELECTION = Object.freeze({ enabled: false, selectedSkills: [], manualSkillSelection: false });
+const EMPTY_LAUNCH_SCOPE = '';
 
 function normalizeLaunchFeature(rawFeature) {
   if (typeof rawFeature === 'boolean') return rawFeature;
@@ -41,9 +42,41 @@ function normalizeSkills(rawSkills) {
       name,
       summary: (rawSkill?.summary || '').toString().trim(),
       description: (rawSkill?.description || '').toString().trim(),
+      trust: (rawSkill?.trust || '').toString().trim().toLowerCase(),
     });
   });
   return next;
+}
+
+function launchSkillScopeFromTrust(trust) {
+  return trust === 'project' ? 'project' : 'system';
+}
+
+function syncLaunchSkillScope(scopeRef, scopeTabsEnabled, projectSkills, systemSkills) {
+  if (!scopeTabsEnabled.value) {
+    scopeRef.value = EMPTY_LAUNCH_SCOPE;
+    return;
+  }
+  if (scopeRef.value === 'project' && projectSkills.value.length > 0) return;
+  if (scopeRef.value === 'system' && systemSkills.value.length > 0) return;
+  scopeRef.value = projectSkills.value.length > 0 ? 'project' : 'system';
+}
+
+function updateLaunchSkillScope(scopeRef, scopeTabsEnabled, projectSkills, systemSkills, nextScope) {
+  const normalized = (nextScope || '').toString().trim().toLowerCase();
+  if (!scopeTabsEnabled.value) {
+    scopeRef.value = EMPTY_LAUNCH_SCOPE;
+    return;
+  }
+  if (normalized === 'system' && systemSkills.value.length > 0) {
+    scopeRef.value = 'system';
+    return;
+  }
+  if (projectSkills.value.length > 0) {
+    scopeRef.value = 'project';
+    return;
+  }
+  scopeRef.value = systemSkills.value.length > 0 ? 'system' : EMPTY_LAUNCH_SCOPE;
 }
 
 function resolveActiveCwd(activeCwdSource) {
@@ -63,11 +96,19 @@ export function useLaunchSkillSelection(opts) {
   const launchManualSkillNames = ref([]);
   const launchSkillCatalogLoading = ref(false);
   const launchSkillPreviewLoading = ref(false);
+  const launchSkillScope = ref(EMPTY_LAUNCH_SCOPE);
   const launchSkillSelectionEnabled = computed(() => resolveLaunchSkillSelectionFeature(
     featureSource?.value?.threadFeatures,
     featureSource?.value?.projectFeatures,
   ));
   const launchSkillSelectionLoading = computed(() => launchSkillCatalogLoading.value || launchSkillPreviewLoading.value);
+  const launchProjectSkills = computed(() => launchAvailableSkills.value.filter((skill) => launchSkillScopeFromTrust(skill?.trust) === 'project'));
+  const launchSystemSkills = computed(() => launchAvailableSkills.value.filter((skill) => launchSkillScopeFromTrust(skill?.trust) === 'system'));
+  const launchScopeTabsEnabled = computed(() => launchProjectSkills.value.length > 0 && launchSystemSkills.value.length > 0);
+  const launchVisibleSkills = computed(() => {
+    if (!launchScopeTabsEnabled.value) return launchAvailableSkills.value;
+    return launchSkillScope.value === 'system' ? launchSystemSkills.value : launchProjectSkills.value;
+  });
   const launchForceMatchedSkillNames = computed(() => collectForceMatchedSkillNames(launchSkillMatches.value));
   const launchSelectedSkillNames = computed(() => mergeSkillNameLists(launchManualSkillNames.value, launchForceMatchedSkillNames.value));
   let launchSkillPreviewTimer = 0;
@@ -91,8 +132,16 @@ export function useLaunchSkillSelection(opts) {
 
   function resetLaunchSkillSelection() {
     launchManualSkillNames.value = [];
+    launchSkillScope.value = EMPTY_LAUNCH_SCOPE;
     resetLaunchSkillPreview();
   }
+  const setLaunchSkillScope = (nextScope) => updateLaunchSkillScope(
+    launchSkillScope,
+    launchScopeTabsEnabled,
+    launchProjectSkills,
+    launchSystemSkills,
+    nextScope,
+  );
 
   function isLaunchSkillAutoApplied(rawName) {
     const nameKey = skillNameKey(rawName);
@@ -133,9 +182,11 @@ export function useLaunchSkillSelection(opts) {
       launchAvailableSkills.value = normalizeSkills(await listSkills(resolveActiveCwd(activeCwdSource)));
     } catch (error) {
       launchAvailableSkills.value = [];
+      launchSkillScope.value = EMPTY_LAUNCH_SCOPE;
       logWarn('ui', 'launchSkillSelection.list.failed', { error });
     } finally {
       launchSkillCatalogLoading.value = false;
+      syncLaunchSkillScope(launchSkillScope, launchScopeTabsEnabled, launchProjectSkills, launchSystemSkills);
     }
   }
 
@@ -259,6 +310,10 @@ export function useLaunchSkillSelection(opts) {
     launchManualSkillNames.value = mergeSkillNameLists(launchManualSkillNames.value);
   });
 
+  watch([launchProjectSkills, launchSystemSkills], () => {
+    syncLaunchSkillScope(launchSkillScope, launchScopeTabsEnabled, launchProjectSkills, launchSystemSkills);
+  }, { immediate: true });
+
   onBeforeUnmount(() => {
     clearLaunchSkillPreviewTimer();
     launchSkillPreviewSeq += 1;
@@ -267,12 +322,17 @@ export function useLaunchSkillSelection(opts) {
 
   return {
     launchSkillSelectionEnabled,
-    launchAvailableSkills,
+    launchAvailableSkills: launchVisibleSkills,
+    launchProjectSkills,
+    launchSystemSkills,
+    launchScopeTabsEnabled,
+    launchSkillScope,
     launchSkillMatches,
     launchSelectedSkillNames,
     launchSkillSelectionLoading,
     toggleLaunchSelectedSkill,
     clearLaunchSelectedSkills,
+    setLaunchSkillScope,
     selectAllLaunchSuggestedSkills,
     refreshLaunchSkillSelection,
     resolveLaunchSkillSelectionForStart,
