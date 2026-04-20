@@ -3,12 +3,48 @@ package memory
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
+
+func TestAutoDreamProjectKey_ReturnsFullCanonicalPath(t *testing.T) {
+	t.Parallel()
+
+	nonGit := filepath.Join(t.TempDir(), "wj", "super-agent-v3")
+	if err := os.MkdirAll(nonGit, 0o755); err != nil {
+		t.Fatalf("mkdir non-git: %v", err)
+	}
+	canonicalNonGit, err := shared.CleanAbsolutePath(nonGit)
+	if err != nil {
+		t.Fatalf("CleanAbsolutePath(non-git): %v", err)
+	}
+	if got, want := autoDreamProjectKey(nonGit), canonicalNonGit; got != want {
+		t.Fatalf("autoDreamProjectKey(non-git) = %q, want %q", got, want)
+	}
+
+	repo := filepath.Join(t.TempDir(), "repos", "langgraph")
+	nested := filepath.Join(repo, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	cmd := exec.Command("git", "init", repo)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, string(output))
+	}
+	canonicalRepo, err := FindCanonicalGitRoot(context.Background(), nested)
+	if err != nil {
+		t.Fatalf("FindCanonicalGitRoot(repo): %v", err)
+	}
+	if got, want := autoDreamProjectKey(nested), filepath.Clean(canonicalRepo); got != want {
+		t.Fatalf("autoDreamProjectKey(git nested) = %q, want %q", got, want)
+	}
+}
 
 func TestAutoDreamStopHookNoOpWhenKairosActive(t *testing.T) {
 	root := newTestMemoryRoot(t)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,21 +40,15 @@ var headingPattern = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
 //
 // 当前实现每次调用都扫全盘；对 skill 数量级 < 10² 时可接受。Phase 8
 // manifest cache 会提供 index，后续可替换为 O(1) 查询。
-func (s *service) findSkillRecordByName(name string) (skillRecord, error) {
-	normalized, err := validateSkillName(name)
-	if err != nil {
-		return skillRecord{}, err
+func (s *service) findSkillRecordByName(name, cwd string) (skillRecord, error) {
+	rec, err := s.resolveSkillRecordByName(name, cwd)
+	if err == nil {
+		return rec, nil
 	}
-	records, err := s.scanSkills()
-	if err != nil {
-		return skillRecord{}, err
+	if errors.Is(err, os.ErrNotExist) {
+		return skillRecord{}, fmt.Errorf("skill not found: %s", strings.TrimSpace(name))
 	}
-	for _, rec := range records {
-		if strings.EqualFold(strings.TrimSpace(rec.info.Name), normalized) {
-			return rec, nil
-		}
-	}
-	return skillRecord{}, fmt.Errorf("skill not found: %s", normalized)
+	return skillRecord{}, err
 }
 
 // ExpandBody 实现 P20.1 §3.1 skill_expand_body：按 name 读 SKILL.md 正文，
@@ -74,10 +69,14 @@ func (s *service) findSkillRecordByName(name string) (skillRecord, error) {
 //      - Summary 字段可能含攻击载荷，Port 层应替换为占位符或置空
 //      - Path / Content 如果包含恶意指令同样需过滤
 // 未集成时调用方（带格 Phase 7 Port）需自行保证该等策略。
-func (s *service) ExpandBody(_ context.Context, p ExpandBodyParams) (ExpandBodyResult, error) {
+func (s *service) ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBodyResult, error) {
 	// P20.1 Phase 10 Step C: 计入每次调用（含失败路径），类似 rate counter。
 	skillmetrics.IncSkillExpandInvoke()
-	rec, err := s.findSkillRecordByName(p.Name)
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		return ExpandBodyResult{}, err
+	}
+	rec, err := s.findSkillRecordByName(p.Name, cwd)
 	if err != nil {
 		return ExpandBodyResult{}, err
 	}
@@ -157,10 +156,14 @@ func (s *service) ExpandBody(_ context.Context, p ExpandBodyParams) (ExpandBodyR
 //   2. ExpandedArtifactState.MarkArtifact
 //   3. 返回值净化：SkillDir / Path / Content 对 untrusted skill 需按 trust 策略过滤
 // 由 Port 层接入时补齐。
-func (s *service) ReadResource(_ context.Context, p ReadResourceParams) (ReadResourceResult, error) {
+func (s *service) ReadResource(ctx context.Context, p ReadResourceParams) (ReadResourceResult, error) {
 	// P20.1 Phase 10 Step C: 与 ExpandBody 合计 SkillExpandInvokeRate。
 	skillmetrics.IncSkillExpandInvoke()
-	rec, err := s.findSkillRecordByName(p.Name)
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		return ReadResourceResult{}, err
+	}
+	rec, err := s.findSkillRecordByName(p.Name, cwd)
 	if err != nil {
 		return ReadResourceResult{}, err
 	}
@@ -321,4 +324,3 @@ func truncateBytes(s string, limit int64) (string, bool) {
 	}
 	return s[:limit], true
 }
-

@@ -134,8 +134,9 @@ func (s *service) listDashboardTaskTraces(ctx context.Context) ([]tasktracestore
 }
 
 func (s *service) listDashboardSkills(ctx context.Context) ([]skillmodule.SkillInfo, error) {
+	cwd := dashboardPromptScopeCWDFromContext(ctx)
 	return safeList(s.skills != nil, func() ([]skillmodule.SkillInfo, error) {
-		return s.skills.ListSkills(ctx)
+		return s.skills.ListSkills(skillmodule.WithCWD(ctx, cwd))
 	})
 }
 

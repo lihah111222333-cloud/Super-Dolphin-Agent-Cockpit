@@ -23,6 +23,10 @@ func newExpandTestService(t *testing.T) (*service, string) {
 	return svc, skillsRoot
 }
 
+func expandTestContext(svc *service) context.Context {
+	return skillTestContext(svc.projectRoot)
+}
+
 // writeExpandTestSkill 与 skills_match_test.go 的 writeTestSkill 类似，但取名区分
 // 避免同包测试符号冲突。
 func writeExpandTestSkill(t *testing.T, skillsRoot, name, body string) string {
@@ -43,7 +47,7 @@ func writeExpandTestSkill(t *testing.T, skillsRoot, name, body string) string {
 func TestExpandBody_FullContent(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	writeExpandTestSkill(t, root, "foo", "---\nname: foo\ndescription: hi\n---\n# Intro\nhello world")
-	res, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "foo"})
+	res, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "foo"})
 	if err != nil {
 		t.Fatalf("ExpandBody: %v", err)
 	}
@@ -68,7 +72,7 @@ func TestExpandBody_AnchorSlice(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	body := "---\nname: foo\n---\n\n## Intro\nhello\n\n## Usage\nrun it\ndetails\n\n## Done\nend"
 	writeExpandTestSkill(t, root, "foo", body)
-	res, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "foo", Anchor: "Usage"})
+	res, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "foo", Anchor: "Usage"})
 	if err != nil {
 		t.Fatalf("ExpandBody: %v", err)
 	}
@@ -94,11 +98,11 @@ func TestExpandBody_AnchorCaseInsensitiveAndSlug(t *testing.T) {
 	body := "---\nname: foo\n---\n\n## Usage Guide\ncontent"
 	writeExpandTestSkill(t, root, "foo", body)
 	// 大小写不敏感
-	if _, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "foo", Anchor: "USAGE GUIDE"}); err != nil {
+	if _, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "foo", Anchor: "USAGE GUIDE"}); err != nil {
 		t.Fatalf("case-insensitive match should work: %v", err)
 	}
 	// slug 匹配
-	res, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "foo", Anchor: "usage-guide"})
+	res, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "foo", Anchor: "usage-guide"})
 	if err != nil {
 		t.Fatalf("slug match: %v", err)
 	}
@@ -110,7 +114,7 @@ func TestExpandBody_AnchorCaseInsensitiveAndSlug(t *testing.T) {
 func TestExpandBody_AnchorNotFound(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	writeExpandTestSkill(t, root, "foo", "---\nname: foo\n---\n## Only\nx")
-	_, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "foo", Anchor: "Missing"})
+	_, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "foo", Anchor: "Missing"})
 	if err == nil {
 		t.Fatalf("missing anchor should error")
 	}
@@ -121,7 +125,7 @@ func TestExpandBody_AnchorNotFound(t *testing.T) {
 
 func TestExpandBody_SkillNotFound(t *testing.T) {
 	svc, _ := newExpandTestService(t)
-	_, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "ghost"})
+	_, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "ghost"})
 	if err == nil || !strings.Contains(err.Error(), "skill not found") {
 		t.Fatalf("expected skill-not-found, got %v", err)
 	}
@@ -129,7 +133,7 @@ func TestExpandBody_SkillNotFound(t *testing.T) {
 
 func TestExpandBody_InvalidNameRejected(t *testing.T) {
 	svc, _ := newExpandTestService(t)
-	_, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "Foo Bar"})
+	_, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "Foo Bar"})
 	if err == nil {
 		t.Fatalf("invalid name should be rejected")
 	}
@@ -139,7 +143,7 @@ func TestExpandBody_Truncation(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	big := strings.Repeat("x", 50_000)
 	writeExpandTestSkill(t, root, "big", "---\nname: big\n---\n"+big)
-	res, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "big", MaxBytes: 1000})
+	res, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "big", MaxBytes: 1000})
 	if err != nil {
 		t.Fatalf("ExpandBody: %v", err)
 	}
@@ -158,7 +162,7 @@ func TestExpandBody_DefaultMaxBytes(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	body := strings.Repeat("a", 30_000)
 	writeExpandTestSkill(t, root, "m", "---\nname: m\n---\n"+body)
-	res, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "m"}) // MaxBytes 未设
+	res, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "m"}) // MaxBytes 未设
 	if err != nil {
 		t.Fatalf("ExpandBody: %v", err)
 	}
@@ -174,7 +178,7 @@ func TestExpandBody_OnlyFrontmatterYieldsEmptyBody(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	// 内容只有 frontmatter，后续 body 为空
 	writeExpandTestSkill(t, root, "fmonly", "---\nname: fmonly\ndescription: secret metadata\nsummary: leaked!\n---\n")
-	res, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "fmonly"})
+	res, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "fmonly"})
 	if err != nil {
 		t.Fatalf("ExpandBody: %v", err)
 	}
@@ -191,7 +195,7 @@ func TestExpandBody_OnlyFrontmatterYieldsEmptyBody(t *testing.T) {
 func TestExpandBody_NoFrontmatterReturnsFullFile(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	writeExpandTestSkill(t, root, "nofm", "just body content\nline 2")
-	res, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "nofm"})
+	res, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "nofm"})
 	if err != nil {
 		t.Fatalf("ExpandBody: %v", err)
 	}
@@ -212,7 +216,7 @@ func TestReadResource_Normal(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(refPath, "api.md"), []byte("# API\nrefs here"), 0o644); err != nil {
 		t.Fatalf("write ref: %v", err)
 	}
-	res, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "references/api.md"})
+	res, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "references/api.md"})
 	if err != nil {
 		t.Fatalf("ReadResource: %v", err)
 	}
@@ -241,7 +245,7 @@ func TestReadResource_PathEscapeRejected(t *testing.T) {
 		"/abs/path",
 	}
 	for _, p := range cases {
-		if _, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: p}); err == nil {
+		if _, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: p}); err == nil {
 			t.Fatalf("path %q MUST be rejected", p)
 		}
 	}
@@ -250,14 +254,14 @@ func TestReadResource_PathEscapeRejected(t *testing.T) {
 func TestReadResource_EmptyPathRejected(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	writeExpandTestSkill(t, root, "foo", "---\nname: foo\n---\nbody")
-	if _, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: ""}); err == nil {
+	if _, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: ""}); err == nil {
 		t.Fatalf("empty path should be rejected")
 	}
 }
 
 func TestReadResource_SkillNotFound(t *testing.T) {
 	svc, _ := newExpandTestService(t)
-	_, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "ghost", Path: "x.md"})
+	_, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "ghost", Path: "x.md"})
 	if err == nil || !strings.Contains(err.Error(), "skill not found") {
 		t.Fatalf("expected skill-not-found, got %v", err)
 	}
@@ -269,7 +273,7 @@ func TestReadResource_DirectoryRejected(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "references"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	_, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "references"})
+	_, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "references"})
 	if err == nil {
 		t.Fatalf("directory target should be rejected")
 	}
@@ -285,7 +289,7 @@ func TestReadResource_EmptyFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "empty.txt"), []byte{}, 0o644); err != nil {
 		t.Fatalf("write empty: %v", err)
 	}
-	res, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "empty.txt"})
+	res, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "empty.txt"})
 	if err != nil {
 		t.Fatalf("ReadResource empty file: %v", err)
 	}
@@ -312,7 +316,7 @@ func TestReadResource_VersionReflectsResourceContent(t *testing.T) {
 	if err := os.WriteFile(refPath, []byte("content v1"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	r1, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "ref.md"})
+	r1, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "ref.md"})
 	if err != nil {
 		t.Fatalf("read v1: %v", err)
 	}
@@ -324,7 +328,7 @@ func TestReadResource_VersionReflectsResourceContent(t *testing.T) {
 	if err := os.WriteFile(refPath, []byte("content v2 different bytes"), 0o644); err != nil {
 		t.Fatalf("rewrite: %v", err)
 	}
-	r2, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "ref.md"})
+	r2, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "ref.md"})
 	if err != nil {
 		t.Fatalf("read v2: %v", err)
 	}
@@ -336,7 +340,7 @@ func TestReadResource_VersionReflectsResourceContent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, skillMainFile), []byte("---\nname: foo\n---\nALTERED SKILL BODY"), 0o644); err != nil {
 		t.Fatalf("alter SKILL.md: %v", err)
 	}
-	r3, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "ref.md"})
+	r3, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "ref.md"})
 	if err != nil {
 		t.Fatalf("read v3: %v", err)
 	}
@@ -352,7 +356,7 @@ func TestReadResource_Truncation(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(big), 0o644); err != nil {
 		t.Fatalf("write big: %v", err)
 	}
-	res, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "foo", Path: "big.txt", MaxBytes: 500})
+	res, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "big.txt", MaxBytes: 500})
 	if err != nil {
 		t.Fatalf("ReadResource: %v", err)
 	}

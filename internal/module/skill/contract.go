@@ -1,6 +1,47 @@
 package skill
 
-import "context"
+import (
+	"context"
+	"errors"
+	"strings"
+)
+
+type skillCWDContextKey struct{}
+
+var ErrMissingCWD = errors.New("cwd is required")
+
+// WithCWD scopes a skill request to a specific cwd. Empty cwd is a no-op so
+// downstream callers can detect the missing scope explicitly.
+func WithCWD(ctx context.Context, cwd string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, skillCWDContextKey{}, cwd)
+}
+
+func cwdFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(skillCWDContextKey{}).(string)
+	return strings.TrimSpace(value)
+}
+
+func requireCWD(ctx context.Context) (string, error) {
+	cwd := cwdFromContext(ctx)
+	if cwd == "" {
+		return "", ErrMissingCWD
+	}
+	return cwd, nil
+}
+
+func RequireCWD(ctx context.Context) (string, error) {
+	return requireCWD(ctx)
+}
 
 type Service interface {
 	ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error)

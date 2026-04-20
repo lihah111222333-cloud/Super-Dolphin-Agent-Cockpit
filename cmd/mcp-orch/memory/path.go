@@ -2,8 +2,6 @@ package memory
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -25,7 +23,6 @@ const (
 	memoryProjectDirName = "memory"
 	memoryUserDir        = "user"
 	memoryLocalDir       = "local"
-	sanitizePathMaxLen   = 96
 	gitResolveTimeout    = 4 * time.Second
 )
 
@@ -163,32 +160,7 @@ func findCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 }
 
 func sanitizePath(raw string) string {
-	normalized := filepath.ToSlash(norm.NFC.String(strings.TrimSpace(raw)))
-	var builder strings.Builder
-	lastDash := false
-	for _, r := range normalized {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			builder.WriteRune(unicode.ToLower(r))
-			lastDash = false
-		case lastDash:
-		default:
-			builder.WriteByte('-')
-			lastDash = true
-		}
-	}
-	slug := strings.Trim(builder.String(), "-")
-	if slug == "" {
-		return "project-" + shortHash(normalized)
-	}
-	if len(slug) <= sanitizePathMaxLen {
-		return slug
-	}
-	prefix := strings.Trim(slug[:sanitizePathMaxLen-9], "-")
-	if prefix == "" {
-		prefix = "project"
-	}
-	return prefix + "-" + shortHash(normalized)
+	return platformshared.SanitizeMemoryProjectKey(raw)
 }
 
 func validateMemoryRoot(raw string) (string, error) {
@@ -296,11 +268,6 @@ func isRootOrNearRoot(path string) bool {
 	}
 	parent := filepath.Dir(cleaned)
 	return parent == string(os.PathSeparator) || parent == cleaned
-}
-
-func shortHash(text string) string {
-	sum := sha256.Sum256([]byte(text))
-	return hex.EncodeToString(sum[:])[:8]
 }
 
 func cleanAbsolutePath(path string) (string, error) {

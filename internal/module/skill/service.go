@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const (
@@ -95,19 +96,43 @@ func defaultProjectSkillsRoot(projectRoot string) string {
 
 // skillRoots 返回扫描/校验时按优先级排列的技能根目录：
 // 项目根（若有）优先于系统根。空根会被过滤。
-func (s *service) skillRoots() []string {
+func (s *service) skillRoots(cwd string) []string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return nil
+	}
 	roots := make([]string, 0, 2)
-	if v := strings.TrimSpace(s.projectSkillsRoot); v != "" {
+	if v := strings.TrimSpace(s.projectSkillsRootForCWD(cwd)); v != "" {
 		roots = append(roots, v)
 	}
 	if v := strings.TrimSpace(s.root); v != "" {
-		roots = append(roots, v)
+		if projectKey := platformshared.ProjectKeyFromCwd(cwd); projectKey != "" {
+			roots = append(roots, filepath.Join(v, projectKey))
+		}
 	}
 	return roots
 }
 
+func (s *service) projectSkillsRootForCWD(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return ""
+	}
+	if configuredRoot := strings.TrimSpace(s.projectRoot); configuredRoot != "" && strings.TrimSpace(s.projectSkillsRoot) != "" {
+		if resolvedConfigured, err := canonicalProjectPath(configuredRoot); err == nil {
+			if resolvedCWD, err := canonicalProjectPath(cwd); err == nil && resolvedConfigured == resolvedCWD {
+				return strings.TrimSpace(s.projectSkillsRoot)
+			}
+		}
+	}
+	if resolved, err := canonicalProjectPath(cwd); err == nil && strings.TrimSpace(resolved) != "" {
+		return defaultProjectSkillsRoot(resolved)
+	}
+	return defaultProjectSkillsRoot(cwd)
+}
+
 func (s *service) expandWithApproval(ctx context.Context, p skillExpandParams) (skillExpandResult, error) {
-	prepared, err := s.prepareSkillExpand(p)
+	prepared, err := s.prepareSkillExpand(ctx, p)
 	if err != nil {
 		return skillExpandResult{}, err
 	}

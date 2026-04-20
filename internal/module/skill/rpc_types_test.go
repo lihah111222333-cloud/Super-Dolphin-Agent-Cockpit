@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -44,6 +47,26 @@ func TestExecParamsUnmarshalLegacyArgvEnvShape(t *testing.T) {
 	}
 }
 
+func TestSkillListParamsRejectsEmptyCWD(t *testing.T) {
+	t.Parallel()
+
+	var empty skillListParams
+	if err := json.Unmarshal([]byte(`{}`), &empty); err != nil {
+		t.Fatalf("Unmarshal empty returned error: %v", err)
+	}
+	if empty.CWD != "" {
+		t.Fatalf("empty cwd = %q, want empty", empty.CWD)
+	}
+
+	var scoped skillListParams
+	if err := json.Unmarshal([]byte(`{"cwd":"/tmp/project"}`), &scoped); err != nil {
+		t.Fatalf("Unmarshal scoped returned error: %v", err)
+	}
+	if scoped.CWD != "/tmp/project" {
+		t.Fatalf("scoped cwd = %q, want /tmp/project", scoped.CWD)
+	}
+}
+
 func newSkillRPCTestServer(t *testing.T, svc Service) *platformrpc.Server {
 	t.Helper()
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
@@ -69,10 +92,11 @@ func TestSkillListHostRPCResponseHidesLegacyFields(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestSkillService(t)
-	writeTestSkill(t, svc.root, "demo-skill", "---\nname: demo-skill\ndescription: Demo desc\nsummary: Demo sum\ndisable_model_invocation: true\n---\n# Demo")
+	cwd := filepath.Join(t.TempDir(), "repo")
+	writeScopedSystemSkill(t, svc.root, cwd, "demo-skill", "---\nname: demo-skill\ndescription: Demo desc\nsummary: Demo sum\ndisable_model_invocation: true\n---\n# Demo")
 	server := newSkillRPCTestServer(t, svc)
 
-	raw, err := server.Dispatch(context.Background(), "skill/list", json.RawMessage(`{}`))
+	raw, err := server.Dispatch(context.Background(), "skill/list", json.RawMessage(`{"cwd":"`+cwd+`"}`))
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -102,10 +126,11 @@ func TestSkillExpandHostRPCRejectsUnknownFields(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestSkillService(t)
-	writeTestSkill(t, svc.root, "demo", "---\nname: demo\n---\n## Usage\nhello")
+	cwd := filepath.Join(t.TempDir(), "repo")
+	writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\nname: demo\n---\n## Usage\nhello")
 	server := newSkillRPCTestServer(t, svc)
 
-	_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","if_hash":"abc"}`))
+	_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","cwd":"`+cwd+`","if_hash":"abc"}`))
 	var rpcErr *jrpc2.Error
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
@@ -120,7 +145,8 @@ func TestSkillExpandHostRPCMapsErrors(t *testing.T) {
 
 	t.Run("not_found", func(t *testing.T) {
 		server := newSkillRPCTestServer(t, newTestSkillService(t))
-		_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"ghost"}`))
+		cwd := filepath.Join(t.TempDir(), "repo")
+		_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"ghost","cwd":"`+cwd+`"}`))
 		var rpcErr *jrpc2.Error
 		if !errors.As(err, &rpcErr) {
 			t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
@@ -132,9 +158,10 @@ func TestSkillExpandHostRPCMapsErrors(t *testing.T) {
 
 	t.Run("invalid_params", func(t *testing.T) {
 		svc := newTestSkillService(t)
-		writeTestSkill(t, svc.root, "demo", "---\nname: demo\n---\nbody")
+		cwd := filepath.Join(t.TempDir(), "repo")
+		writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\nname: demo\n---\nbody")
 		server := newSkillRPCTestServer(t, svc)
-		_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","section":"../escape"}`))
+		_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","cwd":"`+cwd+`","section":"../escape"}`))
 		var rpcErr *jrpc2.Error
 		if !errors.As(err, &rpcErr) {
 			t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
@@ -149,10 +176,11 @@ func TestSkillExpandHostRPCResponseShape(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestSkillService(t)
-	writeTestSkill(t, svc.root, "demo", "---\nname: demo\nsummary: Demo sum\n---\n## Usage\nhello world")
+	cwd := filepath.Join(t.TempDir(), "repo")
+	writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\nname: demo\nsummary: Demo sum\n---\n## Usage\nhello world")
 	server := newSkillRPCTestServer(t, svc)
 
-	raw, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","section":"## Usage","max_bytes":20}`))
+	raw, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","cwd":"`+cwd+`","section":"## Usage","max_bytes":20}`))
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -168,6 +196,112 @@ func TestSkillExpandHostRPCResponseShape(t *testing.T) {
 	for _, key := range []string{"version", "anchor", "skill_dir"} {
 		if _, ok := got[key]; ok {
 			t.Fatalf("unexpected legacy key %q in %#v", key, got)
+		}
+	}
+}
+
+func TestSkillsListHostRPCScopesByCWD(t *testing.T) {
+	t.Parallel()
+
+	systemRoot := t.TempDir()
+	projectA := filepath.Join(t.TempDir(), "wj", "langgraph")
+	projectB := filepath.Join(t.TempDir(), "wj", "go-agent-v2")
+	for _, root := range []string{projectA, projectB} {
+		if err := os.MkdirAll(filepath.Join(root, ".agent", "skills"), 0o755); err != nil {
+			t.Fatalf("mkdir project skills root: %v", err)
+		}
+	}
+	writeTestSkill(t, filepath.Join(projectB, ".agent", "skills"), "local-b", "# local b")
+	writeScopedSystemSkill(t, systemRoot, projectA, "shared-a", "---\nname: shared-a\nsummary: from-a\n---\nA")
+	writeScopedSystemSkill(t, systemRoot, projectB, "shared-b", "---\nname: shared-b\nsummary: from-b\n---\nB")
+
+	svc := &service{
+		root:              systemRoot,
+		projectRoot:       projectB,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectB),
+		http:              &http.Client{},
+	}
+	server := newSkillRPCTestServer(t, svc)
+
+	rawScoped, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{"cwd":"`+projectA+`"}`))
+	if err != nil {
+		t.Fatalf("Dispatch scoped skills/list: %v", err)
+	}
+	var scoped struct {
+		Skills []skillListItem `json:"skills"`
+	}
+	if err := json.Unmarshal(rawScoped, &scoped); err != nil {
+		t.Fatalf("json.Unmarshal scoped: %v", err)
+	}
+	if len(scoped.Skills) != 1 || scoped.Skills[0].Name != "shared-a" {
+		t.Fatalf("scoped skills = %#v, want only shared-a", scoped.Skills)
+	}
+
+	_, err = server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{}`))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("Dispatch global skills/list error = %T, want *jrpc2.Error", err)
+	}
+	if rpcErr.Code != jrpc2.InvalidParams {
+		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.InvalidParams)
+	}
+}
+
+func TestSkillExpandHostRPCScopesByCWD(t *testing.T) {
+	t.Parallel()
+
+	systemRoot := t.TempDir()
+	projectA := filepath.Join(t.TempDir(), "wj", "langgraph")
+	projectB := filepath.Join(t.TempDir(), "wj", "go-agent-v2")
+	writeScopedSystemSkill(t, systemRoot, projectA, "shared", "---\nname: shared\nsummary: from-a\n---\nproject-a")
+	writeScopedSystemSkill(t, systemRoot, projectB, "shared", "---\nname: shared\nsummary: from-b\n---\nproject-b")
+	svc := &service{root: systemRoot, http: &http.Client{}}
+	server := newSkillRPCTestServer(t, svc)
+
+	raw, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"shared","cwd":"`+projectB+`"}`))
+	if err != nil {
+		t.Fatalf("Dispatch skill/expand: %v", err)
+	}
+	var got skillExpandResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal skill/expand: %v", err)
+	}
+	if got.Name != "shared" || got.Summary != "from-b" || got.Content != "---\nname: shared\nsummary: from-b\n---\nproject-b" {
+		t.Fatalf("scoped expand result = %#v", got)
+	}
+}
+
+func TestSkillRPCRejectsEmptyCWD(t *testing.T) {
+	t.Parallel()
+
+	server := newSkillRPCTestServer(t, newTestSkillService(t))
+	cases := []struct {
+		method string
+		params string
+	}{
+		{method: "skill/list", params: `{}`},
+		{method: "skills/list", params: `{}`},
+		{method: "skill/expand", params: `{"name":"demo"}`},
+		{method: "skills/expandBody", params: `{"name":"demo"}`},
+		{method: "skills/readResource", params: `{"name":"demo","path":"ref.md"}`},
+		{method: "skills/match/preview", params: `{"threadId":"t1","text":"hello"}`},
+		{method: "skills/local/read", params: `{"path":"/tmp/skill/SKILL.md"}`},
+		{method: "skills/local/listFiles", params: `{"dir":"/tmp/skill"}`},
+		{method: "skills/local/write", params: `{"path":"/tmp/skill/SKILL.md","content":"x"}`},
+		{method: "skills/local/importDir", params: `{"path":"/tmp/skill"}`},
+		{method: "skills/local/delete", params: `{"name":"demo"}`},
+	}
+	for _, tc := range cases {
+		_, err := server.Dispatch(context.Background(), tc.method, json.RawMessage(tc.params))
+		var rpcErr *jrpc2.Error
+		if !errors.As(err, &rpcErr) {
+			t.Fatalf("%s error = %T, want *jrpc2.Error", tc.method, err)
+		}
+		if rpcErr.Code != jrpc2.InvalidParams {
+			t.Fatalf("%s code = %v, want %v", tc.method, rpcErr.Code, jrpc2.InvalidParams)
+		}
+		if rpcErr.Message != ErrMissingCWD.Error() {
+			t.Fatalf("%s message = %q, want %q", tc.method, rpcErr.Message, ErrMissingCWD.Error())
 		}
 	}
 }

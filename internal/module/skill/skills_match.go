@@ -42,7 +42,11 @@ type autoMatchedSkill struct {
 
 func (s *service) newSkillsAutoMatchCollector(ctx context.Context) func(string, string, []UserInput) ([]autoMatchedSkill, error) {
 	return func(resolvedID, text string, input []UserInput) ([]autoMatchedSkill, error) {
-		skills, err := s.ListSkills(ctx)
+		cwd, err := requireCWD(ctx)
+		if err != nil {
+			return nil, err
+		}
+		skills, err := s.ListSkills(WithCWD(ctx, cwd))
 		if err != nil {
 			return nil, err
 		}

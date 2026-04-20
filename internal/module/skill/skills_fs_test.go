@@ -73,13 +73,14 @@ func TestReadLocalRejectsPathOutsideSkillsRoot(t *testing.T) {
 
 	skillsRoot := t.TempDir()
 	outsideRoot := t.TempDir()
+	projectRoot := t.TempDir()
 	outsidePath := filepath.Join(outsideRoot, "SKILL.md")
 	if err := os.WriteFile(outsidePath, []byte("# outside"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{projectRoot: t.TempDir(), root: skillsRoot, http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
 
-	_, err := svc.ReadLocal(context.Background(), outsidePath)
+	_, err := svc.ReadLocal(skillTestContext(projectRoot), outsidePath)
 	if err == nil || err.Error() != "path escapes skills root: "+outsidePath {
 		t.Fatalf("ReadLocal() error = %v, want path escapes skills root", err)
 	}
@@ -90,9 +91,10 @@ func TestListLocalFilesRejectsDirOutsideSkillsRoot(t *testing.T) {
 
 	skillsRoot := t.TempDir()
 	outsideRoot := t.TempDir()
-	svc := &service{projectRoot: t.TempDir(), root: skillsRoot, http: &http.Client{}}
+	projectRoot := t.TempDir()
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
 
-	_, err := svc.ListLocalFiles(context.Background(), listSkillFilesParams{Dir: outsideRoot})
+	_, err := svc.ListLocalFiles(skillTestContext(projectRoot), listSkillFilesParams{Dir: outsideRoot})
 	if err == nil || err.Error() != "path escapes skills root: "+outsideRoot {
 		t.Fatalf("ListLocalFiles() error = %v, want path escapes skills root", err)
 	}
@@ -103,13 +105,14 @@ func TestWriteLocalRejectsPathOutsideSkillsRoot(t *testing.T) {
 
 	skillsRoot := t.TempDir()
 	outsideRoot := t.TempDir()
+	projectRoot := t.TempDir()
 	outsidePath := filepath.Join(outsideRoot, "note.md")
 	if err := os.WriteFile(outsidePath, []byte("before"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{projectRoot: t.TempDir(), root: skillsRoot, http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
 
-	_, err := svc.WriteLocal(context.Background(), outsidePath, "after")
+	_, err := svc.WriteLocal(skillTestContext(projectRoot), outsidePath, "after")
 	if err == nil || err.Error() != "path escapes skills root: "+outsidePath {
 		t.Fatalf("WriteLocal() error = %v, want path escapes skills root", err)
 	}
@@ -119,7 +122,8 @@ func TestReadLocalAcceptsPathInsideProjectSkillsRoot(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
-	projectSkillsRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
 	skillPath := filepath.Join(projectSkillsRoot, "demo", skillMainFile)
 	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
@@ -127,9 +131,9 @@ func TestReadLocalAcceptsPathInsideProjectSkillsRoot(t *testing.T) {
 	if err := os.WriteFile(skillPath, []byte("# demo"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{root: systemRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
 
-	out, err := svc.ReadLocal(context.Background(), skillPath)
+	out, err := svc.ReadLocal(skillTestContext(projectRoot), skillPath)
 	if err != nil {
 		t.Fatalf("ReadLocal() error = %v", err)
 	}
@@ -150,12 +154,13 @@ func TestListSkillsMergesProjectAndSystemRoots(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
-	projectSkillsRoot := t.TempDir()
-	writeTestSkill(t, systemRoot, "from-system", "# system")
+	projectRoot := t.TempDir()
+	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
+	writeScopedSystemSkill(t, systemRoot, projectRoot, "from-system", "# system")
 	writeTestSkill(t, projectSkillsRoot, "from-project", "# project")
-	svc := &service{root: systemRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
 
-	skills, err := svc.ListSkills(context.Background())
+	skills, err := svc.ListSkills(skillTestContext(projectRoot))
 	if err != nil {
 		t.Fatalf("ListSkills() error = %v", err)
 	}
@@ -172,7 +177,7 @@ func TestExpandReturnsNotFoundForMissingSkill(t *testing.T) {
 	t.Parallel()
 
 	svc, _ := newExpandTestService(t)
-	_, err := svc.Expand(context.Background(), skillExpandParams{Name: "ghost"})
+	_, err := svc.Expand(expandTestContext(svc), skillExpandParams{Name: "ghost"})
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Expand() error = %v, want os.ErrNotExist", err)
 	}
@@ -187,7 +192,7 @@ func TestExpandRejectsPathEscapeSection(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	writeExpandTestSkill(t, root, "demo", "---\nname: demo\n---\nbody")
 
-	_, err := svc.Expand(context.Background(), skillExpandParams{Name: "demo", Section: "../escape"})
+	_, err := svc.Expand(expandTestContext(svc), skillExpandParams{Name: "demo", Section: "../escape"})
 	if !errors.Is(err, errInvalidSkillExpandParam) {
 		t.Fatalf("Expand() error = %v, want invalid params", err)
 	}
@@ -200,7 +205,7 @@ func TestExpandFullSkillContentHashUsesPreTruncationBytes(t *testing.T) {
 	content := "---\nname: demo\nsummary: short\n---\n## Usage\nhello world"
 	path := writeExpandTestSkill(t, root, "demo", content)
 
-	res, err := svc.Expand(context.Background(), skillExpandParams{Name: "demo", MaxBytes: 10})
+	res, err := svc.Expand(expandTestContext(svc), skillExpandParams{Name: "demo", MaxBytes: 10})
 	if err != nil {
 		t.Fatalf("Expand() error = %v", err)
 	}
@@ -230,7 +235,7 @@ func TestExpandMarkdownSectionTruncatesAndHashesSelection(t *testing.T) {
 	path := writeExpandTestSkill(t, root, "demo", body)
 	selected := "### Details\n" + strings.Repeat("x", 32)
 
-	res, err := svc.Expand(context.Background(), skillExpandParams{Name: "demo", Section: "### Details", MaxBytes: 12})
+	res, err := svc.Expand(expandTestContext(svc), skillExpandParams{Name: "demo", Section: "### Details", MaxBytes: 12})
 	if err != nil {
 		t.Fatalf("Expand() error = %v", err)
 	}
@@ -256,7 +261,8 @@ func TestImportLocalDirRejectsSourceInsideProjectSkillsRoot(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
-	projectSkillsRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
 	sourceDir := filepath.Join(projectSkillsRoot, "demo-skill")
 	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
@@ -264,9 +270,9 @@ func TestImportLocalDirRejectsSourceInsideProjectSkillsRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{root: systemRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
 
-	out, err := svc.ImportLocalDir(context.Background(), importSkillDirParams{Path: sourceDir})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -296,9 +302,9 @@ func TestImportLocalDirAcceptsSourceOutsideProjectRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{projectRoot: projectRoot, root: skillsRoot, http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
 
-	out, err := svc.ImportLocalDir(context.Background(), importSkillDirParams{Path: sourceDir})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -325,6 +331,7 @@ func TestImportLocalDirRejectsSourceInsideSkillsRoot(t *testing.T) {
 	t.Parallel()
 
 	skillsRoot := t.TempDir()
+	projectRoot := t.TempDir()
 	sourceDir := filepath.Join(skillsRoot, "demo-skill")
 	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
@@ -332,9 +339,9 @@ func TestImportLocalDirRejectsSourceInsideSkillsRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{projectRoot: t.TempDir(), root: skillsRoot, http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
 
-	out, err := svc.ImportLocalDir(context.Background(), importSkillDirParams{Path: sourceDir})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -367,9 +374,9 @@ func TestImportLocalDirRejectsExistingTarget(t *testing.T) {
 	if err := os.MkdirAll(existingDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(existing) error = %v", err)
 	}
-	svc := &service{projectRoot: projectRoot, root: skillsRoot, http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
 
-	out, err := svc.ImportLocalDir(context.Background(), importSkillDirParams{Path: sourceDir})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}

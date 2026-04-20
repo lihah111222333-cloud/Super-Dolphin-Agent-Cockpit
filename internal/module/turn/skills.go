@@ -190,7 +190,15 @@ func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef) []d
 	if !refsNeedHydration(refs) {
 		return refs
 	}
-	infos, err := s.skillLookup.ListSkills(ctx)
+	cwd, err := skillpkg.RequireCWD(ctx)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("turn skill hydrate: cwd missing", "error", err)
+		}
+		return refs
+	}
+	scopedCtx := skillpkg.WithCWD(ctx, cwd)
+	infos, err := s.skillLookup.ListSkills(scopedCtx)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Warn("turn skill hydrate: ListSkills failed", "error", err)

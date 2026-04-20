@@ -2,16 +2,19 @@ package skill
 
 type pathParams struct {
 	Path string `json:"path"`
+	CWD  string `json:"cwd,omitempty"`
 }
 
 type contentParams struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+	CWD     string `json:"cwd,omitempty"`
 }
 
 type listSkillFilesParams struct {
 	Dir  string `json:"dir"`
 	Path string `json:"path,omitempty"`
+	CWD  string `json:"cwd,omitempty"`
 }
 
 type importSkillDirParams struct {
@@ -23,6 +26,7 @@ type importSkillDirParams struct {
 
 type deleteLocalSkillParams struct {
 	Name string `json:"name"`
+	CWD  string `json:"cwd,omitempty"`
 }
 
 type skillConfigReadParams struct {
@@ -57,9 +61,12 @@ type skillMatchPreviewParams struct {
 	AgentID  string      `json:"agent_id,omitempty"` // Falls back when threadId is empty.
 	Text     string      `json:"text"`
 	Input    []UserInput `json:"input,omitempty"`
+	CWD      string      `json:"cwd,omitempty"`
 }
 
-type skillListParams struct{}
+type skillListParams struct {
+	CWD string `json:"cwd,omitempty"`
+}
 
 type skillListItem struct {
 	Name                   string     `json:"name"`
@@ -78,6 +85,7 @@ type skillExpandParams struct {
 	Name          string `json:"name"`
 	Section       string `json:"section,omitempty"`
 	MaxBytes      int64  `json:"max_bytes,omitempty"`
+	CWD           string `json:"cwd,omitempty"`
 	ApprovalScope string `json:"approval_scope,omitempty"`
 	Scope         string `json:"scope,omitempty"`
 	AgentID       string `json:"agentId,omitempty"`
@@ -110,6 +118,7 @@ type ExpandBodyParams struct {
 	Name     string `json:"name"`
 	Anchor   string `json:"anchor,omitempty"`
 	MaxBytes int64  `json:"max_bytes,omitempty"`
+	CWD      string `json:"cwd,omitempty"`
 }
 
 // ExpandBodyResult 是 skill_expand_body 的返回结构。
@@ -143,6 +152,7 @@ type ReadResourceParams struct {
 	Name     string `json:"name"`
 	Path     string `json:"path"`
 	MaxBytes int64  `json:"max_bytes,omitempty"`
+	CWD      string `json:"cwd,omitempty"`
 }
 
 // ReadResourceResult 是 skill_read_resource 的返回结构。

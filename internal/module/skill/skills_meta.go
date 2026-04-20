@@ -19,11 +19,12 @@ type skillRecord struct {
 	rel  string
 }
 
-func (s *service) scanSkills() ([]skillRecord, error) {
-	roots := s.skillRoots()
+func (s *service) scanSkills(cwd string) ([]skillRecord, error) {
+	roots := s.skillRoots(cwd)
 	if len(roots) == 0 {
 		return nil, nil
 	}
+	projectSkillsRoot := s.projectSkillsRootForCWD(cwd)
 	records := make([]skillRecord, 0, 16)
 	for _, root := range roots {
 		if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
@@ -32,7 +33,7 @@ func (s *service) scanSkills() ([]skillRecord, error) {
 			return nil, err
 		}
 		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-			return s.visitSkillEntry(root, path, entry, walkErr, &records)
+			return s.visitSkillEntry(root, path, entry, walkErr, projectSkillsRoot, &records)
 		})
 		if err != nil {
 			return nil, err
@@ -44,7 +45,7 @@ func (s *service) scanSkills() ([]skillRecord, error) {
 	return records, nil
 }
 
-func (s *service) visitSkillEntry(root, path string, entry os.DirEntry, walkErr error, records *[]skillRecord) error {
+func (s *service) visitSkillEntry(root, path string, entry os.DirEntry, walkErr error, projectSkillsRoot string, records *[]skillRecord) error {
 	if walkErr != nil || entry == nil {
 		return walkErr
 	}
@@ -63,7 +64,7 @@ func (s *service) visitSkillEntry(root, path string, entry os.DirEntry, walkErr 
 	}
 	// 根据当前 root 和 service 状态排定 defaultTrust：项目级 root → untrusted，用户级 → trusted。
 	// frontmatter 中显式 `trust:` 会在 parseSkillInfo 内覆盖此默认值。
-	defaultTrust := s.defaultTrustForRoot(root)
+	defaultTrust := s.defaultTrustForRoot(root, projectSkillsRoot)
 	record, err := parseSkillRecord(root, path, defaultTrust)
 	if err != nil {
 		return nil
@@ -73,8 +74,8 @@ func (s *service) visitSkillEntry(root, path string, entry os.DirEntry, walkErr 
 }
 
 // defaultTrustForRoot 根据 root 路径在 service 两个配置 root 中的归属，推断默认信任域。
-func (s *service) defaultTrustForRoot(root string) TrustScope {
-	return inferTrustFromRoot(root, s.projectSkillsRoot, s.root)
+func (s *service) defaultTrustForRoot(root, projectSkillsRoot string) TrustScope {
+	return inferTrustFromRoot(root, projectSkillsRoot, s.root)
 }
 
 func parseSkillRecord(root, path string, defaultTrust TrustScope) (skillRecord, error) {
@@ -370,12 +371,12 @@ func uniqStrings(values []string) []string {
 	return out
 }
 
-func (s *service) resolveSkill(name string) (skillRecord, error) {
+func (s *service) resolveSkill(name, cwd string) (skillRecord, error) {
 	needle := strings.ToLower(strings.TrimSpace(name))
 	if needle == "" {
 		return skillRecord{}, errors.New("skill name is required")
 	}
-	records, err := s.scanSkills()
+	records, err := s.scanSkills(cwd)
 	if err != nil {
 		return skillRecord{}, err
 	}
@@ -403,7 +404,7 @@ func (s *service) writeSkill(name, content string) (string, error) {
 }
 
 func (s *service) updateSkillSummary(name, summary string) (string, string, error) {
-	record, err := s.resolveSkill(name)
+	record, err := s.resolveSkill(name, "")
 	if err != nil {
 		return "", "", err
 	}

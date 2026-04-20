@@ -12,6 +12,7 @@ import (
 
 type uiDashboardGetParams struct {
 	Page string `json:"page,omitempty"`
+	Cwd  string `json:"cwd,omitempty"`
 }
 
 type dashboardPromptsParams struct {
@@ -82,6 +83,7 @@ type dagDetailParams struct {
 func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"ui/dashboard/get": rpc.StrictHandler(func(ctx context.Context, p uiDashboardGetParams) (any, error) {
+			ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
 			return svc.GetDashboardPage(ctx, p.Page)
 		}),
 		"dashboard/agentStatus": rpc.StrictHandler(func(ctx context.Context, p agentStatusParams) (any, error) {
@@ -108,7 +110,8 @@ func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
 		"dashboard/sharedFiles": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardPageField(ctx, svc, "memory", func(page *DashboardPage) any { return page.Memory }, "files")
 		}),
-		"dashboard/skills": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		"dashboard/skills": rpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
+			ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
 			return dashboardPageField(ctx, svc, "skills", func(page *DashboardPage) any { return page.Skills })
 		}),
 		"dashboard/agent/detail": rpc.StrictHandler(func(ctx context.Context, p agentDetailParams) (any, error) {
