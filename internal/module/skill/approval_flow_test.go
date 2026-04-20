@@ -63,7 +63,7 @@ func newApprovalFlowService(t *testing.T) (*service, string, *stubApprovalReques
 func TestExpandWithApprovalTrustedBypass(t *testing.T) {
 	svc, root, requester := newApprovalFlowService(t)
 	writeExpandTestSkill(t, root, "demo", "---\nname: demo\ntrust: user\n---\ntrusted body")
-	if _, err := svc.expandWithApproval(context.Background(), skillExpandParams{Name: "demo"}); err != nil {
+	if _, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), skillExpandParams{Name: "demo"}); err != nil {
 		t.Fatalf("expandWithApproval() error = %v", err)
 	}
 	if got := requester.callCount(); got != 0 {
@@ -78,7 +78,7 @@ func TestExpandWithApprovalProjectScopePersistsCache(t *testing.T) {
 		"approval_scope": "project",
 		"approved_by":    "user@local",
 	})}
-	res, err := svc.expandWithApproval(context.Background(), skillExpandParams{Name: "demo", ApprovalScope: "project"})
+	res, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), skillExpandParams{Name: "demo", ApprovalScope: "project"})
 	if err != nil {
 		t.Fatalf("expandWithApproval() error = %v", err)
 	}
@@ -93,10 +93,10 @@ func TestExpandWithApprovalProjectScopePersistsCache(t *testing.T) {
 func TestExpandWithApprovalFullSkillCacheHitSkipsApproval(t *testing.T) {
 	svc, root, requester := newApprovalFlowService(t)
 	writeExpandTestSkill(t, root, "demo", "---\nname: demo\n---\ncache me")
-	if _, err := svc.expandWithApproval(context.Background(), skillExpandParams{Name: "demo", ApprovalScope: "project"}); err != nil {
+	if _, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), skillExpandParams{Name: "demo", ApprovalScope: "project"}); err != nil {
 		t.Fatalf("first expandWithApproval() error = %v", err)
 	}
-	if _, err := svc.expandWithApproval(context.Background(), skillExpandParams{Name: "demo", ApprovalScope: "project"}); err != nil {
+	if _, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), skillExpandParams{Name: "demo", ApprovalScope: "project"}); err != nil {
 		t.Fatalf("second expandWithApproval() error = %v", err)
 	}
 	if got := requester.callCount(); got != 1 {
@@ -108,11 +108,11 @@ func TestExpandWithApprovalHashChangeRequestsAgain(t *testing.T) {
 	svc, root, requester := newApprovalFlowService(t)
 	writeExpandTestSkill(t, root, "demo", "---\nname: demo\n---\nversion one")
 	requester.decisions = []contract.ApprovalDecision{approvedSkillDecision(nil), approvedSkillDecision(nil)}
-	if _, err := svc.expandWithApproval(context.Background(), skillExpandParams{Name: "demo", ApprovalScope: "project"}); err != nil {
+	if _, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), skillExpandParams{Name: "demo", ApprovalScope: "project"}); err != nil {
 		t.Fatalf("first expandWithApproval() error = %v", err)
 	}
 	writeExpandTestSkill(t, root, "demo", "---\nname: demo\n---\nversion two")
-	if _, err := svc.expandWithApproval(context.Background(), skillExpandParams{Name: "demo", ApprovalScope: "project"}); err != nil {
+	if _, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), skillExpandParams{Name: "demo", ApprovalScope: "project"}); err != nil {
 		t.Fatalf("second expandWithApproval() error = %v", err)
 	}
 	if got := requester.callCount(); got != 2 {
@@ -140,7 +140,7 @@ func TestExpandWithApprovalSectionAndResourceStayPerCall(t *testing.T) {
 	} {
 		before := requester.callCount()
 		for i := 0; i < 2; i++ {
-			if _, err := svc.expandWithApproval(context.Background(), tc); err != nil {
+			if _, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), tc); err != nil {
 				t.Fatalf("expandWithApproval(%q) error = %v", tc.Section, err)
 			}
 		}
@@ -158,7 +158,7 @@ func TestExpandWithApprovalSessionScopeStaysInMemory(t *testing.T) {
 	writeExpandTestSkill(t, root, "demo", "---\nname: demo\n---\nsession only")
 	requester.decisions = []contract.ApprovalDecision{approvedSkillDecision(map[string]any{"approval_scope": "session"})}
 	for i := 0; i < 2; i++ {
-		if _, err := svc.expandWithApproval(context.Background(), skillExpandParams{Name: "demo", ApprovalScope: "session"}); err != nil {
+		if _, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), skillExpandParams{Name: "demo", ApprovalScope: "session"}); err != nil {
 			t.Fatalf("expandWithApproval() error = %v", err)
 		}
 	}

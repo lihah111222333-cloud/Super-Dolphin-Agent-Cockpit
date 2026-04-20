@@ -28,8 +28,12 @@ func (skillNotFoundError) Unwrap() error {
 	return os.ErrNotExist
 }
 
-func (s *service) ListSkills(context.Context) ([]SkillInfo, error) {
-	records, err := s.scanSkills()
+func (s *service) ListSkills(ctx context.Context) ([]SkillInfo, error) {
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		return nil, err
+	}
+	records, err := s.scanSkills(cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -46,16 +50,20 @@ type skillExpandPrepared struct {
 	cacheable bool
 }
 
-func (s *service) Expand(_ context.Context, p skillExpandParams) (skillExpandResult, error) {
-	prepared, err := s.prepareSkillExpand(p)
+func (s *service) Expand(ctx context.Context, p skillExpandParams) (skillExpandResult, error) {
+	prepared, err := s.prepareSkillExpand(ctx, p)
 	if err != nil {
 		return skillExpandResult{}, err
 	}
 	return prepared.result, nil
 }
 
-func (s *service) prepareSkillExpand(p skillExpandParams) (skillExpandPrepared, error) {
-	record, err := s.resolveSkillRecordByName(p.Name)
+func (s *service) prepareSkillExpand(ctx context.Context, p skillExpandParams) (skillExpandPrepared, error) {
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		return skillExpandPrepared{}, err
+	}
+	record, err := s.resolveSkillRecordByName(p.Name, cwd)
 	if err != nil {
 		return skillExpandPrepared{}, err
 	}
@@ -86,12 +94,12 @@ func (s *service) prepareSkillExpand(p skillExpandParams) (skillExpandPrepared, 
 	}
 }
 
-func (s *service) resolveSkillRecordByName(name string) (skillRecord, error) {
+func (s *service) resolveSkillRecordByName(name, cwd string) (skillRecord, error) {
 	normalized, err := validateSkillName(name)
 	if err != nil {
 		return skillRecord{}, err
 	}
-	records, err := s.scanSkills()
+	records, err := s.scanSkills(cwd)
 	if err != nil {
 		return skillRecord{}, err
 	}
@@ -201,8 +209,12 @@ func hashSkillExpandContent(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (s *service) ReadLocal(_ context.Context, path string) (any, error) {
-	path, err := s.resolveSkillPath(path)
+func (s *service) ReadLocal(ctx context.Context, path string) (any, error) {
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		return nil, err
+	}
+	path, err = s.resolveSkillPath(path, cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +235,11 @@ func (s *service) ReadLocal(_ context.Context, path string) (any, error) {
 	return map[string]any{"skill": map[string]any{"path": path, "content": string(data), "summary": summarizeSkillBody(string(data), ""), "summary_source": "generated"}}, nil
 }
 
-func (s *service) ListLocalFiles(_ context.Context, p listSkillFilesParams) (any, error) {
+func (s *service) ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error) {
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		return nil, err
+	}
 	dir := strings.TrimSpace(p.Dir)
 	if dir == "" && strings.TrimSpace(p.Path) != "" {
 		dir = filepath.Dir(strings.TrimSpace(p.Path))
@@ -231,7 +247,7 @@ func (s *service) ListLocalFiles(_ context.Context, p listSkillFilesParams) (any
 	if dir == "" {
 		return nil, errors.New("dir or path is required")
 	}
-	dir, err := s.resolveSkillPath(dir)
+	dir, err = s.resolveSkillPath(dir, cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -243,8 +259,12 @@ func (s *service) ListLocalFiles(_ context.Context, p listSkillFilesParams) (any
 	return map[string]any{"dir": dir, "files": files}, nil
 }
 
-func (s *service) WriteLocal(_ context.Context, path, content string) (any, error) {
-	path, err := s.resolveSkillPath(path)
+func (s *service) WriteLocal(ctx context.Context, path, content string) (any, error) {
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		return nil, err
+	}
+	path, err = s.resolveSkillPath(path, cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +285,11 @@ func (s *service) WriteLocal(_ context.Context, path, content string) (any, erro
 	return map[string]any{"ok": true, "path": path, "bytes": len(content)}, nil
 }
 
-func (s *service) ImportLocalDir(_ context.Context, p importSkillDirParams) (any, error) {
+func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error) {
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		return nil, err
+	}
 	sources, err := collectImportSources(p.Path, p.Paths)
 	if err != nil {
 		return nil, err
@@ -276,7 +300,7 @@ func (s *service) ImportLocalDir(_ context.Context, p importSkillDirParams) (any
 	if len(sources) > 1 && strings.TrimSpace(p.Name) != "" {
 		return nil, errors.New("name is only supported for single directory import")
 	}
-	results, failures := s.importSources(sources, p.Name)
+	results, failures := s.importSources(sources, p.Name, cwd)
 	response := map[string]any{"requested": len(sources), "imported": results}
 	if len(failures) > 0 {
 		response["failures"] = failures
@@ -294,8 +318,12 @@ func (s *service) ImportLocalDir(_ context.Context, p importSkillDirParams) (any
 	return response, nil
 }
 
-func (s *service) DeleteLocal(_ context.Context, name string) (any, error) {
-	record, err := s.resolveSkill(name)
+func (s *service) DeleteLocal(ctx context.Context, name string) (any, error) {
+	cwd, err := requireCWD(ctx)
+	if err != nil {
+		return nil, err
+	}
+	record, err := s.resolveSkill(name, cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +442,7 @@ func collectImportSources(primary string, extra []string) ([]string, error) {
 	return uniqStrings(sources), nil
 }
 
-func (s *service) importSources(sources []string, singleName string) ([]map[string]any, []map[string]any) {
+func (s *service) importSources(sources []string, singleName, cwd string) ([]map[string]any, []map[string]any) {
 	results := make([]map[string]any, 0, len(sources))
 	failures := make([]map[string]any, 0)
 	for _, source := range sources {
@@ -422,7 +450,7 @@ func (s *service) importSources(sources []string, singleName string) ([]map[stri
 		if len(sources) > 1 {
 			name = filepath.Base(source)
 		}
-		result, err := s.importSource(source, name)
+		result, err := s.importSource(source, name, cwd)
 		if err != nil {
 			failures = append(failures, map[string]any{"source": source, "error": err.Error()})
 			continue
@@ -432,7 +460,7 @@ func (s *service) importSources(sources []string, singleName string) ([]map[stri
 	return results, failures
 }
 
-func (s *service) importSource(source, name string) (map[string]any, error) {
+func (s *service) importSource(source, name, cwd string) (map[string]any, error) {
 	resolvedSource, err := validateImportSource(source)
 	if err != nil {
 		return nil, err
@@ -441,7 +469,7 @@ func (s *service) importSource(source, name string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureSourceOutsideRoots(s.skillRoots(), resolvedSource, source); err != nil {
+	if err := ensureSourceOutsideRoots(s.skillRoots(cwd), resolvedSource, source); err != nil {
 		return nil, err
 	}
 	targetName := strings.TrimSpace(name)
@@ -548,12 +576,12 @@ func copySkillDir(source, target string) (int, int64, error) {
 	return files, total, err
 }
 
-func (s *service) resolveSkillPath(target string) (string, error) {
+func (s *service) resolveSkillPath(target, cwd string) (string, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return "", errors.New("path is required")
 	}
-	roots := s.skillRoots()
+	roots := s.skillRoots(cwd)
 	if len(roots) == 0 {
 		return "", errors.New("skills root is not configured")
 	}

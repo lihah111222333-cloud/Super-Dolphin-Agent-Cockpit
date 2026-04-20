@@ -8,13 +8,18 @@ import (
 	"testing"
 )
 
+func skillTestContext(cwd string) context.Context {
+	return WithCWD(context.Background(), cwd)
+}
+
 func TestMatchPreviewFallsBackToAgentID(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestSkillService(t)
-	writeTestSkill(t, svc.root, "demo", "---\ntrigger_words: hello\n---\n# demo\n")
+	cwd := filepath.Join(t.TempDir(), "repo")
+	writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\ntrigger_words: hello\n---\n# demo\n")
 
-	out, err := svc.MatchPreview(context.Background(), " agent-42 ", "   ", "hello world", nil)
+	out, err := svc.MatchPreview(skillTestContext(cwd), " agent-42 ", "   ", "hello world", nil)
 	if err != nil {
 		t.Fatalf("MatchPreview returned error: %v", err)
 	}
@@ -41,13 +46,14 @@ func TestMatchPreviewUsesResolvedIDForConfiguredSkills(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestSkillService(t)
+	cwd := filepath.Join(t.TempDir(), "repo")
 	var capturedID string
 	svc.readConfigState = func(_ context.Context, resolvedID string) (any, error) {
 		capturedID = resolvedID
 		return map[string]any{"agent_id": resolvedID, "skills": []any{"configured-skill", "configured-skill", " "}}, nil
 	}
 
-	out, err := svc.MatchPreview(context.Background(), " agent-7 ", "   ", "", nil)
+	out, err := svc.MatchPreview(skillTestContext(cwd), " agent-7 ", "   ", "", nil)
 	if err != nil {
 		t.Fatalf("MatchPreview returned error: %v", err)
 	}

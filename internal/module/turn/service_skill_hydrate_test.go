@@ -70,6 +70,7 @@ func TestPrepareTurnHydratesNameOnlySkill(t *testing.T) {
 		Prompt:               "please investigate",
 		Skills:               []dto.SkillRef{{Name: "debug"}},
 		ManualSkillSelection: true,
+		CWD:                  "/repo",
 	})
 	if err != nil {
 		t.Fatalf("PrepareTurn error: %v", err)
@@ -116,6 +117,7 @@ func TestPrepareTurnPreservesSummaryWhenBodyMissing(t *testing.T) {
 		Prompt:               "trace the event flow",
 		Skills:               []dto.SkillRef{{Name: "rpc-tracing"}},
 		ManualSkillSelection: true,
+		CWD:                  "/repo",
 	})
 	if err != nil {
 		t.Fatalf("PrepareTurn error: %v", err)
@@ -172,6 +174,7 @@ func TestPrepareTurnSkipsHydrateWhenAlreadyPopulated(t *testing.T) {
 		Prompt:               "already full",
 		Skills:               []dto.SkillRef{{Name: "debug", Prompt: "user body", Summary: "user summary", Version: "v1"}},
 		ManualSkillSelection: true,
+		CWD:                  "/repo",
 	})
 	if err != nil {
 		t.Fatalf("PrepareTurn error: %v", err)
@@ -190,7 +193,7 @@ func TestHydrateSkillRefsListSkillsErrorReturnsOriginal(t *testing.T) {
 	lookup := &stubSkillLookup{listErr: errors.New("boom")}
 	svc := newService(silentLogger(), nil, nil, lookup).(*service)
 	original := []dto.SkillRef{{Name: "debug"}}
-	out := svc.hydrateSkillRefs(context.Background(), original)
+	out := svc.hydrateSkillRefs(skillpkg.WithCWD(context.Background(), "/repo"), original)
 	if len(out) != 1 || out[0].Name != "debug" || out[0].Prompt != "" {
 		t.Fatalf("ListSkills error must preserve input, got %+v", out)
 	}

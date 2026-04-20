@@ -108,7 +108,7 @@ func (p SkillCatalogProvider) Resolve(ctx context.Context, input SectionContext)
 	if p.skills == nil {
 		return nil, nil
 	}
-	infos, err := p.skills.ListSkills(ctx)
+	infos, err := p.skills.ListSkills(skillpkg.WithCWD(ctx, input.BuildCtx.CWD))
 	if err != nil {
 		// 容忍 scan 失败：不注入 manifest，但不阻断整个 prompt 装配
 		return nil, nil

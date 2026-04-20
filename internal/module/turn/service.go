@@ -124,7 +124,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	// Prompt=="" 时只能走 name-list fallback。hydrate 是 optional 依赖：
 	// skillLookup==nil 时（NewService / NewServiceWithPromptAssembly 或 fx 未
 	// 注入 skill.Service）原路直通。
-	input.Skills = s.hydrateSkillRefs(ctx, input.Skills)
+	input.Skills = s.hydrateSkillRefs(skillpkg.WithCWD(ctx, input.CWD), input.Skills)
 	candidateSkills := input.CandidateSkills
 	if input.ManualSkillSelection {
 		candidateSkills = nil
