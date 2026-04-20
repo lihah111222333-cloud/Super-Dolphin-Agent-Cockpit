@@ -323,7 +323,8 @@ export const MemoryCenterPage = {
         <div v-if="model.error" class="settings-prompt-notice is-error" data-testid="memory-center-error">{{ model.error }}</div>
 
         <div v-if="systemDisabled" class="settings-prompt-notice is-error memory-system-off" data-testid="memory-center-overview">
-          Memory 系统已关闭，durable memory 不会被注入。可在 Settings 中启用。
+          Memory 系统已关闭，durable memory 不会被注入。设置环境变量
+          <code>ENABLE_MEMORY_SYSTEM=1</code>（可选 <code>ENABLE_MEMORY_TOOLS=1</code>）再重启应用即可启用。
         </div>
 
         <div class="memory-center-section memory-center-section--private">
