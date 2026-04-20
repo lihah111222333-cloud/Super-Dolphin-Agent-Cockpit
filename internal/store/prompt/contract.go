@@ -12,9 +12,19 @@ type Reader interface {
 	List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)
 }
 
+type Store interface {
+	Reader
+	WithTx(ctx context.Context, fn func(txStore Store) error) error
+	Get(ctx context.Context, promptKey string) (*PromptTemplate, error)
+	Delete(ctx context.Context, promptKey string) error
+	InsertVersion(ctx context.Context, version PromptTemplateVersion) error
+	Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error)
+}
+
 type ListFilter struct {
 	AgentKey string
 	Keyword  string
+	CWD      string
 	Limit    int32
 }
 
@@ -34,4 +44,22 @@ type PromptTemplate struct {
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 	Description string          `json:"description"`
+}
+
+type PromptTemplateVersion struct {
+	ID              int64
+	PromptKey       string
+	Title           string
+	AgentKey        string
+	ToolName        string
+	PromptText      string
+	Variables       json.RawMessage
+	Tags            json.RawMessage
+	Description     string
+	Enabled         bool
+	CreatedBy       string
+	UpdatedBy       string
+	SourceUpdatedAt *time.Time
+	CreatedAt       time.Time
+	ArchivedAt      time.Time
 }
