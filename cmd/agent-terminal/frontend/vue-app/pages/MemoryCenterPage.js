@@ -572,9 +572,12 @@ export const MemoryCenterPage = {
             <button v-if="memoryEditor.form.existingPath" class="btn btn-danger" data-testid="memory-center-editor-delete" :disabled="memoryEditor.deleting" @click="memoryEditor.remove">
               {{ memoryEditor.deleting ? '删除中...' : '删除' }}
             </button>
-            <button class="btn btn-primary" data-testid="memory-center-editor-save" :disabled="memoryEditor.saving" @click="memoryEditor.save">
-              {{ memoryEditor.saving ? '保存中...' : '保存' }}
-            </button>
+            <button
+              class="btn btn-primary"
+              data-testid="memory-center-editor-save"
+              :disabled="memoryEditor.saving || !memoryEditor.form.name.trim() || !memoryEditor.form.content.trim()"
+              @click="memoryEditor.save"
+            >{{ memoryEditor.saving ? '保存中...' : '保存' }}</button>
           </div>
         </div>
       </div>
@@ -616,9 +619,12 @@ export const MemoryCenterPage = {
               :disabled="agentEditor.saving || (!agentEditor.form.agentType && !agentEditor.form.content)"
               @click="resetAgentMemory"
             >重置</button>
-            <button class="btn btn-primary" data-testid="memory-center-agent-save" :disabled="agentEditor.saving" @click="agentEditor.save">
-              {{ agentEditor.saving ? '保存中...' : '保存 Agent 记忆' }}
-            </button>
+            <button
+              class="btn btn-primary"
+              data-testid="memory-center-agent-save"
+              :disabled="agentEditor.saving || !agentEditor.form.agentType.trim()"
+              @click="agentEditor.save"
+            >{{ agentEditor.saving ? '保存中...' : '保存 Agent 记忆' }}</button>
           </div>
         </div>
       </div>

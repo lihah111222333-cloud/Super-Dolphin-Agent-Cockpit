@@ -98,6 +98,15 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
 
   async function save() {
     if (saving.value) return;
+    const name = (form.name || '').toString().trim();
+    if (!name) {
+      setNotice('error', '请先填写名称');
+      return;
+    }
+    if (!(form.content || '').toString().trim()) {
+      setNotice('error', '内容不能为空');
+      return;
+    }
     saving.value = true;
     try {
       await callAPI('ui/memory/entry/upsert', {
@@ -193,16 +202,21 @@ export function useAgentMemoryEditor({ currentCwd, setNotice, setBusy, emit }) {
 
   async function save() {
     if (saving.value) return;
+    const agentType = (form.agentType || '').toString().trim();
+    if (!agentType) {
+      setNotice('error', '请先填写 Agent Type（例如：Writer）');
+      return;
+    }
     saving.value = true;
     try {
       await callAPI('ui/memory/agent/save', {
         cwd: currentCwd.value,
         scope: form.scope,
-        agentType: form.agentType,
+        agentType,
         content: form.content,
       });
       close();
-      setNotice('info', 'Agent 记忆已保存。清空内容后保存即可重置。');
+      setNotice('info', 'Agent 记忆已保存。');
       emit('refresh');
     } catch (error) {
       setNotice('error', `保存 Agent 记忆失败：${toErrorMessage(error)}`);
