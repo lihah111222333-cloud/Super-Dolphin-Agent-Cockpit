@@ -6,11 +6,16 @@ import (
 	"testing"
 	"time"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 type promptQuerierStub struct {
-	listFn func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error)
+	listFn          func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error)
+	getFn           func(context.Context, string) (sqlc.GetPromptTemplateRow, error)
+	deleteFn        func(context.Context, string) (int64, error)
+	insertVersionFn func(context.Context, sqlc.InsertPromptVersionParams) error
+	upsertFn        func(context.Context, sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error)
 }
 
 func (s *promptQuerierStub) ListPromptTemplates(ctx context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
@@ -18,6 +23,34 @@ func (s *promptQuerierStub) ListPromptTemplates(ctx context.Context, arg sqlc.Li
 		return s.listFn(ctx, arg)
 	}
 	return nil, nil
+}
+
+func (s *promptQuerierStub) GetPromptTemplate(ctx context.Context, promptKey string) (sqlc.GetPromptTemplateRow, error) {
+	if s.getFn != nil {
+		return s.getFn(ctx, promptKey)
+	}
+	return sqlc.GetPromptTemplateRow{}, nil
+}
+
+func (s *promptQuerierStub) DeletePromptTemplate(ctx context.Context, promptKey string) (int64, error) {
+	if s.deleteFn != nil {
+		return s.deleteFn(ctx, promptKey)
+	}
+	return 0, nil
+}
+
+func (s *promptQuerierStub) InsertPromptVersion(ctx context.Context, arg sqlc.InsertPromptVersionParams) error {
+	if s.insertVersionFn != nil {
+		return s.insertVersionFn(ctx, arg)
+	}
+	return nil
+}
+
+func (s *promptQuerierStub) UpsertPromptTemplate(ctx context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error) {
+	if s.upsertFn != nil {
+		return s.upsertFn(ctx, arg)
+	}
+	return sqlc.UpsertPromptTemplateRow{}, nil
 }
 
 func TestListForwardsAgentKeyKeywordAndLimit(t *testing.T) {
@@ -93,4 +126,174 @@ func TestListWrapsQuerierError(t *testing.T) {
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("List() error = %v, want wrap of sentinel", err)
 	}
+}
+
+func TestStoreGetUpsertDeleteAndInsertVersion(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1_700_000_000, 0).UTC()
+
+	t.Run("get maps row", func(t *testing.T) {
+		var capturedKey string
+		s := &store{q: &promptQuerierStub{
+			getFn: func(_ context.Context, promptKey string) (sqlc.GetPromptTemplateRow, error) {
+				capturedKey = promptKey
+				return sqlc.GetPromptTemplateRow{
+					ID:          7,
+					PromptKey:   promptKey,
+					Title:       "Scoped Prompt",
+					AgentKey:    "main",
+					ToolName:    "tool",
+					PromptText:  "body",
+					Variables:   []byte(`{"lang":"go"}`),
+					Tags:        []byte(`{"unexpected":true}`),
+					Description: "desc",
+					Enabled:     true,
+					CreatedBy:   "creator",
+					UpdatedBy:   "editor",
+					CreatedAt:   now,
+					UpdatedAt:   now,
+				}, nil
+			},
+		}}
+
+		got, err := s.Get(context.Background(), "main/scoped")
+		if err != nil {
+			t.Fatalf("Get() unexpected error: %v", err)
+		}
+		if capturedKey != "main/scoped" {
+			t.Fatalf("Get() prompt key = %q, want main/scoped", capturedKey)
+		}
+		if got == nil || got.ID != 7 || got.Title != "Scoped Prompt" || got.AgentKey != "main" {
+			t.Fatalf("Get() mapped row incorrectly: %+v", got)
+		}
+	})
+
+	t.Run("upsert forwards params and maps row", func(t *testing.T) {
+		var captured sqlc.UpsertPromptTemplateParams
+		s := &store{q: &promptQuerierStub{
+			upsertFn: func(_ context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error) {
+				captured = arg
+				return sqlc.UpsertPromptTemplateRow{
+					ID:          8,
+					PromptKey:   arg.PromptKey,
+					Title:       arg.Title,
+					AgentKey:    arg.AgentKey,
+					ToolName:    arg.ToolName,
+					PromptText:  arg.PromptText,
+					Variables:   arg.Column6,
+					Tags:        arg.Column7,
+					Description: arg.Description,
+					Enabled:     arg.Enabled,
+					CreatedBy:   arg.CreatedBy,
+					UpdatedBy:   arg.UpdatedBy,
+					CreatedAt:   now,
+					UpdatedAt:   now,
+				}, nil
+			},
+		}}
+
+		got, err := s.Upsert(context.Background(), PromptTemplate{
+			PromptKey:   "main/scoped",
+			Title:       "Scoped Prompt",
+			AgentKey:    "main",
+			ToolName:    "tool",
+			PromptText:  "body",
+			Variables:   []byte(`{"lang":"go"}`),
+			Tags:        []byte(`["scope.cwd:/repo"]`),
+			Description: "desc",
+			Enabled:     true,
+			CreatedBy:   "creator",
+			UpdatedBy:   "editor",
+		})
+		if err != nil {
+			t.Fatalf("Upsert() unexpected error: %v", err)
+		}
+		if captured.PromptKey != "main/scoped" || captured.Title != "Scoped Prompt" || captured.UpdatedBy != "editor" {
+			t.Fatalf("Upsert() forwarded wrong params: %+v", captured)
+		}
+		if got == nil || got.ID != 8 || string(got.Tags) != `["scope.cwd:/repo"]` {
+			t.Fatalf("Upsert() mapped row incorrectly: %+v", got)
+		}
+	})
+
+	t.Run("delete treats rows affected as success", func(t *testing.T) {
+		var capturedKey string
+		s := &store{q: &promptQuerierStub{
+			deleteFn: func(_ context.Context, promptKey string) (int64, error) {
+				capturedKey = promptKey
+				return 1, nil
+			},
+		}}
+
+		if err := s.Delete(context.Background(), "main/scoped"); err != nil {
+			t.Fatalf("Delete() unexpected error: %v", err)
+		}
+		if capturedKey != "main/scoped" {
+			t.Fatalf("Delete() prompt key = %q, want main/scoped", capturedKey)
+		}
+	})
+
+	t.Run("insert version forwards params", func(t *testing.T) {
+		var captured sqlc.InsertPromptVersionParams
+		s := &store{q: &promptQuerierStub{
+			insertVersionFn: func(_ context.Context, arg sqlc.InsertPromptVersionParams) error {
+				captured = arg
+				return nil
+			},
+		}}
+
+		sourceUpdatedAt := now.Add(2 * time.Minute)
+		err := s.InsertVersion(context.Background(), PromptTemplateVersion{
+			PromptKey:       "main/scoped",
+			Title:           "Scoped Prompt",
+			AgentKey:        "main",
+			ToolName:        "tool",
+			PromptText:      "body",
+			Variables:       []byte(`{"lang":"go"}`),
+			Tags:            []byte(`["scope.cwd:/repo"]`),
+			Description:     "desc",
+			Enabled:         true,
+			CreatedBy:       "creator",
+			UpdatedBy:       "editor",
+			SourceUpdatedAt: &sourceUpdatedAt,
+		})
+		if err != nil {
+			t.Fatalf("InsertVersion() unexpected error: %v", err)
+		}
+		if captured.PromptKey != "main/scoped" || captured.ToolName != "tool" || captured.SourceUpdatedAt == nil || !captured.SourceUpdatedAt.Equal(sourceUpdatedAt) {
+			t.Fatalf("InsertVersion() forwarded wrong params: %+v", captured)
+		}
+	})
+
+	t.Run("with tx executes callback", func(t *testing.T) {
+		s := &store{q: &promptQuerierStub{}}
+		callbackCalls := 0
+
+		err := s.WithTx(context.Background(), func(txStore Store) error {
+			callbackCalls++
+			if txStore == nil {
+				t.Fatal("WithTx() txStore = nil")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("WithTx() unexpected error: %v", err)
+		}
+		if callbackCalls != 1 {
+			t.Fatalf("WithTx() callbackCalls = %d, want 1", callbackCalls)
+		}
+	})
+
+	t.Run("delete wraps not found", func(t *testing.T) {
+		s := &store{q: &promptQuerierStub{
+			deleteFn: func(context.Context, string) (int64, error) {
+				return 0, nil
+			},
+		}}
+		err := s.Delete(context.Background(), "missing")
+		if err == nil || !platformdb.IsNotFound(err) {
+			t.Fatalf("Delete() error = %v, want not found", err)
+		}
+	})
 }
