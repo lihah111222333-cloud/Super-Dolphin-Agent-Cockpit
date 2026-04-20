@@ -183,8 +183,8 @@ func TestExpandedArtifactState_ShortHashCollisionStrictCompare(t *testing.T) {
 // 条目，保留 fresh 条目，并支持 turnIdx 倒退时保留全部条目。
 func TestExpandedArtifactState_CompactStale(t *testing.T) {
 	s := NewExpandedArtifactState(5)
-	s.MarkArtifact("old", "body", "SKILL.md", "h1", 0)   // 0 turn
-	s.MarkArtifact("mid", "body", "SKILL.md", "h2", 3)   // 3 turn
+	s.MarkArtifact("old", "body", "SKILL.md", "h1", 0)  // 0 turn
+	s.MarkArtifact("mid", "body", "SKILL.md", "h2", 3)  // 3 turn
 	s.MarkArtifact("new", "body", "SKILL.md", "h3", 10) // 10 turn
 
 	// 当前 turn=10，old(10-0=10>=5) 和 mid(10-3=7>=5) 应被清除，new 保留
@@ -281,4 +281,55 @@ func TestExpandedArtifactState_ConcurrentMarkAndFresh(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestExpandedStateStore_PreviewCommitAndTTL(t *testing.T) {
+	store := newExpandedStateStore(5)
+	ref := dto.SkillRef{Name: "debug", Version: "v1", Mode: dto.SkillModeFull}
+	if got := store.PreviewTurn("thread-1"); got != 1 {
+		t.Fatalf("PreviewTurn() = %d, want 1", got)
+	}
+	if !store.ShouldInject("thread-1", 1, ref, "") {
+		t.Fatal("first turn should inject")
+	}
+	store.CommitTurn("thread-1", 1, []expandedResolvedSkill{{Ref: ref}})
+	for turn := uint64(2); turn <= 5; turn++ {
+		if store.ShouldInject("thread-1", turn, ref, "") {
+			t.Fatalf("turn %d should still be suppressed by TTL", turn)
+		}
+	}
+	if !store.ShouldInject("thread-1", 6, ref, "") {
+		t.Fatal("turn 6 should re-inject after TTL expiry")
+	}
+}
+
+func TestExpandedStateStore_HashChangeInvalidatesImmediately(t *testing.T) {
+	store := newExpandedStateStore(5)
+	ref := dto.SkillRef{Name: "debug", Version: "v1", Mode: dto.SkillModeFull}
+	store.CommitTurn("thread-1", 1, []expandedResolvedSkill{{
+		Ref:         ref,
+		ContentHash: strings.Repeat("a", 64),
+	}})
+	if store.ShouldInject("thread-1", 2, ref, strings.Repeat("a", 64)) {
+		t.Fatal("same hash should stay suppressed within TTL")
+	}
+	if !store.ShouldInject("thread-1", 2, ref, strings.Repeat("b", 64)) {
+		t.Fatal("hash change must invalidate immediately")
+	}
+}
+
+func TestExpandedStateStore_ThreadIsolationAndReset(t *testing.T) {
+	store := newExpandedStateStore(5)
+	ref := dto.SkillRef{Name: "debug", Version: "v1", Mode: dto.SkillModeSummary}
+	store.CommitTurn("thread-a", 1, []expandedResolvedSkill{{Ref: ref}})
+	if store.ShouldInject("thread-a", 2, ref, "") {
+		t.Fatal("thread-a should still be suppressed")
+	}
+	if !store.ShouldInject("thread-b", 1, ref, "") {
+		t.Fatal("thread-b must not observe thread-a state")
+	}
+	store.ResetThread("thread-a")
+	if !store.ShouldInject("thread-a", 2, ref, "") {
+		t.Fatal("ResetThread should clear thread-local state")
+	}
 }

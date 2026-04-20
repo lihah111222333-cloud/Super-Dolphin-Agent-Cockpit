@@ -13,7 +13,7 @@ var Module = fx.Module("turn",
 			// p20.2 §5 step 1：第 4 个参 skill.Service 同样按 optional 注入；
 			// 依赖图尚未准备好时不会阻塞 turn 模块启动，PrepareTurn 的 hydrate
 			// 步骤在 skillLookup==nil 时自动跳过。
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
 		),
 		fx.Annotate(
 			NewOrchestrationTurnStarter,

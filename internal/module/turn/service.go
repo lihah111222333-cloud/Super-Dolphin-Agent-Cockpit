@@ -39,6 +39,9 @@ type service struct {
 	promptAssembly         contract.PromptAssemblyService
 	turnContextProvider    contract.TurnContextProvider
 	skillLookup            skillHydrationPort
+	skillMatcher           skillpkg.RuntimeMatcher
+	skillPorts             contract.SkillInjectionPortResolver
+	expandedState          *expandedStateStore
 	interruptSettleTimeout time.Duration
 
 	// ctx/cancel bound to the service lifetime. Shutdown cancels ctx so
@@ -53,28 +56,29 @@ type steerableSession interface {
 }
 
 func NewService(logger *slog.Logger) Service {
-	return newService(logger, nil, nil, nil)
+	return newService(logger, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
-	return newService(logger, promptAssembly, nil, nil)
+	return newService(logger, promptAssembly, nil, nil, nil)
 }
 
 // NewServiceWithPromptAssemblyAndTurnContext p20.2 §5 step 1：第 4 个
 // skill.Service 参数按 fx `optional:"true"` 注入，用于 PrepareTurn 的
-// name-only skill hydrate。传 nil 时 hydrate 步骤自动跳过，行为与原来
-// 的三参签名等价。
+// name-only skill hydrate；第 5 个 provider-name resolver 用于按 provider
+// 解析 SkillInjectionPort。传 nil 时对应步骤自动跳过。
 func NewServiceWithPromptAssemblyAndTurnContext(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
 	skillSvc skillpkg.Service,
+	skillPorts contract.SkillInjectionPortResolver,
 ) Service {
 	var lookup skillHydrationPort
 	if skillSvc != nil {
 		lookup = skillSvc
 	}
-	return newService(logger, promptAssembly, turnContextProvider, lookup)
+	return newService(logger, promptAssembly, turnContextProvider, lookup, skillPorts)
 }
 
 func newService(
@@ -82,11 +86,16 @@ func newService(
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
 	skillLookup skillHydrationPort,
+	skillPorts ...contract.SkillInjectionPortResolver,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	var resolver contract.SkillInjectionPortResolver
+	if len(skillPorts) > 0 {
+		resolver = skillPorts[0]
+	}
 	svc := &service{
 		logger:                 logger,
 		assembler:              &inputAssembler{},
@@ -95,9 +104,14 @@ func newService(
 		tracker:                newTurnTracker(),
 		promptAssembly:         promptAssembly,
 		skillLookup:            skillLookup,
+		skillPorts:             resolver,
+		expandedState:          newExpandedStateStore(DefaultExpandedTTL),
 		interruptSettleTimeout: config.InterruptSettleTimeout,
 		ctx:                    ctx,
 		ctxCancel:              cancel,
+	}
+	if matcher, ok := any(skillLookup).(skillpkg.RuntimeMatcher); ok {
+		svc.skillMatcher = matcher
 	}
 	if turnContextProvider != nil {
 		svc.turnContextProvider = turnContextProvider
@@ -125,15 +139,15 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	// skillLookup==nil 时（NewService / NewServiceWithPromptAssembly 或 fx 未
 	// 注入 skill.Service）原路直通。
 	input.Skills = s.hydrateSkillRefs(ctx, input.Skills)
-	candidateSkills := input.CandidateSkills
-	if input.ManualSkillSelection {
-		candidateSkills = nil
-	}
 	userText := s.assembler.PromptText(input)
+	autoCandidates := s.autoSkillCandidates(ctx, threadID, input)
+	turnSeq := s.previewExpandedTurn(threadID)
 	s.cleanupStaleToolResults(threadID, input)
 	mcp := s.manifest.Build(input)
 	synthetic := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
-	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
+	resolvedSkills := s.skills.ResolveThread(threadID, turnSeq, s.expandedState, input.Skills, autoCandidates)
+	resolvedSkills = s.hydrateSkillRefs(ctx, resolvedSkills)
+	resolvedSkills, skillPrompt := s.buildSkillPrompt(input.Provider, input.GitRoot, input.CWD, resolvedSkills)
 	assembledInputs := s.assembler.Assemble(input)
 	if len(synthetic.Inputs) > 0 {
 		assembledInputs = append(synthetic.Inputs, assembledInputs...)
@@ -143,6 +157,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		ThreadID:             threadID,
 		Inputs:               assembledInputs,
 		Skills:               resolvedSkills,
+		SkillPrompt:          skillPrompt,
 		ManualSkillSelection: input.ManualSkillSelection,
 		OutputSchema:         input.OutputSchema,
 		Overrides:            s.buildOverrides(session.Capabilities(), input),
@@ -156,7 +171,86 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		assembly.Attachments = append(append([]dto.AttachmentEnvelope(nil), assembly.Attachments...), synthetic.Attachments...)
 	}
 	req.TurnAssembly = assembly
+	s.commitExpandedTurn(threadID, turnSeq, resolvedSkills, autoCandidates)
 	return req, nil
+}
+
+func (s *service) autoSkillCandidates(ctx context.Context, threadID string, input PrepareInput) []resolvedAutoMatch {
+	if s == nil || input.ManualSkillSelection {
+		return nil
+	}
+	matches := make([]resolvedAutoMatch, 0, len(input.CandidateSkills)+4)
+	if s.skillMatcher != nil {
+		runtimeMatches, err := s.skillMatcher.MatchRuntime(ctx, skillpkg.RuntimeMatchParams{
+			AgentID:  input.AgentID,
+			ThreadID: threadID,
+			Input:    toSkillUserInputs(s.assembler.collect(input)),
+		})
+		if err != nil {
+			if s.logger != nil {
+				s.logger.Warn("turn runtime skill match failed", "thread_id", threadID, "error", err)
+			}
+		} else {
+			matches = append(matches, runtimeMatchesToCandidates(runtimeMatches)...)
+		}
+	}
+	matches = append(matches, legacyCandidateSkills(input.CandidateSkills, s.assembler.PromptText(input))...)
+	if len(matches) == 0 {
+		return nil
+	}
+	return matches
+}
+
+func (s *service) previewExpandedTurn(threadID string) uint64 {
+	if s == nil || s.expandedState == nil {
+		return 0
+	}
+	return s.expandedState.PreviewTurn(threadID)
+}
+
+func (s *service) commitExpandedTurn(threadID string, turnSeq uint64, refs []dto.SkillRef, autoCandidates []resolvedAutoMatch) {
+	if s == nil || s.expandedState == nil || threadID == "" || turnSeq == 0 {
+		return
+	}
+	hashByKey := make(map[string]string, len(autoCandidates))
+	for _, candidate := range autoCandidates {
+		key := skillDedupKey(candidate.Ref)
+		if key == "" {
+			continue
+		}
+		if hash := strings.TrimSpace(candidate.ContentHash); hash != "" {
+			hashByKey[key] = hash
+		}
+	}
+	entries := make([]expandedResolvedSkill, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Mode.Effective() == dto.SkillModeNone {
+			continue
+		}
+		entries = append(entries, expandedResolvedSkill{
+			Ref:         ref,
+			ContentHash: hashByKey[skillDedupKey(ref)],
+		})
+	}
+	s.expandedState.CommitTurn(threadID, turnSeq, entries)
+}
+
+func toSkillUserInputs(items []dto.InputItem) []skillpkg.UserInput {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]skillpkg.UserInput, 0, len(items))
+	for _, item := range items {
+		out = append(out, skillpkg.UserInput{
+			Type:    item.Type,
+			Text:    "",
+			URL:     item.URL,
+			Path:    item.Path,
+			Name:    item.Name,
+			Content: item.Content,
+		})
+	}
+	return out
 }
 
 func turnSkillPrompt(skills []dto.SkillRef) string {
@@ -167,6 +261,25 @@ func turnSkillPrompt(skills []dto.SkillRef) string {
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func (s *service) buildSkillPrompt(provider, gitRoot, cwd string, skills []dto.SkillRef) ([]dto.SkillRef, string) {
+	resolved := cloneSkillRefs(skills)
+	if s == nil || s.skillPorts == nil {
+		return resolved, turnSkillPrompt(resolved)
+	}
+	port, ok := s.skillPorts.ResolveSkillInjectionPort(provider)
+	if !ok || port == nil {
+		return resolved, turnSkillPrompt(resolved)
+	}
+	if native, ok := port.(contract.NativeSkillOverridePort); ok {
+		resolved = native.ApplyNativeOverrides(resolved, gitRoot, cwd)
+	}
+	section, ok := port.BuildTurnSection(resolved)
+	if !ok {
+		return resolved, ""
+	}
+	return resolved, section
 }
 
 func turnAttachmentRefs(inputs []dto.InputItem) []string {
@@ -251,7 +364,9 @@ func (s *service) SteerTurn(ctx context.Context, session contract.Session, expec
 	if err != nil {
 		return nil, err
 	}
-	if err := steerer.Steer(ctx, newSteerRequest(req, active.handle.ProviderID())); err != nil {
+	steerReq := newSteerRequest(req, active.handle.ProviderID())
+	steerReq.SkillPrompt = req.SkillPrompt
+	if err := steerer.Steer(ctx, steerReq); err != nil {
 		return nil, err
 	}
 	return active.handle, nil

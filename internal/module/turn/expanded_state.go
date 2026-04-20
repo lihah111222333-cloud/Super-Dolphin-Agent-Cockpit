@@ -278,3 +278,185 @@ func artifactFromRef(ref dto.SkillRef, turnIdx int) ExpandedArtifact {
 		LastUsedAt:  time.Now().UTC(),
 	}
 }
+
+type expandedStateStore struct {
+	mu       sync.Mutex
+	ttl      uint64
+	byThread map[string]*expandedThreadState
+}
+
+type expandedThreadState struct {
+	TurnSeq uint64
+	Entries map[string]expandedEntry
+}
+
+type expandedEntry struct {
+	Version          string
+	ContentHash      string
+	LastExpandedTurn uint64
+}
+
+type expandedResolvedSkill struct {
+	Ref         dto.SkillRef
+	ContentHash string
+}
+
+func newExpandedStateStore(ttl int) *expandedStateStore {
+	if ttl <= 0 {
+		ttl = DefaultExpandedTTL
+	}
+	return &expandedStateStore{
+		ttl:      uint64(ttl),
+		byThread: make(map[string]*expandedThreadState),
+	}
+}
+
+func (s *expandedStateStore) PreviewTurn(threadID string) uint64 {
+	threadID = strings.TrimSpace(threadID)
+	if s == nil || threadID == "" {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state := s.ensureThreadLocked(threadID)
+	s.compactThreadLocked(state, state.TurnSeq)
+	return state.TurnSeq + 1
+}
+
+func (s *expandedStateStore) ShouldInject(threadID string, turnSeq uint64, ref dto.SkillRef, contentHash string) bool {
+	threadID = strings.TrimSpace(threadID)
+	if s == nil || threadID == "" || turnSeq == 0 {
+		return true
+	}
+	key := skillDedupKey(ref)
+	if key == "" {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.shouldInjectLocked(threadID, turnSeq, key, ref.Version, contentHash)
+}
+
+func (s *expandedStateStore) shouldInjectLocked(
+	threadID string,
+	turnSeq uint64,
+	key string,
+	version string,
+	contentHash string,
+) bool {
+	state, ok := s.byThread[threadID]
+	if !ok || state == nil {
+		return true
+	}
+	s.compactThreadLocked(state, turnSeq)
+	entry, ok := state.Entries[key]
+	if !ok {
+		return true
+	}
+	if expandedEntryChanged(entry, version, contentHash) || turnSeq < entry.LastExpandedTurn {
+		delete(state.Entries, key)
+		return true
+	}
+	if turnSeq-entry.LastExpandedTurn >= s.ttl {
+		delete(state.Entries, key)
+		return true
+	}
+	return false
+}
+
+func (s *expandedStateStore) CommitTurn(threadID string, turnSeq uint64, refs []expandedResolvedSkill) {
+	threadID = strings.TrimSpace(threadID)
+	if s == nil || threadID == "" || turnSeq == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state := s.ensureThreadLocked(threadID)
+	if turnSeq > state.TurnSeq {
+		state.TurnSeq = turnSeq
+	}
+	s.compactThreadLocked(state, state.TurnSeq)
+	for _, item := range refs {
+		if item.Ref.Mode.Effective() == dto.SkillModeNone {
+			continue
+		}
+		key := skillDedupKey(item.Ref)
+		if key == "" {
+			continue
+		}
+		state.Entries[key] = expandedEntry{
+			Version:          strings.TrimSpace(item.Ref.Version),
+			ContentHash:      normalizeExpandedHash(item.ContentHash),
+			LastExpandedTurn: turnSeq,
+		}
+	}
+}
+
+func (s *expandedStateStore) ResetThread(threadID string) {
+	threadID = strings.TrimSpace(threadID)
+	if s == nil || threadID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.byThread, threadID)
+}
+
+func (s *expandedStateStore) threadSnapshot(threadID string) (uint64, map[string]expandedEntry) {
+	threadID = strings.TrimSpace(threadID)
+	if s == nil || threadID == "" {
+		return 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, ok := s.byThread[threadID]
+	if !ok || state == nil {
+		return 0, nil
+	}
+	out := make(map[string]expandedEntry, len(state.Entries))
+	for key, entry := range state.Entries {
+		out[key] = entry
+	}
+	return state.TurnSeq, out
+}
+
+func (s *expandedStateStore) ensureThreadLocked(threadID string) *expandedThreadState {
+	if state, ok := s.byThread[threadID]; ok && state != nil {
+		return state
+	}
+	state := &expandedThreadState{
+		Entries: make(map[string]expandedEntry),
+	}
+	s.byThread[threadID] = state
+	return state
+}
+
+func (s *expandedStateStore) compactThreadLocked(state *expandedThreadState, turnSeq uint64) {
+	if state == nil || len(state.Entries) == 0 || s.ttl == 0 {
+		return
+	}
+	for key, entry := range state.Entries {
+		if turnSeq >= entry.LastExpandedTurn && turnSeq-entry.LastExpandedTurn >= s.ttl {
+			delete(state.Entries, key)
+		}
+	}
+}
+
+func expandedEntryChanged(entry expandedEntry, version, contentHash string) bool {
+	version = strings.TrimSpace(version)
+	contentHash = normalizeExpandedHash(contentHash)
+	switch {
+	case contentHash != "" && entry.ContentHash != "":
+		return !strings.EqualFold(entry.ContentHash, contentHash)
+	case contentHash != "":
+		return version == "" || !strings.EqualFold(entry.Version, version)
+	case entry.ContentHash != "":
+		return version == "" || !strings.EqualFold(entry.Version, version)
+	default:
+		return !strings.EqualFold(entry.Version, version)
+	}
+}
+
+func normalizeExpandedHash(hash string) string {
+	return strings.ToLower(strings.TrimSpace(hash))
+}

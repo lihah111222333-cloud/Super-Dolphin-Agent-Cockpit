@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -56,6 +58,54 @@ func TestPrepareTurnKeepsSkillPromptsAndNormalizesInputs(t *testing.T) {
 	}
 }
 
+func TestPrepareTurnBuildsProviderSkillPromptFromHydratedManualSkills(t *testing.T) {
+	t.Parallel()
+
+	const fullHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	lookup := &stubSkillLookup{
+		infos: []skillpkg.SkillInfo{{
+			Name:        "debug",
+			Dir:         "/tmp/skills/debug",
+			Summary:     "debug helpers",
+			ContentHash: fullHash,
+		}},
+		bodies: map[string]string{
+			filepath.Join("/tmp/skills/debug", "SKILL.md"): "full debug body",
+		},
+	}
+	svc := newService(silentLogger(), nil, nil, lookup, staticSkillPortResolver{port: providerSkillPromptPort{}}).(*service)
+	session := &stubSession{threadID: "thread-provider-skill-prompt"}
+
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+		Provider:             "codex",
+		Prompt:               "please debug the failure",
+		Skills:               []dto.SkillRef{{Name: "debug"}},
+		ManualSkillSelection: true,
+	})
+	if err != nil {
+		t.Fatalf("PrepareTurn() error = %v", err)
+	}
+	if len(req.Skills) != 1 {
+		t.Fatalf("len(req.Skills) = %d, want 1", len(req.Skills))
+	}
+	got := req.Skills[0]
+	if got.Prompt != "full debug body" || got.Summary != "debug helpers" {
+		t.Fatalf("hydrated skill = %+v, want prompt + summary", got)
+	}
+	if got.Version != fullHash[:12] {
+		t.Fatalf("Version = %q, want %q", got.Version, fullHash[:12])
+	}
+	if got.Source != dto.SkillSourceManual {
+		t.Fatalf("Source = %q, want manual", got.Source)
+	}
+	if !strings.Contains(req.SkillPrompt, "skills:\n- debug") {
+		t.Fatalf("SkillPrompt = %q, want skill list prelude", req.SkillPrompt)
+	}
+	if !strings.Contains(req.SkillPrompt, "[skill:debug::full@v1]") || !strings.Contains(req.SkillPrompt, "full debug body") {
+		t.Fatalf("SkillPrompt = %q, want hydrated full skill block", req.SkillPrompt)
+	}
+}
+
 func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
 	t.Parallel()
 
@@ -74,6 +124,258 @@ func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
 	}
 	if len(req.Skills) != 0 {
 		t.Fatalf("Skills = %#v, want no auto-matched skills in manual mode", req.Skills)
+	}
+}
+
+func TestPrepareTurnSkillResolverMatrix(t *testing.T) {
+	t.Parallel()
+
+	const (
+		skillName = "matrix"
+		fullHash  = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	)
+
+	lookup := &stubSkillLookup{
+		infos: []skillpkg.SkillInfo{{
+			Name:        skillName,
+			Dir:         "/tmp/skills/matrix",
+			Summary:     "matrix summary",
+			ContentHash: fullHash,
+		}},
+		bodies: map[string]string{
+			filepath.Join("/tmp/skills/matrix", "SKILL.md"): "matrix body",
+		},
+	}
+	matcher := &stubRuntimeMatcher{}
+	makeService := func() *service {
+		svc := newService(silentLogger(), nil, nil, lookup).(*service)
+		svc.skillMatcher = matcher
+		svc.expandedState = newExpandedStateStore(5)
+		return svc
+	}
+	makeMatch := func(kind skillpkg.RuntimeMatchKind) skillpkg.RuntimeSkillMatch {
+		return skillpkg.RuntimeSkillMatch{
+			Skill: skillpkg.SkillInfo{
+				Name:        skillName,
+				Dir:         "/tmp/skills/matrix",
+				Summary:     "matrix summary",
+				ContentHash: fullHash,
+			},
+			Kind:         kind,
+			MatchedTerms: []string{"matrix"},
+		}
+	}
+	manualRef := dto.SkillRef{Name: skillName}
+	version := shortSkillHash(fullHash)
+	cases := []struct {
+		name       string
+		selected   []dto.SkillRef
+		runtime    []skillpkg.RuntimeSkillMatch
+		withCarry  bool
+		wantCount  int
+		wantMode   dto.SkillMode
+		wantSource dto.SkillSource
+	}{
+		{name: "manual/explicit", selected: []dto.SkillRef{manualRef}, wantCount: 1, wantMode: dto.SkillModeFull, wantSource: dto.SkillSourceManual},
+		{name: "manual/auto", runtime: []skillpkg.RuntimeSkillMatch{makeMatch(skillpkg.RuntimeMatchKindExplicit)}, wantCount: 1, wantMode: dto.SkillModeFull, wantSource: dto.SkillSourceManual},
+		{name: "manual/carry", selected: []dto.SkillRef{manualRef}, withCarry: true, wantCount: 1, wantMode: dto.SkillModeFull, wantSource: dto.SkillSourceManual},
+		{name: "force/explicit", selected: []dto.SkillRef{manualRef}, runtime: []skillpkg.RuntimeSkillMatch{makeMatch(skillpkg.RuntimeMatchKindForce)}, wantCount: 1, wantMode: dto.SkillModeFull, wantSource: dto.SkillSourceManual},
+		{name: "force/auto", runtime: []skillpkg.RuntimeSkillMatch{makeMatch(skillpkg.RuntimeMatchKindForce)}, wantCount: 1, wantMode: dto.SkillModeFull, wantSource: dto.SkillSourceForce},
+		{name: "force/carry", runtime: []skillpkg.RuntimeSkillMatch{makeMatch(skillpkg.RuntimeMatchKindForce)}, withCarry: true},
+		{name: "trigger/explicit", selected: []dto.SkillRef{manualRef}, runtime: []skillpkg.RuntimeSkillMatch{makeMatch(skillpkg.RuntimeMatchKindTrigger)}, wantCount: 1, wantMode: dto.SkillModeFull, wantSource: dto.SkillSourceManual},
+		{name: "trigger/auto", runtime: []skillpkg.RuntimeSkillMatch{makeMatch(skillpkg.RuntimeMatchKindTrigger)}, wantCount: 1, wantMode: dto.SkillModeSummary, wantSource: dto.SkillSourceTrigger},
+		{name: "trigger/carry", runtime: []skillpkg.RuntimeSkillMatch{makeMatch(skillpkg.RuntimeMatchKindTrigger)}, withCarry: true},
+		{name: "miss/explicit", selected: []dto.SkillRef{manualRef}, wantCount: 1, wantMode: dto.SkillModeFull, wantSource: dto.SkillSourceManual},
+		{name: "miss/auto"},
+		{name: "miss/carry", withCarry: true},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			svc := makeService()
+			session := &stubSession{threadID: "thread-matrix"}
+			matcher.matches = tc.runtime
+			matcher.calls = 0
+			if tc.withCarry {
+				svc.expandedState.CommitTurn("thread-matrix", 1, []expandedResolvedSkill{{
+					Ref:         dto.SkillRef{Name: skillName, Version: version, Mode: dto.SkillModeFull},
+					ContentHash: fullHash,
+				}})
+			}
+			req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+				Prompt: "please use matrix",
+				Skills: tc.selected,
+			})
+			if err != nil {
+				t.Fatalf("PrepareTurn() error = %v", err)
+			}
+			if got := len(req.Skills); got != tc.wantCount {
+				t.Fatalf("len(req.Skills) = %d, want %d: %#v", got, tc.wantCount, req.Skills)
+			}
+			if tc.wantCount == 0 {
+				return
+			}
+			got := req.Skills[0]
+			if got.Name != skillName {
+				t.Fatalf("skill name = %q, want %q", got.Name, skillName)
+			}
+			if got.Mode.Effective() != tc.wantMode {
+				t.Fatalf("skill mode = %q, want %q", got.Mode.Effective(), tc.wantMode)
+			}
+			if got.Source != tc.wantSource {
+				t.Fatalf("skill source = %q, want %q", got.Source, tc.wantSource)
+			}
+			if got.Source != dto.SkillSourceTrigger && strings.TrimSpace(got.Prompt) == "" {
+				t.Fatalf("full/manual skill should hydrate prompt, got %+v", got)
+			}
+			if got.Source == dto.SkillSourceTrigger && strings.TrimSpace(got.Summary) == "" {
+				t.Fatalf("trigger skill should carry summary, got %+v", got)
+			}
+		})
+	}
+}
+
+func TestPrepareTurnSkillResolverTopK(t *testing.T) {
+	t.Parallel()
+
+	forceInfos := make([]skillpkg.SkillInfo, 0, 10)
+	triggerInfos := make([]skillpkg.SkillInfo, 0, 10)
+	bodies := make(map[string]string)
+	matches := make([]skillpkg.RuntimeSkillMatch, 0, 10)
+	for i := 1; i <= 6; i++ {
+		name := fmt.Sprintf("force-%d", i)
+		hash := fmt.Sprintf("%064x", i)
+		dir := filepath.Join("/tmp/skills", name)
+		forceInfos = append(forceInfos, skillpkg.SkillInfo{Name: name, Dir: dir, Summary: name + " summary", ContentHash: hash})
+		bodies[filepath.Join(dir, "SKILL.md")] = name + " body"
+		matches = append(matches, skillpkg.RuntimeSkillMatch{
+			Skill:        forceInfos[len(forceInfos)-1],
+			Kind:         skillpkg.RuntimeMatchKindForce,
+			MatchedTerms: repeatStrings(name, 7-i),
+		})
+	}
+	for i := 1; i <= 4; i++ {
+		name := fmt.Sprintf("trigger-%d", i)
+		hash := fmt.Sprintf("%064x", 100+i)
+		dir := filepath.Join("/tmp/skills", name)
+		triggerInfos = append(triggerInfos, skillpkg.SkillInfo{Name: name, Dir: dir, Summary: name + " summary", ContentHash: hash})
+		bodies[filepath.Join(dir, "SKILL.md")] = name + " body"
+		matches = append(matches, skillpkg.RuntimeSkillMatch{
+			Skill:        triggerInfos[len(triggerInfos)-1],
+			Kind:         skillpkg.RuntimeMatchKindTrigger,
+			MatchedTerms: repeatStrings(name, 5-i),
+		})
+	}
+	lookup := &stubSkillLookup{
+		infos:  append(forceInfos, triggerInfos...),
+		bodies: bodies,
+	}
+	matcher := &stubRuntimeMatcher{matches: matches}
+	svc := newService(silentLogger(), nil, nil, lookup).(*service)
+	svc.skillMatcher = matcher
+	svc.expandedState = newExpandedStateStore(5)
+	req, err := svc.PrepareTurn(context.Background(), &stubSession{threadID: "thread-topk"}, PrepareInput{Prompt: "top-k please"})
+	if err != nil {
+		t.Fatalf("PrepareTurn() error = %v", err)
+	}
+
+	got := make(map[string]dto.SkillRef, len(req.Skills))
+	for _, ref := range req.Skills {
+		got[ref.Name] = ref
+	}
+	for i := 1; i <= 5; i++ {
+		name := fmt.Sprintf("force-%d", i)
+		ref, ok := got[name]
+		if !ok {
+			t.Fatalf("missing force top-k winner %q in %#v", name, req.Skills)
+		}
+		if ref.Source != dto.SkillSourceForce || ref.Mode.Effective() != dto.SkillModeFull {
+			t.Fatalf("force winner mismatch for %q: %+v", name, ref)
+		}
+	}
+	if _, ok := got["force-6"]; ok {
+		t.Fatalf("force-6 should be trimmed by top-k: %#v", req.Skills)
+	}
+	for i := 1; i <= 3; i++ {
+		name := fmt.Sprintf("trigger-%d", i)
+		ref, ok := got[name]
+		if !ok {
+			t.Fatalf("missing trigger top-k winner %q in %#v", name, req.Skills)
+		}
+		if ref.Source != dto.SkillSourceTrigger || ref.Mode.Effective() != dto.SkillModeSummary {
+			t.Fatalf("trigger winner mismatch for %q: %+v", name, ref)
+		}
+	}
+	if _, ok := got["trigger-4"]; ok {
+		t.Fatalf("trigger-4 should be trimmed by top-k: %#v", req.Skills)
+	}
+}
+
+func TestPrepareTurnExpandedStateTTLHashAndThreadIsolation(t *testing.T) {
+	t.Parallel()
+
+	lookup := &stubSkillLookup{
+		infos: []skillpkg.SkillInfo{{
+			Name:        "carry",
+			Dir:         "/tmp/skills/carry",
+			Summary:     "carry summary",
+			ContentHash: strings.Repeat("a", 64),
+		}},
+		bodies: map[string]string{
+			filepath.Join("/tmp/skills/carry", "SKILL.md"): "carry body v1",
+		},
+	}
+	matcher := &stubRuntimeMatcher{
+		matches: []skillpkg.RuntimeSkillMatch{{
+			Skill:        lookup.infos[0],
+			Kind:         skillpkg.RuntimeMatchKindForce,
+			MatchedTerms: []string{"carry"},
+		}},
+	}
+	svc := newService(silentLogger(), nil, nil, lookup).(*service)
+	svc.skillMatcher = matcher
+	svc.expandedState = newExpandedStateStore(5)
+
+	for turn := 1; turn <= 6; turn++ {
+		req, err := svc.PrepareTurn(context.Background(), &stubSession{threadID: "thread-carry"}, PrepareInput{Prompt: "please carry this"})
+		if err != nil {
+			t.Fatalf("turn %d PrepareTurn() error = %v", turn, err)
+		}
+		switch turn {
+		case 1, 6:
+			if len(req.Skills) != 1 || req.Skills[0].Name != "carry" {
+				t.Fatalf("turn %d should inject carry once: %#v", turn, req.Skills)
+			}
+		default:
+			if len(req.Skills) != 0 {
+				t.Fatalf("turn %d should be suppressed by TTL: %#v", turn, req.Skills)
+			}
+		}
+	}
+
+	lookup.infos[0].ContentHash = strings.Repeat("b", 64)
+	lookup.infos[0].Summary = "carry summary v2"
+	lookup.bodies[filepath.Join("/tmp/skills/carry", "SKILL.md")] = "carry body v2"
+	matcher.matches = []skillpkg.RuntimeSkillMatch{{
+		Skill:        lookup.infos[0],
+		Kind:         skillpkg.RuntimeMatchKindForce,
+		MatchedTerms: []string{"carry"},
+	}}
+	req, err := svc.PrepareTurn(context.Background(), &stubSession{threadID: "thread-carry"}, PrepareInput{Prompt: "please carry this"})
+	if err != nil {
+		t.Fatalf("hash change PrepareTurn() error = %v", err)
+	}
+	if len(req.Skills) != 1 || req.Skills[0].Prompt != "carry body v2" {
+		t.Fatalf("hash change should re-inject immediately: %#v", req.Skills)
+	}
+
+	otherThreadReq, err := svc.PrepareTurn(context.Background(), &stubSession{threadID: "thread-carry-2"}, PrepareInput{Prompt: "please carry this"})
+	if err != nil {
+		t.Fatalf("thread isolation PrepareTurn() error = %v", err)
+	}
+	if len(otherThreadReq.Skills) != 1 || otherThreadReq.Skills[0].Name != "carry" {
+		t.Fatalf("different thread must not reuse previous carry state: %#v", otherThreadReq.Skills)
 	}
 }
 
@@ -408,6 +710,28 @@ type stubPromptAssemblyService struct {
 	lastTurnInput contract.TurnInput
 }
 
+type stubRuntimeMatcher struct {
+	matches []skillpkg.RuntimeSkillMatch
+	err     error
+	calls   int
+	last    skillpkg.RuntimeMatchParams
+}
+
+func (s *stubRuntimeMatcher) MatchRuntime(_ context.Context, p skillpkg.RuntimeMatchParams) ([]skillpkg.RuntimeSkillMatch, error) {
+	s.calls++
+	s.last = p
+	if s.err != nil {
+		return nil, s.err
+	}
+	out := make([]skillpkg.RuntimeSkillMatch, 0, len(s.matches))
+	for _, match := range s.matches {
+		copyMatch := match
+		copyMatch.MatchedTerms = append([]string(nil), match.MatchedTerms...)
+		out = append(out, copyMatch)
+	}
+	return out, nil
+}
+
 func (s *stubPromptAssemblyService) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
 	return contract.StartAssembly{}, nil
 }
@@ -534,3 +858,53 @@ func skillNames(refs []dto.SkillRef) []string {
 	}
 	return names
 }
+
+func repeatStrings(value string, count int) []string {
+	if count <= 0 {
+		return nil
+	}
+	out := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		out = append(out, value)
+	}
+	return out
+}
+
+type staticSkillPortResolver struct{ port contract.SkillInjectionPort }
+
+func (r staticSkillPortResolver) ResolveSkillInjectionPort(provider string) (contract.SkillInjectionPort, bool) {
+	if strings.TrimSpace(strings.ToLower(provider)) != "codex" || r.port == nil {
+		return nil, false
+	}
+	return r.port, true
+}
+
+type providerSkillPromptPort struct{}
+
+func (providerSkillPromptPort) InjectL1Manifest(baseInstructions, manifest string) string {
+	return baseInstructions + manifest
+}
+
+func (providerSkillPromptPort) BuildTurnSection(refs []dto.SkillRef) (string, bool) {
+	if len(refs) == 0 {
+		return "", false
+	}
+	lines := []string{"skills:"}
+	blocks := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		name := strings.TrimSpace(ref.Name)
+		if name == "" {
+			continue
+		}
+		lines = append(lines, "- "+name)
+		if block, ok := skillpkg.RenderSkillBlock(name, ref.Prompt, ref.Summary, string(ref.Mode)); ok {
+			blocks = append(blocks, block)
+		}
+	}
+	if len(lines) == 1 || len(blocks) == 0 {
+		return "", false
+	}
+	return strings.Join([]string{strings.Join(lines, "\n"), strings.Join(blocks, "\n\n")}, "\n\n"), true
+}
+
+func (providerSkillPromptPort) ReservedTokens() int { return 0 }

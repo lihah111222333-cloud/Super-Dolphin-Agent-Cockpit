@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -11,28 +12,48 @@ import (
 
 type skillResolver struct{}
 
-func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillRef, prompt string) []dto.SkillRef {
-	explicit := normalizeSkillRefs(selected)
-	autoCandidates := normalizeSkillRefs(candidates)
-	resolved := make([]dto.SkillRef, 0, len(explicit)+len(autoCandidates))
-	seen := make(map[string]bool, len(explicit)+len(autoCandidates))
+type resolvedAutoMatch struct {
+	Ref          dto.SkillRef
+	MatchedTerms []string
+	ContentHash  string
+}
 
+const (
+	forceTopK   = 5
+	triggerTopK = 3
+)
+
+func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillRef, prompt string) []dto.SkillRef {
+	return r.resolve("", 0, nil, selected, legacyCandidateSkills(candidates, prompt))
+}
+
+func (r *skillResolver) ResolveThread(
+	threadID string,
+	turnSeq uint64,
+	state *expandedStateStore,
+	selected []dto.SkillRef,
+	candidates []resolvedAutoMatch,
+) []dto.SkillRef {
+	return r.resolve(threadID, turnSeq, state, selected, candidates)
+}
+
+func (r *skillResolver) resolve(
+	threadID string,
+	turnSeq uint64,
+	state *expandedStateStore,
+	selected []dto.SkillRef,
+	candidates []resolvedAutoMatch,
+) []dto.SkillRef {
+	explicit := normalizeSkillRefs(selected)
+	resolved := make([]dto.SkillRef, 0, len(explicit)+len(candidates))
+	indexByKey := make(map[string]int, len(explicit)+len(candidates))
 	for _, ref := range explicit {
-		key := skillDedupKey(ref)
-		if key == "" || seen[key] {
-			continue
-		}
-		resolved = append(resolved, ref)
-		seen[key] = true
+		appendResolvedSkill(&resolved, indexByKey, normalizeExplicitSkillRef(ref))
 	}
-	for _, matched := range r.autoMatch(prompt, autoCandidates, seen) {
-		key := skillDedupKey(matched)
-		if key == "" || seen[key] {
-			continue
-		}
-		resolved = append(resolved, matched)
-		seen[key] = true
-	}
+	r.appendAutoMatches(&resolved, indexByKey, splitAutoMatches(candidates, dto.SkillSourceManual), 0, false, threadID, turnSeq, state)
+	r.appendAutoMatches(&resolved, indexByKey, splitAutoMatches(candidates, dto.SkillSourceForce), forceTopK, true, threadID, turnSeq, state)
+	r.appendAutoMatches(&resolved, indexByKey, splitAutoMatches(candidates, dto.SkillSourceTrigger), triggerTopK, true, threadID, turnSeq, state)
+	r.appendAutoMatches(&resolved, indexByKey, splitLegacyMatches(candidates), 0, false, threadID, turnSeq, state)
 	if len(resolved) == 0 {
 		return nil
 	}
@@ -40,8 +61,10 @@ func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillR
 }
 
 // normalizeSkillRefs 把多组 SkillRef 合并去重；P20.1 §4 Phase 5 起去重键升级
-// 为 lower(name)+"@"+version。同 (name, version) 视为同一引用，会合并 Prompt；
-// version 不同则保留为两条，避免 hash 已变的新版本被旧版本静默覆盖。
+// 为 lower(name)+"@"+version。同 (name, version) 视为同一引用，会合并 Prompt，
+// 并按 Full > Summary > None / manual > force > trigger > unspecified 叠加
+// Mode / Source 优先级。version 不同则保留为两条，避免 hash 已变的新版本被旧
+// 版本静默覆盖。
 func normalizeSkillRefs(groups ...[]dto.SkillRef) []dto.SkillRef {
 	total := 0
 	for _, refs := range groups {
@@ -51,9 +74,7 @@ func normalizeSkillRefs(groups ...[]dto.SkillRef) []dto.SkillRef {
 	indexByKey := make(map[string]int, total)
 	for _, refs := range groups {
 		for _, ref := range refs {
-			ref.Name = strings.TrimSpace(ref.Name)
-			ref.Version = strings.TrimSpace(ref.Version)
-			ref.Prompt = strings.TrimSpace(ref.Prompt)
+			ref = normalizeResolvedSkillRef(ref)
 			if ref.Name == "" {
 				continue
 			}
@@ -62,7 +83,7 @@ func normalizeSkillRefs(groups ...[]dto.SkillRef) []dto.SkillRef {
 				continue
 			}
 			if idx, ok := indexByKey[key]; ok {
-				resolved[idx].Prompt = mergePromptText(resolved[idx].Prompt, ref.Prompt)
+				resolved[idx] = mergeSkillRefs(resolved[idx], ref)
 				continue
 			}
 			indexByKey[key] = len(resolved)
@@ -89,25 +110,87 @@ func skillDedupKey(ref dto.SkillRef) string {
 	return name + "@" + strings.TrimSpace(ref.Version)
 }
 
-func (r *skillResolver) autoMatch(prompt string, refs []dto.SkillRef, seen map[string]bool) []dto.SkillRef {
-	prompt = strings.ToLower(strings.TrimSpace(prompt))
-	if prompt == "" || len(refs) == 0 {
+func runtimeMatchesToCandidates(matches []skillpkg.RuntimeSkillMatch) []resolvedAutoMatch {
+	if len(matches) == 0 {
 		return nil
 	}
-	matches := make([]dto.SkillRef, 0, len(refs))
-	for _, ref := range refs {
-		name := strings.ToLower(strings.TrimSpace(ref.Name))
-		if name == "" {
+	resolved := make([]resolvedAutoMatch, 0, len(matches))
+	for _, match := range matches {
+		ref, ok := runtimeMatchToSkillRef(match)
+		if !ok {
 			continue
 		}
-		// seen 由 Resolve 传入，key 格式为 name@version（skillDedupKey）；
-		// autoMatch 需同格式查询，避免同 name 不同 version 被误认为已被显式选中。
-		if seen[skillDedupKey(ref)] || !matchesSkillPrompt(prompt, name) {
+		resolved = append(resolved, resolvedAutoMatch{
+			Ref:          ref,
+			MatchedTerms: append([]string(nil), match.MatchedTerms...),
+			ContentHash:  strings.TrimSpace(match.Skill.ContentHash),
+		})
+	}
+	return resolved
+}
+
+func legacyCandidateSkills(candidates []dto.SkillRef, prompt string) []resolvedAutoMatch {
+	prompt = strings.ToLower(strings.TrimSpace(prompt))
+	normalized := normalizeSkillRefs(candidates)
+	if len(normalized) == 0 {
+		return nil
+	}
+	matches := make([]resolvedAutoMatch, 0, len(normalized))
+	for _, ref := range normalized {
+		match, ok := legacyCandidateMatch(ref, prompt)
+		if !ok {
 			continue
 		}
-		matches = append(matches, ref)
+		matches = append(matches, match)
+	}
+	if len(matches) == 0 {
+		return nil
 	}
 	return matches
+}
+
+func legacyCandidateMatch(ref dto.SkillRef, prompt string) (resolvedAutoMatch, bool) {
+	ref = normalizeAutoSkillRef(ref)
+	if ref.Name == "" {
+		return resolvedAutoMatch{}, false
+	}
+	name := strings.ToLower(strings.TrimSpace(ref.Name))
+	if ref.Source == dto.SkillSourceManual || ref.Source == dto.SkillSourceForce || ref.Source == dto.SkillSourceTrigger {
+		return resolvedAutoMatch{Ref: ref, MatchedTerms: []string{name}}, true
+	}
+	if prompt == "" || !matchesSkillPrompt(prompt, name) {
+		return resolvedAutoMatch{}, false
+	}
+	if ref.Mode == dto.SkillModeUnspecified {
+		ref.Mode = dto.SkillModeFull
+	}
+	return resolvedAutoMatch{Ref: ref, MatchedTerms: []string{name}}, true
+}
+
+func runtimeMatchToSkillRef(match skillpkg.RuntimeSkillMatch) (dto.SkillRef, bool) {
+	name := strings.TrimSpace(match.Skill.Name)
+	if name == "" {
+		return dto.SkillRef{}, false
+	}
+	ref := dto.SkillRef{
+		Name:    name,
+		Version: shortSkillHash(match.Skill.ContentHash),
+		Summary: strings.TrimSpace(match.Skill.Summary),
+	}
+	switch match.Kind {
+	case skillpkg.RuntimeMatchKindExplicit:
+		ref.Mode = dto.SkillModeFull
+		ref.Source = dto.SkillSourceManual
+	case skillpkg.RuntimeMatchKindForce:
+		ref.Mode = dto.SkillModeFull
+		ref.Source = dto.SkillSourceForce
+	case skillpkg.RuntimeMatchKindTrigger:
+		ref.Mode = dto.SkillModeSummary
+		ref.Source = dto.SkillSourceTrigger
+	default:
+		return dto.SkillRef{}, false
+	}
+	return ref, true
 }
 
 func mergePromptText(prompt, extra string) string {
@@ -118,6 +201,235 @@ func mergePromptText(prompt, extra string) string {
 		return prompt
 	}
 	return prompt + "\n" + extra
+}
+
+func (r *skillResolver) appendAutoMatches(
+	resolved *[]dto.SkillRef,
+	indexByKey map[string]int,
+	candidates []resolvedAutoMatch,
+	limit int,
+	applyCarry bool,
+	threadID string,
+	turnSeq uint64,
+	state *expandedStateStore,
+) {
+	if len(candidates) == 0 {
+		return
+	}
+	filtered := filterCarryCandidates(candidates, applyCarry, threadID, turnSeq, state)
+	sortResolvedAutoMatches(filtered)
+	added := 0
+	for _, candidate := range filtered {
+		key := skillDedupKey(candidate.Ref)
+		if key == "" {
+			continue
+		}
+		if limitExceeded(limit, added, key, indexByKey) {
+			continue
+		}
+		if appendResolvedSkill(resolved, indexByKey, normalizeAutoSkillRef(candidate.Ref)) {
+			added++
+		}
+	}
+}
+
+func filterCarryCandidates(
+	candidates []resolvedAutoMatch,
+	applyCarry bool,
+	threadID string,
+	turnSeq uint64,
+	state *expandedStateStore,
+) []resolvedAutoMatch {
+	if !applyCarry || state == nil {
+		return candidates
+	}
+	filtered := make([]resolvedAutoMatch, 0, len(candidates))
+	for _, candidate := range candidates {
+		if state.ShouldInject(threadID, turnSeq, candidate.Ref, candidate.ContentHash) {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
+}
+
+func limitExceeded(limit, added int, key string, indexByKey map[string]int) bool {
+	if limit <= 0 {
+		return false
+	}
+	if _, ok := indexByKey[key]; ok {
+		return false
+	}
+	return added >= limit
+}
+
+func appendResolvedSkill(resolved *[]dto.SkillRef, indexByKey map[string]int, ref dto.SkillRef) bool {
+	key := skillDedupKey(ref)
+	if key == "" {
+		return false
+	}
+	if idx, ok := indexByKey[key]; ok {
+		(*resolved)[idx] = mergeResolvedSkillRef((*resolved)[idx], ref)
+		return false
+	}
+	indexByKey[key] = len(*resolved)
+	*resolved = append(*resolved, ref)
+	return true
+}
+
+func splitAutoMatches(candidates []resolvedAutoMatch, source dto.SkillSource) []resolvedAutoMatch {
+	if len(candidates) == 0 {
+		return nil
+	}
+	out := make([]resolvedAutoMatch, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Ref.Source == source {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+func splitLegacyMatches(candidates []resolvedAutoMatch) []resolvedAutoMatch {
+	if len(candidates) == 0 {
+		return nil
+	}
+	out := make([]resolvedAutoMatch, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Ref.Source == dto.SkillSourceUnspecified {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+func sortResolvedAutoMatches(matches []resolvedAutoMatch) {
+	sort.SliceStable(matches, func(i, j int) bool {
+		if len(matches[i].MatchedTerms) != len(matches[j].MatchedTerms) {
+			return len(matches[i].MatchedTerms) > len(matches[j].MatchedTerms)
+		}
+		left := strings.ToLower(strings.TrimSpace(matches[i].Ref.Name))
+		right := strings.ToLower(strings.TrimSpace(matches[j].Ref.Name))
+		if left != right {
+			return left < right
+		}
+		return strings.TrimSpace(matches[i].Ref.Version) < strings.TrimSpace(matches[j].Ref.Version)
+	})
+}
+
+func normalizeResolvedSkillRef(ref dto.SkillRef) dto.SkillRef {
+	ref.Name = strings.TrimSpace(ref.Name)
+	ref.Version = strings.TrimSpace(ref.Version)
+	ref.Prompt = strings.TrimSpace(ref.Prompt)
+	ref.Summary = strings.TrimSpace(ref.Summary)
+	return ref
+}
+
+func normalizeExplicitSkillRef(ref dto.SkillRef) dto.SkillRef {
+	ref = normalizeResolvedSkillRef(ref)
+	if ref.Name == "" {
+		return ref
+	}
+	ref.Mode = dto.SkillModeFull
+	ref.Source = dto.SkillSourceManual
+	return ref
+}
+
+func normalizeAutoSkillRef(ref dto.SkillRef) dto.SkillRef {
+	ref = normalizeResolvedSkillRef(ref)
+	if ref.Mode != dto.SkillModeUnspecified {
+		ref.Mode = ref.Mode.Effective()
+	}
+	return ref
+}
+
+func mergeSkillRefs(current, incoming dto.SkillRef) dto.SkillRef {
+	current = normalizeResolvedSkillRef(current)
+	incoming = normalizeResolvedSkillRef(incoming)
+	preferred, fallback := preferSkillRef(current, incoming)
+	out := preferred
+	out.Prompt = mergePromptText(current.Prompt, incoming.Prompt)
+	out.Summary = preferredText(preferred.Summary, fallback.Summary)
+	out.Version = preferredText(preferred.Version, fallback.Version)
+	out.Mode = maxSkillMode(current.Mode, incoming.Mode)
+	out.Source = maxSkillSource(current.Source, incoming.Source)
+	return out
+}
+
+func mergeResolvedSkillRef(current, incoming dto.SkillRef) dto.SkillRef {
+	current = normalizeResolvedSkillRef(current)
+	incoming = normalizeResolvedSkillRef(incoming)
+	preferred, fallback := preferSkillRef(current, incoming)
+	out := mergeSkillRefs(current, incoming)
+	out.Prompt = preferredText(preferred.Prompt, fallback.Prompt)
+	return out
+}
+
+func preferSkillRef(left, right dto.SkillRef) (dto.SkillRef, dto.SkillRef) {
+	if sourcePriority(right.Source) > sourcePriority(left.Source) {
+		return right, left
+	}
+	if sourcePriority(right.Source) < sourcePriority(left.Source) {
+		return left, right
+	}
+	if modePriority(right.Mode) > modePriority(left.Mode) {
+		return right, left
+	}
+	if modePriority(right.Mode) < modePriority(left.Mode) {
+		return left, right
+	}
+	if len(strings.TrimSpace(right.Prompt)) > len(strings.TrimSpace(left.Prompt)) {
+		return right, left
+	}
+	return left, right
+}
+
+func preferredText(primary, fallback string) string {
+	if primary = strings.TrimSpace(primary); primary != "" {
+		return primary
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func maxSkillMode(left, right dto.SkillMode) dto.SkillMode {
+	if modePriority(right) > modePriority(left) {
+		return right.Effective()
+	}
+	return left.Effective()
+}
+
+func maxSkillSource(left, right dto.SkillSource) dto.SkillSource {
+	if sourcePriority(right) > sourcePriority(left) {
+		return right
+	}
+	return left
+}
+
+func modePriority(mode dto.SkillMode) int {
+	switch mode.Effective() {
+	case dto.SkillModeFull:
+		return 3
+	case dto.SkillModeSummary:
+		return 2
+	case dto.SkillModeNone:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func sourcePriority(source dto.SkillSource) int {
+	switch source {
+	case dto.SkillSourceManual:
+		return 4
+	case dto.SkillSourceForce:
+		return 3
+	case dto.SkillSourceTrigger:
+		return 2
+	case dto.SkillSourceUnspecified:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // ApplyNativeSkillOverride 对命中 nativeNames 的 SkillRef 强制覆盖为
