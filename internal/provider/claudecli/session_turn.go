@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -347,21 +348,39 @@ func buildSkillList(skills []dto.SkillRef) string {
 	return strings.Join(lines, "\n")
 }
 
-// buildSkillPromptText 按 P20.1 Phase 4 规格渲染 skill 注入块（与 codexapp 对称）。
-// 三分支（通过 skillpkg.RenderSkillBlock 统一）：
-//   - Mode=Full   → [skill:name::full@v1]\n<Prompt>\n[/skill:name::full@v1]
-//   - Mode=Summary → [skill:name::summary@v1]\n<Summary>\n→ Call skill_expand_body("name") for full body\n[/skill:name::summary@v1]
+// buildSkillPromptText 按 SKILL_WRITER_FORMAT 渲染 skill 注入块（与 codexapp 对称）。
+//   - legacy（默认） → [skill:name]\n<body> / [skill:name]\n摘要: ...\n使用方式: ...
+//   - v1            → [skill:name::mode@v1]\n...\n[/skill:name::mode@v1]
 //   - Mode=None / 非法值 → 跳过不注入（保守降级）。
 func buildSkillPromptText(skills []dto.SkillRef) string {
+	writerFormat := skillWriterFormat()
 	sections := make([]string, 0, len(skills))
 	for _, skill := range skills {
-		block, ok := skillpkg.RenderSkillBlock(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode))
+		if skill.Mode.Effective() == dto.SkillModeNone {
+			continue
+		}
+		block, ok := renderSkillPromptBlock(skill, writerFormat)
 		if !ok {
 			continue
 		}
 		sections = append(sections, block)
 	}
 	return strings.Join(sections, "\n\n")
+}
+
+func renderSkillPromptBlock(skill dto.SkillRef, writerFormat string) (string, bool) {
+	if writerFormat == "v1" {
+		block := skillpkg.RenderSkillBlockV1(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode), "1")
+		return block, block != ""
+	}
+	return skillpkg.RenderLegacySkillBlock(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode))
+}
+
+func skillWriterFormat() string {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("SKILL_WRITER_FORMAT")), "v1") {
+		return "v1"
+	}
+	return "legacy"
 }
 
 func appendTurnInput(parts *[]string, attachmentHints *[]string, input dto.InputItem) {

@@ -24,16 +24,20 @@ var skillBlockFooterNewFormat = regexp.MustCompile(`^\[/skill:([a-z0-9][a-z0-9-]
 // skillBlockHeaderLegacy 识别旧格式 header：[skill:<anything>]。
 //
 // 行为等价还原 codexapp/claudecli 旧实现：
-//   strings.HasPrefix(line, "[skill:") && strings.Contains(line, "]")
+//
+//	strings.HasPrefix(line, "[skill:") && strings.Contains(line, "]")
+//
 // 即 legacy header 只要开头是 `[skill:` 且行内有 `]` 即认识。不作任何名字内容
 // 制约（空、含 `:`、含空格均允许），因为：
 //   - 新格式已在 ParseSkillBlockHeader 中优先匹配，如果 `[skill:foo::full@v1]`
 //     先命中不会进 legacy 分支。
 //   - legacy AND 判定仍要求后续命中 "摘要:" + "使用方式: " 两 marker，
 //     用户文本里偶尔出现 [skill:foo] 不会误剥。
+//
 // 这样覆盖旧实现能识别但严格 regex 会漏掉的两个 edge case：
-//   [skill:]           → 空 name
-//   [skill:foo:bar]    → name 内部含 `:`
+//
+//	[skill:]           → 空 name
+//	[skill:foo:bar]    → name 内部含 `:`
 var skillBlockHeaderLegacy = regexp.MustCompile(`^\[skill:[^\]]*\]`)
 
 // legacySkillMarkers 是旧格式注入块必须在 lookahead 窗口内 AND 命中的两个标记。
@@ -198,60 +202,80 @@ func TrimInjectedSkillBlocksWithDiag(text string) TrimResult {
 // P20.1 Phase 4 写端渲染
 // ============================================================================
 
-// 新格式输出常量。skill_expand_body 是 P20.1 §3.1 拆分后的新工具名，代替旧
-// skill_expand；Phase 6 会真正注册该工具。写端在摘要块中提示模型调用该工具。
+// skill writer 输出常量。skill_expand_body 是 P20.1 §3.1 拆分后的新工具名，
+// 代替旧 skill_expand；summary 写端在提示文本中引导模型调用该工具。
 const (
-	skillBlockSchemaVersion = 1
-	skillBlockVersionSuffix = "@v1"
+	skillBlockSchemaVersion = "1"
 	skillExpandBodyToolName = "skill_expand_body"
 )
 
-// RenderSkillBlock 按 P20.1 Phase 4 规范产出单个 skill 注入块的成对文本。
-//
-// 输入：
-//   - name : skill 名。经 validateSkillName 白名单校验（^[a-z0-9][a-z0-9-]{0,63}$），
-//            非法值→ 拒渲染。这是防御最后一道闸：即使上游忘校验，
-//            恶意或畸形 name（如 "foo]\n[skill:victim"、"Foo Bar"）也不会产生非法 header。
-//   - body : Full 模式写入的完整正文。禁止内部含 skill header/footer 模式，
-//            避免 body 伪造 footer 导致读端提前截断、尾部残留内容被当用户文本注入。
-//   - summary : Summary 模式写入的摘要，同样拒绝伪造 header/footer。
-//   - mode : 字符串 "full"/"summary"/"none"/""；空值视同 full（legacy 兼容），
-//            未知非法值→ 视同 none（与 dto.SkillMode.Effective() P20.1 修订对齐）。
-//
-// 返回 (text, ok)； ok=false 表示无需注入（None / name 非法 / body或summary含
-// 伪造标记 / 内容为空）。
-func RenderSkillBlock(name, body, summary, mode string) (string, bool) {
-	// P20.1 安全加固 A：name 白名单过滤。非法 name 拒渲染，保证产出的 header
-	// 与 Phase 3 skillBlockHeaderNewFormat 正则一致（不会漏到 legacy 分支）。
+// RenderLegacySkillBlock 产出 legacy writer 兼容块：
+//   - full    → [skill:name]\n<body>
+//   - summary → [skill:name]\n摘要: <summary>\n使用方式: Call skill_expand_body("name") for full body
+//   - none / invalid → 不输出
+func RenderLegacySkillBlock(name, body, summary, mode string) (string, bool) {
 	normalizedName, err := validateSkillName(name)
 	if err != nil {
 		return "", false
 	}
-	effective := effectiveRenderMode(mode)
-	switch effective {
+	switch effectiveRenderMode(mode) {
 	case "full":
 		trimmedBody := strings.TrimSpace(body)
-		if trimmedBody == "" {
+		if trimmedBody == "" || containsSkillBlockMarker(trimmedBody) {
 			return "", false
 		}
-		// P20.1 安全加固 B：拒绝 body 含伪造 skill header/footer。
-		if containsSkillBlockMarker(trimmedBody) {
-			return "", false
-		}
-		return wrapSkillBlock(normalizedName, "full", trimmedBody), true
+		return "[skill:" + normalizedName + "]\n" + trimmedBody, true
 	case "summary":
 		trimmedSummary := strings.TrimSpace(summary)
-		if trimmedSummary == "" {
+		if trimmedSummary == "" || containsSkillBlockMarker(trimmedSummary) {
 			return "", false
 		}
-		if containsSkillBlockMarker(trimmedSummary) {
-			return "", false
-		}
-		inner := trimmedSummary + "\n\u2192 Call " + skillExpandBodyToolName + "(\"" + normalizedName + "\") for full body"
-		return wrapSkillBlock(normalizedName, "summary", inner), true
-	default: // "none" / unknown / ""
+		return "[skill:" + normalizedName + "]\n摘要: " + trimmedSummary + "\n使用方式: Call " + skillExpandBodyToolName + "(\"" + normalizedName + "\") for full body", true
+	default:
 		return "", false
 	}
+}
+
+// RenderSkillBlockV1 产出带成对 header/footer 的 v1 marker。
+// version 接受 "1" / "v1"；空值或非法值回落到 schema 默认版本。
+func RenderSkillBlockV1(name, body, summary, mode, version string) string {
+	normalizedName, err := validateSkillName(name)
+	if err != nil {
+		return ""
+	}
+	normalizedVersion := normalizeRenderVersion(version)
+	switch effectiveRenderMode(mode) {
+	case "full":
+		trimmedBody := strings.TrimSpace(body)
+		if trimmedBody == "" || containsSkillBlockMarker(trimmedBody) {
+			return ""
+		}
+		return wrapSkillBlock(normalizedName, "full", normalizedVersion, trimmedBody)
+	case "summary":
+		trimmedSummary := strings.TrimSpace(summary)
+		if trimmedSummary == "" || containsSkillBlockMarker(trimmedSummary) {
+			return ""
+		}
+		inner := "摘要: " + trimmedSummary + "\n使用方式: Call " + skillExpandBodyToolName + "(\"" + normalizedName + "\") for full body"
+		return wrapSkillBlock(normalizedName, "summary", normalizedVersion, inner)
+	case "none":
+		return wrapSkillBlock(normalizedName, "none", normalizedVersion, "")
+	default:
+		return ""
+	}
+}
+
+// RenderSkillBlock 维持既有 (text, ok) 包装语义，默认产出 v1 full/summary block；
+// none / invalid 与 legacy 兼容路径保持 skip。
+func RenderSkillBlock(name, body, summary, mode string) (string, bool) {
+	if effectiveRenderMode(mode) == "none" {
+		return "", false
+	}
+	text := RenderSkillBlockV1(name, body, summary, mode, skillBlockSchemaVersion)
+	if text == "" {
+		return "", false
+	}
+	return text, true
 }
 
 // containsSkillBlockMarker 扫描文本行内是否出现 skill header 或 footer 模式（新格式
@@ -282,11 +306,24 @@ func effectiveRenderMode(mode string) string {
 }
 
 // wrapSkillBlock 组装成对 header/footer 块。顺序与 Phase 3 TrimInjectedSkillBlocks
-// 成对裁剪逻辑一致：`[skill:name::mode@v1]\n<inner>\n[/skill:name::mode@v1]`。
-func wrapSkillBlock(name, mode, inner string) string {
-	header := "[skill:" + name + "::" + mode + skillBlockVersionSuffix + "]"
-	footer := "[/skill:" + name + "::" + mode + skillBlockVersionSuffix + "]"
+// 成对裁剪逻辑一致：`[skill:name::mode@vN]\n<inner>\n[/skill:name::mode@vN]`。
+func wrapSkillBlock(name, mode, version, inner string) string {
+	versionSuffix := "@v" + version
+	header := "[skill:" + name + "::" + mode + versionSuffix + "]"
+	footer := "[/skill:" + name + "::" + mode + versionSuffix + "]"
+	if inner == "" {
+		return header + "\n" + footer
+	}
 	return header + "\n" + inner + "\n" + footer
+}
+
+func normalizeRenderVersion(raw string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(raw))
+	trimmed = strings.TrimPrefix(trimmed, "v")
+	if parseVersionString(trimmed) <= 0 {
+		return skillBlockSchemaVersion
+	}
+	return trimmed
 }
 
 // findMatchingSkillBlockFooter 从 lines[start:] 扫描对应 header 的 footer（按 name/mode/

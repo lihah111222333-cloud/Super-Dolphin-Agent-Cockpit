@@ -238,14 +238,15 @@ func cleanResidualProcesses() {
 // 兜底：non-None skill 始终以 `skills:\n- name` 名单形式出现在模型上下文。
 //
 // 两段结构（与 claudecli buildSkillSection 对称）：
-//  1. name-list：所有 Mode.Effective()!=None 的 skill 名都会列出，即便
-//     RenderSkillBlock 因 Prompt/Summary 为空而返回 ok=false —— 避免手动
-//     选中的 skill 在 PrepareTurn 未完成 hydrate 时被 provider silent drop。
-//  2. block-sections：按 RenderSkillBlock 渲染的成对 header/footer 块：
-//     - Mode=Full (含 legacy 空值) → [skill:name::full@v1]\n<Prompt>\n[/skill:name::full@v1]
-//     - Mode=Summary → [skill:name::summary@v1]\n<Summary>\n→ Call skill_expand_body("name") for full body\n[/skill:name::summary@v1]
+//  1. name-list：所有 Mode.Effective()!=None 的 skill 名都会列出，即便 render
+//     因 Prompt/Summary 为空而返回 ok=false —— 避免手动选中的 skill 在
+//     PrepareTurn 未完成 hydrate 时被 provider silent drop。
+//  2. block-sections：按 SKILL_WRITER_FORMAT 渲染：
+//     - legacy（默认） → [skill:name]\n<body> / [skill:name]\n摘要: ...\n使用方式: ...
+//     - v1            → [skill:name::mode@v1]\n...\n[/skill:name::mode@v1]
 //     - Mode=None / 非法值 → 跳过（与 name-list 一起剥离，对齐 claudecli buildSkillList）。
 func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {
+	writerFormat := skillWriterFormat()
 	listLines := make([]string, 0, len(skills)+1)
 	listLines = append(listLines, "skills:")
 	sections := make([]string, 0, len(skills))
@@ -260,7 +261,7 @@ func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {
 			continue
 		}
 		listLines = append(listLines, "- "+name)
-		if block, ok := skillpkg.RenderSkillBlock(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode)); ok {
+		if block, ok := renderSkillBlock(skill, writerFormat); ok {
 			sections = append(sections, block)
 		}
 	}
@@ -275,6 +276,21 @@ func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {
 		return turnInputItem{}, false
 	}
 	return newTextTurnInput("text", strings.Join(parts, "\n\n")), true
+}
+
+func renderSkillBlock(skill dto.SkillRef, writerFormat string) (string, bool) {
+	if writerFormat == "v1" {
+		block := skillpkg.RenderSkillBlockV1(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode), "1")
+		return block, block != ""
+	}
+	return skillpkg.RenderLegacySkillBlock(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode))
+}
+
+func skillWriterFormat() string {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("SKILL_WRITER_FORMAT")), "v1") {
+		return "v1"
+	}
+	return "legacy"
 }
 
 func resolveLocalTurnID(requested, fallback string) string {

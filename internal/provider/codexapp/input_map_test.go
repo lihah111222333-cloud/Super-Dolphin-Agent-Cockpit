@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuildTurnStartParams(t *testing.T) {
-	t.Parallel()
+	t.Setenv("SKILL_WRITER_FORMAT", "v1")
 
 	req := dto.TurnRequest{
 		Inputs: []dto.InputItem{
@@ -101,7 +101,7 @@ func testAttachmentTime() time.Time {
 }
 
 func TestBuildTurnSteerParams(t *testing.T) {
-	t.Parallel()
+	t.Setenv("SKILL_WRITER_FORMAT", "v1")
 
 	req := dto.SteerRequest{
 		ExpectedTurnID: " turn-1 ",
