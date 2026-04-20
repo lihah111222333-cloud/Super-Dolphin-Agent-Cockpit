@@ -2,11 +2,13 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 func TestGetDashboardPageReturnsStructuredPage(t *testing.T) {
@@ -28,6 +30,98 @@ func TestGetDashboardPageReturnsStructuredPage(t *testing.T) {
 	}
 	if len(got.CommandCards) != 0 || len(got.Prompts) != 0 {
 		t.Fatalf("GetDashboardPage(commands) = %#v, want empty command page", got)
+	}
+}
+
+func TestGetDashboardPageFiltersPromptsByScopedCWD(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		cwd      string
+		wantKeys []string
+	}{
+		{name: "repo_a", cwd: "/repo-a", wantKeys: []string{"global", "match"}},
+		{name: "repo_b", cwd: "/repo-b", wantKeys: []string{"global", "other"}},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			stub := &stubPromptReader{
+				result: []promptstore.PromptTemplate{
+					{PromptKey: "global", Title: "Global", Tags: json.RawMessage(`[]`)},
+					{PromptKey: "match", Title: "Match", Tags: json.RawMessage(`["scope.cwd:/repo-a"]`)},
+					{PromptKey: "other", Title: "Other", Tags: json.RawMessage(`["scope.cwd:/repo-b"]`)},
+				},
+			}
+			svc := &service{prompts: stub}
+
+			got, err := svc.GetDashboardPage(withDashboardPromptScopeCWD(context.Background(), tc.cwd), "commands")
+			if err != nil {
+				t.Fatalf("GetDashboardPage() error = %v", err)
+			}
+			if stub.calls != 1 {
+				t.Fatalf("List() calls = %d, want 1", stub.calls)
+			}
+			if stub.lastFilter.CWD != tc.cwd || stub.lastFilter.Limit != dashboardPageDefaultLimit {
+				t.Fatalf("List() filter = %#v", stub.lastFilter)
+			}
+			if len(got.Prompts) != len(tc.wantKeys) {
+				t.Fatalf("GetDashboardPage(commands).Prompts len = %d, want %d (%#v)", len(got.Prompts), len(tc.wantKeys), got.Prompts)
+			}
+			for idx, wantKey := range tc.wantKeys {
+				if got.Prompts[idx].PromptKey != wantKey {
+					t.Fatalf("GetDashboardPage(commands).Prompts[%d] = %q, want %q", idx, got.Prompts[idx].PromptKey, wantKey)
+				}
+			}
+		})
+	}
+}
+
+func TestDashboardPromptsHandlerScopesByCWDAndReturnsPromptsKey(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubPromptReader{
+		result: []promptstore.PromptTemplate{
+			{PromptKey: "global", Title: "Global", Tags: json.RawMessage(`[]`)},
+			{PromptKey: "match", Title: "Match", Tags: json.RawMessage(`["scope.cwd:/repo-a"]`)},
+			{PromptKey: "other", Title: "Other", Tags: json.RawMessage(`["scope.cwd:/repo-b"]`)},
+		},
+	}
+	server := newDashboardTestServer(t, &service{prompts: stub})
+
+	result, err := server.Dispatch(context.Background(), "dashboard/prompts", json.RawMessage(`{"cwd":"/repo-b"}`))
+	if err != nil {
+		t.Fatalf("Dispatch() error = %v", err)
+	}
+	if stub.calls != 1 {
+		t.Fatalf("List() calls = %d, want 1", stub.calls)
+	}
+	if stub.lastFilter.CWD != "/repo-b" || stub.lastFilter.Limit != dashboardPageDefaultLimit {
+		t.Fatalf("List() filter = %#v", stub.lastFilter)
+	}
+
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(result, &response); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	promptsRaw, ok := response["prompts"]
+	if !ok {
+		t.Fatalf("Dispatch() response keys = %#v, want prompts", response)
+	}
+	if _, ok := response["commands"]; ok {
+		t.Fatalf("Dispatch() response unexpectedly retained legacy commands key: %#v", response)
+	}
+
+	var prompts []promptstore.PromptTemplate
+	if err := json.Unmarshal(promptsRaw, &prompts); err != nil {
+		t.Fatalf("json.Unmarshal(prompts) error = %v", err)
+	}
+	if len(prompts) != 2 || prompts[0].PromptKey != "global" || prompts[1].PromptKey != "other" {
+		t.Fatalf("Dispatch() prompts = %#v", prompts)
 	}
 }
 
@@ -187,6 +281,21 @@ func TestGetBusLogsUsesStore(t *testing.T) {
 	if len(got) != 1 || got[0].ID != 9 {
 		t.Fatalf("GetBusLogs() = %#v", got)
 	}
+}
+
+type stubPromptReader struct {
+	result     []promptstore.PromptTemplate
+	err        error
+	calls      int
+	lastFilter promptstore.ListFilter
+}
+
+var _ promptstore.Reader = (*stubPromptReader)(nil)
+
+func (s *stubPromptReader) List(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+	s.calls++
+	s.lastFilter = filter
+	return s.result, s.err
 }
 
 type stubAILogStore struct {

@@ -14,6 +14,10 @@ type uiDashboardGetParams struct {
 	Page string `json:"page,omitempty"`
 }
 
+type dashboardPromptsParams struct {
+	Cwd string `json:"cwd,omitempty"`
+}
+
 type agentStatusParams struct {
 	Status string `json:"status,omitempty"`
 }
@@ -93,8 +97,13 @@ func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
 		"dashboard/commandCards": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardPageField(ctx, svc, "commands", func(page *DashboardPage) any { return page.CommandCards }, "cards")
 		}),
-		"dashboard/prompts": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return dashboardPageField(ctx, svc, "commands", func(page *DashboardPage) any { return page.Prompts })
+		"dashboard/prompts": rpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
+			ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
+			page, err := svc.GetDashboardPage(ctx, "commands")
+			if err != nil {
+				return nil, err
+			}
+			return wrapResponse("prompts", page.Prompts), nil
 		}),
 		"dashboard/sharedFiles": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardPageField(ctx, svc, "memory", func(page *DashboardPage) any { return page.Memory }, "files")
