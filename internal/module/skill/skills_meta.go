@@ -19,58 +19,116 @@ type skillRecord struct {
 	rel  string
 }
 
+type skillScanRootKind uint8
+
+const (
+	skillScanRootProject skillScanRootKind = iota + 1
+	skillScanRootSystemGlobal
+	skillScanRootSystemLegacy
+)
+
+type skillScanRoot struct {
+	path string
+	kind skillScanRootKind
+}
+
 func (s *service) scanSkills(cwd string) ([]skillRecord, error) {
-	roots := s.skillRoots(cwd)
+	roots := s.scanSkillRoots(cwd)
 	if len(roots) == 0 {
 		return nil, nil
 	}
 	projectSkillsRoot := s.projectSkillsRootForCWD(cwd)
 	records := make([]skillRecord, 0, 16)
 	for _, root := range roots {
-		if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(root.path); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
 			return nil, err
 		}
-		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		err := filepath.WalkDir(root.path, func(path string, entry os.DirEntry, walkErr error) error {
 			return s.visitSkillEntry(root, path, entry, walkErr, projectSkillsRoot, &records)
 		})
 		if err != nil {
 			return nil, err
 		}
 	}
-	sort.Slice(records, func(i, j int) bool {
+	sort.SliceStable(records, func(i, j int) bool {
 		return strings.ToLower(records[i].info.Name) < strings.ToLower(records[j].info.Name)
 	})
 	return records, nil
 }
 
-func (s *service) visitSkillEntry(root, path string, entry os.DirEntry, walkErr error, projectSkillsRoot string, records *[]skillRecord) error {
+func (s *service) scanSkillRoots(cwd string) []skillScanRoot {
+	roots := make([]skillScanRoot, 0, 3)
+	if projectRoot := strings.TrimSpace(s.projectSkillsRootForCWD(cwd)); projectRoot != "" {
+		roots = append(roots, skillScanRoot{path: projectRoot, kind: skillScanRootProject})
+	}
+	if systemRoot := s.systemGlobalSkillsRoot(); systemRoot != "" {
+		roots = append(roots, skillScanRoot{path: systemRoot, kind: skillScanRootSystemGlobal})
+	}
+	if legacyRoot := strings.TrimSpace(s.legacySystemSkillsRoot(cwd)); legacyRoot != "" {
+		roots = append(roots, skillScanRoot{path: legacyRoot, kind: skillScanRootSystemLegacy})
+	}
+	return roots
+}
+
+func (s *service) visitSkillEntry(root skillScanRoot, path string, entry os.DirEntry, walkErr error, projectSkillsRoot string, records *[]skillRecord) error {
 	if walkErr != nil || entry == nil {
 		return walkErr
 	}
-	if entry.IsDir() {
-		name := entry.Name()
-		if path != root && strings.HasPrefix(name, ".") && name != ".system" {
-			return filepath.SkipDir
-		}
-		if name == ".git" {
-			return filepath.SkipDir
-		}
-		return nil
+	depth, err := scanSkillEntryDepth(root.path, path)
+	if err != nil {
+		return err
 	}
-	if !strings.EqualFold(entry.Name(), skillMainFile) {
+	if entry.IsDir() {
+		return visitSkillDir(root, path, entry.Name(), depth)
+	}
+	if !shouldVisitSkillFile(root, entry.Name(), depth) {
 		return nil
 	}
 	// 根据当前 root 和 service 状态排定 defaultTrust：项目级 root → untrusted，用户级 → trusted。
 	// frontmatter 中显式 `trust:` 会在 parseSkillInfo 内覆盖此默认值。
-	defaultTrust := s.defaultTrustForRoot(root, projectSkillsRoot)
-	record, err := parseSkillRecord(root, path, defaultTrust)
+	defaultTrust := s.defaultTrustForRoot(root.path, projectSkillsRoot)
+	record, err := parseSkillRecord(root.path, path, defaultTrust)
 	if err != nil {
 		return nil
 	}
 	*records = append(*records, record)
 	return nil
+}
+
+func scanSkillEntryDepth(rootPath, path string) (int, error) {
+	rel, err := filepath.Rel(rootPath, path)
+	if err != nil {
+		return 0, err
+	}
+	if rel == "." {
+		return 0, nil
+	}
+	return strings.Count(rel, string(filepath.Separator)) + 1, nil
+}
+
+func visitSkillDir(root skillScanRoot, path, name string, depth int) error {
+	if path != root.path && strings.HasPrefix(name, ".") && name != ".system" {
+		return filepath.SkipDir
+	}
+	if name == ".git" {
+		return filepath.SkipDir
+	}
+	if root.kind == skillScanRootSystemGlobal && depth > 1 {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+func shouldVisitSkillFile(root skillScanRoot, name string, depth int) bool {
+	if !strings.EqualFold(name, skillMainFile) {
+		return false
+	}
+	if root.kind == skillScanRootSystemGlobal && depth != 2 {
+		return false
+	}
+	return true
 }
 
 // defaultTrustForRoot 根据 root 路径在 service 两个配置 root 中的归属，推断默认信任域。
