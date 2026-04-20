@@ -285,6 +285,19 @@ export async function setThreadConfig(ctx, threadId, config = {}) {
   }
 }
 
+async function resolveDisallowedBuiltinTools(ctx, cwd) {
+  try {
+    const res = await ctx.callAPI('config/builtinTools/read', ctx.withPreferenceScope({ cwd }));
+    if (!res || !Array.isArray(res.tools)) return null;
+    return res.tools
+      .filter((tool) => tool && tool.enabled === false)
+      .map((tool) => (typeof tool.id === 'string' ? tool.id.trim() : ''))
+      .filter((id) => id !== '');
+  } catch {
+    return null;
+  }
+}
+
 export async function startThread(ctx, cwd = '.', options = {}) {
   const { callAPI, logInfo } = ctx;
   const start = perfNow();
@@ -304,6 +317,10 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   const manualSkillSelection = options?.manualSkillSelection === true;
   if (selectedSkills.length > 0) payload.selectedSkills = selectedSkills;
   if (manualSkillSelection || selectedSkills.length > 0) payload.manualSkillSelection = manualSkillSelection;
+  const disallowedTools = await resolveDisallowedBuiltinTools(ctx, cwd);
+  if (Array.isArray(disallowedTools)) {
+    payload.config = { ...(payload.config || {}), disallowed_tools: disallowedTools };
+  }
   const res = await callAPI('thread/start', payload);
   const id = res?.thread?.id;
   if (!id) return '';
