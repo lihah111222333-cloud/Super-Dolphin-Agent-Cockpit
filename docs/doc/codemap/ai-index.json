@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-04-19",
+  "generated_at": "2026-04-20",
   "description": "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
   "codemaps": [
     {
@@ -4456,6 +4456,11 @@
         }
       ]
     },
+    "cmd/agent-terminal/frontend/vue-app/components/LaunchSkillPicker.js": {
+      "package": "frontend",
+      "description": "frontend",
+      "refs": []
+    },
     "cmd/agent-terminal/frontend/vue-app/components/PathChoiceModal.js": {
       "package": "frontend",
       "description": "│   ├── PathChoiceModal.js       # 多路径 locate 结果选择框",
@@ -4959,6 +4964,11 @@
           "context": "│   ├── useKeyboardShortcuts.js  # Esc 中断快捷键"
         }
       ]
+    },
+    "cmd/agent-terminal/frontend/vue-app/composables/useLaunchSkillSelection.js": {
+      "package": "frontend",
+      "description": "frontend",
+      "refs": []
     },
     "cmd/agent-terminal/frontend/vue-app/composables/useMermaidRenderer.js": {
       "package": "frontend",
@@ -5635,6 +5645,11 @@
           "context": "`assistant-markdown-streaming.js` + ：流式文本高度与刷新调度"
         }
       ]
+    },
+    "cmd/agent-terminal/frontend/vue-app/services/skills-api.js": {
+      "package": "frontend",
+      "description": "frontend",
+      "refs": []
     },
     "cmd/agent-terminal/frontend/vue-app/services/status.js": {
       "package": "frontend",
@@ -30174,19 +30189,6 @@
           "start_line": 1029,
           "end_line": 1029,
           "context": "`internal/module/thread/service.go`"
-        }
-      ]
-    },
-    "internal/module/prompt/skill_catalog_fx.go": {
-      "package": "prompt",
-      "description": "├── skill_catalog_fx.go       # P20.1 Phase 10：compositeNativeSkillDetector + NewSkillCatalogProviderFx + Regist",
-      "refs": [
-        {
-          "codemap": "11",
-          "section": "2. 目录结构 \u003e 2.3 `internal/module/prompt/`",
-          "start_line": 146,
-          "end_line": 163,
-          "context": "├── skill_catalog_fx.go       # P20.1 Phase 10：compositeNativeSkillDetector + NewSkillCatalogProviderFx + Regist"
         }
       ]
     },
