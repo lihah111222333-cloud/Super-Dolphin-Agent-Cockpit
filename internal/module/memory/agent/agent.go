@@ -127,6 +127,10 @@ func (m *Manager) GetAgentMemoryDir(agentType string, scope MemoryScope) (string
 	return filepath.Join(parent, dirName), nil
 }
 
+func (m *Manager) GetAgentMemoryScopeRoot(scope MemoryScope) (string, error) {
+	return m.scopeParentDir(scope)
+}
+
 func (m *Manager) EnsureAgentMemoryDir(agentType string, scope MemoryScope) error {
 	dir, err := m.GetAgentMemoryDir(agentType, scope)
 	if err != nil {

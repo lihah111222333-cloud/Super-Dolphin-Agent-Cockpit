@@ -85,6 +85,13 @@ func (m *AgentMemoryManager) GetAgentMemoryDir(agentType string, scope MemorySco
 	return m.inner.GetAgentMemoryDir(agentType, memagent.MemoryScope(scope))
 }
 
+func (m *AgentMemoryManager) GetAgentMemoryScopeRoot(scope MemoryScope) (string, error) {
+	if m == nil || m.inner == nil {
+		return "", errors.New("agent memory manager is nil")
+	}
+	return m.inner.GetAgentMemoryScopeRoot(memagent.MemoryScope(scope))
+}
+
 func (m *AgentMemoryManager) EnsureAgentMemoryDir(agentType string, scope MemoryScope) error {
 	if m == nil || m.inner == nil {
 		return errors.New("agent memory manager is nil")

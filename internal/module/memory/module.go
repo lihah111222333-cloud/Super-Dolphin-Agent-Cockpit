@@ -34,12 +34,12 @@ type memoryHookParams struct {
 	fx.In
 
 	Lifecycle       fx.Lifecycle
-	Dispatcher      *event.Dispatcher      `optional:"true"`
-	Hooks           *MemoryLifecycleHooks  `optional:"true"`
-	ContextProvider *MemoryContextProvider `optional:"true"`
+	Dispatcher      *event.Dispatcher        `optional:"true"`
+	Hooks           *MemoryLifecycleHooks    `optional:"true"`
+	ContextProvider *MemoryContextProvider   `optional:"true"`
 	NestedRuntime   *nestedpkg.NestedRuntime `optional:"true"`
-	ThreadStore     threadMetadataStore    `optional:"true"`
-	TeamSync        teampkg.Lifecycle      `optional:"true"`
+	ThreadStore     threadMetadataStore      `optional:"true"`
+	TeamSync        teampkg.Lifecycle        `optional:"true"`
 }
 
 type promptProviderParams struct {
@@ -293,15 +293,22 @@ func provideMemoryService(
 	return NewService(cfg, logger, consolidator, hooks)
 }
 
-func NewMemoryHandlers(svc Service) rpc.HandlerMapResult {
-	return rpc.HandlerMapResult{Handlers: handler.Map{
+func NewMemoryHandlers(p memoryHandlerDeps) rpc.HandlerMapResult {
+	handlers := handler.Map{
 		"memory/consolidate": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			if err := svc.RunConsolidation(ctx); err != nil {
+			if err := p.Service.RunConsolidation(ctx); err != nil {
 				return nil, err
 			}
 			return map[string]any{"status": "completed"}, nil
 		}),
-	}}
+	}
+	for name, item := range registerUIMemoryHandlers(p) {
+		handlers[name] = item
+	}
+	for name, item := range registerUIMemoryMutationHandlers(p) {
+		handlers[name] = item
+	}
+	return rpc.HandlerMapResult{Handlers: handlers}
 }
 
 func buildConsolidationRuntimeContext(source string, sessionsSinceLast int, lastSuccess time.Time, threadID string) string {

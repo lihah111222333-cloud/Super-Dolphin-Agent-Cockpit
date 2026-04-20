@@ -10,11 +10,13 @@ import { TasksPage } from './pages/TasksPage.js';
 import { CommandsPage } from './pages/CommandsPage.js';
 import { SettingsPage } from './pages/SettingsPage.ts';
 import { SystemPromptPage } from './pages/SystemPromptPage.js';
+import { MemoryCenterPage } from './pages/MemoryCenterPage.js';
+import { SharedFilesPage } from './pages/SharedFilesPage.js';
 import { useProjectStore } from './stores/projects.js';
 import { useThreadStore } from './stores/threads.js';
 
 /**
- * @typedef {'chat' | 'agents' | 'dags' | 'tasks' | 'skills' | 'commands' | 'memory' | 'settings'} AppPage
+ * @typedef {'chat' | 'agents' | 'dags' | 'tasks' | 'skills' | 'commands' | 'memory-center' | 'memory' | 'settings'} AppPage
  * @typedef {{ refreshSidebarState?: () => Promise<void>, state?: { activeThreadId?: string, activeCmdThreadId?: string } }} ChatRefreshThreadStore
  * @typedef {{ command_template?: string }} CommandCard
  * @typedef {{ prompt_text?: string, description?: string, title?: string }} PromptTemplate
@@ -29,7 +31,8 @@ const NAV_ITEMS = Object.freeze([
   { key: 'tasks', icon: 'T', label: '任务' },
   { key: 'skills', icon: 'S', label: '技能' },
   { key: 'commands', icon: 'C', label: '命令' },
-  { key: 'memory', icon: 'M', label: '记忆' },
+  { key: 'memory-center', icon: 'M', label: '记忆中心' },
+  { key: 'memory', icon: 'F', label: '共享文件' },
   { key: 'settings', icon: '..', label: '设置' },
 ]);
 
@@ -76,6 +79,68 @@ const MEMORY_FIELDS = Object.freeze([
   { key: 'updated_by', label: '更新者' },
   { key: 'updated_at', label: '更新时间' },
 ]);
+
+const EMPTY_MEMORY_CENTER = Object.freeze({
+  overview: {},
+  private: { entries: [] },
+  team: { entries: [] },
+  agentScopes: [],
+});
+
+const SHARED_FILES_TIPS = Object.freeze([
+  '适合放命令输出摘录、待整理笔记、交接清单。',
+  '确认值得长期保留的内容，请转到“记忆中心”查看真正的 durable memory 与 Agent 记忆。',
+]);
+
+function resetMemoryCenterState(state) {
+  state.overview = {};
+  state.private = { entries: [] };
+  state.team = { entries: [] };
+  state.agentScopes = [];
+}
+
+function applyMemoryCenterSnapshot(state, snapshot) {
+  state.overview = snapshot?.overview || {};
+  state.private = snapshot?.private || { entries: [] };
+  state.team = snapshot?.team || { entries: [] };
+  state.agentScopes = Array.isArray(snapshot?.agentScopes) ? snapshot.agentScopes : [];
+}
+
+async function refreshRuntimeConfigState(runtimeConfig) {
+  try {
+    const info = await callAPI('config/read', {});
+    runtimeConfig.cwd = (info?.cwd || '').toString().trim();
+  } catch (error) {
+    console.warn('refresh runtime config failed', error);
+    runtimeConfig.cwd = '';
+  }
+}
+
+async function refreshMemoryCenterState(memoryCenter, cwd) {
+  memoryCenter.loading = true;
+  memoryCenter.error = '';
+  try {
+    const snapshot = await callAPI('ui/memory/get', cwd ? { cwd } : {});
+    applyMemoryCenterSnapshot(memoryCenter, snapshot && typeof snapshot === 'object' ? snapshot : EMPTY_MEMORY_CENTER);
+  } catch (error) {
+    console.warn('refresh memory center failed', error);
+    resetMemoryCenterState(memoryCenter);
+    memoryCenter.error = (error?.message || String(error) || '加载失败').toString();
+  } finally {
+    memoryCenter.loading = false;
+  }
+}
+
+async function ensureAppActiveThread(threadStore, projectStore) {
+  let threadId = threadStore.state.activeThreadId || '';
+  if (threadId) return threadId;
+
+  threadId = await threadStore.startThread(projectStore.state.active || '.');
+  if (!threadId) return '';
+
+  await requestHistoryLoad(threadStore, threadId);
+  return threadId;
+}
 
 export function shouldRefreshChatPageOnEnter(/** @type {string} */ nextPage, /** @type {string | null | undefined} */ prevPage) {
   return nextPage === 'chat' && Boolean(prevPage) && prevPage !== nextPage;
@@ -124,6 +189,8 @@ export const AppRoot = {
     CommandsPage,
     SettingsPage,
     SystemPromptPage,
+    MemoryCenterPage,
+    SharedFilesPage,
   },
   setup() {
     const projectStore = useProjectStore();
@@ -144,6 +211,14 @@ export const AppRoot = {
       commandCards: [],
       prompts: [],
       memory: [],
+    });
+    const memoryCenter = reactive({
+      loading: false,
+      error: '',
+      overview: {},
+      private: { entries: [] },
+      team: { entries: [] },
+      agentScopes: [],
     });
 
     let refreshTimer;
@@ -181,30 +256,13 @@ export const AppRoot = {
     }
 
     async function refreshRuntimeConfig() {
-      try {
-        const info = await callAPI('config/read', {});
-        runtimeConfig.cwd = (info?.cwd || '').toString().trim();
-      } catch (error) {
-        console.warn('refresh runtime config failed', error);
-        runtimeConfig.cwd = '';
-      }
-    }
-
-    async function ensureActiveThread() {
-      let threadId = threadStore.state.activeThreadId || '';
-      if (threadId) return threadId;
-
-      threadId = await threadStore.startThread(projectStore.state.active || '.');
-      if (!threadId) return '';
-
-      await requestHistoryLoad(threadStore, threadId);
-      return threadId;
+      await refreshRuntimeConfigState(runtimeConfig);
     }
 
     async function runCommandCard(/** @type {CommandCard} */ card) {
       const command = (card?.command_template || '').toString().trim();
       if (!command) return;
-      const threadId = await ensureActiveThread();
+      const threadId = await ensureAppActiveThread(threadStore, projectStore);
       if (!threadId) return;
 
       await threadStore.sendMessage(threadId, `请执行以下命令并反馈结果：\n${command}`);
@@ -214,7 +272,7 @@ export const AppRoot = {
     async function runPromptTemplate(/** @type {PromptTemplate} */ prompt) {
       const text = (prompt?.prompt_text || prompt?.description || prompt?.title || '').toString().trim();
       if (!text) return;
-      const threadId = await ensureActiveThread();
+      const threadId = await ensureAppActiveThread(threadStore, projectStore);
       if (!threadId) return;
 
       await threadStore.sendMessage(threadId, text);
@@ -222,7 +280,7 @@ export const AppRoot = {
     }
 
     async function refreshDashboardByPage(/** @type {AppPage} */ targetPage) {
-      if (targetPage === 'chat' || targetPage === 'settings') return;
+      if (targetPage === 'chat' || targetPage === 'settings' || targetPage === 'memory-center') return;
       const cwd = (threadScopeCwd.value || '').toString().trim();
       const res = await callAPI('ui/dashboard/get', cwd ? { page: targetPage, cwd } : { page: targetPage });
       dashboard.agents = Array.isArray(res?.agents) ? res.agents : [];
@@ -233,6 +291,10 @@ export const AppRoot = {
       dashboard.commandCards = Array.isArray(res?.commandCards) ? res.commandCards : [];
       dashboard.prompts = Array.isArray(res?.prompts) ? res.prompts : [];
       dashboard.memory = Array.isArray(res?.memory) ? res.memory : [];
+    }
+
+    async function refreshMemoryCenter() {
+      await refreshMemoryCenterState(memoryCenter, (threadScopeCwd.value || '').toString().trim());
     }
 
     async function refreshChatPageOnEnter() {
@@ -314,6 +376,12 @@ export const AppRoot = {
           return;
         }
         if (next === 'chat') return;
+        if (next === 'memory-center') {
+          refreshMemoryCenter().catch((error) => {
+            console.warn('refresh page failed: memory-center', error);
+          });
+          return;
+        }
         refreshDashboardByPage(next).catch((error) => {
           console.warn(`refresh page failed: ${next}`, error);
         });
@@ -332,6 +400,15 @@ export const AppRoot = {
         threadStore.refreshSidebarState().catch((/** @type {unknown} */ error) => {
           console.warn('refresh threads after scope change failed', error);
         });
+        if (page.value === 'memory-center') {
+          refreshMemoryCenter().catch((error) => {
+            console.warn('refresh memory center after scope change failed', error);
+          });
+        } else if (page.value === 'memory') {
+          refreshDashboardByPage('memory').catch((error) => {
+            console.warn('refresh shared files after scope change failed', error);
+          });
+        }
       },
       { immediate: true },
     );
@@ -363,6 +440,7 @@ export const AppRoot = {
 
     return {
       NAV_ITEMS,
+      SHARED_FILES_TIPS,
       page,
       isExiting,
       tasksSubTab,
@@ -370,6 +448,7 @@ export const AppRoot = {
       threadStore,
       buildInfo,
       dashboard,
+      memoryCenter,
       agentsFields: AGENTS_FIELDS,
       dagsFields: DAGS_FIELDS,
       taskAckFields: TASK_ACK_FIELDS,
@@ -384,6 +463,7 @@ export const AppRoot = {
       currentCwdDisplay,
       refreshBuildInfo,
       refreshDashboardByPage,
+      refreshMemoryCenter,
       runCommandCard,
       runPromptTemplate,
     };
@@ -444,14 +524,19 @@ export const AppRoot = {
           @run-prompt="runPromptTemplate"
         />
 
-        <DataPage
+        <MemoryCenterPage
+          v-else-if="page === 'memory-center'"
+          :model="memoryCenter"
+          @refresh="refreshMemoryCenter"
+          @open-shared-files="page = 'memory'"
+        />
+
+        <SharedFilesPage
           v-else-if="page === 'memory'"
-          page-id="memory"
-          title="记忆"
-          icon="M"
-          :items="dashboard.memory"
-          :fields="memoryFields"
-          empty-text="暂无记忆"
+          :files="dashboard.memory"
+          :cwd="threadScopeCwd"
+          @open-memory-center="page = 'memory-center'"
+          @refresh="refreshDashboardByPage('memory')"
         />
 
         <SettingsPage

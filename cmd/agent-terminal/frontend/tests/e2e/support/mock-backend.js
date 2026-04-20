@@ -116,6 +116,12 @@ function browserInstaller({
       prompts: clone(asArray(dashboardSource.prompts)) || [],
       memory: clone(asArray(dashboardSource.memory)) || [],
     },
+    memoryCenter: clone(asObject(source.memoryCenter)) || {
+      overview: {},
+      private: { entries: [] },
+      team: { entries: [] },
+      agentScopes: [],
+    },
     threads: [],
     statuses: clone(asObject(source.statuses)) || {},
     interruptibleByThread: clone(asObject(source.interruptibleByThread)) || {},
@@ -161,6 +167,119 @@ function browserInstaller({
     callLog: [],
     alerts: [],
   };
+
+  const slugify = (value) => {
+    const text = (value || '').toString().trim().toLowerCase();
+    const slug = text.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return slug || 'memory-entry';
+  };
+
+  function ensureMemorySection(target) {
+    const key = (target || '').toString().trim().toLowerCase() === 'team' ? 'team' : 'private';
+    const current = asObject(state.memoryCenter[key]);
+    state.memoryCenter[key] = {
+      label: current.label || '',
+      rootPath: (current.rootPath || '').toString(),
+      indexPath: (current.indexPath || '').toString(),
+      notice: (current.notice || '').toString(),
+      entries: clone(asArray(current.entries)) || [],
+    };
+    return state.memoryCenter[key];
+  }
+
+  function findMemoryEntry(target, path) {
+    const section = ensureMemorySection(target);
+    const normalizedPath = (path || '').toString().trim();
+    const index = section.entries.findIndex((item) => (item?.path || '').toString().trim() === normalizedPath);
+    return { section, index, entry: index >= 0 ? section.entries[index] : null };
+  }
+
+  function memoryPreview(content) {
+    return (content || '').toString().split(/\r?\n/).slice(0, 5).join('\n').trim();
+  }
+
+  function upsertMemoryEntry(params) {
+    const section = ensureMemorySection(params.target);
+    const type = (params.type || 'project').toString().trim() || 'project';
+    const name = (params.name || '').toString().trim();
+    const description = (params.description || '').toString().trim();
+    const content = (params.content || '').toString();
+    const updatedAt = isoClock();
+    const path = (params.existingPath || '').toString().trim() || `${type}/${slugify(name)}.md`;
+    const next = {
+      path,
+      name,
+      description,
+      type,
+      content,
+      preview: memoryPreview(content),
+      updatedAt,
+    };
+    const existingIndex = section.entries.findIndex((item) => (item?.path || '').toString().trim() === path);
+    if (existingIndex >= 0) {
+      section.entries[existingIndex] = { ...section.entries[existingIndex], ...next };
+    } else {
+      section.entries.push(next);
+    }
+    section.notice = section.entries.length === 0 ? section.notice : '';
+    return clone(next);
+  }
+
+  function deleteMemoryEntry(params) {
+    const section = ensureMemorySection(params.target);
+    const normalizedPath = (params.path || '').toString().trim();
+    section.entries = section.entries.filter((item) => (item?.path || '').toString().trim() !== normalizedPath);
+    if (section.entries.length === 0) {
+      section.notice = section.notice || '当前目录下还没有可读的记忆条目。';
+    }
+    return { deleted: true };
+  }
+
+  function ensureAgentScope(scope) {
+    const scopeKey = (scope || 'project').toString().trim() || 'project';
+    const scopes = asArray(state.memoryCenter.agentScopes);
+    let item = scopes.find((entry) => (entry?.scope || '').toString().trim() === scopeKey);
+    if (!item) {
+      item = { scope: scopeKey, rootPath: '', notice: '', entries: [] };
+      scopes.push(item);
+      state.memoryCenter.agentScopes = scopes;
+    }
+    item.entries = clone(asArray(item.entries)) || [];
+    return item;
+  }
+
+  function getAgentEntry(scope, agentType) {
+    const scopeItem = ensureAgentScope(scope);
+    const normalizedAgentType = (agentType || '').toString().trim();
+    const index = scopeItem.entries.findIndex((item) => (item?.agentType || '').toString().trim() === normalizedAgentType);
+    return { scopeItem, index, entry: index >= 0 ? scopeItem.entries[index] : null };
+  }
+
+  function saveAgentEntry(params) {
+    const normalizedAgentType = (params.agentType || '').toString().trim();
+    const content = (params.content || '').toString();
+    const scope = (params.scope || 'project').toString().trim() || 'project';
+    const { scopeItem, index } = getAgentEntry(scope, normalizedAgentType);
+    const next = {
+      agentType: normalizedAgentType,
+      path: `${normalizedAgentType}/MEMORY.md`,
+      content,
+      preview: memoryPreview(content),
+      updatedAt: isoClock(),
+    };
+    if (index >= 0) {
+      scopeItem.entries[index] = { ...scopeItem.entries[index], ...next };
+    } else {
+      scopeItem.entries.push(next);
+    }
+    scopeItem.notice = scopeItem.entries.length === 0 ? scopeItem.notice : '';
+    return clone(next);
+  }
+
+  function findSharedFile(path) {
+    const normalizedPath = (path || '').toString().trim();
+    return asArray(state.dashboard.memory).find((item) => (item?.path || '').toString().trim() === normalizedPath) || null;
+  }
 
   function upsertSkillCard(card) {
     const incoming = {
@@ -493,6 +612,76 @@ function browserInstaller({
           return buildUiState();
         case 'ui/dashboard/get':
           return clone(state.dashboard);
+        case 'ui/memory/get':
+          return clone(state.memoryCenter);
+        case 'ui/memory/entry/get': {
+          const { entry } = findMemoryEntry(params.target, params.path);
+          if (!entry) throw new Error(`memory entry not found: ${params.path || ''}`);
+          return clone({
+            target: (params.target || 'private').toString(),
+            path: entry.path,
+            name: entry.name,
+            description: entry.description,
+            type: entry.type,
+            content: entry.content,
+            updatedAt: entry.updatedAt,
+          });
+        }
+        case 'ui/memory/entry/upsert':
+          return upsertMemoryEntry(params);
+        case 'ui/memory/entry/delete':
+          return deleteMemoryEntry(params);
+        case 'ui/memory/agent/get': {
+          const { entry } = getAgentEntry(params.scope, params.agentType);
+          if (!entry) {
+            return {
+              scope: (params.scope || 'project').toString(),
+              agentType: (params.agentType || '').toString(),
+              path: `${(params.agentType || '').toString().trim()}/MEMORY.md`,
+              content: '',
+              updatedAt: '',
+            };
+          }
+          return clone({
+            scope: (params.scope || 'project').toString(),
+            agentType: entry.agentType,
+            path: entry.path,
+            content: entry.content,
+            updatedAt: entry.updatedAt,
+          });
+        }
+        case 'ui/memory/agent/save':
+          return clone({
+            scope: (params.scope || 'project').toString(),
+            ...saveAgentEntry(params),
+          });
+        case 'ui/memory/shared-file/get': {
+          const file = findSharedFile(params.path);
+          if (!file) throw new Error(`shared file not found: ${params.path || ''}`);
+          return clone({
+            path: file.path,
+            content: file.content || '',
+            updatedBy: file.updated_by || file.updatedBy || '',
+            updatedAt: file.updated_at || file.updatedAt || '',
+          });
+        }
+        case 'ui/memory/shared-file/promote': {
+          const file = findSharedFile(params.sharedPath);
+          if (!file) throw new Error(`shared file not found: ${params.sharedPath || ''}`);
+          return upsertMemoryEntry({
+            ...params,
+            content: (params.content || file.content || '').toString(),
+          });
+        }
+        case 'ui/memory/shared-file/delete': {
+          const target = (params.path || '').toString().trim();
+          if (!target) throw new Error('path is required');
+          const before = asArray(state.dashboard.memory).length;
+          state.dashboard.memory = asArray(state.dashboard.memory).filter(
+            (item) => (item?.path || '').toString().trim() !== target,
+          );
+          return { deleted: state.dashboard.memory.length < before };
+        }
         case 'ui/preferences/get': {
           const key = (params.key || '').toString();
           if (Object.prototype.hasOwnProperty.call(state.preferences, key)) {

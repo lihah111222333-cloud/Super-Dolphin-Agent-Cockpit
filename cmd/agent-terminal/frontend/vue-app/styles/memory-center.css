@@ -1,0 +1,138 @@
+.data-page-intro-card {
+  margin-bottom: 16px;
+}
+
+.data-page-intro-text {
+  color: var(--text);
+  line-height: 1.65;
+}
+
+.data-page-intro-list {
+  margin: 12px 0 0 18px;
+  color: var(--muted);
+  display: grid;
+  gap: 6px;
+}
+
+.memory-center-body {
+  display: grid;
+  gap: 16px;
+}
+
+.memory-center-callout,
+.memory-scope-card,
+.memory-center-overview-card,
+.memory-agent-scope-card {
+  gap: 12px;
+}
+
+.memory-center-callout-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.memory-center-callout-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.memory-center-callout-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.memory-center-callout-subtitle,
+.memory-center-footer-note,
+.memory-scope-note,
+.memory-guide-text,
+.memory-entry-description,
+.memory-agent-entry-path,
+.memory-agent-empty {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.memory-center-guide-grid,
+.memory-entry-grid,
+.memory-agent-scope-list {
+  display: grid;
+  gap: 12px;
+}
+
+.memory-center-guide-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.memory-center-guide-card,
+.memory-agent-entry {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--card) 84%, transparent);
+}
+
+.memory-center-guide-title,
+.memory-entry-title,
+.memory-agent-entry-title,
+.memory-agent-scope-title {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.memory-entry-card {
+  gap: 10px;
+}
+
+.memory-entry-head,
+.memory-agent-entry-head,
+.memory-agent-scope-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.memory-entry-meta,
+.memory-entry-updated,
+.memory-agent-entry-updated,
+.memory-agent-scope-count {
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.memory-entry-preview {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.memory-agent-entry-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.memory-scope-empty {
+  min-height: 120px;
+}
+
+@media (max-width: 900px) {
+  .memory-center-callout-head,
+  .memory-entry-head,
+  .memory-agent-entry-head,
+  .memory-agent-scope-head {
+    flex-direction: column;
+  }
+}
