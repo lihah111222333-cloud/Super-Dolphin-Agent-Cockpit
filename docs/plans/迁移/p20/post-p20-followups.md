@@ -239,10 +239,10 @@ P20 合流后 `go test ./internal/archtest -run 'TestCodeSizeGuard|TestDependenc
 | # | 隐患 | 状态 | 专单 | 关闭日期 |
 |---|---|---|---|---|
 | 1 | 双 SkillCatalogProvider 并存 | ✅ **已全部关闭** | 远程 `0b4ad39` + 本分支 `08947d5` 联合清理：4 个 prompt-side skill_catalog_* 文件 + fx wiring；prompt prod 27→26，freeze 同步 | 2026-04-20 |
-| 2 | 写端未切 v1 marker | ⏳ 未开工 | - | - |
+| 2 | 写端未切 v1 marker | ⚠️ 准备期（feature flag 就绪） | 本分支 `a1fa2d6` 已落 `skill.RenderSkillBlockV1` 纯函数 + `SKILL_WRITER_FORMAT=v1` env gate；**默认 legacy**；codex/claude 双 writer 支持切换；shadow 2 周后改默认 → 删 legacy renderer 走独立专单 | - |
 | 3 | metrics 只落 no-op 骨架 | ✅ **已全部关闭** | 远程 Phase 10 已落 `pkg/skillmetrics/` 5 atomic counter + `prompt.Config` 完整配置；本分支误加的 `skill/policy_metrics.go` + `platform/config.Skill` 冗余已回滚 | 2026-04-20 |
 | 4 | orchestration agent report 通道异常 | ⏳ 未开工 | - | - |
 | 5 | HEAD 8 条 archtest 历史债 | ✅ **已全部关闭** | 远程 `72d3300` refactor 修 skill CC；prompt/fx scope + store/prompt pgx boundary 同步已清；archtest 全绿 | 2026-04-20 |
-| 6 | **p20.17 cwd 参数化引入新退化** | 🆕 新增观察 | 远程 `ea27d5d` 引入 4 条新 archtest 违规（`skill/rpc.go:70 newSkillHandlers` 103行+CC16 / `skill/skills_fs.go:288 ImportLocalDir` CC11 / `turn/skills.go:186 hydrateSkillRefs` CC11）+ 1 测试失败（`TestImportLocalDirRejectsSourceInsideSkillsRoot` 报"skill already exists"而非"source inside skills root" —— 重复检测语义因 cwd 参数化改动错位）。建议专单 `p21.x-p20.17-post-regressions` 修复 | - |
+| 6 | p20.17 cwd 参数化引入新退化 | ✅ **已全部关闭** | 本分支 `1b645cb` 拆 3 个函数 (newSkillHandlers 103→24 + ImportLocalDir 32→17 + hydrateSkillRefs 32→11) + 修 `importValidationRoots` 扩 union 让 source-inside-root 先于 duplicate 检测命中；4 archtest + 1 测试全绿 | 2026-04-20 |
 
 关闭本表记录时规则：在"状态"列改 ✅ + 填专单 commit hash + 日期；禁止删除条目（保留审计轨迹）。
