@@ -1,17 +1,19 @@
 # P20 Skill 渐进披露迁移拆分
 
-> 创建时间：2026-04-19 | 更新时间：2026-04-19 | 状态：**critical-path 已关闭 / 9 of 16 已完成或实质完成 / 1 废弃 / 6 待做**
+> 创建时间：2026-04-19 | 更新时间：2026-04-20 | 状态：**critical-path + α 组全部关闭 / 13 of 16 已完成或实质完成 / 1 废弃 / 2 待做**
 > 当前 authoritative 文档：`README.md`、`status-checkpoint-2026-04-19.md`、`source-refs-appendix.md`、各 `p20.X-*.md`，以及上层修订文档 `../p20.1-skill-progressive-disclosure-hardening.md` / `../p20.1-hardening-implementation-checklist.md`
 > 历史总纲留档：`p20-original-plan.md`
 
-## 最新施工快照（2026-04-19 第十轮 · 状态同步）
+## 最新施工快照（2026-04-20 第十一轮 · α 组收口）
 
-- **Critical-path 全部关闭**：P20.2 (`78c6907`) → P20.3 (`cec26fe`) → P20.4 (`b0d2555`) 已依次合入 `main`。
-- **P20.1 Phase 1-11 全部落地**：SkillCatalogProvider（Phase 8, `c1ead48`）、元指令（Phase 9, `3cd3144`）、fx 灰度 + 5 counter（Phase 10, `00b073f`）、文档同步（Phase 11, `a07067c`）；功能闸门默认关闭，进入 shadow 灰度阶段。
-- **P20.1 加固连带实质性完成的子单**：P20.5 SkillCatalogProvider（`c1ead48`）、P20.6/P20.7 SkillInjectionPort 契约+双端基础实现（`9b0f7e1`）、P20.8 expanded_state 数据结构（`3fbed75`）、P20.9 rollout markers 读端（`e5947dc`/`25af3d7`）、P20.12 被 Phase 10 完全吸收（`00b073f`）。
-- **仍未完成**：P20.1（Bug#1 prompts handler）、P20.10（host RPC）、P20.13（审批接线）、P20.14（前端 LaunchSkillPicker）、P20.15（前端 404 降级）、P20.16（集成测试）。
-- **已废弃**：P20.11（MCP 工具）— skill 是宿主独有能力，不属于 mcp-orch 编排层；子进程运行在宿主中，skill 通过提示词触发即可。
-- **验证**：`go build ./...` 全绿；所有相关包测试全绿。
+- **α 组 4 单本轮全部 PASS**：P20.1 / P20.10 / P20.14 / P20.15 实施 + 1:3 互审 + E/F 独立终审（双 BLOCK）+ 双轮补修全部闭环，等待合入 main。
+- **基线顺手修复**：archtest `rule2/rule10` fx import → 合并 `skill_catalog_fx.go` 进 `module.go`，prompt prod 文件 **28 → 27**；`TestStartAssemblyGolden` 日期漂移 → `PROMPT_START_CURRENT_DATE` env hook + `t.Setenv`。
+- **Critical-path 保持绿**：P20.2 (`78c6907`) → P20.3 (`cec26fe`) → P20.4 (`b0d2555`) 已合入 `main`。
+- **P20.1 Phase 1-11 保持**：SkillCatalogProvider（`c1ead48`）、元指令（`3cd3144`）、fx 灰度 + 5 counter（`00b073f`）、文档同步（`a07067c`）；功能闸门默认关闭。
+- **P20.1 加固连带实质性完成**：P20.5 / P20.6 / P20.7 / P20.8 / P20.9 / P20.12（见拆分总表）。
+- **仍未开工**：P20.13（审批缓存接线，前置核查已完成结论 **NEEDS-DOC-FIX**，需先修订任务单）、P20.16（集成测试，等所有前置合入）。
+- **已废弃**：P20.11（MCP 工具）— skill 是宿主独有能力。
+- **验证**：`go build ./...` ✅；`go test ./internal/archtest/...` ✅；`go test ./...` ✅；`vitest` 前端全绿。
 
 ---
 
@@ -31,7 +33,7 @@
 
 | 任务单 | 目标 | 状态 | 关闭提交 | 备注 |
 |---|---|---|---|---|
-| `p20.1` | 恢复 `prompts/list\|write\|delete` 宿主 handler | ❌ 未开工 | — | 独立；方案 B 保持 0 新增 prompt prod 文件 |
+| `p20.1` | 恢复 `prompts/list\|write\|delete` 宿主 handler | ✅ 本轮完成 | 待合入 | 方案 B merge-in-place；顺手解 rule2/rule10：prompt `28 → 27` |
 | `p20.2` | 修 Bug #2 断点 B：PrepareTurn hydrate + codex fallback | ✅ 已完成 | `78c6907` | hydrate + codex name-list fallback 全部关闭 |
 | `p20.3` | 修 Bug #2 断点 A：`thread/start` 增 `selectedSkills` 契约 | ✅ 已完成 | `cec26fe` | 前后端 + DTO + thread 合同全部打通 |
 | `p20.4` | 把 launch skill 接进 StartAssembly / provider 启动链 | ✅ 已完成 | `b0d2555` | pin/force policy 消费 LaunchSkillNames |
@@ -40,12 +42,12 @@
 | `p20.7` | codexapp `SkillInjectionPort` + 三分支 marker | ⚠️ 基础已落地 | `9b0f7e1` | Port 契约 + codex 实现已落地；per-turn carrier/registry 集成待收口 |
 | `p20.8` | resolver 决策矩阵 + expanded TTL | ⚠️ 基础已落地 | `3fbed75`/`b12df84` | `expanded_state.go` 数据结构已落地；resolver 矩阵升级 + runtime matcher 待完成 |
 | `p20.9` | rollout marker 扩容与共享 trim | ⚠️ 读端已落地 | `e5947dc`/`25af3d7`/`9f0f4bd` | `rollout_markers.go` 读端 helper 已落地；provider 读端切换 + 写端分流待 p20.6/7 |
-| `p20.10` | `skill/list` + `skill/expand` host RPC | ❌ 未开工 | — | 独立可开工 |
+| `p20.10` | `skill/list` + `skill/expand` host RPC | ✅ 本轮完成 | 待合入 | name-based DTO；legacy `skills/*` 共存；skill 包 prod 新增 0 |
 | `p20.11` | ~~MCP `skill_list` / `skill_expand` tool 注册~~ | 🚫 已废弃 | — | skill 是宿主独有能力，不属于编排层；子进程在宿主中运行，skill 通过提示词触发 |
 | `p20.12` | config + policy + metrics 基础设施 | ✅ 被 P20.1 Phase 10 吸收 | `00b073f`/`9f0f4bd` | env flag + token budget + 5 counter 落在 `prompt/config.go` + `pkg/skillmetrics/` |
-| `p20.13` | `(name,hash)` 审批缓存生产化接线 | ❌ 未开工 | — | 依赖 p20.10 + p20.6 |
-| `p20.14` | 前端 LaunchSkillPicker | ❌ 未开工 | — | 依赖 p20.3 ✅ → 可开工 |
-| `p20.15` | 前端 SystemPromptPage 404 降级 | ❌ 未开工 | — | 独立可开工 |
+| `p20.13` | `(name,hash)` 审批缓存生产化接线 | ❌ 未开工 | — | 前置核查结论 **NEEDS-DOC-FIX**（修订任务单后可派）|
+| `p20.14` | 前端 LaunchSkillPicker | ✅ 本轮完成 | 待合入 | 字段级 feature gate；feature-off 恢复旧 blank-thread 行为 |
+| `p20.15` | 前端 SystemPromptPage 404 降级 + 后端 dashboard cwd scope | ✅ 本轮完成 | 待合入 | detector 仅结构化白名单；dashboard handler 吃 `{cwd}` 活化 context |
 | `p20.16` | 集成测试与尾部收口 | ❌ 未开工 | — | 全部前置任务完成后 |
 
 ## 2. 依赖图（DAG，无环）
@@ -109,7 +111,7 @@ flowchart LR
 
 | 任务单 | 主包/主目录 | 预算 | 难度 | 优先级 | 包预算结论 |
 |---|---|---|---|---|---|
-| `p20.1` | `internal/module/prompt` + `internal/store/prompt` | ≤6 文件 | M | P1 | `prompt` archtest 真值 `26` prod / `2858` EL；方案 B 保持 **0 新增 prompt prod 文件** |
+| `p20.1` | `internal/module/prompt` + `internal/store/prompt` | ≤6 文件 | M | P1 | `prompt` archtest 真值 `27` prod / `2858` EL；方案 B 保持 **0 新增 prompt prod 文件** |
 | `p20.2` | `internal/module/turn` + `internal/provider/codexapp` | ≤6 文件 | H | P0 | `turn` `22→24` 区间安全；本单先走 hydrate + fallback，不新开 thread/prompt 文件 |
 | `p20.3` | `internal/module/thread` + `internal/dto/provider` + frontend helper + `codexapp` driver | ≤7 文件 | M | P0 | `thread` 当前 `25`，**禁止新增 prod 文件** |
 | `p20.4` | `internal/module/thread` + `internal/contract` + provider start path | ≤6 文件 | H | P0 | `thread` 继续只改现有文件；`internal/contract` `15→16` 安全 |
@@ -138,7 +140,7 @@ flowchart LR
 
 ### 5.1 包文件预算（2026-04-19 第十轮修正）
 
-- **`internal/module/prompt`**：当前实际 **`28` 个 prod `.go` 文件**（较原 archtest 真值 `26` 新增了 `skill_catalog_provider.go` + `skill_catalog_fx.go`，均由 P20.1 Phase 8/10 引入）；`p20.1` 采用方案 B，P20 后续 **不再增加 prompt prod 文件**。
+- **`internal/module/prompt`**：当前实际 **`27` 个 prod `.go` 文件**（较原 archtest 真值 `26` 新增了 `skill_catalog_provider.go`，且 `skill_catalog` fx wiring 已并入 `module.go`）；`p20.1` 采用方案 B，P20 后续 **不再增加 prompt prod 文件**。
 - **`internal/module/skill`**：当前 **`18` 个 prod `.go` 文件**（working-set 含 test 共约 30+）；archtest prod 口径安全。
 - **`internal/module/thread`**：当前 **`25` 个 prod `.go` 文件**（未变）；**禁止新增 prod 文件**。
 - **`internal/provider/claudecli`**：当前 **`25`**（较原 `24` 新增了 `skill_inject.go`，P20.1 Phase 7）；**已用满 +1 配额，不再允许新增**。
@@ -149,8 +151,8 @@ flowchart LR
 
 ### 5.2 freeze registry 预估总影响（修订后）
 
-- 当前显式 freeze 仅有 `internal/module/memory:27` 与 `internal/module/prompt:26`（`internal/archtest/freeze_registry.go:19-35`）。
-- ⚠️ **注意**：`prompt` 实际已增至 `28` 个 prod 文件（P20.1 Phase 8/10 新增 `skill_catalog_provider.go` + `skill_catalog_fx.go`）；若 freeze guard 当前仍为 `26`，需同步更新 `freeze_registry.go` 至 `28`，否则 archtest 将 fail。
+- 当前显式 freeze 仅有 `internal/module/memory:27` 与 `internal/module/prompt:27`（`internal/archtest/freeze_registry.go:19-35`）。
+- ⚠️ **注意**：`prompt` 实际已为 `27` 个 prod 文件（P20.1 Phase 8/10 新增 `skill_catalog_provider.go`，`skill_catalog` fx wiring 已并入 `module.go`）；freeze guard 需同步保持 `27`，否则 archtest 将 fail。
 - 其它 P20 相关包在当前写集假设下**不需要新增 freeze entry**。
 - 若未来另开单坚持新增 `internal/module/prompt/rpc.go`，需重新走 A/C 方案与 freeze 评审；不属于当前 README 默认路径。
 
