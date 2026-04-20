@@ -24,6 +24,8 @@ const (
 	// SKILL_CATALOG_META_INSTRUCTIONS 控制尾部是否追加 "How to use skills" 元指令。
 	// 默认 true（Phase 9 行为），设 false 可关闭。
 	envSkillCatalogMetaInstructions = "SKILL_CATALOG_META_INSTRUCTIONS"
+	// SKILL_WRITER_FORMAT 控制 provider 写端 legacy/v1 切换；默认 legacy。
+	envSkillWriterFormat = "SKILL_WRITER_FORMAT"
 )
 
 type Config struct {
@@ -36,6 +38,9 @@ type Config struct {
 	SkillCatalogTokenBudget int
 	// EmitSkillCatalogMetaInstructions 控制 manifest 尾部是否追加元指令。
 	EmitSkillCatalogMetaInstructions bool
+	// SkillWriterFormat 只反映当前 env 的有效值；provider 写端仍逐次 os.Getenv，
+	// 避免测试间缓存污染。
+	SkillWriterFormat string
 }
 
 func NewConfig(_ *platformconfig.Config) *Config {
@@ -47,6 +52,7 @@ func NewConfig(_ *platformconfig.Config) *Config {
 		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, false),
 		SkillCatalogTokenBudget:          parseIntEnv(envSkillCatalogTokenBudget, 0),
 		EmitSkillCatalogMetaInstructions: parseBoolEnv(envSkillCatalogMetaInstructions, true),
+		SkillWriterFormat:                parseSkillWriterFormat(envSkillWriterFormat, "legacy"),
 	}
 }
 
@@ -72,4 +78,15 @@ func parseIntEnv(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func parseSkillWriterFormat(key, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "v1":
+		return "v1"
+	case "", "legacy":
+		return fallback
+	default:
+		return fallback
+	}
 }

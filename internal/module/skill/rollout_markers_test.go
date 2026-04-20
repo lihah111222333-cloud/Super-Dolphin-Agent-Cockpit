@@ -50,15 +50,14 @@ func TestTrimInjectedSkillBlocks_NewFormatFull(t *testing.T) {
 	}
 }
 
-// TestTrimInjectedSkillBlocks_NewFormatSummary 覆盖 Phase 4 写端会产出的 summary
-// 格式：只注入摘要 + skill_expand 指针。本 case 特别关键——legacy 无法识别此类
-// 块（没有 "使用方式:"），这是 P20 §3.4 指出的漏洞修复依据。
+// TestTrimInjectedSkillBlocks_NewFormatSummary 覆盖写端 v1 summary：
+// 外层是稳定 paired marker，内层仍保留 legacy "摘要:" / "使用方式:" 文本。
 func TestTrimInjectedSkillBlocks_NewFormatSummary(t *testing.T) {
 	input := strings.Join([]string{
 		"prompt text",
 		"[skill:rpc-tracing::summary@v1]",
-		"Trace JSON-RPC flow across bus/router.",
-		`→ Call skill_expand("rpc-tracing") for full body`,
+		"摘要: Trace JSON-RPC flow across bus/router.",
+		`使用方式: Call skill_expand_body("rpc-tracing") for full body`,
 		"[/skill:rpc-tracing::summary@v1]",
 	}, "\n")
 	want := "prompt text"
@@ -172,9 +171,9 @@ func TestParseSkillBlockHeader_None(t *testing.T) {
 	cases := []string{
 		"",
 		"plain text",
-		"[tool:foo]",          // 不是 skill 前缀
-		"[skill:foo",          // 没有闭合 ]
-		"plain [skill:foo]",   // 非行首
+		"[tool:foo]",        // 不是 skill 前缀
+		"[skill:foo",        // 没有闭合 ]
+		"plain [skill:foo]", // 非行首
 	}
 	for _, line := range cases {
 		h := ParseSkillBlockHeader(line)
@@ -224,25 +223,27 @@ func TestParseSkillBlockFooter(t *testing.T) {
 // P20.1 Phase 4 RenderSkillBlock 写端渲染
 // ============================================================================
 
-func TestRenderSkillBlock_FullMode(t *testing.T) {
-	text, ok := RenderSkillBlock("foo", "FULL BODY\nmultiple lines", "", "full")
-	if !ok {
-		t.Fatalf("full mode should produce block")
-	}
+func TestRenderSkillBlockV1_FullMode(t *testing.T) {
+	text := RenderSkillBlockV1("foo", "FULL BODY\nmultiple lines", "", "full", "1")
 	want := "[skill:foo::full@v1]\nFULL BODY\nmultiple lines\n[/skill:foo::full@v1]"
 	if text != want {
 		t.Fatalf("full mode:\ngot  %q\nwant %q", text, want)
 	}
 }
 
-func TestRenderSkillBlock_SummaryMode(t *testing.T) {
-	text, ok := RenderSkillBlock("rpc-tracing", "", "Trace JSON-RPC flow.", "summary")
-	if !ok {
-		t.Fatalf("summary mode should produce block")
-	}
-	want := "[skill:rpc-tracing::summary@v1]\nTrace JSON-RPC flow.\n\u2192 Call skill_expand_body(\"rpc-tracing\") for full body\n[/skill:rpc-tracing::summary@v1]"
+func TestRenderSkillBlockV1_SummaryMode(t *testing.T) {
+	text := RenderSkillBlockV1("rpc-tracing", "", "Trace JSON-RPC flow.", "summary", "v1")
+	want := "[skill:rpc-tracing::summary@v1]\n摘要: Trace JSON-RPC flow.\n使用方式: Call skill_expand_body(\"rpc-tracing\") for full body\n[/skill:rpc-tracing::summary@v1]"
 	if text != want {
 		t.Fatalf("summary mode:\ngot  %q\nwant %q", text, want)
+	}
+}
+
+func TestRenderSkillBlockV1_NoneMode(t *testing.T) {
+	text := RenderSkillBlockV1("foo", "body", "summary", "none", "1")
+	want := "[skill:foo::none@v1]\n[/skill:foo::none@v1]"
+	if text != want {
+		t.Fatalf("none mode:\ngot  %q\nwant %q", text, want)
 	}
 }
 
@@ -304,14 +305,14 @@ func TestRenderSkillBlock_SummaryWithEmptySummarySkips(t *testing.T) {
 // 防止 header 注入、漏到 legacy 分支导致无法裁剪。
 func TestRenderSkillBlock_RejectsInvalidName(t *testing.T) {
 	cases := []string{
-		"Foo",                         // 大写
-		"Foo Bar",                     // 空格
-		"foo_bar",                     // 下划线
-		"foo/bar",                     // 路径分隔
-		"../evil",                     // 路径逃逸
-		"foo]injection",               // 伪造 ]
-		"foo\n[skill:victim",          // 换行注入
-		"-foo",                        // 连字符开头
+		"Foo",                // 大写
+		"Foo Bar",            // 空格
+		"foo_bar",            // 下划线
+		"foo/bar",            // 路径分隔
+		"../evil",            // 路径逃逸
+		"foo]injection",      // 伪造 ]
+		"foo\n[skill:victim", // 换行注入
+		"-foo",               // 连字符开头
 	}
 	for _, n := range cases {
 		if text, ok := RenderSkillBlock(n, "body", "", "full"); ok {
@@ -351,9 +352,9 @@ func TestContainsSkillBlockMarker(t *testing.T) {
 	must := []string{
 		"[skill:foo::full@v1]",
 		"[/skill:foo::full@v1]",
-		"  [skill:foo]  ",              // 首尾空白会被 TrimSpace
-		"good\n[skill:bar]\nrest",       // 中间行是 header
-		"leading\n[/skill:any::x@v9]",   // 尾行是 footer
+		"  [skill:foo]  ",             // 首尾空白会被 TrimSpace
+		"good\n[skill:bar]\nrest",     // 中间行是 header
+		"leading\n[/skill:any::x@v9]", // 尾行是 footer
 	}
 	for _, s := range must {
 		if !containsSkillBlockMarker(s) {
@@ -363,8 +364,8 @@ func TestContainsSkillBlockMarker(t *testing.T) {
 	mustNot := []string{
 		"",
 		"plain text",
-		"the [skill:foo] tag is used",   // 行内非行首
-		"prefix\nthe [/skill:bar] ref",   // 同上
+		"the [skill:foo] tag is used",  // 行内非行首
+		"prefix\nthe [/skill:bar] ref", // 同上
 		// 注意："```\n[skill:foo]\n```"（代码块内 header）当前保守策略下 会
 		// 被判定为命中，不属于 mustNot。见下方的 sentinel 断言锁定该策略。
 	}
@@ -384,8 +385,8 @@ func TestContainsSkillBlockMarker(t *testing.T) {
 // TestRenderSkillBlock_RoundtripWithTrim 验证写端产出的块能被 Phase 3 的
 // TrimInjectedSkillBlocks 成对裁剪（写读闭环信心测试）。
 func TestRenderSkillBlock_RoundtripWithTrim(t *testing.T) {
-	fullBlock, _ := RenderSkillBlock("foo", "body", "", "full")
-	summaryBlock, _ := RenderSkillBlock("bar", "", "a short summary", "summary")
+	fullBlock := RenderSkillBlockV1("foo", "body", "", "full", "1")
+	summaryBlock := RenderSkillBlockV1("bar", "", "a short summary", "summary", "1")
 
 	userText := "user prompt before\n" + fullBlock + "\nuser middle\n" + summaryBlock + "\nuser after"
 	result := TrimInjectedSkillBlocksWithDiag(userText)
