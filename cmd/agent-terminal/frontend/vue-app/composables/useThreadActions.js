@@ -1,6 +1,7 @@
 import { ref } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
 import { logInfo, logWarn } from '../services/log.js';
+import { getThreadRouting } from '../stores/thread-actions-helpers.js';
 
 function getThreadConfigFromStore(threadStore, threadId) {
   if (typeof threadStore?.getThreadConfig !== 'function') return Promise.resolve(null);
@@ -156,9 +157,18 @@ async function performSend({
   const attachments = [...composer.state.attachments];
   if (!text.trim() && attachments.length === 0) return;
 
+  // Fork a fresh thread when the composer's router-preview agent_key differs
+  // from the current thread's pinned agent_key. Upstream CLIs fix their
+  // --system-prompt at spawn time, so switching personas requires a new
+  // process. Without this branch, landing on any existing thread would lock
+  // the user into whatever persona that thread was born with, regardless of
+  // what ComposerBar previews.
+  const previewAgentKey = (routerPreview?.value?.agentKey || '').toString().trim();
+  const currentAgentKey = threadId ? ((getThreadRouting(threadId) || {}).agentKey || '').toString().trim() : '';
+  const shouldFork = !threadId || (previewAgentKey && previewAgentKey !== currentAgentKey);
+
   let skillSelection = EMPTY_SKILL_SELECTION;
-  if (!threadId) {
-    const previewAgentKey = routerPreview?.value?.agentKey || '';
+  if (shouldFork) {
     skillSelection = await resolveLaunchStartPayload(text, modeKey.value, resolveLaunchSkillSelectionForStart, previewAgentKey);
     threadId = await threadStore.startThread(projectStore?.state?.active || '.', skillSelection.startOptions);
     if (!threadId) return;
