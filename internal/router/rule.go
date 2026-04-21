@@ -20,7 +20,22 @@ import (
 // prompt template (tags: []) that ships an always-on baseline persona when
 // no specialist agent fires — preferable to silently leaving
 // BaseInstructions empty and letting the provider CLI pick its own default.
+//
+// Structural tags (e.g. "scope.cwd:.", "scope.*") are UI-maintained routing
+// metadata, not content keywords. RuleRouter treats them as inert: they are
+// skipped during keyword match AND do not count toward the "has tags" check
+// that opts a candidate out of the fallback pool. Without this, a prompt
+// auto-tagged by the UI with scope directives would never be selectable via
+// classifier input and would also be excluded from fallback — effectively
+// orphaned.
 type RuleRouter struct{}
+
+// isStructuralTag reports whether a tag is UI-maintained routing metadata
+// rather than a content keyword. Current convention: any tag starting with
+// "scope." (e.g. scope.cwd:., scope.project:foo) is structural.
+func isStructuralTag(tag string) bool {
+	return strings.HasPrefix(tag, "scope.")
+}
 
 // NewRuleRouter returns a zero-value RuleRouter. It is stateless and safe
 // for concurrent use.
@@ -38,7 +53,7 @@ func (r *RuleRouter) Classify(_ context.Context, userInput string, candidates []
 		effectiveTagCount := 0
 		for _, tag := range c.Tags {
 			t := strings.ToLower(strings.TrimSpace(tag))
-			if t == "" {
+			if t == "" || isStructuralTag(t) {
 				continue
 			}
 			effectiveTagCount++

@@ -157,3 +157,45 @@ func TestRuleRouter_AllBlankTagsTreatedAsFallback(t *testing.T) {
 		t.Fatalf("candidate with only blank tags should be the fallback, got %+v", d)
 	}
 }
+
+// TestRuleRouter_StructuralScopeTagsInert asserts that scope.* tags do not
+// participate in keyword matching and do not disqualify a candidate from the
+// fallback pool. This is the fix for the prod symptom where UI-created
+// prompts auto-tagged with "scope.cwd:." could never be picked by the
+// classifier: the tag didn't match user input, and its presence excluded the
+// candidate from fallback, leaving main/default (no tags) always winning.
+func TestRuleRouter_StructuralScopeTagsInert(t *testing.T) {
+	t.Parallel()
+	r := NewRuleRouter()
+	candidates := []Candidate{
+		// The user-authored persona has only a structural scope tag.
+		{PromptKey: "main/xiaobai", AgentKey: "main", Tags: []string{"scope.cwd:."}},
+		{PromptKey: "main/default", AgentKey: "main", Tags: []string{}},
+	}
+	d, _ := r.Classify(context.Background(), "你是谁", candidates)
+	if !d.Matched || d.PromptKey != "main/xiaobai" {
+		t.Fatalf("structural-only tags should keep candidate in fallback pool, got %+v", d)
+	}
+}
+
+// TestRuleRouter_StructuralScopeTagDoesNotMatchSubstring asserts the UI's
+// scope directive text never accidentally matches via substring — if a user
+// typed "scope.cwd:." into the chat, the router must not pick that candidate
+// because of the tag, only by its real content tags.
+func TestRuleRouter_StructuralScopeTagDoesNotMatchSubstring(t *testing.T) {
+	t.Parallel()
+	r := NewRuleRouter()
+	candidates := []Candidate{
+		{PromptKey: "main/scoped", AgentKey: "x", Tags: []string{"scope.cwd:."}},
+		{PromptKey: "main/default", AgentKey: "main", Tags: nil},
+	}
+	d, _ := r.Classify(context.Background(), "please set scope.cwd:. for this run", candidates)
+	if !d.Matched || d.PromptKey != "main/scoped" {
+		// Even when user mentions the literal "scope.cwd:.", the scope tag
+		// must stay inert and main/scoped only wins via the fallback pool.
+		t.Fatalf("structural tag must not tag-match user input; fallback should pick main/scoped, got %+v", d)
+	}
+	if d.Reason == "rule: tag=scope.cwd:." {
+		t.Fatalf("decision reason should not attribute match to a structural tag: %+v", d)
+	}
+}

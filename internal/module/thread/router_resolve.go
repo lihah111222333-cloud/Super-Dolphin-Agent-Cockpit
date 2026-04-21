@@ -5,22 +5,13 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/router"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Setters wire optional dependencies post-construction to avoid churning
-// NewService / NewServiceWithPromptAssembly signatures. Called from
-// registerSubscriptions in module.go (best-effort, both deps optional).
-
-func (s *service) bindRouterBackend(backend router.Backend) {
-	if s == nil || backend == nil {
-		return
-	}
-	s.routerBackend = backend
-}
-
+// bindPromptStore wires the prompt_templates store post-construction. Kept as
+// a setter (rather than a NewService parameter) to avoid churning the
+// constructor signature; module.go calls it from registerSubscriptions.
 func (s *service) bindPromptStore(store promptstore.Store) {
 	if s == nil || store == nil {
 		return
@@ -43,9 +34,12 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 		return
 	}
 	if strings.TrimSpace(req.BaseInstructions) != "" {
+		pkglogger.Info("router: skip, base_instructions already set by caller",
+			"agent_key", req.AgentKey, "base_instructions_len", len(req.BaseInstructions))
 		return
 	}
 	if s == nil || s.promptStore == nil {
+		pkglogger.Info("router: skip, prompt store not wired")
 		return
 	}
 
@@ -59,8 +53,16 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 
 	picked := s.pickRoutedTemplate(ctx, req, templates)
 	if picked == nil || !picked.Enabled {
+		pkglogger.Info("router: no prompt_template matched",
+			"requested_agent_key", req.AgentKey,
+			"candidate_count", len(templates))
 		return
 	}
+	pkglogger.Info("router: prompt_template matched",
+		"prompt_key", picked.PromptKey,
+		"agent_key", picked.AgentKey,
+		"candidate_count", len(templates),
+		"prompt_text_len", len(picked.PromptText))
 
 	// Materialize a prompt_versions snapshot so historical analyses can
 	// reproduce the exact prompt text that was injected into this thread.
@@ -92,39 +94,43 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 	req.PromptVersionID = &versionID
 }
 
-// pickRoutedTemplate returns the prompt_template selected either by the
-// caller-pinned AgentKey or by the router classifier. Returns nil when
-// nothing matches (the caller should then fall back to the provider default).
-// When the router picks a template, req.AgentKey is stamped with the match.
+// defaultPromptKey is the prompt_template used when the caller does not pin
+// an agent_key. It stamps a baseline persona on ad-hoc threads (e.g. user
+// opens a fresh conversation from the UI without picking a specialist). The
+// key is hardcoded rather than configurable because this harness's contract
+// is "agent_key is the identity key" — anything else is the default.
+const defaultPromptKey = "main/default"
+
+// pickRoutedTemplate selects the prompt_template to inject as the new agent
+// process's --system-prompt. This harness deliberately does NOT classify user
+// intent: it is a process-lifecycle layer, not a routing brain.
+//
+//   - Explicit AgentKey (set by the caller, e.g. orchestration_launch_agent
+//     with agent_key=sql-expert, or the UI's agent picker): look up the first
+//     enabled template whose agent_key matches.
+//   - Empty AgentKey (user opens a fresh thread without picking a specialist):
+//     fall back to the hardcoded defaultPromptKey persona. When picked, stamp
+//     req.AgentKey so downstream observability / persistence sees a concrete
+//     identity instead of "".
+//
+// Tag-based keyword classification lived here previously and has been removed
+// — upstream CLIs (Claude Code / Codex) perform their own in-session intent
+// handling; duplicating it at the harness layer created the "user-created
+// prompt is permanently shadowed by main/default fallback" footgun.
 func (s *service) pickRoutedTemplate(
-	ctx context.Context,
+	_ context.Context,
 	req *StartRequest,
 	templates []promptstore.PromptTemplate,
 ) *promptstore.PromptTemplate {
 	if explicit := strings.TrimSpace(req.AgentKey); explicit != "" {
 		return firstEnabledByAgentKey(templates, explicit)
 	}
-	if s.routerBackend == nil {
-		return nil
-	}
-	candidates := toRouterCandidates(templates)
-	userInput := strings.TrimSpace(req.Prompt)
-	if userInput == "" {
-		userInput = strings.TrimSpace(req.Name)
-	}
-	decision, cerr := s.routerBackend.Classify(ctx, userInput, candidates)
-	if cerr != nil {
-		pkglogger.Warn("router: classify failed", "err", cerr)
-		return nil
-	}
-	if !decision.Matched {
-		return nil
-	}
-	picked := findByPromptKey(templates, decision.PromptKey)
-	if picked != nil {
+	picked := findByPromptKey(templates, defaultPromptKey)
+	if picked != nil && picked.Enabled {
 		req.AgentKey = picked.AgentKey
+		return picked
 	}
-	return picked
+	return nil
 }
 
 func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey string) *promptstore.PromptTemplate {
@@ -134,7 +140,7 @@ func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey str
 	}
 	for i := range templates {
 		t := &templates[i]
-		if t.Enabled && t.AgentKey == want {
+		if t.Enabled && strings.EqualFold(strings.TrimSpace(t.AgentKey), want) {
 			return t
 		}
 	}
@@ -151,51 +157,6 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 		if t.PromptKey == want {
 			return t
 		}
-	}
-	return nil
-}
-
-func toRouterCandidates(templates []promptstore.PromptTemplate) []router.Candidate {
-	out := make([]router.Candidate, 0, len(templates))
-	for i := range templates {
-		t := &templates[i]
-		if !t.Enabled {
-			continue
-		}
-		out = append(out, router.Candidate{
-			PromptKey:   t.PromptKey,
-			AgentKey:    t.AgentKey,
-			Title:       t.Title,
-			Description: t.Description,
-			Tags:        parseTagsJSON(t.Tags),
-		})
-	}
-	return out
-}
-
-// parseTagsJSON decodes `tags` jsonb into a flat []string. Accepts either a
-// plain string array or an array of {"value":"..."} objects. Malformed input
-// yields an empty slice; RuleRouter treats that as "no tags" and simply
-// skips the candidate without error.
-func parseTagsJSON(raw json.RawMessage) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-	var asStrings []string
-	if err := json.Unmarshal(raw, &asStrings); err == nil {
-		return asStrings
-	}
-	var asObjects []struct {
-		Value string `json:"value"`
-	}
-	if err := json.Unmarshal(raw, &asObjects); err == nil {
-		out := make([]string, 0, len(asObjects))
-		for _, o := range asObjects {
-			if s := strings.TrimSpace(o.Value); s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
 	}
 	return nil
 }

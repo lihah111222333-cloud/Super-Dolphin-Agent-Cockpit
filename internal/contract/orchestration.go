@@ -50,6 +50,7 @@ type LaunchRequest struct {
 	Instructions string
 	ParentID     string
 	AgentType    string
+	AgentKey     string
 	MemoryScope  string
 	Cwd          string
 	Command      []string

@@ -339,6 +339,7 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		"cwd":                strings.TrimSpace(req.Cwd),
 		"name":               shared.FirstTrimmed(displayName, req.Prompt),
 		"agent_type":         strings.TrimSpace(req.AgentType),
+		"agent_key":          strings.TrimSpace(req.AgentKey),
 		"agent_memory_scope": strings.TrimSpace(req.MemoryScope),
 		"parent_agent_id":    strings.TrimSpace(req.ParentID),
 		"base_instructions":  strings.TrimSpace(req.Instructions),
