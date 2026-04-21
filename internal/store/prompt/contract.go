@@ -44,6 +44,10 @@ type PromptTemplate struct {
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 	Description string          `json:"description"`
+	// RouterPriority controls first-match ordering for the rule router.
+	// Higher wins. Default 100 for regular specialists, 200 for orchestrator,
+	// 0 for the tagless fallback (main/default). See migration 0042.
+	RouterPriority int32 `json:"router_priority"`
 }
 
 type PromptTemplateVersion struct {

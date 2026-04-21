@@ -1,5 +1,5 @@
 -- name: GetPromptTemplate :one
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at, router_priority
 FROM prompt_templates
 WHERE prompt_key = $1;
 
@@ -30,15 +30,15 @@ SET title = EXCLUDED.title,
     enabled = EXCLUDED.enabled,
     updated_by = EXCLUDED.updated_by,
     updated_at = NOW()
-RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at;
+RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at, router_priority;
 
 -- name: ListPromptTemplates :many
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at, router_priority
 FROM prompt_templates
 WHERE ($1::text = '' OR agent_key = $1)
   AND ($2::text = ''
     OR prompt_key ILIKE '%' || $2 || '%'
     OR title ILIKE '%' || $2 || '%'
     OR prompt_text ILIKE '%' || $2 || '%')
-ORDER BY updated_at DESC
+ORDER BY router_priority DESC, updated_at DESC
 LIMIT $3;

@@ -15,6 +15,7 @@ sql:
       - "migrations/0036_seed_orchestrator_prompt.sql"
       - "migrations/0037_thread_pending_launch.sql"
       - "migrations/0041_prompt_routing_tests.sql"
+      - "migrations/0042_prompt_templates_router_priority.sql"
     gen:
       go:
         package: "sqlc"
