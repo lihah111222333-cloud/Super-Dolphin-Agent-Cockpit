@@ -83,6 +83,19 @@ describe('assistant markdown codex enhancements', () => {
     expect(html).toContain('data-skill-path="docs/skills/deploy/SKILL.md"');
   });
 
+  it('renders skill file chips with a derived skill name instead of the raw path', () => {
+    const html = renderAssistantMarkdown('[docs/skills/DeploySkill/SKILL.md](docs/skills/DeploySkill/SKILL.md)');
+    expect(html).toContain('data-skill-path="docs/skills/DeploySkill/SKILL.md"');
+    expect(html).toContain('>DeploySkill</a>');
+    expect(html).not.toContain('>docs/skills/DeploySkill/SKILL.md</a>');
+  });
+
+  it('preserves an existing friendly skill file chip label', () => {
+    const html = renderAssistantMarkdown('[发布助手](docs/skills/DeploySkill/SKILL.md)');
+    expect(html).toContain('>发布助手</a>');
+    expect(html).not.toContain('>DeploySkill</a>');
+  });
+
   it('renders markdown images as preview cards with click metadata', () => {
     const html = renderAssistantMarkdown('![Preview](https://example.com/shot.png "Open preview")');
     expect(html).toContain('chat-md-image-card');

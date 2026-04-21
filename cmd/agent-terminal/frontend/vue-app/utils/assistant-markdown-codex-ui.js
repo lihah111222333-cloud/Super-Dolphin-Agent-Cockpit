@@ -32,7 +32,7 @@ function basename(path) {
   return (path || '').toString().split(/[/\\]/).filter(Boolean).pop() || (path || '').toString();
 }
 
-function deriveSkillNameFromPath(path) {
+export function deriveSkillNameFromPath(path) {
   const source = (path || '').toString().trim().replace(/[/\\]+$/, '');
   if (!source) return '';
   const normalized = source.split(/[?#]/, 1)[0].replace(/\\/g, '/');

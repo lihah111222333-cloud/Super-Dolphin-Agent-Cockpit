@@ -1,5 +1,10 @@
-import { renderAutomationDirectiveCard, renderCodeCommentDirectiveCard, renderTaskStubCard } from './assistant-markdown-codex-ui.js';
-export { resolveCodexLinkMeta } from './assistant-markdown-codex-ui.js';
+import {
+  deriveSkillNameFromPath,
+  renderAutomationDirectiveCard,
+  renderCodeCommentDirectiveCard,
+  renderTaskStubCard,
+} from './assistant-markdown-codex-ui.js';
+export { deriveSkillNameFromPath, resolveCodexLinkMeta } from './assistant-markdown-codex-ui.js';
 const HIDDEN_CITE_RE = /\uE200cite\uE202[^\uE201]+\uE201/g;
 const EXACT_AT_PATH_RE = /^@[A-Za-z0-9][\w.-]*[/][\w./-]*$/;
 const EXACT_VAR_RE = /^\$(?:\[[^\]\n]+\]|[A-Za-z][\w-]*)$/;

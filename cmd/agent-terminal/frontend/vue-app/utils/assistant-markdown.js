@@ -3,7 +3,13 @@ import MarkdownIt from 'markdown-it';
 import markdownItKatexModule from '@vscode/markdown-it-katex';
 import { highlightSnippet } from './code-highlight.js';
 import { toFilePreviewURL } from './preview-utils.js';
-import { isCodexInlineLiteral, postprocessCodexHtml, preprocessCodexMarkdown, resolveCodexLinkMeta } from './assistant-markdown-codex.js';
+import {
+  deriveSkillNameFromPath,
+  isCodexInlineLiteral,
+  postprocessCodexHtml,
+  preprocessCodexMarkdown,
+  resolveCodexLinkMeta,
+} from './assistant-markdown-codex.js';
 
 const markdownItKatex = /** @type {any} */ (markdownItKatexModule);
 
@@ -337,11 +343,41 @@ function createMarkdownRenderer() {
     return `<code class="chat-md-inline-code">${escapeHtml(code)}</code>`;
   };
 
+  function shouldUseDerivedSkillLinkLabel(labelText, href, derivedName) {
+    const normalizedLabel = (labelText || '').toString().trim();
+    const normalizedHref = (href || '').toString().trim();
+    const normalizedDerivedName = (derivedName || '').toString().trim();
+    if (!normalizedDerivedName) return false;
+    if (!normalizedLabel) return true;
+    if (normalizedLabel === normalizedHref) return true;
+    const hrefBaseName = normalizedHref.split(/[?#]/, 1)[0].split(/[\\/]/).filter(Boolean).pop() || '';
+    if (normalizedLabel === hrefBaseName) return true;
+    return /^SKILL\.md$/i.test(normalizedLabel);
+  }
+
+  function normalizeSkillFileLinkLabel(tokens, startIdx, href) {
+    const derivedName = deriveSkillNameFromPath(href);
+    if (!derivedName) return;
+    const visibleTextTokens = [];
+    for (let cursor = startIdx + 1; cursor < tokens.length; cursor += 1) {
+      const token = tokens[cursor];
+      if (token?.type === 'link_close') break;
+      if (token?.type === 'text' || token?.type === 'code_inline') visibleTextTokens.push(token);
+    }
+    if (visibleTextTokens.length !== 1) return;
+    const [labelToken] = visibleTextTokens;
+    if (!shouldUseDerivedSkillLinkLabel(labelToken?.content || '', href, derivedName)) return;
+    labelToken.content = derivedName;
+  }
+
   instance.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
     const token = tokens[idx];
     const href = (token?.attrGet('href') || '').toString().trim();
     const specialLink = resolveCodexLinkMeta(href); appendClass(token, 'chat-md-link');
     if (specialLink) {
+      if ((specialLink?.dataAttrs?.['data-skill-path'] || '').toString().trim()) {
+        normalizeSkillFileLinkLabel(tokens, idx, href);
+      }
       specialLink.className.split(/\s+/).filter(Boolean).forEach((className) => appendClass(token, className));
       Object.entries(specialLink.dataAttrs || {}).forEach(([key, value]) => setAttr(token, key, `${value}`));
       setAttr(token, 'href', '#'); setAttr(token, 'title', specialLink.title || href); return self.renderToken(tokens, idx, options);
