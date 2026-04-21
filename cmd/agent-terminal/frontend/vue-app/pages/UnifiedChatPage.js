@@ -177,6 +177,7 @@ function createPageThreadActions(props, ctx) {
     clearLaunchSkillSelection: ctx.clearLaunchSkillSelection,
     resetSelectedComposerSkills: ctx.resetSelectedComposerSkills,
     showArchivedThreadList: ctx.showArchivedThreadList,
+    routerPreview: ctx.routerPreview,
   });
 }
 
