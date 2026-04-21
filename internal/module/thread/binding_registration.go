@@ -92,6 +92,12 @@ func (s *service) ensurePublicThreadAvailable(ctx context.Context, state threadS
 	}
 	existingAgentID := strings.TrimSpace(existing.AgentID)
 	if existingAgentID == "" {
+		// Pending-launch rows (written by startPendingThread) legitimately
+		// have no binding yet — SpawnIfNeeded is exactly the caller promoting
+		// them. Treat that as the same-owner case so the upsert can proceed.
+		if existing.PendingLaunch {
+			return nil
+		}
 		return fmt.Errorf("public thread id %q already exists without a binding owner", state.PublicThreadID)
 	}
 	if existingAgentID != state.AgentID {
