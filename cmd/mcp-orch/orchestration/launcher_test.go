@@ -62,11 +62,16 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 		AgentType:   "worker",
 		MemoryScope: "local",
 	})
-	if err != nil || got.ThreadID != "thread-1" || agent.remoteThreadID != "thread-1" || started["prompt"] != "hello" {
+	if err != nil || got.ThreadID != "thread-1" || agent.remoteThreadID != "thread-1" {
 		t.Fatalf("Launch() got=%#v err=%v started=%#v agent=%#v", got, err, started, agent)
 	}
 	if started["name"] != "Worker UI" {
 		t.Fatalf("Launch() name = %#v, want Worker UI", started["name"])
+	}
+	// thread/start must not receive a separate `prompt` key: the server treats
+	// it as a legacy alias for `name` and rejects (-32602) when the two differ.
+	if _, ok := started["prompt"]; ok {
+		t.Fatalf("Launch() started contains prompt=%#v; want no prompt field", started["prompt"])
 	}
 	if started["agent_type"] != "worker" || started["parent_agent_id"] != "agent-root" || started["agent_memory_scope"] != "local" {
 		t.Fatalf("Launch() metadata = %#v, want agent_type/parent_agent_id/agent_memory_scope", started)
