@@ -12,12 +12,17 @@ type SkillConfig struct {
 	TokenBudget           int
 }
 
+type AgentConfig struct {
+	PersistentSubagentDefault bool
+}
+
 type Config struct {
 	DatabaseURL string
 	RPCAddr     string
 	LogLevel    string
 	ProjectRoot string
 	Skill       SkillConfig
+	Agent       AgentConfig
 }
 
 func New() *Config {
@@ -29,6 +34,9 @@ func New() *Config {
 		Skill: SkillConfig{
 			ProgressiveDisclosure: envBoolOr("SKILL_PROGRESSIVE_DISCLOSURE", false),
 			TokenBudget:           envPositiveIntOr("SKILL_TOKEN_BUDGET", 3000),
+		},
+		Agent: AgentConfig{
+			PersistentSubagentDefault: envBoolOr("PERSISTENT_SUBAGENT_DEFAULT", true),
 		},
 	}
 	exportRPCAddrIfMissing(cfg.RPCAddr)

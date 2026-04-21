@@ -153,24 +153,37 @@ func sessionGuidanceInteractiveCommandItem(flags map[string]bool) (string, bool)
 }
 
 func sessionGuidanceAgentItems(enabled map[string]struct{}, flags map[string]bool) []string {
-	if !sessionGuidanceToolEnabled(enabled, "spawn_agent") {
+	hasSpawn := sessionGuidanceToolEnabled(enabled, "spawn_agent")
+	hasManaged := sessionGuidanceToolEnabled(enabled, "orchestration_launch_agent")
+	if !hasSpawn && !hasManaged {
 		return nil
 	}
-	items := []string{sessionGuidanceAgentDelegationItem(flags)}
-	if sessionGuidanceExploreEnabled(flags) && !sessionGuidanceForkMode(flags) {
+	items := []string{sessionGuidanceAgentDelegationItem(enabled, flags)}
+	if hasSpawn && sessionGuidanceExploreEnabled(flags) && !sessionGuidanceForkMode(flags) {
 		items = append(items, sessionGuidanceExploreItem(enabled))
 	}
-	if sessionGuidanceVerificationEnabled(flags) {
+	if hasSpawn && sessionGuidanceVerificationEnabled(flags) {
 		items = append(items, sessionGuidanceVerificationItems()...)
 	}
 	return items
 }
 
-func sessionGuidanceAgentDelegationItem(flags map[string]bool) string {
-	if sessionGuidanceForkMode(flags) {
+func sessionGuidanceAgentDelegationItem(enabled map[string]struct{}, flags map[string]bool) string {
+	hasSpawn := sessionGuidanceToolEnabled(enabled, "spawn_agent")
+	hasManaged := sessionGuidanceToolEnabled(enabled, "orchestration_launch_agent")
+	if hasManaged && sessionGuidancePersistentSubagentDefault(flags) {
+		if hasSpawn {
+			return "When creating a child agent for the user, default to `orchestration_launch_agent` so it appears as a persistent UI-visible agent. Use `spawn_agent` only for temporary background subtasks that should not create a sidebar conversation."
+		}
+		return "When creating a child agent for the user, use `orchestration_launch_agent` so it appears as a persistent UI-visible agent."
+	}
+	if hasSpawn && sessionGuidanceForkMode(flags) {
 		return "This session is using fork-style delegation: use `spawn_agent` for longer background research or implementation that would otherwise flood the main context. If you are already the delegated worker, execute directly and do not bounce the same task into another fork."
 	}
-	return "Use `spawn_agent` only for well-scoped parallel subtasks. Keep urgent blocking work local, avoid duplicating delegated work, give each subagent clear ownership, and integrate its results before reporting completion."
+	if hasSpawn {
+		return "Use `spawn_agent` only for well-scoped parallel subtasks. Keep urgent blocking work local, avoid duplicating delegated work, give each subagent clear ownership, and integrate its results before reporting completion."
+	}
+	return "Use `orchestration_launch_agent` for child agents that should remain available in the UI as persistent conversations."
 }
 
 func sessionGuidanceExploreItem(enabled map[string]struct{}) string {
@@ -252,6 +265,17 @@ func sessionGuidanceForkMode(flags map[string]bool) bool {
 		"fork_mode",
 		"forkMode",
 		"fork_subagent_enabled",
+	)
+}
+
+func sessionGuidancePersistentSubagentDefault(flags map[string]bool) bool {
+	return sessionGuidanceFlagEnabled(flags,
+		"persistent_subagent_default",
+		"persistentSubagentDefault",
+		"managed_subagent_default",
+		"managedSubagentDefault",
+		"ui_persistent_subagent_default",
+		"uiPersistentSubagentDefault",
 	)
 }
 
