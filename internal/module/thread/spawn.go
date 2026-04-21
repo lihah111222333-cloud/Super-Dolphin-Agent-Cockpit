@@ -253,11 +253,24 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	if err != nil {
 		return false, fmt.Errorf("thread: establish session: %w", err)
 	}
-	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
-	if err := s.savePromptSnapshot(ctx, threadID, assembly); err != nil {
-		pkglogger.Warn("thread: save prompt snapshot after pending spawn",
-			"err", err, "thread_id", threadID)
+
+	// persistStartedSession is the eager path's final step: it builds the
+	// thread state, upserts the agent_threads row (which clears pending_launch
+	// because newThreadUpsertParams defaults PendingLaunch to false), writes
+	// the agent_provider_binding row via maybeRegisterThreadBinding, saves
+	// the prompt snapshot, and publishes thread.started. Reusing it here
+	// means pending spawns leave the DB in exactly the same shape as an
+	// eager start — Archive / ReadMessages / etc. work identically after.
+	if _, err := s.persistStartedSession(ctx, req, assemblyInput, assembly, agentID, displayName, session); err != nil {
+		return false, fmt.Errorf("thread: persist launched session: %w", err)
 	}
+
+	cleanupOnFailure = false
+
+	// persistStartedSession doesn't know about the router decision (it runs
+	// before any routing). Stamp agent_key + prompt_version_id onto the row
+	// now so the sidebar sky-blue pill and prompt_versions lineage are
+	// preserved for this thread too.
 	now := time.Now().Unix()
 	if err := s.threadStore.UpdateLaunchResult(ctx, threadstore.UpdateLaunchResultParams{
 		ThreadID:        threadID,
@@ -265,11 +278,11 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 		PromptVersionID: req.PromptVersionID,
 		UpdatedAt:       now,
 	}); err != nil {
-		return false, fmt.Errorf("thread: clear pending_launch: %w", err)
+		pkglogger.Warn("thread: stamp router decision after pending spawn",
+			"err", err, "thread_id", threadID)
 	}
 
-	cleanupOnFailure = false
-
+	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	spawnedState := newThreadState(threadStateStartKind, threadStateFields{
 		PublicThreadID:   threadID,
 		AgentID:          agentID,
