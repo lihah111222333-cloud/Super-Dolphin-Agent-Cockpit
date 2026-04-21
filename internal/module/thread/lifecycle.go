@@ -228,6 +228,7 @@ func (s *service) persistStartedSession(
 		CWD:             effectiveCWD,
 		ApprovalPolicy:  req.ApprovalPolicy,
 		AgentKey:        req.AgentKey,
+		PromptKey:       req.PromptKey,
 		PromptVersionID: req.PromptVersionID,
 	}, nil
 }

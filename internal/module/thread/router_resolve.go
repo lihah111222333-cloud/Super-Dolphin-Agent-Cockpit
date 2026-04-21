@@ -78,9 +78,10 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 		UpdatedBy:       picked.UpdatedBy,
 		SourceUpdatedAt: &picked.UpdatedAt,
 	})
-	// Per Risk 1 (b): still record agent_key for observability even if
-	// version materialization fails.
+	// Per Risk 1 (b): still record agent_key / prompt_key for observability
+	// even if version materialization fails.
 	req.AgentKey = picked.AgentKey
+	req.PromptKey = picked.PromptKey
 	req.BaseInstructions = picked.PromptText
 	if verr != nil {
 		pkglogger.Warn("router: materialize prompt_versions failed",

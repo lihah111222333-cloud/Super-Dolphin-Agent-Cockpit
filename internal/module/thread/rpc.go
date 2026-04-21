@@ -151,6 +151,10 @@ func newStartHandler(svc Service) handler.Func {
 			response["agent_key"] = result.AgentKey
 			response["agentKey"] = result.AgentKey
 		}
+		if result.PromptKey != "" {
+			response["prompt_key"] = result.PromptKey
+			response["promptKey"] = result.PromptKey
+		}
 		if result.PromptVersionID != nil {
 			response["prompt_version_id"] = *result.PromptVersionID
 			response["promptVersionId"] = *result.PromptVersionID
@@ -240,6 +244,10 @@ func newHandoffHandler(svc Service) handler.Func {
 		if result.AgentKey != "" {
 			response["agent_key"] = result.AgentKey
 			response["agentKey"] = result.AgentKey
+		}
+		if result.PromptKey != "" {
+			response["prompt_key"] = result.PromptKey
+			response["promptKey"] = result.PromptKey
 		}
 		if result.PromptVersionID != nil {
 			response["prompt_version_id"] = *result.PromptVersionID
