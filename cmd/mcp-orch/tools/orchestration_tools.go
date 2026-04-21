@@ -22,6 +22,7 @@ type LaunchAgentInput struct {
 	MemoryScope string `json:"memory_scope,omitempty"`
 	CWD         string `json:"cwd,omitempty"`
 	Provider    string `json:"provider,omitempty"`
+	Model       string `json:"model,omitempty"`
 }
 
 type SendMessageInput struct {
@@ -107,6 +108,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"memory_scope": EnumStringSchema("Optional agent memory scope for child-agent launches.", "project", "user", "local"),
 			"cwd":          StringSchema("Optional working directory for the launched agent."),
 			"provider":     EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", "codex", "claude"),
+			"model":        StringSchema("Optional model identifier for the launched agent (e.g. 'sonnet', 'opus', 'claude-opus-4-7[1m]'). When omitted, the provider falls back to its own default (for claude: ~/.claude/settings.json `model`)."),
 		}, "name"), HandleLaunchAgent(svc)),
 		defineTool("orchestration_send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
@@ -158,7 +160,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		MemoryScope: memoryScope,
 		Cwd:         strings.TrimSpace(in.CWD),
 		Command:     []string{strings.TrimSpace(exe)},
-		Env:         launchEnv(provider),
+		Env:         launchEnv(provider, strings.TrimSpace(in.Model)),
 	}, nil
 }
 
@@ -185,11 +187,17 @@ func validateMemoryScope(raw string) (string, error) {
 	}
 }
 
-func launchEnv(provider string) []string {
+func launchEnv(provider, model string) []string {
+	var env []string
 	if provider = strings.TrimSpace(provider); provider != "" {
-		return []string{"AGENT_PROVIDER=" + provider}
+		env = append(env, "AGENT_PROVIDER="+provider)
 	}
-	return nil
+	if model = strings.TrimSpace(model); model != "" {
+		// remoteLauncher.Launch reads this back via envValue(req.Env, "AGENT_MODEL")
+		// and forwards it as the `model` field on thread/start.
+		env = append(env, "AGENT_MODEL="+model)
+	}
+	return env
 }
 
 func submissionFromMessage(

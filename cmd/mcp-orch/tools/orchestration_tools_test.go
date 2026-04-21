@@ -40,6 +40,43 @@ func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	}
 }
 
+func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
+	req, err := launchRequestFromExecutable(LaunchAgentInput{
+		Name:     "agent-m",
+		Provider: "claude",
+		Model:    " claude-opus-4-7[1m] ",
+	}, "/tmp/agent-terminal")
+	if err != nil {
+		t.Fatalf("launchRequestFromExecutable() error = %v", err)
+	}
+	want := map[string]bool{
+		"AGENT_PROVIDER=claude":         true,
+		"AGENT_MODEL=claude-opus-4-7[1m]": true,
+	}
+	if len(req.Env) != len(want) {
+		t.Fatalf("launch request env = %#v, want %v", req.Env, want)
+	}
+	for _, entry := range req.Env {
+		if !want[entry] {
+			t.Fatalf("unexpected env entry %q; full env = %#v", entry, req.Env)
+		}
+	}
+}
+
+func TestLaunchRequestFromExecutableOmitsEmptyModel(t *testing.T) {
+	req, err := launchRequestFromExecutable(LaunchAgentInput{
+		Name:     "agent-n",
+		Provider: "claude",
+		Model:    "   ",
+	}, "/tmp/agent-terminal")
+	if err != nil {
+		t.Fatalf("launchRequestFromExecutable() error = %v", err)
+	}
+	if len(req.Env) != 1 || req.Env[0] != "AGENT_PROVIDER=claude" {
+		t.Fatalf("launch request env = %#v, want only [AGENT_PROVIDER=claude]", req.Env)
+	}
+}
+
 func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 	originalExecutable := osExecutable
 	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
