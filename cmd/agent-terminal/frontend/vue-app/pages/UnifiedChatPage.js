@@ -38,6 +38,7 @@ import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
 import { useFileDrop } from '../composables/useFileDrop.js';
 import { usePageLifecycle } from '../composables/usePageLifecycle.js';
 import { createThreadConfigController } from '../composables/useThreadConfigController.js';
+import { useRouterClassify } from '../composables/useRouterClassify.js';
 import {
   buildFocusedDiffSelection,
 } from '../utils/diff-utils.js';
@@ -354,6 +355,10 @@ export const UnifiedChatPage = {
       disconnectContainerObserver();
     });
     watch(selectedThreadId, () => { isPreviewDirty.value = false; });
+    const routerClassify = useRouterClassify();
+    const agentKeyPreview = computed(() => (routerClassify.preview.value?.agentKey || '').toString());
+    watch(() => composer.state.text, (next) => routerClassify.classify(next || ''));
+    watch(selectedThreadId, () => routerClassify.clear());
     const activeStatus = computed(() => normalizeStatus(props.threadStore.getThreadStatus(selectedThreadId.value)));
     const threadStatus = useThreadStatus(props, selectedThreadId, activeStatus, pathChoiceController.showPathChoiceModal);
     const {
@@ -523,6 +528,7 @@ export const UnifiedChatPage = {
       selectThread,
       pinnedPlanCardSpec,
       isAtBottom, scheduleScrollToBottom, scrollToTop, resetScrollState,
+      agentKeyPreview,
     });
     attachPageNonEnumerableState(exposed, {
       launchSkillSelectionEnabled,

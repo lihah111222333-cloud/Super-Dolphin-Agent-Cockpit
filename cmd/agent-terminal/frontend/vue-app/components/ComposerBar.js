@@ -35,6 +35,7 @@ export const ComposerBar = {
     threadConfigNotice: { type: String, default: '' },
     threadConfigNoticeLevel: { type: String, default: 'info' },
     threadConfigMeta: { type: Object, default: () => ({ override: {}, effective: {} }) },
+    agentKeyPreview: { type: String, default: '' },
   },
   emits: [
     'send', 'interrupt', 'compact', 'toggle-skill', 'select-all-skills', 'clear-skills',
@@ -328,6 +329,11 @@ export const ComposerBar = {
         </span>
       </div>
 
+      <div v-if="agentKeyPreview" class="composer-agent-preview-hint" data-testid="composer-agent-preview-hint" :title="'路由预览：命中 agent ' + agentKeyPreview">
+        <span class="composer-agent-preview-dot" aria-hidden="true"></span>
+        <span class="composer-agent-preview-label">路由预览</span>
+        <span class="composer-agent-preview-key">{{ agentKeyPreview }}</span>
+      </div>
       <div id="input-row" class="chat-input-row-vue" data-testid="composer-input-row">
         <button id="btnAttach" class="btn btn-secondary" data-testid="composer-attach-button" @click="onAttach" :disabled="composer.state.attaching || disabled">
           {{ composer.state.attaching ? '选择中...' : '附件' }}

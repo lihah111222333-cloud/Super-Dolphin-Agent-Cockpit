@@ -67,6 +67,7 @@ export function buildUnifiedChatPageExposed(ctx) {
     scheduleScrollToBottom,
     scrollToTop,
     resetScrollState,
+    agentKeyPreview,
   } = ctx;
 
   return {
@@ -188,6 +189,7 @@ export function buildUnifiedChatPageExposed(ctx) {
     dismissPinnedPlan: threadCards.dismissPinnedPlan,
     pinnedPlanCardSpec: ctx.pinnedPlanCardSpec,
     onTimelineFileRefClick: fileRefPreview.onTimelineFileRefClick,
+    agentKeyPreview,
   };
 }
 
