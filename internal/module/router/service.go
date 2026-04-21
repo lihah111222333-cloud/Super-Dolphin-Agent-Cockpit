@@ -65,21 +65,23 @@ func (s *service) Classify(ctx context.Context, req ClassifyRequest) (ClassifyRe
 	if !decision.Matched {
 		return ClassifyResult{}, nil
 	}
-	title := ""
-	for _, t := range templates {
-		if t.PromptKey == decision.PromptKey {
-			title = t.Title
-			break
-		}
-	}
 	return ClassifyResult{
 		Matched:    true,
 		PromptKey:  decision.PromptKey,
 		AgentKey:   decision.AgentKey,
-		Title:      title,
+		Title:      templateTitleByPromptKey(templates, decision.PromptKey),
 		Reason:     decision.Reason,
 		Confidence: decision.Confidence,
 	}, nil
+}
+
+func templateTitleByPromptKey(templates []promptstore.PromptTemplate, key string) string {
+	for i := range templates {
+		if templates[i].PromptKey == key {
+			return templates[i].Title
+		}
+	}
+	return ""
 }
 
 func toCandidates(templates []promptstore.PromptTemplate) []routerpkg.Candidate {

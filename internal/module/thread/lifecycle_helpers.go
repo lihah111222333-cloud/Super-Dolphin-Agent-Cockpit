@@ -17,6 +17,19 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
+// runScratchpadCleanup is the shared `defer` target used by Start / SpawnIfNeeded
+// to release the scratchpad snapshot when the spawn pipeline fails. active is a
+// pointer so the caller can flip it to false after persistStartedSession to
+// skip cleanup on success.
+func runScratchpadCleanup(active *bool, cleanup func()) {
+	if active == nil || !*active {
+		return
+	}
+	if cleanup != nil {
+		cleanup()
+	}
+}
+
 // enrichFromSessionConfig extracts model/cwd from the session's runtime config
 // when the original request values are empty. codex app-server assigns model
 // server-side; the resolved value is captured in runtimeConfig during StartSession.

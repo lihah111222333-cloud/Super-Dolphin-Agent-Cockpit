@@ -57,35 +57,7 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 		return
 	}
 
-	var picked *promptstore.PromptTemplate
-	explicitAgentKey := strings.TrimSpace(req.AgentKey)
-	switch {
-	case explicitAgentKey != "":
-		// Caller pinned an agent; take the first enabled template for it.
-		picked = firstEnabledByAgentKey(templates, explicitAgentKey)
-	case s.routerBackend != nil:
-		// Classify via router.
-		candidates := toRouterCandidates(templates)
-		userInput := strings.TrimSpace(req.Prompt)
-		if userInput == "" {
-			userInput = strings.TrimSpace(req.Name)
-		}
-		decision, cerr := s.routerBackend.Classify(ctx, userInput, candidates)
-		if cerr != nil {
-			pkglogger.Warn("router: classify failed", "err", cerr)
-			return
-		}
-		if !decision.Matched {
-			return
-		}
-		picked = findByPromptKey(templates, decision.PromptKey)
-		if picked != nil {
-			req.AgentKey = picked.AgentKey
-		}
-	default:
-		return
-	}
-
+	picked := s.pickRoutedTemplate(ctx, req, templates)
 	if picked == nil || !picked.Enabled {
 		return
 	}
@@ -117,6 +89,41 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 		return
 	}
 	req.PromptVersionID = &versionID
+}
+
+// pickRoutedTemplate returns the prompt_template selected either by the
+// caller-pinned AgentKey or by the router classifier. Returns nil when
+// nothing matches (the caller should then fall back to the provider default).
+// When the router picks a template, req.AgentKey is stamped with the match.
+func (s *service) pickRoutedTemplate(
+	ctx context.Context,
+	req *StartRequest,
+	templates []promptstore.PromptTemplate,
+) *promptstore.PromptTemplate {
+	if explicit := strings.TrimSpace(req.AgentKey); explicit != "" {
+		return firstEnabledByAgentKey(templates, explicit)
+	}
+	if s.routerBackend == nil {
+		return nil
+	}
+	candidates := toRouterCandidates(templates)
+	userInput := strings.TrimSpace(req.Prompt)
+	if userInput == "" {
+		userInput = strings.TrimSpace(req.Name)
+	}
+	decision, cerr := s.routerBackend.Classify(ctx, userInput, candidates)
+	if cerr != nil {
+		pkglogger.Warn("router: classify failed", "err", cerr)
+		return nil
+	}
+	if !decision.Matched {
+		return nil
+	}
+	picked := findByPromptKey(templates, decision.PromptKey)
+	if picked != nil {
+		req.AgentKey = picked.AgentKey
+	}
+	return picked
 }
 
 func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey string) *promptstore.PromptTemplate {
