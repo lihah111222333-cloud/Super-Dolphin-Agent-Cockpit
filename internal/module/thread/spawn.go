@@ -183,6 +183,12 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	if row == nil || !row.PendingLaunch {
 		return false, nil
 	}
+	// Guard against the Stop/Archive race: if the row was already marked
+	// stopped or archived but pending_launch was not cleared (updateThreadStatus
+	// only touches the status column), bail out instead of forking a ghost CLI.
+	if row.Status != statusCreated && row.Status != "" {
+		return false, nil
+	}
 
 	// Agent-id convention for threadStateStartKind: publicThreadID == agentID.
 	// The pending row was written with that assumption, so we reuse threadID.
@@ -286,6 +292,7 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	}
 
 	cleanupOnFailure = false
+	s.pendingLaunchMu.Delete(threadID)
 
 	// persistStartedSession already wrote agent_key + prompt_version_id to
 	// agent_threads via state -> upsertPublicThread (resolveRoutedPrompt

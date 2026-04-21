@@ -169,6 +169,19 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 		return err
 	}
 	binding, _ := s.resolveBinding(ctx, id)
+	// C1 fast-path: pending_launch threads have no binding / no runtime.
+	// Just delete the DB row and clean up the per-thread mutex.
+	if binding == nil && s.isThreadPendingLaunch(ctx, id) {
+		if s.threadStore == nil {
+			return errors.New("thread store is not configured")
+		}
+		if err := s.threadStore.DeleteByThreadID(ctx, id); err != nil {
+			return err
+		}
+		s.pendingLaunchMu.Delete(id)
+		s.publishThreadStopped(id, "", "deleted", "deleted_pending_launch")
+		return nil
+	}
 	stopState := newThreadStopState(binding, id)
 	if binding != nil {
 		if err := s.stopThreadRuntime(ctx, stopState, "thread_deleted", true); err != nil {
