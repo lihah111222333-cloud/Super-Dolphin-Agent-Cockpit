@@ -24,6 +24,8 @@ type toolInstanceLister interface {
 func buildStartCtx(req StartRequest, cfg *platformconfig.Config, registry contract.ToolRegistry) contract.BuildCtx {
 	cwd := resolvePromptCWD(req.CWD)
 	outputStyleConfig := configOutputStyle(req.Config, "outputStyleConfig", "output_style_config")
+	sessionFlags := firstNonEmptyFlags(req.SessionFlags, configBoolMap(req.Config, "sessionFlags", "session_flags"))
+	sessionFlags = applyConfiguredSessionFlagDefaults(sessionFlags, cfg)
 	gitCtx := resolvePromptGitContext(
 		cwd,
 		shared.FirstNonEmpty(req.GitRoot, providershared.ConfigString(req.Config, "gitRoot", "git_root")),
@@ -43,13 +45,59 @@ func buildStartCtx(req StartRequest, cfg *platformconfig.Config, registry contra
 		AdditionalWorkingDirectories: firstNonEmptyStrings(req.AdditionalWorkingDirectories, providershared.ConfigStringSlice(req.Config, "additionalWorkingDirectories", "additional_working_directories")),
 		ClaudeMdExcludes:             providershared.ConfigStringSlice(req.Config, "claudeMdExcludes", "claude_md_excludes"),
 		MCPSnapshot:                  buildPromptMCPSnapshot(req.MCPSnapshot, configMCPSnapshot(req.Config), registryMCPSnapshot(registry)),
-		SessionFlags:                 firstNonEmptyFlags(req.SessionFlags, configBoolMap(req.Config, "sessionFlags", "session_flags")),
+		SessionFlags:                 sessionFlags,
 		Summary:                      shared.FirstNonEmpty(req.Summary, providershared.ConfigString(req.Config, "summary")),
 		OutputStyleConfig:            outputStyleConfig,
 		ScratchpadDir:                configScratchpadDir(req.Config, "scratchpadDir", "scratchpad_dir"),
 		FRCConfig:                    configFRCConfig(req.Config, "frcConfig", "frc_config"),
 		KeepCodingInstructions:       firstNonNilBool(configOptionalBool(req.Config, "keepCodingInstructions", "keep_coding_instructions"), styleKeepCodingInstructions(outputStyleConfig)),
 	}
+}
+
+func applyConfiguredSessionFlagDefaults(flags map[string]bool, cfg *platformconfig.Config) map[string]bool {
+	out := cloneFlags(flags)
+	if cfg == nil || !cfg.Agent.PersistentSubagentDefault {
+		return out
+	}
+	if hasConfiguredSessionFlag(out,
+		"persistent_subagent_default",
+		"persistentSubagentDefault",
+		"managed_subagent_default",
+		"managedSubagentDefault",
+		"ui_persistent_subagent_default",
+		"uiPersistentSubagentDefault",
+	) {
+		return out
+	}
+	if out == nil {
+		out = map[string]bool{}
+	}
+	out["persistent_subagent_default"] = true
+	return out
+}
+
+func hasConfiguredSessionFlag(flags map[string]bool, names ...string) bool {
+	if len(flags) == 0 || len(names) == 0 {
+		return false
+	}
+	wanted := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if normalized := normalizeSessionFlagName(name); normalized != "" {
+			wanted[normalized] = struct{}{}
+		}
+	}
+	for name := range flags {
+		if _, ok := wanted[normalizeSessionFlagName(name)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeSessionFlagName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	replacer := strings.NewReplacer("_", "", "-", "", " ", "")
+	return replacer.Replace(name)
 }
 
 func resolvePromptCWD(cwd string) string {
@@ -411,4 +459,3 @@ func styleKeepCodingInstructions(style *contract.OutputStyleConfig) *bool {
 	}
 	return cloneOptionalBool(style.KeepCodingInstructions)
 }
-

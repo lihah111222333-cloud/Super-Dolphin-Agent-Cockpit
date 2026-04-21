@@ -75,6 +75,37 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 	}
 }
 
+func TestBuildStartCtxInjectsPersistentSubagentDefaultFromConfig(t *testing.T) {
+	t.Parallel()
+
+	ctx := buildStartCtx(StartRequest{
+		Config: map[string]any{
+			"sessionFlags": map[string]any{"verification_required": true},
+		},
+	}, &platformconfig.Config{
+		Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true},
+	}, nil)
+
+	if !ctx.SessionFlags["verification_required"] || !ctx.SessionFlags["persistent_subagent_default"] {
+		t.Fatalf("SessionFlags = %#v, want verification_required + persistent_subagent_default", ctx.SessionFlags)
+	}
+}
+
+func TestBuildStartCtxPreservesExplicitPersistentSubagentOverride(t *testing.T) {
+	t.Parallel()
+
+	ctx := buildStartCtx(StartRequest{
+		SessionFlags: map[string]bool{"persistent_subagent_default": false},
+	}, &platformconfig.Config{
+		Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true},
+	}, nil)
+
+	value, ok := ctx.SessionFlags["persistent_subagent_default"]
+	if !ok || value {
+		t.Fatalf("SessionFlags = %#v, want explicit persistent_subagent_default=false to win", ctx.SessionFlags)
+	}
+}
+
 func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 	t.Parallel()
 

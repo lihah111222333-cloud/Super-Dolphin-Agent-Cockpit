@@ -66,6 +66,22 @@ func TestNew_PreservesDatabaseURLFromEnv(t *testing.T) {
 	}
 }
 
+func TestNew_DefaultsPersistentSubagentDefault(t *testing.T) {
+	t.Setenv("PERSISTENT_SUBAGENT_DEFAULT", "")
+	cfg := New()
+	if !cfg.Agent.PersistentSubagentDefault {
+		t.Fatalf("Agent.PersistentSubagentDefault = false, want true")
+	}
+}
+
+func TestNew_AllowsDisablingPersistentSubagentDefault(t *testing.T) {
+	t.Setenv("PERSISTENT_SUBAGENT_DEFAULT", "false")
+	cfg := New()
+	if cfg.Agent.PersistentSubagentDefault {
+		t.Fatalf("Agent.PersistentSubagentDefault = true, want false")
+	}
+}
+
 func restoreConfigLogger(t *testing.T, dst *bytes.Buffer) {
 	t.Helper()
 	origWriter := log.Writer()
