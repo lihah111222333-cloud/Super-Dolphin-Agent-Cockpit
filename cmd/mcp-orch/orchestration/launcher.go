@@ -144,10 +144,13 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	}
 	start := time.Now()
 	pkglogger.Info("remoteLauncher: thread/start RPC begin", "agent_id", agent.id, "rpc_addr", r.addr)
+	// thread/start treats `prompt` and `name` as legacy aliases for the same
+	// display-name slot and rejects the call with -32602 when both are present
+	// with different values. Collapse them here: send only `name`, falling back
+	// to req.Prompt when Name is empty.
 	resp, err := rpcCall[map[string]any](ctx, r, "thread/start", map[string]any{
 		"cwd":                strings.TrimSpace(req.Cwd),
-		"prompt":             shared.FirstTrimmed(req.Prompt, req.Name),
-		"name":               strings.TrimSpace(req.Name),
+		"name":               shared.FirstTrimmed(req.Name, req.Prompt),
 		"agent_type":         strings.TrimSpace(req.AgentType),
 		"agent_memory_scope": strings.TrimSpace(req.MemoryScope),
 		"parent_agent_id":    strings.TrimSpace(req.ParentID),
