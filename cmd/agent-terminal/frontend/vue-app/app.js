@@ -21,7 +21,7 @@ import { useThreadStore } from './stores/threads.js';
  * @typedef {'chat' | 'agents' | 'dags' | 'tasks' | 'skills' | 'commands' | 'memory-center' | 'memory' | 'settings'} AppPage
  * @typedef {{ refreshSidebarState?: () => Promise<void>, state?: { activeThreadId?: string, activeCmdThreadId?: string } }} ChatRefreshThreadStore
  * @typedef {{ command_template?: string }} CommandCard
- * @typedef {{ prompt_text?: string, description?: string, title?: string }} PromptTemplate
+
  * @typedef {{ type?: string, method?: string, params?: { type?: string, method?: string }, payload?: { type?: string, method?: string }, data?: { type?: string, method?: string } }} BridgeEventEnvelope
  */
 const REFRESH_INTERVAL_MS = 10000;
@@ -70,11 +70,6 @@ const COMMAND_FIELDS = Object.freeze([
   { key: 'risk_level', label: '风险级别' },
 ]);
 
-const PROMPT_FIELDS = Object.freeze([
-  { key: 'prompt_key', label: '提示词' },
-  { key: 'title', label: '标题' },
-  { key: 'agent_key', label: 'Agent' },
-]);
 
 const MEMORY_FIELDS = Object.freeze([
   { key: 'path', label: '路径' },
@@ -267,7 +262,6 @@ export const AppRoot = {
       taskTraces: [],
       skills: [],
       commandCards: [],
-      prompts: [],
       memory: [],
     });
     const memoryCenter = reactive({
@@ -327,15 +321,6 @@ export const AppRoot = {
       page.value = 'chat';
     }
 
-    async function runPromptTemplate(/** @type {PromptTemplate} */ prompt) {
-      const text = (prompt?.prompt_text || prompt?.description || prompt?.title || '').toString().trim();
-      if (!text) return;
-      const threadId = await ensureAppActiveThread(threadStore, projectStore);
-      if (!threadId) return;
-
-      await threadStore.sendMessage(threadId, text);
-      page.value = 'chat';
-    }
 
     async function refreshDashboardByPage(/** @type {AppPage} */ targetPage) {
       if (targetPage === 'chat' || targetPage === 'settings' || targetPage === 'memory-center') return;
@@ -347,7 +332,6 @@ export const AppRoot = {
       dashboard.taskTraces = Array.isArray(res?.taskTraces) ? res.taskTraces : [];
       dashboard.skills = Array.isArray(res?.skills) ? res.skills : [];
       dashboard.commandCards = Array.isArray(res?.commandCards) ? res.commandCards : [];
-      dashboard.prompts = Array.isArray(res?.prompts) ? res.prompts : [];
       dashboard.memory = Array.isArray(res?.memory) ? res.memory : [];
     }
 
@@ -503,7 +487,6 @@ export const AppRoot = {
       taskAckFields: TASK_ACK_FIELDS,
       taskTraceFields: TASK_TRACE_FIELDS,
       commandFields: COMMAND_FIELDS,
-      promptFields: PROMPT_FIELDS,
       memoryFields: MEMORY_FIELDS,
       tasksItems,
       tasksFields,
@@ -514,7 +497,6 @@ export const AppRoot = {
       refreshDashboardByPage,
       refreshMemoryCenter,
       runCommandCard,
-      runPromptTemplate,
       dagDetail,
       openDagChat,
     };
@@ -570,11 +552,8 @@ export const AppRoot = {
         <CommandsPage
           v-else-if="page === 'commands'"
           :command-cards="dashboard.commandCards"
-          :prompts="dashboard.prompts"
           :command-fields="commandFields"
-          :prompt-fields="promptFields"
           @run-command="runCommandCard"
-          @run-prompt="runPromptTemplate"
         />
 
         <MemoryCenterPage
