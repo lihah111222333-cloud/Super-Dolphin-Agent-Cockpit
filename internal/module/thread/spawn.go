@@ -170,6 +170,19 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 		Prompt:           strings.TrimSpace(userInputForRouter),
 		OwnerThreadID:    row.OwnerThreadID,
 	}
+	// normalizeStartRequest fills in provider default ("codex"), resolves CWD,
+	// sanitizes sandbox, picks approval policy defaults, etc. Without this
+	// step launchAgent would get an empty Provider and fail silently. AgentID
+	// stays intact because normalizeStartRequest only generates a new one
+	// when the field is empty.
+	normalized, normalizedAgentID, err := normalizeStartRequest(req)
+	if err != nil {
+		return false, fmt.Errorf("thread: normalize pending spawn: %w", err)
+	}
+	req = normalized
+	if normalizedAgentID != agentID {
+		return false, fmt.Errorf("thread: normalize rewrote agent_id (%s -> %s); pending row is tied to the original id", agentID, normalizedAgentID)
+	}
 
 	// Router + prompt_versions materialization.
 	s.resolveRoutedPrompt(ctx, &req)
