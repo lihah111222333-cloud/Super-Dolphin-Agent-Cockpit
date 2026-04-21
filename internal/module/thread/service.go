@@ -15,7 +15,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/router"
+
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -77,10 +77,12 @@ type service struct {
 	// recovery has been attempted per agent to prevent infinite loops.
 	sessionRecoveryCount sync.Map // agentID → *atomic.Int32
 
-	// Router wiring — both optional; nil means thread/start falls back to the
-	// provider's own default prompt (no injection, no agent_key recording).
-	promptStore   promptstore.Store
-	routerBackend router.Backend
+	// promptStore is optional; when nil, thread/start skips injection and the
+	// CLI falls back to its bundled system prompt. When wired, it powers the
+	// agent_key → prompt_text lookup in resolveRoutedPrompt. There is no
+	// classifier / router.Backend dependency here by design: this harness
+	// dispatches by explicit agent_key, not by user-intent classification.
+	promptStore promptstore.Store
 }
 
 var _ Service = (*service)(nil)

@@ -19,6 +19,7 @@ type LaunchAgentInput struct {
 	Prompt      string `json:"prompt,omitempty"`
 	ParentID    string `json:"parent_id,omitempty"`
 	AgentType   string `json:"agent_type,omitempty"`
+	AgentKey    string `json:"agent_key,omitempty"`
 	MemoryScope string `json:"memory_scope,omitempty"`
 	CWD         string `json:"cwd,omitempty"`
 	Provider    string `json:"provider,omitempty"`
@@ -105,6 +106,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"prompt":       StringSchema("Optional initial prompt to persist on the launch request."),
 			"parent_id":    StringSchema("Optional parent agent ID for child-agent launches."),
 			"agent_type":   StringSchema("Optional stable agent identity. Required for agent memory routing; display name is not used as a fallback."),
+			"agent_key":    StringSchema("Optional router agent_key. When set, thread/start looks up the matching prompt_template and injects its prompt_text as base_instructions."),
 			"memory_scope": EnumStringSchema("Optional agent memory scope for child-agent launches.", "project", "user", "local"),
 			"cwd":          StringSchema("Optional working directory for the launched agent."),
 			"provider":     EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", "codex", "claude"),
@@ -157,6 +159,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		Prompt:      strings.TrimSpace(in.Prompt),
 		ParentID:    strings.TrimSpace(in.ParentID),
 		AgentType:   strings.TrimSpace(in.AgentType),
+		AgentKey:    strings.TrimSpace(in.AgentKey),
 		MemoryScope: memoryScope,
 		Cwd:         strings.TrimSpace(in.CWD),
 		Command:     []string{strings.TrimSpace(exe)},

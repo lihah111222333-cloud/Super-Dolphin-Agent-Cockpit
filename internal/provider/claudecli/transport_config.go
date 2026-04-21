@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -50,6 +51,7 @@ func launchCLIWithManifest(
 	}
 	args := buildCLIArgs(model, instructions, mcpPath, cfg)
 	logManifestLaunch(binary, cwd, model, mcpPath, manifest)
+	logSystemPromptArgs(args)
 	args = appendFlagIfSet(args, "--resume", resumeID)
 	tr, err := newTransport(binary, args, cwd, nil)
 	if err != nil {
@@ -101,6 +103,58 @@ func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManif
 		"server_count", len(servers),
 		"servers", servers,
 	)
+}
+
+// logSystemPromptArgs dumps every --system-prompt block that we're about to
+// hand to the Claude CLI. For each block we record length, head preview, tail
+// preview, and also write the full content to a timestamped file under the
+// OS temp dir so the operator can grep for known markers (e.g. to check
+// whether a router-injected PromptTemplate actually made it through).
+func logSystemPromptArgs(args []string) {
+	blocks := make([]map[string]any, 0, 4)
+	idx := 0
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] != "--system-prompt" {
+			continue
+		}
+		value := args[i+1]
+		runes := []rune(value)
+		const previewMax = 160
+		head := value
+		if len(runes) > previewMax {
+			head = string(runes[:previewMax]) + "…"
+		}
+		tail := value
+		if len(runes) > previewMax {
+			tail = "…" + string(runes[len(runes)-previewMax:])
+		}
+		dumpPath := writeSystemPromptDump(idx, value)
+		blocks = append(blocks, map[string]any{
+			"index":     idx,
+			"len":       len(value),
+			"head":      head,
+			"tail":      tail,
+			"dump_path": dumpPath,
+		})
+		idx++
+	}
+	pkglogger.Info("claudecli: --system-prompt blocks handed to CLI",
+		"count", len(blocks), "blocks", blocks)
+}
+
+func writeSystemPromptDump(index int, content string) string {
+	dir := filepath.Join(os.TempDir(), "super-agent-systemprompt")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		pkglogger.Warn("claudecli: systemprompt dump mkdir failed", "err", err)
+		return ""
+	}
+	name := fmt.Sprintf("%s-block%d.txt", time.Now().UTC().Format("20060102T150405.000000000"), index)
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		pkglogger.Warn("claudecli: systemprompt dump write failed", "err", err, "path", path)
+		return ""
+	}
+	return path
 }
 
 func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig) []string {

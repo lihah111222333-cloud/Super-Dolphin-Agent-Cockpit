@@ -136,6 +136,7 @@ func launchRequestFromParams(p launchParams) LaunchRequest {
 		Instructions: p.Instructions,
 		ParentID:     p.ParentID,
 		AgentType:    p.AgentType,
+		AgentKey:     p.AgentKey,
 		MemoryScope:  p.MemoryScope,
 		Cwd:          p.CWD,
 		Command:      append([]string(nil), p.Command...),

@@ -165,6 +165,54 @@ func TestClaude_MCP_SmokeTest(t *testing.T) {
 	t.Fatalf("buildCLIArgs() args = %#v, want --mcp-config %q", args, path)
 }
 
+// TestRouterInjectedPromptReachesSystemPromptFlag proves that a PromptTemplate
+// body pushed into StartSessionRequest by the thread-module router survives
+// through resolveStartAssembly + buildCLIArgs and ends up as a --system-prompt
+// argument on the Claude CLI invocation. If this test fails, the injection is
+// actually broken. If it passes but the live agent still answers "I am
+// Claude", the template content is just too generic to override identity.
+func TestRouterInjectedPromptReachesSystemPromptFlag(t *testing.T) {
+	t.Parallel()
+
+	const routerBody = "ROUTER_INJECTED_PROMPT_BODY_通用助手"
+
+	req := dto.StartSessionRequest{
+		Provider:     "claude",
+		Instructions: routerBody,
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions: routerBody,
+			Snapshot: dto.PromptAssemblySnapshot{
+				BaseInstructions: routerBody,
+			},
+		},
+	}
+	assembly := resolveStartAssembly(req, cliLaunchConfig{}, "claude")
+	if assembly.BaseInstructions != routerBody {
+		t.Fatalf("assembly.BaseInstructions = %q, want router body", assembly.BaseInstructions)
+	}
+	if assembly.Snapshot.BaseInstructions != routerBody {
+		t.Fatalf("assembly.Snapshot.BaseInstructions = %q, want router body", assembly.Snapshot.BaseInstructions)
+	}
+
+	cfg := cliLaunchConfig{
+		PromptSnapshot: contract.PromptAssemblySnapshot{
+			BaseInstructions: assembly.Snapshot.BaseInstructions,
+		},
+	}
+	args := buildCLIArgs("claude-sonnet", assembly.BaseInstructions, "", cfg)
+
+	found := false
+	for _, v := range flagValues(args, "--system-prompt") {
+		if v == routerBody {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("--system-prompt flag values = %#v, want one equal to %q", flagValues(args, "--system-prompt"), routerBody)
+	}
+}
+
 func flagValues(args []string, flag string) []string {
 	values := make([]string, 0, len(args)/2)
 	for i := 0; i < len(args)-1; i++ {

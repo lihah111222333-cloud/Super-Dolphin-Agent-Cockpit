@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/router"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
@@ -47,11 +45,7 @@ func (f *fakePromptStore) WithTx(context.Context, func(promptstore.Store) error)
 }
 
 func newServiceWithRouter(store *fakePromptStore) *service {
-	s := &service{
-		promptStore:   store,
-		routerBackend: router.NewRuleRouter(),
-	}
-	return s
+	return &service{promptStore: store}
 }
 
 func sqlTemplate(promptKey, agentKey, text string, tags []string) promptstore.PromptTemplate {
@@ -66,30 +60,55 @@ func sqlTemplate(promptKey, agentKey, text string, tags []string) promptstore.Pr
 	}
 }
 
-func TestResolveRoutedPrompt_RouterMatchFillsAllFields(t *testing.T) {
+// TestResolveRoutedPrompt_EmptyAgentKeyFallsBackToDefaultPromptKey asserts
+// that when the caller does not pin an agent_key (the typical UI "open a
+// fresh thread" path), pickRoutedTemplate lands on the hardcoded
+// `main/default` persona and stamps req.AgentKey with that row's agent_key.
+func TestResolveRoutedPrompt_EmptyAgentKeyFallsBackToDefaultPromptKey(t *testing.T) {
 	t.Parallel()
 	store := &fakePromptStore{
 		templates: []promptstore.PromptTemplate{
-			sqlTemplate("main/sql", "sql_expert", "You are a SQL expert.", []string{"SQL", "database"}),
-			sqlTemplate("main/ui", "ui_expert", "You are a UI expert.", []string{"React", "CSS"}),
+			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{Prompt: "please help me write a SQL query"}
+	req := &StartRequest{Prompt: "any user input at all"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
-	if req.AgentKey != "sql_expert" {
-		t.Fatalf("agent_key: want sql_expert, got %q", req.AgentKey)
+	if req.AgentKey != "main" {
+		t.Fatalf("want agent_key=main (from default prompt row), got %q", req.AgentKey)
 	}
-	if req.PromptVersionID == nil || *req.PromptVersionID != 1 {
-		t.Fatalf("prompt_version_id: want ptr to 1, got %v", req.PromptVersionID)
+	if req.PromptKey != defaultPromptKey {
+		t.Fatalf("want prompt_key=%q, got %q", defaultPromptKey, req.PromptKey)
 	}
-	if !strings.Contains(req.BaseInstructions, "SQL expert") {
-		t.Fatalf("BaseInstructions not injected: %q", req.BaseInstructions)
+	if req.BaseInstructions != "default body" {
+		t.Fatalf("want default body injected, got %q", req.BaseInstructions)
 	}
-	if store.lastInsertVersion.PromptKey != "main/sql" {
-		t.Fatalf("materialized wrong prompt_key: %q", store.lastInsertVersion.PromptKey)
+	if req.PromptVersionID == nil {
+		t.Fatalf("prompt_version_id should be set on successful inject")
+	}
+}
+
+// TestResolveRoutedPrompt_EmptyAgentKeyAndNoDefaultLeavesRequestUntouched
+// asserts the degenerate case where the defaultPromptKey row does not exist
+// in the store: we do not invent a fallback, we simply leave req alone and
+// let the provider CLI use its bundled system prompt.
+func TestResolveRoutedPrompt_EmptyAgentKeyAndNoDefaultLeavesRequestUntouched(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{Prompt: "anything"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.AgentKey != "" || req.PromptVersionID != nil || req.BaseInstructions != "" {
+		t.Fatalf("expected untouched req when no default row exists, got %+v", req)
 	}
 }
 
@@ -142,20 +161,29 @@ func TestResolveRoutedPrompt_ExplicitAgentKeyBypassesRouter(t *testing.T) {
 	}
 }
 
-func TestResolveRoutedPrompt_NoMatchLeavesRequestUntouched(t *testing.T) {
+// TestResolveRoutedPrompt_UnknownExplicitAgentKeyLeavesRequestUntouched:
+// caller pinned an agent_key that has no matching (or only disabled) rows.
+// We must not silently fall back to the default — the caller asked for a
+// specific identity; returning the wrong one would be worse than returning
+// none. Upstream CLI then uses its bundled prompt.
+func TestResolveRoutedPrompt_UnknownExplicitAgentKeyLeavesRequestUntouched(t *testing.T) {
 	t.Parallel()
 	store := &fakePromptStore{
 		templates: []promptstore.PromptTemplate{
-			sqlTemplate("main/sql", "sql_expert", "db body", []string{"database"}),
+			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{Prompt: "hello world, no relevant tags"}
+	req := &StartRequest{AgentKey: "does-not-exist", Prompt: "whatever"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
-	if req.AgentKey != "" || req.PromptVersionID != nil || req.BaseInstructions != "" {
-		t.Fatalf("expected untouched req, got %+v", req)
+	if req.PromptVersionID != nil || req.BaseInstructions != "" || req.PromptKey != "" {
+		t.Fatalf("unknown agent_key must not fall through to default: %+v", req)
+	}
+	if req.AgentKey != "does-not-exist" {
+		t.Fatalf("caller-pinned agent_key should be preserved: %q", req.AgentKey)
 	}
 }
 
@@ -163,13 +191,13 @@ func TestResolveRoutedPrompt_InsertVersionFailStillRecordsAgentKey(t *testing.T)
 	t.Parallel()
 	store := &fakePromptStore{
 		templates: []promptstore.PromptTemplate{
-			sqlTemplate("main/sql", "sql_expert", "db body", []string{"sql"}),
+			sqlTemplate("main/sql", "sql_expert", "db body", nil),
 		},
 		insertErr: errors.New("simulated"),
 	}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{Prompt: "need SQL help"}
+	req := &StartRequest{AgentKey: "sql_expert"}
 	s.resolveRoutedPrompt(context.Background(), req)
 
 	if req.AgentKey != "sql_expert" {
@@ -185,24 +213,41 @@ func TestResolveRoutedPrompt_InsertVersionFailStillRecordsAgentKey(t *testing.T)
 
 func TestResolveRoutedPrompt_NoStoreIsNoop(t *testing.T) {
 	t.Parallel()
-	s := &service{routerBackend: router.NewRuleRouter()} // no promptStore
-	req := &StartRequest{Prompt: "SQL"}
+	s := &service{} // no promptStore wired
+	req := &StartRequest{AgentKey: "sql_expert", Prompt: "SQL"}
 	s.resolveRoutedPrompt(context.Background(), req)
-	if req.AgentKey != "" || req.PromptVersionID != nil {
+	if req.PromptVersionID != nil || req.BaseInstructions != "" || req.PromptKey != "" {
 		t.Fatalf("no-store path must be noop: %+v", req)
+	}
+}
+
+func TestResolveRoutedPrompt_AgentKeyMatchIsCaseAndWhitespaceInsensitive(t *testing.T) {
+	t.Parallel()
+	tpl := sqlTemplate("main/orchestrator", "  Orchestrator ", "you coordinate", nil)
+	store := &fakePromptStore{templates: []promptstore.PromptTemplate{tpl}}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{AgentKey: "orchestrator"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.BaseInstructions != "you coordinate" {
+		t.Fatalf("case-insensitive agent_key match failed, BaseInstructions=%q", req.BaseInstructions)
+	}
+	if req.PromptKey != "main/orchestrator" {
+		t.Fatalf("prompt_key not recorded: %q", req.PromptKey)
 	}
 }
 
 func TestResolveRoutedPrompt_DisabledTemplateSkipped(t *testing.T) {
 	t.Parallel()
-	tpl := sqlTemplate("main/sql", "sql_expert", "db body", []string{"sql"})
+	tpl := sqlTemplate("main/sql", "sql_expert", "db body", nil)
 	tpl.Enabled = false
 	store := &fakePromptStore{templates: []promptstore.PromptTemplate{tpl}}
 	s := newServiceWithRouter(store)
 
-	req := &StartRequest{Prompt: "need SQL"}
+	req := &StartRequest{AgentKey: "sql_expert"}
 	s.resolveRoutedPrompt(context.Background(), req)
-	if req.AgentKey != "" || req.BaseInstructions != "" {
+	if req.BaseInstructions != "" || req.PromptKey != "" {
 		t.Fatalf("disabled template must be ignored: %+v", req)
 	}
 }

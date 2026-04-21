@@ -16,6 +16,7 @@ type launchParams struct {
 	Command      []string          `json:"command,omitempty"`
 	ParentID     string            `json:"parent_id,omitempty"`
 	AgentType    string            `json:"agent_type,omitempty"`
+	AgentKey     string            `json:"agent_key,omitempty"`
 	MemoryScope  string            `json:"memory_scope,omitempty"`
 	Env          map[string]string `json:"env,omitempty"`
 }
