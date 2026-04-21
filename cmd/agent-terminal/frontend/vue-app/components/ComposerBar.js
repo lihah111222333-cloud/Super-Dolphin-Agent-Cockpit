@@ -35,7 +35,7 @@ export const ComposerBar = {
     threadConfigNotice: { type: String, default: '' },
     threadConfigNoticeLevel: { type: String, default: 'info' },
     threadConfigMeta: { type: Object, default: () => ({ override: {}, effective: {} }) },
-    agentKeyPreview: { type: String, default: '' },
+    routerPreview: { type: Object, default: null },
   },
   emits: [
     'send', 'interrupt', 'compact', 'toggle-skill', 'select-all-skills', 'clear-skills',
@@ -329,10 +329,16 @@ export const ComposerBar = {
         </span>
       </div>
 
-      <div v-if="agentKeyPreview" class="composer-agent-preview-hint" data-testid="composer-agent-preview-hint" :title="'路由预览：命中 agent ' + agentKeyPreview">
+      <div v-if="routerPreview && (routerPreview.title || routerPreview.agentKey)" class="composer-agent-preview-hint" data-testid="composer-agent-preview-hint" :title="[
+        routerPreview.title ? ('角色：' + routerPreview.title) : '',
+        routerPreview.agentKey ? ('agent_key：' + routerPreview.agentKey) : '',
+        routerPreview.promptKey ? ('prompt_key：' + routerPreview.promptKey) : '',
+        routerPreview.reason ? ('原因：' + routerPreview.reason) : '',
+      ].filter(Boolean).join(' / ')">
         <span class="composer-agent-preview-dot" aria-hidden="true"></span>
         <span class="composer-agent-preview-label">路由预览</span>
-        <span class="composer-agent-preview-key">{{ agentKeyPreview }}</span>
+        <span class="composer-agent-preview-key">{{ routerPreview.title || routerPreview.agentKey }}</span>
+        <span v-if="routerPreview.promptKey" class="composer-agent-preview-prompt">· {{ routerPreview.promptKey }}</span>
       </div>
       <div id="input-row" class="chat-input-row-vue" data-testid="composer-input-row">
         <button id="btnAttach" class="btn btn-secondary" data-testid="composer-attach-button" @click="onAttach" :disabled="composer.state.attaching || disabled">
