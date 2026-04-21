@@ -114,7 +114,7 @@ describe('useThreadActions', () => {
     await vm.launchOne();
 
     expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('');
-    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat' });
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat', deferSpawn: true });
     expect(vm.deps.selectedThreadId.value).toBe('thread-started');
   });
 
@@ -136,6 +136,7 @@ describe('useThreadActions', () => {
       focusMode: 'chat',
       selectedSkills: ['skillA', 'skillB'],
       manualSkillSelection: true,
+      deferSpawn: true,
     });
     expect(vm.deps.clearLaunchSkillSelection).toHaveBeenCalledTimes(1);
     expect(vm.deps.selectedThreadId.value).toBe('thread-started');

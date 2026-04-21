@@ -114,6 +114,12 @@ async function resolveLaunchStartPayload(text, focusMode, resolveLaunchSkillSele
   // an empty string and falls back to no injection.
   if (typeof text === 'string' && text.trim()) {
     startOptions.prompt = text;
+  } else {
+    // C1 opt-in: empty composer means the user clicked “启动 Agent” without
+    // typing yet. Tell the backend to create a pending_launch row instead
+    // of forking Claude CLI immediately — the real spawn happens on the
+    // first turn/start once router has real user input to classify.
+    startOptions.deferSpawn = true;
   }
   return {
     enabled,
