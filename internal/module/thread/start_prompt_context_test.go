@@ -91,6 +91,22 @@ func TestBuildStartCtxInjectsPersistentSubagentDefaultFromConfig(t *testing.T) {
 	}
 }
 
+func TestBuildStartCtxFiltersSpawnAgentWhenPersistentManagedLaunchEnabled(t *testing.T) {
+	t.Parallel()
+
+	ctx := buildStartCtx(StartRequest{
+		Config: map[string]any{
+			"enabledTools": []any{"spawn_agent", "orchestration_launch_agent", "request_user_input"},
+		},
+	}, &platformconfig.Config{
+		Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true},
+	}, nil)
+
+	if got := sortedStrings(ctx.EnabledTools); !slices.Equal(got, []string{"orchestration_launch_agent", "request_user_input"}) {
+		t.Fatalf("EnabledTools = %#v, want managed-only child-agent tools", ctx.EnabledTools)
+	}
+}
+
 func TestBuildStartCtxPreservesExplicitPersistentSubagentOverride(t *testing.T) {
 	t.Parallel()
 

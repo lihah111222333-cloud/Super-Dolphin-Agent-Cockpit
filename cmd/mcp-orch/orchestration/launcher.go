@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
@@ -138,6 +139,191 @@ func rpcString(v any) string {
 	return strings.TrimSpace(s)
 }
 
+func normalizeManagedAgentDisplayName(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	value = strings.Trim(value, "`\"'“”‘’[]()（）【】")
+	return strings.TrimSpace(value)
+}
+
+func hasASCIIOnly(value string) bool {
+	for _, r := range value {
+		if r > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+func isGenericManagedAgentToken(token string) bool {
+	switch strings.ToLower(strings.TrimSpace(token)) {
+	case "", "agent", "subagent", "sub", "child", "worker", "helper", "assistant", "planner", "reviewer", "verifier", "review", "verify", "research", "researcher", "explore", "explorer", "ui", "task", "thread", "runner", "run", "background", "temp", "tmp", "job", "creator", "coder", "codex", "claude":
+		return true
+	default:
+		return false
+	}
+}
+
+func looksTechnicalManagedAgentName(value string) bool {
+	name := normalizeManagedAgentDisplayName(value)
+	if name == "" {
+		return true
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return true
+	}
+	lower := strings.ToLower(name)
+	hasSpace := strings.ContainsRune(lower, ' ')
+	tokenFields := strings.FieldsFunc(lower, func(r rune) bool {
+		return r == ' ' || r == '-' || r == '_' || r == '.' || r == '/'
+	})
+	if !hasSpace && len(tokenFields) > 0 {
+		allGeneric := true
+		for _, token := range tokenFields {
+			if !isGenericManagedAgentToken(token) {
+				allGeneric = false
+				break
+			}
+		}
+		if allGeneric {
+			return true
+		}
+	}
+	if !hasASCIIOnly(lower) {
+		return false
+	}
+	if strings.ContainsAny(lower, "-_.") {
+		return true
+	}
+	for _, r := range lower {
+		if unicode.IsDigit(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripManagedAgentListPrefix(line string) string {
+	line = strings.TrimSpace(line)
+	line = strings.TrimLeft(line, "-*•> ")
+	var digitCount int
+	for _, r := range line {
+		if !unicode.IsDigit(r) {
+			break
+		}
+		digitCount += 1
+	}
+	if digitCount > 0 {
+		rest := strings.TrimSpace(line[digitCount:])
+		for _, prefix := range []string{".", "、", ")", "）", "]", "】", ":"} {
+			if strings.HasPrefix(rest, prefix) {
+				return strings.TrimSpace(rest[len(prefix):])
+			}
+		}
+	}
+	return strings.TrimSpace(line)
+}
+
+func trimManagedAgentPromptLead(line string) string {
+	line = strings.TrimSpace(line)
+	for _, prefix := range []string{"请专注于", "请负责", "子任务：", "子任务:", "麻烦你", "请你", "你负责", "专注于", "任务：", "任务:", "帮我", "帮忙", "请"} {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(line[len(prefix):])
+		}
+	}
+	lower := strings.ToLower(line)
+	for _, prefix := range []string{"please ", "task: ", "task:", "subtask: ", "subtask:"} {
+		if strings.HasPrefix(lower, prefix) {
+			return strings.TrimSpace(line[len(prefix):])
+		}
+	}
+	return line
+}
+
+func firstManagedAgentTitleClause(line string) string {
+	runes := []rune(strings.TrimSpace(line))
+	for idx, r := range runes {
+		switch r {
+		case '，', ',', '。', '.', '；', ';', '：', ':', '！', '!', '？', '?':
+			if idx >= 4 {
+				return strings.TrimSpace(string(runes[:idx]))
+			}
+		}
+	}
+	return strings.TrimSpace(string(runes))
+}
+
+func truncateManagedAgentTitle(line string, max int) string {
+	runes := []rune(strings.TrimSpace(line))
+	if len(runes) <= max {
+		return strings.TrimSpace(line)
+	}
+	return strings.TrimSpace(string(runes[:max]))
+}
+
+func deriveManagedAgentTaskTitle(raw string) string {
+	text := normalizeManagedAgentDisplayName(raw)
+	if text == "" {
+		return ""
+	}
+	for _, rawLine := range strings.Split(text, "\n") {
+		line := stripManagedAgentListPrefix(rawLine)
+		line = trimManagedAgentPromptLead(line)
+		line = normalizeManagedAgentDisplayName(line)
+		if line == "" || strings.HasPrefix(line, "```") {
+			continue
+		}
+		line = firstManagedAgentTitleClause(line)
+		line = truncateManagedAgentTitle(line, 32)
+		if len([]rune(line)) >= 4 {
+			return line
+		}
+	}
+	text = truncateManagedAgentTitle(text, 32)
+	if len([]rune(text)) < 4 {
+		return ""
+	}
+	return text
+}
+
+func managedAgentLaunchDisplayName(name, prompt string) string {
+	cleanName := normalizeManagedAgentDisplayName(name)
+	if candidate := deriveManagedAgentTaskTitle(prompt); candidate != "" && looksTechnicalManagedAgentName(cleanName) {
+		return candidate
+	}
+	return cleanName
+}
+
+func firstManagedAgentTextInputContent(submission TurnSubmission) string {
+	for _, item := range submission.Inputs {
+		if strings.EqualFold(strings.TrimSpace(item.Type), "text") {
+			return item.Content
+		}
+	}
+	return ""
+}
+
+func maybeUpdateRemoteManagedAgentName(ctx context.Context, launcher *remoteLauncher, agent *agentRuntime, submission TurnSubmission) {
+	if launcher == nil || agent == nil || strings.TrimSpace(agent.remoteThreadID) == "" || !looksTechnicalManagedAgentName(agent.name) {
+		return
+	}
+	candidate := deriveManagedAgentTaskTitle(firstManagedAgentTextInputContent(submission))
+	if candidate == "" || candidate == normalizeManagedAgentDisplayName(agent.name) {
+		return
+	}
+	if _, err := rpcCall[struct{}](ctx, launcher, "thread/name/set", map[string]any{
+		"thread_id": agent.remoteThreadID,
+		"name":      candidate,
+	}); err != nil {
+		pkglogger.Warn("remoteLauncher: thread/name/set RPC failed",
+			"agent_id", agent.id,
+			"thread_id", agent.remoteThreadID,
+			"name", candidate,
+			"error", err)
+		return
+	}
+	agent.name = candidate
+}
+
 func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error) {
 	if agent == nil {
 		return LaunchResult{}, errors.New("agent is required")
@@ -148,9 +334,10 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	// display-name slot and rejects the call with -32602 when both are present
 	// with different values. Collapse them here: send only `name`, falling back
 	// to req.Prompt when Name is empty.
+	displayName := managedAgentLaunchDisplayName(req.Name, req.Prompt)
 	resp, err := rpcCall[map[string]any](ctx, r, "thread/start", map[string]any{
 		"cwd":                strings.TrimSpace(req.Cwd),
-		"name":               shared.FirstTrimmed(req.Name, req.Prompt),
+		"name":               shared.FirstTrimmed(displayName, req.Prompt),
 		"agent_type":         strings.TrimSpace(req.AgentType),
 		"agent_memory_scope": strings.TrimSpace(req.MemoryScope),
 		"parent_agent_id":    strings.TrimSpace(req.ParentID),
@@ -199,6 +386,7 @@ func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, su
 	if agent == nil || agent.remoteThreadID == "" {
 		return "", errors.New("remote thread id is required")
 	}
+	maybeUpdateRemoteManagedAgentName(ctx, r, agent, submission)
 	params := map[string]any{
 		"thread_id":              agent.remoteThreadID,
 		"input":                  submission.Inputs,

@@ -87,7 +87,9 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session p
 		ThreadCaps:                   caps,
 		BinaryDir:                    spec.BinaryDir,
 	}
-	return hydratePrepareInput(input, session)
+	input = hydratePrepareInput(input, session)
+	input.EnabledTools = applyPersistentSubagentToolPolicy(input.EnabledTools, input.SessionFlags)
+	return input
 }
 
 func hydratePrepareInput(input PrepareInput, session prepareInputSession) PrepareInput {
@@ -220,6 +222,50 @@ func clonePrepareFlags(flags map[string]bool) map[string]bool {
 		return nil
 	}
 	return cloned
+}
+
+func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]bool) []string {
+	if !persistentSubagentDefaultEnabled(flags) || len(enabledTools) == 0 {
+		return enabledTools
+	}
+	hasManaged := false
+	hasSpawn := false
+	for _, tool := range enabledTools {
+		switch strings.TrimSpace(tool) {
+		case "orchestration_launch_agent":
+			hasManaged = true
+		case "spawn_agent":
+			hasSpawn = true
+		}
+	}
+	if !hasManaged || !hasSpawn {
+		return enabledTools
+	}
+	filtered := make([]string, 0, len(enabledTools)-1)
+	for _, tool := range enabledTools {
+		if strings.TrimSpace(tool) == "spawn_agent" {
+			continue
+		}
+		filtered = append(filtered, tool)
+	}
+	return filtered
+}
+
+func persistentSubagentDefaultEnabled(flags map[string]bool) bool {
+	if len(flags) == 0 {
+		return false
+	}
+	replacer := strings.NewReplacer("_", "", "-", "", " ", "")
+	for key, enabled := range flags {
+		if !enabled {
+			continue
+		}
+		switch replacer.Replace(strings.ToLower(strings.TrimSpace(key))) {
+		case "persistentsubagentdefault", "managedsubagentdefault", "uipersistentsubagentdefault":
+			return true
+		}
+	}
+	return false
 }
 
 func cloneMCPSnapshot(snapshot contract.MCPSnapshot) contract.MCPSnapshot {

@@ -115,8 +115,8 @@ func sessionGuidanceCases() []sessionGuidanceCase {
 			name:         "persistent_child_agents_prefer_managed_launch",
 			enabledTools: []string{"spawn_agent", "orchestration_launch_agent", "lsp_grep", "lsp_file"},
 			flags:        map[string]bool{"persistent_subagent_default": true, "explore_agent_enabled": true},
-			want:         []string{"default to `orchestration_launch_agent`", "persistent UI-visible agent", "temporary background subtasks", "explore-oriented `spawn_agent` subtask"},
-			absent:       []string{"Use `spawn_agent` only for well-scoped parallel subtasks."},
+			want:         []string{"`orchestration_launch_agent`", "persistent UI-visible agent"},
+			absent:       []string{"`spawn_agent`", "temporary background subtasks", "explore-oriented `spawn_agent` subtask", "Use `spawn_agent` only for well-scoped parallel subtasks."},
 		},
 		{
 			name:         "managed_agent_only_still_shows_persistent_guidance",

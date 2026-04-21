@@ -105,6 +105,21 @@ func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 	}
 }
 
+func TestBuildPrepareInputFiltersSpawnAgentWhenPersistentManagedLaunchEnabled(t *testing.T) {
+	t.Parallel()
+
+	input := buildPrepareInput(prepareInputSpec{
+		ThreadRuntimeConfig: map[string]any{
+			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent", "request_user_input"},
+			"sessionFlags": map[string]any{"persistent_subagent_default": true},
+		},
+	}, prepareSkillSpec{}, nil)
+
+	if got := input.EnabledTools; len(got) != 2 || got[0] != "orchestration_launch_agent" || got[1] != "request_user_input" {
+		t.Fatalf("EnabledTools = %#v, want managed-only child-agent tools", input.EnabledTools)
+	}
+}
+
 func TestResolveTurnSessionRejectsNilSession(t *testing.T) {
 	t.Parallel()
 

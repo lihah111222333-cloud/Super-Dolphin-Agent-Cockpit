@@ -101,7 +101,7 @@ func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
 func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("orchestration_launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{
-			"name":         StringSchema("Agent name. Used as the orchestration agent ID and default UI display name."),
+			"name":         StringSchema("User-facing agent name. Prefer a short friendly name tied to the task; avoid paths, IDs, and generic labels like worker-agent."),
 			"prompt":       StringSchema("Optional initial prompt to persist on the launch request."),
 			"parent_id":    StringSchema("Optional parent agent ID for child-agent launches."),
 			"agent_type":   StringSchema("Optional stable agent identity. Required for agent memory routing; display name is not used as a fallback."),

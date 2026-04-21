@@ -155,6 +155,9 @@ func sessionGuidanceInteractiveCommandItem(flags map[string]bool) (string, bool)
 func sessionGuidanceAgentItems(enabled map[string]struct{}, flags map[string]bool) []string {
 	hasSpawn := sessionGuidanceToolEnabled(enabled, "spawn_agent")
 	hasManaged := sessionGuidanceToolEnabled(enabled, "orchestration_launch_agent")
+	if hasManaged && sessionGuidancePersistentSubagentDefault(flags) {
+		hasSpawn = false
+	}
 	if !hasSpawn && !hasManaged {
 		return nil
 	}
@@ -172,10 +175,10 @@ func sessionGuidanceAgentDelegationItem(enabled map[string]struct{}, flags map[s
 	hasSpawn := sessionGuidanceToolEnabled(enabled, "spawn_agent")
 	hasManaged := sessionGuidanceToolEnabled(enabled, "orchestration_launch_agent")
 	if hasManaged && sessionGuidancePersistentSubagentDefault(flags) {
-		if hasSpawn {
-			return "When creating a child agent for the user, default to `orchestration_launch_agent` so it appears as a persistent UI-visible agent. Use `spawn_agent` only for temporary background subtasks that should not create a sidebar conversation."
-		}
-		return "When creating a child agent for the user, use `orchestration_launch_agent` so it appears as a persistent UI-visible agent."
+		hasSpawn = false
+	}
+	if hasManaged && sessionGuidancePersistentSubagentDefault(flags) {
+		return "When creating a child agent for the user, use `orchestration_launch_agent` so it appears as a persistent UI-visible agent. Give it a short, user-friendly task name rather than an internal slug or generic role label."
 	}
 	if hasSpawn && sessionGuidanceForkMode(flags) {
 		return "This session is using fork-style delegation: use `spawn_agent` for longer background research or implementation that would otherwise flood the main context. If you are already the delegated worker, execute directly and do not bounce the same task into another fork."
@@ -183,7 +186,7 @@ func sessionGuidanceAgentDelegationItem(enabled map[string]struct{}, flags map[s
 	if hasSpawn {
 		return "Use `spawn_agent` only for well-scoped parallel subtasks. Keep urgent blocking work local, avoid duplicating delegated work, give each subagent clear ownership, and integrate its results before reporting completion."
 	}
-	return "Use `orchestration_launch_agent` for child agents that should remain available in the UI as persistent conversations."
+	return "Use `orchestration_launch_agent` for child agents that should remain available in the UI as persistent conversations, and give them short, user-friendly task names."
 }
 
 func sessionGuidanceExploreItem(enabled map[string]struct{}) string {
