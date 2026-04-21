@@ -388,6 +388,7 @@ export const SkillsPage = {
                     预览正文
                   </button>
                 </div>
+              </div>
               <div
                 v-if="!isBodyEditing"
                 class="skills-body-preview chat-item-markdown agent-markdown-root"
