@@ -17,6 +17,10 @@ import "context"
 
 type Service interface {
 	Classify(ctx context.Context, req ClassifyRequest) (ClassifyResult, error)
+	// RunTests replays every enabled row of prompt_routing_tests through the
+	// live RuleRouter + prompt_templates and reports pass/fail. Call from CI
+	// before deploying a tag change to catch silent routing drift.
+	RunTests(ctx context.Context) (RunTestsResult, error)
 }
 
 type ClassifyRequest struct {
@@ -30,4 +34,23 @@ type ClassifyResult struct {
 	Title      string  `json:"title,omitempty"`
 	Reason     string  `json:"reason,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
+}
+
+type RunTestsResult struct {
+	Total    int           `json:"total"`
+	Passed   int           `json:"passed"`
+	Failed   int           `json:"failed"`
+	Skipped  int           `json:"skipped"`
+	Failures []TestFailure `json:"failures,omitempty"`
+}
+
+type TestFailure struct {
+	ID            int64  `json:"id"`
+	Input         string `json:"input"`
+	Expected      string `json:"expected_prompt_key"`
+	Actual        string `json:"actual_prompt_key,omitempty"`
+	Matched       bool   `json:"matched"`
+	Reason        string `json:"reason,omitempty"`
+	RouterReason  string `json:"router_reason,omitempty"`
+	Note          string `json:"note,omitempty"`
 }

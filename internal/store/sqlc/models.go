@@ -82,6 +82,16 @@ type CommandCardVersion struct {
 	ArchivedAt      time.Time  `db:"archived_at" json:"archived_at"`
 }
 
+type PromptRoutingTest struct {
+	ID                int64              `db:"id" json:"id"`
+	Input             string             `db:"input" json:"input"`
+	ExpectedPromptKey string             `db:"expected_prompt_key" json:"expected_prompt_key"`
+	Note              string             `db:"note" json:"note"`
+	Enabled           bool               `db:"enabled" json:"enabled"`
+	CreatedAt         pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
 type SharedFile struct {
 	Path      string    `db:"path" json:"path"`
 	Content   string    `db:"content" json:"content"`

@@ -9,25 +9,29 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	routerpkg "github.com/anthropic-ai/super-agent-v3/internal/router"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	rtstore "github.com/anthropic-ai/super-agent-v3/internal/store/routingtest"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type service struct {
-	logger  *slog.Logger
-	backend routerpkg.Backend
-	store   promptstore.Reader
+	logger          *slog.Logger
+	backend         routerpkg.Backend
+	store           promptstore.Reader
+	routingTestRead rtstore.Reader // optional
 }
 
 var _ Service = (*service)(nil)
 
 // NewService wires the preview classifier. backend and store are both
 // optional \u2014 a nil dependency returns Matched=false; callers should treat
-// "no preview" as normal rather than an error.
-func NewService(logger *slog.Logger, backend routerpkg.Backend, store promptstore.Reader) Service {
+// "no preview" as normal rather than an error. routingTestRead is optional
+// too; when nil RunTests returns an empty result (useful for DBs that have
+// not been seeded with tests yet).
+func NewService(logger *slog.Logger, backend routerpkg.Backend, store promptstore.Reader, routingTestRead rtstore.Reader) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &service{logger: logger, backend: backend, store: store}
+	return &service{logger: logger, backend: backend, store: store, routingTestRead: routingTestRead}
 }
 
 func (s *service) Classify(ctx context.Context, req ClassifyRequest) (ClassifyResult, error) {
