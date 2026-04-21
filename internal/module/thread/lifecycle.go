@@ -44,6 +44,7 @@ type threadState struct {
 	CreatedAt        int64
 	AgentKey         string
 	PromptVersionID  *int64
+	PendingLaunch    bool
 }
 
 type threadMeta struct {
@@ -81,6 +82,14 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	req, agentID, err := normalizeStartRequest(req)
 	if err != nil {
 		return StartResult{}, err
+	}
+	// C1 — when the caller has nothing to classify yet (empty composer) we
+	// defer the provider-CLI fork to the first turn. startPendingThread writes
+	// a placeholder agent_threads row with pending_launch=true and returns so
+	// the UI can show the card immediately; the real spawn happens in
+	// SpawnIfNeeded once turn/start arrives with real user input.
+	if isPendingLaunchIntent(req) {
+		return s.startPendingThread(ctx, req, agentID)
 	}
 	// Router resolution runs before prompt assembly so its output (BaseInstructions)
 	// is visible to the assembly step, and its sidecar metadata (AgentKey,

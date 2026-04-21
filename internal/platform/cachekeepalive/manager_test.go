@@ -112,6 +112,9 @@ func (*threadStoreStub) Upsert(context.Context, threadstore.UpsertParams) error 
 func (*threadStoreStub) UpdateStatus(context.Context, threadstore.UpdateStatusParams) error {
 	return nil
 }
+func (*threadStoreStub) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
+	return nil
+}
 func (*threadStoreStub) DeleteByThreadID(context.Context, string) error { return nil }
 func (*threadStoreStub) ResetRunning(context.Context) error             { return nil }
 func (*threadStoreStub) ExpireStale(context.Context, threadstore.ExpireStaleParams) (int64, error) {

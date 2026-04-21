@@ -15,6 +15,11 @@ type Service interface {
 	Fork(ctx context.Context, threadID string) (ForkResult, error)
 	Recover(ctx context.Context, threadID string) (RecoverResult, error)
 	Handoff(ctx context.Context, req HandoffRequest) (HandoffResult, error)
+	// SpawnIfNeeded forks the provider CLI for a thread that was created
+	// in pending_launch state (see Start with empty prompt). Safe to call
+	// concurrently; only the first caller per thread actually spawns.
+	// Returns launched=true iff this call performed the spawn.
+	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (launched bool, err error)
 
 	List(ctx context.Context) ([]Ref, error)
 	Get(ctx context.Context, id string) (*Ref, error)
@@ -77,6 +82,14 @@ type StartRequest struct {
 	// OwnerThreadID links this thread back to a predecessor (e.g. the source
 	// thread in a handoff). Empty for brand-new top-level threads.
 	OwnerThreadID string
+
+	// DeferSpawn opts into the C1 "pending_launch" flow: the service writes
+	// the agent_threads row without forking the provider CLI and returns a
+	// StartResult with PendingLaunch=true. The real spawn happens lazily in
+	// SpawnIfNeeded once turn/start arrives with real user input that router
+	// can classify. Legacy callers (Handoff, Resume, tests) leave this false
+	// and get the eager fork path unchanged.
+	DeferSpawn bool
 }
 
 type StartResult struct {
@@ -93,6 +106,11 @@ type StartResult struct {
 	// the router picked and which prompt_versions row was injected.
 	AgentKey        string `json:"agent_key,omitempty"`
 	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
+	// PendingLaunch=true means the backend wrote the thread row but did not
+	// fork the provider CLI yet. The real spawn happens on the first turn,
+	// once router has a real user input to classify. UI should render such
+	// threads with a "pending" marker and flip to running on thread.launched.
+	PendingLaunch bool `json:"pending_launch,omitempty"`
 }
 
 type ResumeRequest struct {

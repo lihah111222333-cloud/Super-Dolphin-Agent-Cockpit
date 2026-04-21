@@ -44,6 +44,7 @@ type threadStateFields struct {
 	CreatedAt         int64
 	AgentKey          string
 	PromptVersionID   *int64
+	PendingLaunch     bool
 }
 
 func newThreadState(kind threadStateKind, fields threadStateFields) threadState {
@@ -77,6 +78,7 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	state.CreatedAt = firstNonZero(fields.CreatedAt)
 	state.AgentKey = strings.TrimSpace(fields.AgentKey)
 	state.PromptVersionID = fields.PromptVersionID
+	state.PendingLaunch = fields.PendingLaunch
 	return state
 }
 
@@ -98,6 +100,7 @@ func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
 		ConfigOverride:   thread.ConfigOverride,
 		AgentKey:         strings.TrimSpace(thread.AgentKey),
 		PromptVersionID:  thread.PromptVersionID,
+		PendingLaunch:    thread.PendingLaunch,
 	}
 }
 
@@ -125,6 +128,7 @@ const (
 	threadEventStoppedKind      threadEventKind = "stopped"
 	threadEventMessagesPageKind threadEventKind = "messages_page"
 	threadEventCompactedKind    threadEventKind = "compacted"
+	threadEventLaunchedKind     threadEventKind = "launched"
 )
 
 type threadEventFields struct {
@@ -159,6 +163,21 @@ func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFie
 			CWD:              strings.TrimSpace(state.CWD),
 			Model:            strings.TrimSpace(state.Model),
 			Name:             strings.TrimSpace(state.Name),
+			PendingLaunch:    state.PendingLaunch,
+		}
+	case threadEventLaunchedKind:
+		state := fields.State
+		return threaddto.Launched{
+			EventHeader:      header,
+			ThreadID:         threadID,
+			AgentID:          strings.TrimSpace(state.AgentID),
+			Provider:         strings.TrimSpace(state.Provider),
+			ProviderThreadID: strings.TrimSpace(state.ProviderThreadID),
+			CWD:              strings.TrimSpace(state.CWD),
+			Model:            strings.TrimSpace(state.Model),
+			Name:             strings.TrimSpace(state.Name),
+			AgentKey:         strings.TrimSpace(state.AgentKey),
+			PromptVersionID:  state.PromptVersionID,
 		}
 	case threadEventStoppedKind:
 		return threaddto.Stopped{

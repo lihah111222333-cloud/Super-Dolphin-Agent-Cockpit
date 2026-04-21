@@ -40,6 +40,7 @@ const (
 	EventTypeThreadMessagesPage uint32 = 1352
 	EventTypeThreadCompacted    uint32 = 1353
 	EventTypeThreadUpdated      uint32 = 1354
+	EventTypeThreadLaunched     uint32 = 1355
 
 	EventTypeUIProjectionUpdated  uint32 = 1500
 	EventTypeUITimelineAppended   uint32 = 1501

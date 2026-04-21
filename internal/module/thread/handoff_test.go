@@ -47,6 +47,9 @@ func (f *fakeThreadStoreForHandoff) LoadPromptSnapshot(context.Context, string) 
 func (f *fakeThreadStoreForHandoff) UpdateStatus(context.Context, threadstore.UpdateStatusParams) error {
 	panic("unused")
 }
+func (f *fakeThreadStoreForHandoff) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
+	panic("unused")
+}
 func (f *fakeThreadStoreForHandoff) DeleteByThreadID(context.Context, string) error {
 	panic("unused")
 }

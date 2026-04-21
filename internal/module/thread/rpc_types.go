@@ -49,6 +49,10 @@ type startParams struct {
 	ManualSkillSelection bool     `json:"manual_skill_selection,omitempty"`
 	// Optional explicit agent_key override. Empty = let the router decide.
 	AgentKey string `json:"agent_key,omitempty"`
+	// DeferSpawn opts into the C1 "pending_launch" flow: create the thread
+	// row without forking the provider CLI; the actual spawn happens on the
+	// first turn once router has real user input to classify.
+	DeferSpawn bool `json:"defer_spawn,omitempty"`
 }
 
 // handoffParams is the RPC payload for thread/handoff.

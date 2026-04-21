@@ -17,6 +17,7 @@ type Store interface {
 	SavePromptSnapshot(ctx context.Context, threadID string, snapshot PromptSnapshot) error
 	LoadPromptSnapshot(ctx context.Context, threadID string) (*PromptSnapshot, error)
 	UpdateStatus(ctx context.Context, params UpdateStatusParams) error
+	UpdateLaunchResult(ctx context.Context, params UpdateLaunchResultParams) error
 	DeleteByThreadID(ctx context.Context, threadID string) error
 	ResetRunning(ctx context.Context) error
 	ExpireStale(ctx context.Context, params ExpireStaleParams) (int64, error)
@@ -42,12 +43,20 @@ type UpsertParams struct {
 	ConfigOverride   json.RawMessage
 	AgentKey         string
 	PromptVersionID  *int64
+	PendingLaunch    bool
 }
 
 type UpdateStatusParams struct {
 	ThreadID  string
 	Status    string
 	UpdatedAt int64
+}
+
+type UpdateLaunchResultParams struct {
+	ThreadID        string
+	AgentKey        string
+	PromptVersionID *int64
+	UpdatedAt       int64
 }
 
 type ExpireStaleParams struct {
@@ -77,6 +86,7 @@ type Thread struct {
 	ConfigOverride   json.RawMessage
 	AgentKey         string
 	PromptVersionID  *int64
+	PendingLaunch    bool
 }
 
 type PromptSnapshot struct {

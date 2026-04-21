@@ -57,6 +57,11 @@ type service struct {
 	emitUpdated      func(threaddto.Updated)
 	emitMessagesPage func(threaddto.MessagesPage)
 	emitCompacted    func(threaddto.Compacted)
+	emitLaunched     func(threaddto.Launched)
+
+	// pendingLaunchMu serializes SpawnIfNeeded per thread_id so concurrent
+	// first-turns of a pending thread fork exactly one CLI process.
+	pendingLaunchMu sync.Map // key: threadID(string), value: *sync.Mutex
 
 	threadAgentsMu sync.RWMutex
 	threadAgents   map[string]string
@@ -365,6 +370,17 @@ func (s *service) publishThreadStarted(state threadState) {
 		return
 	}
 	s.emitStarted(event.(threaddto.Started))
+}
+
+func (s *service) publishThreadLaunched(state threadState) {
+	if s == nil || s.emitLaunched == nil {
+		return
+	}
+	event := newThreadEvent(threadEventLaunchedKind, state.PublicThreadID, threadEventFields{State: state})
+	if event == nil {
+		return
+	}
+	s.emitLaunched(event.(threaddto.Launched))
 }
 
 func (s *service) publishThreadStopped(threadID, agentID, status, reason string) {

@@ -102,6 +102,9 @@ func (s *capturingThreadStore) UpdateStatus(_ context.Context, params threadstor
 	s.status = params
 	return nil
 }
+func (*capturingThreadStore) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
+	return nil
+}
 func (*capturingThreadStore) DeleteByThreadID(context.Context, string) error { return nil }
 func (*capturingThreadStore) ResetRunning(context.Context) error             { return nil }
 func (*capturingThreadStore) ExpireStale(context.Context, threadstore.ExpireStaleParams) (int64, error) {

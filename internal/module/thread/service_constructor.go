@@ -80,6 +80,7 @@ func newService(
 		emitUpdated:      bus.NewEmitter[threaddto.Updated](dispatcher),
 		emitMessagesPage: bus.NewEmitter[threaddto.MessagesPage](dispatcher),
 		emitCompacted:    bus.NewEmitter[threaddto.Compacted](dispatcher),
+		emitLaunched:     bus.NewEmitter[threaddto.Launched](dispatcher),
 		threadAgents:     make(map[string]string),
 	}
 }
