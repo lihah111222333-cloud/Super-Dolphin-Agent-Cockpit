@@ -36,6 +36,13 @@ type runtimeConfigReaderSession interface {
 }
 
 func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error) {
+	// C1 fast-path: pending_launch threads have no binding yet, so resolveBinding
+	// would fail with "no rows in result set". Return an empty result so the
+	// sidebar selection + auto-history-load sequence doesn't spam errors while
+	// the user is still composing their first turn.
+	if s.isThreadPendingLaunch(ctx, threadID) {
+		return dto.ThreadMessagesResult{Messages: nil, Total: 0}, nil
+	}
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err

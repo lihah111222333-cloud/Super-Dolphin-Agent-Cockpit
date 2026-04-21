@@ -16,6 +16,22 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 		"thread_id", threadID,
 		"caller", caller,
 	)
+	// C1 fast-path: pending_launch threads have no binding and no running
+	// runtime, so resolveThreadStopState (which calls bindingStore.GetByAgentID)
+	// always fails with "no rows in result set". Just flip the row to
+	// statusArchived so the card moves to the archived bucket.
+	if s.isThreadPendingLaunch(ctx, threadID) {
+		id := strings.TrimSpace(threadID)
+		if err := s.updateThreadStatus(ctx, id, statusArchived); err != nil {
+			return err
+		}
+		s.publishThreadStopped(id, "", statusArchived, "archived_pending_launch")
+		pkglogger.Info("thread: Archive() pending_launch fast-path",
+			"thread_id", id,
+			"caller", caller,
+		)
+		return nil
+	}
 	stopState, err := s.resolveThreadStopState(ctx, threadID)
 	if err != nil {
 		pkglogger.Warn("thread: Archive() resolveThreadStopState FAILED",

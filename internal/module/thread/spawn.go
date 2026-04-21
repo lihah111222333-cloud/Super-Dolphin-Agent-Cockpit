@@ -107,6 +107,25 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	}, nil
 }
 
+// isThreadPendingLaunch reports whether the agent_threads row for threadID
+// exists with pending_launch=true. Used by entry points (Archive, Delete,
+// ReadMessages, Compact) to short-circuit operations that assume a binding
+// / session exists, which is never the case for a pending thread.
+func (s *service) isThreadPendingLaunch(ctx context.Context, threadID string) bool {
+	if s == nil || s.threadStore == nil {
+		return false
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return false
+	}
+	row, err := s.threadStore.GetByThreadID(ctx, threadID)
+	if err != nil || row == nil {
+		return false
+	}
+	return row.PendingLaunch
+}
+
 // acquirePendingLaunchLock returns the per-thread mutex used to serialize
 // SpawnIfNeeded calls for a given thread_id. sync.Map.LoadOrStore guarantees
 // only one *sync.Mutex value exists per key under concurrent access.
