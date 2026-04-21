@@ -222,6 +222,12 @@ type storedThreadConfig struct {
 	Approvals   string         `json:"approvals,omitempty"`
 	Personality string         `json:"personality,omitempty"`
 	Runtime     map[string]any `json:"runtime,omitempty"`
+	// Provider is stashed only by startPendingThread so that SpawnIfNeeded
+	// can restore the caller's provider choice on the first turn. The eager
+	// path never reads Provider back out of stored config — it comes from
+	// agent_provider_binding.Provider there — so leaving this unset on eager
+	// rows is harmless.
+	Provider string `json:"provider,omitempty"`
 }
 
 type offlineConfigSnapshot struct {
