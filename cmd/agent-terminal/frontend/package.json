@@ -23,9 +23,9 @@
         "guard:update": "node scripts/size-guard.cjs --update"
     },
     "dependencies": {
+        "@chenglou/pretext": "0.0.4",
         "@modelcontextprotocol/sdk": "^1.x",
         "@vscode/markdown-it-katex": "^1.1.2",
-        "@chenglou/pretext": "0.0.4",
         "echarts": "^6.0.0",
         "highlight.js": "^11.11.1",
         "katex": "^0.16.38",
@@ -36,6 +36,8 @@
     "devDependencies": {
         "@playwright/test": "^1.58.2",
         "@types/markdown-it": "^14.1.2",
+        "@vue/compiler-dom": "^3.5.13",
+        "jsdom": "^25.0.1",
         "vite": "^6.0.0",
         "vitest": "^3.0.0"
     }
