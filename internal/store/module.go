@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/hookstore"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/interaction"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/routingtest"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
@@ -43,6 +44,7 @@ var Module = fx.Module("store",
 	hookstore.Module,
 	interaction.Module,
 	promptstore.Module,
+	routingtest.Module,
 	sharedfile.Module,
 	systemlog.Module,
 	tasktrace.Module,
