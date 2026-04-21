@@ -109,6 +109,12 @@ async function resolveLaunchStartPayload(text, focusMode, resolveLaunchSkillSele
     startOptions.selectedSkills = selectedSkills;
     startOptions.manualSkillSelection = manualSkillSelection;
   }
+  // Forward the user's first message so the backend router has input to
+  // classify against prompt_templates tags. Without this the router gets
+  // an empty string and falls back to no injection.
+  if (typeof text === 'string' && text.trim()) {
+    startOptions.prompt = text;
+  }
   return {
     enabled,
     selectedSkills,

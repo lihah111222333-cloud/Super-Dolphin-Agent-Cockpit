@@ -339,6 +339,12 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // on user_input; see internal/module/thread/router_resolve.go.
   const agentKeyOverride = typeof options?.agentKey === 'string' ? options.agentKey.trim() : '';
   if (agentKeyOverride) payload.agent_key = agentKeyOverride;
+  // First user message (if any) forwarded so the backend router has input
+  // to classify. Without this the router always sees empty input at
+  // thread/start and falls back to no injection — see
+  // internal/module/thread/router_resolve.go resolveRoutedPrompt.
+  const launchPrompt = typeof options?.prompt === 'string' ? options.prompt.trim() : '';
+  if (launchPrompt) payload.prompt = launchPrompt;
   const disallowedTools = await resolveDisallowedBuiltinTools(ctx, cwd);
   if (Array.isArray(disallowedTools)) {
     payload.config = { ...(payload.config || {}), disallowed_tools: disallowedTools };
