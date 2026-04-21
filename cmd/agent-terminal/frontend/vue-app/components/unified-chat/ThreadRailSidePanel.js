@@ -189,6 +189,7 @@ export const ThreadRailSidePanel = {
             </button>
 
             <span v-if="editingThreadId !== thread.id && thread.provider" class="thread-cli-badge" :class="'cli-' + thread.provider">{{ thread.provider === 'claude' ? 'Claude' : 'Codex' }}</span>
+            <span v-if="editingThreadId !== thread.id && thread.agentKey" class="thread-agent-badge" :title="'路由 agent：' + thread.agentKey">{{ thread.agentKey }}</span>
             <span v-if="editingThreadId !== thread.id && thread.cwdMismatch" class="thread-cwd-mismatch-badge" :title="thread.cwdMismatchReason || 'CWD 不匹配'">⚠ CWD</span>
           </div>
           <div v-if="thread.showId" class="thread-rail-item-id">{{ thread.id }}</div>
