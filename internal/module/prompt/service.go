@@ -494,7 +494,7 @@ func buildPromptTemplate(
 }
 
 func archivePrompt(ctx context.Context, store promptstore.Store, current promptstore.PromptTemplate) error {
-	return store.InsertVersion(ctx, promptstore.PromptTemplateVersion{
+	_, err := store.InsertVersion(ctx, promptstore.PromptTemplateVersion{
 		PromptKey:       current.PromptKey,
 		Title:           current.Title,
 		AgentKey:        current.AgentKey,
@@ -508,6 +508,7 @@ func archivePrompt(ctx context.Context, store promptstore.Store, current prompts
 		UpdatedBy:       current.UpdatedBy,
 		SourceUpdatedAt: &current.UpdatedAt,
 	})
+	return err
 }
 
 func promptKeyBase(agentType, name string) string {

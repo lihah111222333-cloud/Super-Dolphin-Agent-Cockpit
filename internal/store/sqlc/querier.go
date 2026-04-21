@@ -41,13 +41,16 @@ type Querier interface {
 	GetWorkspaceRun(ctx context.Context, runKey string) (WorkspaceRun, error)
 	GetWorkspaceRunFile(ctx context.Context, arg GetWorkspaceRunFileParams) (WorkspaceRunFile, error)
 	HeartbeatCwdLock(ctx context.Context, arg HeartbeatCwdLockParams) error
+	InsertAgentFeedbackEvent(ctx context.Context, arg InsertAgentFeedbackEventParams) (AgentFeedbackEvent, error)
 	InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) error
 	InsertCommandCardVersion(ctx context.Context, arg InsertCommandCardVersionParams) error
-	InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) error
+	InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (int64, error)
 	InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error
 	InsertTaskTrace(ctx context.Context, arg InsertTaskTraceParams) (TaskTrace, error)
 	ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]SystemLog, error)
 	ListAILogsByCategory(ctx context.Context, arg ListAILogsByCategoryParams) ([]ListAILogsByCategoryRow, error)
+	ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAgentFeedbackEventsByAgentParams) ([]AgentFeedbackEvent, error)
+	ListAgentFeedbackEventsByThread(ctx context.Context, arg ListAgentFeedbackEventsByThreadParams) ([]AgentFeedbackEvent, error)
 	ListAgentStatuses(ctx context.Context, dollar_1 string) ([]AgentStatus, error)
 	ListAgentThreadBindings(ctx context.Context) ([]ListAgentThreadBindingsRow, error)
 	ListAgentThreadCwds(ctx context.Context) ([]ListAgentThreadCwdsRow, error)

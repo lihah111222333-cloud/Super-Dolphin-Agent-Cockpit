@@ -22,7 +22,7 @@ type deleteQuerier interface {
 }
 
 type insertVersionQuerier interface {
-	InsertPromptVersion(ctx context.Context, arg sqlc.InsertPromptVersionParams) error
+	InsertPromptVersion(ctx context.Context, arg sqlc.InsertPromptVersionParams) (int64, error)
 }
 
 type upsertQuerier interface {
@@ -99,12 +99,12 @@ func (s *store) Delete(ctx context.Context, promptKey string) error {
 	return nil
 }
 
-func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) error {
+func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error) {
 	q, ok := s.q.(insertVersionQuerier)
 	if !ok {
-		return wrapPromptError(errors.New("prompt store does not support insert_version"), "insert_version", "prompt_template_version")
+		return 0, wrapPromptError(errors.New("prompt store does not support insert_version"), "insert_version", "prompt_template_version")
 	}
-	return wrapPromptError(q.InsertPromptVersion(ctx, sqlc.InsertPromptVersionParams{
+	id, err := q.InsertPromptVersion(ctx, sqlc.InsertPromptVersionParams{
 		PromptKey:       version.PromptKey,
 		Title:           version.Title,
 		AgentKey:        version.AgentKey,
@@ -117,7 +117,11 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 		CreatedBy:       version.CreatedBy,
 		UpdatedBy:       version.UpdatedBy,
 		SourceUpdatedAt: version.SourceUpdatedAt,
-	}), "insert_version", "prompt_template_version")
+	})
+	if err != nil {
+		return 0, wrapPromptError(err, "insert_version", "prompt_template_version")
+	}
+	return id, nil
 }
 
 func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {

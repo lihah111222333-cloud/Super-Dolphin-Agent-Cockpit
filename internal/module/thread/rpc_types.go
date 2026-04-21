@@ -47,6 +47,15 @@ type startParams struct {
 	// send path `selectedSkills` / `manualSkillSelection` 对齐）。
 	SelectedSkills       []string `json:"selected_skills,omitempty"`
 	ManualSkillSelection bool     `json:"manual_skill_selection,omitempty"`
+	// Optional explicit agent_key override. Empty = let the router decide.
+	AgentKey string `json:"agent_key,omitempty"`
+}
+
+// handoffParams is the RPC payload for thread/handoff.
+type handoffParams struct {
+	ThreadID       string `json:"thread_id"`
+	AgentKey       string `json:"agent_key"`
+	InitialMessage string `json:"initial_message,omitempty"`
 }
 
 func (p *startParams) UnmarshalJSON(data []byte) error {

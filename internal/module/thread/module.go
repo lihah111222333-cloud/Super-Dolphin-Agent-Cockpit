@@ -3,6 +3,8 @@ package thread
 import (
 	"context"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/router"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -10,9 +12,11 @@ import (
 type subscriptionParams struct {
 	fx.In
 
-	Lifecycle  fx.Lifecycle
-	Dispatcher *event.Dispatcher `optional:"true"`
-	Service    Service           `optional:"true"`
+	Lifecycle     fx.Lifecycle
+	Dispatcher    *event.Dispatcher `optional:"true"`
+	Service       Service           `optional:"true"`
+	RouterBackend router.Backend    `optional:"true"`
+	PromptStore   promptstore.Store `optional:"true"`
 }
 
 var Module = fx.Module("thread",
@@ -37,6 +41,8 @@ func registerSubscriptions(p subscriptionParams) {
 	if p.Dispatcher != nil {
 		svc.bindDispatcher(p.Dispatcher)
 	}
+	svc.bindRouterBackend(p.RouterBackend)
+	svc.bindPromptStore(p.PromptStore)
 
 	var cancels []context.CancelFunc
 	p.Lifecycle.Append(fx.Hook{

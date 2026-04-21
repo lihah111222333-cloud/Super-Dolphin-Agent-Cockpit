@@ -40,6 +40,8 @@ type UpsertParams struct {
 	AgentType        string
 	AgentMemoryScope string
 	ConfigOverride   json.RawMessage
+	AgentKey         string
+	PromptVersionID  *int64
 }
 
 type UpdateStatusParams struct {
@@ -73,6 +75,8 @@ type Thread struct {
 	WorkspaceRunKey  string
 	OwnerThreadID    string
 	ConfigOverride   json.RawMessage
+	AgentKey         string
+	PromptVersionID  *int64
 }
 
 type PromptSnapshot struct {

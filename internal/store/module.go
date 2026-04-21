@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/cwdlock"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/hookstore"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/interaction"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
@@ -38,6 +39,7 @@ var Module = fx.Module("store",
 	commandcard.Module,
 	cwdlock.Module,
 	dbquery.Module,
+	feedback.Module,
 	hookstore.Module,
 	interaction.Module,
 	promptstore.Module,

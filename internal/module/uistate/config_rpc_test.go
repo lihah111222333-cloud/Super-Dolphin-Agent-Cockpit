@@ -295,6 +295,9 @@ func (*configThreadServiceStub) Fork(context.Context, string) (thread.ForkResult
 func (*configThreadServiceStub) Recover(context.Context, string) (thread.RecoverResult, error) {
 	return thread.RecoverResult{}, nil
 }
+func (*configThreadServiceStub) Handoff(context.Context, thread.HandoffRequest) (thread.HandoffResult, error) {
+	return thread.HandoffResult{}, nil
+}
 
 func (*configThreadServiceStub) List(context.Context) ([]thread.Ref, error) { return nil, nil }
 

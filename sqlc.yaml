@@ -10,6 +10,9 @@ sql:
       - "migrations/0025_agent_thread_config_override.sql"
       - "migrations/0031_prompt_snapshot.sql"
       - "migrations/0032_agent_memory_identity.sql"
+      - "migrations/0034_thread_agent_routing.sql"
+      - "migrations/0035_agent_feedback_events.sql"
+      - "migrations/0036_seed_orchestrator_prompt.sql"
     gen:
       go:
         package: "sqlc"

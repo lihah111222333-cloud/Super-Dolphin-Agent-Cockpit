@@ -46,8 +46,8 @@ func (s *store) Delete(ctx context.Context, promptKey string) error {
 	return wrapPromptError(err, "delete", "prompt_template")
 }
 
-func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) error {
-	return wrapPromptError(s.q.InsertPromptVersion(ctx, sqlc.InsertPromptVersionParams{
+func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error) {
+	id, err := s.q.InsertPromptVersion(ctx, sqlc.InsertPromptVersionParams{
 		PromptKey:       version.PromptKey,
 		Title:           version.Title,
 		AgentKey:        version.AgentKey,
@@ -60,7 +60,11 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 		CreatedBy:       version.CreatedBy,
 		UpdatedBy:       version.UpdatedBy,
 		SourceUpdatedAt: sqlc.TimeValuePtr(version.SourceUpdatedAt),
-	}), "insert_version", "prompt_template_version")
+	})
+	if err != nil {
+		return 0, wrapPromptError(err, "insert_version", "prompt_template_version")
+	}
+	return id, nil
 }
 
 func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {

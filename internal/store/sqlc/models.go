@@ -6,7 +6,21 @@ package sqlc
 
 import (
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type AgentFeedbackEvent struct {
+	ID              int64              `db:"id" json:"id"`
+	ThreadID        string             `db:"thread_id" json:"thread_id"`
+	TurnID          string             `db:"turn_id" json:"turn_id"`
+	AgentKey        string             `db:"agent_key" json:"agent_key"`
+	PromptVersionID *int64             `db:"prompt_version_id" json:"prompt_version_id"`
+	EventType       string             `db:"event_type" json:"event_type"`
+	Actor           string             `db:"actor" json:"actor"`
+	Payload         []byte             `db:"payload" json:"payload"`
+	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
 
 type AgentInteraction struct {
 	ID             int64      `db:"id" json:"id"`

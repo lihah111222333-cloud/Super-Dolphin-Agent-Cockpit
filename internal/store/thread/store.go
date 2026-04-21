@@ -111,6 +111,8 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		AgentType:        params.AgentType,
 		AgentMemoryScope: params.AgentMemoryScope,
 		ConfigOverride:   params.ConfigOverride,
+		AgentKey:         params.AgentKey,
+		PromptVersionID:  params.PromptVersionID,
 	}), "upsert")
 }
 
@@ -232,6 +234,8 @@ func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 		WorkspaceRunKey:  row.WorkspaceRunKey,
 		OwnerThreadID:    row.OwnerThreadID,
 		ConfigOverride:   row.ConfigOverride,
+		AgentKey:         row.AgentKey,
+		PromptVersionID:  row.PromptVersionID,
 	}
 }
 
@@ -256,6 +260,8 @@ func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
 		WorkspaceRunKey:  row.WorkspaceRunKey,
 		OwnerThreadID:    row.OwnerThreadID,
 		ConfigOverride:   row.ConfigOverride,
+		AgentKey:         row.AgentKey,
+		PromptVersionID:  row.PromptVersionID,
 	}
 }
 
@@ -282,6 +288,8 @@ func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 			WorkspaceRunKey:  row.WorkspaceRunKey,
 			OwnerThreadID:    row.OwnerThreadID,
 			ConfigOverride:   row.ConfigOverride,
+			AgentKey:         row.AgentKey,
+			PromptVersionID:  row.PromptVersionID,
 		}
 	}
 	return result
@@ -310,6 +318,8 @@ func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 			WorkspaceRunKey:  row.WorkspaceRunKey,
 			OwnerThreadID:    row.OwnerThreadID,
 			ConfigOverride:   row.ConfigOverride,
+			AgentKey:         row.AgentKey,
+			PromptVersionID:  row.PromptVersionID,
 		}
 	}
 	return result
@@ -338,6 +348,8 @@ func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thre
 			WorkspaceRunKey:  row.WorkspaceRunKey,
 			OwnerThreadID:    row.OwnerThreadID,
 			ConfigOverride:   row.ConfigOverride,
+			AgentKey:         row.AgentKey,
+			PromptVersionID:  row.PromptVersionID,
 		}
 	}
 	return result
