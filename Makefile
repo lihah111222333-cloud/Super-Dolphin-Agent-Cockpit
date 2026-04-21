@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain test test-deferred vet clean guard guard-shell protocol-sync-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain test test-deferred vet clean guard guard-shell protocol-sync-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -162,3 +162,29 @@ ci-l2-claude:
 
 ci-l3-release: ci-l0 ci-l1 ci-l2-claude
 	@echo "[ci-l3-release] all layered gates finished"
+
+# ---------------------------------------------------------------------------
+# sqlc — generate typed query code from sql/queries/*.sql against the schema
+# snapshot enumerated in root sqlc.yaml. Pin the CLI version so every
+# contributor and CI node produces byte-identical output; drift would defeat
+# the whole point of a type-safe store layer.
+SQLC_VERSION ?= v1.30.0
+# Hermetic invocation via 'go run' ensures every contributor / CI job produces
+# byte-identical output regardless of any sqlc binary that may live on PATH
+# (e.g. homebrew-managed copies at a different version). The first run hits the
+# Go module cache; subsequent runs are just a local exec.
+SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+
+sqlc-generate:
+	$(SQLC) generate
+	@echo "✅ sqlc generate (schema + sql/queries -> internal/store/sqlc)"
+
+# CI gate: regenerate and fail if the working tree drifts from committed output.
+sqlc-verify:
+	$(SQLC) generate
+	@if ! git diff --quiet -- internal/store/sqlc; then \
+		echo "❌ sqlc-generated code is out of date; run 'make sqlc-generate' and commit."; \
+		git --no-pager diff -- internal/store/sqlc; \
+		exit 1; \
+	fi
+	@echo "✅ sqlc-verify (generated code matches sql/queries + migrations)"
