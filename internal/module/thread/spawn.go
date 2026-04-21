@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
@@ -173,32 +174,55 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	mu.Lock()
 	defer mu.Unlock()
 
-	row, err := s.threadStore.GetByThreadID(ctx, threadID)
-	if err != nil {
-		if platformdb.IsNotFound(err) {
-			return false, fmt.Errorf("thread: %w", err)
-		}
-		return false, fmt.Errorf("thread: load pending row: %w", err)
-	}
-	if row == nil || !row.PendingLaunch {
-		return false, nil
-	}
-	// Guard against the Stop/Archive race: if the row was already marked
-	// stopped or archived but pending_launch was not cleared (updateThreadStatus
-	// only touches the status column), bail out instead of forking a ghost CLI.
-	if row.Status != statusCreated && row.Status != "" {
-		return false, nil
+	row, needSpawn, err := s.loadPendingLaunchRow(ctx, threadID)
+	if err != nil || !needSpawn {
+		return false, err
 	}
 
 	// Agent-id convention for threadStateStartKind: publicThreadID == agentID.
 	// The pending row was written with that assumption, so we reuse threadID.
 	agentID := threadID
+	req, err := buildPendingSpawnRequest(row, agentID, userInputForRouter)
+	if err != nil {
+		return false, err
+	}
+	if err := s.runPendingSpawn(ctx, &req, row, agentID, threadID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
 
-	// Restore the launch-time provider/effort/personality/approvals that
-	// startPendingThread stashed into config_override. Without this the
-	// normalizeStartRequest call below would default Provider to "codex",
-	// overriding the user's UI selection for any thread that took the C1
-	// pending path.
+// loadPendingLaunchRow returns (row, true, nil) only when the agent_threads
+// row exists and still has pending_launch=true. A missing row is reported as
+// an error (caller cannot spawn something that does not exist); any other
+// read error is wrapped. A running thread yields (nil, false, nil).
+func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*threadstore.Thread, bool, error) {
+	row, err := s.threadStore.GetByThreadID(ctx, threadID)
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return nil, false, fmt.Errorf("thread: %w", err)
+		}
+		return nil, false, fmt.Errorf("thread: load pending row: %w", err)
+	}
+	if row == nil || !row.PendingLaunch {
+		return nil, false, nil
+	}
+	// Guard against the Stop/Archive race: if the row was already marked
+	// stopped or archived but pending_launch was not cleared (updateThreadStatus
+	// only touches the status column), bail out instead of forking a ghost CLI.
+	if row.Status != statusCreated && row.Status != "" {
+		return nil, false, nil
+	}
+	return row, true, nil
+}
+
+// buildPendingSpawnRequest reconstructs the StartRequest that the UI originally
+// submitted when it called Start with DeferSpawn=true. The launch-time
+// provider/effort/personality/approvals choices were stashed into
+// config_override by startPendingThread and are restored here so
+// normalizeStartRequest does not default them back (this was the
+// "created threads are always codex" regression).
+func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRouter string) (StartRequest, error) {
 	storedCfg := decodeStoredThreadConfig(row.ConfigOverride)
 	req := StartRequest{
 		AgentID:          agentID,
@@ -216,91 +240,105 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 		ApprovalPolicy:   storedCfg.Approvals,
 	}
 	// normalizeStartRequest fills in provider default ("codex"), resolves CWD,
-	// sanitizes sandbox, picks approval policy defaults, etc. Without this
-	// step launchAgent would get an empty Provider and fail silently. AgentID
-	// stays intact because normalizeStartRequest only generates a new one
-	// when the field is empty.
+	// sanitizes sandbox, picks approval policy defaults, etc. AgentID stays
+	// intact because normalizeStartRequest only generates a new one when the
+	// field is empty.
 	normalized, normalizedAgentID, err := normalizeStartRequest(req)
 	if err != nil {
-		return false, fmt.Errorf("thread: normalize pending spawn: %w", err)
+		return StartRequest{}, fmt.Errorf("thread: normalize pending spawn: %w", err)
 	}
-	req = normalized
 	if normalizedAgentID != agentID {
-		return false, fmt.Errorf("thread: normalize rewrote agent_id (%s -> %s); pending row is tied to the original id", agentID, normalizedAgentID)
+		return StartRequest{}, fmt.Errorf("thread: normalize rewrote agent_id (%s -> %s); pending row is tied to the original id", agentID, normalizedAgentID)
 	}
+	return normalized, nil
+}
 
+// runPendingSpawn executes the Router -> assembly -> launch -> session ->
+// persist pipeline for a deferred spawn. On failure it rolls back the
+// orchestration agent (if already launched) and releases the scratchpad
+// snapshot so a later retry sees a clean slate.
+func (s *service) runPendingSpawn(
+	ctx context.Context,
+	req *StartRequest,
+	row *threadstore.Thread,
+	agentID, threadID string,
+) error {
 	// Router + prompt_versions materialization.
-	s.resolveRoutedPrompt(ctx, &req)
-
+	s.resolveRoutedPrompt(ctx, req)
 	if req.PromptAssemblyRef == nil {
 		req.PromptAssemblyRef = s.promptAssembly
 	}
-	assemblyInput, cleanupScratchpad, err := s.buildStartAssemblyInput(req, agentID)
+	assemblyInput, cleanupScratchpad, err := s.buildStartAssemblyInput(*req, agentID)
 	if err != nil {
-		return false, fmt.Errorf("thread: assembly input: %w", err)
+		return fmt.Errorf("thread: assembly input: %w", err)
 	}
 	agentLaunched := false
 	cleanupOnFailure := true
-	defer func() {
-		if !cleanupOnFailure {
-			return
-		}
-		if cleanupScratchpad != nil {
-			cleanupScratchpad()
-		}
-		// Roll back the orchestration agent if we'd already launched it but
-		// failed before UpdateLaunchResult committed. Leaving the agent alive
-		// while the DB still says pending_launch=true would deadlock the retry
-		// (launchAgent would see duplicate id).
-		if agentLaunched {
-			s.stopAgent(ctx, agentID)
-		}
-	}()
-	assembly, err := resolveStartPromptAssembly(ctx, req, assemblyInput)
+	defer cleanupPendingSpawn(ctx, s, &cleanupOnFailure, cleanupScratchpad, &agentLaunched, agentID)
+	assembly, err := resolveStartPromptAssembly(ctx, *req, assemblyInput)
 	if err != nil {
-		return false, fmt.Errorf("thread: prompt assembly: %w", err)
+		return fmt.Errorf("thread: prompt assembly: %w", err)
 	}
 	displayName := strings.TrimSpace(shared.FirstNonEmpty(assembly.DisplayName, row.Prompt))
-	if err := s.launchAgent(
-		ctx,
-		agentID,
-		req.CWD,
-		displayName,
-		req.ParentAgentID,
-		req.AgentType,
-		req.AgentMemoryScope,
-		req.Provider,
-		req.Model,
-	); err != nil {
-		return false, fmt.Errorf("thread: launch agent: %w", err)
+	if err := s.launchAgent(ctx, agentID, req.CWD, displayName,
+		req.ParentAgentID, req.AgentType, req.AgentMemoryScope,
+		req.Provider, req.Model); err != nil {
+		return fmt.Errorf("thread: launch agent: %w", err)
 	}
 	agentLaunched = true
-	session, err := s.establishStartedSession(ctx, req, assemblyInput, assembly, agentID)
+	session, err := s.establishStartedSession(ctx, *req, assemblyInput, assembly, agentID)
 	if err != nil {
-		return false, fmt.Errorf("thread: establish session: %w", err)
+		return fmt.Errorf("thread: establish session: %w", err)
 	}
-
 	// persistStartedSession is the eager path's final step: it builds the
-	// thread state, upserts the agent_threads row (which clears pending_launch
-	// because newThreadUpsertParams defaults PendingLaunch to false), writes
-	// the agent_provider_binding row via maybeRegisterThreadBinding, saves
-	// the prompt snapshot, and publishes thread.started. Reusing it here
-	// means pending spawns leave the DB in exactly the same shape as an
-	// eager start — Archive / ReadMessages / etc. work identically after.
-	if _, err := s.persistStartedSession(ctx, req, assemblyInput, assembly, agentID, displayName, session); err != nil {
-		return false, fmt.Errorf("thread: persist launched session: %w", err)
+	// thread state, upserts the agent_threads row (clearing pending_launch),
+	// writes the binding row, saves the prompt snapshot, and publishes
+	// thread.started. Reusing it keeps pending spawns DB-shape identical to
+	// eager starts.
+	if _, err := s.persistStartedSession(ctx, *req, assemblyInput, assembly, agentID, displayName, session); err != nil {
+		return fmt.Errorf("thread: persist launched session: %w", err)
 	}
-
 	cleanupOnFailure = false
 	s.pendingLaunchMu.Delete(threadID)
+	publishPendingSpawnLaunched(s, req, row, session, agentID, threadID, displayName)
+	return nil
+}
 
-	// persistStartedSession already wrote agent_key + prompt_version_id to
-	// agent_threads via state -> upsertPublicThread (resolveRoutedPrompt
-	// filled req.AgentKey / req.PromptVersionID before assembly). Nothing
-	// else to stamp here; any future router-provenance writes belong in a
-	// shared helper called from both paths instead of a SpawnIfNeeded-only
-	// follow-up write.
+// cleanupPendingSpawn is the shared `defer` target for runPendingSpawn. It
+// leaves state untouched on success (active=false) and otherwise releases
+// the scratchpad and stops the orchestration agent if launchAgent already
+// committed. active / agentLaunched are pointers so the caller can mutate
+// them after this defer is registered.
+func cleanupPendingSpawn(
+	ctx context.Context,
+	s *service,
+	active *bool,
+	cleanupScratchpad func(),
+	agentLaunched *bool,
+	agentID string,
+) {
+	if active == nil || !*active {
+		return
+	}
+	if cleanupScratchpad != nil {
+		cleanupScratchpad()
+	}
+	if agentLaunched != nil && *agentLaunched {
+		s.stopAgent(ctx, agentID)
+	}
+}
 
+// publishPendingSpawnLaunched emits thread.launched for observability once the
+// pending spawn has fully committed. persistStartedSession already wrote
+// agent_key + prompt_version_id (resolveRoutedPrompt filled them before
+// assembly); any future router-provenance writes belong in a shared helper.
+func publishPendingSpawnLaunched(
+	s *service,
+	req *StartRequest,
+	row *threadstore.Thread,
+	session contract.Session,
+	agentID, threadID, displayName string,
+) {
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	spawnedState := newThreadState(threadStateStartKind, threadStateFields{
 		PublicThreadID:   threadID,
@@ -322,5 +360,4 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 		OwnerThreadID:    req.OwnerThreadID,
 	})
 	s.publishThreadLaunched(spawnedState)
-	return true, nil
 }

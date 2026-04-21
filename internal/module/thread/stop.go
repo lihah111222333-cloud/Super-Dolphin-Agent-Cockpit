@@ -26,16 +26,8 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	// stopped so the card disappears. Any still-outstanding SpawnIfNeeded call
 	// on this thread will see pending_launch=false on the re-fetch and return
 	// no-op without forking the CLI.
-	if s.threadStore != nil {
-		id := strings.TrimSpace(threadID)
-		if row, err := s.threadStore.GetByThreadID(ctx, id); err == nil && row != nil && row.PendingLaunch {
-			if err := s.updateThreadStatus(ctx, id, statusStopped); err != nil {
-				return err
-			}
-			s.pendingLaunchMu.Delete(id)
-			s.publishThreadStopped(id, "", statusStopped, "stopped_pending_launch")
-			return nil
-		}
+	if handled, err := s.stopPendingLaunchThread(ctx, threadID); handled || err != nil {
+		return err
 	}
 	stopState, err := s.resolveThreadStopState(ctx, threadID)
 	if err != nil {
@@ -57,6 +49,27 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	s.cleanupThreadTurns(ctx, "thread_stopped", stopState.targets...)
 	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusStopped, "stopped")
 	return nil
+}
+
+// stopPendingLaunchThread handles Stop's pending_launch fast-path. Returns
+// (handled=true, nil) once the row has been marked stopped; (false, nil) when
+// the thread is running (caller continues with the normal stop flow);
+// (true, err) when the pending status write itself failed.
+func (s *service) stopPendingLaunchThread(ctx context.Context, threadID string) (bool, error) {
+	if s.threadStore == nil {
+		return false, nil
+	}
+	trimmed := strings.TrimSpace(threadID)
+	row, err := s.threadStore.GetByThreadID(ctx, trimmed)
+	if err != nil || row == nil || !row.PendingLaunch {
+		return false, nil
+	}
+	if err := s.updateThreadStatus(ctx, trimmed, statusStopped); err != nil {
+		return true, err
+	}
+	s.pendingLaunchMu.Delete(trimmed)
+	s.publishThreadStopped(trimmed, "", statusStopped, "stopped_pending_launch")
+	return true, nil
 }
 
 func (s *service) resolveThreadStopState(ctx context.Context, threadID string) (threadStopState, error) {

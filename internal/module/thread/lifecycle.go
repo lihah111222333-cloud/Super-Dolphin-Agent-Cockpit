@@ -103,11 +103,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		return StartResult{}, err
 	}
 	cleanupOnFailure := true
-	defer func() {
-		if cleanupOnFailure && cleanupScratchpad != nil {
-			cleanupScratchpad()
-		}
-	}()
+	defer runScratchpadCleanup(&cleanupOnFailure, cleanupScratchpad)
 	assembly, err := resolveStartPromptAssembly(ctx, req, assemblyInput)
 	if err != nil {
 		return StartResult{}, err
