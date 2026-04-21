@@ -2,7 +2,6 @@ package thread
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -58,6 +57,22 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	if displayName == "" {
 		displayName = "新对话"
 	}
+	// Stash the launch-time provider/effort/personality/approvals choices into
+	// config_override so SpawnIfNeeded can restore them on the first turn.
+	// Without this the pending row only retains Model+Cwd and normalizeStart
+	// in the spawn path defaults Provider back to "codex", overriding the
+	// user's UI selection (this was the '创建的对话都是codex' regression).
+	pendingStored := storedThreadConfig{
+		Model:       strings.TrimSpace(req.Model),
+		Effort:      strings.TrimSpace(req.Effort),
+		Approvals:   strings.TrimSpace(req.ApprovalPolicy),
+		Personality: strings.TrimSpace(req.Personality),
+		Provider:    strings.TrimSpace(req.Provider),
+	}
+	configOverride, err := encodeStoredThreadConfig(pendingStored)
+	if err != nil {
+		return StartResult{}, fmt.Errorf("thread: encode pending config: %w", err)
+	}
 	state := newThreadState(threadStateStartKind, threadStateFields{
 		AgentID:          agentID,
 		ParentAgentID:    req.ParentAgentID,
@@ -68,7 +83,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		Model:            req.Model,
 		Name:             displayName,
 		Prompt:           displayName,
-		ConfigOverride:   json.RawMessage(nil),
+		ConfigOverride:   configOverride,
 		CreatedAt:        createdAt,
 		OwnerThreadID:    req.OwnerThreadID,
 		PendingLaunch:    true,
@@ -173,20 +188,26 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	// The pending row was written with that assumption, so we reuse threadID.
 	agentID := threadID
 
-	// Provider/Effort/Personality/ApprovalPolicy preferences beyond Model+Cwd
-	// are not persisted on pending rows today, so the session starter
-	// defaults apply. If we ever need fidelity with the original thread/start
-	// payload we should stash those into agent_threads.config_override.
+	// Restore the launch-time provider/effort/personality/approvals that
+	// startPendingThread stashed into config_override. Without this the
+	// normalizeStartRequest call below would default Provider to "codex",
+	// overriding the user's UI selection for any thread that took the C1
+	// pending path.
+	storedCfg := decodeStoredThreadConfig(row.ConfigOverride)
 	req := StartRequest{
 		AgentID:          agentID,
 		ParentAgentID:    row.ParentAgentID,
 		AgentType:        row.AgentType,
 		AgentMemoryScope: row.AgentMemoryScope,
 		CWD:              row.Cwd,
-		Model:            row.Model,
+		Model:            shared.FirstNonEmpty(storedCfg.Model, row.Model),
 		Name:             row.Prompt,
 		Prompt:           strings.TrimSpace(userInputForRouter),
 		OwnerThreadID:    row.OwnerThreadID,
+		Provider:         storedCfg.Provider,
+		Effort:           storedCfg.Effort,
+		Personality:      storedCfg.Personality,
+		ApprovalPolicy:   storedCfg.Approvals,
 	}
 	// normalizeStartRequest fills in provider default ("codex"), resolves CWD,
 	// sanitizes sandbox, picks approval policy defaults, etc. Without this
