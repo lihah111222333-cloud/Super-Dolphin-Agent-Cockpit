@@ -298,6 +298,23 @@ async function resolveDisallowedBuiltinTools(ctx, cwd) {
   }
 }
 
+// Per-thread routing metadata captured from thread/start responses.
+// Consumers (sidebar badge, live preview, diagnostics) read via
+// getThreadRouting(threadId). Kept as a module-scoped Map rather than in
+// the whitelisted runtime store because the value is pure UI observation
+// and adding it to the store would force THREAD_STORE_RUNTIME_STATE_KEYS
+// + syncRuntimeState to grow unnecessarily.
+const _routingByThread = new Map();
+
+export function getThreadRouting(threadId) {
+  if (!threadId) return null;
+  return _routingByThread.get(threadId) || null;
+}
+
+export function clearThreadRouting(threadId) {
+  if (threadId) _routingByThread.delete(threadId);
+}
+
 export async function startThread(ctx, cwd = '.', options = {}) {
   const { callAPI, logInfo } = ctx;
   const start = perfNow();
@@ -317,6 +334,11 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   const manualSkillSelection = options?.manualSkillSelection === true;
   if (selectedSkills.length > 0) payload.selectedSkills = selectedSkills;
   if (manualSkillSelection || selectedSkills.length > 0) payload.manualSkillSelection = manualSkillSelection;
+  // Explicit agent_key override. Empty / absent means "let the backend
+  // router decide". The router reads prompt_templates and classifies based
+  // on user_input; see internal/module/thread/router_resolve.go.
+  const agentKeyOverride = typeof options?.agentKey === 'string' ? options.agentKey.trim() : '';
+  if (agentKeyOverride) payload.agent_key = agentKeyOverride;
   const disallowedTools = await resolveDisallowedBuiltinTools(ctx, cwd);
   if (Array.isArray(disallowedTools)) {
     payload.config = { ...(payload.config || {}), disallowed_tools: disallowedTools };
@@ -324,13 +346,35 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   const res = await callAPI('thread/start', payload);
   const id = res?.thread?.id;
   if (!id) return '';
+  // Capture routing metadata the backend surfaced (see
+  // internal/module/thread/rpc.go newStartHandler response map).
+  const agentKey = (res?.agent_key || res?.agentKey || '').toString().trim();
+  const promptVersionId =
+    typeof res?.prompt_version_id === 'number' ? res.prompt_version_id
+    : typeof res?.promptVersionId === 'number' ? res.promptVersionId
+    : null;
+  if (agentKey || promptVersionId != null) {
+    _routingByThread.set(id, {
+      agentKey,
+      promptVersionId,
+      overridden: Boolean(agentKeyOverride),
+    });
+  }
   if (!ctx.state.threads.some((t) => t.id === id)) ctx.state.threads = [...ctx.state.threads, { id, name: id, state: 'idle' }];
   _optimisticThreadIds.set(id, Date.now() + OPTIMISTIC_LEAK_GUARD_MS);
   await ctx.syncRuntimeState();
   const focusMode = options?.focusMode === 'cmd' ? 'cmd' : 'chat';
   if (focusMode === 'cmd') saveActiveCmdThread(ctx, id); else saveActiveThread(ctx, id);
 
-  logInfo('thread', 'start.done', { thread_id: id, focus_mode: focusMode, cwd, duration_ms: Math.round(perfNow() - start) });
+  logInfo('thread', 'start.done', {
+    thread_id: id,
+    focus_mode: focusMode,
+    cwd,
+    duration_ms: Math.round(perfNow() - start),
+    agent_key: agentKey || undefined,
+    prompt_version_id: promptVersionId ?? undefined,
+    agent_key_overridden: agentKeyOverride ? true : undefined,
+  });
   return id;
 }
 
