@@ -101,3 +101,59 @@ func TestRuleRouter_EmptyTagsSkipped(t *testing.T) {
 		t.Fatalf("blank tags should be skipped, valid tag should match: %+v", d)
 	}
 }
+
+// TestRuleRouter_FallbackWhenNoSpecificMatch asserts that a candidate with
+// len(effective tags)==0 is returned as the fallback when the user input
+// doesn't match any specialist candidate. Operators use this to declare a
+// default persona that ships whenever router can't classify.
+func TestRuleRouter_FallbackWhenNoSpecificMatch(t *testing.T) {
+	t.Parallel()
+	r := NewRuleRouter()
+	candidates := []Candidate{
+		{PromptKey: "main/sql", AgentKey: "sql", Tags: []string{"database", "sql"}},
+		{PromptKey: "main/default", AgentKey: "main", Tags: []string{}}, // fallback
+	}
+	d, err := r.Classify(context.Background(), "write hello world", candidates)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !d.Matched || d.PromptKey != "main/default" || d.AgentKey != "main" {
+		t.Fatalf("want fallback=main/default, got %+v", d)
+	}
+	if d.Confidence >= 1.0 {
+		t.Fatalf("fallback confidence should be lower than a specific match, got %v", d.Confidence)
+	}
+}
+
+// TestRuleRouter_FallbackSkippedWhenSpecificMatches asserts that a specialist
+// tag match beats the fallback even when the fallback appears first in the
+// candidate list. This prevents the fallback from stealing traffic whenever
+// any specialist would have fired.
+func TestRuleRouter_FallbackSkippedWhenSpecificMatches(t *testing.T) {
+	t.Parallel()
+	r := NewRuleRouter()
+	candidates := []Candidate{
+		{PromptKey: "main/default", AgentKey: "main", Tags: nil}, // fallback first
+		{PromptKey: "main/sql", AgentKey: "sql", Tags: []string{"sql"}},
+	}
+	d, _ := r.Classify(context.Background(), "help with SQL", candidates)
+	if !d.Matched || d.AgentKey != "sql" {
+		t.Fatalf("specialist should beat fallback, got %+v", d)
+	}
+}
+
+// TestRuleRouter_AllBlankTagsTreatedAsFallback asserts that a candidate whose
+// tags are only blank strings (e.g. ["", " "]) is treated as a fallback
+// candidate, since its effective tag count is zero. This guards against SQL
+// rows that survive a half-edit where tags were cleared but not removed.
+func TestRuleRouter_AllBlankTagsTreatedAsFallback(t *testing.T) {
+	t.Parallel()
+	r := NewRuleRouter()
+	candidates := []Candidate{
+		{PromptKey: "main/blank", AgentKey: "blank", Tags: []string{"", "  "}},
+	}
+	d, _ := r.Classify(context.Background(), "random input", candidates)
+	if !d.Matched || d.PromptKey != "main/blank" {
+		t.Fatalf("candidate with only blank tags should be the fallback, got %+v", d)
+	}
+}
