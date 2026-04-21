@@ -13,6 +13,7 @@ sql:
       - "migrations/0034_thread_agent_routing.sql"
       - "migrations/0035_agent_feedback_events.sql"
       - "migrations/0036_seed_orchestrator_prompt.sql"
+      - "migrations/0037_thread_pending_launch.sql"
     gen:
       go:
         package: "sqlc"

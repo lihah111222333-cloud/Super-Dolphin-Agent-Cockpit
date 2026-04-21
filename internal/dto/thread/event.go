@@ -3,6 +3,9 @@ package thread
 import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 
 // Started reports a thread becoming active and routable.
+// PendingLaunch=true means the backend created a placeholder row but has not
+// forked the provider CLI yet; the actual spawn happens on the first turn via
+// SpawnIfNeeded and is reported as a separate Launched event.
 type Started struct {
 	shared.EventHeader
 	ThreadID         string `json:"thread_id"`
@@ -12,6 +15,22 @@ type Started struct {
 	CWD              string `json:"cwd,omitempty"`
 	Model            string `json:"model,omitempty"`
 	Name             string `json:"name,omitempty"`
+	PendingLaunch    bool   `json:"pending_launch,omitempty"`
+}
+
+// Launched reports that a previously pending_launch thread has successfully
+// spawned its provider CLI. Carries the router decision made at spawn time.
+type Launched struct {
+	shared.EventHeader
+	ThreadID         string `json:"thread_id"`
+	AgentID          string `json:"agent_id,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	ProviderThreadID string `json:"provider_thread_id,omitempty"`
+	CWD              string `json:"cwd,omitempty"`
+	Model            string `json:"model,omitempty"`
+	Name             string `json:"name,omitempty"`
+	AgentKey         string `json:"agent_key,omitempty"`
+	PromptVersionID  *int64 `json:"prompt_version_id,omitempty"`
 }
 
 // Stopped reports a thread becoming inactive.
@@ -55,3 +74,4 @@ func (Stopped) Type() uint32      { return shared.EventTypeThreadStopped }
 func (MessagesPage) Type() uint32 { return shared.EventTypeThreadMessagesPage }
 func (Compacted) Type() uint32    { return shared.EventTypeThreadCompacted }
 func (Updated) Type() uint32      { return shared.EventTypeThreadUpdated }
+func (Launched) Type() uint32     { return shared.EventTypeThreadLaunched }

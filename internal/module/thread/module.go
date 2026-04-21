@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/router"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/kelindar/event"
@@ -24,6 +25,10 @@ var Module = fx.Module("thread",
 		fx.Annotate(
 			NewServiceWithPromptAssembly,
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			// Publish the service under turn.PendingLaunchSpawner too so
+			// NewTurnHandlers can pick it up via optional injection without
+			// creating a turn→thread import cycle.
+			fx.As(new(turn.PendingLaunchSpawner)),
 		),
 		fx.Annotate(
 			NewThreadHandlers,

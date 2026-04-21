@@ -94,6 +94,10 @@ func (*threadQuerierStub) UpdateAgentThreadStatus(context.Context, sqlc.UpdateAg
 	return nil
 }
 
+func (*threadQuerierStub) UpdateAgentThreadLaunchResult(context.Context, sqlc.UpdateAgentThreadLaunchResultParams) error {
+	return nil
+}
+
 func (s *threadQuerierStub) UpsertAgentThread(ctx context.Context, arg sqlc.UpsertAgentThreadParams) error {
 	if s.upsertFn != nil {
 		return s.upsertFn(ctx, arg)

@@ -21,6 +21,20 @@ type threadStopState struct {
 
 func (s *service) Stop(ctx context.Context, threadID string) error {
 	ctx = shared.NonNilContext(ctx)
+	// C1 fast-path: a pending_launch thread has no runtime / no binding / no
+	// session; skip stopThreadRuntime/cleanup entirely and just mark the row
+	// stopped so the card disappears. Any still-outstanding SpawnIfNeeded call
+	// on this thread will see pending_launch=false on the re-fetch and return
+	// no-op without forking the CLI.
+	if s.threadStore != nil {
+		if row, err := s.threadStore.GetByThreadID(ctx, strings.TrimSpace(threadID)); err == nil && row != nil && row.PendingLaunch {
+			if err := s.updateThreadStatus(ctx, strings.TrimSpace(threadID), statusStopped); err != nil {
+				return err
+			}
+			s.publishThreadStopped(strings.TrimSpace(threadID), "", statusStopped, "stopped_pending_launch")
+			return nil
+		}
+	}
 	stopState, err := s.resolveThreadStopState(ctx, threadID)
 	if err != nil {
 		return err

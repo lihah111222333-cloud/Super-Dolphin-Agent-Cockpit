@@ -156,9 +156,41 @@ func applyTurnStartConfig(ctx context.Context, session contract.Session, p turnS
 	return session.Configure(ctx, dto.ThreadConfigPatch{Approvals: &policy})
 }
 
-func turnStartHandler(svc Service, resolver contract.SessionResolver, capResolver rpc.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
+// PendingLaunchSpawner abstracts thread.Service.SpawnIfNeeded so the turn
+// handler can lazily fork the provider CLI for threads created with
+// DeferSpawn=true. Nil spawner disables the C1 path and restores the
+// legacy behavior (fail fast if session is missing).
+type PendingLaunchSpawner interface {
+	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (bool, error)
+}
+
+func collectTurnStartUserInput(p turnStartParams) string {
+	if text := strings.TrimSpace(p.Prompt); text != "" {
+		return text
+	}
+	for _, item := range p.Input {
+		if text := strings.TrimSpace(item.Text); text != "" {
+			return text
+		}
+		if text := strings.TrimSpace(item.Content); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner PendingLaunchSpawner, capResolver rpc.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
 	return rpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
+		// C1: if this thread is still in pending_launch state, fork the
+		// provider CLI now using the first-turn user text for router
+		// classification. SpawnIfNeeded is a no-op for already-running
+		// threads, so eager-path threads are unaffected.
+		if spawner != nil {
+			if _, err := spawner.SpawnIfNeeded(ctx, rpc.ThreadIDFrom(ctx), collectTurnStartUserInput(p)); err != nil {
+				return nil, err
+			}
+		}
 		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
 			if !contract.HasCapability(session.Capabilities(), dto.CapMessageSend) {
 				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")

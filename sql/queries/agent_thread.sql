@@ -1,5 +1,5 @@
 -- name: GetAgentThreadByID :one
-SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id,
+SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -17,7 +17,7 @@ WHERE thread_id = $1
 LIMIT 1;
 
 -- name: GetAgentThreadByPort :one
-SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id,
+SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -36,7 +36,7 @@ ORDER BY updated_at DESC
 LIMIT 1;
 
 -- name: ListAgentThreads :many
-SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id,
+SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -59,7 +59,7 @@ WHERE status = 'running'
 ORDER BY created_at DESC;
 
 -- name: ListRunningAgentThreads :many
-SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id,
+SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -77,7 +77,7 @@ WHERE status = 'running'
 ORDER BY created_at ASC;
 
 -- name: ListRecoverableAgentThreads :many
-SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id,
+SELECT thread_id, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -111,9 +111,10 @@ INSERT INTO agent_threads (
     agent_memory_scope,
     config_override,
     agent_key,
-    prompt_version_id
+    prompt_version_id,
+    pending_launch
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE(sqlc.arg(config_override), '{}'::jsonb), sqlc.arg(agent_key), sqlc.narg(prompt_version_id))
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE(sqlc.arg(config_override), '{}'::jsonb), sqlc.arg(agent_key), sqlc.narg(prompt_version_id), sqlc.arg(pending_launch))
 ON CONFLICT (thread_id) DO UPDATE
 SET prompt = $2,
     model = $3,
@@ -128,7 +129,8 @@ SET prompt = $2,
     agent_memory_scope = $13,
     config_override = COALESCE(sqlc.arg(config_override), '{}'::jsonb),
     agent_key = sqlc.arg(agent_key),
-    prompt_version_id = sqlc.narg(prompt_version_id);
+    prompt_version_id = sqlc.narg(prompt_version_id),
+    pending_launch = sqlc.arg(pending_launch);
 
 -- name: UpdateAgentThreadStatus :exec
 UPDATE agent_threads
@@ -171,3 +173,13 @@ FROM agent_threads
 WHERE cwd <> ''
   AND cwd LIKE $1 || '%'
 ORDER BY created_at DESC;
+
+-- name: UpdateAgentThreadLaunchResult :exec
+-- Atomically clears pending_launch and stamps the router decision after the
+-- Claude CLI has been spawned for this thread.
+UPDATE agent_threads
+SET agent_key = sqlc.arg(agent_key),
+    prompt_version_id = sqlc.narg(prompt_version_id),
+    pending_launch = false,
+    updated_at = sqlc.arg(updated_at)
+WHERE thread_id = sqlc.arg(thread_id);

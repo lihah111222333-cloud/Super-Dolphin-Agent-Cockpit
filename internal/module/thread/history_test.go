@@ -320,6 +320,10 @@ func (s *historyTestThreadStore) UpdateStatus(_ context.Context, params threadst
 	return nil
 }
 
+func (*historyTestThreadStore) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
+	return nil
+}
+
 func (s *historyTestThreadStore) DeleteByThreadID(context.Context, string) error { return nil }
 
 func (s *historyTestThreadStore) ResetRunning(context.Context) error { return nil }

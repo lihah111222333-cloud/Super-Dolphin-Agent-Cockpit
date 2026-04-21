@@ -599,6 +599,10 @@ func (s *stubThreadStore) UpdateStatus(_ context.Context, params threadstore.Upd
 	return nil
 }
 
+func (*stubThreadStore) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
+	return nil
+}
+
 func (s *stubThreadStore) DeleteByThreadID(context.Context, string) error { return nil }
 
 func (s *stubThreadStore) ResetRunning(context.Context) error { return nil }

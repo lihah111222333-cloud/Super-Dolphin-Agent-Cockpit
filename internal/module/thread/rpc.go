@@ -117,6 +117,7 @@ func newStartHandler(svc Service) handler.Func {
 			LaunchSkillNames:  append([]string(nil), p.SelectedSkills...),
 			ForceLaunchSkills: p.ManualSkillSelection,
 			AgentKey:          p.AgentKey,
+			DeferSpawn:        p.DeferSpawn,
 		})
 		if err != nil {
 			return nil, err
@@ -153,6 +154,10 @@ func newStartHandler(svc Service) handler.Func {
 		if result.PromptVersionID != nil {
 			response["prompt_version_id"] = *result.PromptVersionID
 			response["promptVersionId"] = *result.PromptVersionID
+		}
+		if result.PendingLaunch {
+			response["pending_launch"] = true
+			response["pendingLaunch"] = true
 		}
 		return response, nil
 	})

@@ -25,6 +25,7 @@ type querier interface {
 	ResetRunningAgentThreads(ctx context.Context) error
 	SaveAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error)
 	UpdateAgentThreadStatus(ctx context.Context, arg sqlc.UpdateAgentThreadStatusParams) error
+	UpdateAgentThreadLaunchResult(ctx context.Context, arg sqlc.UpdateAgentThreadLaunchResultParams) error
 	UpsertAgentThread(ctx context.Context, arg sqlc.UpsertAgentThreadParams) error
 }
 
@@ -113,6 +114,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		ConfigOverride:   params.ConfigOverride,
 		AgentKey:         params.AgentKey,
 		PromptVersionID:  params.PromptVersionID,
+		PendingLaunch:    params.PendingLaunch,
 	}), "upsert")
 }
 
@@ -164,6 +166,15 @@ func (s *store) UpdateStatus(ctx context.Context, params UpdateStatusParams) err
 		Status:    params.Status,
 		UpdatedAt: params.UpdatedAt,
 	}), "update_status")
+}
+
+func (s *store) UpdateLaunchResult(ctx context.Context, params UpdateLaunchResultParams) error {
+	return wrapThreadError(s.q.UpdateAgentThreadLaunchResult(ctx, sqlc.UpdateAgentThreadLaunchResultParams{
+		ThreadID:        params.ThreadID,
+		AgentKey:        params.AgentKey,
+		PromptVersionID: params.PromptVersionID,
+		UpdatedAt:       params.UpdatedAt,
+	}), "update_launch_result")
 }
 
 func (s *store) DeleteByThreadID(ctx context.Context, threadID string) error {
@@ -236,6 +247,7 @@ func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 		ConfigOverride:   row.ConfigOverride,
 		AgentKey:         row.AgentKey,
 		PromptVersionID:  row.PromptVersionID,
+		PendingLaunch:    row.PendingLaunch,
 	}
 }
 
@@ -262,6 +274,7 @@ func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
 		ConfigOverride:   row.ConfigOverride,
 		AgentKey:         row.AgentKey,
 		PromptVersionID:  row.PromptVersionID,
+		PendingLaunch:    row.PendingLaunch,
 	}
 }
 
@@ -290,6 +303,7 @@ func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 			ConfigOverride:   row.ConfigOverride,
 			AgentKey:         row.AgentKey,
 			PromptVersionID:  row.PromptVersionID,
+			PendingLaunch:    row.PendingLaunch,
 		}
 	}
 	return result
@@ -320,6 +334,7 @@ func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 			ConfigOverride:   row.ConfigOverride,
 			AgentKey:         row.AgentKey,
 			PromptVersionID:  row.PromptVersionID,
+			PendingLaunch:    row.PendingLaunch,
 		}
 	}
 	return result
@@ -350,6 +365,7 @@ func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thre
 			ConfigOverride:   row.ConfigOverride,
 			AgentKey:         row.AgentKey,
 			PromptVersionID:  row.PromptVersionID,
+			PendingLaunch:    row.PendingLaunch,
 		}
 	}
 	return result

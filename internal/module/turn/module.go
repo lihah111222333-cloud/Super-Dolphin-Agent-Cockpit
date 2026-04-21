@@ -21,7 +21,7 @@ var Module = fx.Module("turn",
 		),
 		fx.Annotate(
 			NewTurnHandlers,
-			fx.ParamTags("", `optional:"true"`, "", `optional:"true"`, `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, "", `optional:"true"`, `optional:"true"`, `optional:"true"`),
 		),
 	),
 	fx.Invoke(registerTurnServiceLifecycle),
