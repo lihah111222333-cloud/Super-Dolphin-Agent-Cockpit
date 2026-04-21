@@ -42,6 +42,8 @@ type threadStateFields struct {
 	SessionUUID       string
 	ConfigOverride    json.RawMessage
 	CreatedAt         int64
+	AgentKey          string
+	PromptVersionID   *int64
 }
 
 func newThreadState(kind threadStateKind, fields threadStateFields) threadState {
@@ -73,6 +75,8 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	state.SessionUUID = fields.SessionUUID
 	state.ConfigOverride = shared.CloneRawMessage(fields.ConfigOverride)
 	state.CreatedAt = firstNonZero(fields.CreatedAt)
+	state.AgentKey = strings.TrimSpace(fields.AgentKey)
+	state.PromptVersionID = fields.PromptVersionID
 	return state
 }
 
@@ -92,6 +96,8 @@ func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
 		AgentType:        strings.TrimSpace(thread.AgentType),
 		AgentMemoryScope: strings.TrimSpace(thread.AgentMemoryScope),
 		ConfigOverride:   thread.ConfigOverride,
+		AgentKey:         strings.TrimSpace(thread.AgentKey),
+		PromptVersionID:  thread.PromptVersionID,
 	}
 }
 

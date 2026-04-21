@@ -238,15 +238,17 @@ func (s *service) upsertPublicThread(
 	}
 	displayName := strings.TrimSpace(shared.FirstNonEmpty(state.Name, state.Prompt))
 	err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{
-		ThreadID:       state.PublicThreadID,
-		Prompt:         displayName,
-		Model:          state.Model,
-		Cwd:            state.CWD,
-		Status:         statusCreated,
-		CreatedAt:      state.CreatedAt,
-		UpdatedAt:      time.Now().Unix(),
-		OwnerThreadID:  state.OwnerThreadID,
-		ConfigOverride: shared.CloneRawMessage(state.ConfigOverride),
+		ThreadID:        state.PublicThreadID,
+		Prompt:          displayName,
+		Model:           state.Model,
+		Cwd:             state.CWD,
+		Status:          statusCreated,
+		CreatedAt:       state.CreatedAt,
+		UpdatedAt:       time.Now().Unix(),
+		OwnerThreadID:   state.OwnerThreadID,
+		ConfigOverride:  shared.CloneRawMessage(state.ConfigOverride),
+		AgentKey:        state.AgentKey,
+		PromptVersionID: state.PromptVersionID,
 	}))
 	if err == nil {
 		return nil

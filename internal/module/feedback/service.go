@@ -1,0 +1,58 @@
+package feedback
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	feedbackstore "github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+)
+
+type service struct {
+	logger *slog.Logger
+	store  feedbackstore.Store
+}
+
+var _ Service = (*service)(nil)
+
+func NewService(logger *slog.Logger, store feedbackstore.Store) Service {
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	return &service{logger: logger, store: store}
+}
+
+var errServiceDisabled = errors.New("feedback: service not wired (store is nil)")
+
+func (s *service) Record(ctx context.Context, req RecordRequest) (RecordResult, error) {
+	ctx = shared.NonNilContext(ctx)
+	if s == nil || s.store == nil {
+		return RecordResult{}, errServiceDisabled
+	}
+	threadID := strings.TrimSpace(req.ThreadID)
+	eventType := strings.TrimSpace(req.EventType)
+	if threadID == "" || eventType == "" {
+		return RecordResult{}, errors.New("feedback/record: thread_id and event_type are required")
+	}
+	ev, err := s.store.Insert(ctx, feedbackstore.Event{
+		ThreadID:        threadID,
+		TurnID:          strings.TrimSpace(req.TurnID),
+		AgentKey:        strings.TrimSpace(req.AgentKey),
+		PromptVersionID: req.PromptVersionID,
+		EventType:       eventType,
+		Actor:           strings.TrimSpace(req.Actor),
+		Payload:         req.Payload,
+	})
+	if err != nil {
+		s.logger.Warn("feedback/record: insert failed",
+			slog.String("thread_id", threadID),
+			slog.String("event_type", eventType),
+			slog.String("error", err.Error()),
+		)
+		return RecordResult{}, err
+	}
+	return RecordResult{ID: ev.ID, EventType: ev.EventType, Recorded: true}, nil
+}

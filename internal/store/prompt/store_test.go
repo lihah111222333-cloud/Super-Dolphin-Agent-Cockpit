@@ -14,7 +14,7 @@ type promptQuerierStub struct {
 	listFn          func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error)
 	getFn           func(context.Context, string) (sqlc.GetPromptTemplateRow, error)
 	deleteFn        func(context.Context, string) (int64, error)
-	insertVersionFn func(context.Context, sqlc.InsertPromptVersionParams) error
+	insertVersionFn func(context.Context, sqlc.InsertPromptVersionParams) (int64, error)
 	upsertFn        func(context.Context, sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error)
 }
 
@@ -39,11 +39,11 @@ func (s *promptQuerierStub) DeletePromptTemplate(ctx context.Context, promptKey 
 	return 0, nil
 }
 
-func (s *promptQuerierStub) InsertPromptVersion(ctx context.Context, arg sqlc.InsertPromptVersionParams) error {
+func (s *promptQuerierStub) InsertPromptVersion(ctx context.Context, arg sqlc.InsertPromptVersionParams) (int64, error) {
 	if s.insertVersionFn != nil {
 		return s.insertVersionFn(ctx, arg)
 	}
-	return nil
+	return 0, nil
 }
 
 func (s *promptQuerierStub) UpsertPromptTemplate(ctx context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error) {
@@ -237,14 +237,14 @@ func TestStoreGetUpsertDeleteAndInsertVersion(t *testing.T) {
 	t.Run("insert version forwards params", func(t *testing.T) {
 		var captured sqlc.InsertPromptVersionParams
 		s := &store{q: &promptQuerierStub{
-			insertVersionFn: func(_ context.Context, arg sqlc.InsertPromptVersionParams) error {
+			insertVersionFn: func(_ context.Context, arg sqlc.InsertPromptVersionParams) (int64, error) {
 				captured = arg
-				return nil
+				return 42, nil
 			},
 		}}
 
 		sourceUpdatedAt := now.Add(2 * time.Minute)
-		err := s.InsertVersion(context.Background(), PromptTemplateVersion{
+		id, err := s.InsertVersion(context.Background(), PromptTemplateVersion{
 			PromptKey:       "main/scoped",
 			Title:           "Scoped Prompt",
 			AgentKey:        "main",
@@ -260,6 +260,9 @@ func TestStoreGetUpsertDeleteAndInsertVersion(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatalf("InsertVersion() unexpected error: %v", err)
+		}
+		if id != 42 {
+			t.Fatalf("InsertVersion() returned wrong id: got %d want 42", id)
 		}
 		if captured.PromptKey != "main/scoped" || captured.ToolName != "tool" || captured.SourceUpdatedAt == nil || !captured.SourceUpdatedAt.Equal(sourceUpdatedAt) {
 			t.Fatalf("InsertVersion() forwarded wrong params: %+v", captured)

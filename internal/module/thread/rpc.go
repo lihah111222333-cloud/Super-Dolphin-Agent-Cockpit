@@ -27,6 +27,7 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 		"thread/resume":    newResumeHandler(svc),
 		"thread/fork":      newForkHandler(svc),
 		"thread/recover":   newRecoverHandler(svc),
+		"thread/handoff":   newHandoffHandler(svc),
 		"thread/archive":   newTracedThreadEffect("thread/archive", svc.Archive),
 		"thread/unarchive": newThreadEffect(svc.Unarchive),
 		"thread/delete":    newThreadEffect(svc.Delete),
@@ -115,6 +116,7 @@ func newStartHandler(svc Service) handler.Func {
 			// 内部合同归一化为 `LaunchSkillNames` / `ForceLaunchSkills`。
 			LaunchSkillNames:  append([]string(nil), p.SelectedSkills...),
 			ForceLaunchSkills: p.ManualSkillSelection,
+			AgentKey:          p.AgentKey,
 		})
 		if err != nil {
 			return nil, err
@@ -128,7 +130,7 @@ func newStartHandler(svc Service) handler.Func {
 			"cwd":            result.CWD,
 			"approvalPolicy": result.ApprovalPolicy,
 		}
-		return map[string]any{
+		response := map[string]any{
 			"thread":         threadInfo{ID: result.ThreadID, Status: status},
 			"threadId":       result.ThreadID,
 			"thread_id":      result.ThreadID,
@@ -143,7 +145,16 @@ func newStartHandler(svc Service) handler.Func {
 			"cwd":            result.CWD,
 			"approvalPolicy": result.ApprovalPolicy,
 			"effective":      effective,
-		}, nil
+		}
+		if result.AgentKey != "" {
+			response["agent_key"] = result.AgentKey
+			response["agentKey"] = result.AgentKey
+		}
+		if result.PromptVersionID != nil {
+			response["prompt_version_id"] = *result.PromptVersionID
+			response["promptVersionId"] = *result.PromptVersionID
+		}
+		return response, nil
 	})
 }
 
@@ -198,6 +209,38 @@ func newForkHandler(svc Service) handler.Func {
 		return map[string]any{
 			"thread": threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom},
 		}, nil
+	})
+}
+
+func newHandoffHandler(svc Service) handler.Func {
+	return rpc.StrictHandler(func(ctx context.Context, p handoffParams) (any, error) {
+		result, err := svc.Handoff(ctx, HandoffRequest{
+			SourceThreadID: p.ThreadID,
+			TargetAgentKey: p.AgentKey,
+			InitialMessage: p.InitialMessage,
+		})
+		if err != nil {
+			return nil, err
+		}
+		response := map[string]any{
+			"source_thread_id": result.SourceThreadID,
+			"sourceThreadId":   result.SourceThreadID,
+			"new_thread_id":    result.NewThreadID,
+			"newThreadId":      result.NewThreadID,
+			"thread":           threadInfo{ID: result.NewThreadID, Status: result.Status},
+			"agent_id":         result.AgentID,
+			"agentId":          result.AgentID,
+			"status":           result.Status,
+		}
+		if result.AgentKey != "" {
+			response["agent_key"] = result.AgentKey
+			response["agentKey"] = result.AgentKey
+		}
+		if result.PromptVersionID != nil {
+			response["prompt_version_id"] = *result.PromptVersionID
+			response["promptVersionId"] = *result.PromptVersionID
+		}
+		return response, nil
 	})
 }
 

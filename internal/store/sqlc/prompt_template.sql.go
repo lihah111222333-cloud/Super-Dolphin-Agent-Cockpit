@@ -68,11 +68,12 @@ func (q *Queries) GetPromptTemplate(ctx context.Context, promptKey string) (GetP
 	return i, err
 }
 
-const insertPromptVersion = `-- name: InsertPromptVersion :exec
+const insertPromptVersion = `-- name: InsertPromptVersion :one
 INSERT INTO prompt_versions (
     prompt_key, title, agent_key, tool_name, prompt_text,
     variables, tags, description, enabled, created_by, updated_by, source_updated_at
 ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12)
+RETURNING id
 `
 
 type InsertPromptVersionParams struct {
@@ -90,8 +91,8 @@ type InsertPromptVersionParams struct {
 	SourceUpdatedAt *time.Time `db:"source_updated_at" json:"source_updated_at"`
 }
 
-func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) error {
-	_, err := q.db.Exec(ctx, insertPromptVersion,
+func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertPromptVersion,
 		arg.PromptKey,
 		arg.Title,
 		arg.AgentKey,
@@ -105,7 +106,9 @@ func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersi
 		arg.UpdatedBy,
 		arg.SourceUpdatedAt,
 	)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const listPromptTemplates = `-- name: ListPromptTemplates :many

@@ -17,7 +17,7 @@ type Store interface {
 	WithTx(ctx context.Context, fn func(txStore Store) error) error
 	Get(ctx context.Context, promptKey string) (*PromptTemplate, error)
 	Delete(ctx context.Context, promptKey string) error
-	InsertVersion(ctx context.Context, version PromptTemplateVersion) error
+	InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error)
 	Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error)
 }
 

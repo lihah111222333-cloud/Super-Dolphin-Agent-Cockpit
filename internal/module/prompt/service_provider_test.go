@@ -101,9 +101,9 @@ func (s *inMemoryPromptStore) Delete(_ context.Context, promptKey string) error 
 	return nil
 }
 
-func (s *inMemoryPromptStore) InsertVersion(_ context.Context, version promptstore.PromptTemplateVersion) error {
+func (s *inMemoryPromptStore) InsertVersion(_ context.Context, version promptstore.PromptTemplateVersion) (int64, error) {
 	s.versions = append(s.versions, version)
-	return nil
+	return int64(len(s.versions)), nil
 }
 
 func (s *inMemoryPromptStore) Upsert(_ context.Context, template promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {

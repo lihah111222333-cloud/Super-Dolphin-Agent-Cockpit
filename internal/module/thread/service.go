@@ -15,7 +15,9 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/router"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
@@ -67,6 +69,11 @@ type service struct {
 	// sessionRecoveryCount tracks how many times session-level
 	// recovery has been attempted per agent to prevent infinite loops.
 	sessionRecoveryCount sync.Map // agentID → *atomic.Int32
+
+	// Router wiring — both optional; nil means thread/start falls back to the
+	// provider's own default prompt (no injection, no agent_key recording).
+	promptStore   promptstore.Store
+	routerBackend router.Backend
 }
 
 var _ Service = (*service)(nil)

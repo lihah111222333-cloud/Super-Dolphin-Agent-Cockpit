@@ -4,8 +4,10 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	routerpreview "github.com/anthropic-ai/super-agent-v3/internal/module/router"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
@@ -22,6 +24,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli"
+	"github.com/anthropic-ai/super-agent-v3/internal/router"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/internal/store"
@@ -43,8 +46,11 @@ var Module = fx.Options(
 	statemachine.Module,
 	store.Module,
 	dashboard.Module,
+	feedback.Module,
 	memory.Module,
 	prompt.Module,
+	router.Module,
+	routerpreview.Module,
 	skill.Module,
 	thread.Module,
 	turn.Module,

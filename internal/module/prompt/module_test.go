@@ -37,8 +37,8 @@ func (noopPromptStore) Get(context.Context, string) (*promptstore.PromptTemplate
 
 func (noopPromptStore) Delete(context.Context, string) error { return nil }
 
-func (noopPromptStore) InsertVersion(context.Context, promptstore.PromptTemplateVersion) error {
-	return nil
+func (noopPromptStore) InsertVersion(context.Context, promptstore.PromptTemplateVersion) (int64, error) {
+	return 0, nil
 }
 
 func (noopPromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {

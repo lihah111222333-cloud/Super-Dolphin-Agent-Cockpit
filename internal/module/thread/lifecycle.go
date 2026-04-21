@@ -42,6 +42,8 @@ type threadState struct {
 	SessionUUID      string
 	ConfigOverride   json.RawMessage
 	CreatedAt        int64
+	AgentKey         string
+	PromptVersionID  *int64
 }
 
 type threadMeta struct {
@@ -80,6 +82,10 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	if err != nil {
 		return StartResult{}, err
 	}
+	// Router resolution runs before prompt assembly so its output (BaseInstructions)
+	// is visible to the assembly step, and its sidecar metadata (AgentKey,
+	// PromptVersionID) reaches the thread Upsert via threadState.
+	s.resolveRoutedPrompt(ctx, &req)
 	if req.PromptAssemblyRef == nil {
 		req.PromptAssemblyRef = s.promptAssembly
 	}
@@ -192,6 +198,9 @@ func (s *service) persistStartedSession(
 		SessionUUID:      session.ThreadID(),
 		ConfigOverride:   configOverride,
 		CreatedAt:        time.Now().Unix(),
+		AgentKey:         req.AgentKey,
+		PromptVersionID:  req.PromptVersionID,
+		OwnerThreadID:    req.OwnerThreadID,
 	})
 	publicThreadID := state.PublicThreadID
 	providerThreadID := state.ProviderThreadID
@@ -204,15 +213,17 @@ func (s *service) persistStartedSession(
 		return StartResult{}, err
 	}
 	return StartResult{
-		ThreadID:       publicThreadID,
-		AgentID:        agentID,
-		SessionID:      shared.FirstNonEmpty(providerThreadID, publicThreadID),
-		Status:         "running",
-		Model:          effectiveModel,
-		Provider:       req.Provider,
-		ModelProvider:  req.ModelProvider,
-		CWD:            effectiveCWD,
-		ApprovalPolicy: req.ApprovalPolicy,
+		ThreadID:        publicThreadID,
+		AgentID:         agentID,
+		SessionID:       shared.FirstNonEmpty(providerThreadID, publicThreadID),
+		Status:          "running",
+		Model:           effectiveModel,
+		Provider:        req.Provider,
+		ModelProvider:   req.ModelProvider,
+		CWD:             effectiveCWD,
+		ApprovalPolicy:  req.ApprovalPolicy,
+		AgentKey:        req.AgentKey,
+		PromptVersionID: req.PromptVersionID,
 	}, nil
 }
 
