@@ -321,6 +321,45 @@
   line-height: 1.2;
 }
 
+.composer-agent-preview-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px 4px;
+  padding: 2px 8px;
+  max-width: 100%;
+  border: 1px solid rgba(56, 189, 248, 0.42);
+  border-radius: 999px;
+  background: rgba(8, 47, 73, 0.28);
+  color: rgba(186, 230, 253, 0.95);
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.composer-agent-preview-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.85);
+  flex: 0 0 auto;
+}
+
+.composer-agent-preview-label {
+  color: rgba(125, 211, 252, 0.72);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.composer-agent-preview-key {
+  color: rgba(186, 230, 253, 1);
+  font-weight: 600;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .chat-input-row-vue textarea,
 #chatInput {
   flex: 1;
