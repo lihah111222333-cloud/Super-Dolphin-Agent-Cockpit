@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode"
 
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -118,6 +119,68 @@ func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 }
 
+func normalizeDisplayReportText(raw string) string {
+	text := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(raw, "\r\n", "\n"), "\r", "\n"))
+	if text == "" {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	trimmed := make([]string, 0, len(lines))
+	nonEmpty := make([]string, 0, len(lines))
+	prevBlank := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if len(trimmed) == 0 || prevBlank {
+				continue
+			}
+			trimmed = append(trimmed, "")
+			prevBlank = true
+			continue
+		}
+		trimmed = append(trimmed, line)
+		nonEmpty = append(nonEmpty, line)
+		prevBlank = false
+	}
+	if len(trimmed) == 0 {
+		return ""
+	}
+	if shouldCollapseDisplayReportLines(nonEmpty) {
+		return strings.Join(nonEmpty, " ")
+	}
+	return strings.Join(trimmed, "\n")
+}
+
+func shouldCollapseDisplayReportLines(lines []string) bool {
+	if len(lines) < 2 {
+		return false
+	}
+	for _, line := range lines {
+		if !isSimpleDisplayReportToken(line) {
+			return false
+		}
+	}
+	return true
+}
+
+func isSimpleDisplayReportToken(line string) bool {
+	runes := []rune(strings.TrimSpace(line))
+	if len(runes) == 0 || len(runes) > 24 {
+		return false
+	}
+	for _, r := range runes {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			continue
+		case strings.ContainsRune("._-+/=", r):
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func agentReportLocked(agent *agentRuntime) AgentReportResult {
 	requesters := append([]string(nil), agent.reportRequesters...)
 	var metadata *AgentReportMetadata
@@ -126,7 +189,7 @@ func agentReportLocked(agent *agentRuntime) AgentReportResult {
 	}
 	return AgentReportResult{
 		AgentID:  agent.id,
-		Report:   strings.TrimSpace(agent.lastReport),
+		Report:   normalizeDisplayReportText(agent.lastReport),
 		State:    agent.state,
 		Metadata: metadata,
 	}

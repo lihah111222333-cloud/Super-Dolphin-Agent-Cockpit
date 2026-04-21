@@ -64,7 +64,7 @@ func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSn
 		State:          agent.state,
 		Provider:       provider,
 		ProviderSource: providerSource,
-		LastReport:     agent.lastReport,
+		LastReport:     normalizeDisplayReportText(agent.lastReport),
 		UpdatedAt:      agent.updatedAt,
 	}
 }

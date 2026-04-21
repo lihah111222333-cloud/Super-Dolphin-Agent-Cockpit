@@ -272,6 +272,36 @@ func TestHandleReportEventExtractsNestedItemText(t *testing.T) {
 	}
 }
 
+func TestGetReportNormalizesSimpleMultiLineDisplay(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{agents: map[string]*agentRuntime{
+		"agent-1": {id: "agent-1", lastReport: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10"},
+	}}
+	got, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if got.Report != "1 2 3 4 5 6 7 8 9 10" {
+		t.Fatalf("GetReport().Report = %q, want single-line normalized display", got.Report)
+	}
+}
+
+func TestGetReportPreservesStructuredParagraphs(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{agents: map[string]*agentRuntime{
+		"agent-1": {id: "agent-1", lastReport: "结论：配置缺失\n\n修复：补齐 FOO=bar"},
+	}}
+	got, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if got.Report != "结论：配置缺失\n\n修复：补齐 FOO=bar" {
+		t.Fatalf("GetReport().Report = %q, want paragraph breaks preserved", got.Report)
+	}
+}
+
 func TestReportParamCompatibility(t *testing.T) {
 	t.Parallel()
 
