@@ -254,6 +254,7 @@ export function buildVisibleChatThreadCards(opts) {
     statusOf,
     statusHeaderOf,
     interruptibleOf,
+    routingOf,
   } = opts || {};
 
   const safeThreads = Array.isArray(threads) ? threads : [];
@@ -302,6 +303,12 @@ export function buildVisibleChatThreadCards(opts) {
       cwdMismatch,
       cwdMismatchReason,
       provider: (runtime?.provider || '').toString().trim(),
+      // Routing metadata captured by startThread (see stores/thread-actions-
+      // helpers.js getThreadRouting). Empty when: thread started before the
+      // router shipped, router did not match, or caller omitted routingOf.
+      agentKey: (typeof routingOf === 'function'
+        ? ((routingOf(threadId) || {}).agentKey || '')
+        : '').toString().trim(),
     };
   });
 
