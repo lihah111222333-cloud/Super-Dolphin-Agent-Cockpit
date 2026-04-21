@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
@@ -24,7 +25,7 @@ func NewService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 ) Service {
-	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(
@@ -40,13 +41,31 @@ func NewServiceWithPromptAssembly(
 	cfg *platformconfig.Config,
 	toolRegistry contract.ToolRegistry,
 ) Service {
-	return newService(logger, threadStore, bindingStore, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry)
+}
+
+func NewServiceWithPromptAssemblyAndSharedFiles(
+	logger *slog.Logger,
+	threadStore threadstore.Store,
+	bindingStore bindingstore.Store,
+	sharedFiles sharedfilestore.Store,
+	sessions SessionProvider,
+	starter SessionStarter,
+	turns turn.Service,
+	orchestration OrchestrationFacade,
+	threadEvents *bus.ThreadEmitters,
+	promptAssembly contract.PromptAssemblyService,
+	cfg *platformconfig.Config,
+	toolRegistry contract.ToolRegistry,
+) Service {
+	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry)
 }
 
 func newService(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
 	bindingStore bindingstore.Store,
+	sharedFiles sharedfilestore.Store,
 	sessions SessionProvider,
 	starter SessionStarter,
 	turns turn.Service,
@@ -67,6 +86,7 @@ func newService(
 		logger:           logger,
 		threadStore:      threadStore,
 		bindingStore:     bindingStore,
+		sharedFiles:      sharedFiles,
 		sessions:         sessions,
 		starter:          starter,
 		promptAssembly:   promptAssembly,

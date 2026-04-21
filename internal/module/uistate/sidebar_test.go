@@ -68,6 +68,39 @@ func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 	}
 }
 
+func TestGetSidebarIncludesTaskHandoffMetadataInRuntime(t *testing.T) {
+	t.Parallel()
+
+	threads := &configThreadServiceStub{
+		runtimeConfigResult: map[string]any{
+			"taskId":      "task-demo",
+			"taskTitle":   "Memory Center Refactor",
+			"handoffFile": "handoff/tasks/task-demo.md",
+		},
+	}
+	svc, _, err := NewService(nil, threads, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	svc.state.Threads = []ThreadSummary{{ID: "thread-1", Name: "Demo", AgentID: "agent-1"}}
+	svc.state.Agents = []AgentSummary{{ID: "agent-1", ThreadID: "thread-1", State: "running", AgentState: "running"}}
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() error = %v", err)
+	}
+	runtime := sidebar.AgentRuntimeByID["thread-1"]
+	if got, _ := runtime["taskId"].(string); got != "task-demo" {
+		t.Fatalf("runtime.taskId = %q, want %q", got, "task-demo")
+	}
+	if got, _ := runtime["taskTitle"].(string); got != "Memory Center Refactor" {
+		t.Fatalf("runtime.taskTitle = %q, want %q", got, "Memory Center Refactor")
+	}
+	if got, _ := runtime["handoffFile"].(string); got != "handoff/tasks/task-demo.md" {
+		t.Fatalf("runtime.handoffFile = %q, want %q", got, "handoff/tasks/task-demo.md")
+	}
+}
+
 func TestApplyThreadUpdatedSyncsSidebarModel(t *testing.T) {
 	t.Parallel()
 

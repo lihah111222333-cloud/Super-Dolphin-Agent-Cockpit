@@ -36,6 +36,7 @@ import { useKeyboardShortcuts } from '../composables/useKeyboardShortcuts.js';
 import { useFileRefPreview } from '../composables/useFileRefPreview.js';
 import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
 import { useFileDrop } from '../composables/useFileDrop.js';
+import { useTaskHandoff } from '../composables/useTaskHandoff.js';
 import { usePageLifecycle } from '../composables/usePageLifecycle.js';
 import { createThreadConfigController } from '../composables/useThreadConfigController.js';
 import { useRouterClassify } from '../composables/useRouterClassify.js';
@@ -191,6 +192,29 @@ function createPageFileRefPreview(props, ctx) {
     fallbackMarkdownPreview: ctx.fallbackMarkdownPreview,
     requestPathChoice: ctx.requestPathChoice,
     confirmAbandonDirtyPreview: ctx.confirmAbandonDirtyPreview,
+  });
+}
+
+function createPageTaskHandoff(props, ctx) {
+  return useTaskHandoff({
+    threadStore: props.threadStore,
+    projectStore: props.projectStore,
+    selectedThreadId: ctx.selectedThreadId,
+    activeThread: ctx.activeThread,
+    activeRuntime: ctx.activeRuntime,
+    isCmd: ctx.isCmd,
+  });
+}
+
+function createPageCopyThreadInfo(selectedThreadId, activeProjectCwd, threadCards, activeThread, activeStatus, useClaudeProvider, props) {
+  return useCopyThreadInfo({
+    selectedThreadId,
+    activeRuntime: threadCards.activeRuntime,
+    activeThread,
+    activeStatus,
+    useClaudeProvider,
+    activeProjectCwd,
+    threadStore: props.threadStore,
   });
 }
 
@@ -451,9 +475,12 @@ export const UnifiedChatPage = {
       isThreadInterruptible: threadStatus.isThreadInterruptible,
     });
 
-    const copyThreadInfo = useCopyThreadInfo({
-      selectedThreadId, activeRuntime: threadCards.activeRuntime, activeThread, activeStatus,
-      useClaudeProvider, activeProjectCwd, threadStore: props.threadStore,
+    const copyThreadInfo = createPageCopyThreadInfo(selectedThreadId, activeProjectCwd, threadCards, activeThread, activeStatus, useClaudeProvider, props);
+    const taskHandoff = createPageTaskHandoff(props, {
+      selectedThreadId,
+      activeThread,
+      activeRuntime: threadCards.activeRuntime,
+      isCmd,
     });
 
     bindPageThreadSelection(props, {
@@ -503,6 +530,7 @@ export const UnifiedChatPage = {
       composer, isCmd, threads, selectedThreadId, activeThread,
       chatThreadOptions, showArchivedThreadList,
       threadCards, threadStatus, threadActions, inlineRename, copyThreadInfo, fileRefPreview,
+      taskHandoff,
       threadConfigUi: threadConfigController.threadConfigUi,
       updateThreadConfigModel: threadConfigController.updateThreadConfigModel,
       updateThreadConfigEffort: threadConfigController.updateThreadConfigEffort,

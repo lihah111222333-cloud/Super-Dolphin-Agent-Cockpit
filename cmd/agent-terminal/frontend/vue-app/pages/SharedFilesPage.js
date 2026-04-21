@@ -61,6 +61,10 @@ function formatBytes(len) {
   return `${(len / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function isTaskHandoffPath(path) {
+  return (path || '').toString().trim().startsWith('handoff/tasks/');
+}
+
 function emptyPromoteForm() {
   return {
     sharedPath: '',
@@ -124,6 +128,7 @@ export const SharedFilesPage = {
     });
 
     const items = computed(() => ensureArray(props.files));
+    const taskHandoffCount = computed(() => items.value.filter((item) => isTaskHandoffPath(item?.path)).length);
 
     const filteredItems = computed(() => {
       const needle = searchText.value.trim().toLowerCase();
@@ -317,6 +322,7 @@ export const SharedFilesPage = {
 
     return {
       items,
+      taskHandoffCount,
       filteredItems,
       notice,
       viewing,
@@ -444,6 +450,13 @@ export const SharedFilesPage = {
                 <div class="memory-center-guide-title">注意</div>
                 <div class="memory-center-guide-text">若你选择 feedback / project 类型，内容需要补全 <code>Why:</code> 和 <code>How to apply:</code> 才能通过校验。</div>
               </article>
+              <article class="memory-center-guide-card">
+                <div class="memory-center-guide-title">任务接力摘要</div>
+                <div class="memory-center-guide-text">
+                  系统为自动化任务维护的接力摘要也会出现在这里，路径固定在 <code>handoff/tasks/</code> 下。
+                  它用于短期任务连续性，不等于长期记忆。当前共 {{ taskHandoffCount }} 份。
+                </div>
+              </article>
             </div>
           </div>
         </div>
@@ -465,6 +478,9 @@ export const SharedFilesPage = {
           <div class="memory-empty-title">暂无共享文件</div>
           <div class="memory-empty-text">
             Agent 在对话里调用 <code>shared_file_write</code> 工具后，会话中间产物会出现在这里。你也可以从记忆中心打开演示用法。
+          </div>
+          <div class="memory-empty-text">
+            任务接力摘要会由系统自动写到 <code>handoff/tasks/</code>；如果这里仍为空，说明当前还没有自动化任务产出接力摘要。
           </div>
           <div class="memory-empty-actions">
             <button class="btn btn-secondary btn-toolbar-sm" @click="openMemoryCenter">了解记忆中心</button>

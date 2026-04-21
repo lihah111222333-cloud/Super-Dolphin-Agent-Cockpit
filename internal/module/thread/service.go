@@ -18,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/router"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
@@ -43,6 +44,7 @@ type service struct {
 	logger         *slog.Logger
 	threadStore    threadstore.Store
 	bindingStore   bindingstore.Store
+	sharedFiles    sharedfilestore.Store
 	sessions       SessionProvider
 	starter        SessionStarter
 	promptAssembly contract.PromptAssemblyService

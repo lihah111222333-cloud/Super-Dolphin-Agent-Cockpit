@@ -297,6 +297,27 @@ func TestHandleSharedFileWriteRejectsOversizeContent(t *testing.T) {
 	}
 }
 
+func TestHandleSharedFileWriteRejectsSystemHandoffPrefix(t *testing.T) {
+	called := false
+	handler := HandleSharedFileWrite(stubSharedFileStore{
+		upsert: func(context.Context, sharedfilestore.UpsertParams) (*sharedfilestore.SharedFile, error) {
+			called = true
+			return nil, nil
+		},
+	})
+
+	_, err := handler(context.Background(), mustRawInput(t, sharedFileWriteInput{
+		Path:    "handoff/tasks/task-1.md",
+		Content: "do not overwrite",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "reserved for system task handoff files") {
+		t.Fatalf("HandleSharedFileWrite() error = %v", err)
+	}
+	if called {
+		t.Fatal("HandleSharedFileWrite() unexpectedly called Upsert for reserved prefix")
+	}
+}
+
 func TestWorkspaceListRunsLimitSchemaUsesInteger(t *testing.T) {
 	defs := workspaceToolDefinitions(nil)
 	for _, def := range defs {

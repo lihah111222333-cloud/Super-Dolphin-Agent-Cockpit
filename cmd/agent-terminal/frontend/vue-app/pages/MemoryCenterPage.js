@@ -365,6 +365,13 @@ export const MemoryCenterPage = {
                 <div class="memory-center-guide-title">推荐用法</div>
                 <div class="memory-center-guide-text">临时协作内容先放共享文件；确认值得长期保留后，再整理成 durable memory，避免把计划、过程状态和噪音写进长期记忆。</div>
               </article>
+              <article class="memory-center-guide-card">
+                <div class="memory-center-guide-title">任务接力摘要</div>
+                <div class="memory-center-guide-text">
+                  自动化任务的连续性摘要不写入 durable memory，而是由系统维护在共享文件的 <code>handoff/tasks/</code> 下。
+                  如果你想看任务交接内容，请去“共享文件”或聊天页顶部的任务连续性卡片。
+                </div>
+              </article>
             </div>
           </div>
         </div>

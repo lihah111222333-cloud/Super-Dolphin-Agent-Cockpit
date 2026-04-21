@@ -29,6 +29,7 @@ func registerThreadSubscriptions(svc *service) []context.CancelFunc {
 	return []context.CancelFunc{
 		bus.ResilientSubscribe(svc.bus, svc.onAgentLaunched, svc.logger),
 		bus.ResilientSubscribe(svc.bus, svc.onAgentFailed, svc.logger),
+		bus.ResilientSubscribe(svc.bus, svc.onTurnCompleted, svc.logger),
 	}
 }
 

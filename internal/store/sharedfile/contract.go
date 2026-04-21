@@ -12,6 +12,11 @@ type Reader interface {
 	List(ctx context.Context, filter ListFilter) ([]SharedFile, error)
 }
 
+// Upserter writes or overwrites a shared file by path.
+type Upserter interface {
+	Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error)
+}
+
 // Deleter removes a shared file by path. Returns the number of rows deleted.
 type Deleter interface {
 	Delete(ctx context.Context, path string) (int64, error)
@@ -20,7 +25,14 @@ type Deleter interface {
 // Store combines read and mutation access to shared files.
 type Store interface {
 	Reader
+	Upserter
 	Deleter
+}
+
+type UpsertParams struct {
+	Path      string
+	Content   string
+	UpdatedBy string
 }
 
 type ListFilter struct {

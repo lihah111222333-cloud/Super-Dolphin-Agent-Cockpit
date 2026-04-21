@@ -84,7 +84,41 @@ export const template = `
             @select-thread="selectThread"
           />
 
+          <section
+            v-if="!isCmd && taskHandoffVisible"
+            class="task-handoff-strip data-card-vue"
+            data-testid="task-handoff-strip"
+          >
+            <div class="task-handoff-strip-head">
+              <div>
+                <div class="task-handoff-strip-title">任务摘要 · {{ activeTask?.title || '当前任务' }}</div>
+                <div class="task-handoff-strip-meta">
+                  <span v-if="taskHandoffUpdatedAt">更新于 {{ taskHandoffUpdatedAt }}</span>
+                  <span v-if="taskHandoffUpdatedBy">· 来源 {{ taskHandoffUpdatedBy }}</span>
+                </div>
+
+              </div>
+
+              <div class="task-handoff-strip-actions">
+                <button
+                  class="btn btn-primary btn-xs"
+                  data-testid="task-handoff-new-task"
+                  :disabled="continueTaskBusy || taskHandoffLoading || !taskHandoffPreview"
+                  @click="startNewTaskFromHandoff"
+                >
+                  以此新建任务
+                </button>
+              </div>
+
+            </div>
+            <div v-if="taskHandoffError" class="task-handoff-strip-error">{{ taskHandoffError }}</div>
+            <div v-else-if="taskHandoffLoading" class="task-handoff-strip-loading">正在加载任务接力摘要…</div>
+            <pre v-else class="task-handoff-strip-preview">{{ taskHandoffPreview || '当前任务已建立，但还没有可读的接力摘要。完成一轮工作后系统会自动生成。' }}</pre>
+
+          </section>
+
           <div v-if="showWorkspace" class="workspace-area">
+
             <div ref="workspaceRef" id="agent-workspace" class="chat-workspace with-diff">
               <WorkspaceChatPanel
                 :selected-thread-id="selectedThreadId"

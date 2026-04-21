@@ -98,18 +98,21 @@ func (a *bindingAdapter) ListAgentThreadBindings(ctx context.Context) ([]binding
 // enrichAgentsFromDB overwrites in-memory agent fields with DB binding
 // truth.  Called outside the service mutex so DB queries are safe.
 func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threads []ThreadSummary, runtimeMap map[string]map[string]any) {
-	if s.bindings == nil {
-		return
+	var byAgent map[string]bindingEntry
+	if s.bindings != nil {
+		byAgent = s.loadBindingIndex(ctx)
 	}
-	byAgent := s.loadBindingIndex(ctx)
+	for _, thread := range threads {
+		if len(byAgent) > 0 {
+			applyBindingToThreadRuntime(thread, byAgent, runtimeMap)
+		}
+		s.applyTaskRuntimeToThreadRuntime(ctx, thread, runtimeMap)
+	}
 	if len(byAgent) == 0 {
 		return
 	}
 	for i := range agents {
 		applyBindingToAgent(&agents[i], byAgent)
-	}
-	for _, thread := range threads {
-		applyBindingToThreadRuntime(thread, byAgent, runtimeMap)
 	}
 }
 
@@ -139,6 +142,61 @@ func ensureThreadRuntime(thread ThreadSummary, entry bindingEntry, runtimeMap ma
 	}
 	runtimeMap[thread.ID] = rt
 	return rt
+}
+
+func (s *service) applyTaskRuntimeToThreadRuntime(ctx context.Context, thread ThreadSummary, runtimeMap map[string]map[string]any) {
+	if s == nil || s.runtimeConfig == nil {
+		return
+	}
+	threadID := strings.TrimSpace(thread.ID)
+	if threadID == "" {
+		return
+	}
+	cfg, err := s.runtimeConfig.ReadRuntimeConfig(ctx, threadID)
+	if err != nil || len(cfg) == 0 {
+		return
+	}
+	rt := runtimeMap[threadID]
+	if rt == nil {
+		rt = map[string]any{}
+		runtimeMap[threadID] = rt
+	}
+	if value := runtimeConfigStringValue(cfg, "taskId", "task_id"); value != "" {
+		rt["taskId"] = value
+	}
+	if value := runtimeConfigStringValue(cfg, "taskTitle", "task_title"); value != "" {
+		rt["taskTitle"] = value
+	}
+	if value := runtimeConfigStringValue(cfg, "handoffFile", "handoff_file"); value != "" {
+		rt["handoffFile"] = value
+	}
+	if value := runtimeConfigStringValue(cfg, "ownerThreadId", "owner_thread_id"); value != "" {
+		rt["ownerThreadId"] = value
+	}
+
+}
+
+func runtimeConfigReader(threads thread.Service) runtimeConfigLookup {
+	if reader, ok := threads.(runtimeConfigLookup); ok {
+		return reader
+	}
+	return nil
+}
+
+func runtimeConfigStringValue(cfg map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		text, ok := value.(string)
+		if ok {
+			if text = strings.TrimSpace(text); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
 }
 
 func (s *service) loadBindingIndex(ctx context.Context) map[string]bindingEntry {

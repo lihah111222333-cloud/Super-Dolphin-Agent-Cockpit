@@ -1,0 +1,70 @@
+.task-handoff-strip {
+  margin: 0 0 12px;
+  gap: 12px;
+}
+
+.task-handoff-strip-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-handoff-strip-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.task-handoff-strip-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.task-handoff-strip-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.task-handoff-strip-preview {
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.task-handoff-strip-loading,
+.task-handoff-strip-error {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.task-handoff-strip-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+
+.task-handoff-strip-error {
+  color: var(--danger, #f87171);
+}
+
+@media (max-width: 900px) {
+  .task-handoff-strip-head {
+    flex-direction: column;
+  }
+}
