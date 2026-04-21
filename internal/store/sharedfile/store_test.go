@@ -13,6 +13,7 @@ type sharedFileQuerierStub struct {
 	getFn    func(context.Context, string) (sqlc.SharedFile, error)
 	listFn   func(context.Context, sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error)
 	deleteFn func(context.Context, string) (int64, error)
+	upsertFn func(context.Context, sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error)
 }
 
 func (s *sharedFileQuerierStub) GetSharedFile(ctx context.Context, path string) (sqlc.SharedFile, error) {
@@ -34,6 +35,13 @@ func (s *sharedFileQuerierStub) DeleteSharedFile(ctx context.Context, path strin
 		return s.deleteFn(ctx, path)
 	}
 	return 0, nil
+}
+
+func (s *sharedFileQuerierStub) UpsertSharedFile(ctx context.Context, arg sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error) {
+	if s.upsertFn != nil {
+		return s.upsertFn(ctx, arg)
+	}
+	return sqlc.SharedFile{}, nil
 }
 
 func TestGetMapsRow(t *testing.T) {
@@ -115,6 +123,52 @@ func TestListReturnsEmptySliceWhenNoRows(t *testing.T) {
 	}
 	if got == nil || len(got) != 0 {
 		t.Fatalf("List() got = %v, want non-nil empty slice", got)
+	}
+}
+
+func TestUpsertForwardsPayloadAndMapsRow(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(3_000_000, 0).UTC()
+	var captured sqlc.UpsertSharedFileParams
+	s := &store{q: &sharedFileQuerierStub{
+		upsertFn: func(_ context.Context, arg sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error) {
+			captured = arg
+			return sqlc.SharedFile{
+				Path:      arg.Path,
+				Content:   arg.Content,
+				UpdatedBy: arg.UpdatedBy,
+				CreatedAt: now,
+				UpdatedAt: now,
+			}, nil
+		},
+	}}
+	got, err := s.Upsert(context.Background(), UpsertParams{
+		Path:      "handoff/tasks/demo.md",
+		Content:   "hello",
+		UpdatedBy: "system",
+	})
+	if err != nil {
+		t.Fatalf("Upsert() unexpected error: %v", err)
+	}
+	if captured.Path != "handoff/tasks/demo.md" || captured.Content != "hello" || captured.UpdatedBy != "system" {
+		t.Fatalf("Upsert() forwarded wrong params: %+v", captured)
+	}
+	if got == nil || got.Path != captured.Path || got.Content != "hello" || got.UpdatedBy != "system" {
+		t.Fatalf("Upsert() row mapped incorrectly: %+v", got)
+	}
+}
+
+func TestUpsertWrapsQuerierError(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("db unavailable")
+	s := &store{q: &sharedFileQuerierStub{
+		upsertFn: func(context.Context, sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error) {
+			return sqlc.SharedFile{}, sentinel
+		},
+	}}
+	_, err := s.Upsert(context.Background(), UpsertParams{})
+	if err == nil || !errors.Is(err, sentinel) {
+		t.Fatalf("Upsert() err = %v, want wrap of sentinel", err)
 	}
 }
 

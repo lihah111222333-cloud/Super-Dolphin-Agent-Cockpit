@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
@@ -22,7 +23,7 @@ func TestGetDashboardPageReturnsStructuredPage(t *testing.T) {
 	if got == nil {
 		t.Fatal("GetDashboardPage() = nil")
 	}
-	if got.Agents == nil || got.TaskTraces == nil {
+	if got.Agents == nil || got.DAGs == nil || got.TaskTraces == nil {
 		t.Fatalf("GetDashboardPage() missing core slices: %#v", got)
 	}
 	if got.Skills == nil || got.CommandCards == nil || got.Prompts == nil || got.Memory == nil {
@@ -30,6 +31,39 @@ func TestGetDashboardPageReturnsStructuredPage(t *testing.T) {
 	}
 	if len(got.CommandCards) != 0 || len(got.Prompts) != 0 {
 		t.Fatalf("GetDashboardPage(commands) = %#v, want empty command page", got)
+	}
+}
+
+func TestGetDashboardPageLoadsDAGs(t *testing.T) {
+	t.Parallel()
+
+	orchestration := &stubDashboardOrchestration{
+		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Dag One", Status: "running"}},
+	}
+	svc := &service{orchestration: orchestration}
+
+	got, err := svc.GetDashboardPage(context.Background(), "dags")
+	if err != nil {
+		t.Fatalf("GetDashboardPage(dags) error = %v", err)
+	}
+	if got == nil || len(got.DAGs) != 1 || got.DAGs[0].DagKey != "dag-1" {
+		t.Fatalf("GetDashboardPage(dags) = %#v", got)
+	}
+	if orchestration.listDAGsFilter.Limit != dashboardPageDefaultLimit {
+		t.Fatalf("ListDAGs() filter = %#v", orchestration.listDAGsFilter)
+	}
+}
+
+func TestGetDashboardPageDAGsWithoutOrchestrationIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{}
+	got, err := svc.GetDashboardPage(context.Background(), "dags")
+	if err != nil {
+		t.Fatalf("GetDashboardPage(dags) error = %v", err)
+	}
+	if got == nil || got.DAGs == nil || len(got.DAGs) != 0 {
+		t.Fatalf("GetDashboardPage(dags) = %#v, want empty dag slice", got)
 	}
 }
 

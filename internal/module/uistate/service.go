@@ -21,6 +21,7 @@ type service struct {
 	logger                *slog.Logger
 	preferences           uipreference.Store
 	bindings              bindingLookup
+	runtimeConfig         runtimeConfigLookup
 	mu                    sync.RWMutex
 	projectsMu            sync.Mutex
 	state                 UIState
@@ -39,6 +40,10 @@ type service struct {
 
 type bindingLookup interface {
 	ListAgentThreadBindings(ctx context.Context) ([]bindingEntry, error)
+}
+
+type runtimeConfigLookup interface {
+	ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error)
 }
 
 type bindingEntry struct {
@@ -73,6 +78,7 @@ func NewService(
 		logger:                logger,
 		preferences:           preferences,
 		bindings:              bindings,
+		runtimeConfig:         runtimeConfigReader(threads),
 		state:                 state,
 		workspaceByKey:        map[string]WorkspaceRunSummary{},
 		activityByThread:      map[string]*threadActivity{},

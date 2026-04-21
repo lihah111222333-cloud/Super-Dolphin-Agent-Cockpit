@@ -83,6 +83,9 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	if err != nil {
 		return StartResult{}, err
 	}
+	if err := s.prepareTaskHandoffStart(ctx, &req); err != nil {
+		return StartResult{}, err
+	}
 	// C1 — when the caller has nothing to classify yet (empty composer) we
 	// defer the provider-CLI fork to the first turn. startPendingThread writes
 	// a placeholder agent_threads row with pending_launch=true and returns so
@@ -217,6 +220,10 @@ func (s *service) persistStartedSession(
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
+	s.logIgnoredTaskHandoffError("refresh task handoff on start", publicThreadID, s.refreshTaskHandoffFromThread(ctx, publicThreadID, taskHandoffRenderSeed{
+		SourceThreadID: publicThreadID,
+		Status:         "running",
+	}))
 	return StartResult{
 		ThreadID:        publicThreadID,
 		AgentID:         agentID,
@@ -230,6 +237,8 @@ func (s *service) persistStartedSession(
 		AgentKey:        req.AgentKey,
 		PromptKey:       req.PromptKey,
 		PromptVersionID: req.PromptVersionID,
+		TaskID:          firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
+		HandoffFile:     firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
 	}, nil
 }
 

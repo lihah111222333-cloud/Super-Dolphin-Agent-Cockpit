@@ -6,7 +6,10 @@ const stores = vi.hoisted(() => ({
   projectStore: {
     state: { active: '/repo' },
     reloadProjects: vi.fn(async () => {}),
+    addProject: vi.fn(async () => {}),
+    setActive: vi.fn(async () => {}),
   },
+
   threadStore: {
     state: { activeThreadId: 'thread-existing' },
     setPreferenceScopeCwd: vi.fn(),
@@ -82,7 +85,8 @@ vi.mock('./pages/SharedFilesPage.js', () => ({ SharedFilesPage: { name: 'SharedF
 
 import { AppRoot } from './app.js';
 
-const flush = async (times = 6) => {
+const flush = async (times = 16) => {
+
   for (let index = 0; index < times; index += 1) {
     await Promise.resolve();
   }
@@ -94,6 +98,10 @@ beforeEach(() => {
 
   stores.projectStore.state.active = '/repo';
   stores.projectStore.reloadProjects.mockReset().mockResolvedValue(undefined);
+  stores.projectStore.addProject.mockReset().mockResolvedValue(undefined);
+  stores.projectStore.setActive.mockReset().mockImplementation(async (cwd) => {
+    stores.projectStore.state.active = cwd;
+  });
 
   stores.threadStore.state.activeThreadId = 'thread-existing';
   stores.threadStore.setPreferenceScopeCwd.mockReset();
@@ -198,5 +206,49 @@ describe('AppRoot behavior', () => {
     apiMock.bridgeCb?.({ method: 'skills/changed' });
     await flush();
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'skills', cwd: '/repo' });
+  });
+
+  it('consumes window bootstrap snapshot and starts the continued task in a new window', async () => {
+    apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '/window' };
+      if (method === 'ui/windowBootstrap/get') {
+        return {
+          snapshot: {
+            page: 'chat',
+            cwd: '/task-repo',
+            taskStart: {
+              focusMode: 'chat',
+              config: {
+                taskId: 'task-demo',
+                taskTitle: 'Memory Center Refactor',
+                handoffFile: 'handoff/tasks/task-demo.md',
+                continueTask: true,
+                autoTaskHandoff: true,
+              },
+            },
+          },
+        };
+      }
+      return {};
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(stores.projectStore.addProject).toHaveBeenCalledWith('/task-repo');
+    expect(stores.projectStore.setActive).toHaveBeenCalledWith('/task-repo');
+    expect(stores.threadStore.startThread).toHaveBeenCalledWith('/task-repo', {
+      focusMode: 'chat',
+      config: {
+        taskId: 'task-demo',
+        taskTitle: 'Memory Center Refactor',
+        handoffFile: 'handoff/tasks/task-demo.md',
+        continueTask: true,
+        autoTaskHandoff: true,
+      },
+    });
+    expect(vm.page.value).toBe('chat');
   });
 });

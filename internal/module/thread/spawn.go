@@ -69,6 +69,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		Approvals:   strings.TrimSpace(req.ApprovalPolicy),
 		Personality: strings.TrimSpace(req.Personality),
 		Provider:    strings.TrimSpace(req.Provider),
+		Runtime:     shared.CloneRuntimeConfigMap(req.Config),
 	}
 	configOverride, err := encodeStoredThreadConfig(pendingStored)
 	if err != nil {
@@ -108,6 +109,9 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	})); err != nil {
 		return StartResult{}, fmt.Errorf("thread: upsert pending_launch row: %w", err)
 	}
+	if meta := taskHandoffMetaFromRuntimeConfig(req.Config); meta.TaskID != "" {
+		s.logIgnoredTaskHandoffError("ensure task handoff shell for pending thread", state.PublicThreadID, s.ensureTaskHandoffShell(ctx, meta, state.OwnerThreadID))
+	}
 	s.publishThreadStarted(state)
 	return StartResult{
 		ThreadID:      state.PublicThreadID,
@@ -119,6 +123,8 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		ModelProvider: req.ModelProvider,
 		CWD:           state.CWD,
 		PendingLaunch: true,
+		TaskID:        firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
+		HandoffFile:   firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
 	}, nil
 }
 
@@ -186,6 +192,9 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	if err != nil {
 		return false, err
 	}
+	if err := s.prepareTaskHandoffStart(ctx, &req); err != nil {
+		return false, err
+	}
 	if err := s.runPendingSpawn(ctx, &req, row, agentID, threadID); err != nil {
 		return false, err
 	}
@@ -238,6 +247,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		Effort:           storedCfg.Effort,
 		Personality:      storedCfg.Personality,
 		ApprovalPolicy:   storedCfg.Approvals,
+		Config:           shared.CloneRuntimeConfigMap(storedCfg.Runtime),
 	}
 	// normalizeStartRequest fills in provider default ("codex"), resolves CWD,
 	// sanitizes sandbox, picks approval policy defaults, etc. AgentID stays

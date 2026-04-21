@@ -14,6 +14,7 @@ import (
 const (
 	sharedFileUpdatedBy       = "agent"
 	maxSharedFileContentBytes = 10 << 20
+	systemHandoffPrefix       = "handoff/tasks/"
 )
 
 type sharedFileReadInput struct {
@@ -82,6 +83,9 @@ func writeSharedFile(ctx context.Context, store sharedfilestore.Store, input sha
 	path, err := requireTrimmed(input.Path, "path")
 	if err != nil {
 		return sharedFileDTO{}, err
+	}
+	if strings.HasPrefix(path, systemHandoffPrefix) {
+		return sharedFileDTO{}, fmt.Errorf("path %q is reserved for system task handoff files", path)
 	}
 	if len(input.Content) > maxSharedFileContentBytes {
 		return sharedFileDTO{}, fmt.Errorf("content exceeds %d byte limit", maxSharedFileContentBytes)

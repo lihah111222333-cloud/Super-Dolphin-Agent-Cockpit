@@ -2,6 +2,8 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from '../l
 import { callAPI, getBuildInfo, onAgentEvent, onBridgeEvent, onAppWillQuit } from './services/api.js';
 import { SidebarNav } from './components/SidebarNav.js';
 import { ProjectModal } from './components/ProjectModal.js';
+import { DagDetailModal } from './components/DagDetailModal.js';
+import { useDagDetail } from './composables/useDagDetail.js';
 import { UnifiedChatPage } from './pages/UnifiedChatPage.js';
 import { ensureThreadSelectionFresh, requestHistoryLoad } from './utils/thread-page-utils.js';
 import { DataPage } from './pages/DataPage.js';
@@ -106,6 +108,26 @@ function applyMemoryCenterSnapshot(state, snapshot) {
   state.agentScopes = Array.isArray(snapshot?.agentScopes) ? snapshot.agentScopes : [];
 }
 
+export function routeDagBridgeEvent(method, eventType, payload, deps) {
+  const key = (method || eventType || '').toString().trim().toLowerCase();
+  if (key !== 'task/node/statuschanged') return;
+  deps?.dagDetail?.handleStatusEvent?.(payload || {});
+  if (deps?.page?.value === 'dags') {
+    deps.refreshDashboardByPage?.('dags').catch((err) => {
+      console.warn('refresh dag list after node event failed', err);
+    });
+  }
+}
+
+export function openChatFromDagNode({ turnId, assignedTo }, deps) {
+  const trimmed = (turnId || '').toString().trim();
+  if (trimmed && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(trimmed).catch(() => {});
+  }
+  if (deps?.page) deps.page.value = 'chat';
+  return { turnId: trimmed, assignedTo: (assignedTo || '').toString().trim() };
+}
+
 async function refreshRuntimeConfigState(runtimeConfig) {
   try {
     const info = await callAPI('config/read', {});
@@ -129,6 +151,42 @@ async function refreshMemoryCenterState(memoryCenter, cwd) {
   } finally {
     memoryCenter.loading = false;
   }
+}
+
+async function loadWindowBootstrapSnapshot() {
+  try {
+    const result = await callAPI('ui/windowBootstrap/get', {});
+    return result?.snapshot && typeof result.snapshot === 'object' ? result.snapshot : {};
+  } catch (error) {
+    console.warn('load window bootstrap snapshot failed', error);
+    return {};
+  }
+}
+
+async function applyWindowBootstrapSnapshot(snapshot, projectStore, threadStore, pageRef) {
+  const payload = snapshot && typeof snapshot === 'object' ? snapshot : {};
+  const cwd = (payload.cwd || '').toString().trim();
+  if (cwd) {
+    await projectStore.addProject(cwd);
+    await projectStore.setActive(cwd);
+  }
+  const nextPage = (payload.page || '').toString().trim();
+  if (nextPage) {
+    pageRef.value = nextPage;
+  }
+  const taskStart = payload.taskStart && typeof payload.taskStart === 'object' ? payload.taskStart : null;
+  if (taskStart) {
+    const startOptions = {
+      focusMode: taskStart.focusMode === 'cmd' ? 'cmd' : 'chat',
+      config: taskStart.config && typeof taskStart.config === 'object' ? taskStart.config : {},
+    };
+    const startName = typeof taskStart.name === 'string' ? taskStart.name.trim() : '';
+    const baseInstructions = typeof taskStart.baseInstructions === 'string' ? taskStart.baseInstructions.trim() : '';
+    if (startName) startOptions.name = startName;
+    if (baseInstructions) startOptions.baseInstructions = baseInstructions;
+    await threadStore.startThread(cwd || projectStore.state.active || '.', startOptions);
+  }
+
 }
 
 async function ensureAppActiveThread(threadStore, projectStore) {
@@ -315,25 +373,13 @@ export const AppRoot = {
       });
       unsubscribeBridgeEvent = onBridgeEvent(/** @param {BridgeEventEnvelope} evt */ (evt) => {
         threadStore.handleBridgeEvent(evt);
-        const eventType = (
-          evt?.type
-          || evt?.params?.type
-          || evt?.payload?.type
-          || evt?.data?.type
-          || ''
-        ).toString().trim().toLowerCase();
-        const method = (
-          evt?.method
-          || evt?.params?.method
-          || evt?.payload?.method
-          || evt?.data?.method
-          || ''
-        ).toString().trim().toLowerCase();
+        const eventType = (evt?.type || evt?.params?.type || evt?.payload?.type || evt?.data?.type || '').toString().trim().toLowerCase();
+        const method = (evt?.method || evt?.params?.method || evt?.payload?.method || evt?.data?.method || '').toString().trim().toLowerCase();
+        const payload = evt?.payload || evt?.data || evt?.params || {};
         if ((method === 'skills/changed' || eventType === 'skills/changed') && page.value === 'skills') {
-          refreshDashboardByPage('skills').catch((error) => {
-            console.warn('refresh page failed: skills', error);
-          });
+          refreshDashboardByPage('skills').catch((error) => { console.warn('refresh page failed: skills', error); });
         }
+        routeDagBridgeEvent(method, eventType, payload, { page, refreshDashboardByPage, dagDetail });
       });
       unsubscribeAppWillQuit = onAppWillQuit(() => {
         isExiting.value = true;
@@ -345,6 +391,7 @@ export const AppRoot = {
         refreshRuntimeConfig(),
         projectStore.reloadProjects(),
       ]);
+      await applyWindowBootstrapSnapshot(await loadWindowBootstrapSnapshot(), projectStore, threadStore, page);
 
       if (typeof threadStore.setPreferenceScopeCwd === 'function') {
         threadStore.setPreferenceScopeCwd(threadScopeCwd.value);
@@ -438,6 +485,8 @@ export const AppRoot = {
       if (refreshTimer) clearInterval(refreshTimer);
     });
 
+    const dagDetail = useDagDetail();
+    const openDagChat = (/** @type {any} */ ev) => openChatFromDagNode(ev, { page });
     return {
       NAV_ITEMS,
       SHARED_FILES_TIPS,
@@ -466,6 +515,8 @@ export const AppRoot = {
       refreshMemoryCenter,
       runCommandCard,
       runPromptTemplate,
+      dagDetail,
+      openDagChat,
     };
   },
   template: `
@@ -497,6 +548,8 @@ export const AppRoot = {
           :items="dashboard.dags"
           :fields="dagsFields"
           empty-text="暂无 DAG"
+          clickable
+          @select="dagDetail.open"
         />
 
         <TasksPage
@@ -548,6 +601,18 @@ export const AppRoot = {
       </main>
 
       <ProjectModal :store="projectStore" />
+      <DagDetailModal
+        :show="dagDetail.state.show"
+        :loading="dagDetail.state.loading"
+        :error="dagDetail.state.error"
+        :dag="dagDetail.state.dag"
+        :nodes="dagDetail.state.nodes"
+        :saving-node-key="dagDetail.state.savingNodeKey"
+        :save-error="dagDetail.state.saveError"
+        @close="dagDetail.close"
+        @update-node-status="(ev) => dagDetail.updateNodeStatus(ev.nodeKey, ev.status)"
+        @open-chat="openDagChat"
+      />
       <div class="app-exit-overlay" :class="{ active: isExiting }" aria-hidden="true">
         <div class="app-exit-overlay-inner">
           <img src="/vue-app/assets/exit-splash.png" alt="" class="app-exit-overlay-icon" />

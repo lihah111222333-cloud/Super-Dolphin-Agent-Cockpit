@@ -1,5 +1,6 @@
 @import './styles/tokens.css';
 @import './styles/shell-layout.css';
+@import './styles/task-handoff.css';
 @import './styles/workspace-runs.css';
 @import './styles/diff-chat.css';
 @import './styles/composer.css';

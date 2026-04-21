@@ -98,15 +98,15 @@ type StartRequest struct {
 }
 
 type StartResult struct {
-	ThreadID        string `json:"thread_id"`
-	AgentID         string `json:"agent_id,omitempty"`
-	SessionID       string `json:"session_id,omitempty"`
-	Status          string `json:"status,omitempty"`
-	Model           string `json:"model,omitempty"`
-	Provider        string `json:"provider,omitempty"`
-	ModelProvider   string `json:"modelProvider,omitempty"`
-	CWD             string `json:"cwd,omitempty"`
-	ApprovalPolicy  string `json:"approvalPolicy,omitempty"`
+	ThreadID       string `json:"thread_id"`
+	AgentID        string `json:"agent_id,omitempty"`
+	SessionID      string `json:"session_id,omitempty"`
+	Status         string `json:"status,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Provider       string `json:"provider,omitempty"`
+	ModelProvider  string `json:"modelProvider,omitempty"`
+	CWD            string `json:"cwd,omitempty"`
+	ApprovalPolicy string `json:"approvalPolicy,omitempty"`
 	// Routing metadata surfaced to the UI so the sidebar can show which agent
 	// the router picked, which prompt_template hit, and which prompt_versions
 	// row was injected.
@@ -117,7 +117,9 @@ type StartResult struct {
 	// fork the provider CLI yet. The real spawn happens on the first turn,
 	// once router has a real user input to classify. UI should render such
 	// threads with a "pending" marker and flip to running on thread.launched.
-	PendingLaunch bool `json:"pending_launch,omitempty"`
+	PendingLaunch bool   `json:"pending_launch,omitempty"`
+	TaskID        string `json:"task_id,omitempty"`
+	HandoffFile   string `json:"handoff_file,omitempty"`
 }
 
 type ResumeRequest struct {

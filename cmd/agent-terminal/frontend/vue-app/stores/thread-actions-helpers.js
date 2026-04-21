@@ -363,6 +363,10 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // internal/module/thread/router_resolve.go resolveRoutedPrompt.
   const launchPrompt = typeof options?.prompt === 'string' ? options.prompt.trim() : '';
   if (launchPrompt) payload.prompt = launchPrompt;
+  const startName = typeof options?.name === 'string' ? options.name.trim() : '';
+  if (startName) payload.name = startName;
+  const baseInstructions = typeof options?.baseInstructions === 'string' ? options.baseInstructions.trim() : '';
+  if (baseInstructions) payload.baseInstructions = baseInstructions;
   // C1: opt-in flag forwarded from launchOne when the composer is empty.
   // Backend creates an agent_threads row with pending_launch=true and
   // skips the Claude CLI fork; the spawn happens lazily on the first
@@ -371,6 +375,9 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   const disallowedTools = await resolveDisallowedBuiltinTools(ctx, cwd);
   if (Array.isArray(disallowedTools)) {
     payload.config = { ...(payload.config || {}), disallowed_tools: disallowedTools };
+  }
+  if (options?.config && typeof options.config === 'object' && !Array.isArray(options.config)) {
+    payload.config = { ...(payload.config || {}), ...options.config };
   }
   const res = await callAPI('thread/start', payload);
   const id = res?.thread?.id;

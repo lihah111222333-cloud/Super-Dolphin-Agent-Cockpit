@@ -39,6 +39,7 @@ func trimStartRequest(req StartRequest) StartRequest {
 	req.ModelProvider = strings.TrimSpace(req.ModelProvider)
 	req.Name = strings.TrimSpace(req.Name)
 	req.Prompt = strings.TrimSpace(req.Prompt)
+	req.OwnerThreadID = strings.TrimSpace(req.OwnerThreadID)
 	req.BaseInstructions = strings.TrimSpace(req.BaseInstructions)
 	req.DeveloperInstructions = strings.TrimSpace(req.DeveloperInstructions)
 	req.ApprovalPolicy = strings.TrimSpace(req.ApprovalPolicy)

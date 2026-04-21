@@ -11,6 +11,7 @@ type querier interface {
 	GetSharedFile(ctx context.Context, path string) (sqlc.SharedFile, error)
 	ListSharedFiles(ctx context.Context, arg sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error)
 	DeleteSharedFile(ctx context.Context, path string) (int64, error)
+	UpsertSharedFile(ctx context.Context, arg sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error)
 }
 
 type store struct {
@@ -23,6 +24,19 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	row, err := s.q.GetSharedFile(ctx, path)
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "get", "shared_file")
+	}
+	mapped := fromSQLCRow(row)
+	return &mapped, nil
+}
+
+func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error) {
+	row, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
+		Path:      params.Path,
+		Content:   params.Content,
+		UpdatedBy: params.UpdatedBy,
+	})
+	if err != nil {
+		return nil, platformdb.WrapStoreError(err, "upsert", "shared_file")
 	}
 	mapped := fromSQLCRow(row)
 	return &mapped, nil

@@ -23,8 +23,8 @@ type subscriptionParams struct {
 var Module = fx.Module("thread",
 	fx.Provide(
 		fx.Annotate(
-			NewServiceWithPromptAssembly,
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			NewServiceWithPromptAssemblyAndSharedFiles,
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
 			// Publish the service under both thread.Service (its native
 			// interface, required by uistate/orchestration) and
 			// turn.PendingLaunchSpawner so NewTurnHandlers can pick it up

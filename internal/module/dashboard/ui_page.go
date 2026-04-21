@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
@@ -20,6 +21,7 @@ const (
 
 type DashboardPage struct {
 	Agents       []AgentOverview                `json:"agents"`
+	DAGs         []contract.DAGSummary          `json:"dags"`
 	TaskTraces   []tasktracestore.TaskTrace     `json:"taskTraces"`
 	Skills       []skillmodule.SkillInfo        `json:"skills"`
 	CommandCards []commandcardstore.CommandCard `json:"commandCards"`
@@ -40,6 +42,7 @@ func (s *service) GetDashboardPage(ctx context.Context, page string) (*Dashboard
 func newDashboardPage() *DashboardPage {
 	return &DashboardPage{
 		Agents:       []AgentOverview{},
+		DAGs:         []contract.DAGSummary{},
 		TaskTraces:   []tasktracestore.TaskTrace{},
 		Skills:       []skillmodule.SkillInfo{},
 		CommandCards: []commandcardstore.CommandCard{},
@@ -73,6 +76,10 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashbo
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardTaskTraces(ctx, out) },
 		}
+	case "dags":
+		return []dashboardPageLoader{
+			func(ctx context.Context) error { return s.populateDashboardDAGs(ctx, out) },
+		}
 	case "skills":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardSkills(ctx, out) },
@@ -101,6 +108,21 @@ func (s *service) populateDashboardTaskTraces(ctx context.Context, out *Dashboar
 	items, err := s.listDashboardTaskTraces(ctx)
 	out.TaskTraces = items
 	return err
+}
+
+func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage) error {
+	if s.orchestration == nil {
+		return nil
+	}
+	items, err := s.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dashboardPageDefaultLimit})
+	if err != nil {
+		return err
+	}
+	if items == nil {
+		items = []contract.DAGSummary{}
+	}
+	out.DAGs = items
+	return nil
 }
 
 func (s *service) populateDashboardSkills(ctx context.Context, out *DashboardPage) error {

@@ -163,6 +163,14 @@ func newStartHandler(svc Service) handler.Func {
 			response["pending_launch"] = true
 			response["pendingLaunch"] = true
 		}
+		if result.TaskID != "" {
+			response["task_id"] = result.TaskID
+			response["taskId"] = result.TaskID
+		}
+		if result.HandoffFile != "" {
+			response["handoff_file"] = result.HandoffFile
+			response["handoffFile"] = result.HandoffFile
+		}
 		return response, nil
 	})
 }

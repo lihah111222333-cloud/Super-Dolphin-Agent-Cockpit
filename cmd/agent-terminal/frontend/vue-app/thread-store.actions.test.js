@@ -124,6 +124,68 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', { cwd: '/repo', modelProvider: 'claude-3.7-sonnet' });
   });
 
+  it('forwards explicit config payload when starting a thread', async () => {
+    const store = useThreadStore();
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'ui/preferences/get') return 'codex';
+      if (method === 'thread/start') return { thread: { id: 'thread-task' } };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-task', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', {
+      config: {
+        taskId: 'task-demo',
+        handoffFile: 'handoff/tasks/task-demo.md',
+        continueTask: true,
+      },
+    });
+    await flushAsync();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
+      cwd: '/repo',
+      modelProvider: 'codex',
+      config: {
+        taskId: 'task-demo',
+        handoffFile: 'handoff/tasks/task-demo.md',
+        continueTask: true,
+      },
+    });
+  });
+
+  it('forwards explicit name and base instructions when starting a thread', async () => {
+    const store = useThreadStore();
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'ui/preferences/get') return 'codex';
+      if (method === 'thread/start') return { thread: { id: 'thread-seeded' } };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-seeded', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', {
+      name: 'Memory Center Refactor · 新任务',
+      baseInstructions: '来源任务：Memory Center Refactor',
+      config: {
+        taskTitle: 'Memory Center Refactor · 新任务',
+        autoTaskHandoff: true,
+      },
+    });
+    await flushAsync();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
+      cwd: '/repo',
+      modelProvider: 'codex',
+      name: 'Memory Center Refactor · 新任务',
+      baseInstructions: '来源任务：Memory Center Refactor',
+      config: {
+        taskTitle: 'Memory Center Refactor · 新任务',
+        autoTaskHandoff: true,
+      },
+    });
+  });
+
   it('gets and sets thread config via dedicated backend RPCs', async () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
@@ -302,7 +364,7 @@ describe('thread store actions', () => {
       return {};
     });
 
-    store.toggleThreadPin('thread-live');
+    await store.toggleThreadPin('thread-live');
     await flushAsync();
 
     expect(store.getThreadPinnedAt('thread-live')).toBeGreaterThan(0);
