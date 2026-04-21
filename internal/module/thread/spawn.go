@@ -12,7 +12,6 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // isPendingLaunchIntent reports whether a StartRequest should be treated as a
@@ -267,20 +266,12 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 
 	cleanupOnFailure = false
 
-	// persistStartedSession doesn't know about the router decision (it runs
-	// before any routing). Stamp agent_key + prompt_version_id onto the row
-	// now so the sidebar sky-blue pill and prompt_versions lineage are
-	// preserved for this thread too.
-	now := time.Now().Unix()
-	if err := s.threadStore.UpdateLaunchResult(ctx, threadstore.UpdateLaunchResultParams{
-		ThreadID:        threadID,
-		AgentKey:        req.AgentKey,
-		PromptVersionID: req.PromptVersionID,
-		UpdatedAt:       now,
-	}); err != nil {
-		pkglogger.Warn("thread: stamp router decision after pending spawn",
-			"err", err, "thread_id", threadID)
-	}
+	// persistStartedSession already wrote agent_key + prompt_version_id to
+	// agent_threads via state -> upsertPublicThread (resolveRoutedPrompt
+	// filled req.AgentKey / req.PromptVersionID before assembly). Nothing
+	// else to stamp here; any future router-provenance writes belong in a
+	// shared helper called from both paths instead of a SpawnIfNeeded-only
+	// follow-up write.
 
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	spawnedState := newThreadState(threadStateStartKind, threadStateFields{
