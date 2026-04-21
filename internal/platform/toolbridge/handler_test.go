@@ -13,10 +13,12 @@ import (
 	"time"
 	"unsafe"
 
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/gorilla/websocket"
 )
 
@@ -44,6 +46,17 @@ func (r *stubRegistry) FindActiveByKind(clientKind string) []*mcpcontrol.ToolIns
 
 type stubPeer struct {
 	callbackFn func(context.Context, string, any, any) error
+}
+
+type stubThreadStore struct {
+	thread *threadstore.Thread
+}
+
+func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+	if s.thread == nil || s.thread.ThreadID != threadID {
+		return nil, fmt.Errorf("thread %s not found", threadID)
+	}
+	return s.thread, nil
 }
 
 func (p *stubPeer) Notify(context.Context, string, any) error { return nil }
@@ -387,6 +400,35 @@ func TestProxyToolCall_RejectsFamilyMismatch(t *testing.T) {
 	if got.Error.Code != jsonRPCCodeInvalidParam {
 		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
 	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestToolBridge_RejectsSpawnAgentWhenPersistentSubagentDefaultEnabled(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{"message": "create child agent"})
+	h, registry := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
+		t.Fatal("Callback() should not be invoked when spawn_agent is blocked")
+		return nil
+	}}})
+	raw := mustRawJSON(t, map[string]any{
+		"runtime": map[string]any{
+			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent"},
+			"sessionFlags": map[string]any{"persistent_subagent_default": true},
+		},
+	})
+	h.threadStore = &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", ConfigOverride: raw}}
+	h.cfg = &platformconfig.Config{Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true}}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "spawn_agent",
+		Arguments: args,
+		ThreadID:  "thread-1",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。", false)
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}

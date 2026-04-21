@@ -11,6 +11,7 @@ import (
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
@@ -45,7 +46,9 @@ type handlerIn struct {
 	Resolver     difftracker.WorkDirResolver
 	DiffFallback *diffFallbackTracker
 	BindingStore bindingstore.Store
-	Logger       *pkglogger.Logger `optional:"true"`
+	ThreadStore  threadRuntimeConfigStore `optional:"true"`
+	Config       *platformconfig.Config   `optional:"true"`
+	Logger       *pkglogger.Logger        `optional:"true"`
 }
 
 func bindCodexHandlers(mgr *codexapp.ServerManager, factory *codexapp.DriverFactory, h *Handler) {

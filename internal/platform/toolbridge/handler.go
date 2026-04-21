@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -26,11 +27,21 @@ type Handler struct {
 	resolver     difftracker.WorkDirResolver
 	diffFallback *diffFallbackTracker
 	bindingStore bindingstore.Store
+	threadStore  threadRuntimeConfigStore
+	cfg          *platformconfig.Config
 	logger       *pkglogger.Logger
 }
 
 type activePeerRegistry interface {
 	FindActiveByKind(clientKind string) []*mcpcontrol.ToolInstance
+}
+
+type threadRuntimeConfigStore interface {
+	GetByThreadID(ctx context.Context, threadID string) (*threadstore.Thread, error)
+}
+
+type storedThreadRuntime struct {
+	Runtime map[string]any `json:"runtime,omitempty"`
 }
 
 func NewHandler(in handlerIn) *Handler {
@@ -44,6 +55,8 @@ func NewHandler(in handlerIn) *Handler {
 		resolver:     in.Resolver,
 		diffFallback: in.DiffFallback,
 		bindingStore: in.BindingStore,
+		threadStore:  in.ThreadStore,
+		cfg:          in.Config,
 		logger:       logger,
 	}
 }
@@ -59,6 +72,15 @@ func (h *Handler) HandleToolCall(ctx context.Context, msg codexapp.RawMessage) (
 func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
 	if h == nil || h.registry == nil {
 		return nil, ErrNoPeerAvailable
+	}
+	if blocked := h.spawnAgentPolicyMessage(ctx, req); blocked != "" {
+		return &ToolCallResult{
+			Success: false,
+			ContentItems: []ToolCallContentItem{{
+				Type: "inputText",
+				Text: blocked,
+			}},
+		}, nil
 	}
 	clientKind, err := resolveToolClientKind(req)
 	if err != nil {
@@ -99,6 +121,112 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	result := adaptMCPResponse(resp)
 	h.emitToolDiff(ctx, req, snapshot)
 	return result, nil
+}
+
+func (h *Handler) spawnAgentPolicyMessage(ctx context.Context, req ToolCallRequest) string {
+	if strings.TrimSpace(req.Name) != "spawn_agent" {
+		return ""
+	}
+	if !h.persistentSubagentRequired(ctx, req) {
+		return ""
+	}
+	return "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。"
+}
+
+func (h *Handler) persistentSubagentRequired(ctx context.Context, req ToolCallRequest) bool {
+	runtime, ok := h.toolCallRuntimeConfig(ctx, req)
+	if !ok {
+		return h.cfg != nil && h.cfg.Agent.PersistentSubagentDefault
+	}
+	required, present := persistentSubagentFlagFromRuntime(runtime)
+	if !present {
+		required = h.cfg != nil && h.cfg.Agent.PersistentSubagentDefault
+	}
+	if !required {
+		return false
+	}
+	managedAvailable, known := runtimeHasTool(runtime, "orchestration_launch_agent")
+	if known {
+		return managedAvailable
+	}
+	return true
+}
+
+func (h *Handler) toolCallRuntimeConfig(ctx context.Context, req ToolCallRequest) (map[string]any, bool) {
+	threadID := strings.TrimSpace(req.ThreadID)
+	if threadID == "" && h != nil && h.bindingStore != nil && strings.TrimSpace(req.AgentID) != "" {
+		if resolved, err := h.bindingStore.GetThreadByAgent(ctx, strings.TrimSpace(req.AgentID)); err == nil {
+			threadID = strings.TrimSpace(resolved)
+		}
+	}
+	if threadID == "" || h == nil || h.threadStore == nil {
+		return nil, false
+	}
+	row, err := h.threadStore.GetByThreadID(ctx, threadID)
+	if err != nil || row == nil || len(row.ConfigOverride) == 0 {
+		return nil, false
+	}
+	var stored storedThreadRuntime
+	if err := json.Unmarshal(row.ConfigOverride, &stored); err != nil || len(stored.Runtime) == 0 {
+		return nil, false
+	}
+	return stored.Runtime, true
+}
+
+func persistentSubagentFlagFromRuntime(runtime map[string]any) (bool, bool) {
+	for _, key := range []string{"sessionFlags", "session_flags"} {
+		raw, ok := runtime[key]
+		if !ok {
+			continue
+		}
+		flags, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		for name, value := range flags {
+			switch normalizeToolbridgeSessionFlagName(name) {
+			case "persistentsubagentdefault", "managedsubagentdefault", "uipersistentsubagentdefault":
+				boolean, ok := value.(bool)
+				if ok {
+					return boolean, true
+				}
+			}
+		}
+	}
+	return false, false
+}
+
+func runtimeHasTool(runtime map[string]any, want string) (bool, bool) {
+	for _, key := range []string{"enabledTools", "enabled_tools", "tools"} {
+		raw, ok := runtime[key]
+		if !ok {
+			continue
+		}
+		switch typed := raw.(type) {
+		case []string:
+			for _, value := range typed {
+				if strings.TrimSpace(value) == want {
+					return true, true
+				}
+			}
+			return false, true
+		case []any:
+			for _, value := range typed {
+				text, _ := value.(string)
+				if strings.TrimSpace(text) == want {
+					return true, true
+				}
+			}
+			return false, true
+		}
+	}
+	return false, false
+}
+
+func normalizeToolbridgeSessionFlagName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	replacer := strings.NewReplacer("_", "", "-", "", " ", "")
+	return replacer.Replace(name)
 }
 
 func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexprotocol.DynamicToolSchema, error) {

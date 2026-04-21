@@ -1,0 +1,274 @@
+package toolbridge
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"testing"
+
+	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	threadmod "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+)
+
+type persistentFlowThreadStore struct {
+	row *threadstore.Thread
+}
+
+func (s *persistentFlowThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+	if s.row == nil || s.row.ThreadID != threadID {
+		return nil, platformdb.ErrNotFound
+	}
+	return s.row, nil
+}
+
+func (*persistentFlowThreadStore) GetByPort(context.Context, int32) (*threadstore.Thread, error) {
+	return nil, platformdb.ErrNotFound
+}
+
+func (*persistentFlowThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) {
+	return nil, nil
+}
+
+func (*persistentFlowThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) {
+	return nil, nil
+}
+
+func (*persistentFlowThreadStore) ListRecoverable(context.Context) ([]threadstore.Thread, error) {
+	return nil, nil
+}
+
+func (*persistentFlowThreadStore) ListRunningAgents(context.Context) ([]threadstore.RunningAgent, error) {
+	return nil, nil
+}
+
+func (s *persistentFlowThreadStore) Upsert(_ context.Context, params threadstore.UpsertParams) error {
+	s.row = &threadstore.Thread{
+		ThreadID:         params.ThreadID,
+		AgentID:          params.ThreadID,
+		ParentAgentID:    params.ParentAgentID,
+		AgentType:        params.AgentType,
+		AgentMemoryScope: params.AgentMemoryScope,
+		Prompt:           params.Prompt,
+		Model:            params.Model,
+		Cwd:              params.Cwd,
+		Status:           params.Status,
+		CreatedAt:        params.CreatedAt,
+		UpdatedAt:        params.UpdatedAt,
+		OwnerThreadID:    params.OwnerThreadID,
+		ConfigOverride:   params.ConfigOverride,
+		AgentKey:         params.AgentKey,
+		PromptVersionID:  params.PromptVersionID,
+		PendingLaunch:    params.PendingLaunch,
+	}
+	return nil
+}
+
+func (*persistentFlowThreadStore) SavePromptSnapshot(context.Context, string, threadstore.PromptSnapshot) error {
+	return nil
+}
+
+func (*persistentFlowThreadStore) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
+	return nil, platformdb.ErrNotFound
+}
+
+func (*persistentFlowThreadStore) UpdateStatus(context.Context, threadstore.UpdateStatusParams) error {
+	return nil
+}
+
+func (*persistentFlowThreadStore) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
+	return nil
+}
+
+func (*persistentFlowThreadStore) DeleteByThreadID(context.Context, string) error {
+	return nil
+}
+
+func (*persistentFlowThreadStore) ResetRunning(context.Context) error {
+	return nil
+}
+
+func (*persistentFlowThreadStore) ExpireStale(context.Context, threadstore.ExpireStaleParams) (int64, error) {
+	return 0, nil
+}
+
+func (*persistentFlowThreadStore) RunningExists(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func (*persistentFlowThreadStore) ListCwds(context.Context) ([]threadstore.ThreadCwd, error) {
+	return nil, nil
+}
+
+func (*persistentFlowThreadStore) ListCwdsByPrefix(context.Context, string) ([]threadstore.ThreadCwd, error) {
+	return nil, nil
+}
+
+type persistentFlowSessions struct {
+	byAgent map[string]contract.Session
+}
+
+func (s *persistentFlowSessions) GetSession(agentID string) (contract.Session, error) {
+	session, ok := s.byAgent[agentID]
+	if !ok {
+		return nil, platformdb.ErrNotFound
+	}
+	return session, nil
+}
+
+func (s *persistentFlowSessions) RemoveSession(agentID string) {
+	delete(s.byAgent, agentID)
+}
+
+type persistentFlowStarter struct {
+	sessions *persistentFlowSessions
+	captured dto.StartSessionRequest
+}
+
+func (s *persistentFlowStarter) StartSession(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	s.captured = req
+	session := &persistentFlowSession{
+		threadID: "provider-thread-persistent",
+		rollout:  "/tmp/rollout",
+		runtime:  map[string]any{"cwd": req.CWD},
+	}
+	s.sessions.byAgent[req.AgentID] = session
+	return session, nil
+}
+
+func (*persistentFlowStarter) ResumeSession(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+	return nil, errors.New("unexpected resume")
+}
+
+type persistentFlowSession struct {
+	threadID string
+	rollout  string
+	runtime  map[string]any
+}
+
+func (s *persistentFlowSession) ThreadID() string                { return s.threadID }
+func (s *persistentFlowSession) RolloutPath() string             { return s.rollout }
+func (s *persistentFlowSession) Capabilities() dto.CapabilitySet { return nil }
+func (s *persistentFlowSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+	return nil, errors.New("unused")
+}
+func (s *persistentFlowSession) Interrupt(context.Context, dto.InterruptRequest) error {
+	return errors.New("unused")
+}
+func (s *persistentFlowSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
+	return errors.New("unused")
+}
+func (s *persistentFlowSession) ListThreads(context.Context) ([]dto.ThreadRef, error) {
+	return nil, errors.New("unused")
+}
+func (s *persistentFlowSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
+	return dto.ForkResult{}, errors.New("unused")
+}
+func (s *persistentFlowSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
+	return nil, errors.New("unused")
+}
+func (s *persistentFlowSession) Configure(context.Context, dto.ThreadConfigPatch) error {
+	return errors.New("unused")
+}
+func (s *persistentFlowSession) Close(context.Context) error           { return nil }
+func (s *persistentFlowSession) ForceStop() error                      { return nil }
+func (s *persistentFlowSession) RuntimeConfigSnapshot() map[string]any { return s.runtime }
+
+func decodePersistentFlowRuntime(raw json.RawMessage) (map[string]any, error) {
+	var stored struct {
+		Runtime map[string]any `json:"runtime,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return nil, err
+	}
+	return stored.Runtime, nil
+}
+
+func runtimeStrings(runtime map[string]any, key string) []string {
+	raw, ok := runtime[key]
+	if !ok {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, value := range typed {
+			text, _ := value.(string)
+			if text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocksIt(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := &persistentFlowThreadStore{}
+	sessions := &persistentFlowSessions{byAgent: map[string]contract.Session{}}
+	starter := &persistentFlowStarter{sessions: sessions}
+	cfg := &platformconfig.Config{Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true}}
+	service := threadmod.NewServiceWithPromptAssembly(nil, store, nil, sessions, starter, nil, nil, nil, nil, cfg, nil)
+
+	result, err := service.Start(ctx, threadmod.StartRequest{
+		AgentID:       "agent-child-persistent",
+		Provider:      "codex",
+		CWD:           ".",
+		Name:          "worker-agent",
+		ParentAgentID: "agent-main",
+		EnabledTools:  []string{"spawn_agent", "orchestration_launch_agent", "request_user_input"},
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if store.row == nil {
+		t.Fatal("thread store row = nil")
+	}
+
+	startTools, ok := starter.captured.Config["enabledTools"].([]string)
+	if !ok {
+		t.Fatalf("StartSessionRequest.Config.enabledTools = %#v, want []string", starter.captured.Config["enabledTools"])
+	}
+	if got, want := fmt.Sprintf("%#v", startTools), `[]string{"orchestration_launch_agent", "request_user_input"}`; got != want {
+		t.Fatalf("StartSessionRequest.Config.enabledTools = %s, want %s", got, want)
+	}
+
+	runtime, err := decodePersistentFlowRuntime(store.row.ConfigOverride)
+	if err != nil {
+		t.Fatalf("decode runtime config error = %v", err)
+	}
+	if got, want := fmt.Sprintf("%#v", runtimeStrings(runtime, "enabledTools")), `[]string{"orchestration_launch_agent", "request_user_input"}`; got != want {
+		t.Fatalf("stored runtime enabledTools = %s, want %s", got, want)
+	}
+
+	h, registry := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
+		t.Fatal("Callback() should not be invoked when spawn_agent is blocked")
+		return nil
+	}}})
+	h.threadStore = store
+	h.cfg = cfg
+
+	toolResult, err := h.routeToolCall(ctx, ToolCallRequest{
+		Name:      "spawn_agent",
+		Arguments: mustRawJSON(t, map[string]any{"message": "create child agent"}),
+		ThreadID:  result.ThreadID,
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, toolResult, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。", false)
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}

@@ -161,7 +161,7 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 	putConfigString(cfg, "threadKind", threadKind)
 	putConfigString(cfg, "thread_kind", threadKind)
 	putConfigBool(cfg, "isWorktree", input.IsWorktree)
-	putConfigStrings(cfg, "enabledTools", input.EnabledTools)
+	putConfigStrings(cfg, "enabledTools", applyPersistentSubagentToolPolicy(input.EnabledTools, input.SessionFlags))
 	putConfigStrings(cfg, "additionalWorkingDirectories", input.AdditionalWorkingDirectories)
 	for _, key := range []string{"claudeMdExcludes", "claude_md_excludes"} {
 		putConfigStrings(cfg, key, input.ClaudeMdExcludes)

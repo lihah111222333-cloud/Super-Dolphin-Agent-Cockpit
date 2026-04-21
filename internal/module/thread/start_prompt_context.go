@@ -26,6 +26,10 @@ func buildStartCtx(req StartRequest, cfg *platformconfig.Config, registry contra
 	outputStyleConfig := configOutputStyle(req.Config, "outputStyleConfig", "output_style_config")
 	sessionFlags := firstNonEmptyFlags(req.SessionFlags, configBoolMap(req.Config, "sessionFlags", "session_flags"))
 	sessionFlags = applyConfiguredSessionFlagDefaults(sessionFlags, cfg)
+	enabledTools := applyPersistentSubagentToolPolicy(
+		firstNonEmptyStrings(req.EnabledTools, providershared.ConfigStringSlice(req.Config, "enabledTools", "enabled_tools", "tools")),
+		sessionFlags,
+	)
 	gitCtx := resolvePromptGitContext(
 		cwd,
 		shared.FirstNonEmpty(req.GitRoot, providershared.ConfigString(req.Config, "gitRoot", "git_root")),
@@ -41,7 +45,7 @@ func buildStartCtx(req StartRequest, cfg *platformconfig.Config, registry contra
 		Language:                     shared.FirstNonEmpty(req.Language, providershared.ConfigString(req.Config, "language")),
 		Provider:                     req.Provider,
 		Model:                        req.Model,
-		EnabledTools:                 firstNonEmptyStrings(req.EnabledTools, providershared.ConfigStringSlice(req.Config, "enabledTools", "enabled_tools", "tools")),
+		EnabledTools:                 enabledTools,
 		AdditionalWorkingDirectories: firstNonEmptyStrings(req.AdditionalWorkingDirectories, providershared.ConfigStringSlice(req.Config, "additionalWorkingDirectories", "additional_working_directories")),
 		ClaudeMdExcludes:             providershared.ConfigStringSlice(req.Config, "claudeMdExcludes", "claude_md_excludes"),
 		MCPSnapshot:                  buildPromptMCPSnapshot(req.MCPSnapshot, configMCPSnapshot(req.Config), registryMCPSnapshot(registry)),

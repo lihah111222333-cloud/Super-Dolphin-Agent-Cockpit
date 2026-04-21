@@ -81,6 +81,26 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 	}
 }
 
+func TestRemoteLauncher_LaunchUsesFriendlyTaskNameForTechnicalAgentName(t *testing.T) {
+	var started map[string]any
+	launcher := remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			started = req
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+	})
+	_, err := launcher.Launch(context.Background(), &agentRuntime{id: "worker-agent"}, LaunchRequest{
+		Name:   "worker-agent",
+		Prompt: "请负责定位登录回调 500 根因，并给出最小修复方案",
+	})
+	if err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	if started["name"] != "定位登录回调 500 根因" {
+		t.Fatalf("Launch() name = %#v, want friendly task title", started["name"])
+	}
+}
+
 func TestRemoteLauncher_SubmitTurn(t *testing.T) {
 	var req map[string]any
 	launcher := remoteLocalLauncher(t, handler.Map{
@@ -163,21 +183,50 @@ func TestService_LaunchWithRemote(t *testing.T) {
 }
 
 func TestService_SubmitTurnRemoteMode(t *testing.T) {
-	var got map[string]any
+	var got, renamed map[string]any
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		"thread/name/set": handler.New(func(_ context.Context, req map[string]any) (struct{}, error) {
+			renamed = req
+			return struct{}{}, nil
+		}),
 		"turn/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
 			got = req
 			return map[string]any{"turn_id": "turn-1"}, nil
 		}),
 	}), nil, nil, nil)
 	agent := svc.newAgentLocked("agent-1")
-	agent.state, agent.remoteThreadID = agentdto.StateIdle, "thread-1"
+	agent.state, agent.remoteThreadID, agent.name = agentdto.StateIdle, "thread-1", "worker-agent"
 	svc.agents[agent.id] = agent
-	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: agent.id, Inputs: []shareddto.InputItem{{Type: "text", Content: "hi"}}}); err != nil {
+	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: agent.id, Inputs: []shareddto.InputItem{{Type: "text", Content: "请负责定位登录回调 500 根因，并给出最小修复方案"}}}); err != nil {
 		t.Fatalf("SubmitTurn() error = %v", err)
 	}
 	if agent.queue.Len() != 0 || agent.activeTurnID != "turn-1" || agent.state != agentdto.StateTurnStarting || got["thread_id"] != "thread-1" {
 		t.Fatalf("agent=%#v req=%#v", agent, got)
+	}
+	if renamed["name"] != "定位登录回调 500 根因" || agent.name != "定位登录回调 500 根因" {
+		t.Fatalf("rename=%#v agent=%#v", renamed, agent)
+	}
+}
+
+func TestService_LaunchWithRemoteStoresFriendlyDisplayName(t *testing.T) {
+	var started map[string]any
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			started = req
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+	}), nil, nil, nil)
+	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
+		AgentID: "worker-agent",
+		Name:    "worker-agent",
+		Prompt:  "请负责定位登录回调 500 根因，并给出最小修复方案",
+		Command: []string{"ignored"},
+	}); err != nil {
+		t.Fatalf("LaunchAgent() error = %v", err)
+	}
+	agent := svc.agents["worker-agent"]
+	if agent == nil || agent.name != "定位登录回调 500 根因" || started["name"] != "定位登录回调 500 根因" {
+		t.Fatalf("agent=%#v started=%#v", agent, started)
 	}
 }
 

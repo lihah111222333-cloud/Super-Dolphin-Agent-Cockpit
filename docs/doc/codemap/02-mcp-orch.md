@@ -282,7 +282,7 @@
 
 | Tool | 功能 | 备注 |
 |---|---|---|
-| `orchestration_launch_agent` | 异步启动一个受编排管理的 agent。`name` 直接作为 `agent_id`。 | 仅允许 `provider=codex/claude`；底层命令固定为当前 `mcp-orch` 可执行文件。 |
+| `orchestration_launch_agent` | 异步启动一个受编排管理的 agent。`name` 目前直接作为 `agent_id`，因此应使用简短、面向用户的任务名（如“排查登录回调 500”），不要用路径、内部 slug 或泛化角色名。 | 仅允许 `provider=codex/claude`；底层命令固定为当前 `mcp-orch` 可执行文件。 |
 | `orchestration_send_message` | 给指定 agent 追加一条文本 turn。 | 自动把消息包装为 `[{type:"text", content: message}]`。 |
 | `orchestration_stop_agent` | 停止指定 agent。 | 远程 agent 走 `thread/stop`，本地 agent 走进程 kill + 等待退出。 |
 | `orchestration_list_agents` | 返回当前所有 agent snapshot。 | 包含 thread / runtime / report / state 等快照。 |
