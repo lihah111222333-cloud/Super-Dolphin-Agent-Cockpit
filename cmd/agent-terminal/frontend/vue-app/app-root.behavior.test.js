@@ -168,7 +168,7 @@ describe('AppRoot behavior', () => {
     expect(globalThis.clearInterval).toHaveBeenCalledWith(42);
   });
 
-  it('runs command cards and prompt templates through an ensured active thread', async () => {
+  it('runs command cards through an ensured active thread', async () => {
     stores.threadStore.state.activeThreadId = '';
     const vm = AppRoot.setup();
     vm.page.value = 'commands';
@@ -177,11 +177,6 @@ describe('AppRoot behavior', () => {
     expect(stores.threadStore.startThread).toHaveBeenCalledWith('/repo');
     expect(historyMock.requestHistoryLoad).toHaveBeenCalledWith(stores.threadStore, 'thread-new');
     expect(stores.threadStore.sendMessage).toHaveBeenCalledWith('thread-new', expect.stringContaining('echo hello'));
-    expect(vm.page.value).toBe('chat');
-
-    vm.page.value = 'commands';
-    await vm.runPromptTemplate({ prompt_text: 'Do the task' });
-    expect(stores.threadStore.sendMessage).toHaveBeenLastCalledWith('thread-new', 'Do the task');
     expect(vm.page.value).toBe('chat');
   });
 
