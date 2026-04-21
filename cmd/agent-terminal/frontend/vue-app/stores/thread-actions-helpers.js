@@ -452,6 +452,8 @@ export async function stopThread(ctx, threadId, options = {}) {
     logWarn('thread', 'stop.sync.failed', { thread_id: threadId, source, error: syncError, duration_ms: Math.round(perfNow() - start) });
   }
   logInfo('thread', 'stop.done', { thread_id: threadId, source, confirmed, mode, settled, interrupt_sent: interruptSent, duration_ms: Math.round(perfNow() - start) });
+  setThreadPendingLaunch(threadId, false);
+  clearThreadRouting(threadId);
   return { confirmed, mode, interruptSent, settled };
 }
 
@@ -686,6 +688,10 @@ export async function setThreadArchived(ctx, threadId, archived) {
     const response = await callAPI(archived ? 'thread/archive' : 'thread/unarchive', { threadId: id });
     ctx.persistPreferenceAndSync(PREF_ARCHIVED_THREADS_CHAT, next, { thread_id: id, archived: Boolean(archived) }, { syncAfterPersist: false });
     await ctx.refreshSidebarState();
+    if (archived) {
+      setThreadPendingLaunch(id, false);
+      clearThreadRouting(id);
+    }
     const warningText = threadArchiveWarningText(response, archived);
     if (warningText) {
       logWarn('thread', archived ? 'archive.partial_warning' : 'unarchive.partial_warning', {

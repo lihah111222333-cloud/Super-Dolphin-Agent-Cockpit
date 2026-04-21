@@ -25,6 +25,7 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 		if err := s.updateThreadStatus(ctx, id, statusArchived); err != nil {
 			return err
 		}
+		s.pendingLaunchMu.Delete(id)
 		s.publishThreadStopped(id, "", statusArchived, "archived_pending_launch")
 		pkglogger.Info("thread: Archive() pending_launch fast-path",
 			"thread_id", id,

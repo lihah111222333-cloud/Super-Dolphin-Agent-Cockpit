@@ -27,11 +27,13 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	// on this thread will see pending_launch=false on the re-fetch and return
 	// no-op without forking the CLI.
 	if s.threadStore != nil {
-		if row, err := s.threadStore.GetByThreadID(ctx, strings.TrimSpace(threadID)); err == nil && row != nil && row.PendingLaunch {
-			if err := s.updateThreadStatus(ctx, strings.TrimSpace(threadID), statusStopped); err != nil {
+		id := strings.TrimSpace(threadID)
+		if row, err := s.threadStore.GetByThreadID(ctx, id); err == nil && row != nil && row.PendingLaunch {
+			if err := s.updateThreadStatus(ctx, id, statusStopped); err != nil {
 				return err
 			}
-			s.publishThreadStopped(strings.TrimSpace(threadID), "", statusStopped, "stopped_pending_launch")
+			s.pendingLaunchMu.Delete(id)
+			s.publishThreadStopped(id, "", statusStopped, "stopped_pending_launch")
 			return nil
 		}
 	}
