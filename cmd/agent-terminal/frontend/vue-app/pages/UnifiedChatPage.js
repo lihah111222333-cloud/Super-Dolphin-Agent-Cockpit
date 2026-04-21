@@ -49,6 +49,7 @@ import { handleTimelineCitationClick } from '../utils/citation-action-utils.js';
 import {
   buildUnifiedChatPageExposed,
   createPathChoiceController,
+  createRouterPreview,
 } from './UnifiedChatPage.helpers.js';
 import { template } from './UnifiedChatPage.template.js';
 
@@ -356,7 +357,7 @@ export const UnifiedChatPage = {
     });
     watch(selectedThreadId, () => { isPreviewDirty.value = false; });
     const routerClassify = useRouterClassify();
-    const agentKeyPreview = computed(() => (routerClassify.preview.value?.agentKey || '').toString());
+    const routerPreview = createRouterPreview(routerClassify);
     watch(() => composer.state.text, (next) => routerClassify.classify(next || ''));
     watch(selectedThreadId, () => routerClassify.clear());
     const activeStatus = computed(() => normalizeStatus(props.threadStore.getThreadStatus(selectedThreadId.value)));
@@ -528,7 +529,7 @@ export const UnifiedChatPage = {
       selectThread,
       pinnedPlanCardSpec,
       isAtBottom, scheduleScrollToBottom, scrollToTop, resetScrollState,
-      agentKeyPreview,
+      routerPreview,
     });
     attachPageNonEnumerableState(exposed, {
       launchSkillSelectionEnabled,

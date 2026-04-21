@@ -80,6 +80,7 @@ func (s *service) Handoff(ctx context.Context, req HandoffRequest) (HandoffResul
 		NewThreadID:     result.ThreadID,
 		AgentID:         result.AgentID,
 		AgentKey:        result.AgentKey,
+		PromptKey:       result.PromptKey,
 		PromptVersionID: result.PromptVersionID,
 		Status:          result.Status,
 	}, nil

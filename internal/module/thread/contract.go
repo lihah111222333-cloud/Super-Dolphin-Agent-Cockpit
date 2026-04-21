@@ -79,6 +79,11 @@ type StartRequest struct {
 	// PromptVersionID is filled by the service after it materializes a
 	// prompt_versions row for this thread start; it is not an input.
 	PromptVersionID *int64
+	// PromptKey is filled by resolveRoutedPrompt when the router picks a
+	// template. Surfaced to the UI alongside AgentKey so operators can see
+	// which prompt_template hit (agent_key is the role slug; prompt_key is
+	// the specific prompt row). Not an input.
+	PromptKey string
 	// OwnerThreadID links this thread back to a predecessor (e.g. the source
 	// thread in a handoff). Empty for brand-new top-level threads.
 	OwnerThreadID string
@@ -103,8 +108,10 @@ type StartResult struct {
 	CWD             string `json:"cwd,omitempty"`
 	ApprovalPolicy  string `json:"approvalPolicy,omitempty"`
 	// Routing metadata surfaced to the UI so the sidebar can show which agent
-	// the router picked and which prompt_versions row was injected.
+	// the router picked, which prompt_template hit, and which prompt_versions
+	// row was injected.
 	AgentKey        string `json:"agent_key,omitempty"`
+	PromptKey       string `json:"prompt_key,omitempty"`
 	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
 	// PendingLaunch=true means the backend wrote the thread row but did not
 	// fork the provider CLI yet. The real spawn happens on the first turn,
@@ -155,6 +162,7 @@ type HandoffResult struct {
 	NewThreadID     string `json:"new_thread_id"`
 	AgentID         string `json:"agent_id,omitempty"`
 	AgentKey        string `json:"agent_key,omitempty"`
+	PromptKey       string `json:"prompt_key,omitempty"`
 	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
 	Status          string `json:"status,omitempty"`
 }

@@ -1,4 +1,4 @@
-import { ref, watch } from '../../lib/vue.esm-browser.prod.js';
+import { computed, ref, watch } from '../../lib/vue.esm-browser.prod.js';
 
 export function buildUnifiedChatPageExposed(ctx) {
   const {
@@ -67,7 +67,7 @@ export function buildUnifiedChatPageExposed(ctx) {
     scheduleScrollToBottom,
     scrollToTop,
     resetScrollState,
-    agentKeyPreview,
+    routerPreview,
   } = ctx;
 
   return {
@@ -189,8 +189,24 @@ export function buildUnifiedChatPageExposed(ctx) {
     dismissPinnedPlan: threadCards.dismissPinnedPlan,
     pinnedPlanCardSpec: ctx.pinnedPlanCardSpec,
     onTimelineFileRefClick: fileRefPreview.onTimelineFileRefClick,
-    agentKeyPreview,
+    routerPreview,
   };
+}
+
+// createRouterPreview maps the raw classify response into a stable preview
+// object (or null) for ComposerBar. Extracted from setup() so the page's
+// setup function stays under the code-size guard limit.
+export function createRouterPreview(routerClassify) {
+  return computed(() => {
+    const p = routerClassify.preview.value;
+    if (!p) return null;
+    const agentKey = (p.agentKey || '').toString().trim();
+    const promptKey = (p.promptKey || '').toString().trim();
+    const title = (p.title || '').toString().trim();
+    const reason = (p.reason || '').toString().trim();
+    if (!agentKey && !promptKey && !title) return null;
+    return { agentKey, promptKey, title, reason };
+  });
 }
 
 export function createPathChoiceController(selectedThreadId) {

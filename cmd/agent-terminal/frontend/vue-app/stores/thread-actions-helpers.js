@@ -378,13 +378,15 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // Capture routing metadata the backend surfaced (see
   // internal/module/thread/rpc.go newStartHandler response map).
   const agentKey = (res?.agent_key || res?.agentKey || '').toString().trim();
+  const promptKey = (res?.prompt_key || res?.promptKey || '').toString().trim();
   const promptVersionId =
     typeof res?.prompt_version_id === 'number' ? res.prompt_version_id
     : typeof res?.promptVersionId === 'number' ? res.promptVersionId
     : null;
-  if (agentKey || promptVersionId != null) {
+  if (agentKey || promptKey || promptVersionId != null) {
     _routingByThread.set(id, {
       agentKey,
+      promptKey,
       promptVersionId,
       overridden: Boolean(agentKeyOverride),
     });
@@ -407,6 +409,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     cwd,
     duration_ms: Math.round(perfNow() - start),
     agent_key: agentKey || undefined,
+    prompt_key: promptKey || undefined,
     prompt_version_id: promptVersionId ?? undefined,
     agent_key_overridden: agentKeyOverride ? true : undefined,
   });

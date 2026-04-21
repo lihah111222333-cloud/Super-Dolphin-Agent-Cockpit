@@ -170,7 +170,7 @@ describe('UnifiedChatPage.setup public contract', () => {
        'toggleArchivedThreadList', 'openNewWindow', 'editingThreadId', 'editingAlias', 'renamingThreadId',
        'setRenameInputRef', 'beginInlineRename', 'submitInlineRename', 'handleInlineRenameEnter',
        'cancelInlineRename', 'handleInlineRenameBlur', 'getDisplayName', 'resolveThreadDisplayName',
-       'dismissPinnedPlan', 'pinnedPlanCardSpec', 'onTimelineFileRefClick', 'agentKeyPreview',
+       'dismissPinnedPlan', 'pinnedPlanCardSpec', 'onTimelineFileRefClick', 'routerPreview',
      ]);
      expect(vm).not.toHaveProperty('resolvePathChoice');
 
