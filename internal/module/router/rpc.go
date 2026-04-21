@@ -17,7 +17,18 @@ type classifyParams struct {
 func NewHandlers(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"router/classify": newClassifyHandler(svc),
+		"router/runTests": newRunTestsHandler(svc),
 	}}
+}
+
+func newRunTestsHandler(svc Service) handler.Func {
+	return rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		result, err := svc.RunTests(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
 }
 
 func newClassifyHandler(svc Service) handler.Func {

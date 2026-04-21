@@ -35,7 +35,7 @@ func tpl(promptKey, agentKey string, tags []string) promptstore.PromptTemplate {
 
 func TestClassify_EmptyInputIsNoop(t *testing.T) {
 	t.Parallel()
-	svc := NewService(nil, routerpkg.NewRuleRouter(), &fakeReader{})
+	svc := NewService(nil, routerpkg.NewRuleRouter(), &fakeReader{}, nil)
 	got, err := svc.Classify(context.Background(), ClassifyRequest{UserInput: "   "})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -47,7 +47,7 @@ func TestClassify_EmptyInputIsNoop(t *testing.T) {
 
 func TestClassify_NilBackendIsGracefulNoop(t *testing.T) {
 	t.Parallel()
-	svc := NewService(nil, nil, &fakeReader{rows: []promptstore.PromptTemplate{tpl("p1", "a1", []string{"x"})}})
+	svc := NewService(nil, nil, &fakeReader{rows: []promptstore.PromptTemplate{tpl("p1", "a1", []string{"x"})}}, nil)
 	got, err := svc.Classify(context.Background(), ClassifyRequest{UserInput: "hello x"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -59,7 +59,7 @@ func TestClassify_NilBackendIsGracefulNoop(t *testing.T) {
 
 func TestClassify_NilStoreIsGracefulNoop(t *testing.T) {
 	t.Parallel()
-	svc := NewService(nil, routerpkg.NewRuleRouter(), nil)
+	svc := NewService(nil, routerpkg.NewRuleRouter(), nil, nil)
 	got, _ := svc.Classify(context.Background(), ClassifyRequest{UserInput: "anything"})
 	if got.Matched {
 		t.Fatalf("nil store must not match: %+v", got)
@@ -68,7 +68,7 @@ func TestClassify_NilStoreIsGracefulNoop(t *testing.T) {
 
 func TestClassify_ListErrorIsGracefulNoop(t *testing.T) {
 	t.Parallel()
-	svc := NewService(nil, routerpkg.NewRuleRouter(), &fakeReader{err: errors.New("pgx: boom")})
+	svc := NewService(nil, routerpkg.NewRuleRouter(), &fakeReader{err: errors.New("pgx: boom")}, nil)
 	got, err := svc.Classify(context.Background(), ClassifyRequest{UserInput: "hello sql"})
 	if err != nil {
 		t.Fatalf("expected no error on store failure (graceful): %v", err)
@@ -84,7 +84,7 @@ func TestClassify_ReturnsTitleAndReasonOnMatch(t *testing.T) {
 		tpl("main/sql", "sql_expert", []string{"sql", "database"}),
 		tpl("main/ui", "ui_expert", []string{"react"}),
 	}}
-	svc := NewService(nil, routerpkg.NewRuleRouter(), reader)
+	svc := NewService(nil, routerpkg.NewRuleRouter(), reader, nil)
 	got, err := svc.Classify(context.Background(), ClassifyRequest{UserInput: "write a sql migration"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -108,7 +108,7 @@ func TestClassify_NoEnabledCandidatesIsNoMatch(t *testing.T) {
 	row := tpl("main/sql", "sql_expert", []string{"sql"})
 	row.Enabled = false
 	reader := &fakeReader{rows: []promptstore.PromptTemplate{row}}
-	svc := NewService(nil, routerpkg.NewRuleRouter(), reader)
+	svc := NewService(nil, routerpkg.NewRuleRouter(), reader, nil)
 	got, _ := svc.Classify(context.Background(), ClassifyRequest{UserInput: "sql please"})
 	if got.Matched {
 		t.Fatalf("disabled templates must not produce a match: %+v", got)

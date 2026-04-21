@@ -60,6 +60,7 @@ type Querier interface {
 	ListBusExceptionLogs(ctx context.Context, arg ListBusExceptionLogsParams) ([]ListBusExceptionLogsRow, error)
 	ListCommandCardVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error)
 	ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error)
+	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
 	ListPendingTopologyApprovals(ctx context.Context) ([]TopologyApproval, error)
 	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error)

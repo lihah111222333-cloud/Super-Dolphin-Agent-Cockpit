@@ -25,9 +25,14 @@ var Module = fx.Module("thread",
 		fx.Annotate(
 			NewServiceWithPromptAssembly,
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
-			// Publish the service under turn.PendingLaunchSpawner too so
-			// NewTurnHandlers can pick it up via optional injection without
-			// creating a turn→thread import cycle.
+			// Publish the service under both thread.Service (its native
+			// interface, required by uistate/orchestration) and
+			// turn.PendingLaunchSpawner so NewTurnHandlers can pick it up
+			// via optional injection without creating a turn→thread import
+			// cycle. fx.As replaces the original output, so we need an
+			// explicit fx.As(new(Service)) here, otherwise thread.Service
+			// disappears from the DI graph.
+			fx.As(new(Service)),
 			fx.As(new(turn.PendingLaunchSpawner)),
 		),
 		fx.Annotate(
