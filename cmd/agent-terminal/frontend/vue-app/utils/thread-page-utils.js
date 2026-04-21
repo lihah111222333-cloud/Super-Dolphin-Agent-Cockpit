@@ -255,6 +255,7 @@ export function buildVisibleChatThreadCards(opts) {
     statusHeaderOf,
     interruptibleOf,
     routingOf,
+    pendingLaunchOf,
   } = opts || {};
 
   const safeThreads = Array.isArray(threads) ? threads : [];
@@ -309,6 +310,12 @@ export function buildVisibleChatThreadCards(opts) {
       agentKey: (typeof routingOf === 'function'
         ? ((routingOf(threadId) || {}).agentKey || '')
         : '').toString().trim(),
+      // C1 pending-launch: thread row exists but provider CLI has not been
+      // forked yet (awaiting first turn). Card renders a "待启动" marker and
+      // the send button shows a "启动中…" state on the first send.
+      pendingLaunch: typeof pendingLaunchOf === 'function'
+        ? Boolean(pendingLaunchOf(threadId))
+        : false,
     };
   });
 

@@ -315,6 +315,24 @@ export function clearThreadRouting(threadId) {
   if (threadId) _routingByThread.delete(threadId);
 }
 
+// Per-thread pending_launch flag. Set from thread/start response when the
+// backend took the C1 pending_launch path (no CLI fork yet); cleared once the
+// first turn/start succeeds (CLI has been forked) or when the thread is
+// stopped/deleted. Kept outside the runtime store because the state is purely
+// a UI hint and flipping it does not require the store whitelist to grow.
+const _pendingLaunchByThread = new Set();
+
+export function getThreadPendingLaunch(threadId) {
+  if (!threadId) return false;
+  return _pendingLaunchByThread.has(threadId);
+}
+
+export function setThreadPendingLaunch(threadId, pending) {
+  if (!threadId) return;
+  if (pending) _pendingLaunchByThread.add(threadId);
+  else _pendingLaunchByThread.delete(threadId);
+}
+
 export async function startThread(ctx, cwd = '.', options = {}) {
   const { callAPI, logInfo } = ctx;
   const start = perfNow();
@@ -345,6 +363,11 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // internal/module/thread/router_resolve.go resolveRoutedPrompt.
   const launchPrompt = typeof options?.prompt === 'string' ? options.prompt.trim() : '';
   if (launchPrompt) payload.prompt = launchPrompt;
+  // C1: opt-in flag forwarded from launchOne when the composer is empty.
+  // Backend creates an agent_threads row with pending_launch=true and
+  // skips the Claude CLI fork; the spawn happens lazily on the first
+  // turn/start via SpawnIfNeeded. See internal/module/thread/spawn.go.
+  if (options?.deferSpawn === true) payload.defer_spawn = true;
   const disallowedTools = await resolveDisallowedBuiltinTools(ctx, cwd);
   if (Array.isArray(disallowedTools)) {
     payload.config = { ...(payload.config || {}), disallowed_tools: disallowedTools };
@@ -366,6 +389,12 @@ export async function startThread(ctx, cwd = '.', options = {}) {
       overridden: Boolean(agentKeyOverride),
     });
   }
+  // C1 pending-launch: backend returns pending_launch=true when it wrote
+  // the row but did not fork the CLI. UI renders a "待启动" badge until the
+  // first turn/start succeeds (clears the flag) or stopThread removes the
+  // thread entirely.
+  const pendingLaunch = Boolean(res?.pending_launch ?? res?.pendingLaunch);
+  setThreadPendingLaunch(id, pendingLaunch);
   if (!ctx.state.threads.some((t) => t.id === id)) ctx.state.threads = [...ctx.state.threads, { id, name: id, state: 'idle' }];
   _optimisticThreadIds.set(id, Date.now() + OPTIMISTIC_LEAK_GUARD_MS);
   await ctx.syncRuntimeState();
@@ -511,6 +540,10 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
         throw turnError;
       }
     }
+    // C1: first successful turn/start means the backend has forked the CLI
+    // (SpawnIfNeeded ran for pending threads, eager threads were already
+    // running). Clear the pending badge so the sidebar card flips to normal.
+    setThreadPendingLaunch(threadId, false);
     // Optimistic UI: insert user message into local timeline immediately so
     // it renders before the backend writes the JSONL / completes the turn.
     const userText = input.filter((i) => i?.type === 'text').map((i) => i.text).join('\n').trim();

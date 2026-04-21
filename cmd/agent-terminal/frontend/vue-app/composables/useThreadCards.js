@@ -7,7 +7,7 @@ import {
   normalizeActivityOutput,
 } from '../utils/format-utils.js';
 import { buildVisibleChatThreadCards } from '../utils/thread-page-utils.js';
-import { getThreadRouting } from '../stores/thread-actions-helpers.js';
+import { getThreadRouting, getThreadPendingLaunch } from '../stores/thread-actions-helpers.js';
 import { createPinnedPlanState } from './useThreadCards.pinned-plan.js';
 
 /**
@@ -166,6 +166,7 @@ function createVisibleChatThreadCardState(props, deps) {
       showArchived: showArchivedThreadList.value,
       displayNameOf: (thread) => props.threadStore.displayName(thread),
       routingOf: (threadId) => getThreadRouting(threadId),
+      pendingLaunchOf: (threadId) => getThreadPendingLaunch(threadId),
       statusOf: (threadId) => normalizeStatus(props.threadStore.getThreadStatus(threadId)),
       statusHeaderOf: (threadId) => getThreadStatusHeader(threadId),
       interruptibleOf: (threadId) => isThreadInterruptible(threadId),
