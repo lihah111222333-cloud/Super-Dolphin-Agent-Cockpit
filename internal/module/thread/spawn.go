@@ -155,8 +155,11 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	// The pending row was written with that assumption, so we reuse threadID.
 	agentID := threadID
 
+	// Provider/Effort/Personality/ApprovalPolicy preferences beyond Model+Cwd
+	// are not persisted on pending rows today, so the session starter
+	// defaults apply. If we ever need fidelity with the original thread/start
+	// payload we should stash those into agent_threads.config_override.
 	req := StartRequest{
-		Provider:         shared.FirstNonEmpty(row.Prompt, ""), // placeholder
 		AgentID:          agentID,
 		ParentAgentID:    row.ParentAgentID,
 		AgentType:        row.AgentType,
@@ -167,10 +170,6 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 		Prompt:           strings.TrimSpace(userInputForRouter),
 		OwnerThreadID:    row.OwnerThreadID,
 	}
-	// Provider may have been left empty on the pending row; caller-side
-	// defaulting inside the session starter + prompt assembly handles blank
-	// provider by falling back to the harness default.
-	req.Provider = ""
 
 	// Router + prompt_versions materialization.
 	s.resolveRoutedPrompt(ctx, &req)
@@ -182,10 +181,21 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	if err != nil {
 		return false, fmt.Errorf("thread: assembly input: %w", err)
 	}
+	agentLaunched := false
 	cleanupOnFailure := true
 	defer func() {
-		if cleanupOnFailure && cleanupScratchpad != nil {
+		if !cleanupOnFailure {
+			return
+		}
+		if cleanupScratchpad != nil {
 			cleanupScratchpad()
+		}
+		// Roll back the orchestration agent if we'd already launched it but
+		// failed before UpdateLaunchResult committed. Leaving the agent alive
+		// while the DB still says pending_launch=true would deadlock the retry
+		// (launchAgent would see duplicate id).
+		if agentLaunched {
+			s.stopAgent(ctx, agentID)
 		}
 	}()
 	assembly, err := resolveStartPromptAssembly(ctx, req, assemblyInput)
@@ -206,6 +216,7 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	); err != nil {
 		return false, fmt.Errorf("thread: launch agent: %w", err)
 	}
+	agentLaunched = true
 	session, err := s.establishStartedSession(ctx, req, assemblyInput, assembly, agentID)
 	if err != nil {
 		return false, fmt.Errorf("thread: establish session: %w", err)
