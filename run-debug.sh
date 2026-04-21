@@ -124,7 +124,7 @@ echo ""
 echo "  [1] 主分支编译 debug (Frida)"
 echo "  [2] test 分支编译 debug (Frida)"
 echo "  [3] 正常编译"
-echo "  [4] 直接启动已编译二进制 (debug)"
+echo "  [4] 直接启动已编译二进制 (debug + vite HMR)"
 echo "  [5] 按 git tag 编译 debug (Frida)"
 echo ""
 read -rp "选择 (1/2/3/4/5): " choice
@@ -200,26 +200,82 @@ if [ "$MODE" = "run-only" ]; then
     echo "   请先使用选项 1/2/3/5 编译"
     exit 1
   fi
-  echo "[1/2] 停止旧进程..."
+  echo "[1/3] 停止旧进程..."
   pkill -f "super-agent-debug" >/dev/null 2>&1 || true
+  # 历史残留：以前 go build ./cmd/agent-terminal/ 产生的同名进程也一并清理
+  pkill -f "agent-terminal --debug" >/dev/null 2>&1 || true
   pkill -f "esbuild --service" >/dev/null 2>&1 || true
-  lsof -ti :4510 :4511 2>/dev/null | xargs kill -9 2>/dev/null || true
+  # 连带清理 5173，避免后端连到别的项目的 vite 导致黑屏
+  lsof -ti :4510 :4511 :5173 2>/dev/null | xargs kill -9 2>/dev/null || true
   sleep 0.5
 
-  echo "[2/2] 清理 webview 缓存..."
+  echo "[2/3] 清理 webview 缓存..."
   rm -rf "$HOME/Library/Caches/agent-terminal" \
          "$HOME/Library/Caches/com.multi-agent.agent-terminal" \
          "$HOME/Library/WebKit/agent-terminal" \
          "$HOME/Library/WebKit/agent-terminal.cover" \
          "$HOME/Library/WebKit/com.multi-agent.agent-terminal"
 
+  # [3/3] 启动 vite dev server（与 [1]/[2]/[5] 热更新路径保持一致）
+  # 没有 vite 时后端会退回到 dist/ 静态资源 —— 若 dist 陈旧就会黑屏
+  RUNONLY_FRONT="$BUILD_DIR/cmd/agent-terminal/frontend"
+  VITE_DEV_PID=""
+  cleanup_vite_runonly() {
+    if [ -n "$VITE_DEV_PID" ] && kill -0 "$VITE_DEV_PID" 2>/dev/null; then
+      echo "  → 停止 vite dev server (PID: $VITE_DEV_PID)..."
+      kill "$VITE_DEV_PID" 2>/dev/null || true
+    fi
+  }
+  trap cleanup_vite_runonly EXIT INT TERM
+
+  if [ -d "$RUNONLY_FRONT/node_modules" ] && [ -f "$RUNONLY_FRONT/package.json" ]; then
+    # preflight: Vue template runtime-compile 守卫（根治 webview 黑屏）
+    # 任何一个 template 在 runtime compiler 编译失败就 abort —— 窗口都不起来
+    if [ -f "$RUNONLY_FRONT/scripts/check-templates.cjs" ]; then
+      echo "[3/3] 预检 Vue template（runtime-compiler）..."
+      if ! node "$RUNONLY_FRONT/scripts/check-templates.cjs"; then
+        echo ""
+        echo "  ❌ Vue template 预检失败 —— 启动 webview 会直接黑屏"
+        echo "  修复上面列出的 template 再重启；按 Enter 忽略继续（不推荐），Ctrl+C 中止"
+        read -r
+        echo "  → 已忽略 template 守卫"
+      fi
+    fi
+    echo "[3/3] 启动 vite dev server (端口 5173)..."
+    (cd "$RUNONLY_FRONT" && npx vite --port 5173 --strictPort) &
+    VITE_DEV_PID=$!
+    for i in $(seq 1 30); do
+      # 必须同时满足 vite 子进程存活 + 5173 可访问，避免连到别人家的 vite
+      if kill -0 "$VITE_DEV_PID" 2>/dev/null && curl -s http://localhost:5173 >/dev/null 2>&1; then
+        echo "  → vite dev server 已就绪 ✅ (PID: $VITE_DEV_PID)"
+        export VITE_DEV_URL="http://localhost:5173"
+        break
+      fi
+      sleep 0.3
+    done
+    if [ -z "${VITE_DEV_URL:-}" ]; then
+      echo "  ⚠️  vite dev server 启动失败（端口冲突或 vite 进程已退出）"
+      echo "      将退回 dist/ 静态资源，若 dist 陈旧则会黑屏"
+    fi
+  else
+    echo "[3/3] 跳过 vite（缺 node_modules 或 package.json），使用 dist/ 静态资源"
+  fi
+
   echo ""
   echo "════════════════════════════════════"
   echo "▶ 直接启动已编译二进制 (debug)..."
   echo "  sha256: $(shasum -a 256 "$BUILD_DIR/super-agent-debug" | awk '{print $1}')"
+  if [ -n "${VITE_DEV_URL:-}" ]; then
+    echo "▶ 前端热更新 → $VITE_DEV_URL"
+  fi
   (sleep 1.0; open "http://localhost:4511" >/dev/null 2>&1 || true) &
   ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true
-  exec "$BUILD_DIR/super-agent-debug" --debug "$@"
+  # 不用 exec：退出后需要跑 cleanup_vite_runonly 清理 vite 子进程
+  "$BUILD_DIR/super-agent-debug" --debug "$@"
+  AGENT_EXIT=$?
+  cleanup_vite_runonly
+  trap - EXIT INT TERM
+  exit $AGENT_EXIT
 fi
 
 # 1) 前端
@@ -245,6 +301,20 @@ if [ -f "$FRONT/package.json" ]; then
     npm install --registry="$NPM_REGISTRY"
   else
     echo "  → 依赖无变化，跳过安装"
+  fi
+
+  # preflight: Vue template runtime-compile 守卫（根治 webview 黑屏）
+  # 无论 debug 还是 release，只要 template 在 runtime compiler 里编不过，
+  # webview 都会 mount.failed → 黑屏。在这里卡住，比事后翻日志快 100 倍。
+  if [ -f "scripts/check-templates.cjs" ]; then
+    echo "  → 预检 Vue template（runtime-compiler）..."
+    if ! node scripts/check-templates.cjs; then
+      echo ""
+      echo "  ❌ Vue template 预检失败 —— 启动 webview 会直接黑屏"
+      echo "  修复上面列出的 template 再重启；按 Enter 忽略继续（不推荐），Ctrl+C 中止"
+      read -r
+      echo "  → 已忽略 template 守卫"
+    fi
   fi
 
   if [ "$MODE" = "debug" ]; then

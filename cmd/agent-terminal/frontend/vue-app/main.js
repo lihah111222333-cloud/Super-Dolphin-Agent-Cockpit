@@ -1,4 +1,5 @@
 import 'katex/dist/katex.min.css';
+
 import { createApp } from '../lib/vue.esm-browser.prod.js';
 import { AppRoot } from './app.js';
 import { logError, logInfo } from './services/log.js';
