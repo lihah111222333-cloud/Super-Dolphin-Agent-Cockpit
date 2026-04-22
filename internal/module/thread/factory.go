@@ -228,6 +228,12 @@ type storedThreadConfig struct {
 	// agent_provider_binding.Provider there — so leaving this unset on eager
 	// rows is harmless.
 	Provider string `json:"provider,omitempty"`
+	// PromptKey is stashed only by startPendingThread so that SpawnIfNeeded
+	// can re-pin the SystemPromptPage "set as launch prompt" preference when
+	// it lazily reconstructs the StartRequest. Without this, defer_spawn
+	// loses the explicit prompt_key pin and the router silently degrades to
+	// the default persona on the first turn.
+	PromptKey string `json:"prompt_key,omitempty"`
 }
 
 type offlineConfigSnapshot struct {

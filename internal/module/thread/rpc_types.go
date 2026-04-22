@@ -49,6 +49,12 @@ type startParams struct {
 	ManualSkillSelection bool     `json:"manual_skill_selection,omitempty"`
 	// Optional explicit agent_key override. Empty = let the router decide.
 	AgentKey string `json:"agent_key,omitempty"`
+	// Optional explicit prompt_key pin. Surfaces the SystemPromptPage's
+	// "set as launch prompt" preference. Takes precedence over agent_key:
+	// the router looks up this exact prompt_template row and injects its
+	// PromptText as BaseInstructions. Empty = fall back to agent_key /
+	// default routing.
+	PromptKey string `json:"prompt_key,omitempty"`
 	// DeferSpawn opts into the C1 "pending_launch" flow: create the thread
 	// row without forking the provider CLI; the actual spawn happens on the
 	// first turn once router has real user input to classify.

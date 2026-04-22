@@ -100,6 +100,7 @@ func newStartHandler(svc Service) handler.Func {
 		// log volume stays tame.
 		pkglogger.Info("thread/start: rpc received",
 			"agent_key", p.AgentKey,
+			"prompt_key", p.PromptKey,
 			"provider", p.Provider,
 			"cwd", p.CWD,
 			"has_prompt", strings.TrimSpace(p.Prompt) != "",
@@ -129,6 +130,7 @@ func newStartHandler(svc Service) handler.Func {
 			LaunchSkillNames:  append([]string(nil), p.SelectedSkills...),
 			ForceLaunchSkills: p.ManualSkillSelection,
 			AgentKey:          p.AgentKey,
+			PromptKey:         p.PromptKey,
 			DeferSpawn:        p.DeferSpawn,
 		})
 		if err != nil {

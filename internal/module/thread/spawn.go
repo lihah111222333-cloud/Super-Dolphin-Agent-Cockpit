@@ -69,6 +69,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		Approvals:   strings.TrimSpace(req.ApprovalPolicy),
 		Personality: strings.TrimSpace(req.Personality),
 		Provider:    strings.TrimSpace(req.Provider),
+		PromptKey:   strings.TrimSpace(req.PromptKey),
 		Runtime:     shared.CloneRuntimeConfigMap(req.Config),
 	}
 	configOverride, err := encodeStoredThreadConfig(pendingStored)
@@ -247,6 +248,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		Effort:           storedCfg.Effort,
 		Personality:      storedCfg.Personality,
 		ApprovalPolicy:   storedCfg.Approvals,
+		PromptKey:        storedCfg.PromptKey,
 		Config:           shared.CloneRuntimeConfigMap(storedCfg.Runtime),
 	}
 	// normalizeStartRequest fills in provider default ("codex"), resolves CWD,
