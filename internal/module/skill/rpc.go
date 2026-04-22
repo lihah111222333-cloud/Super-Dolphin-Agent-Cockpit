@@ -107,6 +107,24 @@ func skillLocalHandlers(svc Service) handler.Map {
 		"skills/local/write":     rpc.StrictHandler(skillLocalWriteHandler(svc)),
 		"skills/local/importDir": rpc.StrictHandler(skillLocalImportDirHandler(svc)),
 		"skills/local/delete":    rpc.StrictHandler(skillLocalDeleteHandler(svc)),
+		"skills/create":          rpc.StrictHandler(skillCreateHandler(svc)),
+	}
+}
+
+// skillCreateHandler is the host/UI RPC wrapper for project-scope skill
+// creation. It enforces cwd before scoping and then delegates to CreateSkill
+// (which routes through WriteLocal(..., scope=project)). See P21 P0a.
+func skillCreateHandler(svc Service) func(context.Context, createSkillParams) (any, error) {
+	return func(ctx context.Context, p createSkillParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		result, err := svc.CreateSkill(scopedCtx, p)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
 	}
 }
 

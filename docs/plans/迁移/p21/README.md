@@ -26,6 +26,19 @@
 - orch 侧 P2 / P1b / 任何需要观察 core terminal turn 的业务模块，必须在 hook consumer 处理链上装 tap，而不是向 `cmd/mcp-orch` 本地 bus 上寻找重发后的 core 事件——该重发流在该返回 0 命中。
 - orch 本地 bus（`cmd/mcp-orch/orchestration/events.go`）只承载 orch 自己产生的事件（DAG / task / wakeup），不双向桥接 core。
 
+## 阶段 0：前置冻结（阻塞所有 track）
+
+阶段 0 是短平快的共享契约 PR，必须先合入，否则后续任一 track 都会踩坑：
+
+1. **migration 编号校准**：仓内当前最大已占用编号是 `migrations/0044_drop_router_priority.sql`。本期新建的 migration 必须从 `0045` 起算，统一口径如下：
+   - `0045_cron_jobs.sql`（P1b）
+   - `0046_session_insights.sql`（P3）
+   - `0047_skill_candidates.sql`（P0b）
+   - `0048_binding_codex_identity.sql`（P1a，新增 `codex_home / codex_instance_key / codex_model_provider` 并扩展 immutable trigger）
+   编号相互独立但口径统一；实施时每次开 PR 都再跑 `ls migrations/` 校准一次。任何 plan 里出现 `0044_cron_jobs` / `0045_session_insights` 都是**旧口径**，需按本表改写。
+2. **Canonical Turn Observation Contract 冻结**：P0b owner 单独出一个契约 PR，先落下面六件事的 interface + 测试夹具，不带任何 consumer：`local↔provider turn id` 映射、`call_id → turn_id` 映射、`skills_selected`、token snapshot 归一、terminal precedence、raw/typed 去重键。P3 / P0b extractor / P0a candidate 都必须消费同一份契约。
+3. **codex identity 解析冻结**：`internal/provider/shared/config_helpers.go` 先合入 `ResolveCodexIdentity(config) (CodexIdentity, error)`，含 canonicalize 流水线（home/env 展开 → `filepath.Clean` → `filepath.EvalSymlinks`）与 strict 解析（unknown key / 非法 alias 直接 fail fast）。P1a 本体改动与 P1b cron 的 `config` 校验都依赖这一签名稳定。
+
 ## 实施路线图
 
 | 优先级 | 特性 | 描述 | 当前状态 |
@@ -35,6 +48,26 @@
 | **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | core-only 持久化调度，tick / lease / crash-recovery 全部按 `runner.actors` 落地 | 🔲 未开动 |
 | **[P2](P2_MultiPlatformNotifications.md)** | 多平台通知 | 平台库共享，core / orch 各装一套 subscriber + runner | 🔲 未开动 |
 | **[P3](P3_SessionInsights.md)** | Session Insights 遥测 | API-only 聚合指标，消费 P0b observation 输出 | 🔲 依赖 P0b |
+
+## 依赖拓扑
+
+```
+阶段 0：migration 编号校准 ─┬─► P1b (0045_cron_jobs)
+                           └─► P3  (0046_session_insights)
+
+阶段 0：ResolveCodexIdentity ─┬─► P1a binding + pool
+                              └─► P1b cronjob/create.config 校验
+
+阶段 0：Observation Contract ─┬─► P0b extractor / candidate
+                              └─► P3  collector (严格消费，不再自建 turn 归因)
+
+P0a  ────► 独立（最小风险）
+P1a  ────► P1b 的 `provider=codex` 白名单依赖 identity 冻结
+P1b  ────► P2 的 Cron 触发源（job.notify_channel）
+P0b  ────► P3 collector 与 skill_candidate 审批
+```
+
+强依赖遵循上表；不在上表内的 track 可以并行。
 
 ## 落地顺序建议
 

@@ -1,12 +1,16 @@
 -- name: GetAgentProviderBindingByProviderThread :one
-SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
+SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
 FROM agent_provider_binding
 WHERE provider = $1 AND provider_thread_id = $2;
 
 -- name: UpsertAgentProviderBinding :exec
+-- Codex identity columns use "'' preserves existing value" semantics so
+-- non-P1a callers that pass '' do not overwrite an already-persisted
+-- identity. The immutable trigger still rejects any attempt to rewrite a
+-- non-empty identity column with a different non-empty value.
 INSERT INTO agent_provider_binding (
-    agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12)
+    agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $14, $15)
 ON CONFLICT (agent_id) DO UPDATE
 SET provider = EXCLUDED.provider,
     provider_thread_id = EXCLUDED.provider_thread_id,
@@ -17,6 +21,9 @@ SET provider = EXCLUDED.provider,
     agent_type = EXCLUDED.agent_type,
     agent_memory_scope = EXCLUDED.agent_memory_scope,
     session_uuid = EXCLUDED.session_uuid,
+    codex_home = CASE WHEN EXCLUDED.codex_home = '' THEN agent_provider_binding.codex_home ELSE EXCLUDED.codex_home END,
+    codex_instance_key = CASE WHEN EXCLUDED.codex_instance_key = '' THEN agent_provider_binding.codex_instance_key ELSE EXCLUDED.codex_instance_key END,
+    codex_model_provider = CASE WHEN EXCLUDED.codex_model_provider = '' THEN agent_provider_binding.codex_model_provider ELSE EXCLUDED.codex_model_provider END,
     updated_at = EXCLUDED.updated_at;
 
 -- name: DeleteAgentProviderBindingByAgentID :exec
@@ -36,6 +43,6 @@ SET archived = $1,
 WHERE agent_id = $3;
 
 -- name: GetAgentProviderBindingByAgentID :one
-SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
+SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
 FROM agent_provider_binding
 WHERE agent_id = $1;

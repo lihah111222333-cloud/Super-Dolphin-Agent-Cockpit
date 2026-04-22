@@ -259,6 +259,25 @@ func (s *service) ListLocalFiles(ctx context.Context, p listSkillFilesParams) (a
 	return map[string]any{"dir": dir, "files": files}, nil
 }
 
+// CreateSkill is the host-side project-scope self-learning entry. It is a
+// thin wrapper: all writes MUST land through WriteLocal(..., scope=project)
+// so the one-writer rule in the P21 plan holds. system-scope writes are not
+// accepted from this entry; they must go through skills/local/write plus the
+// review gate that the plan defines.
+func (s *service) CreateSkill(ctx context.Context, p createSkillParams) (any, error) {
+	name, err := validateSkillName(p.Name)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.Content) == "" {
+		return nil, errors.Join(ErrInvalidSkillName, errors.New("content is required"))
+	}
+	// requireCWD is checked inside WriteLocal; we rely on it rather than
+	// duplicating the check so there is a single source of truth for the
+	// ErrMissingCWD path.
+	return s.WriteLocal(ctx, name, p.Content, skillScopeProject)
+}
+
 func (s *service) WriteLocal(ctx context.Context, path, content string, scope ...string) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {

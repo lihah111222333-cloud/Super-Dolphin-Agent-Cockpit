@@ -18,7 +18,7 @@ Agent 自动将成功经验（trajectory）提炼为可复用 Skill，并以 sco
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| Host 创建封装 | `internal/module/skill/{contract.go,service.go}` | 在现有 `WriteLocal` 之上新增窄接口 `CreateSkill(ctx, params)`，负责 `name -> .agent/skills/<slug>/SKILL.md` 的路径映射、scope 选择与基础校验 |
+| Host 创建封装 | `internal/module/skill/{contract.go,service.go}` | `CreateSkill(ctx, params)` **仅作为 `WriteLocal(..., scope=project)` 的薄封装**：只负责 slug 规则、`name -> .agent/skills/<slug>/SKILL.md` 路径映射、`cwd/scope` 校验与 sentinel error；**禁止**另起第二条写盘实现，所有真实写盘都回落到 `WriteLocal` |
 | 类型定义 | `internal/module/skill/rpc_skill_types.go` | 新增 `createSkillParams{Name, Content, Scope, CWD}`，并把 `cwd` 视为 project scope 的必填字段 |
 | Host RPC 包装 | `internal/module/skill/rpc.go` | 暴露宿主侧 slash 风格方法 `skills/create`；继续沿用 host/UI JSON-RPC，不扩到 MCP tool |
 | 写入复用 | `internal/module/skill/service.go` | project scope 只允许走 `CreateSkill` 或 `WriteLocal(..., scope=project)`，不复用 `WriteSkillContent` / `WriteSummary` |
@@ -45,12 +45,14 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| 共享 observation 层 | `internal/module/turn/observation.go` [NEW] | 统一产出 turn / tool / token / terminal 事实，并作为 P0b 的 owner 交付物 |
+| 共享 observation 层 | `internal/module/turn/observation.go` [NEW] | 统一产出 turn / tool / token / terminal 事实，并作为 P0b 的 owner 交付物；**必须以独立 `fx.Invoke(RegisterObservationSubscribers)` 注入 `bus.subscribers`，只向下游 push 只读事实**；`turnTracker` / service 不得反向持有 observation，避免循环依赖 |
 | 轨迹收集器 | `internal/module/turn/trajectory_collector.go` [NEW] | 只消费 observation 输出，负责启发式判断所需的采样、去重与入队 |
 | 启发评估器 | `internal/module/turn/skill_evaluator.go` [NEW] | 判定是否值得提炼，例如成功、tool call 次数、diff / 结果质量、无人工拒批 |
 | LLM 提炼器 | `internal/module/turn/skill_extractor.go` [NEW] | 在 runner worker 中把轨迹归纳为标准 `SKILL.md`；失败只记日志，不影响主 turn |
 | 生命周期接线 | `internal/module/turn/module.go` | `fx.Provide` 只构造 collector / queue / extractor；`fx.Invoke(RegisterSubscribers)` 注入 `bus.subscribers`；提炼 worker 进入 `runner.actors` |
-| 落盘 | `internal/module/skill/service.go` | 统一通过 `CreateSkill` 或 `WriteLocal(..., scope=project)` 写入，并复用 `SkillsChanged` 事件 |
+| Candidate 表 | `migrations/0047_skill_candidates.sql`、`sql/queries/skill_candidate.sql`、`internal/store/skill/candidate_store.go` [NEW] | 提炼器输出先落 `skill_candidates(id, scope, slug, content_hash, repo_fingerprint, status, approved_by, approved_at, reason, redacted_sample, created_at)`；v1 默认状态为 `pending_review`，**不直接写盘**，由 host UI / API 流程审批后再 promote |
+| 落盘 | `internal/module/skill/service.go` | 审批通过后统一通过 `CreateSkill` 或 `WriteLocal(..., scope=project)` 写入，并复用 `SkillsChanged` 事件 |
+| 二次 redaction | `internal/module/turn/skill_extractor.go` | LLM 提炼返回后**必须再跑一遍脱敏规则**（覆盖 secret / bearer / cookie / JWT / 常见 env 名），并把 `content_hash + redacted_sample` 落 candidate audit；脱敏失败直接丢弃该 candidate 并记指标 |
 
 ## 发现与加载语义
 
@@ -72,6 +74,10 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 - P21 阶段的 `trust: signed` 只表示“声明为 signed、待 P22 verifier 兑现”，**一律按未验签 / 不可信处理**；不得因 frontmatter 写了 `signed` 就跳过审批、脱敏或 system-scope review。
 - 审批缓存 / review decision 不能只按 `name + hash` 命中；必须至少带 `repo fingerprint(project_root/cwd)`，避免同名同 hash skill 在不同项目间复用旧批准。
 - 提炼器若命中 `ErrDreamExecutorNotConfigured`，只能记日志 / 指标并跳过本次提炼；不得在 bus callback 内补救重试，更不得让主 turn 失败。
+- `CreateSkill` **禁止**新起独立写盘路径；实现必须是 `WriteLocal(..., scope=project)` 的薄封装，只额外处理 slug / cwd 校验 / sentinel error，保证"一条写入路径"口径。
+- LLM 提炼输出**必须**经过二次 redaction；redaction 失败（命中已知 secret pattern 且无法脱敏）时 candidate 直接丢弃，不允许 fallback 到"未脱敏入库"。
+- 自动提炼默认**不直写技能目录**：extractor 产物先入 `skill_candidates` 表，status=`pending_review`；需要人工/自动审批事件（携带 `scope + slug + content_hash + repo_fingerprint + approved_by + reason`）推进到 `approved` 才允许调 `CreateSkill` 落盘。project scope 与 system scope 都走这条审批链，只是 policy 阈值不同。
+- observation 层与 collector / extractor 之间必须是**单向 push**（observation → queue → consumer）；`turnTracker` 不得 import observation 包，以防循环依赖与重复归因。
 
 ## 必测项
 
@@ -83,3 +89,7 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 - `trust: signed` 在 verifier 落地前必须验证仍走 untrusted/redacted/review 路径，不能跳过审批。
 - callback / runner 边界必须验证：回调内无 LLM 提炼、无同步磁盘写、无长时阻塞。
 - `ErrDreamExecutorNotConfigured` 必须验证只导致 skip + log/metric，不影响主 turn 成功路径。
+- `CreateSkill` 单测必须断言调用链最终落到 `WriteLocal(scope=project)`；若未来有人另起写盘路径，测试应失败。
+- LLM 提炼 golden 测试：构造含 bearer/JWT/OPENAI_API_KEY 的假 trajectory，断言提炼结果被二次 redaction 抹除且 candidate.redacted_sample 里无原文。
+- Candidate 审批流测试：未审批的 candidate 不能落盘；审批 payload 缺 `approved_by` / `repo_fingerprint` 必须拒绝 promote。
+- observation 层独立性：断言 `turnTracker` import 图里**不**出现 `internal/module/turn/observation`。
