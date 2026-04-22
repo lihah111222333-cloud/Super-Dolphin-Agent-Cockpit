@@ -2,7 +2,7 @@
 
 ## 目标
 
-先统一 P22 全批修复的术语、整改模板和守卫口径，避免每个子计划各自解释 `fx / bus / run.Group` 的边界。
+先统一 `P22` 的契约角色与守卫边界：`fx.Module` 只做构造 / lifecycle / 一次性恢复，`BusModule` 只负责 subscriber wiring，`RunnerModule` 负责长期 owner；`root runtime bridge` 仅指进程入口处把当前 runner 集合桥接到 `platformrunner.RunGroup(...)` 的桥形态。这样各子计划就不再各自解释 `fx / bus / run.Group` 的边界。
 
 ## 现状校准
 
@@ -62,13 +62,25 @@ bus 回调只做：
 
 watcher/scheduler/session/process 的真正启动，必须在 dedicated worker/runner 中消费这些 command。
 
+## 收口口径
+
+- 本页关于 `Invoke` 的依据以 `docs/契约/modularity-convention.md §4.4 / §7` 为准；`docs/契约/fx-convention.md §2/§3` 只作为工厂职责补充。
+- 文中优先使用 `fx.Module` / `BusModule` / `RunnerModule` 术语；当前 root bridge 用到的 `group:"runners"` 仅视为现实现 tag，不把命名清洗当作 `P0` 前置条件。
+- `internal/app` 与 `cmd/mcp-orch` 适用双树同构；`cmd/mcp-lsp` / `cmd/mcp-ida` 按 runner-only sidecar 收口。runner-only sidecar 的最小标准是：拥有独立 fx root、root runtime bridge 与 runner 集合；若未实际 wiring dispatcher，就不强补 `BusModule`。
+- root bridge allowlist 必须至少同时记录 **file path + symbol + bridge shape**，不接受只按 `BindRuntime/bindRuntime` 名称或整文件放行。
+- 豁免的是 root bridge wiring 本身，不豁免 lifecycle callback / helper / subscriber callback 的 runtime ownership；“hook 只是注册订阅”不能成为 helper 内再起 watcher / fanout / reconnect 的挡箭牌。
+- bus unsubscribe 只代表停止接收新事件，不等于 drain；drain 必须由显式 owner / worker / runner 证明。
+- runtime 守卫的 allowlist / exception 应按语义形态管理，不塞进 code-size freeze 这类数值模型里。
+- 静态守卫默认至少做到一跳 helper/caller 解析：`OnStart -> helper -> go/SafeGo`、`callback -> helper -> slow I/O`、`Run(ctx) -> helper -> waiter goroutine` 都不能靠浅 grep 漏放。
+- `P22` 新守卫优先落到独立的 `*_guard_test.go` / `*_lifecycle_guard_test.go` 一类文件；不把 runtime 规则硬塞进现有 size/freeze/import-direction 测试壳里，避免语义混层。
+
 ## 守卫改动建议
 
 ### 守卫 1：`fx.Invoke` 用途守卫
 
 在 `internal/archtest` 增加规则：
 
-- 禁止 `fx.Invoke` 目标函数里出现 `exec.Command`、`go `、`time.NewTicker`、`time.Sleep`
+- 禁止 `fx.Invoke` 目标函数里出现 `exec.Command` / `exec.CommandContext`、`go `、`runtimesafe.SafeGo(...)`、`time.NewTicker`、`time.Sleep`
 - 禁止 `Invoke` 仅用于 `bindXxx`/`setXxx` 的后置 mutation 注入
 - 允许名单仅保留：handler 注册、subscriber 注册、runner 注册、restore、validate
 
@@ -95,13 +107,15 @@ watcher/scheduler/session/process 的真正启动，必须在 dedicated worker/r
 对 `bus.ResilientSubscribe(...)` 的回调闭包增加 grep/archtest 规则，默认禁止：
 
 - `go `
+- `runtimesafe.SafeGo(...)`
 - `time.Sleep`
 - `exec.Command`
-- `StartSession`
-- `Start()`
+- `StartSession` / `StopSession`
+- `NotifyConfigChanged(...)`
+- `DispatchAfter(...)`
 - `Pull()/Push()` 这类明显慢路径
 
-若确需例外，必须先出回调再由 queue/runner 消费。
+若确需例外，必须先出回调再由 queue/runner 消费；对“重 I/O”这类开放集合，默认采用 AST denylist + grep 补位，而不是宣称单条纯 AST 规则能完美覆盖。
 
 补充口径：
 
@@ -123,9 +137,17 @@ watcher/scheduler/session/process 的真正启动，必须在 dedicated worker/r
 - 辅助 goroutine 不能直接旁路写业务状态；最终的业务 side effect 仍应汇回 actor 主循环或统一 owner。
 - `execute` 路径若需要观察进程/连接退出，优先暴露只读事件流或 `Done()/Err()` contract，而不是在 actor 里为每个对象现起 waiter。
 
+## 非目标
+
+- `P0` 不直接改写各子计划的业务语义，只冻结“谁能启动、谁能停止、谁负责 drain”的公共口径。
+- `P0` 不把全仓 group tag / 契约命名一次性清洗完；命名冲突先在 `P22` 文档里显式标注，后续另行统一。
+- `P0` 不代替 `P4` 处理 dependency direction / hidden contract；若某条违规同时含 late setter / protocol shell，只先锁 runtime ownership 侧的禁止边界。
+- `P0` 不把 runtime allowlist 误写成 numeric freeze；若需要阶段性语义白名单，应另建 semantic allowlist，而不是复用 `freeze_registry`。
+
 ## 推荐验证集
 
 - `go test ./internal/archtest/...`
+- `go test ./internal/archtest/... -run TestCodeSizeGuard -count=1 -v` 只校验 size/freeze；**PASS 不代表 runtime 守卫已落地**
 - 针对每个新 runner 的单测：`ctx cancel`、fatal error、double stop
 - goroutine 泄漏检测或 waitgroup/drain 断言
 - 进程类 owner 的僵尸进程回收断言
@@ -133,6 +155,7 @@ watcher/scheduler/session/process 的真正启动，必须在 dedicated worker/r
 ## TDD 与清理要求
 
 - 先补会失败的 archtest/grep 守卫，再做实现修复；不要先改代码再补守卫。
+- runtime 守卫优先新增独立 `*_guard_test.go`（如 `fx_invoke_guard_test.go`、`lifecycle_onstart_guard_test.go`、`runner_actor_guard_test.go`、`bus_callback_guard_test.go`），不把 runtime 规则硬塞进现有 size/import/timeout 测试文件里混写。
 - 守卫落地后，要反向删除旧的 allow-by-default 写法；不能让新旧规则同时放行。
 - 若某条守卫需要阶段性 allowlist，必须在文档和测试里写明删除时点；默认不接受永久例外。
 - P0 完成标准不仅是“有新规则”，还包括“旧的宽松路径已被收紧”，避免守卫变成只提醒不拦截。

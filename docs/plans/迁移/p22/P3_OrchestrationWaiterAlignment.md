@@ -2,18 +2,18 @@
 
 ## 目标
 
-修正 `cmd/mcp-orch/orchestration` 里 `runnerActor.Run(ctx)` 再次散射 waiter goroutine 的问题，让进程退出观测和状态迁移重新回到单一 owner 之下。
+修正 `cmd/mcp-orch/orchestration` 里 `runnerActor.Run(ctx)` 再次散射 waiter goroutine 的问题，让进程退出观测和状态迁移重新回到单一 owner 之下。本文默认把“local process monitor owner + actor 只吃 exit events”作为首选分层：`RunnerModule` 继续托管 actor，本地 process owner 托管 OS wait，不把 `AgentLauncher` 全接口扩容当成前置。下文的 `目标架构 / 实施步骤` 描述的是 P3 落地后的目标态；在实现完成前，HEAD 仍按旧 waiter 模式运行，不应把这些 contract 误读成“已经存在”。
 
 ## 对应 findings
 
-- Finding 8: `cmd/mcp-orch/orchestration/process_lifecycle.go:220-238`
+- Finding 8: `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239`
 
 ## 现状校准
 
 - `runnerActor` 本身已经作为 `platformrunner.Runner` 进入 `run.Group`
 - 但 `startWaiters(...)` 仍在 `Run(ctx)` 路径里对每个 monitor target `go a.waitForExit(...)`
 - `waitForExit(...)` 结束后，还会直接调用 `handleProcessExit(...)` 或向结果 channel 投递
-- 旁路不只影响 `cmd.Wait()`；当前 [waitForProcessExit](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/orchestration/process_lifecycle.go#L128) 还依赖 `lastExitedSeq` 判定退出完成，并在超时后 `forceKillProcess(...)`
+- 旁路不只影响 `cmd.Wait()`；当前 `cmd/mcp-orch/orchestration/process_lifecycle.go:136-162` 的 `waitForProcessExit(...)` 还依赖 `lastExitedSeq` 判定退出完成，并在超时后 `forceKillProcess(...)`
 - 同类 only-once waiter 问题还出现在 `turn`：`watchTurn()` 与 `waitForTurnSettle()` 会等待同一个 handle 并双写 tracker；`turn.Module` 的 stop 目前只是 cancel ctx，不做 waiter drain
 
 这让状态迁移不再只经过 actor 主循环，实际形成了：
@@ -49,6 +49,15 @@ run.Group actor
 - turn queue 消费
 - exit event 状态机推进
 
+## 实施方式
+
+- 首选 local-only `process monitor / owner`：launch / recover 时同步 arm monitor，owner 负责 `cmd.Wait()` / exit event / drain；actor 只消费 exit event 并推进状态。
+- `runnerActor` 继续承担 `run.Group` actor 的角色，但不再为每个 target 现起 waiter goroutine，也不再直接成为 OS wait owner。
+- `kill / timeout / shutdown` 全部回到同一条 `exit event -> handleProcessExit(...)` 链路；`forceKillProcess(...)` 只是 stop 手段，不单独代表退出完成。
+- `P3` 的回归守卫同时依赖 `P0` 的 actor AST guard 与本包 hot-file guard：既要防 `Run(ctx)` 里直接 `go`，也要防 `Run(ctx) -> helper -> go waitForExit(...)` 这类一跳回归。
+- 当前代码里已有 `waitResult + results chan` 这种私有雏形，但它仍属于 actor 内部实现细节；P3 的目标是把这类退出流升格成 owner 暴露的正式 contract。
+- 如必须引入新 contract，优先是 local process handle / monitor contract，而不是先把 `AgentLauncher` 扩成统一 remote/local super-interface。
+
 ## 实施步骤
 
 ### Step 1：定义退出事件 contract
@@ -73,6 +82,7 @@ run.Group actor
 
 - process owner 只负责产出退出结果，不允许直接改 `agentRuntime`、清 session、发 failed/stopped
 - 这些 side effects 仍统一留在 `handleProcessExit(...)`
+- `helpers.go:222-242` 的 `startProcessLocked(...)` 与 recover 路径也必须接入同一 owner/monitor，不允许只修首次 launch 而保留第二套 wait owner
 
 ### Step 3：统一状态迁移入口
 
@@ -97,11 +107,33 @@ run.Group actor
 
 否则只是把脱管 goroutine 挪了位置。
 
+- stop 顺序固定为 `stop -> drain wait owner -> actor 消费剩余 exit event -> return`
+
 还要冻结 timeout/kill 语义：
 
 - `forceKillProcess(...)` 不是退出完成本身
 - kill 之后仍必须回到同一条 `exit event -> handleProcessExit(...)` 链路
 - 且只能迁移一次
+
+## 收口口径
+
+- `(agentID, launchSeq)` 是唯一的 exit identity fence；exactly-once 以此为准，不退化成单 agent 维度。
+- `P3` 只闭环 waiter / exit owner；identity/report protocol、`Module/handler.Map` shell、launcher hidden contract 继续归 `P4`。
+- `turn` 的同类 waiter / readiness 问题在本页只做记账与对齐，不强写成与 orchestration 同批合入。
+- shutdown 顺序固定为 `stop -> drain wait owner -> actor 消费剩余 exit event -> return`；任何 `ctx.Done()` 旁路都必须被删干净或降成唯一兜底。
+- 若后续保留 package-local helper，静态守卫也必须覆盖到 actor 可达的一跳 helper；不能把 regression 挪进 `startWaiters(...)` 这类包装函数后就算通过。
+
+## 依赖图（文本）
+
+```text
+P0 -> P3 -> P4（orchestration hidden contract / protocol shell）
+```
+
+## 落地顺序建议
+
+1. `P3` 在 `P0` 之后即可独立推进，不必等待 `P2`。
+2. 先冻结 local process owner 与 exit event contract，再决定是否需要改动 launcher facade；不要倒序先扩 `AgentLauncher`。
+3. 与 `P4` 同包共享文件的整改要串行：先 waiter / exit owner，后 shell / hidden contract。
 
 ## 推荐最小 contract 变化
 
@@ -114,9 +146,16 @@ run.Group actor
 - `Shutdown()` 若继续存在，必须从隐藏 side-channel 升格为显式 lifecycle/drain contract，而不是仅仅 cancel ctx
 - `WaitForSessionReady` 若继续保留，必须从本地私扩接口升格进正式 contract 或删掉其中一套 waiter
 
+## 非目标
+
+- 不在本页重写 `AgentLauncher` / `remoteLauncher` 的全部协议壳；只有 waiter / exit owner 直接需要的 contract 才进入本页。
+- 不把 `Module` / `handler.Map` / `HookConsumer` / report protocol 顺手并入同一批实现；这些继续由 `P4` 负责。
+- 不把所有 callback-side mutation 一并收口成 actor-only；本页只处理 exit wait owner 与 exactly-once 状态推进主链。
+
 ## TDD 与旧实现清理
 
 - 先补失败测试：正常退出 only-once、shutdown 途中退出不重复迁移、timeout kill 后只走一次 exit 链、wait owner drain 后无残留 waiter。
+- 先补 `internal/archtest` / AST 守卫：至少锁住 `runnerActor.Run(ctx)` 及其一跳 helper 不得再 `go a.waitForExit(...)`，避免旧 waiter 路径回归。
 - 修复完成后必须删掉 `runnerActor.Run(ctx)` 里直接 `go a.waitForExit(...)` 的旧路径；不能保留“新 ExitEvents + 旧 waiter goroutine”双轨。
 - 若 `waitForExit(...)`、`startWaiters(...)` 只剩 legacy wrapper 价值，应继续删除或合并进新的 process owner，避免留下空壳 helper。
 - `handleProcessExit(...)` 的旁路调用点必须收敛到单一 owner；没有删干净的旁路一律视为未完成。
@@ -141,6 +180,7 @@ run.Group actor
 - `waitForExit` 若仍存在，也必须下沉到独立 owner，不再由 actor execute 直接调用
 - `handleProcessExit(...)` 的状态推进不再从 fire-and-forget goroutine 旁路进入
 - `waitForProcessExit(...)`、timeout kill、shutdown drain 都与新的 exit owner 合同一致
+- launch / recover / timeout kill 共用同一 exit owner；不再出现一部分路径走新 contract、另一部分路径仍靠临时 waiter
 - `P3` 只闭环 waiter/exit owner；`Module/handler.Map/hidden contract` 已在 `P4` 明确记账，不再处于无人认领状态
 - turn / approval / hook 派生状态推进若暂不一并收口，必须在文档中显式记为 P3 残留债，不允许被误读成“actor 已是唯一状态推进入口”
 - `registerTurnLifecycle` / `registerApprovalLifecycle` / hook 派生 completed-interrupted 处理若继续存在，也必须升级为明确的 callback-side mutation 残留债，而不是“建议顺手优化”

@@ -2,12 +2,12 @@
 
 ## 目标
 
-把平台层里“启动恢复之后继续长期运行”的 loop 从 lifecycle 路径上拆下来，交给 `run.Group` 托管。
+把平台层里“启动恢复之后继续长期运行”的 loop 从 lifecycle 路径上拆下来，交给 `RunnerModule` / `run.Group` 托管，同时把 restore / subscriber wiring 留在 `fx.Module` 侧。
 
 ## 对应 findings
 
-- Finding 3: `internal/platform/mcpcontrol/module.go:184-197`
-- Finding 4: `internal/platform/rpc/module.go:149-196`
+- Finding 3: `internal/platform/mcpcontrol/module.go:184-199`
+- Finding 4: `internal/platform/rpc/module.go:149-166 + 179-197`
 
 ## 现状校准
 
@@ -47,6 +47,14 @@
 - 新增 `ApprovalCleanupRunner`
 - `Runner.Run(ctx)` 内执行 `startApprovalCleanupLoop(...)` 的阻塞版主循环
 
+## 实施方式
+
+- `mcpcontrol` 侧优先直接复用 `Sweeper.Run(ctx)`；本单不重写 cadence，只改变 owner 位置。
+- `rpc` 侧明确拆成两层：restore 继续留在 `fx.Module`，cleanup loop 进入 `RunnerModule`；不引入第二套 actor contract。
+- `platform` 子模块当前没有现成的 root-level runner wiring 样板；本单默认沿用 `platformrunner.Runner + fx.Annotate(..., fx.ResultTags(...))` 的接线方式，不额外发明第二种平台专用包装器。
+- `mcpcontrol` / `rpc` 各自只保留一个长期 owner，禁止“新 runner + 旧 lifecycle goroutine”双轨。
+- callback slow-path 仍按 `P2` 记账；`P1b` 不把 fanout / keepalive / push / proxy serve 混写成 loop Runner 问题。
+
 ## 实施步骤
 
 ### Step 1：分离“恢复”和“长期清理”
@@ -85,11 +93,26 @@
 
 `registerHookLifecycle -> setHookLifecycle(...)` 这类 late wiring 已明确转交 `P0/P4`：`P0` 负责守卫 `fx.Invoke` setter 注入，`P4` 负责隐藏契约/owner contract 的边界整理。本单若不处理，必须在实现报告中引用该转交关系，而不是保留成口头上的“可选顺手处理”。
 
+## 收口口径
+
+- 本单只搬走长期 loop；startup restore / connect-time restore / subscriber wiring 继续留在 `fx.Module`。
+- `mcpcontrol` / `rpc` 的 runner 都属于 `RunnerModule` 角色；本单不把 group tag / 契约命名清洗当成前置条件。
+- `config fanout`、`cachekeepalive`、`rpc push`、`eventsurface`、`toolbridge proxy` 仍按 `P2` 记账；`P1b` 不为这些 callback slow-path 代签收。
+- `startup restore` 只执行一次；`OnConnectUI` 的 replay/补恢复是另一条保留路径，不属于“只执行一次”的计数口径。
+- stop 顺序以“root cancel -> runner 退出 -> final cleanup”为准；`OnStop` 的资源释放不等于替代 runner owner。
+
+## 依赖图（文本）
+
+```text
+P0 -> P1b -> P2
+```
+
 ## 不在本单闭环的已知遗留点
 
 - `config_change.go` 的 bus 回调直 fanout config notify 归 `P2`
 - `cachekeepalive/relay.go` 的 bus 回调直持 keepalive timer/session runtime 归 `P2`
 - `push.go` / `eventsurface` 的 callback 直做 RPC notify/network I/O 归 `P2`
+- `internal/platform/toolbridge/module.go:130-174` 的 proxy `OnStart -> go ServeProxy(...)` 也属同型 runtime debt，但归 `P2` / Finding 9，不由本单代签收
 
 ## 需冻结的兼容语义
 
@@ -106,6 +129,12 @@
 - 启动顺序必须是“先完成 startup restore，再启动 cleanup runner”
 - 成功重发 pending approval 时仍要刷新 TTL，而且仅在实际 `ensureDispatch` 启动成功时刷新
 - startup restore 失败仍应中止启动；connect-time restore 继续保持 warn-only
+
+## 非目标
+
+- 不改判 sweeper cadence、approval timeout、TTL refresh 等业务规则；本单只移动 owner 与 stop 边界。
+- 不顺手修 `config_change`、`cachekeepalive`、`rpc push`、`eventsurface`、`toolbridge proxy` 的 callback slow-path；这些继续由 `P2` 负责。
+- 不把 `mcpcontrol` / `rpc` 的其余 hidden contract 一次性并入本单。
 
 ## TDD 与旧实现清理
 
@@ -124,7 +153,7 @@
 - `rpc` 的 startup restore / connect-time restore / TTL refresh 语义未漂移
 - `config_change` 与 `cachekeepalive` 若未在本单落地，也已在 `P2` 被显式归口，不再处于无人认领状态
 - 至少补以下测试：
-  - restore 只执行一次
+  - startup restore 只执行一次；connect-time replay 继续按每次 UI 连接触发
   - cleanup runner 在 cancel 后退出
   - sweeper stop 不遗留 active timer/ticker
   - `go test ./internal/platform/...` 不出现新的 shutdown hang

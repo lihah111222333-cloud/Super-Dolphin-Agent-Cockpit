@@ -2,16 +2,17 @@
 
 ## 目标
 
-把 memory 相关 bus 回调中的 runtime ownership 抽离出来，恢复“bus 只接线，worker/runner 才拥有 watcher/scheduler”的分层。
+把 `P2` 明确成 bus/runtime ownership 的 umbrella plan，而不是单张 mega PR。主线是把 callback 链上的 runtime owner 拆出去：`BusModule` 只接线，显式 owner / worker / `RunnerModule` 才持有 watcher / scheduler / timer / queue / drain。
 
 ## 对应 findings
 
-- Finding 5: `internal/module/memory/module.go:456-466`
-- Finding 6: `internal/module/memory/team/team_sync_watcher.go:72-78`
-- Finding 7: `internal/module/memory/auto_dream_task.go:160-177`
+- Finding 5: `internal/module/memory/module.go:456-467`
+- Finding 6: `internal/module/memory/team/team_sync_watcher.go:72-79`
+- Finding 7: `internal/module/memory/auto_dream_task.go:156-178`
+- Finding 9: `internal/platform/toolbridge/module.go:130-159`
 - 补充纳入：`internal/module/thread` 中的事件回调 runtime ownership、post-construction mutation、以及 `backgroundResumeIfNeeded(...)` 一类 service-owned background resume
 - 补充纳入：`internal/platform/hooks/event_relay.go` 中的 bus callback 直 fanout / `DispatchAfter` / shutdown 不 drain
-- 补充纳入：`internal/platform/toolbridge/module.go` 中的 proxy owner / setter wiring；其依赖方向问题另行注明，不在本页误写成纯 runtime 问题
+- 补充纳入：`internal/platform/toolbridge/module.go:54-60` 的 late setter wiring；其依赖方向问题另行注明，不在本页误写成纯 runtime 问题
 - 补充纳入：`internal/platform/mcpcontrol/config_change.go` 中的 bus callback 直 fanout config notify，以及 `internal/platform/cachekeepalive/*` 中 bus 回调直持 keepalive timer/session runtime
 - 补充纳入：`internal/platform/rpc/push.go` / `eventsurface` 中 bus callback 直做 RPC notify/network I/O
 
@@ -19,20 +20,20 @@
 
 ### TeamSync
 
-- `registerTeamSyncSubscriptions(...)` 在 `thread.started/stopped` 回调里直接 `StartSessionFromThreadEvent` / `StopSessionFromThreadEvent`
-- `TeamSyncService.StartSession(...)` 会创建/替换 watcher，并最终由 `teamSyncWatcher.Start()` 用 `SafeGo` 拉起主循环
+- `internal/module/memory/module.go:456-467` 的 `registerTeamSyncSubscriptions(...)` 在 `thread.started/stopped` 回调里直接 `StartSessionFromThreadEvent` / `StopSessionFromThreadEvent`
+- `internal/module/memory/team/thread_metadata.go:63-84` 的 event helper 仍以 `context.Background()` + store 查询 + `svc.StartSession/StopSession(...)` 直达慢路径
+- `TeamSyncService.StartSession(...)` 会创建/替换 watcher，并最终由 `internal/module/memory/team/team_sync_watcher.go:72-79` 的 `teamSyncWatcher.Start()` 用 `SafeGo` 拉起主循环
 - `StartSession(...)` 现有顺序是 `resolveRuntime -> initial pull -> refreshLocalChecksum -> create/start watcher`
 - `StopSession(last)` 与 `Shutdown` 当前都等价于 `watcher.Close(ctx, true)`：等待 loop 退出并做最终 flush
-- `memory/team/thread_metadata.go` 里仍导出 `StartSessionFromThreadEvent` / `StopSessionFromThreadEvent`，直接用 `context.Background()` + store 查询 + `svc.StartSession/StopSession(...)` 把 event helper 固化成慢路径 owner
 - `TeamSyncService` 仍公开 `Start/Stop/Pull/Push/Shutdown` 这组 slow-path API，允许普通调用方绕过 queue/runner 直接持有 lifecycle/remote I/O
 
 这等于 bus 回调直接拥有了 watcher/session runtime。
 
 ### Auto-dream
 
-- `registerAutoDreamSubscriptions(...)` 的回调里直接调用 `onThreadStopped(...)`
-- `onThreadStopped(...)` 里再 `go` 调度 `maybeScheduleAutoDream(...)`
-- `launchAutoDreamTask(...)` 再启动 consolidation 后台任务
+- `internal/module/memory/auto_dream_task.go:156-163` 的 `registerAutoDreamSubscriptions(...)` 回调里直接调用 `onThreadStopped(...)`
+- `internal/module/memory/auto_dream_task.go:165-178` 的 `onThreadStopped(...)` 里再 `go` 调度 `maybeScheduleAutoDream(...)`
+- `internal/module/memory/auto_dream_task.go:285-299` 的 `launchAutoDreamTask(...)` 再启动 consolidation 后台任务
 - auto-dream 现有语义还带 gating、双节流和单飞：不是“收到 stopped 就一定跑”
 
 这让订阅回调链直接承担了 scheduler/worker 的 ownership。
@@ -55,8 +56,8 @@
 
 ### Hooks Relay
 
-- `event_relay.go` 目前在 bus callback 路径里直接进入 `manager.DispatchAfter(...)`，并可能走 peer callback fanout 与 `resolver.Escalate(...)`
-- `dispatchObservedAfter(...)` 还存在 fire-and-forget `go`，而 `module.go` 的 `OnStop` 只退订不 drain
+- `internal/platform/hooks/event_relay.go:39-83` 目前在 bus callback 路径里直接进入 `manager.DispatchAfter(...)`，并可能走 peer callback fanout 与 `resolver.Escalate(...)`
+- `internal/platform/hooks/event_relay.go:94-112` 的 `dispatchObservedAfter(...)` 还存在 fire-and-forget `go`，而 `module.go` 的 `OnStop` 只退订不 drain
 - hooks owner 还承担 pending review 的 startup recovery：当前模块启动时会主动 `RecoverOnStartup(...)`
 - hooks 当前还有 lost-subscriber cleanup 规则：连续失败达到阈值后会 `Unsubscribe`、清除 failure tracking，并按 lease 清理 pending review
 
@@ -64,14 +65,14 @@
 
 ### Toolbridge Proxy
 
-- `toolbridge` 目前既有 `fx.Invoke` 下的 late setter 注入，也有 proxy 在模块级 `OnStart` 里直接 `go ServeProxy(...)`
+- `internal/platform/toolbridge/module.go:54-60` 仍有 `fx.Invoke` 下的 late setter 注入，`internal/platform/toolbridge/module.go:130-159` 还在模块级 `OnStart` 里直接 `go ServeProxy(...)`
 - 同时它还夹带更根的依赖方向问题：`platform/*` 直接依赖 `provider/*` 与 `store/*`
 
 这意味着 `toolbridge` 至少有两层整改：runtime owner 收口纳入 P22，本包落点/依赖方向是否迁移另行明确。
 
 ### Config Fanout
 
-- `config_change.go` 当前在 bus 回调里直接执行 `publishConfigChanged(...)`
+- `internal/platform/mcpcontrol/config_change.go:33-82` 当前在 bus 回调里直接执行 `publishConfigChanged(...)`
 - 这条链路会做 JSON 编码、推进 config version，并通过 `NotifyConfigChanged -> NotifyBySelector` 直接 fanout 到 peer RPC
 - 当前 fanout 还把通知上下文硬编码成 `context.Background()`，因此已经完全脱离 publish/shutdown cancel
 - `advanceConfigVersion()` 还会同步推进活跃实例的 `ConfigVersion`，迁移时需要冻结“版本推进与 fanout 的先后顺序、notify 失败是否仍递增版本”
@@ -80,16 +81,16 @@
 
 ### Cache Keepalive
 
-- `cachekeepalive/relay.go` 当前在 launch/idle/turn/stop 事件回调里直接查询 binding/thread store，并直接 reset/stop keepalive timer
+- `internal/platform/cachekeepalive/relay.go:22-38` 当前在 launch/idle/turn/stop 事件回调里直接查询 binding/thread store，并直接 reset/stop keepalive timer
 - 也就是说 keepalive 的 timer/session runtime 仍由 bus 回调链直接持有
-- 现存 slow-path 不止事件回调：`time.AfterFunc` 的 timer callback 也会直接做 `bindingStore.GetByAgentID`、`ResolveSession`、`SendKeepalive`
+- 现存 slow-path 不止事件回调：`internal/platform/cachekeepalive/manager.go:275-277` 的 `time.AfterFunc(...)` timer callback 也会直接做 `bindingStore.GetByAgentID`、`ResolveSession`、`SendKeepalive`
 - 当前 timer callback 同样运行在 `context.Background()` 上，已触发的 ping 不受 shutdown cancel 约束
 
 这意味着 `cachekeepalive` 也属于典型的 callback slow-path + runtime ownership 混层。
 
 ### RPC Push
 
-- `push.go` 当前在 bus 回调里直接 `broadcastNotifications(...)`
+- `internal/platform/rpc/push.go` 当前在 bus 回调里直接 `broadcastNotifications(...)`
 - 该链路同步走 `NotifyAll/NotifyClient` 做 RPC client 推送，属于 callback 直做 transport I/O
 - typed event push 与 raw provider push 两条路径都用 `context.Background()` 做广播，现状问题不仅是 slow-path，还包括上下文已与 stop/drain 脱钩
 
@@ -243,6 +244,48 @@ turn input/completed event
 
 `MemoryHookWorker` 必须把显式写盘、background extraction、auto-dream 退出等待统一收口，并在 shutdown 前完成 drain。
 
+## 收口口径
+
+- `P2` 只收 runtime ownership；`toolbridge` 的 dependency direction / protocol contract 留给 `P4`，`gopls/bootstrap` 的 compatibility / hidden contract 也只在 `P4` 继续收口。
+- bus callback 只允许轻量状态更新或 non-blocking enqueue。退订只代表 stop intake，不等于 drain；drain 由 owner / worker / runner 负责。
+- overflow policy 必须分档写明：TeamSync / config version / hook escalate 这类不能 silent drop；对这类 inlet，默认必须在切片启动前二选一写死为“owner 侧 backpressure/显式拒绝”或“durable replay/重试”，不能把队列满当成隐式丢弃。auto-dream / keepalive reset / rpc push 可以 coalesce 或丢弃，但也必须显式文档化。
+- 若某子域暂时不直接进 `run.Group`，也必须有单一 owner 的 `Start/Stop/Drain` contract；不接受 callback 里直跑、service 里再裸 `go` 的折中方案。
+- `memory/team`、`thread`、`hooks`、`config fanout`、`cachekeepalive`、`rpc push`、`toolbridge runtime`、`gopls/bootstrap runtime` 都按这一口径处理，不再把“只是 relay / just notify / util callback”当豁免理由。
+- callback 是否违规按完整触发链判定，而不是只看闭包本体有没有字面 `go`：`callback -> helper -> goroutine/manager/store/notify` 仍算 callback slow-path，没有因为绕一层 helper 就豁免。
+- `bootstrap` 的 stdio EOF / peer 生命周期 owner 需要结合上层 peer runtime 接入点统一裁决；`P2` 在本页只先冻结 common/bootstrap 这一侧的 async owner、desired-state 与 drain 语义，不把“谁拥有进程寿命”误写成单包内已定事实。
+
+## 实施方式
+
+- `P2` 按共享写集拆成多批实施，不再假定“一份文档 = 一次代码合入”。
+- 建议的执行切片：
+  1. `memory/team + auto-dream + memory hooks`
+  2. `thread event / resume / task-handoff`
+  3. `hooks + config fanout + cachekeepalive + rpc push + eventsurface`
+  4. `toolbridge runtime owner`
+  5. `cmd/mcp-lsp/gopls + internal/mcpserver/common/bootstrap` sidecar runtime
+- 同一切片内部可以共享 owner 模板；不同切片之间只在 contract 冻结后串行合入，避免 `memory/thread/toolbridge` 这类高耦合包并行写冲突。
+- `P2` 的目标是把 callback slow-path 迁出 publish path，并把 stop/drain 语义收敛到单一 owner；不是把所有子域都强行改写成同一种 queue 实现。
+- 任何 live wiring scope 都不接受“旧 subscriber wiring 保留 + 只接新 runner”双轨过渡；新 owner 接线与旧回调直达路径必须成对删除或显式 gate。
+- 每个执行切片在开工前都要先冻结自己的 overflow 机制：哪些 command 可 drop/coalesce，哪些 command 必须 backpressure 或 durable replay；没有这张表就不进入实现。
+
+## 依赖图（文本）
+
+```text
+P0 -> P2(memory/team/auto-dream/memory hooks)
+P0 + P1c -> P2(thread / cachekeepalive / session users)
+P0 -> P2(hooks / config fanout / rpc push / eventsurface)
+P0 + P1a + P1c -> P2(toolbridge runtime) -> P4(toolbridge dependency / protocol contract)
+P0 -> P2(gopls/bootstrap runtime) -> P4(gopls/bootstrap compatibility contract)
+```
+
+## 落地顺序建议
+
+1. 先做 `memory/team + auto-dream + memory hooks`：这是 README Finding 5/6/7 的主战场，也是 callback slow-path 最集中的模板段。
+2. `thread` 与 `cachekeepalive` 建议在 `P1c` 把 session stop/drain contract 冻结后再接入，避免反向发明第二套 session owner。
+3. `hooks + config fanout + rpc push / eventsurface` 作为平台事件切片推进；这些子域共享“callback 只 enqueue、owner 负责 drain”的统一模板。
+4. `toolbridge runtime owner` 需要等 `P1a/P1c` 冻结 codexapp peer/session contract 后再推进；与 `P4` 的依赖方向整改串行合入，不在同一批同时改 runtime 和 protocol shell。
+5. `gopls/bootstrap` 作为 sidecar runtime 子批后置；先把 constructor-owned loop / async callback owner 收口，再把 compatibility / hidden contract 交给 `P4`；其中 bootstrap 的 stdio EOF owner 要与上层 peer runtime 一并复核。
+
 ## 实施步骤
 
 ### Step 1：bus 回调改 enqueue
@@ -250,8 +293,8 @@ turn input/completed event
 `registerTeamSyncSubscriptions` / `registerAutoDreamSubscriptions` 的回调只允许做：
 
 - 构造 command/job
-- 写入 bounded channel
-- channel 满时记录 drop / merge / coalesce
+- 写入 bounded channel，或写入 lossless pending-set / wake-signal inlet
+- 满载时按该切片预先冻结的 overflow policy 处理；不能默认静默丢弃
 
 ### Step 2：显式 worker owner
 
@@ -265,6 +308,7 @@ turn input/completed event
 - TeamSync 的 `Start/Stop/Pull/Push/Shutdown` 必须走同一个串行 owner/临界区；P2 不能只写 enqueue，还要写清 command ordering 和互斥边界
 - Auto-dream 的 scheduler 必须拥有显式 `cancel/drain/status` 语义，替掉回调链里的裸 `go`
 - Memory hooks 的 explicit memory write / transcript read / manifest read / extraction 也要走单一 owner；bus callback 不再直接做写盘或启动 extraction goroutine
+- NestedRuntime 的 tool-read ingest 也要走单一 owner；`ToolCallEnd` callback 不再直达 `AddToolReadResult(...)` 再触发同步 `os.ReadFile(...)`
 - Thread 的 binding 更新、task-handoff refresh、session recovery、background resume 也要走同一个显式 owner/worker 模型；不能只把事件回调改成 enqueue，却保留 service 方法里的裸 `Resume` goroutine
 - Hooks 的 relay/fanout/escalate 也要走单一 owner；`OnStop` 不能只退订，还必须 drain in-flight dispatch，避免跨 shutdown 泄漏 after-hook 副作用
 - Hooks owner 迁移后还必须保住 startup recovery、lost-subscriber cleanup、merge/fail-closed 和 recursion guard 这四类隐藏契约
@@ -316,6 +360,13 @@ runtime 切换时，必须先把旧 watcher `detach + close + final flush` 完�
 - `rpc push` 虽然依赖现有 `rpc.Server`/`PushBridge`，但 callback 直做 transport I/O 仍属 `P2` 硬范围，不能因为它看起来像“只是通知”就被排除。
 - `eventsurface` 的 legacy 派生通知规则也属于 `P2` 必须冻结的行为契约；否则搬运到 queue/worker 后极易 silently 改变刷新语义。
 
+## 非目标
+
+- `P2` 不签收 dependency direction / hidden contract；这些继续由 `P4` 负责。
+- `P2` 不把所有子域塞进一次 mega PR；文档是一张 umbrella map，不是合入批次承诺。
+- `P2` 不顺手改业务策略，例如 TeamSync gate、auto-dream 阈值、hook merge 规则、config version 语义；只要求这些规则从 callback 路径迁到单一 owner。
+- `P2` 不把“退订”写成 drain，也不把 `context.Background()` 旁路保留成默认兜底。
+
 ## TDD 与旧实现清理
 
 - 先补失败测试：bus 回调只 enqueue、不直拉 watcher/task；TeamSync final flush 不丢；runtime 切换不串写；auto-dream busy 仍 drop；scan/success throttle 不漂移。
@@ -336,6 +387,7 @@ runtime 切换时，必须先把旧 watcher `detach + close + final flush` 完�
 - `platform/hooks/event_relay.go` 不再在 callback 路径里 `go` fanout / `DispatchAfter(...)`，并且 shutdown 有明确 drain
 - `hooks` 的 startup recovery、lost-subscriber cleanup、merge/fail-closed 与 recursion guard 语义未漂移
 - `internal/platform/toolbridge/module.go` 不再通过 `fx.Invoke` 做 setter 型 late wiring，proxy serve 有明确 owner/stop/drain
+- `internal/platform/toolbridge/module.go:130-159` 不再在 `OnStart` 里 `go ServeProxy(...)`
 - `internal/platform/mcpcontrol/config_change.go` 不再在 bus callback 路径里直接 fanout config notify
 - `internal/platform/cachekeepalive/relay.go` 不再由 bus callback 直接持有 timer/session runtime
 - `internal/platform/rpc/push.go` 不再在 bus callback 路径里直接做 RPC notify/network I/O
@@ -396,7 +448,7 @@ runtime 切换时，必须先把旧 watcher `detach + close + final flush` 完�
 ### MCP Bootstrap Runtime
 
 - `stdio` EOF 当前能隐式接管 peer 进程寿命；peer mode 同时暴露 stdio 与 HTTP/discovery 时，必须明确谁拥有进程寿命
-- `SubscribeHooks` 首次失败目前可能是 warn-only，且失败时没有保存 desired state 以便 retry/replay
+- `SubscribeHooks` 现在只在 `conn=nil/degraded` 或订阅成功时保存 desired state；若 live `CallResult(...)` 首次失败，当前不会落盘 desired state，因此这条失败路径仍不能靠 retry/replay 自愈
 - `OnShutdown`、`OnConfigChanged` 等 inbound callback 目前可异步 fire-and-forget，`Close()` 不 join/drain
 
 目标：
