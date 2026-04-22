@@ -94,6 +94,18 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 
 func newStartHandler(svc Service) handler.Func {
 	return rpc.StrictHandler(func(ctx context.Context, p startParams) (any, error) {
+		// Observability: dump the params that thread/start actually received so
+		// we can distinguish "frontend never sent agent_key" from "backend
+		// dropped it" without running tcpdump. Values are scalar / boolean so
+		// log volume stays tame.
+		pkglogger.Info("thread/start: rpc received",
+			"agent_key", p.AgentKey,
+			"provider", p.Provider,
+			"cwd", p.CWD,
+			"has_prompt", strings.TrimSpace(p.Prompt) != "",
+			"has_base_instructions", strings.TrimSpace(p.BaseInstructions) != "",
+			"defer_spawn", p.DeferSpawn,
+			"selected_skills_n", len(p.SelectedSkills))
 		result, err := svc.Start(ctx, StartRequest{
 			Provider:              p.Provider,
 			CWD:                   p.CWD,
