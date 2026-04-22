@@ -126,6 +126,19 @@ func (s *inMemoryPromptStore) Upsert(_ context.Context, template promptstore.Pro
 	return &copy, nil
 }
 
+func (s *inMemoryPromptStore) ListSectionsByTemplateID(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
+	return nil, nil
+}
+
+func (s *inMemoryPromptStore) UpsertSection(_ context.Context, section promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
+	copy := section
+	return &copy, nil
+}
+
+func (s *inMemoryPromptStore) DeleteSection(context.Context, int64, string) error {
+	return nil
+}
+
 func scopedPromptTemplate(promptKey, cwd string) promptstore.PromptTemplate {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	return promptstore.PromptTemplate{

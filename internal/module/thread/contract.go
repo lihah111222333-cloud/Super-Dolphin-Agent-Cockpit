@@ -61,6 +61,12 @@ type StartRequest struct {
 	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
 	Prompt                       string
 	BaseInstructions             string
+	// BaseInstructionBlocks is populated by resolveRoutedPrompt when the
+	// picked prompt_template has rows in prompt_template_sections. It flows
+	// through buildStartAssemblyInput into contract.StartInput so the
+	// assembler can merge the blocks into resolved sections (region-aware
+	// cached/uncached split). Empty means legacy monolithic-text behavior.
+	BaseInstructionBlocks        []contract.BaseInstructionBlock
 	DeveloperInstructions        string
 	ApprovalPolicy               string
 	Sandbox                      json.RawMessage

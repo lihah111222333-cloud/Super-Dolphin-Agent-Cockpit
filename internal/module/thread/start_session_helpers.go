@@ -43,6 +43,7 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		Name:                         req.Name,
 		Prompt:                       req.Prompt,
 		BaseInstructions:             req.BaseInstructions,
+		BaseInstructionBlocks:        append([]contract.BaseInstructionBlock(nil), req.BaseInstructionBlocks...),
 		DeveloperInstructions:        req.DeveloperInstructions,
 		Summary:                      buildCtx.Summary,
 		Provider:                     buildCtx.Provider,

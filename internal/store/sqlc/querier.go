@@ -22,6 +22,7 @@ type Querier interface {
 	DeleteAgentThreadByID(ctx context.Context, threadID string) error
 	DeleteCommandCard(ctx context.Context, cardKey string) (int64, error)
 	DeletePromptTemplate(ctx context.Context, promptKey string) (int64, error)
+	DeletePromptTemplateSection(ctx context.Context, arg DeletePromptTemplateSectionParams) (int64, error)
 	DeleteSharedFile(ctx context.Context, path string) (int64, error)
 	DeleteStaleCwdLocks(ctx context.Context) (int64, error)
 	ExpireStaleAgentThreads(ctx context.Context, arg ExpireStaleAgentThreadsParams) (int64, error)
@@ -63,6 +64,7 @@ type Querier interface {
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
 	ListPendingTopologyApprovals(ctx context.Context) ([]TopologyApproval, error)
+	ListPromptTemplateSectionsByTemplate(ctx context.Context, templateID int64) ([]PromptTemplateSection, error)
 	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error)
 	ListRecentAILogs(ctx context.Context, limit int32) ([]ListRecentAILogsRow, error)
 	ListRecoverableAgentThreads(ctx context.Context) ([]ListRecoverableAgentThreadsRow, error)
@@ -104,6 +106,10 @@ type Querier interface {
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (CommandCard, error)
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)
+	// Upsert by (template_id, section_key). Touches updated_at on conflict so
+	// operators see when they last edited a row. Empty enable_when stays as-is
+	// (NULL or '{}' both mean "always inject" per EvaluateEnableWhen).
+	UpsertPromptTemplateSection(ctx context.Context, arg UpsertPromptTemplateSectionParams) (PromptTemplateSection, error)
 	UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error)
 	UpsertUIPreference(ctx context.Context, arg UpsertUIPreferenceParams) error
 	UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRunParams) (WorkspaceRun, error)

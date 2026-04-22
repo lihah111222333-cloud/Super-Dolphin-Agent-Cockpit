@@ -38,9 +38,13 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		s.logBuildFallback("start", err)
 		return s.fallbackStartAssembly(ctx, in), nil
 	}
+	buildCtx := buildStartCtx(in)
+	// Merge DB-sourced prompt_template sections (if any). Static blocks flow
+	// into CachedPrefix, dynamic into UncachedTail. Blocks whose EnableWhen
+	// rejects the current BuildCtx are filtered out here (Step 3b gate).
+	resolved = mergeTemplateSections(resolved, in.BaseInstructionBlocks, buildCtx)
 	boundary := startAssemblyBoundary(resolved, strings.TrimSpace(in.BaseInstructions))
 	base := joinBlocks(boundaryCachedPrefix(boundary), boundaryUncachedTail(boundary))
-	buildCtx := buildStartCtx(in)
 	userMeta := s.buildStartUserMeta(buildCtx, resolved)
 	systemCtx := s.buildSystemContext(ctx, buildCtx)
 	// Phase 3: keep only the user-configurable prompt hint in BaseInstructions

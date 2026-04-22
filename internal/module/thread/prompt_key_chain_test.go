@@ -6,9 +6,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
+
+// joinCandidateBlocks concatenates the Body of every candidate-pool block
+// so legacy substring assertions ("Contents of <key>:\nbody") keep working
+// after Step 2 moved pool merging from req.BaseInstructions to
+// req.BaseInstructionBlocks.
+func joinCandidateBlocks(blocks []contract.BaseInstructionBlock) string {
+	parts := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		parts = append(parts, b.Body)
+	}
+	return strings.Join(parts, "\n\n")
+}
 
 // TestPromptKeyChain_FrontendPayloadToBaseInstructions exercises the full
 // "set as launch prompt" chain from the JSON payload the frontend actually
@@ -412,13 +425,17 @@ func TestResolveRoutedPrompt_PoolBeatsClassifierWhenBothOn(t *testing.T) {
 		t.Fatalf("classifier must not run when pool is non-empty; got %d calls", fake.callCount)
 	}
 	// Pool-merge injects every pool entry; classifier pick is ignored.
+	joined := joinCandidateBlocks(req.BaseInstructionBlocks)
 	for _, want := range []string{"Contents of main/writing:", "writing body", "Contents of main/code:", "code body"} {
-		if !strings.Contains(req.BaseInstructions, want) {
-			t.Fatalf("BaseInstructions missing %q:\n%s", want, req.BaseInstructions)
+		if !strings.Contains(joined, want) {
+			t.Fatalf("BaseInstructionBlocks missing %q:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(req.BaseInstructions, "sql body") || strings.Contains(req.BaseInstructions, "default body") {
-		t.Fatalf("pool-merge leaked non-pool entry:\n%s", req.BaseInstructions)
+	if strings.Contains(joined, "sql body") || strings.Contains(joined, "default body") {
+		t.Fatalf("pool-merge leaked non-pool entry:\n%s", joined)
+	}
+	if req.BaseInstructions != "" {
+		t.Fatalf("pool-merge must clear BaseInstructions; got %q", req.BaseInstructions)
 	}
 	if req.PromptKey != "" {
 		t.Fatalf("req.PromptKey = %q, want empty (pool-merge mode)", req.PromptKey)
@@ -524,6 +541,7 @@ func TestResolveRoutedPrompt_CandidatePoolMergeSkipsClassifier(t *testing.T) {
 	}
 	// Verify Claude-style multi-source wrapping + concat of all 3 pool entries,
 	// and that non-pool entries (defaultPromptKey) are excluded.
+	joined := joinCandidateBlocks(req.BaseInstructionBlocks)
 	for _, want := range []string{
 		"Contents of main/style:",
 		"style body",
@@ -532,12 +550,15 @@ func TestResolveRoutedPrompt_CandidatePoolMergeSkipsClassifier(t *testing.T) {
 		"Contents of main/review:",
 		"review body",
 	} {
-		if !strings.Contains(req.BaseInstructions, want) {
-			t.Fatalf("BaseInstructions missing %q:\n%s", want, req.BaseInstructions)
+		if !strings.Contains(joined, want) {
+			t.Fatalf("BaseInstructionBlocks missing %q:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(req.BaseInstructions, "default body") {
-		t.Fatalf("BaseInstructions leaked non-pool entry:\n%s", req.BaseInstructions)
+	if strings.Contains(joined, "default body") {
+		t.Fatalf("BaseInstructionBlocks leaked non-pool entry:\n%s", joined)
+	}
+	if req.BaseInstructions != "" {
+		t.Fatalf("pool-merge must clear BaseInstructions; got %q", req.BaseInstructions)
 	}
 	// Pool-merge must stamp MergedCandidateKeys (in input order, enabled-only)
 	// so the UI can render “候选池 · N 条” badge with the exact keys tooltip.

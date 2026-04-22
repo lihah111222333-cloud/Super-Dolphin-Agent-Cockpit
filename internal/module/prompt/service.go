@@ -88,10 +88,31 @@ type PromptService interface {
 	GetPrompt(ctx context.Context, cwd, key string) (*promptstore.PromptTemplate, error)
 	WritePrompt(ctx context.Context, cwd string, prompt PromptWriteRequest) (*promptstore.PromptTemplate, error)
 	DeletePrompt(ctx context.Context, cwd, key string) error
+	// ListSections / WriteSection / DeleteSection back the advanced-debug UI.
+	// Ordinary users never touch these — the per-template PromptText editor
+	// remains the primary path. Sections power the Step 1/2/3b cached-prefix
+	// / uncached-tail / enable_when feature gate.
+	ListSections(ctx context.Context, cwd, promptKey string) ([]promptstore.PromptTemplateSection, error)
+	WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*promptstore.PromptTemplateSection, error)
+	DeleteSection(ctx context.Context, cwd, promptKey, sectionKey string) error
 }
 
 type PromptWriteRequest struct {
 	ID, Name, Content, Description, AgentType string
+}
+
+// PromptSectionWriteRequest is the advanced-debug upsert payload. PromptKey
+// identifies the parent template (= prompt_templates.prompt_key); SectionKey
+// is the stable per-template identifier used for dedup / delete. EnableWhen
+// accepts raw JSONB bytes (nil / "{}" / "null" all mean "always inject").
+type PromptSectionWriteRequest struct {
+	PromptKey  string
+	SectionKey string
+	Region     string // "static" | "dynamic"
+	Ordinal    int
+	Body       string
+	EnableWhen []byte
+	Enabled    bool
 }
 
 type promptService struct {
@@ -114,6 +135,41 @@ type promptWriteParams struct {
 type promptDeleteParams struct {
 	ID  string `json:"id"`
 	Cwd string `json:"cwd,omitempty"`
+}
+
+type promptSectionListParams struct {
+	PromptID string `json:"prompt_id"`
+	Cwd      string `json:"cwd,omitempty"`
+}
+
+type promptSectionWriteParams struct {
+	PromptID   string          `json:"prompt_id"`
+	SectionKey string          `json:"section_key"`
+	Region     string          `json:"region"`
+	Ordinal    int             `json:"ordinal"`
+	Body       string          `json:"body"`
+	EnableWhen json.RawMessage `json:"enable_when,omitempty"`
+	Enabled    *bool           `json:"enabled,omitempty"`
+	Cwd        string          `json:"cwd,omitempty"`
+}
+
+type promptSectionDeleteParams struct {
+	PromptID   string `json:"prompt_id"`
+	SectionKey string `json:"section_key"`
+	Cwd        string `json:"cwd,omitempty"`
+}
+
+type promptSectionRPCItem struct {
+	ID         int64           `json:"id"`
+	PromptID   string          `json:"prompt_id"`
+	SectionKey string          `json:"section_key"`
+	Region     string          `json:"region"`
+	Ordinal    int             `json:"ordinal"`
+	Body       string          `json:"body"`
+	EnableWhen json.RawMessage `json:"enable_when,omitempty"`
+	Enabled    bool            `json:"enabled"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
 type promptRPCItem struct {
@@ -197,7 +253,62 @@ func buildPromptHandlersWithService(promptSvc PromptService) rpc.HandlerMapResul
 			}
 			return map[string]any{"ok": true}, nil
 		}),
+		"prompt_sections/list": rpc.StrictHandler(func(ctx context.Context, p promptSectionListParams) (any, error) {
+			sections, err := promptSvc.ListSections(ctx, p.Cwd, p.PromptID)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"sections": promptSectionItemsFromStore(sections, p.PromptID)}, nil
+		}),
+		"prompt_sections/write": rpc.StrictHandler(func(ctx context.Context, p promptSectionWriteParams) (any, error) {
+			enabled := true
+			if p.Enabled != nil {
+				enabled = *p.Enabled
+			}
+			section, err := promptSvc.WriteSection(ctx, p.Cwd, PromptSectionWriteRequest{
+				PromptKey:  p.PromptID,
+				SectionKey: p.SectionKey,
+				Region:     p.Region,
+				Ordinal:    p.Ordinal,
+				Body:       p.Body,
+				EnableWhen: []byte(p.EnableWhen),
+				Enabled:    enabled,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"section": promptSectionItemFromStore(*section, p.PromptID)}, nil
+		}),
+		"prompt_sections/delete": rpc.StrictHandler(func(ctx context.Context, p promptSectionDeleteParams) (any, error) {
+			if err := promptSvc.DeleteSection(ctx, p.Cwd, p.PromptID, p.SectionKey); err != nil {
+				return nil, err
+			}
+			return map[string]any{"ok": true}, nil
+		}),
 	}}
+}
+
+func promptSectionItemsFromStore(sections []promptstore.PromptTemplateSection, promptKey string) []promptSectionRPCItem {
+	out := make([]promptSectionRPCItem, 0, len(sections))
+	for _, sec := range sections {
+		out = append(out, promptSectionItemFromStore(sec, promptKey))
+	}
+	return out
+}
+
+func promptSectionItemFromStore(section promptstore.PromptTemplateSection, promptKey string) promptSectionRPCItem {
+	return promptSectionRPCItem{
+		ID:         section.ID,
+		PromptID:   promptKey,
+		SectionKey: section.SectionKey,
+		Region:     section.Region,
+		Ordinal:    section.Ordinal,
+		Body:       section.Body,
+		EnableWhen: json.RawMessage(section.EnableWhen),
+		Enabled:    section.Enabled,
+		CreatedAt:  section.CreatedAt,
+		UpdatedAt:  section.UpdatedAt,
+	}
 }
 
 func promptItemsFromTemplates(templates []promptstore.PromptTemplate) []promptRPCItem {
@@ -318,6 +429,80 @@ func (s *promptService) WritePrompt(
 		return nil, err
 	}
 	return template, nil
+}
+
+func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string) ([]promptstore.PromptTemplateSection, error) {
+	template, err := s.GetPrompt(ctx, cwd, promptKey)
+	if err != nil {
+		return nil, err
+	}
+	return s.store.ListSectionsByTemplateID(ctx, template.ID)
+}
+
+func (s *promptService) WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*promptstore.PromptTemplateSection, error) {
+	if s.store == nil {
+		return nil, errPromptStoreRequired
+	}
+	// sections 是 prompt_template 的附属调试数据，与 template 本身的读权限对齐：
+	// 能看到（ListSections 返回）就能写。不用严格的 validatePromptScope ——
+	// 用户在 cwd A 编辑过某全局模板后 scope 会被锊定在 cwd A，之后在 cwd B
+	// 给同模板加分段会被误拦。GetPrompt / ListSections 用的 promptVisibleForRead
+	// 已经足够作为门禅。
+	promptKey := strings.TrimSpace(req.PromptKey)
+	if promptKey == "" {
+		return nil, errors.New("dashboard: prompt id is required")
+	}
+	var saved *promptstore.PromptTemplateSection
+	err := s.store.WithTx(ctx, func(txStore promptstore.Store) error {
+		template, gerr := txStore.Get(ctx, promptKey)
+		if gerr != nil {
+			return gerr
+		}
+		if !promptVisibleForRead(*template, cwd) {
+			return platformdb.ErrNotFound
+		}
+		section, uerr := txStore.UpsertSection(ctx, promptstore.PromptTemplateSection{
+			TemplateID: template.ID,
+			SectionKey: req.SectionKey,
+			Region:     req.Region,
+			Ordinal:    req.Ordinal,
+			Body:       req.Body,
+			EnableWhen: req.EnableWhen,
+			Enabled:    req.Enabled,
+		})
+		if uerr != nil {
+			return uerr
+		}
+		saved = section
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return saved, nil
+}
+
+func (s *promptService) DeleteSection(ctx context.Context, cwd, promptKey, sectionKey string) error {
+	if s.store == nil {
+		return errPromptStoreRequired
+	}
+	// 与 WriteSection 同步：删除以读权限为门禅，不走严格的 validatePromptScope，
+	// 避免全局模板被门禁在某个 cwd 后别的 cwd 编辑不了它的分段。
+	pKey := strings.TrimSpace(promptKey)
+	sKey := strings.TrimSpace(sectionKey)
+	if pKey == "" || sKey == "" {
+		return errors.New("dashboard: prompt id and section key are required")
+	}
+	return s.store.WithTx(ctx, func(txStore promptstore.Store) error {
+		template, gerr := txStore.Get(ctx, pKey)
+		if gerr != nil {
+			return gerr
+		}
+		if !promptVisibleForRead(*template, cwd) {
+			return platformdb.ErrNotFound
+		}
+		return txStore.DeleteSection(ctx, template.ID, sKey)
+	})
 }
 
 func (s *promptService) DeletePrompt(ctx context.Context, cwd, key string) error {

@@ -129,6 +129,12 @@ type StartInput struct {
 	Name                         string
 	Prompt                       string
 	BaseInstructions             string
+	// BaseInstructionBlocks carries ordered, region-tagged fragments sourced
+	// from prompt_template_sections. When non-empty, the assembler merges
+	// them into the resolved section list (static → CachedPrefix, dynamic →
+	// UncachedTail) instead of treating BaseInstructions as a single opaque
+	// tail block. Empty slice keeps legacy behavior (BaseInstructions only).
+	BaseInstructionBlocks        []BaseInstructionBlock
 	DeveloperInstructions        string
 	Summary                      string
 	Provider                     string
@@ -201,6 +207,24 @@ type PromptSection struct {
 	CachePolicy CachePolicy
 	StartOnly   bool
 	Compute     SectionComputeFunc
+}
+
+// BaseInstructionBlock is an ordered, region-tagged fragment coming from a
+// prompt_templates row that has been migrated to the sectioned layout. The
+// assembler converts it into a ResolvedPromptSection and appends it to the
+// resolved list; region decides whether it flows into the cached prefix or
+// the uncached tail via renderResolvedSectionsByRegion.
+//
+// EnableWhen carries the raw JSONB feature-gate expression (shape documented
+// by prompt.EvaluateEnableWhen). nil / empty-object means "always inject";
+// any mismatched key drops the block at merge time. Evaluation happens in
+// the assembler (not the router) because BuildCtx is only finalized there.
+type BaseInstructionBlock struct {
+	Key        string
+	Region     PromptRegion
+	Ordinal    int
+	Body       string
+	EnableWhen []byte
 }
 
 type StartAssembly = dto.StartAssembly

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -75,7 +76,7 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 	// pool never run together — picking the pool means the user already chose
 	// what to inject; classifier inference is redundant.
 	if strings.TrimSpace(req.PromptKey) == "" && len(req.PromptCandidates) > 0 {
-		if ok := s.applyCandidatePoolMerge(req, templates); ok {
+		if ok := s.applyCandidatePoolMerge(ctx, req, templates); ok {
 			return
 		}
 	}
@@ -121,7 +122,21 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 	req.AgentKey = picked.AgentKey
 	req.AgentTitle = picked.Title
 	req.PromptKey = picked.PromptKey
-	req.BaseInstructions = picked.PromptText
+	// Step 1: prefer structured sections; fall back to monolithic prompt_text
+	// when the template has not been migrated yet. A store-side error degrades
+	// to the legacy path so router routing is never blocked by this lookup.
+	if sections, serr := s.promptStore.ListSectionsByTemplateID(ctx, picked.ID); serr != nil {
+		pkglogger.Warn("router: list prompt_template_sections failed; using prompt_text",
+			"err", serr, "template_id", picked.ID, "prompt_key", picked.PromptKey)
+		req.BaseInstructions = picked.PromptText
+		req.BaseInstructionBlocks = nil
+	} else if len(sections) > 0 {
+		req.BaseInstructionBlocks = convertStoreSectionsToBlocks(sections)
+		req.BaseInstructions = ""
+	} else {
+		req.BaseInstructions = picked.PromptText
+		req.BaseInstructionBlocks = nil
+	}
 	if verr != nil {
 		pkglogger.Warn("router: materialize prompt_versions failed",
 			"err", verr, "prompt_key", picked.PromptKey)
@@ -195,6 +210,31 @@ func findEnabledByPromptKey(templates []promptstore.PromptTemplate, promptKey st
 		return nil
 	}
 	return picked
+}
+
+// convertStoreSectionsToBlocks maps enabled prompt_template_sections rows into
+// the contract-layer BaseInstructionBlock shape consumed by assembler.go.
+// Unknown region strings degrade to Dynamic (safer: blocks end up in the
+// uncached tail rather than accidentally claiming cached-prefix slots).
+func convertStoreSectionsToBlocks(sections []promptstore.PromptTemplateSection) []contract.BaseInstructionBlock {
+	if len(sections) == 0 {
+		return nil
+	}
+	out := make([]contract.BaseInstructionBlock, 0, len(sections))
+	for _, s := range sections {
+		region := contract.PromptRegionDynamic
+		if strings.EqualFold(strings.TrimSpace(s.Region), "static") {
+			region = contract.PromptRegionStatic
+		}
+		out = append(out, contract.BaseInstructionBlock{
+			Key:        s.SectionKey,
+			Region:     region,
+			Ordinal:    s.Ordinal,
+			Body:       s.Body,
+			EnableWhen: append([]byte(nil), s.EnableWhen...),
+		})
+	}
+	return out
 }
 
 func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey string) *promptstore.PromptTemplate {
@@ -337,14 +377,16 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 	return nil
 }
 
-// applyCandidatePoolMerge concatenates every prompt template whose PromptKey
-// sits in req.PromptCandidates into req.BaseInstructions, following Claude
-// Code's claudeMd multi-source format (`Contents of <key>:\n<body>`). Disabled
-// rows and unknown keys are silently skipped. Returns true when at least one
-// template was merged — caller should skip the classifier / default-fallback
-// paths in that case. Returns false when the filter yielded nothing (empty
-// pool, all-stale, all-disabled), letting the normal router fallback run.
-func (s *service) applyCandidatePoolMerge(req *StartRequest, templates []promptstore.PromptTemplate) bool {
+// applyCandidatePoolMerge fans out every prompt template whose PromptKey sits
+// in req.PromptCandidates into req.BaseInstructionBlocks so downstream cache
+// layering (CachedPrefix / UncachedTail) stays intact. Templates migrated to
+// prompt_template_sections contribute their sections verbatim (region-aware);
+// legacy rows fall back to a single region=Dynamic block carrying the old
+// `Contents of <key>:\n<body>` claudeMd multi-source format. Disabled rows
+// and unknown keys are silently skipped. Returns true when at least one block
+// was produced — caller should skip the classifier / default-fallback paths
+// in that case.
+func (s *service) applyCandidatePoolMerge(ctx context.Context, req *StartRequest, templates []promptstore.PromptTemplate) bool {
 	whitelist := make(map[string]struct{}, len(req.PromptCandidates))
 	order := make([]string, 0, len(req.PromptCandidates))
 	for _, raw := range req.PromptCandidates {
@@ -368,7 +410,7 @@ func (s *service) applyCandidatePoolMerge(req *StartRequest, templates []prompts
 			byKey[t.PromptKey] = t
 		}
 	}
-	blocks := make([]string, 0, len(order))
+	blocks := make([]contract.BaseInstructionBlock, 0, len(order))
 	mergedKeys := make([]string, 0, len(order))
 	mergedTitles := make([]string, 0, len(order))
 	for _, key := range order {
@@ -376,11 +418,11 @@ func (s *service) applyCandidatePoolMerge(req *StartRequest, templates []prompts
 		if !ok {
 			continue
 		}
-		body := strings.TrimSpace(t.PromptText)
-		if body == "" {
+		templateBlocks := s.candidateTemplateBlocks(ctx, t)
+		if len(templateBlocks) == 0 {
 			continue
 		}
-		blocks = append(blocks, "Contents of "+t.PromptKey+":\n"+body)
+		blocks = append(blocks, templateBlocks...)
 		mergedKeys = append(mergedKeys, t.PromptKey)
 		// Title is the human-readable persona label ("SQL 与数据建模专家") that
 		// the UI displays on the routing badge. Fall back to the slug when a
@@ -394,7 +436,8 @@ func (s *service) applyCandidatePoolMerge(req *StartRequest, templates []prompts
 	if len(blocks) == 0 {
 		return false
 	}
-	req.BaseInstructions = strings.Join(blocks, "\n\n")
+	req.BaseInstructions = ""
+	req.BaseInstructionBlocks = blocks
 	// Observability: no single prompt_key / prompt_version to stamp, but we
 	// keep agent_key empty + AgentTitle = "候选池 (N)" so the UI badge logic
 	// can distinguish pool-merge threads from default-fallback threads.
@@ -404,11 +447,48 @@ func (s *service) applyCandidatePoolMerge(req *StartRequest, templates []prompts
 	req.PromptVersionID = nil
 	req.MergedCandidateKeys = mergedKeys
 	req.MergedCandidateTitles = mergedTitles
-	pkglogger.Info("router: candidate pool merged into base_instructions",
+	pkglogger.Info("router: candidate pool merged into base_instruction_blocks",
 		"candidate_keys", mergedKeys,
-		"block_count", len(blocks),
-		"total_prompt_text_len", len(req.BaseInstructions))
+		"block_count", len(blocks))
 	return true
+}
+
+// candidateTemplateBlocks returns the ordered BaseInstructionBlock slice that
+// represents a single candidate template. Migrated templates emit one block
+// per section (region-aware, ordinal-sorted); legacy templates collapse to a
+// single region=Dynamic block carrying the old `Contents of <key>:\n<body>`
+// format so the uncached tail keeps rendering what the UI already expects.
+// A store-side error degrades to the legacy shape rather than dropping the
+// template entirely — we'd rather inject something than nothing.
+func (s *service) candidateTemplateBlocks(ctx context.Context, t *promptstore.PromptTemplate) []contract.BaseInstructionBlock {
+	if t == nil {
+		return nil
+	}
+	sections, err := s.promptStore.ListSectionsByTemplateID(ctx, t.ID)
+	if err != nil {
+		pkglogger.Warn("router: candidate pool list sections failed; using prompt_text",
+			"err", err, "prompt_key", t.PromptKey, "template_id", t.ID)
+	} else if len(sections) > 0 {
+		converted := convertStoreSectionsToBlocks(sections)
+		out := make([]contract.BaseInstructionBlock, 0, len(converted))
+		for _, b := range converted {
+			// Namespace the section key by the template PromptKey so the
+			// debug Name ("tpl:<pkey>:<skey>") stays unique across multi-
+			// template merges; assembler only uses it for traceability.
+			b.Key = t.PromptKey + ":" + b.Key
+			out = append(out, b)
+		}
+		return out
+	}
+	body := strings.TrimSpace(t.PromptText)
+	if body == "" {
+		return nil
+	}
+	return []contract.BaseInstructionBlock{{
+		Key:    t.PromptKey,
+		Region: contract.PromptRegionDynamic,
+		Body:   "Contents of " + t.PromptKey + ":\n" + body,
+	}}
 }
 
 

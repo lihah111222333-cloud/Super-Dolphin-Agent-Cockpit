@@ -46,6 +46,19 @@ func (noopPromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*pro
 	return &template, nil
 }
 
+func (noopPromptStore) ListSectionsByTemplateID(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
+	return nil, nil
+}
+
+func (noopPromptStore) UpsertSection(_ context.Context, section promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
+	copy := section
+	return &copy, nil
+}
+
+func (noopPromptStore) DeleteSection(context.Context, int64, string) error {
+	return nil
+}
+
 func TestNewServiceRegistersBuiltInSlots(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	want := len(StaticSections()) + len(DynamicSlotNames())
