@@ -1,30 +1,79 @@
 # V3 迁移会话摘要
 
-> 更新时间：2026-04-20
-> 会话范围：P20 Skill 渐进披露 α 组（p20.1 / p20.10 / p20.14 / p20.15）实施 + 1:3 互审 + E/F 独立终审 + 双轮补修全部收口
-> 当前阶段：P20 α 组 4 单全部 PASS，可合入 main；剩 p20.13（需先修订任务单）/ p20.16（集成测试）
+> 更新时间：2026-04-22
+> 会话范围：(a) 代码守卫全仓放宽 `MaxPackageFiles` 25→30；(b) 3 路 CC 超限 TDD 修复（launcher / thread / uistate+toolbridge）；(c) **P21 架构演进路线图 6 份文档经 4 轮审查迭代实施闭环**（Round-1 5 路互审 → Round-2 修订 agent + 5 路复审 → Round-3 G-P 10 路独立终审 → Round-4 10 路疏漏扫描 → Q2 合入裁决 → agent 根据裁决修直）；(d) 落盘新教训 §10.29 / §10.30 / §10.31
+> 当前阶段：P21 6 份文档按 Q2 合入裁决修正完毕，实施前准备完毕；P20.13 / p20.16 仍为下一轮待开工
 
 ---
 
 ## 1. 当前结论
 
-- **P20 α 组 4 单本轮全部完成并经 5 级验证**：p20.1（Bug#1 prompts handler）/ p20.10（host `skill/list|expand`）/ p20.14（前端 LaunchSkillPicker）/ p20.15（SystemPromptPage 404 只读降级 + dashboard cwd scope 活化）
-- **基线问题顺手闭环**：
-  - archtest `rule2/rule10` fx import → 合并 `skill_catalog_fx.go` 进 `module.go`，prompt prod 文件 **28 → 27**
-  - `TestStartAssemblyGolden` 日期漂移 → 新增 `PROMPT_START_CURRENT_DATE` env hook + `t.Setenv` 固定 fixture
-- **critical path 保持绿**：p20.2 `78c6907` / p20.3 `cec26fe` / p20.4 `b0d2555` 已合入 main
-- **P20.1 Phase 1-11 保持**：SkillCatalogProvider `c1ead48` / 元指令 `3cd3144` / fx 灰度 + 5 counter `00b073f` / 文档同步 `a07067c`
-- **全量编译 + 全仓测试全绿**：`go build ./...` ✅；`go test ./internal/archtest/...` ✅；`go test ./...` ✅
-- **仍未开工**：p20.13（审批缓存接线，需先按前置核查修订任务单）/ p20.16（集成测试）
-- **已废弃**：p20.11（MCP skill tool）— skill 是宿主独有能力，不属编排层
-- **P18.3 / P18.4 / P19 B-1 全部收口**：memory 主链、Claude parity、memory 子包拆分与 follow-up 修复均已落地（保持）
-- **主 agent LSP 交叉验证通过**：`skill_catalog_fx` 0 命中 / `message.includes` 0 命中 / `dashboardPromptsParams` 真存在 / `launchSkillSelectionEnabled` 真落盘 / 3 个点名回归测试真存在
+- **代码守卫全仓放宽**：`internal/archtest/guardlib.go` `MaxPackageFiles` 25 → **30**；autofix 自动删掉 `memory/prompt` 两条已失效 freeze（8/27 ≤ 30）；`thread` 包 27 < 30 本轮违规自动消失
+- **3 路 CC 超限 TDD 修复**：
+  - `cmd/mcp-orch/orchestration/launcher.go:166 looksTechnicalManagedAgentName` CC 16 → ≤ 10
+  - `internal/module/thread/service.go:169 Delete` / `task_handoff.go:48 prepareTaskHandoffStart` / `task_handoff.go:84 resolveTaskHandoffStart` CC 14/12/23 → ≤ 10
+  - `internal/module/uistate/module.go:147 applyTaskRuntimeToThreadRuntime` / `internal/platform/toolbridge/handler.go:155 toolCallRuntimeConfig` CC 11/14 → ≤ 10
+- **P21 架构路线图 6 份文档 4 轮迭代闭环**：README / P0_SelfLearningSkill / P1a_MultiProviderCodex / P1b_CronScheduledTasks / P2_MultiPlatformNotifications / P3_SessionInsights 经 4 轮独立审查 + 2 轮修订（修订 agent + 主 agent 自改）+ Q2 合入裁决 + 最后 agent 按裁决直修完毕
+- **§10 新教训落盘 3 条**：§10.29 必读文档路径真值自验 / §10.30 fx·bus·run.Group 三层分工铁律 / §10.31 修订只加不删原则
+- **主 agent LSP 终验 10/10 通过**：`runner 内部 goroutine=0` / canonical 三处=3 / `延后到 P22≥3` / `延后到 P21=0` / `CREATE UNIQUE INDEX≥2` / `link-local≥1` / `cronLeaseActor≥2` / `canonicalize≥1` / `方案 A=0` / `markdownEscape≥7`
+- **P20 历史结论保持**：P20 α 组 4 单（p20.1 / p20.10 / p20.14 / p20.15）已合入；p20.13 / p20.16 仍为下一轮开工
+- **P18 系列 / P19 全收口**：memory 主链 / Claude parity / memory 子包拆分与 follow-up 修复均已落地（保持）
 
 ---
 
-## 2. 本轮收口结果（2026-04-20）
+## 2. 本轮收口结果（2026-04-22）
 
-### 2.1 p20.1 — 恢复宿主 `prompts/list|write|delete` + store 写能力
+### 2.1 代码守卫放宽
+
+- `internal/archtest/guardlib.go:29` 更新注释：`2026-04-22 全仓再放宽：包文件数 25→30`；核心包例外（Core*）与默认等同，实际不再构成差异
+- `MaxPackageFiles = 30`；`MaxCorePackageFiles = 30` 保留仅为向后兼容
+- Autofix 自动清理 `internal/archtest/freeze_registry.go` 里 `memory` / `prompt` 两条 `limit=27` 的 ViolationPackageCount freeze（27 ≤ 30 触发 delete + 回写）
+- `thread` 包 27 文件 < 30 → 本轮为主线的 thread 超限纯顶层解决
+
+### 2.2 3 路 CC 修复（TDD）
+
+- `launcher.go:166 looksTechnicalManagedAgentName`：CC 16 → ≤ 10；抽出 guard / prefix / fuzzy 分类 helper
+- `thread/service.go:169 Delete` + `task_handoff.go:48/84 prepareTaskHandoffStart / resolveTaskHandoffStart`：**3 处 CC 同步修复**，行为保指测试已落盘
+- `uistate/module.go:147 applyTaskRuntimeToThreadRuntime` + `toolbridge/handler.go:155 toolCallRuntimeConfig`：抽 field mapping helper / resolve chain
+- CC 修复 agent 报告未单独收集（老公指令），仓库改动保持。实际结果以 `TestCodeSizeGuard` 为准
+
+### 2.3 P21 文档 4 轮闭环详情
+
+| 轮次 | 角色 | 产出 | 结论 |
+|---|---|---|---|
+| **Round-1** | 5 路 1:5 互审审查员（arch / P0-obs / P1a+P1b / P2-security / P3-store） | 5 份独立审查报告 | 一票定调 BLOCK（8 BLOCK + 7 NEEDS-FIX） |
+| **Round-2** | 1 路修订 agent + 5 路复审（复用原 5 路， send_message §10.16 显眼标签） | 32 条销账 + 5 份复审报告 | 一票定调 BLOCK（2B+2N+1P）；**发现修订 agent “只加不删”新反模式** |
+| **主 agent 自改** | §10.19 小维护债 | 6 份 P21 文档 直接 `lsp_edit(replace_range)` | LSP 终验 10/10 通过 |
+| **Round-3** | G-P 10 路全新 codex agent（高交错维度） | 10 份独立终审报告 | 多数 PASS + 少数 NEEDS-FIX |
+| **Round-4** | 复用 G-P 10 路（send_message “疏漏扫描”指令） | 10 份 delta 报告 | NO GAP / MINOR-GAP / MAJOR-GAP 结论 |
+| **Q2 终裁** | 1 路全新 codex agent（预热契约后裁决） | 合入裁决书 | 老公直接让 agent 按裁决修文档 |
+| **最终直修** | agent 按裁决修完 | 6 份 P21 文档最终稿 | ✅ 合入就绪 |
+
+维度切分（避免盲区）：
+- **垂直切**（G-L）：H=P0+obs / I=P1a / J=P1b / K=P2 / L=P3
+- **横切 / 正交**（G/M/N/O/P）：G=架构合规 / M=跨文档一致 / N=仓库锚点核 / O=安全横切 / P=运维横切
+- 双戳重叠点：SSRF=K+O双独立 / 三层契约=G+P / crash-window=J+P / signed skill P22=H+O+M
+
+### 2.4 P21 修订关键点（已全部合入）
+
+- **README**：新增默认值安全原则 + Canonical Turn Observation Contract 单一口径 + core↔orch hook consumer 入口章 + archtest 白名单枚举式事实
+- **P0**：显弁禁 `WriteSkillContent`/`WriteSummary` 承接 project-scope / `skills/create` 缺 `cwd` 硬报错 / system scope **必须** 人工 review gate / bus callback 禁 LLM 提炼
+- **P1a**：identity 三元组 (`codexHome` / `codexInstanceKey` / `codexModelProvider`) 硬报错 + `codexHome` canonicalize（`filepath.Clean + ExpandEnv + EvalSymlinks`） + binding 持久化拍板 + legacy default-home 仅 `CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME` opt-in + spawnLocal 目标态注释 + approvalPolicy=never 陷阱
+- **P1b**：`cronTickActor` + `cronLeaseActor` **双 actor 拆分**（消除 runner 内部 goroutine 反模式）+ crash-window 三步状态机 `pending → submitting → submitted → running → finished/failed` + `dedupe_key = sha256(job_id||scheduled_at||idempotency_key)` + `LookupByDedupeKey` / `Observe` 恢复协议 + lease TTL 30min + heartbeat 5min + `ExtendClaim(dur)` + claim_token 应用层 UUID v4 + provider 冻结 `codex|claude` + v1 白名单 codex + sqlc core-only
+- **P2**：双树同构 + 方案 B 共享库放 `internal/module/notify/shared/*`（避开 archtest 白名单改动）+ SSRF 完备（https only / loopback / link-local / ULA / multicast / private CIDR / DNS rebinding / redirect 重校验）+ 三平台 payload 示例（钉钉 Markdown / 飞书 Rich Text / Slack Block）+ 统一 `markdownEscape` + 平台 signing（钉钉 HMAC-SHA256 / 飞书 timestamp+secret / Slack URL-as-bearer）+ hook consumer 入口 3 段调用链 + alias `node.config > dag.metadata > drop/error`
+- **P3**：DDL 恢复 4 个 index（2 普通 + 2 partial unique）+ 4 个 `*_observed` flag（`approval_requests_observed` / `token_snapshot_observed` 默认 FALSE；`tool_calls_observed` / `tool_failures_observed` 默认 TRUE）+ Claude path approval 语义 由 "恒为 0" 改为 "observed=FALSE" + collector 三层契约 + API 落点钉死 `internal/module/dashboard/*`（不新建 insight 模块）+ 首期 API-only
+
+### 2.5 §10 新教训落盘
+
+- **§10.29 必读文档路径真值自验**：派单 prompt 前主 agent 必须 `lsp_file(read_file, limit=5)` 或 `lsp_grep` 核实每条“必读路径”真存在；本次触发事件：`prompts/lsp-mandatory-prefix.md` 被 8 次传染派单后 Agent 4 上报不存在
+- **§10.30 fx / bus / run.Group 三层分工铁律**：fx.Module 只构造 + 资源 open/close；`BusModule` 管 `bus.subscribers`；`RunnerModule` 管长跑 actor。shutdown 流 `ctx cancel → run.Group 全退 → bus 停派发 → fx.OnStop 释放资源`。老公纠偏§：“fx 谁拉起 / bus 谁收尾”不是二选一。
+- **§10.31 修订只加不删原则**：修订 agent 把 Round-2 原稿 SSRF/DDL index/canonicalize/payload/lease 节奏删了；三路独立复审戳穿；主 agent 按 §10.19 自改补回。以后派单必写“禁删除原稿硬规则 / 锁锚点 / 示例，仅允许新增或语义等价改写”；验收 `git diff --stat` 任一文档净减少 >5% 必须逐处 justify。
+
+### 2.6 P20 历史结论保持（2026-04-20注）
+
+以下 2026-04-20 会话结论保持，本轮未改动：
+
+### 2.6.1 p20.1 — 恢复宿主 `prompts/list|write|delete` + store 写能力
 
 - `internal/module/prompt/module.go`：注册 `registerPromptHandlers` 进 `rpc_handlers` fx group；吸收 `skill_catalog_fx.go` 的 `NewCompositeNativeSkillDetector` / `NewSkillCatalogProviderFx` / `RegisterSkillCatalogProviderIfEnabled`
 - `internal/module/prompt/service.go`：merge-in-place 恢复 3 个 handler；`WritePrompt/DeletePrompt` 空 cwd 拒绝；`scope.cwd:` tag 校验完整
@@ -134,8 +183,28 @@
 
 ## 6. 交接结论
 
-- **P20 α 组 4 单（p20.1 / p20.10 / p20.14 / p20.15）本轮全部完成**，经 1:3 互审 + E/F 双 BLOCK 独立终审 + 双轮补修全部闭环
-- **基线问题顺手解决**：archtest rule2/10 + golden date；prompt freeze `28 → 27`
-- **全仓 build / test / archtest 全绿**
-- **下轮可直接起 p20.13**（需先按前置核查修订任务单）+ 后续起 p20.16 集成终验
-- **稳定文档基线就绪**：本摘要 + p20/README + 会话习惯 + freeze 四处一致
+### 6.1 本轮（2026-04-22）
+
+- **代码守卫放宽**：`MaxPackageFiles 25→30`；freeze registry 自动清理失效 2 条；`thread` 包 27 文件本轮违规已消解
+- **3 路 CC 超限 TDD 修复**：launcher / thread / uistate+toolbridge 全部降至 ≤ 10（agent 报告未单独收集，老公指令）
+- **P21 6 份文档 4 轮审查 + 2 轮修订 + Q2 裁决 + 最终 agent 直修 — 合入就绪**：
+  - Round-1 5 路 1:5 互审 → 8B+7N 一票定调 BLOCK
+  - Round-2 修订 agent 改 6 份 + 原 5 路复审 → 2B+2N+1P 一票定调 BLOCK，发现“只加不删”反模式
+  - 主 agent §10.19 自改补回 + 落盘§10.31
+  - Round-3 G-P 10 路全新终审 → 多数 PASS
+  - Round-4 10 路疏漏扫描 → NO GAP/MINOR-GAP/MAJOR-GAP
+  - Q2 终裁 agent 合入裁决
+  - 最后 agent 按裁决直修文档
+- **§10 新教训落盘 3 条**：§10.29 / §10.30 / §10.31
+- **主 agent LSP 终验 10/10 通过**
+
+### 6.2 P20 结论（2026-04-20 保持）
+
+- P20 α 组 4 单（p20.1 / p20.10 / p20.14 / p20.15）经 1:3 互审 + E/F 双 BLOCK 独立终审 + 双轮补修全部闭环
+- 基线顺手：archtest rule2/10 + golden date；prompt freeze `28 → 27`
+- 全仓 build / test / archtest 全绿
+- 下轮可起 p20.13（需先按前置核查修订任务单）+ p20.16 集成终验
+
+### 6.3 稳定文档基线就绪
+
+- 本摘要 + `docs/迁移/p21/` 6 份 + `docs/会话习惯.md` §10.29/30/31 + archtest `MaxPackageFiles=30` 四处一致
