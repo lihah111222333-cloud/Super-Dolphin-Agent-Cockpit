@@ -31,6 +31,13 @@ type UpsertParams struct {
 	AgentMemoryScope string
 	CreatedAt        int64
 	UpdatedAt        int64
+
+	// Codex instance identity (P21 P1a). Empty "" means "leave existing
+	// value alone" on UPSERT; the immutable trigger rejects any attempt to
+	// rewrite a non-empty value with a different non-empty value.
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
 }
 
 type UpdateSessionUUIDParams struct {
@@ -73,4 +80,11 @@ type Binding struct {
 	CreatedAt        int64
 	UpdatedAt        int64
 	SessionUUID      string
+
+	// Codex instance identity (P21 P1a). Persisted canonicalized realpath
+	// + explicit instance key + provider alias so auto-resume can route
+	// back to the correct local app-server process after a restart.
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
 }

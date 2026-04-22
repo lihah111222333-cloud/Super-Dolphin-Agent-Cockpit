@@ -39,37 +39,43 @@ func (s *store) GetByProviderThread(ctx context.Context, provider, providerThrea
 		return nil, wrapBindingError(err, "get_by_provider_thread")
 	}
 	result := mapBinding(bindingRow{
-		AgentID:          row.AgentID,
-		Provider:         row.Provider,
-		ProviderThreadID: row.ProviderThreadID,
-		CodexThreadID:    row.CodexThreadID,
-		RolloutPath:      row.RolloutPath,
-		Cwd:              row.Cwd,
-		ParentAgentID:    row.ParentAgentID,
-		AgentType:        row.AgentType,
-		AgentMemoryScope: row.AgentMemoryScope,
-		Archived:         row.Archived,
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
-		SessionUUID:      row.SessionUUID,
+		AgentID:            row.AgentID,
+		Provider:           row.Provider,
+		ProviderThreadID:   row.ProviderThreadID,
+		CodexThreadID:      row.CodexThreadID,
+		RolloutPath:        row.RolloutPath,
+		Cwd:                row.Cwd,
+		ParentAgentID:      row.ParentAgentID,
+		AgentType:          row.AgentType,
+		AgentMemoryScope:   row.AgentMemoryScope,
+		Archived:           row.Archived,
+		CreatedAt:          row.CreatedAt,
+		UpdatedAt:          row.UpdatedAt,
+		SessionUUID:        row.SessionUUID,
+		CodexHome:          row.CodexHome,
+		CodexInstanceKey:   row.CodexInstanceKey,
+		CodexModelProvider: row.CodexModelProvider,
 	})
 	return &result, nil
 }
 
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	err := s.q.UpsertAgentProviderBinding(ctx, sqlc.UpsertAgentProviderBindingParams{
-		AgentID:          params.AgentID,
-		Provider:         params.Provider,
-		ProviderThreadID: params.ProviderThreadID,
-		CodexThreadID:    params.CodexThreadID,
-		RolloutPath:      params.RolloutPath,
-		Cwd:              params.Cwd,
-		ParentAgentID:    params.ParentAgentID,
-		AgentType:        params.AgentType,
-		AgentMemoryScope: params.AgentMemoryScope,
-		CreatedAt:        params.CreatedAt,
-		UpdatedAt:        params.UpdatedAt,
-		SessionUUID:      params.SessionUUID,
+		AgentID:            params.AgentID,
+		Provider:           params.Provider,
+		ProviderThreadID:   params.ProviderThreadID,
+		CodexThreadID:      params.CodexThreadID,
+		RolloutPath:        params.RolloutPath,
+		Cwd:                params.Cwd,
+		ParentAgentID:      params.ParentAgentID,
+		AgentType:          params.AgentType,
+		AgentMemoryScope:   params.AgentMemoryScope,
+		CreatedAt:          params.CreatedAt,
+		UpdatedAt:          params.UpdatedAt,
+		SessionUUID:        params.SessionUUID,
+		CodexHome:          params.CodexHome,
+		CodexInstanceKey:   params.CodexInstanceKey,
+		CodexModelProvider: params.CodexModelProvider,
 	})
 	if err == nil {
 		return nil
@@ -116,19 +122,22 @@ func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, err
 		return nil, wrapBindingError(err, "get_by_agent_id")
 	}
 	result := mapBinding(bindingRow{
-		AgentID:          row.AgentID,
-		Provider:         row.Provider,
-		ProviderThreadID: row.ProviderThreadID,
-		CodexThreadID:    row.CodexThreadID,
-		RolloutPath:      row.RolloutPath,
-		Cwd:              row.Cwd,
-		ParentAgentID:    row.ParentAgentID,
-		AgentType:        row.AgentType,
-		AgentMemoryScope: row.AgentMemoryScope,
-		Archived:         row.Archived,
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
-		SessionUUID:      row.SessionUUID,
+		AgentID:            row.AgentID,
+		Provider:           row.Provider,
+		ProviderThreadID:   row.ProviderThreadID,
+		CodexThreadID:      row.CodexThreadID,
+		RolloutPath:        row.RolloutPath,
+		Cwd:                row.Cwd,
+		ParentAgentID:      row.ParentAgentID,
+		AgentType:          row.AgentType,
+		AgentMemoryScope:   row.AgentMemoryScope,
+		Archived:           row.Archived,
+		CreatedAt:          row.CreatedAt,
+		UpdatedAt:          row.UpdatedAt,
+		SessionUUID:        row.SessionUUID,
+		CodexHome:          row.CodexHome,
+		CodexInstanceKey:   row.CodexInstanceKey,
+		CodexModelProvider: row.CodexModelProvider,
 	})
 	return &result, nil
 }
@@ -162,19 +171,22 @@ func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) 
 	result := make([]Binding, len(rows))
 	for i, row := range rows {
 		result[i] = mapBinding(bindingRow{
-			AgentID:          row.AgentID,
-			Provider:         row.Provider,
-			ProviderThreadID: row.ProviderThreadID,
-			CodexThreadID:    row.CodexThreadID,
-			RolloutPath:      row.RolloutPath,
-			Cwd:              row.Cwd,
-			ParentAgentID:    row.ParentAgentID,
-			AgentType:        row.AgentType,
-			AgentMemoryScope: row.AgentMemoryScope,
-			Archived:         row.Archived,
-			CreatedAt:        row.CreatedAt,
-			UpdatedAt:        row.UpdatedAt,
-			SessionUUID:      row.SessionUUID,
+			AgentID:            row.AgentID,
+			Provider:           row.Provider,
+			ProviderThreadID:   row.ProviderThreadID,
+			CodexThreadID:      row.CodexThreadID,
+			RolloutPath:        row.RolloutPath,
+			Cwd:                row.Cwd,
+			ParentAgentID:      row.ParentAgentID,
+			AgentType:          row.AgentType,
+			AgentMemoryScope:   row.AgentMemoryScope,
+			Archived:           row.Archived,
+			CreatedAt:          row.CreatedAt,
+			UpdatedAt:          row.UpdatedAt,
+			SessionUUID:        row.SessionUUID,
+			CodexHome:          row.CodexHome,
+			CodexInstanceKey:   row.CodexInstanceKey,
+			CodexModelProvider: row.CodexModelProvider,
 		})
 	}
 	return result, nil
@@ -202,36 +214,42 @@ func (s *store) UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams)
 
 func mapBinding(row bindingRow) Binding {
 	return Binding{
-		AgentID:          row.AgentID,
-		Provider:         row.Provider,
-		ProviderThreadID: row.ProviderThreadID,
-		CodexThreadID:    row.CodexThreadID,
-		RolloutPath:      row.RolloutPath,
-		Cwd:              row.Cwd,
-		ParentAgentID:    row.ParentAgentID,
-		AgentType:        row.AgentType,
-		AgentMemoryScope: row.AgentMemoryScope,
-		Archived:         row.Archived,
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
-		SessionUUID:      row.SessionUUID,
+		AgentID:            row.AgentID,
+		Provider:           row.Provider,
+		ProviderThreadID:   row.ProviderThreadID,
+		CodexThreadID:      row.CodexThreadID,
+		RolloutPath:        row.RolloutPath,
+		Cwd:                row.Cwd,
+		ParentAgentID:      row.ParentAgentID,
+		AgentType:          row.AgentType,
+		AgentMemoryScope:   row.AgentMemoryScope,
+		Archived:           row.Archived,
+		CreatedAt:          row.CreatedAt,
+		UpdatedAt:          row.UpdatedAt,
+		SessionUUID:        row.SessionUUID,
+		CodexHome:          row.CodexHome,
+		CodexInstanceKey:   row.CodexInstanceKey,
+		CodexModelProvider: row.CodexModelProvider,
 	}
 }
 
 type bindingRow struct {
-	AgentID          string
-	Provider         string
-	ProviderThreadID string
-	CodexThreadID    string
-	RolloutPath      string
-	Cwd              string
-	ParentAgentID    string
-	AgentType        string
-	AgentMemoryScope string
-	Archived         bool
-	CreatedAt        int64
-	UpdatedAt        int64
-	SessionUUID      string
+	AgentID            string
+	Provider           string
+	ProviderThreadID   string
+	CodexThreadID      string
+	RolloutPath        string
+	Cwd                string
+	ParentAgentID      string
+	AgentType          string
+	AgentMemoryScope   string
+	Archived           bool
+	CreatedAt          int64
+	UpdatedAt          int64
+	SessionUUID        string
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
 }
 
 func wrapBindingError(err error, operation string) error {

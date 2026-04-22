@@ -19,11 +19,11 @@
 |---|---|---|
 | 实例键解析 | `internal/provider/shared/config_helpers.go` | 新增 `ResolveCodexIdentity(config map[string]any) (..., error)`，严格解析 `codexHome/codexInstanceKey/codexModelProvider`，并返回对应 sentinel error |
 | 启动载荷透传 | `internal/module/thread/start_session_helpers.go` | 继续复用 `ModelProvider + Config` 链路，但实例选择只能从 `req.Config` 的专用 key 读取，不新增 router 字段 |
-| app-server 池化 | `internal/provider/codexapp/module.go` | 将单例 `ServerManager` 改为按 `instanceKey` 管理的池，每个 key 对应一个本地 app-server 进程 |
+| app-server 池化 | `internal/provider/codexapp/{module.go,server_pool.go [NEW]}` | 将单例 `ServerManager` 改为按 canonicalized `codexHome` 管理的池；pool 必须显式带 **容量上限 `CODEXAPP_POOL_MAX`（默认 16）**、**空闲 LRU shutdown（默认 30 min）**、**spawn 失败指数退避（base 5s / cap 2m）**；超上限返回 `ErrPoolExhausted`，不得无界扩张 |
 | 会话建连 | `internal/provider/codexapp/{driver.go,session.go}` | `StartSession/ResumeSession` 按 identity 取对应 server URL；不要在 `newDriver()` 冻结单个 `serverURL` |
-| 环境注入 | `internal/provider/codexapp/transport_process.go` | `spawnLocal()` 显式注入 `CODEX_HOME=<path>`，不要把 home 拼进 shell 字符串 |
+| 环境注入 | `internal/provider/codexapp/transport_process.go` | `spawnLocal()` 走 **allowlist-style env**：先把继承环境裁剪到 `PATH/HOME/USER/LANG/LC_*/TZ/SSL_CERT_*/TMPDIR` 等白名单，再**显式**追加 `CODEX_HOME=<canonicalized path>`；禁止 `append(os.Environ(), ...)` 直通宿主，避免宿主 `CODEX_*` 变量串到 child |
 | Rollout 历史 | `internal/provider/codexapp/history_rollout.go`、`session.RolloutPath()`、`internal/platform/historyjsonl/*` | rollout 搜索目录必须从选中的 `codexHome` 反推，不能再写死 legacy home |
-| 恢复链路 | `internal/store/binding/*`、`internal/provider/unified/session_resolver.go`、`internal/module/thread/*` | **拍板选择 binding 持久化为主**：扩 `agent_provider_binding` 身份字段，不把 resume 扩成 generic config |
+| 恢复链路 | `internal/store/binding/*`、`internal/provider/unified/session_resolver.go`、`internal/module/thread/*`、`migrations/0048_binding_codex_identity.sql`（P1b=0045、P3=0046、P0 candidate=0047 后的下一个可用编号；实施时按 `ls migrations/` 再次校准） | **拍板选择 binding 持久化为主**：扩 `agent_provider_binding` 身份字段 `codex_home / codex_instance_key / codex_model_provider`，并**同步扩展 `prevent_agent_provider_binding_rebind()` trigger** 把三个新字段也纳入 immutable 检查（和 `provider` / `provider_thread_id` 同级别）；不把 resume 扩成 generic config |
 | 设置链路 | 前端 settings / launch payload | 冻结 active codex instance 的设置存储与发包路径，把 identity 三元组注入 `payload.config.*` |
 
 ## identity 与缺失硬报错
@@ -34,24 +34,32 @@
 - legacy default-home 只能通过显式 feature flag / env opt-in 打开，例如 `CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME=1`；**禁止**把它写进默认解析链。
 - `payload.config.*` 不能是完全开放 raw map：对 identity 三元组必须规定严格 key 名、兼容策略和 malformed payload 的 fail-fast 行为；unknown key、type mismatch、unsupported alias/provider/value 都必须硬报错。
 - 持久化到 binding 的 `codex_home` 必须是 canonicalized realpath，而不是用户原始输入字符串。
+- **`codexHome` 目录不存在时直接 `ErrCodexHomeNotFound`**：`EvalSymlinks` 遇 `ENOENT` 必须 fail fast；**禁止**自动 `mkdir -p`，也禁止 fallback 到默认 home。目录应由 host / installer 预先准备。
+- **binding identity 三字段一旦写入即不可变**：`agent_provider_binding.codex_home / codex_instance_key / codex_model_provider` 必须加入 `prevent_agent_provider_binding_rebind()` trigger 的 immutable 列表；若业务要切换实例，只允许"新建 agent + 新 binding"，不允许原地 UPDATE。测试必须覆盖 UPDATE 这三列会被 trigger 拒绝。
 
 ## 环境注入伪码
 
 ```go
-// 目标态伪码；当前真实 spawn 在 transport_process.go:224-245，尚无 cmd.Env 注入，
-// 实施时需同步补上。
-func (p *ServerPool) get(config map[string]any) (*ServerManager, error) {
-    ident, err := shared.ResolveCodexIdentity(config)
+// 目标态伪码；当前真实 spawn 在 transport_process.go:217-264，尚无 cmd.Env 注入，
+// 实施时需同步补上 allowlist env + 池化 + spawn backoff。
+var codexEnvAllowlist = []string{"PATH", "HOME", "USER", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR"}
+
+func (p *ServerPool) get(ctx context.Context, config map[string]any) (*ServerManager, error) {
+    ident, err := shared.ResolveCodexIdentity(config) // 已在阶段 0 冻结
     if err != nil {
         return nil, err
     }
-    mgr := p.ensure(ident.InstanceKey)
-    return mgr.startWithHome(ident.Home)
+    // ident.Home 已 canonicalized；不存在必须 ErrCodexHomeNotFound
+    mgr, err := p.ensureWithinCapacity(ident) // 含 pool 上限 + LRU idle shutdown + spawn backoff
+    if err != nil {
+        return nil, err // 可能为 ErrPoolExhausted / ErrSpawnBackoff
+    }
+    return mgr.startWithHome(ctx, ident.Home)
 }
 
-func (m *ServerManager) spawnLocal(home string) (*exec.Cmd, error) {
-    cmd := exec.Command("sh", "-c", "ulimit -n ...; exec codex app-server --listen ...")
-    cmd.Env = append(os.Environ(), "CODEX_HOME="+home)
+func (m *ServerManager) spawnLocal(ctx context.Context, home string) (*exec.Cmd, error) {
+    cmd := exec.CommandContext(ctx, "sh", "-c", "ulimit -n ...; exec codex app-server --listen ...")
+    cmd.Env = buildAllowlistedEnv(codexEnvAllowlist, map[string]string{"CODEX_HOME": home})
     return cmd, nil
 }
 ```
@@ -77,3 +85,7 @@ func (m *ServerManager) spawnLocal(home string) (*exec.Cmd, error) {
 - `payload.config.*` 必须验证 unknown key / unsupported alias-provider / 错误类型都 fail fast。
 - external `CODEX_APP_SERVER_URL` 模式必须验证不会被本地 manager / 二次选址覆盖。
 - `approvalPolicy=never` 必须验证只对白名单 provider / sandbox / tool 组合放行；不能被误解为所有审批都自动通过。
+- binding immutable trigger：验证对 `codex_home / codex_instance_key / codex_model_provider` 任一列做 UPDATE 必被 trigger 拒绝；旧字段（agent_id / provider / provider_thread_id）行为不回退。
+- `codexHome` 目录不存在：验证启动期 / resolve 期都返回 `ErrCodexHomeNotFound`，**不**自动 mkdir，也**不** fallback 到默认 home。
+- ServerPool 生命周期：验证 `CODEXAPP_POOL_MAX` 超限返回 `ErrPoolExhausted`；空闲 manager 在 idle 超时后被回收；spawn 失败命中指数退避，短时间内重复 get 不会连打底层进程。
+- allowlist env：验证 `cmd.Env` 不含宿主 `CODEX_XXX` / `PATH` 以外未声明变量；`CODEX_HOME` 必定由 pool 注入为 canonicalized realpath。

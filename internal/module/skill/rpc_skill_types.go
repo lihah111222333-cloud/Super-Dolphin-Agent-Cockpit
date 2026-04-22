@@ -31,6 +31,17 @@ type deleteLocalSkillParams struct {
 	CWD  string `json:"cwd,omitempty"`
 }
 
+// createSkillParams is the input to skills/create. It is the host-side entry
+// point for project-scope self-learning writes (P21 P0a): the caller supplies
+// a skill slug and SKILL.md content, scope is always project, and cwd is a
+// required field. CreateSkill is a thin wrapper over WriteLocal — the second
+// writer path for project scope is explicitly forbidden by the P21 plan.
+type createSkillParams struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+	CWD     string `json:"cwd"`
+}
+
 type skillConfigReadParams struct {
 	AgentID string `json:"agent_id"`
 }

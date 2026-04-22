@@ -50,6 +50,10 @@ type Service interface {
 	ReadLocal(ctx context.Context, path string) (any, error)
 	ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error)
 	WriteLocal(ctx context.Context, path, content string, scope ...string) (any, error)
+	// CreateSkill is the host-side project-scope self-learning entry point.
+	// It is a thin wrapper over WriteLocal(..., scope=project) and rejects
+	// requests missing cwd with ErrMissingCWD.
+	CreateSkill(ctx context.Context, p createSkillParams) (any, error)
 	ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error)
 	DeleteLocal(ctx context.Context, name string) (any, error)
 	ReadRemote(ctx context.Context, url string) (any, error)

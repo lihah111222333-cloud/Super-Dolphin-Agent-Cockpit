@@ -39,7 +39,7 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 | 共享 observation 层 | `internal/module/turn/observation.go` [NEW] | 由 P0b 交付，统一产出 turn / tool / token / terminal / dedupe 事实 |
 | 指标收集模块 | `internal/module/insight/{module.go,collector.go,service.go}` [NEW] | 只消费 observation 层输出，不再自建第二套 turn 归因规则 |
 | 存储层 | `internal/store/insight/{contract.go,module.go,store.go}` [NEW] | 基于 sqlc 读写 `public.session_insights` |
-| DDL + 查询 | `migrations/0045_session_insights.sql`、`sql/queries/session_insight.sql` [NEW] | 建表、聚合查询、按时间窗筛选 |
+| DDL + 查询 | `migrations/0046_session_insights.sql`、`sql/queries/session_insight.sql` [NEW] | 建表、聚合查询、按时间窗筛选；**编号以仓内实际下一可用为准**（当前已占到 `0044_drop_router_priority.sql`，Cron 预占 `0045`） |
 | API 层 | `internal/module/dashboard/rpc.go`、必要的 DTO/serializer [PATCH] | 首期仅新增 `dashboard/insights/list` 这类 host/API 读接口；**不另建独立 insight RPC namespace**，`ui/dashboard/get?page=insights` 与前端导航延后到未来 UI 轮次 |
 | 模块接线 | `internal/store/module.go`、`internal/app/modules.go`、根 `sqlc.yaml` | 把新 store / module 接进 DI 与 **root** sqlc 生成面 |
 
@@ -98,7 +98,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_session_insights_provider_turn
 
 > `success BOOLEAN` 必须保持 nullable，并一路延续到 sqlc / store contract。根 `sqlc.yaml` 已启用 `emit_pointers_for_null_types: true`，因此 collector 域模型字段也必须保持 `Success *bool`，不能在中间层偷改成 `bool`。
 >
-> P3 v1 **core-only**：只改根 `sqlc.yaml`，生成命令固定为仓库根的 `sqlc generate`，产物进入 `internal/store/sqlc/*`；**不改** `cmd/mcp-orch/sqlc.yaml`。
+> P3 v1 **core-only**：只改根 `sqlc.yaml`，生成命令固定为仓库根的 `sqlc generate`，产物进入 `internal/store/sqlc/*`；**不改** `cmd/mcp-orch/sqlc.yaml`。migration 文件名实施时按实际下一可用编号命名；当前口径为 `0046_session_insights.sql`。
 
 ## 收集来源建议
 
@@ -117,6 +117,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_session_insights_provider_turn
 - `ToolApprovalRequested` 生产仅在 codex path 命中（`internal/provider/codexapp/event_map.go:248-255`）；`internal/provider/claudecli/` 下 0 生产命中。Claude path 的 `approval_requests` 必须 **写 `approval_requests_observed=FALSE`**，值 0 为“未观测”而非“真实零次”；下游聚合查询需显式 `WHERE approval_requests_observed` 才能用于横向比较。当 Claude driver 未来补齐 approval 事件时，直接升级为 `observed=TRUE`，不改列名语义。
 - `TurnCompleted.Success` 是非指针 bool，collector 不能仅凭它决定成功 / 失败；unknown 语义必须保留到 `Success *bool`。
 - `success` / terminal status 的 precedence 要固定：`interrupted/aborted` 不能被 late `completed` 覆盖。
+- **写入模型强制 UPSERT by `(thread_id, local_turn_id)`**：flush worker 不得以 `provider_turn_id` 为主键 insert。具体语义：
+  - 新 turn：`INSERT ... ON CONFLICT (thread_id, local_turn_id) DO UPDATE ...`；
+  - 已有行收到 `provider_turn_id` / token snapshot：走 UPDATE 合并，不得另开新行；
+  - `uq_session_insights_provider_turn` 存在只是次级约束，命中冲突必须回退到按 `local_turn_id` 查找既有行并 UPDATE。
+- **terminal precedence 必须在 SQL 层 guard**，不是只靠 collector 的内存状态（进程崩溃重建时会覆写）。UPSERT 的 DO UPDATE 分支使用 `CASE` 保护：
+  - `status = CASE WHEN session_insights.status IN ('interrupted','aborted') THEN session_insights.status ELSE EXCLUDED.status END`；
+  - `success` 类似：已经是 false / interrupted precedence 的行不允许被 late `completed` 覆盖；
+  - token 非零计数：`token_total = GREATEST(session_insights.token_total, EXCLUDED.token_total)`，避免被 zero-event 回退。
+- **observed flag 的消费方强制过滤**：`sql/queries/session_insight.sql` 必须同时提供“带 `WHERE *_observed` 过滤的聚合变体”（如 `ListObservedApprovalRequests`），避免调用方忘记过滤而把 Claude 的未观测 0 与 codex 的真实 0 混到一起。
 - `session_insights` 只存聚合指标；原始调试仍看 raw provider event、task trace、system log。
 - 后续若要把 insights 用于 skill ranking / recommendation，应改 `internal/module/turn/skills.go` 或新 scorer；不要把排序逻辑塞回纯文件写入的 `skill/service.go`。
 - signed skill 验签延后到 P22；P3 不把 skill 已出现于 `skills_selected` 误写成已验签且已被模型执行。
@@ -136,3 +145,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_session_insights_provider_turn
 - API-only 收口：若有人要求 UI，必须额外列出 `DashboardPage + ui/dashboard/get?page=insights + 前端导航 / 页面` 改动，而不是文档里默认暗含。
 - partial unique index：构造 `thread_id+local_turn_id` 两者皆空 / `provider+agent_id+provider_turn_id` 任一空 的 fixture，验证 `uq_session_insights_*` 不因空串行务执错。
 - `*_observed` flag：Claude path assert `approval_requests_observed=FALSE`；codex path assert `approval_requests_observed=TRUE`；context-window-only `UITokensUpdated` assert `token_snapshot_observed` 保持原值不回退。
+- UPSERT 模型：先只带 `local_turn_id` 写入，再后到一条带 `provider_turn_id` 的事件，断言最终只有一条行且 provider_turn_id 被合并进同一行；不得产生第二行。
+- SQL-level terminal precedence：先写 `interrupted`，再写 `completed(success=true)`，断言 UPSERT 结果仍为 `interrupted`、`success` 未被翻转。
+- `observed` 过滤查询：`ListObservedApprovalRequests` 必须排除 Claude path 的 `approval_requests_observed=FALSE` 行；断言该查询结果的 avg / count 不被未观测 0 污染。
