@@ -191,3 +191,22 @@
 - `P4` 解决 dependency direction / hidden contract
 - `toolbridge` 同时命中两类问题：proxy serve / setter wiring 归 `P2`；平台层依赖 provider/store 归 `P4`
 - `orchestration` 同时命中两类问题：waiter/exit owner 归 `P3`；`Module` / `handler.Map` / 本地私扩接口 归 `P4`
+
+## 追加范围：MCP-LSP / Bootstrap Hidden Contracts
+
+### `cmd/mcp-lsp/gopls`
+
+- gopls transport 固定 `initialize` capability/workspaceFolders
+- 对 `workspace/configuration`、`client/registerCapability`、`client/unregisterCapability`、`window/workDoneProgress/create`、`workspace/*/refresh` 等 server request 返回默认响应
+- 这些 compatibility fallback 需要显式 protocol contract 与守卫测试，不能继续散落在 transport/client 实现中
+
+### `internal/mcpserver/common/bootstrap`
+
+- callback 协议当前对未知 method 默认成功 ACK；应改为 fail-closed，或在文档中明确这是刻意兼容
+- `Config.AgentID` 当前是 split-brain：注册路径发送空 `AgentID`，而 Context/PendingHooks 又把它当本地身份 hint 使用
+- hook subscribe desired-state、report queue、heartbeat、reconnect、final report 都属于 bootstrap owner 语义，需要显式化
+
+### 文档权威口径
+
+- `arch-import-direction.md` 目前只可作为旧扫描结果参考，不能作为 `P4` 的完整 authoritative baseline
+- `codemap` 中把 `ui/wails`、`toolbridge`、`orchestration` 等 live debt 写成稳定职责的段落，需要在后续文档同步中加 debt banner 或更新为 P22/P4 口径

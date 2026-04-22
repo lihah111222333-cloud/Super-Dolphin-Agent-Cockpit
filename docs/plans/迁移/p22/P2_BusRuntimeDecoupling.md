@@ -374,3 +374,33 @@ runtime 切换时，必须先把旧 watcher `detach + close + final flush` 完�
   - memory hook slow-path 不再直接跑在 bus callback 上
   - auto-dream 与 background extraction 在 stop 前完成 drain
   - `thread_metadata` 的 `BuildCtx` 恢复优先级在迁移后仍有测试守卫
+
+## 追加范围：MCP-LSP / Bootstrap Runtime
+
+本轮继续审查确认 `cmd/mcp-lsp/gopls` 与 `internal/mcpserver/common/bootstrap` 也存在 runtime ownership 类残留，归入 `P2` 的运行时收口清单。
+
+### MCP-LSP Gopls Runtime
+
+- `NewManagerPool()` 构造时启动 recycler loop，定时做 RSS 扫描、client shutdown/restore/recreate 等慢路径
+- LSP cache store 构造时启动 cleanup loop，维护 TTL/persist
+- transport 对 server request 使用 fire-and-forget responder goroutine，且没有明确 join/drain
+- diagnostics / grouping helper 使用 `context.Background()` 可能触发 install/spawn/recreate 慢路径
+
+目标：
+
+- recycler/cache cleanup/transport responder 由显式 owner 或 Runner 托管
+- constructor 不再偷跑 goroutine
+- Close/Shutdown 必须 join/drain
+- diagnostics/wait 这类只读路径不得触发 auto-install 或 client recreate
+
+### MCP Bootstrap Runtime
+
+- `stdio` EOF 当前能隐式接管 peer 进程寿命；peer mode 同时暴露 stdio 与 HTTP/discovery 时，必须明确谁拥有进程寿命
+- `SubscribeHooks` 首次失败目前可能是 warn-only，且失败时没有保存 desired state 以便 retry/replay
+- `OnShutdown`、`OnConfigChanged` 等 inbound callback 目前可异步 fire-and-forget，`Close()` 不 join/drain
+
+目标：
+
+- peer 生命周期 owner 不再由 inherited stdio EOF 隐式决定，除非文档显式冻结这种模式
+- hook subscribe 对 required topics 必须二选一：fatal gate，或保存 desired state 并持续 retry/replay
+- inbound callback 的 async 执行必须有 owner、cancel、join/drain 语义

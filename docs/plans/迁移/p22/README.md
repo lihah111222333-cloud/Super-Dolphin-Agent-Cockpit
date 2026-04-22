@@ -1,7 +1,7 @@
 # P22 `fx / bus / run.Group` 分层纠偏总览
 
 > 创建时间：2026-04-22 | 更新时间：2026-04-22 | 状态：**规划中**
-> 当前 authoritative 文档：`README.md`、[`P0_RuntimeOwnershipSkeleton.md`](P0_RuntimeOwnershipSkeleton.md)、[`P1a_CodexAppPeerSupervisor.md`](P1a_CodexAppPeerSupervisor.md)、[`P1b_PlatformLoopRunners.md`](P1b_PlatformLoopRunners.md)、[`P2_BusRuntimeDecoupling.md`](P2_BusRuntimeDecoupling.md)、[`P3_OrchestrationWaiterAlignment.md`](P3_OrchestrationWaiterAlignment.md)、[`P4_DependencyDirectionAndHiddenContracts.md`](P4_DependencyDirectionAndHiddenContracts.md)
+> 当前 authoritative 文档：`README.md`、[`P0_RuntimeOwnershipSkeleton.md`](P0_RuntimeOwnershipSkeleton.md)、[`P1a_CodexAppPeerSupervisor.md`](P1a_CodexAppPeerSupervisor.md)、[`P1b_PlatformLoopRunners.md`](P1b_PlatformLoopRunners.md)、[`P1c_CodexAppSessionRuntime.md`](P1c_CodexAppSessionRuntime.md)、[`P2_BusRuntimeDecoupling.md`](P2_BusRuntimeDecoupling.md)、[`P3_OrchestrationWaiterAlignment.md`](P3_OrchestrationWaiterAlignment.md)、[`P4_DependencyDirectionAndHiddenContracts.md`](P4_DependencyDirectionAndHiddenContracts.md)
 > 输入基线：2026-04-22 架构审查 findings 1-8；契约以 `docs/契约/modularity-convention.md §7`、`docs/契约/fx-convention.md §2 + §4.4`、`docs/契约/rungroup-convention.md §2 + §4` 为准
 
 ## 目标
@@ -30,7 +30,8 @@
 | **[P0](P0_RuntimeOwnershipSkeleton.md)** | 公共运行时骨架与守卫 | 统一整改模板、allowlist、archtest/grep guard | 0.5-1 天 | 🔲 未开动 |
 | **[P1a](P1a_CodexAppPeerSupervisor.md)** | CodexApp peer supervisor 收口 | Finding 1, 2 | 1-2 天 | 🔲 未开动 |
 | **[P1b](P1b_PlatformLoopRunners.md)** | 平台长跑 loop 抽 Runner | Finding 3, 4 | 1 天 | 🔲 未开动 |
-| **[P2](P2_BusRuntimeDecoupling.md)** | bus/runtime 解耦 | Finding 5, 6, 7 + thread/hooks/toolbridge/config fanout/keepalive/rpc push/memory hook 遗留问题 | 1.5-3.5 天 | 🔲 未开动 |
+| **[P1c](P1c_CodexAppSessionRuntime.md)** | CodexApp session runtime 收口 | session read/health/recovery hidden runtime | 1-2 天 | 🔲 未开动 |
+| **[P2](P2_BusRuntimeDecoupling.md)** | bus/runtime 解耦 | Finding 5, 6, 7 + thread/hooks/toolbridge/config fanout/keepalive/rpc push/memory hook/gopls/bootstrap runtime 遗留问题 | 1.5-3.5 天 | 🔲 未开动 |
 | **[P3](P3_OrchestrationWaiterAlignment.md)** | orchestration wait/exit 归位 | Finding 8 | 1-1.5 天 | 🔲 未开动 |
 | **[P4](P4_DependencyDirectionAndHiddenContracts.md)** | 依赖方向与隐藏契约收口 | `ui/wails`、`provider/claudecli`、`toolbridge`、`cmd/mcp-orch/orchestration`、`thread/turn` 的模块边界/隐藏 contract 违规 | 1.5-2.5 天 | 🔲 未开动 |
 
@@ -53,18 +54,20 @@
 P0
 ├─> P1a
 ├─> P1b
+├─> P1c
 ├─> P2
 ├─> P3
 └─> P4
 
 P1a ─┐
-P1b ─┼─> 总体验收 / 守卫收口
+P1b ─┤
+P1c ─┼─> 总体验收 / 守卫收口
 P2  ─┤
 P3  ─┤
 P4  ─┘
 ```
 
-> 直接依赖口径：`P0 → P1a/P1b/P2/P3/P4`。五个子计划可以并行设计，但代码合入前要统一通过 P0 的守卫口径。
+> 直接依赖口径：`P0 → P1a/P1b/P1c/P2/P3/P4`。六个子计划可以并行设计，但代码合入前要统一通过 P0 的守卫口径。
 
 ## 落地顺序建议
 
@@ -86,6 +89,7 @@ P4  ─┘
 - `internal/platform/hooks` 也已进入本轮 scope：hook relay 这类 bus callback -> fanout/escalate 路径必须改成 enqueue/worker/runner 形态，并具备 shutdown drain 语义。
 - `internal/platform/toolbridge` 也已进入本轮 scope：`Invoke` setter 注入、proxy `OnStart -> go ServeProxy(...)`、以及平台层依赖方向越界都需要单独收口。运行时 ownership 归 P22；依赖方向若不一并处理，至少要在计划里显式写出后续归口。
 - `internal/platform/mcpcontrol/config_change.go` 与 `internal/platform/cachekeepalive/*` 也已进入本轮 scope：前者当前在 bus 回调里直接做 config fanout，后者在 bus 回调里直接持有 keepalive timer/session runtime，均按 `P2` 处理。
+- `cmd/mcp-lsp/gopls` 与 `internal/mcpserver/common/bootstrap` 也已进入本轮 scope：前者的 constructor-owned recycler/cache/transport responder 归 `P2`，LSP compatibility shell 归 `P4`；后者的 stdio EOF owner、hook subscribe desired-state、async callback drain、callback fail-closed 和 `AgentID` 语义归 `P2/P4` 分轨收口。
 - `ui/wails`、`provider/claudecli`、以及 `cmd/mcp-orch/orchestration` 里的 `Module/handler.Map/consumer-local interface` 问题不再硬塞进 `P2/P3`，统一归到 `P4` 的 dependency-direction / hidden-contract 收口。
 
 ## 实施方式
