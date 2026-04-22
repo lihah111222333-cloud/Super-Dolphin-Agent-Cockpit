@@ -8,9 +8,13 @@ import (
 )
 
 const (
-	// EnvEnabled is the global on/off switch. When unset or falsy, NewService
-	// returns NoopClassifier and callers should see classifier.Enabled()=false.
-	EnvEnabled = "ENABLE_PROMPT_CLASSIFIER"
+	// EnvDisabled force-disables the classifier regardless of whether the
+	// claude CLI is on PATH. Used for tests, offline sandboxes, or when the
+	// operator wants to be doubly sure the subprocess never runs. Default
+	// semantics: when unset the backend auto-detects `claude` on PATH and
+	// enables itself; the per-request UseClassifier flag remains the real
+	// opt-in gate so no classification happens unless the UI asked for it.
+	EnvDisabled = "DISABLE_PROMPT_CLASSIFIER"
 	// EnvModel overrides the claude model used. Default: "haiku".
 	EnvModel = "PROMPT_CLASSIFIER_MODEL"
 	// EnvTimeoutSeconds overrides the classifier timeout. Default: 30s.
@@ -20,7 +24,9 @@ const (
 // Config is the classifier factory input. All fields have env fallbacks so
 // the fx wire-up is just NewConfigFromEnv + NewService.
 type Config struct {
-	Enabled bool
+	// Disabled, when true, forces NoopClassifier regardless of PATH. Default
+	// is false — the factory auto-detects the claude binary instead.
+	Disabled bool
 	// Binary is the claude CLI path. Empty = "claude" on PATH.
 	Binary string
 	// Model is a claude alias or full name. Empty = "haiku".
@@ -33,16 +39,23 @@ type Config struct {
 // constructs this at fx wire-up time and passes it to NewService.
 func NewConfigFromEnv() Config {
 	return Config{
-		Enabled: parseEnvBool(EnvEnabled, false),
-		Model:   strings.TrimSpace(os.Getenv(EnvModel)),
-		Timeout: parseEnvDuration(EnvTimeoutSeconds, 0),
+		Disabled: parseEnvBool(EnvDisabled, false),
+		Model:    strings.TrimSpace(os.Getenv(EnvModel)),
+		Timeout:  parseEnvDuration(EnvTimeoutSeconds, 0),
 	}
 }
 
-// NewService returns the configured Classifier. It never returns nil; a
-// disabled config maps to NoopClassifier so callers don't need a nil guard.
+// NewService returns the configured Classifier. It never returns nil:
+//   - DISABLE_PROMPT_CLASSIFIER=true forces NoopClassifier.
+//   - Otherwise it tries to wire the claude CLI; missing binary
+//     auto-degrades to NoopClassifier.
+//
+// This means the factory is safe to enable globally — the router still
+// only calls the classifier when the per-request UseClassifier flag is set
+// (that's the user-facing opt-in via the SystemPromptPage toggle), and
+// missing `claude` never causes hard failures.
 func NewService(cfg Config) Classifier {
-	if !cfg.Enabled {
+	if cfg.Disabled {
 		return NoopClassifier{}
 	}
 	return NewClaudeCLIClassifier(cfg.Binary, cfg.Model, cfg.Timeout)

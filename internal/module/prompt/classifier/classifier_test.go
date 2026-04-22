@@ -82,18 +82,21 @@ func TestBuildClassifierPrompt_IncludesKeysAndTriggers(t *testing.T) {
 
 func TestNewService_DisabledReturnsNoop(t *testing.T) {
 	t.Parallel()
-	c := NewService(Config{Enabled: false})
+	c := NewService(Config{Disabled: true})
 	if c.Enabled() {
-		t.Fatal("disabled config must yield Enabled()=false")
+		t.Fatal("Disabled=true must yield Enabled()=false")
 	}
 	if _, ok := c.(NoopClassifier); !ok {
-		t.Fatalf("expected NoopClassifier when disabled, got %T", c)
+		t.Fatalf("expected NoopClassifier when Disabled=true, got %T", c)
 	}
 }
 
-func TestNewService_EnabledButNoBinaryReturnsNoop(t *testing.T) {
+func TestNewService_MissingBinaryDegradesToNoop(t *testing.T) {
 	t.Parallel()
-	c := NewService(Config{Enabled: true, Binary: "definitely-not-on-path-xyz"})
+	// Auto-detect path: no Disabled flag, but binary name that will never
+	// be on PATH. Must degrade to NoopClassifier with Enabled()=false rather
+	// than panicking or returning a classifier that errors at runtime.
+	c := NewService(Config{Binary: "definitely-not-on-path-xyz"})
 	if c.Enabled() {
 		t.Fatal("missing binary must gracefully degrade to Enabled()=false")
 	}
