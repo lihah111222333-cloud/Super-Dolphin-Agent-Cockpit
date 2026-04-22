@@ -17,6 +17,14 @@ type PromptSection = contract.PromptSection
 
 type ResolvedPromptSection = contract.ResolvedPromptSection
 
+type MCPSnapshot = contract.MCPSnapshot
+
+type MCPAttachmentRef = contract.MCPAttachmentRef
+
+type OutputStyleConfig = contract.OutputStyleConfig
+
+type BuildCtx = contract.BuildCtx
+
 type SystemContext = contract.SystemContext
 
 type InvalidateReason = contract.InvalidateReason
