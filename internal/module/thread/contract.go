@@ -6,7 +6,13 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 )
+
+// SpawnRouting re-exports the shared dto type so in-package call sites can
+// keep using the short `thread.SpawnRouting` name. The canonical definition
+// lives in internal/dto/thread/event.go to avoid a thread↔turn import cycle.
+type SpawnRouting = threaddto.SpawnRouting
 
 type Service interface {
 	Start(ctx context.Context, req StartRequest) (StartResult, error)
@@ -18,8 +24,12 @@ type Service interface {
 	// SpawnIfNeeded forks the provider CLI for a thread that was created
 	// in pending_launch state (see Start with empty prompt). Safe to call
 	// concurrently; only the first caller per thread actually spawns.
-	// Returns launched=true iff this call performed the spawn.
-	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (launched bool, err error)
+	// Returns launched=true iff this call performed the spawn. When
+	// launched=true the returned SpawnRouting carries the routing decision
+	// (agent_key / prompt_key / prompt_version_id / merged_candidate_keys)
+	// so callers such as turn/start can forward it to the UI — pending-spawn
+	// threads never surface this on thread/start since routing runs lazily.
+	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (launched bool, routing threaddto.SpawnRouting, err error)
 
 	List(ctx context.Context) ([]Ref, error)
 	Get(ctx context.Context, id string) (*Ref, error)
@@ -112,6 +122,11 @@ type StartRequest struct {
 	// non-empty body). Not an input. Surfaced to the UI so the sidebar can
 	// render a "候选池 · N 条" badge with the exact keys in its tooltip.
 	MergedCandidateKeys []string
+	// MergedCandidateTitles runs in lock-step with MergedCandidateKeys:
+	// element i is the human-readable Title of MergedCandidateKeys[i]
+	// ("SQL 与数据建模专家"), falling back to the slug when the template row
+	// has no Title. The UI tooltip prefers these over raw slugs.
+	MergedCandidateTitles []string
 	// OwnerThreadID links this thread back to a predecessor (e.g. the source
 	// thread in a handoff). Empty for brand-new top-level threads.
 	OwnerThreadID string
@@ -139,12 +154,21 @@ type StartResult struct {
 	// the router picked, which prompt_template hit, and which prompt_versions
 	// row was injected.
 	AgentKey        string `json:"agent_key,omitempty"`
+	// AgentTitle is the human-readable persona label ("SQL 与数据建模专家") that
+	// the UI shows on the routing badge. For pool-merge threads this is
+	// "候选池 · N 条"; for single-template threads it is the template's
+	// Title. Empty when the caller took a path that did not touch the router.
+	AgentTitle      string `json:"agent_title,omitempty"`
 	PromptKey       string `json:"prompt_key,omitempty"`
 	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
 	// MergedCandidateKeys lists every prompt_key the P21 pool-merge path
 	// injected into BaseInstructions. Empty for the non-pool-merge paths
 	// (explicit pin, classifier, default fallback).
 	MergedCandidateKeys []string `json:"merged_candidate_keys,omitempty"`
+	// MergedCandidateTitles parallels MergedCandidateKeys: element i is the
+	// human-readable Title of the merged template (falls back to the slug
+	// when the row had no Title). The UI tooltip prefers these over slugs.
+	MergedCandidateTitles []string `json:"merged_candidate_titles,omitempty"`
 	// PendingLaunch=true means the backend wrote the thread row but did not
 	// fork the provider CLI yet. The real spawn happens on the first turn,
 	// once router has a real user input to classify. UI should render such
@@ -153,6 +177,8 @@ type StartResult struct {
 	TaskID        string `json:"task_id,omitempty"`
 	HandoffFile   string `json:"handoff_file,omitempty"`
 }
+
+
 
 type ResumeRequest struct {
 	Provider         string

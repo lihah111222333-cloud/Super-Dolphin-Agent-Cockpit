@@ -21,7 +21,7 @@ func TestSpawnIfNeeded_SkipsStoppedThread(t *testing.T) {
 	}}
 	svc := &service{threadStore: store}
 
-	launched, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-1", "hello")
+	launched, _, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-1", "hello")
 	if err != nil {
 		t.Fatalf("SpawnIfNeeded() error = %v, want nil", err)
 	}
@@ -42,7 +42,7 @@ func TestSpawnIfNeeded_SkipsArchivedThread(t *testing.T) {
 	}}
 	svc := &service{threadStore: store}
 
-	launched, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-2", "hello")
+	launched, _, err := svc.SpawnIfNeeded(context.Background(), "thread-pending-2", "hello")
 	if err != nil {
 		t.Fatalf("SpawnIfNeeded() error = %v, want nil", err)
 	}

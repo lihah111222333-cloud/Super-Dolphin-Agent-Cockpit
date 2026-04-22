@@ -222,4 +222,15 @@ type turnForceCompleteResult struct {
 
 type turnStartResult struct {
 	TurnID string `json:"turn_id"`
+	// Routing surfaced only for pending_launch threads whose first turn/start
+	// triggers SpawnIfNeeded. Eager-path threads already receive routing on
+	// thread/start; repeating it here is pointless and harmless (all four
+	// fields are zero/nil when turn/start is a no-op on the spawn axis and
+	// get elided by omitempty).
+	AgentKey              string   `json:"agent_key,omitempty"`
+	AgentTitle            string   `json:"agent_title,omitempty"`
+	PromptKey             string   `json:"prompt_key,omitempty"`
+	PromptVersionID       *int64   `json:"prompt_version_id,omitempty"`
+	MergedCandidateKeys   []string `json:"merged_candidate_keys,omitempty"`
+	MergedCandidateTitles []string `json:"merged_candidate_titles,omitempty"`
 }

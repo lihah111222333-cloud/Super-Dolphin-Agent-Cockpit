@@ -168,18 +168,19 @@ func (s *service) acquirePendingLaunchLock(threadID string) *sync.Mutex {
 // pending_launch on the agent_threads row. Safe to call concurrently; only the
 // first caller per thread actually spawns (guarded by acquirePendingLaunchLock).
 //
-// Returns (launched=true, nil) when this call performed the spawn.
-// Returns (false, nil) when the thread is already running (no-op).
-// Returns (false, err) when the thread exists but spawn failed; caller should
-// leave pending_launch=true so a later retry can proceed.
-func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (bool, error) {
+// Returns (launched=true, routing, nil) when this call performed the spawn;
+// routing captures the router decision so turn/start can forward it to the UI.
+// Returns (false, zero, nil) when the thread is already running (no-op).
+// Returns (false, zero, err) when the thread exists but spawn failed; caller
+// should leave pending_launch=true so a later retry can proceed.
+func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (bool, SpawnRouting, error) {
 	ctx = shared.NonNilContext(ctx)
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
-		return false, errors.New("thread: SpawnIfNeeded requires thread_id")
+		return false, SpawnRouting{}, errors.New("thread: SpawnIfNeeded requires thread_id")
 	}
 	if s == nil || s.threadStore == nil {
-		return false, errors.New("thread store is not configured")
+		return false, SpawnRouting{}, errors.New("thread store is not configured")
 	}
 
 	mu := s.acquirePendingLaunchLock(threadID)
@@ -188,7 +189,7 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 
 	row, needSpawn, err := s.loadPendingLaunchRow(ctx, threadID)
 	if err != nil || !needSpawn {
-		return false, err
+		return false, SpawnRouting{}, err
 	}
 
 	// Agent-id convention for threadStateStartKind: publicThreadID == agentID.
@@ -196,15 +197,26 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	agentID := threadID
 	req, err := buildPendingSpawnRequest(row, agentID, userInputForRouter)
 	if err != nil {
-		return false, err
+		return false, SpawnRouting{}, err
 	}
 	if err := s.prepareTaskHandoffStart(ctx, &req); err != nil {
-		return false, err
+		return false, SpawnRouting{}, err
 	}
 	if err := s.runPendingSpawn(ctx, &req, row, agentID, threadID); err != nil {
-		return false, err
+		return false, SpawnRouting{}, err
 	}
-	return true, nil
+	// req.* are populated by resolveRoutedPrompt inside runPendingSpawn. Copy
+	// the slices so later mutations on req can't race with the response path.
+	merged := append([]string(nil), req.MergedCandidateKeys...)
+	mergedTitles := append([]string(nil), req.MergedCandidateTitles...)
+	return true, SpawnRouting{
+		AgentKey:              req.AgentKey,
+		AgentTitle:            req.AgentTitle,
+		PromptKey:             req.PromptKey,
+		PromptVersionID:       req.PromptVersionID,
+		MergedCandidateKeys:   merged,
+		MergedCandidateTitles: mergedTitles,
+	}, nil
 }
 
 // loadPendingLaunchRow returns (row, true, nil) only when the agent_threads

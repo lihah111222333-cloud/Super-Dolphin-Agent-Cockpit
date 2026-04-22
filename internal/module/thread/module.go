@@ -10,6 +10,12 @@ import (
 	"go.uber.org/fx"
 )
 
+// Compile-time check: thread.Service must satisfy turn.PendingLaunchSpawner
+// so the fx graph below can publish it under that interface directly. The
+// shared threaddto.SpawnRouting type (in internal/dto/thread) keeps both
+// signatures identical without reviving a thread↔turn import cycle.
+var _ turn.PendingLaunchSpawner = (Service)(nil)
+
 type subscriptionParams struct {
 	fx.In
 

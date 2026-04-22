@@ -234,12 +234,14 @@ func (s *service) persistStartedSession(
 		ModelProvider:       req.ModelProvider,
 		CWD:                 effectiveCWD,
 		ApprovalPolicy:      req.ApprovalPolicy,
-		AgentKey:            req.AgentKey,
-		PromptKey:           req.PromptKey,
-		PromptVersionID:     req.PromptVersionID,
-		MergedCandidateKeys: req.MergedCandidateKeys,
-		TaskID:              firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
-		HandoffFile:         firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
+		AgentKey:              req.AgentKey,
+		AgentTitle:            req.AgentTitle,
+		PromptKey:             req.PromptKey,
+		PromptVersionID:       req.PromptVersionID,
+		MergedCandidateKeys:   req.MergedCandidateKeys,
+		MergedCandidateTitles: req.MergedCandidateTitles,
+		TaskID:                firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
+		HandoffFile:           firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
 	}, nil
 }
 
