@@ -153,21 +153,61 @@ func (h *Handler) persistentSubagentRequired(ctx context.Context, req ToolCallRe
 }
 
 func (h *Handler) toolCallRuntimeConfig(ctx context.Context, req ToolCallRequest) (map[string]any, bool) {
-	threadID := strings.TrimSpace(req.ThreadID)
-	if threadID == "" && h != nil && h.bindingStore != nil && strings.TrimSpace(req.AgentID) != "" {
-		if resolved, err := h.bindingStore.GetThreadByAgent(ctx, strings.TrimSpace(req.AgentID)); err == nil {
-			threadID = strings.TrimSpace(resolved)
-		}
+	threadID, ok := h.resolveToolCallThreadID(ctx, req)
+	if !ok {
+		return nil, false
 	}
-	if threadID == "" || h == nil || h.threadStore == nil {
+	return h.readToolCallRuntime(ctx, threadID)
+}
+
+func (h *Handler) resolveToolCallThreadID(ctx context.Context, req ToolCallRequest) (string, bool) {
+	if threadID, ok := resolveToolCallThreadIDFromRequest(req); ok {
+		return threadID, true
+	}
+	return h.resolveToolCallThreadIDFromAgent(ctx, req)
+}
+
+func resolveToolCallThreadIDFromRequest(req ToolCallRequest) (string, bool) {
+	threadID := strings.TrimSpace(req.ThreadID)
+	if threadID == "" {
+		return "", false
+	}
+	return threadID, true
+}
+
+func (h *Handler) resolveToolCallThreadIDFromAgent(ctx context.Context, req ToolCallRequest) (string, bool) {
+	if h == nil || h.bindingStore == nil {
+		return "", false
+	}
+	agentID := strings.TrimSpace(req.AgentID)
+	if agentID == "" {
+		return "", false
+	}
+	threadID, err := h.bindingStore.GetThreadByAgent(ctx, agentID)
+	if err != nil {
+		return "", false
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return "", false
+	}
+	return threadID, true
+}
+
+func (h *Handler) readToolCallRuntime(ctx context.Context, threadID string) (map[string]any, bool) {
+	if h == nil || h.threadStore == nil {
 		return nil, false
 	}
 	row, err := h.threadStore.GetByThreadID(ctx, threadID)
 	if err != nil || row == nil || len(row.ConfigOverride) == 0 {
 		return nil, false
 	}
+	return decodeStoredThreadRuntime(row.ConfigOverride)
+}
+
+func decodeStoredThreadRuntime(raw json.RawMessage) (map[string]any, bool) {
 	var stored storedThreadRuntime
-	if err := json.Unmarshal(row.ConfigOverride, &stored); err != nil || len(stored.Runtime) == 0 {
+	if err := json.Unmarshal(raw, &stored); err != nil || len(stored.Runtime) == 0 {
 		return nil, false
 	}
 	return stored.Runtime, true

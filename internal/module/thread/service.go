@@ -173,34 +173,64 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 		return err
 	}
 	binding, _ := s.resolveBinding(ctx, id)
-	// C1 fast-path: pending_launch threads have no binding / no runtime.
-	// Just delete the DB row and clean up the per-thread mutex.
-	if binding == nil && s.isThreadPendingLaunch(ctx, id) {
-		if s.threadStore == nil {
-			return errors.New("thread store is not configured")
-		}
-		if err := s.threadStore.DeleteByThreadID(ctx, id); err != nil {
-			return err
-		}
-		s.pendingLaunchMu.Delete(id)
-		s.publishThreadStopped(id, "", "deleted", "deleted_pending_launch")
-		return nil
+	if handled, err := s.deletePendingLaunchThread(ctx, id, binding); handled || err != nil {
+		return err
 	}
 	stopState := newThreadStopState(binding, id)
-	if binding != nil {
-		if err := s.stopThreadRuntime(ctx, stopState, "thread_deleted", true); err != nil {
-			return err
-		}
+	if err := s.deleteThreadRuntime(ctx, stopState, binding); err != nil {
+		return err
 	}
-	s.cleanupThreadScratchpad(ctx, id, binding)
-	if s.bindingStore != nil && binding != nil {
-		if err := s.bindingStore.DeleteByAgentID(ctx, strings.TrimSpace(binding.AgentID)); err != nil {
-			return err
-		}
+	if err := s.deleteThreadBinding(ctx, binding); err != nil {
+		return err
 	}
-	for _, targetID := range stopState.targets {
-		s.forgetThreadAgent(targetID)
+	return s.deleteThreadState(ctx, id, stopState, binding)
+}
+
+func (s *service) deletePendingLaunchThread(
+	ctx context.Context,
+	threadID string,
+	binding *bindingstore.Binding,
+) (bool, error) {
+	if binding != nil || !s.isThreadPendingLaunch(ctx, threadID) {
+		return false, nil
 	}
+	if s.threadStore == nil {
+		return true, errors.New("thread store is not configured")
+	}
+	if err := s.threadStore.DeleteByThreadID(ctx, threadID); err != nil {
+		return true, err
+	}
+	s.pendingLaunchMu.Delete(threadID)
+	s.publishThreadStopped(threadID, "", "deleted", "deleted_pending_launch")
+	return true, nil
+}
+
+func (s *service) deleteThreadRuntime(
+	ctx context.Context,
+	stopState threadStopState,
+	binding *bindingstore.Binding,
+) error {
+	if binding == nil {
+		return nil
+	}
+	return s.stopThreadRuntime(ctx, stopState, "thread_deleted", true)
+}
+
+func (s *service) deleteThreadBinding(ctx context.Context, binding *bindingstore.Binding) error {
+	if s.bindingStore == nil || binding == nil {
+		return nil
+	}
+	return s.bindingStore.DeleteByAgentID(ctx, strings.TrimSpace(binding.AgentID))
+}
+
+func (s *service) deleteThreadState(
+	ctx context.Context,
+	threadID string,
+	stopState threadStopState,
+	binding *bindingstore.Binding,
+) error {
+	s.cleanupThreadScratchpad(ctx, threadID, binding)
+	s.forgetThreadAgents(stopState.targets...)
 	if s.threadStore == nil {
 		return errors.New("thread store is not configured")
 	}
@@ -208,13 +238,14 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 		return err
 	}
 	s.cleanupThreadTurns(ctx, "thread_deleted", stopState.targets...)
-	s.publishThreadStopped(
-		stopState.stoppedID,
-		agentIDFromBinding(binding, stopState.stoppedID),
-		"deleted",
-		"deleted",
-	)
+	s.publishThreadStopped(stopState.stoppedID, agentIDFromBinding(binding, stopState.stoppedID), "deleted", "deleted")
 	return nil
+}
+
+func (s *service) forgetThreadAgents(threadIDs ...string) {
+	for _, threadID := range threadIDs {
+		s.forgetThreadAgent(threadID)
+	}
 }
 
 func (s *service) listThreads(ctx context.Context, filter func(threadstore.Thread) bool) ([]Ref, error) {

@@ -163,34 +163,31 @@ func isGenericManagedAgentToken(token string) bool {
 	}
 }
 
-func looksTechnicalManagedAgentName(value string) bool {
-	name := normalizeManagedAgentDisplayName(value)
-	if name == "" {
-		return true
-	}
-	if strings.ContainsAny(name, `/\`) {
-		return true
-	}
-	lower := strings.ToLower(name)
-	hasSpace := strings.ContainsRune(lower, ' ')
-	tokenFields := strings.FieldsFunc(lower, func(r rune) bool {
-		return r == ' ' || r == '-' || r == '_' || r == '.' || r == '/'
-	})
-	if !hasSpace && len(tokenFields) > 0 {
-		allGeneric := true
-		for _, token := range tokenFields {
-			if !isGenericManagedAgentToken(token) {
-				allGeneric = false
-				break
-			}
-		}
-		if allGeneric {
-			return true
-		}
-	}
-	if !hasASCIIOnly(lower) {
+func isManagedAgentTokenBoundary(r rune) bool {
+	return r == ' ' || r == '-' || r == '_' || r == '.' || r == '/'
+}
+
+func isEmptyOrPathLikeManagedAgentName(name string) bool {
+	return name == "" || strings.ContainsAny(name, `/\`)
+}
+
+func hasOnlyGenericManagedAgentTokens(lower string) bool {
+	if strings.ContainsRune(lower, ' ') {
 		return false
 	}
+	tokenFields := strings.FieldsFunc(lower, isManagedAgentTokenBoundary)
+	if len(tokenFields) == 0 {
+		return false
+	}
+	for _, token := range tokenFields {
+		if !isGenericManagedAgentToken(token) {
+			return false
+		}
+	}
+	return true
+}
+
+func hasManagedAgentTechnicalMarker(lower string) bool {
 	if strings.ContainsAny(lower, "-_.") {
 		return true
 	}
@@ -200,6 +197,21 @@ func looksTechnicalManagedAgentName(value string) bool {
 		}
 	}
 	return false
+}
+
+func looksTechnicalManagedAgentName(value string) bool {
+	name := normalizeManagedAgentDisplayName(value)
+	if isEmptyOrPathLikeManagedAgentName(name) {
+		return true
+	}
+	lower := strings.ToLower(name)
+	if hasOnlyGenericManagedAgentTokens(lower) {
+		return true
+	}
+	if !hasASCIIOnly(lower) {
+		return false
+	}
+	return hasManagedAgentTechnicalMarker(lower)
 }
 
 func stripManagedAgentListPrefix(line string) string {

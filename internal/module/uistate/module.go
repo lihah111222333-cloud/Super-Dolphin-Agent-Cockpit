@@ -161,19 +161,16 @@ func (s *service) applyTaskRuntimeToThreadRuntime(ctx context.Context, thread Th
 		rt = map[string]any{}
 		runtimeMap[threadID] = rt
 	}
-	if value := runtimeConfigStringValue(cfg, "taskId", "task_id"); value != "" {
-		rt["taskId"] = value
-	}
-	if value := runtimeConfigStringValue(cfg, "taskTitle", "task_title"); value != "" {
-		rt["taskTitle"] = value
-	}
-	if value := runtimeConfigStringValue(cfg, "handoffFile", "handoff_file"); value != "" {
-		rt["handoffFile"] = value
-	}
-	if value := runtimeConfigStringValue(cfg, "ownerThreadId", "owner_thread_id"); value != "" {
-		rt["ownerThreadId"] = value
-	}
+	setRuntimeStringField(rt, cfg, "taskId", "taskId", "task_id")
+	setRuntimeStringField(rt, cfg, "taskTitle", "taskTitle", "task_title")
+	setRuntimeStringField(rt, cfg, "handoffFile", "handoffFile", "handoff_file")
+	setRuntimeStringField(rt, cfg, "ownerThreadId", "ownerThreadId", "owner_thread_id")
+}
 
+func setRuntimeStringField(rt map[string]any, cfg map[string]any, field string, keys ...string) {
+	if value := runtimeConfigStringValue(cfg, keys...); value != "" {
+		rt[field] = value
+	}
 }
 
 func runtimeConfigReader(threads thread.Service) runtimeConfigLookup {
