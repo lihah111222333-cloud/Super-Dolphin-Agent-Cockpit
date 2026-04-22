@@ -222,6 +222,19 @@ func maybeClassifyPrompt(
 	if len(candidates) == 0 {
 		return
 	}
+	// Fast path: when tag-keyword overlap picks a clear winner (score >= 2
+	// AND runner-up gap >= 1), skip the 5-15s claude -p round trip entirely.
+	// The thresholds are deliberately tight so untagged rows like main/default
+	// can't hijack the fast path; anything ambiguous falls through to haiku.
+	if decision := classifier.FastPath(candidates, userInput); decision.Hit {
+		pkglogger.Info("router: classifier fast-path picked",
+			"prompt_key", decision.Picked.PromptKey,
+			"tag_score", decision.Score,
+			"tag_gap", decision.Gap,
+			"candidate_count", len(candidates))
+		req.PromptKey = decision.Picked.PromptKey
+		return
+	}
 	// Prune down to top-K by tag-keyword overlap before spending LLM tokens.
 	// With 11+ candidates in typical libraries, the untrimmed prompt pushes
 	// haiku latency into the 10s range; a 5-row list keeps it closer to 3-5s.
