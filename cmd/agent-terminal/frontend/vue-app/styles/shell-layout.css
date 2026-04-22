@@ -1253,6 +1253,31 @@ a,
   text-overflow: ellipsis;
 }
 
+/* 智能路由后的角色胶囊：贴在线程名字前面，比 .thread-agent-badge 更小
+ * 一圈以不恭（inline flow 下与文本同行排版）。*/
+.thread-agent-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+  padding: 0 7px;
+  height: 17px;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: rgba(8, 47, 73, 0.25);
+  color: rgba(125, 211, 252, 0.95);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  cursor: help;
+}
+
 .thread-pending-badge {
   flex-shrink: 0;
   border: 1px dashed rgba(148, 163, 184, 0.52);

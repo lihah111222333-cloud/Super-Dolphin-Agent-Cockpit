@@ -86,6 +86,11 @@ type StartRequest struct {
 	// with the picked template's key for downstream observability and UI
 	// display (agent_key is the role slug; prompt_key is the specific row).
 	PromptKey string
+	// AgentTitle is filled by resolveRoutedPrompt from picked.Title once the
+	// router settles on a template. Not an input. Surfaced to the UI so the
+	// sidebar can show a human-readable persona label ("SQL 与数据建模专家")
+	// next to the thread name instead of the opaque agent_key slug.
+	AgentTitle string
 	// UseClassifier opts this thread into Plan B: when the caller has NOT
 	// pinned a PromptKey and the router has real user input to work with,
 	// resolveRoutedPrompt runs the prompt classifier (claude -p subprocess

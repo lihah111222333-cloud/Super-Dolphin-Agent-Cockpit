@@ -103,6 +103,7 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 	// Per Risk 1 (b): still record agent_key / prompt_key for observability
 	// even if version materialization fails.
 	req.AgentKey = picked.AgentKey
+	req.AgentTitle = picked.Title
 	req.PromptKey = picked.PromptKey
 	req.BaseInstructions = picked.PromptText
 	if verr != nil {
@@ -151,16 +152,22 @@ func (s *service) pickRoutedTemplate(
 		picked := findEnabledByPromptKey(templates, pinned)
 		if picked != nil {
 			req.AgentKey = picked.AgentKey
+			req.AgentTitle = picked.Title
 			return picked
 		}
 		return nil
 	}
 	if explicit := strings.TrimSpace(req.AgentKey); explicit != "" {
-		return firstEnabledByAgentKey(templates, explicit)
+		picked := firstEnabledByAgentKey(templates, explicit)
+		if picked != nil {
+			req.AgentTitle = picked.Title
+		}
+		return picked
 	}
 	picked := findByPromptKey(templates, defaultPromptKey)
 	if picked != nil && picked.Enabled {
 		req.AgentKey = picked.AgentKey
+		req.AgentTitle = picked.Title
 		return picked
 	}
 	return nil
