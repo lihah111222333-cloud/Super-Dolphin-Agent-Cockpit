@@ -332,13 +332,13 @@ func (s *service) runPendingSpawn(
 		return fmt.Errorf("thread: prompt assembly: %w", err)
 	}
 	// When the classifier picked a persona that isn't the anonymous default,
-	// prefix the thread name with the agent_key badge. This is the one visible
-	// place to surface "you got routed to X" without adding a separate UI
-	// component: sidebar, chat header, and dashboard all show display_name.
-	// The prefix is a stable bracketed slug so the UI can style or strip it
-	// later if needed, and it never fires for an empty / default agent_key.
+	// prefix the thread name with a human-readable agent label. This is the
+	// one visible place to surface "you got routed to X" without adding a
+	// separate UI component: sidebar, chat header, and dashboard all show
+	// display_name. The prefix is a stable bracketed slug so the UI can parse
+	// it into a blue pill (see stores/thread-view.model.js:parseAgentBadge).
 	displayName := strings.TrimSpace(shared.FirstNonEmpty(assembly.DisplayName, row.Prompt))
-	displayName = prependAgentBadge(displayName, req.AgentKey)
+	displayName = prependAgentBadge(displayName, req.AgentTitle, req.AgentKey)
 	if err := s.launchAgent(ctx, agentID, req.CWD, displayName,
 		req.ParentAgentID, req.AgentType, req.AgentMemoryScope,
 		req.Provider, req.Model); err != nil {
@@ -363,17 +363,27 @@ func (s *service) runPendingSpawn(
 	return nil
 }
 
-// prependAgentBadge renders `[agent_key] displayName` when agent_key is a
-// non-default, non-empty routing slug. "main" is the fallback / unrouted
-// identity we already use when no classifier pick happens, so we skip the
-// badge for it — otherwise every thread would end up with a redundant
-// [main] prefix and the badge stops carrying information.
-func prependAgentBadge(displayName, agentKey string) string {
+// prependAgentBadge renders `[label] displayName` when the router picked a
+// non-default persona. Prefers the prompt_template's human-readable Title
+// ("SQL 与数据建模专家") because that's what users recognize; falls back to
+// the agent_key slug ("sql-expert") if Title is empty so the badge always
+// says *something* meaningful.
+//
+// The badge is skipped for the anonymous default identity (agent_key=="main")
+// — otherwise every un-classified thread would end up with a redundant
+// [通用助手] / [main] prefix and the badge stops carrying information.
+// Idempotent: applying the same label twice leaves the name unchanged so
+// retry spawns don't stack prefixes.
+func prependAgentBadge(displayName, agentTitle, agentKey string) string {
 	key := strings.TrimSpace(agentKey)
 	if key == "" || strings.EqualFold(key, "main") {
 		return displayName
 	}
-	prefix := "[" + key + "] "
+	label := strings.TrimSpace(agentTitle)
+	if label == "" {
+		label = key
+	}
+	prefix := "[" + label + "] "
 	if strings.HasPrefix(displayName, prefix) {
 		return displayName
 	}

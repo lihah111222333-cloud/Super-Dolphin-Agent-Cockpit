@@ -340,32 +340,41 @@ func TestResolveRoutedPrompt_ClassifierEmptyPickKeepsDefaultFallback(t *testing.
 
 func TestPrependAgentBadge_SkipsEmpty(t *testing.T) {
 	t.Parallel()
-	if got := prependAgentBadge("新对话", ""); got != "新对话" {
+	if got := prependAgentBadge("新对话", "", ""); got != "新对话" {
 		t.Fatalf("empty agent_key must not prepend: got %q", got)
 	}
 }
 
 func TestPrependAgentBadge_SkipsMainDefault(t *testing.T) {
 	t.Parallel()
-	if got := prependAgentBadge("新对话", "main"); got != "新对话" {
-		t.Fatalf("main agent_key must not prepend (it's the default): got %q", got)
+	if got := prependAgentBadge("新对话", "通用助手", "main"); got != "新对话" {
+		t.Fatalf("main agent_key must not prepend even when title is set: got %q", got)
 	}
-	if got := prependAgentBadge("新对话", "Main"); got != "新对话" {
+	if got := prependAgentBadge("新对话", "", "Main"); got != "新对话" {
 		t.Fatalf("case-insensitive main check failed: got %q", got)
 	}
 }
 
-func TestPrependAgentBadge_AddsBracketedPrefix(t *testing.T) {
+func TestPrependAgentBadge_PrefersTitleOverKey(t *testing.T) {
 	t.Parallel()
-	if got := prependAgentBadge("写一条 SQL", "sql_expert"); got != "[sql_expert] 写一条 SQL" {
-		t.Fatalf("expected bracketed prefix, got %q", got)
+	got := prependAgentBadge("写一条 SQL", "SQL 与数据建模专家", "sql-expert")
+	if got != "[SQL 与数据建模专家] 写一条 SQL" {
+		t.Fatalf("title should take precedence over slug, got %q", got)
+	}
+}
+
+func TestPrependAgentBadge_FallsBackToAgentKey(t *testing.T) {
+	t.Parallel()
+	got := prependAgentBadge("写一条 SQL", "", "sql-expert")
+	if got != "[sql-expert] 写一条 SQL" {
+		t.Fatalf("empty title should fall back to slug, got %q", got)
 	}
 }
 
 func TestPrependAgentBadge_Idempotent(t *testing.T) {
 	t.Parallel()
-	once := prependAgentBadge("写一条 SQL", "sql_expert")
-	twice := prependAgentBadge(once, "sql_expert")
+	once := prependAgentBadge("写一条 SQL", "SQL 与数据建模专家", "sql-expert")
+	twice := prependAgentBadge(once, "SQL 与数据建模专家", "sql-expert")
 	if once != twice {
 		t.Fatalf("applying prefix twice should be no-op: %q vs %q", once, twice)
 	}

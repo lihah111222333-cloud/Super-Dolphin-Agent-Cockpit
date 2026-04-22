@@ -1,5 +1,7 @@
 // @ts-nocheck
 
+import { parseAgentBadge } from '../../stores/thread-view.model.js';
+
 export const ThreadRailSidePanel = {
   name: 'ThreadRailSidePanel',
   props: {
@@ -30,6 +32,7 @@ export const ThreadRailSidePanel = {
   setup(_, { emit }) {
     return {
       emit,
+      parseAgentBadge,
     };
   },
   template: `
@@ -171,7 +174,11 @@ export const ThreadRailSidePanel = {
               v-else
               class="thread-rail-name"
               @click.stop="emit('begin-inline-rename', thread.id)"
-            >{{ thread.name }}</strong>
+            ><span
+              v-if="parseAgentBadge(thread.name).label"
+              class="thread-agent-pill"
+              :title="'智能路由：' + parseAgentBadge(thread.name).label"
+            >{{ parseAgentBadge(thread.name).label }}</span>{{ parseAgentBadge(thread.name).name }}</strong>
             <button
               v-if="editingThreadId !== thread.id"
               type="button"
