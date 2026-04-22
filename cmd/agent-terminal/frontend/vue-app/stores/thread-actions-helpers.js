@@ -375,6 +375,17 @@ export async function startThread(ctx, cwd = '.', options = {}) {
       }
     } catch {}
   }
+  // Plan B opt-in: when the user enabled 'settings.classifierEnabled' for
+  // this cwd, forward use_classifier=true so the backend router runs the
+  // prompt classifier on first-turn user input. Harmless when prompt_key is
+  // also set (explicit pin short-circuits the classifier backend-side).
+  // Errors silently ignored so pref read never blocks thread creation.
+  try {
+    const classifierEnabled = await callAPI('ui/preferences/get', { key: 'settings.classifierEnabled', cwd });
+    if (classifierEnabled === true || classifierEnabled === 'true') {
+      payload.use_classifier = true;
+    }
+  } catch {}
   // First user message (if any) forwarded so the backend router has input
   // to classify. Without this the router always sees empty input at
   // thread/start and falls back to no injection — see
