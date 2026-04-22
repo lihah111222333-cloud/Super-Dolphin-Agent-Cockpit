@@ -75,6 +75,71 @@ func tagOverlapScore(tags []string, normalizedInput string) int {
 	return score
 }
 
+// FastPathDecision is what FastPath returns: either a confident pick (Picked,
+// Hit=true) that lets the caller skip the LLM entirely, or Hit=false meaning
+// the tag signal was too weak / too ambiguous and the caller should fall
+// through to the LLM classifier.
+type FastPathDecision struct {
+	Picked Candidate
+	Hit    bool
+	Score  int
+	Gap    int
+}
+
+// FastPath tries to avoid the 5-15s claude -p round trip when the user's
+// message has a clear, high-confidence tag overlap with exactly one
+// candidate. The decision is intentionally conservative:
+//
+//   - top candidate must score >= minScore (default 2) non-zero tag matches,
+//   - top score must exceed the runner-up by >= minGap (default 1).
+//
+// Both thresholds are deliberately harsher than "something matched": the
+// original prompt-routing layer was removed from the project precisely
+// because a loose keyword match could silently shadow a user's intent, and
+// we don't want to reintroduce that. Anything below confidence falls
+// through to the LLM so haiku makes the judgement call. Candidates with no
+// tags (e.g. main/default) can never beat tagged rows here, which is why
+// this path never routes to the default persona.
+func FastPath(candidates []Candidate, userInput string) FastPathDecision {
+	if len(candidates) == 0 {
+		return FastPathDecision{}
+	}
+	return fastPathWithThresholds(candidates, userInput, 2, 1)
+}
+
+// fastPathWithThresholds is the tuning-exposed variant; production callers
+// use FastPath which pins the defaults. Tests drive this directly so the
+// threshold story stays auditable.
+func fastPathWithThresholds(candidates []Candidate, userInput string, minScore, minGap int) FastPathDecision {
+	normalized := normalizeForMatch(userInput)
+	if normalized == "" {
+		return FastPathDecision{}
+	}
+	topIdx := -1
+	topScore := 0
+	secondScore := 0
+	for i, c := range candidates {
+		s := tagOverlapScore(c.Tags, normalized)
+		switch {
+		case s > topScore:
+			secondScore = topScore
+			topScore = s
+			topIdx = i
+		case s > secondScore:
+			secondScore = s
+		}
+	}
+	if topIdx < 0 || topScore < minScore || topScore-secondScore < minGap {
+		return FastPathDecision{Score: topScore, Gap: topScore - secondScore}
+	}
+	return FastPathDecision{
+		Picked: candidates[topIdx],
+		Hit:    true,
+		Score:  topScore,
+		Gap:    topScore - secondScore,
+	}
+}
+
 // normalizeForMatch lowercases and collapses whitespace so case-insensitive
 // substring matching works across ASCII and CJK without pulling in a real
 // tokenizer. It intentionally keeps punctuation because trigger tags often

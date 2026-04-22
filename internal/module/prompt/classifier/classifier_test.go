@@ -184,3 +184,74 @@ func TestTagOverlapScore_EmptyInputs(t *testing.T) {
 		t.Fatalf("empty input should score 0, got %d", s)
 	}
 }
+
+func TestFastPath_ClearWinner(t *testing.T) {
+	t.Parallel()
+	cands := []Candidate{
+		{PromptKey: "main/default", Tags: nil},
+		{PromptKey: "main/code-review", Tags: []string{"code review", "审核代码", "review 一下"}},
+		{PromptKey: "main/sql", Tags: []string{"写 SQL"}},
+	}
+	d := FastPath(cands, "帮我 code review 一下这段审核代码 function")
+	if !d.Hit {
+		t.Fatalf("expected hit for unambiguous code-review query, got %+v", d)
+	}
+	if d.Picked.PromptKey != "main/code-review" {
+		t.Fatalf("want main/code-review, got %q", d.Picked.PromptKey)
+	}
+	if d.Score < 2 {
+		t.Fatalf("unambiguous query should score >= 2, got %d", d.Score)
+	}
+}
+
+func TestFastPath_InsufficientScore(t *testing.T) {
+	t.Parallel()
+	cands := []Candidate{
+		{PromptKey: "main/writing", Tags: []string{"帮我写"}},
+		{PromptKey: "main/sql", Tags: []string{"写 SQL"}},
+	}
+	d := FastPath(cands, "帮我写一封邮件") // only 1 tag matches writing
+	if d.Hit {
+		t.Fatalf("single-tag match must NOT trigger fast path (LLM should decide): %+v", d)
+	}
+}
+
+func TestFastPath_AmbiguousGap(t *testing.T) {
+	t.Parallel()
+	cands := []Candidate{
+		{PromptKey: "main/a", Tags: []string{"alpha", "bravo"}},
+		{PromptKey: "main/b", Tags: []string{"alpha", "bravo"}},
+	}
+	d := FastPath(cands, "alpha bravo")
+	if d.Hit {
+		t.Fatalf("two candidates with equal score must fall through: %+v", d)
+	}
+	if d.Gap != 0 {
+		t.Fatalf("gap should be 0 for tied candidates, got %d", d.Gap)
+	}
+}
+
+func TestFastPath_NeverPicksUntaggedDefault(t *testing.T) {
+	t.Parallel()
+	// main/default has no tags; can't beat anything, even on a vague input.
+	cands := []Candidate{
+		{PromptKey: "main/default", Tags: nil},
+		{PromptKey: "main/sql", Tags: []string{"写 SQL", "JOIN"}},
+	}
+	// Input only weakly matches main/sql; main/default still can't win.
+	d := FastPath(cands, "some random text with JOIN 写 SQL")
+	if d.Hit && d.Picked.PromptKey == "main/default" {
+		t.Fatal("untagged default must never win fast path")
+	}
+}
+
+func TestFastPath_EmptyInput(t *testing.T) {
+	t.Parallel()
+	cands := []Candidate{{PromptKey: "main/sql", Tags: []string{"sql"}}}
+	if FastPath(cands, "").Hit {
+		t.Fatal("empty input must not hit")
+	}
+	if FastPath(cands, "   ").Hit {
+		t.Fatal("whitespace-only input must not hit")
+	}
+}
