@@ -1,7 +1,7 @@
 # P22 `fx / bus / run.Group` 分层纠偏总览
 
 > 创建时间：2026-04-22 | 更新时间：2026-04-22 | 状态：**规划中**
-> 当前 authoritative 文档：`README.md`、[`P0_RuntimeOwnershipSkeleton.md`](P0_RuntimeOwnershipSkeleton.md)、[`P1a_CodexAppPeerSupervisor.md`](P1a_CodexAppPeerSupervisor.md)、[`P1b_PlatformLoopRunners.md`](P1b_PlatformLoopRunners.md)、[`P2_BusRuntimeDecoupling.md`](P2_BusRuntimeDecoupling.md)、[`P3_OrchestrationWaiterAlignment.md`](P3_OrchestrationWaiterAlignment.md)
+> 当前 authoritative 文档：`README.md`、[`P0_RuntimeOwnershipSkeleton.md`](P0_RuntimeOwnershipSkeleton.md)、[`P1a_CodexAppPeerSupervisor.md`](P1a_CodexAppPeerSupervisor.md)、[`P1b_PlatformLoopRunners.md`](P1b_PlatformLoopRunners.md)、[`P2_BusRuntimeDecoupling.md`](P2_BusRuntimeDecoupling.md)、[`P3_OrchestrationWaiterAlignment.md`](P3_OrchestrationWaiterAlignment.md)、[`P4_DependencyDirectionAndHiddenContracts.md`](P4_DependencyDirectionAndHiddenContracts.md)
 > 输入基线：2026-04-22 架构审查 findings 1-8；契约以 `docs/契约/modularity-convention.md §7`、`docs/契约/fx-convention.md §2 + §4.4`、`docs/契约/rungroup-convention.md §2 + §4` 为准
 
 ## 目标
@@ -14,7 +14,10 @@
 
 ## 当前基线约束
 
-- 根进程边界允许存在一个“root runtime bridge”，例如 `app/cmd` 层在 `OnStart` 中拉起唯一的 `RunGroup`。这属于进程边界，不是模块级 runtime owner。
+- 根进程边界允许存在一个“root runtime bridge”，例如进程入口在 `OnStart` 中拉起唯一的 `RunGroup`。这属于进程入口 bridge，不是模块级 runtime owner。
+- 当前 root runtime bridge 的已知实现面是 [internal/app/runner.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/app/runner.go) 的 `BindRuntime(...)`、[cmd/mcp-orch/runtime.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/runtime.go) 的 `bindRuntime(...)`、[cmd/mcp-lsp/fx.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-lsp/fx.go) 的 `bindRuntime(...)`、[cmd/mcp-ida/fx.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-ida/fx.go) 的 `bindRuntime(...)`。P22 的守卫只豁免这种“汇总 `group:\"runners\"` 后调用 `platformrunner.RunGroup(...)` 的 root-entry bridge 形态”，不按整个文件豁免。
+- root bridge 内只允许保留 `RunGroup` 桥接、退出日志、失败通知、`Shutdown()`、以及 `OnStop` 中的 cancel/join/drain；不允许继续在 bridge 内塞 ticker、watcher、supervisor 或业务 worker。
+- [internal/app/app.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/app/app.go) 里的 `watchFXShutdown(...)` 归类为桌面线程失败通知辅助路径，不属于 root runtime bridge allowlist 本体，也不自动为其它 watcher 类代码提供豁免理由。
 - 模块级 `fx.Invoke` 不得承担进程拉起、watcher 启动、ticker/sweeper/cleanup loop 启动，也不得承担 post-construction mutation 注入。
 - bus 订阅回调内不得直接做 `Sleep`、`go`、进程/会话/watcher 创建、重 DB/网络 I/O；这类动作必须先出回调，再进入显式 worker/runner。
 - `run.Group` actor 的 `Run(ctx)` 不得再 fire-and-forget 新的业务 goroutine；若确需辅助 goroutine，必须由明确 owner 封装并具备可等待、可回收的 stop 语义。
@@ -27,8 +30,9 @@
 | **[P0](P0_RuntimeOwnershipSkeleton.md)** | 公共运行时骨架与守卫 | 统一整改模板、allowlist、archtest/grep guard | 0.5-1 天 | 🔲 未开动 |
 | **[P1a](P1a_CodexAppPeerSupervisor.md)** | CodexApp peer supervisor 收口 | Finding 1, 2 | 1-2 天 | 🔲 未开动 |
 | **[P1b](P1b_PlatformLoopRunners.md)** | 平台长跑 loop 抽 Runner | Finding 3, 4 | 1 天 | 🔲 未开动 |
-| **[P2](P2_BusRuntimeDecoupling.md)** | bus/runtime 解耦 | Finding 5, 6, 7 | 1.5-2 天 | 🔲 未开动 |
+| **[P2](P2_BusRuntimeDecoupling.md)** | bus/runtime 解耦 | Finding 5, 6, 7 + thread/hooks/toolbridge/config fanout/keepalive/rpc push/memory hook 遗留问题 | 1.5-3.5 天 | 🔲 未开动 |
 | **[P3](P3_OrchestrationWaiterAlignment.md)** | orchestration wait/exit 归位 | Finding 8 | 1-1.5 天 | 🔲 未开动 |
+| **[P4](P4_DependencyDirectionAndHiddenContracts.md)** | 依赖方向与隐藏契约收口 | `ui/wails`、`provider/claudecli`、`toolbridge`、`cmd/mcp-orch/orchestration`、`thread/turn` 的模块边界/隐藏 contract 违规 | 1.5-2.5 天 | 🔲 未开动 |
 
 ## Findings 对照表
 
@@ -50,15 +54,17 @@ P0
 ├─> P1a
 ├─> P1b
 ├─> P2
-└─> P3
+├─> P3
+└─> P4
 
 P1a ─┐
 P1b ─┼─> 总体验收 / 守卫收口
 P2  ─┤
-P3  ─┘
+P3  ─┤
+P4  ─┘
 ```
 
-> 直接依赖口径：`P0 → P1a/P1b/P2/P3`。四个子计划可以并行设计，但代码合入前要统一通过 P0 的守卫口径。
+> 直接依赖口径：`P0 → P1a/P1b/P2/P3/P4`。五个子计划可以并行设计，但代码合入前要统一通过 P0 的守卫口径。
 
 ## 落地顺序建议
 
@@ -66,19 +72,35 @@ P3  ─┘
 2. `P1a` 与 `P1b` 优先，因为它们分别修掉 `codexapp` 和平台层最硬的 runtime owner 退化点。
 3. `P2` 随后处理 memory 这类 bus/runtime 混层点，避免继续沿着事件回调堆 watcher/scheduler。
 4. `P3` 最后收口 orchestration wait/exit 路径，因为它可能牵涉 launcher/process handle contract 微调。
+5. `P4` 与 `P2/P3` 并行推进，但它处理的是 dependency-direction / hidden-contract 债，不要混写成 runtime ownership 修复。
 
 ## 收口口径
 
-- `fx.Invoke` 仅保留 handler/subscriber/runner 注册、启动恢复、一次性图校验。
+- `fx.Invoke` 仅保留 handler/subscriber/runner 注册、启动恢复、一次性图校验；root-entry bridge 通过 `fx.Invoke(BindRuntime/bindRuntime)` 接入属于进程入口例外，不属于模块级业务 `Invoke` 的放宽。
 - `fx.Lifecycle.OnStart` 不再直接 `go` 长跑 loop；若是长期运行，必须有 `Runner` 或等价 owner。
+- 模块级 lifecycle 允许保留 stop cleanup 和 subscriber wiring，例如 registry final cleanup、config-change 订阅、connect 回放挂钩；P22 不把这些轻量 lifecycle 接线一律误判成 Runner 化目标。
 - bus 回调默认只能做两类事：同步更新轻量内存状态；非阻塞写入 channel/queue。
 - `run.Group` 内的 actor 不再自行散射 fire-and-forget goroutine；动态等待/监控必须通过显式 monitor/handle contract 收口。
 - 每个整改点都要附带最小验证：启动、停止、异常退出、重复恢复、无 goroutine/进程泄漏。
+- `internal/module/thread` 已进入本轮 scope：`Invoke` 后置注入、事件回调里的 session recovery / binding 更新 / task-handoff 重 I/O、以及 `backgroundResumeIfNeeded(...)` 这类 service-owned runtime 也按 P2 同一口径处理。
+- `internal/platform/hooks` 也已进入本轮 scope：hook relay 这类 bus callback -> fanout/escalate 路径必须改成 enqueue/worker/runner 形态，并具备 shutdown drain 语义。
+- `internal/platform/toolbridge` 也已进入本轮 scope：`Invoke` setter 注入、proxy `OnStart -> go ServeProxy(...)`、以及平台层依赖方向越界都需要单独收口。运行时 ownership 归 P22；依赖方向若不一并处理，至少要在计划里显式写出后续归口。
+- `internal/platform/mcpcontrol/config_change.go` 与 `internal/platform/cachekeepalive/*` 也已进入本轮 scope：前者当前在 bus 回调里直接做 config fanout，后者在 bus 回调里直接持有 keepalive timer/session runtime，均按 `P2` 处理。
+- `ui/wails`、`provider/claudecli`、以及 `cmd/mcp-orch/orchestration` 里的 `Module/handler.Map/consumer-local interface` 问题不再硬塞进 `P2/P3`，统一归到 `P4` 的 dependency-direction / hidden-contract 收口。
+
+## 实施方式
+
+- P22 默认按 `TDD` 执行：先写会失败的守卫/行为测试，再做最小修复，最后做重构清理。
+- 修复完成后必须删除旧入口、旧 helper、旧 goroutine 路径，不能以“先保留一条 legacy path 兜底”的方式收尾，除非子计划明确写了临时双轨窗口和删除时点。
+- 不接受“新 runner 已接上，但旧 `Invoke`/`OnStart`/bus 回调还留着”的半迁移状态；验收口径是 ownership 真正单一化。
+- 每个子计划的最终提交至少包含三类变化：失败测试、实现修复、旧实现删除或内联收口。
+- 若某处需要临时兼容层，必须同时写出删除条件；没有删除条件的兼容层视为垃圾代码。
 
 ## 非目标
 
 - 本轮不重写 `internal/app/runner.go` 这类根进程 runtime bridge。
 - 本轮不顺手统一所有 provider/session 内部辅助 goroutine，只处理 findings 命中的强违规路径。
 - 本轮不改变业务语义，例如 peer restart policy、approval timeout 规则、TeamSync 功能范围；只改变 ownership 与 wiring。
+- `P22` 的主轴仍是 runtime ownership；`P4` 只是把审查中新确认的模块边界/隐藏契约违规纳入同一批计划管理，不意味着两类问题可以混用验收口径。
 
 **总计**：约 4-6 天。真正的难点不在代码量，而在把“谁负责跑、谁负责停、谁只负责接线”重新钉死。
