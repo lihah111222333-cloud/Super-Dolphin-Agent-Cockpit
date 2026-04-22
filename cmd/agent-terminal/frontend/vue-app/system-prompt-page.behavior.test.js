@@ -17,7 +17,7 @@ vi.mock('./services/log.js', () => ({
   logWarn: vi.fn(),
 }));
 
-import { SystemPromptPage, isReadonlyFallbackListError, PREF_KEY_ACTIVE_PROMPT } from './pages/SystemPromptPage.js';
+import { SystemPromptPage, isReadonlyFallbackListError, PREF_KEY_ACTIVE_PROMPT, PREF_KEY_CLASSIFIER_ENABLED } from './pages/SystemPromptPage.js';
 
 function createPage(overrides = {}) {
   const props = {
@@ -352,6 +352,63 @@ describe('SystemPromptPage behavior', () => {
     await vm.setLaunchPrompt({ id: 'main/launch-fav' });
     expect(apiMock.callAPI).not.toHaveBeenCalled();
     expect(vm.notice.message).toContain('只读降级');
+  });
+
+  it('toggleClassifier persists enabled=true under cwd-scoped preference', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({ ok: true });
+
+    const { vm } = createPage();
+    await vm.toggleClassifier(true);
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+      key: PREF_KEY_CLASSIFIER_ENABLED,
+      value: true,
+      cwd: '/test-repo',
+    });
+    expect(vm.classifierEnabled.value).toBe(true);
+    expect(vm.notice.message).toContain('已开启智能启动');
+  });
+
+  it('toggleClassifier persists enabled=false and updates notice', async () => {
+    apiMock.callAPI
+      .mockResolvedValueOnce({ ok: true }) // enable
+      .mockResolvedValueOnce({ ok: true }); // disable
+
+    const { vm } = createPage();
+    await vm.toggleClassifier(true);
+    await vm.toggleClassifier(false);
+
+    expect(apiMock.callAPI).toHaveBeenLastCalledWith('ui/preferences/set', {
+      key: PREF_KEY_CLASSIFIER_ENABLED,
+      value: false,
+      cwd: '/test-repo',
+    });
+    expect(vm.classifierEnabled.value).toBe(false);
+    expect(vm.notice.message).toContain('已关闭智能启动');
+  });
+
+  it('loadClassifierEnabled hydrates true from preference get', async () => {
+    apiMock.callAPI.mockResolvedValueOnce(true);
+
+    const { vm } = createPage();
+    const got = await vm.loadClassifierEnabled();
+
+    expect(got).toBe(true);
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/get', {
+      key: PREF_KEY_CLASSIFIER_ENABLED,
+      cwd: '/test-repo',
+    });
+    expect(vm.classifierEnabled.value).toBe(true);
+  });
+
+  it('loadClassifierEnabled defaults to false when preference missing', async () => {
+    apiMock.callAPI.mockResolvedValueOnce(null);
+
+    const { vm } = createPage();
+    const got = await vm.loadClassifierEnabled();
+
+    expect(got).toBe(false);
+    expect(vm.classifierEnabled.value).toBe(false);
   });
 
   it('copyPromptContent reports empty', async () => {

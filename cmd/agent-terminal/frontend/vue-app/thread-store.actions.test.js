@@ -272,6 +272,53 @@ describe('thread store actions', () => {
     });
   });
 
+  it('forwards use_classifier=true when settings.classifierEnabled preference is on', async () => {
+    const store = useThreadStore();
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.classifierEnabled') return true;
+        if (payload?.key === 'settings.activePromptKey') return '';
+        return 'codex';
+      }
+      if (method === 'thread/start') return { thread: { id: 'thread-classified' } };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-classified', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', {});
+    await flushAsync();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
+      cwd: '/repo',
+      modelProvider: 'codex',
+      use_classifier: true,
+    });
+  });
+
+  it('omits use_classifier when preference is missing or false', async () => {
+    const store = useThreadStore();
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.classifierEnabled') return false;
+        if (payload?.key === 'settings.activePromptKey') return '';
+        return 'codex';
+      }
+      if (method === 'thread/start') return { thread: { id: 'thread-no-classify' } };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-no-classify', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', {});
+    await flushAsync();
+
+    // thread/start payload must not carry use_classifier at all
+    const call = apiMock.callAPI.mock.calls.find(([method]) => method === 'thread/start');
+    expect(call).toBeDefined();
+    expect(call[1]).not.toHaveProperty('use_classifier');
+  });
+
   it('gets and sets thread config via dedicated backend RPCs', async () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {

@@ -33,6 +33,11 @@ import { logDebug, logInfo, logWarn } from '../services/log.js';
 // helpers.js startThread() and forwarded to the backend as `prompt_key`, which
 // the router consumes via internal/module/thread/router_resolve.go.
 export const PREF_KEY_ACTIVE_PROMPT = 'settings.activePromptKey';
+// Plan B opt-in. When true, startThread forwards use_classifier=true so the
+// backend router runs the prompt classifier (claude -p subprocess) on the
+// first-turn user input and auto-picks a prompt_template from the full
+// library. Ignored when PREF_KEY_ACTIVE_PROMPT is set — explicit pin wins.
+export const PREF_KEY_CLASSIFIER_ENABLED = 'settings.classifierEnabled';
 
 function resolveProjectCwd(projectStore) {
   return (projectStore?.state?.active || '').toString().trim();
@@ -131,6 +136,51 @@ function filterPromptCards(cards, activeTab) {
   return activeTab === 'all' ? cards : cards.filter(c => c.agentType === activeTab);
 }
 
+async function fetchClassifierEnabled(cwd) {
+  if (!cwd) return false;
+  try {
+    const value = await callAPI('ui/preferences/get', { key: PREF_KEY_CLASSIFIER_ENABLED, cwd });
+    return value === true || value === 'true';
+  } catch (error) {
+    logDebug('system-prompt', 'classifier.load.failed', { error });
+    return null;
+  }
+}
+
+async function persistClassifierEnabled(cwd, enabled) {
+  await callAPI('ui/preferences/set', { key: PREF_KEY_CLASSIFIER_ENABLED, value: Boolean(enabled), cwd });
+}
+
+function createClassifierActions(deps) {
+  const { getCwd, classifierEnabled, setNotice } = deps;
+  async function loadClassifierEnabled() {
+    const next = await fetchClassifierEnabled(getCwd());
+    if (next === null) return classifierEnabled.value;
+    classifierEnabled.value = Boolean(next);
+    return classifierEnabled.value;
+  }
+  async function toggleClassifier(next) {
+    const cwd = getCwd();
+    if (!cwd) { setNotice('error', '当前作用域未确定，无法保存开关'); return; }
+    const desired = Boolean(next);
+    try {
+      await persistClassifierEnabled(cwd, desired);
+      classifierEnabled.value = desired;
+      setNotice('info', desired ? '已开启智能启动分类；新对话会以第一条消息自动选提示词' : '已关闭智能启动分类');
+    } catch (error) {
+      logWarn('system-prompt', 'classifier.persist.failed', { error });
+      setNotice('error', `切换智能启动失败：${toErrorMessage(error)}`);
+    }
+  }
+  return { loadClassifierEnabled, toggleClassifier };
+}
+
+function refreshPromptsInBackground(loaders) {
+  for (const loader of loaders) {
+    if (typeof loader === 'function') loader().catch(() => {});
+  }
+}
+
 function createLaunchPromptActions(deps) {
   const { getCwd, fallbackMode, activePromptId, activatingId, setNotice, setReadonlyActionNotice } = deps;
   async function loadActivePromptId() {
@@ -198,6 +248,10 @@ export const SystemPromptPage = {
     // can pin different prompts independently.
     const activePromptId = ref('');
     const activatingId = ref('');
+    // Plan B opt-in: when true, startThread forwards use_classifier=true so
+    // the backend router auto-picks a prompt_template from the full library
+    // via claude -p. Explicit activePromptId still wins backend-side.
+    const classifierEnabled = ref(false);
     const form = reactive({
       id: '',
       name: '',
@@ -370,9 +424,8 @@ export const SystemPromptPage = {
       }
     }
 
-    const { loadActivePromptId, setLaunchPrompt, clearLaunchPrompt } = createLaunchPromptActions({
-      getCwd, fallbackMode, activePromptId, activatingId, setNotice, setReadonlyActionNotice,
-    });
+    const { loadActivePromptId, setLaunchPrompt, clearLaunchPrompt } = createLaunchPromptActions({ getCwd, fallbackMode, activePromptId, activatingId, setNotice, setReadonlyActionNotice });
+    const { loadClassifierEnabled, toggleClassifier } = createClassifierActions({ getCwd, classifierEnabled, setNotice });
 
     async function copyPromptContent(item) {
       const text = (item?.content || '').trim();
@@ -432,10 +485,7 @@ export const SystemPromptPage = {
       }
     }
 
-    function refreshPromptsSilently() {
-      loadPrompts().catch(() => {});
-      loadActivePromptId().catch(() => {});
-    }
+    const refreshPromptsSilently = () => refreshPromptsInBackground([loadPrompts, loadActivePromptId, loadClassifierEnabled]);
 
     // ── Lifecycle ───────────────────────────────────
     onMounted(() => {
@@ -460,10 +510,12 @@ export const SystemPromptPage = {
       editorOpen, editorMode, saving, deletingId,
       createDisabled, saveDisabled, deleteDisabled,
       activePromptId, activatingId, activateDisabled,
+      classifierEnabled,
       form, cwdDisplay,
       switchTab, loadPrompts, savePrompt, deletePrompt,
       copyPromptContent, openCreate, openEdit, closeEditor,
       setLaunchPrompt, clearLaunchPrompt, loadActivePromptId,
+      toggleClassifier, loadClassifierEnabled,
       truncate, countStats,
     };
   },
@@ -474,6 +526,10 @@ export const SystemPromptPage = {
       <div class="panel-header" data-testid="sp-header">
         <div class="ph-bar"></div>
         <div class="ph-text"><h2>System 提示词管理</h2></div>
+        <label class="sp-classifier-toggle" data-testid="sp-classifier-toggle" :title="'开启后，新对话的第一条消息会由 claude haiku 在库中自动选提示词。显式「设为启动」仍然会优先用那条。'">
+          <input type="checkbox" :checked="classifierEnabled" @change="toggleClassifier($event.target.checked)" data-testid="sp-classifier-checkbox" />
+          <span>智能启动分类</span>
+        </label>
         <span class="sp-cwd-badge" data-testid="sp-cwd-badge" :title="cwdDisplay">
           <svg class="sp-cwd-icon" viewBox="0 0 16 16" fill="none">
             <path d="M2 4.5A1.5 1.5 0 013.5 3h3.293a1 1 0 01.707.293L8.707 4.5H12.5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z" stroke="currentColor" stroke-width="1.2"/>
