@@ -222,6 +222,11 @@ func maybeClassifyPrompt(
 	if len(candidates) == 0 {
 		return
 	}
+	// Prune down to top-K by tag-keyword overlap before spending LLM tokens.
+	// With 11+ candidates in typical libraries, the untrimmed prompt pushes
+	// haiku latency into the 10s range; a 5-row list keeps it closer to 3-5s.
+	beforePrune := len(candidates)
+	candidates = classifier.PruneCandidates(candidates, userInput, classifier.MaxCandidatesFromEnv())
 	res, err := c.Classify(ctx, classifier.Input{UserInput: userInput, Candidates: candidates})
 	if err != nil {
 		pkglogger.Warn("router: classify failed",
@@ -242,7 +247,8 @@ func maybeClassifyPrompt(
 		"reason", res.Reason,
 		"latency_ms", res.Latency.Milliseconds(),
 		"model", res.Model,
-		"candidate_count", len(candidates))
+		"candidate_count", len(candidates),
+		"candidate_count_pre_prune", beforePrune)
 	req.PromptKey = res.PromptKey
 }
 

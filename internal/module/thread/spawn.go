@@ -8,10 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // isPendingLaunchIntent reports whether a StartRequest should be treated as a
@@ -277,15 +280,50 @@ func (s *service) runPendingSpawn(
 	row *threadstore.Thread,
 	agentID, threadID string,
 ) error {
-	// Router + prompt_versions materialization.
-	s.resolveRoutedPrompt(ctx, req)
 	if req.PromptAssemblyRef == nil {
 		req.PromptAssemblyRef = s.promptAssembly
 	}
-	assemblyInput, cleanupScratchpad, err := s.buildStartAssemblyInput(*req, agentID)
-	if err != nil {
+	// Overlap the classifier (dominated by a 5-15s `claude -p` subprocess when
+	// the Plan B opt-in is on) with buildStartAssemblyInput (local filesystem
+	// scratchpad prep + buildCtx). The assembly step only depends on classifier
+	// output for two fields — BaseInstructions and DeveloperInstructions —
+	// which we patch in after both goroutines settle. Every other input
+	// (cwd, git root, MCP snapshot, session flags, scratchpad dir, ...) is
+	// already present on the pre-classifier snapshot, so splitting the work
+	// here is safe and shaves whatever the scratchpad/mcp-config I/O path
+	// costs (∼200–500ms in typical setups) off the user-visible first-turn
+	// latency.
+	snapshot := *req
+	parallelStart := time.Now()
+
+	g, gCtx := errgroup.WithContext(ctx)
+	var assemblyInput contract.StartInput
+	var cleanupScratchpad func()
+
+	g.Go(func() error {
+		s.resolveRoutedPrompt(gCtx, req)
+		return nil
+	})
+	g.Go(func() error {
+		var aerr error
+		assemblyInput, cleanupScratchpad, aerr = s.buildStartAssemblyInput(snapshot, agentID)
+		return aerr
+	})
+	if err := g.Wait(); err != nil {
+		if cleanupScratchpad != nil {
+			cleanupScratchpad()
+		}
 		return fmt.Errorf("thread: assembly input: %w", err)
 	}
+	// Fold classifier-owned fields into the assembly input. snapshot captured
+	// them pre-classifier; *req has the post-classifier values now.
+	assemblyInput.BaseInstructions = req.BaseInstructions
+	assemblyInput.DeveloperInstructions = req.DeveloperInstructions
+	pkglogger.Info("thread: pending spawn parallel prep done",
+		"duration_ms", time.Since(parallelStart).Milliseconds(),
+		"prompt_key", req.PromptKey,
+		"agent_key", req.AgentKey)
+
 	agentLaunched := false
 	cleanupOnFailure := true
 	defer cleanupPendingSpawn(ctx, s, &cleanupOnFailure, cleanupScratchpad, &agentLaunched, agentID)
@@ -293,7 +331,14 @@ func (s *service) runPendingSpawn(
 	if err != nil {
 		return fmt.Errorf("thread: prompt assembly: %w", err)
 	}
+	// When the classifier picked a persona that isn't the anonymous default,
+	// prefix the thread name with the agent_key badge. This is the one visible
+	// place to surface "you got routed to X" without adding a separate UI
+	// component: sidebar, chat header, and dashboard all show display_name.
+	// The prefix is a stable bracketed slug so the UI can style or strip it
+	// later if needed, and it never fires for an empty / default agent_key.
 	displayName := strings.TrimSpace(shared.FirstNonEmpty(assembly.DisplayName, row.Prompt))
+	displayName = prependAgentBadge(displayName, req.AgentKey)
 	if err := s.launchAgent(ctx, agentID, req.CWD, displayName,
 		req.ParentAgentID, req.AgentType, req.AgentMemoryScope,
 		req.Provider, req.Model); err != nil {
@@ -316,6 +361,23 @@ func (s *service) runPendingSpawn(
 	s.pendingLaunchMu.Delete(threadID)
 	publishPendingSpawnLaunched(s, req, row, session, agentID, threadID, displayName)
 	return nil
+}
+
+// prependAgentBadge renders `[agent_key] displayName` when agent_key is a
+// non-default, non-empty routing slug. "main" is the fallback / unrouted
+// identity we already use when no classifier pick happens, so we skip the
+// badge for it — otherwise every thread would end up with a redundant
+// [main] prefix and the badge stops carrying information.
+func prependAgentBadge(displayName, agentKey string) string {
+	key := strings.TrimSpace(agentKey)
+	if key == "" || strings.EqualFold(key, "main") {
+		return displayName
+	}
+	prefix := "[" + key + "] "
+	if strings.HasPrefix(displayName, prefix) {
+		return displayName
+	}
+	return prefix + displayName
 }
 
 // cleanupPendingSpawn is the shared `defer` target for runPendingSpawn. It

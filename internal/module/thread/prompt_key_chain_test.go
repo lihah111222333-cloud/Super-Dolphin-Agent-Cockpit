@@ -337,3 +337,36 @@ func TestResolveRoutedPrompt_ClassifierEmptyPickKeepsDefaultFallback(t *testing.
 		t.Fatalf("want default fallback when classifier punts, got %q", req.PromptKey)
 	}
 }
+
+func TestPrependAgentBadge_SkipsEmpty(t *testing.T) {
+	t.Parallel()
+	if got := prependAgentBadge("新对话", ""); got != "新对话" {
+		t.Fatalf("empty agent_key must not prepend: got %q", got)
+	}
+}
+
+func TestPrependAgentBadge_SkipsMainDefault(t *testing.T) {
+	t.Parallel()
+	if got := prependAgentBadge("新对话", "main"); got != "新对话" {
+		t.Fatalf("main agent_key must not prepend (it's the default): got %q", got)
+	}
+	if got := prependAgentBadge("新对话", "Main"); got != "新对话" {
+		t.Fatalf("case-insensitive main check failed: got %q", got)
+	}
+}
+
+func TestPrependAgentBadge_AddsBracketedPrefix(t *testing.T) {
+	t.Parallel()
+	if got := prependAgentBadge("写一条 SQL", "sql_expert"); got != "[sql_expert] 写一条 SQL" {
+		t.Fatalf("expected bracketed prefix, got %q", got)
+	}
+}
+
+func TestPrependAgentBadge_Idempotent(t *testing.T) {
+	t.Parallel()
+	once := prependAgentBadge("写一条 SQL", "sql_expert")
+	twice := prependAgentBadge(once, "sql_expert")
+	if once != twice {
+		t.Fatalf("applying prefix twice should be no-op: %q vs %q", once, twice)
+	}
+}
