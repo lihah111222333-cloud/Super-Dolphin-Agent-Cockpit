@@ -309,15 +309,30 @@ export function buildVisibleChatThreadCards(opts) {
       agentKey: (typeof routingOf === 'function'
         ? ((routingOf(threadId) || {}).agentKey || '')
         : '').toString().trim(),
+      // Human-readable persona label ("SQL 与数据建模专家" or "候选池 · N 条")
+      // surfaced by thread/start or turn/start; the badge shows this rather
+      // than the opaque slug so users recognize which prompt is active.
+      agentTitle: (typeof routingOf === 'function'
+        ? ((routingOf(threadId) || {}).agentTitle || '')
+        : '').toString().trim(),
       promptKey: (typeof routingOf === 'function'
         ? ((routingOf(threadId) || {}).promptKey || '')
         : '').toString().trim(),
-      // P21 pool-merge: non-empty only when the candidate-pool path ran,
-      // lists every prompt_key that contributed a Claude multi-source
-      // block. UI renders a "候选池 · N 条" badge with these keys in its
-      // tooltip when set. Other routing paths leave this empty.
+      // P21 pool-merge: `thread.mergedCandidateKeys.length > 0` drives the
+      // “候选池 · N 条” badge in ThreadRailSidePanel. Must be materialized
+      // here (not left as undefined) because v-if touches .length on it.
       mergedCandidateKeys: (typeof routingOf === 'function'
-        ? ((routingOf(threadId) || {}).mergedCandidateKeys || [])
+        ? (Array.isArray((routingOf(threadId) || {}).mergedCandidateKeys)
+            ? (routingOf(threadId) || {}).mergedCandidateKeys
+            : [])
+        : []),
+      // Friendly titles aligned by index with mergedCandidateKeys, used as
+      // the tooltip so users see "通用助手、SQL 与数据建模专家…" instead of
+      // "main/default、main/sql…".
+      mergedCandidateTitles: (typeof routingOf === 'function'
+        ? (Array.isArray((routingOf(threadId) || {}).mergedCandidateTitles)
+            ? (routingOf(threadId) || {}).mergedCandidateTitles
+            : [])
         : []),
       // C1 pending-launch: thread row exists but provider CLI has not been
       // forked yet (awaiting first turn). Card renders a "待启动" marker and

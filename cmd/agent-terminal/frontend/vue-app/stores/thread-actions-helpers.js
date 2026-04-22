@@ -315,6 +315,45 @@ export function clearThreadRouting(threadId) {
   if (threadId) _routingByThread.delete(threadId);
 }
 
+// applyTurnStartRouting merges routing fields surfaced by a turn/start
+// response into _routingByThread. Only non-empty fields overwrite; this is
+// the path pending_launch threads take, since thread/start returned an empty
+// StartResult for them (routing had not happened yet). Eager-path threads
+// already have routing from thread/start and the turn/start response is
+// expected to omit the fields — we leave their entry untouched.
+// Returns true when the stored entry changed so the caller can decide whether
+// to poke the runtime state and force a UI rerender.
+function applyTurnStartRouting(threadId, res) {
+  if (!threadId || !res || typeof res !== 'object') return false;
+  const agentKey = (res.agent_key || res.agentKey || '').toString().trim();
+  const agentTitle = (res.agent_title || res.agentTitle || '').toString().trim();
+  const promptKey = (res.prompt_key || res.promptKey || '').toString().trim();
+  const promptVersionId =
+    typeof res.prompt_version_id === 'number' ? res.prompt_version_id
+    : typeof res.promptVersionId === 'number' ? res.promptVersionId
+    : null;
+  const mergedRaw = res.merged_candidate_keys || res.mergedCandidateKeys;
+  const mergedCandidateKeys = Array.isArray(mergedRaw)
+    ? mergedRaw.map((k) => (typeof k === 'string' ? k.trim() : '')).filter((k) => k !== '')
+    : [];
+  const mergedTitlesRaw = res.merged_candidate_titles || res.mergedCandidateTitles;
+  const mergedCandidateTitles = Array.isArray(mergedTitlesRaw)
+    ? mergedTitlesRaw.map((k) => (typeof k === 'string' ? k.trim() : '')).filter((k) => k !== '')
+    : [];
+  if (!agentKey && !agentTitle && !promptKey && promptVersionId == null && mergedCandidateKeys.length === 0) return false;
+  const prev = _routingByThread.get(threadId) || {};
+  _routingByThread.set(threadId, {
+    agentKey: agentKey || prev.agentKey || '',
+    agentTitle: agentTitle || prev.agentTitle || '',
+    promptKey: promptKey || prev.promptKey || '',
+    promptVersionId: promptVersionId != null ? promptVersionId : (prev.promptVersionId ?? null),
+    mergedCandidateKeys: mergedCandidateKeys.length > 0 ? mergedCandidateKeys : (prev.mergedCandidateKeys || []),
+    mergedCandidateTitles: mergedCandidateTitles.length > 0 ? mergedCandidateTitles : (prev.mergedCandidateTitles || []),
+    overridden: prev.overridden === true,
+  });
+  return true;
+}
+
 // Per-thread pending_launch flag. Set from thread/start response when the
 // backend took the C1 pending_launch path (no CLI fork yet); cleared once the
 // first turn/start succeeds (CLI has been forked) or when the thread is
@@ -439,6 +478,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // Capture routing metadata the backend surfaced (see
   // internal/module/thread/rpc.go newStartHandler response map).
   const agentKey = (res?.agent_key || res?.agentKey || '').toString().trim();
+  const agentTitle = (res?.agent_title || res?.agentTitle || '').toString().trim();
   const promptKey = (res?.prompt_key || res?.promptKey || '').toString().trim();
   const promptVersionId =
     typeof res?.prompt_version_id === 'number' ? res.prompt_version_id
@@ -453,12 +493,20 @@ export async function startThread(ctx, cwd = '.', options = {}) {
         .map((k) => (typeof k === 'string' ? k.trim() : ''))
         .filter((k) => k !== '')
     : [];
-  if (agentKey || promptKey || promptVersionId != null || mergedCandidateKeys.length > 0) {
+  const mergedCandidateTitlesRaw = res?.merged_candidate_titles || res?.mergedCandidateTitles;
+  const mergedCandidateTitles = Array.isArray(mergedCandidateTitlesRaw)
+    ? mergedCandidateTitlesRaw
+        .map((k) => (typeof k === 'string' ? k.trim() : ''))
+        .filter((k) => k !== '')
+    : [];
+  if (agentKey || agentTitle || promptKey || promptVersionId != null || mergedCandidateKeys.length > 0) {
     _routingByThread.set(id, {
       agentKey,
+      agentTitle,
       promptKey,
       promptVersionId,
       mergedCandidateKeys,
+      mergedCandidateTitles,
       overridden: Boolean(agentKeyOverride),
     });
   }
@@ -615,21 +663,34 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     // surfaced via the standard catch path below.
     const userText = input.filter((i) => i?.type === 'text').map((i) => i.text).join('\n').trim();
     if (userText || attachments.length > 0) upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments);
+    let turnStartRes;
     try {
-      await callAPI('turn/start', requestPayload);
+      turnStartRes = await callAPI('turn/start', requestPayload);
     } catch (turnError) {
       if (isSessionNotAvailableError(turnError)) {
         logWarn('thread', 'send.auto_recover', { thread_id: threadId, error: turnError });
         await recoverThread(ctx, threadId);
-        await callAPI('turn/start', requestPayload);
+        turnStartRes = await callAPI('turn/start', requestPayload);
       } else {
         throw turnError;
       }
     }
+    // pending-launch threads get their routing decision lazily (SpawnIfNeeded
+    // runs inside turn/start, not thread/start), so the backend surfaces it
+    // here on the first successful turn. Merge-only: empty fields are ignored
+    // so eager-path threads keep the routing that thread/start already set.
+    const routingUpdated = applyTurnStartRouting(threadId, turnStartRes);
     // C1: first successful turn/start means the backend has forked the CLI
     // (SpawnIfNeeded ran for pending threads, eager threads were already
     // running). Clear the pending badge so the sidebar card flips to normal.
     setThreadPendingLaunch(threadId, false);
+    // _routingByThread is a module-scoped Map — Vue has no dependency on it,
+    // so computed props that already rendered the thread card won't rerun on
+    // their own. Poke the whitelisted runtime state so the sidebar recomputes
+    // and picks up the fresh routing from routingOf(threadId).
+    if (routingUpdated) {
+      await ctx.syncRuntimeState();
+    }
     // Note: syncThreadState and loadMessages are NOT called here.
     // They would overwrite the optimistic user message with backend state
     // that doesn't contain user text yet (JSONL not written until turn completes).
