@@ -150,17 +150,22 @@
 
 | 文件 | 行 | import | 说明 |
 | --- | ---: | --- | --- |
-| `internal/ui/wails/module.go` | 9 | `cmd/mcp-orch/orchestration` | `ui/wails` 直接依赖 `module/`，违反“只经 `rpc.Server.Dispatch`”约束 |
+| `internal/ui/wails/rpc.go` | 10 | `internal/module/uistate` | Wails RPC handler 直接注入 `uistate.Service`，违反“只经 `rpc.Server.Dispatch` / contract facade”约束 |
+| `internal/ui/wails/scope_catalog.go` | 10 | `internal/module/uistate` | Wails scope 解析直接消费 `uistate.ProjectsState`，形成 UI 侧对 owner state shape 的隐藏契约 |
 
 补充说明：
 
-- `internal/ui/wails/module.go:30-33` 已通过 `server.Dispatch` 注入 `App.dispatch`，这条链路是合规的。
-- 但同文件 `NewActiveAgentCounter` 仍直接接收 `orchestration.Service` 并调用 `ListAgents`（`internal/ui/wails/module.go:41-58`），因此 import 不是“未使用”，而是实质性跨层调用。
-- 对 `internal/ui/wails/**/*.go` 做 `text_search("internal/store")` 无命中；当前违规只在 `module/` 方向。
+- `internal/ui/wails/module.go` 当前已从直接依赖 orchestration concrete 收敛为依赖 `contract.OrchestrationService`，不再是本规则的包方向违规点。
+- `NewActiveAgentCounter` 仍在 UI 侧按 agent state 负面枚举重算 active 语义；这属于 hidden contract 债务，已归入 `docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md`。
+- 对 `internal/ui/wails/**/*.go` 做 `text_search("internal/store")` 无命中；当前 import 违规集中在 `module/uistate` 方向。
 
 ## 最终结论
 
-- 当前 import 方向的主要问题集中在两处：
+- 本文是一次历史扫描记录，不再覆盖全部 live debt；P22/P4 是当前依赖方向与隐藏契约的 authoritative 追踪入口。
+- 当前已知 import / hidden-contract 问题至少包括：
   1. `contract/dto` 还没有收敛到“仅标准库”的纯边界层。
-  2. `ui/wails` 仍有一条直连 `module/orchestration` 的跨层依赖。
-- 其余四条方向约束，在本次 LSP 全包扫描下未发现违规点。
+  2. `ui/wails` 仍直连 `module/uistate`。
+  3. `provider/claudecli` 仍反向依赖 `module/*`。
+  4. `platform/toolbridge` 仍直连 provider concrete 与业务 store。
+  5. `cmd/mcp-orch/orchestration` 仍暴露 `Module` / `handler.Map` / hidden side-channel contract。
+- 其余方向约束的状态以最新 archtest 与 `docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md` 为准，不能再从本文旧扫描结果外推“全仓无违规”。
