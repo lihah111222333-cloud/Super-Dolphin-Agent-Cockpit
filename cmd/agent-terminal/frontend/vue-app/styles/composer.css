@@ -478,17 +478,6 @@
   gap: 6px;
 }
 
-.data-card-clickable {
-  cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-
-.data-card-clickable:hover,
-.data-card-clickable:focus-visible {
-  border-color: var(--accent, #4c6ef5);
-  outline: none;
-}
-
 .data-row-vue {
   display: flex;
   justify-content: space-between;

@@ -34,7 +34,7 @@ describe('DataPage', () => {
     });
 
     const vm = DataPage.setup(props);
-    expect(typeof vm.onCardClick).toBe('function');
+    expect(vm).toEqual({});
 
     props.items.push({ id: 'agent-1' });
     await nextTick();
@@ -43,38 +43,5 @@ describe('DataPage', () => {
       page: 'agents',
       count: 1,
     });
-  });
-
-  it('emits select when a card is clicked and clickable is true', () => {
-    const props = reactive({
-      pageId: 'dags',
-      title: 'DAG',
-      icon: 'D',
-      items: [],
-      emptyText: '暂无',
-      fields: [],
-      clickable: true,
-    });
-    const emit = vi.fn();
-    const vm = DataPage.setup(props, { emit });
-    const item = { dag_key: 'dag-1' };
-    vm.onCardClick(item);
-    expect(emit).toHaveBeenCalledWith('select', item);
-  });
-
-  it('does not emit select when clickable is false', () => {
-    const props = reactive({
-      pageId: 'dags',
-      title: 'DAG',
-      icon: 'D',
-      items: [],
-      emptyText: '暂无',
-      fields: [],
-      clickable: false,
-    });
-    const emit = vi.fn();
-    const vm = DataPage.setup(props, { emit });
-    vm.onCardClick({ dag_key: 'dag-1' });
-    expect(emit).not.toHaveBeenCalled();
   });
 });
