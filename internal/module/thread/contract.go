@@ -79,10 +79,12 @@ type StartRequest struct {
 	// PromptVersionID is filled by the service after it materializes a
 	// prompt_versions row for this thread start; it is not an input.
 	PromptVersionID *int64
-	// PromptKey is filled by resolveRoutedPrompt when the router picks a
-	// template. Surfaced to the UI alongside AgentKey so operators can see
-	// which prompt_template hit (agent_key is the role slug; prompt_key is
-	// the specific prompt row). Not an input.
+	// PromptKey may be supplied by the caller as an explicit "use this exact
+	// prompt_template" pin (UI's launch-prompt preference). When non-empty
+	// and pointing at an enabled row, it takes precedence over AgentKey
+	// routing. When the caller leaves it empty, resolveRoutedPrompt fills it
+	// with the picked template's key for downstream observability and UI
+	// display (agent_key is the role slug; prompt_key is the specific row).
 	PromptKey string
 	// OwnerThreadID links this thread back to a predecessor (e.g. the source
 	// thread in a handoff). Empty for brand-new top-level threads.

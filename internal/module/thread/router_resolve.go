@@ -122,6 +122,19 @@ func (s *service) pickRoutedTemplate(
 	req *StartRequest,
 	templates []promptstore.PromptTemplate,
 ) *promptstore.PromptTemplate {
+	// Explicit prompt_key beats everything else: it's the most specific pin
+	// the UI can give ("use this exact row"). If it doesn't resolve, refuse
+	// to fall through — the user picked this row, silently substituting a
+	// different one would be worse than leaving the request untouched and
+	// letting the upstream CLI use its bundled system prompt.
+	if pinned := strings.TrimSpace(req.PromptKey); pinned != "" {
+		picked := findEnabledByPromptKey(templates, pinned)
+		if picked != nil {
+			req.AgentKey = picked.AgentKey
+			return picked
+		}
+		return nil
+	}
 	if explicit := strings.TrimSpace(req.AgentKey); explicit != "" {
 		return firstEnabledByAgentKey(templates, explicit)
 	}
@@ -131,6 +144,14 @@ func (s *service) pickRoutedTemplate(
 		return picked
 	}
 	return nil
+}
+
+func findEnabledByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *promptstore.PromptTemplate {
+	picked := findByPromptKey(templates, promptKey)
+	if picked == nil || !picked.Enabled {
+		return nil
+	}
+	return picked
 }
 
 func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey string) *promptstore.PromptTemplate {

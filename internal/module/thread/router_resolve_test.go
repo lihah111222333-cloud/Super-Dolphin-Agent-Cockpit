@@ -238,6 +238,85 @@ func TestResolveRoutedPrompt_AgentKeyMatchIsCaseAndWhitespaceInsensitive(t *test
 	}
 }
 
+// TestResolveRoutedPrompt_ExplicitPromptKeyWinsOverAgentKey: SystemPromptPage's
+// "set as launch prompt" preference flows through as req.PromptKey. It must
+// resolve the exact row regardless of agent_key, and stamp picked.AgentKey so
+// the UI / observability sees a concrete identity.
+func TestResolveRoutedPrompt_ExplicitPromptKeyWinsOverAgentKey(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
+			sqlTemplate("main/launch-fav", "main", "fav launch body", nil),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{PromptKey: "main/launch-fav", AgentKey: "sql_expert"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.PromptKey != "main/launch-fav" {
+		t.Fatalf("want prompt_key=main/launch-fav, got %q", req.PromptKey)
+	}
+	if req.AgentKey != "main" {
+		t.Fatalf("want agent_key stamped from picked template (main), got %q", req.AgentKey)
+	}
+	if req.BaseInstructions != "fav launch body" {
+		t.Fatalf("want fav body, got %q", req.BaseInstructions)
+	}
+	if req.PromptVersionID == nil {
+		t.Fatalf("prompt_version_id should be set on successful inject")
+	}
+}
+
+// TestResolveRoutedPrompt_UnknownPromptKeyDoesNotFallback: caller pinned an
+// exact prompt_key that does not exist. Mirrors the unknown-agent-key
+// semantics — refuse to silently substitute the default persona.
+func TestResolveRoutedPrompt_UnknownPromptKeyDoesNotFallback(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{PromptKey: "main/missing"}
+	s.resolveRoutedPrompt(context.Background(), req)
+	if req.BaseInstructions != "" || req.AgentKey != "" {
+		t.Fatalf("unknown prompt_key must not fall through to default: %+v", req)
+	}
+	if req.PromptKey != "main/missing" {
+		t.Fatalf("caller-pinned prompt_key should be preserved: %q", req.PromptKey)
+	}
+	if req.PromptVersionID != nil {
+		t.Fatalf("prompt_version_id must remain nil: %v", req.PromptVersionID)
+	}
+}
+
+// TestResolveRoutedPrompt_DisabledPromptKeyDoesNotFallback: an explicit pin to
+// a disabled row must not silently degrade to the default — the operator
+// disabling a prompt would expect threads pinned to it to stop using it.
+func TestResolveRoutedPrompt_DisabledPromptKeyDoesNotFallback(t *testing.T) {
+	t.Parallel()
+	tpl := sqlTemplate("main/launch-fav", "main", "fav body", nil)
+	tpl.Enabled = false
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			tpl,
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{PromptKey: "main/launch-fav"}
+	s.resolveRoutedPrompt(context.Background(), req)
+	if req.BaseInstructions != "" || req.AgentKey != "" {
+		t.Fatalf("disabled pinned prompt must not silently fall back: %+v", req)
+	}
+}
+
 func TestResolveRoutedPrompt_DisabledTemplateSkipped(t *testing.T) {
 	t.Parallel()
 	tpl := sqlTemplate("main/sql", "sql_expert", "db body", nil)
