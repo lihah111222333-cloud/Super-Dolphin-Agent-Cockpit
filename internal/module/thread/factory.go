@@ -234,6 +234,11 @@ type storedThreadConfig struct {
 	// loses the explicit prompt_key pin and the router silently degrades to
 	// the default persona on the first turn.
 	PromptKey string `json:"prompt_key,omitempty"`
+	// UseClassifier is stashed by startPendingThread for the same reason as
+	// PromptKey: defer_spawn strands the opt-in flag otherwise, and the
+	// classifier would never run on blank-thread first turns (which is the
+	// whole point).
+	UseClassifier bool `json:"use_classifier,omitempty"`
 }
 
 type offlineConfigSnapshot struct {

@@ -8,6 +8,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
@@ -25,9 +26,18 @@ var Module = fx.Module("prompt",
 		registerPromptHandlers,
 		NewCompositeNativeSkillDetector,
 		NewSkillCatalogProviderFx,
+		newPromptClassifier,
 	),
 	fx.Invoke(RegisterSkillCatalogProviderIfEnabled),
 )
+
+// newPromptClassifier reads env-driven classifier config at fx wire-up and
+// returns the resulting Classifier. Disabled/missing-binary both yield
+// NoopClassifier so downstream consumers (thread router) can always depend
+// on a non-nil value and skip feature detection on the hot path.
+func newPromptClassifier() classifier.Classifier {
+	return classifier.NewService(classifier.NewConfigFromEnv())
+}
 
 // ServiceFxParams resolves optional dependencies needed to surface the
 // user-configurable LSP prompt hint in the start system prompt.

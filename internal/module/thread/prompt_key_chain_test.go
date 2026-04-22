@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
@@ -193,5 +194,146 @@ func TestPromptKeyChain_DeferSpawnRoundTrip(t *testing.T) {
 	}
 	if decoded.Provider != "claude" {
 		t.Fatalf("Provider lost in round-trip: got %q", decoded.Provider)
+	}
+}
+
+// fakeClassifier is a stub Classifier for router integration tests. It records
+// the Input and returns the configured Result so tests can assert what the
+// router handed in (candidates, user input) and how it consumes the pick.
+type fakeClassifier struct {
+	result    classifier.Result
+	err       error
+	lastInput classifier.Input
+	callCount int
+}
+
+func (f *fakeClassifier) Enabled() bool { return true }
+
+func (f *fakeClassifier) Classify(_ context.Context, in classifier.Input) (classifier.Result, error) {
+	f.callCount++
+	f.lastInput = in
+	return f.result, f.err
+}
+
+// TestResolveRoutedPrompt_ClassifierFillsEmptyPromptKey: when the caller opts
+// in with UseClassifier=true and has user input but no explicit prompt_key,
+// the router runs the classifier, stamps its pick into req.PromptKey, then
+// lets pickRoutedTemplate take the normal explicit-pin branch.
+func TestResolveRoutedPrompt_ClassifierFillsEmptyPromptKey(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/sql", "sql_expert", "sql body", []string{"写 SQL"}),
+			sqlTemplate("main/writing", "writer", "writing body", []string{"写邮件"}),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+	fake := &fakeClassifier{result: classifier.Result{PromptKey: "main/sql", Reason: "SQL query"}}
+	s.classifier = fake
+
+	req := &StartRequest{
+		Prompt:        "帮我写个 JOIN 查询",
+		UseClassifier: true,
+	}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if fake.callCount != 1 {
+		t.Fatalf("classifier call count = %d, want 1", fake.callCount)
+	}
+	if len(fake.lastInput.Candidates) != 3 {
+		t.Fatalf("classifier saw %d candidates, want 3 (enabled rows)", len(fake.lastInput.Candidates))
+	}
+	if fake.lastInput.UserInput != "帮我写个 JOIN 查询" {
+		t.Fatalf("classifier user_input = %q", fake.lastInput.UserInput)
+	}
+	if req.PromptKey != "main/sql" {
+		t.Fatalf("req.PromptKey after classify = %q, want main/sql", req.PromptKey)
+	}
+	if req.AgentKey != "sql_expert" {
+		t.Fatalf("req.AgentKey stamped from picked row = %q", req.AgentKey)
+	}
+	if req.BaseInstructions != "sql body" {
+		t.Fatalf("BaseInstructions = %q", req.BaseInstructions)
+	}
+}
+
+// TestResolveRoutedPrompt_ClassifierSkippedWhenPromptKeySet: explicit pin
+// wins unconditionally; the classifier is never invoked.
+func TestResolveRoutedPrompt_ClassifierSkippedWhenPromptKeySet(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
+			sqlTemplate("main/writing", "writer", "writing body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+	fake := &fakeClassifier{result: classifier.Result{PromptKey: "main/writing"}}
+	s.classifier = fake
+
+	req := &StartRequest{
+		Prompt:        "帮我写个 SQL",
+		PromptKey:     "main/sql",
+		UseClassifier: true,
+	}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if fake.callCount != 0 {
+		t.Fatalf("classifier must be skipped when prompt_key is pinned, got %d calls", fake.callCount)
+	}
+	if req.PromptKey != "main/sql" {
+		t.Fatalf("pinned prompt_key overwritten: %q", req.PromptKey)
+	}
+}
+
+// TestResolveRoutedPrompt_ClassifierNotOptedIn: UseClassifier=false keeps the
+// pre-Plan-B single-pin behavior.
+func TestResolveRoutedPrompt_ClassifierNotOptedIn(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+	fake := &fakeClassifier{result: classifier.Result{PromptKey: "main/sql"}}
+	s.classifier = fake
+
+	req := &StartRequest{Prompt: "写 SQL", UseClassifier: false}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if fake.callCount != 0 {
+		t.Fatalf("opt-in flag off must not invoke classifier, got %d calls", fake.callCount)
+	}
+	// default fallback still works
+	if req.PromptKey != defaultPromptKey {
+		t.Fatalf("default fallback missed: %q", req.PromptKey)
+	}
+}
+
+// TestResolveRoutedPrompt_ClassifierEmptyPickKeepsDefaultFallback: classifier
+// returning empty ("no strong match") must leave req.PromptKey empty so
+// pickRoutedTemplate still finds the default persona.
+func TestResolveRoutedPrompt_ClassifierEmptyPickKeepsDefaultFallback(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+	fake := &fakeClassifier{result: classifier.Result{PromptKey: "", Reason: "no match"}}
+	s.classifier = fake
+
+	req := &StartRequest{Prompt: "random chit-chat", UseClassifier: true}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if fake.callCount != 1 {
+		t.Fatalf("classifier should have been called once, got %d", fake.callCount)
+	}
+	if req.PromptKey != defaultPromptKey {
+		t.Fatalf("want default fallback when classifier punts, got %q", req.PromptKey)
 	}
 }

@@ -86,6 +86,13 @@ type StartRequest struct {
 	// with the picked template's key for downstream observability and UI
 	// display (agent_key is the role slug; prompt_key is the specific row).
 	PromptKey string
+	// UseClassifier opts this thread into Plan B: when the caller has NOT
+	// pinned a PromptKey and the router has real user input to work with,
+	// resolveRoutedPrompt runs the prompt classifier (claude -p subprocess
+	// with the full prompt library as candidates) and stamps its pick into
+	// req.PromptKey before pickRoutedTemplate runs. Off by default so the
+	// existing single-pin path stays unchanged for users who didn't opt in.
+	UseClassifier bool
 	// OwnerThreadID links this thread back to a predecessor (e.g. the source
 	// thread in a handoff). Empty for brand-new top-level threads.
 	OwnerThreadID string
