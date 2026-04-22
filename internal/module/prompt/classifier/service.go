@@ -19,7 +19,25 @@ const (
 	EnvModel = "PROMPT_CLASSIFIER_MODEL"
 	// EnvTimeoutSeconds overrides the classifier timeout. Default: 30s.
 	EnvTimeoutSeconds = "PROMPT_CLASSIFIER_TIMEOUT_SEC"
+	// EnvMaxCandidates caps the candidate list sent to the classifier.
+	// Callers first prune with PruneCandidates() which scores by tag
+	// overlap; the classifier then sees at most this many rows. Default 5.
+	EnvMaxCandidates = "PROMPT_CLASSIFIER_MAX_CANDIDATES"
+	// DefaultMaxCandidates is the fallback used when EnvMaxCandidates is unset
+	// or invalid. 5 is a compromise between giving the LLM enough context to
+	// distinguish overlapping personas and keeping haiku's response fast.
+	DefaultMaxCandidates = 5
 )
+
+// MaxCandidatesFromEnv returns the configured candidate cap. The router uses
+// this as the max argument to PruneCandidates before handing the list to
+// the classifier.
+func MaxCandidatesFromEnv() int {
+	if n := parseEnvPositiveInt(EnvMaxCandidates); n > 0 {
+		return n
+	}
+	return DefaultMaxCandidates
+}
 
 // Config is the classifier factory input. All fields have env fallbacks so
 // the fx wire-up is just NewConfigFromEnv + NewService.
@@ -82,4 +100,16 @@ func parseEnvDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return time.Duration(n) * time.Second
+}
+
+func parseEnvPositiveInt(key string) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }

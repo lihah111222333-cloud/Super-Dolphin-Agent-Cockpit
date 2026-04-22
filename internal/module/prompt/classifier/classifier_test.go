@@ -109,3 +109,78 @@ func TestStripCodeFence_Passthrough(t *testing.T) {
 		t.Fatalf("stripCodeFence(bare) = %q, want unchanged", got)
 	}
 }
+
+func TestPruneCandidates_NoopWhenBelowMax(t *testing.T) {
+	t.Parallel()
+	cands := []Candidate{{PromptKey: "a"}, {PromptKey: "b"}}
+	got := PruneCandidates(cands, "anything", 5)
+	if len(got) != 2 || got[0].PromptKey != "a" || got[1].PromptKey != "b" {
+		t.Fatalf("expected unchanged list, got %+v", got)
+	}
+}
+
+func TestPruneCandidates_NoopWhenMaxZero(t *testing.T) {
+	t.Parallel()
+	cands := []Candidate{{PromptKey: "a"}, {PromptKey: "b"}, {PromptKey: "c"}}
+	got := PruneCandidates(cands, "hi", 0)
+	if len(got) != 3 {
+		t.Fatalf("max=0 must be noop, got %d", len(got))
+	}
+}
+
+func TestPruneCandidates_RanksByTagOverlap(t *testing.T) {
+	t.Parallel()
+	cands := []Candidate{
+		{PromptKey: "main/default", Tags: []string{}},
+		{PromptKey: "main/writing", Tags: []string{"写邮件", "润色一下"}},
+		{PromptKey: "main/sql", Tags: []string{"写 SQL", "JOIN 查询", "schema 设计"}},
+		{PromptKey: "main/debug", Tags: []string{"报错", "stack trace"}},
+	}
+	got := PruneCandidates(cands, "帮我写个 JOIN 查询", 2)
+	if len(got) != 2 {
+		t.Fatalf("max=2 must keep exactly 2, got %d", len(got))
+	}
+	if got[0].PromptKey != "main/sql" {
+		t.Fatalf("top-ranked should be main/sql (tag match), got %q", got[0].PromptKey)
+	}
+}
+
+func TestPruneCandidates_TopUpEvenWhenAllZeroScore(t *testing.T) {
+	t.Parallel()
+	cands := []Candidate{
+		{PromptKey: "a", Tags: []string{"foo"}},
+		{PromptKey: "b", Tags: []string{"bar"}},
+		{PromptKey: "c", Tags: []string{"baz"}},
+	}
+	got := PruneCandidates(cands, "hello world", 2)
+	if len(got) != 2 {
+		t.Fatalf("must top-up to max even on zero scores: got %d", len(got))
+	}
+	// Ties break by original order so the classifier sees a stable subset.
+	if got[0].PromptKey != "a" || got[1].PromptKey != "b" {
+		t.Fatalf("expected a,b (stable order), got %v,%v", got[0].PromptKey, got[1].PromptKey)
+	}
+}
+
+func TestPruneCandidates_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+	cands := []Candidate{
+		{PromptKey: "main/review", Tags: []string{"Code Review", "review this"}},
+		{PromptKey: "main/default"},
+		{PromptKey: "main/sql", Tags: []string{"写 SQL"}},
+	}
+	got := PruneCandidates(cands, "help me CODE REVIEW this function", 1)
+	if len(got) != 1 || got[0].PromptKey != "main/review" {
+		t.Fatalf("expected case-insensitive match on code review, got %+v", got)
+	}
+}
+
+func TestTagOverlapScore_EmptyInputs(t *testing.T) {
+	t.Parallel()
+	if s := tagOverlapScore(nil, "foo"); s != 0 {
+		t.Fatalf("nil tags should score 0, got %d", s)
+	}
+	if s := tagOverlapScore([]string{"x"}, ""); s != 0 {
+		t.Fatalf("empty input should score 0, got %d", s)
+	}
+}
