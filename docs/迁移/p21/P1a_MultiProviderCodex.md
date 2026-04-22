@@ -17,7 +17,7 @@
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| 实例键解析 | `internal/provider/shared/config_helpers.go` | 新增 `ResolveCodexIdentity(config map[string]any)`，严格解析 `codexHome/codexInstanceKey/codexModelProvider`，并返回对应 sentinel error |
+| 实例键解析 | `internal/provider/shared/config_helpers.go` | 新增 `ResolveCodexIdentity(config map[string]any) (..., error)`，严格解析 `codexHome/codexInstanceKey/codexModelProvider`，并返回对应 sentinel error |
 | 启动载荷透传 | `internal/module/thread/start_session_helpers.go` | 继续复用 `ModelProvider + Config` 链路，但实例选择只能从 `req.Config` 的专用 key 读取，不新增 router 字段 |
 | app-server 池化 | `internal/provider/codexapp/module.go` | 将单例 `ServerManager` 改为按 `instanceKey` 管理的池，每个 key 对应一个本地 app-server 进程 |
 | 会话建连 | `internal/provider/codexapp/{driver.go,session.go}` | `StartSession/ResumeSession` 按 identity 取对应 server URL；不要在 `newDriver()` 冻结单个 `serverURL` |
@@ -30,8 +30,10 @@
 
 - `codexHome`、`codexInstanceKey`、`codexModelProvider` 共同构成 codex instance identity；任一缺失都必须返回 `ErrCodexHomeRequired`、`ErrCodexInstanceKeyRequired`、`ErrCodexModelProviderRequired` 这类 sentinel error。
 - `codexHome` 与 `codexInstanceKey` 必须一一绑定：同一 key 不能在不同请求里解析到不同 home；同一 home 被多个 key 指向时要么声明 alias，要么直接报错。
+- **`codexHome` 统一 canonicalize**：解析前必须先做 home 展开（如 `~ -> os.UserHomeDir()`）与 `os.ExpandEnv`，再执行 `filepath.Clean` + `filepath.EvalSymlinks`；得到 canonicalized realpath 后再参与 pool 去重与一一绑定检测，避免同一物理目录被 `$HOME/.codex-providers/glm`、`/Users/demo/.codex-providers/glm` 与保留 symlink 的别名当成多个实例。
 - legacy default-home 只能通过显式 feature flag / env opt-in 打开，例如 `CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME=1`；**禁止**把它写进默认解析链。
-- `payload.config.*` 不能是完全开放 raw map：对 identity 三元组必须规定严格 key 名、兼容策略和 malformed payload 的 fail-fast 行为。
+- `payload.config.*` 不能是完全开放 raw map：对 identity 三元组必须规定严格 key 名、兼容策略和 malformed payload 的 fail-fast 行为；unknown key、type mismatch、unsupported alias/provider/value 都必须硬报错。
+- 持久化到 binding 的 `codex_home` 必须是 canonicalized realpath，而不是用户原始输入字符串。
 
 ## 环境注入伪码
 
@@ -71,5 +73,7 @@ func (m *ServerManager) spawnLocal(home string) (*exec.Cmd, error) {
 
 - `start -> binding 持久化 -> 进程重启 -> auto-resume -> history fallback` 必须验证仍命中同一实例与同一 `codexHome`。
 - identity 三元组缺任一字段时必须命中硬报错，而不是 silent fallback。
+- canonicalize 必须验证 `$HOME/...`、绝对路径与 symlink alias 最终落到同一 canonicalized realpath；`~` 若未被 home 展开必须直接报错，不能静默当普通字符串。
+- `payload.config.*` 必须验证 unknown key / unsupported alias-provider / 错误类型都 fail fast。
 - external `CODEX_APP_SERVER_URL` 模式必须验证不会被本地 manager / 二次选址覆盖。
 - `approvalPolicy=never` 必须验证只对白名单 provider / sandbox / tool 组合放行；不能被误解为所有审批都自动通过。

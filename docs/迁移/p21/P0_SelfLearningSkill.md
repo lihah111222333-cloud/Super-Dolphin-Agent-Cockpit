@@ -12,6 +12,7 @@ Agent 自动将成功经验（trajectory）提炼为可复用 Skill，并以 sco
 - `internal/module/turn/tracker.go` 目前只维护 turn 的本地状态与句柄，不记录完整 `tool_calls/results` 轨迹；不应把它扩成事实流水仓库。
 - 自动提炼更适合复用现有 bus 订阅模式，但 callback 只能做 state merge / enqueue；LLM 提炼、落盘与重试都必须交给 runner worker。
 - signed skill 验签**延后到 P22**；P21 只先定义写入路径、observation 契约和自动提炼闭环。
+- `internal/contract/dream.go` / 各 provider DreamExecutor 当前仍可能返回 `ErrDreamExecutorNotConfigured`；P0 提炼器不能把“可用 DreamExecutor”当默认前置条件。
 
 ## Phase 1：Host 侧创建入口（P0a）
 
@@ -62,17 +63,23 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 
 - project-scope 自学习只允许 `CreateSkill` / `WriteLocal(..., scope=project)`；**显式禁止** `WriteSkillContent` / `WriteSummary` 承接 project-scope 自学习。
 - `skills/create` 缺 `cwd` 必须硬报错；不能把 project-scope 自动降级到 system scope。
-- 自动提炼默认只写 project scope；**system scope 必须人工 review gate**。
+- 自动提炼默认只写 project scope；**system scope 必须人工 review gate**，且 review request / audit record 至少要携带 `scope`、`skill slug`、`content hash`、`repo fingerprint(project_root/cwd)`、`approved_by`、`approved_at`、`reason`；未获批不得写 system scope。
 - bus callback 内只做 observation 事实合并、采样和入队；**LLM 提炼不在 bus callback 内执行**，而是在 `runner.actors` worker 中跑。
 - `fx.Module` 只负责构造 collector / extractor / queue 等对象；长跑 goroutine、批量 flush、重试策略都交给 `Runner.Run(ctx)`。
 - 自动提炼前必须做内容净化：裁剪大工具结果、剥离 secret / 凭据 / 客户数据、抑制 prompt injection 文本。
 - `SkillsChanged` 事件当前不携带完整 scope / cwd 语义，不能把它当成 project-vs-system 的权威事实，除非同步扩展 payload。
 - 自动提炼必须 feature-gate；提炼失败不能反向影响主 turn 成功与否。
+- P21 阶段的 `trust: signed` 只表示“声明为 signed、待 P22 verifier 兑现”，**一律按未验签 / 不可信处理**；不得因 frontmatter 写了 `signed` 就跳过审批、脱敏或 system-scope review。
+- 审批缓存 / review decision 不能只按 `name + hash` 命中；必须至少带 `repo fingerprint(project_root/cwd)`，避免同名同 hash skill 在不同项目间复用旧批准。
+- 提炼器若命中 `ErrDreamExecutorNotConfigured`，只能记日志 / 指标并跳过本次提炼；不得在 bus callback 内补救重试，更不得让主 turn 失败。
 
 ## 必测项
 
 - `skills/create` wrapper 必须保住 `cwd/scope` 语义，不能把 project 写到 system root。
 - 缺 `cwd` 时必须命中硬报错路径，而不是落回全局目录。
 - trajectory 聚合必须验证 raw / typed 去重、`ToolDiffUpdated` 归属、token 归一与 terminal precedence。
-- system scope review gate 必须验证无人工审核就不能写。
+- system scope review gate 必须验证无人工审核就不能写，且审批记录必须落全 `approved_by/approved_at/reason/repo fingerprint`。
+- approval cache 必须验证同名同 hash skill 在不同 repo fingerprint 下不会共享批准结果。
+- `trust: signed` 在 verifier 落地前必须验证仍走 untrusted/redacted/review 路径，不能跳过审批。
 - callback / runner 边界必须验证：回调内无 LLM 提炼、无同步磁盘写、无长时阻塞。
+- `ErrDreamExecutorNotConfigured` 必须验证只导致 skip + log/metric，不影响主 turn 成功路径。

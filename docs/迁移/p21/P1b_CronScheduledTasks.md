@@ -15,21 +15,27 @@
 
 - **`fx.Module` 层**：只 `Provide` scheduler / service / store 等对象；DB pool 生命周期继续由 `internal/platform/db` 管。Scheduler 自身无需 `OnStop` drain。
 - **`BusModule` 层**：通过 `fx.Invoke(RegisterSubscribers)` 把 Cron 相关订阅器注入 `bus.subscribers`，只订 job submit / turn terminal / completion reconciliation 之类事件。
-- **`RunnerModule` 层**：长跑 tick loop 实现 `Runner.Run(ctx)` 并进入 `runner.actors`；lease 续租作为 runner 内部 goroutine，随 `ctx.Done()` 退出。
+- **`RunnerModule` 层**：**拆成两个独立 `Runner` actor**，同时进入 `runner.actors` 并由 `run.Group` 统一调度；禁止在 actor 的 `Run()` 内再起匿名 goroutine（违反 `docs/契约/rungroup-convention.md:123-131` 反模式）：
+  - `cronTickActor`：长跑 tick loop，claim due job + 入队提交 turn；受 ctx cancel 退出。
+  - `cronLeaseActor`：独立 actor，周期续租本节点所有已 claim 的 job；受 ctx cancel 退出。
+  - 两 actor 共享只读的 `claim registry`（由 scheduler service 提供），不互相起 goroutine。
 - **shutdown 流**：`ctx cancel → run.Group 全退 → bus 停派发 subscribers → fx 释放资源`；Cron v1 不在 `fx` 生命周期里手写 cancel worker。
 
 ## 改动清单
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| DDL + 查询 | `migrations/0044_cron_jobs.sql`、`sql/queries/cron_job.sql` [NEW] | 定义 `public.cron_jobs` / `public.cron_job_runs` 及 claim / renew / finish / list 查询 |
-| 存储库 | `internal/store/cron/{contract.go,module.go,store.go}` [NEW] | 提供 CRUD、`ClaimDueJobs()`、`RenewLease()`、`ReleaseClaim()`、`MarkFinished()` |
+| DDL + 查询 | `migrations/0044_cron_jobs.sql`、`sql/queries/cron_job.sql` [NEW] | 目标新增 `public.cron_jobs` / `public.cron_job_runs` 与 claim / renew / finish / list 查询；`ClaimDueJobs()` 的 SQL 形状必须显式包含 `FOR UPDATE SKIP LOCKED` |
+| 存储库 | `internal/store/cron/{contract.go,module.go,store.go}` [NEW] | 提供 CRUD、`ClaimDueJobs()`、`RenewLease()`、`ExtendClaim()`、`ReleaseClaim()`、`MarkFinished()` |
 | Run 存储 | `internal/store/cron/run_store.go` 或同包扩展 [NEW] | 持久化单次触发 run，记录 idempotency key、submitted turn、终态 |
-| 业务服务 | `internal/module/cron/service.go` [NEW] | 负责任务创建 / 更新 / 删除 / 列举与参数校验；空 `cwd` 直接 `ErrMissingCWD` |
+| 业务服务 | `internal/module/cron/{contract.go,service.go}` [NEW] | 负责任务创建 / 更新 / 删除 / 列举与参数校验；定义 `ErrMissingCWD`、`ErrProviderNotSupported` 等硬错误 |
 | 调度器对象 | `internal/module/cron/scheduler.go` [NEW] | 封装 claim / submit / renew / reconcile 逻辑，但不自己长跑 |
-| Runner / Subscriber 接线 | `internal/module/cron/module.go` [NEW] | `fx.Invoke` 注入 `bus.subscribers`；tick loop / flush worker 进入 `runner.actors` |
+| Turn / Provider 契约扩展 | `internal/dto/provider/turn.go`、`internal/module/turn/{contract.go,service.go}`、`internal/contract/provider.go` | 为 `StartTurn` 补 `dedupe_key` 输入，并新增 `LookupByDedupeKey()` / `Observe()` 恢复面 |
+| Runner / Subscriber 接线 | `internal/module/cron/module.go` [NEW] | `fx.Invoke` 注入 `bus.subscribers`；`cronTickActor` 与 `cronLeaseActor` 两个独立 actor 进入 `runner.actors` |
 | Host RPC 接口 | `internal/module/cron/rpc.go` [NEW] | 暴露宿主侧 slash 风格方法，如 `cronjob/create`、`cronjob/list`、`cronjob/delete` |
 | 模块接线 | `internal/app/modules.go`、`internal/store/module.go`、根 `sqlc.yaml` | 注册 cron 模块与 cron store，并把 schema / queries 接进 **root** sqlc 生成面 |
+
+> `[...] [NEW]` 表示目标新增路径，当前仓库尚不存在；它们是实施落点，不是“现状已存在文件”的事实锚点。
 
 ## DDL 设计
 
@@ -74,6 +80,7 @@ CREATE TABLE IF NOT EXISTS public.cron_job_runs (
     job_id              TEXT        NOT NULL REFERENCES public.cron_jobs(id),
     scheduled_at        TIMESTAMPTZ NOT NULL,
     idempotency_key     TEXT        NOT NULL,
+    dedupe_key          TEXT        NOT NULL DEFAULT '',
     thread_id           TEXT        NOT NULL DEFAULT '',
     agent_id            TEXT        NOT NULL DEFAULT '',
     turn_id             TEXT        NOT NULL DEFAULT '',
@@ -90,6 +97,10 @@ CREATE INDEX IF NOT EXISTS idx_cron_jobs_due
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_idempotency
     ON public.cron_job_runs (job_id, idempotency_key);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_dedupe_key
+    ON public.cron_job_runs (dedupe_key)
+    WHERE dedupe_key <> '';
 ```
 
 > 迁移文件风格与 `migrations/0035_agent_feedback_events.sql` 对齐：使用 `CREATE ... IF NOT EXISTS`、`public.<table>` 前缀、字段对齐和统一索引命名。
@@ -97,6 +108,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_idempotency
 > Cron v1 **core-only**：只改根 `sqlc.yaml`，生成命令固定为仓库根的 `sqlc generate`，产物进入 `internal/store/sqlc/*`；**不改** `cmd/mcp-orch/sqlc.yaml`。未来若 `mcp-orch` 直接消费 cron 查询，再单独补那套生成面。
 >
 > `cwd` 为必填字段；service 层缺值直接 `ErrMissingCWD`。当 `provider=codex` 时，identity config keys 也必须齐全并在 service 层 fail fast。
+>
+> `ClaimDueJobs()` 的 SQL 必须沿用仓内现有 claim 先例的形状：对 due rows 先 `SELECT ... FOR UPDATE SKIP LOCKED`（或等价 `UPDATE ... FROM (...) RETURNING` + `SKIP LOCKED`），由 DB 层完成并发 fencing；禁止无锁扫描后回到应用层做“谁抢到算谁”。
 
 ## Host RPC Params 建议
 
@@ -127,26 +140,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_idempotency
 
 - Store API 必须包含 `RenewLease` / `ExtendClaim`，并基于原 `claim_token` 做条件更新。
 - `MarkFinished` / `ReleaseClaim` 也必须基于原 `claim_token` 或等价 fence 做条件更新，避免旧 worker 在被抢占后继续覆盖终态。
-- lease 续租作为 runner 内部 goroutine 运行；一旦 `ctx.Done()`，续租也应随之退出。
+- **lease TTL = 30 分钟，heartbeat = 5 分钟续一次**，即 `cronLeaseActor` 每 5 分钟对所有已 claim 的 run 一次性 `RenewLease`，将 `lease_expires_at` 延后 30 分钟。事实上的结果是：任何长过 30 min 未续租的 claim 都会自动交出所有权。
+- **超 30 min 的 turn 执行**：需在任务提交时显式调用 `ExtendClaim(dur)` 将 TTL 参数化抬升；`cronLeaseActor` 仅负责默认续租，不负责替超长 turn 自动决定更大的 TTL。
+- **`claim_token` 生成应用层**：由 `internal/module/cron/scheduler.go` 用 UUID v4 生成后以 SQL 参数传入，不依赖数据库 `gen_random_uuid()` / `pgcrypto` 扩展；migration 中仍 **禁止** `CREATE EXTENSION pgcrypto` 以保证 core 部署免扩展。
+- **并发 claim 的 SQL fencing**：`ClaimDueJobs()` 必须把“挑出 due job + 写入 `claimed_by/claimed_at/lease_expires_at/claim_token`”包在同一 SQL 事务内，并使用 `FOR UPDATE SKIP LOCKED` 防止双节点重复 claim。
+- **retry 预算**：`max_attempts=0` 表示“不做额外 retry，直接等下一次 schedule”；`max_attempts>0` 时才启用 retry。回退策略固定为指数退避 + full jitter（base=30s，cap=15m）；当 `failure_count >= max_attempts` 时，本次 run 记为终态 `failed` 并释放 claim，不自动 disable job。
 
 ### Crash-window idempotency state machine
 
-- `cron_job_runs.status` 固定为：`pending → submitted → running → finished / failed`。
-- 每次触发都先创建一条 `cron_job_runs` 记录与 `idempotency_key`；`StartTurn` 返回后必须 **CAS** 更新为 `status=submitted`，并同时写入 `turn_id` / `submitted_at`。
-- 若 worker 在 `StartTurn` 后崩溃，抢占者读到 `submitted` 且 run 还未 `finished` 时，必须改走 `turn.Service` / turn 查询路径按 `turn_id` 获取最新状态，而不是重新 `StartTurn`。
-- `UNIQUE(job_id, idempotency_key)` 只能挡住 DB 层重复入库，**挡不住** provider 已经接单但 worker 尚未来得及落库的窗口，因此 crash recovery 仍要按 `turn_id` 续查。
+- `cron_job_runs.status` 固定为：`pending → submitting → submitted → running → finished / failed`。
+- 每次触发按 **三步原子协议** 推进，避免 provider 已接单但 `turn_id` 未落库的窗口：
+  1. `pending → submitting`：先写 `cron_job_runs` 记录 + `idempotency_key` + `dedupe_key = sha256(job_id||scheduled_at||idempotency_key)`；`dedupe_key` 必须持久化到 run row，作为 `StartTurn` 的 provider-side dedupe input 与 crash recovery 查询键。
+  2. `submitting` 态下调 `turn.Service.StartTurn` **并传入 `dedupe_key`**；provider 一旦返回 `turn_id`，先回填 `turn_id/submitted_at`，再 **CAS** `submitting → submitted`。若崩在“已拿到 turn_id 但状态还没推进”之间，允许出现 `submitting + turn_id!=空` 的半提交窗口。
+  3. `submitted` 态立即注册 `turn.Service.Observe(turn_id)`；Observe 挂上后由 scheduler **CAS** `submitted → running`，终态再由 observe / turn terminal 统一推进 `running → finished/failed`。
+- **崩溃恢复规则**：抢占者按当前状态分支恢复，绝对禁重新 `StartTurn` 同一 run：
+  - `submitting` 且 `turn_id` **为空**：未知 provider 是否已接单 → 调 `turn.Service.LookupByDedupeKey(dedupe_key)`，命中则回填 `turn_id` 并推进到 `submitted`；未命中视为 `failed` 并计入 `failure_count`。
+  - `submitting` 且 `turn_id` **非空**：说明 provider 已接单、DB 还没完成状态推进 → 直接按 `turn_id` 调 `turn.Service.Observe(turn_id)`，随后把状态补推进到 `submitted/running`；**禁止**再次调 `StartTurn`。
+  - `submitted` 或 `running` 且 `turn_id` **非空**：都只允许走 `turn.Service.Observe(turn_id)` 恢复观察链，不得重交 provider。
+  - `finished/failed`：终态，只做幂等核对不重跑。
+- `UNIQUE(job_id, idempotency_key)` 挡 DB 层重复入库；dedupe_key 传给 provider 挡跨进程 `StartTurn` 重交（需 provider driver 支持幂等推进，codex driver v1 有幂等语义 → claude driver 未对齐→ v1 Cron 白名单仅 `provider=codex`）。
+- `provider` 字段语义冻结：只能为 `codex|claude`（与当前 `internal/provider/codexapp` / `internal/provider/claudecli` concrete module 边界以及 `agent_provider_binding.provider` immutable 语义一致）；**禁止** `codex:qwen` / `codex-glm` 这种混合值；实例选择只走 `config.codexHome / codexInstanceKey / codexModelProvider` 等 identity keys。
 
 ## 执行策略建议
 
 - v1 推荐一 job 绑定一条可复用后台 thread：稳定绑定字段是 `thread_id/agent_id`；运行态另用 `active_turn_id`、`last_turn_id` 追踪本次执行。
-- 调度 runner 只负责 claim due job、构造 `PrepareTurn` / `StartTurn` 请求并入队观察；真正的长跑与 flush 通过 `runner.actors` 托管，不放进 `fx` 生命周期。
+- 调度 runner 只负责 claim due job、构造 `PrepareTurn` / `StartTurn` 请求并入队观察；真正的长跑与 lease / observe 恢复都通过 `runner.actors` 托管，不放进 `fx` 生命周期。
 - `fx.Invoke(RegisterSubscribers)` 负责把 turn terminal / completion reconciliation 订阅器注入 `bus.subscribers`；回调只做状态推进、入队与幂等更新，不做同步慢查询。
-- `approvalPolicy=never` 只适合作为后台 job 不进入人工审批的一部分约束；它不是统一 auto-approve 语义。v1 必须白名单 provider / sandbox / tool 组合。
+- `approvalPolicy=never` 只适合作为后台 job 不进入人工审批的一部分约束；它不是统一 auto-approve 语义，当前真实自动批准范围仅 `Kind=request_user_input`。v1 必须白名单 provider / sandbox / tool 组合。
 
 ## 必测项
 
-- fake clock / injectable ticker：验证 lease 续约、backoff、timezone、重启恢复。
+- fake clock / injectable ticker：验证 lease 续约（5 min heartbeat 延 30 min lease）、backoff（base=30s、cap=15m、full jitter）、`max_attempts=0`=不重试、timezone、重启恢复。
 - DB fencing：验证并发 claim、旧 worker 丢租后写终态、已提交 run 被抢占者重复提交。
-- submitted-turn crash window：验证 worker 在 `StartTurn` 后崩溃时的恢复 / 等待语义。
-- non-interactive policy：验证不会把 `approvalPolicy=never` 误解为全部自动通过。
-- wiring：验证 `bus.subscribers` 与 `runner.actors` 都被正确装配，且 shutdown 只依赖 `ctx cancel`。
+- **submitting-window crash 恢复**：至少覆盖 `submitting + turn_id=空`、`submitting + turn_id!=空`、`submitted/running + turn_id!=空` 三分支；assert 都不会重新调 `StartTurn`，而是只走 `LookupByDedupeKey` / `Observe` 路径。
+- `claim_token` 应用层生成：验证 migration 无 `CREATE EXTENSION pgcrypto`，运行时 `claim_token` 均在 Go 侧用 UUID 生成。
+- non-interactive policy：验证不会把 `approvalPolicy=never` 误解为全部自动通过，且仅 `request_user_input` 命中现有 auto-approve 特例。
+- wiring：验证 `bus.subscribers` 与 `runner.actors` 都被正确装配（包含 `cronTickActor` 和 `cronLeaseActor` 两个独立 actor），且 shutdown 只依赖 `ctx cancel`。
+- provider 白名单：验证 v1 `cronjob/create` 仅接受 `provider=codex`；claude 路径未对齐 dedupe_key 语义应拒收并返 `internal/module/cron/contract.go` 定义的 `ErrProviderNotSupported`。
