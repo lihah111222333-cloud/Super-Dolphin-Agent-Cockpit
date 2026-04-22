@@ -98,6 +98,20 @@ type StartRequest struct {
 	// req.PromptKey before pickRoutedTemplate runs. Off by default so the
 	// existing single-pin path stays unchanged for users who didn't opt in.
 	UseClassifier bool
+	// PromptCandidates narrows the classifier's candidate pool to a
+	// user-curated subset of prompt_keys (e.g. UI multi-select "include this
+	// prompt in semantic matching"). Empty means "no user curation" and the
+	// classifier falls back to the legacy behavior of considering all enabled
+	// templates. When both PromptCandidates and an explicit PromptKey pin are
+	// set, the pin still wins — PromptCandidates only affects classifier
+	// scoring, not forced routing.
+	PromptCandidates []string
+	// MergedCandidateKeys is filled by resolveRoutedPrompt when the P21
+	// candidate-pool merge path runs. It lists every prompt_key that
+	// contributed a block to BaseInstructions (in pool order, enabled-only,
+	// non-empty body). Not an input. Surfaced to the UI so the sidebar can
+	// render a "候选池 · N 条" badge with the exact keys in its tooltip.
+	MergedCandidateKeys []string
 	// OwnerThreadID links this thread back to a predecessor (e.g. the source
 	// thread in a handoff). Empty for brand-new top-level threads.
 	OwnerThreadID string
@@ -127,6 +141,10 @@ type StartResult struct {
 	AgentKey        string `json:"agent_key,omitempty"`
 	PromptKey       string `json:"prompt_key,omitempty"`
 	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
+	// MergedCandidateKeys lists every prompt_key the P21 pool-merge path
+	// injected into BaseInstructions. Empty for the non-pool-merge paths
+	// (explicit pin, classifier, default fallback).
+	MergedCandidateKeys []string `json:"merged_candidate_keys,omitempty"`
 	// PendingLaunch=true means the backend wrote the thread row but did not
 	// fork the provider CLI yet. The real spawn happens on the first turn,
 	// once router has a real user input to classify. UI should render such

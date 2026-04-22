@@ -150,8 +150,15 @@ func TestAssembleStartFallsBackOnBuildError(t *testing.T) {
 	if !strings.Contains(assembly.BaseInstructions, "base") || assembly.DeveloperInstructions != "dev" {
 		t.Fatalf("fallback assembly = %#v", assembly)
 	}
-	if !strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
-		t.Fatalf("fallback BaseInstructions missing system-reminder: %q", assembly.BaseInstructions)
+	// Phase 3 invariant: system-reminder content (currentDate, runtimeExtras,
+	// gitStatus) must never leak into BaseInstructions — it flows through the
+	// structured UserContext/UserContextText/SystemContext fields instead so
+	// provider bridges can route it into the synthetic user meta message.
+	if strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
+		t.Fatalf("fallback BaseInstructions must not embed system-reminder: %q", assembly.BaseInstructions)
+	}
+	if _, ok := assembly.UserContext["currentDate"]; !ok {
+		t.Fatalf("fallback UserContext missing currentDate: %#v", assembly.UserContext)
 	}
 	if len(assembly.ResolvedSections) != 0 {
 		t.Fatalf("ResolvedSections = %d, want 0 on fallback", len(assembly.ResolvedSections))
@@ -211,6 +218,7 @@ func TestAssembleTurnRefreshesSystemContextEachTurn(t *testing.T) {
 
 func TestSimpleAssembleStartHardEarlyReturn(t *testing.T) {
 	t.Setenv(envClaudeSimple, "1")
+	t.Setenv(envPromptStartCurrentDate, "2026-04-22")
 	svc := NewService(&Config{}, nil)
 	called := false
 	text := "should never render"
@@ -235,11 +243,12 @@ func TestSimpleAssembleStartHardEarlyReturn(t *testing.T) {
 	if len(assembly.ResolvedSections) != 0 {
 		t.Fatalf("ResolvedSections = %#v, want nil/empty in simple mode", assembly.ResolvedSections)
 	}
-	if !strings.HasPrefix(assembly.BaseInstructions, simpleStartIdentityLine+"\nCWD: /repo") {
-		t.Fatalf("BaseInstructions does not start with simple prompt: %q", assembly.BaseInstructions)
+	want := simpleStartIdentityLine + "\nCWD: /repo\nDate: 2026-04-22"
+	if assembly.BaseInstructions != want {
+		t.Fatalf("BaseInstructions = %q, want strict three-line form %q", assembly.BaseInstructions, want)
 	}
-	if !strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
-		t.Fatalf("BaseInstructions missing system-reminder in simple mode: %q", assembly.BaseInstructions)
+	if strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
+		t.Fatalf("CLAUDE_CODE_SIMPLE ultraSimple must not inject system-reminder: %q", assembly.BaseInstructions)
 	}
 	if strings.Contains(assembly.BaseInstructions, "legacy base") || strings.Contains(assembly.BaseInstructions, text) {
 		t.Fatalf("BaseInstructions unexpectedly kept normal-path content: %q", assembly.BaseInstructions)
@@ -247,9 +256,13 @@ func TestSimpleAssembleStartHardEarlyReturn(t *testing.T) {
 	if assembly.DeveloperInstructions != "developer tail" {
 		t.Fatalf("DeveloperInstructions = %q, want developer tail", assembly.DeveloperInstructions)
 	}
+	if assembly.UserContext != nil || assembly.UserContextText != "" || assembly.SystemContext != nil {
+		t.Fatalf("ultraSimple must leave UserContext/SystemContext empty: %#v / %q / %#v", assembly.UserContext, assembly.UserContextText, assembly.SystemContext)
+	}
 }
 
 func TestSimpleAssembleStartUsesSessionFlag(t *testing.T) {
+	t.Setenv(envPromptStartCurrentDate, "2026-04-22")
 	svc := NewService(&Config{}, nil)
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{
 		CWD:          "/flagged",
@@ -261,11 +274,12 @@ func TestSimpleAssembleStartUsesSessionFlag(t *testing.T) {
 	if len(assembly.ResolvedSections) != 0 {
 		t.Fatalf("ResolvedSections = %#v, want nil/empty under simple session flag", assembly.ResolvedSections)
 	}
-	if !strings.HasPrefix(assembly.BaseInstructions, simpleStartIdentityLine+"\nCWD: /flagged") {
-		t.Fatalf("BaseInstructions = %q, want simple prompt starting with identity+CWD", assembly.BaseInstructions)
+	want := simpleStartIdentityLine + "\nCWD: /flagged\nDate: 2026-04-22"
+	if assembly.BaseInstructions != want {
+		t.Fatalf("BaseInstructions = %q, want strict three-line form %q", assembly.BaseInstructions, want)
 	}
-	if !strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
-		t.Fatalf("BaseInstructions missing system-reminder: %q", assembly.BaseInstructions)
+	if strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
+		t.Fatalf("simple session flag must not inject system-reminder: %q", assembly.BaseInstructions)
 	}
 }
 

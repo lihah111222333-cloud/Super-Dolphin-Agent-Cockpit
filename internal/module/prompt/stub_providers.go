@@ -1,25 +1,9 @@
 package prompt
 
 import (
-	"context"
 	"os"
 	"strings"
 )
-
-var _ DynamicSectionProvider = AntModelOverrideStubProvider{}
-
-// AntModelOverrideStubProvider reserves the ant_model_override section for
-// future ant-family system-prompt overrides.
-// Claude reference: the ant-only model override branch in getSystemPrompt().
-type AntModelOverrideStubProvider struct{}
-
-func (AntModelOverrideStubProvider) SectionName() string {
-	return DynamicSectionAntModelOverride
-}
-
-func (AntModelOverrideStubProvider) Resolve(context.Context, SectionContext) (*string, error) {
-	return nil, nil
-}
 
 func promptFeatureEnabled(flags map[string]bool, envKeys []string, flagNames ...string) bool {
 	return promptEnvEnabled(envKeys...) || promptFlagEnabled(flags, flagNames...)

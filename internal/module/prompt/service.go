@@ -29,11 +29,7 @@ type PromptRegistry interface {
 	Sections() []PromptSection
 }
 
-type Registry = PromptRegistry
-
 type PromptAssemblyService = contract.PromptAssemblyService
-
-type AssemblyService = PromptAssemblyService
 
 type Service interface {
 	PromptRegistry
@@ -162,28 +158,15 @@ func NewService(cfg *Config, logger *slog.Logger, opts ...ServiceOption) Service
 	mustRegisterDynamicProvider(svc, NumericLengthAnchorsProvider{})
 	mustRegisterDynamicProvider(svc, TokenBudgetProvider{})
 	mustRegisterDynamicProvider(svc, BriefProvider{})
-	mustRegisterDynamicProvider(svc, AntModelOverrideStubProvider{})
 	return svc
 }
 
-func NewPromptService(store promptstore.Store) PromptService {
-	return newPromptService(store)
-}
-
-func NewPromptHandlers(store promptstore.Store) rpc.HandlerMapResult {
-	return buildPromptHandlers(store)
-}
-
 func registerPromptHandlers(store promptstore.Store) rpc.HandlerMapResult {
-	return NewPromptHandlers(store)
+	return buildPromptHandlersWithService(newPromptService(store))
 }
 
 func newPromptService(store promptstore.Store) PromptService {
 	return &promptService{store: store}
-}
-
-func buildPromptHandlers(store promptstore.Store) rpc.HandlerMapResult {
-	return buildPromptHandlersWithService(newPromptService(store))
 }
 
 func buildPromptHandlersWithService(promptSvc PromptService) rpc.HandlerMapResult {

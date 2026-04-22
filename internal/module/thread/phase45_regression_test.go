@@ -34,6 +34,10 @@ func (startSnapshotPromptAssembly) AssembleTurn(context.Context, contract.TurnIn
 	return contract.TurnAssembly{}, nil
 }
 
+func (startSnapshotPromptAssembly) AssembleAgent(context.Context, contract.AgentInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
 func (startSnapshotPromptAssembly) Invalidate(context.Context, contract.InvalidateReason) error {
 	return nil
 }
@@ -54,6 +58,10 @@ func (phase45PromptAssemblyStub) AssembleTurn(context.Context, contract.TurnInpu
 	return contract.TurnAssembly{}, nil
 }
 
+func (p phase45PromptAssemblyStub) AssembleAgent(context.Context, contract.AgentInput) (contract.StartAssembly, error) {
+	return p.startAssembly, nil
+}
+
 func (phase45PromptAssemblyStub) Invalidate(context.Context, contract.InvalidateReason) error {
 	return nil
 }
@@ -69,6 +77,15 @@ func (p *resumeMetadataPromptAssembly) AssembleStart(_ context.Context, in contr
 
 func (*resumeMetadataPromptAssembly) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
 	return contract.TurnAssembly{}, nil
+}
+
+func (p *resumeMetadataPromptAssembly) AssembleAgent(_ context.Context, in contract.AgentInput) (contract.StartAssembly, error) {
+	p.startInput = in.StartInput
+	return contract.StartAssembly{
+		DisplayName:           in.StartInput.Name,
+		BaseInstructions:      "rebuilt base",
+		DeveloperInstructions: "rebuilt dev",
+	}, nil
 }
 
 func (*resumeMetadataPromptAssembly) Invalidate(context.Context, contract.InvalidateReason) error {

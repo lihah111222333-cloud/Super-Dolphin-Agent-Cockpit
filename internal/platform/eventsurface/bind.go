@@ -10,6 +10,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -64,7 +65,8 @@ const (
 	MethodAgentStopped         = "agent/stopped"
 	MethodAgentRecovering      = "agent/recovering"
 	MethodAgentFailed          = "agent/failed"
-	MethodAgentRuntimeReported = "agent/runtime/reported"
+	MethodAgentRuntimeReported      = "agent/runtime/reported"
+	MethodTaskNodeStatusChanged     = "task/node/statusChanged"
 )
 
 type PublishFunc func(method string, payload any)
@@ -84,7 +86,31 @@ func Bind(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Publis
 	cancels = append(cancels, bindTool(dispatcher, logger, publish)...)
 	cancels = append(cancels, bindUI(dispatcher, logger, publish)...)
 	cancels = append(cancels, bindAgentLifecycle(dispatcher, logger, publish)...)
+	cancels = append(cancels, bindTask(dispatcher, logger, publish)...)
 	return cancels
+}
+
+func bindTask(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
+	return []context.CancelFunc{
+		bus.ResilientSubscribe(dispatcher, func(ev taskdto.TaskNodeStatusChanged) {
+			publish(MethodTaskNodeStatusChanged, taskNodeStatusChangedPayload(ev))
+		}, logger),
+	}
+}
+
+func taskNodeStatusChangedPayload(ev taskdto.TaskNodeStatusChanged) map[string]any {
+	payload := map[string]any{
+		"dag_key":    strings.TrimSpace(ev.DagKey),
+		"node_key":   strings.TrimSpace(ev.NodeKey),
+		"new_status": strings.TrimSpace(ev.NewStatus),
+	}
+	setString(payload, "old_status", ev.OldStatus)
+	setString(payload, "assigned_to", ev.AssignedTo)
+	setString(payload, "active_turn_id", ev.ActiveTurnID)
+	if ev.ActiveWakeupID != 0 {
+		payload["active_wakeup_id"] = ev.ActiveWakeupID
+	}
+	return payload
 }
 
 func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {

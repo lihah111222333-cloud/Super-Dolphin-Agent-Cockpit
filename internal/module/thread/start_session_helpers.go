@@ -83,7 +83,7 @@ func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input con
 	if req.PromptAssemblyRef == nil {
 		return buildStartAssembly(req), nil
 	}
-	assembly, err := req.PromptAssemblyRef.AssembleStart(ctx, input)
+	assembly, err := dispatchPromptAssembly(ctx, req, input)
 	if err != nil {
 		return contract.StartAssembly{}, err
 	}
@@ -91,6 +91,31 @@ func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input con
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
 	assembly.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
 	return ensureStartAssemblySnapshot(assembly, input.Provider), nil
+}
+
+// dispatchPromptAssembly routes the call between AssembleStart (main thread /
+// user-defined agent types) and AssembleAgent (Claude-taxonomy subagent
+// types like Explore / Plan). Unknown AgentType values — including empty,
+// "main", "Writer", etc. — fall back to AssembleStart so historical callers
+// keep their existing behavior.
+func dispatchPromptAssembly(ctx context.Context, req StartRequest, input contract.StartInput) (contract.StartAssembly, error) {
+	agentType := contract.AgentType(strings.TrimSpace(input.AgentType))
+	if isKnownSubagentAgentType(agentType) {
+		return req.PromptAssemblyRef.AssembleAgent(ctx, contract.AgentInput{
+			StartInput: input,
+			AgentType:  agentType,
+		})
+	}
+	return req.PromptAssemblyRef.AssembleStart(ctx, input)
+}
+
+func isKnownSubagentAgentType(t contract.AgentType) bool {
+	switch t {
+	case contract.AgentTypeExplore, contract.AgentTypePlan:
+		return true
+	default:
+		return false
+	}
 }
 
 func toProviderStartAssembly(assembly contract.StartAssembly) dto.StartAssembly {

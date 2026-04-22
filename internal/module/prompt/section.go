@@ -28,7 +28,7 @@ var staticSectionSpecs = []staticSectionSpec{
 	{name: SectionActions, order: 40, resolve: staticSectionContent(sectionActionsText)},
 	{name: SectionToolPreferences, order: 50, resolve: resolveToolPreferencesSection},
 	{name: SectionStyle, order: 60, resolve: staticSectionContent(sectionStyleText)},
-	{name: SectionOutputEfficiency, order: 70, resolve: staticSectionContent(sectionOutputEfficiencyText)},
+	{name: SectionOutputEfficiency, order: 70, resolve: resolveOutputEfficiencySection},
 }
 
 func StaticSections() []PromptSection {
@@ -135,7 +135,9 @@ func resolveIdentitySection(build BuildCtx) *string {
 	if hasRenderableOutputStyle(build.OutputStyleConfig) {
 		introFraming = `according to your "Output Style" below, which describes how you should respond to user queries.`
 	}
-	text := strings.TrimSpace(`You are an interactive agent that helps users ` + introFraming + ` Use the instructions below and the tools available to you to assist the user.
+	text := strings.TrimSpace(sectionIdentityHeader + `
+
+You are an interactive agent that helps users ` + introFraming + ` Use the instructions below and the tools available to you to assist the user.
 
 ` + sectionCyberRiskInstruction + `
 IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.`)
@@ -146,7 +148,26 @@ func resolveEngineeringSection(build BuildCtx) *string {
 	if !keepCodingInstructionsEnabled(build) {
 		return nil
 	}
-	return staticSectionContent(sectionEngineeringText)(build)
+	text := sectionEngineeringText
+	if isAntUserType() {
+		text = strings.TrimSpace(text) + "\n" + sectionEngineeringAntSuffix
+	}
+	return staticSectionContent(text)(build)
+}
+
+// resolveOutputEfficiencySection picks between the concise external output
+// efficiency block and the ant-internal "Communicating with the user" long
+// form based on the USER_TYPE env gate (Claude Code parity: prompts.ts
+// L402-L428 branches on process.env.USER_TYPE === 'ant').
+func resolveOutputEfficiencySection(build BuildCtx) *string {
+	if isAntUserType() {
+		return staticSectionContent(sectionOutputEfficiencyAntText)(build)
+	}
+	return staticSectionContent(sectionOutputEfficiencyText)(build)
+}
+
+func isAntUserType() bool {
+	return strings.EqualFold(promptUserType(), "ant")
 }
 
 func keepCodingInstructionsEnabled(build BuildCtx) bool {
@@ -158,6 +179,11 @@ func keepCodingInstructionsEnabled(build BuildCtx) bool {
 	}
 	return true
 }
+
+// sectionIdentityHeader mirrors Claude Code's `You are Claude Code...` opener
+// (prompts.ts L175-184). Duplication with the host CLI harness is accepted
+// per the P21 parity decision: both layers redundantly establish identity.
+const sectionIdentityHeader = `You are Claude Code, Anthropic's official CLI for Claude.`
 
 const sectionCyberRiskInstruction = `IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.`
 
@@ -214,3 +240,22 @@ const sectionOutputEfficiencyText = `Output efficiency:
 - Give updates at milestones, decision points, or blockers that change the plan.
 - Prefer short direct sentences; if one sentence works, do not use three.
 - These brevity rules apply to user-facing text, not code or tool calls.`
+
+// sectionEngineeringAntSuffix appends the ant-internal engineering bullets
+// that strengthen honesty, verification, and Claude Code self-reporting. Only
+// applied when USER_TYPE=ant (Claude Code parity: prompts.ts L205-L246).
+const sectionEngineeringAntSuffix = `- Do not falsely claim "all tests pass" or reduce failed checks to green results; report outcomes as they actually happened, without adding unnecessary disclaimers on checks that really passed.
+- If the user reports an issue with Claude Code itself, suggest ` + "`/issue`" + ` or ` + "`/share`" + ` instead of trying to reproduce it locally.
+- When the user seems stuck on how to use the tool, mention ` + "`/help`" + ` so they can see the available commands.`
+
+// sectionOutputEfficiencyAntText is the ant-internal long-form communication
+// guidance that replaces the concise external bullets. Claude Code parity:
+// prompts.ts L402-L428 ant branch.
+const sectionOutputEfficiencyAntText = `# Communicating with the user
+When sending user-facing text, you are writing for a person, not logging to a console. Lead with the answer, action, or decision; put supporting detail after it, in decreasing order of importance (inverted pyramid).
+
+Match the user's expertise rather than over-explaining basics to an expert or talking down to a newcomer. Reuse terminology they already used instead of inventing new names.
+
+Do not backtrack mid-message ("actually, let me clarify..."); revise the first sentence instead. Avoid filler ("Great question!", "Sure, let me..."), cheerleading, and restating the request verbatim.
+
+Prefer short, direct sentences and tight paragraphs. Show code snippets when they are load-bearing, not as decoration. These communication rules apply to user-facing text only, not to code or tool calls.`

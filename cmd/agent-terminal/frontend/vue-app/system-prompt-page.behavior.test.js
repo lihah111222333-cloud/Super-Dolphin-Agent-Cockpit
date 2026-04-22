@@ -147,7 +147,9 @@ describe('SystemPromptPage behavior', () => {
     expect(vm.editorOpen.value).toBe(false);
 
     vm.openEdit(vm.promptCards.value[0]);
-    expect(vm.editorViewOnly.value).toBe(true);
+    // Readonly editor is driven directly by fallbackMode (the editorViewOnly
+    // computed alias was dropped in the UI cleanup).
+    expect(vm.fallbackMode.value).toBe(true);
   });
 
   it('loadPrompts rethrows message-only user not found errors without readonly fallback', async () => {
@@ -208,7 +210,7 @@ describe('SystemPromptPage behavior', () => {
     expect(vm.promptCards.value[0].name).toBe('Recovered Prompt');
 
     vm.openEdit(vm.promptCards.value[0]);
-    expect(vm.editorViewOnly.value).toBe(false);
+    expect(vm.fallbackMode.value).toBe(false);
   });
 
   it('openCreate clears form and sets create mode', () => {

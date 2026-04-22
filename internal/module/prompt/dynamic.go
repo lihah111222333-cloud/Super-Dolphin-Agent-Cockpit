@@ -23,7 +23,6 @@ const (
 	DynamicSectionNumericLengthAnchors = contract.DynamicSectionNumericLengthAnchors
 	DynamicSectionTokenBudget          = contract.DynamicSectionTokenBudget
 	DynamicSectionBrief                = contract.DynamicSectionBrief
-	DynamicSectionAntModelOverride     = contract.DynamicSectionAntModelOverride
 	DynamicSectionSkillCatalog         = contract.DynamicSectionSkillCatalog
 )
 
@@ -66,7 +65,6 @@ var dynamicSectionSpecs = []dynamicSectionSpec{
 	{name: DynamicSectionNumericLengthAnchors, order: 240, cachePolicy: CacheByName},
 	{name: DynamicSectionTokenBudget, order: 250, cachePolicy: CacheByName},
 	{name: DynamicSectionBrief, order: 260, cachePolicy: CacheByName},
-	{name: DynamicSectionAntModelOverride, order: 270, cachePolicy: CacheByName},
 	// P20.1 Phase 10：skill_catalog L1 manifest slot。policy=Uncached 因为
 	// provider 每 Resolve 都会调 skill.Service.ListSkills 扫盘（内部已有去抖/
 	// revision 缓存），上层不需要 prompt cache 再二次缓存。

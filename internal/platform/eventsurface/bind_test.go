@@ -7,6 +7,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -257,6 +258,59 @@ func TestBindPublishesTurnOutputMethods(t *testing.T) {
 	for i, want := range wantMethods {
 		if gotMethods[i] != want {
 			t.Fatalf("method[%d] = %q, want %q; all=%#v", i, gotMethods[i], want, gotMethods)
+		}
+	}
+}
+
+func TestBindPublishesTaskNodeStatusChanged(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	got := make(chan publishedEvent, 1)
+	cancels := Bind(dispatcher, nil, func(method string, payload any) {
+		got <- publishedEvent{method: method, payload: payload}
+	})
+	defer cancelAll(cancels)
+
+	event.Publish(dispatcher, taskdto.TaskNodeStatusChanged{
+		TaskNodeHeader: shared.TaskNodeHeader{
+			TaskDAGHeader: shared.TaskDAGHeader{
+				DAGHeader: shared.DAGHeader{
+					EventHeader: shared.EventHeader{Timestamp: time.Unix(1710000000, 0).UTC()},
+					DagKey:      "dag-1",
+				},
+			},
+			NodeKey: "node-1",
+		},
+		AssignedTo:     "agent-x",
+		NewStatus:      "done",
+		OldStatus:      "running",
+		ActiveTurnID:   "turn-7",
+		ActiveWakeupID: 42,
+	})
+
+	ev := mustReceivePublished(t, got)
+	if ev.method != MethodTaskNodeStatusChanged {
+		t.Fatalf("method = %q, want %q", ev.method, MethodTaskNodeStatusChanged)
+	}
+	payload, ok := ev.payload.(map[string]any)
+	if !ok {
+		t.Fatalf("payload type = %T, want map", ev.payload)
+	}
+	want := map[string]any{
+		"dag_key":          "dag-1",
+		"node_key":         "node-1",
+		"new_status":       "done",
+		"old_status":       "running",
+		"assigned_to":      "agent-x",
+		"active_turn_id":   "turn-7",
+		"active_wakeup_id": int64(42),
+	}
+	for key, wantVal := range want {
+		if payload[key] != wantVal {
+			t.Fatalf("payload[%q] = %v, want %v", key, payload[key], wantVal)
 		}
 	}
 }

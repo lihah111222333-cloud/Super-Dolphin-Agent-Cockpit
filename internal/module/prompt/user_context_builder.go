@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 const runtimeExtrasRelevanceDisclaimer = "Only use the following runtime extras when they are directly relevant to the user's current request."
@@ -111,18 +110,22 @@ func MergeRuntimeUserContext(base, extras map[string]string) map[string]string {
 	return merged
 }
 
-func FormatUserContextMessage(payload map[string]string) string {
-	return contract.RenderUserContextMessage(dto.TurnAssembly{
-		UserContext: map[string]string(cloneUserContextPayload(payload)),
-	})
-}
 
-func FormatUserContextText(payload map[string]string) string {
-	return contract.FormatUserContextText(payload)
-}
-
+// includeRuntimeExtraSection decides whether a resolved section's content
+// should be mirrored into the userContext `runtimeExtras` entry that feeds
+// the synthetic user meta message. The filter excludes:
+//
+//   - Static-region sections (identity, system_constraints, ...): they are
+//     already carried by the cacheable system prompt prefix; duplicating
+//     them into runtimeExtras would bloat every turn and poison the cache.
+//   - session_guidance / env_info_simple / language: these surface in the
+//     system prompt as first-class sections, so a second copy in
+//     runtimeExtras is redundant.
 func includeRuntimeExtraSection(section ResolvedPromptSection) bool {
 	if strings.TrimSpace(section.Content) == "" {
+		return false
+	}
+	if section.Region == PromptRegionStatic {
 		return false
 	}
 	switch strings.TrimSpace(section.Name) {

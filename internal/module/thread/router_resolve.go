@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
@@ -63,12 +64,27 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 		return
 	}
 
-	// Plan B: opt-in classifier. Runs only when the caller set UseClassifier,
-	// didn't already pin a prompt_key, and has real user input for ranking.
-	// The pick gets stamped into req.PromptKey, so pickRoutedTemplate below
-	// takes the normal explicit-pin branch and no routing-layer forking is
-	// needed. An empty pick ("no strong match") leaves req.PromptKey alone
-	// so the default persona fallback still applies.
+	// P21 multi-enable: candidate pool is the PRIMARY injection path. Every
+	// row the user checked goes into the new thread's context via Claude
+	// Code's claudeMd multi-source format (`Contents of <key>:\n<body>`
+	// blocks). No LLM is involved — these are intentional, opted-in sources.
+	//
+	// The classifier below is an INDEPENDENT fallback: it handles ambiguous /
+	// intent-less first turns where the pool is empty (i.e. the user has not
+	// curated anything, so there is nothing to merge). The classifier and the
+	// pool never run together — picking the pool means the user already chose
+	// what to inject; classifier inference is redundant.
+	if strings.TrimSpace(req.PromptKey) == "" && len(req.PromptCandidates) > 0 {
+		if ok := s.applyCandidatePoolMerge(req, templates); ok {
+			return
+		}
+	}
+
+	// Classifier fallback: only runs when no explicit pin, no candidate pool,
+	// and UseClassifier was opted in. Haiku scores the full enabled library
+	// and stamps its pick into req.PromptKey so the normal explicit-pin branch
+	// in pickRoutedTemplate takes over. Empty pick ("no strong match") leaves
+	// req.PromptKey alone so the default persona fallback still applies.
 	maybeClassifyPrompt(ctx, s.classifier, req, templates)
 
 	picked := s.pickRoutedTemplate(ctx, req, templates)
@@ -272,6 +288,7 @@ func maybeClassifyPrompt(
 	req.PromptKey = res.PromptKey
 }
 
+
 // classifierCandidates maps enabled prompt_templates to the classifier's DTO.
 // Disabled rows are dropped so the classifier never picks a row that the
 // subsequent pickRoutedTemplate would reject on Enabled=false.
@@ -319,3 +336,69 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 	}
 	return nil
 }
+
+// applyCandidatePoolMerge concatenates every prompt template whose PromptKey
+// sits in req.PromptCandidates into req.BaseInstructions, following Claude
+// Code's claudeMd multi-source format (`Contents of <key>:\n<body>`). Disabled
+// rows and unknown keys are silently skipped. Returns true when at least one
+// template was merged — caller should skip the classifier / default-fallback
+// paths in that case. Returns false when the filter yielded nothing (empty
+// pool, all-stale, all-disabled), letting the normal router fallback run.
+func (s *service) applyCandidatePoolMerge(req *StartRequest, templates []promptstore.PromptTemplate) bool {
+	whitelist := make(map[string]struct{}, len(req.PromptCandidates))
+	order := make([]string, 0, len(req.PromptCandidates))
+	for _, raw := range req.PromptCandidates {
+		key := strings.TrimSpace(raw)
+		if key == "" {
+			continue
+		}
+		if _, seen := whitelist[key]; seen {
+			continue
+		}
+		whitelist[key] = struct{}{}
+		order = append(order, key)
+	}
+	if len(order) == 0 {
+		return false
+	}
+	byKey := make(map[string]*promptstore.PromptTemplate, len(templates))
+	for i := range templates {
+		t := &templates[i]
+		if t.Enabled {
+			byKey[t.PromptKey] = t
+		}
+	}
+	blocks := make([]string, 0, len(order))
+	mergedKeys := make([]string, 0, len(order))
+	for _, key := range order {
+		t, ok := byKey[key]
+		if !ok {
+			continue
+		}
+		body := strings.TrimSpace(t.PromptText)
+		if body == "" {
+			continue
+		}
+		blocks = append(blocks, "Contents of "+t.PromptKey+":\n"+body)
+		mergedKeys = append(mergedKeys, t.PromptKey)
+	}
+	if len(blocks) == 0 {
+		return false
+	}
+	req.BaseInstructions = strings.Join(blocks, "\n\n")
+	// Observability: no single prompt_key / prompt_version to stamp, but we
+	// keep agent_key empty + AgentTitle = "候选池 (N)" so the UI badge logic
+	// can distinguish pool-merge threads from default-fallback threads.
+	req.AgentKey = ""
+	req.AgentTitle = "候选池 · " + strconv.Itoa(len(mergedKeys)) + " 条"
+	req.PromptKey = ""
+	req.PromptVersionID = nil
+	req.MergedCandidateKeys = mergedKeys
+	pkglogger.Info("router: candidate pool merged into base_instructions",
+		"candidate_keys", mergedKeys,
+		"block_count", len(blocks),
+		"total_prompt_text_len", len(req.BaseInstructions))
+	return true
+}
+
+

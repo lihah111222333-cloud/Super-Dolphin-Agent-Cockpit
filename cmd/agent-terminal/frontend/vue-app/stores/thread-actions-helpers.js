@@ -336,11 +336,33 @@ export function setThreadPendingLaunch(threadId, pending) {
 export async function startThread(ctx, cwd = '.', options = {}) {
   const { callAPI, logInfo } = ctx;
   const start = perfNow();
-  let modelProvider = '';
-  try {
-    const pref = await callAPI('ui/preferences/get', ctx.withPreferenceScope({ key: 'settings.provider.active' }));
-    if (typeof pref === 'string' && pref.trim()) modelProvider = pref.trim();
-  } catch {}
+
+  // Resolve sync overrides first so we can decide which cwd-scoped
+  // preference reads are actually needed (no point fetching activePromptKey
+  // when the caller already pinned promptKey or chose an agent explicitly).
+  const agentKeyOverride = typeof options?.agentKey === 'string' ? options.agentKey.trim() : '';
+  const promptKeyOverride = typeof options?.promptKey === 'string' ? options.promptKey.trim() : '';
+  const needsActivePromptKey = !promptKeyOverride && !agentKeyOverride;
+
+  // Fetch every preference in parallel. Each read is wrapped with a .catch
+  // fallback so one failing preference never cancels the others — this
+  // preserves the original per-read try/catch isolation while cutting 3-4
+  // serial RTTs down to a single batch. Absent / errored reads surface as
+  // `undefined` and fall through to the default (no field set on payload).
+  const getPref = (req) => callAPI('ui/preferences/get', req).catch(() => undefined);
+  const [
+    providerPref,
+    activePromptKey,
+    classifierEnabled,
+    candidatesRaw,
+  ] = await Promise.all([
+    getPref(ctx.withPreferenceScope({ key: 'settings.provider.active' })),
+    needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined),
+    getPref({ key: 'settings.classifierEnabled', cwd }),
+    getPref({ key: 'settings.candidatePromptKeys', cwd }),
+  ]);
+
+  const modelProvider = (typeof providerPref === 'string' && providerPref.trim()) ? providerPref.trim() : '';
   // p20.3 §4.3：launch payload 可携带 UI 已知的 skill 选择。空数组 / false 不下发，
   // 完全对旧 payload 做 additive 兼容；名称与 send path 对齐（selectedSkills /
   // manualSkillSelection）。backend 的 rpc_types.go 同时兼容 snake_case 别名。
@@ -355,37 +377,40 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // Explicit agent_key override. Empty / absent means "let the backend
   // router decide". The router reads prompt_templates and classifies based
   // on user_input; see internal/module/thread/router_resolve.go.
-  const agentKeyOverride = typeof options?.agentKey === 'string' ? options.agentKey.trim() : '';
   if (agentKeyOverride) payload.agent_key = agentKeyOverride;
-  // Explicit prompt_key pin. Caller-provided wins over the persisted
-  // SystemPromptPage preference. Backend router treats prompt_key as a
-  // strict pin (router_resolve.go:pickRoutedTemplate); when it's set the
-  // router skips agent_key classification entirely.
-  const promptKeyOverride = typeof options?.promptKey === 'string' ? options.promptKey.trim() : '';
+  // Prompt_key resolution: explicit caller override > persisted
+  // SystemPromptPage "set as launch" pref > fall through to backend default.
+  // Backend treats prompt_key as a strict pin (router_resolve.go:
+  // pickRoutedTemplate); when it's set the router skips classification.
   if (promptKeyOverride) {
     payload.prompt_key = promptKeyOverride;
-  } else if (!agentKeyOverride) {
-    // No explicit pin: read the cwd-scoped "set as launch prompt"
-    // preference written by SystemPromptPage. Empty / missing / errors
-    // silently fall through to the backend default routing.
-    try {
-      const activePromptKey = await callAPI('ui/preferences/get', { key: 'settings.activePromptKey', cwd });
-      if (typeof activePromptKey === 'string' && activePromptKey.trim()) {
-        payload.prompt_key = activePromptKey.trim();
-      }
-    } catch {}
+  } else if (needsActivePromptKey && typeof activePromptKey === 'string' && activePromptKey.trim()) {
+    payload.prompt_key = activePromptKey.trim();
   }
   // Plan B opt-in: when the user enabled 'settings.classifierEnabled' for
   // this cwd, forward use_classifier=true so the backend router runs the
   // prompt classifier on first-turn user input. Harmless when prompt_key is
   // also set (explicit pin short-circuits the classifier backend-side).
-  // Errors silently ignored so pref read never blocks thread creation.
-  try {
-    const classifierEnabled = await callAPI('ui/preferences/get', { key: 'settings.classifierEnabled', cwd });
-    if (classifierEnabled === true || classifierEnabled === 'true') {
-      payload.use_classifier = true;
-    }
-  } catch {}
+  if (classifierEnabled === true || classifierEnabled === 'true') {
+    payload.use_classifier = true;
+  }
+  // P21 multi-enable: curated candidate pool from SystemPromptPage's per-row
+  // checkbox. Backend behavior depends on `classifierEnabled` above:
+  //   - classifier OFF: pool entries are concatenated Claude-claudeMd-style
+  //     (`Contents of <key>:\n<body>` blocks) and injected as the thread's
+  //     BaseInstructions (see internal/module/thread/router_resolve.go
+  //     applyCandidatePoolMerge). No LLM call.
+  //   - classifier ON: pool narrows the classifier's candidate range from
+  //     the full library to these rows.
+  // Whether the classifier runs is decided solely by `classifierEnabled` —
+  // a non-empty pool never implicitly enables it. This avoids the foot-gun
+  // where a stale pool silently triggers a 5-15s claude-p round trip.
+  const candidatesList = Array.isArray(candidatesRaw)
+    ? candidatesRaw.map((k) => (typeof k === 'string' ? k.trim() : '')).filter((k) => k !== '')
+    : [];
+  if (candidatesList.length > 0) {
+    payload.prompt_candidates = candidatesList;
+  }
   // First user message (if any) forwarded so the backend router has input
   // to classify. Without this the router always sees empty input at
   // thread/start and falls back to no injection — see
@@ -419,11 +444,21 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     typeof res?.prompt_version_id === 'number' ? res.prompt_version_id
     : typeof res?.promptVersionId === 'number' ? res.promptVersionId
     : null;
-  if (agentKey || promptKey || promptVersionId != null) {
+  // P21 pool-merge: backend returns every prompt_key that contributed a
+  // block to BaseInstructions. Non-empty only on the pool-merge path; the
+  // explicit-pin / classifier / default-fallback paths leave this absent.
+  const mergedCandidateKeysRaw = res?.merged_candidate_keys || res?.mergedCandidateKeys;
+  const mergedCandidateKeys = Array.isArray(mergedCandidateKeysRaw)
+    ? mergedCandidateKeysRaw
+        .map((k) => (typeof k === 'string' ? k.trim() : ''))
+        .filter((k) => k !== '')
+    : [];
+  if (agentKey || promptKey || promptVersionId != null || mergedCandidateKeys.length > 0) {
     _routingByThread.set(id, {
       agentKey,
       promptKey,
       promptVersionId,
+      mergedCandidateKeys,
       overridden: Boolean(agentKeyOverride),
     });
   }

@@ -241,6 +241,10 @@ func (*capturingPromptAssembly) AssembleTurn(context.Context, contract.TurnInput
 	return contract.TurnAssembly{}, nil
 }
 
+func (*capturingPromptAssembly) AssembleAgent(context.Context, contract.AgentInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
 func (*capturingPromptAssembly) Invalidate(context.Context, contract.InvalidateReason) error {
 	return nil
 }

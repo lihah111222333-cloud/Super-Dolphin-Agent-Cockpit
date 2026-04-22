@@ -109,13 +109,17 @@ const (
 	DynamicSectionNumericLengthAnchors = "numeric_length_anchors"
 	DynamicSectionTokenBudget          = "token_budget"
 	DynamicSectionBrief                = "brief"
-	DynamicSectionAntModelOverride     = "ant_model_override"
 	// DynamicSectionSkillCatalog P20.1 Phase 8：L1 skill manifest 清单，按 trust
 	// 分组渲染（Core / Redacted / Native / Manual-only），符合 §3.3 安全投影原则。
 	DynamicSectionSkillCatalog = "skill_catalog"
 )
 
-const PromptAssemblySnapshotVersion = 1
+// PromptAssemblySnapshotVersion bumps on cache-layout-breaking changes.
+// Version 2 (Phase 3 parity): BaseInstructions no longer embeds the per-start
+// user meta block (currentDate, runtimeExtras) nor the System Context block
+// (gitStatus). Consumers reading v1 snapshots must re-compute the assembly
+// instead of trusting the embedded hash; see prompt_snapshot resume logic.
+const PromptAssemblySnapshotVersion = 2
 
 type StartInput struct {
 	ThreadID                     string
@@ -388,9 +392,34 @@ func orderedSystemContextKeys(ctx SystemContext) []string {
 	return append(keys, extra...)
 }
 
+// AgentType identifies a subagent invocation class. It mirrors Claude Code's
+// `agentDefinition.agentType` taxonomy (claude_system_prompts_mapping §7).
+// Unknown agent types (user-defined values such as "Writer" flowing through
+// the orchestration_launch_agent tool) do not trigger subagent post-processing
+// and fall back to the main-thread AssembleStart path.
+type AgentType string
+
+const (
+	AgentTypeDefault AgentType = ""
+	AgentTypeExplore AgentType = "Explore"
+	AgentTypePlan    AgentType = "Plan"
+)
+
+// AgentInput bundles subagent-specific knobs for AssembleAgent. When
+// OverrideSystemPrompt is truthy it wins outright (Claude Code's
+// override.systemPrompt direct pass-through). Otherwise the assembler runs
+// AssembleStart then applies Explore/Plan claudeMd/gitStatus redaction +
+// env-details appending based on AgentType.
+type AgentInput struct {
+	StartInput           StartInput
+	AgentType            AgentType
+	OverrideSystemPrompt string
+}
+
 // PromptAssemblyService 组装系统提示词。
 type PromptAssemblyService interface {
 	AssembleStart(ctx context.Context, in StartInput) (StartAssembly, error)
 	AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly, error)
+	AssembleAgent(ctx context.Context, in AgentInput) (StartAssembly, error)
 	Invalidate(ctx context.Context, reason InvalidateReason) error
 }

@@ -287,7 +287,6 @@ export function buildVisibleChatThreadCards(opts) {
     const runtime = safeRuntimeById[threadId];
     const cwdMismatch = Boolean(runtime?.cwdMismatch);
     const cwdMismatchReason = cwdMismatch ? ((runtime?.cwdMismatchReason || '').toString()) : '';
-
     return {
       id: threadId,
       name: displayName,
@@ -313,6 +312,13 @@ export function buildVisibleChatThreadCards(opts) {
       promptKey: (typeof routingOf === 'function'
         ? ((routingOf(threadId) || {}).promptKey || '')
         : '').toString().trim(),
+      // P21 pool-merge: non-empty only when the candidate-pool path ran,
+      // lists every prompt_key that contributed a Claude multi-source
+      // block. UI renders a "候选池 · N 条" badge with these keys in its
+      // tooltip when set. Other routing paths leave this empty.
+      mergedCandidateKeys: (typeof routingOf === 'function'
+        ? ((routingOf(threadId) || {}).mergedCandidateKeys || [])
+        : []),
       // C1 pending-launch: thread row exists but provider CLI has not been
       // forked yet (awaiting first turn). Card renders a "待启动" marker and
       // the send button shows a "启动中…" state on the first send.
