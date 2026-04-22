@@ -28,6 +28,12 @@ import { logDebug, logInfo, logWarn } from '../services/log.js';
 
 // ── Helpers (outside setup to keep size-guard happy) ──────────
 
+// Preference key used by SystemPromptPage to record which prompt_template the
+// user wants the next blank conversation to use. Read by stores/thread-actions-
+// helpers.js startThread() and forwarded to the backend as `prompt_key`, which
+// the router consumes via internal/module/thread/router_resolve.go.
+export const PREF_KEY_ACTIVE_PROMPT = 'settings.activePromptKey';
+
 function resolveProjectCwd(projectStore) {
   return (projectStore?.state?.active || '').toString().trim();
 }
@@ -105,6 +111,64 @@ function normalizeFallbackPromptList(items) {
   return normalized;
 }
 
+async function fetchActivePromptId(cwd) {
+  if (!cwd) return '';
+  try {
+    const value = await callAPI('ui/preferences/get', { key: PREF_KEY_ACTIVE_PROMPT, cwd });
+    return (typeof value === 'string' ? value : '').trim();
+  } catch (error) {
+    logDebug('system-prompt', 'active.load.failed', { error });
+    return null;
+  }
+}
+
+async function persistActivePromptId(cwd, value) {
+  await callAPI('ui/preferences/set', { key: PREF_KEY_ACTIVE_PROMPT, value: (value || '').toString(), cwd });
+}
+
+// 'all' 返回全部行；其他 activeTab 等值匹配行的 agentType (介面 agent_key)。
+function filterPromptCards(cards, activeTab) {
+  return activeTab === 'all' ? cards : cards.filter(c => c.agentType === activeTab);
+}
+
+function createLaunchPromptActions(deps) {
+  const { getCwd, fallbackMode, activePromptId, activatingId, setNotice, setReadonlyActionNotice } = deps;
+  async function loadActivePromptId() {
+    const next = await fetchActivePromptId(getCwd());
+    if (next === null) return activePromptId.value;
+    activePromptId.value = next;
+    return next;
+  }
+  async function applyActivePromptId(nextId, successMessage) {
+    const cwd = getCwd();
+    if (!cwd) { setNotice('error', '当前作用域未确定，无法记录启动提示词'); return; }
+    try {
+      await persistActivePromptId(cwd, nextId);
+      activePromptId.value = (nextId || '').toString();
+      setNotice('info', successMessage);
+    } catch (error) {
+      logWarn('system-prompt', 'active.persist.failed', { error });
+      setNotice('error', `设置启动提示词失败：${toErrorMessage(error)}`);
+    }
+  }
+  async function setLaunchPrompt(item) {
+    if (fallbackMode.value) { setReadonlyActionNotice('设为启动'); return; }
+    const id = (item?.id || '').toString();
+    if (!id || activatingId.value) return;
+    activatingId.value = id;
+    try { await applyActivePromptId(id, `已设为启动提示词：${item?.name || id}`); }
+    finally { activatingId.value = ''; }
+  }
+  async function clearLaunchPrompt() {
+    if (fallbackMode.value) { setReadonlyActionNotice('取消启动'); return; }
+    if (activatingId.value) return;
+    activatingId.value = 'clear';
+    try { await applyActivePromptId('', '已取消启动提示词，新对话将使用默认路由'); }
+    finally { activatingId.value = ''; }
+  }
+  return { loadActivePromptId, setLaunchPrompt, clearLaunchPrompt };
+}
+
 export const SystemPromptPage = {
   name: 'SystemPromptPage',
   props: {
@@ -114,7 +178,7 @@ export const SystemPromptPage = {
   },
   setup(props) {
     // ── State ────────────────────────────────────────
-    const activeTab = ref('main'); // 'main' | 'sub'
+    const activeTab = ref('main'); // 'main' | 'sub' | 'all'
     const currentScopeCwd = ref('');
     const promptCards = ref([]); // all prompt cards
     const loading = ref(false);
@@ -128,24 +192,35 @@ export const SystemPromptPage = {
     const editorMode = ref('edit'); // 'edit' | 'create'
     const saving = ref(false);
     const deletingId = ref('');
+    // Active launch prompt: the row whose PromptText will be injected as
+    // BaseInstructions on the next thread/start. Persisted via ui/preferences
+    // under PREF_KEY_ACTIVE_PROMPT, scoped to project cwd so different repos
+    // can pin different prompts independently.
+    const activePromptId = ref('');
+    const activatingId = ref('');
     const form = reactive({
       id: '',
       name: '',
       content: '',
       description: '',
+      // Stashes the row's original agent_key when editing from the 'all' tab
+      // so savePrompt can preserve it instead of overwriting with activeTab.
+      // Empty for new creates → savePrompt falls back to activeTab.
+      agentKey: '',
     });
 
     // ── Computed ─────────────────────────────────────
-    const filteredCards = computed(() =>
-      promptCards.value.filter(c => c.agentType === activeTab.value)
-    );
+    const filteredCards = computed(() => filterPromptCards(promptCards.value, activeTab.value));
     const cwdDisplay = computed(() =>
       currentScopeCwd.value || props.windowCwd || '未知'
     );
     const editorViewOnly = computed(() => fallbackMode.value);
-    const createDisabled = computed(() => fallbackMode.value);
+    // 在 'all' tab 下创建会丢失 agent_key 归属（不知道应该存到 main 还是别的），
+    // 所以只让主/子 tab 创建。全部 tab 仅用于查看/编辑/删除/设为启动。
+    const createDisabled = computed(() => fallbackMode.value || activeTab.value === 'all');
     const saveDisabled = computed(() => fallbackMode.value || saving.value);
     const deleteDisabled = computed(() => fallbackMode.value || Boolean(deletingId.value));
+    const activateDisabled = computed(() => fallbackMode.value || Boolean(activatingId.value));
     const readonlyBannerMessage = computed(() => {
       if (!fallbackMode.value) return '';
       const dataSourceTip = fallbackSource.value === 'dashboard/prompts'
@@ -251,12 +326,14 @@ export const SystemPromptPage = {
       }
       saving.value = true;
       try {
+        // Edit 保留原 agent_key；create 走 activeTab；'all' 创建被 createDisabled
+        // 拦了，这里仍透到 'main' 避免后端拿到 'all' 这个垃圾值。
         const payload = {
           id: form.id || '',
           name,
           content: form.content || '',
           description: form.description || '',
-          agentType: activeTab.value,
+          agentType: form.agentKey || (activeTab.value === 'all' ? 'main' : activeTab.value),
         };
         await callAPI('prompts/write', withCwd(getCwd(), payload));
         await loadPrompts();
@@ -293,6 +370,10 @@ export const SystemPromptPage = {
       }
     }
 
+    const { loadActivePromptId, setLaunchPrompt, clearLaunchPrompt } = createLaunchPromptActions({
+      getCwd, fallbackMode, activePromptId, activatingId, setNotice, setReadonlyActionNotice,
+    });
+
     async function copyPromptContent(item) {
       const text = (item?.content || '').trim();
       if (!text) {
@@ -317,6 +398,7 @@ export const SystemPromptPage = {
       form.name = '';
       form.content = '';
       form.description = '';
+      form.agentKey = '';
       editorMode.value = 'create';
       editorOpen.value = true;
       setNotice('info', '');
@@ -328,6 +410,7 @@ export const SystemPromptPage = {
       form.name = item.name || '';
       form.content = item.content || '';
       form.description = item.description || '';
+      form.agentKey = (item.agentType || '').toString();
       editorMode.value = 'edit';
       editorOpen.value = true;
       setNotice('info', '');
@@ -351,6 +434,7 @@ export const SystemPromptPage = {
 
     function refreshPromptsSilently() {
       loadPrompts().catch(() => {});
+      loadActivePromptId().catch(() => {});
     }
 
     // ── Lifecycle ───────────────────────────────────
@@ -375,9 +459,11 @@ export const SystemPromptPage = {
       readonlyBannerMessage, editorViewOnly,
       editorOpen, editorMode, saving, deletingId,
       createDisabled, saveDisabled, deleteDisabled,
+      activePromptId, activatingId, activateDisabled,
       form, cwdDisplay,
       switchTab, loadPrompts, savePrompt, deletePrompt,
       copyPromptContent, openCreate, openEdit, closeEditor,
+      setLaunchPrompt, clearLaunchPrompt, loadActivePromptId,
       truncate, countStats,
     };
   },
@@ -400,6 +486,7 @@ export const SystemPromptPage = {
       <div class="sub-tabs" data-testid="sp-tabs">
         <button class="sub-tab" :class="{ active: activeTab === 'main' }" data-testid="sp-tab-main" @click="switchTab('main')">主 Agent</button>
         <button class="sub-tab" :class="{ active: activeTab === 'sub' }" data-testid="sp-tab-sub" @click="switchTab('sub')">子 Agent</button>
+        <button class="sub-tab" :class="{ active: activeTab === 'all' }" data-testid="sp-tab-all" @click="switchTab('all')">全部</button>
       </div>
 
       <!-- Card list -->
@@ -434,8 +521,8 @@ export const SystemPromptPage = {
               <polyline points="14 2 14 8 20 8"/>
             </svg>
           </div>
-          <h3>暂无{{ activeTab === 'main' ? '主 Agent' : '子 Agent' }}提示词</h3>
-          <p>{{ fallbackMode ? '当前为只读降级；待后端恢复后会自动恢复。' : '点击"新建提示词"开始创建' }}</p>
+          <h3>暂无{{ activeTab === 'main' ? '主 Agent' : (activeTab === 'sub' ? '子 Agent' : '') }}提示词</h3>
+          <p>{{ fallbackMode ? '当前为只读降级；待后端恢复后会自动恢复。' : (activeTab === 'all' ? '库里还没有提示词，先去主/子 Agent tab 创建' : '点击"新建提示词"开始创建') }}</p>
         </div>
 
         <!-- Loading -->
@@ -457,6 +544,8 @@ export const SystemPromptPage = {
               <div class="sp-card-heading">
                 <div class="sp-card-title">{{ item.name || '未命名' }}</div>
                 <span v-if="item.isDefault" class="sp-card-badge is-default">默认</span>
+                <span v-if="activePromptId === item.id" class="sp-card-badge is-active" :data-testid="'sp-active-badge-' + idx">启动中</span>
+                <span v-if="activeTab === 'all' && item.agentType" class="sp-card-badge" :data-testid="'sp-agentkey-badge-' + idx">{{ item.agentType }}</span>
               </div>
             </div>
             <div v-if="item.description" class="sp-card-desc">{{ item.description }}</div>
@@ -465,6 +554,20 @@ export const SystemPromptPage = {
             <div class="sp-card-actions">
               <button class="btn btn-secondary btn-xs" :data-testid="'sp-edit-btn-' + idx" @click="openEdit(item)">{{ editorViewOnly ? '查看' : '编辑' }}</button>
               <button class="btn btn-ghost btn-xs" :data-testid="'sp-copy-btn-' + idx" @click="copyPromptContent(item)">复制</button>
+              <button
+                v-if="activePromptId === item.id"
+                class="btn btn-ghost btn-xs"
+                :data-testid="'sp-clear-launch-btn-' + idx"
+                :disabled="activateDisabled"
+                @click="clearLaunchPrompt"
+              >{{ activatingId === 'clear' ? '处理中...' : '取消启动' }}</button>
+              <button
+                v-else
+                class="btn btn-ghost btn-xs"
+                :data-testid="'sp-set-launch-btn-' + idx"
+                :disabled="activateDisabled"
+                @click="setLaunchPrompt(item)"
+              >{{ activatingId === item.id ? '处理中...' : '设为启动' }}</button>
               <button class="btn btn-ghost btn-xs btn-warning" :data-testid="'sp-delete-btn-' + idx" :disabled="deleteDisabled" @click="deletePrompt(item)">
                 {{ deletingId === item.id ? '删除中...' : '删除' }}
               </button>
@@ -491,7 +594,7 @@ export const SystemPromptPage = {
           <div class="sp-editor-head">
             <div>
               <div class="modal-title">{{ editorViewOnly ? '查看提示词' : (editorMode === 'create' ? '新建提示词' : '编辑提示词') }}</div>
-              <div class="sp-editor-tip">{{ activeTab === 'main' ? '主 Agent' : '子 Agent' }} · 作用域 {{ cwdDisplay }}</div>
+              <div class="sp-editor-tip">{{ form.agentKey || (activeTab === 'main' ? '主 Agent' : (activeTab === 'sub' ? '子 Agent' : '未分类')) }} · 作用域 {{ cwdDisplay }}</div>
             </div>
             <button class="btn btn-ghost" data-testid="sp-editor-close-btn" @click="closeEditor">关闭</button>
           </div>

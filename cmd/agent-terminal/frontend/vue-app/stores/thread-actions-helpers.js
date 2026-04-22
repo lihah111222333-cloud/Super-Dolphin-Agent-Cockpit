@@ -357,6 +357,24 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // on user_input; see internal/module/thread/router_resolve.go.
   const agentKeyOverride = typeof options?.agentKey === 'string' ? options.agentKey.trim() : '';
   if (agentKeyOverride) payload.agent_key = agentKeyOverride;
+  // Explicit prompt_key pin. Caller-provided wins over the persisted
+  // SystemPromptPage preference. Backend router treats prompt_key as a
+  // strict pin (router_resolve.go:pickRoutedTemplate); when it's set the
+  // router skips agent_key classification entirely.
+  const promptKeyOverride = typeof options?.promptKey === 'string' ? options.promptKey.trim() : '';
+  if (promptKeyOverride) {
+    payload.prompt_key = promptKeyOverride;
+  } else if (!agentKeyOverride) {
+    // No explicit pin: read the cwd-scoped "set as launch prompt"
+    // preference written by SystemPromptPage. Empty / missing / errors
+    // silently fall through to the backend default routing.
+    try {
+      const activePromptKey = await callAPI('ui/preferences/get', { key: 'settings.activePromptKey', cwd });
+      if (typeof activePromptKey === 'string' && activePromptKey.trim()) {
+        payload.prompt_key = activePromptKey.trim();
+      }
+    } catch {}
+  }
   // First user message (if any) forwarded so the backend router has input
   // to classify. Without this the router always sees empty input at
   // thread/start and falls back to no injection — see

@@ -17,7 +17,7 @@ vi.mock('./services/log.js', () => ({
   logWarn: vi.fn(),
 }));
 
-import { SystemPromptPage, isReadonlyFallbackListError } from './pages/SystemPromptPage.js';
+import { SystemPromptPage, isReadonlyFallbackListError, PREF_KEY_ACTIVE_PROMPT } from './pages/SystemPromptPage.js';
 
 function createPage(overrides = {}) {
   const props = {
@@ -297,6 +297,61 @@ describe('SystemPromptPage behavior', () => {
 
     expect(apiMock.copyTextToClipboard).toHaveBeenCalledWith('copy me');
     expect(vm.notice.message).toContain('已复制');
+  });
+
+  it('setLaunchPrompt persists prompt id under cwd-scoped preference', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({ ok: true });
+
+    const { vm } = createPage();
+    await vm.setLaunchPrompt({ id: 'main/launch-fav', name: 'Launch Fav' });
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+      key: PREF_KEY_ACTIVE_PROMPT,
+      value: 'main/launch-fav',
+      cwd: '/test-repo',
+    });
+    expect(vm.activePromptId.value).toBe('main/launch-fav');
+    expect(vm.notice.message).toContain('已设为启动提示词');
+  });
+
+  it('clearLaunchPrompt writes empty value and resets active id', async () => {
+    apiMock.callAPI
+      .mockResolvedValueOnce({ ok: true }) // initial set
+      .mockResolvedValueOnce({ ok: true }); // clear
+
+    const { vm } = createPage();
+    await vm.setLaunchPrompt({ id: 'main/launch-fav', name: 'Launch Fav' });
+    await vm.clearLaunchPrompt();
+
+    expect(apiMock.callAPI).toHaveBeenLastCalledWith('ui/preferences/set', {
+      key: PREF_KEY_ACTIVE_PROMPT,
+      value: '',
+      cwd: '/test-repo',
+    });
+    expect(vm.activePromptId.value).toBe('');
+    expect(vm.notice.message).toContain('已取消启动');
+  });
+
+  it('loadActivePromptId hydrates from preference get', async () => {
+    apiMock.callAPI.mockResolvedValueOnce('main/launch-fav');
+
+    const { vm } = createPage();
+    const got = await vm.loadActivePromptId();
+
+    expect(got).toBe('main/launch-fav');
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/get', {
+      key: PREF_KEY_ACTIVE_PROMPT,
+      cwd: '/test-repo',
+    });
+    expect(vm.activePromptId.value).toBe('main/launch-fav');
+  });
+
+  it('setLaunchPrompt is a no-op in readonly fallback', async () => {
+    const { vm } = createPage();
+    vm.fallbackMode.value = true;
+    await vm.setLaunchPrompt({ id: 'main/launch-fav' });
+    expect(apiMock.callAPI).not.toHaveBeenCalled();
+    expect(vm.notice.message).toContain('只读降级');
   });
 
   it('copyPromptContent reports empty', async () => {
