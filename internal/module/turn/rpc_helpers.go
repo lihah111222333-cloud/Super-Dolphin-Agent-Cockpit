@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -160,8 +161,15 @@ func applyTurnStartConfig(ctx context.Context, session contract.Session, p turnS
 // handler can lazily fork the provider CLI for threads created with
 // DeferSpawn=true. Nil spawner disables the C1 path and restores the
 // legacy behavior (fail fast if session is missing).
+//
+// The SpawnRouting return value is populated only when launched=true;
+// turn/start forwards it into turnStartResult so the UI can fill the
+// per-thread routing badge. thread/start cannot surface this for
+// pending_launch threads because routing runs lazily inside SpawnIfNeeded,
+// not during thread creation. The shared threaddto package breaks the
+// thread↔turn import cycle that would otherwise form.
 type PendingLaunchSpawner interface {
-	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (bool, error)
+	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (bool, threaddto.SpawnRouting, error)
 }
 
 func collectTurnStartUserInput(p turnStartParams) string {
@@ -186,9 +194,14 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner Pe
 		// provider CLI now using the first-turn user text for router
 		// classification. SpawnIfNeeded is a no-op for already-running
 		// threads, so eager-path threads are unaffected.
+		var spawnRouting threaddto.SpawnRouting
 		if spawner != nil {
-			if _, err := spawner.SpawnIfNeeded(ctx, rpc.ThreadIDFrom(ctx), collectTurnStartUserInput(p)); err != nil {
+			launched, routing, err := spawner.SpawnIfNeeded(ctx, rpc.ThreadIDFrom(ctx), collectTurnStartUserInput(p))
+			if err != nil {
 				return nil, err
+			}
+			if launched {
+				spawnRouting = routing
 			}
 		}
 		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
@@ -208,7 +221,19 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner Pe
 			if err != nil {
 				return nil, err
 			}
-			return turnStartResult{TurnID: handle.LocalID()}, nil
+			// Forward the routing decision made by SpawnIfNeeded so the UI
+			// can fill its per-thread badge. Empty fields are elided via
+			// omitempty on turnStartResult; eager-path threads already got
+			// their routing from thread/start's response.
+			return turnStartResult{
+				TurnID:                handle.LocalID(),
+				AgentKey:              spawnRouting.AgentKey,
+				AgentTitle:            spawnRouting.AgentTitle,
+				PromptKey:             spawnRouting.PromptKey,
+				PromptVersionID:       spawnRouting.PromptVersionID,
+				MergedCandidateKeys:   spawnRouting.MergedCandidateKeys,
+				MergedCandidateTitles: spawnRouting.MergedCandidateTitles,
+			}, nil
 		})
 	})
 }

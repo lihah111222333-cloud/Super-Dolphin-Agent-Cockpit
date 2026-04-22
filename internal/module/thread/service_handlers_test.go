@@ -371,8 +371,8 @@ func (s *stubThreadService) Start(_ context.Context, req StartRequest) (StartRes
 	s.startReq = req
 	return s.startResult, nil
 }
-func (*stubThreadService) SpawnIfNeeded(context.Context, string, string) (bool, error) {
-	return false, nil
+func (*stubThreadService) SpawnIfNeeded(context.Context, string, string) (bool, SpawnRouting, error) {
+	return false, SpawnRouting{}, nil
 }
 func (s *stubThreadService) Stop(context.Context, string) error { return nil }
 func (s *stubThreadService) Resume(_ context.Context, req ResumeRequest) (ResumeResult, error) {

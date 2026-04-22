@@ -168,6 +168,10 @@ func newStartHandler(svc Service) handler.Func {
 			response["agent_key"] = result.AgentKey
 			response["agentKey"] = result.AgentKey
 		}
+		if result.AgentTitle != "" {
+			response["agent_title"] = result.AgentTitle
+			response["agentTitle"] = result.AgentTitle
+		}
 		if result.PromptKey != "" {
 			response["prompt_key"] = result.PromptKey
 			response["promptKey"] = result.PromptKey
@@ -179,6 +183,10 @@ func newStartHandler(svc Service) handler.Func {
 		if len(result.MergedCandidateKeys) > 0 {
 			response["merged_candidate_keys"] = result.MergedCandidateKeys
 			response["mergedCandidateKeys"] = result.MergedCandidateKeys
+		}
+		if len(result.MergedCandidateTitles) > 0 {
+			response["merged_candidate_titles"] = result.MergedCandidateTitles
+			response["mergedCandidateTitles"] = result.MergedCandidateTitles
 		}
 		if result.PendingLaunch {
 			response["pending_launch"] = true

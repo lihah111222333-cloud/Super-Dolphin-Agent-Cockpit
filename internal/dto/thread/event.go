@@ -69,6 +69,30 @@ type Updated struct {
 	Model    *string `json:"model,omitempty"`
 }
 
+// SpawnRouting carries the router decision made inside the lazy
+// SpawnIfNeeded path for a pending-launch thread. It lives in this shared
+// dto package so both the thread module (which produces it) and the turn
+// module (whose turn/start handler forwards it to the UI) can reference
+// the same type without re-introducing a thread↔turn import cycle.
+//
+// Empty SpawnRouting means the SpawnIfNeeded call was a no-op (thread was
+// already running, stopped, or archived). Non-empty means a fresh spawn
+// just ran and these are its routing outputs; the UI uses them to fill
+// the per-thread routing badge that thread/start could not surface, since
+// pending_launch threads defer routing to the first turn.
+type SpawnRouting struct {
+	AgentKey   string `json:"agent_key,omitempty"`
+	// AgentTitle is the human-readable persona label ("SQL 与数据建模专家" or
+	// "候选池 · N 条") so the UI does not have to re-map slugs to names.
+	AgentTitle            string   `json:"agent_title,omitempty"`
+	PromptKey             string   `json:"prompt_key,omitempty"`
+	PromptVersionID       *int64   `json:"prompt_version_id,omitempty"`
+	MergedCandidateKeys   []string `json:"merged_candidate_keys,omitempty"`
+	// MergedCandidateTitles parallels MergedCandidateKeys: element i is the
+	// friendly Title of the merged template (slug fallback when absent).
+	MergedCandidateTitles []string `json:"merged_candidate_titles,omitempty"`
+}
+
 func (Started) Type() uint32      { return shared.EventTypeThreadStarted }
 func (Stopped) Type() uint32      { return shared.EventTypeThreadStopped }
 func (MessagesPage) Type() uint32 { return shared.EventTypeThreadMessagesPage }

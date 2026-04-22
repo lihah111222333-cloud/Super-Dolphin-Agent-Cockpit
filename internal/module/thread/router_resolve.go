@@ -370,6 +370,7 @@ func (s *service) applyCandidatePoolMerge(req *StartRequest, templates []prompts
 	}
 	blocks := make([]string, 0, len(order))
 	mergedKeys := make([]string, 0, len(order))
+	mergedTitles := make([]string, 0, len(order))
 	for _, key := range order {
 		t, ok := byKey[key]
 		if !ok {
@@ -381,6 +382,14 @@ func (s *service) applyCandidatePoolMerge(req *StartRequest, templates []prompts
 		}
 		blocks = append(blocks, "Contents of "+t.PromptKey+":\n"+body)
 		mergedKeys = append(mergedKeys, t.PromptKey)
+		// Title is the human-readable persona label ("SQL 与数据建模专家") that
+		// the UI displays on the routing badge. Fall back to the slug when a
+		// row was imported without a title so the tooltip is never blank.
+		title := strings.TrimSpace(t.Title)
+		if title == "" {
+			title = t.PromptKey
+		}
+		mergedTitles = append(mergedTitles, title)
 	}
 	if len(blocks) == 0 {
 		return false
@@ -394,6 +403,7 @@ func (s *service) applyCandidatePoolMerge(req *StartRequest, templates []prompts
 	req.PromptKey = ""
 	req.PromptVersionID = nil
 	req.MergedCandidateKeys = mergedKeys
+	req.MergedCandidateTitles = mergedTitles
 	pkglogger.Info("router: candidate pool merged into base_instructions",
 		"candidate_keys", mergedKeys,
 		"block_count", len(blocks),
