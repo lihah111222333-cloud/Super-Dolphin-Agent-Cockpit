@@ -19,6 +19,7 @@ sql:
       - "migrations/0048_binding_codex_identity.sql"
       - "migrations/0049_prompt_template_sections.sql"
       - "migrations/0050_seed_prompt_template_sections_example.sql"
+      - "migrations/0051_seed_main_default_sections.sql"
     gen:
       go:
         package: "sqlc"
