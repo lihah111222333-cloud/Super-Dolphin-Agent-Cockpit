@@ -33,6 +33,15 @@ import { logDebug, logInfo, logWarn } from '../services/log.js';
 // helpers.js startThread() and forwarded to the backend as `prompt_key`, which
 // the router consumes via internal/module/thread/router_resolve.go.
 export const PREF_KEY_ACTIVE_PROMPT = 'settings.activePromptKey';
+// PREF_KEY_CANDIDATE_PROMPTS stores the user-curated candidate pool (array of
+// prompt_key strings). When non-empty, startThread forwards it as
+// `prompt_candidates`; the backend router concatenates every pool entry's
+// body in Claude's claudeMd multi-source style (`Contents of <key>:\n<body>`
+// blocks) and injects that as the new thread's system prompt. No LLM call.
+// The classifier (PREF_KEY_CLASSIFIER_ENABLED) is an INDEPENDENT fallback
+// that only kicks in when the pool is empty — they do not interact.
+// Coexists with PREF_KEY_ACTIVE_PROMPT: an explicit launch pin always wins.
+export const PREF_KEY_CANDIDATE_PROMPTS = 'settings.candidatePromptKeys';
 // Plan B opt-in. When true, startThread forwards use_classifier=true so the
 // backend router runs the prompt classifier (claude -p subprocess) on the
 // first-turn user input and auto-picks a prompt_template from the full
@@ -47,9 +56,29 @@ function resolveReadonlyFallbackCwd(props) {
   return (props?.threadStore?.state?.cwd || props?.projectStore?.state?.cwd || '').toString().trim();
 }
 
+// prefGet / prefSet consolidate the 3 preferences (active launch prompt,
+// classifier toggle, candidate pool) behind a single load/save pair. Each
+// caller owns its own `key`, default value, and decode step; the wire-level
+// RPC + log-on-failure fallback is shared.
+async function prefGet(cwd, key, scope, fallback = null) {
+  if (!cwd) return fallback;
+  try {
+    return await callAPI('ui/preferences/get', { key, cwd });
+  } catch (error) {
+    logDebug('system-prompt', scope + '.load.failed', { error });
+    return null;
+  }
+}
+
+async function prefSet(cwd, key, value) {
+  await callAPI('ui/preferences/set', { key, value, cwd });
+}
+
+// withCwd attaches the current project cwd to an RPC payload, no-op when the
+// scope is unresolved so the caller's payload still works against the global
+// default namespace.
 function withCwd(cwd, payload) {
-  if (!cwd) return payload;
-  return { ...payload, cwd };
+  return cwd ? { ...payload, cwd } : payload;
 }
 
 function generateId() {
@@ -116,19 +145,79 @@ function normalizeFallbackPromptList(items) {
   return normalized;
 }
 
-async function fetchActivePromptId(cwd) {
-  if (!cwd) return '';
-  try {
-    const value = await callAPI('ui/preferences/get', { key: PREF_KEY_ACTIVE_PROMPT, cwd });
-    return (typeof value === 'string' ? value : '').trim();
-  } catch (error) {
-    logDebug('system-prompt', 'active.load.failed', { error });
-    return null;
+function createCandidatePoolActions(deps) {
+  const { getCwd, candidatePromptKeys, setNotice, setReadonlyActionNotice, fallbackMode } = deps;
+  async function loadCandidatePromptKeys() {
+    const raw = await prefGet(getCwd(), PREF_KEY_CANDIDATE_PROMPTS, 'candidates', []);
+    if (raw === null) return Array.from(candidatePromptKeys.value);
+    const list = Array.isArray(raw)
+      ? raw.map((k) => (typeof k === 'string' ? k.trim() : '')).filter((k) => k !== '')
+      : [];
+    candidatePromptKeys.value = new Set(list);
+    return list;
   }
-}
-
-async function persistActivePromptId(cwd, value) {
-  await callAPI('ui/preferences/set', { key: PREF_KEY_ACTIVE_PROMPT, value: (value || '').toString(), cwd });
+  // persistCandidatePool centralises the write-back + notice messaging that
+  // toggleCandidate / selectAllCandidates / clearAllCandidates all share.
+  // Returns true on success, false on failure (notice is surfaced either way).
+  async function persistCandidatePool(next, { successMessage, errorMessage }) {
+    if (fallbackMode?.value) { setReadonlyActionNotice?.(); return false; }
+    const cwd = getCwd();
+    if (!cwd) { setNotice('error', '当前作用域未确定，无法保存候选设置'); return false; }
+    try {
+      await prefSet(cwd, PREF_KEY_CANDIDATE_PROMPTS, Array.from(next));
+      candidatePromptKeys.value = next;
+      setNotice('info', successMessage(next.size));
+      return true;
+    } catch (error) {
+      logWarn('system-prompt', 'candidates.persist.failed', { error });
+      setNotice('error', errorMessage(error));
+      return false;
+    }
+  }
+  async function toggleCandidate(item) {
+    if (!item?.id) return;
+    const next = new Set(candidatePromptKeys.value);
+    if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+    await persistCandidatePool(next, {
+      successMessage: (count) => count === 0
+        ? '已清空候选池；新对话不再注入多源提示词'
+        : `候选池已更新（共 ${count} 条）；新对话会按 Claude 多源格式将全部条目合并注入`,
+      errorMessage: (error) => `保存候选池失败：${toErrorMessage(error)}`,
+    });
+  }
+  // Bulk add: merge every given card id into the pool. No-op when every
+  // card is already a candidate (avoids a noisy redundant RPC).
+  async function selectAllCandidates(cards) {
+    if (!Array.isArray(cards) || cards.length === 0) {
+      setNotice('info', '当前 tab 没有可加入的提示词');
+      return;
+    }
+    const ids = cards.map((c) => (c?.id || '').toString()).filter((id) => id !== '');
+    const next = new Set(candidatePromptKeys.value);
+    const before = next.size;
+    for (const id of ids) next.add(id);
+    if (next.size === before) {
+      setNotice('info', `本 tab 共 ${ids.length} 条已全部在候选池`);
+      return;
+    }
+    await persistCandidatePool(next, {
+      successMessage: (count) => `已将本 tab 全部 ${ids.length} 条加入候选池（池内共 ${count} 条）`,
+      errorMessage: (error) => `批量加入候选池失败：${toErrorMessage(error)}`,
+    });
+  }
+  // Bulk clear: drop every entry from the pool in one write. No-op when the
+  // pool is already empty.
+  async function clearAllCandidates() {
+    if (candidatePromptKeys.value.size === 0) {
+      setNotice('info', '候选池已为空');
+      return;
+    }
+    await persistCandidatePool(new Set(), {
+      successMessage: () => '已清空候选池；新对话不再注入多源提示词',
+      errorMessage: (error) => `清空候选池失败：${toErrorMessage(error)}`,
+    });
+  }
+  return { loadCandidatePromptKeys, toggleCandidate, selectAllCandidates, clearAllCandidates };
 }
 
 // 'all' 返回全部行；其他 activeTab 等值匹配行的 agentType (介面 agent_key)。
@@ -136,27 +225,12 @@ function filterPromptCards(cards, activeTab) {
   return activeTab === 'all' ? cards : cards.filter(c => c.agentType === activeTab);
 }
 
-async function fetchClassifierEnabled(cwd) {
-  if (!cwd) return false;
-  try {
-    const value = await callAPI('ui/preferences/get', { key: PREF_KEY_CLASSIFIER_ENABLED, cwd });
-    return value === true || value === 'true';
-  } catch (error) {
-    logDebug('system-prompt', 'classifier.load.failed', { error });
-    return null;
-  }
-}
-
-async function persistClassifierEnabled(cwd, enabled) {
-  await callAPI('ui/preferences/set', { key: PREF_KEY_CLASSIFIER_ENABLED, value: Boolean(enabled), cwd });
-}
-
 function createClassifierActions(deps) {
   const { getCwd, classifierEnabled, setNotice } = deps;
   async function loadClassifierEnabled() {
-    const next = await fetchClassifierEnabled(getCwd());
-    if (next === null) return classifierEnabled.value;
-    classifierEnabled.value = Boolean(next);
+    const raw = await prefGet(getCwd(), PREF_KEY_CLASSIFIER_ENABLED, 'classifier', false);
+    if (raw === null) return classifierEnabled.value;
+    classifierEnabled.value = raw === true || raw === 'true';
     return classifierEnabled.value;
   }
   async function toggleClassifier(next) {
@@ -164,7 +238,7 @@ function createClassifierActions(deps) {
     if (!cwd) { setNotice('error', '当前作用域未确定，无法保存开关'); return; }
     const desired = Boolean(next);
     try {
-      await persistClassifierEnabled(cwd, desired);
+      await prefSet(cwd, PREF_KEY_CLASSIFIER_ENABLED, desired);
       classifierEnabled.value = desired;
       setNotice('info', desired ? '已开启智能启动分类；新对话会以第一条消息自动选提示词' : '已关闭智能启动分类');
     } catch (error) {
@@ -184,16 +258,16 @@ function refreshPromptsInBackground(loaders) {
 function createLaunchPromptActions(deps) {
   const { getCwd, fallbackMode, activePromptId, activatingId, setNotice, setReadonlyActionNotice } = deps;
   async function loadActivePromptId() {
-    const next = await fetchActivePromptId(getCwd());
-    if (next === null) return activePromptId.value;
-    activePromptId.value = next;
-    return next;
+    const raw = await prefGet(getCwd(), PREF_KEY_ACTIVE_PROMPT, 'active', '');
+    if (raw === null) return activePromptId.value;
+    activePromptId.value = (typeof raw === 'string' ? raw : '').trim();
+    return activePromptId.value;
   }
   async function applyActivePromptId(nextId, successMessage) {
     const cwd = getCwd();
     if (!cwd) { setNotice('error', '当前作用域未确定，无法记录启动提示词'); return; }
     try {
-      await persistActivePromptId(cwd, nextId);
+      await prefSet(cwd, PREF_KEY_ACTIVE_PROMPT, (nextId || '').toString());
       activePromptId.value = (nextId || '').toString();
       setNotice('info', successMessage);
     } catch (error) {
@@ -252,6 +326,13 @@ export const SystemPromptPage = {
     // the backend router auto-picks a prompt_template from the full library
     // via claude -p. Explicit activePromptId still wins backend-side.
     const classifierEnabled = ref(false);
+    // P21 multi-enable: user-curated candidate pool for semantic matching.
+    // Set<prompt_key>. Each card shows a checkbox; ticking adds the key,
+    // unticking removes it. When non-empty at thread/start time,
+    // startThread forwards it as prompt_candidates + implicit use_classifier
+    // so the backend router picks among these rows based on first-turn user
+    // input. Coexists with activePromptId: explicit launch pin still wins.
+    const candidatePromptKeys = ref(new Set());
     const form = reactive({
       id: '',
       name: '',
@@ -268,7 +349,9 @@ export const SystemPromptPage = {
     const cwdDisplay = computed(() =>
       currentScopeCwd.value || props.windowCwd || '未知'
     );
-    const editorViewOnly = computed(() => fallbackMode.value);
+    // editorViewOnly was an alias for fallbackMode; inlined below to cut a
+    // redundant computed. Any state where the editor should be read-only
+    // matches exactly `fallbackMode.value`.
     // 在 'all' tab 下创建会丢失 agent_key 归属（不知道应该存到 main 还是别的），
     // 所以只让主/子 tab 创建。全部 tab 仅用于查看/编辑/删除/设为启动。
     const createDisabled = computed(() => fallbackMode.value || activeTab.value === 'all');
@@ -426,6 +509,12 @@ export const SystemPromptPage = {
 
     const { loadActivePromptId, setLaunchPrompt, clearLaunchPrompt } = createLaunchPromptActions({ getCwd, fallbackMode, activePromptId, activatingId, setNotice, setReadonlyActionNotice });
     const { loadClassifierEnabled, toggleClassifier } = createClassifierActions({ getCwd, classifierEnabled, setNotice });
+    const { loadCandidatePromptKeys, toggleCandidate, selectAllCandidates, clearAllCandidates } = createCandidatePoolActions({ getCwd, candidatePromptKeys, setNotice, setReadonlyActionNotice, fallbackMode });
+    // Bulk wrappers using the visible card set + disabled state for buttons.
+    const selectAllFilteredCandidates = () => selectAllCandidates(filteredCards.value);
+    const candidatePoolSize = computed(() => candidatePromptKeys.value.size);
+    const selectAllDisabled = computed(() => fallbackMode.value || filteredCards.value.length === 0 || filteredCards.value.every((c) => c?.id && candidatePromptKeys.value.has(c.id)));
+    const clearAllDisabled = computed(() => fallbackMode.value || candidatePromptKeys.value.size === 0);
 
     async function copyPromptContent(item) {
       const text = (item?.content || '').trim();
@@ -485,7 +574,7 @@ export const SystemPromptPage = {
       }
     }
 
-    const refreshPromptsSilently = () => refreshPromptsInBackground([loadPrompts, loadActivePromptId, loadClassifierEnabled]);
+    const refreshPromptsSilently = () => refreshPromptsInBackground([loadPrompts, loadActivePromptId, loadClassifierEnabled, loadCandidatePromptKeys]);
 
     // ── Lifecycle ───────────────────────────────────
     onMounted(() => {
@@ -506,10 +595,13 @@ export const SystemPromptPage = {
     return {
       activeTab, promptCards, filteredCards, loading,
       notice, fallbackMode, readonlyReason, fallbackSource,
-      readonlyBannerMessage, editorViewOnly,
+      readonlyBannerMessage,
       editorOpen, editorMode, saving, deletingId,
       createDisabled, saveDisabled, deleteDisabled,
       activePromptId, activatingId, activateDisabled,
+      candidatePromptKeys, toggleCandidate,
+      candidatePoolSize, selectAllFilteredCandidates, clearAllCandidates,
+      selectAllDisabled, clearAllDisabled,
       classifierEnabled,
       form, cwdDisplay,
       switchTab, loadPrompts, savePrompt, deletePrompt,
@@ -526,16 +618,57 @@ export const SystemPromptPage = {
       <div class="panel-header" data-testid="sp-header">
         <div class="ph-bar"></div>
         <div class="ph-text"><h2>System 提示词管理</h2></div>
-        <label class="sp-classifier-toggle" data-testid="sp-classifier-toggle" :title="'开启后，新对话的第一条消息会由 claude haiku 在库中自动选提示词。显式「设为启动」仍然会优先用那条。'">
-          <input type="checkbox" :checked="classifierEnabled" @change="toggleClassifier($event.target.checked)" data-testid="sp-classifier-checkbox" />
-          <span>智能启动分类</span>
-        </label>
         <span class="sp-cwd-badge" data-testid="sp-cwd-badge" :title="cwdDisplay">
           <svg class="sp-cwd-icon" viewBox="0 0 16 16" fill="none">
             <path d="M2 4.5A1.5 1.5 0 013.5 3h3.293a1 1 0 01.707.293L8.707 4.5H12.5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z" stroke="currentColor" stroke-width="1.2"/>
           </svg>
           <span class="sp-cwd-text">{{ cwdDisplay }}</span>
         </span>
+      </div>
+
+      <!-- 智能启动 · 候选池面板（把两个相关的路由开关放在一起） -->
+      <div class="sp-routing-panel" data-testid="sp-routing-panel">
+        <div class="sp-routing-row">
+          <label class="sp-toggle-card" data-testid="sp-classifier-toggle"
+            :class="{ 'is-active': classifierEnabled }"
+            :title="'池为空时的兜底：新对话的第一条消息由 claude haiku 在全库自动选提示词（5-15 秒有较明显延迟）。候选池非空时会走多源注入，本开关不生效。显式「设为启动」始终优先。'">
+            <input type="checkbox" :checked="classifierEnabled"
+              @change="toggleClassifier($event.target.checked)"
+              data-testid="sp-classifier-checkbox" />
+            <div class="sp-toggle-body">
+              <div class="sp-toggle-title">智能启动分类</div>
+              <div class="sp-toggle-sub">新对话按首条消息语义自动选一条提示词</div>
+            </div>
+          </label>
+          <div class="sp-candidate-summary" data-testid="sp-candidate-summary">
+            <div class="sp-candidate-summary-head">
+              <span class="sp-candidate-summary-title">候选池</span>
+              <span class="sp-candidate-summary-count"
+                :class="{ 'is-zero': candidatePoolSize === 0 }"
+                data-testid="sp-candidate-pool-count">{{ candidatePoolSize }} 条</span>
+            </div>
+            <div class="sp-candidate-summary-hint">
+              池里勾选的提示词按 Claude 多源格式（Contents of × N）全部合并注入新对话，不走 LLM。
+              分类器是池为空时的兜底路径，两者不交叉。
+            </div>
+          </div>
+          <div class="sp-candidate-bulk" data-testid="sp-candidate-bulk">
+            <button class="btn btn-ghost btn-xs"
+              data-testid="sp-candidate-select-all"
+              :disabled="selectAllDisabled"
+              @click="selectAllFilteredCandidates"
+              :title="'把当前 tab 的全部提示词加入候选池'">
+              全选候选
+            </button>
+            <button class="btn btn-ghost btn-xs btn-warning"
+              data-testid="sp-candidate-clear-all"
+              :disabled="clearAllDisabled"
+              @click="clearAllCandidates"
+              :title="'清空候选池；新对话将由分类器（如已开启）或 main/default 兜底'">
+              清空候选
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Tabs -->
@@ -601,6 +734,7 @@ export const SystemPromptPage = {
                 <div class="sp-card-title">{{ item.name || '未命名' }}</div>
                 <span v-if="item.isDefault" class="sp-card-badge is-default">默认</span>
                 <span v-if="activePromptId === item.id" class="sp-card-badge is-active" :data-testid="'sp-active-badge-' + idx">启动中</span>
+                <span v-if="candidatePromptKeys.has(item.id)" class="sp-card-badge is-candidate" :data-testid="'sp-candidate-badge-' + idx">候选</span>
                 <span v-if="activeTab === 'all' && item.agentType" class="sp-card-badge" :data-testid="'sp-agentkey-badge-' + idx">{{ item.agentType }}</span>
               </div>
             </div>
@@ -608,7 +742,21 @@ export const SystemPromptPage = {
             <div class="sp-card-preview">{{ truncate(item.content) }}</div>
             <div class="sp-card-meta">{{ countStats(item.content).lines }} 行 · {{ countStats(item.content).chars }} 字符</div>
             <div class="sp-card-actions">
-              <button class="btn btn-secondary btn-xs" :data-testid="'sp-edit-btn-' + idx" @click="openEdit(item)">{{ editorViewOnly ? '查看' : '编辑' }}</button>
+              <label
+                class="sp-candidate-toggle"
+                :data-testid="'sp-candidate-toggle-' + idx"
+                :title="'勾选后加入候选池，新对话会按 Claude 多源格式合并注入所有已勾选项'"
+              >
+                <input
+                  type="checkbox"
+                  :checked="candidatePromptKeys.has(item.id)"
+                  :disabled="fallbackMode"
+                  @change="toggleCandidate(item)"
+                  :data-testid="'sp-candidate-checkbox-' + idx"
+                />
+                <span>候选</span>
+              </label>
+              <button class="btn btn-secondary btn-xs" :data-testid="'sp-edit-btn-' + idx" @click="openEdit(item)">{{ fallbackMode ? '查看' : '编辑' }}</button>
               <button class="btn btn-ghost btn-xs" :data-testid="'sp-copy-btn-' + idx" @click="copyPromptContent(item)">复制</button>
               <button
                 v-if="activePromptId === item.id"
@@ -649,25 +797,25 @@ export const SystemPromptPage = {
         <div class="modal-box sp-editor-modal" role="dialog" aria-modal="true" data-testid="sp-editor-panel">
           <div class="sp-editor-head">
             <div>
-              <div class="modal-title">{{ editorViewOnly ? '查看提示词' : (editorMode === 'create' ? '新建提示词' : '编辑提示词') }}</div>
+              <div class="modal-title">{{ fallbackMode ? '查看提示词' : (editorMode === 'create' ? '新建提示词' : '编辑提示词') }}</div>
               <div class="sp-editor-tip">{{ form.agentKey || (activeTab === 'main' ? '主 Agent' : (activeTab === 'sub' ? '子 Agent' : '未分类')) }} · 作用域 {{ cwdDisplay }}</div>
             </div>
             <button class="btn btn-ghost" data-testid="sp-editor-close-btn" @click="closeEditor">关闭</button>
           </div>
 
           <div class="sp-editor-body">
-            <div v-if="editorViewOnly" class="sp-notice is-warn" data-testid="sp-editor-readonly-banner">
+            <div v-if="fallbackMode" class="sp-notice is-warn" data-testid="sp-editor-readonly-banner">
               {{ readonlyBannerMessage }}
             </div>
 
             <div class="sp-field">
               <label>名称</label>
-              <input class="modal-input" data-testid="sp-name-input" v-model="form.name" placeholder="例如：代码审查专家" :disabled="saving || editorViewOnly" />
+              <input class="modal-input" data-testid="sp-name-input" v-model="form.name" placeholder="例如：代码审查专家" :disabled="saving || fallbackMode" />
             </div>
 
             <div class="sp-field">
               <label>描述（可选）</label>
-              <input class="modal-input" data-testid="sp-desc-input" v-model="form.description" placeholder="一句话描述用途" :disabled="saving || editorViewOnly" />
+              <input class="modal-input" data-testid="sp-desc-input" v-model="form.description" placeholder="一句话描述用途" :disabled="saving || fallbackMode" />
             </div>
 
             <div class="sp-field">

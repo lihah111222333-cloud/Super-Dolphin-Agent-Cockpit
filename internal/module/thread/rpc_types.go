@@ -59,6 +59,11 @@ type startParams struct {
 	// the router runs the prompt classifier on the first-turn user input to
 	// auto-pick a prompt_template from the full library. Off by default.
 	UseClassifier bool `json:"use_classifier,omitempty"`
+	// Optional curated candidate pool for the classifier. When non-empty,
+	// the classifier only scores prompt_keys in this whitelist (matches the
+	// UI's per-row "include in semantic matching" checkbox). Empty = classify
+	// across all enabled templates (legacy behavior).
+	PromptCandidates []string `json:"prompt_candidates,omitempty"`
 	// DeferSpawn opts into the C1 "pending_launch" flow: create the thread
 	// row without forking the provider CLI; the actual spawn happens on the
 	// first turn once router has real user input to classify.

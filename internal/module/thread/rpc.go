@@ -133,6 +133,7 @@ func newStartHandler(svc Service) handler.Func {
 			AgentKey:          p.AgentKey,
 			PromptKey:         p.PromptKey,
 			UseClassifier:     p.UseClassifier,
+			PromptCandidates:  append([]string(nil), p.PromptCandidates...),
 			DeferSpawn:        p.DeferSpawn,
 		})
 		if err != nil {
@@ -174,6 +175,10 @@ func newStartHandler(svc Service) handler.Func {
 		if result.PromptVersionID != nil {
 			response["prompt_version_id"] = *result.PromptVersionID
 			response["promptVersionId"] = *result.PromptVersionID
+		}
+		if len(result.MergedCandidateKeys) > 0 {
+			response["merged_candidate_keys"] = result.MergedCandidateKeys
+			response["mergedCandidateKeys"] = result.MergedCandidateKeys
 		}
 		if result.PendingLaunch {
 			response["pending_launch"] = true

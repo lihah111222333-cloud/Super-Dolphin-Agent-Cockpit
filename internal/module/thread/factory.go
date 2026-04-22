@@ -239,6 +239,9 @@ type storedThreadConfig struct {
 	// classifier would never run on blank-thread first turns (which is the
 	// whole point).
 	UseClassifier bool `json:"use_classifier,omitempty"`
+	// PromptCandidates is stashed alongside UseClassifier so defer_spawn
+	// preserves the UI's curated candidate pool into the first-turn spawn.
+	PromptCandidates []string `json:"prompt_candidates,omitempty"`
 }
 
 type offlineConfigSnapshot struct {

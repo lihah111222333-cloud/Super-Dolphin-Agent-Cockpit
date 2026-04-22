@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
@@ -377,5 +378,233 @@ func TestPrependAgentBadge_Idempotent(t *testing.T) {
 	twice := prependAgentBadge(once, "SQL 与数据建模专家", "sql-expert")
 	if once != twice {
 		t.Fatalf("applying prefix twice should be no-op: %q vs %q", once, twice)
+	}
+}
+
+// TestResolveRoutedPrompt_PoolBeatsClassifierWhenBothOn verifies the new
+// P21 semantics: a non-empty candidate pool is the PRIMARY path regardless
+// of UseClassifier. When the user curated a pool, every checked row is
+// intentionally injected via Claude's multi-source format; the classifier
+// is not asked to narrow anything — classifier inference is redundant when
+// the user already picked what to include.
+func TestResolveRoutedPrompt_PoolBeatsClassifierWhenBothOn(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/sql", "sql_expert", "sql body", []string{"写 SQL"}),
+			sqlTemplate("main/writing", "writer", "writing body", []string{"写邮件"}),
+			sqlTemplate("main/code", "coder", "code body", []string{"写代码"}),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+	fake := &fakeClassifier{result: classifier.Result{PromptKey: "main/writing"}}
+	s.classifier = fake
+
+	req := &StartRequest{
+		Prompt:           "帮我回个客户邮件",
+		UseClassifier:    true, // 分类器开启
+		PromptCandidates: []string{"main/writing", "main/code"},
+	}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if fake.callCount != 0 {
+		t.Fatalf("classifier must not run when pool is non-empty; got %d calls", fake.callCount)
+	}
+	// Pool-merge injects every pool entry; classifier pick is ignored.
+	for _, want := range []string{"Contents of main/writing:", "writing body", "Contents of main/code:", "code body"} {
+		if !strings.Contains(req.BaseInstructions, want) {
+			t.Fatalf("BaseInstructions missing %q:\n%s", want, req.BaseInstructions)
+		}
+	}
+	if strings.Contains(req.BaseInstructions, "sql body") || strings.Contains(req.BaseInstructions, "default body") {
+		t.Fatalf("pool-merge leaked non-pool entry:\n%s", req.BaseInstructions)
+	}
+	if req.PromptKey != "" {
+		t.Fatalf("req.PromptKey = %q, want empty (pool-merge mode)", req.PromptKey)
+	}
+}
+
+// TestResolveRoutedPrompt_EmptyPromptCandidatesKeepsAllEnabled covers the
+// "user has not curated a pool" path: an empty PromptCandidates slice must
+// leave legacy behavior (classify across every enabled template) unchanged.
+func TestResolveRoutedPrompt_EmptyPromptCandidatesKeepsAllEnabled(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
+			sqlTemplate("main/writing", "writer", "writing body", nil),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+	fake := &fakeClassifier{result: classifier.Result{PromptKey: "main/sql"}}
+	s.classifier = fake
+
+	req := &StartRequest{
+		Prompt:           "写个 JOIN",
+		UseClassifier:    true,
+		PromptCandidates: nil,
+	}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if len(fake.lastInput.Candidates) != 3 {
+		t.Fatalf("empty whitelist must leave all 3 enabled candidates; saw %d", len(fake.lastInput.Candidates))
+	}
+}
+
+// TestResolveRoutedPrompt_StalePoolFallsThroughToClassifier covers the
+// safety valve: if every key in the whitelist references a deleted prompt,
+// pool-merge returns false and the request falls through to the normal
+// classifier / default-fallback pipeline. With UseClassifier=true, this
+// means the classifier runs against the full enabled library.
+func TestResolveRoutedPrompt_StalePoolFallsThroughToClassifier(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/sql", "sql_expert", "sql body", nil),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+	fake := &fakeClassifier{result: classifier.Result{PromptKey: "main/sql"}}
+	s.classifier = fake
+
+	req := &StartRequest{
+		Prompt:           "随便一句话",
+		UseClassifier:    true,
+		PromptCandidates: []string{"main/deleted-prompt", "main/another-gone"},
+	}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if fake.callCount != 1 {
+		t.Fatalf("stale pool should fall through to classifier; got %d calls", fake.callCount)
+	}
+	if req.PromptKey != "main/sql" {
+		t.Fatalf("classifier pick should be stamped; got PromptKey=%q", req.PromptKey)
+	}
+}
+
+// TestResolveRoutedPrompt_CandidatePoolMergeSkipsClassifier verifies the P21
+// multi-enable concat mode: candidate pool non-empty + no classifier opt-in
+// → all pool entries concatenated into BaseInstructions (Claude claudeMd
+// multi-source style), classifier never invoked.
+func TestResolveRoutedPrompt_CandidatePoolMergeSkipsClassifier(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/style", "main", "style body", nil),
+			sqlTemplate("main/workflow", "main", "workflow body", nil),
+			sqlTemplate("main/review", "main", "review body", nil),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+	fake := &fakeClassifier{result: classifier.Result{PromptKey: "main/style"}}
+	s.classifier = fake
+
+	req := &StartRequest{
+		Prompt:           "写一个方案",
+		UseClassifier:    false, // 关闭 classifier
+		PromptCandidates: []string{"main/style", "main/workflow", "main/review"},
+	}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if fake.callCount != 0 {
+		t.Fatalf("classifier must not be invoked in pool-merge mode; got %d calls", fake.callCount)
+	}
+	if req.PromptKey != "" {
+		t.Fatalf("req.PromptKey = %q, want empty for pool-merge mode", req.PromptKey)
+	}
+	if req.AgentKey != "" {
+		t.Fatalf("req.AgentKey = %q, want empty for pool-merge mode", req.AgentKey)
+	}
+	if !strings.Contains(req.AgentTitle, "候选池") {
+		t.Fatalf("req.AgentTitle = %q, want contains 候选池", req.AgentTitle)
+	}
+	// Verify Claude-style multi-source wrapping + concat of all 3 pool entries,
+	// and that non-pool entries (defaultPromptKey) are excluded.
+	for _, want := range []string{
+		"Contents of main/style:",
+		"style body",
+		"Contents of main/workflow:",
+		"workflow body",
+		"Contents of main/review:",
+		"review body",
+	} {
+		if !strings.Contains(req.BaseInstructions, want) {
+			t.Fatalf("BaseInstructions missing %q:\n%s", want, req.BaseInstructions)
+		}
+	}
+	if strings.Contains(req.BaseInstructions, "default body") {
+		t.Fatalf("BaseInstructions leaked non-pool entry:\n%s", req.BaseInstructions)
+	}
+	// Pool-merge must stamp MergedCandidateKeys (in input order, enabled-only)
+	// so the UI can render “候选池 · N 条” badge with the exact keys tooltip.
+	wantKeys := []string{"main/style", "main/workflow", "main/review"}
+	if got := req.MergedCandidateKeys; len(got) != len(wantKeys) {
+		t.Fatalf("MergedCandidateKeys len=%d want=%d (%v)", len(got), len(wantKeys), got)
+	}
+	for i, want := range wantKeys {
+		if req.MergedCandidateKeys[i] != want {
+			t.Fatalf("MergedCandidateKeys[%d]=%q want %q", i, req.MergedCandidateKeys[i], want)
+		}
+	}
+}
+
+// TestResolveRoutedPrompt_CandidatePoolMergeYieldsToExplicitPin confirms that
+// a caller-provided PromptKey pin overrides pool-merge mode: even with a
+// non-empty pool, the explicit pin wins and merge never runs.
+func TestResolveRoutedPrompt_CandidatePoolMergeYieldsToExplicitPin(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/style", "main", "style body", nil),
+			sqlTemplate("main/workflow", "main", "workflow body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{
+		Prompt:           "帮我写",
+		PromptKey:        "main/style", // 显式 pin
+		PromptCandidates: []string{"main/style", "main/workflow"},
+	}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.BaseInstructions != "style body" {
+		t.Fatalf("explicit pin should win and inject single template; got BaseInstructions=%q", req.BaseInstructions)
+	}
+	// Explicit pin path stamps PromptKey back + picks that row's AgentKey.
+	if req.PromptKey != "main/style" {
+		t.Fatalf("req.PromptKey = %q, want main/style (pin)", req.PromptKey)
+	}
+}
+
+// TestResolveRoutedPrompt_CandidatePoolMergeAllStaleFallsBack ensures
+// robustness: when every key in the pool is unknown (user deleted the
+// underlying prompts), merge returns false so the classifier/default
+// fallback paths can still run.
+func TestResolveRoutedPrompt_CandidatePoolMergeAllStaleFallsBack(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{
+		Prompt:           "hi",
+		PromptCandidates: []string{"main/deleted-1", "main/deleted-2"},
+	}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	// All stale → merge skipped → default fallback picks main/default.
+	if req.PromptKey != defaultPromptKey {
+		t.Fatalf("stale-only pool should fall back to default; got PromptKey=%q", req.PromptKey)
+	}
+	if req.BaseInstructions != "default body" {
+		t.Fatalf("BaseInstructions = %q, want default body", req.BaseInstructions)
 	}
 }

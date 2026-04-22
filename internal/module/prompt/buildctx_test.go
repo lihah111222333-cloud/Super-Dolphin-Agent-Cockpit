@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 type stubClaudeMdSourceProvider struct {
@@ -29,9 +30,10 @@ func TestBuildBaseUserContextSkipsConditionalAndWrapsTeamMemory(t *testing.T) {
 		{Path: "/repo/.claude/rules/path-specific.md", Type: "project", Content: "Conditional instructions", Conditional: true, Digest: "conditional-digest"},
 		{Path: "/team/MEMORY.md", Type: "teammem", Content: "Shared team memory", Digest: "team-digest"},
 	})
-	text := FormatUserContextMessage(MergeRuntimeUserContext(base, map[string]string{
+	merged := MergeRuntimeUserContext(base, map[string]string{
 		"currentDate": "Today's date is 2026-04-15.",
-	}))
+	})
+	text := contract.RenderUserContextMessage(dto.TurnAssembly{UserContext: merged})
 	for _, check := range []string{
 		"<system-reminder>",
 		"# claudeMd",
@@ -41,11 +43,11 @@ func TestBuildBaseUserContextSkipsConditionalAndWrapsTeamMemory(t *testing.T) {
 		"# currentDate",
 	} {
 		if !strings.Contains(text, check) {
-			t.Fatalf("FormatUserContextMessage() = %q, want substring %q", text, check)
+			t.Fatalf("RenderUserContextMessage = %q, want substring %q", text, check)
 		}
 	}
 	if strings.Contains(text, "Conditional instructions") {
-		t.Fatalf("FormatUserContextMessage() = %q, want conditional rule omitted", text)
+		t.Fatalf("RenderUserContextMessage = %q, want conditional rule omitted", text)
 	}
 }
 

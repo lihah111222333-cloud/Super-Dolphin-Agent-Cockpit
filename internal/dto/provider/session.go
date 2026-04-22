@@ -42,6 +42,23 @@ type StartAssembly struct {
 	DeveloperInstructions string                  `json:"developerInstructions,omitempty"`
 	ResolvedSections      []ResolvedPromptSection `json:"resolvedSections,omitempty"`
 	Snapshot              PromptAssemblySnapshot  `json:"snapshot"`
+
+	// UserContext mirrors TurnAssembly.UserContext: a structured map of
+	// per-start user meta entries (currentDate, runtimeExtras, gitStatus,
+	// claudeMd, ...). Introduced so provider bridges can route these to the
+	// synthetic user meta message (Claude prependUserContext equivalent)
+	// instead of the cacheable system prompt prefix. Until the migration in
+	// Phase 3 completes, consumers must not rely on UserContext being the
+	// sole carrier; the same data is still embedded into BaseInstructions for
+	// backward compatibility.
+	UserContext map[string]string `json:"userContext,omitempty"`
+	// UserContextText is the rendered UserContext string (same rendering used
+	// by TurnAssembly.UserContextText).
+	UserContextText string `json:"userContextText,omitempty"`
+	// SystemContext carries the per-start system context dict (git status,
+	// cache breaker, ...). Populated in parallel with BaseInstructions during
+	// the transition; Phase 3 will stop embedding it into BaseInstructions.
+	SystemContext SystemContext `json:"systemContext,omitempty"`
 }
 
 type TurnAssembly struct {

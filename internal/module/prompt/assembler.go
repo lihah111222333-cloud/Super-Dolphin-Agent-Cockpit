@@ -40,10 +40,18 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 	}
 	boundary := startAssemblyBoundary(resolved, strings.TrimSpace(in.BaseInstructions))
 	base := joinBlocks(boundaryCachedPrefix(boundary), boundaryUncachedTail(boundary))
-	// Append system prompt content (currentDate, runtimeExtras, git status)
-	// to baseInstructions so it is sent once in thread/start, not per-turn.
-	if systemPrompt := s.buildStartSystemPrompt(ctx, buildStartCtx(in), resolved); systemPrompt != "" {
-		base = joinBlocks(base, systemPrompt)
+	buildCtx := buildStartCtx(in)
+	userMeta := s.buildStartUserMeta(buildCtx, resolved)
+	systemCtx := s.buildSystemContext(ctx, buildCtx)
+	// Phase 3: keep only the user-configurable prompt hint in BaseInstructions
+	// so it stays bytewise stable in the same cwd + BuildCtx. Per-start user
+	// meta (currentDate, runtimeExtras) and system context (gitStatus) are
+	// intentionally NOT embedded here — they flow through the structured
+	// UserContext / UserContextText / SystemContext fields so provider
+	// bridges can route them into the synthetic user meta message, leaving
+	// the cacheable prefix unaffected by per-turn variance.
+	if hint := s.resolvePromptHint(ctx, buildCtx.CWD); hint != "" {
+		base = joinBlocks(base, hint)
 	}
 	dev := strings.TrimSpace(in.DeveloperInstructions)
 	displayName := shared.FirstNonEmpty(strings.TrimSpace(in.Name), strings.TrimSpace(in.Prompt))
@@ -54,6 +62,9 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		DeveloperInstructions: dev,
 		ResolvedSections:      resolved,
 		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, boundary, resolved),
+		UserContext:           map[string]string(cloneUserContextPayload(userMeta)),
+		UserContextText:       contract.FormatUserContextText(userMeta),
+		SystemContext:         systemCtx,
 	}, nil
 }
 
@@ -69,16 +80,19 @@ func simpleStartEnabled(in StartInput) bool {
 	return false
 }
 
-func (s *service) simpleStartAssembly(ctx context.Context, in StartInput) StartAssembly {
+// simpleStartAssembly implements Claude Code's CLAUDE_CODE_SIMPLE fast path
+// (prompts.ts L444-454): the system prompt degrades to a strict three-line
+// form with no <system-reminder>, no gitStatus, and no runtimeExtras. Phase 1
+// tightened this path to match Claude parity; the full start path remains the
+// one that emits the layered prompt when CLAUDE_CODE_SIMPLE is unset.
+func (s *service) simpleStartAssembly(_ context.Context, in StartInput) StartAssembly {
 	displayName := shared.FirstNonEmpty(strings.TrimSpace(in.Name), strings.TrimSpace(in.Prompt))
 	buildCtx := buildStartCtx(in)
 	base := strings.Join([]string{
 		simpleStartIdentityLine,
 		"CWD: " + currentPromptCWD(buildCtx),
+		"Date: " + startPromptCurrentDate(),
 	}, "\n")
-	if systemPrompt := s.buildStartSystemPrompt(ctx, buildCtx, nil); systemPrompt != "" {
-		base = joinBlocks(base, systemPrompt)
-	}
 	dev := strings.TrimSpace(in.DeveloperInstructions)
 	return StartAssembly{
 		DisplayName:           displayName,
@@ -110,7 +124,7 @@ func (s *service) AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly,
 	}
 	return TurnAssembly{
 		UserContext:      map[string]string(cloneUserContextPayload(merged)),
-		UserContextText:  FormatUserContextText(merged),
+		UserContextText:  contract.FormatUserContextText(merged),
 		SystemContext:    s.buildSystemContext(ctx, buildCtx),
 		Attachments:      attachments,
 		ResolvedSections: resolved,
@@ -253,8 +267,11 @@ func (s *service) regionSections(region PromptRegion) []PromptSection {
 func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) StartAssembly {
 	displayName := shared.FirstNonEmpty(strings.TrimSpace(in.Name), strings.TrimSpace(in.Prompt))
 	base := strings.TrimSpace(in.BaseInstructions)
-	if systemPrompt := s.buildStartSystemPrompt(ctx, buildStartCtx(in), nil); systemPrompt != "" {
-		base = joinBlocks(base, systemPrompt)
+	buildCtx := buildStartCtx(in)
+	userMeta := s.buildStartUserMeta(buildCtx, nil)
+	systemCtx := s.buildSystemContext(ctx, buildCtx)
+	if hint := s.resolvePromptHint(ctx, buildCtx.CWD); hint != "" {
+		base = joinBlocks(base, hint)
 	}
 	dev := strings.TrimSpace(in.DeveloperInstructions)
 	return StartAssembly{
@@ -262,29 +279,31 @@ func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) Star
 		BaseInstructions:      base,
 		DeveloperInstructions: dev,
 		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, nil, nil),
+		UserContext:           map[string]string(cloneUserContextPayload(userMeta)),
+		UserContextText:       contract.FormatUserContextText(userMeta),
+		SystemContext:         systemCtx,
 	}
 }
 
-// buildStartSystemPrompt constructs the one-time system prompt block that is
-// injected into baseInstructions at session start. It includes the user-
-// configurable LSP prompt hint, currentDate, runtimeExtras, and system context
-// (git status). This avoids the previous per-turn injection which wasted
-// tokens by repeating on every message.
-func (s *service) buildStartSystemPrompt(ctx context.Context, buildCtx BuildCtx, resolved []ResolvedPromptSection) string {
+// buildStartUserMeta returns the structured per-start user meta payload
+// (currentDate + runtimeExtras). It is the Go equivalent of Claude Code's
+// getUserContext() entries for currentDate and runtimeExtras. The caller
+// routes this into the synthetic user meta message (see
+// contract.RenderUserContextMessage); it is intentionally kept out of the
+// cacheable BaseInstructions prefix so daily-varying content does not
+// invalidate the Anthropic org ephemeral cache.
+func (s *service) buildStartUserMeta(_ BuildCtx, resolved []ResolvedPromptSection) userContextPayload {
 	date := fmt.Sprintf("Today's date is %s.", startPromptCurrentDate())
 	extraContents := runtimeExtraContents(resolved)
 	runtimeExtras := strings.TrimSpace(joinBlocks(
 		runtimeExtrasRelevanceDisclaimer,
 		joinBlocks(extraContents...),
 	))
-	userCtxText := contract.FormatUserContextText(map[string]string{
-		"currentDate":   date,
-		"runtimeExtras": runtimeExtras,
-	})
-	reminder := contract.WrapSystemReminder(userCtxText)
-	systemCtx := contract.FormatSystemContextBlock(s.buildSystemContext(ctx, buildCtx))
-	hint := s.resolvePromptHint(ctx, buildCtx.CWD)
-	return joinBlocks(hint, reminder, systemCtx)
+	meta := userContextPayload{"currentDate": date}
+	if runtimeExtras != "" {
+		meta["runtimeExtras"] = runtimeExtras
+	}
+	return meta
 }
 
 func startPromptCurrentDate() string {

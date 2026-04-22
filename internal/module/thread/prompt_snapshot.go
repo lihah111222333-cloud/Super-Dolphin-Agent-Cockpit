@@ -205,8 +205,13 @@ func (s *service) resolveStablePromptSnapshot(
 		if storedPromptSnapshotValid(stored, provider) {
 			return stored
 		}
+		// Phase 3 parity decision: when the stored snapshot does not match the
+		// current hash (e.g. SnapshotVersion bumped from v1 to v2, or section
+		// content changed), silently re-compute with a debug log. Warn level
+		// is reserved for actual storage failures below.
 		if !promptSnapshotBlank(stored) && s.logger != nil {
-			s.logger.Warn("thread: ignore incompatible stored prompt snapshot", "thread_id", threadID)
+			s.logger.Debug("thread: recomputing prompt snapshot due to hash/version mismatch",
+				"thread_id", threadID, "stored_version", stored.Version)
 		}
 	} else if s.logger != nil {
 		s.logger.Warn("thread: load stored prompt snapshot failed", "thread_id", threadID, "error", err)
@@ -288,8 +293,12 @@ func (s *service) preferredStoredPromptSnapshot(
 	if storedPromptSnapshotValid(stored, provider) {
 		return stored, true
 	}
+	// Phase 3 parity decision: hash/version mismatch triggers recompute via
+	// rebuildResumePromptSnapshot; downgrade to debug since this is the
+	// expected path after SnapshotVersion bumps.
 	if !promptSnapshotBlank(stored) && s.logger != nil {
-		s.logger.Warn("thread: ignore incompatible stored prompt snapshot", "thread_id", threadID)
+		s.logger.Debug("thread: recomputing prompt snapshot on resume due to hash/version mismatch",
+			"thread_id", threadID, "stored_version", stored.Version)
 	}
 	return contract.PromptAssemblySnapshot{}, false
 }

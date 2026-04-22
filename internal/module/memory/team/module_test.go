@@ -22,6 +22,10 @@ func (stubPromptAssemblyService) AssembleTurn(context.Context, contract.TurnInpu
 	return contract.TurnAssembly{}, nil
 }
 
+func (stubPromptAssemblyService) AssembleAgent(context.Context, contract.AgentInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
 func (stubPromptAssemblyService) Invalidate(context.Context, contract.InvalidateReason) error {
 	return nil
 }
