@@ -92,6 +92,19 @@ type PromptRoutingTest struct {
 	UpdatedAt         pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }
 
+type PromptTemplateSection struct {
+	ID         int64              `db:"id" json:"id"`
+	TemplateID int64              `db:"template_id" json:"template_id"`
+	SectionKey string             `db:"section_key" json:"section_key"`
+	Region     string             `db:"region" json:"region"`
+	Ordinal    int32              `db:"ordinal" json:"ordinal"`
+	Body       string             `db:"body" json:"body"`
+	EnableWhen []byte             `db:"enable_when" json:"enable_when"`
+	Enabled    bool               `db:"enabled" json:"enabled"`
+	CreatedAt  pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
 type SharedFile struct {
 	Path      string    `db:"path" json:"path"`
 	Content   string    `db:"content" json:"content"`

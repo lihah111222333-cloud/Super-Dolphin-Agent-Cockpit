@@ -43,6 +43,15 @@ func (f *fakePromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*
 func (f *fakePromptStore) WithTx(context.Context, func(promptstore.Store) error) error {
 	panic("unused")
 }
+func (f *fakePromptStore) ListSectionsByTemplateID(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
+	return nil, nil
+}
+func (f *fakePromptStore) UpsertSection(context.Context, promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
+	panic("unused")
+}
+func (f *fakePromptStore) DeleteSection(context.Context, int64, string) error {
+	panic("unused")
+}
 
 func newServiceWithRouter(store *fakePromptStore) *service {
 	return &service{promptStore: store}

@@ -25,6 +25,7 @@ import {
 
 import { callAPI, copyTextToClipboard } from '../services/api.js';
 import { logDebug, logInfo, logWarn } from '../services/log.js';
+import { SectionsEditor } from './SectionsEditor.js';
 
 // ── Helpers (outside setup to keep size-guard happy) ──────────
 
@@ -295,6 +296,7 @@ function createLaunchPromptActions(deps) {
 
 export const SystemPromptPage = {
   name: 'SystemPromptPage',
+  components: { SectionsEditor },
   props: {
     projectStore: { type: Object, default: null },
     threadStore: { type: Object, default: null },
@@ -349,6 +351,9 @@ export const SystemPromptPage = {
     const cwdDisplay = computed(() =>
       currentScopeCwd.value || props.windowCwd || '未知'
     );
+    // currentProjectCwd 是发给后端 RPC / 子组件的原始路径（空也 OK）；
+    // cwdDisplay 含中文 fallback '未知'，专供 UI 显示用，不能当参数发出去。
+    const currentProjectCwd = computed(() => resolveProjectCwd(props.projectStore));
     // editorViewOnly was an alias for fallbackMode; inlined below to cut a
     // redundant computed. Any state where the editor should be read-only
     // matches exactly `fallbackMode.value`.
@@ -543,6 +548,7 @@ export const SystemPromptPage = {
       form.agentKey = '';
       editorMode.value = 'create';
       editorOpen.value = true;
+      editorTab.value = 'basic';
       setNotice('info', '');
       logDebug('system-prompt', 'editor.create');
     }
@@ -555,6 +561,7 @@ export const SystemPromptPage = {
       form.agentKey = (item.agentType || '').toString();
       editorMode.value = 'edit';
       editorOpen.value = true;
+      editorTab.value = 'basic';
       setNotice('info', '');
       logDebug('system-prompt', 'editor.edit', { id: item.id });
     }
@@ -562,6 +569,16 @@ export const SystemPromptPage = {
     function closeEditor() {
       editorOpen.value = false;
       setNotice('info', '');
+    }
+
+    // ── Advanced-debug tab state ─────────────────
+    // editorTab 是编辑弹窗内部的 tab 开关；[basic] / [🔧 高级调试]。
+    // sections 的实际 CRUD 已抽到 <SectionsEditor> 子组件，本组件只
+    // 负责 tab 的显/隐；SectionsEditor 自己按 props.visible + props.promptId
+    // watch 按需加载。
+    const editorTab = ref('basic'); // 'basic' | 'advanced'
+    function switchEditorTab(tab) {
+      if (editorTab.value !== tab) editorTab.value = tab;
     }
 
     // ── CWD ─────────────────────────────────────────
@@ -603,12 +620,14 @@ export const SystemPromptPage = {
       candidatePoolSize, selectAllFilteredCandidates, clearAllCandidates,
       selectAllDisabled, clearAllDisabled,
       classifierEnabled,
-      form, cwdDisplay,
+      form, cwdDisplay, currentProjectCwd,
       switchTab, loadPrompts, savePrompt, deletePrompt,
       copyPromptContent, openCreate, openEdit, closeEditor,
       setLaunchPrompt, clearLaunchPrompt, loadActivePromptId,
       toggleClassifier, loadClassifierEnabled,
       truncate, countStats,
+      // Advanced-debug tab toggle (actual CRUD lives in <sections-editor>)
+      editorTab, switchEditorTab,
     };
   },
   template: `
@@ -804,45 +823,69 @@ export const SystemPromptPage = {
           </div>
 
           <div class="sp-editor-body">
-            <div v-if="fallbackMode" class="sp-notice is-warn" data-testid="sp-editor-readonly-banner">
-              {{ readonlyBannerMessage }}
+            <!-- Tab switch: [基础] / [🔧 高级调试] -->
+            <div class="sub-tabs sp-editor-tabs" data-testid="sp-editor-tabs">
+              <button class="sub-tab"
+                :class="{ active: editorTab === 'basic' }"
+                data-testid="sp-editor-tab-basic"
+                @click="switchEditorTab('basic')">基础</button>
+              <button class="sub-tab"
+                :class="{ active: editorTab === 'advanced' }"
+                data-testid="sp-editor-tab-advanced"
+                :title="'高级调试：编辑 prompt_template_sections 的分段 / region / enable_when。普通用户无需使用。'"
+                @click="switchEditorTab('advanced')">🔧 高级调试</button>
             </div>
 
-            <div class="sp-field">
-              <label>名称</label>
-              <input class="modal-input" data-testid="sp-name-input" v-model="form.name" placeholder="例如：代码审查专家" :disabled="saving || fallbackMode" />
+            <!-- 基础 tab：原有的名称 / 描述 / 内容 -->
+            <div v-show="editorTab === 'basic'" data-testid="sp-editor-basic">
+              <div v-if="fallbackMode" class="sp-notice is-warn" data-testid="sp-editor-readonly-banner">
+                {{ readonlyBannerMessage }}
+              </div>
+
+              <div class="sp-field">
+                <label>名称</label>
+                <input class="modal-input" data-testid="sp-name-input" v-model="form.name" placeholder="例如：代码审查专家" :disabled="saving || fallbackMode" />
+              </div>
+
+              <div class="sp-field">
+                <label>描述（可选）</label>
+                <input class="modal-input" data-testid="sp-desc-input" v-model="form.description" placeholder="一句话描述用途" :disabled="saving || fallbackMode" />
+              </div>
+
+              <div class="sp-field">
+                <label>提示词内容</label>
+                <textarea
+                  class="sp-textarea"
+                  data-testid="sp-content-input"
+                  rows="12"
+                  v-model="form.content"
+                  placeholder="输入 System Prompt 内容..."
+                  :disabled="saving || editorViewOnly"
+                ></textarea>
+                <div class="sp-field-meta">{{ countStats(form.content).lines }} 行 · {{ countStats(form.content).chars }} 字符</div>
+              </div>
+
+              <div v-if="notice.message" class="sp-notice" :class="'is-' + notice.level" data-testid="sp-editor-notice">
+                {{ notice.message }}
+              </div>
+
+              <div class="sp-editor-actions" data-testid="sp-editor-actions">
+                <button class="btn btn-ghost" @click="closeEditor">取消</button>
+                <button class="btn btn-primary sp-save-btn" data-testid="sp-save-btn" :disabled="saveDisabled" @click="savePrompt">
+                  {{ editorViewOnly ? '只读模式' : (saving ? '保存中...' : '保存') }}
+                </button>
+              </div>
             </div>
 
-            <div class="sp-field">
-              <label>描述（可选）</label>
-              <input class="modal-input" data-testid="sp-desc-input" v-model="form.description" placeholder="一句话描述用途" :disabled="saving || fallbackMode" />
-            </div>
-
-            <div class="sp-field">
-              <label>提示词内容</label>
-              <textarea
-                class="sp-textarea"
-                data-testid="sp-content-input"
-                rows="12"
-                v-model="form.content"
-                placeholder="输入 System Prompt 内容..."
-                :disabled="saving || editorViewOnly"
-              ></textarea>
-              <div class="sp-field-meta">{{ countStats(form.content).lines }} 行 · {{ countStats(form.content).chars }} 字符</div>
-            </div>
-
-            <!-- Notice -->
-            <div v-if="notice.message" class="sp-notice" :class="'is-' + notice.level" data-testid="sp-editor-notice">
-              {{ notice.message }}
-            </div>
-
-            <!-- Actions -->
-            <div class="sp-editor-actions" data-testid="sp-editor-actions">
-              <button class="btn btn-ghost" @click="closeEditor">取消</button>
-              <button class="btn btn-primary sp-save-btn" data-testid="sp-save-btn" :disabled="saveDisabled" @click="savePrompt">
-                {{ editorViewOnly ? '只读模式' : (saving ? '保存中...' : '保存') }}
-              </button>
-            </div>
+            <!-- 高级调试 tab：sections 实际 CRUD 抽到 <sections-editor> 子组件 -->
+            <sections-editor
+              v-show="editorTab === 'advanced'"
+              :prompt-id="form.id"
+              :cwd="currentProjectCwd"
+              :fallback-mode="fallbackMode"
+              :visible="editorTab === 'advanced' && editorOpen"
+              data-testid="sp-editor-advanced"
+            />
           </div>
         </div>
       </div>

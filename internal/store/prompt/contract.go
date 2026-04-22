@@ -19,6 +19,17 @@ type Store interface {
 	Delete(ctx context.Context, promptKey string) error
 	InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error)
 	Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error)
+	// ListSectionsByTemplateID returns the ordered enabled sections for the
+	// given template. Empty slice means the template has not been migrated to
+	// the sectioned layout yet; callers should fall back to PromptTemplate.PromptText.
+	ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error)
+	// UpsertSection inserts or updates a single prompt_template_section row by
+	// (template_id, section_key). The UI-level "high-advanced debug" editor
+	// drives this; ordinary users never see it.
+	UpsertSection(ctx context.Context, section PromptTemplateSection) (*PromptTemplateSection, error)
+	// DeleteSection removes a section by (template_id, section_key). Returns
+	// platformdb.ErrNotFound when the pair does not match a row.
+	DeleteSection(ctx context.Context, templateID int64, sectionKey string) error
 }
 
 type ListFilter struct {
@@ -44,6 +55,23 @@ type PromptTemplate struct {
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 	Description string          `json:"description"`
+}
+
+// PromptTemplateSection is a single ordered block within a prompt template.
+// Sections with region=="static" contribute to the cached prefix; region=="dynamic"
+// contributes to the uncached tail. EnableWhen is reserved for Step 2
+// feature-gate DSL (unused in Step 1 — all enabled sections are emitted).
+type PromptTemplateSection struct {
+	ID         int64           `json:"id"`
+	TemplateID int64           `json:"template_id"`
+	SectionKey string          `json:"section_key"`
+	Region     string          `json:"region"`
+	Ordinal    int             `json:"ordinal"`
+	Body       string          `json:"body"`
+	EnableWhen json.RawMessage `json:"enable_when,omitempty"`
+	Enabled    bool            `json:"enabled"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
 type PromptTemplateVersion struct {
