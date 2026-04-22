@@ -97,7 +97,7 @@ function normalizeSelectedSkillNames(rawSelectedSkills) {
     : [];
 }
 
-async function resolveLaunchStartPayload(text, focusMode, resolveLaunchSkillSelectionForStart, previewAgentKey = '') {
+async function resolveLaunchStartPayload(text, focusMode, resolveLaunchSkillSelectionForStart) {
   const rawSelection = typeof resolveLaunchSkillSelectionForStart === 'function'
     ? await resolveLaunchSkillSelectionForStart(text)
     : EMPTY_SKILL_SELECTION;
@@ -121,15 +121,6 @@ async function resolveLaunchStartPayload(text, focusMode, resolveLaunchSkillSele
     // first turn/start once router has real user input to classify.
     startOptions.deferSpawn = true;
   }
-  // Forward the composer's router-preview agent_key so the backend pins the
-  // explicit identity instead of falling back to main/default. The preview
-  // is the frontend's classifier guess shown in ComposerBar; whatever the
-  // user sees is what actually gets injected. Without this hop the harness
-  // would always receive an empty agent_key and land on the default prompt.
-  const trimmedPreviewAgentKey = (previewAgentKey || '').toString().trim();
-  if (trimmedPreviewAgentKey) {
-    startOptions.agentKey = trimmedPreviewAgentKey;
-  }
   return {
     enabled,
     selectedSkills,
@@ -149,7 +140,6 @@ async function performSend({
   clearLaunchSkillSelection,
   resetSelectedComposerSkills,
   scheduleScrollToBottom,
-  routerPreview,
 }) {
   let threadId = (selectedThreadId.value || '').toString().trim();
   const text = composer.state.text;
@@ -158,8 +148,7 @@ async function performSend({
 
   let skillSelection = EMPTY_SKILL_SELECTION;
   if (!threadId) {
-    const previewAgentKey = routerPreview?.value?.agentKey || '';
-    skillSelection = await resolveLaunchStartPayload(text, modeKey.value, resolveLaunchSkillSelectionForStart, previewAgentKey);
+    skillSelection = await resolveLaunchStartPayload(text, modeKey.value, resolveLaunchSkillSelectionForStart);
     threadId = await threadStore.startThread(projectStore?.state?.active || '.', skillSelection.startOptions);
     if (!threadId) return;
     selectedThreadId.value = threadId;
@@ -215,12 +204,11 @@ export function useThreadActions(props, deps) {
     clearLaunchSkillSelection,
     resetSelectedComposerSkills,
     showArchivedThreadList,
-    routerPreview,
   } = deps;
 
   const recoveringSelected = ref(false);
 
-  const launchOne = () => resolveLaunchStartPayload(composer?.state?.text || '', modeKey.value, resolveLaunchSkillSelectionForStart, routerPreview?.value?.agentKey || '')
+  const launchOne = () => resolveLaunchStartPayload(composer?.state?.text || '', modeKey.value, resolveLaunchSkillSelectionForStart)
     .then(({ startOptions }) => props.threadStore.startThread(props.projectStore.state.active || '.', startOptions))
     .then((id) => {
       if (!id) return;
@@ -241,7 +229,7 @@ export function useThreadActions(props, deps) {
     resolveLaunchSkillSelectionForStart,
     clearLaunchSkillSelection,
     resetSelectedComposerSkills,
-    scheduleScrollToBottom, routerPreview,
+    scheduleScrollToBottom,
   });
 
   async function interruptCurrent(control) {

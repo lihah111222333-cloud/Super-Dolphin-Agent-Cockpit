@@ -287,7 +287,6 @@ export function buildVisibleChatThreadCards(opts) {
     const runtime = safeRuntimeById[threadId];
     const cwdMismatch = Boolean(runtime?.cwdMismatch);
     const cwdMismatchReason = cwdMismatch ? ((runtime?.cwdMismatchReason || '').toString()) : '';
-
     return {
       id: threadId,
       name: displayName,
