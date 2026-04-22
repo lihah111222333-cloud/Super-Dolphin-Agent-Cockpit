@@ -2,7 +2,7 @@
 
 ## 目标
 
-把继续审查中确认的“不是纯 runtime ownership，而是模块边界 / import direction / consumer-local hidden contract”的遗留违规，单独从 `P22` 里收口成一条支线，避免和 `P0-P3` 的 `fx / bus / run.Group` 主题混题。
+把继续审查中确认的“不是纯 runtime ownership，而是模块边界 / import direction / consumer-local hidden contract”的遗留违规，单独从 `P22` 里收口成第二条支线，避免和 `P0-P3` 的 `fx / bus / run.Group` 主题混题。`P4` 不重写 `fx.Module / BusModule / RunnerModule` 的运行时分工，只处理这些分工之外的边界与隐藏契约；`toolbridge` runtime owner 继续归 `P2`，`orchestration` waiter / exit owner 继续归 `P3`。
 
 ## 覆盖问题
 
@@ -65,6 +65,7 @@
 
 - 只依赖 `rpc.Server.Dispatch`、公共 contract 或专用 facade
 - 不再直接 import `module/uistate`
+- `NewActiveAgentCounter` 这类通过 `ListAgents + isActiveAgentState` 负面枚举重算 active 语义的 hidden contract，要么升格为显式 facade/contract，要么退回根装配层，不再藏在 UI 子包里
 
 ### 2. `provider/*`
 
@@ -111,6 +112,44 @@
 - 入站 hook/event 的 identity contract 收敛为单一 authoritative key，并把 `SessionID/launchSeq` fence 纳入校验
 - `agent.reportEvent` / `agent.rememberReportRequest` 这组 payload key / event type / requester-drain 规则要么升格为显式协议定义，要么退回根入口 facade
 
+## 收口口径
+
+- `P4` 只签收 dependency direction / hidden contract，不替代 `P2/P3` 的 runtime owner 验收；`fx.Module / BusModule / RunnerModule` 的职责线继续以前三页为准。
+- 首波守卫按包域收窄推进，不做“全仓 `provider/* -> module/*` / `platform/* -> provider/*` 一把梭”式大网；先锁本页点名子域。
+- `provider/claudecli` 子域同时承接 `P21` 递延的 signed-skill / native-skill contract 债；这部分不再漂移到别的子计划。
+- `toolbridge` 在本页只处理 provider/store 依赖越界与协议 contract；proxy serve / stop / drain 仍由 `P2` 先收口。
+- `orchestration` 在本页只处理 `Module` / `handler.Map` / side-channel interface / identity-report contract；waiter / exit owner 仍由 `P3` 先收口。
+- `gopls/bootstrap` 在本页只处理 compatibility / hidden contract；constructor-owned loop、async callback owner 仍由 `P2` 先收口。
+
+## 实施方式
+
+- `P4` 按 phase-B 方式推进：先冻结 authoritative contract，再抽 facade / contract carrier，最后删旧 shell / fallback。
+- `arch-import-direction.md` 继续只作为历史扫描与 debt banner 承载页；每次 `P4` 子域收口后，都要同步更新它的 debt banner/权威指向，避免历史扫描页与当前权威页重新漂移。
+- 第一批优先做守卫清晰、共享写集较小的子域：`ui/wails`、`provider/claudecli`。
+- `thread/turn` 虽属 `P4` 的 hidden contract，但与 `P2` 的 `thread event / resume / task-handoff` 切片共享写集与 owner contract；文档澄清可先行，代码合入按 `P2(thread slice) -> P4(thread/turn side-channel)` 串行。
+- `toolbridge` 与 `orchestration` 因为分别和 `P2` / `P3` 共用文件，文档澄清可以并行，代码合入必须串行。
+- 守卫优先级以窄规则为主：`ui/wails -> module/*`、`provider/claudecli -> module/{turn,skill,prompt}`、`platform/toolbridge -> provider/* / store/*`、`cmd/mcp-orch/orchestration` 不再导出 `Module/handler.Map` 与本地 side-channel shell，以及 `ui/wails` 不再保留 `NewActiveAgentCounter` 这类 state-negative-enum hidden contract。
+- 不保留“新 facade 已接上，但旧 import / old shell 仍能继续用”的软删除状态。
+- `thread/turn`、`toolbridge`、`orchestration` 这三类共享写集子域，默认先做文档/contract 澄清，再等前置 runtime slice 合入后串行删除旧 shell；不把“文档已说明”误当成“代码已可并行改”。
+
+## 依赖图（文本）
+
+```text
+P0 -> P4(ui/wails + claudecli)
+P0 -> P2(thread event / resume / task-handoff) -> P4(thread / turn side-channel contract)
+P2(toolbridge runtime) -> P4(toolbridge dependency / protocol contract)
+P3(waiter / exit owner) -> P4(orchestration shell / identity / report contract)
+P2(gopls/bootstrap runtime) -> P4(gopls/bootstrap compatibility / hidden contract)
+```
+
+## 落地顺序建议
+
+1. 先做 `ui/wails + claudecli`：守卫边界最清晰，也能把 `P21` 递延的 provider contract 债正式接住。
+2. `thread / turn` 先做文档与 contract 澄清，再等 `P2` 的 `thread event / resume / task-handoff` 切片冻结 owner 之后串行合入，避免两边同时改同一组 wiring。
+3. `toolbridge` 放在 `P2` runtime owner 收口之后，避免同一批同时改 serve owner 与 protocol shell。
+4. `orchestration` 放在 `P3` waiter / exit owner 收口之后，再处理 `Module` / `handler.Map` / identity-report contract。
+5. `gopls/bootstrap` 最后做，把 runtime owner 与 compatibility contract 分轨合并。
+
 ## 实施步骤
 
 ### Step 1：冻结 authoritative 规则
@@ -144,9 +183,15 @@
 - 删 `handler.Map` 型旧协议壳
 - 删消费者本地私扩接口和 fallback 路径
 
+## 非目标
+
+- 不把 runtime ownership 再混回 `P4`；proxy serve、waiter owner、constructor-owned loop 仍分别归 `P2/P3`。
+- 不在第一批就打开全仓级 import 大网；`P4` 先做包域明确、可验证的窄守卫。
+- 不与 `P2/P3` 在同一批同时改共享文件；共享写集按串行收口。
+
 ## TDD 与旧实现清理
 
-- 先补失败的依赖方向守卫：`provider/* -> module/*`、`ui/wails -> module/*`、`platform/* -> provider/*/store/*`、`cmd/mcp-*` 子包 `Module/handler.Map` 出口
+- 先补失败的依赖方向守卫：只对本页点名子域落包域窄守卫——`provider/claudecli -> module/{turn,skill,prompt}`、`ui/wails -> module/*`、`platform/toolbridge -> provider/*/store/*`、`cmd/mcp-orch/orchestration` 子包 `Module/handler.Map` 出口
 - 先补失败的 claudecli-specific 行为守卫：`provider/claudecli -> module/{turn,skill,prompt}`、`Mode=None` name-list 语义、native-scan 根路径优先级
 - 先补失败的 hidden-contract 守卫：`toolbridge` runtime schema / request shape / peer selection 行为，以及 `orchestration` 的 generation/session-ready side-channel contract
 - 补上 `hook_consumer` / `AgentLauncher` / `remoteLauncher` 这组 protocol-shell / hidden-RPC-contract 的失败测试与守卫
