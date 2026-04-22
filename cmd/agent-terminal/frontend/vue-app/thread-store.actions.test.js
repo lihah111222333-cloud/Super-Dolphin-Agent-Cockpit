@@ -296,6 +296,47 @@ describe('thread store actions', () => {
     });
   });
 
+  it('sendMessage inserts optimistic user message BEFORE turn/start resolves (fixes 5-15s invisible-message regression)', async () => {
+    // Regression: when the classifier runs inside turn/start (SpawnIfNeeded),
+    // the RPC blocks for 5-15s. The optimistic insert USED to happen after
+    // the await, so the user's own message didn't render until backend
+    // returned. This test pins the correct ordering: timeline contains the
+    // user's text while turn/start is still pending.
+    const store = useThreadStore();
+    const threadId = 'thread-slow-classify';
+    store.state.threads = [{ id: threadId, name: threadId, state: 'idle' }];
+    store.state.timelinesByThread[threadId] = [];
+
+    let releaseTurnStart;
+    const turnStartPending = new Promise((resolve) => {
+      releaseTurnStart = resolve;
+    });
+
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'turn/start') {
+        await turnStartPending; // simulate classifier + CLI fork latency
+        return { ok: true };
+      }
+      if (method === 'ui/state/get') return buildSnapshot({ threadId, activeThreadId: threadId });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    const sendPromise = store.sendMessage(threadId, 'hello from a slow classifier turn', []);
+    // Two microtask ticks are enough for sendMessage to run synchronously up
+    // to the `await callAPI('turn/start', ...)` point; the optimistic insert
+    // must already have landed by then.
+    await flushAsync();
+
+    const timelineMidFlight = store.state.timelinesByThread[threadId] || [];
+    const optimisticItem = timelineMidFlight.find((item) => (item?.id || '').includes('-optimistic-user-'));
+    expect(optimisticItem).toBeDefined();
+    expect(optimisticItem.content || optimisticItem.text || '').toContain('hello from a slow classifier turn');
+
+    releaseTurnStart({ ok: true });
+    await sendPromise;
+  });
+
   it('omits use_classifier when preference is missing or false', async () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {

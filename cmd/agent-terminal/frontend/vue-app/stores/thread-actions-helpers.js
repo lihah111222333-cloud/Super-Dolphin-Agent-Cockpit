@@ -570,6 +570,16 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     if (typeof ctx.threadHistoryLoadedAtByThread?.set === 'function') {
       ctx.threadHistoryLoadedAtByThread.set(threadId, Date.now());
     }
+    // Optimistic UI: insert the user's message into the local timeline BEFORE
+    // awaiting turn/start. First-turn of a pending_launch thread spends
+    // 5-15s inside turn/start (SpawnIfNeeded runs the classifier + forks the
+    // claude CLI); rendering only after the RPC returns means the user stares
+    // at an empty composer for that entire window and thinks the app hung.
+    // The message stays on screen even if turn/start fails terminally — that
+    // matches user intent ("I can see what I just typed"), and any error is
+    // surfaced via the standard catch path below.
+    const userText = input.filter((i) => i?.type === 'text').map((i) => i.text).join('\n').trim();
+    if (userText || attachments.length > 0) upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments);
     try {
       await callAPI('turn/start', requestPayload);
     } catch (turnError) {
@@ -585,10 +595,6 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     // (SpawnIfNeeded ran for pending threads, eager threads were already
     // running). Clear the pending badge so the sidebar card flips to normal.
     setThreadPendingLaunch(threadId, false);
-    // Optimistic UI: insert user message into local timeline immediately so
-    // it renders before the backend writes the JSONL / completes the turn.
-    const userText = input.filter((i) => i?.type === 'text').map((i) => i.text).join('\n').trim();
-    if (userText || attachments.length > 0) upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments);
     // Note: syncThreadState and loadMessages are NOT called here.
     // They would overwrite the optimistic user message with backend state
     // that doesn't contain user text yet (JSONL not written until turn completes).
