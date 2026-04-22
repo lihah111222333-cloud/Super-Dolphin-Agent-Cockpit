@@ -33,6 +33,44 @@ func (s *service) bindClassifier(c classifier.Classifier) {
 	s.classifier = c
 }
 
+func shouldSkipRoutedPrompt(s *service, req *StartRequest) bool {
+	switch {
+	case req == nil:
+		return true
+	case strings.TrimSpace(req.BaseInstructions) != "":
+		pkglogger.Info("router: skip, base_instructions already set by caller",
+			"agent_key", req.AgentKey, "base_instructions_len", len(req.BaseInstructions))
+		return true
+	case s == nil || s.promptStore == nil:
+		pkglogger.Info("router: skip, prompt store not wired")
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *service) listRoutedTemplates(ctx context.Context) ([]promptstore.PromptTemplate, bool) {
+	templates, err := s.promptStore.List(ctx, promptstore.ListFilter{Limit: 200})
+	if err != nil {
+		pkglogger.Warn("router: list prompt_templates failed", "err", err)
+		return nil, false
+	}
+	return templates, true
+}
+
+func (s *service) tryCandidatePoolMerge(ctx context.Context, req *StartRequest, templates []promptstore.PromptTemplate) bool {
+	switch {
+	case req == nil:
+		return false
+	case strings.TrimSpace(req.PromptKey) != "":
+		return false
+	case len(req.PromptCandidates) == 0:
+		return false
+	default:
+		return s.applyCandidatePoolMerge(ctx, req, templates)
+	}
+}
+
 // resolveRoutedPrompt is called from service.Start after normalizeStartRequest.
 // It fills req.BaseInstructions / req.AgentKey / req.PromptVersionID based on
 // either an explicit req.AgentKey or router classification.
@@ -44,24 +82,14 @@ func (s *service) bindClassifier(c classifier.Classifier) {
 //   - Any error along the pipeline is logged and degraded per Risk 1 (c)+(b):
 //     record agent_key if we got one, leave prompt_version_id nil.
 func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
-	if req == nil {
-		return
-	}
-	if strings.TrimSpace(req.BaseInstructions) != "" {
-		pkglogger.Info("router: skip, base_instructions already set by caller",
-			"agent_key", req.AgentKey, "base_instructions_len", len(req.BaseInstructions))
-		return
-	}
-	if s == nil || s.promptStore == nil {
-		pkglogger.Info("router: skip, prompt store not wired")
+	if shouldSkipRoutedPrompt(s, req) {
 		return
 	}
 
 	// Read enabled candidates once. Limit is generous; rule matching is cheap
 	// and list is unlikely to exceed a few hundred rows even in large orgs.
-	templates, err := s.promptStore.List(ctx, promptstore.ListFilter{Limit: 200})
-	if err != nil {
-		pkglogger.Warn("router: list prompt_templates failed", "err", err)
+	templates, ok := s.listRoutedTemplates(ctx)
+	if !ok {
 		return
 	}
 
@@ -75,10 +103,8 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 	// curated anything, so there is nothing to merge). The classifier and the
 	// pool never run together — picking the pool means the user already chose
 	// what to inject; classifier inference is redundant.
-	if strings.TrimSpace(req.PromptKey) == "" && len(req.PromptCandidates) > 0 {
-		if ok := s.applyCandidatePoolMerge(ctx, req, templates); ok {
-			return
-		}
+	if s.tryCandidatePoolMerge(ctx, req, templates) {
+		return
 	}
 
 	// Classifier fallback: only runs when no explicit pin, no candidate pool,
@@ -100,7 +126,14 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 		"agent_key", picked.AgentKey,
 		"candidate_count", len(templates),
 		"prompt_text_len", len(picked.PromptText))
+	s.applyPickedRoutedTemplate(ctx, req, picked)
+}
 
+func (s *service) applyPickedRoutedTemplate(
+	ctx context.Context,
+	req *StartRequest,
+	picked *promptstore.PromptTemplate,
+) {
 	// Materialize a prompt_versions snapshot so historical analyses can
 	// reproduce the exact prompt text that was injected into this thread.
 	versionID, verr := s.promptStore.InsertVersion(ctx, promptstore.PromptTemplateVersion{
@@ -125,7 +158,8 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 	// Step 1: prefer structured sections; fall back to monolithic prompt_text
 	// when the template has not been migrated yet. A store-side error degrades
 	// to the legacy path so router routing is never blocked by this lookup.
-	if sections, serr := s.promptStore.ListSectionsByTemplateID(ctx, picked.ID); serr != nil {
+	sections, serr := s.promptStore.ListSectionsByTemplateID(ctx, picked.ID)
+	if serr != nil {
 		pkglogger.Warn("router: list prompt_template_sections failed; using prompt_text",
 			"err", serr, "template_id", picked.ID, "prompt_key", picked.PromptKey)
 		req.BaseInstructions = picked.PromptText
@@ -262,23 +296,11 @@ func maybeClassifyPrompt(
 	req *StartRequest,
 	templates []promptstore.PromptTemplate,
 ) {
-	if req == nil || !req.UseClassifier {
+	userInput, ok := resolvePromptClassificationInput(req)
+	if !ok {
 		return
 	}
-	if strings.TrimSpace(req.PromptKey) != "" {
-		// Caller already pinned. Explicit pin wins over auto-classification.
-		return
-	}
-	userInput := strings.TrimSpace(req.Prompt)
-	if userInput == "" {
-		// No signal to classify on. Usually means eager-spawn Start without
-		// a first turn; the caller will revisit on SpawnIfNeeded once user
-		// input arrives.
-		return
-	}
-	if c == nil || !c.Enabled() {
-		pkglogger.Info("router: classifier opt-in but backend disabled",
-			"hint", "set ENABLE_PROMPT_CLASSIFIER=true and ensure `claude` is on PATH")
+	if !classifierReady(c) {
 		return
 	}
 	candidates := classifierCandidates(templates)
@@ -289,15 +311,62 @@ func maybeClassifyPrompt(
 	// AND runner-up gap >= 1), skip the 5-15s claude -p round trip entirely.
 	// The thresholds are deliberately tight so untagged rows like main/default
 	// can't hijack the fast path; anything ambiguous falls through to haiku.
-	if decision := classifier.FastPath(candidates, userInput); decision.Hit {
-		pkglogger.Info("router: classifier fast-path picked",
-			"prompt_key", decision.Picked.PromptKey,
-			"tag_score", decision.Score,
-			"tag_gap", decision.Gap,
-			"candidate_count", len(candidates))
-		req.PromptKey = decision.Picked.PromptKey
+	if applyClassifierFastPath(req, candidates, userInput) {
 		return
 	}
+	classifyPromptWithBackend(ctx, c, req, candidates, userInput)
+}
+
+func resolvePromptClassificationInput(req *StartRequest) (string, bool) {
+	switch {
+	case req == nil:
+		return "", false
+	case !req.UseClassifier:
+		return "", false
+	case strings.TrimSpace(req.PromptKey) != "":
+		// Caller already pinned. Explicit pin wins over auto-classification.
+		return "", false
+	}
+	userInput := strings.TrimSpace(req.Prompt)
+	if userInput == "" {
+		// No signal to classify on. Usually means eager-spawn Start without
+		// a first turn; the caller will revisit on SpawnIfNeeded once user
+		// input arrives.
+		return "", false
+	}
+	return userInput, true
+}
+
+func classifierReady(c classifier.Classifier) bool {
+	if c != nil && c.Enabled() {
+		return true
+	}
+	pkglogger.Info("router: classifier opt-in but backend disabled",
+		"hint", "set ENABLE_PROMPT_CLASSIFIER=true and ensure `claude` is on PATH")
+	return false
+}
+
+func applyClassifierFastPath(req *StartRequest, candidates []classifier.Candidate, userInput string) bool {
+	decision := classifier.FastPath(candidates, userInput)
+	if !decision.Hit {
+		return false
+	}
+	pkglogger.Info("router: classifier fast-path picked",
+		"prompt_key", decision.Picked.PromptKey,
+		"tag_score", decision.Score,
+		"tag_gap", decision.Gap,
+		"candidate_count", len(candidates))
+	req.PromptKey = decision.Picked.PromptKey
+	return true
+}
+
+func classifyPromptWithBackend(
+	ctx context.Context,
+	c classifier.Classifier,
+	req *StartRequest,
+	candidates []classifier.Candidate,
+	userInput string,
+) {
 	// Prune down to top-K by tag-keyword overlap before spending LLM tokens.
 	// With 11+ candidates in typical libraries, the untrimmed prompt pushes
 	// haiku latency into the 10s range; a 5-row list keeps it closer to 3-5s.
@@ -327,7 +396,6 @@ func maybeClassifyPrompt(
 		"candidate_count_pre_prune", beforePrune)
 	req.PromptKey = res.PromptKey
 }
-
 
 // classifierCandidates maps enabled prompt_templates to the classifier's DTO.
 // Disabled rows are dropped so the classifier never picks a row that the
@@ -387,22 +455,39 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 // was produced — caller should skip the classifier / default-fallback paths
 // in that case.
 func (s *service) applyCandidatePoolMerge(ctx context.Context, req *StartRequest, templates []promptstore.PromptTemplate) bool {
-	whitelist := make(map[string]struct{}, len(req.PromptCandidates))
-	order := make([]string, 0, len(req.PromptCandidates))
-	for _, raw := range req.PromptCandidates {
+	order := normalizedPromptCandidateOrder(req.PromptCandidates)
+	if len(order) == 0 {
+		return false
+	}
+	blocks, mergedKeys, mergedTitles := s.mergeCandidatePoolTemplates(ctx, order, templates)
+	if len(blocks) == 0 {
+		return false
+	}
+	applyMergedCandidatePool(req, blocks, mergedKeys, mergedTitles)
+	pkglogger.Info("router: candidate pool merged into base_instruction_blocks",
+		"candidate_keys", mergedKeys,
+		"block_count", len(blocks))
+	return true
+}
+
+func normalizedPromptCandidateOrder(candidates []string) []string {
+	seen := make(map[string]struct{}, len(candidates))
+	order := make([]string, 0, len(candidates))
+	for _, raw := range candidates {
 		key := strings.TrimSpace(raw)
 		if key == "" {
 			continue
 		}
-		if _, seen := whitelist[key]; seen {
+		if _, ok := seen[key]; ok {
 			continue
 		}
-		whitelist[key] = struct{}{}
+		seen[key] = struct{}{}
 		order = append(order, key)
 	}
-	if len(order) == 0 {
-		return false
-	}
+	return order
+}
+
+func enabledPromptTemplateIndex(templates []promptstore.PromptTemplate) map[string]*promptstore.PromptTemplate {
 	byKey := make(map[string]*promptstore.PromptTemplate, len(templates))
 	for i := range templates {
 		t := &templates[i]
@@ -410,6 +495,15 @@ func (s *service) applyCandidatePoolMerge(ctx context.Context, req *StartRequest
 			byKey[t.PromptKey] = t
 		}
 	}
+	return byKey
+}
+
+func (s *service) mergeCandidatePoolTemplates(
+	ctx context.Context,
+	order []string,
+	templates []promptstore.PromptTemplate,
+) ([]contract.BaseInstructionBlock, []string, []string) {
+	byKey := enabledPromptTemplateIndex(templates)
 	blocks := make([]contract.BaseInstructionBlock, 0, len(order))
 	mergedKeys := make([]string, 0, len(order))
 	mergedTitles := make([]string, 0, len(order))
@@ -424,18 +518,24 @@ func (s *service) applyCandidatePoolMerge(ctx context.Context, req *StartRequest
 		}
 		blocks = append(blocks, templateBlocks...)
 		mergedKeys = append(mergedKeys, t.PromptKey)
-		// Title is the human-readable persona label ("SQL 与数据建模专家") that
-		// the UI displays on the routing badge. Fall back to the slug when a
-		// row was imported without a title so the tooltip is never blank.
-		title := strings.TrimSpace(t.Title)
-		if title == "" {
-			title = t.PromptKey
-		}
-		mergedTitles = append(mergedTitles, title)
+		mergedTitles = append(mergedTitles, candidateTemplateTitle(t))
 	}
-	if len(blocks) == 0 {
-		return false
+	return blocks, mergedKeys, mergedTitles
+}
+
+func candidateTemplateTitle(t *promptstore.PromptTemplate) string {
+	if title := strings.TrimSpace(t.Title); title != "" {
+		return title
 	}
+	return t.PromptKey
+}
+
+func applyMergedCandidatePool(
+	req *StartRequest,
+	blocks []contract.BaseInstructionBlock,
+	mergedKeys []string,
+	mergedTitles []string,
+) {
 	req.BaseInstructions = ""
 	req.BaseInstructionBlocks = blocks
 	// Observability: no single prompt_key / prompt_version to stamp, but we
@@ -447,10 +547,6 @@ func (s *service) applyCandidatePoolMerge(ctx context.Context, req *StartRequest
 	req.PromptVersionID = nil
 	req.MergedCandidateKeys = mergedKeys
 	req.MergedCandidateTitles = mergedTitles
-	pkglogger.Info("router: candidate pool merged into base_instruction_blocks",
-		"candidate_keys", mergedKeys,
-		"block_count", len(blocks))
-	return true
 }
 
 // candidateTemplateBlocks returns the ordered BaseInstructionBlock slice that
@@ -490,5 +586,3 @@ func (s *service) candidateTemplateBlocks(ctx context.Context, t *promptstore.Pr
 		Body:   "Contents of " + t.PromptKey + ":\n" + body,
 	}}
 }
-
-

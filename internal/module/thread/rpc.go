@@ -94,114 +94,129 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 
 func newStartHandler(svc Service) handler.Func {
 	return rpc.StrictHandler(func(ctx context.Context, p startParams) (any, error) {
-		// Observability: dump the params that thread/start actually received so
-		// we can distinguish "frontend never sent agent_key" from "backend
-		// dropped it" without running tcpdump. Values are scalar / boolean so
-		// log volume stays tame.
-		pkglogger.Info("thread/start: rpc received",
-			"agent_key", p.AgentKey,
-			"prompt_key", p.PromptKey,
-			"use_classifier", p.UseClassifier,
-			"provider", p.Provider,
-			"cwd", p.CWD,
-			"has_prompt", strings.TrimSpace(p.Prompt) != "",
-			"has_base_instructions", strings.TrimSpace(p.BaseInstructions) != "",
-			"defer_spawn", p.DeferSpawn,
-			"selected_skills_n", len(p.SelectedSkills))
-		result, err := svc.Start(ctx, StartRequest{
-			Provider:              p.Provider,
-			CWD:                   p.CWD,
-			Model:                 p.Model,
-			ModelProvider:         p.ModelProvider,
-			ParentAgentID:         p.ParentAgentID,
-			AgentType:             p.AgentType,
-			AgentMemoryScope:      p.AgentMemoryScope,
-			Name:                  p.Name,
-			Prompt:                p.Prompt,
-			BaseInstructions:      p.BaseInstructions,
-			DeveloperInstructions: p.DeveloperInstructions,
-			ApprovalPolicy:        p.ApprovalPolicy,
-			Sandbox:               p.Sandbox,
-			Summary:               p.Summary,
-			Effort:                p.Effort,
-			Personality:           p.Personality,
-			Config:                decodeConfigMap(p.Config),
-			// p20.3 §4.3：public payload 用 `selectedSkills` / `manualSkillSelection`，
-			// 内部合同归一化为 `LaunchSkillNames` / `ForceLaunchSkills`。
-			LaunchSkillNames:  append([]string(nil), p.SelectedSkills...),
-			ForceLaunchSkills: p.ManualSkillSelection,
-			AgentKey:          p.AgentKey,
-			PromptKey:         p.PromptKey,
-			UseClassifier:     p.UseClassifier,
-			PromptCandidates:  append([]string(nil), p.PromptCandidates...),
-			DeferSpawn:        p.DeferSpawn,
-		})
+		logStartRPCReceived(p)
+		result, err := svc.Start(ctx, buildStartRequestFromParams(p))
 		if err != nil {
 			return nil, err
 		}
-		status := shared.FirstNonEmpty(result.Status, "running")
-		sessionID := shared.FirstNonEmpty(result.SessionID, result.ThreadID)
-		effective := map[string]any{
-			"model":          result.Model,
-			"provider":       result.Provider,
-			"modelProvider":  result.ModelProvider,
-			"cwd":            result.CWD,
-			"approvalPolicy": result.ApprovalPolicy,
-		}
-		response := map[string]any{
-			"thread":         threadInfo{ID: result.ThreadID, Status: status},
-			"threadId":       result.ThreadID,
-			"thread_id":      result.ThreadID,
-			"sessionId":      sessionID,
-			"session_id":     sessionID,
-			"status":         status,
-			"agentId":        result.AgentID,
-			"agent_id":       result.AgentID,
-			"model":          result.Model,
-			"provider":       result.Provider,
-			"modelProvider":  result.ModelProvider,
-			"cwd":            result.CWD,
-			"approvalPolicy": result.ApprovalPolicy,
-			"effective":      effective,
-		}
-		if result.AgentKey != "" {
-			response["agent_key"] = result.AgentKey
-			response["agentKey"] = result.AgentKey
-		}
-		if result.AgentTitle != "" {
-			response["agent_title"] = result.AgentTitle
-			response["agentTitle"] = result.AgentTitle
-		}
-		if result.PromptKey != "" {
-			response["prompt_key"] = result.PromptKey
-			response["promptKey"] = result.PromptKey
-		}
-		if result.PromptVersionID != nil {
-			response["prompt_version_id"] = *result.PromptVersionID
-			response["promptVersionId"] = *result.PromptVersionID
-		}
-		if len(result.MergedCandidateKeys) > 0 {
-			response["merged_candidate_keys"] = result.MergedCandidateKeys
-			response["mergedCandidateKeys"] = result.MergedCandidateKeys
-		}
-		if len(result.MergedCandidateTitles) > 0 {
-			response["merged_candidate_titles"] = result.MergedCandidateTitles
-			response["mergedCandidateTitles"] = result.MergedCandidateTitles
-		}
-		if result.PendingLaunch {
-			response["pending_launch"] = true
-			response["pendingLaunch"] = true
-		}
-		if result.TaskID != "" {
-			response["task_id"] = result.TaskID
-			response["taskId"] = result.TaskID
-		}
-		if result.HandoffFile != "" {
-			response["handoff_file"] = result.HandoffFile
-			response["handoffFile"] = result.HandoffFile
-		}
-		return response, nil
+		return buildStartResponse(result), nil
 	})
+}
+
+func logStartRPCReceived(p startParams) {
+	// Observability: dump the params that thread/start actually received so
+	// we can distinguish "frontend never sent agent_key" from "backend
+	// dropped it" without running tcpdump. Values are scalar / boolean so
+	// log volume stays tame.
+	pkglogger.Info("thread/start: rpc received",
+		"agent_key", p.AgentKey,
+		"prompt_key", p.PromptKey,
+		"use_classifier", p.UseClassifier,
+		"provider", p.Provider,
+		"cwd", p.CWD,
+		"has_prompt", strings.TrimSpace(p.Prompt) != "",
+		"has_base_instructions", strings.TrimSpace(p.BaseInstructions) != "",
+		"defer_spawn", p.DeferSpawn,
+		"selected_skills_n", len(p.SelectedSkills))
+}
+
+func buildStartRequestFromParams(p startParams) StartRequest {
+	return StartRequest{
+		Provider:              p.Provider,
+		CWD:                   p.CWD,
+		Model:                 p.Model,
+		ModelProvider:         p.ModelProvider,
+		ParentAgentID:         p.ParentAgentID,
+		AgentType:             p.AgentType,
+		AgentMemoryScope:      p.AgentMemoryScope,
+		Name:                  p.Name,
+		Prompt:                p.Prompt,
+		BaseInstructions:      p.BaseInstructions,
+		DeveloperInstructions: p.DeveloperInstructions,
+		ApprovalPolicy:        p.ApprovalPolicy,
+		Sandbox:               p.Sandbox,
+		Summary:               p.Summary,
+		Effort:                p.Effort,
+		Personality:           p.Personality,
+		Config:                decodeConfigMap(p.Config),
+		// p20.3 §4.3：public payload 用 `selectedSkills` / `manualSkillSelection`，
+		// 内部合同归一化为 `LaunchSkillNames` / `ForceLaunchSkills`。
+		LaunchSkillNames:  append([]string(nil), p.SelectedSkills...),
+		ForceLaunchSkills: p.ManualSkillSelection,
+		AgentKey:          p.AgentKey,
+		PromptKey:         p.PromptKey,
+		UseClassifier:     p.UseClassifier,
+		PromptCandidates:  append([]string(nil), p.PromptCandidates...),
+		DeferSpawn:        p.DeferSpawn,
+	}
+}
+
+func buildStartEffective(result StartResult) map[string]any {
+	return map[string]any{
+		"model":          result.Model,
+		"provider":       result.Provider,
+		"modelProvider":  result.ModelProvider,
+		"cwd":            result.CWD,
+		"approvalPolicy": result.ApprovalPolicy,
+	}
+}
+
+func buildStartResponse(result StartResult) map[string]any {
+	status := shared.FirstNonEmpty(result.Status, "running")
+	sessionID := shared.FirstNonEmpty(result.SessionID, result.ThreadID)
+	response := map[string]any{
+		"thread":         threadInfo{ID: result.ThreadID, Status: status},
+		"threadId":       result.ThreadID,
+		"thread_id":      result.ThreadID,
+		"sessionId":      sessionID,
+		"session_id":     sessionID,
+		"status":         status,
+		"agentId":        result.AgentID,
+		"agent_id":       result.AgentID,
+		"model":          result.Model,
+		"provider":       result.Provider,
+		"modelProvider":  result.ModelProvider,
+		"cwd":            result.CWD,
+		"approvalPolicy": result.ApprovalPolicy,
+		"effective":      buildStartEffective(result),
+	}
+	if result.AgentKey != "" {
+		response["agent_key"] = result.AgentKey
+		response["agentKey"] = result.AgentKey
+	}
+	if result.AgentTitle != "" {
+		response["agent_title"] = result.AgentTitle
+		response["agentTitle"] = result.AgentTitle
+	}
+	if result.PromptKey != "" {
+		response["prompt_key"] = result.PromptKey
+		response["promptKey"] = result.PromptKey
+	}
+	if result.PromptVersionID != nil {
+		response["prompt_version_id"] = *result.PromptVersionID
+		response["promptVersionId"] = *result.PromptVersionID
+	}
+	if len(result.MergedCandidateKeys) > 0 {
+		response["merged_candidate_keys"] = result.MergedCandidateKeys
+		response["mergedCandidateKeys"] = result.MergedCandidateKeys
+	}
+	if len(result.MergedCandidateTitles) > 0 {
+		response["merged_candidate_titles"] = result.MergedCandidateTitles
+		response["mergedCandidateTitles"] = result.MergedCandidateTitles
+	}
+	if result.PendingLaunch {
+		response["pending_launch"] = true
+		response["pendingLaunch"] = true
+	}
+	if result.TaskID != "" {
+		response["task_id"] = result.TaskID
+		response["taskId"] = result.TaskID
+	}
+	if result.HandoffFile != "" {
+		response["handoff_file"] = result.HandoffFile
+		response["handoffFile"] = result.HandoffFile
+	}
+	return response
 }
 
 func decodeConfigMap(raw json.RawMessage) map[string]any {
