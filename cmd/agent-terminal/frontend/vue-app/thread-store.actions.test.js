@@ -107,8 +107,11 @@ describe('thread store actions', () => {
 
   it('starts a thread and preserves the public side effects', async () => {
     const store = useThreadStore();
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'ui/preferences/get') return 'claude-3.7-sonnet';
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.activePromptKey') return '';
+        return 'claude-3.7-sonnet';
+      }
       if (method === 'thread/start') return { thread: { id: 'thread-new' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-new', activeThreadId: '' });
       if (method === 'ui/preferences/set') return {};
@@ -126,8 +129,11 @@ describe('thread store actions', () => {
 
   it('forwards explicit config payload when starting a thread', async () => {
     const store = useThreadStore();
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'ui/preferences/get') return 'codex';
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.activePromptKey') return '';
+        return 'codex';
+      }
       if (method === 'thread/start') return { thread: { id: 'thread-task' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-task', activeThreadId: '' });
       if (method === 'ui/preferences/set') return {};
@@ -156,8 +162,11 @@ describe('thread store actions', () => {
 
   it('forwards explicit name and base instructions when starting a thread', async () => {
     const store = useThreadStore();
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'ui/preferences/get') return 'codex';
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.activePromptKey') return '';
+        return 'codex';
+      }
       if (method === 'thread/start') return { thread: { id: 'thread-seeded' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-seeded', activeThreadId: '' });
       if (method === 'ui/preferences/set') return {};
@@ -183,6 +192,83 @@ describe('thread store actions', () => {
         taskTitle: 'Memory Center Refactor · 新任务',
         autoTaskHandoff: true,
       },
+    });
+  });
+
+  it('startThread reads cwd-scoped activePromptKey preference and forwards prompt_key', async () => {
+    const store = useThreadStore();
+    const prefCalls = [];
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        prefCalls.push(payload);
+        if (payload?.key === 'settings.activePromptKey') return 'main/launch-fav';
+        return 'codex';
+      }
+      if (method === 'thread/start') return { thread: { id: 'thread-pinned' } };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-pinned', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo-x', {});
+    await flushAsync();
+
+    expect(prefCalls).toContainEqual({ key: 'settings.activePromptKey', cwd: '/repo-x' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
+      cwd: '/repo-x',
+      modelProvider: 'codex',
+      prompt_key: 'main/launch-fav',
+    });
+  });
+
+  it('explicit options.promptKey wins over the persisted preference', async () => {
+    const store = useThreadStore();
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.activePromptKey') return 'main/should-be-ignored';
+        return 'codex';
+      }
+      if (method === 'thread/start') return { thread: { id: 'thread-pinned-explicit' } };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-pinned-explicit', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', { promptKey: 'main/explicit-pin' });
+    await flushAsync();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
+      cwd: '/repo',
+      modelProvider: 'codex',
+      prompt_key: 'main/explicit-pin',
+    });
+  });
+
+  it('explicit options.agentKey suppresses the preference lookup', async () => {
+    const store = useThreadStore();
+    let activePromptLookups = 0;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        if (payload?.key === 'settings.activePromptKey') {
+          activePromptLookups += 1;
+          return 'main/should-be-ignored';
+        }
+        return 'codex';
+      }
+      if (method === 'thread/start') return { thread: { id: 'thread-pinned-by-agent' } };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-pinned-by-agent', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', { agentKey: 'sql_expert' });
+    await flushAsync();
+
+    expect(activePromptLookups).toBe(0);
+    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
+      cwd: '/repo',
+      modelProvider: 'codex',
+      agent_key: 'sql_expert',
     });
   });
 
