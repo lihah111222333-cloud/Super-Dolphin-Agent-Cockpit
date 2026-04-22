@@ -11,7 +11,7 @@
 - 关系型持久化统一走 `migrations/` + `sql/queries/` + sqlc。新增表/查询只维护**实际消费侧**的 `sqlc.yaml`：Cron v1 与 Session Insights v1 都是 **core-only**，因此只改根 `sqlc.yaml`，不改 `cmd/mcp-orch/sqlc.yaml`。
 - 内容型数据仍允许文件持久化例外；不要为了“统一”把 `SKILL.md` 等内容强塞回 Postgres。
 - `fx.Module` / `BusModule` / `RunnerModule` 必须按三层分工落地：`fx.Module` 只做 constructor + 资源 open/close；`fx.Invoke` 只把订阅器注入 `bus.subscribers`；所有长跑 worker 都实现 `Runner.Run(ctx)` 并进入 `runner.actors`。长循环、drain、重试都不放进 `fx` 生命周期。
-- core Fx 与 `cmd/mcp-orch` Fx 是**双树同构**：两边各有一根 bus / run.Group；平台库可共享放在 `internal/platform/*`，业务 module 分别落在 `internal/module/*` 与 `cmd/mcp-orch/*`。这不是“core vs shared”二选一，archtest 也无需为 P2 放宽。
+- core Fx 与 `cmd/mcp-orch` Fx 是**双树同构**：两边各有一根 bus / run.Group；平台库可共享（首选 `internal/module/<domain>/shared/*` 或 `internal/platform/*` 白名单内包），业务 module 分别落在 `internal/module/*` 与 `cmd/mcp-orch/*`。共享库位置与业务 module 归属不是互斥选择。**archtest 白名单是枚举式**：`internal/archtest/dependency_direction_mcp_orch_test.go:23-29` 放行 `internal/platform/{config,db,bus,runner,rpc,runtimesafe,shared,statemachine,eventsurface,rlimit}` 十个子包，**不是前缀通配**；新建顶层 `internal/platform/<X>` 需同步改护栏，否则将 orch 层共享代码放在 `internal/module/<X>/shared/*` 以命中 `internal/module` 白名单。
 - Provider 自定义配置优先复用 `thread/start` 已有 `config` 透传链路；实例 identity 只能由专用 key 承载，且必须持久化到恢复链路，不允许再靠 top-level `modelProvider` 或 legacy home 推断。
 
 ## 默认值安全原则
@@ -20,13 +20,19 @@
 - `codexHome` / `codexInstanceKey` / `codexModelProvider`、Cron `cwd`、`notify_channel` 这类隔离关键字段不进入默认选择链；legacy fallback 只能通过显式 feature flag / env opt-in 打开。
 - service 层负责第一时间返回 `Err<Name>Required` 或 `ErrMissingCWD`；RPC 层再统一映射 `jrpc2.InvalidParams`。
 
+## core ↔ orch 事件链路的真实入口
+
+- **core terminal turn 到 orch 的全部通道是 hook consumer**，不是跨 Fx 桥接 core bus。实际入口链：`cmd/mcp-orch/runtime.go:216-219` 的 `subscribeOrchestrationHooks` → `cmd/mcp-orch/hook_subscription.go:13-40` 订 `agent.turn.after / failed / progress` hook → `cmd/mcp-orch/orchestration/hook_consumer.go:96-220` 分流处理 `TurnCompleted` 与 `ItemCompleted(final_answer)`。
+- orch 侧 P2 / P1b / 任何需要观察 core terminal turn 的业务模块，必须在 hook consumer 处理链上装 tap，而不是向 `cmd/mcp-orch` 本地 bus 上寻找重发后的 core 事件——该重发流在该返回 0 命中。
+- orch 本地 bus（`cmd/mcp-orch/orchestration/events.go`）只承载 orch 自己产生的事件（DAG / task / wakeup），不双向桥接 core。
+
 ## 实施路线图
 
 | 优先级 | 特性 | 描述 | 当前状态 |
 |---|---|---|---|
 | **[P0](P0_SelfLearningSkill.md)** | 自学习 Skill 闭环 | P0a 先交付 host-side create；P0b 负责共享 observation 层与自动提炼闭环 | ⏳ observation owner |
 | **[P1a](P1a_MultiProviderCodex.md)** | 多 Provider Codex 实例 | 以 `codexHome/codexInstanceKey/codexModelProvider` 作为实例 identity，并落到 binding 恢复面 | ⏳ identity 定稿 |
-| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | core-only 持久化调度，tick / lease / flush 全部按 `runner.actors` 落地 | 🔲 未开动 |
+| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | core-only 持久化调度，tick / lease / crash-recovery 全部按 `runner.actors` 落地 | 🔲 未开动 |
 | **[P2](P2_MultiPlatformNotifications.md)** | 多平台通知 | 平台库共享，core / orch 各装一套 subscriber + runner | 🔲 未开动 |
 | **[P3](P3_SessionInsights.md)** | Session Insights 遥测 | API-only 聚合指标，消费 P0b observation 输出 | 🔲 依赖 P0b |
 
@@ -35,7 +41,7 @@
 1. 先做 `P0a`：补 host-side create / scope-safe 写入，把 project-scope 自学习入口钉死到 `CreateSkill` / `WriteLocal(..., scope=project)`。
 2. `P1a` 与 `P1b` 可以并行设计，但 `P1a` 必须先冻结 session identity 三元组与 binding 持久化口径，否则 Cron 的 provider 选择与恢复链会失焦。
 3. `P0b` 必须作为前置交付先把 observation 层落地；`P3` 只消费这层输出，不能并行发明第二套 turn 归因规则。
-4. `P1b` / `P2` / `P3` 都必须遵守 `fx` / `bus` / `Runner` 三层分工：bus callback 只做 state merge / enqueue，长跑 loop 与 flush worker 一律进 `runner.actors`。
+4. `P1b` / `P2` / `P3` 都必须遵守 `fx` / `bus` / `Runner` 三层分工：bus callback 只做 state merge / enqueue，长跑 loop / lease / observe / flush worker 等长跑部件一律进 `runner.actors`。
 5. signed skill 验签**延后到 P22**；P21 只定义自学习写入、observation 与 insights 契约，不在本期追加 verifier。
 
 ## 收口口径
@@ -52,7 +58,10 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 - `dto.BusRawProviderEvent` 与 typed event 必须在 observation 层统一去重，只允许按 `call_id`、raw event id 或等价 key 合并一次；collector / trajectory 不得 raw + typed 双算。
 - observation 层为 P0b 前置交付；P3 作为 consumer 依赖这层事实，不再自建第二套 turn 归因逻辑。
 
-- `P1a` 与 `P1b` 必须共享 session identity config keys：`codexHome/codexInstanceKey/codexModelProvider` 共同构成 codex instance identity；本期选择 **binding 持久化为主**，不把 resume 扩成 generic config 透传。
+- `P1a` 与 `P1b` 必须共享 session identity config keys：`codexHome/codexInstanceKey/codexModelProvider` 共同构成 codex instance identity；`codexHome` 解析必须复用 P1a 的 canonicalize 流水线（先做 home/env 展开，再 `filepath.Clean` + `filepath.EvalSymlinks`），并以 canonicalized realpath 持久化到 binding；本期选择 **binding 持久化为主**，不把 resume 扩成 generic config 透传。
+- `provider` 字段语义仍冻结为 `codex|claude`；实例差异只走 identity 三元组，不把 `provider` 扩成 `codex:qwen` / `codex-glm` 这种混合值。
 - `approvalPolicy=never` 不是“全部自动通过”。`internal/platform/rpc/approval_support.go:204-209` 当前只会自动放行 `request_user_input`；后台任务与多 provider 实例都必须白名单 provider / sandbox / tool 组合。
+- P0 的 system-scope 自学习写入必须走显式 review gate：未获批不得写；审批/缓存键必须至少带 `skill slug + content hash + repo fingerprint(project_root/cwd)`，防止跨项目复用旧审批。
+- signed skill 验签在 P22 前都只能视为“待验证态”；P21 不允许因为 frontmatter 写了 `trust: signed` 就跳过审批、脱敏或人工 review。
 - `P2` 的 alias 解析不能落入默认链：`NOTIFY_DEFAULT_CHANNEL` 只允许显式 opt-in，默认缺失时应 `drop/error`，不做 silent fallback。
 - 文档若未明确 UI 交付，默认按 API-only 解释；若未来要做 UI，必须显式补 `DashboardPage`、`ui/dashboard/get?page=...` 与前端导航 / 页面接线。
