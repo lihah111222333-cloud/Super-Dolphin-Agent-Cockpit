@@ -16,9 +16,9 @@ import (
 
 const (
 	// 2026-04-17 默认守卫放宽：单文件 400→600、包文件数 15→25、包有效行 4500→10000。
+	// 2026-04-22 全仓再放宽：包文件数 25→30；核心包例外失去意义（Core* 常量保留仅为向后兼容，
+	// 值与默认等同，不再构成差异）。
 	// 函数 ≤80、CC ≤10、嵌套 ≤4、标识符下划线 ≤3 保持不变。
-	// 核心包放宽（MaxCorePackage*）保留，但 CorePackageFileLines / CorePackageLines 已等同新默认，
-	// 唯一仍有价值的差异是核心包文件数 30 > 默认 25。
 	MaxFileLines            = 600
 	MaxCorePackageFileLines = 600
 	MaxFactoryFileLines     = 800
@@ -26,7 +26,7 @@ const (
 	MaxNestingDepth         = 4
 	MaxUnderscores          = 3
 	MaxCCComplexity         = 10
-	MaxPackageFiles         = 25
+	MaxPackageFiles         = 30
 	MaxCorePackageFiles     = 30
 	MaxPackageLines         = 10000
 	MaxCorePackageLines     = 10000

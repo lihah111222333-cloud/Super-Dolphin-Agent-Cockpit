@@ -1,33 +1,58 @@
 # P21 架构演进与能力补齐总览
 
 基于 Hermes Agent 源码审查，为 `super-agent-v3` 补齐能力差距的整体路线图。
-本批文档在审查后统一对齐当前仓库的真实基线：`fx + jrpc2 RPC handlers + event bus + provider/unified + Postgres/sqlc + migrations`。
+本轮为第 2 轮文档修订版；口径已按主 agent BLOCK 结论、`§10.27` 默认值安全原则、`§10.30` fx / bus / run.Group 三层分工和当前仓库事实重新收口。
 
 ## 当前基线约束
 
-- 宿主 UI / 管理 API 优先落在 `internal/module/*`，并通过 `rpc.HandlerMapResult` 暴露；但 Agent 工具执行、DAG、workspace、长期编排默认仍属于 `cmd/mcp-orch` 的 MCP 工具执行面，不应强行塞回 core RPC。
-- `internal/mcpserver/common/bootstrap/*` 是当前合法的工具侧 lifecycle client，可复用；禁止的是把业务能力继续堆到 common 旁路。
-- 关系型持久化统一走 `migrations/` + `sql/queries/` + store + sqlc，但当前存在 core 与 `cmd/mcp-orch` 两套 sqlc 生成面；新增表/查询时必须同步维护对应的 `sqlc.yaml`。
-- Skill、memory 等内容型数据已有文件型持久化例外；不要为了“统一”把 `SKILL.md` 之类强行改落 Postgres。
-- 长生命周期 side effect 优先做成 bus 订阅者，使用 `bus.ResilientSubscribe(...)` + `fx.Lifecycle` 管理，参考 `internal/module/memory/module.go`。
-- `bus.ResilientSubscribe(...)` 只负责订阅与 panic recover，不提供异步队列；HTTP、LLM、重 DB 操作必须出 handler、进 worker，不能在订阅回调里直接阻塞执行。
-- Provider 自定义配置优先复用 `thread/start` 已有的 `config` 透传链路；实例键应放在专用 config 字段里，而不是继续复用 top-level `modelProvider` 做 provider instance 路由。
-- `thread/start` 的 `config` 是 host-side runtime config / driver 输入，不等于所有 key 都会透传到远端 provider RPC。P1a 这类实例选择必须在 driver 侧消费并持久化恢复信息。
+- 宿主 UI / 管理 API 仍优先落在 `internal/module/*`，并通过 `rpc.HandlerMapResult` 暴露；agent-visible tool、DAG、workspace、长期编排默认仍属于 `cmd/mcp-orch` 的 MCP 工具执行面。
+- 持久化调度类能力默认落在 core；若未来要让模型直接操作，再由 `cmd/mcp-orch` 追加 agent-visible tool 包装。
+- `internal/mcpserver/common/bootstrap/*` 仍是当前合法的工具侧 lifecycle client；禁止把业务能力继续堆到 common 旁路。
+- 关系型持久化统一走 `migrations/` + `sql/queries/` + sqlc。新增表/查询只维护**实际消费侧**的 `sqlc.yaml`：Cron v1 与 Session Insights v1 都是 **core-only**，因此只改根 `sqlc.yaml`，不改 `cmd/mcp-orch/sqlc.yaml`。
+- 内容型数据仍允许文件持久化例外；不要为了“统一”把 `SKILL.md` 等内容强塞回 Postgres。
+- `fx.Module` / `BusModule` / `RunnerModule` 必须按三层分工落地：`fx.Module` 只做 constructor + 资源 open/close；`fx.Invoke` 只把订阅器注入 `bus.subscribers`；所有长跑 worker 都实现 `Runner.Run(ctx)` 并进入 `runner.actors`。长循环、drain、重试都不放进 `fx` 生命周期。
+- core Fx 与 `cmd/mcp-orch` Fx 是**双树同构**：两边各有一根 bus / run.Group；平台库可共享放在 `internal/platform/*`，业务 module 分别落在 `internal/module/*` 与 `cmd/mcp-orch/*`。这不是“core vs shared”二选一，archtest 也无需为 P2 放宽。
+- Provider 自定义配置优先复用 `thread/start` 已有 `config` 透传链路；实例 identity 只能由专用 key 承载，且必须持久化到恢复链路，不允许再靠 top-level `modelProvider` 或 legacy home 推断。
+
+## 默认值安全原则
+
+- identity / cwd / 信任域 / 权限相关参数缺失时，默认行为必须是 sentinel error + fail fast，不做 silent fallback。
+- `codexHome` / `codexInstanceKey` / `codexModelProvider`、Cron `cwd`、`notify_channel` 这类隔离关键字段不进入默认选择链；legacy fallback 只能通过显式 feature flag / env opt-in 打开。
+- service 层负责第一时间返回 `Err<Name>Required` 或 `ErrMissingCWD`；RPC 层再统一映射 `jrpc2.InvalidParams`。
 
 ## 实施路线图
 
-| 优先级 | 特性 | 描述 | 对标 Hermes Python 代码 | 预计 Go 实现代码 | 预估工时 | 当前状态 |
-|---|---|---|---|---|---|---|
-| **[P0](P0_SelfLearningSkill.md)** | 自学习 Skill 闭环 | Agent 自动将成功经验提炼为可复用 Skill | ~2,200 行 | ~900 行 | 3-4 天 | ⏳ 已有 Skill 写入与事件总线，缺 agent-friendly create 与自动提炼闭环 |
-| **[P1a](P1a_MultiProviderCodex.md)** | 多 Provider Codex 实例 | 按 `CODEX_HOME`/`instanceKey` 隔离接入 GLM5.1、Qwen3.6 等 | ~3,000 行 | ~300 行 | 1-2 天 | ⏳ 现有 `codexapp` 是单 shared app-server，需改为按实例键池化 |
-| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | Agent 可调度定时循环执行任务 | ~1,500 行 | ~800 行 | 3-4 天 | 🔲 未开动 |
-| **[P2](P2_MultiPlatformNotifications.md)** | 多平台通知 | 结果通过 Webhook/Bot 自动推送 | ~3,000 行 | ~500 行 | 2-3 天 | 🔲 未开动 |
-| **[P3](P3_SessionInsights.md)** | Session Insights 遥测 | 会话使用分析与 Skill 命中率统计 | ~1,000 行 | ~400 行 | 1-2 天 | 🔲 未开动 |
+| 优先级 | 特性 | 描述 | 当前状态 |
+|---|---|---|---|
+| **[P0](P0_SelfLearningSkill.md)** | 自学习 Skill 闭环 | P0a 先交付 host-side create；P0b 负责共享 observation 层与自动提炼闭环 | ⏳ observation owner |
+| **[P1a](P1a_MultiProviderCodex.md)** | 多 Provider Codex 实例 | 以 `codexHome/codexInstanceKey/codexModelProvider` 作为实例 identity，并落到 binding 恢复面 | ⏳ identity 定稿 |
+| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | core-only 持久化调度，tick / lease / flush 全部按 `runner.actors` 落地 | 🔲 未开动 |
+| **[P2](P2_MultiPlatformNotifications.md)** | 多平台通知 | 平台库共享，core / orch 各装一套 subscriber + runner | 🔲 未开动 |
+| **[P3](P3_SessionInsights.md)** | Session Insights 遥测 | API-only 聚合指标，消费 P0b observation 输出 | 🔲 依赖 P0b |
 
 ## 落地顺序建议
 
-1. 先做 `P0a`：agent-friendly skill create / scope-safe 写入；`P0b` 自动提炼闭环建议放到 `P3` 最小 trajectory/insight collector 就绪后，避免重复造聚合器。
-2. `P1a` 与 `P1b` 可以并行设计，但 `P1a` 要先明确 app-server 多实例边界，否则 Cron 后台任务的 provider 选择会被卡死。
-3. `P2` 与 `P3` 都应采用事件订阅式落地，避免继续把 side effect 塞进 `turn/service.go` 等执行主链。
+1. 先做 `P0a`：补 host-side create / scope-safe 写入，把 project-scope 自学习入口钉死到 `CreateSkill` / `WriteLocal(..., scope=project)`。
+2. `P1a` 与 `P1b` 可以并行设计，但 `P1a` 必须先冻结 session identity 三元组与 binding 持久化口径，否则 Cron 的 provider 选择与恢复链会失焦。
+3. `P0b` 必须作为前置交付先把 observation 层落地；`P3` 只消费这层输出，不能并行发明第二套 turn 归因规则。
+4. `P1b` / `P2` / `P3` 都必须遵守 `fx` / `bus` / `Runner` 三层分工：bus callback 只做 state merge / enqueue，长跑 loop 与 flush worker 一律进 `runner.actors`。
+5. signed skill 验签**延后到 P22**；P21 只定义自学习写入、observation 与 insights 契约，不在本期追加 verifier。
 
-**总计**：约 12-14 天，预估新增约 3k 行 Go 代码。真正的复杂度不在代码量，而在保持现有模块边界、store 约定和 provider 生命周期不退化。
+## 收口口径
+
+### Canonical Turn Observation Contract
+
+Canonical Turn Observation Contract：共享 observation 层统一产出 local turn id ↔ provider turn id、`call_id -> turn_id`、`skills_selected`、token snapshot、terminal precedence 与 raw/typed 去重事实；P0b 是 owner，P3 只消费这层输出。
+
+- 必须维护 `local turn id ↔ provider turn id` 映射表，供 turn 终态、tool 事件与 provider raw event 对齐。
+- 必须维护 `call_id -> turn_id` 映射；`internal/dto/tool/event.go:46-55` 的 `ToolDiffUpdated` 只有 `ThreadID/AgentID/CallID`，**没有 `turn_id`**，归因不能跳过这张表。
+- `skills_selected` 只表示 resolver 在 `PrepareTurn` 选中并准备注入的 skill 集合，**不等于模型实际使用**。
+- token snapshot 要做归一：保留旧的非零 token 计数，不被 zero-event 覆盖；Claude path 的 `UITokensUpdated` 经 `internal/provider/unified/ui_tokens.go:58-75` 固定 `Projection="thread"`，且可能不带 `turn_id`，不能直接当 per-turn 权威值。
+- terminal precedence 必须固定：`interrupted/aborted` 一旦成立，不能被 late `completed` 覆盖；`internal/dto/turn/event.go:11-21` 的 `TurnCompleted.Success` 是非指针 `bool`，缺字段时有默认 true 陷阱。
+- `dto.BusRawProviderEvent` 与 typed event 必须在 observation 层统一去重，只允许按 `call_id`、raw event id 或等价 key 合并一次；collector / trajectory 不得 raw + typed 双算。
+- observation 层为 P0b 前置交付；P3 作为 consumer 依赖这层事实，不再自建第二套 turn 归因逻辑。
+
+- `P1a` 与 `P1b` 必须共享 session identity config keys：`codexHome/codexInstanceKey/codexModelProvider` 共同构成 codex instance identity；本期选择 **binding 持久化为主**，不把 resume 扩成 generic config 透传。
+- `approvalPolicy=never` 不是“全部自动通过”。`internal/platform/rpc/approval_support.go:204-209` 当前只会自动放行 `request_user_input`；后台任务与多 provider 实例都必须白名单 provider / sandbox / tool 组合。
+- `P2` 的 alias 解析不能落入默认链：`NOTIFY_DEFAULT_CHANNEL` 只允许显式 opt-in，默认缺失时应 `drop/error`，不做 silent fallback。
+- 文档若未明确 UI 交付，默认按 API-only 解释；若未来要做 UI，必须显式补 `DashboardPage`、`ui/dashboard/get?page=...` 与前端导航 / 页面接线。

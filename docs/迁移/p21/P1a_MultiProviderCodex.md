@@ -1,87 +1,75 @@
 # P1a: 多 Provider Codex 实例
 
 ## 目标
-利用现有的统一 Codex App-Server 架构，仅通过注入独立的配置目录（`CODEX_HOME`）和环境变量实现对 GLM-5.1、Qwen3.6、DeepSeek 等 100% 兼容 OpenAI 接口的模型支持。这消除并替代了 Hermes 冗余的 Provider Adapter。
+
+利用现有统一 Codex app-server 架构，通过显式的实例 identity 三元组（`codexHome` / `codexInstanceKey` / `codexModelProvider`）隔离接入 GLM-5.1、Qwen3.6、DeepSeek 等兼容 OpenAI 接口的模型；隔离边界是 app-server 进程，不是 thread/router。
 
 ## 现状校准
 
-- `thread/start` 已有 `modelProvider` 与通用 `config` 透传，`codexapp` driver 也会把 `modelProvider` 传给远端 `thread/start`。
-- 但当前 top-level `modelProvider` 同时还参与 `thread/start` 的 provider 选择，只允许 `codex|claude`；因此不能直接拿它复用成 `qwen/glm/deepseek` 这类实例键。
-- 当前 `internal/provider/codexapp/module.go` 的 `ServerManager` 是单例，一个 shared app-server 服务所有 codex session；这意味着仅靠 session 级配置无法实现 `CODEX_HOME` 隔离。
-- 当前 `internal/provider/codexapp/driver.go` 会在 `newDriver()` 阶段缓存单个 `serverURL`；如果不改成 start/resume 时按请求动态选择实例，哪怕底层有池化，driver 仍会退化成单实例。
-- `internal/provider/codexapp/history_rollout.go` 仍把 rollout 搜索根写死为 `~/.codex/sessions/...`，即便 spawn 路径支持多 home，历史恢复也会串目录。
-- `ResumeSessionRequest` 当前没有 `Config`，`unified/session_resolver.go` 的 auto-resume 也只靠 binding 恢复最小字段；如果实例信息不持久化，重启后会回到默认 `CODEX_HOME`。
-- `internal/router/rule.go` 是 prompt template 分类器，不是 provider 实例路由器；这里不应承载 `CODEX_HOME` 选择逻辑。
+- `thread/start` 已有 `modelProvider` 与通用 `config` 透传，但 top-level `modelProvider` 仍承担 `codex|claude` provider 选择语义，不能复用成实例路由字段。
+- `internal/provider/codexapp/module.go` 的 `ServerManager` 仍是单 shared app-server；只靠 session 级配置无法做到 `CODEX_HOME` 隔离。
+- `internal/provider/codexapp/driver.go` 仍会缓存单个 `serverURL`；若不改成 start / resume 时按 identity 动态选择，driver 依然会退化成单实例。
+- `internal/provider/codexapp/history_rollout.go` 仍通过 `os.UserHomeDir()` + `.codex/sessions/...` 搜 rollout，历史恢复会串到 legacy home。
+- `internal/provider/codexapp/transport_process.go:224-245` 的真实本地启动路径目前还没有 `cmd.Env` 注入；文档伪码不能假装这件事已经存在。
+- `ResumeSessionRequest` 当前只有 `ConfigOverride`，没有通用 `Config` 透传；`internal/provider/unified/session_resolver.go:127-136` 的 auto-resume 也是先经 binding lookup 再恢复 session，因此本期应把实例 identity 持久化到 binding，而不是指望 resume 时临时塞 generic config。
 
 ## 推荐改动清单
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| 实例键解析 | `internal/provider/shared/config_helpers.go` | 新增 `ResolveCodexHome(config map[string]any) (instanceKey, home string)`；建议使用不与 top-level `modelProvider` 冲突的 key，例如 `config.codexHome` / `config.codexInstanceKey` / `config.codexModelProvider` |
-| 启动载荷透传 | `internal/module/thread/start_session_helpers.go` | 继续复用现有 `ModelProvider` + `Config` 链路，但实例选择只能从 `req.Config` 里的专用 key 读取，不新增 router 字段 |
+| 实例键解析 | `internal/provider/shared/config_helpers.go` | 新增 `ResolveCodexIdentity(config map[string]any)`，严格解析 `codexHome/codexInstanceKey/codexModelProvider`，并返回对应 sentinel error |
+| 启动载荷透传 | `internal/module/thread/start_session_helpers.go` | 继续复用 `ModelProvider + Config` 链路，但实例选择只能从 `req.Config` 的专用 key 读取，不新增 router 字段 |
 | app-server 池化 | `internal/provider/codexapp/module.go` | 将单例 `ServerManager` 改为按 `instanceKey` 管理的池，每个 key 对应一个本地 app-server 进程 |
-| 会话建连 | `internal/provider/codexapp/{driver.go,session.go}` | `StartSession/ResumeSession` 按实例键取对应 server URL；不要在 `newDriver()` 预先冻结单个 `serverURL`；runtime config 中记录选中的实例键与 home |
-| 环境注入 | `internal/provider/codexapp/transport_process.go` | `spawnLocal()` 支持注入 `CODEX_HOME=<path>`；必要时把 env 作为显式入参而非写死 `os.Environ()` |
-| Rollout 历史 | `internal/provider/codexapp/history_rollout.go` | rollout 搜索目录改为从选中的 `CODEX_HOME` 反推 `sessions/`，不能再写死 `~/.codex` |
-| 恢复链路 | `internal/dto/provider/session.go`、`internal/provider/unified/session_resolver.go`、`internal/module/thread/*` | 持久化 `instanceKey/codexHome` 并让 resume/auto-resume 能恢复到同一实例，而不是重启后掉回默认 home |
+| 会话建连 | `internal/provider/codexapp/{driver.go,session.go}` | `StartSession/ResumeSession` 按 identity 取对应 server URL；不要在 `newDriver()` 冻结单个 `serverURL` |
+| 环境注入 | `internal/provider/codexapp/transport_process.go` | `spawnLocal()` 显式注入 `CODEX_HOME=<path>`，不要把 home 拼进 shell 字符串 |
+| Rollout 历史 | `internal/provider/codexapp/history_rollout.go`、`session.RolloutPath()`、`internal/platform/historyjsonl/*` | rollout 搜索目录必须从选中的 `codexHome` 反推，不能再写死 legacy home |
+| 恢复链路 | `internal/store/binding/*`、`internal/provider/unified/session_resolver.go`、`internal/module/thread/*` | **拍板选择 binding 持久化为主**：扩 `agent_provider_binding` 身份字段，不把 resume 扩成 generic config |
+| 设置链路 | 前端 settings / launch payload | 冻结 active codex instance 的设置存储与发包路径，把 identity 三元组注入 `payload.config.*` |
 
-> **关键边界**：P1a 的隔离边界是 app-server 进程，不是 thread/router。只要 `ServerManager` 还是单 shared process，多 provider `CODEX_HOME` 就不成立。
+## identity 与缺失硬报错
 
-## 配置目录设计示例
-```text
-~/.codex-providers/
-├── glm/
-│   └── config.toml   (wire_api = "chat", base_url = "https://open.bigmodel.cn/api/paas/v4")
-└── qwen/
-    └── config.toml   (wire_api = "chat", base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1")
-```
-
-## 选择优先级建议
-
-1. `thread/start` 显式传入 `config.codexHome`
-2. 否则根据 `config.codexModelProvider` 或 `config.codexInstanceKey` 映射到预定义 home
-3. 否则走默认 `~/.codex`
-
-> 不建议把实例选择绑到当前 top-level `modelProvider`。该字段今天仍承担 `codex|claude` provider 选择语义，直接复用会与现有校验和前端发包冲突。
+- `codexHome`、`codexInstanceKey`、`codexModelProvider` 共同构成 codex instance identity；任一缺失都必须返回 `ErrCodexHomeRequired`、`ErrCodexInstanceKeyRequired`、`ErrCodexModelProviderRequired` 这类 sentinel error。
+- `codexHome` 与 `codexInstanceKey` 必须一一绑定：同一 key 不能在不同请求里解析到不同 home；同一 home 被多个 key 指向时要么声明 alias，要么直接报错。
+- legacy default-home 只能通过显式 feature flag / env opt-in 打开，例如 `CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME=1`；**禁止**把它写进默认解析链。
+- `payload.config.*` 不能是完全开放 raw map：对 identity 三元组必须规定严格 key 名、兼容策略和 malformed payload 的 fail-fast 行为。
 
 ## 环境注入伪码
 
 ```go
+// 目标态伪码；当前真实 spawn 在 transport_process.go:224-245，尚无 cmd.Env 注入，
+// 实施时需同步补上。
 func (p *ServerPool) get(config map[string]any) (*ServerManager, error) {
-    instanceKey, home := shared.ResolveCodexHome(config)
-    mgr := p.ensure(instanceKey)
-    return mgr.startWithHome(home)
+    ident, err := shared.ResolveCodexIdentity(config)
+    if err != nil {
+        return nil, err
+    }
+    mgr := p.ensure(ident.InstanceKey)
+    return mgr.startWithHome(ident.Home)
 }
 
 func (m *ServerManager) spawnLocal(home string) (*exec.Cmd, error) {
     cmd := exec.Command("sh", "-c", "ulimit -n ...; exec codex app-server --listen ...")
-    cmd.Env = append(os.Environ(),
-        "CODEX_HOME=" + home,
-    )
-    // ...
+    cmd.Env = append(os.Environ(), "CODEX_HOME="+home)
+    return cmd, nil
 }
 ```
 
-## 范围说明
-
-- 第一阶段建议仅支持本地 app-server 模式。若用户通过 `CODEX_APP_SERVER_URL` 指向外部共享服务，无法对每个 thread 做 `CODEX_HOME` 级别隔离，应降级为 warning + default instance。
-- 不建议修改 `internal/router/rule.go`。provider 选择是 runtime/session 问题，不是 prompt 分类问题。
-- `driver` 选实例的时机应晚于 `req.Config` 解析；因此池查询应发生在 `StartSession/ResumeSession`，而不是 factory 或模块初始化阶段。
-- 若支持外部 `CODEX_APP_SERVER_URL`，应明确其优先级。当前代码里本地 manager 很容易覆盖显式 URL；P1a 要么在 external 模式彻底跳过本地 pool/manager，要么明确说明 external 模式下禁用多实例。
-- pending-launch 路径也要持久化实例信息，否则首次 `thread/start` 与后续 `SpawnIfNeeded()` 会落到不同实例。
-
 ## 恢复与持久化约束
 
-- 仅在 `StartSession` 里按实例键选 URL 不够，resume 与 auto-resume 也必须恢复到同一实例。
-- 至少要把 `codexHome/instanceKey` 写进 thread runtime config；更稳妥的方案是把实例键补到 binding 或其他持久化恢复面，供 `unified/session_resolver.go` 重建 `ResumeSessionRequest`。
-- `history_rollout.go`、`session_history.go` 与 `platform/historyjsonl` 的 codex fallback 都必须消费同一份实例信息，否则恢复成功但历史读取仍会串到默认 `~/.codex`。
+- 本期拍板：**binding 持久化 instance identity 为主**。`agent_provider_binding` 扩字段保存 `codex_home` / `codex_instance_key` / `codex_model_provider`，作为 auto-resume 的权威恢复面。
+- `ResumeSessionRequest` **不扩 generic Config**；现有 `ConfigOverride` 只保留给 runtime override，不承接实例 identity。若未来需要显式 resume override，另立提案处理。
+- `internal/provider/unified/session_resolver.go:127-136` 当前是先 `GetByAgentID` 再 `autoResumeSession()`；因此 identity 丢在 binding 上，才能让重启后的 auto-resume 继续命中同一实例。
+- `history_rollout.go`、`session_history.go` 与 `internal/platform/historyjsonl` 的 home 解析必须消费同一份 binding identity；否则 session 恢复对了，历史仍会串目录。
+- `provider` 字段仍保持 `codex|claude` 这类 provider 语义；不要把它扩成 `codex:qwen` 这种混合字段。
 
-## 实现注意事项
+## approvalPolicy=never 陷阱
 
-- 当前本地 app-server 实际启动命令是 `codex app-server --listen ...` 的 shell wrapper，而不是文档伪码里的 `serve`；实现时应保持 `cmd.Env` 注入 `CODEX_HOME`，不要把 home 直接拼进 shell 字符串。
-- pool 不是把单例 `ServerManager` 简单换成 map 就结束，还要处理 lazy start、统一 stop、tool handler 传播、peer 进程只启动一次、PID registry 统一 close。
-- 若去掉 driver 级 `serverURL` 缓存，runtime report 也要改成从本次选中的 session/manager 取 URL；否则 port 与 runtime 元数据会写错。
+- `approvalPolicy=never` 不等于全部自动通过。`internal/platform/rpc/approval_support.go:204-209` 当前只会在 `Kind=request_user_input` 且 policy 为 `never` 时自动批准。
+- 因此 P1a v1 不能把多实例后台运行描述成统一无审批；必须白名单 provider / sandbox / tool 组合，并把超出白名单的场景直接拒收。
 
-**Hermes 源码对照点**:
-- `run_agent.py:708-766` — Agent 初始化，各种 base_url 和 key 分支
-- `agent/anthropic_adapter.py:296-361` — 重复造轮子的 Client builder
+## 必测项
+
+- `start -> binding 持久化 -> 进程重启 -> auto-resume -> history fallback` 必须验证仍命中同一实例与同一 `codexHome`。
+- identity 三元组缺任一字段时必须命中硬报错，而不是 silent fallback。
+- external `CODEX_APP_SERVER_URL` 模式必须验证不会被本地 manager / 二次选址覆盖。
+- `approvalPolicy=never` 必须验证只对白名单 provider / sandbox / tool 组合放行；不能被误解为所有审批都自动通过。

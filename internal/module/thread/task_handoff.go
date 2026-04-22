@@ -53,6 +53,27 @@ func (s *service) prepareTaskHandoffStart(ctx context.Context, req *StartRequest
 	if meta.TaskID == "" {
 		return nil
 	}
+	applyTaskHandoffConfig(req, meta)
+	inheritTaskHandoffOwner(req, sourceThreadID)
+	if s.sharedFiles == nil || meta.HandoffFile == "" {
+		return nil
+	}
+	s.logIgnoredTaskHandoffError("ensure task handoff shell", sourceThreadID, s.ensureTaskHandoffShell(ctx, meta, sourceThreadID))
+	return s.appendTaskHandoffInstructions(ctx, req, meta, sourceThreadID)
+}
+
+func (s *service) resolveTaskHandoffStart(ctx context.Context, req *StartRequest) (taskHandoffMeta, string) {
+	explicit := taskHandoffMetaFromRuntimeConfig(req.Config)
+	sourceThreadID := s.resolveTaskHandoffSourceThread(ctx, req)
+	inherited := s.loadInheritedTaskHandoff(ctx, sourceThreadID)
+	meta := mergeTaskHandoffStart(*req, explicit, inherited, sourceThreadID)
+	if meta.TaskID == "" {
+		return taskHandoffMeta{}, ""
+	}
+	return finalizeTaskHandoffStart(meta), sourceThreadID
+}
+
+func applyTaskHandoffConfig(req *StartRequest, meta taskHandoffMeta) {
 	if req.Config == nil {
 		req.Config = map[string]any{}
 	}
@@ -62,65 +83,105 @@ func (s *service) prepareTaskHandoffStart(ctx context.Context, req *StartRequest
 	if meta.Continue {
 		req.Config[taskConfigKeyContinue] = true
 	}
+}
 
+func inheritTaskHandoffOwner(req *StartRequest, sourceThreadID string) {
 	if sourceThreadID != "" && strings.TrimSpace(req.OwnerThreadID) == "" {
 		req.OwnerThreadID = sourceThreadID
 	}
-	if s.sharedFiles == nil || meta.HandoffFile == "" {
+}
+
+func (s *service) appendTaskHandoffInstructions(
+	ctx context.Context,
+	req *StartRequest,
+	meta taskHandoffMeta,
+	sourceThreadID string,
+) error {
+	if !meta.Continue {
 		return nil
 	}
-	s.logIgnoredTaskHandoffError("ensure task handoff shell", sourceThreadID, s.ensureTaskHandoffShell(ctx, meta, sourceThreadID))
-	if meta.Continue {
-		block, err := s.taskHandoffInstructionBlock(ctx, meta)
-		if err != nil {
-			s.logIgnoredTaskHandoffError("load task handoff block", sourceThreadID, err)
-			return nil
-		}
-		req.BaseInstructions = joinTaskHandoffInstructions(req.BaseInstructions, block)
+	block, err := s.taskHandoffInstructionBlock(ctx, meta)
+	if err != nil {
+		s.logIgnoredTaskHandoffError("load task handoff block", sourceThreadID, err)
+		return nil
 	}
+	req.BaseInstructions = joinTaskHandoffInstructions(req.BaseInstructions, block)
 	return nil
 }
 
-func (s *service) resolveTaskHandoffStart(ctx context.Context, req *StartRequest) (taskHandoffMeta, string) {
-	explicit := taskHandoffMetaFromRuntimeConfig(req.Config)
+func (s *service) resolveTaskHandoffSourceThread(ctx context.Context, req *StartRequest) string {
 	sourceThreadID := strings.TrimSpace(req.OwnerThreadID)
-	if sourceThreadID == "" && s != nil && s.bindingStore != nil && strings.TrimSpace(req.ParentAgentID) != "" {
-		if threadID, err := s.bindingStore.GetThreadByAgent(ctx, strings.TrimSpace(req.ParentAgentID)); err == nil {
-			sourceThreadID = strings.TrimSpace(threadID)
-		}
+	if sourceThreadID != "" || s == nil || s.bindingStore == nil {
+		return sourceThreadID
 	}
-	inherited := taskHandoffMeta{}
-	if sourceThreadID != "" && s != nil && s.threadStore != nil {
-		if row, err := s.threadStore.GetByThreadID(ctx, sourceThreadID); err == nil && row != nil {
-			inherited = taskHandoffMetaFromThread(row)
-		}
+	parentAgentID := strings.TrimSpace(req.ParentAgentID)
+	if parentAgentID == "" {
+		return ""
 	}
-	if explicit.TaskID == "" {
-		explicit.TaskID = inherited.TaskID
+	threadID, err := s.bindingStore.GetThreadByAgent(ctx, parentAgentID)
+	if err != nil {
+		return ""
 	}
-	if explicit.TaskTitle == "" {
-		explicit.TaskTitle = firstNonEmptyTaskString(inherited.TaskTitle, defaultTaskTitle(*req))
-	}
-	if explicit.HandoffFile == "" && explicit.TaskID != "" {
-		explicit.HandoffFile = firstNonEmptyTaskString(inherited.HandoffFile, defaultTaskHandoffPath(explicit.TaskID))
-	}
-	explicit.Continue = explicit.Continue || (sourceThreadID != "" && explicit.TaskID != "" && explicit.TaskID == inherited.TaskID)
+	return strings.TrimSpace(threadID)
+}
 
-	if explicit.TaskID == "" && shouldAutoTaskHandoff(*req) {
-		explicit.TaskID = shared.NewID("task")
-		explicit.TaskTitle = firstNonEmptyTaskString(explicit.TaskTitle, defaultTaskTitle(*req))
-		explicit.HandoffFile = defaultTaskHandoffPath(explicit.TaskID)
+func (s *service) loadInheritedTaskHandoff(ctx context.Context, sourceThreadID string) taskHandoffMeta {
+	if sourceThreadID == "" || s == nil || s.threadStore == nil {
+		return taskHandoffMeta{}
 	}
-	if explicit.TaskID == "" {
-		return taskHandoffMeta{}, ""
+	row, err := s.threadStore.GetByThreadID(ctx, sourceThreadID)
+	if err != nil || row == nil {
+		return taskHandoffMeta{}
 	}
-	if explicit.TaskTitle == "" {
-		explicit.TaskTitle = explicit.TaskID
+	return taskHandoffMetaFromThread(row)
+}
+
+func mergeTaskHandoffStart(
+	req StartRequest,
+	explicit taskHandoffMeta,
+	inherited taskHandoffMeta,
+	sourceThreadID string,
+) taskHandoffMeta {
+	meta := explicit
+	meta.TaskID = firstNonEmptyTaskString(meta.TaskID, inherited.TaskID)
+	meta.TaskTitle = resolveTaskHandoffTitle(req, meta.TaskTitle, inherited.TaskTitle)
+	meta.HandoffFile = resolveTaskHandoffFile(meta.TaskID, meta.HandoffFile, inherited.HandoffFile)
+	meta.Continue = meta.Continue || shouldContinueTaskHandoff(sourceThreadID, meta.TaskID, inherited.TaskID)
+	return autoTaskHandoffMeta(req, meta)
+}
+
+func resolveTaskHandoffTitle(req StartRequest, explicitTitle, inheritedTitle string) string {
+	return firstNonEmptyTaskString(explicitTitle, inheritedTitle, defaultTaskTitle(req))
+}
+
+func resolveTaskHandoffFile(taskID, explicitFile, inheritedFile string) string {
+	if explicitFile != "" {
+		return explicitFile
 	}
-	if explicit.HandoffFile == "" {
-		explicit.HandoffFile = defaultTaskHandoffPath(explicit.TaskID)
+	if taskID == "" {
+		return ""
 	}
-	return explicit, sourceThreadID
+	return firstNonEmptyTaskString(inheritedFile, defaultTaskHandoffPath(taskID))
+}
+
+func shouldContinueTaskHandoff(sourceThreadID, taskID, inheritedTaskID string) bool {
+	return sourceThreadID != "" && taskID != "" && taskID == inheritedTaskID
+}
+
+func autoTaskHandoffMeta(req StartRequest, meta taskHandoffMeta) taskHandoffMeta {
+	if meta.TaskID != "" || !shouldAutoTaskHandoff(req) {
+		return meta
+	}
+	meta.TaskID = shared.NewID("task")
+	meta.TaskTitle = firstNonEmptyTaskString(meta.TaskTitle, defaultTaskTitle(req))
+	meta.HandoffFile = defaultTaskHandoffPath(meta.TaskID)
+	return meta
+}
+
+func finalizeTaskHandoffStart(meta taskHandoffMeta) taskHandoffMeta {
+	meta.TaskTitle = firstNonEmptyTaskString(meta.TaskTitle, meta.TaskID)
+	meta.HandoffFile = firstNonEmptyTaskString(meta.HandoffFile, defaultTaskHandoffPath(meta.TaskID))
+	return meta
 }
 
 func taskHandoffMetaFromThread(row *threadstore.Thread) taskHandoffMeta {

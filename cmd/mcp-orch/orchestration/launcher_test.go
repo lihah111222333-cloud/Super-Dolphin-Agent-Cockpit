@@ -101,6 +101,39 @@ func TestRemoteLauncher_LaunchUsesFriendlyTaskNameForTechnicalAgentName(t *testi
 	}
 }
 
+func TestLooksTechnicalManagedAgentName_Pin(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "blank after normalize", input: " [ ] ", want: true},
+		{name: "slash separated", input: "ops/worker", want: true},
+		{name: "backslash separated", input: `ops\worker`, want: true},
+		{name: "single generic token", input: "Worker", want: true},
+		{name: "generic hyphenated tokens", input: "planner-reviewer", want: true},
+		{name: "generic underscored tokens", input: "helper_tmp", want: true},
+		{name: "generic dotted tokens", input: "research.review", want: true},
+		{name: "mixed token with punctuation", input: "worker-api", want: true},
+		{name: "delimiter only", input: "-", want: true},
+		{name: "digits without punctuation", input: "worker2", want: true},
+		{name: "spaced digits", input: "Worker 2", want: true},
+		{name: "spaced punctuation", input: "Worker UI-v2", want: true},
+		{name: "spaced friendly title", input: "Worker UI", want: false},
+		{name: "compact friendly title", input: "Payments", want: false},
+		{name: "spaced non ascii title", input: "修复 worker", want: false},
+		{name: "compact non ascii title", input: "工程师", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := looksTechnicalManagedAgentName(tt.input); got != tt.want {
+				t.Fatalf("looksTechnicalManagedAgentName(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRemoteLauncher_SubmitTurn(t *testing.T) {
 	var req map[string]any
 	launcher := remoteLocalLauncher(t, handler.Map{

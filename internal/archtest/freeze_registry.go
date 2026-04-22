@@ -16,24 +16,7 @@ type explicitFreeze struct {
 	RemoveWhen string
 }
 
-var explicitFreezeRegistry = []explicitFreeze{
-	{
-		Path:       "internal/module/memory",
-		Kind:       ViolationPackageCount,
-		Limit:      27,
-		Reason:     "memory 子包拆分尚未完成，包文件数冻结到当前值",
-		Owner:      "P19-Phase-F",
-		RemoveWhen: "memory 子包拆分完成并回落到默认包文件预算 25 个（2026-04-17 放宽后）",
-	},
-	{
-		Path:       "internal/module/prompt",
-		Kind:       ViolationPackageCount,
-		Limit:      27,
-		Reason:     "prompt 迁移期文件数高于默认预算；P20.1 Phase 8/10 新增 skill_catalog_provider.go，skill_catalog fx wiring 已并入 module.go",
-		Owner:      "P20.1-Phase-10",
-		RemoveWhen: "prompt 子包梳理完成并回落到默认包文件预算 25 个（2026-04-17 放宽后）",
-	},
-}
+var explicitFreezeRegistry = []explicitFreeze{}
 
 func freezeRegistryIntegrityViolations() []Violation {
 	seen := make(map[string]struct{}, len(explicitFreezeRegistry))
