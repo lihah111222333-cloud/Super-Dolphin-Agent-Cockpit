@@ -64,13 +64,14 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	// in the spawn path defaults Provider back to "codex", overriding the
 	// user's UI selection (this was the '创建的对话都是codex' regression).
 	pendingStored := storedThreadConfig{
-		Model:       strings.TrimSpace(req.Model),
-		Effort:      strings.TrimSpace(req.Effort),
-		Approvals:   strings.TrimSpace(req.ApprovalPolicy),
-		Personality: strings.TrimSpace(req.Personality),
-		Provider:    strings.TrimSpace(req.Provider),
-		PromptKey:   strings.TrimSpace(req.PromptKey),
-		Runtime:     shared.CloneRuntimeConfigMap(req.Config),
+		Model:         strings.TrimSpace(req.Model),
+		Effort:        strings.TrimSpace(req.Effort),
+		Approvals:     strings.TrimSpace(req.ApprovalPolicy),
+		Personality:   strings.TrimSpace(req.Personality),
+		Provider:      strings.TrimSpace(req.Provider),
+		PromptKey:     strings.TrimSpace(req.PromptKey),
+		UseClassifier: req.UseClassifier,
+		Runtime:       shared.CloneRuntimeConfigMap(req.Config),
 	}
 	configOverride, err := encodeStoredThreadConfig(pendingStored)
 	if err != nil {
@@ -249,6 +250,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		Personality:      storedCfg.Personality,
 		ApprovalPolicy:   storedCfg.Approvals,
 		PromptKey:        storedCfg.PromptKey,
+		UseClassifier:    storedCfg.UseClassifier,
 		Config:           shared.CloneRuntimeConfigMap(storedCfg.Runtime),
 	}
 	// normalizeStartRequest fills in provider default ("codex"), resolves CWD,

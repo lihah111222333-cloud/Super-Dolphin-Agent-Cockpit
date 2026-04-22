@@ -55,6 +55,10 @@ type startParams struct {
 	// PromptText as BaseInstructions. Empty = fall back to agent_key /
 	// default routing.
 	PromptKey string `json:"prompt_key,omitempty"`
+	// Optional Plan B opt-in flag. When true AND no explicit prompt_key pin,
+	// the router runs the prompt classifier on the first-turn user input to
+	// auto-pick a prompt_template from the full library. Off by default.
+	UseClassifier bool `json:"use_classifier,omitempty"`
 	// DeferSpawn opts into the C1 "pending_launch" flow: create the thread
 	// row without forking the provider CLI; the actual spawn happens on the
 	// first turn once router has real user input to classify.

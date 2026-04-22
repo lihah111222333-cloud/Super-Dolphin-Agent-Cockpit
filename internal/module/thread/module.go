@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/kelindar/event"
@@ -13,9 +14,10 @@ type subscriptionParams struct {
 	fx.In
 
 	Lifecycle   fx.Lifecycle
-	Dispatcher  *event.Dispatcher `optional:"true"`
-	Service     Service           `optional:"true"`
-	PromptStore promptstore.Store `optional:"true"`
+	Dispatcher  *event.Dispatcher     `optional:"true"`
+	Service     Service               `optional:"true"`
+	PromptStore promptstore.Store     `optional:"true"`
+	Classifier  classifier.Classifier `optional:"true"`
 }
 
 var Module = fx.Module("thread",
@@ -50,6 +52,7 @@ func registerSubscriptions(p subscriptionParams) {
 		svc.bindDispatcher(p.Dispatcher)
 	}
 	svc.bindPromptStore(p.PromptStore)
+	svc.bindClassifier(p.Classifier)
 
 	var cancels []context.CancelFunc
 	p.Lifecycle.Append(fx.Hook{

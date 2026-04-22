@@ -101,6 +101,7 @@ func newStartHandler(svc Service) handler.Func {
 		pkglogger.Info("thread/start: rpc received",
 			"agent_key", p.AgentKey,
 			"prompt_key", p.PromptKey,
+			"use_classifier", p.UseClassifier,
 			"provider", p.Provider,
 			"cwd", p.CWD,
 			"has_prompt", strings.TrimSpace(p.Prompt) != "",
@@ -131,6 +132,7 @@ func newStartHandler(svc Service) handler.Func {
 			ForceLaunchSkills: p.ManualSkillSelection,
 			AgentKey:          p.AgentKey,
 			PromptKey:         p.PromptKey,
+			UseClassifier:     p.UseClassifier,
 			DeferSpawn:        p.DeferSpawn,
 		})
 		if err != nil {

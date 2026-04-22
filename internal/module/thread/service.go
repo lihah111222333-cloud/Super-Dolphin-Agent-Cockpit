@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
@@ -79,10 +80,14 @@ type service struct {
 
 	// promptStore is optional; when nil, thread/start skips injection and the
 	// CLI falls back to its bundled system prompt. When wired, it powers the
-	// agent_key → prompt_text lookup in resolveRoutedPrompt. There is no
-	// classifier / router.Backend dependency here by design: this harness
-	// dispatches by explicit agent_key, not by user-intent classification.
+	// agent_key → prompt_text lookup in resolveRoutedPrompt.
 	promptStore promptstore.Store
+	// classifier is an opt-in Plan B dependency. When enabled (see
+	// internal/module/prompt/classifier), resolveRoutedPrompt consults it
+	// for first-turn user input when the caller didn't pin a prompt_key
+	// explicitly. Nil / NoopClassifier is safe; the router guards on
+	// Enabled() and preserves the pre-classifier behavior.
+	classifier classifier.Classifier
 }
 
 var _ Service = (*service)(nil)

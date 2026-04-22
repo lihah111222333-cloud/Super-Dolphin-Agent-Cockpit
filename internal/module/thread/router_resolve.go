@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -17,6 +18,17 @@ func (s *service) bindPromptStore(store promptstore.Store) {
 		return
 	}
 	s.promptStore = store
+}
+
+// bindClassifier wires the optional prompt classifier. Nil and NoopClassifier
+// are both safe: resolveRoutedPrompt guards on Enabled() so the existing
+// single-pin path stays the exact same machine behavior when the classifier
+// is off.
+func (s *service) bindClassifier(c classifier.Classifier) {
+	if s == nil || c == nil {
+		return
+	}
+	s.classifier = c
 }
 
 // resolveRoutedPrompt is called from service.Start after normalizeStartRequest.
@@ -50,6 +62,14 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 		pkglogger.Warn("router: list prompt_templates failed", "err", err)
 		return
 	}
+
+	// Plan B: opt-in classifier. Runs only when the caller set UseClassifier,
+	// didn't already pin a prompt_key, and has real user input for ranking.
+	// The pick gets stamped into req.PromptKey, so pickRoutedTemplate below
+	// takes the normal explicit-pin branch and no routing-layer forking is
+	// needed. An empty pick ("no strong match") leaves req.PromptKey alone
+	// so the default persona fallback still applies.
+	maybeClassifyPrompt(ctx, s.classifier, req, templates)
 
 	picked := s.pickRoutedTemplate(ctx, req, templates)
 	if picked == nil || !picked.Enabled {
@@ -166,6 +186,98 @@ func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey str
 		}
 	}
 	return nil
+}
+
+// maybeClassifyPrompt runs the classifier when gates are satisfied and stamps
+// the pick into req.PromptKey so the existing pickRoutedTemplate logic can
+// take the normal explicit-pin branch. It never fails fatally: a classifier
+// error is logged and the router proceeds with the empty pin (default
+// fallback). This keeps the feature safe to enable globally.
+func maybeClassifyPrompt(
+	ctx context.Context,
+	c classifier.Classifier,
+	req *StartRequest,
+	templates []promptstore.PromptTemplate,
+) {
+	if req == nil || !req.UseClassifier {
+		return
+	}
+	if strings.TrimSpace(req.PromptKey) != "" {
+		// Caller already pinned. Explicit pin wins over auto-classification.
+		return
+	}
+	userInput := strings.TrimSpace(req.Prompt)
+	if userInput == "" {
+		// No signal to classify on. Usually means eager-spawn Start without
+		// a first turn; the caller will revisit on SpawnIfNeeded once user
+		// input arrives.
+		return
+	}
+	if c == nil || !c.Enabled() {
+		pkglogger.Info("router: classifier opt-in but backend disabled",
+			"hint", "set ENABLE_PROMPT_CLASSIFIER=true and ensure `claude` is on PATH")
+		return
+	}
+	candidates := classifierCandidates(templates)
+	if len(candidates) == 0 {
+		return
+	}
+	res, err := c.Classify(ctx, classifier.Input{UserInput: userInput, Candidates: candidates})
+	if err != nil {
+		pkglogger.Warn("router: classify failed",
+			"err", err,
+			"candidate_count", len(candidates),
+			"user_input_len", len(userInput))
+		return
+	}
+	if res.PromptKey == "" {
+		pkglogger.Info("router: classifier returned empty pick",
+			"reason", res.Reason,
+			"latency_ms", res.Latency.Milliseconds(),
+			"model", res.Model)
+		return
+	}
+	pkglogger.Info("router: classifier picked",
+		"prompt_key", res.PromptKey,
+		"reason", res.Reason,
+		"latency_ms", res.Latency.Milliseconds(),
+		"model", res.Model,
+		"candidate_count", len(candidates))
+	req.PromptKey = res.PromptKey
+}
+
+// classifierCandidates maps enabled prompt_templates to the classifier's DTO.
+// Disabled rows are dropped so the classifier never picks a row that the
+// subsequent pickRoutedTemplate would reject on Enabled=false.
+func classifierCandidates(templates []promptstore.PromptTemplate) []classifier.Candidate {
+	out := make([]classifier.Candidate, 0, len(templates))
+	for i := range templates {
+		t := &templates[i]
+		if !t.Enabled {
+			continue
+		}
+		out = append(out, classifier.Candidate{
+			PromptKey:   t.PromptKey,
+			Title:       t.Title,
+			Description: t.Description,
+			Tags:        decodeClassifierTags(t.Tags),
+		})
+	}
+	return out
+}
+
+// decodeClassifierTags tolerates both the raw-JSON tags column shape and an
+// empty/missing value. The prompt store stores tags as a JSON array of
+// strings; anything else just yields an empty slice rather than failing.
+func decodeClassifierTags(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var tags []string
+	if err := json.Unmarshal(raw, &tags); err != nil {
+		return nil
+	}
+	return tags
 }
 
 func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *promptstore.PromptTemplate {
