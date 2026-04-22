@@ -24,27 +24,26 @@ func (q *Queries) DeletePromptTemplate(ctx context.Context, promptKey string) (i
 }
 
 const getPromptTemplate = `-- name: GetPromptTemplate :one
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at, router_priority
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
 WHERE prompt_key = $1
 `
 
 type GetPromptTemplateRow struct {
-	ID             int64     `db:"id" json:"id"`
-	PromptKey      string    `db:"prompt_key" json:"prompt_key"`
-	Title          string    `db:"title" json:"title"`
-	AgentKey       string    `db:"agent_key" json:"agent_key"`
-	ToolName       string    `db:"tool_name" json:"tool_name"`
-	PromptText     string    `db:"prompt_text" json:"prompt_text"`
-	Variables      []byte    `db:"variables" json:"variables"`
-	Tags           []byte    `db:"tags" json:"tags"`
-	Description    string    `db:"description" json:"description"`
-	Enabled        bool      `db:"enabled" json:"enabled"`
-	CreatedBy      string    `db:"created_by" json:"created_by"`
-	UpdatedBy      string    `db:"updated_by" json:"updated_by"`
-	CreatedAt      time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
-	RouterPriority int32     `db:"router_priority" json:"router_priority"`
+	ID          int64     `db:"id" json:"id"`
+	PromptKey   string    `db:"prompt_key" json:"prompt_key"`
+	Title       string    `db:"title" json:"title"`
+	AgentKey    string    `db:"agent_key" json:"agent_key"`
+	ToolName    string    `db:"tool_name" json:"tool_name"`
+	PromptText  string    `db:"prompt_text" json:"prompt_text"`
+	Variables   []byte    `db:"variables" json:"variables"`
+	Tags        []byte    `db:"tags" json:"tags"`
+	Description string    `db:"description" json:"description"`
+	Enabled     bool      `db:"enabled" json:"enabled"`
+	CreatedBy   string    `db:"created_by" json:"created_by"`
+	UpdatedBy   string    `db:"updated_by" json:"updated_by"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
 }
 
 func (q *Queries) GetPromptTemplate(ctx context.Context, promptKey string) (GetPromptTemplateRow, error) {
@@ -65,7 +64,6 @@ func (q *Queries) GetPromptTemplate(ctx context.Context, promptKey string) (GetP
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.RouterPriority,
 	)
 	return i, err
 }
@@ -114,14 +112,14 @@ func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersi
 }
 
 const listPromptTemplates = `-- name: ListPromptTemplates :many
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at, router_priority
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
 WHERE ($1::text = '' OR agent_key = $1)
   AND ($2::text = ''
     OR prompt_key ILIKE '%' || $2 || '%'
     OR title ILIKE '%' || $2 || '%'
     OR prompt_text ILIKE '%' || $2 || '%')
-ORDER BY router_priority DESC, updated_at DESC
+ORDER BY updated_at DESC
 LIMIT $3
 `
 
@@ -132,21 +130,20 @@ type ListPromptTemplatesParams struct {
 }
 
 type ListPromptTemplatesRow struct {
-	ID             int64     `db:"id" json:"id"`
-	PromptKey      string    `db:"prompt_key" json:"prompt_key"`
-	Title          string    `db:"title" json:"title"`
-	AgentKey       string    `db:"agent_key" json:"agent_key"`
-	ToolName       string    `db:"tool_name" json:"tool_name"`
-	PromptText     string    `db:"prompt_text" json:"prompt_text"`
-	Variables      []byte    `db:"variables" json:"variables"`
-	Tags           []byte    `db:"tags" json:"tags"`
-	Description    string    `db:"description" json:"description"`
-	Enabled        bool      `db:"enabled" json:"enabled"`
-	CreatedBy      string    `db:"created_by" json:"created_by"`
-	UpdatedBy      string    `db:"updated_by" json:"updated_by"`
-	CreatedAt      time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
-	RouterPriority int32     `db:"router_priority" json:"router_priority"`
+	ID          int64     `db:"id" json:"id"`
+	PromptKey   string    `db:"prompt_key" json:"prompt_key"`
+	Title       string    `db:"title" json:"title"`
+	AgentKey    string    `db:"agent_key" json:"agent_key"`
+	ToolName    string    `db:"tool_name" json:"tool_name"`
+	PromptText  string    `db:"prompt_text" json:"prompt_text"`
+	Variables   []byte    `db:"variables" json:"variables"`
+	Tags        []byte    `db:"tags" json:"tags"`
+	Description string    `db:"description" json:"description"`
+	Enabled     bool      `db:"enabled" json:"enabled"`
+	CreatedBy   string    `db:"created_by" json:"created_by"`
+	UpdatedBy   string    `db:"updated_by" json:"updated_by"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
 }
 
 func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error) {
@@ -173,7 +170,6 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 			&i.UpdatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.RouterPriority,
 		); err != nil {
 			return nil, err
 		}
@@ -201,7 +197,7 @@ SET title = EXCLUDED.title,
     enabled = EXCLUDED.enabled,
     updated_by = EXCLUDED.updated_by,
     updated_at = NOW()
-RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at, router_priority
+RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at
 `
 
 type UpsertPromptTemplateParams struct {
@@ -219,21 +215,20 @@ type UpsertPromptTemplateParams struct {
 }
 
 type UpsertPromptTemplateRow struct {
-	ID             int64     `db:"id" json:"id"`
-	PromptKey      string    `db:"prompt_key" json:"prompt_key"`
-	Title          string    `db:"title" json:"title"`
-	AgentKey       string    `db:"agent_key" json:"agent_key"`
-	ToolName       string    `db:"tool_name" json:"tool_name"`
-	PromptText     string    `db:"prompt_text" json:"prompt_text"`
-	Variables      []byte    `db:"variables" json:"variables"`
-	Tags           []byte    `db:"tags" json:"tags"`
-	Description    string    `db:"description" json:"description"`
-	Enabled        bool      `db:"enabled" json:"enabled"`
-	CreatedBy      string    `db:"created_by" json:"created_by"`
-	UpdatedBy      string    `db:"updated_by" json:"updated_by"`
-	CreatedAt      time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
-	RouterPriority int32     `db:"router_priority" json:"router_priority"`
+	ID          int64     `db:"id" json:"id"`
+	PromptKey   string    `db:"prompt_key" json:"prompt_key"`
+	Title       string    `db:"title" json:"title"`
+	AgentKey    string    `db:"agent_key" json:"agent_key"`
+	ToolName    string    `db:"tool_name" json:"tool_name"`
+	PromptText  string    `db:"prompt_text" json:"prompt_text"`
+	Variables   []byte    `db:"variables" json:"variables"`
+	Tags        []byte    `db:"tags" json:"tags"`
+	Description string    `db:"description" json:"description"`
+	Enabled     bool      `db:"enabled" json:"enabled"`
+	CreatedBy   string    `db:"created_by" json:"created_by"`
+	UpdatedBy   string    `db:"updated_by" json:"updated_by"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
 }
 
 func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error) {
@@ -266,7 +261,7 @@ func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemp
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.RouterPriority,
 	)
 	return i, err
 }
+
