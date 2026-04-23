@@ -389,14 +389,22 @@ func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
 func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run cronstore.Run, scheduledAt time.Time, startErr error) error {
 	now := s.now().UTC()
 	nextRetry := s.nextRetry(job, scheduledAt, now)
-	// Record the failed run transition.
-	_ = s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+	// Record the failed run transition. A CAS error here is not fatal
+	// (the subsequent MarkFailed owns the job-level state transition)
+	// but we log it so DB hiccups during finalize are observable.
+	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
 		ID:             run.ID,
 		ExpectedStatus: cronstore.StatusSubmitting,
 		NextStatus:     cronstore.StatusFailed,
 		Error:          startErr.Error(),
 		UpdatedAt:      now,
-	})
+	}); err != nil {
+		s.logger.Warn("cron: CAS submitting->failed failed",
+			slog.String("job_id", job.ID),
+			slog.String("run_id", run.ID),
+			slog.String("error", err.Error()),
+		)
+	}
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
 		ID:          job.ID,
 		ClaimToken:  job.ClaimToken,
@@ -412,13 +420,20 @@ func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run 
 
 func (s *Scheduler) finalizeObserveLost(ctx context.Context, job cronstore.Job, run cronstore.Run, result StartTurnResult, observeErr error) error {
 	now := s.now().UTC()
-	_ = s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
 		ID:             run.ID,
 		ExpectedStatus: cronstore.StatusSubmitted,
 		NextStatus:     cronstore.StatusObserveLost,
 		Error:          observeErr.Error(),
 		UpdatedAt:      now,
-	})
+	}); err != nil {
+		s.logger.Warn("cron: CAS submitted->observe_lost failed",
+			slog.String("job_id", job.ID),
+			slog.String("run_id", run.ID),
+			slog.String("turn_id", result.TurnID),
+			slog.String("error", err.Error()),
+		)
+	}
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
 		ID:          job.ID,
 		ClaimToken:  job.ClaimToken,
@@ -434,12 +449,19 @@ func (s *Scheduler) finalizeObserveLost(ctx context.Context, job cronstore.Job, 
 
 func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string, scheduledAt time.Time) error {
 	now := s.now().UTC()
-	_ = s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
 		ID:             run.ID,
 		ExpectedStatus: cronstore.StatusRunning,
 		NextStatus:     cronstore.StatusFinished,
 		UpdatedAt:      now,
-	})
+	}); err != nil {
+		s.logger.Warn("cron: CAS running->finished failed",
+			slog.String("job_id", job.ID),
+			slog.String("run_id", run.ID),
+			slog.String("turn_id", turnID),
+			slog.String("error", err.Error()),
+		)
+	}
 	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
 	if err != nil || nextRunAt.IsZero() {
 		// Preserve the current NextRunAt so a parse regression doesn't
