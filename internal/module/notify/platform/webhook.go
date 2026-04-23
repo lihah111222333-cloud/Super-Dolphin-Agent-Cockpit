@@ -103,6 +103,11 @@ func NewWebhookClient(cfg WebhookClientConfig) *WebhookClient {
 	}
 }
 
+// HTTPClient exposes the underlying *http.Client so tests can tune
+// transport-level knobs (for example TLSClientConfig when hitting an
+// httptest.NewTLSServer). Production callers should not need this.
+func (c *WebhookClient) HTTPClient() *http.Client { return c.http }
+
 // Post issues POST <target> with the given body and content type. The
 // caller is responsible for JSON / form encoding; this method is
 // transport-only.

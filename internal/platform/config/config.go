@@ -16,6 +16,20 @@ type AgentConfig struct {
 	PersistentSubagentDefault bool
 }
 
+// NotifyConfig carries the P21 P2 external-webhook egress settings.
+// Empty ChannelsJSON is valid and produces an empty resolver (every
+// TryEnqueue fails with ErrNotifyAliasNotFound). AllowPrivateCIDR is an
+// explicit opt-in for deployments that really do need to push to an
+// intranet endpoint; production defaults keep it off so the SSRF guard
+// refuses every loopback / RFC 1918 / RFC 6598 / ULA / link-local IP.
+type NotifyConfig struct {
+	ChannelsJSON     string
+	AllowPrivateCIDR bool
+	TimeoutSeconds   int
+	QueueCapacity    int
+	DrainSeconds     int
+}
+
 type Config struct {
 	DatabaseURL string
 	RPCAddr     string
@@ -23,6 +37,7 @@ type Config struct {
 	ProjectRoot string
 	Skill       SkillConfig
 	Agent       AgentConfig
+	Notify      NotifyConfig
 }
 
 func New() *Config {
@@ -37,6 +52,13 @@ func New() *Config {
 		},
 		Agent: AgentConfig{
 			PersistentSubagentDefault: envBoolOr("PERSISTENT_SUBAGENT_DEFAULT", false),
+		},
+		Notify: NotifyConfig{
+			ChannelsJSON:     os.Getenv("NOTIFY_CHANNELS_JSON"),
+			AllowPrivateCIDR: envBoolOr("NOTIFY_ALLOW_PRIVATE_CIDR", false),
+			TimeoutSeconds:   envPositiveIntOr("NOTIFY_TIMEOUT_SECONDS", 10),
+			QueueCapacity:    envPositiveIntOr("NOTIFY_QUEUE_CAPACITY", 512),
+			DrainSeconds:     envPositiveIntOr("NOTIFY_DRAIN_SECONDS", 5),
 		},
 	}
 	exportRPCAddrIfMissing(cfg.RPCAddr)
