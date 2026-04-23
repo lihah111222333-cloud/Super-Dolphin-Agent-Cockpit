@@ -56,8 +56,19 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	if home == "" {
 		return nil, fmt.Errorf("codexapp: BuildPoolSpawnCmd requires a codex home")
 	}
-	if ctx == nil {
-		ctx = context.Background()
+	// NOTE: ctx is intentionally NOT threaded into exec.CommandContext.
+	// exec.CommandContext kills the child process when ctx is done;
+	// callers typically pass a short "startup timeout" ctx that cancels
+	// right after waitForListenURL returns, which would kill the freshly
+	// spawned codex the moment runPoolSpawn unwinds. Process lifetime is
+	// owned by transport.shutdownTransport; the startup ctx is only used
+	// for the I/O-level waits further up the stack. Keeping the param
+	// preserves the signature for callers that want to reject a
+	// pre-cancelled ctx early.
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 	}
 	argv := append([]string(nil), codexAppServerArgs...)
 	if len(args.ExtraArgs) > 0 {
@@ -67,7 +78,7 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 		"ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true; exec %s %s",
 		argv[0], strings.Join(argv[1:], " "),
 	)
-	cmd := exec.CommandContext(ctx, "sh", "-c", shellCmd)
+	cmd := exec.Command("sh", "-c", shellCmd)
 	parent := args.ParentEnv
 	if parent == nil {
 		parent = os.Environ()
