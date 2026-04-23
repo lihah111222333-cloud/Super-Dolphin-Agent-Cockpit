@@ -89,7 +89,10 @@ func (s *session) RolloutPath() string {
 	if tid == "" {
 		return ""
 	}
-	path, err := findRolloutPath(tid)
+	// P21 Track B: honour codexHome when the session was started with a
+	// multi-provider binding. An empty codexHome keeps the legacy
+	// ~/.codex lookup for single-provider deployments.
+	path, err := findRolloutPath(tid, s.runtimeConfigString("codexHome"))
 	if err != nil {
 		return ""
 	}

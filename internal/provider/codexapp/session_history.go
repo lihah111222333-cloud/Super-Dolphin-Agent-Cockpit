@@ -24,8 +24,8 @@ type rolloutReader struct {
 	transport *transport
 }
 
-func (r *rolloutReader) ReadHistory(ctx context.Context, threadID string, limit int) ([]Message, error) {
-	if messages, err := readLocalRollout(threadID, limit); err == nil && len(messages) > 0 {
+func (r *rolloutReader) ReadHistory(ctx context.Context, threadID, codexHome string, limit int) ([]Message, error) {
+	if messages, err := readLocalRollout(threadID, codexHome, limit); err == nil && len(messages) > 0 {
 		return messages, nil
 	} else if err != nil && r.logger != nil {
 		r.logger.Warn("codexapp: local rollout history unavailable", "thread_id", threadID, "error", err)
@@ -44,7 +44,7 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 	if err != nil {
 		return nil, err
 	}
-	messages, err := s.history.ReadHistory(ctx, target, limit)
+	messages, err := s.history.ReadHistory(ctx, target, s.runtimeConfigString("codexHome"), limit)
 	if err != nil {
 		return nil, err
 	}
