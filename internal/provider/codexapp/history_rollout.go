@@ -30,8 +30,8 @@ type rolloutContentItem struct {
 	ImageURL string `json:"image_url,omitempty"`
 }
 
-func readLocalRollout(threadID string, limit int) ([]Message, error) {
-	path, err := findRolloutPath(threadID)
+func readLocalRollout(threadID, codexHome string, limit int) ([]Message, error) {
+	path, err := findRolloutPath(threadID, codexHome)
 	if err != nil {
 		return nil, err
 	}
@@ -250,12 +250,18 @@ func normalizeRolloutInputType(kind string) string {
 	return kind
 }
 
-func findRolloutPath(threadID string) (string, error) {
-	home, err := os.UserHomeDir()
+// findRolloutPath locates the newest rollout jsonl for threadID under
+// the given codex home. An empty codexHome falls back to ~/.codex so
+// single-provider deployments keep working unchanged; multi-provider
+// callers (see P21 Track B) pass the canonicalized codexHome that was
+// persisted with the thread's binding, which is the only way to find
+// rollout files written by a non-default codex instance.
+func findRolloutPath(threadID, codexHome string) (string, error) {
+	root, err := resolveRolloutRoot(codexHome)
 	if err != nil {
 		return "", err
 	}
-	pattern := filepath.Join(home, ".codex", "sessions", "*", "*", "*", "rollout-*-"+strings.TrimSpace(threadID)+".jsonl")
+	pattern := filepath.Join(root, "sessions", "*", "*", "*", "rollout-*-"+strings.TrimSpace(threadID)+".jsonl")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return "", err
@@ -265,6 +271,22 @@ func findRolloutPath(threadID string) (string, error) {
 	}
 	sort.Strings(matches)
 	return matches[len(matches)-1], nil
+}
+
+// resolveRolloutRoot picks the directory whose sessions/ subtree is
+// searched. A non-empty codexHome wins verbatim; it is expected to be
+// a canonicalized absolute path already (see providershared
+// .CanonicalizeCodexHome). An empty value falls back to the legacy
+// ~/.codex layout so pre-P21 callers keep working.
+func resolveRolloutRoot(codexHome string) (string, error) {
+	if trimmed := strings.TrimSpace(codexHome); trimmed != "" {
+		return trimmed, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".codex"), nil
 }
 
 func trimMessages(messages []Message, limit int) []Message {
