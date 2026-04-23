@@ -28,6 +28,7 @@ type DriverFactory struct {
 	approvals       *rpc.ApprovalManager
 	reporter        contract.RuntimeReporter
 	manager         *ServerManager
+	pool            *ServerPool
 	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 }
 
@@ -38,6 +39,7 @@ type driver struct {
 	approvals       *rpc.ApprovalManager
 	reporter        contract.RuntimeReporter
 	manager         *ServerManager
+	pool            *ServerPool
 	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 }
 
@@ -94,6 +96,7 @@ func NewDriverFactory(
 	approvals *rpc.ApprovalManager,
 	reporter contract.RuntimeReporter,
 	manager *ServerManager,
+	pool *ServerPool,
 ) *DriverFactory {
 	factory := &DriverFactory{
 		logger:          logger,
@@ -101,11 +104,12 @@ func NewDriverFactory(
 		approvals:       approvals,
 		reporter:        reporter,
 		manager:         manager,
+		pool:            pool,
 	}
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter, manager, factory.currentListTools())
+			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.currentListTools())
 		},
 	}
 	return factory
@@ -129,7 +133,7 @@ func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotoco
 	return f.listTools
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -148,6 +152,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		approvals:       approvals,
 		reporter:        reporter,
 		manager:         manager,
+		pool:            pool,
 		listTools:       listToolsFn,
 	}
 }
@@ -155,7 +160,11 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 func (d *driver) Name() string { return "codex" }
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager)
+	opts, err := d.resolveSessionOptions(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager, opts...)
 	if err != nil {
 		return nil, err
 	}
