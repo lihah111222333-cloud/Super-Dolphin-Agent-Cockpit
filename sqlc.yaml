@@ -20,6 +20,7 @@ sql:
       - "migrations/0049_prompt_template_sections.sql"
       - "migrations/0050_seed_prompt_template_sections_example.sql"
       - "migrations/0051_seed_main_default_sections.sql"
+      - "migrations/0052_seed_test_prompts_with_sections.sql"
     gen:
       go:
         package: "sqlc"
