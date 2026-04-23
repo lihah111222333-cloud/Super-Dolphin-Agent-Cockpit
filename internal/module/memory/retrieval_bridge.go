@@ -41,10 +41,6 @@ func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
 	return retrievalpkg.ScanHeadersSafe(memoryRoot)
 }
 
-func NewRelevantMemoryFinder() *RelevantMemoryFinder {
-	return retrievalpkg.NewRelevantMemoryFinder()
-}
-
 func NewPrefetchManager(memoryRoot string) *PrefetchManager {
 	return retrievalpkg.NewPrefetchManager(memoryRoot)
 }

@@ -434,6 +434,65 @@ func TestToolBridge_RejectsSpawnAgentWhenPersistentSubagentDefaultEnabled(t *tes
 	}
 }
 
+func TestToolBridge_RejectsSpawnAgentWithoutThreadRuntime(t *testing.T) {
+	h, _ := newHandlerForTest()
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "spawn_agent",
+		Arguments: mustRawJSON(t, map[string]any{"message": "create child agent"}),
+	})
+	if !errors.Is(err, ErrThreadRuntimeRequired) {
+		t.Fatalf("routeToolCall() error = %v, want %v", err, ErrThreadRuntimeRequired)
+	}
+	if got != nil {
+		t.Fatalf("routeToolCall() result = %#v, want nil", got)
+	}
+}
+
+func TestToolBridge_RejectsSpawnAgentWithoutStoredRuntime(t *testing.T) {
+	h, _ := newHandlerForTest()
+	h.threadStore = &stubThreadStore{}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "spawn_agent",
+		Arguments: mustRawJSON(t, map[string]any{"message": "create child agent"}),
+		ThreadID:  "thread-missing-runtime",
+	})
+	if !errors.Is(err, ErrPersistentSubagentRuntimeRequired) {
+		t.Fatalf("routeToolCall() error = %v, want %v", err, ErrPersistentSubagentRuntimeRequired)
+	}
+	if got != nil {
+		t.Fatalf("routeToolCall() result = %#v, want nil", got)
+	}
+}
+
+func TestProxyToolCall_RejectsMissingRuntimeAsInvalidParams(t *testing.T) {
+	h, registry := newHandlerForTest(newToolCallPeer(t, "spawn_agent", json.RawMessage(`{}`), "ignored", nil))
+	body := string(mustRawJSON(t, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      "req-1",
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      "spawn_agent",
+			"arguments": map[string]any{},
+		},
+	}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-1", body)
+	if got.Error == nil {
+		t.Fatal("proxy response error = nil, want invalid params")
+	}
+	if got.Error.Code != jsonRPCCodeInvalidParam {
+		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
+	}
+	if !strings.Contains(got.Error.Message, ErrThreadRuntimeRequired.Error()) {
+		t.Fatalf("proxy error message = %q, want substring %q", got.Error.Message, ErrThreadRuntimeRequired.Error())
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
 func TestProxyToolCall_RejectsInvalidParams(t *testing.T) {
 	h, registry := newHandlerForTest()
 	tests := []struct {

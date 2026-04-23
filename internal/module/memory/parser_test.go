@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
 )
 
 func TestStripHTMLCommentsRemovesBlockCommentsAndKeepsCodeFences(t *testing.T) {
@@ -136,7 +138,7 @@ func TestRelevantMemoryFinderHydrateUsesParsedMemoryContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildManifest() error = %v", err)
 	}
-	got, err := NewRelevantMemoryFinder().FindRelevantMemories(context.Background(), "review diffs", manifest)
+	got, err := retrievalpkg.NewRelevantMemoryFinder().FindRelevantMemories(context.Background(), "review diffs", manifest)
 	if err != nil {
 		t.Fatalf("FindRelevantMemories() error = %v", err)
 	}

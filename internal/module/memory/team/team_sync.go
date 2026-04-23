@@ -188,16 +188,6 @@ func (s *TeamSyncService) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *TeamSyncService) Pull(ctx context.Context) (TeamSyncPullResult, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.pullLocked(ctx, TeamSyncTriggerManual)
-}
-
-func (s *TeamSyncService) Push(ctx context.Context) (TeamSyncPushResult, error) {
-	return s.pushLocalChanges(ctx, TeamSyncTriggerManual)
-}
-
 func (s *TeamSyncService) pushLocalChanges(ctx context.Context, trigger TeamSyncTrigger) (TeamSyncPushResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
