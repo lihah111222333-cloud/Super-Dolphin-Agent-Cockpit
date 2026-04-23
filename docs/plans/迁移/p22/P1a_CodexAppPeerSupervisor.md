@@ -11,13 +11,13 @@
 
 ## 现状校准
 
-- `Module` 当前通过 `fx.Invoke(spawnToolbridgePeers)` 直接进入运行时编排。
-- `spawnToolbridgePeers` 在 `Invoke` 路径里先起后台 goroutine，再启动 `mcp-orch` / `mcp-lsp` peer。
-- `watchAndRestartPeer` 进入无限重启循环，但它既不是 `Runner`，也没有统一的 `execute/interrupt` 生命周期。
-- peer bookkeeping 目前直接散落在 `ServerManager` 的 `peerProcs/peerPipes/pidRegistry` 上，没有一个单独的 supervisor owner。
-- `restartPeer(...)` 当前不会同步替换 `peerProcs`，成功替换后也没有主动关闭 `oldPipe`；这会把 stale process handle / FD 泄漏风险留在 stop 路径里。
-- 当前 control-plane 等待不是 hard gate，而是读取 `GO_AGENT_CTL_RPC_ADDR` 后做最多 `30 x 200ms` 的 bounded best-effort 探测；若 P1a 要改成严格 gate，必须在文档里显式冻结兼容性取舍。
-- 当前 peer 二进制定位依赖 `os.Executable()` 同目录下的 `mcp-orch` / `mcp-lsp`；缺失二进制的现状是 `warn+skip`，不是 fail startup。
+- `Module` 当前通过 `fx.Invoke(spawnToolbridgePeers)` 直接进入运行时编排。（HEAD 2026-04-23：`internal/provider/codexapp/module.go:35`）
+- `spawnToolbridgePeers` 在 `Invoke` 路径里先起后台 goroutine，再启动 `mcp-orch` / `mcp-lsp` peer。（HEAD 2026-04-23：`internal/provider/codexapp/peer_spawn.go:18-76` 函数本体；后台 goroutine 起点 `peer_spawn.go:73 go watchAndRestartPeer(...)`）
+- `watchAndRestartPeer` 进入无限重启循环，但它既不是 `Runner`，也没有统一的 `execute/interrupt` 生命周期；其 restart 真路径还会继续下探到 `restartPeer(...)`。（HEAD 2026-04-23：watch loop `internal/provider/codexapp/peer_spawn.go:81-109`；restart path `111-155`）
+- `restartPeer(...)` 当前只原地替换 `peerPipes` 并更新 `pidRegistry`，却没有同步刷新 `peerProcs`，也没有把旧 pipe 关闭职责收成同一 owner；因此 Finding 2 不能只盯 `watchAndRestartPeer(...)` 前半段。（HEAD 2026-04-23：`internal/provider/codexapp/peer_spawn.go:139-152`）
+- peer bookkeeping 目前直接散落在 `ServerManager` 的 `peerProcs/peerPipes/pidRegistry` 上，没有一个单独的 supervisor owner。（HEAD 2026-04-23：`peerProcs` 字段 `internal/provider/codexapp/module.go:62`；写入 `peer_spawn.go:66`；shutdown 读/清理 `module.go:174, 178`）
+- 当前 control-plane 等待不是 hard gate，而是读取 `GO_AGENT_CTL_RPC_ADDR` 后做最多 `30 x 200ms` 的 bounded best-effort 探测；若 P1a 要改成严格 gate，必须在文档里显式冻结兼容性取舍。（HEAD 2026-04-23：env 缺失日志 `cmd/mcp-lsp/fx.go:167` + `cmd/mcp-orch/runtime.go:186`；`200ms` sleep `internal/provider/codexapp/peer_spawn.go:30`）
+- 当前 peer 二进制定位依赖 `os.Executable()` 同目录下的 `mcp-orch` / `mcp-lsp`；缺失二进制的现状是 `warn+skip`，不是 fail startup。（HEAD 2026-04-23：`os.Executable()` 调用 `internal/provider/codexapp/peer_spawn.go:33, 113`）
 
 ## 目标架构
 
@@ -48,6 +48,8 @@ app BindRuntime
 - restart policy 默认沿用现状：固定 `2s` backoff，成功 respawn 后继续长期监督；若要改成指数退避或单次失败即退出，必须先在兼容语义里改判。
 - control-plane 探测只作为 bounded best-effort startup assist；它改变的是启动前置准备，不改变 owner 分层。
 - `warn+skip`、degraded 常驻、missing binary、restart-fail 不升级 app-fatal 这几条都视为一级兼容路径；实现与复审不能把它们当“异常分支可忽略”。
+- `PeerSupervisor` 必须一次性接走 spawn / restart / stop / drain / discovery cleanup；`ServerManager.stop()` 不再保留 peer half-owner。
+- `PeerSupervisor.Run(ctx)` 的错误语义固定为“单 peer degraded 不 return error，只有 owner 自身不可恢复故障才向 `run.Group` 抛 fatal”；这样不会把现有 `warn+skip` / restart-fail 兼容路径误升级成全局停机。
 
 ## 实施步骤
 
@@ -77,12 +79,12 @@ app BindRuntime
 - `stdin` pipe
 - pid registry
 
-否则 stop 路径会向旧 PID 发信号，或遗漏新 peer 的回收；替换成功后还要显式关闭 `oldPipe`，避免把旧 write-end 留在父进程里。
+否则 stop 路径会向旧 PID 发信号，或遗漏新 peer 的回收。
 
 ### Step 3：移除 `Invoke` 编排
 
 - 删除 `fx.Invoke(spawnToolbridgePeers)`
-- 保留 `RegisterTranslators` 这类纯注册 `Invoke`
+- 保留 `RegisterTranslators` 这类纯注册 `Invoke`；按 `docs/契约/modularity-convention.md §4.4` 归入“必须执行一次的图连线验证 / registry wiring”（旧稿只写“纯注册”；本轮以该契约分类为准）
 
 ### Step 4：定义停止语义
 
@@ -94,7 +96,6 @@ app BindRuntime
 - 等待有限 grace period
 - 必要时 SIGKILL
 - 最终同步 pid registry
-- 在 return 前 wait/join 所有 peer monitor，不让 owner 抢先退出
 - 接管 `cleanPeerDiscoveryFiles()` 这类 peer 附属文件回收，避免从 `ServerManager.stop()` 抽离后漏掉
 
 ## 需冻结的兼容语义
@@ -102,13 +103,18 @@ app BindRuntime
 - control-plane 探测是否只是 best-effort，还是 hard gate，必须写死
 - 缺失 peer 二进制时是 `warn+skip` 还是 fail startup，必须写死
 - restart backoff 必须可取消，且 stop 期间不得因 sleep 醒来而误重启
-- restart backoff 的现状节奏是固定 `2s`；若要改判为指数退避或其它策略，必须显式写入兼容性说明
 - 重启/替换路径的 bookkeeping 更新必须与 stop 路径共享同一 owner
-- restart 成功后的现状是恢复到长期监督状态并继续 watch；不能在成功替换后把 monitor 提前收掉
-- 单次 restart 失败后的现状是“记录 warning 并停止该 peer 的监督，不升级成 app fatal”；若要改判，必须显式写入兼容性说明
+- 若后续 peer identity / home 解析触达 `codexHome`，必须复用 `P21` 已冻结的 canonicalize 流水线（home/env 展开 + `filepath.Clean` + `filepath.EvalSymlinks`）；缺 `codexHome/codexInstanceKey/codexModelProvider` 时走 `ErrCodexHomeRequired` 一类 sentinel，禁止 fallback 到 default home
+- `warn+skip`、degraded 常驻、`GO_AGENT_CTL_RPC_ADDR` 缺失兜底只代表启动兼容语义；其中 `GO_AGENT_CTL_RPC_ADDR` 缺失 -> `127.0.0.1:8090` 仅属 compatibility-only 默认值，不是安全判定依据。它们不得被权限 / scope / 信任域判定当作默认成功条件
+
+## 可观测 / 回滚约束
+
+- `PeerSupervisor` 至少要落三类结构化信号：`peer=start|restart|stop|degraded` 日志、`peer_supervisor_restart_total` / `peer_supervisor_degraded_total` 计数、`peer_supervisor_shutdown_seconds` drain 延迟；字段至少包含 `peer_name`、`pid`、`restart_count`、`degraded_reason`、`shutdown_phase`
+- 若实现期必须短暂保留旧 `fx.Invoke(spawnToolbridgePeers)` 以便回滚，只能挂在显式 feature flag / env opt-in 下，且默认关闭；同页必须写清触发条件、停用步骤与删除时点，不接受默认双轨
 
 ## 收口口径
 
+- 本页关于 `fx.Invoke` / `Runner` 的分类，以 `docs/契约/modularity-convention.md §4.4 / §7`、`docs/契约/fx-convention.md §2/§3`、`docs/契约/rungroup-convention.md §2 / §4` 为准：`ServerManager` 留在 `fx.Module` 的 wiring / resource boundary，`PeerSupervisor` 作为 `RunnerModule` owner 进入根 bridge。
 - `P1a` 只闭环 peer supervisor；session reader / health / recovery 继续归 `P1c`，不能在 `P1a` 完成后宣称 codexapp runtime 已整体收口。
 - 本页说的 `RunnerModule` 指 runtime owner 角色；接入 root bridge 时沿用当前实现的 runner group tag，不把 group 命名清洗当成 `P1a` 前置。
 - restart / replace / stop 必须由同一 owner 维护；不允许 `ServerManager.stop()` 与新 supervisor 各管一半 lifecycle。
@@ -119,7 +125,7 @@ app BindRuntime
 
 ```text
 P0 -> P1a -> P1c
-        └-> P2（若 peer 侧 runtime owner 收口后仍残留 toolbridge runtime 边界问题，再由 P2 接续）
+P1a + P1c -> P2（toolbridge runtime 需在 codexapp peer / session contract 同步冻结后接续；若 peer 侧 runtime owner 收口后仍残留 toolbridge runtime 边界问题，再由 P2 接续）
 ```
 
 ## 同步约束
@@ -142,7 +148,9 @@ P0 -> P1a -> P1c
 
 ## TDD 与旧实现清理
 
-- 先补失败测试：`Invoke` 不再拉 peer、shutdown 中 backoff 不重启、pid registry/pipe 替换一致性、discovery file 回收、固定 `2s` backoff、restart 成功后继续监督、restart 失败保持 degraded 非 app-fatal。
+- 先补失败测试：`Invoke` 不再拉 peer、shutdown 中 backoff 不重启、pid registry/pipe 替换一致性、discovery file 回收。
+- 测试名固定到可派单级别：`TestPeerSupervisorStartsPeers`、`TestPeerSupervisorRestartsExitedPeer`、`TestPeerSupervisorShutdownSuppressesRestart`、`TestPeerSupervisorReplacePeerAtomicallySwapsBookkeeping`、`TestPeerSupervisorBackoffCancelledByStop`、`TestPeerSupervisorDiscoveryFilesRemovedOnStop`
+- 验证命令固定写法：`go test ./internal/provider/codexapp/... -run 'TestPeerSupervisor' -count=1 -v`
 - 修复完成后必须删除旧的 `fx.Invoke(spawnToolbridgePeers)` 接线，以及模块装配路径直启 peer 的实现；不能留下“新 supervisor + 旧 invoke”双轨。
 - `peer_spawn.go` 若只剩被新 owner 吸收的零散 helper，应继续内联/重命名到新 owner 文件，避免保留语义重复的 legacy wrapper。
 - 若保留 `RegisterPeer/ReplacePeer/UnregisterPeer` 风格新接口，就要同步清掉直接改 `peerProcs/peerPipes` 的旧调用点，不留旁路。
@@ -154,13 +162,13 @@ P0 -> P1a -> P1c
 - peers 异常退出仍可按既有策略重启
 - app stop 时不再发生 peer restart 竞态
 - control-plane 探测、binary lookup、restart backoff 的兼容语义有文档化结论且测试覆盖
+- degraded-path 不会替代权限 / scope / trust-domain 判定；missing binary / env fallback 只降能力，不放宽边界。任何权限 gate 必须独立于 peer 可缺席状态存在，不能借 `warn+skip` / degraded-path 绕过 scope / 权限 / 信任域检查
+- 若实现触达 peer identity / home 解析，`codexHome` canonicalize + sentinel error 契约仍保持与 `P21` 一致
+- start / restart / stop / degraded / discovery cleanup 已有可观测信号，shutdown drain 可从日志或指标实测
 - 至少补以下测试：
   - 启动后能拉起两个 peer
   - 异常退出时会重启
   - shutdown 时不会再重启
   - pid registry 在替换/退出后同步更新
-  - `peerProcs` / `peerPipes` / `pidRegistry` 在替换后保持一致，且旧 pipe 被关闭
   - backoff 中收到 shutdown 不会再重启
-  - restart 成功后 monitor 会继续监督，不会成功一次后静默失管
-  - restart 失败保持 degraded，不把单 peer 失败升级成 app fatal
   - discovery files 在 stop 后被回收

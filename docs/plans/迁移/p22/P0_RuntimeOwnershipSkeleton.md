@@ -2,7 +2,7 @@
 
 ## 目标
 
-先统一 `P22` 的契约角色与守卫边界：`fx.Module` 只做构造 / lifecycle / 一次性恢复，`BusModule` 只负责 subscriber wiring，`RunnerModule` 负责长期 owner；`root runtime bridge` 仅指进程入口处把当前 runner 集合桥接到 `platformrunner.RunGroup(...)` 的桥形态。这样各子计划就不再各自解释 `fx / bus / run.Group` 的边界。
+先统一 `P22` 的契约角色与守卫边界：`fx.Module` 只做构造 / 资源 lifecycle，启动期一次性恢复只允许作为单次 wiring / 合法 `fx.Invoke`（旧稿“lifecycle / 一次性恢复”简写并列保留一轮，但以本句更正为准）；`BusModule` 只负责 subscriber wiring，`RunnerModule` 负责长期 owner；`root runtime bridge` 仅指进程入口处把当前 runner 集合桥接到 `platformrunner.RunGroup(...)` 的桥形态。这样各子计划就不再各自解释 `fx / bus / run.Group` 的边界。
 
 ## 现状校准
 
@@ -45,7 +45,7 @@ func (r *MyRunner) Run(ctx context.Context) error {
 
 ### 3. Startup Recovery
 
-一次性恢复仍允许保留在 lifecycle：
+按 `docs/契约/modularity-convention.md §4.4 / §7` + `docs/契约/fx-convention.md §2 / §3`，一次性恢复仍允许保留在 `fx.Module` 的启动期单次 wiring（旧稿简写为“保留在 lifecycle”；本轮保留该旧称并以本句更正为准）：
 
 - 读取 store 恢复内存态
 - 重新注册现有 active connection 的 in-memory map
@@ -64,15 +64,19 @@ watcher/scheduler/session/process 的真正启动，必须在 dedicated worker/r
 
 ## 收口口径
 
-- 本页关于 `Invoke` 的依据以 `docs/契约/modularity-convention.md §4.4 / §7` 为准；`docs/契约/fx-convention.md §2/§3` 只作为工厂职责补充。
+- 本页关于 `Invoke` / `OnStop` / `Runner` 的依据以 `docs/契约/modularity-convention.md §4.4 / §7`、`docs/契约/fx-convention.md §2/§3`、`docs/契约/rungroup-convention.md §2 / §4` 为准；其中 `fx-convention` 只补工厂职责，`rungroup-convention` 钉住 actor execute/interrupt 与“`run.Group` 不托管一次性初始化”。
 - 文中优先使用 `fx.Module` / `BusModule` / `RunnerModule` 术语；当前 root bridge 用到的 `group:"runners"` 仅视为现实现 tag，不把命名清洗当作 `P0` 前置条件。
 - `internal/app` 与 `cmd/mcp-orch` 适用双树同构；`cmd/mcp-lsp` / `cmd/mcp-ida` 按 runner-only sidecar 收口。runner-only sidecar 的最小标准是：拥有独立 fx root、root runtime bridge 与 runner 集合；若未实际 wiring dispatcher，就不强补 `BusModule`。
 - root bridge allowlist 必须至少同时记录 **file path + symbol + bridge shape**，不接受只按 `BindRuntime/bindRuntime` 名称或整文件放行。
+- 其中 `file path` 统一解释为 `definition_path`；若 `fx.Invoke(...)` / `OnStart(...)` 的调用点与定义点分离，再额外记录 `call_site_path`，不再让一个字段兼任两种语义。
+- `bridge_shape` 固定枚举为 `app_root_bridge` / `orch_root_bridge` / `runner_only_sidecar_bridge`；同时记录 `exception_class(permanent|temporary)`、`reason`、`remove_when`，供 `fx.Invoke` 与 `OnStart` 守卫共用同一份 machine-parseable allowlist。
 - 豁免的是 root bridge wiring 本身，不豁免 lifecycle callback / helper / subscriber callback 的 runtime ownership；“hook 只是注册订阅”不能成为 helper 内再起 watcher / fanout / reconnect 的挡箭牌。
+- app/orch 侧标准 shutdown 语义按 `ctx cancel -> run.Group -> bus stop-intake -> fx.OnStop` 理解；desktop root bridge 允许 bounded pre-drain（如 `internal/app/runner.go` 的 extraction drain）与 `watchFXShutdown(...)` 辅助通知，但它们都不改写“退订 ≠ drain”与 root bridge allowlist 的边界；runner-only sidecar 只要求 `root cancel -> wait done`。
 - bus unsubscribe 只代表停止接收新事件，不等于 drain；drain 必须由显式 owner / worker / runner 证明。
 - runtime 守卫的 allowlist / exception 应按语义形态管理，不塞进 code-size freeze 这类数值模型里。
 - 静态守卫默认至少做到一跳 helper/caller 解析：`OnStart -> helper -> go/SafeGo`、`callback -> helper -> slow I/O`、`Run(ctx) -> helper -> waiter goroutine` 都不能靠浅 grep 漏放。
 - `P22` 新守卫优先落到独立的 `*_guard_test.go` / `*_lifecycle_guard_test.go` 一类文件；不把 runtime 规则硬塞进现有 size/freeze/import-direction 测试壳里，避免语义混层。
+- 统一命名建议放在可派单级别：`fx_invoke_guard_test.go -> TestFXInvokeGuard`、`lifecycle_onstart_guard_test.go -> TestLifecycleOnStartGuard`、`bus_callback_guard_test.go -> TestBusCallbackGuard`、`runner_actor_guard_test.go -> TestRunnerActorGuard`。
 
 ## 守卫改动建议
 
@@ -148,6 +152,8 @@ watcher/scheduler/session/process 的真正启动，必须在 dedicated worker/r
 
 - `go test ./internal/archtest/...`
 - `go test ./internal/archtest/... -run TestCodeSizeGuard -count=1 -v` 只校验 size/freeze；**PASS 不代表 runtime 守卫已落地**
+- `go test ./internal/archtest/... -run 'TestFXInvokeGuard|TestLifecycleOnStartGuard|TestBusCallbackGuard|TestRunnerActorGuard' -count=1 -v`
+- runtime guard 统一按 `TestXxx` + `t.Run(tc.name, ...)` 表驱动写法落地；不接受“文档里只有 `*_guard_test.go` 文件名、没有测试函数名”的半成品派单口径
 - 针对每个新 runner 的单测：`ctx cancel`、fatal error、double stop
 - goroutine 泄漏检测或 waitgroup/drain 断言
 - 进程类 owner 的僵尸进程回收断言
@@ -155,10 +161,15 @@ watcher/scheduler/session/process 的真正启动，必须在 dedicated worker/r
 ## TDD 与清理要求
 
 - 先补会失败的 archtest/grep 守卫，再做实现修复；不要先改代码再补守卫。
+- 接入节奏固定为：**先落 semantic allowlist schema**（至少能自包含记录 `file + symbol + bridge shape + reason + remove_when + rollback_when + rollback_action`）-> **再落独立 `*_guard_test.go` 骨架** -> **最后由 owning slice 同 PR red-green 接入具体 matcher 与修复**；不要反过来先写全仓 hard-fail。
 - runtime 守卫优先新增独立 `*_guard_test.go`（如 `fx_invoke_guard_test.go`、`lifecycle_onstart_guard_test.go`、`runner_actor_guard_test.go`、`bus_callback_guard_test.go`），不把 runtime 规则硬塞进现有 size/import/timeout 测试文件里混写。
+- `fx.Invoke` 守卫与 `OnStart` 守卫必须消费同一份 root-bridge allowlist；不能让 `BindRuntime/bindRuntime` 只在 README/JUDGEMENT 里被口头豁免，而测试实现里各自再发明第二份例外表。
+- `Run(ctx)` 脱管 goroutine 守卫初版按 actor hot-file / owning slice 收窄推进，不直接把全仓 helper goroutine 一次性打成 repo-wide 红面；合法辅助 goroutine 的例外也必须回到同一个 semantic allowlist / docstring / 测试约束里。
 - 守卫落地后，要反向删除旧的 allow-by-default 写法；不能让新旧规则同时放行。
 - 若某条守卫需要阶段性 allowlist，必须在文档和测试里写明删除时点；默认不接受永久例外。
 - P0 完成标准不仅是“有新规则”，还包括“旧的宽松路径已被收紧”，避免守卫变成只提醒不拦截。
+- `internal/archtest/freeze_registry.go` 当前仍只承载 numeric file/package freeze；semantic allowlist 不能偷塞回 `explicitFreezeRegistry`，必须走独立 schema / guard consumer。
+- 若某条守卫需要临时回滚，只能在同一 PR 里同时撤掉 semantic allowlist 行、对应 `TestXxx` 守卫和 owning slice wiring；禁止把默认策略重新放宽成 allow-by-default。
 
 ## 完成定义
 
