@@ -38,9 +38,15 @@ import (
 //     maps to ErrTurnNotFound so the scheduler marks the run
 //     observe_lost per the P1b plan.
 type TurnServiceAdapter struct {
-	svc      turn.Service
-	resolver contract.SessionResolver
-	logger   *slog.Logger
+	svc          turn.Service
+	resolver     contract.SessionResolver
+	logger       *slog.Logger
+	// bootstrapper is optional. When set, StartTurn invokes it on a job
+	// row whose ThreadID is still empty, then proceeds with the
+	// freshly-minted thread. A nil bootstrapper preserves the v1
+	// behavior of surfacing ErrJobNotBootstrapped so the scheduler
+	// marks the run failed and retries per its budget.
+	bootstrapper ThreadBootstrapper
 }
 
 var _ TurnSubmitter = (*TurnServiceAdapter)(nil)
@@ -53,6 +59,18 @@ func NewTurnServiceAdapter(logger *slog.Logger, svc turn.Service, resolver contr
 		logger = pkglogger.Get()
 	}
 	return &TurnServiceAdapter{svc: svc, resolver: resolver, logger: logger}
+}
+
+// WithBootstrapper attaches a ThreadBootstrapper used for first-trigger
+// jobs. The method is wired from the fx factory (provideTurnSubmitter)
+// so the public constructor surface stays backwards-compatible; tests
+// can call it directly.
+func (a *TurnServiceAdapter) WithBootstrapper(b ThreadBootstrapper) *TurnServiceAdapter {
+	if a == nil {
+		return nil
+	}
+	a.bootstrapper = b
+	return a
 }
 
 // ErrJobNotBootstrapped is returned by StartTurn when the job row has
@@ -72,8 +90,20 @@ func (a *TurnServiceAdapter) StartTurn(ctx context.Context, req StartTurnRequest
 		return StartTurnResult{}, errors.New("cron: turn adapter not wired")
 	}
 	threadID := strings.TrimSpace(req.ThreadID)
+	agentID := strings.TrimSpace(req.AgentID)
 	if threadID == "" {
-		return StartTurnResult{}, ErrJobNotBootstrapped
+		// First-trigger path: ask the bootstrapper to mint a thread
+		// (and usually an agent) for this job. Keep the bootstrap call
+		// narrow — the scheduler is the one that persists the returned
+		// IDs via SetActiveTurn once StartTurn itself succeeds.
+		bootstrapped, err := a.bootstrapFirstRun(ctx, req)
+		if err != nil {
+			return StartTurnResult{}, err
+		}
+		threadID = strings.TrimSpace(bootstrapped.ThreadID)
+		if strings.TrimSpace(bootstrapped.AgentID) != "" {
+			agentID = strings.TrimSpace(bootstrapped.AgentID)
+		}
 	}
 	session, err := a.resolver.ResolveSession(ctx, threadID)
 	if err != nil {
@@ -97,8 +127,37 @@ func (a *TurnServiceAdapter) StartTurn(ctx context.Context, req StartTurnRequest
 	return StartTurnResult{
 		TurnID:   turnID,
 		ThreadID: strings.TrimSpace(session.ThreadID()),
-		AgentID:  strings.TrimSpace(req.AgentID),
+		AgentID:  agentID,
 	}, nil
+}
+
+// bootstrapFirstRun is the adapter-local helper that invokes the
+// ThreadBootstrapper on a job whose cron_jobs.thread_id is still
+// empty. When no bootstrapper is wired, the helper preserves the v1
+// contract by returning ErrJobNotBootstrapped so the scheduler can
+// fail the run and retry; a non-empty ThreadID from the bootstrapper
+// is required — an empty result is treated as a bootstrap failure
+// because we cannot proceed to PrepareTurn / StartTurn without a
+// thread.
+func (a *TurnServiceAdapter) bootstrapFirstRun(ctx context.Context, req StartTurnRequest) (BootstrapResult, error) {
+	if a == nil || a.bootstrapper == nil {
+		return BootstrapResult{}, ErrJobNotBootstrapped
+	}
+	res, err := a.bootstrapper.BootstrapThread(ctx, BootstrapRequest{
+		JobID:    strings.TrimSpace(req.JobID),
+		Provider: strings.TrimSpace(req.Provider),
+		Model:    strings.TrimSpace(req.Model),
+		CWD:      strings.TrimSpace(req.CWD),
+		Name:     strings.TrimSpace(req.JobID),
+		Config:   req.Config,
+	})
+	if err != nil {
+		return BootstrapResult{}, fmt.Errorf("cron: bootstrap thread: %w", err)
+	}
+	if strings.TrimSpace(res.ThreadID) == "" {
+		return BootstrapResult{}, errors.New("cron: bootstrap returned empty thread id")
+	}
+	return res, nil
 }
 
 // LookupByDedupeKey queries the in-memory turn tracker for a

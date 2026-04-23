@@ -115,6 +115,56 @@ func (NoopTurnSubmitter) Observe(context.Context, string) error {
 	return ErrSubmitterNotWired
 }
 
+// BootstrapRequest carries the inputs the adapter hands to the
+// ThreadBootstrapper when a cron job fires for the first time
+// (job.thread_id is empty). The bootstrapper must return a Result
+// whose ThreadID is non-empty; AgentID may be empty when the thread
+// layer chose to share an existing agent. Provider-specific config
+// (codexHome / codexInstanceKey / codexModelProvider / …) rides in
+// Config verbatim; the bootstrapper decides how to translate that
+// into a thread.StartRequest.
+type BootstrapRequest struct {
+	JobID    string
+	Provider string
+	Model    string
+	CWD      string
+	Name     string
+	Config   json.RawMessage
+}
+
+// BootstrapResult is returned by ThreadBootstrapper. ThreadID is
+// persisted onto cron_jobs by the scheduler via SetActiveTurn once
+// StartTurn succeeds, so a second trigger reuses the same thread.
+type BootstrapResult struct {
+	ThreadID string
+	AgentID  string
+}
+
+// ThreadBootstrapper creates (or resolves) the agent + thread pair a
+// cron job needs on its first trigger. The default production wiring
+// plugs in NoopThreadBootstrapper so the scheduler keeps failing
+// fast with ErrJobNotBootstrapped until a deployment opts in by
+// providing a real implementation (typically thread.Service backed).
+type ThreadBootstrapper interface {
+	BootstrapThread(ctx context.Context, req BootstrapRequest) (BootstrapResult, error)
+}
+
+// ErrBootstrapperNotWired indicates the deployment has no bootstrapper
+// bound; the TurnServiceAdapter keeps the v1 behavior (surface
+// ErrJobNotBootstrapped to the scheduler) rather than silently
+// looping on a dead cron job.
+var ErrBootstrapperNotWired = errors.New("cron: thread bootstrapper is not wired")
+
+// NoopThreadBootstrapper is the default value installed when nobody
+// supplies a real ThreadBootstrapper. Its BootstrapThread always
+// errors with ErrBootstrapperNotWired so the adapter can distinguish
+// "nobody opted in" from "the bootstrap tried and failed".
+type NoopThreadBootstrapper struct{}
+
+func (NoopThreadBootstrapper) BootstrapThread(context.Context, BootstrapRequest) (BootstrapResult, error) {
+	return BootstrapResult{}, ErrBootstrapperNotWired
+}
+
 // SchedulerConfig carries tunable time / capacity parameters. Zero
 // fields fall back to the Default* constants.
 type SchedulerConfig struct {
