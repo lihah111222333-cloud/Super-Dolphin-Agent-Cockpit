@@ -30,6 +30,12 @@ var Module = fx.Module("provider.codexapp",
 		// P20.1 Phase 10: codexapp 无原生 skill 机制，但仍注册空实现进聚合 group
 		// ——保持 detector 成员不因 provider 组合误差而缺失。
 		fx.Annotate(NewSkillInjectionPort, fx.ResultTags(promptpkg.SkillInjectionPortGroupTag)),
+		// P21 Track B pool 基础设施：ServerPool + 周期 EvictIdle Runner。
+		// ServerPool 目前是独立 fx 产物，不参与任何 driver／session／resolver
+		// 当前路径；等下一期 PR 用真实 codex 二进制验证后再做 cutover。
+		provideServerPool,
+		newPoolEvictRunner,
+		fx.Annotate(poolEvictRunnerAsRunner, fx.ResultTags(`group:"runners"`)),
 	),
 	fx.Invoke(RegisterTranslators),
 	fx.Invoke(spawnToolbridgePeers),
