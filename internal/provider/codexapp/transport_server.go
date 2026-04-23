@@ -53,6 +53,22 @@ func (s *transportServer) Alive() bool {
 	return s.t.processRunning()
 }
 
+// DiagnoseExit returns whatever the transport knows about a dead
+// child: the recorded exit error and the tail of captured stderr.
+// Intended for smoke tests that need to triage a silent crash; not
+// part of the routine SpawnedServer contract.
+func (s *transportServer) DiagnoseExit() (error, string) {
+	if s == nil || s.t == nil {
+		return nil, ""
+	}
+	err := s.t.processFailure()
+	var tail string
+	if proc := s.t.currentProcess(); proc != nil {
+		tail = proc.stderrSummary()
+	}
+	return err, tail
+}
+
 // Static compile-time check: transportServer must satisfy the pool's
 // SpawnedServer interface. A breakage here surfaces at build time,
 // not at the first Acquire.

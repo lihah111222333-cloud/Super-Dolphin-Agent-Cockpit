@@ -81,7 +81,23 @@ func TestServerPoolMultiProviderSmoke(t *testing.T) {
 		t.Fatalf("two identities must land on distinct app-servers, both = %q", urlA)
 	}
 	if !srvA.Alive() || !srvB.Alive() {
-		t.Fatalf("alive check failed: A=%v B=%v", srvA.Alive(), srvB.Alive())
+		// Dump whatever the transport captured so we can triage a
+		// silent crash instead of just seeing "false".
+		tsA, _ := srvA.(*transportServer)
+		tsB, _ := srvB.(*transportServer)
+		var exitA error
+		var tailA string
+		var exitB error
+		var tailB string
+		if tsA != nil {
+			exitA, tailA = tsA.DiagnoseExit()
+		}
+		if tsB != nil {
+			exitB, tailB = tsB.DiagnoseExit()
+		}
+		t.Fatalf("alive check failed:\n  A alive=%v url=%s exit=%v stderr=%q\n  B alive=%v url=%s exit=%v stderr=%q",
+			srvA.Alive(), urlA, exitA, tailA,
+			srvB.Alive(), urlB, exitB, tailB)
 	}
 
 	// Second Acquire of identity A must hit the same cached server.
