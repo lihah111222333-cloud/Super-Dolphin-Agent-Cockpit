@@ -112,6 +112,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_session_insights_provider_turn
 ## 关键实现约束
 
 - collector 必须消费共享 observation 层，不要把统计逻辑塞进 `turnTracker` 或再自建一套 turn / call 归因 map。
+- **TerminalKind → Status 映射约束**：`observation.TerminalKind` 用空串 `""` 表示未观测，`insight.Status` 的 SQL 默认是字符串 `"unknown"`。collector 写入前必须显式映射 `"" → "unknown"`，其余 5 个终态字符串一致无需翻译。
 - `UITokensUpdated` 的 zero-event / context-window-only 事件**禁止覆盖**已有非零 token 计数。
 - Claude path 的 `UITokensUpdated` 经 `internal/provider/unified/ui_tokens.go:58-75` 固定 `Projection="thread"`，且可能不带 `turn_id`；它不能直接归到单个 turn。
 - `ToolApprovalRequested` 生产仅在 codex path 命中（`internal/provider/codexapp/event_map.go:248-255`）；`internal/provider/claudecli/` 下 0 生产命中。Claude path 的 `approval_requests` 必须 **写 `approval_requests_observed=FALSE`**，值 0 为“未观测”而非“真实零次”；下游聚合查询需显式 `WHERE approval_requests_observed` 才能用于横向比较。当 Claude driver 未来补齐 approval 事件时，直接升级为 `observed=TRUE`，不改列名语义。
