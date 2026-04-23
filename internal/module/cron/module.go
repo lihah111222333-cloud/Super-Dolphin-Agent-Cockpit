@@ -5,6 +5,8 @@ import (
 
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	turn "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -33,9 +35,28 @@ var Module = fx.Module("cron",
 // timings from withDefaults().
 func provideSchedulerConfig() SchedulerConfig { return SchedulerConfig{} }
 
-// provideTurnSubmitter hands back a NoopTurnSubmitter by default. Any
-// higher-level wiring can override via fx.Decorate.
-func provideTurnSubmitter() TurnSubmitter { return NoopTurnSubmitter{} }
+// turnSubmitterParams lets provideTurnSubmitter discover an optional
+// real turn.Service + SessionResolver pair. When both are wired the
+// factory promotes the seam to TurnServiceAdapter; otherwise it falls
+// back to NoopTurnSubmitter so binaries that import cron.Module
+// without a turn stack (for example unit tests or the mcp-orch peer)
+// still boot — every StartTurn then fails fast with
+// ErrSubmitterNotWired, preserving the v1 guarantee that the
+// scheduler cannot silently accept work it has no way to execute.
+type turnSubmitterParams struct {
+	fx.In
+
+	Logger   *slog.Logger              `optional:"true"`
+	Service  turn.Service              `optional:"true"`
+	Resolver contract.SessionResolver  `optional:"true"`
+}
+
+func provideTurnSubmitter(p turnSubmitterParams) TurnSubmitter {
+	if p.Service == nil || p.Resolver == nil {
+		return NoopTurnSubmitter{}
+	}
+	return NewTurnServiceAdapter(p.Logger, p.Service, p.Resolver)
+}
 
 func provideScheduler(logger *slog.Logger, store cronstore.Store, submitter TurnSubmitter, cfg SchedulerConfig) *Scheduler {
 	if logger == nil {
