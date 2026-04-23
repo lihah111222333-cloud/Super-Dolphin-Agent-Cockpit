@@ -384,6 +384,8 @@ func buildPromptTemplate(
 		CreatedBy:   promptUpdatedBy,
 		UpdatedBy:   promptUpdatedBy,
 		Description: strings.TrimSpace(p.Description),
+		MatchWhen:   append(json.RawMessage(nil), p.MatchWhen...),
+		Priority:    p.Priority,
 	}
 	if current == nil {
 		return template

@@ -257,6 +257,7 @@ describe('SystemPromptPage behavior', () => {
       content: 'System content',
       description: '',
       agentType: 'main',
+      priority: 0,
       cwd: '/test-repo',
     });
     expect(vm.editorOpen.value).toBe(false);

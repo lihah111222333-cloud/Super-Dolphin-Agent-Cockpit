@@ -119,6 +119,10 @@ function normalizePromptItem(raw, agentType) {
     agentType: (raw?.agentType || raw?.agent_key || agentType || 'main').toString(),
     isDefault: Boolean(raw?.isDefault),
     createdAt: (raw?.createdAt || raw?.created_at || '').toString(),
+    // match_when 透传 —— 编辑弹窗重新打开时需要还原在表单里。null / 缺失
+    // 都保留为 null，代表「该模板不参与自动路由」，serializeMatchWhenForEditor 会处理。
+    match_when: raw?.match_when ?? null,
+    priority: Number.isFinite(Number(raw?.priority)) ? Number(raw.priority) : 0,
   };
 }
 
@@ -140,6 +144,29 @@ function normalizeFallbackPromptList(items) {
 // 'all' 返回全部行；其他 activeTab 等值匹配行的 agentType (介面 agent_key)。
 function filterPromptCards(cards, activeTab) {
   return activeTab === 'all' ? cards : cards.filter(c => c.agentType === activeTab);
+}
+
+// serializeMatchWhenForEditor 把后端返回的 match_when（undefined / null / 对象 /
+// 字符串）统一变成给 textarea 展示的字符串。undefined / null → 空串（opt-out）；
+// 对象 → 两空格缩进的 JSON；字符串 → 原样（兼容旧 payload 偶尔回传字符串的场景）。
+function serializeMatchWhenForEditor(value) {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  try { return JSON.stringify(value, null, 2); } catch { return ''; }
+}
+
+// applyMatchWhenToPayload 把用户编辑的 match_when 文本塞进 prompts/write payload。
+// 返回 null = 成功（空串代表 opt-out，直接不塞字段）；返回字符串 = 人类可读的
+// 错误消息，调用方应展示给用户并中止保存。
+function applyMatchWhenToPayload(payload, rawText) {
+  const text = (rawText || '').trim();
+  if (!text) return null;
+  try {
+    payload.match_when = JSON.parse(text);
+    return null;
+  } catch (err) {
+    return `自动匹配条件不是合法 JSON：${toErrorMessage(err)}`;
+  }
 }
 
 function createClassifierActions(deps) {
@@ -244,15 +271,12 @@ export const SystemPromptPage = {
     // the backend router auto-picks a prompt_template from the full library
     // via claude -p. Explicit activePromptId still wins backend-side.
     const classifierEnabled = ref(false);
+    // matchWhen/priority 供路由的 match_when 自动路由挡位；matchWhen 空串 → opt-out。
     const form = reactive({
-      id: '',
-      name: '',
-      content: '',
-      description: '',
-      // Stashes the row's original agent_key when editing from the 'all' tab
-      // so savePrompt can preserve it instead of overwriting with activeTab.
-      // Empty for new creates → savePrompt falls back to activeTab.
+      id: '', name: '', content: '', description: '',
+      // 从 'all' tab 编辑时回灰原 agent_key；新建留空 → savePrompt 兑底到 activeTab。
       agentKey: '',
+      matchWhen: '', priority: 0,
     });
 
     // ── Computed ─────────────────────────────────────
@@ -385,7 +409,10 @@ export const SystemPromptPage = {
           content: form.content || '',
           description: form.description || '',
           agentType: form.agentKey || (activeTab.value === 'all' ? 'main' : activeTab.value),
+          priority: Number.isFinite(Number(form.priority)) ? Number(form.priority) : 0,
         };
+        const matchWhenErr = applyMatchWhenToPayload(payload, form.matchWhen);
+        if (matchWhenErr) { setNotice('error', matchWhenErr); saving.value = false; return; }
         await callAPI('prompts/write', withCwd(getCwd(), payload));
         await loadPrompts();
         editorOpen.value = false;
@@ -440,31 +467,21 @@ export const SystemPromptPage = {
 
     // ── Editor ──────────────────────────────────────
     function openCreate() {
-      if (fallbackMode.value) {
-        setReadonlyActionNotice('新建');
-        return;
-      }
-      form.id = '';
-      form.name = '';
-      form.content = '';
-      form.description = '';
-      form.agentKey = '';
-      editorMode.value = 'create';
-      editorOpen.value = true;
-      editorTab.value = 'basic';
+      if (fallbackMode.value) { setReadonlyActionNotice('新建'); return; }
+      Object.assign(form, { id: '', name: '', content: '', description: '', agentKey: '', matchWhen: '', priority: 0 });
+      editorMode.value = 'create'; editorOpen.value = true; editorTab.value = 'basic';
       setNotice('info', '');
       logDebug('system-prompt', 'editor.create');
     }
 
     function openEdit(item) {
-      form.id = item.id || '';
-      form.name = item.name || '';
-      form.content = item.content || '';
-      form.description = item.description || '';
-      form.agentKey = (item.agentType || '').toString();
-      editorMode.value = 'edit';
-      editorOpen.value = true;
-      editorTab.value = 'basic';
+      Object.assign(form, {
+        id: item.id || '', name: item.name || '', content: item.content || '',
+        description: item.description || '', agentKey: (item.agentType || '').toString(),
+        matchWhen: serializeMatchWhenForEditor(item.match_when),
+        priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : 0,
+      });
+      editorMode.value = 'edit'; editorOpen.value = true; editorTab.value = 'basic';
       setNotice('info', '');
       logDebug('system-prompt', 'editor.edit', { id: item.id });
     }
@@ -707,6 +724,24 @@ export const SystemPromptPage = {
               <div class="sp-field">
                 <label>描述（可选）</label>
                 <input class="modal-input" data-testid="sp-desc-input" v-model="form.description" placeholder="一句话描述用途" :disabled="saving || fallbackMode" />
+              </div>
+
+              <div class="sp-field">
+                <label>自动匹配条件（可选，JSON）</label>
+                <textarea
+                  class="sp-textarea"
+                  data-testid="sp-matchwhen-input"
+                  rows="3"
+                  v-model="form.matchWhen"
+                  placeholder='{} 代表总是参与自动匹配；{"cwd_prefix":"/Users/mac/work"} 代表仅在该目录下命中；留空 = 不参与自动路由'
+                  :disabled="saving || fallbackMode"
+                ></textarea>
+                <div class="sp-field-meta">未打开 pin / 智能分类器时，系统会在这里命中的模板里按「优先级」挑一个注入</div>
+              </div>
+
+              <div class="sp-field">
+                <label>优先级（整数，默认 0；数字越大越优先）</label>
+                <input type="number" class="modal-input" data-testid="sp-priority-input" v-model.number="form.priority" :disabled="saving || fallbackMode" />
               </div>
 
               <div class="sp-field">

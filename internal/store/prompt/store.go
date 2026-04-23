@@ -168,6 +168,8 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 		Column7:     template.Tags,
 		Description: template.Description,
 		Enabled:     template.Enabled,
+		Column10:    []byte(template.MatchWhen),
+		Priority:    int32(template.Priority),
 		CreatedBy:   template.CreatedBy,
 		UpdatedBy:   template.UpdatedBy,
 	})
@@ -194,6 +196,8 @@ func fromGetTemplate(row sqlc.GetPromptTemplateRow) PromptTemplate {
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 		Description: row.Description,
+		MatchWhen:   json.RawMessage(row.MatchWhen),
+		Priority:    int(row.Priority),
 	}
 }
 
@@ -213,6 +217,8 @@ func fromListTemplate(row sqlc.ListPromptTemplatesRow) PromptTemplate {
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 		Description: row.Description,
+		MatchWhen:   json.RawMessage(row.MatchWhen),
+		Priority:    int(row.Priority),
 	}
 }
 
@@ -232,6 +238,8 @@ func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 		Description: row.Description,
+		MatchWhen:   json.RawMessage(row.MatchWhen),
+		Priority:    int(row.Priority),
 	}
 }
 

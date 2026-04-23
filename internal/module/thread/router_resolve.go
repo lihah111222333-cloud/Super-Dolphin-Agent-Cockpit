@@ -3,9 +3,11 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -85,6 +87,12 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 	// in pickRoutedTemplate takes over. Empty pick ("no strong match") leaves
 	// req.PromptKey alone so the default persona fallback still applies.
 	maybeClassifyPrompt(ctx, s.classifier, req, templates)
+
+	// match_when auto-route: between classifier and main/default fallback.
+	// Runs only when neither caller nor classifier pinned anything and no
+	// explicit AgentKey was supplied. Picks the highest-priority enabled
+	// template whose match_when rules satisfy the current BuildCtx.
+	maybeAutoRouteByMatchWhen(req, templates)
 
 	picked := s.pickRoutedTemplate(ctx, req, templates)
 	if picked == nil || !picked.Enabled {
@@ -419,7 +427,86 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 
 // d-clean: applyCandidatePoolMerge / candidateTemplateBlocks 已移除。
 // 候选池合并注入的设计已与“对齐 Claude 主线程单提示词”的目标冲突；
-// 路由现在的三档优先级为：
-//   1. 显式 pin (PromptKey)    > 2. 分类器 opt-in > 3. main/default 兑底
+// 路由现在的四档优先级为：
+//   1. 显式 pin (PromptKey / AgentKey) > 2. 分类器 opt-in > 3. match_when
+//   自动路由 > 4. main/default 兑底。
+
+// maybeAutoRouteByMatchWhen fills req.PromptKey when no explicit pin was
+// supplied and the classifier either was off or did not score a winner. It
+// iterates enabled templates with a non-nil match_when (opt-in), sorted by
+// Priority DESC (stable), and stamps the first one whose rules match the
+// synthesized BuildCtx. All failure modes leave req.PromptKey untouched so
+// the main/default fallback still applies.
+func maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.PromptTemplate) {
+	if req == nil {
+		return
+	}
+	if strings.TrimSpace(req.PromptKey) != "" {
+		return
+	}
+	if strings.TrimSpace(req.AgentKey) != "" {
+		return
+	}
+	candidates := autoRouteCandidates(templates)
+	if len(candidates) == 0 {
+		return
+	}
+	buildCtx := buildMatchWhenCtx(req)
+	userPrompt := req.Prompt
+	for i := range candidates {
+		cand := &candidates[i]
+		if !promptpkg.EvaluateMatchWhen(cand.MatchWhen, buildCtx, userPrompt) {
+			continue
+		}
+		pkglogger.Info("router: match_when auto-routed",
+			"prompt_key", cand.PromptKey,
+			"priority", cand.Priority,
+			"candidate_count", len(candidates))
+		req.PromptKey = cand.PromptKey
+		return
+	}
+	pkglogger.Info("router: match_when no auto-route hit",
+		"candidate_count", len(candidates))
+}
+
+// autoRouteCandidates filters the template list down to enabled rows that
+// opted into auto-routing (non-nil match_when) and returns them sorted by
+// Priority DESC with a stable secondary order. The caller is expected to
+// apply the match_when evaluator to the returned slice.
+func autoRouteCandidates(templates []promptstore.PromptTemplate) []promptstore.PromptTemplate {
+	out := make([]promptstore.PromptTemplate, 0, len(templates))
+	for i := range templates {
+		t := &templates[i]
+		if !t.Enabled {
+			continue
+		}
+		if len(t.MatchWhen) == 0 {
+			continue
+		}
+		out = append(out, *t)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Priority > out[j].Priority
+	})
+	return out
+}
+
+// buildMatchWhenCtx synthesizes a lightweight BuildCtx for router-phase
+// evaluation. Unlike buildStartCtx it does not touch config / registry /
+// filesystem discovery — the router runs before assembly and only needs the
+// caller-supplied fields (cwd / language / provider / model / isWorktree /
+// sessionFlags / gitRoot). This keeps the auto-route cheap and side-effect
+// free.
+func buildMatchWhenCtx(req *StartRequest) contract.BuildCtx {
+	return contract.BuildCtx{
+		CWD:          strings.TrimSpace(req.CWD),
+		GitRoot:      strings.TrimSpace(req.GitRoot),
+		IsWorktree:   req.IsWorktree,
+		Language:     strings.TrimSpace(req.Language),
+		Provider:     strings.TrimSpace(req.Provider),
+		Model:        strings.TrimSpace(req.Model),
+		SessionFlags: req.SessionFlags,
+	}
+}
 
 

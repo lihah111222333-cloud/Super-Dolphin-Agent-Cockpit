@@ -30,6 +30,11 @@ type PromptService interface {
 
 type PromptWriteRequest struct {
 	ID, Name, Content, Description, AgentType string
+	// MatchWhen feeds the router's match_when auto-route rung. nil / empty
+	// means opt-out (template will not participate in auto-routing); any
+	// other raw JSONB value is evaluated per EvaluateMatchWhen.
+	MatchWhen json.RawMessage
+	Priority  int
 }
 
 // PromptSectionWriteRequest is the advanced-debug upsert payload. PromptKey
@@ -55,12 +60,14 @@ type promptListParams struct {
 }
 
 type promptWriteParams struct {
-	ID          string `json:"id,omitempty"`
-	Name        string `json:"name"`
-	Content     string `json:"content,omitempty"`
-	Description string `json:"description,omitempty"`
-	AgentType   string `json:"agentType,omitempty"`
-	Cwd         string `json:"cwd,omitempty"`
+	ID          string          `json:"id,omitempty"`
+	Name        string          `json:"name"`
+	Content     string          `json:"content,omitempty"`
+	Description string          `json:"description,omitempty"`
+	AgentType   string          `json:"agentType,omitempty"`
+	Cwd         string          `json:"cwd,omitempty"`
+	MatchWhen   json.RawMessage `json:"match_when,omitempty"`
+	Priority    int             `json:"priority,omitempty"`
 }
 
 type promptDeleteParams struct {
@@ -104,13 +111,15 @@ type promptSectionRPCItem struct {
 }
 
 type promptRPCItem struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Content     string    `json:"content"`
-	Description string    `json:"description"`
-	AgentType   string    `json:"agentType"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Content     string          `json:"content"`
+	Description string          `json:"description"`
+	AgentType   string          `json:"agentType"`
+	CreatedAt   time.Time       `json:"createdAt"`
+	UpdatedAt   time.Time       `json:"updatedAt"`
+	MatchWhen   json.RawMessage `json:"match_when,omitempty"`
+	Priority    int             `json:"priority,omitempty"`
 }
 
 var _ contract.PromptAssemblyService = (*service)(nil)
@@ -172,6 +181,8 @@ func buildPromptHandlersWithService(promptSvc PromptService) rpc.HandlerMapResul
 				Content:     p.Content,
 				Description: p.Description,
 				AgentType:   p.AgentType,
+				MatchWhen:   append(json.RawMessage(nil), p.MatchWhen...),
+				Priority:    p.Priority,
 			})
 			if err != nil {
 				return nil, err
@@ -259,6 +270,8 @@ func promptItemFromTemplate(template promptstore.PromptTemplate) promptRPCItem {
 		AgentType:   template.AgentKey,
 		CreatedAt:   template.CreatedAt,
 		UpdatedAt:   template.UpdatedAt,
+		MatchWhen:   append(json.RawMessage(nil), template.MatchWhen...),
+		Priority:    template.Priority,
 	}
 }
 
