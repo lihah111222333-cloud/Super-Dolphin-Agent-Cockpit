@@ -14,8 +14,10 @@ import (
 const toolCallTimeout = 120 * time.Second
 
 var (
-	ErrNoPeerAvailable = errors.New("toolbridge: no active peer")
-	ErrAmbiguousPeer   = errors.New("toolbridge: multiple active peers")
+	ErrNoPeerAvailable                   = errors.New("toolbridge: no active peer")
+	ErrAmbiguousPeer                     = errors.New("toolbridge: multiple active peers")
+	ErrThreadRuntimeRequired             = errors.New("toolbridge: thread runtime is required")
+	ErrPersistentSubagentRuntimeRequired = errors.New("toolbridge: persistent subagent runtime is required")
 )
 
 type ToolCallRequest struct {

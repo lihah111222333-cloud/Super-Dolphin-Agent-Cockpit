@@ -388,9 +388,16 @@ func registerMemoryHooks(p memoryHookParams) {
 			registerLifecycleSubscriptions(p, appendCancel)
 			return nil
 		},
-		OnStop: func(context.Context) error {
+		OnStop: func(ctx context.Context) error {
 			if p.Hooks != nil {
 				p.Hooks.killDreamTask()
+				waitCtx := ctx
+				if waitCtx == nil {
+					waitCtx = context.Background()
+				}
+				if err := p.Hooks.waitDreamTask(waitCtx); err != nil && !errors.Is(err, context.Canceled) {
+					pkglogger.Get().Warn("memory: dream task drain failed", "error", err)
+				}
 			}
 			cancelSubscriptions(cancels)
 			cancels = nil

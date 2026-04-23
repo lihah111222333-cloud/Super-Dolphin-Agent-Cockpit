@@ -194,7 +194,7 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 		ClientKind: familyToClientKind(family),
 	})
 	if err != nil {
-		writeJSONRPCError(w, req.ID, jsonRPCCodeInternal, err.Error())
+		writeJSONRPCError(w, req.ID, proxyToolCallErrorCode(err), err.Error())
 		return
 	}
 	if result == nil {
@@ -204,6 +204,15 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 		"content": toMCPContent(result.ContentItems),
 		"isError": !result.Success,
 	})
+}
+
+func proxyToolCallErrorCode(err error) int {
+	switch {
+	case errors.Is(err, ErrThreadRuntimeRequired), errors.Is(err, ErrPersistentSubagentRuntimeRequired):
+		return jsonRPCCodeInvalidParam
+	default:
+		return jsonRPCCodeInternal
+	}
 }
 
 func (h *Handler) lookupProxyThreadID(ctx context.Context, agentID string) string {

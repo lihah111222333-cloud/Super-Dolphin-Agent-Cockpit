@@ -36,7 +36,7 @@ func New() *Config {
 			TokenBudget:           envPositiveIntOr("SKILL_TOKEN_BUDGET", 3000),
 		},
 		Agent: AgentConfig{
-			PersistentSubagentDefault: envBoolOr("PERSISTENT_SUBAGENT_DEFAULT", true),
+			PersistentSubagentDefault: envBoolOr("PERSISTENT_SUBAGENT_DEFAULT", false),
 		},
 	}
 	exportRPCAddrIfMissing(cfg.RPCAddr)

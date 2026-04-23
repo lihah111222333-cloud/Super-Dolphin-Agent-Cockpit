@@ -73,7 +73,9 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	if h == nil || h.registry == nil {
 		return nil, ErrNoPeerAvailable
 	}
-	if blocked := h.spawnAgentPolicyMessage(ctx, req); blocked != "" {
+	if blocked, err := h.spawnAgentPolicyMessage(ctx, req); err != nil {
+		return nil, err
+	} else if blocked != "" {
 		return &ToolCallResult{
 			Success: false,
 			ContentItems: []ToolCallContentItem{{
@@ -123,41 +125,69 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	return result, nil
 }
 
-func (h *Handler) spawnAgentPolicyMessage(ctx context.Context, req ToolCallRequest) string {
+func (h *Handler) spawnAgentPolicyMessage(ctx context.Context, req ToolCallRequest) (string, error) {
 	if strings.TrimSpace(req.Name) != "spawn_agent" {
-		return ""
+		return "", nil
 	}
-	if !h.persistentSubagentRequired(ctx, req) {
-		return ""
+	required, err := h.persistentSubagentRequired(ctx, req)
+	if err != nil {
+		return "", err
 	}
-	return "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。"
+	if !required {
+		return "", nil
+	}
+	return "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。", nil
 }
 
-func (h *Handler) persistentSubagentRequired(ctx context.Context, req ToolCallRequest) bool {
-	runtime, ok := h.toolCallRuntimeConfig(ctx, req)
-	if !ok {
-		return h.cfg != nil && h.cfg.Agent.PersistentSubagentDefault
+func (h *Handler) persistentSubagentRequired(ctx context.Context, req ToolCallRequest) (bool, error) {
+	runtime, err := h.requireToolCallRuntimeConfig(ctx, req)
+	if err != nil {
+		return false, err
 	}
 	required, present := persistentSubagentFlagFromRuntime(runtime)
 	if !present {
 		required = h.cfg != nil && h.cfg.Agent.PersistentSubagentDefault
 	}
 	if !required {
-		return false
+		return false, nil
 	}
 	managedAvailable, known := runtimeHasTool(runtime, "orchestration_launch_agent")
 	if known {
-		return managedAvailable
+		return managedAvailable, nil
 	}
-	return true
+	return true, nil
+}
+
+func (h *Handler) requireToolCallRuntimeConfig(ctx context.Context, req ToolCallRequest) (map[string]any, error) {
+	threadID, err := h.requireToolCallThreadID(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return h.requireToolCallRuntime(ctx, threadID)
 }
 
 func (h *Handler) toolCallRuntimeConfig(ctx context.Context, req ToolCallRequest) (map[string]any, bool) {
-	threadID, ok := h.resolveToolCallThreadID(ctx, req)
-	if !ok {
+	runtime, err := h.requireToolCallRuntimeConfig(ctx, req)
+	if err != nil {
 		return nil, false
 	}
-	return h.readToolCallRuntime(ctx, threadID)
+	return runtime, true
+}
+
+func (h *Handler) requireToolCallThreadID(ctx context.Context, req ToolCallRequest) (string, error) {
+	threadID, ok := h.resolveToolCallThreadID(ctx, req)
+	if !ok {
+		return "", ErrThreadRuntimeRequired
+	}
+	return threadID, nil
+}
+
+func (h *Handler) requireToolCallRuntime(ctx context.Context, threadID string) (map[string]any, error) {
+	runtime, ok := h.readToolCallRuntime(ctx, threadID)
+	if !ok {
+		return nil, ErrPersistentSubagentRuntimeRequired
+	}
+	return runtime, nil
 }
 
 func (h *Handler) resolveToolCallThreadID(ctx context.Context, req ToolCallRequest) (string, bool) {

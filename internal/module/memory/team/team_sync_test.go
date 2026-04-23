@@ -144,8 +144,11 @@ func TestTeamSyncInitialAndRemotePullInvalidateWithoutSelfPush(t *testing.T) {
 		t.Fatalf("pushCalls after initial pull = %d, want 0", remote.pushCalls)
 	}
 	currentContent = "# team\nversion-2\n"
-	if _, err := svc.Pull(context.Background()); err != nil {
-		t.Fatalf("Pull() error = %v", err)
+	svc.mu.Lock()
+	_, pullErr := svc.pullLocked(context.Background(), TeamSyncTriggerManual)
+	svc.mu.Unlock()
+	if pullErr != nil {
+		t.Fatalf("Pull() error = %v", pullErr)
 	}
 	if invalidator.calls != 2 {
 		t.Fatalf("Invalidate() calls after remote pull = %d, want 2", invalidator.calls)
@@ -202,7 +205,7 @@ func TestTeamSyncConflictRetryPullsLatestState(t *testing.T) {
 	svc.stateStore = store
 	svc.state = SyncState{LastKnownChecksum: "stale", ServerETag: "etag-old", ServerChecksums: map[string]string{"a.md": "old"}}
 
-	result, err := svc.Push(context.Background())
+	result, err := svc.pushLocalChanges(context.Background(), TeamSyncTriggerManual)
 	if err != nil {
 		t.Fatalf("Push() error = %v", err)
 	}
@@ -256,7 +259,7 @@ func TestTeamSync413LearnsServerMaxEntriesForNextPush(t *testing.T) {
 	svc.stateStore = store
 	svc.state = SyncState{LastKnownChecksum: "stale"}
 
-	first, err := svc.Push(context.Background())
+	first, err := svc.pushLocalChanges(context.Background(), TeamSyncTriggerManual)
 	if err != nil {
 		t.Fatalf("first Push() error = %v", err)
 	}
@@ -269,7 +272,7 @@ func TestTeamSync413LearnsServerMaxEntriesForNextPush(t *testing.T) {
 	if svc.state.ServerMaxEntries != 1 {
 		t.Fatalf("ServerMaxEntries = %d, want 1", svc.state.ServerMaxEntries)
 	}
-	second, err := svc.Push(context.Background())
+	second, err := svc.pushLocalChanges(context.Background(), TeamSyncTriggerManual)
 	if err != nil {
 		t.Fatalf("second Push() error = %v", err)
 	}
