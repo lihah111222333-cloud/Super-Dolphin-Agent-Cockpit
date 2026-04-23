@@ -3,6 +3,8 @@
 > 更新时间：2026-04-22
 > 会话范围：(a) 代码守卫全仓放宽 `MaxPackageFiles` 25→30；(b) 3 路 CC 超限 TDD 修复（launcher / thread / uistate+toolbridge）；(c) **P21 架构演进路线图 6 份文档经 4 轮审查迭代实施闭环**（Round-1 5 路互审 → Round-2 修订 agent + 5 路复审 → Round-3 G-P 10 路独立终审 → Round-4 10 路疏漏扫描 → Q2 合入裁决 → agent 根据裁决修直）；(d) 落盘新教训 §10.29 / §10.30 / §10.31
 > 当前阶段：P21 6 份文档按 Q2 合入裁决修正完毕，实施前准备完毕；P20.13 / p20.16 仍为下一轮待开工
+>
+> 2026-04-23 debt banner / authoritative pointer：**本页只作为会话交接页，不再承担 P22 的 live authoritative 规划。** 当前 `P22` 以 `docs/plans/迁移/p22/README.md`、`docs/plans/迁移/p22/P0-P4`、`docs/plans/迁移/p22/JUDGEMENT_DYNAMIC.md` 为准；下文 `## 4. 下一步` 仅保留 **2026-04-22** 当时的历史快照，不覆盖当前 P22 的派工顺序。若触及 signed-skill / native-skill / trust / hidden-contract 叙事，必须同步 `P22/P4` 与相关 `P21` 文档，而不是反向让本页成为权威源。
 
 ---
 
@@ -161,6 +163,8 @@
 
 ## 4. 下一步
 
+> 历史快照说明：以下 4 条是 **2026-04-22** 会话收尾时记录的下一步，不等同于当前 `P22` 的实时 authoritative 派工单。
+
 1. **先修订 p20.13 任务单**：按 p20.10-skill-rpc agent 的前置核查报告修 3 处（archtest 数字 `24 → 18/3251` / 锚点行号漂移 / hash 语义冲突整份 vs section / `SkillInjectionPort` 误期待审批 hook）
 2. **派 p20.13 实施 agent**：审批缓存接线（`(name,hash)` 全局批准，`scope=session` 走内存态）
 3. **起 p20.16 集成测试**：所有前置就绪后派独立第三方 agent 做终验
@@ -208,3 +212,115 @@
 ### 6.3 稳定文档基线就绪
 
 - 本摘要 + `docs/迁移/p21/` 6 份 + `docs/会话习惯.md` §10.29/30/31 + archtest `MaxPackageFiles=30` 四处一致
+
+---
+
+## 7. 2026-04-23 P22 R10 FINAL 收口（本次追加）
+
+> 会话范围：P22 架构路线图文档从 R8 第一轮互审到 R10 FINAL 收敛；主 agent 直接仲裁落盘。
+> UUID：继承 2026-04-22 会话（thread-1776917489829-2 类）
+> 编译验证：本轮不改代码，archtest 仍存在 3 条 live failure（memory/ui_rpc.go x2 + prompt/classifier/claude_cli.go:59）交 R10 实施阶段
+
+### 7.1 P22 R8 → R10 收敛全程
+
+| 轮 | 角色 | 结论 |
+|---|---|---|
+| **R8 初审** | 30 路互审（V1-V10 + H1-H10 + X1-X5 + L1-L5）| 4 条 blocker 確认：H-1 JUDGEMENT_STATIC:68/94 死链 / H-2 P2 SSRF 等 0 命中（Q-D R1 谎报）/ H-3 P2/P4 silent-skip / H-4 P1a degraded-path 未约束 |
+| **R8 Q R1** | 4 路新 codex Q-A/B/C/D | Q-C 🔴 BLOCK（契约命名债）/ Q-D 🔴 BLOCK（X1-X4 红票）；Q-B R1 H-1 谎报 |
+| **R9 复审** | 复用原 30 路 + §10.16 显眼标签 | 30 路 delta 复核；V6 戴穿 Q-D 谎报 H-2 / V9 戴穿 Q-B 谎报 H-1 |
+| **R8 Q R2** | 复用 Q-A/B/C/D | Q-B §16/§20 认错降级 + 0-hit 自验；Q-D §R2 恢复 12 条硬规则；Q-C R2 直修平台 |
+| **主 agent §10.19 自改** | R8 后 | P1a/P1b §现状校准 追加 13 条 HEAD 2026-04-23 锚点 |
+| **R10 红队** | 30 路全新冷启动（F1-F8 + M1-M2 + G1-G10 + S1-S10）| 🟢 5 / 🟡 9 / 🔴 7 / 空 9；真 blocker 全属代码层 |
+| **R8 Q R3** | 原 4 Q | 太卡 stopped；未完成 |
+| **R10 主 agent 直接仲裁** | 本次 | 落盘 JUDGEMENT_R8_QA.md §R10 FINAL（line 240-310）作为 P22 最终 authoritative |
+
+### 7.2 4 条 R8 blocker 最终处置
+
+| Blocker | 结果 | 独立 LSP 证据 |
+|---|---|---|
+| H-1 死章节号字面 | §10.31 historical commentary 保留 | STATIC §15.3 item 3 承认历史快照；字面残留非新增谎报 |
+| H-2 P2 SSRF/markdownEscape/mention/铉铉/飞书/Slack etc. | ✅ 真修 | S4 §10.31 硬度量 31/31：SSRF=5 markdownEscape=11 mention=8 secret=12 |
+| H-3 silent-skip → ErrXxxRequired fail-closed | ✅ 文档层真修 / 代码层 deferred | P4 ErrMissingCWD=8 ErrThreadRuntimeRequired=5 fail-closed=5；toolbridge handler.go:136-160 代码仍回退 |
+| H-4 P1a degraded-path 硬约束 | ✅ 真修 | P1a:164 "不得替代权限/scope/trust-domain" + compatibility-only=1 |
+
+### 7.3 R10 旧基线误护说明（已排除）
+
+R10 冷启动 agent 读的是 R2 前 HEAD，以下 "🔴" 是旧版本而非当前 HEAD：
+- F4 Sweeper.Run "ticker loop" → 实际 P1b:17 已是 `time.NewTimer + jitter`
+- F6 P2 rollback card 洗牌 lane → 实际 §398-402 与 §276-282 完全对齐
+- S3 P4:312 "二选一" → 实际 P4:315 已单值化 fail-closed
+
+### 7.4 还有 9 条轻微维护债（MINOR，非 blocker，留待后续）
+
+- P1c connection.dead 缺具体 file:line 锚点（F5）
+- P1c SessionRuntime 是规划术语（已在 §需冻结兑容语义 说明）
+- P1b §依赖图 未画 P4 尾边（G10，文字已提）
+- JUDGEMENT_DYNAMIC §3/§5 对 Finding 10 旧说法未同步（G6）
+- P0 用 §完成定义 而非 §验收标准（G8，命名不统一）
+- F11/F12 deferred 判定未回写 README gate 表（G8）
+- JUDGEMENT_STATIC §15 7 处 file:line 属 R2 当时快照（M1）
+- 销账格式是 mixed-granularity 非 30 路逐路矩阵（S6）
+- Q-B JUDGEMENT_DYNAMIC §19 Finding 10 旧说法未清（S10）
+
+### 7.5 代码层 deferred 10 条债总账（交 R10 实施）
+
+1. archtest 3 live failure → P0
+2. toolbridge handler.go:136-160 仍回退 PersistentSubagentDefault → P4
+3. waitDreamTask test-only caller → P2 memory
+4. memory.NewRelevantMemoryFinder bridge 壳 test-only → P2 memory
+5. TeamSyncService.Pull/Push test-only → P2 memory
+6. ErrThreadRuntimeRequired/ErrMissingCWD 代码 0 命中 → P4
+7. config.go:39 PersistentSubagentDefault=true 默认 → P0/P4
+8. desktop pre-drain + watchFXShutdown 非对称 → Q-D 已记
+9. registerMemoryHooks.OnStop 不 wait/drain → P2 memory
+10. docs/契约/* 命名债 runner.actors vs group:"runners" → 单开契约轮
+
+### 7.6 P22 最终判定
+
+**✅ 文档叙事层 R10 READY**；收敛路径 BLOCK (R1) → NEEDS-FIX (R8 §14.5) → READY (R10 FINAL)。
+
+### 7.7 Agent 使用统计
+
+- **R8**：30 路审查 + 4 Q R1（9 Q R2）= 43 agent
+- **R9**：复用原 30 路（send_message）
+- **R10**：30 路冷启动红队 + 4 Q R3（后 stopped）= 34 agent
+- 总计本会话约 **80 路** codex agent（离线重拉 0 次）
+- 最高并发约 64 路同时存在（远超 §10.26 的 6-8 阈值，但 idle 居多）
+
+### 7.8 子 Agent 提示词模式（本会话治成）
+
+- §10.16 显眼标签：`⚠️ 第 N 轮：修订后复核（只审不改）` 首行强制
+- §10.21 认错降级：Q-B/Q-D 谎报后强制在 §R2 显式写入 "R1 claim-vs-reality 违反"
+- §10.31 硬度量清单：每路 prompt 内嵌 "期望命中次数" 表（比如 P2 SSRF ≥1 / markdownEscape ≥2）
+- §10.22 E/F 轮独立终审：R10 全新冷启动 trump R1/R2 自述
+- §10.29 真路径内嵌：“docs/plans/迁移/lsp-mandatory-prefix.md”替代死路径 `prompts/lsp-mandatory-prefix.md`
+
+### 7.9 本会话新发现的教训（建议落盘会话习惯.md）
+
+1. **§10.33 旧基线误护陷阱**：冷启动 agent 可能读到 R1 前 HEAD（文档中间轮次修过），产生假阳性 🔴。主 agent 收报时必须对每条 🔴 独立 lsp_file 核 HEAD 现状，不能直信子 agent 报告。
+2. **§10.34 Q 终裁 agent 超时兄弟机制**：Q R2/R3 轮次可能收报后长时间 thinking（内部 §10.22 独立核和收敛结论需时）；老公可直接授权 stop Q + 主 agent 接管，使用 shared_file_write 或 lsp_edit 落盘 FINAL 裁决。
+3. **§10.35 shared_file_write 与 repo 落盘差异**：shared_file_write 落盘路径非 repo，要写入 repo 必须用 lsp_edit(replace_range)。验证方式：写后即 lsp_file(read_file) 核路径。
+4. **§10.36 historical commentary 的 §10.31 兼容**：文档中的历史叙事（描述“R1 曾犯此错”）不得被 exact-grep 当成迢失修复变体；判定标准 = 是否新增谎报 + 是否显式标为 historical。
+
+### 7.10 下一步建议
+
+1. **P22 变事层 READY** → 可派 R10 实施 agent按五门 gate 消化 §7.5 代码债（由最近的 F6/F8/S2 报告作为实施依据）
+2. **会话习惯落盘** → §7.9 4 条教训（§10.33/34/35/36）建议写入 docs/会话习惯.md
+3. **git commit（§10.12 canonical 流程）**
+   - fix(p22): archtest 3 live failure（交实施）
+   - refactor(p22): F5/G10/G8 minor 维护债（可选）
+   - docs(p22): R10 FINAL + session-summary + 会话习惯 §10.33-36
+4. **stop 所有 idle agent 释放端口**（可选，不影响功能）
+
+### 7.11 最近 10 条对话摘要（本会话末尾）
+
+1. 读 session-summary + 会话习惯
+2. 读 P22 JUDGEMENT_STATIC.md
+3. 派 30 路 R8 审查 P22
+4. 派 4 路 Q 仲裁修文档（Q-A/B/C/D）
+5. 30 路 R9 delta 复核
+6. 4 路 Q R2 补修（Q-B 认错 H-1 / Q-D 认错 H-2）
+7. 主 agent §10.19 自改 P1a/P1b §现状校准 13 锚点
+8. 派 30 路 R10 冷启动红队
+9. Q R3 太卡 stopped，主 agent 直接仲裁
+10. 落盘 JUDGEMENT_R8_QA.md §R10 FINAL + session-summary §7

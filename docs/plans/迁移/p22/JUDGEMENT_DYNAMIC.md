@@ -227,7 +227,7 @@
 - 本轮新追加 Finding：**0 条**（沿用并复核既有 `Finding 10`）
 - 本轮死代码 / 空架子结论：**1 条** test-only helper 继续挂账——`waitDreamTask(...)`
 - 契约章节死链修订：**1 条**
-  - `README.md` 去掉了对不存在的 `fx-convention.md §4.4` 的直接章节号引用，改为“历史误引”表述。
+  - `README.md` 去掉了对不存在的 `fx-convention` 章节号的直接引用，改为“历史误引”表述。
 - 本轮动态域直修清单：
   1. `README.md`：修正 baseline 到 `findings 1-10`；补 `Finding 9/10`；修正 F2-F8 锚点；上调 `P2/P4/总计` 工时；去除死章节号写法
   2. `P0_RuntimeOwnershipSkeleton.md`：补 `TestCodeSizeGuard` 仅代表 size/freeze 的提示；补 runtime 守卫应新增独立 `*_guard_test.go`
@@ -244,8 +244,316 @@
 - 本轮独立抽样证据：
   - F1-F9 锚点实读：见本文件 `## 2` 与本轮 LSP 抽样
   - `spawnToolbridgePeers` xref：`internal/provider/codexapp/module.go:35`
-  - `NewTeamSyncService` xref：`internal/module/memory/team/module.go:13`（另有 tests）
+  - `TeamSyncService` xref：`internal/module/memory/team/module.go:18`、`internal/module/memory/module.go:165`（另有 tests）
   - `NewActiveAgentCounter` xref：`internal/ui/wails/module.go:24`
   - F9 toolbridge xref：`registerProxyLifecycle` <- `internal/platform/toolbridge/module.go:37`
   - `TestCodeSizeGuard`：PASS / **0 violations**
   - 契约章节存在性：`modularity §4.4` / `§7`、`fx §2` / `§3`、`rungroup §2` / `§4` 均经 `lsp_grep` 核实存在
+
+## 15. 第 5 轮仲裁（Q-F 独立仲裁）
+
+- 收报告：**19/20**
+  - 缺失：`R1=agent-1776902029011-1776902029008690000`；`orchestration_list_agents` 未见该 agent，`get_agent_report` 返回空，按缺失/超时记账
+- 分布：**🟢 2 / 🟡 16 / 🔴 1 / ⚪ 1**
+  - `R19` 为无颜色 fact-only 报告，本轮按 🟡 计入
+- 依 §10.18：存在 **🔴 BLOCK**，且全量 archtest 仍 FAIL，因此本轮总体定调继续为 **BLOCK**
+- 新 Finding：**0 条**
+- 契约死链修正：**1 条**（`JUDGEMENT_STATIC.md` 中把已失效的 README 死链遗留项改成“已修正，不再记为 live drift”）
+- 工时 / LoC 实测：
+  - Findings 1-10 锚点文件 LoC 合计：**3152**
+  - 当前工时口径仍为：**9-16.5 工程日（多人并行日历时间约 4-6 天）**
+- 本轮独立抽样（按 §10.32 硬规亲跑）：
+  1. F1-F9 锚点逐条 `lsp_file` 实读：`module.go:35`、`peer_spawn.go:18-155`、`mcpcontrol/module.go:184-199`、`rpc/module.go:149-166 + 179-197`、`memory/module.go:456-467`、`team_sync_watcher.go:72-79`、`auto_dream_task.go:156-178`、`process_lifecycle.go:220-239`、`toolbridge/module.go:130-159`
+  2. `lsp_xref(references)`：`spawnToolbridgePeers <- module.go:35`；`TeamSyncService <- team/module.go:18, memory/module.go:165`；`NewActiveAgentCounter <- ui/wails/module.go:24`；`registerProxyLifecycle <- toolbridge/module.go:37`
+  3. `go test ./internal/archtest/... -run TestCodeSizeGuard -count=1 -v`：**PASS / 0 violations**
+  4. `go test ./internal/archtest/... -v -count=1`：**FAIL / 3 violation entries / 2 unique files**
+     - `internal/module/memory/ui_rpc.go`：`rule2_module_impls_no_fx` + `rule10_fx_import_scope`
+     - `internal/module/prompt/classifier/claude_cli.go:59`：`TestTimeoutLocality`
+  5. 四处 root bridge 函数体完整核读：
+     - `internal/app/runner.go:34-87`
+     - `cmd/mcp-orch/runtime.go:225-262`
+     - `cmd/mcp-lsp/fx.go:203-237`
+     - `cmd/mcp-ida/fx.go:99-133`
+  6. 契约章节存在性复核：`modularity §4.4 / §7`、`fx §2 / §3`、`rungroup §2 / §4` 全部存在
+- 本轮直修落盘：
+  1. `README.md`：新增 `## archtest / 守卫现状数字`、`## 并行度矩阵（数字）`、`## 关键路径图（节点数字）`
+  2. `P0_RuntimeOwnershipSkeleton.md`：补当前 archtest 真值、现有 guard 清单、`freeze_registry` 的 numeric-only 语义
+  3. `P1a_CodexAppPeerSupervisor.md`：补启动早期误判 shutdown 与 stop 窗口晚到 spawn 两条竞态事实，以及对应验收项
+  4. `P1b_PlatformLoopRunners.md`：把 `Sweeper.Run` 收窄为 `timer+jitter` loop，并补 `OnStop` 仍无 join 的事实
+  5. `P1c_CodexAppSessionRuntime.md`：新增 `## 现状校准` / `## 实施步骤`，并把 shutdown / recovery / helper-wait 写进验收标准
+  6. `P4_DependencyDirectionAndHiddenContracts.md`：补 `ida` family “路径可见、常规分类不可达”的事实
+- 冲突调和：
+  - 与静态叙事版无实质冲突；本轮只把并行度落到数字：`P2` 峰值 **5 lanes**，`P4` 第一批峰值 **2 lanes**
+  - `TestCodeSizeGuard = PASS` 与 “全量 archtest = FAIL” 并不冲突；前者只证明 numeric budget/freeze 过关，不能代替 runtime/dependency 真值
+
+## 16. 承接 Judge-S §12.3 的事实补抽样（Q-F / 主 agent）
+
+- 覆盖范围：补 Judge-S `§12.3` 留给 `Q-F` 的 README↔代码抽样、archtest baseline、契约章节存在性、merge gate 现况。
+- README↔代码整体抽样：
+  - 4 处 root runtime bridge 仍在 `internal/app/runner.go:34-87`、`cmd/mcp-orch/runtime.go:225-262`、`cmd/mcp-lsp/fx.go:203-237`、`cmd/mcp-ida/fx.go:99-133`
+  - 对应 `platformrunner.RunGroup(...)` 调用仍在 `internal/app/runner.go:52`、`cmd/mcp-orch/runtime.go:238`、`cmd/mcp-lsp/fx.go:213`、`cmd/mcp-ida/fx.go:109`
+  - 结论：`README.md` 当前关于“4 处 root runtime bridge”“app/orch 双树同构 + lsp/ida runner-only sidecar”的叙事，与 HEAD 代码仍一致。
+- archtest baseline（2026-04-23 guarded 实测）：
+  - `./scripts/go_with_guard.sh test ./internal/archtest/... -count=1 -v`：**FAIL**
+  - 当前仍是 **3 条 baseline failure**：
+    1. `TestDependencyDirection/rule2_module_impls_no_fx`：`internal/module/memory/ui_rpc.go imports go.uber.org/fx outside module.go`
+    2. `TestDependencyDirection/rule10_fx_import_scope`：`internal/module/memory/ui_rpc.go imports go.uber.org/fx outside an assembly entry`
+    3. `TestTimeoutLocality`：`internal/module/prompt/classifier/claude_cli.go:59 uses context.WithTimeout outside platform/config/timeouts.go`
+  - `TestCodeSizeGuard` 仍为 **PASS / 0 violations**；可推知本轮 README 新增的 `P0` guard skeleton / allowlist 叙事尚未改变代码基线，只是把实施时机写实。
+- 契约章节存在性补核：
+  - `docs/契约/modularity-convention.md`：`§4.4` 在行 `555`，`§7` 在行 `781`
+  - `docs/契约/fx-convention.md`：`§2` 在行 `17`，`§3` 在行 `121`
+  - `docs/契约/rungroup-convention.md`：`§2` 在行 `17`，`§4` 在行 `129`
+  - 结论：本轮 README 顶部引用口径有效；当前仍应把“章节存在性”与“契约本体命名债是否已收口”分开判断。
+- merge gate / commit 级现况：
+  - 本次恢复上下文时，工作树未提交改动仅落在 `docs/plans/迁移/p22/README.md` 与 `docs/plans/迁移/p22/JUDGEMENT_STATIC.md`
+  - 结合本节补抽样，结论应是：**本轮只是文档层改判与事实补记，不构成 `P0`/archtest 守卫已可直接开工或先合 main 的代码级放行**
+- 本节裁决：
+  - Judge-S `§12.3` 的 5 条事实 gap 已补抽样落盘
+  - 动态域总体判定 **不变**：archtest baseline 仍有 `3` 条 live failure，repo-level 契约命名债也仍 deferred，因此总判定继续保持 **BLOCK**
+
+## 17. 第 6 轮仲裁（Round-9 / Q-F 延续）
+
+- 收报告：**20/20**
+- 分布：**🟢 2 / 🟡 15 / 🔴 3**
+  - 🟢：`R14`、`R17`
+  - 🔴：`R1`、`R7`、`R9`
+- 依 §10.18：存在 **🔴 BLOCK**，本轮总体定调继续为 **BLOCK**
+- Findings 行号 drift 修订：**1 条**
+  - `P1c` 把 `connection.dead` 链路从误写的 `recovery.go:242-250` 修正为 `session_approval.go:242-250 -> recovery.go:102-120`
+- 并行度矩阵数字终态：**✅**
+  - `P2` 峰值并行度：**5 lanes**
+  - `P2(memory 主切片) + P3`：**2 lanes**
+  - `P4` 首波并行度：**2 lanes**
+- critical path 节点数字终态：**✅**
+  - 主 critical path 仍为 **5 节点**
+- archtest / build 真值（本轮独立抽样）：
+  - `go test ./internal/archtest/... -run TestCodeSizeGuard -count=1 -v`：**PASS / 0 violations**
+  - `go build ./...`：**PASS**
+  - `internal/archtest/` 当前统计：**19 files / 15 *_test.go**
+  - runtime-specific guard 文件仍为 **0**：`fx_invoke_guard_test.go`、`lifecycle_onstart_guard_test.go`、`bus_callback_guard_test.go`、`runner_actor_guard_test.go` 均未落地
+  - repo baseline failure 仍为 **3**
+    1. `internal/module/memory/ui_rpc.go`：`rule2_module_impls_no_fx`
+    2. `internal/module/memory/ui_rpc.go`：`rule10_fx_import_scope`
+    3. `internal/module/prompt/classifier/claude_cli.go:59`：`TestTimeoutLocality`
+- 本轮独立抽样（§10.32 硬规）：
+  1. F1-F9 锚点实读：`module.go:35`、`peer_spawn.go:18-155`、`mcpcontrol/module.go:184-199`、`rpc/module.go:149-166 + 179-197`、`memory/module.go:456-467`、`team_sync_watcher.go:72-79`、`auto_dream_task.go:156-178`、`process_lifecycle.go:220-239`、`toolbridge/module.go:130-159`
+  2. `lsp_xref(references)`：`spawnToolbridgePeers <- module.go:35`；`TeamSyncService <- team/module.go:18, memory/module.go:165`；`NewActiveAgentCounter <- ui/wails/module.go:24`；`registerProxyLifecycle <- toolbridge/module.go:37`
+  3. `go test ./internal/archtest/... -run TestCodeSizeGuard -count=1 -v`：PASS
+  4. `go build ./...`：PASS
+- 本轮事实层直修：**6 条**
+  1. `README.md`：补 `go build ./... = PASS`
+  2. `P1b_PlatformLoopRunners.md`：补 `rpc` runner producer 接线形状；补 startup-fatal / warn-only / sweeper 三段状态迁移测试与验收
+  3. `P1c_CodexAppSessionRuntime.md`：修正 `connection.dead` 真实链路锚点
+  4. `P3_OrchestrationWaiterAlignment.md`：补 `service_launcher_bridge.go:195-198` 旁路、`claimMonitorTargets()` 与 `monitoredSeq/lastExitedSeq` 清理、以及 root wiring ripple
+  5. `P4_DependencyDirectionAndHiddenContracts.md`：补 `NewActiveAgentCounter`、`thread/turn`、`gopls/bootstrap` 的精确 `file:line`
+  6. `JUDGEMENT_DYNAMIC.md`：追加 Round-9 仲裁记录
+- 交给 Q-E：**5 条**
+  1. `README` 节点级出口条件仍偏形态描述，缺 `Finding -> 节点` 显式映射与 merge/test gate 叙事
+  2. `P0` phased rollout / semantic allowlist / 4 guard 落地顺序仍需静态层写成可直接派工的实施蓝图
+  3. `P4` 五子域 pairwise 矩阵与 codemap debt banner 同步仍未完成
+  4. `P2` 内部 `cachekeepalive` 的 lane 归属在 README / P2 叙事之间仍需静态层统一
+  5. `README` 级总体验收与 `P21 / session-summary` 交接矩阵仍不够操作化
+- 实施就绪度建议：**BLOCK**
+  - 理由：虽然 `go build ./...` 与 `TestCodeSizeGuard` 已绿，但 Round-9 仍有 `3` 路 BLOCK 审查，且 repo baseline 仍有 `3` 条 live archtest failure；当前只到“文档与事实更完整”，还没到“可直接放行实施”
+
+## 18. 第 7 轮仲裁（Round-11 / Q-F 延续）
+
+- 收报告：**20/20**
+- 分布：**🟢 2 / 🟡 9 / 🔴 9**
+  - 🟢：`R19`、`R20`
+  - 🔴：`R1`、`R3`、`R4`、`R5`、`R6`、`R9`、`R10`、`R13`、`R18`
+- 依 §10.18：存在 **🔴 BLOCK**，本轮总体定调继续为 **BLOCK**
+- Findings 行号 drift：**0 条**
+  - F1-F9 再次 `lsp_file` 实读后，当前锚点仍稳定在 `35` / `18-155` / `184-199` / `149-166 + 179-197` / `456-467` / `72-79` / `156-178` / `220-239` / `130-159`
+- 并行度矩阵数字终态：**✅**
+  - `P2` 峰值并行度仍为 **5 lanes**
+  - `P2` 内部 scope→lane 数字映射已显式落盘：`memory=1`、`thread=2`、`cachekeepalive=2`、`hooks=3`、`config_change=3`、`rpc push/eventsurface=3`、`toolbridge=4`、`gopls+bootstrap=5`
+  - `P2(memory 主切片) + P3` 仍为 **2 lanes**；`P3` exit contract 保持 package-local，不经全局 bus
+- critical path 节点数字终态：**✅**
+  - 主 critical path 仍为 **5 节点**
+- archtest 真值：**PASS / 0**
+  - `go test ./internal/archtest/... -run TestCodeSizeGuard -count=1 -v`：PASS / 0 violations
+  - `go build ./...`：PASS
+  - 守卫接入时机口径：**方案 B**（`P0` 先 skeleton/allowlist/helper，具体 guard 随 owning slice 同 PR red-green）
+  - repo baseline 仍为 **3** 条 live failure（`ui_rpc.go` 2 条 + `claude_cli.go:59` 1 条）
+- 本轮关键空架子 / 非空壳 xref：
+  - `spawnToolbridgePeers <- internal/provider/codexapp/module.go:35`
+  - `TeamSyncService <- internal/module/memory/team/module.go:18`、`internal/module/memory/module.go:165`
+  - `NewActiveAgentCounter <- internal/ui/wails/module.go:24`
+  - `registerProxyLifecycle <- internal/platform/toolbridge/module.go:37`
+  - `waitForProcessExit <- cmd/mcp-orch/orchestration/helpers.go:173`
+  - `waitDreamTask` 仍只有 `_test.go` caller，为 test-only helper
+  - `startApprovalCleanupLoop <- internal/platform/rpc/module.go:195`
+- 本轮事实层修订：**5 条**
+  1. `README.md`：补 `P2` 内部 8 scope × 5 lane 数字映射，修正 `cachekeepalive` lane 漂移
+  2. `P0_RuntimeOwnershipSkeleton.md`：把 archtest 接入时机显式标为 **方案 B**
+  3. `JUDGEMENT_DYNAMIC.md`：修正文内残留的死章节号表述
+  4. `JUDGEMENT_STATIC.md`：修正文内残留的死章节号表述
+  5. `P4_DependencyDirectionAndHiddenContracts.md`：补 `NewActiveAgentCounter`、`thread/turn`、`gopls/bootstrap` 的精确 `file:line`
+- 交给 Q-E：**4 条**
+  1. `README` 虽可排派工顺序，但 merge/test gate 与 `Finding -> 节点` 显式映射仍偏叙事层收口
+  2. `P0` 若要把“hard-gate”写成强版本，仍需静态层明确 `P0-only gate vs slice-owned gate` 判定表
+  3. `P4` 仍缺 pairwise scope 矩阵与 codemap debt banner 同步
+  4. `README` 级总体验收与 `P21 / session-summary` 交接矩阵仍不够操作化
+- 实施就绪度（事实层）：**🔴 BLOCK**
+- 理由：三轮独立覆盖后仍有 `9` 路 Round-10 环形交叉报告给出 🔴；`P1a/P2(memory)/P2(other)/P3/P4` 的 live code blocker 尚未消失，repo baseline 也仍有 `3` 条 archtest failure
+
+## 19. 第 8 轮 Q-B 元裁决（2026-04-23，对应用户要求的 §15 模板；本文件按 §10.31 续号追加）
+
+### 19.1 收报状态表
+
+| 路 | agent | 轮询结果 | 结论 | 摘要 |
+|---|---|---|---|---|
+| V9 | `p22-R8-V9-JudgeStatic-selfaudit` | idle | 🟡 | 静态稿有旧轮自证老化，但大部分年轮仍可复测 |
+| V10 | `p22-R8-V10-JudgeDynamic-selfaudit` | idle | 🟡 | 动态稿 10/10 硬验证与 §3 漂移表大体仍真；主要 stale 点在 `P2/F10` 与 `Finding 11/12` disposition |
+| H5 | `p22-R8-H5-anchor-truth` | idle | 🟡 | `README+P0-P4` 主锚点大多仍对；旧范围漂移集中在 `JUDGEMENT_DYNAMIC` 历史描述层 |
+| H7 | `p22-R8-H7-hours-consistency` | idle | 🟡 | 工时 / LoC / archtest 数字一致；`P2` 顶部 findings 漏 `Finding 10` |
+| L1 | `p22-R8-L1-claim-vs-reality-grep` | idle | 🔴 | `JUDGEMENT_STATIC` 对死章节号清空的 claim 与当前 HEAD 不完全一致 |
+| L5 | `p22-R8-L5-only-add-not-delete` | thinking → thinking → idle | 🟡 | 无 §10.31 实质删减，只有年轮自证漂移 |
+
+- 收报结果：**6/6**
+- 轮询说明：`orchestration_list_agents` 3 次调用均因 **34 agents / output too large** 无法完整展示；因此本轮改以 6 个指定 agent 的 `orchestration_get_agent_report(...).state` 做 idle 取报依据。`L5` 在第三次轮询才转 idle，无 `>300s` 超时项。
+
+### 19.2 独立抽样复核结果
+
+- 文档锚点抽样：对 `JUDGEMENT_STATIC` 声称“已命中”的锚点再抽 **14 条**，本轮 `lsp_grep` 结果 **14/14 仍命中**（README/P0/P1b/P1c/P2/P4 关键锚点均存活；详见姐妹裁决 `JUDGEMENT_STATIC.md §15.2`）。
+- `JUDGEMENT_DYNAMIC §3` 行号 drift 表抽样 **7 条**，本轮 `lsp_file` 复核 **7/7 一致**：
+  - F1 `internal/provider/codexapp/module.go:35`
+  - F2 `internal/provider/codexapp/peer_spawn.go:18-155`
+  - F4 `internal/platform/rpc/module.go:149-166 + 179-197`
+  - F5 `internal/module/memory/module.go:456-467`
+  - F7 `internal/module/memory/auto_dream_task.go:156-178`
+  - F8 `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239`
+  - F10 `internal/module/memory/module.go:435-437 + internal/module/memory/nested/nested_runtime.go:314-339`
+- archtest 真值复核：
+  - `go test ./internal/archtest/... -run TestCodeSizeGuard -count=1 -v`：**PASS / 0 violations**
+  - `go test ./internal/archtest/... -count=1 -v`：**FAIL / 3 live failures**
+  - `internal/archtest/freeze_registry.go:19`：`explicitFreezeRegistry` 仍为空
+  - `internal/archtest/guardlib.go:22-32`：numeric 守卫仍为 `600 / 800 / 30 / 10000`
+- “旧行应 0 命中”复核：
+  - ✅ `JUDGEMENT_DYNAMIC.md`：死章节号宽搜短语 = `0-hit`
+  - ✅ `README.md`：`findings 1-8` / `只修 findings` = `0-hit`
+  - ❌ `JUDGEMENT_STATIC.md`：R1 当轮仍有旧完整死链串命中；R2 需补到 `0-hit`
+
+### 19.3 claim-vs-reality §10.21 违反清单
+
+1. **`P2_BusRuntimeDecoupling.md` 的 `## 对应 findings` 仍未显式列 `Finding 10`**
+   - `lsp_grep "Finding 10" docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md` 当前已命中 `P2_BusRuntimeDecoupling.md:5`；但 `:7-12` 的 `## 对应 findings` 列表仍只列 `5/6/7/9`。
+   - authoritative 改判：**已补 F10 语义；顶部清单仍漏 explicit bullet。**
+2. **`Finding 11/12` / `pre-drain` / `watchFXShutdown` 的 R1 `0-hit` claim 已失效**
+   - R2 authoritative disposition：`Finding 11 = 不升级`；`Finding 12 = 强候选 / deferred`；`pre-drain / watchFXShutdown = live handoff gap`。
+   - 因此后续自证只能写 disposition，不再写这些词条在 `JUDGEMENT_DYNAMIC.md` 中 `0-hit`。
+3. **R1 对 H-1 的 authoritative 更正 claim 过早**
+   - R1 曾写 `JUDGEMENT_STATIC.md` 已修正文内残留死章节号表述；该说法构成 claim-vs-reality 违反。
+   - R2 已通过断词改写把 `JUDGEMENT_STATIC.md` 的完整旧串补到 `0-hit`，并在姐妹裁决 `§16.2` 留痕。
+
+### 19.4 §10.31 只加不删合规 self-check
+
+- 本轮以文件末尾续写为主，另含少数历史 truth-correction；未删除 `§1-§18` 历史记录。
+- 历史 code-anchor 复核仍成立：
+  - `spawnToolbridgePeers <- internal/provider/codexapp/module.go:35`
+  - `registerProxyLifecycle <- internal/platform/toolbridge/module.go:37`
+  - `waitForProcessExit <- cmd/mcp-orch/orchestration/helpers.go:173`
+  - `waitDreamTask` 仍仅 `_test.go` caller
+- 当轮 diff / 行数快照已转入后续轮次续更；当前 rerun 见 `§20.6`。
+- 若未来要真正改写旧轮 `P2/F10` 文字，需在保留年轮的前提下单独 justify。
+
+### 19.5 行号 drift 表更新
+
+| Finding / 条目 | 历史记录 | 现 HEAD | 结论 |
+|---|---|---|---|
+| F1 | `internal/provider/codexapp/module.go:35` | `internal/provider/codexapp/module.go:35` | 稳定 |
+| F2 | `internal/provider/codexapp/peer_spawn.go:18-155` | `internal/provider/codexapp/peer_spawn.go:18-155` | 稳定 |
+| F4 | `internal/platform/rpc/module.go:149-166 + 179-197` | `internal/platform/rpc/module.go:149-166 + 179-197` | 稳定 |
+| F5 | `internal/module/memory/module.go:456-467` | `internal/module/memory/module.go:456-467` | 稳定 |
+| F7 | `internal/module/memory/auto_dream_task.go:156-178` | `internal/module/memory/auto_dream_task.go:156-178` | 稳定 |
+| F8 | `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239` | `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239` | 稳定 |
+| F10 | `internal/module/memory/module.go:435-437 + internal/module/memory/nested/nested_runtime.go:314-339` | 同上 | 稳定 |
+| `connection.dead` 链路（后续轮修订项） | `session_approval.go:242-250 -> recovery.go:102-120` | 同上 | 稳定 |
+
+### 19.6 交给 Q-A / Q-C / Q-D 的 gap
+
+- **Q-A（README / P0-P4 文档域）**
+  1. `P2_BusRuntimeDecoupling.md` 若继续不在顶部列 `Finding 10`，需同步改写 README / `JUDGEMENT_DYNAMIC` 相关表述，避免编号 claim-vs-reality。
+  2. `README / P4 / codemap / debt banner / 外部 followup` 的同步仍未闭环。
+- **Q-C（契约域）**
+  1. `runner.actors` vs `group:"runners"` 仍是 repo-level 契约债。
+  2. `fx / bus / run.Group` 三层分工条文仍需继续与 P22 文档统一。
+- **Q-D（动态 / 代码事实域）**
+  1. archtest baseline 仍有 **3 条** live failure。
+  2. `Finding 12` 是否升级、`Finding 11` 是否继续拒绝升级、以及 `pre-drain` / `watchFXShutdown` 最终 disposition，仍待代码事实域定案。
+  3. `P1a/P2(memory)/P2(other)/P3/P4` 的 live code blocker 仍未解除；本轮只修 `JUDGEMENT_*` 事实表述，不代签代码 READY。
+
+### 19.7 LSP 自证（Q-B 本轮）
+
+1. `lsp_file internal/provider/codexapp/module.go:32-37` -> `fx.Invoke(spawnToolbridgePeers)` 仍在 `:35`
+2. `lsp_file internal/provider/codexapp/peer_spawn.go:18-155` -> F2 现 HEAD 全段仍在
+3. `lsp_file internal/platform/rpc/module.go:149-197` -> F4 仍为 `149-166 + 179-197`
+4. `lsp_file internal/module/memory/module.go:456-467` -> F5 TeamSync start/stop callback 仍在 `:458/:463`
+5. `lsp_file internal/module/memory/auto_dream_task.go:156-178` -> F7 `go func()` 仍在 `:173`
+6. `lsp_file cmd/mcp-orch/orchestration/process_lifecycle.go:220-239` -> F8 `go a.waitForExit(...)` 仍在 `:222`
+7. `lsp_file internal/module/memory/nested/nested_runtime.go:314-339` -> F10 `os.ReadFile(...)` 仍在 `:320`
+8. `lsp_file internal/archtest/freeze_registry.go:19-25` -> `explicitFreezeRegistry = []explicitFreeze{}`
+9. `lsp_file internal/archtest/guardlib.go:22-32` -> numeric 守卫常量 `600/800/30/10000`
+10. `lsp_grep docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md "Finding 10"` -> `命中 P2:5；## 对应 findings 列表仍缺 explicit bullet`
+11. `lsp_grep docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md "NestedRuntime"` -> `P2_BusRuntimeDecoupling.md:5,313`
+12. `lsp_file internal/platform/toolbridge/diff_fallback.go:44-61` -> callback 内仍 `resolveCWD/currentGitDiff`
+13. `lsp_xref internal/platform/toolbridge/diff_fallback.go:44:31` -> prod caller `internal/platform/toolbridge/module.go:117`
+14. `lsp_file internal/platform/toolbridge/module.go:110-128` -> `registerDiffFallbackLifecycle` 仍在 `OnStart` 注册 `tracker.handleToolCallEnd`
+15. `lsp_file internal/mcpserver/common/server.go:92-145` -> `Run()` 仍 `go s.readLoop(results)`，但 readLoop 仍是同 owner 私有 helper
+16. `lsp_xref cmd/mcp-orch/orchestration/process_lifecycle.go:136:19` -> `waitForProcessExit <- helpers.go:173`
+17. `lsp_grep docs/plans/迁移/p22/JUDGEMENT_DYNAMIC.md "Finding 11"` -> `命中本文件“不升级” disposition`
+18. `lsp_grep docs/plans/迁移/p22/JUDGEMENT_DYNAMIC.md "Finding 12"` -> `命中本文件“强候选 / deferred” disposition`
+19. `lsp_grep docs/plans/迁移/p22/JUDGEMENT_DYNAMIC.md "pre-drain"` -> `命中本文件 handoff gap 记账`
+20. `lsp_grep docs/plans/迁移/p22/JUDGEMENT_DYNAMIC.md "watchFXShutdown"` -> `命中本文件 handoff gap 记账`
+21. `lsp_grep docs/plans/迁移/p22/JUDGEMENT_STATIC.md "<旧完整死链串>"` -> `R2 后 0-hit`
+
+## 20. 第 8 轮 Q-B Round-2 补修（2026-04-23）
+
+### 20.1 收报状态表
+|路|state|结论|要点|
+|---|---|---|---|
+|V9|idle|🔴|H-1 与 `§15` 自撞需补修|
+|V10|idle|🟡|F10 / `0-hit` 自证需改判|
+|H5|idle|🟡|旧 stale literals 与新 HEAD drift 需分层记账|
+|H7|idle|🟡|数字面统一，但 `P2/F10` 与 `P1b 30min/5min` 仍待 owning 文档收口|
+|L1|idle|🔴|H-1 claim-vs-reality 成立|
+|L5|thinking（已收 report）|🟡|§10.31 实质违规未见|
+- `orchestration_list_agents` 仍因 `34 agents` 超限；本轮以 6 路 `orchestration_get_agent_report(...)` 收报。
+
+### 20.2 H-1 修复证据
+- before：`JUDGEMENT_STATIC` 完整旧串 `3-hit`；宽搜短语 `6 matches`。
+- after：`JUDGEMENT_STATIC` 完整旧串 `0-hit`；宽搜短语 `0-hit`。
+- before/after diff：`§4 line 68` 与 `§6 line 94` 已改为断词表述；`§15/§19` 的旧 claim 改写为“R1 claim 失实 / R2 0-hit 补齐”。
+- 认错：R1 chairman 声称 authoritative 更正已达成不属实；R2 已补齐。
+
+### 20.3 R9 销账表
+- F10：✅ owning 文档已补齐 `## 对应 findings` explicit bullet，`§19/§20` 中“只补语义、列表未补”的说法降为历史年轮。
+- F11：✅ 最终判定 = 不升级。
+- F12：✅ 最终判定 = 强候选 / deferred。
+- `pre-drain / watchFXShutdown`：⚠️ 仍为 live handoff gap。
+- `§19.4` over-claim：✅ 已改成“以末尾追加为主 + 少数 truth-correction”。
+
+### 20.4 本轮其他补修清单
+- 改 `§19.2/§19.3/§19.4/§19.7` 的 `0-hit` 自撞与 F10 误报，并跟随 owning 文档补齐 `P2` 顶部/验收/TDD 的 F10 明示。
+- 重跑 archtest / freeze / diff self-check 并在本节续记。
+- 动态稿不越界代签 Q-A / Q-C 代码 READY。
+
+### 20.5 交其他 Q 的 gap
+- Q-A：`README / P4 / codemap / debt banner / 外部 followup` 的外围文档同步仍未闭环。
+- Q-C：契约命名债与三层分工条文仍未统一。
+- Q-D：repo baseline `3` 条 live archtest failure 仍在；代码 blocker 仍待实现层收口。
+
+### 20.6 §10.31 self-check（净减少 %）
+- 当前 `git diff --numstat -- JUDGEMENT_*`：`JUDGEMENT_STATIC +310/-3`、`JUDGEMENT_DYNAMIC +310/-2`。
+- 当前行数为 `596 / 559`；两文件仍均 `<600`。
+- 历史章节净减少 `0%`；本文件无 `§1-§19` 删除。
+
+### 20.7 LSP 自证 ≥15 条
+- `grep`：`P2 Finding 10` 命中 `P2:5,13`；`TestNestedToolReadIngestEnqueueOnly` 命中 `P2:413`；`ToolCallEnd -> AddToolReadResult(...)` 验收项命中 `P2:440`。
+- `grep`：`Finding 11/12`、`pre-drain`、`watchFXShutdown` 已在本节写成 disposition / handoff gap，不再写 `0-hit`。
+- `file`：`diff_fallback.go:44-61`；`toolbridge/module.go:110-128`；`server.go:92-145`；`process_lifecycle.go:220-239`；`freeze_registry.go:19-25`。
+- `xref`：`handleToolCallEnd <- module.go:117`；`waitForProcessExit <- helpers.go:173`；`waitForExit <- startWaiters:222`。
+- `inspect/structure/completion/diagnostics`：`diff_fallback.go/server.go` symbols；`DefaultApprovalTimeout` hover；`toolbridge/module.go` completion；`JUDGEMENT_*` diagnostics=`0`。
+- `exec` 复核：`TestCodeSizeGuard=PASS/0`；全量 archtest=`FAIL/3`；`freeze_registry` 仍空。
