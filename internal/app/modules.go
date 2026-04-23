@@ -3,13 +3,17 @@ package app
 import (
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/notify"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/cachekeepalive"
@@ -50,6 +54,12 @@ var Module = fx.Options(
 	skill.Module,
 	thread.Module,
 	turn.Module,
+	turnobservation.Module,
+	// P21 模块：P1b cron 计划任务、P2 多平台通知、P3 session insights。
+	// 三者均采用 fx optional 依赖，缺少上游依赖时自动降级为 noop，不阻塞整体装配图闭合。
+	cron.Module,
+	notify.Module,
+	insight.Module,
 	uistate.Module,
 	unified.Module,
 	claudecli.Module,

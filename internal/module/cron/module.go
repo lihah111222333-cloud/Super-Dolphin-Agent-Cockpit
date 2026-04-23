@@ -22,6 +22,7 @@ import (
 // internal/module/turn-backed implementation. Overriding the submitter
 // in a parent Fx module is a single fx.Decorate replacing the Noop.
 var Module = fx.Module("cron",
+	fx.Provide(provideStore),
 	fx.Provide(NewService),
 	fx.Provide(NewHandlers),
 	fx.Provide(provideSchedulerConfig),
@@ -30,6 +31,12 @@ var Module = fx.Module("cron",
 	fx.Provide(fx.Annotate(provideTickActor, fx.ResultTags(`group:"runners"`))),
 	fx.Provide(fx.Annotate(provideLeaseActor, fx.ResultTags(`group:"runners"`))),
 )
+
+// provideStore narrows the fully-featured cronstore.Store into the
+// module-local Store interface. cronstore.Store is a superset, so
+// the assignment is legal; the narrower facade keeps the service
+// layer decoupled from the sqlc-backed implementation surface.
+func provideStore(s cronstore.Store) Store { return s }
 
 // provideSchedulerConfig returns the zero SchedulerConfig so callers who
 // don't supply one (via fx.Decorate or fx.Supply) get the Default*
