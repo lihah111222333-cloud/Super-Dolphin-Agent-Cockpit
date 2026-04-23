@@ -1,0 +1,273 @@
+package notify
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platform "github.com/anthropic-ai/super-agent-v3/internal/module/notify/platform"
+)
+
+// startSlackTLSServer returns a TLS httptest server that accepts POSTs
+// and records the bodies it receives. We use the AllowPrivateCIDR opt-
+// in because httptest binds 127.0.0.1.
+func startSlackTLSServer(t *testing.T) (*httptest.Server, *[]string, *sync.Mutex) {
+	t.Helper()
+	var mu sync.Mutex
+	var bodies []string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(b))
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	return srv, &bodies, &mu
+}
+
+func newTLSClient(srv *httptest.Server) *platform.WebhookClient {
+	c := platform.NewWebhookClient(platform.WebhookClientConfig{
+		Timeout:          2 * time.Second,
+		AllowPrivateCIDR: true,
+	})
+	c.HTTPClient().Transport.(*http.Transport).TLSClientConfig =
+		srv.Client().Transport.(*http.Transport).TLSClientConfig
+	return c
+}
+
+// TestFlusherSendsQueuedRequest verifies the full path: enqueue a
+// Slack request, run the flusher briefly, observe the server body
+// carries the rendered block kit payload.
+func TestFlusherSendsQueuedRequest(t *testing.T) {
+	t.Parallel()
+	srv, bodies, mu := startSlackTLSServer(t)
+	defer srv.Close()
+	resolver := &testResolver{known: map[string]platform.ChannelConfig{
+		"s": {Platform: platform.PlatformSlack, URL: srv.URL},
+	}}
+	n := NewNotifier(slog.Default(), resolver, 4)
+	f := NewFlusher(slog.Default(), n, newTLSClient(srv), 200*time.Millisecond)
+
+	if err := n.TryEnqueue(context.Background(), contract.NotifyRequest{
+		ChannelAlias: "s",
+		Message:      contract.NotifyMessage{Title: "hello", Body: "world", Level: contract.NotifyLevelInfo},
+	}); err != nil {
+		t.Fatalf("TryEnqueue: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- f.Run(ctx) }()
+
+	// Wait until the server has recorded the body or the test times
+	// out.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(*bodies)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("flusher did not exit on cancel")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(*bodies) != 1 {
+		t.Fatalf("server got %d bodies, want 1", len(*bodies))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte((*bodies)[0]), &payload); err != nil {
+		t.Fatalf("body not json: %v", err)
+	}
+	if _, ok := payload["blocks"].([]any); !ok {
+		t.Fatalf("body missing blocks: %v", payload)
+	}
+	m := f.Metrics()
+	if m.Sent != 1 || m.Delivered != 1 {
+		t.Fatalf("metrics = %+v, want Sent=1 Delivered=1", m)
+	}
+}
+
+// TestFlusherDeliversBulkQueue verifies the main loop processes a
+// full queue of requests and each body reaches the server. Shutdown
+// is via ctx cancel after the server has recorded everything; drain
+// semantics (bounded ctx for in-flight POSTs) are exercised by
+// TestFlusherDrainBoundedContext below.
+func TestFlusherDeliversBulkQueue(t *testing.T) {
+	t.Parallel()
+	srv, bodies, mu := startSlackTLSServer(t)
+	defer srv.Close()
+	resolver := &testResolver{known: map[string]platform.ChannelConfig{
+		"s": {Platform: platform.PlatformSlack, URL: srv.URL},
+	}}
+	n := NewNotifier(slog.Default(), resolver, 8)
+	f := NewFlusher(slog.Default(), n, newTLSClient(srv), 5*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- f.Run(ctx) }()
+
+	for i := 0; i < 3; i++ {
+		if err := n.TryEnqueue(ctx, contract.NotifyRequest{
+			ChannelAlias: "s",
+			Message:      contract.NotifyMessage{Title: "t", Body: "b"},
+		}); err != nil {
+			t.Fatalf("TryEnqueue: %v", err)
+		}
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(*bodies)
+		mu.Unlock()
+		if n >= 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("flusher did not exit after cancel")
+	}
+
+	mu.Lock()
+	got := len(*bodies)
+	mu.Unlock()
+	if got != 3 {
+		t.Fatalf("expected 3 deliveries, got %d", got)
+	}
+	if m := f.Metrics(); m.Delivered != 3 {
+		t.Fatalf("metrics Delivered = %d, want 3 (%+v)", m.Delivered, m)
+	}
+}
+
+// TestFlusherDrainBoundedContext exercises the shutdown drain path
+// specifically — we pre-fill the queue, cancel before Run starts so
+// the very first select picks ctx.Done, and let drain() deliver what
+// it can within its timeout. The assertion is pessimistic: drain is
+// allowed to finish early if the OS serializes quickly, but at least
+// one request must land so we know the drain path is live.
+func TestFlusherDrainBoundedContext(t *testing.T) {
+	t.Parallel()
+	srv, bodies, mu := startSlackTLSServer(t)
+	defer srv.Close()
+	resolver := &testResolver{known: map[string]platform.ChannelConfig{
+		"s": {Platform: platform.PlatformSlack, URL: srv.URL},
+	}}
+	n := NewNotifier(slog.Default(), resolver, 4)
+	f := NewFlusher(slog.Default(), n, newTLSClient(srv), 5*time.Second)
+
+	for i := 0; i < 2; i++ {
+		if err := n.TryEnqueue(context.Background(), contract.NotifyRequest{
+			ChannelAlias: "s",
+			Message:      contract.NotifyMessage{Title: "drain", Body: "b"},
+		}); err != nil {
+			t.Fatalf("TryEnqueue: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = f.Run(ctx)
+
+	mu.Lock()
+	got := len(*bodies)
+	mu.Unlock()
+	if got < 1 {
+		t.Fatalf("drain path must deliver at least 1 request, got %d", got)
+	}
+}
+
+// TestFlusherResolveErrorIsLoggedNotFatal verifies a bad alias in the
+// queue (should never happen since TryEnqueue pre-resolves, but
+// defensive) merely bumps the resolveErrs counter.
+func TestFlusherResolveErrorIsLoggedNotFatal(t *testing.T) {
+	t.Parallel()
+	n := NewNotifier(slog.Default(), &testResolver{known: map[string]platform.ChannelConfig{}}, 4)
+	// Inject a request directly past the TryEnqueue pre-resolution.
+	n.queue <- contract.NotifyRequest{ChannelAlias: "ghost", Message: contract.NotifyMessage{Title: "x"}}
+	f := NewFlusher(slog.Default(), n, platform.NewWebhookClient(platform.WebhookClientConfig{}), 200*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	_ = f.Run(ctx)
+
+	m := f.Metrics()
+	if m.ResolveErrs != 1 || m.Delivered != 0 {
+		t.Fatalf("metrics = %+v, want ResolveErrs=1 Delivered=0", m)
+	}
+}
+
+// TestFlusherNilQueueSitsOnCtx covers the defensive nil-queue branch
+// (e.g. misconfigured Fx wiring) — the Runner must still obey ctx so
+// the RunGroup's shutdown contract is intact.
+func TestFlusherNilQueueSitsOnCtx(t *testing.T) {
+	t.Parallel()
+	f := &Flusher{} // zero-value, no queue
+	ctx, cancel := context.WithCancel(context.Background())
+	var done atomic.Bool
+	go func() {
+		_ = f.Run(ctx)
+		done.Store(true)
+	}()
+	// Give the goroutine a moment; it must NOT finish before cancel.
+	time.Sleep(20 * time.Millisecond)
+	if done.Load() {
+		t.Fatal("flusher with nil queue exited before ctx cancel")
+	}
+	cancel()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if done.Load() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("flusher did not exit after cancel")
+}
+
+// sanity: render dispatcher reaches all three platforms.
+func TestFlusherRenderDispatch(t *testing.T) {
+	t.Parallel()
+	f := &Flusher{now: func() time.Time { return time.Unix(1_700_000_000, 0).UTC() }}
+	for _, plat := range []platform.Platform{platform.PlatformDingtalk, platform.PlatformFeishu, platform.PlatformSlack} {
+		cfg := platform.ChannelConfig{Platform: plat, URL: "https://example.com/hook", Secret: "sec"}
+		if plat == platform.PlatformSlack {
+			cfg.Secret = ""
+		}
+		_, body, _, err := f.render(cfg, contract.NotifyMessage{Title: "t", Body: "b"})
+		if err != nil {
+			t.Fatalf("render %s: %v", plat, err)
+		}
+		if !strings.Contains(string(body), "\"") {
+			t.Fatalf("render %s produced no JSON body", plat)
+		}
+	}
+	// Unsupported platform sentinel.
+	if _, _, _, err := f.render(platform.ChannelConfig{Platform: "pigeon"}, contract.NotifyMessage{}); err == nil {
+		t.Fatal("render should reject unsupported platform")
+	}
+}
