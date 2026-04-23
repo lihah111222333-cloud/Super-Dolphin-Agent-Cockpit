@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,17 +31,16 @@ func spawnToolbridgePeers(mgr *ServerManager) {
 			time.Sleep(200 * time.Millisecond)
 		}
 
-		exe, err := os.Executable()
+		binDirs, err := resolvePeerBinDirs()
 		if err != nil {
 			pkglogger.Warn("server_manager: cannot resolve binary dir", "error", err)
 			return
 		}
-		binDir := filepath.Dir(exe)
 
 		for _, name := range []string{"mcp-orch", "mcp-lsp"} {
-			binPath := filepath.Join(binDir, name)
-			if _, err := os.Stat(binPath); err != nil {
-				pkglogger.Warn("peer spawn: binary not found", "binary", name, "path", binPath)
+			binPath, ok := findPeerBinary(binDirs, name)
+			if !ok {
+				pkglogger.Warn("peer spawn: binary not found", "binary", name, "candidates", binDirs)
 				continue
 			}
 			stdinR, stdinW, err := os.Pipe()
@@ -110,12 +110,16 @@ func watchAndRestartPeer(mgr *ServerManager, name string, cmd *exec.Cmd, stdinW 
 
 // restartPeer spawns a new peer process and updates the manager state.
 func restartPeer(mgr *ServerManager, name string, oldCmd *exec.Cmd, oldPipe *os.File) (*exec.Cmd, *os.File, error) {
-	exe, err := os.Executable()
+	binDirs, err := resolvePeerBinDirs()
 	if err != nil {
 		pkglogger.Warn("peer watch: cannot resolve binary for restart", "error", err)
 		return nil, nil, err
 	}
-	binPath := filepath.Join(filepath.Dir(exe), name)
+	binPath, ok := findPeerBinary(binDirs, name)
+	if !ok {
+		pkglogger.Warn("peer watch: binary not found for restart", "binary", name, "candidates", binDirs)
+		return nil, nil, os.ErrNotExist
+	}
 	stdinR, newW, err := os.Pipe()
 	if err != nil {
 		pkglogger.Warn("peer watch: pipe failed on restart", "error", err)
@@ -153,3 +157,45 @@ func restartPeer(mgr *ServerManager, name string, oldCmd *exec.Cmd, oldPipe *os.
 
 	return newCmd, newW, nil
 }
+
+// resolvePeerBinDirs returns the ordered list of directories in which to look
+// for mcp-orch / mcp-lsp peer binaries. The first existing file wins.
+//
+// Resolution order:
+//  1. $GO_AGENT_PEER_BIN_DIR (supports OS-path-list separator so a caller can
+//     pass multiple directories); intended for dev `go run` flows where the
+//     main binary lives under a tempdir but peer binaries are in ./bin.
+//  2. Directory of os.Executable() — production / packaged install layout.
+func resolvePeerBinDirs() ([]string, error) {
+	var dirs []string
+	if override := strings.TrimSpace(os.Getenv("GO_AGENT_PEER_BIN_DIR")); override != "" {
+		for _, part := range filepath.SplitList(override) {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				dirs = append(dirs, part)
+			}
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		if len(dirs) == 0 {
+			return nil, err
+		}
+		return dirs, nil
+	}
+	dirs = append(dirs, filepath.Dir(exe))
+	return dirs, nil
+}
+
+// findPeerBinary walks the candidate directories in order and returns the
+// first readable peer binary match.
+func findPeerBinary(dirs []string, name string) (string, bool) {
+	for _, dir := range dirs {
+		candidate := filepath.Join(dir, name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+

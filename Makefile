@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain test test-deferred vet clean guard guard-shell protocol-sync-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries test test-deferred vet clean guard guard-shell protocol-sync-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -51,12 +51,23 @@ export ENABLE_MEMORY_SYSTEM
 export ENABLE_MEMORY_TOOLS
 export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM
 
-run-agent-terminal-debug:
-	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
+# When agent-terminal runs via `go run`, its own binary lives under a go-build
+# tempdir, so spawnToolbridgePeers cannot locate mcp-orch / mcp-lsp next to it.
+# Build the peers into ./bin and point GO_AGENT_PEER_BIN_DIR at that directory
+# so dev runs get the same toolbridge wiring as packaged builds.
+build-peer-binaries:
+	@mkdir -p bin
+	go build -o bin/mcp-orch ./cmd/mcp-orch
+	go build -o bin/mcp-lsp ./cmd/mcp-lsp
+
+run-agent-terminal-debug: build-peer-binaries
+	GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
+		go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
 		go run -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
 
-run-agent-terminal-debug-plain:
-	go run ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
+run-agent-terminal-debug-plain: build-peer-binaries
+	GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
+		go run ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
 
 mcp:
 	go run ./cmd/mcp-server/main.go
