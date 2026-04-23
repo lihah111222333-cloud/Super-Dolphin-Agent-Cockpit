@@ -158,3 +158,85 @@ func TestTurnTrackerIgnoresInvalidInputs(t *testing.T) {
 		t.Fatal("Get() found missing turn")
 	}
 }
+
+func TestTurnTrackerRegisterAndGetByDedupeKey(t *testing.T) {
+	t.Parallel()
+
+	tracker := newTurnTracker()
+	tracker.Start("local-1", "", "thread-1")
+	tracker.RegisterDedupeKey("local-1", " key-a ")
+	tracker.Update("local-1", "running")
+
+	status, ok := tracker.GetByDedupeKey("key-a")
+	if !ok {
+		t.Fatal("GetByDedupeKey(key-a) found = false, want true")
+	}
+	if status.LocalID != "local-1" || status.State != "running" {
+		t.Fatalf("GetByDedupeKey returned %+v", status)
+	}
+}
+
+func TestTurnTrackerGetByDedupeKeyEmptyKey(t *testing.T) {
+	t.Parallel()
+
+	tracker := newTurnTracker()
+	tracker.Start("local-1", "", "thread-1")
+	tracker.RegisterDedupeKey("local-1", "key-a")
+
+	if _, ok := tracker.GetByDedupeKey("  "); ok {
+		t.Fatal("empty key should miss")
+	}
+}
+
+func TestTurnTrackerGetByDedupeKeySkipsTerminal(t *testing.T) {
+	t.Parallel()
+
+	tracker := newTurnTracker()
+	tracker.Start("local-1", "", "thread-1")
+	tracker.RegisterDedupeKey("local-1", "key-a")
+	tracker.Complete("local-1", true, "") // terminal -> state=completed
+
+	// A second live turn with the same key (simulating a restart scenario)
+	tracker.Start("local-2", "", "thread-1")
+	tracker.RegisterDedupeKey("local-2", "key-a")
+	tracker.Update("local-2", "running")
+
+	status, ok := tracker.GetByDedupeKey("key-a")
+	if !ok || status.LocalID != "local-2" {
+		t.Fatalf("want live turn local-2, got %+v (ok=%v)", status, ok)
+	}
+}
+
+func TestTurnTrackerRegisterDedupeKeyIgnoresUnknownLocalID(t *testing.T) {
+	t.Parallel()
+
+	tracker := newTurnTracker()
+	tracker.RegisterDedupeKey("never-started", "key-a")
+
+	if _, ok := tracker.GetByDedupeKey("key-a"); ok {
+		t.Fatal("unknown localID registration should be a no-op")
+	}
+}
+
+func TestTurnTrackerGetByDedupeKeyReturnsLatestOnConflict(t *testing.T) {
+	t.Parallel()
+
+	tracker := newTurnTracker()
+	tracker.Start("local-old", "", "thread-1")
+	tracker.RegisterDedupeKey("local-old", "key-shared")
+	tracker.Update("local-old", "running")
+
+	// Second registration with the same key — last-wins semantics.
+	tracker.Start("local-new", "", "thread-1")
+	tracker.RegisterDedupeKey("local-new", "key-shared")
+	tracker.Update("local-new", "running")
+
+	status, ok := tracker.GetByDedupeKey("key-shared")
+	if !ok {
+		t.Fatal("GetByDedupeKey found = false")
+	}
+	// Both live; GetByDedupeKey returns the most recently updated.
+	if status.LocalID != "local-new" {
+		t.Fatalf("want local-new (latest updated), got %+v", status)
+	}
+}

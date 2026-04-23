@@ -17,6 +17,7 @@ type turnTracker struct {
 
 type trackedTurn struct {
 	localID, providerID, threadID string
+	dedupeKey                     string
 	state                         string
 	startedAt, updatedAt          time.Time
 	lastError                     string
@@ -224,6 +225,58 @@ func (t *turnTracker) GetByProviderID(providerID string) (TurnStatus, bool) {
 		}
 	}
 	return TurnStatus{}, false
+}
+
+// RegisterDedupeKey stamps a dedupeKey onto an already-tracked turn.
+// Empty localID or dedupeKey is silently ignored so callers can always
+// invoke this without guarding on "did cron set a key this time". The
+// tracker does not enforce uniqueness here — the authoritative dedupe
+// check happens in GetByDedupeKey; a duplicate registration simply
+// overwrites the previous key (the last Start wins, which matches the
+// provider-layer idempotency contract).
+func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
+	localID = strings.TrimSpace(localID)
+	dedupeKey = strings.TrimSpace(dedupeKey)
+	if localID == "" || dedupeKey == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if turn, ok := t.turns[localID]; ok {
+		turn.dedupeKey = dedupeKey
+		turn.updatedAt = time.Now()
+	}
+}
+
+// GetByDedupeKey returns the most recently updated non-terminal turn
+// that matches dedupeKey. A terminal turn (completed / failed / ...)
+// is deliberately skipped so a fresh StartTurn after a prior
+// terminal isn't mistaken for a still-in-flight submission — cron
+// crash recovery only cares about "is there a live turn with this
+// key right now".
+//
+// When nothing matches the caller gets ok=false and an empty status.
+// Callers MUST treat ok=false as "never submitted" per the P1b plan.
+func (t *turnTracker) GetByDedupeKey(dedupeKey string) (TurnStatus, bool) {
+	dedupeKey = strings.TrimSpace(dedupeKey)
+	if dedupeKey == "" {
+		return TurnStatus{}, false
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	var current *trackedTurn
+	for _, turn := range t.turns {
+		if turn.dedupeKey != dedupeKey || turn.isTerminal() {
+			continue
+		}
+		if current == nil || turn.updatedAt.After(current.updatedAt) {
+			current = turn
+		}
+	}
+	if current == nil {
+		return TurnStatus{}, false
+	}
+	return current.status(), true
 }
 
 func (t *trackedTurn) status() TurnStatus {

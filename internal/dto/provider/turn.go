@@ -17,6 +17,11 @@ type TurnRequest struct {
 	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
 	Overrides            TurnOverrides   `json:"overrides"`
 	MCP                  MCPManifest     `json:"mcp"`
+	// DedupeKey carries the turn layer's in-memory idempotency token so
+	// StartTurn can register it on the tracker. It is intentionally not
+	// forwarded to the provider wire format today — codex / claudecli
+	// driver idempotency is a follow-up once the SQL persistence lands.
+	DedupeKey            string          `json:"-"`
 }
 
 type TurnOverrides struct {

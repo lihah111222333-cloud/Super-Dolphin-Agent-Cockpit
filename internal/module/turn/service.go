@@ -151,6 +151,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		OutputSchema:         input.OutputSchema,
 		Overrides:            s.buildOverrides(session.Capabilities(), input),
 		MCP:                  mcp,
+		DedupeKey:            strings.TrimSpace(input.DedupeKey),
 	}
 	assembly, err := s.prepareTurnAssembly(ctx, threadID, input, userText, req)
 	if err != nil {
@@ -221,6 +222,11 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	req.ThreadID = threadID
 	s.tracker.Cleanup()
 	s.tracker.Start(req.LocalID, "", req.ThreadID)
+	// Stamp the dedupe key on the tracked turn before dispatching so a
+	// concurrent LookupByDedupeKey can see this submission even if the
+	// provider call is in flight. RegisterDedupeKey is a no-op when
+	// req.DedupeKey is empty.
+	s.tracker.RegisterDedupeKey(req.LocalID, req.DedupeKey)
 	handle, err := session.StartTurn(ctx, req)
 	if err != nil {
 		s.tracker.Complete(req.LocalID, false, err.Error())
@@ -316,6 +322,20 @@ func (s *service) TrackTurn(ctx context.Context, localID string) (TurnStatus, er
 		return TurnStatus{}, errors.New("turn not found")
 	}
 	return status, nil
+}
+
+// LookupByDedupeKey resolves a dedupeKey to the in-memory tracker
+// entry that registered it. See Service.LookupByDedupeKey for the
+// caller contract — ok=false means "never submitted (in this
+// process)", which is the scheduler's cue to proceed with a fresh
+// StartTurn via the normal pending→submitting path.
+func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (TurnStatus, bool, error) {
+	ctx = platformshared.NonNilContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return TurnStatus{}, false, err
+	}
+	status, ok := s.tracker.GetByDedupeKey(dedupeKey)
+	return status, ok, nil
 }
 
 func (s *service) watchTurn(handle contract.TurnHandle, localID string) {

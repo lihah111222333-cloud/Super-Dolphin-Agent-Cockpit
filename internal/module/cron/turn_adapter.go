@@ -26,13 +26,14 @@ import (
 //     the job fires for the first time) is NOT in this cut — that
 //     bootstrap pattern belongs in a follow-up that also fills
 //     thread_id onto the job row before the first tick.
-//   - LookupByDedupeKey: always returns Found=false. A proper lookup
-//     requires persisting dedupe_key on the turn row (schema change)
-//     plus a query API on turn.Service; both are follow-up work. The
-//     scheduler will therefore treat every crash-recovery branch as
-//     "never submitted" for v1, which is safe: the still-present
-//     submit phase's CAS(pending->submitting) guards a second
-//     StartTurn on the same run.
+//   - LookupByDedupeKey: delegates to turn.Service.LookupByDedupeKey,
+//     which reads the in-memory tracker. That covers the common
+//     crash-recovery window (same process, transient failure between
+//     StartTurn returning and the run row CAS-advancing to
+//     submitted); a process restart erases the tracker, so the SQL
+//     persistence half of the P1b plan remains a follow-up. ok=false
+//     is mapped to ObservedTurn{Found:false} so the scheduler treats
+//     every tracker miss as "never submitted" per the plan.
 //   - Observe: delegates to turn.Service.TrackTurn; a not-found error
 //     maps to ErrTurnNotFound so the scheduler marks the run
 //     observe_lost per the P1b plan.
@@ -60,10 +61,12 @@ func NewTurnServiceAdapter(logger *slog.Logger, svc turn.Service, resolver contr
 // will retry per its retry budget.
 var ErrJobNotBootstrapped = errors.New("cron: job thread_id is empty (agent/thread bootstrap not yet supported)")
 
-// StartTurn runs the PrepareTurn -> StartTurn pipeline. It does NOT
-// thread dedupe_key into the provider layer (no support yet) — the
-// phase-1 store CAS(pending->submitting) is currently the only guard
-// against double StartTurn within a run.
+// StartTurn runs the PrepareTurn -> StartTurn pipeline. DedupeKey is
+// forwarded to the turn layer so a subsequent LookupByDedupeKey can
+// resolve the submission within the same process; cross-process
+// crash recovery still relies on the phase-1 store
+// CAS(pending->submitting) gate until the dedupe_key SQL column
+// lands.
 func (a *TurnServiceAdapter) StartTurn(ctx context.Context, req StartTurnRequest) (StartTurnResult, error) {
 	if a == nil || a.svc == nil || a.resolver == nil {
 		return StartTurnResult{}, errors.New("cron: turn adapter not wired")
@@ -98,15 +101,37 @@ func (a *TurnServiceAdapter) StartTurn(ctx context.Context, req StartTurnRequest
 	}, nil
 }
 
-// LookupByDedupeKey is a placeholder pending the dedupe-key column on
-// the turn row (and the corresponding store query). The scheduler
-// treats Found=false as "never submitted" and proceeds with the
-// normal pending->submitting path; the store's CAS sequence plus the
-// phase-1 unique(dedupe_key) constraint on cron_job_runs catches
-// duplicate submits within the cron layer even without turn-side
-// support.
-func (a *TurnServiceAdapter) LookupByDedupeKey(_ context.Context, _ string) (ObservedTurn, error) {
-	return ObservedTurn{Found: false}, nil
+// LookupByDedupeKey queries the in-memory turn tracker for a
+// non-terminal turn that registered dedupeKey. See the type-level doc
+// comment for the cross-process caveat: a process restart erases the
+// tracker, so the scheduler still falls back to "never submitted" in
+// that case and relies on the store's CAS(pending->submitting) guard.
+// Empty dedupeKey short-circuits to Found=false without hitting the
+// service so callers that haven't opted into dedupe see a cheap
+// deterministic answer.
+func (a *TurnServiceAdapter) LookupByDedupeKey(ctx context.Context, dedupeKey string) (ObservedTurn, error) {
+	if a == nil || a.svc == nil {
+		return ObservedTurn{Found: false}, errors.New("cron: turn adapter not wired")
+	}
+	key := strings.TrimSpace(dedupeKey)
+	if key == "" {
+		return ObservedTurn{Found: false}, nil
+	}
+	status, found, err := a.svc.LookupByDedupeKey(ctx, key)
+	if err != nil {
+		return ObservedTurn{Found: false}, fmt.Errorf("cron: lookup by dedupe key: %w", err)
+	}
+	if !found {
+		return ObservedTurn{Found: false}, nil
+	}
+	// Prefer the local tracker id as the ObservedTurn.TurnID so the
+	// scheduler's bookkeeping stays consistent with StartTurn's return
+	// value (which also records handle.LocalID() as the turn_id).
+	turnID := strings.TrimSpace(status.LocalID)
+	if turnID == "" {
+		turnID = strings.TrimSpace(status.ProviderID)
+	}
+	return ObservedTurn{Found: true, TurnID: turnID}, nil
 }
 
 // Observe attaches a cheap liveness check via turn.Service.TrackTurn.
@@ -152,6 +177,7 @@ func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) turn.Prepar
 		AgentID:             strings.TrimSpace(req.AgentID),
 		CWD:                 strings.TrimSpace(req.CWD),
 		ThreadRuntimeConfig: runtimeCfg,
+		DedupeKey:           strings.TrimSpace(req.DedupeKey),
 	}
 }
 

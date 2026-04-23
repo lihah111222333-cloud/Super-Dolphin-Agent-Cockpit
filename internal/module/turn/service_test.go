@@ -538,3 +538,61 @@ func skillNames(refs []dto.SkillRef) []string {
 	}
 	return names
 }
+
+// TestServiceLookupByDedupeKeyRoundTrip exercises the
+// PrepareTurn -> StartTurn -> LookupByDedupeKey path end-to-end. The
+// dedupe key set on PrepareInput must flow through to TurnRequest
+// and end up registered on the tracker so a subsequent LookupByDedupeKey
+// hits the live turn.
+func TestServiceLookupByDedupeKeyRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger())
+	session := &stubSession{
+		threadID: "thread-1",
+		startTurn: func(_ context.Context, _ dto.TurnRequest) (contract.TurnHandle, error) {
+			return &stubTurnHandle{localID: "turn-1", providerID: "p-1", done: make(chan struct{})}, nil
+		},
+	}
+
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+		Prompt:    "dedupe me",
+		DedupeKey: " dedupe-round-trip ",
+	})
+	if err != nil {
+		t.Fatalf("PrepareTurn err = %v", err)
+	}
+	if req.DedupeKey != "dedupe-round-trip" {
+		t.Fatalf("PrepareTurn should forward trimmed DedupeKey, got %q", req.DedupeKey)
+	}
+
+	if _, err := svc.StartTurn(context.Background(), session, req); err != nil {
+		t.Fatalf("StartTurn err = %v", err)
+	}
+
+	status, ok, err := svc.LookupByDedupeKey(context.Background(), "dedupe-round-trip")
+	if err != nil {
+		t.Fatalf("LookupByDedupeKey err = %v", err)
+	}
+	if !ok {
+		t.Fatal("LookupByDedupeKey ok = false, want true")
+	}
+	if status.LocalID == "" {
+		t.Fatalf("status missing LocalID: %+v", status)
+	}
+}
+
+// TestServiceLookupByDedupeKeyEmpty verifies an empty key short-circuits
+// through the tracker and returns ok=false without error.
+func TestServiceLookupByDedupeKeyEmpty(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger())
+	_, ok, err := svc.LookupByDedupeKey(context.Background(), "  ")
+	if err != nil {
+		t.Fatalf("LookupByDedupeKey err = %v", err)
+	}
+	if ok {
+		t.Fatal("empty dedupe key must miss")
+	}
+}

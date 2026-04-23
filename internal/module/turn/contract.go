@@ -18,6 +18,14 @@ type Service interface {
 	ForceCompleteTurn(ctx context.Context, session contract.Session) error
 	CleanupThread(ctx context.Context, threadID, reason string) error
 	TrackTurn(ctx context.Context, localID string) (TurnStatus, error)
+	// LookupByDedupeKey returns the tracked status of a non-terminal turn
+	// that previously registered the given dedupeKey via
+	// PrepareTurn/StartTurn. ok=false means "never submitted (in this
+	// process)" — callers such as cron crash-recovery must treat that as
+	// an absent submission per the P21 P1b plan. The tracker is
+	// in-memory, so a process restart erases registrations; a follow-up
+	// PR will persist dedupe_key to SQL for cross-process recovery.
+	LookupByDedupeKey(ctx context.Context, dedupeKey string) (TurnStatus, bool, error)
 }
 
 type SessionProvider interface {
@@ -59,6 +67,13 @@ type PrepareInput struct {
 	ThreadRuntimeConfig          map[string]any
 	ThreadCaps                   dto.CapabilitySet
 	BinaryDir                    string
+	// DedupeKey is an optional per-submission idempotency token. Cron
+	// sets it to sha256(job_id||scheduled_at||idempotency_key) so a
+	// crash between "StartTurn returned" and "run.status advanced to
+	// submitted" can still resolve the turn via
+	// Service.LookupByDedupeKey instead of double-submitting. Empty
+	// means "no dedupe tracking" (the default; non-cron callers).
+	DedupeKey                    string
 }
 
 type TurnStatus struct {

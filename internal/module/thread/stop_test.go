@@ -418,6 +418,9 @@ func (s *stubTurnService) CleanupThread(_ context.Context, threadID, reason stri
 func (s *stubTurnService) TrackTurn(context.Context, string) (turn.TurnStatus, error) {
 	return turn.TurnStatus{}, nil
 }
+func (s *stubTurnService) LookupByDedupeKey(context.Context, string) (turn.TurnStatus, bool, error) {
+	return turn.TurnStatus{}, false, nil
+}
 
 type stubThreadOrchestration struct {
 	launchReq      LaunchAgentRequest
