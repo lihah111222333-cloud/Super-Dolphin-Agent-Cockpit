@@ -68,6 +68,16 @@ func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Regist
 			registry.Register(pid, "codex-app-server-pool", map[string]string{"codex_home": home})
 		}
 	}
+	// Establish a control WebSocket + JSON-RPC initialize handshake so
+	// codex stays awake. Mirrors ServerManager.start: without this
+	// call, codex app-server sees zero clients after boot, times
+	// itself out, and Alive() starts reporting false within hundreds
+	// of ms. Sessions layered on top will still create their own WS
+	// connections; this one is the pool-owned keep-alive.
+	if err := t.establish(startupCtx); err != nil {
+		_ = t.shutdownTransport(false)
+		return nil, fmt.Errorf("codexapp: pool establish: %w", err)
+	}
 	logger.Info("codexapp: pool spawned app-server",
 		slog.String("codex_home", home),
 		slog.String("server_url", serverURL),
