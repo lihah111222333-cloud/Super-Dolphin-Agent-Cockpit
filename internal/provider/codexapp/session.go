@@ -47,6 +47,12 @@ type session struct {
 	suppressed         map[string]struct{}
 	processedApprovals map[string]*processedApprovalEntry
 	runtimeConfig      map[string]any
+	// poolRelease is set when the session was acquired from the P21
+	// ServerPool (multi-provider Codex path). It decrements the entry's
+	// refCount so LRU eviction sees the session end; nil for
+	// ServerManager-backed sessions.
+	poolRelease        func()
+	poolReleaseOnce    sync.Once
 }
 
 var _ contract.Session = (*session)(nil)
@@ -68,16 +74,29 @@ func newSession(
 	dispatcher *unified.EventDispatcher,
 	approvals *rpc.ApprovalManager,
 	manager *ServerManager,
+	opts ...sessionOption,
 ) (*session, error) {
-	// Each session owns its own WS connection. When a ServerManager is
-	// running, connect to the shared app-server process (no local spawn);
-	// otherwise create a standalone transport with its own process.
+	cfg := sessionOptions{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	// Each session owns its own WS connection. Precedence:
+	//   1. explicit poolURL (P21 multi-provider Codex, per-codexHome pool)
+	//   2. ServerManager shared URL (single-instance Codex)
+	//   3. raw serverURL arg (remote debug override)
 	url := serverURL
-	if manager != nil && manager.Running() {
+	if cfg.poolURL != "" {
+		url = cfg.poolURL
+	} else if manager != nil && manager.Running() {
 		url = manager.ServerURL()
 	}
 	t, err := newTransport(transportCtx, url)
 	if err != nil {
+		// On spawn failure we must still release the pool slot we
+		// reserved so the next Acquire sees accurate refCount.
+		if cfg.poolRelease != nil {
+			cfg.poolRelease()
+		}
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -97,11 +116,32 @@ func newSession(
 		suppressed:         map[string]struct{}{},
 		processedApprovals: map[string]*processedApprovalEntry{},
 	}
+	s.poolRelease = cfg.poolRelease
 	s.noteReadActivity()
 	s.startReadLoop()
 	s.startHealthLoop()
 
 	return s, nil
+}
+
+// sessionOption is a functional option for newSession used to pass
+// pool-specific context without exploding the positional signature
+// every existing non-pool caller relies on.
+type sessionOption func(*sessionOptions)
+
+type sessionOptions struct {
+	poolURL     string
+	poolRelease func()
+}
+
+// withPoolServer wires a ServerPool-backed SpawnedServer into the
+// session. The release function is invoked exactly once during
+// shutdownSessionCleanup (guarded by poolReleaseOnce).
+func withPoolServer(url string, release func()) sessionOption {
+	return func(o *sessionOptions) {
+		o.poolURL = url
+		o.poolRelease = release
+	}
 }
 
 func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawMessage) {
@@ -295,8 +335,18 @@ func (s *session) ForceStop() error {
 }
 
 // shutdownSessionCleanup handles cleanup when a session shuts down.
+// Currently its single job is to return a pool-backed session to the
+// ServerPool so the entry becomes evictable. Idempotent so concurrent
+// Close + ForceStop can't double-release.
 func (s *session) shutdownSessionCleanup() {
-	// placeholder for future idle tracking cleanup
+	if s == nil {
+		return
+	}
+	s.poolReleaseOnce.Do(func() {
+		if s.poolRelease != nil {
+			s.poolRelease()
+		}
+	})
 }
 
 func (s *session) dispatch(raw dto.RawProviderEvent) {
