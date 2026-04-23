@@ -146,7 +146,6 @@ func buildStartRequestFromParams(p startParams) StartRequest {
 		AgentKey:          p.AgentKey,
 		PromptKey:         p.PromptKey,
 		UseClassifier:     p.UseClassifier,
-		PromptCandidates:  append([]string(nil), p.PromptCandidates...),
 		DeferSpawn:        p.DeferSpawn,
 	}
 }
@@ -195,14 +194,6 @@ func buildStartResponse(result StartResult) map[string]any {
 	if result.PromptVersionID != nil {
 		response["prompt_version_id"] = *result.PromptVersionID
 		response["promptVersionId"] = *result.PromptVersionID
-	}
-	if len(result.MergedCandidateKeys) > 0 {
-		response["merged_candidate_keys"] = result.MergedCandidateKeys
-		response["mergedCandidateKeys"] = result.MergedCandidateKeys
-	}
-	if len(result.MergedCandidateTitles) > 0 {
-		response["merged_candidate_titles"] = result.MergedCandidateTitles
-		response["mergedCandidateTitles"] = result.MergedCandidateTitles
 	}
 	if result.PendingLaunch {
 		response["pending_launch"] = true

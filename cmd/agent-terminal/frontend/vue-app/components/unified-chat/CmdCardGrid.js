@@ -29,7 +29,7 @@ export const CmdCardGrid = {
             {{ card.statusHeader }}
           </span>
           <span v-if="card.provider" class="thread-cli-badge" :class="'cli-' + card.provider">{{ card.provider === 'claude' ? 'Claude' : 'Codex' }}</span>
-<span v-if="card.mergedCandidateKeys && card.mergedCandidateKeys.length > 0" class="thread-agent-badge" :title="'候选池多源注入：' + ((card.mergedCandidateTitles && card.mergedCandidateTitles.length > 0 ? card.mergedCandidateTitles : card.mergedCandidateKeys) || []).join('、')">候选池<span class="thread-agent-badge-prompt">·{{ card.mergedCandidateKeys.length }} 条</span></span>
+
           <span v-else-if="card.agentTitle || card.agentKey || card.promptKey" class="thread-agent-badge" :title="'路由 agent：' + (card.agentKey || '-') + (card.promptKey ? (' / prompt：' + card.promptKey) : '')">{{ card.agentTitle || card.agentKey || card.promptKey }}</span>
           <span v-if="card.pendingLaunch" class="thread-pending-badge" title="线程已创建，首轮发送时才会启动 CLI">待启动</span>
           <span v-if="card.cwdMismatch" class="thread-cwd-mismatch-badge" :title="card.cwdMismatchReason || 'CWD 不匹配'">⚠ CWD</span>

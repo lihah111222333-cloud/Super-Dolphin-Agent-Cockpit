@@ -332,23 +332,13 @@ function applyTurnStartRouting(threadId, res) {
     typeof res.prompt_version_id === 'number' ? res.prompt_version_id
     : typeof res.promptVersionId === 'number' ? res.promptVersionId
     : null;
-  const mergedRaw = res.merged_candidate_keys || res.mergedCandidateKeys;
-  const mergedCandidateKeys = Array.isArray(mergedRaw)
-    ? mergedRaw.map((k) => (typeof k === 'string' ? k.trim() : '')).filter((k) => k !== '')
-    : [];
-  const mergedTitlesRaw = res.merged_candidate_titles || res.mergedCandidateTitles;
-  const mergedCandidateTitles = Array.isArray(mergedTitlesRaw)
-    ? mergedTitlesRaw.map((k) => (typeof k === 'string' ? k.trim() : '')).filter((k) => k !== '')
-    : [];
-  if (!agentKey && !agentTitle && !promptKey && promptVersionId == null && mergedCandidateKeys.length === 0) return false;
+  if (!agentKey && !agentTitle && !promptKey && promptVersionId == null) return false;
   const prev = _routingByThread.get(threadId) || {};
   _routingByThread.set(threadId, {
     agentKey: agentKey || prev.agentKey || '',
     agentTitle: agentTitle || prev.agentTitle || '',
     promptKey: promptKey || prev.promptKey || '',
     promptVersionId: promptVersionId != null ? promptVersionId : (prev.promptVersionId ?? null),
-    mergedCandidateKeys: mergedCandidateKeys.length > 0 ? mergedCandidateKeys : (prev.mergedCandidateKeys || []),
-    mergedCandidateTitles: mergedCandidateTitles.length > 0 ? mergedCandidateTitles : (prev.mergedCandidateTitles || []),
     overridden: prev.overridden === true,
   });
   return true;
@@ -393,12 +383,10 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     providerPref,
     activePromptKey,
     classifierEnabled,
-    candidatesRaw,
   ] = await Promise.all([
     getPref(ctx.withPreferenceScope({ key: 'settings.provider.active' })),
     needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined),
     getPref({ key: 'settings.classifierEnabled', cwd }),
-    getPref({ key: 'settings.candidatePromptKeys', cwd }),
   ]);
 
   const modelProvider = (typeof providerPref === 'string' && providerPref.trim()) ? providerPref.trim() : '';
@@ -432,23 +420,6 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // also set (explicit pin short-circuits the classifier backend-side).
   if (classifierEnabled === true || classifierEnabled === 'true') {
     payload.use_classifier = true;
-  }
-  // P21 multi-enable: curated candidate pool from SystemPromptPage's per-row
-  // checkbox. Backend behavior depends on `classifierEnabled` above:
-  //   - classifier OFF: pool entries are concatenated Claude-claudeMd-style
-  //     (`Contents of <key>:\n<body>` blocks) and injected as the thread's
-  //     BaseInstructions (see internal/module/thread/router_resolve.go
-  //     applyCandidatePoolMerge). No LLM call.
-  //   - classifier ON: pool narrows the classifier's candidate range from
-  //     the full library to these rows.
-  // Whether the classifier runs is decided solely by `classifierEnabled` —
-  // a non-empty pool never implicitly enables it. This avoids the foot-gun
-  // where a stale pool silently triggers a 5-15s claude-p round trip.
-  const candidatesList = Array.isArray(candidatesRaw)
-    ? candidatesRaw.map((k) => (typeof k === 'string' ? k.trim() : '')).filter((k) => k !== '')
-    : [];
-  if (candidatesList.length > 0) {
-    payload.prompt_candidates = candidatesList;
   }
   // First user message (if any) forwarded so the backend router has input
   // to classify. Without this the router always sees empty input at
@@ -484,29 +455,12 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     typeof res?.prompt_version_id === 'number' ? res.prompt_version_id
     : typeof res?.promptVersionId === 'number' ? res.promptVersionId
     : null;
-  // P21 pool-merge: backend returns every prompt_key that contributed a
-  // block to BaseInstructions. Non-empty only on the pool-merge path; the
-  // explicit-pin / classifier / default-fallback paths leave this absent.
-  const mergedCandidateKeysRaw = res?.merged_candidate_keys || res?.mergedCandidateKeys;
-  const mergedCandidateKeys = Array.isArray(mergedCandidateKeysRaw)
-    ? mergedCandidateKeysRaw
-        .map((k) => (typeof k === 'string' ? k.trim() : ''))
-        .filter((k) => k !== '')
-    : [];
-  const mergedCandidateTitlesRaw = res?.merged_candidate_titles || res?.mergedCandidateTitles;
-  const mergedCandidateTitles = Array.isArray(mergedCandidateTitlesRaw)
-    ? mergedCandidateTitlesRaw
-        .map((k) => (typeof k === 'string' ? k.trim() : ''))
-        .filter((k) => k !== '')
-    : [];
-  if (agentKey || agentTitle || promptKey || promptVersionId != null || mergedCandidateKeys.length > 0) {
+  if (agentKey || agentTitle || promptKey || promptVersionId != null) {
     _routingByThread.set(id, {
       agentKey,
       agentTitle,
       promptKey,
       promptVersionId,
-      mergedCandidateKeys,
-      mergedCandidateTitles,
       overridden: Boolean(agentKeyOverride),
     });
   }

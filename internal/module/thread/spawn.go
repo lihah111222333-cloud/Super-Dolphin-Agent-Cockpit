@@ -74,7 +74,6 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		Provider:      strings.TrimSpace(req.Provider),
 		PromptKey:        strings.TrimSpace(req.PromptKey),
 		UseClassifier:    req.UseClassifier,
-		PromptCandidates: append([]string(nil), req.PromptCandidates...),
 		Runtime:          shared.CloneRuntimeConfigMap(req.Config),
 	}
 	configOverride, err := encodeStoredThreadConfig(pendingStored)
@@ -205,17 +204,12 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	if err := s.runPendingSpawn(ctx, &req, row, agentID, threadID); err != nil {
 		return false, SpawnRouting{}, err
 	}
-	// req.* are populated by resolveRoutedPrompt inside runPendingSpawn. Copy
-	// the slices so later mutations on req can't race with the response path.
-	merged := append([]string(nil), req.MergedCandidateKeys...)
-	mergedTitles := append([]string(nil), req.MergedCandidateTitles...)
+	// req.* are populated by resolveRoutedPrompt inside runPendingSpawn.
 	return true, SpawnRouting{
-		AgentKey:              req.AgentKey,
-		AgentTitle:            req.AgentTitle,
-		PromptKey:             req.PromptKey,
-		PromptVersionID:       req.PromptVersionID,
-		MergedCandidateKeys:   merged,
-		MergedCandidateTitles: mergedTitles,
+		AgentKey:        req.AgentKey,
+		AgentTitle:      req.AgentTitle,
+		PromptKey:       req.PromptKey,
+		PromptVersionID: req.PromptVersionID,
 	}, nil
 }
 
@@ -267,7 +261,6 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		ApprovalPolicy:   storedCfg.Approvals,
 		PromptKey:        storedCfg.PromptKey,
 		UseClassifier:    storedCfg.UseClassifier,
-		PromptCandidates: append([]string(nil), storedCfg.PromptCandidates...),
 		Config:           shared.CloneRuntimeConfigMap(storedCfg.Runtime),
 	}
 	// normalizeStartRequest fills in provider default ("codex"), resolves CWD,

@@ -238,8 +238,6 @@ func (s *service) persistStartedSession(
 		AgentTitle:            req.AgentTitle,
 		PromptKey:             req.PromptKey,
 		PromptVersionID:       req.PromptVersionID,
-		MergedCandidateKeys:   req.MergedCandidateKeys,
-		MergedCandidateTitles: req.MergedCandidateTitles,
 		TaskID:                firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
 		HandoffFile:           firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
 	}, nil
