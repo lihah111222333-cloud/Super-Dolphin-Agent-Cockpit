@@ -30,6 +30,7 @@ sql:
       - "migrations/0057_seed_claude_style_prompt.sql"
       - "migrations/0058_seed_claude_style_sections.sql"
       - "migrations/0059_rename_claude_style_sections_to_builtin_keys.sql"
+      - "migrations/0060_turn_dedupe_registry.sql"
     gen:
       go:
         package: "sqlc"

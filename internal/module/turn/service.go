@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -40,12 +41,29 @@ type service struct {
 	turnContextProvider    contract.TurnContextProvider
 	skillLookup            skillHydrationPort
 	interruptSettleTimeout time.Duration
+	// dedupeStore is the optional durable mirror for dedupe_key -> local_turn_id.
+	// nil when the deployment has not wired the turndedupe store; the tracker
+	// alone handles same-process dedupe in that case. When set, StartTurn
+	// upserts a registry row and Complete/Stall stamps terminal_at.
+	dedupeStore turndedupe.Store
 
 	// ctx/cancel bound to the service lifetime. Shutdown cancels ctx so
 	// background goroutines (watchTurn) can exit instead of waiting out
 	// full trackerTTL after the module stops.
 	ctx       context.Context
 	ctxCancel context.CancelFunc
+}
+
+// setDedupeStore is wired from fx via registerTurnDedupeStore after
+// the Service is constructed. Kept as a package-private setter so
+// the public constructor surface stays stable; non-fx callers can
+// leave the field nil and the tracker continues to service dedupe
+// lookups on its own.
+func (s *service) setDedupeStore(store turndedupe.Store) {
+	if s == nil {
+		return
+	}
+	s.dedupeStore = store
 }
 
 type steerableSession interface {
@@ -227,18 +245,22 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	// provider call is in flight. RegisterDedupeKey is a no-op when
 	// req.DedupeKey is empty.
 	s.tracker.RegisterDedupeKey(req.LocalID, req.DedupeKey)
+	s.recordDedupeUpsert(ctx, req.DedupeKey, req.LocalID, req.ThreadID)
 	handle, err := session.StartTurn(ctx, req)
 	if err != nil {
 		s.tracker.Complete(req.LocalID, false, err.Error())
+		s.recordDedupeTerminal(ctx, req.DedupeKey)
 		return nil, err
 	}
 	if handle == nil {
 		err = errors.New("turn handle is nil")
 		s.tracker.Complete(req.LocalID, false, err.Error())
+		s.recordDedupeTerminal(ctx, req.DedupeKey)
 		return nil, err
 	}
 	s.tracker.AttachHandle(req.LocalID, handle)
 	s.tracker.BindProviderID(req.LocalID, handle.ProviderID())
+	s.recordDedupeProviderID(ctx, req.DedupeKey, handle.ProviderID())
 	s.tracker.Update(req.LocalID, "running")
 	s.watchTurn(handle, req.LocalID)
 	return handle, nil
@@ -334,8 +356,118 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 	if err := ctx.Err(); err != nil {
 		return TurnStatus{}, false, err
 	}
-	status, ok := s.tracker.GetByDedupeKey(dedupeKey)
-	return status, ok, nil
+	if status, ok := s.tracker.GetByDedupeKey(dedupeKey); ok {
+		return status, true, nil
+	}
+	// Tracker miss. Fall back to the durable registry when wired so a
+	// post-restart cron recovery can still resolve a previously-started
+	// turn to its local_turn_id. Empty key / missing store returns
+	// ok=false without reaching SQL.
+	if s.dedupeStore == nil {
+		return TurnStatus{}, false, nil
+	}
+	key := strings.TrimSpace(dedupeKey)
+	if key == "" {
+		return TurnStatus{}, false, nil
+	}
+	entry, err := s.dedupeStore.GetLive(ctx, key)
+	if err != nil {
+		if errors.Is(err, turndedupe.ErrNotFound) {
+			return TurnStatus{}, false, nil
+		}
+		return TurnStatus{}, false, err
+	}
+	// A registry hit is treated as "running" because terminal rows are
+	// filtered at the SQL layer. Providing the tracker-shaped
+	// TurnStatus here lets callers share a single code path.
+	return TurnStatus{
+		LocalID:    entry.LocalTurnID,
+		ProviderID: entry.ProviderTurnID,
+		State:      "running",
+	}, true, nil
+}
+
+// recordDedupeUpsert is the StartTurn-side mirror write to the durable
+// registry. nil dedupeStore or empty key short-circuits so callers
+// that didn't opt into dedupe pay no cost. Errors are logged and
+// dropped — the tracker already holds the key, so durability is
+// strictly best-effort.
+func (s *service) recordDedupeUpsert(ctx context.Context, dedupeKey, localID, threadID string) {
+	if s == nil || s.dedupeStore == nil {
+		return
+	}
+	key := strings.TrimSpace(dedupeKey)
+	if key == "" {
+		return
+	}
+	err := s.dedupeStore.Upsert(ctx, turndedupe.UpsertParams{
+		DedupeKey:   key,
+		LocalTurnID: strings.TrimSpace(localID),
+		ThreadID:    strings.TrimSpace(threadID),
+		Now:         time.Now(),
+	})
+	if err != nil && s.logger != nil {
+		s.logger.Warn("turn: dedupe registry upsert failed",
+			"dedupe_key", key, "local_id", localID, "error", err.Error())
+	}
+}
+
+// recordDedupeProviderID updates the registry row with the provider
+// turn id once StartTurn returns. Same best-effort semantics as
+// recordDedupeUpsert.
+func (s *service) recordDedupeProviderID(ctx context.Context, dedupeKey, providerID string) {
+	if s == nil || s.dedupeStore == nil {
+		return
+	}
+	key := strings.TrimSpace(dedupeKey)
+	pid := strings.TrimSpace(providerID)
+	if key == "" || pid == "" {
+		return
+	}
+	err := s.dedupeStore.BindProviderTurnID(ctx, turndedupe.BindProviderTurnIDParams{
+		DedupeKey:      key,
+		ProviderTurnID: pid,
+		Now:            time.Now(),
+	})
+	if err != nil && s.logger != nil {
+		s.logger.Warn("turn: dedupe registry bind provider id failed",
+			"dedupe_key", key, "provider_id", pid, "error", err.Error())
+	}
+}
+
+// recordDedupeTerminal stamps terminal_at on the registry row so
+// future GetLive calls skip it. Resolves the dedupe key from the
+// tracker when called without an explicit key argument. Safe to
+// invoke even when nothing was previously upserted.
+func (s *service) recordDedupeTerminal(ctx context.Context, dedupeKey string) {
+	if s == nil || s.dedupeStore == nil {
+		return
+	}
+	key := strings.TrimSpace(dedupeKey)
+	if key == "" {
+		return
+	}
+	if err := s.dedupeStore.MarkTerminal(ctx, key, time.Now()); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("turn: dedupe registry mark terminal failed",
+				"dedupe_key", key, "error", err.Error())
+		}
+	}
+}
+
+// recordDedupeTerminalForLocalID looks up the dedupe key on the
+// tracker (the canonical source inside the process) and stamps the
+// registry terminal. Used from watchTurn / waitForTurnSettle which
+// only know the localID at the point of termination.
+func (s *service) recordDedupeTerminalForLocalID(ctx context.Context, localID string) {
+	if s == nil || s.dedupeStore == nil {
+		return
+	}
+	key := s.tracker.DedupeKeyOf(localID)
+	if key == "" {
+		return
+	}
+	s.recordDedupeTerminal(ctx, key)
 }
 
 func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
@@ -359,6 +491,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 		select {
 		case <-timer.C:
 			s.tracker.Stall(localID, "turn watch timed out")
+			s.recordDedupeTerminalForLocalID(ctx, localID)
 			s.logger.Warn("turn watcher TTL expired", "localID", localID)
 			return
 		case <-ctx.Done():
@@ -372,9 +505,11 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 				s.tracker.Update(localID, "interrupted")
 			}
 			s.tracker.Complete(localID, false, err.Error())
+			s.recordDedupeTerminalForLocalID(ctx, localID)
 			return
 		}
 		s.tracker.Complete(localID, true, "")
+		s.recordDedupeTerminalForLocalID(ctx, localID)
 	})
 }
 
@@ -390,6 +525,7 @@ func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle 
 		} else {
 			s.tracker.Complete(localID, true, "")
 		}
+		s.recordDedupeTerminalForLocalID(ctx, localID)
 	}
 	_, err := s.waitForTrackedTerminal(ctx, localID, deadline)
 	return err

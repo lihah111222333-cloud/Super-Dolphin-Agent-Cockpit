@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"go.uber.org/fx"
+
+	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 )
 
 var Module = fx.Module("turn",
@@ -25,7 +27,37 @@ var Module = fx.Module("turn",
 		),
 	),
 	fx.Invoke(registerTurnServiceLifecycle),
+	fx.Invoke(registerTurnDedupeStore),
 )
+
+// turnDedupeStoreParams lets the fx.Invoke receive both the Service
+// and the optional turndedupe.Store without forcing an order on the
+// DI graph. Store==nil means the deployment hasn't wired
+// turndedupe.Module; the service keeps the tracker-only behaviour.
+type turnDedupeStoreParams struct {
+	fx.In
+
+	Service Service
+	Store   turndedupe.Store `optional:"true"`
+}
+
+// registerTurnDedupeStore installs the optional durable store into
+// the already-constructed Service via a package-private setter. The
+// setter is guarded by an interface assertion so any non-default
+// Service implementation provided in tests is not disturbed.
+func registerTurnDedupeStore(p turnDedupeStoreParams) {
+	if p.Service == nil || p.Store == nil {
+		return
+	}
+	type dedupeSetter interface {
+		setDedupeStore(turndedupe.Store)
+	}
+	setter, ok := p.Service.(dedupeSetter)
+	if !ok {
+		return
+	}
+	setter.setDedupeStore(p.Store)
+}
 
 // registerTurnServiceLifecycle wires the turn Service into fx.Lifecycle so
 // its Shutdown hook is called on app stop. Shutdown is discovered via a
