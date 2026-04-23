@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/memory"
+	orchnotify "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/notify"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
@@ -33,6 +34,7 @@ func run() error {
 		fx.NopLogger,
 		platformconfig.Module,
 		platformbus.Module,
+		orchnotify.Module,
 		promptstore.Module,
 		commandcardstore.Module,
 		sharedfilestore.Module,
