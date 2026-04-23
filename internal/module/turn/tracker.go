@@ -248,6 +248,24 @@ func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
 	}
 }
 
+// DedupeKeyOf returns the dedupeKey previously registered for a
+// tracked localID, or "" when the turn never had one bound (or is
+// already evicted). Used by the service to resolve the key at
+// terminal-state callsites that only know the localID.
+func (t *turnTracker) DedupeKeyOf(localID string) string {
+	localID = strings.TrimSpace(localID)
+	if localID == "" {
+		return ""
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	turn, ok := t.turns[localID]
+	if !ok {
+		return ""
+	}
+	return turn.dedupeKey
+}
+
 // GetByDedupeKey returns the most recently updated non-terminal turn
 // that matches dedupeKey. A terminal turn (completed / failed / ...)
 // is deliberately skipped so a fresh StartTurn after a prior

@@ -244,6 +244,16 @@ type TopologyApproval struct {
 	ProposedArchitecture []byte     `db:"proposed_architecture" json:"proposed_architecture"`
 }
 
+type TurnDedupeRegistry struct {
+	DedupeKey      string             `db:"dedupe_key" json:"dedupe_key"`
+	LocalTurnID    string             `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID string             `db:"provider_turn_id" json:"provider_turn_id"`
+	ThreadID       string             `db:"thread_id" json:"thread_id"`
+	CreatedAt      pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	TerminalAt     pgtype.Timestamptz `db:"terminal_at" json:"terminal_at"`
+}
+
 type WorkspaceRun struct {
 	ID            int64      `db:"id" json:"id"`
 	RunKey        string     `db:"run_key" json:"run_key"`

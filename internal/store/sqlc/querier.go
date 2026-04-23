@@ -6,6 +6,8 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
@@ -13,6 +15,7 @@ type Querier interface {
 	AgentThreadRunningExists(ctx context.Context, threadID string) (bool, error)
 	ApproveTopologyApproval(ctx context.Context, arg ApproveTopologyApprovalParams) (int64, error)
 	BindAgentThread(ctx context.Context, arg BindAgentThreadParams) error
+	BindTurnDedupeProviderID(ctx context.Context, arg BindTurnDedupeProviderIDParams) error
 	// CASCronJobRunStatus only advances the status when the current status
 	// equals expected_status; protects three-phase transitions (pending ->
 	// submitting -> submitted -> running -> finished/failed/observe_lost)
@@ -56,6 +59,11 @@ type Querier interface {
 	GetCronJobRunByID(ctx context.Context, id string) (CronJobRun, error)
 	GetCwdLockHolder(ctx context.Context, cwd string) (GetCwdLockHolderRow, error)
 	GetInteraction(ctx context.Context, id int64) (AgentInteraction, error)
+	// Returns the still-live registry row for dedupe_key, or an empty row
+	// when none exists / all matching rows are already terminal. The
+	// scheduler's caller checks local_turn_id == "" to distinguish miss
+	// from hit.
+	GetLiveTurnDedupe(ctx context.Context, dedupeKey string) (TurnDedupeRegistry, error)
 	GetPromptTemplate(ctx context.Context, promptKey string) (GetPromptTemplateRow, error)
 	GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (SessionInsight, error)
 	GetSharedFile(ctx context.Context, path string) (SharedFile, error)
@@ -130,6 +138,7 @@ type Querier interface {
 	// a late worker cannot overwrite terminal state after being preempted.
 	//
 	MarkCronJobFinished(ctx context.Context, arg MarkCronJobFinishedParams) (int64, error)
+	MarkTurnDedupeTerminal(ctx context.Context, arg MarkTurnDedupeTerminalParams) error
 	// Runtime SQL template from V2 DBQueryStore.Query:
 	// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT $1;
 	// A true sqlc query cannot represent a runtime-supplied SELECT shape, so this
@@ -145,6 +154,10 @@ type Querier interface {
 	SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActiveTurnParams) (int64, error)
 	SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) error
 	SetCronJobRunTurn(ctx context.Context, arg SetCronJobRunTurnParams) (int64, error)
+	// Deletes every row whose updated_at is older than cutoff. Run on a
+	// coarse interval by the scheduler so the table can never outgrow
+	// the tracker TTL window.
+	SweepTurnDedupeRegistry(ctx context.Context, cutoff pgtype.Timestamptz) error
 	TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (WorkspaceRun, error)
 	UnbindAgentThread(ctx context.Context, agentID string) error
 	UpdateAgentCwd(ctx context.Context, arg UpdateAgentCwdParams) error
@@ -187,6 +200,9 @@ type Querier interface {
 	//
 	UpsertSessionInsight(ctx context.Context, arg UpsertSessionInsightParams) (SessionInsight, error)
 	UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error)
+	// Queries for turn_dedupe_registry. See migration 0060 for the table
+	// layout + lifetime contract.
+	UpsertTurnDedupeRegistry(ctx context.Context, arg UpsertTurnDedupeRegistryParams) error
 	UpsertUIPreference(ctx context.Context, arg UpsertUIPreferenceParams) error
 	UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRunParams) (WorkspaceRun, error)
 	UpsertWorkspaceRunFile(ctx context.Context, arg UpsertWorkspaceRunFileParams) (WorkspaceRunFile, error)
