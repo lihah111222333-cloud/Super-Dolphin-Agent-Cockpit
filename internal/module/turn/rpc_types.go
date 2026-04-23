@@ -227,10 +227,8 @@ type turnStartResult struct {
 	// thread/start; repeating it here is pointless and harmless (all four
 	// fields are zero/nil when turn/start is a no-op on the spawn axis and
 	// get elided by omitempty).
-	AgentKey              string   `json:"agent_key,omitempty"`
-	AgentTitle            string   `json:"agent_title,omitempty"`
-	PromptKey             string   `json:"prompt_key,omitempty"`
-	PromptVersionID       *int64   `json:"prompt_version_id,omitempty"`
-	MergedCandidateKeys   []string `json:"merged_candidate_keys,omitempty"`
-	MergedCandidateTitles []string `json:"merged_candidate_titles,omitempty"`
+	AgentKey        string `json:"agent_key,omitempty"`
+	AgentTitle      string `json:"agent_title,omitempty"`
+	PromptKey       string `json:"prompt_key,omitempty"`
+	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
 }

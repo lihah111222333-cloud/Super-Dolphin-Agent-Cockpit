@@ -226,13 +226,11 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner Pe
 			// omitempty on turnStartResult; eager-path threads already got
 			// their routing from thread/start's response.
 			return turnStartResult{
-				TurnID:                handle.LocalID(),
-				AgentKey:              spawnRouting.AgentKey,
-				AgentTitle:            spawnRouting.AgentTitle,
-				PromptKey:             spawnRouting.PromptKey,
-				PromptVersionID:       spawnRouting.PromptVersionID,
-				MergedCandidateKeys:   spawnRouting.MergedCandidateKeys,
-				MergedCandidateTitles: spawnRouting.MergedCandidateTitles,
+				TurnID:          handle.LocalID(),
+				AgentKey:        spawnRouting.AgentKey,
+				AgentTitle:      spawnRouting.AgentTitle,
+				PromptKey:       spawnRouting.PromptKey,
+				PromptVersionID: spawnRouting.PromptVersionID,
 			}, nil
 		})
 	})

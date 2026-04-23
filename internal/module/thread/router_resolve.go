@@ -3,7 +3,6 @@ package thread
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -58,19 +57,6 @@ func (s *service) listRoutedTemplates(ctx context.Context) ([]promptstore.Prompt
 	return templates, true
 }
 
-func (s *service) tryCandidatePoolMerge(ctx context.Context, req *StartRequest, templates []promptstore.PromptTemplate) bool {
-	switch {
-	case req == nil:
-		return false
-	case strings.TrimSpace(req.PromptKey) != "":
-		return false
-	case len(req.PromptCandidates) == 0:
-		return false
-	default:
-		return s.applyCandidatePoolMerge(ctx, req, templates)
-	}
-}
-
 // resolveRoutedPrompt is called from service.Start after normalizeStartRequest.
 // It fills req.BaseInstructions / req.AgentKey / req.PromptVersionID based on
 // either an explicit req.AgentKey or router classification.
@@ -93,21 +79,7 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 		return
 	}
 
-	// P21 multi-enable: candidate pool is the PRIMARY injection path. Every
-	// row the user checked goes into the new thread's context via Claude
-	// Code's claudeMd multi-source format (`Contents of <key>:\n<body>`
-	// blocks). No LLM is involved — these are intentional, opted-in sources.
-	//
-	// The classifier below is an INDEPENDENT fallback: it handles ambiguous /
-	// intent-less first turns where the pool is empty (i.e. the user has not
-	// curated anything, so there is nothing to merge). The classifier and the
-	// pool never run together — picking the pool means the user already chose
-	// what to inject; classifier inference is redundant.
-	if s.tryCandidatePoolMerge(ctx, req, templates) {
-		return
-	}
-
-	// Classifier fallback: only runs when no explicit pin, no candidate pool,
+	// Classifier fallback: only runs when no explicit pin
 	// and UseClassifier was opted in. Haiku scores the full enabled library
 	// and stamps its pick into req.PromptKey so the normal explicit-pin branch
 	// in pickRoutedTemplate takes over. Empty pick ("no strong match") leaves
@@ -445,144 +417,9 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 	return nil
 }
 
-// applyCandidatePoolMerge fans out every prompt template whose PromptKey sits
-// in req.PromptCandidates into req.BaseInstructionBlocks so downstream cache
-// layering (CachedPrefix / UncachedTail) stays intact. Templates migrated to
-// prompt_template_sections contribute their sections verbatim (region-aware);
-// legacy rows fall back to a single region=Dynamic block carrying the old
-// `Contents of <key>:\n<body>` claudeMd multi-source format. Disabled rows
-// and unknown keys are silently skipped. Returns true when at least one block
-// was produced — caller should skip the classifier / default-fallback paths
-// in that case.
-func (s *service) applyCandidatePoolMerge(ctx context.Context, req *StartRequest, templates []promptstore.PromptTemplate) bool {
-	order := normalizedPromptCandidateOrder(req.PromptCandidates)
-	if len(order) == 0 {
-		return false
-	}
-	blocks, mergedKeys, mergedTitles := s.mergeCandidatePoolTemplates(ctx, order, templates)
-	if len(blocks) == 0 {
-		return false
-	}
-	applyMergedCandidatePool(req, blocks, mergedKeys, mergedTitles)
-	pkglogger.Info("router: candidate pool merged into base_instruction_blocks",
-		"candidate_keys", mergedKeys,
-		"block_count", len(blocks))
-	return true
-}
+// d-clean: applyCandidatePoolMerge / candidateTemplateBlocks 已移除。
+// 候选池合并注入的设计已与“对齐 Claude 主线程单提示词”的目标冲突；
+// 路由现在的三档优先级为：
+//   1. 显式 pin (PromptKey)    > 2. 分类器 opt-in > 3. main/default 兑底
 
-func normalizedPromptCandidateOrder(candidates []string) []string {
-	seen := make(map[string]struct{}, len(candidates))
-	order := make([]string, 0, len(candidates))
-	for _, raw := range candidates {
-		key := strings.TrimSpace(raw)
-		if key == "" {
-			continue
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		order = append(order, key)
-	}
-	return order
-}
 
-func enabledPromptTemplateIndex(templates []promptstore.PromptTemplate) map[string]*promptstore.PromptTemplate {
-	byKey := make(map[string]*promptstore.PromptTemplate, len(templates))
-	for i := range templates {
-		t := &templates[i]
-		if t.Enabled {
-			byKey[t.PromptKey] = t
-		}
-	}
-	return byKey
-}
-
-func (s *service) mergeCandidatePoolTemplates(
-	ctx context.Context,
-	order []string,
-	templates []promptstore.PromptTemplate,
-) ([]contract.BaseInstructionBlock, []string, []string) {
-	byKey := enabledPromptTemplateIndex(templates)
-	blocks := make([]contract.BaseInstructionBlock, 0, len(order))
-	mergedKeys := make([]string, 0, len(order))
-	mergedTitles := make([]string, 0, len(order))
-	for _, key := range order {
-		t, ok := byKey[key]
-		if !ok {
-			continue
-		}
-		templateBlocks := s.candidateTemplateBlocks(ctx, t)
-		if len(templateBlocks) == 0 {
-			continue
-		}
-		blocks = append(blocks, templateBlocks...)
-		mergedKeys = append(mergedKeys, t.PromptKey)
-		mergedTitles = append(mergedTitles, candidateTemplateTitle(t))
-	}
-	return blocks, mergedKeys, mergedTitles
-}
-
-func candidateTemplateTitle(t *promptstore.PromptTemplate) string {
-	if title := strings.TrimSpace(t.Title); title != "" {
-		return title
-	}
-	return t.PromptKey
-}
-
-func applyMergedCandidatePool(
-	req *StartRequest,
-	blocks []contract.BaseInstructionBlock,
-	mergedKeys []string,
-	mergedTitles []string,
-) {
-	req.BaseInstructions = ""
-	req.BaseInstructionBlocks = blocks
-	// Observability: no single prompt_key / prompt_version to stamp, but we
-	// keep agent_key empty + AgentTitle = "候选池 (N)" so the UI badge logic
-	// can distinguish pool-merge threads from default-fallback threads.
-	req.AgentKey = ""
-	req.AgentTitle = "候选池 · " + strconv.Itoa(len(mergedKeys)) + " 条"
-	req.PromptKey = ""
-	req.PromptVersionID = nil
-	req.MergedCandidateKeys = mergedKeys
-	req.MergedCandidateTitles = mergedTitles
-}
-
-// candidateTemplateBlocks returns the ordered BaseInstructionBlock slice that
-// represents a single candidate template. Migrated templates emit one block
-// per section (region-aware, ordinal-sorted); legacy templates collapse to a
-// single region=Dynamic block carrying the old `Contents of <key>:\n<body>`
-// format so the uncached tail keeps rendering what the UI already expects.
-// A store-side error degrades to the legacy shape rather than dropping the
-// template entirely — we'd rather inject something than nothing.
-func (s *service) candidateTemplateBlocks(ctx context.Context, t *promptstore.PromptTemplate) []contract.BaseInstructionBlock {
-	if t == nil {
-		return nil
-	}
-	sections, err := s.promptStore.ListSectionsByTemplateID(ctx, t.ID)
-	if err != nil {
-		pkglogger.Warn("router: candidate pool list sections failed; using prompt_text",
-			"err", err, "prompt_key", t.PromptKey, "template_id", t.ID)
-	} else if len(sections) > 0 {
-		converted := convertStoreSectionsToBlocks(sections)
-		out := make([]contract.BaseInstructionBlock, 0, len(converted))
-		for _, b := range converted {
-			// Namespace the section key by the template PromptKey so the
-			// debug Name ("tpl:<pkey>:<skey>") stays unique across multi-
-			// template merges; assembler only uses it for traceability.
-			b.Key = t.PromptKey + ":" + b.Key
-			out = append(out, b)
-		}
-		return out
-	}
-	body := strings.TrimSpace(t.PromptText)
-	if body == "" {
-		return nil
-	}
-	return []contract.BaseInstructionBlock{{
-		Key:    t.PromptKey,
-		Region: contract.PromptRegionDynamic,
-		Body:   "Contents of " + t.PromptKey + ":\n" + body,
-	}}
-}

@@ -318,22 +318,6 @@ export function buildVisibleChatThreadCards(opts) {
       promptKey: (typeof routingOf === 'function'
         ? ((routingOf(threadId) || {}).promptKey || '')
         : '').toString().trim(),
-      // P21 pool-merge: `thread.mergedCandidateKeys.length > 0` drives the
-      // “候选池 · N 条” badge in ThreadRailSidePanel. Must be materialized
-      // here (not left as undefined) because v-if touches .length on it.
-      mergedCandidateKeys: (typeof routingOf === 'function'
-        ? (Array.isArray((routingOf(threadId) || {}).mergedCandidateKeys)
-            ? (routingOf(threadId) || {}).mergedCandidateKeys
-            : [])
-        : []),
-      // Friendly titles aligned by index with mergedCandidateKeys, used as
-      // the tooltip so users see "通用助手、SQL 与数据建模专家…" instead of
-      // "main/default、main/sql…".
-      mergedCandidateTitles: (typeof routingOf === 'function'
-        ? (Array.isArray((routingOf(threadId) || {}).mergedCandidateTitles)
-            ? (routingOf(threadId) || {}).mergedCandidateTitles
-            : [])
-        : []),
       // C1 pending-launch: thread row exists but provider CLI has not been
       // forked yet (awaiting first turn). Card renders a "待启动" marker and
       // the send button shows a "启动中…" state on the first send.

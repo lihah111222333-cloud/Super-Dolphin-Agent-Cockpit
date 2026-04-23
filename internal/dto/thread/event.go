@@ -82,15 +82,11 @@ type Updated struct {
 // pending_launch threads defer routing to the first turn.
 type SpawnRouting struct {
 	AgentKey   string `json:"agent_key,omitempty"`
-	// AgentTitle is the human-readable persona label ("SQL 与数据建模专家" or
-	// "候选池 · N 条") so the UI does not have to re-map slugs to names.
-	AgentTitle            string   `json:"agent_title,omitempty"`
-	PromptKey             string   `json:"prompt_key,omitempty"`
-	PromptVersionID       *int64   `json:"prompt_version_id,omitempty"`
-	MergedCandidateKeys   []string `json:"merged_candidate_keys,omitempty"`
-	// MergedCandidateTitles parallels MergedCandidateKeys: element i is the
-	// friendly Title of the merged template (slug fallback when absent).
-	MergedCandidateTitles []string `json:"merged_candidate_titles,omitempty"`
+	// AgentTitle is the human-readable persona label ("SQL 与数据建模专家") so
+	// the UI does not have to re-map slugs to names.
+	AgentTitle      string `json:"agent_title,omitempty"`
+	PromptKey       string `json:"prompt_key,omitempty"`
+	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
 }
 
 func (Started) Type() uint32      { return shared.EventTypeThreadStarted }
