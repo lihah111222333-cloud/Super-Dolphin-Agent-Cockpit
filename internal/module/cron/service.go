@@ -1,0 +1,369 @@
+package cron
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+)
+
+type service struct {
+	logger *slog.Logger
+	store  Store
+	now    func() time.Time
+	newID  func() string
+}
+
+var _ Service = (*service)(nil)
+
+// NewService constructs a cron Service backed by the given store. now / newID
+// are overridable for deterministic tests.
+func NewService(logger *slog.Logger, store Store) Service {
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	return &service{
+		logger: logger,
+		store:  store,
+		now:    time.Now,
+		newID:  func() string { return uuid.NewString() },
+	}
+}
+
+// defaultInitialDelay is the offset applied when a CreateJob request does
+// not carry an explicit NextRunAt. Phase 2b will replace this with a real
+// cron-expression parser; until then the value is a conservative "fire at
+// the next full-minute tick" default.
+const defaultInitialDelay = time.Minute
+
+func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, error) {
+	if err := s.validateCreate(&req); err != nil {
+		return Job{}, err
+	}
+	configBytes, err := normalizeConfig(req.Config)
+	if err != nil {
+		return Job{}, err
+	}
+	skillsBytes, err := marshalSkills(req.Skills)
+	if err != nil {
+		return Job{}, err
+	}
+	now := s.now().UTC()
+	nextRunAt := req.NextRunAt
+	if nextRunAt.IsZero() {
+		nextRunAt = now.Add(defaultInitialDelay)
+	}
+	scheduleType := strings.TrimSpace(req.ScheduleType)
+	if scheduleType == "" {
+		scheduleType = "cron"
+	}
+	row, err := s.store.CreateJob(ctx, cronstore.CreateJobParams{
+		ID:            s.newID(),
+		Name:          strings.TrimSpace(req.Name),
+		Prompt:        req.Prompt,
+		ScheduleType:  scheduleType,
+		ScheduleExpr:  strings.TrimSpace(req.ScheduleExpr),
+		Timezone:      strings.TrimSpace(req.Timezone),
+		Provider:      strings.TrimSpace(req.Provider),
+		Model:         strings.TrimSpace(req.Model),
+		CWD:           strings.TrimSpace(req.CWD),
+		Config:        configBytes,
+		Skills:        skillsBytes,
+		NotifyChannel: strings.TrimSpace(req.NotifyChannel),
+		Enabled:       req.Enabled,
+		NextRunAt:     nextRunAt,
+		MaxAttempts:   req.MaxAttempts,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+	if err != nil {
+		s.logger.Warn("cron: create job failed", slog.String("error", err.Error()))
+		return Job{}, err
+	}
+	return toJob(row), nil
+}
+
+func (s *service) GetJob(ctx context.Context, id string) (Job, error) {
+	row, err := s.store.GetJobByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, cronstore.ErrJobNotFound) {
+			return Job{}, ErrNotFound
+		}
+		return Job{}, err
+	}
+	return toJob(row), nil
+}
+
+func (s *service) ListJobs(ctx context.Context) ([]Job, error) {
+	rows, err := s.store.ListJobs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Job, len(rows))
+	for i, r := range rows {
+		out[i] = toJob(r)
+	}
+	return out, nil
+}
+
+func (s *service) UpdateJob(ctx context.Context, req UpdateJobRequest) (Job, error) {
+	if strings.TrimSpace(req.ID) == "" {
+		return Job{}, errors.New("cron: id is required")
+	}
+	creq := CreateJobRequest{
+		Name:          req.Name,
+		Prompt:        req.Prompt,
+		ScheduleType:  req.ScheduleType,
+		ScheduleExpr:  req.ScheduleExpr,
+		Timezone:      req.Timezone,
+		Provider:      req.Provider,
+		Model:         req.Model,
+		CWD:           req.CWD,
+		Config:        req.Config,
+		Skills:        req.Skills,
+		NotifyChannel: req.NotifyChannel,
+		Enabled:       req.Enabled,
+		NextRunAt:     req.NextRunAt,
+		MaxAttempts:   req.MaxAttempts,
+	}
+	if err := s.validateCreate(&creq); err != nil {
+		return Job{}, err
+	}
+	configBytes, err := normalizeConfig(creq.Config)
+	if err != nil {
+		return Job{}, err
+	}
+	skillsBytes, err := marshalSkills(creq.Skills)
+	if err != nil {
+		return Job{}, err
+	}
+	now := s.now().UTC()
+	nextRunAt := creq.NextRunAt
+	if nextRunAt.IsZero() {
+		nextRunAt = now.Add(defaultInitialDelay)
+	}
+	scheduleType := strings.TrimSpace(creq.ScheduleType)
+	if scheduleType == "" {
+		scheduleType = "cron"
+	}
+	if err := s.store.UpdateJobSchedule(ctx, cronstore.UpdateJobScheduleParams{
+		ID:            req.ID,
+		Name:          strings.TrimSpace(creq.Name),
+		Prompt:        creq.Prompt,
+		ScheduleType:  scheduleType,
+		ScheduleExpr:  strings.TrimSpace(creq.ScheduleExpr),
+		Timezone:      strings.TrimSpace(creq.Timezone),
+		Provider:      strings.TrimSpace(creq.Provider),
+		Model:         strings.TrimSpace(creq.Model),
+		CWD:           strings.TrimSpace(creq.CWD),
+		Config:        configBytes,
+		Skills:        skillsBytes,
+		NotifyChannel: strings.TrimSpace(creq.NotifyChannel),
+		Enabled:       creq.Enabled,
+		NextRunAt:     nextRunAt,
+		MaxAttempts:   creq.MaxAttempts,
+		UpdatedAt:     now,
+	}); err != nil {
+		return Job{}, err
+	}
+	return s.GetJob(ctx, req.ID)
+}
+
+func (s *service) SetJobEnabled(ctx context.Context, id string, enabled bool) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("cron: id is required")
+	}
+	err := s.store.SetJobEnabled(ctx, id, enabled, s.now().UTC())
+	if errors.Is(err, cronstore.ErrJobNotFound) {
+		return ErrNotFound
+	}
+	return err
+}
+
+func (s *service) DeleteJob(ctx context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("cron: id is required")
+	}
+	err := s.store.DeleteJob(ctx, id)
+	if errors.Is(err, cronstore.ErrJobNotFound) {
+		return ErrNotFound
+	}
+	return err
+}
+
+func (s *service) ListJobRuns(ctx context.Context, jobID string, limit int32) ([]Run, error) {
+	rows, err := s.store.ListRunsByJob(ctx, jobID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Run, len(rows))
+	for i, r := range rows {
+		out[i] = toRun(r)
+	}
+	return out, nil
+}
+
+// ----- validation helpers -----
+
+func (s *service) validateCreate(req *CreateJobRequest) error {
+	if strings.TrimSpace(req.Name) == "" {
+		return ErrMissingName
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		return ErrMissingPrompt
+	}
+	if strings.TrimSpace(req.ScheduleExpr) == "" {
+		return ErrMissingSchedule
+	}
+	if strings.TrimSpace(req.CWD) == "" {
+		return ErrMissingCWD
+	}
+	if req.MaxAttempts < 0 {
+		return ErrInvalidMaxAttempts
+	}
+	provider := strings.TrimSpace(req.Provider)
+	if provider == "" {
+		provider = cronstore.ProviderCodex
+		req.Provider = provider
+	}
+	if provider != cronstore.ProviderCodex {
+		return fmt.Errorf("%w: got %q", ErrProviderNotSupported, req.Provider)
+	}
+	// v1 codex whitelist: identity triple in config must resolve. This
+	// reuses the stage-0 shared helper so cron and thread/start stay on
+	// one canonicalize pipeline.
+	configMap, err := decodeConfigMap(req.Config)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+	}
+	if _, err := providershared.ResolveCodexIdentity(configMap); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+	}
+	return nil
+}
+
+func decodeConfigMap(raw json.RawMessage) (map[string]any, error) {
+	if len(raw) == 0 {
+		return map[string]any{}, nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = map[string]any{}
+	}
+	return out, nil
+}
+
+func normalizeConfig(raw json.RawMessage) ([]byte, error) {
+	if len(raw) == 0 {
+		return []byte("{}"), nil
+	}
+	// Re-marshal through a generic map so we land on canonical JSON and
+	// reject obvious garbage before the DB CHECK fires.
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	if v == nil {
+		return []byte("{}"), nil
+	}
+	return json.Marshal(v)
+}
+
+func marshalSkills(skills []string) ([]byte, error) {
+	if len(skills) == 0 {
+		return []byte("[]"), nil
+	}
+	cleaned := make([]string, 0, len(skills))
+	seen := make(map[string]struct{}, len(skills))
+	for _, s := range skills {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, dup := seen[s]; dup {
+			continue
+		}
+		seen[s] = struct{}{}
+		cleaned = append(cleaned, s)
+	}
+	return json.Marshal(cleaned)
+}
+
+// ----- row -> DTO mappers -----
+
+func toJob(row cronstore.Job) Job {
+	var skills []string
+	if len(row.Skills) > 0 {
+		_ = json.Unmarshal(row.Skills, &skills)
+	}
+	var config any
+	if len(row.Config) > 0 {
+		_ = json.Unmarshal(row.Config, &config)
+	}
+	return Job{
+		ID:              row.ID,
+		Name:            row.Name,
+		Prompt:          row.Prompt,
+		ScheduleType:    row.ScheduleType,
+		ScheduleExpr:    row.ScheduleExpr,
+		Timezone:        row.Timezone,
+		Provider:        row.Provider,
+		Model:           row.Model,
+		CWD:             row.CWD,
+		Config:          config,
+		Skills:          skills,
+		NotifyChannel:   row.NotifyChannel,
+		Enabled:         row.Enabled,
+		NextRunAt:       formatTime(row.NextRunAt),
+		LastScheduledAt: formatTime(row.LastScheduledAt),
+		LastRunAt:       formatTime(row.LastRunAt),
+		ThreadID:        row.ThreadID,
+		AgentID:         row.AgentID,
+		ActiveTurnID:    row.ActiveTurnID,
+		LastTurnID:      row.LastTurnID,
+		FailureCount:    row.FailureCount,
+		MaxAttempts:     row.MaxAttempts,
+		LastStatus:      row.LastStatus,
+		LastError:       row.LastError,
+		LastErrorAt:     formatTime(row.LastErrorAt),
+		CreatedAt:       formatTime(row.CreatedAt),
+		UpdatedAt:       formatTime(row.UpdatedAt),
+	}
+}
+
+func toRun(row cronstore.Run) Run {
+	return Run{
+		ID:             row.ID,
+		JobID:          row.JobID,
+		ScheduledAt:    formatTime(row.ScheduledAt),
+		IdempotencyKey: row.IdempotencyKey,
+		DedupeKey:      row.DedupeKey,
+		ThreadID:       row.ThreadID,
+		AgentID:        row.AgentID,
+		TurnID:         row.TurnID,
+		SubmittedAt:    formatTime(row.SubmittedAt),
+		Status:         row.Status,
+		Error:          row.Error,
+		CreatedAt:      formatTime(row.CreatedAt),
+		UpdatedAt:      formatTime(row.UpdatedAt),
+	}
+}
+
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}

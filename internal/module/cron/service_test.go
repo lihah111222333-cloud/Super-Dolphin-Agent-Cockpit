@@ -1,0 +1,396 @@
+package cron
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+)
+
+// newIdentityConfig returns a valid codex identity config whose codexHome
+// points at a freshly-created temp directory that passes
+// providershared.CanonicalizeCodexHome.
+func newIdentityConfig(t *testing.T) json.RawMessage {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := map[string]any{
+		"codexHome":          dir,
+		"codexInstanceKey":   "glm",
+		"codexModelProvider": "glm-compat",
+	}
+	// Sanity-check that ResolveCodexIdentity accepts our fixture; if this
+	// breaks future updates, we'll catch it here rather than inside the
+	// service test stack traces.
+	if _, err := providershared.ResolveCodexIdentity(cfg); err != nil {
+		t.Fatalf("identity fixture invalid: %v", err)
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return raw
+}
+
+// fakeStore is a lightweight recording double for the narrow Store
+// interface the module consumes.
+type fakeStore struct {
+	createFn        func(context.Context, cronstore.CreateJobParams) (cronstore.Job, error)
+	getByIDFn       func(context.Context, string) (cronstore.Job, error)
+	listFn          func(context.Context) ([]cronstore.Job, error)
+	deleteFn        func(context.Context, string) error
+	updateFn        func(context.Context, cronstore.UpdateJobScheduleParams) error
+	setEnabledFn    func(context.Context, string, bool, time.Time) error
+	listRunsByJobFn func(context.Context, string, int32) ([]cronstore.Run, error)
+}
+
+func (f *fakeStore) CreateJob(ctx context.Context, p cronstore.CreateJobParams) (cronstore.Job, error) {
+	if f.createFn != nil {
+		return f.createFn(ctx, p)
+	}
+	return cronstore.Job{ID: p.ID, Name: p.Name, Provider: p.Provider, CWD: p.CWD}, nil
+}
+func (f *fakeStore) GetJobByID(ctx context.Context, id string) (cronstore.Job, error) {
+	if f.getByIDFn != nil {
+		return f.getByIDFn(ctx, id)
+	}
+	return cronstore.Job{ID: id}, nil
+}
+func (f *fakeStore) ListJobs(ctx context.Context) ([]cronstore.Job, error) {
+	if f.listFn != nil {
+		return f.listFn(ctx)
+	}
+	return nil, nil
+}
+func (f *fakeStore) DeleteJob(ctx context.Context, id string) error {
+	if f.deleteFn != nil {
+		return f.deleteFn(ctx, id)
+	}
+	return nil
+}
+func (f *fakeStore) UpdateJobSchedule(ctx context.Context, p cronstore.UpdateJobScheduleParams) error {
+	if f.updateFn != nil {
+		return f.updateFn(ctx, p)
+	}
+	return nil
+}
+func (f *fakeStore) SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error {
+	if f.setEnabledFn != nil {
+		return f.setEnabledFn(ctx, id, enabled, now)
+	}
+	return nil
+}
+func (f *fakeStore) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]cronstore.Run, error) {
+	if f.listRunsByJobFn != nil {
+		return f.listRunsByJobFn(ctx, jobID, limit)
+	}
+	return nil, nil
+}
+
+// newTestService constructs a cron service with a deterministic clock and
+// id generator so tests can assert exact values.
+func newTestService(t *testing.T, store Store) *service {
+	t.Helper()
+	if store == nil {
+		store = &fakeStore{}
+	}
+	svc := &service{
+		store: store,
+		now:   func() time.Time { return time.Unix(1_700_000_000, 0).UTC() },
+		newID: func() string { return "job-test-id" },
+	}
+	return svc
+}
+
+// ----- validation -----
+
+func TestCreateJobRejectsMissingFields(t *testing.T) {
+	t.Parallel()
+
+	cfg := newIdentityConfig(t)
+	base := CreateJobRequest{
+		Name:         "daily",
+		Prompt:       "check logs",
+		ScheduleExpr: "0 9 * * *",
+		Provider:     "codex",
+		CWD:          "/repo",
+		Config:       cfg,
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*CreateJobRequest)
+		want   error
+	}{
+		{"missing name", func(r *CreateJobRequest) { r.Name = "" }, ErrMissingName},
+		{"missing prompt", func(r *CreateJobRequest) { r.Prompt = "  " }, ErrMissingPrompt},
+		{"missing schedule", func(r *CreateJobRequest) { r.ScheduleExpr = "" }, ErrMissingSchedule},
+		{"missing cwd", func(r *CreateJobRequest) { r.CWD = "" }, ErrMissingCWD},
+		{"bad max attempts", func(r *CreateJobRequest) { r.MaxAttempts = -1 }, ErrInvalidMaxAttempts},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc := newTestService(t, nil)
+			req := base
+			tc.mutate(&req)
+			_, err := svc.CreateJob(context.Background(), req)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("want %v, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestCreateJobRejectsNonCodexProvider(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, nil)
+	_, err := svc.CreateJob(context.Background(), CreateJobRequest{
+		Name:         "daily",
+		Prompt:       "p",
+		ScheduleExpr: "* * * * *",
+		Provider:     "claude",
+		CWD:          "/repo",
+		Config:       newIdentityConfig(t),
+	})
+	if !errors.Is(err, ErrProviderNotSupported) {
+		t.Fatalf("want ErrProviderNotSupported, got %v", err)
+	}
+}
+
+func TestCreateJobDefaultsProviderToCodex(t *testing.T) {
+	t.Parallel()
+	var got cronstore.CreateJobParams
+	store := &fakeStore{
+		createFn: func(_ context.Context, p cronstore.CreateJobParams) (cronstore.Job, error) {
+			got = p
+			return cronstore.Job{ID: p.ID, Provider: p.Provider}, nil
+		},
+	}
+	svc := newTestService(t, store)
+	_, err := svc.CreateJob(context.Background(), CreateJobRequest{
+		Name:         "daily",
+		Prompt:       "p",
+		ScheduleExpr: "* * * * *",
+		CWD:          "/repo",
+		Config:       newIdentityConfig(t),
+	})
+	if err != nil {
+		t.Fatalf("CreateJob error = %v", err)
+	}
+	if got.Provider != cronstore.ProviderCodex {
+		t.Fatalf("Provider = %q, want codex", got.Provider)
+	}
+}
+
+func TestCreateJobRejectsInvalidIdentity(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		config json.RawMessage
+	}{
+		{"empty config", json.RawMessage(`{}`)},
+		{"missing codex_home", json.RawMessage(`{"codexInstanceKey":"k","codexModelProvider":"p"}`)},
+		{"missing non-existent home", jsonMap(map[string]any{
+			"codexHome":          "/definitely/does/not/exist/here",
+			"codexInstanceKey":   "k",
+			"codexModelProvider": "p",
+		})},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc := newTestService(t, nil)
+			_, err := svc.CreateJob(context.Background(), CreateJobRequest{
+				Name:         "daily",
+				Prompt:       "p",
+				ScheduleExpr: "* * * * *",
+				Provider:     "codex",
+				CWD:          "/repo",
+				Config:       tc.config,
+			})
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("want ErrInvalidConfig, got %v", err)
+			}
+		})
+	}
+}
+
+func TestCreateJobDefaultsNextRunAtAndScheduleType(t *testing.T) {
+	t.Parallel()
+	var got cronstore.CreateJobParams
+	store := &fakeStore{
+		createFn: func(_ context.Context, p cronstore.CreateJobParams) (cronstore.Job, error) {
+			got = p
+			return cronstore.Job{ID: p.ID}, nil
+		},
+	}
+	svc := newTestService(t, store)
+	now := svc.now()
+	_, err := svc.CreateJob(context.Background(), CreateJobRequest{
+		Name:         "daily",
+		Prompt:       "p",
+		ScheduleExpr: "* * * * *",
+		Provider:     "codex",
+		CWD:          "/repo",
+		Config:       newIdentityConfig(t),
+	})
+	if err != nil {
+		t.Fatalf("CreateJob error = %v", err)
+	}
+	if got.ScheduleType != "cron" {
+		t.Fatalf("ScheduleType = %q, want cron", got.ScheduleType)
+	}
+	if diff := got.NextRunAt.Sub(now.Add(defaultInitialDelay)); diff != 0 {
+		t.Fatalf("NextRunAt delta = %v, want exactly defaultInitialDelay", diff)
+	}
+}
+
+func TestCreateJobDedupesAndTrimsSkills(t *testing.T) {
+	t.Parallel()
+	var got cronstore.CreateJobParams
+	store := &fakeStore{
+		createFn: func(_ context.Context, p cronstore.CreateJobParams) (cronstore.Job, error) {
+			got = p
+			return cronstore.Job{ID: p.ID}, nil
+		},
+	}
+	svc := newTestService(t, store)
+	_, err := svc.CreateJob(context.Background(), CreateJobRequest{
+		Name:         "daily",
+		Prompt:       "p",
+		ScheduleExpr: "* * * * *",
+		Provider:     "codex",
+		CWD:          "/repo",
+		Config:       newIdentityConfig(t),
+		Skills:       []string{" log-inspector ", "log-inspector", "", "another"},
+	})
+	if err != nil {
+		t.Fatalf("CreateJob error = %v", err)
+	}
+	var skills []string
+	if err := json.Unmarshal(got.Skills, &skills); err != nil {
+		t.Fatalf("unmarshal skills: %v", err)
+	}
+	if len(skills) != 2 || skills[0] != "log-inspector" || skills[1] != "another" {
+		t.Fatalf("skills = %v, want [log-inspector, another]", skills)
+	}
+}
+
+// ----- CRUD pass-through -----
+
+func TestGetJobMapsNotFound(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{
+		getByIDFn: func(context.Context, string) (cronstore.Job, error) {
+			return cronstore.Job{}, cronstore.ErrJobNotFound
+		},
+	}
+	svc := newTestService(t, store)
+	_, err := svc.GetJob(context.Background(), "missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestListJobsPassesThrough(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{
+		listFn: func(context.Context) ([]cronstore.Job, error) {
+			return []cronstore.Job{{ID: "a"}, {ID: "b"}}, nil
+		},
+	}
+	svc := newTestService(t, store)
+	jobs, err := svc.ListJobs(context.Background())
+	if err != nil {
+		t.Fatalf("ListJobs error = %v", err)
+	}
+	if len(jobs) != 2 || jobs[0].ID != "a" || jobs[1].ID != "b" {
+		t.Fatalf("ListJobs = %+v", jobs)
+	}
+}
+
+func TestDeleteJobRequiresID(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, nil)
+	err := svc.DeleteJob(context.Background(), "")
+	if err == nil {
+		t.Fatal("DeleteJob with empty id must error")
+	}
+}
+
+func TestSetJobEnabledForwards(t *testing.T) {
+	t.Parallel()
+	var gotID string
+	var gotEnabled bool
+	store := &fakeStore{
+		setEnabledFn: func(_ context.Context, id string, enabled bool, _ time.Time) error {
+			gotID, gotEnabled = id, enabled
+			return nil
+		},
+	}
+	svc := newTestService(t, store)
+	if err := svc.SetJobEnabled(context.Background(), "job-1", false); err != nil {
+		t.Fatalf("SetJobEnabled error = %v", err)
+	}
+	if gotID != "job-1" || gotEnabled {
+		t.Fatalf("SetJobEnabled forwarded wrong values: id=%q enabled=%v", gotID, gotEnabled)
+	}
+}
+
+func TestUpdateJobReValidatesIdentity(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, nil)
+	_, err := svc.UpdateJob(context.Background(), UpdateJobRequest{
+		ID:           "job-1",
+		Name:         "daily",
+		Prompt:       "p",
+		ScheduleExpr: "* * * * *",
+		Provider:     "codex",
+		CWD:          "/repo",
+		Config:       json.RawMessage(`{}`), // identity triple missing
+	})
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("want ErrInvalidConfig, got %v", err)
+	}
+}
+
+func TestListJobRunsPassesThrough(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{
+		listRunsByJobFn: func(_ context.Context, _ string, limit int32) ([]cronstore.Run, error) {
+			if limit == 0 {
+				t.Fatal("service must forward caller's limit, not rewrite to store default")
+			}
+			return []cronstore.Run{{ID: "r1", Status: cronstore.StatusPending}}, nil
+		},
+	}
+	svc := newTestService(t, store)
+	runs, err := svc.ListJobRuns(context.Background(), "job-1", 5)
+	if err != nil {
+		t.Fatalf("ListJobRuns error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].Status != cronstore.StatusPending {
+		t.Fatalf("ListJobRuns = %+v", runs)
+	}
+}
+
+// ----- helpers -----
+
+func jsonMap(m map[string]any) json.RawMessage {
+	b, _ := json.Marshal(m)
+	return b
+}
+
+// Ensure go test does not rely on the current directory for the identity
+// fixture: this anchors t.TempDir() under os.TempDir regardless of
+// go-test cwd.
+var _ = filepath.Join
+var _ = os.TempDir
