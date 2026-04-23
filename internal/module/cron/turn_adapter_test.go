@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	turn "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 )
 
@@ -405,3 +406,175 @@ func stringContains(s, sub string) bool {
 // trimmed later. The compiler will also catch this — this line just
 // documents the intended dependency set.
 var _ = sharedto.InputItem{}
+
+// ----- Bootstrap paths -----
+
+type recordingBootstrapper struct {
+	calls  []BootstrapRequest
+	result BootstrapResult
+	err    error
+}
+
+func (r *recordingBootstrapper) BootstrapThread(_ context.Context, req BootstrapRequest) (BootstrapResult, error) {
+	r.calls = append(r.calls, req)
+	if r.err != nil {
+		return BootstrapResult{}, r.err
+	}
+	return r.result, nil
+}
+
+func TestAdapterStartTurnBootstrapsOnEmptyThreadID(t *testing.T) {
+	t.Parallel()
+	svc := &fakeTurnService{}
+	sess := &fakeSession{threadID: "thread-fresh"}
+	resolver := &fakeResolver{known: map[string]contract.Session{"thread-fresh": sess}}
+	bs := &recordingBootstrapper{result: BootstrapResult{ThreadID: " thread-fresh ", AgentID: " agent-fresh "}}
+	a := NewTurnServiceAdapter(slog.Default(), svc, resolver).WithBootstrapper(bs)
+
+	res, err := a.StartTurn(context.Background(), StartTurnRequest{
+		JobID:    "job-42",
+		Provider: "codex",
+		Model:    "gpt-5",
+		CWD:      "/repo",
+		Config:   json.RawMessage(`{"codexHome":"/tmp/home"}`),
+		Prompt:   "scheduled run",
+	})
+	if err != nil {
+		t.Fatalf("StartTurn err = %v", err)
+	}
+	if res.ThreadID != "thread-fresh" || res.AgentID != "agent-fresh" || res.TurnID == "" {
+		t.Fatalf("bootstrap result wiring wrong: %+v", res)
+	}
+	if len(bs.calls) != 1 {
+		t.Fatalf("want 1 bootstrap call, got %d", len(bs.calls))
+	}
+	got := bs.calls[0]
+	if got.JobID != "job-42" || got.Provider != "codex" || got.Model != "gpt-5" || got.CWD != "/repo" {
+		t.Fatalf("BootstrapRequest projection wrong: %+v", got)
+	}
+	if string(got.Config) != `{"codexHome":"/tmp/home"}` {
+		t.Fatalf("Config not forwarded verbatim, got %q", string(got.Config))
+	}
+}
+
+func TestAdapterStartTurnBootstrapperErrorFails(t *testing.T) {
+	t.Parallel()
+	bs := &recordingBootstrapper{err: errors.New("thread start boom")}
+	a := NewTurnServiceAdapter(slog.Default(), &fakeTurnService{}, &fakeResolver{}).WithBootstrapper(bs)
+
+	_, err := a.StartTurn(context.Background(), StartTurnRequest{JobID: "j"})
+	if err == nil || !stringContains(err.Error(), "bootstrap thread") {
+		t.Fatalf("want wrapped bootstrap error, got %v", err)
+	}
+}
+
+func TestAdapterStartTurnBootstrapperEmptyThreadIDRejects(t *testing.T) {
+	t.Parallel()
+	bs := &recordingBootstrapper{result: BootstrapResult{ThreadID: "  "}}
+	a := NewTurnServiceAdapter(slog.Default(), &fakeTurnService{}, &fakeResolver{}).WithBootstrapper(bs)
+	_, err := a.StartTurn(context.Background(), StartTurnRequest{JobID: "j"})
+	if err == nil || !stringContains(err.Error(), "empty thread id") {
+		t.Fatalf("want empty-thread-id rejection, got %v", err)
+	}
+}
+
+func TestAdapterStartTurnFallsBackToNotBootstrappedWhenNoSeam(t *testing.T) {
+	t.Parallel()
+	// Intentionally don't call WithBootstrapper: the adapter must
+	// continue to surface ErrJobNotBootstrapped so the scheduler
+	// retries per its budget.
+	a := NewTurnServiceAdapter(slog.Default(), &fakeTurnService{}, &fakeResolver{})
+	_, err := a.StartTurn(context.Background(), StartTurnRequest{JobID: "j"})
+	if !errors.Is(err, ErrJobNotBootstrapped) {
+		t.Fatalf("want ErrJobNotBootstrapped, got %v", err)
+	}
+}
+
+func TestNoopThreadBootstrapperSignals(t *testing.T) {
+	t.Parallel()
+	_, err := NoopThreadBootstrapper{}.BootstrapThread(context.Background(), BootstrapRequest{})
+	if !errors.Is(err, ErrBootstrapperNotWired) {
+		t.Fatalf("noop should return ErrBootstrapperNotWired, got %v", err)
+	}
+}
+
+// ----- ThreadServiceBootstrapper -----
+
+type fakeThreadService struct {
+	thread.Service
+	startFn func(context.Context, thread.StartRequest) (thread.StartResult, error)
+	calls   []thread.StartRequest
+}
+
+func (f *fakeThreadService) Start(ctx context.Context, req thread.StartRequest) (thread.StartResult, error) {
+	f.calls = append(f.calls, req)
+	if f.startFn != nil {
+		return f.startFn(ctx, req)
+	}
+	return thread.StartResult{ThreadID: "thread-new", AgentID: "agent-new"}, nil
+}
+
+func TestThreadServiceBootstrapperHappyPath(t *testing.T) {
+	t.Parallel()
+	ts := &fakeThreadService{}
+	b := NewThreadServiceBootstrapper(slog.Default(), ts)
+	res, err := b.BootstrapThread(context.Background(), BootstrapRequest{
+		JobID:    "job-1",
+		Provider: "codex",
+		Model:    "gpt-5",
+		CWD:      "/repo",
+		Name:     "nightly",
+		Config:   json.RawMessage(`{"codexHome":"/tmp/home","codexInstanceKey":"glm"}`),
+	})
+	if err != nil {
+		t.Fatalf("BootstrapThread err = %v", err)
+	}
+	if res.ThreadID != "thread-new" || res.AgentID != "agent-new" {
+		t.Fatalf("result %+v", res)
+	}
+	if len(ts.calls) != 1 {
+		t.Fatalf("want 1 thread.Start call, got %d", len(ts.calls))
+	}
+	got := ts.calls[0]
+	if got.Provider != "codex" || got.Model != "gpt-5" || got.CWD != "/repo" || got.Name != "nightly" {
+		t.Fatalf("StartRequest projection wrong: %+v", got)
+	}
+	if got.Config == nil || got.Config["codexHome"] != "/tmp/home" || got.Config["codexInstanceKey"] != "glm" {
+		t.Fatalf("Config not decoded into map: %+v", got.Config)
+	}
+}
+
+func TestThreadServiceBootstrapperPropagatesStartError(t *testing.T) {
+	t.Parallel()
+	ts := &fakeThreadService{
+		startFn: func(context.Context, thread.StartRequest) (thread.StartResult, error) {
+			return thread.StartResult{}, errors.New("thread start offline")
+		},
+	}
+	b := NewThreadServiceBootstrapper(slog.Default(), ts)
+	_, err := b.BootstrapThread(context.Background(), BootstrapRequest{JobID: "j"})
+	if err == nil || !stringContains(err.Error(), "thread start offline") {
+		t.Fatalf("want underlying start error, got %v", err)
+	}
+}
+
+func TestThreadServiceBootstrapperMalformedConfigRejected(t *testing.T) {
+	t.Parallel()
+	b := NewThreadServiceBootstrapper(slog.Default(), &fakeThreadService{})
+	_, err := b.BootstrapThread(context.Background(), BootstrapRequest{
+		JobID:  "j",
+		Config: json.RawMessage("not-json"),
+	})
+	if err == nil || !stringContains(err.Error(), "bootstrap config") {
+		t.Fatalf("want malformed-config rejection, got %v", err)
+	}
+}
+
+func TestThreadServiceBootstrapperNilServiceSignals(t *testing.T) {
+	t.Parallel()
+	var b *ThreadServiceBootstrapper
+	_, err := b.BootstrapThread(context.Background(), BootstrapRequest{})
+	if !errors.Is(err, ErrBootstrapperNotWired) {
+		t.Fatalf("nil bootstrapper should surface ErrBootstrapperNotWired, got %v", err)
+	}
+}
