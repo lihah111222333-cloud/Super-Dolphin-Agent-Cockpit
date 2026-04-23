@@ -8,6 +8,7 @@ import (
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	corenotify "github.com/anthropic-ai/super-agent-v3/internal/module/notify"
 	notifyplatform "github.com/anthropic-ai/super-agent-v3/internal/module/notify/platform"
@@ -42,10 +43,28 @@ var Module = fx.Module("orch-notify",
 		provideMessageNotifier,
 		provideOrchFlusher,
 		NewDAGNotifier,
+		provideAgentAliasResolver,
+		provideTurnNotifier,
+		provideNotifyTap,
 	),
 	fx.Provide(fx.Annotate(flusherAsRunner, fx.ResultTags(`group:"runners"`))),
 	fx.Invoke(registerDAGSubscriberLifecycle),
 )
+
+// provideAgentAliasResolver hands back the default drop-all resolver.
+// Deployments that want per-agent routing replace this via fx.Decorate
+// with a real lookup (for example a store-backed one).
+func provideAgentAliasResolver() AgentAliasResolver { return dropAllAliasResolver }
+
+func provideTurnNotifier(logger *slog.Logger, notifier contract.MessageNotifier, resolver AgentAliasResolver) *TurnNotifier {
+	return NewTurnNotifier(logger, notifier, resolver)
+}
+
+// provideNotifyTap narrows *TurnNotifier to the orchestration.NotifyTap
+// interface so orchestration.ProvideHookConsumer (via the optional
+// NotifyTap field on HookConsumerParams) picks it up without binding
+// orchestration to the concrete implementation.
+func provideNotifyTap(t *TurnNotifier) orchestration.NotifyTap { return t }
 
 func provideOrchResolver(cfg *platformconfig.Config) (notifyplatform.Resolver, error) {
 	if cfg == nil {
