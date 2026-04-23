@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"go.uber.org/fx"
+
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
@@ -36,9 +38,26 @@ type HookConsumer interface {
 	After(ctx context.Context, payload mcp.HookPayload) (mcp.AfterDecision, error)
 }
 
+// NotifyTap observes core-turn terminal events coming through the hook
+// consumer chain. Implementations forward into the orch MessageNotifier
+// (cmd/mcp-orch/notify) or any other side-channel. The tap is called
+// synchronously on the hook-dispatch goroutine, so every method must
+// be non-blocking — the expected implementation is a TryEnqueue onto
+// a bounded channel and immediately return.
+//
+// A nil NotifyTap on the hookConsumer is treated as no-op. Handlers
+// fire the tap after the existing report / state handling completes so
+// an errant tap cannot disrupt the consumer's primary path.
+type NotifyTap interface {
+	OnTurnCompleted(ctx context.Context, ev turndto.TurnCompleted)
+	OnTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted)
+	OnThreadStopped(ctx context.Context, ev threaddto.Stopped)
+}
+
 type hookConsumer struct {
-	svc    *service
-	logger *slog.Logger
+	svc       *service
+	logger    *slog.Logger
+	notifyTap NotifyTap
 }
 
 type hookContextEnvelope struct {
@@ -46,8 +65,35 @@ type hookContextEnvelope struct {
 	Event json.RawMessage `json:"event"`
 }
 
+// NewHookConsumer keeps the pre-existing 2-arg signature for direct
+// callers (notably the hook_consumer_test suite). Wire-level fx
+// injection uses HookConsumerParams + ProvideHookConsumer so the
+// optional NotifyTap can be discovered without breaking these tests.
 func NewHookConsumer(svc *service, logger *slog.Logger) HookConsumer {
-	return &hookConsumer{svc: svc, logger: loggerOrDefault(logger)}
+	return newHookConsumerInternal(svc, logger, nil)
+}
+
+// HookConsumerParams is the fx.In bundle for ProvideHookConsumer. A nil
+// NotifyTap is valid (treated as no-op), so downstream modules that do
+// not register a tap — or unit tests that wire orchestration.Module
+// without the orch notify module — boot cleanly.
+type HookConsumerParams struct {
+	fx.In
+
+	Service   *service
+	Logger    *slog.Logger `optional:"true"`
+	NotifyTap NotifyTap    `optional:"true"`
+}
+
+// ProvideHookConsumer is the fx-facing constructor. It plumbs the
+// optional NotifyTap through to the unexported initializer shared with
+// NewHookConsumer.
+func ProvideHookConsumer(p HookConsumerParams) HookConsumer {
+	return newHookConsumerInternal(p.Service, p.Logger, p.NotifyTap)
+}
+
+func newHookConsumerInternal(svc *service, logger *slog.Logger, tap NotifyTap) HookConsumer {
+	return &hookConsumer{svc: svc, logger: loggerOrDefault(logger), notifyTap: tap}
 }
 
 func (c *hookConsumer) After(ctx context.Context, payload mcp.HookPayload) (mcp.AfterDecision, error) {
@@ -186,6 +232,9 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 		return nil
 	})
 	c.logUnexpectedHookError("thread stopped", ev.AgentID, ev.ThreadID, err)
+	if c.notifyTap != nil {
+		c.notifyTap.OnThreadStopped(ctx, ev)
+	}
 }
 
 func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
@@ -201,10 +250,16 @@ func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnC
 	})
 	c.logUnexpectedHookError("turn completed report", ev.AgentID, ev.ThreadID, err)
 	handleTurnCompletedEvent(c.svc, c.logger, ev)
+	if c.notifyTap != nil {
+		c.notifyTap.OnTurnCompleted(ctx, ev)
+	}
 }
 
-func (c *hookConsumer) handleTurnInterrupted(_ context.Context, ev turndto.TurnInterrupted) {
+func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
 	handleTurnInterruptedEvent(c.svc, c.logger, ev)
+	if c.notifyTap != nil {
+		c.notifyTap.OnTurnInterrupted(ctx, ev)
+	}
 }
 
 func (c *hookConsumer) handleItemCompleted(ctx context.Context, ev turndto.ItemCompleted) {

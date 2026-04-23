@@ -53,7 +53,7 @@ var Module = fx.Module("orchestration",
 	fx.Provide(
 		provideService,
 		func(s *service) Service { return s },
-		NewHookConsumer,
+		ProvideHookConsumer,
 		NewOrchestrationHandlers,
 	),
 	fx.Invoke(registerTurnLifecycle),
