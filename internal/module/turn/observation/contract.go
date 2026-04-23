@@ -16,6 +16,8 @@
 // package.
 package observation
 
+import "time"
+
 // TerminalKind classifies how a turn ended.
 type TerminalKind string
 
@@ -77,6 +79,27 @@ type DedupeKey struct {
 	Key        string
 }
 
+// Counts is the per-turn aggregate of observed tool / approval activity.
+// Observed flags distinguish "provider did not emit the event family"
+// (false) from "observed and the count is legitimately zero" (true,
+// value 0). ApprovalRequestsObserved flips true the first time an
+// approval event is recorded — the Claude path never emits these so a
+// collector reading Counts for a Claude turn sees observed=false.
+type Counts struct {
+	ToolCalls                int32
+	ToolFailures             int32
+	ApprovalRequests         int32
+	ApprovalRequestsObserved bool
+}
+
+// Timestamps records the first-observed start and the latest-observed
+// completion for a turn. Either field can be zero when the corresponding
+// event has not arrived yet.
+type Timestamps struct {
+	StartedAt   time.Time
+	CompletedAt time.Time
+}
+
 // Contract is the facade that observation owners write to and consumers read
 // from. All methods are safe for concurrent use.
 type Contract interface {
@@ -129,4 +152,37 @@ type Contract interface {
 	// observation refuses to swallow events that arrive without any
 	// identifying field.
 	Dedupe(key DedupeKey) bool
+
+	// IncrementToolCalls bumps the per-turn tool_calls counter by one and
+	// returns the post-increment value. Callers that need to avoid
+	// double-counting a retried ToolCallBegin should gate the call with
+	// Dedupe(DedupeKey{CallID: ...}) first.
+	IncrementToolCalls(localTurnID string) int32
+
+	// IncrementToolFailures bumps the per-turn tool_failures counter by one.
+	IncrementToolFailures(localTurnID string) int32
+
+	// IncrementApprovalRequests bumps the per-turn approval_requests counter
+	// by one and flips ApprovalRequestsObserved to true. The Claude path
+	// never emits these events, so absence of calls keeps observed=false —
+	// which lets downstream queries filter unobserved turns out of average /
+	// percentile metrics.
+	IncrementApprovalRequests(localTurnID string) int32
+
+	// Counts returns the observed counts for a turn. ok=false when no
+	// counter has been recorded.
+	Counts(localTurnID string) (Counts, bool)
+
+	// RecordStartedAt stores the first non-zero start time for a turn.
+	// Subsequent calls are no-ops so a late TurnInputReceived cannot drag
+	// the recorded start forward.
+	RecordStartedAt(localTurnID string, at time.Time)
+
+	// RecordCompletedAt stores the most-recent non-zero completion time.
+	// Latest-write-wins because terminal events can fire multiple times in
+	// the race between TurnInterrupted and TurnCompleted.
+	RecordCompletedAt(localTurnID string, at time.Time)
+
+	// Timestamps returns the stored StartedAt / CompletedAt pair.
+	Timestamps(localTurnID string) (Timestamps, bool)
 }

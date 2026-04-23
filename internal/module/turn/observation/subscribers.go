@@ -27,11 +27,13 @@ func Subscribe(dispatcher *event.Dispatcher, contract Contract, logger *pkglogge
 		return func() {}
 	}
 	cancels := []context.CancelFunc{
+		platformbus.ResilientSubscribe(dispatcher, onTurnStarted(contract), logger),
 		platformbus.ResilientSubscribe(dispatcher, onTurnCompleted(contract), logger),
 		platformbus.ResilientSubscribe(dispatcher, onTurnInterrupted(contract), logger),
 		platformbus.ResilientSubscribe(dispatcher, onTurnStalled(contract), logger),
 		platformbus.ResilientSubscribe(dispatcher, onToolCallBegin(contract), logger),
 		platformbus.ResilientSubscribe(dispatcher, onToolCallEnd(contract), logger),
+		platformbus.ResilientSubscribe(dispatcher, onToolApprovalRequested(contract), logger),
 		platformbus.ResilientSubscribe(dispatcher, onUITokensUpdated(contract), logger),
 	}
 	return func() {
@@ -78,54 +80,108 @@ func platformPickReason(parts ...string) string {
 	return ""
 }
 
-func onTurnCompleted(c Contract) func(turndto.TurnCompleted) {
-	return func(ev turndto.TurnCompleted) {
-		if strings.TrimSpace(ev.TurnID) == "" {
+func onTurnStarted(c Contract) func(turndto.TurnStarted) {
+	return func(ev turndto.TurnStarted) {
+		turnID := strings.TrimSpace(ev.TurnID)
+		if turnID == "" {
 			return
 		}
-		c.RecordTerminal(ev.TurnID, mapTerminalFromCompleted(ev))
+		c.RecordStartedAt(turnID, ev.Timestamp)
+	}
+}
+
+func onTurnCompleted(c Contract) func(turndto.TurnCompleted) {
+	return func(ev turndto.TurnCompleted) {
+		turnID := strings.TrimSpace(ev.TurnID)
+		if turnID == "" {
+			return
+		}
+		c.RecordTerminal(turnID, mapTerminalFromCompleted(ev))
+		c.RecordCompletedAt(turnID, ev.Timestamp)
 	}
 }
 
 func onTurnInterrupted(c Contract) func(turndto.TurnInterrupted) {
 	return func(ev turndto.TurnInterrupted) {
-		if strings.TrimSpace(ev.TurnID) == "" {
+		turnID := strings.TrimSpace(ev.TurnID)
+		if turnID == "" {
 			return
 		}
-		c.RecordTerminal(ev.TurnID, Terminal{
+		c.RecordTerminal(turnID, Terminal{
 			Kind:   TerminalInterrupted,
 			Reason: strings.TrimSpace(ev.Reason),
 		})
+		c.RecordCompletedAt(turnID, ev.Timestamp)
 	}
 }
 
 func onTurnStalled(c Contract) func(turndto.TurnStalled) {
 	return func(ev turndto.TurnStalled) {
-		if strings.TrimSpace(ev.TurnID) == "" {
+		turnID := strings.TrimSpace(ev.TurnID)
+		if turnID == "" {
 			return
 		}
-		c.RecordTerminal(ev.TurnID, Terminal{
+		c.RecordTerminal(turnID, Terminal{
 			Kind:   TerminalStalled,
 			Reason: strings.TrimSpace(ev.Reason),
 		})
+		c.RecordCompletedAt(turnID, ev.Timestamp)
 	}
 }
 
 func onToolCallBegin(c Contract) func(tooldto.ToolCallBegin) {
 	return func(ev tooldto.ToolCallBegin) {
+		callID := strings.TrimSpace(ev.CallID)
+		turnID := strings.TrimSpace(ev.TurnID)
 		// ToolCallHeader embeds CallID + TurnHeader.TurnID, so we can bind
 		// the attribution as soon as the tool begins. ToolDiffUpdated later
 		// in the stream has no TurnID, and consumers must consult this
 		// mapping instead of guessing.
-		c.AttributeCall(strings.TrimSpace(ev.CallID), strings.TrimSpace(ev.TurnID))
+		c.AttributeCall(callID, turnID)
+		// Dedupe-gated count so a retried ToolCallBegin for the same call
+		// does not double-bump tool_calls.
+		if callID != "" && c.Dedupe(DedupeKey{CallID: callID}) {
+			c.IncrementToolCalls(turnID)
+		}
 	}
 }
 
 func onToolCallEnd(c Contract) func(tooldto.ToolCallEnd) {
 	return func(ev tooldto.ToolCallEnd) {
+		callID := strings.TrimSpace(ev.CallID)
+		turnID := strings.TrimSpace(ev.TurnID)
 		// Idempotent: if Begin already attributed the call we just overwrite
 		// with the same value. Memory.AttributeCall already tolerates this.
-		c.AttributeCall(strings.TrimSpace(ev.CallID), strings.TrimSpace(ev.TurnID))
+		c.AttributeCall(callID, turnID)
+		// Dedupe by (callID, "end") so a retransmitted End does not double-
+		// bump tool_failures; the Begin dedupe key is different so both can
+		// fire independently.
+		if !ev.Success && callID != "" &&
+			c.Dedupe(DedupeKey{CallID: callID, Key: "end"}) {
+			c.IncrementToolFailures(turnID)
+		}
+	}
+}
+
+func onToolApprovalRequested(c Contract) func(tooldto.ToolApprovalRequested) {
+	return func(ev tooldto.ToolApprovalRequested) {
+		callID := strings.TrimSpace(ev.CallID)
+		turnID := strings.TrimSpace(ev.TurnID)
+		if turnID == "" {
+			// Approval events without a turn id cannot be attributed; drop
+			// rather than pollute an arbitrary per-turn bucket.
+			return
+		}
+		// ApprovalID-scoped dedupe; falls back to CallID+request_id
+		// otherwise. Codex path fills ApprovalID; Claude path never fires
+		// here at all (the whole reason approval_requests_observed exists).
+		key := DedupeKey{
+			CallID: callID,
+			Key:    "approval:" + strings.TrimSpace(ev.ApprovalID),
+		}
+		if c.Dedupe(key) {
+			c.IncrementApprovalRequests(turnID)
+		}
 	}
 }
 
