@@ -64,15 +64,17 @@ func (r *fakeResolver) ResolveSession(_ context.Context, threadID string) (contr
 	return s, nil
 }
 
-// fakeTurnService records PrepareTurn / StartTurn / TrackTurn calls
-// and returns controllable outcomes.
+// fakeTurnService records PrepareTurn / StartTurn / TrackTurn /
+// LookupByDedupeKey calls and returns controllable outcomes.
 type fakeTurnService struct {
-	turn.Service // embed to only override the 3 methods the adapter uses
+	turn.Service // embed to only override the 4 methods the adapter uses
 	prepareFn    func(context.Context, contract.Session, turn.PrepareInput) (providerdto.TurnRequest, error)
 	startFn      func(context.Context, contract.Session, providerdto.TurnRequest) (contract.TurnHandle, error)
 	trackFn      func(context.Context, string) (turn.TurnStatus, error)
+	lookupFn     func(context.Context, string) (turn.TurnStatus, bool, error)
 
 	prepareCalls []turn.PrepareInput
+	lookupCalls  []string
 }
 
 func (f *fakeTurnService) PrepareTurn(ctx context.Context, s contract.Session, in turn.PrepareInput) (providerdto.TurnRequest, error) {
@@ -93,6 +95,13 @@ func (f *fakeTurnService) TrackTurn(ctx context.Context, localID string) (turn.T
 		return f.trackFn(ctx, localID)
 	}
 	return turn.TurnStatus{LocalID: localID, State: "running"}, nil
+}
+func (f *fakeTurnService) LookupByDedupeKey(ctx context.Context, key string) (turn.TurnStatus, bool, error) {
+	f.lookupCalls = append(f.lookupCalls, key)
+	if f.lookupFn != nil {
+		return f.lookupFn(ctx, key)
+	}
+	return turn.TurnStatus{}, false, nil
 }
 
 type fakeHandle struct {
@@ -239,17 +248,109 @@ func TestAdapterObserveRequiresTurnID(t *testing.T) {
 	}
 }
 
-// ----- LookupByDedupeKey placeholder -----
+// ----- LookupByDedupeKey -----
 
-func TestAdapterLookupByDedupeKeyAlwaysNotFound(t *testing.T) {
+// TestAdapterLookupByDedupeKeyEmptyKey ensures callers that haven't
+// opted into dedupe (empty key) get Found=false without reaching the
+// tracker — the short-circuit avoids spurious service work for every
+// scheduler tick.
+func TestAdapterLookupByDedupeKeyEmptyKey(t *testing.T) {
 	t.Parallel()
-	a := NewTurnServiceAdapter(slog.Default(), &fakeTurnService{}, &fakeResolver{})
-	got, err := a.LookupByDedupeKey(context.Background(), "d")
+	svc := &fakeTurnService{}
+	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{})
+	got, err := a.LookupByDedupeKey(context.Background(), "  ")
 	if err != nil {
 		t.Fatalf("LookupByDedupeKey err = %v", err)
 	}
 	if got.Found {
-		t.Fatal("placeholder implementation must report Found=false")
+		t.Fatal("empty key must report Found=false")
+	}
+	if len(svc.lookupCalls) != 0 {
+		t.Fatalf("empty key should short-circuit, got %d calls", len(svc.lookupCalls))
+	}
+}
+
+// TestAdapterLookupByDedupeKeyMiss verifies the scheduler sees
+// Found=false when the tracker has no matching non-terminal turn.
+// This is the common path; the scheduler must treat it as "never
+// submitted" per the P1b plan.
+func TestAdapterLookupByDedupeKeyMiss(t *testing.T) {
+	t.Parallel()
+	svc := &fakeTurnService{}
+	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{})
+	got, err := a.LookupByDedupeKey(context.Background(), "dedupe-miss")
+	if err != nil {
+		t.Fatalf("LookupByDedupeKey err = %v", err)
+	}
+	if got.Found {
+		t.Fatal("tracker miss must report Found=false")
+	}
+	if len(svc.lookupCalls) != 1 || svc.lookupCalls[0] != "dedupe-miss" {
+		t.Fatalf("want one forwarded call with trimmed key, got %v", svc.lookupCalls)
+	}
+}
+
+// TestAdapterLookupByDedupeKeyHit verifies the adapter forwards the
+// tracker's LocalID as ObservedTurn.TurnID, matching what StartTurn
+// would have recorded on the run row.
+func TestAdapterLookupByDedupeKeyHit(t *testing.T) {
+	t.Parallel()
+	svc := &fakeTurnService{
+		lookupFn: func(context.Context, string) (turn.TurnStatus, bool, error) {
+			return turn.TurnStatus{LocalID: "turn-local-42", ProviderID: "provider-7", State: "running"}, true, nil
+		},
+	}
+	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{})
+	got, err := a.LookupByDedupeKey(context.Background(), " dedupe-42 ")
+	if err != nil {
+		t.Fatalf("LookupByDedupeKey err = %v", err)
+	}
+	if !got.Found || got.TurnID != "turn-local-42" {
+		t.Fatalf("want Found=true TurnID=turn-local-42, got %+v", got)
+	}
+	if len(svc.lookupCalls) != 1 || svc.lookupCalls[0] != "dedupe-42" {
+		t.Fatalf("key must be trimmed before forward, got %v", svc.lookupCalls)
+	}
+}
+
+// TestAdapterLookupByDedupeKeyServiceError wraps the underlying error
+// so the scheduler can log it while still reporting Found=false.
+func TestAdapterLookupByDedupeKeyServiceError(t *testing.T) {
+	t.Parallel()
+	svc := &fakeTurnService{
+		lookupFn: func(context.Context, string) (turn.TurnStatus, bool, error) {
+			return turn.TurnStatus{}, false, errors.New("tracker offline")
+		},
+	}
+	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{})
+	got, err := a.LookupByDedupeKey(context.Background(), "d")
+	if err == nil || !stringContains(err.Error(), "lookup by dedupe key") {
+		t.Fatalf("want wrapped error, got %v", err)
+	}
+	if got.Found {
+		t.Fatal("error case must keep Found=false")
+	}
+}
+
+// TestAdapterStartTurnForwardsDedupeKey asserts the adapter threads
+// StartTurnRequest.DedupeKey into turn.PrepareInput so the tracker
+// can register it during PrepareTurn/StartTurn.
+func TestAdapterStartTurnForwardsDedupeKey(t *testing.T) {
+	t.Parallel()
+	svc := &fakeTurnService{}
+	sess := &fakeSession{threadID: "thread-1"}
+	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{
+		known: map[string]contract.Session{"thread-1": sess},
+	})
+	_, err := a.StartTurn(context.Background(), StartTurnRequest{
+		ThreadID:  "thread-1",
+		DedupeKey: " dedupe-xyz ",
+	})
+	if err != nil {
+		t.Fatalf("StartTurn err = %v", err)
+	}
+	if len(svc.prepareCalls) != 1 || svc.prepareCalls[0].DedupeKey != "dedupe-xyz" {
+		t.Fatalf("want DedupeKey trimmed + forwarded, got %+v", svc.prepareCalls)
 	}
 }
 

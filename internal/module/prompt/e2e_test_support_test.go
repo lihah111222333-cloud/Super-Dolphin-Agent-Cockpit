@@ -205,3 +205,6 @@ func (*noopTurnService) CleanupThread(context.Context, string, string) error    
 func (*noopTurnService) TrackTurn(context.Context, string) (turnpkg.TurnStatus, error) {
 	return turnpkg.TurnStatus{}, nil
 }
+func (*noopTurnService) LookupByDedupeKey(context.Context, string) (turnpkg.TurnStatus, bool, error) {
+	return turnpkg.TurnStatus{}, false, nil
+}
