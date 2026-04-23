@@ -169,6 +169,19 @@ function applyMatchWhenToPayload(payload, rawText) {
   }
 }
 
+// probeTemplateSectionCount 查某个模板的 sections 数量，给基础 tab 的
+// 「这里改不生效」提示当依据。失败一律当 0 处理，不阻断用户正常编辑。
+async function probeTemplateSectionCount(cwd, promptId) {
+  const id = (promptId || '').toString().trim();
+  if (!id) return 0;
+  try {
+    const res = await callAPI('prompt_sections/list', withCwd(cwd, { prompt_id: id }));
+    return Array.isArray(res?.sections) ? res.sections.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function createClassifierActions(deps) {
   const { getCwd, classifierEnabled, setNotice } = deps;
   async function loadClassifierEnabled() {
@@ -271,6 +284,7 @@ export const SystemPromptPage = {
     // the backend router auto-picks a prompt_template from the full library
     // via claude -p. Explicit activePromptId still wins backend-side.
     const classifierEnabled = ref(false);
+    const editingHasSections = ref(false); // sections>0 → 基础 tab 内容被 router 覆盖，锁住
     // matchWhen/priority 供路由的 match_when 自动路由挡位；matchWhen 空串 → opt-out。
     const form = reactive({
       id: '', name: '', content: '', description: '',
@@ -469,6 +483,7 @@ export const SystemPromptPage = {
     function openCreate() {
       if (fallbackMode.value) { setReadonlyActionNotice('新建'); return; }
       Object.assign(form, { id: '', name: '', content: '', description: '', agentKey: '', matchWhen: '', priority: 0 });
+      editingHasSections.value = false;
       editorMode.value = 'create'; editorOpen.value = true; editorTab.value = 'basic';
       setNotice('info', '');
       logDebug('system-prompt', 'editor.create');
@@ -481,9 +496,11 @@ export const SystemPromptPage = {
         matchWhen: serializeMatchWhenForEditor(item.match_when),
         priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : 0,
       });
+      editingHasSections.value = false;
       editorMode.value = 'edit'; editorOpen.value = true; editorTab.value = 'basic';
       setNotice('info', '');
       logDebug('system-prompt', 'editor.edit', { id: item.id });
+      probeTemplateSectionCount(getCwd(), item.id).then(c => { if (form.id === (item.id || '')) editingHasSections.value = c > 0; });
     }
 
     function closeEditor() {
@@ -537,7 +554,7 @@ export const SystemPromptPage = {
       createDisabled, saveDisabled, deleteDisabled,
       activePromptId, activatingId, activateDisabled,
       classifierEnabled,
-      form, cwdDisplay, currentProjectCwd,
+      form, editingHasSections, cwdDisplay, currentProjectCwd,
       switchTab, loadPrompts, savePrompt, deletePrompt,
       copyPromptContent, openCreate, openEdit, closeEditor,
       setLaunchPrompt, clearLaunchPrompt, loadActivePromptId,
@@ -744,15 +761,19 @@ export const SystemPromptPage = {
                 <input type="number" class="modal-input" data-testid="sp-priority-input" v-model.number="form.priority" :disabled="saving || fallbackMode" />
               </div>
 
+              <div v-if="editingHasSections" class="sp-notice is-warn" data-testid="sp-editor-sections-banner">
+                ⚠️ 此模板的实际注入内容由「🔧 高级调试」里的 sections 控制，下面的「提示词内容」仅作备份，在运行时会被 sections 覆盖。要改 AI 行为，请切到高级调试 tab 编辑对应 section。
+              </div>
+
               <div class="sp-field">
-                <label>提示词内容</label>
+                <label>提示词内容{{ editingHasSections ? '（备份，运行时被 sections 覆盖）' : '' }}</label>
                 <textarea
                   class="sp-textarea"
                   data-testid="sp-content-input"
                   rows="12"
                   v-model="form.content"
                   placeholder="输入 System Prompt 内容..."
-                  :disabled="saving || editorViewOnly"
+                  :disabled="saving || editorViewOnly || editingHasSections"
                 ></textarea>
                 <div class="sp-field-meta">{{ countStats(form.content).lines }} 行 · {{ countStats(form.content).chars }} 字符</div>
               </div>

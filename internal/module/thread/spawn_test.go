@@ -4,8 +4,57 @@ import (
 	"context"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
+
+// TestFoldRouterOutputIntoAssemblyInput_PreservesBlocks is a regression test
+// for the match_when template-sections bug: runPendingSpawn takes a snapshot
+// of *req BEFORE resolveRoutedPrompt runs, so any field the router writes to
+// *req must be explicitly folded back into the assembly input. The bug was
+// that BaseInstructionBlocks was missing from the fold-back, so a template
+// with sections in the DB would have its sections silently dropped and the
+// assembler would see an empty slice, making user edits to sections appear
+// to have no effect on Claude CLI.
+func TestFoldRouterOutputIntoAssemblyInput_PreservesBlocks(t *testing.T) {
+	t.Parallel()
+
+	assemblyInput := contract.StartInput{
+		BaseInstructions:      "stale",
+		DeveloperInstructions: "stale-dev",
+		BaseInstructionBlocks: nil, // pre-router snapshot has no blocks yet
+	}
+	req := &StartRequest{
+		BaseInstructions:      "router-picked",
+		DeveloperInstructions: "router-dev",
+		BaseInstructionBlocks: []contract.BaseInstructionBlock{
+			{Key: "identity", Region: contract.PromptRegionStatic, Ordinal: 0, Body: "You are a super-Dolphin"},
+			{Key: "zh_hint", Region: contract.PromptRegionDynamic, Ordinal: 0, Body: "Default to 中文"},
+		},
+	}
+
+	foldRouterOutputIntoAssemblyInput(&assemblyInput, req)
+
+	if assemblyInput.BaseInstructions != "router-picked" {
+		t.Fatalf("BaseInstructions not folded: got %q", assemblyInput.BaseInstructions)
+	}
+	if assemblyInput.DeveloperInstructions != "router-dev" {
+		t.Fatalf("DeveloperInstructions not folded: got %q", assemblyInput.DeveloperInstructions)
+	}
+	if len(assemblyInput.BaseInstructionBlocks) != 2 {
+		t.Fatalf("BaseInstructionBlocks not folded: got %d blocks, want 2", len(assemblyInput.BaseInstructionBlocks))
+	}
+	if assemblyInput.BaseInstructionBlocks[0].Body != "You are a super-Dolphin" {
+		t.Fatalf("identity block body lost: got %q", assemblyInput.BaseInstructionBlocks[0].Body)
+	}
+	// Ensure we copied rather than aliased the slice: mutating the source should
+	// not ripple into the assembly input. This matches the append(nil, ...)
+	// pattern everywhere else in the module.
+	req.BaseInstructionBlocks[0].Body = "mutated-after-fold"
+	if assemblyInput.BaseInstructionBlocks[0].Body == "mutated-after-fold" {
+		t.Fatalf("fold aliased slice; mutation leaked into assembly input")
+	}
+}
 
 // TestSpawnIfNeeded_SkipsStoppedThread asserts that SpawnIfNeeded returns
 // (false, nil) for a thread whose DB row has PendingLaunch=true but

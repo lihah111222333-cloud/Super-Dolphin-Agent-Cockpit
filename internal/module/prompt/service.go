@@ -270,8 +270,10 @@ func (s *promptService) DeletePrompt(ctx context.Context, cwd, key string) error
 }
 
 func (s *service) registerBuiltInSections() {
-	for _, section := range StaticSections() {
-		mustRegisterSection(s.registry, section)
+	if !parseBoolEnv(envDisableBuiltinStaticSections, false) {
+		for _, section := range StaticSections() {
+			mustRegisterSection(s.registry, section)
+		}
 	}
 	for _, section := range s.dynamicSlotSections() {
 		mustRegisterSection(s.registry, section)

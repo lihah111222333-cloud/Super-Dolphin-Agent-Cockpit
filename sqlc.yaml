@@ -22,6 +22,12 @@ sql:
       - "migrations/0051_seed_main_default_sections.sql"
       - "migrations/0052_seed_test_prompts_with_sections.sql"
       - "migrations/0053_prompt_template_match_when.sql"
+      - "migrations/0054_seed_main_default_match_when.sql"
+      - "migrations/0055_seed_match_when_test_prompts.sql"
+      - "migrations/0056_seed_simple_match_when_demo.sql"
+      - "migrations/0057_seed_claude_style_prompt.sql"
+      - "migrations/0058_seed_claude_style_sections.sql"
+      - "migrations/0059_rename_claude_style_sections_to_builtin_keys.sql"
     gen:
       go:
         package: "sqlc"

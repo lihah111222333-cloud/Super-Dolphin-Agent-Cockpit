@@ -492,14 +492,13 @@ func autoRouteCandidates(templates []promptstore.PromptTemplate) []promptstore.P
 }
 
 // buildMatchWhenCtx synthesizes a lightweight BuildCtx for router-phase
-// evaluation. Unlike buildStartCtx it does not touch config / registry /
-// filesystem discovery — the router runs before assembly and only needs the
-// caller-supplied fields (cwd / language / provider / model / isWorktree /
-// sessionFlags / gitRoot). This keeps the auto-route cheap and side-effect
-// free.
+// evaluation. Unlike buildStartCtx it does not touch config / registry but it
+// DOES resolve req.CWD through resolvePromptCWD so cwd_prefix / cwd_glob
+// rules actually compare against an absolute path — the UI commonly sends
+// req.CWD="." and a raw strings.HasPrefix(".", "/Users/...") would never hit.
 func buildMatchWhenCtx(req *StartRequest) contract.BuildCtx {
 	return contract.BuildCtx{
-		CWD:          strings.TrimSpace(req.CWD),
+		CWD:          resolvePromptCWD(req.CWD),
 		GitRoot:      strings.TrimSpace(req.GitRoot),
 		IsWorktree:   req.IsWorktree,
 		Language:     strings.TrimSpace(req.Language),
