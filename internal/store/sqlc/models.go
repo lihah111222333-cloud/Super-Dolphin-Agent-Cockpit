@@ -156,6 +156,37 @@ type PromptTemplateSection struct {
 	UpdatedAt  pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }
 
+type SessionInsight struct {
+	ID                       int64              `db:"id" json:"id"`
+	ThreadID                 string             `db:"thread_id" json:"thread_id"`
+	AgentID                  string             `db:"agent_id" json:"agent_id"`
+	SessionID                string             `db:"session_id" json:"session_id"`
+	Provider                 string             `db:"provider" json:"provider"`
+	LocalTurnID              string             `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID           string             `db:"provider_turn_id" json:"provider_turn_id"`
+	StartedAt                pgtype.Timestamptz `db:"started_at" json:"started_at"`
+	CompletedAt              pgtype.Timestamptz `db:"completed_at" json:"completed_at"`
+	DurationMs               int32              `db:"duration_ms" json:"duration_ms"`
+	Success                  *bool              `db:"success" json:"success"`
+	Status                   string             `db:"status" json:"status"`
+	StopReason               string             `db:"stop_reason" json:"stop_reason"`
+	ToolCalls                int32              `db:"tool_calls" json:"tool_calls"`
+	ToolCallsObserved        bool               `db:"tool_calls_observed" json:"tool_calls_observed"`
+	ToolFailures             int32              `db:"tool_failures" json:"tool_failures"`
+	ToolFailuresObserved     bool               `db:"tool_failures_observed" json:"tool_failures_observed"`
+	ApprovalRequests         int32              `db:"approval_requests" json:"approval_requests"`
+	ApprovalRequestsObserved bool               `db:"approval_requests_observed" json:"approval_requests_observed"`
+	TokenInput               int32              `db:"token_input" json:"token_input"`
+	TokenOutput              int32              `db:"token_output" json:"token_output"`
+	TokenTotal               int32              `db:"token_total" json:"token_total"`
+	TokenSnapshotObserved    bool               `db:"token_snapshot_observed" json:"token_snapshot_observed"`
+	ContextWindowTokens      int32              `db:"context_window_tokens" json:"context_window_tokens"`
+	UIProjection             string             `db:"ui_projection" json:"ui_projection"`
+	SkillsSelected           []byte             `db:"skills_selected" json:"skills_selected"`
+	CreatedAt                pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
 type SharedFile struct {
 	Path      string    `db:"path" json:"path"`
 	Content   string    `db:"content" json:"content"`

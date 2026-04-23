@@ -17,6 +17,7 @@ sql:
       - "migrations/0041_prompt_routing_tests.sql"
       - "migrations/0042_prompt_templates_router_priority.sql"
       - "migrations/0045_cron_jobs.sql"
+      - "migrations/0046_session_insights.sql"
       - "migrations/0048_binding_codex_identity.sql"
       - "migrations/0049_prompt_template_sections.sql"
       - "migrations/0050_seed_prompt_template_sections_example.sql"

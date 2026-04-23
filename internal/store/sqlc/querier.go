@@ -57,6 +57,7 @@ type Querier interface {
 	GetCwdLockHolder(ctx context.Context, cwd string) (GetCwdLockHolderRow, error)
 	GetInteraction(ctx context.Context, id int64) (AgentInteraction, error)
 	GetPromptTemplate(ctx context.Context, promptKey string) (GetPromptTemplateRow, error)
+	GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (SessionInsight, error)
 	GetSharedFile(ctx context.Context, path string) (SharedFile, error)
 	GetThreadByAgent(ctx context.Context, agentID string) (string, error)
 	GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) ([]byte, error)
@@ -88,13 +89,30 @@ type Querier interface {
 	ListCronJobs(ctx context.Context) ([]CronJob, error)
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
+	// ListObservedApprovalRequests returns the per-thread approval_requests
+	// window but only for turns where approval_requests_observed = TRUE.
+	// Claude path rows (observed=FALSE, value=0) are excluded so callers
+	// don't conflate "provider didn't emit the event" with "the turn had
+	// zero approvals". See P3 plan *_observed discussion.
+	//
+	ListObservedApprovalRequests(ctx context.Context, arg ListObservedApprovalRequestsParams) ([]ListObservedApprovalRequestsRow, error)
+	// ListObservedTokenTurns returns turns where token_snapshot_observed =
+	// TRUE. Used by dashboards that want to average token costs without
+	// pulling in thread-projection zero-fallback rows.
+	//
+	ListObservedTokenTurns(ctx context.Context, arg ListObservedTokenTurnsParams) ([]ListObservedTokenTurnsRow, error)
 	ListPendingTopologyApprovals(ctx context.Context) ([]TopologyApproval, error)
 	ListPromptTemplateSectionsByTemplate(ctx context.Context, templateID int64) ([]PromptTemplateSection, error)
 	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error)
 	ListRecentAILogs(ctx context.Context, limit int32) ([]ListRecentAILogsRow, error)
+	// ListRecentSessionInsights is used by the dashboard API to return the
+	// N most recent turns across all threads.
+	//
+	ListRecentSessionInsights(ctx context.Context, limit int32) ([]SessionInsight, error)
 	ListRecoverableAgentThreads(ctx context.Context) ([]ListRecoverableAgentThreadsRow, error)
 	ListRunningAgentThreads(ctx context.Context) ([]ListRunningAgentThreadsRow, error)
 	ListRunningAgents(ctx context.Context) ([]ListRunningAgentsRow, error)
+	ListSessionInsightsByThread(ctx context.Context, arg ListSessionInsightsByThreadParams) ([]SessionInsight, error)
 	ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error)
 	ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]SystemLog, error)
 	ListTaskTraces(ctx context.Context, arg ListTaskTracesParams) ([]TaskTrace, error)
@@ -151,6 +169,23 @@ type Querier interface {
 	// operators see when they last edited a row. Empty enable_when stays as-is
 	// (NULL or '{}' both mean "always inject" per EvaluateEnableWhen).
 	UpsertPromptTemplateSection(ctx context.Context, arg UpsertPromptTemplateSectionParams) (PromptTemplateSection, error)
+	// UpsertSessionInsight merges an incoming snapshot with any existing row
+	// keyed by (thread_id, local_turn_id). The update clause encodes two
+	// invariants the P3 plan requires at the SQL layer:
+	//
+	//  * terminal precedence: once status is 'interrupted' or 'aborted', a
+	//    later 'completed'/'failed' must not displace it. success is
+	//    likewise frozen once the locked terminal is set.
+	//  * token no-regression: counters only advance. A context-window-only
+	//    event with zero counts cannot regress token_input / token_output /
+	//    token_total. Scalar GREATEST is per-field so a legitimate zero
+	//    event for one dimension does not zero out a sibling.
+	//
+	// The *_observed flags go sticky: once TRUE, no later event can flip
+	// them back to FALSE. This keeps "we already saw real data" from being
+	// clobbered by a projection that doesn't re-emit the signal.
+	//
+	UpsertSessionInsight(ctx context.Context, arg UpsertSessionInsightParams) (SessionInsight, error)
 	UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error)
 	UpsertUIPreference(ctx context.Context, arg UpsertUIPreferenceParams) error
 	UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRunParams) (WorkspaceRun, error)
