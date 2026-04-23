@@ -82,6 +82,57 @@ type CommandCardVersion struct {
 	ArchivedAt      time.Time  `db:"archived_at" json:"archived_at"`
 }
 
+type CronJob struct {
+	ID              string             `db:"id" json:"id"`
+	Name            string             `db:"name" json:"name"`
+	Prompt          string             `db:"prompt" json:"prompt"`
+	ScheduleType    string             `db:"schedule_type" json:"schedule_type"`
+	ScheduleExpr    string             `db:"schedule_expr" json:"schedule_expr"`
+	Timezone        string             `db:"timezone" json:"timezone"`
+	Provider        string             `db:"provider" json:"provider"`
+	Model           string             `db:"model" json:"model"`
+	Cwd             string             `db:"cwd" json:"cwd"`
+	Config          []byte             `db:"config" json:"config"`
+	Skills          []byte             `db:"skills" json:"skills"`
+	NotifyChannel   string             `db:"notify_channel" json:"notify_channel"`
+	Enabled         bool               `db:"enabled" json:"enabled"`
+	NextRunAt       pgtype.Timestamptz `db:"next_run_at" json:"next_run_at"`
+	LastScheduledAt pgtype.Timestamptz `db:"last_scheduled_at" json:"last_scheduled_at"`
+	LastRunAt       pgtype.Timestamptz `db:"last_run_at" json:"last_run_at"`
+	ClaimedAt       pgtype.Timestamptz `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy       string             `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt  pgtype.Timestamptz `db:"lease_expires_at" json:"lease_expires_at"`
+	ClaimToken      string             `db:"claim_token" json:"claim_token"`
+	ThreadID        string             `db:"thread_id" json:"thread_id"`
+	AgentID         string             `db:"agent_id" json:"agent_id"`
+	ActiveTurnID    string             `db:"active_turn_id" json:"active_turn_id"`
+	LastTurnID      string             `db:"last_turn_id" json:"last_turn_id"`
+	FailureCount    int32              `db:"failure_count" json:"failure_count"`
+	MaxAttempts     int32              `db:"max_attempts" json:"max_attempts"`
+	NextRetryAt     pgtype.Timestamptz `db:"next_retry_at" json:"next_retry_at"`
+	LastStatus      string             `db:"last_status" json:"last_status"`
+	LastErrorAt     pgtype.Timestamptz `db:"last_error_at" json:"last_error_at"`
+	LastError       string             `db:"last_error" json:"last_error"`
+	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
+type CronJobRun struct {
+	ID             string             `db:"id" json:"id"`
+	JobID          string             `db:"job_id" json:"job_id"`
+	ScheduledAt    pgtype.Timestamptz `db:"scheduled_at" json:"scheduled_at"`
+	IdempotencyKey string             `db:"idempotency_key" json:"idempotency_key"`
+	DedupeKey      string             `db:"dedupe_key" json:"dedupe_key"`
+	ThreadID       string             `db:"thread_id" json:"thread_id"`
+	AgentID        string             `db:"agent_id" json:"agent_id"`
+	TurnID         string             `db:"turn_id" json:"turn_id"`
+	SubmittedAt    pgtype.Timestamptz `db:"submitted_at" json:"submitted_at"`
+	Status         string             `db:"status" json:"status"`
+	Error          string             `db:"error" json:"error"`
+	CreatedAt      pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
 type PromptRoutingTest struct {
 	ID                int64              `db:"id" json:"id"`
 	Input             string             `db:"input" json:"input"`

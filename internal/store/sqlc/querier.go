@@ -13,7 +13,23 @@ type Querier interface {
 	AgentThreadRunningExists(ctx context.Context, threadID string) (bool, error)
 	ApproveTopologyApproval(ctx context.Context, arg ApproveTopologyApprovalParams) (int64, error)
 	BindAgentThread(ctx context.Context, arg BindAgentThreadParams) error
+	// CASCronJobRunStatus only advances the status when the current status
+	// equals expected_status; protects three-phase transitions (pending ->
+	// submitting -> submitted -> running -> finished/failed/observe_lost)
+	// from stale worker overwrites.
+	//
+	CASCronJobRunStatus(ctx context.Context, arg CASCronJobRunStatusParams) (int64, error)
+	// Claim / lease -----------------------------------------------------
+	// ClaimDueJobs marks up to `limit` due rows as claimed by `claimed_by`.
+	// The embedded SELECT ... FOR UPDATE SKIP LOCKED makes sure two
+	// schedulers hitting the same tick never grab the same row. claim_token
+	// is generated in the application layer (Go UUID) and passed in so no
+	// Postgres extension (pgcrypto / uuid-ossp) is required.
+	//
+	ClaimDueJobs(ctx context.Context, arg ClaimDueJobsParams) ([]CronJob, error)
 	CountAILogsByStatus(ctx context.Context) ([]CountAILogsByStatusRow, error)
+	// CRUD --------------------------------------------------------------
+	CreateCronJob(ctx context.Context, arg CreateCronJobParams) (CronJob, error)
 	CreateInteraction(ctx context.Context, arg CreateInteractionParams) (AgentInteraction, error)
 	// Legacy V2 store SQL used proposal_hash/proposal_json columns.
 	// These queries are aligned to the V2 exported public schema used for the baseline.
@@ -21,11 +37,13 @@ type Querier interface {
 	DeleteAgentProviderBindingByAgentID(ctx context.Context, agentID string) error
 	DeleteAgentThreadByID(ctx context.Context, threadID string) error
 	DeleteCommandCard(ctx context.Context, cardKey string) (int64, error)
+	DeleteCronJob(ctx context.Context, id string) error
 	DeletePromptTemplate(ctx context.Context, promptKey string) (int64, error)
 	DeletePromptTemplateSection(ctx context.Context, arg DeletePromptTemplateSectionParams) (int64, error)
 	DeleteSharedFile(ctx context.Context, path string) (int64, error)
 	DeleteStaleCwdLocks(ctx context.Context) (int64, error)
 	ExpireStaleAgentThreads(ctx context.Context, arg ExpireStaleAgentThreadsParams) (int64, error)
+	ExtendClaim(ctx context.Context, arg ExtendClaimParams) (int64, error)
 	ForceAcquireCwdLock(ctx context.Context, arg ForceAcquireCwdLockParams) (int64, error)
 	GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (GetAgentProviderBindingByAgentIDRow, error)
 	GetAgentProviderBindingByProviderThread(ctx context.Context, arg GetAgentProviderBindingByProviderThreadParams) (GetAgentProviderBindingByProviderThreadRow, error)
@@ -33,6 +51,9 @@ type Querier interface {
 	GetAgentThreadByID(ctx context.Context, threadID string) (GetAgentThreadByIDRow, error)
 	GetAgentThreadByPort(ctx context.Context, port int32) (GetAgentThreadByPortRow, error)
 	GetCommandCard(ctx context.Context, cardKey string) (CommandCard, error)
+	GetCronJobByID(ctx context.Context, id string) (CronJob, error)
+	GetCronJobRunByDedupeKey(ctx context.Context, dedupeKey string) (CronJobRun, error)
+	GetCronJobRunByID(ctx context.Context, id string) (CronJobRun, error)
 	GetCwdLockHolder(ctx context.Context, cwd string) (GetCwdLockHolderRow, error)
 	GetInteraction(ctx context.Context, id int64) (AgentInteraction, error)
 	GetPromptTemplate(ctx context.Context, promptKey string) (GetPromptTemplateRow, error)
@@ -45,6 +66,8 @@ type Querier interface {
 	InsertAgentFeedbackEvent(ctx context.Context, arg InsertAgentFeedbackEventParams) (AgentFeedbackEvent, error)
 	InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) error
 	InsertCommandCardVersion(ctx context.Context, arg InsertCommandCardVersionParams) error
+	// cron_job_runs -----------------------------------------------------
+	InsertCronJobRun(ctx context.Context, arg InsertCronJobRunParams) (CronJobRun, error)
 	InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (int64, error)
 	InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error
 	InsertTaskTrace(ctx context.Context, arg InsertTaskTraceParams) (TaskTrace, error)
@@ -61,6 +84,8 @@ type Querier interface {
 	ListBusExceptionLogs(ctx context.Context, arg ListBusExceptionLogsParams) ([]ListBusExceptionLogsRow, error)
 	ListCommandCardVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error)
 	ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error)
+	ListCronJobRunsByJob(ctx context.Context, arg ListCronJobRunsByJobParams) ([]CronJobRun, error)
+	ListCronJobs(ctx context.Context) ([]CronJob, error)
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
 	ListPendingTopologyApprovals(ctx context.Context) ([]TopologyApproval, error)
@@ -74,19 +99,34 @@ type Querier interface {
 	ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]SystemLog, error)
 	ListTaskTraces(ctx context.Context, arg ListTaskTracesParams) ([]TaskTrace, error)
 	ListUIPreferences(ctx context.Context, dollar_1 string) ([]ListUIPreferencesRow, error)
+	// Used on scheduler boot for crash recovery: any run stuck in submitting /
+	// submitted / running must be re-entered through Observe / LookupByDedupeKey
+	// instead of StartTurn, per the three-phase protocol.
+	ListUnresolvedCronJobRuns(ctx context.Context) ([]CronJobRun, error)
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
 	ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error)
 	LoadAgentThreadPromptSnapshot(ctx context.Context, threadID string) ([]byte, error)
+	MarkCronJobFailed(ctx context.Context, arg MarkCronJobFailedParams) (int64, error)
+	// MarkCronJobFinished releases the claim, records the successful run's
+	// turn id and advances scheduling fields. Conditional on claim_token so
+	// a late worker cannot overwrite terminal state after being preempted.
+	//
+	MarkCronJobFinished(ctx context.Context, arg MarkCronJobFinishedParams) (int64, error)
 	// Runtime SQL template from V2 DBQueryStore.Query:
 	// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT $1;
 	// A true sqlc query cannot represent a runtime-supplied SELECT shape, so this
 	// file keeps a typed placeholder until sqlc generation is introduced.
 	PlaceholderDBQuery(ctx context.Context) ([]*string, error)
 	RejectTopologyApproval(ctx context.Context, arg RejectTopologyApprovalParams) (int64, error)
+	ReleaseClaim(ctx context.Context, arg ReleaseClaimParams) (int64, error)
 	ReleaseCwdLock(ctx context.Context, arg ReleaseCwdLockParams) (int64, error)
+	RenewLease(ctx context.Context, arg RenewLeaseParams) (int64, error)
 	ResetRunningAgentThreads(ctx context.Context) error
 	ReviewInteraction(ctx context.Context, arg ReviewInteractionParams) (AgentInteraction, error)
 	SaveAgentThreadPromptSnapshot(ctx context.Context, arg SaveAgentThreadPromptSnapshotParams) (int64, error)
+	SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActiveTurnParams) (int64, error)
+	SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) error
+	SetCronJobRunTurn(ctx context.Context, arg SetCronJobRunTurnParams) (int64, error)
 	TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (WorkspaceRun, error)
 	UnbindAgentThread(ctx context.Context, agentID string) error
 	UpdateAgentCwd(ctx context.Context, arg UpdateAgentCwdParams) error
@@ -96,6 +136,7 @@ type Querier interface {
 	// Claude CLI has been spawned for this thread.
 	UpdateAgentThreadLaunchResult(ctx context.Context, arg UpdateAgentThreadLaunchResultParams) error
 	UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) error
+	UpdateCronJobSchedule(ctx context.Context, arg UpdateCronJobScheduleParams) error
 	UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (WorkspaceRun, error)
 	// Codex identity columns use "'' preserves existing value" semantics so
 	// non-P1a callers that pass '' do not overwrite an already-persisted

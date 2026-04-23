@@ -1,0 +1,518 @@
+package cron
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+)
+
+type querier interface {
+	CreateCronJob(ctx context.Context, arg sqlc.CreateCronJobParams) (sqlc.CronJob, error)
+	GetCronJobByID(ctx context.Context, id string) (sqlc.CronJob, error)
+	ListCronJobs(ctx context.Context) ([]sqlc.CronJob, error)
+	DeleteCronJob(ctx context.Context, id string) error
+	UpdateCronJobSchedule(ctx context.Context, arg sqlc.UpdateCronJobScheduleParams) error
+	SetCronJobEnabled(ctx context.Context, arg sqlc.SetCronJobEnabledParams) error
+	ClaimDueJobs(ctx context.Context, arg sqlc.ClaimDueJobsParams) ([]sqlc.CronJob, error)
+	RenewLease(ctx context.Context, arg sqlc.RenewLeaseParams) (int64, error)
+	ExtendClaim(ctx context.Context, arg sqlc.ExtendClaimParams) (int64, error)
+	ReleaseClaim(ctx context.Context, arg sqlc.ReleaseClaimParams) (int64, error)
+	MarkCronJobFinished(ctx context.Context, arg sqlc.MarkCronJobFinishedParams) (int64, error)
+	MarkCronJobFailed(ctx context.Context, arg sqlc.MarkCronJobFailedParams) (int64, error)
+	SetCronJobActiveTurn(ctx context.Context, arg sqlc.SetCronJobActiveTurnParams) (int64, error)
+	InsertCronJobRun(ctx context.Context, arg sqlc.InsertCronJobRunParams) (sqlc.CronJobRun, error)
+	CASCronJobRunStatus(ctx context.Context, arg sqlc.CASCronJobRunStatusParams) (int64, error)
+	SetCronJobRunTurn(ctx context.Context, arg sqlc.SetCronJobRunTurnParams) (int64, error)
+	GetCronJobRunByDedupeKey(ctx context.Context, dedupeKey string) (sqlc.CronJobRun, error)
+	GetCronJobRunByID(ctx context.Context, id string) (sqlc.CronJobRun, error)
+	ListCronJobRunsByJob(ctx context.Context, arg sqlc.ListCronJobRunsByJobParams) ([]sqlc.CronJobRun, error)
+	ListUnresolvedCronJobRuns(ctx context.Context) ([]sqlc.CronJobRun, error)
+}
+
+type store struct{ q querier }
+
+// NewStore returns the production Store backed by the sqlc queries.
+func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+
+// ----- validation helpers -----
+
+func requireID(id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", ErrEmptyID
+	}
+	return id, nil
+}
+
+func requireClaim(id, token string) (string, string, error) {
+	id, err := requireID(id)
+	if err != nil {
+		return "", "", err
+	}
+	if strings.TrimSpace(token) == "" {
+		return "", "", ErrEmptyClaimToken
+	}
+	return id, token, nil
+}
+
+func ts(t time.Time) pgtype.Timestamptz {
+	if t.IsZero() {
+		return pgtype.Timestamptz{Valid: false}
+	}
+	return pgtype.Timestamptz{Time: t, Valid: true}
+}
+
+func fromTS(p pgtype.Timestamptz) time.Time {
+	if !p.Valid {
+		return time.Time{}
+	}
+	return p.Time
+}
+
+func bytesOrDefault(b []byte, def string) []byte {
+	if len(b) == 0 {
+		return []byte(def)
+	}
+	return b
+}
+
+// ----- jobs -----
+
+func (s *store) CreateJob(ctx context.Context, p CreateJobParams) (Job, error) {
+	if _, err := requireID(p.ID); err != nil {
+		return Job{}, wrap(err, "create_job")
+	}
+	if strings.TrimSpace(p.CWD) == "" {
+		return Job{}, wrap(ErrEmptyCWD, "create_job")
+	}
+	if strings.TrimSpace(p.Provider) == "" {
+		return Job{}, wrap(ErrEmptyProvider, "create_job")
+	}
+	if strings.TrimSpace(p.ScheduleExpr) == "" {
+		return Job{}, wrap(ErrEmptyScheduleExpr, "create_job")
+	}
+	scheduleType := strings.TrimSpace(p.ScheduleType)
+	if scheduleType == "" {
+		scheduleType = "cron"
+	}
+	row, err := s.q.CreateCronJob(ctx, sqlc.CreateCronJobParams{
+		ID:            p.ID,
+		Name:          p.Name,
+		Prompt:        p.Prompt,
+		ScheduleType:  scheduleType,
+		ScheduleExpr:  p.ScheduleExpr,
+		Timezone:      p.Timezone,
+		Provider:      p.Provider,
+		Model:         p.Model,
+		Cwd:           p.CWD,
+		Config:        bytesOrDefault(p.Config, "{}"),
+		Skills:        bytesOrDefault(p.Skills, "[]"),
+		NotifyChannel: p.NotifyChannel,
+		Enabled:       p.Enabled,
+		NextRunAt:     ts(p.NextRunAt),
+		MaxAttempts:   p.MaxAttempts,
+		CreatedAt:     ts(p.CreatedAt),
+		UpdatedAt:     ts(p.UpdatedAt),
+	})
+	if err != nil {
+		return Job{}, wrap(err, "create_job")
+	}
+	return fromCronJob(row), nil
+}
+
+func (s *store) GetJobByID(ctx context.Context, id string) (Job, error) {
+	id, err := requireID(id)
+	if err != nil {
+		return Job{}, wrap(err, "get_job_by_id")
+	}
+	row, err := s.q.GetCronJobByID(ctx, id)
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return Job{}, wrap(ErrJobNotFound, "get_job_by_id")
+		}
+		return Job{}, wrap(err, "get_job_by_id")
+	}
+	return fromCronJob(row), nil
+}
+
+func (s *store) ListJobs(ctx context.Context) ([]Job, error) {
+	rows, err := s.q.ListCronJobs(ctx)
+	if err != nil {
+		return nil, wrap(err, "list_jobs")
+	}
+	out := make([]Job, len(rows))
+	for i, r := range rows {
+		out[i] = fromCronJob(r)
+	}
+	return out, nil
+}
+
+func (s *store) DeleteJob(ctx context.Context, id string) error {
+	id, err := requireID(id)
+	if err != nil {
+		return wrap(err, "delete_job")
+	}
+	return wrap(s.q.DeleteCronJob(ctx, id), "delete_job")
+}
+
+func (s *store) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams) error {
+	if _, err := requireID(p.ID); err != nil {
+		return wrap(err, "update_job_schedule")
+	}
+	if strings.TrimSpace(p.CWD) == "" {
+		return wrap(ErrEmptyCWD, "update_job_schedule")
+	}
+	if strings.TrimSpace(p.Provider) == "" {
+		return wrap(ErrEmptyProvider, "update_job_schedule")
+	}
+	if strings.TrimSpace(p.ScheduleExpr) == "" {
+		return wrap(ErrEmptyScheduleExpr, "update_job_schedule")
+	}
+	return wrap(s.q.UpdateCronJobSchedule(ctx, sqlc.UpdateCronJobScheduleParams{
+		Name:          p.Name,
+		Prompt:        p.Prompt,
+		ScheduleType:  firstNonEmpty(p.ScheduleType, "cron"),
+		ScheduleExpr:  p.ScheduleExpr,
+		Timezone:      p.Timezone,
+		Provider:      p.Provider,
+		Model:         p.Model,
+		Cwd:           p.CWD,
+		Config:        p.Config,
+		Skills:        p.Skills,
+		NotifyChannel: p.NotifyChannel,
+		Enabled:       p.Enabled,
+		NextRunAt:     ts(p.NextRunAt),
+		MaxAttempts:   p.MaxAttempts,
+		UpdatedAt:     ts(p.UpdatedAt),
+		ID:            p.ID,
+	}), "update_job_schedule")
+}
+
+func (s *store) SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error {
+	id, err := requireID(id)
+	if err != nil {
+		return wrap(err, "set_job_enabled")
+	}
+	return wrap(s.q.SetCronJobEnabled(ctx, sqlc.SetCronJobEnabledParams{
+		Enabled:   enabled,
+		UpdatedAt: ts(now),
+		ID:        id,
+	}), "set_job_enabled")
+}
+
+// ----- claim / lease -----
+
+func (s *store) ClaimDueJobs(ctx context.Context, p ClaimDueJobsParams) ([]Job, error) {
+	if strings.TrimSpace(p.ClaimToken) == "" {
+		return nil, wrap(ErrEmptyClaimToken, "claim_due_jobs")
+	}
+	if strings.TrimSpace(p.ClaimedBy) == "" {
+		return nil, wrap(errors.New("cron: claimed_by is required"), "claim_due_jobs")
+	}
+	maxClaim := p.MaxClaim
+	if maxClaim <= 0 {
+		maxClaim = 16
+	}
+	rows, err := s.q.ClaimDueJobs(ctx, sqlc.ClaimDueJobsParams{
+		ClaimedBy:      p.ClaimedBy,
+		Now:            ts(p.Now),
+		LeaseExpiresAt: ts(p.LeaseExpiresAt),
+		ClaimToken:     p.ClaimToken,
+		MaxClaim:       maxClaim,
+	})
+	if err != nil {
+		return nil, wrap(err, "claim_due_jobs")
+	}
+	out := make([]Job, len(rows))
+	for i, r := range rows {
+		out[i] = fromCronJob(r)
+	}
+	return out, nil
+}
+
+func (s *store) RenewLease(ctx context.Context, p LeaseParams) error {
+	id, token, err := requireClaim(p.ID, p.ClaimToken)
+	if err != nil {
+		return wrap(err, "renew_lease")
+	}
+	rows, err := s.q.RenewLease(ctx, sqlc.RenewLeaseParams{
+		LeaseExpiresAt: ts(p.LeaseExpiresAt),
+		Now:            ts(p.Now),
+		ID:             id,
+		ClaimToken:     token,
+	})
+	if err != nil {
+		return wrap(err, "renew_lease")
+	}
+	if rows == 0 {
+		return wrap(ErrClaimTokenMismatch, "renew_lease")
+	}
+	return nil
+}
+
+func (s *store) ExtendClaim(ctx context.Context, p LeaseParams) error {
+	id, token, err := requireClaim(p.ID, p.ClaimToken)
+	if err != nil {
+		return wrap(err, "extend_claim")
+	}
+	rows, err := s.q.ExtendClaim(ctx, sqlc.ExtendClaimParams{
+		LeaseExpiresAt: ts(p.LeaseExpiresAt),
+		Now:            ts(p.Now),
+		ID:             id,
+		ClaimToken:     token,
+	})
+	if err != nil {
+		return wrap(err, "extend_claim")
+	}
+	if rows == 0 {
+		// Either token mismatch or the caller asked for a shorter TTL
+		// than the current one. Both are benign from the store POV;
+		// expose token-mismatch as an error so upper layers can branch
+		// on it without accidentally downgrading TTLs.
+		return wrap(ErrClaimTokenMismatch, "extend_claim")
+	}
+	return nil
+}
+
+func (s *store) ReleaseClaim(ctx context.Context, id, claimToken string, now time.Time) error {
+	id, token, err := requireClaim(id, claimToken)
+	if err != nil {
+		return wrap(err, "release_claim")
+	}
+	rows, err := s.q.ReleaseClaim(ctx, sqlc.ReleaseClaimParams{
+		Now:        ts(now),
+		ID:         id,
+		ClaimToken: token,
+	})
+	if err != nil {
+		return wrap(err, "release_claim")
+	}
+	if rows == 0 {
+		return wrap(ErrClaimTokenMismatch, "release_claim")
+	}
+	return nil
+}
+
+func (s *store) MarkFinished(ctx context.Context, p MarkFinishedParams) error {
+	id, token, err := requireClaim(p.ID, p.ClaimToken)
+	if err != nil {
+		return wrap(err, "mark_finished")
+	}
+	rows, err := s.q.MarkCronJobFinished(ctx, sqlc.MarkCronJobFinishedParams{
+		LastRunAt:  ts(p.LastRunAt),
+		LastTurnID: p.LastTurnID,
+		NextRunAt:  ts(p.NextRunAt),
+		Now:        ts(p.Now),
+		ID:         id,
+		ClaimToken: token,
+	})
+	if err != nil {
+		return wrap(err, "mark_finished")
+	}
+	if rows == 0 {
+		return wrap(ErrClaimTokenMismatch, "mark_finished")
+	}
+	return nil
+}
+
+func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
+	id, token, err := requireClaim(p.ID, p.ClaimToken)
+	if err != nil {
+		return wrap(err, "mark_failed")
+	}
+	status := strings.TrimSpace(p.LastStatus)
+	if status == "" {
+		status = StatusFailed
+	}
+	rows, err := s.q.MarkCronJobFailed(ctx, sqlc.MarkCronJobFailedParams{
+		LastRunAt:   ts(p.LastRunAt),
+		LastTurnID:  p.LastTurnID,
+		LastStatus:  status,
+		LastErrorAt: ts(p.LastErrorAt),
+		LastError:   p.LastError,
+		NextRetryAt: ts(p.NextRetryAt),
+		Now:         ts(p.Now),
+		ID:          id,
+		ClaimToken:  token,
+	})
+	if err != nil {
+		return wrap(err, "mark_failed")
+	}
+	if rows == 0 {
+		return wrap(ErrClaimTokenMismatch, "mark_failed")
+	}
+	return nil
+}
+
+func (s *store) SetActiveTurn(ctx context.Context, p SetActiveTurnParams) error {
+	id, token, err := requireClaim(p.ID, p.ClaimToken)
+	if err != nil {
+		return wrap(err, "set_active_turn")
+	}
+	rows, err := s.q.SetCronJobActiveTurn(ctx, sqlc.SetCronJobActiveTurnParams{
+		ActiveTurnID: p.ActiveTurnID,
+		ThreadID:     p.ThreadID,
+		AgentID:      p.AgentID,
+		Now:          ts(p.Now),
+		ID:           id,
+		ClaimToken:   token,
+	})
+	if err != nil {
+		return wrap(err, "set_active_turn")
+	}
+	if rows == 0 {
+		return wrap(ErrClaimTokenMismatch, "set_active_turn")
+	}
+	return nil
+}
+
+// ----- runs -----
+
+func (s *store) InsertRun(ctx context.Context, p InsertRunParams) (Run, error) {
+	if _, err := requireID(p.ID); err != nil {
+		return Run{}, wrap(err, "insert_run")
+	}
+	if _, err := requireID(p.JobID); err != nil {
+		return Run{}, wrap(errors.New("cron: job_id is required"), "insert_run")
+	}
+	status := strings.TrimSpace(p.Status)
+	if status == "" {
+		status = StatusPending
+	}
+	row, err := s.q.InsertCronJobRun(ctx, sqlc.InsertCronJobRunParams{
+		ID:             p.ID,
+		JobID:          p.JobID,
+		ScheduledAt:    ts(p.ScheduledAt),
+		IdempotencyKey: p.IdempotencyKey,
+		DedupeKey:      p.DedupeKey,
+		Status:         status,
+		CreatedAt:      ts(p.CreatedAt),
+		UpdatedAt:      ts(p.UpdatedAt),
+	})
+	if err != nil {
+		return Run{}, wrap(err, "insert_run")
+	}
+	return fromCronJobRun(row), nil
+}
+
+func (s *store) CASRunStatus(ctx context.Context, p CASRunStatusParams) error {
+	if _, err := requireID(p.ID); err != nil {
+		return wrap(err, "cas_run_status")
+	}
+	rows, err := s.q.CASCronJobRunStatus(ctx, sqlc.CASCronJobRunStatusParams{
+		NextStatus:     p.NextStatus,
+		Error:          p.Error,
+		UpdatedAt:      ts(p.UpdatedAt),
+		ID:             p.ID,
+		ExpectedStatus: p.ExpectedStatus,
+	})
+	if err != nil {
+		return wrap(err, "cas_run_status")
+	}
+	if rows == 0 {
+		return wrap(ErrStatusTransitionRefused, "cas_run_status")
+	}
+	return nil
+}
+
+func (s *store) SetRunTurn(ctx context.Context, p SetRunTurnParams) error {
+	if _, err := requireID(p.ID); err != nil {
+		return wrap(err, "set_run_turn")
+	}
+	rows, err := s.q.SetCronJobRunTurn(ctx, sqlc.SetCronJobRunTurnParams{
+		TurnID:      p.TurnID,
+		ThreadID:    p.ThreadID,
+		AgentID:     p.AgentID,
+		SubmittedAt: ts(p.SubmittedAt),
+		UpdatedAt:   ts(p.UpdatedAt),
+		ID:          p.ID,
+	})
+	if err != nil {
+		return wrap(err, "set_run_turn")
+	}
+	if rows == 0 {
+		return wrap(ErrJobRunNotFound, "set_run_turn")
+	}
+	return nil
+}
+
+func (s *store) GetRunByID(ctx context.Context, id string) (Run, error) {
+	id, err := requireID(id)
+	if err != nil {
+		return Run{}, wrap(err, "get_run_by_id")
+	}
+	row, err := s.q.GetCronJobRunByID(ctx, id)
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return Run{}, wrap(ErrJobRunNotFound, "get_run_by_id")
+		}
+		return Run{}, wrap(err, "get_run_by_id")
+	}
+	return fromCronJobRun(row), nil
+}
+
+func (s *store) GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, error) {
+	key := strings.TrimSpace(dedupeKey)
+	if key == "" {
+		return Run{}, wrap(ErrJobRunNotFound, "get_run_by_dedupe_key")
+	}
+	row, err := s.q.GetCronJobRunByDedupeKey(ctx, key)
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return Run{}, wrap(ErrJobRunNotFound, "get_run_by_dedupe_key")
+		}
+		return Run{}, wrap(err, "get_run_by_dedupe_key")
+	}
+	return fromCronJobRun(row), nil
+}
+
+func (s *store) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]Run, error) {
+	jobID, err := requireID(jobID)
+	if err != nil {
+		return nil, wrap(err, "list_runs_by_job")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.q.ListCronJobRunsByJob(ctx, sqlc.ListCronJobRunsByJobParams{
+		JobID: jobID,
+		Limit: limit,
+	})
+	if err != nil {
+		return nil, wrap(err, "list_runs_by_job")
+	}
+	out := make([]Run, len(rows))
+	for i, r := range rows {
+		out[i] = fromCronJobRun(r)
+	}
+	return out, nil
+}
+
+func (s *store) ListUnresolvedRuns(ctx context.Context) ([]Run, error) {
+	rows, err := s.q.ListUnresolvedCronJobRuns(ctx)
+	if err != nil {
+		return nil, wrap(err, "list_unresolved_runs")
+	}
+	out := make([]Run, len(rows))
+	for i, r := range rows {
+		out[i] = fromCronJobRun(r)
+	}
+	return out, nil
+}
+
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
+}
+
+func wrap(err error, operation string) error {
+	return platformdb.WrapStoreError(err, operation, "cron")
+}
