@@ -13,6 +13,14 @@ const (
 	envEnablePromptAssembly            = "ENABLE_PROMPT_ASSEMBLY"
 	envEnableSystemContextCacheBreaker = "ENABLE_PROMPT_SYSTEM_CONTEXT_CACHE_BREAKER"
 	envClaudeSimple                    = "CLAUDE_CODE_SIMPLE"
+	// DISABLE_BUILTIN_STATIC_SECTIONS: set to true/1 to skip registering the
+	// hardcoded Claude-Code-parity static sections (identity / system_constraints
+	// / engineering / actions / tool_preferences / style / output_efficiency).
+	// Dynamic providers (language, env info, skill catalog, etc.) still run.
+	// Use this when the operator wants a DB-backed prompt_template to be the
+	// sole source of truth for the static system prompt instead of having
+	// mergeTemplateSections layer on top of built-ins.
+	envDisableBuiltinStaticSections = "DISABLE_BUILTIN_STATIC_SECTIONS"
 	// P20.1 Phase 10 — skill progressive disclosure 灰度开关与预算。
 	// 默认开启：侧边栏 launch skill 选择（LaunchSkillNames / ForceLaunchSkills）
 	// 需要 SkillCatalogProvider 被注册才能到达 BaseInstructions。

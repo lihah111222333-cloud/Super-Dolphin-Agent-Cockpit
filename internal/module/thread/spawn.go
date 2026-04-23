@@ -322,10 +322,7 @@ func (s *service) runPendingSpawn(
 		}
 		return fmt.Errorf("thread: assembly input: %w", err)
 	}
-	// Fold classifier-owned fields into the assembly input. snapshot captured
-	// them pre-classifier; *req has the post-classifier values now.
-	assemblyInput.BaseInstructions = req.BaseInstructions
-	assemblyInput.DeveloperInstructions = req.DeveloperInstructions
+	foldRouterOutputIntoAssemblyInput(&assemblyInput, req)
 	pkglogger.Info("thread: pending spawn parallel prep done",
 		"duration_ms", time.Since(parallelStart).Milliseconds(),
 		"prompt_key", req.PromptKey,
@@ -368,6 +365,28 @@ func (s *service) runPendingSpawn(
 	s.pendingLaunchMu.Delete(threadID)
 	publishPendingSpawnLaunched(s, req, row, session, agentID, threadID, displayName)
 	return nil
+}
+
+// foldRouterOutputIntoAssemblyInput copies router-produced fields from the
+// post-router StartRequest into the assemblyInput that was built from the
+// pre-router snapshot. snapshot was cloned before resolveRoutedPrompt ran, so
+// without this fold-back every field the router stamps onto *req would be
+// silently dropped by the time AssembleStart executes. Historically only two
+// fields needed folding (BaseInstructions / DeveloperInstructions); when
+// match_when + section-backed templates landed, BaseInstructionBlocks joined
+// the list. Keep this helper as the single place that enforces "whatever
+// resolveRoutedPrompt writes must reach the assembler" so future router
+// additions have one predictable update site.
+func foldRouterOutputIntoAssemblyInput(assemblyInput *contract.StartInput, req *StartRequest) {
+	if assemblyInput == nil || req == nil {
+		return
+	}
+	assemblyInput.BaseInstructions = req.BaseInstructions
+	assemblyInput.DeveloperInstructions = req.DeveloperInstructions
+	assemblyInput.BaseInstructionBlocks = append(
+		[]contract.BaseInstructionBlock(nil),
+		req.BaseInstructionBlocks...,
+	)
 }
 
 // prependAgentBadge renders `[label] displayName` when the router picked a

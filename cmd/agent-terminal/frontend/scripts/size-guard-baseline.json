@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-04-23T07:17:41.767Z",
+    "updatedAt": "2026-04-23T08:02:12.296Z",
     "fileLimit": 800,
     "funcLimit": 250,
     "nestingLimit": 5
@@ -73,7 +73,7 @@
     "pages/SectionsEditor.js": 338,
     "pages/SharedFilesPage.js": 621,
     "pages/SkillsPage.js": 412,
-    "pages/SystemPromptPage.js": 642,
+    "pages/SystemPromptPage.js": 659,
     "pages/TasksPage.js": 51,
     "pages/UnifiedChatPage.helpers.js": 262,
     "pages/UnifiedChatPage.js": 485,
@@ -412,10 +412,11 @@
     "pages/SystemPromptPage.js::filterPromptCards": 3,
     "pages/SystemPromptPage.js::serializeMatchWhenForEditor": 5,
     "pages/SystemPromptPage.js::applyMatchWhenToPayload": 10,
+    "pages/SystemPromptPage.js::probeTemplateSectionCount": 10,
     "pages/SystemPromptPage.js::createClassifierActions": 23,
     "pages/SystemPromptPage.js::refreshPromptsInBackground": 5,
     "pages/SystemPromptPage.js::createLaunchPromptActions": 37,
-    "pages/SystemPromptPage.js::setup": 247,
+    "pages/SystemPromptPage.js::setup": 251,
     "pages/TasksPage.js::setup": 10,
     "pages/UnifiedChatPage.helpers.js::buildUnifiedChatPageExposed": 202,
     "pages/UnifiedChatPage.helpers.js::createPathChoiceController": 59,
@@ -1150,6 +1151,7 @@
     "pages/SystemPromptPage.js::filterPromptCards": 0,
     "pages/SystemPromptPage.js::serializeMatchWhenForEditor": 1,
     "pages/SystemPromptPage.js::applyMatchWhenToPayload": 1,
+    "pages/SystemPromptPage.js::probeTemplateSectionCount": 2,
     "pages/SystemPromptPage.js::createClassifierActions": 3,
     "pages/SystemPromptPage.js::refreshPromptsInBackground": 2,
     "pages/SystemPromptPage.js::createLaunchPromptActions": 3,
