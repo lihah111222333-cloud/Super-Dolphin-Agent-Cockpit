@@ -1,6 +1,9 @@
 package observation
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // Memory is an in-memory Contract implementation suitable for tests and for
 // the default production wiring. It is safe for concurrent use.
@@ -13,6 +16,8 @@ type Memory struct {
 	terminals   map[string]Terminal
 	skills      map[string][]string
 	seenDedupe  map[DedupeKey]struct{}
+	counts      map[string]Counts
+	timestamps  map[string]Timestamps
 }
 
 // NewMemory returns an empty Memory contract.
@@ -25,6 +30,8 @@ func NewMemory() *Memory {
 		terminals:   map[string]Terminal{},
 		skills:      map[string][]string{},
 		seenDedupe:  map[DedupeKey]struct{}{},
+		counts:      map[string]Counts{},
+		timestamps:  map[string]Timestamps{},
 	}
 }
 
@@ -182,6 +189,75 @@ func (m *Memory) Dedupe(key DedupeKey) bool {
 	}
 	m.seenDedupe[key] = struct{}{}
 	return true
+}
+
+func (m *Memory) IncrementToolCalls(turnID string) int32 {
+	return m.bumpCounter(turnID, func(c *Counts) { c.ToolCalls++ }).ToolCalls
+}
+
+func (m *Memory) IncrementToolFailures(turnID string) int32 {
+	return m.bumpCounter(turnID, func(c *Counts) { c.ToolFailures++ }).ToolFailures
+}
+
+func (m *Memory) IncrementApprovalRequests(turnID string) int32 {
+	return m.bumpCounter(turnID, func(c *Counts) {
+		c.ApprovalRequests++
+		c.ApprovalRequestsObserved = true
+	}).ApprovalRequests
+}
+
+func (m *Memory) bumpCounter(turnID string, apply func(*Counts)) Counts {
+	if turnID == "" {
+		var zero Counts
+		apply(&zero)
+		return zero
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := m.counts[turnID]
+	apply(&c)
+	m.counts[turnID] = c
+	return c
+}
+
+func (m *Memory) Counts(turnID string) (Counts, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, ok := m.counts[turnID]
+	return c, ok
+}
+
+func (m *Memory) RecordStartedAt(turnID string, at time.Time) {
+	if turnID == "" || at.IsZero() {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ts := m.timestamps[turnID]
+	if ts.StartedAt.IsZero() {
+		ts.StartedAt = at
+		m.timestamps[turnID] = ts
+	}
+}
+
+func (m *Memory) RecordCompletedAt(turnID string, at time.Time) {
+	if turnID == "" || at.IsZero() {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ts := m.timestamps[turnID]
+	if at.After(ts.CompletedAt) {
+		ts.CompletedAt = at
+		m.timestamps[turnID] = ts
+	}
+}
+
+func (m *Memory) Timestamps(turnID string) (Timestamps, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ts, ok := m.timestamps[turnID]
+	return ts, ok
 }
 
 var _ Contract = (*Memory)(nil)
