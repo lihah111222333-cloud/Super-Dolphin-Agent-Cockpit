@@ -92,19 +92,24 @@ func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Method {
-	case "initialize":
+	case ProxyMethodInitialize:
 		writeJSONRPCResult(w, req.ID, map[string]any{
-			"protocolVersion": "2025-11-25",
+			"protocolVersion": ProxyProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "proxy", "version": "1.0.0"},
+			"serverInfo": map[string]any{
+				"name":    ProxyServerInfoName,
+				"version": ProxyServerInfoVersion,
+			},
 		})
-	case "notifications/initialized":
+	case ProxyNotificationMethod:
 		w.WriteHeader(http.StatusAccepted)
-	case "tools/list":
+	case ProxyMethodToolsList:
 		h.handleProxyToolsList(w, r.Context(), req.ID, family)
-	case "tools/call":
+	case ProxyMethodToolsCall:
 		h.handleProxyToolCall(w, r.Context(), req, family, agentID)
 	default:
+		// P22 P4 S3c fail-closed: unknown proxy methods return
+		// jsonRPCCodeMethodMiss instead of silent 200-ACK.
 		writeJSONRPCError(w, req.ID, jsonRPCCodeMethodMiss, "method not found")
 	}
 }

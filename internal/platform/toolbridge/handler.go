@@ -104,12 +104,12 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	snapshot := h.beginToolDiffSnapshot(ctx, req)
 
 	var resp peerToolCallResponse
-	err = peer.Callback(callCtx, "tools/call", map[string]any{
-		"name":      req.Name,
-		"arguments": req.Arguments,
-		"_agentId":  req.AgentID,
-		"_threadId": req.ThreadID,
-		"_callId":   req.CallID,
+	err = peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
+		"name":             req.Name,
+		"arguments":        req.Arguments,
+		MetadataKeyAgentID:  req.AgentID,
+		MetadataKeyThreadID: req.ThreadID,
+		MetadataKeyCallID:   req.CallID,
 	}, &resp)
 	if err != nil {
 		return &ToolCallResult{
