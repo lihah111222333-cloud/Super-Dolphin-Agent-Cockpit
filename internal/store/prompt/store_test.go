@@ -53,7 +53,7 @@ func (s *promptQuerierStub) UpsertPromptTemplate(ctx context.Context, arg sqlc.U
 	return sqlc.UpsertPromptTemplateRow{}, nil
 }
 
-func TestListForwardsAgentKeyKeywordAndLimit(t *testing.T) {
+func TestListForwardsAgentKeyKeywordCWDAndLimit(t *testing.T) {
 	t.Parallel()
 	now := time.Unix(1_234_567, 0).UTC()
 	var captured sqlc.ListPromptTemplatesParams
@@ -80,11 +80,11 @@ func TestListForwardsAgentKeyKeywordAndLimit(t *testing.T) {
 		},
 	}}
 
-	got, err := s.List(context.Background(), ListFilter{AgentKey: "reviewer", Keyword: "review", Limit: 10})
+	got, err := s.List(context.Background(), ListFilter{AgentKey: "reviewer", Keyword: "review", CWD: "/repo_a", Limit: 10})
 	if err != nil {
 		t.Fatalf("List() unexpected error: %v", err)
 	}
-	if captured.Column1 != "reviewer" || captured.Column2 != "review" || captured.Limit != 10 {
+	if captured.AgentKey != "reviewer" || captured.Keyword != "review" || captured.Cwd != "/repo_a" || captured.LimitCount != 10 {
 		t.Fatalf("List() forwarded wrong params: %+v", captured)
 	}
 	if len(got) != 1 {
@@ -96,6 +96,32 @@ func TestListForwardsAgentKeyKeywordAndLimit(t *testing.T) {
 	}
 	if string(p.Variables) != `{"lang":"go"}` || string(p.Tags) != `["qa"]` {
 		t.Fatalf("List() JSON fields mapped incorrectly: vars=%s tags=%s", p.Variables, p.Tags)
+	}
+}
+
+func TestStoreListPromptsRespectsCWDFilter(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_234_568, 0).UTC()
+	rows := []sqlc.ListPromptTemplatesRow{
+		{ID: 1, PromptKey: "global", Title: "Global", AgentKey: "main", Tags: []byte(`[]`), Enabled: true, CreatedAt: now, UpdatedAt: now},
+		{ID: 2, PromptKey: "repo-a", Title: "Repo A", AgentKey: "main", Tags: []byte(`["scope.cwd:/repo_a"]`), Enabled: true, CreatedAt: now, UpdatedAt: now},
+		{ID: 3, PromptKey: "repo-b", Title: "Repo B", AgentKey: "main", Tags: []byte(`["scope.cwd:/repo_b"]`), Enabled: true, CreatedAt: now, UpdatedAt: now},
+	}
+	s := &store{q: &promptQuerierStub{
+		listFn: func(_ context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
+			if arg.Cwd != "/repo_a" {
+				t.Fatalf("ListPromptTemplates Cwd = %q, want /repo_a", arg.Cwd)
+			}
+			return rows[:2], nil
+		},
+	}}
+
+	got, err := s.List(context.Background(), ListFilter{CWD: "/repo_a", Limit: 10})
+	if err != nil {
+		t.Fatalf("List() unexpected error: %v", err)
+	}
+	if len(got) != 2 || got[0].PromptKey != "global" || got[1].PromptKey != "repo-a" {
+		t.Fatalf("List() cwd filtered rows = %+v, want global + repo-a", got)
 	}
 }
 

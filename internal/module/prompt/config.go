@@ -58,9 +58,9 @@ func NewConfig(_ *platformconfig.Config) *Config {
 		EnableRegistry:                  parseBoolEnv(envEnablePromptRegistry, false),
 		EnableAssembly:                  parseBoolEnv(envEnablePromptAssembly, false),
 		EnableSystemContextCacheBreaker: parseBoolEnv(envEnableSystemContextCacheBreaker, false),
-		// Phase 10 defaults：灰度默认开启，保证侧边栏的 launch skill 选择能真正落地到
-		// BaseInstructions；meta-instructions 默认开启（Phase 9 行为）。
-		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, true),
+		// Phase 10 defaults：灰度默认关闭；显式开启后才注册 SkillCatalogProvider。
+		// meta-instructions 默认开启（Phase 9 行为）。
+		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, false),
 		SkillCatalogTokenBudget:          parseIntEnv(envSkillCatalogTokenBudget, 0),
 		EmitSkillCatalogMetaInstructions: parseBoolEnv(envSkillCatalogMetaInstructions, true),
 		SkillWriterFormat:                parseSkillWriterFormat(envSkillWriterFormat, "legacy"),

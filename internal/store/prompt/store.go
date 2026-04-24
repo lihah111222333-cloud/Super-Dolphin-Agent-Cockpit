@@ -73,9 +73,10 @@ func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, err
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error) {
 	rows, err := s.q.ListPromptTemplates(ctx, sqlc.ListPromptTemplatesParams{
-		Column1: filter.AgentKey,
-		Column2: filter.Keyword,
-		Limit:   filter.Limit,
+		AgentKey:   filter.AgentKey,
+		Keyword:    filter.Keyword,
+		Cwd:        filter.CWD,
+		LimitCount: filter.Limit,
 	})
 	if err != nil {
 		return nil, wrapPromptError(err, "list", "prompt_template")

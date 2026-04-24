@@ -113,6 +113,11 @@ describe('SystemPromptPage behavior', () => {
     expect(vm.filteredCards.value[0].name).toBe('Sub');
   });
 
+  it('TestSystemPromptPageContentTextareaDisabledInFallback', () => {
+    expect(SystemPromptPage.template).toContain(':disabled="saving || fallbackMode || editingHasSections"');
+    expect(SystemPromptPage.template).toContain("{{ fallbackMode ? '只读模式'");
+  });
+
   it('prompts/list 404 enters readonly fallback, disables mutations, and hydrates with cwd', async () => {
     apiMock.callAPI
       .mockRejectedValueOnce(createStatusOnlyError(404, '404 prompts/list not found'))
@@ -147,9 +152,22 @@ describe('SystemPromptPage behavior', () => {
     expect(vm.editorOpen.value).toBe(false);
 
     vm.openEdit(vm.promptCards.value[0]);
-    // Readonly editor is driven directly by fallbackMode (the editorViewOnly
-    // computed alias was dropped in the UI cleanup).
+    // Readonly editor is driven directly by fallbackMode.
     expect(vm.fallbackMode.value).toBe(true);
+  });
+
+  it('fallback hydrate should send projectStore.state.active when threadStore has no cwd', async () => {
+    apiMock.callAPI
+      .mockRejectedValueOnce(createStatusOnlyError(404, '404 prompts/list not found'))
+      .mockResolvedValueOnce({ prompts: [] });
+
+    const { vm } = createPage({
+      projectStore: { state: { active: '/active-repo', cwd: '/legacy-cwd' } },
+      threadStore: { state: {} },
+    });
+    await vm.loadPrompts();
+
+    expect(apiMock.callAPI.mock.calls[1]).toEqual(['dashboard/prompts', { cwd: '/active-repo' }]);
   });
 
   it('loadPrompts rethrows message-only user not found errors without readonly fallback', async () => {
