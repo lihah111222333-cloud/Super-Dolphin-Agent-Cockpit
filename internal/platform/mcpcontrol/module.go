@@ -2,11 +2,12 @@ package mcpcontrol
 
 import (
 	"context"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"errors"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -167,19 +168,29 @@ func registerConfigChangeLifecycle(lc fx.Lifecycle, in configChangeIn) {
 		logger = pkglogger.Get()
 	}
 
+	// P22 P2 (mcpcontrol config fanout): the worker is constructed ahead of
+	// Lifecycle.Append so OnStart can Start it before the bus subscriptions
+	// are wired. OnStop first unsubscribes, then drains the worker bounded
+	// by ctx so any in-flight peer NotifyConfigChanged observes the
+	// cancelled fanoutCtx cleanly.
+	worker := newConfigFanoutWorker(in.Notifier, in.Versions, logger)
 	var cancels []context.CancelFunc
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			cancels = registerConfigChangeSubscriptions(in.Dispatcher, in.Notifier, in.Versions, logger)
+			worker.Start()
+			cancels = registerConfigChangeSubscriptions(in.Dispatcher, worker, logger)
 			return nil
 		},
-		OnStop: func(context.Context) error {
+		OnStop: func(ctx context.Context) error {
 			for _, cancel := range cancels {
 				if cancel != nil {
 					cancel()
 				}
 			}
 			cancels = nil
+			if err := worker.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Warn("mcp config change worker drain failed", "error", err)
+			}
 			return nil
 		},
 	})

@@ -2,16 +2,14 @@ package mcpcontrol
 
 import (
 	"context"
-	"encoding/json"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
 
@@ -20,64 +18,44 @@ const (
 	configTopicThread = "config/thread"
 )
 
+// registerConfigChangeSubscriptions is the P22 P2 boundary for
+// `internal/platform/mcpcontrol/config_change.go`: the bus callback body
+// contains no NotifyConfigChanged call and no `context.Background()` —
+// only a worker Enqueue. Marshal + advanceConfigVersion + Notify all run
+// on the configFanoutWorker goroutine under its own cancellable ctx.
 func registerConfigChangeSubscriptions(
 	dispatcher *event.Dispatcher,
-	notifier contract.ToolNotifier,
-	versions configVersionSource,
+	worker *configFanoutWorker,
 	logger *pkglogger.Logger,
 ) []context.CancelFunc {
-	if dispatcher == nil || notifier == nil || versions == nil {
+	if dispatcher == nil || worker == nil {
 		return nil
 	}
 	return []context.CancelFunc{
 		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentStateChangedPayload(ev))
+			worker.Enqueue(configTopicAgent, agentStateChangedPayload(ev))
 		}, logger),
 		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentLaunched) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentLaunchedPayload(ev))
+			worker.Enqueue(configTopicAgent, agentLaunchedPayload(ev))
 		}, logger),
 		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentStopped) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentStoppedPayload(ev))
+			worker.Enqueue(configTopicAgent, agentStoppedPayload(ev))
 		}, logger),
 		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentRecovering) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentRecoveringPayload(ev))
+			worker.Enqueue(configTopicAgent, agentRecoveringPayload(ev))
 		}, logger),
 		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentFailed) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentFailedPayload(ev))
+			worker.Enqueue(configTopicAgent, agentFailedPayload(ev))
 		}, logger),
 		platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.AgentRuntimeReported) {
-			publishConfigChanged(notifier, versions, logger, configTopicAgent, agentRuntimeReportedPayload(ev))
+			worker.Enqueue(configTopicAgent, agentRuntimeReportedPayload(ev))
 		}, logger),
 		platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Started) {
-			publishConfigChanged(notifier, versions, logger, configTopicThread, threadStartedPayload(ev))
+			worker.Enqueue(configTopicThread, threadStartedPayload(ev))
 		}, logger),
 		platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Stopped) {
-			publishConfigChanged(notifier, versions, logger, configTopicThread, threadStoppedPayload(ev))
+			worker.Enqueue(configTopicThread, threadStoppedPayload(ev))
 		}, logger),
-	}
-}
-
-func publishConfigChanged(
-	notifier contract.ToolNotifier,
-	versions configVersionSource,
-	logger *pkglogger.Logger,
-	topic string,
-	payload map[string]any,
-) {
-	if notifier == nil || versions == nil || strings.TrimSpace(topic) == "" {
-		return
-	}
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		logger.Warn("mcp config change marshal failed", "topic", topic, "err", err)
-		return
-	}
-	configVersion := versions.advanceConfigVersion()
-	if err := notifier.NotifyConfigChanged(context.Background(), topic, configChangeSelectorScope(payload), configVersion, raw); err != nil {
-		logger.Warn("mcp config change notify failed", "topic", topic, "config_version", configVersion, "err", err)
 	}
 }
 
