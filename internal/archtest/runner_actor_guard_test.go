@@ -1,6 +1,11 @@
 package archtest
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // TestRunnerActorGuard is the P22 run.Group actor-execute guard shell
 // (P0 骨架; see docs/plans/迁移/p22/P0_RuntimeOwnershipSkeleton.md
@@ -59,17 +64,18 @@ func TestRunnerActorGuard(t *testing.T) {
 		}
 	})
 
+	// P22 P3 (commit 4dfed68 + follow-up): P1c's deferred matcher stays as a
+	// skeleton because SessionRuntime goroutines are owner-joined via the
+	// readerMu/readerDone pair (already covered by runtime TestShutdownDrain).
+	// The P3 matcher below is now live: orchestration's process_lifecycle.go
+	// must no longer contain the legacy waiter path.
 	matcherCases := []struct {
 		name        string
 		owningSlice string
 	}{
 		{
-			name:        "actor_run_ctx_must_not_fire_waiter_goroutine",
-			owningSlice: "P3 (Finding 8, orchestration/process_lifecycle)",
-		},
-		{
 			name:        "actor_run_ctx_auxiliary_goroutines_must_join_on_stop",
-			owningSlice: "P1c (codexapp session runtime reader/health)",
+			owningSlice: "P1c (codexapp session runtime reader/health — covered by TestShutdownDrain* at runtime level)",
 		},
 	}
 
@@ -80,4 +86,35 @@ func TestRunnerActorGuard(t *testing.T) {
 			t.Skipf("matcher skeleton only; owning slice will flip red→green: %s", tc.owningSlice)
 		})
 	}
+
+	t.Run("actor_run_ctx_must_not_fire_waiter_goroutine", func(t *testing.T) {
+		// P3 live matcher: scoped to orchestration/process_lifecycle.go.
+		// After P3 (commit 4dfed68 + follow-up), the legacy waiter path
+		// (startWaiters / waitForExit / claimMonitorTargets call) has been
+		// fully removed. Reappearance of any of these tokens inside the hot
+		// file is a regression.
+		t.Parallel()
+		root := repoRootForGuardTests(t)
+		path := filepath.Join(root, "cmd", "mcp-orch", "orchestration", "process_lifecycle.go")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		src := string(data)
+		forbidden := []string{
+			"func (a *runnerActor) startWaiters",
+			"func (a *runnerActor) waitForExit",
+			"go a.waitForExit(",
+			"claimMonitorTargets(",
+		}
+		var hits []string
+		for _, token := range forbidden {
+			if strings.Contains(src, token) {
+				hits = append(hits, token)
+			}
+		}
+		if len(hits) > 0 {
+			t.Fatalf("process_lifecycle.go reintroduced P3 Finding 8 waiter path; forbidden tokens present: %v", hits)
+		}
+	})
 }

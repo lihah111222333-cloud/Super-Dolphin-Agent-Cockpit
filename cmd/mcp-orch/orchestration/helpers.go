@@ -58,24 +58,10 @@ func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) 
 	})
 }
 
-func (s *service) claimMonitorTargets() []monitorTarget {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	targets := make([]monitorTarget, 0, len(s.agents))
-	for _, agent := range s.agents {
-		if agent.cmd == nil || agent.monitoredSeq == agent.launchSeq {
-			continue
-		}
-		agent.monitoredSeq = agent.launchSeq
-		targets = append(targets, monitorTarget{
-			agentID:   agent.id,
-			launchSeq: agent.launchSeq,
-			cmd:       agent.cmd,
-		})
-	}
-	return targets
-}
+// P22 P3: claimMonitorTargets is deleted. Exit monitoring is now armed at
+// launch time by startProcessLocked (and the launcher bridge for remote
+// launches) via processExitMonitor.Arm; the runnerActor is a pure consumer
+// of monitor.ExitEvents() and no longer polls for unmonitored cmds.
 
 func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRuntime) {
 	if agent.cmd == nil || agent.stopRequested {
@@ -237,6 +223,19 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 		agent.cmd = nil
 		return err
 	}
+	// P22 P3: arm the exit monitor immediately after a successful Start. The
+	// monitor spawns a tracked cmd.Wait goroutine that publishes exactly one
+	// exit event per (agent.id, agent.launchSeq) onto ExitEvents(); the
+	// runnerActor's main loop consumes that stream. monitoredSeq is kept as a
+	// test-visible flag so existing polling-based assertions keep working.
+	if s.exitMonitor != nil {
+		s.exitMonitor.Arm(monitorTarget{
+			agentID:   agent.id,
+			launchSeq: agent.launchSeq,
+			cmd:       cmd,
+		})
+	}
+	agent.monitoredSeq = agent.launchSeq
 	s.logger.Info("orchestration: agent launched", "agent_id", agent.id, "pid", cmd.Process.Pid)
 	return nil
 }
