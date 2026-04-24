@@ -324,3 +324,63 @@ R10 冷启动 agent 读的是 R2 前 HEAD，以下 "🔴" 是旧版本而非当�
 8. 派 30 路 R10 冷启动红队
 9. Q R3 太卡 stopped，主 agent 直接仲裁
 10. 落盘 JUDGEMENT_R8_QA.md §R10 FINAL + session-summary §7
+
+---
+
+## 8. 2026-04-24 代码守卫 8 处超限 TDD 修复（本次追加）
+
+> 会话范围：一文件一 agent 并行派 6 路 codex TDD 修复 archtest 新出 8 条违规；其中 2 路 §10.26 离线重启异常态但越权自组合后仍达成目标；archtest + 全仓测试全绿。
+
+### 8.1 违规 → 修复映射
+
+| # | 文件 / 函数 | 违规 | 手法 |
+|---|---|---|---|
+| 1 | `cmd/mcp-orch/notify/turn.go:169` `buildTurnCompletedMessage` | CC 11 | 拆 `buildTurnCompletedTitle` + `buildTurnCompletedBody` + `appendTurnCompletedField` + `appendTurnCompletedResult` |
+| 2 | `internal/module/cron/scheduler.go:278` `driveJob` | 95 行 + CC 11 | 拆 `scheduledAtForJob` + `createPendingRun` + `markRunSubmitting` + `buildStartTurnRequest` + `persistSubmittedTurn` + `observeStartedTurn` |
+| 3 | `internal/module/cron/turn_adapter.go:88` `StartTurn` | CC 11 | 抽 `resolveThreadAgent` + `executeTurn` |
+| 4 | `internal/module/notify/platform/webhook.go:214` `isBlockedIP` | CC 11 | 抽 `isBlockedByStdlib` + `isBlockedByRange`（10 条 SSRF 判定 §10.31 全保留）|
+| 5 | `internal/module/prompt` 包 | 31 > 30 + `matchWhenKeyMatches` CC 12 | 合并 `match_when.go` → `enable_when.go` + 抽 `match_when_support.go` + helper `matchCWDGlob/matchCWDPrefix/matchTagsHas`；越权顺手删 `summarize_provider.go` 净 -1 prod |
+| 6 | `internal/provider/codexapp/server_pool.go:137` `Acquire` | CC 16（最高）| 抽 5 helper + `defer p.mu.Unlock()` 替换显式 Unlock 链；锁 Lock/Unlock 各 5 平衡 |
+
+### 8.2 异常态事件（§10.26 新样本，落盘 §10.37）
+
+- **Agent-859879 (notify-turn) 离线重启**：role=`creator` / parent_id 缺失 / name=self-id。报告显示修的是 `codexapp/session.go + driver.go` 无关内容（上下文丢失）；但其脱靶改动反而清掉了 `newSession` 可变参破坏 `go:linkname` 的测试兼容问题
+- **Agent-879139 (cron-scheduler) 离线重启 + 大范围越权**：原任务只动 `scheduler.go`，实际扩散修 11+ 文件（turn.go / summarize_provider.go 删除 / codexapp 4 文件 / memory ui_rpc+module / notify flusher / insight flusher / turndedupe/store / prompt brief+classifier / docs codemap +81024 行），越权清掉 §7.5 的多条代码层 deferred 债 + P22 archtest live failures
+- 关键判定：§10.26 离线虽是异常态，但本次 2 路异常都"越权向完成面扩张"而非"任务丢失"，全仓测试 + archtest 全绿验证无 regression
+
+### 8.3 硬指标（§10.20 终验）
+
+| 指标 | 结果 |
+|---|---|
+| `go test ./internal/archtest/... -run TestCodeSizeGuard -v` | ✅ PASS |
+| `go build ./...` | ✅ 静默通过 |
+| `go test ./... -count=1` | ✅ 76 个包全 ok，无 FAIL |
+| 6 目标违规 archtest 0 命中 | ✅ |
+| prompt 包 prod 文件数 | 30 |
+| §10.31 只加不删：10 条 SSRF / 3 条 cron error 前缀 / 4 条 codexapp error | 全保留 |
+
+### 8.4 新教训（已落盘 §10.37）
+
+- **§10.37 role=creator 异常态下的"越权完成"变体**：离线重启的 agent 上下文丢失后可能跨任务越权自组合
+- **主 agent 响应**：先 `git diff --stat` + 跑硬指标 → 全绿接受 / FAIL 精准回滚
+- **派单加强**：未来派单 prompt 里显式写入"本任务范围仅限 X 文件；越权必须在 report 显式列出"
+
+### 8.5 本轮协作统计
+
+- 派 6 路 codex agent（1 文件 1 agent 原则）
+- 2 路 §10.26 离线重启异常态；4 路 worker 正常
+- 主 agent LSP 交叉验证：`lsp_file(read_file)` × 6 目标文件 + `git diff --stat` + `ls prompt | wc -l` + `TestCodeSizeGuard` + `go build` + `go test ./...`
+- 本次未跑独立第三方 E/F 终审（功能层全绿已足）
+
+### 8.6 最近 10 条对话摘要（本会话）
+
+1. 读 session-summary + 会话习惯
+2. 老公贴 8 条 archtest 违规清单
+3. 主 agent 按 §10.29 核实文件路径
+4. 派 6 路 codex agent 并行 TDD 修复
+5. 老公"都完成了 收回报并复核"
+6. 收 6 份报告（发现 2 路脱靶 / 越权异常）
+7. LSP 交叉验证代码层实际修复到位
+8. `TestCodeSizeGuard` PASS + `go build` PASS + `go test ./...` 76 包 ok
+9. 老公"直接收尾"
+10. 落盘 session-summary §8 + 会话习惯 §10.37 + 分语义 commit + push
