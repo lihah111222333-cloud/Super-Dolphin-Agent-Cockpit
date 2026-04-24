@@ -51,6 +51,7 @@ const PUBLIC_API_KEYS = [
   'sendMessage',
   'setCmdCardCols',
   'setLayout',
+  'setThreadCompactResult',
 
   'setPreferenceScopeCwd',
   'setScrollGuard',

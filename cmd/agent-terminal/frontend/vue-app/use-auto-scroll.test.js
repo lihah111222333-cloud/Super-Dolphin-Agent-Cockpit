@@ -41,7 +41,7 @@ describe('useAutoScroll', () => {
   });
 
   it('scrolls to the bottom when auto-scroll is enabled', () => {
-    const scroller = { scrollTop: 12, scrollHeight: 640, clientHeight: 240 };
+    const scroller = { scrollTop: 12, scrollHeight: 640, clientHeight: 240, style: {} };
     const workspaceRef = ref({ querySelector: vi.fn(() => scroller) });
     const vm = useAutoScroll(workspaceRef);
 
@@ -52,7 +52,7 @@ describe('useAutoScroll', () => {
   });
 
   it('honors disabled auto-scroll unless force is true', async () => {
-    const scroller = { scrollTop: 24, scrollHeight: 720, clientHeight: 240 };
+    const scroller = { scrollTop: 24, scrollHeight: 720, clientHeight: 240, style: {} };
     const workspaceRef = ref({ querySelector: vi.fn(() => scroller) });
     const vm = useAutoScroll(workspaceRef);
 
@@ -67,7 +67,7 @@ describe('useAutoScroll', () => {
   });
 
   it('resetScrollState followed by scheduleScrollToBottom still scrolls to bottom', async () => {
-    const scroller = { scrollTop: 500, scrollHeight: 2000, clientHeight: 400 };
+    const scroller = { scrollTop: 500, scrollHeight: 2000, clientHeight: 400, style: {} };
     const workspaceRef = ref({ querySelector: vi.fn(() => scroller) });
     const vm = useAutoScroll(workspaceRef);
 
@@ -114,6 +114,7 @@ describe('useAutoScroll', () => {
       scrollTop: 600,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
+      style: {},
     };
     const workspaceRef = ref({ querySelector: vi.fn(() => scroller) });
     const vm = useAutoScroll(workspaceRef);
@@ -135,7 +136,7 @@ describe('useAutoScroll', () => {
   });
 
   it('[FIX-v3] unexpected scroll-to-top does not overwrite savedScrollTop', async () => {
-    const scroller = { scrollTop: 500, scrollHeight: 2000, clientHeight: 400 };
+    const scroller = { scrollTop: 500, scrollHeight: 2000, clientHeight: 400, style: {} };
     const workspaceRef = ref({ querySelector: vi.fn(() => scroller) });
     const vm = useAutoScroll(workspaceRef);
 
