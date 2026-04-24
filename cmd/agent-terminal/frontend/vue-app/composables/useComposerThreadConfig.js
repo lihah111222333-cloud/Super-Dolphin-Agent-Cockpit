@@ -82,15 +82,31 @@ export function useComposerThreadConfig(props, emit) {
     return appendCurrentOption(filteredOptions, normalizedDraftEffort);
   });
 
+  // Convert a raw model slug to its short, human-readable label.
+  // e.g. "claude-opus-4-7[1m]" → "Opus 4.7 [1M]", "sonnet" → "Sonnet 4.7"
+  function shortModelLabel(rawModel) {
+    const provider = normalizedThreadConfigProvider.value;
+    const canonical = canonicalizeModelValue(provider, rawModel);
+    if (!canonical) return '';
+    const options = MODEL_OPTIONS_BY_PROVIDER[provider];
+    const match = options?.find((o) => normalizeProviderConfigValue(o.value) === canonical);
+    return match?.label || canonical;
+  }
+
   const threadConfigSummaryLabel = computed(() => {
     if (threadConfigInherited.value) {
-      const parts = [effectiveModel.value, effectiveEffort.value].filter(Boolean);
-      return parts.length > 0 ? `${parts.join('-')} (继承全局)` : '继承全局';
+      // Prefer effective values; fall back to the full selection chain
+      // (draft → override → effective → runtime) so the label never
+      // shows bare "继承全局" when a concrete model is available.
+      const model = effectiveModel.value || selectedThreadConfigModel.value;
+      const effort = effectiveEffort.value || normalizedSelectedThreadConfigEffort.value;
+      const parts = [shortModelLabel(model), effort].filter(Boolean);
+      return parts.length > 0 ? `${parts.join(' · ')} (继承全局)` : '继承全局';
     }
     const model = overrideModel.value || effectiveModel.value || '';
     const effort = overrideEffort.value || effectiveEffort.value || '';
-    const parts = [model.split('/').pop(), effort].filter(Boolean);
-    return parts.length > 0 ? parts.join('-') : '已覆盖';
+    const parts = [shortModelLabel(model), effort].filter(Boolean);
+    return parts.length > 0 ? parts.join(' · ') : '已覆盖';
   });
 
   const threadConfigInheritModelLabel = computed(() => {
