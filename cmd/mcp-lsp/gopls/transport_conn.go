@@ -16,7 +16,12 @@ import (
 
 const (
 	defaultShutdownTimeout = 5 * time.Second
-	stderrLimitBytes       = 8 * 1024
+	// defaultResponderDrainTimeout bounds how long Close() waits for
+	// in-flight server-request responder goroutines to drain. Keep it
+	// ≤ defaultShutdownTimeout so Close() as a whole still fits the
+	// caller-side stop budget (P22 P2 gopls-S3, plan §492).
+	defaultResponderDrainTimeout = 2 * time.Second
+	stderrLimitBytes             = 8 * 1024
 )
 
 func startTransport(options transportOptions) (*exec.Cmd, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
@@ -53,7 +58,27 @@ func (t *transport) Close() error {
 	}
 	t.closeInput()
 	t.clearPending(ErrTransportClosed)
-	return errors.Join(t.killProcess(), t.waitForExit(defaultShutdownTimeout))
+	drainErr := t.drainResponders(defaultResponderDrainTimeout)
+	return errors.Join(t.killProcess(), t.waitForExit(defaultShutdownTimeout), drainErr)
+}
+
+// drainResponders waits up to timeout for every in-flight
+// server-request responder goroutine registered via spawnResponder.
+// A non-nil error indicates some responder outlived the drain budget;
+// the caller still proceeds to killProcess so a stuck peer cannot
+// pin shutdown.
+func (t *transport) drainResponders(timeout time.Duration) error {
+	done := make(chan struct{})
+	go func() {
+		t.responderWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("gopls: server-request responders did not drain within %s", timeout)
+	}
 }
 
 func (t *transport) readLoop() {
@@ -192,5 +217,9 @@ func (t *transport) stopWithError(err error) {
 	t.closed.Store(true)
 	t.clearPending(err)
 	t.closeInput()
+	// Drain in-flight server-request responders before killing the
+	// process so writeMessage failures do not cascade into goroutine
+	// leaks (P22 P2 gopls-S3).
+	_ = t.drainResponders(defaultResponderDrainTimeout)
 	_ = t.killProcess()
 }
