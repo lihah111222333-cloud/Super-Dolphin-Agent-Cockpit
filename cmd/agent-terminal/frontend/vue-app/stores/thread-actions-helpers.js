@@ -618,9 +618,10 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
   logInfo('thread', 'send.start', { thread_id: threadId, text_len: text.length, attachments: attachments.length, local_images: localImageCount, inline_images: remoteImageCount, files: fileCount, dropped_attachments: droppedAttachmentCount, selected_skills: selectedSkills.length, manual_skill_selection: manualSkillSelection });
   try {
     const beforeLen = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId].length : 0;
-    if (typeof ctx.threadHistoryLoadedAtByThread?.set === 'function') {
-      ctx.threadHistoryLoadedAtByThread.set(threadId, Date.now());
-    }
+    const historyLoadedAtByThread = ctx.threadHistoryLoadedAtByThread instanceof Map
+      ? ctx.threadHistoryLoadedAtByThread
+      : (ctx.threadHistoryLoadedAtByThread = new Map());
+    historyLoadedAtByThread.set(threadId, Date.now());
     // Optimistic UI: insert the user's message into the local timeline BEFORE
     // awaiting turn/start. First-turn of a pending_launch thread spends
     // 5-15s inside turn/start (SpawnIfNeeded runs the classifier + forks the
