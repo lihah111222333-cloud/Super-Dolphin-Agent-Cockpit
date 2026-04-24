@@ -1,6 +1,8 @@
 import { ref, computed, nextTick } from '../../lib/vue.esm-browser.prod.js';
+import { logWarn } from '../services/log.js';
 import {
   appendCurrentOption,
+  canonicalizeModelValue,
   EFFORT_MODES,
   EFFORT_MODES_BY_PROVIDER,
   isClaudeOpusFamilyModel,
@@ -54,12 +56,28 @@ export function useComposerThreadConfig(props, emit) {
   const threadConfigEditable = computed(() => threadConfigVisible.value && Boolean(props.threadConfigSupportsOverride));
   const threadConfigInherited = computed(() => !overrideModel.value && !overrideEffort.value);
 
-  const threadConfigModelOptions = computed(() =>
-    appendCurrentOption(
-      MODEL_OPTIONS_BY_PROVIDER[normalizedThreadConfigProvider.value] || MODEL_OPTIONS,
-      selectedThreadConfigModel.value,
-    )
-  );
+  const threadConfigModelOptions = computed(() => {
+    const providerKey = normalizedThreadConfigProvider.value;
+    const matched = MODEL_OPTIONS_BY_PROVIDER[providerKey];
+    if (!matched) {
+      logWarn('provider.config', 'thread_config.model_options.fallback', {
+        raw_provider: props.threadConfigProvider,
+        normalized_provider: providerKey,
+        selected_model: selectedThreadConfigModel.value,
+        fallback_to: 'MODEL_OPTIONS(codex)',
+        thread_id: props.threadId,
+        supports_override: Boolean(props.threadConfigSupportsOverride),
+      });
+    }
+    // Canonicalize long slugs (e.g. claude-opus-4-7[1m]) back to the short
+    // alias (opus[1m]) so the dropdown highlights the correct existing option
+    // instead of appending a raw long slug at the bottom.
+    const canonicalModel = canonicalizeModelValue(providerKey, selectedThreadConfigModel.value);
+    return appendCurrentOption(
+      matched || MODEL_OPTIONS,
+      canonicalModel,
+    );
+  });
   const threadConfigEffortBaseOptions = computed(() =>
     EFFORT_MODES_BY_PROVIDER[normalizedThreadConfigProvider.value] || EFFORT_MODES
   );
@@ -105,6 +123,19 @@ export function useComposerThreadConfig(props, emit) {
         zIndex: '101',
         overflow: 'visible',
       };
+      logWarn('provider.config', 'thread_config.dropdown.opened', {
+        thread_id: props.threadId,
+        raw_provider: props.threadConfigProvider,
+        normalized_provider: normalizedThreadConfigProvider.value,
+        selected_model: selectedThreadConfigModel.value,
+        effective_model: effectiveModel.value,
+        override_model: overrideModel.value,
+        model_options: threadConfigModelOptions.value.map((o) => o.value),
+        model_options_count: threadConfigModelOptions.value.length,
+        effort_options: threadConfigEffortOptions.value.map((o) => o.value),
+        visible: threadConfigVisible.value,
+        editable: threadConfigEditable.value,
+      });
     }
     threadConfigOpen.value = !threadConfigOpen.value;
   }

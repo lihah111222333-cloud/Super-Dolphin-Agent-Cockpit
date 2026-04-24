@@ -117,11 +117,21 @@ func (s *session) configuredOverrideEffortLocked() string {
 
 var claudeAllowedModels = []string{
 	"best",
+	// Short aliases resolved by Claude CLI to the current latest version.
 	"sonnet",
 	"sonnet[1m]",
 	"haiku",
 	"opus",
 	"opus[1m]",
+	// Explicit version slugs — let users pin a specific version.
+	"claude-opus-4-7",
+	"claude-opus-4-7[1m]",
+	"claude-opus-4-6",
+	"claude-opus-4-6[1m]",
+	"claude-sonnet-4-7",
+	"claude-sonnet-4-7[1m]",
+	"claude-sonnet-4-6",
+	"claude-sonnet-4-6[1m]",
 }
 
 func (s *session) AllowedModels(context.Context) ([]string, error) {

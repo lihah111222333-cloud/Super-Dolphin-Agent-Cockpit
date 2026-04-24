@@ -41,6 +41,7 @@ vi.mock('./services/api.js', () => ({
 vi.mock('./services/log.js', () => ({
   logDebug: vi.fn(),
   logInfo: vi.fn(),
+  logWarn: vi.fn(),
 }));
 
 import {
