@@ -24,12 +24,12 @@ func TestServiceGetConfigPrefersSessionValueOverOfflineOverride(t *testing.T) {
 			Provider:               "codex",
 			SupportsThreadOverride: true,
 			Override: dto.ThreadConfigValues{
-				Model:     "gpt-5.4",
+				Model:     "gpt-5.5",
 				Effort:    "high",
 				Approvals: "on-request",
 			},
 			Effective: dto.ThreadConfigValues{
-				Model:     "gpt-5.4",
+				Model:     "gpt-5.5",
 				Effort:    "high",
 				Approvals: "on-request",
 			},
@@ -55,7 +55,7 @@ func TestServiceGetConfigPrefersSessionValueOverOfflineOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConfig() error = %v", err)
 	}
-	if cfg.Effective.Model != "gpt-5.4" || cfg.Override.Approvals != "on-request" {
+	if cfg.Effective.Model != "gpt-5.5" || cfg.Override.Approvals != "on-request" {
 		t.Fatalf("GetConfig() = %#v", cfg)
 	}
 }
@@ -65,7 +65,7 @@ func TestServiceGetConfigFallsBackToOfflineConfigWithoutSession(t *testing.T) {
 
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:       "thread-1",
-		Model:          "gpt-5.4",
+		Model:          "gpt-5.5",
 		Cwd:            "/tmp/demo",
 		Status:         statusCreated,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Effort: "high", Approvals: "never", Personality: "balanced"}),
@@ -96,7 +96,7 @@ func TestServiceGetConfigFallsBackToOfflineConfigWithoutSession(t *testing.T) {
 	if !cfg.SupportsThreadOverride || cfg.Provider != "codex" {
 		t.Fatalf("GetConfig() provider = %#v", cfg)
 	}
-	if cfg.Effective.Model != "gpt-5.4" || cfg.Override.Effort != "high" || cfg.Override.Approvals != "never" {
+	if cfg.Effective.Model != "gpt-5.5" || cfg.Override.Effort != "high" || cfg.Override.Approvals != "never" {
 		t.Fatalf("GetConfig() offline = %#v", cfg)
 	}
 
@@ -118,7 +118,7 @@ func TestBuildOfflineConfigPrefersStoredProviderOverBinding(t *testing.T) {
 
 	got := mustBuildOfflineConfig(t, &threadstore.Thread{
 		ThreadID:       "thread-stored-provider",
-		Model:          "gpt-5.4",
+		Model:          "gpt-5.5",
 		Status:         statusCreated,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "claude"}),
 	}, nil)
@@ -133,7 +133,7 @@ func TestBuildOfflineConfigPrefersStoredProviderWhenBindingMismatch(t *testing.T
 
 	got := mustBuildOfflineConfig(t, &threadstore.Thread{
 		ThreadID:       "thread-provider-mismatch",
-		Model:          "gpt-5.4",
+		Model:          "gpt-5.5",
 		Status:         statusCreated,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "claude"}),
 	}, &bindingstore.Binding{Provider: "codex"})
@@ -148,7 +148,7 @@ func TestBuildOfflineConfigFallsBackToBindingWhenStoredEmpty(t *testing.T) {
 
 	got := mustBuildOfflineConfig(t, &threadstore.Thread{
 		ThreadID:       "thread-binding-fallback",
-		Model:          "gpt-5.4",
+		Model:          "gpt-5.5",
 		Status:         statusCreated,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{}),
 	}, &bindingstore.Binding{Provider: "codex"})
@@ -163,7 +163,7 @@ func TestBuildOfflineConfigFallsBackToDefaultWhenAllEmpty(t *testing.T) {
 
 	got := mustBuildOfflineConfig(t, &threadstore.Thread{
 		ThreadID:       "thread-default-fallback",
-		Model:          "gpt-5.4",
+		Model:          "gpt-5.5",
 		Status:         statusCreated,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{}),
 	}, nil)
@@ -178,7 +178,7 @@ func TestBuildOfflineConfigPendingLaunchClaudeThread(t *testing.T) {
 
 	got := mustBuildOfflineConfig(t, &threadstore.Thread{
 		ThreadID:      "thread-pending-claude",
-		Prompt:        "新对话",
+		Prompt:        "",
 		Status:        statusCreated,
 		PendingLaunch: true,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
@@ -205,7 +205,7 @@ func TestServiceReadRuntimeConfigMergesSessionSnapshotWithOfflineConfig(t *testi
 	}
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:       "thread-1",
-		Model:          "gpt-5.4",
+		Model:          "gpt-5.5",
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "balanced", Approvals: "never"}),
 	}}
 	svc, ok := NewService(
@@ -428,7 +428,7 @@ func TestReadRuntimeConfigIncludesStoredPromptContext(t *testing.T) {
 
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID: "thread-context-offline",
-		Model:    "gpt-5.4",
+		Model:    "gpt-5.5",
 		Cwd:      "/repo",
 		Status:   "running",
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{

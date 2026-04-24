@@ -28,7 +28,7 @@ func TestValidateModelNameRejectsEmptyAndInvalid(t *testing.T) {
 		want  string
 	}{
 		{name: "empty", input: "   ", want: "model is required"},
-		{name: "invalid rune", input: "gpt-5.4!", want: `invalid model name "gpt-5.4!"`},
+		{name: "invalid rune", input: "gpt-5.5!", want: `invalid model name "gpt-5.5!"`},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -46,20 +46,20 @@ func TestValidateModelNameRejectsEmptyAndInvalid(t *testing.T) {
 func TestNormalizeThreadConfigPatchTrimsValues(t *testing.T) {
 	t.Parallel()
 
-	model := "  gpt-5.4  "
+	model := "  gpt-5.5  "
 	effort := "  high  "
 	personality := "  concise  "
 	approvals := "  on-request  "
 	patch, err := normalizeThreadConfigPatch(
 		context.Background(),
-		&stubSession{threadID: "thread-1", allowedModels: []string{"gpt-5.4"}},
+		&stubSession{threadID: "thread-1", allowedModels: []string{"gpt-5.5"}},
 		"codex",
 		dto.ThreadConfigPatch{Model: &model, Effort: &effort, Personality: &personality, Approvals: &approvals},
 	)
 	if err != nil {
 		t.Fatalf("normalizeThreadConfigPatch() error = %v", err)
 	}
-	if patch.Model == nil || *patch.Model != "gpt-5.4" {
+	if patch.Model == nil || *patch.Model != "gpt-5.5" {
 		t.Fatalf("patch.Model = %#v, want trimmed model", patch.Model)
 	}
 	if patch.Effort == nil || *patch.Effort != "high" {

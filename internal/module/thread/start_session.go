@@ -70,9 +70,13 @@ func resolveStartConfig(req StartRequest) (StartRequest, error) {
 }
 
 func resolveStartProvider(provider string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(shared.FirstNonEmpty(provider, defaultStartProvider))) {
+	normalized := strings.ToLower(strings.TrimSpace(provider))
+	if normalized == "" {
+		return "", fmt.Errorf("provider is required (got empty string)")
+	}
+	switch normalized {
 	case "codex", "claude":
-		return strings.ToLower(strings.TrimSpace(shared.FirstNonEmpty(provider, defaultStartProvider))), nil
+		return normalized, nil
 	default:
 		return "", fmt.Errorf("invalid provider %q", strings.TrimSpace(provider))
 	}

@@ -55,12 +55,10 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		return StartResult{}, errors.New("thread store is not configured")
 	}
 	createdAt := time.Now().Unix()
-	// Default display text for a pending card; the real name gets rewritten
-	// during SpawnIfNeeded once we have the user's first-turn input.
+	// Display text for a pending card; left empty when the caller did not
+	// supply a Name or Prompt.  The real name gets rewritten during
+	// SpawnIfNeeded once we have the user's first-turn input.
 	displayName := strings.TrimSpace(shared.FirstNonEmpty(req.Name, req.Prompt))
-	if displayName == "" {
-		displayName = "新对话"
-	}
 	// Stash the launch-time provider/effort/personality/approvals choices into
 	// config_override so SpawnIfNeeded can restore them on the first turn.
 	// Without this the pending row only retains Model+Cwd and normalizeStart
@@ -255,7 +253,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		Name:             row.Prompt,
 		Prompt:           strings.TrimSpace(userInputForRouter),
 		OwnerThreadID:    row.OwnerThreadID,
-		Provider:         storedCfg.Provider,
+		Provider:         shared.FirstNonEmpty(storedCfg.Provider, defaultStartProvider),
 		Effort:           storedCfg.Effort,
 		Personality:      storedCfg.Personality,
 		ApprovalPolicy:   storedCfg.Approvals,

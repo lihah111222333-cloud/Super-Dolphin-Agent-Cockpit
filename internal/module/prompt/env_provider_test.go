@@ -16,7 +16,7 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 			GitRoot:                      "/repo",
 			IsWorktree:                   true,
 			Provider:                     "codex",
-			Model:                        "gpt-5.4",
+			Model:                        "gpt-5.5",
 			EnabledTools:                 []string{"code_run", "lsp_file", "lsp_grep", "lsp_file"},
 			AdditionalWorkingDirectories: []string{"/repo/extra", " /repo/extra-two ", "/repo/extra"},
 		},
@@ -42,7 +42,7 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 		"- Additional working directory: /repo/extra",
 		"- Additional working directory: /repo/extra-two",
 		"- Provider: codex",
-		"- Model metadata: GPT-5.4 (model ID: gpt-5.4)",
+		"- Model metadata: GPT-5.5 (model ID: gpt-5.5)",
 		"- Knowledge cutoff: not published by the provider",
 	}
 	for _, check := range checks {

@@ -122,7 +122,7 @@ function makeThreadStore() {
       provider: 'codex',
       supportsThreadOverride: true,
       override: { model: '', effort: '' },
-      effective: { model: 'gpt-5.4', effort: 'xhigh' },
+      effective: { model: 'gpt-5.5', effort: 'xhigh' },
     })),
     setThreadConfig: vi.fn(async () => ({})),
     stopThread: vi.fn(async () => ({ confirmed: true, settled: true, mode: 'interrupt_confirmed' })),

@@ -12,7 +12,7 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 	var params startParams
 	input := []byte(`{
 		"cwd":"/tmp/project",
-		"model":"gpt-5.4",
+		"model":"gpt-5.5",
 		"modelProvider":"openai",
 		"approvalPolicy":"never",
 		"parentAgentId":"agent-root",
@@ -28,7 +28,7 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 	if err := json.Unmarshal(input, &params); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if params.CWD != "/tmp/project" || params.Model != "gpt-5.4" {
+	if params.CWD != "/tmp/project" || params.Model != "gpt-5.5" {
 		t.Fatalf("startParams basic fields = %#v", params)
 	}
 	if params.ModelProvider != "openai" || params.ApprovalPolicy != "never" {
@@ -143,12 +143,12 @@ func TestResumeParamsAcceptThreadBodyFields(t *testing.T) {
 		"threadId":"thread-1",
 		"path":"/tmp/history",
 		"cwd":"/tmp/repo",
-		"model":"gpt-5.4"
+		"model":"gpt-5.5"
 	}`)
 	if err := json.Unmarshal(input, &params); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if params.ThreadID != "thread-1" || params.Path != "/tmp/history" || params.CWD != "/tmp/repo" || params.Model != "gpt-5.4" {
+	if params.ThreadID != "thread-1" || params.Path != "/tmp/history" || params.CWD != "/tmp/repo" || params.Model != "gpt-5.5" {
 		t.Fatalf("resumeParams = %#v", params)
 	}
 }
@@ -156,27 +156,18 @@ func TestResumeParamsAcceptThreadBodyFields(t *testing.T) {
 func TestNormalizeStartRequestDefaultsProviderWithoutPromptPollution(t *testing.T) {
 	t.Parallel()
 
-	req, agentID, err := normalizeStartRequest(StartRequest{
+	_, _, err := normalizeStartRequest(StartRequest{
 		BaseInstructions: "  launch me  ",
 	})
-	if err != nil {
-		t.Fatalf("normalizeStartRequest() error = %v", err)
-	}
-	if req.Provider != defaultStartProvider {
-		t.Fatalf("provider = %q, want %q", req.Provider, defaultStartProvider)
-	}
-	if req.Name != "" || req.Prompt != "" {
-		t.Fatalf("display fields = %#v, want empty name/prompt", req)
-	}
-	if agentID == "" || req.AgentID == "" {
-		t.Fatalf("agent id = %q, want generated id", agentID)
+	if err == nil || !strings.Contains(err.Error(), "provider is required") {
+		t.Fatalf("normalizeStartRequest() error = %v, want provider is required", err)
 	}
 }
 
 func TestNormalizeStartRequestDerivesNameFromDeprecatedPrompt(t *testing.T) {
 	t.Parallel()
 
-	req, _, err := normalizeStartRequest(StartRequest{Prompt: "  launch me  "})
+	req, _, err := normalizeStartRequest(StartRequest{Provider: "codex", Prompt: "  launch me  "})
 	if err != nil {
 		t.Fatalf("normalizeStartRequest() error = %v", err)
 	}

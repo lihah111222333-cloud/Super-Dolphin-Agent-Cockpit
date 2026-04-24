@@ -396,6 +396,9 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   ]);
 
   const modelProvider = (typeof providerPref === 'string' && providerPref.trim()) ? providerPref.trim() : '';
+  if (!modelProvider) {
+    throw new Error('startThread: settings.provider.active preference is empty — cannot determine provider. Please select a provider in Settings.');
+  }
   // p20.3 §4.3：launch payload 可携带 UI 已知的 skill 选择。空数组 / false 不下发，
   // 完全对旧 payload 做 additive 兼容；名称与 send path 对齐（selectedSkills /
   // manualSkillSelection）。backend 的 rpc_types.go 同时兼容 snake_case 别名。

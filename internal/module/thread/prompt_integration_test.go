@@ -123,7 +123,7 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 		ThreadID:  "thread-assembly",
 		AgentID:   "agent-assembly",
 		Prompt:    snapshot.DisplayName,
-		Model:     "gpt-5.4",
+		Model:     "gpt-5.5",
 		Cwd:       "/repo",
 		CreatedAt: 123,
 		Status:    statusCreated,
@@ -181,7 +181,7 @@ func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.
 		ThreadID:  "thread-resume",
 		AgentID:   "agent-resume",
 		Prompt:    "resume name",
-		Model:     "gpt-5.4",
+		Model:     "gpt-5.5",
 		Cwd:       "/repo",
 		CreatedAt: 123,
 		Status:    statusCreated,
@@ -219,7 +219,7 @@ func TestResumeInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
 		ThreadID:  "thread-resume",
 		AgentID:   "agent-resume",
 		Prompt:    "resume name",
-		Model:     "gpt-5.4",
+		Model:     "gpt-5.5",
 		Cwd:       worktreeCWD,
 		CreatedAt: 123,
 		Status:    statusCreated,
@@ -290,7 +290,7 @@ func TestForkPreservesPromptAssembly(t *testing.T) {
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "assembled name",
-		Model:     "gpt-5.4",
+		Model:     "gpt-5.5",
 		Cwd:       "/repo",
 		CreatedAt: 123,
 	}}
@@ -299,8 +299,8 @@ func TestForkPreservesPromptAssembly(t *testing.T) {
 			if req.AgentID != "thread-fork" || req.ThreadID != "thread-fork" {
 				t.Fatalf("ResumeSession request = %#v, want thread-fork agent/thread", req)
 			}
-			if req.Model != "gpt-5.4" {
-				t.Fatalf("Model = %q, want gpt-5.4", req.Model)
+			if req.Model != "gpt-5.5" {
+				t.Fatalf("Model = %q, want gpt-5.5", req.Model)
 			}
 			sessions.session = forkedSession
 			return forkedSession, nil

@@ -123,9 +123,7 @@ type handoffSource struct {
 
 // sourceProviderHint reads the provider name from the source thread's config
 // override if present. The store does not carry provider on the thread row
-// itself (provider lives on agent_provider_binding), so for MVP we leave it
-// empty and let normalizeStartRequest + session starter re-infer it from the
-// binding. This still produces a valid launch \u2014 it just means the handoff
-// cannot force the source's provider onto the new thread if the user never
-// explicitly pinned one.
-func sourceProviderHint(_ handoffSource) string { return "" }
+// itself (provider lives on agent_provider_binding), so for MVP we return
+// defaultStartProvider as the safe fallback — resolveStartProvider no longer
+// accepts empty strings.
+func sourceProviderHint(_ handoffSource) string { return defaultStartProvider }

@@ -70,7 +70,7 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   const summaryMode = ref(DEFAULT_SUMMARY_MODE) as { value: string };
   const approvalMode = ref(DEFAULT_APPROVAL_MODE) as { value: string };
   const effortMode = ref('xhigh') as { value: string };
-  const providerModel = ref('gpt-5.4') as { value: string };
+  const providerModel = ref('gpt-5.5') as { value: string };
   const personality = ref(DEFAULT_PERSONALITY) as { value: string };
   const { activeProjectCwd, withProjectCwd } = useSettingsScope(props.projectStore);
   let providerSettingsLoadSeq = 0;
@@ -115,7 +115,7 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   function providerDefaults(providerID: string) {
     return normalizeProviderID(providerID) === 'claude'
       ? { model: 'sonnet', effort: 'high' }
-      : { model: 'gpt-5.4', effort: 'xhigh' };
+      : { model: 'gpt-5.5', effort: 'xhigh' };
   }
 
   function providerPreferenceKey(suffix: string, providerID = activeProvider.value): string {

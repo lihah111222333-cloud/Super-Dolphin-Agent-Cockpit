@@ -145,7 +145,7 @@ function buildConfig(threadId, overrides = {}) {
     provider: overrides.provider ?? 'codex',
     supportsThreadOverride: overrides.supportsThreadOverride ?? (overrides.provider ?? 'codex') === 'codex',
     override: overrides.override ?? { model: '', effort: '' },
-    effective: overrides.effective ?? { model: 'gpt-5.4', effort: 'xhigh' },
+    effective: overrides.effective ?? { model: 'gpt-5.5', effort: 'xhigh' },
   };
 }
 
@@ -165,7 +165,7 @@ function makeStores(opts = {}) {
   const setThreadConfig = opts.setThreadConfig ?? vi.fn(async (threadId, config) => buildConfig(threadId, {
     provider: runtime[threadId]?.provider || 'codex',
     override: { model: config?.model || '', effort: config?.effort || '' },
-    effective: { model: config?.model || 'gpt-5.4', effort: config?.effort || 'xhigh' },
+    effective: { model: config?.model || 'gpt-5.5', effort: config?.effort || 'xhigh' },
   }));
   const store = {
     state: reactive({
@@ -320,7 +320,7 @@ describe('UnifiedChatPage thread config behavior', () => {
 	expect(getThreadConfig).toHaveBeenCalledTimes(1);
 	expect(vm.threadConfigUi.notice).toContain('已恢复继承');
 	expect(vm.threadConfigUi.meta.override.model).toBe('');
-	expect(vm.threadConfigUi.meta.effective.model).toBe('gpt-5.4');
+	expect(vm.threadConfigUi.meta.effective.model).toBe('gpt-5.5');
   });
 
   it('surfaces a clear notice when the backend rejects busy-thread mutations', async () => {

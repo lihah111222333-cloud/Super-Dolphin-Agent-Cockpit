@@ -109,7 +109,7 @@ func TestApplyThreadUpdatedSyncsSidebarModel(t *testing.T) {
 		AgentHeader: sharedto.AgentHeader{ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"},
 		SessionID:   "session-1",
 	}
-	launchedModel := "gpt-5.4"
+	launchedModel := "gpt-5.5"
 	svc.applyAgentLaunched(agentdto.AgentLaunched{AgentSessionHeader: header, Model: launchedModel, CWD: "/tmp/demo"})
 
 	sidebar, err := svc.GetSidebar(context.Background())

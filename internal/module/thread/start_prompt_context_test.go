@@ -20,7 +20,7 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 	ctx := buildStartCtx(StartRequest{
 		Provider: "codex",
 		CWD:      cwd,
-		Model:    "gpt-5.4",
+		Model:    "gpt-5.5",
 		Config: map[string]any{
 			"language":                     "Chinese",
 			"enabledTools":                 []any{"spawn_agent", "request_user_input", "spawn_agent"},
@@ -160,7 +160,7 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 		AgentMemoryScope: "project",
 		Name:             "display name",
 		CWD:              cwd,
-		Model:            "gpt-5.4",
+		Model:            "gpt-5.5",
 		Language:         "Chinese",
 		EnabledTools:     []string{"lsp_file", "spawn_agent", "lsp_file"},
 		SessionFlags:     map[string]bool{"verification_required": true},

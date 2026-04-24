@@ -23,7 +23,7 @@ func TestToolResultLifecycleCleanupKeepsMostRecent(t *testing.T) {
 	if first.PersistedPath == "" || second.PersistedPath == "" {
 		t.Fatalf("persisted paths = (%q, %q), want stored files", first.PersistedPath, second.PersistedPath)
 	}
-	result := cleanupToolResultLifecycle(threadID, "gpt-5.4", &contract.FRCConfig{Enabled: true, SupportedModels: []string{"gpt-5.4"}, KeepRecent: 1})
+	result := cleanupToolResultLifecycle(threadID, "gpt-5.5", &contract.FRCConfig{Enabled: true, SupportedModels: []string{"gpt-5.5"}, KeepRecent: 1})
 	if result.Cleared != 1 || result.Kept != 1 || result.DeletedFiles != 1 {
 		t.Fatalf("cleanup result = %+v, want cleared=1 kept=1 deleted=1", result)
 	}

@@ -228,6 +228,33 @@ func modelIDs(raw any) []string {
 	return out
 }
 
+// ensureCodexModelPresent injects a model into the allowed list if the upstream
+// model/list RPC has not yet been updated. This covers the window between a new
+// model launch and the next Codex CLI release.
+func ensureCodexModelPresent(models []string, target string) []string {
+	for _, m := range models {
+		if strings.EqualFold(m, target) {
+			return models
+		}
+	}
+	return append([]string{target}, models...)
+}
+
+// knownModelContextWindows maps model IDs to their correct context_window
+// token counts. When the Codex CLI does not recognise a model it uses
+// fallback metadata that reports a wrong (too small) context window.
+// Entries here override that fallback so the UI shows the correct bar.
+var knownModelContextWindows = map[string]int{
+	"gpt-5.5": 872000,
+	"gpt-5.4": 872000,
+}
+
+// contextWindowForModel returns the authoritative context window size for a
+// model, or 0 if no override is registered.
+func contextWindowForModel(model string) int {
+	return knownModelContextWindows[strings.ToLower(strings.TrimSpace(model))]
+}
+
 func configString(cfg map[string]any, key string) string {
 	if cfg == nil {
 		return ""

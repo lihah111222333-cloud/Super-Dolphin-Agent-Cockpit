@@ -25,7 +25,7 @@ func TestBuildTurnStartParams(t *testing.T) {
 		}},
 		ManualSkillSelection: true,
 		OutputSchema:         []byte(`{"type":"object"}`),
-		Overrides:            dto.TurnOverrides{Model: "gpt-5.4", Effort: "high"},
+		Overrides:            dto.TurnOverrides{Model: "gpt-5.5", Effort: "high"},
 	}
 
 	got := buildTurnStartParams("thread-1", req)
@@ -36,7 +36,7 @@ func TestBuildTurnStartParams(t *testing.T) {
 		Input:                []turnInputItem{{Type: "text", Text: skillText, Content: skillText}, {Type: "text", Text: "hello", Content: "hello"}},
 		SelectedSkills:       []string{"planner", "reviewer"},
 		ManualSkillSelection: true,
-		Model:                "gpt-5.4",
+		Model:                "gpt-5.5",
 		Effort:               "high",
 		OutputSchema:         []byte(`{"type":"object"}`),
 	}

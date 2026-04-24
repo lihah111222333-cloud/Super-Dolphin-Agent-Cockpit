@@ -74,8 +74,8 @@ func TestAssembleTurnIncludesMCPInstructionsInRuntimeExtras(t *testing.T) {
 func TestFRCProviderResolvesForSupportedModel(t *testing.T) {
 	provider := FRCProvider{}
 	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{
-		Model:     "gpt-5.4",
-		FRCConfig: (&contract.FRCConfig{Enabled: true, SupportedModels: []string{"gpt-5.4"}, KeepRecent: 4}).Normalize(),
+		Model:     "gpt-5.5",
+		FRCConfig: (&contract.FRCConfig{Enabled: true, SupportedModels: []string{"gpt-5.5"}, KeepRecent: 4}).Normalize(),
 	}})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
@@ -89,7 +89,7 @@ func TestFRCProviderSkipsUnsupportedModel(t *testing.T) {
 	provider := FRCProvider{}
 	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{
 		Model:     "claude-sonnet",
-		FRCConfig: (&contract.FRCConfig{Enabled: true, SupportedModels: []string{"gpt-5.4"}, KeepRecent: 2}).Normalize(),
+		FRCConfig: (&contract.FRCConfig{Enabled: true, SupportedModels: []string{"gpt-5.5"}, KeepRecent: 2}).Normalize(),
 	}})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
