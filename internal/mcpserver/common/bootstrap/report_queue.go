@@ -51,12 +51,26 @@ func (c *Client) flushQueuedReports(ctx context.Context) {
 
 func (c *Client) flushQueuedReportsWithConn(ctx context.Context, conn *jrpc2.Client, lease mcp.LeaseKey) {
 	queued := c.snapshotQueuedReports()
+	if len(queued) == 0 {
+		return
+	}
+	// P22 P4 S6a / plan §321: stable log anchor for report-queue
+	// drain. Emitted once per drain attempt so ops can count
+	// drains and correlate with drops via the same event namespace.
+	pkglogger.Info("bootstrap report queue drain",
+		"event", "bootstrap.report_queue.drain",
+		"instance_id", c.instanceID,
+		"lease_key", lease,
+		"queue_size", len(queued),
+	)
 	for _, req := range queued {
 		if _, err := c.sendReportWithConn(ctx, conn, lease, req); err != nil {
 			if isTransportErr(err) {
 				return
 			}
 			pkglogger.Warn("bootstrap report replay dropped",
+				"event", "bootstrap.report_queue.drain",
+				"outcome", "dropped",
 				"instance_id", c.instanceID,
 				"lease_key", lease,
 				"report_id", req.ReportID,

@@ -1,6 +1,6 @@
 # P22 observability 合同 — 审核现状 & 后续 slice 记账
 
-> 创建时间：2026-04-24 | 状态：**审核完成；未实现；留给 P22 P4 S6 跟进**
+> 创建时间：2026-04-24 | 更新时间：2026-04-24 | 状态：**S6a log-event anchors 已收口；S6b(metrics) / S6c(traces) 待开工**
 > 对应 plan 锚点：`docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md` §319-324
 
 ## 背景
@@ -20,14 +20,19 @@ slice（暂命名 **P22 P4 S6 — observability stub**）按此基线落地，�
 
 ## 审核结果
 
-### §321 logs — 0 / 4 存在
+### §321 logs — 4 / 4 存在（S6a 2026-04-24 落地）
 
-| 期望 anchor | 代码里是否 emit |
-|---|---|
-| `bootstrap.hook_replay.begin` | ❌ 不存在 |
-| `bootstrap.hook_replay.end` | ❌ 不存在 |
-| `bootstrap.report_queue.drain` | ❌ 不存在 |
-| `gopls.compat_fallback.hit` | ❌ 不存在 |
+| 期望 anchor | 代码里是否 emit | emit 站点 |
+|---|---|---|
+| `bootstrap.hook_replay.begin` | ✅ 存在 | `internal/mcpserver/common/bootstrap/hooks.go` `replayHookSubscriptions` 函数入口 |
+| `bootstrap.hook_replay.end` | ✅ 存在 | 同文件；成功分支 `outcome=success` + 终失败分支 `outcome=failed` |
+| `bootstrap.report_queue.drain` | ✅ 存在 | `internal/mcpserver/common/bootstrap/report_queue.go` `flushQueuedReportsWithConn` 入口 + `outcome=dropped` |
+| `gopls.compat_fallback.hit` | ✅ 存在 | `cmd/mcp-lsp/gopls/transport_compat.go` `dispatchCompatServerRequest` 两个 hit 分支，带 `variant` 区分 |
+
+守卫：`internal/archtest/observability_log_event_guard_test.go`
+`TestObservabilityLogEventAnchorsWired` 锚定 4 个 literal 到对应
+producer 文件，并额外要求 slog 形式的 `"event", <anchor>` 发射形状。
+
 
 ### §322 metrics — 0 / 3 存在
 
