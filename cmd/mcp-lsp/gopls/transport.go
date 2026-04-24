@@ -46,6 +46,14 @@ type transport struct {
 	done                chan struct{}
 	doneMu              sync.Mutex
 	doneErr             error
+
+	// responderWG tracks server-initiated request responder
+	// goroutines. P22 P2 gopls-S3 (plan §484 / §489) owns the
+	// contract: dispatchMessage must register with Add(1) before
+	// spawning, and Close must Wait (bounded by
+	// defaultResponderDrainTimeout) to drain them instead of leaving
+	// fire-and-forget goroutines outliving the transport.
+	responderWG sync.WaitGroup
 }
 type pendingResult struct {
 	result json.RawMessage
@@ -120,9 +128,28 @@ func (t *transport) dispatchMessage(payload json.RawMessage) error {
 	case normalizeID(envelope.ID) == "":
 		return t.handleNotification(payload)
 	default:
-		go t.respondToServerRequest(envelope)
+		t.spawnResponder(envelope)
 		return nil
 	}
+}
+
+// spawnResponder launches a server-request responder goroutine while
+// keeping its lifecycle owned by the transport. Post-P22 P2 gopls-S3
+// the responder is no longer fire-and-forget: Add(1) runs before the
+// go statement so Close() can Wait for the goroutine to drain, and a
+// late spawn that races past Close returns without spawning so we
+// don't stall the drain. ctx is handed to the responder so a
+// subsequent cancel can cut long serverRequestResult work short once
+// the plan calls for it.
+func (t *transport) spawnResponder(envelope protocol.Envelope) {
+	if t.closed.Load() {
+		return
+	}
+	t.responderWG.Add(1)
+	go func() {
+		defer t.responderWG.Done()
+		t.respondToServerRequest(envelope)
+	}()
 }
 func (t *transport) handleResponse(payload json.RawMessage) error {
 	response, err := protocol.DecodeResponse(payload)
