@@ -60,6 +60,7 @@ export function createSyncManager(state, deps) {
     getThreadTokenUsage: (threadId) => getThreadTokenUsage(ctx, threadId),
     getThreadActivityStats: (threadId) => getThreadActivityStats(ctx, threadId),
     getThreadAlerts: (threadId) => getThreadAlerts(ctx, threadId),
+    markHistoryLoaded: (threadId) => { ctx.threadHistoryLoadedAtByThread.set(threadId, Date.now()); },
     /** 注入 scroll 保护函数：在 applyRuntimeSnapshot 前后保存/恢复 scrollTop */
     setScrollGuard: (save, restore) => {
       ctx.saveScrollPosition = typeof save === 'function' ? save : null;

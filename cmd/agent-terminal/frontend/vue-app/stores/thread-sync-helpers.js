@@ -76,32 +76,23 @@ function applyRegressionGuardToSnapshot(ctx, res, threadId) {
   
   const timeline = res.timelinesByThread[threadId];
   const localTimeline = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
-  const localTimelineLen = localTimeline.length;
-
-  const remoteDialogCount = timeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant').length;
-  const localDialogCount = localTimeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant').length;
-
-  const regressionByCount = localTimelineLen > 5 && timeline.length > 0
-    && timeline.length < localTimelineLen * 0.3
-    && (localTimelineLen - timeline.length) > 10;
   
-  const regressionByContent = remoteDialogCount === 0 && localDialogCount >= 3 && timeline.length > 0;
-  
-  // STRONG PROTECTION: Do not overwrite if local has optimistic items and the remote is lagging or hasn't fully hydrated.
-  const hasOptimisticInLocal = localTimeline.some((it) => (it?.id || '').toString().includes('-optimistic-'));
-  const regressionByOptimistic = hasOptimisticInLocal && remoteDialogCount <= localDialogCount;
+  // Dialog items are exclusively sourced from thread/messages history.
+  // The raw snapshot timeline from the backend no longer contains dialog items.
+  // Therefore, we must exclude dialog items from local length when comparing.
+  const localNonDialogLen = localTimeline.filter((it) => it?.kind !== 'user' && it?.kind !== 'assistant').length;
 
-  if (regressionByCount || regressionByContent || regressionByOptimistic) {
+  const regressionByCount = localNonDialogLen > 5 && timeline.length > 0
+    && timeline.length < localNonDialogLen * 0.3
+    && (localNonDialogLen - timeline.length) > 10;
+
+  if (regressionByCount) {
     let guardType = 'count_mismatch';
-    if (regressionByContent) guardType = 'content_mismatch';
-    if (regressionByOptimistic) guardType = 'optimistic_mismatch';
     
     ctx.logWarn('thread', 'sync.thread_state_regression_guard', {
       thread_id: threadId,
       remote_len: timeline.length,
-      local_len: localTimelineLen,
-      remote_dialog: remoteDialogCount,
-      local_dialog: localDialogCount,
+      local_non_dialog_len: localNonDialogLen,
       guard_type: guardType,
       remote_kinds: timeline.slice(0, 5).map((it) => it?.kind),
     });
@@ -188,19 +179,6 @@ export async function syncThreadState(ctx, threadId, options = {}) {
   const { callAPI, logInfo, logWarn } = ctx;
   const id = normalizeThreadID(threadId);
   if (!id) return null;
-  // [FIX] Cooldown: when the regression guard repeatedly fires for the same thread
-  // with unchanged local dialog count, skip the sync entirely for GUARD_COOLDOWN_MS.
-  // This prevents 300+ unnecessary ui/state/get RPCs that produce empty patches
-  // but still trigger Vue reactivity churn.
-  const GUARD_COOLDOWN_MS = 10000;
-  if (ctx._regressionGuardCooldown) {
-    const cd = ctx._regressionGuardCooldown;
-    if (cd.threadId === id && (perfNow() - cd.ts) < GUARD_COOLDOWN_MS) {
-      return cd.lastResult;
-    }
-    // Cooldown expired or different thread — clear it
-    if (cd.threadId === id) ctx._regressionGuardCooldown = null;
-  }
   const inFlight = ctx.threadStateSyncPromiseByThread.get(id);
   if (inFlight) {
     ctx.threadStateSyncPendingByThread.set(id, true);
@@ -217,8 +195,6 @@ export async function syncThreadState(ctx, threadId, options = {}) {
       const diffRevision = normalizeDiffRevision(res?.diffRevisionByThread?.[id]);
       const localTimelineLen = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id].length : 0;
       logInfo('thread', 'state.sync.thread.response', { thread_id: id, timeline_len: timeline.length, diff_revision: diffRevision, local_timeline_len: localTimelineLen, duration_ms: Math.round(perfNow() - start) });
-      const regressionGuardType = applyRegressionGuardToSnapshot(ctx, res, id);
-      const regressionByContent = regressionGuardType === 'content_mismatch';
 
       if (!isLatestRuntimeSnapshotRequest(ctx, snapshotRequest)) {
         logInfo('thread', 'state.sync.thread.stale.skipped', { thread_id: id, scope: snapshotRequest.scope, request_seq: snapshotRequest.seq, duration_ms: Math.round(perfNow() - start) });
@@ -231,21 +207,11 @@ export async function syncThreadState(ctx, threadId, options = {}) {
         loadedRevisionByThread: ctx.threadDiffLoadedRevisionByThread,
       });
       if (typeof ctx.restoreScrollPosition === 'function') ctx.restoreScrollPosition();
-      // [FIX] When the regression guard fires, the local dialog is already loaded —
-      // do NOT call loadMessages. Just set cooldown to skip future syncs for this thread.
-      if (regressionByContent) {
-        ctx._regressionGuardCooldown = { threadId: id, ts: perfNow(), lastResult: res || {} };
-      }
       const activeThreadId = normalizeThreadID(ctx.state.activeThreadId);
       const activeCmdThreadId = normalizeThreadID(ctx.state.activeCmdThreadId);
-      if (!regressionByContent && (id === activeThreadId || id === activeCmdThreadId) && shouldReloadThreadHistory(ctx, id)) {
+      if ((id === activeThreadId || id === activeCmdThreadId) && shouldReloadThreadHistory(ctx, id)) {
         logInfo('thread', 'history.reload.after_sync', { thread_id: id, sync_runtime: false });
         await loadMessages(ctx, id, 300, { syncRuntime: false });
-      }
-      if (options.markHistoryLoaded !== false) {
-        const timelineAfterSync = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id] : [];
-        const hasDialogItems = timelineAfterSync.some((item) => item?.kind === 'assistant' || item?.kind === 'user');
-        if (hasDialogItems) ctx.threadHistoryLoadedAtByThread.set(id, Date.now());
       }
       if (id === normalizeThreadID(ctx.state.activeThreadId) && normalizeDiffRevision(ctx.state.diffRevisionByThread?.[id]) !== loadedDiffRevision(ctx, id)) {
         void ctx.syncThreadDiffState(id).catch((error) => {
@@ -345,9 +311,14 @@ async function syncThreadHistoryAtomic(ctx, threadId) {
   const id = normalizeThreadID(threadId);
   if (!id) return null;
   const loadedAtBefore = Number(ctx.threadHistoryLoadedAtByThread.get(id) || 0);
+  ctx.logWarn('thread', 'syncThreadHistoryAtomic.start', { thread_id: id, loaded_at_before: loadedAtBefore });
   await syncThreadState(ctx, id, { markHistoryLoaded: false });
   const loadedAtAfter = Number(ctx.threadHistoryLoadedAtByThread.get(id) || 0);
-  if (loadedAtAfter > loadedAtBefore) return null;
+  if (loadedAtAfter > loadedAtBefore) {
+    ctx.logWarn('thread', 'syncThreadHistoryAtomic.skipped', { thread_id: id, loaded_at_after: loadedAtAfter });
+    return null;
+  }
+  ctx.logWarn('thread', 'syncThreadHistoryAtomic.loading_messages', { thread_id: id });
   return loadMessages(ctx, id, 300, { syncRuntime: false });
 }
 
@@ -436,9 +407,6 @@ export function handleBridgeEvent(ctx, evt) {
     });
     const patchResult = applyRuntimeThreadPatch(ctx, evt, activeThreadTarget, { perfNow });
     if (patchResult?.handled) {
-      if (hasTimelineItems && Array.isArray(ctx.state.timelinesByThread?.[activeThreadTarget])) {
-        ctx.threadHistoryLoadedAtByThread.set(activeThreadTarget, Date.now());
-      }
       if (patchResult.needsRecovery) {
         syncThreadState(ctx, activeThreadTarget).catch((error) => logWarn('thread', 'state.patch.recovery.failed', { error, by_event: eventName, reason: patchResult.reason || 'patch_gap' }));
       }
