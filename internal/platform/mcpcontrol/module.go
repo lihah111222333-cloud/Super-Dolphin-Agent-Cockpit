@@ -2,7 +2,6 @@ package mcpcontrol
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -28,15 +27,19 @@ var Module = fx.Module("mcpcontrol",
 		provideToolControlPlane,
 		NewSweeper,
 		provideHandlers,
+		newConfigFanoutWorkerProvider,
+		NewMCPConfigChangeSubscribers,
 		// P22 P1b Finding 3: long-running sweep loop owned by run.Group via
 		// the root group:"runners" bridge instead of a module-level
 		// OnStart-spawned goroutine (the pre-P1b registerSweeperLifecycle
 		// path). See sweeper_runner.go for the runner contract.
 		fx.Annotate(NewSweeperRunner, fx.ResultTags(`group:"runners"`)),
 	),
+	fx.Provide(
+		fx.Annotate(configFanoutWorkerAsRunner, fx.ResultTags(`group:"runners"`)),
+	),
 	fx.Invoke(registerHookLifecycle),
 	fx.Invoke(registerRegistryLifecycle),
-	fx.Invoke(registerConfigChangeLifecycle),
 )
 
 // HandlerDeps bundles the dependencies used to build the MCP control-plane RPC handlers.
@@ -81,13 +84,20 @@ type hookLifecycleIn struct {
 	HookLifecycle contract.HookLifecycle `optional:"true"`
 }
 
-type configChangeIn struct {
+type configFanoutWorkerIn struct {
 	fx.In
 
-	Notifier   contract.ToolNotifier `optional:"true"`
-	Versions   configVersionSource   `optional:"true"`
-	Dispatcher *event.Dispatcher     `optional:"true"`
-	Logger     *pkglogger.Logger     `optional:"true"`
+	Notifier contract.ToolNotifier `optional:"true"`
+	Versions configVersionSource   `optional:"true"`
+	Logger   *pkglogger.Logger     `optional:"true"`
+}
+
+func newConfigFanoutWorkerProvider(in configFanoutWorkerIn) *configFanoutWorker {
+	logger := in.Logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	return newConfigFanoutWorker(in.Notifier, in.Versions, logger)
 }
 
 type configVersionSource interface {
@@ -159,47 +169,9 @@ func registerRegistryLifecycle(lc fx.Lifecycle, registry *ToolRegistry) {
 	})
 }
 
-func registerConfigChangeLifecycle(lc fx.Lifecycle, in configChangeIn) {
-	if in.Notifier == nil || in.Versions == nil || in.Dispatcher == nil {
-		return
-	}
-	logger := in.Logger
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-
-	// P22 P2 (mcpcontrol config fanout): the worker is constructed ahead of
-	// Lifecycle.Append so OnStart can Start it before the bus subscriptions
-	// are wired. OnStop first unsubscribes, then drains the worker bounded
-	// by ctx so any in-flight peer NotifyConfigChanged observes the
-	// cancelled fanoutCtx cleanly.
-	worker := newConfigFanoutWorker(in.Notifier, in.Versions, logger)
-	var cancels []context.CancelFunc
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			worker.Start()
-			cancels = registerConfigChangeSubscriptions(in.Dispatcher, worker, logger)
-			return nil
-		},
-		OnStop: func(ctx context.Context) error {
-			for _, cancel := range cancels {
-				if cancel != nil {
-					cancel()
-				}
-			}
-			cancels = nil
-			if err := worker.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				logger.Warn("mcp config change worker drain failed", "error", err)
-			}
-			return nil
-		},
-	})
-}
-
 // P22 P1b Finding 3: registerSweeperLifecycle was deleted. The sweeper loop is
 // now owned by SweeperRunner (sweeper_runner.go) and joined via the root
 // `group:"runners"` aggregation; shutdown is driven by root ctx cancel
 // rather than a module-scoped cancel paired with a fire-and-forget
 // OnStart goroutine. registry final-lease cleanup stays in
 // registerRegistryLifecycle.OnStop.
-

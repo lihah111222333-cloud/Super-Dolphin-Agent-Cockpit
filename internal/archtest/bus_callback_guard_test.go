@@ -230,11 +230,7 @@ func TestBusCallbackGuard(t *testing.T) {
 			{"F-3", "internal/module/memory/module.go", "registerMemoryHooks", "registerLifecycleSubscriptions"},
 			{"F-4", "internal/module/thread/module.go", "registerSubscriptions", "registerThreadSubscriptions"},
 			{"F-5", "internal/platform/cachekeepalive/module.go", "registerKeepaliveLifecycle", "startKeepaliveRelay"},
-			{"F-6", "internal/platform/hooks/module.go", "registerEventRelayLifecycle", "startEventRelay"},
-			{"F-7", "internal/platform/rpc/module.go", "bindEventBridge", "subscribeCoreEventPushes"},
-			{"F-8", "internal/platform/mcpcontrol/module.go", "registerConfigChangeLifecycle", "registerConfigChangeSubscriptions"},
 			{"F-9", "internal/platform/toolbridge/module.go", "registerDiffFallbackLifecycle", "ResilientSubscribe"},
-			{"F-11", "internal/module/turn/observation/module.go", "RegisterSubscribers", "Subscribe"},
 		}
 		for _, hit := range want {
 			line, ok := findCallInFunction(t, root, hit.Path, hit.Symbol, hit.Call)

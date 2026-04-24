@@ -85,7 +85,6 @@ func TestRunnerActorGuard(t *testing.T) {
 	}
 
 	for _, tc := range matcherCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			t.Skipf("matcher skeleton only; owning slice will flip red→green: %s", tc.owningSlice)
@@ -107,9 +106,6 @@ func TestRunnerActorGuard(t *testing.T) {
 			{"F-3", "internal/module/memory/module.go", "registerMemoryHooks", "Start"},
 			{"F-4", "internal/module/thread/module.go", "registerSubscriptions", "startBusWorkers"},
 			{"F-5", "internal/platform/cachekeepalive/module.go", "registerKeepaliveLifecycle", "startKeepaliveRelay"},
-			{"F-6", "internal/platform/hooks/module.go", "registerEventRelayLifecycle", "Start"},
-			{"F-7", "internal/platform/rpc/module.go", "bindEventBridge", "Start"},
-			{"F-8", "internal/platform/mcpcontrol/module.go", "registerConfigChangeLifecycle", "Start"},
 		}
 		for _, hit := range want {
 			line, ok := findCallInFunction(t, root, hit.Path, hit.Symbol, hit.Call)

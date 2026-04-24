@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"time"
 
@@ -23,6 +22,8 @@ var Module = fx.Module("rpc",
 		NewApprovalManager,
 		NewCapabilityResolver,
 		provideWSRoute,
+		NewRPCPushSubscribers,
+		newPushNotificationWorkerProvider,
 		func(m *ApprovalManager) contract.ApprovalResponder { return m },
 		func(m *ApprovalManager, bridge *PushBridge, server *Server) contract.ApprovalRequester {
 			return approvalRequester{
@@ -38,8 +39,10 @@ var Module = fx.Module("rpc",
 		// ApprovalCleanupRunner (approval_cleanup_runner.go).
 		fx.Annotate(NewApprovalCleanupRunner, fx.ResultTags(`group:"runners"`)),
 	),
+	fx.Provide(
+		fx.Annotate(pushWorkerAsRunner, fx.ResultTags(`group:"runners"`)),
+	),
 	fx.Invoke(registerAllHandlers),
-	fx.Invoke(bindEventBridge),
 	fx.Invoke(bindApprovalLifecycle),
 )
 
@@ -133,40 +136,11 @@ func provideWSRoute(server *Server) HTTPRouteResult {
 	}
 }
 
-func bindEventBridge(lc fx.Lifecycle, bridge *PushBridge, server *Server, logger *pkglogger.Logger) {
-	if bridge == nil || bridge.dispatcher == nil || server == nil {
-		return
-	}
+func newPushNotificationWorkerProvider(bridge *PushBridge, server *Server, logger *pkglogger.Logger) *pushNotificationWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	// P22 P2 (rpc push worker): construct the worker ahead of Lifecycle
-	// .Append so OnStart can Start it before the bus subscriptions are
-	// wired. OnStop first unsubscribes, then drains the worker bounded by
-	// ctx so any in-flight Server.NotifyAll observes the cancelled pushCtx
-	// cleanly.
-	worker := newPushNotificationWorker(server, bridge, logger)
-	var cancels []context.CancelFunc
-
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			worker.Start()
-			cancels = subscribeCoreEventPushes(worker, bridge.dispatcher, logger)
-			return nil
-		},
-		OnStop: func(ctx context.Context) error {
-			for _, cancel := range cancels {
-				if cancel != nil {
-					cancel()
-				}
-			}
-			cancels = nil
-			if err := worker.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				logger.Warn("rpc push worker drain failed", "error", err)
-			}
-			return nil
-		},
-	})
+	return newPushNotificationWorker(server, bridge, logger)
 }
 
 // bindApprovalLifecycle owns startup restore + on-connect replay + OnStop
