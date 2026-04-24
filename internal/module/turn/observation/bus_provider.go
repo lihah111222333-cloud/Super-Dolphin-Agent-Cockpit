@@ -2,6 +2,7 @@ package observation
 
 import (
 	"context"
+	"sync"
 
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -19,7 +20,15 @@ func NewObservationSubscribers(contract Contract, logger *pkglogger.Logger) plat
 			ShutdownClass: "bus-subscriber",
 			TestFixtureID: "observation-subscribers",
 			Register: func(dispatcher *event.Dispatcher) context.CancelFunc {
-				return Subscribe(dispatcher, contract, logger)
+				cancel := Subscribe(dispatcher, contract, logger)
+				var once sync.Once
+				return func() {
+					once.Do(func() {
+						if cancel != nil {
+							cancel()
+						}
+					})
+				}
 			},
 		},
 	}

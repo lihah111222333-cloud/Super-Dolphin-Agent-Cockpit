@@ -245,15 +245,37 @@ func callName(expr ast.Expr) string {
 		return x.Name
 	case *ast.SelectorExpr:
 		return x.Sel.Name
+	case *ast.IndexExpr:
+		return callName(x.X)
+	case *ast.IndexListExpr:
+		return callName(x.X)
+	default:
+		return ""
+	}
+}
+
+func callReceiverName(expr ast.Expr) string {
+	switch x := expr.(type) {
+	case *ast.SelectorExpr:
+		ident, ok := x.X.(*ast.Ident)
+		if !ok {
+			return ""
+		}
+		return ident.Name
+	case *ast.IndexExpr:
+		return callReceiverName(x.X)
+	case *ast.IndexListExpr:
+		return callReceiverName(x.X)
 	default:
 		return ""
 	}
 }
 
 type lifecycleCallHit struct {
-	Path string
-	Line int
-	Call string
+	Path     string
+	Line     int
+	Call     string
+	Receiver string
 }
 
 func findLifecycleOnStartCallHits(t *testing.T, root string, forbidden map[string]bool) []lifecycleCallHit {
@@ -305,6 +327,13 @@ func findLifecycleOnStartCallHitsInFile(t *testing.T, root, rel string, forbidde
 	if err != nil {
 		t.Fatalf("parse %s: %v", rel, err)
 	}
+	fileDecls := map[string]*ast.FuncDecl{}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if ok && fn.Recv == nil {
+			fileDecls[fn.Name.Name] = fn
+		}
+	}
 	var hits []lifecycleCallHit
 	ast.Inspect(file, func(n ast.Node) bool {
 		cl, ok := n.(*ast.CompositeLit)
@@ -320,14 +349,14 @@ func findLifecycleOnStartCallHitsInFile(t *testing.T, root, rel string, forbidde
 			if !ok || fn.Body == nil {
 				continue
 			}
-			hits = append(hits, findForbiddenCallsInNode(fset, rel, fn.Body, forbidden)...)
+			hits = append(hits, findForbiddenCallsInNode(fset, rel, fn.Body, forbidden, fileDecls)...)
 		}
 		return true
 	})
 	return hits
 }
 
-func findForbiddenCallsInNode(fset *token.FileSet, rel string, node ast.Node, forbidden map[string]bool) []lifecycleCallHit {
+func findForbiddenCallsInNode(fset *token.FileSet, rel string, node ast.Node, forbidden map[string]bool, fileDecls map[string]*ast.FuncDecl) []lifecycleCallHit {
 	var hits []lifecycleCallHit
 	ast.Inspect(node, func(n ast.Node) bool {
 		ce, ok := n.(*ast.CallExpr)
@@ -336,7 +365,32 @@ func findForbiddenCallsInNode(fset *token.FileSet, rel string, node ast.Node, fo
 		}
 		name := callName(ce.Fun)
 		if forbidden[name] {
-			hits = append(hits, lifecycleCallHit{Path: rel, Line: fset.Position(ce.Pos()).Line, Call: name})
+			hits = append(hits, lifecycleCallHit{Path: rel, Line: fset.Position(ce.Pos()).Line, Call: name, Receiver: callReceiverName(ce.Fun)})
+			return true
+		}
+		if helper, ok := fileDecls[name]; ok && helper.Body != nil {
+			hits = append(hits, findForbiddenCallsInHelper(fset, rel, name, helper.Body, forbidden)...)
+		}
+		return true
+	})
+	return hits
+}
+
+func findForbiddenCallsInHelper(fset *token.FileSet, rel, helperName string, node ast.Node, forbidden map[string]bool) []lifecycleCallHit {
+	var hits []lifecycleCallHit
+	ast.Inspect(node, func(n ast.Node) bool {
+		ce, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		name := callName(ce.Fun)
+		if forbidden[name] {
+			hits = append(hits, lifecycleCallHit{
+				Path:     rel,
+				Line:     fset.Position(ce.Pos()).Line,
+				Call:     name + " (via " + helperName + ")",
+				Receiver: callReceiverName(ce.Fun),
+			})
 		}
 		return true
 	})

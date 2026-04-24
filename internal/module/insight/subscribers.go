@@ -2,6 +2,7 @@ package insight
 
 import (
 	"context"
+	"sync"
 
 	"github.com/kelindar/event"
 
@@ -20,7 +21,15 @@ func NewInsightSubscribers(c *collector, logger *pkglogger.Logger) platformbus.S
 			ShutdownClass: "bus-subscriber",
 			TestFixtureID: "insight-subscribers",
 			Register: func(dispatcher *event.Dispatcher) context.CancelFunc {
-				return c.subscribe(dispatcher, logger)
+				cancel := c.subscribe(dispatcher, logger)
+				var once sync.Once
+				return func() {
+					once.Do(func() {
+						if cancel != nil {
+							cancel()
+						}
+					})
+				}
 			},
 		},
 	}

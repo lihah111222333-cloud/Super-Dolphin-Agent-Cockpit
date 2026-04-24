@@ -148,5 +148,7 @@ func assertNoOrchestrationWaiterTokens(t *testing.T) {
 }
 
 func runnerOwnershipAllowedLifecycleHit(hit lifecycleCallHit) bool {
-	return hit.Path == "internal/platform/bus/module.go" && hit.Call == "Start"
+	return hit.Path == "internal/platform/bus/module.go" &&
+		hit.Call == "Start" &&
+		hit.Receiver == "subscribers"
 }
