@@ -70,7 +70,7 @@ func newPoolForTest(t *testing.T, spawner Spawner, cfg PoolConfig) (*ServerPool,
 
 func canonicalHome(t *testing.T, identity providershared.CodexIdentity) string {
 	t.Helper()
-	home, _, err := normalizePoolIdentity(identity)
+	home, _, _, err := normalizePoolIdentity(identity)
 	if err != nil {
 		t.Fatalf("normalizePoolIdentity: %v", err)
 	}
@@ -162,6 +162,44 @@ func TestServerPoolAcquireAliveCacheHitReusesServer(t *testing.T) {
 	defer rel1()
 }
 
+func TestServerPoolAcquireRejectsSameHomeKeyDifferentModelProvider(t *testing.T) {
+	t.Parallel()
+	spawnCalls := atomic.Int32{}
+	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
+		return newFakeServer("ws://" + filepath.Base(home)), nil
+	}
+	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	defer p.Close(context.Background())
+
+	id := identityFor(t, "glm")
+	first, release, err := p.Acquire(context.Background(), id)
+	if err != nil {
+		t.Fatalf("first Acquire: %v", err)
+	}
+	defer release()
+	if first == nil {
+		t.Fatal("first Acquire returned nil server")
+	}
+
+	conflicting := id
+	conflicting.ModelProvider = id.ModelProvider + "-other"
+	server, release2, err := p.Acquire(context.Background(), conflicting)
+	if !errors.Is(err, ErrInvalidIdentity) {
+		t.Fatalf("want ErrInvalidIdentity for same home/key different model provider, got %v", err)
+	}
+	if err == nil || !contains(err.Error(), "model provider") {
+		t.Fatalf("want model provider conflict detail, got %v", err)
+	}
+	if server != nil {
+		t.Fatalf("conflicting identity returned non-nil server: %#v", server)
+	}
+	release2()
+	if spawnCalls.Load() != 1 {
+		t.Fatalf("conflicting identity must fail closed before spawn; spawn calls = %d", spawnCalls.Load())
+	}
+}
+
 func TestServerPoolAcquireDeadCacheRespawnsServer(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
@@ -247,7 +285,7 @@ func TestServerPoolAcquireNormalizeIdentityError(t *testing.T) {
 		InstanceKey:   "glm",
 		ModelProvider: "model-provider-glm",
 	}
-	_, _, wantErr := normalizePoolIdentity(id)
+	_, _, _, wantErr := normalizePoolIdentity(id)
 	server, release, err := p.Acquire(context.Background(), id)
 	if err == nil {
 		t.Fatal("Acquire unexpectedly succeeded")

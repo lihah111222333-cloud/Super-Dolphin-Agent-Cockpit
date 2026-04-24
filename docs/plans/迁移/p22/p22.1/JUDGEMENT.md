@@ -408,3 +408,35 @@ P22.1 ⊂ P22（不是独立新 lane）。本仲裁文件与 P22.1 其他 4 份�
 - **追加前** 行 1-386 SHA256：`8dc1a2a3d8b801975a9697c82b5ada4c5cf6c9b9ca0146229cc13edc7d1a9cce`
 - **追加后**同一前缀 SHA256 保持不变（本节只在末尾新增，未改写任何历史）
 - 结论：§1-§9 + §R2 + §R3 + §R4 + §R5 字面未变
+
+
+---
+
+## §R5 留空补录（2026-04-25，第 6 轮文档一致性修复）
+
+> 本节按 §10.31 追加，用于修正 §R6 中“§R5 历史裁决字面”的引用漂移；不改 §R6 原文。HEAD 锚点：`a81554c`；实施链锚点：`25a37ad` → `f737e45` → `17b5ce7` → `dfe12e6` → `b386217` → `a9a018e` → `a81554c`。
+
+§R5 未触发独立审查轮，因此没有 R5 裁决正文。§R6 行 392/410 提到的“§R5 历史裁决字面”应按本补录解释为：**§R5 为编号预留/留空状态，不存在可被改写的历史裁决内容**。后续引用最新状态时应以 §R7 及之后追加节为准；§R4 仍保留为实施前历史 BLOCK 裁决。
+
+## §R7 HEAD `a81554c` 实施后状态 overlay（2026-04-25，第 6 轮）
+
+> 本节按 §10.31 只加不删追加；不改 §R4 历史 BLOCK 字面。§R4 是 P22.1 文档/代码实施前的历史裁决。当前 HEAD `a81554c` 已包含 P22.1 实施链 `25a37ad` → `f737e45` → `17b5ce7` → `dfe12e6` → `b386217` → `a9a018e` → `a81554c` 后的状态。
+
+### §R7.1 最新裁决
+
+- 🟡 **代码大部 ready**：F-1~F-11 已有主体迁移与 guard/allowlist 证据；BusModule/RunnerModule contract 已落地；root shutdown ordering 与 desktop watcher owner ctx 已与 §10.30 目标态对齐。
+- 🟠 **仍有 NEEDS-FIX**：cron+uistate cross-file gap、gate 3 处 NEEDS-FIX 仍待 Audit-A/B/C 修复与复核；这些是 HEAD `a81554c` 后的收口项，不推翻 §R4 的历史意义。
+- 🔲 **仍 deferred**：`runner.actors` vs `group:"runners"` 是 `docs/契约/*` 命名债，本 lane 只登记，不修改契约文档。
+
+### §R7.2 R4 → HEAD 状态漂移解释
+
+| 历史项 | §R4 历史判定 | HEAD `a81554c` overlay |
+|---|---|---|
+| Phase 0 contract | §R4 判定派代码就绪度 BLOCK | 已落 BusModule `bus.subscribers` 与 RunnerModule adapter contract；仍需 gate 命名/覆盖补强。 |
+| F-1/F-2 root/desktop | §R4 仍以旧顺序/旧 watcher 为证据 | 已实施 cancel→RunGroup wait→drain 与 owner ctx watcher；P1A/P1B 从 BLOCK 输入转为已销账。 |
+| Phase 2 module migration | §R4 作为未来实施项 | HEAD `a81554c` 已完成 memory/thread/cachekeepalive/hooks/rpc/mcpcontrol/toolbridge/insight/observation 主体迁移。 |
+| Phase 3 gate | §R4 要求 matcher algorithm 补齐 | session-private allowlist 已落；P3B 仍需 Audit-A/B/C 处理 cron+uistate cross-file gap 与 3 个 gate NEEDS-FIX。 |
+
+### §R7.3 F-10 审查误差记录
+
+第 6 轮修文档采信主 agent LSP 证伪：此前 Audit-D 报告中关于 `internal/module/insight/module.go:48-63` two-hop subscription 的说法不作为 HEAD `a81554c` 事实使用。该项应视为 Audit-D LSP 缓存/自身实验状态未真回滚导致的误判；本轮只修文档，不改 Go 代码。

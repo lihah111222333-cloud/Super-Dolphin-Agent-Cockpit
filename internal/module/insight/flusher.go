@@ -122,6 +122,10 @@ func (f *Flusher) handle(ctx context.Context, sig flushSignal) {
 		// race where the terminal event arrived before observation's
 		// own subscribers processed the same event. Requeue once and
 		// drop after that to avoid an infinite cycle.
+		if sig.Retried {
+			return
+		}
+		sig.Retried = true
 		select {
 		case f.collector.queue <- sig:
 		default:
@@ -191,11 +195,11 @@ func (f *Flusher) buildParams(sig flushSignal) (insightstore.UpsertParams, bool)
 		Status:                   mapTerminalKindToStatus(string(term.Kind)),
 		StopReason:               term.Reason,
 		ToolCalls:                counts.ToolCalls,
-		ToolCallsObserved:        true,
+		ToolCallsObserved:        counts.ToolCallsObserved,
 		ToolFailures:             counts.ToolFailures,
-		ToolFailuresObserved:     true,
+		ToolFailuresObserved:     counts.ToolFailuresObserved,
 		ApprovalRequests:         counts.ApprovalRequests,
-		ApprovalRequestsObserved: counts.ApprovalRequestsObserved,
+		ApprovalRequestsObserved: counts.ApprovalRequestsObserved || providerSupportsApprovalObservation(sig.Provider),
 		TokenInput:               int32(tokens.Input),
 		TokenOutput:              int32(tokens.Output),
 		TokenTotal:               int32(tokens.Total),
@@ -214,4 +218,13 @@ func cloneBoolPtr(v *bool) *bool {
 	}
 	out := *v
 	return &out
+}
+
+func providerSupportsApprovalObservation(provider string) bool {
+	switch provider {
+	case "codex", "codexapp", "codex-app":
+		return true
+	default:
+		return false
+	}
 }

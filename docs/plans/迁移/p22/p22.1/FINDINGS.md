@@ -189,3 +189,24 @@ F-9 只处理 diff fallback subscriber ownership：`registerDiffFallbackLifecycl
 
 ## R2 发现仍未销账项（2026-04-25 HEAD drift note）
 详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md` §R2。R2 仲裁结论：🔴 R2 BLOCK。FINDINGS 仍需只加不删补齐：F-1 的 `internal/app/runner_test.go:79-88` 反向测试保护证据；F-3 非重开 R10.6 #9 “OnStop 不 wait/drain”；F-5 非重开 R10.6 #5 TeamSync Pull/Push test-only；F-9 不覆盖 toolbridge handler fallback。
+
+
+## 3.1 HEAD `a81554c` overlay：F-1~F-11 当前真实状态（2026-04-25，第 6 轮）
+
+> 本节按 §10.31 只加不删追加；上文 §2 保留为 P22.1 规划/历史证据快照。当前 HEAD 锚点为 `a81554c`；实施链锚点为 `25a37ad` → `f737e45` → `17b5ce7` → `dfe12e6` → `b386217` → `a9a018e` → `a81554c`。
+
+| Finding | 历史原违规位置 | HEAD `a81554c` 目标态位置 | 当前状态 |
+|---|---|---|---|
+| F-1 root bridge shutdown ordering | `internal/app/runner.go:71-80` | `internal/app/runner.go` 已为 cancel → RunGroup wait → drain；`internal/app/runner_test.go` 已改为 `TestBindRuntimeCancelsRunGroupBeforeDrain` | ✅ 已销账 |
+| F-2 desktop watcher `context.Background()` | `internal/app/app.go:171-181` | `watchFXShutdown(ctx, app, lifecycle)` 使用 owner ctx；session-private allowlist 记录 desktop watcher | ✅ 已销账 |
+| F-3 memory hooks worker/subscriber ownership | `internal/module/memory/module.go:386-443` | memory workers 进入 `group:"runners"`，subscriptions 进入 `NewMemorySubscribers` / BusModule | ✅ 已销账 |
+| F-4 thread bus workers/subscribers | `internal/module/thread/module.go:64-88` | `threadBusWorkersAsRunner` + `NewThreadSubscribers` | ✅ 已销账 |
+| F-5 cachekeepalive timer + subscription | `internal/platform/cachekeepalive/module.go:35-49` | `NewCacheKeepaliveSubscribers`；manager shutdown 保留为 resource close | ✅ 已销账 |
+| F-6 hooks fanout worker | `internal/platform/hooks/module.go:93-108` | `hookWorkerAsRunner` + `NewHooksRelaySubscribers` | ✅ 已销账 |
+| F-7 rpc push worker | `internal/platform/rpc/module.go:151-169` | `pushWorkerAsRunner` + `NewRPCPushSubscribers` | ✅ 已销账 |
+| F-8 mcpcontrol config fanout | `internal/platform/mcpcontrol/module.go:162-197` | `configFanoutWorkerAsRunner` + `NewMCPConfigChangeSubscribers` | ✅ 已销账 |
+| F-9 toolbridge diff fallback subscriber | `internal/platform/toolbridge/module.go:166-184` | `NewToolbridgeDiffFallbackSubscribers`；proxy lifecycle 只保留 listener setup/address publish | ✅ 已销账 |
+| F-10 insight collector subscriber | `internal/module/insight/module.go:55-70` | `NewInsightSubscribers` 进入 BusModule；第 6 轮采信主 agent LSP 证伪，Audit-D two-hop subscription 报告不作为 HEAD 事实 | ✅ 已销账 |
+| F-11 turn observation subscriber | `internal/module/turn/observation/module.go:43-59` | `NewObservationSubscribers` 进入 BusModule；module 只提供 Memory/Contract/subscriber spec | ✅ 已销账 |
+
+**剩余说明**：F-1~F-11 主体迁移在 HEAD `a81554c` 均不再按“代码 0”处理；后续只保留 cron+uistate cross-file gap、gate 3 处 NEEDS-FIX、`runner.actors` vs `group:"runners"` 契约命名债等 follow-up。

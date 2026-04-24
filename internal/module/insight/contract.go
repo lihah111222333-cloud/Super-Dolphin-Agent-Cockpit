@@ -87,6 +87,7 @@ type flushSignal struct {
 	AgentID     string
 	Provider    string
 	Timestamp   time.Time
+	Retried     bool
 }
 
 // mapTerminalKindToStatus translates the observation.TerminalKind string

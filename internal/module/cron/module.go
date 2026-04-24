@@ -1,10 +1,8 @@
 package cron
 
 import (
-	"context"
 	"log/slog"
 
-	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -32,7 +30,7 @@ var Module = fx.Module("cron",
 	fx.Provide(provideScheduler),
 	fx.Provide(fx.Annotate(provideTickActor, fx.ResultTags(`group:"runners"`))),
 	fx.Provide(fx.Annotate(provideLeaseActor, fx.ResultTags(`group:"runners"`))),
-	fx.Invoke(registerProgressSubscriber),
+	fx.Provide(NewCronProgressSubscribers),
 )
 
 // provideStore narrows the fully-featured cronstore.Store into the
@@ -67,30 +65,6 @@ type turnSubmitterParams struct {
 	Service       turn.Service             `optional:"true"`
 	Resolver      contract.SessionResolver `optional:"true"`
 	ThreadService thread.Service           `optional:"true"`
-}
-
-type progressSubscriberParams struct {
-	fx.In
-
-	Lifecycle  fx.Lifecycle
-	Dispatcher *event.Dispatcher
-	Scheduler  *Scheduler
-	Logger     *pkglogger.Logger `optional:"true"`
-}
-
-func registerProgressSubscriber(p progressSubscriberParams) {
-	var cancel context.CancelFunc = func() {}
-	p.Lifecycle.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			cancel = subscribeCronProgress(p.Dispatcher, p.Scheduler, p.Logger)
-			return nil
-		},
-		OnStop: func(context.Context) error {
-			cancel()
-			cancel = func() {}
-			return nil
-		},
-	})
 }
 
 func provideTurnSubmitter(p turnSubmitterParams) TurnSubmitter {

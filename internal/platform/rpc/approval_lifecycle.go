@@ -7,7 +7,7 @@ import (
 	"github.com/creachadair/jrpc2"
 )
 
-var approvalCleanupInterval = time.Minute
+const defaultApprovalCleanupInterval = time.Minute
 
 func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 	if m == nil || timeout <= 0 {

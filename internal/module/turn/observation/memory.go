@@ -192,11 +192,17 @@ func (m *Memory) Dedupe(key DedupeKey) bool {
 }
 
 func (m *Memory) IncrementToolCalls(turnID string) int32 {
-	return m.bumpCounter(turnID, func(c *Counts) { c.ToolCalls++ }).ToolCalls
+	return m.bumpCounter(turnID, func(c *Counts) {
+		c.ToolCalls++
+		c.ToolCallsObserved = true
+	}).ToolCalls
 }
 
 func (m *Memory) IncrementToolFailures(turnID string) int32 {
-	return m.bumpCounter(turnID, func(c *Counts) { c.ToolFailures++ }).ToolFailures
+	return m.bumpCounter(turnID, func(c *Counts) {
+		c.ToolFailures++
+		c.ToolFailuresObserved = true
+	}).ToolFailures
 }
 
 func (m *Memory) IncrementApprovalRequests(turnID string) int32 {

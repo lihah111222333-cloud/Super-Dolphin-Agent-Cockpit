@@ -3,8 +3,10 @@ package insight
 import (
 	"context"
 	"log/slog"
+	"reflect"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/kelindar/event"
 
@@ -52,13 +54,13 @@ func (c *collector) subscribe(dispatcher *event.Dispatcher, logger *pkglogger.Lo
 	}
 	cancels := []context.CancelFunc{
 		platformbus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
-			c.enqueueTerminal(ev.TurnID, ev.ThreadID, ev.AgentID)
+			c.enqueueTerminal(ev.TurnID, ev.ThreadID, ev.AgentID, eventProvider(ev), ev.Timestamp)
 		}, logger),
 		platformbus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
-			c.enqueueTerminal(ev.TurnID, ev.ThreadID, ev.AgentID)
+			c.enqueueTerminal(ev.TurnID, ev.ThreadID, ev.AgentID, eventProvider(ev), ev.Timestamp)
 		}, logger),
 		platformbus.ResilientSubscribe(dispatcher, func(ev turndto.TurnStalled) {
-			c.enqueueTerminal(ev.TurnID, ev.ThreadID, ev.AgentID)
+			c.enqueueTerminal(ev.TurnID, ev.ThreadID, ev.AgentID, eventProvider(ev), ev.Timestamp)
 		}, logger),
 	}
 	return func() {
@@ -72,7 +74,7 @@ func (c *collector) subscribe(dispatcher *event.Dispatcher, logger *pkglogger.Lo
 // the signal is dropped and a metric (Dropped()) counts the loss — the
 // plan requires bounded intake so a stuck flusher never backpressures
 // bus publication.
-func (c *collector) enqueueTerminal(turnID, threadID, agentID string) {
+func (c *collector) enqueueTerminal(turnID, threadID, agentID, provider string, timestamp time.Time) {
 	localTurnID := strings.TrimSpace(turnID)
 	if localTurnID == "" {
 		// Without a turn id the flusher cannot find observation facts;
@@ -83,6 +85,8 @@ func (c *collector) enqueueTerminal(turnID, threadID, agentID string) {
 		LocalTurnID: localTurnID,
 		ThreadID:    strings.TrimSpace(threadID),
 		AgentID:     strings.TrimSpace(agentID),
+		Provider:    strings.TrimSpace(provider),
+		Timestamp:   timestamp,
 	}
 	select {
 	case c.queue <- sig:
@@ -100,3 +104,25 @@ func (c *collector) enqueueTerminal(turnID, threadID, agentID string) {
 // Dropped returns the total number of signals that were dropped because
 // the queue was full. Useful for dashboards and tests.
 func (c *collector) Dropped() int64 { return c.dropped.Load() }
+
+// eventProvider reads an optional Provider field from turn DTOs. Current
+// turn DTOs may not carry provider yet; keeping this reflective adapter
+// lets the collector preserve the field as soon as the wire shape adds it
+// without changing the subscriber contract again.
+func eventProvider(ev any) string {
+	v := reflect.ValueOf(ev)
+	if v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return ""
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return ""
+	}
+	field := v.FieldByName("Provider")
+	if !field.IsValid() || field.Kind() != reflect.String {
+		return ""
+	}
+	return field.String()
+}

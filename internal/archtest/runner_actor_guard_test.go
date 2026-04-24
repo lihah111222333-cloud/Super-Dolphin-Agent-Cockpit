@@ -1,6 +1,9 @@
 package archtest
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,7 +116,7 @@ func TestRunnerActorGuard(t *testing.T) {
 			"startBusWorkers": true,
 		})
 		for _, hit := range hits {
-			if runnerOwnershipAllowedLifecycleHit(hit) {
+			if runnerOwnershipAllowedLifecycleHit(t, root, hit) {
 				continue
 			}
 			t.Errorf("runner ownership regression: %s:%d OnStart calls %s", hit.Path, hit.Line, hit.Call)
@@ -147,8 +150,83 @@ func assertNoOrchestrationWaiterTokens(t *testing.T) {
 	}
 }
 
-func runnerOwnershipAllowedLifecycleHit(hit lifecycleCallHit) bool {
-	return hit.Path == "internal/platform/bus/module.go" &&
-		hit.Call == "Start" &&
-		hit.Receiver == "subscribers"
+func runnerOwnershipAllowedLifecycleHit(t *testing.T, root string, hit lifecycleCallHit) bool {
+	t.Helper()
+	if hit.Path != "internal/platform/bus/module.go" || hit.Call != "Start" || hit.Receiver != "subscribers" {
+		return false
+	}
+	return busSubscriberGroupParamStartHit(t, root, hit)
+}
+
+// EnclosingFunc is intentionally derived here instead of added to lifecycleCallHit:
+// this file's write-set cannot touch the shared bus callback matcher structs.
+func busSubscriberGroupParamStartHit(t *testing.T, root string, hit lifecycleCallHit) bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filepath.Join(root, filepath.FromSlash(hit.Path)), nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", hit.Path, err)
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "registerLifecycle" || fn.Body == nil {
+			continue
+		}
+		if hit.Line < fset.Position(fn.Pos()).Line || hit.Line > fset.Position(fn.End()).Line {
+			return false
+		}
+		if !funcHasSubscriberGroupParam(fn) {
+			return false
+		}
+		return !subscribersShadowedBeforeLine(fset, fn.Body, hit.Line)
+	}
+	return false
+}
+
+func funcHasSubscriberGroupParam(fn *ast.FuncDecl) bool {
+	if fn.Type == nil || fn.Type.Params == nil {
+		return false
+	}
+	for _, field := range fn.Type.Params.List {
+		if !isStarIdent(field.Type, "SubscriberGroup") {
+			continue
+		}
+		for _, name := range field.Names {
+			if name.Name == "subscribers" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isStarIdent(expr ast.Expr, name string) bool {
+	star, ok := expr.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := star.X.(*ast.Ident)
+	return ok && ident.Name == name
+}
+
+func subscribersShadowedBeforeLine(fset *token.FileSet, body *ast.BlockStmt, line int) bool {
+	shadowed := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if n == nil || shadowed || fset.Position(n.Pos()).Line >= line {
+			return false
+		}
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok || assign.Tok != token.DEFINE {
+			return true
+		}
+		for _, lhs := range assign.Lhs {
+			ident, ok := lhs.(*ast.Ident)
+			if ok && ident.Name == "subscribers" {
+				shadowed = true
+				return false
+			}
+		}
+		return true
+	})
+	return shadowed
 }

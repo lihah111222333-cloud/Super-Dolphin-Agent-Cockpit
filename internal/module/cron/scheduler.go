@@ -302,10 +302,7 @@ func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
 	if err := s.persistSubmittedTurn(ctx, job, run, startResult); err != nil {
 		return err
 	}
-	if err := s.observeStartedTurn(ctx, job, run, startResult); err != nil {
-		return err
-	}
-	return s.markFinished(ctx, job, run, startResult.TurnID, scheduledAt)
+	return s.observeStartedTurn(ctx, job, run, startResult)
 }
 
 func scheduledAtForJob(job cronstore.Job, now time.Time) time.Time {
@@ -406,7 +403,7 @@ func (s *Scheduler) observeStartedTurn(ctx context.Context, job cronstore.Job, r
 
 func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run cronstore.Run, scheduledAt time.Time, startErr error) error {
 	now := s.now().UTC()
-	nextRetry := s.nextRetry(job, scheduledAt, now)
+	nextRetry := s.nextRetry(job, now)
 	// Record the failed run transition. A CAS error here is not fatal
 	// (the subsequent MarkFailed owns the job-level state transition)
 	// but we log it so DB hiccups during finalize are observable.
@@ -465,6 +462,68 @@ func (s *Scheduler) finalizeObserveLost(ctx context.Context, job cronstore.Job, 
 	})
 }
 
+// CompleteTurn applies a terminal turn event to the cron run that is currently
+// tracking turnID. RunTick only moves a submitted turn into running; this
+// method is invoked by the BusModule terminal-event subscriber once the turn
+// actually completes or fails. Missing/non-running rows are treated as benign
+// duplicates because bus delivery can race with crash recovery or manual cleanup.
+func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success bool, terminalErr string) error {
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return nil
+	}
+	runs, err := s.store.ListUnresolvedRuns(ctx)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if run.TurnID != turnID || run.Status != cronstore.StatusRunning {
+			continue
+		}
+		job, err := s.store.GetJobByID(ctx, run.JobID)
+		if err != nil {
+			return err
+		}
+		if success {
+			return s.markFinished(ctx, job, run, turnID, run.ScheduledAt)
+		}
+		if strings.TrimSpace(terminalErr) == "" {
+			terminalErr = "cron: turn terminal failure"
+		}
+		return s.markTerminalFailed(ctx, job, run, terminalErr)
+	}
+	return nil
+}
+
+func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, run cronstore.Run, terminalErr string) error {
+	now := s.now().UTC()
+	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+		ID:             run.ID,
+		ExpectedStatus: cronstore.StatusRunning,
+		NextStatus:     cronstore.StatusFailed,
+		Error:          terminalErr,
+		UpdatedAt:      now,
+	}); err != nil {
+		s.logger.Warn("cron: CAS running->failed failed",
+			slog.String("job_id", job.ID),
+			slog.String("run_id", run.ID),
+			slog.String("turn_id", run.TurnID),
+			slog.String("error", err.Error()),
+		)
+	}
+	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
+		ID:          job.ID,
+		ClaimToken:  job.ClaimToken,
+		LastRunAt:   run.ScheduledAt,
+		LastTurnID:  run.TurnID,
+		LastStatus:  cronstore.StatusFailed,
+		LastErrorAt: now,
+		LastError:   terminalErr,
+		NextRetryAt: s.nextRetry(job, now),
+		Now:         now,
+	})
+}
+
 func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string, scheduledAt time.Time) error {
 	now := s.now().UTC()
 	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
@@ -500,7 +559,7 @@ func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cro
 // the P1b plan's "retry 必须被下一次 schedule 上界截断" rule. Returns
 // time.Time{} when retries are exhausted or the next retry would cross
 // into the next schedule.
-func (s *Scheduler) nextRetry(job cronstore.Job, scheduledAt, now time.Time) time.Time {
+func (s *Scheduler) nextRetry(job cronstore.Job, now time.Time) time.Time {
 	if job.MaxAttempts <= 0 || job.FailureCount+1 >= job.MaxAttempts {
 		return time.Time{}
 	}

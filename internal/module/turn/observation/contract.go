@@ -87,7 +87,9 @@ type DedupeKey struct {
 // collector reading Counts for a Claude turn sees observed=false.
 type Counts struct {
 	ToolCalls                int32
+	ToolCallsObserved        bool
 	ToolFailures             int32
+	ToolFailuresObserved     bool
 	ApprovalRequests         int32
 	ApprovalRequestsObserved bool
 }

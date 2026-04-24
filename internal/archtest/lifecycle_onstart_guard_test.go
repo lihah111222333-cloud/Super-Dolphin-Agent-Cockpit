@@ -177,11 +177,14 @@ func TestShutdownOrdering(t *testing.T) {
 	src := string(data)
 	drain := strings.Index(src, "DrainPendingExtraction")
 	cancel := strings.Index(src, "cancel()")
-	wait := strings.Index(src, "case <-done:")
+	wait := strings.Index(src, "<-done")
 	if drain >= 0 && cancel >= 0 && drain < cancel {
 		t.Errorf("shutdown regression: DrainPendingExtraction appears before root cancel in internal/app/runner.go")
 	}
 	if cancel >= 0 && wait >= 0 && cancel > wait {
 		t.Errorf("shutdown regression: cancel appears after RunGroup wait in internal/app/runner.go")
+	}
+	if drain >= 0 && wait >= 0 && drain < wait {
+		t.Errorf("shutdown regression: DrainPendingExtraction appears before RunGroup wait in internal/app/runner.go")
 	}
 }

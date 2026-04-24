@@ -18,6 +18,7 @@ type ApprovalCleanupRunner struct {
 	approvals *ApprovalManager
 	logger    *pkglogger.Logger
 	interval  time.Duration
+	timeout   time.Duration
 }
 
 // NewApprovalCleanupRunner is the fx constructor; returned as
@@ -27,20 +28,24 @@ type ApprovalCleanupRunner struct {
 // The ApprovalManager may be nil (some test / partial-wiring configs); the
 // Run loop handles that by blocking on ctx.Done without doing any work.
 func NewApprovalCleanupRunner(approvals *ApprovalManager, logger *pkglogger.Logger) platformrunner.Runner {
+	return newApprovalCleanupRunnerWithConfig(approvals, logger, defaultApprovalCleanupInterval, DefaultApprovalTimeout)
+}
+
+func newApprovalCleanupRunnerWithConfig(approvals *ApprovalManager, logger *pkglogger.Logger, interval, timeout time.Duration) *ApprovalCleanupRunner {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	return &ApprovalCleanupRunner{
 		approvals: approvals,
 		logger:    logger,
-		interval:  approvalCleanupInterval,
+		interval:  interval,
+		timeout:   timeout,
 	}
 }
 
 // Run implements platformrunner.Runner. Blocks on the cleanup ticker until
-// ctx.Done; returns ctx.Err(). Reads DefaultApprovalTimeout lazily on each
-// tick so tests that mutate it (approval_test.go does this) continue to see
-// the override even after the runner starts.
+// ctx.Done; returns ctx.Err(). The timeout is captured on the runner instance
+// at construction time so parallel tests do not race on package-level defaults.
 func (r *ApprovalCleanupRunner) Run(ctx context.Context) error {
 	if r == nil || r.approvals == nil || r.interval <= 0 {
 		<-ctx.Done()
@@ -60,7 +65,7 @@ func (r *ApprovalCleanupRunner) Run(ctx context.Context) error {
 }
 
 func (r *ApprovalCleanupRunner) tick() {
-	timeout := DefaultApprovalTimeout
+	timeout := r.timeout
 	if timeout <= 0 {
 		return
 	}

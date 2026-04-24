@@ -113,8 +113,8 @@ func TestFlusherBuildsUpsertFromObservation(t *testing.T) {
 	if got.Success == nil || !*got.Success {
 		t.Fatalf("Success = %v, want pointer to true", got.Success)
 	}
-	if got.ToolCalls != 2 || got.ToolFailures != 1 {
-		t.Fatalf("tool counts wrong: calls=%d failures=%d", got.ToolCalls, got.ToolFailures)
+	if got.ToolCalls != 2 || got.ToolFailures != 1 || !got.ToolCallsObserved || !got.ToolFailuresObserved {
+		t.Fatalf("tool counts wrong: calls=%d callsObserved=%t failures=%d failuresObserved=%t", got.ToolCalls, got.ToolCallsObserved, got.ToolFailures, got.ToolFailuresObserved)
 	}
 	if got.ApprovalRequests != 1 || !got.ApprovalRequestsObserved {
 		t.Fatalf("approval snapshot wrong: %+v", got)
@@ -174,6 +174,45 @@ func TestFlusherRequeuesWhenObservationEmpty(t *testing.T) {
 	f.handle(context.Background(), <-col.queue)
 	if len(col.queue) != 1 {
 		t.Fatalf("signal should have been requeued; queue=%d", len(col.queue))
+	}
+	sig := <-col.queue
+	if !sig.Retried {
+		t.Fatalf("requeued signal must carry retry marker: %+v", sig)
+	}
+	f.handle(context.Background(), sig)
+	if len(col.queue) != 0 {
+		t.Fatalf("retried signal must be dropped after second miss; queue=%d", len(col.queue))
+	}
+}
+
+func TestFlusherUsesSignalTimestampProviderAndCodexApprovalObserved(t *testing.T) {
+	t.Parallel()
+
+	mem := observation.NewMemory()
+	mem.RecordTerminal("local-1", observation.Terminal{Kind: observation.TerminalCompleted})
+	stamp := time.Unix(1_700_000_123, 0).UTC()
+
+	var got insightstore.UpsertParams
+	store := &fakeInsightStore{
+		upsertFn: func(_ context.Context, p insightstore.UpsertParams) (insightstore.Insight, error) {
+			got = p
+			return insightstore.Insight{}, nil
+		},
+	}
+	f, _ := newTestFlusher(t, mem, store)
+	f.handle(context.Background(), flushSignal{LocalTurnID: "local-1", ThreadID: "thread-1", AgentID: "agent-1", Provider: "codex", Timestamp: stamp})
+
+	if got.Provider != "codex" {
+		t.Fatalf("Provider = %q, want codex", got.Provider)
+	}
+	if !got.CompletedAt.Equal(stamp) {
+		t.Fatalf("CompletedAt = %v, want signal timestamp %v", got.CompletedAt, stamp)
+	}
+	if got.ApprovalRequests != 0 || !got.ApprovalRequestsObserved {
+		t.Fatalf("codex zero-approval turn must be observed=true with zero count: %+v", got)
+	}
+	if got.ToolCalls != 0 || got.ToolCallsObserved {
+		t.Fatalf("tool call family should remain unobserved before ToolCallBegin: %+v", got)
 	}
 }
 

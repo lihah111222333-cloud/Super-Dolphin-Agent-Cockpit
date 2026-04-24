@@ -89,18 +89,18 @@ func TestBindRuntimeCancelsRunGroupBeforeDrain(t *testing.T) {
 	}
 	select {
 	case <-drainer.started:
-		t.Fatal("DrainPendingExtraction() started before RunGroup completed")
+	case <-time.After(time.Second):
+		t.Fatal("DrainPendingExtraction() was not called after root cancel")
+	}
+
+	select {
+	case err := <-stopDone:
+		t.Fatalf("OnStop() finished before RunGroup completed: %v", err)
 	case <-time.After(150 * time.Millisecond):
 	}
 
-	close(runner.release)
-	select {
-	case <-drainer.started:
-	case <-time.After(time.Second):
-		t.Fatal("DrainPendingExtraction() was not called after RunGroup completed")
-	}
-
 	close(drainer.release)
+	close(runner.release)
 	select {
 	case err := <-stopDone:
 		if err != nil {
@@ -108,5 +108,42 @@ func TestBindRuntimeCancelsRunGroupBeforeDrain(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("OnStop() did not finish")
+	}
+}
+
+func TestBindRuntimeInheritsRootContext(t *testing.T) {
+	lifecycle := &runtimeTestLifecycle{}
+	owner := newAppOwnerContext(context.Background())
+	runner := runtimeBlockRunner{canceled: make(chan struct{})}
+
+	BindRuntime(lifecycle, runtimeParams{
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Runners:    []platformrunner.Runner{runner},
+		Shutdowner: runtimeTestShutdowner{},
+		RootCtx:    owner,
+	})
+	if len(lifecycle.hooks) != 1 {
+		t.Fatalf("len(hooks) = %d, want 1", len(lifecycle.hooks))
+	}
+	if err := lifecycle.hooks[0].OnStart(context.Background()); err != nil {
+		t.Fatalf("OnStart() error = %v", err)
+	}
+
+	owner.Cancel()
+	select {
+	case <-runner.canceled:
+	case <-time.After(time.Second):
+		t.Fatal("runner did not observe owner root context cancellation")
+	}
+	select {
+	case <-owner.runtimeDone:
+	case <-time.After(time.Second):
+		t.Fatal("owner was not marked runtime done after root context cancellation")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := lifecycle.hooks[0].OnStop(ctx); err != nil {
+		t.Fatalf("OnStop() error = %v", err)
 	}
 }

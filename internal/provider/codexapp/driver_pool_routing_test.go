@@ -276,3 +276,25 @@ func TestResumeSessionUsesPoolWhenBindingHasIdentity(t *testing.T) {
 		t.Fatalf("spawn calls = %d, want 1", spawnCalls.Load())
 	}
 }
+
+func TestResumeSessionFailsClosedWhenPoolEnabledAndIdentityMissing(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "1")
+	spawnCalls := atomic.Int32{}
+	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
+		return newFakeServer("ws://unused"), nil
+	}, PoolConfig{Capacity: 1})
+	defer pool.Close(context.Background())
+	d := newRoutingDriver(t, pool)
+
+	opts, err := d.resolveResumeOptions(context.Background(), dto.ResumeSessionRequest{AgentID: "agent-resume"})
+	if err == nil || !strings.Contains(err.Error(), "codex identity required for resume") {
+		t.Fatalf("resolveResumeOptions() err = %v, want identity-required failure", err)
+	}
+	if opts != nil {
+		t.Fatalf("missing resume identity must not return options, got %d", len(opts))
+	}
+	if spawnCalls.Load() != 0 {
+		t.Fatalf("spawner should not fire on missing resume identity, called %d times", spawnCalls.Load())
+	}
+}
