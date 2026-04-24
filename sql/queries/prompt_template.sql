@@ -38,10 +38,17 @@ RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, t
 -- name: ListPromptTemplates :many
 SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, match_when, priority, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
-WHERE ($1::text = '' OR agent_key = $1)
-  AND ($2::text = ''
-    OR prompt_key ILIKE '%' || $2 || '%'
-    OR title ILIKE '%' || $2 || '%'
-    OR prompt_text ILIKE '%' || $2 || '%')
+WHERE (sqlc.arg(agent_key)::text = '' OR agent_key = sqlc.arg(agent_key))
+  AND (sqlc.arg(keyword)::text = ''
+    OR prompt_key ILIKE '%' || sqlc.arg(keyword) || '%'
+    OR title ILIKE '%' || sqlc.arg(keyword) || '%'
+    OR prompt_text ILIKE '%' || sqlc.arg(keyword) || '%')
+  AND (sqlc.arg(cwd)::text = ''
+    OR NOT EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements_text(tags) AS tag(value)
+      WHERE tag.value LIKE 'scope.cwd:%'
+    )
+    OR tags ? ('scope.cwd:' || sqlc.arg(cwd)::text))
 ORDER BY updated_at DESC
-LIMIT $3;
+LIMIT sqlc.arg(limit_count);

@@ -123,14 +123,22 @@ WHERE ($1::text = '' OR agent_key = $1)
     OR prompt_key ILIKE '%' || $2 || '%'
     OR title ILIKE '%' || $2 || '%'
     OR prompt_text ILIKE '%' || $2 || '%')
+  AND ($3::text = ''
+    OR NOT EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements_text(tags) AS tag(value)
+      WHERE tag.value LIKE 'scope.cwd:%'
+    )
+    OR tags ? ('scope.cwd:' || $3::text))
 ORDER BY updated_at DESC
-LIMIT $3
+LIMIT $4
 `
 
 type ListPromptTemplatesParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Column2 string `db:"column_2" json:"column_2"`
-	Limit   int32  `db:"limit" json:"limit"`
+	AgentKey   string `db:"agent_key" json:"agent_key"`
+	Keyword    string `db:"keyword" json:"keyword"`
+	Cwd        string `db:"cwd" json:"cwd"`
+	LimitCount int32  `db:"limit_count" json:"limit_count"`
 }
 
 type ListPromptTemplatesRow struct {
@@ -153,7 +161,12 @@ type ListPromptTemplatesRow struct {
 }
 
 func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error) {
-	rows, err := q.db.Query(ctx, listPromptTemplates, arg.Column1, arg.Column2, arg.Limit)
+	rows, err := q.db.Query(ctx, listPromptTemplates,
+		arg.AgentKey,
+		arg.Keyword,
+		arg.Cwd,
+		arg.LimitCount,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -45,7 +45,13 @@ function resolveProjectCwd(projectStore) {
 }
 
 function resolveReadonlyFallbackCwd(props) {
-  return (props?.threadStore?.state?.cwd || props?.projectStore?.state?.cwd || '').toString().trim();
+  return (
+    props?.threadStore?.state?.cwd
+    || props?.projectStore?.state?.active
+    || props?.projectStore?.state?.cwd
+    || props?.windowCwd
+    || ''
+  ).toString().trim();
 }
 
 // prefGet / prefSet consolidate the 3 preferences (active launch prompt,
@@ -301,9 +307,8 @@ export const SystemPromptPage = {
     // currentProjectCwd 是发给后端 RPC / 子组件的原始路径（空也 OK）；
     // cwdDisplay 含中文 fallback '未知'，专供 UI 显示用，不能当参数发出去。
     const currentProjectCwd = computed(() => resolveProjectCwd(props.projectStore));
-    // editorViewOnly was an alias for fallbackMode; inlined below to cut a
-    // redundant computed. Any state where the editor should be read-only
-    // matches exactly `fallbackMode.value`.
+    // Any state where the editor should be read-only matches exactly
+    // `fallbackMode.value`.
     // 在 'all' tab 下创建会丢失 agent_key 归属（不知道应该存到 main 还是别的），
     // 所以只让主/子 tab 创建。全部 tab 仅用于查看/编辑/删除/设为启动。
     const createDisabled = computed(() => fallbackMode.value || activeTab.value === 'all');
@@ -773,7 +778,7 @@ export const SystemPromptPage = {
                   rows="12"
                   v-model="form.content"
                   placeholder="输入 System Prompt 内容..."
-                  :disabled="saving || editorViewOnly || editingHasSections"
+                  :disabled="saving || fallbackMode || editingHasSections"
                 ></textarea>
                 <div class="sp-field-meta">{{ countStats(form.content).lines }} 行 · {{ countStats(form.content).chars }} 字符</div>
               </div>
@@ -785,7 +790,7 @@ export const SystemPromptPage = {
               <div class="sp-editor-actions" data-testid="sp-editor-actions">
                 <button class="btn btn-ghost" @click="closeEditor">取消</button>
                 <button class="btn btn-primary sp-save-btn" data-testid="sp-save-btn" :disabled="saveDisabled" @click="savePrompt">
-                  {{ editorViewOnly ? '只读模式' : (saving ? '保存中...' : '保存') }}
+                  {{ fallbackMode ? '只读模式' : (saving ? '保存中...' : '保存') }}
                 </button>
               </div>
             </div>
