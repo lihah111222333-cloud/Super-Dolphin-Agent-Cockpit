@@ -61,8 +61,8 @@ func provideTurnNotifier(logger *slog.Logger, notifier contract.MessageNotifier,
 }
 
 // provideNotifyTap narrows *TurnNotifier to the orchestration.NotifyTap
-// interface so orchestration.ProvideHookConsumer (via the optional
-// NotifyTap field on HookConsumerParams) picks it up without binding
+// interface so orchestration.ProvideHookAfterHandler (via the optional
+// NotifyTap field on HookAfterHandlerParams) picks it up without binding
 // orchestration to the concrete implementation.
 func provideNotifyTap(t *TurnNotifier) orchestration.NotifyTap { return t }
 

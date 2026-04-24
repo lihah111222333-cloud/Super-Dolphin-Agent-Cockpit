@@ -18,6 +18,7 @@ import (
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
@@ -76,7 +77,7 @@ func run() error {
 	return app.Stop(stopCtx)
 }
 
-func buildBootstrapConfig(shutdowner fx.Shutdowner, hookConsumer orchestration.HookConsumer, registry tools.Registry) bootstrap.Config {
+func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.BootstrapHookAfterHandler, registry tools.Registry) bootstrap.Config {
 	cfg := bootstrap.ReadBootConfig()
 	cfg.AgentID = ""
 	// P15: register tools/list and tools/call so toolbridge can call this peer.
@@ -120,8 +121,8 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookConsumer orchestration.H
 		log.Printf("mcp-orch config changed: scope=%s version=%d", n.Scope, n.ConfigVersion)
 	}
 	cfg.OnShutdown = func(mcp.ShutdownRequest) { _ = shutdowner.Shutdown() }
-	if hookConsumer != nil {
-		cfg.Hooks = bootstrap.HookConfig{OnAfter: hookConsumer.After}
+	if hookAfter != nil {
+		cfg.Hooks = bootstrap.HookConfig{OnAfter: bootstrap.HookAfterHandler(hookAfter)}
 	}
 	return cfg
 }
@@ -137,7 +138,7 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			fx.Provide(
 				orchestration.ProvideService,
 				orchestration.ProvideServiceInterface,
-				orchestration.ProvideHookConsumer,
+				orchestration.ProvideHookAfterHandler,
 				orchestration.NewOrchestrationHandlers,
 			),
 			fx.Invoke(orchestration.RegisterTurnLifecycle),
