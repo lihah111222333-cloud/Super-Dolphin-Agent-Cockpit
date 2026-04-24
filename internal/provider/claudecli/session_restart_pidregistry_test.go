@@ -67,7 +67,7 @@ func TestRestartIfNeededLockedReRegistersPIDRegistry(t *testing.T) {
 
 func currentRegistryChildPIDs(t *testing.T, kind string) []int {
 	t.Helper()
-	path := filepath.Join("/tmp", fmt.Sprintf("super-agent-pids-%d.json", os.Getpid()))
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("super-agent-pids-%d.json", os.Getpid()))
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read registry file %s: %v", path, err)

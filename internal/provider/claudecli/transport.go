@@ -8,8 +8,18 @@ import (
 	"os"
 	"os/exec"
 	"sync"
-	"syscall"
 	"time"
+)
+
+// processSig is the internal signal abstraction used by the transport so that
+// platform implementations can map it onto syscall.Signal (Unix) or
+// TerminateProcess (Windows) without leaking syscall types into shared code.
+type processSig int
+
+const (
+	sigInterrupt processSig = iota
+	sigTerminate
+	sigForceKill
 )
 
 const (
@@ -21,6 +31,7 @@ const (
 
 type transport struct {
 	cmd     *exec.Cmd
+	guard   *processGuard
 	stdin   io.WriteCloser
 	stdout  *bufio.Scanner
 	stdoutR io.ReadCloser
@@ -42,7 +53,7 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setClaudeProcessAttrs(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -58,7 +69,15 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	tr := &transport{cmd: cmd, stdin: stdin, stdout: scanner, stdoutR: stdout, stderr: stderr, done: make(chan struct{})}
+	tr := &transport{
+		cmd:     cmd,
+		guard:   attachProcessGuard(cmd),
+		stdin:   stdin,
+		stdout:  scanner,
+		stdoutR: stdout,
+		stderr:  stderr,
+		done:    make(chan struct{}),
+	}
 	go tr.wait()
 	return tr, nil
 }
@@ -101,10 +120,10 @@ func (t *transport) Close() error {
 		return nil
 	}
 	t.closeInput()
-	err := t.signalProcess(syscall.SIGTERM)
+	err := t.signalProcess(sigTerminate)
 	t.waitForExit(shutdownGracePeriod)
 	if t.Running() {
-		_ = t.signalProcess(syscall.SIGKILL)
+		_ = t.signalProcess(sigForceKill)
 	}
 	<-t.done
 	return normalizeSignalError(err)
@@ -115,7 +134,7 @@ func (t *transport) Kill() error {
 		return nil
 	}
 	t.closeInput()
-	err := t.signalProcess(syscall.SIGKILL)
+	err := t.signalProcess(sigForceKill)
 	<-t.done
 	return normalizeSignalError(err)
 }
@@ -159,6 +178,7 @@ func (t *transport) wait() {
 	t.doneMu.Lock()
 	t.doneErr = err
 	t.doneMu.Unlock()
+	t.guard.close()
 	close(t.done)
 }
 
@@ -202,7 +222,7 @@ func (t *transport) waitForExit(timeout time.Duration) {
 	}
 }
 
-func (t *transport) signalProcess(sig syscall.Signal) error {
+func (t *transport) signalProcess(sig processSig) error {
 	pid, err := t.ensureProcessAlive()
 	if err != nil {
 		return err
@@ -210,11 +230,11 @@ func (t *transport) signalProcess(sig syscall.Signal) error {
 	if pid == 0 {
 		return nil
 	}
-	return syscall.Kill(-pid, sig)
+	return signalClaudeProcess(t.cmd, t.guard, sig)
 }
 
 func normalizeSignalError(err error) error {
-	if err == nil || errors.Is(err, syscall.ESRCH) {
+	if err == nil || isProcessGoneErr(err) {
 		return nil
 	}
 	return err

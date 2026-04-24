@@ -2,7 +2,6 @@ package claudecli
 
 import (
 	"log/slog"
-	"syscall"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
@@ -18,7 +17,7 @@ func settleInterruptedTransportWithTimeout(tr *transport, grace time.Duration) e
 	if tr == nil {
 		return nil
 	}
-	if err := normalizeSignalError(tr.signalProcess(syscall.SIGINT)); err != nil {
+	if err := normalizeSignalError(tr.signalProcess(sigInterrupt)); err != nil {
 		return tr.Kill()
 	}
 	if grace > 0 {
