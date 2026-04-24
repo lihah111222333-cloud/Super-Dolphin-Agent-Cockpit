@@ -53,7 +53,7 @@ type DAGDetail = contract.DAGDetail
 // variable. Per P4 §278 the root entry (cmd/mcp-orch/fx.go
 // buildOrchestrationOptions) now composes the orchestration wiring
 // explicitly from the exported building blocks below — ProvideService /
-// ProvideServiceInterface / ProvideHookConsumer / NewOrchestrationHandlers
+// ProvideServiceInterface / ProvideHookAfterHandler / ProvideRPCFacade
 // / RegisterTurnLifecycle / RegisterApprovalLifecycle. The archtest
 // TestOrchestrationNoModuleExport locks this in place so the subpackage
 // cannot re-grow a wholesale `Module` export.
