@@ -1,5 +1,7 @@
 # mcp-orch 代码地图
 
+> 2026-04-24 debt banner / authoritative pointer：本卷描述 `cmd/mcp-orch` 的稳定职责与装配结构，不再是 orchestration 依赖方向 / hidden contract 的权威记录。orchestration `Module` / `handler.Map` / hidden side-channel contract、`OrchestrationTurnStarter` 与 `OrchestrationSessionCleaner` 的双树同构、`BootstrapHookAfterHandler` 等契约的 authoritative 入口是 [`docs/plans/迁移/p22/README.md`](../../plans/迁移/p22/README.md)、[`docs/plans/迁移/p22/P3_OrchestrationWaiterAlignment.md`](../../plans/迁移/p22/P3_OrchestrationWaiterAlignment.md) 与 [`docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md`](../../plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md)。若本卷与 P22/P3/P4 冲突，以后者为准。
+
 ## 1. 模块概述
 
 `cmd/mcp-orch` 是 `super-agent-v3` 的编排侧车 / peer 服务，核心职责可归纳为 5 类：

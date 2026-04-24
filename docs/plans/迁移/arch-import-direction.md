@@ -1,6 +1,6 @@
 # 架构合规：Import 方向全量扫描
 
-> 2026-04-23 debt banner / authoritative pointer：本页是 **2026-03-21** 的历史扫描记录，不再作为 live debt 的权威基线。当前依赖方向 / hidden-contract 的 authoritative 入口是 `docs/plans/迁移/p22/README.md` 与 `docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md`；若本页与 `P22/P4` 有冲突，以后者为准，并只在本页同步 debt banner / authoritative pointer，不反向覆盖 active 计划页。
+> 2026-04-24 debt banner / authoritative pointer：本页是 **2026-03-21** 的历史扫描记录，不再作为 live debt 的权威基线。P22 umbrella 的 P0/P1a/P1b/P1c/P2/P3/P4 代码主批已收口，`archtest` 持续守卫回归；observability log / metric / trace 锚点的剩余 slice 追踪见 [`docs/plans/迁移/p22/observability-contract.md`](p22/observability-contract.md)。当前依赖方向 / hidden-contract 的 authoritative 入口是 [`docs/plans/迁移/p22/README.md`](p22/README.md) 与 [`docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md`](p22/P4_DependencyDirectionAndHiddenContracts.md)；若本页与 `P22/P4` 有冲突，以后者为准，并只在本页同步 debt banner / authoritative pointer，不反向覆盖 active 计划页。
 
 审查日期：2026-03-21
 
