@@ -1,41 +1,8 @@
 # 10. 数据存储层代码地图
 
-## 1. 模块概述
-
-### 1.1 总体结构：`contract + store + module`
-`internal/store/` 以“领域接口 + 仓储实现 + fx 注册”为主轴，但存在少量显式例外：
-
-- `contract.go`：定义领域接口、DTO、过滤参数；尽量不把 `sqlc` 生成类型直接暴露给上层。
-- `store.go`：真正的仓储实现，负责调用 `internal/store/sqlc`、做 DTO 映射、统一错误语义。
-- `module.go`：极薄的 `fx.Module`，通常只做 `fx.Provide(NewStore)`。
-- 例外：
-  - `hookstore/` 没有本地 `contract.go`，而是直接实现 `internal/contract.HookReviewStore`。
-  - `dbquery/` 除 `contract.go`/`store.go` 外，还包含运行时 SQL 执行器：`executor.go`、`executor_parser.go`、`normalize.go`。
-
-根模块在 `internal/store/module.go`，其组装方式与源码完全一致：
-
-1. 先把外部注入的 `*pgxpool.Pool` 组装成共享的 `*sqlc.Queries`
-2. 再注册 17 个子 store 模块，顺序如下：
-   - `agentstatus`
-   - `ailog`
-   - `auditlog`
-   - `binding`
-   - `buslog`
-   - `commandcard`
-   - `cwdlock`
-   - `dbquery`
-   - `hookstore`
-   - `interaction`
-   - `prompt`
-   - `sharedfile`
-   - `systemlog`
-   - `tasktrace`
-   - `thread`
-   - `topologyapproval`
-   - `uipreference`
-
-> 注意：`workspace_runs / workspace_run_files` 已有 sqlc 低层生成代码，但**没有**对应的 `internal/store/workspace...` 子包，也没有被注册进 `store.Module`。因此“17 个子 store”这一说法在当前源码中是准确的。
+> 范围：`internal/store/*` + `internal/store/sqlc/*` + `sql/queries/*` + `migrations/*`
 >
+<<<<<<< Updated upstream
 > 与第 11 卷的边界：本卷聚焦 `internal/store/*`、`sql/queries/*`、`migrations/*` 的持久化职责；`prompt snapshot` 在 thread / prompt 生命周期里的运行时语义请结合 `11-memory-prompt-thread.md` 阅读。
 
 ### 1.2 共性设计
@@ -784,27 +751,77 @@ var Module = fx.Module("store",
     topologyapproval.Module,
     uipreference.Module,
 )
+=======
+> caller 列均已用 `lsp_xref(references)` 核过；若当前没有跨包 prod consumer，就记为 `internal/store.Module`（代表“已接进生产 root store，但尚未被上层模块直接注入”）。
+
+## 1. 总览
+
+### 1.1 root wire-up
+- `internal/store/module.go:31` 定义 root `store` fx module。
+- root module 先提供共享 `*sqlc.Queries`，再接 17 个子包；其中 `promptstore.Module` 在 `internal/store/module.go:43`，`thread.Module` 在 `internal/store/module.go:47`。
+- 目录实况是 **17 个 store 子包 + 1 个 `sqlc/` 生成目录**；`workspace_run.sql(.go)` 只停留在 `sql/queries/` 与 `internal/store/sqlc/`，当前没有 `internal/store/workspace*` 子包。
+
+### 1.2 `contract.go` / `store.go` / `sqlc.*` / SQL 分层
+| 层 | 典型文件 | 角色 |
+|---|---|---|
+| domain contract | `internal/store/<pkg>/contract.go` | 定义领域接口、DTO、过滤参数；上层优先依赖它，而不是直接依赖 sqlc 生成类型。 |
+| store impl | `internal/store/<pkg>/store.go` | 真正仓储实现：调用 `sqlc.Queries` / `sqlc.Querier`，做 DTO 映射、错误包装、必要的事务边界。 |
+| generated sqlc | `internal/store/sqlc/db.go` / `querier.go` / `*.sql.go` | `db.go` 持有 `Queries` 与 `WithTx`；`querier.go` 汇总 typed method surface；每个 `*.sql.go` 与一个 SQL 文件一一对应，生成 `Params/Row/Method`。 |
+| raw SQL | `sql/queries/*.sql` | 持久化真实语句来源；决定 where/order/limit/returning 形态。 |
+| schema input | `migrations/*.sql` + `sqlc.yaml` | 迁移驱动 runtime schema；`sqlc.yaml` 决定 sqlc 代码生成时真正读取的 schema 子集。 |
+
+### 1.3 例外与补充
+- `hookstore` 是 **显式 sqlc 例外**：`internal/store/hookstore/hookstore.go:15` 说明它直接用 `platformdb.Queryable` + 手写 SQL；`internal/store/hookstore/module.go:11` 直接提供 `contract.HookReviewStore`。
+- `dbquery` 是 **半例外**：`sql/queries/db_query.sql` 只保留 placeholder，真正动态查询走 `dbquery/executor.go`。
+- `thread` 除 `Store` 外还额外提供 metadata adapter：`internal/store/thread/module.go:7` 注册 `NewMetadataStore`，把 store/thread 收窄成 `contract.ThreadMetadataStore`。
+
+### 1.4 Mermaid 总图
+```mermaid
+flowchart LR
+  A[internal/app / fx runtime] --> B[internal/store/module.go]
+  B --> C[internal/store/<pkg>/module.go]
+  C --> D[contract.go]
+  C --> E[store.go]
+  E --> F[internal/store/sqlc/db.go + querier.go + *.sql.go]
+  F --> G[sql/queries/*.sql]
+  G --> H[migrations/*.sql]
+  C --> I[hookstore/hookstore.go]
+  I -. handwritten SQL .-> H
+  E -. runtime SQL .-> J[dbquery/executor.go]
+>>>>>>> Stashed changes
 ```
 
-含义：
-- 依赖外部注入的 `*pgxpool.Pool`
-- 在 store 层内统一生成共享的 `*sqlc.Queries`
-- 注册 17 个子 store 模块
-- **没有**注册 `workspace_run`、`task_dag` 等额外仓储
+## 2. `prompt` 新接线（p20.1）
 
-### 6.2 子模块注册方式
-每个子包的 `module.go` 基本都很薄：
+### 2.1 contract 面
+- `internal/store/prompt/contract.go:11`：`Reader` 只保留读面 `List(...)`。
+- `internal/store/prompt/contract.go:15`：新增 `Store`，把 `Reader`、`WithTx`、`Get`、`Delete`、`InsertVersion`、`Upsert` 合在一起。
+- `internal/store/prompt/contract.go:24` + `:27`：`ListFilter` 现在带 `CWD string`。
+- `internal/store/prompt/contract.go:49`：新增 `PromptTemplateVersion`，承接 prompt 归档版本写入。
 
+<<<<<<< Updated upstream
 - 普通型：`fx.Provide(NewStore)`
 - 特例：
   - `dbquery.Module`：`fx.Provide(newDefaultStore)`，其中注入默认超时 `10s`
   - `hookstore.Module`：`NewStore(platformdb.Queryable)` 返回 `contract.HookReviewStore`
   - `prompt.Module`：`newStoreWithPool(...)` 返回 `Store`，再通过 `AsReader(store Store) Reader` 补一个只读 adapter
   - `commandcard / sharedfile`：`NewStore` 返回 `Reader`
+=======
+### 2.2 store 面
+- `internal/store/prompt/store.go:40-42`：`NewStore(q *sqlc.Queries) Store`。
+- `internal/store/prompt/store.go:61-75`：`List` 读 `sqlc.ListPromptTemplates(...)`。
+- `internal/store/prompt/store.go:77-85`：`WithTx` 以 `Store` 递归包装事务内 store。
+- `internal/store/prompt/store.go:102-121`：`InsertVersion` 写 `prompt_versions`。
+- `internal/store/prompt/store.go:123-146`：`Upsert` 写 `prompt_templates`。
+>>>>>>> Stashed changes
 
-### 6.3 DI 最终暴露的接口类型
-store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
+### 2.3 `Store -> Reader` adapter 与 tx wiring
+- `internal/store/prompt/module.go:13`：`store.prompt` module。
+- `internal/store/prompt/module.go:20-22`：`AsReader(store Store) Reader`，保证 dashboard 继续注入只读接口。
+- `internal/store/prompt/module.go:24-42`：`newStoreWithPool(pool, q)`；这里不是直接把 pool 暴露给上层，而是预装事务 runner 后再返回 `Store`。
+- `internal/store/prompt/module.go:53`：真正把 tx 绑定回 sqlc 的动作是反射调用 `Queries.WithTx(...)`。
 
+<<<<<<< Updated upstream
 - `agentstatus.NewStore(*sqlc.Queries) Store`
 - `ailog.NewStore(*sqlc.Queries) Store`
 - `auditlog.NewStore(*sqlc.Queries) Store`
@@ -822,15 +839,46 @@ store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
 - `thread.NewStore(*sqlc.Queries) Store`
 - `topologyapproval.NewStore(*sqlc.Queries) Store`
 - `uipreference.NewStore(*sqlc.Queries) Store`
+=======
+### 2.4 SQL 面与 caller split
+- `sql/queries/prompt_template.sql:1`：`GetPromptTemplate`。
+- `sql/queries/prompt_template.sql:10`：`InsertPromptVersion`。
+- `sql/queries/prompt_template.sql:16`：`UpsertPromptTemplate`。
+- `sql/queries/prompt_template.sql:34`：`ListPromptTemplates`。
+- xref 结果分两路：
+  - `promptstore.Store` 主要被 `internal/module/prompt` 消费（写 / 删 / 版本归档 / tx）。
+  - `promptstore.Reader` 主要被 `internal/module/dashboard` 消费；这就是 `AsReader` 存在的原因。
+>>>>>>> Stashed changes
 
-这意味着：
-- 上层默认拿到的是“接口视图”，不是具体实现类型；
-- `*sqlc.Queries` 虽在容器里存在，但并不会因为子模块而自动向业务语义泄漏。
+### 2.5 当前真实状态
+- **`ListFilter.CWD` 已进入 contract，但还没下推到 SQL**：
+  - store 侧 `List` 只把 `AgentKey/Keyword/Limit` 传给 sqlc（`internal/store/prompt/store.go:62`）；
+  - SQL 侧 `ListPromptTemplates` 只有 `$1/$2/$3`（`sql/queries/prompt_template.sql:43`）；
+  - 当前 CWD scope 仍由 caller 后置过滤：dashboard 在 `internal/module/dashboard/ui_page.go:151` 传 `CWD` 后再本地过滤，prompt service 列表面仍在 `internal/module/prompt/service.go:259` 先全量查再过滤可见性。
 
----
+## 3. 17 个 store 子包一览
 
-## 7. 一张总表：Store ↔ 接口 ↔ SQL / 表映射
+| 包名 | 核心实体 | 对应 SQL 文件 | 主要 caller 模块 |
+|---|---|---|---|
+| `agentstatus` | `AgentStatus` | `agent_status.sql` | `internal/module/dashboard` |
+| `ailog` | `AILog` / `StatusCount` | `ai_log.sql` | `internal/module/dashboard` |
+| `auditlog` | `AuditEvent` | `audit_log.sql` | `internal/module/dashboard` |
+| `binding` | `Binding` | `agent_provider_binding.sql` + `thread_binding.sql` | `internal/module/thread` / `internal/module/uistate` / `internal/platform/toolbridge` / `internal/provider/unified` / `internal/platform/cachekeepalive` |
+| `buslog` | `BusExceptionLog` | `bus_log.sql` | `internal/module/dashboard` |
+| `commandcard` | `CommandCard` | `command_card.sql` | `internal/module/dashboard` |
+| `cwdlock` | `LockHolder` / cwd lock | `cwd_lock.sql` | `internal/store.Module` |
+| `dbquery` | runtime query result / `PlaceholderRow` | `db_query.sql` + `executor.go` | `internal/module/dashboard` |
+| `hookstore` | `mcp.PendingHookReview` | **无 sqlc SQL 文件；手写 SQL 在 `hookstore.go`** | `internal/platform/hooks` |
+| `interaction` | `Interaction` | `interaction.sql` | `internal/store.Module` |
+| `prompt` | `PromptTemplate` / `PromptTemplateVersion` | `prompt_template.sql` | `internal/module/prompt` / `internal/module/dashboard` / `cmd/mcp-orch/tools` |
+| `sharedfile` | `SharedFile` | `shared_file.sql` | `internal/module/dashboard` / `internal/module/uistate` |
+| `systemlog` | `SystemLog` | `system_log.sql` | `internal/module/dashboard` |
+| `tasktrace` | `TaskTrace` | `task_trace.sql` | `internal/module/dashboard` |
+| `thread` | `Thread` / `PromptSnapshot` / `ThreadCwd` | `agent_thread.sql` + `agent_thread_prompt_snapshot.sql` | `internal/module/thread` / `internal/provider/unified` / `internal/platform/cachekeepalive` / `internal/module/memory`（经 metadata adapter） |
+| `topologyapproval` | `TopologyApproval` | `topology_approval.sql` | `internal/store.Module` |
+| `uipreference` | `UIPreference` | `ui_preference.sql` | `internal/module/uistate` |
 
+<<<<<<< Updated upstream
 | 子包 | fx 暴露类型 | 主要表 / 投影 | 关键 SQL 文件 |
 | --- | --- | --- | --- |
 | `agentstatus` | `agentstatus.Store` | `agent_status` | `agent_status.sql` |
@@ -884,11 +932,32 @@ store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
 | 新增 prompt snapshot / 其它持久化字段 | 1) 迁移 + `sqlc.yaml` schema 列表一起更新；2) 在 `sql/queries/agent_thread_prompt_snapshot.sql` 增 load/save；3) `internal/store/thread/store.go` 与 `internal/module/thread/prompt_snapshot.go` 同步桥接 store/runtime DTO | `SaveAgentThreadPromptSnapshot` + `toStoredPromptSnapshot(...)` | `internal/store/thread/{store_test,snapshot_test}.go` |
 
 ---
+=======
+### 3.1 读面/写面小结
+- `commandcard`、`sharedfile`：`NewStore()` 直接返回 `Reader`，所以不需要额外 adapter。
+- `prompt`：同时存在 `Reader + Store`，所以必须在 module 层补 `Store -> Reader` adapter。
+- `hookstore`：没有本地 `contract.go`，直接实现 `internal/contract.HookReviewStore`（`internal/contract/hooks.go:38`）。
 
-## 8. 结论
+## 4. `thread` 与 snapshot 补充
+- `internal/store/thread/contract.go:78`：`PromptSnapshot` 已是**运行时字段更完整**的结构，带 `DisplayName / Boundary / Provider / Version / Hash / SectionSnapshot / Generation`。
+- `internal/store/thread/contract.go:95`：保留 `legacyPromptSnapshot`，说明 load 路径仍兼容旧 snake_case payload。
+- `internal/store/thread/store.go:117-136`：`SavePromptSnapshot` 把 snapshot JSON 落到 `agent_threads.prompt_snapshot`。
+- `internal/store/thread/store.go:138-157`：`LoadPromptSnapshot` 负责反序列化并补齐空 `SectionSnapshot`。
+- `sql/queries/agent_thread_prompt_snapshot.sql:1` / `:7`：snapshot 的 load/save 是单独 SQL 文件。
+- `migrations/0031_prompt_snapshot.sql:2`：真正加列点是 `agent_threads.prompt_snapshot jsonb`。
+>>>>>>> Stashed changes
 
-当前 `internal/store` 的核心特征可以概括为：
+## 5. sqlc 实现面
+- `sqlc.yaml:4`：queries 输入目录是 `sql/queries/`。
+- `sqlc.yaml:16`：生成输出目录是 `internal/store/sqlc`。
+- `internal/store/sqlc/querier.go:11`：`Querier` 是跨所有 query 文件的总接口。
+- `internal/store/sqlc/db.go:24`：`Queries` 持有底层 `DBTX`。
+- `internal/store/sqlc/db.go:28-32`：`Queries.WithTx(tx pgx.Tx)` 负责把同一组 query 方法重绑到事务句柄上。
+- `sqlc.yaml:12`：当前 sqlc schema 输入已包含 `migrations/0032_agent_memory_identity.sql`；因此“sqlc 只读到 0031”为旧结论，不再成立。
 
+## 6. 最近 5 条 migrations
+
+<<<<<<< Updated upstream
 1. **对上层坚持接口化、DTO 化**：把 `sqlc` 细节压在仓储内部。
 2. **对底层坚持 SQL-first**：查询定义集中在 `sql/queries/`，`sqlc` 只做生成。
 3. **允许显式例外**：`dbquery` 与 `hookstore` 都绕过了“普通静态 sqlc CRUD”路径。
@@ -910,3 +979,18 @@ store 层通过 `NewStore` 的返回类型控制 fx 中暴露的能力边界：
 9. 修正了 `thread.PromptSnapshot` 口径：当前持久化 DTO 已包含 modern 字段（`DisplayName/Boundary/Provider/Version/Hash/...`），同时通过自定义 `UnmarshalJSON` 兼容 legacy snake_case payload。
 10. 修正了 `sqlc.yaml` 输入集：根配置现在已包含 `0032_agent_memory_identity.sql`，`agent_threads` / `agent_provider_binding` 的 agent identity 列不能再按“只到 0031”理解。
 11. 追加了 `dbquery` 数据流 Mermaid、17 个 store 子包测试入口 + freeze 表，以及 3 条 store 维护 how-to，便于后续按锚点增量维护。
+=======
+| 编号 | 文件 | 作用 |
+|---|---|---|
+| `0028` | `0028_binding_provider_thread_nullable.sql` | 允许 `agent_provider_binding.provider_thread_id` 初始为空，改成 partial unique index，适配首启后补真实 provider thread id。 |
+| `0029` | `0029_agent_provider_binding_schema_repair.sql` | 修复 baseline 安装路径遗漏的 `agent_provider_binding` 主键 / check / unique 约束。 |
+| `0030` | `0030_baseline_schema_repair.sql` | 批量修 baseline 快照遗漏的 PK / UNIQUE，保证 `ON CONFLICT` 型 upsert 真能成立。 |
+| `0031` | `0031_prompt_snapshot.sql` | 给 `agent_threads` 增加 `prompt_snapshot jsonb`。 |
+| `0032` | `0032_agent_memory_identity.sql` | 给 `agent_threads` 与 `agent_provider_binding` 增加 `parent_agent_id / agent_type / agent_memory_scope`。 |
+
+## 7. 当前文档/代码不符点（已按现码修正）
+- `prompt.ListFilter.CWD` **有 contract、无 SQL 下推**；真实行为仍是 caller 后置过滤，不是 DB 侧过滤。
+- `thread.PromptSnapshot` 已不是“只含 base/developer/section/generation 的极简 store DTO”；现在有 modern 字段 + legacy 兼容层。
+- `sqlc.yaml` 现在已经把 `0032_agent_memory_identity.sql` 纳入 schema 输入；只列到 `0031` 的说法已过期。
+- `hookstore` 仍是手写 SQL 例外，不走 `internal/store/sqlc/*.sql.go`。
+>>>>>>> Stashed changes

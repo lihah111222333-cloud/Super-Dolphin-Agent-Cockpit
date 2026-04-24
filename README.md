@@ -1,72 +1,38 @@
-# Super Agent V3
+# super-agent-v3 代码地图
 
+<<<<<<< Updated upstream
 # testsync
 
 Migration from go-agent-v2, started 2026-03-19.
+=======
+> 由自动索引脚本维护，当前覆盖 11 卷核心模块。
+>>>>>>> Stashed changes
 
-## Migration Status
+## 阅读边界提示
 
-- This repository is still in the go-agent-v2 → V3 migration window.
-- Scope summary from `migration_checklist.json`: `700+` V2 guards reviewed, `~150-200` must-migrate guards retained, V3 target size `≤35,000` LOC.
-- The near-term focus is provider convergence + prompt/memory system migration.
-- See `migration_checklist.json` for detailed batch-by-batch status.
+- **02**：先看 sidecar / registry / bootstrap / tools 暴露；不展开 `internal/module/{memory,prompt,thread}` 的内部组装链。
+- **07**：先看 `internal/module` 的职责切面、消费面与入口边界；07 已拆成读侧/写侧两份子卷。
+- **10**：先看 store / sql / migrations 的持久化 contract 与实现，回答“是否落库、落到哪里”。
+- **11**：再看 `start / resume / fork` 中 memory / prompt / thread / prompt snapshot / provider bridge 的运行态串联，回答“运行时到底怎么接上”。
 
-## Build
+## 目录
 
-```bash
-make test        # unit/integration tests
-make vet         # go vet under guard
-make build       # full build
-make build-plain # plain build path when CGO/frida stack is not needed
-```
+| # | 文件 | 覆盖区域 |
+|---|------|---------|
+| 01 | [01-terminal-ui.md](01-terminal-ui.md) | 终端入口与UI层 (cmd/agent-terminal + internal/ui) |
+| 02 | [02-mcp-orch.md](02-mcp-orch.md) | 编排侧车、registry 与工具暴露 (cmd/mcp-orch) |
+| 03 | [03-mcp-lsp-ida.md](03-mcp-lsp-ida.md) | LSP/IDA服务器 (cmd/mcp-lsp + cmd/mcp-ida) |
+| 04 | [04-app-contract.md](04-app-contract.md) | App核心与契约层 (internal/app + internal/contract) |
+| 05 | [05-dto.md](05-dto.md) | DTO数据传输对象 (internal/dto) |
+| 06 | [06-mcpserver.md](06-mcpserver.md) | MCP Server框架 (internal/mcpserver) |
+| 07 | [07-module.md](07-module.md) | 业务模块职责、消费面与入口边界（拆卷索引） |
+| 07A | [07-module-read.md](07-module-read.md) | dashboard / lspgui（现状核对）/ skill |
+| 07B | [07-module-write.md](07-module-write.md) | thread / turn / uistate |
+| 08 | [08-platform.md](08-platform.md) | 平台基础设施 (internal/platform) |
+| 09 | [09-provider.md](09-provider.md) | AI Provider集成 (internal/provider) |
+| 10 | [10-store.md](10-store.md) | 数据存储与 SQL 持久化 (internal/store + sql/queries + migrations) |
+| 11 | [11-memory-prompt-thread.md](11-memory-prompt-thread.md) | Memory / Prompt / Thread 启动/恢复语义链路（含 prompt snapshot / provider bridge） |
 
-## Quick Start / Run
+## 生成时间
 
-```bash
-make run                       # main app entrypoint
-make run-plain                 # plain runtime path
-make build-agent-terminal      # build terminal binary
-make run-agent-terminal-debug  # terminal debug mode
-make mcp                       # start MCP entrypoint
-```
-
-## Environment Notes
-
-- `make build` is the default guarded/full build path.
-- `make build-plain` / `make run-plain` are the fallback paths when you do not need the CGO/frida stack.
-- If you are working on the CGO/frida path itself, check `make setup-cgo` first.
-- Guarded commands are expected in normal development flow; use an unguarded Go invocation only when you intentionally need to debug the guard layer.
-
-## Guarded Go commands
-
-To ensure repository-wide code guards always run before package tests/builds/vet:
-
-```bash
-source scripts/activate_guard_env.sh
-go test ./internal/provider/claudecli   # will be blocked with a clear error + replacement command
-```
-
-Preferred explicit entrypoint:
-
-```bash
-./scripts/go_with_guard.sh test ./internal/provider/claudecli -count=1
-./scripts/go_with_guard.sh build ./...
-./scripts/go_with_guard.sh vet ./...
-```
-
-Or start a guarded subshell:
-
-```bash
-make guard-shell
-```
-
-## Architecture
-
-- `internal/platform/*` + `internal/platform/shared/` — Cross-package DRY primitives (former Zone A)
-- `internal/*/factory_*.go` — Package-local DRY (Zone B)
-- `internal/guards/` — Behavioral & structural guards
-
-Navigation:
-- code map index: `docs/doc/codemap/ai-index.json`
-- terminal / UI path: `docs/doc/codemap/01-terminal-ui.md`
-- orchestration / MCP path: `docs/doc/codemap/02-mcp-orch.md`
+2026-04-20
