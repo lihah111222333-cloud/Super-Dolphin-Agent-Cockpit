@@ -11,7 +11,8 @@
 - **Critical-path 保持绿**：P20.2 (`78c6907`) → P20.3 (`cec26fe`) → P20.4 (`b0d2555`) 已合入 `main`。
 - **P20.1 Phase 1-11 保持**：SkillCatalogProvider（`c1ead48`）、元指令（`3cd3144`）、fx 灰度 + 5 counter（`00b073f`）、文档同步（`a07067c`）；功能闸门默认关闭。
 - **P20.1 加固连带实质性完成**：P20.5 / P20.6 / P20.7 / P20.8 / P20.9 / P20.12（见拆分总表）。
-- **仍未开工**：P20.13（审批缓存接线，前置核查已完成结论 **NEEDS-DOC-FIX**，需先修订任务单）、P20.16（集成测试，等所有前置合入）。
+- ~~P20.13（审批缓存接线，前置核查已完成结论 **NEEDS-DOC-FIX**，需先修订任务单）曾标 **仍未开工**、~~ P20.16（集成测试，等所有前置合入）。
+  - ⚠️ HEAD 2026-04-25 drift：P20.13 已实施待终验（commit `7a1f49c`，2026-04-24 接入生产 `skill/expand` approval 链；任务单已同步 NEEDS-DOC-FIX 3 处）。
 - **已废弃**：P20.11（MCP 工具）— skill 是宿主独有能力。
 - **验证**：`go build ./...` ✅；`go test ./internal/archtest/...` ✅；`go test ./...` ✅；`vitest` 前端全绿。
 
@@ -45,7 +46,7 @@
 | `p20.10` | `skill/list` + `skill/expand` host RPC | ✅ 本轮完成 | 待合入 | name-based DTO；legacy `skills/*` 共存；skill 包 prod 新增 0 |
 | `p20.11` | ~~MCP `skill_list` / `skill_expand` tool 注册~~ | 🚫 已废弃 | — | skill 是宿主独有能力，不属于编排层；子进程在宿主中运行，skill 通过提示词触发 |
 | `p20.12` | config + policy + metrics 基础设施 | ✅ 被 P20.1 Phase 10 吸收 | `00b073f`/`9f0f4bd` | env flag + token budget + 5 counter 落在 `prompt/config.go` + `pkg/skillmetrics/` |
-| `p20.13` | `(name,hash)` 审批缓存生产化接线 | ❌ 未开工 | — | 前置核查结论 **NEEDS-DOC-FIX**（修订任务单后可派）|
+| `p20.13` | `(name,hash)` 审批缓存生产化接线 | 🟡 已实施待终验 | `7a1f49c` | 2026-04-24 落入生产 `skill/expand` approval 链；任务单已同步 NEEDS-DOC-FIX 3 处 |
 | `p20.14` | 前端 LaunchSkillPicker | ✅ 本轮完成 | 待合入 | 字段级 feature gate；feature-off 恢复旧 blank-thread 行为 |
 | `p20.15` | 前端 SystemPromptPage 404 降级 + 后端 dashboard cwd scope | ✅ 本轮完成 | 待合入 | detector 仅结构化白名单；dashboard handler 吃 `{cwd}` 活化 context |
 | `p20.16` | 集成测试与尾部收口 | ❌ 未开工 | — | 全部前置任务完成后 |
