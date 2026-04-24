@@ -101,6 +101,26 @@ func TestRunnerActorGuard(t *testing.T) {
 		t.Parallel()
 		assertNoOrchestrationWaiterTokens(t)
 	})
+	t.Run("ownership", func(t *testing.T) {
+		root := repoRootForGuardTests(t)
+		want := []ownershipHit{
+			{"F-3", "internal/module/memory/module.go", "registerMemoryHooks", "Start"},
+			{"F-4", "internal/module/thread/module.go", "registerSubscriptions", "startBusWorkers"},
+			{"F-5", "internal/platform/cachekeepalive/module.go", "registerKeepaliveLifecycle", "startKeepaliveRelay"},
+			{"F-6", "internal/platform/hooks/module.go", "registerEventRelayLifecycle", "Start"},
+			{"F-7", "internal/platform/rpc/module.go", "bindEventBridge", "Start"},
+			{"F-8", "internal/platform/mcpcontrol/module.go", "registerConfigChangeLifecycle", "Start"},
+		}
+		for _, hit := range want {
+			line, ok := findCallInFunction(t, root, hit.Path, hit.Symbol, hit.Call)
+			if !ok {
+				t.Logf("[P22.1 WARN] runner no-new guard missing TODO-locked call: %+v", hit)
+				t.Fail()
+				continue
+			}
+			t.Logf("[P22.1 WARN] %s %s:%d %s", hit.Finding, hit.Path, line, hit.Symbol)
+		}
+	})
 }
 
 func assertNoOrchestrationWaiterTokens(t *testing.T) {
