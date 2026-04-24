@@ -238,6 +238,9 @@ func TestRequestToolApprovalDedupesProcessedRequestID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
+	// P22 P1c: this test receives inbound notifications, so the reader must
+	// be running. Mirror driver.StartSession's explicit runtime.Start().
+	s.runtime.Start()
 	defer closeCodexTestSession(t, s)
 
 	requested := make(chan tooldto.ToolApprovalRequested, 2)

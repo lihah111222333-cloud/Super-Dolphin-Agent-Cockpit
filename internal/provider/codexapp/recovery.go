@@ -10,7 +10,6 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -93,7 +92,11 @@ func (s *session) callTransport(ctx context.Context, method string, params any) 
 	if err == nil || !shouldReconnect(err) {
 		return raw, err
 	}
-	if recoverErr := s.attemptRecovery(err.Error()); recoverErr != nil {
+	// Sync path: the caller goroutine owns this attempt, so recovery runs
+	// inline rather than via the async signal worker. NotifyRecovery + async
+	// wait would force every caller to coordinate completion, which P1c
+	// §实施方式 explicitly keeps out of scope.
+	if recoverErr := s.attemptRecovery("transport-call: " + err.Error()); recoverErr != nil {
 		return nil, errors.Join(err, recoverErr)
 	}
 	return s.transport.Call(ctx, method, params)
@@ -114,9 +117,16 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 		)
 		return
 	}
-	runtimesafe.SafeGo(context.Background(), s.logger, "codexapp.session.backgroundRecovery", func(context.Context) {
-		shared.LogIgnoredError(s.logger, "background recovery failed", s.attemptRecovery(reason))
-	})
+	// P1c: replace the fire-and-forget SafeGo + attemptRecovery chain with a
+	// coalesced signal into SessionRuntime. The runtime's recovery worker
+	// serialises the attempt and honours the stop gate.
+	if s.runtime == nil {
+		pkglogger.Warn("codexapp: handleConnectionDead dropped — runtime missing",
+			"agent_id", s.agentID,
+			"thread_id", s.ThreadID())
+		return
+	}
+	s.runtime.NotifyRecovery("connection-dead", reason)
 }
 
 func (s *session) attemptRecovery(reason string) error {
@@ -130,6 +140,11 @@ func (s *session) attemptRecovery(reason string) error {
 	}
 	s.recoveryMu.Lock()
 	defer s.recoveryMu.Unlock()
+	// P1c stop gate: if the runtime has already begun shutdown, do not
+	// attempt a recovery that would race with Close's drain.
+	if s.runtime != nil && s.runtime.Stopped() {
+		return runtimeErrStopped
+	}
 	s.dispatch(dto.RawProviderEvent{
 		EventType: "recovery.attempt",
 		Data: map[string]any{
@@ -142,12 +157,18 @@ func (s *session) attemptRecovery(reason string) error {
 	if err := s.recovery.Reconnect(s.ctx); err != nil {
 		return s.failRecovery(reason, err)
 	}
+	// P1c recovery replay order (frozen in README §recovery replay 顺序):
+	//   reconnect -> wait old reader -> start new reader -> resume thread -> replay turn
 	waitCtx, cancel := withTimeout(s.ctx, 2*time.Second)
 	defer cancel()
-	if err := s.waitReadLoopStopped(waitCtx); err != nil {
-		return s.failRecovery(reason, err)
+	if s.runtime != nil {
+		if err := s.runtime.waitReader(waitCtx); err != nil {
+			return s.failRecovery(reason, err)
+		}
+		if !s.runtime.restartReader() {
+			return s.failRecovery(reason, runtimeErrStopped)
+		}
 	}
-	s.startReadLoop()
 	s.mu.Lock()
 	s.suppressed = make(map[string]struct{})
 	s.mu.Unlock()
@@ -305,43 +326,11 @@ func shouldReconnect(err error) bool {
 	return true
 }
 
-func (s *session) startHealthLoop() {
-	runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.healthLoop", func(context.Context) {
-		ticker := time.NewTicker(healthCheckInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-s.ctx.Done():
-				return
-			case <-ticker.C:
-				s.checkIdleHealth()
-			}
-		}
-	})
-}
-
-func (s *session) checkIdleHealth() {
-	if s.recovery == nil || time.Since(s.lastReadTime()) < healthCheckIdleThreshold {
-		return
-	}
-	err := s.recovery.CheckHealth(s.ctx)
-	if err == nil {
-		s.noteReadActivity()
-		return
-	}
-	if s.logger != nil {
-		s.logger.Warn("codexapp: health check failed", "error", err)
-	}
-	// RPC protocol errors (-32600, -32601, etc.) indicate the server is alive but
-	// returned an error response. Do not trigger recovery for these — only recover
-	// when the transport is truly broken (connection lost, timeout, etc.).
-	errMsg := strings.ToLower(err.Error())
-	if strings.Contains(errMsg, "rpc error") || strings.Contains(errMsg, "invalid request") || strings.Contains(errMsg, "method not found") {
-		s.noteReadActivity()
-		return
-	}
-	shared.LogIgnoredError(s.logger, "health check recovery failed", s.attemptRecovery("health check failed: "+err.Error()))
-}
+// P1c: startHealthLoop / checkIdleHealth have moved into SessionRuntime.
+// Reader / health / recovery goroutines are owned by runtime.runHealthLoop +
+// runtime.tickHealth + runtime.runRecoveryWorker; the old fire-and-forget
+// SafeGo helpers are gone. Keep noteReadActivity / lastReadTime here because
+// they are pure session state.
 
 func (s *session) noteReadActivity() {
 	s.lastReadAt.Store(time.Now().UnixNano())
@@ -355,75 +344,10 @@ func (s *session) lastReadTime() time.Time {
 	return time.Unix(0, stamp)
 }
 
-func (s *session) startReadLoop() {
-	done, readCtx, ok := s.prepareReadLoop()
-	if !ok {
-		return
-	}
-	go s.runReadLoop(readCtx, done)
-}
-
-func (s *session) prepareReadLoop() (chan struct{}, context.Context, bool) {
-	s.readLoopMu.Lock()
-	defer s.readLoopMu.Unlock()
-	if s.readLoopDone != nil {
-		select {
-		case <-s.readLoopDone:
-			s.readLoopDone = nil
-			s.readLoopCancel = nil
-		default:
-			return nil, nil, false
-		}
-	}
-	done := make(chan struct{})
-	readCtx, cancel := context.WithCancel(s.ctx)
-	s.readLoopDone = done
-	s.readLoopCancel = cancel
-	return done, readCtx, true
-}
-
-func (s *session) stopReadLoop() {
-	s.readLoopMu.Lock()
-	cancel := s.readLoopCancel
-	s.readLoopMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-}
-
-func (s *session) runReadLoop(ctx context.Context, done chan struct{}) {
-	defer s.finishReadLoop(done)
-	s.transport.ReadLoop(ctx, s.onInboundMessage)
-}
-
-func (s *session) finishReadLoop(done chan struct{}) {
-	ctxErr := s.ctx.Err()
-	pkglogger.Warn("codexapp: read loop exited",
-		"agent_id", s.agentID,
-		"thread_id", s.ThreadID(),
-		"ctx_err", ctxErr,
-		"caller", codexCallerStack(),
-	)
-	close(done)
-	s.readLoopMu.Lock()
-	defer s.readLoopMu.Unlock()
-	if s.readLoopDone == done {
-		s.readLoopDone = nil
-		s.readLoopCancel = nil
-	}
-}
-
-func (s *session) waitReadLoopStopped(ctx context.Context) error {
-	s.readLoopMu.Lock()
-	done := s.readLoopDone
-	s.readLoopMu.Unlock()
-	if done == nil {
-		return nil
-	}
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
+// P1c: startReadLoop / stopReadLoop / prepareReadLoop / runReadLoop /
+// finishReadLoop / waitReadLoopStopped have moved into SessionRuntime. The
+// reader goroutine is now owned by runtime.spawnReader and joined by
+// runtime.Stop via runtime.waitReaderDone. Removing these helpers keeps the
+// old session fields (readLoopMu / readLoopDone / readLoopCancel) unused;
+// they are retained on the session struct only so session_approval_test
+// fixtures can read zero values without a wider rename pass.
