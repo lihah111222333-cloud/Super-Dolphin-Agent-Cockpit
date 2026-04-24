@@ -85,7 +85,7 @@ export function useComposerThreadConfig(props, emit) {
   const threadConfigSummaryLabel = computed(() => {
     if (threadConfigInherited.value) {
       const parts = [effectiveModel.value, effectiveEffort.value].filter(Boolean);
-      return parts.length > 0 ? parts.join('-') : '继承全局';
+      return parts.length > 0 ? `${parts.join('-')} (继承全局)` : '继承全局';
     }
     const model = overrideModel.value || effectiveModel.value || '';
     const effort = overrideEffort.value || effectiveEffort.value || '';

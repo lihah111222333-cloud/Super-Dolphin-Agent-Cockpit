@@ -496,7 +496,7 @@ describe('ComposerBar behavior', () => {
     expect(inheritedVm.threadConfigVisible.value).toBe(true);
     expect(inheritedVm.threadConfigEditable.value).toBe(true);
     expect(inheritedVm.threadConfigInherited.value).toBe(true);
-    expect(inheritedVm.threadConfigSummaryLabel.value).toBe('openai/gpt-5-high');
+    expect(inheritedVm.threadConfigSummaryLabel.value).toBe('openai/gpt-5-high (继承全局)');
 
     inheritedVm.toggleThreadConfig();
     expect(inheritedVm.threadConfigOpen.value).toBe(true);
