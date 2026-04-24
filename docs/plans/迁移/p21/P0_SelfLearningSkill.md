@@ -49,7 +49,7 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 | 轨迹收集器 | `internal/module/turn/trajectory_collector.go` [NEW] | 只消费 observation 输出，负责启发式判断所需的采样、去重与入队 |
 | 启发评估器 | `internal/module/turn/skill_evaluator.go` [NEW] | 判定是否值得提炼，例如成功、tool call 次数、diff / 结果质量、无人工拒批 |
 | LLM 提炼器 | `internal/module/turn/skill_extractor.go` [NEW] | 在 runner worker 中把轨迹归纳为标准 `SKILL.md`；失败只记日志，不影响主 turn |
-| 生命周期接线 | `internal/module/turn/module.go` | `fx.Provide` 只构造 collector / queue / extractor；`fx.Invoke(RegisterSubscribers)` 注入 `bus.subscribers`；提炼 worker 进入 `runner.actors` |
+| 生命周期接线 | `internal/module/turn/module.go` | `fx.Provide` 只构造 collector / queue / extractor；`fx.Invoke(RegisterSubscribers)` 注入 `bus.subscribers`；提炼 worker 进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） |
 | Candidate 表 | `migrations/0047_skill_candidates.sql`、`sql/queries/skill_candidate.sql`、`internal/store/skill/candidate_store.go` [NEW] | 提炼器输出先落 `skill_candidates(id, scope, slug, content_hash, repo_fingerprint, status, approved_by, approved_at, reason, redacted_sample, created_at)`；v1 默认状态为 `pending_review`，**不直接写盘**，由 host UI / API 流程审批后再 promote |
 | 落盘 | `internal/module/skill/service.go` | 审批通过后统一通过 `CreateSkill` 或 `WriteLocal(..., scope=project)` 写入，并复用 `SkillsChanged` 事件 |
 | 二次 redaction | `internal/module/turn/skill_extractor.go` | LLM 提炼返回后**必须再跑一遍脱敏规则**（覆盖 secret / bearer / cookie / JWT / 常见 env 名），并把 `content_hash + redacted_sample` 落 candidate audit；脱敏失败直接丢弃该 candidate 并记指标 |
@@ -66,7 +66,7 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 - project-scope 自学习只允许 `CreateSkill` / `WriteLocal(..., scope=project)`；**显式禁止** `WriteSkillContent` / `WriteSummary` 承接 project-scope 自学习。
 - `skills/create` 缺 `cwd` 必须硬报错；不能把 project-scope 自动降级到 system scope。
 - 自动提炼默认只写 project scope；**system scope 必须人工 review gate**，且 review request / audit record 至少要携带 `scope`、`skill slug`、`content hash`、`repo fingerprint(project_root/cwd)`、`approved_by`、`approved_at`、`reason`；未获批不得写 system scope。
-- bus callback 内只做 observation 事实合并、采样和入队；**LLM 提炼不在 bus callback 内执行**，而是在 `runner.actors` worker 中跑。
+- bus callback 内只做 observation 事实合并、采样和入队；**LLM 提炼不在 bus callback 内执行**，而是在 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） worker 中跑。
 - `fx.Module` 只负责构造 collector / extractor / queue 等对象；长跑 goroutine、批量 flush、重试策略都交给 `Runner.Run(ctx)`。
 - 自动提炼前必须做内容净化：裁剪大工具结果、剥离 secret / 凭据 / 客户数据、抑制 prompt injection 文本。
 - `SkillsChanged` 事件当前不携带完整 scope / cwd 语义，不能把它当成 project-vs-system 的权威事实，除非同步扩展 payload。

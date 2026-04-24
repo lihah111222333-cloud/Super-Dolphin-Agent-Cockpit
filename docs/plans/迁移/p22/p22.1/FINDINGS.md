@@ -210,3 +210,12 @@ F-9 只处理 diff fallback subscriber ownership：`registerDiffFallbackLifecycl
 | F-11 turn observation subscriber | `internal/module/turn/observation/module.go:43-59` | `NewObservationSubscribers` 进入 BusModule；module 只提供 Memory/Contract/subscriber spec | ✅ 已销账 |
 
 **剩余说明**：F-1~F-11 主体迁移在 HEAD `a81554c` 均不再按“代码 0”处理；后续只保留 cron+uistate cross-file gap、gate 3 处 NEEDS-FIX、`runner.actors` vs `group:"runners"` 契约命名债等 follow-up。
+
+## 3.2 HEAD `5d6a93c` Round-3 overlay：F-1 shutdown ordering 真修正（2026-04-25）
+
+> 本节按 §10.31 只加不删追加；§3.1 的 HEAD `a81554c` 表格保留为历史 overlay。当前 Round-3 修复基线为 HEAD `5d6a93c`。
+
+- F-1 root shutdown ordering：`internal/app/runner.go` 已从历史的 `cancel → drain → wait` 修正为 `cancel → waitForRuntimeDone → drainRuntimeBeforeStop`；此前文档中“已 cancel→wait→drain”的描述在本轮代码修改后才成立。
+- Desktop companion：`internal/app/app.go` 的 `preDrainDesktopRuntime` 已对齐为 `WaitRuntimeDone` 先于 `DrainRuntime`。
+- Gate evidence：`internal/archtest/lifecycle_onstart_guard_test.go::TestShutdownOrdering` 现在解析 AST statement 顺序，不再依赖 `strings.Index("<-done")` 文本命中。
+- Race/vet evidence：memory nested ingest coalesce 测试、thread event fake binding store、app shutdown watcher goroutine fatal 均作为 Round-3 真 BUG 收口项处理。

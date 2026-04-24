@@ -272,3 +272,16 @@ P22.1-P3A -> P22.1-P3B
 | P22.1-P3B | 🟡 | archtest hardening / temporary allowlist 回收 | gate 3 处 NEEDS-FIX + cron/uistate cross-file gap 待后续修复 |
 
 **write-set overlay**：当前实施链已跨过原 DAG 并行风险期，本文档仍保留 §5/§5.1 的冲突矩阵作为后续补修 guard/gate 时的 write-set 约束；后续 Audit-A/B/C 只能按各自 gap 小范围修改，不得重开 P0/P2 公共 contract。
+
+## 9. DAG HEAD `5d6a93c` Round-3 BLOCK 收口 overlay（2026-04-25）
+
+> 本节按 §10.31 只加不删追加；§8 的 HEAD `a81554c` 完成度表保留为历史 overlay。当前 Round-3 修复基线为 HEAD `5d6a93c`。
+
+| Round-3 item | DAG/Finding 映射 | `5d6a93c` 后本轮目标态 |
+|---|---|---|
+| runner OnStop ordering | P22.1-P1A / F-1 | `cancel → waitForRuntimeDone → drainRuntimeBeforeStop` |
+| desktop pre-drain ordering | P22.1-P1B / F-2 boundary | `WaitRuntimeDone → DrainRuntime` |
+| AST shutdown gate | P22.1-P0C/P3B gate hardening | `TestShutdownOrdering` 按 AST statement 顺序 fail-closed |
+| session-private BindRuntime integrity | P22.1-P3A | BindRuntime SafeGo one-hop launch 必须有 `DefinitionPath=internal/app/runner.go` + `Symbol=BindRuntime` allowlist entry |
+| memory/thread race tests | P22.1-P2C/P2D regression | nested ingest coalesce deterministic；thread fake binding store mutex/accessor 化 |
+| P21 active runner tag docs | contract naming follow-up | `runner.actors` 仅 historical role naming；active Fx tag 为 `group:"runners"` |

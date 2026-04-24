@@ -30,6 +30,19 @@ func TestSessionPrivateAllowlistIntegrity(t *testing.T) {
 	}
 }
 
+func TestBindRuntimeSafeGoHasSessionPrivateAllowlistEntry(t *testing.T) {
+	t.Parallel()
+	root := repoRootForGuardTests(t)
+	rel := "internal/app/runner.go"
+	launches := sessionPrivateSafeGoLaunchesInSymbol(t, root, rel, "BindRuntime")
+	if len(launches) == 0 {
+		t.Fatal("BindRuntime SafeGo launch not found; integrity test must track root runtime bridge shape")
+	}
+	if !isSessionPrivateDefinition(rel, "BindRuntime") {
+		t.Fatalf("BindRuntime SafeGo launch is missing session-private allowlist entry with DefinitionPath=%q Symbol=%q", rel, "BindRuntime")
+	}
+}
+
 func TestSessionPrivateRuntimeAllowlist(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
@@ -85,6 +98,50 @@ func sessionPrivateRuntimeScopeFiles(t *testing.T, root string) []string {
 		}
 	}
 	return files
+}
+
+func sessionPrivateSafeGoLaunchesInSymbol(t *testing.T, root, rel, symbol string) []sessionPrivateRuntimeLaunch {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filepath.Join(root, filepath.FromSlash(rel)), nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", rel, err)
+	}
+	funcs := map[string]*ast.FuncDecl{}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if ok && fn.Body != nil {
+			funcs[funcDeclSymbol(fn)] = fn
+		}
+	}
+	fn := funcs[symbol]
+	if fn == nil {
+		t.Fatalf("symbol %s not found in %s", symbol, rel)
+	}
+	var launches []sessionPrivateRuntimeLaunch
+	collectSafeGo := func(body *ast.BlockStmt, enclosing string) {
+		for _, launch := range sessionPrivateLaunchesInNode(fset, enclosing, body) {
+			if launch.Kind == "safego" {
+				launches = append(launches, launch)
+			}
+		}
+	}
+	collectSafeGo(fn.Body, symbol)
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		ident, ok := call.Fun.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if helper := funcs[ident.Name]; helper != nil {
+			collectSafeGo(helper.Body, symbol)
+		}
+		return true
+	})
+	return launches
 }
 
 func sessionPrivateRuntimeLaunchesInFile(t *testing.T, root, rel string) []sessionPrivateRuntimeLaunch {

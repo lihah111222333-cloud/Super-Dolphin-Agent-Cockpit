@@ -144,9 +144,9 @@ func BindRuntime(lc fx.Lifecycle, p runtimeParams) {
 				cancel()
 			}
 
-			drainRuntimeBeforeStop(ctx, p)
-
 			runErr := waitForRuntimeDone(done, ctx)
+
+			drainRuntimeBeforeStop(ctx, p)
 			if errors.Is(runErr, context.Canceled) {
 				return nil
 			}

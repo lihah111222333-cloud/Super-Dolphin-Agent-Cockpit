@@ -188,7 +188,7 @@ func preDrainDesktopRuntime(ctx context.Context, owner *appOwnerContext) error {
 	}
 	drainCtx, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), platformconfig.ShutdownTimeout)
 	defer cancel()
-	return errors.Join(owner.DrainRuntime(drainCtx), owner.WaitRuntimeDone(drainCtx))
+	return errors.Join(owner.WaitRuntimeDone(drainCtx), owner.DrainRuntime(drainCtx))
 }
 
 type shutdownWatcher struct {

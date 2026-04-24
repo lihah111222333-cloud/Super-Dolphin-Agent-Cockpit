@@ -50,7 +50,7 @@ func (r runtimeBlockRunner) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func TestBindRuntimeCancelsRunGroupBeforeDrain(t *testing.T) {
+func TestBindRuntimeWaitsRunGroupBeforeDrain(t *testing.T) {
 	lifecycle := &runtimeTestLifecycle{}
 	drainer := runtimeDrainStub{
 		started: make(chan struct{}),
@@ -85,22 +85,23 @@ func TestBindRuntimeCancelsRunGroupBeforeDrain(t *testing.T) {
 	select {
 	case <-runner.canceled:
 	case <-time.After(time.Second):
-		t.Fatal("runner was not canceled before drain")
-	}
-	select {
-	case <-drainer.started:
-	case <-time.After(time.Second):
-		t.Fatal("DrainPendingExtraction() was not called after root cancel")
+		t.Fatal("runner was not canceled before RunGroup wait")
 	}
 
 	select {
-	case err := <-stopDone:
-		t.Fatalf("OnStop() finished before RunGroup completed: %v", err)
+	case <-drainer.started:
+		t.Fatal("DrainPendingExtraction() started before RunGroup completed")
 	case <-time.After(150 * time.Millisecond):
 	}
 
-	close(drainer.release)
 	close(runner.release)
+	select {
+	case <-drainer.started:
+	case <-time.After(time.Second):
+		t.Fatal("DrainPendingExtraction() was not called after RunGroup completed")
+	}
+
+	close(drainer.release)
 	select {
 	case err := <-stopDone:
 		if err != nil {
