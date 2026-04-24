@@ -119,7 +119,7 @@ func TestUpsertPersistsConfigOverride(t *testing.T) {
 
 	err := s.Upsert(context.Background(), UpsertParams{
 		ThreadID:         "thread-1",
-		Model:            "gpt-5.4",
+		Model:            "gpt-5.5",
 		ParentAgentID:    "agent-root",
 		AgentType:        "reviewer",
 		AgentMemoryScope: "project",

@@ -414,7 +414,7 @@ describe('thread store actions', () => {
           provider: 'codex',
           supportsThreadOverride: true,
           override: { model: '', effort: '' },
-          effective: { model: 'gpt-5.4', effort: 'xhigh' },
+          effective: { model: 'gpt-5.5', effort: 'xhigh' },
         };
       }
       if (method === 'thread/config/set') {
@@ -423,7 +423,7 @@ describe('thread store actions', () => {
           provider: 'codex',
           supportsThreadOverride: true,
           override: { model: payload.model, effort: payload.effort },
-          effective: { model: payload.model || 'gpt-5.4', effort: payload.effort || 'xhigh' },
+          effective: { model: payload.model || 'gpt-5.5', effort: payload.effort || 'xhigh' },
         };
       }
       return {};
@@ -438,7 +438,7 @@ describe('thread store actions', () => {
       model: 'gpt-5.2',
       effort: 'high',
     });
-    expect(got.effective.model).toBe('gpt-5.4');
+    expect(got.effective.model).toBe('gpt-5.5');
 	    expect(saved.override.effort).toBe('high');
 	    expect(logMock.logInfo).toHaveBeenCalledWith('thread', 'config.get.start', { thread_id: 'thread-live', cwd: '' });
 	    expect(logMock.logInfo).toHaveBeenCalledWith('thread', 'config.set.start', {

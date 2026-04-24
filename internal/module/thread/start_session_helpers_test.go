@@ -18,12 +18,12 @@ func TestBuildStartAssemblyInputCarriesChildAgentMetadata(t *testing.T) {
 	}, "agent-child", contract.BuildCtx{
 		Provider: "codex",
 		CWD:      "/tmp/project",
-		Model:    "gpt-5.4",
+		Model:    "gpt-5.5",
 	})
 	if input.ParentAgentID != "agent-root" || input.AgentType != "worker" || input.AgentMemoryScope != "project" {
 		t.Fatalf("buildStartAssemblyInput() = %#v, want child-agent metadata", input)
 	}
-	if input.CWD != "/tmp/project" || input.Provider != "codex" || input.Model != "gpt-5.4" {
+	if input.CWD != "/tmp/project" || input.Provider != "codex" || input.Model != "gpt-5.5" {
 		t.Fatalf("buildStartAssemblyInput() basic fields = %#v", input)
 	}
 }
@@ -40,7 +40,7 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 		AgentType:                    "worker",
 		Provider:                     "codex",
 		CWD:                          "/repo",
-		Model:                        "gpt-5.4",
+		Model:                        "gpt-5.5",
 		GitRoot:                      "/repo",
 		IsWorktree:                   true,
 		Language:                     "Chinese",

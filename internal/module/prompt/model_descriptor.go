@@ -13,6 +13,11 @@ type ModelDescriptor struct {
 }
 
 var knownModelDescriptors = map[string]ModelDescriptor{
+	"gpt-5.5": {
+		ID:                "gpt-5.5",
+		MarketingName:     "GPT-5.5",
+		LatestModelFamily: "GPT-5.5 (model ID: gpt-5.5)",
+	},
 	"gpt-5.4": {
 		ID:                "gpt-5.4",
 		MarketingName:     "GPT-5.4",

@@ -19,7 +19,7 @@ func TestBuildStartCtxKeepsOnlyLiveMCPServers(t *testing.T) {
 	ctx := buildStartCtx(StartRequest{
 		Provider: "codex",
 		CWD:      cwd,
-		Model:    "gpt-5.4",
+		Model:    "gpt-5.5",
 		MCPSnapshot: contract.MCPSnapshot{
 			Servers:      []string{"stale"},
 			Instructions: map[string]string{"stale": "stale instructions", "lsp": "Use the LSP MCP first."},
@@ -28,7 +28,7 @@ func TestBuildStartCtxKeepsOnlyLiveMCPServers(t *testing.T) {
 			"mcpServers":                  []any{"shadow"},
 			"mcpInstructions":             map[string]any{"shadow": "shadow instructions"},
 			"mcpInstructionsDeltaEnabled": true,
-			"frcConfig":                   map[string]any{"enabled": true, "supportedModels": []any{"gpt-5.4"}, "keepRecent": 2},
+			"frcConfig":                   map[string]any{"enabled": true, "supportedModels": []any{"gpt-5.5"}, "keepRecent": 2},
 		},
 	}, &platformconfig.Config{ProjectRoot: repoRoot}, mcpLiveToolRegistryStub{instances: []contract.ToolInstance{{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive}}})
 
@@ -38,7 +38,7 @@ func TestBuildStartCtxKeepsOnlyLiveMCPServers(t *testing.T) {
 	if !ctx.MCPSnapshot.InstructionsDeltaEnabled {
 		t.Fatal("InstructionsDeltaEnabled = false, want true from config")
 	}
-	if ctx.FRCConfig == nil || !ctx.FRCConfig.EnabledForModel("gpt-5.4") {
+	if ctx.FRCConfig == nil || !ctx.FRCConfig.EnabledForModel("gpt-5.5") {
 		t.Fatalf("FRCConfig = %#v, want parsed config for supported model", ctx.FRCConfig)
 	}
 }

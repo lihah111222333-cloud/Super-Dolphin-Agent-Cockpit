@@ -28,7 +28,7 @@ func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 	threads := &configThreadServiceStub{getConfigResult: dto.ThreadConfig{
 		ThreadID: "thread-7",
 		Effective: dto.ThreadConfigValues{
-			Model:     "gpt-5.4",
+			Model:     "gpt-5.5",
 			Approvals: "never",
 		},
 	}, runtimeConfigResult: map[string]any{
@@ -56,7 +56,7 @@ func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 	)
 
 	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
-	if cfg.CWD != "/window" || cfg.Model != "gpt-5.4" || cfg.ApprovalPolicy != "never" {
+	if cfg.CWD != "/window" || cfg.Model != "gpt-5.5" || cfg.ApprovalPolicy != "never" {
 		t.Fatalf("config/read = %#v", cfg)
 	}
 	if len(threads.getConfigIDs) != 1 || threads.getConfigIDs[0] != "thread-7" {

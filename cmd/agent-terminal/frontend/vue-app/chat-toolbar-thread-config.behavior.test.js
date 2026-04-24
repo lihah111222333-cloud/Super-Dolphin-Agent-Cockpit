@@ -83,7 +83,7 @@ function createComposerVm(overrides = {}) {
     threadConfigSaving: false,
     threadConfigMeta: {
       override: { model: '', effort: '' },
-      effective: { model: 'gpt-5.4', effort: 'xhigh' },
+      effective: { model: 'gpt-5.5', effort: 'xhigh' },
     },
     ...overrides,
   }, { emit });

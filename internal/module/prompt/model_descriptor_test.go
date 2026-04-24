@@ -3,11 +3,11 @@ package prompt
 import "testing"
 
 func TestLookupModelDescriptorUsesKnownCatalogEntry(t *testing.T) {
-	descriptor := LookupModelDescriptor("gpt-5.4")
-	if descriptor.MarketingName != "GPT-5.4" {
-		t.Fatalf("MarketingName = %q, want GPT-5.4", descriptor.MarketingName)
+	descriptor := LookupModelDescriptor("gpt-5.5")
+	if descriptor.MarketingName != "GPT-5.5" {
+		t.Fatalf("MarketingName = %q, want GPT-5.5", descriptor.MarketingName)
 	}
-	if descriptor.MetadataText() != "GPT-5.4 (model ID: gpt-5.4)" {
+	if descriptor.MetadataText() != "GPT-5.5 (model ID: gpt-5.5)" {
 		t.Fatalf("MetadataText() = %q", descriptor.MetadataText())
 	}
 }

@@ -155,7 +155,7 @@ func TestConfigChangeSubscriptions_BroadcastsAgentAndThreadUpdates(t *testing.T)
 			},
 			SessionID: "session-1",
 		},
-		Model: "gpt-5.4",
+		Model: "gpt-5.5",
 		CWD:   "/tmp/project",
 	})
 

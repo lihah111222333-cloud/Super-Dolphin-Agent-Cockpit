@@ -69,7 +69,7 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:  "thread-parent",
 		Prompt:    "Forked Thread",
-		Model:     "gpt-5.4",
+		Model:     "gpt-5.5",
 		Cwd:       "/repo",
 		CreatedAt: 123,
 	}, promptSnapshot: &threadstore.PromptSnapshot{
@@ -91,8 +91,8 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 			if req.ThreadID != "thread-fork" {
 				t.Fatalf("ThreadID = %q, want thread-fork", req.ThreadID)
 			}
-			if req.Model != "gpt-5.4" {
-				t.Fatalf("Model = %q, want gpt-5.4", req.Model)
+			if req.Model != "gpt-5.5" {
+				t.Fatalf("Model = %q, want gpt-5.5", req.Model)
 			}
 			if req.PromptSnapshot.BaseInstructions != "stored base" || req.PromptSnapshot.DeveloperInstructions != "stored dev" {
 				t.Fatalf("PromptSnapshot = %#v, want stored snapshot", req.PromptSnapshot)
@@ -150,7 +150,7 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
-		Model:     "gpt-5.4",
+		Model:     "gpt-5.5",
 		Cwd:       "/repo",
 		CreatedAt: 123,
 	}, promptSnapshot: &threadstore.PromptSnapshot{
@@ -268,7 +268,7 @@ func TestServiceRecoverReturnsRestoreEnvelopeWhenSessionActive(t *testing.T) {
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
-		Model:     "gpt-5.4",
+		Model:     "gpt-5.5",
 		Cwd:       "/repo",
 		CreatedAt: 123,
 	}}
@@ -312,7 +312,7 @@ func TestServiceRecoverDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
-		Model:     "gpt-5.4",
+		Model:     "gpt-5.5",
 		Cwd:       "/repo",
 		CreatedAt: 123,
 	}}
@@ -348,7 +348,7 @@ func TestServiceRecoverInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T)
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
-		Model:     "gpt-5.4",
+		Model:     "gpt-5.5",
 		Cwd:       worktreeCWD,
 		CreatedAt: 123,
 	}}

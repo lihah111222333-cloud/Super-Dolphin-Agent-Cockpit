@@ -45,7 +45,7 @@ func TestWorktreeResumeInvalidationClearsCache(t *testing.T) {
 		ThreadID:  "thread-resume",
 		AgentID:   "agent-resume",
 		Prompt:    "resume name",
-		Model:     "gpt-5.4",
+		Model:     "gpt-5.5",
 		Cwd:       worktreeCWD,
 		CreatedAt: 123,
 		Status:    statusCreated,

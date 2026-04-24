@@ -119,7 +119,7 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 
 	params := buildThreadStartParams(dto.StartSessionRequest{
 		CWD:          " /repo ",
-		Model:        " gpt-5.4 ",
+		Model:        " gpt-5.5 ",
 		Instructions: "legacy instructions",
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions:      "assembled base",
@@ -133,7 +133,7 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	if params.DeveloperInstructions != "assembled dev" {
 		t.Fatalf("DeveloperInstructions = %q, want assembled dev", params.DeveloperInstructions)
 	}
-	if params.Cwd != "/repo" || params.Model != "gpt-5.4" || params.ModelProvider != "openai" {
+	if params.Cwd != "/repo" || params.Model != "gpt-5.5" || params.ModelProvider != "openai" {
 		t.Fatalf("unexpected params = %#v", params)
 	}
 }
@@ -143,7 +143,7 @@ func TestBuildThreadResumeParamsUsesPromptSnapshotInstructions(t *testing.T) {
 
 	params := buildThreadResumeParams(dto.ResumeSessionRequest{
 		CWD:    " /repo ",
-		Model:  " gpt-5.4 ",
+		Model:  " gpt-5.5 ",
 		Effort: " high ",
 		PromptSnapshot: dto.PromptAssemblySnapshot{
 			BaseInstructions:      "snapshot base",
@@ -156,7 +156,7 @@ func TestBuildThreadResumeParamsUsesPromptSnapshotInstructions(t *testing.T) {
 	if params.DeveloperInstructions != "snapshot dev" {
 		t.Fatalf("DeveloperInstructions = %q, want snapshot dev", params.DeveloperInstructions)
 	}
-	if params.Cwd != "/repo" || params.Model != "gpt-5.4" || params.Effort != "high" {
+	if params.Cwd != "/repo" || params.Model != "gpt-5.5" || params.Effort != "high" {
 		t.Fatalf("unexpected params = %#v", params)
 	}
 }

@@ -12,7 +12,7 @@ func TestStartAssemblyGolden(t *testing.T) {
 
 	svc := NewService(&Config{}, nil)
 	registerGoldenPromptProvider(t, svc, DynamicSectionMemory, "# Memory\n- Durable user preferences only.\n- Never store secrets.")
-	registerGoldenPromptProvider(t, svc, DynamicSectionEnvInfoSimple, "# Environment\n- Primary working directory: /repo\n- Git root: /repo\n- Provider: codex\n- Model: gpt-5.4\n- Language server status: enabled (lsp_file, lsp_grep)")
+	registerGoldenPromptProvider(t, svc, DynamicSectionEnvInfoSimple, "# Environment\n- Primary working directory: /repo\n- Git root: /repo\n- Provider: codex\n- Model: gpt-5.5\n- Language server status: enabled (lsp_file, lsp_grep)")
 
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{
 		Name:                  "Feature Thread",
@@ -22,7 +22,7 @@ func TestStartAssemblyGolden(t *testing.T) {
 		CWD:                   "/repo",
 		GitRoot:               "/repo",
 		Language:              "Chinese",
-		Model:                 "gpt-5.4",
+		Model:                 "gpt-5.5",
 		EnabledTools:          []string{"lsp_grep", "lsp_file"},
 	})
 	if err != nil {

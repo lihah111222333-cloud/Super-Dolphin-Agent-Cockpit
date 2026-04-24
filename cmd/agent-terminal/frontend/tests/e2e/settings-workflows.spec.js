@@ -60,14 +60,14 @@ test('settings page loads project-scoped preferences and saves prompt/provider c
   await expect(page.getByTestId('provider-effort-mode-select')).toHaveValue('high');
   await expect(page.getByTestId('provider-personality-select')).toHaveValue('friendly');
 
-  await page.getByTestId('provider-model-select').selectOption('gpt-5.4');
+  await page.getByTestId('provider-model-select').selectOption('gpt-5.5');
   await page.getByTestId('provider-effort-mode-select').selectOption('medium');
   await page.getByTestId('provider-personality-select').selectOption('pragmatic');
   await page.getByTestId('provider-summary-mode-select').selectOption('concise');
   await page.getByTestId('provider-approval-mode-select').selectOption('never');
   await page.getByTestId('provider-sandbox-save-button').click();
 
-  await expect(page.getByTestId('settings-provider-sandbox-card')).toContainText('已保存：gpt-5.4 / medium / pragmatic');
+  await expect(page.getByTestId('settings-provider-sandbox-card')).toContainText('已保存：gpt-5.5 / medium / pragmatic');
 
   const providerSaveCalls = await readMethodCalls(page, 'ui/preferences/set');
   const providerKeys = providerSaveCalls.map((item) => item?.params?.key).filter(Boolean);

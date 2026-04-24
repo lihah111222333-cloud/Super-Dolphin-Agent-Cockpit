@@ -17,16 +17,16 @@ import (
 func TestSetConfigConfiguresModelAndEffort(t *testing.T) {
 	t.Parallel()
 
-	model := "gpt-5.4"
+	model := "gpt-5.5"
 	effort := "high"
 	session := &stubSession{
 		threadID:      "thread-1",
-		allowedModels: []string{"gpt-5.4"},
+		allowedModels: []string{"gpt-5.5"},
 		readConfigResult: dto.ThreadConfig{
 			ThreadID: "thread-1",
 			Provider: "codex",
 			Effective: dto.ThreadConfigValues{
-				Model:  "gpt-5.4",
+				Model:  "gpt-5.5",
 				Effort: "high",
 			},
 		},
@@ -64,17 +64,17 @@ func TestSetConfigConfiguresModelAndEffort(t *testing.T) {
 func TestSetConfigInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
 	t.Parallel()
 
-	model := "gpt-5.4"
+	model := "gpt-5.5"
 	effort := "high"
 	promptAssembly := &stubPromptAssemblyService{}
 	session := &stubSession{
 		threadID:      "thread-1",
-		allowedModels: []string{"gpt-5.4"},
+		allowedModels: []string{"gpt-5.5"},
 		readConfigResult: dto.ThreadConfig{
 			ThreadID: "thread-1",
 			Provider: "codex",
 			Effective: dto.ThreadConfigValues{
-				Model:  "gpt-5.4",
+				Model:  "gpt-5.5",
 				Effort: "high",
 			},
 		},
@@ -107,11 +107,11 @@ func TestSetModelInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
 	promptAssembly := &stubPromptAssemblyService{}
 	session := &stubSession{
 		threadID:      "thread-1",
-		allowedModels: []string{"gpt-5.4"},
+		allowedModels: []string{"gpt-5.5"},
 		readConfigResult: dto.ThreadConfig{
 			ThreadID: "thread-1",
 			Provider: "codex",
-			Effective: dto.ThreadConfigValues{Model: "gpt-5.4"},
+			Effective: dto.ThreadConfigValues{Model: "gpt-5.5"},
 		},
 	}
 	svc := NewServiceWithPromptAssembly(
@@ -128,7 +128,7 @@ func TestSetModelInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
 		nil,
 	).(*service)
 
-	if _, err := svc.SetModel(context.Background(), "thread-1", "gpt-5.4"); err != nil {
+	if _, err := svc.SetModel(context.Background(), "thread-1", "gpt-5.5"); err != nil {
 		t.Fatalf("SetModel() error = %v", err)
 	}
 	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateProviderSwitch {
@@ -371,7 +371,7 @@ func TestSetConfigClaudeAllowsFullModelAndMaxWithoutMutatingProviderEffectiveCon
 func TestSetConfigRejectsMaxForCodex(t *testing.T) {
 	t.Parallel()
 
-	model := "gpt-5.4"
+	model := "gpt-5.5"
 	effort := "max"
 	session := &stubSession{threadID: "thread-1", allowedModels: []string{model}}
 	svc := NewService(
@@ -465,7 +465,7 @@ func TestNormalizeThreadConfigPatchCodexRejectsUnlistedModel(t *testing.T) {
 	model := "gpt-5.5-preview"
 	if _, err := normalizeThreadConfigPatch(
 		context.Background(),
-		&stubSession{threadID: "thread-1", allowedModels: []string{"gpt-5.4"}},
+		&stubSession{threadID: "thread-1", allowedModels: []string{"gpt-5.5"}},
 		"codex",
 		dto.ThreadConfigPatch{Model: &model},
 	); err == nil {

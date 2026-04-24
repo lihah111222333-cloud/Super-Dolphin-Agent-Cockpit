@@ -24,7 +24,7 @@ func TestCleanupToolResultLifecycleKeepsMostRecent(t *testing.T) {
 	if first.PersistedPath == "" || second.PersistedPath == "" {
 		t.Fatalf("persisted paths = (%q, %q), want stored files", first.PersistedPath, second.PersistedPath)
 	}
-	result := cleanupToolResultLifecycle(threadID, "gpt-5.4", &contract.FRCConfig{Enabled: true, SupportedModels: []string{"gpt-5.4"}, KeepRecent: 1})
+	result := cleanupToolResultLifecycle(threadID, "gpt-5.5", &contract.FRCConfig{Enabled: true, SupportedModels: []string{"gpt-5.5"}, KeepRecent: 1})
 	if result.Cleared != 1 || result.Kept != 1 || result.DeletedFiles != 1 {
 		t.Fatalf("cleanup result = %+v, want cleared=1 kept=1 deleted=1", result)
 	}
@@ -54,8 +54,8 @@ func TestPrepareTurnCleansStaleToolResultsWhenFRCEnabled(t *testing.T) {
 	session := &stubSession{
 		threadID: threadID,
 		runtimeConfig: map[string]any{
-			"model":     "gpt-5.4",
-			"frcConfig": map[string]any{"enabled": true, "supportedModels": []string{"gpt-5.4"}, "keepRecent": 1},
+			"model":     "gpt-5.5",
+			"frcConfig": map[string]any{"enabled": true, "supportedModels": []string{"gpt-5.5"}, "keepRecent": 1},
 		},
 	}
 	if _, err := svc.PrepareTurn(context.Background(), session, PrepareInput{Prompt: "summarize the state"}); err != nil {

@@ -73,7 +73,7 @@ func TestNewThreadHandlersDispatchStart(t *testing.T) {
 			AgentID:        "agent-7",
 			SessionID:      "session-7",
 			Status:         "running",
-			Model:          "gpt-5.4",
+			Model:          "gpt-5.5",
 			Provider:       "codex",
 			ModelProvider:  "openai",
 			CWD:            "/tmp/demo",
@@ -97,10 +97,10 @@ func TestNewThreadHandlersDispatchStart(t *testing.T) {
 		t.Fatalf("Dispatch(thread/start).thread = %#v", thread)
 	}
 	effective, _ := got["effective"].(map[string]any)
-	if got["model"] != "gpt-5.4" || got["provider"] != "codex" || got["modelProvider"] != "openai" || got["cwd"] != "/tmp/demo" || got["approvalPolicy"] != "never" {
+	if got["model"] != "gpt-5.5" || got["provider"] != "codex" || got["modelProvider"] != "openai" || got["cwd"] != "/tmp/demo" || got["approvalPolicy"] != "never" {
 		t.Fatalf("Dispatch(thread/start) effective fields = %#v", got)
 	}
-	if effective["model"] != "gpt-5.4" || effective["provider"] != "codex" || effective["modelProvider"] != "openai" || effective["cwd"] != "/tmp/demo" || effective["approvalPolicy"] != "never" {
+	if effective["model"] != "gpt-5.5" || effective["provider"] != "codex" || effective["modelProvider"] != "openai" || effective["cwd"] != "/tmp/demo" || effective["approvalPolicy"] != "never" {
 		t.Fatalf("Dispatch(thread/start).effective = %#v", effective)
 	}
 	if stub.startReq.Provider != "codex" || stub.startReq.CWD != "/tmp/demo" || stub.startReq.Name != "hello" || stub.startReq.Prompt != "hello" || stub.startReq.BaseInstructions != "" {
@@ -116,12 +116,12 @@ func TestNewThreadHandlersDispatchResume(t *testing.T) {
 			ThreadID:  "thread-9",
 			SessionID: "session-9",
 			Status:    "resumed",
-			Model:     "gpt-5.4",
+			Model:     "gpt-5.5",
 			CWD:       "/tmp/resume",
 		},
 	}
 	server := newThreadTestServer(stub)
-	raw, err := server.Dispatch(context.Background(), "thread/resume", json.RawMessage(`{"threadId":"thread-9","path":"/tmp/legacy","cwd":"/tmp/resume","model":"gpt-5.4"}`))
+	raw, err := server.Dispatch(context.Background(), "thread/resume", json.RawMessage(`{"threadId":"thread-9","path":"/tmp/legacy","cwd":"/tmp/resume","model":"gpt-5.5"}`))
 	if err != nil {
 		t.Fatalf("Dispatch(thread/resume) error = %v", err)
 	}
@@ -129,14 +129,14 @@ func TestNewThreadHandlersDispatchResume(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("Unmarshal(thread/resume) error = %v", err)
 	}
-	if got["threadId"] != "thread-9" || got["sessionId"] != "session-9" || got["status"] != "resumed" || got["model"] != "gpt-5.4" || got["cwd"] != "/tmp/resume" {
+	if got["threadId"] != "thread-9" || got["sessionId"] != "session-9" || got["status"] != "resumed" || got["model"] != "gpt-5.5" || got["cwd"] != "/tmp/resume" {
 		t.Fatalf("Dispatch(thread/resume) = %#v", got)
 	}
 	thread, _ := got["thread"].(map[string]any)
 	if thread["id"] != "thread-9" || thread["status"] != "resumed" {
 		t.Fatalf("Dispatch(thread/resume).thread = %#v", thread)
 	}
-	if stub.resumeReq.ThreadID != "thread-9" || stub.resumeReq.Path != "/tmp/legacy" || stub.resumeReq.CWD != "/tmp/resume" || stub.resumeReq.Model != "gpt-5.4" {
+	if stub.resumeReq.ThreadID != "thread-9" || stub.resumeReq.Path != "/tmp/legacy" || stub.resumeReq.CWD != "/tmp/resume" || stub.resumeReq.Model != "gpt-5.5" {
 		t.Fatalf("ResumeRequest = %#v", stub.resumeReq)
 	}
 }
@@ -202,7 +202,7 @@ func TestNewThreadHandlersDispatchConfigSet(t *testing.T) {
 		setConfigResp: dto.ThreadConfig{
 			ThreadID: "thread-1",
 			Effective: dto.ThreadConfigValues{
-				Model:  "gpt-5.4",
+				Model:  "gpt-5.5",
 				Effort: "high",
 			},
 		},
@@ -216,7 +216,7 @@ func TestNewThreadHandlersDispatchConfigSet(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("Unmarshal(thread/config/set) error = %v", err)
 	}
-	if got.Effective.Model != "gpt-5.4" || got.Effective.Effort != "high" {
+	if got.Effective.Model != "gpt-5.5" || got.Effective.Effort != "high" {
 		t.Fatalf("Dispatch(thread/config/set) = %#v", got)
 	}
 	if stub.setConfigID != "thread-1" {

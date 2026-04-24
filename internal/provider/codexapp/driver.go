@@ -211,7 +211,11 @@ func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return decodeAllowedModels(raw)
+	models, err := decodeAllowedModels(raw)
+	if err != nil {
+		return nil, err
+	}
+	return ensureCodexModelPresent(models, "gpt-5.5"), nil
 }
 
 type startResult struct {
