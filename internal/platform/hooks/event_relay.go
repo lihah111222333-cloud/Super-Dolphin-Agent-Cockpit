@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -11,7 +10,6 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -30,42 +28,48 @@ type hookContextEnvelope struct {
 	Event json.RawMessage `json:"event"`
 }
 
-// startEventRelay subscribes to bus events and relays them as hook
-// dispatches.  It returns a cancel function that unsubscribes all listeners.
-func startEventRelay(dispatcher *event.Dispatcher, manager *Manager, logger *pkglogger.Logger) func() {
+// startEventRelay subscribes to bus events and forwards them to the
+// hookDispatchWorker for serial DispatchAfter fanout. It returns a cancel
+// function that unsubscribes all listeners; the worker lifecycle is owned
+// separately by registerEventRelayLifecycle so OnStop can drain pending
+// dispatches bounded by ctx.
+//
+// P22 P2 (hooks/event_relay fanout): the bus callback body intentionally
+// contains no `go` / SafeGo / DispatchAfter call — only Enqueue.
+func startEventRelay(dispatcher *event.Dispatcher, worker *hookDispatchWorker, logger *pkglogger.Logger) func() {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	startedCancel := platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Started) {
-		dispatchObservedAfter(manager, logger, TopicSessionStart, ev.Timestamp, mcp.HookPayload{
+		enqueueHookDispatch(worker, TopicSessionStart, ev.Timestamp, mcp.HookPayload{
 			AgentID:  strings.TrimSpace(ev.AgentID),
 			ThreadID: strings.TrimSpace(ev.ThreadID),
 			Context:  mustMarshalHookContext(logger, relayKindThreadStarted, ev),
 		})
 	}, logger)
 	stoppedCancel := platformbus.ResilientSubscribe(dispatcher, func(ev threaddto.Stopped) {
-		dispatchObservedAfter(manager, logger, TopicProcessExit, ev.Timestamp, mcp.HookPayload{
+		enqueueHookDispatch(worker, TopicProcessExit, ev.Timestamp, mcp.HookPayload{
 			AgentID:  strings.TrimSpace(ev.AgentID),
 			ThreadID: strings.TrimSpace(ev.ThreadID),
 			Context:  mustMarshalHookContext(logger, relayKindThreadStopped, ev),
 		})
 	}, logger)
 	stateCancel := platformbus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {
-		dispatchObservedAfter(manager, logger, TopicStateChange, ev.Timestamp, mcp.HookPayload{
+		enqueueHookDispatch(worker, TopicStateChange, ev.Timestamp, mcp.HookPayload{
 			AgentID:  strings.TrimSpace(ev.AgentID),
 			ThreadID: strings.TrimSpace(ev.ThreadID),
 			Context:  mustMarshalHookContext(logger, relayKindStateChanged, ev),
 		})
 	}, logger)
 	turnCompletedCancel := platformbus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
-		dispatchObservedAfter(manager, logger, TopicTurnAfter, ev.Timestamp, mcp.HookPayload{
+		enqueueHookDispatch(worker, TopicTurnAfter, ev.Timestamp, mcp.HookPayload{
 			AgentID:  strings.TrimSpace(ev.AgentID),
 			ThreadID: strings.TrimSpace(ev.ThreadID),
 			Context:  mustMarshalHookContext(logger, relayKindTurnCompleted, ev),
 		})
 	}, logger)
 	turnInterruptedCancel := platformbus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
-		dispatchObservedAfter(manager, logger, TopicTurnFailed, ev.Timestamp, mcp.HookPayload{
+		enqueueHookDispatch(worker, TopicTurnFailed, ev.Timestamp, mcp.HookPayload{
 			AgentID:  strings.TrimSpace(ev.AgentID),
 			ThreadID: strings.TrimSpace(ev.ThreadID),
 			Context:  mustMarshalHookContext(logger, relayKindTurnInterrupted, ev),
@@ -75,7 +79,7 @@ func startEventRelay(dispatcher *event.Dispatcher, manager *Manager, logger *pkg
 		if !isFinalAnswerItemCompleted(ev) {
 			return
 		}
-		dispatchObservedAfter(manager, logger, TopicTurnProgress, ev.Timestamp, mcp.HookPayload{
+		enqueueHookDispatch(worker, TopicTurnProgress, ev.Timestamp, mcp.HookPayload{
 			AgentID:  strings.TrimSpace(ev.AgentID),
 			ThreadID: strings.TrimSpace(ev.ThreadID),
 			Context:  mustMarshalHookContext(logger, relayKindTurnItemCompleted, ev),
@@ -91,24 +95,18 @@ func startEventRelay(dispatcher *event.Dispatcher, manager *Manager, logger *pkg
 	}
 }
 
-func dispatchObservedAfter(manager *Manager, logger *pkglogger.Logger, topic string, timestamp time.Time, payload mcp.HookPayload) {
-	if manager == nil || strings.TrimSpace(topic) == "" || strings.TrimSpace(payload.AgentID) == "" {
+// enqueueHookDispatch applies the pre-P2 validity filter (non-empty topic /
+// agentID / context) before the request reaches the worker queue. Keeping
+// the filter on the callback side means bad events never pay a queue
+// slot, but it is still only cheap map-style checks and a worker Enqueue.
+func enqueueHookDispatch(worker *hookDispatchWorker, topic string, timestamp time.Time, payload mcp.HookPayload) {
+	if worker == nil || strings.TrimSpace(topic) == "" || strings.TrimSpace(payload.AgentID) == "" {
 		return
 	}
 	if len(payload.Context) == 0 {
 		return
 	}
-	go func() {
-		ctx := platformshared.WithEventTime(context.Background(), timestamp)
-		if _, err := manager.DispatchAfter(ctx, topic, payload); err != nil {
-			logger.Warn("hooks: observed event relay failed",
-				"topic", topic,
-				"agent_id", payload.AgentID,
-				"thread_id", payload.ThreadID,
-				"error", err,
-			)
-		}
-	}()
+	worker.Enqueue(topic, timestamp, payload)
 }
 
 func mustMarshalHookContext(logger *pkglogger.Logger, kind string, event any) json.RawMessage {
