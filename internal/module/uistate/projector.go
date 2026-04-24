@@ -73,7 +73,7 @@ func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 				pct = 100
 			}
 		}
-		s.state.TokenUsage = TokenUsage{
+		tokenUsage := TokenUsage{
 			InputTokens:         ev.InputTokens,
 			OutputTokens:        ev.OutputTokens,
 			TotalTokens:         ev.TotalTokens,
@@ -81,6 +81,11 @@ func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 			ContextWindowTokens: ev.ContextWindowTokens,
 			UsedPercent:         pct,
 		}
+		s.state.TokenUsage = tokenUsage
+		if s.state.TokenUsages == nil {
+			s.state.TokenUsages = make(map[string]TokenUsage)
+		}
+		s.state.TokenUsages[threadID] = tokenUsage
 	}, func() uidto.UIThreadPatch {
 		patch := s.threadPatchLocked(threadID, "thread/tokenusage/updated")
 		patch.TokenUsage = tokenUsagePatch(ev)
