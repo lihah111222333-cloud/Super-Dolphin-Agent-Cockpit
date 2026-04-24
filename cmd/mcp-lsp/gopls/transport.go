@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+
 	"io"
 	"os/exec"
 	"strings"
@@ -183,17 +183,13 @@ func buildServerResponse(id json.RawMessage, result any, err error) (any, error)
 	}
 	return protocol.BuildErrorResponse(id, jsonRPCInternalError, err.Error(), nil)
 }
+
+// defaultServerRequestResult is the transport-side entry point for
+// answering server-initiated requests. The frozen compatibility
+// contract (see transport_compat.go, P22 P4 §309-311) owns the method
+// set and response shapes so this file only holds transport glue.
 func defaultServerRequestResult(method string, params json.RawMessage) (any, error) {
-	switch method {
-	case "client/registerCapability", "client/unregisterCapability", "window/workDoneProgress/create":
-		return struct{}{}, nil
-	case "workspace/configuration":
-		return emptyConfigurationResult(params), nil
-	case "workspace/semanticTokens/refresh", "workspace/codeLens/refresh", "workspace/inlayHint/refresh", "workspace/diagnostic/refresh":
-		return struct{}{}, nil
-	default:
-		return nil, fmt.Errorf("%w: %s", ErrMethodNotSupported, method)
-	}
+	return dispatchCompatServerRequest(method, params)
 }
 func emptyConfigurationResult(params json.RawMessage) []any {
 	var request struct {
