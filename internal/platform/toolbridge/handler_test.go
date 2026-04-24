@@ -13,6 +13,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -441,8 +442,8 @@ func TestToolBridge_RejectsSpawnAgentWithoutThreadRuntime(t *testing.T) {
 		Name:      "spawn_agent",
 		Arguments: mustRawJSON(t, map[string]any{"message": "create child agent"}),
 	})
-	if !errors.Is(err, ErrThreadRuntimeRequired) {
-		t.Fatalf("routeToolCall() error = %v, want %v", err, ErrThreadRuntimeRequired)
+	if !errors.Is(err, contract.ErrThreadRuntimeRequired) {
+		t.Fatalf("routeToolCall() error = %v, want %v", err, contract.ErrThreadRuntimeRequired)
 	}
 	if got != nil {
 		t.Fatalf("routeToolCall() result = %#v, want nil", got)
@@ -458,8 +459,8 @@ func TestToolBridge_RejectsSpawnAgentWithoutStoredRuntime(t *testing.T) {
 		Arguments: mustRawJSON(t, map[string]any{"message": "create child agent"}),
 		ThreadID:  "thread-missing-runtime",
 	})
-	if !errors.Is(err, ErrPersistentSubagentRuntimeRequired) {
-		t.Fatalf("routeToolCall() error = %v, want %v", err, ErrPersistentSubagentRuntimeRequired)
+	if !errors.Is(err, contract.ErrPersistentSubagentRuntimeRequired) {
+		t.Fatalf("routeToolCall() error = %v, want %v", err, contract.ErrPersistentSubagentRuntimeRequired)
 	}
 	if got != nil {
 		t.Fatalf("routeToolCall() result = %#v, want nil", got)
@@ -485,8 +486,8 @@ func TestProxyToolCall_RejectsMissingRuntimeAsInvalidParams(t *testing.T) {
 	if got.Error.Code != jsonRPCCodeInvalidParam {
 		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
 	}
-	if !strings.Contains(got.Error.Message, ErrThreadRuntimeRequired.Error()) {
-		t.Fatalf("proxy error message = %q, want substring %q", got.Error.Message, ErrThreadRuntimeRequired.Error())
+	if !strings.Contains(got.Error.Message, contract.ErrThreadRuntimeRequired.Error()) {
+		t.Fatalf("proxy error message = %q, want substring %q", got.Error.Message, contract.ErrThreadRuntimeRequired.Error())
 	}
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)

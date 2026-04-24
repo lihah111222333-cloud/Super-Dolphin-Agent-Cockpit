@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -208,7 +209,7 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 
 func proxyToolCallErrorCode(err error) int {
 	switch {
-	case errors.Is(err, ErrThreadRuntimeRequired), errors.Is(err, ErrPersistentSubagentRuntimeRequired):
+	case errors.Is(err, contract.ErrThreadRuntimeRequired), errors.Is(err, contract.ErrPersistentSubagentRuntimeRequired):
 		return jsonRPCCodeInvalidParam
 	default:
 		return jsonRPCCodeInternal

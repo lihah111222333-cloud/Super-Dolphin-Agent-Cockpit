@@ -13,11 +13,15 @@ import (
 
 const toolCallTimeout = 120 * time.Second
 
+// P22 P4 S3a: ErrThreadRuntimeRequired and ErrPersistentSubagentRuntime
+// Required moved to internal/contract (see
+// contract/toolbridge_runtime_required.go) so the fail-closed sentinels
+// are available to any consumer that needs to errors.Is-check them
+// without importing this platform package. Peer-availability errors stay
+// here because they are strictly owner-internal to toolbridge.
 var (
-	ErrNoPeerAvailable                   = errors.New("toolbridge: no active peer")
-	ErrAmbiguousPeer                     = errors.New("toolbridge: multiple active peers")
-	ErrThreadRuntimeRequired             = errors.New("toolbridge: thread runtime is required")
-	ErrPersistentSubagentRuntimeRequired = errors.New("toolbridge: persistent subagent runtime is required")
+	ErrNoPeerAvailable = errors.New("toolbridge: no active peer")
+	ErrAmbiguousPeer   = errors.New("toolbridge: multiple active peers")
 )
 
 type ToolCallRequest struct {
