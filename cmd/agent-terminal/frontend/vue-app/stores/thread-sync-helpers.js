@@ -184,7 +184,7 @@ export async function syncRuntimeState(ctx) {
   return ctx.runtimeSyncPromise;
 }
 
-export async function syncThreadState(ctx, threadId) {
+export async function syncThreadState(ctx, threadId, options = {}) {
   const { callAPI, logInfo, logWarn } = ctx;
   const id = normalizeThreadID(threadId);
   if (!id) return null;
@@ -236,9 +236,16 @@ export async function syncThreadState(ctx, threadId) {
       if (regressionByContent) {
         ctx._regressionGuardCooldown = { threadId: id, ts: perfNow(), lastResult: res || {} };
       }
-      if (!regressionByContent && id === normalizeThreadID(ctx.state.activeThreadId) && shouldReloadThreadHistory(ctx, id)) {
+      const activeThreadId = normalizeThreadID(ctx.state.activeThreadId);
+      const activeCmdThreadId = normalizeThreadID(ctx.state.activeCmdThreadId);
+      if (!regressionByContent && (id === activeThreadId || id === activeCmdThreadId) && shouldReloadThreadHistory(ctx, id)) {
         logInfo('thread', 'history.reload.after_sync', { thread_id: id, sync_runtime: false });
         await loadMessages(ctx, id, 300, { syncRuntime: false });
+      }
+      if (options.markHistoryLoaded !== false) {
+        const timelineAfterSync = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id] : [];
+        const hasDialogItems = timelineAfterSync.some((item) => item?.kind === 'assistant' || item?.kind === 'user');
+        if (hasDialogItems) ctx.threadHistoryLoadedAtByThread.set(id, Date.now());
       }
       if (id === normalizeThreadID(ctx.state.activeThreadId) && normalizeDiffRevision(ctx.state.diffRevisionByThread?.[id]) !== loadedDiffRevision(ctx, id)) {
         void ctx.syncThreadDiffState(id).catch((error) => {
@@ -313,11 +320,13 @@ export async function loadMessages(ctx, threadId, limit = 300, options = {}) {
     try {
       const res = await callAPI('thread/messages', { threadId: id, limit });
       const immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logInfo, logWarn });
+      const loadedAt = Date.now();
+      if (immediateTimelineApplied) ctx.threadHistoryLoadedAtByThread.set(id, loadedAt);
       if (syncRuntime) {
         logInfo('thread', 'messages.load.sync.start', { thread_id: id, limit, immediate_timeline_applied: immediateTimelineApplied });
         await syncRuntimeState(ctx);
       }
-      ctx.threadHistoryLoadedAtByThread.set(id, Date.now());
+      if (!immediateTimelineApplied) ctx.threadHistoryLoadedAtByThread.set(id, loadedAt);
       ctx.threadHistoryProviderThreadIDByThread.set(id, ctx.normalizeProviderThreadID(ctx.state.agentRuntimeById?.[id]?.providerThreadId || ctx.state.agentRuntimeById?.[id]?.provider_thread_id));
       logInfo('thread', 'messages.loaded', { thread_id: id, count: Array.isArray(res?.messages) ? res.messages.length : 0, duration_ms: Math.round(perfNow() - start) });
       return res;
@@ -336,7 +345,7 @@ async function syncThreadHistoryAtomic(ctx, threadId) {
   const id = normalizeThreadID(threadId);
   if (!id) return null;
   const loadedAtBefore = Number(ctx.threadHistoryLoadedAtByThread.get(id) || 0);
-  await syncThreadState(ctx, id);
+  await syncThreadState(ctx, id, { markHistoryLoaded: false });
   const loadedAtAfter = Number(ctx.threadHistoryLoadedAtByThread.get(id) || 0);
   if (loadedAtAfter > loadedAtBefore) return null;
   return loadMessages(ctx, id, 300, { syncRuntime: false });
@@ -427,6 +436,9 @@ export function handleBridgeEvent(ctx, evt) {
     });
     const patchResult = applyRuntimeThreadPatch(ctx, evt, activeThreadTarget, { perfNow });
     if (patchResult?.handled) {
+      if (hasTimelineItems && Array.isArray(ctx.state.timelinesByThread?.[activeThreadTarget])) {
+        ctx.threadHistoryLoadedAtByThread.set(activeThreadTarget, Date.now());
+      }
       if (patchResult.needsRecovery) {
         syncThreadState(ctx, activeThreadTarget).catch((error) => logWarn('thread', 'state.patch.recovery.failed', { error, by_event: eventName, reason: patchResult.reason || 'patch_gap' }));
       }

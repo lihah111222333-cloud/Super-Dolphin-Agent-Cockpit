@@ -142,6 +142,26 @@ function getLatestDialogTimestamp(items) {
   return Number.NaN;
 }
 
+function getLatestKindTimestamp(items, targetKind) {
+  if (!Array.isArray(items)) return Number.NaN;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if ((item?.kind || '').toString().trim() !== targetKind) continue;
+    const tsMillis = toCreatedAtMillis(item?.ts);
+    if (Number.isFinite(tsMillis)) return tsMillis;
+  }
+  return Number.NaN;
+}
+
+function shouldFilterStaleThinkingItem(item, latestAssistantTs, hasRuntimeHistoryContext) {
+  if (!hasRuntimeHistoryContext) return false;
+  if ((item?.kind || '').toString().trim() !== 'thinking') return false;
+  if (item?.done === true || !Number.isFinite(latestAssistantTs)) return false;
+  const thinkingTs = toCreatedAtMillis(item?.ts);
+  if (!Number.isFinite(thinkingTs)) return false;
+  return latestAssistantTs >= thinkingTs;
+}
+
 function historyMessageToTimelineItem(threadId, message, index) {
   const role = (message?.role || '').toString().trim().toLowerCase();
   const kind = role === 'assistant' ? 'assistant' : (role === 'user' ? 'user' : '');
@@ -243,6 +263,8 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
   });
   const incomingIds = new Set(timeline.map((it) => it?.id).filter(Boolean));
   const incomingUserTexts = new Set(timeline.filter((it) => it?.kind === 'user').map((it) => (it?.text || '').trim()));
+  const latestIncomingAssistantTs = getLatestKindTimestamp(timeline, 'assistant');
+  const hasRuntimeHistoryContext = Boolean(state?.statuses?.[id] || state?.agentRuntimeById?.[id]);
 
   const missingFromIncoming = optimisticItems.filter((it) => {
     if (incomingIds.has(it?.id)) return false;
@@ -253,6 +275,7 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
     const kind = (it?.kind || '').toString().trim();
     if (kind === 'assistant' || kind === 'user') return false;
     if ((it?.id || '').toString().includes('-optimistic-')) return false;
+    if (shouldFilterStaleThinkingItem(it, latestIncomingAssistantTs, hasRuntimeHistoryContext)) return false;
     return true;
   });
 
