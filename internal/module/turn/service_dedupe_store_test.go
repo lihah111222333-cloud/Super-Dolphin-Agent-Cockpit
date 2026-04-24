@@ -100,7 +100,7 @@ func (f *fakeDedupeStore) Sweep(_ context.Context, _ time.Time) error { return n
 // fake store via the package-private setter so we can exercise the
 // mirror-write paths without going through fx.
 func serviceWithStore(store turndedupe.Store) *service {
-	svc := newService(silentLogger(), nil, nil, nil).(*service)
+	svc := newService(silentLogger(), nil, nil, nil, nil).(*service)
 	svc.setDedupeStore(store)
 	return svc
 }
@@ -195,7 +195,7 @@ func TestServiceLookupByDedupeKeyNoStoreStaysTrackerOnly(t *testing.T) {
 	t.Parallel()
 	// No store plugged in — the service must keep the tracker-only
 	// behavior exactly (ok=false, no error).
-	svc := newService(silentLogger(), nil, nil, nil).(*service)
+	svc := newService(silentLogger(), nil, nil, nil, nil).(*service)
 	if _, ok, err := svc.LookupByDedupeKey(context.Background(), "dk-none"); ok || err != nil {
 		t.Fatalf("want (false, nil), got ok=%v err=%v", ok, err)
 	}

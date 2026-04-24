@@ -18,9 +18,9 @@ import (
 //   - Shutdown cancels every subscription via the returned cancel func.
 //
 // The module is intentionally single-purpose: it does not import turn /
-// tracker packages, so turn.Service cannot accidentally grow a reverse
-// dependency on observation. P3 collector and P0b extractor consume the
-// Contract that this module provides.
+// tracker packages. turn.Service may receive the Contract as an optional
+// sink for PrepareTurn / StartTurn facts; P3 collector and P0b extractor
+// consume the same Contract that this module provides.
 var Module = fx.Module("module.turn.observation",
 	fx.Provide(
 		NewMemory,

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -170,6 +171,34 @@ func TestSubscribeToolCallAttribution(t *testing.T) {
 	if id, ok := mem.LookupCall("call-1"); !ok || id != "turn-tc" {
 		t.Fatalf("LookupCall after end = (%q,%v), want (turn-tc,true)", id, ok)
 	}
+}
+
+func TestObservationDeduplicatesRawAndTypedEvents(t *testing.T) {
+	t.Parallel()
+
+	mem, d := newSubscribedTest(t)
+	raw := providerdto.BusRawProviderEvent{Event: providerdto.RawProviderEvent{
+		EventType: "tool.call.begin",
+		Data:      map[string]any{"eventId": "raw-1", "callId": "call-raw"},
+	}}
+	event.Publish(d, raw)
+	event.Publish(d, raw)
+	time.Sleep(20 * time.Millisecond)
+	if counts, ok := mem.Counts("turn-raw"); ok && counts.ToolCalls != 0 {
+		t.Fatalf("raw event must not increment counts: %+v", counts)
+	}
+
+	callHeader := sharedto.ToolCallHeader{
+		TurnHeader: turnHeader("thread-1", "turn-raw"),
+		CallID:     "call-raw",
+		ToolName:   "fs.read",
+	}
+	event.Publish(d, tooldto.ToolCallBegin{ToolCallHeader: callHeader})
+	event.Publish(d, tooldto.ToolCallBegin{ToolCallHeader: callHeader})
+	waitFor(t, func() bool {
+		counts, ok := mem.Counts("turn-raw")
+		return ok && counts.ToolCalls == 1
+	}, "typed tool begin counted once")
 }
 
 func TestSubscribeUITokensMergesProjection(t *testing.T) {

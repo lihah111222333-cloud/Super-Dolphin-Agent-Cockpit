@@ -278,3 +278,12 @@ P22 的最长硬门不是“把 `P2` 一次做完”，而是先冻结公共 own
 - `P4` 不替代 `P2/P3`：它只签收 dependency direction / hidden contract，不单独签收 runtime owner 闭环。
 
 **总计**：约 9-16.5 工程日（若多人并行，日历时间约 4-6 天）。真正的难点不在代码量，而在把“谁负责跑、谁负责停、谁只负责接线”重新钉死。
+
+## P22.1 架构债子任务（deferred）
+
+R10.6 代码层 deferred 债总账 + §10.30 三层分工 11 处违例移交至 P22.1 子任务集中收口：
+- `docs/plans/迁移/p22/p22.1/README.md`
+- `docs/plans/迁移/p22/p22.1/FINDINGS.md`
+- `docs/plans/迁移/p22/p22.1/DAG.md`
+
+关系：P22.1 ⊂ P22（不是独立 lane）。

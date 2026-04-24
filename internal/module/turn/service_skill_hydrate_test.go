@@ -64,7 +64,7 @@ func TestPrepareTurnHydratesNameOnlySkill(t *testing.T) {
 			filepath.Join(dir, "SKILL.md"): "full debug body",
 		},
 	}
-	svc := newService(silentLogger(), nil, nil, lookup).(*service)
+	svc := newService(silentLogger(), nil, nil, lookup, nil).(*service)
 	session := &stubSession{threadID: "thread-hydrate"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "please investigate",
@@ -111,7 +111,7 @@ func TestPrepareTurnPreservesSummaryWhenBodyMissing(t *testing.T) {
 			filepath.Join("/tmp/skills/rpc-tracing", "SKILL.md"): errors.New("missing"),
 		},
 	}
-	svc := newService(silentLogger(), nil, nil, lookup).(*service)
+	svc := newService(silentLogger(), nil, nil, lookup, nil).(*service)
 	session := &stubSession{threadID: "thread-nobody"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "trace the event flow",
@@ -168,7 +168,7 @@ func TestPrepareTurnSkipsHydrateWhenAlreadyPopulated(t *testing.T) {
 			ContentHash: "shouldnotoverride1",
 		}},
 	}
-	svc := newService(silentLogger(), nil, nil, lookup).(*service)
+	svc := newService(silentLogger(), nil, nil, lookup, nil).(*service)
 	session := &stubSession{threadID: "thread-nohit"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "already full",
@@ -191,7 +191,7 @@ func TestHydrateSkillRefsListSkillsErrorReturnsOriginal(t *testing.T) {
 	t.Parallel()
 
 	lookup := &stubSkillLookup{listErr: errors.New("boom")}
-	svc := newService(silentLogger(), nil, nil, lookup).(*service)
+	svc := newService(silentLogger(), nil, nil, lookup, nil).(*service)
 	original := []dto.SkillRef{{Name: "debug"}}
 	out, _ := svc.hydrateSkillRefs(skillpkg.WithCWD(context.Background(), "/repo"), original)
 	if len(out) != 1 || out[0].Name != "debug" || out[0].Prompt != "" {
