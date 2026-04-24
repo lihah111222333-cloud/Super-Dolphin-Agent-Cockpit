@@ -81,7 +81,6 @@ func TestLifecycleOnStartGuard(t *testing.T) {
 	}
 
 	for _, tc := range matcherCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			t.Skipf("matcher skeleton only; owning slice will flip red→green: %s", tc.owningSlice)
@@ -170,10 +169,6 @@ func TestLifecycleOnStartGuard(t *testing.T) {
 func TestShutdownOrdering(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
-	line, ok := findCallInFunction(t, root, "internal/app/runner.go", "BindRuntime", "DrainPendingExtraction")
-	if ok {
-		t.Logf("[P22.1 WARN] F-1 internal/app/runner.go:%d BindRuntime", line)
-	}
 	path := filepath.Join(root, "internal", "app", "runner.go")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -184,10 +179,9 @@ func TestShutdownOrdering(t *testing.T) {
 	cancel := strings.Index(src, "cancel()")
 	wait := strings.Index(src, "case <-done:")
 	if drain >= 0 && cancel >= 0 && drain < cancel {
-		t.Logf("[P22.1 WARN] F-1 internal/app/runner.go:%d BindRuntime cancel-before-drain pending Phase 1", line)
+		t.Errorf("shutdown regression: DrainPendingExtraction appears before root cancel in internal/app/runner.go")
 	}
 	if cancel >= 0 && wait >= 0 && cancel > wait {
-		t.Logf("[P22.1 WARN] shutdown no-new guard: cancel appears after RunGroup wait")
-		t.Fail()
+		t.Errorf("shutdown regression: cancel appears after RunGroup wait in internal/app/runner.go")
 	}
 }

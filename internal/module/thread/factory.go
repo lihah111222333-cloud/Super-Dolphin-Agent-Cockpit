@@ -4,15 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/kelindar/event"
 )
 
 type threadStateKind string
@@ -560,5 +564,58 @@ func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string
 			return binding
 		}
 	}
+	return nil
+}
+
+// NewThreadSubscribers declares thread bus subscriptions for BusModule.
+func NewThreadSubscribers(svc *service) platformbus.SubscriberResult {
+	return platformbus.SubscriberResult{
+		Spec: platformbus.SubscriberSpec{
+			EventType:     "thread.core",
+			HandlerSymbol: "thread.registerThreadSubscriptions",
+			OwnerModule:   "thread",
+			CancelOwner:   "bus.SubscriberGroup",
+			ShutdownClass: "bus-subscriber",
+			TestFixtureID: "thread-subscribers",
+			Register: func(dispatcher *event.Dispatcher) context.CancelFunc {
+				if svc != nil && dispatcher != nil {
+					svc.bindDispatcher(dispatcher)
+				}
+				cancels := registerThreadSubscriptions(svc)
+				var once sync.Once
+				return func() {
+					once.Do(func() {
+						for _, cancel := range cancels {
+							if cancel != nil {
+								cancel()
+							}
+						}
+					})
+				}
+			},
+		},
+	}
+}
+
+func threadBusWorkersAsRunner(svc *service) platformrunner.Runner {
+	return platformrunner.AsRunner(&threadBusWorkerRunner{svc: svc})
+}
+
+type threadBusWorkerRunner struct {
+	svc *service
+}
+
+func (r *threadBusWorkerRunner) Start() {
+	if r == nil || r.svc == nil {
+		return
+	}
+	r.svc.startBusWorkers()
+}
+
+func (r *threadBusWorkerRunner) Stop(ctx context.Context) error {
+	if r == nil || r.svc == nil {
+		return nil
+	}
+	r.svc.stopBusWorkers(ctx)
 	return nil
 }

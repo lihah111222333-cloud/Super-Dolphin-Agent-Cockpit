@@ -31,14 +31,6 @@ func TestSessionPrivateAllowlistIntegrity(t *testing.T) {
 
 func TestSessionPrivateRuntimeAllowlist(t *testing.T) {
 	t.Parallel()
-	seenTODO := map[string]struct{}{}
-	for _, item := range runtimeOwnershipTODOs {
-		key := item.Finding + "|" + item.Path + "|" + item.Symbol
-		if _, dup := seenTODO[key]; dup {
-			t.Fatalf("duplicate runtime ownership TODO key: %s", key)
-		}
-		seenTODO[key] = struct{}{}
-	}
 	root := repoRootForGuardTests(t)
 	for _, entry := range sessionPrivateRuntimeAllowlist {
 		line := symbolLine(t, root, entry.DefinitionPath, entry.Symbol)

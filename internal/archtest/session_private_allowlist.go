@@ -12,15 +12,6 @@ type sessionPrivateRuntimeException struct {
 	RollbackAction string
 }
 
-type runtimeOwnershipTODO struct {
-	Finding    string
-	Path       string
-	Symbol     string
-	Owner      string
-	RemoveWhen string
-	Phase      string
-}
-
 var sessionPrivateRuntimeAllowlist = []sessionPrivateRuntimeException{
 	{
 		DefinitionPath: "internal/provider/codexapp/session_runtime.go",
@@ -66,6 +57,15 @@ var sessionPrivateRuntimeAllowlist = []sessionPrivateRuntimeException{
 		RollbackWhen:   "recovery worker can outlive SessionRuntime Stop",
 		RollbackAction: "drop allowlist and require runner adapter / shutdown test",
 	},
+	{
+		DefinitionPath: "internal/app/app.go",
+		CallSitePath:   "internal/app/app.go",
+		Symbol:         "watchFXShutdown",
+		BridgeShape:    "desktop_watcher",
+		ExceptionClass: "permanent",
+		Reason:         "desktop wails shutdown watcher: listens to app.Done() and notifies wails lifecycle; owner ctx from RunDesktop ensures bounded lifetime, stop channel + ctx.Done exit paths",
+		RemoveWhen:     "n/a — permanent: desktop-only wails watcher lives outside RunGroup by design; RunDesktop owns its ctx WithCancel",
+		RollbackWhen:   "new unjoined goroutine appears under watchFXShutdown or runShutdownWatcher not honoring ctx.Done",
+		RollbackAction: "remove this entry and require watcher join via RunnerModule before merge",
+	},
 }
-
-var runtimeOwnershipTODOs = []runtimeOwnershipTODO{}
