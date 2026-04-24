@@ -387,17 +387,43 @@ R10 冷启动 agent 读的是 R2 前 HEAD，以下 "🔴" 是旧版本而非当�
 
 ---
 
-## 9. 2026-04-24 uistate provider 伪 race 复核（本次追加）
+## 9. 2026-04-24 Claude pending-launch provider 污染彻底闭环（本次追加）
 
-> 会话范围：只做后端 LSP 穷举；核对 `agentRuntimeById[thread].provider` 的 5 个写点、所有 caller、provider 数据源与 `"codex"` 误写路径；结论是 B2+ 后当前仓内已无自发把 claude thread 写成 codex 的正常代码路径。
+> 会话范围：用户反馈 Claude agent 的 Composer 线程配置下拉显示 Codex 模型（gpt-5.4 等）。通过 3 层诊断（埋 warn log → 调研 agent 穷举 → 独立 TDD 实施）定位根因并修复；同时顺带整治 4 条旁证债、UI Claude 4.7/4.6 双版本 slug 化、canonicalize 长 slug → 短别名。主 agent + 5 路 codex agent 协作，最终 4 语义 commits 原子推送。
 
-### 9.1 结论
+### 9.1 症状 → 根因（5 步诊断链）
+
+1. 用户复制 Claude agent 信息，JSON 显示 `provider=claude, model=claude-opus-4-7[1m]` 但下拉里显示 codex 选项
+2. 主 agent 埋第一轮 warn log（`thread_config.model_options.fallback` / `provider_settings.model_options.fallback`）→ 老公复现后 log 无 fallback → 推翻"provider fallback"假设
+3. 主 agent 埋第二轮无条件 warn（`thread_config.dropdown.opened`）→ 老公复现后 log 证实：**打开下拉时 `normalized_provider="codex"`, model_options=[gpt-5.4, gpt-5.3-codex, gpt-5.2-codex, gpt-5.2]**，8 秒后 copy 的 `runtime_provider="claude"` —— race 锁定
+4. 派调研 agent 深度穷举 → 发现 `factory.go:buildOfflineConfig` 在 pending-launch 走 offline 分支时用 `offlineThreadProvider(binding)`，**不读 `stored.Provider` 就直接回落 `"codex"`**。但 `startPendingThread` 已经把用户的 claude 选择存入 `storedThreadConfig.Provider`（`spawn.go:64-78`）
+5. **真根因**：`factory.go:266` 没读 `stored.Provider` → claude agent 的 pending-launch 场景 100% 拿到 codex
+
+### 9.2 B2+ 核心修复（一行修复 7 caller 全受益）
+
+`internal/module/thread/factory.go:266`：
+```go
+provider := offlineThreadProvider(binding)
+provider = shared.FirstNonEmpty(stored.Provider, provider)  // ← 新增
+```
+
+优先级：`stored.Provider > binding.Provider > offlineProvider`
+
+**7 个 `buildOfflineConfig` caller 影响评估**：
+- 4 个核心受益：`command.go:182/190/255/264`（`thread/config/get`）
+- 3 个实质无影响：`history.go:69` / `lifecycle_helpers.go:120` / `scratchpad.go:149`（只消费 `offline.Runtime`，不读 provider）
+
+`offlineThreadProvider` 签名不动，保护其余 caller 行为。
+
+**5 条 TDD 新测试**（`TestBuildOfflineConfig*`）全覆盖。
+
+### 9.3 Agent B 伪 race 调研（路径 X 落地）
 
 - **债 2 + 债 3 当前判定为伪 race，不落代码修复。**
 - `buildAgentRuntimeEntry` / `applyBindingToThreadRuntime` / `applyAgentRuntimeReported` / `applyThreadStarted` / `summarizeAgents` 五处里，**没有发现仓内正常控制流**会把一个 **实际 provider=claude** 的 thread 自发写成 **runtime provider=codex**。
 - 现存风险只剩 **越契约输入**：例如外部 runtime report 伪造 `provider=codex`，或直接改坏 binding 表；这属于输入信任/数据污染，不是本次讨论的 race。
 
-### 9.2 穷举摘要
+#### 9.3.1 写点穷举
 
 | 写点 | provider 来源 | caller / 时序 | 结论 |
 |---|---|---|---|
@@ -407,7 +433,7 @@ R10 冷启动 agent 读的是 R2 前 HEAD，以下 "🔴" 是旧版本而非当�
 | `projector_handlers.go:182-214` `applyThreadStarted` | `threaddto.Started.Provider` | dispatcher 订阅 thread.started | provider 来自 `threadState.Provider`；B2+ 已堵住 pending-launch 默认回落 codex 的已知源头 |
 | `service.go:131-148` `summarizeAgents` | `contract.AgentSnapshot.Provider` | `buildInitialState -> NewService` | 来源是 orchestration snapshot；launch/runtime 两路 provider 都未发现 claude→codex 误写链 |
 
-### 9.3 本轮落地
+#### 9.3.2 落地（仅防御性注释）
 
 - 仅加 **防御性注释**：
   - `internal/module/uistate/module.go`
@@ -417,7 +443,7 @@ R10 冷启动 agent 读的是 R2 前 HEAD，以下 "🔴" 是旧版本而非当�
   - snapshot 先派生后 enrich 的顺序依赖上游 provider 数据源正确；
   - 已知 pending-launch `"default to codex"` 源头见 `internal/module/thread/factory.go:266` 的 B2+ 修复。
 
-### 9.4 关联教训（对齐 §10.37）
+#### 9.3.3 guardrail（对齐 §10.37）
 
 - **凡是“只补空值、不纠正非空值”的防御性逻辑，必须就地写清 guardrail。**
 - 本案 guardrail：如果未来再次出现
@@ -426,3 +452,128 @@ R10 冷启动 agent 读的是 R2 前 HEAD，以下 "🔴" 是旧版本而非当�
   3. binding provider 允许被二次改写；
 
   那么今天的“伪 race”会立刻变成真 bug。
+
+### 9.4 Agent A 前端债 1（thread/start 响应同步 provider）
+
+**问题**：`thread/start` RPC 响应已带正确 provider（`rpc.go:176`），但前端 `startThread` 只抽了 `agentKey/agentTitle/promptKey/promptVersionId`，漏掉 `provider`。导致 `agentRuntimeById[id].provider` 只能等异步 snapshot 补齐，慢半拍。
+
+**修复**：`cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js`
+- 新增 `getStartResponseProvider` helper（兼容 `provider / modelProvider / model_provider` snake_case）
+- 响应有 fresh provider 时立即写入 runtime map
+- 空 provider **严格跳过不写入**（§10.27 缺失即跳过，禁兜底 codex）
+- 4 条新测试覆盖：provider / modelProvider fallback / 空跳过 / fresh 覆盖 stale
+
+### 9.5 UI Claude 4.7 + 4.6 双版本 + canonicalize 长 slug
+
+**用户反馈演进**（老公 3 次反馈后才定稿）：
+1. 最初发现下拉末尾追加 `claude-opus-4-7[1m]` 长 slug（UI 不规范）
+2. label 从 4.6 改为 4.7（但 4.6 选项消失，只显示 4.7，老公："丑")
+3. 加 4.7 + 4.6 双版本（但 `Best（Opus 4.7）` 语义模糊，老公："best 是什么意思？"）
+4. 最终 9 条选项 + 删 `best`：
+
+| label | value | 说明 |
+|---|---|---|
+| Opus 4.7 | `opus` | 短别名，随 Anthropic CLI 升级自动跟进最新 |
+| Opus 4.7 [1M] | `opus[1m]` | 短别名 + 1M 上下文 |
+| Opus 4.6 | `claude-opus-4-6` | 长 slug，明确 pin 4.6 |
+| Opus 4.6 [1M] | `claude-opus-4-6[1m]` | 长 slug |
+| Sonnet 4.7/4.6 x2 | 同理 | - |
+| Haiku 4.5 | `haiku` | 短别名 |
+
+**canonicalize 映射**（`provider-config-options.js`）：
+```js
+const CLAUDE_LONG_TO_SHORT = {
+  'claude-opus-4-7':       'opus',
+  'claude-opus-4-7[1m]':   'opus[1m]',
+  'claude-sonnet-4-7':     'sonnet',
+  'claude-sonnet-4-7[1m]': 'sonnet[1m]',
+  'claude-haiku-4-5':      'haiku',
+};
+```
+
+runtime 传回 `claude-opus-4-7[1m]` → canonicalize 到 `opus[1m]` → 下拉高亮到 "Opus 4.7 [1M]"，不再在末尾追加长 slug。4.6 长 slug 不做映射（因为 4.6 选项的 value 本就是长 slug）。
+
+**后端 `claudecli/session_config.go:claudeAllowedModels`** 同步扩加 8 条长 slug，保留原有 6 条短别名。orchestration_launch_agent 传长 slug 不再被拒。
+
+### 9.6 Agent C E2E 核查（7 点 provider plumbing）
+
+纯核查（0 代码改动）。覆盖创建 Claude thread → 所有 provider 显示点的完整数据流：
+
+| 显示点 | 来源 | B2+ 后风险 |
+|---|---|---|
+| 1. `thread/start` RPC 响应 provider | `buildStartResponse:rpc.go:176` | ✅ 闭环 |
+| 2. 后端 `AgentSummary.Provider` | `thread.started` 事件投影 | ⚠️ 异步投影空窗（非 codex 误报）|
+| 3. 后端 `agentRuntimeById[id].provider` | `buildAgentRuntimeEntry:sidebar_compat.go:166-205` | ⚠️ 同上 |
+| 4. `thread/config/get.Provider` | `buildOfflineConfig:factory.go:265-267` | ✅ **B2+ 核心闭环点** |
+| 5. 前端 `agentRuntimeById[id].provider` | 前端 store merge + Agent A 债 1 直写 | ✅ 闭环 |
+| 6. `threadConfigUi.meta.provider` | `useThreadConfigController.js:33-49` | ✅ 闭环（依赖点 4）|
+| 7. copy_thread_info JSON provider | `useCopyThreadInfo.js:119` | 🟡 **残留边缘 bug** |
+
+**残留边缘 bug（点 7）**：`useCopyThreadInfo.js:119` `|| (useClaudeProvider.value ? 'claude' : 'codex')` —— 当 runtime/store 都空且全局 toggle 切回 codex 时，claude thread copy JSON 会误报 codex。命中率极低（Agent A 修后 runtime 不会空），留单开任务处理。
+
+**全仓回归**：`go test ./... -count=1` 76 包全 ok + `TestCodeSizeGuard` PASS + `go build` 静默。
+
+### 9.7 本轮 Agent 协作统计
+
+- **主 agent**（Claude 老婆）：埋 warn log 2 轮 / 诊断链条串起 / LSP 交叉验证 / 分语义 commit + push
+- **Agent research-runtime-provider-default**（codex 复用 2 次）：第 1 次调研（出方案 B2+）→ send_message 第 2 次实施 TDD 修复
+- **Agent fix-debt1-frontend**（codex）：前端 `thread/start` 响应同步 provider
+- **Agent research-debt23-uistate**（codex）：后端伪 race 穷举 → 路径 X 防御性注释
+- **Agent e2e-verify-debt4**（codex）：7 点 plumbing 核查 + 发现残留边缘 bug
+
+共 5 路 codex agent 协作，全 role=worker 健康态（§10.26 无异常）。并发峰值 3 路（§10.13 并行安全）。
+
+### 9.8 硬指标全绿
+
+| 项 | 结果 |
+|---|---|
+| `go test ./internal/module/thread/... -count=1` | ✅ PASS（含 5 条 TestBuildOfflineConfig*）|
+| `go test ./... -count=1` 全仓 76 包 | ✅ 0 FAIL |
+| `go test ./internal/archtest/... -run TestCodeSizeGuard` | ✅ PASS |
+| `go build ./...` | ✅ 静默通过 |
+| 前端关键 5 files / 62 tests | ✅ 全 PASS |
+| `lsp_grep "provider := offlineThreadProvider"` | = 1（未扩散）|
+
+### 9.9 原子推送（§10.12 canonical 流程）
+
+4 语义 commits 已 push 到 `origin/main`：
+
+| Hash | Commit | 文件数 |
+|---|---|---|
+| `746e790` | **fix(thread)** B2+ 核心修复 | 2（factory.go + config_offline_test.go）|
+| `6527e64` | **feat(ui+claudecli)** 4.7/4.6 双版本 + canonicalize + 债 1 + warn 埋点 | 8 |
+| `57b4ab9` | **refactor(uistate)** 防御性注释（伪 race 结论）| 2 |
+| `188f82f` | **docs** session-summary §9 + codemap sync（Agent B 初版）| 2 |
+
+总 14 文件改动，281 insertions。
+
+### 9.10 留到下轮的事
+
+1. **前端 warn 埋点清理**：4 处 `provider.config.*` warn 暂留作监控，老公确认实机稳定后单开 `chore(ui): 清 provider.config 诊断埋点` 推送
+2. **Agent C 发现的边缘 bug**：`useCopyThreadInfo.js:119` fallback 优先级整治（极低命中率）
+3. **长 slug 规范化契约**：`orchestration_tools.go:113` 示例（`claude-opus-4-7[1m]`）和前端 canonicalize 映射应统一 single-source-of-truth（可抽 `internal/platform/shared/claude_slugs.go`）
+
+### 9.11 §10.38 新教训建议（待落盘会话习惯.md）
+
+**§10.38 stored-but-not-consumed 反模式**：
+- 现象：代码加一个 `stored.XXX` 字段是为了修某个 regression（如 `storedThreadConfig.Provider` 修 "创建的对话都是codex"），但忘了让所有 consumer path 都读它。只要有一个 path 漏掉，就会出现"数据已存但没被读"的延迟 regression
+- 本轮实例：`offline config path`（`factory.go:buildOfflineConfig`）没读 `stored.Provider`，导致 B2+ 修复 2 年后仍出现 Claude pending-launch 误报 codex
+- 检查清单（每加一个 `stored.XXX` 字段时必做）：
+  1. `lsp_xref(references)` 找出所有读取同一 `stored` 结构的函数
+  2. 每个函数都回答"为什么不读 `stored.XXX`"，明确 justify 或消费
+  3. 注释里写清该字段的唯一 consumer（如 `factory.go:225-229` 就是这么做的）
+- 与 §10.31（只加不删）联动：加字段不算"删"，但不消费 = 白加
+
+### 9.12 最近 10 条对话摘要（本会话）
+
+1. 代码守卫 8 处违规 → 6 路 codex TDD 修复 + 2 路异常态越权完成（§10.37）
+2. 老公贴 copy JSON：claude agent 但 model=`claude-opus-4-7[1m]`，下拉显示 codex
+3. 主 agent 埋 warn 埋点两轮 → 定位 `threadConfigUi.meta.provider="codex"` 在 claude thread 上
+4. 调研 agent 穷举 → 根因 `factory.go:266` 没读 `stored.Provider`
+5. TDD 实施 B2+ 单行修复 + 5 测试全绿
+6. 派 3 路 Agent A/B/C 并行整治旁证债 1/2/3/4
+7. 老公反馈 4.7 label 问题 3 次迭代 → 定稿 9 选项 + canonicalize + 删 best
+8. 原子推送 4 语义 commits
+9. 老公反馈"session-summary 更新"
+10. 落盘 §9 完整收口 + §10.38 新教训建议
+
