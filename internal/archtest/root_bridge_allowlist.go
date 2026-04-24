@@ -114,45 +114,84 @@ func rootBridgeAllowlistIntegrityViolations(repoRoot string) []string {
 	var problems []string
 	seen := make(map[string]struct{}, len(rootBridgeAllowlist))
 	for _, entry := range rootBridgeAllowlist {
-		key := entry.DefinitionPath + "#" + entry.Symbol
-		if _, dup := seen[key]; dup {
-			problems = append(problems, "duplicate allowlist key: "+key)
-			continue
-		}
-		seen[key] = struct{}{}
-
-		if entry.DefinitionPath == "" || entry.CallSitePath == "" || entry.Symbol == "" ||
-			entry.Reason == "" || entry.RemoveWhen == "" ||
-			entry.RollbackWhen == "" || entry.RollbackAction == "" {
-			problems = append(problems, "incomplete metadata for "+key)
-		}
-
-		switch entry.BridgeShape {
-		case rootBridgeShapeAppRoot, rootBridgeShapeOrchRoot, rootBridgeShapeSidecarRoot:
-		default:
-			problems = append(problems, "unknown bridge_shape for "+key+": "+string(entry.BridgeShape))
-		}
-
-		switch entry.ExceptionClass {
-		case rootBridgeExceptionPermanent, rootBridgeExceptionTemporary:
-		default:
-			problems = append(problems, "unknown exception_class for "+key+": "+string(entry.ExceptionClass))
-		}
-
-		if entry.ExceptionClass == rootBridgeExceptionTemporary && strings.HasPrefix(entry.RemoveWhen, "n/a") {
-			problems = append(problems, "temporary exception must declare a concrete remove_when: "+key)
-		}
-		if entry.ExceptionClass == rootBridgeExceptionPermanent && !strings.HasPrefix(entry.RemoveWhen, "n/a") {
-			problems = append(problems, "permanent exception must declare remove_when starting with \"n/a\": "+key)
-		}
-
-		for _, path := range []string{entry.DefinitionPath, entry.CallSitePath} {
-			if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(path))); err != nil {
-				problems = append(problems, "missing file referenced by allowlist: "+path+" ("+key+")")
-			}
-		}
+		problems = append(problems, validateRootBridgeEntry(entry, seen, repoRoot)...)
 	}
 	return problems
+}
+
+// validateRootBridgeEntry runs every per-entry integrity check and returns the
+// list of problems. Split out from the outer loop so each check stays small
+// enough for the CC guard (P0 baseline ≤ 10 per function).
+func validateRootBridgeEntry(entry rootBridgeException, seen map[string]struct{}, repoRoot string) []string {
+	key := entry.DefinitionPath + "#" + entry.Symbol
+	if _, dup := seen[key]; dup {
+		return []string{"duplicate allowlist key: " + key}
+	}
+	seen[key] = struct{}{}
+	var problems []string
+	if !rootBridgeEntryHasMetadata(entry) {
+		problems = append(problems, "incomplete metadata for "+key)
+	}
+	if !rootBridgeEntryHasKnownShape(entry) {
+		problems = append(problems, "unknown bridge_shape for "+key+": "+string(entry.BridgeShape))
+	}
+	if !rootBridgeEntryHasKnownClass(entry) {
+		problems = append(problems, "unknown exception_class for "+key+": "+string(entry.ExceptionClass))
+	}
+	if msg := rootBridgeEntryRemoveWhenConflict(entry); msg != "" {
+		problems = append(problems, msg+": "+key)
+	}
+	problems = append(problems, rootBridgeEntryMissingFiles(entry, repoRoot, key)...)
+	return problems
+}
+
+func rootBridgeEntryHasMetadata(entry rootBridgeException) bool {
+	return entry.DefinitionPath != "" && entry.CallSitePath != "" && entry.Symbol != "" &&
+		entry.Reason != "" && entry.RemoveWhen != "" &&
+		entry.RollbackWhen != "" && entry.RollbackAction != ""
+}
+
+func rootBridgeEntryHasKnownShape(entry rootBridgeException) bool {
+	switch entry.BridgeShape {
+	case rootBridgeShapeAppRoot, rootBridgeShapeOrchRoot, rootBridgeShapeSidecarRoot:
+		return true
+	default:
+		return false
+	}
+}
+
+func rootBridgeEntryHasKnownClass(entry rootBridgeException) bool {
+	switch entry.ExceptionClass {
+	case rootBridgeExceptionPermanent, rootBridgeExceptionTemporary:
+		return true
+	default:
+		return false
+	}
+}
+
+// rootBridgeEntryRemoveWhenConflict returns a non-empty message when the
+// entry's RemoveWhen string does not match its ExceptionClass. Permanent
+// entries must declare "n/a"; temporary entries must declare something
+// concrete (not prefixed with "n/a").
+func rootBridgeEntryRemoveWhenConflict(entry rootBridgeException) string {
+	naPrefixed := strings.HasPrefix(entry.RemoveWhen, "n/a")
+	if entry.ExceptionClass == rootBridgeExceptionTemporary && naPrefixed {
+		return "temporary exception must declare a concrete remove_when"
+	}
+	if entry.ExceptionClass == rootBridgeExceptionPermanent && !naPrefixed {
+		return "permanent exception must declare remove_when starting with \"n/a\""
+	}
+	return ""
+}
+
+func rootBridgeEntryMissingFiles(entry rootBridgeException, repoRoot, key string) []string {
+	var out []string
+	for _, path := range []string{entry.DefinitionPath, entry.CallSitePath} {
+		if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(path))); err != nil {
+			out = append(out, "missing file referenced by allowlist: "+path+" ("+key+")")
+		}
+	}
+	return out
 }
 
 // isRootBridgeException reports whether an fx.Invoke / OnStart call sits
