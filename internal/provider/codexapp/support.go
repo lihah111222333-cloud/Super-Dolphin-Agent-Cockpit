@@ -252,7 +252,15 @@ var knownModelContextWindows = map[string]int{
 // contextWindowForModel returns the authoritative context window size for a
 // model, or 0 if no override is registered.
 func contextWindowForModel(model string) int {
-	return knownModelContextWindows[strings.ToLower(strings.TrimSpace(model))]
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		// When sub-agents are launched without an explicit model parameter, Codex defaults
+		// to its primary model (e.g. gpt-5.5) which has an 872k context. We patch empty
+		// strings here to ensure sub-agents inherit the correct 5.5m/872k capacity instead
+		// of the CLI's hardcoded 400k unknown-model fallback.
+		return 872000
+	}
+	return knownModelContextWindows[model]
 }
 
 func configString(cfg map[string]any, key string) string {
