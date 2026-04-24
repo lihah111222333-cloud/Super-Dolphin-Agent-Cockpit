@@ -247,7 +247,13 @@ func (c *Client) PendingHooks(ctx context.Context) ([]mcp.PendingHookReview, err
 	if conn == nil || degraded {
 		return nil, errHookPendingUnavailable()
 	}
-	agentID := strings.TrimSpace(shared.FirstNonEmpty(c.cfg.AgentID, c.boot.AgentID))
+	// P22 P4 S5b / plan §316: the authoritative agent identity is
+	// c.cfg.AgentID; c.boot.AgentID is a startup snapshot for
+	// diagnostics only, not an identity source, and the legacy
+	// FirstNonEmpty-style fallback between them has been removed. If
+	// cfg.AgentID is empty we fail closed so a peer cannot silently
+	// read pending reviews under a different identity.
+	agentID := strings.TrimSpace(c.cfg.AgentID)
 	if agentID == "" {
 		return nil, errHookPendingAgentIDRequired()
 	}

@@ -95,6 +95,15 @@ func (c *Client) handleNotify(req *jrpc2.Request) {
 	}
 }
 
+// handleCallback dispatches server-initiated callbacks to the
+// appropriate registered handler. P22 P4 S5b / plan §315: the
+// previous trailing `return map[string]bool{"ok": true}, nil`
+// silently ACK'd any unknown method, meaning a peer typo or a new
+// control-plane method we did not opt into would look like a
+// success. That contract is now fail-closed: dispatchRequest owns
+// shutdown/config_changed, and handleCallback returns a JSON-RPC
+// MethodNotFound error for anything else unless a handler is
+// explicitly registered.
 func (c *Client) handleCallback(ctx context.Context, req *jrpc2.Request) (any, error) {
 	// P15: route tools/list and tools/call to registered handlers.
 	switch req.Method() {
@@ -102,36 +111,67 @@ func (c *Client) handleCallback(ctx context.Context, req *jrpc2.Request) (any, e
 		if c.cfg.OnToolsList != nil {
 			return c.cfg.OnToolsList(ctx)
 		}
+		return nil, errBootstrapUnknownMethod(req.Method())
 	case "tools/call":
 		if c.cfg.OnToolsCall != nil {
 			return c.cfg.OnToolsCall(ctx, json.RawMessage(req.ParamString()))
 		}
+		return nil, errBootstrapUnknownMethod(req.Method())
 	}
 	if resp, handled, err := c.dispatchHookCallback(ctx, req); handled {
 		return resp, err
 	}
-	if err := c.dispatchRequest(req); err != nil {
+	handled, err := c.dispatchLifecycleRequest(req)
+	if err != nil {
 		return nil, err
+	}
+	if !handled {
+		return nil, errBootstrapUnknownMethod(req.Method())
 	}
 	return map[string]bool{"ok": true}, nil
 }
 
+// dispatchRequest is the notification-path entry point
+// (handleNotify). Notifications have no response, so an unknown
+// method only warrants a warning log at the handleNotify caller
+// rather than the fail-closed error surface used for requests.
 func (c *Client) dispatchRequest(req *jrpc2.Request) error {
+	_, err := c.dispatchLifecycleRequest(req)
+	return err
+}
+
+// dispatchLifecycleRequest routes the bootstrap lifecycle methods
+// (shutdown / config_changed) and reports whether the method was
+// recognised. Callers that require fail-closed semantics (e.g.
+// handleCallback on the request path) treat !handled as an unknown
+// method error; handleNotify, which has no response surface, just
+// logs and moves on.
+func (c *Client) dispatchLifecycleRequest(req *jrpc2.Request) (handled bool, err error) {
 	switch req.Method() {
 	case mcp.MethodShutdown:
 		var payload mcp.ShutdownRequest
 		if err := req.UnmarshalParams(&payload); err != nil {
-			return err
+			return true, err
 		}
 		c.fireShutdown(payload)
+		return true, nil
 	case mcp.MethodConfigChanged:
 		var payload mcp.ConfigChangedNotify
 		if err := req.UnmarshalParams(&payload); err != nil {
-			return err
+			return true, err
 		}
 		c.fireConfigChanged(payload)
+		return true, nil
 	}
-	return nil
+	return false, nil
+}
+
+// errBootstrapUnknownMethod is the wire error surfaced when a
+// server-initiated callback uses a method this client has not opted
+// into. Code -32601 maps to the JSON-RPC MethodNotFound convention.
+// See P22 P4 S5b / plan §315.
+func errBootstrapUnknownMethod(method string) error {
+	return jrpc2.Errorf(jrpc2.Code(-32601), "bootstrap: unknown callback method: %s", strings.TrimSpace(method))
 }
 
 func (c *Client) fireShutdown(req mcp.ShutdownRequest) {
