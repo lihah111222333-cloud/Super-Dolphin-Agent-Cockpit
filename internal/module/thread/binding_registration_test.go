@@ -172,3 +172,34 @@ func TestPersistThreadStateRestoresPreviousBindingOnThreadUpsertFailure(t *testi
 		t.Fatalf("binding upserts = %#v, want write+rollback", bindings.upserts)
 	}
 }
+
+func TestBindingRegistrationPersistsCodexIdentity(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{}
+	bindings := &stubBindingStore{}
+	svc := NewService(silentLogger(), threads, bindings, nil, nil, nil, nil, nil).(*service)
+
+	err := svc.persistThreadState(context.Background(), threadState{
+		PublicThreadID:     "thread-identity",
+		ProviderThreadID:   "provider-thread-identity",
+		AgentID:            "agent-identity",
+		Provider:           "codex",
+		CWD:                "/repo",
+		CodexHome:          "/realpath/.codex-providers/glm",
+		CodexInstanceKey:   "glm",
+		CodexModelProvider: "openai-compatible-glm",
+		CreatedAt:          123,
+	}, true)
+	if err != nil {
+		t.Fatalf("persistThreadState() error = %v", err)
+	}
+	if bindings.upsert.CodexHome != "/realpath/.codex-providers/glm" ||
+		bindings.upsert.CodexInstanceKey != "glm" ||
+		bindings.upsert.CodexModelProvider != "openai-compatible-glm" {
+		t.Fatalf("codex identity upsert = (%q,%q,%q)",
+			bindings.upsert.CodexHome,
+			bindings.upsert.CodexInstanceKey,
+			bindings.upsert.CodexModelProvider)
+	}
+}

@@ -25,26 +25,29 @@ const (
 )
 
 type threadStateFields struct {
-	RequestedThreadID string
-	PublicThreadID    string
-	ProviderThreadID  string
-	OwnerThreadID     string
-	AgentID           string
-	ParentAgentID     string
-	AgentType         string
-	AgentMemoryScope  string
-	Provider          string
-	CWD               string
-	Model             string
-	Name              string
-	Prompt            string
-	RolloutPath       string
-	SessionUUID       string
-	ConfigOverride    json.RawMessage
-	CreatedAt         int64
-	AgentKey          string
-	PromptVersionID   *int64
-	PendingLaunch     bool
+	RequestedThreadID  string
+	PublicThreadID     string
+	ProviderThreadID   string
+	OwnerThreadID      string
+	AgentID            string
+	ParentAgentID      string
+	AgentType          string
+	AgentMemoryScope   string
+	Provider           string
+	CWD                string
+	Model              string
+	Name               string
+	Prompt             string
+	RolloutPath        string
+	SessionUUID        string
+	ConfigOverride     json.RawMessage
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
+	CreatedAt          int64
+	AgentKey           string
+	PromptVersionID    *int64
+	PendingLaunch      bool
 }
 
 func newThreadState(kind threadStateKind, fields threadStateFields) threadState {
@@ -75,6 +78,9 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	state.RolloutPath = fields.RolloutPath
 	state.SessionUUID = fields.SessionUUID
 	state.ConfigOverride = shared.CloneRawMessage(fields.ConfigOverride)
+	state.CodexHome = strings.TrimSpace(fields.CodexHome)
+	state.CodexInstanceKey = strings.TrimSpace(fields.CodexInstanceKey)
+	state.CodexModelProvider = strings.TrimSpace(fields.CodexModelProvider)
 	state.CreatedAt = firstNonZero(fields.CreatedAt)
 	state.AgentKey = strings.TrimSpace(fields.AgentKey)
 	state.PromptVersionID = fields.PromptVersionID
@@ -106,18 +112,21 @@ func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
 
 func newBindingUpsertParams(binding bindingstore.Binding) bindingstore.UpsertParams {
 	return bindingstore.UpsertParams{
-		AgentID:          strings.TrimSpace(binding.AgentID),
-		Provider:         strings.TrimSpace(binding.Provider),
-		ProviderThreadID: strings.TrimSpace(binding.ProviderThreadID),
-		CodexThreadID:    strings.TrimSpace(binding.CodexThreadID),
-		RolloutPath:      strings.TrimSpace(binding.RolloutPath),
-		SessionUUID:      strings.TrimSpace(binding.SessionUUID),
-		Cwd:              strings.TrimSpace(binding.Cwd),
-		ParentAgentID:    strings.TrimSpace(binding.ParentAgentID),
-		AgentType:        strings.TrimSpace(binding.AgentType),
-		AgentMemoryScope: strings.TrimSpace(binding.AgentMemoryScope),
-		CreatedAt:        binding.CreatedAt,
-		UpdatedAt:        binding.UpdatedAt,
+		AgentID:            strings.TrimSpace(binding.AgentID),
+		Provider:           strings.TrimSpace(binding.Provider),
+		ProviderThreadID:   strings.TrimSpace(binding.ProviderThreadID),
+		CodexThreadID:      strings.TrimSpace(binding.CodexThreadID),
+		RolloutPath:        strings.TrimSpace(binding.RolloutPath),
+		SessionUUID:        strings.TrimSpace(binding.SessionUUID),
+		Cwd:                strings.TrimSpace(binding.Cwd),
+		ParentAgentID:      strings.TrimSpace(binding.ParentAgentID),
+		AgentType:          strings.TrimSpace(binding.AgentType),
+		AgentMemoryScope:   strings.TrimSpace(binding.AgentMemoryScope),
+		CreatedAt:          binding.CreatedAt,
+		UpdatedAt:          binding.UpdatedAt,
+		CodexHome:          strings.TrimSpace(binding.CodexHome),
+		CodexInstanceKey:   strings.TrimSpace(binding.CodexInstanceKey),
+		CodexModelProvider: strings.TrimSpace(binding.CodexModelProvider),
 	}
 }
 

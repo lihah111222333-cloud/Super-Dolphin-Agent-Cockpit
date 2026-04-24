@@ -109,8 +109,8 @@ func TestSetModelInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
 		threadID:      "thread-1",
 		allowedModels: []string{"gpt-5.5"},
 		readConfigResult: dto.ThreadConfig{
-			ThreadID: "thread-1",
-			Provider: "codex",
+			ThreadID:  "thread-1",
+			Provider:  "codex",
 			Effective: dto.ThreadConfigValues{Model: "gpt-5.5"},
 		},
 	}

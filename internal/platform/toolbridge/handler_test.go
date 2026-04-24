@@ -1,6 +1,7 @@
 package toolbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"unsafe"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -434,6 +436,135 @@ func TestToolBridge_RejectsSpawnAgentWhenPersistentSubagentDefaultEnabled(t *tes
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
 	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。", false)
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestPersistentSubagentAllowsExplicitRuntimeFlagFalse(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{"message": "create child agent"})
+	h, registry := newHandlerForTest(newToolCallPeer(t, "spawn_agent", args, "spawned", nil))
+	raw := mustRawJSON(t, map[string]any{
+		"runtime": map[string]any{
+			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent"},
+			"sessionFlags": map[string]any{"persistent_subagent_default": false},
+		},
+	})
+	h.threadStore = &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-flag-false", ConfigOverride: raw}}
+	h.cfg = &platformconfig.Config{Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true}}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "spawn_agent",
+		Arguments: args,
+		ThreadID:  "thread-flag-false",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "spawned", true)
+	if len(registry.gotKinds) != 1 || registry.gotKinds[0] != dto.ClientKindOrch {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want [%q]", registry.gotKinds, dto.ClientKindOrch)
+	}
+}
+
+func TestPersistentSubagentRequiresExplicitRuntimeFlag(t *testing.T) {
+	h, registry := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
+		t.Fatal("Callback() should not be invoked when persistent-subagent flag is absent")
+		return nil
+	}}})
+	raw := mustRawJSON(t, map[string]any{
+		"runtime": map[string]any{
+			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent"},
+		},
+	})
+	h.threadStore = &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-missing-flag", ConfigOverride: raw}}
+	h.cfg = &platformconfig.Config{Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true}}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "spawn_agent",
+		Arguments: mustRawJSON(t, map[string]any{"message": "create child agent"}),
+		ThreadID:  "thread-missing-flag",
+	})
+	if !errors.Is(err, contract.ErrPersistentSubagentFlagRequired) {
+		t.Fatalf("routeToolCall() error = %v, want %v", err, contract.ErrPersistentSubagentFlagRequired)
+	}
+	if got != nil {
+		t.Fatalf("routeToolCall() result = %#v, want nil", got)
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestPersistentSubagentAllowsLegacyOptInFallback(t *testing.T) {
+	t.Setenv(allowDefaultPersistentSubagentEnv, "1")
+	var logs bytes.Buffer
+	h, registry := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
+		t.Fatal("Callback() should not be invoked when legacy fallback blocks spawn_agent")
+		return nil
+	}}})
+	h.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	raw := mustRawJSON(t, map[string]any{
+		"runtime": map[string]any{
+			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent"},
+		},
+	})
+	h.threadStore = &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-legacy-fallback", ConfigOverride: raw}}
+	h.cfg = &platformconfig.Config{Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true}}
+	before := persistentSubagentDefaultFallbackCount()
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "spawn_agent",
+		Arguments: mustRawJSON(t, map[string]any{"message": "create child agent"}),
+		ThreadID:  "thread-legacy-fallback",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。", false)
+	if after := persistentSubagentDefaultFallbackCount(); after != before+1 {
+		t.Fatalf("persistentSubagentDefaultFallbackCount() = %d, want %d", after, before+1)
+	}
+	if !strings.Contains(logs.String(), "compatibility-only: persistent subagent default fallback") {
+		t.Fatalf("logs = %q, want compatibility warning", logs.String())
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestProxyMapsPersistentSubagentFlagRequired(t *testing.T) {
+	h, registry := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
+		t.Fatal("Callback() should not be invoked when persistent-subagent flag is absent")
+		return nil
+	}}})
+	raw := mustRawJSON(t, map[string]any{
+		"runtime": map[string]any{
+			"enabledTools": []string{"spawn_agent", "orchestration_launch_agent"},
+		},
+	})
+	h.bindingStore = &toolCallBindingStoreStub{threadID: "thread-proxy-missing-flag"}
+	h.threadStore = &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-proxy-missing-flag", ConfigOverride: raw}}
+	body := string(mustRawJSON(t, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      "req-flag",
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      "spawn_agent",
+			"arguments": map[string]any{},
+		},
+	}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-flag", body)
+	if got.Error == nil {
+		t.Fatal("proxy response error = nil, want invalid params")
+	}
+	if got.Error.Code != jsonRPCCodeInvalidParam {
+		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
+	}
+	if !strings.Contains(got.Error.Message, contract.ErrPersistentSubagentFlagRequired.Error()) {
+		t.Fatalf("proxy error message = %q, want substring %q", got.Error.Message, contract.ErrPersistentSubagentFlagRequired.Error())
+	}
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}

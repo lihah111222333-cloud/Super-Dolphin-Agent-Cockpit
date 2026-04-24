@@ -14,8 +14,8 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/gorilla/websocket"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/gorilla/websocket"
 )
 
 // -----------------------------------------------------------------------------

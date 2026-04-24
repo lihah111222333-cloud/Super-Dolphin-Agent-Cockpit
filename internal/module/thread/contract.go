@@ -59,8 +59,8 @@ type StartRequest struct {
 	ModelProvider    string
 	Name             string
 	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
-	Prompt                       string
-	BaseInstructions             string
+	Prompt           string
+	BaseInstructions string
 	// BaseInstructionBlocks is populated by resolveRoutedPrompt when the
 	// picked prompt_template has rows in prompt_template_sections. It flows
 	// through buildStartAssemblyInput into contract.StartInput so the
@@ -140,7 +140,7 @@ type StartResult struct {
 	// Routing metadata surfaced to the UI so the sidebar can show which agent
 	// the router picked, which prompt_template hit, and which prompt_versions
 	// row was injected.
-	AgentKey        string `json:"agent_key,omitempty"`
+	AgentKey string `json:"agent_key,omitempty"`
 	// AgentTitle is the human-readable persona label ("SQL 与数据建模专家") that
 	// the UI shows on the routing badge. Equal to the picked template's
 	// Title. Empty when the caller took a path that did not touch the router.
@@ -156,19 +156,20 @@ type StartResult struct {
 	HandoffFile   string `json:"handoff_file,omitempty"`
 }
 
-
-
 type ResumeRequest struct {
-	Provider         string
-	AgentID          string
-	ThreadID         string
-	ProviderThreadID string
-	Path             string
-	CWD              string
-	Model            string
-	Effort           string
-	PromptSnapshot   contract.PromptAssemblySnapshot
-	ConfigOverride   dto.ThreadConfigPatch
+	Provider           string
+	AgentID            string
+	ThreadID           string
+	ProviderThreadID   string
+	Path               string
+	CWD                string
+	Model              string
+	Effort             string
+	PromptSnapshot     contract.PromptAssemblySnapshot
+	ConfigOverride     dto.ThreadConfigPatch
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
 }
 
 type ResumeResult struct {

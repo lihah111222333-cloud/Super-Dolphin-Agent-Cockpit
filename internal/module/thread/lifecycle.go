@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
@@ -26,25 +27,28 @@ type OrchestrationFacade interface {
 }
 
 type threadState struct {
-	PublicThreadID   string
-	ProviderThreadID string
-	OwnerThreadID    string
-	AgentID          string
-	ParentAgentID    string
-	AgentType        string
-	AgentMemoryScope string
-	Provider         string
-	CWD              string
-	Model            string
-	Name             string
-	Prompt           string
-	RolloutPath      string
-	SessionUUID      string
-	ConfigOverride   json.RawMessage
-	CreatedAt        int64
-	AgentKey         string
-	PromptVersionID  *int64
-	PendingLaunch    bool
+	PublicThreadID     string
+	ProviderThreadID   string
+	OwnerThreadID      string
+	AgentID            string
+	ParentAgentID      string
+	AgentType          string
+	AgentMemoryScope   string
+	Provider           string
+	CWD                string
+	Model              string
+	Name               string
+	Prompt             string
+	RolloutPath        string
+	SessionUUID        string
+	ConfigOverride     json.RawMessage
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
+	CreatedAt          int64
+	AgentKey           string
+	PromptVersionID    *int64
+	PendingLaunch      bool
 }
 
 type threadMeta struct {
@@ -274,24 +278,32 @@ func (s *service) persistStartedSession(
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
+	identity, err := resolveStartCodexIdentity(req.Config)
+	if err != nil {
+		s.stopAgent(ctx, agentID)
+		return StartResult{}, err
+	}
 	state := newThreadState(threadStateStartKind, threadStateFields{
-		AgentID:          agentID,
-		ParentAgentID:    req.ParentAgentID,
-		AgentType:        req.AgentType,
-		AgentMemoryScope: req.AgentMemoryScope,
-		ProviderThreadID: session.ThreadID(),
-		Provider:         req.Provider,
-		CWD:              effectiveCWD,
-		Model:            effectiveModel,
-		Name:             displayName,
-		Prompt:           displayName,
-		RolloutPath:      session.RolloutPath(),
-		SessionUUID:      session.ThreadID(),
-		ConfigOverride:   configOverride,
-		CreatedAt:        time.Now().Unix(),
-		AgentKey:         req.AgentKey,
-		PromptVersionID:  req.PromptVersionID,
-		OwnerThreadID:    req.OwnerThreadID,
+		AgentID:            agentID,
+		ParentAgentID:      req.ParentAgentID,
+		AgentType:          req.AgentType,
+		AgentMemoryScope:   req.AgentMemoryScope,
+		ProviderThreadID:   session.ThreadID(),
+		Provider:           req.Provider,
+		CWD:                effectiveCWD,
+		Model:              effectiveModel,
+		Name:               displayName,
+		Prompt:             displayName,
+		RolloutPath:        session.RolloutPath(),
+		SessionUUID:        session.ThreadID(),
+		ConfigOverride:     configOverride,
+		CodexHome:          identity.Home,
+		CodexInstanceKey:   identity.InstanceKey,
+		CodexModelProvider: identity.ModelProvider,
+		CreatedAt:          time.Now().Unix(),
+		AgentKey:           req.AgentKey,
+		PromptVersionID:    req.PromptVersionID,
+		OwnerThreadID:      req.OwnerThreadID,
 	})
 	publicThreadID := state.PublicThreadID
 	providerThreadID := state.ProviderThreadID
@@ -308,22 +320,41 @@ func (s *service) persistStartedSession(
 		Status:         "running",
 	}))
 	return StartResult{
-		ThreadID:            publicThreadID,
-		AgentID:             agentID,
-		SessionID:           shared.FirstNonEmpty(providerThreadID, publicThreadID),
-		Status:              "running",
-		Model:               effectiveModel,
-		Provider:            req.Provider,
-		ModelProvider:       req.ModelProvider,
-		CWD:                 effectiveCWD,
-		ApprovalPolicy:      req.ApprovalPolicy,
-		AgentKey:              req.AgentKey,
-		AgentTitle:            req.AgentTitle,
-		PromptKey:             req.PromptKey,
-		PromptVersionID:       req.PromptVersionID,
-		TaskID:                firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
-		HandoffFile:           firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
+		ThreadID:        publicThreadID,
+		AgentID:         agentID,
+		SessionID:       shared.FirstNonEmpty(providerThreadID, publicThreadID),
+		Status:          "running",
+		Model:           effectiveModel,
+		Provider:        req.Provider,
+		ModelProvider:   req.ModelProvider,
+		CWD:             effectiveCWD,
+		ApprovalPolicy:  req.ApprovalPolicy,
+		AgentKey:        req.AgentKey,
+		AgentTitle:      req.AgentTitle,
+		PromptKey:       req.PromptKey,
+		PromptVersionID: req.PromptVersionID,
+		TaskID:          firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
+		HandoffFile:     firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
 	}, nil
+}
+
+func resolveStartCodexIdentity(config map[string]any) (providershared.CodexIdentity, error) {
+	if !startConfigHasCodexIdentity(config) {
+		return providershared.CodexIdentity{}, nil
+	}
+	return providershared.ResolveCodexIdentity(config)
+}
+
+func startConfigHasCodexIdentity(config map[string]any) bool {
+	if len(config) == 0 {
+		return false
+	}
+	for _, key := range []string{"codexHome", "codexInstanceKey", "codexModelProvider"} {
+		if _, ok := config[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *service) establishResumedSession(

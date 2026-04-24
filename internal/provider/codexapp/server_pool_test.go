@@ -545,3 +545,62 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+func TestServerPoolAcquireRejectsSameHomeDifferentInstanceKey(t *testing.T) {
+	t.Parallel()
+	p, _ := newPoolForTest(t, func(_ context.Context, home string) (SpawnedServer, error) {
+		return newFakeServer("ws://" + filepath.Base(home)), nil
+	}, PoolConfig{Capacity: 2})
+	defer p.Close(context.Background())
+
+	id := identityFor(t, "glm")
+	_, release, err := p.Acquire(context.Background(), id)
+	if err != nil {
+		t.Fatalf("first Acquire: %v", err)
+	}
+	defer release()
+	id.InstanceKey = "qwen"
+	server, rel2, err := p.Acquire(context.Background(), id)
+	if !errors.Is(err, ErrInvalidIdentity) {
+		t.Fatalf("second Acquire err = %v, want ErrInvalidIdentity", err)
+	}
+	if server != nil {
+		t.Fatalf("server = %#v, want nil", server)
+	}
+	rel2()
+}
+
+func TestServerPoolSpawnerRunsOutsideMutex(t *testing.T) {
+	t.Parallel()
+	var p *ServerPool
+	spawnerEntered := make(chan struct{})
+	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
+		close(spawnerEntered)
+		_ = p.Size()
+		return newFakeServer("ws://" + filepath.Base(home)), nil
+	}
+	p, _ = newPoolForTest(t, spawner, PoolConfig{Capacity: 1})
+	defer p.Close(context.Background())
+
+	done := make(chan error, 1)
+	go func() {
+		_, release, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+		if release != nil {
+			release()
+		}
+		done <- err
+	}()
+	select {
+	case <-spawnerEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("spawner did not start")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Acquire: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Acquire deadlocked; spawner likely ran under pool mutex")
+	}
+}

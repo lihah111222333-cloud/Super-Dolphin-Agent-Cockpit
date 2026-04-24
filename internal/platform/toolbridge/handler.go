@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -25,6 +27,10 @@ import (
 // internal/store/thread (P22 P4 S3d). Production adapters live in
 // module.go where platform → store imports are legitimate (assembly
 // seam).
+const allowDefaultPersistentSubagentEnv = "TOOLBRIDGE_ALLOW_DEFAULT_PERSISTENT_SUBAGENT"
+
+var persistentSubagentDefaultFallbackTotal atomic.Uint64
+
 type Handler struct {
 	registry     activePeerRegistry
 	emitter      difftracker.DiffEmitter
@@ -104,8 +110,8 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 
 	var resp peerToolCallResponse
 	err = peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
-		"name":             req.Name,
-		"arguments":        req.Arguments,
+		"name":              req.Name,
+		"arguments":         req.Arguments,
 		MetadataKeyAgentID:  req.AgentID,
 		MetadataKeyThreadID: req.ThreadID,
 		MetadataKeyCallID:   req.CallID,
@@ -146,7 +152,12 @@ func (h *Handler) persistentSubagentRequired(ctx context.Context, req ToolCallRe
 	}
 	required, present := persistentSubagentFlagFromRuntime(runtime)
 	if !present {
+		if !allowDefaultPersistentSubagentFallback() {
+			return false, contract.ErrPersistentSubagentFlagRequired
+		}
 		required = h.cfg != nil && h.cfg.Agent.PersistentSubagentDefault
+		persistentSubagentDefaultFallbackTotal.Add(1)
+		h.warn("compatibility-only: persistent subagent default fallback", "env", allowDefaultPersistentSubagentEnv, "required", required)
 	}
 	if !required {
 		return false, nil
@@ -241,6 +252,14 @@ func decodeStoredThreadRuntime(raw json.RawMessage) (map[string]any, bool) {
 		return nil, false
 	}
 	return stored.Runtime, true
+}
+
+func allowDefaultPersistentSubagentFallback() bool {
+	return os.Getenv(allowDefaultPersistentSubagentEnv) == "1"
+}
+
+func persistentSubagentDefaultFallbackCount() uint64 {
+	return persistentSubagentDefaultFallbackTotal.Load()
 }
 
 func persistentSubagentFlagFromRuntime(runtime map[string]any) (bool, bool) {

@@ -140,32 +140,35 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 		return nil, noopRelease, err
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	fastPath := p.acquireFastPathLocked(home)
+	fastPath := p.acquireFastPathLocked(home, key)
 	if fastPath.done {
+		p.mu.Unlock()
 		return fastPath.server, fastPath.release, fastPath.err
 	}
 	// Respect spawn backoff before we try to expand capacity.
 	if err := p.checkBackoffLocked(fastPath.entry, fastPath.now); err != nil {
+		p.mu.Unlock()
 		return nil, noopRelease, err
 	}
 	// Capacity pressure: try to evict the LRU idle entry. If no entry
 	// is evictable (everything is refcounted), surface
 	// ErrPoolExhausted so the caller fails fast.
 	if err := p.ensureCapacityLocked(fastPath.entry, fastPath.now); err != nil {
+		p.mu.Unlock()
 		return nil, noopRelease, err
 	}
-	// Spawn under the lock so a concurrent Acquire for the same home
-	// serialises here rather than launching two processes. The spawner
-	// itself can still panic or block, but pool correctness doesn't
-	// depend on it being fast.
+	spawnAt := fastPath.now
+	p.mu.Unlock()
+
 	server, err := p.spawner(ctx, home)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry := p.entries[home]
 	if err != nil {
-		p.recordSpawnErrorLocked(fastPath.entry, home, key, err, fastPath.now)
+		p.recordSpawnErrorLocked(entry, home, key, err, spawnAt)
 		return nil, noopRelease, fmt.Errorf("codexapp: spawn %q: %w", home, err)
 	}
-	p.storeSpawnedLocked(fastPath.entry, home, key, server, fastPath.now)
+	p.storeSpawnedLocked(entry, home, key, server, spawnAt)
 	return server, p.releaser(home), nil
 }
 
@@ -180,7 +183,7 @@ type acquireFastPathResult struct {
 	done    bool
 }
 
-func (p *ServerPool) acquireFastPathLocked(home string) acquireFastPathResult {
+func (p *ServerPool) acquireFastPathLocked(home, key string) acquireFastPathResult {
 	result := acquireFastPathResult{release: noopRelease}
 	if p.closed {
 		result.err = ErrPoolClosed
@@ -195,6 +198,11 @@ func (p *ServerPool) acquireFastPathLocked(home string) acquireFastPathResult {
 	result.now = p.now()
 	result.entry = p.entries[home]
 	if result.entry == nil {
+		return result
+	}
+	if result.entry.instanceKey != "" && result.entry.instanceKey != key {
+		result.err = fmt.Errorf("%w: codexHome %q already bound to instance key %q", ErrInvalidIdentity, home, result.entry.instanceKey)
+		result.done = true
 		return result
 	}
 	// Live entry: happy path.
@@ -392,7 +400,11 @@ func normalizePoolIdentity(identity providershared.CodexIdentity) (home, key str
 	if err != nil {
 		return "", "", fmt.Errorf("%w: %v", ErrInvalidIdentity, err)
 	}
-	return canonical, strings.TrimSpace(identity.InstanceKey), nil
+	key = strings.TrimSpace(identity.InstanceKey)
+	if key == "" {
+		return "", "", fmt.Errorf("%w: codexInstanceKey is empty", ErrInvalidIdentity)
+	}
+	return canonical, key, nil
 }
 
 // closeWithTimeout invokes Close with a background deadline so the
