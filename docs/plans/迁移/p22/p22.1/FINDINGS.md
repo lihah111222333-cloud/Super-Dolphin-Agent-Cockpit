@@ -34,6 +34,10 @@
   - lifecycle owner：`internal/app/runner.go:46-86` root `fx.Hook`。
 - **归属 Phase**：1
 
+#### 反向测试证据（2026-04-25 HEAD 修订）
+
+现有测试 `TestBindRuntimeDrainsExtractionBeforeCancel` 明确验证了“先 `ExtractionDrainer.DrainPendingExtraction`，再 `cancel()` root ctx”的行为；这与 `runner.go:71-80` 当前实现一致。但按 §10.30 铁律，正确 shutdown 顺序应为 `ctx cancel → group.Wait → bus.Stop → resource close`。因此该测试不是保护目标态，而是反向锁定了错误顺序；P22.1 Phase 1 实施时必须同步改代码与改测试，避免旧测试继续把 F-1 错序当作回归保护。
+
 ### F-2 — desktop shutdown watcher 使用 `context.Background()`
 
 - **位置**：`internal/app/app.go:171-181`
@@ -59,6 +63,10 @@
   - lifecycle owner：`module.go:422-442` `p.Lifecycle.Append(fx.Hook{OnStart, OnStop})`。
 - **归属 Phase**：2
 
+#### overlay 澄清（2026-04-25 HEAD 修订）
+
+§7.5.1 overlay 中 “`registerMemoryHooks.OnStop` 已 drain” 已销账的是 drain **行为**（`drainMemoryHooks` 已存在），不是 ownership。F-3 讨论的是 `fx.OnStart`/`fx.OnStop` 仍直接 Start/Stop scheduler、nested、teamSync worker，并在 lifecycle 中持有 subscription owner；该 ownership 违背 §10.30，二者正交。因此 F-3 仍 in-scope，不是重开已销账的 “OnStop 不 wait/drain” 旧债。
+
 ### F-4 — thread bus workers 由 module lifecycle 承担
 
 - **位置**：`internal/module/thread/module.go:57-89`
@@ -82,6 +90,10 @@
   - consumer：`lsp_inspect(definition)` 从 `module.go:37` 跳到 `relay.go:14-47 startKeepaliveRelay`，证明该 OnStart 启动 relay。
   - lifecycle owner：`module.go:35-49` `lc.Append(fx.Hook)`。
 - **归属 Phase**：2
+
+#### overlay / out-of-scope 澄清（2026-04-25 HEAD 修订）
+
+R10.6 #5 / §7.5.1 overlay 处理的是 TeamSync Pull/Push test-only API 收敛，不包含 `internal/platform/cachekeepalive`。F-5 的 cachekeepalive relay/timer 属于独立平台 lifecycle ownership 问题：subscription 与 timer/manager drain 仍混在 `fx.Hook` 中，按 F-3 同理保留为 P22.1 in-scope。
 
 ### F-6 — hooks hookDispatchWorker 由 fx 启停
 
@@ -133,6 +145,10 @@
   - lifecycle owner：`module.go:171-183` `lifecycle.Append(fx.Hook)`。
 - **归属 Phase**：2
 
+#### out-of-scope 澄清（2026-04-25 HEAD 修订）
+
+F-9 只处理 diff fallback subscriber ownership：`registerDiffFallbackLifecycle` 在 `OnStart` 直接 `platformbus.ResilientSubscribe`，subscriber owner 散落在 toolbridge module lifecycle。它与 Z-B toolbridge hidden contract / handler fallback（`handler.go` flag fallback、fail-closed 语义）正交；后者已由 P22 主线 commit 10 或独立 hidden-contract lane 覆盖，本 P22.1 不改 handler fallback。
+
 ### F-10 — insight collector subscriber 仍在 module lifecycle
 
 - **位置**：`internal/module/insight/module.go:55-70`
@@ -166,3 +182,10 @@
 | Phase 1 | F-1, F-2 |
 | Phase 2 | F-3, F-4, F-5, F-6, F-7, F-8, F-9, F-10, F-11 |
 | Phase 3 | F-2 的例外边界 + session-private runtime allowlist 全仓收紧 |
+
+## 红队仲裁（2026-04-25）
+详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md` §3 与 §6。  
+整体裁决：🟢 READY / 🟠 NEEDS-FIX / 🔴 BLOCK（以 JUDGEMENT.md §7 为准）。
+
+## R2 发现仍未销账项（2026-04-25 HEAD drift note）
+详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md` §R2。R2 仲裁结论：🔴 R2 BLOCK。FINDINGS 仍需只加不删补齐：F-1 的 `internal/app/runner_test.go:79-88` 反向测试保护证据；F-3 非重开 R10.6 #9 “OnStop 不 wait/drain”；F-5 非重开 R10.6 #5 TeamSync Pull/Push test-only；F-9 不覆盖 toolbridge handler fallback。
