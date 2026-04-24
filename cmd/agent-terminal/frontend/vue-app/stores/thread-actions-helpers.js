@@ -82,7 +82,7 @@ function upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments) 
   const normalizedAttachments = cloneOptimisticAttachments(attachments);
   const frozenAttachments = freezeOptimisticAttachments(normalizedAttachments);
   const matchingIndex = userText
-    ? existing.findIndex((item) => item?.kind === 'user' && (item?.text || '').trim() === userText)
+    ? existing.findIndex((item) => item?.kind === 'user' && (item?.text || '').trim() === userText && (item?.id || '').toString().includes('-optimistic-'))
     : -1;
 
   if (matchingIndex >= 0) {
@@ -621,10 +621,7 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
   logInfo('thread', 'send.start', { thread_id: threadId, text_len: text.length, attachments: attachments.length, local_images: localImageCount, inline_images: remoteImageCount, files: fileCount, dropped_attachments: droppedAttachmentCount, selected_skills: selectedSkills.length, manual_skill_selection: manualSkillSelection });
   try {
     const beforeLen = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId].length : 0;
-    const historyLoadedAtByThread = ctx.threadHistoryLoadedAtByThread instanceof Map
-      ? ctx.threadHistoryLoadedAtByThread
-      : (ctx.threadHistoryLoadedAtByThread = new Map());
-    historyLoadedAtByThread.set(threadId, Date.now());
+    if (typeof ctx.markHistoryLoaded === 'function') ctx.markHistoryLoaded(threadId);
     // Optimistic UI: insert the user's message into the local timeline BEFORE
     // awaiting turn/start. First-turn of a pending_launch thread spends
     // 5-15s inside turn/start (SpawnIfNeeded runs the classifier + forks the

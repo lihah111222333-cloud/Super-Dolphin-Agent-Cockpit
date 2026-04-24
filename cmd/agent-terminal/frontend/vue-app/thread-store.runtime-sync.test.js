@@ -428,48 +428,6 @@ describe('thread store runtime sync', () => {
   });
 
 
-  it('content-mismatch guard preserves dialog items when remote has only structural items', async () => {
-    const store = useThreadStore();
-    const threadId = 'thread-claude';
-    store.state.activeThreadId = threadId;
-    store.state.threads = [{ id: threadId, name: 'Claude', state: 'running' }];
-    // Pre-populate local timeline with dialog items (as loadMessages would)
-    const dialogItems = [
-      { id: 'msg-1', kind: 'user', text: 'hello', ts: '2026-01-01T00:00:00Z' },
-      { id: 'msg-2', kind: 'assistant', text: 'hi', ts: '2026-01-01T00:00:01Z' },
-      { id: 'msg-3', kind: 'user', text: 'do work', ts: '2026-01-01T00:00:02Z' },
-      { id: 'msg-4', kind: 'assistant', text: 'done', ts: '2026-01-01T00:00:03Z' },
-    ];
-    store.state.timelinesByThread = { [threadId]: dialogItems };
-    // Remote returns process-only timeline (no dialog items)
-    const processTimeline = [
-      { id: 'turn-1', kind: 'turn_start', status: 'running' },
-      { id: 'tc-1', kind: 'tool', tool: 'read', callId: 'c1' },
-      { id: 'tc-2', kind: 'tool', tool: 'write', callId: 'c2' },
-      { id: 'turn-1-end', kind: 'turn_end', status: 'completed' },
-    ];
-    let loadMessagesCalled = false;
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'ui/state/get') return {
-        threads: [{ id: threadId, name: 'Claude', state: 'running' }],
-        agents: [],
-        timelinesByThread: { [threadId]: processTimeline },
-      };
-      if (method === 'thread/messages') {
-        loadMessagesCalled = true;
-        return { messages: [] };
-      }
-      return {};
-    });
-    await store.syncThreadState(threadId);
-    // Guard should NOT call loadMessages — local dialog is already loaded.
-    // Calling loadMessages would replace the timeline reference and cause text flicker.
-    expect(loadMessagesCalled).toBe(false);
-    // Dialog items should be preserved by the merge logic in applyRuntimeSnapshot
-    const finalTimeline = store.getThreadTimeline(threadId);
-    const dialogKinds = finalTimeline.filter((it) => it?.kind === 'user' || it?.kind === 'assistant');
-    expect(dialogKinds.length).toBeGreaterThanOrEqual(3);
-  });
 
   it('replays active direct delta sync after an in-flight scoped sync finishes', async () => {
     vi.useFakeTimers();

@@ -71,9 +71,25 @@ export function shouldReloadThreadHistory(ctx, threadId) {
   const status = normalizeStatus(getThreadStatus(ctx, id));
   const providerThreadID = ctx.normalizeProviderThreadID(ctx.state.agentRuntimeById?.[id]?.providerThreadId || ctx.state.agentRuntimeById?.[id]?.provider_thread_id);
   const loadedProviderThreadID = ctx.normalizeProviderThreadID(ctx.threadHistoryProviderThreadIDByThread.get(id));
-  if (providerThreadID && loadedProviderThreadID && providerThreadID !== loadedProviderThreadID) return true;
+  if (providerThreadID && loadedProviderThreadID && providerThreadID !== loadedProviderThreadID) {
+    ctx.logWarn('thread', 'shouldReloadThreadHistory.true.provider_mismatch', { thread_id: id, provider_thread_id: providerThreadID, loaded_provider_thread_id: loadedProviderThreadID });
+    return true;
+  }
   const loadedAt = Number(ctx.threadHistoryLoadedAtByThread.get(id) || 0);
-  if (!Number.isFinite(loadedAt) || loadedAt <= 0) return true;
-  if (status !== 'idle') return false;
-  return (Date.now() - loadedAt) > ctx.THREAD_HISTORY_FRESH_TTL_MS;
+  if (!Number.isFinite(loadedAt) || loadedAt <= 0) {
+    ctx.logWarn('thread', 'shouldReloadThreadHistory.true.not_loaded', { thread_id: id });
+    return true;
+  }
+  if (status !== 'idle') {
+    const elapsed = Date.now() - loadedAt;
+    const streamingTtl = 1000; // Poll history every 1s during streaming
+    const shouldReload = elapsed > streamingTtl;
+    ctx.logWarn('thread', 'shouldReloadThreadHistory.streaming_check', { thread_id: id, elapsed, ttl: streamingTtl, should_reload: shouldReload });
+    return shouldReload;
+  }
+  const elapsed = Date.now() - loadedAt;
+  const ttl = ctx.THREAD_HISTORY_FRESH_TTL_MS;
+  const shouldReload = elapsed > ttl;
+  ctx.logWarn('thread', 'shouldReloadThreadHistory.ttl_check', { thread_id: id, elapsed, ttl, should_reload: shouldReload });
+  return shouldReload;
 }
