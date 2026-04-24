@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -63,7 +62,10 @@ func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 		}
 		active := 0
 		for _, snapshot := range snapshots {
-			if isActiveAgentState(snapshot.State) {
+			// P22 P4 S1b: the "active" predicate is now a public
+			// contract helper so the UI and any other consumer share
+			// a single authoritative definition.
+			if contract.IsActiveAgentState(snapshot.State) {
 				active++
 			}
 		}
@@ -167,11 +169,4 @@ func bindEventBridge(lc fx.Lifecycle, bridge *EventBridge) {
 	})
 }
 
-func isActiveAgentState(state string) bool {
-	switch state {
-	case "", agentdto.StateStopped, agentdto.StateFailed:
-		return false
-	default:
-		return true
-	}
-}
+
