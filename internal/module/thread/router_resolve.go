@@ -13,26 +13,6 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// bindPromptStore wires the prompt_templates store post-construction. Kept as
-// a setter (rather than a NewService parameter) to avoid churning the
-// constructor signature; module.go calls it from registerSubscriptions.
-func (s *service) bindPromptStore(store promptstore.Store) {
-	if s == nil || store == nil {
-		return
-	}
-	s.promptStore = store
-}
-
-// bindClassifier wires the optional prompt classifier. Nil and NoopClassifier
-// are both safe: resolveRoutedPrompt guards on Enabled() so the existing
-// single-pin path stays the exact same machine behavior when the classifier
-// is off.
-func (s *service) bindClassifier(c classifier.Classifier) {
-	if s == nil || c == nil {
-		return
-	}
-	s.classifier = c
-}
 
 func shouldSkipRoutedPrompt(s *service, req *StartRequest) bool {
 	switch {

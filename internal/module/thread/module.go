@@ -3,10 +3,7 @@ package thread
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
 
@@ -16,21 +13,24 @@ import (
 // signatures identical without reviving a thread↔turn import cycle.
 var _ turn.PendingLaunchSpawner = (Service)(nil)
 
+// subscriptionParams is an fx.In for the subscription lifecycle hook only.
+// P22 P2 (thread) removed the late-setter injection path (bindDispatcher /
+// bindPromptStore / bindClassifier): those deps are now constructor params
+// on NewServiceWithPromptAssemblyAndSharedFiles, so this struct no longer
+// carries them. The bus-callback guard matcher
+// `bus_callback_must_not_register_late_setter` enforces that.
 type subscriptionParams struct {
 	fx.In
 
-	Lifecycle   fx.Lifecycle
-	Dispatcher  *event.Dispatcher     `optional:"true"`
-	Service     Service               `optional:"true"`
-	PromptStore promptstore.Store     `optional:"true"`
-	Classifier  classifier.Classifier `optional:"true"`
+	Lifecycle fx.Lifecycle
+	Service   Service `optional:"true"`
 }
 
 var Module = fx.Module("thread",
 	fx.Provide(
 		fx.Annotate(
 			NewServiceWithPromptAssemblyAndSharedFiles,
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
 			// Publish the service under both thread.Service (its native
 			// interface, required by uistate/orchestration) and
 			// turn.PendingLaunchSpawner so NewTurnHandlers can pick it up
@@ -54,11 +54,6 @@ func registerSubscriptions(p subscriptionParams) {
 	if !ok || svc == nil {
 		return
 	}
-	if p.Dispatcher != nil {
-		svc.bindDispatcher(p.Dispatcher)
-	}
-	svc.bindPromptStore(p.PromptStore)
-	svc.bindClassifier(p.Classifier)
 
 	var cancels []context.CancelFunc
 	p.Lifecycle.Append(fx.Hook{

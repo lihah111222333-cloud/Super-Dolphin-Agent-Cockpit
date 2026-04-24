@@ -5,10 +5,12 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -25,7 +27,7 @@ func NewService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(
@@ -41,7 +43,7 @@ func NewServiceWithPromptAssembly(
 	cfg *platformconfig.Config,
 	toolRegistry contract.ToolRegistry,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil)
 }
 
 func NewServiceWithPromptAssemblyAndSharedFiles(
@@ -57,8 +59,10 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	promptAssembly contract.PromptAssemblyService,
 	cfg *platformconfig.Config,
 	toolRegistry contract.ToolRegistry,
+	promptStore promptstore.Store,
+	promptClassifier classifier.Classifier,
 ) Service {
-	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry)
+	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, promptStore, promptClassifier)
 }
 
 func newService(
@@ -74,6 +78,8 @@ func newService(
 	promptAssembly contract.PromptAssemblyService,
 	cfg *platformconfig.Config,
 	toolRegistry contract.ToolRegistry,
+	promptStore promptstore.Store,
+	promptClassifier classifier.Classifier,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -95,6 +101,8 @@ func newService(
 		turns:            turns,
 		orchestration:    orchestration,
 		bus:              dispatcher,
+		promptStore:      promptStore,
+		classifier:       promptClassifier,
 		emitStarted:      bus.NewEmitter[threaddto.Started](dispatcher),
 		emitStopped:      bus.NewEmitter[threaddto.Stopped](dispatcher),
 		emitUpdated:      bus.NewEmitter[threaddto.Updated](dispatcher),

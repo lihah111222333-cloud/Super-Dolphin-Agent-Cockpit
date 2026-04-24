@@ -64,23 +64,40 @@ func TestBusCallbackGuard(t *testing.T) {
 		}
 	})
 
-	matcherCases := []struct {
-		name        string
-		owningSlice string
-	}{
-		{
-			name:        "bus_callback_must_not_register_late_setter",
-			owningSlice: "P2 (thread registerSubscriptions -> bindDispatcher/bindPromptStore)",
-		},
-	}
+	// P2 (thread wiring) live matcher: after the thread S1 slice lands
+	// (NewServiceWithPromptAssemblyAndSharedFiles now takes promptStore +
+	// classifier as constructor params), the thread module.go must not
+	// reintroduce the late-setter injection pattern. All three setter
+	// tokens are forbidden in module.go; `fx.Invoke` is still allowed
+	// because registerSubscriptions now only wires the lifecycle hook.
+	t.Run("bus_callback_must_not_register_late_setter", func(t *testing.T) {
+		t.Parallel()
+		root := repoRootForGuardTests(t)
+		path := filepath.Join(root, "internal", "module", "thread", "module.go")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		src := string(data)
+		forbidden := []string{
+			"svc.bindDispatcher(",
+			"svc.bindPromptStore(",
+			"svc.bindClassifier(",
+			".bindDispatcher(",
+			".bindPromptStore(",
+			".bindClassifier(",
+		}
+		var hits []string
+		for _, token := range forbidden {
+			if strings.Contains(src, token) {
+				hits = append(hits, token)
+			}
+		}
+		if len(hits) > 0 {
+			t.Fatalf("thread/module.go reintroduced pre-P2 late-setter injection from registerSubscriptions; forbidden tokens present: %v", hits)
+		}
+	})
 
-	for _, tc := range matcherCases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			t.Skipf("matcher skeleton only; owning slice will flip red→green: %s", tc.owningSlice)
-		})
-	}
 
 	// P2 Finding 7 live matcher: after commit 7837d6b+1 the auto-dream
 	// subscription must only enqueue into autoDreamScheduler; the old fire-
