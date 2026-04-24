@@ -752,3 +752,104 @@ runtime 传回 `claude-opus-4-7[1m]` → canonicalize 到 `opus[1m]` → 下拉�
 - `internal/app/app.go` desktop pre-drain helper 已确认/调整为 `WaitRuntimeDone` 先于 `DrainRuntime`，避免 desktop shutdown 分支保留旧的 drain-before-wait 语义。
 - 本轮同步补强 `TestShutdownOrdering` AST gate、`TestBindRuntimeWaitsRunGroupBeforeDrain`、session-private allowlist integrity、memory/thread race 回归测试；`a81554c` 记录的 NEEDS-FIX 项以本 overlay 后续验证结果为准。
 - `runner.actors` 在 P21 文档中保留为 historical role naming；active Fx tag 统一澄清为 `group:"runners"`。
+
+
+### 8.4.3 P22+P22.1 HEAD `aa09f58` V3-B 锚点修正 overlay（2026-04-25）
+
+> 本节按 §10.31 只加不删追加；§8.4.2 的 HEAD `5d6a93c` 记录保留为 Round-3 代码修复基线历史 overlay。V3-B 复核实测当前仓库 `git rev-parse --short HEAD` 为 `aa09f58`，因此文档 HEAD 锚点以 `aa09f58` 为准。
+
+- `5d6a93c` 仍作为 Round-3 代码修复提交锚点保留，不再表述为当前 Git HEAD。
+- 当前文档复核基线为 HEAD `aa09f58`；代码真值仍为 root `BindRuntime.OnStop` 的 `cancel → waitForRuntimeDone → drainRuntimeBeforeStop`，以及 desktop `preDrainDesktopRuntime` 的 `WaitRuntimeDone → DrainRuntime`。
+- P21 `runner.actors` historical role naming 与 active Fx tag `group:"runners"` 澄清继续沿用 §8.4.2 结论。
+
+---
+
+## 9. 2026-04-25 P22+P22.1 双 lane 完整收口（本会话追加）
+
+> 会话范围：(a) P22.1 14 节点 DAG 完整实施（Phase 0 → P3B）；(b) Round 1 互审 + 修复（10 真问题）；(c) Round 2 BUG 修正（Audit-C wait<drain 矛盾 + P22-P4 接管）；(d) Final 4 路 R10 级终验戳穿 BindRuntime 顺序 regression；(e) Round 3 集中修复（6 BLOCK + 5 文档 + p21 docs）；(f) Round 3 复核 4 路 Recheck 中。共 ~35 路 codex agent 协作。
+> HEAD：`aa09f58 docs(p22.1): update round-3 BLOCK overlay and sync lifecycle test integrity`
+
+### 9.1 commit 链
+
+| Commit | 来源 |
+|---|---|
+| `9f29294` | Phase 0 骨架（BusModule subscribers + RunnerModule contract + archtest skeleton）|
+| `25a37ad` | P1A + P1B（root shutdown 反转 + watchFXShutdown owner ctx）|
+| `f737e45` | P2A.1 insight BusModule（golden rules 模板）|
+| `17b5ce7` | P2A.2 + P2B 4 包（observation + rpc + hooks + mcpcontrol）|
+| `dfe12e6` | P2E cachekeepalive |
+| `b386217` | P2F + P2C + P2D 三路并行（toolbridge + thread + memory）|
+| `a9a018e` | P3A + P3B factory 整合 + archtest 加固 |
+| `a81554c` | Round 1+2 archtest 加固 + insight/observation sync.Once |
+| `fafa864` | Round 1+2 全合入（cron + uistate BusModule + rpc race + P1a/P1b/P4-4 root ctx）|
+| `5d6a93c` | prompt e2e regression 修 |
+| `aa09f58` | Round 3 集中修复（runner.go OnStop 顺序 + AST gate + integrity + p21 docs）|
+
+### 9.2 销账完整度
+
+**F-1~F-11（11 条 P22.1 finding）**：
+- F-1 root shutdown ordering：✅ Round 3 真修（cancel→wait→drain）
+- F-2 watchFXShutdown boundary：✅ P1B + P3A allowlist
+- F-3~F-11：✅ Phase 2 全销账（memory / thread / cachekeepalive / hooks / rpc / mcpcontrol / toolbridge / insight / observation）
+
+**P22 §7.5 deferred 10 条**：8 ✅ + 1 🟡（#2 toolbridge env opt-in 兼容路径保留）+ 1 ✅（#10 docs/契约 P22-1 处理）
+
+**Round 3 6 条代码 BLOCK**：全 ✅（runner.go 顺序 / runtime test 反向 / TestShutdownOrdering AST / vet 错 / nested race / events_test fake mutex）
+
+**5 处文档 HEAD overlay**：✅ `a81554c → 5d6a93c → aa09f58` 三层叠加保留历史
+
+### 9.3 Agent 使用统计
+
+| 阶段 | 路数 |
+|---|---:|
+| **P22.1 实施**：Phase 0 + Batch 1 + Batch 2 + Batch 3 + Batch 5 | 11 |
+| Round 1 互审（复用原 agent）V1-V5 | 5 |
+| Round 1 修复（"发现问题的 agent 直接修"）Audit-A/B/C/D + P22-1/2/3/4 | 8 |
+| Round 2 重修（Audit-C + P22-P4-takeover）| 2 |
+| Final 4 路 R10 终验（V1/V2/V3/V4 全新 codex）| 4 |
+| Round 3 集中修复 | 1 |
+| Round 3 复核 4 路（Recheck-1/2/3/4 全新 codex）| 4 |
+| **会话总计** | **~35** |
+
+### 9.4 §10 新教训建议（待落盘 `docs/plans/迁移/会话习惯.md`）
+
+- **§10.46 多轮独立复核必须用全新 codex（R10 级别）**：本会话 4 路终验 + 4 路复核都派全新 codex（不复用任何前序 agent），保证独立性。这是 §10.22 独立第三方终审的工程化扩展。
+- **§10.47 修复 agent 也会引入 regression**：P22-P4-takeover 修 P4-4 时蹭手反转了 drain 顺序（cancel→drain→wait），违反 P1A 原始正确顺序。Round 3 才修正。教训：复杂修复必须有独立验证戳穿。
+- **§10.48 archtest fail-mode 真生效需 AST 而非 literal grep**：`TestShutdownOrdering` 原依赖 `strings.Index "<-done"`，但 runner.go 用 `waitForRuntimeDone` helper 不含 literal → wait 检测 dormant 表面 PASS 掩盖真违规。Round 3 升级 AST 后真生效。
+- **§10.49 文档 HEAD overlay 应自动跟随 commit**：本会话 5 处文档 HEAD overlay 写 `a81554c` 但实际 HEAD 已变 `5d6a93c`/`aa09f58`，需要每次 commit 后追加新 overlay。§10.43 漂移记账规范 + §10.31 只加不删。
+- **§10.50 主审报告幻觉戳穿**：Audit-D 报告 `insight/module.go:48-63` 有 two-hop subscription 是 LSP 缓存或自身实验未真回滚误判；主 agent LSP 实证 41 行干净。教训：审查报告必须 `lsp_grep` 真值复核，不直信。
+
+### 9.5 Defer 项（follow-up 债）
+
+- §7.5 #2 toolbridge `TOOLBRIDGE_ALLOW_DEFAULT_PERSISTENT_SUBAGENT=1` 兼容路径（保留为 explicit env opt-in，符合 P4 R2 共识）
+- factory.go 800 行豁免边界（C7 实证 738 行可塞 25 组业务 Start/Stop；P22.1 P3B 设计接受，可单开 lane）
+- lint 110 issues（errcheck 34 / staticcheck 24 / unused 50；optional 不阻塞）
+
+### 9.6 下一步建议
+
+1. **等 Recheck-1/2/3/4 整体裁决**（当前 running）— Recheck-4 给最终 P22+P22.1 双 READY 判定
+2. ✅ 双 READY → P22+P22.1 完整收口宣布；§10.46-50 5 条新教训落盘 `会话习惯.md`
+3. 🟠/🔴 → 派 Round 4 单点修
+4. P22 主线可 release：BusModule contract + RunnerModule contract + Canonical Turn Observation Contract + fail-mode gate (AST one-hop helper resolver) + 9 字段 session-private allowlist
+5. P22.1 文档建议归档为只读快照（不再追加）
+
+### 9.7 最近 10 条对话摘要
+
+1. 老公读 session-summary + 会话习惯（启动会话）
+2. 老公开干 P22.1 按 DAG 执行 → Phase 0 骨架
+3. 跳过互审推进 Batch 1 P1A+P1B 并行
+4. P2A.1 insight 模板 → P2A.2 串行 → P2B 最大 slice 3 包 → P2E → 老公"加速"P2F+P2C+P2D 三路并行 → P3A+P3B 合并收口
+5. 老公"金融1:5互审" → 复用 5 原 agent → 8 路修复 + 文档 5 overlay → 老公 OVERTURN BLOCK-B（factory.go 多 caller 合理）
+6. Round 2 重修（Audit-C 矛盾 + P22-P4 接管）
+7. 老公"再拉4个全量验证 P22 P22.1" → Final-V1/V2/V3/V4 4 路终审
+8. Final 4 路 cross-check 戳穿 P22-P4-takeover regression（cancel→drain→wait 违反 §10.30）+ 文档 5 处 HEAD drift
+9. 老公"安排第二轮修复" → Round 3 集中修 18 文件 → 老公 commit `aa09f58`
+10. 老公"4 agent 复核" → Recheck-1/2/3/4 全新 codex 派出，进行中
+
+### 9.8 子 Agent 提示词模式（本会话治成）
+
+- **§10.4 复用 + §10.22 独立第三方混合**：实施轮复用原 agent，终验/复核轮强制全新 codex；不重叠
+- **§10.40 防空跑独立形态**：复核 agent 必须用与原 agent **不同** receiver 名 / helper 名 / goroutine 形态做 fail-injection
+- **§10.34 兄弟机制**：thinking 卡死 agent stop + 主 agent 接管核验工作区落盘改动
+- **5 级分类硬规则**：🔴 BLOCK / 🟠 NEEDS-FIX / 🟡 TRUE-BUT-DEFERRED / 🟢 DOC-DRIFT / ✅ PASS — 每路终审必须用此分级
+- **OVERTURN/REINSTATE 老公一票裁决权**：互审报告对 factory.go 三路 BLOCK 被老公 OVERTURN（多 caller 证明 assembly factory pattern 合理，不破坏 §10.30）

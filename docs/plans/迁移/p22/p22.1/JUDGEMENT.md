@@ -455,3 +455,14 @@ P22.1 ⊂ P22（不是独立新 lane）。本仲裁文件与 P22.1 其他 4 份�
 ### §R8.2 剩余裁决
 
 Round-3 指定的 runner ordering、desktop pre-drain ordering、vet goroutine fatal、memory coalesce race、thread event fake-store race、session-private BindRuntime allowlist integrity、P21 `runner.actors` active tag 澄清均纳入本轮收口。最终 READY 仍以本轮交付报告的 fail-injection 与全链验证输出为准。
+
+
+## §R9 HEAD `aa09f58` V3-B 锚点修正 overlay（2026-04-25）
+
+> 本节按 §10.31 / §10.44 末尾追加；§R8 的 HEAD `5d6a93c` 记录保留为 Round-3 代码修复基线历史 overlay。V3-B 复核实测当前仓库 `git rev-parse --short HEAD` 为 `aa09f58`，因此当前文档 HEAD 锚点修正为 `aa09f58`。
+
+### §R9.1 锚点裁决
+
+- `5d6a93c`：保留为 Round-3 代码修复提交锚点，不再作为当前 Git HEAD 声明。
+- `aa09f58`：作为当前复核 HEAD 锚点，用于承接 V3-B 对 §10.33 防旧基线的修正。
+- 代码顺序裁决不变：root `BindRuntime.OnStop` 为 `cancel → waitForRuntimeDone → drainRuntimeBeforeStop`；desktop `preDrainDesktopRuntime` 为 `WaitRuntimeDone → DrainRuntime`。
