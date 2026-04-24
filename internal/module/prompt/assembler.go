@@ -41,7 +41,7 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 	// Merge DB-sourced prompt_template sections (if any). Static blocks flow
 	// into CachedPrefix, dynamic into UncachedTail. Blocks whose EnableWhen
 	// rejects the current BuildCtx are filtered out here (Step 3b gate).
-	resolved = mergeTemplateSections(resolved, in.BaseInstructionBlocks, buildCtx)
+	resolved = mergeTemplateSections(resolved, in.BaseInstructionBlocks, buildCtx, in.Prompt)
 	boundary := startAssemblyBoundary(resolved, strings.TrimSpace(in.BaseInstructions))
 	base := joinBlocks(boundaryCachedPrefix(boundary), boundaryUncachedTail(boundary))
 	userMeta := s.buildStartUserMeta(buildCtx, resolved)
