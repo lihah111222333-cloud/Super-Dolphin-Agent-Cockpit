@@ -1,6 +1,6 @@
 # P22 `fx / bus / run.Group` 分层纠偏总览
 
-> 创建时间：2026-04-22 | 更新时间：2026-04-23 | 状态：**规划中**
+> 创建时间：2026-04-22 | 更新时间：2026-04-24 | 状态：**P0/P1a/P1b/P1c/P2/P3/P4 主批收口；持续回归由 archtest 维持**
 > 当前 authoritative 文档：`README.md`、[`P0_RuntimeOwnershipSkeleton.md`](P0_RuntimeOwnershipSkeleton.md)、[`P1a_CodexAppPeerSupervisor.md`](P1a_CodexAppPeerSupervisor.md)、[`P1b_PlatformLoopRunners.md`](P1b_PlatformLoopRunners.md)、[`P1c_CodexAppSessionRuntime.md`](P1c_CodexAppSessionRuntime.md)、[`P2_BusRuntimeDecoupling.md`](P2_BusRuntimeDecoupling.md)、[`P3_OrchestrationWaiterAlignment.md`](P3_OrchestrationWaiterAlignment.md)、[`P4_DependencyDirectionAndHiddenContracts.md`](P4_DependencyDirectionAndHiddenContracts.md)
 > 输入基线：2026-04-22 架构审查 findings 1-10；契约以 `docs/契约/modularity-convention.md §4.4 / §7`、`docs/契约/fx-convention.md §2 / §3`、`docs/契约/rungroup-convention.md §2 / §4` 为准
 
@@ -35,13 +35,13 @@
 
 | 优先级 | 子计划 | 覆盖问题 | 预计工时 | 当前状态 |
 |---|---|---|---|---|
-| **[P0](P0_RuntimeOwnershipSkeleton.md)** | 公共运行时骨架与守卫 | 统一整改模板、allowlist、archtest/grep guard | 0.5-1 天 | 🔲 未开动 |
-| **[P1a](P1a_CodexAppPeerSupervisor.md)** | CodexApp peer supervisor 收口 | Finding 1, 2 | 1-2 天 | 🔲 未开动 |
-| **[P1b](P1b_PlatformLoopRunners.md)** | 平台长跑 loop 抽 Runner | Finding 3, 4 | 1 天 | 🔲 未开动 |
-| **[P1c](P1c_CodexAppSessionRuntime.md)** | CodexApp session runtime 收口 | session read/health/recovery hidden runtime | 1-2 天 | 🔲 未开动 |
-| **[P2](P2_BusRuntimeDecoupling.md)** | bus/runtime 解耦 | Finding 5, 6, 7, 9, 10 + thread/hooks/toolbridge/config fanout/keepalive/rpc push/memory hook/gopls/bootstrap runtime 遗留问题 | 2.5-5 天 | 🔲 未开动 |
-| **[P3](P3_OrchestrationWaiterAlignment.md)** | orchestration wait/exit 归位 | Finding 8 | 1-1.5 天 | 🔲 未开动 |
-| **[P4](P4_DependencyDirectionAndHiddenContracts.md)** | 依赖方向与隐藏契约收口 | `ui/wails`、`provider/claudecli`、`toolbridge`、`cmd/mcp-orch/orchestration`、`thread/turn` 的模块边界/隐藏 contract 违规 | 2-4 天 | 🔲 未开动 |
+| **[P0](P0_RuntimeOwnershipSkeleton.md)** | 公共运行时骨架与守卫 | 统一整改模板、allowlist、archtest/grep guard | 0.5-1 天 | ✅ 已收口（42fef57 + 40f4677）|
+| **[P1a](P1a_CodexAppPeerSupervisor.md)** | CodexApp peer supervisor 收口 | Finding 1, 2 | 1-2 天 | ✅ 已收口（42fef57，PeerSupervisor + 守卫 6 项）|
+| **[P1b](P1b_PlatformLoopRunners.md)** | 平台长跑 loop 抽 Runner | Finding 3, 4 | 1 天 | ✅ 已收口（SweeperRunner + ApprovalCleanupRunner 入 group:"runners"）|
+| **[P1c](P1c_CodexAppSessionRuntime.md)** | CodexApp session runtime 收口 | session read/health/recovery hidden runtime | 1-2 天 | ✅ 已收口（4dfed68 + 366c702，SessionRuntime 接管 readLoop/healthLoop）|
+| **[P2](P2_BusRuntimeDecoupling.md)** | bus/runtime 解耦 | Finding 5, 6, 7, 9, 10 + thread/hooks/toolbridge/config fanout/keepalive/rpc push/memory hook/gopls/bootstrap runtime 遗留问题 | 2.5-5 天 | ✅ 已收口（Finding 5–10 + thread/hooks/keepalive/rpc push/memory + gopls-S1/S2/S3（549beba/8406372/35ce09b）+ bootstrap-S1/S2（a524f6c/9a8a609））|
+| **[P3](P3_OrchestrationWaiterAlignment.md)** | orchestration wait/exit 归位 | Finding 8 | 1-1.5 天 | ✅ 已收口（processExitMonitor 单 owner + 守卫）|
+| **[P4](P4_DependencyDirectionAndHiddenContracts.md)** | 依赖方向与隐藏契约收口 | `ui/wails`、`provider/claudecli`、`toolbridge`、`cmd/mcp-orch/orchestration`、`thread/turn` 的模块边界/隐藏 contract 违规 | 2-4 天 | ✅ 已收口（S1..S4c6 + S5a/S5b；最后 commit 1226cc4）|
 
 ## Findings 对照表
 
