@@ -168,6 +168,14 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if err != nil {
 		return nil, err
 	}
+	// P22 P1c: explicit runtime start. newSession no longer spawns
+	// reader / health goroutines, so StartSession is the sole production
+	// launch point for this session's runtime handle. Start BEFORE any
+	// subsequent transport.Call (startDynamicSession dispatches RPCs whose
+	// responses require the runtime-owned reader to be live).
+	if s.runtime != nil {
+		s.runtime.Start()
+	}
 	baseInstructions, developerInstructions := startAssemblyInstructions(req)
 	s.setRuntimeConfig(req.Config)
 	if baseInstructions != "" {
@@ -184,6 +192,13 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager)
 	if err != nil {
 		return nil, err
+	}
+	// P22 P1c: explicit runtime start BEFORE resumeRemoteThread; the latter
+	// issues a thread/resume RPC whose response lands via the runtime-owned
+	// reader. If resume fails below, cleanupFailedSession → ForceStop →
+	// runtime.Stop idempotently drains the runtime.
+	if s.runtime != nil {
+		s.runtime.Start()
 	}
 	threadID, err := resumeRemoteThread(ctx, s.transport, req)
 	if err != nil {

@@ -97,14 +97,22 @@ func startRecoveryToolBridgeServer(t *testing.T, connections chan<- *websocket.C
 
 func stopReadLoopForReconnect(t *testing.T, s *session) {
 	t.Helper()
+	// P22 P1c: the reader loop is now owned by SessionRuntime. Simulate the
+	// "connection lost" condition the old helper was proving by closing the
+	// transport socket + cancelling the runtime's current reader context,
+	// then waiting on the runtime-owned done channel.
 	s.transport.closed.Store(true)
 	defer s.transport.closed.Store(false)
 	s.transport.closeSocket()
-	s.stopReadLoop()
+	if s.runtime != nil {
+		s.runtime.cancelReader()
+	}
 	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := s.waitReadLoopStopped(stopCtx); err != nil {
-		t.Fatalf("waitReadLoopStopped() error = %v", err)
+	if s.runtime != nil {
+		if err := s.runtime.waitReader(stopCtx); err != nil {
+			t.Fatalf("runtime.waitReader() error = %v", err)
+		}
 	}
 }
 
@@ -182,6 +190,9 @@ func TestToolBridge_Recovery_CancelInflight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
+	// P22 P1c: production code starts the runtime via driver.StartSession /
+	// ResumeSession. Tests that call newSession directly must mimic that.
+	s.runtime.Start()
 	defer func() {
 		if s.ctx.Err() == nil {
 			closeCodexTestSession(t, s)
@@ -204,11 +215,9 @@ func TestToolBridge_Recovery_CancelInflight(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for tool ctx cancellation")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := s.waitReadLoopStopped(ctx); err != nil {
-		t.Fatalf("waitReadLoopStopped() error = %v", err)
-	}
+	// P22 P1c: s.Close() already drained the runtime above; the historical
+	// waitReadLoopStopped assertion is now redundant because runtime.Stop()
+	// joins the reader before Close returns.
 }
 
 func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
@@ -234,6 +243,9 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
+	// P22 P1c: newSession builds the runtime but does not Start it; tests
+	// that drive reader-dependent flows must Start explicitly.
+	s.runtime.Start()
 	defer closeCodexTestSession(t, s)
 	first := waitCodexTestConn(t, connections)
 	s.setThreadID("thread-1")
@@ -247,7 +259,10 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 	if first == second {
 		t.Fatal("reconnect did not establish a new websocket connection")
 	}
-	s.startReadLoop()
+	// P22 P1c: reader is owned by runtime; restart via runtime.restartReader().
+	if s.runtime != nil && !s.runtime.restartReader() {
+		t.Fatal("runtime.restartReader() returned false")
+	}
 	if err := s.resumeThreadAfterRecovery(s.ctx); err != nil {
 		t.Fatalf("resumeThreadAfterRecovery() error = %v", err)
 	}

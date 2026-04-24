@@ -152,6 +152,8 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
+	// P22 P1c: mirror driver.StartSession's explicit runtime.Start().
+	s.runtime.Start()
 	defer closeCodexTestSession(t, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

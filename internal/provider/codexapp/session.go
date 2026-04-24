@@ -53,6 +53,11 @@ type session struct {
 	// ServerManager-backed sessions.
 	poolRelease        func()
 	poolReleaseOnce    sync.Once
+	// runtime is the session-private RunnerModule owner introduced by P22
+	// P1c. It replaces the implicit reader / health / recovery goroutines
+	// newSession() used to start. driver.StartSession / ResumeSession call
+	// runtime.Start() explicitly; Close / ForceStop drain via runtime.Stop().
+	runtime *SessionRuntime
 }
 
 var _ contract.Session = (*session)(nil)
@@ -141,9 +146,9 @@ func newSessionWithOptions(
 	}
 	s.poolRelease = cfg.poolRelease
 	s.noteReadActivity()
-	s.startReadLoop()
-	s.startHealthLoop()
-
+	// P1c: newSession only builds the runtime handle. Start() is an explicit
+	// production call site inside driver.StartSession / driver.ResumeSession.
+	s.runtime = newSessionRuntime(s, logger)
 	return s, nil
 }
 
@@ -356,6 +361,11 @@ func (s *session) Close(context.Context) error {
 func (s *session) ForceStop() error {
 	return s.shutdownSession(false)
 }
+
+// SessionRuntime returns the session-private runtime handle. Exposed for
+// explicit Start() call sites (driver.StartSession / ResumeSession) and
+// tests; no production code outside this package should reach into it.
+func (s *session) SessionRuntime() *SessionRuntime { return s.runtime }
 
 // shutdownSessionCleanup handles cleanup when a session shuts down.
 // Currently its single job is to return a pool-backed session to the

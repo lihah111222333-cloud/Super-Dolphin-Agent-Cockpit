@@ -230,7 +230,26 @@ func (s *session) shutdownSession(graceful bool) error {
 	}
 	s.clearProcessedApprovals()
 	s.shutdownSessionCleanup() // unregister from idle tracking
-	s.cancel()
+	// P22 P1c: drain reader / health / recovery via the single runtime handle
+	// before tearing down the transport. runtime.Stop() closes the stop gate,
+	// cancels s.ctx, and joins every runtime-owned goroutine; callers no
+	// longer need to reach for waitReadLoopStopped() to prove drain.
+	//
+	// The WS conn.ReadMessage call inside transport.ReadLoop is NOT ctx-aware
+	// — it only unblocks when the underlying socket closes. So we pre-close
+	// the socket here before asking the runtime to join the reader; otherwise
+	// runtime.waitReaderDone would block forever waiting on a read that never
+	// returns. Marking closed=true up-front also suppresses connection.dead
+	// re-entry via endReadLoop during the shutdown window.
+	if s.transport != nil {
+		s.transport.closed.Store(true)
+		s.transport.closeSocket()
+	}
+	if s.runtime != nil {
+		s.runtime.Stop()
+	} else {
+		s.cancel()
+	}
 	return s.transport.shutdownTransport(graceful)
 }
 

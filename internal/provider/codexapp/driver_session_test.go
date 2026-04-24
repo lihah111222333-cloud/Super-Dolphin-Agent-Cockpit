@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -93,8 +92,17 @@ func TestNewSessionInitializesStateAndCapabilities(t *testing.T) {
 	if s.transport == nil || !s.transport.Running() {
 		t.Fatal("newSession() transport is not running")
 	}
-	if s.ctx == nil || s.cancel == nil || s.readLoopDone == nil {
-		t.Fatal("newSession() did not initialize runtime state")
+	// P22 P1c: newSession must build the session ctx, cancel and runtime
+	// handle, but must NOT have started the runtime yet — Start() is an
+	// explicit production call site inside StartSession / ResumeSession.
+	if s.ctx == nil || s.cancel == nil {
+		t.Fatal("newSession() did not initialize session ctx / cancel")
+	}
+	if s.runtime == nil {
+		t.Fatal("newSession() did not build SessionRuntime handle")
+	}
+	if s.runtime.Started() {
+		t.Fatal("newSession() must not implicitly Start() the runtime")
 	}
 	for cap, want := range codexCapabilities {
 		if s.caps[cap] != want {
@@ -296,12 +304,11 @@ func startCodexTestServer(t *testing.T) string {
 func closeCodexTestSession(t *testing.T, s *session) {
 	t.Helper()
 
+	// P22 P1c: s.Close() now drains reader/health/recovery via runtime.Stop();
+	// callers no longer need to reach for a waitReadLoopStopped helper to
+	// prove drain. Keep this wrapper so existing tests do not need to know
+	// about SessionRuntime, but the body is just Close() + assertion.
 	if err := s.Close(context.Background()); err != nil {
 		t.Fatalf("Close() error = %v", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := s.waitReadLoopStopped(ctx); err != nil {
-		t.Fatalf("waitReadLoopStopped() error = %v", err)
 	}
 }
