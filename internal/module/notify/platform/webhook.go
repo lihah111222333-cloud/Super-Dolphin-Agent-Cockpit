@@ -30,10 +30,10 @@ var (
 // Zero values land on sensible defaults for production; tests override
 // AllowPrivateCIDR (to exercise the positive SSRF path) and Timeout.
 type WebhookClientConfig struct {
-	Timeout           time.Duration
-	AllowPrivateCIDR  bool
-	UserAgent         string
-	MaxResponseBytes  int64
+	Timeout          time.Duration
+	AllowPrivateCIDR bool
+	UserAgent        string
+	MaxResponseBytes int64
 }
 
 // WebhookClient is the SSRF-guarded HTTPS client shared by every
@@ -133,7 +133,7 @@ func (c *WebhookClient) Post(ctx context.Context, target, contentType string, bo
 	req.Header.Set("User-Agent", c.userAgent)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("notify: post: %w", err)
+		return fmt.Errorf("notify: post [redacted url]: %w", err)
 	}
 	defer resp.Body.Close()
 	// Drain a bounded prefix so keep-alive works and a large body

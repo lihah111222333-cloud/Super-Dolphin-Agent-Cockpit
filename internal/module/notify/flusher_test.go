@@ -1,8 +1,10 @@
 package notify
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,6 +18,66 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platform "github.com/anthropic-ai/super-agent-v3/internal/module/notify/platform"
 )
+
+type failingRoundTripper struct{}
+
+func (f failingRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("dial failed")
+}
+
+func flusherPostFailureLog(t *testing.T, cfg platform.ChannelConfig) string {
+	t.Helper()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	resolver := &testResolver{known: map[string]platform.ChannelConfig{"signed": cfg}}
+	n := NewNotifier(logger, resolver, 1)
+	client := platform.NewWebhookClient(platform.WebhookClientConfig{})
+	client.HTTPClient().Transport = failingRoundTripper{}
+	f := NewFlusher(logger, n, client, 100*time.Millisecond)
+	f.now = func() time.Time { return time.UnixMilli(1_700_000_000_000) }
+	f.handle(context.Background(), contract.NotifyRequest{
+		ChannelAlias: "signed",
+		Message: contract.NotifyMessage{
+			Title: "redact",
+			Body:  "body",
+			Level: contract.NotifyLevelWarn,
+		},
+	})
+	return buf.String()
+}
+
+func TestFlusherLogsRedactSignedDingtalkURL(t *testing.T) {
+	t.Parallel()
+	logLine := flusherPostFailureLog(t, platform.ChannelConfig{
+		Platform: platform.PlatformDingtalk,
+		URL:      "https://oapi.dingtalk.com/robot/send?access_token=token-secret",
+		Secret:   "dingtalk-secret",
+	})
+	for _, leaked := range []string{"timestamp=", "sign=", "token-secret", "access_token="} {
+		if strings.Contains(logLine, leaked) {
+			t.Fatalf("log leaked %q: %s", leaked, logLine)
+		}
+	}
+	if !strings.Contains(logLine, "notify: post failed") {
+		t.Fatalf("log missing post failure / redacted marker: %s", logLine)
+	}
+}
+
+func TestFlusherLogsRedactSlackBearerURL(t *testing.T) {
+	t.Parallel()
+	logLine := flusherPostFailureLog(t, platform.ChannelConfig{
+		Platform: platform.PlatformSlack,
+		URL:      "https://hooks.slack.com/services/T000/B000/SECRETXYZ",
+	})
+	for _, leaked := range []string{"/services/T000/B000/SECRETXYZ", "T000", "B000", "SECRETXYZ"} {
+		if strings.Contains(logLine, leaked) {
+			t.Fatalf("log leaked Slack bearer path %q: %s", leaked, logLine)
+		}
+	}
+	if !strings.Contains(logLine, "/services/redacted") {
+		t.Fatalf("log missing Slack redaction markers: %s", logLine)
+	}
+}
 
 // startSlackTLSServer returns a TLS httptest server that accepts POSTs
 // and records the bodies it receives. We use the AllowPrivateCIDR opt-

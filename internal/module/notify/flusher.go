@@ -2,7 +2,6 @@ package notify
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -166,7 +165,7 @@ func (f *Flusher) handle(ctx context.Context, req contract.NotifyRequest) {
 		f.resolveErrs.Add(1)
 		f.logger.Warn("notify: resolve alias failed",
 			slog.String("alias", req.ChannelAlias),
-			slog.String("error", err.Error()),
+			slog.String("error", platform.RedactError(err)),
 		)
 		return
 	}
@@ -176,7 +175,7 @@ func (f *Flusher) handle(ctx context.Context, req contract.NotifyRequest) {
 		f.logger.Warn("notify: render failed",
 			slog.String("platform", string(cfg.Platform)),
 			slog.String("url", platform.RedactURL(cfg.URL)),
-			slog.String("error", err.Error()),
+			slog.String("error", platform.RedactError(err)),
 		)
 		return
 	}
@@ -190,7 +189,7 @@ func (f *Flusher) handle(ctx context.Context, req contract.NotifyRequest) {
 		f.logger.Warn("notify: post failed",
 			slog.String("platform", string(cfg.Platform)),
 			slog.String("url", platform.RedactURL(cfg.URL)),
-			slog.String("error", err.Error()),
+			slog.String("error", platform.RedactError(err)),
 		)
 		return
 	}
@@ -237,8 +236,3 @@ func (f *Flusher) Metrics() Metrics {
 		DrainDrops:  f.drainDrops.Load(),
 	}
 }
-
-// silence unused import warning in bare builds where errors.Is isn't
-// exercised by the current file body; kept explicit so reviewers see
-// the wrapping convention used by tests.
-var _ = errors.Is
