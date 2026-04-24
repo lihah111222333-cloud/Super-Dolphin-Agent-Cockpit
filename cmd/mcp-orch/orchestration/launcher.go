@@ -338,9 +338,9 @@ func maybeUpdateRemoteManagedAgentName(ctx context.Context, launcher *remoteLaun
 	if candidate == "" || candidate == normalizeManagedAgentDisplayName(agent.name) {
 		return
 	}
-	if _, err := rpcCall[struct{}](ctx, launcher, "thread/name/set", map[string]any{
-		"thread_id": agent.remoteThreadID,
-		"name":      candidate,
+	if _, err := rpcCall[struct{}](ctx, launcher, LauncherMethodThreadNameSet, map[string]any{
+		LauncherParamThreadID: agent.remoteThreadID,
+		LauncherParamName:     candidate,
 	}); err != nil {
 		pkglogger.Warn("remoteLauncher: thread/name/set RPC failed",
 			"agent_id", agent.id,
@@ -363,16 +363,16 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	// with different values. Collapse them here: send only `name`, falling back
 	// to req.Prompt when Name is empty.
 	displayName := managedAgentLaunchDisplayName(req.Name, req.Prompt)
-	resp, err := rpcCall[map[string]any](ctx, r, "thread/start", map[string]any{
-		"cwd":                strings.TrimSpace(req.Cwd),
-		"name":               shared.FirstTrimmed(displayName, req.Prompt),
-		"agent_type":         strings.TrimSpace(req.AgentType),
-		"agent_key":          strings.TrimSpace(req.AgentKey),
-		"agent_memory_scope": strings.TrimSpace(req.MemoryScope),
-		"parent_agent_id":    strings.TrimSpace(req.ParentID),
-		"base_instructions":  strings.TrimSpace(req.Instructions),
-		"provider":           launchProvider(req),
-		"model":              shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model")),
+	resp, err := rpcCall[map[string]any](ctx, r, LauncherMethodThreadStart, map[string]any{
+		LauncherParamCwd:              strings.TrimSpace(req.Cwd),
+		LauncherParamName:             shared.FirstTrimmed(displayName, req.Prompt),
+		LauncherParamAgentType:        strings.TrimSpace(req.AgentType),
+		LauncherParamAgentKey:         strings.TrimSpace(req.AgentKey),
+		LauncherParamAgentMemoryScope: strings.TrimSpace(req.MemoryScope),
+		LauncherParamParentAgentID:    strings.TrimSpace(req.ParentID),
+		LauncherParamBaseInstructions: strings.TrimSpace(req.Instructions),
+		LauncherParamProvider:         launchProvider(req),
+		LauncherParamModel:            shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model")),
 	})
 	elapsed := time.Since(start)
 	if err != nil {
@@ -384,10 +384,10 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		pkglogger.Warn("remoteLauncher: thread/start RPC slow",
 			"agent_id", agent.id, "elapsed", elapsed)
 	}
-	thread, _ := resp["thread"].(map[string]any)
+	thread, _ := resp[LauncherRespThread].(map[string]any)
 	result := LaunchResult{
-		ThreadID:      shared.FirstTrimmed(rpcString(thread["id"]), rpcString(resp["threadId"]), rpcString(resp["thread_id"])),
-		RemoteAgentID: shared.FirstTrimmed(rpcString(resp["agentId"]), rpcString(resp["agent_id"]), agent.id),
+		ThreadID:      resolveLauncherThreadStartAlias(thread, resp, launcherThreadStartThreadIDAliases, ""),
+		RemoteAgentID: resolveLauncherThreadStartAlias(nil, resp, launcherThreadStartAgentIDAliases, agent.id),
 	}
 	if result.ThreadID == "" {
 		return LaunchResult{}, errors.New("remote launcher: empty thread id")
@@ -407,7 +407,7 @@ func (r *remoteLauncher) Stop(ctx context.Context, agent *agentRuntime) error {
 	if agent == nil || agent.remoteThreadID == "" {
 		return nil
 	}
-	_, err := rpcCall[struct{}](ctx, r, "thread/stop", map[string]string{"thread_id": agent.remoteThreadID})
+	_, err := rpcCall[struct{}](ctx, r, LauncherMethodThreadStop, map[string]string{LauncherParamThreadID: agent.remoteThreadID})
 	return err
 }
 
@@ -417,19 +417,19 @@ func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, su
 	}
 	maybeUpdateRemoteManagedAgentName(ctx, r, agent, submission)
 	params := map[string]any{
-		"thread_id":              agent.remoteThreadID,
-		"input":                  submission.Inputs,
-		"selected_skills":        submission.SelectedSkills,
-		"manual_skill_selection": submission.ManualSkillSelection,
+		LauncherParamThreadID:             agent.remoteThreadID,
+		LauncherParamInput:                submission.Inputs,
+		LauncherParamSelectedSkills:       submission.SelectedSkills,
+		LauncherParamManualSkillSelection: submission.ManualSkillSelection,
 	}
 	if len(submission.OutputSchema) > 0 {
-		params["output_schema"] = submission.OutputSchema
+		params[LauncherParamOutputSchema] = submission.OutputSchema
 	}
-	resp, err := rpcCall[map[string]any](ctx, r, "turn/start", params)
+	resp, err := rpcCall[map[string]any](ctx, r, LauncherMethodTurnStart, params)
 	if err != nil {
 		return "", err
 	}
-	turnID := rpcString(resp["turn_id"])
+	turnID := rpcString(resp[LauncherRespTurnID])
 	if turnID == "" {
 		return "", errors.New("remote launcher: empty turn id")
 	}
