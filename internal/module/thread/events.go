@@ -8,7 +8,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -47,6 +46,9 @@ func (s *service) startBusWorkers() {
 	if s.agentLaunchedWorker != nil {
 		s.agentLaunchedWorker.Start()
 	}
+	if s.sessionRecoveryWorker != nil {
+		s.sessionRecoveryWorker.Start()
+	}
 }
 
 // stopBusWorkers drains every bus-callback worker bounded by ctx. The
@@ -57,18 +59,22 @@ func (s *service) stopBusWorkers(ctx context.Context) {
 		return
 	}
 	if s.taskHandoffWorker != nil {
-		if err := s.taskHandoffWorker.Stop(ctx); err != nil {
-			if s.logger != nil {
-				s.logger.Warn("thread: task handoff worker drain failed", "error", err)
-			}
-		}
+		s.drainBusWorker(ctx, "task handoff worker", s.taskHandoffWorker.Stop)
 	}
 	if s.agentLaunchedWorker != nil {
-		if err := s.agentLaunchedWorker.Stop(ctx); err != nil {
-			if s.logger != nil {
-				s.logger.Warn("thread: agent launched worker drain failed", "error", err)
-			}
-		}
+		s.drainBusWorker(ctx, "agent launched worker", s.agentLaunchedWorker.Stop)
+	}
+	if s.sessionRecoveryWorker != nil {
+		s.drainBusWorker(ctx, "session recovery worker", s.sessionRecoveryWorker.Stop)
+	}
+}
+
+// drainBusWorker invokes stop(ctx) and warn-logs the error on the
+// service logger. Extracted so stopBusWorkers stays flat enough to pass
+// the archtest CC-size guard as new workers land (thread S2/S3/S4+).
+func (s *service) drainBusWorker(ctx context.Context, name string, stop func(context.Context) error) {
+	if err := stop(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("thread: "+name+" drain failed", "error", err)
 	}
 }
 
@@ -178,13 +184,43 @@ func normalizedAgentLaunchCWD(s *service, binding *bindingstore.Binding, nextCWD
 // to prevent infinite loops (WS dies → recover → WS dies → recover → ...).
 const maxSessionRecoveryAttempts = 2
 
-// onAgentFailed handles passive session death. When the codexapp transport-level
-// recovery fails (WS reconnect exhausted), the session dispatches AgentFailed
-// with Recoverable=true. We escalate to a full session-level recovery:
-// evict the zombie session → wait for Codex thread to finish closing →
-// backgroundResumeIfNeeded creates a new WS session and resumes via UUID
-// from the binding store (DB is the single source of truth for the UUID).
+// onAgentFailed handles passive session death. When the codexapp
+// transport-level recovery fails (WS reconnect exhausted), the session
+// dispatches AgentFailed with Recoverable=true. P22 P2 thread S2: the
+// callback only computes the coalesce target and Enqueues into the
+// sessionRecoveryWorker, which owns the slow-path (rate-limit, evict
+// zombie, ctx-aware 3s reconnect delay, backgroundResumeIfNeeded). The
+// pre-P22 naked runtimesafe.SafeGo(context.Background(), ...) +
+// time.Sleep is gone; Stop drains pending + waits for every recovery
+// goroutine to observe its ctx cancellation.
 func (s *service) onAgentFailed(ev agentdto.AgentFailed) {
+	if s == nil || s.sessionRecoveryWorker == nil {
+		return
+	}
+	if !ev.Recoverable {
+		return
+	}
+	agentID := strings.TrimSpace(ev.AgentID)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	if agentID == "" {
+		return
+	}
+	// Match processSessionRecovery's target computation so coalesce
+	// key == the identifier the worker will hand to evict / resume.
+	target := shared.FirstNonEmpty(threadID, agentID)
+	s.sessionRecoveryWorker.Enqueue(target, ev)
+}
+
+// processSessionRecovery carries the pre-P22 onAgentFailed body (minus
+// the outer SafeGo + time.Sleep, which the worker now owns): rate-limit
+// the agent, evict the zombie session, wait for Codex to close the
+// thread (ctx-aware so Stop short-circuits), then call
+// backgroundResumeIfNeeded. Invoked exclusively by
+// sessionRecoveryWorker.drainPending on a tracked goroutine.
+func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentFailed) {
+	if s == nil {
+		return
+	}
 	if !ev.Recoverable {
 		return
 	}
@@ -211,13 +247,17 @@ func (s *service) onAgentFailed(ev agentdto.AgentFailed) {
 		"attempt", count,
 	)
 	// Evict the dead session so Resume creates a fresh one.
-	s.evictZombieSession(context.Background(), target)
+	s.evictZombieSession(ctx, target)
 	// Give Codex a moment to finish closing the thread — it returns
-	// "thread is closing; retry after closed" if we resume too fast.
-	runtimesafe.SafeGo(context.Background(), s.logger, "thread.codexReconnectDelay", func(ctx context.Context) {
-		time.Sleep(3 * time.Second)
-		s.backgroundResumeIfNeeded(ctx, target)
-	})
+	// "thread is closing; retry after closed" if we resume too fast. The
+	// sleep is ctx-aware so sessionRecoveryWorker.Stop short-circuits
+	// instead of blocking shutdown for the full 3 seconds.
+	select {
+	case <-time.After(sessionRecoveryReconnectDelay):
+	case <-ctx.Done():
+		return
+	}
+	s.backgroundResumeIfNeeded(ctx, target)
 }
 
 // incrSessionRecoveryCount atomically increments and returns the
