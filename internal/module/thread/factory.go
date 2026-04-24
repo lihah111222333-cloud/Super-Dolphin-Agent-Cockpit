@@ -264,6 +264,7 @@ func (s *service) buildOfflineConfig(
 	}
 	stored := decodeStoredThreadConfig(offlineThreadConfigRaw(thread))
 	provider := offlineThreadProvider(binding)
+	provider = shared.FirstNonEmpty(stored.Provider, provider)
 	return offlineConfigSnapshot{
 		Config: dto.ThreadConfig{
 			ThreadID:               id,
