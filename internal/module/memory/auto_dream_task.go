@@ -158,7 +158,7 @@ func (h *MemoryLifecycleHooks) waitDreamTask(ctx context.Context) error {
 // a non-blocking enqueue; the scheduler's tracked worker runs
 // maybeScheduleAutoDream under its own ctx so Close(gate) + Drain is the
 // sole path for shutdown, replacing the pre-P2 fire-and-forget `go`.
-func registerAutoDreamSubscriptions(p memoryHookParams, scheduler *autoDreamScheduler, appendCancel func(context.CancelFunc)) {
+func registerAutoDreamSubscriptions(p memorySubscriptionDeps, scheduler *autoDreamScheduler, appendCancel func(context.CancelFunc)) {
 	if p.Hooks == nil || !p.Hooks.enabled || scheduler == nil {
 		return
 	}

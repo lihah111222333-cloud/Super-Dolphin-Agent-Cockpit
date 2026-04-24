@@ -20,7 +20,7 @@ import (
 const autoDreamSchedulerQueueCap = 64
 
 // autoDreamSchedulerDrainGrace is the P22 P2 shutdown budget for draining the
-// queue + waiting for any in-flight dream task before registerMemoryHooks.OnStop
+// queue + waiting for any in-flight dream task before RunnerModule shutdown
 // returns.
 const autoDreamSchedulerDrainGrace = 10 * time.Second
 
@@ -53,9 +53,9 @@ type autoDreamScheduler struct {
 	taskCtx    context.Context
 	taskCancel context.CancelFunc
 
-	droppedTotal    atomic.Int64
-	processedTotal  atomic.Int64
-	scheduledTotal  atomic.Int64
+	droppedTotal   atomic.Int64
+	processedTotal atomic.Int64
+	scheduledTotal atomic.Int64
 }
 
 func newAutoDreamScheduler(hooks *MemoryLifecycleHooks, logger *slog.Logger) *autoDreamScheduler {

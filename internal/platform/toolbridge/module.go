@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
@@ -29,6 +28,7 @@ var Module = fx.Module("toolbridge",
 		provideWorkDirResolver,
 		provideDiffEmitter,
 		newDiffFallbackTracker,
+		NewToolbridgeDiffFallbackSubscribers,
 		provideProxyAddrFn,
 		// P22 P4 S3d: assembly adapters bridging the concrete store
 		// types to the toolbridge-local narrow ports (see ports.go). fx
@@ -47,7 +47,6 @@ var Module = fx.Module("toolbridge",
 	),
 	fx.Invoke(
 		bindCodexHandlers,
-		registerDiffFallbackLifecycle,
 		registerProxyLifecycle,
 	),
 )
@@ -163,26 +162,6 @@ func provideProxyAddrFn() func() string {
 	}
 }
 
-func registerDiffFallbackLifecycle(lifecycle fx.Lifecycle, dispatcher *event.Dispatcher, tracker *diffFallbackTracker) {
-	if lifecycle == nil || dispatcher == nil || tracker == nil {
-		return
-	}
-	var cancel context.CancelFunc
-	lifecycle.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			cancel = platformbus.ResilientSubscribe(dispatcher, tracker.handleToolCallEnd, tracker.logger)
-			return nil
-		},
-		OnStop: func(context.Context) error {
-			if cancel != nil {
-				cancel()
-				cancel = nil
-			}
-			return nil
-		},
-	})
-}
-
 // registerProxyLifecycle performs the synchronous setup half of the proxy:
 // open the listener, publish the address, and hand the listener to the
 // ProxyRunner that will serve it from run.Group. Serve + listener-close are
@@ -215,5 +194,3 @@ func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRun
 		},
 	})
 }
-
-

@@ -1,8 +1,6 @@
 package thread
 
 import (
-	"context"
-
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"go.uber.org/fx"
 )
@@ -14,19 +12,6 @@ import (
 // stops leaking through a side-channel interface; the thread module no
 // longer needs to import turn just to declare what shape it satisfies.
 var _ contract.PendingLaunchSpawner = (Service)(nil)
-
-// subscriptionParams is an fx.In for the subscription lifecycle hook only.
-// P22 P2 (thread) removed the late-setter injection path (bindDispatcher /
-// bindPromptStore / bindClassifier): those deps are now constructor params
-// on NewServiceWithPromptAssemblyAndSharedFiles, so this struct no longer
-// carries them. The bus-callback guard matcher
-// `bus_callback_must_not_register_late_setter` enforces that.
-type subscriptionParams struct {
-	fx.In
-
-	Lifecycle fx.Lifecycle
-	Service   Service `optional:"true"`
-}
 
 var Module = fx.Module("thread",
 	fx.Provide(
@@ -50,40 +35,15 @@ var Module = fx.Module("thread",
 			NewThreadHandlers,
 			fx.ParamTags("", `optional:"true"`),
 		),
+		provideThreadConcreteService,
+		NewThreadSubscribers,
 	),
-	fx.Invoke(registerSubscriptions),
+	fx.Provide(
+		fx.Annotate(threadBusWorkersAsRunner, fx.ResultTags(`group:"runners"`)),
+	),
 )
 
-func registerSubscriptions(p subscriptionParams) {
-	svc, ok := p.Service.(*service)
-	if !ok || svc == nil {
-		return
-	}
-
-	var cancels []context.CancelFunc
-	p.Lifecycle.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			// P22 P2 thread S3: start bus workers before the bus
-			// callbacks can fire, so Enqueue never races with a
-			// yet-to-be-started runWorker goroutine.
-			svc.startBusWorkers()
-			cancels = registerThreadSubscriptions(svc)
-			return nil
-		},
-		OnStop: func(ctx context.Context) error {
-			// Cancel subscriptions first so the callbacks stop enqueueing,
-			// then drain the workers bounded by ctx. Order matters: if
-			// draining ran first, in-flight callbacks would hit the closed
-			// gate and silently drop — not wrong per contract, but the
-			// clean-shutdown contract here is lossless.
-			for _, cancel := range cancels {
-				if cancel != nil {
-					cancel()
-				}
-			}
-			cancels = nil
-			svc.stopBusWorkers(ctx)
-			return nil
-		},
-	})
+func provideThreadConcreteService(svc Service) *service {
+	concrete, _ := svc.(*service)
+	return concrete
 }

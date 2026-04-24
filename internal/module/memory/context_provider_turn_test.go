@@ -36,7 +36,7 @@ func TestMemoryContextProviderPrepareTurnInputsStartsWithoutTurnStartedEvent(t *
 
 	dispatcher := event.NewDispatcher()
 	var cancels []context.CancelFunc
-	registerContextProviderSubscriptions(memoryHookParams{Dispatcher: dispatcher, ContextProvider: provider}, func(cancel context.CancelFunc) {
+	registerContextProviderSubscriptions(memorySubscriptionDeps{Dispatcher: dispatcher, ContextProvider: provider}, func(cancel context.CancelFunc) {
 		cancels = append(cancels, cancel)
 	})
 	defer cancelSubscriptions(cancels)

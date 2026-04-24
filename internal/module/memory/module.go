@@ -31,18 +31,6 @@ type RootManager struct {
 	svc Service
 }
 
-type memoryHookParams struct {
-	fx.In
-
-	Lifecycle       fx.Lifecycle
-	Dispatcher      *event.Dispatcher        `optional:"true"`
-	Hooks           *MemoryLifecycleHooks    `optional:"true"`
-	ContextProvider *MemoryContextProvider   `optional:"true"`
-	NestedRuntime   *nestedpkg.NestedRuntime `optional:"true"`
-	ThreadStore     threadMetadataStore      `optional:"true"`
-	TeamSync        teampkg.Lifecycle        `optional:"true"`
-}
-
 type promptProviderParams struct {
 	fx.In
 
@@ -71,6 +59,44 @@ type threadMetadataStore = contract.ThreadMetadataStore
 
 type sectionInvalidator interface {
 	InvalidateSections(reason contract.InvalidateReason, names ...string) uint64
+}
+
+type memorySubscriberParams struct {
+	fx.In
+
+	Hooks           *MemoryLifecycleHooks    `optional:"true"`
+	ContextProvider *MemoryContextProvider   `optional:"true"`
+	NestedRuntime   *nestedpkg.NestedRuntime `optional:"true"`
+	ThreadStore     threadMetadataStore      `optional:"true"`
+	TeamSync        teampkg.Lifecycle        `optional:"true"`
+}
+
+type autoDreamSchedulerProviderParams struct {
+	fx.In
+
+	Hooks *MemoryLifecycleHooks `optional:"true"`
+}
+
+type nestedIngestWorkerProviderParams struct {
+	fx.In
+
+	NestedRuntime *nestedpkg.NestedRuntime `optional:"true"`
+}
+
+type teamSyncCoordinatorProviderParams struct {
+	fx.In
+
+	TeamSync    teampkg.Lifecycle   `optional:"true"`
+	ThreadStore threadMetadataStore `optional:"true"`
+}
+
+type memorySubscriptionDeps struct {
+	Dispatcher      *event.Dispatcher
+	Hooks           *MemoryLifecycleHooks
+	ContextProvider *MemoryContextProvider
+	NestedRuntime   *nestedpkg.NestedRuntime
+	ThreadStore     threadMetadataStore
+	TeamSync        teampkg.Lifecycle
 }
 
 type memoryLifecycleHookParams struct {
@@ -246,12 +272,21 @@ var Module = fx.Module("memory",
 		provideAutoDreamConsolidator,
 		NewMemoryLifecycleHooks,
 		NewMemoryExtractor,
+		newAutoDreamSchedulerProvider,
+		newNestedIngestWorkerProvider,
+		newTeamSyncCoordinatorProvider,
+		NewMemorySubscribers,
 	),
 	fx.Options(memagent.Module),
 	fx.Options(nestedpkg.Module),
 	fx.Options(retrievalpkg.Module),
 	fx.Options(teampkg.Module),
-	fx.Invoke(registerTeamMemoryRuntime, registerLifecycle, registerPromptProviders, registerMemoryHooks),
+	fx.Provide(
+		fx.Annotate(autoDreamSchedulerAsRunner, fx.ResultTags(`group:"runners"`)),
+		fx.Annotate(nestedIngestWorkerAsRunner, fx.ResultTags(`group:"runners"`)),
+		fx.Annotate(teamSyncCoordinatorAsRunner, fx.ResultTags(`group:"runners"`)),
+	),
+	fx.Invoke(registerTeamMemoryRuntime, registerLifecycle, registerPromptProviders, bindMemoryDrainShutdown),
 )
 
 func NewRootManager(svc Service) *RootManager {
@@ -370,6 +405,25 @@ func registerLifecycle(lc fx.Lifecycle, svc Service) {
 	})
 }
 
+type memoryDrainShutdownParams struct {
+	fx.In
+
+	Lifecycle fx.Lifecycle
+	Hooks     *MemoryLifecycleHooks `optional:"true"`
+}
+
+func bindMemoryDrainShutdown(p memoryDrainShutdownParams) {
+	if p.Hooks == nil {
+		return
+	}
+	p.Lifecycle.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			drainDreamTask(ctx, p.Hooks)
+			return nil
+		},
+	})
+}
+
 func registerTeamMemoryRuntime(lc fx.Lifecycle) {
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
@@ -383,71 +437,10 @@ func registerTeamMemoryRuntime(lc fx.Lifecycle) {
 	})
 }
 
-func registerMemoryHooks(p memoryHookParams) {
-	if p.Dispatcher == nil {
-		return
-	}
-	var cancels []context.CancelFunc
-	appendCancel := func(cancel context.CancelFunc) {
-		if cancel != nil {
-			cancels = append(cancels, cancel)
-		}
-	}
-	// P22 P2 Finding 7: the auto-dream scheduler is the single owner of the
-	// thread.stopped -> maybeScheduleAutoDream slow-path. Constructing it here
-	// (before Lifecycle.Append runs) lets OnStart start the worker and the
-	// bus subscription capture the same instance; OnStop drains it before
-	// the subscriptions are cancelled.
-	var scheduler *autoDreamScheduler
-	if p.Hooks != nil {
-		scheduler = newAutoDreamScheduler(p.Hooks, pkglogger.Get())
-	}
-	// P22 P2 Finding 10: the nestedIngestWorker is the single owner of the
-	// ToolCallEnd -> AddToolReadResult -> os.ReadFile slow-path, with the
-	// same OnStart/OnStop ordering as the auto-dream scheduler so the bus
-	// callback only Enqueue's (non-blocking, lossless pending-set).
-	var nested *nestedIngestWorker
-	if p.NestedRuntime != nil {
-		nested = newNestedIngestWorker(p.NestedRuntime, pkglogger.Get())
-	}
-	// P22 P2 Finding 5/6: the teamSyncCoordinator is the single owner of the
-	// thread.{Started,Stopped} -> TeamSyncService.{Start,Stop}Session
-	// slow-path. Constructed ahead of Lifecycle.Append so OnStart can Start
-	// it before the subscriptions are wired, mirroring the scheduler/nested
-	// pattern.
-	var teamSync *teamSyncCoordinator
-	if p.TeamSync != nil {
-		teamSync = newTeamSyncCoordinator(p.TeamSync, p.ThreadStore, pkglogger.Get())
-	}
-	p.Lifecycle.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			if scheduler != nil {
-				scheduler.Start()
-			}
-			if nested != nil {
-				nested.Start()
-			}
-			if teamSync != nil {
-				teamSync.Start()
-			}
-			registerLifecycleSubscriptions(p, scheduler, nested, teamSync, appendCancel)
-			return nil
-		},
-		OnStop: func(ctx context.Context) error {
-			drainMemoryHooks(ctx, scheduler, nested, teamSync, p.Hooks)
-			cancelSubscriptions(cancels)
-			cancels = nil
-			return nil
-		},
-	})
-}
-
-// drainMemoryHooks executes the OnStop drain sequence split out of
-// registerMemoryHooks so the hook itself stays under the CC guard: first the
-// auto-dream scheduler (gate close + worker drain), then the legacy dream
-// task (killDreamTask + waitDreamTask). Order is load-bearing: the scheduler
-// must stop publishing new work before killDreamTask cancels the in-flight
-// consolidator.
+// drainMemoryHooks preserves the legacy drain order for focused tests and
+// fallback callers. Production ownership is split: scheduler / nested /
+// teamSync stop through their RunnerModule adapters, while the legacy dream
+// task is closed by bindMemoryDrainShutdown during resource shutdown.
 func drainMemoryHooks(ctx context.Context, scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, hooks *MemoryLifecycleHooks) {
 	drainAutoDreamScheduler(ctx, scheduler)
 	drainNestedIngestWorker(ctx, nested)
@@ -496,14 +489,14 @@ func drainDreamTask(ctx context.Context, hooks *MemoryLifecycleHooks) {
 	}
 }
 
-func registerLifecycleSubscriptions(p memoryHookParams, scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, appendCancel func(context.CancelFunc)) {
+func registerLifecycleSubscriptions(p memorySubscriptionDeps, scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, appendCancel func(context.CancelFunc)) {
 	registerThreadHookSubscriptions(p, nested, teamSync, appendCancel)
 	registerBackgroundExtractionSubscriptions(p, appendCancel)
 	registerContextProviderSubscriptions(p, appendCancel)
 	registerAutoDreamSubscriptions(p, scheduler, appendCancel)
 }
 
-func registerBackgroundExtractionSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
+func registerBackgroundExtractionSubscriptions(p memorySubscriptionDeps, appendCancel func(context.CancelFunc)) {
 	if p.Hooks == nil || !p.Hooks.extractOnStop {
 		return
 	}
@@ -524,7 +517,7 @@ func registerBackgroundExtractionSubscriptions(p memoryHookParams, appendCancel 
 	}, pkglogger.Get()))
 }
 
-func registerThreadHookSubscriptions(p memoryHookParams, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, appendCancel func(context.CancelFunc)) {
+func registerThreadHookSubscriptions(p memorySubscriptionDeps, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, appendCancel func(context.CancelFunc)) {
 	if p.NestedRuntime != nil {
 		appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
 			p.NestedRuntime.OnThreadStart(ev.ThreadID)
@@ -564,7 +557,7 @@ func registerThreadHookSubscriptions(p memoryHookParams, nested *nestedIngestWor
 // teamSyncCoordinator. Every slow-path bit (ThreadStore.GetByThreadID,
 // git resolveRepoSlug, remote pull/push, fsnotify watcher spawn) runs on
 // the coordinator's worker goroutine, not on the dispatcher callback.
-func registerTeamSyncSubscriptions(p memoryHookParams, coordinator *teamSyncCoordinator, appendCancel func(context.CancelFunc)) {
+func registerTeamSyncSubscriptions(p memorySubscriptionDeps, coordinator *teamSyncCoordinator, appendCancel func(context.CancelFunc)) {
 	if coordinator == nil {
 		return
 	}
@@ -576,14 +569,14 @@ func registerTeamSyncSubscriptions(p memoryHookParams, coordinator *teamSyncCoor
 	}, pkglogger.Get()))
 }
 
-func registerContextProviderSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
+func registerContextProviderSubscriptions(p memorySubscriptionDeps, appendCancel func(context.CancelFunc)) {
 	if p.ContextProvider == nil {
 		return
 	}
 	registerTurnTerminationSubscriptions(p, appendCancel)
 }
 
-func registerTurnTerminationSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
+func registerTurnTerminationSubscriptions(p memorySubscriptionDeps, appendCancel func(context.CancelFunc)) {
 	terminate := func(threadID, turnID string) {
 		p.ContextProvider.onTurnTerminated(threadID, turnID)
 	}
