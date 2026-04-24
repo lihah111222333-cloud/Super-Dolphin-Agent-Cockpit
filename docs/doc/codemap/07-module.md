@@ -23,12 +23,27 @@
 ```mermaid
 flowchart LR
     RPC[RPC / Frontend / Orchestration] --> MOD[internal/module/*]
+<<<<<<< Updated upstream
     MOD --> DASH[dashboard\n读模型聚合]
     MOD --> SKILL[skill\n技能扫描/渐进披露/本地 FS]
     MOD --> THREAD[thread\n线程生命周期]
     MOD --> TURN[turn\n回合编排]
     MOD --> UISTATE[uistate\nUI 投影]
     MOD --> LSPGUI[lspgui\n当前仓内缺失]
+=======
+    MOD --> DASH[dashboard
+读模型聚合]
+    MOD --> SKILL[skill
+技能扫描/渐进披露/本地 FS]
+    MOD --> THREAD[thread
+线程生命周期]
+    MOD --> TURN[turn
+回合编排]
+    MOD --> UISTATE[uistate
+UI 投影]
+    MOD --> LSPGUI[lspgui
+当前仓内缺失]
+>>>>>>> Stashed changes
     DASH --> STORE[(stores)]
     SKILL --> FS[(skills roots)]
     THREAD --> CONTRACT[contract + store + provider]
@@ -51,6 +66,7 @@ flowchart LR
 
 - 07A 先把 `dashboard / skill` 按当前代码真值重写，并把 `lspgui` 标注为缺口。
 - 07B 预留给 `thread / turn / uistate` 深化；此页仅作为稳定入口，便于 README / 外链继续指向 `07-module.md`。
+<<<<<<< Updated upstream
 
 ## 6. 拆卷映射表
 
@@ -94,3 +110,5 @@ flowchart LR
 | `skill/list` | [07-module-read.md](07-module-read.md) §4.3、§4.4 |
 | `skill/expand` | [07-module-read.md](07-module-read.md) §4.3、§4.5 |
 | `thread/start` / `turn/start` / blank-thread `sendMessage` | [07-module-write.md](07-module-write.md) §2.4 A、§3.4、§5 |
+=======
+>>>>>>> Stashed changes
