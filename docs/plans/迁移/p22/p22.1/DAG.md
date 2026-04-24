@@ -285,3 +285,15 @@ P22.1-P3A -> P22.1-P3B
 | session-private BindRuntime integrity | P22.1-P3A | BindRuntime SafeGo one-hop launch 必须有 `DefinitionPath=internal/app/runner.go` + `Symbol=BindRuntime` allowlist entry |
 | memory/thread race tests | P22.1-P2C/P2D regression | nested ingest coalesce deterministic；thread fake binding store mutex/accessor 化 |
 | P21 active runner tag docs | contract naming follow-up | `runner.actors` 仅 historical role naming；active Fx tag 为 `group:"runners"` |
+
+
+## 10. DAG HEAD `aa09f58` V3-B 锚点修正 overlay（2026-04-25）
+
+> 本节按 §10.31 只加不删追加；§9 的 HEAD `5d6a93c` 表保留为 Round-3 代码修复基线历史 overlay。V3-B 复核实测当前仓库 `git rev-parse --short HEAD` 为 `aa09f58`，因此当前 DAG HEAD 锚点修正为 `aa09f58`。
+
+| V3-B 修正项 | 当前锚点 | 保留历史锚点 | 裁决 |
+|---|---|---|---|
+| HEAD 真值 | `aa09f58` | `5d6a93c` / `a81554c` | `aa09f58` 为当前 Git HEAD；旧锚点仅作历史 overlay |
+| runner OnStop ordering | `aa09f58` | `5d6a93c` | `cancel → waitForRuntimeDone → drainRuntimeBeforeStop` |
+| desktop pre-drain ordering | `aa09f58` | `5d6a93c` | `WaitRuntimeDone → DrainRuntime` |
+| P21 active runner tag docs | `aa09f58` | `5d6a93c` | `runner.actors` 仅 historical role naming；active Fx tag 为 `group:"runners"` |

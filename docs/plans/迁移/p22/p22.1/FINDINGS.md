@@ -219,3 +219,12 @@ F-9 只处理 diff fallback subscriber ownership：`registerDiffFallbackLifecycl
 - Desktop companion：`internal/app/app.go` 的 `preDrainDesktopRuntime` 已对齐为 `WaitRuntimeDone` 先于 `DrainRuntime`。
 - Gate evidence：`internal/archtest/lifecycle_onstart_guard_test.go::TestShutdownOrdering` 现在解析 AST statement 顺序，不再依赖 `strings.Index("<-done")` 文本命中。
 - Race/vet evidence：memory nested ingest coalesce 测试、thread event fake binding store、app shutdown watcher goroutine fatal 均作为 Round-3 真 BUG 收口项处理。
+
+
+## 3.3 HEAD `aa09f58` V3-B 锚点修正 overlay（2026-04-25）
+
+> 本节按 §10.31 只加不删追加；§3.2 的 HEAD `5d6a93c` 记录保留为 Round-3 代码修复基线历史 overlay。V3-B 复核实测当前仓库 `git rev-parse --short HEAD` 为 `aa09f58`，因此当前 Findings HEAD 锚点修正为 `aa09f58`。
+
+- F-1 root shutdown ordering 的事实不变：当前代码为 `cancel → waitForRuntimeDone → drainRuntimeBeforeStop`。
+- Desktop companion 的事实不变：`preDrainDesktopRuntime` 为 `WaitRuntimeDone → DrainRuntime`。
+- F-10 two-hop 仍按 §3.1 / §R7.3 记录为 LSP 缓存/实验状态误判，不作为 HEAD 事实。
