@@ -135,13 +135,18 @@ func TestConfigChangeSubscriptions_BroadcastsAgentAndThreadUpdates(t *testing.T)
 	registry.latestByInstance[lease.InstanceID] = lease
 	registry.indexLocked(instance)
 
-	cancels := registerConfigChangeSubscriptions(dispatcher, registry, registry, nil)
+	worker := newConfigFanoutWorker(registry, registry, nil)
+	worker.Start()
+	cancels := registerConfigChangeSubscriptions(dispatcher, worker, nil)
 	t.Cleanup(func() {
 		for _, cancel := range cancels {
 			if cancel != nil {
 				cancel()
 			}
 		}
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
+		defer stopCancel()
+		_ = worker.Stop(stopCtx)
 	})
 
 	event.Publish(dispatcher, agentdto.AgentLaunched{
