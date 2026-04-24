@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 type skillCWDContextKey struct{}
@@ -45,6 +47,7 @@ func RequireCWD(ctx context.Context) (string, error) {
 }
 
 type Service interface {
+	contract.ApprovalSource
 	ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error)
 	ListSkills(ctx context.Context) ([]SkillInfo, error)
 	ReadLocal(ctx context.Context, path string) (any, error)
@@ -67,4 +70,6 @@ type Service interface {
 	ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBodyResult, error)
 	// ReadResource P20.1 Phase 6：按 name + 相对路径读取 skill 目录内资源文件。
 	ReadResource(ctx context.Context, p ReadResourceParams) (ReadResourceResult, error)
+	SkillRevision() uint64
+	TrustRevision() uint64
 }

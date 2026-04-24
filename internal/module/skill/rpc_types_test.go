@@ -290,6 +290,7 @@ func TestSkillRPCRejectsEmptyCWD(t *testing.T) {
 		{method: "skills/local/write", params: `{"path":"/tmp/skill/SKILL.md","content":"x"}`},
 		{method: "skills/local/importDir", params: `{"path":"/tmp/skill"}`},
 		{method: "skills/local/delete", params: `{"name":"demo"}`},
+		{method: "skills/create", params: `{"name":"demo","content":"# demo"}`},
 	}
 	for _, tc := range cases {
 		_, err := server.Dispatch(context.Background(), tc.method, json.RawMessage(tc.params))

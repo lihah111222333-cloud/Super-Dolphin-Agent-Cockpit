@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,12 +14,13 @@ func newExpandTestService(t *testing.T) (*service, string) {
 	t.Helper()
 	tmp := t.TempDir()
 	projectRoot := filepath.Join(tmp, "proj")
-	skillsRoot := filepath.Join(projectRoot, ".agent", "skills")
+	skillsRoot := filepath.Join(tmp, "user-skills")
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	svc := NewService(projectRoot).(*service)
-	// 不持久化 approval cache 到用户 home
+	// 不持久化 approval cache 到用户 home; default tests write trusted user-scope skills.
+	svc.root = skillsRoot
 	svc.approval = nil
 	return svc, skillsRoot
 }
@@ -400,13 +402,13 @@ func TestSliceMarkdownSection_NotFound(t *testing.T) {
 
 func TestNormalizeAnchorSlug(t *testing.T) {
 	cases := map[string]string{
-		"Usage":        "usage",
-		"Usage Guide":  "usage-guide",
-		"  Hello  ":    "hello",
-		"a/b":          "ab",
-		"A_B C":        "a-b-c",
-		"---edge---":   "edge",
-		"":             "",
+		"Usage":       "usage",
+		"Usage Guide": "usage-guide",
+		"  Hello  ":   "hello",
+		"a/b":         "ab",
+		"A_B C":       "a-b-c",
+		"---edge---":  "edge",
+		"":            "",
 	}
 	for in, want := range cases {
 		if got := normalizeAnchorSlug(in); got != want {
@@ -441,5 +443,90 @@ func TestResolveMaxBytes(t *testing.T) {
 	}
 	if got := resolveMaxBytes(int64(maxSkillFileBytes) + 1); got != int64(maxSkillFileBytes) {
 		t.Fatalf("above cap should clamp: %d", got)
+	}
+}
+
+func TestExpandBodyRequiresApprovalForUntrustedSkill(t *testing.T) {
+	svc, _ := newExpandTestService(t)
+	projectRoot := svc.projectSkillsRootForCWD(svc.projectRoot)
+	content := "---\nname: needs-approval\n---\nsecret body"
+	writeExpandTestSkill(t, projectRoot, "needs-approval", content)
+	cache, err := NewApprovalCache(filepath.Join(t.TempDir(), "approvals.json"))
+	if err != nil {
+		t.Fatalf("NewApprovalCache: %v", err)
+	}
+	svc.approval = cache
+
+	_, err = svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "needs-approval"})
+	if !errors.Is(err, errSkillApprovalRequired) {
+		t.Fatalf("expected approval required, got %v", err)
+	}
+	var required SkillApprovalRequiredError
+	if !errors.As(err, &required) {
+		t.Fatalf("expected SkillApprovalRequiredError, got %T", err)
+	}
+	if required.Request.Payload["artifact_kind"] != ArtifactKindBody {
+		t.Fatalf("artifact kind payload = %#v", required.Request.Payload)
+	}
+
+	if _, err := cache.ApproveArtifact(ApprovalRequest{
+		RepoFingerprint: RepoFingerprint(svc.projectRoot),
+		Name:            "needs-approval",
+		ArtifactKind:    ArtifactKindBody,
+		ArtifactLocator: "SKILL.md",
+		ContentHash:     skillContentHash(content),
+		Trust:           TrustProject,
+		ApprovedBy:      "test",
+	}); err != nil {
+		t.Fatalf("ApproveArtifact: %v", err)
+	}
+	res, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "needs-approval"})
+	if err != nil {
+		t.Fatalf("approved ExpandBody: %v", err)
+	}
+	if !strings.Contains(res.Content, "secret body") {
+		t.Fatalf("content = %q", res.Content)
+	}
+}
+
+func TestReadResourceRequiresResourceApproval(t *testing.T) {
+	svc, _ := newExpandTestService(t)
+	projectRoot := svc.projectSkillsRootForCWD(svc.projectRoot)
+	dir := writeExpandTestSkill(t, projectRoot, "res-approval", "---\nname: res-approval\n---\nbody")
+	refDir := filepath.Join(dir, "references")
+	if err := os.MkdirAll(refDir, 0o755); err != nil {
+		t.Fatalf("mkdir ref: %v", err)
+	}
+	resource := "resource secret"
+	if err := os.WriteFile(filepath.Join(refDir, "api.md"), []byte(resource), 0o644); err != nil {
+		t.Fatalf("write resource: %v", err)
+	}
+	cache, err := NewApprovalCache(filepath.Join(t.TempDir(), "approvals.json"))
+	if err != nil {
+		t.Fatalf("NewApprovalCache: %v", err)
+	}
+	svc.approval = cache
+
+	_, err = svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "res-approval", Path: "references/api.md"})
+	if !errors.Is(err, errSkillApprovalRequired) {
+		t.Fatalf("expected approval required, got %v", err)
+	}
+	if _, err := cache.ApproveArtifact(ApprovalRequest{
+		RepoFingerprint: RepoFingerprint(svc.projectRoot),
+		Name:            "res-approval",
+		ArtifactKind:    ArtifactKindResource,
+		ArtifactLocator: "references/api.md",
+		ContentHash:     skillContentHash(resource),
+		Trust:           TrustProject,
+		ApprovedBy:      "test",
+	}); err != nil {
+		t.Fatalf("ApproveArtifact resource: %v", err)
+	}
+	res, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "res-approval", Path: "references/api.md"})
+	if err != nil {
+		t.Fatalf("approved ReadResource: %v", err)
+	}
+	if res.Content != resource {
+		t.Fatalf("resource content = %q", res.Content)
 	}
 }

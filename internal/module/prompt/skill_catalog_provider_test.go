@@ -485,3 +485,58 @@ func TestGroupSkillsForManifest_UnknownTrustDefaultsToRedacted(t *testing.T) {
 		t.Fatalf("unknown trust should fall to Redacted (conservative): %+v", g)
 	}
 }
+
+type fakeApprovalSource struct {
+	approved map[string]bool
+	rev      uint64
+}
+
+func (f *fakeApprovalSource) LookupArtifactApproval(_ context.Context, req contract.ArtifactApprovalRequest) (bool, error) {
+	if f == nil {
+		return false, nil
+	}
+	return f.approved[req.Name+"@"+req.ContentHash], nil
+}
+
+func (f *fakeApprovalSource) ApprovalRevision() uint64 {
+	if f == nil {
+		return 0
+	}
+	return f.rev
+}
+
+func TestSkillCatalogProviderRefreshesAfterApproval(t *testing.T) {
+	info := skillpkg.SkillInfo{
+		Name:        "repo-skill",
+		Description: "approved description",
+		Summary:     "approved summary",
+		Trust:       skillpkg.TrustProject,
+		ContentHash: "hash-v1",
+	}
+	approval := &fakeApprovalSource{approved: map[string]bool{}}
+	provider := NewSkillCatalogProviderWithApproval(fakeSkillLister{infos: []skillpkg.SkillInfo{info}}, nil, approval, 0)
+
+	first, err := provider.Resolve(context.Background(), baseCtx("/repo"))
+	if err != nil || first == nil {
+		t.Fatalf("first Resolve err=%v out=%v", err, first)
+	}
+	if !strings.Contains(*first, "Untrusted (metadata redacted until approval)") {
+		t.Fatalf("first manifest should be redacted: %q", *first)
+	}
+	if strings.Contains(*first, "approved description") || strings.Contains(*first, "approved summary") {
+		t.Fatalf("redacted manifest leaked metadata: %q", *first)
+	}
+
+	approval.approved["repo-skill@hash-v1"] = true
+	approval.rev++
+	second, err := provider.Resolve(context.Background(), baseCtx("/repo"))
+	if err != nil || second == nil {
+		t.Fatalf("second Resolve err=%v out=%v", err, second)
+	}
+	if !strings.Contains(*second, "### Core (trusted)") {
+		t.Fatalf("approved manifest should move to Core: %q", *second)
+	}
+	if !strings.Contains(*second, "approved description") || !strings.Contains(*second, "approved summary") {
+		t.Fatalf("approved manifest missing metadata: %q", *second)
+	}
+}

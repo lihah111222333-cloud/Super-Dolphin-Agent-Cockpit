@@ -1,9 +1,11 @@
 package skill
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -74,14 +76,8 @@ func TestWriteLocalScopeRoutesProjectSystemAndDefaultProject(t *testing.T) {
 		t.Fatalf("project path = %q, want %q", projectPath, wantProjectPath)
 	}
 
-	systemOut, err := svc.WriteLocal(skillTestContext(projectRoot), "system-skill", "# system", "system")
-	if err != nil {
-		t.Fatalf("WriteLocal(system) error = %v", err)
-	}
-	systemPath, _ := systemOut.(map[string]any)["path"].(string)
-	wantSystemPath := filepath.Join(systemRoot, "system-skill", skillMainFile)
-	if systemPath != wantSystemPath {
-		t.Fatalf("system path = %q, want %q", systemPath, wantSystemPath)
+	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "system-skill", "# system", "system"); !errors.Is(err, ErrSkillSystemReviewRequired) {
+		t.Fatalf("WriteLocal(system) error = %v, want ErrSkillSystemReviewRequired", err)
 	}
 
 	defaultOut, err := svc.WriteLocal(skillTestContext(projectRoot), "default-skill", "# default")
@@ -134,16 +130,33 @@ func TestImportLocalDirScopeRoutesDefaultProjectAndSystemGlobal(t *testing.T) {
 	}
 	systemOut, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: systemSource, Scope: "system"})
 	if err != nil {
-		t.Fatalf("ImportLocalDir(system) error = %v", err)
+		t.Fatalf("ImportLocalDir(system) wrapper error = %v", err)
 	}
-	systemImported := systemOut.(map[string]any)["imported"].([]map[string]any)
-	systemSkillFile, _ := systemImported[0]["skill_file"].(string)
-	wantSystemSkillFile := filepath.Join(systemRoot, "system-import", skillMainFile)
-	if systemSkillFile != wantSystemSkillFile {
-		t.Fatalf("system import path = %q, want %q", systemSkillFile, wantSystemSkillFile)
+	failures := systemOut.(map[string]any)["failures"].([]map[string]any)
+	if len(failures) != 1 || !strings.Contains(failures[0]["error"].(string), ErrSkillSystemReviewRequired.Error()) {
+		t.Fatalf("system import failures = %#v, want review required", failures)
 	}
 }
 
 func writeProjectSkillRoot(root string) error {
 	return os.MkdirAll(root, 0o755)
+}
+
+func TestSkillSystemScopeWriteRequiresReview(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := filepath.Join(t.TempDir(), "repo-a")
+	svc := &service{
+		root:              t.TempDir(),
+		projectRoot:       projectRoot,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
+		http:              &http.Client{},
+	}
+	_, err := svc.WriteLocal(skillTestContext(projectRoot), "blocked-system", "# blocked", skillScopeSystem)
+	if !errors.Is(err, ErrSkillSystemReviewRequired) {
+		t.Fatalf("WriteLocal(system) error = %v, want ErrSkillSystemReviewRequired", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(svc.root, "blocked-system", skillMainFile)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("system write should not create file, stat err=%v", statErr)
+	}
 }

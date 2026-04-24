@@ -42,6 +42,10 @@ func TrimCorruptionFallback() uint64 { return trimCorruptionFallbackCount.Load()
 // IncArtifactApprovalMiss LookupArtifact 对已建 artifact key 查询返回未审批时 +1。
 func IncArtifactApprovalMiss() { artifactApprovalMissTotal.Add(1) }
 
+// IncSkillArtifactApprovalMiss is the explicit B-1 counter name for artifact
+// approval misses. Kept as an alias so older callers and metrics remain stable.
+func IncSkillArtifactApprovalMiss() { IncArtifactApprovalMiss() }
+
 // ArtifactApprovalMiss 读当前值。
 func ArtifactApprovalMiss() uint64 { return artifactApprovalMissTotal.Load() }
 

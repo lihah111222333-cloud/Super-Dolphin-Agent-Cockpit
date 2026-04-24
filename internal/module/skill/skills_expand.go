@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
@@ -51,6 +52,56 @@ func (s *service) findSkillRecordByName(name, cwd string) (skillRecord, error) {
 	return skillRecord{}, err
 }
 
+func bodyArtifactLocator(anchor string) string {
+	anchor = strings.TrimSpace(anchor)
+	if anchor == "" {
+		return "SKILL.md"
+	}
+	return "SKILL.md#" + anchor
+}
+
+func (s *service) requireArtifactApproval(ctx context.Context, info SkillInfo, kind, locator, contentHash, cwd, method string) error {
+	if info.Trust.Trusted() {
+		return nil
+	}
+	approved, _ := s.LookupArtifactApproval(ctx, contractArtifactApprovalRequest(info, kind, locator, contentHash, cwd))
+	if approved {
+		return nil
+	}
+	return SkillApprovalRequiredError{Request: s.buildArtifactApprovalRequest(info, kind, locator, contentHash, cwd, method)}
+}
+
+func contractArtifactApprovalRequest(info SkillInfo, kind, locator, contentHash, cwd string) contract.ArtifactApprovalRequest {
+	return contract.ArtifactApprovalRequest{
+		RepoFingerprint: RepoFingerprint(cwd),
+		Name:            info.Name,
+		ArtifactKind:    kind,
+		ArtifactLocator: locator,
+		ContentHash:     contentHash,
+	}
+}
+
+func (s *service) buildArtifactApprovalRequest(info SkillInfo, kind, locator, contentHash, cwd, method string) contract.ApprovalRequest {
+	payload := map[string]any{
+		"name":             info.Name,
+		"artifact_kind":    kind,
+		"artifact_locator": locator,
+		"content_hash":     contentHash,
+		"repo_fingerprint": RepoFingerprint(cwd),
+		"trust":            info.Trust,
+		"skills_dir":       info.Dir,
+		"project_root":     strings.TrimSpace(cwd),
+	}
+	return contract.ApprovalRequest{
+		CallID:       s.nextApprovalCallID(info.Name),
+		ToolName:     method,
+		Reason:       "skill artifact requires approval",
+		Kind:         "skill_artifact",
+		SourceMethod: method,
+		Payload:      payload,
+	}
+}
+
 // ExpandBody 实现 P20.1 §3.1 skill_expand_body：按 name 读 SKILL.md 正文，
 // 可选按 Markdown H2/H3 锚点切片，按 MaxBytes 截断。
 //
@@ -60,15 +111,8 @@ func (s *service) findSkillRecordByName(name, cwd string) (skillRecord, error) {
 //   - anchor 找不到：fmt.Errorf("anchor not found: ...")
 //   - 文件过大超硬上限：fmt.Errorf("skill file too large: ...")
 //
-// TODO(P20.1 Phase 7 - SkillInjectionPort)：本方法目前未集成以下侧效，均由 Port 层接入后补齐：
-//   1. ApprovalCache.LookupArtifact：未受信任项目级 skill 应在调用前弹审批
-//      （按 artifactKind=body, locator=SKILL.md[#Anchor] 校验）
-//   2. ExpandedArtifactState.MarkArtifact：记录注入历史供后续去重
-//   3. SkillInfo.DisableModelInvocation：根据 frontmatter 拒绝模型自主调用
-//   4. 返回值净化（P20.1 §3.3）：对 untrusted + unapproved skill，
-//      - Summary 字段可能含攻击载荷，Port 层应替换为占位符或置空
-//      - Path / Content 如果包含恶意指令同样需过滤
-// 未集成时调用方（带格 Phase 7 Port）需自行保证该等策略。
+// 未受信任项目级 skill 在读取正文前必须命中 artifact-level approval；
+// trusted user/signed skill 仍按 P20.1 默认信任策略直接放行。
 func (s *service) ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBodyResult, error) {
 	// P20.1 Phase 10 Step C: 计入每次调用（含失败路径），类似 rate counter。
 	skillmetrics.IncSkillExpandInvoke()
@@ -80,51 +124,25 @@ func (s *service) ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBod
 	if err != nil {
 		return ExpandBodyResult{}, err
 	}
-	maxBytes := resolveMaxBytes(p.MaxBytes)
-
-	stat, err := os.Stat(rec.path)
-	if err != nil {
-		return ExpandBodyResult{}, err
-	}
-	if stat.Size() > maxSkillFileBytes {
-		return ExpandBodyResult{}, fmt.Errorf("skill file too large: %s is %d bytes, limit %d", rec.path, stat.Size(), maxSkillFileBytes)
-	}
-	data, err := os.ReadFile(rec.path)
-	if err != nil {
-		return ExpandBodyResult{}, err
-	}
-	full := string(data)
-	// Body 不包括 frontmatter（保持与 summarize 语义一致）。
-	// splitFrontmatter 返回 (fm, tail, ok)：
-	//   - ok=true  + tail=="" → SKILL.md 仅有 frontmatter，body 本来就是空
-	//   - ok=false → 无 frontmatter，整个文件作为 body
-	// 不能用 `if body == "" { body = full }` fallback，那样会把 frontmatter 泄漏为 body。
-	fm, body, hasFM := splitFrontmatter(full)
-	_ = fm
-	if !hasFM {
-		body = full
-	}
-
 	anchor := strings.TrimSpace(p.Anchor)
-	var slice string
-	if anchor != "" {
-		sliceText, ok := sliceMarkdownSection(body, anchor)
-		if !ok {
-			return ExpandBodyResult{}, fmt.Errorf("anchor not found: %q", anchor)
-		}
-		slice = sliceText
-	} else {
-		slice = body
+	locator, err := NormalizeArtifactLocator(ArtifactKindBody, bodyArtifactLocator(anchor))
+	if err != nil {
+		return ExpandBodyResult{}, err
 	}
-
+	if err := s.requireArtifactApproval(ctx, rec.info, ArtifactKindBody, locator, rec.info.ContentHash, cwd, "skill_expand_body"); err != nil {
+		return ExpandBodyResult{}, err
+	}
+	data, err := readSkillFileData(rec.path)
+	if err != nil {
+		return ExpandBodyResult{}, err
+	}
+	slice, err := bodySliceFromSkillData(data, anchor)
+	if err != nil {
+		return ExpandBodyResult{}, err
+	}
+	content, truncated := truncateBytes(slice, resolveMaxBytes(p.MaxBytes))
+	version := shortSHA256Hex(data)
 	total := int64(len(slice))
-	content, truncated := truncateBytes(slice, maxBytes)
-
-	sum := sha256.Sum256(data)
-	version := hex.EncodeToString(sum[:])
-	if len(version) > 12 {
-		version = version[:12]
-	}
 
 	return ExpandBodyResult{
 		Name:       rec.info.Name,
@@ -136,6 +154,51 @@ func (s *service) ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBod
 		Truncated:  truncated,
 		TotalBytes: total,
 	}, nil
+}
+
+func readSkillFileData(path string) ([]byte, error) {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if stat.Size() > maxSkillFileBytes {
+		return nil, fmt.Errorf("skill file too large: %s is %d bytes, limit %d", path, stat.Size(), maxSkillFileBytes)
+	}
+	return os.ReadFile(path)
+}
+
+func bodySliceFromSkillData(data []byte, anchor string) (string, error) {
+	body := skillBodyFromData(data)
+	if strings.TrimSpace(anchor) == "" {
+		return body, nil
+	}
+	slice, ok := sliceMarkdownSection(body, anchor)
+	if !ok {
+		return "", fmt.Errorf("anchor not found: %q", anchor)
+	}
+	return slice, nil
+}
+
+func skillBodyFromData(data []byte) string {
+	full := string(data)
+	_, body, hasFM := splitFrontmatter(full)
+	if !hasFM {
+		return full
+	}
+	return body
+}
+
+func fullSHA256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func shortSHA256Hex(data []byte) string {
+	version := fullSHA256Hex(data)
+	if len(version) > 12 {
+		return version[:12]
+	}
+	return version
 }
 
 // ReadResource 实现 P20.1 §3.1 skill_read_resource：按 name + 相对路径读取
@@ -151,11 +214,7 @@ func (s *service) ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBod
 // 被 JSON 序列化器按 UTF-8 校验转义为 \ufffd，不在本工具的爆护方案内。
 // 未来如需支持二进制可扩展为 base64 encoding 或新工具 skill_read_asset。
 //
-// TODO(P20.1 Phase 7 - SkillInjectionPort)：与 ExpandBody 同，尚未集成：
-//   1. ApprovalCache.LookupArtifact（artifactKind=resource, locator=相对路径）
-//   2. ExpandedArtifactState.MarkArtifact
-//   3. 返回值净化：SkillDir / Path / Content 对 untrusted skill 需按 trust 策略过滤
-// 由 Port 层接入时补齐。
+// 未受信任项目级 skill resource 按 resource 文件自身 hash 做 artifact-level approval。
 func (s *service) ReadResource(ctx context.Context, p ReadResourceParams) (ReadResourceResult, error) {
 	// P20.1 Phase 10 Step C: 与 ExpandBody 合计 SkillExpandInvokeRate。
 	skillmetrics.IncSkillExpandInvoke()
@@ -171,32 +230,22 @@ func (s *service) ReadResource(ctx context.Context, p ReadResourceParams) (ReadR
 	if err != nil {
 		return ReadResourceResult{}, err
 	}
-	maxBytes := resolveMaxBytes(p.MaxBytes)
-
 	target, skillDir, err := resolveResourceTarget(rec.info.Dir, relPath)
 	if err != nil {
 		return ReadResourceResult{}, err
 	}
 
-	stat, err := os.Stat(target)
+	data, err := readResourceData(target, relPath)
 	if err != nil {
 		return ReadResourceResult{}, err
 	}
-	if stat.IsDir() {
-		return ReadResourceResult{}, fmt.Errorf("path is directory: %s", relPath)
-	}
-	if stat.Size() > maxSkillFileBytes {
-		return ReadResourceResult{}, fmt.Errorf("resource file too large: %s is %d bytes, limit %d", relPath, stat.Size(), maxSkillFileBytes)
-	}
-	data, err := os.ReadFile(target)
-	if err != nil {
-		return ReadResourceResult{}, err
-	}
+	content, truncated := truncateBytes(string(data), resolveMaxBytes(p.MaxBytes))
+	resourceHash := fullSHA256Hex(data)
 	total := int64(len(data))
-	content, truncated := truncateBytes(string(data), maxBytes)
-
-	resourceSum := sha256.Sum256(data)
-	version := hex.EncodeToString(resourceSum[:])
+	if err := s.requireArtifactApproval(ctx, rec.info, ArtifactKindResource, relPath, resourceHash, cwd, "skill_read_resource"); err != nil {
+		return ReadResourceResult{}, err
+	}
+	version := resourceHash
 	if len(version) > 12 {
 		version = version[:12]
 	}
@@ -210,6 +259,20 @@ func (s *service) ReadResource(ctx context.Context, p ReadResourceParams) (ReadR
 		Truncated:  truncated,
 		TotalBytes: total,
 	}, nil
+}
+
+func readResourceData(target, relPath string) ([]byte, error) {
+	stat, err := os.Stat(target)
+	if err != nil {
+		return nil, err
+	}
+	if stat.IsDir() {
+		return nil, fmt.Errorf("path is directory: %s", relPath)
+	}
+	if stat.Size() > maxSkillFileBytes {
+		return nil, fmt.Errorf("resource file too large: %s is %d bytes, limit %d", relPath, stat.Size(), maxSkillFileBytes)
+	}
+	return os.ReadFile(target)
 }
 
 // resolveResourceTarget 解析 symlink、规范化路径并验证 target 未逃逸 skill 目录。

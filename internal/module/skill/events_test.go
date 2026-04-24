@@ -1,7 +1,6 @@
 package skill
 
 import (
-	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -10,7 +9,7 @@ import (
 	"github.com/kelindar/event"
 )
 
-func TestWriteSkillContentPublishesSkillsChanged(t *testing.T) {
+func TestWriteLocalPublishesSkillsChanged(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
@@ -18,11 +17,13 @@ func TestWriteSkillContentPublishesSkillsChanged(t *testing.T) {
 	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
 	defer cancel()
 
-	svc := NewService("").(*service)
+	projectRoot := t.TempDir()
+	svc := NewService(projectRoot).(*service)
 	svc.root = t.TempDir()
+	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.bindDispatcher(dispatcher)
-	if _, err := svc.WriteSkillContent(context.Background(), "demo-skill", "# Demo"); err != nil {
-		t.Fatalf("WriteSkillContent() error = %v", err)
+	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "demo-skill", "# Demo", skillScopeProject); err != nil {
+		t.Fatalf("WriteLocal() error = %v", err)
 	}
 
 	ev := mustReceiveSkillsChanged(t, got)

@@ -82,6 +82,14 @@ func TestCompositeNativeSkillDetector_EmptyAndWhitespaceNames(t *testing.T) {
 // P20.1 Phase 10 Step D: RegisterSkillCatalogProviderIfEnabled 灰度
 // ---------------------------------------------------------------------------
 
+func TestPromptConfigDefaultsProgressiveDisclosureOff(t *testing.T) {
+	t.Setenv(envEnableSkillProgressiveDisclosure, "")
+	cfg := NewConfig(nil)
+	if cfg.EnableSkillProgressiveDisclosure {
+		t.Fatal("EnableSkillProgressiveDisclosure default = true, want false")
+	}
+}
+
 // fakeDynamicRegistrar 记录每次 RegisterDynamicProvider 的调用，供灰度断言。
 type fakeDynamicRegistrar struct {
 	registered []string

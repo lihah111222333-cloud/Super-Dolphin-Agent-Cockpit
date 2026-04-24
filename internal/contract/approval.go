@@ -36,3 +36,20 @@ type ApprovalDecision struct {
 	Reason   string          `json:"reason,omitempty"`
 	Detail   json.RawMessage `json:"detail,omitempty"`
 }
+
+// ArtifactApprovalRequest identifies a skill artifact approval lookup without
+// forcing prompt/catalog packages to import the concrete skill approval cache.
+type ArtifactApprovalRequest struct {
+	RepoFingerprint string
+	Name            string
+	ArtifactKind    string
+	ArtifactLocator string
+	ContentHash     string
+}
+
+// ApprovalSource exposes read-only artifact approval state plus a monotonic
+// revision for prompt cache invalidation.
+type ApprovalSource interface {
+	LookupArtifactApproval(ctx context.Context, req ArtifactApprovalRequest) (bool, error)
+	ApprovalRevision() uint64
+}
