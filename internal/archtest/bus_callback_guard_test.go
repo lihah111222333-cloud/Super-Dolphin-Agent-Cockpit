@@ -69,10 +69,6 @@ func TestBusCallbackGuard(t *testing.T) {
 		owningSlice string
 	}{
 		{
-			name:        "bus_callback_must_not_start_session",
-			owningSlice: "P2 (Finding 5, memory TeamSync)",
-		},
-		{
 			name:        "bus_callback_must_not_fire_and_forget_goroutine",
 			owningSlice: "P2 (hooks/event_relay fanout)",
 		},
@@ -147,6 +143,39 @@ func TestBusCallbackGuard(t *testing.T) {
 		}
 		if len(hits) > 0 {
 			t.Fatalf("memory/module.go reintroduced pre-P2 synchronous nested-read / file I/O on bus callback path; forbidden tokens present: %v", hits)
+		}
+	})
+
+	// P2 Finding 5/6 live matcher: after the teamSyncCoordinator slice lands
+	// the memory module bus callbacks must not drive the TeamSync session
+	// lifecycle directly. Both the high-level helper names
+	// (StartSessionFromThreadEvent / StopSessionFromThreadEvent) and the
+	// lifecycle verbs (StartSession / StopSession) are forbidden in the
+	// callback-wiring file; the coordinator is the only caller that may
+	// keep a reference to the helpers, and it lives in a separate file.
+	t.Run("bus_callback_must_not_start_session", func(t *testing.T) {
+		t.Parallel()
+		root := repoRootForGuardTests(t)
+		path := filepath.Join(root, "internal", "module", "memory", "module.go")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		src := string(data)
+		forbidden := []string{
+			"teampkg.StartSessionFromThreadEvent(",
+			"teampkg.StopSessionFromThreadEvent(",
+			".StartSession(",
+			".StopSession(",
+		}
+		var hits []string
+		for _, token := range forbidden {
+			if strings.Contains(src, token) {
+				hits = append(hits, token)
+			}
+		}
+		if len(hits) > 0 {
+			t.Fatalf("memory/module.go reintroduced pre-P2 TeamSync lifecycle calls on bus callback path; forbidden tokens present: %v", hits)
 		}
 	})
 }
