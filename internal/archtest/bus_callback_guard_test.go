@@ -73,10 +73,6 @@ func TestBusCallbackGuard(t *testing.T) {
 			owningSlice: "P2 (Finding 5, memory TeamSync)",
 		},
 		{
-			name:        "bus_callback_must_not_do_synchronous_file_io",
-			owningSlice: "P2 (Finding 10, NestedRuntime tool-read)",
-		},
-		{
 			name:        "bus_callback_must_not_fire_and_forget_goroutine",
 			owningSlice: "P2 (hooks/event_relay fanout)",
 		},
@@ -120,6 +116,37 @@ func TestBusCallbackGuard(t *testing.T) {
 		}
 		if len(hits) > 0 {
 			t.Fatalf("auto_dream_task.go reintroduced pre-P2 fire-and-forget auto-dream scheduling; forbidden tokens present: %v", hits)
+		}
+	})
+
+	// P2 Finding 10 live matcher: after the nestedIngestWorker slice lands
+	// (lossless pending-set + wake-signal owner), the memory module bus
+	// callbacks must not drive the synchronous nested-read slow-path
+	// directly. AddToolReadResult (which os.ReadFile's the persisted tool
+	// result) belongs to the worker; os.ReadFile / os.WriteFile must not
+	// reappear in the callback wiring file either.
+	t.Run("bus_callback_must_not_do_synchronous_file_io", func(t *testing.T) {
+		t.Parallel()
+		root := repoRootForGuardTests(t)
+		path := filepath.Join(root, "internal", "module", "memory", "module.go")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		src := string(data)
+		forbidden := []string{
+			"p.NestedRuntime.AddToolReadResult(",
+			"os.ReadFile(",
+			"os.WriteFile(",
+		}
+		var hits []string
+		for _, token := range forbidden {
+			if strings.Contains(src, token) {
+				hits = append(hits, token)
+			}
+		}
+		if len(hits) > 0 {
+			t.Fatalf("memory/module.go reintroduced pre-P2 synchronous nested-read / file I/O on bus callback path; forbidden tokens present: %v", hits)
 		}
 	})
 }

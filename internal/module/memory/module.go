@@ -402,16 +402,27 @@ func registerMemoryHooks(p memoryHookParams) {
 	if p.Hooks != nil {
 		scheduler = newAutoDreamScheduler(p.Hooks, pkglogger.Get())
 	}
+	// P22 P2 Finding 10: the nestedIngestWorker is the single owner of the
+	// ToolCallEnd -> AddToolReadResult -> os.ReadFile slow-path, with the
+	// same OnStart/OnStop ordering as the auto-dream scheduler so the bus
+	// callback only Enqueue's (non-blocking, lossless pending-set).
+	var nested *nestedIngestWorker
+	if p.NestedRuntime != nil {
+		nested = newNestedIngestWorker(p.NestedRuntime, pkglogger.Get())
+	}
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			if scheduler != nil {
 				scheduler.Start()
 			}
-			registerLifecycleSubscriptions(p, scheduler, appendCancel)
+			if nested != nil {
+				nested.Start()
+			}
+			registerLifecycleSubscriptions(p, scheduler, nested, appendCancel)
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			drainMemoryHooks(ctx, scheduler, p.Hooks)
+			drainMemoryHooks(ctx, scheduler, nested, p.Hooks)
 			cancelSubscriptions(cancels)
 			cancels = nil
 			return nil
@@ -425,12 +436,31 @@ func registerMemoryHooks(p memoryHookParams) {
 // task (killDreamTask + waitDreamTask). Order is load-bearing: the scheduler
 // must stop publishing new work before killDreamTask cancels the in-flight
 // consolidator.
-func drainMemoryHooks(ctx context.Context, scheduler *autoDreamScheduler, hooks *MemoryLifecycleHooks) {
-	if scheduler != nil {
-		if err := scheduler.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			pkglogger.Get().Warn("memory: auto-dream scheduler drain failed", "error", err)
-		}
+func drainMemoryHooks(ctx context.Context, scheduler *autoDreamScheduler, nested *nestedIngestWorker, hooks *MemoryLifecycleHooks) {
+	drainAutoDreamScheduler(ctx, scheduler)
+	drainNestedIngestWorker(ctx, nested)
+	drainDreamTask(ctx, hooks)
+}
+
+func drainAutoDreamScheduler(ctx context.Context, scheduler *autoDreamScheduler) {
+	if scheduler == nil {
+		return
 	}
+	if err := scheduler.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		pkglogger.Get().Warn("memory: auto-dream scheduler drain failed", "error", err)
+	}
+}
+
+func drainNestedIngestWorker(ctx context.Context, nested *nestedIngestWorker) {
+	if nested == nil {
+		return
+	}
+	if err := nested.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		pkglogger.Get().Warn("memory: nested ingest worker drain failed", "error", err)
+	}
+}
+
+func drainDreamTask(ctx context.Context, hooks *MemoryLifecycleHooks) {
 	if hooks == nil {
 		return
 	}
@@ -444,8 +474,8 @@ func drainMemoryHooks(ctx context.Context, scheduler *autoDreamScheduler, hooks 
 	}
 }
 
-func registerLifecycleSubscriptions(p memoryHookParams, scheduler *autoDreamScheduler, appendCancel func(context.CancelFunc)) {
-	registerThreadHookSubscriptions(p, appendCancel)
+func registerLifecycleSubscriptions(p memoryHookParams, scheduler *autoDreamScheduler, nested *nestedIngestWorker, appendCancel func(context.CancelFunc)) {
+	registerThreadHookSubscriptions(p, nested, appendCancel)
 	registerBackgroundExtractionSubscriptions(p, appendCancel)
 	registerContextProviderSubscriptions(p, appendCancel)
 	registerAutoDreamSubscriptions(p, scheduler, appendCancel)
@@ -472,14 +502,20 @@ func registerBackgroundExtractionSubscriptions(p memoryHookParams, appendCancel 
 	}, pkglogger.Get()))
 }
 
-func registerThreadHookSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
+func registerThreadHookSubscriptions(p memoryHookParams, nested *nestedIngestWorker, appendCancel func(context.CancelFunc)) {
 	if p.NestedRuntime != nil {
 		appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
 			p.NestedRuntime.OnThreadStart(ev.ThreadID)
 		}, pkglogger.Get()))
-		appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallEnd) {
-			p.NestedRuntime.AddToolReadResult(ev.ThreadID, ev.ToolName, ev.Result, ev.PersistedPath)
-		}, pkglogger.Get()))
+		// P22 P2 Finding 10: the ToolCallEnd callback must stay off the
+		// synchronous nested-read slow-path; nestedIngestWorker owns the
+		// lossless pending-set + wake-signal and invokes AddToolReadResult
+		// (which os.ReadFile's the persisted result) on its own goroutine.
+		if nested != nil {
+			appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallEnd) {
+				nested.Enqueue(ev.ThreadID, ev.ToolName, ev.Result, ev.PersistedPath)
+			}, pkglogger.Get()))
+		}
 	}
 	if p.TeamSync != nil {
 		registerTeamSyncSubscriptions(p, appendCancel)
