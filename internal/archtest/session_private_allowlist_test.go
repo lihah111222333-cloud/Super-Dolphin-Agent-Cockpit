@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,9 +33,164 @@ func TestSessionPrivateAllowlistIntegrity(t *testing.T) {
 func TestSessionPrivateRuntimeAllowlist(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
+	allow := map[string]bool{}
+	callSiteFiles := map[string]bool{}
 	for _, entry := range sessionPrivateRuntimeAllowlist {
 		line := symbolLine(t, root, entry.DefinitionPath, entry.Symbol)
-		t.Logf("[P22.1 WARN] session-private %s:%d %s", entry.DefinitionPath, line, entry.Symbol)
+		t.Logf("[P22.1 ALLOW] session-private %s:%d %s", entry.DefinitionPath, line, entry.Symbol)
+		if kind := sessionPrivateLaunchKind(entry); kind != "" {
+			allow[kind+"::"+entry.DefinitionPath+"::"+entry.Symbol] = true
+		}
+		callSiteFiles[entry.CallSitePath] = true
+	}
+	for _, rel := range sessionPrivateRuntimeScopeFiles(t, root, callSiteFiles) {
+		for _, launch := range sessionPrivateRuntimeLaunchesInFile(t, root, rel) {
+			if allow[launch.Kind+"::"+rel+"::"+launch.Symbol] {
+				continue
+			}
+			t.Errorf("unallowlisted session-private runtime launch at %s:%d enclosing=%s", rel, launch.Line, launch.Enclosing)
+		}
+	}
+}
+
+type sessionPrivateRuntimeLaunch struct {
+	Line      int
+	Enclosing string
+	Symbol    string
+	Kind      string
+}
+
+func sessionPrivateRuntimeScopeFiles(t *testing.T, root string, callSiteFiles map[string]bool) []string {
+	t.Helper()
+	var files []string
+	for _, scope := range []string{"internal/provider/codexapp", "internal/app"} {
+		absScope := filepath.Join(root, filepath.FromSlash(scope))
+		err := filepath.WalkDir(absScope, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				t.Fatalf("walk %s: %v", path, walkErr)
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go") {
+				return nil
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				t.Fatalf("rel %s: %v", path, err)
+			}
+			rel = filepath.ToSlash(rel)
+			if !callSiteFiles[rel] {
+				return nil
+			}
+			files = append(files, rel)
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", absScope, err)
+		}
+	}
+	return files
+}
+
+func sessionPrivateRuntimeLaunchesInFile(t *testing.T, root, rel string) []sessionPrivateRuntimeLaunch {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filepath.Join(root, filepath.FromSlash(rel)), nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", rel, err)
+	}
+	var launches []sessionPrivateRuntimeLaunch
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		symbol := funcDeclSymbol(fn)
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.GoStmt:
+				launches = append(launches, sessionPrivateRuntimeLaunch{Line: fset.Position(x.Go).Line, Enclosing: symbol, Symbol: goLaunchSymbol(x.Call, symbol), Kind: goLaunchKind(x.Call)})
+			case *ast.CallExpr:
+				if isRuntimeSafeGoCall(x) {
+					launches = append(launches, sessionPrivateRuntimeLaunch{Line: fset.Position(x.Pos()).Line, Enclosing: symbol, Symbol: symbol, Kind: "safego"})
+				}
+			}
+			return true
+		})
+	}
+	return launches
+}
+
+func sessionPrivateLaunchKind(entry sessionPrivateRuntimeException) string {
+	switch entry.BridgeShape {
+	case "session_reader":
+		return "go_func"
+	case "session_health", "session_recovery":
+		return "go_named"
+	case "desktop_watcher":
+		return "safego"
+	default:
+		return ""
+	}
+}
+
+func goLaunchKind(call *ast.CallExpr) string {
+	if call == nil {
+		return "go_unknown"
+	}
+	if _, ok := call.Fun.(*ast.FuncLit); ok {
+		return "go_func"
+	}
+	return "go_named"
+}
+
+func goLaunchSymbol(call *ast.CallExpr, enclosing string) string {
+	if call == nil {
+		return enclosing
+	}
+	switch fun := call.Fun.(type) {
+	case *ast.FuncLit:
+		return enclosing
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
+		if strings.HasPrefix(enclosing, "(") {
+			if idx := strings.Index(enclosing, ")."); idx >= 0 {
+				return enclosing[:idx+2] + fun.Sel.Name
+			}
+		}
+		return fun.Sel.Name
+	default:
+		return enclosing
+	}
+}
+
+func isRuntimeSafeGoCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && selectorXName(sel) == "runtimesafe" && sel.Sel.Name == "SafeGo"
+}
+
+func funcDeclSymbol(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return fn.Name.Name
+	}
+	return "(" + receiverTypeName(fn.Recv.List[0].Type) + ")." + fn.Name.Name
+}
+
+func receiverTypeName(expr ast.Expr) string {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		return x.Name
+	case *ast.StarExpr:
+		return "*" + receiverTypeName(x.X)
+	case *ast.SelectorExpr:
+		if prefix := selectorXName(x); prefix != "" {
+			return prefix + "." + x.Sel.Name
+		}
+		return x.Sel.Name
+	default:
+		return ""
 	}
 }
 
