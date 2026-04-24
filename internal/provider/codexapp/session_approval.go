@@ -30,7 +30,7 @@ func (s *session) handleApprovalRequest(method string, params json.RawMessage) {
 		return
 	}
 	payload := append(json.RawMessage(nil), params...)
-	runtimesafe.SafeGo(context.Background(), s.logger, "codexapp.session.toolApprovalRequest", func(context.Context) {
+	runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolApprovalRequest", func(context.Context) {
 		if err := s.requestToolApproval(strings.TrimSpace(method), payload); err != nil && s.logger != nil {
 			s.logger.Warn("codexapp: approval request failed", "method", method, "error", err)
 		}

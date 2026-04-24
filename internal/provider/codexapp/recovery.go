@@ -342,12 +342,6 @@ func shouldReconnect(err error) bool {
 	return true
 }
 
-// P1c: startHealthLoop / checkIdleHealth have moved into SessionRuntime.
-// Reader / health / recovery goroutines are owned by runtime.runHealthLoop +
-// runtime.tickHealth + runtime.runRecoveryWorker; the old fire-and-forget
-// SafeGo helpers are gone. Keep noteReadActivity / lastReadTime here because
-// they are pure session state.
-
 func (s *session) noteReadActivity() {
 	s.lastReadAt.Store(time.Now().UnixNano())
 }
@@ -359,11 +353,3 @@ func (s *session) lastReadTime() time.Time {
 	}
 	return time.Unix(0, stamp)
 }
-
-// P1c: startReadLoop / stopReadLoop / prepareReadLoop / runReadLoop /
-// finishReadLoop / waitReadLoopStopped have moved into SessionRuntime. The
-// reader goroutine is now owned by runtime.spawnReader and joined by
-// runtime.Stop via runtime.waitReaderDone. Removing these helpers keeps the
-// old session fields (readLoopMu / readLoopDone / readLoopCancel) unused;
-// they are retained on the session struct only so session_approval_test
-// fixtures can read zero values without a wider rename pass.

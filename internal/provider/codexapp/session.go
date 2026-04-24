@@ -14,6 +14,7 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -36,9 +37,6 @@ type session struct {
 	mu                 sync.Mutex
 	approvalMu         sync.Mutex
 	recoveryMu         sync.Mutex
-	readLoopMu         sync.Mutex
-	readLoopDone       chan struct{}
-	readLoopCancel     context.CancelFunc
 	lastReadAt         atomic.Int64
 	recoveryCount      atomic.Int32
 	turns              map[string]*turnHandle
@@ -127,7 +125,9 @@ func newSessionWithOptions(
 		}
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	// P22 P1c: session ctx derives from transportCtx so shutdown of the
+	// transport (or the caller's scope) cascades into session.Close path.
+	ctx, cancel := context.WithCancel(transportCtx)
 	s := &session{
 		agentID:            strings.TrimSpace(agentID),
 		transport:          t,
@@ -175,7 +175,10 @@ func withPoolServer(url string, release func()) sessionOption {
 func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawMessage) {
 	s.noteReadActivity()
 	if toolHandler := s.manager.getToolHandler(); len(msg.ID) != 0 && toolHandler != nil && isToolCallMethod(msg.Method) {
-		go func() { result, err := toolHandler(ctx, msg); _ = resp.RespondWithID(msg.ID, result, err) }()
+		runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolCall", func(_ context.Context) {
+			result, err := toolHandler(ctx, msg)
+			_ = resp.RespondWithID(msg.ID, result, err)
+		})
 		return
 	}
 	if isKnownRequestMethod(msg.Method) {
