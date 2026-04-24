@@ -540,6 +540,58 @@ func TestSetConfigFallsBackToOfflinePersistWithoutSession(t *testing.T) {
 	}
 }
 
+func TestSetConfigFallsBackToOfflinePersistWithoutBinding(t *testing.T) {
+	t.Parallel()
+
+	model := "claude-opus-4-7[1m]"
+	effort := "max"
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:      "thread-pending-claude",
+		Model:         "sonnet",
+		Status:        statusCreated,
+		PendingLaunch: true,
+		CreatedAt:     100,
+		UpdatedAt:     100,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Provider: "claude",
+		}),
+	}}
+	svc, ok := NewService(
+		silentLogger(),
+		threads,
+		&stubBindingStore{},
+		&stubSessionProvider{},
+		nil,
+		nil,
+		nil,
+		nil,
+	).(*service)
+	if !ok {
+		t.Fatal("NewService() type assertion failed")
+	}
+
+	got, err := svc.SetConfig(context.Background(), "thread-pending-claude", dto.ThreadConfigPatch{
+		Model:  &model,
+		Effort: &effort,
+	})
+	if err != nil {
+		t.Fatalf("SetConfig() error = %v, want nil (offline fallback without binding)", err)
+	}
+	if got.Provider != "claude" {
+		t.Fatalf("Provider = %q, want claude", got.Provider)
+	}
+	if got.Override.Model != model || got.Override.Effort != effort {
+		t.Fatalf("Override = %#v, want model=%q effort=%q", got.Override, model, effort)
+	}
+	stored := decodeStoredThreadConfig(threads.thread.ConfigOverride)
+	if stored.Provider != "claude" || stored.Model != model || stored.Effort != effort {
+		t.Fatalf("stored override = %#v, want provider/model/effort preserved", stored)
+	}
+	if threads.thread.Model != model {
+		t.Fatalf("stored thread model = %q, want %q", threads.thread.Model, model)
+	}
+}
+
 func TestSetConfigOfflineRejectsInvalidEffort(t *testing.T) {
 	t.Parallel()
 

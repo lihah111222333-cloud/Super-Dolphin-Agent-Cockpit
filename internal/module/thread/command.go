@@ -203,11 +203,10 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
-		if !errors.Is(err, contract.ErrSessionNotFound) {
-			return dto.ThreadConfig{}, err
-		}
-		// Offline fallback: session not active (e.g. after restart).
-		// Persist the override so it takes effect on next resume.
+		// Offline fallback: thread/config/set is a persisted thread override, so
+		// it should still work when the live session is unavailable or the thread
+		// has not been bound yet (for example pending_launch threads before the
+		// first turn).
 		return s.setConfigOffline(ctx, threadID, binding, patch)
 	}
 	provider := bindingProvider(binding)
@@ -246,22 +245,25 @@ func (s *service) setConfigOffline(
 	binding *bindingstore.Binding,
 	patch dto.ThreadConfigPatch,
 ) (dto.ThreadConfig, error) {
-	provider := bindingProvider(binding)
+	offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
+	if offlineErr != nil {
+		return dto.ThreadConfig{}, offlineErr
+	}
+	provider := strings.TrimSpace(offline.Config.Provider)
+	if provider == "" {
+		provider = bindingProvider(binding)
+	}
 	patch, err := normalizeThreadConfigPatchOffline(provider, patch)
 	if err != nil {
 		return dto.ThreadConfig{}, err
 	}
 	if threadConfigPatchNoop(patch) {
-		offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
-		if offlineErr != nil {
-			return dto.ThreadConfig{}, offlineErr
-		}
 		return offline.Config, nil
 	}
 	if err := s.persistThreadConfig(ctx, threadID, patch, dto.ThreadConfig{}); err != nil {
 		return dto.ThreadConfig{}, err
 	}
-	offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
+	offline, offlineErr = s.buildOfflineConfig(ctx, threadID, binding)
 	if offlineErr != nil {
 		return dto.ThreadConfig{}, offlineErr
 	}
