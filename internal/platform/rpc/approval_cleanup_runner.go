@@ -46,14 +46,15 @@ func (r *ApprovalCleanupRunner) Run(ctx context.Context) error {
 		<-ctx.Done()
 		return ctx.Err()
 	}
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(timerDelayWithJitter(r.interval))
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
+		case <-timer.C:
 			r.tick()
+			timer.Reset(timerDelayWithJitter(r.interval))
 		}
 	}
 }
