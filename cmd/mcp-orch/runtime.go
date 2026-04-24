@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
@@ -97,10 +98,19 @@ func newNoopSessionCleaner() contract.OrchestrationSessionCleaner {
 // noopTurnStarter satisfies contract.OrchestrationTurnStarter in standalone mode.
 // Turn submission via orchestration will return an error because no upstream turn
 // service is wired.
+//
+// P22 P4 S4a: after WaitForSessionReady joined the owner contract, this
+// noop type must commit to it too; returning nil matches the pre-S4a
+// duck-typing path in cmd/mcp-orch/orchestration/helpers.go where the
+// type-assertion would have failed and the helper returned nil.
 type noopTurnStarter struct{}
 
 func (noopTurnStarter) StartTurn(context.Context, contract.TurnSubmission) (string, error) {
 	return "", errors.New("turn starter not available in mcp-orch standalone mode")
+}
+
+func (noopTurnStarter) WaitForSessionReady(context.Context, string, time.Duration) error {
+	return nil
 }
 
 func newNoopTurnStarter() contract.OrchestrationTurnStarter {

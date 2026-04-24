@@ -18,9 +18,13 @@ import (
 
 const submitSessionReadyTimeout = 5 * time.Second
 
-type sessionReadyWaiter interface {
-	WaitForSessionReady(ctx context.Context, agentID string, timeout time.Duration) error
-}
+// P22 P4 S4a: the local `sessionReadyWaiter` interface was deleted.
+// WaitForSessionReady is now part of the owner contract
+// contract.OrchestrationTurnStarter, so the service calls it directly
+// without a type-assertion side-channel. See
+// internal/contract/orchestration.go for the interface definition and
+// docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md
+// §279 for the rationale.
 
 func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platformstatemachine.StateConfig {
 	permits := make(map[string][]platformstatemachine.Permit, len(agentdto.StateDefinitions))
@@ -198,11 +202,10 @@ func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string)
 	if s == nil || s.turnStarter == nil {
 		return nil
 	}
-	waiter, ok := s.turnStarter.(sessionReadyWaiter)
-	if !ok {
-		return nil
-	}
-	return waiter.WaitForSessionReady(ctx, agentID, submitSessionReadyTimeout)
+	// P22 P4 S4a: no more type-assertion side-channel — WaitForSessionReady
+	// is part of the TurnStarter owner contract. noop implementations
+	// simply return nil to preserve the pre-S4a "no wait needed" behavior.
+	return s.turnStarter.WaitForSessionReady(ctx, agentID, submitSessionReadyTimeout)
 }
 
 func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
