@@ -156,7 +156,8 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 			cwd = abs
 		}
 	}
-	return s.starter.StartSession(ctx, dto.StartSessionRequest{
+	sessionCtx := context.WithoutCancel(ctx)
+	return s.starter.StartSession(sessionCtx, dto.StartSessionRequest{
 		Provider:      req.Provider,
 		AgentID:       agentID,
 		CWD:           cwd,
@@ -186,7 +187,8 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 			cwd = abs
 		}
 	}
-	return s.starter.ResumeSession(ctx, dto.ResumeSessionRequest{
+	sessionCtx := context.WithoutCancel(ctx)
+	return s.starter.ResumeSession(sessionCtx, dto.ResumeSessionRequest{
 		Provider:         resolvedReq.Provider,
 		AgentID:          resolvedReq.AgentID,
 		ThreadID:         resolvedReq.ThreadID,

@@ -113,7 +113,7 @@ func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
 
 func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 	switch eventType {
-	case "thread/started", "session.configured":
+	case "thread/started", "session.configured", "agent:launched":
 		return agentdto.AgentLaunched{
 			AgentSessionHeader: buildAgentSessionHeader(payload),
 			Model:              stringValue(payload, "model"),
@@ -158,9 +158,9 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 		}, true
 	}
 	switch eventType {
-	case "turn/started", "turn.started":
+	case "turn/started", "turn.started", "turn:started":
 		return turndto.TurnStarted{TurnHeader: buildTurnHeader(payload)}, true
-	case "turn/interrupted", "turn.interrupted":
+	case "turn/interrupted", "turn.interrupted", "turn:interrupted":
 		return turndto.TurnInterrupted{
 			TurnHeader: buildTurnHeader(payload),
 			Reason:     stringValue(payload, "reason", "message"),
