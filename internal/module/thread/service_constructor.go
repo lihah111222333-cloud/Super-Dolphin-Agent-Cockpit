@@ -117,5 +117,9 @@ func newService(
 	// because the refresher is a service method and the worker is a
 	// service-internal resource with the same lifetime as the service.
 	s.taskHandoffWorker = newTaskHandoffWorker(s, logger)
+	// P22 P2 thread S4: same ownership story for the agentLaunchedWorker
+	// — the processor is a service method (processAgentLaunched), so the
+	// worker lives beside the service.
+	s.agentLaunchedWorker = newAgentLaunchedWorker(s, logger)
 	return s
 }

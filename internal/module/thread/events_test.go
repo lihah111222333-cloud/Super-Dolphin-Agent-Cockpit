@@ -25,8 +25,15 @@ func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {
 	}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
 	svc.bindDispatcher(dispatcher)
+	// P22 P2 thread S4: onAgentLaunched Enqueues into agentLaunchedWorker;
+	// the worker must be started for the test to observe the downstream
+	// UpdateSessionUUID write.
+	svc.startBusWorkers()
 	cancels := registerThreadSubscriptions(svc)
-	defer cancelThreadSubscriptions(cancels)
+	defer func() {
+		cancelThreadSubscriptions(cancels)
+		svc.stopBusWorkers(context.Background())
+	}()
 
 	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
 	event.Publish(dispatcher, newAgentLaunchedEvent("agent-1", "thread-1", realUUID))
@@ -53,8 +60,15 @@ func TestOnAgentLaunchedSkipsUnchangedSessionUUID(t *testing.T) {
 
 	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", SessionUUID: "session-uuid-1"}}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
+	// P22 P2 thread S4: Start + Stop the worker so the Enqueue lands and
+	// drains synchronously before the assertion runs.
+	svc.startBusWorkers()
 
 	svc.onAgentLaunched(newAgentLaunchedEvent(" agent-1 ", "thread-1", " session-uuid-1 "))
+
+	if err := svc.agentLaunchedWorker.Stop(context.Background()); err != nil {
+		t.Fatalf("agent launched worker Stop: %v", err)
+	}
 
 	if len(bindings.sessionUpdates) != 0 {
 		t.Fatalf("session updates = %#v, want none", bindings.sessionUpdates)
@@ -68,10 +82,17 @@ func TestOnAgentLaunchedUpdatesCWDAndInvalidatesWorktreePromptCache(t *testing.T
 	promptAssembly := &stubPromptAssemblyService{}
 	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Cwd: repoRoot}}
 	svc := NewServiceWithPromptAssembly(silentLogger(), nil, bindings, nil, nil, nil, nil, nil, promptAssembly, nil, nil).(*service)
+	// P22 P2 thread S4: Start + Stop the worker so the Enqueue lands and
+	// drains synchronously before the assertion runs.
+	svc.startBusWorkers()
 
 	ev := newAgentLaunchedEvent("agent-1", "thread-1", "")
 	ev.CWD = worktreeCWD
 	svc.onAgentLaunched(ev)
+
+	if err := svc.agentLaunchedWorker.Stop(context.Background()); err != nil {
+		t.Fatalf("agent launched worker Stop: %v", err)
+	}
 
 	if len(bindings.cwdUpdates) != 1 {
 		t.Fatalf("cwd updates = %#v, want 1 update", bindings.cwdUpdates)

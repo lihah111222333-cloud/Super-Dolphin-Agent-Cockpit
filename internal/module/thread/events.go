@@ -44,6 +44,9 @@ func (s *service) startBusWorkers() {
 	if s.taskHandoffWorker != nil {
 		s.taskHandoffWorker.Start()
 	}
+	if s.agentLaunchedWorker != nil {
+		s.agentLaunchedWorker.Start()
+	}
 }
 
 // stopBusWorkers drains every bus-callback worker bounded by ctx. The
@@ -60,9 +63,45 @@ func (s *service) stopBusWorkers(ctx context.Context) {
 			}
 		}
 	}
+	if s.agentLaunchedWorker != nil {
+		if err := s.agentLaunchedWorker.Stop(ctx); err != nil {
+			if s.logger != nil {
+				s.logger.Warn("thread: agent launched worker drain failed", "error", err)
+			}
+		}
+	}
 }
 
+// onAgentLaunched is the bus callback for agentdto.AgentLaunched. P22 P2
+// thread S4: the callback is cheap Enqueue only. The
+// agentLaunchedWorker owns the slow-path (resolveBindingForEvent,
+// syncAgentLaunchCWD, bindingStore.UpdateSessionUUID, prompt-assembly
+// Invalidate). The coalesce key is agentID when present, falling back
+// to threadID so Claude's system:init event — which omits agent_id on
+// first turn — still dedupes correctly.
 func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
+	if s == nil || s.agentLaunchedWorker == nil || s.bindingStore == nil {
+		return
+	}
+	agentID := strings.TrimSpace(ev.AgentID)
+	threadID := strings.TrimSpace(ev.ThreadID)
+	key := agentID
+	if key == "" {
+		key = threadID
+	}
+	if key == "" {
+		return
+	}
+	s.agentLaunchedWorker.Enqueue(key, ev)
+}
+
+// processAgentLaunched carries the pre-P22 inline body of
+// onAgentLaunched: resolve the binding (by agentID or threadID),
+// sync the launch CWD (possibly invalidating the prompt-assembly cache
+// on worktree switch), then persist the session UUID when it changed.
+// Invoked exclusively by agentLaunchedWorker.drainPending after the bus
+// callback has enqueued the event.
+func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	if s == nil || s.bindingStore == nil {
 		return
 	}
