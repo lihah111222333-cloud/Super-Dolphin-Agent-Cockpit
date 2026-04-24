@@ -499,11 +499,11 @@ func TestPeerSupervisorShutdownEscalatesToSIGTERM(t *testing.T) {
 }
 
 type stuckPeerHandle struct {
-	name string
-	pid  int
-	mu   sync.Mutex
-	done chan struct{}
-	reg  bool
+	name    string
+	pid     int
+	mu      sync.Mutex
+	done    chan struct{}
+	reg     bool
 	signals []processSig
 }
 

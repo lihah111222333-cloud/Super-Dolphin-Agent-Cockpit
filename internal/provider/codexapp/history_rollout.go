@@ -276,11 +276,14 @@ func findRolloutPath(threadID, codexHome string) (string, error) {
 // resolveRolloutRoot picks the directory whose sessions/ subtree is
 // searched. A non-empty codexHome wins verbatim; it is expected to be
 // a canonicalized absolute path already (see providershared
-// .CanonicalizeCodexHome). An empty value falls back to the legacy
-// ~/.codex layout so pre-P21 callers keep working.
+// .CanonicalizeCodexHome). Empty codexHome is a legacy-only fallback
+// and now requires an explicit opt-in env flag.
 func resolveRolloutRoot(codexHome string) (string, error) {
 	if trimmed := strings.TrimSpace(codexHome); trimmed != "" {
 		return trimmed, nil
+	}
+	if os.Getenv("CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME") != "1" {
+		return "", fmt.Errorf("codex home required (set CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME=1 to allow ~/.codex fallback)")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

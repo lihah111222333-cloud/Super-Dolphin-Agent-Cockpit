@@ -26,7 +26,7 @@ func TestBuildPoolSpawnCmdInjectsCODEXHOME(t *testing.T) {
 			"PATH=/usr/bin",
 			"HOME=/home/user",
 			"CODEX_HOME=/stale/leak", // must be shadowed by the override
-			"OPENAI_API_KEY=secret",    // must be dropped
+			"OPENAI_API_KEY=secret",  // must be dropped
 		},
 	})
 	if err != nil {

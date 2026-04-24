@@ -48,6 +48,7 @@ func TestFindRolloutPathFallsBackToLegacyHome(t *testing.T) {
 	// Cannot run parallel — t.Setenv serialises HOME mutation.
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
+	t.Setenv("CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME", "1")
 
 	want := writeRolloutFixture(t, filepath.Join(fakeHome, ".codex"), "thread-legacy")
 
@@ -63,6 +64,13 @@ func TestFindRolloutPathFallsBackToLegacyHome(t *testing.T) {
 // TestFindRolloutPathNotFound asserts the error path unchanged: when
 // no matching rollout exists, the caller sees a descriptive error so
 // history fallback can log + continue.
+func TestFindRolloutPathRequiresExplicitLegacyOptIn(t *testing.T) {
+	t.Setenv("CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME", "")
+	if _, err := findRolloutPath("thread-legacy", ""); err == nil {
+		t.Fatal("expected codex home required error without legacy opt-in")
+	}
+}
+
 func TestFindRolloutPathNotFound(t *testing.T) {
 	t.Parallel()
 

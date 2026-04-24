@@ -650,13 +650,16 @@ func (s *stubBindingStore) Upsert(_ context.Context, params bindingstore.UpsertP
 	s.upsert = params
 	s.upserts = append(s.upserts, params)
 	s.binding = &bindingstore.Binding{
-		AgentID:          params.AgentID,
-		Provider:         params.Provider,
-		ProviderThreadID: params.ProviderThreadID,
-		CodexThreadID:    params.CodexThreadID,
-		Cwd:              params.Cwd,
-		CreatedAt:        params.CreatedAt,
-		UpdatedAt:        params.UpdatedAt,
+		AgentID:            params.AgentID,
+		Provider:           params.Provider,
+		ProviderThreadID:   params.ProviderThreadID,
+		CodexThreadID:      params.CodexThreadID,
+		Cwd:                params.Cwd,
+		CreatedAt:          params.CreatedAt,
+		UpdatedAt:          params.UpdatedAt,
+		CodexHome:          params.CodexHome,
+		CodexInstanceKey:   params.CodexInstanceKey,
+		CodexModelProvider: params.CodexModelProvider,
 	}
 	return nil
 }

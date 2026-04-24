@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -36,8 +37,7 @@ func identityConfig(t *testing.T, key string) map[string]any {
 
 // TestPoolRoutingDisabledByDefault verifies the legacy path stays
 // intact: without CODEXAPP_USE_POOL set, resolveSessionOptions must
-// return a nil options slice regardless of whether a valid identity
-// is present in the request.
+// return a nil options slice even when a valid identity is present.
 func TestPoolRoutingDisabledByDefault(t *testing.T) {
 	// t.Setenv is inherited by parallel siblings, so keep the test
 	// serial to avoid env bleed.
@@ -60,12 +60,10 @@ func TestPoolRoutingDisabledByDefault(t *testing.T) {
 	}
 }
 
-// TestPoolRoutingSkipsOnMissingIdentity checks the defensive
-// fallback: even with the flag flipped on, a request missing
-// codexHome falls through to the legacy path instead of erroring.
-// This is the contract that lets deployments safely enable the flag
-// before every caller has been updated to set identity fields.
-func TestPoolRoutingSkipsOnMissingIdentity(t *testing.T) {
+// TestResolveSessionOptionsFailsClosedOnIdentityError checks the fail-closed
+// contract: once the pool flag is enabled, a request missing codexHome must
+// return an identity error instead of falling back to the legacy server.
+func TestResolveSessionOptionsFailsClosedOnIdentityError(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	spawnCalls := atomic.Int32{}
 	spawner := func(context.Context, string) (SpawnedServer, error) {
@@ -78,11 +76,11 @@ func TestPoolRoutingSkipsOnMissingIdentity(t *testing.T) {
 
 	req := dto.StartSessionRequest{AgentID: "a"} // no Config
 	opts, err := d.resolveSessionOptions(context.Background(), req)
-	if err != nil {
-		t.Fatalf("err = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "codex identity required") {
+		t.Fatalf("err = %v, want codex identity required", err)
 	}
 	if opts != nil {
-		t.Fatalf("want nil opts when identity missing, got %d", len(opts))
+		t.Fatalf("want nil opts on identity error, got %d", len(opts))
 	}
 	if spawnCalls.Load() != 0 {
 		t.Fatalf("spawner should not fire on missing identity, called %d times", spawnCalls.Load())
@@ -146,11 +144,10 @@ func TestPoolRoutingSurfacesPoolError(t *testing.T) {
 	}
 }
 
-// TestPoolRoutingInvalidConfigTypeSkips guards the specific failure
+// TestPoolRoutingInvalidConfigTypeFailsClosed guards the specific failure
 // mode where req.Config carries a codexHome with the wrong dynamic
-// type. ResolveCodexIdentity errors out; we must still fall through
-// to the legacy path, not crash.
-func TestPoolRoutingInvalidConfigTypeSkips(t *testing.T) {
+// type. With pool routing enabled, ResolveCodexIdentity errors must surface.
+func TestPoolRoutingInvalidConfigTypeFailsClosed(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
 		return newFakeServer("ws://unused"), nil
@@ -160,11 +157,11 @@ func TestPoolRoutingInvalidConfigTypeSkips(t *testing.T) {
 
 	cfg := map[string]any{"codexHome": 123, "codexInstanceKey": "glm", "codexModelProvider": "mp"}
 	opts, err := d.resolveSessionOptions(context.Background(), dto.StartSessionRequest{AgentID: "a", Config: cfg})
-	if err != nil {
-		t.Fatalf("unexpected err = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "codex identity required") {
+		t.Fatalf("err = %v, want codex identity required", err)
 	}
 	if opts != nil {
-		t.Fatalf("invalid config must fall through, got %d opts", len(opts))
+		t.Fatalf("invalid config must fail before options, got %d opts", len(opts))
 	}
 }
 
@@ -246,3 +243,36 @@ func TestPoolRoutingAgentIDBlankStillWorks(t *testing.T) {
 // ensure json types round-trip for the tests above; keeps the import
 // alive even if no explicit use remains after edits.
 var _ = json.RawMessage{}
+
+func TestResumeSessionUsesPoolWhenBindingHasIdentity(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "1")
+	spawnCalls := atomic.Int32{}
+	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
+		return newFakeServer("ws://127.0.0.1:4321"), nil
+	}, PoolConfig{Capacity: 1})
+	defer pool.Close(context.Background())
+	d := newRoutingDriver(t, pool)
+
+	opts, err := d.resolveResumeOptions(context.Background(), dto.ResumeSessionRequest{
+		AgentID:            "agent-resume",
+		CodexHome:          smokeHome(t),
+		CodexInstanceKey:   "glm",
+		CodexModelProvider: "openai-compatible-glm",
+	})
+	if err != nil {
+		t.Fatalf("resolveResumeOptions() error = %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("resume options = %d, want 1", len(opts))
+	}
+	var so sessionOptions
+	opts[0](&so)
+	if so.poolURL != "ws://127.0.0.1:4321" {
+		t.Fatalf("poolURL = %q", so.poolURL)
+	}
+	so.poolRelease()
+	if spawnCalls.Load() != 1 {
+		t.Fatalf("spawn calls = %d, want 1", spawnCalls.Load())
+	}
+}

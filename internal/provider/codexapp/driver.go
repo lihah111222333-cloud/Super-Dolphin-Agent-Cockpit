@@ -189,7 +189,11 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-	s, err := newSession(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager)
+	opts, err := d.resolveResumeOptions(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	s, err := newSessionWithOptions(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager, opts...)
 	if err != nil {
 		return nil, err
 	}

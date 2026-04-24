@@ -12,17 +12,20 @@ import (
 )
 
 type bindingRegistration struct {
-	AgentID          string
-	Provider         string
-	ProviderThreadID string
-	PublicThreadID   string
-	CWD              string
-	RolloutPath      string
-	SessionUUID      string
-	ParentAgentID    string
-	AgentType        string
-	AgentMemoryScope string
-	CreatedAt        int64
+	AgentID            string
+	Provider           string
+	ProviderThreadID   string
+	PublicThreadID     string
+	CWD                string
+	RolloutPath        string
+	SessionUUID        string
+	ParentAgentID      string
+	AgentType          string
+	AgentMemoryScope   string
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
+	CreatedAt          int64
 }
 
 type bindingWriteOutcome struct {
@@ -41,6 +44,9 @@ func normalizeThreadState(state threadState) (threadState, error) {
 	state.AgentMemoryScope = strings.TrimSpace(state.AgentMemoryScope)
 	state.Provider = strings.TrimSpace(state.Provider)
 	state.CWD = strings.TrimSpace(state.CWD)
+	state.CodexHome = strings.TrimSpace(state.CodexHome)
+	state.CodexInstanceKey = strings.TrimSpace(state.CodexInstanceKey)
+	state.CodexModelProvider = strings.TrimSpace(state.CodexModelProvider)
 	state.Model = strings.TrimSpace(state.Model)
 	state.Prompt = strings.TrimSpace(state.Prompt)
 	if state.PublicThreadID == "" || state.AgentID == "" {
@@ -62,17 +68,20 @@ func normalizeBindingRegistration(state threadState) (bindingRegistration, error
 	// provider_thread_id may be empty on initial launch; it is filled
 	// in later once the session handshake returns the real UUID.
 	return bindingRegistration{
-		AgentID:          state.AgentID,
-		Provider:         state.Provider,
-		ProviderThreadID: strings.TrimSpace(state.ProviderThreadID),
-		PublicThreadID:   state.PublicThreadID,
-		CWD:              state.CWD,
-		RolloutPath:      state.RolloutPath,
-		SessionUUID:      state.SessionUUID,
-		ParentAgentID:    state.ParentAgentID,
-		AgentType:        state.AgentType,
-		AgentMemoryScope: state.AgentMemoryScope,
-		CreatedAt:        state.CreatedAt,
+		AgentID:            state.AgentID,
+		Provider:           state.Provider,
+		ProviderThreadID:   strings.TrimSpace(state.ProviderThreadID),
+		PublicThreadID:     state.PublicThreadID,
+		CWD:                state.CWD,
+		RolloutPath:        state.RolloutPath,
+		SessionUUID:        state.SessionUUID,
+		ParentAgentID:      state.ParentAgentID,
+		AgentType:          state.AgentType,
+		AgentMemoryScope:   state.AgentMemoryScope,
+		CodexHome:          state.CodexHome,
+		CodexInstanceKey:   state.CodexInstanceKey,
+		CodexModelProvider: state.CodexModelProvider,
+		CreatedAt:          state.CreatedAt,
 	}, nil
 }
 
@@ -267,18 +276,21 @@ func (s *service) prepareBindingWrite(
 
 func (s *service) persistRegisteredBinding(ctx context.Context, registration bindingRegistration) error {
 	return s.bindingStore.Upsert(ctx, newBindingUpsertParams(bindingstore.Binding{
-		AgentID:          registration.AgentID,
-		Provider:         registration.Provider,
-		ProviderThreadID: registration.ProviderThreadID,
-		CodexThreadID:    registration.PublicThreadID,
-		RolloutPath:      registration.RolloutPath,
-		SessionUUID:      registration.SessionUUID,
-		Cwd:              registration.CWD,
-		ParentAgentID:    registration.ParentAgentID,
-		AgentType:        registration.AgentType,
-		AgentMemoryScope: registration.AgentMemoryScope,
-		CreatedAt:        registration.CreatedAt,
-		UpdatedAt:        time.Now().Unix(),
+		AgentID:            registration.AgentID,
+		Provider:           registration.Provider,
+		ProviderThreadID:   registration.ProviderThreadID,
+		CodexThreadID:      registration.PublicThreadID,
+		RolloutPath:        registration.RolloutPath,
+		SessionUUID:        registration.SessionUUID,
+		Cwd:                registration.CWD,
+		ParentAgentID:      registration.ParentAgentID,
+		AgentType:          registration.AgentType,
+		AgentMemoryScope:   registration.AgentMemoryScope,
+		CodexHome:          registration.CodexHome,
+		CodexInstanceKey:   registration.CodexInstanceKey,
+		CodexModelProvider: registration.CodexModelProvider,
+		CreatedAt:          registration.CreatedAt,
+		UpdatedAt:          time.Now().Unix(),
 	}))
 }
 

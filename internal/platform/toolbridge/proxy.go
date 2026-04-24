@@ -214,7 +214,9 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 
 func proxyToolCallErrorCode(err error) int {
 	switch {
-	case errors.Is(err, contract.ErrThreadRuntimeRequired), errors.Is(err, contract.ErrPersistentSubagentRuntimeRequired):
+	case errors.Is(err, contract.ErrThreadRuntimeRequired),
+		errors.Is(err, contract.ErrPersistentSubagentRuntimeRequired),
+		errors.Is(err, contract.ErrPersistentSubagentFlagRequired):
 		return jsonRPCCodeInvalidParam
 	default:
 		return jsonRPCCodeInternal

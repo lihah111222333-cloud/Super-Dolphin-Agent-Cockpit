@@ -189,16 +189,19 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 	}
 	sessionCtx := context.WithoutCancel(ctx)
 	return s.starter.ResumeSession(sessionCtx, dto.ResumeSessionRequest{
-		Provider:         resolvedReq.Provider,
-		AgentID:          resolvedReq.AgentID,
-		ThreadID:         resolvedReq.ThreadID,
-		ProviderThreadID: resolvedReq.ProviderThreadID,
-		Path:             resolvedReq.Path,
-		CWD:              cwd,
-		Model:            resolvedReq.Model,
-		Effort:           resolvedReq.Effort,
-		PromptSnapshot:   toProviderPromptSnapshot(resolvedReq.PromptSnapshot),
-		ConfigOverride:   resolvedReq.ConfigOverride,
+		Provider:           resolvedReq.Provider,
+		AgentID:            resolvedReq.AgentID,
+		ThreadID:           resolvedReq.ThreadID,
+		ProviderThreadID:   resolvedReq.ProviderThreadID,
+		Path:               resolvedReq.Path,
+		CWD:                cwd,
+		Model:              resolvedReq.Model,
+		Effort:             resolvedReq.Effort,
+		PromptSnapshot:     toProviderPromptSnapshot(resolvedReq.PromptSnapshot),
+		ConfigOverride:     resolvedReq.ConfigOverride,
+		CodexHome:          resolvedReq.CodexHome,
+		CodexInstanceKey:   resolvedReq.CodexInstanceKey,
+		CodexModelProvider: resolvedReq.CodexModelProvider,
 	})
 }
 
@@ -210,23 +213,26 @@ func (s *service) lookupSession(agentID string) (contract.Session, error) {
 }
 
 type resumeState struct {
-	AgentID           string
-	ParentAgentID     string
-	AgentType         string
-	AgentMemoryScope  string
-	Provider          string
-	ProviderThreadID  string
-	PublicThreadID    string
-	Prompt            string
-	Model             string
-	Effort            string
-	ConfigOverride    storedThreadConfig
-	ConfigOverrideRaw json.RawMessage
-	CWD               string
-	StoredCWD         string
-	RolloutPath       string
-	SessionUUID       string
-	CreatedAt         int64
+	AgentID            string
+	ParentAgentID      string
+	AgentType          string
+	AgentMemoryScope   string
+	Provider           string
+	ProviderThreadID   string
+	PublicThreadID     string
+	Prompt             string
+	Model              string
+	Effort             string
+	ConfigOverride     storedThreadConfig
+	ConfigOverrideRaw  json.RawMessage
+	CWD                string
+	StoredCWD          string
+	RolloutPath        string
+	SessionUUID        string
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
+	CreatedAt          int64
 }
 
 func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (ResumeRequest, resumeState, error) {
@@ -242,6 +248,9 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
 	req.ProviderThreadID = shared.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
 	req.CWD = shared.FirstNonEmpty(req.CWD, req.Path, state.CWD)
+	req.CodexHome = shared.FirstNonEmpty(req.CodexHome, state.CodexHome)
+	req.CodexInstanceKey = shared.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
+	req.CodexModelProvider = shared.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	req.ConfigOverride = resolveResumeConfigOverride(req, state)
 	req.Model = resolveResumeModel(req, state)
 	req.Effort = resolveResumeEffort(req, state)
@@ -266,6 +275,9 @@ func trimResumeRequest(req ResumeRequest) (ResumeRequest, error) {
 	req.CWD = strings.TrimSpace(req.CWD)
 	req.Model = strings.TrimSpace(req.Model)
 	req.Effort = strings.TrimSpace(req.Effort)
+	req.CodexHome = strings.TrimSpace(req.CodexHome)
+	req.CodexInstanceKey = strings.TrimSpace(req.CodexInstanceKey)
+	req.CodexModelProvider = strings.TrimSpace(req.CodexModelProvider)
 	req.ConfigOverride.Model = trimThreadConfigPatchValue(req.ConfigOverride.Model)
 	req.ConfigOverride.Effort = trimThreadConfigPatchValue(req.ConfigOverride.Effort)
 	req.ConfigOverride.Personality = nil
@@ -288,6 +300,9 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
 	req.ProviderThreadID = shared.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
 	req.CWD = shared.FirstNonEmpty(req.CWD, req.Path, state.CWD)
+	req.CodexHome = shared.FirstNonEmpty(req.CodexHome, state.CodexHome)
+	req.CodexInstanceKey = shared.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
+	req.CodexModelProvider = shared.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	req.PromptSnapshot = s.resolveResumePromptSnapshot(ctx, req, state)
 	if req.ConfigOverride.Model == nil {
 		if value := strings.TrimSpace(state.ConfigOverride.Model); value != "" {
@@ -399,6 +414,9 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.PublicThreadID = shared.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
 		state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
 		state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
+		state.CodexHome = strings.TrimSpace(binding.CodexHome)
+		state.CodexInstanceKey = strings.TrimSpace(binding.CodexInstanceKey)
+		state.CodexModelProvider = strings.TrimSpace(binding.CodexModelProvider)
 		state.CWD = shared.FirstNonEmpty(state.CWD, binding.Cwd)
 		// SessionUUID is updated asynchronously by onAgentLaunched when the
 		// real provider UUID arrives (e.g. claude system:init).  If it

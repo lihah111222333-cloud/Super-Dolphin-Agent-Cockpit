@@ -260,4 +260,3 @@ func TestStartParamsRejectsInvalidSelectedSkillsType(t *testing.T) {
 		t.Fatalf("expected selectedSkills type error, got %v", err)
 	}
 }
-

@@ -12,10 +12,10 @@ func TestBuildAllowlistedSpawnEnvKeepsOnlyListed(t *testing.T) {
 		"PATH=/usr/bin",
 		"HOME=/home/a",
 		"USER=a",
-		"CODEX_HOME=/stale/home",              // rogue — must be dropped
-		"OPENAI_API_KEY=secret",                // rogue — must be dropped
-		"AWS_SESSION_TOKEN=secret",             // rogue — must be dropped
-		"HTTP_PROXY=http://proxy:8080",         // not on allowlist
+		"CODEX_HOME=/stale/home",       // rogue — must be dropped
+		"OPENAI_API_KEY=secret",        // rogue — must be dropped
+		"AWS_SESSION_TOKEN=secret",     // rogue — must be dropped
+		"HTTP_PROXY=http://proxy:8080", // not on allowlist
 	}
 	got := buildAllowlistedSpawnEnv(parent, nil)
 	text := strings.Join(got, "\n")
