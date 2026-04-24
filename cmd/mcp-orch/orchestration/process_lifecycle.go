@@ -237,7 +237,10 @@ func (a *runnerActor) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			a.drainOnStop(exitEvents)
 			return ctx.Err()
-		case result := <-exitEvents:
+		case result, ok := <-exitEvents:
+			if !ok {
+				return ctx.Err()
+			}
 			a.service.handleProcessExit(ctx, result.agentID, result.launchSeq, result.err)
 		case <-ticker.C:
 			a.recoverStalledAgents(ctx, stallDetector)
@@ -269,16 +272,24 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan waitResult) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		_ = a.service.exitMonitor.Drain(drainCtx)
+		if err := a.service.exitMonitor.Drain(drainCtx); err != nil {
+			a.logger.Warn("orchestration: wait owner drain failed", "error", err)
+		}
 	}()
 	stopped, drained := false, false
 	for !stopped || !drained {
 		select {
 		case <-stopDone:
 			stopped = true
+			stopDone = nil
 		case <-drainDone:
 			drained = true
-		case result := <-exitEvents:
+			drainDone = nil
+		case result, ok := <-exitEvents:
+			if !ok {
+				exitEvents = nil
+				continue
+			}
 			a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
 		}
 	}
@@ -288,7 +299,10 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan waitResult) {
 func (a *runnerActor) flushRemainingExitEvents(exitEvents <-chan waitResult) {
 	for {
 		select {
-		case result := <-exitEvents:
+		case result, ok := <-exitEvents:
+			if !ok {
+				return
+			}
 			a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
 		default:
 			return
