@@ -2,13 +2,11 @@ package pidregistry
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -18,12 +16,16 @@ const (
 	// filePrefix is the naming convention for PID registry files.
 	filePrefix = "super-agent-pids-"
 	fileSuffix = ".json"
-	// registryDir is where PID files are stored. /tmp is cleaned on reboot
-	// which provides a natural safety net for very stale files.
-	registryDir = "/tmp"
 	// orphanKillGrace is how long to wait after SIGTERM before SIGKILL.
 	orphanKillGrace = 3 * time.Second
 )
+
+// registryDir returns the directory for PID registry files. On Unix this is
+// typically /tmp (cleaned on reboot, natural safety net for stale files);
+// on Windows it is whatever os.TempDir() resolves to per-user.
+func registryDir() string {
+	return os.TempDir()
+}
 
 // ChildInfo describes a subprocess registered with the PID registry.
 type ChildInfo struct {
@@ -135,7 +137,7 @@ func collectStaleOrphans(staleFiles []staleFile) []staleOrphan {
 	var orphans []staleOrphan
 	for _, sf := range staleFiles {
 		for _, child := range sf.Children {
-			if child.PID > 1 && syscall.Kill(child.PID, 0) == nil {
+			if child.PID > 1 && isProcessAlive(child.PID) {
 				orphans = append(orphans, staleOrphan{pid: child.PID, kind: child.Kind})
 			}
 		}
@@ -143,12 +145,13 @@ func collectStaleOrphans(staleFiles []staleFile) []staleOrphan {
 	return orphans
 }
 
-// sigtermOrphans sends SIGTERM to all orphans and returns those successfully signalled.
+// sigtermOrphans sends SIGTERM (or the platform equivalent) to all orphans
+// and returns those successfully signalled.
 func sigtermOrphans(orphans []staleOrphan) []staleOrphan {
 	sigtermed := make([]staleOrphan, 0, len(orphans))
 	for _, o := range orphans {
-		if err := syscall.Kill(o.pid, syscall.SIGTERM); err != nil {
-			if err != syscall.ESRCH {
+		if err := sendSIGTERM(o.pid); err != nil {
+			if !isNoSuchProcessErr(err) {
 				pkglogger.Warn("pidregistry: SIGTERM failed",
 					"pid", o.pid, "kind", o.kind, "error", err)
 			}
@@ -172,7 +175,7 @@ func waitForOrphanExit(sigtermed []staleOrphan) {
 
 func allProcessesGone(orphans []staleOrphan) bool {
 	for _, o := range orphans {
-		if syscall.Kill(o.pid, 0) == nil {
+		if isProcessAlive(o.pid) {
 			return false
 		}
 	}
@@ -183,7 +186,7 @@ func allProcessesGone(orphans []staleOrphan) bool {
 func sigkillSurvivors(sigtermed []staleOrphan) int {
 	killed := 0
 	for _, o := range sigtermed {
-		if syscall.Kill(o.pid, 0) != nil {
+		if !isProcessAlive(o.pid) {
 			pkglogger.Info("pidregistry: killed orphaned process",
 				"pid", o.pid, "kind", o.kind)
 			killed++
@@ -227,7 +230,7 @@ func (r *Registry) persist() {
 }
 
 func registryPath(appPID int) string {
-	return filepath.Join(registryDir, filePrefix+strconv.Itoa(appPID)+fileSuffix)
+	return filepath.Join(registryDir(), filePrefix+strconv.Itoa(appPID)+fileSuffix)
 }
 
 type staleFile struct {
@@ -236,7 +239,7 @@ type staleFile struct {
 }
 
 func findStaleRegistryFiles() []staleFile {
-	pattern := filepath.Join(registryDir, filePrefix+"*"+fileSuffix)
+	pattern := filepath.Join(registryDir(), filePrefix+"*"+fileSuffix)
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil
@@ -260,7 +263,7 @@ func findStaleRegistryFiles() []staleFile {
 			continue
 		}
 		// Check if the app process is still alive.
-		if err := syscall.Kill(rf.AppPID, 0); err == nil {
+		if isProcessAlive(rf.AppPID) {
 			continue // app is still running, don't touch it
 		}
 		stale = append(stale, staleFile{path: path, registryFile: rf})
@@ -272,21 +275,6 @@ func cleanupStaleFiles(files []staleFile) {
 	for _, sf := range files {
 		_ = os.Remove(sf.path)
 	}
-}
-
-func forceKill(pid int) error {
-	if pid <= 1 {
-		return fmt.Errorf("refusing to kill PID <= 1")
-	}
-	// Try process group first.
-	if err := syscall.Kill(-pid, syscall.SIGKILL); err == nil {
-		return nil
-	}
-	err := syscall.Kill(pid, syscall.SIGKILL)
-	if err == syscall.ESRCH {
-		return nil
-	}
-	return err
 }
 
 // RegistryFilesMatchingKind reads all stale files and returns PIDs of a given kind.
@@ -318,10 +306,8 @@ func StaleChildCount() int {
 	count := 0
 	for _, sf := range staleFiles {
 		for _, child := range sf.Children {
-			if child.PID > 1 {
-				if err := syscall.Kill(child.PID, 0); err == nil {
-					count++
-				}
+			if child.PID > 1 && isProcessAlive(child.PID) {
+				count++
 			}
 		}
 	}

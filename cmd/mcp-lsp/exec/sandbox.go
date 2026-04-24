@@ -81,7 +81,7 @@ func (s *Sandbox) Run(ctx context.Context, req Request) (Result, error) {
 	defer cancel()
 
 	command := osexec.CommandContext(runCtx, args[0], args[1:]...)
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setSandboxProcessAttrs(command)
 	command.Dir = workDir
 	command.Env = append(os.Environ(), req.Env...)
 	writer := newLimitedBuffer(s.outputLimit)
@@ -95,11 +95,13 @@ func (s *Sandbox) Run(ctx context.Context, req Request) (Result, error) {
 	if err := command.Start(); err != nil {
 		return Result{}, err
 	}
+	guard := attachSandboxGuard(command)
+	defer guard.close()
 	waitCh := make(chan error, 1)
 	go func() {
 		waitCh <- command.Wait()
 	}()
-	err = waitForCommand(runCtx, command, waitCh)
+	err = waitForCommand(runCtx, command, waitCh, guard)
 	result := Result{
 		Output:    writer.String(),
 		ExitCode:  exitCode(err),
@@ -120,12 +122,8 @@ func (s *Sandbox) Run(ctx context.Context, req Request) (Result, error) {
 }
 
 func (s *Sandbox) ShellRequest(command string, workDir string, timeout time.Duration) Request {
-	shell := os.Getenv("SHELL")
-	if strings.TrimSpace(shell) == "" {
-		shell = "/bin/sh"
-	}
 	return Request{
-		Args:    []string{shell, "-lc", command},
+		Args:    shellRequestArgs(command),
 		Command: command,
 		WorkDir: workDir,
 		Timeout: timeout,
@@ -202,22 +200,14 @@ func exitCode(err error) int {
 	return exitErr.ExitCode()
 }
 
-func waitForCommand(ctx context.Context, command *osexec.Cmd, waitCh <-chan error) error {
+func waitForCommand(ctx context.Context, command *osexec.Cmd, waitCh <-chan error, guard *sandboxGuard) error {
 	select {
 	case err := <-waitCh:
 		return err
 	case <-ctx.Done():
-		killProcessGroup(command.Process)
+		killSandboxProcess(command.Process, guard)
 		return <-waitCh
 	}
-}
-
-func killProcessGroup(process *os.Process) {
-	if process == nil {
-		return
-	}
-	_ = syscall.Kill(-process.Pid, syscall.SIGKILL)
-	_ = process.Kill()
 }
 
 type limitedBuffer struct {
