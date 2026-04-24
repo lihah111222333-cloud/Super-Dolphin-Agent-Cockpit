@@ -103,7 +103,7 @@ func TestNewThreadHandlersDispatchStart(t *testing.T) {
 	if effective["model"] != "gpt-5.5" || effective["provider"] != "codex" || effective["modelProvider"] != "openai" || effective["cwd"] != "/tmp/demo" || effective["approvalPolicy"] != "never" {
 		t.Fatalf("Dispatch(thread/start).effective = %#v", effective)
 	}
-	if stub.startReq.Provider != "codex" || stub.startReq.CWD != "/tmp/demo" || stub.startReq.Name != "hello" || stub.startReq.Prompt != "hello" || stub.startReq.BaseInstructions != "" {
+	if stub.startReq.Provider != "codex" || stub.startReq.CWD != "/tmp/demo" || stub.startReq.Name != "" || stub.startReq.Prompt != "hello" || stub.startReq.BaseInstructions != "" {
 		t.Fatalf("StartRequest = %#v", stub.startReq)
 	}
 }

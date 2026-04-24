@@ -130,7 +130,7 @@ func (p *startParams) fillLegacyStringFields(payload map[string]json.RawMessage)
 		compatStringAssignment{target: &p.AgentMemoryScope, field: "agent memory scope", keys: []string{"agent_memory_scope", "agentMemoryScope", "memory_scope", "memoryScope"}},
 		compatStringAssignment{target: &p.BaseInstructions, field: "base instructions", keys: []string{"base_instructions", "baseInstructions", "instructions"}},
 		compatStringAssignment{target: &p.DeveloperInstructions, field: "developer instructions", keys: []string{"developer_instructions", "developerInstructions"}},
-		compatStringAssignment{target: &p.Name, field: "display name", keys: []string{"name", "prompt"}},
+		compatStringAssignment{target: &p.Name, field: "display name", keys: []string{"name"}},
 	)
 }
 
