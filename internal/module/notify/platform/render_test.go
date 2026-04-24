@@ -19,14 +19,14 @@ func TestMarkdownEscapeCoversAllPlatforms(t *testing.T) {
 func TestStripMentionsBlocksBroadcastTokens(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"hello <!channel> world":        "hello  world",
-		"hi <!here> team":               "hi  team",
-		"cc <@U01ABCD> pls":             "cc  pls",
+		"hello <!channel> world":         "hello  world",
+		"hi <!here> team":                "hi  team",
+		"cc <@U01ABCD> pls":              "cc  pls",
 		"ping <at user_id=\"all\"></at>": "ping ",
 		"@所有人 please":                    " please",
-		"@all fyi":                      " fyi",
-		"@everyone note":                " note",
-		"@13800000000 safe":             " safe",
+		"@all fyi":                       " fyi",
+		"@everyone note":                 " note",
+		"@13800000000 safe":              " safe",
 	}
 	for in, want := range cases {
 		got := StripMentions(in)
@@ -77,12 +77,58 @@ func TestNormalizeBodyPipelineFullChain(t *testing.T) {
 	}
 }
 
+func TestNormalizeBodyStripsMentionsBeforeEscape(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		input   string
+		blocked []string
+	}{
+		{name: "slack_channel", input: "<!channel>", blocked: []string{"<!channel>", `<!channel\>`}},
+		{name: "slack_here", input: "<!here>", blocked: []string{"<!here>", `<!here\>`}},
+		{name: "slack_everyone", input: "<!everyone>", blocked: []string{"<!everyone>", `<!everyone\>`}},
+		{name: "slack_user", input: "<@U1234>", blocked: []string{"<@U1234>", `<@U1234\>`}},
+		{name: "feishu_all", input: `<at user_id="all"></at>`, blocked: []string{`<at user_id="all"></at>`, `<at user_id="all"\>\</at\>`}},
+		{name: "feishu_cn", input: "@所有人", blocked: []string{"@所有人"}},
+		{name: "dingtalk_all", input: "@all", blocked: []string{"@all"}},
+		{name: "dingtalk_mobile", input: "@13800000000", blocked: []string{"@13800000000"}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out := NormalizeBody("prefix "+tc.input+" suffix > quote", 0)
+			for _, token := range tc.blocked {
+				if strings.Contains(out, token) {
+					t.Fatalf("NormalizeBody(%q) leaked %q in %q", tc.input, token, out)
+				}
+			}
+			if !strings.Contains(out, `\> quote`) {
+				t.Fatalf("NormalizeBody did not escape markdown after stripping mention: %q", out)
+			}
+		})
+	}
+}
+
+func TestNormalizeTitleStripsMentionsBeforeEscape(t *testing.T) {
+	t.Parallel()
+	out := NormalizeTitle("<!channel> title > quote")
+	for _, token := range []string{"<!channel>", `<!channel\>`} {
+		if strings.Contains(out, token) {
+			t.Fatalf("NormalizeTitle leaked %q in %q", token, out)
+		}
+	}
+	if !strings.Contains(out, `\> quote`) {
+		t.Fatalf("NormalizeTitle did not escape markdown after stripping mention: %q", out)
+	}
+}
+
 func TestRedactURLStripsQueryAndFragment(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"https://hooks.slack.com/services/T/B/XYZ":           "https://hooks.slack.com/services/T/B/XYZ",
-		"https://oapi.dingtalk.com/robot/send?access_token=s": "https://oapi.dingtalk.com/robot/send#redacted",
-		"https://example.com/path#frag":                       "https://example.com/path#redacted",
+		"https://hooks.slack.com/services/T/B/XYZ":            "https://hooks.slack.com/services/redacted",
+		"https://oapi.dingtalk.com/robot/send?access_token=s": "https://oapi.dingtalk.com/robot/send",
+		"https://example.com/path#frag":                       "https://example.com/path",
 	}
 	for in, want := range cases {
 		if got := RedactURL(in); got != want {

@@ -84,29 +84,23 @@ func Truncate(s string, maxBytes int) string {
 }
 
 // NormalizeBody is the convenience pipeline every platform renderer
-// calls before wrapping the text in its template: escape markdown,
-// strip mentions, then clamp length.
+// calls before wrapping the text in its template: strip mentions,
+// escape markdown, then clamp length. Mention stripping must run before
+// markdown escaping because escaping '>' would turn Slack tokens such as
+// <!channel> into <!channel\>, which no longer match the mention regex.
 func NormalizeBody(s string, maxBytes int) string {
-	return Truncate(StripMentions(MarkdownEscape(s)), maxBytes)
+	return Truncate(MarkdownEscape(StripMentions(s)), maxBytes)
 }
 
 // NormalizeTitle is the same pipeline with a tighter default cap — a
 // title in a Dingtalk card has much less real estate than the body.
 func NormalizeTitle(s string) string {
-	return Truncate(StripMentions(MarkdownEscape(s)), 256)
+	return Truncate(MarkdownEscape(StripMentions(s)), 256)
 }
 
-// RedactURL strips query / fragment from a webhook URL so logs never
-// leak the bearer-style access tokens many platforms smuggle into the
-// query string. Emitted as "<https>://host/path#redacted" when
-// query / fragment are non-empty.
+// RedactURL strips secrets from a webhook URL so logs never leak bearer
+// tokens. Query / fragment are always removed, and Slack's bearer-style
+// path secret is collapsed to /services/[redacted].
 func RedactURL(u string) string {
-	u = strings.TrimSpace(u)
-	if u == "" {
-		return ""
-	}
-	if q := strings.IndexAny(u, "?#"); q >= 0 {
-		return u[:q] + "#redacted"
-	}
-	return u
+	return redactURLString(u)
 }
