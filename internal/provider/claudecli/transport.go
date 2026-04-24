@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -51,9 +52,11 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+	baseEnv := os.Environ()
 	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
+		baseEnv = append(baseEnv, env...)
 	}
+	cmd.Env = ensureLoopbackNoProxy(baseEnv)
 	setClaudeProcessAttrs(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -81,6 +84,47 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 	}
 	go tr.wait()
 	return tr, nil
+}
+
+// ensureLoopbackNoProxy guarantees loopback hosts are in NO_PROXY. Claude CLI
+// (Node) honors HTTP_PROXY/HTTPS_PROXY for all outbound requests including the
+// loopback MCP endpoints we host — if the user runs a proxy like clash and
+// has not set NO_PROXY, the MCP handshake is routed through the proxy and
+// hangs, causing the CLI to emit an empty-error result event.
+func ensureLoopbackNoProxy(env []string) []string {
+	const loopbacks = "127.0.0.1,localhost,::1"
+	var existing []string
+	filtered := make([]string, 0, len(env)+2)
+	for _, kv := range env {
+		key, _, ok := strings.Cut(kv, "=")
+		if ok && strings.EqualFold(key, "NO_PROXY") {
+			existing = append(existing, strings.TrimPrefix(kv, key+"="))
+			continue
+		}
+		filtered = append(filtered, kv)
+	}
+	merged := mergeCSV(append(existing, loopbacks)...)
+	return append(filtered, "NO_PROXY="+merged, "no_proxy="+merged)
+}
+
+func mergeCSV(parts ...string) string {
+	seen := make(map[string]struct{}, 8)
+	out := make([]string, 0, 8)
+	for _, group := range parts {
+		for _, item := range strings.Split(group, ",") {
+			trimmed := strings.TrimSpace(item)
+			if trimmed == "" {
+				continue
+			}
+			key := strings.ToLower(trimmed)
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, trimmed)
+		}
+	}
+	return strings.Join(out, ",")
 }
 
 func (t *transport) Send(msg []byte) error {

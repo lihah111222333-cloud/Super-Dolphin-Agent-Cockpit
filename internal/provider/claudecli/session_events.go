@@ -255,6 +255,7 @@ type streamEvent struct {
 	TerminalReason string          `json:"terminal_reason"`
 	IsError        bool            `json:"is_error"`
 	Error          json.RawMessage `json:"error"`
+	Errors         []string        `json:"errors"`
 }
 type contentBlock struct {
 	Type     string          `json:"type"`
@@ -297,6 +298,16 @@ func decodeSystemEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data["model"] = base.Model
 	return []dto.RawProviderEvent{{EventType: "system:" + strings.TrimSpace(raw.Subtype), Data: data}}
 }
+func joinErrorsArray(errs []string) string {
+	cleaned := make([]string, 0, len(errs))
+	for _, e := range errs {
+		if trimmed := strings.TrimSpace(e); trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	return strings.Join(cleaned, "; ")
+}
+
 func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data := baseData(base, raw.SessionID, raw.Timestamp)
 	success := !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
@@ -322,10 +333,10 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 		var plainStr string
 		_ = json.Unmarshal(raw.Error, &objReq)
 		_ = json.Unmarshal(raw.Error, &plainStr)
-		errStr = strings.TrimSpace(shared.FirstNonEmpty(errStr, objReq.Message, plainStr))
+		errStr = strings.TrimSpace(shared.FirstNonEmpty(errStr, objReq.Message, plainStr, joinErrorsArray(raw.Errors)))
 		if errStr == "" {
 			errStr = errorMessageFromTerminalReason(terminalReason)
-			pkglogger.Get().Warn("claudecli: stream error result missing message", "agent_id", base.AgentID, "terminal_reason", terminalReason, "raw_error", string(raw.Error), "raw_message", string(raw.Message))
+			pkglogger.Get().Warn("claudecli: stream error result missing message", "agent_id", base.AgentID, "terminal_reason", terminalReason, "raw_error", string(raw.Error), "raw_message", string(raw.Message), "raw_errors", raw.Errors)
 		}
 		data["error"] = errStr
 	}

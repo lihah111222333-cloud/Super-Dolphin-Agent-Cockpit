@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -14,6 +15,30 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+// claudeSessionUUIDRE matches the canonical UUID shape the Claude CLI accepts
+// for --resume. The CLI also accepts session titles, but those are arbitrary
+// strings and we cannot safely distinguish them from internal thread IDs, so
+// only UUIDs are allowed through.
+var claudeSessionUUIDRE = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// sanitizeResumeID returns the resumeID only if it's a UUID that Claude CLI
+// will accept. Passing a non-UUID (e.g. our synthetic "agent_<ts>" thread ID)
+// makes the CLI exit with "not a UUID and does not match any session title"
+// before it ever reads stdin — which surfaces to users as a silent empty
+// "Claude API temporarily unavailable" result.
+func sanitizeResumeID(id string) string {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return ""
+	}
+	if claudeSessionUUIDRE.MatchString(trimmed) {
+		return trimmed
+	}
+	pkglogger.Warn("claudecli: dropping non-UUID resume id",
+		"resume_id", trimmed)
+	return ""
+}
 
 const (
 	defaultClaudeCLIBin = "claude"
@@ -52,7 +77,7 @@ func launchCLIWithManifest(
 	args := buildCLIArgs(model, instructions, mcpPath, cfg)
 	logManifestLaunch(binary, cwd, model, mcpPath, manifest)
 	logSystemPromptArgs(args)
-	args = appendFlagIfSet(args, "--resume", resumeID)
+	args = appendFlagIfSet(args, "--resume", sanitizeResumeID(resumeID))
 	tr, err := newTransport(binary, args, cwd, nil)
 	if err != nil {
 		return nil, nil, cleanupOnError(err, cleanup)
