@@ -79,53 +79,18 @@ func main() {
 	// Build raw refs (still using section title strings).
 	rawFilesIndex := buildRawFilesIndex(root, mds)
 
-	// Collect unique section titles and build index.
-	secSet := map[string]int{}
-	var secIndex []string
-	getSID := func(title string) int {
-		if id, ok := secSet[title]; ok {
-			return id
-		}
-		id := len(secIndex)
-		secIndex = append(secIndex, title)
-		secSet[title] = id
-		return id
-	}
-
 	// Convert rawRefs to compact Refs with section IDs.
-	filesIndex := make(map[string]*FileEntry, len(rawFilesIndex))
-	for src, raws := range rawFilesIndex {
-		refs := make([]Ref, len(raws))
-		for i, r := range raws {
-			refs[i] = Ref{
-				CodemapID: r.codemapID,
-				SectionID: getSID(r.section),
-				StartLine: r.startLine,
-				EndLine:   r.endLine,
-			}
-		}
-		filesIndex[src] = &FileEntry{Refs: refs}
-	}
+	filesIndex, secIndex := buildCompactFilesIndex(rawFilesIndex)
+
+	codemaps, readmeCodemaps := buildOutputCodemaps(mds)
 
 	idx := Index{
 		Version:      "1.0",
 		GeneratedAt:  time.Now().Format("2006-01-02"),
 		Description:  "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
 		SectionIndex: secIndex,
+		Codemaps:     codemaps,
 		Files:        filesIndex,
-	}
-	readmeCodemaps := make([]codemapindex.ReadmeCodemap, 0, len(mds))
-	for _, md := range mds {
-		// Only emit level 1-2 sections in output.
-		var outSecs []Section
-		for _, s := range md.sections {
-			if s.Level <= 2 {
-				outSecs = append(outSecs, s)
-			}
-		}
-		cm := Codemap{ID: md.id, File: md.file, Title: md.title, TotalLines: len(md.lines), Sections: outSecs}
-		idx.Codemaps = append(idx.Codemaps, cm)
-		readmeCodemaps = append(readmeCodemaps, codemapindex.ReadmeCodemap{ID: cm.ID, File: cm.File, Title: cm.Title})
 	}
 
 	outPath := filepath.Join(codemapDir, "ai-index.json")
@@ -198,6 +163,52 @@ func buildRawFilesIndex(root string, mds []parsedMD) map[string][]rawRef {
 		filesIndex[src] = refs
 	}
 	return filesIndex
+}
+
+func buildCompactFilesIndex(rawFilesIndex map[string][]rawRef) (map[string]*FileEntry, []string) {
+	secSet := map[string]int{}
+	var secIndex []string
+	getSID := func(title string) int {
+		if id, ok := secSet[title]; ok {
+			return id
+		}
+		id := len(secIndex)
+		secIndex = append(secIndex, title)
+		secSet[title] = id
+		return id
+	}
+
+	filesIndex := make(map[string]*FileEntry, len(rawFilesIndex))
+	for src, raws := range rawFilesIndex {
+		refs := make([]Ref, len(raws))
+		for i, r := range raws {
+			refs[i] = Ref{
+				CodemapID: r.codemapID,
+				SectionID: getSID(r.section),
+				StartLine: r.startLine,
+				EndLine:   r.endLine,
+			}
+		}
+		filesIndex[src] = &FileEntry{Refs: refs}
+	}
+	return filesIndex, secIndex
+}
+
+func buildOutputCodemaps(mds []parsedMD) ([]Codemap, []codemapindex.ReadmeCodemap) {
+	var codemaps []Codemap
+	readmeCodemaps := make([]codemapindex.ReadmeCodemap, 0, len(mds))
+	for _, md := range mds {
+		var outSecs []Section
+		for _, s := range md.sections {
+			if s.Level <= 2 {
+				outSecs = append(outSecs, s)
+			}
+		}
+		cm := Codemap{ID: md.id, File: md.file, Title: md.title, TotalLines: len(md.lines), Sections: outSecs}
+		codemaps = append(codemaps, cm)
+		readmeCodemaps = append(readmeCodemaps, codemapindex.ReadmeCodemap{ID: cm.ID, File: cm.File, Title: cm.Title})
+	}
+	return codemaps, readmeCodemaps
 }
 
 func scanMDFiles(dir string) (r []string) {
