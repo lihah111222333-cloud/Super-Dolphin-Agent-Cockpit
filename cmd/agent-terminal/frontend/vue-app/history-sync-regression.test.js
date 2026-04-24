@@ -112,3 +112,26 @@ describe('History Sync Regression Fixes', () => {
     }
   });
 });
+
+  it('Bug 5: applyImmediateTimelineFromMessages should not skip streaming chunks with identical timestamps', () => {
+    const { applyImmediateTimelineFromMessages } = require('./stores/thread-history-ui.js');
+    const state = { timelinesByThread: {} };
+    
+    // First chunk
+    const res1 = { messages: [{ role: 'assistant', content: 'hello', createdAt: '2024-01-01T00:00:00Z', id: 1 }] };
+    applyImmediateTimelineFromMessages({ 
+      threadId: 't1', response: res1, state, normalizeThreadID: id => id, 
+      freezeTimelineItemsAtomic: items => ({ items, changed: true }) 
+    });
+    expect(state.timelinesByThread['t1'][0].text).toBe('hello');
+    
+    // Second chunk (same timestamp, more text)
+    const res2 = { messages: [{ role: 'assistant', content: 'hello world', createdAt: '2024-01-01T00:00:00Z', id: 1 }] };
+    const applied = applyImmediateTimelineFromMessages({ 
+      threadId: 't1', response: res2, state, normalizeThreadID: id => id, 
+      freezeTimelineItemsAtomic: items => ({ items, changed: true }) 
+    });
+    
+    expect(applied).toBe(true);
+    expect(state.timelinesByThread['t1'][0].text).toBe('hello world');
+  });
