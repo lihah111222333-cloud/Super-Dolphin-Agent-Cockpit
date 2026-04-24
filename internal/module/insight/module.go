@@ -24,7 +24,6 @@ var Module = fx.Module("insight",
 		provideCollector,
 		NewFlusher,
 		NewService,
-		NewHandlers,
 	),
 	fx.Provide(
 		fx.Annotate(flusherAsRunner, fx.ResultTags(`group:"runners"`)),

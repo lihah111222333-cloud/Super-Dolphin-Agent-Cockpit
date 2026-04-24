@@ -2,14 +2,14 @@
 // persists per-turn aggregate metrics through internal/store/insight.
 //
 // The module wires together three pieces:
-//   * subscriber (bus.ResilientSubscribe → queue): terminal events push a
+//   - subscriber (bus.ResilientSubscribe → queue): terminal events push a
 //     small flush signal onto a bounded channel; callbacks do zero work
 //     beyond enqueueing.
-//   * flusher (platformrunner.Runner): drains the queue, reads facts from
+//   - flusher (platformrunner.Runner): drains the queue, reads facts from
 //     observation.Contract, and UPSERTs into insight.Store. Runs until
 //     ctx cancels; shutdown is a bounded drain (5s) per the P3 plan.
-//   * service + rpc: read-side API that serves dashboard/insights/* from
-//     the persisted rows.
+//   - service: read-side API consumed by dashboard RPC handlers from the
+//     persisted rows.
 package insight
 
 import (
@@ -20,7 +20,7 @@ import (
 	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 )
 
-// Service is the read-side facade exposed via dashboard/insights/* RPCs.
+// Service is the read-side facade consumed by dashboard-owned RPC handlers.
 type Service interface {
 	ListRecent(ctx context.Context, limit int32) ([]Snapshot, error)
 	ListByThread(ctx context.Context, threadID string, limit int32) ([]Snapshot, error)
