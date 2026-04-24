@@ -101,16 +101,22 @@ func TestRunnerActorGuard(t *testing.T) {
 		assertNoOrchestrationWaiterTokens(t)
 	})
 	t.Run("ownership", func(t *testing.T) {
+		t.Parallel()
 		root := repoRootForGuardTests(t)
-		want := []ownershipHit{}
-		for _, hit := range want {
-			line, ok := findCallInFunction(t, root, hit.Path, hit.Symbol, hit.Call)
-			if !ok {
-				t.Logf("[P22.1 WARN] runner no-new guard missing TODO-locked call: %+v", hit)
-				t.Fail()
+		hits := findLifecycleOnStartCallHits(t, root, map[string]bool{
+			"Start":           true,
+			"Run":             true,
+			"Begin":           true,
+			"Serve":           true,
+			"Loop":            true,
+			"Watch":           true,
+			"startBusWorkers": true,
+		})
+		for _, hit := range hits {
+			if runnerOwnershipAllowedLifecycleHit(hit) {
 				continue
 			}
-			t.Logf("[P22.1 WARN] %s %s:%d %s", hit.Finding, hit.Path, line, hit.Symbol)
+			t.Errorf("runner ownership regression: %s:%d OnStart calls %s", hit.Path, hit.Line, hit.Call)
 		}
 	})
 }
@@ -139,4 +145,8 @@ func assertNoOrchestrationWaiterTokens(t *testing.T) {
 	if len(hits) > 0 {
 		t.Fatalf("process_lifecycle.go reintroduced P3 Finding 8 waiter path; forbidden tokens present: %v", hits)
 	}
+}
+
+func runnerOwnershipAllowedLifecycleHit(hit lifecycleCallHit) bool {
+	return hit.Path == "internal/platform/bus/module.go" && hit.Call == "Start"
 }

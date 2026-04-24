@@ -4,8 +4,10 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -225,64 +227,16 @@ func TestBusCallbackGuard(t *testing.T) {
 		}
 	})
 	t.Run("subscriber_group_ownership_warning", func(t *testing.T) {
+		t.Parallel()
 		root := repoRootForGuardTests(t)
-		want := []ownershipHit{}
-		for _, hit := range want {
-			line, ok := findCallInFunction(t, root, hit.Path, hit.Symbol, hit.Call)
-			if !ok {
-				t.Logf("[P22.1 WARN] subscriber no-new guard missing TODO-locked call: %+v", hit)
-				t.Fail()
-				continue
-			}
-			t.Logf("[P22.1 WARN] %s %s:%d %s", hit.Finding, hit.Path, line, hit.Symbol)
+		hits := findLifecycleOnStartCallHits(t, root, map[string]bool{
+			"Subscribe":          true,
+			"ResilientSubscribe": true,
+		})
+		for _, hit := range hits {
+			t.Errorf("subscriber ownership regression: %s:%d OnStart calls %s", hit.Path, hit.Line, hit.Call)
 		}
 	})
-}
-
-type ownershipHit struct {
-	Finding string
-	Path    string
-	Symbol  string
-	Call    string
-}
-
-func findCallInFunction(t *testing.T, root, rel, symbol, call string) (int, bool) {
-	t.Helper()
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, filepath.Join(root, filepath.FromSlash(rel)), nil, 0)
-	if err != nil {
-		t.Fatalf("parse %s: %v", rel, err)
-	}
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != symbol || fn.Body == nil {
-			continue
-		}
-		line, ok := findCallLine(fset, fn.Body, call)
-		if ok {
-			return line, true
-		}
-	}
-	return 0, false
-}
-
-func findCallLine(fset *token.FileSet, node ast.Node, call string) (int, bool) {
-	var line int
-	ast.Inspect(node, func(n ast.Node) bool {
-		if line != 0 || n == nil {
-			return line == 0
-		}
-		ce, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if callName(ce.Fun) == call {
-			line = fset.Position(ce.Pos()).Line
-			return false
-		}
-		return true
-	})
-	return line, line != 0
 }
 
 func callName(expr ast.Expr) string {
@@ -294,4 +248,118 @@ func callName(expr ast.Expr) string {
 	default:
 		return ""
 	}
+}
+
+type lifecycleCallHit struct {
+	Path string
+	Line int
+	Call string
+}
+
+func findLifecycleOnStartCallHits(t *testing.T, root string, forbidden map[string]bool) []lifecycleCallHit {
+	t.Helper()
+	var hits []lifecycleCallHit
+	for _, rel := range moduleLifecycleFiles(t, root) {
+		hits = append(hits, findLifecycleOnStartCallHitsInFile(t, root, rel, forbidden)...)
+	}
+	return hits
+}
+
+func moduleLifecycleFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var files []string
+	for _, scanRoot := range []string{"internal/module", "internal/platform"} {
+		absRoot := filepath.Join(root, filepath.FromSlash(scanRoot))
+		if _, err := os.Stat(absRoot); os.IsNotExist(err) {
+			continue
+		}
+		err := filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				t.Fatalf("walk %s: %v", path, walkErr)
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if d.Name() != "module.go" {
+				return nil
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				t.Fatalf("rel %s: %v", path, err)
+			}
+			files = append(files, filepath.ToSlash(rel))
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", absRoot, err)
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
+func findLifecycleOnStartCallHitsInFile(t *testing.T, root, rel string, forbidden map[string]bool) []lifecycleCallHit {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filepath.Join(root, filepath.FromSlash(rel)), nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", rel, err)
+	}
+	var hits []lifecycleCallHit
+	ast.Inspect(file, func(n ast.Node) bool {
+		cl, ok := n.(*ast.CompositeLit)
+		if !ok || !isFxHookComposite(cl) {
+			return true
+		}
+		for _, elt := range cl.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok || keyName(kv.Key) != "OnStart" {
+				continue
+			}
+			fn, ok := kv.Value.(*ast.FuncLit)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			hits = append(hits, findForbiddenCallsInNode(fset, rel, fn.Body, forbidden)...)
+		}
+		return true
+	})
+	return hits
+}
+
+func findForbiddenCallsInNode(fset *token.FileSet, rel string, node ast.Node, forbidden map[string]bool) []lifecycleCallHit {
+	var hits []lifecycleCallHit
+	ast.Inspect(node, func(n ast.Node) bool {
+		ce, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		name := callName(ce.Fun)
+		if forbidden[name] {
+			hits = append(hits, lifecycleCallHit{Path: rel, Line: fset.Position(ce.Pos()).Line, Call: name})
+		}
+		return true
+	})
+	return hits
+}
+
+func isFxHookComposite(cl *ast.CompositeLit) bool {
+	sel, ok := cl.Type.(*ast.SelectorExpr)
+	return ok && selectorXName(sel) == "fx" && sel.Sel.Name == "Hook"
+}
+
+func selectorXName(sel *ast.SelectorExpr) string {
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	return ident.Name
+}
+
+func keyName(expr ast.Expr) string {
+	ident, ok := expr.(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	return ident.Name
 }
