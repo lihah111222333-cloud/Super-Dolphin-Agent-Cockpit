@@ -27,11 +27,15 @@ var Module = fx.Module("mcpcontrol",
 		provideToolControlPlane,
 		NewSweeper,
 		provideHandlers,
+		// P22 P1b Finding 3: long-running sweep loop owned by run.Group via
+		// the root group:"runners" bridge instead of a module-level
+		// OnStart-spawned goroutine (the pre-P1b registerSweeperLifecycle
+		// path). See sweeper_runner.go for the runner contract.
+		fx.Annotate(NewSweeperRunner, fx.ResultTags(`group:"runners"`)),
 	),
 	fx.Invoke(registerHookLifecycle),
 	fx.Invoke(registerRegistryLifecycle),
 	fx.Invoke(registerConfigChangeLifecycle),
-	fx.Invoke(registerSweeperLifecycle),
 )
 
 // HandlerDeps bundles the dependencies used to build the MCP control-plane RPC handlers.
@@ -181,19 +185,10 @@ func registerConfigChangeLifecycle(lc fx.Lifecycle, in configChangeIn) {
 	})
 }
 
-func registerSweeperLifecycle(lc fx.Lifecycle, sweeper *Sweeper) {
-	if sweeper == nil {
-		return
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			go sweeper.Run(ctx)
-			return nil
-		},
-		OnStop: func(context.Context) error {
-			cancel()
-			return nil
-		},
-	})
-}
+// P22 P1b Finding 3: registerSweeperLifecycle was deleted. The sweeper loop is
+// now owned by SweeperRunner (sweeper_runner.go) and joined via the root
+// `group:"runners"` aggregation; shutdown is driven by root ctx cancel
+// rather than a module-scoped cancel paired with a fire-and-forget
+// OnStart goroutine. registry final-lease cleanup stays in
+// registerRegistryLifecycle.OnStop.
+

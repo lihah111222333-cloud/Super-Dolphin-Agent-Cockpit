@@ -30,6 +30,12 @@ var Module = fx.Module("rpc",
 				server:  server,
 			}
 		},
+		// P22 P1b Finding 4: approval-cleanup ticker owned by run.Group via
+		// the root `group:"runners"` aggregation. bindApprovalLifecycle now
+		// only handles startup restore + on-connect replay + OnStop shutdown
+		// of pending approvals; the long-running cleanup loop lives in
+		// ApprovalCleanupRunner (approval_cleanup_runner.go).
+		fx.Annotate(NewApprovalCleanupRunner, fx.ResultTags(`group:"runners"`)),
 	),
 	fx.Invoke(registerAllHandlers),
 	fx.Invoke(bindEventBridge),
@@ -146,20 +152,20 @@ func bindEventBridge(lc fx.Lifecycle, bridge *PushBridge, server *Server, logger
 	})
 }
 
+// bindApprovalLifecycle owns startup restore + on-connect replay + OnStop
+// shutdown for pending approvals. P22 P1b Finding 4 extracted the long
+// cleanup loop into ApprovalCleanupRunner; this fx.Hook no longer spawns
+// background goroutines.
 func bindApprovalLifecycle(lc fx.Lifecycle, approvals *ApprovalManager, bridge *PushBridge, server *Server, logger *pkglogger.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	registerApprovalRestoreOnConnect(approvals, bridge, server, logger)
-	cleanupCancel := func() {}
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			var err error
-			cleanupCancel, err = startApprovalLifecycle(ctx, approvals, bridge, server, logger)
-			return err
+			return restoreActiveApprovals(ctx, approvals, bridge, server)
 		},
 		OnStop: func(ctx context.Context) error {
-			cleanupCancel()
 			return shutdownPendingApprovals(ctx, approvals, logger)
 		},
 	})
@@ -176,25 +182,11 @@ func registerApprovalRestoreOnConnect(approvals *ApprovalManager, bridge *PushBr
 	})
 }
 
-func startApprovalLifecycle(
-	ctx context.Context,
-	approvals *ApprovalManager,
-	bridge *PushBridge,
-	server *Server,
-	logger *pkglogger.Logger,
-) (context.CancelFunc, error) {
-	cleanupCancel := func() {}
-	if err := restoreActiveApprovals(ctx, approvals, bridge, server); err != nil {
-		return cleanupCancel, err
-	}
-	if approvals == nil {
-		return cleanupCancel, nil
-	}
-	cleanupCtx, cancel := context.WithCancel(context.Background())
-	cleanupCancel = cancel
-	go startApprovalCleanupLoop(cleanupCtx, approvals, approvalCleanupInterval, DefaultApprovalTimeout, logger)
-	return cleanupCancel, nil
-}
+// P22 P1b Finding 4: startApprovalLifecycle was deleted. Its two roles have
+// split: startup restore runs inline inside bindApprovalLifecycle.OnStart
+// (via restoreActiveApprovals), and the long-running cleanup ticker is now
+// owned by ApprovalCleanupRunner (approval_cleanup_runner.go).
+
 
 func restoreActiveApprovals(ctx context.Context, approvals *ApprovalManager, bridge *PushBridge, server *Server) error {
 	if approvals == nil || server == nil {

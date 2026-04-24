@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"context"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"time"
 
 	"github.com/creachadair/jrpc2"
@@ -25,27 +24,9 @@ func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 	}
 }
 
-func startApprovalCleanupLoop(ctx context.Context, approvals *ApprovalManager, interval, timeout time.Duration, logger *pkglogger.Logger) {
-	if approvals == nil || interval <= 0 || timeout <= 0 {
-		return
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			before := len(approvals.PendingSnapshot())
-			approvals.Cleanup(timeout)
-			if logger != nil {
-				if after := len(approvals.PendingSnapshot()); after < before {
-					logger.Warn("rpc: cleaned expired pending approvals", "removed", before-after, "timeout", timeout.String())
-				}
-			}
-		}
-	}
-}
+// P22 P1b Finding 4: startApprovalCleanupLoop was deleted. The cleanup ticker
+// is owned by ApprovalCleanupRunner (approval_cleanup_runner.go) and joined
+// via the root `group:"runners"` aggregation.
 
 func (m *ApprovalManager) RestorePending(ctx context.Context, bridge *PushBridge, server *jrpc2.Server) error {
 	if m == nil {
