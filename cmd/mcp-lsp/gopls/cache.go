@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	defaultLSPCacheTTL      = 7 * 24 * time.Hour
-	lspCacheCleanupInterval = time.Hour
-	lspCacheFileName        = "gopls-cache.json"
+	defaultLSPCacheTTL = 7 * 24 * time.Hour
+	lspCacheFileName   = "gopls-cache.json"
 )
 
 const (
@@ -45,19 +44,24 @@ type lspCacheConfig struct {
 	Logger     *slog.Logger
 }
 
+// lspCacheStore holds per-workspace LSP document bootstrap state and
+// lets expired entries age out. Pre-P22 P2 gopls-S2 the struct also
+// owned a 1h background cleanup loop launched from newLSPCacheStore.
+// The cleanup is now amortised across every
+// Load/Upsert/WorkspaceDocuments via maybeCleanup, which the plan
+// (§483 / §490) classifies as the correct pattern — no constructor-owned
+// goroutine, no extra shutdown path beyond the resource's own Close().
 type lspCacheStore struct {
 	mu sync.RWMutex
 
 	config lspCacheConfig
 	now    func() time.Time
-	stopCh chan struct{}
 
 	memory map[string]lspCacheValue
 
 	persistent      bool
 	persistentReady bool
 	fallbackWarned  bool
-	closeOnce       sync.Once
 }
 
 type lspCacheDiskState struct {
@@ -81,7 +85,6 @@ func newLSPCacheStore(cfg lspCacheConfig) *lspCacheStore {
 	store := &lspCacheStore{
 		config:         cfg,
 		now:            time.Now,
-		stopCh:         make(chan struct{}),
 		memory:         map[string]lspCacheValue{},
 		persistent:     cfg.Persistent,
 		fallbackWarned: false,
@@ -90,7 +93,8 @@ func newLSPCacheStore(cfg lspCacheConfig) *lspCacheStore {
 		store.ensurePersistentReady()
 		_ = store.loadPersistent()
 	}
-	go store.cleanupLoop()
+	// P22 P2 gopls-S2: no background cleanup goroutine; TTL expiry is
+	// applied inline by maybeCleanup on every Load/Upsert/WorkspaceDocuments.
 	return store
 }
 
@@ -195,26 +199,17 @@ func (s *lspCacheStore) cachePath() string {
 	return filepath.Join(dir, lspCacheFileName)
 }
 
-func (s *lspCacheStore) cleanupLoop() {
-	ticker := time.NewTicker(lspCacheCleanupInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-s.stopCh:
-			return
-		case <-ticker.C:
-			s.maybeCleanup()
-		}
-	}
-}
-
+// Close is retained as the *lspCacheStore shutdown hook for API
+// stability. Pre-P22 P2 gopls-S2 it closed the stopCh that drove the
+// background cleanupLoop; cleanup is now amortised across every access,
+// so this method is a no-op. Keeping the method means callers like
+// closeBootstrapCoordinator don't need to change and a future persistent
+// flush-on-close can hang off the same entry point without another
+// refactor.
 func (s *lspCacheStore) Close() {
 	if s == nil {
 		return
 	}
-	s.closeOnce.Do(func() {
-		close(s.stopCh)
-	})
 }
 
 func (s *lspCacheStore) maybeCleanup() {
