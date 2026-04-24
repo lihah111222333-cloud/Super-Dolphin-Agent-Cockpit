@@ -384,3 +384,45 @@ R10 冷启动 agent 读的是 R2 前 HEAD，以下 "🔴" 是旧版本而非当�
 8. `TestCodeSizeGuard` PASS + `go build` PASS + `go test ./...` 76 包 ok
 9. 老公"直接收尾"
 10. 落盘 session-summary §8 + 会话习惯 §10.37 + 分语义 commit + push
+
+---
+
+## 9. 2026-04-24 uistate provider 伪 race 复核（本次追加）
+
+> 会话范围：只做后端 LSP 穷举；核对 `agentRuntimeById[thread].provider` 的 5 个写点、所有 caller、provider 数据源与 `"codex"` 误写路径；结论是 B2+ 后当前仓内已无自发把 claude thread 写成 codex 的正常代码路径。
+
+### 9.1 结论
+
+- **债 2 + 债 3 当前判定为伪 race，不落代码修复。**
+- `buildAgentRuntimeEntry` / `applyBindingToThreadRuntime` / `applyAgentRuntimeReported` / `applyThreadStarted` / `summarizeAgents` 五处里，**没有发现仓内正常控制流**会把一个 **实际 provider=claude** 的 thread 自发写成 **runtime provider=codex**。
+- 现存风险只剩 **越契约输入**：例如外部 runtime report 伪造 `provider=codex`，或直接改坏 binding 表；这属于输入信任/数据污染，不是本次讨论的 race。
+
+### 9.2 穷举摘要
+
+| 写点 | provider 来源 | caller / 时序 | 结论 |
+|---|---|---|---|
+| `sidebar_compat.go:166-205` `buildAgentRuntimeEntry` | `state.Agents[].Provider` | `deriveAgentRuntime -> fillSidebarDerivedLocked -> sidebarLocked -> stateSnapshot/sidebarSnapshot -> GetState/GetSidebar` | 只是镜像内存态；自己不造 `"codex"` |
+| `module.go:119-131` `applyBindingToThreadRuntime` | DB binding `entry.Provider` | `enrichFromDB`（快照已派生后再补） | 只回填空值；若 binding 正确，不会错写 `"codex"` |
+| `projector_handlers.go:161-180` `applyAgentRuntimeReported` | `ev.Provider` | dispatcher 订阅 runtimeReported | claude/codex 驱动各自上报 `d.Name()`；正常流不会把 claude 说成 codex |
+| `projector_handlers.go:182-214` `applyThreadStarted` | `threaddto.Started.Provider` | dispatcher 订阅 thread.started | provider 来自 `threadState.Provider`；B2+ 已堵住 pending-launch 默认回落 codex 的已知源头 |
+| `service.go:131-148` `summarizeAgents` | `contract.AgentSnapshot.Provider` | `buildInitialState -> NewService` | 来源是 orchestration snapshot；launch/runtime 两路 provider 都未发现 claude→codex 误写链 |
+
+### 9.3 本轮落地
+
+- 仅加 **防御性注释**：
+  - `internal/module/uistate/module.go`
+  - `internal/module/uistate/service.go`
+- 注释明确说明：
+  - binding enrich 只补空 provider；
+  - snapshot 先派生后 enrich 的顺序依赖上游 provider 数据源正确；
+  - 已知 pending-launch `"default to codex"` 源头见 `internal/module/thread/factory.go:266` 的 B2+ 修复。
+
+### 9.4 关联教训（对齐 §10.37）
+
+- **凡是“只补空值、不纠正非空值”的防御性逻辑，必须就地写清 guardrail。**
+- 本案 guardrail：如果未来再次出现
+  1. pending-launch / resume 路径丢失 provider 后默认回落 `"codex"`；
+  2. runtime report 接受了非权威 provider 覆盖；
+  3. binding provider 允许被二次改写；
+
+  那么今天的“伪 race”会立刻变成真 bug。
