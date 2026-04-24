@@ -58,16 +58,26 @@ func registerSubscriptions(p subscriptionParams) {
 	var cancels []context.CancelFunc
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+			// P22 P2 thread S3: start bus workers before the bus
+			// callbacks can fire, so Enqueue never races with a
+			// yet-to-be-started runWorker goroutine.
+			svc.startBusWorkers()
 			cancels = registerThreadSubscriptions(svc)
 			return nil
 		},
-		OnStop: func(context.Context) error {
+		OnStop: func(ctx context.Context) error {
+			// Cancel subscriptions first so the callbacks stop enqueueing,
+			// then drain the workers bounded by ctx. Order matters: if
+			// draining ran first, in-flight callbacks would hit the closed
+			// gate and silently drop — not wrong per contract, but the
+			// clean-shutdown contract here is lossless.
 			for _, cancel := range cancels {
 				if cancel != nil {
 					cancel()
 				}
 			}
 			cancels = nil
+			svc.stopBusWorkers(ctx)
 			return nil
 		},
 	})

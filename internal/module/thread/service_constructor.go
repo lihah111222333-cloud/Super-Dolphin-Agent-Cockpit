@@ -88,7 +88,7 @@ func newService(
 	if threadEvents != nil {
 		dispatcher = threadEvents.Dispatcher()
 	}
-	return &service{
+	s := &service{
 		logger:           logger,
 		threadStore:      threadStore,
 		bindingStore:     bindingStore,
@@ -111,4 +111,11 @@ func newService(
 		emitLaunched:     bus.NewEmitter[threaddto.Launched](dispatcher),
 		threadAgents:     make(map[string]string),
 	}
+	// P22 P2 thread S3: the taskHandoffWorker owns the
+	// onTurnCompleted -> refreshTaskHandoffFromThread slow-path so the bus
+	// callback is a cheap Enqueue. Constructed here (not in module.go)
+	// because the refresher is a service method and the worker is a
+	// service-internal resource with the same lifetime as the service.
+	s.taskHandoffWorker = newTaskHandoffWorker(s, logger)
+	return s
 }

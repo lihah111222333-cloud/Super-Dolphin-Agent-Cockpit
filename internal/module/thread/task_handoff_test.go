@@ -170,6 +170,13 @@ func TestOnTurnCompletedRefreshesTaskHandoff(t *testing.T) {
 		threadStore: &stubThreadStore{thread: thread},
 		sharedFiles: files,
 	}
+	// P22 P2 thread S3: onTurnCompleted now only enqueues into the
+	// taskHandoffWorker; the worker runs refreshTaskHandoffFromThread on
+	// its own goroutine. Wire + start the worker so the integration path
+	// under test still exercises event -> enqueue -> refresh -> upsert.
+	svc.taskHandoffWorker = newTaskHandoffWorker(svc, silentLogger())
+	svc.taskHandoffWorker.Start()
+
 	svc.onTurnCompleted(turndto.TurnCompleted{
 		TurnHeader: shareddto.TurnHeader{
 			AgentHeader: shareddto.AgentHeader{ThreadHeader: shareddto.ThreadHeader{ThreadID: "thread-1"}},
@@ -178,6 +185,15 @@ func TestOnTurnCompletedRefreshesTaskHandoff(t *testing.T) {
 		Status:  "completed",
 		Summary: "Implemented durable memory promote flow",
 	})
+
+	// Stop synchronously drains pending before the worker goroutine
+	// exits, so by the time Stop returns the upsert is already recorded
+	// on the stub. This avoids a polling loop and the data race between
+	// the worker goroutine writing files.upserts and the test reading it.
+	if err := svc.taskHandoffWorker.Stop(context.Background()); err != nil {
+		t.Fatalf("task handoff worker Stop: %v", err)
+	}
+
 	if len(files.upserts) != 1 {
 		t.Fatalf("handoff upserts = %d, want 1", len(files.upserts))
 	}
