@@ -76,6 +76,5 @@ var runtimeOwnershipTODOs = []runtimeOwnershipTODO{
 	{"F-7", "internal/platform/rpc/module.go", "bindEventBridge", "P22.1-P2B", "rpc push worker and subscriptions migrate to RunnerModule/BusModule", "0"},
 	{"F-8", "internal/platform/mcpcontrol/module.go", "registerConfigChangeLifecycle", "P22.1-P2B", "mcpcontrol fanout worker and subscriptions migrate to RunnerModule/BusModule", "0"},
 	{"F-9", "internal/platform/toolbridge/module.go", "registerDiffFallbackLifecycle", "P22.1-P2F", "toolbridge diff fallback subscriber migrates to BusModule", "0"},
-	{"F-10", "internal/module/insight/module.go", "registerCollectorLifecycle", "P22.1-P2A.1", "insight collector subscriber migrates to BusModule template", "0"},
 	{"F-11", "internal/module/turn/observation/module.go", "RegisterSubscribers", "P22.1-P2A.2", "observation subscriber migrates to BusModule without thread changes", "0"},
 }
