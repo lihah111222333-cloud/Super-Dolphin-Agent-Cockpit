@@ -55,6 +55,12 @@ func wrapWithFDLimit(argv []string) *exec.Cmd {
 	return exec.Command("sh", "-c", shellCmd)
 }
 
+// resolveCodexBinary is a passthrough on Unix — exec.Command handles PATH
+// lookup correctly and no cmd/bat shell wrappers are in play.
+func resolveCodexBinary(binary string) string {
+	return binary
+}
+
 // processGuard is the Unix no-op variant of the per-child supervisor handle.
 // On Unix the Setpgid SysProcAttr already gives us a process group to target
 // via negative-pid syscall.Kill — no extra kernel resource is needed.

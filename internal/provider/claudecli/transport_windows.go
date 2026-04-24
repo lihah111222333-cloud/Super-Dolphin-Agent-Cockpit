@@ -6,6 +6,9 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -19,6 +22,68 @@ func setClaudeProcessAttrs(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
 	}
+}
+
+// resolveClaudeBinary unwraps an npm shim .cmd/.ps1 so we spawn the real
+// claude.exe directly. Claude Code's `--system-prompt` arg is a 12KB+ block
+// with embedded newlines — routing it through cmd.exe (which is what Go does
+// for .cmd/.bat targets post-CVE-2024-24576) causes silent arg corruption
+// and the child exits immediately, surfacing as EOF on stdout.
+//
+// npm's wrapper template looks like:
+//
+//	@ECHO off
+//	...
+//	"%dp0%\node_modules\@scope\pkg\bin\foo.exe"   %*
+//
+// If we recognise that pattern we return the absolute path to the embedded
+// .exe; otherwise we return the input unchanged (Go's LookPath still runs).
+func resolveClaudeBinary(binary string) string {
+	if binary == "" {
+		binary = "claude"
+	}
+	// Explicit path — trust the caller.
+	if strings.ContainsAny(binary, `\/`) {
+		return binary
+	}
+	resolved, err := exec.LookPath(binary)
+	if err != nil {
+		return binary
+	}
+	ext := strings.ToLower(filepath.Ext(resolved))
+	if ext != ".cmd" && ext != ".bat" {
+		return resolved
+	}
+	real, ok := unwrapNpmShim(resolved)
+	if !ok {
+		return resolved
+	}
+	pkglogger.Info("claudecli: unwrapped npm shim",
+		"shim", resolved, "exe", real)
+	return real
+}
+
+var npmShimExeRE = regexp.MustCompile(`(?i)"%dp0%[\\/]([^"]+\.exe)"`)
+
+func unwrapNpmShim(cmdPath string) (string, bool) {
+	data, err := os.ReadFile(cmdPath)
+	if err != nil {
+		return "", false
+	}
+	matches := npmShimExeRE.FindSubmatch(data)
+	if len(matches) < 2 {
+		return "", false
+	}
+	rel := strings.TrimSpace(string(matches[1]))
+	if rel == "" {
+		return "", false
+	}
+	base := filepath.Dir(cmdPath)
+	abs := filepath.Clean(filepath.Join(base, rel))
+	if _, err := os.Stat(abs); err != nil {
+		return "", false
+	}
+	return abs, true
 }
 
 // processGuard wraps a Windows Job Object so a single TerminateJobObject can
