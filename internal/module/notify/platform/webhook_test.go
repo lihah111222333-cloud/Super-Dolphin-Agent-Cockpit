@@ -66,33 +66,34 @@ func TestPostAllowsPrivateCIDRWhenOptedIn(t *testing.T) {
 
 func TestIsBlockedIPCoversSSRFRanges(t *testing.T) {
 	t.Parallel()
-	blocked := []string{
-		"127.0.0.1",          // loopback
-		"::1",                 // loopback v6
-		"10.0.0.1",            // RFC 1918
-		"192.168.1.2",         // RFC 1918
-		"172.16.5.7",          // RFC 1918
-		"169.254.169.254",     // link-local (IMDS)
-		"100.64.1.2",          // RFC 6598 CGN
-		"fc00::1",             // ULA
-		"fe80::1234",          // link-local v6
-		"224.0.0.5",           // multicast
-		"0.0.0.0",             // unspecified
+	tests := []struct {
+		name string
+		ip   net.IP
+		want bool
+	}{
+		{name: "nil", ip: nil, want: true},
+		{name: "unspecified_ipv4", ip: net.ParseIP("0.0.0.0"), want: true},
+		{name: "loopback_ipv4", ip: net.ParseIP("127.0.0.1"), want: true},
+		{name: "link_local_unicast_ipv4", ip: net.ParseIP("169.254.169.254"), want: true},
+		{name: "multicast_ipv4", ip: net.ParseIP("224.0.0.1"), want: true},
+		{name: "link_local_multicast_ipv6", ip: net.ParseIP("ff02::1"), want: true},
+		{name: "interface_local_multicast_ipv6", ip: net.ParseIP("ff01::1"), want: true},
+		{name: "private_10", ip: net.ParseIP("10.0.0.1"), want: true},
+		{name: "private_192_168", ip: net.ParseIP("192.168.1.1"), want: true},
+		{name: "private_172_16", ip: net.ParseIP("172.16.0.1"), want: true},
+		{name: "rfc6598_cgnet", ip: net.ParseIP("100.64.0.1"), want: true},
+		{name: "ula_ipv6", ip: net.ParseIP("fc00::1"), want: true},
+		{name: "link_local_unicast_ipv6", ip: net.ParseIP("fe80::1"), want: true},
+		{name: "public_ipv4", ip: net.ParseIP("8.8.8.8"), want: false},
+		{name: "public_ipv6", ip: net.ParseIP("2001:4860:4860::8888"), want: false},
 	}
-	for _, s := range blocked {
-		ip := net.ParseIP(s)
-		if !isBlockedIP(ip) {
-			t.Errorf("isBlockedIP(%q) = false, want true", s)
-		}
-	}
-	publics := []string{
-		"8.8.8.8", "1.1.1.1", "140.82.121.4", "2606:4700:4700::1111",
-	}
-	for _, s := range publics {
-		ip := net.ParseIP(s)
-		if isBlockedIP(ip) {
-			t.Errorf("isBlockedIP(%q) = true, want false", s)
-		}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isBlockedIP(tt.ip); got != tt.want {
+				t.Fatalf("isBlockedIP(%v) = %t, want %t", tt.ip, got, tt.want)
+			}
+		})
 	}
 }
 

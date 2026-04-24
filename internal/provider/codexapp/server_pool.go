@@ -58,10 +58,10 @@ const (
 // Sentinel errors for pool failure modes. Callers branch on these for
 // retry / failover decisions.
 var (
-	ErrPoolExhausted    = errors.New("codexapp: server pool capacity exhausted")
-	ErrSpawnBackoff     = errors.New("codexapp: spawn backoff active for codexHome")
-	ErrPoolClosed       = errors.New("codexapp: server pool is closed")
-	ErrInvalidIdentity  = errors.New("codexapp: invalid codex identity")
+	ErrPoolExhausted   = errors.New("codexapp: server pool capacity exhausted")
+	ErrSpawnBackoff    = errors.New("codexapp: spawn backoff active for codexHome")
+	ErrPoolClosed      = errors.New("codexapp: server pool is closed")
+	ErrInvalidIdentity = errors.New("codexapp: invalid codex identity")
 )
 
 // ServerPool manages one SpawnedServer per canonicalized codexHome.
@@ -137,46 +137,24 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexIdentity) (SpawnedServer, func(), error) {
 	home, key, err := normalizePoolIdentity(identity)
 	if err != nil {
-		return nil, func() {}, err
+		return nil, noopRelease, err
 	}
 	p.mu.Lock()
-	if p.closed {
-		p.mu.Unlock()
-		return nil, func() {}, ErrPoolClosed
-	}
-	if p.spawner == nil {
-		p.mu.Unlock()
-		return nil, func() {}, fmt.Errorf("%w: pool has no spawner", ErrInvalidIdentity)
-	}
-	now := p.now()
-	entry := p.entries[home]
-	if entry != nil {
-		// Live entry: happy path.
-		if entry.server != nil && entry.server.Alive() {
-			entry.refCount++
-			entry.lastUsed = now
-			p.mu.Unlock()
-			return entry.server, p.releaser(home), nil
-		}
-		// Dead entry: drop the stale reference so we fall through to
-		// the spawn path. Backoff state is preserved so a flapping
-		// server doesn't spin on respawn.
-		entry.server = nil
+	defer p.mu.Unlock()
+
+	fastPath := p.acquireFastPathLocked(home)
+	if fastPath.done {
+		return fastPath.server, fastPath.release, fastPath.err
 	}
 	// Respect spawn backoff before we try to expand capacity.
-	if entry != nil && entry.spawnErr != nil && now.Before(entry.backoffUntil) {
-		cachedErr := entry.spawnErr
-		p.mu.Unlock()
-		return nil, func() {}, fmt.Errorf("%w: %v", ErrSpawnBackoff, cachedErr)
+	if err := p.checkBackoffLocked(fastPath.entry, fastPath.now); err != nil {
+		return nil, noopRelease, err
 	}
 	// Capacity pressure: try to evict the LRU idle entry. If no entry
 	// is evictable (everything is refcounted), surface
 	// ErrPoolExhausted so the caller fails fast.
-	if entry == nil && len(p.entries) >= p.cfg.Capacity {
-		if !p.evictLRULocked(now) {
-			p.mu.Unlock()
-			return nil, func() {}, ErrPoolExhausted
-		}
+	if err := p.ensureCapacityLocked(fastPath.entry, fastPath.now); err != nil {
+		return nil, noopRelease, err
 	}
 	// Spawn under the lock so a concurrent Acquire for the same home
 	// serialises here rather than launching two processes. The spawner
@@ -184,18 +162,87 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	// depend on it being fast.
 	server, err := p.spawner(ctx, home)
 	if err != nil {
-		// Record the failure for backoff. Preserve the existing
-		// entry slot if one exists so backoff state persists.
-		if entry == nil {
-			entry = &poolEntry{home: home, instanceKey: key}
-			p.entries[home] = entry
-		}
-		entry.spawnErr = err
-		entry.backoffUntil = now.Add(p.cfg.SpawnBackoff)
-		entry.lastUsed = now
-		p.mu.Unlock()
-		return nil, func() {}, fmt.Errorf("codexapp: spawn %q: %w", home, err)
+		p.recordSpawnErrorLocked(fastPath.entry, home, key, err, fastPath.now)
+		return nil, noopRelease, fmt.Errorf("codexapp: spawn %q: %w", home, err)
 	}
+	p.storeSpawnedLocked(fastPath.entry, home, key, server, fastPath.now)
+	return server, p.releaser(home), nil
+}
+
+func noopRelease() {}
+
+type acquireFastPathResult struct {
+	entry   *poolEntry
+	now     time.Time
+	server  SpawnedServer
+	release func()
+	err     error
+	done    bool
+}
+
+func (p *ServerPool) acquireFastPathLocked(home string) acquireFastPathResult {
+	result := acquireFastPathResult{release: noopRelease}
+	if p.closed {
+		result.err = ErrPoolClosed
+		result.done = true
+		return result
+	}
+	if p.spawner == nil {
+		result.err = fmt.Errorf("%w: pool has no spawner", ErrInvalidIdentity)
+		result.done = true
+		return result
+	}
+	result.now = p.now()
+	result.entry = p.entries[home]
+	if result.entry == nil {
+		return result
+	}
+	// Live entry: happy path.
+	if result.entry.server != nil && result.entry.server.Alive() {
+		result.entry.refCount++
+		result.entry.lastUsed = result.now
+		result.server = result.entry.server
+		result.release = p.releaser(home)
+		result.done = true
+		return result
+	}
+	// Dead entry: drop the stale reference so we fall through to
+	// the spawn path. Backoff state is preserved so a flapping
+	// server doesn't spin on respawn.
+	result.entry.server = nil
+	return result
+}
+
+func (p *ServerPool) checkBackoffLocked(entry *poolEntry, now time.Time) error {
+	if entry == nil || entry.spawnErr == nil || !now.Before(entry.backoffUntil) {
+		return nil
+	}
+	return fmt.Errorf("%w: %v", ErrSpawnBackoff, entry.spawnErr)
+}
+
+func (p *ServerPool) ensureCapacityLocked(entry *poolEntry, now time.Time) error {
+	if entry != nil || len(p.entries) < p.cfg.Capacity {
+		return nil
+	}
+	if p.evictLRULocked(now) {
+		return nil
+	}
+	return ErrPoolExhausted
+}
+
+func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, home, key string, err error, now time.Time) {
+	// Record the failure for backoff. Preserve the existing
+	// entry slot if one exists so backoff state persists.
+	if entry == nil {
+		entry = &poolEntry{home: home, instanceKey: key}
+		p.entries[home] = entry
+	}
+	entry.spawnErr = err
+	entry.backoffUntil = now.Add(p.cfg.SpawnBackoff)
+	entry.lastUsed = now
+}
+
+func (p *ServerPool) storeSpawnedLocked(entry *poolEntry, home, key string, server SpawnedServer, now time.Time) {
 	if entry == nil {
 		entry = &poolEntry{home: home, instanceKey: key}
 		p.entries[home] = entry
@@ -205,8 +252,6 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	entry.backoffUntil = time.Time{}
 	entry.refCount = 1
 	entry.lastUsed = now
-	p.mu.Unlock()
-	return server, p.releaser(home), nil
 }
 
 // releaser returns the per-home release callback used by Acquire. The
@@ -295,17 +340,11 @@ func (p *ServerPool) EvictIdle() int {
 // Close is safe to call multiple times.
 func (p *ServerPool) Close(ctx context.Context) error {
 	p.mu.Lock()
-	if p.closed {
-		p.mu.Unlock()
+	entries, alreadyClosed := p.snapshotCloseEntriesLocked()
+	p.mu.Unlock()
+	if alreadyClosed {
 		return nil
 	}
-	p.closed = true
-	entries := make([]*poolEntry, 0, len(p.entries))
-	for _, entry := range p.entries {
-		entries = append(entries, entry)
-	}
-	p.entries = nil
-	p.mu.Unlock()
 	var firstErr error
 	for _, entry := range entries {
 		if entry.server == nil {
@@ -316,6 +355,19 @@ func (p *ServerPool) Close(ctx context.Context) error {
 		}
 	}
 	return firstErr
+}
+
+func (p *ServerPool) snapshotCloseEntriesLocked() ([]*poolEntry, bool) {
+	if p.closed {
+		return nil, true
+	}
+	p.closed = true
+	entries := make([]*poolEntry, 0, len(p.entries))
+	for _, entry := range p.entries {
+		entries = append(entries, entry)
+	}
+	p.entries = nil
+	return entries, false
 }
 
 // Size returns the current number of pool entries. Useful for tests
@@ -348,7 +400,7 @@ func normalizePoolIdentity(identity providershared.CodexIdentity) (home, key str
 // debug level because the failure rarely indicates real trouble —
 // shutdown ordering races commonly surface as transient Close errors.
 func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.Logger, key string) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := withTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := server.Close(ctx); err != nil {
 		logger.Debug("codexapp: pool close entry failed",

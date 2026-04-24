@@ -7,7 +7,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-func TestEvaluateEnableWhen_EmptyAndInvalidFailOpen(t *testing.T) {
+func TestEnableWhen_EmptyAndInvalidFailOpen(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{Language: "zh"}
 	cases := map[string][]byte{
@@ -27,7 +27,7 @@ func TestEvaluateEnableWhen_EmptyAndInvalidFailOpen(t *testing.T) {
 	}
 }
 
-func TestEvaluateEnableWhen_StringFieldEquality(t *testing.T) {
+func TestEnableWhen_StringFieldEquality(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{Language: "zh", Provider: "claude-cli", Model: "sonnet-4"}
 	if !EvaluateEnableWhen([]byte(`{"language":"zh"}`), ctx) {
@@ -45,7 +45,7 @@ func TestEvaluateEnableWhen_StringFieldEquality(t *testing.T) {
 	}
 }
 
-func TestEvaluateEnableWhen_BoolField(t *testing.T) {
+func TestEnableWhen_BoolField(t *testing.T) {
 	t.Parallel()
 	worktreeCtx := contract.BuildCtx{IsWorktree: true}
 	plainCtx := contract.BuildCtx{IsWorktree: false}
@@ -60,7 +60,7 @@ func TestEvaluateEnableWhen_BoolField(t *testing.T) {
 	}
 }
 
-func TestEvaluateEnableWhen_SessionFlagsNested(t *testing.T) {
+func TestEnableWhen_SessionFlagsNested(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{SessionFlags: map[string]bool{"debug": true, "verbose": false}}
 	if !EvaluateEnableWhen([]byte(`{"sessionFlags.debug":true}`), ctx) {
@@ -85,7 +85,7 @@ func TestEvaluateEnableWhen_SessionFlagsNested(t *testing.T) {
 	}
 }
 
-func TestEvaluateEnableWhen_UnknownKeyFailsClosed(t *testing.T) {
+func TestEnableWhen_UnknownKeyFailsClosed(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{Language: "zh"}
 	if EvaluateEnableWhen([]byte(`{"doesNotExist":"zh"}`), ctx) {
@@ -93,7 +93,7 @@ func TestEvaluateEnableWhen_UnknownKeyFailsClosed(t *testing.T) {
 	}
 }
 
-func TestEvaluateEnableWhen_TypeMismatch(t *testing.T) {
+func TestEnableWhen_TypeMismatch(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{Language: "zh", IsWorktree: true}
 	// JSON number vs bool/string: the evaluator only accepts bool/string,

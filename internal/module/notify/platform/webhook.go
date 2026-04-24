@@ -215,13 +215,20 @@ func isBlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return true
 	}
-	if ip.IsUnspecified() || ip.IsLoopback() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() {
-		return true
-	}
-	if ip.IsPrivate() {
-		return true
-	}
+	return isBlockedByStdlib(ip) || isBlockedByRange(ip)
+}
+
+func isBlockedByStdlib(ip net.IP) bool {
+	return ip.IsUnspecified() ||
+		ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() ||
+		ip.IsInterfaceLocalMulticast() ||
+		ip.IsPrivate()
+}
+
+func isBlockedByRange(ip net.IP) bool {
 	// RFC 6598 (carrier-grade NAT 100.64.0.0/10) is not covered by
 	// IsPrivate; add it explicitly so shared tenancy CGN ranges do
 	// not leak webhook egress.
@@ -230,10 +237,7 @@ func isBlockedIP(ip net.IP) bool {
 	}
 	// IPv6 ULA (fc00::/7). Go's IsPrivate already covers this, but the
 	// explicit check keeps readers from chasing the stdlib definition.
-	if ula.Contains(ip) {
-		return true
-	}
-	return false
+	return ula.Contains(ip)
 }
 
 // isConnRefused lets callers distinguish "SSRF guard rejected the

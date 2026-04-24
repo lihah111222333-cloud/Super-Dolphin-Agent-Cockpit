@@ -277,18 +277,42 @@ func (s *Scheduler) RunTick(ctx context.Context) error {
 // cron expression.
 func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
 	now := s.now().UTC()
-	scheduledAt := job.NextRunAt
+	scheduledAt := scheduledAtForJob(job, now)
+	run, dedupe, err := s.createPendingRun(ctx, job, scheduledAt, now)
+	if err != nil {
+		return err
+	}
+	if err := s.markRunSubmitting(ctx, run.ID); err != nil {
+		return err
+	}
+	startResult, err := s.submitter.StartTurn(ctx, buildStartTurnRequest(job, run.ID, dedupe, scheduledAt))
+	if err != nil {
+		return s.finalizeFailure(ctx, job, run, scheduledAt, err)
+	}
+	if err := s.persistSubmittedTurn(ctx, job, run, startResult); err != nil {
+		return err
+	}
+	if err := s.observeStartedTurn(ctx, job, run, startResult); err != nil {
+		return err
+	}
+	return s.markFinished(ctx, job, run, startResult.TurnID, scheduledAt)
+}
+
+func scheduledAtForJob(job cronstore.Job, now time.Time) time.Time {
 	if !job.NextRetryAt.IsZero() {
-		scheduledAt = job.NextRetryAt
+		return job.NextRetryAt
 	}
-	if scheduledAt.IsZero() {
-		scheduledAt = now
+	if !job.NextRunAt.IsZero() {
+		return job.NextRunAt
 	}
+	return now
+}
+
+func (s *Scheduler) createPendingRun(ctx context.Context, job cronstore.Job, scheduledAt, now time.Time) (cronstore.Run, string, error) {
 	idempotencyKey := s.newID()
 	dedupe := DedupeKey(job.ID, scheduledAt, idempotencyKey)
-	runID := s.newID()
 	run, err := s.store.InsertRun(ctx, cronstore.InsertRunParams{
-		ID:             runID,
+		ID:             s.newID(),
 		JobID:          job.ID,
 		ScheduledAt:    scheduledAt,
 		IdempotencyKey: idempotencyKey,
@@ -297,24 +321,22 @@ func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	})
-	if err != nil {
-		return err
-	}
+	return run, dedupe, err
+}
 
-	// Phase: pending -> submitting
-	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
-		ID:             run.ID,
+func (s *Scheduler) markRunSubmitting(ctx context.Context, runID string) error {
+	return s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+		ID:             runID,
 		ExpectedStatus: cronstore.StatusPending,
 		NextStatus:     cronstore.StatusSubmitting,
 		UpdatedAt:      s.now().UTC(),
-	}); err != nil {
-		return err
-	}
+	})
+}
 
-	// Phase: submitting -> submitted (via StartTurn or crash-recovery lookup)
-	startResult, startErr := s.submitter.StartTurn(ctx, StartTurnRequest{
+func buildStartTurnRequest(job cronstore.Job, runID, dedupe string, scheduledAt time.Time) StartTurnRequest {
+	return StartTurnRequest{
 		JobID:        job.ID,
-		RunID:        run.ID,
+		RunID:        runID,
 		DedupeKey:    dedupe,
 		ThreadID:     job.ThreadID,
 		AgentID:      job.AgentID,
@@ -327,18 +349,16 @@ func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
 		ScheduledAt:  scheduledAt,
 		MaxAttempts:  job.MaxAttempts,
 		FailureCount: job.FailureCount,
-	})
-	if startErr != nil {
-		return s.finalizeFailure(ctx, job, run, scheduledAt, startErr)
 	}
+}
 
-	// Record turn id + advance to submitted.
+func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job cronstore.Job, run cronstore.Run, result StartTurnResult) error {
 	updatedAt := s.now().UTC()
 	if err := s.store.SetRunTurn(ctx, cronstore.SetRunTurnParams{
 		ID:          run.ID,
-		ThreadID:    startResult.ThreadID,
-		AgentID:     startResult.AgentID,
-		TurnID:      startResult.TurnID,
+		ThreadID:    result.ThreadID,
+		AgentID:     result.AgentID,
+		TurnID:      result.TurnID,
 		SubmittedAt: updatedAt,
 		UpdatedAt:   updatedAt,
 	}); err != nil {
@@ -352,38 +372,26 @@ func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.store.SetActiveTurn(ctx, cronstore.SetActiveTurnParams{
+	return s.store.SetActiveTurn(ctx, cronstore.SetActiveTurnParams{
 		ID:           job.ID,
 		ClaimToken:   job.ClaimToken,
-		ActiveTurnID: startResult.TurnID,
-		ThreadID:     startResult.ThreadID,
-		AgentID:      startResult.AgentID,
+		ActiveTurnID: result.TurnID,
+		ThreadID:     result.ThreadID,
+		AgentID:      result.AgentID,
 		Now:          updatedAt,
-	}); err != nil {
-		return err
-	}
+	})
+}
 
-	// Phase: submitted -> running (via Observe)
-	observeErr := s.submitter.Observe(ctx, startResult.TurnID)
-	if observeErr != nil {
-		return s.finalizeObserveLost(ctx, job, run, startResult, observeErr)
+func (s *Scheduler) observeStartedTurn(ctx context.Context, job cronstore.Job, run cronstore.Run, result StartTurnResult) error {
+	if err := s.submitter.Observe(ctx, result.TurnID); err != nil {
+		return s.finalizeObserveLost(ctx, job, run, result, err)
 	}
-	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+	return s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
 		ID:             run.ID,
 		ExpectedStatus: cronstore.StatusSubmitted,
 		NextStatus:     cronstore.StatusRunning,
 		UpdatedAt:      s.now().UTC(),
-	}); err != nil {
-		return err
-	}
-
-	// Success finalize. The actual terminal transition (running ->
-	// finished) is driven by the turn terminal subscriber added in
-	// phase 2b-integrate; for this cut we mark finished at submit time
-	// if the submitter returned synchronously. That behaviour is gated
-	// by the real TurnSubmitter shape — phase 2b-integrate may instead
-	// keep the job in "running" and finalize on TurnCompleted hooks.
-	return s.markFinished(ctx, job, run, startResult.TurnID, scheduledAt)
+	})
 }
 
 func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run cronstore.Run, scheduledAt time.Time, startErr error) error {

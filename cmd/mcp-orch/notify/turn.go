@@ -167,40 +167,55 @@ func (t *TurnNotifier) Metrics() TurnMetrics {
 // passed through unedited because the flusher's MarkdownEscape /
 // NormalizeBody pipeline owns the escaping + truncation.
 func buildTurnCompletedMessage(ev turndto.TurnCompleted) (title, body string) {
-	status := strings.TrimSpace(ev.Status)
-	if status == "" {
-		if ev.Success {
-			status = "completed"
-		} else {
-			status = "failed"
-		}
-	}
-	title = "Turn " + status
+	return buildTurnCompletedTitle(ev), buildTurnCompletedBody(ev)
+}
+
+func buildTurnCompletedTitle(ev turndto.TurnCompleted) string {
+	title := "Turn " + resolvedTurnCompletedStatus(ev)
 	if id := strings.TrimSpace(ev.TurnID); id != "" {
-		title += ": " + id
+		return title + ": " + id
 	}
-	parts := []string{}
-	if v := strings.TrimSpace(ev.AgentID); v != "" {
-		parts = append(parts, "Agent: "+v)
+	return title
+}
+
+func resolvedTurnCompletedStatus(ev turndto.TurnCompleted) string {
+	status := strings.TrimSpace(ev.Status)
+	if status != "" {
+		return status
 	}
-	if v := strings.TrimSpace(ev.ThreadID); v != "" {
-		parts = append(parts, "Thread: "+v)
+	if ev.Success {
+		return "completed"
 	}
-	if v := strings.TrimSpace(ev.StopReason); v != "" {
-		parts = append(parts, "Stop reason: "+v)
+	return "failed"
+}
+
+func buildTurnCompletedBody(ev turndto.TurnCompleted) string {
+	parts := make([]string, 0, 5)
+	parts = appendTurnCompletedField(parts, "Agent", ev.AgentID)
+	parts = appendTurnCompletedField(parts, "Thread", ev.ThreadID)
+	parts = appendTurnCompletedField(parts, "Stop reason", ev.StopReason)
+	parts = appendTurnCompletedField(parts, "Error", ev.Error)
+	return strings.Join(appendTurnCompletedResult(parts, ev), "\n")
+}
+
+func appendTurnCompletedField(parts []string, label, value string) []string {
+	if value = strings.TrimSpace(value); value == "" {
+		return parts
 	}
-	if v := strings.TrimSpace(ev.Error); v != "" {
-		parts = append(parts, "Error: "+v)
-	}
+	return append(parts, label+": "+value)
+}
+
+func appendTurnCompletedResult(parts []string, ev turndto.TurnCompleted) []string {
 	if v := strings.TrimSpace(ev.Result); v != "" {
-		parts = append(parts, "Result:\n"+v)
-	} else if v := strings.TrimSpace(ev.Summary); v != "" {
-		parts = append(parts, "Summary:\n"+v)
-	} else if v := strings.TrimSpace(ev.Message); v != "" {
-		parts = append(parts, v)
+		return append(parts, "Result:\n"+v)
 	}
-	body = strings.Join(parts, "\n")
-	return title, body
+	if v := strings.TrimSpace(ev.Summary); v != "" {
+		return append(parts, "Summary:\n"+v)
+	}
+	if v := strings.TrimSpace(ev.Message); v != "" {
+		return append(parts, v)
+	}
+	return parts
 }
 
 // isNegativeStatus flags terminal statuses the plan maps to the

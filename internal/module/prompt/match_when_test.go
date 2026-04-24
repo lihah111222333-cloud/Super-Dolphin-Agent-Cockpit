@@ -6,7 +6,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-func TestEvaluateMatchWhen_NilOrMalformed_NotMatch(t *testing.T) {
+func TestMatchWhen_NilOrMalformed_NotMatch(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{CWD: "/any"}
 	cases := map[string][]byte{
@@ -25,7 +25,7 @@ func TestEvaluateMatchWhen_NilOrMalformed_NotMatch(t *testing.T) {
 	}
 }
 
-func TestEvaluateMatchWhen_EmptyObject_AlwaysMatch(t *testing.T) {
+func TestMatchWhen_EmptyObject_AlwaysMatch(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{CWD: "/tmp"}
 	if !EvaluateMatchWhen([]byte(`{}`), ctx, "") {
@@ -33,7 +33,7 @@ func TestEvaluateMatchWhen_EmptyObject_AlwaysMatch(t *testing.T) {
 	}
 }
 
-func TestEvaluateMatchWhen_CWDGlob(t *testing.T) {
+func TestMatchWhen_CWDGlob(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{CWD: "/Users/mac/projects/data-lake"}
 	if !EvaluateMatchWhen([]byte(`{"cwd_glob":"/Users/*/projects/data-*"}`), ctx, "") {
@@ -44,7 +44,7 @@ func TestEvaluateMatchWhen_CWDGlob(t *testing.T) {
 	}
 }
 
-func TestEvaluateMatchWhen_CWDPrefix(t *testing.T) {
+func TestMatchWhen_CWDPrefix(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{CWD: "/Users/mac/work/myrepo"}
 	if !EvaluateMatchWhen([]byte(`{"cwd_prefix":"/Users/mac/work"}`), ctx, "") {
@@ -55,7 +55,7 @@ func TestEvaluateMatchWhen_CWDPrefix(t *testing.T) {
 	}
 }
 
-func TestEvaluateMatchWhen_TagsHas_CaseInsensitive(t *testing.T) {
+func TestMatchWhen_TagsHas_CaseInsensitive(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{}
 	if !EvaluateMatchWhen([]byte(`{"tags_has":"review"}`), ctx, "帮我 Review 这个文件") {
@@ -66,7 +66,7 @@ func TestEvaluateMatchWhen_TagsHas_CaseInsensitive(t *testing.T) {
 	}
 }
 
-func TestEvaluateMatchWhen_SharedBuildCtxFields(t *testing.T) {
+func TestMatchWhen_SharedBuildCtxFields(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{Language: "zh", IsWorktree: true}
 	if !EvaluateMatchWhen([]byte(`{"language":"zh"}`), ctx, "") {
@@ -80,7 +80,7 @@ func TestEvaluateMatchWhen_SharedBuildCtxFields(t *testing.T) {
 	}
 }
 
-func TestEvaluateMatchWhen_AndSemantics(t *testing.T) {
+func TestMatchWhen_AndSemantics(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{
 		CWD:      "/Users/mac/work/db",
@@ -96,10 +96,42 @@ func TestEvaluateMatchWhen_AndSemantics(t *testing.T) {
 	}
 }
 
-func TestEvaluateMatchWhen_UnknownKeyFailsClosed(t *testing.T) {
+func TestMatchWhen_UnknownKeyFailsClosed(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{Language: "zh"}
 	if EvaluateMatchWhen([]byte(`{"does_not_exist":"x"}`), ctx, "") {
 		t.Fatalf("unknown key must fail-closed")
 	}
+}
+
+func TestMatchWhenKeyMatches_Cases(t *testing.T) {
+	t.Parallel()
+	ctx := contract.BuildCtx{
+		CWD:      "/Users/mac/work/myrepo",
+		Language: "zh",
+	}
+
+	t.Run("cwd_glob", func(t *testing.T) {
+		if !matchWhenKeyMatches("cwd_glob", "/Users/*/work/*", ctx, "") {
+			t.Fatalf("cwd_glob should match")
+		}
+	})
+
+	t.Run("cwd_prefix_empty_string", func(t *testing.T) {
+		if matchWhenKeyMatches("cwd_prefix", "", ctx, "") {
+			t.Fatalf("empty cwd_prefix must not match")
+		}
+	})
+
+	t.Run("tags_has_case_insensitive", func(t *testing.T) {
+		if !matchWhenKeyMatches("tags_has", "review", ctx, "帮我 Review 这个文件") {
+			t.Fatalf("tags_has should match regardless of case")
+		}
+	})
+
+	t.Run("falls_through_to_enable_when_field", func(t *testing.T) {
+		if !matchWhenKeyMatches("language", "zh", ctx, "") {
+			t.Fatalf("shared enable_when field should match via fallback")
+		}
+	})
 }

@@ -38,9 +38,9 @@ import (
 //     maps to ErrTurnNotFound so the scheduler marks the run
 //     observe_lost per the P1b plan.
 type TurnServiceAdapter struct {
-	svc          turn.Service
-	resolver     contract.SessionResolver
-	logger       *slog.Logger
+	svc      turn.Service
+	resolver contract.SessionResolver
+	logger   *slog.Logger
 	// bootstrapper is optional. When set, StartTurn invokes it on a job
 	// row whose ThreadID is still empty, then proceeds with the
 	// freshly-minted thread. A nil bootstrapper preserves the v1
@@ -89,6 +89,22 @@ func (a *TurnServiceAdapter) StartTurn(ctx context.Context, req StartTurnRequest
 	if a == nil || a.svc == nil || a.resolver == nil {
 		return StartTurnResult{}, errors.New("cron: turn adapter not wired")
 	}
+	session, agentID, err := a.resolveThreadAgent(ctx, req)
+	if err != nil {
+		return StartTurnResult{}, err
+	}
+	turnID, err := a.executeTurn(ctx, session, req)
+	if err != nil {
+		return StartTurnResult{}, err
+	}
+	return StartTurnResult{
+		TurnID:   turnID,
+		ThreadID: strings.TrimSpace(session.ThreadID()),
+		AgentID:  agentID,
+	}, nil
+}
+
+func (a *TurnServiceAdapter) resolveThreadAgent(ctx context.Context, req StartTurnRequest) (contract.Session, string, error) {
 	threadID := strings.TrimSpace(req.ThreadID)
 	agentID := strings.TrimSpace(req.AgentID)
 	if threadID == "" {
@@ -98,37 +114,37 @@ func (a *TurnServiceAdapter) StartTurn(ctx context.Context, req StartTurnRequest
 		// IDs via SetActiveTurn once StartTurn itself succeeds.
 		bootstrapped, err := a.bootstrapFirstRun(ctx, req)
 		if err != nil {
-			return StartTurnResult{}, err
+			return nil, "", err
 		}
 		threadID = strings.TrimSpace(bootstrapped.ThreadID)
-		if strings.TrimSpace(bootstrapped.AgentID) != "" {
-			agentID = strings.TrimSpace(bootstrapped.AgentID)
+		if bootstrappedAgentID := strings.TrimSpace(bootstrapped.AgentID); bootstrappedAgentID != "" {
+			agentID = bootstrappedAgentID
 		}
 	}
 	session, err := a.resolver.ResolveSession(ctx, threadID)
 	if err != nil {
-		return StartTurnResult{}, fmt.Errorf("cron: resolve session: %w", err)
+		return nil, "", fmt.Errorf("cron: resolve session: %w", err)
 	}
+	return session, agentID, nil
+}
+
+func (a *TurnServiceAdapter) executeTurn(ctx context.Context, session contract.Session, req StartTurnRequest) (string, error) {
 	prepared, err := a.svc.PrepareTurn(ctx, session, a.buildPrepareInput(req))
 	if err != nil {
-		return StartTurnResult{}, fmt.Errorf("cron: prepare turn: %w", err)
+		return "", fmt.Errorf("cron: prepare turn: %w", err)
 	}
 	handle, err := a.svc.StartTurn(ctx, session, prepared)
 	if err != nil {
-		return StartTurnResult{}, fmt.Errorf("cron: start turn: %w", err)
+		return "", fmt.Errorf("cron: start turn: %w", err)
 	}
 	turnID := strings.TrimSpace(handle.LocalID())
 	if turnID == "" {
 		// A StartTurn that returns without a local id is a turn.Service
 		// contract violation. Fail loudly so the scheduler marks the
 		// run failed instead of persisting a phantom turn_id.
-		return StartTurnResult{}, errors.New("cron: turn.StartTurn returned empty local id")
+		return "", errors.New("cron: turn.StartTurn returned empty local id")
 	}
-	return StartTurnResult{
-		TurnID:   turnID,
-		ThreadID: strings.TrimSpace(session.ThreadID()),
-		AgentID:  agentID,
-	}, nil
+	return turnID, nil
 }
 
 // bootstrapFirstRun is the adapter-local helper that invokes the
