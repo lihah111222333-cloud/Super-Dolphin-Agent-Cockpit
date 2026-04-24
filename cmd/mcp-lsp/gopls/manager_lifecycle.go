@@ -10,9 +10,22 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
 
 const managerShutdownTimeout = 5 * time.Second
+
+// BackgroundRunner satisfies the gopls.Manager contract (see
+// manager.go) by returning the pool's recycler as a
+// platformrunner.Runner. A nil receiver or nil pool yields nil so the
+// root collector can safely drop it from `group:"runners"`. P22 P2
+// gopls-S1.
+func (m *manager) BackgroundRunner() platformrunner.Runner {
+	if m == nil || m.pool == nil {
+		return nil
+	}
+	return m.pool.RecyclerRunner()
+}
 
 func (m *manager) EnsureClient(ctx context.Context, filePath, languageID string) (Client, error) {
 	if strings.TrimSpace(filePath) != "" {

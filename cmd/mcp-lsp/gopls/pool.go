@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
 
 const (
@@ -35,9 +37,21 @@ func NewManagerPool(primary *manager, size int) *ManagerPool {
 		size:    clampPoolSize(size),
 		leases:  map[Client]int{},
 	}
+	// P22 P2 gopls-S1: do not start the recycler loop from the
+	// constructor. The root `group:"runners"` aggregation owns it via
+	// RecyclerRunner() below so shutdown is driven by ctx cancellation.
 	pool.recycler = newPoolRecycler(pool)
-	pool.recycler.Start()
 	return pool
+}
+
+// RecyclerRunner exposes the pool's background recycler as a
+// platformrunner.Runner. The root bridge collects recyclers from each
+// language pool and feeds them into `group:"runners"`.
+func (p *ManagerPool) RecyclerRunner() platformrunner.Runner {
+	if p == nil {
+		return nil
+	}
+	return p.recycler
 }
 
 func PoolSizeFromEnv() int {
@@ -62,13 +76,12 @@ func (p *ManagerPool) Size() int {
 	return p.size
 }
 
+// StopAll is retained as the *ManagerPool shutdown hook for non-runner
+// resources (leases bookkeeping, etc.). Recycler lifecycle is now owned
+// by the root runner group via ctx cancellation, so this method is a
+// no-op for the recycler; callers that previously relied on StopAll
+// halting the loop must now cancel the runner context instead.
 func (p *ManagerPool) StopAll() error {
-	if p == nil {
-		return nil
-	}
-	if p.recycler != nil {
-		p.recycler.Stop()
-	}
 	return nil
 }
 
