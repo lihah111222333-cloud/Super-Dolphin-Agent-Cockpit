@@ -23,7 +23,7 @@ func TestHookConsumerAfter_StateChangeMirrorsAgentState(t *testing.T) {
 	agent.remoteThreadID = "thread-1"
 	agent.activeTurnID = "turn-1"
 
-	consumer := NewHookConsumer(svc, silentLogger())
+	consumer := newHookConsumer(svc, silentLogger())
 	stateChanged := agentdto.StateChanged{
 		AgentSessionHeader: sharedto.AgentSessionHeader{
 			AgentHeader: sharedto.AgentHeader{
@@ -77,7 +77,7 @@ func TestHookConsumerAfter_ProcessExitMarksStopped(t *testing.T) {
 	agent.remoteThreadID = "thread-1"
 	agent.activeTurnID = "turn-1"
 
-	consumer := NewHookConsumer(svc, silentLogger())
+	consumer := newHookConsumer(svc, silentLogger())
 	stopped := threaddto.Stopped{
 		EventHeader: sharedto.EventHeader{Timestamp: time.Unix(20, 0).UTC()},
 		ThreadID:    "thread-1",
@@ -108,7 +108,7 @@ func TestHookConsumerAfter_TurnCompletedMarksIdleAndPersistsReport(t *testing.T)
 	agent.remoteThreadID = "thread-1"
 	agent.activeTurnID = "turn-1"
 
-	consumer := NewHookConsumer(svc, silentLogger())
+	consumer := newHookConsumer(svc, silentLogger())
 	completed := turndto.TurnCompleted{
 		TurnHeader: sharedto.TurnHeader{
 			AgentHeader: sharedto.AgentHeader{
@@ -150,7 +150,7 @@ func TestHookConsumerAfter_FinalAnswerItemPersistsReport(t *testing.T) {
 	agent.remoteThreadID = "thread-1"
 	agent.activeTurnID = "turn-1"
 
-	consumer := NewHookConsumer(svc, silentLogger())
+	consumer := newHookConsumer(svc, silentLogger())
 	payload := json.RawMessage(`{"item":{"type":"agentMessage","phase":"final_answer","text":"ORCH_OK"}}`)
 	item := turndto.ItemCompleted{
 		TurnHeader: sharedto.TurnHeader{
@@ -186,7 +186,7 @@ func TestHookConsumerAfter_FinalAnswerItemPersistsReport(t *testing.T) {
 
 func TestHookConsumerAfter_UnknownAgentIsIgnored(t *testing.T) {
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
-	consumer := NewHookConsumer(svc, silentLogger())
+	consumer := newHookConsumer(svc, silentLogger())
 
 	stateChanged := agentdto.StateChanged{
 		AgentSessionHeader: sharedto.AgentSessionHeader{

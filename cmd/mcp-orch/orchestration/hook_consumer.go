@@ -9,6 +9,7 @@ import (
 
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
@@ -33,10 +34,6 @@ const (
 	hookRelayKindTurnInterrupted   = "turn.interrupted"
 	hookRelayKindTurnItemCompleted = "turn.item_completed"
 )
-
-type HookConsumer interface {
-	After(ctx context.Context, payload mcp.HookPayload) (mcp.AfterDecision, error)
-}
 
 // NotifyTap observes core-turn terminal events coming through the hook
 // consumer chain. Implementations forward into the orch MessageNotifier
@@ -65,19 +62,27 @@ type hookContextEnvelope struct {
 	Event json.RawMessage `json:"event"`
 }
 
-// NewHookConsumer keeps the pre-existing 2-arg signature for direct
-// callers (notably the hook_consumer_test suite). Wire-level fx
-// injection uses HookConsumerParams + ProvideHookConsumer so the
-// optional NotifyTap can be discovered without breaking these tests.
-func NewHookConsumer(svc *service, logger *slog.Logger) HookConsumer {
+// newHookConsumer keeps the pre-existing 2-arg signature for in-package
+// tests (notably the hook_consumer_test suite). Wire-level fx injection
+// uses HookAfterHandlerParams + ProvideHookAfterHandler so the optional
+// NotifyTap can be discovered without breaking these tests.
+//
+// P22 P4 S4c2: the previously exported HookConsumer interface,
+// NewHookConsumer constructor, and ProvideHookConsumer provider formed
+// a subpackage bootstrap-hook protocol shell. Root assembly now wires
+// the handler via contract.BootstrapHookAfterHandler, so this package
+// no longer exports the interface or constructor. The archtest in
+// internal/archtest/orchestration_no_hookconsumer_export_guard_test.go
+// locks this in place.
+func newHookConsumer(svc *service, logger *slog.Logger) *hookConsumer {
 	return newHookConsumerInternal(svc, logger, nil)
 }
 
-// HookConsumerParams is the fx.In bundle for ProvideHookConsumer. A nil
-// NotifyTap is valid (treated as no-op), so downstream modules that do
-// not register a tap — or unit tests that wire orchestration.Module
-// without the orch notify module — boot cleanly.
-type HookConsumerParams struct {
+// HookAfterHandlerParams is the fx.In bundle for ProvideHookAfterHandler.
+// A nil NotifyTap is valid (treated as no-op), so downstream modules
+// that do not register a tap — or unit tests that wire the orchestration
+// providers without the orch notify module — boot cleanly.
+type HookAfterHandlerParams struct {
 	fx.In
 
 	Service   *service
@@ -85,14 +90,15 @@ type HookConsumerParams struct {
 	NotifyTap NotifyTap    `optional:"true"`
 }
 
-// ProvideHookConsumer is the fx-facing constructor. It plumbs the
-// optional NotifyTap through to the unexported initializer shared with
-// NewHookConsumer.
-func ProvideHookConsumer(p HookConsumerParams) HookConsumer {
-	return newHookConsumerInternal(p.Service, p.Logger, p.NotifyTap)
+// ProvideHookAfterHandler is the fx-facing constructor. It returns the
+// bootstrap-side after-hook as a plain function (contract.BootstrapHookAfterHandler)
+// so the root assembly plumbs it straight into bootstrap.HookConfig.OnAfter
+// without typing on any orchestration subpackage interface.
+func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAfterHandler {
+	return newHookConsumerInternal(p.Service, p.Logger, p.NotifyTap).After
 }
 
-func newHookConsumerInternal(svc *service, logger *slog.Logger, tap NotifyTap) HookConsumer {
+func newHookConsumerInternal(svc *service, logger *slog.Logger, tap NotifyTap) *hookConsumer {
 	return &hookConsumer{svc: svc, logger: loggerOrDefault(logger), notifyTap: tap}
 }
 
