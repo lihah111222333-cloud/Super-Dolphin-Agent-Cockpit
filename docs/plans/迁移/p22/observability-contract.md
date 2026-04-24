@@ -141,10 +141,11 @@ recycling gopls process
 
 ## 本次 session 未涉及的相邻债务
 
-- §328 `arch-import-direction.md` debt banner 刷新 — 未做
-- §329 `codemap` 中 `ui/wails` / `toolbridge` / `orchestration` 稳定职责
-  段落加 debt banner 或更新为 P22/P4 口径 — 零散改了 mcp-orch 的几行，
-  未做系统扫更
+- §328 `arch-import-direction.md` debt banner 刷新 — 已做（2026-04-24，banner 指向 P22 README / P4 / observability-contract）
+- §329 `codemap` 中 `ui/wails` / `toolbridge` / `orchestration` 稳定职责段 debt banner — 已做
+  - `docs/doc/codemap/01-terminal-ui-go.md` 顶部 banner 指向 P22 README / P4
+  - `docs/doc/codemap/02-mcp-orch.md` 顶部 banner 指向 P22 README / P3 / P4
+  - `docs/doc/codemap/08-platform.md` §2.14 toolbridge 段内 banner 指向 P22 README / P4
 - 全仓 `go test ./...` 绿一次 — 仅跑了触达包，未做一把梭
 
-这几条单独记账，建议随 S6 或新开 slice 处理。
+剩余一条（全仓绿测）单独记账，建议随 S6 或新开 slice 处理。

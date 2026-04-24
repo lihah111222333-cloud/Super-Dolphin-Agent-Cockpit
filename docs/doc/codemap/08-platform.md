@@ -562,6 +562,8 @@
 
 ## 2.14 `toolbridge/`：Provider <-> MCP Tool 桥接
 
+> 2026-04-24 debt banner / authoritative pointer：本节描述 `platform/toolbridge` 的稳定职责，不再是 toolbridge 依赖方向的权威记录。`toolbridge` 直连 provider concrete 与业务 store 的 hidden-contract / 依赖反向问题，authoritative 入口是 [`docs/plans/迁移/p22/README.md`](../../plans/迁移/p22/README.md) 与 [`docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md`](../../plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md)。
+
 **职责**
 
 - 把 Provider（当前主要是 `codexapp`）收到的 tool call / list tools 请求，转发给 MCP tool peer
