@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -177,7 +178,7 @@ func (h *Handler) toolCallRuntimeConfig(ctx context.Context, req ToolCallRequest
 func (h *Handler) requireToolCallThreadID(ctx context.Context, req ToolCallRequest) (string, error) {
 	threadID, ok := h.resolveToolCallThreadID(ctx, req)
 	if !ok {
-		return "", ErrThreadRuntimeRequired
+		return "", contract.ErrThreadRuntimeRequired
 	}
 	return threadID, nil
 }
@@ -185,7 +186,7 @@ func (h *Handler) requireToolCallThreadID(ctx context.Context, req ToolCallReque
 func (h *Handler) requireToolCallRuntime(ctx context.Context, threadID string) (map[string]any, error) {
 	runtime, ok := h.readToolCallRuntime(ctx, threadID)
 	if !ok {
-		return nil, ErrPersistentSubagentRuntimeRequired
+		return nil, contract.ErrPersistentSubagentRuntimeRequired
 	}
 	return runtime, nil
 }
