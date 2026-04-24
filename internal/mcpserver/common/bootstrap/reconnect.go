@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
 )
 
 const reconnectMaxDelay = 30 * time.Second
@@ -53,6 +54,11 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 		}
 		conn, reg, err := c.reconnectAttempt(ctx)
 		if err == nil {
+			// P22 P4 S6b / plan §322: count successful attempt
+			// before we mutate state so the counter reflects the
+			// outcome of reconnectAttempt itself, not the
+			// activation that follows.
+			metrics.BootstrapReconnectAttempts.WithLabelValues("success").Inc()
 			c.mu.Lock()
 			if c.closed || c.rootCtx != ctx {
 				c.mu.Unlock()
@@ -70,6 +76,9 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 			)
 			return
 		}
+		// P22 P4 S6b / plan §322: count failed attempt next to the
+		// existing warn log so the two signals move together.
+		metrics.BootstrapReconnectAttempts.WithLabelValues("fail").Inc()
 		pkglogger.Warn("bootstrap reconnect failed",
 			"instance_id", c.instanceID,
 			"retry_in", delay,
