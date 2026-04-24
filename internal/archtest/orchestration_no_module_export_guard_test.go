@@ -13,7 +13,7 @@ import (
 // buildOrchestrationOptions) is authoritative for which pieces get
 // wired together. Subpackage must only expose the constituent building
 // blocks (ProvideService / ProvideServiceInterface /
-// ProvideHookConsumer / NewOrchestrationHandlers / RegisterTurnLifecycle
+// ProvideHookAfterHandler / ProvideRPCFacade / RegisterTurnLifecycle
 // / RegisterApprovalLifecycle) — not a bundled `Module`.
 //
 // P4 plan §278 rationale: "Module 退回 cmd/mcp-orch 根入口组装". Hiding

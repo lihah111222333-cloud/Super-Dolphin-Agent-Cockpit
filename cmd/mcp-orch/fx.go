@@ -139,7 +139,7 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 				orchestration.ProvideService,
 				orchestration.ProvideServiceInterface,
 				orchestration.ProvideHookAfterHandler,
-				orchestration.NewOrchestrationHandlers,
+				orchestration.ProvideRPCFacade,
 			),
 			fx.Invoke(orchestration.RegisterTurnLifecycle),
 			fx.Invoke(orchestration.RegisterApprovalLifecycle),

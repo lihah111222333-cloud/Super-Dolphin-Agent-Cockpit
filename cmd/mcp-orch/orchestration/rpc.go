@@ -58,7 +58,21 @@ func decodeStrictRuntimeReportJSON(data []byte, dst any) error {
 	return nil
 }
 
-func NewOrchestrationHandlers(svc Service) rpc.HandlerMapResult {
+// ProvideRPCFacade returns the orchestration subpackage's RPC handler
+// bundle to the cmd/mcp-orch root assembly. It is consumed exclusively
+// through the fx `group:"rpc_handlers"` hookup (see buildOrchestrationOptions
+// in cmd/mcp-orch/fx.go) and is not a generic subpackage-to-subpackage
+// protocol shell.
+//
+// P22 P4 S4c3: the previous export `NewOrchestrationHandlers` named this
+// constructor after the orchestration protocol surface, which encouraged
+// other subpackages to treat cmd/mcp-orch/orchestration as a reusable RPC
+// shell (plan §117, §277 — handler.Map 协议壳 退回根入口 / 被 facade 替代).
+// The name now explicitly frames this as a root-entry facade; the
+// archtest in
+// internal/archtest/orchestration_no_rpc_shell_export_guard_test.go
+// locks the old name out so it cannot re-surface.
+func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"agent.launch": rpc.StrictHandler(func(ctx context.Context, p launchParams) (any, error) {
 			return nil, svc.LaunchAgent(ctx, launchRequestFromParams(p))

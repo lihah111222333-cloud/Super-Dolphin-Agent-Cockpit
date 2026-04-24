@@ -324,7 +324,7 @@
 
 ### 4.2 包级 JSON-RPC handlers（非 Claude MCP tools）
 
-这些名称来自 `orchestration.NewOrchestrationHandlers()` 与 `workspace.NewWorkspaceHandlers()` 的 handler map。它们不是 `tools.Registry` 注册的 MCP tools；`cmd/mcp-orch` 运行时的 Claude-facing 出口仍是 stdio / HTTP MCP，远程 launcher 调用的是控制面 `thread/start` / `turn/start` / `thread/stop`。
+这些名称来自 `orchestration.ProvideRPCFacade()` 与 `workspace.NewWorkspaceHandlers()` 的 handler map。它们不是 `tools.Registry` 注册的 MCP tools；`cmd/mcp-orch` 运行时的 Claude-facing 出口仍是 stdio / HTTP MCP，远程 launcher 调用的是控制面 `thread/start` / `turn/start` / `thread/stop`。
 
 #### orchestration RPC
 
@@ -724,5 +724,5 @@ sequenceDiagram
 | 场景 | 触发 | 步骤 | 锚点 | 验证 |
 |---|---|---|---|---|
 | MCP tool | 暴露新的 Claude-facing 工具能力 | 1. 在 `tools/*_tools.go` 增 schema / handler。<br>2. 在 `tools.NewRegistry()` 挂入 definition。<br>3. 回看 `newRegistry()` 与 `buildBootstrapConfig()`，同步依赖注入和 capability。 | `tools.NewRegistry()` / `newRegistry()` / `buildBootstrapConfig()` | `tools/parity_v2_test.go`、`runtime_memory_test.go` |
-| orch RPC | 新增 agent / task / report 类 JSON-RPC | 1. 先补 `orchestration/rpc_types.go` 参数结构与 legacy alias。<br>2. 在 `NewOrchestrationHandlers()` 注册 handler。<br>3. 复用 `service` / helper 做 contract 映射与严格解码。 | `NewOrchestrationHandlers()` | `orchestration/rpc_golden_test.go` |
+| orch RPC | 新增 agent / task / report 类 JSON-RPC | 1. 先补 `orchestration/rpc_types.go` 参数结构与 legacy alias。<br>2. 在 `ProvideRPCFacade()` 注册 handler。<br>3. 复用 `service` / helper 做 contract 映射与严格解码。 | `ProvideRPCFacade()` | `orchestration/rpc_golden_test.go` |
 | workspace op | 补 run / query / merge / abort 等 workspace 能力 | 1. 先补 `workspace/contract.go` / `workspace/rpc_types.go`。<br>2. 在 `workspace/service*.go` 实现校验、状态迁移与 merge 计划。<br>3. 经 `NewWorkspaceHandlers()` 与 `createWorkspaceRun()` / `workspaceRunDTOFromRun()` 同步暴露到 RPC / MCP。 | `NewWorkspaceHandlers()` / `createWorkspaceRun()` / `workspaceRunDTOFromRun()` | `tools/workspace_tools_compat_test.go`、`store/workspace/store_test.go` |

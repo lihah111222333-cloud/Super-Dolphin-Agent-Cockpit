@@ -23,7 +23,7 @@ func TestCrossDomainGoldenAgentListDispatch(t *testing.T) {
 		},
 	}
 	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(orchestration.NewOrchestrationHandlers(svc).Handlers)
+	server.Register(orchestration.ProvideRPCFacade(svc).Handlers)
 
 	request := map[string]any{}
 	params, err := json.Marshal(request)

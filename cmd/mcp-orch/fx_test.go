@@ -22,7 +22,7 @@ func TestParentFxStartup(t *testing.T) {
 			orchestration.ProvideService,
 			orchestration.ProvideServiceInterface,
 			orchestration.ProvideHookAfterHandler,
-			orchestration.NewOrchestrationHandlers,
+			orchestration.ProvideRPCFacade,
 		),
 		fx.Invoke(orchestration.RegisterTurnLifecycle),
 		fx.Invoke(orchestration.RegisterApprovalLifecycle),
