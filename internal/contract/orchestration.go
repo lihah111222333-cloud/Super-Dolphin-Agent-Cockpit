@@ -39,8 +39,25 @@ type OrchestrationSessionCleaner interface {
 
 type TurnSubmission = turndto.TurnSubmission
 
+// OrchestrationTurnStarter is the owner-side contract the orchestration
+// service uses to route newly queued turns into the turn module.
+//
+// P22 P4 S4a: WaitForSessionReady was previously a side-channel method
+// exposed via a local `sessionReadyWaiter` interface inside
+// cmd/mcp-orch/orchestration/helpers.go; the service type-asserted
+// turnStarter to that private interface. P4 §279 upgrades such local
+// private extensions into the owner contract directly: every
+// OrchestrationTurnStarter implementation now commits to the ready-wait
+// semantics, and implementations that have no real wait to perform
+// (e.g. noopTurnStarter in mcp-orch standalone mode) simply return nil.
 type OrchestrationTurnStarter interface {
 	StartTurn(ctx context.Context, submission TurnSubmission) (string, error)
+
+	// WaitForSessionReady blocks until the agent's underlying session is
+	// ready to accept a submission, or ctx is canceled / timeout elapses.
+	// Return nil when the wait is unnecessary (e.g. standalone / noop
+	// implementations that do not manage a session lifecycle).
+	WaitForSessionReady(ctx context.Context, agentID string, timeout time.Duration) error
 }
 
 type LaunchRequest struct {
