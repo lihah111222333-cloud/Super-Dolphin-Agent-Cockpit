@@ -278,6 +278,15 @@ func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 	if !ok {
 		return nil
 	}
+	// P22 P4 S6a / plan §321: stable log anchor for hook-replay start.
+	// Ops dashboards group by `event` to count replay attempts without
+	// pattern-matching free-text descriptions.
+	pkglogger.Info("bootstrap hook replay begin",
+		"event", "bootstrap.hook_replay.begin",
+		"instance_id", c.instanceID,
+		"subscription_id", subID,
+		"lease_key", c.currentLease(),
+	)
 
 	req := mcp.HookSubscribeRequest{
 		SubscriptionID: subID,
@@ -302,10 +311,15 @@ func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 			cancel()
 			if lastErr == nil {
 				c.hooks.clearReplayFailure()
+				// P22 P4 S6a / plan §321: stable log anchor for
+				// hook-replay successful completion.
 				pkglogger.Info("bootstrap hook subscription replayed",
+					"event", "bootstrap.hook_replay.end",
+					"outcome", "success",
 					"instance_id", c.instanceID,
 					"subscription_id", subID,
 					"lease_key", c.currentLease(),
+					"attempts", attempt,
 				)
 				return nil
 			}
@@ -328,7 +342,12 @@ func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 		delay *= 2
 	}
 	c.hooks.markReplayFailure(attempts, lastErr)
+	// P22 P4 S6a / plan §321: stable log anchor for hook-replay
+	// terminal failure (paired with bootstrap.hook_replay.begin at
+	// function entry).
 	pkglogger.Error("bootstrap hook subscription replay failed",
+		"event", "bootstrap.hook_replay.end",
+		"outcome", "failed",
 		"instance_id", c.instanceID,
 		"subscription_id", subID,
 		"lease_key", c.currentLease(),

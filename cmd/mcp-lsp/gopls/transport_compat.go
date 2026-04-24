@@ -3,6 +3,8 @@ package gopls
 import (
 	"encoding/json"
 	"fmt"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // Compatibility protocol contract for the gopls LSP transport.
@@ -74,11 +76,29 @@ var goplsCompatEmptyStructMethodSet = func() map[string]struct{} {
 // against the frozen compatibility contract. A method outside the
 // contract returns ErrMethodNotSupported, letting the caller surface
 // it as JSON-RPC `MethodNotFound` instead of silently ACK'ing.
+//
+// P22 P4 S6a / plan §321: every hit on the compatibility table is
+// logged with a stable `event=gopls.compat_fallback.hit` anchor so
+// ops dashboards can count compat fallbacks by method without
+// pattern-matching free-text messages. The ErrMethodNotSupported
+// branch is NOT a hit by this definition — it surfaces as
+// JSON-RPC MethodNotFound and belongs to a different contract
+// (future observability: genuinely unknown methods).
 func dispatchCompatServerRequest(method string, params json.RawMessage) (any, error) {
 	if _, ok := goplsCompatEmptyStructMethodSet[method]; ok {
+		pkglogger.Get().Info("gopls compat fallback hit",
+			"event", "gopls.compat_fallback.hit",
+			"method", method,
+			"variant", "empty_struct",
+		)
 		return struct{}{}, nil
 	}
 	if method == GoplsCompatMethodWorkspaceConfiguration {
+		pkglogger.Get().Info("gopls compat fallback hit",
+			"event", "gopls.compat_fallback.hit",
+			"method", method,
+			"variant", "workspace_configuration",
+		)
 		return emptyConfigurationResult(params), nil
 	}
 	return nil, fmt.Errorf("%w: %s", ErrMethodNotSupported, method)
