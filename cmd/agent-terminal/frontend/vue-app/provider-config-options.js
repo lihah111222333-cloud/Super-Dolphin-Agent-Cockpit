@@ -86,3 +86,9 @@ export function appendCurrentOption(options, currentValue, labelBuilder = (value
   }
   return [...options, { value: normalizedValue, label: labelBuilder(normalizedValue) }];
 }
+
+export function getProviderDefaultConfig(providerId) {
+  return normalizeProviderConfigValue(providerId) === 'claude'
+    ? { model: 'sonnet', effort: 'high' }
+    : { model: 'gpt-5.5', effort: 'xhigh' };
+}
