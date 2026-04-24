@@ -11,6 +11,8 @@ import (
 
 type querier interface {
 	AgentThreadRunningExists(ctx context.Context, threadID string) (bool, error)
+	AgentThreadExists(ctx context.Context, threadID string) (bool, error)
+	CountChildAgentThreads(ctx context.Context, parentAgentID string) (int64, error)
 	DeleteAgentThreadByID(ctx context.Context, threadID string) error
 	ExpireStaleAgentThreads(ctx context.Context, arg sqlc.ExpireStaleAgentThreadsParams) (int64, error)
 	GetAgentThreadByID(ctx context.Context, threadID string) (sqlc.GetAgentThreadByIDRow, error)
@@ -218,6 +220,22 @@ func (s *store) ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCw
 		return nil, wrapThreadError(err, "list_cwds_by_prefix")
 	}
 	return mapThreadCwdsByPrefix(rows), nil
+}
+
+func (s *store) CountChildren(ctx context.Context, parentAgentID string) (int64, error) {
+	count, err := s.q.CountChildAgentThreads(ctx, parentAgentID)
+	if err != nil {
+		return 0, wrapThreadError(err, "count_children")
+	}
+	return count, nil
+}
+
+func (s *store) Exists(ctx context.Context, threadID string) (bool, error) {
+	exists, err := s.q.AgentThreadExists(ctx, threadID)
+	if err != nil {
+		return false, wrapThreadError(err, "exists")
+	}
+	return exists, nil
 }
 
 func wrapThreadError(err error, operation string) error {

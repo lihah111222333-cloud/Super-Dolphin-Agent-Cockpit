@@ -19,7 +19,9 @@ func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 	req = trimStartRequest(req)
 	req.Name = normalizeStartDisplayName(req.Name)
 	if req.AgentID == "" {
-		req.AgentID = shared.NewID("agent")
+		// Root agent: timestamp-only ID. Collision is checked at
+		// the service layer which retries with a fresh timestamp.
+		req.AgentID = shared.NewAgentID()
 	}
 	req, err := resolveStartConfig(req)
 	if err != nil {
@@ -72,7 +74,7 @@ func resolveStartConfig(req StartRequest) (StartRequest, error) {
 func resolveStartProvider(provider string) (string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(provider))
 	if normalized == "" {
-		return "", fmt.Errorf("provider is required (got empty string)")
+		return defaultStartProvider, nil
 	}
 	switch normalized {
 	case "codex", "claude":

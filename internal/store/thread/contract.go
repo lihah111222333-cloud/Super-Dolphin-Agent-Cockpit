@@ -24,6 +24,8 @@ type Store interface {
 	RunningExists(ctx context.Context, threadID string) (bool, error)
 	ListCwds(ctx context.Context) ([]ThreadCwd, error)
 	ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCwd, error)
+	CountChildren(ctx context.Context, parentAgentID string) (int64, error)
+	Exists(ctx context.Context, threadID string) (bool, error)
 }
 
 type UpsertParams struct {

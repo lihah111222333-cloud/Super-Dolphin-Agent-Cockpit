@@ -199,10 +199,26 @@ func hasManagedAgentTechnicalMarker(lower string) bool {
 	return false
 }
 
+func isDigitsOnlyManagedAgentName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
 func looksTechnicalManagedAgentName(value string) bool {
 	name := normalizeManagedAgentDisplayName(value)
 	if isEmptyOrPathLikeManagedAgentName(name) {
 		return true
+	}
+	// Digit-only names (e.g. "111") are user-chosen, not technical.
+	if isDigitsOnlyManagedAgentName(name) {
+		return false
 	}
 	lower := strings.ToLower(name)
 	if hasOnlyGenericManagedAgentTokens(lower) {

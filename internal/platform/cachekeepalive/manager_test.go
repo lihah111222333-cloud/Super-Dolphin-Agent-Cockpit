@@ -125,6 +125,8 @@ func (*threadStoreStub) ListCwds(context.Context) ([]threadstore.ThreadCwd, erro
 func (*threadStoreStub) ListCwdsByPrefix(context.Context, string) ([]threadstore.ThreadCwd, error) {
 	return nil, nil
 }
+func (*threadStoreStub) CountChildren(context.Context, string) (int64, error) { return 0, nil }
+func (*threadStoreStub) Exists(context.Context, string) (bool, error)        { return false, nil }
 
 func newTestManager(resolver contract.SessionResolver, bindings bindingstore.Store, threads threadstore.Store) *Manager {
 	return &Manager{resolver: resolver, bindingStore: bindings, threadStore: threads, timers: make(map[string]*agentTimer)}

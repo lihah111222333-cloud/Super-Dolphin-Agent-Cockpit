@@ -117,6 +117,8 @@ func (*capturingThreadStore) ListCwds(context.Context) ([]threadstore.ThreadCwd,
 func (*capturingThreadStore) ListCwdsByPrefix(context.Context, string) ([]threadstore.ThreadCwd, error) {
 	return nil, nil
 }
+func (*capturingThreadStore) CountChildren(context.Context, string) (int64, error) { return 0, nil }
+func (*capturingThreadStore) Exists(context.Context, string) (bool, error)        { return false, nil }
 
 type capturingBindingStore struct {
 	binding *bindingstore.Binding

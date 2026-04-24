@@ -253,7 +253,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		Name:             row.Prompt,
 		Prompt:           strings.TrimSpace(userInputForRouter),
 		OwnerThreadID:    row.OwnerThreadID,
-		Provider:         shared.FirstNonEmpty(storedCfg.Provider, defaultStartProvider),
+		Provider:         storedCfg.Provider,
 		Effort:           storedCfg.Effort,
 		Personality:      storedCfg.Personality,
 		ApprovalPolicy:   storedCfg.Approvals,

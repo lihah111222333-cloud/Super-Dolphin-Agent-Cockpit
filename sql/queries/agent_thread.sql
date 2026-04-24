@@ -183,3 +183,17 @@ SET agent_key = sqlc.arg(agent_key),
     pending_launch = false,
     updated_at = sqlc.arg(updated_at)
 WHERE thread_id = sqlc.arg(thread_id);
+
+-- name: CountChildAgentThreads :one
+-- Returns the number of child agents belonging to the given parent.
+-- Used to determine the next sequential suffix for child agent IDs.
+SELECT COUNT(*)
+FROM agent_threads
+WHERE parent_agent_id = $1;
+
+-- name: AgentThreadExists :one
+SELECT EXISTS(
+    SELECT 1
+    FROM agent_threads
+    WHERE thread_id = $1
+);

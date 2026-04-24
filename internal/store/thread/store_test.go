@@ -24,6 +24,14 @@ func (s *threadQuerierStub) AgentThreadRunningExists(context.Context, string) (b
 	return false, nil
 }
 
+func (s *threadQuerierStub) AgentThreadExists(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func (s *threadQuerierStub) CountChildAgentThreads(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
 func (s *threadQuerierStub) DeleteAgentThreadByID(context.Context, string) error { return nil }
 
 func (s *threadQuerierStub) ExpireStaleAgentThreads(context.Context, sqlc.ExpireStaleAgentThreadsParams) (int64, error) {
