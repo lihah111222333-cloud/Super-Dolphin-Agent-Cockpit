@@ -10,33 +10,9 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-var terminalReportEventTypes = map[string]struct{}{
-	"agent/event/task_complete": {},
-	"completed":                 {},
-	"completion":                {},
-	"connection.dead":           {},
-	"connection_dead":           {},
-	"error":                     {},
-	"idle":                      {},
-	"shutdown.complete":         {},
-	"shutdown_complete":         {},
-	"stream.error":              {},
-	"stream_error":              {},
-	"turn.completed":            {},
-	"turn/completed":            {},
-	"turn.aborted":              {},
-	"turn_aborted":              {},
-	"turn_complete":             {},
-}
-
-var terminalThreadStatuses = map[string]struct{}{
-	"error":        {},
-	"idle":         {},
-	"not_loaded":   {},
-	"notloaded":    {},
-	"system_error": {},
-	"systemerror":  {},
-}
+// Terminal event-type and thread-status tables plus the
+// report-text payload scan order now live in report_protocol.go.
+// See P22 P4 §64 / §122 / §283.
 
 func (s *service) GetState(_ context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
@@ -235,15 +211,14 @@ func reportTextFromPayload(payload map[string]any) string {
 	if len(payload) == 0 {
 		return ""
 	}
-	if report := platformshared.FirstPayloadString(payload, "report", "summary", "uiText", "text", "message", "output", "result"); report != "" {
+	if report := platformshared.FirstPayloadString(payload, reportTextPayloadKeys...); report != "" {
 		return report
 	}
-	if nested, ok := payload["item"].(map[string]any); ok {
-		if report := reportTextFromPayload(nested); report != "" {
-			return report
+	for _, key := range reportTextNestedKeys {
+		nested, ok := payload[key].(map[string]any)
+		if !ok {
+			continue
 		}
-	}
-	if nested, ok := payload["payload"].(map[string]any); ok {
 		if report := reportTextFromPayload(nested); report != "" {
 			return report
 		}
@@ -253,7 +228,7 @@ func reportTextFromPayload(payload map[string]any) string {
 
 func isTerminalReportEvent(eventType string, raw json.RawMessage) bool {
 	eventType = strings.ToLower(strings.TrimSpace(eventType))
-	if eventType == "thread/status/changed" {
+	if eventType == ReportEventTypeThreadStatusChanged {
 		return isTerminalThreadStatus(raw)
 	}
 	_, ok := terminalReportEventTypes[eventType]
