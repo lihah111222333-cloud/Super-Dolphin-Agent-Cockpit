@@ -546,12 +546,15 @@ func registerThreadHookSubscriptions(p memoryHookParams, nested *nestedIngestWor
 		return
 	}
 	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
+		// P22: callback only updates in-memory state (no I/O); ctx unused by callee.
 		p.Hooks.onThreadStart(context.Background(), ev)
 	}, pkglogger.Get()))
 	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInputReceived) {
+		// P22: callback only updates in-memory state (no I/O); ctx unused by callee.
 		p.Hooks.onTurnInputReceived(context.Background(), ev)
 	}, pkglogger.Get()))
 	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnCompleted) {
+		// P22: callback only updates in-memory state (no I/O); ctx unused by callee.
 		p.Hooks.onTurnCompleted(context.Background(), ev)
 	}, pkglogger.Get()))
 }

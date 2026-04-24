@@ -317,6 +317,8 @@ func extractNestedReadToolPaths(toolName, preview, persistedPath string) []strin
 	}
 	raw := strings.TrimSpace(preview)
 	if path := strings.TrimSpace(persistedPath); path != "" {
+		// P22 P2 Finding 10: this os.ReadFile runs on the nestedIngestWorker
+		// goroutine (via AddToolReadResult), not on the bus callback path.
 		if content, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(content)) != "" {
 			raw = string(content)
 		}
