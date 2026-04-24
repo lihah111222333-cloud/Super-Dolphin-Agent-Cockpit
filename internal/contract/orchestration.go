@@ -33,8 +33,32 @@ type OrchestrationService interface {
 	UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
 }
 
+// OrchestrationSessionCleaner is the owner-side contract for releasing
+// any platform-owned session bound to a given agent when the agent
+// stops. The orchestration service calls this at stop/exit time; the
+// production adapter lives in internal/provider/unified.
+//
+// P22 P4 S4b: RemoveSessionGeneration was previously a side-channel
+// method exposed via a local `generationAwareSessionCleaner` interface
+// inside cmd/mcp-orch/orchestration/process_lifecycle.go; the service
+// type-asserted sessionCleaner to that private interface. P4 §279
+// upgrades such local private extensions into the owner contract
+// directly: every OrchestrationSessionCleaner implementation now
+// commits to the generation-aware variant, and implementations that do
+// not track per-agent generations (e.g. noopSessionCleaner in
+// cmd/mcp-orch standalone mode) simply fall back to calling their own
+// RemoveSession or return.
 type OrchestrationSessionCleaner interface {
+	// RemoveSession drops any bound session for the agent. Callers use
+	// this when the agent's current generation is unknown.
 	RemoveSession(agentID string)
+
+	// RemoveSessionGeneration drops the session associated with a
+	// specific generation counter, so concurrent stop + re-launch races
+	// cannot accidentally evict a fresh session. Implementations that
+	// have no concept of a generation may treat this as a no-op or
+	// delegate to RemoveSession.
+	RemoveSessionGeneration(agentID string, generation uint64)
 }
 
 type TurnSubmission = turndto.TurnSubmission

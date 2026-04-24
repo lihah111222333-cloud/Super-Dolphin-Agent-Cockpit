@@ -86,10 +86,17 @@ func registerPoolLifecycle(lc fx.Lifecycle, logger *slog.Logger, pool *pgxpool.P
 	})
 }
 
-// noopSessionCleaner satisfies contract.OrchestrationSessionCleaner in standalone mode.
+// noopSessionCleaner satisfies contract.OrchestrationSessionCleaner in
+// standalone mode. P22 P4 S4b: RemoveSessionGeneration is now part of
+// the owner contract; the noop impl returns silently to preserve the
+// pre-S4b duck-typing behavior (the old type assertion would have
+// failed and the service would fall through to the generation-unaware
+// RemoveSession, which in this noop case is also a no-op).
 type noopSessionCleaner struct{}
 
 func (noopSessionCleaner) RemoveSession(string) {}
+
+func (noopSessionCleaner) RemoveSessionGeneration(string, uint64) {}
 
 func newNoopSessionCleaner() contract.OrchestrationSessionCleaner {
 	return noopSessionCleaner{}

@@ -14,9 +14,13 @@ import (
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
 
-type generationAwareSessionCleaner interface {
-	RemoveSessionGeneration(agentID string, generation uint64)
-}
+// P22 P4 S4b: the local `generationAwareSessionCleaner` interface was
+// deleted. RemoveSessionGeneration is now part of the owner contract
+// contract.OrchestrationSessionCleaner, so the service calls it
+// directly without a type-assertion side-channel. See
+// internal/contract/orchestration.go for the interface definition and
+// docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md §279
+// for the rationale.
 
 func (s *service) BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error {
 	if generation == 0 {
@@ -29,18 +33,26 @@ func (s *service) BindSessionGeneration(ctx context.Context, agentID string, gen
 	})
 }
 
+// removeSession releases any platform-owned session bound to agent.
+// P22 P4 S4b: pre-S4b logic type-asserted to a local
+// `generationAwareSessionCleaner` and, on match, called
+// RemoveSessionGeneration (or no-op'd when generation was 0). The
+// type-assertion failure path fell through to RemoveSession — a
+// courtesy for non-generation-aware implementations. RemoveSessionGeneration
+// is now part of the owner contract so every implementation provides
+// it; we therefore only call RemoveSessionGeneration, and generation==0
+// is a deliberate no-op: racing the current session via
+// RemoveSession could evict a freshly bound session between a stop
+// request and this cleanup pass (see
+// TestRemoveSessionGenerationAwareCleanerDoesNotFallbackToCurrent).
 func (s *service) removeSession(agent *agentRuntime) {
 	if s.sessionCleaner == nil || agent == nil {
 		return
 	}
-	if cleaner, ok := s.sessionCleaner.(generationAwareSessionCleaner); ok {
-		if agent.sessionGeneration != 0 {
-			cleaner.RemoveSessionGeneration(agent.id, agent.sessionGeneration)
-			agent.sessionGeneration = 0
-		}
+	if agent.sessionGeneration == 0 {
 		return
 	}
-	s.sessionCleaner.RemoveSession(agent.id)
+	s.sessionCleaner.RemoveSessionGeneration(agent.id, agent.sessionGeneration)
 	agent.sessionGeneration = 0
 }
 
