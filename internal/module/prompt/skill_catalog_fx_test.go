@@ -15,8 +15,10 @@ type fakeSkillInjectionPort struct {
 	names []string
 }
 
-func (f fakeSkillInjectionPort) DetectNativeSkills(_ string) []string { return f.names }
-func (f fakeSkillInjectionPort) ReservedTokens() int                  { return 3000 }
+func (f fakeSkillInjectionPort) DetectNativeSkills(_ string) ([]string, error) {
+	return f.names, nil
+}
+func (f fakeSkillInjectionPort) ReservedTokens() int { return 3000 }
 
 // ---------------------------------------------------------------------------
 // P20.1 Phase 10 Step B: compositeNativeSkillDetector 聚合测试
@@ -29,7 +31,10 @@ func TestCompositeNativeSkillDetector_UnionAndSorted(t *testing.T) {
 			fakeSkillInjectionPort{names: []string{"alpha", "bravo"}}, // "alpha" 去重
 		},
 	}
-	got := d.DetectNativeSkills("/tmp")
+	got, err := d.DetectNativeSkills("/tmp")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
 	if len(got) != 3 {
 		t.Fatalf("want 3 unique entries, got %d: %v", len(got), got)
 	}
@@ -41,12 +46,20 @@ func TestCompositeNativeSkillDetector_UnionAndSorted(t *testing.T) {
 
 func TestCompositeNativeSkillDetector_NilSafety(t *testing.T) {
 	d := compositeNativeSkillDetector{ports: nil}
-	if got := d.DetectNativeSkills("/tmp"); got != nil {
+	got, err := d.DetectNativeSkills("/tmp")
+	if err != nil {
+		t.Fatalf("empty composite: unexpected err: %v", err)
+	}
+	if got != nil {
 		t.Fatalf("empty composite: want nil, got %v", got)
 	}
 	d2 := compositeNativeSkillDetector{ports: []contract.SkillInjectionPort{nil, nil}}
-	if got := d2.DetectNativeSkills(""); got != nil && len(got) > 0 {
-		t.Fatalf("all-nil ports: want empty, got %v", got)
+	got2, err := d2.DetectNativeSkills("")
+	if err != nil {
+		t.Fatalf("all-nil ports: unexpected err: %v", err)
+	}
+	if len(got2) > 0 {
+		t.Fatalf("all-nil ports: want empty, got %v", got2)
 	}
 }
 
@@ -56,7 +69,10 @@ func TestCompositeNativeSkillDetector_EmptyAndWhitespaceNames(t *testing.T) {
 			fakeSkillInjectionPort{names: []string{"", "  ", "foo", " ", "foo"}},
 		},
 	}
-	got := d.DetectNativeSkills("")
+	got, err := d.DetectNativeSkills("")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
 	if len(got) != 1 || got[0] != "foo" {
 		t.Fatalf("want [foo], got %v", got)
 	}

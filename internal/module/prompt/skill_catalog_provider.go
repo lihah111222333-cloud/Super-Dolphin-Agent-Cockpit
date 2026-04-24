@@ -34,8 +34,11 @@ type SkillLister interface {
 
 // NativeSkillDetector 是 prompt provider 对 Phase 7 SkillInjectionPort 的消费契约。
 // 返回 provider 原生机制（如 Claude CLI `.claude/skills/`）已接管的 skill 名列表。
+//
+// P22 P4 契约与 contract.SkillInjectionPort 对齐：需要 cwd 的实现在缺 cwd 时
+// 返回 (nil, contract.ErrMissingCWD)，而不再静默返回 nil。
 type NativeSkillDetector interface {
-	DetectNativeSkills(cwd string) []string
+	DetectNativeSkills(cwd string) ([]string, error)
 }
 
 // skillCatalogRedactionTemplate 是 P20.1 §3.3 规定的固定占位模板。
@@ -206,6 +209,11 @@ func (p SkillCatalogProvider) effectiveCharBudget() int {
 
 // collectNativeNames 调 nativePort（若有）拿到原生 skill 名集合，返回 lower 归一化 map。
 // 仅用当前 cwd（session 工作目录，从 BuildCtx 取）。
+//
+// P22 P4 契约：在 empty-cwd 时 upstream 已经在这里提前 short-circuit——这不是
+// fallback，而是 provider 层将 "没有项目根" 视为 "不显示原生模块 catalog" 的终态选择。
+// 一旦 cwd 不为空则将请求转给 port；port 返回的 error（例如 ErrMissingCWD，
+// 虽然理论上不会发生）也被吸收为 "无原生名单"，避免在 prompt 渲染热路径上抛出或充斥。
 func (p SkillCatalogProvider) collectNativeNames(input SectionContext) map[string]struct{} {
 	if p.nativePort == nil {
 		return nil
@@ -214,8 +222,8 @@ func (p SkillCatalogProvider) collectNativeNames(input SectionContext) map[strin
 	if cwd == "" {
 		return nil
 	}
-	names := p.nativePort.DetectNativeSkills(cwd)
-	if len(names) == 0 {
+	names, err := p.nativePort.DetectNativeSkills(cwd)
+	if err != nil || len(names) == 0 {
 		return nil
 	}
 	set := make(map[string]struct{}, len(names))

@@ -27,9 +27,11 @@ func NewSkillInjectionPort() contract.SkillInjectionPort {
 }
 
 // DetectNativeSkills 见 contract.SkillInjectionPort 接口文档。
-// codexapp 返回空切片：没有原生 skill 机制。
-func (codexSkillInjectionPort) DetectNativeSkills(_ string) []string {
-	return nil
+// codexapp 没有原生 skill 机制，不需要 cwd，直接返回 (nil, nil)。
+// P22 P4 契约：ErrMissingCWD 只适用于需要扫描 cwd 的 impl（如 claudecli）；
+// codexapp 可以无视 cwd 参数。
+func (codexSkillInjectionPort) DetectNativeSkills(_ string) ([]string, error) {
+	return nil, nil
 }
 
 // ReservedTokens 见 contract.SkillInjectionPort 接口文档。

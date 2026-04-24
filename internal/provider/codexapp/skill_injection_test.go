@@ -205,15 +205,16 @@ func TestBuildSkillPromptInput_AllSkippedReturnsFalse(t *testing.T) {
 
 func TestCodexSkillInjectionPort_DetectNativeSkills_AlwaysEmpty(t *testing.T) {
 	port := NewSkillInjectionPort()
-	// 即使在真实目录下也应返回 nil——Codex CLI 无原生 skill 机制
-	if got := port.DetectNativeSkills(""); got != nil {
-		t.Fatalf("empty cwd should return nil, got %v", got)
-	}
-	if got := port.DetectNativeSkills("/nonexistent"); got != nil {
-		t.Fatalf("non-existent cwd should return nil, got %v", got)
-	}
-	if got := port.DetectNativeSkills(t.TempDir()); got != nil {
-		t.Fatalf("real tmp dir should also return nil, got %v", got)
+	// P22 P4 契约：codexapp 无原生 skill 机制，不需要 cwd，所以不管 cwd 情况如何
+	// 都返回 (nil, nil)——不像 claudecli 那样在空 cwd 时必须 ErrMissingCWD。
+	for _, cwd := range []string{"", "/nonexistent", t.TempDir()} {
+		names, err := port.DetectNativeSkills(cwd)
+		if err != nil {
+			t.Errorf("cwd=%q: err = %v, want nil (codexapp has no native skills, no cwd requirement)", cwd, err)
+		}
+		if names != nil {
+			t.Errorf("cwd=%q: names = %v, want nil", cwd, names)
+		}
 	}
 }
 
