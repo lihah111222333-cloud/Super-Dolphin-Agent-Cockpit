@@ -2,9 +2,7 @@ package toolbridge
 
 import (
 	"context"
-	"errors"
 	"net"
-	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -30,6 +28,12 @@ var Module = fx.Module("toolbridge",
 		provideDiffEmitter,
 		newDiffFallbackTracker,
 		provideProxyAddrFn,
+		// P22 P2 Finding 9: proxy HTTP serve loop owned by run.Group via the
+		// root group:"runners" aggregation. registerProxyLifecycle keeps only
+		// the listener setup + addr publish; ServeProxy runs inside
+		// ProxyRunner.Run (proxy_runner.go).
+		NewProxyRunner,
+		fx.Annotate(asRunnerGroup, fx.ResultTags(`group:"runners"`)),
 	),
 	fx.Invoke(
 		bindCodexHandlers,
@@ -127,48 +131,37 @@ func registerDiffFallbackLifecycle(lifecycle fx.Lifecycle, dispatcher *event.Dis
 	})
 }
 
-func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler) {
-	if lifecycle == nil || h == nil {
+// registerProxyLifecycle performs the synchronous setup half of the proxy:
+// open the listener, publish the address, and hand the listener to the
+// ProxyRunner that will serve it from run.Group. Serve + listener-close are
+// owned by ProxyRunner.Run after P22 P2 Finding 9, so this hook is now a
+// pure wiring step with no OnStop concerns besides clearing the published
+// address.
+func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRunner) {
+	if lifecycle == nil || h == nil || runner == nil {
 		return
 	}
-	var ln net.Listener
 	lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				return err
 			}
-			ln = listener
 			addr := strings.TrimSpace(listener.Addr().String())
 			proxyAddr.Store(addr)
+			runner.SetListener(listener)
 			logger := h.logger
 			if logger == nil {
 				logger = pkglogger.Get()
 			}
 			logger.Warn("toolbridge: proxy started", "addr", addr)
-			go func(proxyListener net.Listener) {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Error("proxy serve panic", "recover", r, "stack", string(debug.Stack()))
-					}
-				}()
-				if err := h.ServeProxy(proxyListener); err != nil {
-					logger.Error("proxy serve failed", "error", err)
-				}
-			}(listener)
 			return nil
 		},
 		OnStop: func(context.Context) error {
-			if ln == nil {
-				return nil
-			}
 			proxyAddr.Store("")
-			err := ln.Close()
-			ln = nil
-			if err != nil && !errors.Is(err, net.ErrClosed) {
-				return err
-			}
 			return nil
 		},
 	})
 }
+
+

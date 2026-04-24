@@ -75,10 +75,6 @@ func TestLifecycleOnStartGuard(t *testing.T) {
 			owningSlice: "P2 (Finding 6, memory team_sync_watcher)",
 		},
 		{
-			name:        "onstart_must_not_fire_and_forget_serve_proxy",
-			owningSlice: "P2 (Finding 9, toolbridge proxy)",
-		},
-		{
 			name:        "onstart_one_hop_helper_resolution_wired",
 			owningSlice: "P0 contract / first owning slice to land the AST walker",
 		},
@@ -139,6 +135,34 @@ func TestLifecycleOnStartGuard(t *testing.T) {
 			if len(hits) > 0 {
 				t.Errorf("%s reintroduced pre-P1b OnStart ticker path; forbidden tokens present: %v", target.path, hits)
 			}
+		}
+	})
+
+	// P22 P2 Finding 9 live matcher: ProxyRunner now owns the ServeProxy
+	// blocking call. internal/platform/toolbridge/module.go must only wire
+	// the listener + addr publish; it cannot re-introduce the pre-P2
+	// `go h.ServeProxy(...)` pattern inside registerProxyLifecycle.
+	t.Run("onstart_must_not_fire_and_forget_serve_proxy", func(t *testing.T) {
+		t.Parallel()
+		root := repoRootForGuardTests(t)
+		path := filepath.Join(root, "internal", "platform", "toolbridge", "module.go")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		src := string(data)
+		forbidden := []string{
+			"go h.ServeProxy(",
+			"go func(proxyListener",
+		}
+		var hits []string
+		for _, token := range forbidden {
+			if strings.Contains(src, token) {
+				hits = append(hits, token)
+			}
+		}
+		if len(hits) > 0 {
+			t.Fatalf("toolbridge/module.go reintroduced pre-P2 ServeProxy fire-and-forget path; forbidden tokens present: %v", hits)
 		}
 	})
 }
