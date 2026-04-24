@@ -21,6 +21,7 @@ type UIState struct {
 	StatusHeadersByThread    map[string]string                       `json:"statusHeadersByThread,omitempty"`
 	StatusDetailsByThread    map[string]string                       `json:"statusDetailsByThread,omitempty"`
 	TokenUsageByThread       map[string]*uidto.ThreadPatchTokenUsage `json:"tokenUsageByThread,omitempty"`
+	TokenUsages              map[string]TokenUsage                   `json:"-"`
 	AgentMetaByID            map[string]map[string]any               `json:"agentMetaById,omitempty"`
 	AgentRuntimeByID         map[string]map[string]any               `json:"agentRuntimeById,omitempty"`
 	DiffTextByAgent          map[string]string                       `json:"diffTextByThread,omitempty"`
@@ -177,6 +178,7 @@ func cloneState(value UIState) *UIState {
 		ActiveTurn:               cloneTurn(value.ActiveTurn),
 		RecentTurns:              cloneTurns(value.RecentTurns),
 		TokenUsage:               value.TokenUsage,
+		TokenUsages:              cloneTokenUsages(value.TokenUsages),
 		DiffTextByAgent:          nil,
 		DiffRevisionByAgent:      nil,
 		ActivityStatsByThread:    cloneActivityStatsByThread(value.ActivityStatsByThread),
@@ -239,6 +241,17 @@ func cloneThreads(items []ThreadSummary) []ThreadSummary {
 
 func cloneAgents(items []AgentSummary) []AgentSummary {
 	return append([]AgentSummary(nil), items...)
+}
+
+func cloneTokenUsages(m map[string]TokenUsage) map[string]TokenUsage {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]TokenUsage, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 func cloneTurns(items []TurnSummary) []TurnSummary {

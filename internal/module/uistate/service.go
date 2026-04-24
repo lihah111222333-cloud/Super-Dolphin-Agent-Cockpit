@@ -332,11 +332,16 @@ func (s *service) stateSnapshot(ctx context.Context) *UIState {
 		}
 	}
 	if requestedThreadID := firstNonEmptyString(diffStateRequestFromContext(ctx).threadID, snapshot.ActiveThreadID, snapshot.ActiveCmdThreadID); requestedThreadID != "" {
-		usage := &uidto.ThreadPatchTokenUsage{UsedTokens: snapshot.TokenUsage.TotalTokens, ContextWindowTokens: snapshot.TokenUsage.ContextWindowTokens}
-		if usage.ContextWindowTokens > 0 {
-			usage.UsedPercent = float64(usage.UsedTokens) * 100 / float64(usage.ContextWindowTokens)
+		snapshot.AlertsByThread = map[string][]uidto.PatchAlert{requestedThreadID: {}}
+		if tu, ok := snapshot.TokenUsages[requestedThreadID]; ok {
+			usage := &uidto.ThreadPatchTokenUsage{UsedTokens: tu.TotalTokens, ContextWindowTokens: tu.ContextWindowTokens}
+			if usage.ContextWindowTokens > 0 {
+				usage.UsedPercent = float64(usage.UsedTokens) * 100 / float64(usage.ContextWindowTokens)
+			}
+			snapshot.TokenUsageByThread = map[string]*uidto.ThreadPatchTokenUsage{requestedThreadID: usage}
+		} else {
+			snapshot.TokenUsageByThread = map[string]*uidto.ThreadPatchTokenUsage{}
 		}
-		snapshot.TokenUsageByThread, snapshot.AlertsByThread = map[string]*uidto.ThreadPatchTokenUsage{requestedThreadID: usage}, map[string][]uidto.PatchAlert{requestedThreadID: {}}
 	}
 	return snapshot
 }
