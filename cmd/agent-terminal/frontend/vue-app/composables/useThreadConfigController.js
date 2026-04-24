@@ -30,6 +30,11 @@ export function createThreadConfigController({ threadStore, threadActions, selec
     return normalizeThreadConfigValue(threadStore.state.agentRuntimeById?.[id]?.provider);
   }
 
+  function currentRuntimeThreadModel(threadId = selectedThreadId.value) {
+    const id = normalizeThreadConfigValue(threadId);
+    return normalizeThreadConfigValue(threadStore.state.agentRuntimeById?.[id]?.model);
+  }
+
   function buildThreadConfigMeta(raw = {}, threadId = selectedThreadId.value) {
     const source = anyValue(raw);
     const id = normalizeThreadConfigValue(source?.threadId || threadId);
@@ -42,7 +47,7 @@ export function createThreadConfigController({ threadStore, threadActions, selec
         effort: normalizeThreadConfigValue(source?.override?.effort),
       },
       effective: {
-        model: normalizeThreadConfigValue(source?.effective?.model),
+        model: normalizeThreadConfigValue(source?.effective?.model) || currentRuntimeThreadModel(id),
         effort: normalizeThreadConfigValue(source?.effective?.effort),
       },
     };

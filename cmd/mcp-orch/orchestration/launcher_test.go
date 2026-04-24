@@ -137,6 +137,99 @@ func TestLooksTechnicalManagedAgentName_Pin(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Regression guard: digit-only names (e.g. "111") must NEVER be auto-renamed.
+//
+// Root cause (2026-04-24): looksTechnicalManagedAgentName treated any name
+// containing digits as "technical", causing managedAgentLaunchDisplayName and
+// maybeUpdateRemoteManagedAgentName to silently replace it with a
+// prompt-derived title. This violated user intent.
+//
+// If you are reading this because a test broke: the naming policy is
+// intentional. DO NOT reintroduce digit-only → technical classification.
+// ---------------------------------------------------------------------------
+
+func TestDigitOnlyNameGuard_LaunchPreservesName(t *testing.T) {
+	digitNames := []string{"111", "42", "007", "0", "999999"}
+	for _, name := range digitNames {
+		t.Run(name, func(t *testing.T) {
+			var started map[string]any
+			launcher := remoteLocalLauncher(t, handler.Map{
+				"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+					started = req
+					return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+				}),
+			})
+			_, err := launcher.Launch(context.Background(), &agentRuntime{id: "agent-" + name}, LaunchRequest{
+				Name:   name,
+				Prompt: "请负责定位登录回调 500 根因，并给出最小修复方案",
+			})
+			if err != nil {
+				t.Fatalf("Launch() error = %v", err)
+			}
+			if started["name"] != name {
+				t.Fatalf("REGRESSION: Launch() name = %#v, want %q (digit-only name must NOT be replaced by prompt-derived title)", started["name"], name)
+			}
+		})
+	}
+}
+
+func TestDigitOnlyNameGuard_SubmitTurnNeverRenames(t *testing.T) {
+	digitNames := []string{"111", "42", "007"}
+	for _, name := range digitNames {
+		t.Run(name, func(t *testing.T) {
+			var renamed map[string]any
+			svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+				"thread/name/set": handler.New(func(_ context.Context, req map[string]any) (struct{}, error) {
+					renamed = req
+					return struct{}{}, nil
+				}),
+				"turn/start": handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+					return map[string]any{"turn_id": "turn-1"}, nil
+				}),
+			}), nil, nil, nil)
+			agent := svc.newAgentLocked("agent-" + name)
+			agent.state, agent.remoteThreadID, agent.name = agentdto.StateIdle, "thread-1", name
+			svc.agents[agent.id] = agent
+			if err := svc.SubmitTurn(context.Background(), TurnSubmission{
+				AgentID: agent.id,
+				Inputs:  []shareddto.InputItem{{Type: "text", Content: "请负责定位登录回调 500 根因，并给出最小修复方案"}},
+			}); err != nil {
+				t.Fatalf("SubmitTurn() error = %v", err)
+			}
+			if renamed != nil {
+				t.Fatalf("REGRESSION: thread/name/set was called for digit-only name %q → %#v (must NOT auto-rename)", name, renamed)
+			}
+			if agent.name != name {
+				t.Fatalf("REGRESSION: agent.name changed from %q to %q (must NOT auto-rename digit-only names)", name, agent.name)
+			}
+		})
+	}
+}
+
+func TestDigitOnlyNameGuard_ManagedAgentLaunchDisplayName(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		prompt string
+		want   string
+	}{
+		{name: "111 preserved", input: "111", prompt: "定位回调根因", want: "111"},
+		{name: "42 preserved", input: "42", prompt: "some long prompt for derivation", want: "42"},
+		{name: "007 preserved", input: "007", prompt: "请负责定位登录回调 500 根因", want: "007"},
+		// Contrast: technical names still get replaced.
+		{name: "worker-agent replaced", input: "worker-agent", prompt: "请负责定位登录回调 500 根因，并给出最小修复方案", want: "定位登录回调 500 根因"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := managedAgentLaunchDisplayName(tt.input, tt.prompt)
+			if got != tt.want {
+				t.Fatalf("managedAgentLaunchDisplayName(%q, %q) = %q, want %q", tt.input, tt.prompt, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRemoteLauncher_SubmitTurn(t *testing.T) {
 	var req map[string]any
 	launcher := remoteLocalLauncher(t, handler.Map{
