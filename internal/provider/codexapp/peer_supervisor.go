@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -30,7 +29,7 @@ type peerHandle interface {
 	PID() int
 	Wait() error
 	ClosePipe() error
-	Signal(sig os.Signal) error
+	Signal(sig processSig) error
 }
 
 // peerLauncher creates peerHandles for the supervisor. A real implementation
@@ -376,21 +375,21 @@ func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup)
 		return
 	case <-time.After(s.stopGrace):
 	}
-	s.signalAllPeers(peers, syscall.SIGTERM)
+	s.signalAllPeers(peers, sigTerminate)
 	select {
 	case <-done:
 		return
 	case <-time.After(s.killGrace):
 	}
-	s.signalAllPeers(peers, syscall.SIGKILL)
+	s.signalAllPeers(peers, sigForceKill)
 	<-done
 }
 
-func (s *PeerSupervisor) signalAllPeers(peers []peerHandle, sig syscall.Signal) {
+func (s *PeerSupervisor) signalAllPeers(peers []peerHandle, sig processSig) {
 	for _, h := range peers {
 		if err := h.Signal(sig); err != nil {
 			s.logger.Debug("peer_supervisor: signal failed",
-				"peer", h.Name(), "signal", sig.String(), "error", err)
+				"peer", h.Name(), "signal", sig, "error", err)
 		}
 	}
 }
@@ -451,16 +450,17 @@ func (l *execPeerLauncher) Launch(_ context.Context, name string) (peerHandle, e
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	cmd.Env = append(os.Environ(), peerModeEnv+"=1")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setCodexProcessAttrs(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = stdinR.Close()
 		_ = stdinW.Close()
 		return nil, err
 	}
 	_ = stdinR.Close()
+	guard := attachProcessGuard(cmd)
 	l.logger.Info("peer_supervisor: started",
 		"peer", name, "pid", cmd.Process.Pid, "mode", "peer")
-	return &execPeerHandle{name: name, cmd: cmd, stdin: stdinW}, nil
+	return &execPeerHandle{name: name, cmd: cmd, guard: guard, stdin: stdinW}, nil
 }
 
 type peerBinaryMissingError struct {
@@ -473,10 +473,11 @@ func (e *peerBinaryMissingError) Error() string {
 }
 
 type execPeerHandle struct {
-	name  string
-	cmd   *exec.Cmd
-	stdin *os.File
-	mu    sync.Mutex
+	name       string
+	cmd        *exec.Cmd
+	guard      *processGuard
+	stdin      *os.File
+	mu         sync.Mutex
 	pipeClosed bool
 }
 
@@ -493,7 +494,9 @@ func (h *execPeerHandle) Wait() error {
 	if h.cmd == nil {
 		return errors.New("peer_supervisor: execPeerHandle with nil cmd")
 	}
-	return h.cmd.Wait()
+	err := h.cmd.Wait()
+	h.guard.close()
+	return err
 }
 
 func (h *execPeerHandle) ClosePipe() error {
@@ -506,11 +509,11 @@ func (h *execPeerHandle) ClosePipe() error {
 	return h.stdin.Close()
 }
 
-func (h *execPeerHandle) Signal(sig os.Signal) error {
+func (h *execPeerHandle) Signal(sig processSig) error {
 	if h.cmd == nil || h.cmd.Process == nil {
 		return nil
 	}
-	return h.cmd.Process.Signal(sig)
+	return signalCodexProcess(h.cmd, h.guard, sig)
 }
 
 // ---------------------------------------------------------------------------

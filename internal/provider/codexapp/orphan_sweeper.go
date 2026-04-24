@@ -2,10 +2,6 @@ package codexapp
 
 import (
 	"os"
-	"os/exec"
-	"strconv"
-	"strings"
-	"syscall"
 	"time"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -57,8 +53,8 @@ func filterOrphanAppServers(procs []appServerProcessInfo, myTree map[int]struct{
 func sigtermAppServers(orphans []appServerProcessInfo) []appServerProcessInfo {
 	sigtermed := make([]appServerProcessInfo, 0, len(orphans))
 	for _, proc := range orphans {
-		if err := syscall.Kill(proc.pid, syscall.SIGTERM); err != nil {
-			if err != syscall.ESRCH {
+		if err := sendSignalToPID(proc.pid, sigTerminate); err != nil {
+			if !isProcessGoneErr(err) {
 				pkglogger.Warn("orphan sweeper: SIGTERM failed",
 					"pid", proc.pid, "ppid", proc.ppid, "error", err)
 			}
@@ -74,7 +70,7 @@ func waitForAppServerExit(sigtermed []appServerProcessInfo) {
 	for time.Now().Before(deadline) {
 		allGone := true
 		for _, proc := range sigtermed {
-			if syscall.Kill(proc.pid, 0) == nil {
+			if isProcessAlive(proc.pid) {
 				allGone = false
 				break
 			}
@@ -89,7 +85,7 @@ func waitForAppServerExit(sigtermed []appServerProcessInfo) {
 func sigkillAppServerSurvivors(sigtermed []appServerProcessInfo, allProcs map[int]int) int {
 	killed := 0
 	for _, proc := range sigtermed {
-		if syscall.Kill(proc.pid, 0) != nil {
+		if !isProcessAlive(proc.pid) {
 			pkglogger.Info("orphan sweeper: killed orphaned app-server",
 				"pid", proc.pid, "ppid", proc.ppid)
 			killed++
@@ -116,8 +112,7 @@ func killDescendants(proc appServerProcessInfo, allProcs map[int]int) int {
 		if descPID == proc.pid || descPID <= 1 {
 			continue
 		}
-		// Check if still alive before killing.
-		if err := syscall.Kill(descPID, 0); err != nil {
+		if !isProcessAlive(descPID) {
 			continue // already exited with parent
 		}
 		if err := killMCPProcess(descPID); err != nil {
@@ -138,56 +133,10 @@ type appServerProcessInfo struct {
 	ppid int
 }
 
-// discoverAppServerProcesses runs `ps -eo pid,ppid,args` and returns:
-//   - allProcs: map[pid]ppid for the entire process table
-//   - appServers: filtered list of "codex app-server --listen" entries
+// discoverAppServerProcesses delegates to the platform-specific process
+// enumerator (Unix: `ps`, Windows: no-op for Phase 1).
 func discoverAppServerProcesses() (allProcs map[int]int, appServers []appServerProcessInfo) {
-	out, err := exec.Command("ps", "-eo", "pid,ppid,args").Output()
-	if err != nil {
-		pkglogger.Warn("orphan sweeper: ps command failed", "error", err)
-		return nil, nil
-	}
-
-	allProcs = make(map[int]int, 256)
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		pid, err1 := strconv.Atoi(fields[0])
-		ppid, err2 := strconv.Atoi(fields[1])
-		if err1 != nil || err2 != nil {
-			continue
-		}
-		allProcs[pid] = ppid
-
-		// Check if this is a "codex app-server --listen" process.
-		// The args pattern is: codex app-server --listen ws://...
-		if len(fields) >= 5 && isAppServerArgs(fields[2:]) {
-			appServers = append(appServers, appServerProcessInfo{pid: pid, ppid: ppid})
-		}
-	}
-	return allProcs, appServers
-}
-
-// isAppServerArgs checks whether the process arguments match
-// "codex app-server --listen ws://...".
-// We look for the pattern in the args slice: [..., "app-server", "--listen", ws://...]
-func isAppServerArgs(args []string) bool {
-	for i := 0; i < len(args)-1; i++ {
-		base := args[i]
-		if idx := strings.LastIndex(base, "/"); idx >= 0 {
-			base = base[idx+1:]
-		}
-		if base == "app-server" && i+1 < len(args) && args[i+1] == "--listen" {
-			return true
-		}
-	}
-	return false
+	return discoverAppServerProcessList()
 }
 
 const appServerKillGracePeriod = 5 * time.Second

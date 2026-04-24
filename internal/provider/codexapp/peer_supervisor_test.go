@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -99,7 +98,7 @@ type fakePeerHandle struct {
 	done    chan struct{}
 	closed  bool
 	exitErr error
-	signals []os.Signal
+	signals []processSig
 }
 
 func (h *fakePeerHandle) Name() string { return h.name }
@@ -138,17 +137,17 @@ func (h *fakePeerHandle) ClosePipe() error {
 	return nil
 }
 
-func (h *fakePeerHandle) Signal(sig os.Signal) error {
+func (h *fakePeerHandle) Signal(sig processSig) error {
 	h.mu.Lock()
 	h.signals = append(h.signals, sig)
 	h.mu.Unlock()
 	return nil
 }
 
-func (h *fakePeerHandle) signalsSnapshot() []os.Signal {
+func (h *fakePeerHandle) signalsSnapshot() []processSig {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	out := make([]os.Signal, len(h.signals))
+	out := make([]processSig, len(h.signals))
 	copy(out, h.signals)
 	return out
 }
@@ -482,7 +481,7 @@ func TestPeerSupervisorShutdownEscalatesToSIGTERM(t *testing.T) {
 	// Supervisor should SIGTERM (and then SIGKILL) to unblock the stuck peer.
 	waitUntil(t, time.Second, func() bool {
 		for _, sig := range stuck.signals {
-			if sig == syscall.SIGTERM {
+			if sig == sigTerminate {
 				return true
 			}
 		}
@@ -505,7 +504,7 @@ type stuckPeerHandle struct {
 	mu   sync.Mutex
 	done chan struct{}
 	reg  bool
-	signals []os.Signal
+	signals []processSig
 }
 
 func (s *stuckPeerHandle) Name() string { return s.name }
@@ -521,7 +520,7 @@ func (s *stuckPeerHandle) ClosePipe() error {
 	return nil
 }
 
-func (s *stuckPeerHandle) Signal(sig os.Signal) error {
+func (s *stuckPeerHandle) Signal(sig processSig) error {
 	s.mu.Lock()
 	s.signals = append(s.signals, sig)
 	s.mu.Unlock()

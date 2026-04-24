@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"syscall"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
@@ -47,13 +46,15 @@ func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Regist
 	}
 	t := &transport{}
 	proc := newLocalProcess(cmd, stderr)
+	proc.guard = attachProcessGuard(cmd)
 	proc.waitAsync()
 	go t.collectProcessStderr(proc, stderr)
 	serverURL, err := proc.waitForListenURL(startupCtx)
 	if err != nil {
-		_ = proc.signal(syscall.SIGKILL)
+		_ = proc.signal(sigForceKill)
 		proc.waitForExit(transportKillWaitTimeout)
 		proc.waitForStderr(time.Second)
+		proc.guard.close()
 		return nil, enrichSpawnError(err, proc)
 	}
 	t.stateMu.Lock()
