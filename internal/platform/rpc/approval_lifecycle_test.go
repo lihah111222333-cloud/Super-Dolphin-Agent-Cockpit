@@ -38,7 +38,17 @@ func TestRequestApprovalAutoDeclinesWithoutFrontendWhenNoCallbackPath(t *testing
 	}
 }
 
-func TestStartApprovalCleanupLoopTimesOutPendingApprovals(t *testing.T) {
+func TestApprovalCleanupRunnerTimesOutPendingApprovals(t *testing.T) {
+	// P22 P1b: the P1a-era startApprovalCleanupLoop function has been
+	// replaced by ApprovalCleanupRunner. Temporarily shrink the package
+	// vars so the runner fires on the 10ms scale this test needs.
+	prevInterval := approvalCleanupInterval
+	approvalCleanupInterval = 10 * time.Millisecond
+	defer func() { approvalCleanupInterval = prevInterval }()
+	prevTimeout := DefaultApprovalTimeout
+	DefaultApprovalTimeout = time.Second
+	defer func() { DefaultApprovalTimeout = prevTimeout }()
+
 	dispatcher := event.NewDispatcher()
 	manager := NewApprovalManager(nil, dispatcher)
 	resolved := make(chan tooldto.ToolApprovalResolved, 1)
@@ -60,14 +70,20 @@ func TestStartApprovalCleanupLoopTimesOutPendingApprovals(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go startApprovalCleanupLoop(ctx, manager, 10*time.Millisecond, time.Second, nil)
+	runner := NewApprovalCleanupRunner(manager, nil)
+	runDone := make(chan error, 1)
+	go func() { runDone <- runner.Run(ctx) }()
+	defer func() {
+		cancel()
+		<-runDone
+	}()
 
 	ev := awaitResolvedEvent(t, resolved)
 	if ev.Decision != ErrApprovalTimeout("approval timed out").Error() {
 		t.Fatalf("resolved decision = %q, want timeout", ev.Decision)
 	}
 	if len(manager.PendingSnapshot()) != 0 {
-		t.Fatal("cleanup loop left pending approvals behind")
+		t.Fatal("cleanup runner left pending approvals behind")
 	}
 }
 

@@ -1,6 +1,11 @@
 package archtest
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // TestLifecycleOnStartGuard is the P22 fx.Lifecycle.OnStart runtime-ownership
 // guard shell (P0 骨架; see docs/plans/迁移/p22/P0_RuntimeOwnershipSkeleton.md
@@ -66,10 +71,6 @@ func TestLifecycleOnStartGuard(t *testing.T) {
 		owningSlice string
 	}{
 		{
-			name:        "onstart_must_not_start_ticker_goroutine",
-			owningSlice: "P1b (Findings 3, 4)",
-		},
-		{
 			name:        "onstart_must_not_start_watcher_goroutine",
 			owningSlice: "P2 (Finding 6, memory team_sync_watcher)",
 		},
@@ -90,4 +91,54 @@ func TestLifecycleOnStartGuard(t *testing.T) {
 			t.Skipf("matcher skeleton only; owning slice will flip red→green: %s", tc.owningSlice)
 		})
 	}
+
+	// P22 P1b live matcher (Findings 3 + 4): after the sweeper and approval-
+	// cleanup loops moved to platformrunner.Runner providers, neither module
+	// file may re-introduce the pre-P1b OnStart ticker spawn. Scope is limited
+	// to the two hot files so unrelated packages are not force-flipped.
+	t.Run("onstart_must_not_start_ticker_goroutine", func(t *testing.T) {
+		t.Parallel()
+		root := repoRootForGuardTests(t)
+		targets := []struct {
+			path      string
+			forbidden []string
+		}{
+			{
+				path: filepath.Join(root, "internal", "platform", "mcpcontrol", "module.go"),
+				forbidden: []string{
+					"func registerSweeperLifecycle",
+					"go sweeper.Run(",
+				},
+			},
+			{
+				path: filepath.Join(root, "internal", "platform", "rpc", "module.go"),
+				forbidden: []string{
+					"func startApprovalLifecycle",
+					"go startApprovalCleanupLoop(",
+				},
+			},
+			{
+				path: filepath.Join(root, "internal", "platform", "rpc", "approval_lifecycle.go"),
+				forbidden: []string{
+					"func startApprovalCleanupLoop(",
+				},
+			},
+		}
+		for _, target := range targets {
+			data, err := os.ReadFile(target.path)
+			if err != nil {
+				t.Fatalf("read %s: %v", target.path, err)
+			}
+			src := string(data)
+			var hits []string
+			for _, token := range target.forbidden {
+				if strings.Contains(src, token) {
+					hits = append(hits, token)
+				}
+			}
+			if len(hits) > 0 {
+				t.Errorf("%s reintroduced pre-P1b OnStart ticker path; forbidden tokens present: %v", target.path, hits)
+			}
+		}
+	})
 }
