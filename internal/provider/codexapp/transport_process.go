@@ -7,12 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -20,6 +18,7 @@ import (
 
 type localProcess struct {
 	cmd         *exec.Cmd
+	guard       *processGuard
 	stderr      *limitedBuffer
 	stderrR     io.ReadCloser
 	done        chan struct{}
@@ -176,19 +175,12 @@ func (p *localProcess) exitError() error {
 	return err
 }
 
-func (p *localProcess) signal(sig syscall.Signal) error {
+func (p *localProcess) signal(sig processSig) error {
 	if p == nil || p.cmd == nil || p.cmd.Process == nil {
 		return nil
 	}
-	pid := p.cmd.Process.Pid
-	if pid <= 0 {
-		return errors.New("codexapp: invalid local process pid")
-	}
-	if err := syscall.Kill(-pid, sig); err == nil || errors.Is(err, syscall.ESRCH) {
-		return nil
-	}
-	err := p.cmd.Process.Signal(sig)
-	if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH) {
+	err := signalCodexProcess(p.cmd, p.guard, sig)
+	if isProcessGoneErr(err) {
 		return nil
 	}
 	return err
@@ -223,20 +215,13 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	}
 	argv := []string{"codex", "app-server", "--listen", localSpawnListenURL()}
 	pkglogger.Info("codexapp: spawning local app-server", "argv", argv)
-	// Wrap in shell to raise fd limit before exec. On macOS, GUI-launched
-	// processes inherit launchd's default soft limit (often 256), which is
-	// too low for batch agent scenarios (100 agents × 2 MCP servers each).
-	// Go's syscall.Setrlimit only affects the Go process; the Rust codex
-	// binary may not inherit it reliably. The shell wrapper guarantees
-	// codex starts with a high limit regardless of launch context (.app,
-	// terminal, launchd, etc.).
-	shellCmd := fmt.Sprintf(
-		"ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true; exec %s %s",
-		argv[0], strings.Join(argv[1:], " "),
-	)
-	cmd := exec.Command("sh", "-c", shellCmd)
+	// Wrap in the platform-appropriate FD-limit raiser. On macOS GUI-launched
+	// processes inherit launchd's default 256 soft limit, which is too low
+	// for batch agent scenarios; the Unix wrapper raises it before exec. On
+	// Windows the wrapper is a no-op — the default handle limit is adequate.
+	cmd := wrapWithFDLimit(argv)
 	cmd.Stdout = io.Discard
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setCodexProcessAttrs(cmd)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return err
@@ -245,13 +230,15 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 		return err
 	}
 	proc := newLocalProcess(cmd, stderr)
+	proc.guard = attachProcessGuard(cmd)
 	proc.waitAsync()
 	go t.collectProcessStderr(proc, stderr)
 	serverURL, err := proc.waitForListenURL(ctx)
 	if err != nil {
-		_ = proc.signal(syscall.SIGKILL)
+		_ = proc.signal(sigForceKill)
 		proc.waitForExit(transportKillWaitTimeout)
 		proc.waitForStderr(time.Second)
+		proc.guard.close()
 		return enrichSpawnError(err, proc)
 	}
 	t.stateMu.Lock()
@@ -299,13 +286,14 @@ func (t *transport) collectProcessStderr(proc *localProcess, stderr io.ReadClose
 func (t *transport) watchLocalProcess(proc *localProcess) {
 	<-proc.done
 	proc.waitForStderr(time.Second)
+	defer proc.guard.close()
 	if t.closed.Load() {
 		t.clearProcess(proc, nil)
 		return
 	}
 	exitErr := proc.exitError()
 	t.clearProcess(proc, exitErr)
-	_ = proc.signal(syscall.SIGKILL)
+	_ = proc.signal(sigForceKill)
 	t.closeSocket()
 	t.failPending(exitErr)
 }
@@ -355,7 +343,7 @@ func (t *transport) stopProcess(graceful bool) error {
 		return nil
 	}
 	if graceful {
-		if err := proc.signal(syscall.SIGTERM); err != nil {
+		if err := proc.signal(sigTerminate); err != nil {
 			return err
 		}
 		if proc.waitForExit(transportShutdownGracePeriod) {
@@ -363,7 +351,7 @@ func (t *transport) stopProcess(graceful bool) error {
 			return nil
 		}
 	}
-	if err := proc.signal(syscall.SIGKILL); err != nil {
+	if err := proc.signal(sigForceKill); err != nil {
 		return err
 	}
 	if proc.stderrR != nil {

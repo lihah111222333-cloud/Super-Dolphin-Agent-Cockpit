@@ -3,14 +3,11 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -387,28 +384,14 @@ func cleanOrphanedMCPProcesses(skipPIDs map[int]struct{}) int {
 	return killed
 }
 
-// discoverProcesses runs a single `ps -eo pid,ppid,comm` and returns:
+// discoverProcesses returns:
 //   - allProcs: map[pid]ppid for the entire process table (used for tree building)
 //   - mcpProcs: filtered list of mcp-orch/mcp-lsp entries
+//
+// The implementation is platform-specific: Unix shells out to `ps`, while
+// Windows currently returns nil (Phase 2 will replace it with EnumProcesses).
 func discoverProcesses() (allProcs map[int]int, mcpProcs []mcpProcessInfo) {
-	out, err := exec.Command("ps", "-eo", "pid,ppid,comm").Output()
-	if err != nil {
-		pkglogger.Warn("orphan cleanup: ps command failed", "error", err)
-		return nil, nil
-	}
-
-	allProcs = make(map[int]int, 256)
-	for _, line := range strings.Split(string(out), "\n") {
-		pid, ppid, binary, ok := parseProcessLine(line)
-		if !ok {
-			continue
-		}
-		allProcs[pid] = ppid
-		if binary != "" {
-			mcpProcs = append(mcpProcs, mcpProcessInfo{pid: pid, ppid: ppid, binary: binary})
-		}
-	}
-	return allProcs, mcpProcs
+	return discoverAllProcesses()
 }
 
 func parseProcessLine(line string) (pid, ppid int, binary string, ok bool) {
@@ -477,21 +460,8 @@ func buildProcessTree(rootPID int, allProcs map[int]int) map[int]struct{} {
 	return tree
 }
 
-// killMCPProcess terminates a process and its process group.
-func killMCPProcess(pid int) error {
-	if pid <= 1 {
-		return errors.New("refusing to kill PID <= 1")
-	}
-	pgErr := syscall.Kill(-pid, syscall.SIGKILL)
-	if pgErr == nil {
-		return nil
-	}
-	err := syscall.Kill(pid, syscall.SIGKILL)
-	if errors.Is(err, syscall.ESRCH) {
-		return nil
-	}
-	return err
-}
+// killMCPProcess is implemented per-platform in process_unix.go /
+// process_windows.go.
 
 // mcpOrphanCleanupGracePeriod is the delay after stopping the codex process
 // before scanning for residual MCP sidecars. This gives the codex process

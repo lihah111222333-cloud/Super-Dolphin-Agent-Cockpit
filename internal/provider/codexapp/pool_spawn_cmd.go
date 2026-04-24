@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 )
 
 // PoolSpawnArgs drives BuildPoolSpawnCmd. Home is the canonicalized
@@ -74,16 +73,12 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	if len(args.ExtraArgs) > 0 {
 		argv = append(argv, args.ExtraArgs...)
 	}
-	shellCmd := fmt.Sprintf(
-		"ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true; exec %s %s",
-		argv[0], strings.Join(argv[1:], " "),
-	)
-	cmd := exec.Command("sh", "-c", shellCmd)
+	cmd := wrapWithFDLimit(argv)
 	parent := args.ParentEnv
 	if parent == nil {
 		parent = os.Environ()
 	}
 	cmd.Env = buildAllowlistedSpawnEnv(parent, map[string]string{"CODEX_HOME": home})
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setCodexProcessAttrs(cmd)
 	return cmd, nil
 }
