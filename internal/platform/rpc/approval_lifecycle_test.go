@@ -40,15 +40,8 @@ func TestRequestApprovalAutoDeclinesWithoutFrontendWhenNoCallbackPath(t *testing
 
 func TestApprovalCleanupRunnerTimesOutPendingApprovals(t *testing.T) {
 	// P22 P1b: the P1a-era startApprovalCleanupLoop function has been
-	// replaced by ApprovalCleanupRunner. Temporarily shrink the package
-	// vars so the runner fires on the 10ms scale this test needs.
-	prevInterval := approvalCleanupInterval
-	approvalCleanupInterval = 10 * time.Millisecond
-	defer func() { approvalCleanupInterval = prevInterval }()
-	prevTimeout := DefaultApprovalTimeout
-	DefaultApprovalTimeout = time.Second
-	defer func() { DefaultApprovalTimeout = prevTimeout }()
-
+	// replaced by ApprovalCleanupRunner. Inject short per-instance settings so
+	// the runner fires on the 10ms scale this test needs without mutating package defaults.
 	dispatcher := event.NewDispatcher()
 	manager := NewApprovalManager(nil, dispatcher)
 	resolved := make(chan tooldto.ToolApprovalResolved, 1)
@@ -70,7 +63,7 @@ func TestApprovalCleanupRunnerTimesOutPendingApprovals(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	runner := NewApprovalCleanupRunner(manager, nil)
+	runner := newApprovalCleanupRunnerWithConfig(manager, nil, 10*time.Millisecond, time.Second)
 	runDone := make(chan error, 1)
 	go func() { runDone <- runner.Run(ctx) }()
 	defer func() {

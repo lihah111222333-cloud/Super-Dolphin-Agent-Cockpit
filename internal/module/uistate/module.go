@@ -9,7 +9,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
-	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
 
@@ -44,30 +43,8 @@ var Module = fx.Options(
 	fx.Provide(NewProjectStateFacade),
 	fx.Provide(NewUIStateHandlers),
 	fx.Provide(NewConfigHandlers),
-	fx.Invoke(registerProjections),
+	fx.Provide(NewUIStateSubscribers),
 )
-
-func registerProjections(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service) {
-	if svc != nil {
-		svc.bindDispatcher(dispatcher)
-	}
-	var cancels []context.CancelFunc
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			cancels = registerProjectionSubscriptions(dispatcher, svc)
-			return nil
-		},
-		OnStop: func(context.Context) error {
-			for _, cancel := range cancels {
-				if cancel != nil {
-					cancel()
-				}
-			}
-			cancels = nil
-			return nil
-		},
-	})
-}
 
 // bindingAdapter adapts binding.Store to the minimal bindingLookup interface.
 type bindingAdapter struct {

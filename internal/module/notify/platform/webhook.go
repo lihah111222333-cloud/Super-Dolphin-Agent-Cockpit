@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -160,10 +159,11 @@ func validateHTTPSURL(u *url.URL) error {
 	return nil
 }
 
-// ssrfGuardedDialer wraps net.Dialer. DialContext resolves via the
-// embedded dialer and then inspects the connected RemoteAddr; if the
-// IP is in the block list, the connection is closed and
-// ErrDisallowedAddress is returned.
+// ssrfGuardedDialer wraps net.Dialer. DialContext resolves the target
+// host, rejects blocked IPs before any socket is opened, then connects
+// to a vetted resolved IP. Connecting to the resolved IP (rather than
+// asking net.Dialer to resolve the hostname again) keeps the DNS
+// rebinding check tied to the exact address being dialed.
 type ssrfGuardedDialer struct {
 	*net.Dialer
 	allowPrivateCIDR bool
@@ -173,29 +173,34 @@ func (d *ssrfGuardedDialer) DialContext(ctx context.Context, network, addr strin
 	if d.Dialer == nil {
 		d.Dialer = &net.Dialer{Timeout: DefaultTimeout}
 	}
-	conn, err := d.Dialer.DialContext(ctx, network, addr)
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		// Short-circuit "connection refused to 127.0.0.1" style errors
-		// that come from the dialer itself; they don't imply we
-		// bypassed the guard.
-		if isConnRefused(err) {
-			return nil, err
-		}
+		return nil, fmt.Errorf("%w: split host/port: %v", ErrInvalidURL, err)
+	}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil {
 		return nil, err
 	}
-	if d.allowPrivateCIDR {
-		return conn, nil
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("%w: %s resolved no addresses", ErrDisallowedAddress, host)
 	}
-	remote, ok := conn.RemoteAddr().(*net.TCPAddr)
-	if !ok {
-		_ = conn.Close()
-		return nil, fmt.Errorf("%w: non-TCP remote addr", ErrDisallowedAddress)
+	if !d.allowPrivateCIDR {
+		for _, ip := range ips {
+			if isBlockedIP(ip) {
+				return nil, fmt.Errorf("%w: %s", ErrDisallowedAddress, ip.String())
+			}
+		}
 	}
-	if ip := remote.IP; isBlockedIP(ip) {
-		_ = conn.Close()
-		return nil, fmt.Errorf("%w: %s", ErrDisallowedAddress, ip.String())
+	var lastErr error
+	for _, ip := range ips {
+		dialAddr := net.JoinHostPort(ip.String(), port)
+		conn, err := d.Dialer.DialContext(ctx, network, dialAddr)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
 	}
-	return conn, nil
+	return nil, lastErr
 }
 
 // cgnet / ula are parsed once at package init so the isBlockedIP hot
@@ -238,18 +243,4 @@ func isBlockedByRange(ip net.IP) bool {
 	// IPv6 ULA (fc00::/7). Go's IsPrivate already covers this, but the
 	// explicit check keeps readers from chasing the stdlib definition.
 	return ula.Contains(ip)
-}
-
-// isConnRefused lets callers distinguish "SSRF guard rejected the
-// conn" (new error) from "OS said ECONNREFUSED" (preserve original
-// error so higher-level retry logic stays accurate).
-func isConnRefused(err error) bool {
-	if err == nil {
-		return false
-	}
-	var se syscall.Errno
-	if errors.As(err, &se) {
-		return se == syscall.ECONNREFUSED
-	}
-	return false
 }

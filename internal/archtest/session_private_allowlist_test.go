@@ -34,16 +34,14 @@ func TestSessionPrivateRuntimeAllowlist(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
 	allow := map[string]bool{}
-	callSiteFiles := map[string]bool{}
 	for _, entry := range sessionPrivateRuntimeAllowlist {
 		line := symbolLine(t, root, entry.DefinitionPath, entry.Symbol)
 		t.Logf("[P22.1 ALLOW] session-private %s:%d %s", entry.DefinitionPath, line, entry.Symbol)
 		if kind := sessionPrivateLaunchKind(entry); kind != "" {
 			allow[kind+"::"+entry.DefinitionPath+"::"+entry.Symbol] = true
 		}
-		callSiteFiles[entry.CallSitePath] = true
 	}
-	for _, rel := range sessionPrivateRuntimeScopeFiles(t, root, callSiteFiles) {
+	for _, rel := range sessionPrivateRuntimeScopeFiles(t, root) {
 		for _, launch := range sessionPrivateRuntimeLaunchesInFile(t, root, rel) {
 			if allow[launch.Kind+"::"+rel+"::"+launch.Symbol] {
 				continue
@@ -60,7 +58,7 @@ type sessionPrivateRuntimeLaunch struct {
 	Kind      string
 }
 
-func sessionPrivateRuntimeScopeFiles(t *testing.T, root string, callSiteFiles map[string]bool) []string {
+func sessionPrivateRuntimeScopeFiles(t *testing.T, root string) []string {
 	t.Helper()
 	var files []string
 	for _, scope := range []string{"internal/provider/codexapp", "internal/app"} {
@@ -79,11 +77,7 @@ func sessionPrivateRuntimeScopeFiles(t *testing.T, root string, callSiteFiles ma
 			if err != nil {
 				t.Fatalf("rel %s: %v", path, err)
 			}
-			rel = filepath.ToSlash(rel)
-			if !callSiteFiles[rel] {
-				return nil
-			}
-			files = append(files, rel)
+			files = append(files, filepath.ToSlash(rel))
 			return nil
 		})
 		if err != nil {
@@ -107,19 +101,64 @@ func sessionPrivateRuntimeLaunchesInFile(t *testing.T, root, rel string) []sessi
 			continue
 		}
 		symbol := funcDeclSymbol(fn)
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.GoStmt:
-				launches = append(launches, sessionPrivateRuntimeLaunch{Line: fset.Position(x.Go).Line, Enclosing: symbol, Symbol: goLaunchSymbol(x.Call, symbol), Kind: goLaunchKind(x.Call)})
-			case *ast.CallExpr:
-				if isRuntimeSafeGoCall(x) {
-					launches = append(launches, sessionPrivateRuntimeLaunch{Line: fset.Position(x.Pos()).Line, Enclosing: symbol, Symbol: symbol, Kind: "safego"})
-				}
-			}
-			return true
-		})
+		if isRootBridgeException(rel, symbol) {
+			continue
+		}
+		if isSessionPrivateDefinition(rel, symbol) {
+			launches = append(launches, sessionPrivateLaunchesInNode(fset, symbol, fn.Body)...)
+			continue
+		}
+		launches = append(launches, sessionPrivateOnStartLaunches(fset, symbol, fn.Body)...)
 	}
 	return launches
+}
+
+func sessionPrivateOnStartLaunches(fset *token.FileSet, symbol string, node ast.Node) []sessionPrivateRuntimeLaunch {
+	var launches []sessionPrivateRuntimeLaunch
+	ast.Inspect(node, func(n ast.Node) bool {
+		cl, ok := n.(*ast.CompositeLit)
+		if !ok || !isFxHookComposite(cl) {
+			return true
+		}
+		for _, elt := range cl.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok || keyName(kv.Key) != "OnStart" {
+				continue
+			}
+			fn, ok := kv.Value.(*ast.FuncLit)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			launches = append(launches, sessionPrivateLaunchesInNode(fset, symbol, fn.Body)...)
+		}
+		return true
+	})
+	return launches
+}
+
+func sessionPrivateLaunchesInNode(fset *token.FileSet, symbol string, node ast.Node) []sessionPrivateRuntimeLaunch {
+	var launches []sessionPrivateRuntimeLaunch
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.GoStmt:
+			launches = append(launches, sessionPrivateRuntimeLaunch{Line: fset.Position(x.Go).Line, Enclosing: symbol, Symbol: goLaunchSymbol(x.Call, symbol), Kind: goLaunchKind(x.Call)})
+		case *ast.CallExpr:
+			if isRuntimeSafeGoCall(x) {
+				launches = append(launches, sessionPrivateRuntimeLaunch{Line: fset.Position(x.Pos()).Line, Enclosing: symbol, Symbol: symbol, Kind: "safego"})
+			}
+		}
+		return true
+	})
+	return launches
+}
+
+func isSessionPrivateDefinition(rel, symbol string) bool {
+	for _, entry := range sessionPrivateRuntimeAllowlist {
+		if entry.DefinitionPath == rel && entry.Symbol == symbol {
+			return true
+		}
+	}
+	return false
 }
 
 func sessionPrivateLaunchKind(entry sessionPrivateRuntimeException) string {

@@ -729,3 +729,17 @@ runtime 传回 `claude-opus-4-7[1m]` → canonicalize 到 `opus[1m]` → 下拉�
 
 - 派 Phase 0 单 owner 实施 agent（按 `docs/plans/迁移/p22/p22.1/DAG.md` §2.2.1 精确 write-set）
 - 或先 commit + push P22.1 文档 + §R6 + §2.2.1 修订
+
+
+### 8.4.1 P22.1 HEAD `a81554c` implementation overlay（2026-04-25，第 6 轮文档一致性修复）
+
+> 本节按 §10.31 只加不删追加；`§8.4` 行 708-712 的“代码 0”是 **2026-04-25 之前快照**，保留为历史叙事，不再代表 HEAD。当前核验基线为 HEAD `a81554c`；P22.1 实施链按本轮交接固定为 `25a37ad` → `f737e45` → `17b5ce7` → `dfe12e6` → `b386217` → `a9a018e` → `a81554c`。
+
+| Phase / 节点 | HEAD `a81554c` 实施状态 | 销账明细 |
+|---|---|---|
+| Phase 0 / P0A-P0C | ✅ 大部完成 | `25a37ad` 起引入 BusModule `bus.subscribers` contract、RunnerModule adapter contract 与 P22.1 archtest skeleton；后续 `f737e45`/`17b5ce7`/`dfe12e6`/`b386217`/`a9a018e`/`a81554c` 迭代 hardening。 |
+| Phase 1 / P1A-P1B | ✅ 已完成 | F-1 root shutdown ordering 已从历史 drain→cancel 反转为 cancel→RunGroup wait→drain；F-2 `watchFXShutdown` 已改为 owner ctx 边界并进入 session-private allowlist。 |
+| Phase 2 / P2A-P2F | ✅ 大部完成 | F-3 memory、F-4 thread、F-5 cachekeepalive、F-6 hooks、F-7 rpc、F-8 mcpcontrol、F-9 toolbridge、F-10 insight、F-11 observation 均已有 BusModule subscriber spec / RunnerModule adapter 迁移证据；剩余争议由 Audit-A/B/C 的 cross-file gap 复核继续收口。 |
+| Phase 3 / P3A-P3B | 🟡 部分完成 | session-private allowlist 已落到 HEAD `a81554c`；gate hardening 仍有 3 处 NEEDS-FIX 待 Audit-A/B/C 修复，包括 cron+uistate cross-file gap、BusSubscriberGroup 命名/覆盖、ShutdownOrdering hybrid 充分性。 |
+
+**HEAD `a81554c` 当前遗留 follow-up**：`runner.actors` vs `group:"runners"` 仍是 `docs/契约/*` 命名债；P22.1 不在本轮修改 `docs/契约/*`。`TestMemoryRulesInjectIntoPrompt` prompt regression 与旧 `events_test.go:53` race 锚点归 pre-existing/follow-up，不作为本 P22.1 文档 overlay 的代码阻塞项。

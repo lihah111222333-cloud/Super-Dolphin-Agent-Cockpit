@@ -21,10 +21,6 @@ import (
 func TestApprovalCleanupRunnerStartsAfterStartupRestore(t *testing.T) {
 	t.Parallel()
 	// Short intervals so the ticker is observable within the test budget.
-	prevInterval := approvalCleanupInterval
-	approvalCleanupInterval = 20 * time.Millisecond
-	defer func() { approvalCleanupInterval = prevInterval }()
-
 	dispatcher := event.NewDispatcher()
 	manager := NewApprovalManager(nil, dispatcher)
 	pending, owner := manager.registerPending(ApprovalRequest{
@@ -46,7 +42,7 @@ func TestApprovalCleanupRunnerStartsAfterStartupRestore(t *testing.T) {
 
 	// Only after restore has returned, start the runner.
 	ctx, cancel := context.WithCancel(context.Background())
-	runner := NewApprovalCleanupRunner(manager, nil)
+	runner := newApprovalCleanupRunnerWithConfig(manager, nil, 20*time.Millisecond, time.Minute)
 	done := make(chan error, 1)
 	go func() { done <- runner.Run(ctx) }()
 	defer func() {
@@ -104,7 +100,7 @@ func TestOnConnectUIReplayWarnOnly(t *testing.T) {
 // fx but possible in test wiring) still honors ctx cancellation.
 func TestApprovalCleanupRunnerNilManagerIsBlocking(t *testing.T) {
 	t.Parallel()
-	runner := NewApprovalCleanupRunner(nil, nil)
+	runner := newApprovalCleanupRunnerWithConfig(nil, nil, time.Minute, time.Minute)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- runner.Run(ctx) }()
@@ -124,13 +120,6 @@ func TestApprovalCleanupRunnerNilManagerIsBlocking(t *testing.T) {
 // tick becomes a no-op rather than cleaning all pending approvals.
 func TestApprovalCleanupRunnerRespectsZeroTimeout(t *testing.T) {
 	t.Parallel()
-	prevInterval := approvalCleanupInterval
-	approvalCleanupInterval = 10 * time.Millisecond
-	defer func() { approvalCleanupInterval = prevInterval }()
-	prevTimeout := DefaultApprovalTimeout
-	DefaultApprovalTimeout = 0
-	defer func() { DefaultApprovalTimeout = prevTimeout }()
-
 	dispatcher := event.NewDispatcher()
 	// Observe that no timeout events fire under zero timeout.
 	var resolved atomic.Int32
@@ -149,7 +138,7 @@ func TestApprovalCleanupRunnerRespectsZeroTimeout(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	runner := NewApprovalCleanupRunner(manager, nil)
+	runner := newApprovalCleanupRunnerWithConfig(manager, nil, 10*time.Millisecond, 0)
 	done := make(chan error, 1)
 	go func() { done <- runner.Run(ctx) }()
 	time.Sleep(40 * time.Millisecond)

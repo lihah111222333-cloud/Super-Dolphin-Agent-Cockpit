@@ -198,6 +198,39 @@ func TestDedupeRejectsSecondObservation(t *testing.T) {
 	}
 }
 
+func TestCountsObservedFlags(t *testing.T) {
+	t.Parallel()
+	m := NewMemory()
+
+	if counts, ok := m.Counts("turn-1"); ok || counts.ToolCallsObserved || counts.ToolFailuresObserved || counts.ApprovalRequestsObserved {
+		t.Fatalf("fresh turn should have no observed counts: ok=%t counts=%+v", ok, counts)
+	}
+	if got := m.IncrementToolCalls("turn-1"); got != 1 {
+		t.Fatalf("IncrementToolCalls = %d, want 1", got)
+	}
+	counts, ok := m.Counts("turn-1")
+	if !ok || counts.ToolCalls != 1 || !counts.ToolCallsObserved {
+		t.Fatalf("tool calls observed flag not flipped: ok=%t counts=%+v", ok, counts)
+	}
+	if counts.ToolFailuresObserved || counts.ApprovalRequestsObserved {
+		t.Fatalf("unrelated observed flags flipped: %+v", counts)
+	}
+	if got := m.IncrementToolFailures("turn-1"); got != 1 {
+		t.Fatalf("IncrementToolFailures = %d, want 1", got)
+	}
+	counts, _ = m.Counts("turn-1")
+	if counts.ToolFailures != 1 || !counts.ToolFailuresObserved {
+		t.Fatalf("tool failures observed flag not flipped: %+v", counts)
+	}
+	if got := m.IncrementApprovalRequests("turn-1"); got != 1 {
+		t.Fatalf("IncrementApprovalRequests = %d, want 1", got)
+	}
+	counts, _ = m.Counts("turn-1")
+	if counts.ApprovalRequests != 1 || !counts.ApprovalRequestsObserved {
+		t.Fatalf("approval observed flag not flipped: %+v", counts)
+	}
+}
+
 func TestMemoryIsSafeForConcurrentUse(t *testing.T) {
 	t.Parallel()
 	m := NewMemory()

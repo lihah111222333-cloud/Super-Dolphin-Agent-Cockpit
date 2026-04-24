@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 
 	"go.uber.org/fx"
 
@@ -89,27 +90,32 @@ func applyBuildSetting(info *buildInfo, key, value string) {
 }
 
 func NewApp() *fx.App {
-	return newFXApp()
+	owner := newAppOwnerContext(context.Background())
+	return newFXApp(fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider)))))
 }
 
 func Run() error {
-	return runApp(NewApp())
+	owner := newAppOwnerContext(context.Background())
+	defer owner.Cancel()
+	return runApp(owner, newFXApp(fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider))))))
 }
 
 // RunDesktop starts the desktop application with the given frontend filesystem.
 // When frontendFS is nil the wails module falls back to a built-in placeholder.
 func RunDesktop(frontendFS fs.FS) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	owner := newAppOwnerContext(context.Background())
+	defer owner.Cancel()
+	ctx := owner.RootContext()
 	var wailsApp *application.App
 	var lifecycle *uiwails.WailsLifecycle
 
 	app := newDesktopFXApp(
+		fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider)))),
 		fx.Supply(uiwails.FrontendFS{FS: frontendFS}),
 		fx.Populate(&wailsApp, &lifecycle),
 	)
-	startCtx, cancel := platformconfig.WithTimeout(ctx, platformconfig.StartupTimeout)
-	defer cancel()
+	startCtx, cancelStart := platformconfig.WithTimeout(ctx, platformconfig.StartupTimeout)
+	defer cancelStart()
 	if err := app.Start(startCtx); err != nil {
 		return err
 	}
@@ -120,12 +126,14 @@ func RunDesktop(frontendFS fs.FS) error {
 		return errors.New("wails lifecycle not available")
 	}
 
-	stopWatch := watchFXShutdown(ctx, app, lifecycle)
+	watcher := watchFXShutdown(ctx, app, lifecycle)
 	runErr := wailsApp.Run()
-	close(stopWatch)
+	owner.Cancel()
+	preDrainErr := preDrainDesktopRuntime(ctx, owner)
+	watcher.StopAndWait()
 
-	stopErr := stopFXApp(ctx, app)
-	return errors.Join(runErr, stopErr)
+	stopErr := stopFXApp(context.WithoutCancel(ctx), app)
+	return errors.Join(runErr, preDrainErr, stopErr)
 }
 
 func newFXApp(options ...fx.Option) *fx.App {
@@ -138,14 +146,19 @@ func newFXApp(options ...fx.Option) *fx.App {
 	return fx.New(base...)
 }
 
-func runApp(app *fx.App) error {
-	startCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.StartupTimeout)
+func runApp(owner *appOwnerContext, app *fx.App) error {
+	if owner == nil {
+		owner = newAppOwnerContext(context.Background())
+	}
+	ctx := owner.RootContext()
+	startCtx, cancel := platformconfig.WithTimeout(ctx, platformconfig.StartupTimeout)
 	defer cancel()
 	if err := app.Start(startCtx); err != nil {
 		return err
 	}
 	<-app.Done()
-	return stopFXApp(context.Background(), app)
+	owner.Cancel()
+	return stopFXApp(context.WithoutCancel(ctx), app)
 }
 
 func newDesktopFXApp(options ...fx.Option) *fx.App {
@@ -169,12 +182,36 @@ func stopFXApp(parent context.Context, app *fx.App) error {
 	return app.Stop(ctx)
 }
 
-func watchFXShutdown(ctx context.Context, app *fx.App, lifecycle *uiwails.WailsLifecycle) chan struct{} {
-	stop := make(chan struct{})
+func preDrainDesktopRuntime(ctx context.Context, owner *appOwnerContext) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	drainCtx, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), platformconfig.ShutdownTimeout)
+	defer cancel()
+	return errors.Join(owner.DrainRuntime(drainCtx), owner.WaitRuntimeDone(drainCtx))
+}
+
+type shutdownWatcher struct {
+	stop chan struct{}
+	done chan struct{}
+	once sync.Once
+}
+
+func (w *shutdownWatcher) StopAndWait() {
+	if w == nil {
+		return
+	}
+	w.once.Do(func() { close(w.stop) })
+	<-w.done
+}
+
+func watchFXShutdown(ctx context.Context, app *fx.App, lifecycle *uiwails.WailsLifecycle) *shutdownWatcher {
+	watcher := &shutdownWatcher{stop: make(chan struct{}), done: make(chan struct{})}
 	runtimesafe.SafeGo(ctx, pkglogger.Get(), "app.watchFXShutdown", func(ctx context.Context) {
-		runShutdownWatcher(ctx, app.Done(), stop, lifecycle.NotifyBackendFailed)
+		defer close(watcher.done)
+		runShutdownWatcher(ctx, app.Done(), watcher.stop, lifecycle.NotifyBackendFailed)
 	})
-	return stop
+	return watcher
 }
 
 func runShutdownWatcher(ctx context.Context, done <-chan os.Signal, stop <-chan struct{}, onFail func()) {

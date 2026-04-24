@@ -35,3 +35,78 @@ func TestWatchFXShutdownHonorsContextCancel(t *testing.T) {
 	default:
 	}
 }
+
+func TestRunDesktopPreDrain(t *testing.T) {
+	owner := newAppOwnerContext(context.Background())
+	drainStarted := make(chan struct{})
+	drainRelease := make(chan struct{})
+	owner.RegisterRuntimePreDrain(func(context.Context) error {
+		close(drainStarted)
+		<-drainRelease
+		return nil
+	})
+	owner.Cancel()
+	drained := make(chan error, 1)
+	go func() {
+		drained <- preDrainDesktopRuntime(owner.RootContext(), owner)
+	}()
+	select {
+	case <-drainStarted:
+	case <-time.After(time.Second):
+		t.Fatal("preDrainDesktopRuntime did not start registered runtime drain")
+	}
+
+	select {
+	case err := <-drained:
+		t.Fatalf("preDrainDesktopRuntime returned before runtime done: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(drainRelease)
+	owner.MarkRuntimeDone()
+	select {
+	case err := <-drained:
+		if err != nil {
+			t.Fatalf("preDrainDesktopRuntime() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("preDrainDesktopRuntime did not finish after runtime done")
+	}
+}
+
+func TestRootCtxSymmetry(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	owner := newAppOwnerContext(parent)
+	select {
+	case <-owner.RootContext().Done():
+		t.Fatal("owner root context canceled before parent")
+	default:
+	}
+	cancelParent()
+	select {
+	case <-owner.RootContext().Done():
+	case <-time.After(time.Second):
+		t.Fatal("owner root context did not inherit parent cancellation")
+	}
+}
+
+func TestShutdownWatcherStopAndWaitJoins(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan os.Signal)
+	stop := make(chan struct{})
+	exited := make(chan struct{})
+
+	go func() {
+		defer close(exited)
+		runShutdownWatcher(ctx, done, stop, func() {
+			t.Fatal("watcher should not notify backend failure on explicit stop")
+		})
+	}()
+	close(stop)
+	select {
+	case <-exited:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown watcher did not join after explicit stop")
+	}
+}

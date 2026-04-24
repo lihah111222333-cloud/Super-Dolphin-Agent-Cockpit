@@ -48,6 +48,18 @@ func TestPostRejectsLoopbackAddress(t *testing.T) {
 	}
 }
 
+func TestPostRejectsUnlistenedLoopbackBeforeConnect(t *testing.T) {
+	t.Parallel()
+	c := NewWebhookClient(WebhookClientConfig{Timeout: 200 * time.Millisecond})
+	err := c.Post(context.Background(), "https://127.0.0.1:1/hook", "application/json", []byte("{}"))
+	if !errors.Is(err, ErrDisallowedAddress) {
+		t.Fatalf("want ErrDisallowedAddress before connect, got %v", err)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "connection refused") {
+		t.Fatalf("SSRF guard must reject before connect refused leaks, got %v", err)
+	}
+}
+
 func TestPostAllowsPrivateCIDRWhenOptedIn(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +100,6 @@ func TestIsBlockedIPCoversSSRFRanges(t *testing.T) {
 		{name: "public_ipv6", ip: net.ParseIP("2001:4860:4860::8888"), want: false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isBlockedIP(tt.ip); got != tt.want {
 				t.Fatalf("isBlockedIP(%v) = %t, want %t", tt.ip, got, tt.want)

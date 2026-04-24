@@ -76,7 +76,7 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 	}
 	identity, ok := resumeIdentity(req)
 	if !ok {
-		return []sessionOption(nil), nil
+		return nil, errors.New("codex identity required for resume")
 	}
 	server, release, err := d.pool.Acquire(ctx, identity)
 	if err != nil {

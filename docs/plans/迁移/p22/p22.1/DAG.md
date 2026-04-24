@@ -248,3 +248,27 @@ P22.1-P3A -> P22.1-P3B
 
 ## R2 发现仍未销账项（2026-04-25 HEAD drift note）
 详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md` §R2。R2 仲裁结论：🔴 R2 BLOCK。DAG 主体仍需只加不删补齐归属 header、P1A 边界、P0C warning/TODO allowlist → P3 fail/hardening、6×6 pairwise 冲突矩阵、12.5-20 人日估算与 §10.13 四维度核查；旧 Batch 2 并行建议与 JUDGEMENT/R2 冲突，实施前不得直接按旧并行派工。
+
+
+## 8. DAG 14 节点 HEAD `a81554c` 完成度 overlay（2026-04-25，第 6 轮）
+
+> 本节按 §10.31 只加不删追加；上文 DAG 仍保留为实施前规划与 write-set 约束。当前 HEAD 锚点为 `a81554c`；实施链锚点为 `25a37ad` → `f737e45` → `17b5ce7` → `dfe12e6` → `b386217` → `a9a018e` → `a81554c`。
+
+| Node | HEAD `a81554c` 完成度 | 销账 Finding / 输出 | 后续状态 |
+|---|---|---|---|
+| P22.1-P0A | ✅ | BusModule `bus.subscribers` contract 已落 | 仅需随 gate 命名补文档 |
+| P22.1-P0B | ✅ | RunnerModule adapter / `group:"runners"` contract 已落 | `runner.actors` 命名债 deferred |
+| P22.1-P0C | 🟡 | archtest skeleton 与部分 fail-mode 已落 | gate 3 处 NEEDS-FIX 待 Audit-A/B/C |
+| P22.1-P1A | ✅ | F-1 root OnStop ordering | 已销账 |
+| P22.1-P1B | ✅ | F-2 `watchFXShutdown` owner ctx / allowlist boundary | 已销账 |
+| P22.1-P2A.1 | ✅ | F-10 insight subscriber 迁移 | Audit-D two-hop 报告已被主 agent LSP 证伪；按 HEAD 干净状态记录 |
+| P22.1-P2A.2 | ✅ | F-11 observation subscriber 迁移 | 已销账 |
+| P22.1-P2B | ✅ | F-6 hooks / F-7 rpc / F-8 mcpcontrol fanout workers + subscribers | 已销账 |
+| P22.1-P2C | ✅ | F-4 thread workers/subscribers | 已销账 |
+| P22.1-P2D | ✅ | F-3 memory scheduler/nested/teamSync + subscriptions | 已销账 |
+| P22.1-P2E | ✅ | F-5 cachekeepalive relay/timer split | 已销账 |
+| P22.1-P2F | ✅ | F-9 toolbridge diff fallback subscriber | 已销账 |
+| P22.1-P3A | ✅ | session-private runtime allowlist 精确化 | 已落 HEAD `a81554c` |
+| P22.1-P3B | 🟡 | archtest hardening / temporary allowlist 回收 | gate 3 处 NEEDS-FIX + cron/uistate cross-file gap 待后续修复 |
+
+**write-set overlay**：当前实施链已跨过原 DAG 并行风险期，本文档仍保留 §5/§5.1 的冲突矩阵作为后续补修 guard/gate 时的 write-set 约束；后续 Audit-A/B/C 只能按各自 gap 小范围修改，不得重开 P0/P2 公共 contract。

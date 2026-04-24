@@ -8,6 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kelindar/event"
+
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
@@ -15,16 +19,18 @@ import (
 // the methods the scheduler calls have first-class slots; everything
 // else returns zero-values so lint / compile stays quiet.
 type recordingCronStore struct {
-	mu              sync.Mutex
-	claimFn         func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error)
-	insertRunFn     func(context.Context, cronstore.InsertRunParams) (cronstore.Run, error)
-	casStatusFn     func(context.Context, cronstore.CASRunStatusParams) error
-	setRunTurnFn    func(context.Context, cronstore.SetRunTurnParams) error
-	setActiveTurnFn func(context.Context, cronstore.SetActiveTurnParams) error
-	markFinishedFn  func(context.Context, cronstore.MarkFinishedParams) error
-	markFailedFn    func(context.Context, cronstore.MarkFailedParams) error
-	renewLeaseFn    func(context.Context, cronstore.LeaseParams) error
-	listJobsFn      func(context.Context) ([]cronstore.Job, error)
+	mu               sync.Mutex
+	claimFn          func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error)
+	insertRunFn      func(context.Context, cronstore.InsertRunParams) (cronstore.Run, error)
+	casStatusFn      func(context.Context, cronstore.CASRunStatusParams) error
+	setRunTurnFn     func(context.Context, cronstore.SetRunTurnParams) error
+	setActiveTurnFn  func(context.Context, cronstore.SetActiveTurnParams) error
+	markFinishedFn   func(context.Context, cronstore.MarkFinishedParams) error
+	markFailedFn     func(context.Context, cronstore.MarkFailedParams) error
+	renewLeaseFn     func(context.Context, cronstore.LeaseParams) error
+	listJobsFn       func(context.Context) ([]cronstore.Job, error)
+	getJobFn         func(context.Context, string) (cronstore.Job, error)
+	listUnresolvedFn func(context.Context) ([]cronstore.Run, error)
 
 	casCalls []cronstore.CASRunStatusParams
 }
@@ -91,7 +97,10 @@ func (s *recordingCronStore) ListJobs(ctx context.Context) ([]cronstore.Job, err
 func (s *recordingCronStore) CreateJob(context.Context, cronstore.CreateJobParams) (cronstore.Job, error) {
 	return cronstore.Job{}, nil
 }
-func (s *recordingCronStore) GetJobByID(context.Context, string) (cronstore.Job, error) {
+func (s *recordingCronStore) GetJobByID(ctx context.Context, id string) (cronstore.Job, error) {
+	if s.getJobFn != nil {
+		return s.getJobFn(ctx, id)
+	}
 	return cronstore.Job{}, nil
 }
 func (s *recordingCronStore) DeleteJob(context.Context, string) error { return nil }
@@ -114,7 +123,10 @@ func (s *recordingCronStore) GetRunByDedupeKey(context.Context, string) (cronsto
 func (s *recordingCronStore) ListRunsByJob(context.Context, string, int32) ([]cronstore.Run, error) {
 	return nil, nil
 }
-func (s *recordingCronStore) ListUnresolvedRuns(context.Context) ([]cronstore.Run, error) {
+func (s *recordingCronStore) ListUnresolvedRuns(ctx context.Context) ([]cronstore.Run, error) {
+	if s.listUnresolvedFn != nil {
+		return s.listUnresolvedFn(ctx)
+	}
 	return nil, nil
 }
 
@@ -214,16 +226,15 @@ func TestSchedulerDriveJobHappyPath(t *testing.T) {
 	if sub.starts[0].JobID != "job-1" {
 		t.Fatalf("StartTurn request job_id = %q", sub.starts[0].JobID)
 	}
-	// Expected CAS transitions: pending->submitting, submitting->submitted,
-	// submitted->running, running->finished.
-	if len(store.casCalls) != 4 {
-		t.Fatalf("CAS call count = %d, want 4", len(store.casCalls))
+	// Expected CAS transitions stop at submitted->running. A terminal bus event,
+	// not Observe(), is responsible for running->finished/failed.
+	if len(store.casCalls) != 3 {
+		t.Fatalf("CAS call count = %d, want 3", len(store.casCalls))
 	}
 	wantPairs := []struct{ exp, next string }{
 		{"pending", "submitting"},
 		{"submitting", "submitted"},
 		{"submitted", "running"},
-		{"running", "finished"},
 	}
 	for i, want := range wantPairs {
 		got := store.casCalls[i]
@@ -292,6 +303,115 @@ func TestSchedulerObserveFailureMarksObserveLost(t *testing.T) {
 	}
 	if !failed.NextRetryAt.IsZero() {
 		t.Fatalf("observe_lost must not schedule retry; got %v", failed.NextRetryAt)
+	}
+}
+
+func TestSchedulerDoesNotFinishLongTurnUntilTerminalEvent(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	sub := &programmableSubmitter{}
+	s := newTestScheduler(t, store, sub)
+
+	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", NextRunAt: s.now()}
+	store.claimFn = func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error) {
+		return []cronstore.Job{job}, nil
+	}
+	markFinishedCalls := 0
+	store.markFinishedFn = func(context.Context, cronstore.MarkFinishedParams) error {
+		markFinishedCalls++
+		return nil
+	}
+
+	if err := s.RunTick(context.Background()); err != nil {
+		t.Fatalf("RunTick error = %v", err)
+	}
+	if markFinishedCalls != 0 {
+		t.Fatalf("long turn was marked finished before terminal event; calls=%d", markFinishedCalls)
+	}
+	last := store.casCalls[len(store.casCalls)-1]
+	if last.NextStatus != cronstore.StatusRunning {
+		t.Fatalf("last status = %s, want running", last.NextStatus)
+	}
+}
+
+func TestSchedulerTerminalEventMarksFinished(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	s := newTestScheduler(t, store, &programmableSubmitter{})
+	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", NextRunAt: s.now()}
+	run := cronstore.Run{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: cronstore.StatusRunning, ScheduledAt: s.now()}
+	store.listUnresolvedFn = func(context.Context) ([]cronstore.Run, error) { return []cronstore.Run{run}, nil }
+	store.getJobFn = func(context.Context, string) (cronstore.Job, error) { return job, nil }
+	var finished cronstore.MarkFinishedParams
+	store.markFinishedFn = func(_ context.Context, p cronstore.MarkFinishedParams) error {
+		finished = p
+		return nil
+	}
+
+	if err := s.CompleteTurn(context.Background(), "turn-1", true, ""); err != nil {
+		t.Fatalf("CompleteTurn error = %v", err)
+	}
+	if finished.ID != job.ID || finished.LastTurnID != "turn-1" {
+		t.Fatalf("MarkFinished params = %+v", finished)
+	}
+	last := store.casCalls[len(store.casCalls)-1]
+	if last.ExpectedStatus != cronstore.StatusRunning || last.NextStatus != cronstore.StatusFinished {
+		t.Fatalf("CAS = %s -> %s, want running -> finished", last.ExpectedStatus, last.NextStatus)
+	}
+}
+
+func TestSchedulerTerminalEventMarksFailed(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	s := newTestScheduler(t, store, &programmableSubmitter{})
+	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", NextRunAt: s.now(), MaxAttempts: 1}
+	run := cronstore.Run{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: cronstore.StatusRunning, ScheduledAt: s.now()}
+	store.listUnresolvedFn = func(context.Context) ([]cronstore.Run, error) { return []cronstore.Run{run}, nil }
+	store.getJobFn = func(context.Context, string) (cronstore.Job, error) { return job, nil }
+	var failed cronstore.MarkFailedParams
+	store.markFailedFn = func(_ context.Context, p cronstore.MarkFailedParams) error {
+		failed = p
+		return nil
+	}
+
+	if err := s.CompleteTurn(context.Background(), "turn-1", false, "provider failed"); err != nil {
+		t.Fatalf("CompleteTurn error = %v", err)
+	}
+	if failed.ID != job.ID || failed.LastTurnID != "turn-1" || failed.LastStatus != cronstore.StatusFailed || failed.LastError != "provider failed" {
+		t.Fatalf("MarkFailed params = %+v", failed)
+	}
+	last := store.casCalls[len(store.casCalls)-1]
+	if last.ExpectedStatus != cronstore.StatusRunning || last.NextStatus != cronstore.StatusFailed {
+		t.Fatalf("CAS = %s -> %s, want running -> failed", last.ExpectedStatus, last.NextStatus)
+	}
+}
+
+func TestCronTerminalSubscriberMarksFinished(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	s := newTestScheduler(t, store, &programmableSubmitter{})
+	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", NextRunAt: s.now()}
+	run := cronstore.Run{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: cronstore.StatusRunning, ScheduledAt: s.now()}
+	store.listUnresolvedFn = func(context.Context) ([]cronstore.Run, error) { return []cronstore.Run{run}, nil }
+	store.getJobFn = func(context.Context, string) (cronstore.Job, error) { return job, nil }
+	finished := make(chan cronstore.MarkFinishedParams, 1)
+	store.markFinishedFn = func(_ context.Context, p cronstore.MarkFinishedParams) error {
+		finished <- p
+		return nil
+	}
+	dispatcher := platformbus.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	cancel := NewCronProgressSubscribers(s, nil).Spec.Register(dispatcher)
+	defer cancel()
+
+	event.Publish(dispatcher, turndto.TurnCompleted{TurnHeader: cronProgressTurnHeader("thread-1", "turn-1", "agent-1"), Success: true})
+	select {
+	case got := <-finished:
+		if got.LastTurnID != "turn-1" {
+			t.Fatalf("LastTurnID = %q", got.LastTurnID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("terminal subscriber did not mark finished")
 	}
 }
 

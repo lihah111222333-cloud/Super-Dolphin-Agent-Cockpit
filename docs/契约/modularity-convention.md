@@ -829,7 +829,7 @@ type Runner interface {
 
 `platform/runner` 负责把 `Runner` 适配成 `run.Group` actor，业务模块不导出 `Register(*run.Group)` 形式的旧接口。
 
-建议 group：`runner.actors`
+建议 active Fx group：`group:"runners"`。`runner.actors` 仅保留为 historical role naming（历史角色术语），不再作为 active wiring tag。
 
 ### 7.4 `RPCModule`
 
@@ -875,13 +875,13 @@ type Actor struct {
 type ActorOut struct {
 	fx.Out
 
-	Actor Actor `group:"runner.actors"`
+	Actor Actor `group:"runners"` // historical role naming: `group:"runner.actors"`
 }
 
 type GroupIn struct {
 	fx.In
 
-	Actors []Actor `group:"runner.actors"`
+	Actors []Actor `group:"runners"` // historical role naming: `group:"runner.actors"`
 }
 
 func NewGroup(in GroupIn) *run.Group {
@@ -913,7 +913,7 @@ var Module = fx.Module(
 | group 名 | 用途 |
 |---|---|
 | `rpc.handlers` | jrpc2 方法处理器 |
-| `runner.actors` | oklog/run actor |
+| `group:"runners"` | oklog/run actor active Fx tag（historical role naming: `runner.actors`） |
 | `bus.subscribers` | 事件订阅器 |
 | `mcp.tool.handlers` | `cmd/mcp-*` 本地 MCP 工具处理器 |
 | `provider.adapters` | provider 适配器 |

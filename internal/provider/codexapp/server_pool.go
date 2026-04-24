@@ -92,13 +92,14 @@ type ServerPool struct {
 }
 
 type poolEntry struct {
-	home         string
-	instanceKey  string
-	server       SpawnedServer
-	lastUsed     time.Time
-	refCount     int
-	spawnErr     error
-	backoffUntil time.Time
+	home          string
+	instanceKey   string
+	modelProvider string
+	server        SpawnedServer
+	lastUsed      time.Time
+	refCount      int
+	spawnErr      error
+	backoffUntil  time.Time
 }
 
 // NewServerPool constructs a pool. spawner is required; a nil spawner
@@ -135,12 +136,12 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 // A nil server + non-nil error is always returned together; the
 // release callback is a safe no-op in that case.
 func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexIdentity) (SpawnedServer, func(), error) {
-	home, key, err := normalizePoolIdentity(identity)
+	home, key, provider, err := normalizePoolIdentity(identity)
 	if err != nil {
 		return nil, noopRelease, err
 	}
 	p.mu.Lock()
-	fastPath := p.acquireFastPathLocked(home, key)
+	fastPath := p.acquireFastPathLocked(home, key, provider)
 	if fastPath.done {
 		p.mu.Unlock()
 		return fastPath.server, fastPath.release, fastPath.err
@@ -165,10 +166,10 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	defer p.mu.Unlock()
 	entry := p.entries[home]
 	if err != nil {
-		p.recordSpawnErrorLocked(entry, home, key, err, spawnAt)
+		p.recordSpawnErrorLocked(entry, home, key, provider, err, spawnAt)
 		return nil, noopRelease, fmt.Errorf("codexapp: spawn %q: %w", home, err)
 	}
-	p.storeSpawnedLocked(entry, home, key, server, spawnAt)
+	p.storeSpawnedLocked(entry, home, key, provider, server, spawnAt)
 	return server, p.releaser(home), nil
 }
 
@@ -183,7 +184,7 @@ type acquireFastPathResult struct {
 	done    bool
 }
 
-func (p *ServerPool) acquireFastPathLocked(home, key string) acquireFastPathResult {
+func (p *ServerPool) acquireFastPathLocked(home, key, provider string) acquireFastPathResult {
 	result := acquireFastPathResult{release: noopRelease}
 	if p.closed {
 		result.err = ErrPoolClosed
@@ -202,6 +203,11 @@ func (p *ServerPool) acquireFastPathLocked(home, key string) acquireFastPathResu
 	}
 	if result.entry.instanceKey != "" && result.entry.instanceKey != key {
 		result.err = fmt.Errorf("%w: codexHome %q already bound to instance key %q", ErrInvalidIdentity, home, result.entry.instanceKey)
+		result.done = true
+		return result
+	}
+	if result.entry.modelProvider != "" && result.entry.modelProvider != provider {
+		result.err = fmt.Errorf("%w: codexHome %q instance key %q already bound to model provider %q", ErrInvalidIdentity, home, key, result.entry.modelProvider)
 		result.done = true
 		return result
 	}
@@ -238,11 +244,11 @@ func (p *ServerPool) ensureCapacityLocked(entry *poolEntry, now time.Time) error
 	return ErrPoolExhausted
 }
 
-func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, home, key string, err error, now time.Time) {
+func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, home, key, provider string, err error, now time.Time) {
 	// Record the failure for backoff. Preserve the existing
 	// entry slot if one exists so backoff state persists.
 	if entry == nil {
-		entry = &poolEntry{home: home, instanceKey: key}
+		entry = &poolEntry{home: home, instanceKey: key, modelProvider: provider}
 		p.entries[home] = entry
 	}
 	entry.spawnErr = err
@@ -250,9 +256,9 @@ func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, home, key string, 
 	entry.lastUsed = now
 }
 
-func (p *ServerPool) storeSpawnedLocked(entry *poolEntry, home, key string, server SpawnedServer, now time.Time) {
+func (p *ServerPool) storeSpawnedLocked(entry *poolEntry, home, key, provider string, server SpawnedServer, now time.Time) {
 	if entry == nil {
-		entry = &poolEntry{home: home, instanceKey: key}
+		entry = &poolEntry{home: home, instanceKey: key, modelProvider: provider}
 		p.entries[home] = entry
 	}
 	entry.server = server
@@ -386,25 +392,31 @@ func (p *ServerPool) Size() int {
 	return len(p.entries)
 }
 
-// normalizePoolIdentity returns the canonicalized codexHome + trimmed
-// instance key. The home produced by providershared.ResolveCodexIdentity
-// is already canonicalized; we re-run CanonicalizeCodexHome here when
-// callers pass raw input so the pool remains the single authority on
-// home->entry binding.
-func normalizePoolIdentity(identity providershared.CodexIdentity) (home, key string, err error) {
+// normalizePoolIdentity returns the canonicalized codexHome plus the
+// trimmed codexInstanceKey/codexModelProvider pair. The home produced by
+// providershared.ResolveCodexIdentity is already canonicalized; we re-run
+// CanonicalizeCodexHome here when callers pass raw input so the pool remains
+// the single authority on home->entry binding. P22 P1a requires the full
+// identity triple to fail closed: no pool entry may silently collapse two
+// providers that share the same home + instance key.
+func normalizePoolIdentity(identity providershared.CodexIdentity) (home, key, provider string, err error) {
 	raw := strings.TrimSpace(identity.Home)
 	if raw == "" {
-		return "", "", fmt.Errorf("%w: codexHome is empty", ErrInvalidIdentity)
+		return "", "", "", fmt.Errorf("%w: codexHome is empty", ErrInvalidIdentity)
 	}
 	canonical, err := providershared.CanonicalizeCodexHome(raw)
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %v", ErrInvalidIdentity, err)
+		return "", "", "", fmt.Errorf("%w: %v", ErrInvalidIdentity, err)
 	}
 	key = strings.TrimSpace(identity.InstanceKey)
 	if key == "" {
-		return "", "", fmt.Errorf("%w: codexInstanceKey is empty", ErrInvalidIdentity)
+		return "", "", "", fmt.Errorf("%w: codexInstanceKey is empty", ErrInvalidIdentity)
 	}
-	return canonical, key, nil
+	provider = strings.TrimSpace(identity.ModelProvider)
+	if provider == "" {
+		return "", "", "", fmt.Errorf("%w: codexModelProvider is empty", ErrInvalidIdentity)
+	}
+	return canonical, key, provider, nil
 }
 
 // closeWithTimeout invokes Close with a background deadline so the
