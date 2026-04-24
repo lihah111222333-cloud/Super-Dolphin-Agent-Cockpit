@@ -456,21 +456,25 @@ func latestTurnOutcome(ev turndto.TurnCompleted) string {
 	return truncateTaskHandoffText(firstNonEmptyTaskString(ev.Summary, ev.Result, ev.Message), 1200)
 }
 
+// onTurnCompleted is the bus callback for turndto.TurnCompleted. P22 P2
+// thread S3: the callback is cheap Enqueue only. The taskHandoffWorker
+// owns the refreshTaskHandoffFromThread slow-path (threadStore read +
+// document render + sharedFiles.Upsert) and runs it off the dispatcher
+// goroutine. Multiple events for the same threadID coalesce to the
+// latest seed (last-write-wins matches pre-P22 behavior).
 func (s *service) onTurnCompleted(ev turndto.TurnCompleted) {
-	if s == nil || s.sharedFiles == nil || !ev.Success {
+	if s == nil || s.taskHandoffWorker == nil || s.sharedFiles == nil || !ev.Success {
 		return
 	}
 	threadID := strings.TrimSpace(ev.ThreadID)
 	if threadID == "" {
 		return
 	}
-	ctx := context.Background()
-	err := s.refreshTaskHandoffFromThread(ctx, threadID, taskHandoffRenderSeed{
+	s.taskHandoffWorker.Enqueue(threadID, taskHandoffRenderSeed{
 		SourceThreadID: threadID,
 		Status:         strings.TrimSpace(ev.Status),
 		Outcome:        latestTurnOutcome(ev),
 	})
-	s.logIgnoredTaskHandoffError("refresh task handoff on turn completed", threadID, err)
 }
 
 func (s *service) logIgnoredTaskHandoffError(action, threadID string, err error) {

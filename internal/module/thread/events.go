@@ -33,6 +33,35 @@ func registerThreadSubscriptions(svc *service) []context.CancelFunc {
 	}
 }
 
+// startBusWorkers starts every worker that owns a bus-callback slow-path
+// for the thread service. P22 P2 (thread S3+) wires the workers into the
+// subscription lifecycle hook so callbacks can enqueue from OnStart's
+// first tick without racing a yet-to-be-started runWorker goroutine.
+func (s *service) startBusWorkers() {
+	if s == nil {
+		return
+	}
+	if s.taskHandoffWorker != nil {
+		s.taskHandoffWorker.Start()
+	}
+}
+
+// stopBusWorkers drains every bus-callback worker bounded by ctx. The
+// subscription cancel must have already fired so no new Enqueues arrive;
+// any pending entries are processed before the worker goroutine exits.
+func (s *service) stopBusWorkers(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	if s.taskHandoffWorker != nil {
+		if err := s.taskHandoffWorker.Stop(ctx); err != nil {
+			if s.logger != nil {
+				s.logger.Warn("thread: task handoff worker drain failed", "error", err)
+			}
+		}
+	}
+}
+
 func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	if s == nil || s.bindingStore == nil {
 		return

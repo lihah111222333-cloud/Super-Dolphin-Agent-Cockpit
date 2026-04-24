@@ -88,6 +88,13 @@ type service struct {
 	// explicitly. Nil / NoopClassifier is safe; the router guards on
 	// Enabled() and preserves the pre-classifier behavior.
 	classifier classifier.Classifier
+
+	// taskHandoffWorker is the P22 P2 (thread S3) single owner of the
+	// onTurnCompleted -> refreshTaskHandoffFromThread slow-path. Nil when
+	// the service is constructed without sharedFiles / threadStore — in
+	// that case onTurnCompleted is a no-op anyway because the refresher
+	// short-circuits on missing stores.
+	taskHandoffWorker *taskHandoffWorker
 }
 
 var _ Service = (*service)(nil)
