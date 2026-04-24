@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -81,10 +81,10 @@ func (s *store) GetLive(ctx context.Context, dedupeKey string) (Entry, error) {
 	}
 	row, err := s.q.GetLiveTurnDedupe(ctx, key)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if platformdb.IsNotFound(err) {
 			return Entry{}, ErrNotFound
 		}
-		return Entry{}, err
+		return Entry{}, platformdb.WrapStoreError(err, "get_live", "turn_dedupe_registry")
 	}
 	return Entry{
 		DedupeKey:      row.DedupeKey,
@@ -101,7 +101,11 @@ func (s *store) Sweep(ctx context.Context, cutoff time.Time) error {
 	if cutoff.IsZero() {
 		return errors.New("turndedupe: sweep cutoff must be non-zero")
 	}
-	return s.q.SweepTurnDedupeRegistry(ctx, ts(cutoff))
+	return platformdb.WrapStoreError(
+		s.q.SweepTurnDedupeRegistry(ctx, ts(cutoff)),
+		"sweep",
+		"turn_dedupe_registry",
+	)
 }
 
 // nonZero returns now when t is zero, otherwise t. Guards against a

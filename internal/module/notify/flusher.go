@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platform "github.com/anthropic-ai/super-agent-v3/internal/module/notify/platform"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -126,7 +127,7 @@ func (f *Flusher) drain() {
 	if f.drainTimeout <= 0 {
 		return
 	}
-	drainCtx, cancel := context.WithTimeout(context.Background(), f.drainTimeout)
+	drainCtx, cancel := platformconfig.WithTimeout(context.Background(), f.drainTimeout)
 	defer cancel()
 	for {
 		select {
