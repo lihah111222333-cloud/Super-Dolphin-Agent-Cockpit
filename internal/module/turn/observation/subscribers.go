@@ -2,12 +2,15 @@ package observation
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
@@ -35,6 +38,7 @@ func Subscribe(dispatcher *event.Dispatcher, contract Contract, logger *pkglogge
 		platformbus.ResilientSubscribe(dispatcher, onToolCallEnd(contract), logger),
 		platformbus.ResilientSubscribe(dispatcher, onToolApprovalRequested(contract), logger),
 		platformbus.ResilientSubscribe(dispatcher, onUITokensUpdated(contract), logger),
+		platformbus.ResilientSubscribe(dispatcher, onRawProviderEvent(contract), logger),
 	}
 	return func() {
 		for _, c := range cancels {
@@ -206,4 +210,70 @@ func onUITokensUpdated(c Contract) func(uidto.UITokensUpdated) {
 		}
 		c.RecordTokens(turnID, snap)
 	}
+}
+
+func onRawProviderEvent(c Contract) func(providerdto.BusRawProviderEvent) {
+	return func(ev providerdto.BusRawProviderEvent) {
+		if key := rawProviderDedupeKey(ev.Event); key != (DedupeKey{}) {
+			c.Dedupe(key)
+		}
+	}
+}
+
+func rawProviderDedupeKey(ev providerdto.RawProviderEvent) DedupeKey {
+	payload := rawPayloadMap(ev.Data)
+	if id := firstPayloadString(payload, "eventId", "event_id", "id"); id != "" {
+		return DedupeKey{RawEventID: strings.TrimSpace(ev.EventType) + ":" + id}
+	}
+	if callID := firstPayloadString(payload, "callId", "call_id"); callID != "" {
+		return DedupeKey{RawEventID: strings.TrimSpace(ev.EventType) + ":call:" + callID}
+	}
+	if eventType := strings.TrimSpace(ev.EventType); eventType != "" {
+		return DedupeKey{RawEventID: eventType + ":" + fmt.Sprint(ev.Data)}
+	}
+	return DedupeKey{}
+}
+
+func rawPayloadMap(data any) map[string]any {
+	switch v := data.(type) {
+	case map[string]any:
+		return v
+	case json.RawMessage:
+		return decodeRawPayload(v)
+	case []byte:
+		return decodeRawPayload(v)
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil
+		}
+		return decodeRawPayload(raw)
+	}
+}
+
+func decodeRawPayload(raw []byte) map[string]any {
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil
+	}
+	return payload
+}
+
+func firstPayloadString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if s := payloadString(payload[key]); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func payloadString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case fmt.Stringer:
+		return strings.TrimSpace(v.String())
+	}
+	return ""
 }

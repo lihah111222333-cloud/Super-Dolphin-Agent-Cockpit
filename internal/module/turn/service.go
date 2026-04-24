@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -40,6 +41,7 @@ type service struct {
 	promptAssembly         contract.PromptAssemblyService
 	turnContextProvider    contract.TurnContextProvider
 	skillLookup            skillHydrationPort
+	observation            turnobservation.Contract
 	interruptSettleTimeout time.Duration
 	// dedupeStore is the optional durable mirror for dedupe_key -> local_turn_id.
 	// nil when the deployment has not wired the turndedupe store; the tracker
@@ -71,28 +73,28 @@ type steerableSession interface {
 }
 
 func NewService(logger *slog.Logger) Service {
-	return newService(logger, nil, nil, nil)
+	return newService(logger, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
-	return newService(logger, promptAssembly, nil, nil)
+	return newService(logger, promptAssembly, nil, nil, nil)
 }
 
-// NewServiceWithPromptAssemblyAndTurnContext p20.2 §5 step 1：第 4 个
-// skill.Service 参数按 fx `optional:"true"` 注入，用于 PrepareTurn 的
-// name-only skill hydrate。传 nil 时 hydrate 步骤自动跳过，行为与原来
-// 的三参签名等价。
+// NewServiceWithPromptAssemblyAndTurnContext p20.2 §5 step 1：skill.Service
+// 参数按 fx `optional:"true"` 注入，用于 PrepareTurn 的 name-only skill
+// hydrate；observation.Contract 同样 optional，用于 P21 canonical facts。
 func NewServiceWithPromptAssemblyAndTurnContext(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
 	skillSvc skillpkg.Service,
+	observation turnobservation.Contract,
 ) Service {
 	var lookup skillHydrationPort
 	if skillSvc != nil {
 		lookup = skillSvc
 	}
-	return newService(logger, promptAssembly, turnContextProvider, lookup)
+	return newService(logger, promptAssembly, turnContextProvider, lookup, observation)
 }
 
 func newService(
@@ -100,6 +102,7 @@ func newService(
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
 	skillLookup skillHydrationPort,
+	observation turnobservation.Contract,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -113,6 +116,7 @@ func newService(
 		tracker:                newTurnTracker(),
 		promptAssembly:         promptAssembly,
 		skillLookup:            skillLookup,
+		observation:            observation,
 		interruptSettleTimeout: config.InterruptSettleTimeout,
 		ctx:                    ctx,
 		ctxCancel:              cancel,
@@ -179,33 +183,8 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		assembly.Attachments = append(append([]dto.AttachmentEnvelope(nil), assembly.Attachments...), synthetic.Attachments...)
 	}
 	req.TurnAssembly = assembly
+	s.recordSkillsSelected(req.LocalID, resolvedSkills)
 	return req, nil
-}
-
-func turnSkillPrompt(skills []dto.SkillRef) string {
-	parts := make([]string, 0, len(skills))
-	for _, skill := range skills {
-		if prompt := strings.TrimSpace(skill.Prompt); prompt != "" {
-			parts = append(parts, prompt)
-		}
-	}
-	return strings.Join(parts, "\n\n")
-}
-
-func turnAttachmentRefs(inputs []dto.InputItem) []string {
-	refs := make([]string, 0, len(inputs))
-	for _, item := range inputs {
-		for _, candidate := range []string{strings.TrimSpace(item.Path), strings.TrimSpace(item.URL), strings.TrimSpace(item.Name)} {
-			if candidate != "" {
-				refs = append(refs, candidate)
-				break
-			}
-		}
-	}
-	if len(refs) == 0 {
-		return nil
-	}
-	return refs
 }
 
 func (s *service) cleanupStaleToolResults(threadID string, input PrepareInput) {
@@ -259,8 +238,10 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 		return nil, err
 	}
 	s.tracker.AttachHandle(req.LocalID, handle)
-	s.tracker.BindProviderID(req.LocalID, handle.ProviderID())
-	s.recordDedupeProviderID(ctx, req.DedupeKey, handle.ProviderID())
+	providerID := handle.ProviderID()
+	s.tracker.BindProviderID(req.LocalID, providerID)
+	s.recordDedupeProviderID(ctx, req.DedupeKey, providerID)
+	s.mapObservationTurn(req.LocalID, providerID)
 	s.tracker.Update(req.LocalID, "running")
 	s.watchTurn(handle, req.LocalID)
 	return handle, nil
