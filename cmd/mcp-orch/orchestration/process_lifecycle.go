@@ -273,7 +273,10 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan waitResult) {
 	go func() {
 		defer close(drainDone)
 		if err := a.service.exitMonitor.Drain(drainCtx); err != nil {
-			a.logger.Warn("orchestration: wait owner drain failed", "error", err)
+			a.service.logger.Warn("orchestration: exit monitor drain failed",
+				slog.String("error", err.Error()),
+				slog.Duration("timeout", runnerShutdownDrainGrace),
+			)
 		}
 	}()
 	stopped, drained := false, false
@@ -287,8 +290,7 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan waitResult) {
 			drainDone = nil
 		case result, ok := <-exitEvents:
 			if !ok {
-				exitEvents = nil
-				continue
+				return
 			}
 			a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
 		}
