@@ -129,13 +129,31 @@ func (*threadStoreStub) CountChildren(context.Context, string) (int64, error) { 
 func (*threadStoreStub) Exists(context.Context, string) (bool, error)        { return false, nil }
 
 func newTestManager(resolver contract.SessionResolver, bindings bindingstore.Store, threads threadstore.Store) *Manager {
-	return &Manager{resolver: resolver, bindingStore: bindings, threadStore: threads, timers: make(map[string]*agentTimer)}
+	pingCtx, pingCancel := context.WithCancel(context.Background())
+	return &Manager{
+		resolver:     resolver,
+		bindingStore: bindings,
+		threadStore:  threads,
+		timers:       make(map[string]*agentTimer),
+		pingCtx:      pingCtx,
+		pingCancel:   pingCancel,
+		drainClosed:  make(chan struct{}),
+	}
+}
+
+// shutdownForTest wraps Shutdown with a short bounded ctx so existing tests
+// can keep using `t.Cleanup(m.shutdownForTest)` style cleanups after the
+// P22 P2 signature change.
+func (m *Manager) shutdownForTest() {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = m.Shutdown(ctx)
 }
 
 func TestRegisterSchedulesInitialTimer(t *testing.T) {
 	t.Parallel()
 	m := newTestManager(nil, nil, nil)
-	t.Cleanup(m.Shutdown)
+	t.Cleanup(m.shutdownForTest)
 	m.register("session-1", "agent-1", "thread-1")
 	first := m.snapshotTimer("session-1", nil)
 	if first == nil || first.timer == nil {
@@ -146,7 +164,7 @@ func TestRegisterSchedulesInitialTimer(t *testing.T) {
 func TestResetTimer(t *testing.T) {
 	t.Parallel()
 	m := newTestManager(nil, nil, nil)
-	t.Cleanup(m.Shutdown)
+	t.Cleanup(m.shutdownForTest)
 	m.register("session-1", "agent-1", "thread-1")
 	m.ResetTimerByAgent("agent-1")
 	first := m.snapshotTimer("session-1", nil)
@@ -190,7 +208,9 @@ func TestShutdownClearsTimers(t *testing.T) {
 	m.ResetTimerByAgent("agent-1")
 	m.ResetTimerByAgent("agent-2")
 	first, second := m.snapshotTimer("session-1", nil), m.snapshotTimer("session-2", nil)
-	m.Shutdown()
+	if err := m.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
 	firstActive := first != nil && first.timer != nil && first.timer.Stop()
 	secondActive := second != nil && second.timer != nil && second.timer.Stop()
 	if len(m.timers) != 0 || first == nil || first.timer == nil || second == nil || second.timer == nil || firstActive || secondActive {
@@ -202,7 +222,7 @@ func TestHandleAgentLaunchedFallback(t *testing.T) {
 	t.Parallel()
 	threads := &threadStoreStub{byThread: map[string]*threadstore.Thread{"thread-1": {ThreadID: "thread-1", AgentID: "agent-2"}}}
 	m := newTestManager(nil, &bindingStoreStub{}, threads)
-	t.Cleanup(m.Shutdown)
+	t.Cleanup(m.shutdownForTest)
 	ev := agentdto.AgentLaunched{}
 	ev.AgentID, ev.ThreadID, ev.SessionID = "missing-agent", "thread-1", "session-1"
 	m.HandleAgentLaunched(ev)
@@ -218,7 +238,7 @@ func TestHandleAgentLaunchedFallback(t *testing.T) {
 func TestStopTimerByAgent(t *testing.T) {
 	t.Parallel()
 	m := newTestManager(nil, nil, nil)
-	t.Cleanup(m.Shutdown)
+	t.Cleanup(m.shutdownForTest)
 	m.register("session-1", "agent-1", "thread-1")
 	m.register("session-2", "agent-2", "thread-2")
 	m.ResetTimerByAgent("agent-1")

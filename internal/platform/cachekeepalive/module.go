@@ -2,6 +2,7 @@ package cachekeepalive
 
 import (
 	"context"
+	"errors"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
@@ -26,17 +27,23 @@ func registerKeepaliveLifecycle(lc fx.Lifecycle, in keepaliveIn) {
 		return
 	}
 
+	logger := in.Logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
 	var cancel func()
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			cancel = startKeepaliveRelay(in.Dispatcher, in.Manager, in.Logger)
+			cancel = startKeepaliveRelay(in.Dispatcher, in.Manager, logger)
 			return nil
 		},
-		OnStop: func(context.Context) error {
+		OnStop: func(ctx context.Context) error {
 			if cancel != nil {
 				cancel()
 			}
-			in.Manager.Shutdown()
+			if err := in.Manager.Shutdown(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Warn("cachekeepalive: manager shutdown drain failed", "error", err)
+			}
 			return nil
 		},
 	})

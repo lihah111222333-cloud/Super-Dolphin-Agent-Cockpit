@@ -8,12 +8,19 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const keepaliveInterval = 55 * time.Minute
+
+// cachekeepaliveShutdownGrace bounds the wait for in-flight keepalive pings
+// to observe ctx cancellation. Matches the other P22 P2 drain budgets
+// (auto-dream scheduler / nested ingest worker / hook dispatch worker) so
+// the global OnStop cost stays predictable.
+const cachekeepaliveShutdownGrace = 10 * time.Second
 
 // KeepaliveCapable marks sessions that support silent keepalive turns.
 type KeepaliveCapable interface {
@@ -35,6 +42,18 @@ type Manager struct {
 
 	mu     sync.Mutex
 	timers map[string]*agentTimer
+
+	// P22 P2 (cachekeepalive): pingCtx is the ambient ctx passed to every
+	// in-flight SendKeepalive invocation. Shutdown cancels it so a ping
+	// that has already reached the session transport sees ctx.Err() and
+	// bails out cleanly. pingInflight tracks those in-flight goroutines so
+	// Shutdown can wait for them to finish bounded by its own ctx — the
+	// P2 §验收 bullet "cachekeepalive 不再由 bus callback 直接持有 timer /
+	// session runtime" pins this drain-on-stop contract.
+	pingCtx      context.Context
+	pingCancel   context.CancelFunc
+	pingInflight sync.WaitGroup
+	drainClosed  chan struct{}
 }
 
 func NewManager(
@@ -46,12 +65,16 @@ func NewManager(
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
+	pingCtx, pingCancel := context.WithCancel(context.Background())
 	return &Manager{
 		resolver:     resolver,
 		bindingStore: bindingStore,
 		threadStore:  threadStore,
 		logger:       logger,
 		timers:       make(map[string]*agentTimer),
+		pingCtx:      pingCtx,
+		pingCancel:   pingCancel,
+		drainClosed:  make(chan struct{}),
 	}
 }
 
@@ -137,49 +160,144 @@ func (m *Manager) StopTimerByAgent(agentID string) {
 	}
 }
 
-func (m *Manager) Shutdown() {
+// Shutdown closes the drain gate, cancels pingCtx (so any in-flight
+// SendKeepalive sees ctx.Err()), stops every scheduled timer, and waits
+// bounded by ctx for in-flight ping goroutines to unwind. Idempotent.
+func (m *Manager) Shutdown(ctx context.Context) error {
 	if m == nil {
-		return
+		return nil
 	}
+	if !m.closeDrainGate() {
+		return nil
+	}
+	m.pingCancel()
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	for sessionUUID := range m.timers {
 		m.stopLocked(sessionUUID)
+	}
+	m.mu.Unlock()
+
+	waitCtx := ctx
+	if waitCtx == nil {
+		waitCtx = context.Background()
+	}
+	if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > cachekeepaliveShutdownGrace {
+		var cancel context.CancelFunc
+		waitCtx, cancel = platformconfig.WithTimeout(waitCtx, cachekeepaliveShutdownGrace)
+		defer cancel()
+		_ = deadline
+	}
+	done := make(chan struct{})
+	go func() {
+		m.pingInflight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-waitCtx.Done():
+		return waitCtx.Err()
+	}
+}
+
+// closeDrainGate returns true iff this call is the first to close the gate.
+// Subsequent Shutdown invocations short-circuit so the cancel + wait only
+// happens once.
+func (m *Manager) closeDrainGate() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	select {
+	case <-m.drainClosed:
+		return false
+	default:
+		close(m.drainClosed)
+		return true
+	}
+}
+
+// drainActive reports whether Shutdown has closed the gate. Timer
+// callbacks consult this under mu to avoid starting a new ping after
+// Shutdown has started waiting on pingInflight.
+func (m *Manager) drainActive() bool {
+	if m == nil || m.drainClosed == nil {
+		return false
+	}
+	select {
+	case <-m.drainClosed:
+		return true
+	default:
+		return false
 	}
 }
 
 func (m *Manager) executePing(sessionUUID string, fired *time.Timer) {
-	timerRef := m.snapshotTimer(sessionUUID, fired)
+	timerRef, ctx := m.preparePing(sessionUUID, fired)
 	if timerRef == nil {
 		return
+	}
+	kc := m.resolvePingPeer(ctx, sessionUUID, fired, timerRef)
+	if kc == nil {
+		return
+	}
+	m.deliverPing(ctx, sessionUUID, timerRef, kc)
+}
+
+// preparePing resolves the snapshot + ambient ctx for a firing keepalive
+// timer. Returns (nil, nil) when the timer was already invalidated (e.g.
+// Shutdown cleared it) or when pingCtx is already cancelled — in either
+// case the caller must bail out without touching the session runtime.
+func (m *Manager) preparePing(sessionUUID string, fired *time.Timer) (*agentTimer, context.Context) {
+	timerRef := m.snapshotTimer(sessionUUID, fired)
+	if timerRef == nil {
+		return nil, nil
 	}
 	if m.logger != nil {
 		m.logger.Info("cachekeepalive: timer fired, executing ping", "session_uuid", sessionUUID, "agent_id", timerRef.agentID)
 	}
+	ctx := m.pingCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return nil, nil
+	}
+	return timerRef, ctx
+}
 
-	ctx := context.Background()
+// resolvePingPeer checks gate conditions (live binding + keepalive-capable
+// session) and returns the session to ping, or nil after removing the
+// timer when no eligible peer exists.
+func (m *Manager) resolvePingPeer(ctx context.Context, sessionUUID string, fired *time.Timer, timerRef *agentTimer) KeepaliveCapable {
 	if !m.canPing(ctx, timerRef) {
 		if m.logger != nil {
 			m.logger.Debug("cachekeepalive: ping skipped, condition not met", "session_uuid", sessionUUID, "agent_id", timerRef.agentID)
 		}
 		m.removeTimer(sessionUUID, fired)
-		return
+		return nil
 	}
-
 	kc := m.keepaliveSession(ctx, timerRef.threadID)
 	if kc == nil {
 		m.removeTimer(sessionUUID, fired)
-		return
+		return nil
 	}
+	return kc
+}
+
+// deliverPing invokes SendKeepalive and, on success, reschedules the timer
+// unless Shutdown cancelled pingCtx in the meantime — in that case a
+// fresh 55-minute timer would outlive the module Lifecycle, so we skip
+// the reset.
+func (m *Manager) deliverPing(ctx context.Context, sessionUUID string, timerRef *agentTimer, kc KeepaliveCapable) {
 	if err := kc.SendKeepalive(ctx); err != nil {
 		if m.logger != nil {
 			m.logger.Warn("cachekeepalive: keepalive ping failed", "session_uuid", sessionUUID, "agent_id", timerRef.agentID, "thread_id", timerRef.threadID, "error", err)
 		}
 		return
 	}
-
+	if ctx.Err() != nil {
+		return
+	}
 	m.ResetTimerByAgent(timerRef.agentID)
 	if m.logger != nil {
 		m.logger.Info("cachekeepalive: keepalive success, timer reset", "session_uuid", sessionUUID, "agent_id", timerRef.agentID)
@@ -269,13 +387,40 @@ func (m *Manager) scheduleLocked(timerRef *agentTimer) {
 	if timerRef.timer != nil {
 		timerRef.timer.Stop()
 	}
+	// P22 P2: don't re-arm after drain has started; the timer would
+	// register a new pingInflight.Add that Shutdown already finished
+	// waiting for, leaving a goroutine unaccounted for.
+	if m.drainActive() {
+		timerRef.timer = nil
+		return
+	}
 
 	sessionUUID := timerRef.sessionUUID
 	var fired *time.Timer
 	fired = time.AfterFunc(keepaliveInterval, func() {
+		if !m.enterPing() {
+			return
+		}
+		defer m.pingInflight.Done()
 		m.executePing(sessionUUID, fired)
 	})
 	timerRef.timer = fired
+}
+
+// enterPing gates the transition from "timer fired" to "actively running
+// a ping". It returns false if Shutdown has already closed drainClosed;
+// in that case the AfterFunc closure exits without calling executePing so
+// the manager's pingInflight counter stays accurate.
+func (m *Manager) enterPing() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	select {
+	case <-m.drainClosed:
+		return false
+	default:
+	}
+	m.pingInflight.Add(1)
+	return true
 }
 
 func (m *Manager) snapshotTimer(sessionUUID string, fired *time.Timer) *agentTimer {
