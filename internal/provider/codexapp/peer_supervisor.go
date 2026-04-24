@@ -343,56 +343,66 @@ func (s *PeerSupervisor) replacePeer(old, next peerHandle) {
 
 // shutdown runs the stop/drain escalation: EOF -> SIGTERM -> SIGKILL. It
 // joins the superviseOne goroutines via wg and never retries re-launches.
+// Split into phase helpers so each function stays under the CC guard limit.
 func (s *PeerSupervisor) shutdown(wg *sync.WaitGroup) {
 	peers := s.snapshotPeers()
+	s.closePeerPipes(peers)
+	s.drainOrEscalate(peers, wg)
+	s.unregisterPeerPIDs(peers)
+	if s.cleanupHook != nil {
+		s.cleanupHook()
+	}
+}
 
-	// Phase 1: close stdin pipes so every peer receives EOF and can exit
-	// cleanly.
+// closePeerPipes sends EOF to every peer by closing its stdin pipe. ErrClosed
+// is treated as a benign race (handle already drained by Wait) and not logged.
+func (s *PeerSupervisor) closePeerPipes(peers []peerHandle) {
 	for _, h := range peers {
 		if err := h.ClosePipe(); err != nil && !errors.Is(err, os.ErrClosed) {
 			s.logger.Debug("peer_supervisor: close stdin pipe",
 				"peer", h.Name(), "error", err)
 		}
 	}
+}
 
-	// Phase 2: bounded wait for superviseOne goroutines to finish.
+// drainOrEscalate waits up to stopGrace for all superviseOne goroutines to
+// finish; if they don't, it sends SIGTERM, waits killGrace more, and finally
+// sends SIGKILL as the last-resort escalation.
+func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup) {
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
-
 	select {
 	case <-done:
+		return
 	case <-time.After(s.stopGrace):
-		// Phase 3: SIGTERM anything still alive.
-		for _, h := range peers {
-			if err := h.Signal(syscall.SIGTERM); err != nil {
-				s.logger.Debug("peer_supervisor: SIGTERM failed",
-					"peer", h.Name(), "error", err)
-			}
-		}
-		select {
-		case <-done:
-		case <-time.After(s.killGrace):
-			// Phase 4: SIGKILL — last resort.
-			for _, h := range peers {
-				if err := h.Signal(syscall.SIGKILL); err != nil {
-					s.logger.Debug("peer_supervisor: SIGKILL failed",
-						"peer", h.Name(), "error", err)
-				}
-			}
-			<-done
-		}
 	}
+	s.signalAllPeers(peers, syscall.SIGTERM)
+	select {
+	case <-done:
+		return
+	case <-time.After(s.killGrace):
+	}
+	s.signalAllPeers(peers, syscall.SIGKILL)
+	<-done
+}
 
-	// Phase 5: pidRegistry cleanup + discovery file sweep.
-	if s.pidRegistry != nil {
-		for _, h := range peers {
-			if pid := h.PID(); pid > 0 {
-				s.pidRegistry.Unregister(pid)
-			}
+func (s *PeerSupervisor) signalAllPeers(peers []peerHandle, sig syscall.Signal) {
+	for _, h := range peers {
+		if err := h.Signal(sig); err != nil {
+			s.logger.Debug("peer_supervisor: signal failed",
+				"peer", h.Name(), "signal", sig.String(), "error", err)
 		}
 	}
-	if s.cleanupHook != nil {
-		s.cleanupHook()
+}
+
+func (s *PeerSupervisor) unregisterPeerPIDs(peers []peerHandle) {
+	if s.pidRegistry == nil {
+		return
+	}
+	for _, h := range peers {
+		if pid := h.PID(); pid > 0 {
+			s.pidRegistry.Unregister(pid)
+		}
 	}
 }
 

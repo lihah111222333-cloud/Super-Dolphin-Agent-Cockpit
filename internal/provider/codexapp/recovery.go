@@ -145,20 +145,38 @@ func (s *session) attemptRecovery(reason string) error {
 	if s.runtime != nil && s.runtime.Stopped() {
 		return runtimeErrStopped
 	}
+	s.dispatchRecoveryAttempt(reason, count)
+	if err := s.recovery.Reconnect(s.ctx); err != nil {
+		return s.failRecovery(reason, err)
+	}
+	if err := s.completeRecoveryReplay(reason); err != nil {
+		return err
+	}
+	s.recoveryCount.Store(0)
+	s.noteReadActivity()
+	return nil
+}
+
+// dispatchRecoveryAttempt publishes the `recovery.attempt` provider event.
+// Split out from attemptRecovery so both that function and any future
+// signal-level observers share a single payload shape.
+func (s *session) dispatchRecoveryAttempt(reason string, attempt int32) {
 	s.dispatch(dto.RawProviderEvent{
 		EventType: "recovery.attempt",
 		Data: map[string]any{
 			"agentId":  strings.TrimSpace(s.agentID),
 			"threadId": s.ThreadID(),
 			"reason":   strings.TrimSpace(reason),
-			"attempt":  count,
+			"attempt":  attempt,
 		},
 	})
-	if err := s.recovery.Reconnect(s.ctx); err != nil {
-		return s.failRecovery(reason, err)
-	}
-	// P1c recovery replay order (frozen in README §recovery replay 顺序):
-	//   reconnect -> wait old reader -> start new reader -> resume thread -> replay turn
+}
+
+// completeRecoveryReplay performs the P1c-frozen replay sequence (see README
+// §recovery replay 顺序): wait for the old reader to exit, spawn a new one,
+// reset the suppressed map, resume the thread, then replay the pending turn.
+// Returns the first error it encounters, already wrapped via failRecovery.
+func (s *session) completeRecoveryReplay(reason string) error {
 	waitCtx, cancel := withTimeout(s.ctx, 2*time.Second)
 	defer cancel()
 	if s.runtime != nil {
@@ -178,8 +196,6 @@ func (s *session) attemptRecovery(reason string) error {
 	if err := s.replayPendingTurn(s.ctx); err != nil {
 		return s.failRecovery(reason, err)
 	}
-	s.recoveryCount.Store(0)
-	s.noteReadActivity()
 	return nil
 }
 
