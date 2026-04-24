@@ -216,13 +216,13 @@ func startTurnLifecycle(t *testing.T, dispatcher *event.Dispatcher, svc *service
 	t.Helper()
 
 	lc := &stubLifecycle{}
-	registerTurnLifecycle(lc, dispatcher, svc, silentLogger())
+	RegisterTurnLifecycle(lc, dispatcher, svc, silentLogger())
 	if len(lc.hooks) != 1 {
-		t.Fatalf("registerTurnLifecycle() hooks = %d, want 1", len(lc.hooks))
+		t.Fatalf("RegisterTurnLifecycle() hooks = %d, want 1", len(lc.hooks))
 	}
 	hook := lc.hooks[0]
 	if hook.OnStart == nil {
-		t.Fatal("registerTurnLifecycle() OnStart = nil")
+		t.Fatal("RegisterTurnLifecycle() OnStart = nil")
 	}
 	if err := hook.OnStart(context.Background()); err != nil {
 		t.Fatalf("OnStart() error = %v", err)
