@@ -69,10 +69,6 @@ func TestBusCallbackGuard(t *testing.T) {
 		owningSlice string
 	}{
 		{
-			name:        "bus_callback_must_not_fire_and_forget_goroutine",
-			owningSlice: "P2 (hooks/event_relay fanout)",
-		},
-		{
 			name:        "bus_callback_must_not_register_late_setter",
 			owningSlice: "P2 (thread registerSubscriptions -> bindDispatcher/bindPromptStore)",
 		},
@@ -176,6 +172,37 @@ func TestBusCallbackGuard(t *testing.T) {
 		}
 		if len(hits) > 0 {
 			t.Fatalf("memory/module.go reintroduced pre-P2 TeamSync lifecycle calls on bus callback path; forbidden tokens present: %v", hits)
+		}
+	})
+
+	// P2 (hooks/event_relay fanout) live matcher: after the
+	// hookDispatchWorker slice lands, the hooks event relay must not
+	// spawn bare `go` goroutines or invoke Manager.DispatchAfter from the
+	// bus callback body. The worker owns that slow-path under a tracked
+	// Stop(ctx) drain.
+	t.Run("bus_callback_must_not_fire_and_forget_goroutine", func(t *testing.T) {
+		t.Parallel()
+		root := repoRootForGuardTests(t)
+		path := filepath.Join(root, "internal", "platform", "hooks", "event_relay.go")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		src := string(data)
+		forbidden := []string{
+			"go func()",
+			"runtimesafe.SafeGo(",
+			"manager.DispatchAfter(",
+			"Manager.DispatchAfter(",
+		}
+		var hits []string
+		for _, token := range forbidden {
+			if strings.Contains(src, token) {
+				hits = append(hits, token)
+			}
+		}
+		if len(hits) > 0 {
+			t.Fatalf("hooks/event_relay.go reintroduced pre-P2 fire-and-forget dispatch on bus callback path; forbidden tokens present: %v", hits)
 		}
 	})
 }
