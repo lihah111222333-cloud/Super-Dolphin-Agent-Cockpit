@@ -17,8 +17,20 @@ import (
 
 // Manager is the local runtime hook point for LSP and exec resources.
 type Manager struct {
-	registry manager.Registry
-	root     string
+	registry          manager.Registry
+	root              string
+	backgroundRunners []platformrunner.Runner
+}
+
+// BackgroundRunners returns the long-running owners this Manager
+// contributes to the root `group:"runners"` aggregation. Currently
+// the per-language ManagerPool recyclers. See P22 P2 gopls-S1
+// (docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md §480-494).
+func (m *Manager) BackgroundRunners() []platformrunner.Runner {
+	if m == nil {
+		return nil
+	}
+	return m.backgroundRunners
 }
 
 func newManager() (*Manager, error) {
@@ -30,36 +42,30 @@ func newManager() (*Manager, error) {
 	inst := setupInstaller()
 
 	registry := manager.NewRegistry(inst)
+	backgroundRunners := make([]platformrunner.Runner, 0, 6)
+	registerLang := func(langIDs []string, mgr gopls.Manager) {
+		for _, langID := range langIDs {
+			registry.Register(langID, mgr)
+		}
+		if r := mgr.BackgroundRunner(); r != nil {
+			backgroundRunners = append(backgroundRunners, r)
+		}
+	}
 
 	// Register Go manager
-	goplsMgr := createGenericManager("gopls", nil, root, log)
-	registry.Register("go", goplsMgr)
-	registry.Register("gomod", goplsMgr)
-	registry.Register("gosum", goplsMgr)
-	registry.Register("gowork", goplsMgr)
-
+	registerLang([]string{"go", "gomod", "gosum", "gowork"}, createGenericManager("gopls", nil, root, log))
 	// Register JS/TS manager
-	jsMgr := createGenericManager("typescript-language-server", []string{"--stdio"}, root, log)
-	registry.Register("javascript", jsMgr)
-	registry.Register("typescript", jsMgr)
-
+	registerLang([]string{"javascript", "typescript"}, createGenericManager("typescript-language-server", []string{"--stdio"}, root, log))
 	// Register Python manager
-	pyMgr := createGenericManager("pyright-langserver", []string{"--stdio"}, root, log)
-	registry.Register("python", pyMgr)
-
+	registerLang([]string{"python"}, createGenericManager("pyright-langserver", []string{"--stdio"}, root, log))
 	// Register CSS manager
-	cssMgr := createGenericManager("vscode-css-language-server", []string{"--stdio"}, root, log)
-	registry.Register("css", cssMgr)
-
+	registerLang([]string{"css"}, createGenericManager("vscode-css-language-server", []string{"--stdio"}, root, log))
 	// Register Rust manager
-	rustMgr := createGenericManager("rust-analyzer", nil, root, log)
-	registry.Register("rust", rustMgr)
-
+	registerLang([]string{"rust"}, createGenericManager("rust-analyzer", nil, root, log))
 	// Register Java manager
-	javaMgr := createGenericManager("jdtls", nil, root, log, jdtlsInitOptions())
-	registry.Register("java", javaMgr)
+	registerLang([]string{"java"}, createGenericManager("jdtls", nil, root, log, jdtlsInitOptions()))
 
-	return &Manager{registry: registry, root: root}, nil
+	return &Manager{registry: registry, root: root, backgroundRunners: backgroundRunners}, nil
 }
 
 func setupInstaller() *installer.Provider {
@@ -104,7 +110,7 @@ func setupInstaller() *installer.Provider {
 	return inst
 }
 
-func createGenericManager(executable string, args []string, root string, log *slog.Logger, initOpts ...map[string]any) manager.Manager {
+func createGenericManager(executable string, args []string, root string, log *slog.Logger, initOpts ...map[string]any) gopls.Manager {
 	var opts map[string]any
 	if len(initOpts) > 0 {
 		opts = initOpts[0]

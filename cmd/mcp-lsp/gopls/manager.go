@@ -16,6 +16,7 @@ import (
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -35,6 +36,14 @@ const (
 type Manager interface {
 	EnsureClient(ctx context.Context, filePath, languageID string) (Client, error)
 	Close() error
+
+	// BackgroundRunner returns the long-running owner(s) for this
+	// manager's background work (currently the ManagerPool recycler).
+	// The root `group:"runners"` aggregation drives them via ctx; nil
+	// is returned when the manager has no background work to own.
+	// P22 P2 gopls-S1 — docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md
+	// §480-494.
+	BackgroundRunner() platformrunner.Runner
 
 	Definition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error)
 	Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error)

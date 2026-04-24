@@ -85,6 +85,11 @@ func run() error {
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newHTTPRunner, fx.ResultTags(`group:"runners"`)),
+			// P22 P2 gopls-S1: per-language ManagerPool recyclers now
+			// join the root runner group instead of being launched from
+			// NewManagerPool's constructor. `flatten` unpacks the slice
+			// so each recycler becomes its own Runner entry.
+			fx.Annotate(provideLSPBackgroundRunners, fx.ResultTags(`group:"runners,flatten"`)),
 		),
 		fx.Invoke(bindRuntime),
 	)
@@ -115,6 +120,14 @@ func newServer(handlers ToolHandlers) *common.Server {
 
 func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client) platformrunner.Runner {
 	return bootstrapRunner{cfg: cfg, client: client}
+}
+
+// provideLSPBackgroundRunners lifts each language manager's background
+// runner (today: its ManagerPool recycler) into the root
+// `group:"runners"` aggregation. See cmd/mcp-lsp/runtime.go
+// *Manager.BackgroundRunners and P22 P2 gopls-S1.
+func provideLSPBackgroundRunners(m *Manager) []platformrunner.Runner {
+	return m.BackgroundRunners()
 }
 
 func (p registryToolProvider) ListTools(context.Context) ([]common.MCPTool, error) {

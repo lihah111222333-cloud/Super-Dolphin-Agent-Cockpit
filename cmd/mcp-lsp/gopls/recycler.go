@@ -13,6 +13,7 @@ import (
 	"time"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
 
 const (
@@ -21,23 +22,28 @@ const (
 	lspRSSLimitEnv          = "AGENT_LSP_RSS_LIMIT_MB"
 )
 
+// poolRecycler is the background loop that periodically scans managed
+// gopls processes and recycles ones whose RSS exceeds the configured
+// limit. Pre-P22 P2 it spun itself up from NewManagerPool via a
+// self-owned goroutine + stopCh pair; it is now a plain
+// platformrunner.Runner owned by the root `group:"runners"` bridge.
+// See docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md §480-494.
 type poolRecycler struct {
 	pool     *ManagerPool
 	interval time.Duration
-	stopCh   chan struct{}
-	stopped  chan struct{}
 
 	mu         sync.Mutex
-	started    bool
 	lastActive map[int]time.Time
 }
+
+// Compile-time assertion: poolRecycler satisfies the Runner contract
+// consumed by the `group:"runners"` aggregation.
+var _ platformrunner.Runner = (*poolRecycler)(nil)
 
 func newPoolRecycler(pool *ManagerPool) *poolRecycler {
 	return &poolRecycler{
 		pool:       pool,
 		interval:   defaultRecyclerInterval,
-		stopCh:     make(chan struct{}),
-		stopped:    make(chan struct{}),
 		lastActive: map[int]time.Time{},
 	}
 }
@@ -51,45 +57,20 @@ func (r *poolRecycler) TouchShard(index int) {
 	r.mu.Unlock()
 }
 
-func (r *poolRecycler) Start() {
+// Run drives the recycler check loop until ctx is cancelled. A nil
+// receiver is accepted as a no-op so callers that rely on
+// ManagerPool.RecyclerRunner() without a pool still wire cleanly.
+func (r *poolRecycler) Run(ctx context.Context) error {
 	if r == nil {
-		return
+		<-ctx.Done()
+		return nil
 	}
-	r.mu.Lock()
-	if r.started {
-		r.mu.Unlock()
-		return
-	}
-	r.started = true
-	r.mu.Unlock()
-
-	go r.loop()
-}
-
-func (r *poolRecycler) Stop() {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	if !r.started {
-		r.mu.Unlock()
-		return
-	}
-	close(r.stopCh)
-	r.started = false
-	r.mu.Unlock()
-	<-r.stopped
-}
-
-func (r *poolRecycler) loop() {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
-	defer close(r.stopped)
-
 	for {
 		select {
-		case <-r.stopCh:
-			return
+		case <-ctx.Done():
+			return nil
 		case <-ticker.C:
 			r.check()
 		}
