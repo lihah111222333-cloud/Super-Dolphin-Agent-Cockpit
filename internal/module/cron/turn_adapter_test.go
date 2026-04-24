@@ -22,8 +22,8 @@ type fakeSession struct {
 	threadID string
 }
 
-func (f *fakeSession) ThreadID() string                  { return f.threadID }
-func (f *fakeSession) RolloutPath() string               { return "" }
+func (f *fakeSession) ThreadID() string                        { return f.threadID }
+func (f *fakeSession) RolloutPath() string                     { return "" }
 func (f *fakeSession) Capabilities() providerdto.CapabilitySet { return nil }
 func (f *fakeSession) StartTurn(context.Context, providerdto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, errors.New("fakeSession.StartTurn not used")
@@ -44,8 +44,8 @@ func (f *fakeSession) ReadHistory(context.Context, string, int) ([]providerdto.M
 	return nil, nil
 }
 func (f *fakeSession) Configure(context.Context, providerdto.ThreadConfigPatch) error { return nil }
-func (f *fakeSession) Close(context.Context) error                                      { return nil }
-func (f *fakeSession) ForceStop() error                                                 { return nil }
+func (f *fakeSession) Close(context.Context) error                                    { return nil }
+func (f *fakeSession) ForceStop() error                                               { return nil }
 
 // fakeResolver maps thread ids to fakeSession values; unknown ids
 // return an error.
@@ -110,12 +110,32 @@ type fakeHandle struct {
 	providerID string
 }
 
-func (h *fakeHandle) LocalID() string        { return h.localID }
-func (h *fakeHandle) ProviderID() string     { return h.providerID }
-func (h *fakeHandle) Done() <-chan struct{}  { ch := make(chan struct{}); close(ch); return ch }
-func (h *fakeHandle) Err() error             { return nil }
+func (h *fakeHandle) LocalID() string       { return h.localID }
+func (h *fakeHandle) ProviderID() string    { return h.providerID }
+func (h *fakeHandle) Done() <-chan struct{} { ch := make(chan struct{}); close(ch); return ch }
+func (h *fakeHandle) Err() error            { return nil }
 
 // ----- StartTurn paths -----
+
+func TestAdapterStartTurnNotWired(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		adapter *TurnServiceAdapter
+	}{
+		{name: "nil adapter", adapter: nil},
+		{name: "nil service", adapter: &TurnServiceAdapter{resolver: &fakeResolver{}}},
+		{name: "nil resolver", adapter: &TurnServiceAdapter{svc: &fakeTurnService{}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.adapter.StartTurn(context.Background(), StartTurnRequest{ThreadID: "thread-1"})
+			if err == nil || err.Error() != "cron: turn adapter not wired" {
+				t.Fatalf("want not-wired error, got %v", err)
+			}
+		})
+	}
+}
 
 func TestAdapterStartTurnRequiresThreadID(t *testing.T) {
 	t.Parallel()
@@ -190,6 +210,23 @@ func TestAdapterStartTurnPrepareError(t *testing.T) {
 	_, err := a.StartTurn(context.Background(), StartTurnRequest{ThreadID: "thread-1"})
 	if err == nil || !stringContains(err.Error(), "prepare turn") {
 		t.Fatalf("want prepare error, got %v", err)
+	}
+}
+
+func TestAdapterStartTurnStartError(t *testing.T) {
+	t.Parallel()
+	svc := &fakeTurnService{
+		startFn: func(context.Context, contract.Session, providerdto.TurnRequest) (contract.TurnHandle, error) {
+			return nil, errors.New("queue offline")
+		},
+	}
+	sess := &fakeSession{threadID: "thread-1"}
+	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{
+		known: map[string]contract.Session{"thread-1": sess},
+	})
+	_, err := a.StartTurn(context.Background(), StartTurnRequest{ThreadID: "thread-1"})
+	if err == nil || !stringContains(err.Error(), "start turn") {
+		t.Fatalf("want start-turn error, got %v", err)
 	}
 }
 
@@ -454,6 +491,26 @@ func TestAdapterStartTurnBootstrapsOnEmptyThreadID(t *testing.T) {
 	}
 	if string(got.Config) != `{"codexHome":"/tmp/home"}` {
 		t.Fatalf("Config not forwarded verbatim, got %q", string(got.Config))
+	}
+}
+
+func TestAdapterStartTurnBootstrapKeepsRequestAgentWhenBootstrapAgentMissing(t *testing.T) {
+	t.Parallel()
+	svc := &fakeTurnService{}
+	sess := &fakeSession{threadID: "thread-fresh"}
+	resolver := &fakeResolver{known: map[string]contract.Session{"thread-fresh": sess}}
+	bs := &recordingBootstrapper{result: BootstrapResult{ThreadID: "thread-fresh"}}
+	a := NewTurnServiceAdapter(slog.Default(), svc, resolver).WithBootstrapper(bs)
+
+	res, err := a.StartTurn(context.Background(), StartTurnRequest{
+		AgentID: " agent-request ",
+		JobID:   "job-42",
+	})
+	if err != nil {
+		t.Fatalf("StartTurn err = %v", err)
+	}
+	if res.AgentID != "agent-request" || res.ThreadID != "thread-fresh" || res.TurnID == "" {
+		t.Fatalf("bootstrap request-agent fallback wrong: %+v", res)
 	}
 }
 

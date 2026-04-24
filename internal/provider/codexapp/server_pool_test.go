@@ -68,7 +68,72 @@ func newPoolForTest(t *testing.T, spawner Spawner, cfg PoolConfig) (*ServerPool,
 	return p, &now
 }
 
-func TestPoolAcquireSpawnsOncePerHome(t *testing.T) {
+func canonicalHome(t *testing.T, identity providershared.CodexIdentity) string {
+	t.Helper()
+	home, _, err := normalizePoolIdentity(identity)
+	if err != nil {
+		t.Fatalf("normalizePoolIdentity: %v", err)
+	}
+	return home
+}
+
+func entryForHome(t *testing.T, p *ServerPool, home string) *poolEntry {
+	t.Helper()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry := p.entries[home]
+	if entry == nil {
+		t.Fatalf("entry %q missing", home)
+	}
+	return entry
+}
+
+func waitForClose(t *testing.T, closed <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for async close")
+	}
+}
+
+func TestServerPoolAcquireHappyPathSpawnAndRelease(t *testing.T) {
+	t.Parallel()
+	spawnCalls := atomic.Int32{}
+	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
+		return newFakeServer("ws://" + filepath.Base(home)), nil
+	}
+	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	defer p.Close(context.Background())
+
+	id := identityFor(t, "glm")
+	home := canonicalHome(t, id)
+	srv, release, err := p.Acquire(context.Background(), id)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if srv == nil {
+		t.Fatal("Acquire returned nil server")
+	}
+	if spawnCalls.Load() != 1 {
+		t.Fatalf("spawn calls = %d, want 1", spawnCalls.Load())
+	}
+	entry := entryForHome(t, p, home)
+	if entry.server != srv {
+		t.Fatal("stored server mismatch")
+	}
+	if entry.refCount != 1 {
+		t.Fatalf("refCount = %d, want 1", entry.refCount)
+	}
+
+	release()
+	if entryForHome(t, p, home).refCount != 0 {
+		t.Fatalf("refCount after release = %d, want 0", entryForHome(t, p, home).refCount)
+	}
+}
+
+func TestServerPoolAcquireAliveCacheHitReusesServer(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
 	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
@@ -81,49 +146,178 @@ func TestPoolAcquireSpawnsOncePerHome(t *testing.T) {
 	id := identityFor(t, "glm")
 	srv1, rel1, err := p.Acquire(context.Background(), id)
 	if err != nil {
-		t.Fatalf("first Acquire error = %v", err)
+		t.Fatalf("first Acquire: %v", err)
 	}
-	defer rel1()
 	srv2, rel2, err := p.Acquire(context.Background(), id)
 	if err != nil {
-		t.Fatalf("second Acquire error = %v", err)
+		t.Fatalf("second Acquire: %v", err)
 	}
-	defer rel2()
 	if srv1 != srv2 {
-		t.Fatalf("same identity should return same server")
+		t.Fatal("alive cache hit should reuse the same server")
 	}
 	if spawnCalls.Load() != 1 {
-		t.Fatalf("spawn called %d times, want 1", spawnCalls.Load())
+		t.Fatalf("spawn calls = %d, want 1", spawnCalls.Load())
 	}
+	defer rel2()
+	defer rel1()
 }
 
-func TestPoolSeparateIdentitiesGetSeparateServers(t *testing.T) {
+func TestServerPoolAcquireDeadCacheRespawnsServer(t *testing.T) {
 	t.Parallel()
+	spawnCalls := atomic.Int32{}
+	var current *fakeServer
 	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		return newFakeServer("ws://" + filepath.Base(home)), nil
+		spawnCalls.Add(1)
+		current = newFakeServer("ws://" + filepath.Base(home))
+		return current, nil
 	}
 	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
 	defer p.Close(context.Background())
 
-	s1, rel1, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+	id := identityFor(t, "glm")
+	srv1, rel1, err := p.Acquire(context.Background(), id)
 	if err != nil {
-		t.Fatalf("glm: %v", err)
+		t.Fatalf("first Acquire: %v", err)
 	}
-	defer rel1()
-	s2, rel2, err := p.Acquire(context.Background(), identityFor(t, "qwen"))
+	rel1()
+	current.alive.Store(false)
+
+	srv2, rel2, err := p.Acquire(context.Background(), id)
 	if err != nil {
-		t.Fatalf("qwen: %v", err)
+		t.Fatalf("second Acquire: %v", err)
 	}
 	defer rel2()
-	if s1 == s2 {
-		t.Fatal("different identities must yield different servers")
+	if srv1 == srv2 {
+		t.Fatal("dead cached server must be respawned")
 	}
-	if p.Size() != 2 {
-		t.Fatalf("pool size = %d, want 2", p.Size())
+	if spawnCalls.Load() != 2 {
+		t.Fatalf("spawn calls = %d, want 2", spawnCalls.Load())
 	}
 }
 
-func TestPoolExhaustedReturnsErrWhenAllBusy(t *testing.T) {
+func TestServerPoolAcquireClosedPoolReturnsNoopRelease(t *testing.T) {
+	t.Parallel()
+	p, _ := newPoolForTest(t, func(_ context.Context, home string) (SpawnedServer, error) {
+		return newFakeServer("ws://" + filepath.Base(home)), nil
+	}, PoolConfig{Capacity: 4})
+
+	if err := p.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	server, release, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+	if !errors.Is(err, ErrPoolClosed) {
+		t.Fatalf("want ErrPoolClosed, got %v", err)
+	}
+	if server != nil {
+		t.Fatalf("closed pool returned non-nil server: %#v", server)
+	}
+	release()
+	release()
+}
+
+func TestServerPoolAcquireNilSpawnerReturnsInvalidIdentity(t *testing.T) {
+	t.Parallel()
+	p, _ := newPoolForTest(t, nil, PoolConfig{Capacity: 4})
+
+	server, release, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+	if !errors.Is(err, ErrInvalidIdentity) {
+		t.Fatalf("want ErrInvalidIdentity, got %v", err)
+	}
+	if err == nil || !contains(err.Error(), "pool has no spawner") {
+		t.Fatalf("want nil spawner detail, got %v", err)
+	}
+	if server != nil {
+		t.Fatalf("nil spawner returned non-nil server: %#v", server)
+	}
+	release()
+}
+
+func TestServerPoolAcquireNormalizeIdentityError(t *testing.T) {
+	t.Parallel()
+	spawnCalls := atomic.Int32{}
+	spawner := func(_ context.Context, _ string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
+		return newFakeServer("ws://unexpected"), nil
+	}
+	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	defer p.Close(context.Background())
+
+	id := providershared.CodexIdentity{
+		Home:          filepath.Join(t.TempDir(), "missing-home"),
+		InstanceKey:   "glm",
+		ModelProvider: "model-provider-glm",
+	}
+	_, _, wantErr := normalizePoolIdentity(id)
+	server, release, err := p.Acquire(context.Background(), id)
+	if err == nil {
+		t.Fatal("Acquire unexpectedly succeeded")
+	}
+	if wantErr == nil || err.Error() != wantErr.Error() {
+		t.Fatalf("want normalize error %q, got %v", wantErr, err)
+	}
+	if spawnCalls.Load() != 0 {
+		t.Fatalf("spawner called %d times on normalize error, want 0", spawnCalls.Load())
+	}
+	if server != nil {
+		t.Fatalf("normalize error returned non-nil server: %#v", server)
+	}
+	release()
+}
+
+func TestServerPoolAcquireCapacityFullEvictsLRU(t *testing.T) {
+	t.Parallel()
+	spawnCalls := atomic.Int32{}
+	firstClosed := make(chan struct{})
+	firstCloseOnce := atomic.Bool{}
+	var firstServer SpawnedServer
+	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
+		call := spawnCalls.Add(1)
+		server := newFakeServer("ws://" + filepath.Base(home))
+		if call == 1 {
+			server.closeHook = func() {
+				if firstCloseOnce.CompareAndSwap(false, true) {
+					close(firstClosed)
+				}
+			}
+			firstServer = server
+		}
+		return server, nil
+	}
+	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 1})
+	defer p.Close(context.Background())
+
+	id1 := identityFor(t, "glm")
+	id2 := identityFor(t, "qwen")
+	srv1, rel1, err := p.Acquire(context.Background(), id1)
+	if err != nil {
+		t.Fatalf("first Acquire: %v", err)
+	}
+	rel1()
+
+	srv2, rel2, err := p.Acquire(context.Background(), id2)
+	if err != nil {
+		t.Fatalf("second Acquire: %v", err)
+	}
+	defer rel2()
+	if srv2 == nil {
+		t.Fatal("eviction path returned nil server")
+	}
+	if srv1 == srv2 {
+		t.Fatal("eviction path should spawn a different server")
+	}
+	if spawnCalls.Load() != 2 {
+		t.Fatalf("spawn calls = %d, want 2", spawnCalls.Load())
+	}
+	if p.Size() != 1 {
+		t.Fatalf("pool size = %d, want 1", p.Size())
+	}
+	waitForClose(t, firstClosed)
+	if firstServer == nil {
+		t.Fatal("first server was never created")
+	}
+}
+
+func TestServerPoolAcquireCapacityFullAllBusyReturnsErrPoolExhausted(t *testing.T) {
 	t.Parallel()
 	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
 		return newFakeServer("ws://" + filepath.Base(home)), nil
@@ -131,94 +325,171 @@ func TestPoolExhaustedReturnsErrWhenAllBusy(t *testing.T) {
 	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 1})
 	defer p.Close(context.Background())
 
-	_, rel, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+	_, rel1, err := p.Acquire(context.Background(), identityFor(t, "glm"))
 	if err != nil {
-		t.Fatalf("first acquire: %v", err)
+		t.Fatalf("first Acquire: %v", err)
 	}
-	// Do NOT release; second acquire for a different home should fail
-	// because the sole slot is still refcounted.
-	_, _, err = p.Acquire(context.Background(), identityFor(t, "qwen"))
+	server, rel2, err := p.Acquire(context.Background(), identityFor(t, "qwen"))
 	if !errors.Is(err, ErrPoolExhausted) {
 		t.Fatalf("want ErrPoolExhausted, got %v", err)
 	}
-	rel()
-	// After release the slot is idle, so a new identity evicts + spawns.
-	_, relB, err := p.Acquire(context.Background(), identityFor(t, "qwen"))
-	if err != nil {
-		t.Fatalf("after release: %v", err)
+	if server != nil {
+		t.Fatalf("ErrPoolExhausted returned non-nil server: %#v", server)
 	}
-	relB()
+	rel2()
+	rel1()
 }
 
-func TestPoolSpawnFailureRecordsBackoff(t *testing.T) {
+func TestServerPoolAcquireSpawnErrorCreatesBackoffSlot(t *testing.T) {
+	t.Parallel()
+	spawnErr := errors.New("port taken")
+	p, nowRef := newPoolForTest(t, func(_ context.Context, _ string) (SpawnedServer, error) {
+		return nil, spawnErr
+	}, PoolConfig{Capacity: 4, SpawnBackoff: time.Minute})
+	defer p.Close(context.Background())
+
+	id := identityFor(t, "glm")
+	home := canonicalHome(t, id)
+	server, release, err := p.Acquire(context.Background(), id)
+	if err == nil {
+		t.Fatal("Acquire unexpectedly succeeded")
+	}
+	if server != nil {
+		t.Fatalf("spawn error returned non-nil server: %#v", server)
+	}
+	release()
+
+	entry := entryForHome(t, p, home)
+	if entry.server != nil {
+		t.Fatal("spawn error should not store a live server")
+	}
+	if !errors.Is(entry.spawnErr, spawnErr) {
+		t.Fatalf("entry.spawnErr = %v, want %v", entry.spawnErr, spawnErr)
+	}
+	if got, want := entry.backoffUntil, nowRef.Add(time.Minute); !got.Equal(want) {
+		t.Fatalf("backoffUntil = %v, want %v", got, want)
+	}
+	if !entry.lastUsed.Equal(*nowRef) {
+		t.Fatalf("lastUsed = %v, want %v", entry.lastUsed, *nowRef)
+	}
+}
+
+func TestServerPoolAcquireSpawnErrorPreservesExistingSlot(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
-	spawner := func(_ context.Context, _ string) (SpawnedServer, error) {
+	spawnErr := errors.New("port taken")
+	p, nowRef := newPoolForTest(t, func(_ context.Context, _ string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
-		return nil, errors.New("port taken")
+		return nil, spawnErr
+	}, PoolConfig{Capacity: 4, SpawnBackoff: time.Minute})
+	defer p.Close(context.Background())
+
+	id := identityFor(t, "glm")
+	home := canonicalHome(t, id)
+	_, _, err := p.Acquire(context.Background(), id)
+	if err == nil {
+		t.Fatal("first Acquire unexpectedly succeeded")
 	}
-	p, nowRef := newPoolForTest(t, spawner, PoolConfig{Capacity: 4, SpawnBackoff: time.Minute})
+	firstEntry := entryForHome(t, p, home)
+	*nowRef = nowRef.Add(2 * time.Minute)
+
+	_, _, err = p.Acquire(context.Background(), id)
+	if err == nil {
+		t.Fatal("second Acquire unexpectedly succeeded")
+	}
+	secondEntry := entryForHome(t, p, home)
+	if firstEntry != secondEntry {
+		t.Fatal("spawn error on existing entry should preserve the slot")
+	}
+	if spawnCalls.Load() != 2 {
+		t.Fatalf("spawn calls = %d, want 2", spawnCalls.Load())
+	}
+}
+
+func TestServerPoolAcquireBackoffActiveReturnsWrappedError(t *testing.T) {
+	t.Parallel()
+	spawnCalls := atomic.Int32{}
+	spawnErr := errors.New("port taken")
+	p, _ := newPoolForTest(t, func(_ context.Context, _ string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
+		return nil, spawnErr
+	}, PoolConfig{Capacity: 4, SpawnBackoff: time.Minute})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
 	_, _, err := p.Acquire(context.Background(), id)
-	if err == nil || !contains(err.Error(), "port taken") {
-		t.Fatalf("want spawn error, got %v", err)
+	if err == nil {
+		t.Fatal("first Acquire unexpectedly succeeded")
 	}
-	// Within the backoff window the second Acquire must not call
-	// spawn again.
-	_, _, err2 := p.Acquire(context.Background(), id)
-	if !errors.Is(err2, ErrSpawnBackoff) {
-		t.Fatalf("want ErrSpawnBackoff, got %v", err2)
+	server, release, err := p.Acquire(context.Background(), id)
+	if !errors.Is(err, ErrSpawnBackoff) {
+		t.Fatalf("want ErrSpawnBackoff, got %v", err)
+	}
+	if err == nil || !contains(err.Error(), spawnErr.Error()) {
+		t.Fatalf("want cached spawn error in backoff message, got %v", err)
 	}
 	if spawnCalls.Load() != 1 {
-		t.Fatalf("spawner called %d times during backoff, want 1", spawnCalls.Load())
+		t.Fatalf("spawn calls during backoff = %d, want 1", spawnCalls.Load())
 	}
-	// Advance past the backoff; next Acquire triggers a fresh spawn
-	// attempt (still failing here, but the counter bumps).
-	*nowRef = nowRef.Add(2 * time.Minute)
-	_, _, _ = p.Acquire(context.Background(), id)
-	if spawnCalls.Load() != 2 {
-		t.Fatalf("spawner calls after backoff = %d, want 2", spawnCalls.Load())
+	if server != nil {
+		t.Fatalf("backoff returned non-nil server: %#v", server)
 	}
+	release()
 }
 
-func TestPoolRespawnsDeadServer(t *testing.T) {
+func TestServerPoolAcquireBackoffExpiredRetriesSpawn(t *testing.T) {
 	t.Parallel()
-	var current *fakeServer
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		current = newFakeServer("ws://" + filepath.Base(home))
-		return current, nil
-	}
-	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	spawnCalls := atomic.Int32{}
+	spawnErr := errors.New("port taken")
+	var recovered SpawnedServer
+	p, nowRef := newPoolForTest(t, func(_ context.Context, home string) (SpawnedServer, error) {
+		if spawnCalls.Add(1) == 1 {
+			return nil, spawnErr
+		}
+		recovered = newFakeServer("ws://" + filepath.Base(home))
+		return recovered, nil
+	}, PoolConfig{Capacity: 4, SpawnBackoff: time.Minute})
 	defer p.Close(context.Background())
+
 	id := identityFor(t, "glm")
-	s1, rel1, err := p.Acquire(context.Background(), id)
-	if err != nil {
-		t.Fatalf("first: %v", err)
+	home := canonicalHome(t, id)
+	_, _, err := p.Acquire(context.Background(), id)
+	if err == nil {
+		t.Fatal("first Acquire unexpectedly succeeded")
 	}
-	rel1()
-	current.alive.Store(false) // simulate crash
-	s2, rel2, err := p.Acquire(context.Background(), id)
+	*nowRef = nowRef.Add(2 * time.Minute)
+
+	server, release, err := p.Acquire(context.Background(), id)
 	if err != nil {
-		t.Fatalf("second: %v", err)
+		t.Fatalf("second Acquire after backoff: %v", err)
 	}
-	defer rel2()
-	if s1 == s2 {
-		t.Fatal("dead server must be replaced")
+	defer release()
+	if server != recovered {
+		t.Fatal("backoff expiry should allow a fresh spawn")
+	}
+	entry := entryForHome(t, p, home)
+	if entry.spawnErr != nil {
+		t.Fatalf("spawnErr = %v, want nil", entry.spawnErr)
+	}
+	if !entry.backoffUntil.IsZero() {
+		t.Fatalf("backoffUntil = %v, want zero", entry.backoffUntil)
+	}
+	if spawnCalls.Load() != 2 {
+		t.Fatalf("spawn calls = %d, want 2", spawnCalls.Load())
 	}
 }
 
-func TestPoolEvictIdleRemovesStaleEntries(t *testing.T) {
+func TestServerPoolEvictIdleRemovesStaleEntries(t *testing.T) {
 	t.Parallel()
 	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}
 	p, nowRef := newPoolForTest(t, spawner, PoolConfig{Capacity: 4, IdleTimeout: 10 * time.Minute})
 	defer p.Close(context.Background())
+
 	_, rel, err := p.Acquire(context.Background(), identityFor(t, "glm"))
 	if err != nil {
-		t.Fatalf("acquire: %v", err)
+		t.Fatalf("Acquire: %v", err)
 	}
 	rel()
 	if evicted := p.EvictIdle(); evicted != 0 {
@@ -229,19 +500,20 @@ func TestPoolEvictIdleRemovesStaleEntries(t *testing.T) {
 		t.Fatalf("after idle window: evicted %d, want 1", evicted)
 	}
 	if p.Size() != 0 {
-		t.Fatalf("pool should be empty after EvictIdle; size=%d", p.Size())
+		t.Fatalf("pool size = %d, want 0", p.Size())
 	}
 }
 
-func TestPoolCloseTearsEverythingDown(t *testing.T) {
+func TestServerPoolCloseTearsEverythingDown(t *testing.T) {
 	t.Parallel()
 	var created []*fakeServer
 	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		s := newFakeServer("ws://" + filepath.Base(home))
-		created = append(created, s)
-		return s, nil
+		server := newFakeServer("ws://" + filepath.Base(home))
+		created = append(created, server)
+		return server, nil
 	}
 	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+
 	_, rel1, _ := p.Acquire(context.Background(), identityFor(t, "glm"))
 	_, rel2, _ := p.Acquire(context.Background(), identityFor(t, "qwen"))
 	rel1()
@@ -249,37 +521,13 @@ func TestPoolCloseTearsEverythingDown(t *testing.T) {
 	if err := p.Close(context.Background()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	for i, s := range created {
-		if !s.closed.Load() {
-			t.Fatalf("server #%d was not closed on pool shutdown", i)
+	for i, server := range created {
+		if !server.closed.Load() {
+			t.Fatalf("server #%d was not closed", i)
 		}
 	}
-	// Double Close is a no-op.
 	if err := p.Close(context.Background()); err != nil {
 		t.Fatalf("double Close: %v", err)
-	}
-	// Subsequent Acquire surfaces ErrPoolClosed.
-	_, _, err := p.Acquire(context.Background(), identityFor(t, "glm"))
-	if !errors.Is(err, ErrPoolClosed) {
-		t.Fatalf("want ErrPoolClosed after Close, got %v", err)
-	}
-}
-
-func TestPoolRejectsEmptyIdentity(t *testing.T) {
-	t.Parallel()
-	p, _ := newPoolForTest(t, nil, PoolConfig{})
-	_, _, err := p.Acquire(context.Background(), providershared.CodexIdentity{})
-	if !errors.Is(err, ErrInvalidIdentity) {
-		t.Fatalf("want ErrInvalidIdentity for empty home, got %v", err)
-	}
-}
-
-func TestPoolRejectsNilSpawner(t *testing.T) {
-	t.Parallel()
-	p, _ := newPoolForTest(t, nil, PoolConfig{})
-	_, _, err := p.Acquire(context.Background(), identityFor(t, "glm"))
-	if !errors.Is(err, ErrInvalidIdentity) {
-		t.Fatalf("want ErrInvalidIdentity for nil spawner, got %v", err)
 	}
 }
 
