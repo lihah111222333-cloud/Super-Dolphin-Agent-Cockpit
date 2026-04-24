@@ -130,6 +130,17 @@ function countDialogTimelineItems(items) {
   }, 0);
 }
 
+function getLatestDialogTextLength(items) {
+  if (!Array.isArray(items)) return 0;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    const kind = (item?.kind || '').toString().trim();
+    if (kind !== 'assistant' && kind !== 'user') continue;
+    return (item?.text || '').length;
+  }
+  return 0;
+}
+
 function getLatestDialogTimestamp(items) {
   if (!Array.isArray(items)) return Number.NaN;
   for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -226,7 +237,15 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
   if (existingDialogCount > incomingDialogCount) {
     sameOrNewerExistingDialog = true;
   } else if (existingTsValid && incomingTsValid) {
-    sameOrNewerExistingDialog = existingLatestDialogTs >= incomingLatestDialogTs;
+    if (existingLatestDialogTs > incomingLatestDialogTs) {
+      sameOrNewerExistingDialog = true;
+    } else if (existingLatestDialogTs === incomingLatestDialogTs && existingDialogCount === incomingDialogCount) {
+      const existingLen = getLatestDialogTextLength(existing);
+      const incomingLen = getLatestDialogTextLength(timeline);
+      sameOrNewerExistingDialog = existingLen >= incomingLen;
+    } else {
+      sameOrNewerExistingDialog = false;
+    }
   } else if (!existingTsValid && incomingTsValid) {
     sameOrNewerExistingDialog = false;
   } else if (existingTsValid && !incomingTsValid) {
