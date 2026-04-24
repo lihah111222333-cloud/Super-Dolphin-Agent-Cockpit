@@ -26,12 +26,17 @@ import (
 //	{"tags_has":"refactor"}     → case-insensitive substring in userPrompt
 //	{"tags_has":["rename","trace","impact"]}
 //	                            → OR across the array; any substring hit passes
+//	{"enabled_tools_has":"lsp_grep"}
+//	                            → BuildCtx.EnabledTools contains this short tool name
+//	{"enabled_tools_has":["lsp_grep","lsp_xref"]}
+//	                            → OR across the array; any match passes
 //
-// Step 3b kept the DSL deliberately tiny; tags_has is the single intentional
-// extension (still no $not / $in / regex) added to enable userPrompt-driven
-// section gating without growing the schema. All other mismatches or lookup
-// misses still drop the section (fail-closed). Unknown keys (not listed above
-// and not under sessionFlags.) are treated as a mismatch.
+// Step 3b kept the DSL deliberately tiny; tags_has and enabled_tools_has are
+// the intentional extensions (still no $not / $in / regex) added to enable
+// userPrompt-driven and tool-availability section gating without growing the
+// schema. All other mismatches or lookup misses still drop the section
+// (fail-closed). Unknown keys (not listed above and not under sessionFlags.)
+// are treated as a mismatch.
 func EvaluateEnableWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt string) bool {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
@@ -59,14 +64,56 @@ func EvaluateEnableWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt strin
 // the userPrompt-aware extension; everything else falls through to the shared
 // BuildCtx equality table used by both enable_when and match_when.
 func sectionEnableKeyMatches(key string, want any, buildCtx contract.BuildCtx, userPrompt string) bool {
-	if key == "tags_has" {
+	switch key {
+	case "tags_has":
 		return matchSectionTagsHas(want, userPrompt)
+	case "enabled_tools_has":
+		return matchEnabledToolsHas(want, buildCtx.EnabledTools)
 	}
 	got, ok := resolveEnableWhenField(key, buildCtx)
 	if !ok {
 		return false
 	}
 	return enableWhenValueEquals(got, want)
+}
+
+// matchEnabledToolsHas implements enabled_tools_has for section-level
+// enable_when: string value matches one tool; array value is OR across each
+// string element. Comparison is exact (case-sensitive) against the short tool
+// names in BuildCtx.EnabledTools (e.g. "lsp_grep", "code_run").
+func matchEnabledToolsHas(want any, enabled []string) bool {
+	if len(enabled) == 0 {
+		return false
+	}
+	switch v := want.(type) {
+	case string:
+		return containsExact(enabled, v)
+	case []any:
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				continue
+			}
+			if containsExact(enabled, s) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func containsExact(values []string, want string) bool {
+	if want == "" {
+		return false
+	}
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 // matchSectionTagsHas implements tags_has for section-level enable_when:

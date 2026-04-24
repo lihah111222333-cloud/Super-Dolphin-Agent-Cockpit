@@ -156,6 +156,60 @@ func TestEnableWhen_TagsHas(t *testing.T) {
 	}
 }
 
+func TestEnableWhen_EnabledToolsHas(t *testing.T) {
+	t.Parallel()
+	withLsp := contract.BuildCtx{EnabledTools: []string{"code_run", "lsp_grep", "lsp_file"}}
+	noLsp := contract.BuildCtx{EnabledTools: []string{"code_run"}}
+	noTools := contract.BuildCtx{}
+
+	// Single string hit / miss.
+	if !EvaluateEnableWhen([]byte(`{"enabled_tools_has":"lsp_grep"}`), withLsp, "") {
+		t.Fatalf("must hit when EnabledTools contains the tool")
+	}
+	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":"lsp_grep"}`), noLsp, "") {
+		t.Fatalf("must miss when EnabledTools lacks the tool")
+	}
+	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":"lsp_grep"}`), noTools, "") {
+		t.Fatalf("must miss when EnabledTools is empty")
+	}
+
+	// Exact match, not substring.
+	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":"lsp"}`), withLsp, "") {
+		t.Fatalf("must require exact tool name, not substring")
+	}
+
+	// Array value: OR across entries.
+	arr := []byte(`{"enabled_tools_has":["lsp_xref","lsp_grep","lsp_inspect"]}`)
+	if !EvaluateEnableWhen(arr, withLsp, "") {
+		t.Fatalf("array must hit when any element matches")
+	}
+	if EvaluateEnableWhen(arr, noLsp, "") {
+		t.Fatalf("array must miss when no element matches")
+	}
+
+	// AND with tags_has: both must satisfy.
+	bothKeys := []byte(`{"enabled_tools_has":"lsp_grep","tags_has":"refactor"}`)
+	if !EvaluateEnableWhen(bothKeys, withLsp, "please refactor") {
+		t.Fatalf("AND should pass when both conditions match")
+	}
+	if EvaluateEnableWhen(bothKeys, withLsp, "hello") {
+		t.Fatalf("AND should fail when tags_has misses")
+	}
+	if EvaluateEnableWhen(bothKeys, noLsp, "please refactor") {
+		t.Fatalf("AND should fail when tool missing")
+	}
+
+	// Invalid value type → mismatch.
+	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":42}`), withLsp, "") {
+		t.Fatalf("non-string non-array value must fail-closed")
+	}
+
+	// Empty string in array is ignored, not treated as match-all.
+	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":""}`), withLsp, "") {
+		t.Fatalf("empty string want must miss (never match)")
+	}
+}
+
 func TestMergeTemplateSections_FiltersByEnableWhen(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{Language: "zh", IsWorktree: true}
