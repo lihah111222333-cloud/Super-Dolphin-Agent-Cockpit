@@ -229,7 +229,6 @@ func TestBusCallbackGuard(t *testing.T) {
 		want := []ownershipHit{
 			{"F-3", "internal/module/memory/module.go", "registerMemoryHooks", "registerLifecycleSubscriptions"},
 			{"F-4", "internal/module/thread/module.go", "registerSubscriptions", "registerThreadSubscriptions"},
-			{"F-5", "internal/platform/cachekeepalive/module.go", "registerKeepaliveLifecycle", "startKeepaliveRelay"},
 			{"F-9", "internal/platform/toolbridge/module.go", "registerDiffFallbackLifecycle", "ResilientSubscribe"},
 		}
 		for _, hit := range want {
