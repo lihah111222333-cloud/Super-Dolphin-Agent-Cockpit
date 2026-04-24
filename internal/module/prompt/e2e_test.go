@@ -117,8 +117,10 @@ func TestMemoryRulesInjectIntoPrompt(t *testing.T) {
 	mustContain(t, start.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory))
 	// newFxHarness wires both AutoMemPath and TeamMemPath, which triggers
 	// buildCombinedMemoryPrompt (memory/rules.go): combined mode inserts
-	// "### 2. taxonomy"
-	mustContain(t, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory), "### 2. taxonomy")
+	// "### 2. memory scope" after "### 1. memory system", pushing taxonomy
+	// to section #3. Standard mode (BuildMemoryLines, exercised in
+	// internal/module/memory/rules_test.go) still keeps taxonomy at #2.
+	mustContain(t, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory), "### 3. taxonomy")
 }
 
 func TestSectionCacheInvalidation(t *testing.T) {
@@ -228,6 +230,7 @@ func newFxHarness(t *testing.T) *fxHarness {
 	t.Helper()
 	h := &fxHarness{projectRoot: t.TempDir()}
 	t.Setenv("ENABLE_MEMORY_SYSTEM", "1")
+	t.Setenv("MULTI_AGENT_MEMORY_FEATURE_TEAMMEM", "1")
 	t.Setenv("MULTI_AGENT_MEMORY_DIR", filepath.Join(h.projectRoot, "memory"))
 	h.bridge = &capturingSessionBridge{session: newMockSession("provider-thread-1")}
 	h.threadStore = &capturingThreadStore{}
