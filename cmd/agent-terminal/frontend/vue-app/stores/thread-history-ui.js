@@ -223,10 +223,17 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
   // - existing 有有效 ts 而 incoming 没有 → 保守保留已有本地数据
   // - 两边都无有效 ts → fallback 比消息数量
   let sameOrNewerExistingDialog = false;
-  if (existingTsValid && incomingTsValid) sameOrNewerExistingDialog = existingLatestDialogTs >= incomingLatestDialogTs;
-  else if (!existingTsValid && incomingTsValid) sameOrNewerExistingDialog = false;
-  else if (existingTsValid && !incomingTsValid) sameOrNewerExistingDialog = true;
-  else sameOrNewerExistingDialog = existing.length >= timeline.length;
+  if (existingDialogCount > incomingDialogCount) {
+    sameOrNewerExistingDialog = true;
+  } else if (existingTsValid && incomingTsValid) {
+    sameOrNewerExistingDialog = existingLatestDialogTs >= incomingLatestDialogTs;
+  } else if (!existingTsValid && incomingTsValid) {
+    sameOrNewerExistingDialog = false;
+  } else if (existingTsValid && !incomingTsValid) {
+    sameOrNewerExistingDialog = true;
+  } else {
+    sameOrNewerExistingDialog = existing.length >= timeline.length;
+  }
   if (existingDialogCount > 0 && existingDialogCount >= incomingDialogCount && sameOrNewerExistingDialog) {
     if (typeof logInfo === 'function') logInfo('thread', 'messages.load.local_timeline.skipped_stale', {
       thread_id: id,
