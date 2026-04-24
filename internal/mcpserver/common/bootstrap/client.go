@@ -20,6 +20,12 @@ const (
 	defaultHeartbeatTimeout  = 5 * time.Second
 	defaultRPCTimeout        = 5 * time.Second
 	defaultReportQueueLimit  = 128
+	// defaultCallbackDrainTimeout bounds how long Close() waits for
+	// in-flight OnShutdown / OnConfigChanged callback goroutines to
+	// drain. Keep it below the overall shutdown budget so a stuck
+	// application callback cannot pin bootstrap shutdown. P22 P2
+	// bootstrap-S1 / plan §499 / §505.
+	defaultCallbackDrainTimeout = 2 * time.Second
 )
 
 type Client struct {
@@ -50,6 +56,15 @@ type Client struct {
 	reportQueueLimit       int
 	boot                   bootSnapshot
 	hooks                  hookState
+
+	// callbackWG tracks in-flight OnShutdown / OnConfigChanged
+	// goroutines. Pre-P22 P2 bootstrap-S1 fireShutdown /
+	// fireConfigChanged launched the application callback as a bare
+	// goroutine with no owner, so those callbacks could outlive the
+	// bootstrap client and Close() had no join/drain point. The
+	// WaitGroup plus drainCallbacks() give Close() a bounded,
+	// observable drain (plan §499 / §505).
+	callbackWG sync.WaitGroup
 }
 
 type Config struct {
@@ -293,8 +308,34 @@ func (c *Client) Close() error {
 	if stop != nil {
 		stop()
 	}
+	drainErr := c.drainCallbacks(defaultCallbackDrainTimeout)
+	if drainErr != nil {
+		pkglogger.Warn("bootstrap callback drain timed out",
+			"instance_id", c.instanceID,
+			"error", drainErr,
+		)
+	}
 	if conn != nil {
 		return conn.Close()
 	}
 	return nil
+}
+
+// drainCallbacks waits up to timeout for every in-flight OnShutdown /
+// OnConfigChanged goroutine launched via spawnCallback to return. A
+// non-nil error indicates some callback outlived the drain budget;
+// the caller still proceeds so a stuck application handler cannot
+// pin bootstrap shutdown. P22 P2 bootstrap-S1 (plan §499 / §505).
+func (c *Client) drainCallbacks(timeout time.Duration) error {
+	done := make(chan struct{})
+	go func() {
+		c.callbackWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return errors.New("bootstrap: OnShutdown/OnConfigChanged callbacks did not drain within " + timeout.String())
+	}
 }
