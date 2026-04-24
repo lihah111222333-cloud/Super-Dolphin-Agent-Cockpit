@@ -16,7 +16,7 @@ import (
 )
 
 // teamSyncCoordinatorDrainGrace bounds OnStop wait for the coordinator
-// worker so registerMemoryHooks.OnStop never hangs on TeamSyncService's
+// worker so RunnerModule shutdown never hangs on TeamSyncService's
 // network/git slow-path. Aligned with the other P22 P2 drain budgets so
 // the total OnStop cost stays predictable.
 const teamSyncCoordinatorDrainGrace = 10 * time.Second
@@ -146,7 +146,7 @@ func (c *teamSyncCoordinator) enqueue(op teamSyncOp) {
 // Stop closes the gate, drains any pending ops through the worker, and
 // waits bounded by ctx for the worker to exit. Idempotent. Post-Stop
 // enqueue is silently dropped because the subscription is about to be
-// cancelled by registerMemoryHooks.OnStop anyway.
+// cancelled by RunnerModule shutdown anyway.
 func (c *teamSyncCoordinator) Stop(ctx context.Context) error {
 	if c == nil {
 		return nil

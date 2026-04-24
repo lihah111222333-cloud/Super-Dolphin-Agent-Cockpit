@@ -19,7 +19,6 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/kelindar/event"
-	"go.uber.org/fx"
 )
 
 func TestNewConfigFallsBackToProjectRoot(t *testing.T) {
@@ -165,7 +164,7 @@ func TestConsolidationHandlerDispatch(t *testing.T) {
 	}
 }
 
-func TestRegisterMemoryHooksSubscribesTurnCompletedAsync(t *testing.T) {
+func TestMemorySubscribersHandleTurnCompletedAsync(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	dispatcher := event.NewDispatcher()
 	hooks := newMemoryLifecycleHooks(&Config{
@@ -197,22 +196,14 @@ func TestRegisterMemoryHooksSubscribesTurnCompletedAsync(t *testing.T) {
 		return `{"memories":[{"content":"Keep build commands guarded in this repo.","type":"project","tags":["build"]}]}`, nil
 	}
 
-	lifecycle := &testLifecycle{}
-	registerMemoryHooks(memoryHookParams{
-		Lifecycle:  lifecycle,
-		Dispatcher: dispatcher,
-		Hooks:      hooks,
-	})
-	if len(lifecycle.hooks) != 1 {
-		t.Fatalf("len(lifecycle.hooks) = %d, want 1", len(lifecycle.hooks))
-	}
-	if err := lifecycle.hooks[0].OnStart(context.Background()); err != nil {
-		t.Fatalf("OnStart() error = %v", err)
+	spec := NewMemorySubscribers(nil, nil, nil, memorySubscriberParams{Hooks: hooks}).Spec
+	cancel := spec.Register(dispatcher)
+	if cancel == nil {
+		t.Fatal("Register returned nil cancel")
 	}
 	defer func() {
-		if err := lifecycle.hooks[0].OnStop(context.Background()); err != nil {
-			t.Fatalf("OnStop() error = %v", err)
-		}
+		cancel()
+		drainDreamTask(context.Background(), hooks)
 	}()
 
 	published := make(chan struct{})
@@ -240,28 +231,6 @@ func TestRegisterMemoryHooksSubscribesTurnCompletedAsync(t *testing.T) {
 
 	close(release)
 	waitForExtractedMemory(t, root, "Keep build commands guarded in this repo.")
-}
-
-type testLifecycle struct {
-	hooks []fx.Hook
-}
-
-func (l *testLifecycle) Append(hook fx.Hook) {
-	l.hooks = append(l.hooks, hook)
-}
-
-func waitForExtractedContent(t *testing.T, path, needle string) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		entry, err := readMemoryEntryFile(path)
-		if err == nil && strings.Contains(entry.Content, needle) {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	entry, err := readMemoryEntryFile(path)
-	t.Fatalf("readMemoryEntryFile(%q) final err=%v content=%q, want %q", path, err, entry.Content, needle)
 }
 
 func waitForExtractedMemory(t *testing.T, root, needle string) {

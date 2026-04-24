@@ -8,9 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 	"github.com/kelindar/event"
-	"go.uber.org/fx"
 )
 
 type recordingTeamSync struct {
@@ -67,7 +65,7 @@ func (s *stubThreadMetadataStore) ListAll(context.Context) ([]contract.ThreadMet
 	return []contract.ThreadMetadata{*s.meta}, nil
 }
 
-func TestRegisterMemoryHooksWiresTeamSyncToThreadLifecycle(t *testing.T) {
+func TestMemorySubscribersWireTeamSyncToThreadLifecycle(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	repoRoot := t.TempDir()
 	store := &stubThreadMetadataStore{meta: &contract.ThreadMetadata{
@@ -76,30 +74,24 @@ func TestRegisterMemoryHooksWiresTeamSyncToThreadLifecycle(t *testing.T) {
 		ConfigOverride: []byte(`{"runtime":{"gitRoot":"` + repoRoot + `","sessionFlags":{"memory_kairos":true},"isWorktree":true}}`),
 	}}
 	syncer := &recordingTeamSync{}
-	app := fx.New(
-		fx.NopLogger,
-		fx.Supply(dispatcher),
-		fx.Provide(
-			func() threadMetadataStore { return store },
-			func() teampkg.Lifecycle { return syncer },
-		),
-		fx.Invoke(registerMemoryHooks),
-	)
-	if err := app.Err(); err != nil {
-		t.Fatalf("fx.New() error = %v", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := app.Start(ctx); err != nil {
-		t.Fatalf("app.Start() error = %v", err)
-	}
+	coordinator := newTeamSyncCoordinator(syncer, store, nil)
+	coordinator.Start()
 	defer func() {
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer stopCancel()
-		if err := app.Stop(stopCtx); err != nil {
-			t.Fatalf("app.Stop() error = %v", err)
+		if err := coordinator.Stop(stopCtx); err != nil {
+			t.Fatalf("coordinator.Stop() error = %v", err)
 		}
 	}()
+	spec := NewMemorySubscribers(nil, nil, coordinator, memorySubscriberParams{
+		ThreadStore: store,
+		TeamSync:    syncer,
+	}).Spec
+	cancel := spec.Register(dispatcher)
+	if cancel == nil {
+		t.Fatal("Register returned nil cancel")
+	}
+	defer cancel()
 
 	event.Publish(dispatcher, threaddto.Started{ThreadID: "thread-1", CWD: repoRoot})
 	event.Publish(dispatcher, threaddto.Stopped{ThreadID: "thread-1"})

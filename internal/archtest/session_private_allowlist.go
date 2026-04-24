@@ -68,8 +68,4 @@ var sessionPrivateRuntimeAllowlist = []sessionPrivateRuntimeException{
 	},
 }
 
-var runtimeOwnershipTODOs = []runtimeOwnershipTODO{
-	{"F-3", "internal/module/memory/module.go", "registerMemoryHooks", "P22.1-P2D", "memory scheduler/nested/teamSync workers and subscriptions migrate to RunnerModule/BusModule", "0"},
-	{"F-4", "internal/module/thread/module.go", "registerSubscriptions", "P22.1-P2C", "thread bus workers/subscribers migrate to RunnerModule/BusModule", "0"},
-	{"F-9", "internal/platform/toolbridge/module.go", "registerDiffFallbackLifecycle", "P22.1-P2F", "toolbridge diff fallback subscriber migrates to BusModule", "0"},
-}
+var runtimeOwnershipTODOs = []runtimeOwnershipTODO{}

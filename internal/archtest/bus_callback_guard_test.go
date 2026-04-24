@@ -226,11 +226,7 @@ func TestBusCallbackGuard(t *testing.T) {
 	})
 	t.Run("subscriber_group_ownership_warning", func(t *testing.T) {
 		root := repoRootForGuardTests(t)
-		want := []ownershipHit{
-			{"F-3", "internal/module/memory/module.go", "registerMemoryHooks", "registerLifecycleSubscriptions"},
-			{"F-4", "internal/module/thread/module.go", "registerSubscriptions", "registerThreadSubscriptions"},
-			{"F-9", "internal/platform/toolbridge/module.go", "registerDiffFallbackLifecycle", "ResilientSubscribe"},
-		}
+		want := []ownershipHit{}
 		for _, hit := range want {
 			line, ok := findCallInFunction(t, root, hit.Path, hit.Symbol, hit.Call)
 			if !ok {

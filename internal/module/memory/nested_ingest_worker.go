@@ -13,7 +13,7 @@ import (
 )
 
 // nestedIngestDrainGrace bounds the shutdown wait for nestedIngestWorker so
-// registerMemoryHooks.OnStop can't hang if AddToolReadResult stalls on disk
+// RunnerModule shutdown can't hang if AddToolReadResult stalls on disk
 // I/O during drain. Kept in the same order of magnitude as the auto-dream
 // scheduler drain grace — both are owned by the same OnStop hook.
 const nestedIngestDrainGrace = 10 * time.Second
