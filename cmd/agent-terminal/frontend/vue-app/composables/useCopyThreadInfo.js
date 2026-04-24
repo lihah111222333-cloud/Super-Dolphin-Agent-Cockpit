@@ -11,7 +11,6 @@ import {
   buildCwdLogPath,
   formatUTC8HumanReadable,
 } from '../utils/thread-copy-utils.js';
-import { logWarn } from '../services/log.js';
 
 /**
  * @param {object} deps
@@ -132,18 +131,6 @@ export function useCopyThreadInfo(deps) {
       thread.logPath,
       thread.log_path,
     );
-    logWarn('provider.config', 'copy_thread_info.resolved', {
-      thread_id: threadId,
-      provider: agentProvider,
-      model: agentModel || null,
-      runtime_provider: runtime?.provider || null,
-      runtime_model: runtime?.model || null,
-      store_provider: storeRuntime?.provider || null,
-      store_model: storeRuntime?.model || null,
-      thread_model: thread?.model || null,
-      thread_effective_model: thread?.effective?.model || null,
-      use_claude_provider: useClaudeProvider.value,
-    });
     const payload = {
       agentId: threadId,
       providerThreadId: providerThreadID,
