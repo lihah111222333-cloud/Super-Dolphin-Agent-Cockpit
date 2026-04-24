@@ -186,7 +186,7 @@ func TestFindStaleSkipsLivePID(t *testing.T) {
 
 func TestRegistryPath(t *testing.T) {
 	path := registryPath(12345)
-	expected := filepath.Join(registryDir, filePrefix+strconv.Itoa(12345)+fileSuffix)
+	expected := filepath.Join(registryDir(), filePrefix+strconv.Itoa(12345)+fileSuffix)
 	if path != expected {
 		t.Errorf("registryPath(12345) = %q, want %q", path, expected)
 	}
