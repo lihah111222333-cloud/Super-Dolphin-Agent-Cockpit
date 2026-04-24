@@ -344,6 +344,15 @@ func (s *historyTestThreadStore) ListCwdsByPrefix(context.Context, string) ([]th
 	return nil, nil
 }
 
+func (s *historyTestThreadStore) CountChildren(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
+func (s *historyTestThreadStore) Exists(_ context.Context, threadID string) (bool, error) {
+	_, ok := s.threads[strings.TrimSpace(threadID)]
+	return ok, nil
+}
+
 type historyReadCall struct {
 	ThreadID string
 	Limit    int

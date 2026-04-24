@@ -45,7 +45,7 @@ func TestResolveStartConfigRejectsInvalidProvider(t *testing.T) {
 func TestResolveStartConfigRejectsInvalidApprovalPolicy(t *testing.T) {
 	t.Parallel()
 
-	_, err := resolveStartConfig(StartRequest{Provider: "codex", ApprovalPolicy: "later"})
+	_, err := resolveStartConfig(StartRequest{ApprovalPolicy: "later"})
 	if err == nil || !strings.Contains(err.Error(), "invalid approval policy") {
 		t.Fatalf("resolveStartConfig() error = %v, want invalid approval policy", err)
 	}
@@ -54,7 +54,7 @@ func TestResolveStartConfigRejectsInvalidApprovalPolicy(t *testing.T) {
 func TestResolveStartConfigDropsMalformedSandbox(t *testing.T) {
 	t.Parallel()
 
-	req, err := resolveStartConfig(StartRequest{Provider: "codex", Sandbox: json.RawMessage("{")})
+	req, err := resolveStartConfig(StartRequest{Sandbox: json.RawMessage("{")})
 	if err != nil {
 		t.Fatalf("resolveStartConfig() error = %v", err)
 	}
@@ -78,7 +78,7 @@ func TestResolveStartConfigAcceptsLegacyApprovalPolicies(t *testing.T) {
 		{name: "untrusted", policy: "untrusted"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req, err := resolveStartConfig(StartRequest{Provider: "codex", ApprovalPolicy: tc.policy})
+			req, err := resolveStartConfig(StartRequest{ApprovalPolicy: tc.policy})
 			if err != nil {
 				t.Fatalf("resolveStartConfig() error = %v", err)
 			}
@@ -245,7 +245,7 @@ func TestNewThreadHandlersDispatchStartRejectsInvalidConfig(t *testing.T) {
 		want string
 	}{
 		{name: "provider", raw: `{"provider":"other","prompt":"hello"}`, want: "invalid provider"},
-		{name: "approval", raw: `{"provider":"codex","approval_policy":"later","prompt":"hello"}`, want: "invalid approval policy"},
+		{name: "approval", raw: `{"approval_policy":"later","prompt":"hello"}`, want: "invalid approval policy"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(tc.raw))

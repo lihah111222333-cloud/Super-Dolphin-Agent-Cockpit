@@ -162,11 +162,14 @@ func TestResumeParamsAcceptThreadBodyFields(t *testing.T) {
 func TestNormalizeStartRequestDefaultsProviderWithoutPromptPollution(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := normalizeStartRequest(StartRequest{
+	req, _, err := normalizeStartRequest(StartRequest{
 		BaseInstructions: "  launch me  ",
 	})
-	if err == nil || !strings.Contains(err.Error(), "provider is required") {
-		t.Fatalf("normalizeStartRequest() error = %v, want provider is required", err)
+	if err != nil {
+		t.Fatalf("normalizeStartRequest() error = %v", err)
+	}
+	if req.Provider != "codex" {
+		t.Fatalf("provider = %q, want codex", req.Provider)
 	}
 }
 

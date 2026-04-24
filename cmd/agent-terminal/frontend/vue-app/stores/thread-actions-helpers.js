@@ -390,7 +390,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     activePromptKey,
     classifierEnabled,
   ] = await Promise.all([
-    getPref(ctx.withPreferenceScope({ key: 'settings.provider.active' })),
+    getPref({ key: 'settings.provider.active' }),
     needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined),
     getPref({ key: 'settings.classifierEnabled', cwd }),
   ]);

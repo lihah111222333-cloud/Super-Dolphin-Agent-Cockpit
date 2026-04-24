@@ -123,6 +123,9 @@ func TestLooksTechnicalManagedAgentName_Pin(t *testing.T) {
 		{name: "compact friendly title", input: "Payments", want: false},
 		{name: "spaced non ascii title", input: "修复 worker", want: false},
 		{name: "compact non ascii title", input: "工程师", want: false},
+		{name: "digit only name", input: "111", want: false},
+		{name: "digit only single", input: "42", want: false},
+		{name: "digit only leading zero", input: "007", want: false},
 	}
 
 	for _, tt := range tests {

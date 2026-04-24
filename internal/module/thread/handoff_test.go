@@ -68,6 +68,12 @@ func (f *fakeThreadStoreForHandoff) ListCwds(context.Context) ([]threadstore.Thr
 func (f *fakeThreadStoreForHandoff) ListCwdsByPrefix(context.Context, string) ([]threadstore.ThreadCwd, error) {
 	panic("unused")
 }
+func (f *fakeThreadStoreForHandoff) CountChildren(context.Context, string) (int64, error) {
+	panic("unused")
+}
+func (f *fakeThreadStoreForHandoff) Exists(context.Context, string) (bool, error) {
+	panic("unused")
+}
 
 func TestHandoff_RejectsEmptySourceThreadID(t *testing.T) {
 	t.Parallel()

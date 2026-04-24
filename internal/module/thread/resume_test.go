@@ -619,6 +619,17 @@ func (s *stubThreadStore) ListCwdsByPrefix(context.Context, string) ([]threadsto
 	return nil, nil
 }
 
+func (s *stubThreadStore) CountChildren(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
+func (s *stubThreadStore) Exists(_ context.Context, threadID string) (bool, error) {
+	if s.thread != nil && s.thread.ThreadID == threadID {
+		return true, nil
+	}
+	return false, nil
+}
+
 type stubBindingStore struct {
 	binding        *bindingstore.Binding
 	upsert         bindingstore.UpsertParams
