@@ -87,6 +87,23 @@ func (hs *hookState) markReplayFailure(attempts int, err error) {
 	}
 }
 
+// markReplayPending records that a live SubscribeHooks call failed
+// and the desired state has been persisted so the reconnect path can
+// retry it. Carries the initial failure so operators can surface it
+// via the usual replay diagnostics without waiting for the first
+// reconnect attempt.
+func (hs *hookState) markReplayPending(err error) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.replayState = "pending"
+	hs.replayAttempts = 0
+	if err != nil {
+		hs.lastReplayErr = err.Error()
+	} else {
+		hs.lastReplayErr = ""
+	}
+}
+
 func (hs *hookState) clearReplayFailure() {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
@@ -161,8 +178,18 @@ func (c *Client) handleHookAfter(ctx context.Context, req *jrpc2.Request) (any, 
 // SubscribeHooks — outgoing RPC to core layer
 // ---------------------------------------------------------------------------
 
-// SubscribeHooks sends a ctl/hook/subscribe request to the core layer.
-// It stores the parameters so they can be replayed on reconnect.
+// SubscribeHooks sends a ctl/hook/subscribe request to the core layer
+// and freezes the desired-state contract for required topics (P22 P2
+// bootstrap-S2 / plan §498 / §504):
+//
+//   - conn nil / degraded: persist the desired state so reconnect can
+//     replay, then return errHookSubscribeUnavailable. Unchanged.
+//   - live CallResult succeeds: persist on success. Unchanged.
+//   - live CallResult fails (new): persist the desired state before
+//     returning the error and mark the replay state as pending so the
+//     reconnect path picks it up. Pre-P22 P2 bootstrap-S2 this path
+//     dropped the subscription on the floor, so a first-call failure
+//     required manual resubscribe to self-heal.
 func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topics []string, scope mcp.Selector, filters json.RawMessage, mode string) (*mcp.HookSubscribeResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -183,6 +210,12 @@ func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topi
 
 	var resp mcp.HookSubscribeResponse
 	if err := conn.CallResult(callCtx, mcp.MethodHookSubscribe, req, &resp); err != nil {
+		// Persist desired state so replayHookSubscriptions can retry
+		// on the next successful reconnect. markReplayPending lets
+		// diagnostics distinguish this path from a reconnect-time
+		// retry failure.
+		c.hooks.store(subscriptionID, topics, scope, filters, mode)
+		c.hooks.markReplayPending(err)
 		return nil, err
 	}
 
