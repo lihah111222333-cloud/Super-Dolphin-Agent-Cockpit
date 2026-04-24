@@ -1,6 +1,9 @@
 package archtest
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,15 +44,15 @@ func TestBusCallbackGuard(t *testing.T) {
 		// the owning-slice matchers. Any add/remove in the catalogue must
 		// land in the same PR that flips a matcher red→green.
 		want := []string{
-			"go ",                                        // bare go-statement in callback body
-			"runtimesafe.SafeGo(",                        // SafeGo dispatch from callback
-			"time.Sleep(",                                // blocking sleep
-			"exec.Command(", "exec.CommandContext(",      // process spawn
-			"StartSession(", "StopSession(",              // session lifecycle driven from callback
-			"NotifyConfigChanged(",                       // fan-out config reload
-			"DispatchAfter(",                             // timer-backed slow-path
-			"AddToolReadResult(",                         // NestedRuntime slow read (Finding 10)
-			"os.ReadFile(", "os.WriteFile(",              // synchronous disk I/O
+			"go ",                                   // bare go-statement in callback body
+			"runtimesafe.SafeGo(",                   // SafeGo dispatch from callback
+			"time.Sleep(",                           // blocking sleep
+			"exec.Command(", "exec.CommandContext(", // process spawn
+			"StartSession(", "StopSession(", // session lifecycle driven from callback
+			"NotifyConfigChanged(",          // fan-out config reload
+			"DispatchAfter(",                // timer-backed slow-path
+			"AddToolReadResult(",            // NestedRuntime slow read (Finding 10)
+			"os.ReadFile(", "os.WriteFile(", // synchronous disk I/O
 		}
 		if len(want) == 0 {
 			t.Fatal("bus-callback forbidden token catalogue is empty")
@@ -97,7 +100,6 @@ func TestBusCallbackGuard(t *testing.T) {
 			t.Fatalf("thread/module.go reintroduced pre-P2 late-setter injection from registerSubscriptions; forbidden tokens present: %v", hits)
 		}
 	})
-
 
 	// P2 Finding 7 live matcher: after commit 7837d6b+1 the auto-dream
 	// subscription must only enqueue into autoDreamScheduler; the old fire-
@@ -222,4 +224,84 @@ func TestBusCallbackGuard(t *testing.T) {
 			t.Fatalf("hooks/event_relay.go reintroduced pre-P2 fire-and-forget dispatch on bus callback path; forbidden tokens present: %v", hits)
 		}
 	})
+	t.Run("subscriber_group_ownership_warning", func(t *testing.T) {
+		root := repoRootForGuardTests(t)
+		want := []ownershipHit{
+			{"F-3", "internal/module/memory/module.go", "registerMemoryHooks", "registerLifecycleSubscriptions"},
+			{"F-4", "internal/module/thread/module.go", "registerSubscriptions", "registerThreadSubscriptions"},
+			{"F-5", "internal/platform/cachekeepalive/module.go", "registerKeepaliveLifecycle", "startKeepaliveRelay"},
+			{"F-6", "internal/platform/hooks/module.go", "registerEventRelayLifecycle", "startEventRelay"},
+			{"F-7", "internal/platform/rpc/module.go", "bindEventBridge", "subscribeCoreEventPushes"},
+			{"F-8", "internal/platform/mcpcontrol/module.go", "registerConfigChangeLifecycle", "registerConfigChangeSubscriptions"},
+			{"F-9", "internal/platform/toolbridge/module.go", "registerDiffFallbackLifecycle", "ResilientSubscribe"},
+			{"F-10", "internal/module/insight/module.go", "registerCollectorLifecycle", "subscribe"},
+			{"F-11", "internal/module/turn/observation/module.go", "RegisterSubscribers", "Subscribe"},
+		}
+		for _, hit := range want {
+			line, ok := findCallInFunction(t, root, hit.Path, hit.Symbol, hit.Call)
+			if !ok {
+				t.Logf("[P22.1 WARN] subscriber no-new guard missing TODO-locked call: %+v", hit)
+				t.Fail()
+				continue
+			}
+			t.Logf("[P22.1 WARN] %s %s:%d %s", hit.Finding, hit.Path, line, hit.Symbol)
+		}
+	})
+}
+
+type ownershipHit struct {
+	Finding string
+	Path    string
+	Symbol  string
+	Call    string
+}
+
+func findCallInFunction(t *testing.T, root, rel, symbol, call string) (int, bool) {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filepath.Join(root, filepath.FromSlash(rel)), nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", rel, err)
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != symbol || fn.Body == nil {
+			continue
+		}
+		line, ok := findCallLine(fset, fn.Body, call)
+		if ok {
+			return line, true
+		}
+	}
+	return 0, false
+}
+
+func findCallLine(fset *token.FileSet, node ast.Node, call string) (int, bool) {
+	var line int
+	ast.Inspect(node, func(n ast.Node) bool {
+		if line != 0 || n == nil {
+			return line == 0
+		}
+		ce, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if callName(ce.Fun) == call {
+			line = fset.Position(ce.Pos()).Line
+			return false
+		}
+		return true
+	})
+	return line, line != 0
+}
+
+func callName(expr ast.Expr) string {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		return x.Name
+	case *ast.SelectorExpr:
+		return x.Sel.Name
+	default:
+		return ""
+	}
 }

@@ -166,3 +166,28 @@ func TestLifecycleOnStartGuard(t *testing.T) {
 		}
 	})
 }
+
+func TestShutdownOrdering(t *testing.T) {
+	t.Parallel()
+	root := repoRootForGuardTests(t)
+	line, ok := findCallInFunction(t, root, "internal/app/runner.go", "BindRuntime", "DrainPendingExtraction")
+	if ok {
+		t.Logf("[P22.1 WARN] F-1 internal/app/runner.go:%d BindRuntime", line)
+	}
+	path := filepath.Join(root, "internal", "app", "runner.go")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	src := string(data)
+	drain := strings.Index(src, "DrainPendingExtraction")
+	cancel := strings.Index(src, "cancel()")
+	wait := strings.Index(src, "case <-done:")
+	if drain >= 0 && cancel >= 0 && drain < cancel {
+		t.Logf("[P22.1 WARN] F-1 internal/app/runner.go:%d BindRuntime cancel-before-drain pending Phase 1", line)
+	}
+	if cancel >= 0 && wait >= 0 && cancel > wait {
+		t.Logf("[P22.1 WARN] shutdown no-new guard: cancel appears after RunGroup wait")
+		t.Fail()
+	}
+}
