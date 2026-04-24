@@ -393,22 +393,25 @@ func registerMemoryHooks(p memoryHookParams) {
 			cancels = append(cancels, cancel)
 		}
 	}
+	// P22 P2 Finding 7: the auto-dream scheduler is the single owner of the
+	// thread.stopped -> maybeScheduleAutoDream slow-path. Constructing it here
+	// (before Lifecycle.Append runs) lets OnStart start the worker and the
+	// bus subscription capture the same instance; OnStop drains it before
+	// the subscriptions are cancelled.
+	var scheduler *autoDreamScheduler
+	if p.Hooks != nil {
+		scheduler = newAutoDreamScheduler(p.Hooks, pkglogger.Get())
+	}
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			registerLifecycleSubscriptions(p, appendCancel)
+			if scheduler != nil {
+				scheduler.Start()
+			}
+			registerLifecycleSubscriptions(p, scheduler, appendCancel)
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			if p.Hooks != nil {
-				p.Hooks.killDreamTask()
-				waitCtx := ctx
-				if waitCtx == nil {
-					waitCtx = context.Background()
-				}
-				if err := p.Hooks.waitDreamTask(waitCtx); err != nil && !errors.Is(err, context.Canceled) {
-					pkglogger.Get().Warn("memory: dream task drain failed", "error", err)
-				}
-			}
+			drainMemoryHooks(ctx, scheduler, p.Hooks)
 			cancelSubscriptions(cancels)
 			cancels = nil
 			return nil
@@ -416,11 +419,36 @@ func registerMemoryHooks(p memoryHookParams) {
 	})
 }
 
-func registerLifecycleSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
+// drainMemoryHooks executes the OnStop drain sequence split out of
+// registerMemoryHooks so the hook itself stays under the CC guard: first the
+// auto-dream scheduler (gate close + worker drain), then the legacy dream
+// task (killDreamTask + waitDreamTask). Order is load-bearing: the scheduler
+// must stop publishing new work before killDreamTask cancels the in-flight
+// consolidator.
+func drainMemoryHooks(ctx context.Context, scheduler *autoDreamScheduler, hooks *MemoryLifecycleHooks) {
+	if scheduler != nil {
+		if err := scheduler.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			pkglogger.Get().Warn("memory: auto-dream scheduler drain failed", "error", err)
+		}
+	}
+	if hooks == nil {
+		return
+	}
+	hooks.killDreamTask()
+	waitCtx := ctx
+	if waitCtx == nil {
+		waitCtx = context.Background()
+	}
+	if err := hooks.waitDreamTask(waitCtx); err != nil && !errors.Is(err, context.Canceled) {
+		pkglogger.Get().Warn("memory: dream task drain failed", "error", err)
+	}
+}
+
+func registerLifecycleSubscriptions(p memoryHookParams, scheduler *autoDreamScheduler, appendCancel func(context.CancelFunc)) {
 	registerThreadHookSubscriptions(p, appendCancel)
 	registerBackgroundExtractionSubscriptions(p, appendCancel)
 	registerContextProviderSubscriptions(p, appendCancel)
-	registerAutoDreamSubscriptions(p, appendCancel)
+	registerAutoDreamSubscriptions(p, scheduler, appendCancel)
 }
 
 func registerBackgroundExtractionSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {

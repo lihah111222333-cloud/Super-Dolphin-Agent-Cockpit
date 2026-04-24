@@ -1,6 +1,11 @@
 package archtest
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // TestBusCallbackGuard is the P22 bus-subscriber callback slow-path guard
 // shell (P0 骨架; see docs/plans/迁移/p22/P0_RuntimeOwnershipSkeleton.md
@@ -68,10 +73,6 @@ func TestBusCallbackGuard(t *testing.T) {
 			owningSlice: "P2 (Finding 5, memory TeamSync)",
 		},
 		{
-			name:        "bus_callback_must_not_schedule_auto_dream",
-			owningSlice: "P2 (Finding 7, auto-dream scheduler)",
-		},
-		{
 			name:        "bus_callback_must_not_do_synchronous_file_io",
 			owningSlice: "P2 (Finding 10, NestedRuntime tool-read)",
 		},
@@ -92,4 +93,33 @@ func TestBusCallbackGuard(t *testing.T) {
 			t.Skipf("matcher skeleton only; owning slice will flip red→green: %s", tc.owningSlice)
 		})
 	}
+
+	// P2 Finding 7 live matcher: after commit 7837d6b+1 the auto-dream
+	// subscription must only enqueue into autoDreamScheduler; the old fire-
+	// and-forget path (onThreadStopped + `go maybeScheduleAutoDream`) is
+	// forbidden from reappearing in internal/module/memory/auto_dream_task.go.
+	t.Run("bus_callback_must_not_schedule_auto_dream", func(t *testing.T) {
+		t.Parallel()
+		root := repoRootForGuardTests(t)
+		path := filepath.Join(root, "internal", "module", "memory", "auto_dream_task.go")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		src := string(data)
+		forbidden := []string{
+			"func (h *MemoryLifecycleHooks) onThreadStopped",
+			"go func() {\n\t\tif _, err := h.maybeScheduleAutoDream",
+			"p.Hooks.onThreadStopped(",
+		}
+		var hits []string
+		for _, token := range forbidden {
+			if strings.Contains(src, token) {
+				hits = append(hits, token)
+			}
+		}
+		if len(hits) > 0 {
+			t.Fatalf("auto_dream_task.go reintroduced pre-P2 fire-and-forget auto-dream scheduling; forbidden tokens present: %v", hits)
+		}
+	})
 }
