@@ -11,6 +11,18 @@
 > 输入：C3 §10.30 调研 11 处违例、`docs/1/会话习惯.md §10.30`、`docs/plans/迁移/p22/*`、HEAD LSP 核验  
 > 关联文档：[`FINDINGS.md`](FINDINGS.md) · [`DAG.md`](DAG.md) · [`GATE_CONTRACTS.md`](GATE_CONTRACTS.md)
 
+## 范围声明（2026-04-25 HEAD 修订）
+
+**In-scope**：本 P22.1 lane 只处理 §10.30 三层分工 11 处违例（F-1~F-11）、R10.6 代码层 deferred 债中仍与本 lane 重叠的剩余项（尤其 #8 shutdown/root bridge、#10 契约命名债的 P22.1 gate 口径），以及 `runner.actors` vs `group:"runners"` 的契约命名债登记。
+
+**Out-of-scope / 已由其它 lane 销账**：
+
+- §7.5.1 overlay 已销账的 6 条不重开：archtest 3 live failure、`waitDreamTask` prod caller、`NewRelevantMemoryFinder` prod caller、TeamSync Pull/Push API 收敛、`ErrThreadRuntimeRequired`/`ErrMissingCWD` 0 命中、`registerMemoryHooks.OnStop` drain 行为、`PersistentSubagentDefault=true` 默认值。
+- P22 主线已完成的 P1a/P1b/P1c 不在本 lane 重做；P22.1 只借鉴其 owner/drain 模式。
+- Z-B toolbridge hidden contract（commit 10 已合入的 flag fallback / fail-closed 问题）不在本 lane 修改；本 lane 只处理 F-9 diff fallback subscriber ownership。
+
+**§10.41-§10.43 呼应**：P22.1 本轮文档是 R1/R2/R3 独立终审后的主体修订产物（§10.41）；后续 DAG 必须按 write-set 冲突限制并行度（§10.42）；锚点漂移、状态漂移、数字漂移均按 §10.43 追加 HEAD drift note 或“旧值 → 新值”标注，不整段删除历史叙事。
+
 ## 1. 目标
 
 P22.1 的目标是把全仓 `§10.30 fx / bus / run.Group 三层分工铁律` 收口到可静态守卫、可动态验收、可持续回归的状态：
@@ -36,7 +48,7 @@ P22.1 的目标是把全仓 `§10.30 fx / bus / run.Group 三层分工铁律` �
 - 定义 `bus.subscribers` 的统一注册 contract：subscriber 只返回 declarative registration / cancel owner，不在业务 module lifecycle 里直接订阅。
 - 定义 RunnerModule contract：长跑 worker 统一包装成 `platformrunner.Runner` 或等价 actor，统一由 `group:"runners"` 收集。
 - 建立 allowlist 结构：root runtime bridge 与 session-private runtime 例外只允许精确命中，不允许按整文件放行。
-- 产出初版 archtest：见 [`GATE_CONTRACTS.md#testbussubscribergroup`](GATE_CONTRACTS.md#testbussubscribergroup) 与 [`GATE_CONTRACTS.md#testrunneractorownership`](GATE_CONTRACTS.md#testrunneractorownership)。
+- 产出初版 archtest：见 [`GATE_CONTRACTS.md`](GATE_CONTRACTS.md)（2026-04-25 HEAD 修订：旧精确锚点 `#testbussubscribergroup` / `#testrunneractorownership` 为死锚点，改为文件级链接；实际 gate 标题见 `## 2. TestBusSubscriberGroup`、`## 3. TestRunnerActorOwnership`）。
 
 ### Phase 1：Root bridge shutdown 顺序调整（`internal/app/runner.go`）
 
@@ -124,3 +136,15 @@ Phase 0：contract + archtest skeleton
 ## 9. Findings 索引
 
 11 条逐条证据见 [`FINDINGS.md#2-findings-逐条`](FINDINGS.md#2-findings-逐条)。子任务拆分见 [`DAG.md#2-子任务-dag`](DAG.md#2-子任务-dag)。硬契约见 [`GATE_CONTRACTS.md#1-archtest-gate-总表`](GATE_CONTRACTS.md#1-archtest-gate-总表)。
+
+## 红队仲裁（2026-04-25）
+详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md`。  
+整体裁决：🟢 READY / 🟠 NEEDS-FIX / 🔴 BLOCK（以 JUDGEMENT.md §7 为准）。
+
+## R2 发现仍未销账项（2026-04-25 HEAD drift note）
+详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md` §R2。R2 仲裁结论：🔴 R2 BLOCK。README 仍需只加不删补齐范围声明（P22.1 仅覆盖 §10.30 owner 债；R10.6 #2/#10 另列 out-of-scope/follow-up）、修正两个 Gate 锚点，并把 §10.41-§10.43 呼应落入主体。
+
+
+## R4 BLOCK drift note（2026-04-25）
+
+详见 `docs/plans/迁移/p22/p22.1/JUDGEMENT.md` §R4。R4 仲裁结论：🔴 P22.1 BLOCK（最终合入/派代码就绪度 BLOCK；FINDINGS 真实性本身为 X1 全绿）。本文件中早前“以 JUDGEMENT.md §7 为准”的句子为 R1 历史入口；当前状态只加不删按最新追加节解释：§7/§R2/§R3 为历史裁决，当前以 §R4 及后续追加节为准。阻断项集中在 DAG Phase 0 implementation spec 与 GATE archtest/symbol 细节，未要求改代码。

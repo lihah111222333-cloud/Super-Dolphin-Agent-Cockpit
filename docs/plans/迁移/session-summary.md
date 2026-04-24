@@ -666,3 +666,66 @@ runtime 传回 `claude-opus-4-7[1m]` → canonicalize 到 `opus[1m]` → 下拉�
 - 前端 2 条 size-guard 超限函数老债可单起 refactor
 
 
+
+---
+
+## 8. 2026-04-25 P20/P21/P22 闭环 + P22.1 子任务成形（本次追加）
+
+> 会话范围：(a) 20 路 codex 调研 P20/P21/P22 完成度；(b) 12 BLOCK + 12 NEEDS-FIX + 5 文档漂移裁决（Z 独立终审 OVERTURN/UPGRADE 各 1 条）；(c) 6 路 F agent 实施 + 8 commit push origin/main；(d) 4 路 G agent 修遗留（N-10 生产接线 / Z-B toolbridge flag fail-closed / P23 规划 / workspace 测试荒岛）；(e) M1 P23 → P22.1 归属迁移；(f) 4 路 GC 第二轮 commit；(g) P22.1 文档 R1-R4 迭代闭环（W×4 / J / E1 / X×4 / Y×4 最终验收）。
+
+### 8.1 第一批 commit（已 push origin/main）
+
+| agent/范围 | commit | subject |
+|---|---:|---|
+| F5 phase1 | `96cd28b` | `phase1 dashboard owns insight RPC` |
+| F5 phase2 | `f3b8a15` | `phase2 align cron timers recovery leases` |
+| F5 phase3 | `f884efe` | `phase3 route stop exits through monitor` |
+| F5 patch | `6e66b41` | `patch drain stop exit monitor handling` |
+| F1 | `2ff69c9` | `fix(skill/p20.1+p21-p0): 补齐 artifact approval gate 与 system scope review` |
+| F2/F4 | `6440092` | `fix(prompt+frontend/p20.1+p20.15): 默认值、fallback 与 CWD` |
+| F3 | `dcc8dcd` | `fix(codexapp+thread/p21-p1a): identity 与 runtime fail-closed` |
+| F6 | `1e74c3d` | `fix(notify/p21-p2): 修正 mention 抑制顺序 + signed URL 日志脱敏` |
+
+### 8.2 第二批 commit（G1/G2/G4/M1，GC 第二轮执行）
+
+| agent/范围 | commit | subject |
+|---|---:|---|
+| G1 / N-10 生产接线 | `c75a51f` | `feat(turn/obs): 接线 Canonical Contract 与 raw dedupe` |
+| G2 / Z-B toolbridge flag | `80d97b6` | `fix(toolbridge): persistent subagent flag fail-closed` |
+| G4 / workspace 测试荒岛 | `343dabc` | `test(workspace): 补齐 handler 级测试覆盖荒岛 6 条` |
+| M1 / P23 归属迁移 | `8269070` | `docs(p22.1): P23 规划文档归属为 P22.1 架构债子任务` |
+
+> GC 第二轮已见上述 4 个 commit 落在 `git log --oneline -20`；另有 `95aab5a fix(prompt): update e2e memory-section assertion to combined-mode order` 为 prompt e2e assertion follow-up，未计入 G1/G2/G4/M1 四项表。
+
+### 8.3 P22.1 架构债子任务归属（P22 R10 deferred 遗留）
+
+- 归属来源：`JUDGEMENT_R8_QA.md` §R10.6 + `JUDGEMENT_R8_QC.md` §7 + §10.30 三层分工铁律
+- 4 份主体 + `JUDGEMENT.md`（R1-R4 仲裁轨迹）+ `R2_CORRECTIONS.md` 落盘
+- §10.31 全历史保留：`JUDGEMENT.md` 行 1-386 SHA256 = `8dc1a2a3d8b801975a9697c82b5ada4c5cf6c9b9ca0146229cc13edc7d1a9cce`
+- §2.2.1 Phase 0 file-level write-set 冻结已落（Y3 补项）
+- 最终判定：🟢 合入就绪，可派 Phase 0 单 owner 实施 agent
+
+### 8.4 遗留代码债（本会话未修，作 follow-up）
+
+- P22.1 Phase 0/1/2/3 代码层 11 违例修复（文档 ready，代码 0）
+- §10.30 全仓 11 处违例（即 P22.1 F-1~F-11，同一批）
+- `runner.actors` vs `group:"runners"` 契约命名债（`docs/契约/*` 另起 lane）
+
+### 8.5 Agent 使用统计
+
+- 本会话累计约 **49 路 agent**：20 路 P20/P21/P22 调研 + 1 路 Z 独立终审 + 6 路 F 实施 + 4 路 G 遗留修复 + 4 路 GC 第二轮执行 + 14 路 P22.1 文档 W/J/E/X/Y 迭代。
+- 多轮迭代：P22 裁决/实施 2 批；P22.1 文档 R1→R2→R3→R4 + Y 最终验收；R2/R3/R4 均含销账复核而非重扫。
+- OVERTURN/UPGRADE/REINSTATE：Z 独立终审明确 OVERTURN 1 条、UPGRADE 1 条；P22.1 W 轮保留 REINSTATE 能力并用于独立权重，不因 E 反驳自动撤销。
+
+### 8.6 子 Agent 提示词模式（本会话治成）
+
+- §10.16 显眼标签：首行写明“第 N 轮：修订后复审（只审不改）”，防止 agent 重跑上一轮或改文档。
+- 5 级分类：`BLOCK / NEEDS-FIX / TRUE-BUT-DEFERRED / DOC-DRIFT / PASS` 分层，避免把 HEAD 漂移误判为当前阻塞。
+- SHA 硬锁：每轮仲裁前记录历史前缀 SHA256；新增 §R(N+1) 只能末尾追加，追加后复算旧行范围。
+- 独立性声明：终审/复核 agent 必须说明未参与前轮、保留一票否决权与 REINSTATE 权重。
+- 防 §10.40 空跑：派单与收报告均要求 before/after diff、`git diff --stat`、关键 grep/xref/LSP 证据；空 report 但 state=idle 需按 §10.45 区分 orchestration 异常与 0 改动谎报。
+
+### 8.7 下一步建议
+
+- 派 Phase 0 单 owner 实施 agent（按 `docs/plans/迁移/p22/p22.1/DAG.md` §2.2.1 精确 write-set）
+- 或先 commit + push P22.1 文档 + §R6 + §2.2.1 修订
