@@ -2,6 +2,33 @@ export function normalizeProviderConfigValue(value) {
   return (value || '').toString().trim();
 }
 
+// Claude CLI accepts both short aliases (opus/sonnet/haiku resolve to latest
+// version on Anthropic's side) and explicit version slugs (claude-opus-4-6[1m]).
+// 4.7 options use short aliases (they auto-track latest); 4.6 options use
+// explicit long slugs so users can pin to 4.6 even after further upgrades.
+// Canonicalize the 4.7 long slugs that orchestration_launch_agent historically
+// writes into runtime — they collapse back to the short alias so the dropdown
+// highlights an existing row instead of appending a raw long slug.
+const CLAUDE_LONG_TO_SHORT = Object.freeze({
+  'claude-opus-4-7': 'opus',
+  'claude-opus-4-7[1m]': 'opus[1m]',
+  'claude-sonnet-4-7': 'sonnet',
+  'claude-sonnet-4-7[1m]': 'sonnet[1m]',
+  'claude-haiku-4-5': 'haiku',
+});
+
+export function canonicalizeClaudeModelValue(value) {
+  const normalized = normalizeProviderConfigValue(value);
+  return CLAUDE_LONG_TO_SHORT[normalized] || normalized;
+}
+
+export function canonicalizeModelValue(providerKey, value) {
+  if (normalizeProviderConfigValue(providerKey) === 'claude') {
+    return canonicalizeClaudeModelValue(value);
+  }
+  return normalizeProviderConfigValue(value);
+}
+
 export const MODEL_OPTIONS_BY_PROVIDER = Object.freeze({
   codex: Object.freeze([
     { value: 'gpt-5.4', label: 'GPT-5.4' },
@@ -10,11 +37,14 @@ export const MODEL_OPTIONS_BY_PROVIDER = Object.freeze({
     { value: 'gpt-5.2', label: 'GPT-5.2' },
   ]),
   claude: Object.freeze([
-    { value: 'best', label: 'Best（Opus 4.6）' },
-    { value: 'opus', label: 'Opus 4.6' },
-    { value: 'opus[1m]', label: 'Opus 4.6 [1M]' },
-    { value: 'sonnet', label: 'Sonnet 4.6' },
-    { value: 'sonnet[1m]', label: 'Sonnet 4.6 [1M]' },
+    { value: 'opus', label: 'Opus 4.7' },
+    { value: 'opus[1m]', label: 'Opus 4.7 [1M]' },
+    { value: 'claude-opus-4-6', label: 'Opus 4.6' },
+    { value: 'claude-opus-4-6[1m]', label: 'Opus 4.6 [1M]' },
+    { value: 'sonnet', label: 'Sonnet 4.7' },
+    { value: 'sonnet[1m]', label: 'Sonnet 4.7 [1M]' },
+    { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    { value: 'claude-sonnet-4-6[1m]', label: 'Sonnet 4.6 [1M]' },
     { value: 'haiku', label: 'Haiku 4.5' },
   ]),
 });

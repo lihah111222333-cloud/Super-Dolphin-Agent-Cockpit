@@ -1,6 +1,7 @@
 import { computed, onMounted, reactive, ref, watch } from '../../../lib/vue.esm-browser.prod.js';
 import {
   appendCurrentOption,
+  canonicalizeModelValue,
   EFFORT_MODES,
   EFFORT_MODES_BY_PROVIDER,
   isClaudeOpusFamilyModel,
@@ -9,6 +10,7 @@ import {
   normalizeProviderConfigValue,
 } from '../../provider-config-options.js';
 import { callAPI } from '../../services/api.js';
+import { logWarn } from '../../services/log.js';
 import { useSettingsScope } from './useSettingsScope.ts';
 
 type ProviderSettingsProjectStore = { state?: { active?: string } } | null;
@@ -84,12 +86,25 @@ function setupProviderSettings(props: ProviderSettingsProps) {
   }
 
   const normalizedActiveProvider = computed(() => normalizeProviderID(activeProvider.value));
-  const providerModelOptions = computed(() =>
-    appendCurrentOption(
-      MODEL_OPTIONS_BY_PROVIDER[normalizedActiveProvider.value] || MODEL_OPTIONS,
-      providerModel.value,
-    )
-  );
+  const providerModelOptions = computed(() => {
+    const providerKey = normalizedActiveProvider.value;
+    const matched = MODEL_OPTIONS_BY_PROVIDER[providerKey];
+    if (!matched) {
+      logWarn('provider.config', 'provider_settings.model_options.fallback', {
+        raw_provider: activeProvider.value,
+        normalized_provider: providerKey,
+        provider_model: providerModel.value,
+        fallback_to: 'MODEL_OPTIONS(codex)',
+      });
+    }
+    // Canonicalize long slugs back to short aliases so the dropdown highlights
+    // the correct existing option instead of appending a raw long slug.
+    const canonicalModel = canonicalizeModelValue(providerKey, providerModel.value);
+    return appendCurrentOption(
+      matched || MODEL_OPTIONS,
+      canonicalModel,
+    );
+  });
   const providerEffortOptions = computed(() => {
     const baseOptions = EFFORT_MODES_BY_PROVIDER[normalizedActiveProvider.value] || EFFORT_MODES;
     const filteredOptions = normalizedActiveProvider.value === 'claude' && !isClaudeOpusFamilyModel(providerModel.value)
@@ -274,6 +289,16 @@ function setupProviderSettings(props: ProviderSettingsProps) {
     providerModel.value = nextModel;
     effortMode.value = normalizeProviderEffortValue(normalizedProviderID, nextModel, effortValue || defaults.effort);
     personality.value = normalizeProviderConfigValue(personalityValue) || DEFAULT_PERSONALITY;
+    const currentOptionValues = providerModelOptions.value.map((o) => o.value);
+    logWarn('provider.config', 'provider_settings.loaded', {
+      normalized_provider: normalizedProviderID,
+      active_provider_raw: activeProvider.value,
+      provider_model: providerModel.value,
+      model_pref_raw: modelValue,
+      effort_mode: effortMode.value,
+      model_options: currentOptionValues,
+      model_options_count: currentOptionValues.length,
+    });
   }
 
   async function loadProviderSettings(): Promise<void> {

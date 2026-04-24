@@ -95,6 +95,23 @@ async function flushAsync() {
   await Promise.resolve();
 }
 
+async function startThreadUntilSync(store, res, runtime = {}) {
+  let releaseSync = () => {};
+  const syncGate = new Promise((resolve) => { releaseSync = resolve; });
+  store.state.agentRuntimeById = runtime;
+  apiMock.callAPI.mockImplementation(async (method, payload) => {
+    if (method === 'ui/preferences/get') return payload?.key === 'settings.activePromptKey' ? '' : false;
+    if (method === 'config/builtinTools/read') return {};
+    if (method === 'thread/start') return res;
+    if (method === 'ui/state/get') { await syncGate; return buildSnapshot({ threadId: res?.thread?.id || 'thread-new', activeThreadId: '' }); }
+    if (method === 'ui/preferences/set') return {};
+    return {};
+  });
+  const pending = store.startThread('/repo', {});
+  for (let i = 0; i < 10 && !apiMock.callAPI.mock.calls.some(([method]) => method === 'ui/state/get'); i += 1) await flushAsync();
+  return { pending, releaseSync };
+}
+
 describe('thread store actions', () => {
   beforeEach(() => {
     apiMock.callAPI.mockReset();
@@ -358,6 +375,34 @@ describe('thread store actions', () => {
     const call = apiMock.callAPI.mock.calls.find(([method]) => method === 'thread/start');
     expect(call).toBeDefined();
     expect(call[1]).not.toHaveProperty('use_classifier');
+  });
+
+  it.each([
+    ['provider', { thread: { id: 'thread-claude' }, provider: 'claude' }, 'claude', true],
+    ['modelProvider fallback', { thread: { id: 'thread-codex' }, provider: '', modelProvider: 'codex' }, 'codex', true],
+    ['empty provider', { thread: { id: 'thread-empty' }, provider: '', modelProvider: '' }, '', false],
+  ])('startThread sync gap: %s', async (_, res, expected, written) => {
+    const store = useThreadStore();
+    const { pending, releaseSync } = await startThreadUntilSync(store, res);
+    try {
+      const id = res.thread.id;
+      if (written) expect(store.state.agentRuntimeById[id]?.provider).toBe(expected);
+      else expect(store.state.agentRuntimeById).not.toHaveProperty(id);
+    } finally {
+      releaseSync();
+      await pending;
+    }
+  });
+
+  it('startThread overwrites an existing runtime provider with fresh response data', async () => {
+    const store = useThreadStore();
+    const { pending, releaseSync } = await startThreadUntilSync(store, { thread: { id: 'thread-overwrite' }, provider: 'codex' }, { 'thread-overwrite': { provider: 'claude', cwd: '/repo' } });
+    try {
+      expect(store.state.agentRuntimeById['thread-overwrite']).toEqual(expect.objectContaining({ provider: 'codex', cwd: '/repo' }));
+    } finally {
+      releaseSync();
+      await pending;
+    }
   });
 
   it('gets and sets thread config via dedicated backend RPCs', async () => {

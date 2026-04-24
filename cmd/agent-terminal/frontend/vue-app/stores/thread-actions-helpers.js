@@ -362,6 +362,12 @@ export function setThreadPendingLaunch(threadId, pending) {
   else _pendingLaunchByThread.delete(threadId);
 }
 
+function getStartResponseProvider(res) {
+  const provider = (res?.provider || '').toString().trim();
+  if (provider) return provider;
+  return (res?.modelProvider || res?.model_provider || '').toString().trim();
+}
+
 export async function startThread(ctx, cwd = '.', options = {}) {
   const { callAPI, logInfo } = ctx;
   const start = perfNow();
@@ -455,6 +461,14 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     typeof res?.prompt_version_id === 'number' ? res.prompt_version_id
     : typeof res?.promptVersionId === 'number' ? res.promptVersionId
     : null;
+  const responseProvider = getStartResponseProvider(res);
+  if (responseProvider) {
+    const prevRuntime = (ctx.state.agentRuntimeById?.[id] && typeof ctx.state.agentRuntimeById[id] === 'object') ? ctx.state.agentRuntimeById[id] : {};
+    ctx.state.agentRuntimeById = {
+      ...ctx.state.agentRuntimeById,
+      [id]: { ...prevRuntime, provider: responseProvider },
+    };
+  }
   if (agentKey || agentTitle || promptKey || promptVersionId != null) {
     _routingByThread.set(id, {
       agentKey,
