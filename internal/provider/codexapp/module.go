@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strconv"
@@ -79,6 +80,40 @@ type ServerManagerParams struct {
 	fx.In
 	Lifecycle   fx.Lifecycle
 	PIDRegistry *pidregistry.Registry
+}
+
+// ServerPoolParams carries the fx dependencies for provideServerPool.
+// The logger and pid registry are optional so downstream consumers can
+// construct the pool in tests without wiring the full app graph.
+type ServerPoolParams struct {
+	fx.In
+
+	Lifecycle   fx.Lifecycle
+	Logger      *slog.Logger          `optional:"true"`
+	PIDRegistry *pidregistry.Registry `optional:"true"`
+}
+
+// provideServerPool builds a production ServerPool using the
+// transport-backed Spawner. The pool is closed on fx Stop so every
+// remaining app-server child receives SIGTERM before the process tree
+// tears down.
+//
+// The pool is intentionally provided independently of the legacy
+// ServerManager. Consumers that opt into pool-backed spawning will
+// take *ServerPool via fx; existing consumers keep talking to
+// ServerManager unchanged. That split lets the cutover land in a
+// follow-up PR once we have real codex-binary validation.
+func provideServerPool(p ServerPoolParams) *ServerPool {
+	logger := p.Logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	spawner := NewTransportSpawner(p.PIDRegistry, logger)
+	pool := NewServerPool(logger, spawner, PoolConfig{})
+	p.Lifecycle.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error { return pool.Close(ctx) },
+	})
+	return pool
 }
 
 // NewServerManager creates and registers a ServerManager with the fx lifecycle.

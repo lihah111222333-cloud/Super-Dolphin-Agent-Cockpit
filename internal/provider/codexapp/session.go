@@ -74,8 +74,31 @@ func newSession(
 	dispatcher *unified.EventDispatcher,
 	approvals *rpc.ApprovalManager,
 	manager *ServerManager,
+) (*session, error) {
+	return newSessionWithOptions(
+		transportCtx,
+		logger,
+		serverURL,
+		agentID,
+		dispatcher,
+		approvals,
+		manager,
+	)
+}
+
+func newSessionWithOptions(
+	transportCtx context.Context,
+	logger *slog.Logger,
+	serverURL string,
+	agentID string,
+	dispatcher *unified.EventDispatcher,
+	approvals *rpc.ApprovalManager,
+	manager *ServerManager,
 	opts ...sessionOption,
 ) (*session, error) {
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
 	cfg := sessionOptions{}
 	for _, opt := range opts {
 		opt(&cfg)

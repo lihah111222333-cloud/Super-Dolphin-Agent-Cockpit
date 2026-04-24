@@ -20,6 +20,7 @@ import (
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
@@ -51,6 +52,15 @@ type promptProviderParams struct {
 	Provider          *MemoryRulesProvider                     `optional:"true"`
 	AgentProvider     *memagent.PromptProvider                 `optional:"true"`
 	ContextProvider   *MemoryContextProvider                   `optional:"true"`
+}
+
+type memoryHandlerDeps struct {
+	fx.In
+
+	Service            Service                     `optional:"true"`
+	SharedFiles        sharedfilestore.Reader      `optional:"true"`
+	SharedFilesDeleter sharedfilestore.Deleter     `optional:"true"`
+	Sections           contract.SectionInvalidator `optional:"true"`
 }
 
 type historySource interface {

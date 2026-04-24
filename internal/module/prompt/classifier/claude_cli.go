@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 // claudeCLIClassifier runs `claude -p --model <model>` as a subprocess, feeds
@@ -56,7 +58,7 @@ func (c *claudeCLIClassifier) Classify(ctx context.Context, in Input) (Result, e
 	}
 
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	ctx, cancel := platformconfig.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	prompt := buildClassifierPrompt(in)

@@ -11,9 +11,13 @@ const briefSectionText = `# Brief Mode
 - If you need tool work, acknowledge briefly, do the work, then return the result.
 - Apply this together with Output Style and output_efficiency; if they differ, follow the stricter brevity constraint without contradicting the requested style.`
 
+const summarizeToolResultsSectionText = `When working with tool results, write down any important information you might need later in your response, as the original tool result may be cleared later.`
+
 var _ DynamicSectionProvider = BriefProvider{}
+var _ DynamicSectionProvider = SummarizeToolResultsProvider{}
 
 type BriefProvider struct{}
+type SummarizeToolResultsProvider struct{}
 
 func (BriefProvider) SectionName() string {
 	return DynamicSectionBrief
@@ -24,6 +28,15 @@ func (BriefProvider) Resolve(_ context.Context, input SectionContext) (*string, 
 		return nil, nil
 	}
 	text := briefSectionText
+	return &text, nil
+}
+
+func (SummarizeToolResultsProvider) SectionName() string {
+	return DynamicSectionSummarizeToolResults
+}
+
+func (SummarizeToolResultsProvider) Resolve(context.Context, SectionContext) (*string, error) {
+	text := summarizeToolResultsSectionText
 	return &text, nil
 }
 

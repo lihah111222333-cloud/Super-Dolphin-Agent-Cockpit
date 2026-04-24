@@ -11,24 +11,13 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/creachadair/jrpc2/handler"
-	"go.uber.org/fx"
 )
 
 const uiMemoryPreviewLimit = 320
 
 type uiMemoryGetParams struct {
 	CWD string `json:"cwd,omitempty"`
-}
-
-type memoryHandlerDeps struct {
-	fx.In
-
-	Service            Service                     `optional:"true"`
-	SharedFiles        sharedfilestore.Reader      `optional:"true"`
-	SharedFilesDeleter sharedfilestore.Deleter     `optional:"true"`
-	Sections           contract.SectionInvalidator `optional:"true"`
 }
 
 type UIMemorySnapshot struct {
