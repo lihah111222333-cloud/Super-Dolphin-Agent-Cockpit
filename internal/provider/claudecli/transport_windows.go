@@ -76,7 +76,10 @@ func signalClaudeProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) err
 	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
-	pid := cmd.Process.Pid
+	return terminateByPid(cmd.Process.Pid)
+}
+
+func terminateByPid(pid int) error {
 	if pid <= 0 {
 		return errors.New("invalid claude pid")
 	}
@@ -104,7 +107,7 @@ func createKillOnCloseJob() (windows.Handle, error) {
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
 		BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
-			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+			LimitFlags: 0x2000, // windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 		},
 	}
 	if _, err := windows.SetInformationJobObject(
