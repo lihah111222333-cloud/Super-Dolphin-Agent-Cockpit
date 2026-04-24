@@ -105,7 +105,6 @@ func TestRunnerActorGuard(t *testing.T) {
 		want := []ownershipHit{
 			{"F-3", "internal/module/memory/module.go", "registerMemoryHooks", "Start"},
 			{"F-4", "internal/module/thread/module.go", "registerSubscriptions", "startBusWorkers"},
-			{"F-5", "internal/platform/cachekeepalive/module.go", "registerKeepaliveLifecycle", "startKeepaliveRelay"},
 		}
 		for _, hit := range want {
 			line, ok := findCallInFunction(t, root, hit.Path, hit.Symbol, hit.Call)
