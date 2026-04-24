@@ -8,6 +8,7 @@ import {
   MODEL_OPTIONS,
   MODEL_OPTIONS_BY_PROVIDER,
   normalizeProviderConfigValue,
+  getProviderDefaultConfig,
 } from '../provider-config-options.js';
 
 function normalizeThreadConfigValue(value) {
@@ -37,8 +38,12 @@ export function useComposerThreadConfig(props, emit) {
   const selectedThreadConfigEffort = computed(() => draftEffort.value || overrideEffort.value || effectiveEffort.value);
   const normalizedSelectedThreadConfigEffort = computed(() => {
     const currentEffort = normalizeThreadConfigValue(selectedThreadConfigEffort.value);
+    const provider = normalizedThreadConfigProvider.value;
+    if (!currentEffort) {
+      return getProviderDefaultConfig(provider).effort;
+    }
     if (
-      normalizedThreadConfigProvider.value === 'claude' &&
+      provider === 'claude' &&
       currentEffort.toLowerCase() === 'max' &&
       !isClaudeOpusFamilyModel(selectedThreadConfigModel.value)
     ) {
@@ -95,13 +100,11 @@ export function useComposerThreadConfig(props, emit) {
 
   const threadConfigSummaryLabel = computed(() => {
     if (threadConfigInherited.value) {
-      // Prefer effective values; fall back to the full selection chain
-      // (draft → override → effective → runtime) so the label never
-      // shows bare "继承全局" when a concrete model is available.
+      // Show model name + effort directly without "(继承全局)" suffix.
       const model = effectiveModel.value || selectedThreadConfigModel.value;
       const effort = effectiveEffort.value || normalizedSelectedThreadConfigEffort.value;
       const parts = [shortModelLabel(model), effort].filter(Boolean);
-      return parts.length > 0 ? `${parts.join(' · ')} (继承全局)` : '继承全局';
+      return parts.length > 0 ? parts.join(' · ') : '';
     }
     const model = overrideModel.value || effectiveModel.value || '';
     const effort = overrideEffort.value || effectiveEffort.value || '';

@@ -100,7 +100,11 @@ async function startThreadUntilSync(store, res, runtime = {}) {
   const syncGate = new Promise((resolve) => { releaseSync = resolve; });
   store.state.agentRuntimeById = runtime;
   apiMock.callAPI.mockImplementation(async (method, payload) => {
-    if (method === 'ui/preferences/get') return payload?.key === 'settings.activePromptKey' ? '' : false;
+    if (method === 'ui/preferences/get') {
+      if (payload?.key === 'settings.activePromptKey') return '';
+      if (payload?.key === 'settings.provider.active') return 'codex';
+      return false;
+    }
     if (method === 'config/builtinTools/read') return {};
     if (method === 'thread/start') return res;
     if (method === 'ui/state/get') { await syncGate; return buildSnapshot({ threadId: res?.thread?.id || 'thread-new', activeThreadId: '' }); }
