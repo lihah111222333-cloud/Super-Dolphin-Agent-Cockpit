@@ -17,7 +17,7 @@ const defaultStartProvider = "codex"
 
 func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 	req = trimStartRequest(req)
-	req.Name = normalizeStartDisplayName(shared.FirstNonEmpty(req.Name, req.Prompt))
+	req.Name = normalizeStartDisplayName(req.Name)
 	if req.AgentID == "" {
 		req.AgentID = shared.NewID("agent")
 	}

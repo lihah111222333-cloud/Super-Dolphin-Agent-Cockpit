@@ -74,19 +74,25 @@ func TestStartParamsKeepLegacyAliases(t *testing.T) {
 	if params.ParentAgentID != "agent-root" || params.AgentType != "worker" || params.AgentMemoryScope != "project" {
 		t.Fatalf("legacy agent fields = %#v", params)
 	}
-	if params.Name != "legacy prompt" || params.Prompt != "legacy prompt" {
-		t.Fatalf("legacy display name = %#v", params)
+	if params.Name != "" {
+		t.Fatalf("Name should be empty when only prompt is set, got %q", params.Name)
+	}
+	if params.Prompt != "legacy prompt" {
+		t.Fatalf("legacy prompt = %#v", params)
 	}
 }
 
-func TestStartParamsPromptOnlyPopulatesName(t *testing.T) {
+func TestStartParamsPromptDoesNotPopulateName(t *testing.T) {
 	t.Parallel()
 
 	var params startParams
 	if err := json.Unmarshal([]byte(`{"prompt":"legacy prompt"}`), &params); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if params.Name != "legacy prompt" || params.Prompt != "legacy prompt" {
+	if params.Name != "" {
+		t.Fatalf("Name should be empty when only prompt is set, got %q", params.Name)
+	}
+	if params.Prompt != "legacy prompt" {
 		t.Fatalf("legacy prompt = %#v", params)
 	}
 	if params.BaseInstructions != "" {
@@ -164,15 +170,18 @@ func TestNormalizeStartRequestDefaultsProviderWithoutPromptPollution(t *testing.
 	}
 }
 
-func TestNormalizeStartRequestDerivesNameFromDeprecatedPrompt(t *testing.T) {
+func TestNormalizeStartRequestDoesNotDeriveNameFromPrompt(t *testing.T) {
 	t.Parallel()
 
 	req, _, err := normalizeStartRequest(StartRequest{Provider: "codex", Prompt: "  launch me  "})
 	if err != nil {
 		t.Fatalf("normalizeStartRequest() error = %v", err)
 	}
-	if req.Name != "launch me" || req.Prompt != "launch me" {
-		t.Fatalf("normalizeStartRequest() = %#v, want name/prompt launch me", req)
+	if req.Name != "" {
+		t.Fatalf("normalizeStartRequest().Name = %q, want empty (prompt should not become name)", req.Name)
+	}
+	if req.Prompt != "launch me" {
+		t.Fatalf("normalizeStartRequest().Prompt = %q, want 'launch me'", req.Prompt)
 	}
 }
 

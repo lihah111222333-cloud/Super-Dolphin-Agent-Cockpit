@@ -88,7 +88,7 @@ func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input con
 	if err != nil {
 		return contract.StartAssembly{}, err
 	}
-	assembly.DisplayName = normalizeStartDisplayName(shared.FirstNonEmpty(strings.TrimSpace(assembly.DisplayName), req.Name, req.Prompt))
+	assembly.DisplayName = normalizeStartDisplayName(shared.FirstNonEmpty(strings.TrimSpace(assembly.DisplayName), req.Name))
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
 	assembly.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
 	return ensureStartAssemblySnapshot(assembly, input.Provider), nil
