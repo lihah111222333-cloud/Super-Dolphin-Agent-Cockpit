@@ -29,7 +29,7 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 
 - **`fx.Module` 层**：只 `Provide` collector、store、flush queue、serializer 等对象；不在 constructor / lifecycle 里跑采集 loop。
 - **`BusModule` 层**：`fx.Invoke(RegisterSubscribers)` 把 collector subscriber 注进 `bus.subscribers`；回调内只做状态 merge / enqueue，**禁同步 DB 写**。
-- **`RunnerModule` 层**：flush worker 实现 `Runner.Run(ctx)` 并进入 `runner.actors`；批量写库、重试和 coalesce 都在这里完成。
+- **`RunnerModule` 层**：flush worker 实现 `Runner.Run(ctx)` 并进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`）；批量写库、重试和 coalesce 都在这里完成。
 - **shutdown 流**：`ctx cancel → run.Group 全退 → bus 停派发 subscribers → fx 释放资源`；collector 不在 `fx` 生命周期里手写 drain。v1 采用 **bounded drain 5s**：flush queue 超时未落库的样本直接丢弃并记指标，不承诺 durable WAL/补偿队列。
 
 ## 改动清单

@@ -1,6 +1,9 @@
 package archtest
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,21 +173,111 @@ func TestShutdownOrdering(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
 	path := filepath.Join(root, "internal", "app", "runner.go")
-	data, err := os.ReadFile(path)
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
 	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
+		t.Fatalf("parse %s: %v", path, err)
 	}
-	src := string(data)
-	drain := strings.Index(src, "DrainPendingExtraction")
-	cancel := strings.Index(src, "cancel()")
-	wait := strings.Index(src, "<-done")
-	if drain >= 0 && cancel >= 0 && drain < cancel {
-		t.Errorf("shutdown regression: DrainPendingExtraction appears before root cancel in internal/app/runner.go")
+	onStop := bindRuntimeOnStopBody(t, file)
+	if len(onStop.List) < 3 {
+		t.Fatalf("BindRuntime OnStop has %d statements, want at least 3", len(onStop.List))
 	}
-	if cancel >= 0 && wait >= 0 && cancel > wait {
-		t.Errorf("shutdown regression: cancel appears after RunGroup wait in internal/app/runner.go")
+	checks := []struct {
+		idx  int
+		name string
+		ok   func(ast.Stmt) bool
+	}{
+		{idx: 0, name: "cancel guard", ok: isCancelIfStmt},
+		{idx: 1, name: "RunGroup wait", ok: isRuntimeDoneWaitStmt},
+		{idx: 2, name: "runtime drain", ok: isDrainRuntimeBeforeStopStmt},
 	}
-	if drain >= 0 && wait >= 0 && drain < wait {
-		t.Errorf("shutdown regression: DrainPendingExtraction appears before RunGroup wait in internal/app/runner.go")
+	for _, check := range checks {
+		if !check.ok(onStop.List[check.idx]) {
+			t.Errorf("BindRuntime OnStop stmt %d = %T at %s, want %s", check.idx+1, onStop.List[check.idx], fset.Position(onStop.List[check.idx].Pos()), check.name)
+		}
 	}
+}
+
+func bindRuntimeOnStopBody(t *testing.T, file *ast.File) *ast.BlockStmt {
+	t.Helper()
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "BindRuntime" || fn.Body == nil {
+			continue
+		}
+		var body *ast.BlockStmt
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if body != nil {
+				return false
+			}
+			cl, ok := n.(*ast.CompositeLit)
+			if !ok || !isFxHookComposite(cl) {
+				return true
+			}
+			for _, elt := range cl.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok || keyName(kv.Key) != "OnStop" {
+					continue
+				}
+				if lit, ok := kv.Value.(*ast.FuncLit); ok && lit.Body != nil {
+					body = lit.Body
+				}
+			}
+			return true
+		})
+		if body != nil {
+			return body
+		}
+	}
+	t.Fatal("BindRuntime fx.Hook OnStop func literal not found")
+	return nil
+}
+
+func isCancelIfStmt(stmt ast.Stmt) bool {
+	ifStmt, ok := stmt.(*ast.IfStmt)
+	if !ok || len(ifStmt.Body.List) == 0 {
+		return false
+	}
+	return isCallExprStmt(ifStmt.Body.List[0], "cancel")
+}
+
+func isRuntimeDoneWaitStmt(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case *ast.AssignStmt:
+		if len(s.Rhs) != 1 {
+			return false
+		}
+		return isCallExpr(s.Rhs[0], "waitForRuntimeDone") || isReceiveExpr(s.Rhs[0], "done")
+	case *ast.ExprStmt:
+		return isReceiveExpr(s.X, "done") || isCallExpr(s.X, "waitForRuntimeDone")
+	default:
+		return false
+	}
+}
+
+func isDrainRuntimeBeforeStopStmt(stmt ast.Stmt) bool {
+	return isCallExprStmt(stmt, "drainRuntimeBeforeStop")
+}
+
+func isCallExprStmt(stmt ast.Stmt, name string) bool {
+	expr, ok := stmt.(*ast.ExprStmt)
+	return ok && isCallExpr(expr.X, name)
+}
+
+func isCallExpr(expr ast.Expr, name string) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := call.Fun.(*ast.Ident)
+	return ok && ident.Name == name
+}
+
+func isReceiveExpr(expr ast.Expr, name string) bool {
+	recv, ok := expr.(*ast.UnaryExpr)
+	if !ok || recv.Op != token.ARROW {
+		return false
+	}
+	ident, ok := recv.X.(*ast.Ident)
+	return ok && ident.Name == name
 }

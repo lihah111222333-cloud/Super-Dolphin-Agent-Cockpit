@@ -10,7 +10,7 @@
 - `internal/mcpserver/common/bootstrap/*` 仍是当前合法的工具侧 lifecycle client；禁止把业务能力继续堆到 common 旁路。
 - 关系型持久化统一走 `migrations/` + `sql/queries/` + sqlc。新增表/查询只维护**实际消费侧**的 `sqlc.yaml`：Cron v1 与 Session Insights v1 都是 **core-only**，因此只改根 `sqlc.yaml`，不改 `cmd/mcp-orch/sqlc.yaml`。
 - 内容型数据仍允许文件持久化例外；不要为了“统一”把 `SKILL.md` 等内容强塞回 Postgres。
-- `fx.Module` / `BusModule` / `RunnerModule` 必须按三层分工落地：`fx.Module` 只做 constructor + 资源 open/close；`fx.Invoke` 只把订阅器注入 `bus.subscribers`；所有长跑 worker 都实现 `Runner.Run(ctx)` 并进入 `runner.actors`。长循环、drain、重试都不放进 `fx` 生命周期。
+- `fx.Module` / `BusModule` / `RunnerModule` 必须按三层分工落地：`fx.Module` 只做 constructor + 资源 open/close；`fx.Invoke` 只把订阅器注入 `bus.subscribers`；所有长跑 worker 都实现 `Runner.Run(ctx)` 并进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`）。长循环、drain、重试都不放进 `fx` 生命周期。
 - core Fx 与 `cmd/mcp-orch` Fx 是**双树同构**：两边各有一根 bus / run.Group；平台库可共享（首选 `internal/module/<domain>/shared/*` 或 `internal/platform/*` 白名单内包），业务 module 分别落在 `internal/module/*` 与 `cmd/mcp-orch/*`。共享库位置与业务 module 归属不是互斥选择。**archtest 白名单是枚举式**：`internal/archtest/dependency_direction_mcp_orch_test.go:23-29` 放行 `internal/platform/{config,db,bus,runner,rpc,runtimesafe,shared,statemachine,eventsurface,rlimit}` 十个子包，**不是前缀通配**；新建顶层 `internal/platform/<X>` 需同步改护栏，否则将 orch 层共享代码放在 `internal/module/<X>/shared/*` 以命中 `internal/module` 白名单。
 - Provider 自定义配置优先复用 `thread/start` 已有 `config` 透传链路；实例 identity 只能由专用 key 承载，且必须持久化到恢复链路，不允许再靠 top-level `modelProvider` 或 legacy home 推断。
 
@@ -45,7 +45,7 @@
 |---|---|---|---|
 | **[P0](P0_SelfLearningSkill.md)** | 自学习 Skill 闭环 | P0a 先交付 host-side create；P0b 负责共享 observation 层与自动提炼闭环 | ⏳ observation owner |
 | **[P1a](P1a_MultiProviderCodex.md)** | 多 Provider Codex 实例 | 以 `codexHome/codexInstanceKey/codexModelProvider` 作为实例 identity，并落到 binding 恢复面 | ⏳ identity 定稿 |
-| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | core-only 持久化调度，tick / lease / crash-recovery 全部按 `runner.actors` 落地 | 🔲 未开动 |
+| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | core-only 持久化调度，tick / lease / crash-recovery 全部按 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） 落地 | 🔲 未开动 |
 | **[P2](P2_MultiPlatformNotifications.md)** | 多平台通知 | 平台库共享，core / orch 各装一套 subscriber + runner | 🔲 未开动 |
 | **[P3](P3_SessionInsights.md)** | Session Insights 遥测 | API-only 聚合指标，消费 P0b observation 输出 | 🔲 依赖 P0b |
 
@@ -74,7 +74,7 @@ P0b  ────► P3 collector 与 skill_candidate 审批
 1. 先做 `P0a`：补 host-side create / scope-safe 写入，把 project-scope 自学习入口钉死到 `CreateSkill` / `WriteLocal(..., scope=project)`。
 2. `P1a` 与 `P1b` 可以并行设计，但 `P1a` 必须先冻结 session identity 三元组与 binding 持久化口径，否则 Cron 的 provider 选择与恢复链会失焦。
 3. `P0b` 必须作为前置交付先把 observation 层落地；`P3` 只消费这层输出，不能并行发明第二套 turn 归因规则。
-4. `P1b` / `P2` / `P3` 都必须遵守 `fx` / `bus` / `Runner` 三层分工：bus callback 只做 state merge / enqueue，长跑 loop / lease / observe / flush worker 等长跑部件一律进 `runner.actors`。
+4. `P1b` / `P2` / `P3` 都必须遵守 `fx` / `bus` / `Runner` 三层分工：bus callback 只做 state merge / enqueue，长跑 loop / lease / observe / flush worker 等长跑部件一律进 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`）。
 5. signed skill 验签**延后到 P22**；P21 只定义自学习写入、observation 与 insights 契约，不在本期追加 verifier。
 
 ## 收口口径

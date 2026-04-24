@@ -14,6 +14,8 @@
 
 > **HEAD `a81554c` 状态 banner（2026-04-25，第 6 轮文档一致性修复）**：本文件上方“规划中/禁止改代码”等表述是 P22.1 实施前历史快照。当前 HEAD `a81554c` 已包含实施链 `25a37ad` → `f737e45` → `17b5ce7` → `dfe12e6` → `b386217` → `a9a018e` → `a81554c`；F-1~F-11 主体迁移已大部/全部销账，剩余为 cron+uistate cross-file gap、gate 3 处 NEEDS-FIX 与 `runner.actors` vs `group:"runners"` 契约命名债。详见 `docs/plans/迁移/session-summary.md` §8.4.1、本文 DAG §8、FINDINGS §3.1 与 JUDGEMENT §R7。
 
+> **HEAD `5d6a93c` Round-3 收口 banner（2026-04-25）**：上一条 HEAD `a81554c` banner 为第 6 轮历史 overlay，保留不改。当前基线 `5d6a93c` 后本轮修正 Final-V1/V2/V3/V4 戳穿的真 BLOCK：root `BindRuntime.OnStop` 目标态为 `cancel → waitForRuntimeDone → drainRuntimeBeforeStop`，desktop `preDrainDesktopRuntime` 为 `WaitRuntimeDone → DrainRuntime`；P21 文档中 `runner.actors` 仅作 historical role naming，active Fx tag 澄清为 `group:"runners"`。最终 READY 以本轮 fail-injection + 全链验证报告为准。
+
 ## 范围声明（2026-04-25 HEAD 修订）
 
 **In-scope**：本 P22.1 lane 只处理 §10.30 三层分工 11 处违例（F-1~F-11）、R10.6 代码层 deferred 债中仍与本 lane 重叠的剩余项（尤其 #8 shutdown/root bridge、#10 契约命名债的 P22.1 gate 口径），以及 `runner.actors` vs `group:"runners"` 的契约命名债登记。

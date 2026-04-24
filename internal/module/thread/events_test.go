@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,15 +44,16 @@ func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {
 		t.Fatal("expected session update")
 	}
 
-	if len(bindings.sessionUpdates) != 1 {
-		t.Fatalf("len(sessionUpdates) = %d, want 1", len(bindings.sessionUpdates))
+	sessionUpdates := bindings.SessionUpdates()
+	if len(sessionUpdates) != 1 {
+		t.Fatalf("len(sessionUpdates) = %d, want 1", len(sessionUpdates))
 	}
-	got := bindings.sessionUpdates[0]
+	got := sessionUpdates[0]
 	if got.AgentID != "agent-1" || got.SessionUUID != realUUID || got.UpdatedAt == 0 {
 		t.Fatalf("session update = %#v", got)
 	}
-	if bindings.binding.SessionUUID != realUUID {
-		t.Fatalf("binding.SessionUUID = %q, want %s", bindings.binding.SessionUUID, realUUID)
+	if gotBinding := bindings.Binding(); gotBinding == nil || gotBinding.SessionUUID != realUUID {
+		t.Fatalf("binding.SessionUUID = %q, want %s", bindingSessionUUID(gotBinding), realUUID)
 	}
 }
 
@@ -70,8 +72,8 @@ func TestOnAgentLaunchedSkipsUnchangedSessionUUID(t *testing.T) {
 		t.Fatalf("agent launched worker Stop: %v", err)
 	}
 
-	if len(bindings.sessionUpdates) != 0 {
-		t.Fatalf("session updates = %#v, want none", bindings.sessionUpdates)
+	if sessionUpdates := bindings.SessionUpdates(); len(sessionUpdates) != 0 {
+		t.Fatalf("session updates = %#v, want none", sessionUpdates)
 	}
 }
 
@@ -94,20 +96,21 @@ func TestOnAgentLaunchedUpdatesCWDAndInvalidatesWorktreePromptCache(t *testing.T
 		t.Fatalf("agent launched worker Stop: %v", err)
 	}
 
-	if len(bindings.cwdUpdates) != 1 {
-		t.Fatalf("cwd updates = %#v, want 1 update", bindings.cwdUpdates)
+	cwdUpdates := bindings.CWDUpdates()
+	if len(cwdUpdates) != 1 {
+		t.Fatalf("cwd updates = %#v, want 1 update", cwdUpdates)
 	}
-	if got := bindings.cwdUpdates[0]; got.AgentID != "agent-1" || got.Cwd != worktreeCWD || got.UpdatedAt == 0 {
+	if got := cwdUpdates[0]; got.AgentID != "agent-1" || got.Cwd != worktreeCWD || got.UpdatedAt == 0 {
 		t.Fatalf("cwd update = %#v", got)
 	}
-	if bindings.binding.Cwd != worktreeCWD {
-		t.Fatalf("binding.Cwd = %q, want %q", bindings.binding.Cwd, worktreeCWD)
+	if gotBinding := bindings.Binding(); gotBinding == nil || gotBinding.Cwd != worktreeCWD {
+		t.Fatalf("binding.Cwd = %q, want %q", bindingCWD(gotBinding), worktreeCWD)
 	}
 	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateWorktree {
 		t.Fatalf("Invalidate calls = %#v, want [%q]", got, contract.InvalidateWorktree)
 	}
-	if len(bindings.sessionUpdates) != 0 {
-		t.Fatalf("session updates = %#v, want none", bindings.sessionUpdates)
+	if sessionUpdates := bindings.SessionUpdates(); len(sessionUpdates) != 0 {
+		t.Fatalf("session updates = %#v, want none", sessionUpdates)
 	}
 }
 
@@ -132,6 +135,7 @@ func cancelThreadSubscriptions(cancels []context.CancelFunc) {
 }
 
 type eventBindingStore struct {
+	mu             sync.RWMutex
 	binding        *bindingstore.Binding
 	sessionUpdates []bindingstore.UpdateSessionUUIDParams
 	cwdUpdates     []bindingstore.UpdateAgentCwdParams
@@ -144,13 +148,16 @@ func (s *eventBindingStore) GetByProviderThread(context.Context, string, string)
 func (s *eventBindingStore) Upsert(context.Context, bindingstore.UpsertParams) error { return nil }
 func (s *eventBindingStore) DeleteByAgentID(context.Context, string) error           { return nil }
 func (s *eventBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
+	s.mu.Lock()
 	s.sessionUpdates = append(s.sessionUpdates, params)
 	if s.binding != nil && s.binding.AgentID == params.AgentID {
 		s.binding.SessionUUID = params.SessionUUID
 	}
-	if s.updateCh != nil {
+	updateCh := s.updateCh
+	s.mu.Unlock()
+	if updateCh != nil {
 		select {
-		case s.updateCh <- struct{}{}:
+		case updateCh <- struct{}{}:
 		default:
 		}
 	}
@@ -160,8 +167,11 @@ func (s *eventBindingStore) SetArchived(context.Context, bindingstore.SetArchive
 	return nil
 }
 func (s *eventBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if s.binding != nil && s.binding.AgentID == agentID {
-		return s.binding, nil
+		binding := *s.binding
+		return &binding, nil
 	}
 	return nil, errors.New("not found")
 }
@@ -176,9 +186,51 @@ func (s *eventBindingStore) GetThreadByAgent(context.Context, string) (string, e
 	return "", errors.New("not found")
 }
 func (s *eventBindingStore) UpdateAgentCwd(_ context.Context, params bindingstore.UpdateAgentCwdParams) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.cwdUpdates = append(s.cwdUpdates, params)
 	if s.binding != nil && s.binding.AgentID == params.AgentID {
 		s.binding.Cwd = params.Cwd
 	}
 	return nil
+}
+
+func (s *eventBindingStore) SessionUpdates() []bindingstore.UpdateSessionUUIDParams {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]bindingstore.UpdateSessionUUIDParams, len(s.sessionUpdates))
+	copy(out, s.sessionUpdates)
+	return out
+}
+
+func (s *eventBindingStore) CWDUpdates() []bindingstore.UpdateAgentCwdParams {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]bindingstore.UpdateAgentCwdParams, len(s.cwdUpdates))
+	copy(out, s.cwdUpdates)
+	return out
+}
+
+func (s *eventBindingStore) Binding() *bindingstore.Binding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.binding == nil {
+		return nil
+	}
+	binding := *s.binding
+	return &binding
+}
+
+func bindingSessionUUID(binding *bindingstore.Binding) string {
+	if binding == nil {
+		return ""
+	}
+	return binding.SessionUUID
+}
+
+func bindingCWD(binding *bindingstore.Binding) string {
+	if binding == nil {
+		return ""
+	}
+	return binding.Cwd
 }

@@ -15,7 +15,7 @@
 
 - **`fx.Module` 层**：只 `Provide` scheduler / service / store 等对象；DB pool 生命周期继续由 `internal/platform/db` 管。Scheduler 自身无需 `OnStop` drain。
 - **`BusModule` 层**：通过 `fx.Invoke(RegisterSubscribers)` 把 Cron 相关订阅器注入 `bus.subscribers`，只订 job submit / turn terminal / completion reconciliation 之类事件。
-- **`RunnerModule` 层**：**拆成两个独立 `Runner` actor**，同时进入 `runner.actors` 并由 `run.Group` 统一调度；禁止在 actor 的 `Run()` 内再起匿名 goroutine（违反 `docs/契约/rungroup-convention.md:123-131` 反模式）：
+- **`RunnerModule` 层**：**拆成两个独立 `Runner` actor**，同时进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） 并由 `run.Group` 统一调度；禁止在 actor 的 `Run()` 内再起匿名 goroutine（违反 `docs/契约/rungroup-convention.md:123-131` 反模式）：
   - `cronTickActor`：长跑 tick loop，claim due job + 入队提交 turn；受 ctx cancel 退出。
   - `cronLeaseActor`：独立 actor，周期续租本节点所有已 claim 的 job；受 ctx cancel 退出。
   - 两 actor 共享只读的 `claim registry`（由 scheduler service 提供），不互相起 goroutine。
@@ -31,7 +31,7 @@
 | 业务服务 | `internal/module/cron/{contract.go,service.go}` [NEW] | 负责任务创建 / 更新 / 删除 / 列举与参数校验；定义 `ErrMissingCWD`、`ErrProviderNotSupported` 等硬错误 |
 | 调度器对象 | `internal/module/cron/scheduler.go` [NEW] | 封装 claim / submit / renew / reconcile 逻辑，但不自己长跑 |
 | Turn / Provider 契约扩展 | `internal/dto/provider/turn.go`、`internal/module/turn/{contract.go,service.go}`、`internal/contract/provider.go` | 为 `StartTurn` 补 `dedupe_key` 输入，并新增 `LookupByDedupeKey()` / `Observe()` 恢复面 |
-| Runner / Subscriber 接线 | `internal/module/cron/module.go` [NEW] | `fx.Invoke` 注入 `bus.subscribers`；`cronTickActor` 与 `cronLeaseActor` 两个独立 actor 进入 `runner.actors` |
+| Runner / Subscriber 接线 | `internal/module/cron/module.go` [NEW] | `fx.Invoke` 注入 `bus.subscribers`；`cronTickActor` 与 `cronLeaseActor` 两个独立 actor 进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） |
 | Host RPC 接口 | `internal/module/cron/rpc.go` [NEW] | 暴露宿主侧 slash 风格方法，如 `cronjob/create`、`cronjob/list`、`cronjob/delete` |
 | 模块接线 | `internal/app/modules.go`、`internal/store/module.go`、根 `sqlc.yaml` | 注册 cron 模块与 cron store，并把 schema / queries 接进 **root** sqlc 生成面 |
 
@@ -171,7 +171,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_dedupe_key
 ## 执行策略建议
 
 - v1 推荐一 job 绑定一条可复用后台 thread：稳定绑定字段是 `thread_id/agent_id`；运行态另用 `active_turn_id`、`last_turn_id` 追踪本次执行。
-- 调度 runner 只负责 claim due job、构造 `PrepareTurn` / `StartTurn` 请求并入队观察；真正的长跑与 lease / observe 恢复都通过 `runner.actors` 托管，不放进 `fx` 生命周期。
+- 调度 runner 只负责 claim due job、构造 `PrepareTurn` / `StartTurn` 请求并入队观察；真正的长跑与 lease / observe 恢复都通过 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） 托管，不放进 `fx` 生命周期。
 - `fx.Invoke(RegisterSubscribers)` 负责把 turn terminal / completion reconciliation 订阅器注入 `bus.subscribers`；回调只做状态推进、入队与幂等更新，不做同步慢查询。
 - `approvalPolicy=never` 只适合作为后台 job 不进入人工审批的一部分约束；它不是统一 auto-approve 语义，当前真实自动批准范围仅 `Kind=request_user_input`。v1 必须白名单 provider / sandbox / tool 组合。
 
@@ -182,7 +182,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_dedupe_key
 - **submitting-window crash 恢复**：至少覆盖 `submitting + turn_id=空`、`submitting + turn_id!=空`、`submitted/running + turn_id!=空` 三分支；assert 都不会重新调 `StartTurn`，而是只走 `LookupByDedupeKey` / `Observe` 路径。
 - `claim_token` 应用层生成：验证 migration 无 `CREATE EXTENSION pgcrypto`，运行时 `claim_token` 均在 Go 侧用 UUID 生成。
 - non-interactive policy：验证不会把 `approvalPolicy=never` 误解为全部自动通过，且仅 `request_user_input` 命中现有 auto-approve 特例。
-- wiring：验证 `bus.subscribers` 与 `runner.actors` 都被正确装配（包含 `cronTickActor` 和 `cronLeaseActor` 两个独立 actor），且 shutdown 只依赖 `ctx cancel`。
+- wiring：验证 `bus.subscribers` 与 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） 都被正确装配（包含 `cronTickActor` 和 `cronLeaseActor` 两个独立 actor），且 shutdown 只依赖 `ctx cancel`。
 - provider 白名单：验证 v1 `cronjob/create` 仅接受 `provider=codex`；claude 路径未对齐 dedupe_key 语义应拒收并返 `internal/module/cron/contract.go` 定义的 `ErrProviderNotSupported`。
 - `observe_lost` 终态：构造 `submitted/running + turn_id` 但 `Observe` 返回 `ErrTurnNotFound` 的 fixture，断言 run 被推进到 `observe_lost`、claim 被释放、告警指标 `cron_observe_lost_total` 递增且**不**调 `StartTurn`。
 - 活 turn 自动续租：注入伪 `TurnProgress`，断言对应 run 的 `lease_expires_at` 被刷新；不发 progress 的 run 按默认 5 min heartbeat 续租。

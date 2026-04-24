@@ -19,19 +19,19 @@
 |---|---|---|
 | 抽象合约 | `internal/contract/message_notifier.go` [NEW] | 定义 alias-first 的外部通知接口，例如 `TryEnqueue(ctx, NotifyRequest)` |
 | 共享库位置（已拍板） | `internal/module/notify/platform/{webhook,resolver,render,dingtalk,feishu,slack}.go` [NEW]，package doc 标注 *cross-tree shared*；避免与 module 内部 helper 的 `shared` 命名混淆 | 共享 webhook 客户端 / resolver / 模板 / 平台签名；放在 `internal/module` 子包会被 `internal/archtest/dependency_direction_mcp_orch_test.go` 的白名单放行，orch 侧 import 不撞护栏。**禁止** 新建 `internal/platform/notify` 顶层包（那会触发 archtest 护栏改动，本期不采）。 |
-| core 业务 module | `internal/module/notify/module.go` [NEW] | Provide core notifier、注册 core turn / provider / cron subscriber，并把 flush worker 放进 `runner.actors` |
-| orch 业务 module | `cmd/mcp-orch/notify/` 或等价位置 [NEW] | Provide orch notifier；`fx.Invoke(RegisterSubscribers)` 负责 orch 本地 DAG / task / wakeup 订阅器，`fx.Invoke(RegisterHookConsumerTaps)` 只负责 core terminal turn 的 hook tap；flush worker 进入 `runner.actors` |
+| core 业务 module | `internal/module/notify/module.go` [NEW] | Provide core notifier、注册 core turn / provider / cron subscriber，并把 flush worker 放进 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） |
+| orch 业务 module | `cmd/mcp-orch/notify/` 或等价位置 [NEW] | Provide orch notifier；`fx.Invoke(RegisterSubscribers)` 负责 orch 本地 DAG / task / wakeup 订阅器，`fx.Invoke(RegisterHookConsumerTaps)` 只负责 core terminal turn 的 hook tap；flush worker 进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） |
 | 配置承载 | `internal/platform/config/config.go` | 新增 `NotifyConfig`，集中表达 alias -> channel config、queue、timeout、retry、allowlist（`platform/config` 已在 archtest 白名单内，配置加在这里不需动护栏） |
 | 解析器 | `internal/module/notify/platform/resolver.go` [NEW] | 业务层只传 `channelAlias`；resolver 内部把 alias 解析成 `{Platform, URL, Secret}` |
-| 接线 | `internal/app/modules.go`、`cmd/mcp-orch/fx.go` | core Fx 和 orch Fx 各装一套 `bus.subscribers` + `runner.actors` wiring；平台共享库位置与业务 module 落点可并存，按双树同构接线即可 |
+| 接线 | `internal/app/modules.go`、`cmd/mcp-orch/fx.go` | core Fx 和 orch Fx 各装一套 `bus.subscribers` + `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） wiring；平台共享库位置与业务 module 落点可并存，按双树同构接线即可 |
 
 > `[...] [NEW]` 表示目标新增路径，当前仓库尚不存在；它们是实施落点，不是“现状已存在文件”的事实锚点。
 
 ## 模块与 wiring（双树同构）
 
 - **双树同构原则**：core Fx 与 `cmd/mcp-orch` Fx 各自有一棹 bus / run.Group；两树同时 import 同一套共享库（放在 `internal/module/notify/platform/*` 以命中 archtest 白名单，见上文“archtest 白名单事实”），后在各自业务 module 里装一套 subscriber + runner。两树同构不要求“只留 core 或只留共享库”这类互斥裁剪，且互不用跨树订阅来盖对方事件。
-- **core Fx**：`fx.Provide` 只构造 notifier / resolver / queue / renderer 等对象；`fx.Invoke(RegisterSubscribers)` 把 core turn / provider / cron subscriber 注进 `bus.subscribers`；flush worker 实现 `Runner.Run(ctx)`，进入 `runner.actors`。
-- **orch Fx**：`fx.Provide` 构造 orch 侧 notifier / queue；`fx.Invoke(RegisterSubscribers)` 负责 orch 本地 DAG / task / wakeup 订阅器，`fx.Invoke(RegisterHookConsumerTaps)` 只把 core terminal turn 的观察 tap 接到 hook consumer 处理链上（而不是指望 orch 本地 bus 会重发 core terminal turn）；flush worker 同样进入 `runner.actors`。
+- **core Fx**：`fx.Provide` 只构造 notifier / resolver / queue / renderer 等对象；`fx.Invoke(RegisterSubscribers)` 把 core turn / provider / cron subscriber 注进 `bus.subscribers`；flush worker 实现 `Runner.Run(ctx)`，进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`）。
+- **orch Fx**：`fx.Provide` 构造 orch 侧 notifier / queue；`fx.Invoke(RegisterSubscribers)` 负责 orch 本地 DAG / task / wakeup 订阅器，`fx.Invoke(RegisterHookConsumerTaps)` 只把 core terminal turn 的观察 tap 接到 hook consumer 处理链上（而不是指望 orch 本地 bus 会重发 core terminal turn）；flush worker 同样进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`）。
 - **shutdown 流**：`ctx cancel → run.Group 全退 → bus 停派发 subscribers → fx.OnStop 只释放 http client / 关闭本地 intake channel`。
 
 ## 配置与 fail-fast 规则
@@ -149,7 +149,7 @@ NOTIFY_DEFAULT_CHANNEL='slack.default' # 仅显式 opt-in 场景允许读取
 - bus 回调只负责非阻塞 `TryEnqueue`；回调内只做 state merge / enqueue，**禁同步 HTTP 写**。
 - `bus.ResilientSubscribe(...)` 只包 recover；底层 `kelindar/event` 是 per-subscriber queue，队列饱和会反压 publish path，因此 `TryEnqueue` 也必须 bounded + 快速失败。
 - 真正的 HTTP 发送只在 worker 内执行：短超时、有限重试、rate limit、drop / coalesce；失败只记日志 / 指标，不反向阻塞业务链路。
-- worker 通过 `Runner.Run(ctx)` 进入 `runner.actors`；shutdown 只依赖 `ctx cancel + bus 停派发`，不在 `fx` 里额外写 cancel worker 逻辑。v1 采用 **bounded drain 5s**：超时仍未发出的 webhook 直接 drop，并记指标 `notify_drop_total{reason="shutdown_drain"}`（以及 `reason="queue_full"` / `reason="rate_limit"` / `reason="ssrf_blocked"`）；不承诺 durable retry/WAL。drop 指标不能省——没有它故障时无法归因。
+- worker 通过 `Runner.Run(ctx)` 进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`）；shutdown 只依赖 `ctx cancel + bus 停派发`，不在 `fx` 里额外写 cancel worker 逻辑。v1 采用 **bounded drain 5s**：超时仍未发出的 webhook 直接 drop，并记指标 `notify_drop_total{reason="shutdown_drain"}`（以及 `reason="queue_full"` / `reason="rate_limit"` / `reason="ssrf_blocked"`）；不承诺 durable retry/WAL。drop 指标不能省——没有它故障时无法归因。
 
 ## 必测项
 

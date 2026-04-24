@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -52,18 +53,23 @@ func TestRunDesktopPreDrain(t *testing.T) {
 	}()
 	select {
 	case <-drainStarted:
-	case <-time.After(time.Second):
-		t.Fatal("preDrainDesktopRuntime did not start registered runtime drain")
+		t.Fatal("preDrainDesktopRuntime started runtime drain before runtime done")
+	case <-time.After(100 * time.Millisecond):
 	}
 
 	select {
 	case err := <-drained:
-		t.Fatalf("preDrainDesktopRuntime returned before runtime done: %v", err)
+		t.Fatalf("preDrainDesktopRuntime returned before runtime drain: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	close(drainRelease)
 	owner.MarkRuntimeDone()
+	select {
+	case <-drainStarted:
+	case <-time.After(time.Second):
+		t.Fatal("preDrainDesktopRuntime did not start registered runtime drain after runtime done")
+	}
+	close(drainRelease)
 	select {
 	case err := <-drained:
 		if err != nil {
@@ -96,11 +102,11 @@ func TestShutdownWatcherStopAndWaitJoins(t *testing.T) {
 	done := make(chan os.Signal)
 	stop := make(chan struct{})
 	exited := make(chan struct{})
-
+	errCh := make(chan error, 1)
 	go func() {
 		defer close(exited)
 		runShutdownWatcher(ctx, done, stop, func() {
-			t.Fatal("watcher should not notify backend failure on explicit stop")
+			errCh <- errors.New("watcher should not notify backend failure on explicit stop")
 		})
 	}()
 	close(stop)
@@ -108,5 +114,10 @@ func TestShutdownWatcherStopAndWaitJoins(t *testing.T) {
 	case <-exited:
 	case <-time.After(time.Second):
 		t.Fatal("shutdown watcher did not join after explicit stop")
+	}
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	default:
 	}
 }

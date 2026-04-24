@@ -743,3 +743,12 @@ runtime 传回 `claude-opus-4-7[1m]` → canonicalize 到 `opus[1m]` → 下拉�
 | Phase 3 / P3A-P3B | 🟡 部分完成 | session-private allowlist 已落到 HEAD `a81554c`；gate hardening 仍有 3 处 NEEDS-FIX 待 Audit-A/B/C 修复，包括 cron+uistate cross-file gap、BusSubscriberGroup 命名/覆盖、ShutdownOrdering hybrid 充分性。 |
 
 **HEAD `a81554c` 当前遗留 follow-up**：`runner.actors` vs `group:"runners"` 仍是 `docs/契约/*` 命名债；P22.1 不在本轮修改 `docs/契约/*`。`TestMemoryRulesInjectIntoPrompt` prompt regression 与旧 `events_test.go:53` race 锚点归 pre-existing/follow-up，不作为本 P22.1 文档 overlay 的代码阻塞项。
+
+### 8.4.2 P22+P22.1 HEAD `5d6a93c` Round-3 BLOCK 收口 overlay（2026-04-25）
+
+> 本节按 §10.31 只加不删追加；§8.4.1 的 HEAD `a81554c` 为第 6 轮历史 overlay，保留不改。当前 Round-3 修复基线为 HEAD `5d6a93c`，本轮只追加代码/文档收口说明，禁止重写历史叙事。
+
+- `internal/app/runner.go` root `BindRuntime.OnStop` 已修正为 `cancel → waitForRuntimeDone(done, ctx) → drainRuntimeBeforeStop(ctx, p)`；§10.30 要求的 `cancel → run.Group 全退 → resource drain/close` 在本轮成为代码真状态。
+- `internal/app/app.go` desktop pre-drain helper 已确认/调整为 `WaitRuntimeDone` 先于 `DrainRuntime`，避免 desktop shutdown 分支保留旧的 drain-before-wait 语义。
+- 本轮同步补强 `TestShutdownOrdering` AST gate、`TestBindRuntimeWaitsRunGroupBeforeDrain`、session-private allowlist integrity、memory/thread race 回归测试；`a81554c` 记录的 NEEDS-FIX 项以本 overlay 后续验证结果为准。
+- `runner.actors` 在 P21 文档中保留为 historical role naming；active Fx tag 统一澄清为 `group:"runners"`。

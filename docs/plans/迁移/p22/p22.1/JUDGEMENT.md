@@ -440,3 +440,18 @@ P22.1 ⊂ P22（不是独立新 lane）。本仲裁文件与 P22.1 其他 4 份�
 ### §R7.3 F-10 审查误差记录
 
 第 6 轮修文档采信主 agent LSP 证伪：此前 Audit-D 报告中关于 `internal/module/insight/module.go:48-63` two-hop subscription 的说法不作为 HEAD `a81554c` 事实使用。该项应视为 Audit-D LSP 缓存/自身实验状态未真回滚导致的误判；本轮只修文档，不改 Go 代码。
+
+## §R8 HEAD `5d6a93c` Round-3 BLOCK 收口 overlay（2026-04-25）
+
+> 本节按 §10.31 / §10.44 末尾追加；§R7 的 HEAD `a81554c` 结论为历史 overlay，保留不改。当前修复基线为 HEAD `5d6a93c`，用于承接 Final-V1/V2/V3/V4 cross-check 戳穿的 P22+P22.1 真 BLOCK。
+
+### §R8.1 代码状态修正
+
+- `BindRuntime.OnStop` 当前目标态为 `cancel → waitForRuntimeDone(done, ctx) → drainRuntimeBeforeStop(ctx, p)`；§R7 中声称的 cancel→wait→drain 在本轮修复后才成为代码真状态。
+- `preDrainDesktopRuntime` 当前目标态为 `owner.WaitRuntimeDone(drainCtx)` 先于 `owner.DrainRuntime(drainCtx)`，与 root shutdown ordering 同步。
+- `TestShutdownOrdering` 已从 dormant text-index guard 升级为 AST ordering gate：定位 `BindRuntime` 的 `fx.Hook.OnStop` func literal，并按 statement 顺序检查 cancel / wait / drain。
+- `TestBindRuntimeWaitsRunGroupBeforeDrain` 反向保护 wait-before-drain；旧的 drain-before-RunGroup-complete 语义不再作为合法行为。
+
+### §R8.2 剩余裁决
+
+Round-3 指定的 runner ordering、desktop pre-drain ordering、vet goroutine fatal、memory coalesce race、thread event fake-store race、session-private BindRuntime allowlist integrity、P21 `runner.actors` active tag 澄清均纳入本轮收口。最终 READY 仍以本轮交付报告的 fail-injection 与全链验证输出为准。

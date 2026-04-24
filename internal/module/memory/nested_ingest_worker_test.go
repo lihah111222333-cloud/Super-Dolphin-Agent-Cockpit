@@ -13,12 +13,17 @@ import (
 // that the bus callback only enqueued and that the worker is what actually
 // invokes AddToolReadResult.
 type fakeNestedIngestRuntime struct {
-	mu    sync.Mutex
-	calls []nestedIngestRequest
-	block chan struct{} // if non-nil, every AddToolReadResult blocks on it
+	mu      sync.Mutex
+	calls   []nestedIngestRequest
+	block   chan struct{} // if non-nil, every AddToolReadResult blocks on it
+	started chan struct{} // optional one-shot signal once AddToolReadResult is entered
+	once    sync.Once
 }
 
 func (f *fakeNestedIngestRuntime) AddToolReadResult(threadID, toolName, result, persistedPath string) {
+	if f.started != nil {
+		f.once.Do(func() { close(f.started) })
+	}
 	if f.block != nil {
 		<-f.block
 	}
@@ -57,9 +62,15 @@ func TestNestedToolReadIngestEnqueueOnly(t *testing.T) {
 
 	// --- Invariant 1: Enqueue does not block on AddToolReadResult ---
 	block := make(chan struct{})
-	rt := &fakeNestedIngestRuntime{block: block}
+	rt := &fakeNestedIngestRuntime{block: block, started: make(chan struct{})}
 	w := newNestedIngestWorker(rt, pkglogger.Get())
 	w.Start()
+	w.Enqueue("thread-A", "Read", "payload", "/tmp/blocked")
+	select {
+	case <-rt.started:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not enter AddToolReadResult")
+	}
 
 	enqueueDone := make(chan struct{})
 	go func() {
@@ -80,8 +91,8 @@ func TestNestedToolReadIngestEnqueueOnly(t *testing.T) {
 	}
 
 	// --- Invariant 3: repeated same-key enqueues coalesce ---
-	if enq := w.EnqueuedTotal(); enq != 16 {
-		t.Fatalf("EnqueuedTotal = %d, want 16", enq)
+	if enq := w.EnqueuedTotal(); enq != 17 {
+		t.Fatalf("EnqueuedTotal = %d, want 17", enq)
 	}
 	if coal := w.CoalescedTotal(); coal != 15 {
 		t.Fatalf("CoalescedTotal = %d, want 15 (16 events - 1 distinct key)", coal)
@@ -99,8 +110,8 @@ func TestNestedToolReadIngestEnqueueOnly(t *testing.T) {
 	if got := w.ProcessedTotal(); got < 1 {
 		t.Fatalf("ProcessedTotal = %d, want >= 1 after unblocking runtime", got)
 	}
-	if got := len(rt.Calls()); got != 1 {
-		t.Fatalf("AddToolReadResult call count after drain = %d, want 1 (coalesced)", got)
+	if got := len(rt.Calls()); got != 2 {
+		t.Fatalf("AddToolReadResult call count after drain = %d, want 2 (blocked + coalesced)", got)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
