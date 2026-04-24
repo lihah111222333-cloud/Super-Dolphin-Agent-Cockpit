@@ -22,6 +22,7 @@ import (
 
 type Index struct {
 	Version      string                `json:"version"`
+	Generator    string                `json:"generator"`
 	GeneratedAt  string                `json:"generated_at"`
 	Description  string                `json:"description"`
 	SectionIndex []string              `json:"section_index"`
@@ -86,6 +87,7 @@ func main() {
 
 	idx := Index{
 		Version:      "1.0",
+		Generator:    codemapindex.GeneratorAnchor,
 		GeneratedAt:  time.Now().Format("2006-01-02"),
 		Description:  "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
 		SectionIndex: secIndex,
