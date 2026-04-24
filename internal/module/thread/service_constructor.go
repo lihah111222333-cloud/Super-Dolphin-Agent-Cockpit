@@ -121,5 +121,9 @@ func newService(
 	// — the processor is a service method (processAgentLaunched), so the
 	// worker lives beside the service.
 	s.agentLaunchedWorker = newAgentLaunchedWorker(s, logger)
+	// P22 P2 thread S2: sessionRecoveryWorker owns the onAgentFailed
+	// slow-path (3s reconnect delay + evict + backgroundResumeIfNeeded).
+	// Same construction pattern as the other bus-callback workers.
+	s.sessionRecoveryWorker = newSessionRecoveryWorker(s, logger)
 	return s
 }

@@ -101,6 +101,14 @@ type service struct {
 	// invalidation slow-path. Always constructed; processAgentLaunched
 	// guards on bindingStore so a nil-store service is still safe.
 	agentLaunchedWorker *agentLaunchedWorker
+
+	// sessionRecoveryWorker is the P22 P2 (thread S2) single owner of
+	// the onAgentFailed -> session-level recovery slow-path (rate-limit,
+	// evict zombie, 3s reconnect delay, backgroundResumeIfNeeded). The
+	// pre-P22 naked runtimesafe.SafeGo(context.Background(), ...) + 3s
+	// time.Sleep moved into processSessionRecovery under a WaitGroup-
+	// tracked worker goroutine.
+	sessionRecoveryWorker *sessionRecoveryWorker
 }
 
 var _ Service = (*service)(nil)
