@@ -37,10 +37,10 @@ set /p choice=Select (1/2/3/4):
 set "MODE="
 set "USE_SERVER=0"
 set "LABEL="
-if "%choice%"=="1" ( set "MODE=debug" & set "LABEL=debug (no Frida)" )
+if "%choice%"=="1" ( set "MODE=debug" & set "LABEL=debug - no Frida" )
 if "%choice%"=="2" ( set "MODE=debug" & set "USE_SERVER=1" & set "LABEL=debug server" )
 if "%choice%"=="3" ( set "MODE=normal" & set "LABEL=release" )
-if "%choice%"=="4" ( set "MODE=run-only" & set "LABEL=run-only (debug)" )
+if "%choice%"=="4" ( set "MODE=run-only" & set "LABEL=run-only - debug" )
 
 if "%MODE%"=="" (
     echo [X] invalid choice
