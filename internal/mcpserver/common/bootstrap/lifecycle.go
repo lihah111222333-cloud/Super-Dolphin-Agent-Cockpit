@@ -138,7 +138,7 @@ func (c *Client) fireShutdown(req mcp.ShutdownRequest) {
 	if c.cfg.OnShutdown == nil {
 		return
 	}
-	go c.cfg.OnShutdown(req)
+	c.spawnCallback(func() { c.cfg.OnShutdown(req) })
 }
 
 func (c *Client) fireConfigChanged(notify mcp.ConfigChangedNotify) {
@@ -146,7 +146,31 @@ func (c *Client) fireConfigChanged(notify mcp.ConfigChangedNotify) {
 		return
 	}
 	notify.Payload = shared.CloneRawMessage(notify.Payload)
-	go c.cfg.OnConfigChanged(notify)
+	c.spawnCallback(func() { c.cfg.OnConfigChanged(notify) })
+}
+
+// spawnCallback launches an application-supplied callback (OnShutdown
+// or OnConfigChanged) while keeping its lifecycle owned by the
+// bootstrap client. Pre-P22 P2 bootstrap-S1 these were fire-and-forget
+// `go callback(...)` statements; the wait group + closed-check replace
+// that with a bounded drain contract honoured by Close() via
+// drainCallbacks. A spawn that races past Close() returns without
+// launching a goroutine so the drain is not extended indefinitely.
+func (c *Client) spawnCallback(fn func()) {
+	if fn == nil {
+		return
+	}
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return
+	}
+	c.callbackWG.Add(1)
+	go func() {
+		defer c.callbackWG.Done()
+		fn()
+	}()
 }
 
 func (c *Client) watchRoot(ctx context.Context) {
