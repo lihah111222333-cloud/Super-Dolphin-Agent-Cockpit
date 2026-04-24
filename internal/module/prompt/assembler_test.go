@@ -11,6 +11,64 @@ import (
 	"time"
 )
 
+// ---------------------------------------------------------------------------
+// Regression guard: DisplayName must NEVER be derived from Prompt.
+//
+// Root cause (2026-04-24): assembler.go used
+//   shared.FirstNonEmpty(in.Name, in.Prompt)
+// for DisplayName in all 3 paths (AssembleStart, simpleStartAssembly,
+// fallbackStartAssembly). This caused the user's first message to become
+// the thread name (e.g. "嗨" or a pasted JSON blob).
+//
+// If you are reading this because a test broke: the naming policy is
+// intentional. DO NOT reintroduce Prompt → DisplayName derivation.
+// ---------------------------------------------------------------------------
+
+func TestPromptNeverBecomesDisplayName_AssembleStart(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{
+		Prompt:   "嗨",
+		Provider: "codex",
+	})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	if assembly.DisplayName != "" {
+		t.Fatalf("REGRESSION: DisplayName = %q, want empty (prompt must not become display name)", assembly.DisplayName)
+	}
+}
+
+func TestPromptNeverBecomesDisplayName_SimpleStart(t *testing.T) {
+	t.Setenv(envClaudeSimple, "1")
+	svc := NewService(&Config{}, nil)
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{
+		Prompt:   "请负责定位登录回调 500 根因",
+		CWD:      "/repo",
+		Provider: "codex",
+	})
+	if err != nil {
+		t.Fatalf("AssembleStart(simple) error = %v", err)
+	}
+	if assembly.DisplayName != "" {
+		t.Fatalf("REGRESSION: DisplayName = %q, want empty (prompt must not become display name in simple mode)", assembly.DisplayName)
+	}
+}
+
+func TestExplicitNamePreserved_AssembleStart(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{
+		Name:     "用户命名",
+		Prompt:   "嗨",
+		Provider: "codex",
+	})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	if assembly.DisplayName != "用户命名" {
+		t.Fatalf("DisplayName = %q, want %q", assembly.DisplayName, "用户命名")
+	}
+}
+
 func TestAssembleStartIncludesBuiltinsAndDynamicSections(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
@@ -24,7 +82,7 @@ func TestAssembleStartIncludesBuiltinsAndDynamicSections(t *testing.T) {
 	}
 
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{
-		Prompt:                " legacy display ",
+		Name:                  " legacy display ",
 		BaseInstructions:      "legacy base",
 		DeveloperInstructions: "developer tail",
 		Provider:              "codex",
@@ -147,8 +205,8 @@ func TestAssembleStartFallsBackOnBuildError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
-	if !strings.Contains(assembly.BaseInstructions, "base") || assembly.DeveloperInstructions != "dev" {
-		t.Fatalf("fallback assembly = %#v", assembly)
+	if !strings.Contains(assembly.BaseInstructions, "base") || assembly.DeveloperInstructions != "dev" || assembly.DisplayName != "" {
+		t.Fatalf("fallback assembly = %#v (DisplayName must be empty when only Prompt is set)", assembly)
 	}
 	// Phase 3 invariant: system-reminder content (currentDate, runtimeExtras,
 	// gitStatus) must never leak into BaseInstructions — it flows through the
