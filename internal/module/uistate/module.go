@@ -38,6 +38,10 @@ var Module = fx.Options(
 	fx.Provide(func(p serviceParams) (*service, Service, error) {
 		return NewService(p.Logger, p.Threads, p.Agents, p.Preferences, newBindingAdapter(p.Bindings))
 	}),
+	// P22 P4 S1b: publish the narrow contract.UIProjectStateFacade so
+	// ui/wails and other frontends can consume GetProjects without
+	// importing this package.
+	fx.Provide(NewProjectStateFacade),
 	fx.Provide(NewUIStateHandlers),
 	fx.Provide(NewConfigHandlers),
 	fx.Invoke(registerProjections),

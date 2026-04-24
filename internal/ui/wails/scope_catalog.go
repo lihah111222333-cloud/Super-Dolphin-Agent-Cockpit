@@ -7,12 +7,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
+// projectStateReader mirrors contract.UIProjectStateFacade so local
+// callers can be written against a locally-visible interface name. P22
+// P4 S1b: the underlying type is the contract facade, not uistate's
+// Service — ui/wails no longer imports internal/module/uistate.
 type projectStateReader interface {
-	GetProjects(ctx context.Context) (*uistate.ProjectsState, error)
+	GetProjects(ctx context.Context) (*contract.ProjectsSnapshot, error)
 }
 
 type scopeCatalog struct {
@@ -51,7 +55,7 @@ func loadScopeCatalog(ctx context.Context, cfg *config.Config, state projectStat
 	return catalog, nil
 }
 
-func addProjectsStateRoots(catalog *scopeCatalog, state *uistate.ProjectsState) {
+func addProjectsStateRoots(catalog *scopeCatalog, state *contract.ProjectsSnapshot) {
 	if catalog == nil || state == nil {
 		return
 	}

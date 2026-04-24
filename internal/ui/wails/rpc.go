@@ -7,7 +7,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -73,8 +73,11 @@ type windowBootstrapGetParams struct {
 	clientMetaParams
 }
 
-// NewRPCHandlers registers desktop-only UI helpers behind the generic RPC bridge.
-func NewRPCHandlers(app *App, cfg *config.Config, uiState uistate.Service) rpc.HandlerMapResult {
+// NewRPCHandlers registers desktop-only UI helpers behind the generic RPC
+// bridge. P22 P4 S1b: the uiState parameter is the narrow
+// contract.UIProjectStateFacade — ui/wails no longer depends on
+// internal/module/uistate's fat Service interface.
+func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStateFacade) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"ui/code/save": rpc.StrictHandler(func(ctx context.Context, p codeSaveParams) (any, error) {
 			return handleCodeSave(ctx, cfg, uiState, p)
@@ -124,7 +127,7 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState uistate.Service) rpc.H
 func handleCodeSave(
 	ctx context.Context,
 	cfg *config.Config,
-	uiState uistate.Service,
+	uiState contract.UIProjectStateFacade,
 	p codeSaveParams,
 ) (codeSaveResult, error) {
 	roots, err := requestScopeRoots(ctx, cfg, uiState, p.Project, p.Projects)
@@ -137,7 +140,7 @@ func handleCodeSave(
 func handleCodeLocate(
 	ctx context.Context,
 	cfg *config.Config,
-	uiState uistate.Service,
+	uiState contract.UIProjectStateFacade,
 	p codeLocateParams,
 ) (codeLocateResult, error) {
 	roots, err := requestScopeRoots(ctx, cfg, uiState, p.Project, p.Projects)
@@ -150,7 +153,7 @@ func handleCodeLocate(
 func handleCodeOpen(
 	ctx context.Context,
 	cfg *config.Config,
-	uiState uistate.Service,
+	uiState contract.UIProjectStateFacade,
 	p codeOpenParams,
 ) (codeOpenResult, error) {
 	roots, err := requestScopeRoots(ctx, cfg, uiState, p.Project, p.Projects)

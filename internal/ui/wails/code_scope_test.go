@@ -5,16 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 type stubProjectStateReader struct {
-	state *uistate.ProjectsState
+	state *contract.ProjectsSnapshot
 	err   error
 }
 
-func (s stubProjectStateReader) GetProjects(context.Context) (*uistate.ProjectsState, error) {
+func (s stubProjectStateReader) GetProjects(context.Context) (*contract.ProjectsSnapshot, error) {
 	return s.state, s.err
 }
 
@@ -38,7 +38,7 @@ func TestRequestScopeRootsUsesRegisteredProjects(t *testing.T) {
 	roots, err := requestScopeRoots(
 		context.Background(),
 		&config.Config{ProjectRoot: root},
-		stubProjectStateReader{state: &uistate.ProjectsState{Projects: []string{known}, Active: "."}},
+		stubProjectStateReader{state: &contract.ProjectsSnapshot{Projects: []string{known}, Active: "."}},
 		known,
 		[]string{known},
 	)
