@@ -39,11 +39,12 @@ func NewTickActor(logger *slog.Logger, scheduler *Scheduler) *TickActor {
 // otherwise ignored; the loop keeps ticking so a transient DB error in
 // one tick doesn't stop scheduling indefinitely.
 func (a *TickActor) Run(ctx context.Context) error {
-	t := time.NewTicker(a.interval)
+	t := time.NewTimer(timerDelayWithJitter(a.interval))
 	defer t.Stop()
 
-	// Run once immediately so unit tests with short intervals don't have
-	// to wait a full tick for the first pass.
+	if err := a.scheduler.RecoverDanglingRuns(ctx); err != nil {
+		a.logger.Debug("cron: recovery failed", slog.String("error", err.Error()))
+	}
 	if err := a.scheduler.RunTick(ctx); err != nil {
 		a.logger.Debug("cron: tick failed", slog.String("error", err.Error()))
 	}
@@ -56,6 +57,7 @@ func (a *TickActor) Run(ctx context.Context) error {
 			if err := a.scheduler.RunTick(ctx); err != nil {
 				a.logger.Debug("cron: tick failed", slog.String("error", err.Error()))
 			}
+			t.Reset(timerDelayWithJitter(a.interval))
 		}
 	}
 }

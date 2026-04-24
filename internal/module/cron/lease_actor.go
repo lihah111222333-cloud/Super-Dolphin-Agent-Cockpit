@@ -31,7 +31,7 @@ func NewLeaseActor(logger *slog.Logger, scheduler *Scheduler) *LeaseActor {
 }
 
 func (a *LeaseActor) Run(ctx context.Context) error {
-	t := time.NewTicker(a.interval)
+	t := time.NewTimer(timerDelayWithJitter(a.interval))
 	defer t.Stop()
 	for {
 		select {
@@ -41,6 +41,7 @@ func (a *LeaseActor) Run(ctx context.Context) error {
 			if err := a.scheduler.RenewLeases(ctx); err != nil {
 				a.logger.Debug("cron: renew leases failed", slog.String("error", err.Error()))
 			}
+			t.Reset(timerDelayWithJitter(a.interval))
 		}
 	}
 }

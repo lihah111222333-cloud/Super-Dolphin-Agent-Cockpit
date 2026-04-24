@@ -244,31 +244,41 @@ func (s *Scheduler) ClaimToken() string { return s.newID() }
 // machine. It is safe to call from multiple schedulers pointing at the
 // same DB because ClaimDueJobs uses FOR UPDATE SKIP LOCKED.
 func (s *Scheduler) RunTick(ctx context.Context) error {
-	now := s.now().UTC()
-	claimToken := s.newID()
-	jobs, err := s.store.ClaimDueJobs(ctx, cronstore.ClaimDueJobsParams{
-		Now:            now,
-		ClaimedBy:      s.cfg.ClaimedBy,
-		LeaseExpiresAt: now.Add(s.cfg.LeaseTTL),
-		ClaimToken:     claimToken,
-		MaxClaim:       s.cfg.MaxClaim,
-	})
-	if err != nil {
-		s.logger.Warn("cron: claim due jobs failed", slog.String("error", err.Error()))
-		return err
-	}
-	for _, job := range jobs {
-		// Each job lands on its own claim token — ClaimDueJobs stamps
-		// the token onto the row and ReturnValue mirrors it so we
-		// don't need to pass claimToken explicitly below.
-		if err := s.driveJob(ctx, job); err != nil {
+	var firstErr error
+	seen := map[string]struct{}{}
+	for i := int32(0); i < s.cfg.MaxClaim; i++ {
+		jobs, err := s.claimOneDueJob(ctx)
+		if err != nil {
+			s.logger.Warn("cron: claim due jobs failed", slog.String("error", err.Error()))
+			return err
+		}
+		if len(jobs) == 0 {
+			break
+		}
+		if _, ok := seen[jobs[0].ID]; ok {
+			break
+		}
+		seen[jobs[0].ID] = struct{}{}
+		if err := s.driveJob(ctx, jobs[0]); err != nil {
+			firstErr = errors.Join(firstErr, err)
 			s.logger.Warn("cron: drive job failed",
-				slog.String("job_id", job.ID),
+				slog.String("job_id", jobs[0].ID),
 				slog.String("error", err.Error()),
 			)
 		}
 	}
-	return nil
+	return firstErr
+}
+
+func (s *Scheduler) claimOneDueJob(ctx context.Context) ([]cronstore.Job, error) {
+	now := s.now().UTC()
+	return s.store.ClaimDueJobs(ctx, cronstore.ClaimDueJobsParams{
+		Now:            now,
+		ClaimedBy:      s.cfg.ClaimedBy,
+		LeaseExpiresAt: now.Add(s.cfg.LeaseTTL),
+		ClaimToken:     s.newID(),
+		MaxClaim:       1,
+	})
 }
 
 // driveJob runs the three-phase state machine for one claimed job. On
@@ -529,6 +539,129 @@ func (s *Scheduler) RenewLeases(ctx context.Context) error {
 				slog.String("error", err.Error()),
 			)
 		}
+	}
+	return nil
+}
+
+// RecoverDanglingRuns re-attaches observation for unresolved runs after a
+// process restart. It never calls StartTurn; submitting-window recovery
+// only probes the provider dedupe index and then observes an existing turn.
+func (s *Scheduler) RecoverDanglingRuns(ctx context.Context) error {
+	runs, err := s.store.ListUnresolvedRuns(ctx)
+	if err != nil {
+		return err
+	}
+	var joined error
+	for _, run := range runs {
+		if err := s.recoverDanglingRun(ctx, run); err != nil {
+			joined = errors.Join(joined, err)
+			s.logger.Warn("cron: recover dangling run failed",
+				slog.String("run_id", run.ID),
+				slog.String("status", run.Status),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
+	return joined
+}
+
+func (s *Scheduler) recoverDanglingRun(ctx context.Context, run cronstore.Run) error {
+	job, err := s.store.GetJobByID(ctx, run.JobID)
+	if err != nil {
+		return err
+	}
+	switch run.Status {
+	case cronstore.StatusSubmitting:
+		return s.recoverSubmittingRun(ctx, job, run)
+	case cronstore.StatusSubmitted:
+		return s.recoverSubmittedRun(ctx, job, run)
+	case cronstore.StatusRunning:
+		return s.recoverRunningRun(ctx, job, run)
+	default:
+		return nil
+	}
+}
+
+func (s *Scheduler) recoverSubmittingRun(ctx context.Context, job cronstore.Job, run cronstore.Run) error {
+	if run.TurnID != "" {
+		return s.observeRecoveredSubmittedRun(ctx, job, run, run.TurnID)
+	}
+	observed, err := s.submitter.LookupByDedupeKey(ctx, run.DedupeKey)
+	if err != nil {
+		return err
+	}
+	if !observed.Found || observed.TurnID == "" {
+		return s.finalizeRecoveredFailure(ctx, job, run, errors.New("cron: provider dedupe lookup missed"))
+	}
+	if err := s.store.SetRunTurn(ctx, cronstore.SetRunTurnParams{
+		ID: run.ID, ThreadID: run.ThreadID, AgentID: run.AgentID,
+		TurnID: observed.TurnID, SubmittedAt: s.now().UTC(), UpdatedAt: s.now().UTC(),
+	}); err != nil {
+		return err
+	}
+	return s.observeRecoveredSubmittedRun(ctx, job, run, observed.TurnID)
+}
+
+func (s *Scheduler) recoverSubmittedRun(ctx context.Context, job cronstore.Job, run cronstore.Run) error {
+	if run.TurnID == "" {
+		return s.finalizeRecoveredFailure(ctx, job, run, errors.New("cron: submitted run missing turn_id"))
+	}
+	return s.observeRecoveredSubmittedRun(ctx, job, run, run.TurnID)
+}
+
+func (s *Scheduler) recoverRunningRun(ctx context.Context, job cronstore.Job, run cronstore.Run) error {
+	if run.TurnID == "" {
+		return s.finalizeRecoveredFailure(ctx, job, run, errors.New("cron: running run missing turn_id"))
+	}
+	if !job.LeaseExpiresAt.IsZero() && job.LeaseExpiresAt.Before(s.now().UTC()) {
+		return s.finalizeRecoveredObserveLost(ctx, job, run, run.TurnID, errors.New("cron: running lease expired"))
+	}
+	if err := s.submitter.Observe(ctx, run.TurnID); err != nil {
+		return s.finalizeRecoveredObserveLost(ctx, job, run, run.TurnID, err)
+	}
+	return nil
+}
+
+func (s *Scheduler) observeRecoveredSubmittedRun(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string) error {
+	if err := s.submitter.Observe(ctx, turnID); err != nil {
+		return s.finalizeRecoveredObserveLost(ctx, job, run, turnID, err)
+	}
+	if run.Status == cronstore.StatusSubmitting {
+		if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{ID: run.ID, ExpectedStatus: cronstore.StatusSubmitting, NextStatus: cronstore.StatusSubmitted, UpdatedAt: s.now().UTC()}); err != nil {
+			return err
+		}
+	}
+	return s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{ID: run.ID, ExpectedStatus: cronstore.StatusSubmitted, NextStatus: cronstore.StatusRunning, UpdatedAt: s.now().UTC()})
+}
+
+func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job cronstore.Job, run cronstore.Run, err error) error {
+	now := s.now().UTC()
+	_ = s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: cronstore.StatusFailed, Error: err.Error(), UpdatedAt: now})
+	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, LastRunAt: run.ScheduledAt, LastStatus: cronstore.StatusFailed, LastErrorAt: now, LastError: err.Error(), Now: now})
+}
+
+func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string, err error) error {
+	now := s.now().UTC()
+	_ = s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: cronstore.StatusObserveLost, Error: err.Error(), UpdatedAt: now})
+	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, LastRunAt: run.ScheduledAt, LastTurnID: turnID, LastStatus: cronstore.StatusObserveLost, LastErrorAt: now, LastError: err.Error(), Now: now})
+}
+
+// ExtendClaimForTurnProgress extends the active job lease when the turn bus
+// reports progress, keeping long-running turns from losing their claim.
+func (s *Scheduler) ExtendClaimForTurnProgress(ctx context.Context, turnID string) error {
+	if strings.TrimSpace(turnID) == "" {
+		return nil
+	}
+	jobs, err := s.store.ListJobs(ctx)
+	if err != nil {
+		return err
+	}
+	now := s.now().UTC()
+	for _, job := range jobs {
+		if job.ClaimedBy != s.cfg.ClaimedBy || job.ActiveTurnID != turnID || job.ClaimToken == "" {
+			continue
+		}
+		return s.store.ExtendClaim(ctx, cronstore.LeaseParams{ID: job.ID, ClaimToken: job.ClaimToken, LeaseExpiresAt: now.Add(s.cfg.LeaseTTL), Now: now})
 	}
 	return nil
 }

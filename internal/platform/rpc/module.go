@@ -204,7 +204,6 @@ func registerApprovalRestoreOnConnect(approvals *ApprovalManager, bridge *PushBr
 // (via restoreActiveApprovals), and the long-running cleanup ticker is now
 // owned by ApprovalCleanupRunner (approval_cleanup_runner.go).
 
-
 func restoreActiveApprovals(ctx context.Context, approvals *ApprovalManager, bridge *PushBridge, server *Server) error {
 	if approvals == nil || server == nil {
 		return nil
@@ -248,15 +247,17 @@ func waitPendingApprovals(ctx context.Context, approvals *ApprovalManager, grace
 	}
 	timer := time.NewTimer(grace)
 	defer timer.Stop()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	poll := 100 * time.Millisecond
+	pollTimer := time.NewTimer(timerDelayWithJitter(poll))
+	defer pollTimer.Stop()
 	for len(approvals.PendingSnapshot()) != 0 {
 		select {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
 			return
-		case <-ticker.C:
+		case <-pollTimer.C:
+			pollTimer.Reset(timerDelayWithJitter(poll))
 		}
 	}
 }
