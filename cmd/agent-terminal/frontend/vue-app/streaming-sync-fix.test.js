@@ -277,9 +277,14 @@ describe('streaming sync fix', () => {
 
   // ─── Layer 3: Structural item filtering ───
 
-  it('getThreadTimeline filters out structural timeline kinds', () => {
+  it('getThreadTimeline filters out structural timeline kinds', async () => {
     const store = useThreadStore();
     const threadId = 'thread-filter';
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'thread/messages') return { messages: [] };
+      return {};
+    });
+    await store.loadMessages(threadId, 300, { syncRuntime: false });
     store.state.timelinesByThread[threadId] = [
       { id: '1', kind: 'turn_start', ts: '2026-01-01T00:00:00Z' },
       { id: '2', kind: 'user', text: 'hi', ts: '2026-01-01T00:00:01Z' },
@@ -308,9 +313,14 @@ describe('streaming sync fix', () => {
     expect(visibleKinds).toEqual(['user', 'tool', 'file', 'assistant', 'thinking', 'approval', 'command']);
   });
 
-  it('getThreadTimeline returns original array reference when no structural items present', () => {
+  it('getThreadTimeline returns original array reference when no structural items present', async () => {
     const store = useThreadStore();
     const threadId = 'thread-fastpath';
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'thread/messages') return { messages: [] };
+      return {};
+    });
+    await store.loadMessages(threadId, 300, { syncRuntime: false });
     const items = [
       { id: '1', kind: 'user', text: 'hi', ts: '2026-01-01T00:00:00Z' },
       { id: '2', kind: 'assistant', text: 'hello', ts: '2026-01-01T00:00:01Z' },

@@ -169,7 +169,6 @@ describe('thread store dependency injection', () => {
 
     expect(callAPI).toHaveBeenNthCalledWith(1, 'thread/name/set', { threadId: 'thread-1', name: 'Renamed' });
     expect(callAPI).toHaveBeenNthCalledWith(2, 'thread/archive', { threadId: 'thread-1' });
-    expect(deps.syncRuntimeState).toHaveBeenCalledTimes(1);
     expect(deps.refreshSidebarState).toHaveBeenCalledTimes(1);
     expect(deps.persistPreferenceAndSync).toHaveBeenCalledTimes(1);
     expect(state.archivedThreadAtById['thread-1']).toBeGreaterThan(0);

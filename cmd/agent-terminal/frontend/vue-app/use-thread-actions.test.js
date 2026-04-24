@@ -216,7 +216,7 @@ describe('useThreadActions', () => {
 
     await vm.send();
 
-    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat' });
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat', prompt: 'hello world' });
     expect(vm.deps.selectedThreadId.value).toBe('thread-started');
     expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
       'thread-started',
@@ -247,6 +247,7 @@ describe('useThreadActions', () => {
     expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('boot launch');
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
       focusMode: 'chat',
+      prompt: 'boot launch',
       selectedSkills: ['skillA', 'skillB'],
       manualSkillSelection: true,
     });

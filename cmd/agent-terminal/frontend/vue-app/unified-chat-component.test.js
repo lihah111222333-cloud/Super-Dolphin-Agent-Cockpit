@@ -361,7 +361,7 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
     const projectStore = { ...makeProjectStore(), state: reactive({ active: '/workspace/chat', showModal: false, projects: ['/workspace/chat'] }) };
     const vm = UnifiedChatPage.setup({ threadStore, projectStore, mode: 'chat' });
     await vm.send();
-    expect(threadStore.startThread).toHaveBeenCalledWith('/workspace/chat', { focusMode: 'chat' });
+    expect(threadStore.startThread).toHaveBeenCalledWith('/workspace/chat', { focusMode: 'chat', prompt: 'hello split' });
     expect(threadStore.sendMessage).toHaveBeenCalledWith('thread-new', 'hello split', [{ path: '/tmp/a.txt' }], expect.objectContaining({ cwd: '/workspace/chat' }));
     expect(composerStoreMock.clearComposer).toHaveBeenCalled();
     expect(autoScrollMock.scheduleScrollToBottom).toHaveBeenCalledWith(true);
