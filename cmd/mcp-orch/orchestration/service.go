@@ -76,9 +76,13 @@ type service struct {
 	recoveryStore          recoveryTurnStore
 	machineCfg             platformstatemachine.Config
 	processExitWaitTimeout time.Duration
-	mu                     sync.RWMutex
-	agents                 map[string]*agentRuntime
-	nextTurnSeq            int64
+	// exitMonitor is the P22 P3 single owner of every locally-launched
+	// agent process's cmd.Wait. runnerActor consumes its ExitEvents;
+	// launcher-driven stops call Emit directly. See exit_monitor.go.
+	exitMonitor *processExitMonitor
+	mu          sync.RWMutex
+	agents      map[string]*agentRuntime
+	nextTurnSeq int64
 }
 
 type serviceParams struct {
@@ -169,6 +173,7 @@ func NewService(
 			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions),
 		},
 		processExitWaitTimeout: 30 * time.Second,
+		exitMonitor:            newProcessExitMonitor(logger),
 		agents:                 make(map[string]*agentRuntime),
 	}
 }

@@ -89,6 +89,16 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 			"agent_id", agentID, "launch_seq", launchSeq, "error", err)
 		return
 	}
+	// P22 P3 exactly-once fence on (agentID, launchSeq): once an exit has been
+	// processed for this seq, every subsequent call (actor re-delivery,
+	// synthetic launcher Emit, test double-call) is a no-op so state
+	// transitions fire at most once per process lifetime.
+	if agent.lastExitedSeq >= launchSeq {
+		s.logger.Debug("orchestration: duplicate process exit ignored (seq already drained)",
+			"agent_id", agentID, "launch_seq", launchSeq,
+			"last_exited_seq", agent.lastExitedSeq)
+		return
+	}
 	stateBefore := agent.state
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	agent.cmd = nil
@@ -195,21 +205,27 @@ func NewRunnerActor(logger *slog.Logger, service *service) platformrunner.Runner
 	return &runnerActor{logger: logger, service: service}
 }
 
+// runGracePeriodOnStop bounds how long drainOnStop waits for in-flight
+// cmd.Wait goroutines and the StopAllAgents fan-out after ctx is cancelled.
+// Separate from processExitWaitTimeout: drainOnStop is the runner-side
+// shutdown budget, while processExitWaitTimeout is the per-agent wait for
+// waitForProcessExit.
+const runnerShutdownDrainGrace = 30 * time.Second
+
 func (a *runnerActor) Run(ctx context.Context) error {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
 	stallDetector := &StallDetector{threshold: 30 * time.Second, logger: a.logger}
-	results := make(chan waitResult, 32)
+	exitEvents := a.service.exitMonitor.ExitEvents()
 	for {
-		a.startWaiters(ctx, results)
 		a.processTurnQueues(ctx)
 
 		select {
 		case <-ctx.Done():
-			a.stopAll()
+			a.drainOnStop(exitEvents)
 			return ctx.Err()
-		case result := <-results:
+		case result := <-exitEvents:
 			a.service.handleProcessExit(ctx, result.agentID, result.launchSeq, result.err)
 		case <-ticker.C:
 			a.recoverStalledAgents(ctx, stallDetector)
@@ -217,24 +233,54 @@ func (a *runnerActor) Run(ctx context.Context) error {
 	}
 }
 
-func (a *runnerActor) startWaiters(ctx context.Context, results chan<- waitResult) {
-	for _, target := range a.service.claimMonitorTargets() {
-		go a.waitForExit(ctx, target, results)
+// drainOnStop is the P22 P3 §stop 顺序 implementation. The sequence is:
+//
+//  1. Fan-out StopAllAgents on a background goroutine so the stop path's
+//     internal waitForProcessExit polling (which needs lastExitedSeq to
+//     advance) does NOT block the actor from consuming exit events here.
+//  2. Drain the monitor: wait for every in-flight cmd.Wait goroutine to
+//     publish its exit result, bounded by runnerShutdownDrainGrace.
+//  3. Keep consuming exitEvents concurrently; handleProcessExit is safe under
+//     exactly-once because the fence in handleProcessExit guards against
+//     double delivery between the monitor event and stopAgent's synthetic
+//     emit.
+//  4. Once both stopAll and monitor.Drain have completed, flush any
+//     remaining buffered events before returning to Run.
+func (a *runnerActor) drainOnStop(exitEvents <-chan waitResult) {
+	stopDone := make(chan struct{})
+	go func() {
+		defer close(stopDone)
+		a.stopAll()
+	}()
+	drainCtx, cancel := platformconfig.WithTimeout(context.Background(), runnerShutdownDrainGrace)
+	defer cancel()
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		_ = a.service.exitMonitor.Drain(drainCtx)
+	}()
+	stopped, drained := false, false
+	for !stopped || !drained {
+		select {
+		case <-stopDone:
+			stopped = true
+		case <-drainDone:
+			drained = true
+		case result := <-exitEvents:
+			a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
+		}
 	}
+	a.flushRemainingExitEvents(exitEvents)
 }
 
-func (a *runnerActor) waitForExit(ctx context.Context, target monitorTarget, results chan<- waitResult) {
-	err := target.cmd.Wait()
-	result := waitResult{agentID: target.agentID, launchSeq: target.launchSeq, err: err}
-	if ctx.Err() != nil {
-		// Runner shutdown still needs the exit transition to complete so StopAllAgents can observe it.
-		a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
-		return
-	}
-	select {
-	case results <- result:
-	case <-ctx.Done():
-		a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
+func (a *runnerActor) flushRemainingExitEvents(exitEvents <-chan waitResult) {
+	for {
+		select {
+		case result := <-exitEvents:
+			a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
+		default:
+			return
+		}
 	}
 }
 
