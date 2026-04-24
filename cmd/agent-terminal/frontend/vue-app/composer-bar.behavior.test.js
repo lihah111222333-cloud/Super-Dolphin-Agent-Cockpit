@@ -496,7 +496,7 @@ describe('ComposerBar behavior', () => {
     expect(inheritedVm.threadConfigVisible.value).toBe(true);
     expect(inheritedVm.threadConfigEditable.value).toBe(true);
     expect(inheritedVm.threadConfigInherited.value).toBe(true);
-    expect(inheritedVm.threadConfigSummaryLabel.value).toBe('openai/gpt-5-high (继承全局)');
+    expect(inheritedVm.threadConfigSummaryLabel.value).toBe('openai/gpt-5 · high (继承全局)');
 
     inheritedVm.toggleThreadConfig();
     expect(inheritedVm.threadConfigOpen.value).toBe(true);
@@ -534,7 +534,7 @@ describe('ComposerBar behavior', () => {
     overrideVm.toggleThreadConfig();
     overrideVm.restoreThreadConfig();
     expect(overrideVm.threadConfigInherited.value).toBe(false);
-    expect(overrideVm.threadConfigSummaryLabel.value).toBe('custom-model-medium');
+    expect(overrideVm.threadConfigSummaryLabel.value).toBe('custom-model · medium');
     expect(overrideEmit).toHaveBeenCalledWith('restore-thread-config-inherit');
     expect(overrideVm.threadConfigOpen.value).toBe(false);
   });

@@ -202,6 +202,29 @@ export function createThreadConfigController({ threadStore, threadActions, selec
     { immediate: true },
   );
 
+  // Sync runtime model into meta.effective.model when it arrives
+  // asynchronously (e.g. after Claude session reports the concrete
+  // model). Without this, the summary label shows bare "继承全局"
+  // instead of "claude-opus-4-7[1m] (继承全局)".
+  watch(
+    () => {
+      const id = normalizeThreadConfigValue(selectedThreadId.value);
+      return id ? normalizeThreadConfigValue(threadStore.state.agentRuntimeById?.[id]?.model) : '';
+    },
+    (runtimeModel) => {
+      if (
+        !runtimeModel ||
+        isCmd.value ||
+        !normalizeThreadConfigValue(selectedThreadId.value)
+      ) return;
+      // Only backfill when effective.model is empty — don't overwrite
+      // an authoritative value returned by GetConfig.
+      if (!normalizeThreadConfigValue(threadConfigUi.meta.effective?.model)) {
+        threadConfigUi.meta.effective.model = runtimeModel;
+      }
+    },
+  );
+
   return {
     threadConfigUi,
     updateThreadConfigModel,
