@@ -95,6 +95,12 @@ type service struct {
 	// that case onTurnCompleted is a no-op anyway because the refresher
 	// short-circuits on missing stores.
 	taskHandoffWorker *taskHandoffWorker
+
+	// agentLaunchedWorker is the P22 P2 (thread S4) single owner of the
+	// onAgentLaunched -> binding store write + prompt-assembly
+	// invalidation slow-path. Always constructed; processAgentLaunched
+	// guards on bindingStore so a nil-store service is still safe.
+	agentLaunchedWorker *agentLaunchedWorker
 }
 
 var _ Service = (*service)(nil)
