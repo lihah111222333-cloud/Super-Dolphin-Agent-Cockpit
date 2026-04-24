@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"syscall"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -181,7 +180,7 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
-	if err := s.transport.signalProcess(syscall.SIGINT); err != nil {
+	if err := s.transport.signalProcess(sigInterrupt); err != nil {
 		return err
 	}
 	s.forceCompleteTurn(strings.TrimSpace(req.ProviderID))
