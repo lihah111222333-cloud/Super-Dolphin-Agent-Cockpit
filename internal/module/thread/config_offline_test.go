@@ -113,6 +113,87 @@ func TestServiceGetConfigFallsBackToOfflineConfigWithoutSession(t *testing.T) {
 	}
 }
 
+func TestBuildOfflineConfigPrefersStoredProviderOverBinding(t *testing.T) {
+	t.Parallel()
+
+	got := mustBuildOfflineConfig(t, &threadstore.Thread{
+		ThreadID:       "thread-stored-provider",
+		Model:          "gpt-5.4",
+		Status:         statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "claude"}),
+	}, nil)
+
+	if got.Config.Provider != "claude" {
+		t.Fatalf("buildOfflineConfig() provider = %q, want claude", got.Config.Provider)
+	}
+}
+
+func TestBuildOfflineConfigPrefersStoredProviderWhenBindingMismatch(t *testing.T) {
+	t.Parallel()
+
+	got := mustBuildOfflineConfig(t, &threadstore.Thread{
+		ThreadID:       "thread-provider-mismatch",
+		Model:          "gpt-5.4",
+		Status:         statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "claude"}),
+	}, &bindingstore.Binding{Provider: "codex"})
+
+	if got.Config.Provider != "claude" {
+		t.Fatalf("buildOfflineConfig() provider = %q, want claude", got.Config.Provider)
+	}
+}
+
+func TestBuildOfflineConfigFallsBackToBindingWhenStoredEmpty(t *testing.T) {
+	t.Parallel()
+
+	got := mustBuildOfflineConfig(t, &threadstore.Thread{
+		ThreadID:       "thread-binding-fallback",
+		Model:          "gpt-5.4",
+		Status:         statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{}),
+	}, &bindingstore.Binding{Provider: "codex"})
+
+	if got.Config.Provider != "codex" {
+		t.Fatalf("buildOfflineConfig() provider = %q, want codex", got.Config.Provider)
+	}
+}
+
+func TestBuildOfflineConfigFallsBackToDefaultWhenAllEmpty(t *testing.T) {
+	t.Parallel()
+
+	got := mustBuildOfflineConfig(t, &threadstore.Thread{
+		ThreadID:       "thread-default-fallback",
+		Model:          "gpt-5.4",
+		Status:         statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{}),
+	}, nil)
+
+	if got.Config.Provider != "codex" {
+		t.Fatalf("buildOfflineConfig() provider = %q, want codex", got.Config.Provider)
+	}
+}
+
+func TestBuildOfflineConfigPendingLaunchClaudeThread(t *testing.T) {
+	t.Parallel()
+
+	got := mustBuildOfflineConfig(t, &threadstore.Thread{
+		ThreadID:      "thread-pending-claude",
+		Prompt:        "新对话",
+		Status:        statusCreated,
+		PendingLaunch: true,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Provider:    "claude",
+			Effort:      "high",
+			Approvals:   "never",
+			Personality: "balanced",
+		}),
+	}, nil)
+
+	if got.Config.Provider != "claude" {
+		t.Fatalf("buildOfflineConfig() provider = %q, want claude", got.Config.Provider)
+	}
+}
+
 func TestServiceReadRuntimeConfigMergesSessionSnapshotWithOfflineConfig(t *testing.T) {
 	t.Parallel()
 
@@ -278,6 +359,20 @@ func TestPersistThreadConfigModelPatchSemantics(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustBuildOfflineConfig(
+	t *testing.T,
+	thread *threadstore.Thread,
+	binding *bindingstore.Binding,
+) offlineConfigSnapshot {
+	t.Helper()
+	svc := NewService(silentLogger(), &stubThreadStore{thread: thread}, nil, nil, nil, nil, nil, nil).(*service)
+	got, err := svc.buildOfflineConfig(context.Background(), thread.ThreadID, binding)
+	if err != nil {
+		t.Fatalf("buildOfflineConfig() error = %v", err)
+	}
+	return got
 }
 
 func mustStoredThreadConfigRaw(
