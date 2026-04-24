@@ -3,15 +3,17 @@ package thread
 import (
 	"context"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"go.uber.org/fx"
 )
 
-// Compile-time check: thread.Service must satisfy turn.PendingLaunchSpawner
-// so the fx graph below can publish it under that interface directly. The
-// shared threaddto.SpawnRouting type (in internal/dto/thread) keeps both
-// signatures identical without reviving a thread↔turn import cycle.
-var _ turn.PendingLaunchSpawner = (Service)(nil)
+// Compile-time check: thread.Service must satisfy
+// contract.PendingLaunchSpawner so the fx graph below can publish it
+// under that interface directly. P22 P4 S2 moved the interface from the
+// turn consumer package to internal/contract so the owner-side contract
+// stops leaking through a side-channel interface; the thread module no
+// longer needs to import turn just to declare what shape it satisfies.
+var _ contract.PendingLaunchSpawner = (Service)(nil)
 
 // subscriptionParams is an fx.In for the subscription lifecycle hook only.
 // P22 P2 (thread) removed the late-setter injection path (bindDispatcher /
@@ -33,13 +35,16 @@ var Module = fx.Module("thread",
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
 			// Publish the service under both thread.Service (its native
 			// interface, required by uistate/orchestration) and
-			// turn.PendingLaunchSpawner so NewTurnHandlers can pick it up
-			// via optional injection without creating a turn→thread import
-			// cycle. fx.As replaces the original output, so we need an
-			// explicit fx.As(new(Service)) here, otherwise thread.Service
-			// disappears from the DI graph.
+			// contract.PendingLaunchSpawner so NewTurnHandlers can pick it
+			// up via optional injection without creating a turn→thread
+			// import cycle. fx.As replaces the original output, so we need
+			// an explicit fx.As(new(Service)) here, otherwise thread.Service
+			// disappears from the DI graph. P22 P4 S2: the second fx.As
+			// target used to be turn.PendingLaunchSpawner (side-channel
+			// interface owned by the consumer package); it now lives in
+			// contract.
 			fx.As(new(Service)),
-			fx.As(new(turn.PendingLaunchSpawner)),
+			fx.As(new(contract.PendingLaunchSpawner)),
 		),
 		fx.Annotate(
 			NewThreadHandlers,

@@ -157,20 +157,12 @@ func applyTurnStartConfig(ctx context.Context, session contract.Session, p turnS
 	return session.Configure(ctx, dto.ThreadConfigPatch{Approvals: &policy})
 }
 
-// PendingLaunchSpawner abstracts thread.Service.SpawnIfNeeded so the turn
-// handler can lazily fork the provider CLI for threads created with
-// DeferSpawn=true. Nil spawner disables the C1 path and restores the
-// legacy behavior (fail fast if session is missing).
-//
-// The SpawnRouting return value is populated only when launched=true;
-// turn/start forwards it into turnStartResult so the UI can fill the
-// per-thread routing badge. thread/start cannot surface this for
-// pending_launch threads because routing runs lazily inside SpawnIfNeeded,
-// not during thread creation. The shared threaddto package breaks the
-// thread↔turn import cycle that would otherwise form.
-type PendingLaunchSpawner interface {
-	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (bool, threaddto.SpawnRouting, error)
-}
+// P22 P4 S2: PendingLaunchSpawner was formerly defined here and exported
+// as turn.PendingLaunchSpawner; that placed the owner-side contract in a
+// consumer package (side-channel hidden contract). The interface now
+// lives in internal/contract as contract.PendingLaunchSpawner; turn only
+// consumes it.
+
 
 func collectTurnStartUserInput(p turnStartParams) string {
 	if text := strings.TrimSpace(p.Prompt); text != "" {
@@ -187,7 +179,7 @@ func collectTurnStartUserInput(p turnStartParams) string {
 	return ""
 }
 
-func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner PendingLaunchSpawner, capResolver rpc.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
+func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner contract.PendingLaunchSpawner, capResolver rpc.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
 	return rpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
 		// C1: if this thread is still in pending_launch state, fork the
