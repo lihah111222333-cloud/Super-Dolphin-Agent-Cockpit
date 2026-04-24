@@ -1,0 +1,10 @@
+# Windows batch/command scripts must always use CRLF line endings,
+# regardless of the user's core.autocrlf setting. Using LF line endings
+# makes cmd.exe mis-parse these scripts (silently skipping blocks or
+# complaining about stray tokens).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Unix shell scripts must always use LF, even when checked out on Windows
+# (otherwise bash and /usr/bin/env rejects them).
+*.sh text eol=lf
