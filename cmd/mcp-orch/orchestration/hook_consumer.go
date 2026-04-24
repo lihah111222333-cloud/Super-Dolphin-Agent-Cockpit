@@ -200,6 +200,20 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 		return
 	}
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+		// P22 P4 §121/§282: enforce session-identity fence. Hook events
+		// stamped with a stale launchSeq (i.e. emitted before the agent
+		// was re-launched) must not be allowed to mutate the current
+		// session's state. Empty SessionID is treated as legacy input.
+		if !agentSessionFenceOK(agent, ev.SessionID) {
+			c.logger.Warn("orchestration: dropping stale state-change event (session fence)",
+				"agent_id", ev.AgentID,
+				"thread_id", ev.ThreadID,
+				"event_session_id", ev.SessionID,
+				"current_session_id", agentSessionID(agent),
+				"state", nextState,
+			)
+			return nil
+		}
 		before := strings.TrimSpace(agent.state)
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID != "" {

@@ -364,21 +364,81 @@ func (s *service) withAgentReadLocked(agentID string, fn func(*agentState) error
 	return fn(agent)
 }
 
+// agentIdentityKind narrows how an external identifier may be looked
+// up against the in-memory agents map. The distinction matters for
+// the P4 identity-fence contract (plan §63 / §121 / §282):
+//
+//   - agentIdentityLocalOnly: only the orchestration agent name (map
+//     key) is consulted. Use this for callers that already hold a
+//     local authoritative id (e.g. API-facing lookups). Reverse
+//     lookups are denied so a remote id cannot be silently accepted
+//     outside a trusted hook boundary.
+//
+//   - agentIdentityAny: local id first, then reverse by remoteAgentID
+//     or remoteThreadID. Use this only for the inbound hook path,
+//     which receives events stamped with remote IDs from the main app.
+//
+// Pre-P4 the helper performed agentIdentityAny unconditionally, which
+// meant every caller silently inherited the reverse-lookup trust
+// domain. The named kind turns the assumption into a declaration.
+type agentIdentityKind int
+
+const (
+	agentIdentityLocalOnly agentIdentityKind = iota
+	agentIdentityAny
+)
+
+// lookupAgentByIDLocked performs a reverse-capable lookup and is kept
+// for in-tree callers that still need the legacy behavior (hook /
+// event ingestion, and the withAgentLocked / withAgentReadLocked
+// helpers consumed by those paths). New callers should prefer
+// lookupAgentByIdentityLocked with an explicit identity kind. The
+// reverse-lookup literal comparisons are pinned to this file by the
+// archtest in
+// internal/archtest/orchestration_agent_identity_reverse_lookup_guard_test.go.
 func lookupAgentByIDLocked(agents map[string]*agentState, agentID string) (*agentState, error) {
+	return lookupAgentByIdentityLocked(agents, agentID, agentIdentityAny)
+}
+
+// lookupAgentByIdentityLocked resolves an agent handle against an
+// explicitly-declared identity kind. See agentIdentityKind for the
+// trust implications of each kind.
+func lookupAgentByIdentityLocked(agents map[string]*agentState, agentID string, kind agentIdentityKind) (*agentState, error) {
 	agentID = strings.TrimSpace(agentID)
 	// Primary lookup: by orchestration agent name (map key).
-	agent, ok := agents[agentID]
-	if ok {
+	if agent, ok := agents[agentID]; ok {
 		return agent, nil
 	}
-	// Reverse lookup: by remoteAgentID or remoteThreadID assigned by main app.
-	// Hook events from the main app carry the remote ID, not the local name.
+	if kind == agentIdentityLocalOnly {
+		return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
+	}
+	// Reverse lookup (agentIdentityAny only): by remoteAgentID or
+	// remoteThreadID assigned by the main app. Hook events carry the
+	// remote id, not the local name.
 	for _, candidate := range agents {
 		if candidate.remoteAgentID == agentID || candidate.remoteThreadID == agentID {
 			return candidate, nil
 		}
 	}
 	return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
+}
+
+// agentSessionFenceOK enforces the P4 session-identity fence on
+// inbound hook payloads that carry an AgentSessionHeader. If the
+// event is stamped with a SessionID, it must match the agent's
+// current session (== agent.launchSeq formatted as decimal); a
+// mismatch means the event belongs to a prior launch generation and
+// must be dropped. An empty SessionID is accepted as legacy /
+// compatibility input because older producers did not emit it.
+func agentSessionFenceOK(agent *agentState, evSessionID string) bool {
+	if agent == nil {
+		return false
+	}
+	ev := strings.TrimSpace(evSessionID)
+	if ev == "" {
+		return true
+	}
+	return ev == agentSessionID(agent)
 }
 
 func lookupAgentBySeqLocked(
