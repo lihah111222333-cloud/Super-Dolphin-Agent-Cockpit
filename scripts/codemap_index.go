@@ -18,12 +18,15 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/devtools/codemapindex"
 )
 
+// ---------- output types ----------
+
 type Index struct {
-	Version     string                `json:"version"`
-	GeneratedAt string                `json:"generated_at"`
-	Description string                `json:"description"`
-	Codemaps    []Codemap             `json:"codemaps"`
-	Files       map[string]*FileEntry `json:"files"`
+	Version      string                `json:"version"`
+	GeneratedAt  string                `json:"generated_at"`
+	Description  string                `json:"description"`
+	SectionIndex []string              `json:"section_index"`
+	Codemaps     []Codemap             `json:"codemaps"`
+	Files        map[string]*FileEntry `json:"files"`
 }
 type Codemap struct {
 	ID         string    `json:"id"`
@@ -39,23 +42,31 @@ type Section struct {
 	EndLine   int    `json:"end_line"`
 }
 type FileEntry struct {
-	Package     string `json:"package"`
-	Description string `json:"description"`
-	Refs        []Ref  `json:"refs"`
+	Refs []Ref `json:"refs"`
 }
 type Ref struct {
-	CodemapID string `json:"codemap"`
-	Section   string `json:"section"`
-	StartLine int    `json:"start_line"`
-	EndLine   int    `json:"end_line"`
-	Context   string `json:"context"`
+	CodemapID string `json:"c"`
+	SectionID int    `json:"s"`
+	StartLine int    `json:"l"`
+	EndLine   int    `json:"e"`
 }
+
+// ---------- internal types ----------
 
 type parsedMD struct {
 	id, file, title string
 	lines           []string
 	sections        []Section
 }
+
+type rawRef struct {
+	codemapID string
+	section   string
+	startLine int
+	endLine   int
+}
+
+const maxRefsPerFile = 20
 
 func main() {
 	root := "."
@@ -64,23 +75,61 @@ func main() {
 	}
 	codemapDir := filepath.Join(root, "docs", "doc", "codemap")
 	mds := loadCodemaps(codemapDir)
-	filesIndex := buildFilesIndex(root, mds)
+
+	// Build raw refs (still using section title strings).
+	rawFilesIndex := buildRawFilesIndex(root, mds)
+
+	// Collect unique section titles and build index.
+	secSet := map[string]int{}
+	var secIndex []string
+	getSID := func(title string) int {
+		if id, ok := secSet[title]; ok {
+			return id
+		}
+		id := len(secIndex)
+		secIndex = append(secIndex, title)
+		secSet[title] = id
+		return id
+	}
+
+	// Convert rawRefs to compact Refs with section IDs.
+	filesIndex := make(map[string]*FileEntry, len(rawFilesIndex))
+	for src, raws := range rawFilesIndex {
+		refs := make([]Ref, len(raws))
+		for i, r := range raws {
+			refs[i] = Ref{
+				CodemapID: r.codemapID,
+				SectionID: getSID(r.section),
+				StartLine: r.startLine,
+				EndLine:   r.endLine,
+			}
+		}
+		filesIndex[src] = &FileEntry{Refs: refs}
+	}
 
 	idx := Index{
-		Version:     "1.0",
-		GeneratedAt: time.Now().Format("2006-01-02"),
-		Description: "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
-		Files:       filesIndex,
+		Version:      "1.0",
+		GeneratedAt:  time.Now().Format("2006-01-02"),
+		Description:  "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
+		SectionIndex: secIndex,
+		Files:        filesIndex,
 	}
 	readmeCodemaps := make([]codemapindex.ReadmeCodemap, 0, len(mds))
 	for _, md := range mds {
-		cm := Codemap{ID: md.id, File: md.file, Title: md.title, TotalLines: len(md.lines), Sections: md.sections}
+		// Only emit level 1-2 sections in output.
+		var outSecs []Section
+		for _, s := range md.sections {
+			if s.Level <= 2 {
+				outSecs = append(outSecs, s)
+			}
+		}
+		cm := Codemap{ID: md.id, File: md.file, Title: md.title, TotalLines: len(md.lines), Sections: outSecs}
 		idx.Codemaps = append(idx.Codemaps, cm)
 		readmeCodemaps = append(readmeCodemaps, codemapindex.ReadmeCodemap{ID: cm.ID, File: cm.File, Title: cm.Title})
 	}
 
 	outPath := filepath.Join(codemapDir, "ai-index.json")
-	data, _ := json.MarshalIndent(idx, "", "  ")
+	data, _ := json.Marshal(idx)
 	if err := os.WriteFile(outPath, data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "write: %v\n", err)
 		os.Exit(1)
@@ -90,15 +139,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	totalRefs, withRefs := 0, 0
+	totalRefs := 0
 	for _, f := range filesIndex {
 		totalRefs += len(f.Refs)
-		if len(f.Refs) > 0 {
-			withRefs++
-		}
 	}
-	fmt.Printf("ai-index.json: %d files, %d with refs, %d total refs, %d codemaps\n",
-		len(filesIndex), withRefs, totalRefs, len(idx.Codemaps))
+	fmt.Printf("ai-index.json: %d files, %d total refs, %d sections, %d codemaps\n",
+		len(filesIndex), totalRefs, len(secIndex), len(idx.Codemaps))
 }
 
 func loadCodemaps(codemapDir string) []parsedMD {
@@ -123,33 +169,33 @@ func loadCodemaps(codemapDir string) []parsedMD {
 	return mds
 }
 
-func buildFilesIndex(root string, mds []parsedMD) map[string]*FileEntry {
+func buildRawFilesIndex(root string, mds []parsedMD) map[string][]rawRef {
 	srcFiles := codemapindex.ScanSourceFiles(root)
 	sort.Strings(srcFiles)
-	filesIndex := make(map[string]*FileEntry, len(srcFiles))
+	filesIndex := make(map[string][]rawRef, len(srcFiles))
 	for _, src := range srcFiles {
-		entry := &FileEntry{Package: detectPackage(filepath.Join(root, src)), Refs: []Ref{}}
 		base := filepath.Base(src)
 		shortPath := filepath.Join(filepath.Base(filepath.Dir(src)), base)
 		seen := map[string]bool{}
 		var terms []string
-		for _, term := range []string{src, shortPath, base} {
+		for _, term := range []string{src, shortPath} {
 			if seen[term] || len(term) <= 3 {
 				continue
 			}
 			seen[term] = true
 			terms = append(terms, term)
 		}
+		var refs []rawRef
 		for _, md := range mds {
-			entry.Refs = append(entry.Refs, findRefs(md.id, md.lines, md.sections, terms, src)...)
+			refs = append(refs, findRefs(md.id, md.lines, md.sections, terms)...)
 		}
-		if len(entry.Refs) > 0 {
-			entry.Description = entry.Refs[0].Context
+		if len(refs) > maxRefsPerFile {
+			refs = refs[:maxRefsPerFile]
 		}
-		if entry.Description == "" {
-			entry.Description = entry.Package
+		if len(refs) == 0 {
+			continue
 		}
-		filesIndex[src] = entry
+		filesIndex[src] = refs
 	}
 	return filesIndex
 }
@@ -221,31 +267,7 @@ func parseSections(lines []string) []Section {
 	return out
 }
 
-func detectPackage(p string) string {
-	switch filepath.Ext(p) {
-	case ".js", ".ts", ".vue":
-		return "frontend"
-	case ".sql":
-		return "sql"
-	case ".sh":
-		return "shell"
-	}
-	if filepath.Base(p) == "Makefile" {
-		return "build"
-	}
-	d, err := os.ReadFile(p)
-	if err != nil {
-		return ""
-	}
-	for _, l := range strings.SplitN(string(d), "\n", 20) {
-		if strings.HasPrefix(strings.TrimSpace(l), "package ") {
-			return strings.Fields(strings.TrimSpace(l))[1]
-		}
-	}
-	return ""
-}
-
-func findRefs(cmID string, lines []string, secs []Section, terms []string, fullPath string) (refs []Ref) {
+func findRefs(cmID string, lines []string, secs []Section, terms []string) (refs []rawRef) {
 	matched := map[string]bool{}
 	for i, line := range lines {
 		ln := i + 1
@@ -265,7 +287,7 @@ func findRefs(cmID string, lines []string, secs []Section, terms []string, fullP
 			continue
 		}
 		matched[key] = true
-		refs = append(refs, Ref{cmID, sec, s, e, extractCtx(line, fullPath)})
+		refs = append(refs, rawRef{cmID, sec, s, e})
 	}
 	return
 }
@@ -368,26 +390,4 @@ func paragraphRange(lines []string, idx int) (int, int) {
 		end = i + 1
 	}
 	return start, end
-}
-
-func extractCtx(line, fullPath string) string {
-	s := strings.TrimLeft(strings.TrimSpace(line), "|- *#>")
-	s = strings.TrimSpace(s)
-	if strings.Contains(s, "|") {
-		parts := strings.Split(s, "|")
-		base := filepath.Base(fullPath)
-		for i, p := range parts {
-			if strings.Contains(strings.TrimSpace(p), base) && i+1 < len(parts) {
-				s = strings.TrimSpace(parts[i+1])
-				break
-			}
-		}
-	}
-	s = strings.ReplaceAll(s, "`"+fullPath+"`", "")
-	s = strings.ReplaceAll(s, "`"+filepath.Base(fullPath)+"`", "")
-	s = strings.TrimSpace(s)
-	if len(s) > 120 {
-		s = s[:120]
-	}
-	return s
 }
