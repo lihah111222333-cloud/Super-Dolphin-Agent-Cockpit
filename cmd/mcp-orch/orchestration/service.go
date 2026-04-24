@@ -49,16 +49,19 @@ type DAGSummary = contract.DAGSummary
 type DAGNode = contract.DAGNode
 type DAGDetail = contract.DAGDetail
 
-var Module = fx.Module("orchestration",
-	fx.Provide(
-		provideService,
-		func(s *service) Service { return s },
-		ProvideHookConsumer,
-		NewOrchestrationHandlers,
-	),
-	fx.Invoke(registerTurnLifecycle),
-	fx.Invoke(registerApprovalLifecycle),
-)
+// P22 P4 S4c1: orchestration no longer exports a package-level `Module`
+// variable. Per P4 §278 the root entry (cmd/mcp-orch/fx.go
+// buildOrchestrationOptions) now composes the orchestration wiring
+// explicitly from the exported building blocks below — ProvideService /
+// ProvideServiceInterface / ProvideHookConsumer / NewOrchestrationHandlers
+// / RegisterTurnLifecycle / RegisterApprovalLifecycle. The archtest
+// TestOrchestrationNoModuleExport locks this in place so the subpackage
+// cannot re-grow a wholesale `Module` export.
+//
+// Keeping the building blocks exported rather than re-bundling them under
+// a "helper" name keeps root assembly explicit and lets cmd/mcp-orch
+// insert additional providers (noop cleaners, launcher variants,
+// standalone stubs) without having to peel apart a pre-built bundle.
 
 var (
 	errAgentNotFound          = contract.ErrAgentNotFound
@@ -178,11 +181,26 @@ func NewService(
 	}
 }
 
-func provideService(p serviceParams) *service {
+// ProvideService is the fx constructor for the orchestration service.
+// Exported by P22 P4 S4c1 so cmd/mcp-orch/fx.go can assemble the
+// orchestration wiring at root instead of consuming a package-level
+// `Module`. Returns the private *service pointer so fx can resolve the
+// concrete type for invokes that need it; ProvideServiceInterface
+// adapts the same pointer to the public Service / contract.Orchestration
+// Service interface.
+func ProvideService(p serviceParams) *service {
 	return NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
 }
 
-func registerTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
+// ProvideServiceInterface adapts the private *service pointer into the
+// public Service / contract.OrchestrationService interface. Previously
+// this was an anonymous func inside `var Module`; exporting it keeps the
+// adapter available to root-level fx assembly (P22 P4 S4c1).
+func ProvideServiceInterface(s *service) Service { return s }
+
+// RegisterTurnLifecycle was `registerTurnLifecycle` pre-P22 P4 S4c1.
+// Exported so cmd/mcp-orch/fx.go can fx.Invoke it during root assembly.
+func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -231,7 +249,10 @@ func registerTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 	})
 }
 
-func registerApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
+// RegisterApprovalLifecycle was `registerApprovalLifecycle` pre-P22 P4
+// S4c1. Exported so cmd/mcp-orch/fx.go can fx.Invoke it during root
+// assembly.
+func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
 	requestedCancel := func() {}
 	resolvedCancel := func() {}
 	lc.Append(fx.Hook{

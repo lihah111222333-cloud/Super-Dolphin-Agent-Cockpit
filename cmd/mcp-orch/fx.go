@@ -127,8 +127,22 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookConsumer orchestration.H
 }
 
 func buildOrchestrationOptions(remoteAddr string) []fx.Option {
+	// P22 P4 S4c1: the orchestration subpackage no longer exports
+	// `var Module`; root assembly wires its providers + lifecycle hooks
+	// explicitly here. The archtest TestOrchestrationNoModuleExport
+	// locks this in place (see
+	// internal/archtest/orchestration_no_module_export_guard_test.go).
 	options := []fx.Option{
-		orchestration.Module,
+		fx.Module("orchestration",
+			fx.Provide(
+				orchestration.ProvideService,
+				orchestration.ProvideServiceInterface,
+				orchestration.ProvideHookConsumer,
+				orchestration.NewOrchestrationHandlers,
+			),
+			fx.Invoke(orchestration.RegisterTurnLifecycle),
+			fx.Invoke(orchestration.RegisterApprovalLifecycle),
+		),
 		fx.Provide(func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 			return buildLauncher(lc, turnStarter, logger, remoteAddr)
 		}),
