@@ -158,6 +158,12 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	if s.timeline != nil {
 		snapshot.TimelineByThread = s.timeline.Snapshot()
 	}
+	// Snapshot derivation runs before DB enrich. That is acceptable because the
+	// enrich pass only backfills an empty runtime provider; it does not rewrite a
+	// non-empty provider that is already present in runtimeMap. Correctness here
+	// therefore depends on upstream provider sources remaining authoritative; the
+	// known pending-launch default-to-codex source was closed in B2+
+	// (internal/module/thread/factory.go:266).
 	s.enrichFromDB(ctx, snapshot.Agents, snapshot.Threads, snapshot.AgentRuntimeByID)
 	return snapshot, nil
 }

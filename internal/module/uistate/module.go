@@ -125,6 +125,11 @@ func applyBindingToThreadRuntime(thread ThreadSummary, idx map[string]bindingEnt
 		return
 	}
 	rt := ensureThreadRuntime(thread, entry, runtimeMap)
+	// Defensive note: this is a backfill-only path. We intentionally fill the
+	// provider only when runtimeMap is missing it; if a non-empty provider here
+	// is stale, correction must come from the upstream authoritative sources.
+	// The known pending-launch default-to-codex source was closed in the B2+
+	// thread fix (see internal/module/thread/factory.go:266).
 	if rt["provider"] == nil || rt["provider"] == "" {
 		rt["provider"] = entry.Provider
 	}
