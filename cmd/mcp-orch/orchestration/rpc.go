@@ -118,10 +118,10 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 		"agent.getReport": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return svc.GetReport(ctx, p.AgentID)
 		}),
-		"agent.rememberReportRequest": rpc.StrictHandler(func(ctx context.Context, p rememberReportRequestParams) (any, error) {
+		ReportMethodRememberReportRequest: rpc.StrictHandler(func(ctx context.Context, p rememberReportRequestParams) (any, error) {
 			return svc.RememberReportRequest(ctx, rememberReportRequestFromParams(p))
 		}),
-		"agent.reportEvent": rpc.StrictHandler(func(ctx context.Context, p reportEventParams) (any, error) {
+		ReportMethodReportEvent: rpc.StrictHandler(func(ctx context.Context, p reportEventParams) (any, error) {
 			return svc.HandleReportEvent(ctx, reportEventFromParams(p))
 		}),
 		"task/dag/create": rpc.StrictHandler(func(ctx context.Context, p createDAGParams) (any, error) {
