@@ -27,16 +27,21 @@ import (
 //     actor re-spawning waiter goroutine inside Run
 //   - P1c (codexapp session runtime Run paths): reader/health goroutines must
 //     be owner-joined, not fire-and-forget
+func TestOrchestrationWaiterHotFileGuard(t *testing.T) {
+	t.Parallel()
+	assertNoOrchestrationWaiterTokens(t)
+}
+
 func TestRunnerActorGuard(t *testing.T) {
 	t.Parallel()
 
 	t.Run("forbidden_token_catalogue_is_locked", func(t *testing.T) {
 		t.Parallel()
 		want := []string{
-			"go ",                  // bare go-statement inside Run(ctx)
-			"runtimesafe.SafeGo(",  // SafeGo inside actor loop
-			"time.NewTicker(",      // ticker without owner-managed stop
-			"time.AfterFunc(",      // fire-and-forget timer
+			"go ",                 // bare go-statement inside Run(ctx)
+			"runtimesafe.SafeGo(", // SafeGo inside actor loop
+			"time.NewTicker(",     // ticker without owner-managed stop
+			"time.AfterFunc(",     // fire-and-forget timer
 		}
 		if len(want) == 0 {
 			t.Fatal("actor-execute forbidden token catalogue is empty")
@@ -94,27 +99,32 @@ func TestRunnerActorGuard(t *testing.T) {
 		// fully removed. Reappearance of any of these tokens inside the hot
 		// file is a regression.
 		t.Parallel()
-		root := repoRootForGuardTests(t)
-		path := filepath.Join(root, "cmd", "mcp-orch", "orchestration", "process_lifecycle.go")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		src := string(data)
-		forbidden := []string{
-			"func (a *runnerActor) startWaiters",
-			"func (a *runnerActor) waitForExit",
-			"go a.waitForExit(",
-			"claimMonitorTargets(",
-		}
-		var hits []string
-		for _, token := range forbidden {
-			if strings.Contains(src, token) {
-				hits = append(hits, token)
-			}
-		}
-		if len(hits) > 0 {
-			t.Fatalf("process_lifecycle.go reintroduced P3 Finding 8 waiter path; forbidden tokens present: %v", hits)
-		}
+		assertNoOrchestrationWaiterTokens(t)
 	})
+}
+
+func assertNoOrchestrationWaiterTokens(t *testing.T) {
+	t.Helper()
+	root := repoRootForGuardTests(t)
+	path := filepath.Join(root, "cmd", "mcp-orch", "orchestration", "process_lifecycle.go")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	src := string(data)
+	forbidden := []string{
+		"func (a *runnerActor) startWaiters",
+		"func (a *runnerActor) waitForExit",
+		"go a.waitForExit(",
+		"claimMonitorTargets(",
+	}
+	var hits []string
+	for _, token := range forbidden {
+		if strings.Contains(src, token) {
+			hits = append(hits, token)
+		}
+	}
+	if len(hits) > 0 {
+		t.Fatalf("process_lifecycle.go reintroduced P3 Finding 8 waiter path; forbidden tokens present: %v", hits)
+	}
 }

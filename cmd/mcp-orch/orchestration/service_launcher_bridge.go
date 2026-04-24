@@ -195,7 +195,7 @@ func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason stri
 	if err := s.launcher.Stop(ctx, agent); err != nil {
 		return err
 	}
-	s.handleProcessExit(ctx, agentID, launchSeq, nil)
+	s.exitMonitor.Emit(agentID, launchSeq, nil)
 	return nil
 }
 
