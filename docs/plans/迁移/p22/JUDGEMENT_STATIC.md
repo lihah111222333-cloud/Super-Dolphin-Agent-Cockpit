@@ -594,3 +594,83 @@
 - `grep`：`session owns SessionRuntime -> P1c:35`；`退订...drain -> P2:266`；`signed-skill / native-skill contract -> P4:127`；`固定分三类 -> P4:250`。
 - `file`：`JUDGEMENT_STATIC:60-99,470-505`；`P2:1-18`；`peer_spawn.go:18-155`；`rpc/module.go:149-197`；`nested_runtime.go:314-339`。
 - `xref/inspect/structure/completion/diagnostics`：`handleToolCallEnd <- module.go:117`；`waitForExit <- :222`；`diff_fallback.go/server.go` symbols；`DefaultApprovalTimeout` hover；`toolbridge/module.go` completion；`JUDGEMENT_*` diagnostics=`0`。
+
+## 17. 第 9 轮 Round-8→HEAD 回灌（2026-04-24）
+
+本节是静态层对 `JUDGEMENT_DYNAMIC.md §21` 的镜像，只补 Round-8 之后落地的 P22 P2 静态真值锚，不改写历史年轮。按 §10.31 只加不删。
+
+### 17.1 新 owner 锚
+
+P22 P2 thread 域现有 3 个独立 worker owner，各自命名 / 契约定型：
+
+| owner | 文件:行 | narrow interface | callback 入口 |
+|---|---|---|---|
+| `taskHandoffWorker` | `internal/module/thread/task_handoff_worker.go:1-205` | `taskHandoffRefresher` | `onTurnCompleted(ev)` -> `taskHandoffWorker.Enqueue(threadID, seed)` |
+| `agentLaunchedWorker` | `internal/module/thread/agent_launched_worker.go` | `agentLaunchedProcessor` | `onAgentLaunched(ev)` -> `agentLaunchedWorker.Enqueue(key, ev)`（key = agentID，空时退回 threadID） |
+| `sessionRecoveryWorker` | `internal/module/thread/session_recovery_worker.go` | `sessionRecoverer` | `onAgentFailed(ev)` -> `sessionRecoveryWorker.Enqueue(target, ev)`（target = FirstNonEmpty(threadID, agentID)） |
+
+三者统一通过 `service.startBusWorkers() / service.stopBusWorkers(ctx)` 接入 `registerSubscriptions` 的 `OnStart/OnStop` hook；Stop 语义：先 cancel 订阅，再 `drainBusWorker(ctx, name, stop)`。
+
+### 17.2 P2_BusRuntimeDecoupling.md §验收标准行 → HEAD 证据映射
+
+| P2 §验收标准 行 | HEAD 证据 |
+|---|---|
+| L428 `internal/module/thread/module.go` 不再通过 `fx.Invoke` 做 setter 型后置注入 | `grep -c "svc.bind" internal/module/thread/module.go` = `0`；`bus_callback_must_not_register_late_setter` live matcher PASS |
+| L429 `thread` 事件回调不再直接做 binding store / prompt invalidation / task-handoff 重 I/O / delayed resume | `TestTaskHandoffCallbackEnqueueOnly` / `TestAgentLaunchedCallbackEnqueueOnly` / `TestAgentFailedCallbackEnqueueOnly` 均 PASS |
+| L430 `backgroundResumeIfNeeded(...)` 有明确 owner、可 drain、可测试，不再是裸 `context.Background()` goroutine | `sessionRecoveryWorker` 是 owner；`TestSessionRecoveryWorkerStopCancelsCtx` 证明 ctx 短路 3s reconnect delay；`TestSessionRecoveryWorkerStopDrainsPending` 证明可 drain。**注意边界**：本条仅对 `onAgentFailed -> backgroundResumeIfNeeded` 这条 bus callback 路径成立；`archive.Unarchive` / `history.ReadMessages` / `history.ReadThreadHistory` 3 条 RPC caller 仍走原 `backgroundResumeIfNeeded` 实现（内部还有 1 处 inner `runtimesafe.SafeGo`），不在本轮范围 |
+| L443 `registerMemoryHooks` shutdown path 返回前必须能证明 auto-dream 与 background extraction 已完成有界收口 | `TestMemoryHookWorkerDrainsOnStop` 对 `drainMemoryHooks(ctx, scheduler, nested, teamSync, nil)` 直接断言三个 owner 各自 `ProcessedTotal` 追上 enqueued，post-drain enqueue drop |
+| L452 TeamSync 切换 runtime 时旧 watcher final flush 不会误打到新 runtime | `TestTeamSyncRuntimeSwapFinalFlush` 对 Start A→Stop A→Start B→Stop B→Start A 序列断言 `teampkg.Lifecycle` 收到的 FIFO 严格同序，Stop 前全 flush |
+| L455 busy 状态下 auto-dream 触发保持 drop 而不是补跑 | `TestAutoDreamBusyDropsWithoutReplay` 填队列到 cap + overflow；Start 后只 drain cap 条，drop 条永不复活 |
+
+### 17.3 构造器签名 drift（thread 域）
+
+round-8：
+```
+NewServiceWithPromptAssemblyAndSharedFiles(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry) Service
+```
+
+HEAD（thread S1 后尾加 2 个 optional 参数）：
+```
+NewServiceWithPromptAssemblyAndSharedFiles(
+    ..., // 前 12 个参数不变
+    promptStore promptstore.Store,
+    promptClassifier classifier.Classifier,
+) Service
+```
+
+`internal/module/thread/module.go` 的 `fx.Annotate(..., fx.ParamTags("", optional*13))` 相应延展；`fx.As(new(Service))` + `fx.As(new(turn.PendingLaunchSpawner))` 不变。
+
+### 17.4 `subscriptionParams` 结构瘦身
+
+round-8：`Lifecycle / Dispatcher(optional) / Service(optional) / PromptStore(optional) / Classifier(optional)` 共 5 字段；`registerSubscriptions` 里调 3 次 bindXxx。
+
+HEAD：`Lifecycle / Service(optional)` 共 2 字段；`registerSubscriptions` 只负责 lifecycle hook。
+
+### 17.5 新 test 文件锚（在 commit 里）
+
+| 文件 | 行数 | 覆盖范围 |
+|---|---|---|
+| `internal/module/thread/task_handoff_worker_test.go` | 约 260 | 7 条测试（worker happy path / coalesce / drain on stop / 过 Stop 的 enqueue 被 drop / Stop 幂等 / nil refresher / callback enqueue only） |
+| `internal/module/thread/agent_launched_worker_test.go` | 约 240 | 同形 7 条 |
+| `internal/module/thread/session_recovery_worker_test.go` | 约 260 | 9 条（多并发 + ctx 短路 + 非 recoverable callback 早返） |
+| `internal/module/memory/module_drain_test.go` | 约 170 | `TestMemoryHookWorkerDrainsOnStop` 对 drainMemoryHooks 的集合断言 |
+| `internal/module/memory/memory_behavioral_guards_test.go` | 约 290 | 3 条新 memory 行为断言（busy-drops-without-replay / requires-explicit-project-scope / teamsync-runtime-swap-final-flush） |
+
+round-8 前已有的 `auto_dream_scheduler_test.go` / `team_sync_coordinator_test.go`（若存在）等未触动。
+
+### 17.6 archtest CC-size guard 相关修订
+
+thread S2 引入第三个 bus worker 时，`service.stopBusWorkers` 的 3 次嵌套 `if worker != nil { if err := worker.Stop; err != nil { if s.logger != nil { warn } } }` CC = 11 > 10，触发 `TestCodeSizeGuard` 失败；当轮提交 `cdbb8a4` 引入 `drainBusWorker` helper 扁平化（CC 降到 ≤ 5）。
+
+### 17.7 §10.31 only-append self-check
+
+- round-8 末尾：STATIC `596 行` / DYNAMIC `559 行`。
+- 本节追加：`git diff --numstat docs/plans/迁移/p22/JUDGEMENT_STATIC.md` 显示 `+N/-0`。
+- §1-§16 未改动；HEAD 事实只在 §17 追加。
+- 历史章节净减少保持 `0%`。
+
+### 17.8 非本节声明边界
+
+- 本节不回灌 `README.md` / `P0-P4` / `codemap`。那些是 owning 文档，不在 JUDGEMENT 的 shadow 职责内。
+- 本节不涉及 P3 / P4；P4 的 dependency direction / contract cleanup 仍按原规划在 P2 完全收口后启动。
+- `lifecycle_onstart_guard_test.go` / `runner_actor_guard_test.go` 里 P3 范围外 skeleton matcher（6 条）未触动，按原规划非本优先级。

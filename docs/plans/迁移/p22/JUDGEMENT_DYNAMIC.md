@@ -557,3 +557,78 @@
 - `xref`：`handleToolCallEnd <- module.go:117`；`waitForProcessExit <- helpers.go:173`；`waitForExit <- startWaiters:222`。
 - `inspect/structure/completion/diagnostics`：`diff_fallback.go/server.go` symbols；`DefaultApprovalTimeout` hover；`toolbridge/module.go` completion；`JUDGEMENT_*` diagnostics=`0`。
 - `exec` 复核：`TestCodeSizeGuard=PASS/0`；全量 archtest=`FAIL/3`；`freeze_registry` 仍空。
+
+## 21. 第 9 轮 Round-8→HEAD 回灌（2026-04-24）
+
+本节只补 Round-8 之后落地的 P22 P2 事实，不改写历史年轮。按 §10.31 只加不删。
+
+### 21.1 新落地 commit 锚（按 HEAD 逆时序）
+
+| commit | 范围 | 触动文件 |
+|---|---|---|
+| `8062f91` | memory 域 4 条"既有 owner 行为断言"新增 | `internal/module/memory/module_drain_test.go`、`internal/module/memory/memory_behavioral_guards_test.go` |
+| `cdbb8a4` | thread S2：`sessionRecoveryWorker` 收 `onAgentFailed -> 3s delay + evict + resume` | `internal/module/thread/session_recovery_worker{,_test}.go`、`events.go`、`service{,_constructor}.go` |
+| `667a2df` | thread S4：`agentLaunchedWorker` 收 `onAgentLaunched -> binding store + prompt invalidation` | `internal/module/thread/agent_launched_worker{,_test}.go`、`events{,_test}.go`、`service{,_constructor}.go` |
+| `f8c0fec` | thread S3：`taskHandoffWorker` 收 `onTurnCompleted -> refreshTaskHandoffFromThread` | `internal/module/thread/task_handoff_worker{,_test}.go`、`task_handoff{,_test}.go`、`events.go`、`module.go`、`service{,_constructor}.go` |
+| `04e366d` | thread S1：删 `fx.Invoke(registerSubscriptions)` 里的 3 处 setter 注入，`promptStore/classifier` 改构造参数；翻红 `bus_callback_must_not_register_late_setter` | `internal/module/thread/module.go`、`router_resolve.go`、`service_constructor.go`、`internal/archtest/bus_callback_guard_test.go` |
+
+### 21.2 live matcher 计数更新（`internal/archtest/bus_callback_guard_test.go`）
+
+| 变动 | round-8 | HEAD |
+|---|---|---|
+| live matcher 条数 | 7 | **8** |
+| skeleton (skip) matcher 条数 | 1 | **0** |
+| 翻红的那一条 | — | `bus_callback_must_not_register_late_setter`（thread S1 对应） |
+
+`grep -c "t.Run(" internal/archtest/bus_callback_guard_test.go` = 6 subtests；其中 forbidden-token subtest 5 条 + 目录 freeze 1 条 = 6。`live / skip` 统计以 `t.Skipf` 是否出现为准：round-8 有 1 处 `t.Skipf`，HEAD `grep -c "t.Skipf" internal/archtest/bus_callback_guard_test.go` = **0**。
+
+### 21.3 已落地行为断言测试清单（`TestXxxCallbackEnqueueOnly` 系 + 延伸）
+
+| 测试名 | 所在文件 | 断言目标（§验收标准锚） |
+|---|---|---|
+| `TestTaskHandoffCallbackEnqueueOnly` | `internal/module/thread/task_handoff_worker_test.go` | L429 task-handoff 重 I/O 不再直跑 callback |
+| `TestAgentLaunchedCallbackEnqueueOnly` | `internal/module/thread/agent_launched_worker_test.go` | L429 binding store / prompt invalidation 不再直跑 callback |
+| `TestAgentFailedCallbackEnqueueOnly` | `internal/module/thread/session_recovery_worker_test.go` | L429-430 delayed resume 不再裸 `context.Background()` goroutine；owner 可 drain |
+| `TestAgentFailedCallbackDropsNonRecoverable` | `internal/module/thread/session_recovery_worker_test.go` | L430 非 recoverable 事件在 callback 层早返 |
+| `TestSessionRecoveryWorkerStopCancelsCtx` | `internal/module/thread/session_recovery_worker_test.go` | L430 Stop 的 `cancel()` 中断 3s reconnect 延迟 |
+| `TestSessionRecoveryWorkerDispatchesParallelForDifferentTargets` | `internal/module/thread/session_recovery_worker_test.go` | 多 agent 并发恢复不被 worker 单线程化 |
+| `TestMemoryHookWorkerDrainsOnStop` | `internal/module/memory/module_drain_test.go` | L443 `registerMemoryHooks` shutdown 能证明 3 个 owner 都完成 drain；post-drain enqueue drop |
+| `TestAutoDreamBusyDropsWithoutReplay` | `internal/module/memory/memory_behavioral_guards_test.go` | L455 busy 状态 drop 是终态，不 replay |
+| `TestAutoDreamRequiresExplicitProjectScope` | `internal/module/memory/memory_behavioral_guards_test.go` | L443 `agentMemoryScope` 非空 thread 不走 auto-dream |
+| `TestTeamSyncRuntimeSwapFinalFlush` | `internal/module/memory/memory_behavioral_guards_test.go` | L452 TeamSync runtime swap 下 coordinator FIFO + final flush；post-Stop enqueue drop |
+
+round-8 之前已经存在的同形测试不重复列（`TestTeamSyncCallbackEnqueueOnly`、`TestNestedToolReadIngestEnqueueOnly`、`TestHookRelayDrainAfterShutdown`、`TestToolbridgeProxyOwner`、`TestConfigFanoutWorkerUsesCancelableContext`、`TestCacheKeepaliveDrainCancelsPendingPing`、`TestRPCPushQueuePreservesLegacyExpansion`）。
+
+### 21.4 消失的违规形（pre-S1/S2/S3/S4 → HEAD）
+
+四条都在 `internal/module/thread/` 域内，原 §3 drift 表不涉及：
+
+| 违规形 | round-8 位置 | HEAD 状态 |
+|---|---|---|
+| `fx.Invoke(registerSubscriptions)` 里 `svc.bindDispatcher/bindPromptStore/bindClassifier` setter 型后置注入 | `internal/module/thread/module.go:52-79` | 三处 setter 删除；`promptStore` / `classifier` 移到 `NewServiceWithPromptAssemblyAndSharedFiles` 构造参数；matcher `bus_callback_must_not_register_late_setter` 翻红并 PASS |
+| `onAgentLaunched` 直接 `bindingStore.UpdateSessionUUID` + `invalidatePromptAssembly` | `internal/module/thread/events.go:36-67`、`69-95` | callback 只 `agentLaunchedWorker.Enqueue(key, ev)`；原 body 搬到 `processAgentLaunched(ev)` |
+| `onAgentFailed` 裸 `runtimesafe.SafeGo(context.Background(), ...)` + `time.Sleep(3 * time.Second)` + 嵌套 SafeGo | `internal/module/thread/events.go:119-153`、`service.go:390-401` | callback 只 `sessionRecoveryWorker.Enqueue(target, ev)`；worker 用 `sync.WaitGroup.inflight` 追踪并发恢复；3s 延迟改 ctx-aware `select` |
+| `onTurnCompleted` 同步 `threadStore.GetByThreadID + sharedFiles.Upsert` | `internal/module/thread/task_handoff.go:459-474` | callback 只 `taskHandoffWorker.Enqueue(threadID, seed)`；worker 按 threadID 合并，last-write-wins |
+
+### 21.5 §10.31 only-append self-check
+
+- round-8 末尾：DYNAMIC `559 行` / STATIC `596 行`。
+- 本节追加后：`git diff --numstat docs/plans/迁移/p22/JUDGEMENT_DYNAMIC.md` 将显示 `+N/-0`（无删除）。
+- §1-§20 未改动；HEAD 事实只在 §21 追加。
+- 历史章节净减少保持 `0%`。
+
+### 21.6 LSP / exec 自证锚
+
+- `git log --oneline` HEAD 5 条：`8062f91 / cdbb8a4 / 667a2df / f8c0fec / 04e366d`
+- `go test ./internal/archtest/... -run TestBusCallbackGuard -count=1 -v`：`--- PASS` × 6 subtests（含翻红的 `bus_callback_must_not_register_late_setter`）
+- `go test ./internal/module/thread/... ./internal/module/memory/... ./internal/app/... -count=1`：全部 `ok`
+- `grep -c "t.Skipf" internal/archtest/bus_callback_guard_test.go` = `0`
+- `grep -c "runtimesafe.SafeGo" internal/module/thread/events.go` = `0`（round-8 时该文件里出现 1 次 outer SafeGo）
+- `grep -c "time.Sleep" internal/module/thread/events.go` = `0`（round-8 时出现 1 次 3s sleep）
+- 对应 test 文件均已落盘：`task_handoff_worker_test.go` / `agent_launched_worker_test.go` / `session_recovery_worker_test.go` / `module_drain_test.go` / `memory_behavioral_guards_test.go`
+
+### 21.7 本节不宣称的边界
+
+- `backgroundResumeIfNeeded` 自身仍含 1 处 inner `runtimesafe.SafeGo(...)`，被 `archive.Unarchive` / `history.ReadMessages` / `history.ReadThreadHistory` 3 条 RPC 路径使用。这 3 条 caller 不在 bus callback 路径上，不是 P2 本轮范围。本节仅对 `onAgentFailed -> backgroundResumeIfNeeded` 这一条 bus callback 路径生效。
+- `lifecycle_onstart_guard_test.go` / `runner_actor_guard_test.go` 里仍有 6 条 P3 范围外 skeleton matcher。按原规划"非本优先级"。
+- P4 dependency direction / contract cleanup 的未收口项未触动。
