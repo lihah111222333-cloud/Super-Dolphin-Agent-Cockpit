@@ -62,9 +62,17 @@ type compositeNativeSkillDetector struct {
 	ports []contract.SkillInjectionPort
 }
 
-func (d compositeNativeSkillDetector) DetectNativeSkills(cwd string) []string {
+// DetectNativeSkills unions every registered port's detected skill names.
+// P22 P4 fail-closed contract: if any port returns contract.ErrMissingCWD
+// (meaning cwd was required but missing), the composite propagates that
+// error instead of silently falling back to "no native skills" — the
+// caller must know the input was incomplete. Non-ErrMissingCWD errors are
+// treated as port-local failures and are also propagated so the caller
+// can decide whether to proceed with a partial result (policy lives at
+// the call site, not here).
+func (d compositeNativeSkillDetector) DetectNativeSkills(cwd string) ([]string, error) {
 	if len(d.ports) == 0 {
-		return nil
+		return nil, nil
 	}
 	cwd = strings.TrimSpace(cwd)
 	seen := make(map[string]struct{}, 8)
@@ -73,7 +81,11 @@ func (d compositeNativeSkillDetector) DetectNativeSkills(cwd string) []string {
 		if port == nil {
 			continue
 		}
-		for _, name := range port.DetectNativeSkills(cwd) {
+		names, err := port.DetectNativeSkills(cwd)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range names {
 			key := strings.ToLower(strings.TrimSpace(name))
 			if key == "" {
 				continue
@@ -88,7 +100,7 @@ func (d compositeNativeSkillDetector) DetectNativeSkills(cwd string) []string {
 	sort.SliceStable(out, func(i, j int) bool {
 		return strings.ToLower(out[i]) < strings.ToLower(out[j])
 	})
-	return out
+	return out, nil
 }
 
 type NewCompositeNativeSkillDetectorParams struct {

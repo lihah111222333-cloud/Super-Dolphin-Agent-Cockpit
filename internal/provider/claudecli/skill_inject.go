@@ -52,21 +52,25 @@ func NewSkillInjectionPort() contract.SkillInjectionPort {
 //     不读内容，因此 symlink 路径逃逸不会通过 harness 导致任何数据泄露
 //     （防御责任回到 Claude CLI 本身，不在本函数范围）
 //
-// 错误处理：cwd 不存在 / 无权限 / 目录不存在都返回 nil，不报错——这是常态
-// （大量项目不含 .claude/skills/）。
+// 错误处理：
+//   - cwd 为空或纯空白 → (nil, contract.ErrMissingCWD)（P22 P4 fail-closed 契约：
+//     native-scan 不再把 "empty cwd" 静默当成 "no native skills"；caller 必须
+//     显式提供 cwd 才能决定 Mode=None 的覆盖名单）
+//   - .claude/skills 目录不存在 / 无权限 → (nil, nil)，不报错——这是常态
+//     （大量项目不含 .claude/skills/）
 //
 // 注意事项：
 //   - 跳过隐藏文件/目录（以 . 开头，防止 `.git` / `.DS_Store` / `.hidden` 等混入）
 //   - 返回字典序保证下游 Resolver ApplyNativeSkillOverride() 的覆盖顺序稳定
-func (claudecliSkillInjectionPort) DetectNativeSkills(cwd string) []string {
+func (claudecliSkillInjectionPort) DetectNativeSkills(cwd string) ([]string, error) {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
-		return nil
+		return nil, contract.ErrMissingCWD
 	}
 	root := filepath.Join(cwd, claudeNativeSkillsDir)
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -85,7 +89,7 @@ func (claudecliSkillInjectionPort) DetectNativeSkills(cwd string) []string {
 		names = append(names, strings.ToLower(name))
 	}
 	sort.Strings(names)
-	return names
+	return names, nil
 }
 
 // ReservedTokens 见 contract.SkillInjectionPort 接口文档。

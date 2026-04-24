@@ -1,5 +1,18 @@
 package contract
 
+import "errors"
+
+// ErrMissingCWD is the sentinel returned by SkillInjectionPort.DetectNativeSkills
+// when the caller passed an empty cwd but the implementation requires one to
+// scan for native skills (e.g. claudecli scanning `.claude/skills/`).
+//
+// P22 P4 §fallback / 缺失硬报错口径：native-scan 缺 `cwd` 必须直接 ErrMissingCWD，
+// 不再把空 cwd 静默当成 "no native skills"。Implementations that do not need
+// cwd (e.g. codexapp, which has no native skill mechanism) may return
+// (nil, nil) regardless; the guard is only required for impls that would
+// otherwise silently fall back.
+var ErrMissingCWD = errors.New("skill injection: missing cwd")
+
 // SkillInjectionPort 抽象 provider 层的 skill 注入决策侧效，供 turn resolver /
 // prompt catalog provider 等上游模块消费。
 //
@@ -24,10 +37,16 @@ type SkillInjectionPort interface {
 	// body 完全交给 provider 原生注入；我们的 L1 清单只标注 `(Claude native)`
 	// 并提示模型使用 `/<name>` 或自然语言触发。
 	//
-	// codexapp 目前无原生 skill 机制，实现返回空切片即可。
+	// codexapp 目前无原生 skill 机制，实现返回 (nil, nil) 即可。
 	// 入参 cwd 是 session 工作目录（通常是项目根），实现侧自行决定如何解析
 	// `.claude/skills/` 等相对路径。
-	DetectNativeSkills(cwd string) []string
+	//
+	// P22 P4 fail-closed 契约：需要扫描 cwd 的实现（如 claudecli）必须在 cwd
+	// 为空或纯空白时返回 (nil, ErrMissingCWD)；不得再继续静默返回 nil 造成
+	// "empty cwd == no native skills" 的旁路。Callers 应当用
+	// errors.Is(err, ErrMissingCWD) 检测这一语义。不需要 cwd 的实现可以无视
+	// 此条款直接返回 (nil, nil)。
+	DetectNativeSkills(cwd string) ([]string, error)
 
 	// ReservedTokens 返回 provider 为 skill manifest（L1 清单）预留的 token 预算。
 	//

@@ -1,11 +1,13 @@
 package claudecli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
@@ -68,13 +70,35 @@ func TestBuildSkillList_EmptyWhenAllFiltered(t *testing.T) {
 // ============================================================================
 
 
+// TestClaudecliNativeScanRequiresCWD is the P22 P4 fail-closed guard for
+// the native-scan authoritative root path: an empty or whitespace-only
+// cwd must produce contract.ErrMissingCWD, not a silent nil. Pre-P22 the
+// method returned nil in both branches, letting callers mix "no project
+// root" and "no native skills" into the same observation. P4 §138 and
+// §270-272 explicitly forbid that fallback.
+func TestClaudecliNativeScanRequiresCWD(t *testing.T) {
+	port := NewSkillInjectionPort()
+	for _, cwd := range []string{"", "   ", "\t"} {
+		names, err := port.DetectNativeSkills(cwd)
+		if !errors.Is(err, contract.ErrMissingCWD) {
+			t.Errorf("cwd=%q: err = %v, want contract.ErrMissingCWD", cwd, err)
+		}
+		if names != nil {
+			t.Errorf("cwd=%q: names = %v, want nil", cwd, names)
+		}
+	}
+}
+
 func TestClaudecliSkillInjectionPort_DetectNativeSkills_Empty(t *testing.T) {
 	port := NewSkillInjectionPort()
-	if got := port.DetectNativeSkills(""); got != nil {
-		t.Fatalf("empty cwd: %v", got)
+	// Empty cwd is now ErrMissingCWD (see TestClaudecliNativeScanRequiresCWD
+	// above); this test locks the benign ".claude/skills missing" branch.
+	names, err := port.DetectNativeSkills(t.TempDir())
+	if err != nil {
+		t.Fatalf("tmp dir without .claude/skills: err = %v, want nil", err)
 	}
-	if got := port.DetectNativeSkills(t.TempDir()); got != nil {
-		t.Fatalf("tmp dir without .claude/skills: %v", got)
+	if names != nil {
+		t.Fatalf("tmp dir without .claude/skills: %v, want nil", names)
 	}
 }
 
@@ -107,7 +131,10 @@ func TestClaudecliSkillInjectionPort_DetectNativeSkills_ScansClaudeSkillsDir(t *
 	}
 
 	port := NewSkillInjectionPort()
-	got := port.DetectNativeSkills(tmp)
+	got, err := port.DetectNativeSkills(tmp)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
 	// 期望：只 foo 和 bar-baz，按字典序 (bar-baz, foo)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 skills, got %d: %v", len(got), got)
@@ -128,7 +155,10 @@ func TestClaudecliSkillInjectionPort_DetectNativeSkills_NameNormalized(t *testin
 		t.Fatalf("write: %v", err)
 	}
 	port := NewSkillInjectionPort()
-	got := port.DetectNativeSkills(tmp)
+	got, err := port.DetectNativeSkills(tmp)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
 	if len(got) != 1 || got[0] != "mixedcase" {
 		t.Fatalf("names should be lowered, got %v", got)
 	}
@@ -161,7 +191,10 @@ func TestClaudecliSkillInjectionPort_DetectNativeSkills_SkillMdAsDirectoryIgnore
 	}
 
 	port := NewSkillInjectionPort()
-	got := port.DetectNativeSkills(tmp)
+	got, err := port.DetectNativeSkills(tmp)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
 	if len(got) != 1 || got[0] != "bar" {
 		t.Fatalf("foo should be skipped (SKILL.md is a directory), got %v", got)
 	}
@@ -185,7 +218,10 @@ func TestClaudecliSkillInjectionPort_DetectNativeSkills_StableOrdering(t *testin
 	port := NewSkillInjectionPort()
 	expected := []string{"alpha", "charlie", "mike", "zulu"}
 	for i := 0; i < 3; i++ {
-		got := port.DetectNativeSkills(tmp)
+		got, err := port.DetectNativeSkills(tmp)
+		if err != nil {
+			t.Fatalf("run %d: unexpected err: %v", i, err)
+		}
 		if len(got) != 4 {
 			t.Fatalf("run %d: len=%d", i, len(got))
 		}

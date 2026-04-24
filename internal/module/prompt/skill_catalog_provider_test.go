@@ -24,8 +24,8 @@ type fakeNativeDetector struct {
 	names []string
 }
 
-func (f fakeNativeDetector) DetectNativeSkills(_ string) []string {
-	return f.names
+func (f fakeNativeDetector) DetectNativeSkills(_ string) ([]string, error) {
+	return f.names, nil
 }
 
 // baseCtx 构造最小 SectionContext，cwd 指定以让 native detector 工作。
