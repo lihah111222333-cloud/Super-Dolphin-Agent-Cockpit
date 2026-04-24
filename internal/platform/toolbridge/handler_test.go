@@ -31,8 +31,10 @@ func codexSessionOnInboundMessage(unsafe.Pointer, context.Context, codexapp.Resp
 //go:linkname codexSessionClose github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.(*session).Close
 func codexSessionClose(unsafe.Pointer, context.Context) error
 
-//go:linkname codexWaitReadLoopStopped github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.(*session).waitReadLoopStopped
-func codexWaitReadLoopStopped(unsafe.Pointer, context.Context) error
+// P22 P1c (commit 4dfed68): codexapp deleted (*session).waitReadLoopStopped —
+// the runtime owner joined via codexSessionClose already drains the reader,
+// so this linkname is no longer needed. Kept removed to avoid relocation
+// failures against non-existent symbols.
 
 type stubRegistry struct {
 	peers    []*mcpcontrol.ToolInstance
@@ -215,13 +217,11 @@ func newInboundSession(t *testing.T) unsafe.Pointer {
 		t.Fatalf("newSession() error = %v", err)
 	}
 	t.Cleanup(func() {
+		// P22 P1c: Close() now drains the runtime (reader + health + recovery)
+		// before returning, so the historical waitReadLoopStopped follow-up is
+		// unnecessary.
 		if err := codexSessionClose(sessionPtr, context.Background()); err != nil {
 			t.Errorf("Close() error = %v", err)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		if err := codexWaitReadLoopStopped(sessionPtr, ctx); err != nil {
-			t.Errorf("waitReadLoopStopped() error = %v", err)
 		}
 	})
 	return sessionPtr

@@ -47,6 +47,18 @@ func (*persistentFlowThreadStore) ListRunningAgents(context.Context) ([]threadst
 	return nil, nil
 }
 
+// CountChildren and Exists satisfy the threadstore.Store interface updates
+// from upstream commit 28ee10b (persistent ui child agents). The fixture has
+// no child agents and only cares about ThreadID lookup, so these stubs
+// return zero values.
+func (*persistentFlowThreadStore) CountChildren(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
+func (s *persistentFlowThreadStore) Exists(_ context.Context, threadID string) (bool, error) {
+	return s.row != nil && s.row.ThreadID == threadID, nil
+}
+
 func (s *persistentFlowThreadStore) Upsert(_ context.Context, params threadstore.UpsertParams) error {
 	s.row = &threadstore.Thread{
 		ThreadID:         params.ThreadID,
