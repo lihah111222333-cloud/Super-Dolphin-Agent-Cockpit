@@ -153,28 +153,18 @@ func (h *MemoryLifecycleHooks) waitDreamTask(ctx context.Context) error {
 	}
 }
 
-func registerAutoDreamSubscriptions(p memoryHookParams, appendCancel func(context.CancelFunc)) {
-	if p.Hooks == nil || !p.Hooks.enabled {
+// registerAutoDreamSubscriptions wires the thread.stopped bus subscription
+// to the single auto-dream owner. Per P22 P2 Finding 7 the callback is now
+// a non-blocking enqueue; the scheduler's tracked worker runs
+// maybeScheduleAutoDream under its own ctx so Close(gate) + Drain is the
+// sole path for shutdown, replacing the pre-P2 fire-and-forget `go`.
+func registerAutoDreamSubscriptions(p memoryHookParams, scheduler *autoDreamScheduler, appendCancel func(context.CancelFunc)) {
+	if p.Hooks == nil || !p.Hooks.enabled || scheduler == nil {
 		return
 	}
 	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Stopped) {
-		p.Hooks.onThreadStopped(context.Background(), ev)
+		scheduler.Enqueue(ev.ThreadID)
 	}, pkglogger.Get()))
-}
-
-func (h *MemoryLifecycleHooks) onThreadStopped(ctx context.Context, evt threaddto.Stopped) {
-	if h == nil {
-		return
-	}
-	threadID := strings.TrimSpace(evt.ThreadID)
-	if threadID == "" {
-		return
-	}
-	go func() {
-		if _, err := h.maybeScheduleAutoDream(ctx, threadID); err != nil && h.logger != nil && !errors.Is(err, context.Canceled) {
-			h.logger.Warn("memory auto-dream stop hook failed", "thread_id", threadID, "error", err)
-		}
-	}()
 }
 
 func (h *MemoryLifecycleHooks) maybeScheduleAutoDream(ctx context.Context, threadID string) (bool, error) {
