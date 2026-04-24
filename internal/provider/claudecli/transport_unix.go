@@ -12,6 +12,12 @@ func setClaudeProcessAttrs(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// resolveClaudeBinary is a passthrough on Unix: exec.Command handles PATH
+// lookup correctly and there are no shell wrappers to unwrap.
+func resolveClaudeBinary(binary string) string {
+	return binary
+}
+
 // processGuard is the Unix no-op variant. Process-group semantics already
 // give us the necessary subtree reach via negative-pid syscall.Kill.
 type processGuard struct{}

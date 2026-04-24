@@ -6,6 +6,9 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -39,8 +42,63 @@ func setCodexProcessAttrs(cmd *exec.Cmd) {
 // wrapWithFDLimit is a no-op wrapper on Windows. There is no `ulimit`
 // equivalent, and the default handle limit on Windows (16384+) is already
 // adequate for our batch-agent workload. Just exec the command directly.
+// Before exec we unwrap any npm shim so the child is spawned as a real .exe
+// (bypassing cmd.exe arg reparse — see resolveCodexBinary).
 func wrapWithFDLimit(argv []string) *exec.Cmd {
-	return exec.Command(argv[0], argv[1:]...)
+	resolved := resolveCodexBinary(argv[0])
+	return exec.Command(resolved, argv[1:]...)
+}
+
+// resolveCodexBinary unwraps an npm shim .cmd so we spawn the real .exe
+// directly. See the matching claudecli.resolveClaudeBinary for the full
+// rationale; short version: Go's exec on Windows routes .cmd/.bat children
+// through cmd.exe, which has an 8191-char command-line limit and mangles
+// args containing newlines or shell metacharacters.
+func resolveCodexBinary(binary string) string {
+	if binary == "" {
+		return binary
+	}
+	if strings.ContainsAny(binary, `\/`) {
+		return binary
+	}
+	resolved, err := exec.LookPath(binary)
+	if err != nil {
+		return binary
+	}
+	ext := strings.ToLower(filepath.Ext(resolved))
+	if ext != ".cmd" && ext != ".bat" {
+		return resolved
+	}
+	real, ok := unwrapCodexNpmShim(resolved)
+	if !ok {
+		return resolved
+	}
+	pkglogger.Info("codexapp: unwrapped npm shim",
+		"shim", resolved, "exe", real)
+	return real
+}
+
+var codexNpmShimExeRE = regexp.MustCompile(`(?i)"%dp0%[\\/]([^"]+\.exe)"`)
+
+func unwrapCodexNpmShim(cmdPath string) (string, bool) {
+	data, err := os.ReadFile(cmdPath)
+	if err != nil {
+		return "", false
+	}
+	matches := codexNpmShimExeRE.FindSubmatch(data)
+	if len(matches) < 2 {
+		return "", false
+	}
+	rel := strings.TrimSpace(string(matches[1]))
+	if rel == "" {
+		return "", false
+	}
+	base := filepath.Dir(cmdPath)
+	abs := filepath.Clean(filepath.Join(base, rel))
+	if _, err := os.Stat(abs); err != nil {
+		return "", false
+	}
+	return abs, true
 }
 
 // processGuard wraps a Windows Job Object. AssignProcessToJobObject makes

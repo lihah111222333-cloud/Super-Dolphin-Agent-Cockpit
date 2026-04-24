@@ -46,6 +46,7 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 	if binary == "" {
 		binary = defaultClaudeCLIBin
 	}
+	binary = resolveClaudeBinary(binary)
 	cmd := exec.Command(binary, args...)
 	if cwd != "" {
 		cmd.Dir = cwd
