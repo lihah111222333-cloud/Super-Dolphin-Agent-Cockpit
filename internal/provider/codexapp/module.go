@@ -18,6 +18,7 @@ import (
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
@@ -37,10 +38,20 @@ var Module = fx.Module("provider.codexapp",
 		provideServerPool,
 		newPoolEvictRunner,
 		fx.Annotate(poolEvictRunnerAsRunner, fx.ResultTags(`group:"runners"`)),
+		// P22 P1a: PeerSupervisor is the single RunnerModule owner for mcp-orch /
+		// mcp-lsp peer processes. See docs/plans/迁移/p22/P1a_CodexAppPeerSupervisor.md.
+		// Replaces the pre-P1a fx.Invoke(spawnToolbridgePeers) + fire-and-forget
+		// watchAndRestartPeer goroutines.
+		fx.Annotate(provideDefaultPeerSupervisor, fx.ResultTags(`group:"runners"`)),
 	),
 	fx.Invoke(RegisterTranslators),
-	fx.Invoke(spawnToolbridgePeers),
 )
+
+// provideDefaultPeerSupervisor is the production constructor for PeerSupervisor.
+// Split out so the fx.Annotate above can type the result as platformrunner.Runner.
+func provideDefaultPeerSupervisor(mgr *ServerManager, logger *slog.Logger) platformrunner.Runner {
+	return NewPeerSupervisor(mgr, logger)
+}
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {
 	if factory == nil {
@@ -66,8 +77,6 @@ type ServerManager struct {
 	ready       bool
 	err         error
 	toolHandler ToolHandler
-	peerProcs   []*os.Process // independent peer processes (GO_AGENT_PEER_MODE=1)
-	peerPipes   []*os.File    // stdin write-ends kept open to prevent EOF
 	pidRegistry *pidregistry.Registry
 }
 
@@ -209,20 +218,15 @@ func (m *ServerManager) start(ctx context.Context) error {
 }
 
 func (m *ServerManager) stop(ctx context.Context) error {
+	// P22 P1a: peer stop/drain moved to PeerSupervisor.shutdown; ServerManager
+	// only owns the shared app-server transport from this point onwards.
 	m.mu.Lock()
 	m.ready = false
 	process := m.process
-	peers := m.peerProcs
-	pipes := m.peerPipes
 	registry := m.pidRegistry
 	m.process = nil
-	m.peerProcs = nil
-	m.peerPipes = nil
 	m.serverURL = ""
 	m.mu.Unlock()
-
-	stopPeers(pipes, peers)
-	cleanPeerDiscoveryFiles()
 
 	if process == nil {
 		if registry != nil {
@@ -247,20 +251,6 @@ func (m *ServerManager) stop(ctx context.Context) error {
 		registry.Close()
 	}
 	return err
-}
-
-// stopPeers closes stdin pipes and sends SIGTERM to peer processes.
-func stopPeers(pipes []*os.File, peers []*os.Process) {
-	for _, p := range pipes {
-		if p != nil {
-			_ = p.Close()
-		}
-	}
-	for _, p := range peers {
-		if p != nil {
-			_ = p.Signal(syscall.SIGTERM)
-		}
-	}
 }
 
 // cleanResidualProcesses sweeps any MCP or app-server orphans after shutdown.

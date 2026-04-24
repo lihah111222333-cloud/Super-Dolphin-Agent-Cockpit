@@ -1,0 +1,540 @@
+package codexapp
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+)
+
+// peerHandle abstracts one running peer process so PeerSupervisor can be
+// exercised without real exec.Cmd spawns. Production uses execPeerHandle
+// (exec.Cmd + stdin write-pipe); tests inject a fake via peerLauncher.
+//
+// Wait() is single-shot and must only be called by the owner goroutine
+// (see PeerSupervisor.superviseOne). ClosePipe sends EOF to stdin, which
+// every peer binary treats as a graceful shutdown cue. Signal is the
+// escalation path used only by PeerSupervisor.shutdown.
+type peerHandle interface {
+	Name() string
+	PID() int
+	Wait() error
+	ClosePipe() error
+	Signal(sig os.Signal) error
+}
+
+// peerLauncher creates peerHandles for the supervisor. A real implementation
+// resolves the peer binary via resolvePeerBinDirs + findPeerBinary and
+// launches it; the test fake is a pure in-process channel-based stub.
+type peerLauncher interface {
+	Launch(ctx context.Context, name string) (peerHandle, error)
+}
+
+// peerPIDTracker is the narrow subset of pidregistry.Registry that the
+// supervisor needs. Declared as an interface so tests can inject a fake
+// tracker without a /tmp-backed registry file. *pidregistry.Registry
+// satisfies this interface by virtue of its Register/Unregister methods.
+type peerPIDTracker interface {
+	Register(pid int, kind string, meta map[string]string)
+	Unregister(pid int)
+}
+
+const (
+	peerControlProbeAttempts   = 30
+	peerControlProbeInterval   = 200 * time.Millisecond
+	peerRestartBackoffDefault  = 2 * time.Second
+	peerStopGracePeriodDefault = 2 * time.Second
+	peerKillGracePeriodDefault = 1 * time.Second
+	peerControlAddrEnv         = "GO_AGENT_CTL_RPC_ADDR"
+	peerControlAddrDefault     = "127.0.0.1:8090"
+	peerBinDirEnv              = "GO_AGENT_PEER_BIN_DIR"
+	peerModeEnv                = "GO_AGENT_PEER_MODE"
+)
+
+// defaultPeerNames is the P1a-era list of peers the supervisor owns. Kept
+// as a function so tests can override via WithPeerNames without a package var.
+func defaultPeerNames() []string { return []string{"mcp-orch", "mcp-lsp"} }
+
+// PeerSupervisor is the single RunnerModule owner for mcp-orch / mcp-lsp peer
+// processes. See docs/plans/迁移/p22/P1a_CodexAppPeerSupervisor.md §目标架构.
+//
+// Run(ctx):
+//  1. bounded best-effort probe of GO_AGENT_CTL_RPC_ADDR (default 127.0.0.1:8090);
+//     a failed probe is warn+skip — startup does not abort.
+//  2. launch each configured peer; track its handle; spawn a per-peer supervise
+//     goroutine that waits on Wait() and re-launches after a cancellable backoff.
+//  3. on ctx.Done(): close stdin pipes (EOF), bounded-wait for supervise
+//     goroutines to finish, then SIGTERM and finally SIGKILL any survivor.
+//  4. unregister PIDs, remove discovery files, return ctx.Err().
+//
+// Run never surfaces per-peer launch/restart failures as run.Group-fatal — P1a
+// explicitly forbids turning a missing binary or a flapping peer into
+// app-shutdown. The degraded path is logged and the owner stays alive until
+// ctx cancels.
+type PeerSupervisor struct {
+	pidRegistry peerPIDTracker
+	logger      *slog.Logger
+	launcher    peerLauncher
+
+	peerNames []string
+
+	controlAddr          string
+	controlProbeEvery    time.Duration
+	controlProbeAttempts int
+
+	restartBackoff time.Duration
+	stopGrace      time.Duration
+	killGrace      time.Duration
+
+	// cleanupHook is the final shutdown step — discovery-file sweep. Exposed as
+	// a field so tests can assert it ran without needing real /tmp side effects.
+	cleanupHook func()
+
+	mu    sync.Mutex
+	peers []peerHandle
+}
+
+// PeerSupervisorOption customises a PeerSupervisor. Production code uses the
+// bare NewPeerSupervisor; tests inject overrides via NewPeerSupervisorWithOptions.
+type PeerSupervisorOption func(*PeerSupervisor)
+
+func WithPeerLauncher(l peerLauncher) PeerSupervisorOption {
+	return func(s *PeerSupervisor) { s.launcher = l }
+}
+
+func WithPeerNames(names []string) PeerSupervisorOption {
+	return func(s *PeerSupervisor) {
+		out := make([]string, 0, len(names))
+		for _, n := range names {
+			n = strings.TrimSpace(n)
+			if n != "" {
+				out = append(out, n)
+			}
+		}
+		s.peerNames = out
+	}
+}
+
+func WithPeerRestartBackoff(d time.Duration) PeerSupervisorOption {
+	return func(s *PeerSupervisor) { s.restartBackoff = d }
+}
+
+func WithPeerStopGrace(stop, kill time.Duration) PeerSupervisorOption {
+	return func(s *PeerSupervisor) {
+		s.stopGrace = stop
+		s.killGrace = kill
+	}
+}
+
+func WithPeerControlProbe(addr string, every time.Duration, attempts int) PeerSupervisorOption {
+	return func(s *PeerSupervisor) {
+		if addr != "" {
+			s.controlAddr = addr
+		}
+		if every > 0 {
+			s.controlProbeEvery = every
+		}
+		if attempts >= 0 {
+			s.controlProbeAttempts = attempts
+		}
+	}
+}
+
+func WithPeerCleanupHook(fn func()) PeerSupervisorOption {
+	return func(s *PeerSupervisor) { s.cleanupHook = fn }
+}
+
+// WithPeerPIDTracker replaces the default pid registry (taken from the
+// ServerManager) with a custom tracker. Used exclusively in tests to observe
+// Register/Unregister calls without materialising a real pidregistry file.
+func WithPeerPIDTracker(t peerPIDTracker) PeerSupervisorOption {
+	return func(s *PeerSupervisor) { s.pidRegistry = t }
+}
+
+// NewPeerSupervisor is the production constructor consumed by fx. It takes
+// *ServerManager for the embedded pidRegistry reference; ServerManager does
+// not participate in peer lifecycle after P1a.
+func NewPeerSupervisor(mgr *ServerManager, logger *slog.Logger) *PeerSupervisor {
+	return NewPeerSupervisorWithOptions(mgr, logger)
+}
+
+// NewPeerSupervisorWithOptions is the test-friendly constructor. mgr may be nil.
+func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
+	var reg peerPIDTracker
+	if mgr != nil && mgr.pidRegistry != nil {
+		reg = mgr.pidRegistry
+	}
+	s := &PeerSupervisor{
+		pidRegistry:          reg,
+		logger:               logger,
+		peerNames:            defaultPeerNames(),
+		controlAddr:          peerControlAddrDefault,
+		controlProbeEvery:    peerControlProbeInterval,
+		controlProbeAttempts: peerControlProbeAttempts,
+		restartBackoff:       peerRestartBackoffDefault,
+		stopGrace:            peerStopGracePeriodDefault,
+		killGrace:            peerKillGracePeriodDefault,
+		cleanupHook:          cleanPeerDiscoveryFiles,
+	}
+	if env := strings.TrimSpace(os.Getenv(peerControlAddrEnv)); env != "" {
+		s.controlAddr = env
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	if s.logger == nil {
+		s.logger = pkglogger.Get()
+	}
+	if s.launcher == nil {
+		s.launcher = newExecPeerLauncher(s.logger)
+	}
+	return s
+}
+
+var _ platformrunner.Runner = (*PeerSupervisor)(nil)
+
+// Run implements platformrunner.Runner. It blocks until ctx is cancelled.
+// Errors are only surfaced for owner-internal invariant violations (currently
+// none); single-peer degraded paths never propagate as run.Group fatal.
+func (s *PeerSupervisor) Run(ctx context.Context) error {
+	s.probeControlPlane(ctx)
+
+	var wg sync.WaitGroup
+	for _, name := range s.peerNames {
+		name := name
+		h, err := s.launcher.Launch(ctx, name)
+		if err != nil {
+			s.logger.Warn("peer_supervisor: initial launch failed, peer skipped",
+				"peer", name, "error", err)
+			continue
+		}
+		s.trackPeer(h)
+		wg.Add(1)
+		go s.superviseOne(ctx, name, h, &wg)
+	}
+
+	<-ctx.Done()
+	s.shutdown(&wg)
+	return ctx.Err()
+}
+
+// probeControlPlane dials the control RPC address up to controlProbeAttempts
+// times, sleeping controlProbeEvery between attempts. It is best-effort by
+// design: P1a §需冻结的兼容语义 writes down that a failed probe is NOT a hard
+// startup gate; supervisor continues into peer launch regardless.
+func (s *PeerSupervisor) probeControlPlane(ctx context.Context) {
+	if s.controlProbeAttempts == 0 {
+		return
+	}
+	for i := 0; i < s.controlProbeAttempts; i++ {
+		if ctx.Err() != nil {
+			return
+		}
+		dialer := net.Dialer{Timeout: s.controlProbeEvery}
+		conn, err := dialer.DialContext(ctx, "tcp", s.controlAddr)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(s.controlProbeEvery):
+		}
+	}
+}
+
+// superviseOne owns the Wait() lifecycle for a single peer. Restart backoff is
+// cancellable via ctx; per P1a §需冻结的兼容语义 the supervisor must NOT wake
+// from backoff and respawn after ctx has cancelled.
+func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial peerHandle, wg *sync.WaitGroup) {
+	defer wg.Done()
+	current := initial
+	for {
+		// Transient waiter goroutine: exec.Cmd.Wait has no ctx-aware variant,
+		// so we bridge via a buffered channel. The goroutine exits once Wait
+		// returns (guaranteed once shutdown closes the pipe / signals the peer).
+		waitCh := make(chan error, 1)
+		go func(h peerHandle) { waitCh <- h.Wait() }(current)
+
+		select {
+		case <-ctx.Done():
+			// Let shutdown close the pipe / escalate signals so Wait returns;
+			// we don't block this goroutine here — the outer wg.Wait in
+			// shutdown joins once Wait() unblocks and waitCh drains.
+			<-waitCh
+			return
+		case waitErr := <-waitCh:
+			s.logger.Warn("peer_supervisor: peer exited, scheduling restart",
+				"peer", name, "pid", current.PID(), "error", waitErr)
+		}
+
+		timer := time.NewTimer(s.restartBackoff)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+		if ctx.Err() != nil {
+			return
+		}
+
+		next, err := s.launcher.Launch(ctx, name)
+		if err != nil {
+			s.logger.Warn("peer_supervisor: restart failed, peer degraded until shutdown",
+				"peer", name, "error", err)
+			<-ctx.Done()
+			return
+		}
+		s.replacePeer(current, next)
+		current = next
+	}
+}
+
+// trackPeer appends a newly-launched handle and syncs the pid registry so the
+// registry always reflects the current set of peer PIDs. Registration lives
+// in the supervisor (not the launcher) so the fake launcher used in tests
+// does not need to know about pidregistry at all — the supervisor is the
+// single atom that owns "process handle + stdin pipe + pid registry" per
+// P1a §Step 2.
+func (s *PeerSupervisor) trackPeer(h peerHandle) {
+	s.mu.Lock()
+	s.peers = append(s.peers, h)
+	s.mu.Unlock()
+	if s.pidRegistry != nil && h.PID() > 0 {
+		s.pidRegistry.Register(h.PID(), h.Name(), nil)
+	}
+}
+
+// replacePeer atomically swaps the current handle and updates the pid registry
+// so stop paths cannot signal a stale PID. This is the single atom P1a
+// §Step 2 requires: process handle + stdin pipe + pid registry update together.
+func (s *PeerSupervisor) replacePeer(old, next peerHandle) {
+	s.mu.Lock()
+	for i, h := range s.peers {
+		if h == old {
+			s.peers[i] = next
+			break
+		}
+	}
+	s.mu.Unlock()
+	if s.pidRegistry != nil {
+		if old != nil && old.PID() > 0 {
+			s.pidRegistry.Unregister(old.PID())
+		}
+		if next != nil && next.PID() > 0 {
+			s.pidRegistry.Register(next.PID(), next.Name(), nil)
+		}
+	}
+}
+
+// shutdown runs the stop/drain escalation: EOF -> SIGTERM -> SIGKILL. It
+// joins the superviseOne goroutines via wg and never retries re-launches.
+func (s *PeerSupervisor) shutdown(wg *sync.WaitGroup) {
+	peers := s.snapshotPeers()
+
+	// Phase 1: close stdin pipes so every peer receives EOF and can exit
+	// cleanly.
+	for _, h := range peers {
+		if err := h.ClosePipe(); err != nil && !errors.Is(err, os.ErrClosed) {
+			s.logger.Debug("peer_supervisor: close stdin pipe",
+				"peer", h.Name(), "error", err)
+		}
+	}
+
+	// Phase 2: bounded wait for superviseOne goroutines to finish.
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+
+	select {
+	case <-done:
+	case <-time.After(s.stopGrace):
+		// Phase 3: SIGTERM anything still alive.
+		for _, h := range peers {
+			if err := h.Signal(syscall.SIGTERM); err != nil {
+				s.logger.Debug("peer_supervisor: SIGTERM failed",
+					"peer", h.Name(), "error", err)
+			}
+		}
+		select {
+		case <-done:
+		case <-time.After(s.killGrace):
+			// Phase 4: SIGKILL — last resort.
+			for _, h := range peers {
+				if err := h.Signal(syscall.SIGKILL); err != nil {
+					s.logger.Debug("peer_supervisor: SIGKILL failed",
+						"peer", h.Name(), "error", err)
+				}
+			}
+			<-done
+		}
+	}
+
+	// Phase 5: pidRegistry cleanup + discovery file sweep.
+	if s.pidRegistry != nil {
+		for _, h := range peers {
+			if pid := h.PID(); pid > 0 {
+				s.pidRegistry.Unregister(pid)
+			}
+		}
+	}
+	if s.cleanupHook != nil {
+		s.cleanupHook()
+	}
+}
+
+func (s *PeerSupervisor) snapshotPeers() []peerHandle {
+	s.mu.Lock()
+	out := make([]peerHandle, len(s.peers))
+	copy(out, s.peers)
+	s.mu.Unlock()
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Production launcher + handle (exec.Cmd + stdin pipe).
+// ---------------------------------------------------------------------------
+
+// execPeerLauncher is the production peerLauncher. It resolves the peer
+// binary, starts it with GO_AGENT_PEER_MODE=1 in its own process group, and
+// returns a handle wrapping the exec.Cmd + stdin write-pipe. The supervisor
+// owns the pid-registry registration for every handle this launcher produces.
+type execPeerLauncher struct {
+	logger *slog.Logger
+}
+
+func newExecPeerLauncher(logger *slog.Logger) *execPeerLauncher {
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	return &execPeerLauncher{logger: logger}
+}
+
+func (l *execPeerLauncher) Launch(_ context.Context, name string) (peerHandle, error) {
+	binDirs, err := resolvePeerBinDirs()
+	if err != nil {
+		return nil, err
+	}
+	binPath, ok := findPeerBinary(binDirs, name)
+	if !ok {
+		return nil, &peerBinaryMissingError{Name: name, Dirs: binDirs}
+	}
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(binPath)
+	cmd.Stdin = stdinR
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), peerModeEnv+"=1")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		_ = stdinR.Close()
+		_ = stdinW.Close()
+		return nil, err
+	}
+	_ = stdinR.Close()
+	l.logger.Info("peer_supervisor: started",
+		"peer", name, "pid", cmd.Process.Pid, "mode", "peer")
+	return &execPeerHandle{name: name, cmd: cmd, stdin: stdinW}, nil
+}
+
+type peerBinaryMissingError struct {
+	Name string
+	Dirs []string
+}
+
+func (e *peerBinaryMissingError) Error() string {
+	return "peer binary not found: " + e.Name + " in " + strings.Join(e.Dirs, string(os.PathListSeparator))
+}
+
+type execPeerHandle struct {
+	name  string
+	cmd   *exec.Cmd
+	stdin *os.File
+	mu    sync.Mutex
+	pipeClosed bool
+}
+
+func (h *execPeerHandle) Name() string { return h.name }
+
+func (h *execPeerHandle) PID() int {
+	if h.cmd == nil || h.cmd.Process == nil {
+		return 0
+	}
+	return h.cmd.Process.Pid
+}
+
+func (h *execPeerHandle) Wait() error {
+	if h.cmd == nil {
+		return errors.New("peer_supervisor: execPeerHandle with nil cmd")
+	}
+	return h.cmd.Wait()
+}
+
+func (h *execPeerHandle) ClosePipe() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.pipeClosed || h.stdin == nil {
+		return nil
+	}
+	h.pipeClosed = true
+	return h.stdin.Close()
+}
+
+func (h *execPeerHandle) Signal(sig os.Signal) error {
+	if h.cmd == nil || h.cmd.Process == nil {
+		return nil
+	}
+	return h.cmd.Process.Signal(sig)
+}
+
+// ---------------------------------------------------------------------------
+// Pure helpers (migrated from the deleted peer_spawn.go).
+// ---------------------------------------------------------------------------
+
+// resolvePeerBinDirs returns the ordered list of directories to probe for peer
+// binaries. GO_AGENT_PEER_BIN_DIR (path-list) wins over os.Executable()'s dir.
+func resolvePeerBinDirs() ([]string, error) {
+	var dirs []string
+	if override := strings.TrimSpace(os.Getenv(peerBinDirEnv)); override != "" {
+		for _, part := range filepath.SplitList(override) {
+			if p := strings.TrimSpace(part); p != "" {
+				dirs = append(dirs, p)
+			}
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		if len(dirs) == 0 {
+			return nil, err
+		}
+		return dirs, nil
+	}
+	dirs = append(dirs, filepath.Dir(exe))
+	return dirs, nil
+}
+
+func findPeerBinary(dirs []string, name string) (string, bool) {
+	for _, dir := range dirs {
+		candidate := filepath.Join(dir, name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, true
+		}
+	}
+	return "", false
+}
