@@ -234,7 +234,6 @@ func TestBusCallbackGuard(t *testing.T) {
 			{"F-7", "internal/platform/rpc/module.go", "bindEventBridge", "subscribeCoreEventPushes"},
 			{"F-8", "internal/platform/mcpcontrol/module.go", "registerConfigChangeLifecycle", "registerConfigChangeSubscriptions"},
 			{"F-9", "internal/platform/toolbridge/module.go", "registerDiffFallbackLifecycle", "ResilientSubscribe"},
-			{"F-10", "internal/module/insight/module.go", "registerCollectorLifecycle", "subscribe"},
 			{"F-11", "internal/module/turn/observation/module.go", "RegisterSubscribers", "Subscribe"},
 		}
 		for _, hit := range want {
