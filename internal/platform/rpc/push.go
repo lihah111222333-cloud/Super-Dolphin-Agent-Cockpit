@@ -52,14 +52,22 @@ func (b *PushBridge) CallbackClient(ctx context.Context, server *jrpc2.Server, m
 	return raw, nil
 }
 
-func subscribeCoreEventPushes(bridge *PushBridge, server *Server, logger *pkglogger.Logger) []context.CancelFunc {
-	if bridge == nil || bridge.dispatcher == nil || server == nil {
+// subscribeCoreEventPushes is the P22 P2 boundary for
+// `internal/platform/rpc/push.go`: the bus callback body contains no
+// NotifyAll call and no `context.Background()` — only a worker Enqueue.
+// Legacy expansion (`eventsurface.ExpandNotifications`) stays on the
+// callback side because it's a deterministic, O(1), ctx-free pure
+// function; moving it to the worker wouldn't change behavior but would
+// make `TestExpandNotificationsAddsLegacyThreadRefresh` harder to keep
+// independent of worker timing.
+func subscribeCoreEventPushes(worker *pushNotificationWorker, dispatcher *event.Dispatcher, logger *pkglogger.Logger) []context.CancelFunc {
+	if worker == nil || dispatcher == nil {
 		return nil
 	}
-	cancels := eventsurface.Bind(bridge.dispatcher, logger, func(method string, payload any) {
-		broadcastNotifications(context.Background(), server, bridge, eventsurface.ExpandNotifications(method, payload))
+	cancels := eventsurface.Bind(dispatcher, logger, func(method string, payload any) {
+		worker.Enqueue(eventsurface.ExpandNotifications(method, payload))
 	})
-	cancels = append(cancels, subscribeRawProviderEventPushes(bridge, server, logger))
+	cancels = append(cancels, subscribeRawProviderEventPushes(worker, dispatcher, logger))
 	return cancels
 }
 
@@ -77,12 +85,12 @@ var typedPushMethods = map[string]struct{}{
 	strings.ToLower(eventsurface.MethodAgentStopped):    {},
 }
 
-func subscribeRawProviderEventPushes(bridge *PushBridge, server *Server, logger *pkglogger.Logger) context.CancelFunc {
-	if bridge == nil || bridge.dispatcher == nil || server == nil {
+func subscribeRawProviderEventPushes(worker *pushNotificationWorker, dispatcher *event.Dispatcher, logger *pkglogger.Logger) context.CancelFunc {
+	if worker == nil || dispatcher == nil {
 		return func() {}
 	}
-	return platformbus.ResilientSubscribe(bridge.dispatcher, func(raw providerdto.BusRawProviderEvent) {
-		broadcastNotifications(context.Background(), server, bridge, providerPushNotifications(raw.Event))
+	return platformbus.ResilientSubscribe(dispatcher, func(raw providerdto.BusRawProviderEvent) {
+		worker.Enqueue(providerPushNotifications(raw.Event))
 	}, logger)
 }
 
