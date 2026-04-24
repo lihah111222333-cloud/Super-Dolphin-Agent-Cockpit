@@ -156,7 +156,7 @@
 | **P20 α 组 p20.1/10/14/15** | ✅ **本轮完成** | 实施 + 互审 + E/F 独立终审（双 BLOCK）+ 双轮补修全部 PASS |
 | P20.5/6/7/8/9/12 | ✅ 实质完成 | P20.1 加固连带落地 |
 | P20.11 | 🚫 废弃 | skill 是宿主独有能力 |
-| P20.13 | 🔲 未开工 | 前置核查完成，结论 NEEDS-DOC-FIX（修订任务单后可派）|
+| P20.13 | 🟡 已实施待终验 | commit `7a1f49c`，2026-04-24 落入生产 `skill/expand` approval 链；文档修订：`docs/plans/迁移/p20/p20.13-approval-cache-wiring.md` 已同步 NEEDS-DOC-FIX 3 处 |
 | P20.16 | 🔲 未开工 | 等所有前置合入 |
 
 ---
@@ -274,6 +274,21 @@ R10 冷启动 agent 读的是 R2 前 HEAD，以下 "🔴" 是旧版本而非当�
 8. desktop pre-drain + watchFXShutdown 非对称 → Q-D 已记
 9. registerMemoryHooks.OnStop 不 wait/drain → P2 memory
 10. docs/契约/* 命名债 runner.actors vs group:"runners" → 单开契约轮
+
+### §7.5.1 POST-R10 status overlay（2026-04-25 HEAD drift）
+
+| 债 # | R10 原文 | HEAD 2026-04-25 状态 | 证据 |
+|---|---|---|---|
+| 1 | archtest 3 live failure | ✅ 已销账 | `TestDependencyDirection|TestTimeoutLocality|TestCodeSizeGuard` 当前 PASS（C2/D1 双独立验证） |
+| 2 | toolbridge handler.go:136-160 回退 PersistentSubagentDefault | 🟡 部分 | 缺 runtime → fail-closed（`handler.go:177-191`）；runtime present 但 flag 缺仍 fallback cfg（Z-B NEEDS-FIX 开放） |
+| 3 | waitDreamTask test-only | ✅ 已销账 | `drainDreamTask` prod caller（`module.go:455`；历史报告写 `494` 属行号漂移）|
+| 4 | NewRelevantMemoryFinder bridge 壳 | ✅ 已销账 | `retrieval/prefetch.go:52` prod caller |
+| 5 | TeamSyncService.Pull/Push test-only | ✅ 公开 API 收敛 | `pullLocked`/`pushLocked`/`pushLocalChanges` 有 prod caller |
+| 6 | ErrThreadRuntimeRequired/ErrMissingCWD 0 命中 | ✅ 已销账 | `ErrThreadRuntimeRequired` 13 命中 / `ErrMissingCWD` 42 命中 |
+| 7 | config.go:39 PersistentSubagentDefault=true | ✅ 已销账 | `config.go:54` 默认 false，有测试 |
+| 8 | desktop pre-drain + watchFXShutdown 非对称 | 🔲 未修 | 仍是 `context.Background` + 非 root ctx |
+| 9 | registerMemoryHooks.OnStop 不 wait/drain | ✅ 已销账 | `drainMemoryHooks` 已 drain scheduler/nested/teamSync/dream |
+| 10 | docs/契约/* runner.actors vs group:"runners" | 🔲 未修 | 仍是文档契约债 |
 
 ### 7.6 P22 最终判定
 

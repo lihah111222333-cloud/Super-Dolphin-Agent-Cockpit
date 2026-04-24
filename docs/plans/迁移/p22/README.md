@@ -83,6 +83,7 @@
   - `internal/module/prompt/classifier/claude_cli.go:59`：`TestTimeoutLocality`
 - `internal/archtest/freeze_registry.go:19` 当前仍是 `explicitFreezeRegistry = []explicitFreeze{}`；freeze registry 只承载 numeric freeze，不承载 root-bridge / semantic allowlist
 - Findings 1-10 锚点文件当前 LoC 合计：**3152**
+- ⚠️ 2026-04-25 HEAD drift：当前 `TestDependencyDirection|TestTimeoutLocality|TestCodeSizeGuard` 全部 PASS；原 3 条 live failure（历史 shorthand：`archtest 3 live failure`；`memory/ui_rpc.go` x2 + `prompt/classifier/claude_cli.go:59`）已修复（C2 独立验证 + `go test ./internal/archtest/... -count=1` PASS）。
 
 ## 依赖图（文本）
 
