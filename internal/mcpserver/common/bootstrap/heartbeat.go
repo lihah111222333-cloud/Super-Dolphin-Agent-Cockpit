@@ -10,6 +10,7 @@ import (
 	"github.com/creachadair/jrpc2"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
 )
 
 const heartbeatWarnAfter = 3
@@ -36,6 +37,10 @@ func (c *Client) runHeartbeat(ctx context.Context) {
 		rejected, next, err := c.sendHeartbeat(ctx, timeout)
 		if err != nil {
 			failures++
+			// P22 P4 S6b / plan §322: count every heartbeat failure,
+			// not just warn-level ones, so operators can see churn
+			// even under the 3-strike warn threshold.
+			metrics.BootstrapHeartbeatFailures.WithLabelValues(c.cfg.BinaryName, c.cfg.ClientKind).Inc()
 			if failures >= heartbeatWarnAfter {
 				pkglogger.Warn("bootstrap heartbeat failed",
 					"instance_id", c.instanceID,

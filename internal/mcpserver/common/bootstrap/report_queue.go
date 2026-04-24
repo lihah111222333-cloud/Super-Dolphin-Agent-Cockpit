@@ -8,6 +8,7 @@ import (
 	"github.com/creachadair/jrpc2"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -35,6 +36,10 @@ func (c *Client) enqueueReport(req mcp.ReportRequest) error {
 		}
 	}
 	if len(c.reportQueue) >= c.reportQueueLimit {
+		// P22 P4 S6b / plan §322: count overflow drops at enqueue
+		// time. Drain-time drops already have the
+		// bootstrap.report_queue.drain log anchor for correlation.
+		metrics.BootstrapReportQueueDropped.Inc()
 		return errors.New("bootstrap: durable report queue is full")
 	}
 	c.reportQueue = append(c.reportQueue, cloneReportRequest(req))

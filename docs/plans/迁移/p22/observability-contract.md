@@ -1,6 +1,6 @@
 # P22 observability 合同 — 审核现状 & 后续 slice 记账
 
-> 创建时间：2026-04-24 | 更新时间：2026-04-24 | 状态：**S6a log-event anchors 已收口；S6b(metrics) / S6c(traces) 待开工**
+> 创建时间：2026-04-24 | 更新时间：2026-04-25 | 状态：**S6a log-event anchors 已收口；S6b metrics 已收口（prometheus）；S6c traces 待开工**
 > 对应 plan 锚点：`docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md` §319-324
 
 ## 背景
@@ -34,13 +34,29 @@ slice（暂命名 **P22 P4 S6 — observability stub**）按此基线落地，�
 producer 文件，并额外要求 slog 形式的 `"event", <anchor>` 发射形状。
 
 
-### §322 metrics — 0 / 3 存在
+### §322 metrics — 3 / 3 存在（S6b 2026-04-25 落地，prometheus/client_golang v1.20.5）
 
-| 期望 metric | 现状 |
-|---|---|
-| `heartbeat_failures_total` | ❌ 不存在；`bootstrap heartbeat failed` 只走自由文本日志 |
-| `report_queue_dropped_total` | ❌ 不存在；`bootstrap report replay dropped` 只走日志 |
-| `reconnect_attempts_total` | ❌ 不存在；`bootstrap reconnect failed` 只走日志 |
+| 期望 metric | 代码里是否 emit | emit 站点 |
+|---|---|---|
+| `bootstrap_heartbeat_failures_total{binary_name,client_kind}` | ✅ 存在 | 声明 `internal/platform/metrics/metrics.go`；emit `internal/mcpserver/common/bootstrap/heartbeat.go` 每次 `sendHeartbeat` 返回 err 的分支，`failures++` 之后、warn-threshold 检查之前 |
+| `bootstrap_report_queue_dropped_total` | ✅ 存在 | 声明 `internal/platform/metrics/metrics.go`；emit `internal/mcpserver/common/bootstrap/report_queue.go` `enqueueReport` 超容分支（`len(c.reportQueue) >= c.reportQueueLimit`）|
+| `bootstrap_reconnect_attempts_total{outcome=success\|fail}` | ✅ 存在 | 声明 `internal/platform/metrics/metrics.go`；emit `internal/mcpserver/common/bootstrap/reconnect.go` `reconnectLoop` 每次 `reconnectAttempt` 返回后，分别计 `success` / `fail` 一次 |
+
+守卫：`internal/archtest/observability_metric_emit_guard_test.go`
+`TestObservabilityMetricAnchorsWired` 反向校验三条 counter 名、label
+维度 literal、以及三个 producer 文件仍引用对应 `metrics.*` 访问器。
+单元测试 `internal/platform/metrics/metrics_test.go`
+`TestCountersIncrementIndependently` 通过 `testutil.ToFloat64` 校验三条
+counter `Inc()` 可达且独立计数。
+
+注册策略：所有 counter 通过 `promauto.NewCounter(Vec)` 自动注册到
+`prometheus.DefaultRegisterer`。本仓当前没有 `/metrics` HTTP exporter；
+当 exporter 接入时通过 `promhttp.Handler()` / `DefaultGatherer` 直接暴露，
+无需重新定义 counter。
+
+依赖方向：`cmd/mcp-orch` allowlist（`internal/archtest/dependency_direction_mcp_orch_test.go`）
+已加 `internal/platform/metrics`；`cmd/mcp-lsp` / `cmd/mcp-ida` 走 forbid-list，
+不受影响。
 
 ### §323 traces — 0 / 3 存在
 
@@ -107,11 +123,10 @@ recycling gopls process
 新增 `internal/archtest/observability_log_event_guard_test.go`：扫描
 这三个文件，反向校验 4 个 event_name 仍然在 emit 列表里。
 
-### S6b — metric counter 注册点（需决定基础设施）
+### S6b — metric counter 注册点（2026-04-25 落地，prometheus）
 
-依赖项目里目前**没有**统一的 metric provider，需要先选型：
-- 若落 prometheus：加 `internal/platform/metrics` 小包封装 counter。
-- 若走 otel：同理，走 `otel/metric` 包装。
+选型：prometheus `client_golang` v1.20.5，`promauto` 自动注册到
+`DefaultRegisterer`。未引 otel — S6c 如需 trace，单独评估 otel SDK 成本。
 
 三个 counter:
 - `bootstrap_heartbeat_failures_total{binary_name,client_kind}`
