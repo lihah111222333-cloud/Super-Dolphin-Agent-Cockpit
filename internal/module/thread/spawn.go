@@ -339,7 +339,7 @@ func (s *service) runPendingSpawn(
 	// separate UI component: sidebar, chat header, and dashboard all show
 	// display_name. The prefix is a stable bracketed slug so the UI can parse
 	// it into a blue pill (see stores/thread-view.model.js:parseAgentBadge).
-	displayName := strings.TrimSpace(shared.FirstNonEmpty(assembly.DisplayName, row.Prompt))
+	displayName := strings.TrimSpace(assembly.DisplayName)
 	displayName = prependAgentBadge(displayName, req.AgentTitle, req.AgentKey)
 	if err := s.launchAgent(ctx, agentID, req.CWD, displayName,
 		req.ParentAgentID, req.AgentType, req.AgentMemoryScope,

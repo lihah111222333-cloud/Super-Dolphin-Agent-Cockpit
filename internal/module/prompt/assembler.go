@@ -12,7 +12,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -58,7 +57,7 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		base = joinBlocks(base, hint)
 	}
 	dev := strings.TrimSpace(in.DeveloperInstructions)
-	displayName := shared.FirstNonEmpty(strings.TrimSpace(in.Name), strings.TrimSpace(in.Prompt))
+	displayName := strings.TrimSpace(in.Name)
 	return StartAssembly{
 		DisplayName:           displayName,
 		BaseInstructions:      base,
@@ -90,7 +89,7 @@ func simpleStartEnabled(in StartInput) bool {
 // tightened this path to match Claude parity; the full start path remains the
 // one that emits the layered prompt when CLAUDE_CODE_SIMPLE is unset.
 func (s *service) simpleStartAssembly(_ context.Context, in StartInput) StartAssembly {
-	displayName := shared.FirstNonEmpty(strings.TrimSpace(in.Name), strings.TrimSpace(in.Prompt))
+	displayName := strings.TrimSpace(in.Name)
 	buildCtx := buildStartCtx(in)
 	base := strings.Join([]string{
 		simpleStartIdentityLine,
@@ -269,7 +268,7 @@ func (s *service) regionSections(region PromptRegion) []PromptSection {
 }
 
 func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) StartAssembly {
-	displayName := shared.FirstNonEmpty(strings.TrimSpace(in.Name), strings.TrimSpace(in.Prompt))
+	displayName := strings.TrimSpace(in.Name)
 	base := strings.TrimSpace(in.BaseInstructions)
 	buildCtx := buildStartCtx(in)
 	userMeta := s.buildStartUserMeta(buildCtx, nil)

@@ -77,12 +77,11 @@ func (s *service) bindSessionGeneration(ctx context.Context, agentID string) err
 	return s.orchestration.BindSessionGeneration(ctx, strings.TrimSpace(agentID), generation)
 }
 
-func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, error) {
-	ctx = shared.NonNilContext(ctx)
+func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (StartRequest, string, error) {
 	callerProvidedID := strings.TrimSpace(req.AgentID) != ""
 	req, agentID, err := normalizeStartRequest(req)
 	if err != nil {
-		return StartResult{}, err
+		return req, "", err
 	}
 	// Collision-safe agent ID: only apply when the caller didn't provide
 	// an explicit ID. For child agents derive a sequential suffix from
@@ -90,21 +89,17 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	if !callerProvidedID {
 		agentID, err = s.resolveUniqueAgentID(ctx, req, agentID)
 		if err != nil {
-			return StartResult{}, err
+			return req, "", err
 		}
 		req.AgentID = agentID
 	}
 	if err := s.prepareTaskHandoffStart(ctx, &req); err != nil {
-		return StartResult{}, err
+		return req, "", err
 	}
-	// C1 — when the caller has nothing to classify yet (empty composer) we
-	// defer the provider-CLI fork to the first turn. startPendingThread writes
-	// a placeholder agent_threads row with pending_launch=true and returns so
-	// the UI can show the card immediately; the real spawn happens in
-	// SpawnIfNeeded once turn/start arrives with real user input.
-	if isPendingLaunchIntent(req) {
-		return s.startPendingThread(ctx, req, agentID)
-	}
+	return req, agentID, nil
+}
+
+func (s *service) completeStart(ctx context.Context, req StartRequest, agentID string) (StartResult, error) {
 	// Router resolution runs before prompt assembly so its output (BaseInstructions)
 	// is visible to the assembly step, and its sidecar metadata (AgentKey,
 	// PromptVersionID) reaches the thread Upsert via threadState.
@@ -146,6 +141,23 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 	}
 	cleanupOnFailure = false
 	return result, nil
+}
+
+func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, error) {
+	ctx = shared.NonNilContext(ctx)
+	req, agentID, err := s.prepareStartRequest(ctx, req)
+	if err != nil {
+		return StartResult{}, err
+	}
+	// C1 — when the caller has nothing to classify yet (empty composer) we
+	// defer the provider-CLI fork to the first turn. startPendingThread writes
+	// a placeholder agent_threads row with pending_launch=true and returns so
+	// the UI can show the card immediately; the real spawn happens in
+	// SpawnIfNeeded once turn/start arrives with real user input.
+	if isPendingLaunchIntent(req) {
+		return s.startPendingThread(ctx, req, agentID)
+	}
+	return s.completeStart(ctx, req, agentID)
 }
 
 // resolveUniqueAgentID ensures the agent ID won't collide with an existing
