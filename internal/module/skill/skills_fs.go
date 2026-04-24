@@ -283,7 +283,15 @@ func (s *service) WriteLocal(ctx context.Context, path, content string, scope ..
 	if err != nil {
 		return nil, err
 	}
-	path, err = s.resolveSkillPath(path, cwd, resolveRequestedSkillScope(scope...))
+	requestedScope := resolveRequestedSkillScope(scope...)
+	normalizedScope, err := normalizeSkillScope(requestedScope)
+	if err != nil {
+		return nil, err
+	}
+	if err := RequireSkillSystemReview(normalizedScope, skillSlug(path), skillContentHash(content), RepoFingerprint(cwd), "", ""); err != nil {
+		return nil, err
+	}
+	path, err = s.resolveSkillPath(path, cwd, requestedScope)
 	if err != nil {
 		return nil, err
 	}
@@ -391,6 +399,9 @@ func (s *service) WriteRemote(_ context.Context, name, content string) (any, err
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
 	}
+	if err := RequireSkillSystemReview(skillScopeSystem, skillSlug(name), skillContentHash(content), RepoFingerprint(s.projectRoot), "", ""); err != nil {
+		return nil, err
+	}
 	path, err := s.writeSkill(name, content)
 	if err != nil {
 		return nil, err
@@ -419,6 +430,9 @@ func (s *service) WriteSkillContent(_ context.Context, name, content string) (an
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
 	}
+	if err := RequireSkillSystemReview(skillScopeSystem, skillSlug(name), skillContentHash(content), RepoFingerprint(s.projectRoot), "", ""); err != nil {
+		return nil, err
+	}
 	path, err := s.writeSkill(name, content)
 	if err != nil {
 		return nil, err
@@ -430,6 +444,9 @@ func (s *service) WriteSkillContent(_ context.Context, name, content string) (an
 func (s *service) WriteSummary(_ context.Context, name, summary string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
+	}
+	if err := RequireSkillSystemReview(skillScopeSystem, skillSlug(name), skillContentHash(summary), RepoFingerprint(s.projectRoot), "", ""); err != nil {
+		return nil, err
 	}
 	path, resolvedName, err := s.updateSkillSummary(name, summary)
 	if err != nil {
@@ -497,16 +514,23 @@ func (s *service) importSource(source, name, cwd, scope string) (map[string]any,
 	if err != nil {
 		return nil, err
 	}
+	normalizedScope, err := normalizeSkillScope(scope)
+	if err != nil {
+		return nil, err
+	}
+	targetName := strings.TrimSpace(name)
+	if targetName == "" {
+		targetName = filepath.Base(resolvedSource)
+	}
+	if err := RequireSkillSystemReview(normalizedScope, skillSlug(targetName), skillDirContentHash(resolvedSource), RepoFingerprint(cwd), "", ""); err != nil {
+		return nil, err
+	}
 	root, err := s.prepareScopedSkillsRoot(cwd, scope)
 	if err != nil {
 		return nil, err
 	}
 	if err := ensureSourceOutsideRoots(s.allSkillRoots(cwd), resolvedSource, source); err != nil {
 		return nil, err
-	}
-	targetName := strings.TrimSpace(name)
-	if targetName == "" {
-		targetName = filepath.Base(resolvedSource)
 	}
 	targetDir := filepath.Join(root, skillSlug(targetName))
 	if err := ensureSkillDirAbsent(targetDir, targetName); err != nil {

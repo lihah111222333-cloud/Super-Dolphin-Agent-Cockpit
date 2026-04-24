@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
@@ -22,15 +24,17 @@ import (
 //   - token 预算截断
 //   - CacheByName + provider 内部 revision 控制失效
 //
-// 本 Phase 实现数据层：provider 只接 SkillLister + NativeSkillDetector 两个
-// 最小依赖。approval 集成（真正按 artifact hash 解锁 Redacted）延后到
-// Phase 10（统一配置 + ApprovalCache 注入时一起做）。
+// provider 接 SkillLister + NativeSkillDetector + ApprovalSource；approval/revision
+// 均进入 L1 manifest 投影与本地缓存 key，避免批准后同 session 陈旧。
 
 // SkillLister 是 prompt provider 对 skill 扫描结果的消费契约。
 // 实现：internal/module/skill.Service 已经满足；测试可提供 fake。
 type SkillLister interface {
 	ListSkills(ctx context.Context) ([]skillpkg.SkillInfo, error)
 }
+
+type skillRevisionSource interface{ SkillRevision() uint64 }
+type trustRevisionSource interface{ TrustRevision() uint64 }
 
 // NativeSkillDetector 是 prompt provider 对 Phase 7 SkillInjectionPort 的消费契约。
 // 返回 provider 原生机制（如 Claude CLI `.claude/skills/`）已接管的 skill 名列表。
@@ -62,8 +66,28 @@ const defaultSkillCatalogCharBudget = 12000 // ≈ 3000 tokens
 type SkillCatalogProvider struct {
 	skills               SkillLister
 	nativePort           NativeSkillDetector
+	approvalSource       contract.ApprovalSource
 	charBudget           int  // 0 = 使用 defaultSkillCatalogCharBudget
 	emitMetaInstructions bool // 尾部是否追加元指令（P20.1 Phase 9）
+	cache                *skillCatalogProviderCache
+}
+
+type skillCatalogProviderCache struct {
+	mu    sync.Mutex
+	key   skillCatalogCacheKey
+	text  *string
+	valid bool
+}
+
+type skillCatalogCacheKey struct {
+	SkillRevision    uint64
+	ApprovalRevision uint64
+	TrustRevision    uint64
+	Budget           int
+	EmitMeta         bool
+	CWD              string
+	LaunchNames      string
+	ForceLaunch      bool
 }
 
 var _ DynamicSectionProvider = SkillCatalogProvider{}
@@ -73,11 +97,17 @@ var _ DynamicSectionProvider = SkillCatalogProvider{}
 //
 // 默认开启元指令（P20.1 Phase 9 行为）。如需关闭用 NewSkillCatalogProviderWithOptions。
 func NewSkillCatalogProvider(skills SkillLister, nativePort NativeSkillDetector, charBudget int) SkillCatalogProvider {
+	return NewSkillCatalogProviderWithApproval(skills, nativePort, nil, charBudget)
+}
+
+func NewSkillCatalogProviderWithApproval(skills SkillLister, nativePort NativeSkillDetector, approval contract.ApprovalSource, charBudget int) SkillCatalogProvider {
 	return SkillCatalogProvider{
 		skills:               skills,
 		nativePort:           nativePort,
+		approvalSource:       approval,
 		charBudget:           charBudget,
 		emitMetaInstructions: true,
+		cache:                &skillCatalogProviderCache{},
 	}
 }
 
@@ -91,11 +121,17 @@ type SkillCatalogOptions struct {
 
 // NewSkillCatalogProviderWithOptions 带选项的构造口。Phase 10 config 可直接映射。
 func NewSkillCatalogProviderWithOptions(skills SkillLister, nativePort NativeSkillDetector, charBudget int, opts SkillCatalogOptions) SkillCatalogProvider {
+	return NewSkillCatalogProviderWithOptionsAndApproval(skills, nativePort, nil, charBudget, opts)
+}
+
+func NewSkillCatalogProviderWithOptionsAndApproval(skills SkillLister, nativePort NativeSkillDetector, approval contract.ApprovalSource, charBudget int, opts SkillCatalogOptions) SkillCatalogProvider {
 	return SkillCatalogProvider{
 		skills:               skills,
 		nativePort:           nativePort,
+		approvalSource:       approval,
 		charBudget:           charBudget,
 		emitMetaInstructions: opts.EmitMetaInstructions,
+		cache:                &skillCatalogProviderCache{},
 	}
 }
 
@@ -111,6 +147,10 @@ func (SkillCatalogProvider) SectionName() string {
 func (p SkillCatalogProvider) Resolve(ctx context.Context, input SectionContext) (*string, error) {
 	if p.skills == nil {
 		return nil, nil
+	}
+	cacheKey := p.cacheKey(input)
+	if text, ok := p.cached(cacheKey); ok {
+		return text, nil
 	}
 	infos, err := p.skills.ListSkills(skillpkg.WithCWD(ctx, input.BuildCtx.CWD))
 	if err != nil {
@@ -133,18 +173,11 @@ func (p SkillCatalogProvider) Resolve(ctx context.Context, input SectionContext)
 		return nil, nil
 	}
 
-	// P20.4: 应用 launch-time 选中的 skill（经 StartRequest → StartInput → BuildCtx）。
-	// 空白名单→完全回落原有全量行为；仅排序置顶（force=false）或只渲染白名单（force=true）。
-	infos = applyLaunchSkillSelection(infos, input.BuildCtx.LaunchSkillNames, input.BuildCtx.ForceLaunchSkills)
-	if len(infos) == 0 {
-		return nil, nil
-	}
-
 	// 收集 native skill 名
 	nativeNames := p.collectNativeNames(input)
 
 	// 分组
-	groups := groupSkillsForManifest(infos, nativeNames)
+	groups := p.groupSkillsForManifest(ctx, infos, nativeNames, input.BuildCtx.CWD)
 	if groups.isEmpty() {
 		return nil, nil
 	}
@@ -156,6 +189,7 @@ func (p SkillCatalogProvider) Resolve(ctx context.Context, input SectionContext)
 	if p.emitMetaInstructions {
 		text = appendSkillCatalogMetaInstructions(text, p.effectiveCharBudget())
 	}
+	p.storeCached(cacheKey, &text)
 	return &text, nil
 }
 
@@ -207,6 +241,84 @@ func (p SkillCatalogProvider) effectiveCharBudget() int {
 	return p.charBudget
 }
 
+func (p SkillCatalogProvider) cacheKey(input SectionContext) skillCatalogCacheKey {
+	return skillCatalogCacheKey{
+		SkillRevision:    skillRevision(p.skills),
+		ApprovalRevision: approvalRevision(p.approvalSource),
+		TrustRevision:    trustRevision(p.skills),
+		Budget:           p.effectiveCharBudget(),
+		EmitMeta:         p.emitMetaInstructions,
+		CWD:              strings.TrimSpace(input.BuildCtx.CWD),
+		LaunchNames:      strings.Join(normalizedCatalogNames(input.BuildCtx.LaunchSkillNames), ","),
+		ForceLaunch:      input.BuildCtx.ForceLaunchSkills,
+	}
+}
+
+func skillRevision(source SkillLister) uint64 {
+	if rev, ok := source.(skillRevisionSource); ok {
+		return rev.SkillRevision()
+	}
+	return 0
+}
+
+func trustRevision(source SkillLister) uint64 {
+	if rev, ok := source.(trustRevisionSource); ok {
+		return rev.TrustRevision()
+	}
+	return 0
+}
+
+func approvalRevision(source contract.ApprovalSource) uint64 {
+	if source == nil {
+		return 0
+	}
+	return source.ApprovalRevision()
+}
+
+func normalizedCatalogNames(names []string) []string {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (p SkillCatalogProvider) cached(key skillCatalogCacheKey) (*string, bool) {
+	if p.cache == nil {
+		return nil, false
+	}
+	p.cache.mu.Lock()
+	defer p.cache.mu.Unlock()
+	if !p.cache.valid || p.cache.key != key {
+		return nil, false
+	}
+	if p.cache.text == nil {
+		return nil, true
+	}
+	text := *p.cache.text
+	return &text, true
+}
+
+func (p SkillCatalogProvider) storeCached(key skillCatalogCacheKey, text *string) {
+	if p.cache == nil {
+		return
+	}
+	p.cache.mu.Lock()
+	defer p.cache.mu.Unlock()
+	p.cache.key = key
+	if text == nil {
+		p.cache.text = nil
+	} else {
+		copyText := *text
+		p.cache.text = &copyText
+	}
+	p.cache.valid = true
+}
+
 // collectNativeNames 调 nativePort（若有）拿到原生 skill 名集合，返回 lower 归一化 map。
 // 仅用当前 cwd（session 工作目录，从 BuildCtx 取）。
 //
@@ -251,42 +363,43 @@ func (g skillManifestGroups) isEmpty() bool {
 
 // groupSkillsForManifest 按优先级分组（P20.1 §3.3 红线 A：untrusted 元数据净化）：
 //
-//	1. native 命中 → Native 组（最高优先级：provider 接管 body，harness 只标注存在）
-//	2. Trust=Project/Unknown → Redacted 组（净化优先级 > DisableModelInvocation）
-//	   ⏱ 关键安全不变量：untrusted skill 无论是否标 disable-model-invocation，
-//	   其 name + description + summary 都不得以明文或 "/" slash 提示的形式
-//	   出现，否则攻击者通过 .agent/skills/evil 的恶意 frontmatter 可绕过净化。
-//	3. 剩下 trusted (User/Signed) + DisableModelInvocation=true → ManualOnly
-//	4. 剩下 trusted (User/Signed) → Core
+//  1. native 命中 → Native 组（最高优先级：provider 接管 body，harness 只标注存在）
+//  2. Trust=Project/Unknown → Redacted 组（净化优先级 > DisableModelInvocation）
+//     ⏱ 关键安全不变量：untrusted skill 无论是否标 disable-model-invocation，
+//     其 name + description + summary 都不得以明文或 "/" slash 提示的形式
+//     出现，否则攻击者通过 .agent/skills/evil 的恶意 frontmatter 可绕过净化。
+//  3. 剩下 trusted (User/Signed) + DisableModelInvocation=true → ManualOnly
+//  4. 剩下 trusted (User/Signed) → Core
 //
 // 同一 skill 仅进入一个组。排序在每组内按 Name 字典序。
 func groupSkillsForManifest(infos []skillpkg.SkillInfo, nativeNames map[string]struct{}) skillManifestGroups {
+	return SkillCatalogProvider{}.groupSkillsForManifest(context.Background(), infos, nativeNames, "")
+}
+
+func (p SkillCatalogProvider) groupSkillsForManifest(ctx context.Context, infos []skillpkg.SkillInfo, nativeNames map[string]struct{}, cwd string) skillManifestGroups {
 	var g skillManifestGroups
 	for _, info := range infos {
 		lowerName := strings.ToLower(strings.TrimSpace(info.Name))
 		if lowerName == "" {
 			continue
 		}
-		// 1. native 最高优先级
 		if _, ok := nativeNames[lowerName]; ok {
 			g.Native = append(g.Native, info)
 			continue
 		}
-		// 2. 净化优先级 > disable-model-invocation：
-		// 任何 untrusted skill 先走 Redacted，无论是否标 manual-only。
 		if isUntrustedScope(info.Trust) {
+			if p.skillApproved(ctx, info, cwd) {
+				g.Core = append(g.Core, info)
+				continue
+			}
 			g.Redacted = append(g.Redacted, info)
-			// P20.1 Phase 10 Step C：每条 redacted 条目 +1。放在入栈之后才计，
-			// 过滤掉 lowerName=="" 早返 continue 的器航闲置条目。
 			skillmetrics.IncUntrustedManifestRedaction()
 			continue
 		}
-		// 3. trusted + disable-model-invocation → ManualOnly
 		if info.DisableModelInvocation {
 			g.ManualOnly = append(g.ManualOnly, info)
 			continue
 		}
-		// 4. trusted 普通示例
 		g.Core = append(g.Core, info)
 	}
 	sortInfosByName(g.Core)
@@ -294,6 +407,33 @@ func groupSkillsForManifest(infos []skillpkg.SkillInfo, nativeNames map[string]s
 	sortInfosByName(g.Native)
 	sortInfosByName(g.ManualOnly)
 	return g
+}
+
+func (p SkillCatalogProvider) skillApproved(ctx context.Context, info skillpkg.SkillInfo, cwd string) bool {
+	if p.approvalSource == nil {
+		return false
+	}
+	for _, req := range catalogApprovalRequests(info, cwd) {
+		approved, err := p.approvalSource.LookupArtifactApproval(ctx, req)
+		if err == nil && approved {
+			return true
+		}
+	}
+	return false
+}
+
+func catalogApprovalRequests(info skillpkg.SkillInfo, cwd string) []contract.ArtifactApprovalRequest {
+	base := contract.ArtifactApprovalRequest{
+		RepoFingerprint: skillpkg.RepoFingerprint(cwd),
+		Name:            info.Name,
+		ContentHash:     info.ContentHash,
+	}
+	metadata := base
+	metadata.ArtifactKind = skillpkg.ArtifactKindMetadata
+	body := base
+	body.ArtifactKind = skillpkg.ArtifactKindBody
+	body.ArtifactLocator = "SKILL.md"
+	return []contract.ArtifactApprovalRequest{metadata, body}
 }
 
 // isUntrustedScope 判定 Trust 是否属于“非 User/Signed”。Project / Unknown / 任何

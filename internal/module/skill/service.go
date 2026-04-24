@@ -45,6 +45,7 @@ type service struct {
 }
 
 var _ Service = (*service)(nil)
+var _ contract.ApprovalSource = (*service)(nil)
 
 type approvalScope string
 
@@ -57,7 +58,48 @@ var (
 	errSkillApprovalDenied               = errors.New("skill expand approval denied")
 	errSkillApprovalRequesterUnavailable = errors.New("skill approval requester is not configured")
 	errSkillApprovalProjectCacheMissing  = errors.New("project approval cache is not configured")
+	errSkillApprovalRequired             = errors.New("skill artifact approval required")
 )
+
+type SkillApprovalRequiredError struct {
+	Request contract.ApprovalRequest
+}
+
+func (e SkillApprovalRequiredError) Error() string {
+	return errSkillApprovalRequired.Error()
+}
+
+func (e SkillApprovalRequiredError) Unwrap() error { return errSkillApprovalRequired }
+
+func (s *service) LookupArtifactApproval(_ context.Context, req contract.ArtifactApprovalRequest) (bool, error) {
+	if s == nil {
+		return false, nil
+	}
+	_, ok := s.approval.LookupArtifact(ApprovalRequest{
+		RepoFingerprint: req.RepoFingerprint,
+		Name:            req.Name,
+		ArtifactKind:    req.ArtifactKind,
+		ArtifactLocator: req.ArtifactLocator,
+		ContentHash:     req.ContentHash,
+	})
+	return ok, nil
+}
+
+func (s *service) ApprovalRevision() uint64 {
+	if s == nil || s.approval == nil {
+		return 0
+	}
+	return s.approval.Revision()
+}
+
+func (s *service) SkillRevision() uint64 {
+	if s == nil {
+		return 0
+	}
+	return atomic.LoadUint64(&s.skillsChangedSeq)
+}
+
+func (s *service) TrustRevision() uint64 { return s.SkillRevision() }
 
 func NewService(projectRoot string) Service {
 	pr := strings.TrimSpace(projectRoot)

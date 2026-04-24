@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
@@ -37,7 +38,8 @@ type ApprovalCache struct {
 	// writeMu 系列化盘面写入，避免并发 Approve/Revoke 因 snapshot 时序不同
 	// 而相互覆盖（A.unlock 后比 B.rename 晚就会丢失 B 的写入）。
 	// writeMu 与 mu 分开：读路径（Lookup/Entries）不被盘 IO 阻塞。
-	writeMu sync.Mutex
+	writeMu  sync.Mutex
+	revision uint64
 }
 
 // ApprovalEntry 是单条审批记录，持久化到 skills-trust.json 的 entries 数组中。
@@ -193,17 +195,18 @@ func (c *ApprovalCache) Lookup(name, contentHash string) (ApprovalEntry, bool) {
 // 不属于 "合法查询但未命中" 的有效 miss）。
 func (c *ApprovalCache) LookupArtifact(req ApprovalRequest) (ApprovalEntry, bool) {
 	if c == nil {
+		skillmetrics.IncSkillArtifactApprovalMiss()
 		return ApprovalEntry{}, false
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	entry, ok := c.entries[artifactApprovalKey(req)]
 	if !ok {
-		skillmetrics.IncArtifactApprovalMiss()
+		skillmetrics.IncSkillArtifactApprovalMiss()
 		return ApprovalEntry{}, false
 	}
 	if !strings.EqualFold(entry.ContentHash, req.ContentHash) {
-		skillmetrics.IncArtifactApprovalMiss()
+		skillmetrics.IncSkillArtifactApprovalMiss()
 		return ApprovalEntry{}, false
 	}
 	return entry, true
@@ -299,6 +302,7 @@ func (c *ApprovalCache) ApproveArtifact(req ApprovalRequest) (ApprovalEntry, err
 	if err := writeApprovalFile(c.path, snapshot); err != nil {
 		return entry, err
 	}
+	atomic.AddUint64(&c.revision, 1)
 	return entry, nil
 }
 
@@ -330,7 +334,16 @@ func (c *ApprovalCache) Revoke(name string) (int, error) {
 	if err := writeApprovalFile(c.path, snapshot); err != nil {
 		return removed, err
 	}
+	atomic.AddUint64(&c.revision, 1)
 	return removed, nil
+}
+
+// Revision returns a monotonic in-memory approval revision.
+func (c *ApprovalCache) Revision() uint64 {
+	if c == nil {
+		return 0
+	}
+	return atomic.LoadUint64(&c.revision)
 }
 
 // Path 暴露缓存文件路径（测试 / 诊断用）。

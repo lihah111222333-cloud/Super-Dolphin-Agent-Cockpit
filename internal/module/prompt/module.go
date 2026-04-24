@@ -128,12 +128,13 @@ type skillCatalogProviderDeps struct {
 
 func NewSkillCatalogProviderFx(deps skillCatalogProviderDeps) SkillCatalogProvider {
 	if deps.Cfg == nil {
-		return NewSkillCatalogProvider(deps.Skills, deps.Detector, 0)
+		return NewSkillCatalogProviderWithApproval(deps.Skills, deps.Detector, deps.Skills, 0)
 	}
 	charBudget := deps.Cfg.SkillCatalogTokenBudget * 4
-	return NewSkillCatalogProviderWithOptions(
+	return NewSkillCatalogProviderWithOptionsAndApproval(
 		deps.Skills,
 		deps.Detector,
+		deps.Skills,
 		charBudget,
 		SkillCatalogOptions{EmitMetaInstructions: deps.Cfg.EmitSkillCatalogMetaInstructions},
 	)
