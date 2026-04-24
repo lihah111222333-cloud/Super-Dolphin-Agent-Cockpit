@@ -21,7 +21,7 @@ func TestMergeTemplateSections_OverridesBuiltinByKey(t *testing.T) {
 		{Key: "identity", Region: contract.PromptRegionStatic, Ordinal: 0, Body: "You are a super-Dolphin."},
 		{Key: "novel_extra", Region: contract.PromptRegionStatic, Ordinal: 10, Body: "Extra block body."},
 	}
-	got := mergeTemplateSections(resolved, blocks, contract.BuildCtx{})
+	got := mergeTemplateSections(resolved, blocks, contract.BuildCtx{}, "")
 
 	if len(got) != 3 {
 		t.Fatalf("want 3 sections (identity replaced, style kept, novel appended), got %d", len(got))

@@ -12,7 +12,7 @@ import (
 )
 
 // EvaluateEnableWhen decides whether a prompt_template_section should be
-// injected for the given BuildCtx.
+// injected for the given BuildCtx and (Start-time) user prompt.
 //
 // Expression shape (JSONB kv match, AND semantics across all keys):
 //
@@ -23,14 +23,16 @@ import (
 //	{"provider":"claude-cli",
 //	 "model":"sonnet-4"}        → both must match (AND)
 //	{"sessionFlags.debug":true} → buildCtx.SessionFlags["debug"] == true
+//	{"tags_has":"refactor"}     → case-insensitive substring in userPrompt
+//	{"tags_has":["rename","trace","impact"]}
+//	                            → OR across the array; any substring hit passes
 //
-// Step 3b keeps the DSL deliberately tiny (equality-only, no $not / $in / regex);
-// any mismatch or lookup miss drops the section. The schema column stays JSONB
-// so a future evaluator can grow without migrating data.
-//
-// Unknown keys (not in fieldExtractors and not under sessionFlags.) are treated
-// as a mismatch — fail-closed is the safer default for a feature gate.
-func EvaluateEnableWhen(raw []byte, buildCtx contract.BuildCtx) bool {
+// Step 3b kept the DSL deliberately tiny; tags_has is the single intentional
+// extension (still no $not / $in / regex) added to enable userPrompt-driven
+// section gating without growing the schema. All other mismatches or lookup
+// misses still drop the section (fail-closed). Unknown keys (not listed above
+// and not under sessionFlags.) are treated as a mismatch.
+func EvaluateEnableWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt string) bool {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
 		return true
@@ -46,15 +48,51 @@ func EvaluateEnableWhen(raw []byte, buildCtx contract.BuildCtx) bool {
 		return true
 	}
 	for key, want := range expr {
-		got, ok := resolveEnableWhenField(key, buildCtx)
-		if !ok {
-			return false
-		}
-		if !enableWhenValueEquals(got, want) {
+		if !sectionEnableKeyMatches(key, want, buildCtx, userPrompt) {
 			return false
 		}
 	}
 	return true
+}
+
+// sectionEnableKeyMatches dispatches a single enable_when key. tags_has is
+// the userPrompt-aware extension; everything else falls through to the shared
+// BuildCtx equality table used by both enable_when and match_when.
+func sectionEnableKeyMatches(key string, want any, buildCtx contract.BuildCtx, userPrompt string) bool {
+	if key == "tags_has" {
+		return matchSectionTagsHas(want, userPrompt)
+	}
+	got, ok := resolveEnableWhenField(key, buildCtx)
+	if !ok {
+		return false
+	}
+	return enableWhenValueEquals(got, want)
+}
+
+// matchSectionTagsHas implements tags_has for section-level enable_when:
+// string value is a single case-insensitive substring probe; array value is
+// OR across each string element.
+func matchSectionTagsHas(want any, userPrompt string) bool {
+	if strings.TrimSpace(userPrompt) == "" {
+		return false
+	}
+	switch v := want.(type) {
+	case string:
+		return matchTagsHas(v, userPrompt)
+	case []any:
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				continue
+			}
+			if matchTagsHas(s, userPrompt) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
 }
 
 // resolveEnableWhenField returns the runtime value of the requested BuildCtx

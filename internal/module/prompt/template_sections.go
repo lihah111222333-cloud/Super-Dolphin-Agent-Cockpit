@@ -27,6 +27,7 @@ func mergeTemplateSections(
 	resolved []contract.ResolvedPromptSection,
 	blocks []contract.BaseInstructionBlock,
 	buildCtx contract.BuildCtx,
+	userPrompt string,
 ) []contract.ResolvedPromptSection {
 	if len(blocks) == 0 {
 		return resolved
@@ -45,7 +46,7 @@ func mergeTemplateSections(
 		if body == "" {
 			continue
 		}
-		if !EvaluateEnableWhen(b.EnableWhen, buildCtx) {
+		if !EvaluateEnableWhen(b.EnableWhen, buildCtx, userPrompt) {
 			continue
 		}
 		key := strings.TrimSpace(b.Key)
