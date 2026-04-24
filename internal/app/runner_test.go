@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -39,21 +38,28 @@ func (d runtimeDrainStub) DrainPendingExtraction(context.Context) error {
 
 type runtimeBlockRunner struct {
 	canceled chan struct{}
+	release  chan struct{}
 }
 
 func (r runtimeBlockRunner) Run(ctx context.Context) error {
 	<-ctx.Done()
 	close(r.canceled)
+	if r.release != nil {
+		<-r.release
+	}
 	return ctx.Err()
 }
 
-func TestBindRuntimeDrainsExtractionBeforeCancel(t *testing.T) {
+func TestBindRuntimeCancelsRunGroupBeforeDrain(t *testing.T) {
 	lifecycle := &runtimeTestLifecycle{}
 	drainer := runtimeDrainStub{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	runner := runtimeBlockRunner{canceled: make(chan struct{})}
+	runner := runtimeBlockRunner{
+		canceled: make(chan struct{}),
+		release:  make(chan struct{}),
+	}
 
 	BindRuntime(lifecycle, runtimeParams{
 		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -77,20 +83,27 @@ func TestBindRuntimeDrainsExtractionBeforeCancel(t *testing.T) {
 	}()
 
 	select {
-	case <-drainer.started:
+	case <-runner.canceled:
 	case <-time.After(time.Second):
-		t.Fatal("DrainPendingExtraction() was not called")
+		t.Fatal("runner was not canceled before drain")
 	}
 	select {
-	case <-runner.canceled:
-		t.Fatal("runner canceled before drain completed")
+	case <-drainer.started:
+		t.Fatal("DrainPendingExtraction() started before RunGroup completed")
 	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(runner.release)
+	select {
+	case <-drainer.started:
+	case <-time.After(time.Second):
+		t.Fatal("DrainPendingExtraction() was not called after RunGroup completed")
 	}
 
 	close(drainer.release)
 	select {
 	case err := <-stopDone:
-		if err != nil && !errors.Is(err, context.Canceled) {
+		if err != nil {
 			t.Fatalf("OnStop() error = %v", err)
 		}
 	case <-time.After(2 * time.Second):

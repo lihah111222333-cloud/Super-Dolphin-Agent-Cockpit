@@ -19,18 +19,6 @@ type RunnerResult struct {
 	Runner platformrunner.Runner `group:"runners"`
 }
 
-type runtimeParams struct {
-	fx.In
-
-	Logger            *slog.Logger
-	Runners           []platformrunner.Runner `group:"runners"`
-	Shutdowner        fx.Shutdowner
-	Lifecycle         *uiwails.WailsLifecycle `optional:"true"`
-	ExtractionDrainer interface {
-		DrainPendingExtraction(ctx context.Context) error
-	} `optional:"true"`
-}
-
 func BindRuntime(lc fx.Lifecycle, p runtimeParams) {
 	var (
 		cancel       context.CancelFunc
@@ -69,19 +57,33 @@ func BindRuntime(lc fx.Lifecycle, p runtimeParams) {
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			if p.ExtractionDrainer != nil {
-				platformshared.LogIgnoredError(p.Logger, "memory extraction drain failed", p.ExtractionDrainer.DrainPendingExtraction(ctx))
-			}
 			if cancel != nil {
 				cancel()
 			}
 
+			var runErr error
 			select {
 			case <-done:
-				return nil
 			case <-ctx.Done():
-				return ctx.Err()
+				runErr = ctx.Err()
 			}
+
+			if p.ExtractionDrainer != nil {
+				platformshared.LogIgnoredError(p.Logger, "memory extraction drain failed", p.ExtractionDrainer.DrainPendingExtraction(ctx))
+			}
+			return runErr
 		},
 	})
+}
+
+type runtimeParams struct {
+	fx.In
+
+	Logger            *slog.Logger
+	Runners           []platformrunner.Runner `group:"runners"`
+	Shutdowner        fx.Shutdowner
+	Lifecycle         *uiwails.WailsLifecycle `optional:"true"`
+	ExtractionDrainer interface {
+		DrainPendingExtraction(ctx context.Context) error
+	} `optional:"true"`
 }
