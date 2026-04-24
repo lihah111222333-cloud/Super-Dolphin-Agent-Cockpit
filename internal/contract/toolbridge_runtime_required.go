@@ -28,7 +28,7 @@ var ErrThreadRuntimeRequired = errors.New("toolbridge: thread runtime is require
 // 就是 fail-closed, 不得借 "无配置" 名义偷回全局默认.
 var ErrPersistentSubagentRuntimeRequired = errors.New("toolbridge: persistent subagent runtime is required")
 
-// ErrPersistentSubagentFlagRequired is returned when a toolbridge
+// Missing persistent-subagent flag is returned when a toolbridge
 // spawn_agent policy check has a runtime config, but that runtime does
 // not explicitly carry the persistent-subagent session flag. This keeps
 // the runtime flag as the single source of truth; callers must not
