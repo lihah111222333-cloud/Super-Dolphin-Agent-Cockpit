@@ -69,7 +69,6 @@ var sessionPrivateRuntimeAllowlist = []sessionPrivateRuntimeException{
 }
 
 var runtimeOwnershipTODOs = []runtimeOwnershipTODO{
-	{"F-1", "internal/app/runner.go", "BindRuntime", "P22.1-P1A", "root OnStop order is cancel -> RunGroup wait -> bus stop -> fx close", "0"},
 	{"F-3", "internal/module/memory/module.go", "registerMemoryHooks", "P22.1-P2D", "memory scheduler/nested/teamSync workers and subscriptions migrate to RunnerModule/BusModule", "0"},
 	{"F-4", "internal/module/thread/module.go", "registerSubscriptions", "P22.1-P2C", "thread bus workers/subscribers migrate to RunnerModule/BusModule", "0"},
 	{"F-5", "internal/platform/cachekeepalive/module.go", "registerKeepaliveLifecycle", "P22.1-P2E", "cachekeepalive relay/timer split into BusModule/RunnerModule owners", "0"},

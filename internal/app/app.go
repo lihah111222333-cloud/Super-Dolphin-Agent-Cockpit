@@ -99,7 +99,8 @@ func Run() error {
 // RunDesktop starts the desktop application with the given frontend filesystem.
 // When frontendFS is nil the wails module falls back to a built-in placeholder.
 func RunDesktop(frontendFS fs.FS) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var wailsApp *application.App
 	var lifecycle *uiwails.WailsLifecycle
 
@@ -119,7 +120,7 @@ func RunDesktop(frontendFS fs.FS) error {
 		return errors.New("wails lifecycle not available")
 	}
 
-	stopWatch := watchFXShutdown(app, lifecycle)
+	stopWatch := watchFXShutdown(ctx, app, lifecycle)
 	runErr := wailsApp.Run()
 	close(stopWatch)
 
@@ -168,14 +169,19 @@ func stopFXApp(parent context.Context, app *fx.App) error {
 	return app.Stop(ctx)
 }
 
-func watchFXShutdown(app *fx.App, lifecycle *uiwails.WailsLifecycle) chan struct{} {
+func watchFXShutdown(ctx context.Context, app *fx.App, lifecycle *uiwails.WailsLifecycle) chan struct{} {
 	stop := make(chan struct{})
-	runtimesafe.SafeGo(context.Background(), pkglogger.Get(), "app.watchFXShutdown", func(context.Context) {
-		select {
-		case <-app.Done():
-			lifecycle.NotifyBackendFailed()
-		case <-stop:
-		}
+	runtimesafe.SafeGo(ctx, pkglogger.Get(), "app.watchFXShutdown", func(ctx context.Context) {
+		runShutdownWatcher(ctx, app.Done(), stop, lifecycle.NotifyBackendFailed)
 	})
 	return stop
+}
+
+func runShutdownWatcher(ctx context.Context, done <-chan os.Signal, stop <-chan struct{}, onFail func()) {
+	select {
+	case <-done:
+		onFail()
+	case <-stop:
+	case <-ctx.Done():
+	}
 }
