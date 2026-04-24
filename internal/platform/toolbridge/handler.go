@@ -17,28 +17,27 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// Handler fields are typed against the narrow ports in ports.go so
+// this file has no direct dependency on internal/store/binding or
+// internal/store/thread (P22 P4 S3d). Production adapters live in
+// module.go where platform → store imports are legitimate (assembly
+// seam).
 type Handler struct {
 	registry     activePeerRegistry
 	emitter      difftracker.DiffEmitter
 	resolver     difftracker.WorkDirResolver
 	diffFallback *diffFallbackTracker
-	bindingStore bindingstore.Store
-	threadStore  threadRuntimeConfigStore
+	bindingStore agentThreadLookup
+	threadStore  threadConfigOverrideStore
 	cfg          *platformconfig.Config
 	logger       *pkglogger.Logger
 }
 
 type activePeerRegistry interface {
 	FindActiveByKind(clientKind string) []*mcpcontrol.ToolInstance
-}
-
-type threadRuntimeConfigStore interface {
-	GetByThreadID(ctx context.Context, threadID string) (*threadstore.Thread, error)
 }
 
 type storedThreadRuntime struct {
@@ -229,11 +228,11 @@ func (h *Handler) readToolCallRuntime(ctx context.Context, threadID string) (map
 	if h == nil || h.threadStore == nil {
 		return nil, false
 	}
-	row, err := h.threadStore.GetByThreadID(ctx, threadID)
-	if err != nil || row == nil || len(row.ConfigOverride) == 0 {
+	raw, err := h.threadStore.GetConfigOverride(ctx, threadID)
+	if err != nil || len(raw) == 0 {
 		return nil, false
 	}
-	return decodeStoredThreadRuntime(row.ConfigOverride)
+	return decodeStoredThreadRuntime(raw)
 }
 
 func decodeStoredThreadRuntime(raw json.RawMessage) (map[string]any, bool) {

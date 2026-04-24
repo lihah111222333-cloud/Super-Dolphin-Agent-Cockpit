@@ -268,7 +268,10 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 		t.Fatal("Callback() should not be invoked when spawn_agent is blocked")
 		return nil
 	}}})
-	h.threadStore = store
+	// P22 P4 S3d: wrap the full threadstore.Store fixture through the
+	// narrow port adapter so h.threadStore (threadConfigOverrideStore)
+	// receives only the ConfigOverride bytes the handler actually reads.
+	h.threadStore = provideThreadConfigOverrideStore(store)
 	h.cfg = cfg
 
 	toolResult, err := h.routeToolCall(ctx, ToolCallRequest{

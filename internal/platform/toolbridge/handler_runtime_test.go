@@ -2,6 +2,7 @@ package toolbridge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -190,7 +191,7 @@ func TestToolCallRuntimeConfig_Pin(t *testing.T) {
 	}
 }
 
-func assertToolCallBindingCalls(t *testing.T, store bindingstore.Store, want []string) {
+func assertToolCallBindingCalls(t *testing.T, store agentThreadLookup, want []string) {
 	t.Helper()
 	if store == nil {
 		if len(want) != 0 {
@@ -207,7 +208,7 @@ func assertToolCallBindingCalls(t *testing.T, store bindingstore.Store, want []s
 	}
 }
 
-func assertToolCallThreadCalls(t *testing.T, store threadRuntimeConfigStore, want []string) {
+func assertToolCallThreadCalls(t *testing.T, store threadConfigOverrideStore, want []string) {
 	t.Helper()
 	if store == nil {
 		if len(want) != 0 {
@@ -269,13 +270,24 @@ func (s *toolCallBindingStoreStub) UpdateAgentCwd(context.Context, bindingstore.
 	return nil
 }
 
+// toolCallThreadStoreStub satisfies the narrow threadConfigOverrideStore
+// port from ports.go. Fixtures still construct a *threadstore.Thread so
+// the ConfigOverride bytes stay typed, but the stub only exposes the
+// narrow method the handler actually calls; the caller may set row to
+// nil to simulate "no thread row stored".
 type toolCallThreadStoreStub struct {
 	row       *threadstore.Thread
 	err       error
 	threadIDs []string
 }
 
-func (s *toolCallThreadStoreStub) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+func (s *toolCallThreadStoreStub) GetConfigOverride(_ context.Context, threadID string) (json.RawMessage, error) {
 	s.threadIDs = append(s.threadIDs, threadID)
-	return s.row, s.err
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.row == nil {
+		return nil, nil
+	}
+	return s.row.ConfigOverride, nil
 }

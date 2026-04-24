@@ -51,15 +51,19 @@ type stubPeer struct {
 	callbackFn func(context.Context, string, any, any) error
 }
 
+// stubThreadStore satisfies the narrow threadConfigOverrideStore port
+// from ports.go. The fixture data type is still *threadstore.Thread for
+// consistency with other tests in this file that build
+// ConfigOverride from a thread row.
 type stubThreadStore struct {
 	thread *threadstore.Thread
 }
 
-func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+func (s *stubThreadStore) GetConfigOverride(_ context.Context, threadID string) (json.RawMessage, error) {
 	if s.thread == nil || s.thread.ThreadID != threadID {
 		return nil, fmt.Errorf("thread %s not found", threadID)
 	}
-	return s.thread, nil
+	return s.thread.ConfigOverride, nil
 }
 
 func (p *stubPeer) Notify(context.Context, string, any) error { return nil }

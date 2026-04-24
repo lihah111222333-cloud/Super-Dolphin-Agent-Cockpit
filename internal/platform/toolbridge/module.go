@@ -2,6 +2,7 @@ package toolbridge
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
@@ -28,6 +30,14 @@ var Module = fx.Module("toolbridge",
 		provideDiffEmitter,
 		newDiffFallbackTracker,
 		provideProxyAddrFn,
+		// P22 P4 S3d: assembly adapters bridging the concrete store
+		// types to the toolbridge-local narrow ports (see ports.go). fx
+		// resolves by exact type name, so even though bindingstore.Store
+		// structurally satisfies agentThreadLookup we still need an
+		// explicit provider. provideThreadConfigOverrideStore goes further
+		// and performs the actual row → ConfigOverride projection.
+		provideAgentThreadLookup,
+		provideThreadConfigOverrideStore,
 		// P22 P2 Finding 9: proxy HTTP serve loop owned by run.Group via the
 		// root group:"runners" aggregation. registerProxyLifecycle keeps only
 		// the listener setup + addr publish; ServeProxy runs inside
@@ -49,10 +59,52 @@ type handlerIn struct {
 	Emitter      difftracker.DiffEmitter
 	Resolver     difftracker.WorkDirResolver
 	DiffFallback *diffFallbackTracker
-	BindingStore bindingstore.Store
-	ThreadStore  threadRuntimeConfigStore `optional:"true"`
-	Config       *platformconfig.Config   `optional:"true"`
-	Logger       *pkglogger.Logger        `optional:"true"`
+	// P22 P4 S3d: field types are the narrow ports from ports.go.
+	// BindingStore is still satisfied structurally by the production
+	// bindingstore.Store (GetThreadByAgent has identical signature), so
+	// fx continues to wire the concrete store here without an adapter.
+	// ThreadStore is satisfied via provideThreadConfigOverrideStore.
+	BindingStore agentThreadLookup
+	ThreadStore  threadConfigOverrideStore `optional:"true"`
+	Config       *platformconfig.Config    `optional:"true"`
+	Logger       *pkglogger.Logger         `optional:"true"`
+}
+
+// threadConfigOverrideAdapter wraps the production threadstore.Store so
+// the handler can consume a narrow port (threadConfigOverrideStore,
+// defined in ports.go) that returns only the ConfigOverride bytes. This
+// lets handler.go / proxy.go stop importing internal/store/thread
+// directly while keeping the module-level assembly code as the single
+// file that knows the concrete store type.
+type threadConfigOverrideAdapter struct {
+	inner threadstore.Store
+}
+
+func (a threadConfigOverrideAdapter) GetConfigOverride(ctx context.Context, threadID string) (json.RawMessage, error) {
+	if a.inner == nil {
+		return nil, nil
+	}
+	row, err := a.inner.GetByThreadID(ctx, threadID)
+	if err != nil || row == nil {
+		return nil, err
+	}
+	return row.ConfigOverride, nil
+}
+
+func provideThreadConfigOverrideStore(store threadstore.Store) threadConfigOverrideStore {
+	if store == nil {
+		return nil
+	}
+	return threadConfigOverrideAdapter{inner: store}
+}
+
+// provideAgentThreadLookup is the fx bridge from the concrete
+// bindingstore.Store to the agentThreadLookup port (see ports.go).
+// bindingstore.Store already implements GetThreadByAgent with the exact
+// signature the port requires, so no runtime conversion is needed —
+// this provider exists solely so fx can resolve the port type by name.
+func provideAgentThreadLookup(store bindingstore.Store) agentThreadLookup {
+	return store
 }
 
 func bindCodexHandlers(mgr *codexapp.ServerManager, factory *codexapp.DriverFactory, h *Handler) {
