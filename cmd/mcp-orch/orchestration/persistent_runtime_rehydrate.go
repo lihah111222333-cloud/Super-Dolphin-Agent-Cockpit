@@ -17,25 +17,12 @@ import (
 // provider binding is enough to route the next turn back to the same thread.
 func (s *service) ensureRuntimeForPersistedAgent(ctx context.Context, agentID string) {
 	agentID = strings.TrimSpace(agentID)
-	if s == nil || agentID == "" || s.launcher == nil || s.agentBindings == nil {
-		return
-	}
-	if !launcherSupportsPersistedRuntimeRehydrate(s.launcher) {
-		return
-	}
-	if s.hasRuntimeAgent(agentID) {
+	if !s.canRehydratePersistedRuntime(agentID) {
 		return
 	}
 	agent, reason, err := s.buildRuntimeFromPersistedBinding(ctx, agentID)
 	if err != nil {
-		level := "failed"
-		if platformdb.IsNotFound(err) {
-			level = "skipped"
-		}
-		loggerOrDefault(s.logger).Warn("orchestration: persisted runtime rehydrate "+level,
-			"agent_id", agentID,
-			"reason", reason,
-			"error", err)
+		s.warnPersistedRuntimeRehydrateError(agentID, reason, err)
 		return
 	}
 	if agent == nil {
@@ -44,19 +31,58 @@ func (s *service) ensureRuntimeForPersistedAgent(ctx context.Context, agentID st
 			"reason", reason)
 		return
 	}
-	s.mu.Lock()
-	if _, err := lookupAgentByIDLocked(s.agents, agentID); err == nil {
-		s.mu.Unlock()
+	if !s.addRehydratedRuntimeAgent(agent) {
 		return
 	}
-	s.agents[agent.id] = agent
-	s.mu.Unlock()
 	loggerOrDefault(s.logger).Warn("orchestration: rehydrated missing runtime from persisted binding",
 		"agent_id", agent.id,
 		"provider", agent.provider,
 		"thread_id", agent.threadID,
 		"remote_thread_id", agent.remoteThreadID,
 		"cwd", agent.cwd)
+}
+
+func (s *service) canRehydratePersistedRuntime(agentID string) bool {
+	if s == nil {
+		return false
+	}
+	if agentID == "" {
+		return false
+	}
+	if s.launcher == nil {
+		return false
+	}
+	if s.agentBindings == nil {
+		return false
+	}
+	if !launcherSupportsPersistedRuntimeRehydrate(s.launcher) {
+		return false
+	}
+	return !s.hasRuntimeAgent(agentID)
+}
+
+func (s *service) warnPersistedRuntimeRehydrateError(agentID, reason string, err error) {
+	loggerOrDefault(s.logger).Warn("orchestration: persisted runtime rehydrate "+persistedRuntimeRehydrateLogLevel(err),
+		"agent_id", agentID,
+		"reason", reason,
+		"error", err)
+}
+
+func persistedRuntimeRehydrateLogLevel(err error) string {
+	if platformdb.IsNotFound(err) {
+		return "skipped"
+	}
+	return "failed"
+}
+
+func (s *service) addRehydratedRuntimeAgent(agent *agentRuntime) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := lookupAgentByIDLocked(s.agents, agent.id); err == nil {
+		return false
+	}
+	s.agents[agent.id] = agent
+	return true
 }
 
 func (s *service) hasRuntimeAgent(agentID string) bool {
@@ -67,50 +93,109 @@ func (s *service) hasRuntimeAgent(agentID string) bool {
 }
 
 func (s *service) buildRuntimeFromPersistedBinding(ctx context.Context, agentID string) (*agentRuntime, string, error) {
+	source, reason, err := s.loadPersistedRuntimeSource(ctx, agentID)
+	if err != nil {
+		return nil, reason, err
+	}
+	if reason != "" {
+		return nil, reason, nil
+	}
+	thread, reason, err := s.activePersistedThreadForBinding(ctx, agentID, source.remoteThreadID)
+	if err != nil {
+		return nil, reason, err
+	}
+	if reason != "" {
+		return nil, reason, nil
+	}
+	return s.newPersistedRuntimeAgent(agentID, source, thread), "", nil
+}
+
+type persistedRuntimeSource struct {
+	binding        *PersistedBinding
+	provider       string
+	remoteThreadID string
+}
+
+func (s *service) loadPersistedRuntimeSource(ctx context.Context, agentID string) (persistedRuntimeSource, string, error) {
 	binding, err := s.agentBindings.GetByAgentID(ctx, agentID)
 	if err != nil {
-		return nil, "binding_lookup_failed", err
+		return persistedRuntimeSource{}, "binding_lookup_failed", err
 	}
 	if binding == nil {
-		return nil, "binding_missing", nil
+		return persistedRuntimeSource{}, "binding_missing", nil
 	}
 	if binding.Archived {
-		return nil, "binding_archived", nil
+		return persistedRuntimeSource{}, "binding_archived", nil
+	}
+	provider := persistedBindingProvider(binding)
+	if provider != "codex" {
+		return persistedRuntimeSource{}, "unsupported_provider", nil
+	}
+	remoteThreadID := persistedBindingRemoteThreadID(binding)
+	if remoteThreadID == "" {
+		return persistedRuntimeSource{}, "provider_thread_missing", nil
+	}
+	return persistedRuntimeSource{
+		binding:        binding,
+		provider:       provider,
+		remoteThreadID: remoteThreadID,
+	}, "", nil
+}
+
+func persistedBindingProvider(binding *PersistedBinding) string {
+	if binding == nil {
+		return ""
 	}
 	provider := strings.ToLower(strings.TrimSpace(binding.Provider))
 	if provider == "" {
-		provider = "codex"
+		return "codex"
 	}
-	if provider != "codex" {
-		return nil, "unsupported_provider", nil
+	return provider
+}
+
+func persistedBindingRemoteThreadID(binding *PersistedBinding) string {
+	if binding == nil {
+		return ""
 	}
-	remoteThreadID := strings.TrimSpace(platformshared.FirstNonEmpty(binding.CodexThreadID, binding.ProviderThreadID))
-	if remoteThreadID == "" {
-		return nil, "provider_thread_missing", nil
-	}
+	return strings.TrimSpace(platformshared.FirstNonEmpty(binding.CodexThreadID, binding.ProviderThreadID))
+}
+
+func (s *service) activePersistedThreadForBinding(ctx context.Context, agentID, remoteThreadID string) (*PersistedThread, string, error) {
 	thread, err := s.persistedThreadForBinding(ctx, agentID, remoteThreadID)
-	if err != nil && !platformdb.IsNotFound(err) {
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return nil, "", nil
+		}
 		return nil, "thread_lookup_failed", err
 	}
-	if thread != nil {
-		state := persistedThreadAgentState(*thread)
-		if state == agentdto.StateStopped || state == agentdto.StateFailed {
-			return nil, "persisted_thread_not_active", nil
-		}
+	if persistedThreadInactive(thread) {
+		return nil, "persisted_thread_not_active", nil
 	}
-	now := persistedRuntimeTime(binding, thread)
+	return thread, "", nil
+}
+
+func persistedThreadInactive(thread *PersistedThread) bool {
+	if thread == nil {
+		return false
+	}
+	state := persistedThreadAgentState(*thread)
+	return state == agentdto.StateStopped || state == agentdto.StateFailed
+}
+
+func (s *service) newPersistedRuntimeAgent(agentID string, source persistedRuntimeSource, thread *PersistedThread) *agentRuntime {
+	now := persistedRuntimeTime(source.binding, thread)
 	agent := &agentRuntime{
 		id:              agentID,
 		name:            persistedRuntimeName(agentID, thread),
-		cwd:             persistedRuntimeCWD(binding, thread),
-		provider:        provider,
+		cwd:             persistedRuntimeCWD(source.binding, thread),
+		provider:        source.provider,
 		providerSource:  "persisted-binding",
-		runtimeProvider: provider,
+		runtimeProvider: source.provider,
 		runtimePort:     persistedRuntimePort(thread),
 		portSource:      "persisted-thread",
 		state:           agentdto.StateIdle,
-		threadID:        remoteThreadID,
-		remoteThreadID:  remoteThreadID,
+		threadID:        source.remoteThreadID,
+		remoteThreadID:  source.remoteThreadID,
 		remoteAgentID:   agentID,
 		startedAt:       now,
 		updatedAt:       now,
@@ -122,7 +207,7 @@ func (s *service) buildRuntimeFromPersistedBinding(ctx context.Context, agentID 
 	}, func(next string) {
 		agent.state = next
 	})
-	return agent, "", nil
+	return agent
 }
 
 func (s *service) persistedThreadForBinding(ctx context.Context, agentID, remoteThreadID string) (*PersistedThread, error) {
