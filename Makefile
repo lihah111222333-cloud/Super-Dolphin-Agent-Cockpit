@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries test test-deferred vet clean guard guard-shell protocol-sync-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain run run-plain run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -24,6 +24,7 @@ endif
 build: guard
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
 		go build -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./...
+	@$(MAKE) --no-print-directory _hook_check
 
 build-plain: guard
 	go build ./...
@@ -99,9 +100,12 @@ ida-test-heavy:
 	go run ./cmd/ida-test-orchestrator --include-heavy-fork
 
 
-protocol-sync-check:
-	$(TEST_WITH_GUARD) ./internal/protocolsync -run TestProtocolMethodCoverage_FromCodexRs -count=1
-	$(TEST_WITH_GUARD) ./internal/apiserver -run TestEventMethodMap_TargetMethodsKnownByProtocol -count=1
+protocol-sync-check: rpc-regression-check
+	@echo "[protocol-sync-check] deprecated compatibility alias: legacy protocolsync/apiserver checks were retired"
+
+rpc-regression-check:
+	@echo "[rpc-regression-check] platform/rpc quick regression"
+	$(TEST_WITH_GUARD) ./internal/platform/rpc/... -count=1
 
 codemap-check:
 	go run scripts/codemap_index.go
@@ -144,13 +148,41 @@ app-cover-run:
 app-cover-report:
 	TARGET=app-server ./scripts/ui-coverage.sh report
 
-.PHONY: ci-l0 ci-l1 ci-l2-claude ci-l3-release
+.PHONY: ci-l0 ci-l1 ci-l2-claude ci-l3-release install-hooks _hook_check protocol-sync-check rpc-regression-check
+
+# install-hooks: 一次性激活 .githooks/ 下的 pre-commit / pre-push
+# 用绝对路径写入 core.hooksPath，让 linked worktree 也能正确找到 hook
+# 检测到既有不同的 core.hooksPath 会先 warn，不阻断
+INSTALL_HOOKS_DIR := $(abspath .githooks)
+install-hooks:
+	@CURRENT=$$(git config --get core.hooksPath 2>/dev/null || true); \
+	if [ -n "$$CURRENT" ] && [ "$$CURRENT" != "$(INSTALL_HOOKS_DIR)" ]; then \
+	  echo "⚠️  既有 core.hooksPath = $$CURRENT (将被覆盖为 $(INSTALL_HOOKS_DIR))"; \
+	fi
+	@git config core.hooksPath "$(INSTALL_HOOKS_DIR)"
+	@echo "✅ git hooks installed ($(INSTALL_HOOKS_DIR)/pre-commit + pre-push)"
+	@echo "   绕过仅限紧急（仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»）：git commit/push --no-verify"
+
+# _hook_check: build 完成后的 hook 装设 + 路径有效性检查，warn-only 不阻断
+# 检 hooksPath 是否指向本仓库的 .githooks 且该路径真实存在；CI 可用 MAKE_HOOK_CHECK=0 短路提示
+_hook_check:
+	@if [ "$(MAKE_HOOK_CHECK)" = "0" ]; then exit 0; fi; \
+	git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; \
+	CURRENT=$$(git config --get core.hooksPath 2>/dev/null || true); \
+	if [ -z "$$CURRENT" ]; then \
+	  echo "⚠️  git hooks 未装。推荐跑：make install-hooks"; \
+	elif [ "$$CURRENT" != "$(INSTALL_HOOKS_DIR)" ] && [ ! -d "$$CURRENT" ]; then \
+	  echo "⚠️  hooksPath 指向不存在的路径 ($$CURRENT) —— 仓库可能被重命名/移动。重装：make install-hooks"; \
+	elif [ "$$CURRENT" != "$(INSTALL_HOOKS_DIR)" ]; then \
+	  echo "⚠️  git hooks 路径过期。推荐跑：make install-hooks"; \
+	fi
 
 ci-l0:
 	@echo "[ci-l0] quick gate (no real Claude CLI)"
+	@go list ./pkg/... >/dev/null
 	$(TEST_WITH_GUARD) ./internal/provider/claudecli/... -count=1
-	$(TEST_WITH_GUARD) ./internal/runner/... -count=1
-	$(TEST_WITH_GUARD) ./internal/apiserver/... -count=1
+	$(TEST_WITH_GUARD) ./internal/platform/runner/... ./internal/app/... -count=1
+	$(TEST_WITH_GUARD) ./internal/platform/rpc/... -count=1
 
 ci-l1:
 	@echo "[ci-l1] extended unit regression"
@@ -166,7 +198,7 @@ ci-l2-claude:
 	@echo "[ci-l2-claude] conditional integration (integration_claude)"
 	@if [ -n "$(CLAUDE_CLI_BIN)" ] && [ -x "$(CLAUDE_CLI_BIN)" ]; then \
 		echo "[ci-l2-claude] using CLAUDE_CLI_BIN=$(CLAUDE_CLI_BIN)"; \
-		CLAUDE_CLI_BIN="$(CLAUDE_CLI_BIN)" $(TEST_WITH_GUARD) -tags=integration_claude ./internal/apiserver/... ./internal/runner/... -count=1; \
+		CLAUDE_CLI_BIN="$(CLAUDE_CLI_BIN)" $(TEST_WITH_GUARD) -tags=integration_claude ./internal/platform/rpc/... ./internal/platform/runner/... ./internal/app/... -count=1; \
 	else \
 		echo "[ci-l2-claude] SKIP: CLAUDE_CLI_BIN is empty or not executable"; \
 	fi

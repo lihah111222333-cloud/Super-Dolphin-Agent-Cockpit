@@ -1,0 +1,154 @@
+# .githooks — 项目级 git client hook
+
+仓库共享的 git 客户端钩子，在**本地** `git commit` / `git push` 时自动跑代码检查。
+跟 GitHub Actions / 任何远端 CI 完全无关，纯本地工作流约束。
+
+## 一次性激活
+
+clone 仓库后必须跑一次：
+
+```bash
+make install-hooks
+```
+
+底层做的事：`git config core.hooksPath /仓库绝对路径/.githooks`（仅本仓库 local 配置，不影响别仓）。
+
+> 用**绝对路径**是为了让 `git worktree add` 创建的 linked worktree 也能正确找到 hook。
+> 仓库被重命名/移动后需重跑 `make install-hooks` 更新路径。
+
+之后所有 `git commit` / `git push` 自动经过对应 hook。
+
+## 钩子清单
+
+| Hook | 触发 | 做什么 | 大约耗时 |
+|---|---|---|---|
+| `pre-commit` | `git commit` | 检查 **staged `.go` 影响面**：拒绝 staged/worktree 不一致和 AD 状态，`gofmt -l` + `go vet` + `go test -short`；删除/重命名会覆盖旧/新包 | 1–3 秒 |
+| `pre-push` | `git push` | 调 `make ci-l0`（claudecli + platform/runner + app + platform/rpc 的快速门控） | ~13 秒 |
+
+`pre-commit` 只跑 staged `.go` 影响到的包，pre-push 跑全 ci-l0。两者都**不**做格式自动修复，只拦下不通过的提交/推送。为保证检查对象就是将被提交的内容，`pre-commit` 会拒绝 staged Go 影响包内仍有未暂存/未跟踪 `.go` 改动，也会拒绝 `git add` 后又删除的 AD 状态。
+
+## 跳过钩子（仅限紧急）
+
+> ⚠️ **仓库规约 `docs/1/会话习惯.md` §10.12«禁止 bypass pre-commit hook»明文禁止常态 bypass。**
+> `--no-verify` 是 git 自带的逃生口，仅允许在以下场景使用：
+>
+> 1. 机器坏了 / hook 本身有 bug 拦不住你（此时也请同步报告 hook 作者）
+> 2. 紧急 hot-fix 必须立刻 push，上线后补上错过的检查
+> 3. WIP 分支推 fork 让同事看，然后马上修
+>
+> **常态用 `--no-verify` = 违反仓库规约**。
+
+```bash
+git commit --no-verify -m "..."   # 跳 pre-commit
+git push --no-verify              # 跳 pre-push
+```
+
+## 失败示例
+
+### gofmt 拦下
+
+```
+[pre-commit] gofmt...
+❌ 以下文件未格式化：
+internal/foo/bar.go
+
+  一键修复（自动处理空格/中文路径）：
+  gofmt -w internal/foo/bar.go
+
+  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»，需事后补检查）：git commit --no-verify
+```
+
+直接复制底下的命令跑，再 `git add -u` 重新 commit。
+
+### staged / worktree 不一致拦下
+
+```
+❌ 以下 staged Go 影响包内的 .go 文件还有未暂存或未跟踪 worktree 改动：
+  internal/foo/bar.go
+
+  请先 git add 这些文件，或还原/删除未暂存改动。
+  否则 gofmt/go vet/go test 检查的不是将被提交的内容。
+```
+
+先 `git add internal/foo/bar.go`，或还原未暂存改动后重新 commit。
+
+如果看到“staged .go 文件在 worktree 中不存在”，通常是 `git add new.go` 后又 `rm new.go` 的 AD 状态；请 `git restore --staged new.go` 或恢复文件后重新 `git add`。
+
+### go vet 拦下
+
+```
+[pre-commit] go vet...
+./bar.go:42:2: unreachable code
+❌ go vet 失败
+  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify
+```
+
+按报告改代码，重新 commit。
+
+### pre-push（ci-l0 失败）
+
+```
+[pre-push] make ci-l0...
+FAIL  github.com/.../internal/app    0.5s
+
+❌ ci-l0 未通过，push 已拒绝
+  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify
+```
+
+`pre-push` 输出已自动剔除 ld 链接器警告噪声（`ld: warning ... newer macOS version`）。
+
+## 诊断
+
+| 现象 | 检查命令 |
+|---|---|
+| commit 一直被拒看不懂错误 | `bash .githooks/pre-commit` 直接跑一遍看完整输出 |
+| 想确认 hook 装没装 | `git config --get core.hooksPath`（应输出本仓库的绝对路径 `.githooks`） |
+| 怀疑 hook 没执行 | `git commit -v` 看完整流程；或临时 `git commit --no-verify` 比对 |
+| build/test 时看到"git hooks 未装"提示 | 跑一次 `make install-hooks` |
+
+## FAQ
+
+### IDE / GUI 提交会不会跑？
+
+会。Git hook 是 Git 客户端行为，只要 IDE / GUI 最终调用的是这个仓库的 `git commit` / `git push`，就会走 `core.hooksPath` 指向的脚本。若 IDE 内置 Git 工作目录不同，请先在 IDE 终端里确认：
+
+```bash
+git config --get core.hooksPath
+```
+
+### 为什么第一次很慢？
+
+冷启时 Go 需要重建测试缓存，`pre-push` 的 `make ci-l0` 可能接近 50 秒；暖启通常 11–13 秒。`pre-commit` 只检查 staged `.go` 涉及的包，暖启通常 0.5–3 秒。
+
+### 清了 GOCACHE 会怎样？
+
+`go clean -cache -testcache` 或系统清理缓存后，下一次 hook 会回到冷启耗时，这是正常现象，不代表 hook 卡死。
+
+### rebase / cherry-pick / merge / revert 中间提交会怎样？
+
+`pre-commit` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。`pre-push` 会在最终 push 前跑 `make ci-l0`，按当前 worktree/tip 再兜底一次。
+
+### Linux 能用吗？
+
+脚本只依赖 bash、git、go、make 和 POSIX 常见工具；没有用 `flock` / `timeout`。当前主验证环境是 macOS bash 3.2 + BSD `mktemp`，Linux bash 一般可用。路径枚举使用 `git diff --cached --name-status -z`，可正确处理空格/中文路径；首次接入请先跑 `make install-hooks && bash .githooks/pre-commit` 自检。
+
+## 卸载
+
+```bash
+git config --unset core.hooksPath
+```
+
+重新激活就 `make install-hooks`。
+
+## 设计要点
+
+- **本地工作流约束**：只在你的电脑上跑，不影响远端仓库或他人
+- **同事不装即裸推**：core.hooksPath 仅本机生效。要让所有人都用，需要每个人各自 `make install-hooks`
+- **rebase / amend 也跑**：交互式人工提交会跑；sequencer 自动中间提交不保证由 pre-commit 拦截，最终由 pre-push 兜底
+- **环境降噪**：pre-commit 会清空 `GOFLAGS`，pre-push 会过滤 `ld: warning:` 链接器噪声
+- **CI 可短路 hook 检查提示**：`MAKE_HOOK_CHECK=0 make build` 可关闭 build 末尾的本地 hooksPath 提示，避免 CI 日志噪声
+- **失败信息不自动进 agent 上下文**：你需要复制错误给 agent，让 agent 改
+
+## 修改钩子内容
+
+直接编辑 `.githooks/pre-commit` 或 `.githooks/pre-push`，git 追踪它们，提交后所有装了 hook 的人下次 pull 自动生效。
