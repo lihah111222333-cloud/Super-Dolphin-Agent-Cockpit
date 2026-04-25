@@ -44,7 +44,7 @@ DAG 每 N 分钟探测 running node 上 agent 有无新动向（工具调用、t
 ## DDL / SQL
 
 - 不新增表
-- 可能扩 `task_dag_node` 加 `last_activity_kind TEXT` 列
+- 可能扩 `task_dag_nodes` 加 `last_activity_kind TEXT` 列
 
 ## 依赖
 
@@ -73,4 +73,16 @@ DAG 每 N 分钟探测 running node 上 agent 有无新动向（工具调用、t
 - `gap-liveness` 报告（[`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §1）
 - p21 P1b 活 turn 续租设计
 
+## 活性判定硬契约（需求补全仲裁）
 
+P7 不得只凭一次 idle 超时 relaunch。最小字段/状态：`last_activity_at`、`last_activity_kind`、`activity_state`、`tool_call_id`、`tool_started_at`、`last_relaunch_at`、`relaunch_count`、`next_probe_at`，并全部带 `active_turn_id`/attempt fence。
+
+| 判定输入 | 结果 |
+|---|---|
+| `verify_phase in ('pending_verify','verifying','repairing')` 或 `output_validation_phase!=''` | 不 relaunch，由 P8/P13 owner 推进 |
+| tool running 且 `now-tool_started_at < tool_idle_timeout_sec` | 不 relaunch，只刷新 activity |
+| hook lag / DB lag 超阈值 | 不 relaunch，触发 backpressure/alert |
+| 连续 K 轮无 activity 且 agent reachable | same-agent resubmit，消耗 activity relaunch budget |
+| 连续 K 轮无 activity 且 agent unreachable / turn lookup 不可恢复 | `dagReconcileActor` 裁决 `observe_lost` 或 new-agent relaunch，不能由 watcher 直接写终态 |
+
+必须有全局/tenant/DAG kill switch、cooldown、per-node/per-DAG window 上限、launcher backlog gate。`observe_lost` 只允许 `dagReconcileActor` 写；watcher 只负责 pending→running/claim。缺省 `idle_timeout_sec=0` 表示不启用自动 relaunch，非 0 才继承 `schedule.default_idle_timeout_sec`；`tool_idle_timeout_sec` 必须大于等于 `idle_timeout_sec`。

@@ -34,18 +34,19 @@
 
 **已知关键改动方向**：
 - `task_create_dag` N>50 时拆批 / async / streaming
-- `task_dag_node` 加 `WHERE status='pending'` partial index + 依赖计数列 `remaining_deps`
+- P0 `0063_dag_state_machine.sql` 已前移 `remaining_deps` 或等价依赖计数列；P9 只补 `WHERE status='pending'` partial index、回填校验与归档/预算调度
 - launcher 配置化（P23 阶段 0 ⑤ 已预留 hook）→ 全局 token bucket（**verifier launch 共用同一 quota，不另起通道**，README §三子任务叠加冲突缓解契约 第 3 条）
-- hook consumer worker pool：bounded queue + drop / lag 指标
+- hook consumer worker pool：bounded queue + lag 指标；terminal/reconcile/validation 用 durable outbox，progress/delta 才允许 coalesce/drop
 - wakeup / lease / archive：DAG 终态后 TTL 归档；node `result` 只存摘要，详细日志 spillover 外部 storage
-- SLO 指标：`dag_node_per_second` / `launcher_queue_lag` / `hook_consumer_lag` / `wakeup_age_p99`
+- SLO 指标：`dag_node_per_second` / `dag_launcher_queue_lag_seconds` / `dag_hook_consumer_lag_seconds` / `dag_wakeup_age_seconds`（p99 由 PromQL 计算）
 - backpressure：watcher / dispatcher 按 launcher / hook lag 退避，不再开环
 
 ## DDL / SQL
 
-- `task_dag_node` 加 `remaining_deps INTEGER NOT NULL DEFAULT 0`
-- 加 partial index `idx_task_dag_node_pending ON task_dag_node (dag_key, id) WHERE status='pending'`
-- 新增归档表 `task_dag_archive` / `task_dag_node_archive`（或按 DAG 分区）
+- `remaining_deps INTEGER NOT NULL DEFAULT 0` 已裁决前移到 P0 `0063_dag_state_machine.sql`；P9 不再占用事务 migration 做该列，避免与 `CREATE INDEX CONCURRENTLY` 编号冲突
+- 加 partial index（单独 PR）：`CREATE INDEX CONCURRENTLY idx_task_dag_nodes_pending ON task_dag_nodes (dag_key, remaining_deps, id) WHERE status='pending'`；该 migration 文件不得包 `BEGIN/COMMIT`，需与回填列事务 migration 拆开
+- 补 tenant/fence 复合索引：`(tenant_id, dag_key, status, remaining_deps)` 与 `(dag_key, node_key, active_turn_id)`，抵消 a4/a5 filter + turn fence 热点
+- 新增归档表 `task_dags_archive` / `task_dag_nodes_archive`（或按 DAG 分区），并定义 DAG→node/wakeup/arbiter/output_validation 归档级联校验
 
 ## 依赖
 
@@ -64,8 +65,8 @@
 - **N=10000 击穿三大瓶颈（a3 调研）**：
   - DB ready/lock 路径全量读 + 整 DAG `FOR UPDATE`：`task_dag_node_read.sql:13-18` 必须改为 `FOR UPDATE SKIP LOCKED LIMIT K`（K 默认 64）。
   - hook/launcher 背压缺失：`hook_consumer.go:105-116` 当前 同步 dispatch，必须换 bounded queue + capacity drop 信号。
-  - LLM verdict 开环（P8/P12 无 batch / token bucket）：3000 × swarm 并发击穿 provider RPM；P9 必提供统一 token bucket 与 batch 蠔合点。
-- a10 成本：N=10000 × swarm fanout 　会走到 \$1M+/月；P9 owner 必须推 token bucket 跟 subscription level 映射，并提供 dry-run cost preview 为 P10/P12 提供 API。
+  - LLM verdict 开环（P8/P12 无 batch / token bucket）：3000 × swarm 并发击穿 provider RPM；P9 必提供统一 token bucket、budget ledger 与 batch 聚合点。
+- a10 成本：N=10000 × swarm fanout 会走到 \$1M+/月；P9 owner 必须推 token bucket、spend/budget ledger、subscription level 映射，并提供 `dag/cost_preview` dry-run API 为 P10/P11/P12/P13 提供硬闸。
 ## 必测项
 
 - N=1000 创建吞吐（拆批前 vs 拆批后对比）
@@ -84,10 +85,27 @@
 ## 待办
 
 - **SQL `FOR UPDATE SKIP LOCKED LIMIT K`**（a3 击穿项）：`store/taskdag/store.go:100-103` + `task_dag_node_read.sql:13-18` 改走 SKIP LOCKED，避免整 DAG 锁。
-- **result 拆摘要 + spillover**（a3+a10）：`result jsonb` 只留摘要（隐藏 max：N 字节），verifier/tool log 走外部 storage；与N=10000 UI payload 安全联动。
-- **actor buffer 容量化**（a3）：hook consumer / arbiter / swarm enqueue 通道必设上限；drop policy 有明示 metric。
-- **CONCURRENTLY**（a9）：partial index DDL 由单 PR 走 `CREATE INDEX CONCURRENTLY`，与回填列 PR 拆两步，避免大表写阻塞。
+- **result 拆摘要 + spillover**（a3+a10）：`result jsonb` 只留摘要（隐藏 max：N 字节），verifier/tool log 走外部 storage；DAG detail/list 必须 cursor 分页，默认 `include_result=false`，与 N=10000 UI payload 安全联动。
+- **actor buffer 容量化**（a3）：hook consumer / arbiter / swarm enqueue 通道必设上限；容量公式、shutdown drain 顺序、drop policy（默认不得 silent drop）都有明示 metric。
+- **CONCURRENTLY**（a9）：partial index DDL 已提升为改动清单要求，必须由单独 no-transaction migration 走 `CREATE INDEX CONCURRENTLY`，与回填列 PR 拆两步；archtest 禁该 migration 包 `BEGIN/COMMIT`，避免大表写阻塞。
 - **token bucket 与 subscription 映射表**（a8+a10）：P9 输出一份 `subscription_id → RPM/TPM/concurrency` 映射，为 P12 swarm fanout / P11 growth 预留额度。
-- **dag_terminal_turn_fence**（a5）：`CompleteTaskDagNode` 补 active_turn_id check，与 P9 SQL 重构同 PR 合入。
+- **dag_terminal_turn_fence 已前移 P2（a2+a5 仲裁）**：P9 只优化索引/热点，不再承担 terminal fence 首次落地；若发现 P2 未实现 active_turn_id check，P9 必须阻塞。
 
+## 容量与公平调度硬契约（需求补全仲裁）
 
+| 项 | v1 默认 / 要求 |
+|---|---|
+| ready claim K | 默认 64，可按 DB p99 调整；禁止整 DAG `FOR UPDATE` |
+| create batch size | N>50 走 async job；单批默认 100 nodes，先全量拓扑校验再分批写 |
+| hook queue | terminal/reconcile/validation durable；progress/delta 可 coalesce，队列满触发 watcher/dispatcher backpressure |
+| launcher in-flight | 按 global、tenant、DAG、workload 四级取 min；verifier/swarm 有 max share |
+| fairness | per-tenant weighted fair queue；per-DAG max share；aging 防饥饿；budget exhausted hard stop |
+| shutdown | 引用 COMPLIANCE drain protocol；deadline 前不丢 terminal，progress drop 必打 metric |
+
+### batch create API
+
+`task_create_dag` N>50 返回 async create job id；请求带 idempotency key，params hash 冲突返回 conflict。拓扑校验必须先于写入；partial failure 走 cleanup/roll-forward；progress 用 cursor 查询，禁止在一个事务中包外部 launch。
+
+### spillover / archive / pagination
+
+`result` 活表只保 summary + blob ref；blob key 包含 tenant/dag/node/turn/hash，写入前 redaction，TTL/GC 与 archive 级联。DAG detail 默认 `include_result=false`、字段投影、cursor pagination；archive union 必须定义跨表排序 cursor，默认查活表，用户显式 include_archive 才 union。

@@ -52,13 +52,13 @@
 - 默认绑定不变（`127.0.0.1:8090`）：未明确 opt-in `0.0.0.0` 之前**不算对外服务**
 - 任何把端口公网化的 PR 视为越界
 - AuthN 失败必须 `jrpc2.InvalidParams`，不能 silent ignore
-- audit log 写盘失败时降级（不阻断 RPC，但要 alert）
+- audit log 写盘失败按操作/环境分级：prod、外部 RPC 写操作、financial preset、verdict/schema validation 必须 fail-closed 或先写 durable spool；dev/只读 RPC 可降级但必须 alert + 可重放
 
 ## 必测项
 
 - AuthN 缺 caller identity → `ErrCallerIdentityRequired`
 - AuthZ：caller `owner_id != dag.owner_id` 拒绝
-- rate limit 触发后返 429
+- rate limit 触发后返回统一 `ErrRateLimited{retry_after}`；HTTP transport 映射 429，JSON-RPC 映射固定 error code + `data.retry_after`
 - quota 超额阻断创建
 - audit log 落表完整字段
 
@@ -68,4 +68,22 @@
 - README §"非目标"（不在本期升级 REST/gRPC）
 - `dag-entry-audit` 报告（外部暴露缺口列表）
 
+## 外部 RPC endpoint matrix（需求补全仲裁）
 
+| Method | 写入性 | AuthZ / tenant | Idempotency | Rate/quota | Audit | 特殊约束 |
+|---|---|---|---|---|---|---|
+| `dag/start` | write | owner / tenant admin | 必填，scope=`tenant_id+caller_id+dag_key+method+key` | launch + DAG start quota | fail-closed/spool | 只能调 `StartDAG` |
+| `dag/edit_dag` / `dag/schedule` | write | owner / tenant admin | 必填；params hash 冲突返 conflict | edit quota | fail-closed/spool | 只允许 draft/not_started |
+| `dag/edit_node` | write | owner / tenant admin | 必填 | edit quota | fail-closed/spool | node 必须 `pending` |
+| `dag/spawn` | write | assigned agent / owner | 必填；重复返回同一 spawned keys | growth + spend quota | fail-closed/spool | 必经 `SpawnChildNodes` |
+| `task/node/update` | write-compat | owner / assigned agent | 必填；strict DAG 默认拒绝 status 推进 | strict compat quota | fail-closed/spool | 不得绕过 CAS / active_turn fence |
+| `dag/get/list` | read | tenant filter required | 可选 | read rate | read audit 可降级 | 默认不含 raw result |
+| audit query | read-sensitive | tenant + audit role | 可选 | read rate | self-audit | redacted only |
+
+### 两层安全模型
+
+Transport 层（TCP JSON-RPC / Wails WS / MCP HTTP）只负责提取 identity 到 ctx、Origin/CSRF/session/API key 检查；service 层统一执行 AuthN/AuthZ、tenant filter、rate/quota、idempotency、audit。archtest 不能只守 `rpc.go` middleware，必须覆盖三入口 adapter + service enforcement。
+
+### 错误语义
+
+服务层统一返回 `ErrRateLimited{retry_after}`；HTTP transport 映射 429，JSON-RPC 映射固定 error code + `data.retry_after`，不得在 TCP JSON-RPC 文档里只写 HTTP 429。

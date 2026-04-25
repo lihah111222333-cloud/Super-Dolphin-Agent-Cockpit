@@ -41,12 +41,12 @@
 
 ## 现状校准（事实层）
 
-- 当前**无** DAG 模板概念：`task_dag` 表只承载实例（`migrations/0004_ack_dag.sql:33-67`、`cmd/mcp-orch/store/taskdag/contract.go:160-181`）
+- 当前**无** DAG 模板概念：`task_dags` 表只承载实例（`migrations/0004_ack_dag.sql:33-67`、`cmd/mcp-orch/store/taskdag/contract.go:160-181`）
 - DAG 创建是 upsert：`cmd/mcp-orch/orchestration/dag.go:109-131`；每次创建相当于"新实例"，无"基于模板实例化"路径
 - 无 DAG 编辑专用 RPC：当前只能 `task_create_dag` 整体 upsert（覆盖）+ `task_update_node` 改 node status/result（`cmd/mcp-orch/tools/task_tools.go:84-91`）；不能只改 node 的 prompt / depends_on / verify spec
 - node UpsertNode 会覆盖整 node：`cmd/mcp-orch/sql/queries/task_dag_node_write.sql:1-12`
-- UI 框架基础：Wails 桌面应用 + WS（`internal/ui/wails/http_server.go:15,39-46`）；具体 DAG UI 接入点需 owner 调研
-- 拓扑可视化：当前**无** mermaid / graphviz / d3 组件占位
+- UI 框架基础：Wails 桌面应用 + WS（`internal/ui/wails/http_server.go:15,39-46`）；当前前端 DAG 列表使用通用 `DataPage`，但 `DataPage` 未 emit `select`，`DagDetailModal` 仍是占位；P10 owner 必须先接通 `dashboard/dagDetail`。
+- 拓扑可视化：`mermaid` 依赖已存在，但当前**无** DAG 专用 renderer / graphviz / d3 组件占位
 
 ## 推荐架构
 
@@ -61,7 +61,7 @@
 - `dag/template/create | get | list | update | delete`：模板 CRUD
 - `dag/instantiate(template_key, params)`：基于模板实例化 DAG（拷贝 snapshot 进 task）
 - `dag/edit_node(dag_key, node_key, fields)`：只改单 node 的 prompt / depends_on / verify spec / launch spec；CAS fence：只在 node `status=pending` 时允许；`status>=running` 拒绝（`ErrNodeAlreadyRunning`）
-- `dag/edit_dag(dag_key, fields)`：改 DAG 级 schedule / metadata；只在 DAG 整体未启动（无 `running` 节点）时允许
+- `dag/edit_dag(dag_key, fields)`：改 DAG 级 schedule / metadata；只允许 `draft/not_started` 或全部节点仍 `pending` 且 `started_at IS NULL`，已启动 DAG 只能 fork 新 revision，不得原地改执行语义
 
 ### UI 形态
 
@@ -84,7 +84,7 @@
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| DDL | `0068_dag_templates.sql` [NEW]（编号校准） | `dag_templates` 表 + `task_dag.template_key/template_version` 列 + `dag_template_revisions`（版本历史） |
+| DDL | `0069_dag_templates.sql` [NEW]（编号校准） | `dag_templates` 表 + `task_dags.template_key/template_version/schema_hash` 列 + `dag_template_revisions`（版本历史） |
 | 模板 store | `cmd/mcp-orch/store/dagtemplate/*.go` [NEW] | CRUD + 版本管理 |
 | 模板 service | `cmd/mcp-orch/orchestration/template_service.go` [NEW] | 模板 → DAG 实例化（拷贝 snapshot）+ 参数渲染 |
 | 模板 RPC | `cmd/mcp-orch/orchestration/rpc.go`（扩展） | `dag/template/*` + `dag/instantiate` + `dag/edit_node` + `dag/edit_dag` |
@@ -96,7 +96,7 @@
 
 ## DDL / SQL
 
-**`0068_dag_templates.sql`** 草案（编号开 PR 时校准）：
+**`0069_dag_templates.sql`** 草案（编号开 PR 时校准）：
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.dag_templates (
@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS public.dag_templates (
     description     TEXT        NOT NULL DEFAULT '',
     schema_json     JSONB       NOT NULL,  -- DAG 模板 + 参数化标记
     parameters      JSONB       NOT NULL DEFAULT '[]'::jsonb,  -- [{name, type, default, required}]
+    schema_hash     TEXT        NOT NULL DEFAULT '',
+    schema_version  INTEGER     NOT NULL DEFAULT 1,
     owner_id        TEXT        NOT NULL DEFAULT '',
     tenant_id       TEXT        NOT NULL DEFAULT '',
     scope           TEXT        NOT NULL DEFAULT 'private',
@@ -119,20 +121,25 @@ CREATE TABLE IF NOT EXISTS public.dag_template_revisions (
     version         INTEGER     NOT NULL,
     schema_json     JSONB       NOT NULL,
     parameters      JSONB       NOT NULL,
+    schema_hash     TEXT        NOT NULL DEFAULT '',
+    schema_version  INTEGER     NOT NULL DEFAULT 1,
     edited_by       TEXT        NOT NULL DEFAULT '',
     edited_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (template_key, version)
 );
 
-ALTER TABLE public.task_dag ADD COLUMN template_key TEXT NOT NULL DEFAULT '';
-ALTER TABLE public.task_dag ADD COLUMN template_version INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE public.task_dag ADD COLUMN template_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.task_dags ADD COLUMN template_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.task_dags ADD COLUMN template_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.task_dags ADD COLUMN template_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.task_dags ADD COLUMN template_schema_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.task_dags ADD COLUMN template_schema_version INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_dag_templates_owner_tenant
     ON public.dag_templates (owner_id, tenant_id, scope);
 
-CREATE INDEX IF NOT EXISTS idx_task_dag_template
-    ON public.task_dag (template_key, template_version)
+-- 活表 task_dags 上的索引必须使用 CREATE INDEX CONCURRENTLY，放入单独 no-transaction migration
+CREATE INDEX CONCURRENTLY idx_task_dag_template
+    ON public.task_dags (template_key, template_version)
     WHERE template_key <> '';
 ```
 
@@ -172,3 +179,42 @@ CREATE INDEX IF NOT EXISTS idx_task_dag_template
 - [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §裁决 7
 - p21 P0 自学习模板（参考 modal / scope 形态）
 - 用户原话：「DAG 要有 UI，用户可以保持模版，然后编辑模版或者编辑 dag 任务」
+## 待办
+
+- **错误 catalog（a7）**：把 `ErrCallerIdentityRequired` / `ErrNodeAlreadyRunning` / `verdict_lost` / schema validation error 映射成人话说明 + 下一步修复入口；不得只展示内部枚举。
+- **模板 preview / diff / lineage（a7+a5）**：模板实例化前展示参数预览、版本 diff、`schema_hash`；v1 可不做 fork lineage 图，但必须保存 fork 来源字段或写明不支持审计链。
+- **WS 实时事件（a7）**：任务列表 / 详情页订阅 DAG / verify / repair / budget 事件，agent 创建后实时出现，Start CTA 只在 manual/draft 状态显示。
+- **金融预设可发现性（a7+a10）**：模板库提供“金融预设” badge，展示 `unanimous + additionalProperties=false + audit_log=true` 的合规说明。
+- **cost preview UI（a10 必修）**：模板页 / 实例化页 / Start 前显示预计 nodes、swarm members、repair rounds、arbiter calls、token、base/max/p95 $/DAG、$/月、provider RPM/TPM/concurrency 是否足够；超过 tenant/subscription 预算阈值必须 approval 或 hard block，二次确认不能替代授权。
+- **当前 UI 接通项（a7 必修）**：`DataPage` 增 `select` 事件，DAG 列表卡片可点击/键盘进入详情；`DagDetailModal` 必须调用 `dashboard/dagDetail` 填充真实 nodes，并显示 Start CTA / 只读锁 / 状态 legend。
+- **成本/权限边界**：Start CTA 依赖 P3 `dag/start` 和 P9 `dag/cost_preview`；P10 不得在缺 P6 caller identity / tenant filter 时开放跨 tenant 模板列表。
+
+## UI 状态字典与页面契约（需求补全仲裁）
+
+### 状态 legend（v1）
+
+| 状态 | 文案 | 可编辑 | 下一步 |
+|---|---|---|---|
+| `draft`（派生态，不是主 status） | 未启动，可配置 | DAG/node 可编辑 | Start / Save as template |
+| `pending` | 等待依赖 | node 可编辑 | 等待或调整依赖 |
+| `running` | 执行中 | 只读 | 查看 activity |
+| `pending_verify/verifying` | 校验中 | 只读 | 查看 verifier |
+| `repairing` | 修复中 | 只读 | 查看反馈 |
+| `done` | 完成 | 只读 | 查看结果 |
+| `failed` | 失败 | 只读 | 查看错误/重试入口 |
+| `observe_lost` | 观察丢失 | 只读 | 运维恢复/人工处理 |
+| `verdict_lost` | 裁决不可得 | 只读 | 重试 arbiter / 人工处理 |
+
+`draft = trigger=manual AND started_at IS NULL AND no running nodes`，仅 UI 派生态，不得写入 `task_dag_nodes.status`。
+
+### 表单字段注册表
+
+P10 owner 必须按分组注册字段：launch、depends_on、verify(P8)、activity/idle(P7)、scale/cost(P9)、growth_budget/convergence(P11)、swarm(P12)、output_schema/output_validation(P13)。每项写默认值、校验、人话帮助、是否高级选项。用户不得直接编辑 raw JSON/YAML 作为唯一入口。
+
+### cost preview 保密边界
+
+UI 只显示预算估算、base/max/p95、是否足够、风险档位、审批状态；禁止展示 bucket 余量、内部窗口、provider 原始 RPM/TPM/concurrency 或 per-tenant quota 算法。Start/Edit CTA 的禁用原因必须映射成错误 catalog 人话说明。
+
+### 大规模 UI
+
+DAG detail 默认 summary + cursor node page；result/audit/validation 默认不返回；拓扑超过 1000 nodes 进入 cluster/virtualized mode，节点详情懒加载，禁止一次渲染 10000-node Mermaid。模板 Use/Save 必须有 params preview、schema diff/hash、fork 来源或明确“不支持审计 lineage”。

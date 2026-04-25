@@ -47,24 +47,24 @@ DAG 级 `dag.output_schema_defaults` 提供继承默认。
 
 ### 验证时机
 
-hook consumer 接收 `TurnCompleted` → 在 enqueue tap（P23 阶段 0 ⑤ enqueue-only）前先做 **schema validate**。
+hook consumer 接收 `TurnCompleted` → 做 bounded parse / payload size cap / enqueue；完整 **schema validate** 在 `outputValidationActor` worker 中执行，且必须早于 terminal status 写入与 P8 verify。
 
-> ✅ **archtest 例外已写入 P23 阶段 0 ⑤**（2026-04-25 决策）：JSON schema validate 是纯 CPU 轻量操作，**允许**在 hook tap 内同步执行（先 parse 再 validate 再 enqueue）；archtest `dag_hook_tap_enqueue_only` 对此例外白名单——**只允许 parse + validate + 轻量 CAS + enqueue，禁止网络 / LLM / 阻塞循环 / 重 DB 查询**。
+> ✅ **archtest 例外已更新为交叉验证裁决**（2026-04-25）：hook tap 只允许 bounded parse + enqueue；完整 validate 移出 hook 热路径，避免 a3 指出的 CPU/DB 热点，同时保留 a4/a5 要求的 terminal 前强校验。
 
 具体流程：
 1. 解析 `final answer` 为 JSON（jsonpath / json5 容错可选）
 2. 用 `output_schema` 校验
 3. valid → 推 `done`
-4. invalid + `on_invalid=repair` → 推 `repairing`，把 schema + 错误信息拼进 repair_prompt 发回 agent
-5. invalid + `on_invalid=fail` → 推 `failed`，`result.error` 记录 schema validation error
+4. invalid + `on_invalid=repair` → `output_validation_phase=repairing`，主 `status` 保持 `running`，把 schema + 错误信息拼进 repair_prompt 发回 agent
+5. invalid + `on_invalid=fail` → 主 `status=failed`，`result.error` 只记录 redacted validation error
 6. 超 `max_repair_rounds` → `failed`
 
 ### Provider 适配
 
 需要 owner 调研 + 实现：
-- **codex**：是否支持 OpenAI 风格 JSON mode / function calling 强制结构化输出？
-- **claude**：tool use 是 structured output 的天然形态；可在 launch spec 加 `output_tool: { name, schema }`，让 agent 必走该 tool 出结果
-- **provider 不支持 structured output**：fallback 到 prompt 工程（在 system prompt 加 schema 描述）+ runtime validate（双保险）
+- **codex**：`internal/dto/provider/turn.go` 已有 `OutputSchema` 形态，但 app-server 是否 hard guarantee 必须由 owner 实测，不得在 P13 文档中承诺 provider 级强保证。
+- **claude**：当前 claudecli 只能把 schema 拼进 prompt；tool use 强制结构化需另行实现，不得视为已具备。
+- **最终合规保证**：provider native structured output 只作为优化；runtime validate + audit 才是 P13 hard guarantee。
 
 ### 金融场景预设（与 P10 模板配合）
 
@@ -80,18 +80,23 @@ P10 模板库提供"金融场景预设"：
 |---|---|---|
 | schema | `cmd/mcp-orch/tools/task_tools.go`（扩展） | `nodes[].output_schema` + `nodes[].output_validation` + `dag.output_schema_defaults` |
 | validator | `cmd/mcp-orch/orchestration/runtime/output_validator.go` [NEW] | JSON schema validate 库（Go 建议 `github.com/santhosh-tekuri/jsonschema`）；缓存 compiled schema |
-| hook tap 扩展 | `cmd/mcp-orch/orchestration/hook_consumer.go`（扩展） | terminal 前先 validate；invalid 走 repair / fail |
+| output validation worker | `cmd/mcp-orch/orchestration/runtime/output_validation_actor.go` [NEW] | hook enqueue 后、terminal 前 validate；invalid 走 repair / fail；挂入 `group:"runners"` |
 | repair prompt 模板 | `cmd/mcp-orch/orchestration/runtime/repair_prompt.go` [NEW] | 拼装 schema + 错误信息 + 原 agent 输出，发回原 agent |
-| provider 强制结构化 | `cmd/mcp-orch/orchestration/llm/light/codex_json_mode.go` [扩展] + `cmd/mcp-orch/orchestration/llm/light/claude_tool_mode.go` [扩展] | 利用 provider native 能力（如 codex JSON mode、claude tool use）；原 stub 写 `internal/llm/light/*`，被 P22 allowlist 判为位置错误，已修正 |
-| state machine | `task_dag_node` schema 不变 | `verify_phase` 共用：output_validation 失败走的是主 `failed` / `repairing`，不是 verify 流程（注意区别） |
-| 审计 | `0071_dag_output_validation.sql` [NEW]（编号校准） | `dag_output_validations` 表：node_key, schema_hash, valid, error_path, validated_at |
+| provider 强制结构化 | `cmd/mcp-orch/orchestration/llm/light/codex_json_mode.go` [扩展] + `cmd/mcp-orch/orchestration/llm/light/claude_tool_mode.go` [扩展] | 利用 provider native 能力（如 codex JSON mode、claude tool use）；原写 `internal/llm/light/*`，被 P22 allowlist 判为位置错误，已修正 |
+| state machine | `task_dag_nodes` schema 扩展 | 新增独立 `output_validation_phase`（或等价独立列）；output_validation 失败不得把 `repairing` 写入主 `status`，主 `status` 只在最终 fail/done 时变更 |
+| 审计 | `0072_dag_output_validation.sql` [NEW]（编号校准） | `dag_output_validations` 表：node_key, schema_hash, valid, error_path, validated_at |
 | archtest | `internal/archtest/dag_output_validation_test.go` [NEW] | output_validator 必须经统一入口；不绕路 |
 
 ## DDL / SQL
 
-**`0071_dag_output_validation.sql`** 草案：
+**`0072_dag_output_validation.sql`** 草案：
 
 ```sql
+ALTER TABLE public.task_dag_nodes ADD COLUMN output_validation_phase TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.task_dag_nodes ADD COLUMN output_validation_round INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.task_dag_nodes ADD COLUMN output_schema_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.task_dag_nodes ADD COLUMN output_schema_version INTEGER NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS public.dag_output_validations (
     id              TEXT        PRIMARY KEY,
     dag_key         TEXT        NOT NULL,
@@ -101,14 +106,17 @@ CREATE TABLE IF NOT EXISTS public.dag_output_validations (
     valid           BOOLEAN     NOT NULL,
     error_path      TEXT        NOT NULL DEFAULT '',
     error_detail    TEXT        NOT NULL DEFAULT '',
+    redacted_raw_hash TEXT      NOT NULL DEFAULT '',
+    raw_blob_ref     TEXT        NOT NULL DEFAULT '',
+    repair_chain_id  TEXT        NOT NULL DEFAULT '',
     repair_round    INTEGER     NOT NULL DEFAULT 0,
     validated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_dag_output_validations_dag_node
+CREATE INDEX CONCURRENTLY idx_dag_output_validations_dag_node
     ON public.dag_output_validations (dag_key, node_key, validated_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_dag_output_validations_invalid
+CREATE INDEX CONCURRENTLY idx_dag_output_validations_invalid
     ON public.dag_output_validations (dag_key, node_key)
     WHERE valid = FALSE;
 ```
@@ -121,7 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_dag_output_validations_invalid
 
 ## 风险
 
-- **schema 复杂度爆炸**：用户写复杂嵌套 schema 可能让 validator 慢；缓存 compiled schema + 版本化
+- **schema 复杂度爆炸**：用户写复杂嵌套 schema 可能让 validator 慢；必须限制 schema size/depth/properties/regex 复杂度，compiled schema LRU + per-tenant 上限 + validation timeout/payload cap 为 hard limit
 - **repair 循环**：`max_repair_rounds` 严格上限；超限 `failed`
 - **provider native 能力差异**：codex JSON mode 与 claude tool use 不等价；fallback 行为必须文档化
 - **JSON parse 容错**：agent 可能输出 ```json ... ``` 包裹的 JSON 块；validator 必须先 strip markdown 再 parse；但 strict 模式拒绝任何 wrapper
@@ -135,14 +143,14 @@ CREATE INDEX IF NOT EXISTS idx_dag_output_validations_invalid
 ## 必测项
 
 - 简单 schema valid pass
-- schema invalid + `on_invalid=repair` → 进 repairing → agent 重出 → valid → done
+- schema invalid + `on_invalid=repair` → `output_validation_phase=repairing` → agent 重出 → valid → done
 - schema invalid + `on_invalid=fail` → 直接 failed
 - 超 `max_repair_rounds` → failed
 - 嵌套 schema（数组 / 对象 / enum）
 - markdown 包裹的 JSON（strip 模式 vs strict 模式）
 - 空输出 / 部分输出 → invalid
-- codex JSON mode 强制结构化（owner 实现后单独验）
-- claude tool use 强制结构化（owner 实现后单独验）
+- codex JSON mode / app-server `OutputSchema` 能力探测（只能作为优化，必须叠 runtime validate）
+- claude tool use 强制结构化（当前 claudecli prompt hint 不算 hard guarantee）
 - 金融场景预设模板：`unanimous swarm + additionalProperties=false + audit_log=true` 全链路
 - output_validation × verify gate 两层串联（语法 → 语义）
 
@@ -155,9 +163,16 @@ CREATE INDEX IF NOT EXISTS idx_dag_output_validations_invalid
 
 ## 待办
 
-- **金融场景 PII redaction**（a4 安全 + 多调研共识）：redactor 覆盖 `repair_prompt` / `error_detail` / arbiter input/output；drop key whitelist + JSON path mask；落库前调用。
+- **金融场景 PII redaction**（a4 安全 + 多调研共识）：redactor 覆盖 `repair_prompt` / `error_detail` / arbiter input/output / validation 原始输出；drop key whitelist + JSON path mask；落库前调用。
 - **audit 必须 append-only + hash chain**（a4 + a5 共识）：`dag_output_validations` 与 `dag_arbiter_calls` / `dag_audit_log` 同样 hash chain；archtest `dag_audit_append_only` 守。
 - a8 依赖：provider 抽象当前未暴露 schema 强制入口（`internal/contract/provider.go` + `dream_executor` TODO）；P13 owner 必须在 P8 轻量 LLM 层中并估补齐 codex JSON mode / claude tool use 接口。
 - a3 规模：json-schema compile cache 必须控容量上限，避免 N=10000 节点 × hot path 占 RSS；考虑 LRU + max entries 上限。
 - a10 成本：audit_log=true 在金融预设下会双写 N=1000 node × 多轮 repair 表行；P9 archive TTL 必须走 7–14 天冷走。
 
+## 金融 JSON 审计硬化契约（需求补全仲裁）
+
+`dag_output_validations` 必须补：`schema_version`、`schema_draft`、`schema_hash_alg`、`prev_hash`、`row_hash`、`hash_alg`、`chain_scope`。`schema_hash` 采用 canonical schema：注入默认值、按 draft 2020-12 规范化、稳定排序后计算；validation row 必须同时记录 hash + version + draft。
+
+金融 preset 默认 strict parse：拒绝 markdown wrapper、json5、jsonpath 容错；非金融可 opt-in strip/lenient。`additionalProperties=false` 默认对所有 object 递归生效，除非 schema 显式 opt-out。
+
+执行顺序固定：原始输出 → payload cap / bounded parse → redact/sanitize → runtime validate → audit redacted detail/hash/blob ref → repair_prompt。禁止未 redacted raw 进入 DB 或 repair prompt；`raw_blob_ref` 只能指向受权限控制的 redacted/加密对象。validation pass 后 terminal CAS 必须绑定 `active_turn_id + output_schema_hash/version + validation_id`。

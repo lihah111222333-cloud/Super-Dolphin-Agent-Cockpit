@@ -77,16 +77,16 @@ DAG 模块当前是「只存不跑」：
 阶段 0 是短平快的共享契约 PR，必须先合入：
 
 1. **migration 编号校准**：仓内当前最大已占用编号是 `migrations/0062_add_lsp_sections_enabled_tools_gate.sql`。本期新建 migration 必须从 `0063` 起算：
-   - `0063_dag_state_machine.sql`（P0；为现有 `task_dag_node` 加 `assigned_agent_id` 列、状态机 CHECK 约束、`pending→running→done/failed/observe_lost` 终态枚举）
+   - `0063_dag_state_machine.sql`（P0；为现有 `task_dag_nodes` 加 `assigned_agent_id`、`last_activity_at`、`remaining_deps` 等列、状态机 CHECK 约束、`pending→running→done/failed/observe_lost` 终态枚举）
    - `0065_dag_owner_tenant.sql`（P3 / P6；为 DAG 加 `owner_id / tenant_id / scope` 字段并迁移现有 `created_by`）
    - `0066_dag_trigger_cron.sql`（P5；cron→DAG 关联表，承接 `internal/module/cron` 触发 DAG 的能力；**编号从 0064 改为 0066，因为 P5 依赖 P3 owner/tenant，必须晚于 P3**）
-   - 0064 编号**保留 unused**作为缓冲（避免后续合入时被误占）；后段 P7-P13 的 migration 编号从 0067 起算，详见各子任务 stub
+   - 0064 编号**保留 unused**作为缓冲（避免后续合入时被误占）；后段 migration 编号冻结为：P8=0067、P9=0068（仅 no-transaction concurrent index / archive / scale policy；`remaining_deps` 已前移 P0 0063 以避免拆号冲突）、P10=0069、P11=0070、P12=0071、P13=0072（P7 仅加列预留，无独立 migration），详见各子任务 stub
    - 编号相互独立但口径统一；实施时每次开 PR 都再跑 `ls migrations/` 校准一次。
 
 2. **DAG state machine 契约冻结**：本期把 node 状态机从"任意 status 可写"收紧成 `pending → running → done | failed | observe_lost`，由 `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql` 增加 CAS 形 SQL（`WHERE current_status = $expected`），并写入文档：
    - 第三类终态 `observe_lost` 用于 watcher 确认 turn 已 submit 但 hook 永久丢失的情况，**不**自动重试，不增 `failure_count`。
    - 半提交窗口：`running + assigned_agent_id != ''` 但 turn hook 未到达，crash 后由 watcher 通过 `agent_id` 回查 `agent_status` 恢复；不允许 watcher 直接从 `running` 推回 `pending` 重新 launch。
-   - `task_update_node` 由外部推 status 的旧路径保留但加 strict mode 开关（`schedule.strict_state_machine = true` 时拒绝外部跳态写入），由 P0 owner 单独出契约 PR。
+   - `task_update_node` 由外部推 status 的旧路径保留但加 strict mode 开关；**新 DAG 默认 `schedule.strict_state_machine = true` 且不可由外部 RPC 降级**，仅旧 DAG 兼容期可显式 false 并打 deprecation audit，由 P0 owner 单独出契约 PR。
 
 3. **RunnerModule 角色冻结**：DAG runtime 的所有长跑必须以独立 actor 进入 `runner.actors`（active Fx tag: `group:"runners"`）；至少冻结四个 actor 的 owner 划分：
    - `dagWatcherActor`：扫描 ready node、推进 `pending → running`、claim wakeup
@@ -94,6 +94,8 @@ DAG 模块当前是「只存不跑」：
    - `dagLeaseActor`：续租所有已 claim 的 node lease（30 min TTL，5 min heartbeat）
    - `dagReconcileActor`：crash recovery + `observe_lost` 检测 + retry budget 推进
    不允许把这四件事合成一个 actor，也不允许在 actor `Run(ctx)` 内 fire-and-forget 子 goroutine。
+
+   后段 RunnerModule inventory 同步冻结：P7 `dagActivityActor`、P8 `dagArbiterActor`、P11 `dagConvergenceActor`（`convergence_evaluator.go`）、P12 `dagSwarmArbiterActor`、P13 `outputValidationActor` 均必须挂 `group:"runners"` 并由 `dag_runner_actors_present` / `dag_actor_no_fire_and_forget` 覆盖。
 
 4. **trigger 字段枚举冻结**：`schedule.trigger` 由自由 string 改为枚举（`manual` / `auto` / `cron` / `external`）+ 配套字段：
    - `manual`：DAG 创建即静止，必须显式调 `dag/start`（P3 新增 RPC method）才推进
@@ -103,9 +105,9 @@ DAG 模块当前是「只存不跑」：
    schema 层在 `cmd/mcp-orch/tools/task_tools.go:118-124` 加 enum；旧 DAG（trigger 为空）默认按 `auto` 兼容一轮，但向用户/UI 显示 deprecation 提示。
 
 5. **扩展点契约（为 P7 / P8 / P9 预留）**：基于 2026-04-25 五路 gap 调研裁决（详见 [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md)），P23 **不实现**活性探针 / 校验闭环 / 大规模能力，但要求 P0 落地的 DDL / actor / hook 链路**预留扩展位**，避免 P7 / P8 / P9 上线时返工：
-   - `task_dag_node` 在 `0063_dag_state_machine.sql` 中**预留** `last_activity_at TIMESTAMPTZ` 列。本期 watcher / dispatcher / reconcile 不消费它，但 P2 hook tap 必须把 turn progress / tool call 事件回写此字段；P7 直接消费，不再加列。
+   - `task_dag_nodes` 在 `0063_dag_state_machine.sql` 中**预留** `last_activity_at TIMESTAMPTZ` 列。本期 watcher / dispatcher / reconcile 不消费它，但 P2 hook tap 必须把 turn progress / tool call 事件回写此字段；P7 直接消费，不再加列。
    - hook consumer（`cmd/mcp-orch/orchestration/hook_consumer.go:96-220`）的 P2 reconcile tap 必须是 **enqueue-only**：不允许在 callback 内做长跑、重 DB 查询、派生 launch；只允许投一条 enqueue 给 actor。这是 P8 verifier gate 的硬前置（verifier 拉起必须独立 actor，不在 callback 内）。
-   - **P13 schema validate 例外（2026-04-25 决策）**：JSON schema validate 是纯 CPU 轻量操作，**允许**在 hook tap 内同步执行（先 parse 再 validate 再 enqueue）；archtest `dag_hook_tap_enqueue_only` 对此例外白名单——**只允许 parse + validate + 轻量 CAS + enqueue，禁止网络 / LLM / 阻塞循环 / 重 DB 查询**。
+   - **P13 schema validate 例外（2026-04-25 交叉验证裁决）**：hook tap 只允许 bounded parse / payload size cap / enqueue；完整 JSON schema validate 必须在 `outputValidationActor` worker 中执行，并且在写 terminal status、进入 P8 verify 前完成。archtest `dag_hook_tap_enqueue_only` 只对白名单轻量 parse + enqueue 放行，禁止网络 / LLM / 重 DB 查询 / 全量 schema validate。
    - P23 冻结的 state machine `pending → running → done | failed | observe_lost` 描述为「**执行子状态机**」（execution sub-state machine）：上层 P8 会在 `running` 与 `done` 之间插入 `pending_verify / verifying / repairing` 等业务子状态，但**不**破坏 P23 的 SQL CAS 形状——子状态走独立列 `verify_phase`（P8 加），不和 `status` 共枚举，CAS `WHERE current_status = $expected` 仍然成立。P8 会扩 `status` CHECK 约束加入 `verdict_lost` 第三类终态（类比 `observe_lost`），仍属合规扩展，不算破坏 CAS 形状。
    - launcher 并发上限 `maxConcurrentLaunches=10`（`cmd/mcp-orch/orchestration/service_launcher_bridge.go:22-30`）必须**配置化**（提取成 `cmd/mcp-orch` config 参数），P23 不改默认值；P9 升级为全局 token bucket 时不需要再做一次代码迁移。
    - launcher 全局 quota 的占用方在 P8 引入 verifier 后必须包含 verifier launch；不允许 verifier 走独立 quota 通道（防止 P9 规模下 launcher 双队列雪崩）。
@@ -119,10 +121,10 @@ DAG 模块当前是「只存不跑」：
 | **[P2](P2_NodeTerminalReconcile.md)** | 节点终态回写 + timeout/retry/on_failure | 订阅 hook consumer 的 turn terminal → `CompleteNode`/`MarkFailed`；执行 `execution.timeout_sec / retry / on_failure` 与 `schedule.fail_fast` | 🔲 依赖 P1 |
 | **[P3](P3_ExplicitDAGStartAndOwnership.md)** | DAG 显式 start/trigger 语义 + owner/tenant | 新增 `dag/start` RPC；为 DAG / node 加 `owner_id / tenant_id / scope`；`trigger` 枚举落地 | 🔲 依赖 P0 |
 | **[P4](P4_HostAgentTriggerSurface.md)** | 主 agent 触发面 | MCP 工具 `task_create_dag` 接受 `auto_start: true`；DAG terminal 事件通过既有 hook 回 agent；保持 100% 向后兼容 | 🔲 依赖 P3 |
-| **[P5](P5_CronTriggerSurface.md)** | Cron 触发面 | 复用 `internal/module/cron` 已有 scheduler/runner；新增 `cron_job.target_dag_key`；cron tick → DAG `external` start | 🔲 依赖 P3 + p21 P1b |
+| **[P5](P5_CronTriggerSurface.md)** | Cron 触发面 | 复用 `internal/module/cron` 已有 scheduler/runner；新增 `cron_job.target_dag_key`；cron tick → DAG `trigger=cron` start（原表述 `external` 已修正，外部 RPC 走 `trigger=external`） | 🔲 依赖 P3 + p21 P1b |
 | **[P6](P6_ExternalRPCTriggerSurface.md)** | 外部 RPC 触发面 + AuthN/AuthZ/rate/quota/audit | 把现有 TCP JSON-RPC `task/*` 方法挂上调用身份提取层、tenant 鉴权、rate limit、审计日志；非 REST/gRPC 不在本期升级 | 🔲 依赖 P3 |
 | **[P7](P7_LivenessProbe.md)** | 心跳式节点活性监控 | 第 5 actor `dagActivityActor`；同 agent 重投 vs 换 agent 重起；长工具反误杀；后段子任务，前段（P0–P6）合入后开工 | 🔲 后段 |
-| **[P8](P8_VerificationGate.md)** | 校验闭环 + verdict 仲裁 | hook 拦截 → verify 子状态机 → runtime-embedded LLM arbiter（方案 A）→ 失败降级 judge node；同批互验 / 打回原 agent | 🔲 后段（依赖 arbiter 报告） |
+| **[P8](P8_VerificationGate.md)** | 校验闭环 + verdict 仲裁 | hook terminal → verify 子状态机 → runtime-embedded LLM arbiter（默认方案 A）；judge node 仅显式 opt-in；arbiter 不可得落 `verdict_lost` | 🔲 后段（依赖 arbiter 报告） |
 | **[P9](P9_ScaleScheduling.md)** | 大规模 DAG 调度 | 千 node 百 agent；批量 create / partial index / 全局 token bucket / hook worker pool / TTL 归档 / SLO + backpressure | 🔲 后段 |
 | **[P10](P10_TemplateAndUI.md)** | DAG 模板 + UI 编辑能力 | `dag_templates` 表；`dag/template/*` + `dag/instantiate` + `dag/edit_node` RPC；UI 模板库 / 任务列表 / 编辑器；UX 原则 + 三用户故事 | 🔲 后段（依赖 P3+P6） |
 | **[P11](P11_DynamicNodeGrowth.md)** | 自动节点伸缩 / 无限迭代 | `task_spawn_child` 工具；`growth_budget` 硬约束；`convergence` 终止条件；动态生长的 DAG | 🔲 后段（依赖 P0/P1/P2 + P9 backpressure） |
@@ -133,8 +135,14 @@ DAG 模块当前是「只存不跑」：
 
 ```
 阶段 0：编号校准 ─┬─► P0（0063_dag_state_machine）
-                 ├─► P5（0064_dag_trigger_cron）
-                 └─► P3（0065_dag_owner_tenant）
+                 ├─► P3（0065_dag_owner_tenant）
+                 ├─► P5（0066_dag_trigger_cron；原占 0064 已修正，0064 保留 unused buffer）
+                 ├─► P8（0067_dag_verify_phase）
+                 ├─► P9（0068_dag_scale_partial_index）
+                 ├─► P10（0069_dag_templates）
+                 ├─► P11（0070_dag_growth）
+                 ├─► P12（0071_dag_swarm）
+                 └─► P13（0072_dag_output_validation）
 
 阶段 0：state machine 契约 ─► P0 / P1 / P2 全部依赖
 
@@ -157,10 +165,10 @@ P2 ─► (所有触发源 terminal 反馈链路)
 P0 + P1 + P2 ─► P7         # 活性
 P0 + P1 + P2 ─► P8         # 校验闭环 + 方案 C arbiter（前置：建轻量 LLM 调用层）
 P0 + P1 + P2 ─► P9         # 规模化
-P3 + P6 ─► P10             # 模板 + UI（依赖鉴权 + owner/tenant）
+P3 + P6 + P7/P8/P9 schema freeze ─► P10  # 模板 + UI（依赖鉴权 + owner/tenant + 后段字段稳定）
 P0 + P1 + P2 + P9 ─► P11   # 动态生长（依赖 backpressure）
-P8 ─► P12                  # 蜂群仲裁（P8 ensemble 升级）
-P0 + P1 + P2 + P8 ─► P13   # JSON 严格输出（依赖 sanitize）
+P8 + P9 ─► P12             # 蜂群仲裁（P8 ensemble 升级；依赖 P9 token bucket / budget ledger）
+P0 + P1 + P2 + P8 sanitize + P10 preset ─► P13  # JSON 严格输出（依赖 sanitize + 金融模板预设）
 ```
 
 ## 落地顺序建议
@@ -193,7 +201,7 @@ P0 + P1 + P2 + P8 ─► P13   # JSON 严格输出（依赖 sanitize）
 
 ### 触发源 → DAG start 路径（authoritative）
 
-- 所有触发源最终汇流到一条共享入口 `cmd/mcp-orch/orchestration/dag_start.go:StartDAG(ctx, dag_key, trigger_meta)`（原 stub 写 `internal/orchestration/dag.Start`，因 P22 allowlist 不含此包，已修正落点）；不允许任一触发源绕过此函数直接改 DAG status。
+- 所有触发源最终汇流到一条共享入口 `cmd/mcp-orch/orchestration/dag_start.go:StartDAG(ctx, dag_key, trigger_meta)`（原写 `internal/orchestration/dag.Start`，因 P22 allowlist 不含此包，已修正落点）；不允许任一触发源绕过此函数直接改 DAG status。
 - `trigger_meta` 必带 `caller_identity`（`agent_id` / `cron_job_id` / `external_caller_id`）；watcher 把它写进 `dag.last_trigger_at` + `dag.last_trigger_by`。
 - 主 agent / cron / 外部 RPC 三条路径在 `Start()` 内共享同一鉴权 + idempotency 入口；triggers 通过 `idempotency_key` 防止双触发同一 DAG 在同一时窗内重入。
 
@@ -210,37 +218,38 @@ P0 + P1 + P2 + P8 ─► P13   # JSON 严格输出（依赖 sanitize）
 - 队列：`dag_ready_queue_depth`、`dag_wakeup_pending_total`
 - 推进延迟：`dag_node_pending_to_running_seconds`、`dag_node_running_to_terminal_seconds`
 - launch：`dag_launch_attempts_total{result=ok|failed}`、`dag_launch_relaunch_total`
-- 终态：`dag_node_terminal_total{state=done|failed|observe_lost}`、`dag_observe_lost_total`
+- 终态：`dag_node_terminal_total{state=done|failed|observe_lost|verdict_lost}`、`dag_observe_lost_total`、`dag_verdict_lost_total`
 - crash recovery：`dag_recovery_runs_total`、`dag_recovery_observe_lost_total`
 - 触发源：`dag_start_total{trigger=manual|auto|cron|external}`
 - 这些指标必须在各 actor 中明确产出；archtest 守 actor 必须订阅或自带 metric register（不接受"行为正确但无指标"的实现）。
 
 ### 守卫与 archtest
 
-基于 2026-04-25 6 路 impl/compliance 调研裁决（详见 [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §裁决 9 + [`COMPLIANCE_GATES.md`](COMPLIANCE_GATES.md)），P23 必落 14 项 archtest：
+基于 2026-04-25 6 路 impl/compliance 调研裁决（详见 [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §裁决 9 + [`COMPLIANCE_GATES.md`](COMPLIANCE_GATES.md)），P23 必落 21 项 archtest（原 15 项 + 6 项交叉验证补充）：
 
 | archtest | 守的内容 | 落点 |
 |---|---|---|
 | `dag_watcher_no_lifecycle_loop` | DAG 长循环不在 lifecycle / bus callback | `internal/archtest/dag_runtime_ownership_test.go` |
-| `dag_runner_actors_present` | P0 4 actor + P7/P8/P12 后续 actor 都进 `group:"runners"` | 同上 |
+| `dag_runner_actors_present` | P0 4 actor + P7/P8/P11/P12/P13 后续 actor 都进 `group:"runners"` | 同上 |
 | `dag_actor_no_fire_and_forget` | actor `Run(ctx)` 禁 `go` / `SafeGo` / 裸 ticker | 扩 `runner_actor_guard_test.go` |
 | `dag_status_cas_only` | status 写入必须带 `WHERE current_status = $expected` | `internal/archtest/dag_status_sql_test.go` |
 | `dag_trigger_enum_only` | `schedule.trigger` 必须命中枚举 | `internal/archtest/dag_schema_test.go` |
 | `dag_external_rpc_authn` | 外部 RPC 必经 `WithCallerIdentity` middleware | `internal/archtest/dag_rpc_authn_test.go` |
 | `dag_launcher_shared_path_only` | dispatcher 复用共享 launcher，禁绕路 | `internal/archtest/dag_launcher_test.go` |
-| `dag_hook_tap_enqueue_only` | P2 hook tap 禁重 DB / 派生 launch / LLM（P13 schema validate 例外） | `internal/archtest/dag_hook_test.go` |
+| `dag_hook_tap_enqueue_only` | P2 hook tap 禁重 DB / 派生 launch / LLM；P13 只允许 bounded parse + enqueue，完整 validate 进 worker | `internal/archtest/dag_hook_test.go` |
 | `dag_llm_light_boundary` | P8/P12 只能经 `cmd/mcp-orch/orchestration/llm/light/*`，不裸调 provider | `internal/archtest/dag_llm_boundary_test.go` |
 | `dag_growth_spawn_only` | P11 禁绕过 `SpawnChildNodes` 直接 INSERT node | `internal/archtest/dag_growth_test.go` |
 | `dag_swarm_quota_only` | P12 swarm 共用 P9 token bucket（**不**起独立 quota） | `internal/archtest/dag_swarm_test.go` |
 | `dag_output_validate_before_verify` | P13 schema validate 必须早于 P8 verify_phase | `internal/archtest/dag_output_validation_test.go` |
 | `dag_template_no_cmd_import` | UI/template 不反向 import cmd concrete | `internal/archtest/dag_template_boundary_test.go` |
-| `dag_migration_sequence_guard` | 0063–0071 无缺号 / 倒序 / 与依赖顺序冲突 | `internal/archtest/dag_migration_test.go` |
-| `cron_dag_bridge_no_concrete_orch_import` | `internal/module/cron/*.go` 禁 import `cmd/mcp-orch/` | `internal/archtest/dag_cron_bridge_test.go` |
-| `dag_audit_append_only` | `dag_audit_log` / `dag_arbiter_calls` / `dag_output_validations` 禁 UPDATE/DELETE，必须 append-only + hash chain | `internal/archtest/dag_audit_append_only_test.go` |
+| `dag_migration_sequence_guard` | 必须存在 `0063,0065,0066,0067,0068,0069,0070,0071,0072`；任何 `0064_*.sql` hard fail；除 0064 显式保留外不得缺号/倒序/依赖冲突 | `internal/archtest/dag_migration_test.go` |
+| `cron_dag_bridge_no_concrete_orch_import` | `internal/module/cron/*.go` 禁 import `cmd/mcp-orch/`，且 `cmd/mcp-orch` 禁直接 import `internal/module/cron` concrete，桥接只经登记 interface/platform sink | `internal/archtest/dag_cron_bridge_test.go` |
+| `dag_audit_append_only` | `dag_audit_log` / `dag_arbiter_calls` / `dag_swarm_consensus` / `dag_output_validations` 禁 UPDATE/DELETE，必须 append-only + hash chain | `internal/archtest/dag_audit_append_only_test.go` |
 | `dag_terminal_turn_fence` | `CompleteTaskDagNode` 必须校验 `active_turn_id` 与当前 turn 一致，late completed 不能覆盖 aborted（a5） | `internal/archtest/dag_turn_fence_test.go` |
 | `dag_no_status_naked_write` | 禁裸 status 写；所有写必带 `WHERE current_status = $expected` CAS（a5 补 `task_dag_node_write.sql:14-20`） | `internal/archtest/dag_status_sql_test.go`（扩） |
 | `dag_tenant_filter_required` | DAG/template/audit 查询 RPC 必带 `tenant_id` filter（a4 critical） | `internal/archtest/dag_tenant_filter_test.go` |
 | `dag_pii_redaction_present` | `repair_prompt` / `error_detail` / arbiter input/output 在落库前走统一 redactor（a4 + P13 金融需求） | `internal/archtest/dag_pii_redaction_test.go` |
+| `dag_mcp_orch_dependency_allowlist_tight` | 收紧 `internal/archtest/dependency_direction_mcp_orch_test.go` 中 cmd/mcp-orch allowlist；禁止继续放行未登记的 `internal/store` / `internal/module` 直连 | `internal/archtest/dependency_direction_mcp_orch_test.go:TestMCPOrchDependencyDirection` |
 
 ## 风险
 
@@ -250,12 +259,13 @@ P0 + P1 + P2 + P8 ─► P13   # JSON 严格输出（依赖 sanitize）
 - **lease 抖动**：DAG node lease 与 cron job lease（p21 P1b）共享 `internal/store` lease 抽象但**不复用同一表**；不要为了"统一"把两者合表，会把 retry / TTL / 终态语义搅在一起。
 - **外部 RPC 暴露面**：本期只补 auth + tenant + rate；`127.0.0.1:8090` 默认绑定不变，未明确 opt-in 0.0.0.0 之前不算"对外服务"。任何在 P6 之外把端口公网化的 PR 视为越界。
 - **cron 双触发**：cron tick 触发 DAG start 必须按 `idempotency_key=hash(cron_job_id, scheduled_at)` 去重；防止 cron 续租失败再 claim 时重触发同一时点 DAG。
-- **观测断层**：watcher / dispatcher / lease / reconcile 四 actor 必须各自产出独立 actor lifecycle 日志（start / stop / iteration tick / error），方便后续接 P2 reconcile 链；只有"全局 tracer"无 per-actor heartbeat 视为未收口。
-- **向后兼容**：旧 `auto_handoff_phase1: true` 的 DAG 视作 `trigger: "auto"`；旧 `auto_handoff_phase1: false` 的 DAG 视作 `trigger: "manual"`；本期 README 完成后所有新建 DAG 必须显式带 `trigger` 字段，UI / agent prompt 中要更新引导。
+- **观测断层**：watcher / dispatcher / lease / reconcile 四 actor 必须各自产出独立 actor lifecycle 日志（start / stop / iteration tick / error），并从 hook 起点贯穿 `trace_id` 到 wakeup / launcher / arbiter / audit；只有"全局 tracer"无 per-actor heartbeat 视为未收口。
+- **向后兼容**：旧 `auto_handoff_phase1: true` 的 DAG 视作 `trigger: "auto"`；旧 `auto_handoff_phase1: false` 的 DAG 视作 `trigger: "manual"`；本期 README 完成后所有新建 DAG 必须显式带 `trigger` 字段，UI / agent prompt 中要更新引导。退役窗口：P0 后新 DAG strict=true；P3 双写 `created_by→owner_id`；P6 后新读路径禁只按 `created_by` 授权；P10 前旧 trigger 空值只读兼容，1 release 后 hard fail。
 - **安全 critical 3 项（a4 调研，2026-04-25）**：跨租户访问（RPC 只过滤 `created_by`，缺 `tenant_id` filter） / 鉴权绕过（`127.0.0.1:8090` JSON-RPC + TCP + MCP HTTP 全无 auth） / 特权升级（MCP tool 无 caller，spawn 入口未实现统一授权，模板 fork 权限弱）。高级风险：`dag_audit_log` 无 append-only/hash chain；arbiter input/output 明文落库（PII）；sanitize 层未实现（prompt injection）。
 - **数据一致性 3 项（a5 调研）**：`task_dag_node_write.sql:14-20` 还允许裸 status 写（无 `WHERE current_status = $expected`） / `CompleteTaskDagNode` 不校验 `active_turn_id`，late completed 可覆盖 aborted / DAG/node/wakeup/arbiter/validation 多表仅靠 `dag_key` 逻辑关联，无 FK/GC 闭环。
 - **N=10000 击穿（a3 调研）**：三大瓶颈——DB ready/lock 全量读 + 整 DAG `FOR UPDATE`；hook/launcher 背压缺失；LLM verdict 开环（P8/P12 无 batch / token bucket）。P9 必须 SQL `FOR UPDATE SKIP LOCKED LIMIT K` + result 拆摘要 + actor buffer 容量化。
 - **跨 agent 共识（a1–a10）**：sanitize 层 / 租户 filter / append-only audit / promhttp 陈列被多个调研重复点名，作为“阶段 0 之前必补”优先项。
+- **archtest allowlist 真实代码未收紧（a1 ❌）**：`internal/archtest/dependency_direction_mcp_orch_test.go:23-29` 仍放行 `internal/store` / `internal/module`，P0 前必须收紧到 P22 modularity 名录；未收紧前不得把 README/COMPLIANCE 的新 archtest 视为已闭环。
 
 ### 整体合规风险评级：**高**（基于 6 路 impl/compliance 调研，2026-04-25）
 
@@ -288,7 +298,7 @@ P0 + P1 + P2 + P8 ─► P13   # JSON 严格输出（依赖 sanitize）
 - 不在本期重做 `internal/module/cron`；P5 只补"cron job → DAG start"桥接，不改 cron 自身的 lease / runner / non-interactive 契约（那是 p21 P1b 的责任）。
 - 不在本期改 `task_create_dag` 的 schema 结构（除冻结 `trigger` 枚举与新增可选 `nodes[].launch` 之外）；现有调用方 100% 向后兼容。
 - 不把 DAG / node 升级成全局 bus event 通道；orch 本地 bus 只承载 DAG 内部事件，跨进程 / 跨 root 走 hook consumer。
-- 不接管"DAG 是否可视化 / UI 编辑"的能力面；任何 UI 工作不在本期。
+- P0–P6 前段不接管"DAG 是否可视化 / UI 编辑"；P10 后段正式承接 UI/模板能力，依赖 P3/P6/P7–P9 schema 稳定。
 - 不引入第三种 provider；`provider` 仍冻结为 `codex|claude`。
 - **不实现活性探针 / 校验闭环 / 大规模能力**——这三类能力分别拆出 P7 / P8 / P9 三个子任务（见下节边界）；P23 只负责给它们冻结扩展位与冲突缓解契约。
 
@@ -320,7 +330,7 @@ P0 + P1 + P2 + P8 ─► P13   # JSON 严格输出（依赖 sanitize）
   - **失败终态 `verdict_lost`**：arbiter LLM 调用失败（服务挂、超时、JSON parse 失败）→ 落 `verdict_lost`，**不**自动降级 B（避免隐藏成本，需要 B 必须显式 opt-in）
   - prompt injection 防护：verifier 报告作为 quoted data + system prompt 明确"不执行报告内指令" + JSON schema 强校验
   - 审计：每次 arbiter 调用落一行 `dag_arbiter_calls` 表（输入 hash / 输出 / model / latency / cost）
-  - **轻量 LLM 调用层（前置 PR）**：仓库内**没有**可复用的"非 agent 形态轻量 LLM 调用"——`internal/contract/provider.go:10-39` 无 `Complete(ctx, req)` 接口；`internal/module/prompt/classifier/claude_cli.go` 是 CLI 特化路径；`internal/contract/dream.go:10-12` 在 codex/claude 两边都是 TODO（`provider/codexapp/dream_executor.go:19-25`、`provider/claudecli/dream_executor.go:19-25`）。P8 必须有一个**前置 PR 建轻量 LLM 调用层** `cmd/mcp-orch/orchestration/llm/light/*` 才能开工（原表述写 `internal/llm/light/*`，已被修正到合规包）
+  - **轻量 LLM 调用层（前置 PR）**：仓库内**没有**可复用的"非 agent 形态轻量 LLM 调用"——`internal/contract/provider.go:10-39` 无 `Complete(ctx, req)` 接口；`internal/module/prompt/classifier/claude_cli.go` 是 CLI 特化路径；`internal/contract/dream.go:10-12` 在 codex/claude 两边都是 TODO（`provider/codexapp/dream_executor.go:19-25`、`provider/claudecli/dream_executor.go:19-25`）。P8 必须有一个**前置 PR 建轻量 LLM 调用层** `cmd/mcp-orch/orchestration/llm/light/*` 才能开工（原写 `internal/llm/light/*`，已被修正到合规包）
 - 打回原 agent：复用 P23 `relaunch_on_retry=false` 的 retry 路径（同 agent + 再投一轮 turn），把 verifier 反馈拼入下一轮 prompt
 - 依赖：P23 P0/P1/P2 + P21 Canonical Turn Observation Contract + P8 内部前置 PR（轻量 LLM 调用层）
 
@@ -329,19 +339,20 @@ P0 + P1 + P2 + P8 ─► P13   # JSON 严格输出（依赖 sanitize）
 承接「自动迭代一个系统、千 node、百 agent、上千步工具调用」。
 
 - 批量 create：`task_create_dag` 在 N>50 时拆批 / async / streaming（避免单事务 1000 次 UpsertNode）
-- ready 索引：`task_dag_node` 加 `WHERE status='pending'` partial index + 依赖计数列（避免每次扫 JSONB `depends_on`）
+- ready 索引：`task_dag_nodes` 使用 P0 前移的 `remaining_deps` 或等价依赖计数，并在 P9 加 `WHERE status='pending'` partial index（避免每次扫 JSONB `depends_on`）
 - launcher 全局 token bucket：替换固定 `maxConcurrentLaunches=10`，按 `min(DAG max_concurrency, 全局 quota, provider quota)` 取下界；verifier launch 共用同一 quota，**不**另起通道
 - hook consumer worker pool：bounded queue + drop / lag 指标，core hook 线程只 enqueue
 - wakeup / lease / archive：DAG 终态后按 TTL 归档；node `result` 字段只存摘要，详细日志 spillover 外部 storage
-- 容量模型 + SLO 指标：`dag_node_per_second` / `launcher_queue_lag` / `hook_consumer_lag` / `wakeup_age_p99`
+- 容量模型 + SLO 指标：`dag_node_per_second` / `dag_launcher_queue_lag_seconds` / `dag_hook_consumer_lag_seconds` / `dag_wakeup_age_seconds`（p99 由查询计算）
 - backpressure：watcher / dispatcher 按 launcher / hook lag 退避，不再开环
+- cost/budget：P9 提供 `dag/cost_preview` + tenant/subscription budget ledger；token bucket 只控速率，预算耗尽必须 hard stop
 - 依赖：P23 P0/P1/P2 + P22 archtest 守卫
 
 ### P10 DAG 模板 + UI 编辑能力
 
 承接「DAG 要有 UI，用户可以保持模版，然后编辑模版或者编辑 dag 任务」（用户 2026-04-25 提出）。
 
-- 新增 `dag_templates` 表 + `task_dag.template_key/template_version/template_snapshot` 列；模板版本历史 `dag_template_revisions`
+- 新增 `dag_templates` 表 + `task_dags.template_key/template_version/template_snapshot` 列；模板版本历史 `dag_template_revisions`
 - 新增 RPC：`dag/template/create|get|list|update|delete` + `dag/instantiate(template_key, params)` + `dag/edit_node` + `dag/edit_dag`
 - UI：模板库 tab + 任务列表 tab + 拓扑编辑器（v1 mermaid 渐进式，v2 视需求换 d3）
 - 编辑权限：模板任意编辑；任务级未启动可编辑；节点级仅 `status=pending` 可编辑（CAS fence）
@@ -376,8 +387,8 @@ P0 + P1 + P2 + P8 ─► P13   # JSON 严格输出（依赖 sanitize）
 承接「JSON 输出模式（金融场景）」（用户 2026-04-25 提出）。
 
 - node 级 `output_schema` 声明 + `output_validation = { on_invalid: repair|fail, max_repair_rounds }`
-- runtime 在 hook terminal 前先做 JSON schema validate；invalid 走 repair（拼 schema 错误进 repair_prompt 回 agent）或 fail
-- provider 强制结构化：codex JSON mode + claude tool use（owner 调研 native 能力）；不支持时 fallback prompt 工程 + runtime validate
+- hook terminal 只做 bounded parse + durable enqueue；`outputValidationActor` 在写 terminal status / 进入 P8 verify 前完成 JSON schema validate，invalid 走 repair（拼 schema 错误进 repair_prompt 回 agent）或 fail
+- provider structured output 适配/探测：codex JSON mode + claude tool use 只能作为优化；不支持或未验证时 fallback prompt 工程 + runtime validate，金融 hard guarantee 只来自 runtime validate + audit
 - 与 P8 verifier 关系：output_validation 是**语法层**（schema 符合），verifier 是**语义层**（结果对错）；先语法后语义，两层串联
 - 金融场景预设（与 P10 模板配合）：`unanimous swarm + additionalProperties=false + audit_log=true`
 - 审计：`dag_output_validations` 表
@@ -391,8 +402,8 @@ P7 / P8 / P9 / P11 / P12 / P13 六者**不能各自独立设计**，必须共享
 2. 活性扫描必须分片 + lease jitter，不允许 N=1000 形成 DB 周期性尖峰（P7 + P9）
 3. verifier launch 共用 launcher 全局 quota，不另起独立 quota（P8 + P9）
 4. P8 方案 C arbiter 调用必须有 batch 聚合 + 失败终态 `verdict_lost`（**不**自动降级 B），避免千次 LLM 调用打爆 LLM 服务且保持"降级 B 必须显式 opt-in"语义（P8 + P9）
-5. P7 / P8 / P9 / P10 / P11 / P12 / P13 任何 PR 不允许修改 P23 主 `status` 枚举；新增状态必须走独立列（如 `verify_phase` / `activity_state` / `growth_phase`），保持 P23 CAS 形状不变（注：P8 加 `verdict_lost` 是 status 枚举扩展，由 P8 在 `0067_dag_verify_phase.sql` 内合规扩 CHECK 约束；P11 不加 status 枚举，只加 DAG 级 `growth_capped` 标志；P12 / P13 复用 P8 的 verify_phase / failed 状态，不引入新枚举）
-6. P11 spawn 入口必须经 `SpawnChildNodes` 服务函数 + growth_budget 硬约束；不允许任何代码绕路直接 INSERT `task_dag_node`。archtest 守。
+5. P7 / P8 / P9 / P10 / P11 / P12 / P13 任何 PR 不允许修改 P23 主 `status` 枚举；新增状态必须走独立列（如 `verify_phase` / `activity_state` / `growth_phase`），保持 P23 CAS 形状不变（注：P8 加 `verdict_lost` 是 status 枚举扩展，由 P8 在 `0067_dag_verify_phase.sql` 内合规扩 CHECK 约束；P11 不加 status 枚举，只加 DAG 级 `growth_capped` 标志；P12 不引入新主枚举；P13 使用独立 `output_validation_phase`，invalid 不进入 P8 `verify_phase`，且不扩主 `status` 枚举）
+6. P11 spawn 入口必须经 `SpawnChildNodes` 服务函数 + growth_budget 硬约束；不允许任何代码绕路直接 INSERT `task_dag_nodes`。archtest 守。
 7. P13 output_schema 验证发生在 P8 verify gate **之前**（语法层先于语义层）；invalid 直接走 repair / fail，**不**进 verify_phase 流程。
 8. P12 swarm 调用必须共用 P9 全局 token bucket（与 P8 单 arbiter 同一通道），不另起独立 LLM quota；archtest 守。
 
@@ -404,24 +415,24 @@ P7 / P8 / P9 / P11 / P12 / P13 六者**不能各自独立设计**，必须共享
 
 **总计**：P23 在 P22 守卫已落地的前提下约 8-12 工程日（runtime 主链 5-7 日 + 三触发源 3-5 日，假设 cron 触发因 p21 P1b 已就绪而成本可控）。日历时间按 2-3 周准备，因为阶段 0 的 state machine 与 RunnerModule 角色冻结需要跨 P0/P1/P2 owner 共同 review，不能并行开工。
 
-## 子计划清单（待补）
+## 子计划清单（stub 已建，待 owner 补实现细节）
 
 | 文件 | 主题 | 状态 |
 |---|---|---|
-| `P0_DAGRuntimeSkeleton.md` | watcher / ready 计算 / `pending→running` CAS / 4 actor 骨架 | 🔲 待编写 |
-| `P1_WakeupDispatcherAndLaunchBinding.md` | wakeup 消费 / launcher 调用 / `assigned_agent_id` 绑定 | 🔲 待编写 |
-| `P2_NodeTerminalReconcile.md` | hook consumer tap / `CompleteNode` 回写 / timeout-retry-on_failure 执行 | 🔲 待编写 |
-| `P3_ExplicitDAGStartAndOwnership.md` | `dag/start` RPC / owner-tenant 字段 / trigger 枚举落地 | 🔲 待编写 |
-| `P4_HostAgentTriggerSurface.md` | `auto_start: true` / agent 收 DAG terminal hook | 🔲 待编写 |
-| `P5_CronTriggerSurface.md` | `cron_job.target_dag_key` / cron→dag bridge actor | 🔲 待编写 |
-| `P6_ExternalRPCTriggerSurface.md` | AuthN middleware / tenant 鉴权 / rate-limit / audit-log | 🔲 待编写 |
-| `P7_LivenessProbe.md` | dagActivityActor / `last_activity_at` 消费 / 同 agent vs 换 agent relaunch / 长工具反误杀 | 🔲 待编写（依赖 P0/P1/P2） |
-| `P8_VerificationGate.md` | verify 子状态机 / `nodes[].verify` schema / sibling group / runtime-embedded LLM arbiter / 失败兜底 judge node | 🔲 待编写（依赖 P0/P1/P2 + arbiter 报告） |
-| `P9_ScaleScheduling.md` | 批量 create / partial index / 全局 token bucket / hook worker pool / wakeup TTL / SLO + backpressure | 🔲 待编写（依赖 P0/P1/P2 + P22 archtest） |
-| `P10_TemplateAndUI.md` | `dag_templates` 表 / `dag/template/*` + `dag/instantiate` + `dag/edit_node` RPC / UI 模板库 / 任务列表 / 编辑器 / UX 原则 + 三用户故事 | 🔄 stub 已建（依赖 P3+P6） |
-| `P11_DynamicNodeGrowth.md` | `task_spawn_child` 工具 / `growth_budget` 硬约束 / `convergence` 终止条件 / 动态生长 DAG | 🔄 stub 已建（依赖 P0/P1/P2 + P9） |
-| `P12_SwarmArbiter.md` | 第 7 actor `dagSwarmArbiterActor` / 多 LLM 并行 / consensus / dissent / `dag_swarm_consensus` 表 | 🔄 stub 已建（依赖 P8） |
-| `P13_StrictJSONOutput.md` | `output_schema` / validator / repair-or-fail / provider 强制结构化（codex JSON mode / claude tool use）/ 金融场景预设 | 🔄 stub 已建（依赖 P0/P1/P2 + P8） |
+| `P0_DAGRuntimeSkeleton.md` | watcher / ready 计算 / `pending→running` CAS / 4 actor 骨架 | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P1_WakeupDispatcherAndLaunchBinding.md` | wakeup 消费 / launcher 调用 / `assigned_agent_id` 绑定 | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P2_NodeTerminalReconcile.md` | hook consumer tap / `CompleteNode` 回写 / timeout-retry-on_failure 执行 | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P3_ExplicitDAGStartAndOwnership.md` | `dag/start` RPC / owner-tenant 字段 / trigger 枚举落地 | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P4_HostAgentTriggerSurface.md` | `auto_start: true` / agent 收 DAG terminal hook | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P5_CronTriggerSurface.md` | `cron_job.target_dag_key` / cron→dag bridge actor | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P6_ExternalRPCTriggerSurface.md` | AuthN middleware / tenant 鉴权 / rate-limit / audit-log | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P7_LivenessProbe.md` | dagActivityActor / `last_activity_at` 消费 / 同 agent vs 换 agent relaunch / 长工具反误杀 | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P8_VerificationGate.md` | verify 子状态机 / `nodes[].verify` schema / sibling group / runtime-embedded LLM arbiter / judge 显式 opt-in / `verdict_lost` | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P9_ScaleScheduling.md` | 批量 create / partial index / 全局 token bucket / hook worker pool / wakeup TTL / SLO + backpressure | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P10_TemplateAndUI.md` | `dag_templates` 表 / `dag/template/*` + `dag/instantiate` + `dag/edit_node` RPC / UI 模板库 / 任务列表 / 编辑器 / UX 原则 + 三用户故事 | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P11_DynamicNodeGrowth.md` | `task_spawn_child` 工具 / `growth_budget` 硬约束 / `convergence` 终止条件 / 动态生长 DAG | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P12_SwarmArbiter.md` | 第 7 actor `dagSwarmArbiterActor` / 多 LLM 并行 / consensus / dissent / `dag_swarm_consensus` 表 | 🔄 stub 已建 / 待 owner 补实现细节 |
+| `P13_StrictJSONOutput.md` | `output_schema` / validator / repair-or-fail / provider 强制结构化（codex JSON mode / claude tool use）/ 金融场景预设 | 🔄 stub 已建 / 待 owner 补实现细节 |
 
 > README 提供入口级派工与阻塞说明；具体每个子计划的 DDL、SQL 形状、actor 状态机表、必测项必须在各自子计划文件里展开。本文不替代子计划。
 > P0–P6 是 P23 前段「自驱底座 + 三触发源」；P7–P13 是 P23 后段「能力进阶」；前段合入后才开后段。

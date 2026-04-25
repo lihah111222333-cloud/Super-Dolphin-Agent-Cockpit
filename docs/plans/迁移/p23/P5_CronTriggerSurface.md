@@ -31,9 +31,9 @@
 
 - `0066_dag_trigger_cron.sql`（**编号从 0064 改 0066**，必须晚于 P3 的 `0065_dag_owner_tenant.sql`）：cron job 表加 `target_dag_key` + `target_dag_trigger_meta JSONB`
 - **接口设计**：`internal/module/cron/contract.go` 定义 `TriggerSink` interface（`Trigger(ctx, target, meta) error`），cron scheduler 在 `target_dag_key != ''` 时调 `TriggerSink.Trigger(...)`，**不**直接调 DAG Start
-- **bridge 装配**：在 `cmd/mcp-orch/` 装配 `dagTriggerSinkAdapter` 实现 `TriggerSink`，调 `StartDAG(ctx, dagKey, triggerMeta)`；通过 `fx.Provide` 注入 cron 模块
+- **bridge 装配**：不得形成 `cmd/mcp-orch → internal/module/cron` concrete import；二选一：host/core 侧经 platform bus/RPC sink 通知 mcp-orch，或在 `cmd/mcp-orch` 本地化 cron trigger runtime 并只复用 platform-level interface。`TriggerSink` 只能作为抽象边界，不允许双向 concrete import
 - **保持双轨**：`target_dag_key=''` 走旧 cron→turn 路径不变（`internal/module/cron/scheduler.go:288-305`）；`target_dag_key != ''` 走 DAG bridge
-- **deterministic idempotency key**：当前 cron run idempotency 是 UUID（`internal/module/cron/scheduler.go:318-326`），DAG 路径必须改为 `hash(cron_job_id, scheduled_at, target_dag_key)`；`cron_jobs` 表加唯一约束 `UNIQUE (job_id, scheduled_at, target_dag_key) WHERE target_dag_key <> ''`
+- **deterministic idempotency key**：当前 cron run idempotency 是 UUID（`internal/module/cron/scheduler.go:318-326`），DAG 路径必须改为 `hash(cron_job_id, scheduled_at, target_dag_key)`；`cron_job_runs` 表加 partial unique index `UNIQUE (job_id, scheduled_at, target_dag_key) WHERE target_dag_key <> ''`；热表已有数据时用 `CREATE UNIQUE INDEX CONCURRENTLY` 单独 no-transaction migration
 - **不需要新 actor**：复用 cron module 已有的 `tick_actor` + `lease_actor`（`internal/module/cron/module.go:31-32`），只在 tick 时分流
 
 ## DDL / SQL
@@ -43,6 +43,7 @@
 ```sql
 ALTER TABLE public.cron_jobs ADD COLUMN target_dag_key TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.cron_jobs ADD COLUMN target_dag_trigger_meta JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.cron_job_runs ADD COLUMN target_dag_key TEXT NOT NULL DEFAULT '';
 
 -- deterministic idempotency：同一 cron_job 在同一时点不能重复触发同一 DAG
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_run_dag_trigger
@@ -50,7 +51,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_run_dag_trigger
     WHERE target_dag_key <> '';
 ```
 
-> 注：`cron_job_runs.target_dag_key` 列由 P21 P1b 既有 schema 决定是否需要新增；如不存在，本期同时加列。
+> 注：`cron_job_runs.target_dag_key` 必须在唯一索引前新增；若 P21 P1b 后续已加列，本 migration 需用幂等 DDL 或拆迁移避免重复。
 
 ## 依赖
 
@@ -63,7 +64,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_run_dag_trigger
 - cron job target DAG 不存在 / 已 archive：返 `ErrTargetDAGNotFound` 并标 cron job 失败而非创建空 DAG
 - cron schema 改动不能破坏现有 cron→turn 路径（双轨：`target_dag_key=''` 走旧 turn 路径）
 - **跨 root archtest**：`internal/archtest/dependency_direction_mcp_orch_test.go:49-53` 拦截 `internal/module/cron` import `cmd/mcp-orch`；P5 必须经 `TriggerSink` interface，不能绕路
-- **新增 archtest** `cron_dag_bridge_no_concrete_orch_import`：禁止 `internal/module/cron/*.go` 出现 `cmd/mcp-orch/` import
+- **新增 archtest** `cron_dag_bridge_no_concrete_orch_import`：禁止 `internal/module/cron/*.go` 出现 `cmd/mcp-orch/` import，也禁止 `cmd/mcp-orch` 直接 import `internal/module/cron` concrete；桥接只能经登记 interface/platform sink
 
 ## 必测项
 
@@ -74,7 +75,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_run_dag_trigger
 
 ## 输入材料
 
-- README §阶段 0 ① 编号校准（`0064_dag_trigger_cron.sql`）
+- README §阶段 0 ① 编号校准（`0066_dag_trigger_cron.sql`）
 - README §"风险" "cron 双触发" 条
 - p21 P1b 完整章节（必读，特别是 lease 与 idempotency 设计）
 

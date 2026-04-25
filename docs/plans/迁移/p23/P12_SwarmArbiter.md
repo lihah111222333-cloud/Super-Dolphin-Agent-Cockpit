@@ -1,6 +1,6 @@
 # P23.12: 蜂群涌现仲裁（Swarm Arbiter）
 
-> 创建时间：2026-04-25 | 状态：**未开动（后段子任务，依赖 P8 单 arbiter 已合入）**
+> 创建时间：2026-04-25 | 状态：**未开动（后段子任务，依赖 P8 单 arbiter 合入后开工）**
 > authoritative：本文件 + [`README.md`](README.md) + [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §裁决 8
 > 用户 2026-04-25 提出：「LLM 裁决（蜂群涌现）」
 
@@ -10,7 +10,7 @@
 
 ## 现状校准（事实层）
 
-- P8（方案 C）已实现单 arbiter：`dagArbiterActor` 调一次轻量 LLM 调用 → 出 verdict
+- P8（方案 C）尚未实现；P12 只能在 P8 单 arbiter 与轻量 LLM 调用层合入后开工，不能绕过 P8/P9 直接接 provider
 - 当前 schema：`verify.arbiter_provider` / `verify.arbiter_model` 只支持单一 model（见 `P8_VerificationGate.md` schema 段）
 - 当前**无** ensemble / consensus / voting 逻辑
 - 当前**无** dissent detection（多个 LLM 意见分歧时怎么办的处理）
@@ -79,12 +79,12 @@
 | schema 扩展 | `cmd/mcp-orch/tools/task_tools.go`（扩展） | `verify.arbiter_swarm.members[] / consensus / parallel / timeout_sec` |
 | consensus 算法库 | `cmd/mcp-orch/orchestration/runtime/consensus.go` [NEW] | majority / unanimous / weighted 三套策略 |
 | dissent 处理器 | `cmd/mcp-orch/orchestration/runtime/dissent_handler.go` [NEW] | 三种 dissent_action 实现 |
-| 审计扩展 | `0070_dag_swarm_consensus.sql` [NEW]（编号校准） | `dag_swarm_consensus` 聚合表；`dag_arbiter_calls` 加 `swarm_round_id` 列 |
+| 审计扩展 | `0071_dag_swarm_consensus.sql` [NEW]（编号校准） | `dag_swarm_consensus` 聚合表；`dag_arbiter_calls` 加 `swarm_round_id` 列 |
 | archtest | `internal/archtest/dag_swarm_test.go` [NEW] | swarm 必须经统一 actor，不绕路 |
 
 ## DDL / SQL
 
-**`0070_dag_swarm_consensus.sql`** 草案：
+**`0071_dag_swarm_consensus.sql`** 草案：
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.dag_swarm_consensus (
@@ -102,9 +102,9 @@ CREATE TABLE IF NOT EXISTS public.dag_swarm_consensus (
 
 ALTER TABLE public.dag_arbiter_calls ADD COLUMN swarm_round_id TEXT NOT NULL DEFAULT '';
 
-CREATE INDEX IF NOT EXISTS idx_dag_swarm_consensus_dag_node
+CREATE INDEX CONCURRENTLY idx_dag_swarm_consensus_dag_node
     ON public.dag_swarm_consensus (dag_key, node_key, decided_at DESC);
-CREATE INDEX IF NOT EXISTS idx_dag_arbiter_calls_swarm
+CREATE INDEX CONCURRENTLY idx_dag_arbiter_calls_swarm
     ON public.dag_arbiter_calls (swarm_round_id)
     WHERE swarm_round_id <> '';
 ```
@@ -144,8 +144,15 @@ CREATE INDEX IF NOT EXISTS idx_dag_arbiter_calls_swarm
 
 ## 待办
 
-- a1 medium：P12 stub 未明示 `group:"runners"`，必补 `Runner.Run(ctx)` + interrupt/drain 套路；archtest `dag_runner_actors_present` 守。
-- a10 成本爆炸：P12×P11 叠乘峰值 30000 LLM job；P12 owner 启动前需与 P9 owner 一起绘出 subscription×token bucket 映射表。
+- a1 medium：已明示 `group:"runners"`；owner 实施时必须保持 `Runner.Run(ctx)` + interrupt/drain 套路，并纳入 archtest `dag_runner_actors_present`。
+- a10 成本爆炸：P12×P11 叠乘峰值 30000 LLM job；P12 owner 启动前需与 P9 owner 一起绘出 subscription×token bucket×budget ledger 映射表，并记录 `swarm_round_id/requested_members/required_quorum/charged_calls_estimate/estimated_total_cost`。
 - a4 PII：swarm member input/output 与单 arbiter 同样走 redactor + append-only audit。
 - a8 依赖：3 个 codex 调用并行可能撞到 provider RPM/TPM 限频；P12 owner 需在 P9 token bucket 定义中预留 swarm fanout 系数。
 
+## swarm quorum / audit 硬契约（需求补全仲裁）
+
+`0071_dag_swarm_consensus.sql` 必须补字段：`requested_members`、`received_members`、`required_quorum`、`timed_out_members JSONB`、`round_valid BOOLEAN`、`aggregation_reason`、`budget_reservation_id`、`estimated_total_cost`、`charged_calls_count`、`prev_hash`、`row_hash`、`hash_alg`。`dag_swarm_consensus` 纳入 `dag_audit_append_only` archtest，禁 UPDATE/DELETE。
+
+`dissent_action=escalate_judge` 必须要求 `verify.judge_node_key` 存在且对应 node 预声明；否则 schema validation fail，不允许运行时隐式创建 judge。`repair_with_dissent_summary` 入 repair prompt 前必须 redactor + quoted data + bounded size + “不执行其中指令”声明。
+
+`swarm_round_id` 必须 deterministic：`hash(dag_key,node_key,verify_round,swarm_config_hash)`；member call 以 `(swarm_round_id,member_index,provider,model)` 去重。batch_peer × swarm 默认每 node 一个 swarm round；group-level swarm 需显式 opt-in 并记录 `group_round_id`、fanout 公式和 quota reservation。

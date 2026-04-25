@@ -3,6 +3,7 @@ package shared
 import (
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -31,14 +32,39 @@ func TestNewAgentID_NoRandomSuffix(t *testing.T) {
 }
 
 func TestNewAgentID_Uniqueness(t *testing.T) {
-	// Two calls separated by at least 1ms should differ.
 	a := NewAgentID()
-	// Busy-wait to ensure clock advances.
-	for {
-		b := NewAgentID()
-		if b != a {
-			return // good — they differ
+	b := NewAgentID()
+	if b == a {
+		t.Fatalf("NewAgentID() returned duplicate %q", a)
+	}
+}
+
+func TestNewAgentID_ConcurrentUniqueness(t *testing.T) {
+	const n = 1000
+	start := make(chan struct{})
+	ids := make(chan string, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			ids <- NewAgentID()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(ids)
+
+	seen := make(map[string]struct{}, n)
+	for id := range ids {
+		if _, ok := seen[id]; ok {
+			t.Fatalf("NewAgentID() returned duplicate %q under concurrent load", id)
 		}
+		seen[id] = struct{}{}
+	}
+	if len(seen) != n {
+		t.Fatalf("unique id count = %d, want %d", len(seen), n)
 	}
 }
 
