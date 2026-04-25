@@ -1,0 +1,93 @@
+# P23.9: 大规模 DAG 调度（Scale）
+
+> 创建时间：2026-04-25 | 状态：**未开动（后段子任务，依赖 P0/P1/P2 + P22 archtest）**
+> authoritative：本文件 + [`README.md`](README.md) + [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md)
+> 本文件是 P23 子任务 stub；具体实现细节由 owner 在开工前补全。
+
+## 目标
+
+支持「自动迭代一个系统、千 node、百 agent、上千步工具调用」级别的 DAG。批量 create / partial index / 全局 token bucket / hook worker pool / TTL 归档 / SLO + backpressure。**后段子任务**。
+
+## 现状校准（事实层）
+
+**7 大规模化瓶颈**（`gap-scale` 报告，[`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §3）：
+
+| 瓶颈点 | N=1000 影响 | file:line | 建议方向 |
+|---|---|---|---|
+| DAG 创建 | 单事务内 1000 次 `UpsertNode` + 全量 load，O(N) 串行 | `cmd/mcp-orch/orchestration/dag.go:109-126,202-208,211-220`、`cmd/mcp-orch/sql/queries/task_dag_node_write.sql:1-12` | 拆批 / async / streaming |
+| ready 计算 | JSONB `depends_on` 扫描，最坏 O(N²) | `migrations/0004_ack_dag.sql:58-62,70-71` | partial index `(dag_key, id) WHERE status='pending'` + 依赖计数列 |
+| wakeup 表 | 5000 行/DAG，多 DAG 后 M 快速膨胀，无 GC | `migrations/0023_dag_watcher_phase1.sql:9-36`、`cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql:1-16` | TTL / DAG archive / 分区 |
+| launcher | 固定 `maxConcurrentLaunches=10`，百 agent 多波雪崩 | `cmd/mcp-orch/orchestration/service_launcher_bridge.go:22-30,54-63` | 全局 token bucket，按 `min(DAG max_concurrency, 全局, provider quota)` |
+| hook 风暴 | `OnTurnCompleted` 同步 dispatch | `cmd/mcp-orch/orchestration/hook_consumer.go:105-116,260-275,285-294` | non-blocking enqueue + worker pool + bounded queue |
+| 状态存储 | `result jsonb` 承载 verifier/tool log，行膨胀 | `migrations/0004_ack_dag.sql:62`、`cmd/mcp-orch/sql/queries/task_dag_node_read.sql:1-18` | result 只存摘要，详细日志 spillover |
+| 全量锁读 | `GetNodesForUpdate` 锁整 DAG | `cmd/mcp-orch/sql/queries/task_dag_node_read.sql:13-18`、`cmd/mcp-orch/store/taskdag/store.go:100-103` | claim 小批 ready，`SKIP LOCKED` |
+
+## 推荐架构
+
+> 待 owner 在开工前补全；约束以 [`README.md`](README.md) §"当前基线约束" / §"默认值安全原则" / §"收口口径" 为准。
+
+## 改动清单
+
+| 模块 | 文件落点 | 说明 |
+|---|---|---|
+| _待补_ | _待补_ | _待补_ |
+
+**已知关键改动方向**：
+- `task_create_dag` N>50 时拆批 / async / streaming
+- `task_dag_node` 加 `WHERE status='pending'` partial index + 依赖计数列 `remaining_deps`
+- launcher 配置化（P23 阶段 0 ⑤ 已预留 hook）→ 全局 token bucket（**verifier launch 共用同一 quota，不另起通道**，README §三子任务叠加冲突缓解契约 第 3 条）
+- hook consumer worker pool：bounded queue + drop / lag 指标
+- wakeup / lease / archive：DAG 终态后 TTL 归档；node `result` 只存摘要，详细日志 spillover 外部 storage
+- SLO 指标：`dag_node_per_second` / `launcher_queue_lag` / `hook_consumer_lag` / `wakeup_age_p99`
+- backpressure：watcher / dispatcher 按 launcher / hook lag 退避，不再开环
+
+## DDL / SQL
+
+- `task_dag_node` 加 `remaining_deps INTEGER NOT NULL DEFAULT 0`
+- 加 partial index `idx_task_dag_node_pending ON task_dag_node (dag_key, id) WHERE status='pending'`
+- 新增归档表 `task_dag_archive` / `task_dag_node_archive`（或按 DAG 分区）
+
+## 依赖
+
+- P0 / P1 / P2 全部合入
+- P22 archtest 守卫已就位
+- 容量模型 + SLO 数字已敲定（在本子任务 owner 启动前必须先有数字）
+
+## 风险
+
+- 批量 create 长事务 vs 拆批 partial failure：必须有 cleanup 路径
+- partial index 维护成本：写入路径加列必须更新索引 hint
+- 全局 token bucket 失效（如 leader election failure）：必须降级回固定并发，不能 0 并发卡死
+- hook consumer worker pool 队列溢出：drop policy 必须显式（不允许默认丢弃 silent）
+- archive 表与活表的查询路径分离：UI / RPC 必须 union 两表
+- 与 P7 `last_activity_at` 全表扫共振：分片 + jitter 必须协同设计
+- **N=10000 击穿三大瓶颈（a3 调研）**：
+  - DB ready/lock 路径全量读 + 整 DAG `FOR UPDATE`：`task_dag_node_read.sql:13-18` 必须改为 `FOR UPDATE SKIP LOCKED LIMIT K`（K 默认 64）。
+  - hook/launcher 背压缺失：`hook_consumer.go:105-116` 当前 同步 dispatch，必须换 bounded queue + capacity drop 信号。
+  - LLM verdict 开环（P8/P12 无 batch / token bucket）：3000 × swarm 并发击穿 provider RPM；P9 必提供统一 token bucket 与 batch 蠔合点。
+- a10 成本：N=10000 × swarm fanout 　会走到 \$1M+/月；P9 owner 必须推 token bucket 跟 subscription level 映射，并提供 dry-run cost preview 为 P10/P12 提供 API。
+## 必测项
+
+- N=1000 创建吞吐（拆批前 vs 拆批后对比）
+- partial index 命中率（pending 扫描 latency p99）
+- 全局 token bucket 限流准确性（verifier + 普通 launch 共享同一 quota）
+- hook worker pool drop / backpressure
+- TTL 归档 + UI 查询 union
+- SLO 指标全部产出
+
+## 输入材料
+
+- README §"P9 大规模 DAG 调度（Scale）"
+- `gap-scale` 报告（[`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §3）
+- README §三子任务叠加冲突缓解契约 第 2 / 3 条
+
+## 待办
+
+- **SQL `FOR UPDATE SKIP LOCKED LIMIT K`**（a3 击穿项）：`store/taskdag/store.go:100-103` + `task_dag_node_read.sql:13-18` 改走 SKIP LOCKED，避免整 DAG 锁。
+- **result 拆摘要 + spillover**（a3+a10）：`result jsonb` 只留摘要（隐藏 max：N 字节），verifier/tool log 走外部 storage；与N=10000 UI payload 安全联动。
+- **actor buffer 容量化**（a3）：hook consumer / arbiter / swarm enqueue 通道必设上限；drop policy 有明示 metric。
+- **CONCURRENTLY**（a9）：partial index DDL 由单 PR 走 `CREATE INDEX CONCURRENTLY`，与回填列 PR 拆两步，避免大表写阻塞。
+- **token bucket 与 subscription 映射表**（a8+a10）：P9 输出一份 `subscription_id → RPM/TPM/concurrency` 映射，为 P12 swarm fanout / P11 growth 预留额度。
+- **dag_terminal_turn_fence**（a5）：`CompleteTaskDagNode` 补 active_turn_id check，与 P9 SQL 重构同 PR 合入。
+
+
