@@ -90,16 +90,7 @@ func normalizeSkillsChanged(next uidto.SkillsChanged) uidto.SkillsChanged {
 	if next.Action != "" {
 		next.Actions = appendUniqueSkillsChangedActions(next.Actions, next.Action)
 	}
-	switch len(next.Actions) {
-	case 0:
-		next.Action = ""
-	case 1:
-		next.Action = next.Actions[0]
-	default:
-		next.Action = ""
-	}
-	next.Count = len(next.Actions)
-	return next
+	return syncSkillsChangedActionSummary(next)
 }
 
 func normalizeSkillsChangedAction(action string) string {
@@ -124,9 +115,19 @@ func mergeSkillsChanged(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 	}
 	// P0b Step 6: cross-scope or cross-cwd events must not merge; the new event
 	// fully replaces the buffered one (override path - simpler than a multi-event queue).
-	if current.Scope != next.Scope || current.Cwd != next.Cwd {
+	if !skillsChangedMergeable(current, next) {
 		return next
 	}
+	current = mergeSkillsChangedMetadata(current, next)
+	current.Actions = appendUniqueSkillsChangedActions(current.Actions, next.Actions...)
+	return syncSkillsChangedActionSummary(current)
+}
+
+func skillsChangedMergeable(current, next uidto.SkillsChanged) bool {
+	return current.Scope == next.Scope && current.Cwd == next.Cwd
+}
+
+func mergeSkillsChangedMetadata(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 	if next.Timestamp.After(current.Timestamp) {
 		current.EventHeader = next.EventHeader
 	}
@@ -136,17 +137,20 @@ func mergeSkillsChanged(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 	if current.Name == "" || next.Name == "" || current.Name != next.Name {
 		current.Name = ""
 	}
-	current.Actions = appendUniqueSkillsChangedActions(current.Actions, next.Actions...)
-	switch len(current.Actions) {
-	case 0:
-		current.Action = ""
-	case 1:
-		current.Action = current.Actions[0]
-	default:
-		current.Action = ""
-	}
-	current.Count = len(current.Actions)
 	return current
+}
+
+func syncSkillsChangedActionSummary(ev uidto.SkillsChanged) uidto.SkillsChanged {
+	switch len(ev.Actions) {
+	case 0:
+		ev.Action = ""
+	case 1:
+		ev.Action = ev.Actions[0]
+	default:
+		ev.Action = ""
+	}
+	ev.Count = len(ev.Actions)
+	return ev
 }
 
 func appendUniqueSkillsChangedActions(dst []string, actions ...string) []string {

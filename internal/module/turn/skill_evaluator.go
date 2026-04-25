@@ -49,36 +49,53 @@ func NewDefaultEvaluator() *DefaultEvaluator {
 // Evaluate implements the Evaluator interface. It does not mutate the input
 // Trajectory (ToolCalls are not reordered, Cwd is not backfilled, etc.).
 func (e *DefaultEvaluator) Evaluate(t Trajectory) EvaluationVerdict {
-	state := strings.ToLower(strings.TrimSpace(t.TerminalState))
-	if state != "completed" {
-		return EvaluationVerdict{Eligible: false, Reason: ReasonNonCompletedTerminal}
+	if reason := terminalRejectionReason(t); reason != "" {
+		return EvaluationVerdict{Eligible: false, Reason: reason}
 	}
-	if t.Success != nil && !*t.Success {
-		return EvaluationVerdict{Eligible: false, Reason: ReasonCompletionMarkedFailure}
-	}
-	minTools := e.MinToolCalls
-	if minTools < 0 {
-		minTools = 0
-	}
-	if len(t.ToolCalls) < minTools {
+	if len(t.ToolCalls) < normalizedMinToolCalls(e.MinToolCalls) {
 		return EvaluationVerdict{Eligible: false, Reason: ReasonToolCallsBelowMin}
 	}
-	if e.MaxToolCalls > 0 && len(t.ToolCalls) > e.MaxToolCalls {
+	if toolCallLimitExceeded(len(t.ToolCalls), e.MaxToolCalls) {
 		return EvaluationVerdict{Eligible: false, Reason: ReasonToolCallsAboveMax}
 	}
-	if len(t.ToolCalls) > 0 {
-		allFailed := true
-		for _, c := range t.ToolCalls {
-			if !c.Failed {
-				allFailed = false
-				break
-			}
-		}
-		if allFailed {
-			return EvaluationVerdict{Eligible: false, Reason: ReasonAllToolCallsFailed}
-		}
+	if allToolCallsFailed(t.ToolCalls) {
+		return EvaluationVerdict{Eligible: false, Reason: ReasonAllToolCallsFailed}
 	}
 	return EvaluationVerdict{Eligible: true, Reason: ReasonOK}
+}
+
+func terminalRejectionReason(t Trajectory) string {
+	state := strings.ToLower(strings.TrimSpace(t.TerminalState))
+	if state != "completed" {
+		return ReasonNonCompletedTerminal
+	}
+	if t.Success != nil && !*t.Success {
+		return ReasonCompletionMarkedFailure
+	}
+	return ""
+}
+
+func normalizedMinToolCalls(minTools int) int {
+	if minTools < 0 {
+		return 0
+	}
+	return minTools
+}
+
+func toolCallLimitExceeded(count, maxTools int) bool {
+	return maxTools > 0 && count > maxTools
+}
+
+func allToolCallsFailed(calls []ToolCall) bool {
+	if len(calls) == 0 {
+		return false
+	}
+	for _, call := range calls {
+		if !call.Failed {
+			return false
+		}
+	}
+	return true
 }
 
 // Compile-time assertion that *DefaultEvaluator implements Evaluator.

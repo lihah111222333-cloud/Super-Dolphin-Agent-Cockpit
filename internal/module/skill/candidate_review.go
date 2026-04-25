@@ -97,56 +97,57 @@ func (s *service) RejectCandidate(ctx context.Context, id int64, reason string) 
 // whenever CreateSkill succeeded, even if MarkPromoted later errors -
 // callers can locate the on-disk artifact via that field.
 func (s *service) ApproveCandidate(ctx context.Context, p ApproveCandidateParams) (ApproveResult, error) {
-	if s == nil || s.candidateStore == nil {
-		return ApproveResult{}, errCandidateStoreUnavailable
-	}
-	if strings.TrimSpace(p.ApprovedBy) == "" {
-		return ApproveResult{}, ErrCandidateApprovedByRequired
-	}
-
-	// 1. Resolve the candidate so we can validate scope-specific
-	// invariants (project requires repo_fingerprint) before touching
-	// the status column.
-	raw, err := s.candidateStore.GetByID(ctx, p.CandidateID)
+	approved, err := s.approveCandidateForPromotion(ctx, p)
 	if err != nil {
 		return ApproveResult{}, err
 	}
 
-	// 2. project-scope candidates must carry a non-empty repo
-	// fingerprint; without one approvals could leak across repos when
-	// LookupApproval probes the same (slug, hash) combo elsewhere.
-	if raw.Scope == skillcandidate.ScopeProject && strings.TrimSpace(raw.RepoFingerprint) == "" {
-		return ApproveResult{}, ErrCandidateMissingFingerprint
-	}
-
-	// 3. Status must be pending_review. Defending in the service in
-	// addition to the store guard makes the reason for the rejection
-	// (ErrCandidateNotPending) explicit at the RPC layer.
-	if raw.Status != skillcandidate.StatusPendingReview {
-		return ApproveResult{}, ErrCandidateNotPending
-	}
-
-	// 4. Promote pending_review -> approved. Reject from store
-	// (ErrConflict) if the row was concurrently transitioned.
-	approvedAt := time.Now().UTC()
-	approved, err := s.candidateStore.Approve(ctx, p.CandidateID, p.ApprovedBy, p.Reason, approvedAt)
-	if err != nil {
-		return ApproveResult{}, err
-	}
-
-	// 5. Land the SKILL.md via CreateSkill. The caller ctx must carry
-	// cwd; CreateSkill enforces ErrMissingCWD otherwise. CreateSkill is
-	// the single writer for project-scope skills (P21 P0a invariant);
-	// approve must NEVER short-circuit into a direct file write.
+	// Land the SKILL.md via CreateSkill. The caller ctx must carry cwd;
+	// CreateSkill enforces ErrMissingCWD otherwise. CreateSkill is the single
+	// writer for project-scope skills (P21 P0a invariant).
 	skillPath, createErr := s.promoteCandidateToSkill(ctx, approved)
 	if createErr != nil {
 		s.writeCandidateAudit(ctx, "approve_promote_failed", approved, p.ApprovedBy, p.Reason)
 		return ApproveResult{}, createErr
 	}
 
-	// 6. Final transition approved -> promoted. If this fails the
-	// SKILL.md is already on disk (best-effort), so we surface the
-	// path so an operator can either retry MarkPromoted or rollback.
+	return s.markCandidatePromoted(ctx, p, approved, skillPath)
+}
+
+func (s *service) approveCandidateForPromotion(ctx context.Context, p ApproveCandidateParams) (skillcandidate.Candidate, error) {
+	if s == nil || s.candidateStore == nil {
+		return skillcandidate.Candidate{}, errCandidateStoreUnavailable
+	}
+	if strings.TrimSpace(p.ApprovedBy) == "" {
+		return skillcandidate.Candidate{}, ErrCandidateApprovedByRequired
+	}
+	raw, err := s.candidateStore.GetByID(ctx, p.CandidateID)
+	if err != nil {
+		return skillcandidate.Candidate{}, err
+	}
+	if err := validateCandidateApproval(raw); err != nil {
+		return skillcandidate.Candidate{}, err
+	}
+	approvedAt := time.Now().UTC()
+	return s.candidateStore.Approve(ctx, p.CandidateID, p.ApprovedBy, p.Reason, approvedAt)
+}
+
+func validateCandidateApproval(raw skillcandidate.Candidate) error {
+	if raw.Scope == skillcandidate.ScopeProject && strings.TrimSpace(raw.RepoFingerprint) == "" {
+		return ErrCandidateMissingFingerprint
+	}
+	if raw.Status != skillcandidate.StatusPendingReview {
+		return ErrCandidateNotPending
+	}
+	return nil
+}
+
+func (s *service) markCandidatePromoted(
+	ctx context.Context,
+	p ApproveCandidateParams,
+	approved skillcandidate.Candidate,
+	skillPath string,
+) (ApproveResult, error) {
 	if _, err := s.candidateStore.MarkPromoted(ctx, p.CandidateID); err != nil {
 		s.writeCandidateAudit(ctx, "approve_promote_failed", approved, p.ApprovedBy, p.Reason)
 		return ApproveResult{OK: false, SkillPath: skillPath}, err
