@@ -84,7 +84,7 @@
 
 ## 待办
 
-- **SQL `FOR UPDATE SKIP LOCKED LIMIT K`**（a3 击穿项）：`store/taskdag/store.go:100-103` + `task_dag_node_read.sql:13-18` 改走 SKIP LOCKED，避免整 DAG 锁。
+- **SQL `FOR UPDATE SKIP LOCKED LIMIT K` ownership**（a3/a10 仲裁）：首版 ready claim 由 P0/P1 落地；P9 只调 K、索引、fairness 与容量策略。若 P0/P1 未改 `store/taskdag/store.go:100-103` + `task_dag_node_read.sql:13-18`，P9 必须阻塞，不能重复实现一套 claim。
 - **result 拆摘要 + spillover**（a3+a10）：`result jsonb` 只留摘要（隐藏 max：N 字节），verifier/tool log 走外部 storage；DAG detail/list 必须 cursor 分页，默认 `include_result=false`，与 N=10000 UI payload 安全联动。
 - **actor buffer 容量化**（a3）：hook consumer / arbiter / swarm enqueue 通道必设上限；容量公式、shutdown drain 顺序、drop policy（默认不得 silent drop）都有明示 metric。
 - **CONCURRENTLY**（a9）：partial index DDL 已提升为改动清单要求，必须由单独 no-transaction migration 走 `CREATE INDEX CONCURRENTLY`，与回填列 PR 拆两步；archtest 禁该 migration 包 `BEGIN/COMMIT`，避免大表写阻塞。
@@ -109,3 +109,16 @@
 ### spillover / archive / pagination
 
 `result` 活表只保 summary + blob ref；blob key 包含 tenant/dag/node/turn/hash，写入前 redaction，TTL/GC 与 archive 级联。DAG detail 默认 `include_result=false`、字段投影、cursor pagination；archive union 必须定义跨表排序 cursor，默认查活表，用户显式 include_archive 才 union。
+
+## Backpressure / Shutdown Action Matrix（第三轮仲裁必修）
+
+| 信号 | 阈值 / 默认 | 影响 actor | 动作 | 恢复 | metric |
+|---|---|---|---|---|---|
+| hook lag | p99 > 5s 或 durable queue > 80% | watcher/dispatcher/outputValidation/dagActivityActor | 暂停新 launch，terminal durable 优先，progress 可 coalesce；P7 只延后 `next_probe_at`，不 relaunch/不写终态 | p99 连续 3 窗口恢复 | `dag_hook_consumer_lag_seconds` |
+| launcher lag | p99 > 30s 或 depth > quota×3 | dispatcher/arbiter/swarm/dagActivityActor | 降低 claim K，verifier/swarm 限 share；P7 只延后 `next_probe_at` | lag < 10s | `dag_launcher_queue_lag_seconds` |
+| DB p99 | ready claim/update p99 > 200ms | watcher/reconcile | K 减半 + jitter 加倍 | p99 < 100ms | `dag_db_query_duration_seconds` |
+| ready queue depth | per-tenant ready > quota×10 | watcher | per-tenant fair queue 限流 | depth < quota×5 | `dag_ready_queue_depth` |
+| growth budget | 80% / 100% | watcher/spawn | 80% 返 `ErrApproachingBudget`；100% hard stop | owner 调高预算并 audit | `dag_spawn_budget_usage_ratio` |
+| SIGTERM | 收到信号 | 全 actor | stop new claim/start，drain durable terminal/LLM/audit 到 deadline | 重启后 outbox replay | `dag_actor_drain_duration_seconds` |
+
+容量默认值：hook queue terminal durable、progress queue 默认 10k/coalesce；terminal/reconcile/validation durable outbox 默认 retention 7–14 天，replay batch size 默认 100，磁盘/表水位 80% 触发 backpressure，poison message 隔离到 dead-letter，去重键至少包含 `(dag_key,node_key,turn_id,event_type)`；launcher verifier+swarm share 默认 ≤30%；node result summary cap 默认 8KiB；detail pagination 默认 page_size=100/max=500；archive TTL hot 7–14 天；shutdown drain deadline 默认 30s，超时只允许丢 progress，不丢 terminal/audit/validation。LLM token bucket owner PR 必填 RPM/TPM/concurrency 扣减顺序、reservation TTL、失败 refund、budget exhausted terminal/blocked 行为。v1 hard target=N=10000；100k 规模为非目标，需 partition/sharding/archive-only 查询另案。

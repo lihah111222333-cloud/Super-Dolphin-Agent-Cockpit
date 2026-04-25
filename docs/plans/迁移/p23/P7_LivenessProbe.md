@@ -43,8 +43,8 @@ DAG 每 N 分钟探测 running node 上 agent 有无新动向（工具调用、t
 
 ## DDL / SQL
 
-- 不新增表
-- 可能扩 `task_dag_nodes` 加 `last_activity_kind TEXT` 列
+- P7 不新增独立表；但若 `last_activity_at` 之外的 activity 字段不能由既有列承载，必须申请独立 forward migration，不得把字段塞进无约束 JSONB 后绕过 fence
+- 最小列候选：`last_activity_kind`、`activity_state`、`tool_call_id`、`tool_started_at`、`last_relaunch_at`、`relaunch_count`、`next_probe_at`；全部写入必须带 `active_turn_id`/attempt fence 或等价 CAS
 
 ## 依赖
 
@@ -86,3 +86,9 @@ P7 不得只凭一次 idle 超时 relaunch。最小字段/状态：`last_activit
 | 连续 K 轮无 activity 且 agent unreachable / turn lookup 不可恢复 | `dagReconcileActor` 裁决 `observe_lost` 或 new-agent relaunch，不能由 watcher 直接写终态 |
 
 必须有全局/tenant/DAG kill switch、cooldown、per-node/per-DAG window 上限、launcher backlog gate。`observe_lost` 只允许 `dagReconcileActor` 写；watcher 只负责 pending→running/claim。缺省 `idle_timeout_sec=0` 表示不启用自动 relaunch，非 0 才继承 `schedule.default_idle_timeout_sec`；`tool_idle_timeout_sec` 必须大于等于 `idle_timeout_sec`。
+
+### observe_lost CAS / probe 调度补充（第四轮仲裁）
+
+`dagReconcileActor` 写 `observe_lost` 必须使用 CAS 条件：`status='running' AND active_turn_id=$turn_id AND attempt_no=$attempt_no`（或等价 fence）；0 rows affected 视为 stale，不得重试覆盖。new-agent relaunch 与 `observe_lost` 必须竞争同一 CAS fence，二者只能成功一个。
+
+P7 schema 必须冻结 `probe_interval_sec`、`next_probe_at`、batch size、lease jitter 与 backoff 规则；默认 `idle_timeout_sec=0` 仍表示关闭自动 relaunch。`next_probe_at` 每次 probe 后按 interval+jitter 计算，hook/DB/launcher lag 触发 P9 backpressure 时只延后 probe，不写终态。

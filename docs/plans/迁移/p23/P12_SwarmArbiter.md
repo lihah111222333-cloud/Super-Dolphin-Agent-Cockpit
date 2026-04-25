@@ -1,6 +1,6 @@
 # P23.12: 蜂群涌现仲裁（Swarm Arbiter）
 
-> 创建时间：2026-04-25 | 状态：**未开动（后段子任务，依赖 P8 单 arbiter 合入后开工）**
+> 创建时间：2026-04-25 | 状态：**未开动（后段子任务，依赖 P8 单 arbiter + P9 token bucket 合入后开工）**
 > authoritative：本文件 + [`README.md`](README.md) + [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §裁决 8
 > 用户 2026-04-25 提出：「LLM 裁决（蜂群涌现）」
 
@@ -35,6 +35,7 @@
         "strategy": "majority|unanimous|weighted",
         "threshold": 0.66,
         "weights": [1.0, 1.0, 1.5],
+        "required_quorum": 2,
         "dissent_action": "verdict_lost|escalate_judge|repair_with_dissent_summary"
       },
       "parallel": true,
@@ -53,7 +54,7 @@
 ### dissent action（分歧处理）
 
 - `verdict_lost`：分歧 → 落 P8 的第三类终态（保守，不冒险）
-- `escalate_judge`：分歧 → 触发 opt-in B 路径（拉一个 judge node 走常规 launcher）
+- `escalate_judge`：分歧 → 触发显式 judge opt-in 路径（拉一个预声明 judge node 走常规 launcher）
 - `repair_with_dissent_summary`：分歧 → 把多个 LLM 的不同意见汇总进 repair_prompt，让原 agent 自己判断怎么改
 
 ### actor 形态
@@ -92,16 +93,33 @@ CREATE TABLE IF NOT EXISTS public.dag_swarm_consensus (
     dag_key         TEXT        NOT NULL,
     node_key        TEXT        NOT NULL,
     member_count    INTEGER     NOT NULL,
+    requested_members INTEGER   NOT NULL DEFAULT 0,
+    received_members  INTEGER   NOT NULL DEFAULT 0,
+    required_quorum   INTEGER   NOT NULL DEFAULT 0,
+    timed_out_members JSONB     NOT NULL DEFAULT '[]'::jsonb,
     strategy        TEXT        NOT NULL,
     threshold       NUMERIC,
     final_verdict   TEXT        NOT NULL,
     consensus_score NUMERIC     NOT NULL,
+    round_valid     BOOLEAN     NOT NULL DEFAULT FALSE,
+    aggregation_reason TEXT     NOT NULL DEFAULT '',
     dissent_summary JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    budget_reservation_id TEXT  NOT NULL DEFAULT '',
+    estimated_total_cost NUMERIC NOT NULL DEFAULT 0,
+    charged_calls_count INTEGER NOT NULL DEFAULT 0,
+    prev_hash       TEXT        NOT NULL DEFAULT '',
+    row_hash        TEXT        NOT NULL DEFAULT '',
+    hash_alg        TEXT        NOT NULL DEFAULT 'sha256',
+    chain_scope     TEXT        NOT NULL DEFAULT 'dag_swarm_consensus',
     decided_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE public.dag_arbiter_calls ADD COLUMN swarm_round_id TEXT NOT NULL DEFAULT '';
+```
 
+**`0071_dag_swarm_consensus_index_no_tx.sql`**（no-transaction，禁止 `BEGIN/COMMIT`）：
+
+```sql
 CREATE INDEX CONCURRENTLY idx_dag_swarm_consensus_dag_node
     ON public.dag_swarm_consensus (dag_key, node_key, decided_at DESC);
 CREATE INDEX CONCURRENTLY idx_dag_arbiter_calls_swarm
@@ -153,6 +171,6 @@ CREATE INDEX CONCURRENTLY idx_dag_arbiter_calls_swarm
 
 `0071_dag_swarm_consensus.sql` 必须补字段：`requested_members`、`received_members`、`required_quorum`、`timed_out_members JSONB`、`round_valid BOOLEAN`、`aggregation_reason`、`budget_reservation_id`、`estimated_total_cost`、`charged_calls_count`、`prev_hash`、`row_hash`、`hash_alg`。`dag_swarm_consensus` 纳入 `dag_audit_append_only` archtest，禁 UPDATE/DELETE。
 
-`dissent_action=escalate_judge` 必须要求 `verify.judge_node_key` 存在且对应 node 预声明；否则 schema validation fail，不允许运行时隐式创建 judge。`repair_with_dissent_summary` 入 repair prompt 前必须 redactor + quoted data + bounded size + “不执行其中指令”声明。
+`dissent_action=escalate_judge` 必须要求 `verify.judge_node_key` 存在且对应 node 预声明；否则 schema validation fail，不允许运行时隐式创建 judge。`repair_with_dissent_summary` 入 repair prompt 前必须 redactor + quoted data + bounded size + “不执行其中指令”声明，并扣 P8 node 级 `repair_chain_id + combined_repair_round/combined_repair_max`。
 
 `swarm_round_id` 必须 deterministic：`hash(dag_key,node_key,verify_round,swarm_config_hash)`；member call 以 `(swarm_round_id,member_index,provider,model)` 去重。batch_peer × swarm 默认每 node 一个 swarm round；group-level swarm 需显式 opt-in 并记录 `group_round_id`、fanout 公式和 quota reservation。

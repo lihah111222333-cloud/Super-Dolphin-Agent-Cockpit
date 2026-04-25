@@ -34,12 +34,13 @@
 - Rate limit：每 caller / 每 tenant 双层限流
 - Quota：DAG 数 / node 数 / launch 数 三类配额
 - 审计日志：所有 `task/*` RPC 调用落 `dag_audit_log` 表（caller / method / params hash / result / latency）
-- archtest：`dag_external_rpc_authn` 守 `cmd/mcp-orch/orchestration/rpc.go` 必须经 middleware
+- archtest：`dag_external_rpc_guard` 守 TCP JSON-RPC / Wails WS / MCP HTTP 三入口 identity adapter + service 层 AuthN/AuthZ/tenant/rate/quota/audit/idempotency guard
 
 ## DDL / SQL
 
 **新增表**：
-- `dag_audit_log`（caller_id, tenant_id, method, params_hash, result_code, latency_ms, called_at）
+- `dag_audit_log`（caller_id, tenant_id, method, params_hash, result_code, latency_ms, called_at, prev_hash, row_hash, hash_alg, chain_scope）
+- `dag_audit_spool` / durable outbox（spool_id, status, method, params_hash, replay_after, attempt_no, last_error, created_at, processed_at）：外部写操作在 audit 主表不可写时必须 fail-closed，除非 spool insert 成功
 - 也可复用现有 `0065_dag_owner_tenant.sql` 同 PR 一并加
 
 ## 依赖
@@ -58,7 +59,7 @@
 
 - AuthN 缺 caller identity → `ErrCallerIdentityRequired`
 - AuthZ：caller `owner_id != dag.owner_id` 拒绝
-- rate limit 触发后返回统一 `ErrRateLimited{retry_after}`；HTTP transport 映射 429，JSON-RPC 映射固定 error code + `data.retry_after`
+- rate limit 触发后返回统一 `ErrRateLimited{retry_after}`；HTTP transport 映射 429，JSON-RPC 映射固定 error code `ErrCodeRateLimited = -32029` + `data.retry_after`
 - quota 超额阻断创建
 - audit log 落表完整字段
 
@@ -72,12 +73,13 @@
 
 | Method | 写入性 | AuthZ / tenant | Idempotency | Rate/quota | Audit | 特殊约束 |
 |---|---|---|---|---|---|---|
+| `task/dag/create` / `dag/create` | write | tenant creator / owner | 必填，scope=`tenant_id+caller_id+method+key` | DAG + node quota | fail-closed/spool | `tenant_id` 必须来自 authenticated caller authorized tenant；client params 只能一致性校验；compat method 必须映射到同一 guard matrix |
 | `dag/start` | write | owner / tenant admin | 必填，scope=`tenant_id+caller_id+dag_key+method+key` | launch + DAG start quota | fail-closed/spool | 只能调 `StartDAG` |
 | `dag/edit_dag` / `dag/schedule` | write | owner / tenant admin | 必填；params hash 冲突返 conflict | edit quota | fail-closed/spool | 只允许 draft/not_started |
 | `dag/edit_node` | write | owner / tenant admin | 必填 | edit quota | fail-closed/spool | node 必须 `pending` |
 | `dag/spawn` | write | assigned agent / owner | 必填；重复返回同一 spawned keys | growth + spend quota | fail-closed/spool | 必经 `SpawnChildNodes` |
 | `task/node/update` | write-compat | owner / assigned agent | 必填；strict DAG 默认拒绝 status 推进 | strict compat quota | fail-closed/spool | 不得绕过 CAS / active_turn fence |
-| `dag/get/list` | read | tenant filter required | 可选 | read rate | read audit 可降级 | 默认不含 raw result |
+| `task/dag/get` / `task/dag/list` / `dag/get/list` | read | tenant filter required | 可选 | read rate | read audit 可降级 | legacy method names 映射到同一 read guard；默认不含 raw result |
 | audit query | read-sensitive | tenant + audit role | 可选 | read rate | self-audit | redacted only |
 
 ### 两层安全模型
@@ -86,4 +88,4 @@ Transport 层（TCP JSON-RPC / Wails WS / MCP HTTP）只负责提取 identity �
 
 ### 错误语义
 
-服务层统一返回 `ErrRateLimited{retry_after}`；HTTP transport 映射 429，JSON-RPC 映射固定 error code + `data.retry_after`，不得在 TCP JSON-RPC 文档里只写 HTTP 429。
+服务层统一返回 `ErrRateLimited{retry_after}`；HTTP transport 映射 429，JSON-RPC 映射固定 error code `ErrCodeRateLimited = -32029` + `data.retry_after`，不得在 TCP JSON-RPC 文档里只写 HTTP 429。

@@ -31,14 +31,14 @@ DAG schema 加：
 - `dag.growth_budget.max_total_nodes`（DAG 级总 node 数硬上限）
 - `dag.growth_budget.max_depth`（递归深度上限，避免无限链）
 - `dag.growth_budget.max_spawn_per_node`（单 node fork 出的 child 上限）
-- `dag.growth_budget.max_runtime_sec`（DAG 总运行时长上限）
+- `dag.convergence.max_runtime_sec` 或 `dag.execution_budget.max_runtime_sec`（DAG 总运行时长上限；不放入 structural `growth_budget`）
 
 任何超 budget 的 spawn → `ErrGrowthBudgetExceeded` + 触发 DAG `growth_capped` 事件（用户可调高 budget 后续跑）
 
 ### 收敛 / 终止条件
 
 DAG schema 加：
-- `dag.convergence.condition_template`（结构化条件，例如 `{kind: "all_done", filter: {...}}` / `{kind: "fixed_point", check_node: "..."}` / `{kind: "external_signal", channel: "..."}`）
+- `dag.convergence.condition_template`（v1 只允许 `{kind: "all_done"}` / `{kind: "no_ready_and_no_running"}` / `{kind: "max_iterations"}` / `{kind: "external_signal"}`；`fixed_point` 属于后续 opt-in，需要 P8/P12 cost gate）
 - `dag.convergence.timeout_action`（达到 `max_runtime_sec` 时：`graceful_stop` 完成已 running / `hard_stop` 立即 abort / `mark_partial_success`）
 
 ### 入口：`task_spawn_child` 工具 + `dag/spawn` RPC
@@ -52,7 +52,7 @@ DAG schema 加：
 
 ### 与 P9 协同：背压触发动态降速
 
-`dagWatcherActor` 在 ready 计算时若发现 `pending_node_count + running_node_count > growth_budget * 0.8`，自动暂停接受新 spawn 请求（返 `ErrApproachingBudget`），让 agent 知道要"收敛"。
+`dagWatcherActor` 在 ready 计算时若发现 `total_node_count / growth_budget.max_total_nodes >= 0.8`（或 ledger charged count 达 80%），自动暂停接受新 spawn 请求（返 `ErrApproachingBudget`），让 agent 知道要"收敛"。不得使用 `pending+running` 作为预算分母。动作对齐 P9 matrix：80% 只拒新 spawn，100% hard stop；owner 调高预算并 audit 后 watcher replay。
 
 ## 改动清单
 
@@ -65,7 +65,7 @@ DAG schema 加：
 | state machine | `task_dag_node_runtime.sql` [扩展] | `growth_capped` DAG 级标记；node 级无新状态 |
 | watcher | `cmd/mcp-orch/orchestration/runtime/watcher_actor.go` [扩展] | spawn 后重算 ready；预算预警 |
 | convergence | `cmd/mcp-orch/orchestration/runtime/convergence_evaluator.go` [NEW] | 周期性评估 `convergence.condition_template`；触发 DAG 终态 |
-| DDL | `0070_dag_dynamic_growth.sql` [NEW]（编号校准） | `task_dags` 加 `growth_budget JSONB` + `convergence JSONB`；统计列 `total_node_count` + `growth_depth` |
+| DDL | `0070_dag_dynamic_growth.sql` [NEW]（编号校准） | `task_dags` 加 structural `growth_budget JSONB` + `convergence JSONB`；统计列 `total_node_count` + `max_observed_growth_depth` |
 | archtest | `internal/archtest/dag_growth_test.go` [NEW] | spawn 必须经 `SpawnChildNodes` 入口；不允许直接 INSERT node |
 
 ## DDL / SQL
@@ -76,15 +76,39 @@ DAG schema 加：
 ALTER TABLE public.task_dags ADD COLUMN growth_budget JSONB NOT NULL DEFAULT '{}'::jsonb; -- 空对象仅表示未启用 growth；spawn-enabled DAG 中 `{}` 必须 schema invalid
 ALTER TABLE public.task_dags ADD COLUMN convergence JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE public.task_dags ADD COLUMN total_node_count INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE public.task_dags ADD COLUMN growth_depth INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.task_dags ADD COLUMN max_observed_growth_depth INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE public.task_dags ADD COLUMN growth_capped BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE public.task_dag_nodes ADD COLUMN spawned_by_node_key TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.task_dag_nodes ADD COLUMN spawned_at TIMESTAMPTZ;
+ALTER TABLE public.task_dag_nodes ADD COLUMN growth_depth INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_task_dag_node_spawned_by
     ON public.task_dag_nodes (dag_key, spawned_by_node_key)
     WHERE spawned_by_node_key <> '';
+
+CREATE TABLE IF NOT EXISTS public.dag_growth_reservations (
+    reservation_id TEXT PRIMARY KEY,
+    dag_key TEXT NOT NULL,
+    from_node_key TEXT NOT NULL,
+    requested_nodes INTEGER NOT NULL,
+    reserved_nodes INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('reserved','committed','rolled_back','expired')),
+    idempotency_key TEXT NOT NULL,
+    spawned_node_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_by_agent_id TEXT NOT NULL,
+    expires_at TIMESTAMPTZ,
+    committed_at TIMESTAMPTZ,
+    rolled_back_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (dag_key, idempotency_key),
+    CHECK (requested_nodes > 0),
+    CHECK (reserved_nodes >= 0 AND reserved_nodes <= requested_nodes)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dag_growth_reservations_reconcile
+    ON public.dag_growth_reservations (status, expires_at)
+    WHERE status = 'reserved';
 ```
 
 ## 依赖
@@ -94,7 +118,7 @@ CREATE INDEX IF NOT EXISTS idx_task_dag_node_spawned_by
 
 ## 风险
 
-- **无限增长爆系统**：`growth_budget` 是硬约束，**必须**在 spawn 入口拦截；空 `{}` 对 spawn-enabled DAG 视为 invalid，不得解释为 unlimited；默认 cap 必须保守（如 max_total_nodes/max_depth/max_spawn_per_node/max_runtime_sec 均非空）
+- **无限增长爆系统**：`growth_budget` 是硬约束，**必须**在 spawn 入口拦截；空 `{}` 对 spawn-enabled DAG 视为 invalid，不得解释为 unlimited；默认 structural cap 必须保守（如 max_total_nodes/max_depth/max_spawn_per_node 均非空），运行时长上限必须在 convergence/execution budget 中非空
 - **递归深度爆栈**：`max_depth` 防止 child 又生成 child 又生成 child 的无限链
 - **agent 滥用 spawn**：恶意 / bug agent 可能频繁 spawn 把额度吃掉；必须有 budget ledger/reservation CAS（`UPDATE ... WHERE total_node_count + n <= max_total_nodes` 或等价 ledger）后再插 node，失败回滚；用户明确提高才放宽
 - **依赖循环**：spawn 时新 node 的 `depends_on` 必须 archtest 守不能形成环（DAG 拓扑校验）
