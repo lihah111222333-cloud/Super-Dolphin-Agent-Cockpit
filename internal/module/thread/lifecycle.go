@@ -232,6 +232,9 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	if err != nil {
 		return ResumeResult{}, err
 	}
+	if reason, blocked := s.resumeLifecycleBlockReason(ctx, req.ThreadID, nil); blocked {
+		return ResumeResult{}, resumeLifecycleError(req.ThreadID, reason)
+	}
 	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
 	req.Model = shared.FirstNonEmpty(req.Model, state.Model)
 	req.CWD = shared.FirstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
@@ -367,6 +370,9 @@ func (s *service) establishResumedSession(
 	state resumeState,
 	displayName string,
 ) (contract.Session, error) {
+	if reason, blocked := s.resumeLifecycleBlockReason(ctx, req.ThreadID, nil); blocked {
+		return nil, resumeLifecycleError(req.ThreadID, reason)
+	}
 	if s.sessions != nil {
 		s.sessions.RemoveSession(req.AgentID)
 	}

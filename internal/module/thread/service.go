@@ -83,6 +83,11 @@ type service struct {
 	// concurrent resume for the same agent.
 	resumeInFlight sync.Map // agentID → struct{}
 
+	// resumeBlocked tracks agents whose runtime is being intentionally stopped
+	// by lifecycle actions. It closes the race where a late AgentFailed event
+	// tries to session-recover an archived/stopped agent.
+	resumeBlocked sync.Map // agentID → struct{}
+
 	// sessionRecoveryCount tracks how many times session-level
 	// recovery has been attempted per agent to prevent infinite loops.
 	sessionRecoveryCount sync.Map // agentID → *atomic.Int32
@@ -377,6 +382,9 @@ func (s *service) evictZombieSession(ctx context.Context, threadID string) {
 	if s.sessions != nil {
 		s.sessions.RemoveSession(agentID)
 	}
+	if _, blocked := s.resumeLifecycleBlockReason(ctx, threadID, binding); blocked {
+		return
+	}
 	// Clear the stampede guard so backgroundResumeIfNeeded can proceed.
 	s.resumeInFlight.Delete(agentID)
 }
@@ -385,19 +393,9 @@ func (s *service) evictZombieSession(ctx context.Context, threadID string) {
 // (from a previous session) but no active session, and triggers a background
 // Resume so the session is ready by the time the user sends a message.
 func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string) {
-	binding, err := s.resolveBinding(ctx, threadID)
-	if err != nil || binding == nil {
+	agentID, ok := s.backgroundResumeCandidate(ctx, threadID)
+	if !ok {
 		return
-	}
-	agentID := strings.TrimSpace(binding.AgentID)
-	if agentID == "" {
-		return
-	}
-	// Check if session already exists.
-	if s.sessions != nil {
-		if sess, _ := s.sessions.GetSession(agentID); sess != nil {
-			return
-		}
 	}
 	// Prevent stampede: skip if a resume was already attempted for this agent.
 	// The entry is never deleted — a failed resume stays marked so we don't
@@ -417,6 +415,33 @@ func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string)
 		// Only clear on success so subsequent ReadMessages can detect a live session.
 		s.resumeInFlight.Delete(agentID)
 	})
+}
+
+func (s *service) backgroundResumeCandidate(ctx context.Context, threadID string) (string, bool) {
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil || binding == nil {
+		return "", false
+	}
+	agentID := strings.TrimSpace(binding.AgentID)
+	if agentID == "" {
+		return "", false
+	}
+	if reason, blocked := s.resumeLifecycleBlockReason(ctx, threadID, binding); blocked {
+		if s.logger != nil {
+			s.logger.Info("thread: background resume skipped by lifecycle",
+				"thread_id", threadID,
+				"agent_id", agentID,
+				"reason", reason,
+			)
+		}
+		return "", false
+	}
+	if s.sessions != nil {
+		if sess, _ := s.sessions.GetSession(agentID); sess != nil {
+			return "", false
+		}
+	}
+	return agentID, true
 }
 
 func (s *service) closeSessionForAgent(ctx context.Context, agentID string) error {

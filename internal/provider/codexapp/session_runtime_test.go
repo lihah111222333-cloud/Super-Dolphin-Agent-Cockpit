@@ -14,8 +14,10 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/gorilla/websocket"
+	"github.com/kelindar/event"
 )
 
 // -----------------------------------------------------------------------------
@@ -243,6 +245,42 @@ func TestSessionRuntimeCloseSuppressesNewRecovery(t *testing.T) {
 	}
 	if got := s.runtime.DroppedSignalsTotal() - droppedBefore; got != 5 {
 		t.Errorf("post-close dropped count delta = %d, want 5", got)
+	}
+}
+
+func TestAttemptRecoveryAfterShutdownDoesNotDispatchRecoverableDeath(t *testing.T) {
+	t.Parallel()
+
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	rawEvents := make(chan dto.BusRawProviderEvent, 1)
+	cancelSub := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) {
+		rawEvents <- ev
+	})
+	defer cancelSub()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &session{
+		agentID:       "agent-1",
+		ctx:           ctx,
+		cancel:        cancel,
+		dispatcher:    unified.NewEventDispatcher(bus, pkglogger.Get()),
+		turns:         map[string]*turnHandle{},
+		suppressed:    map[string]struct{}{},
+		runtimeConfig: map[string]any{},
+		recovery:      &recoveryManager{logger: pkglogger.Get()},
+	}
+	s.runtime = newSessionRuntime(s, pkglogger.Get())
+	cancel()
+
+	err := s.attemptRecovery("shutdown-race")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("attemptRecovery() err = %v, want context.Canceled", err)
+	}
+	select {
+	case ev := <-rawEvents:
+		t.Fatalf("unexpected recoverable event after shutdown: %#v", ev)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

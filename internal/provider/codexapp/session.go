@@ -106,23 +106,15 @@ func newSessionWithOptions(
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	// Each session owns its own WS connection. Precedence:
-	//   1. explicit poolURL (P21 multi-provider Codex, per-codexHome pool)
-	//   2. ServerManager shared URL (single-instance Codex)
-	//   3. raw serverURL arg (remote debug override)
-	url := serverURL
-	if cfg.poolURL != "" {
-		url = cfg.poolURL
-	} else if manager != nil && manager.Running() {
-		url = manager.ServerURL()
+	url, err := resolveSessionTransportURL(transportCtx, serverURL, manager, cfg)
+	if err != nil {
+		return nil, err
 	}
 	t, err := newTransport(transportCtx, url)
 	if err != nil {
 		// On spawn failure we must still release the pool slot we
 		// reserved so the next Acquire sees accurate refCount.
-		if cfg.poolRelease != nil {
-			cfg.poolRelease()
-		}
+		releaseSessionPoolSlot(cfg)
 		return nil, err
 	}
 	// P22 P1c: session ctx derives from transportCtx so shutdown of the
@@ -150,6 +142,37 @@ func newSessionWithOptions(
 	// production call site inside driver.StartSession / driver.ResumeSession.
 	s.runtime = newSessionRuntime(s, logger)
 	return s, nil
+}
+
+// Each session owns its own WS connection. Precedence:
+//   - explicit poolURL (P21 multi-provider Codex, per-codexHome pool)
+//   - ServerManager shared URL (single-instance Codex)
+//   - raw serverURL arg (remote debug override)
+func resolveSessionTransportURL(
+	ctx context.Context,
+	serverURL string,
+	manager *ServerManager,
+	cfg sessionOptions,
+) (string, error) {
+	if cfg.poolURL != "" {
+		return cfg.poolURL, nil
+	}
+	if manager != nil && manager.Running() {
+		return manager.ServerURL(), nil
+	}
+	if manager != nil && strings.TrimSpace(serverURL) == "" {
+		if err := manager.EnsureRunning(ctx); err != nil {
+			return "", err
+		}
+		return manager.ServerURL(), nil
+	}
+	return serverURL, nil
+}
+
+func releaseSessionPoolSlot(cfg sessionOptions) {
+	if cfg.poolRelease != nil {
+		cfg.poolRelease()
+	}
 }
 
 // sessionOption is a functional option for newSession used to pass

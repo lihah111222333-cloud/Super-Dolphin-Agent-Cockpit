@@ -229,6 +229,15 @@ func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentF
 	if agentID == "" {
 		return
 	}
+	target := shared.FirstNonEmpty(threadID, agentID)
+	if reason, blocked := s.resumeLifecycleBlockReason(ctx, target, nil); blocked {
+		pkglogger.Info("thread: session recovery skipped by lifecycle",
+			"agent_id", agentID,
+			"thread_id", target,
+			"reason", reason,
+		)
+		return
+	}
 	// Rate-limit session-level recovery to prevent infinite loops.
 	count := s.incrSessionRecoveryCount(agentID)
 	if count > maxSessionRecoveryAttempts {
@@ -239,7 +248,6 @@ func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentF
 		)
 		return
 	}
-	target := shared.FirstNonEmpty(threadID, agentID)
 	pkglogger.Warn("thread: onAgentFailed → session-level recovery",
 		"agent_id", agentID,
 		"thread_id", target,
@@ -255,6 +263,14 @@ func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentF
 	select {
 	case <-time.After(sessionRecoveryReconnectDelay):
 	case <-ctx.Done():
+		return
+	}
+	if reason, blocked := s.resumeLifecycleBlockReason(ctx, target, nil); blocked {
+		pkglogger.Info("thread: session recovery resume skipped by lifecycle",
+			"agent_id", agentID,
+			"thread_id", target,
+			"reason", reason,
+		)
 		return
 	}
 	s.backgroundResumeIfNeeded(ctx, target)

@@ -85,7 +85,8 @@ func (s *service) Unarchive(ctx context.Context, threadID string) error {
 	// canceled) so that the next resolve path creates a fresh session via
 	// autoResumeSession, reconnecting to the same provider thread UUID
 	// and preserving conversation history.
-	s.resetSessionRecoveryCount(threadID)
+	s.unblockResumeForThread(ctx, threadID)
+	s.resetSessionRecoveryForThread(ctx, threadID)
 	s.evictZombieSession(ctx, threadID)
 	// Pre-warm: kick off a background resume so the session is ready by the
 	// time the user sends the first message.
