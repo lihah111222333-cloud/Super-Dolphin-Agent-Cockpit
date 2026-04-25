@@ -44,6 +44,13 @@ func (a *sessionProviderAdapter) SessionGeneration(agentID string) uint64 {
 	return a.manager.SessionGeneration(agentID)
 }
 
+func (a *sessionProviderAdapter) RemoveSessionGeneration(agentID string, generation uint64) {
+	if a == nil || a.manager == nil {
+		return
+	}
+	a.manager.Remove(agentID, generation)
+}
+
 func (a *sessionCleanerAdapter) RemoveSession(agentID string) {
 	if a == nil || a.manager == nil {
 		return

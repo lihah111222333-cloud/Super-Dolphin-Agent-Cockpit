@@ -146,12 +146,9 @@ func (s *service) stopManagedAgent(ctx context.Context, agentID string, allowMis
 		return nil
 	}
 	if s.orchestration == nil {
-		pkglogger.Info("thread: stopManagedAgent removing session (no orchestration)",
+		pkglogger.Info("thread: stopManagedAgent no orchestration",
 			"agent_id", agentID,
 		)
-		if s.sessions != nil {
-			s.sessions.RemoveSession(agentID)
-		}
 		return nil
 	}
 	err := s.orchestration.StopAgent(ctx, agentID)

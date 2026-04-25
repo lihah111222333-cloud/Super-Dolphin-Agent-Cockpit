@@ -25,7 +25,7 @@ import (
 //     app-server instead of leaving it behind.
 //
 // On failure the caller gets an error already enriched with the stderr
-// tail, which the pool caches in the per-home backoff slot.
+// tail, which the pool caches in the identity+owner backoff slot.
 func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Registry, logger *slog.Logger) (*transport, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -90,9 +90,8 @@ func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Regist
 // invocation launches a fresh codex app-server bound to the requested
 // codexHome and wraps it in a SpawnedServer view via wrapTransport.
 //
-// The returned Spawner does not itself enforce concurrency or
-// deduplication — the pool already serialises concurrent Acquire calls
-// for the same home under its own lock.
+// The returned Spawner does not itself enforce concurrency or deduplication;
+// the pool owns those decisions per identity+owner entry.
 func NewTransportSpawner(registry *pidregistry.Registry, logger *slog.Logger) Spawner {
 	if logger == nil {
 		logger = pkglogger.Get()

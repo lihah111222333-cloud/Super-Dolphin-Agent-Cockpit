@@ -37,6 +37,10 @@ type SessionProvider interface {
 	RemoveSession(agentID string)
 }
 
+type sessionGenerationRemover interface {
+	RemoveSessionGeneration(agentID string, generation uint64)
+}
+
 type providerThreadNameSetter interface {
 	SetThreadName(ctx context.Context, threadID, name string) error
 }
@@ -419,11 +423,34 @@ func (s *service) closeSessionForAgent(ctx context.Context, agentID string) erro
 	if s.sessions == nil {
 		return nil
 	}
-	session, err := s.sessions.GetSession(strings.TrimSpace(agentID))
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil
+	}
+	var generation uint64
+	if provider, ok := s.sessions.(sessionGenerationProvider); ok {
+		generation = provider.SessionGeneration(agentID)
+	}
+	session, err := s.sessions.GetSession(agentID)
 	if err != nil {
 		return nil
 	}
-	return session.Close(ctx)
+	err = session.Close(ctx)
+	s.removeStoppedSession(agentID, generation)
+	return err
+}
+
+func (s *service) removeStoppedSession(agentID string, generation uint64) {
+	if s.sessions == nil {
+		return
+	}
+	if generation != 0 {
+		if remover, ok := s.sessions.(sessionGenerationRemover); ok {
+			remover.RemoveSessionGeneration(agentID, generation)
+			return
+		}
+	}
+	s.sessions.RemoveSession(agentID)
 }
 
 func (s *service) setBindingArchived(ctx context.Context, threadID string, archived bool) error {
