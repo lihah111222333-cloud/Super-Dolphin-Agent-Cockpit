@@ -308,7 +308,7 @@ func (s *service) WriteLocal(ctx context.Context, path, content string, scope ..
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {
 		return nil, err
 	}
-	s.publishSkillsChanged("local_write", filepath.Base(filepath.Dir(path)))
+	s.publishSkillsChanged(ctx, "local_write", filepath.Base(filepath.Dir(path)), normalizedScope)
 	return map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}, nil
 }
 
@@ -328,7 +328,8 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 		if name == "" && len(results) == 1 {
 			name, _ = results[0]["name"].(string)
 		}
-		s.publishSkillsChanged("import_dir", name)
+		resolvedScope, _ := normalizeSkillScope(p.Scope)
+		s.publishSkillsChanged(ctx, "import_dir", name, resolvedScope)
 	}
 	return response, nil
 }
@@ -370,7 +371,7 @@ func (s *service) DeleteLocal(ctx context.Context, name string) (any, error) {
 	if err := os.RemoveAll(record.info.Dir); err != nil {
 		return nil, err
 	}
-	s.publishSkillsChanged("delete_local", record.info.Name)
+	s.publishSkillsChanged(ctx, "delete_local", record.info.Name, scopeFromTrust(record.info.Trust))
 	return map[string]any{"ok": true, "name": record.info.Name, "dir": record.info.Dir, "removed_agent_bindings": 0}, nil
 }
 
@@ -395,7 +396,7 @@ func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
 	return map[string]any{"skill": map[string]any{"url": url, "content": string(body)}}, nil
 }
 
-func (s *service) WriteRemote(_ context.Context, name, content string) (any, error) {
+func (s *service) WriteRemote(ctx context.Context, name, content string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
 	}
@@ -406,7 +407,7 @@ func (s *service) WriteRemote(_ context.Context, name, content string) (any, err
 	if err != nil {
 		return nil, err
 	}
-	s.publishSkillsChanged("remote_write", name)
+	s.publishSkillsChanged(ctx, "remote_write", name, skillScopeSystem)
 	return map[string]any{"ok": true, "path": path}, nil
 }
 
@@ -426,7 +427,7 @@ func (s *service) ReadConfig(_ context.Context, agentID string) (any, error) {
 	}, nil
 }
 
-func (s *service) WriteSkillContent(_ context.Context, name, content string) (any, error) {
+func (s *service) WriteSkillContent(ctx context.Context, name, content string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
 	}
@@ -437,11 +438,11 @@ func (s *service) WriteSkillContent(_ context.Context, name, content string) (an
 	if err != nil {
 		return nil, err
 	}
-	s.publishSkillsChanged("config_write", name)
+	s.publishSkillsChanged(ctx, "config_write", name, skillScopeSystem)
 	return map[string]any{"ok": true, "path": path}, nil
 }
 
-func (s *service) WriteSummary(_ context.Context, name, summary string) (any, error) {
+func (s *service) WriteSummary(ctx context.Context, name, summary string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
 	}
@@ -452,7 +453,7 @@ func (s *service) WriteSummary(_ context.Context, name, summary string) (any, er
 	if err != nil {
 		return nil, err
 	}
-	s.publishSkillsChanged("summary_write", resolvedName)
+	s.publishSkillsChanged(ctx, "summary_write", resolvedName, skillScopeSystem)
 	return map[string]any{"ok": true, "path": path, "name": resolvedName, "summary": strings.TrimSpace(summary)}, nil
 }
 

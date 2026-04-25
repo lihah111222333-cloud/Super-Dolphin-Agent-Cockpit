@@ -24,9 +24,14 @@ func (s *service) bindDispatcher(dispatcher *event.Dispatcher) {
 	s.emitSkillsChanged = bus.NewEmitter[uidto.SkillsChanged](dispatcher)
 }
 
-func (s *service) publishSkillsChanged(action, name string) {
+func (s *service) publishSkillsChanged(ctx context.Context, action, name, scope string) {
 	if s == nil || s.emitSkillsChanged == nil {
 		return
+	}
+	normalizedScope := strings.TrimSpace(scope)
+	cwd := ""
+	if normalizedScope == skillScopeProject {
+		cwd = cwdFromContext(ctx)
 	}
 	s.scheduleSkillsChanged(uidto.SkillsChanged{
 		EventHeader: shared.EventHeader{Timestamp: time.Now()},
@@ -34,6 +39,8 @@ func (s *service) publishSkillsChanged(action, name string) {
 		Name:        strings.TrimSpace(name),
 		Action:      normalizeSkillsChangedAction(action),
 		Count:       1,
+		Scope:       normalizedScope,
+		Cwd:         cwd,
 	})
 }
 
@@ -72,6 +79,12 @@ func (s *service) flushSkillsChanged(seq uint64) {
 func normalizeSkillsChanged(next uidto.SkillsChanged) uidto.SkillsChanged {
 	next.SkillsDir = strings.TrimSpace(next.SkillsDir)
 	next.Name = strings.TrimSpace(next.Name)
+	next.Scope = strings.TrimSpace(next.Scope)
+	next.Cwd = strings.TrimSpace(next.Cwd)
+	// P0b Step 6: system-scope events never carry Cwd; enforce here.
+	if next.Scope != skillScopeProject {
+		next.Cwd = ""
+	}
 	next.Action = normalizeSkillsChangedAction(next.Action)
 	next.Actions = appendUniqueSkillsChangedActions(nil, next.Actions...)
 	if next.Action != "" {
@@ -107,6 +120,11 @@ func normalizeSkillsChangedAction(action string) string {
 
 func mergeSkillsChanged(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 	if current.Count == 0 {
+		return next
+	}
+	// P0b Step 6: cross-scope or cross-cwd events must not merge; the new event
+	// fully replaces the buffered one (override path - simpler than a multi-event queue).
+	if current.Scope != next.Scope || current.Cwd != next.Cwd {
 		return next
 	}
 	if next.Timestamp.After(current.Timestamp) {
@@ -149,4 +167,15 @@ func containsSkillsChangedAction(actions []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// scopeFromTrust maps a SKILL.md trust scope to the SkillsChanged event scope
+// string. TrustProject corresponds to the project scope; everything else (TrustUser,
+// TrustSigned, TrustUnknown) is reported as system-scope so subscribers receive the
+// trust boundary explicitly.
+func scopeFromTrust(trust TrustScope) string {
+	if trust == TrustProject {
+		return skillScopeProject
+	}
+	return skillScopeSystem
 }
