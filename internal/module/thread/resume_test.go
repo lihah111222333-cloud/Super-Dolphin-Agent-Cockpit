@@ -111,8 +111,9 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	}
 }
 
-func TestServiceResumeBackfillsDefaultCodexIdentity(t *testing.T) {
+func TestServiceResumeBackfillsDefaultCodexIdentityWhenOptedIn(t *testing.T) {
 	codexHome := t.TempDir()
+	t.Setenv(legacyDefaultCodexHomeEnvVar, legacyDefaultCodexHomeEnabled)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",

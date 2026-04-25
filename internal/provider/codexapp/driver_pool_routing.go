@@ -14,9 +14,9 @@ import (
 )
 
 // poolRoutingEnvVar is the binary-level override for ServerPool routing.
-// When unset, routing runs in auto mode: valid codex identity uses the pool,
-// while missing identity keeps the legacy ServerManager path for old bindings.
-// Explicit true is fail-closed, explicit false disables the pool.
+// When unset, routing is enabled and fail-closed: valid codex identity uses the
+// pool, while missing identity errors instead of falling back to the legacy
+// ServerManager. Explicit false disables the pool for legacy deployments.
 const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 
 // resolveSessionOptions is called by StartSession to decide whether
@@ -29,11 +29,9 @@ const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 //  1. Pool not wired -> no options (legacy path).
 //  2. Pool explicitly disabled -> no options (legacy path); identity
 //     parse errors are warned so compatibility fallbacks remain visible.
-//  3. Explicit true + invalid identity -> fail closed. StartSession must not
-//     silently fall back to the shared app-server after strict opt-in.
-//  4. Auto mode + invalid identity -> warn and use legacy path. This keeps old
-//     persisted bindings resumable while new starts carry explicit identity.
-//  5. Valid identity + available pool -> Acquire a SpawnedServer and
+//  3. Pool enabled + invalid identity -> fail closed. StartSession must not
+//     silently fall back to the shared app-server.
+//  4. Valid identity + available pool -> Acquire a SpawnedServer and
 //     attach its URL + release to the session via withPoolServer.
 //     ErrSpawnBackoff is surfaced to the caller so retry pressure is
 //     visible at the StartSession seam.
@@ -138,9 +136,9 @@ func (d *driver) warnLegacyIdentityFallback(agentID string, err error) {
 	)
 }
 
-// poolRoutingEnabled parses the env override. Missing / empty means
-// auto-enabled so valid identity uses the ServerPool by default. Parse errors
-// are treated as disabled so a typo never silently turns the pool on.
+// poolRoutingEnabled parses the env override. Missing / empty means enabled
+// and strict so valid identity uses the ServerPool by default. Parse errors are
+// treated as disabled so a typo never silently turns the pool on.
 func poolRoutingEnabled() bool {
 	enabled, _ := poolRoutingDecision()
 	return enabled
@@ -149,7 +147,7 @@ func poolRoutingEnabled() bool {
 func poolRoutingDecision() (enabled bool, strict bool) {
 	raw := strings.TrimSpace(os.Getenv(poolRoutingEnvVar))
 	if raw == "" {
-		return true, false
+		return true, true
 	}
 	enabled, err := strconv.ParseBool(raw)
 	if err != nil {

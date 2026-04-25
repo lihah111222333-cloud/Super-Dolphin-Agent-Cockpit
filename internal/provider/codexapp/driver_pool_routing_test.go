@@ -93,10 +93,10 @@ func TestPoolRoutingExplicitlyDisabledUsesLegacyPath(t *testing.T) {
 }
 
 // TestResolveSessionOptionsFailsClosedOnIdentityError checks the fail-closed
-// contract: once the pool flag is enabled, a request missing codexHome must
-// return an identity error instead of falling back to the legacy server.
+// contract: by default, a request missing codexHome must return an identity
+// error instead of falling back to the legacy server.
 func TestResolveSessionOptionsFailsClosedOnIdentityError(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "1")
+	t.Setenv(poolRoutingEnvVar, "")
 	spawnCalls := atomic.Int32{}
 	spawner := func(context.Context, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
@@ -209,10 +209,11 @@ func TestPoolRoutingFlagFalsyStaysDisabled(t *testing.T) {
 	}
 }
 
-func TestPoolRoutingFlagMissingAutoEnabled(t *testing.T) {
+func TestPoolRoutingFlagMissingEnablesStrictRouting(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "")
-	if !poolRoutingEnabled() {
-		t.Fatal("missing pool flag must enable auto routing")
+	enabled, strict := poolRoutingDecision()
+	if !enabled || !strict {
+		t.Fatalf("missing pool flag = enabled %v strict %v, want true/true", enabled, strict)
 	}
 }
 
@@ -317,7 +318,7 @@ func TestResumeSessionUsesPoolWhenBindingHasIdentity(t *testing.T) {
 }
 
 func TestResumeSessionFailsClosedWhenPoolEnabledAndIdentityMissing(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "1")
+	t.Setenv(poolRoutingEnvVar, "")
 	spawnCalls := atomic.Int32{}
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
