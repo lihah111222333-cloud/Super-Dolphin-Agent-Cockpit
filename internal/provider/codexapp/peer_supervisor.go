@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -543,10 +544,21 @@ func resolvePeerBinDirs() ([]string, error) {
 }
 
 func findPeerBinary(dirs []string, name string) (string, bool) {
+	// On Windows the binaries are mcp-orch.exe / mcp-lsp.exe but
+	// defaultPeerNames returns the unsuffixed names (Unix convention).
+	// Probe the .exe variant first on Windows so we resolve before
+	// falling back to the literal name (which lets callers that already
+	// include ".exe" still work).
+	candidates := []string{name}
+	if runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(name), ".exe") {
+		candidates = []string{name + ".exe", name}
+	}
 	for _, dir := range dirs {
-		candidate := filepath.Join(dir, name)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, true
+		for _, leaf := range candidates {
+			candidate := filepath.Join(dir, leaf)
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate, true
+			}
 		}
 	}
 	return "", false
