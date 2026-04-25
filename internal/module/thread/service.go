@@ -166,6 +166,7 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 		return err
 	}
 	name = strings.TrimSpace(name)
+	thread.Name = name
 	thread.Prompt = name
 	thread.UpdatedAt = time.Now().Unix()
 	if err := s.upsertThread(ctx, *thread); err != nil {

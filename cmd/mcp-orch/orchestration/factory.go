@@ -364,13 +364,27 @@ func (s *service) withAgentReadLocked(agentID string, fn func(*agentState) error
 	return fn(agent)
 }
 
+func (s *service) withAgentReadLockedByAgentID(agentID string, fn func(*agentState) error) error {
+	if s == nil {
+		return fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	agent, err := lookupAgentByIdentityLocked(s.agents, agentID, agentIdentityLocalOnly)
+	if err != nil {
+		return err
+	}
+	return fn(agent)
+}
+
 // agentIdentityKind narrows how an external identifier may be looked
 // up against the in-memory agents map. The distinction matters for
 // the P4 identity-fence contract (plan §63 / §121 / §282):
 //
-//   - agentIdentityLocalOnly: only the orchestration agent name (map
-//     key) is consulted. Use this for callers that already hold a
-//     local authoritative id (e.g. API-facing lookups). Reverse
+//   - agentIdentityLocalOnly: only the persisted orchestration
+//     agent_id (map key) is consulted. Use this for callers that
+//     already hold a local authoritative id (e.g. API-facing lookups). Reverse
 //     lookups are denied so a remote id cannot be silently accepted
 //     outside a trusted hook boundary.
 //
@@ -405,7 +419,7 @@ func lookupAgentByIDLocked(agents map[string]*agentState, agentID string) (*agen
 // trust implications of each kind.
 func lookupAgentByIdentityLocked(agents map[string]*agentState, agentID string, kind agentIdentityKind) (*agentState, error) {
 	agentID = strings.TrimSpace(agentID)
-	// Primary lookup: by orchestration agent name (map key).
+	// Primary lookup: by persisted orchestration agent_id (map key).
 	if agent, ok := agents[agentID]; ok {
 		return agent, nil
 	}
@@ -414,7 +428,7 @@ func lookupAgentByIdentityLocked(agents map[string]*agentState, agentID string, 
 	}
 	// Reverse lookup (agentIdentityAny only): by remoteAgentID or
 	// remoteThreadID assigned by the main app. Hook events carry the
-	// remote id, not the local name.
+	// remote id, not necessarily the persisted orchestration agent_id.
 	for _, candidate := range agents {
 		if candidate.remoteAgentID == agentID || candidate.remoteThreadID == agentID {
 			return candidate, nil
