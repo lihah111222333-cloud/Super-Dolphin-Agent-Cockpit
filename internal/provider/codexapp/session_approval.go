@@ -221,9 +221,13 @@ func isRequestUserInputMethod(method string) bool {
 
 func (s *session) onNotification(method string, params json.RawMessage) {
 	s.noteReadActivity()
-	if s.isAlienThreadEvent(params) {
+	if eventThread, ok := s.alienThreadEventThread(params); ok {
 		pkglogger.Warn("codexapp: dropped alien thread event",
-			"agent_id", s.agentID, "method", method, "own_thread", s.ThreadID())
+			"agent_id", s.agentID,
+			"method", method,
+			"own_thread", s.ThreadID(),
+			"event_thread", eventThread,
+		)
 		return
 	}
 	if s.shouldSuppressTurnEvent(method, params) {
@@ -254,19 +258,27 @@ func (s *session) handleNotificationAction(method string, params json.RawMessage
 // that does not match this session's thread. Events without a threadId are
 // never considered alien.
 func (s *session) isAlienThreadEvent(params json.RawMessage) bool {
+	_, ok := s.alienThreadEventThread(params)
+	return ok
+}
+
+func (s *session) alienThreadEventThread(params json.RawMessage) (string, bool) {
 	own := s.ThreadID()
 	if own == "" {
-		return false
+		return "", false
 	}
 	var envelope struct {
 		ThreadID string `json:"threadId"`
 	}
 	if err := json.Unmarshal(params, &envelope); err != nil {
-		return false
+		return "", false
 	}
 	eventThread := strings.TrimSpace(envelope.ThreadID)
 	if eventThread == "" {
-		return false
+		return "", false
 	}
-	return eventThread != own
+	if eventThread == own {
+		return "", false
+	}
+	return eventThread, true
 }
