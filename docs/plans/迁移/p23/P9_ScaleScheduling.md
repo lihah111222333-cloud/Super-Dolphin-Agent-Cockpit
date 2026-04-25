@@ -17,7 +17,7 @@
 | DAG 创建 | 单事务内 1000 次 `UpsertNode` + 全量 load，O(N) 串行 | `cmd/mcp-orch/orchestration/dag.go:109-126,202-208,211-220`、`cmd/mcp-orch/sql/queries/task_dag_node_write.sql:1-12` | 拆批 / async / streaming |
 | ready 计算 | JSONB `depends_on` 扫描，最坏 O(N²) | `migrations/0004_ack_dag.sql:58-62,70-71` | partial index `(dag_key, id) WHERE status='pending'` + 依赖计数列 |
 | wakeup 表 | 5000 行/DAG，多 DAG 后 M 快速膨胀，无 GC | `migrations/0023_dag_watcher_phase1.sql:9-36`、`cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql:1-16` | TTL / DAG archive / 分区 |
-| launcher | 固定 `maxConcurrentLaunches=10`，百 agent 多波雪崩 | `cmd/mcp-orch/orchestration/service_launcher_bridge.go:22-30,54-63` | 全局 token bucket，按 `min(DAG max_concurrency, 全局, provider quota)` |
+| launcher | 当前无固定并发上限，百 agent 会直接并发打到下游 | `cmd/mcp-orch/orchestration/service_launcher_bridge.go` | 若未来需要容量治理，必须显式设计全局 token bucket / provider quota，而不是恢复硬编码上限 |
 | hook 风暴 | `OnTurnCompleted` 同步 dispatch | `cmd/mcp-orch/orchestration/hook_consumer.go:105-116,260-275,285-294` | non-blocking enqueue + worker pool + bounded queue |
 | 状态存储 | `result jsonb` 承载 verifier/tool log，行膨胀 | `migrations/0004_ack_dag.sql:62`、`cmd/mcp-orch/sql/queries/task_dag_node_read.sql:1-18` | result 只存摘要，详细日志 spillover |
 | 全量锁读 | `GetNodesForUpdate` 锁整 DAG | `cmd/mcp-orch/sql/queries/task_dag_node_read.sql:13-18`、`cmd/mcp-orch/store/taskdag/store.go:100-103` | claim 小批 ready，`SKIP LOCKED` |

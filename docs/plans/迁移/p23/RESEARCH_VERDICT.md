@@ -29,7 +29,7 @@
 |---|---|---|
 | `gap-liveness` | 要求 1 vs README | P0–P6 前段不覆盖活性探针；P7 后段承接；建议新增 `dagActivityActor`（第 5 actor）+ `last_activity_at` 字段 + 长工具调用反误杀策略 |
 | `gap-verify` | 要求 2 vs README | state machine 不能直接容纳 verify gate；建议 `running → awaiting_verify → verifying → done | repairing`；引入 `nodes[].verify` schema + sibling group 概念；打回路径复用 retry 但配独立 `max_rounds` |
-| `gap-scale` | 要求 3 vs README | DAG 创建 1000 node 单事务、ready 计算 O(N²)、launcher 固定 10 并发、hook 同步 dispatch、wakeup 表无 GC、result jsonb 膨胀——共 7 大瓶颈 |
+| `gap-scale` | 要求 3 vs README | DAG 创建 1000 node 单事务、ready 计算 O(N²)、launcher 当前无固定并发上限、hook 同步 dispatch、wakeup 表无 GC、result jsonb 膨胀——共 7 大瓶颈 |
 | `gap-synth` | 跨切片综合 | 三要求叠加后最弱环节是 hook consumer + DB CAS（不是 launcher）；推荐**拆分 + 二阶段**：P23 保自驱底座，P7/P8/P9 作为 P23 后段子任务拆出 |
 | `gap-arbiter` | verdict 实现位置（A vs B vs C） | **仍在调研中（turn_running）**——结论待补，结果归档到本文件 |
 
@@ -78,7 +78,7 @@
 | DAG 创建单事务 | 1000 次 UpsertNode 串行；事务长锁强 | `cmd/mcp-orch/orchestration/dag.go:109-126,202-208,211-220`、SQL `cmd/mcp-orch/sql/queries/task_dag_node_write.sql:1-12` | 批量 insert / 拆批 / async / streaming |
 | ready 计算 | JSONB depends_on 扫描，最坏 O(N²) | `0004_ack_dag.sql:58-62,70-71` | partial index `(dag_key, id) WHERE status='pending'` + 依赖计数列 |
 | wakeup 表 | 5000 行/DAG，无 GC | `migrations/0023_dag_watcher_phase1.sql:9-36`、`cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql:1-16` | TTL / 按 DAG archive / 分区 |
-| launcher 并发 | 固定 10，百 agent 至少 10 波；活性 + verifier relaunch 雪崩 | `service_launcher_bridge.go:22-30,54-63` | 配置化 + 全局 token bucket |
+| launcher 并发 | 当前无固定并发上限；百 agent 会直接并发打到下游 | `service_launcher_bridge.go` | 如需容量治理，走显式全局 token bucket / provider quota，不恢复硬编码上限 |
 | hook 风暴 | 同步 dispatch，百 agent progress 阻塞 core | `hook_consumer.go:105-116,260-275,285-294` | non-blocking enqueue + worker pool + bounded queue |
 | 状态存储 | result jsonb 承载 verifier/tool log，行膨胀 | `migrations/0004_ack_dag.sql:62`、`cmd/mcp-orch/sql/queries/task_dag_node_read.sql:1-18` | result 只存摘要，日志 spillover |
 | 全量锁读 | `GetNodesForUpdate` 锁整 DAG | `cmd/mcp-orch/sql/queries/task_dag_node_read.sql:13-18`、`cmd/mcp-orch/store/taskdag/store.go:100-103` | 只 claim 小批 ready，`SKIP LOCKED` |
@@ -239,7 +239,7 @@
 1. `task_dag_nodes` 预留 `last_activity_at TIMESTAMPTZ` 列（在 `0065_dag_state_machine.sql` 一并加，本期不消费但 P2 hook tap 必须回写）
 2. P2 reconcile hook tap 必须 enqueue-only（P8 verifier gate 硬前置）
 3. P23 主 `status` 枚举固定，未来子状态走独立列（如 `verify_phase` / `activity_state`），保持 CAS 形状不变
-4. `maxConcurrentLaunches` 配置化（提取成 config 参数，P23 不改默认值，P9 升级为 token bucket 时不需要二次迁移）
+4. launcher 当前无固定并发上限；如需容量治理，后续 PR 必须显式引入 quota / token bucket，不能恢复硬编码上限
 5. launcher 全局 quota 占用方在 P8 引入 verifier 后必须包含 verifier launch（不允许双队列）
 
 **写入位置**：README §"阶段 0：前置冻结" 新增第 5 项。
