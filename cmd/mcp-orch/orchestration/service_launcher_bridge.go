@@ -9,6 +9,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -17,6 +18,11 @@ type launcherLaunchAttempt struct {
 	agentID     string
 	expectedSeq uint64
 	launching   agentRuntime
+}
+
+type launchedAgent struct {
+	agentID string
+	result  LaunchResult
 }
 
 const (
@@ -52,38 +58,59 @@ func waitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr 
 }
 
 func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest) error {
-	if err := acquireLaunchSlot(ctx); err != nil {
+	launched, err := s.launchAgentUntilStarted(ctx, req)
+	if err != nil {
 		return err
+	}
+	return s.submitInitialLaunchPrompt(ctx, launched.agentID, launched.result, req)
+}
+
+func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (AgentSnapshot, error) {
+	launched, err := s.launchAgentUntilStarted(ctx, req)
+	if err != nil {
+		return AgentSnapshot{}, err
+	}
+	snapshot, err := s.Snapshot(ctx, launched.agentID)
+	if err != nil {
+		return AgentSnapshot{}, err
+	}
+	s.submitInitialLaunchPromptAsync(launched.agentID, launched.result, req)
+	return snapshot, nil
+}
+
+func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest) (launchedAgent, error) {
+	if err := acquireLaunchSlot(ctx); err != nil {
+		return launchedAgent{}, err
 	}
 	defer func() { <-launchSemaphore }()
 	attempt, handled, err := s.prepareLauncherLaunch(ctx, req)
 	if handled || err != nil {
-		return err
+		return launchedAgent{}, err
 	}
 	return s.launchWithRetry(ctx, attempt, req)
 }
 
-func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAttempt, req LaunchRequest) error {
+func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAttempt, req LaunchRequest) (launchedAgent, error) {
 	var lastErr error
 	for i := 0; i < maxLaunchRetries; i++ {
 		if i > 0 {
 			if err := waitRetryBackoff(ctx, i, attempt.agentID, lastErr); err != nil {
-				return s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, err)
+				return launchedAgent{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, err)
 			}
 		}
 		result, launchErr := s.launcher.Launch(ctx, &attempt.launching, req)
 		if launchErr == nil {
 			if err := s.finishLauncherLaunch(ctx, attempt, result, nil); err != nil {
-				return err
+				return launchedAgent{}, err
 			}
-			return s.submitInitialLaunchPrompt(ctx, attempt.agentID, result, req)
+			return launchedAgent{agentID: shared.FirstTrimmed(result.RemoteAgentID, attempt.agentID), result: result}, nil
 		}
 		lastErr = launchErr
 		if !isRetryableLaunchError(launchErr) {
 			break
 		}
 	}
-	return s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, lastErr)
+	return launchedAgent{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, lastErr)
 }
 
 func (s *service) submitInitialLaunchPrompt(ctx context.Context, agentID string, result LaunchResult, req LaunchRequest) error {
@@ -117,6 +144,17 @@ func (s *service) submitInitialLaunchPrompt(ctx context.Context, agentID string,
 		"agent_id", agentID,
 		"thread_id", threadID)
 	return nil
+}
+
+func (s *service) submitInitialLaunchPromptAsync(agentID string, result LaunchResult, req LaunchRequest) {
+	if strings.TrimSpace(req.Prompt) == "" {
+		return
+	}
+	go func() {
+		bgCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
+		defer cancel()
+		_ = s.submitInitialLaunchPrompt(bgCtx, agentID, result, req)
+	}()
 }
 
 func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) (launcherLaunchAttempt, bool, error) {
@@ -202,6 +240,12 @@ func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching
 func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launching *agentRuntime, result LaunchResult) error {
 	adoptLaunchStateLocked(agent, launching)
 	bindLaunchResult(agent, result)
+	if err := s.rekeyLaunchedAgentLocked(agent); err != nil {
+		commitErr := s.commitLaunchFailureLocked(ctx, agent, err)
+		s.mu.Unlock()
+		_ = s.launcher.Stop(ctx, launching)
+		return commitErr
+	}
 	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
 		agent.cmd = nil
 		agent.threadID = ""
@@ -211,6 +255,23 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 		return err
 	}
 	s.mu.Unlock()
+	return nil
+}
+
+func (s *service) rekeyLaunchedAgentLocked(agent *agentRuntime) error {
+	if agent == nil {
+		return nil
+	}
+	finalID := strings.TrimSpace(agent.remoteAgentID)
+	if finalID == "" || finalID == agent.id {
+		return nil
+	}
+	if existing, ok := s.agents[finalID]; ok && existing != agent {
+		return fmt.Errorf("orchestration: remote agent_id %q collides with local agent %q", finalID, existing.id)
+	}
+	delete(s.agents, agent.id)
+	agent.id = finalID
+	s.agents[finalID] = agent
 	return nil
 }
 

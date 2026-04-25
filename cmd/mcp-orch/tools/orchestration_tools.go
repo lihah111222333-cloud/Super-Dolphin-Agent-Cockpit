@@ -43,6 +43,10 @@ type AgentIDInput struct {
 	AgentID string `json:"agent_id"`
 }
 
+type launchAgentSnapshotter interface {
+	LaunchAgentSnapshot(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error)
+}
+
 func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
 		req, err := launchRequestFromInput(in)
@@ -51,6 +55,14 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 		}
 		agentID, releaseAgentID := reserveLaunchAgentID(ctx, svc, req.AgentID)
 		req.AgentID = agentID
+		if snapshotSvc, ok := svc.(launchAgentSnapshotter); ok {
+			defer releaseAgentID()
+			snapshot, err := snapshotSvc.LaunchAgentSnapshot(ctx, req)
+			if err != nil {
+				return nil, err
+			}
+			return successResult(launchAgentAcceptedResult(snapshot, req.AgentID)), nil
+		}
 		// Async launch: return immediately so the MCP tool call never blocks
 		// longer than the codex app-server's tool-call timeout. The actual
 		// launch runs in the background; callers poll orchestration_list_agents
@@ -66,6 +78,18 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 		}()
 		return successResult(map[string]any{"agent_id": req.AgentID, "status": "launching"}), nil
 	})
+}
+
+func launchAgentAcceptedResult(snapshot contract.AgentSnapshot, reservedID string) map[string]any {
+	agentID := shared.FirstTrimmed(snapshot.AgentID, snapshot.ID, reservedID)
+	result := map[string]any{"agent_id": agentID, "status": "launching"}
+	if runtimeID := strings.TrimSpace(snapshot.ID); runtimeID != "" && runtimeID != agentID {
+		result["launch_id"] = runtimeID
+	}
+	if threadID := strings.TrimSpace(snapshot.ThreadID); threadID != "" {
+		result["thread_id"] = threadID
+	}
+	return result
 }
 
 func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService, requested string) (string, func()) {

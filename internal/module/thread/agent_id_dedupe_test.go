@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -43,6 +44,24 @@ func TestPrepareStartRequestPreservesAvailableExplicitAgentID(t *testing.T) {
 	defer release()
 	if agentID != "agent-keep" || req.AgentID != "agent-keep" {
 		t.Fatalf("agent_id = req %q / result %q, want agent-keep", req.AgentID, agentID)
+	}
+}
+
+func TestPrepareStartRequestRejectsAgentIDWhenCollisionCheckFails(t *testing.T) {
+	svc := &service{threadStore: &stubThreadStore{existsErr: errors.New("db unavailable")}}
+	_, _, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
+		AgentID:  "agent-db-error",
+		Name:     "worker",
+		Provider: "claude",
+	})
+	if release != nil {
+		release()
+	}
+	if err == nil {
+		t.Fatal("prepareStartRequest() error = nil, want collision check failure")
+	}
+	if !strings.Contains(err.Error(), "check agent_id") {
+		t.Fatalf("prepareStartRequest() error = %v, want check agent_id context", err)
 	}
 }
 
