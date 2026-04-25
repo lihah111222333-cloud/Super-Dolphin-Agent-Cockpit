@@ -16,6 +16,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
 
 const (
@@ -42,6 +44,13 @@ type service struct {
 	sessionApprovals   map[string]ApprovalEntry
 	sessionApprovalsMu sync.RWMutex
 	approvalCallSeq    uint64
+	// candidateStore is the optional P0b Step 5 wiring for the review
+	// gate. nil means review-gate RPCs return errCandidateStoreUnavailable;
+	// extractor + lookup paths short-circuit early.
+	candidateStore skillcandidate.Store
+	// auditStore is the optional P0b Step 5 audit sink. nil disables
+	// audit emission. Audit writes are best-effort, never transactional.
+	auditStore auditstore.Store
 }
 
 var _ Service = (*service)(nil)

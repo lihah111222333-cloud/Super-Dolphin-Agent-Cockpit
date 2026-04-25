@@ -7,14 +7,20 @@ import (
 	"go.uber.org/fx"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
 
-// TODO(P7): 接入事件驱动 auto-match。当前仅 skills/match/preview RPC 触发，
-// 无运行时自动触发（如 thread 启动时自动匹配）。需要订阅 thread.Started 事件
-// 并在回调中执行 auto-match + 绑定到 session。
+// TODO(P7): event-driven auto-match. The current skills/match/preview RPC
+// is the only trigger; we still need a thread.Started subscriber that
+// performs auto-match + binds the result onto the session at runtime.
 var Module = fx.Module("skill",
 	fx.Provide(newService),
 	fx.Provide(NewSkillHandlers),
+	// P0b Step 5: late-bind the candidate review gate dependencies.
+	// Both stores are optional so this Module keeps building when the
+	// review gate is not provisioned (tests, early bootstrap).
+	fx.Invoke(registerCandidateStores),
 )
 
 func newService(cfg *platformconfig.Config, dispatcher *event.Dispatcher) Service {
@@ -27,4 +33,38 @@ func newService(cfg *platformconfig.Config, dispatcher *event.Dispatcher) Servic
 		impl.bindDispatcher(dispatcher)
 	}
 	return svc
+}
+
+// candidateStoreParams collects the optional review-gate dependencies.
+// Marked optional so this Invoke does not force every fx graph (CLI
+// utilities, integration tests) to provide them - the service simply
+// exposes errCandidateStoreUnavailable until they are wired.
+type candidateStoreParams struct {
+	fx.In
+
+	Service        Service
+	CandidateStore skillcandidate.Store `optional:"true"`
+	AuditStore     auditstore.Store     `optional:"true"`
+}
+
+// registerCandidateStores wires the candidate / audit stores onto the
+// concrete *service via package-private setters. The setter pattern
+// keeps NewService backwards-compatible (no signature change) and
+// avoids leaking the internal stores into the Service interface.
+func registerCandidateStores(p candidateStoreParams) {
+	if p.Service == nil {
+		return
+	}
+	type csSetter interface {
+		setCandidateStore(skillcandidate.Store)
+	}
+	type asSetter interface {
+		setAuditStore(auditstore.Store)
+	}
+	if cs, ok := p.Service.(csSetter); ok && p.CandidateStore != nil {
+		cs.setCandidateStore(p.CandidateStore)
+	}
+	if as, ok := p.Service.(asSetter); ok && p.AuditStore != nil {
+		as.setAuditStore(p.AuditStore)
+	}
 }

@@ -53,6 +53,10 @@ func skillRPCError(err error) error {
 		return jrpc2.Errorf(-31002, "%s", err.Error())
 	case errors.Is(err, ErrSkillSystemReviewRequired), errors.Is(err, errSkillApprovalDenied), errors.Is(err, errSkillApprovalRequesterUnavailable), errors.Is(err, errSkillApprovalProjectCacheMissing):
 		return jrpc2.Errorf(jrpc2.InternalError, "%s", err.Error())
+	case errors.Is(err, ErrCandidateApprovedByRequired),
+		errors.Is(err, ErrCandidateMissingFingerprint),
+		errors.Is(err, ErrCandidateNotPending):
+		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
 	default:
 		return err
 	}
@@ -110,6 +114,12 @@ func skillLocalHandlers(svc Service) handler.Map {
 		"skills/local/importDir": rpc.StrictHandler(skillLocalImportDirHandler(svc)),
 		"skills/local/delete":    rpc.StrictHandler(skillLocalDeleteHandler(svc)),
 		"skills/create":          rpc.StrictHandler(skillCreateHandler(svc)),
+		// P0b Step 5: candidate review gate. List + approve + reject share
+		// the local-skills namespace because approvals always promote into a
+		// project-scope SKILL.md via CreateSkill.
+		"skills/candidate/list/pending": rpc.StrictHandler(skillCandidateListPendingHandler(svc)),
+		"skills/candidate/approve":      rpc.StrictHandler(skillCandidateApproveHandler(svc)),
+		"skills/candidate/reject":       rpc.StrictHandler(skillCandidateRejectHandler(svc)),
 	}
 }
 
@@ -298,4 +308,49 @@ func expandSkillWithApproval(ctx context.Context, svc Service, p skillExpandPara
 		return impl.expandWithApproval(ctx, p)
 	}
 	return svc.Expand(ctx, p)
+}
+
+// skillCandidateApproveHandler delegates to ApproveCandidate after
+// scoping cwd onto the request context. CreateSkill (called by
+// ApproveCandidate) enforces ErrMissingCWD when cwd is absent, so the
+// scopedSkillContext call here is the explicit happy-path injection.
+func skillCandidateApproveHandler(svc Service) func(context.Context, approveCandidateRPCParams) (any, error) {
+	return func(ctx context.Context, p approveCandidateRPCParams) (any, error) {
+		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
+		if err != nil {
+			return nil, err
+		}
+		result, err := svc.ApproveCandidate(scopedCtx, ApproveCandidateParams{
+			CandidateID: p.CandidateID,
+			ApprovedBy:  p.ApprovedBy,
+			Reason:      p.Reason,
+		})
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
+	}
+}
+
+// skillCandidateRejectHandler does not require cwd because reject only
+// updates the candidate row; no on-disk write occurs.
+func skillCandidateRejectHandler(svc Service) func(context.Context, rejectCandidateRPCParams) (any, error) {
+	return func(ctx context.Context, p rejectCandidateRPCParams) (any, error) {
+		if err := svc.RejectCandidate(ctx, p.CandidateID, p.Reason); err != nil {
+			return nil, skillRPCError(err)
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+// skillCandidateListPendingHandler is a read-only paginated list. The
+// returned Candidate values are projections that exclude SkillMD.
+func skillCandidateListPendingHandler(svc Service) func(context.Context, listPendingCandidatesRPCParams) (any, error) {
+	return func(ctx context.Context, p listPendingCandidatesRPCParams) (any, error) {
+		rows, err := svc.ListPendingCandidates(ctx, p.Limit, p.Offset)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return listPendingCandidatesRPCResult{Candidates: rows}, nil
+	}
 }
