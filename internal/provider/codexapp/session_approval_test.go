@@ -107,6 +107,35 @@ func TestOnNotificationApprovalRequestPublishesRequestedOnce(t *testing.T) {
 	cancel()
 }
 
+func TestAlienThreadEventThreadReportsIncomingThreadID(t *testing.T) {
+	s := &session{}
+	s.threadID.Store("own-thread")
+
+	eventThread, ok := s.alienThreadEventThread([]byte(`{"threadId":"other-thread"}`))
+	if !ok {
+		t.Fatal("alienThreadEventThread() ok = false, want true")
+	}
+	if eventThread != "other-thread" {
+		t.Fatalf("alienThreadEventThread() eventThread = %q, want other-thread", eventThread)
+	}
+}
+
+func TestAlienThreadEventThreadIgnoresOwnOrMissingThreadID(t *testing.T) {
+	s := &session{}
+	s.threadID.Store("own-thread")
+
+	for _, params := range []string{
+		`{"threadId":"own-thread"}`,
+		`{"turnId":"turn-1"}`,
+		`{"threadId":" "}`,
+		`{`,
+	} {
+		if eventThread, ok := s.alienThreadEventThread([]byte(params)); ok {
+			t.Fatalf("alienThreadEventThread(%s) = (%q, true), want false", params, eventThread)
+		}
+	}
+}
+
 func TestBeginProcessedApprovalDedupesByCallIDAndRequestID(t *testing.T) {
 	s := &session{processedApprovals: map[string]*processedApprovalEntry{}}
 
