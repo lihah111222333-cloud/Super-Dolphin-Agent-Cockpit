@@ -13,11 +13,10 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
-// poolRoutingEnvVar is the binary-level feature flag that opts
-// StartSession into the P21 ServerPool. When unset / falsy the
-// driver keeps the legacy ServerManager path exactly as before, so
-// deployments upgrade in two steps: ship the code first, flip the
-// flag once a real codex run is verified.
+// poolRoutingEnvVar is the binary-level override for ServerPool routing.
+// When unset, routing runs in auto mode: valid codex identity uses the pool,
+// while missing identity keeps the legacy ServerManager path for old bindings.
+// Explicit true is fail-closed, explicit false disables the pool.
 const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 
 // resolveSessionOptions is called by StartSession to decide whether
@@ -28,11 +27,13 @@ const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 // Routing rules (most-specific first):
 //
 //  1. Pool not wired -> no options (legacy path).
-//  2. Feature flag disabled -> no options (legacy path); identity
+//  2. Pool explicitly disabled -> no options (legacy path); identity
 //     parse errors are warned so compatibility fallbacks remain visible.
-//  3. Feature flag enabled + invalid identity -> fail closed. StartSession
-//     must not silently fall back to the shared app-server after opt-in.
-//  4. Valid identity + available pool -> Acquire a SpawnedServer and
+//  3. Explicit true + invalid identity -> fail closed. StartSession must not
+//     silently fall back to the shared app-server after strict opt-in.
+//  4. Auto mode + invalid identity -> warn and use legacy path. This keeps old
+//     persisted bindings resumable while new starts carry explicit identity.
+//  5. Valid identity + available pool -> Acquire a SpawnedServer and
 //     attach its URL + release to the session via withPoolServer.
 //     ErrPoolExhausted / ErrSpawnBackoff are surfaced to the caller
 //     so backpressure is visible at the StartSession seam.
@@ -41,13 +42,18 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 		return []sessionOption(nil), nil
 	}
 	identity, err := providershared.ResolveCodexIdentity(req.Config)
-	if !poolRoutingEnabled() {
+	enabled, strict := poolRoutingDecision()
+	if !enabled {
 		if err != nil {
 			d.warnLegacyIdentityFallback(req.AgentID, err)
 		}
 		return []sessionOption(nil), nil
 	}
 	if err != nil {
+		if !strict {
+			d.warnLegacyIdentityFallback(req.AgentID, err)
+			return []sessionOption(nil), nil
+		}
 		return nil, fmt.Errorf("codex identity required: %w", err)
 	}
 	server, release, acquireErr := d.pool.Acquire(ctx, identity)
@@ -71,11 +77,19 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 }
 
 func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSessionRequest) ([]sessionOption, error) {
-	if d == nil || d.pool == nil || !poolRoutingEnabled() {
+	if d == nil || d.pool == nil {
+		return []sessionOption(nil), nil
+	}
+	enabled, strict := poolRoutingDecision()
+	if !enabled {
 		return []sessionOption(nil), nil
 	}
 	identity, ok := resumeIdentity(req)
 	if !ok {
+		if !strict {
+			d.warnLegacyIdentityFallback(req.AgentID, errors.New("codex identity required for resume"))
+			return []sessionOption(nil), nil
+		}
 		return nil, errors.New("codex identity required for resume")
 	}
 	server, release, err := d.pool.Acquire(ctx, identity)
@@ -120,17 +134,22 @@ func (d *driver) warnLegacyIdentityFallback(agentID string, err error) {
 	)
 }
 
-// poolRoutingEnabled parses the env flag. Missing / empty / falsy
-// all mean "stay on the legacy ServerManager path". Parse errors are
-// treated as disabled so a typo never silently turns the pool on.
+// poolRoutingEnabled parses the env override. Missing / empty means
+// auto-enabled so valid identity uses the ServerPool by default. Parse errors
+// are treated as disabled so a typo never silently turns the pool on.
 func poolRoutingEnabled() bool {
+	enabled, _ := poolRoutingDecision()
+	return enabled
+}
+
+func poolRoutingDecision() (enabled bool, strict bool) {
 	raw := strings.TrimSpace(os.Getenv(poolRoutingEnvVar))
 	if raw == "" {
-		return false
+		return true, false
 	}
 	enabled, err := strconv.ParseBool(raw)
 	if err != nil {
-		return false
+		return false, false
 	}
-	return enabled
+	return enabled, enabled
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -82,11 +81,9 @@ func TestNewTransportSpawnerSurfacesBuildError(t *testing.T) {
 func TestPoolEvictRunnerTicks(t *testing.T) {
 	t.Parallel()
 
-	closeCount := atomic.Int32{}
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		srv := newFakeServer("ws://" + home)
-		srv.closeHook = func() { closeCount.Add(1) }
-		return srv, nil
+	spawnErr := errors.New("port taken")
+	spawner := func(context.Context, string) (SpawnedServer, error) {
+		return nil, spawnErr
 	}
 	pool, clock := newPoolForTest(t, spawner, PoolConfig{
 		Capacity:     4,
@@ -95,12 +92,12 @@ func TestPoolEvictRunnerTicks(t *testing.T) {
 	})
 	defer pool.Close(context.Background())
 
-	// Acquire + release so the entry becomes eligible for eviction.
-	_, release, err := pool.Acquire(context.Background(), identityFor(t, "glm"))
-	if err != nil {
-		t.Fatalf("Acquire = %v", err)
+	// A spawn failure leaves a refcount-free backoff slot for the idle runner
+	// to clean up. Successful sessions are closed immediately on final release.
+	_, _, err := pool.Acquire(context.Background(), identityFor(t, "glm"))
+	if err == nil {
+		t.Fatal("Acquire unexpectedly succeeded")
 	}
-	release()
 	// Advance the pinned clock past IdleTimeout so EvictIdle finds
 	// the entry expired.
 	*clock = clock.Add(time.Hour)

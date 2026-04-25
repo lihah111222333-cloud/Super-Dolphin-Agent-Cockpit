@@ -15,7 +15,7 @@
 //   * ServerPool.Acquire returns distinct SpawnedServer URLs for two
 //     distinct identities (the core multi-provider claim)
 //   * Close tears both children down without leaking processes
-//   * Pool entries survive release() + EvictIdle honours IdleTimeout
+//   * Release of the last session closes the pool entry
 //
 // Failure is loud: any error path (spawn timeout, duplicate URL, leaked
 // PID) fails the test so you can triage before flipping the flag in

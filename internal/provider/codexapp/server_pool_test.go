@@ -97,6 +97,18 @@ func waitForClose(t *testing.T, closed <-chan struct{}) {
 	}
 }
 
+func waitForFakeClosed(t *testing.T, server *fakeServer) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if server.closed.Load() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for fake server close")
+}
+
 func TestServerPoolAcquireHappyPathSpawnAndRelease(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
@@ -128,9 +140,14 @@ func TestServerPoolAcquireHappyPathSpawnAndRelease(t *testing.T) {
 	}
 
 	release()
-	if entryForHome(t, p, home).refCount != 0 {
-		t.Fatalf("refCount after release = %d, want 0", entryForHome(t, p, home).refCount)
+	if p.Size() != 0 {
+		t.Fatalf("pool size after final release = %d, want 0", p.Size())
 	}
+	fake, ok := srv.(*fakeServer)
+	if !ok {
+		t.Fatalf("server type = %T, want *fakeServer", srv)
+	}
+	waitForFakeClosed(t, fake)
 }
 
 func TestServerPoolAcquireAliveCacheHitReusesServer(t *testing.T) {
@@ -519,17 +536,16 @@ func TestServerPoolAcquireBackoffExpiredRetriesSpawn(t *testing.T) {
 
 func TestServerPoolEvictIdleRemovesStaleEntries(t *testing.T) {
 	t.Parallel()
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		return newFakeServer("ws://" + filepath.Base(home)), nil
-	}
-	p, nowRef := newPoolForTest(t, spawner, PoolConfig{Capacity: 4, IdleTimeout: 10 * time.Minute})
+	spawnErr := errors.New("port taken")
+	p, nowRef := newPoolForTest(t, func(context.Context, string) (SpawnedServer, error) {
+		return nil, spawnErr
+	}, PoolConfig{Capacity: 4, IdleTimeout: 10 * time.Minute, SpawnBackoff: time.Hour})
 	defer p.Close(context.Background())
 
-	_, rel, err := p.Acquire(context.Background(), identityFor(t, "glm"))
-	if err != nil {
-		t.Fatalf("Acquire: %v", err)
+	_, _, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+	if err == nil {
+		t.Fatal("Acquire unexpectedly succeeded")
 	}
-	rel()
 	if evicted := p.EvictIdle(); evicted != 0 {
 		t.Fatalf("before idle window: evicted %d, want 0", evicted)
 	}
@@ -552,10 +568,8 @@ func TestServerPoolCloseTearsEverythingDown(t *testing.T) {
 	}
 	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
 
-	_, rel1, _ := p.Acquire(context.Background(), identityFor(t, "glm"))
-	_, rel2, _ := p.Acquire(context.Background(), identityFor(t, "qwen"))
-	rel1()
-	rel2()
+	_, _, _ = p.Acquire(context.Background(), identityFor(t, "glm"))
+	_, _, _ = p.Acquire(context.Background(), identityFor(t, "qwen"))
 	if err := p.Close(context.Background()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}

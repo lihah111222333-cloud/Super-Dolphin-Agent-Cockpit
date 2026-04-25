@@ -35,15 +35,17 @@ func identityConfig(t *testing.T, key string) map[string]any {
 	}
 }
 
-// TestPoolRoutingDisabledByDefault verifies the legacy path stays
-// intact: without CODEXAPP_USE_POOL set, resolveSessionOptions must
-// return a nil options slice even when a valid identity is present.
-func TestPoolRoutingDisabledByDefault(t *testing.T) {
+// TestPoolRoutingEnabledByDefault verifies the clean lifecycle path:
+// without CODEXAPP_USE_POOL set, valid identity uses the ServerPool so
+// session shutdown owns app-server/MCP/LSP process cleanup.
+func TestPoolRoutingEnabledByDefault(t *testing.T) {
 	// t.Setenv is inherited by parallel siblings, so keep the test
 	// serial to avoid env bleed.
 	t.Setenv(poolRoutingEnvVar, "")
+	spawnCalls := atomic.Int32{}
 	spawner := func(context.Context, string) (SpawnedServer, error) {
-		return newFakeServer("ws://should-not-be-called"), nil
+		spawnCalls.Add(1)
+		return newFakeServer("ws://127.0.0.1:9999"), nil
 	}
 	pool := NewServerPool(slog.Default(), spawner, PoolConfig{Capacity: 2})
 	defer pool.Close(context.Background())
@@ -55,8 +57,38 @@ func TestPoolRoutingDisabledByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
+	if len(opts) != 1 {
+		t.Fatalf("want 1 pool option with default routing, got %d", len(opts))
+	}
+	var so sessionOptions
+	opts[0](&so)
+	if so.poolURL != "ws://127.0.0.1:9999" {
+		t.Fatalf("poolURL = %q, want ws://127.0.0.1:9999", so.poolURL)
+	}
+	so.poolRelease()
+	if spawnCalls.Load() != 1 {
+		t.Fatalf("spawn calls = %d, want 1", spawnCalls.Load())
+	}
+}
+
+func TestPoolRoutingExplicitlyDisabledUsesLegacyPath(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "0")
+	spawner := func(context.Context, string) (SpawnedServer, error) {
+		return newFakeServer("ws://should-not-be-called"), nil
+	}
+	pool := NewServerPool(slog.Default(), spawner, PoolConfig{Capacity: 2})
+	defer pool.Close(context.Background())
+	d := newRoutingDriver(t, pool)
+
+	opts, err := d.resolveSessionOptions(context.Background(), dto.StartSessionRequest{
+		AgentID: "a",
+		Config:  identityConfig(t, "glm"),
+	})
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
 	if opts != nil {
-		t.Fatalf("want nil opts with feature flag off, got %d", len(opts))
+		t.Fatalf("want nil opts with feature flag disabled, got %d", len(opts))
 	}
 }
 
@@ -120,8 +152,8 @@ func TestPoolRoutingSuccessPath(t *testing.T) {
 	}
 	// Releasing must land on the pool so refCount drops back to 0.
 	so.poolRelease()
-	if pool.Size() != 1 {
-		t.Fatalf("pool size = %d after release, want 1 entry retained", pool.Size())
+	if pool.Size() != 0 {
+		t.Fatalf("pool size = %d after release, want 0 entries retained", pool.Size())
 	}
 }
 
@@ -170,11 +202,18 @@ func TestPoolRoutingInvalidConfigTypeFailsClosed(t *testing.T) {
 // malformed env var cannot silently flip production onto the new
 // path.
 func TestPoolRoutingFlagFalsyStaysDisabled(t *testing.T) {
-	for _, v := range []string{"", "0", "false", "no", "garbage"} {
+	for _, v := range []string{"0", "false", "no", "garbage"} {
 		t.Setenv(poolRoutingEnvVar, v)
 		if poolRoutingEnabled() {
 			t.Fatalf("flag %q must parse as disabled", v)
 		}
+	}
+}
+
+func TestPoolRoutingFlagMissingAutoEnabled(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "")
+	if !poolRoutingEnabled() {
+		t.Fatal("missing pool flag must enable auto routing")
 	}
 }
 
