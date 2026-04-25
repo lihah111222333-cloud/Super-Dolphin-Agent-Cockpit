@@ -5,6 +5,7 @@ import (
 
 	"go.uber.org/fx"
 
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 )
 
@@ -12,9 +13,8 @@ var Module = fx.Module("turn",
 	fx.Provide(
 		fx.Annotate(
 			NewServiceWithPromptAssemblyAndTurnContext,
-			// p20.2 鈯?step 1锛歴kill.Service 鎸?optional 娉ㄥ叆锛汸21 observation.Contract
-			// 鍚屾牱 optional銆備緷璧栧浘灏氭湭鍑嗗濂芥椂涓嶄細闃诲 turn 妯″潡鍚姩锛孭repareTurn
-			// 鐨?hydrate / observation 姝ラ鍦ㄥ搴斾緷璧?nil 鏃惰嚜鍔ㄨ烦杩囥€?
+			// p20.2 step 1: Skill.Service is optional, contract.Contract is also optional, etc.
+			// (Original tag rationale preserved below.)
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
 		),
 		fx.Annotate(
@@ -39,6 +39,38 @@ var Module = fx.Module("turn",
 		// P0b Step 3: skill evaluator. stateless / pure function; no
 		// external dependencies, so plain fx.Provide is sufficient.
 		fx.Provide(NewDefaultEvaluator),
+		// P0b Step 4: redactor + extractor + extractor runner.
+		// - Redactor is exposed as the interface so other modules can
+		//   substitute a stub in tests.
+		// - DefaultExtractor takes contract.DreamExecutor and
+		//   skillcandidate.Store as fx-optional; either being nil short-
+		//   circuits Extract with a metric bump rather than a hard fail.
+		//   This keeps deployments without P0b wiring buildable.
+		// - The extractor is also exposed via the Extractor interface
+		//   so the runner can be unit-tested without spinning the
+		//   full dependency graph.
+		// - The runner is registered into `group:"runners"` so its
+		//   lifecycle is owned by the root run.Group supervisor (same
+		//   pattern as SweeperRunner / ApprovalCleanupRunner).
+		fx.Provide(
+			func() Redactor { return NewDefaultRedactor() },
+		),
+		fx.Provide(
+			fx.Annotate(
+				NewDefaultExtractor,
+				fx.ParamTags(`optional:"true"`, `optional:"true"`, "", "", ""),
+			),
+		),
+		fx.Provide(
+			func(e *DefaultExtractor) Extractor { return e },
+		),
+		fx.Provide(NewExtractorRunner),
+		fx.Provide(
+			fx.Annotate(
+				func(r *ExtractorRunner) platformrunner.Runner { return r },
+				fx.ResultTags(`group:"runners"`),
+			),
+		),
 	),
 	fx.Invoke(registerTurnServiceLifecycle),
 	fx.Invoke(registerTurnDedupeStore),
