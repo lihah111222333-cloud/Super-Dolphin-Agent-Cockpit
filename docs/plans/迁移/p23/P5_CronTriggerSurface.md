@@ -23,31 +23,39 @@
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| _待补_ | _待补_ | _待补_ |
+| cron schema | `0067_dag_trigger_cron.sql` | `cron_jobs` 增 `target_dag_key` 以及 authorized `owner_id/tenant_id/scope`（或 FK 到带授权的 owner row）；`target_dag_trigger_meta` 不可信 |
+| cron contract | `internal/module/cron/contract.go`（扩展） | `TriggerSink.Trigger(ctx, target, meta)`；meta 只携带 cron tick facts，不携带授权 owner 来源 |
+| cron scheduler | `internal/module/cron/scheduler.go`（扩展） | `target_dag_key!=''` 时生成 deterministic cron tick key，填充 authenticated cron caller context 后经 sink 触发 |
+| bridge | platform bus/RPC sink 或 `cmd/mcp-orch` 本地 cron runtime | 避免 `internal/module/cron` 与 `cmd/mcp-orch` concrete import；最终仍调用 P3 `StartDAG` |
+| idempotency | `cmd/mcp-orch/store/dagstart/*.go`（复用 P3） + `cron_job_runs` index | cron tick 写 `dag_start_requests(trigger_source='cron', trigger_instance_key=hash(job_id, scheduled_at_utc, target_dag_key))` |
 
 **已知关键改动方向**：
 
 > ⚠️ **跨 root 边界硬约束**：`internal/module/cron` **不能** import `cmd/mcp-orch/orchestration`（archtest `internal/archtest/dependency_direction_mcp_orch_test.go:49-53` 拦截）。当前 cron scheduler 直接调 `StartTurn`（`internal/module/cron/scheduler.go:288-305`）；扩展为 cron→DAG 必须经接口注入，不能直接函数调用。
 
-- `0066_dag_trigger_cron.sql`（**编号从 0064 改 0066**，必须晚于 P3 的 `0065_dag_owner_tenant.sql`）：cron job 表加 `target_dag_key` + `target_dag_trigger_meta JSONB`
+- `0067_dag_trigger_cron.sql`（**编号从已占用旧口径改为 0067**，必须晚于 P3 的 `0066_dag_owner_tenant.sql`）：cron job 表加 `target_dag_key` + `target_dag_trigger_meta JSONB` + `owner_id/tenant_id/scope`（或从受权 cron job owner row/FK 派生）；`target_dag_trigger_meta` 只能做 trigger 参数，不能作为 owner/tenant/AuthZ 来源
 - **接口设计**：`internal/module/cron/contract.go` 定义 `TriggerSink` interface（`Trigger(ctx, target, meta) error`），cron scheduler 在 `target_dag_key != ''` 时调 `TriggerSink.Trigger(...)`，**不**直接调 DAG Start
 - **bridge 装配**：不得形成 `cmd/mcp-orch → internal/module/cron` concrete import；二选一：host/core 侧经 platform bus/RPC sink 通知 mcp-orch，或在 `cmd/mcp-orch` 本地化 cron trigger runtime 并只复用 platform-level interface。`TriggerSink` 只能作为抽象边界，不允许双向 concrete import
 - **保持双轨**：`target_dag_key=''` 走旧 cron→turn 路径不变（`internal/module/cron/scheduler.go:288-305`）；`target_dag_key != ''` 走 DAG bridge
-- **deterministic idempotency key**：当前 cron run idempotency 是 UUID（`internal/module/cron/scheduler.go:318-326`），DAG 路径必须改为 `hash(cron_job_id, scheduled_at, target_dag_key)`；`cron_job_runs` 表加 partial unique index `UNIQUE (job_id, scheduled_at, target_dag_key) WHERE target_dag_key <> ''`；热表已有数据时用 `CREATE UNIQUE INDEX CONCURRENTLY` 单独 no-transaction migration
+- **deterministic idempotency key**：当前 cron run idempotency 是 UUID（`internal/module/cron/scheduler.go:318-326`），DAG 路径必须改为 `hash(cron_job_id, scheduled_at_utc, target_dag_key)`；同时写入 P3 统一 `dag_start_requests(trigger_source='cron', trigger_instance_key=hash(...), params_hash=...)`。该 deterministic key 只覆盖同一 cron tick；external/host/manual 触发使用各自 `trigger_source` scope，不互相去重。若业务要求“任意来源同一时刻只允许一个 active run”，必须另加 DAG active-run lease/CAS（`dag_key` scoped），不能复用 cron tick key 假装互斥。`cron_job_runs` 表加 partial unique index `UNIQUE (job_id, scheduled_at, target_dag_key) WHERE target_dag_key <> ''`；热表已有数据时用 `CREATE UNIQUE INDEX CONCURRENTLY` 单独 no-transaction migration
 - **不需要新 actor**：复用 cron module 已有的 `tick_actor` + `lease_actor`（`internal/module/cron/module.go:31-32`），只在 tick 时分流
 
 ## DDL / SQL
 
-**0066_dag_trigger_cron.sql** 草案：
+**0067_dag_trigger_cron.sql** 草案：
 
 ```sql
 ALTER TABLE public.cron_jobs ADD COLUMN target_dag_key TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.cron_jobs ADD COLUMN target_dag_trigger_meta JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.cron_jobs ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.cron_jobs ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.cron_jobs ADD COLUMN scope TEXT NOT NULL DEFAULT 'private';
+-- owner_id/tenant_id/scope 可由既有 authorized owner row 回填；StartDAG caller_identity 必须从这些受权列派生，不读 target_dag_trigger_meta。
 ALTER TABLE public.cron_job_runs ADD COLUMN target_dag_key TEXT NOT NULL DEFAULT '';
 
 ```
 
-**0066_dag_trigger_cron_index_no_tx.sql**（no-transaction，禁止 `BEGIN/COMMIT`）：
+**0067_dag_trigger_cron_index_no_tx.sql**（no-transaction，禁止 `BEGIN/COMMIT`）：
 
 ```sql
 -- deterministic idempotency：同一 cron_job 在同一时点不能重复触发同一 DAG
@@ -80,7 +88,7 @@ CREATE UNIQUE INDEX CONCURRENTLY uq_cron_run_dag_trigger
 
 ## 输入材料
 
-- README §阶段 0 ① 编号校准（`0066_dag_trigger_cron.sql`）
+- README §阶段 0 ① 编号校准（`0067_dag_trigger_cron.sql`）
 - README §"风险" "cron 双触发" 条
 - p21 P1b 完整章节（必读，特别是 lease 与 idempotency 设计）
 

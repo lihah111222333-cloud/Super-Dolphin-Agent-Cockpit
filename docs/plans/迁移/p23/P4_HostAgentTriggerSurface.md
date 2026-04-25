@@ -16,13 +16,19 @@ MCP 工具 `task_create_dag` 接受新可选参数 `auto_start: true`（语法�
 
 ## 推荐架构
 
-> 待 owner 在开工前补全；约束以 [`README.md`](README.md) §"当前基线约束" / §"默认值安全原则" / §"收口口径" 为准。
+`task_create_dag(auto_start=true)` 是 host/MCP 触发语法糖：创建 DAG 后立即构造 `trigger_source='host'` 的 StartDAG 请求。caller identity 必须来自 MCP server authenticated context（P6 的 MCP HTTP identity adapter 或本地 host session），不是 tool params 中的 `agent_id`。`agent_id` 仅保留为 legacy/display/assigned-agent hint，不能写成 owner/tenant 授权依据。
+
+host auto-start 使用 P3 统一 `dag_start_requests` schema：`trigger_instance_key = host_tool_call_id`（没有 tool call id 时由 server 生成 request id 并返回），`params_hash = canonical(auto_start + dag_key + trigger meta)`。重复请求同 hash 返回同一 start 结果，不同 hash conflict。缺 authenticated caller hard fail + audit。
 
 ## 改动清单
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| _待补_ | _待补_ | _待补_ |
+| MCP tool schema | `cmd/mcp-orch/tools/task_tools.go`（扩展） | `task_create_dag` 增 `auto_start`、`idempotency_key/request_id`；`agent_id` 标注 legacy/display-only |
+| MCP caller adapter | `internal/mcpserver/common/server.go` / `internal/mcpserver/common/http_transport.go`（扩展） | 从 authenticated MCP context 注入 `CallerIdentity`；缺失时写 audit 并拒绝写操作 |
+| host trigger service | `cmd/mcp-orch/tools/task_tools.go`（handler） | create 成功后调用 `StartDAG(ctx, dagKey, TriggerMeta{source:host,...})`；不从 params 推导 owner/tenant |
+| Start idempotency | `cmd/mcp-orch/store/dagstart/*.go`（复用 P3） | host `trigger_instance_key` 与 `params_hash` 去重；冲突返回 conflict |
+| hook 回流 | `cmd/mcp-orch/orchestration/hook_consumer.go`（复用/扩展） | 终态事件沿既有 P21 hook consumer 回主 agent，不新增平行 event bus |
 
 **已知关键改动方向**：
 - `task_create_dag` schema 加 `auto_start: bool` 字段；server 端创建成功后立即调 `StartDAG(ctx, dagKey, triggerMeta)`，trigger 默认 `auto`

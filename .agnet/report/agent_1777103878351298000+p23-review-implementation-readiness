@@ -1,0 +1,192 @@
+# P23 Agent J 审查结论：BLOCK
+
+只审不改。已用 LSP/grep + 只读文件核查 `docs/plans/迁移/p23/*`、`docs/1/会话习惯.md §10.42/§10.43/§10.47`、现有 DAG / SQLC / hook / runner / archtest / UI 相关代码。
+
+核心结论：**当前 P23 文档不能直接进入 3–5 agent 并行实施**。最大阻塞不是业务设计，而是 **migration 编号与共享 write-set 没冻结**，会让 P0/P3/P5/P8–P13 一开工就撞同一批文件。
+
+---
+
+## High / Medium / Low
+
+| 严重度 | 问题 | 证据 | 影响 | 建议 |
+|---|---|---|---|---|
+| **High** | **migration 编号已与 HEAD 冲突** | P23 README 说“当前最大已占用 0062，P23 从 0063 起算，0064 unused” `docs/plans/迁移/p23/README.md:79-83`；但 HEAD 已有 `migrations/0063_agent_thread_name.sql:1` 和 `migrations/0064_skill_candidates.sql:1` | P0 的 `0063_dag_state_machine.sql`、P3 的 `0065`、P5 的 `0066`、P8–P13 的 `0067–0072` 全部需要重排；现状直接实施会创建重复编号 / 顺序漂移 | Phase 0 必须先重排 P23 migration 编号，并同步所有 P0–P13 stub、README、COMPLIANCE_GATES |
+| **High** | **P0/P1/P2/P3/P8/P9 共享 DAG runtime write-set，不能并行写** | `dag.go` 当前承载 Create/Get/List/Update DAG 主路径 `cmd/mcp-orch/orchestration/dag.go:109-184`；裸 `UpdateTaskDagNodeStatus` 无前态 CAS `cmd/mcp-orch/sql/queries/task_dag_node_write.sql:14-20`；runtime SQL 当前也未有 active_turn terminal fence `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql:37-42` | 看似 P0/P1/P2 可分 actor，实际共同改 `task_dag_node_runtime.sql`、`store/taskdag/store.go`、`contract.go`、`dag.go`、sqlc 生成物，merge 冲突高 | P0→P1→P2 必须串行合入；P3 可并行设计但代码合入应在 P0 后、触发源前 |
+| **High** | **`cmd/mcp-orch/tools/task_tools.go` 是 P3/P4/P5/P8/P10/P11/P12/P13 共享 schema 热点** | 当前 `CreateDAGInput` / `DAGScheduleInput` / `CreateDAGNodeInput` 在 `cmd/mcp-orch/tools/task_tools.go:12-51`；schema 定义在 `cmd/mcp-orch/tools/task_tools.go:94-141`；schedule 仍是自由 string `cmd/mcp-orch/tools/task_tools.go:118-124` | 多 agent 并行加 trigger enum、launch、verify、output_schema、growth、swarm、template 字段会直接冲突 | 建议单独设 **Schema Registry Owner**，先把 schema 扩展结构拆出文件；后续 P8/P10/P11/P12/P13 只改各自 registry 文件 |
+| **High** | **hook consumer 是 P2/P7/P8/P9/P13 共享热路径** | hook 入口在 `cmd/mcp-orch/orchestration/hook_consumer.go:105-116`；terminal 处理在 `cmd/mcp-orch/orchestration/hook_consumer.go:260-275`；final answer 处理在 `cmd/mcp-orch/orchestration/hook_consumer.go:285-294` | P2 terminal enqueue、P7 activity、P8 verify gate、P9 worker pool/backpressure、P13 output validation 都会争同一文件 | 必须先由 P2 建 **durable enqueue tap 接口**；P7/P8/P13 只能接入接口，不直接改 hook 主分发 |
+| **High** | **archtest / wiring 不是独立小尾巴，而是所有任务共享 Gate write-set** | P23 gate 要新增 21 项 archtest `docs/plans/迁移/p23/COMPLIANCE_GATES.md:56-68`；现有 mcp-orch allowlist 仍放行 `internal/store` / `internal/module` `internal/archtest/dependency_direction_mcp_orch_test.go:23-29`，README 也承认需收紧 `docs/plans/迁移/p23/README.md:249` | 多 agent 同时改 archtest、allowlist、runner inventory 会互相覆盖；且未收紧 allowlist 前，后续合规判断不可靠 | Phase 0 单独派 **Gate Owner**，只改 migration guard、allowlist、archtest skeleton、CI/manual fallback |
+| **High** | **cmd/mcp-orch sqlc.yaml 未纳入后续 migration** | `cmd/mcp-orch/sqlc.yaml` 只包含 001/0022/0023/0024/0032 `cmd/mcp-orch/sqlc.yaml:5-10` | P0/P3/P5/P8–P13 加表/列后，若不同 agent 分别改 sqlc.yaml + 生成物，会大面积冲突 | 所有 SQLC/migration PR 必须串行；每个 migration owner 合并前独占 sqlc.yaml + generated store/sqlc |
+| **Medium** | **单任务 10–15 文件原则当前不满足或不可验** | 多数 stub 的 “改动清单” 仍是 `_待补_`，如 P0 `docs/plans/迁移/p23/P0_DAGRuntimeSkeleton.md:23-33`、P1 `P1...md:23-38`、P2 `P2...md:23-40`、P3 `P3...md:23-35` | 派单时无法精确限定 write-set，违反 §10.42“按文件所有权拆” | 每个 Pn 开工前补 file-level write-set，目标 10–15 文件；超过则拆 PR |
+| **Medium** | **P10 UI 落点文档有漂移风险** | P10 写 Wails UI 落点 `internal/ui/wails/dag/*` `docs/plans/迁移/p23/P10_TemplateAndUI.md:92-94`；但 grep 显示真实 Vue 前端在 `cmd/agent-terminal/frontend/vue-app/pages/DataPage.js`、`components/DagDetailModal.js` | UI owner 可能改错 root；也会与 dashboard RPC / Wails bridge 两套路径混淆 | P10 前置补 HEAD drift note：真实 frontend write-set 以 `cmd/agent-terminal/frontend/vue-app/*` 为主，Wails 只处理 bridge/transport |
+| **Medium** | **P5 cron bridge 仍是架构高风险，不宜与 P3/P6 并行落代码** | P5 明确 `internal/module/cron` 不能 import `cmd/mcp-orch` `docs/plans/迁移/p23/P5_CronTriggerSurface.md:30-35`；现有 archtest 禁 reverse mcp import `internal/archtest/dependency_direction_mcp_orch_test.go:49-53` | 若 P5 和 P3/P6 并行改 bridge / identity / trigger，会同时撞 interface 与 auth 上下文 | P5 应在 P3 StartDAG + P6 identity model 后再开代码 |
+| **Low** | P4 本身低风险，但不能独立证明 runtime 可用 | P4 只是 `auto_start` 语法糖 `docs/plans/迁移/p23/P4_HostAgentTriggerSurface.md:27-35` | 若早于 P0/P1/P2 可用链路合入，会创建“auto_start 但跑不动”的用户可见行为 | P4 放在 P0/P1/P2/P3 后的小 PR，单 owner 处理 |
+
+---
+
+## 必须串行的依赖链
+
+### 主链必须串行
+
+```text
+Phase 0 Gate / 编号重排 / allowlist 收紧
+  → P0 runtime skeleton + state machine CAS + sqlc
+  → P1 dispatcher + launch binding
+  → P2 terminal reconcile + enqueue-only hook tap
+  → P3 StartDAG + owner/tenant + trigger enum
+  → P4/P5/P6 触发源
+```
+
+理由：
+
+- P0 改状态机、SQL、store、actor inventory。
+- P1 依赖 P0 的 `pending→running` 与 wakeup claim。
+- P2 依赖 P1 的 `active_turn_id` / launcher binding。
+- P3 改 owner/tenant/trigger，是 P4/P5/P6 的共同入口。
+- P4/P5/P6 均应汇流 `StartDAG`，不能各自绕过。
+
+### 后段必须等前段收口
+
+```text
+P0 + P1 + P2 → P7 / P8 / P9
+P8 sanitize + P9 token/budget → P12
+P8 sanitize + P10 preset → P13
+P9 backpressure → P11
+P3 + P6 + schema freeze → P10
+```
+
+其中：
+
+- P7 依赖 `last_activity_at` 与 hook tap。
+- P8 依赖 durable terminal event + launcher quota。
+- P9 依赖 P0/P1 的 ready claim，不应重复实现 claim。
+- P11 依赖 P9 backpressure/budget。
+- P12 依赖 P8 light LLM + P9 token bucket。
+- P13 依赖 P8 sanitize，且必须在 P8 verify 前执行 output validation。
+
+---
+
+## 共享 write-set 冲突图
+
+| 热点文件 / 区域 | 涉及任务 | 冲突类型 | 处理方式 |
+|---|---|---|---|
+| `migrations/*.sql` | P0/P3/P5/P8/P9/P10/P11/P12/P13 | 编号、DDL 顺序、no-tx index、sqlc schema | **单 migration owner 串行** |
+| `cmd/mcp-orch/sqlc.yaml` + `cmd/mcp-orch/store/sqlc/*` | 所有 DDL 任务 | sqlc 生成物大冲突 | **每个 migration PR 独占** |
+| `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql` | P0/P1/P2/P10/P11/P13 | CAS、terminal fence、edit fence、validation fence | P0/P1/P2 先串行；后段只追加独立 query |
+| `cmd/mcp-orch/store/taskdag/contract.go` / `store.go` | P0/P1/P2/P3/P9/P10/P11/P13 | Store interface 扩展、DTO 字段、query wrapper | 单 owner 或按 phase 串行 |
+| `cmd/mcp-orch/orchestration/dag.go` | P0/P3/P8/P9/P10/P11 | CreateDAG schema、StartDAG、SpawnChild、batch create | 拆出 `dag_start.go`、`dag_spawn.go`、`template_service.go` 后再分工 |
+| `cmd/mcp-orch/tools/task_tools.go` | P3/P4/P5/P8/P10/P11/P12/P13 | MCP schema 扩字段 | 先拆 schema registry；否则单 owner |
+| `cmd/mcp-orch/orchestration/rpc.go` | P3/P6/P10/P11 | RPC method map 热点 | 单 RPC owner 或先抽 register 函数 |
+| `cmd/mcp-orch/orchestration/hook_consumer.go` | P2/P7/P8/P9/P13 | terminal/progress/output tap 热点 | P2 先建 enqueue-only tap，后段接接口 |
+| `cmd/mcp-orch/orchestration/service_launcher_bridge.go` | P1/P8/P9/P13 | launch quota、submit turn、output schema | P1 先抽 quota/config；P9 再换 token bucket |
+| `internal/archtest/*` | 全部 | 新增 21 项 + allowlist 收紧 | Gate owner 串行维护 |
+| `cmd/mcp-orch/fx.go` runner wiring | P0/P7/P8/P12/P13 | `group:"runners"` provider list | Runner inventory owner 串行 |
+| UI frontend | P10 | 文档落点漂移 | P10 前先校准真实 write-set |
+
+---
+
+## 推荐 3–5 Agent 派工拓扑
+
+### Round 0：Phase 0，最多 3 个 agent，可并行设计但串行合并
+
+| Agent | 范围 | Write-set |
+|---|---|---|
+| A：Migration/Gate Owner | 重排 P23 migration 编号、0064 不再 unused、MIGRATION_OWNER_CHECKLIST、sqlc schema 策略 | `docs/plans/迁移/p23/*`、后续 migration plan；不碰业务代码 |
+| B：Archtest/Allowlist Owner | 收紧 `dependency_direction_mcp_orch_test.go`，建 P23 archtest skeleton / names | `internal/archtest/*` |
+| C：Runtime Contract Owner | 冻结 runner inventory、hook enqueue-only contract、StartDAG 最小归属 | 文档 + 小量接口草案 |
+
+**合并顺序**：A → B → C。  
+原因：编号先定；archtest 再守；runtime 再按守卫落。
+
+---
+
+### Round 1：P0–P3 主链，不建议 3–5 并行写代码；建议串行小 PR
+
+```text
+P0a DDL + SQLC + Store CAS
+P0b Runner skeleton + actor wiring + archtest
+P1 Dispatcher + launcher binding
+P2 Terminal durable event + hook tap + reconcile
+P3 StartDAG + owner/tenant + trigger enum
+```
+
+可并行的只有**设计审查 / 测试用例准备**，代码合入必须串行。
+
+---
+
+### Round 2：P4/P5/P6 触发源，最多 3 agent 并行，但共享入口由 P3 owner 锁住
+
+| Agent | 可并行条件 |
+|---|---|
+| P4 Host agent trigger | P3 `StartDAG` 已合；只改 `task_tools.go` 小范围 |
+| P5 Cron trigger | p21 P1b 已合；P3 owner/tenant + identity 形状已合 |
+| P6 External RPC Auth | P3 owner/tenant 已合；rate/quota/audit schema 独占 |
+
+**注意**：P5/P6 都可能改 identity / audit / rpc guard，不能同时改同一 `rpc.go` 方法 map；建议 P6 先抽 service guard，再 P5 接入。
+
+---
+
+### Round 3：P7/P8/P9 后段底座，建议 3 agent 并行但设共享接口边界
+
+| Agent | 独占范围 | 禁止触碰 |
+|---|---|---|
+| P7 Activity | `dagActivityActor`、activity columns、probe SQL | 不直接改 hook 主逻辑，只接 P2 tap |
+| P8 Verify/Arbiter | light LLM、verify jobs、sanitize、arbiter actor | 不改 P9 token bucket；不直接扩 launcher quota |
+| P9 Scale | token bucket、backpressure、partial indexes、batch create | 不重写 P0/P1 ready claim |
+
+但 P8 和 P9 有强耦合：**P8 可以先做单 arbiter + durable jobs，P9 再统一 quota；P12 必须等 P9。**
+
+---
+
+### Round 4：P10/P11/P12/P13，最多 4 agent 并行，但需 feature gate
+
+| Agent | 范围 | 依赖 |
+|---|---|---|
+| P10 UI/Templates | template store/RPC/UI/field registry | P3 + P6 + schema freeze |
+| P11 Growth | spawn + budget ledger + convergence | P9 backpressure |
+| P12 Swarm | swarm actor + consensus + audit | P8 + P9 |
+| P13 Strict JSON | outputValidationActor + validator + audit | P8 sanitize；金融 swarm preset 依赖 P12 |
+
+P10 不应等 P11/P12/P13 全实现，但必须先有字段 registry / feature gate，否则 UI 表单会跟后段 schema 冲突。
+
+---
+
+## 每任务 10–15 文件内可行性
+
+| 任务 | 当前是否可直接派 10–15 文件 | 判定 |
+|---|---:|---|
+| P0 | 否 | 实际触及 DDL、SQL、store、runtime actors、fx wiring、archtest，超过 15，需拆 P0a/P0b |
+| P1 | 勉强 | 若 P0 已完成，可控在 10–15；否则会回改 P0 SQL/store |
+| P2 | 勉强 | 必须只做 hook enqueue + reconcile；若顺手做 P7/P8/P13 会超 |
+| P3 | 勉强 | `dag_start.go` 新文件可控；但 owner/tenant DDL + rpc + tools + store 仍接近上限 |
+| P4 | 是 | 小 PR |
+| P5 | 否/高风险 | cron bridge + migration + archtest + identity，需等 P3/P6 边界 |
+| P6 | 否 | 三入口 identity + auth/rate/quota/audit，建议拆 Transport adapters / Service guard / Audit DDL |
+| P7 | 是，前提 P2 tap 完成 | 不直接改 hook 主体 |
+| P8 | 否 | light LLM、sanitize、verify jobs、arbiter、schema、audit，应拆前置 LLM / sanitize / main verify |
+| P9 | 否 | scale 涉及 SQL/index/token/backpressure/archive/UI pagination，需拆 3 PR |
+| P10 | 否 | 后端 template + RPC +真实前端 + cost preview，需拆后端模板 / UI接通 / field registry |
+| P11 | 勉强/否 | spawn + budget ledger + convergence 可拆 2 PR |
+| P12 | 是/勉强 | 依赖 P8/P9 后，swarm actor + consensus 可控；audit/index 单独 PR |
+| P13 | 否 | validator + actor + provider schema + audit + repair，需拆 validator/actor/audit/provider |
+
+---
+
+## 最小修复清单
+
+1. **先修 migration 编号**：P23 不能再使用 0063/0064 口径；HEAD 已占用。
+2. **补每个 Pn 的 file-level write-set**：尤其 P0/P1/P2/P3/P5/P6/P8/P9/P10/P13。
+3. **把共享热文件拆接口**：
+   - `task_tools.go` → schema registry / per-feature schema file
+   - `rpc.go` → per-domain register function
+   - `hook_consumer.go` → durable enqueue tap interface
+   - `dag.go` → `dag_start.go` / `dag_spawn.go` / `template_service.go`
+4. **Phase 0 单独合入 Gate**：archtest skeleton、allowlist 收紧、migration guard、CI/manual fallback、runner inventory。
+5. **明确 sqlc.yaml 独占规则**：任何 DDL PR 独占 `cmd/mcp-orch/sqlc.yaml` + generated sqlc，不允许并行。
+
+---
+
+## 最终判定
+
+**BLOCK**
+
+理由：当前文档存在 HEAD 级 migration 编号冲突，且 P0–P13 的共享 write-set 未冻结；直接按 3–5 agent 并行实施会必然撞 `migration/sqlc/task_tools/rpc/hook/runtime/archtest`。建议先做 Phase 0 修订轮，通过后再按上面的串行主链 + 后段并行组派工。

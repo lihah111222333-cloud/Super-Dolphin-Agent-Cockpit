@@ -1,0 +1,92 @@
+已完成 P23 M1 修订，未请求审批。
+
+## 本轮写入文件
+
+- `docs/plans/迁移/p23/README.md`
+- `docs/plans/迁移/p23/COMPLIANCE_GATES.md`
+- `docs/plans/迁移/p23/RESEARCH_VERDICT.md`
+
+备注：当前工作树里 P0–P13 stub 仍显示已有 modified 状态；本轮未对这些 stub 做写入或回滚，遵守了本次 write-set 限制。
+
+## 关键修复点
+
+- 修正 migration 编号口径：
+  - 明确 HEAD 已占 `0063_agent_thread_name.sql`、`0064_skill_candidates.sql`。
+  - P23 暂从当前 HEAD 下一个可用编号 `0065+` 起排。
+  - 写明每个 migration PR 前必须重新校准 `migrations/` 最大编号。
+- 收口 authority：
+  - `COMPLIANCE_GATES.md` 明确为 P23 gate / archtest / CI / hard-soft 唯一权威。
+  - `README.md` 只引用 gate key / 摘要，不维护第二清单。
+  - `stub` 口径改为只引用 gate key。
+- 补强 21 项 archtest 表：
+  - 增加 `existing/planned`、`owner_subtask`、`introduced_by`、`hard_from`、`soft_until / pre-hard 行为` 等可执行字段。
+  - 保留“当前未实施”的事实，不假装已落地。
+- 修正 CI gate：
+  - 明确仓库当前无 `.github/workflows/`。
+  - 示例使用 `go-version-file: go.mod`，不再硬写 Go `1.22`。
+  - manual hard fallback 改为可核验机制：commit SHA、完整命令输出、reviewer `P23-manual-gate: verified` 签收。
+- 修正 L6 metrics / promhttp 缺口：
+  - 明确当前无 promhttp exporter / `/metrics`。
+  - P7 前必须有 promhttp exporter 或可执行 scheduled-audit fallback，否则 P7–P13 freeze。
+- 修正 P23 范围口径：
+  - P0–P6 不实现 P7–P13 后段能力，但这些仍属于 P23 后段。
+- 修正 P12/P13 拓扑：
+  - `P12 -> P13 financial swarm preset`。
+  - 普通 strict JSON validation 不依赖 P12。
+- 根 README conflict marker：
+  - 仅在 P23 文档中标为旁支 Low / 非本次范围；未改根 `README.md`。
+
+## grep / 验证证据
+
+- 旧 migration 口径已清掉：
+
+```text
+grep: 0063 起算|0064 unused|保留 unused|unused buffer|0064 是唯一允许缺号|0064 保留|从 0063 起算|0064.*unused|unused.*0064
+结果：0 matches
+```
+
+- COMPLIANCE_GATES 权威口径：
+
+```text
+docs/plans/迁移/p23/COMPLIANCE_GATES.md:4
+authoritative：本文件是 P23 gate / archtest / CI / hard-soft 阶段唯一权威；README 只引用本文件，不维护第二清单；stub 只引用 gate key
+```
+
+```text
+docs/plans/迁移/p23/README.md:231
+唯一 gate/archtest/CI/hard-soft 权威：COMPLIANCE_GATES.md
+```
+
+- CI / Go 版本 / manual fallback：
+
+```text
+docs/plans/迁移/p23/COMPLIANCE_GATES.md:98
+go-version-file: go.mod
+
+docs/plans/迁移/p23/COMPLIANCE_GATES.md:106
+manual hard fallback ... P23-manual-gate: verified
+```
+
+- promhttp / fallback：
+
+```text
+docs/plans/迁移/p23/COMPLIANCE_GATES.md:125
+没有 promhttp exporter / `/metrics` 暴露面 ... scheduled-audit fallback ... P7–P13 freeze
+```
+
+- P12/P13 拓扑：
+
+```text
+docs/plans/迁移/p23/README.md:172
+P12 ─► P13 financial swarm preset ... 普通 strict JSON validation 不依赖 P12
+```
+
+- HEAD migration / workflow 事实校准：
+
+```text
+migrations:
+0063_agent_thread_name.sql
+0064_skill_candidates.sql
+
+workflows exists: False
+```

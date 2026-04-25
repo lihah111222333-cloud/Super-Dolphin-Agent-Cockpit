@@ -1,0 +1,258 @@
+# P23 Agent H 审查结论：BLOCK
+
+只读审查完成，未修改文件、未提交。  
+审查维度：Scale / scheduling / observability / backpressure。  
+结论：**BLOCK** —— P23 文档已识别大部分关键风险，但当前代码事实仍不具备 N=10000/1000、P7/P9/P11 所需的调度、观测、背压能力；且 `queue_policy/fairness` 与 actor heartbeat 仍需更具体冻结。
+
+---
+
+## High
+
+### H1. N=10000 ready claim 仍是整 DAG `FOR UPDATE`，当前代码不具备 P9 scale 前提
+
+**证据**
+
+- P9 已明确当前瓶颈：`GetNodesForUpdate` 锁整 DAG，建议改为 `SKIP LOCKED`：`docs/plans/迁移/p23/P9_ScaleScheduling.md:23`
+- P9 明确 N=10000 必须改为 `FOR UPDATE SKIP LOCKED LIMIT K`：`docs/plans/迁移/p23/P9_ScaleScheduling.md:65-68`
+- README 也把 N=10000 三大击穿点写为 DB ready/lock、hook/launcher 背压、LLM verdict 开环：`docs/plans/迁移/p23/README.md:247`
+- 当前节点锁读仍是整 DAG：
+  - `cmd/mcp-orch/sql/queries/task_dag_node_read.sql:13-18`
+  - `cmd/mcp-orch/store/taskdag/store.go:100-103`
+- 现有 `SKIP LOCKED` 只存在于 wakeup claim，不是 node ready claim：`cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql:6-18`
+
+**影响**
+
+P9 文档对风险识别是正确的，但当前代码事实不支持 N=1000/10000 ready 调度。若 P0/P1 未先落小批 ready claim，P9 不能开工；否则会继续锁整 DAG，放大 DB p99 与 dispatcher 抖动。
+
+**建议**
+
+- P0/P1 必须先实现 node ready claim SQL：`WHERE status='pending' AND remaining_deps=0 ... FOR UPDATE SKIP LOCKED LIMIT $K`
+- 保留 P9 只负责 K 调参、partial index、fairness 的职责边界：`docs/plans/迁移/p23/P9_ScaleScheduling.md:87`
+- 加 integration test：两个 dispatcher 并发 claim 同一 DAG 不重 claim，且每轮最多 K=64。
+
+---
+
+### H2. batch / token bucket / backpressure 文档覆盖到位，但当前 launcher 与 hook 仍是开环
+
+**证据**
+
+- P9 要求：
+  - N>50 async/batch create：`docs/plans/迁移/p23/P9_ScaleScheduling.md:96-107`
+  - 全局 token bucket：`docs/plans/迁移/p23/P9_ScaleScheduling.md:38`
+  - bounded hook queue + lag/backpressure：`docs/plans/迁移/p23/P9_ScaleScheduling.md:39-42`
+  - Backpressure matrix：`docs/plans/迁移/p23/P9_ScaleScheduling.md:113-124`
+- 当前 DAG 创建仍单事务串行 upsert 全部 node 并全量 load：
+  - `cmd/mcp-orch/orchestration/dag.go:109-126`
+  - `cmd/mcp-orch/orchestration/dag.go:202-208`
+  - `cmd/mcp-orch/orchestration/dag.go:211-220`
+- 当前 launcher 是固定全局 semaphore，不是 token bucket / tenant / DAG / workload 四级 quota：
+  - `cmd/mcp-orch/orchestration/service_launcher_bridge.go:28-36`
+  - `cmd/mcp-orch/orchestration/service_launcher_bridge.go:81-90`
+- 当前 hook consumer 在 callback 内同步 dispatch：
+  - `cmd/mcp-orch/orchestration/hook_consumer.go:105-116`
+  - `cmd/mcp-orch/orchestration/hook_consumer.go:260-275`
+
+**影响**
+
+文档方向正确，但当前能力与 P9 hard target 差距大。尤其 launcher 固定 `maxConcurrentLaunches=10` 无 tenant/DAG fairness，hook 也没有 bounded queue 或 durable outbox，无法形成闭环背压。
+
+**建议**
+
+- P9 前置实现：
+  - create N>50 返回 async job id；
+  - launcher token bucket + budget ledger；
+  - hook terminal/reconcile/validation durable outbox；
+  - progress/delta coalesce/drop policy 必须打 metric。
+- Backpressure 信号必须能反向影响 watcher/dispatcher claim K 和 P7 probe 行为。
+
+---
+
+### H3. promhttp / metrics 没有代码落点，P7–P13 runtime alert 依赖无法满足
+
+**证据**
+
+- COMPLIANCE 明确当前只有 counter 声明，无 promhttp/exporter/alert：`docs/plans/迁移/p23/COMPLIANCE_GATES.md:17`
+- runtime alert 要求 DAG metrics 包括 hook lag、launcher lag、node transition、actor heartbeat：`docs/plans/迁移/p23/COMPLIANCE_GATES.md:107-124`
+- README 也确认 runtime metrics / alert 链路缺失：`docs/plans/迁移/p23/README.md:261-264`
+- 当前 metrics 包只有 bootstrap counters，注释也写 exporter 只是“when / if”挂载：
+  - `internal/platform/metrics/metrics.go:1-7`
+  - `internal/platform/metrics/metrics.go:15-51`
+- 仓内搜索 `promhttp` 只命中文档，没有实现落点。
+
+**影响**
+
+P9 SLO、P11 budget alert、P7 activity heartbeat 都依赖 runtime metrics。没有 `/metrics` 或可执行 scheduled-audit fallback 时，COMPLIANCE 已规定 P7–P13 freeze：`docs/plans/迁移/p23/COMPLIANCE_GATES.md:160-162`
+
+**建议**
+
+- P0 前冻结 metrics manifest：name/type/unit/labels/source actor/cardinality/PromQL。
+- P7 前必须至少有一个可验收落点：
+  - 首选：`promhttp.Handler()` 暴露 `/metrics`；
+  - 退路：可执行 scheduled-audit script，定义 DB/log 输入源、输出 artifact、退出码、owner。
+- DAG metrics 至少覆盖 P9 matrix 中的：
+  - `dag_hook_consumer_lag_seconds`
+  - `dag_launcher_queue_lag_seconds`
+  - `dag_launcher_queue_depth`
+  - `dag_ready_queue_depth`
+  - `dag_spawn_budget_usage_ratio`
+  - `dag_actor_last_heartbeat_timestamp_seconds`
+
+---
+
+### H4. actor lifecycle 日志 / heartbeat 要求已提出，但当前实现没有；文档仍需冻结具体字段与 cadence
+
+**证据**
+
+- README 要求 watcher/dispatcher/lease/reconcile 四 actor 各自产出 lifecycle 日志和 heartbeat：`docs/plans/迁移/p23/README.md:243`
+- COMPLIANCE 要求 `dag_actor_last_heartbeat_timestamp_seconds` + structured log event `dag_actor_heartbeat`：`docs/plans/迁移/p23/COMPLIANCE_GATES.md:122`
+- README 冻结四 actor：`docs/plans/迁移/p23/README.md:91-98`
+- 当前已有 orchestration runner actor `Run` 没有 start/stop/heartbeat/tick metric：
+  - `cmd/mcp-orch/orchestration/process_lifecycle.go:227-249`
+- root runner group 只调用 `current.Run(rootCtx)`，无统一 actor lifecycle logging wrapper：
+  - `internal/platform/runner/group.go:78-86`
+
+**影响**
+
+P23 文档说“只有全局 tracer 无 per-actor heartbeat 视为未收口”，但目前没有具体 heartbeat cadence、字段、labels、测试门。后续多个 actor 并行时，缺少 per-actor heartbeat 会导致 stuck actor 无法被 alert 或 audit 定位。
+
+**建议**
+
+冻结 actor heartbeat contract：
+
+- cadence：例如 30s 或 actor-specific interval；
+- labels：`actor`, `dag_key` 可选、`owner_id`, `tenant_id`, `shard`, `worker_id`；
+- structured log fields：`event=dag_actor_heartbeat`, `actor`, `iteration`, `claimed`, `processed`, `lag_ms`, `last_error`, `trace_id`;
+- lifecycle events：`start`, `stop_begin`, `drain_begin`, `drain_done`, `stop_done`, `error`;
+- archtest / unit test：每个 P23 actor 必须注册 heartbeat metric emitter。
+
+---
+
+## Medium
+
+### M1. `queue_policy` / fairness 仍偏口号化，缺 schema enum 与执行映射
+
+**证据**
+
+- 当前 `queue_policy` 只是自由 string：
+  - `cmd/mcp-orch/tools/task_tools.go:26-33`
+  - `cmd/mcp-orch/tools/task_tools.go:118-125`
+  - `cmd/mcp-orch/tools/task_tools.go:246-265`
+- README 现状也说明 `max_concurrency / queue_policy / fail_fast` 只写进 metadata，无执行器：`docs/plans/迁移/p23/README.md:29`
+- P9 只定义高层 fairness：per-tenant weighted fair queue、per-DAG max share、aging 防饥饿：`docs/plans/迁移/p23/P9_ScaleScheduling.md:101-103`
+
+**影响**
+
+“queue_policy/fairness 是否定义”目前答案是：**部分定义**。fairness 原则有，但 `queue_policy` 的合法值、默认值、与调度算法的映射没有冻结。继续保持自由 string 会让 UI/API/调度器各自解释。
+
+**建议**
+
+- 把 `queue_policy` 改为 enum，例如：
+  - `fifo`
+  - `priority`
+  - `weighted_fair`
+  - `deadline`
+- 明确每种 policy 的排序键、tie-breaker、aging 规则、per-tenant/per-DAG quota 交互。
+- schema 层 fail-fast，不接受未知 string。
+- P9 必测增加 starvation fixture：低权重 DAG 在高负载下仍能被 aging 推进。
+
+---
+
+### M2. P7 liveness 判定写得比较完整，但现有 hook 事件覆盖不足，activity 信号还不能落地
+
+**证据**
+
+- P7 已识别可用事件与未接 hook 的事件：
+  - 可用事件：`docs/plans/迁移/p23/P7_LivenessProbe.md:14-18`
+  - 未走 hook：`docs/plans/迁移/p23/P7_LivenessProbe.md:19-20`
+- P7 要求 ToolCallBegin/End、TurnOutputDelta 回写 `last_activity_at`：`docs/plans/迁移/p23/P7_LivenessProbe.md:35-43`
+- P7 硬契约要求多字段、CAS fence、backpressure 时不写终态：`docs/plans/迁移/p23/P7_LivenessProbe.md:76-95`
+- 当前 hook progress 只处理 `ItemCompleted`，且只接受 final answer：
+  - `cmd/mcp-orch/orchestration/hook_consumer.go:160-163`
+  - `cmd/mcp-orch/orchestration/hook_consumer.go:285-287`
+
+**影响**
+
+P7 文档方向正确，但当前 hook pipeline 不能提供长工具调用、delta、tool begin/end 的 activity 信号。若直接实现 P7 actor，会误判长工具或 hook lag。
+
+**建议**
+
+- P2 hook tap 前置扩展事件覆盖：tool begin/end、delta、item started/completed。
+- P7 必须只消费 durable/coalesced activity queue，不直接在 hook callback 重 DB。
+- `hook lag / DB lag` 超阈值时只延后 `next_probe_at`，不得 relaunch，这一点 P7 已写，应保留为 hard test。
+
+---
+
+### M3. P11 dynamic growth 防爆机制较完整，但 DDL/SQL 还需补 per-node spawn 事务校验细节
+
+**证据**
+
+- P11 定义 growth budget：
+  - `max_total_nodes`
+  - `max_depth`
+  - `max_spawn_per_node`
+  - `max_runtime_sec` 放 convergence/execution budget  
+  见 `docs/plans/迁移/p23/P11_DynamicNodeGrowth.md:28-36`
+- P11 定义 80% / 100% budget backpressure：`docs/plans/迁移/p23/P11_DynamicNodeGrowth.md:53-56`
+- P11 DDL 草案有 `total_node_count`、`max_observed_growth_depth`、`growth_depth`、reservation ledger：`docs/plans/迁移/p23/P11_DynamicNodeGrowth.md:73-112`
+- P11 明确 SpawnChildNodes + reservation CAS：`docs/plans/迁移/p23/P11_DynamicNodeGrowth.md:149-160`
+- 当前代码没有 `growth_budget` / `SpawnChildNodes` 实现；搜索只命中文档。
+
+**影响**
+
+P11 的安全阈值与防爆炸机制总体合格，但 `max_spawn_per_node` 的事务内校验没有像 `total_node_count + n <= max_total_nodes` 一样具体。仅有 `spawned_by_node_key` index，不足以说明高并发 spawn 时如何防单 node 超额。
+
+**建议**
+
+补充 P11 SQL contract：
+
+- `from_node_key` spawn count 的锁定方式；
+- 并发 spawn 对同一 parent 的 CAS 条件；
+- `max_spawn_per_node` 计数来源：counter column、ledger aggregate，或 locked child count；
+- 失败 reservation reconcile 行为；
+- archtest 不只 grep 绕过 INSERT，还要覆盖 `SpawnChildNodes` 内必须调用 budget reservation。
+
+---
+
+## Low / Positive
+
+### L1. wakeup claim 已有 `SKIP LOCKED` 先例，可复用为 node ready claim 形状参考
+
+**证据**
+
+- `cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql:6-18` 已使用 `FOR UPDATE SKIP LOCKED LIMIT $3`
+- cron 也已有类似 SKIP LOCKED 先例，文档与代码均存在。
+
+**建议**
+
+P0/P1 node ready claim 可直接借鉴 wakeup/cron 的 SQL fencing 形状，但不要误认为 wakeup claim 已解决 node ready claim。
+
+---
+
+### L2. P9 Backpressure Matrix 是本轮文档中最完整的部分，应作为 owner 实施准线
+
+**证据**
+
+- P9 对 hook lag、launcher lag、DB p99、ready depth、growth budget、SIGTERM 都给出阈值、影响 actor、动作、恢复、metric：`docs/plans/迁移/p23/P9_ScaleScheduling.md:113-124`
+
+**建议**
+
+后续 PR review 以该 matrix 为准，任何 actor 新增 claim/launch/spawn 行为都必须声明受哪些信号约束。
+
+---
+
+## 总体判断
+
+| 项 | 判断 |
+|---|---|
+| N=10000/1000 SKIP LOCKED | 文档覆盖；代码只 wakeup 有，node ready 仍缺 |
+| batch create | 文档覆盖；代码仍单事务串行 |
+| token bucket | 文档覆盖；代码仍固定 semaphore |
+| backpressure | P9 matrix 覆盖较好；代码尚无闭环 |
+| actor lifecycle logs / heartbeat | 文档提出；具体 cadence/fields/tests 不足，代码无实现 |
+| promhttp / metrics 落点 | 文档明确缺口；代码无 exporter |
+| queue_policy / fairness | fairness 原则有；`queue_policy` enum/语义不足 |
+| dynamic growth 防爆 | P11 方向合格；需补 per-node spawn 事务细节 |
+
+**最终：BLOCK**
+
+阻塞条件：在 P0/P1/P2/P9/L6 前置能力未落地前，不应启动 P7/P9/P11 实现或宣称支持千级/万级 DAG。

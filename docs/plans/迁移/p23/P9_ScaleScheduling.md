@@ -24,17 +24,26 @@
 
 ## 推荐架构
 
-> 待 owner 在开工前补全；约束以 [`README.md`](README.md) §"当前基线约束" / §"默认值安全原则" / §"收口口径" 为准。
+P9 提供统一容量控制层：ready claim 小批 `SKIP LOCKED`、bounded queues、global/tenant/DAG/workload token bucket、budget ledger、promhttp 指标与 scheduled-audit fallback。P7/P11/P12/P13 依赖的 backpressure 信号必须先可观测：若 promhttp 未启用，至少以定时 audit/health row 输出 queue depth、lag、DB p99、budget usage，供自动 relaunch/spawn/swarm/validation gate fail-safe。
+
+`schedule.queue_policy` 冻结 enum：`fifo`、`weighted_fair`、`tenant_fair`、`dag_fair`、`priority_aging`。映射规则：`fifo` 仅单 tenant/dev；生产默认 `weighted_fair`；`tenant_fair` 先 tenant 再 DAG round-robin；`dag_fair` 限制单 DAG max share；`priority_aging` 在优先级基础上随等待时间提升，防饥饿。未知值 schema fail，不允许 silently fallback。
 
 ## 改动清单
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| _待补_ | _待补_ | _待补_ |
+| ready claim SQL | `cmd/mcp-orch/sql/queries/task_dag_node_read.sql` / runtime queries | `FOR UPDATE SKIP LOCKED LIMIT K`；禁止整 DAG 锁读 |
+| scheduler fairness | `cmd/mcp-orch/orchestration/runtime/scheduler_queue.go` [NEW] | `queue_policy` enum 映射 weighted fair / tenant fair / DAG share / priority aging |
+| token bucket | `cmd/mcp-orch/orchestration/runtime/token_bucket.go` [NEW] | global/tenant/DAG/workload 四级 min；verifier/swarm/launcher 共用 |
+| budget ledger | `cmd/mcp-orch/store/dagbudget/*.go` [NEW] | launch/spawn/swarm/repair/storage spend reservation、refund、hard stop |
+| hook queues | `cmd/mcp-orch/orchestration/hook_consumer.go`（扩展） | durable terminal/reconcile/validation；progress coalesce/drop with metric |
+| metrics | `cmd/mcp-orch/orchestration/runtime/metrics.go` [NEW] + promhttp wiring | 输出 lag/depth/p99/budget；promhttp 不可用时 scheduled-audit fallback |
+| archive/spillover | `cmd/mcp-orch/store/taskdag/*.go` + archive migrations | result summary cap、blob ref、TTL/archive union pagination |
+| archtest | `internal/archtest/dag_scale_scheduling_test.go` [NEW] | 禁止无界 channel、整 DAG lock、未知 queue_policy fallback |
 
 **已知关键改动方向**：
 - `task_create_dag` N>50 时拆批 / async / streaming
-- P0 `0063_dag_state_machine.sql` 已前移 `remaining_deps` 或等价依赖计数列；P9 只补 `WHERE status='pending'` partial index、回填校验与归档/预算调度
+- P0 `0065_dag_state_machine.sql` 已前移 `remaining_deps` 或等价依赖计数列；P9 只补 `WHERE status='pending'` partial index、回填校验与归档/预算调度
 - launcher 配置化（P23 阶段 0 ⑤ 已预留 hook）→ 全局 token bucket（**verifier launch 共用同一 quota，不另起通道**，README §三子任务叠加冲突缓解契约 第 3 条）
 - hook consumer worker pool：bounded queue + lag 指标；terminal/reconcile/validation 用 durable outbox，progress/delta 才允许 coalesce/drop
 - wakeup / lease / archive：DAG 终态后 TTL 归档；node `result` 只存摘要，详细日志 spillover 外部 storage
@@ -43,7 +52,7 @@
 
 ## DDL / SQL
 
-- `remaining_deps INTEGER NOT NULL DEFAULT 0` 已裁决前移到 P0 `0063_dag_state_machine.sql`；P9 不再占用事务 migration 做该列，避免与 `CREATE INDEX CONCURRENTLY` 编号冲突
+- `remaining_deps INTEGER NOT NULL DEFAULT 0` 已裁决前移到 P0 `0065_dag_state_machine.sql`；P9 不再占用事务 migration 做该列，避免与 `CREATE INDEX CONCURRENTLY` 编号冲突
 - 加 partial index（单独 PR）：`CREATE INDEX CONCURRENTLY idx_task_dag_nodes_pending ON task_dag_nodes (dag_key, remaining_deps, id) WHERE status='pending'`；该 migration 文件不得包 `BEGIN/COMMIT`，需与回填列事务 migration 拆开
 - 补 tenant/fence 复合索引：`(tenant_id, dag_key, status, remaining_deps)` 与 `(dag_key, node_key, active_turn_id)`，抵消 a4/a5 filter + turn fence 热点
 - 新增归档表 `task_dags_archive` / `task_dag_nodes_archive`（或按 DAG 分区），并定义 DAG→node/wakeup/arbiter/output_validation 归档级联校验
@@ -101,6 +110,14 @@
 | launcher in-flight | 按 global、tenant、DAG、workload 四级取 min；verifier/swarm 有 max share |
 | fairness | per-tenant weighted fair queue；per-DAG max share；aging 防饥饿；budget exhausted hard stop |
 | shutdown | 引用 COMPLIANCE drain protocol；deadline 前不丢 terminal，progress drop 必打 metric |
+
+### queue_policy enum / fairness mapping
+
+`queue_policy` 只允许：`fifo`、`weighted_fair`、`tenant_fair`、`dag_fair`、`priority_aging`。schema / RPC / template UI 三处必须同一 enum。默认映射：dev/single-tenant 可用 `fifo`；multi-tenant 默认 `weighted_fair`（tenant weight → DAG max share → workload share）；`tenant_fair` 保证 tenant round-robin；`dag_fair` 防单 DAG 占满 launcher；`priority_aging` 计算 `effective_priority = base_priority + floor(wait_seconds/aging_step_sec)` 并受 budget hard stop 约束。fairness 决策必须暴露 redacted audit：chosen_queue、skipped_reason、budget_state、token_bucket_state_hash。
+
+### metrics / audit fallback 前置要求
+
+P7/P11/P12/P13 依赖 P9 指标做安全决策。P9 owner 必须先接 `promhttp` 指标；若 deployment 禁用 promhttp，则启用 scheduled-audit fallback，周期写 `dag_scheduler_health`（或等价）包含 hook lag、launcher lag、ready depth、DB p99、budget usage、last_sample_at。两者都缺失时，自动 relaunch、dynamic spawn、swarm fanout、strict JSON repair fanout 必须 feature-gate off。
 
 ### batch create API
 

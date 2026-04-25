@@ -110,7 +110,11 @@ func (s *service) Append(threadID, agentID string, item Item) {
 		s.mu.Unlock()
 		return
 	}
-	tl.append(item)
+	if item.Kind == "plan" {
+		tl.insertPlan(item)
+	} else {
+		tl.append(item)
+	}
 	emitter := s.emitter
 	s.mu.Unlock()
 
@@ -221,6 +225,36 @@ func (tl *threadTimeline) append(item Item) {
 	idx := len(tl.items) - 1
 	if lookupKey := itemLookupKey(item); lookupKey != "" {
 		tl.index[lookupKey] = idx
+	}
+	if key := turnKindKey(item); key != "" {
+		tl.turnKind[key] = key
+	}
+}
+
+func (tl *threadTimeline) insertPlan(item Item) {
+	if len(tl.items) >= tl.cap {
+		tl.evictOldest()
+	}
+
+	insertIdx := len(tl.items)
+	for i := len(tl.items) - 1; i >= 0; i-- {
+		if tl.items[i].TurnID == item.TurnID && tl.items[i].Kind == "turn_start" {
+			insertIdx = i + 1
+			break
+		}
+	}
+
+	if insertIdx == len(tl.items) {
+		tl.items = append(tl.items, item)
+	} else {
+		tl.items = append(tl.items, Item{})
+		copy(tl.items[insertIdx+1:], tl.items[insertIdx:])
+		tl.items[insertIdx] = item
+		tl.rebuildIndex()
+	}
+
+	if lookupKey := itemLookupKey(item); lookupKey != "" {
+		tl.index[lookupKey] = insertIdx
 	}
 	if key := turnKindKey(item); key != "" {
 		tl.turnKind[key] = key

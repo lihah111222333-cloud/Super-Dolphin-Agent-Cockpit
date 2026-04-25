@@ -6,7 +6,7 @@
 
 ## 目标
 
-把现有 TCP JSON-RPC `task/*` 方法挂上调用身份提取层、tenant 鉴权、rate limit、配额、审计日志。**不**在本期升级到 REST / gRPC，传输层维持现状。
+把现有 TCP JSON-RPC / Wails WS / MCP HTTP 上的所有写 RPC 挂上调用身份提取层、tenant 鉴权、rate limit、配额、审计日志。覆盖范围是同 transport 上全部写面：`agent.launch`、`agent.submit*`、`agent.stop`、`reportRuntime` / report event、`task/dag/create`、`dag/start`、`task/node/update` 等；**不能只保护 `task/*`**。**不**在本期升级到 REST / gRPC，传输层维持现状。localhost 也视为 untrusted local attack surface。
 
 ## 现状校准（事实层）
 
@@ -19,13 +19,27 @@
 
 ## 推荐架构
 
-> 待 owner 在开工前补全；约束以 [`README.md`](README.md) §"当前基线约束" / §"默认值安全原则" / §"收口口径" 为准。
+三入口先做 transport identity adapter，再进入同一 service-level guard：AuthN → AuthZ/tenant filter → rate → quota → idempotency → audit/spool → handler。`agent_id`、display name、`created_by`、RPC params 中的 `tenant_id/owner_id` 都只能做一致性校验或显示，不能作为授权来源；真实 `caller_identity` 必须来自 authenticated context，缺失 hard fail + audit。
+
+文件级落点：
+- TCP JSON-RPC：`internal/platform/rpc/server.go` / `internal/platform/rpc/transport_tcp.go`（如存在）提取 API key/session/mTLS claims；`cmd/mcp-orch/orchestration/rpc.go` 只接收已注入 ctx。
+- Wails WS：`internal/ui/wails/http_server.go`、`internal/ui/wails/bridge.go`、`internal/platform/rpc/transport_ws.go` 增 Origin allowlist、CSRF token、session binding、optional API key；桌面 localhost 同样视为 untrusted local attack surface，不因 `127.0.0.1` 跳过 AuthN。
+- MCP HTTP：`internal/mcpserver/common/http_transport.go` / `internal/mcpserver/common/server.go` 提取 Authorization/API key/session，注入 `CallerIdentity`，并对 MCP tools 写操作套同一 guard。
+
+service-level guard 放在共享包（建议 `cmd/mcp-orch/orchestration/security_guard.go` 或平台级 `internal/platform/rpc/security_guard.go`，由 owner 按 import 方向选择），每个写 RPC 注册时声明 method class、resource resolver、quota class、idempotency requirement、audit class。
 
 ## 改动清单
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| _待补_ | _待补_ | _待补_ |
+| TCP identity adapter | `internal/platform/rpc/server.go` + transport 文件 | 从 API key/JWT/mTLS/session 提取 `CallerIdentity`；localhost 不跳过；失败 audit |
+| Wails WS identity adapter | `internal/ui/wails/http_server.go`、`internal/ui/wails/bridge.go`、`internal/platform/rpc/transport_ws.go` | Origin allowlist、CSRF/session binding、可选 API key；WS upgrade 前校验 |
+| MCP HTTP identity adapter | `internal/mcpserver/common/http_transport.go`、`internal/mcpserver/common/server.go` | Authorization/API key/session → ctx；MCP tools 写操作同 guard |
+| service guard registry | `cmd/mcp-orch/orchestration/security_guard.go` [NEW] 或 platform 等价落点 | method matrix：AuthN/AuthZ/rate/quota/idempotency/audit，覆盖 agent/report/task/dag 写 RPC |
+| Start idempotency | `cmd/mcp-orch/store/dagstart/*.go`（复用 P3） | `dag_start_requests` for `dag/start`；external 使用 client idempotency key |
+| audit/spool | `cmd/mcp-orch/store/dagaudit/*.go` [NEW] + SQL | 写 RPC fail-closed 或 durable spool；read-sensitive redacted audit |
+| config | `internal/platform/config/config.go`（扩展） | auth/rate/quota/audit/origin allowlist/api key 配置；默认安全关闭外部写面 |
+| archtest | `internal/archtest/dag_external_rpc_guard_test.go` [NEW] | 三入口 adapter + service guard matrix；禁止只守 `task/*` |
 
 **已知关键改动方向**：
 - 新增 `WithCallerIdentity` middleware：从 RPC header / Wails session / MCP context 提取 caller identity，注入 ctx
@@ -33,7 +47,7 @@
 - AuthZ：基于 caller identity + DAG `owner_id / tenant_id` 做操作授权
 - Rate limit：每 caller / 每 tenant 双层限流
 - Quota：DAG 数 / node 数 / launch 数 三类配额
-- 审计日志：所有 `task/*` RPC 调用落 `dag_audit_log` 表（caller / method / params hash / result / latency）
+- 审计日志：所有写 RPC（`agent.launch`、`agent.submit*`、`agent.stop`、report runtime/event、`task/dag/create`、`dag/start`、`task/node/update` 等）落 `dag_audit_log` 表（caller / method / params hash / result / latency）；read-sensitive 也落 redacted audit
 - archtest：`dag_external_rpc_guard` 守 TCP JSON-RPC / Wails WS / MCP HTTP 三入口 identity adapter + service 层 AuthN/AuthZ/tenant/rate/quota/audit/idempotency guard
 
 ## DDL / SQL
@@ -41,7 +55,7 @@
 **新增表**：
 - `dag_audit_log`（caller_id, tenant_id, method, params_hash, result_code, latency_ms, called_at, prev_hash, row_hash, hash_alg, chain_scope）
 - `dag_audit_spool` / durable outbox（spool_id, status, method, params_hash, replay_after, attempt_no, last_error, created_at, processed_at）：外部写操作在 audit 主表不可写时必须 fail-closed，除非 spool insert 成功
-- 也可复用现有 `0065_dag_owner_tenant.sql` 同 PR 一并加
+- 也可复用现有 `0066_dag_owner_tenant.sql` 同 PR 一并加
 
 ## 依赖
 
@@ -85,6 +99,11 @@
 ### 两层安全模型
 
 Transport 层（TCP JSON-RPC / Wails WS / MCP HTTP）只负责提取 identity 到 ctx、Origin/CSRF/session/API key 检查；service 层统一执行 AuthN/AuthZ、tenant filter、rate/quota、idempotency、audit。archtest 不能只守 `rpc.go` middleware，必须覆盖三入口 adapter + service enforcement。
+
+
+### StartDAG idempotency 与外部 key
+
+外部 `dag/start` 必须使用 P3 统一 `dag_start_requests` schema：`trigger_source='external'`，`trigger_instance_key` 来自 authenticated caller 提供的 idempotency key（无 key 则拒绝写入，不自动用随机 key），`params_hash` 采用 canonical JSON。该 scope 与 `host/cron/manual` 互斥；如需要跨来源 active run 互斥，必须在 StartDAG 内增加 DAG active-run lease/CAS。
 
 ### 错误语义
 

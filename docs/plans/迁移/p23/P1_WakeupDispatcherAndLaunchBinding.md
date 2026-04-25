@@ -18,13 +18,21 @@
 
 ## 推荐架构
 
-> 待 owner 在开工前补全；约束以 [`README.md`](README.md) §"当前基线约束" / §"默认值安全原则" / §"收口口径" 为准。
+Dispatcher 只接管 P0 watcher claim 后的 launch/bind 半程，采用 durable launch-intent 状态机：
+
+1. watcher 已把 node CAS 到 `running` 并写入 `active_wakeup_id`；dispatcher 不重新计算 ready，不把 node 回退到 `pending`。
+2. dispatcher claim wakeup 后，在短事务内 upsert `dag_launch_intents`，唯一幂等键为 `(dag_key,node_key,attempt_no,wakeup_id)` 或其 deterministic hash `idempotency_key`。
+3. `launch_intent` 已持久化后才允许调用外部 launcher；DB 事务不得包住 launcher 调用。
+4. launcher 返回 accepted（已有或新建 agent/turn）后，dispatcher 调 `BindRunningNodeTurn` CAS：`WHERE dag_key=? AND node_key=? AND status='running' AND active_wakeup_id=? AND attempt_no=? AND active_turn_id=''`，写入 `assigned_agent_id` / `active_turn_id`。
+5. `BindRunningNodeTurn` 0 rows 不是重试覆盖信号；必须读取 node 当前 fence，若已绑定同 idempotency_key 的 turn 则 ack，否则标记 stale/conflict 交 reconcile。
 
 ## 改动清单
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| _待补_ | _待补_ | _待补_ |
+| dispatcher actor | `cmd/mcp-orch/orchestration/dag_dispatcher_actor.go` | 消费 due wakeup，持久化 launch intent，调用 launcher，执行 `BindRunningNodeTurn` |
+| launch intent DDL/SQL | `migrations/<p23>_dag_launch_intents.sql`、`cmd/mcp-orch/sql/queries/task_dag_launch_intent.sql` | `idempotency_key` 唯一、status 枚举、crash recovery 查询 |
+| store/service contract | `cmd/mcp-orch/store/taskdag/*`、`cmd/mcp-orch/orchestration/dag_launch_intent.go` | `UpsertLaunchIntent` / `MarkLauncherAccepted` / `BindRunningNodeTurn` / stale conflict 处理 |
 
 **已知关键改动方向**：
 - `dagDispatcherActor.Run(ctx)` 主循环：`ClaimDueWakeups` → 持久化 `launch_intent`（deterministic idempotency key）→ 调 launcher 或 submit turn（幂等返回 agent/turn）→ `BindRunningNodeTurn` CAS → `MarkWakeupSent/acked`
@@ -34,8 +42,32 @@
 
 ## DDL / SQL
 
-- 复用 P0/P1 落地的 wakeup + `launch_intent` 持久化字段/表；不得把外部 launcher 调用包进 DB 长事务
-- `task_dag_node_runtime.sql` 加 dispatcher 用 query：claim wakeup、记录 launch intent、bind agent_id/turn_id、ack wakeup 分步 CAS
+新增 `dag_launch_intents`（或等价 outbox 表），字段冻结：
+
+| 字段 | 契约 |
+|---|---|
+| `launch_intent_id TEXT PRIMARY KEY` | deterministic，可由 `idempotency_key` 派生 |
+| `idempotency_key TEXT NOT NULL UNIQUE` | 至少覆盖 `dag_key,node_key,attempt_no,wakeup_id`；dispatcher/launcher 重试共用 |
+| `dag_key TEXT NOT NULL` / `node_key TEXT NOT NULL` | 目标 node |
+| `attempt_no INTEGER NOT NULL` | 与 node 当前 attempt fence 一致 |
+| `wakeup_id TEXT NOT NULL` | 必须等于 node.`active_wakeup_id` |
+| `status TEXT NOT NULL` | `persisted` / `launcher_accepted` / `agent_started` / `turn_bound` / `failed` / `stale` |
+| `launcher_request JSONB NOT NULL` | redacted launch spec snapshot |
+| `assigned_agent_id TEXT NOT NULL DEFAULT ''` | launcher accepted 后写 |
+| `active_turn_id TEXT NOT NULL DEFAULT ''` | first turn accepted/started 后写 |
+| `launcher_error TEXT NOT NULL DEFAULT ''` | failed/stale 说明 |
+| `created_at/updated_at/accepted_at/bound_at/failed_at TIMESTAMPTZ` | recovery 与审计 |
+
+`status` 枚举含义：
+
+- `persisted`：intent 已落库，尚未确认 launcher accepted；crash recovery 重新用同一 `idempotency_key` 调 launcher 或查询 launcher 幂等结果。
+- `launcher_accepted`：launcher 接受请求并返回 agent/turn 标识，但 node 尚未 CAS bind；recovery 直接重放 `BindRunningNodeTurn`。
+- `agent_started`：可选中间态，表示 agent/session 已启动但 first turn 尚未绑定；recovery 继续读取/补投 turn，不能创建第二个 agent。
+- `turn_bound`：`BindRunningNodeTurn` CAS 成功，wakeup 可 ack。
+- `failed`：launcher 明确失败或超过 dispatcher retry，交 P2/P7 reconcile 以 fenced failure/observe_lost 处理。
+- `stale`：node fence 已不匹配（例如 retry 开新 attempt 或已 terminal），不得覆盖当前 node。
+
+`task_dag_node_runtime.sql` 必须新增 dispatcher query：`ClaimDueWakeups`、`UpsertLaunchIntent`、`MarkLaunchIntentAccepted`、`MarkLaunchIntentAgentStarted`、`BindRunningNodeTurn`、`MarkLaunchIntentBound`、`MarkLaunchIntentFailed/Stale`、`AckWakeup`。所有 query 分步 CAS；外部 launcher 调用不在 DB 事务内。
 
 ## 依赖
 
@@ -44,8 +76,8 @@
 
 ## 风险
 
-- launcher 异步成功 ≠ agent 真起来：必须区分 `launch_intent persisted` / `launcher accepted` / `turn bound` / `agent failed` 四态；crash 在任一阶段都必须能用 idempotency key 恢复或读取既有 turn，不得重复 launch
-- `dag_ref` 反向绑定 vs watcher 主动 push 的双触发：dispatcher 必须查 `assigned_agent_id != ''` 直接 noop（不重 launch）
+- launcher 异步成功 ≠ agent 真起来：必须区分 `launch_intent persisted` / `launcher accepted` / `agent started` / `turn bound` / `failed`；crash 在任一阶段都必须能用 idempotency key 恢复或读取既有 turn，不得重复 launch
+- `dag_ref` 反向绑定 vs watcher 主动 push 的双触发：dispatcher 必须查 `active_turn_id != ''` 或 intent `turn_bound` 直接 noop/ack（不重 launch，不覆盖 `assigned_agent_id`）
 - prompt 投递偶发不触发的历史观察（参考会话 2026-04-25 早期记录）需在 owner 启动前确认是否复现
 
 ## 必测项
@@ -63,3 +95,9 @@
 - `launch-param-design-2` 报告（[`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) 早期参数设计调研）
 
 
+
+## watcher / dispatcher SQL 契约摘要
+
+- watcher: `ClaimReadyNodes` 只做 `pending → running`、`attempt_no+1`、`active_wakeup_id`；不得写 `assigned_agent_id` / `active_turn_id`。
+- dispatcher: `BindRunningNodeTurn` 是唯一写 `assigned_agent_id` / `active_turn_id` 的 P1 SQL；必须带 `active_wakeup_id` + `attempt_no` CAS。
+- recovery: 先按 `idempotency_key` 查 intent，再查 launcher 幂等结果，最后才决定重放 bind 或标记 failed/stale；禁止盲目再 launch。

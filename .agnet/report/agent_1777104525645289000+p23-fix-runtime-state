@@ -1,0 +1,43 @@
+已完成修订，只改了指定 write-set：
+
+- `docs/plans/迁移/p23/P0_DAGRuntimeSkeleton.md`
+- `docs/plans/迁移/p23/P1_WakeupDispatcherAndLaunchBinding.md`
+- `docs/plans/迁移/p23/P2_NodeTerminalReconcile.md`
+- `docs/plans/迁移/p23/P8_VerificationGate.md`
+
+注意：工作区里 `P3-P6` 显示已有 modified，但本次没有修改它们。
+
+## 关键修复点
+
+- **P0/P1 watcher/dispatcher 协议**：冻结 watcher 只做 ready claim + `pending → running` + `active_wakeup_id`，不得写 `assigned_agent_id/active_turn_id`；dispatcher 通过 durable launch intent + launcher accepted + `BindRunningNodeTurn` CAS 绑定。
+- **P1 durable launch-intent 状态机**：补 `dag_launch_intents` 表字段、唯一 `idempotency_key`、`persisted / launcher_accepted / agent_started / turn_bound / failed / stale` 状态枚举与 crash recovery 分支。
+- **P2 terminal fence**：`CompleteNode/MarkFailed/Retry/MarkObserveLost` 全部要求 `active_turn_id + attempt_no` fence；0 rows 明确为 stale terminal，不覆盖。
+- **P2 aborted/interrupted/timeout**：映射为 `status=failed + result.terminal_kind='aborted|interrupted|timeout'`；late completed stale。
+- **P2/P13 解耦**：P2 只落 durable terminal event + extension hook；`output_schema` 分支 feature-gate 到 P13，不阻塞 P2。
+- **P8 awaiting_verify 清理**：改为 `verify_phase=awaiting_verify`，明确旧主状态迁移/删除；要求删除/替换 `UpdateAwaitingVerifyNodeStatus`，`CompleteTaskDagNode` 不得接受 `awaiting_verify` 前态。
+- **P8 verdict schema 强化**：补 `parsed_verdict / verdict_valid / verdict_schema_hash / target_node_key / verify_round / reason_code`，状态机只能消费 parsed enum，不能读 free-form JSONB。
+- **P8 on_reject=fail**：补 arbiter/judge reject 直接 `failed` 分支。
+- **retry/on_failure/fail_fast 真值表**：P0/P2 均补优先级：terminal CAS 先落事实；retry 优先；耗尽后 on_failure；fail_fast 只停新 ready claim，不取消 running；`verify.max_rounds` 与 execution retry 分账。
+
+## grep 证据
+
+正向证据：
+
+- `P0_DAGRuntimeSkeleton.md:24`：`assigned_agent_id` 与 `active_turn_id` 在 watcher ready claim 同事务中“必须保持空值”。
+- `P0_DAGRuntimeSkeleton.md:58`：`claim 事务不得写 assigned_agent_id`。
+- `P1_WakeupDispatcherAndLaunchBinding.md:43-68`：新增 `dag_launch_intents` 表契约、`idempotency_key`、状态枚举与 recovery。
+- `P1_WakeupDispatcherAndLaunchBinding.md:100`：`BindRunningNodeTurn` 是唯一写 `assigned_agent_id / active_turn_id` 的 P1 SQL。
+- `P2_NodeTerminalReconcile.md:25`：`CompleteNode / MarkFailed / RetryNode / MarkObserveLost` 全部带 `active_turn_id + attempt_no`，0 rows 是 stale terminal。
+- `P2_NodeTerminalReconcile.md:38`：`outputValidationActor` 分支由 P13 feature gate 接管，未启用 P13 不阻塞 P2。
+- `P2_NodeTerminalReconcile.md:78-93`：补 terminal / retry / on_failure / fail_fast 真值表。
+- `P8_VerificationGate.md:116-121`：补 verdict 强字段。
+- `P8_VerificationGate.md:177-184`：补 `verify_phase=awaiting_verify` 与 `on_reject=fail` 状态机分支。
+- `P8_VerificationGate.md:305`：禁止读取 free-form JSONB 决策，只消费强字段。
+- `P8_VerificationGate.md:309-312`：补 awaiting_verify 旧路径清理 gate 待办。
+
+负向 grep 结果均为 0：
+
+- `assigned_agent_id 在 pending→running 同事务写入`：0
+- `running + assigned_agent_id` 旧 crash recovery 口径：0
+- `必须先转入 P13 / 必须先转 outputValidationActor / 先转入 P13`：0
+- `status CHECK` 中包含 `awaiting_verify`：0

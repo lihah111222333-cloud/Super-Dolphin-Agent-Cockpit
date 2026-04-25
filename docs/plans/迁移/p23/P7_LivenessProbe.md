@@ -24,13 +24,20 @@ DAG 每 N 分钟探测 running node 上 agent 有无新动向（工具调用、t
 
 ## 推荐架构
 
-> 待 owner 在开工前补全；约束以 [`README.md`](README.md) §"当前基线约束" / §"默认值安全原则" / §"收口口径" 为准。
+`dagActivityActor` 只做活性观察与 relaunch 决策，不绕过 P0/P1/P2 state machine。heartbeat 写入来自 hook tap 的 canonical turn/tool/progress 事件，统一落 `last_activity_at`、`last_activity_kind`、`activity_state`、`heartbeat_seq`、`last_heartbeat_at`，并带 `active_turn_id + attempt_no` fence。默认 cadence：hook 事件实时 coalesce 写；actor probe 每 `probe_interval_sec` 扫 `next_probe_at <= now()` 的 running nodes，默认 interval 60s、jitter ±20%、batch 100（owner 可调但必须 schema 化）。
+
+P9 backpressure 信号是前置要求：hook/launcher/DB lag 超阈值时，P7 只能延后 `next_probe_at` 并打 metric，不 relaunch、不写终态。P9 promhttp 指标未接通时，必须先提供 scheduled-audit fallback（周期性把 lag/queue depth 写 audit/health row）供 P7 判断，否则 P7 自动 relaunch feature gate 关闭。
 
 ## 改动清单
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| _待补_ | _待补_ | _待补_ |
+| activity actor | `cmd/mcp-orch/orchestration/runtime/activity_actor.go` [NEW] | 第 5 个 `Runner.Run(ctx)` actor；按 `next_probe_at` 分片扫描 running nodes；遵守 P9 backpressure |
+| hook activity tap | `cmd/mcp-orch/orchestration/hook_consumer.go` / `event_relay.go`（扩展） | Turn/tool/progress heartbeat coalesce 写 `last_activity_*`，terminal 事件 durable |
+| SQL runtime | `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql`（扩展） | fenced update：`last_activity_at/kind/state/tool_call_id/tool_started_at/heartbeat_seq/next_probe_at` |
+| schema | `cmd/mcp-orch/tools/task_tools.go`（扩展） | `probe_interval_sec`、`idle_timeout_sec`、`tool_idle_timeout_sec`、batch/jitter/backoff 字段 |
+| metrics/backpressure | P9 promhttp metrics or scheduled-audit fallback | 读取 hook lag、launcher lag、DB p99；缺指标时关闭 relaunch |
+| archtest | `internal/archtest/dag_activity_actor_test.go` [NEW] | 确认 actor 注册、CAS fence、禁止 watcher 直接写 `observe_lost` |
 
 **已知关键改动方向**：
 - 新增 `dagActivityActor`（runner.actors 第 5 个）：定期扫 `running` 节点 `last_activity_at` 老化
@@ -44,7 +51,7 @@ DAG 每 N 分钟探测 running node 上 agent 有无新动向（工具调用、t
 ## DDL / SQL
 
 - P7 不新增独立表；但若 `last_activity_at` 之外的 activity 字段不能由既有列承载，必须申请独立 forward migration，不得把字段塞进无约束 JSONB 后绕过 fence
-- 最小列候选：`last_activity_kind`、`activity_state`、`tool_call_id`、`tool_started_at`、`last_relaunch_at`、`relaunch_count`、`next_probe_at`；全部写入必须带 `active_turn_id`/attempt fence 或等价 CAS
+- 最小列候选：`last_activity_kind`、`activity_state`、`tool_call_id`、`tool_started_at`、`last_heartbeat_at`、`heartbeat_seq`、`last_relaunch_at`、`relaunch_count`、`next_probe_at`；全部写入必须带 `active_turn_id`/attempt fence 或等价 CAS
 
 ## 依赖
 
@@ -91,4 +98,4 @@ P7 不得只凭一次 idle 超时 relaunch。最小字段/状态：`last_activit
 
 `dagReconcileActor` 写 `observe_lost` 必须使用 CAS 条件：`status='running' AND active_turn_id=$turn_id AND attempt_no=$attempt_no`（或等价 fence）；0 rows affected 视为 stale，不得重试覆盖。new-agent relaunch 与 `observe_lost` 必须竞争同一 CAS fence，二者只能成功一个。
 
-P7 schema 必须冻结 `probe_interval_sec`、`next_probe_at`、batch size、lease jitter 与 backoff 规则；默认 `idle_timeout_sec=0` 仍表示关闭自动 relaunch。`next_probe_at` 每次 probe 后按 interval+jitter 计算，hook/DB/launcher lag 触发 P9 backpressure 时只延后 probe，不写终态。
+P7 schema 必须冻结 `probe_interval_sec`、`next_probe_at`、batch size、lease jitter 与 backoff 规则；默认 `idle_timeout_sec=0` 仍表示关闭自动 relaunch。`next_probe_at` 每次 probe 后按 interval+jitter 计算，hook/DB/launcher lag 触发 P9 backpressure 时只延后 probe，不写终态。heartbeat 字段最小集为 `last_activity_at`（业务活动时间）、`last_heartbeat_at`（观测写入时间）、`heartbeat_seq`（单调递增/幂等去重）、`last_activity_kind`（turn_delta/tool_begin/tool_end/progress/stdout/terminal）、`activity_state`（idle_watch/tool_running/relaunching/backpressured），更新 cadence 为 hook 实时 coalesce + actor probe 默认 60s±20% jitter；promhttp 指标或 scheduled-audit fallback 未就绪时，自动 relaunch 不得启用。
