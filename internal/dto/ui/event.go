@@ -34,6 +34,8 @@ type SkillsChanged struct {
 	Action    string   `json:"action,omitempty"`
 	Actions   []string `json:"actions,omitempty"`
 	Count     int      `json:"count,omitempty"`
+	Scope     string   `json:"scope,omitempty"` // P0b Step 6: "project" | "system"
+	Cwd       string   `json:"cwd,omitempty"`   // P0b Step 6: project root (scope=project only)
 }
 
 // UIPreferencesChanged reports a persisted preference mutation.
