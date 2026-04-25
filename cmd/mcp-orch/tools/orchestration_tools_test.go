@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	req, err := launchRequestFromExecutable(LaunchAgentInput{
+		AgentID:     " agent-persist-1 ",
 		Name:        " agent-1 ",
 		Prompt:      " hello ",
 		ParentID:    " agent-root ",
@@ -23,8 +25,8 @@ func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("launchRequestFromExecutable() error = %v", err)
 	}
-	if req.AgentID != "agent-1" || req.Name != "agent-1" {
-		t.Fatalf("launch request IDs = (%q, %q), want agent-1", req.AgentID, req.Name)
+	if req.AgentID != "agent-persist-1" || req.Name != "agent-1" {
+		t.Fatalf("launch request identity = agent_id %q name %q, want agent-persist-1 / agent-1", req.AgentID, req.Name)
 	}
 	if req.Prompt != "hello" || req.Cwd != "/tmp/work" {
 		t.Fatalf("launch request prompt/cwd = (%q, %q)", req.Prompt, req.Cwd)
@@ -48,8 +50,8 @@ func TestNamePolicyLaunchRequestNameAndPromptAreIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("launchRequestFromExecutable() error = %v", err)
 	}
-	if req.AgentID != "dag-runtime-audit" || req.Name != "dag-runtime-audit" {
-		t.Fatalf("launch request IDs = (%q, %q), want explicit name only", req.AgentID, req.Name)
+	if req.AgentID == "dag-runtime-audit" || !strings.HasPrefix(req.AgentID, "agent_") || req.Name != "dag-runtime-audit" {
+		t.Fatalf("launch request identity = agent_id %q name %q, want generated agent_ id plus explicit display name", req.AgentID, req.Name)
 	}
 	if req.Prompt != "调研任务：定位 DAG runtime 路径" {
 		t.Fatalf("launch request prompt = %q, want prompt preserved separately", req.Prompt)
@@ -107,6 +109,7 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 	})
 
 	input, err := json.Marshal(LaunchAgentInput{
+		AgentID:     "agent-persist-1",
 		Name:        "agent-1",
 		Prompt:      "hello",
 		ParentID:    "agent-root",
@@ -137,8 +140,8 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 	// Wait for the async goroutine to call LaunchAgent.
 	select {
 	case got := <-done:
-		if got.AgentID != "agent-1" || got.Name != "agent-1" {
-			t.Fatalf("launch request IDs = (%q, %q), want agent-1", got.AgentID, got.Name)
+		if got.AgentID != "agent-persist-1" || got.Name != "agent-1" {
+			t.Fatalf("launch request identity = agent_id %q name %q, want agent-persist-1 / agent-1", got.AgentID, got.Name)
 		}
 		if got.Prompt != "hello" || got.Cwd != "/tmp/work" {
 			t.Fatalf("launch request prompt/cwd = (%q, %q), want (hello, /tmp/work)", got.Prompt, got.Cwd)
@@ -151,6 +154,52 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 		}
 		if len(got.Env) != 1 || got.Env[0] != "AGENT_PROVIDER=codex" {
 			t.Fatalf("launch request env = %#v, want [AGENT_PROVIDER=codex]", got.Env)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("async LaunchAgent was not called within 5s")
+	}
+}
+
+func TestLaunchHandlerReassignsDuplicateAgentIDBeforeAsyncLaunch(t *testing.T) {
+	originalExecutable := osExecutable
+	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
+	defer func() { osExecutable = originalExecutable }()
+
+	done := make(chan contract.LaunchRequest, 1)
+	handler := HandleLaunchAgent(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{{ID: "agent-dup", AgentID: "agent-dup"}}, nil
+		},
+		LaunchAgentFunc: func(_ context.Context, req contract.LaunchRequest) error {
+			done <- req
+			return nil
+		},
+	})
+
+	input, err := json.Marshal(LaunchAgentInput{
+		AgentID:  "agent-dup",
+		Name:     "worker",
+		Provider: "codex",
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	result, err := handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("HandleLaunchAgent() error = %v", err)
+	}
+	resultMap, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
+	}
+	returnedID, _ := resultMap["agent_id"].(string)
+	if returnedID == "" || returnedID == "agent-dup" || !strings.HasPrefix(returnedID, "agent_") {
+		t.Fatalf("returned agent_id = %q, want reassigned generated id", returnedID)
+	}
+	select {
+	case got := <-done:
+		if got.AgentID != returnedID {
+			t.Fatalf("async launch AgentID = %q, want returned id %q", got.AgentID, returnedID)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("async LaunchAgent was not called within 5s")

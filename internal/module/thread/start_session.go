@@ -10,10 +10,12 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 const defaultStartProvider = "codex"
+const maxAgentIDReservationRetries = 64
 
 func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 	req = trimStartRequest(req)
@@ -28,6 +30,100 @@ func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 		return StartRequest{}, "", err
 	}
 	return req, req.AgentID, nil
+}
+
+func (s *service) reserveUniqueStartAgentID(
+	ctx context.Context,
+	req StartRequest,
+	candidate string,
+	callerProvidedID bool,
+) (string, func()) {
+	candidate = strings.TrimSpace(candidate)
+	parentID := strings.TrimSpace(req.ParentAgentID)
+	if candidate == "" {
+		candidate = shared.NewAgentID()
+	}
+	s.agentIDMu.Lock()
+	defer s.agentIDMu.Unlock()
+	if s.agentIDReservations == nil {
+		s.agentIDReservations = make(map[string]struct{})
+	}
+	if parentID != "" && !callerProvidedID {
+		return s.reserveNextChildAgentIDLocked(ctx, parentID)
+	}
+	if release := s.reserveAgentIDIfAvailableLocked(ctx, candidate); release != nil {
+		return candidate, release
+	}
+	if parentID != "" {
+		return s.reserveNextChildAgentIDLocked(ctx, parentID)
+	}
+	return s.reserveGeneratedRootAgentIDLocked(ctx)
+}
+
+func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID string) (string, func()) {
+	base := int64(0)
+	if s.threadStore != nil {
+		if count, err := s.threadStore.CountChildren(ctx, parentID); err == nil && count > 0 {
+			base = count
+		}
+	}
+	for i := 0; i < maxAgentIDReservationRetries; i++ {
+		candidate := shared.NewChildAgentID(parentID, int(base)+1+i)
+		if release := s.reserveAgentIDIfAvailableLocked(ctx, candidate); release != nil {
+			return candidate, release
+		}
+	}
+	return s.reserveGeneratedRootAgentIDLocked(ctx)
+}
+
+func (s *service) reserveGeneratedRootAgentIDLocked(ctx context.Context) (string, func()) {
+	for i := 0; i < maxAgentIDReservationRetries; i++ {
+		candidate := shared.NewAgentID()
+		if release := s.reserveAgentIDIfAvailableLocked(ctx, candidate); release != nil {
+			return candidate, release
+		}
+	}
+	candidate := shared.NewAgentID()
+	return candidate, s.reserveAgentIDLocked(candidate)
+}
+
+func (s *service) reserveAgentIDIfAvailableLocked(ctx context.Context, agentID string) func() {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" || s.agentIDInUseLocked(ctx, agentID) {
+		return nil
+	}
+	return s.reserveAgentIDLocked(agentID)
+}
+
+func (s *service) reserveAgentIDLocked(agentID string) func() {
+	agentID = strings.TrimSpace(agentID)
+	s.agentIDReservations[agentID] = struct{}{}
+	return func() {
+		s.agentIDMu.Lock()
+		delete(s.agentIDReservations, agentID)
+		s.agentIDMu.Unlock()
+	}
+}
+
+func (s *service) agentIDInUseLocked(ctx context.Context, agentID string) bool {
+	if _, ok := s.agentIDReservations[agentID]; ok {
+		return true
+	}
+	if s.threadStore != nil {
+		if exists, err := s.threadStore.Exists(ctx, agentID); err == nil && exists {
+			return true
+		}
+	}
+	if s.bindingStore != nil {
+		binding, err := s.bindingStore.GetByAgentID(ctx, agentID)
+		if err == nil && binding != nil {
+			return true
+		}
+		if err != nil && !platformdb.IsNotFound(err) {
+			return false
+		}
+	}
+	return false
 }
 
 func trimStartRequest(req StartRequest) StartRequest {

@@ -109,6 +109,7 @@ func logStartRPCReceived(p startParams) {
 	// dropped it" without running tcpdump. Values are scalar / boolean so
 	// log volume stays tame.
 	pkglogger.Info("thread/start: rpc received",
+		"agent_id", p.AgentID,
 		"agent_key", p.AgentKey,
 		"prompt_key", p.PromptKey,
 		"use_classifier", p.UseClassifier,
@@ -122,6 +123,7 @@ func logStartRPCReceived(p startParams) {
 
 func buildStartRequestFromParams(p startParams) StartRequest {
 	return StartRequest{
+		AgentID:               p.AgentID,
 		Provider:              p.Provider,
 		CWD:                   p.CWD,
 		Model:                 p.Model,

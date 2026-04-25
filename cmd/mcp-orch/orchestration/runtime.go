@@ -51,8 +51,13 @@ func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSn
 	if remoteThreadID := strings.TrimSpace(agent.remoteThreadID); remoteThreadID != "" {
 		threadID = remoteThreadID
 	}
+	persistedAgentID := strings.TrimSpace(agent.remoteAgentID)
+	if persistedAgentID == "" {
+		persistedAgentID = agent.id
+	}
 	return AgentSnapshot{
 		ID:             agent.id,
+		AgentID:        persistedAgentID,
 		Name:           agent.name,
 		ParentID:       agent.parentID,
 		Port:           port,

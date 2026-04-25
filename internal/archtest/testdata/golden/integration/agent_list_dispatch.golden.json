@@ -3,6 +3,7 @@
   "request": {},
   "response": [
     {
+      "agent_id": "agent-list-1",
       "cwd": "/tmp/agent-list/alpha",
       "id": "agent-list-1",
       "last_report": "alpha finished",
@@ -14,6 +15,7 @@
       "updated_at": "2026-03-25T12:00:00Z"
     },
     {
+      "agent_id": "agent-list-2",
       "cwd": "/tmp/agent-list/beta",
       "id": "agent-list-2",
       "name": "list-beta",

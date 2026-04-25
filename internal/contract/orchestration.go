@@ -100,6 +100,7 @@ type LaunchRequest struct {
 
 type AgentSnapshot struct {
 	ID             string    `json:"id"`
+	AgentID        string    `json:"agent_id"`
 	Name           string    `json:"name"`
 	ParentID       string    `json:"parent_id,omitempty"`
 	Port           int       `json:"port"`

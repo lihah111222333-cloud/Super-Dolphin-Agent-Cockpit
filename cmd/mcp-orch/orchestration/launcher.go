@@ -159,6 +159,7 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	// launch prompt is submitted as a first turn after thread/start.
 	displayName := managedAgentLaunchDisplayName(req.Name)
 	resp, err := rpcCall[map[string]any](ctx, r, LauncherMethodThreadStart, map[string]any{
+		LauncherParamAgentID:          strings.TrimSpace(agent.id),
 		LauncherParamCwd:              strings.TrimSpace(req.Cwd),
 		LauncherParamName:             displayName,
 		LauncherParamAgentType:        strings.TrimSpace(req.AgentType),

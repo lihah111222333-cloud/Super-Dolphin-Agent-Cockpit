@@ -55,6 +55,7 @@ func TestCrossDomainGoldenAgentListDispatch(t *testing.T) {
 func listAgentSnapshots(at time.Time) []contract.AgentSnapshot {
 	return []contract.AgentSnapshot{
 		{
+			AgentID:    "agent-list-1",
 			ID:         "agent-list-1",
 			Name:       "list-alpha",
 			ThreadID:   "thread-list-1",
@@ -65,6 +66,7 @@ func listAgentSnapshots(at time.Time) []contract.AgentSnapshot {
 			UpdatedAt:  at,
 		},
 		{
+			AgentID:   "agent-list-2",
 			ID:        "agent-list-2",
 			Name:      "list-beta",
 			ParentID:  "agent-list-1",
