@@ -159,16 +159,7 @@ func discoverAllProcesses() (map[int]int, []mcpProcessInfo) {
 // "codex app-server --listen ws://...".
 // We look for the pattern in the args slice: [..., "app-server", "--listen", ws://...]
 func isAppServerArgs(args []string) bool {
-	for i := 0; i < len(args)-1; i++ {
-		base := args[i]
-		if idx := strings.LastIndex(base, "/"); idx >= 0 {
-			base = base[idx+1:]
-		}
-		if base == "app-server" && i+1 < len(args) && args[i+1] == "--listen" {
-			return true
-		}
-	}
-	return false
+	return isCodexAppServerListenArgs(args)
 }
 
 // discoverAppServerProcessList returns (allProcs, appServerProcs) where the

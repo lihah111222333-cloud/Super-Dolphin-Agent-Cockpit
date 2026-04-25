@@ -25,6 +25,14 @@ export function waitMs(ms) {
   });
 }
 
+function providerPreferenceScope(provider) {
+  const value = (provider || '').toString().trim();
+  if (!value) return '';
+  if (value === 'codex') return 'codex';
+  if (value === 'claude' || value.startsWith('claude-')) return 'claude';
+  return value;
+}
+
 function normalizeOptimisticAttachment(attachment) {
   const kind = (attachment?.kind || '').toString().trim() === 'image' ? 'image' : 'file';
   const path = (attachment?.path || '').toString().trim();
@@ -370,7 +378,7 @@ function getStartResponseProvider(res) {
 }
 
 export async function startThread(ctx, cwd = '.', options = {}) {
-  const { callAPI, logInfo } = ctx;
+  const { callAPI, logInfo, logWarn } = ctx;
   const start = perfNow();
 
   // Resolve sync overrides first so we can decide which cwd-scoped
@@ -400,10 +408,29 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   if (!modelProvider) {
     throw new Error('startThread: settings.provider.active preference is empty — cannot determine provider. Please select a provider in Settings.');
   }
+  const providerScope = providerPreferenceScope(modelProvider);
+  const [providerModelPref, providerEffortPref] = providerScope ? await Promise.all([
+    getPref({ key: `settings.provider.${providerScope}.model`, cwd }),
+    getPref({ key: `settings.provider.${providerScope}.effort`, cwd }),
+  ]) : [undefined, undefined];
+  const providerModel = typeof providerModelPref === 'string' ? providerModelPref.trim() : '';
+  const providerEffort = typeof providerEffortPref === 'string' ? providerEffortPref.trim() : '';
   // p20.3 §4.3：launch payload 可携带 UI 已知的 skill 选择。空数组 / false 不下发，
   // 完全对旧 payload 做 additive 兼容；名称与 send path 对齐（selectedSkills /
   // manualSkillSelection）。backend 的 rpc_types.go 同时兼容 snake_case 别名。
   const payload = { cwd, modelProvider };
+  logWarn('thread', 'start.config.trace', {
+    cwd,
+    model_provider: modelProvider,
+    provider_scope: providerScope,
+    provider_pref_model: providerModel,
+    provider_pref_effort: providerEffort,
+    options_model: (options?.model || '').toString(),
+    options_effort: (options?.effort || '').toString(),
+    payload_model: (payload.model || '').toString(),
+    payload_effort: (payload.effort || '').toString(),
+    note: 'diagnostic: provider prefs are observed here; payload forwarding is logged separately by backend',
+  });
   const rawSelected = Array.isArray(options?.selectedSkills) ? options.selectedSkills : [];
   const selectedSkills = rawSelected
     .map((name) => (typeof name === 'string' ? name.trim() : ''))
