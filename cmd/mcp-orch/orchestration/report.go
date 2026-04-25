@@ -14,21 +14,39 @@ import (
 // report-text payload scan order now live in report_protocol.go.
 // See P22 P4 §64 / §122 / §283.
 
-func (s *service) GetState(_ context.Context, agentID string) (AgentStateResult, error) {
+func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
-	err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+	err := s.withAgentReadLockedByAgentID(agentID, func(agent *agentRuntime) error {
 		result = AgentStateResult{AgentID: agent.id, State: agent.state}
 		return nil
 	})
+	if err != nil && errors.Is(err, errAgentNotFound) {
+		snapshot, lookupErr := s.persistedAgentSnapshot(ctx, agentID)
+		if lookupErr == nil {
+			return AgentStateResult{AgentID: snapshot.AgentID, State: snapshot.State}, nil
+		}
+		if !errors.Is(lookupErr, errAgentNotFound) {
+			return AgentStateResult{}, lookupErr
+		}
+	}
 	return result, err
 }
 
-func (s *service) GetReport(_ context.Context, agentID string) (AgentReportResult, error) {
+func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportResult, error) {
 	var result AgentReportResult
-	err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+	err := s.withAgentReadLockedByAgentID(agentID, func(agent *agentRuntime) error {
 		result = agentReportLocked(agent)
 		return nil
 	})
+	if err != nil && errors.Is(err, errAgentNotFound) {
+		snapshot, lookupErr := s.persistedAgentSnapshot(ctx, agentID)
+		if lookupErr == nil {
+			return AgentReportResult{AgentID: snapshot.AgentID, State: snapshot.State}, nil
+		}
+		if !errors.Is(lookupErr, errAgentNotFound) {
+			return AgentReportResult{}, lookupErr
+		}
+	}
 	return result, err
 }
 

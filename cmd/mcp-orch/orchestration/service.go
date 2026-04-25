@@ -22,6 +22,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -77,6 +78,7 @@ type service struct {
 	turnStarter            TurnStarter
 	dagStore               taskdag.Store
 	recoveryStore          recoveryTurnStore
+	agentThreads           AgentThreadStore
 	machineCfg             platformstatemachine.Config
 	processExitWaitTimeout time.Duration
 	// exitMonitor is the P22 P3 single owner of every locally-launched
@@ -96,12 +98,22 @@ type serviceParams struct {
 	Launcher       AgentLauncher
 	SessionCleaner SessionCleaner
 	TurnStarter    TurnStarter
-	DAGStore       taskdag.Store `optional:"true"`
+	DAGStore       taskdag.Store    `optional:"true"`
+	AgentThreads   AgentThreadStore `optional:"true"`
 }
 
 type recoveryTurnStore interface {
 	ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]taskdag.Node, error)
 	GetWakeup(ctx context.Context, id int64) (*taskdag.Wakeup, error)
+}
+
+type AgentThreadStore interface {
+	ListAll(ctx context.Context) ([]threadstore.Thread, error)
+	GetByThreadID(ctx context.Context, threadID string) (*threadstore.Thread, error)
+}
+
+func ProvideAgentThreadStore(store threadstore.Store) AgentThreadStore {
+	return store
 }
 
 type agentRuntime struct {
@@ -189,7 +201,9 @@ func NewService(
 // adapts the same pointer to the public Service / contract.Orchestration
 // Service interface.
 func ProvideService(p serviceParams) *service {
-	return NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
+	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
+	svc.agentThreads = p.AgentThreads
+	return svc
 }
 
 // ProvideServiceInterface adapts the private *service pointer into the
@@ -325,6 +339,19 @@ func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 }
 
 func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
+	snapshots := s.runtimeAgentSnapshots(ctx)
+	if s.agentThreads != nil {
+		persisted, err := s.listPersistedAgentSnapshots(ctx)
+		if err != nil {
+			return nil, err
+		}
+		snapshots = mergeAgentSnapshots(persisted, snapshots)
+	}
+	sortAgentSnapshots(snapshots)
+	return snapshots, nil
+}
+
+func (s *service) runtimeAgentSnapshots(ctx context.Context) []AgentSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -332,24 +359,24 @@ func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 	for _, agent := range s.agents {
 		snapshots = append(snapshots, s.snapshotLocked(ctx, agent))
 	}
-	sort.SliceStable(snapshots, func(i, j int) bool {
-		if snapshots[i].ID != snapshots[j].ID {
-			return snapshots[i].ID < snapshots[j].ID
-		}
-		if snapshots[i].Name != snapshots[j].Name {
-			return snapshots[i].Name < snapshots[j].Name
-		}
-		return snapshots[i].Port < snapshots[j].Port
-	})
-	return snapshots, nil
+	return snapshots
 }
 
 func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error) {
 	var snapshot AgentSnapshot
-	err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+	err := s.withAgentReadLockedByAgentID(agentID, func(agent *agentRuntime) error {
 		snapshot = s.snapshotLocked(ctx, agent)
 		return nil
 	})
+	if err != nil && errors.Is(err, errAgentNotFound) {
+		persisted, lookupErr := s.persistedAgentSnapshot(ctx, agentID)
+		if lookupErr == nil {
+			return persisted, nil
+		}
+		if !errors.Is(lookupErr, errAgentNotFound) {
+			return AgentSnapshot{}, lookupErr
+		}
+	}
 	return snapshot, err
 }
 

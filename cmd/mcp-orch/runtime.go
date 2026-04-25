@@ -22,6 +22,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
@@ -69,6 +70,10 @@ func newPool(cfg *platformconfig.Config) (*pgxpool.Pool, error) {
 
 func newQueries(pool *pgxpool.Pool) *sqlc.Queries {
 	return sqlc.New(pool)
+}
+
+func newAgentThreadStore(pool *pgxpool.Pool) threadstore.Store {
+	return threadstore.NewStoreFromPool(pool)
 }
 
 func registerPoolLifecycle(lc fx.Lifecycle, logger *slog.Logger, pool *pgxpool.Pool) {

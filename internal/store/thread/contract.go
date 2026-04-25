@@ -30,6 +30,7 @@ type Store interface {
 
 type UpsertParams struct {
 	ThreadID         string
+	Name             string
 	Prompt           string
 	Model            string
 	Cwd              string
@@ -72,6 +73,7 @@ type Thread struct {
 	ParentAgentID    string
 	AgentType        string
 	AgentMemoryScope string
+	Name             string
 	Prompt           string
 	Model            string
 	Cwd              string

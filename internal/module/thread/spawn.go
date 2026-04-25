@@ -70,9 +70,9 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		Approvals:     strings.TrimSpace(req.ApprovalPolicy),
 		Personality:   strings.TrimSpace(req.Personality),
 		Provider:      strings.TrimSpace(req.Provider),
-		PromptKey:        strings.TrimSpace(req.PromptKey),
-		UseClassifier:    req.UseClassifier,
-		Runtime:          shared.CloneRuntimeConfigMap(req.Config),
+		PromptKey:     strings.TrimSpace(req.PromptKey),
+		UseClassifier: req.UseClassifier,
+		Runtime:       shared.CloneRuntimeConfigMap(req.Config),
 	}
 	configOverride, err := encodeStoredThreadConfig(pendingStored)
 	if err != nil {
@@ -95,6 +95,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	})
 	if err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{
 		ThreadID:         state.PublicThreadID,
+		Name:             state.Name,
 		Prompt:           state.Prompt,
 		Model:            state.Model,
 		Cwd:              state.CWD,

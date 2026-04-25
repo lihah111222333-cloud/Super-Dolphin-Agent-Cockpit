@@ -95,6 +95,7 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
 	return threadstore.UpsertParams{
 		ThreadID:         strings.TrimSpace(thread.ThreadID),
+		Name:             strings.TrimSpace(shared.FirstNonEmpty(thread.Name, thread.Prompt)),
 		Prompt:           strings.TrimSpace(thread.Prompt),
 		Model:            strings.TrimSpace(thread.Model),
 		Cwd:              strings.TrimSpace(thread.Cwd),

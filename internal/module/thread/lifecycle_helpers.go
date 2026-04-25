@@ -405,6 +405,7 @@ func (s *service) upsertPublicThread(
 	displayName := strings.TrimSpace(shared.FirstNonEmpty(state.Name, state.Prompt))
 	err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{
 		ThreadID:        state.PublicThreadID,
+		Name:            displayName,
 		Prompt:          displayName,
 		Model:           state.Model,
 		Cwd:             state.CWD,
@@ -444,7 +445,7 @@ func historyTargetID(binding *bindingstore.Binding, threadID string) string {
 }
 
 func toRef(thread threadstore.Thread) Ref {
-	name := strings.TrimSpace(thread.Prompt)
+	name := strings.TrimSpace(shared.FirstNonEmpty(thread.Name, thread.Prompt))
 	if name == "" {
 		name = shared.FirstNonEmpty(strings.TrimSpace(thread.ThreadID), strings.TrimSpace(thread.AgentID))
 	}

@@ -127,6 +127,7 @@ func TestUpsertPersistsConfigOverride(t *testing.T) {
 
 	err := s.Upsert(context.Background(), UpsertParams{
 		ThreadID:         "thread-1",
+		Name:             "display name",
 		Model:            "gpt-5.5",
 		ParentAgentID:    "agent-root",
 		AgentType:        "reviewer",
@@ -138,6 +139,9 @@ func TestUpsertPersistsConfigOverride(t *testing.T) {
 	}
 	if got.ParentAgentID != "agent-root" || got.AgentType != "reviewer" || got.AgentMemoryScope != "project" {
 		t.Fatalf("identity fields = %+v, want parent/type/scope forwarded", got)
+	}
+	if got.Name != "display name" {
+		t.Fatalf("Name = %q, want display name forwarded", got.Name)
 	}
 	stored, ok := got.ConfigOverride.(json.RawMessage)
 	if !ok {
@@ -156,6 +160,7 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 		getByIDFn: func(context.Context, string) (sqlc.GetAgentThreadByIDRow, error) {
 			return sqlc.GetAgentThreadByIDRow{
 				ThreadID:         "thread-1",
+				Name:             "display name",
 				ParentAgentID:    "agent-root",
 				AgentType:        "reviewer",
 				AgentMemoryScope: "project",
@@ -163,13 +168,13 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 			}, nil
 		},
 		listAllFn: func(context.Context) ([]sqlc.ListAgentThreadsRow, error) {
-			return []sqlc.ListAgentThreadsRow{{ThreadID: "thread-1", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
+			return []sqlc.ListAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
 		},
 		listRunningFn: func(context.Context) ([]sqlc.ListRunningAgentThreadsRow, error) {
-			return []sqlc.ListRunningAgentThreadsRow{{ThreadID: "thread-1", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
+			return []sqlc.ListRunningAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
 		},
 		listRecoverableFn: func(context.Context) ([]sqlc.ListRecoverableAgentThreadsRow, error) {
-			return []sqlc.ListRecoverableAgentThreadsRow{{ThreadID: "thread-1", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
+			return []sqlc.ListRecoverableAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
 		},
 	}}
 
@@ -179,6 +184,9 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 	}
 	if thread.ParentAgentID != "agent-root" || thread.AgentType != "reviewer" || thread.AgentMemoryScope != "project" {
 		t.Fatalf("GetByThreadID() identity = %#v, want parent/type/scope mapped", thread)
+	}
+	if thread.Name != "display name" {
+		t.Fatalf("GetByThreadID().Name = %q, want display name", thread.Name)
 	}
 	if string(thread.ConfigOverride) != string(raw) {
 		t.Fatalf("GetByThreadID().ConfigOverride = %s, want %s", thread.ConfigOverride, raw)
@@ -191,6 +199,9 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 		}
 		if threads[0].ParentAgentID != "agent-root" || threads[0].AgentType != "reviewer" || threads[0].AgentMemoryScope != "project" {
 			t.Fatalf("%s identity = %#v, want parent/type/scope mapped", label, threads[0])
+		}
+		if threads[0].Name != "display name" {
+			t.Fatalf("%s Name = %q, want display name", label, threads[0].Name)
 		}
 	}
 

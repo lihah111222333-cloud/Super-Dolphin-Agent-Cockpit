@@ -46,6 +46,8 @@ func run() error {
 			newLogger,
 			newPool,
 			newQueries,
+			newAgentThreadStore,
+			orchestration.ProvideAgentThreadStore,
 			memory.NewConfig,
 			memory.NewService,
 			func(store storeworkspace.Store, dispatcher *event.Dispatcher) workspace.Service {
