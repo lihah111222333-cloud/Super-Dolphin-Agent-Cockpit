@@ -38,7 +38,11 @@ var Module = fx.Module("turn",
 		),
 		// P0b Step 3: skill evaluator. stateless / pure function; no
 		// external dependencies, so plain fx.Provide is sufficient.
-		fx.Provide(NewDefaultEvaluator),
+		// The interface adapter mirrors the Redactor/Extractor pattern:
+		// NewDefaultEvaluator returns *DefaultEvaluator, but NewDefaultExtractor
+		// wants the Evaluator interface — fx does not auto-cast.
+		NewDefaultEvaluator,
+		func(e *DefaultEvaluator) Evaluator { return e },
 		// P0b Step 4: redactor + extractor + extractor runner.
 		// - Redactor is exposed as the interface so other modules can
 		//   substitute a stub in tests.
@@ -52,24 +56,16 @@ var Module = fx.Module("turn",
 		// - The runner is registered into `group:"runners"` so its
 		//   lifecycle is owned by the root run.Group supervisor (same
 		//   pattern as SweeperRunner / ApprovalCleanupRunner).
-		fx.Provide(
-			func() Redactor { return NewDefaultRedactor() },
+		func() Redactor { return NewDefaultRedactor() },
+		fx.Annotate(
+			NewDefaultExtractor,
+			fx.ParamTags(`optional:"true"`, `optional:"true"`, "", "", ""),
 		),
-		fx.Provide(
-			fx.Annotate(
-				NewDefaultExtractor,
-				fx.ParamTags(`optional:"true"`, `optional:"true"`, "", "", ""),
-			),
-		),
-		fx.Provide(
-			func(e *DefaultExtractor) Extractor { return e },
-		),
-		fx.Provide(NewExtractorRunner),
-		fx.Provide(
-			fx.Annotate(
-				func(r *ExtractorRunner) platformrunner.Runner { return r },
-				fx.ResultTags(`group:"runners"`),
-			),
+		func(e *DefaultExtractor) Extractor { return e },
+		NewExtractorRunner,
+		fx.Annotate(
+			func(r *ExtractorRunner) platformrunner.Runner { return r },
+			fx.ResultTags(`group:"runners"`),
 		),
 	),
 	fx.Invoke(registerTurnServiceLifecycle),
