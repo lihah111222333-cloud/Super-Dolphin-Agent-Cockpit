@@ -1,0 +1,27 @@
+# last_report
+
+✅ **observe_lost CAS 已补硬契约**  
+- `P7_LivenessProbe.md:92`：要求 `dagReconcileActor` 写 `observe_lost` 用 `status='running' AND active_turn_id=$turn_id AND attempt_no=$attempt_no`，0 rows=stale，且 new-agent relaunch 与 `observe_lost` 竞争同一 CAS。  
+- 建议：后续实现 PR 直接落伪 SQL/archtest，防止只文档满足。
+
+✅ **watcher vs reconcile 职责已收口**  
+- `README.md:193`：watcher/recovery scan 只产 reconcile candidates；`dagReconcileActor` 做 `agent_status`/turn lookup 证据校验并 CAS 写终态/重拉。  
+- `P7_LivenessProbe.md:86,88`：watcher 禁直接写终态，只负责 pending→running/claim。  
+- 建议：把 P0 测试中“推进 observe_lost”同步改成“reconcile CAS 推进”，避免测试名误导。
+
+✅ **probe_interval / next_probe 已有调度契约**  
+- `P7_LivenessProbe.md:94`：要求冻结 `probe_interval_sec`、`next_probe_at`、batch size、lease jitter、backoff；`next_probe_at=interval+jitter`；lag/backpressure 只延后 probe 不写终态。  
+- 建议：补默认值与 schema 路径，如 `schedule.default_probe_interval_sec` / node override。
+
+✅ **kill switch / cooldown / backlog gate 覆盖**  
+- `P7_LivenessProbe.md:88`：全局/tenant/DAG kill switch、cooldown、per-node/per-DAG window、launcher backlog gate 均为必需；`idle_timeout_sec=0` 默认关闭；`tool_idle_timeout_sec>=idle_timeout_sec`。  
+- 建议：补具体默认 K、cooldown/window 单位、backlog 阈值来源。
+
+⚠️ **与 P9 backpressure 仍有 actor 列表缺口**  
+- `P7_LivenessProbe.md:94`：P9 backpressure 触发时 P7 只延后 probe。  
+- `P9_ScaleScheduling.md:117-120`：矩阵影响 actor 写 watcher/dispatcher/outputValidation/reconcile，未列 `dagActivityActor`。  
+- 建议：P9 matrix 加 `dagActivityActor` 行或纳入 hook/launcher/DB lag 影响 actor，动作=延后 `next_probe_at`、不 relaunch/不终态。
+
+🆕 **README P7 摘要未同步 probe/backpressure 新契约**  
+- `README.md:311-317`：仍只写每 N 分钟、自动 relaunch、idle/tool 字段，未提 `probe_interval_sec/next_probe_at` 和 P9 lag 只延后 probe。  
+- 建议：README P7 小节补一条“probe 调度与 P9 backpressure 规则以 P7 §90-94 为准”。
