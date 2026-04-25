@@ -128,6 +128,31 @@ func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) StartRequ
 	return req
 }
 
+func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) ResumeRequest {
+	if strings.TrimSpace(req.Provider) != "codex" {
+		return req
+	}
+	if strings.TrimSpace(req.CodexHome) == "" {
+		home, err := defaultCodexHome()
+		if err != nil {
+			if s != nil && s.logger != nil {
+				s.logger.Warn("thread: default codex resume identity skipped",
+					"agent_id", req.AgentID,
+					"error", err)
+			}
+			return req
+		}
+		req.CodexHome = home
+	}
+	if strings.TrimSpace(req.CodexInstanceKey) == "" {
+		req.CodexInstanceKey = defaultCodexInstanceKey
+	}
+	if strings.TrimSpace(req.CodexModelProvider) == "" {
+		req.CodexModelProvider = defaultCodexModelProvider
+	}
+	return req
+}
+
 func defaultCodexHome() (string, error) {
 	raw := strings.TrimSpace(os.Getenv("CODEX_HOME"))
 	if raw == "" {

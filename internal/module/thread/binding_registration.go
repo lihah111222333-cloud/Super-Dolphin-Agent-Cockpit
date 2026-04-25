@@ -227,7 +227,10 @@ func shouldPersistBinding(existing *bindingstore.Binding, registration bindingRe
 		bindingNeedsInitialValue(strings.TrimSpace(existing.Cwd), registration.CWD) ||
 		bindingNeedsInitialValue(strings.TrimSpace(existing.ParentAgentID), registration.ParentAgentID) ||
 		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentType), registration.AgentType) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentMemoryScope), registration.AgentMemoryScope)
+		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentMemoryScope), registration.AgentMemoryScope) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexHome), registration.CodexHome) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexInstanceKey), registration.CodexInstanceKey) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexModelProvider), registration.CodexModelProvider)
 }
 
 func (s *service) verifyThreadBinding(ctx context.Context, registration bindingRegistration) error {
@@ -249,6 +252,9 @@ func (s *service) verifyThreadBinding(ctx context.Context, registration bindingR
 		{label: "parent agent", actual: strings.TrimSpace(binding.ParentAgentID), expected: registration.ParentAgentID, optional: true},
 		{label: "agent type", actual: strings.TrimSpace(binding.AgentType), expected: registration.AgentType, optional: true},
 		{label: "memory scope", actual: strings.TrimSpace(binding.AgentMemoryScope), expected: registration.AgentMemoryScope, optional: true},
+		{label: "codex home", actual: strings.TrimSpace(binding.CodexHome), expected: registration.CodexHome, optional: true},
+		{label: "codex instance key", actual: strings.TrimSpace(binding.CodexInstanceKey), expected: registration.CodexInstanceKey, optional: true},
+		{label: "codex model provider", actual: strings.TrimSpace(binding.CodexModelProvider), expected: registration.CodexModelProvider, optional: true},
 	} {
 		if check.mismatch() {
 			return fmt.Errorf("binding verification failed: %s mismatch for agent %q", check.label, registration.AgentID)

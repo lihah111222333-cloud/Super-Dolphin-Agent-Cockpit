@@ -407,12 +407,16 @@ func (s *service) persistResumedSession(
 	session contract.Session,
 ) (ResumeResult, error) {
 	model := shared.FirstNonEmpty(req.Model, state.Model)
-	codexHome := shared.FirstNonEmpty(state.CodexHome, sessionRuntimeConfigString(session, "codexHome"))
+	codexHome := shared.FirstNonEmpty(req.CodexHome, state.CodexHome, sessionRuntimeConfigString(session, "codexHome"))
+	codexInstanceKey := shared.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
+	codexModelProvider := shared.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	if s.logger != nil {
 		s.logger.Warn("thread: persist resumed session codex identity",
 			"agent_id", req.AgentID,
 			"provider", req.Provider,
 			"codex_home", codexHome,
+			"codex_instance_key", codexInstanceKey,
+			"codex_model_provider", codexModelProvider,
 			"session_runtime_codex_home", sessionRuntimeConfigString(session, "codexHome"),
 			"rollout_path", shared.FirstNonEmpty(state.RolloutPath, session.RolloutPath()))
 	}
@@ -433,8 +437,8 @@ func (s *service) persistResumedSession(
 		SessionUUID:        shared.FirstNonEmpty(state.SessionUUID, session.ThreadID()),
 		ConfigOverride:     shared.CloneRawMessage(state.ConfigOverrideRaw),
 		CodexHome:          codexHome,
-		CodexInstanceKey:   state.CodexInstanceKey,
-		CodexModelProvider: state.CodexModelProvider,
+		CodexInstanceKey:   codexInstanceKey,
+		CodexModelProvider: codexModelProvider,
 		CreatedAt:          state.CreatedAt,
 	})
 	publicThreadID := threadState.PublicThreadID

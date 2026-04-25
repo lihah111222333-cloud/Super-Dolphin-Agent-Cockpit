@@ -31,11 +31,14 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 		LastEventType: "",
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
-		AgentID:          "agent-1",
-		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
-		CodexThreadID:    "thread-1",
-		Cwd:              "/repo",
+		AgentID:            "agent-1",
+		Provider:           "codex",
+		ProviderThreadID:   "provider-thread-1",
+		CodexThreadID:      "thread-1",
+		Cwd:                "/repo",
+		CodexHome:          "/repo/.codex",
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
 	}}
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{
@@ -105,6 +108,63 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	}
 	if !reflect.DeepEqual(orch.launchReq.Env, []string{"AGENT_PROVIDER=codex", "AGENT_MODEL=override-model"}) {
 		t.Fatalf("launch env = %#v", orch.launchReq.Env)
+	}
+}
+
+func TestServiceResumeBackfillsDefaultCodexIdentity(t *testing.T) {
+	codexHome := t.TempDir()
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		AgentID:   "agent-1",
+		Prompt:    "resume",
+		Model:     "stored-model",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "provider-thread-1",
+		CodexThreadID:    "thread-1",
+		Cwd:              "/repo",
+		CodexHome:        codexHome,
+	}}
+	sessions := &stubSessionProvider{}
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			if req.CodexHome != codexHome ||
+				req.CodexInstanceKey != defaultCodexInstanceKey ||
+				req.CodexModelProvider != defaultCodexModelProvider {
+				t.Fatalf("resume codex identity = (%q,%q,%q), want (%q,%q,%q)",
+					req.CodexHome,
+					req.CodexInstanceKey,
+					req.CodexModelProvider,
+					codexHome,
+					defaultCodexInstanceKey,
+					defaultCodexModelProvider)
+			}
+			session := &stubSession{threadID: "provider-thread-1"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"})
+	if err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if bindings.upsert.CodexHome != codexHome ||
+		bindings.upsert.CodexInstanceKey != defaultCodexInstanceKey ||
+		bindings.upsert.CodexModelProvider != defaultCodexModelProvider {
+		t.Fatalf("persisted codex identity = (%q,%q,%q), want (%q,%q,%q)",
+			bindings.upsert.CodexHome,
+			bindings.upsert.CodexInstanceKey,
+			bindings.upsert.CodexModelProvider,
+			codexHome,
+			defaultCodexInstanceKey,
+			defaultCodexModelProvider)
 	}
 }
 
