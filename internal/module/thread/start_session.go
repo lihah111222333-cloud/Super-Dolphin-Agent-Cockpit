@@ -251,6 +251,7 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.CodexHome = shared.FirstNonEmpty(req.CodexHome, state.CodexHome)
 	req.CodexInstanceKey = shared.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
 	req.CodexModelProvider = shared.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	req = s.injectDefaultCodexIdentityForResume(req)
 	req.ConfigOverride = resolveResumeConfigOverride(req, state)
 	req.Model = resolveResumeModel(req, state)
 	req.Effort = resolveResumeEffort(req, state)
@@ -264,6 +265,9 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.CWD = req.CWD
 	state.Model = req.Model
 	state.Effort = req.Effort
+	state.CodexHome = shared.FirstNonEmpty(state.CodexHome, req.CodexHome)
+	state.CodexInstanceKey = shared.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
+	state.CodexModelProvider = shared.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
 	return req, state, nil
 }
 
@@ -303,6 +307,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req.CodexHome = shared.FirstNonEmpty(req.CodexHome, state.CodexHome)
 	req.CodexInstanceKey = shared.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
 	req.CodexModelProvider = shared.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	req = s.injectDefaultCodexIdentityForResume(req)
 	req.PromptSnapshot = s.resolveResumePromptSnapshot(ctx, req, state)
 	if req.ConfigOverride.Model == nil {
 		if value := strings.TrimSpace(state.ConfigOverride.Model); value != "" {
