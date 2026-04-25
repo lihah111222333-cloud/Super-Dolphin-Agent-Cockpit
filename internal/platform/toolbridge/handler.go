@@ -147,11 +147,7 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 		args = make(map[string]any)
 	}
 	provider, model, effort := h.resolveManagedLaunchDefaults(ctx, binding, args)
-	changed := setArgStringIfMissing(args, "parent_id", binding.AgentID)
-	changed = setArgStringIfMissing(args, "cwd", binding.CWD) || changed
-	changed = setArgStringIfMissing(args, "provider", provider) || changed
-	changed = setArgStringIfMissing(args, "model", model) || changed
-	changed = setArgStringIfMissing(args, "effort", effort) || changed
+	changed := injectManagedLaunchArgs(args, binding, provider, model, effort)
 	if !changed {
 		return req
 	}
