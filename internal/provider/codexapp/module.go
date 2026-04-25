@@ -75,6 +75,7 @@ type ServerManager struct {
 	err         error
 	toolHandler ToolHandler
 	pidRegistry *pidregistry.Registry
+	cleanupOnce sync.Once
 }
 
 type Responder interface {
@@ -126,8 +127,11 @@ func provideServerPool(p ServerPoolParams) *ServerPool {
 func NewServerManager(p ServerManagerParams) *ServerManager {
 	m := &ServerManager{pidRegistry: p.PIDRegistry}
 	p.Lifecycle.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error { return m.start(ctx) },
-		OnStop:  func(ctx context.Context) error { return m.stop(ctx) },
+		OnStart: func(ctx context.Context) error {
+			m.cleanupStaleProcesses()
+			return nil
+		},
+		OnStop: func(ctx context.Context) error { return m.stop(ctx) },
 	})
 	return m
 }
@@ -144,6 +148,19 @@ func (m *ServerManager) Running() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.ready && m.process != nil && m.process.processRunning()
+}
+
+func (m *ServerManager) EnsureRunning(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	m.cleanupStaleProcesses()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ready && m.process != nil && m.process.processRunning() {
+		return nil
+	}
+	return m.startLocked(ctx)
 }
 
 func (m *ServerManager) SetToolHandler(h ToolHandler) {
@@ -164,7 +181,16 @@ func (m *ServerManager) getToolHandler() ToolHandler {
 	return m.toolHandler
 }
 
-func (m *ServerManager) start(ctx context.Context) error {
+func (m *ServerManager) cleanupStaleProcesses() {
+	if m == nil {
+		return
+	}
+	m.cleanupOnce.Do(func() {
+		m.cleanupStaleProcessesOnce()
+	})
+}
+
+func (m *ServerManager) cleanupStaleProcessesOnce() {
 	// Clean up processes registered by dead app instances via PID registry.
 	// This is precise (only kills processes we actually spawned) and fast
 	// (batch SIGTERM with a single grace period wait).
@@ -184,10 +210,9 @@ func (m *ServerManager) start(ctx context.Context) error {
 		pkglogger.Info("server_manager: cleaned orphaned app-server processes at startup",
 			"killed", killed)
 	}
+}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+func (m *ServerManager) startLocked(ctx context.Context) error {
 	startupCtx, cancel := withTimeout(ctx, transportReadyTimeout)
 	defer cancel()
 	t := &transport{}

@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -17,6 +18,155 @@ type threadStopState struct {
 	stoppedID string
 	targets   []string
 	binding   *bindingstore.Binding
+}
+
+var errResumeLifecycleBlocked = errors.New("thread resume blocked by lifecycle state")
+
+func (s *service) blockResumeForAgent(agentID string) {
+	if s == nil {
+		return
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return
+	}
+	s.resumeBlocked.Store(agentID, struct{}{})
+}
+
+func (s *service) unblockResumeForAgent(agentID string) {
+	if s == nil {
+		return
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return
+	}
+	s.resumeBlocked.Delete(agentID)
+}
+
+func (s *service) unblockResumeForThread(ctx context.Context, threadID string) {
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil || binding == nil {
+		s.unblockResumeForAgent(threadID)
+		return
+	}
+	s.unblockResumeForAgent(binding.AgentID)
+}
+
+func (s *service) resetSessionRecoveryForThread(ctx context.Context, threadID string) {
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil || binding == nil {
+		s.resetSessionRecoveryCount(threadID)
+		return
+	}
+	s.resetSessionRecoveryCount(binding.AgentID)
+}
+
+func (s *service) resumeLifecycleBlockReason(
+	ctx context.Context,
+	threadID string,
+	binding *bindingstore.Binding,
+) (string, bool) {
+	binding = s.resolveResumeLifecycleBinding(ctx, threadID, binding)
+	if reason, blocked := s.resumeAgentLifecycleBlock(threadID, binding); blocked {
+		return reason, true
+	}
+	if status, ok := s.resumeLifecycleThreadStatus(ctx, threadID, binding); ok {
+		return resumeLifecycleStatusBlock(status)
+	}
+	return "", false
+}
+
+func (s *service) resolveResumeLifecycleBinding(
+	ctx context.Context,
+	threadID string,
+	binding *bindingstore.Binding,
+) *bindingstore.Binding {
+	if s == nil || binding != nil || s.bindingStore == nil {
+		return binding
+	}
+	resolved, err := s.resolveBinding(ctx, threadID)
+	if err != nil {
+		return nil
+	}
+	return resolved
+}
+
+func (s *service) resumeAgentLifecycleBlock(threadID string, binding *bindingstore.Binding) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	agentID := strings.TrimSpace(bindingAgentID(binding))
+	if agentID == "" {
+		agentID = strings.TrimSpace(threadID)
+	}
+	if _, blocked := s.resumeBlocked.Load(agentID); blocked {
+		return "agent_stopping", true
+	}
+	if binding != nil && binding.Archived {
+		return "binding_archived", true
+	}
+	return "", false
+}
+
+func resumeLifecycleStatusBlock(status string) (string, bool) {
+	switch strings.TrimSpace(status) {
+	case statusArchived:
+		return "thread_archived", true
+	case statusStopped:
+		return "thread_stopped", true
+	default:
+		return "", false
+	}
+}
+
+func (s *service) resumeLifecycleThreadStatus(
+	ctx context.Context,
+	threadID string,
+	binding *bindingstore.Binding,
+) (string, bool) {
+	if s == nil || s.threadStore == nil {
+		return "", false
+	}
+	for _, id := range resumeLifecycleThreadIDs(threadID, binding) {
+		thread, err := s.threadStore.GetByThreadID(ctx, id)
+		if err != nil || thread == nil {
+			continue
+		}
+		return strings.TrimSpace(thread.Status), true
+	}
+	return "", false
+}
+
+func resumeLifecycleThreadIDs(threadID string, binding *bindingstore.Binding) []string {
+	candidates := []string{strings.TrimSpace(threadID)}
+	if binding != nil {
+		candidates = append(candidates,
+			strings.TrimSpace(binding.CodexThreadID),
+			strings.TrimSpace(binding.AgentID),
+		)
+	}
+	return uniqueResumeLifecycleIDs(candidates)
+}
+
+func uniqueResumeLifecycleIDs(candidates []string) []string {
+	out := make([]string, 0, len(candidates))
+	seen := map[string]struct{}{}
+	for _, id := range candidates {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func resumeLifecycleError(threadID, reason string) error {
+	return fmt.Errorf("%w: %s for %q", errResumeLifecycleBlocked, reason, strings.TrimSpace(threadID))
 }
 
 func (s *service) Stop(ctx context.Context, threadID string) error {
@@ -102,8 +252,10 @@ func (s *service) stopThreadRuntime(
 		"allow_missing_agent", allowMissingAgent,
 		"caller", archiveCallerStack(),
 	)
+	s.blockResumeForAgent(stopState.agentID)
 	s.interruptStoppingThread(ctx, stopState.agentID, source)
 	if err := s.closeSessionForAgent(ctx, stopState.agentID); err != nil {
+		s.unblockResumeForAgent(stopState.agentID)
 		pkglogger.Warn("thread: stopThreadRuntime closeSession FAILED",
 			"agent_id", stopState.agentID,
 			"error", err,
@@ -112,6 +264,7 @@ func (s *service) stopThreadRuntime(
 	}
 	err := s.stopManagedAgent(ctx, stopState.agentID, allowMissingAgent)
 	if err != nil {
+		s.unblockResumeForAgent(stopState.agentID)
 		pkglogger.Warn("thread: stopThreadRuntime DONE with error",
 			"agent_id", stopState.agentID,
 			"error", err,

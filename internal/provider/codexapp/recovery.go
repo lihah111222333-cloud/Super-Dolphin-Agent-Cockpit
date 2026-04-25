@@ -130,6 +130,9 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 }
 
 func (s *session) attemptRecovery(reason string) error {
+	if err := s.recoveryShutdownErr(); err != nil {
+		return err
+	}
 	count := s.recoveryCount.Add(1)
 	if count > maxRecoveryAttempts {
 		s.failTurns(errors.New("codexapp: max recovery attempts exceeded"))
@@ -142,8 +145,8 @@ func (s *session) attemptRecovery(reason string) error {
 	defer s.recoveryMu.Unlock()
 	// P1c stop gate: if the runtime has already begun shutdown, do not
 	// attempt a recovery that would race with Close's drain.
-	if s.runtime != nil && s.runtime.Stopped() {
-		return runtimeErrStopped
+	if err := s.recoveryShutdownErr(); err != nil {
+		return err
 	}
 	s.dispatchRecoveryAttempt(reason, count)
 	if err := s.recovery.Reconnect(s.ctx); err != nil {

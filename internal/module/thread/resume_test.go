@@ -389,6 +389,138 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 	}
 }
 
+func TestBackgroundResumeIfNeededSkipsArchivedBinding(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		AgentID:   "agent-1",
+		Prompt:    "resume",
+		Model:     "gpt-5.5",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "provider-thread-1",
+		CodexThreadID:    "thread-1",
+		Cwd:              "/repo",
+		Archived:         true,
+	}}
+	resumeReqCh := make(chan dto.ResumeSessionRequest, 1)
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			resumeReqCh <- req
+			return &stubSession{threadID: "provider-thread-1"}, nil
+		},
+	}
+
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, nil, nil).(*service)
+	svc.backgroundResumeIfNeeded(context.Background(), "thread-1")
+
+	assertNoResumeStarted(t, resumeReqCh)
+	if _, ok := svc.resumeInFlight.Load("agent-1"); ok {
+		t.Fatal("resumeInFlight set for archived binding")
+	}
+}
+
+func TestBackgroundResumeIfNeededSkipsStoppedThread(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		AgentID:   "agent-1",
+		Prompt:    "resume",
+		Model:     "gpt-5.5",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusStopped,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "provider-thread-1",
+		CodexThreadID:    "thread-1",
+		Cwd:              "/repo",
+	}}
+	resumeReqCh := make(chan dto.ResumeSessionRequest, 1)
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			resumeReqCh <- req
+			return &stubSession{threadID: "provider-thread-1"}, nil
+		},
+	}
+
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, nil, nil).(*service)
+	svc.backgroundResumeIfNeeded(context.Background(), "thread-1")
+
+	assertNoResumeStarted(t, resumeReqCh)
+}
+
+func TestResumeRejectsLifecycleBlockedAgent(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		AgentID:   "agent-1",
+		Prompt:    "resume",
+		Model:     "gpt-5.5",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "provider-thread-1",
+		CodexThreadID:    "thread-1",
+		Cwd:              "/repo",
+	}}
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, &stubSessionStarter{}, nil, nil, nil).(*service)
+	svc.blockResumeForAgent("agent-1")
+
+	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-1"})
+	if !errors.Is(err, errResumeLifecycleBlocked) {
+		t.Fatalf("Resume() err = %v, want errResumeLifecycleBlocked", err)
+	}
+}
+
+func TestProcessSessionRecoverySkipsArchivedBinding(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-1",
+		AgentID:   "agent-1",
+		Prompt:    "resume",
+		Model:     "gpt-5.5",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusArchived,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "provider-thread-1",
+		CodexThreadID:    "thread-1",
+		Cwd:              "/repo",
+		Archived:         true,
+	}}
+	resumeReqCh := make(chan dto.ResumeSessionRequest, 1)
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			resumeReqCh <- req
+			return &stubSession{threadID: "provider-thread-1"}, nil
+		},
+	}
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, nil, nil).(*service)
+
+	svc.processSessionRecovery(context.Background(), newAgentFailedForWorker("agent-1", "thread-1", true))
+
+	assertNoResumeStarted(t, resumeReqCh)
+}
+
 func TestSetNameSyncsProviderWhenSupported(t *testing.T) {
 	t.Parallel()
 
@@ -477,6 +609,15 @@ func TestCompactReturnsFriendlyCapabilityError(t *testing.T) {
 	}
 	if capErr.Capability != dto.CapContextCompact || capErr.Driver != "claude" {
 		t.Fatalf("capability error = %#v, want context_compact/claude", capErr)
+	}
+}
+
+func assertNoResumeStarted(t *testing.T, ch <-chan dto.ResumeSessionRequest) {
+	t.Helper()
+	select {
+	case req := <-ch:
+		t.Fatalf("unexpected ResumeSession request: %#v", req)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
