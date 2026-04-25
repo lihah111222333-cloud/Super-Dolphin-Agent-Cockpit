@@ -353,13 +353,6 @@ func resolveLocalTurnID(requested, fallback string) string {
 	return strings.TrimSpace(fallback)
 }
 
-// managedMCPBinaries are the singleton sidecar binaries that belong to the
-// shared app-server lifecycle.
-var managedMCPBinaries = map[string]struct{}{
-	"mcp-orch": {},
-	"mcp-lsp":  {},
-}
-
 // mcpProcessInfo holds PID and PPID for a discovered MCP sidecar process.
 type mcpProcessInfo struct {
 	pid    int

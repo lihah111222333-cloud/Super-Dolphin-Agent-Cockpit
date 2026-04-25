@@ -23,10 +23,36 @@ type PoolSpawnArgs struct {
 	ParentEnv []string
 }
 
-// codexAppServerArgs is the base command invoked by the pool spawner.
-// --listen with port 0 asks the OS for a free ephemeral port, which
-// the pool parses out of stderr later.
-var codexAppServerArgs = []string{"codex", "app-server", "--listen", "ws://127.0.0.1:0"}
+const (
+	codexBinaryName       = "codex"
+	codexAppServerCommand = "app-server"
+	codexAppServerListen  = "--listen"
+)
+
+// codexAppServerArgs is the base command invoked by the pool spawner. The
+// local transport and orphan sweeper use the same command definition helpers
+// so spawn and discovery cannot drift.
+var codexAppServerArgs = buildCodexAppServerArgs(localSpawnListenURL())
+
+func buildCodexAppServerArgs(listenURL string) []string {
+	return []string{codexBinaryName, codexAppServerCommand, codexAppServerListen, listenURL}
+}
+
+func isCodexAppServerListenArgs(args []string) bool {
+	for i := 0; i < len(args)-1; i++ {
+		if commandLeaf(args[i]) == codexAppServerCommand && args[i+1] == codexAppServerListen {
+			return true
+		}
+	}
+	return false
+}
+
+func commandLeaf(arg string) string {
+	if idx := strings.LastIndexAny(arg, `/\`); idx >= 0 {
+		return arg[idx+1:]
+	}
+	return arg
+}
 
 // BuildPoolSpawnCmd assembles a *exec.Cmd that the ServerPool spawner
 // Start()s. The recipe combines three plan-mandated pieces:
