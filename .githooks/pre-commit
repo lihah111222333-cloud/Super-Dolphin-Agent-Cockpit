@@ -8,10 +8,17 @@ set -e
 unset GOFLAGS
 export GOFLAGS=
 
-# Git hook 运行时会注入 GIT_DIR/GIT_INDEX_FILE 等本仓库环境。
+# Git hook 运行时会注入 GIT_DIR/GIT_INDEX_FILE 以及 `git -c` 传播的 GIT_CONFIG_*。
 # go test 中若再创建临时 git repo，这些环境会污染子 git 命令并误触发本 hook。
 run_go_without_git_env() (
   unset $(git rev-parse --local-env-vars)
+  unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+  local name
+  while IFS='=' read -r name _; do
+    case "$name" in
+      GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*) unset "$name" ;;
+    esac
+  done < <(env)
   "$@"
 )
 
