@@ -14,8 +14,11 @@ import (
 )
 
 func TestHandleSystemInitRawStartsLogWatcherAndUsesRuntimeContextWindow(t *testing.T) {
-	dir := t.TempDir()
+	oldPollInterval := defaultSessionLogWatcherPollInterval
+	defaultSessionLogWatcherPollInterval = 10 * time.Millisecond
+	defer func() { defaultSessionLogWatcherPollInterval = oldPollInterval }()
 
+	dir := t.TempDir()
 	sessionID := "session-1"
 	projectDir := filepath.Join(dir, "projects", "proj")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {

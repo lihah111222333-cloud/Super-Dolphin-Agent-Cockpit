@@ -482,7 +482,12 @@ func TestPeerSupervisorShutdownEscalatesToSIGTERM(t *testing.T) {
 	cancel()
 	// Supervisor should SIGTERM (and then SIGKILL) to unblock the stuck peer.
 	waitUntil(t, time.Second, func() bool {
-		return stuck.hasSignal(sigTerminate)
+		for _, sig := range stuck.signals {
+			if sig == sigTerminate {
+				return true
+			}
+		}
+		return false
 	}, "stuck peer never received SIGTERM")
 
 	// Unblock so Run can return — simulate SIGKILL taking effect.
@@ -530,19 +535,7 @@ func (s *stuckPeerHandle) registered() bool {
 	return s.reg
 }
 
-func (s *stuckPeerHandle) hasSignal(want processSig) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, sig := range s.signals {
-		if sig == want {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *stuckPeerHandle) markRegistered() {
-
 	s.mu.Lock()
 	s.reg = true
 	s.mu.Unlock()

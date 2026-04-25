@@ -73,16 +73,18 @@ function isDirectThreadSyncSignal(methodLower, sourceLower) {
 
 function applyRegressionGuardToSnapshot(ctx, res, threadId) {
   if (!res || !res.timelinesByThread || !res.timelinesByThread[threadId]) return false;
-
+  
   const timeline = res.timelinesByThread[threadId];
-
   const localTimeline = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
   
-  const localTimelineLen = localTimeline.length;
+  // Dialog items are exclusively sourced from thread/messages history.
+  // The raw snapshot timeline from the backend no longer contains dialog items.
+  // Therefore, we must exclude dialog items from local length when comparing.
+  const localNonDialogLen = localTimeline.filter((it) => it?.kind !== 'user' && it?.kind !== 'assistant').length;
 
-  const regressionByCount = localTimelineLen > 5 && timeline.length > 0
-    && timeline.length < localTimelineLen * 0.3
-    && (localTimelineLen - timeline.length) > 10;
+  const regressionByCount = localNonDialogLen > 5 && timeline.length > 0
+    && timeline.length < localNonDialogLen * 0.3
+    && (localNonDialogLen - timeline.length) > 10;
 
   if (regressionByCount) {
     let guardType = 'count_mismatch';
@@ -90,7 +92,7 @@ function applyRegressionGuardToSnapshot(ctx, res, threadId) {
     ctx.logWarn('thread', 'sync.thread_state_regression_guard', {
       thread_id: threadId,
       remote_len: timeline.length,
-      local_timeline_len: localTimelineLen,
+      local_non_dialog_len: localNonDialogLen,
       guard_type: guardType,
       remote_kinds: timeline.slice(0, 5).map((it) => it?.kind),
     });
@@ -101,27 +103,7 @@ function applyRegressionGuardToSnapshot(ctx, res, threadId) {
   return null;
 }
 
-function markSnapshotTimelinesAvailable(ctx, timelinesByThread) {
-  if (!ctx.threadLivePatchSeenByThread || !timelinesByThread || typeof timelinesByThread !== 'object') return;
-  for (const [threadId, timeline] of Object.entries(timelinesByThread)) {
-    const id = normalizeThreadID(threadId);
-    if (id && Array.isArray(timeline) && timeline.length > 0) {
-      ctx.threadLivePatchSeenByThread.set(id, true);
-    }
-  }
-}
-
-function clearDialogTimelineItems(ctx, threadId) {
-  const existing = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
-  const nonDialog = existing.filter((item) => {
-    const kind = (item?.kind || '').toString().trim();
-    return kind !== 'assistant' && kind !== 'user';
-  });
-  ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: nonDialog };
-}
-
 export async function syncRuntimeState(ctx) {
-
   const { callAPI, logInfo, logWarn } = ctx;
   if (ctx.runtimeSyncPromise) {
     ctx.runtimeSyncPending = true;
@@ -165,17 +147,8 @@ export async function syncRuntimeState(ctx) {
         allowActiveSelectionPatch: true,
         loadedRevisionByThread: ctx.threadDiffLoadedRevisionByThread,
       });
-      markSnapshotTimelinesAvailable(ctx, res?.timelinesByThread);
       if (typeof ctx.restoreScrollPosition === 'function') ctx.restoreScrollPosition();
-      const normalizedActiveThreadId = normalizeThreadID(ctx.state.activeThreadId || activeThreadId);
-
-      if (normalizedActiveThreadId && shouldReloadThreadHistory(ctx, normalizedActiveThreadId)) {
-        logInfo('thread', 'history.reload.after_runtime_sync', { thread_id: normalizedActiveThreadId, sync_runtime: false });
-        await loadMessages(ctx, normalizedActiveThreadId, 300, { syncRuntime: false });
-      }
-
       if (activeThreadId && normalizeDiffRevision(ctx.state.diffRevisionByThread?.[activeThreadId]) !== loadedDiffRevision(ctx, activeThreadId)) {
-
         void ctx.syncThreadDiffState(activeThreadId).catch((error) => {
           logWarn('thread', 'state.sync.diff.background_failed', { thread_id: activeThreadId, reason: 'runtime_sync', error });
         });
@@ -218,7 +191,6 @@ export async function syncThreadState(ctx, threadId, options = {}) {
     const snapshotRequest = beginRuntimeSnapshotRequest(ctx, id);
     try {
       const res = await callAPI('ui/state/get', ctx.withPreferenceScope({ threadId: id, includeDiff: false }));
-      applyRegressionGuardToSnapshot(ctx, res, id);
       const timeline = Array.isArray(res?.timelinesByThread?.[id]) ? res.timelinesByThread[id] : [];
       const diffRevision = normalizeDiffRevision(res?.diffRevisionByThread?.[id]);
       const localTimelineLen = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id].length : 0;
@@ -234,9 +206,7 @@ export async function syncThreadState(ctx, threadId, options = {}) {
         allowActiveSelectionPatch: false,
         loadedRevisionByThread: ctx.threadDiffLoadedRevisionByThread,
       });
-      markSnapshotTimelinesAvailable(ctx, res?.timelinesByThread);
       if (typeof ctx.restoreScrollPosition === 'function') ctx.restoreScrollPosition();
-
       const activeThreadId = normalizeThreadID(ctx.state.activeThreadId);
       const activeCmdThreadId = normalizeThreadID(ctx.state.activeCmdThreadId);
       if ((id === activeThreadId || id === activeCmdThreadId) && shouldReloadThreadHistory(ctx, id)) {
@@ -283,17 +253,8 @@ export async function refreshSidebarState(ctx) {
         allowActiveSelectionPatch: true,
         loadedRevisionByThread: ctx.threadDiffLoadedRevisionByThread,
       });
-      markSnapshotTimelinesAvailable(ctx, sidebar?.timelinesByThread);
       if (typeof ctx.restoreScrollPosition === 'function') ctx.restoreScrollPosition();
-      const activeThreadId = normalizeThreadID(ctx.state.activeThreadId);
-
-      if (activeThreadId && shouldReloadThreadHistory(ctx, activeThreadId)) {
-        logDebug('thread', 'history.reload.after_sidebar_refresh', { thread_id: activeThreadId, sync_runtime: false });
-        await loadMessages(ctx, activeThreadId, 300, { syncRuntime: false });
-      }
-
       logDebug('thread', 'sidebar.refreshed', { count: ctx.state.threads.length, active_chat: ctx.state.activeThreadId, active_cmd: ctx.state.activeCmdThreadId, duration_ms: Math.round(perfNow() - start) });
-
     } catch (error) {
       logWarn('thread', 'sidebar.refresh.failed', { error, duration_ms: Math.round(perfNow() - start) });
     } finally {
@@ -324,17 +285,14 @@ export async function loadMessages(ctx, threadId, limit = 300, options = {}) {
     const start = perfNow();
     try {
       const res = await callAPI('thread/messages', { threadId: id, limit });
-      let immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logDebug, logInfo, logWarn });
+      const immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logDebug, logInfo, logWarn });
       const loadedAt = Date.now();
-      ctx.threadHistoryLoadedAtByThread.set(id, loadedAt);
+      if (immediateTimelineApplied) ctx.threadHistoryLoadedAtByThread.set(id, loadedAt);
       if (syncRuntime) {
         logInfo('thread', 'messages.load.sync.start', { thread_id: id, limit, immediate_timeline_applied: immediateTimelineApplied });
         await syncRuntimeState(ctx);
-        clearDialogTimelineItems(ctx, id);
-        const reappliedAfterSync = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logDebug, logInfo, logWarn });
-        immediateTimelineApplied = immediateTimelineApplied || reappliedAfterSync;
-        ctx.threadHistoryLoadedAtByThread.set(id, loadedAt);
       }
+      if (!immediateTimelineApplied) ctx.threadHistoryLoadedAtByThread.set(id, loadedAt);
       ctx.threadHistoryProviderThreadIDByThread.set(id, ctx.normalizeProviderThreadID(ctx.state.agentRuntimeById?.[id]?.providerThreadId || ctx.state.agentRuntimeById?.[id]?.provider_thread_id));
       logInfo('thread', 'messages.loaded', { thread_id: id, count: Array.isArray(res?.messages) ? res.messages.length : 0, duration_ms: Math.round(perfNow() - start) });
       return res;
@@ -560,7 +518,6 @@ export function buildSyncContext(state, deps) {
     threadHistoryProviderThreadIDByThread: new Map(),
     threadPatchSeqByThread: new Map(),
     threadPatchMetaByThread: new Map(),
-    threadLivePatchSeenByThread: new Map(),
     syncDebounceTimer: 0,
     syncThrottleLastRun: 0,
     streamingSyncLastRun: 0,

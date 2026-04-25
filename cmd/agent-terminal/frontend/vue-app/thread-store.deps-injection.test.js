@@ -40,7 +40,6 @@ describe('thread store dependency injection', () => {
       diffRevisionByThread: { 'thread-1': 0 },
     });
     const callAPI = vi.fn(async (method, payload) => {
-      if (method === 'thread/messages') return { messages: [] };
       if (method !== 'ui/state/get') throw new Error(`unexpected api method: ${method}`);
       if (payload?.includeDiff) {
         return {
@@ -77,8 +76,7 @@ describe('thread store dependency injection', () => {
     await syncManager.syncThreadDiffState('thread-1', { force: true });
 
     expect(callAPI).toHaveBeenNthCalledWith(1, 'ui/state/get', { threadId: 'thread-1', includeDiff: false, cwd: '/repo' });
-    expect(callAPI).toHaveBeenNthCalledWith(2, 'thread/messages', { threadId: 'thread-1', limit: 300 });
-    expect(callAPI).toHaveBeenNthCalledWith(3, 'ui/state/get', { threadId: 'thread-1', includeDiff: true, knownDiffRevision: 0, cwd: '/repo' });
+    expect(callAPI).toHaveBeenNthCalledWith(2, 'ui/state/get', { threadId: 'thread-1', includeDiff: true, knownDiffRevision: 0, cwd: '/repo' });
     expect(applyRuntimeSnapshot).toHaveBeenCalledTimes(2);
   });
 

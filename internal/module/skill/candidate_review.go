@@ -97,16 +97,39 @@ func (s *service) RejectCandidate(ctx context.Context, id int64, reason string) 
 // whenever CreateSkill succeeded, even if MarkPromoted later errors -
 // callers can locate the on-disk artifact via that field.
 func (s *service) ApproveCandidate(ctx context.Context, p ApproveCandidateParams) (ApproveResult, error) {
-	if err := validateApproveCandidateParams(s, p); err != nil {
-		return ApproveResult{}, err
-	}
-
-	approved, err := s.loadAndApproveCandidate(ctx, p)
+	approved, err := s.approveCandidateForPromotion(ctx, p)
 	if err != nil {
 		return ApproveResult{}, err
 	}
 
-	return s.finalizeApprovedCandidate(ctx, p, approved)
+	// Land the SKILL.md via CreateSkill. The caller ctx must carry cwd;
+	// CreateSkill enforces ErrMissingCWD otherwise. CreateSkill is the single
+	// writer for project-scope skills (P21 P0a invariant).
+	skillPath, createErr := s.promoteCandidateToSkill(ctx, approved)
+	if createErr != nil {
+		s.writeCandidateAudit(ctx, "approve_promote_failed", approved, p.ApprovedBy, p.Reason)
+		return ApproveResult{}, createErr
+	}
+
+	return s.markCandidatePromoted(ctx, p, approved, skillPath)
+}
+
+func (s *service) approveCandidateForPromotion(ctx context.Context, p ApproveCandidateParams) (skillcandidate.Candidate, error) {
+	if s == nil || s.candidateStore == nil {
+		return skillcandidate.Candidate{}, errCandidateStoreUnavailable
+	}
+	if strings.TrimSpace(p.ApprovedBy) == "" {
+		return skillcandidate.Candidate{}, ErrCandidateApprovedByRequired
+	}
+	raw, err := s.candidateStore.GetByID(ctx, p.CandidateID)
+	if err != nil {
+		return skillcandidate.Candidate{}, err
+	}
+	if err := validateCandidateApproval(raw); err != nil {
+		return skillcandidate.Candidate{}, err
+	}
+	approvedAt := time.Now().UTC()
+	return s.candidateStore.Approve(ctx, p.CandidateID, p.ApprovedBy, p.Reason, approvedAt)
 }
 
 func validateCandidateApproval(raw skillcandidate.Candidate) error {
@@ -119,47 +142,18 @@ func validateCandidateApproval(raw skillcandidate.Candidate) error {
 	return nil
 }
 
-func validateApproveCandidateParams(s *service, p ApproveCandidateParams) error {
-	if s == nil || s.candidateStore == nil {
-		return errCandidateStoreUnavailable
-	}
-	if strings.TrimSpace(p.ApprovedBy) == "" {
-		return ErrCandidateApprovedByRequired
-	}
-	return nil
-}
-
-func (s *service) loadAndApproveCandidate(ctx context.Context, p ApproveCandidateParams) (skillcandidate.Candidate, error) {
-	raw, err := s.candidateStore.GetByID(ctx, p.CandidateID)
-	if err != nil {
-		return skillcandidate.Candidate{}, err
-	}
-	if err := validateCandidateApproval(raw); err != nil {
-		return skillcandidate.Candidate{}, err
-	}
-	return s.candidateStore.Approve(ctx, p.CandidateID, p.ApprovedBy, p.Reason, time.Now().UTC())
-}
-
-func (s *service) finalizeApprovedCandidate(ctx context.Context, p ApproveCandidateParams, approved skillcandidate.Candidate) (ApproveResult, error) {
-	skillPath, err := s.promoteApprovedCandidate(ctx, approved, p)
-	if err != nil {
-		return ApproveResult{}, err
-	}
+func (s *service) markCandidatePromoted(
+	ctx context.Context,
+	p ApproveCandidateParams,
+	approved skillcandidate.Candidate,
+	skillPath string,
+) (ApproveResult, error) {
 	if _, err := s.candidateStore.MarkPromoted(ctx, p.CandidateID); err != nil {
 		s.writeCandidateAudit(ctx, "approve_promote_failed", approved, p.ApprovedBy, p.Reason)
 		return ApproveResult{OK: false, SkillPath: skillPath}, err
 	}
 	s.writeCandidateAudit(ctx, "approve_succeeded", approved, p.ApprovedBy, p.Reason)
 	return ApproveResult{OK: true, SkillPath: skillPath}, nil
-}
-
-func (s *service) promoteApprovedCandidate(ctx context.Context, approved skillcandidate.Candidate, p ApproveCandidateParams) (string, error) {
-	skillPath, err := s.promoteCandidateToSkill(ctx, approved)
-	if err == nil {
-		return skillPath, nil
-	}
-	s.writeCandidateAudit(ctx, "approve_promote_failed", approved, p.ApprovedBy, p.Reason)
-	return "", err
 }
 
 // promoteCandidateToSkill is the single landing path for an approved
