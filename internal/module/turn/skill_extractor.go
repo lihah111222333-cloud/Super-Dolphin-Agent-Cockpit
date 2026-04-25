@@ -1,0 +1,381 @@
+package turn
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+)
+
+const (
+	extractTimeout      = 90 * time.Second
+	redactedSampleLimit = 1024
+	runnerTickInterval  = 5 * time.Second
+)
+
+// ExtractedSkill is the LLM-distilled, second-pass-redacted SKILL.md plus
+// the bookkeeping needed to insert / dedupe a candidate. Returned to the
+// caller after a successful Insert (or after a benign dedup hit) so a
+// future tick or test can correlate the trajectory with the candidate.
+type ExtractedSkill struct {
+	Slug            string
+	SKILLMd         string
+	ContentHash     string
+	Sample          string
+	Scope           string
+	RepoFingerprint string
+}
+
+// Extractor distills an eligible Trajectory into a candidate row in
+// pending_review. Implementations MUST be called from a runner worker
+// (never from a bus callback) so the bus dispatcher is not blocked on the
+// LLM round-trip.
+type Extractor interface {
+	Extract(ctx context.Context, t Trajectory) (*ExtractedSkill, error)
+}
+
+// ExtractorMetrics is the observable counter set used by tests to assert
+// the extractor took the expected path. Production deployments can attach
+// these to a prometheus collector by reading the atomic ints; the type
+// is intentionally tiny so we do not couple the extractor to a metric SDK.
+type ExtractorMetrics struct {
+	DreamNotConfigured int64
+	DreamFailed        int64
+	RedactionFailed    int64
+	PromotedDropped    int64 // second-pass scan still hit a pattern
+	DedupHit           int64
+	InsertFailed       int64
+	Promoted           int64 // candidate row written
+}
+
+func (m *ExtractorMetrics) incDreamNotConfigured() { atomic.AddInt64(&m.DreamNotConfigured, 1) }
+func (m *ExtractorMetrics) incDreamFailed()        { atomic.AddInt64(&m.DreamFailed, 1) }
+func (m *ExtractorMetrics) incRedactionFailed()    { atomic.AddInt64(&m.RedactionFailed, 1) }
+func (m *ExtractorMetrics) incResidualSecret()     { atomic.AddInt64(&m.PromotedDropped, 1) }
+func (m *ExtractorMetrics) incDedupHit()           { atomic.AddInt64(&m.DedupHit, 1) }
+func (m *ExtractorMetrics) incInsertFailed()       { atomic.AddInt64(&m.InsertFailed, 1) }
+func (m *ExtractorMetrics) incPromoted()           { atomic.AddInt64(&m.Promoted, 1) }
+
+// DefaultExtractor distills a Trajectory into a candidate. dream and store
+// are fx-optional: when either is nil the extractor short-circuits with a
+// metric bump and returns (nil, nil). This keeps deployments without P0b
+// wiring (no DreamExecutor and / or no skill_candidate table) buildable.
+type DefaultExtractor struct {
+	dream     contract.DreamExecutor // optional: nil skips
+	store     skillcandidate.Store   // optional: nil skips
+	redactor  Redactor
+	evaluator Evaluator
+	logger    *pkglogger.Logger
+	Metrics   *ExtractorMetrics
+	nowFn     func() time.Time
+}
+
+// NewDefaultExtractor constructs the extractor. dream and store are fx
+// optional and may be nil. redactor / evaluator / logger fall back to
+// package defaults when nil so tests and partial wiring stay simple.
+func NewDefaultExtractor(
+	dream contract.DreamExecutor,
+	store skillcandidate.Store,
+	redactor Redactor,
+	evaluator Evaluator,
+	logger *pkglogger.Logger,
+) *DefaultExtractor {
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	if redactor == nil {
+		redactor = NewDefaultRedactor()
+	}
+	if evaluator == nil {
+		evaluator = NewDefaultEvaluator()
+	}
+	return &DefaultExtractor{
+		dream:     dream,
+		store:     store,
+		redactor:  redactor,
+		evaluator: evaluator,
+		logger:    logger,
+		Metrics:   &ExtractorMetrics{},
+		nowFn:     time.Now,
+	}
+}
+
+// Extract runs the full distillation pipeline. Any per-step failure is
+// logged + counted, then surfaced as an error so the caller (the runner)
+// can decide whether to drop or retry; the runner does NOT stop on a
+// single trajectory failure.
+//
+// Pipeline: evaluate -> buildPrompt(redact-first) -> ExecuteDream ->
+// Redact -> residual scan -> content_hash -> repo_fingerprint ->
+// Store.Insert.
+func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*ExtractedSkill, error) {
+	if e == nil {
+		return nil, errors.New("extractor: nil receiver")
+	}
+	// 1. evaluator gate
+	verdict := e.evaluator.Evaluate(t)
+	if !verdict.Eligible {
+		e.logger.Debug("extractor: trajectory ineligible", "turn_id", t.TurnID, "reason", verdict.Reason)
+		return nil, nil
+	}
+	if e.dream == nil {
+		e.Metrics.incDreamNotConfigured()
+		e.logger.Info("extractor: dream executor not configured, skipping", "turn_id", t.TurnID)
+		return nil, nil
+	}
+	if e.store == nil {
+		e.logger.Warn("extractor: skill candidate store not wired, skipping", "turn_id", t.TurnID)
+		return nil, nil
+	}
+
+	// 2. The trajectory itself may carry secrets (tool args / results). We
+	// redact BEFORE the prompt is shipped to the LLM so a leaky LLM cannot
+	// reflect raw secrets back into SKILL.md.
+	prompt, err := e.buildRedactedPrompt(t)
+	if err != nil {
+		e.Metrics.incRedactionFailed()
+		e.logger.Error("extractor: prompt redaction failed", "turn_id", t.TurnID, "error", err)
+		return nil, err
+	}
+
+	// 3. ExecuteDream with a per-call timeout independent from the runner ctx.
+	callCtx, cancel := context.WithTimeout(ctx, extractTimeout)
+	defer cancel()
+	rawSkillMd, err := e.dream.ExecuteDream(callCtx, prompt)
+	if err != nil {
+		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+			e.Metrics.incDreamNotConfigured()
+			e.logger.Info("extractor: dream executor not configured at call time", "turn_id", t.TurnID)
+			return nil, nil
+		}
+		e.Metrics.incDreamFailed()
+		e.logger.Warn("extractor: dream execute failed", "turn_id", t.TurnID, "error", err)
+		return nil, err
+	}
+
+	// 4. Mandatory second-pass redaction against the LLM output.
+	cleaned, hits, err := e.redactor.Redact(rawSkillMd)
+	if err != nil {
+		e.Metrics.incRedactionFailed()
+		e.logger.Error("extractor: post-llm redaction errored, dropping", "turn_id", t.TurnID, "error", err)
+		return nil, err
+	}
+	// 5. Residual scan: re-run the redactor on the cleaned text. If a
+	// pattern fires again the first pass left a secret behind (or the
+	// stub redactor is misbehaving) - drop the candidate.
+	_, residualHits, err := e.redactor.Redact(cleaned)
+	if err != nil {
+		e.Metrics.incRedactionFailed()
+		return nil, err
+	}
+	if len(residualHits) > 0 {
+		e.Metrics.incResidualSecret()
+		e.logger.Error("extractor: residual secret after first pass, dropping",
+			"turn_id", t.TurnID, "hits", residualHits)
+		return nil, fmt.Errorf("extractor: residual secret hits %v", residualHits)
+	}
+
+	// 6. content_hash + sample. content_hash gates dedup at the DB; sample
+	// is the truncated preview the review gate displays.
+	sum := sha256.Sum256([]byte(cleaned))
+	contentHash := hex.EncodeToString(sum[:])
+	sample := cleaned
+	if len(sample) > redactedSampleLimit {
+		sample = sample[:redactedSampleLimit]
+	}
+
+	// 7. repo_fingerprint scopes the dedup unique key to the project.
+	fingerprint := RepoFingerprint(t.Cwd)
+
+	// 8. slug: simplified placeholder derived from the turn id so the
+	// (scope, slug, content_hash, repo_fingerprint) unique key stays
+	// stable across re-runs. Future: parse the LLM's frontmatter.
+	slug := slugFromTrajectory(t)
+
+	extracted := &ExtractedSkill{
+		Slug:            slug,
+		SKILLMd:         cleaned,
+		ContentHash:     contentHash,
+		Sample:          sample,
+		Scope:           skillcandidate.ScopeProject,
+		RepoFingerprint: fingerprint,
+	}
+
+	// 9. Store.Insert. Dedup hits are NOT errors - they mean the same
+	// (scope, slug, content_hash, repo_fingerprint) is already pending
+	// review. Other failures bubble up so the runner logs them.
+	_, err = e.store.Insert(ctx, skillcandidate.InsertParams{
+		Scope:           extracted.Scope,
+		Slug:            extracted.Slug,
+		ContentHash:     extracted.ContentHash,
+		RepoFingerprint: extracted.RepoFingerprint,
+		SkillMD:         extracted.SKILLMd,
+		RedactedSample:  extracted.Sample,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			e.Metrics.incDedupHit()
+			e.logger.Info("extractor: candidate dedup hit, ignoring", "turn_id", t.TurnID, "slug", slug)
+			return extracted, nil
+		}
+		e.Metrics.incInsertFailed()
+		e.logger.Error("extractor: candidate insert failed", "turn_id", t.TurnID, "error", err)
+		return extracted, err
+	}
+	e.Metrics.incPromoted()
+	_ = hits // hits is reserved for future per-pattern metric labels.
+	return extracted, nil
+}
+
+// isUniqueViolation accepts both the platformdb.ErrConflict sentinel that
+// WrapStoreError emits and a raw PG sqlstate 23505 string match. Step 1's
+// store wraps Insert through WrapStoreError, so under normal wiring the
+// sentinel path is the one that fires; the text matches are belt-and-
+// suspenders for unwrapped errors.
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, platformdb.ErrConflict) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "23505") || strings.Contains(msg, "unique constraint")
+}
+
+// buildRedactedPrompt serialises the trajectory tool calls into a prompt
+// and runs the redactor over the result before handing it to the LLM.
+// The exact prompt template is intentionally simple at this step; the
+// security boundary is what we are defending here.
+func (e *DefaultExtractor) buildRedactedPrompt(t Trajectory) (string, error) {
+	var b strings.Builder
+	b.WriteString("You are summarizing a successful agent turn into a reusable Skill.\n")
+	b.WriteString("Summarize the trajectory below into a SKILL.md (frontmatter + body).\n\n")
+	b.WriteString("---TRAJECTORY---\n")
+	fmt.Fprintf(&b, "thread_id: %s\nagent_id: %s\nturn_id: %s\nterminal: %s\n",
+		t.ThreadID, t.AgentID, t.TurnID, t.TerminalState)
+	if len(t.SkillsSelected) > 0 {
+		fmt.Fprintf(&b, "skills_selected: %s\n", strings.Join(t.SkillsSelected, ","))
+	}
+	b.WriteString("\ntool_calls:\n")
+	for i, tc := range t.ToolCalls {
+		fmt.Fprintf(&b, "  [%d] %s\n", i+1, tc.Name)
+		if tc.Args != "" {
+			fmt.Fprintf(&b, "      args: %s\n", tc.Args)
+		}
+		if tc.Result != "" {
+			fmt.Fprintf(&b, "      result: %s\n", tc.Result)
+		}
+		if tc.Failed {
+			fmt.Fprintf(&b, "      failed: true error=%q\n", tc.Error)
+		}
+	}
+	raw := b.String()
+	redacted, _, err := e.redactor.Redact(raw)
+	if err != nil {
+		return "", err
+	}
+	return redacted, nil
+}
+
+// slugFromTrajectory is a placeholder that derives a stable slug from the
+// turn id. It is good enough to give the (scope, slug, content_hash,
+// repo_fingerprint) unique key a deterministic key; a later step can swap
+// in the LLM's frontmatter `name` field once we trust it.
+func slugFromTrajectory(t Trajectory) string {
+	base := strings.TrimSpace(t.TurnID)
+	if base == "" {
+		base = strings.TrimSpace(t.LocalTurnID)
+	}
+	if base == "" {
+		base = fmt.Sprintf("anon-%d", time.Now().UnixNano())
+	}
+	sanitized := slugSanitize.ReplaceAllString(base, "-")
+	sanitized = strings.Trim(sanitized, "-")
+	if sanitized == "" {
+		sanitized = "trajectory"
+	}
+	if len(sanitized) > 64 {
+		sanitized = sanitized[:64]
+	}
+	return strings.ToLower(sanitized)
+}
+
+var slugSanitize = regexp.MustCompile(`[^A-Za-z0-9]+`)
+
+// Compile-time assertion.
+var _ Extractor = (*DefaultExtractor)(nil)
+
+// ExtractorRunner pumps drained trajectories from the collector into the
+// extractor on a fixed tick. It is registered into the root
+// `group:"runners"` aggregation so its lifecycle is tied to the run.Group
+// supervisor (NOT to fx OnStart fire-and-forget goroutines). The runner
+// exits cleanly when its parent ctx is cancelled.
+type ExtractorRunner struct {
+	collector *Collector
+	extractor Extractor
+	logger    *pkglogger.Logger
+	interval  time.Duration
+}
+
+// NewExtractorRunner builds the runner. collector or extractor == nil is
+// tolerated (Run blocks on ctx.Done with no work) so deployments that
+// have not enabled P0b can still satisfy the runner group constraint.
+func NewExtractorRunner(collector *Collector, extractor Extractor, logger *pkglogger.Logger) *ExtractorRunner {
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	return &ExtractorRunner{
+		collector: collector,
+		extractor: extractor,
+		logger:    logger,
+		interval:  runnerTickInterval,
+	}
+}
+
+// Run implements platformrunner.Runner.
+func (r *ExtractorRunner) Run(ctx context.Context) error {
+	if r == nil || r.collector == nil || r.extractor == nil {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	tick := time.NewTicker(r.interval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+			r.flushOnce(ctx)
+		}
+	}
+}
+
+func (r *ExtractorRunner) flushOnce(ctx context.Context) {
+	drained := r.collector.Drain()
+	for _, traj := range drained {
+		if ctx.Err() != nil {
+			return
+		}
+		// A panic from a single trajectory must not poison the worker -
+		// recover here so the runner keeps draining the rest of the batch.
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					r.logger.Error("extractor: panic in extract", "turn_id", traj.TurnID, "panic", rec)
+				}
+			}()
+			_, _ = r.extractor.Extract(ctx, traj)
+		}()
+	}
+}

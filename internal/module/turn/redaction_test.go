@@ -1,0 +1,98 @@
+package turn
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestRedactor_AllPatterns(t *testing.T) {
+	r := NewDefaultRedactor()
+	cases := []struct {
+		name      string
+		input     string
+		wantHit   string // pattern name that must fire
+		forbidden string // substring that must NOT survive in the output
+	}{
+		{"bearer", "Authorization: Bearer abc.def-secret_value", "bearer_token", "abc.def-secret_value"},
+		{"jwt", "token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.signature", "jwt", "eyJhbGciOiJIUzI1NiJ9"},
+		{"openai_env", "export OPENAI_API_KEY=sk-1234567890abcdef", "credential_env", "sk-1234567890abcdef"},
+		{"anthropic_env", "ANTHROPIC_API_KEY: sk-ant-xxxxx", "credential_env", "sk-ant-xxxxx"},
+		{"github_token", "GITHUB_TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "credential_env", "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+		{"cookie", "Cookie: session=abc; csrf=xyz", "http_cookie", "session=abc"},
+		{"set_cookie", "Set-Cookie: foo=bar; Path=/", "http_cookie", "foo=bar"},
+		{"long_base64", "key=dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0", "long_base64", "dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0"},
+		{"long_hex", "hash=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "long_hex", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			out, hits, err := r.Redact(c.input)
+			if err != nil {
+				t.Fatalf("Redact returned err: %v", err)
+			}
+			if !containsHit(hits, c.wantHit) {
+				t.Fatalf("hits %v do not contain %q", hits, c.wantHit)
+			}
+			if c.forbidden != "" && strings.Contains(out, c.forbidden) {
+				t.Fatalf("output still contains forbidden %q: %s", c.forbidden, out)
+			}
+			if !strings.Contains(out, "[REDACTED:") {
+				t.Fatalf("output missing [REDACTED: marker: %s", out)
+			}
+		})
+	}
+}
+
+func TestRedactor_NoMatch(t *testing.T) {
+	r := NewDefaultRedactor()
+	out, hits, err := r.Redact("nothing sensitive here")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("expected no hits, got %v", hits)
+	}
+	if out != "nothing sensitive here" {
+		t.Fatalf("output mutated: %q", out)
+	}
+}
+
+func TestRedactor_NilSafe(t *testing.T) {
+	var r *DefaultRedactor
+	out, hits, err := r.Redact("Bearer xxx")
+	if err != nil || len(hits) != 0 || out != "Bearer xxx" {
+		t.Fatalf("nil receiver should be no-op, got out=%q hits=%v err=%v", out, hits, err)
+	}
+}
+
+func TestRepoFingerprint_DeterministicAndScoped(t *testing.T) {
+	a := RepoFingerprint("/tmp/repo-a")
+	b := RepoFingerprint("/tmp/repo-b")
+	if a == b {
+		t.Fatalf("different cwds produced same fingerprint: %s", a)
+	}
+	if a != RepoFingerprint("/tmp/repo-a") {
+		t.Fatalf("not deterministic")
+	}
+	if len(a) != 12 {
+		t.Fatalf("fingerprint length should be 12, got %d", len(a))
+	}
+}
+
+func TestRepoFingerprint_EmptyCwd(t *testing.T) {
+	if RepoFingerprint("") != "" {
+		t.Fatal("empty cwd must produce empty fingerprint")
+	}
+	if RepoFingerprint("   ") != "" {
+		t.Fatal("whitespace cwd must produce empty fingerprint")
+	}
+}
+
+func containsHit(hits []string, want string) bool {
+	for _, h := range hits {
+		if h == want {
+			return true
+		}
+	}
+	return false
+}
