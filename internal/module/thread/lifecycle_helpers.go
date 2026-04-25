@@ -20,8 +20,10 @@ import (
 )
 
 const (
-	defaultCodexInstanceKey   = "default"
-	defaultCodexModelProvider = "openai"
+	defaultCodexInstanceKey       = "default"
+	defaultCodexModelProvider     = "openai"
+	legacyDefaultCodexHomeEnvVar  = "CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME"
+	legacyDefaultCodexHomeEnabled = "1"
 )
 
 // runScratchpadCleanup is the shared `defer` target used by Start / SpawnIfNeeded
@@ -110,6 +112,9 @@ func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) StartRequ
 	if strings.TrimSpace(req.Provider) != "codex" || startConfigHasCodexIdentity(req.Config) {
 		return req
 	}
+	if !legacyDefaultCodexHomeAllowed() {
+		return req
+	}
 	home, err := defaultCodexHome()
 	if err != nil {
 		if s != nil && s.logger != nil {
@@ -129,7 +134,7 @@ func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) StartRequ
 }
 
 func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) ResumeRequest {
-	if strings.TrimSpace(req.Provider) != "codex" {
+	if strings.TrimSpace(req.Provider) != "codex" || !legacyDefaultCodexHomeAllowed() {
 		return req
 	}
 	if strings.TrimSpace(req.CodexHome) == "" {
@@ -151,6 +156,10 @@ func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) ResumeR
 		req.CodexModelProvider = defaultCodexModelProvider
 	}
 	return req
+}
+
+func legacyDefaultCodexHomeAllowed() bool {
+	return strings.TrimSpace(os.Getenv(legacyDefaultCodexHomeEnvVar)) == legacyDefaultCodexHomeEnabled
 }
 
 func defaultCodexHome() (string, error) {
