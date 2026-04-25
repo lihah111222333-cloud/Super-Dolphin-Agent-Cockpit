@@ -273,6 +273,70 @@ func TestToolBridge_Resume_ToolCallStillWorks(t *testing.T) {
 	assertSingleTextItem(t, got, "resume ok", true)
 }
 
+func TestToolBridge_OrchestrationLaunchInheritsParentContextFromProviderThread(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"name":     "idle-agent",
+		"provider": "codex",
+	})
+	wantArgs := mustRawJSON(t, map[string]any{
+		"cwd":       "/repo/project",
+		"name":      "idle-agent",
+		"parent_id": "agent-parent",
+		"provider":  "codex",
+	})
+	h, registry := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h.bindingStore = &toolCallBindingStoreStub{bindingsByProvider: map[string]toolCallBinding{
+		"codex:provider-thread-parent": {
+			AgentID:            "agent-parent",
+			Provider:           "codex",
+			ProviderThreadID:   "provider-thread-parent",
+			CWD:                "/repo/project",
+			CodexHome:          "/Users/test/.codex",
+			CodexInstanceKey:   "default",
+			CodexModelProvider: "openai",
+		},
+	}}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "orchestration_launch_agent",
+		Arguments: args,
+		ThreadID:  "provider-thread-parent",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "launching", true)
+	if len(registry.gotKinds) != 1 || registry.gotKinds[0] != dto.ClientKindOrch {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want [%q]", registry.gotKinds, dto.ClientKindOrch)
+	}
+}
+
+func TestToolBridge_OrchestrationLaunchPreservesExplicitParentContext(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"cwd":       "/explicit",
+		"name":      "idle-agent",
+		"parent_id": "agent-explicit",
+		"provider":  "codex",
+	})
+	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", args, "launching", nil))
+	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+		"agent-parent": {
+			AgentID: "agent-parent",
+			CWD:     "/repo/project",
+		},
+	}}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "orchestration_launch_agent",
+		Arguments: args,
+		AgentID:   "agent-parent",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "launching", true)
+}
+
 func TestToolBridge_NoPeer_FailFast(t *testing.T) {
 	h, _ := newHandlerForTest()
 

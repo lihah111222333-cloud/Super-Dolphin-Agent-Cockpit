@@ -226,16 +226,20 @@ func assertToolCallThreadCalls(t *testing.T, store threadConfigOverrideStore, wa
 }
 
 type toolCallBindingStoreStub struct {
-	threadID string
-	err      error
-	agentIDs []string
+	threadID           string
+	err                error
+	agentIDs           []string
+	bindingsByAgent    map[string]toolCallBinding
+	bindingsByProvider map[string]toolCallBinding
 }
 
 func (s *toolCallBindingStoreStub) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
 	return nil, nil
 }
 
-func (s *toolCallBindingStoreStub) Upsert(context.Context, bindingstore.UpsertParams) error { return nil }
+func (s *toolCallBindingStoreStub) Upsert(context.Context, bindingstore.UpsertParams) error {
+	return nil
+}
 
 func (s *toolCallBindingStoreStub) DeleteByAgentID(context.Context, string) error { return nil }
 
@@ -268,6 +272,26 @@ func (s *toolCallBindingStoreStub) GetThreadByAgent(_ context.Context, agentID s
 
 func (s *toolCallBindingStoreStub) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
 	return nil
+}
+
+func (s *toolCallBindingStoreStub) GetBindingByAgent(_ context.Context, agentID string) (toolCallBinding, error) {
+	if s.err != nil {
+		return toolCallBinding{}, s.err
+	}
+	if s.bindingsByAgent == nil {
+		return toolCallBinding{}, nil
+	}
+	return s.bindingsByAgent[agentID], nil
+}
+
+func (s *toolCallBindingStoreStub) GetBindingByProviderThread(_ context.Context, provider, providerThreadID string) (toolCallBinding, error) {
+	if s.err != nil {
+		return toolCallBinding{}, s.err
+	}
+	if s.bindingsByProvider == nil {
+		return toolCallBinding{}, nil
+	}
+	return s.bindingsByProvider[provider+":"+providerThreadID], nil
 }
 
 // toolCallThreadStoreStub satisfies the narrow threadConfigOverrideStore

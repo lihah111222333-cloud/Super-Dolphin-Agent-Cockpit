@@ -24,6 +24,22 @@ type agentThreadLookup interface {
 	GetThreadByAgent(ctx context.Context, agentID string) (string, error)
 }
 
+type toolCallBinding struct {
+	AgentID            string
+	Provider           string
+	ProviderThreadID   string
+	CodexThreadID      string
+	CWD                string
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
+}
+
+type toolCallBindingLookup interface {
+	GetBindingByAgent(ctx context.Context, agentID string) (toolCallBinding, error)
+	GetBindingByProviderThread(ctx context.Context, provider, providerThreadID string) (toolCallBinding, error)
+}
+
 // threadConfigOverrideStore is the minimum thread-store surface the
 // tool-bridge handler needs: given a threadID, return the raw
 // ConfigOverride bytes (or empty + error). The caller unmarshals the
