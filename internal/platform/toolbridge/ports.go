@@ -53,3 +53,10 @@ type toolCallBindingLookup interface {
 type threadConfigOverrideStore interface {
 	GetConfigOverride(ctx context.Context, threadID string) (json.RawMessage, error)
 }
+
+// uiPreferenceReader is the minimum UI preference surface needed for
+// managed child-agent launch defaults. The production adapter returns the same
+// merged global + cwd-scoped view exposed by ui/preferences/getAll.
+type uiPreferenceReader interface {
+	GetMergedPreferences(ctx context.Context, cwd string) (map[string]any, error)
+}
