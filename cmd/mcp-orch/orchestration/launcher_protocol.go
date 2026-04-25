@@ -46,6 +46,7 @@ const (
 	LauncherParamBaseInstructions = "base_instructions"
 	LauncherParamProvider         = "provider"
 	LauncherParamModel            = "model"
+	LauncherParamEffort           = "effort"
 )
 
 // Request parameter keys for LauncherMethodThreadStop /

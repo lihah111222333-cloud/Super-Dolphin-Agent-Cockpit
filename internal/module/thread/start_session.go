@@ -12,6 +12,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const defaultStartProvider = "codex"
@@ -276,6 +277,16 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 			cwd = abs
 		}
 	}
+	config := buildStartSessionConfig(req, input, assembly)
+	pkglogger.Warn("thread/start: provider session config trace",
+		"agent_id", agentID,
+		"provider", req.Provider,
+		"req_model", req.Model,
+		"req_effort", req.Effort,
+		"input_model", input.Model,
+		"config_model", configTraceString(config, "model"),
+		"config_effort", configTraceString(config, "effort"),
+	)
 	sessionCtx := context.WithoutCancel(ctx)
 	return s.starter.StartSession(sessionCtx, dto.StartSessionRequest{
 		Provider:      req.Provider,
@@ -284,7 +295,7 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 		Model:         req.Model,
 		Instructions:  assembly.BaseInstructions,
 		StartAssembly: toProviderStartAssembly(assembly),
-		Config:        buildStartSessionConfig(req, input, assembly),
+		Config:        config,
 		// p20.3 §4.3：additive optional carrier。nil/false 时整个代码路径
 		// 等同于旧 payload；p20.4 / p20.7 消费时再他者在 snapshot / manifest
 		// 层面施工，本单仍不涉及。

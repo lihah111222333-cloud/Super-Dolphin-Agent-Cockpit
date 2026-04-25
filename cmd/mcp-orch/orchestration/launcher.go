@@ -158,6 +158,15 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	// display-name slot. Name is intentionally sourced only from req.Name; the
 	// launch prompt is submitted as a first turn after thread/start.
 	displayName := managedAgentLaunchDisplayName(req.Name)
+	model := shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model"))
+	effort := shared.FirstTrimmed(envValue(req.Env, "AGENT_EFFORT"), commandFlagValue(launchCommandArgs(req.Command), "--effort"))
+	pkglogger.Warn("remoteLauncher: thread/start config trace",
+		"agent_id", agent.id,
+		"provider", launchProvider(req),
+		"model", model,
+		"effort", effort,
+		"env_has_effort", envValue(req.Env, "AGENT_EFFORT") != "",
+	)
 	resp, err := rpcCall[map[string]any](ctx, r, LauncherMethodThreadStart, map[string]any{
 		LauncherParamAgentID:          strings.TrimSpace(agent.id),
 		LauncherParamCwd:              strings.TrimSpace(req.Cwd),
@@ -168,7 +177,8 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		LauncherParamParentAgentID:    strings.TrimSpace(req.ParentID),
 		LauncherParamBaseInstructions: strings.TrimSpace(req.Instructions),
 		LauncherParamProvider:         launchProvider(req),
-		LauncherParamModel:            shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model")),
+		LauncherParamModel:            model,
+		LauncherParamEffort:           effort,
 	})
 	elapsed := time.Since(start)
 	if err != nil {
