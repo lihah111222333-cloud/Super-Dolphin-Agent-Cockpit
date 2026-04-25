@@ -36,9 +36,9 @@
 ## DDL / SQL
 
 **0065_dag_owner_tenant.sql** 草案：
-- `task_dag` 加 `owner_id TEXT NOT NULL DEFAULT ''`、`tenant_id TEXT NOT NULL DEFAULT ''`、`scope TEXT NOT NULL DEFAULT ''`
+- `task_dags` 加 `owner_id TEXT NOT NULL DEFAULT ''`、`tenant_id TEXT NOT NULL DEFAULT ''`、`scope TEXT NOT NULL DEFAULT ''`
 - 历史 `created_by` 同步迁移到 `owner_id`（兼容期保留 `created_by` 列）
-- `task_dag` 加 `last_trigger_at TIMESTAMPTZ`、`last_trigger_by TEXT NOT NULL DEFAULT ''`
+- `task_dags` 加 `last_trigger_at TIMESTAMPTZ`、`last_trigger_by TEXT NOT NULL DEFAULT ''`
 
 ## 依赖
 

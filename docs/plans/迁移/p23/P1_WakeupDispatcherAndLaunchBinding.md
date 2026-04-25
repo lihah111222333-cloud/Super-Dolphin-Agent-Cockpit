@@ -27,15 +27,15 @@
 | _待补_ | _待补_ | _待补_ |
 
 **已知关键改动方向**：
-- `dagDispatcherActor.Run(ctx)` 主循环：`ClaimDueWakeups` → 调 launcher 或 submit turn → `MarkWakeupSent` → `BindRunningNodeTurn`
+- `dagDispatcherActor.Run(ctx)` 主循环：`ClaimDueWakeups` → 持久化 `launch_intent`（deterministic idempotency key）→ 调 launcher 或 submit turn（幂等返回 agent/turn）→ `BindRunningNodeTurn` CAS → `MarkWakeupSent/acked`
 - 新增 `nodes[].launch` schema → launcher 调用：把 launch spec 映射到 `LaunchAgent` request
-- `assigned_agent_id` 在 `pending → running` CAS 同事务内写入（不允许后续覆盖，除非 `relaunch_on_retry=true`）
+- `assigned_agent_id/active_turn_id` 不能假装在 launcher 前已知；P1 采用三阶段可恢复协议：`launch_intent` 持久化 + deterministic idempotency key → 外部 launcher 幂等调用 → `BindRunningNodeTurn` CAS 写入 `assigned_agent_id/active_turn_id`（除非 `relaunch_on_retry=true`，否则不可覆盖）
 - launcher 并发上限提取成 config 参数（P23 阶段 0 ⑤）
 
 ## DDL / SQL
 
-- 不新增表，只消费 P0 落地的 `0063_dag_state_machine.sql`
-- `task_dag_node_runtime.sql` 加 dispatcher 用的 query：claim wakeup + bind agent_id 一体事务
+- 复用 P0/P1 落地的 wakeup + `launch_intent` 持久化字段/表；不得把外部 launcher 调用包进 DB 长事务
+- `task_dag_node_runtime.sql` 加 dispatcher 用 query：claim wakeup、记录 launch intent、bind agent_id/turn_id、ack wakeup 分步 CAS
 
 ## 依赖
 
@@ -44,13 +44,14 @@
 
 ## 风险
 
-- launcher 异步成功 ≠ agent 真起来：必须区分 `launcher 接受请求成功`（CAS 推进）vs `agent 启动失败`（reconcile 兜底转 `failed`）
+- launcher 异步成功 ≠ agent 真起来：必须区分 `launch_intent persisted` / `launcher accepted` / `turn bound` / `agent failed` 四态；crash 在任一阶段都必须能用 idempotency key 恢复或读取既有 turn，不得重复 launch
 - `dag_ref` 反向绑定 vs watcher 主动 push 的双触发：dispatcher 必须查 `assigned_agent_id != ''` 直接 noop（不重 launch）
 - prompt 投递偶发不触发的历史观察（参考会话 2026-04-25 早期记录）需在 owner 启动前确认是否复现
 
 ## 必测项
 
 - 单 wakeup 单 launch（基线）
+- crash-window fixture：intent 后 launcher 前、launcher 后 bind 前、bind 后 ack 前均可恢复且不重 launch
 - 双 dispatcher 抢同一 wakeup（CAS / SKIP LOCKED 不重 launch）
 - launcher 异步成功但 agent 启动失败 → reconcile 推进 `failed`
 - `dag_ref` 反向绑定 noop（已 bound 节点不重 launch）

@@ -22,7 +22,7 @@
 |---|---|---|---|---|---|
 | L1 | schema / IDE | trigger enum、launch 必填、sqlc 生成；缺参 fail-fast（README §默认值安全原则） | 1 工程日 | 拦字段类违规 | ⭐ 必做 |
 | L2 | pre-commit | git hooks 跑 `make guard` + grep spawn / 裸 INSERT / 直接 LLM 调用 | 0.5 工程日 | 拦低级绕过 | 推荐 |
-| L3 | archtest（本地） | `go test ./internal/archtest/...` 必须 PASS；P23 14 项 archtest 完整落地 | 2-3 工程日 | 拦结构违规 | ⭐ 必做 |
+| L3 | archtest（本地） | `go test ./internal/archtest/...` 必须 PASS；P23 21 项 archtest 分阶段落地 | 2-3 工程日 | 拦结构违规 | ⭐ 必做 |
 | L4 | CI 门禁 | 新建 `.github/workflows/p23-gates.yml`：`make guard` + archtest + `make ci-l1` + integration | 1 工程日 | merge 前硬拦 | ⭐ 必做 |
 | L5 | merge gate | P22 H/O/M 三签机制扩展到 P23；分类 hard / soft 见下表 | 0.5 工程日/周 | 拦设计漂移 | 推荐 |
 | L6 | runtime alert | 增 DAG metrics + promhttp exporter + 统一日志告警 sink | 2 工程日 | 拦运行态违规 | 可选 |
@@ -53,7 +53,7 @@ H = hard fail / S = soft warn / R = record only / `H/O` = hard 且需 O 工位�
 
 `H/O` 强制 O 工位（安全 / 权限 / 信任域）签收的子任务：P6（外部 RPC AuthN）/ P8（LLM 调用）/ P11（spawn budget）/ P12（swarm + LLM）/ P13（金融场景输出）。
 
-## 14 项 archtest 落点详情
+## 21 项 archtest 落点详情
 
 详见 [`README.md`](README.md) §"守卫与 archtest"。每项 archtest 应包含：
 
@@ -66,15 +66,15 @@ H = hard fail / S = soft warn / R = record only / `H/O` = hard 且需 O 工位�
 
 | 测试函数 | 落点 | 守的违规 |
 |---|---|---|
-| `TestDAGRunnerActorsPresent` | `internal/archtest/dag_runtime_test.go` | 编译期 assert `runner.actors` 切片包含 P0 4 actor + P7+P8+P12 后续 actor |
+| `TestDAGRunnerActorsPresent` | `internal/archtest/dag_runtime_test.go` | 编译期 assert `runner.actors` 切片包含 P0 4 actor + P7+P8+P11+P12+P13 后续 actor |
 | `TestDAGNoLifecycleLoop` | `internal/archtest/dag_runtime_test.go` | grep 禁 `OnStart -> go` / `OnStart -> ticker` 形态出现在 DAG 相关包 |
 | `TestDAGHookTapEnqueueOnly` | `internal/archtest/dag_hook_test.go` | grep `hook_consumer.go` 的 callback 内禁 `lsp.LaunchAgent` / `db.Query` / `light.Complete` 等重 token；P13 schema validate 例外白名单 |
-| `TestDAGStatusCASOnly` | `internal/archtest/dag_state_test.go` | 扫 `cmd/mcp-orch/sql/queries/task_dag_node_*.sql`，所有 `UPDATE task_dag_node ... SET status` 必须带 `WHERE current_status = $expected` |
+| `TestDAGStatusCASOnly` | `internal/archtest/dag_state_test.go` | 扫 `cmd/mcp-orch/sql/queries/task_dag_node_*.sql`，所有 `UPDATE task_dag_nodes ... SET status` 必须语义匹配 `WHERE status = <expected_prev_status>`；terminal 写还必须带 `active_turn_id` fence |
 | `TestDAGTriggerEnumFailFast` | `internal/archtest/dag_schema_test.go` | trigger 字段 schema 必须是 enum 校验，缺失返 `ErrInvalidTrigger` |
-| `TestDAGMigrationNumbersNoConflict` | `internal/archtest/dag_migration_test.go` | 扫 `migrations/0063_*.sql` 到 `0071_*.sql`，验证编号无缺号、无依赖倒序（参考 README §阶段 0 ①） |
+| `TestDAGMigrationNumbersNoConflict` | `internal/archtest/dag_migration_test.go` | 扫 `migrations/0063_*.sql` 到 `0072_*.sql`，验证 `0063,0065,0066,0067,0068,0069,0070,0071,0072` 存在；任何 `0064_*.sql` hard fail；除 0064 外无缺号/倒序（参考 README §阶段 0 ①） |
 | `TestDAGLauncherSharedPathOnly` | `internal/archtest/dag_launcher_test.go` | dispatcher / verifier launch 都必须经 `service_launcher_bridge.go:54-64`，禁绕路 |
 | `TestDAGExternalRPCAuthnMiddleware` | `internal/archtest/dag_rpc_test.go` | `cmd/mcp-orch/orchestration/rpc.go` 的 `task/*` method 必须经 `WithCallerIdentity` middleware |
-| `TestDAGSpawnChildOnlyViaService` | `internal/archtest/dag_growth_test.go` | grep 全仓 `INSERT INTO task_dag_node`，只允许出现在 `CreateDAG` / `SpawnChildNodes` 对应 SQL；其它位置 hard fail |
+| `TestDAGSpawnChildOnlyViaService` | `internal/archtest/dag_growth_test.go` | grep 全仓 `INSERT INTO task_dag_nodes`，只允许出现在 `CreateDAG` / `SpawnChildNodes` 对应 SQL；其它位置 hard fail |
 | `TestDAGVerifierUsesSharedQuota` | `internal/archtest/dag_verify_test.go` | P8 verifier launch 必须占用同一 launcher quota（`maxConcurrentLaunches`），不允许独立 quota |
 | `TestDAGSwarmUsesTokenBucket` | `internal/archtest/dag_swarm_test.go` | P12 swarm 必须经 P9 全局 token bucket，禁裸 `go llmCall(...)` |
 | `TestDAGOutputValidationBeforeVerify` | `internal/archtest/dag_output_validation_test.go` | P13 schema validate 必须早于 P8 verify_phase 推进；扫 hook tap 调用顺序 |
@@ -109,46 +109,62 @@ jobs:
 
 | metric | 阈值 | 路径 | 子任务 |
 |---|---|---|---|
-| `hook_consumer_lag_p99` | > 5s 持续 10 分钟 | Prometheus histogram + log alert | P2 / P9 |
-| `launcher_queue_lag_p99` | > 30s 或持续上升 | 同上 | P9 |
-| `spawn_budget_usage` | > 80% warn / >= 100% hard | log + alert | P11 |
+| `dag_spawn_budget_usage_ratio` | > 80% warn / >= 100% hard | log + alert | P11 |
 | `archtest_failure_rate` | scheduled audit 连续 2 次失败 | 自动 issue 创建 | 全 |
 | `spawn_bypass_attempt_total` | > 0（任何绕过 SpawnChildNodes 的尝试） | audit log + alert | P11 |
 | `audit_log_write_fail_total` | > 0 | log + alert（P6 要求） | P6 |
 | `dag_observe_lost_total` | 持续上升趋势 | log + alert | P0 / P2 |
 | `dag_verdict_lost_total` | 持续上升 | log + alert | P8 |
 | `dag_output_validation_fail_rate` | > 30% | log + warn | P13 |
-| `dag_hook_consumer_lag_seconds` | p99 §10min > 5s | promhttp histogram（a6） | P2 / P9 |
-| `dag_launcher_queue_lag_seconds` + `_depth` | depth > quota×3；lag p99 > 30s | promhttp gauge + histogram（a6） | P9 |
+| `dag_hook_consumer_lag_seconds` | p99 over 10min > 5s | promhttp histogram（a6） | P2 / P9 |
+| `dag_launcher_queue_lag_seconds` + `dag_launcher_queue_depth` | depth > quota×3；lag p99 > 30s | promhttp gauge + histogram（a6） | P9 |
 | `dag_node_transition_total{from,to,result}` | result=unexpected 任意计数 > 0 | promhttp counter（a6） | P0 / P2 |
 | `dag_observe_lost_total` / `dag_verdict_lost_total` | 连续上升趋势 | promhttp counter（a6） | P0 / P2 / P8 |
-| `dag_actor_heartbeat` | actor 连续 2 轮无 lifecycle log | 结构化 log（a6） | 全 actor |
+| `dag_actor_last_heartbeat_timestamp_seconds` | actor 连续 2 轮无 heartbeat | promhttp gauge + 结构化 log event `dag_actor_heartbeat`（a6） | 全 actor |
 
-> 当前仓库 `internal/platform/metrics/metrics.go` 只有 counter 声明，没有 promhttp exporter。L6 实施前必须先补 promhttp 路径或这些 metric 暂降级为 log only + scheduled audit 检查。
+> 当前仓库 `internal/platform/metrics/metrics.go` 只有 counter 声明，没有 promhttp exporter。P0 合入前必须明确 promhttp PR 或本地 scheduled-audit fallback；P7 开工前 L6 必须具备 exporter，否则 P7–P13 中依赖 runtime alert 的 hard gate 降级为 merge blocker。
 
 ## archtest 补充项（8 路 → 10 路调研合并后）
 
-README §"守卫与 archtest" 表中的 14 项上补五项为 19（来源：a4 安全 / a5 数据一致性 / a7 UX 间接 / a8 依赖 / a9 rollout / a10 成本）：
+README §"守卫与 archtest" 表中的原 15 项上补六项为 21（来源：a4 安全 / a5 数据一致性 / a7 UX 间接 / a8 依赖 / a9 rollout / a10 成本；含 `cron_dag_bridge_no_concrete_orch_import`）：
 
 | archtest | 守的内容 | 点名者 |
 |---|---|---|
-| `dag_audit_append_only` | `dag_audit_log` / `dag_arbiter_calls` / `dag_output_validations` 禁 UPDATE/DELETE；append-only + hash chain | a4 + a5 + a6 |
+| `dag_audit_append_only` | `dag_audit_log` / `dag_arbiter_calls` / `dag_swarm_consensus` / `dag_output_validations` 禁 UPDATE/DELETE；append-only + hash chain | a4 + a5 + a6 |
 | `dag_terminal_turn_fence` | `CompleteTaskDagNode` 必校 active_turn_id；late completed 不可覆 aborted | a5 + a2 |
 | `dag_no_status_naked_write` | 禁裸 status 写；所有 status 写带 `WHERE current_status = $expected` | a5 |
 | `dag_tenant_filter_required` | DAG/template/audit 查询 RPC 必带 `tenant_id` filter | a4 critical |
 | `dag_pii_redaction_present` | `repair_prompt` / `error_detail` / arbiter input/output 走统一 redactor | a4 + P13 |
+| `dag_mcp_orch_dependency_allowlist_tight` | 收紧 `dependency_direction_mcp_orch_test.go` 的 cmd/mcp-orch allowlist；不得用宽泛 `internal/store` / `internal/module` 绕过 P22 modularity 名录 | a1 ❌ |
+
+### archtest 分阶段 hard 策略（交叉验证裁决 12）
+
+| 阶段 | hard fail 集合 | 说明 |
+|---|---|---|
+| P0 前 | `dag_status_cas_only` / `dag_no_status_naked_write` / `dag_terminal_turn_fence` / `dag_hook_tap_enqueue_only` / `dag_migration_sequence_guard` / `dag_mcp_orch_dependency_allowlist_tight` | 先拦最容易污染状态机和契约的实现缺口。 |
+| P6 前 | 上述 + `dag_external_rpc_authn` / `dag_tenant_filter_required` / `dag_audit_append_only` / `dag_pii_redaction_present` | 外部 RPC 和多租户开放前必须安全闭环。 |
+| P9 前 | 全部 21 项 | 大规模、LLM、UI 后段开工前全部转 hard；0064 是唯一允许缺号。 |
+
 
 ## on-call runbook 五类（a6 调研 → 本表）
 
 | 场景 | 信号 | 首动作 | 升级路径 |
 |---|---|---|---|
-| hook 滞后 | `dag_hook_consumer_lag_seconds` p99>5s | 查 worker pool 额外 / DB latency / 考虑临时增容 | dag-runtime owner |
-| launcher 积压 | `dag_launcher_queue_lag_seconds` p99>30s 或 depth>quota×3 | 查 token bucket / verifier+swarm 占比 / 可能 说 P9 quota 调低 | dag-runtime owner + cost owner |
+| hook 滞后 | `dag_hook_consumer_lag_seconds` p99>5s | 查 worker pool 额度 / DB latency / 考虑临时增容 | dag-runtime owner |
+| launcher 积压 | `dag_launcher_queue_lag_seconds` p99>30s 或 `dag_launcher_queue_depth`>quota×3 | 查 token bucket / verifier+swarm 占比 / 必要时调低 P9 quota；若 token bucket 自身故障，立刻降级固定并发 | dag-runtime owner + cost owner |
 | observe_lost 上升 | `dag_observe_lost_total` 趋势 | 查 launcher 失败路径、agent_status lookup、lease | dag-runtime owner |
-| spawn budget 触顶 | `spawn_budget_usage`>=100% 或 `spawn_bypass_attempt_total`>0 | 临时冻 P11；核 audit log；查 archtest fail | growth owner + sec owner |
-| audit alert 失败 | `audit_log_write_fail_total`>0 | 临时以 log only fallback；不能推迟 merge；仅 strict env 为 hard fail | sec owner + sre |
+| spawn budget 触顶 | `dag_spawn_budget_usage_ratio`>=1 或 `spawn_bypass_attempt_total`>0 | 临时冻 P11；核 audit log；查 archtest fail | growth owner + sec owner |
+| audit alert 失败 | `audit_log_write_fail_total`>0 | strict env hard fail；非 strict 可临时 log-only 但必须开阻塞修复项，不能静默放行 merge | sec owner + sre |
 
 > a6 明示：4 个 P0 actor + hook pool + cron bridge + LLM in-flight 的 graceful shutdown 顺序仍未定；owner 启动前需冻。
+
+### metrics manifest / exporter fallback（交叉验证仲裁）
+
+P0 前必须冻结指标 manifest：每个 `dag_*` 指标写明 type、unit、labels、source actor、cardinality、PromQL 示例。若 promhttp/exporter 未落地，scheduled-audit fallback 必须是可执行脚本/命令，声明输入源（DB/structured log）、输出 artifact、运行频率、失败退出码与 owner；P7 前没有 `/metrics` 且无可执行 fallback，则 P7–P13 freeze。
+
+### graceful shutdown / drain 顺序（交叉验证仲裁）
+
+P0 前冻结 drain protocol：停止接新 start/spawn → 停 watcher claim → hook terminal 继续 durable insert → drain dispatcher/reconcile/outputValidation/arbiter/swarm 到 deadline → 持久化 in-flight launch/LLM/audit job → 释放或缩短 lease。每个 actor 必测 SIGTERM injection，并暴露 `dag_actor_shutdown_inflight_total`、`dag_actor_drain_duration_seconds`、`dag_actor_drain_dropped_total`。
 
 ## scheduled audit（L7）
 
@@ -157,7 +173,7 @@ README §"守卫与 archtest" 表中的 14 项上补五项为 19（来源：a4 �
 - 跑全套 archtest（`go test ./internal/archtest/...`）
 - 扫 migration 编号是否冲突 / 倒序
 - 扫直接 INSERT / spawn 绕过尝试
-- hook_consumer_lag / launcher_queue_lag 历史趋势检查
+- dag_hook_consumer_lag_seconds / dag_launcher_queue_lag_seconds 历史趋势检查
 
 ### Weekly
 
@@ -208,9 +224,17 @@ README §"守卫与 archtest" 表中的 14 项上补五项为 19（来源：a4 �
 应叫停或重构 P23 的观测信号：
 
 1. **archtest**：P23 hard archtest 任一主干红；或同一 PR 引入 > 2 个 ownership / 依赖方向违规
-2. **hook**：`hook_consumer_lag` p99 持续 > 5s，或 bounded queue drop 非 0 且无显式 backpressure
+2. **hook**：`dag_hook_consumer_lag_seconds` p99 持续 > 5s，或 bounded queue drop 非 0 且无显式 backpressure
 3. **launcher**：queue depth 持续 > 全局 quota × 3，且 verifier / swarm 占比 > 50%
-4. **DB**：`wakeup_age_p99` 或 pending → running p99 连续超 SLO；CAS conflict rate 异常上升
+4. **DB**：`dag_wakeup_age_seconds` p99 或 pending → running p99 连续超 SLO；CAS conflict rate 异常上升
 5. **merge gate**：后段 PR 被 status enum / 直接 INSERT / no authn gate 拒绝率 > 30%，说明计划切片边界错误
 
 任一信号触发，进入「P23 stop & restructure review」流程。
+
+### MIGRATION_OWNER_CHECKLIST（需求补全仲裁）
+
+每个 `0063–0072` migration owner 必须在 PR 描述或同目录 stub 中填写：preflight SQL、forward migration、是否 forward-only、rollback/roll-forward 修复路径、backfill/lock 评估、是否含 `CREATE INDEX CONCURRENTLY` no-transaction 文件、`cmd/mcp-orch/sqlc.yaml` schema entry、`make sqlc-verify` 输出、tenant/audit/redaction 影响、postcheck SQL。缺任一项不得从 soft gate 升 hard gate。
+
+### 阶段 0 / P0 拆分 checklist（需求补全仲裁）
+
+P0 runtime PR 之前必须先合最小阶段 0 checklist：migration sequence guard、0064 hard-fail 规则、P22 allowlist tighten、CAS / terminal fence archtest skeleton、CI 或 manual hard fallback 冻结、metrics exporter/fallback 决策、P0 DDL exact schema、StartDAG 最小入口归属。阶段 0 不实现完整 watcher；P0 才落 runtime skeleton。

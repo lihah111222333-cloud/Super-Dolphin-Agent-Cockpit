@@ -29,15 +29,15 @@
 **已知关键改动方向**：
 - 新增 `cmd/mcp-orch/orchestration/runtime/<actor>.go` 4 个 actor，挂入 `runner.actors`（active Fx tag: `group:"runners"`）
 - `0063_dag_state_machine.sql`：加 `assigned_agent_id` 列、`last_activity_at` 列（P7 预留）、状态机 CHECK 约束
-- `task_dag_node_runtime.sql` 加 CAS 形 SQL（`WHERE current_status = $expected`）
+- `task_dag_node_runtime.sql` 加 CAS 形 SQL（语义为 `WHERE status = <expected_prev_status>`，并在 terminal 写入中同时校验 `active_turn_id`）
 - archtest：`dag_watcher_no_lifecycle_loop` / `dag_runner_actors_present` / `dag_status_cas_only`
 
 ## DDL / SQL
 
 **0063_dag_state_machine.sql** 草案（待 owner 细化）：
-- `task_dag_node` 加 `assigned_agent_id TEXT NOT NULL DEFAULT ''`
-- `task_dag_node` 加 `last_activity_at TIMESTAMPTZ`（P23 阶段 0 ⑤ 预留）
-- `task_dag_node.status` 加 CHECK 约束 `('pending','running','done','failed','observe_lost')`
+- `task_dag_nodes` 加 `assigned_agent_id TEXT NOT NULL DEFAULT ''`
+- `task_dag_nodes` 加 `last_activity_at TIMESTAMPTZ`（P23 阶段 0 ⑤ 预留）
+- `task_dag_nodes.status` 加 CHECK 约束 `('pending','running','done','failed','observe_lost')`
 
 ## 依赖
 
@@ -62,4 +62,18 @@
 - `dag-runtime-audit` 报告（[`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §1 摘要）
 - `migrations/0023_dag_watcher_phase1.sql` 半成品 wakeup / lease / fence 设计意图
 
+## 待办
 
+- **strict_state_machine 默认 true（a2）**：新 DAG 不允许降级；旧 DAG 兼容期 false 必须打 audit + deprecation。
+- **terminal 唯一键（a2+a5）**：P0/P2 必须新增 durable terminal event inbox/outbox；去重键冻结为 `(dag_key,node_key,turn_id,event_type)`，`INSERT ... ON CONFLICT DO NOTHING` 后由 actor 消费，同一 terminal 只能生效一次。
+- **wakeup TTL / GC DDL（a2+a5）**：补 wakeup 状态机 `pending/claimed/sent/acked/expired`、`claim_owner`、`claim_expires_at`、reclaim query、TTL、FK/归档级联校验，P1/P11/P12 上线前必须闭环。
+- **真实 allowlist 收紧（a1 ❌）**：收紧 `internal/archtest/dependency_direction_mcp_orch_test.go:23-29`，不得继续宽泛放行 `internal/store` / `internal/module`。
+- **当前实现只存不跑（a1+a2）**：P0 合入前必须明确 UI/RPC 文案“DAG 仅存储不执行”；P0 PR 必须同时落 `StartDAG` 最小入口、4 actor wiring、trigger enum fail-fast。
+- **EnqueueWakeup 返回值修正（a2）**：`EnqueueTaskDagWakeup` 不能返回 execrows 给调用方当 wakeup id；改为返回真实 wakeup id，冲突时查询既有 id，避免 `active_wakeup_id` fence 误绑。
+- **状态 DDL 最后防线（a5）**：`0063` 必须给 `task_dag_nodes.status` 加 CHECK；P8 扩 `verdict_lost` 只能通过后续 migration 扩 CHECK，子状态不得混入主 `status`。
+- **last_activity_at vs last_event_at（a5+a6）**：P7 活性字段与 P21 event ordering 字段分离；若沿用 `last_event_at`，必须改名/语义冻结，不能让 P7 误杀长工具调用。
+- **P0/P1 首版性能硬门（a3）**：ready claim 第一版必须采用 `FOR UPDATE SKIP LOCKED LIMIT K`；`remaining_deps` 或等价依赖计数前移到 `0063_dag_state_machine.sql`，禁止先全量 load DAG nodes 再内存过滤。
+
+## Runner inventory 扩展冻结（需求补全仲裁）
+
+P0 PR 只实现 4 个基础 actor，但 `dag_runner_actors_present` 的 inventory 必须从第一版覆盖全生命周期：P0 `dagWatcherActor/dagDispatcherActor/dagLeaseActor/dagReconcileActor`，P7 `dagActivityActor`，P8 `dagArbiterActor`，P11 `dagConvergenceActor`，P12 `dagSwarmArbiterActor`，P13 `outputValidationActor`。后段 actor 可先以 stub/compile-time symbol 占位，但不得绕过 `group:"runners"`、`Runner.Run(ctx)`、drain、heartbeat metric 与 no-fire-and-forget archtest。

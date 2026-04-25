@@ -3,7 +3,7 @@
 > 创建时间：2026-04-25 | 状态：**裁决已写入 README，arbiter 报告待补**
 > authoritative：本文件 + [`README.md`](README.md)
 > 输入：5 个 codex 调研 agent 的事实层报告
-> 决策权：用户 2026-04-25 当面拍板（DAG 自驱 + 三触发源 + 三能力扩展 + verdict 走方案 A）
+> 决策权：用户 2026-04-25 当面拍板（DAG 自驱 + 三触发源 + 三能力扩展；verdict 最终口径已由后续裁决更新为方案 C：默认 runtime arbiter，judge 仅 opt-in，失败 `verdict_lost`）
 
 ---
 
@@ -19,7 +19,7 @@
    - 2b 同批互验：兄弟 node 全完成后互验
    - 打回 = 把 verifier 反馈作为新 prompt 投回原 agent，重起一轮 turn
 3. **要求 3（千 node 百 agent 大规模）**：自动迭代一个系统、上千步工具调用、几百个 agent 调度
-4. **verdict 实现位置（用户偏好）**：方案 A — DAG runtime 内嵌 LLM 调用做仲裁，不让 verdict 暴露成又一个 agent，降低主 agent / 用户认知负担
+4. **verdict 实现位置（最终口径）**：方案 C — 默认走 DAG runtime 内嵌 LLM arbiter；judge node 仅在 `verdict_strategy=judge` / `dissent_action=escalate_judge` 且显式配置 `judge_node_key` 时 opt-in；arbiter 不可得落 `verdict_lost`，不自动降级 B
 
 ---
 
@@ -188,7 +188,7 @@
 | UI（一眼看懂、可视化、配置化、agent 创建 + 用户微调、模板创建、添加模板） | **P10 扩展** | 在 P10 stub「目标」段后追加「UX 设计原则」+「三个用户故事」段（authoritative） |
 | 自动节点伸缩（无限迭代） | **新建 P11** | `P11_DynamicNodeGrowth.md`：`task_spawn_child` 工具 + `growth_budget` 硬约束 + `convergence` 终止条件 |
 | LLM 裁决（蜂群涌现） | **新建 P12（P8 升级）** | `P12_SwarmArbiter.md`：N 个 LLM 并行 + consensus + dissent_action；P8 单 arbiter 的 ensemble 升级 |
-| RPC 端点（外部调度） | **P6 已覆盖** | 不新建子任务；在 README 显式写明 P6 已实现外部调度入口（含 AuthN/AuthZ/rate/quota/audit） |
+| RPC 端点（外部调度） | **P6 归属 / 未实现** | 不新建子任务；P6 是外部调度入口的归属切片，但当前仍为 stub，必须补 endpoint matrix、三入口 identity、安全与幂等闭环后才能开放 |
 | JSON 输出模式（金融场景） | **新建 P13** | `P13_StrictJSONOutput.md`：`output_schema` + validator + repair-or-fail + 金融场景预设 |
 
 **追加的冲突缓解契约（README §三子任务叠加冲突缓解契约 第 6/7/8 条）**：
@@ -199,7 +199,7 @@
 
 **新增的关键依赖**：
 - P11 依赖 P9 backpressure（动态生长 × 规模会形成倍数压力）
-- P12 依赖 P8 已合入（特别是 `cmd/mcp-orch/orchestration/llm/light/*` 轻量 LLM 调用层；原表述 `internal/llm/light/*` 已修正）
+- P12 依赖 P8 已合入（特别是 `cmd/mcp-orch/orchestration/llm/light/*` 轻量 LLM 调用层；原写 `internal/llm/light/*` ✅ 已修正）
 - P13 依赖 P8 sanitize layer（agent 输出在 validate 前的安全处理）
 
 **金融场景的"复合预设"（写入 P10 模板库 + P13 默认）**：
@@ -236,7 +236,7 @@
 
 避免 P7 / P8 / P9 上线时返工，本期必须先冻结：
 
-1. `task_dag_node` 预留 `last_activity_at TIMESTAMPTZ` 列（在 `0063_dag_state_machine.sql` 一并加，本期不消费但 P2 hook tap 必须回写）
+1. `task_dag_nodes` 预留 `last_activity_at TIMESTAMPTZ` 列（在 `0063_dag_state_machine.sql` 一并加，本期不消费但 P2 hook tap 必须回写）
 2. P2 reconcile hook tap 必须 enqueue-only（P8 verifier gate 硬前置）
 3. P23 主 `status` 枚举固定，未来子状态走独立列（如 `verify_phase` / `activity_state`），保持 CAS 形状不变
 4. `maxConcurrentLaunches` 配置化（提取成 config 参数，P23 不改默认值，P9 升级为 token bucket 时不需要二次迁移）
@@ -244,13 +244,13 @@
 
 **写入位置**：README §"阶段 0：前置冻结" 新增第 5 项。
 
-### 裁决 4：verdict 仲裁器走方案 A（P8 实现）
+### 裁决 4：verdict 仲裁器走方案 A（已 superseded；最终以裁决 14 / P8 方案 C 为准）
 
-**采纳用户决策**。理由（用户已述）：降低主 agent 和用户的认知负担——DAG runtime 内部解决 verdict，不暴露成又一个需要主 agent / 用户配置 / 监控的 agent 实例。
+**历史裁决，已被后续交叉验证裁决 superseded。** 保留原文用于追溯；实现不得按“失败自动降级 B”落地，最终以 P8 方案 C：默认 runtime arbiter、judge 显式 opt-in、失败 `verdict_lost` 为准。
 
 **关键约束（写入 README §未来扩展边界 P8 段）**：
 - DAG runtime 在 verifier terminal 后直接发起一次 LLM chat completion（structured output），输入 verifier 报告集合，输出 `{verdict, reasons, repair_prompt?}`
-- **失败兜底降级方案 B**：arbiter LLM 调用失败（服务挂、超时、JSON parse 失败）时降级为拉一个 judge node 走常规 launcher 路径
+- **superseded：不得自动降级 B**。arbiter LLM 调用失败（服务挂、超时、JSON parse 失败）时落 `verdict_lost`；只有显式 `judge_node_key` 的 opt-in 路径才能拉 judge node
 - **prompt injection 防护**：verifier 报告进 arbiter 前必须经 sanitize layer；禁止 verifier 输出直接当 prompt 传入
 - **审计**：每次 arbiter 调用落一行 `dag_arbiter_calls` 表（输入 hash / 输出 / model / latency / cost）
 - **batch 聚合**：千 node × 每 node 一次 = 千次 LLM 调用 / DAG，必须配 batch；P9 规模下不允许走开环
@@ -263,7 +263,7 @@
 1. 活性 actor 与 verifier gate 共用 CAS fence，禁止双推进（P7 + P8）
 2. 活性扫描分片 + lease jitter（P7 + P9）
 3. verifier launch 共用 launcher 全局 quota（P8 + P9）
-4. arbiter 调用 batch 聚合 + 失败兜底降级 B（P8 + P9）
+4. arbiter 调用 batch 聚合 + 失败 `verdict_lost`，judge node 仅显式 opt-in（P8 + P9）
 5. P7 / P8 / P9 不允许修改 P23 主 `status` 枚举；新状态走独立列（保 CAS 形状）
 
 ---
@@ -277,9 +277,9 @@
 | `docs/plans/迁移/p23/README.md` | 非目标加一条明示不实现三能力（裁决 1） | ✅ 已写 |
 | `docs/plans/迁移/p23/README.md` | 新增"未来扩展边界 / 不可纳入本期"章节（裁决 1 + 2 + 4 + 5） | ✅ 已写 |
 | `docs/plans/迁移/p23/RESEARCH_VERDICT.md` | 本文件 | ✅ 已写 |
-| `docs/plans/迁移/p23/P7_LivenessProbe.md` | P7 子任务单（活性探针） | 🔲 待编写 |
+| `docs/plans/迁移/p23/P7_LivenessProbe.md` | P7 子任务单（活性探针） | 🔄 stub 已建 / 已补活性硬契约 |
 | `docs/plans/迁移/p23/P8_VerificationGate.md` | P8 子任务单（校验闭环 + arbiter，方案 C） | 🔄 stub 已更新（采纳 arbiter 设计建议） |
-| `docs/plans/迁移/p23/P9_ScaleScheduling.md` | P9 子任务单（大规模调度） | 🔲 待编写 |
+| `docs/plans/迁移/p23/P9_ScaleScheduling.md` | P9 子任务单（大规模调度） | 🔄 stub 已建 / 已补容量硬契约 |
 | `docs/plans/迁移/p23/P10_TemplateAndUI.md` | P10 子任务单（模板 + UI + UX 原则 + 三用户故事） | 🔄 stub 已扩展 |
 | `docs/plans/迁移/p23/P11_DynamicNodeGrowth.md` | P11 子任务单（动态节点生长） | 🔄 stub 已建 |
 | `docs/plans/迁移/p23/P12_SwarmArbiter.md` | P12 子任务单（蜂群涌现仲裁） | 🔄 stub 已建 |
@@ -340,7 +340,7 @@
 
 **结论**：可行，但 **P8 前置 PR 是关键阻塞**——必须先合 `cmd/mcp-orch/orchestration/llm/light/*`。
 
-- **`internal/llm/light/*` 落点违反 allowlist**：`docs/契约/modularity-convention.md:336-377` 的 cmd/mcp-orch 允许 import 清单不含此包；模块名录也不含。✅ 修正：改 `cmd/mcp-orch/orchestration/llm/light/*`
+- **`internal/llm/light/*` 落点违反 allowlist**：`docs/契约/modularity-convention.md:336-377` 的 cmd/mcp-orch 允许 import 清单不含此包；模块名录也不含。✅ 已修正：改为 `cmd/mcp-orch/orchestration/llm/light/*`
 - **不复用 `dream.go`**：`internal/contract/dream.go:10-12` + `provider/codexapp/dream_executor.go:19-25` + `provider/claudecli/dream_executor.go:19-25` 当前 TODO 不可用；且缺 role/message、schema、timeout、usage、审计字段
 - **codex / claude structured output 锚点**：codex 仓库未见 OpenAI JSON mode / function calling 锚点（不能宣称 hard guarantee）；claude 有 `tool_use` 事件解析（`internal/provider/claudecli/factory.go:148-168`）但 CLI 只通过 `--mcp-config` 接工具（`transport_config.go:185-203`），未见"output_tool schema 强制返回"入口
 - **fallback 代价**：只能 prompt 要求 JSON + runtime validate；无 hard guarantee
@@ -371,12 +371,12 @@
 - P0: ✅✅⚠️（actor 必须 `group:"runners"` 不 fire-and-forget）
 - P1: ✅✅✅
 - P2: ✅⚠️⚠️（hook tap enqueue-only；timeout 扫描必须 actor）
-- P3: ⚠️✅✅（落点漂移 → 已修正）
+- P3: ⚠️✅✅（落点漂移 → ✅ 已修正）
 - P4: ✅✅✅
-- **P5: ❌⚠️⚠️**（cron import orch 违规 → 已修正）
+- **P5: ❌⚠️⚠️**（cron import orch 违规 → ✅ 已修正）
 - P6: ✅✅✅
 - P7: ✅✅⚠️
-- P8: ⚠️✅⚠️（`internal/llm/light/*` 不在 allowlist → 已修正）
+- P8: ⚠️✅⚠️（`internal/llm/light/*` 不在 allowlist → ✅ 已修正）
 - P9: ✅⚠️⚠️
 - P10: ⚠️✅✅
 - P11: ✅✅⚠️
@@ -408,7 +408,7 @@
 2. **P5 跨 root**：`internal/module/cron` 不直接 import `cmd/mcp-orch`；改为 cron 定义 `TriggerSink` interface，mcp-orch 装配实现 bridge
 3. **P5 idempotency**：UUID 改为 deterministic `hash(cron_job_id, scheduled_at, target_dag_key)` + `cron_job_runs` 唯一约束 `(job_id, scheduled_at, target_dag_key) WHERE target_dag_key <> ''`
 4. **migration 编号**：P5 从 0064 改 0066（晚于 P3 的 0065）；0064 保留 unused 作缓冲
-5. **`internal/llm/light/*` 落点**：改 `cmd/mcp-orch/orchestration/llm/light/*`（只服务 DAG arbiter，未来其它模块需要再升级到 `internal/platform/llm/light`）
+5. **`internal/llm/light/*` 落点**：改为 `cmd/mcp-orch/orchestration/llm/light/*`（只服务 DAG arbiter，未来其它模块需要再升级到 `internal/platform/llm/light`）
 6. **P13 hook 同步 schema validate 例外**：写入 P23 阶段 0 ⑤（archtest `dag_hook_tap_enqueue_only` 白名单：parse + validate + enqueue，禁网络 / LLM / 阻塞循环）
 7. **archtest 清单**：从 5 项扩到 14 项，全部列入 README §"守卫与 archtest"
 8. **共享 sanitize layer**：抽 `cmd/mcp-orch/orchestration/llm/light/sanitize.go` 给 P8 / P12 / P13 共用
@@ -474,7 +474,7 @@ rollout 面包含足，但可执行度不够：migration 编号/拓扑仍不一�
 
 | agent | 一句话结论 |
 |---|---|
-| a1-arch-conformance | P22 allowlist + modularity 名录与 P23 stub 还有 3 项 high 漂移（`internal/llm/light` 残留 / archtest allowlist 宽 / `dag.Start` 原表述）。 |
+| a1-arch-conformance | P22 allowlist + modularity 名录与 P23 stub 还有 3 项 high 漂移（原写 `internal/llm/light` 残留 / archtest allowlist 宽 / `dag.Start` 原表述）。 |
 | a2-failure-mode | 复合故障三主釴：hook overflow + CAS 竞争 + verifier lost 双反状态；cron 重 claim + 旧 trigger fallback + idempotency 漏；growth + swarm + wakeup GC 打爆 DB/LLM。 |
 | a3-perf-scale | N=10000 击穿于 DB ready/lock 全量读 / hook+launcher 背压缺失 / LLM verdict 开环；P9 必上 SKIP LOCKED + bounded queue + token bucket。 |
 | a4-security | Critical 三项：跨租户 / 鉴权绕过 / 特权升级；金融场景必加 append-only + hash chain audit + PII redaction。 |
@@ -492,10 +492,10 @@ rollout 面包含足，但可执行度不够：migration 编号/拓扑仍不一�
 | sanitize layer 必须先于 arbiter/swarm/P13 合入 | a4 + a2 + a8 + a10（间接） | **P0 / S0** |
 | 租户 filter / RPC AuthN 是鉴权闭环不可发布项 | a4 + a5 + a9（CI 提示） | **P0 / S0** |
 | audit append-only + hash chain | a4 + a5 + a6 | **P0 / S0** |
-| `internal/llm/light` 残留引用 | a1 后被 a8/a9 重点名 | **P0 / S0**（本 PR 已全面修正） |
+| `internal/llm/light` 残留引用 | a1 后被 a8/a9 重点名 | **P0 / S0**（本 PR ✅ 已修正） |
 | promhttp + alert 链路 | a6 + a9 + a10 | **P0 / S1** |
 | token bucket / subscription 映射 | a3 + a8 + a10 + a2 | **P0 / S1** |
-| `task_dag_node` 裸 status 写 + active_turn_id fence | a5 + a2 | **P0 / S1** |
+| `task_dag_nodes` 裸 status 写 + active_turn_id fence | a5 + a2 | **P0 / S1** |
 | CI workflow / archtest 逐层转 hard | a1 + a9 | **P0 / S2** |
 | UI 占位 → 实拓扑 / 实表单 / Start CTA | a7主 + a8/a10 | **P1（不阻 P0 代码）** |
 | Wails v3 alpha / d3 依赖架构选型 | a8 + a7 | **P2 / 调研** |
@@ -504,9 +504,9 @@ rollout 面包含足，但可执行度不够：migration 编号/拓扑仍不一�
 
 - `README.md`：`internal/orchestration/dag.Start` → `cmd/mcp-orch/orchestration/dag_start.go:StartDAG`（L196）、P5 表述 `trigger=external` → `trigger=cron`（L174）、补 a3/a4/a5 风险段、补 5 项 archtest。
 - `P5_CronTriggerSurface.md`：目标句 `trigger=external` → `trigger=cron`；补待办（DST/UTC、双轨窗口、append-only）。
-- `P8_VerificationGate.md`：改动清单 `internal/llm/light` → `cmd/mcp-orch/orchestration/llm/light`；依赖/待办补 sanitize / audit / cost。
-- `P12_SwarmArbiter.md`：`internal/llm/light` → `cmd/mcp-orch/orchestration/llm/light`；swarm actor 明示 `group:"runners"` + Runner.Run + interrupt/drain。
-- `P13_StrictJSONOutput.md`：`internal/llm/light/codex_json_mode.go` / `claude_tool_mode.go` 路径修正；补 PII redaction / append-only / cache cap / archive TTL。
+- `P8_VerificationGate.md`：改动清单 `internal/llm/light` 改为 `cmd/mcp-orch/orchestration/llm/light`；依赖/待办补 sanitize / audit / cost。
+- `P12_SwarmArbiter.md`：`internal/llm/light` 改为 `cmd/mcp-orch/orchestration/llm/light`；swarm actor 明示 `group:"runners"` + Runner.Run + interrupt/drain。
+- `P13_StrictJSONOutput.md`：`internal/llm/light/codex_json_mode.go` / `claude_tool_mode.go` 改为合规路径；补 PII redaction / append-only / cache cap / archive TTL。
 - `P9_ScaleScheduling.md`：N=10000 击穿补三项 + 补 SQL `FOR UPDATE SKIP LOCKED LIMIT K` / result 拆摘要 / actor buffer / CONCURRENTLY / subscription 映射 / turn fence。
 - `RESEARCH_VERDICT.md`：本节 §12–§15 + §裁决 10。
 - `COMPLIANCE_GATES.md`：14 archtest 补五项到 19；5 SRE metric；on-call runbook 5 类。
@@ -532,4 +532,316 @@ rollout 面包含足，但可执行度不够：migration 编号/拓扑仍不一�
 | `P9_ScaleScheduling.md` | N=10000 三瓶颈风险段 + 待办六项 | ✅ |
 | `RESEARCH_VERDICT.md` | §12–§15 + §裁决 10 | ✅ |
 | `COMPLIANCE_GATES.md` | archtest 扩 19 项 + 5 SRE metric + 5 类 runbook | ✅ |
+---
 
+## 16. `a1-arch-conformance` 交叉验证摘要
+
+✅ StartDAG 与 LLM light 落点已修；⚠️ P5 文案大多已对齐；❌ 真实 archtest allowlist 仍过宽，`dependency_direction_mcp_orch_test.go:23-29` 继续放行 `internal/store` / `internal/module`。新增裁决：P0 前必须收紧 allowlist，并在 README/COMPLIANCE 加具体测试名。
+
+## 17. `a2-failure-mode` 交叉验证摘要
+
+复合故障已有 enqueue-only、turn fence、裸写 gate、P9 quota 方向，但 terminal 唯一键、`strict_state_machine` 默认 true、wakeup TTL DDL 仍未硬化。裁决：写入 P0/P9 必修待办；P8 `failed`/`verdict_lost` 语义保持区分。
+
+## 18. `a3-perf-scale` 交叉验证摘要
+
+P9 覆盖 SKIP LOCKED、bounded queue、token bucket，但多在待办；P13 同步 validate 会压回 hook 热路径。裁决：P9 DDL 正文提升 `CREATE INDEX CONCURRENTLY` + 复合索引；P13 完整 validate 移到 worker，hook 只 bounded parse/enqueue。
+
+## 19. `a4-security` 交叉验证摘要
+
+AuthN、tenant filter、audit hash chain、redactor/sanitize 仍是文档 gate，未成可执行入口。裁决：安全项优先于 UX/成本；tenant/redaction/audit 维持 P0/S0，但 audit WORM 不能只靠 archtest 宣称闭环。
+
+## 20. `a5-data-integrity` 交叉验证摘要
+
+裸 status 写和 terminal turn fence 已进入 gate，但 SQL 草案未同步；P10 缺 `schema_hash`，预算 ledger 和 repair 链路 ID 缺。裁决：P10/P13 补 hash 与 `repair_chain_id`；统一 budget ledger 推迟到 P11/P9 owner。
+
+## 21. `a6-operability` 交叉验证摘要
+
+5 指标和 runbook 已落，但 metric 名称、stop 条件、graceful shutdown、trace propagation、sanitize fail 诊断仍不足。裁决：修正 `dag_*` 指标名和 runbook 文案；shutdown/trace/sanitize fail 写入后续 owner 待办。
+
+## 22. `a7-user-ux` 交叉验证摘要
+
+P10 保留三故事与 UX 原则，但错误 catalog、preview/diff/lineage、WS 实时事件、金融预设发现路径未形成可照办待办。裁决：P10 追加待办；UI 不阻 P0，但阻 P10 开工。
+
+## 23. `a8-ecosystem-deps` 交叉验证摘要
+
+依赖清单可控：jsonschema v6、promhttp 随 client_golang、hash 用 stdlib；风险是 provider structured output 不能 hard guarantee、metrics fallback 无硬截止、Wails/d3 推迟。裁决：P13 继续 runtime validate；COMPLIANCE 加 P7 前 exporter 截止。
+
+## 24. `a9-migration-rollout` 交叉验证摘要
+
+编号是阶段 0 阻塞项：P9=0068，P10–P13=0069–0072；P10/P13 stub 仍旧号，partial index 未进正文。裁决：立即修 P10/P13 编号与 P9 CONCURRENTLY 正文；compat/CI/metrics cutoff 写入裁决。
+
+## 25. `a10-economics` 交叉验证摘要
+
+成本风险已进 VERDICT，但 P10 缺 cost preview。最大风险为 P11×P12 30000 LLM job、token bucket 故障、append-only 多表写盘。裁决：P10 加 Start 前 cost preview/二次确认；token bucket 故障进入 COMPLIANCE stop/runbook。
+
+## 裁决 11 - 交叉验证仲裁（2026-04-25）
+
+1. **a1 ❌ 优先级最高**：真实 archtest allowlist 未收紧，不能用新增文档 gate 冒充闭环；README/COMPLIANCE/P0 已写为 P0 前必修。
+2. **migration 编号立即冻结**：P9=0068、P10=0069、P11=0070、P12=0071、P13=0072；P10/P13 stub 已同步，0064 保留 unused。
+3. **P13 hook 热路径裁决**：a3 性能优先于原“同步完整 validate”写法；但 a4/a5 的 terminal 前校验不降级。最终方案：hook bounded parse/enqueue，`outputValidationActor` worker 在 terminal/verify 前完成 validate。
+4. **安全与成本冲突**：a4 append-only/hash-chain/redaction 优先，a10 成本通过 P9 archive、P10 cost preview、token bucket hard stop 缓解，不取消审计。
+5. **UX 与安全冲突**：P10 cost/quota preview 只展示预算、预计 token、RPM/TPM 是否足够，不暴露内部 quota 策略细节；AuthN/tenant filter 优先。
+6. **operability hard gate 截止**：P0 前必须有 CI/promhttp 明确方案；P7 前 exporter 不就位则 P7–P13 runtime alert 依赖项阻塞。
+
+## 跨切片冲突仲裁矩阵
+
+| 冲突 | 仲裁 | 同步影响 |
+|---|---|---|
+| a3 P13 validate 热路径 vs a4/a5 terminal 前强校验 | a3 热路径优先，a4/a5 顺序要求保留 | P13 改 worker；README archtest 例外改 bounded parse/enqueue |
+| a4 audit hash chain vs a10 存储成本 | a4 优先 | P9 archive/TTL 与 P10 cost preview 必须覆盖审计膨胀 |
+| a5 tenant/turn fence 复合条件 vs a3 SQL 热点 | 一致性优先，性能用复合索引抵消 | P9 DDL 补 `(tenant_id, dag_key, status, remaining_deps)` 与 `(dag_key,node_key,active_turn_id)` |
+| a7 cost preview vs a4 quota 策略暴露 | 安全优先 | UI 只显示预算与是否足够，不显示内部限流算法 |
+| a9 渐进 archtest vs a1 allowlist ❌ | a1 优先 | allowlist 收紧列 P0 前 hard；其它 19 项可渐进 hard |
+---
+
+## 26. `a1-arch-conformance` 全量复审摘要
+
+a1 确认架构最大缺口仍在实现：`cmd/mcp-orch` dependency allowlist 仍过宽且直连 `internal/module/notify`；naked status write / terminal turn fence / task RPC identity / P23 archtest / StartDAG+4 actor+trigger enum 都未落地。裁决：实现缺口列为 P0/P6 hard gate，文档同步只修误导项。
+
+## 27. `a2-failure-mode` 全量复审摘要
+
+a2 指出 DAG 仍“只存不跑”、hook 同步、wakeup reclaim/TTL/FK 缺口、`EnqueueWakeup` 返回 execrows 易误用为 id。裁决：P0 待办补 StartDAG/4 actor 明示、wakeup id 返回、terminal event 去重和 hook bounded queue。
+
+## 28. `a3-perf-scale` 全量复审摘要
+
+a3 确认 N=10000 下首要瓶颈是 CreateDAG 单事务串行 upsert + 全量回读、整 DAG `FOR UPDATE`、LLM light/token bucket 未实现、hook 同步和 JSONB/UI payload 膨胀。裁决：P9 补 no-transaction `CREATE INDEX CONCURRENTLY`、分页/`include_result=false`、wakeup payload 限制。
+
+## 29. `a4-security` 全量复审摘要
+
+a4 复核 Critical 为 RPC/WS/MCP 无 AuthN、无 tenant/owner filter、`task_update_node` 裸写、DAG upsert 覆盖。High 为 audit/redaction/sanitize 未实现、RPC `params_preview` 泄露、rate/quota 缺失、cron replay、模板参数注入。裁决：P6 前安全 gate hard，不因 UI/成本让步。
+
+## 30. `a5-data-integrity` 全量复审摘要
+
+a5 确认裸 status、terminal turn fence、DB status CHECK、Create/Upsert 拓扑覆盖、FK/GC/archive 是一致性 Top 5；并发现 P10/P11 migration 编号冲突和 P10 缺 schema_version。裁决：P11/P12 编号立即同步，P10 补 schema_version，P0 补 DB CHECK 与 last_activity/last_event 语义。
+
+## 31. `a6-operability` 全量复审摘要
+
+a6 指出 runtime metrics/exporter、trace propagation、graceful shutdown/drain 顺序仍完全未定义；旧 `_p99` metric 名、`dag_actor_heartbeat` 类型也会误导实现。裁决：COMPLIANCE 统一 metric 命名，新增 trace/drain 为 P0 前冻结项。
+
+## 32. `a7-user-ux` 全量复审摘要
+
+a7 发现当前 DAG 列表无法进入详情、详情仍是 stub、无 `dag/start`、无模板库/实例化/保存模板，错误 catalog 和 cost preview 均无实现入口。裁决：P10 待办补 `DataPage` select、`dashboard/dagDetail` 接通、Start CTA 依赖 P3/P9/P6。
+
+## 33. `a8-ecosystem-deps` 全量复审摘要
+
+a8 确认 P13 strict JSON 不能依赖 provider native；promhttp/exporter 缺失；Wails v3 alpha、cron timezone fallback、PG version gate 是主要依赖风险。裁决：P13 明确 runtime validate 是唯一 hard guarantee，PG>=9.5 preflight 和 Wails smoke test 列后续 gate。
+
+## 34. `a9-migration-rollout` 全量复审摘要
+
+a9 新发现最高优先级 rollout bug：P23 DDL 草案使用 `task_dag` / `task_dag_node` 单数表，而当前真实表是 `task_dags` / `task_dag_nodes`；另有 P11=0069、P12=0070、P5 输入旧 0064 残留和 `cron_job_runs.target_dag_key` 未先加列。裁决：立即修全部 stub 表名/编号/P5 DDL。
+
+## 35. `a10-economics` 全量复审摘要
+
+a10 确认 cost preview、token bucket/subscription、growth budget、LLM light gateway 均未实现；audit/storage 分层与 DB/query 热点会把成本风险放大。裁决：P12/P11/P13 不得早于 P9 cost/token bucket gate；P10 Start 前 cost preview 是 hard UX gate。
+
+## 裁决 12 - 全量复审仲裁（2026-04-25）
+
+1. **立即修文档误导项**：P23 DDL 表名统一到真实 `task_dags` / `task_dag_nodes`；P11=0070、P12=0071、P5 输入=0066；P5 必先给 `cron_job_runs` 加 `target_dag_key`。
+2. **实现缺口不冒充已完成**：StartDAG、4 actor、trigger enum、naked status write、turn fence、AuthN/tenant、metrics/exporter、LLM light、cost preview 全部仍是“文档承诺/实现缺失”，在 P0/P6/P9/P10 gate 中 hard 标记。
+3. **安全/一致性优先于 UX 与成本**：`task_update_node` 裸写、upsert 覆盖、tenant filter、audit/redaction/sanitize 是 P0/P6 blocker；UI 只能在这些入口 fail-closed 后开放。
+4. **性能优先修热路径**：CreateDAG batch/async、ready `SKIP LOCKED LIMIT K`、hook bounded queue、result spillover、detail pagination 是 P9 hard scope；P8/P12 不得绕过 P9 token bucket。
+5. **可运维性 gate 前移**：trace_id、drain 顺序、DAG metrics manifest、promhttp/exporter fallback 必须在 P0/P7 截止点前冻结，不能只留 runbook。
+
+## 跨切片冲突仲裁矩阵 2
+
+| 冲突 | 仲裁 | 同步影响 |
+|---|---|---|
+| a9 rollout 表名/编号 vs 既有 stub | a9 优先 | 立即替换单数表名、P11/P12/P5 编号；RESEARCH 旧结论后续视为 superseded。 |
+| a4 安全关闭裸写 vs a7 Start/编辑 UX | a4 优先 | P10 Start/Edit CTA 必须依赖 P3/P6 identity + P0 CAS，不允许直接调旧 `task_update_node`。 |
+| a3 性能分页 vs a7 详情拓扑 | a3 优先 | P10 详情默认 summary + cursor；拓扑懒加载节点 detail，禁止一次拉全量 result。 |
+| a6 metrics hard gate vs a8 promhttp 缺实现 | a6 优先 | P0 明确 exporter PR/fallback；P7 前无 exporter 则后段 runtime-alert 依赖项阻塞。 |
+| a10 cost preview vs a4 quota 策略保密 | a4 优先 | UI 展示预算/是否足够/风险档位，不展示内部限流算法或敏感配额策略。 |
+
+
+
+## §36 交叉验证报告摘要 - p23-doc-a1-arch
+
+架构侧判定仍有 3 个 critical：Runner inventory 漏 P11/P13，P5 cron bridge 只禁 cron→cmd 未禁反向 concrete 依赖，单数表名残留。仲裁：全部立即修；archtest 总数裁定为 21，P8 `verdict_lost` 是唯一 status 白名单扩展。
+
+## §37 交叉验证报告摘要 - p23-doc-a2-failure
+
+故障模式侧认为 P1 launch crash-window、P2 active_turn_id terminal fence、durable terminal queue、wakeup TTL/reclaim、shutdown drain 是最高风险。仲裁：P1/P2/P0/COMPLIANCE 立即补硬契约；不能推给 P9 owner。
+
+## §38 交叉验证报告摘要 - p23-doc-a3-perf
+
+性能侧指出 N=10000 下全量 ready/lock、LLM fanout、普通建索引、UI 一次性详情、hook queue drop 都会返工或击穿。仲裁：`remaining_deps/SKIP LOCKED LIMIT K` 前移 P0；P9 提供 token bucket+budget ledger+batch 聚合。
+
+## §39 交叉验证报告摘要 - p23-doc-a4-security
+
+安全侧要求 P6 AuthN/AuthZ/tenant/rate/quota fail-closed，禁外部裸 status 写；audit append-only/hash-chain、PII redaction、sanitize 前置。仲裁：P6 audit fail 不再 blanket 非阻断；严格/金融写操作 fail-closed 或 durable spool。
+
+## §40 交叉验证报告摘要 - p23-doc-a5-data
+
+数据一致性侧再次确认单数表名、terminal fence、P13 validate-before-terminal 与 P2 直接 CompleteNode 竞态、terminal event 去重 DDL 缺失。仲裁：P0/P2/P13 立即补 durable inbox、phase 列、turn fence。
+
+## §41 交叉验证报告摘要 - p23-doc-a6-ops
+
+运维侧认为 promhttp/exporter fallback、graceful shutdown、trace_id、metrics manifest、L4 CI 是闭环缺口。仲裁：COMPLIANCE 新增 metrics manifest 和 drain protocol；CI 仍保持高风险硬前置。
+
+## §42 交叉验证报告摘要 - p23-doc-a7-ux
+
+该 agent 初次运行失败且报告为空；二次拉取返回 `agent not found`，当前 orchestration agent 列表为空，标记二次未到。本轮不采纳其新增 finding；P10 既有 UX/cost/error catalog 待办保留，后续若重跑需独立补审。
+
+## §43 交叉验证报告摘要 - p23-doc-a8-deps
+
+该 agent 初次运行失败且报告为空；二次拉取返回 `agent not found`，当前 orchestration agent 列表为空，标记二次未到。本轮依赖/生态风险只采用其它 agent 对 provider schema、promhttp、CONCURRENTLY、LLM light 边界的交叉发现。
+
+## §44 交叉验证报告摘要 - p23-doc-a9-rollout
+
+Rollout 侧确认单数表名、sqlc schema checklist、P9 CONCURRENTLY 编号冲突、0064 规则、CI hard/soft 口径、rollback 模板缺失。仲裁：表名立即修；P9 `remaining_deps` 前移 P0，0068 留给 no-transaction index/archive。
+
+## §45 交叉验证报告摘要 - p23-doc-a10-cost
+
+成本侧指出 P11 `{}` budget 可变无限、P11×P12 叠乘、P10 preview 只有展示无 hard gate、P8/P12 成本字段不足。仲裁：P11 空 budget 对 spawn invalid；P9/P10/P8/P12 补 budget ledger 与 token/currency/price attribution。
+
+## 裁决 13 - 文档审查仲裁
+
+1. ❌ 单数表名残留全部立即修：DDL/摘要统一 `task_dags/task_dag_nodes`；archive 表命名用 `task_dags_archive/task_dag_nodes_archive`。
+2. ❌ RunnerModule inventory 以“所有长跑/周期 worker”口径冻结：P0 四 actor + P7/P8/P11/P12/P13，archtest 总数裁定为 21。
+3. ❌ P2 terminal fence 不得等 P9：`CompleteNode/MarkFailed/Retry` 从 P2 起必须带 `active_turn_id`/attempt fence；stale terminal 返回 0 rows。
+4. ❌ hook terminal 不许纯内存队列：terminal/reconcile/validation 进 durable inbox/outbox，唯一键 `(dag_key,node_key,turn_id,event_type)`；progress/delta 才可 coalesce/drop。
+5. ❌ P1 launch 采用三阶段可恢复协议：persist intent + deterministic idempotency key → idempotent launcher → bind agent/turn CAS；禁止把外部 launcher 包进 DB 长事务。
+6. ❌ P5 cron bridge 按双向边界裁定：既禁 `internal/module/cron → cmd/mcp-orch`，也禁 `cmd/mcp-orch → internal/module/cron` concrete；只能经登记 interface/platform sink。
+7. 🆕 P9 编号冲突按最小改动裁定：`remaining_deps` 前移 P0 `0063`，P9 `0068` 只承载 no-transaction concurrent index/archive/scale policy，P10–P13 不顺延。
+8. 🆕 P8 status 规则：P0 五值是执行基线；P8 `verdict_lost` 是唯一白名单 terminal 扩展；其它后段状态必须独立 phase 列。
+9. 🆕 P11 growth budget：空 `{}` 对 spawn-enabled DAG 无效；必须有 conservative cap、budget ledger/reservation CAS、cost/storage/runtime 多维预算。
+10. 🆕 P6 audit failure：严格/金融/外部写操作 fail-closed 或 durable spool；只读/dev 可降级但必须告警和重放。
+
+## 跨切片冲突仲裁矩阵
+
+| 冲突 | 仲裁 | 影响同步 |
+|---|---|---|
+| a5 要 P2 `active_turn_id` fence vs a3 担心 SQL 热点 | 数据正确性优先；P2 必上 fence，P9 补 `(dag_key,node_key,active_turn_id)` 索引 | P2 hard scope + P9 hotspot index |
+| a3 要 P9 拆 `CONCURRENTLY` migration vs a9 指出编号冻结冲突 | 保持 P10–P13 编号不动；把 `remaining_deps` 前移 P0，P9 0068 留给 no-transaction index/archive | README/P0/P9 |
+| a4 要 audit fail-closed/hash-chain vs a10 担心存储成本 | 高风险/金融写操作 fail-closed；成本通过 P9 archive/TTL/redaction/spillover 控制，不牺牲审计证据 | P6/COMPLIANCE/P9/P13 |
+| a7/P10 cost preview vs a4 quota 策略泄露 | 只展示足够/不足/风险档位、预算估计与审批状态，不暴露 bucket 余量/内部窗口/provider 原始限流 | P10 待办保留 |
+| a1 P5 bridge 复用 cron module vs P22 modularity | P22 优先；禁止双向 concrete import，复用只能经 interface/platform sink | P5 + archtest |
+
+
+## §46 交叉验证收集状态表（二次确认落盘）
+
+> 2026-04-25 二次拉取结果：`p23-doc-a7-ux` / `p23-doc-a8-deps` 均返回 `agent not found`，`orchestration_list_agents` 为空；因此二者继续标记“二次未到”，不参与本轮仲裁新增项。
+
+| Agent | 角度 | ✅ | ⚠️ | ❌ | 🆕 | 收集状态 |
+|---|---|---:|---:|---:|---:|---|
+| `p23-doc-a1-arch` | 架构契约符合性 | 0 | 5 | 3 | 3 | 已收 |
+| `p23-doc-a2-failure` | 风险与故障模式 | 0 | 6 | 5 | 4 | 已收 |
+| `p23-doc-a3-perf` | 性能与扩展性 | 0 | 7 | 2 | 5 | 已收 |
+| `p23-doc-a4-security` | 安全与攻击面 | 0 | 7 | 4 | 4 | 已收 |
+| `p23-doc-a5-data` | 数据一致性与状态机 | 0 | 7 | 4 | 4 | 已收 |
+| `p23-doc-a6-ops` | 可运维 / 可观测 | 0 | 7 | 2 | 3 | 已收 |
+| `p23-doc-a7-ux` | 用户体验 | 未到 | 未到 | 未到 | 未到 | failed 空报告；二次 `agent not found` |
+| `p23-doc-a8-deps` | 生态依赖 | 未到 | 未到 | 未到 | 未到 | failed 空报告；二次 `agent not found` |
+| `p23-doc-a9-rollout` | 迁移 / rollout | 0 | 9 | 2 | 4 | 已收 |
+| `p23-doc-a10-cost` | 成本 / ROI | 0 | 10 | 4 | 5 | 已收 |
+
+仲裁口径：未到 agent 不产生新必修项；已由其它 agent 交叉覆盖的 UX/依赖相关问题（P10 cost preview、provider schema、CONCURRENTLY、LLM light 边界、promhttp/exporter）按已收报告裁决执行。
+
+
+## §47 ⚠️ 部分修正项仲裁去向表
+
+> 本节补齐 10 路交叉验证中所有 ⚠️ 类问题的落盘去向。原则：能本轮用精确替换修的已修；仍需 owner 设计/实现的写入对应 stub 待办或 COMPLIANCE gate；未到 agent 不产生新增 ⚠️。
+
+| 来源 | ⚠️ 问题 | 仲裁 | 落盘位置 |
+|---|---|---|---|
+| a1 | archtest 20/21 口径不一致 | 本轮修正为 21 项；`cron_*` 也计入总数 | `README.md` §守卫与 archtest；`COMPLIANCE_GATES.md` §21 项 archtest |
+| a1 | P8 status 枚举扩展语义不清 | 明确 `verdict_lost` 是 P8 唯一白名单 terminal 扩展，其它后段状态走独立列 | `README.md` 三子任务冲突契约；`P8_VerificationGate.md` |
+| a1 | README 非目标与 P10 UI 冲突 | 改为 P0–P6 不做 UI，P10 后段承接 | `README.md` §非目标 |
+| a1 | P13 validate 时机易被读成 hook 同步 validate | 改为 hook bounded parse + durable enqueue，worker terminal 前 validate | `README.md` §P13；`P13_StrictJSONOutput.md` |
+| a1/a9 | P5 partial unique index 注释指向错表 | 改为 `cron_job_runs` partial unique index；热表用 CONCURRENTLY | `P5_CronTriggerSurface.md` |
+| a1/a2/a3 | P9 错字与 batch 聚合点不清 | 修为 batch 聚合点，并纳入 token bucket/budget ledger | `P9_ScaleScheduling.md` |
+| a2 | retry attempt 幂等与 attempt ownership 不完整 | 写入 P2 active_turn/attempt fence；P1 idempotency 协议覆盖 launch 侧 | `P1_WakeupDispatcherAndLaunchBinding.md`；`P2_NodeTerminalReconcile.md` |
+| a2 | `observe_lost` deadline/证据标准待细化 | 不在本轮硬写具体阈值；保留为 P0/P2 owner 实现项，需在状态机 PR 冻结 | `P0_DAGRuntimeSkeleton.md` 风险/待办；`COMPLIANCE_GATES.md` stop 条件 |
+| a2/a5 | StartDAG idempotency key scope 未定义 | 作为 P3 owner 待补；本轮未硬塞表结构，避免越过 P22/P3 设计 | `P3_ExplicitDAGStartAndOwnership.md` 风险/必测仍保留 caller/idempotency 要求 |
+| a3 | P10 UI/API pagination、字段投影、拓扑虚拟化 | 写入 P9/P10 待办；P10 owner 必须默认 `include_result=false`、分页/虚拟化 | `P9_ScaleScheduling.md`；`P10_TemplateAndUI.md` |
+| a3/a9 | 活表索引普通 `CREATE INDEX` | 本轮把关键活表索引改为 `CREATE INDEX CONCURRENTLY` / no-transaction policy | `P9/P10/P12/P13` DDL 草案 |
+| a3 | metrics/exporter 可选口径与后段依赖冲突 | 新增 metrics manifest / exporter fallback；P7 前无 `/metrics` 或 fallback 则冻结 | `COMPLIANCE_GATES.md` |
+| a4 | PII redaction / sanitize 仍是待办 | 作为 P8/P12/P13 前置保留；不在本轮伪造实现细节 | `P8_VerificationGate.md`；`P12_SwarmArbiter.md`；`P13_StrictJSONOutput.md` |
+| a4 | quota/rate/token bucket 先后顺序风险 | P9/P10/P11/P12/P13 统一补 cost preview + budget ledger hard gate | `P9_ScaleScheduling.md`；`P10_TemplateAndUI.md`；`P11/P12` |
+| a4/a6/a10 | audit 写失败语义冲突 | 分级裁决：strict/financial/write fail-closed 或 durable spool；dev/read 可降级 | `P6_ExternalRPCTriggerSurface.md`；`COMPLIANCE_GATES.md` |
+| a5 | FK/GC/archive 闭环不完整 | 本轮只冻结 archive 统一命名和级联校验要求；具体 FK/TTL SQL 留 P9 owner | `P9_ScaleScheduling.md`；`P0_DAGRuntimeSkeleton.md` 待办 |
+| a5 | P11 budget 缺 ledger/reservation CAS | 本轮补为必修；并发 spawn 不得超额 | `P11_DynamicNodeGrowth.md` |
+| a5 | P13 `output_validation_phase` 声称有但 DDL 缺列 | 本轮补 DDL 草案列 | `P13_StrictJSONOutput.md` |
+| a5 | schema_hash/schema_version 不能证明 validation schema | 本轮补 node schema hash/version 列；schema revision FK 细节留 owner | `P13_StrictJSONOutput.md` |
+| a6 | trace_id 只在 README 风险中出现 | 保持为跨 actor correlation contract；具体 schema 字段不硬塞所有表，留 owner 在 P0/P6/P8/P13 DDL 中落实 | `README.md` 风险；`COMPLIANCE_GATES.md` metrics/drain gate |
+| a6 | runbook 只有首动作 | 本轮未展开完整 runbook，新增 metrics manifest/fallback；详细 PromQL/DB 查询留 SRE owner | `COMPLIANCE_GATES.md` |
+| a6 | P7 relaunch kill switch / 防抖 | 留 P7 owner；本轮不改 runtime 语义 | `P7_LivenessProbe.md` 既有风险/必测承接 |
+| a9 | sqlc schema checklist 未逐 stub 展开 | 本轮不重复写入每个 P 文件；以 COMPLIANCE daily checklist 统一要求 `make sqlc-verify` | `COMPLIANCE_GATES.md` Daily checklist |
+| a9 | 0064 unused 规则歧义 | 本轮修为 `0064_*.sql` hard fail；其它编号必须存在 | `README.md`；`COMPLIANCE_GATES.md` |
+| a9 | rollback / roll-forward 模板缺失 | 作为每 migration owner 待补；本轮不为所有 0063–0072 伪造 preflight SQL | 本节记录 + `COMPLIANCE_GATES.md` owner checklist |
+| a10 | P10 cost preview 仅展示不硬拦 | 本轮改为 approval/hard block，二次确认不能替代授权 | `P10_TemplateAndUI.md` |
+| a10 | P13 repair/audit/swarm 成本乘数 | 本轮写入 cost preview 必含 repair rounds、swarm members、base/max/p95 | `P10_TemplateAndUI.md`；`P13_StrictJSONOutput.md` |
+| a10 | storage/spillover 生命周期成本 | P9 archive/TTL 覆盖 audit/arbiter/validation/result blob；具体冷存储策略留 P9 owner | `P9_ScaleScheduling.md`；`P13_StrictJSONOutput.md` |
+
+未落具体实现的 ⚠️ 不代表忽略：凡需要 owner 选型、容量数字、preflight SQL、PromQL、CI/branch protection 或 provider 实测的项目，均作为 stub 待办/gate 输入保留，不能在文档仲裁阶段伪造确定实现。
+
+
+## §48 需求补全调研摘要 - p23-need-a1-architecture
+
+整体需求已映射到 P7–P13，但报告指出 7 个 critical：实现仍“只存不跑”、P22 allowlist 过宽、P2 durable terminal、P1 crash-window、P6 auth、P9 budget、CI/metrics 缺位。新增要求：P7 relaunch 防抖、P10 draft 派生态、大规模 UI 虚拟化、旧 P8 A/B 裁决 superseded。已裁决修 README/RESEARCH/P0/P7/P10。
+
+## §49 需求补全调研摘要 - p23-need-a2-ui-template
+
+P10 已覆盖 UI/模板主线，但缺页面级状态字典、字段注册表、Start/Edit 禁用原因、cost preview 保密边界、模板 preview/diff/lineage、大规模拓扑懒加载。裁决：P10 新增 UI 状态字典、表单字段注册表、cost preview 保密边界和 N=10000 UI 策略。
+
+## §50 需求补全调研摘要 - p23-need-a3-growth-iteration
+
+P11 已覆盖 spawn/growth budget/convergence，但 ledger/reservation CAS 未 DDL 化，`max_depth` 缺 node-level depth，80% backpressure 公式错误，convergence DSL 不可验收，用户调预算缺 RPC/UI/审计。裁决：P11 补 growth_reservations、node depth、budget 分层、convergence DSL v1、`dag/update_budget` 口径。
+
+## §51 需求补全调研摘要 - p23-need-a4-swarm-verdict
+
+P8/P12 已覆盖 arbiter/swarm，但 RESEARCH 旧“方案 A + 自动降级 B”与方案 C 冲突；P12 timeout/quorum 未 schema 化；`escalate_judge` 未强制显式 judge；`dag_swarm_consensus` 未纳入 append-only；dissent summary 注入边界不足。裁决：supersede 旧裁决，P12 补 quorum/成本/hash-chain字段和 judge opt-in 硬规则。
+
+## §52 需求补全调研摘要 - p23-need-a5-rpc-external
+
+P6 归属正确但仍是 stub，不得写“已实现”。缺统一 endpoint matrix、三入口 identity + service enforcement、外部 RPC idempotency、JSON-RPC rate-limit 错误语义、audit fail-closed/spool DDL、method-level AuthZ。裁决：P6 补 endpoint matrix、两层安全模型、幂等与错误语义。
+
+## §53 需求补全调研摘要 - p23-need-a6-json-finance
+
+P13 覆盖 output_schema/runtime validate/金融预设，但 README provider hard guarantee 口气过强，P13 phase 文案与 README 冲突，audit 表缺 hash-chain/schema_version/canonical hash，PII/raw blob/repair_prompt 顺序未硬化。裁决：README 改 provider structured output 为优化；P13 补金融审计硬化契约。
+
+## §54 需求补全调研摘要 - p23-need-a7-auto-progress-liveness
+
+P7 方向覆盖，但仍缺 activity 状态机、kill switch、防抖/cooldown、observe_lost owner/deadline、progress/tool activity ingestion、idle 默认值和 P2 retry budget 关系。裁决：P7 补活性判定硬契约，`observe_lost` 只由 `dagReconcileActor` 写。
+
+## §55 需求补全调研摘要 - p23-need-a8-verification-flow
+
+P2/P8/P13/P12 已覆盖校验流，但 verifier agent/turn binding 缺字段、batch_peer 只有 schema 没算法、P8/P13 repair 复合循环无全局上限、verify/arbiter/swarm durable job queue 未落表。裁决：P8 补 verifier binding、durable job queue、batch_peer 算法和 combined repair budget。
+
+## §56 需求补全调研摘要 - p23-need-a9-scale-scheduling
+
+P9 覆盖瓶颈方向，但缺容量默认值、quota fairness、batch create API 语义、spillover/archive/pagination 契约、backpressure 动作矩阵和 P9 对 COMPLIANCE drain 的反链。裁决：P9 补容量与公平调度硬契约、batch create async job、spillover/archive/pagination 三联契约。
+
+## §57 需求补全调研摘要 - p23-need-a10-rollout-compliance
+
+Rollout 侧指出 README 依赖拓扑漏边（P12 依赖 P9、P10 依赖 P7–P9 schema、P13 依赖 P10 preset）、P8 A/C 口径冲突、CONCURRENTLY 分拆易误导、migration checklist 仍未 gate 化、阶段0/P0 边界不清。裁决：README 修拓扑，COMPLIANCE 增 migration owner checklist 与阶段0/P0 checklist。
+
+## 裁决 14 - 用户综合需求补全仲裁
+
+1. ❌ **P8 verdict 最终口径**：旧方案 A / 自动降级 B 全部 superseded；最终为方案 C：默认 runtime arbiter，judge 仅显式 opt-in，失败 `verdict_lost`。
+2. ❌ **P6 外部 RPC 不得称已实现**：P6 是归属切片但仍是 stub；开工前必须有 endpoint matrix、三入口 identity、service enforcement、idempotency、audit fail-closed/spool。
+3. ❌ **P7 自动重拉必须有 kill switch + debounce**：没有连续 K 轮证据、cooldown、launcher backlog gate、tool-running 保护，不得上线 relaunch。
+4. ❌ **P8/P12 校验与蜂群必须 durable + 可审计**：verifier binding、verify jobs、swarm quorum/timeout、consensus hash-chain 都是必修。
+5. ❌ **P11 无限迭代必须 ledger 化**：growth reservation、node depth、budget 分层、deterministic convergence DSL 必须先于 spawn 开放。
+6. ❌ **P13 金融 JSON 必须 runtime validate + redaction + hash-chain**：provider native structured output 只能是优化，不是 hard guarantee。
+7. 🆕 **P10 UI 从故事升级为页面契约**：状态 legend、字段注册表、CTA 禁用原因、cost preview 保密、大规模虚拟化为 P10 必修。
+8. 🆕 **P9 大规模能力从方向升级为容量契约**：claim K、batch size、queue、fairness、spillover/archive/pagination、backpressure 动作矩阵要写入 stub。
+9. 🆕 **依赖拓扑修正**：P12= P8+P9；P10= P3+P6+P7/P8/P9 schema freeze；P13= P0/P1/P2+P8 sanitize+P10 preset。
+10. ⚠️ **CI/metrics 仍高风险**：本轮只补 gate/checklist；没有实现前风险评级不降。
+
+## §58 需求补全 ⚠️ 去向表
+
+| 来源 | ⚠️ / 🆕 问题 | 仲裁去向 | 落盘位置 |
+|---|---|---|---|
+| a1 | P10 `draft` 派生态、旧 P8 裁决冲突 | 本轮修正文案 | `P10_TemplateAndUI.md`、`RESEARCH_VERDICT.md` |
+| a2 | 状态 legend / 字段帮助 / cost preview 边界 | 升为 P10 页面契约 | `P10_TemplateAndUI.md` |
+| a3 | convergence DSL、用户调预算、budget 分层 | 升为 P11 硬契约 | `P11_DynamicNodeGrowth.md` |
+| a4 | quorum/timeout、judge opt-in、swarm audit | 升为 P12 DDL/规则必修 | `P12_SwarmArbiter.md`、`COMPLIANCE_GATES.md` |
+| a5 | RPC endpoint matrix / 幂等 / rate error | 升为 P6 必修 | `P6_ExternalRPCTriggerSurface.md` |
+| a6 | canonical schema hash、strict finance、redaction 顺序 | 升为 P13 必修 | `P13_StrictJSONOutput.md` |
+| a7 | kill switch、防抖、observe_lost owner | 升为 P7 必修 | `P7_LivenessProbe.md` |
+| a8 | verifier binding、batch_peer 算法、durable jobs | 升为 P8 必修 | `P8_VerificationGate.md` |
+| a9 | quota fairness、batch create、spillover/archive | 升为 P9 必修 | `P9_ScaleScheduling.md` |
+| a10 | dependency topology、migration checklist、阶段0/P0 | 本轮修拓扑并补 gate | `README.md`、`COMPLIANCE_GATES.md` |
+
+未直接写成代码级实现的项（容量数字最终值、PromQL、provider 实测、CI workflow、具体 SQL preflight）仍为 owner 开工前 gate，不在文档仲裁阶段伪造实现结果。
