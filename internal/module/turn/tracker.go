@@ -11,8 +11,23 @@ import (
 const trackerTTL = 30 * time.Minute
 
 type turnTracker struct {
-	mu    sync.RWMutex
-	turns map[string]*trackedTurn
+	mu       sync.RWMutex
+	turns    map[string]*trackedTurn
+	lastTick time.Time
+}
+
+// tick returns a time.Time that is strictly greater than every previously
+// returned tick. On Windows time.Now() can have ~15ms granularity, so
+// back-to-back tracker writes get bit-identical timestamps; that breaks
+// GetByDedupeKey's "most recently updated wins" tiebreaker. Caller MUST
+// hold the write lock.
+func (t *turnTracker) tick() time.Time {
+	now := time.Now()
+	if !now.After(t.lastTick) {
+		now = t.lastTick.Add(time.Nanosecond)
+	}
+	t.lastTick = now
+	return now
 }
 
 type trackedTurn struct {
@@ -38,9 +53,9 @@ func (t *turnTracker) Start(localID, providerID, threadID string) {
 	if localID == "" {
 		return
 	}
-	now := time.Now()
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	now := t.tick()
 	t.turns[localID] = &trackedTurn{
 		localID:    localID,
 		providerID: strings.TrimSpace(providerID),
@@ -66,7 +81,7 @@ func (t *turnTracker) AttachHandle(localID string, handle contract.TurnHandle) {
 	if turn.providerID == "" {
 		turn.providerID = strings.TrimSpace(handle.ProviderID())
 	}
-	turn.updatedAt = time.Now()
+	turn.updatedAt = t.tick()
 }
 
 func (t *turnTracker) BindProviderID(localID, providerID string) {
@@ -78,7 +93,7 @@ func (t *turnTracker) BindProviderID(localID, providerID string) {
 	defer t.mu.Unlock()
 	if turn, ok := t.turns[localID]; ok {
 		turn.providerID = strings.TrimSpace(providerID)
-		turn.updatedAt = time.Now()
+		turn.updatedAt = t.tick()
 	}
 }
 
@@ -92,7 +107,7 @@ func (t *turnTracker) Update(localID string, state string) {
 	defer t.mu.Unlock()
 	if turn, ok := t.turns[localID]; ok {
 		turn.state = state
-		turn.updatedAt = time.Now()
+		turn.updatedAt = t.tick()
 	}
 }
 
@@ -117,7 +132,7 @@ func (t *turnTracker) Complete(localID string, success bool, errMsg string) {
 	default:
 		turn.state = "failed"
 	}
-	turn.updatedAt = time.Now()
+	turn.updatedAt = t.tick()
 }
 
 func (t *turnTracker) MarkInterruptRequested(localID string) bool {
@@ -133,7 +148,7 @@ func (t *turnTracker) MarkInterruptRequested(localID string) bool {
 	}
 	turn.interruptRequested = true
 	turn.state = "interrupting"
-	turn.updatedAt = time.Now()
+	turn.updatedAt = t.tick()
 	return true
 }
 
@@ -151,7 +166,7 @@ func (t *turnTracker) Stall(localID string, errMsg string) {
 	turn.handle = nil
 	turn.state = "stalled"
 	turn.lastError = strings.TrimSpace(errMsg)
-	turn.updatedAt = time.Now()
+	turn.updatedAt = t.tick()
 }
 
 // Cleanup removes terminal turns that have aged past the tracker TTL.
@@ -196,7 +211,7 @@ func (t *turnTracker) AbortThread(threadID, errMsg string) bool {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return abortTrackedTurns(t.turns, threadID, errMsg, time.Now())
+	return abortTrackedTurns(t.turns, threadID, errMsg, t.tick())
 }
 
 func (t *turnTracker) Get(localID string) (TurnStatus, bool) {
@@ -245,7 +260,7 @@ func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
 	defer t.mu.Unlock()
 	if turn, ok := t.turns[localID]; ok {
 		turn.dedupeKey = dedupeKey
-		turn.updatedAt = time.Now()
+		turn.updatedAt = t.tick()
 	}
 }
 
