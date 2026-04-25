@@ -40,9 +40,15 @@ var codexSpawnEnvAllowlist = []string{
 // about an inherited value. Output is deterministically sorted so
 // tests can assert exact content.
 func buildAllowlistedSpawnEnv(parent []string, overrides map[string]string) []string {
+	// Allowlist match is case-insensitive: Windows uses "Path" (mixed
+	// case) for what Unix calls "PATH"; with case-sensitive matching the
+	// parent's Path entry got dropped and the spawned cmd.exe could not
+	// find node. Unix env is case-sensitive but no real-world env defines
+	// a mixed-case duplicate of an allowlisted key, so case-folding here
+	// is safe across platforms.
 	allowed := make(map[string]struct{}, len(codexSpawnEnvAllowlist))
 	for _, key := range codexSpawnEnvAllowlist {
-		allowed[key] = struct{}{}
+		allowed[strings.ToUpper(key)] = struct{}{}
 	}
 	merged := make(map[string]string, len(allowed)+len(overrides))
 	for _, kv := range parent {
@@ -50,7 +56,7 @@ func buildAllowlistedSpawnEnv(parent []string, overrides map[string]string) []st
 		if !ok {
 			continue
 		}
-		if _, permitted := allowed[key]; !permitted {
+		if _, permitted := allowed[strings.ToUpper(key)]; !permitted {
 			continue
 		}
 		merged[key] = val
