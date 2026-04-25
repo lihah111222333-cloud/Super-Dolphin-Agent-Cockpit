@@ -104,6 +104,7 @@ func newStartHandler(svc Service) handler.Func {
 }
 
 func logStartRPCReceived(p startParams) {
+	cfg := decodeConfigMap(p.Config)
 	// Observability: dump the params that thread/start actually received so
 	// we can distinguish "frontend never sent agent_key" from "backend
 	// dropped it" without running tcpdump. Values are scalar / boolean so
@@ -119,6 +120,16 @@ func logStartRPCReceived(p startParams) {
 		"has_base_instructions", strings.TrimSpace(p.BaseInstructions) != "",
 		"defer_spawn", p.DeferSpawn,
 		"selected_skills_n", len(p.SelectedSkills))
+	pkglogger.Warn("thread/start: config trace",
+		"agent_id", p.AgentID,
+		"provider", p.Provider,
+		"model_provider", p.ModelProvider,
+		"model", p.Model,
+		"effort", p.Effort,
+		"config_model", configTraceString(cfg, "model"),
+		"config_effort", configTraceString(cfg, "effort"),
+		"has_config", len(cfg) > 0,
+	)
 }
 
 func buildStartRequestFromParams(p startParams) StartRequest {
@@ -222,6 +233,21 @@ func decodeConfigMap(raw json.RawMessage) map[string]any {
 		return nil
 	}
 	return cfg
+}
+
+func configTraceString(cfg map[string]any, key string) string {
+	if len(cfg) == 0 {
+		return ""
+	}
+	value, ok := cfg[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 func newThreadCall(fn func(context.Context, string) (any, error)) handler.Func {

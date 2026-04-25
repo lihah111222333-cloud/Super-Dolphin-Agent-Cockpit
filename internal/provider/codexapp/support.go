@@ -373,6 +373,17 @@ func startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dt
 
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
 	configKeys := sortedConfigKeys(req.Config)
+	if strings.TrimSpace(params.Model) == "" || strings.TrimSpace(params.Effort) == "" {
+		pkglogger.Warn("codexapp: thread/start config trace",
+			"agent_id", strings.TrimSpace(req.AgentID),
+			"req_model", strings.TrimSpace(req.Model),
+			"config_model", configString(req.Config, "model"),
+			"params_model", params.Model,
+			"config_effort", configString(req.Config, "effort"),
+			"params_effort", params.Effort,
+			"config_keys", configKeys,
+		)
+	}
 	if strings.TrimSpace(params.Effort) == "" {
 		pkglogger.Warn("codexapp: thread/start effort missing",
 			"agent_id", strings.TrimSpace(req.AgentID),

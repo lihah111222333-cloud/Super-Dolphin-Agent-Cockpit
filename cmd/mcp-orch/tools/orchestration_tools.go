@@ -32,6 +32,7 @@ type LaunchAgentInput struct {
 	CWD         string `json:"cwd,omitempty"`
 	Provider    string `json:"provider,omitempty"`
 	Model       string `json:"model,omitempty"`
+	Effort      string `json:"effort,omitempty"`
 }
 
 type SendMessageInput struct {
@@ -41,6 +42,13 @@ type SendMessageInput struct {
 
 type AgentIDInput struct {
 	AgentID string `json:"agent_id"`
+}
+
+type ListAgentsInput struct {
+	State           string `json:"state,omitempty"`
+	IncludeInactive bool   `json:"include_inactive,omitempty"`
+	IncludeReports  bool   `json:"include_reports,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
 }
 
 type launchAgentSnapshotter interface {
@@ -53,6 +61,15 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
+		pkglogger.Warn("orchestration_launch_agent: request config trace",
+			"agent_id", req.AgentID,
+			"name", strings.TrimSpace(in.Name),
+			"provider", strings.TrimSpace(in.Provider),
+			"model", strings.TrimSpace(in.Model),
+			"effort", strings.TrimSpace(in.Effort),
+			"cwd", strings.TrimSpace(in.CWD),
+			"has_effort", strings.TrimSpace(in.Effort) != "",
+		)
 		agentID, releaseAgentID := reserveLaunchAgentID(ctx, svc, req.AgentID)
 		req.AgentID = agentID
 		if snapshotSvc, ok := svc.(launchAgentSnapshotter); ok {
@@ -160,9 +177,21 @@ func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
+		pkglogger.Warn("orchestration_send_message: submit begin",
+			"agent_id", submission.AgentID,
+			"thread_id", submission.ThreadID,
+			"input_items", len(submission.Inputs),
+			"message_len", len([]rune(strings.TrimSpace(in.Message))))
 		if err := svc.SubmitTurn(ctx, submission); err != nil {
+			pkglogger.Warn("orchestration_send_message: submit failed",
+				"agent_id", submission.AgentID,
+				"thread_id", submission.ThreadID,
+				"error", err)
 			return nil, err
 		}
+		pkglogger.Warn("orchestration_send_message: submit accepted",
+			"agent_id", submission.AgentID,
+			"thread_id", submission.ThreadID)
 		return successResult(map[string]any{"agent_id": submission.AgentID}), nil
 	})
 }
@@ -181,8 +210,28 @@ func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 }
 
 func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
-	return makeHandler(svc, "orchestration service", func(ctx context.Context, _ struct{}) (any, error) {
-		return svc.ListAgents(ctx)
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListAgentsInput) (any, error) {
+		agents, err := svc.ListAgents(ctx)
+		if err != nil {
+			pkglogger.Warn("orchestration_list_agents: list failed",
+				"state", strings.TrimSpace(in.State),
+				"include_inactive", in.IncludeInactive,
+				"include_reports", in.IncludeReports,
+				"limit", in.Limit,
+				"error", err)
+			return nil, err
+		}
+		filtered := filterListAgentSnapshots(agents, in)
+		if len(filtered) != len(agents) || !in.IncludeReports {
+			pkglogger.Warn("orchestration_list_agents: compacted response",
+				"total", len(agents),
+				"returned", len(filtered),
+				"state", strings.TrimSpace(in.State),
+				"include_inactive", in.IncludeInactive,
+				"include_reports", in.IncludeReports,
+				"limit", in.Limit)
+		}
+		return filtered, nil
 	})
 }
 
@@ -209,6 +258,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"cwd":          StringSchema("Optional working directory for the launched agent."),
 			"provider":     EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", "codex", "claude"),
 			"model":        StringSchema("Optional model identifier for the launched agent (e.g. 'sonnet', 'opus', 'claude-opus-4-7[1m]'). When omitted, the provider falls back to its own default (for claude: ~/.claude/settings.json `model`)."),
+			"effort":       StringSchema("Optional reasoning effort for the launched agent (e.g. xhigh/high/medium/low for codex, max/high/medium/low for claude)."),
 		}, "name"), HandleLaunchAgent(svc)),
 		defineTool("orchestration_send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
@@ -217,7 +267,12 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 		defineTool("orchestration_stop_agent", "Stop a running orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
 		}, "agent_id"), HandleStopAgent(svc)),
-		defineTool("orchestration_list_agents", "List orchestration agents and their current runtime snapshots, including persisted agent_id and display name.", ObjectSchema(nil), HandleListAgents(svc)),
+		defineTool("orchestration_list_agents", "List orchestration agents and current runtime snapshots. Defaults to active agents only and omits report bodies; use orchestration_get_agent_report for full reports.", ObjectSchema(map[string]Schema{
+			"state":            StringSchema("Optional state filter, e.g. idle, turn_running, stopped. Comma-separated values are accepted."),
+			"include_inactive": BooleanSchema("Include stopped/failed historical agents. Defaults to false."),
+			"include_reports":  BooleanSchema("Include last_report bodies in list output. Defaults to false; prefer orchestration_get_agent_report."),
+			"limit":            IntegerSchema("Maximum number of agents to return after filtering. 0 means no explicit limit."),
+		}), HandleListAgents(svc)),
 		defineTool("orchestration_get_agent_report", "Read the last known report for an orchestration agent. Pass the persisted agent_id returned by launch/list; display name is not an identifier.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Persisted target orchestration agent ID returned by launch/list; do not pass name."),
 		}, "agent_id"), HandleGetAgentReport(svc)),
@@ -265,7 +320,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		MemoryScope: memoryScope,
 		Cwd:         strings.TrimSpace(in.CWD),
 		Command:     []string{strings.TrimSpace(exe)},
-		Env:         launchEnv(provider, strings.TrimSpace(in.Model)),
+		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort)),
 	}, nil
 }
 
@@ -292,7 +347,7 @@ func validateMemoryScope(raw string) (string, error) {
 	}
 }
 
-func launchEnv(provider, model string) []string {
+func launchEnv(provider, model, effort string) []string {
 	var env []string
 	if provider = strings.TrimSpace(provider); provider != "" {
 		env = append(env, "AGENT_PROVIDER="+provider)
@@ -302,7 +357,63 @@ func launchEnv(provider, model string) []string {
 		// and forwards it as the `model` field on thread/start.
 		env = append(env, "AGENT_MODEL="+model)
 	}
+	if effort = strings.TrimSpace(effort); effort != "" {
+		env = append(env, "AGENT_EFFORT="+effort)
+	}
 	return env
+}
+
+func filterListAgentSnapshots(agents []contract.AgentSnapshot, in ListAgentsInput) []contract.AgentSnapshot {
+	states := parseAgentStateFilter(in.State)
+	limit := in.Limit
+	if limit < 0 {
+		limit = 0
+	}
+	filtered := make([]contract.AgentSnapshot, 0, len(agents))
+	for _, agent := range agents {
+		state := strings.ToLower(strings.TrimSpace(agent.State))
+		if len(states) > 0 {
+			if _, ok := states[state]; !ok {
+				continue
+			}
+		} else if !in.IncludeInactive && inactiveAgentListState(state) {
+			continue
+		}
+		if !in.IncludeReports {
+			agent.LastReport = ""
+		}
+		filtered = append(filtered, agent)
+		if limit > 0 && len(filtered) >= limit {
+			break
+		}
+	}
+	return filtered
+}
+
+func parseAgentStateFilter(raw string) map[string]struct{} {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	states := make(map[string]struct{})
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == '|' || r == ' ' || r == '\t' || r == '\n'
+	}) {
+		part = strings.ToLower(strings.TrimSpace(part))
+		if part != "" {
+			states[part] = struct{}{}
+		}
+	}
+	return states
+}
+
+func inactiveAgentListState(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "stopped", "archived", "failed", "expired":
+		return true
+	default:
+		return false
+	}
 }
 
 func submissionFromMessage(

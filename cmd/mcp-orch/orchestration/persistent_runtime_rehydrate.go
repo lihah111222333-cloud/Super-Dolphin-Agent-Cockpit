@@ -28,12 +28,14 @@ func (s *service) ensureRuntimeForPersistedAgent(ctx context.Context, agentID st
 	}
 	agent, reason, err := s.buildRuntimeFromPersistedBinding(ctx, agentID)
 	if err != nil {
-		if !platformdb.IsNotFound(err) {
-			loggerOrDefault(s.logger).Warn("orchestration: persisted runtime rehydrate failed",
-				"agent_id", agentID,
-				"reason", reason,
-				"error", err)
+		level := "failed"
+		if platformdb.IsNotFound(err) {
+			level = "skipped"
 		}
+		loggerOrDefault(s.logger).Warn("orchestration: persisted runtime rehydrate "+level,
+			"agent_id", agentID,
+			"reason", reason,
+			"error", err)
 		return
 	}
 	if agent == nil {

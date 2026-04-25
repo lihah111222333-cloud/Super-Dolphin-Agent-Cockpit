@@ -443,5 +443,5 @@ func (s *service) logConfigPatchApplied(op, threadID, provider string, patch dto
 			attrs = append(attrs, field.key, *field.value)
 		}
 	}
-	s.logger.Info(op+": config patch applied", attrs...)
+	s.logger.Warn(op+": config patch applied", attrs...)
 }

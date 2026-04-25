@@ -47,6 +47,8 @@ type activePeerRegistry interface {
 }
 
 type storedThreadRuntime struct {
+	Model   string         `json:"model,omitempty"`
+	Effort  string         `json:"effort,omitempty"`
 	Runtime map[string]any `json:"runtime,omitempty"`
 }
 
@@ -107,6 +109,7 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 
 	peer := peers[0].Peer
 	snapshot := h.beginToolDiffSnapshot(ctx, req)
+	h.warnManagedLaunchConfigTrace(ctx, req)
 
 	var resp peerToolCallResponse
 	err = peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
@@ -246,12 +249,75 @@ func (h *Handler) readToolCallRuntime(ctx context.Context, threadID string) (map
 	return decodeStoredThreadRuntime(raw)
 }
 
+func (h *Handler) warnManagedLaunchConfigTrace(ctx context.Context, req ToolCallRequest) {
+	if strings.TrimSpace(req.Name) != "orchestration_launch_agent" {
+		return
+	}
+	args := decodeToolArguments(req.Arguments)
+	threadID, _ := h.resolveToolCallThreadID(ctx, req)
+	stored, ok := h.readStoredThreadRuntime(ctx, threadID)
+	runtime := stored.Runtime
+	h.warn("toolbridge: orchestration_launch_agent config trace",
+		"agent_id", strings.TrimSpace(req.AgentID),
+		"thread_id", threadID,
+		"args_provider", mapString(args, "provider"),
+		"args_model", mapString(args, "model"),
+		"args_effort", mapString(args, "effort"),
+		"stored_found", ok,
+		"stored_model", strings.TrimSpace(stored.Model),
+		"stored_effort", strings.TrimSpace(stored.Effort),
+		"runtime_model", mapString(runtime, "model"),
+		"runtime_effort", mapString(runtime, "effort"),
+	)
+}
+
+func (h *Handler) readStoredThreadRuntime(ctx context.Context, threadID string) (storedThreadRuntime, bool) {
+	if h == nil || h.threadStore == nil || strings.TrimSpace(threadID) == "" {
+		return storedThreadRuntime{}, false
+	}
+	raw, err := h.threadStore.GetConfigOverride(ctx, strings.TrimSpace(threadID))
+	if err != nil || len(raw) == 0 {
+		return storedThreadRuntime{}, false
+	}
+	var stored storedThreadRuntime
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return storedThreadRuntime{}, false
+	}
+	return stored, true
+}
+
 func decodeStoredThreadRuntime(raw json.RawMessage) (map[string]any, bool) {
 	var stored storedThreadRuntime
 	if err := json.Unmarshal(raw, &stored); err != nil || len(stored.Runtime) == 0 {
 		return nil, false
 	}
 	return stored.Runtime, true
+}
+
+func decodeToolArguments(raw json.RawMessage) map[string]any {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	var args map[string]any
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil
+	}
+	return args
+}
+
+func mapString(values map[string]any, key string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	value, ok := values[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 func allowDefaultPersistentSubagentFallback() bool {
