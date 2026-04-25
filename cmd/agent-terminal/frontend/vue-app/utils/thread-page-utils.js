@@ -1,4 +1,4 @@
-import { logInfo, logWarn } from '../services/log.js';
+import { logDebug, logInfo, logWarn } from '../services/log.js';
 import { perfNow } from '../stores/thread-actions-helpers.js';
 
 /**
@@ -10,7 +10,16 @@ import { perfNow } from '../stores/thread-actions-helpers.js';
  * @typedef {import('./thread-page-types').VisibleChatThreadCardState} VisibleChatThreadCardState
  */
 
+const HISTORY_LOAD_WARN_MS = 500;
+const SELECTION_FLOW_WARN_MS = 500;
 
+function logTimedDebugOrWarn(event, fields, durationMs, warnThresholdMs) {
+  const log = durationMs > warnThresholdMs ? logWarn : logDebug;
+  log('ui', event, {
+    ...fields,
+    warn_threshold_ms: warnThresholdMs,
+  });
+}
 
 
 /**
@@ -76,11 +85,11 @@ export async function requestHistoryLoad(threadStore, threadId, loadOptions = un
   try {
     await threadStore.loadMessages(id, undefined, loadOptions || undefined);
     const loadDuration = Math.round(perfNow() - loadStart);
-    logWarn('ui', 'chat.historyLoad.done_timed', {
+    logTimedDebugOrWarn('chat.historyLoad.done_timed', {
       thread_id: id,
       duration_ms: loadDuration,
       force_reload: forceReload,
-    });
+    }, loadDuration, HISTORY_LOAD_WARN_MS);
     return true;
   } catch (error) {
     logWarn('ui', 'chat.historyLoad.failed', {
@@ -108,7 +117,7 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
   const shouldRefreshOnPageEnter = reason === 'page-enter' && Boolean(id);
   const shouldRefreshVisibleThread = (shouldRefreshOnThreadSwitch || shouldRefreshOnPageEnter) && typeof threadStore?.syncThreadState === 'function';
   const selectionStart = perfNow();
-  logWarn('ui', 'chat.selection.fresh.start', {
+  logDebug('ui', 'chat.selection.fresh.start', {
     thread_id: id,
     reason,
     previous_thread_id: previousThreadId,
@@ -131,12 +140,13 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
       logWarn('ui', 'chat.selection.syncThreadState.failed', { thread_id: id, error: err?.message || String(err) });
     });
     const concurrentDuration = Math.round(perfNow() - concurrentStart);
-    logWarn('ui', 'chat.selection.concurrentLoad.done', {
+    const totalDuration = Math.round(perfNow() - selectionStart);
+    logTimedDebugOrWarn('chat.selection.concurrentLoad.done', {
       thread_id: id,
       requested_history: requestedHistory,
       duration_ms: concurrentDuration,
-      total_ms: Math.round(perfNow() - selectionStart),
-    });
+      total_ms: totalDuration,
+    }, totalDuration, SELECTION_FLOW_WARN_MS);
     return {
       requestedHistory: Boolean(requestedHistory),
       syncedThreadState: true,
@@ -154,11 +164,12 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
     });
     const forceStart = perfNow();
     await threadStore.loadMessages(id);
-    logWarn('ui', 'chat.selection.forceReload.done', {
+    const totalDuration = Math.round(perfNow() - selectionStart);
+    logTimedDebugOrWarn('chat.selection.forceReload.done', {
       thread_id: id,
       duration_ms: Math.round(perfNow() - forceStart),
-      total_ms: Math.round(perfNow() - selectionStart),
-    });
+      total_ms: totalDuration,
+    }, totalDuration, SELECTION_FLOW_WARN_MS);
     return {
       requestedHistory: true,
       syncedThreadState: false,
@@ -174,11 +185,12 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
     });
     const refreshStart = perfNow();
     await threadStore.loadMessages(id);
-    logWarn('ui', 'chat.selection.refreshLoadMessages.done', {
+    const totalDuration = Math.round(perfNow() - selectionStart);
+    logTimedDebugOrWarn('chat.selection.refreshLoadMessages.done', {
       thread_id: id,
       duration_ms: Math.round(perfNow() - refreshStart),
-      total_ms: Math.round(perfNow() - selectionStart),
-    });
+      total_ms: totalDuration,
+    }, totalDuration, SELECTION_FLOW_WARN_MS);
     return {
       requestedHistory: true,
       syncedThreadState: false,
@@ -189,11 +201,12 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
   const fallbackStart = perfNow();
   const requestedHistory = await requestHistoryLoad(threadStore, id);
   if (requestedHistory) {
-    logWarn('ui', 'chat.selection.fallbackHistory.done', {
+    const totalDuration = Math.round(perfNow() - selectionStart);
+    logTimedDebugOrWarn('chat.selection.fallbackHistory.done', {
       thread_id: id,
       duration_ms: Math.round(perfNow() - fallbackStart),
-      total_ms: Math.round(perfNow() - selectionStart),
-    });
+      total_ms: totalDuration,
+    }, totalDuration, SELECTION_FLOW_WARN_MS);
     return {
       requestedHistory,
       syncedThreadState: false,
@@ -201,7 +214,7 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
     };
   }
   if (!id || typeof threadStore?.syncThreadState !== 'function') {
-    logWarn('ui', 'chat.selection.fresh.no_action', {
+    logDebug('ui', 'chat.selection.fresh.no_action', {
       thread_id: id,
       total_ms: Math.round(perfNow() - selectionStart),
     });
@@ -213,11 +226,12 @@ export async function ensureThreadSelectionFresh(threadStore, threadId, options 
   }
   const fallbackSyncStart = perfNow();
   await threadStore.syncThreadState(id);
-  logWarn('ui', 'chat.selection.fallbackSync.done', {
+  const totalDuration = Math.round(perfNow() - selectionStart);
+  logTimedDebugOrWarn('chat.selection.fallbackSync.done', {
     thread_id: id,
     duration_ms: Math.round(perfNow() - fallbackSyncStart),
-    total_ms: Math.round(perfNow() - selectionStart),
-  });
+    total_ms: totalDuration,
+  }, totalDuration, SELECTION_FLOW_WARN_MS);
   return {
     requestedHistory,
     syncedThreadState: true,

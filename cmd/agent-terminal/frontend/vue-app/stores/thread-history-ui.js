@@ -192,11 +192,6 @@ function historyMessageToTimelineItem(threadId, message, index) {
     ts,
   };
   if (attachments.length > 0) item.attachments = attachments;
-  
-  if (kind === 'user') {
-    // 诊断日志：打印被解析出的 user 消息
-    console.warn('[diag] historyMessageToTimelineItem: parsed user message', { threadId, messageId: message?.id, content: (message?.content || '').substring(0, 50) });
-  }
 
   if (kind !== 'user') return item;
   if (!metadata) return item;
@@ -214,7 +209,8 @@ function historyMessageToTimelineItem(threadId, message, index) {
   return item;
 }
 
-export function applyImmediateTimelineFromMessages({ threadId, response, state, normalizeThreadID, freezeTimelineItemsAtomic, logInfo, logWarn }) {
+export function applyImmediateTimelineFromMessages({ threadId, response, state, normalizeThreadID, freezeTimelineItemsAtomic, logDebug, logInfo, logWarn }) {
+  const logDiagnostic = typeof logDebug === 'function' ? logDebug : logInfo;
   const id = typeof normalizeThreadID === 'function' ? normalizeThreadID(threadId) : (threadId || '').toString().trim();
   const messages = Array.isArray(response?.messages) ? response.messages : [];
   if (!id || messages.length === 0) return false;
@@ -268,7 +264,7 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
   // Check if local has optimistic user messages that would be lost
   const hasOptimistic = existing.some((it) => (it?.id || '').toString().includes('-optimistic-'));
   const optimisticItems = hasOptimistic ? existing.filter((it) => (it?.id || '').toString().includes('-optimistic-')) : [];
-  if (typeof logWarn === 'function') logWarn('thread', 'history.immediate_apply', {
+  if (typeof logDiagnostic === 'function') logDiagnostic('thread', 'history.immediate_apply', {
     thread_id: id,
     existing_total: existing.length,
     incoming_total: timeline.length,
@@ -305,8 +301,8 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
     return true;
   });
 
-  if (existingNonDialogItems.length > 0 && typeof logWarn === 'function') {
-    logWarn('thread', 'history.preserved_runtime_items', {
+  if (existingNonDialogItems.length > 0 && typeof logDiagnostic === 'function') {
+    logDiagnostic('thread', 'history.preserved_runtime_items', {
       thread_id: id,
       preserved_count: existingNonDialogItems.length,
       sample_kinds: existingNonDialogItems.map((it) => it?.kind || 'unknown').slice(0, 10),
@@ -353,7 +349,7 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
   if (hasOptimistic) {
     const survivingOptimisticCount = mergedItems.filter((it) => (it?.id || '').toString().includes('-optimistic-')).length;
     if (survivingOptimisticCount < optimisticItems.length) {
-      if (typeof logWarn === 'function') logWarn('thread', 'history.optimistic_deduped', {
+      if (typeof logDiagnostic === 'function') logDiagnostic('thread', 'history.optimistic_deduped', {
         thread_id: id,
         original_optimistic_count: optimisticItems.length,
         deduped_count: optimisticItems.length - survivingOptimisticCount,

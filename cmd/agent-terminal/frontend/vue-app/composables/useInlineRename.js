@@ -2,6 +2,7 @@ import {
   ref,
   nextTick,
 } from '../../lib/vue.esm-browser.prod.js';
+import { logDebug, logWarn } from '../services/log.js';
 
 /**
  * @param {object} props
@@ -65,34 +66,34 @@ export function useInlineRename(props, visibleChatThreadCards, selectThread) {
 
   async function submitInlineRename(threadId) {
     const id = (threadId || editingThreadId.value || '').toString().trim();
-    console.warn('[UI] submitInlineRename triggered:', { threadId, id, renamingThreadId: renamingThreadId.value });
+    logDebug('ui', 'rename.inline.submit.triggered', { thread_id: id, raw_thread_id: threadId, renaming_thread_id: renamingThreadId.value });
     if (!id || editingThreadId.value !== id || renamingThreadId.value === id) {
-      console.warn('[UI] submitInlineRename ignored due to state mismatch or duplicate call');
+      logDebug('ui', 'rename.inline.submit.skipped_state', { thread_id: id, editing_thread_id: editingThreadId.value, renaming_thread_id: renamingThreadId.value });
       return;
     }
 
     const target = visibleChatThreadCards.value.find((item) => item.id === id);
     const current = (target?.name || id).toString().trim() || id;
     const nextName = (editingAlias.value || '').toString().trim();
-    console.warn('[UI] submitInlineRename payload:', { current, nextName });
+    logDebug('ui', 'rename.inline.submit.payload', { thread_id: id, current, next_name: nextName });
     if (!nextName || nextName === current) {
-      console.warn('[UI] submitInlineRename cancelled (no diff)');
+      logDebug('ui', 'rename.inline.submit.noop', { thread_id: id });
       cancelInlineRename(id);
       return;
     }
 
     renamingThreadId.value = id;
     try {
-      console.warn('[UI] submitInlineRename executing', { storeRenameExists: typeof props.threadStore.renameThread === 'function' });
+      logDebug('ui', 'rename.inline.submit.start', { thread_id: id, has_store_rename: typeof props.threadStore.renameThread === 'function' });
       if (typeof props.threadStore.renameThread === 'function') {
         await props.threadStore.renameThread(id, nextName);
       } else if (typeof props.threadStore.promptRenameThread === 'function') {
         props.threadStore.promptRenameThread(id);
       }
-      console.warn('[UI] submitInlineRename success');
+      logDebug('ui', 'rename.inline.submit.done', { thread_id: id });
       cancelInlineRename(id);
     } catch (error) {
-      console.warn('[UI] submitInlineRename caught error:', error);
+      logWarn('ui', 'rename.inline.submit.failed', { thread_id: id, error });
       renamingThreadId.value = '';
       nextTick(() => {
         const input = renameInputRefByThread.get(id);

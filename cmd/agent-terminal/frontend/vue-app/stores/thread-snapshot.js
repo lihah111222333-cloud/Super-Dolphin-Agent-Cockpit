@@ -214,8 +214,8 @@ function mergeTimelineWithLocalItems(newItems, oldItems, threadId, requestedThre
   if (localItems.length === 0) {
     if (remoteHasDialog) {
       const oldOptimistic = oldItems.filter((i) => (i?.id || '').toString().includes('-optimistic-'));
-      if (oldOptimistic.length > 0 && typeof logWarn === 'function') {
-        logWarn('thread', 'snapshot.timeline.optimistic_stripped', {
+      if (oldOptimistic.length > 0) {
+        logDebug('thread', 'snapshot.timeline.optimistic_stripped', {
           thread_id: threadId,
           requested_thread_id: requestedThreadId,
           stripped_count: oldOptimistic.length,
@@ -227,18 +227,16 @@ function mergeTimelineWithLocalItems(newItems, oldItems, threadId, requestedThre
     return newItems;
   }
 
-  if (typeof logWarn === 'function') {
-    logWarn('thread', 'snapshot.timeline.local_items_preserved', {
-      thread_id: threadId,
-      requested_thread_id: requestedThreadId,
-      preserved_count: localItems.length,
-      preserved_ids: localItems.map((i) => (i?.id || '').toString()).slice(0, 8),
-      preserved_kinds: localItems.map((i) => i?.kind).slice(0, 8),
-      has_optimistic: localItems.some((i) => (i?.id || '').toString().includes('-optimistic-')),
-      new_timeline_len: newItems.length,
-      old_timeline_len: oldItems.length,
-    });
-  }
+  logDebug('thread', 'snapshot.timeline.local_items_preserved', {
+    thread_id: threadId,
+    requested_thread_id: requestedThreadId,
+    preserved_count: localItems.length,
+    preserved_ids: localItems.map((i) => (i?.id || '').toString()).slice(0, 8),
+    preserved_kinds: localItems.map((i) => i?.kind).slice(0, 8),
+    has_optimistic: localItems.some((i) => (i?.id || '').toString().includes('-optimistic-')),
+    new_timeline_len: newItems.length,
+    old_timeline_len: oldItems.length,
+  });
 
   const mergedItems = [...newItems, ...localItems];
   mergedItems.sort((a, b) => {
@@ -315,7 +313,7 @@ function patchThreadListIdentitySafe(state, nextThreads, patch) {
   const oldThreadsStr = state.threads.map((t) => t.id).join(',');
   const newThreadsStr = identitySafeThreads.map((t) => t.id).join(',');
   if (oldThreadsStr !== newThreadsStr) {
-    logWarn('thread', 'snapshot.threads.changed', {
+    logDebug('thread', 'snapshot.threads.changed', {
       old_len: state.threads.length, new_len: identitySafeThreads.length,
       old_ids: oldThreadsStr, new_ids: newThreadsStr,
     });
@@ -348,7 +346,7 @@ function patchStatuses(state, data, nextThreads, patch, requestedThreadId) {
   if (changed) {
     const changedKeys = Object.keys(nextStatuses).filter((key) => nextStatuses[key] !== state.statuses[key]);
     if (changedKeys.length > 0) {
-      logWarn('thread', 'snapshot.statuses.changed', {
+      logDebug('thread', 'snapshot.statuses.changed', {
         requested_thread_id: requestedThreadId,
         changed_thread_ids: changedKeys, changed_count: changedKeys.length,
         changes: changedKeys.slice(0, 6).map((key) => ({
@@ -392,7 +390,7 @@ function patchTimelines(state, data, patch, requestedThreadId, allowActiveSelect
       }
       if (newItems.some(i => i?.kind === 'user')) {
         const uItems = newItems.filter(i => i?.kind === 'user');
-        logWarn('thread', 'snapshot.timeline.user_items', {
+        logDebug('thread', 'snapshot.timeline.user_items', {
           thread_id: key, count: uItems.length,
           preview_ids: uItems.map(i => i?.id).join(', '),
           preview_texts: uItems.map(i => (i?.text || '').substring(0, 30)).join(' | '),
@@ -443,7 +441,7 @@ function logTimelineReplacements(oldMap, newMap) {
     });
 
     if (toolTotalCount > 0 && toolReusedCount < toolTotalCount) {
-      console.warn('[diag] snapshot.timeline.tool_flicker', {
+      logDebug('thread', 'snapshot.timeline.tool_flicker', {
         thread_id: key, 
         toolTotalCount, 
         toolReusedCount, 
