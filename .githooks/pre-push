@@ -35,6 +35,37 @@ ensure_clean_push_tree() {
 
 ensure_clean_push_tree
 
+ensure_pushed_refs_match_head() {
+  # 手工直接运行脚本时 stdin 是终端；不要阻塞等待输入。
+  if [ -t 0 ]; then
+    return 0
+  fi
+
+  local head_sha zero_sha local_ref local_sha remote_ref remote_sha
+  head_sha=$(git rev-parse HEAD)
+  zero_sha=0000000000000000000000000000000000000000
+
+  while read -r local_ref local_sha remote_ref remote_sha || [ -n "$local_ref$local_sha$remote_ref$remote_sha" ]; do
+    if [ -z "$local_ref$local_sha$remote_ref$remote_sha" ]; then
+      continue
+    fi
+    if [ "$local_sha" = "$zero_sha" ]; then
+      continue
+    fi
+    if [ "$local_sha" != "$head_sha" ]; then
+      echo "❌ pre-push 只允许推送当前 HEAD，拒绝检查对象不一致的 ref" >&2
+      echo "  local_ref=$local_ref" >&2
+      echo "  local_sha=$local_sha" >&2
+      echo "  remote_ref=$remote_ref" >&2
+      echo "  HEAD=$head_sha" >&2
+      echo "  请先 checkout 到要推送的 commit/branch，再保持工作区干净后 push。" >&2
+      exit 1
+    fi
+  done
+}
+
+ensure_pushed_refs_match_head
+
 echo "[pre-push] make ci-l0..."
 
 # 用临时文件捕获输出，过滤 ld 链接器噪声后再展示，最后看真实 RC

@@ -23,7 +23,7 @@ make install-hooks
 | Hook | 触发 | 做什么 | 大约耗时 |
 |---|---|---|---|
 | `pre-commit` | `git commit` | 检查 **staged `.go` 影响面**：拒绝 staged/worktree 不一致和 AD 状态，`gofmt -l` + `go vet` + `go test -short`；删除/重命名会覆盖旧/新包 | 1–3 秒 |
-| `pre-push` | `git push` | 要求 worktree/index/untracked 干净后调 `make ci-l0`（claudecli + platform/runner + app + platform/rpc 的快速门控） | ~13 秒 |
+| `pre-push` | `git push` | 要求 worktree/index/untracked 干净，且只允许推送当前 `HEAD` 后调 `make ci-l0`（claudecli + platform/runner + app + platform/rpc 的快速门控） | ~13 秒 |
 
 `pre-commit` 只跑 staged `.go` 影响到的包，pre-push 跑全 ci-l0。两者都**不**做格式自动修复，只拦下不通过的提交/推送。为保证检查对象就是将被提交的内容，`pre-commit` 会拒绝 staged Go 影响包内仍有未暂存/未跟踪 `.go` 改动，也会拒绝 `git add` 后又删除的 AD 状态。
 
@@ -95,7 +95,7 @@ FAIL  github.com/.../internal/app    0.5s
   ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify
 ```
 
-`pre-push` 会先拒绝未提交/未暂存/未跟踪内容，确保 `make ci-l0` 检查对象等于将要推送的 commit；输出会自动剔除 ld 链接器警告噪声（`ld: warning ... newer macOS version`）。
+`pre-push` 会先拒绝未提交/未暂存/未跟踪内容，并拒绝 `local_sha != HEAD` 的显式 ref 推送，确保 `make ci-l0` 检查对象等于将要推送的 commit；输出会自动剔除 ld 链接器警告噪声（`ld: warning ... newer macOS version`）。
 
 ## 诊断
 
@@ -126,7 +126,7 @@ git config --get core.hooksPath
 
 ### rebase / cherry-pick / merge / revert 中间提交会怎样？
 
-`pre-commit` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。`pre-push` 会在最终 push 前要求 worktree/index/untracked 干净，再跑 `make ci-l0`，确保兜底检查的是将要推送的 commit。
+`pre-commit` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。`pre-push` 会在最终 push 前要求 worktree/index/untracked 干净，并要求每个非删除 ref 的 `local_sha` 等于当前 `HEAD`，再跑 `make ci-l0`，确保兜底检查的是将要推送的 commit。
 
 ### Linux 能用吗？
 
