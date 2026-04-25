@@ -589,19 +589,3 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexprotocol.Dynami
 	merged := append(append([]common.MCPTool(nil), orchTools...), lspTools...)
 	return toCodexDynamicTools(merged), nil
 }
-
-func (h *Handler) warn(msg string, args ...any) {
-	logger := h.logger
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-	logger.Warn(msg, args...)
-}
-
-func (h *Handler) debug(msg string, args ...any) {
-	logger := h.logger
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-	logger.Debug(msg, args...)
-}
