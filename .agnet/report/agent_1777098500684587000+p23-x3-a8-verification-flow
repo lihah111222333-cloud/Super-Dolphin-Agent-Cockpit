@@ -1,0 +1,25 @@
+last_report:
+
+✅ **P8 verifier binding/jobs 已基本补齐**  
+证据：`P8_VerificationGate.md:95-103` 加 `verify_agent_id/turn_id/launch_id/attempt_no/job_id`、`verify_group_round_id`、`repair_chain_id/combined_*`；`P8_VerificationGate.md:139-161` 落 `dag_verify_jobs`、CHECK、claim/dead_letter 索引。  
+建议：补 `claimed_at/next_run_at/max_attempts`，避免 claim 续租与退避语义不清。
+
+⚠️ **verify job archtests 未进 authoritative 表**  
+证据：`P8_VerificationGate.md:243` 点名 `TestDAGVerifyJobsDurable` 等；但 `COMPLIANCE_GATES.md:56-82` 的“21 项 archtest 单一 authoritative 表”无这些测试。  
+建议：要么扩表并更新“21 项”计数，要么把三项并入现有 `dag_launcher_shared_path_only/dag_terminal_turn_fence` 且写清覆盖点。
+
+✅ **group_round_id 已落 node 字段**  
+证据：`P8_VerificationGate.md:100` 加 `verify_group_round_id`；`P8_VerificationGate.md:274` 要求 batch_peer pass/partial/fail 都记录 group_round_id。  
+建议：仍建议补 `dag_verify_group_rounds` 专表记录 participants/timeout/verdict_summary，避免只在 node 上留 ID、无组级审计。
+
+✅ **combined repair budget 已落 node 字段并覆盖 P8/P13/P12**  
+证据：`P8_VerificationGate.md:101-103` 加 `repair_chain_id/combined_repair_round/combined_repair_max`；`P8_VerificationGate.md:278` 要求 schema/semantic/swarm dissent repair 共扣同一链。  
+建议：定义 `combined_repair_max=0` 是继承默认还是禁止 repair，避免实现歧义。
+
+✅ **P13 before verify 与 hook enqueue-only 对齐**  
+证据：`P13_StrictJSONOutput.md:50` validate 在 terminal/P8 verify 前；`P13_StrictJSONOutput.md:57` valid 后按 `verify.enabled` 入 P8 或 done；`README.md:109-110` hook 仅 bounded parse + enqueue。  
+建议：archtest 检查 `outputValidationActor` 到 P8 enqueue 的顺序，不只扫 hook。
+
+⚠️ **同批互验/打回修复仍缺 job 级参与快照**  
+证据：`P8_VerificationGate.md:234-235` 只列必测；`P8_VerificationGate.md:274` 有算法，但 `dag_verify_jobs` 唯一键仍是单 node：`P8_VerificationGate.md:153`。  
+建议：为 batch_peer 增 group job 或 participants snapshot，明确 leader/抽样配对、失败节点 repair prompt 聚合规则。

@@ -1,0 +1,37 @@
+## last_report — 第五轮 a5 RPC/external 复审
+
+✅ **`dag_external_rpc_guard` 口径已统一**  
+- 证据：`docs/plans/迁移/p23/P6_ExternalRPCTriggerSurface.md:37`、`README.md:237`、`COMPLIANCE_GATES.md:67` 均使用 `dag_external_rpc_guard`，并覆盖三入口 identity + service guard。  
+- 建议修法：保持一个 archtest key 映射两个 test funcs，避免回退成只测 middleware。
+
+✅ **三入口 identity 已对齐**  
+- 证据：`P6_ExternalRPCTriggerSurface.md:31` 写 RPC header / Wails session / MCP context；`P6_ExternalRPCTriggerSurface.md:87` 写 TCP JSON-RPC / Wails WS / MCP HTTP；`COMPLIANCE_GATES.md:67` 要三入口注入 caller identity。  
+- 建议修法：实现时分别列 adapter 文件，防止只改 TCP JSON-RPC。
+
+✅ **service guard 已进入 README/P6/COMPLIANCE**  
+- 证据：`P6_ExternalRPCTriggerSurface.md:87` 要 service 层统一 AuthN/AuthZ/tenant/rate/quota/idempotency/audit；`README.md:237` 与 `COMPLIANCE_GATES.md:67` 同步要求写路径/敏感读路径调用 guard。  
+- 建议修法：owner 开工前定义单一 guard API，禁止 handler 侧散落校验。
+
+✅ **README/P6/COMPLIANCE 的 P6 scope 已基本一致**  
+- 证据：`README.md:260` 已改为 auth + tenant + rate + quota + audit；`P6_ExternalRPCTriggerSurface.md:9` 同口径；`COMPLIANCE_GATES.md:144` 将 P6 前置 gate 绑定 `dag_external_rpc_guard` / tenant / audit / redaction。  
+- 建议修法：无，保持该收口。
+
+✅ **audit spool 已补 DDL 方向**  
+- 证据：`P6_ExternalRPCTriggerSurface.md:42-43` 有 `dag_audit_log` hash-chain 字段与 `dag_audit_spool` durable outbox；`P6_ExternalRPCTriggerSurface.md:56` 明确外部写操作 fail-closed 或先写 durable spool。  
+- 建议修法：补 spool replay/flush actor、失败指标、唯一键与重放顺序，避免只停在表名。
+
+⚠️ **tenant create 来源仍不够硬**  
+- 证据：`P6_ExternalRPCTriggerSurface.md:76` 对 `task/dag/create` 只写 “tenant creator / owner”，未说明 `tenant_id` 必须来自 caller identity；`README.md:250` 只覆盖查询 tenant filter。  
+- 建议修法：明确 create 的 `tenant_id` 从 authenticated caller authorized tenant 派生，client params 只能做一致性校验，不得自报覆盖。
+
+⚠️ **JSON-RPC rate-limit code 仍未冻结数值**  
+- 证据：`P6_ExternalRPCTriggerSurface.md:62`、`P6_ExternalRPCTriggerSurface.md:91` 仍只写“固定 error code + data.retry_after”，没有具体 code。  
+- 建议修法：冻结常量，例如 `ErrCodeRateLimited = -32029`，并要求 HTTP 429 与 JSON-RPC code/data 双测。
+
+⚠️ **audit spool 可执行性仍不足**  
+- 证据：`P6_ExternalRPCTriggerSurface.md:43` 只有 spool 字段草案；没有 flush/replay owner、锁语义、最大重试、poison 状态。  
+- 建议修法：在 P6 DDL/必测补 `status=pending|processing|done|poison`、`locked_by/locked_until`、重放幂等键与告警。
+
+🆕 **README 风险段仍保留“无 hash-chain”表述，需防误读**  
+- 证据：`README.md:264` 写 `dag_audit_log` 无 append-only/hash chain；但 P6 规划已补 hash-chain：`P6_ExternalRPCTriggerSurface.md:42`。  
+- 建议修法：改成“当前实现仍无；P6 规划必须补”，避免读者误判为文档冲突或已实现。

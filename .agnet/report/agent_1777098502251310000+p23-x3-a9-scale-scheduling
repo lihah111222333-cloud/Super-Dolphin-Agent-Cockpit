@@ -1,0 +1,25 @@
+last_report
+
+✅ **SKIP LOCKED ownership 已定清楚**  
+- 证据：`P0_DAGRuntimeSkeleton.md:75` 要求 P0/P1 首版 ready claim 用 `FOR UPDATE SKIP LOCKED LIMIT K`；`P9_ScaleScheduling.md:87` 写 P9 只调 K/索引/fairness，不重复实现 claim；`RESEARCH_VERDICT.md:887` 仲裁 P0/P1 owns first claim。  
+- 建议：`P1_WakeupDispatcherAndLaunchBinding.md:55` 仍只在必测项提 CAS/SKIP LOCKED，建议补到正文 SQL ownership 段。
+
+✅ **P9 capacity defaults 已补到可执行基线**  
+- 证据：`P9_ScaleScheduling.md:98-103` 给 K=64、N>50 async、batch=100；`P9_ScaleScheduling.md:124` 给 progress queue=10k、verifier+swarm≤30%、summary=8KiB、page=100/max=500、archive hot TTL=7–14d、drain=30s。  
+- 建议：这些应标“v1 可实测调整”，避免被当永久 SLA。
+
+⚠️ **terminal durable outbox 仍偏弱**  
+- 证据：`P9_ScaleScheduling.md:117` 只写 durable queue>80% 时 terminal 优先；`P9_ScaleScheduling.md:124` 写 terminal durable 但未给容量/retention/replay batch；搜索无 `outbox retention`。  
+- 建议：补 durable outbox 默认 retention、磁盘水位、replay batch size、poison message 隔离与 terminal 去重键反链到 P0/P2。
+
+⚠️ **LLM token bucket 边界清楚，算法细节明确推迟**  
+- 证据：`P9_ScaleScheduling.md:68-69` 要统一 token bucket/budget ledger；`README.md:343/348` 写共享 quota 与预算 hard stop；`P12_SwarmArbiter.md:132-138` 禁绕过 P9 bucket；但 `RESEARCH_VERDICT.md:921` 明确算法留 owner PR。  
+- 建议：至少在 P9 stub 加“owner PR 必填项”：RPM/TPM/concurrency 扣减顺序、reservation TTL、失败 refund、budget exhausted 状态。
+
+⚠️ **100k 口径仍未冻结为文档契约**  
+- 证据：全仓仅 `RESEARCH_VERDICT.md:921` 提到“100k partition 方案留 owner PR”；P9/README 仍锚定 N=10000：`P9_ScaleScheduling.md:65-69`、`README.md:266`。  
+- 建议：新增一句“v1 hard target=N=10k；100k 非目标/需 partition+sharding 另案”，防止规模承诺外溢。
+
+✅ **CONCURRENTLY no-tx 已硬化**  
+- 证据：`P9_ScaleScheduling.md:47/90` 要单独 no-transaction migration、不得 `BEGIN/COMMIT`；`COMPLIANCE_GATES.md:235` migration checklist 要声明 CONCURRENTLY no-tx；`RESEARCH_VERDICT.md:893` 禁与 ALTER/CREATE TABLE 混写。  
+- 建议：P10/P12/P13 也有 `CREATE INDEX CONCURRENTLY`（如 `P12_SwarmArbiter.md:122-124`），应各自补“单独 no-tx 文件”注释，避免只 P9 合规。

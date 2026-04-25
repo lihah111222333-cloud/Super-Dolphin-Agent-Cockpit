@@ -1,0 +1,33 @@
+# last_report
+
+## ✅已修
+
+1. **P22 modularity/fx/rungroup 主契约已落盘。**  
+   `README.md:12-14,21,50-52` 明确 `fx.Module/BusModule/RunnerModule` 分工、`group:"runners"`、`Runner.Run(ctx)`，禁止 lifecycle/callback 长跑。建议：保持 P0 前 hard gate。
+
+2. **StartDAG 入口已统一到 mcp-orch。**  
+   `README.md:204`、`P3_ExplicitDAGStartAndOwnership.md:9,30-31`、`P5_CronTriggerSurface.md:64` 均指向 `cmd/mcp-orch/orchestration/dag_start.go:StartDAG`，且禁止 `internal/orchestration`。建议：archtest 覆盖旧名 `dag.Start`。
+
+3. **P8/P12/P13 DDL 与 hard contract 大体同步。**  
+   P8 `dag_arbiter_calls` 已补 hash-chain 字段：`P8_VerificationGate.md:129-132`；P12 DDL 已补 quorum/cost/hash 字段：`P12_SwarmArbiter.md:91-113`；P13 DDL 已补 schema/hash-chain 字段：`P13_StrictJSONOutput.md:104-124`。建议：PR 时补 postcheck SQL。
+
+4. **P13 provider path 已拆分。**  
+   `P13_StrictJSONOutput.md:87-88` 区分 agent turn provider output schema 与 arbiter light JSON mode。建议：owner 开工前补精确文件落点。
+
+## ⚠️部分
+
+1. **status 白名单口径仍有一处措辞易误读。**  
+   `README.md:190`、`P0_DAGRuntimeSkeleton.md:40` 已清楚写 P0 五态 + P8 唯一扩 `verdict_lost`；但 `README.md:405` 仍写“任何 PR 不允许修改主 status”，再括号例外 P8。建议：拆成两句，避免“任何”与例外冲突。
+
+2. **P13 header 依赖未完全同步正文。**  
+   `P13_StrictJSONOutput.md:3` 只写 P0/P1/P2 + P8 sanitize；正文 `P13_StrictJSONOutput.md:141-144` 还依赖 P10，金融 swarm preset 条件依赖 P12。建议：header 改为“依赖 P0/P1/P2 + P8 sanitize + P10 preset；swarm preset 需 P12”。
+
+## ❌仍错
+
+1. **COMPLIANCE 单一权威表与 README 仍双权威。**  
+   `COMPLIANCE_GATES.md:56-82` 声称 21 项 archtest 单一 authoritative，`README.md:228-252` 仍保留完整 21 项表。证据冲突：“README 只摘要展示”见 `COMPLIANCE_GATES.md:58`。建议：README 改为短摘要 + 指向 COMPLIANCE，不再维护完整表。
+
+## 🆕新发现
+
+1. **P12 DDL 缺 `chain_scope`，与其它 hash-chain 表不一致。**  
+   P8/P13 有 `chain_scope`：`P8_VerificationGate.md:132`、`P13_StrictJSONOutput.md:123`；P12 只有 `prev_hash/row_hash/hash_alg`：`P12_SwarmArbiter.md:110-112`。建议：`dag_swarm_consensus` 补 `chain_scope DEFAULT 'dag_swarm_consensus'`，统一审计校验形状。

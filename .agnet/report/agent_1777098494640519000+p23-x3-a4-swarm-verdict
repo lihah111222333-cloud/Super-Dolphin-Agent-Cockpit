@@ -1,0 +1,41 @@
+# last_report — 第五轮 a4 swarm/verdict 复审
+
+✅ **P8 方案 C 主口径已统一**  
+- file: `README.md:327-330`  
+- 证据：默认 `verdict_strategy=arbiter`，judge 仅 `verdict_strategy=judge + judge_node_key`，失败落 `verdict_lost` 且不自动降级。`P8_VerificationGate.md:164,224` 也确认 `verdict_lost` 是 P8 唯一 terminal 扩展。  
+- 建议修法：保留；实现 PR 中把该口径写入 schema validation 测试。
+
+⚠️ **RESEARCH 历史段仍残留“默认 A / opt-in B”表述**  
+- file: `RESEARCH_VERDICT.md:111,129`  
+- 证据：仍写“推荐方案 C（默认 A，opt-in B）”“C 混合（默认 A + opt-in B）”。虽 `RESEARCH_VERDICT.md:249,821,891` 已声明 superseded，但快读仍易误导。  
+- 建议修法：改为“历史表述：默认 runtime arbiter / judge opt-in；旧 A/B 名称仅追溯”。
+
+✅ **judge opt-in 已覆盖 P8 与 P12 dissent 升级**  
+- file: `P8_VerificationGate.md:194`、`P12_SwarmArbiter.md:57`  
+- 证据：P8 要求 judge 策略必填且 node 存在；P12 明确 `escalate_judge` 走“显式 judge opt-in / 预声明 judge node”。  
+- 建议修法：P12 必测项补“未配置 `judge_node_key` + `escalate_judge` → schema fail”。
+
+✅ **`dag_arbiter_calls` hash-chain 已入 DDL 草案**  
+- file: `P8_VerificationGate.md:110-133`  
+- 证据：DDL 已含 `prev_hash`、`row_hash`、`hash_alg`、`chain_scope`；`COMPLIANCE_GATES.md:132` 把 `dag_arbiter_calls` 纳入 append-only + hash chain archtest。  
+- 建议修法：补唯一链排序规则，如 `(tenant_id, dag_key, node_key, called_at, id)`，避免并发 hash 顺序歧义。
+
+✅ **P12 quorum/cost/hash-chain DDL 已补齐**  
+- file: `P12_SwarmArbiter.md:34-42,91-116`  
+- 证据：schema 示例含 `required_quorum`；DDL 草案含 `requested_members`、`received_members`、`required_quorum`、`timed_out_members`、`budget_reservation_id`、`estimated_total_cost`、`charged_calls_count`、`prev_hash`、`row_hash`、`hash_alg`。  
+- 建议修法：为 `required_quorum <= requested_members`、`received_members <= requested_members` 增 CHECK 约束。
+
+✅ **P12 成本 gate 已接 P9/P10**  
+- file: `P12_SwarmArbiter.md:131-132,165`、`P9_ScaleScheduling.md:69`  
+- 证据：P12 依赖 P9 global token bucket；要求记录 `estimated_total_cost`；P9 提供 `dag/cost_preview` dry-run hard gate。  
+- 建议修法：P12 DDL 建议同时记录 `price_version/currency`，与 P8 `dag_arbiter_calls` 成本字段对齐。
+
+✅ **combined repair budget 已落到 DDL + 契约**  
+- file: `P8_VerificationGate.md:100-103,276-278`  
+- 证据：`task_dag_nodes` 增 `repair_chain_id`、`combined_repair_round`、`combined_repair_max`；schema repair、semantic repair、swarm dissent repair 全部扣同一链路。  
+- 建议修法：补默认值策略：`combined_repair_max=0` 是禁用、无限还是继承 dag default，需明确 fail-fast 语义。
+
+🆕 **durable jobs 进一步硬化**  
+- file: `P8_VerificationGate.md:139-158,268-270`  
+- 证据：`dag_verify_jobs` 已有 `job_type`/`status` CHECK、claim 索引、dead_letter 索引，覆盖 verifier/arbiter/swarm。  
+- 建议修法：唯一键建议加入 `job_type` 已有；再补 `verify_round >= 0` 与 claim expiry 重入规则。
