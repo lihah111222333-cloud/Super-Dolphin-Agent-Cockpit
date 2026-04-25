@@ -61,9 +61,24 @@ const (
 	peerModeEnv                = "GO_AGENT_PEER_MODE"
 )
 
-// defaultPeerNames is the P1a-era list of peers the supervisor owns. Kept
-// as a function so tests can override via WithPeerNames without a package var.
-func defaultPeerNames() []string { return []string{"mcp-orch", "mcp-lsp"} }
+// managedPeerNames is the single source of truth for singleton peer binaries
+// owned by the codex app lifecycle. The supervisor launches them, orphan
+// cleanup matches them, and Windows discovery accepts their .exe variants.
+var managedPeerNames = []string{"mcp-orch", "mcp-lsp"}
+
+var managedMCPBinaries = managedPeerBinarySet(managedPeerNames)
+
+func managedPeerBinarySet(names []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		set[name] = struct{}{}
+	}
+	return set
+}
+
+// defaultPeerNames is kept as a function so tests can override via
+// WithPeerNames without mutating the lifecycle-owned peer definition.
+func defaultPeerNames() []string { return append([]string(nil), managedPeerNames...) }
 
 // PeerSupervisor is the single RunnerModule owner for mcp-orch / mcp-lsp peer
 // processes. See docs/plans/迁移/p22/P1a_CodexAppPeerSupervisor.md §目标架构.
