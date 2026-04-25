@@ -13,6 +13,8 @@ import (
 	"github.com/kelindar/event"
 )
 
+var timelineOutputDeltaLogSampler = pkglogger.NewEverySampler(1000)
+
 func RegisterSubscriptions(
 	dispatcher *event.Dispatcher,
 	svc Service,
@@ -111,12 +113,15 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 
 func reasoningDeltaHandler(svc Service, onUpdated func(string)) func(turndto.TurnOutputDelta) {
 	return func(ev turndto.TurnOutputDelta) {
-		pkglogger.Get().Warn("timeline: reasoningDeltaHandler received",
-			"stream", ev.Stream,
-			"thread_id", ev.ThreadID,
-			"turn_id", ev.TurnID,
-			"delta_len", len(ev.Delta),
-		)
+		if timelineOutputDeltaLogSampler.ShouldLog(ev.Stream) {
+			pkglogger.Get().Debug("timeline: reasoningDeltaHandler received",
+				"sample_rate", "0.1%",
+				"stream", ev.Stream,
+				"thread_id", ev.ThreadID,
+				"turn_id", ev.TurnID,
+				"delta_len", len(ev.Delta),
+			)
+		}
 		if !strings.EqualFold(strings.TrimSpace(ev.Stream), "reasoning") {
 			return
 		}

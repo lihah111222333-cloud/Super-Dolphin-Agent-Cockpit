@@ -132,3 +132,15 @@ func TestBuildTurnSteerParams(t *testing.T) {
 		t.Fatalf("buildTurnSteerParams() = %#v, want %#v", got, want)
 	}
 }
+
+func TestBuildTurnInterruptParamsIncludesTurnID(t *testing.T) {
+	got := buildTurnInterruptParams(" thread-1 ", " turn-1 ", " ui_stop ")
+	want := map[string]any{
+		"threadId": "thread-1",
+		"turnId":   "turn-1",
+		"source":   "ui_stop",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildTurnInterruptParams() = %#v, want %#v", got, want)
+	}
+}

@@ -304,6 +304,9 @@ func TestInterruptTurnWaitsForSettle(t *testing.T) {
 	if session.lastInterrupt.ThreadID != "thread-1" {
 		t.Fatalf("InterruptTurn thread id = %q, want thread-1", session.lastInterrupt.ThreadID)
 	}
+	if session.lastInterrupt.TurnID != "provider-1" {
+		t.Fatalf("InterruptTurn turn id = %q, want provider-1", session.lastInterrupt.TurnID)
+	}
 
 	status, err := svc.TrackTurn(context.Background(), "local-1")
 	if err != nil {

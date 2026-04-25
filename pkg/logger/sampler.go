@@ -26,6 +26,14 @@ func NewSampler(firstN, everyM int) *Sampler {
 	return &Sampler{firstN: int64(firstN), everyM: int64(everyM)}
 }
 
+// NewEverySampler creates a sampler that emits only every everyM-th hit per key.
+func NewEverySampler(everyM int) *Sampler {
+	if everyM < 1 {
+		everyM = 20
+	}
+	return &Sampler{firstN: 0, everyM: int64(everyM)}
+}
+
 // ShouldLog returns true if this occurrence of key should be logged.
 func (s *Sampler) ShouldLog(key string) bool {
 	actual, _ := s.counts.LoadOrStore(key, &atomic.Int64{})
