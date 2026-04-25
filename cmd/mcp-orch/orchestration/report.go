@@ -41,7 +41,15 @@ func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportRes
 	if err != nil && errors.Is(err, errAgentNotFound) {
 		snapshot, lookupErr := s.persistedAgentSnapshot(ctx, agentID)
 		if lookupErr == nil {
-			return AgentReportResult{AgentID: snapshot.AgentID, State: snapshot.State}, nil
+			report, reportErr := readPersistedAgentReportFile(agentReportFileRecordFromSnapshot(snapshot))
+			if reportErr != nil {
+				return AgentReportResult{}, reportErr
+			}
+			return AgentReportResult{
+				AgentID: snapshot.AgentID,
+				Report:  normalizeDisplayReportText(report),
+				State:   snapshot.State,
+			}, nil
 		}
 		if !errors.Is(lookupErr, errAgentNotFound) {
 			return AgentReportResult{}, lookupErr
@@ -88,6 +96,9 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if report != "" {
 			setReportLocked(ctx, agent, report)
+			if err := persistAgentReportFile(agentReportFileRecordFromRuntime(agent)); err != nil {
+				return err
+			}
 		}
 		notified := []string(nil)
 		if report != "" || isTerminalReportEvent(eventType, event.EventData) {
