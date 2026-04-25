@@ -225,6 +225,10 @@ func (s fakeAgentThreadStore) GetByThreadID(_ context.Context, threadID string) 
 	return nil, errAgentNotFound
 }
 
+func (s fakeAgentThreadStore) UpdateStatus(context.Context, PersistedThreadStatusUpdate) error {
+	return nil
+}
+
 func mustWritePersistedAgentReportFile(t *testing.T, cwd, agentID, name, report string) {
 	t.Helper()
 	path := filepath.Join(cwd, ".agnet", "report", agentID+"+"+name)
@@ -250,6 +254,10 @@ func (s fakeAgentBindingStore) GetByAgentID(_ context.Context, agentID string) (
 	}
 	binding := *s.binding
 	return &binding, nil
+}
+
+func (s fakeAgentBindingStore) SetArchived(context.Context, PersistedBindingArchiveUpdate) error {
+	return nil
 }
 
 type persistedRuntimeTestLauncher struct {

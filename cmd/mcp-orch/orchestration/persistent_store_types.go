@@ -34,15 +34,29 @@ type PersistedBinding struct {
 	UpdatedAt        int64
 }
 
+type PersistedThreadStatusUpdate struct {
+	ThreadID  string
+	Status    string
+	UpdatedAt int64
+}
+
+type PersistedBindingArchiveUpdate struct {
+	AgentID   string
+	Archived  bool
+	UpdatedAt int64
+}
+
 // AgentThreadStore abstracts thread persistence. The adapter is wired
 // in cmd/mcp-orch/runtime.go so this package never imports internal/store/*.
 type AgentThreadStore interface {
 	ListAll(ctx context.Context) ([]PersistedThread, error)
 	GetByThreadID(ctx context.Context, threadID string) (*PersistedThread, error)
+	UpdateStatus(ctx context.Context, params PersistedThreadStatusUpdate) error
 }
 
 // AgentBindingStore abstracts binding persistence. The adapter is wired
 // in cmd/mcp-orch/runtime.go so this package never imports internal/store/*.
 type AgentBindingStore interface {
 	GetByAgentID(ctx context.Context, agentID string) (*PersistedBinding, error)
+	SetArchived(ctx context.Context, params PersistedBindingArchiveUpdate) error
 }
