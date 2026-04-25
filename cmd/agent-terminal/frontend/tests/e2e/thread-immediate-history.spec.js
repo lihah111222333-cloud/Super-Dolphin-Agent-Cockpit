@@ -43,6 +43,10 @@ test('current tab chat history renders immediately even while scoped sync is blo
     const clone = (value) => JSON.parse(JSON.stringify(value));
     const largeDiff = `diff --git a/src/huge.js b/src/huge.js\n--- a/src/huge.js\n+++ b/src/huge.js\n@@ -1,1 +1,40000 @@\n${'+line\n'.repeat(40000)}`;
     const gate = { released: false, waiters: [] };
+    const messageHistoryByThread = {
+      [sourceId]: clone([{ id: 'source-assistant-1', kind: 'assistant', text: '源线程已有消息', ts: '2026-03-08T00:00:00Z' }]),
+      [targetId]: [],
+    };
     const state = {
       phase: 'bootstrap',
       threadMessagesCallsAfterSwitch: 0,
@@ -56,11 +60,11 @@ test('current tab chat history renders immediately even while scoped sync is blo
         statuses: { [sourceId]: 'idle', [targetId]: 'idle' },
         interruptibleByThread: {},
         statusHeadersByThread: {},
-        statusDetailsByThread: {},
-        timelinesByThread: {
-          [sourceId]: [{ id: 'source-assistant-1', kind: 'assistant', text: '源线程已有消息', ts: '2026-03-08T00:00:00Z' }],
+          statusDetailsByThread: {},
+          timelinesByThread: {
+          [sourceId]: clone(messageHistoryByThread[sourceId]),
           [targetId]: [],
-        },
+          },
         diffTextByThread: {},
         diffRevisionByThread: { [sourceId]: 0, [targetId]: 1 },
         tokenUsageByThread: {},
@@ -126,11 +130,11 @@ test('current tab chat history renders immediately even while scoped sync is blo
               state.threadMessagesCallsAfterSwitch += 1;
             }
             const nextTimeline = Array.isArray(state.snapshot.timelinesByThread[requestedId])
-              ? clone(state.snapshot.timelinesByThread[requestedId])
+              ? clone(messageHistoryByThread[requestedId])
               : [];
             if (requestedId === targetId && nextTimeline.length === 0) {
               nextTimeline.push({ id: 'target-assistant-1', kind: 'assistant', text: targetAssistantText, ts: '2026-03-08T00:01:00Z' });
-              state.snapshot.timelinesByThread[requestedId] = nextTimeline;
+              messageHistoryByThread[requestedId] = nextTimeline;
             }
             return { total: nextTimeline.length, messages: toMessages(requestedId, nextTimeline) };
           }
@@ -161,10 +165,10 @@ test('current tab chat history renders immediately even while scoped sync is blo
   await page.evaluate(() => {
     globalThis.__AO_E2E_BACKEND_STATE__.phase = 'switch';
   });
-  await page.locator('.thread-rail-item[role="button"]').filter({ hasText: '目标线程' }).first().click();
+  await page.locator(`.thread-rail-item[data-thread-id="${targetId}"]`).first().click();
 
-  await expect.poll(async () => page.evaluate(() => globalThis.__AO_E2E_BACKEND_STATE__.threadMessagesCallsAfterSwitch || 0), { timeout: 10000 }).toBe(2);
-  await expect(page.locator('.chat-item.kind-assistant .chat-item-body')).toContainText(targetAssistantText);
+  await expect.poll(async () => page.evaluate(() => globalThis.__AO_E2E_BACKEND_STATE__.threadMessagesCallsAfterSwitch || 0), { timeout: 10000 }).toBe(1);
+  await expect(page.locator('.chat-item.kind-assistant .chat-item-body').first()).toContainText(targetAssistantText);
 
   await page.evaluate(() => globalThis.__AO_E2E_RELEASE_SWITCH_SYNC__());
   await expect.poll(async () => page.evaluate(() => globalThis.__AO_E2E_BACKEND_STATE__.uiStateDiffCallsAfterSwitch || 0), { timeout: 10000 }).toBe(1);

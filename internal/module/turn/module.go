@@ -44,6 +44,7 @@ var Module = fx.Module("turn",
 		NewDefaultEvaluator,
 		func(e *DefaultEvaluator) Evaluator { return e },
 		// P0b Step 4: redactor + extractor + extractor runner.
+
 		// - Redactor is exposed as the interface so other modules can
 		//   substitute a stub in tests.
 		// - DefaultExtractor takes contract.DreamExecutor and

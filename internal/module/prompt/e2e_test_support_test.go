@@ -118,7 +118,7 @@ func (*capturingThreadStore) ListCwdsByPrefix(context.Context, string) ([]thread
 	return nil, nil
 }
 func (*capturingThreadStore) CountChildren(context.Context, string) (int64, error) { return 0, nil }
-func (*capturingThreadStore) Exists(context.Context, string) (bool, error)        { return false, nil }
+func (*capturingThreadStore) Exists(context.Context, string) (bool, error)         { return false, nil }
 
 type capturingBindingStore struct {
 	binding *bindingstore.Binding
@@ -135,7 +135,23 @@ func (s *capturingBindingStore) GetByProviderThread(_ context.Context, provider,
 
 func (s *capturingBindingStore) Upsert(_ context.Context, params bindingstore.UpsertParams) error {
 	s.upsert = params
-	s.binding = &bindingstore.Binding{AgentID: params.AgentID, Provider: params.Provider, ProviderThreadID: params.ProviderThreadID, CodexThreadID: params.CodexThreadID, Cwd: params.Cwd, SessionUUID: params.SessionUUID, CreatedAt: params.CreatedAt, UpdatedAt: params.UpdatedAt}
+	s.binding = &bindingstore.Binding{
+		AgentID:            params.AgentID,
+		Provider:           params.Provider,
+		ProviderThreadID:   params.ProviderThreadID,
+		CodexThreadID:      params.CodexThreadID,
+		RolloutPath:        params.RolloutPath,
+		Cwd:                params.Cwd,
+		ParentAgentID:      params.ParentAgentID,
+		AgentType:          params.AgentType,
+		AgentMemoryScope:   params.AgentMemoryScope,
+		SessionUUID:        params.SessionUUID,
+		CreatedAt:          params.CreatedAt,
+		UpdatedAt:          params.UpdatedAt,
+		CodexHome:          params.CodexHome,
+		CodexInstanceKey:   params.CodexInstanceKey,
+		CodexModelProvider: params.CodexModelProvider,
+	}
 	return nil
 }
 
