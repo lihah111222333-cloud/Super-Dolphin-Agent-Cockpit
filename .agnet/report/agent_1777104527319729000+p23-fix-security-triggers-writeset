@@ -1,0 +1,94 @@
+已完成 P23 R1 Agent M3 修订，直接修改了指定 write-set 内文档；未主动修改 README / COMPLIANCE_GATES / RESEARCH_VERDICT / P0/P1/P2/P8。
+
+## 改动文件
+
+- `docs/plans/迁移/p23/P3_ExplicitDAGStartAndOwnership.md`
+- `docs/plans/迁移/p23/P4_HostAgentTriggerSurface.md`
+- `docs/plans/迁移/p23/P5_CronTriggerSurface.md`
+- `docs/plans/迁移/p23/P6_ExternalRPCTriggerSurface.md`
+- `docs/plans/迁移/p23/P7_LivenessProbe.md`
+- `docs/plans/迁移/p23/P9_ScaleScheduling.md`
+- `docs/plans/迁移/p23/P10_TemplateAndUI.md`
+- `docs/plans/迁移/p23/P11_DynamicNodeGrowth.md`
+- `docs/plans/迁移/p23/P12_SwarmArbiter.md`
+- `docs/plans/迁移/p23/P13_StrictJSONOutput.md`
+
+## 关键修复点
+
+- P3/P4/P6 明确：`agent_id` 只能 legacy/display/assigned-agent hint，不能作为 owner/tenant/AuthZ 来源；`caller_identity` 必须来自 authenticated context，缺失 hard fail + audit。
+- P6 扩大 service-level guard：覆盖 `agent.launch`、`agent.submit*`、`agent.stop`、`reportRuntime/report event`、`task/dag/create`、`dag/start`、`task/node/update` 等，不再只守 `task/*`。
+- P6 增补三入口文件级落点：TCP JSON-RPC、Wails WS、MCP HTTP identity adapter；补 WS Origin/CSRF/session/API key；localhost 视为 untrusted local attack surface。
+- P3/P4/P5/P6 统一 StartDAG idempotency：`dag_start_requests`、`trigger_source`、`trigger_instance_key`、`params_hash`、unique scope；P5 说明 cron deterministic key 只覆盖 cron tick，跨 host/external/manual 需 active-run lease/CAS。
+- P5 cron owner/tenant 来源改为 `cron_jobs.owner_id/tenant_id/scope` 或 authorized row 派生，禁止信任 `target_dag_trigger_meta`。
+- P10 修正 UI 落点漂移：真实前端落 `cmd/agent-terminal/frontend/vue-app/*`，Wails 只做 bridge/transport，并新增 HEAD drift note。
+- P7/P9 补 heartbeat 字段/cadence、`queue_policy` enum/fairness mapping、promhttp 或 scheduled-audit fallback 前置要求。
+- P11 补 spawn 防爆事务细节：`max_spawn_per_node` CAS、`spawned_child_count`、reservation ledger 前后计数字段。
+- P12 补 redaction/audit：`dissent_summary` / `aggregation_reason` bounded + redacted，禁止 raw member output 进 consensus，并补成本审计字段。
+- P13 冻结 canonical algorithm 为 RFC 8785 JCS；补 `$ref/defaults/additionalProperties` 边界；说明 provider `OutputSchema` 当前只是 pass-through / prompt hint，不是 runtime hard guarantee。
+- P3/P4/P5/P6/P7/P9 的 `_待补_` stub 已替换为文件级 write-set / 接口级草案。
+
+## grep 证据
+
+### `_待补_` 清空
+
+命令：
+
+```bash
+grep -R "_待补_" \
+  docs/plans/迁移/p23/P3_ExplicitDAGStartAndOwnership.md \
+  docs/plans/迁移/p23/P4_HostAgentTriggerSurface.md \
+  docs/plans/迁移/p23/P5_CronTriggerSurface.md \
+  docs/plans/迁移/p23/P6_ExternalRPCTriggerSurface.md \
+  docs/plans/迁移/p23/P7_LivenessProbe.md \
+  docs/plans/迁移/p23/P9_ScaleScheduling.md
+```
+
+结果：无输出。
+
+### 不再把 `agent_id` 当授权来源
+
+```text
+P3:21 `agent_id` 参数只作为 legacy/display/assigned-agent hint ... 不可作为 owner/tenant/AuthZ 来源
+P4:19 caller identity 必须来自 MCP server authenticated context，不是 tool params 中的 `agent_id`
+P6:22 `agent_id`、display name、`created_by` ... 不能作为授权来源；真实 caller_identity 必须来自 authenticated context
+```
+
+### P6 不再只守 `task/*`
+
+```text
+P6:9 覆盖范围是同 transport 上全部写面：agent.launch、agent.submit*、agent.stop、reportRuntime / report event、task/dag/create、dag/start、task/node/update 等；不能只保护 task/*
+P6:42 archtest ... 三入口 adapter + service guard matrix；禁止只守 task/*
+P6:50 审计日志：所有写 RPC（agent.launch、agent.submit*、agent.stop、report runtime/event、task/dag/create、dag/start、task/node/update 等）
+```
+
+### P10 不再用错误 Wails UI 落点
+
+```text
+P10:48 真实前端主要在 cmd/agent-terminal/frontend/vue-app/*；Wails 只处理 bridge/transport
+P10:93 UI 模板库 tab -> cmd/agent-terminal/frontend/vue-app/*
+P10:94 UI 任务列表 tab -> cmd/agent-terminal/frontend/vue-app/*
+P10:95 UI 编辑器 -> cmd/agent-terminal/frontend/vue-app/*
+P10:100 HEAD drift note：不要再把 UI 页面落点写到 Wails 内部 dag 页面目录
+```
+
+### StartDAG idempotency 统一 schema
+
+```text
+P3:25 dag_start_requests ... trigger_source / trigger_instance_key / params_hash
+P3:51 新增 dag_start_requests ... UNIQUE (tenant_id, dag_key, trigger_source, trigger_instance_key)
+P4:21 host auto-start 使用 P3 统一 dag_start_requests schema
+P5:40 cron 写 P3 统一 dag_start_requests(trigger_source='cron'...)
+P6:106 external dag/start 使用 P3 统一 dag_start_requests schema
+```
+
+### P7/P9/P11/P12/P13 补充证据
+
+```text
+P7:27 heartbeat_seq / last_heartbeat_at / cadence
+P9:114 queue_policy enum / fairness mapping
+P9:120 promhttp / scheduled-audit fallback
+P11:162 max_spawn_per_node 事务内校验 + spawned_child_count CAS
+P12:181 dissent_summary 与 aggregation_reason bounded + redacted，禁止 raw member output
+P13:64 RFC 8785 JCS canonical algorithm 冻结
+P13:77 OutputSchema 只是 pass-through / prompt hint，不是 runtime hard guarantee
+```

@@ -1,7 +1,7 @@
 # P23 合规保障 Gate 体系
 
 > 创建时间：2026-04-25 | 状态：**未实施（gate 设计文档，需 P0 启动前先合 L1+L3+L4 骨架）**
-> authoritative：本文件 + [`README.md`](README.md) §"守卫与 archtest" + [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §裁决 9
+> authoritative：**本文件是 P23 gate / archtest / CI / hard-soft 阶段唯一权威**；[`README.md`](README.md) 只引用本文件，不维护第二清单；stub 只引用 gate key
 > 设计输入：2026-04-25 `compliance-gate-design` agent 报告 + `contract-compliance-master` 报告
 
 ## 现有 gate 盘点
@@ -23,9 +23,9 @@
 | L1 | schema / IDE | trigger enum、launch 必填、sqlc 生成；缺参 fail-fast（README §默认值安全原则） | 1 工程日 | 拦字段类违规 | ⭐ 必做 |
 | L2 | pre-commit | git hooks 跑 `make guard` + grep spawn / 裸 INSERT / 直接 LLM 调用 | 0.5 工程日 | 拦低级绕过 | 推荐 |
 | L3 | archtest（本地） | `go test ./internal/archtest/...` 必须 PASS；P23 21 项 archtest 分阶段落地 | 2-3 工程日 | 拦结构违规 | ⭐ 必做 |
-| L4 | CI 门禁 | 新建 `.github/workflows/p23-gates.yml`：`make guard` + archtest + `make ci-l1` + integration | 1 工程日 | merge 前硬拦 | ⭐ 必做 |
+| L4 | CI 门禁 | 仓库当前无 `.github/workflows/`；目标是新建 `p23-gates.yml` 跑 `make guard` + archtest + `make ci-l1` + integration；未建前只能走可核验 manual hard fallback | 1 工程日 | merge 前硬拦 | ⭐ 必做 |
 | L5 | merge gate | P22 H/O/M 三签机制扩展到 P23；分类 hard / soft 见下表 | 0.5 工程日/周 | 拦设计漂移 | 推荐 |
-| L6 | runtime alert | 增 DAG metrics + promhttp exporter + 统一日志告警 sink | 2 工程日 | 拦运行态违规 | P7 前 hard；P0 可 fallback |
+| L6 | runtime alert | 当前只有 metrics counter 声明、无 promhttp/exporter；P7 前必须落 promhttp `/metrics` 或可执行 scheduled-audit fallback + 统一日志告警 sink | 2 工程日 | 拦运行态违规 | P7 前 hard；P0 可 fallback |
 | L7 | scheduled audit | daily / weekly / monthly cron 跑 archtest 趋势 + migration 编号 + 契约漂移 | 1 工程日 | 拦慢性漂移 | 可选 |
 
 **实施顺序建议**：L1 + L3 + L4 必须在 P0 合入前就位（合规底座）；L2 + L5 在 P0 期间补；L6 + L7 可在后段（P7+）开工前补。
@@ -55,35 +55,35 @@ H = hard fail / S = soft warn / R = record only / `H/O` = hard 且需 O 工位�
 
 ## 21 项 archtest 单一 authoritative 表
 
-本表是 P23 archtest 唯一权威清单；README 只摘要展示。每行包含 archtest key 与具体 Go 测试函数名，函数名变更必须同步本表。
+本表是 P23 archtest 唯一权威清单，也是 hard / soft 阶段唯一执行口径；README 只允许摘要引用 gate key，stub 只允许引用 gate key，不维护第二清单。当前事实：下列 P23 专属 archtest 均**当前未实施**，必须按 `hard_from` 阶段逐步落地；已存在的 P22 runtime ownership 类 guard 只能作为基础，不等同于本表闭环。
 
-| # | archtest key | 测试函数 | 落点 | 守的违规 |
-|---|---|---|---|---|
-| 1 | `dag_watcher_no_lifecycle_loop` | `TestDAGNoLifecycleLoop` | `internal/archtest/dag_runtime_test.go` | DAG 长循环不在 lifecycle / bus callback |
-| 2 | `dag_runner_actors_present` | `TestDAGRunnerActorsPresent` | `internal/archtest/dag_runtime_test.go` | P0 4 actor + P7/P8/P11/P12/P13 后续 actor 都进 `group:"runners"` |
-| 3 | `dag_actor_no_fire_and_forget` | `TestDAGActorNoFireAndForget` | `internal/archtest/dag_runtime_test.go` | actor `Run(ctx)` 禁裸 goroutine / ticker |
-| 4 | `dag_status_cas_only` | `TestDAGStatusCASOnly` | `internal/archtest/dag_state_test.go` | status 写必带 expected prev status CAS |
-| 5 | `dag_trigger_enum_only` | `TestDAGTriggerEnumFailFast` | `internal/archtest/dag_schema_test.go` | trigger 字段 schema 必须是 enum |
-| 6 | `dag_external_rpc_guard` | `TestDAGExternalIdentityAdaptersPresent` + `TestDAGServiceAuthZEnforced` | `internal/archtest/dag_external_rpc_test.go` | 三入口注入 caller identity，service 层执行 AuthN/AuthZ/tenant/rate/quota/audit/idempotency guard |
-| 7 | `dag_launcher_shared_path_only` | `TestDAGLauncherSharedPathOnly` + `TestDAGVerifyJobsDurable` + `TestDAGVerifyJobClaimRetryDeadLetter` | `internal/archtest/dag_launcher_test.go` / `internal/archtest/dag_verify_test.go` | dispatcher / verifier launch 都经共享 launcher；P8 verify job 必须 durable claim/retry/dead-letter |
-| 8 | `dag_hook_tap_enqueue_only` | `TestDAGHookTapEnqueueOnly` | `internal/archtest/dag_hook_test.go` | hook callback 禁重 DB / launch / LLM；P13 只 bounded parse + enqueue |
-| 9 | `dag_llm_light_boundary` | `TestDAGLLMLightBoundary` | `internal/archtest/dag_llm_boundary_test.go` | P8/P12 调 LLM 必须经 light 层，禁裸 provider |
-| 10 | `dag_growth_spawn_only` | `TestDAGSpawnChildOnlyViaService` | `internal/archtest/dag_growth_test.go` | 禁绕过 `SpawnChildNodes` 直接 INSERT node |
-| 11 | `dag_swarm_quota_only` | `TestDAGSwarmUsesTokenBucket` | `internal/archtest/dag_swarm_test.go` | P12 swarm 共用 P9 token bucket |
-| 12 | `dag_output_validate_before_verify` | `TestDAGOutputValidationBeforeVerify` | `internal/archtest/dag_output_validation_test.go` | P13 schema validate 早于 P8 verify |
-| 13 | `dag_template_no_cmd_import` | `TestDAGTemplateNoCmdImport` | `internal/archtest/dag_template_boundary_test.go` | UI/template 不反向 import cmd concrete |
-| 14 | `dag_migration_sequence_guard` | `TestDAGMigrationNumbersNoConflict` | `internal/archtest/dag_migration_test.go` | 0063–0072 编号、0064 unused、no-tx concurrent index 分拆 |
-| 15 | `cron_dag_bridge_no_concrete_orch_import` | `TestDAGCronBridgeNoOrchImport` | `internal/archtest/dag_cron_bridge_test.go` | cron 模块与 mcp-orch 不得 concrete import |
-| 16 | `dag_audit_append_only` | `TestDAGAuditAppendOnly` | `internal/archtest/dag_audit_append_only_test.go` | audit/arbiter/swarm/output_validation append-only + hash-chain |
-| 17 | `dag_terminal_turn_fence` | `TestDAGTerminalTurnFence` + `TestDAGVerifierTerminalUsesVerifyTurnFence` | `internal/archtest/dag_turn_fence_test.go` / `internal/archtest/dag_verify_test.go` | terminal 写必须校验 active_turn_id；verifier terminal 必须校验 verify_turn_id |
-| 18 | `dag_no_status_naked_write` | `TestDAGNoStatusNakedWrite` | `internal/archtest/dag_state_test.go` | 禁裸 status UPDATE |
-| 19 | `dag_tenant_filter_required` | `TestDAGTenantFilterRequired` | `internal/archtest/dag_tenant_filter_test.go` | DAG/template/audit 查询 RPC 必带 tenant filter |
-| 20 | `dag_pii_redaction_present` | `TestDAGPIIRedactionPresent` | `internal/archtest/dag_pii_redaction_test.go` | repair/error/arbiter/validation 落库前统一 redactor |
-| 21 | `dag_mcp_orch_dependency_allowlist_tight` | `TestMCPOrchDependencyDirection` | `internal/archtest/dependency_direction_mcp_orch_test.go` | cmd/mcp-orch allowlist 不得宽泛放行未登记 internal 包 |
+| # | archtest key | 测试函数 | 落点 | existing/planned | owner_subtask | introduced_by | hard_from | soft_until / pre-hard 行为 | 守的违规 |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | `dag_watcher_no_lifecycle_loop` | `TestDAGNoLifecycleLoop` | `internal/archtest/dag_runtime_test.go` | planned（当前未实施） | P0 | phase0/P22 ownership 扩展 | P0 前 | soft warn；PR 描述贴本地扫描结果 | DAG 长循环不在 lifecycle / bus callback |
+| 2 | `dag_runner_actors_present` | `TestDAGRunnerActorsPresent` | `internal/archtest/dag_runtime_test.go` | planned（当前未实施） | P0 | phase0/P22 ownership 扩展 | P0 前 | soft warn；缺 actor inventory 不得合 P0 | P0 4 actor + P7/P8/P11/P12/P13 后续 actor 都进 `group:"runners"` |
+| 3 | `dag_actor_no_fire_and_forget` | `TestDAGActorNoFireAndForget` | `internal/archtest/dag_runtime_test.go` | planned（当前未实施） | P0 | phase0/P22 ownership 扩展 | P0 前 | soft warn；发现裸 goroutine 必须改设计 | actor `Run(ctx)` 禁裸 goroutine / ticker |
+| 4 | `dag_status_cas_only` | `TestDAGStatusCASOnly` | `internal/archtest/dag_state_test.go` | planned（当前未实施） | P0 | phase0/state-machine | P0 前 | soft warn；裸写必须列入 blocker | status 写必带 expected prev status CAS |
+| 5 | `dag_trigger_enum_only` | `TestDAGTriggerEnumFailFast` | `internal/archtest/dag_schema_test.go` | planned（当前未实施） | P3 | phase0/trigger enum | P3 前 | P0-P2 soft；P3 PR hard | trigger 字段 schema 必须是 enum |
+| 6 | `dag_external_rpc_guard` | `TestDAGExternalIdentityAdaptersPresent` + `TestDAGServiceAuthZEnforced` | `internal/archtest/dag_external_rpc_test.go` | planned（当前未实施） | P6 | security/a4 | P6 前 | P0-P5 soft；P6 PR hard + O 签 | 三入口注入 caller identity，service 层执行 AuthN/AuthZ/tenant/rate/quota/audit/idempotency guard |
+| 7 | `dag_launcher_shared_path_only` | `TestDAGLauncherSharedPathOnly` + `TestDAGVerifyJobsDurable` + `TestDAGVerifyJobClaimRetryDeadLetter` | `internal/archtest/dag_launcher_test.go` / `internal/archtest/dag_verify_test.go` | planned（当前未实施） | P1 / P8 | phase0 + verify/a2 | P1 前（shared path）；P8 前（verify durable） | 未到 P8 时 verify 子项 record-only；shared launcher P1 hard | dispatcher / verifier launch 都经共享 launcher；P8 verify job 必须 durable claim/retry/dead-letter |
+| 8 | `dag_hook_tap_enqueue_only` | `TestDAGHookTapEnqueueOnly` | `internal/archtest/dag_hook_test.go` | planned（当前未实施） | P2 / P13 | phase0 + output/a5 | P0 前 | soft warn；P2/P13 代码触碰 hook 时 hard | hook callback 禁重 DB / launch / LLM；P13 只 bounded parse + enqueue |
+| 9 | `dag_llm_light_boundary` | `TestDAGLLMLightBoundary` | `internal/archtest/dag_llm_boundary_test.go` | planned（当前未实施） | P8 | impl-quality | P8 前 | P0-P7 record-only；P8 PR hard | P8/P12 调 LLM 必须经 light 层，禁裸 provider |
+| 10 | `dag_growth_spawn_only` | `TestDAGSpawnChildOnlyViaService` | `internal/archtest/dag_growth_test.go` | planned（当前未实施） | P11 | growth/a3 | P11 前 | P0-P10 soft scan；P11 PR hard + O 签 | 禁绕过 `SpawnChildNodes` 直接 INSERT node |
+| 11 | `dag_swarm_quota_only` | `TestDAGSwarmUsesTokenBucket` | `internal/archtest/dag_swarm_test.go` | planned（当前未实施） | P12 | swarm/cost | P12 前 | P0-P11 record-only；P12 PR hard + O 签 | P12 swarm 共用 P9 token bucket |
+| 12 | `dag_output_validate_before_verify` | `TestDAGOutputValidationBeforeVerify` | `internal/archtest/dag_output_validation_test.go` | planned（当前未实施） | P13 | output/a5 | P13 前 | P0-P12 record-only；P13 PR hard + O 签 | P13 schema validate 早于 P8 verify |
+| 13 | `dag_template_no_cmd_import` | `TestDAGTemplateNoCmdImport` | `internal/archtest/dag_template_boundary_test.go` | planned（当前未实施） | P10 | template boundary | P10 前 | P0-P9 soft; P10 PR hard | UI/template 不反向 import cmd concrete |
+| 14 | `dag_migration_sequence_guard` | `TestDAGMigrationNumbersNoConflict` | `internal/archtest/dag_migration_test.go` | planned（当前未实施） | phase0 / all migration owners | migration/a5 | P0 前 | soft warn until phase0; each PR must paste HEAD recalibration | 当前 HEAD 下一个可用编号起排；禁止占用既有 0063/0064；no-tx concurrent index 分拆 |
+| 15 | `cron_dag_bridge_no_concrete_orch_import` | `TestDAGCronBridgeNoOrchImport` | `internal/archtest/dag_cron_bridge_test.go` | planned（当前未实施） | P5 | cron boundary | P5 前 | P0-P4 soft；P5 PR hard | cron 模块与 mcp-orch 不得 concrete import |
+| 16 | `dag_audit_append_only` | `TestDAGAuditAppendOnly` | `internal/archtest/dag_audit_append_only_test.go` | planned（当前未实施） | P6 / P8 / P12 / P13 | security/a4 | P6 前（audit base）；P8+ touched tables hard | P0-P5 soft；new audit table PR hard | audit/arbiter/swarm/output_validation append-only + hash-chain |
+| 17 | `dag_terminal_turn_fence` | `TestDAGTerminalTurnFence` + `TestDAGVerifierTerminalUsesVerifyTurnFence` | `internal/archtest/dag_turn_fence_test.go` / `internal/archtest/dag_verify_test.go` | planned（当前未实施） | P2 / P8 | data/a5 | P0 前 for active_turn; P8 前 for verify_turn | verify_turn 子项 record-only until P8 | terminal 写必须校验 active_turn_id；verifier terminal 必须校验 verify_turn_id |
+| 18 | `dag_no_status_naked_write` | `TestDAGNoStatusNakedWrite` | `internal/archtest/dag_state_test.go` | planned（当前未实施） | P0 | data/a5 | P0 前 | soft warn；任何新增裸写阻塞 | 禁裸 status UPDATE |
+| 19 | `dag_tenant_filter_required` | `TestDAGTenantFilterRequired` | `internal/archtest/dag_tenant_filter_test.go` | planned（当前未实施） | P3 / P6 / P10 | security/a4 | P6 前 | P0-P5 soft；P6/P10 PR hard | DAG/template/audit 查询 RPC 必带 tenant filter |
+| 20 | `dag_pii_redaction_present` | `TestDAGPIIRedactionPresent` | `internal/archtest/dag_pii_redaction_test.go` | planned（当前未实施） | P8 / P13 | security/a4 | P8 前 | P0-P7 record-only；P8/P13 PR hard | repair/error/arbiter/validation 落库前统一 redactor |
+| 21 | `dag_mcp_orch_dependency_allowlist_tight` | `TestMCPOrchDependencyDirection` | `internal/archtest/dependency_direction_mcp_orch_test.go` | planned（当前未实施；现有 allowlist 仍过宽） | phase0 / P0 | contract/a1 | P0 前 | soft warn until phase0; P0 PR hard | cmd/mcp-orch allowlist 不得宽泛放行未登记 internal 包 |
 
 ## CI workflow 设计（L4）
 
-新建 `.github/workflows/p23-gates.yml`：
+目标 CI（当前仓库无 `.github/workflows/`，以下为待新建示例）`.github/workflows/p23-gates.yml`：
 
 ```yaml
 name: P23 Gates
@@ -94,7 +94,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.22' }
+        with:
+          go-version-file: go.mod
       - run: make guard
       - run: go test ./internal/archtest/... -count=1 -race
       - run: make ci-l1
@@ -102,7 +103,7 @@ jobs:
       - run: go test ./cmd/mcp-orch/... -tags integration
 ```
 
-> 当前仓库无 `.github/workflows/`，本期需要先建。如不能立即建 CI，退路只能是 **manual hard fallback**：PR 模板强制贴 `make guard`、`go test ./internal/archtest/... -count=1`、`make sqlc-verify` 输出，指定 reviewer 签收；缺任一项禁止 merge。CI 仍必须在 P7 之前补齐。
+> 当前仓库无 `.github/workflows/`，本期需要先建，且 Go 版本必须使用 `go-version-file: go.mod`（或与 `go.mod` 完全一致），不得在示例里硬写固定版本。若不能立即建 CI，退路只能是 **manual hard fallback**：PR 模板提供固定区块，逐项粘贴 `git rev-parse HEAD`、`make guard`、`go test ./internal/archtest/... -count=1`、`make sqlc-verify`、必要 integration 命令的完整输出；reviewer 必须在同一 PR 留下 `P23-manual-gate: verified` 并核对命令时间戳/commit SHA。缺输出、SHA 不匹配、或 reviewer 未签收均禁止 merge。CI 仍必须在 P7 之前补齐。
 
 ## runtime alert 触发条件（L6）
 
@@ -121,7 +122,7 @@ jobs:
 | `dag_observe_lost_total` / `dag_verdict_lost_total` | 连续上升趋势 | promhttp counter（a6） | P0 / P2 / P8 |
 | `dag_actor_last_heartbeat_timestamp_seconds` | actor 连续 2 轮无 heartbeat | promhttp gauge + 结构化 log event `dag_actor_heartbeat`（a6） | 全 actor |
 
-> 当前仓库 `internal/platform/metrics/metrics.go` 只有 counter 声明，没有 promhttp exporter。P0 合入前必须明确 promhttp PR 或本地 scheduled-audit fallback；P7 开工前 L6 必须具备 exporter，否则 P7–P13 中依赖 runtime alert 的 hard gate 降级为 merge blocker。
+> 当前仓库 `internal/platform/metrics/metrics.go` 只有 counter 声明，没有 promhttp exporter / `/metrics` 暴露面。P0 合入前必须明确 promhttp PR 或本地 scheduled-audit fallback；fallback 必须可核验（固定命令、输入源为 DB/structured log、输出 artifact、运行频率、失败退出码、owner）。P7 开工前 L6 必须具备 promhttp exporter 或上述可执行 fallback，否则 P7–P13 freeze。
 
 ## archtest 补充项（历史记录，已并入上方 21 项 authoritative 表）
 
@@ -142,7 +143,7 @@ jobs:
 |---|---|---|
 | P0 前 | `dag_status_cas_only` / `dag_no_status_naked_write` / `dag_terminal_turn_fence` / `dag_hook_tap_enqueue_only` / `dag_migration_sequence_guard` / `dag_mcp_orch_dependency_allowlist_tight` | 先拦最容易污染状态机和契约的实现缺口。 |
 | P6 前 | 上述 + `dag_external_rpc_guard` / `dag_tenant_filter_required` / `dag_audit_append_only` / `dag_pii_redaction_present` | 外部 RPC 和多租户开放前必须安全闭环。 |
-| P9 前 | 全部 21 项 | 大规模、LLM、UI 后段开工前全部转 hard；0064 是唯一允许缺号。 |
+| P9 前 | 全部 21 项 | 大规模、LLM、UI 后段开工前全部转 hard；不再存在中间缓冲号/允许缺号口径，migration guard 以 PR 当时 HEAD 重新校准为准。 |
 
 
 ## on-call runbook 五类（a6 调研 → 本表）
@@ -236,8 +237,8 @@ P9/P10/P11/P12/P13 共用中央成本阻断口径：若 `dag/cost_preview` 判�
 
 ### MIGRATION_OWNER_CHECKLIST（需求补全仲裁）
 
-每个 `0063–0072` migration owner 必须在 PR 描述或同目录 stub 中填写：preflight SQL、forward migration、是否 forward-only、rollback/roll-forward 修复路径、backfill/lock 评估、是否含 `CREATE INDEX CONCURRENTLY` no-transaction 文件、`cmd/mcp-orch/sqlc.yaml` schema entry、`make sqlc-verify` 输出、tenant/audit/redaction 影响、postcheck SQL。缺任一项不得 merge 对应 migration PR。
+每个 P23 migration owner 必须按 PR 当时 HEAD 的下一个可用编号重新校准，并在 PR 描述或同目录 stub 中填写：preflight SQL、forward migration、是否 forward-only、rollback/roll-forward 修复路径、backfill/lock 评估、是否含 `CREATE INDEX CONCURRENTLY` no-transaction 文件、`cmd/mcp-orch/sqlc.yaml` schema entry、`make sqlc-verify` 输出、tenant/audit/redaction 影响、postcheck SQL。缺任一项不得 merge 对应 migration PR。
 
 ### 阶段 0 / P0 拆分 checklist（需求补全仲裁）
 
-P0 runtime PR 之前必须先合最小阶段 0 checklist：migration sequence guard、0064 hard-fail 规则、P22 allowlist tighten、CAS / terminal fence archtest skeleton、CI 或 manual hard fallback 冻结、metrics exporter/fallback 决策、P0 DDL exact schema、StartDAG 最小入口归属。阶段 0 不实现完整 watcher；P0 才落 runtime skeleton。
+P0 runtime PR 之前必须先合最小阶段 0 checklist：migration sequence guard（禁止复用已占用编号并要求 PR 前重新校准）、P22 allowlist tighten、CAS / terminal fence archtest skeleton、CI 或 manual hard fallback 冻结、metrics exporter/fallback 决策、P0 DDL exact schema、StartDAG 最小入口归属。阶段 0 不实现完整 watcher；P0 才落 runtime skeleton。

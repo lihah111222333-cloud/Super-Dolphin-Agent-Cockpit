@@ -65,12 +65,12 @@ DAG schema 加：
 | state machine | `task_dag_node_runtime.sql` [扩展] | `growth_capped` DAG 级标记；node 级无新状态 |
 | watcher | `cmd/mcp-orch/orchestration/runtime/watcher_actor.go` [扩展] | spawn 后重算 ready；预算预警 |
 | convergence | `cmd/mcp-orch/orchestration/runtime/convergence_evaluator.go` [NEW] | 周期性评估 `convergence.condition_template`；触发 DAG 终态 |
-| DDL | `0070_dag_dynamic_growth.sql` [NEW]（编号校准） | `task_dags` 加 structural `growth_budget JSONB` + `convergence JSONB`；统计列 `total_node_count` + `max_observed_growth_depth` |
+| DDL | `0071_dag_dynamic_growth.sql` [NEW]（编号校准） | `task_dags` 加 structural `growth_budget JSONB` + `convergence JSONB`；统计列 `total_node_count` + `max_observed_growth_depth` |
 | archtest | `internal/archtest/dag_growth_test.go` [NEW] | spawn 必须经 `SpawnChildNodes` 入口；不允许直接 INSERT node |
 
 ## DDL / SQL
 
-**`0070_dag_dynamic_growth.sql`** 草案（编号校准）：
+**`0071_dag_dynamic_growth.sql`** 草案（编号校准）：
 
 ```sql
 ALTER TABLE public.task_dags ADD COLUMN growth_budget JSONB NOT NULL DEFAULT '{}'::jsonb; -- 空对象仅表示未启用 growth；spawn-enabled DAG 中 `{}` 必须 schema invalid
@@ -82,6 +82,7 @@ ALTER TABLE public.task_dags ADD COLUMN growth_capped BOOLEAN NOT NULL DEFAULT F
 ALTER TABLE public.task_dag_nodes ADD COLUMN spawned_by_node_key TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.task_dag_nodes ADD COLUMN spawned_at TIMESTAMPTZ;
 ALTER TABLE public.task_dag_nodes ADD COLUMN growth_depth INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.task_dag_nodes ADD COLUMN spawned_child_count INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_task_dag_node_spawned_by
     ON public.task_dag_nodes (dag_key, spawned_by_node_key)
@@ -96,6 +97,10 @@ CREATE TABLE IF NOT EXISTS public.dag_growth_reservations (
     status TEXT NOT NULL CHECK (status IN ('reserved','committed','rolled_back','expired')),
     idempotency_key TEXT NOT NULL,
     spawned_node_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+    parent_spawn_count_before INTEGER NOT NULL DEFAULT 0,
+    parent_spawn_count_after INTEGER NOT NULL DEFAULT 0,
+    total_node_count_before INTEGER NOT NULL DEFAULT 0,
+    total_node_count_after INTEGER NOT NULL DEFAULT 0,
     created_by_agent_id TEXT NOT NULL,
     expires_at TIMESTAMPTZ,
     committed_at TIMESTAMPTZ,
@@ -150,9 +155,11 @@ CREATE INDEX IF NOT EXISTS idx_dag_growth_reservations_reconcile
 
 ### DDL / SQL 补充
 
-`0070_dag_dynamic_growth.sql` 必须补 `dag_growth_reservations`（或等价 ledger）：`reservation_id`、`dag_key`、`from_node_key`、`requested_nodes`、`reserved_nodes`、`status`、`idempotency_key`、`created_by_agent_id`、`expires_at`、`committed_at`、`rolled_back_at`、`created_at`。`task_dag_nodes` 增 `growth_depth INTEGER NOT NULL DEFAULT 0` 或等价 lineage/path，否则 `max_depth` 不可事务内校验。
+`0071_dag_dynamic_growth.sql` 必须补 `dag_growth_reservations`（或等价 ledger）：`reservation_id`、`dag_key`、`from_node_key`、`requested_nodes`、`reserved_nodes`、`status`、`idempotency_key`、`created_by_agent_id`、`expires_at`、`committed_at`、`rolled_back_at`、`created_at`。`task_dag_nodes` 增 `growth_depth INTEGER NOT NULL DEFAULT 0` 或等价 lineage/path，否则 `max_depth` 不可事务内校验。
 
 Spawn 流程：先用 CAS reservation 更新 `total_node_count`（或 ledger charged count），再插 nodes，再同事务 enqueue wakeup/outbox；重复 idempotency key 返回同一 `spawned_node_keys`。失败必须 rollback reservation 或进入 reconcile。
+
+并发防爆细节：`max_spawn_per_node` 必须事务内校验，不能先 count 后 insert。实现可选 `SELECT ... FOR UPDATE` 锁定 parent node 统计列，或维护 `spawned_child_count` 并执行 `UPDATE task_dag_nodes SET spawned_child_count = spawned_child_count + $n WHERE dag_key=$dag AND node_key=$parent AND spawned_child_count + $n <= max_spawn_per_node AND active_turn_id=$turn_id RETURNING ...`；0 rows 即 `ErrGrowthBudgetExceeded` / stale。`dag_growth_reservations` 必须记录 `max_total_nodes_before/after`、`parent_spawn_count_before/after` 或等价审计字段，确保 crash reconcile 能判断 reservation 是否已 charged。child insert 与 parent count/ledger commit 必须同事务；不得用仅应用内 mutex 防并发。
 
 ### backpressure / budget 公式
 

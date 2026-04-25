@@ -1,7 +1,7 @@
 # P23 DAG 自驱执行引擎与多触发源能力补齐总览
 
 > 创建时间：2026-04-25 | 状态：**未开动**
-> 当前 authoritative 文档：`README.md`
+> 当前 authoritative 文档：`README.md`（计划范围/依赖/实施口径）；gate/archtest/CI/hard-soft 权威仅为 [`COMPLIANCE_GATES.md`](COMPLIANCE_GATES.md)，README 只引用不维护第二清单
 > 输入基线：2026-04-25 `dag-runtime-audit` / `dag-entry-audit` 事实审计；契约以 `docs/契约/modularity-convention.md §4.4 / §7`、`docs/契约/fx-convention.md §2 / §3`、`docs/契约/rungroup-convention.md §2 / §4` 为准
 
 ## 目标
@@ -76,12 +76,12 @@ DAG 模块当前是「只存不跑」：
 
 阶段 0 是短平快的共享契约 PR，必须先合入：
 
-1. **migration 编号校准**：仓内当前最大已占用编号是 `migrations/0062_add_lsp_sections_enabled_tools_gate.sql`。本期新建 migration 必须从 `0063` 起算：
-   - `0063_dag_state_machine.sql`（P0；为现有 `task_dag_nodes` 加 `assigned_agent_id`、`last_activity_at`、`remaining_deps` 等列、状态机 CHECK 约束、`pending→running→done/failed/observe_lost` 终态枚举）
-   - `0065_dag_owner_tenant.sql`（P3 / P6；为 DAG 加 `owner_id / tenant_id / scope` 字段并迁移现有 `created_by`）
-   - `0066_dag_trigger_cron.sql`（P5；cron→DAG 关联表，承接 `internal/module/cron` 触发 DAG 的能力；**编号从 0064 改为 0066，因为 P5 依赖 P3 owner/tenant，必须晚于 P3**）
-   - 0064 编号**保留 unused**作为缓冲（避免后续合入时被误占）；后段 migration 编号冻结为：P8=0067、P9=0068（仅 no-transaction concurrent index / archive / scale policy；`remaining_deps` 已前移 P0 0063 以避免拆号冲突）、P10=0069、P11=0070、P12=0071、P13=0072（P7 仅加列预留，无独立 migration），详见各子任务 stub
-   - 编号相互独立但口径统一；实施时每次开 PR 都再跑 `ls migrations/` 校准一次。
+1. **migration 编号校准**：HEAD 已占用 `migrations/0063_agent_thread_name.sql` 与 `migrations/0064_skill_candidates.sql`；P23 不得再从已占用编号起排，也不得把已占用编号当缓冲号。按当前 HEAD 的下一个可用编号，P23 暂定重排如下：
+   - `0065_dag_state_machine.sql`（P0；为现有 `task_dag_nodes` 加 `assigned_agent_id`、`last_activity_at`、`remaining_deps` 等列、状态机 CHECK 约束、`pending→running→done/failed/observe_lost` 终态枚举）
+   - `0066_dag_owner_tenant.sql`（P3 / P6；为 DAG 加 `owner_id / tenant_id / scope` 字段并迁移现有 `created_by`）
+   - `0067_dag_trigger_cron.sql`（P5；cron→DAG 关联表，承接 `internal/module/cron` 触发 DAG 的能力；必须晚于 P3 owner/tenant）
+   - 后段 migration 暂定：P8=0068、P9=0069（仅 no-transaction concurrent index / archive / scale policy；`remaining_deps` 已前移 P0 0065 以避免拆号冲突）、P10=0070、P11=0071、P12=0072、P13=0073（P7 优先复用 P0 预留列；若需新增字段，使用 PR 当时重新校准后的下一个可用编号）。
+   - 上述编号只是 2026-04-25 当前 HEAD 校准结果；**每次 P23 migration PR 前必须重新检查 `migrations/` 最大编号并在 PR 描述中贴校准结果**，不得依赖本文静态编号。
 
 2. **DAG state machine 契约冻结**：本期把 node 状态机从"任意 status 可写"收紧成 `pending → running → done | failed | observe_lost`，由 `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql` 增加 CAS 形 SQL（`WHERE current_status = $expected`），并写入文档：
    - 第三类终态 `observe_lost` 用于 watcher 确认 turn 已 submit 但 hook 永久丢失的情况，**不**自动重试，不增 `failure_count`。
@@ -104,8 +104,8 @@ DAG 模块当前是「只存不跑」：
    - `external`：仅外部 RPC 凭 caller identity 推进（P6）
    schema 层在 `cmd/mcp-orch/tools/task_tools.go:118-124` 加 enum；旧 DAG（trigger 为空）默认按 `auto` 兼容一轮，但向用户/UI 显示 deprecation 提示。
 
-5. **扩展点契约（为 P7 / P8 / P9 预留）**：基于 2026-04-25 五路 gap 调研裁决（详见 [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md)），P23 **不实现**活性探针 / 校验闭环 / 大规模能力，但要求 P0 落地的 DDL / actor / hook 链路**预留扩展位**，避免 P7 / P8 / P9 上线时返工：
-   - `task_dag_nodes` 在 `0063_dag_state_machine.sql` 中**预留** `last_activity_at TIMESTAMPTZ` 列。本期 watcher / dispatcher / reconcile 不消费它，但 P2 hook tap 必须把 turn progress / tool call 事件回写此字段；P7 优先复用预留列，若 `activity_state/tool_call_id/next_probe_at` 等字段无法由既有列安全承载，必须申请独立 forward migration 并带 CAS/fence。
+5. **扩展点契约（为 P7 / P8 / P9 预留）**：基于 2026-04-25 五路 gap 调研裁决（详见 [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md)），P0–P6 前段 **不实现**活性探针 / 校验闭环 / 大规模能力；这些能力仍在 P23 后段 P7/P8/P9 内实现，但要求 P0 落地的 DDL / actor / hook 链路**预留扩展位**，避免 P7 / P8 / P9 上线时返工：
+   - `task_dag_nodes` 在 `0065_dag_state_machine.sql` 中**预留** `last_activity_at TIMESTAMPTZ` 列。本期 watcher / dispatcher / reconcile 不消费它，但 P2 hook tap 必须把 turn progress / tool call 事件回写此字段；P7 优先复用预留列，若 `activity_state/tool_call_id/next_probe_at` 等字段无法由既有列安全承载，必须申请独立 forward migration 并带 CAS/fence。
    - hook consumer（`cmd/mcp-orch/orchestration/hook_consumer.go:96-220`）的 P2 reconcile tap 必须是 **enqueue-only**：不允许在 callback 内做长跑、重 DB 查询、派生 launch；只允许投一条 enqueue 给 actor。这是 P8 verifier gate 的硬前置（verifier 拉起必须独立 actor，不在 callback 内）。
    - **P13 schema validate 例外（2026-04-25 交叉验证裁决）**：hook tap 只允许 bounded parse / payload size cap / enqueue；完整 JSON schema validate 必须在 `outputValidationActor` worker 中执行，并且在写 terminal status、进入 P8 verify 前完成。archtest `dag_hook_tap_enqueue_only` 只对白名单轻量 parse + enqueue 放行，禁止网络 / LLM / 重 DB 查询 / 全量 schema validate。
    - P23 冻结的 state machine `pending → running → done | failed | observe_lost` 描述为「**执行子状态机**」（execution sub-state machine）：上层 P8 会在 `running` 与 `done` 之间插入 `pending_verify / verifying / repairing` 等业务子状态，但**不**破坏 P23 的 SQL CAS 形状——子状态走独立列 `verify_phase`（P8 加），不和 `status` 共枚举，CAS `WHERE current_status = $expected` 仍然成立。P8 会扩 `status` CHECK 约束加入 `verdict_lost` 第三类终态（类比 `observe_lost`），仍属合规扩展，不算破坏 CAS 形状。
@@ -134,15 +134,15 @@ DAG 模块当前是「只存不跑」：
 ## 依赖拓扑
 
 ```
-阶段 0：编号校准 ─┬─► P0（0063_dag_state_machine）
-                 ├─► P3（0065_dag_owner_tenant）
-                 ├─► P5（0066_dag_trigger_cron；原占 0064 已修正，0064 保留 unused buffer）
-                 ├─► P8（0067_dag_verify_phase）
-                 ├─► P9（0068_dag_scale_partial_index）
-                 ├─► P10（0069_dag_templates）
-                 ├─► P11（0070_dag_growth）
-                 ├─► P12（0071_dag_swarm）
-                 └─► P13（0072_dag_output_validation）
+阶段 0：编号校准 ─┬─► P0（0065_dag_state_machine）
+                 ├─► P3（0066_dag_owner_tenant）
+                 ├─► P5（0067_dag_trigger_cron）
+                 ├─► P8（0068_dag_verify_phase）
+                 ├─► P9（0069_dag_scale_partial_index）
+                 ├─► P10（0070_dag_templates）
+                 ├─► P11（0071_dag_growth）
+                 ├─► P12（0072_dag_swarm）
+                 └─► P13（0073_dag_output_validation）
 
 阶段 0：state machine 契约 ─► P0 / P1 / P2 全部依赖
 
@@ -169,7 +169,7 @@ P3 + P6 + P7/P8/P9/P11/P12/P13 schema freeze ─► P10  # 模板 + UI（依赖�
 P0 + P1 + P2 + P9 ─► P11   # 动态生长（依赖 backpressure）
 P8 + P9 ─► P12             # 蜂群仲裁（P8 ensemble 升级；依赖 P9 token bucket / budget ledger）
 P0 + P1 + P2 + P8 sanitize + P10 preset ─► P13  # JSON 严格输出；非 swarm validation 不依赖 P12
-P13 financial swarm preset ─► P12  # 仅金融 unanimous swarm preset hard depends on P12
+P12 ─► P13 financial swarm preset  # 仅金融 unanimous swarm preset hard depends on P12；普通 strict JSON validation 不依赖 P12
 ```
 
 ## 落地顺序建议
@@ -188,9 +188,9 @@ P13 financial swarm preset ─► P12  # 仅金融 unanimous swarm preset hard d
 
 ### DAG node state machine（authoritative）
 
-- P0 基础状态枚举固定为 `pending → running → done | failed | observe_lost`；`observe_lost` 是第三类终态（half-submit window 不可恢复），不计入 retry budget。唯一白名单扩展是 P8 在 `0067_dag_verify_phase.sql` forward-only 增加 terminal `verdict_lost`。P7/P9/P10/P11/P12/P13 不得再扩主 `status`，只能使用 `verify_phase` / `activity_state` / `growth_capped` / `output_validation_phase` 等独立字段。
+- P0 基础状态枚举固定为 `pending → running → done | failed | observe_lost`；`observe_lost` 是第三类终态（half-submit window 不可恢复），不计入 retry budget。唯一白名单扩展是 P8 在 `0068_dag_verify_phase.sql` forward-only 增加 terminal `verdict_lost`。P7/P9/P10/P11/P12/P13 不得再扩主 `status`，只能使用 `verify_phase` / `activity_state` / `growth_capped` / `output_validation_phase` 等独立字段。
 - 状态推进必须走 SQL CAS（`WHERE current_status = $expected`），由 P0 在 `sql/queries/task_dag_node_runtime.sql` 落地；外部 `task_update_node` 在 `strict_state_machine` 模式下拒绝跳态写入。
-- `assigned_agent_id` 由 dispatcher 在 `pending→running` 同事务内写入；后续不允许覆盖（除非节点 retry policy 显式 relaunch，见下）。
+- `pending→running` 只由 watcher ready claim 写入 `active_wakeup_id`，不得写 `assigned_agent_id` / `active_turn_id`；dispatcher 在 launcher accepted 后通过 `BindRunningNodeTurn` CAS 绑定 `assigned_agent_id` / `active_turn_id`，后续不允许覆盖（除非节点 retry policy 显式 relaunch，见下）。
 - crash recovery：watcher/recovery scan 只产生 reconcile candidates；`dagReconcileActor` 逐条调 `agent_status`/turn lookup 做证据校验，并通过 CAS 写 `observe_lost` 或 relaunch 决策。watcher 不直接写终态；**禁止**自动回退 `running → pending` 触发重 launch。
 - node retry：`execution.retry > 0` 且未到上界时，retry 默认**复用已绑定 agent**（再投一轮 turn）；只有显式 `execution.relaunch_on_retry = true` 才走 launcher 重起新 agent，并在事务内换 `assigned_agent_id`。
 
@@ -228,13 +228,13 @@ P13 financial swarm preset ─► P12  # 仅金融 unanimous swarm preset hard d
 
 基于 2026-04-25 6 路 impl/compliance 调研裁决（详见 [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §裁决 9 + [`COMPLIANCE_GATES.md`](COMPLIANCE_GATES.md)），P23 必落 21 项 archtest。
 
-- **唯一 authoritative 清单**：[`COMPLIANCE_GATES.md`](COMPLIANCE_GATES.md) §“21 项 archtest 单一 authoritative 表”。README 不再维护第二张完整执行表，避免 archtest key / Go test 函数名双源漂移。
-- **README 摘要**：覆盖 runtime ownership、state CAS、trigger enum、external RPC guard、shared launcher、hook enqueue-only、LLM light boundary、growth spawn guard、swarm quota、output-before-verify、template boundary、migration sequence、cron bridge、audit append-only、turn fence、tenant filter、PII redaction、mcp-orch dependency allowlist。
-- **变更规则**：任何 archtest key、测试函数名、落点、hard 阶段的改动，必须先改 `COMPLIANCE_GATES.md` authoritative 表，再在 README 摘要中确认无需新增第二清单。
+- **唯一 gate/archtest/CI/hard-soft 权威**：[`COMPLIANCE_GATES.md`](COMPLIANCE_GATES.md)。README 只引用 gate key 和执行摘要，不维护第二张完整清单；所有 hard/soft 阶段、Go test 函数名、CI/manual fallback 行为均以 `COMPLIANCE_GATES.md` 为准。
+- **README 摘要**：覆盖 runtime ownership、state CAS、trigger enum、external RPC guard、shared launcher、hook enqueue-only、LLM light boundary、growth spawn guard、swarm quota、output-before-verify、template boundary、migration sequence、cron bridge、audit append-only、turn fence、tenant filter、PII redaction、mcp-orch dependency allowlist；若与 `COMPLIANCE_GATES.md` 冲突，以后者为准。
+- **变更规则**：任何 archtest key、测试函数名、落点、hard/soft 阶段、CI/manual fallback 的改动，必须先改 `COMPLIANCE_GATES.md`，stub 只允许引用 gate key。
 
 ## 风险
 
-- **半成品基础件复用风险**：`migrations/0023_dag_watcher_phase1.sql` 设计意图与本期 watcher 是否完全一致需在 P0 owner 启动前一次性核对（重点是 wakeup 字段语义、lease TTL 默认、worker_id 来源）；不一致就要在 0063 里同步修，不允许"先用着再说"。
+- **半成品基础件复用风险**：`migrations/0023_dag_watcher_phase1.sql` 设计意图与本期 watcher 是否完全一致需在 P0 owner 启动前一次性核对（重点是 wakeup 字段语义、lease TTL 默认、worker_id 来源）；不一致就要在 0065 里同步修，不允许"先用着再说"。
 - **crash window**：dispatcher 在 `pending→running` CAS 后、launcher 调用前 / 调用后 hook 到达前两个窗口都可能崩；恢复必须按 `assigned_agent_id` 是否已绑定 + agent 是否真起来分支处理（参考 p21 P1b crash-window state machine 章节，本文 state machine 直接对齐其形式）。
 - **launch 失败映射**：launcher 异步成功 ≠ agent 真起来；P1 必须区分 `launcher 接受请求成功`（CAS 推进 `pending→running`）vs `agent 启动失败`（reconcile actor 兜底转 `failed`）；不能把异步 ack 当作 launch 成功。
 - **lease 抖动**：DAG node lease 与 cron job lease（p21 P1b）共享 `internal/store` lease 抽象但**不复用同一表**；不要为了"统一"把两者合表，会把 retry / TTL / 终态语义搅在一起。
@@ -255,13 +255,14 @@ P13 financial swarm preset ─► P12  # 仅金融 unanimous swarm preset hard d
 - **P3 落点漂移**：stub 写 `internal/orchestration/dag.Start` 与 README §"当前基线约束"（DAG runtime 默认归 `cmd/mcp-orch`）冲突。✅ 已修正：改为 `cmd/mcp-orch/orchestration/dag_start.go` + 共享入口 `StartDAG(ctx, dagKey, triggerMeta)`。
 - **P5 跨 root 边界违规**：`internal/module/cron` 直接调 `cmd/mcp-orch/orchestration` 会被 `internal/archtest/dependency_direction_mcp_orch_test.go:49-53` 拦截。✅ 已修正：改为 cron 模块定义 `TriggerSink` 接口，mcp-orch 装配实现 bridge。
 - **P5 idempotency 缺失**：当前 cron run 用 UUID（`internal/module/cron/scheduler.go:318-326`），不是 deterministic `hash(cron_job_id, scheduled_at)`。✅ 已修正：在 P5 stub 写明必须 deterministic key + 唯一约束 `(job_id, scheduled_at, target_dag_key)`。
-- **migration 编号顺序冲突**：P5 (0064) 早于 P3 (0065) 但依赖 P3。✅ 已修正：P5 改 0066，0064 保留 unused。
+- **migration 编号顺序冲突**：旧草案曾把 P5 排到 0064、P3 排到 0065，且假设存在中间缓冲号；HEAD 已占用 0063/0064。✅ 已修正：P23 从当前 HEAD 下一个可用编号暂排 0065+，每个 migration PR 前重新校准。
 - **`internal/llm/light/*` 落点违反 allowlist**：P22 archtest `dependency_direction_mcp_orch_test.go:23-29` 不允许 `internal/llm`。✅ 已修正：改为 `cmd/mcp-orch/orchestration/llm/light/*`（只服务 DAG arbiter，未来其它模块需要再升级到 `internal/platform/llm/light`）。
 
 未修正的关键缺口（合规保障依赖项，需阶段 0 之前补）：
 
 - **CI workflow 不存在**：仓库无 `.github/workflows/`。P23 的 archtest gate 当前只能跑本地 `make guard` + `go test ./internal/archtest/...`。要么先建 CI workflow，要么 fallback 到 pre-commit + 本地强制 + PR 模板贴本地输出。详见 [`COMPLIANCE_GATES.md`](COMPLIANCE_GATES.md)。
-- **runtime metrics / alert 链路缺失**：仓库只有 `internal/platform/metrics/metrics.go` 的 counter 声明，没有 promhttp exporter / alert 链路。P9 SLO + P11 budget alert + P6 audit fail alert 都依赖此能力——必须先补 promhttp + 统一日志告警 sink，或这些 SLO/alert 暂时降级为 scheduled audit + log only。
+- **旁支 Low：根 README conflict marker**：若根 `README.md` 存在冲突标记，只记录为 P23 外旁支 Low 风险；本修订不改根 README，也不把它纳入 P23 gate blocker。
+- **runtime metrics / alert 链路缺失**：仓库只有 `internal/platform/metrics/metrics.go` 的 counter 声明，没有 promhttp exporter / alert 链路。P9 SLO + P11 budget alert + P6 audit fail alert 都依赖此能力——P7 开工前必须补 promhttp `/metrics` exporter，或落地可核验 scheduled-audit fallback（固定命令、输入源、输出 artifact、频率、失败退出码、owner）；否则 P7–P13 freeze。
 - **P9 hook worker pool 是 P21 Observation Contract 级重构**：terminal precedence / 归因不能变（README §"core ↔ orch 事件链路"+ P21 Canonical Turn Observation Contract）。owner 启动前必须读 P21 Observation Contract。
 
 ### 与后段子任务（P7 / P8 / P9 / P10 / P11 / P12 / P13）的耦合风险（必须先冻结）
@@ -285,7 +286,7 @@ P13 financial swarm preset ─► P12  # 仅金融 unanimous swarm preset hard d
 
 ## 未来扩展边界 / 不可纳入本期
 
-基于 2026-04-25 五路 gap 调研（`gap-liveness` / `gap-verify` / `gap-scale` / `gap-synth` / `gap-arbiter`，详见 [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md)），下列三类能力**明确不在 P23 范围内**，由 P23 后段子任务（P7 / P8 / P9）承接。这是 P23「不变成 mega-plan」的硬边界。
+基于 2026-04-25 五路 gap 调研（`gap-liveness` / `gap-verify` / `gap-scale` / `gap-synth` / `gap-arbiter`，详见 [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md)），下列三类能力**不由 P0–P6 前段实现**，但仍属于 P23 后段子任务（P7 / P8 / P9）承接范围。这是 P23「前段不变成 mega-plan、后段显式排队」的硬边界。
 
 ### P7 心跳式节点活性监控（Liveness Probe）
 
@@ -383,7 +384,7 @@ P7 / P8 / P9 / P11 / P12 / P13 六者**不能各自独立设计**，必须共享
 2. 活性扫描必须分片 + lease jitter，不允许 N=1000 形成 DB 周期性尖峰（P7 + P9）
 3. verifier launch 共用 launcher 全局 quota，不另起独立 quota（P8 + P9）
 4. P8 方案 C arbiter 调用必须有 batch 聚合 + 失败终态 `verdict_lost`（**不**自动降级 B），避免千次 LLM 调用打爆 LLM 服务且保持"降级 B 必须显式 opt-in"语义（P8 + P9）
-5. P7 / P8 / P9 / P10 / P11 / P12 / P13 任何 PR 不允许修改 P23 主 `status` 枚举；新增状态必须走独立列（如 `verify_phase` / `activity_state` / `growth_phase`），保持 P23 CAS 形状不变（注：P8 加 `verdict_lost` 是 status 枚举扩展，由 P8 在 `0067_dag_verify_phase.sql` 内合规扩 CHECK 约束；P11 不加 status 枚举，只加 DAG 级 `growth_capped` 标志；P12 不引入新主枚举；P13 使用独立 `output_validation_phase`，invalid 不进入 P8 `verify_phase`，且不扩主 `status` 枚举）
+5. P7 / P8 / P9 / P10 / P11 / P12 / P13 任何 PR 不允许修改 P23 主 `status` 枚举；新增状态必须走独立列（如 `verify_phase` / `activity_state` / `growth_phase`），保持 P23 CAS 形状不变（注：P8 加 `verdict_lost` 是 status 枚举扩展，由 P8 在 `0068_dag_verify_phase.sql` 内合规扩 CHECK 约束；P11 不加 status 枚举，只加 DAG 级 `growth_capped` 标志；P12 不引入新主枚举；P13 使用独立 `output_validation_phase`，invalid 不进入 P8 `verify_phase`，且不扩主 `status` 枚举）
 6. P11 spawn 入口必须经 `SpawnChildNodes` 服务函数 + growth_budget 硬约束；不允许任何代码绕路直接 INSERT `task_dag_nodes`。archtest 守。
 7. P13 output_schema 验证发生在 P8 verify gate **之前**（语法层先于语义层）；invalid 直接走 repair / fail，**不**进 verify_phase 流程。
 8. P12 swarm 调用必须共用 P9 全局 token bucket（与 P8 单 arbiter 同一通道），不另起独立 LLM quota；archtest 守。

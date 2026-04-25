@@ -20,13 +20,6 @@ func planDeltaHandler(svc Service, onUpdated func(string)) func(turndto.PlanDelt
 		}
 		agentID, turnID := strings.TrimSpace(ev.AgentID), strings.TrimSpace(ev.TurnID)
 		id := timelineID("plan", turnID)
-		
-		pkglogger.Warn("timeline: plan delta processing", 
-			"thread_id", threadID, 
-			"agent_id", agentID,
-			"turn_id", turnID, 
-			"ts", ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"), 
-			"text_preview", previewText(text))
 
 		if svc.UpdateByCallID(threadID, agentID, id, func(it *Item) {
 			if !strings.Contains(it.Text, text) {
@@ -55,13 +48,6 @@ func planUpdatedHandler(svc Service, onUpdated func(string)) func(turndto.PlanUp
 		}
 		agentID, turnID := strings.TrimSpace(ev.AgentID), strings.TrimSpace(ev.TurnID)
 		id := timelineID("plan", turnID)
-
-		pkglogger.Warn("timeline: plan updated processing", 
-			"thread_id", threadID, 
-			"agent_id", agentID,
-			"turn_id", turnID, 
-			"ts", ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"), 
-			"text_preview", previewText(text))
 
 		if svc.UpdateByCallID(threadID, agentID, id, func(it *Item) { it.Text = text }) {
 			if onUpdated != nil {

@@ -59,10 +59,22 @@ hook consumer 接收 `TurnCompleted` → 做 bounded parse / payload size cap / 
 5. invalid + `on_invalid=fail` → 主 `status=failed`，`result.error` 只记录 redacted validation error
 6. 超 `max_repair_rounds` → `failed`
 
+### Canonical schema algorithm（冻结）
+
+P13 canonical hash 固定采用 RFC 8785 JSON Canonicalization Scheme (JCS)，不得写“或等价规范”留自由度。算法顺序固定：
+1. 仅接受 JSON Schema draft 2020-12 的 JSON object；拒绝非 object schema。
+2. 在 schema registry 内解析本 DAG/template 允许的 internal `$ref`（`#/$defs/...`）；禁止 remote `$ref`、HTTP/file `$ref`、循环 `$ref`。解析失败 hard fail。
+3. 合并 DAG `output_schema_defaults` 与 node `output_schema`；defaults 只允许填充缺失字段，不得覆盖 node 显式字段。
+4. 对所有 `type: object` 递归注入 `additionalProperties:false`，除非该 object 显式设置 `additionalProperties` 或 `unevaluatedProperties`；若两者同时出现，按 JSON Schema 2020-12 语义校验但 hash 保留原字段。
+5. 删除非语义 UI helper 字段（只允许白名单，如 `x-ui-*`）前必须记录 `schema_version`；不得删除 validation keyword。
+6. 用 RFC 8785 JCS 排序/数字/字符串规则 canonicalize，`schema_hash = sha256(canonical_bytes)`。
+
+边界：`default` 是 annotation，不在 runtime validation 时自动改写输出；`$ref` 解析只发生在 schema canonicalization/compile 阶段；`additionalProperties:false` 的递归注入只影响 object schema，不影响 map-like schema 显式 opt-out。
+
 ### Provider 适配
 
 需要 owner 调研 + 实现：
-- **codex**：`internal/dto/provider/turn.go` 已有 `OutputSchema` 形态，但 app-server 是否 hard guarantee 必须由 owner 实测，不得在 P13 文档中承诺 provider 级强保证。
+- **codex**：`internal/dto/provider/turn.go` 已有 `OutputSchema` 形态；当前只能视为 pass-through / prompt hint / provider optimization，**不是 runtime hard guarantee**。即使 provider 声称 structured output，P13 合规仍以本地 runtime validate + audit 为准。
 - **claude**：当前 claudecli 只能把 schema 拼进 prompt；tool use 强制结构化需另行实现，不得视为已具备。
 - **最终合规保证**：provider native structured output 只作为优化；runtime validate + audit 才是 P13 hard guarantee。
 
@@ -87,12 +99,12 @@ P10 模板库提供"金融场景预设"：
 | agent turn provider output schema 适配 | provider / launcher turn 请求路径（owner 开工前按当前 provider 代码事实补精确文件） | 将 `nodes[].output_schema` 传入 agent turn；provider native structured output 只作优化，不是 hard guarantee |
 | arbiter light JSON mode 适配 | `cmd/mcp-orch/orchestration/llm/light/codex_json_mode.go` [扩展] + `cmd/mcp-orch/orchestration/llm/light/claude_tool_mode.go` [扩展] | 仅服务 P8/P12 arbiter 的结构化 verdict 输出；不得替代 agent final answer runtime validate |
 | state machine | `task_dag_nodes` schema 扩展 | 新增独立 `output_validation_phase`（或等价独立列）；output_validation 失败不得把 `repairing` 写入主 `status`，主 `status` 只在最终 fail/done 时变更 |
-| 审计 | `0072_dag_output_validation.sql` [NEW]（编号校准） | `dag_output_validations` 表：node_key, schema_hash/version/draft, valid, error_path, hash-chain, validated_at；索引拆 no-transaction migration |
+| 审计 | `0073_dag_output_validation.sql` [NEW]（编号校准） | `dag_output_validations` 表：node_key, schema_hash/version/draft, valid, error_path, hash-chain, validated_at；索引拆 no-transaction migration |
 | archtest | `internal/archtest/dag_output_validation_test.go` [NEW] | output_validator 必须经统一入口；不绕路 |
 
 ## DDL / SQL
 
-**`0072_dag_output_validation.sql`** 草案：
+**`0073_dag_output_validation.sql`** 草案：
 
 ```sql
 ALTER TABLE public.task_dag_nodes ADD COLUMN output_validation_phase TEXT NOT NULL DEFAULT '';
@@ -125,7 +137,7 @@ CREATE TABLE IF NOT EXISTS public.dag_output_validations (
 );
 ```
 
-**`0072_dag_output_validation_index_no_tx.sql`**（no-transaction，禁止 `BEGIN/COMMIT`）：
+**`0073_dag_output_validation_index_no_tx.sql`**（no-transaction，禁止 `BEGIN/COMMIT`）：
 
 ```sql
 CREATE INDEX CONCURRENTLY idx_dag_output_validations_dag_node
@@ -188,7 +200,7 @@ CREATE INDEX CONCURRENTLY idx_dag_output_validations_invalid
 
 ## 金融 JSON 审计硬化契约（需求补全仲裁）
 
-`dag_output_validations` 必须补：`schema_version`、`schema_draft`、`schema_hash_alg`、`prev_hash`、`row_hash`、`hash_alg`、`chain_scope`。`schema_hash` 采用 P23 canonical JSON（JCS/RFC8785 或 owner 在 PR 中冻结的等价稳定规范）：先完成 defaults 注入、继承合并、递归 `additionalProperties=false` transform 与 `$ref` 解析边界，再稳定排序计算；validation row 必须同时记录 hash + version + draft。
+`dag_output_validations` 必须补：`schema_version`、`schema_draft`、`schema_hash_alg`、`prev_hash`、`row_hash`、`hash_alg`、`chain_scope`。`schema_hash` 采用 RFC 8785 JCS canonical JSON：先按本文 “Canonical schema algorithm（冻结）” 完成 internal `$ref` 解析、defaults 缺省合并、递归 `additionalProperties=false` transform，再用 JCS 计算 canonical bytes + sha256；validation row 必须同时记录 hash + version + draft。
 
 金融 preset 默认 strict parse：拒绝 markdown wrapper、json5、jsonpath 容错；非金融可 opt-in strip/lenient。`additionalProperties=false` 默认对所有 object 递归生效，除非 schema 显式 opt-out。
 

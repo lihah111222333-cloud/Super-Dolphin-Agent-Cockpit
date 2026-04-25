@@ -45,7 +45,7 @@
 - DAG 创建是 upsert：`cmd/mcp-orch/orchestration/dag.go:109-131`；每次创建相当于"新实例"，无"基于模板实例化"路径
 - 无 DAG 编辑专用 RPC：当前只能 `task_create_dag` 整体 upsert（覆盖）+ `task_update_node` 改 node status/result（`cmd/mcp-orch/tools/task_tools.go:84-91`）；不能只改 node 的 prompt / depends_on / verify spec
 - node UpsertNode 会覆盖整 node：`cmd/mcp-orch/sql/queries/task_dag_node_write.sql:1-12`
-- UI 框架基础：Wails 桌面应用 + WS（`internal/ui/wails/http_server.go:15,39-46`）；当前前端 DAG 列表使用通用 `DataPage`，但 `DataPage` 未 emit `select`，`DagDetailModal` 仍是占位；P10 owner 必须先接通 `dashboard/dagDetail`。
+- UI 框架基础：Wails 桌面应用 + WS（`internal/ui/wails/http_server.go:15,39-46`），但真实前端主要在 `cmd/agent-terminal/frontend/vue-app/*`；Wails 只处理 bridge/transport。当前前端 DAG 列表使用通用 `DataPage`，但 `DataPage` 未 emit `select`，`DagDetailModal` 仍是占位；P10 owner 必须先接通 `dashboard/dagDetail`。
 - 拓扑可视化：`mermaid` 依赖已存在，但当前**无** DAG 专用 renderer / graphviz / d3 组件占位
 
 ## 推荐架构
@@ -84,19 +84,24 @@
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| DDL | `0069_dag_templates.sql` [NEW]（编号校准） | `dag_templates` 表 + `task_dags.template_key/template_version/schema_hash` 列 + `dag_template_revisions`（版本历史） |
+| DDL | `0070_dag_templates.sql` [NEW]（编号校准） | `dag_templates` 表 + `task_dags.template_key/template_version/schema_hash` 列 + `dag_template_revisions`（版本历史） |
 | 模板 store | `cmd/mcp-orch/store/dagtemplate/*.go` [NEW] | CRUD + 版本管理 |
 | 模板 service | `cmd/mcp-orch/orchestration/template_service.go` [NEW] | 模板 → DAG 实例化（拷贝 snapshot）+ 参数渲染 |
 | 模板 RPC | `cmd/mcp-orch/orchestration/rpc.go`（扩展） | `dag/template/*` + `dag/instantiate` + `dag/edit_node` + `dag/edit_dag` |
 | 编辑权限 fence | `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql`（扩展） | CAS：`UPDATE ... WHERE status='pending'` 拒绝跳态写入 |
-| UI 模板库 tab | Wails bridge `internal/ui/wails/dag/templates_page.go` [NEW] + 真实前端目录/框架组件（owner 开工前用代码事实填写） | 列表 / 详情 / 搜索 / fork |
-| UI 任务列表 tab | `internal/ui/wails/dag/instances_page.go` [NEW] + 前端组件 | 列表 / 状态 / 关联模板 |
-| UI 编辑器 | `internal/ui/wails/dag/editor/*` [NEW] + 前端 mermaid 集成 | 拓扑可视化 + 节点表单 + 编辑权限矩阵 |
+| UI bridge/transport | `internal/ui/wails/http_server.go`、`internal/ui/wails/bridge.go`（扩展） | 只承载 Wails WS/bridge 调用与 P6 identity，不放主要页面实现 |
+| UI 模板库 tab | `cmd/agent-terminal/frontend/vue-app/*`（新增/扩展 DAG template components/store/routes） | 列表 / 详情 / 搜索 / fork；通过 Wails bridge 调 RPC |
+| UI 任务列表 tab | `cmd/agent-terminal/frontend/vue-app/*`（DAG instances components/store/routes） | 列表 / 状态 / 关联模板；接 `dashboard/dagDetail` |
+| UI 编辑器 | `cmd/agent-terminal/frontend/vue-app/*`（DAG editor + mermaid renderer） | 拓扑可视化 + 节点表单 + 编辑权限矩阵 |
 | 鉴权 | 复用 P6 `WithCallerIdentity` middleware | 模板 / 任务的 owner / tenant 鉴权 |
+
+### HEAD drift note（2026-04-25）
+
+不要再把 UI 页面落点写到 Wails 内部 dag 页面目录。当前 HEAD 的真实前端主要在 `cmd/agent-terminal/frontend/vue-app/*`；`internal/ui/wails/*` 负责 Wails bridge、HTTP/WS transport、native binding。P10 派单时按 10–15 文件拆分：前端 components/store/routes 在 vue-app，bridge/auth/transport 在 Wails，service/RPC/store 在 `cmd/mcp-orch`。
 
 ## DDL / SQL
 
-**`0069_dag_templates.sql`** 草案（编号开 PR 时校准）：
+**`0070_dag_templates.sql`** 草案（编号开 PR 时校准）：
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.dag_templates (
@@ -140,7 +145,7 @@ CREATE INDEX IF NOT EXISTS idx_dag_templates_owner_tenant
 -- 活表 task_dags 上的索引必须使用 CREATE INDEX CONCURRENTLY，放入单独 no-transaction migration
 ```
 
-**`0069_dag_template_index_no_tx.sql`**（no-transaction，禁止 `BEGIN/COMMIT`）：
+**`0070_dag_template_index_no_tx.sql`**（no-transaction，禁止 `BEGIN/COMMIT`）：
 
 ```sql
 CREATE INDEX CONCURRENTLY idx_task_dag_template

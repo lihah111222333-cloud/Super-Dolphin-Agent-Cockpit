@@ -1,0 +1,264 @@
+## 结论：BLOCK
+
+我只读审查了 `COMPLIANCE_GATES.md`、`README.md`、P0–P13 stub、`internal/archtest`、`.github/workflows` 状态、`docs/契约/*convention.md`，未修改文件。当前 **P23 archtest / CI / compliance gates 维度不能放行**：文档承认 gate 未实施，现有 archtest 也无法作为 P23 合规底座运行，CI gate 设计与仓库事实不匹配。
+
+---
+
+## High
+
+### H1. CI gate 不可落地：仓库无 workflow，且示例 Go 版本与 `go.mod` 冲突
+
+**证据**
+
+- `docs/plans/迁移/p23/COMPLIANCE_GATES.md:14` 写明当前 CI：**无** `.github/workflows/*`。
+- 实测：`.github/workflows` 不存在。
+- `docs/plans/迁移/p23/COMPLIANCE_GATES.md:86-103` 设计新建 `.github/workflows/p23-gates.yml`，其中 `setup-go` 使用 `go-version: '1.22'`。
+- `go.mod:3` 当前为 `go 1.25.7`。
+- `docs/plans/迁移/p23/COMPLIANCE_GATES.md:105` 只给 manual hard fallback，但没有仓库内 PR template / branch protection / required checks 事实支撑。
+
+**影响**
+
+即使按文档复制 workflow，也会在 Go 版本层面不可信；同时当前没有任何 GitHub CI 入口，L4 “merge 前硬拦”仍只是文档意图。
+
+**建议**
+
+- 将 workflow 的 Go 版本改为与 `go.mod:3` 一致或使用 `go-version-file: go.mod`。
+- 真正落 `.github/workflows/p23-gates.yml`。
+- 若短期走 manual fallback，需要落 PR template / reviewer checklist / required label 或等价可核验机制；否则不能声称 L4 hard gate。
+
+---
+
+### H2. 当前 `go test ./internal/archtest/... -count=1` 实测失败，archtest 不能作为 P23 gate
+
+**证据**
+
+实跑结果：
+
+```text
+go test ./internal/archtest/... -count=1
+FAIL github.com/anthropic-ai/super-agent-v3/internal/archtest [build failed]
+internal/module/uistate/timeline/projector_parity.go:12:2: "github.com/anthropic-ai/super-agent-v3/pkg/logger" imported as pkglogger and not used
+```
+
+同时：
+
+- `docs/plans/迁移/p23/COMPLIANCE_GATES.md:99` 要求 CI 跑 `go test ./internal/archtest/... -count=1 -race`。
+- `docs/plans/迁移/p23/COMPLIANCE_GATES.md:198-200` 每日自查也要求 archtest PASS。
+
+**影响**
+
+P23 依赖 L3/L4 archtest，但当前 archtest 包本身无法编译，所有 P23 hard gate 事实上不可执行。
+
+**建议**
+
+先修复当前 archtest 编译失败，再谈 P23 新增 gate。P0 前 checklist 应把“现有 archtest 全绿”列为 hard prerequisite。
+
+---
+
+### H3. P23 的 21 项 archtest 在代码中完全未落地
+
+**证据**
+
+- `docs/plans/迁移/p23/COMPLIANCE_GATES.md:56-82` 定义 21 项 P23 archtest。
+- 实测搜索 `internal/archtest` 中 `TestDAG*`：0 个匹配。
+- 例如 `COMPLIANCE_GATES.md:62` 要 `TestDAGNoLifecycleLoop`，但全仓只有文档引用，没有测试实现。
+- `docs/plans/迁移/p23/COMPLIANCE_GATES.md:3` 也承认状态是“未实施”。
+
+**影响**
+
+P23 表是完整清单，但不是可执行 gate。当前无法拦 `dag_status_cas_only`、`dag_terminal_turn_fence`、`dag_external_rpc_guard`、`dag_tenant_filter_required` 等关键风险。
+
+**建议**
+
+P0 前至少落“红绿可执行骨架”，并让不存在的目标以 `t.Fatal` / fixture 红测体现，不能只停留在文档清单。尤其先落 `COMPLIANCE_GATES.md:143` 的 P0 前 hard 集合。
+
+---
+
+### H4. 现有 `cmd/mcp-orch` allowlist 与 P23 目标冲突
+
+**证据**
+
+- `internal/archtest/dependency_direction_mcp_orch_test.go:23-29` 当前允许：
+  - `internal/store`
+  - `internal/module`
+  - 多个 `internal/platform/*`
+- `docs/plans/迁移/p23/P0_DAGRuntimeSkeleton.md:70` 明确要求收紧，不得继续宽泛放行 `internal/store` / `internal/module`。
+- `docs/plans/迁移/p23/COMPLIANCE_GATES.md:137` 也指出 `dag_mcp_orch_dependency_allowlist_tight` 要防止宽泛 `internal/store` / `internal/module` 绕过 P22 modularity 名录。
+- `docs/契约/modularity-convention.md:88` 对 `cmd/mcp-orch` 终态共享边界更窄：本地自持 runtime / store / sqlc / manifest / stdio server，只共享 config/db/contract/dto。
+
+**影响**
+
+P5 文档要求 `cmd/mcp-orch` 不直接 import `internal/module/cron` concrete，但现有 allowlist 仍允许 `internal/module` 整体，无法阻止 concrete import 漂移。P8 的 `internal/llm/light` 错误落点虽已在文档修正，但当前 allowlist 仍不足以作为 P23 防线。
+
+**建议**
+
+在 P0 前新增/收紧 `dag_mcp_orch_dependency_allowlist_tight`，至少把 `internal/module`、宽泛 `internal/store` 从通配 allowlist 拆成明确子包/接口边界，并为 P5 cron bridge 加专门反向/正向 import 守卫。
+
+---
+
+### H5. “COMPLIANCE_GATES 唯一权威”口径仍不干净
+
+**证据**
+
+- `docs/plans/迁移/p23/COMPLIANCE_GATES.md:4` 写 authoritative 是“本文件 + README + RESEARCH_VERDICT”。
+- `docs/plans/迁移/p23/README.md:4` 写“当前 authoritative 文档：README.md”。
+- P0–P13 stub 均类似写“authoritative：本文件 + README + RESEARCH_VERDICT”，例如 `P0_DAGRuntimeSkeleton.md:4`、`P6_ExternalRPCTriggerSurface.md:4`、`P13_StrictJSONOutput.md:4`。
+- 但 `COMPLIANCE_GATES.md:58` 又说 21 项 archtest 表是唯一权威清单，`README.md:231` 也说 README 不维护第二张完整执行表。
+
+**影响**
+
+“21 项 archtest 清单”在 README 中基本指向 COMPLIANCE 是清楚的；但“gate 体系 / authoritative 文档”不是唯一来源。审查、CI、owner 可能在 README / stub / RESEARCH_VERDICT 之间挑选口径。
+
+**建议**
+
+明确分层：
+
+- `COMPLIANCE_GATES.md`：唯一 gate / archtest / hard-soft / CI 权威。
+- `README.md`：架构总览，只引用不定义 gate。
+- P0–P13 stub：实现计划，只能引用 COMPLIANCE gate key，不能自称 gate authoritative。
+
+---
+
+## Medium
+
+### M1. 21 项 archtest 的 key / 函数名清楚，但阶段和 Hard/Soft 不够逐项清楚
+
+**证据**
+
+- `COMPLIANCE_GATES.md:60-82` 表有 key、测试函数、落点、违规说明。
+- `COMPLIANCE_GATES.md:139-145` 另有“分阶段 hard 策略”。
+- 但 21 项表本身没有 `introduced_in`、`hard_from`、`soft_until`、`owner_subtask` 列。
+- `COMPLIANCE_GATES.md:35-52` 的 H/S/R 矩阵按子任务 × L1–L7，不按 archtest key。
+
+**影响**
+
+单看某个 key，例如 `dag_actor_no_fire_and_forget` 或 `dag_template_no_cmd_import`，无法直接判断 P0/P6/P9 前是 soft、record 还是 hard。执行者需要跨表推断，容易误读。
+
+**建议**
+
+在 21 项表增加列：
+
+- `owner subtask`
+- `introduced by`
+- `hard from`
+- `pre-hard behavior: S/R`
+- `CI required from`
+
+这样每一项都能独立审查。
+
+---
+
+### M2. README 摘要与 21 项表没有明显直接冲突，但摘要压缩后遗漏风险较高
+
+**证据**
+
+- `README.md:229-233` 明确 README 只摘要，唯一清单在 COMPLIANCE。
+- `README.md:232` 摘要覆盖多个主题，但把 runtime ownership 压缩成一项，隐含覆盖 `dag_watcher_no_lifecycle_loop` / `dag_runner_actors_present` / `dag_actor_no_fire_and_forget`。
+- `COMPLIANCE_GATES.md:62-82` 是 21 项完整表。
+
+**影响**
+
+目前不是硬冲突，但 README 摘要太自然语言化，不能从摘要反推出 21 项是否全部覆盖；后续容易出现“README 摘要已覆盖”但漏掉某 key 的误判。
+
+**建议**
+
+README 只保留一句引用和 3–5 个风险类别，不列半完整摘要；或在摘要后明确“非完整列表，不得用于执行”。
+
+---
+
+### M3. L4 CI 示例命令强，但本地 `make guard` 本身不是全 archtest
+
+**证据**
+
+- `COMPLIANCE_GATES.md:13` 写 `make guard` “不等于全 archtest”。
+- `Makefile:120-121` 的 `guard` 只调用 `scripts/test_with_guard.sh --guard-only`。
+- `scripts/test_with_guard.sh:42-49` 的 guard 只跑 raw go test guard、code size guard、`TestCodeSizeGuard`。
+- L4 示例在 `COMPLIANCE_GATES.md:98-102` 又补了完整 archtest、ci-l1、sqlc、integration。
+
+**影响**
+
+CI 示例本身包含完整 archtest，问题不在设计；但 manual fallback / 日常执行如果只看 `make guard`，会漏掉绝大多数 archtest。
+
+**建议**
+
+把“P23 必须跑 `go test ./internal/archtest/... -count=1`”提升到所有 fallback / PR template / daily checklist 的第一屏，并避免用 `make guard` 作为简称替代。
+
+---
+
+### M4. runtime alert / metrics gate 仍是不可执行设计，L6 覆盖实际为空
+
+**证据**
+
+- `COMPLIANCE_GATES.md:107-124` 定义大量 runtime alert 条件。
+- `internal/platform/metrics/metrics.go:1-7` 明确只是默认 gatherer 注册 counter，`/metrics` endpoint 是 “when / if mounted”。
+- 实测全仓 `promhttp` 无 Go 代码匹配。
+- `COMPLIANCE_GATES.md:124` 也承认当前没有 promhttp exporter。
+
+**影响**
+
+P7–P13 的 hard runtime alert 实际没有执行路径，只能靠文档 fallback。尤其 P9/P11/P12/P13 的成本、lag、budget 风险无法自动拦。
+
+**建议**
+
+P0 前把 exporter/fallback 决策转成可执行 artifact：脚本、输入源、退出码、owner。P7 前必须有 `/metrics` 或可执行 scheduled audit，否则后段 BLOCK。
+
+---
+
+## Low
+
+### L1. COMPLIANCE runtime alert 表有重复指标行
+
+**证据**
+
+- `COMPLIANCE_GATES.md:115` 单独列 `dag_observe_lost_total`。
+- `COMPLIANCE_GATES.md:121` 又列 `dag_observe_lost_total / dag_verdict_lost_total`。
+
+**影响**
+
+小问题，但会让 owner 不清楚报警定义以哪一行为准。
+
+**建议**
+
+合并为一行，或拆成 observe/verdict 两行，避免重复阈值定义。
+
+---
+
+### L2. P0–P13 stub 多处仍写“待 owner 补全”，与 hard gate 冻结目标有张力
+
+**证据**
+
+- 多个 stub 的改动清单仍是 `_待补_`，例如 `P0_DAGRuntimeSkeleton.md:23-27`、`P6_ExternalRPCTriggerSurface.md:24-28`、`P9_ScaleScheduling.md:29-33`。
+- 同时 COMPLIANCE 要 P0 前冻结 L1/L3/L4：`COMPLIANCE_GATES.md:31`、`COMPLIANCE_GATES.md:243`。
+
+**影响**
+
+作为 stub 可接受；但如果作为 P0 前 gate 冻结输入，仍不足以让 reviewer 逐项判定。
+
+**建议**
+
+P0 前至少补齐每个 hard gate 的 owner、目标文件、测试函数、失败样例，不要求完整实现，但要可审。
+
+---
+
+## 覆盖空洞汇总
+
+1. **P23 21 项 archtest 未实现**：`internal/archtest` 中无 `TestDAG*`。
+2. **CI 空洞**：无 `.github/workflows`，无可执行 L4。
+3. **allowlist 空洞**：`cmd/mcp-orch` 仍可宽泛依赖 `internal/module` / `internal/store`。
+4. **metrics 空洞**：无 promhttp/exporter，L6 只能文档化。
+5. **manual fallback 空洞**：文档要求 PR 贴输出，但仓库无 PR template / 自动检查事实。
+6. **Hard/Soft 映射空洞**：21 项表未逐项标明 hard-from / soft-until。
+
+---
+
+## 最终判定
+
+**BLOCK**
+
+必须先完成：
+
+1. 修复当前 archtest 编译失败。
+2. 落 `.github/workflows/p23-gates.yml` 或可核验 manual hard fallback。
+3. 实现 P0 前 hard archtest 骨架。
+4. 收紧 `cmd/mcp-orch` dependency allowlist。
+5. 把 COMPLIANCE_GATES 明确为唯一 gate 权威，并补 21 项逐项阶段 / Hard-Soft 列。

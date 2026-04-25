@@ -18,27 +18,37 @@
 
 ## 推荐架构
 
-> 待 owner 在开工前补全；约束以 [`README.md`](README.md) §"当前基线约束" / §"默认值安全原则" / §"收口口径" 为准。
+所有触发源只允许进入 `cmd/mcp-orch/orchestration/dag_start.go:StartDAG(ctx, dagKey, triggerMeta)`。`triggerMeta.caller_identity` 必须由 authenticated context 注入（P6 transport adapter / P4 MCP context / P5 cron job owner row），不得从 client-supplied `agent_id`、display name、`created_by` 或 `target_dag_trigger_meta` 推导。`agent_id` 参数只作为 legacy/display/assigned-agent hint，可用于审计展示或兼容 `CreatedBy` 文案，**不可**作为 owner/tenant/AuthZ 来源。
+
+`StartDAG` 首步读取 `CallerIdentityFromContext(ctx)`；缺失、未认证、tenant 未授权或 scope 不匹配时 hard fail `ErrCallerIdentityRequired` / `ErrTenantUnauthorized`，并写失败 audit（若 audit 主表不可写则按 P6 fail-closed/spool）。鉴权通过后再执行 idempotency、状态 CAS、wakeup enqueue。
+
+Start idempotency 使用统一表 `dag_start_requests`（或名称等价但字段/约束等价）：唯一 scope 为 `(tenant_id, dag_key, trigger_source, trigger_instance_key)`；同 key 同 `params_hash` 返回已有结果，不同 hash 返回 conflict。`trigger_source ∈ {manual, auto, cron, external, host}`；`trigger_instance_key` 由触发源确定（manual/UI request id、host tool call id、cron tick deterministic key、external idempotency key）。
 
 ## 改动清单
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| _待补_ | _待补_ | _待补_ |
+| StartDAG service | `cmd/mcp-orch/orchestration/dag_start.go` [NEW] | `StartDAG(ctx, dagKey, triggerMeta)`；从 ctx 取 authenticated caller；执行 AuthZ、idempotency、CAS、wakeup enqueue、audit |
+| RPC registration | `cmd/mcp-orch/orchestration/rpc.go`（扩展） | 注册 `dag/start`；handler 只解析参数并调用 StartDAG，不接受 params 内 owner/tenant 覆盖 |
+| caller context | `cmd/mcp-orch/orchestration/auth_context.go` [NEW] | `CallerIdentity` / `CallerIdentityFromContext` / hard-fail helper；`agent_id` 仅 legacy/display |
+| owner/tenant store | `cmd/mcp-orch/store/taskdag/*.go` + SQL queries | 读取 DAG owner/tenant/scope 并做 Start AuthZ；双写/迁移 `created_by → owner_id` |
+| idempotency store | `cmd/mcp-orch/store/dagstart/*.go` [NEW] + `0066_dag_owner_tenant.sql` | `dag_start_requests` CRUD：reserve/complete/fail/conflict |
+| audit | `cmd/mcp-orch/store/dagaudit/*.go` 或 P6 audit store | 记录 StartDAG 成功/失败、caller、params_hash、result_code、latency |
 
 **已知关键改动方向**：
 - 新增 `dag/start` RPC method（在 `cmd/mcp-orch/orchestration/rpc.go` 注册）→ 调 `StartDAG`
 - 共享入口 `cmd/mcp-orch/orchestration/dag_start.go` 的 `StartDAG(ctx, dagKey, triggerMeta)`：所有触发源汇流，包含鉴权 + idempotency；**新建文件不膨胀 `dag.go`**
-- `0065_dag_owner_tenant.sql`：加 `owner_id / tenant_id / scope`，迁移 `created_by`
+- `0066_dag_owner_tenant.sql`：加 `owner_id / tenant_id / scope`，迁移 `created_by`
 - `trigger_meta.caller_identity` 写进 `dag.last_trigger_at` + `dag.last_trigger_by`
-- trigger 枚举落地：`schedule.trigger ∈ {manual, auto, cron, external}` schema 强校验
+- trigger 枚举落地：`schedule.trigger ∈ {manual, auto, cron, external, host}` schema 强校验
 
 ## DDL / SQL
 
-**0065_dag_owner_tenant.sql** 草案：
+**0066_dag_owner_tenant.sql** 草案：
 - `task_dags` 加 `owner_id TEXT NOT NULL DEFAULT ''`、`tenant_id TEXT NOT NULL DEFAULT ''`、`scope TEXT NOT NULL DEFAULT ''`
-- 历史 `created_by` 同步迁移到 `owner_id`（兼容期保留 `created_by` 列）
+- 历史 `created_by` 同步迁移到 `owner_id`（兼容期保留 `created_by` 列；不得把未来请求的 `agent_id` 当授权 owner）
 - `task_dags` 加 `last_trigger_at TIMESTAMPTZ`、`last_trigger_by TEXT NOT NULL DEFAULT ''`
+- 新增 `dag_start_requests`：`request_id TEXT PRIMARY KEY`、`tenant_id TEXT NOT NULL`、`dag_key TEXT NOT NULL`、`trigger_source TEXT NOT NULL CHECK (trigger_source IN ('manual','auto','cron','external','host'))`、`trigger_instance_key TEXT NOT NULL`、`params_hash TEXT NOT NULL`、`caller_id TEXT NOT NULL`、`status TEXT NOT NULL CHECK (status IN ('reserved','started','conflict','failed'))`、`result JSONB NOT NULL DEFAULT '{}'::jsonb`、`created_at/updated_at TIMESTAMPTZ`、`UNIQUE (tenant_id, dag_key, trigger_source, trigger_instance_key)`
 
 ## 依赖
 
