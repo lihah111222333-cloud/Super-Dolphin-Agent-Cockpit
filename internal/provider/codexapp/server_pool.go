@@ -37,8 +37,10 @@ type PoolConfig struct {
 	// entry; if nothing is evictable it returns ErrPoolExhausted so
 	// callers surface the pressure instead of silently queueing.
 	Capacity int
-	// IdleTimeout is the duration after which an unused entry becomes
-	// eligible for eviction. Defaults to DefaultPoolIdleTimeout.
+	// IdleTimeout is the duration after which an unused non-session entry
+	// becomes eligible for eviction. Session-owned servers are closed as soon
+	// as their last release runs so archived agents reclaim app-server, MCP,
+	// and LSP child processes immediately.
 	IdleTimeout time.Duration
 	// SpawnBackoff is the cooldown applied after a spawn failure: the
 	// same codexHome re-requested within this window returns the
@@ -75,6 +77,10 @@ var (
 //     ErrPoolExhausted. Clients should treat that as a fail-fast
 //     rather than block, because unbounded queueing hides real
 //     capacity mismatches.
+//   - Release decrements the entry refCount. When the last session
+//     releases a server, the entry is removed and the owned process group is
+//     closed; Codex MCP/LSP sidecars inherit that group and are reclaimed with
+//     the app-server.
 //   - Spawn failures stamp the codexHome with a backoff window so
 //     rapid retries don't thrash the underlying child-process
 //     machinery; the cached error is returned until SpawnBackoff
@@ -268,21 +274,33 @@ func (p *ServerPool) storeSpawnedLocked(entry *poolEntry, home, key, provider st
 	entry.lastUsed = now
 }
 
-// releaser returns the per-home release callback used by Acquire. The
-// callback is idempotent only on the "already released" branch: the
-// pool clamps refCount at zero so an extra call is a no-op metric.
+// releaser returns the per-home release callback used by Acquire. When the
+// final session releases an entry we remove it immediately and close the
+// app-server process group. That makes archive/trash reclaim the app-server
+// and its MCP/LSP sidecars without waiting for the periodic idle runner.
+// The callback is idempotent on the "already released" branch: an extra call
+// after deletion is a no-op.
 func (p *ServerPool) releaser(home string) func() {
 	return func() {
+		var server SpawnedServer
 		p.mu.Lock()
-		defer p.mu.Unlock()
 		entry := p.entries[home]
 		if entry == nil {
+			p.mu.Unlock()
 			return
 		}
 		if entry.refCount > 0 {
 			entry.refCount--
 		}
 		entry.lastUsed = p.now()
+		if entry.refCount == 0 && entry.server != nil {
+			server = entry.server
+			delete(p.entries, home)
+		}
+		p.mu.Unlock()
+		if server != nil {
+			closeWithTimeout(server, 2*time.Second, p.logger, home)
+		}
 	}
 }
 

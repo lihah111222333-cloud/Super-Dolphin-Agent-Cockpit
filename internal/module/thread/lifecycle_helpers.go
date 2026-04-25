@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,11 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+)
+
+const (
+	defaultCodexInstanceKey   = "default"
+	defaultCodexModelProvider = "openai"
 )
 
 // runScratchpadCleanup is the shared `defer` target used by Start / SpawnIfNeeded
@@ -98,6 +104,40 @@ func (s *service) injectParentCodexIdentityForStart(ctx context.Context, req Sta
 			"parent_has_codex_model_provider", strings.TrimSpace(parentBinding.CodexModelProvider) != "")
 	}
 	return req
+}
+
+func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) StartRequest {
+	if strings.TrimSpace(req.Provider) != "codex" || startConfigHasCodexIdentity(req.Config) {
+		return req
+	}
+	home, err := defaultCodexHome()
+	if err != nil {
+		if s != nil && s.logger != nil {
+			s.logger.Warn("thread: default codex identity skipped",
+				"agent_id", req.AgentID,
+				"error", err)
+		}
+		return req
+	}
+	if req.Config == nil {
+		req.Config = make(map[string]any)
+	}
+	req.Config["codexHome"] = home
+	req.Config["codexInstanceKey"] = defaultCodexInstanceKey
+	req.Config["codexModelProvider"] = defaultCodexModelProvider
+	return req
+}
+
+func defaultCodexHome() (string, error) {
+	raw := strings.TrimSpace(os.Getenv("CODEX_HOME"))
+	if raw == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user home: %w", err)
+		}
+		raw = filepath.Join(home, ".codex")
+	}
+	return providershared.CanonicalizeCodexHome(raw)
 }
 
 func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding) (map[string]any, bool) {

@@ -103,6 +103,43 @@ func sigkillAppServerSurvivors(sigtermed []appServerProcessInfo, allProcs map[in
 	return killed
 }
 
+func snapshotProcessDescendants(rootPID int) map[int]struct{} {
+	if rootPID <= 1 {
+		return nil
+	}
+	allProcs, _ := discoverAppServerProcesses()
+	if len(allProcs) == 0 {
+		return nil
+	}
+	tree := buildProcessTree(rootPID, allProcs)
+	delete(tree, rootPID)
+	if len(tree) == 0 {
+		return nil
+	}
+	return tree
+}
+
+func killProcessDescendants(rootPID int, descendants map[int]struct{}) int {
+	if rootPID <= 1 || len(descendants) == 0 {
+		return 0
+	}
+	killed := 0
+	for descPID := range descendants {
+		if descPID <= 1 || !isProcessAlive(descPID) {
+			continue
+		}
+		if err := killMCPProcess(descPID); err != nil {
+			pkglogger.Warn("codexapp: kill descendant failed",
+				"parent_pid", rootPID, "descendant_pid", descPID, "error", err)
+			continue
+		}
+		pkglogger.Info("codexapp: killed app-server descendant",
+			"parent_pid", rootPID, "descendant_pid", descPID)
+		killed++
+	}
+	return killed
+}
+
 // killDescendants kills remaining descendant processes of an app-server
 // (mcp-server-postgres, exa-mcp-server, etc.) that survived the parent shutdown.
 func killDescendants(proc appServerProcessInfo, allProcs map[int]int) int {

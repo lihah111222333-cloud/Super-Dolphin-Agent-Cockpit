@@ -47,10 +47,10 @@ type session struct {
 	runtimeConfig      map[string]any
 	// poolRelease is set when the session was acquired from the P21
 	// ServerPool (multi-provider Codex path). It decrements the entry's
-	// refCount so LRU eviction sees the session end; nil for
-	// ServerManager-backed sessions.
-	poolRelease        func()
-	poolReleaseOnce    sync.Once
+	// refCount and closes the app-server process group when this was the last
+	// session; nil for ServerManager-backed sessions.
+	poolRelease     func()
+	poolReleaseOnce sync.Once
 	// runtime is the session-private RunnerModule owner introduced by P22
 	// P1c. It replaces the implicit reader / health / recovery goroutines
 	// newSession() used to start. driver.StartSession / ResumeSession call
@@ -372,8 +372,8 @@ func (s *session) SessionRuntime() *SessionRuntime { return s.runtime }
 
 // shutdownSessionCleanup handles cleanup when a session shuts down.
 // Currently its single job is to return a pool-backed session to the
-// ServerPool so the entry becomes evictable. Idempotent so concurrent
-// Close + ForceStop can't double-release.
+// ServerPool so the app-server can be reclaimed when this was the last
+// session. Idempotent so concurrent Close + ForceStop can't double-release.
 func (s *session) shutdownSessionCleanup() {
 	if s == nil {
 		return

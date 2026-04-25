@@ -88,6 +88,7 @@ func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (St
 		return req, "", err
 	}
 	req = s.injectParentCodexIdentityForStart(ctx, req)
+	req = s.injectDefaultCodexIdentityForStart(req)
 	// Collision-safe agent ID: only apply when the caller didn't provide
 	// an explicit ID. For child agents derive a sequential suffix from
 	// the parent; for root agents verify uniqueness and retry.

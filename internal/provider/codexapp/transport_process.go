@@ -76,6 +76,13 @@ func (p *localProcess) running() bool {
 	return p != nil && p.cmd != nil && p.cmd.Process != nil && !p.exited.Load()
 }
 
+func (p *localProcess) pid() int {
+	if p == nil || p.cmd == nil || p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
+}
+
 func (p *localProcess) setWaitErr(err error) {
 	p.waitMu.Lock()
 	defer p.waitMu.Unlock()
@@ -342,25 +349,31 @@ func (t *transport) stopProcess(graceful bool) error {
 	if proc == nil {
 		return nil
 	}
+	descendants := snapshotProcessDescendants(proc.pid())
 	if graceful {
 		if err := proc.signal(sigTerminate); err != nil {
+			killProcessDescendants(proc.pid(), descendants)
 			return err
 		}
 		if proc.waitForExit(transportShutdownGracePeriod) {
+			killProcessDescendants(proc.pid(), descendants)
 			proc.waitForStderr(time.Second)
 			return nil
 		}
 	}
 	if err := proc.signal(sigForceKill); err != nil {
+		killProcessDescendants(proc.pid(), descendants)
 		return err
 	}
 	if proc.stderrR != nil {
 		_ = proc.stderrR.Close()
 	}
 	if proc.waitForExit(transportKillWaitTimeout) {
+		killProcessDescendants(proc.pid(), descendants)
 		proc.waitForStderr(time.Second)
 		return nil
 	}
+	killProcessDescendants(proc.pid(), descendants)
 	return fmt.Errorf("codexapp: timed out waiting for local process exit: %w", proc.exitError())
 }
 
