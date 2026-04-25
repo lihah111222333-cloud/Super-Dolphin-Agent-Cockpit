@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
@@ -145,211 +144,8 @@ func normalizeManagedAgentDisplayName(value string) string {
 	return strings.TrimSpace(value)
 }
 
-func hasASCIIOnly(value string) bool {
-	for _, r := range value {
-		if r > unicode.MaxASCII {
-			return false
-		}
-	}
-	return true
-}
-
-func isGenericManagedAgentToken(token string) bool {
-	switch strings.ToLower(strings.TrimSpace(token)) {
-	case "", "agent", "subagent", "sub", "child", "worker", "helper", "assistant", "planner", "reviewer", "verifier", "review", "verify", "research", "researcher", "explore", "explorer", "ui", "task", "thread", "runner", "run", "background", "temp", "tmp", "job", "creator", "coder", "codex", "claude":
-		return true
-	default:
-		return false
-	}
-}
-
-func isManagedAgentTokenBoundary(r rune) bool {
-	return r == ' ' || r == '-' || r == '_' || r == '.' || r == '/'
-}
-
-func isEmptyOrPathLikeManagedAgentName(name string) bool {
-	return name == "" || strings.ContainsAny(name, `/\`)
-}
-
-func hasOnlyGenericManagedAgentTokens(lower string) bool {
-	if strings.ContainsRune(lower, ' ') {
-		return false
-	}
-	tokenFields := strings.FieldsFunc(lower, isManagedAgentTokenBoundary)
-	if len(tokenFields) == 0 {
-		return false
-	}
-	for _, token := range tokenFields {
-		if !isGenericManagedAgentToken(token) {
-			return false
-		}
-	}
-	return true
-}
-
-func hasManagedAgentTechnicalMarker(lower string) bool {
-	if strings.ContainsAny(lower, "-_.") {
-		return true
-	}
-	for _, r := range lower {
-		if unicode.IsDigit(r) {
-			return true
-		}
-	}
-	return false
-}
-
-func isDigitsOnlyManagedAgentName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for _, r := range name {
-		if !unicode.IsDigit(r) {
-			return false
-		}
-	}
-	return true
-}
-
-func looksTechnicalManagedAgentName(value string) bool {
-	name := normalizeManagedAgentDisplayName(value)
-	if isEmptyOrPathLikeManagedAgentName(name) {
-		return true
-	}
-	// Digit-only names (e.g. "111") are user-chosen, not technical.
-	if isDigitsOnlyManagedAgentName(name) {
-		return false
-	}
-	lower := strings.ToLower(name)
-	if hasOnlyGenericManagedAgentTokens(lower) {
-		return true
-	}
-	if !hasASCIIOnly(lower) {
-		return false
-	}
-	return hasManagedAgentTechnicalMarker(lower)
-}
-
-func stripManagedAgentListPrefix(line string) string {
-	line = strings.TrimSpace(line)
-	line = strings.TrimLeft(line, "-*•> ")
-	var digitCount int
-	for _, r := range line {
-		if !unicode.IsDigit(r) {
-			break
-		}
-		digitCount += 1
-	}
-	if digitCount > 0 {
-		rest := strings.TrimSpace(line[digitCount:])
-		for _, prefix := range []string{".", "、", ")", "）", "]", "】", ":"} {
-			if strings.HasPrefix(rest, prefix) {
-				return strings.TrimSpace(rest[len(prefix):])
-			}
-		}
-	}
-	return strings.TrimSpace(line)
-}
-
-func trimManagedAgentPromptLead(line string) string {
-	line = strings.TrimSpace(line)
-	for _, prefix := range []string{"请专注于", "请负责", "子任务：", "子任务:", "麻烦你", "请你", "你负责", "专注于", "任务：", "任务:", "帮我", "帮忙", "请"} {
-		if strings.HasPrefix(line, prefix) {
-			return strings.TrimSpace(line[len(prefix):])
-		}
-	}
-	lower := strings.ToLower(line)
-	for _, prefix := range []string{"please ", "task: ", "task:", "subtask: ", "subtask:"} {
-		if strings.HasPrefix(lower, prefix) {
-			return strings.TrimSpace(line[len(prefix):])
-		}
-	}
-	return line
-}
-
-func firstManagedAgentTitleClause(line string) string {
-	runes := []rune(strings.TrimSpace(line))
-	for idx, r := range runes {
-		switch r {
-		case '，', ',', '。', '.', '；', ';', '：', ':', '！', '!', '？', '?':
-			if idx >= 4 {
-				return strings.TrimSpace(string(runes[:idx]))
-			}
-		}
-	}
-	return strings.TrimSpace(string(runes))
-}
-
-func truncateManagedAgentTitle(line string, max int) string {
-	runes := []rune(strings.TrimSpace(line))
-	if len(runes) <= max {
-		return strings.TrimSpace(line)
-	}
-	return strings.TrimSpace(string(runes[:max]))
-}
-
-func deriveManagedAgentTaskTitle(raw string) string {
-	text := normalizeManagedAgentDisplayName(raw)
-	if text == "" {
-		return ""
-	}
-	for _, rawLine := range strings.Split(text, "\n") {
-		line := stripManagedAgentListPrefix(rawLine)
-		line = trimManagedAgentPromptLead(line)
-		line = normalizeManagedAgentDisplayName(line)
-		if line == "" || strings.HasPrefix(line, "```") {
-			continue
-		}
-		line = firstManagedAgentTitleClause(line)
-		line = truncateManagedAgentTitle(line, 32)
-		if len([]rune(line)) >= 4 {
-			return line
-		}
-	}
-	text = truncateManagedAgentTitle(text, 32)
-	if len([]rune(text)) < 4 {
-		return ""
-	}
-	return text
-}
-
-func managedAgentLaunchDisplayName(name, prompt string) string {
-	cleanName := normalizeManagedAgentDisplayName(name)
-	if candidate := deriveManagedAgentTaskTitle(prompt); candidate != "" && looksTechnicalManagedAgentName(cleanName) {
-		return candidate
-	}
-	return cleanName
-}
-
-func firstManagedAgentTextInputContent(submission TurnSubmission) string {
-	for _, item := range submission.Inputs {
-		if strings.EqualFold(strings.TrimSpace(item.Type), "text") {
-			return item.Content
-		}
-	}
-	return ""
-}
-
-func maybeUpdateRemoteManagedAgentName(ctx context.Context, launcher *remoteLauncher, agent *agentRuntime, submission TurnSubmission) {
-	if launcher == nil || agent == nil || strings.TrimSpace(agent.remoteThreadID) == "" || !looksTechnicalManagedAgentName(agent.name) {
-		return
-	}
-	candidate := deriveManagedAgentTaskTitle(firstManagedAgentTextInputContent(submission))
-	if candidate == "" || candidate == normalizeManagedAgentDisplayName(agent.name) {
-		return
-	}
-	if _, err := rpcCall[struct{}](ctx, launcher, LauncherMethodThreadNameSet, map[string]any{
-		LauncherParamThreadID: agent.remoteThreadID,
-		LauncherParamName:     candidate,
-	}); err != nil {
-		pkglogger.Warn("remoteLauncher: thread/name/set RPC failed",
-			"agent_id", agent.id,
-			"thread_id", agent.remoteThreadID,
-			"name", candidate,
-			"error", err)
-		return
-	}
-	agent.name = candidate
+func managedAgentLaunchDisplayName(name string) string {
+	return normalizeManagedAgentDisplayName(name)
 }
 
 func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error) {
@@ -359,13 +155,12 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	start := time.Now()
 	pkglogger.Info("remoteLauncher: thread/start RPC begin", "agent_id", agent.id, "rpc_addr", r.addr)
 	// thread/start treats `prompt` and `name` as legacy aliases for the same
-	// display-name slot and rejects the call with -32602 when both are present
-	// with different values. Collapse them here: send only `name`, falling back
-	// to req.Prompt when Name is empty.
-	displayName := managedAgentLaunchDisplayName(req.Name, req.Prompt)
+	// display-name slot. Name is intentionally sourced only from req.Name; the
+	// launch prompt is submitted as a first turn after thread/start.
+	displayName := managedAgentLaunchDisplayName(req.Name)
 	resp, err := rpcCall[map[string]any](ctx, r, LauncherMethodThreadStart, map[string]any{
 		LauncherParamCwd:              strings.TrimSpace(req.Cwd),
-		LauncherParamName:             shared.FirstTrimmed(displayName, req.Prompt),
+		LauncherParamName:             displayName,
 		LauncherParamAgentType:        strings.TrimSpace(req.AgentType),
 		LauncherParamAgentKey:         strings.TrimSpace(req.AgentKey),
 		LauncherParamAgentMemoryScope: strings.TrimSpace(req.MemoryScope),
@@ -415,7 +210,6 @@ func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, su
 	if agent == nil || agent.remoteThreadID == "" {
 		return "", errors.New("remote thread id is required")
 	}
-	maybeUpdateRemoteManagedAgentName(ctx, r, agent, submission)
 	params := map[string]any{
 		LauncherParamThreadID:             agent.remoteThreadID,
 		LauncherParamInput:                submission.Inputs,

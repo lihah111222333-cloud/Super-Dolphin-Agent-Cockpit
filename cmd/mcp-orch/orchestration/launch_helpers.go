@@ -79,7 +79,7 @@ func (s *service) agentForLaunchLocked(req LaunchRequest) *agentRuntime {
 		agent = s.newAgentLocked(req.AgentID)
 		s.agents[req.AgentID] = agent
 	}
-	agent.name = managedAgentLaunchDisplayName(req.Name, req.Prompt)
+	agent.name = managedAgentLaunchDisplayName(req.Name)
 	agent.parentID = req.ParentID
 	agent.cwd = req.Cwd
 	agent.command = append([]string(nil), req.Command...)

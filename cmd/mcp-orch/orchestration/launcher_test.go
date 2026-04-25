@@ -81,7 +81,7 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 	}
 }
 
-func TestRemoteLauncher_LaunchUsesFriendlyTaskNameForTechnicalAgentName(t *testing.T) {
+func TestRemoteLauncher_LaunchUsesExplicitNameOnly(t *testing.T) {
 	var started map[string]any
 	launcher := remoteLocalLauncher(t, handler.Map{
 		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
@@ -89,69 +89,37 @@ func TestRemoteLauncher_LaunchUsesFriendlyTaskNameForTechnicalAgentName(t *testi
 			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
 		}),
 	})
-	_, err := launcher.Launch(context.Background(), &agentRuntime{id: "worker-agent"}, LaunchRequest{
-		Name:   "worker-agent",
-		Prompt: "请负责定位登录回调 500 根因，并给出最小修复方案",
+	_, err := launcher.Launch(context.Background(), &agentRuntime{id: "dag-runtime-audit"}, LaunchRequest{
+		Name:   "dag-runtime-audit",
+		Prompt: "调研任务：定位 DAG runtime 路径",
 	})
 	if err != nil {
 		t.Fatalf("Launch() error = %v", err)
 	}
-	if started["name"] != "定位登录回调 500 根因" {
-		t.Fatalf("Launch() name = %#v, want friendly task title", started["name"])
+	if started["name"] != "dag-runtime-audit" {
+		t.Fatalf("Launch() name = %#v, want explicit name", started["name"])
 	}
-}
-
-func TestLooksTechnicalManagedAgentName_Pin(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  bool
-	}{
-		{name: "blank after normalize", input: " [ ] ", want: true},
-		{name: "slash separated", input: "ops/worker", want: true},
-		{name: "backslash separated", input: `ops\worker`, want: true},
-		{name: "single generic token", input: "Worker", want: true},
-		{name: "generic hyphenated tokens", input: "planner-reviewer", want: true},
-		{name: "generic underscored tokens", input: "helper_tmp", want: true},
-		{name: "generic dotted tokens", input: "research.review", want: true},
-		{name: "mixed token with punctuation", input: "worker-api", want: true},
-		{name: "delimiter only", input: "-", want: true},
-		{name: "digits without punctuation", input: "worker2", want: true},
-		{name: "spaced digits", input: "Worker 2", want: true},
-		{name: "spaced punctuation", input: "Worker UI-v2", want: true},
-		{name: "spaced friendly title", input: "Worker UI", want: false},
-		{name: "compact friendly title", input: "Payments", want: false},
-		{name: "spaced non ascii title", input: "修复 worker", want: false},
-		{name: "compact non ascii title", input: "工程师", want: false},
-		{name: "digit only name", input: "111", want: false},
-		{name: "digit only single", input: "42", want: false},
-		{name: "digit only leading zero", input: "007", want: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := looksTechnicalManagedAgentName(tt.input); got != tt.want {
-				t.Fatalf("looksTechnicalManagedAgentName(%q) = %v, want %v", tt.input, got, tt.want)
-			}
-		})
+	if _, ok := started["prompt"]; ok {
+		t.Fatalf("Launch() started contains prompt=%#v; prompt must be submitted as a turn, not as name input", started["prompt"])
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Regression guard: digit-only names (e.g. "111") must NEVER be auto-renamed.
+// Regression guard: explicit managed-agent names must NEVER be auto-renamed.
 //
-// Root cause (2026-04-24): looksTechnicalManagedAgentName treated any name
-// containing digits as "technical", causing managedAgentLaunchDisplayName and
-// maybeUpdateRemoteManagedAgentName to silently replace it with a
-// prompt-derived title. This violated user intent.
+// Root cause (2026-04-25): managedAgentLaunchDisplayName and
+// maybeUpdateRemoteManagedAgentName treated slug-like names such as
+// "dag-runtime-audit" as technical placeholders and replaced them with a
+// prompt-derived title such as "调研任务". That bypassed the allowed naming
+// paths: explicit launch name, UI start name, or thread/name/set.
 //
 // If you are reading this because a test broke: the naming policy is
-// intentional. DO NOT reintroduce digit-only → technical classification.
+// intentional. DO NOT reintroduce prompt-derived managed-agent names.
 // ---------------------------------------------------------------------------
 
-func TestDigitOnlyNameGuard_LaunchPreservesName(t *testing.T) {
-	digitNames := []string{"111", "42", "007", "0", "999999"}
-	for _, name := range digitNames {
+func TestNamePolicy_ManagedLaunchPreservesExplicitNames(t *testing.T) {
+	names := []string{"dag-runtime-audit", "dag-entry-audit", "worker-agent", "helper_tmp", "research.review", "111"}
+	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			var started map[string]any
 			launcher := remoteLocalLauncher(t, handler.Map{
@@ -162,21 +130,21 @@ func TestDigitOnlyNameGuard_LaunchPreservesName(t *testing.T) {
 			})
 			_, err := launcher.Launch(context.Background(), &agentRuntime{id: "agent-" + name}, LaunchRequest{
 				Name:   name,
-				Prompt: "请负责定位登录回调 500 根因，并给出最小修复方案",
+				Prompt: "调研任务：定位 DAG runtime 路径，并输出 file:line 证据",
 			})
 			if err != nil {
 				t.Fatalf("Launch() error = %v", err)
 			}
 			if started["name"] != name {
-				t.Fatalf("REGRESSION: Launch() name = %#v, want %q (digit-only name must NOT be replaced by prompt-derived title)", started["name"], name)
+				t.Fatalf("REGRESSION: Launch() name = %#v, want %q (explicit name must NOT be replaced by prompt-derived title)", started["name"], name)
 			}
 		})
 	}
 }
 
-func TestDigitOnlyNameGuard_SubmitTurnNeverRenames(t *testing.T) {
-	digitNames := []string{"111", "42", "007"}
-	for _, name := range digitNames {
+func TestNamePolicy_SubmitTurnNeverAutoRenames(t *testing.T) {
+	names := []string{"dag-runtime-audit", "dag-entry-audit", "worker-agent", "helper_tmp", "research.review", "111"}
+	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			var renamed map[string]any
 			svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
@@ -193,36 +161,35 @@ func TestDigitOnlyNameGuard_SubmitTurnNeverRenames(t *testing.T) {
 			svc.agents[agent.id] = agent
 			if err := svc.SubmitTurn(context.Background(), TurnSubmission{
 				AgentID: agent.id,
-				Inputs:  []shareddto.InputItem{{Type: "text", Content: "请负责定位登录回调 500 根因，并给出最小修复方案"}},
+				Inputs:  []shareddto.InputItem{{Type: "text", Content: "调研任务：定位 DAG runtime 路径，并输出 file:line 证据"}},
 			}); err != nil {
 				t.Fatalf("SubmitTurn() error = %v", err)
 			}
 			if renamed != nil {
-				t.Fatalf("REGRESSION: thread/name/set was called for digit-only name %q → %#v (must NOT auto-rename)", name, renamed)
+				t.Fatalf("REGRESSION: thread/name/set was called for name %q -> %#v (turn submission must NOT auto-rename)", name, renamed)
 			}
 			if agent.name != name {
-				t.Fatalf("REGRESSION: agent.name changed from %q to %q (must NOT auto-rename digit-only names)", name, agent.name)
+				t.Fatalf("REGRESSION: agent.name changed from %q to %q (turn submission must NOT auto-rename)", name, agent.name)
 			}
 		})
 	}
 }
 
-func TestDigitOnlyNameGuard_ManagedAgentLaunchDisplayName(t *testing.T) {
+func TestNamePolicy_ManagedAgentLaunchDisplayNameIgnoresPrompt(t *testing.T) {
 	tests := []struct {
 		name   string
 		input  string
 		prompt string
 		want   string
 	}{
-		{name: "111 preserved", input: "111", prompt: "定位回调根因", want: "111"},
-		{name: "42 preserved", input: "42", prompt: "some long prompt for derivation", want: "42"},
-		{name: "007 preserved", input: "007", prompt: "请负责定位登录回调 500 根因", want: "007"},
-		// Contrast: technical names still get replaced.
-		{name: "worker-agent replaced", input: "worker-agent", prompt: "请负责定位登录回调 500 根因，并给出最小修复方案", want: "定位登录回调 500 根因"},
+		{name: "slug preserved", input: "dag-runtime-audit", prompt: "调研任务：定位 DAG runtime 路径", want: "dag-runtime-audit"},
+		{name: "worker preserved", input: "worker-agent", prompt: "请负责定位登录回调 500 根因", want: "worker-agent"},
+		{name: "digit preserved", input: "111", prompt: "定位回调根因", want: "111"},
+		{name: "empty stays empty", input: "", prompt: "调研任务：不能变成名字", want: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := managedAgentLaunchDisplayName(tt.input, tt.prompt)
+			got := managedAgentLaunchDisplayName(tt.input)
 			if got != tt.want {
 				t.Fatalf("managedAgentLaunchDisplayName(%q, %q) = %q, want %q", tt.input, tt.prompt, got, tt.want)
 			}
@@ -332,17 +299,20 @@ func TestService_SubmitTurnRemoteMode(t *testing.T) {
 	if agent.queue.Len() != 0 || agent.activeTurnID != "turn-1" || agent.state != agentdto.StateTurnStarting || got["thread_id"] != "thread-1" {
 		t.Fatalf("agent=%#v req=%#v", agent, got)
 	}
-	if renamed["name"] != "定位登录回调 500 根因" || agent.name != "定位登录回调 500 根因" {
+	if renamed != nil || agent.name != "worker-agent" {
 		t.Fatalf("rename=%#v agent=%#v", renamed, agent)
 	}
 }
 
-func TestService_LaunchWithRemoteStoresFriendlyDisplayName(t *testing.T) {
+func TestService_LaunchWithRemoteStoresExplicitDisplayName(t *testing.T) {
 	var started map[string]any
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
 		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
 			started = req
 			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+		"turn/start": handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			return map[string]any{"turn_id": "turn-1"}, nil
 		}),
 	}), nil, nil, nil)
 	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
@@ -354,7 +324,7 @@ func TestService_LaunchWithRemoteStoresFriendlyDisplayName(t *testing.T) {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
 	agent := svc.agents["worker-agent"]
-	if agent == nil || agent.name != "定位登录回调 500 根因" || started["name"] != "定位登录回调 500 根因" {
+	if agent == nil || agent.name != "worker-agent" || started["name"] != "worker-agent" {
 		t.Fatalf("agent=%#v started=%#v", agent, started)
 	}
 }

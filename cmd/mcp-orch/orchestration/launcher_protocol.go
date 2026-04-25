@@ -25,9 +25,9 @@ const (
 	// opened by LauncherMethodThreadStart.
 	LauncherMethodThreadStop = "thread/stop"
 	// LauncherMethodThreadNameSet updates the display name of a
-	// remote thread. Optional; used by the managed-agent naming
-	// heuristic to rename technical-looking auto-generated names
-	// once a human-readable task title can be inferred.
+	// remote thread. Optional; only explicit rename callers should use
+	// this path. Launch and turn submission must not infer names from
+	// prompt text.
 	LauncherMethodThreadNameSet = "thread/name/set"
 	// LauncherMethodTurnStart submits a turn against an already-open
 	// remote thread and returns the new turn identifier.

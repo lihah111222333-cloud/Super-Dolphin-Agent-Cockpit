@@ -40,6 +40,22 @@ func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	}
 }
 
+func TestNamePolicyLaunchRequestNameAndPromptAreIndependent(t *testing.T) {
+	req, err := launchRequestFromExecutable(LaunchAgentInput{
+		Name:   " dag-runtime-audit ",
+		Prompt: "调研任务：定位 DAG runtime 路径",
+	}, "/tmp/agent-terminal")
+	if err != nil {
+		t.Fatalf("launchRequestFromExecutable() error = %v", err)
+	}
+	if req.AgentID != "dag-runtime-audit" || req.Name != "dag-runtime-audit" {
+		t.Fatalf("launch request IDs = (%q, %q), want explicit name only", req.AgentID, req.Name)
+	}
+	if req.Prompt != "调研任务：定位 DAG runtime 路径" {
+		t.Fatalf("launch request prompt = %q, want prompt preserved separately", req.Prompt)
+	}
+}
+
 func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
 	req, err := launchRequestFromExecutable(LaunchAgentInput{
 		Name:     "agent-m",
@@ -50,7 +66,7 @@ func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
 		t.Fatalf("launchRequestFromExecutable() error = %v", err)
 	}
 	want := map[string]bool{
-		"AGENT_PROVIDER=claude":         true,
+		"AGENT_PROVIDER=claude":           true,
 		"AGENT_MODEL=claude-opus-4-7[1m]": true,
 	}
 	if len(req.Env) != len(want) {
