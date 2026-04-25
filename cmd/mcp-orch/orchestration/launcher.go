@@ -19,6 +19,11 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+const (
+	codexModelPreferenceKey = "settings.provider.codex.model"
+	defaultCodexModelID     = "gpt-5.5"
+)
+
 type AgentLauncher interface {
 	Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error)
 	Stop(ctx context.Context, agent *agentRuntime) error
@@ -148,21 +153,166 @@ func managedAgentLaunchDisplayName(name string) string {
 	return normalizeManagedAgentDisplayName(name)
 }
 
+func explicitLaunchModel(req LaunchRequest) string {
+	return shared.FirstTrimmed(
+		envValue(req.Env, "AGENT_MODEL"),
+		commandFlagValue(launchCommandArgs(req.Command), "--model"),
+	)
+}
+
+func managedLaunchProvider(req LaunchRequest) string {
+	if provider := strings.ToLower(strings.TrimSpace(launchProvider(req))); provider != "" {
+		return provider
+	}
+	return "codex"
+}
+
+func (r *remoteLauncher) resolveLaunchModel(ctx context.Context, req LaunchRequest, provider string) string {
+	if model := explicitLaunchModel(req); model != "" {
+		return model
+	}
+	if !strings.EqualFold(strings.TrimSpace(provider), "codex") {
+		return ""
+	}
+	available, haveAvailable := r.codexAvailableModels(ctx)
+	if preferred := r.codexPreferenceModel(ctx, strings.TrimSpace(req.Cwd)); preferred != "" {
+		if !haveAvailable || codexModelAvailable(preferred, available) {
+			return preferred
+		}
+		pkglogger.Warn("remoteLauncher: codex preferred model unavailable; falling back to model/list",
+			"rpc_addr", r.addr,
+			"cwd", strings.TrimSpace(req.Cwd),
+			"preferred_model", preferred,
+			"available_models", strings.Join(available, ","))
+	}
+	if haveAvailable && len(available) > 0 {
+		return defaultCodexLaunchModel(available)
+	}
+	return ""
+}
+
+func defaultCodexLaunchModel(models []string) string {
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if strings.EqualFold(model, defaultCodexModelID) {
+			return model
+		}
+	}
+	if len(models) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(models[0])
+}
+
+func (r *remoteLauncher) codexPreferenceModel(ctx context.Context, cwd string) string {
+	value, err := rpcCall[any](ctx, r, "ui/preferences/get", map[string]any{
+		"cwd": cwd,
+		"key": codexModelPreferenceKey,
+	})
+	if err != nil {
+		pkglogger.Warn("remoteLauncher: codex model preference lookup failed",
+			"rpc_addr", r.addr,
+			"cwd", cwd,
+			"key", codexModelPreferenceKey,
+			"error", err)
+		return ""
+	}
+	model, _ := value.(string)
+	return strings.TrimSpace(model)
+}
+
+func (r *remoteLauncher) codexAvailableModels(ctx context.Context) ([]string, bool) {
+	value, err := rpcCall[any](ctx, r, "model/list", map[string]any{})
+	if err != nil {
+		pkglogger.Warn("remoteLauncher: codex model/list lookup failed",
+			"rpc_addr", r.addr,
+			"error", err)
+		return nil, false
+	}
+	models := decodeLaunchableModels(value)
+	if len(models) == 0 {
+		pkglogger.Warn("remoteLauncher: codex model/list returned no launchable models",
+			"rpc_addr", r.addr)
+		return nil, false
+	}
+	return models, true
+}
+
+func decodeLaunchableModels(raw any) []string {
+	switch value := raw.(type) {
+	case map[string]any:
+		if models := launchableModelIDs(value["models"]); len(models) > 0 {
+			return models
+		}
+		if models := launchableModelIDs(value["data"]); len(models) > 0 {
+			return models
+		}
+	case []any, []map[string]any:
+		return launchableModelIDs(value)
+	}
+	return nil
+}
+
+func launchableModelIDs(raw any) []string {
+	out := make([]string, 0)
+	seen := map[string]struct{}{}
+	appendID := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	switch list := raw.(type) {
+	case []any:
+		for _, item := range list {
+			switch entry := item.(type) {
+			case map[string]any:
+				id, _ := entry["id"].(string)
+				appendID(id)
+			case string:
+				appendID(entry)
+			}
+		}
+	case []map[string]any:
+		for _, entry := range list {
+			id, _ := entry["id"].(string)
+			appendID(id)
+		}
+	}
+	return out
+}
+
+func codexModelAvailable(target string, models []string) bool {
+	target = strings.TrimSpace(target)
+	for _, model := range models {
+		if strings.EqualFold(strings.TrimSpace(model), target) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error) {
 	if agent == nil {
 		return LaunchResult{}, errors.New("agent is required")
 	}
 	start := time.Now()
+	provider := managedLaunchProvider(req)
+	model := r.resolveLaunchModel(ctx, req, provider)
 	pkglogger.Info("remoteLauncher: thread/start RPC begin", "agent_id", agent.id, "rpc_addr", r.addr)
 	// thread/start treats `prompt` and `name` as legacy aliases for the same
 	// display-name slot. Name is intentionally sourced only from req.Name; the
 	// launch prompt is submitted as a first turn after thread/start.
 	displayName := managedAgentLaunchDisplayName(req.Name)
-	model := shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model"))
 	effort := shared.FirstTrimmed(envValue(req.Env, "AGENT_EFFORT"), commandFlagValue(launchCommandArgs(req.Command), "--effort"))
 	pkglogger.Warn("remoteLauncher: thread/start config trace",
 		"agent_id", agent.id,
-		"provider", launchProvider(req),
+		"provider", provider,
 		"model", model,
 		"effort", effort,
 		"env_has_effort", envValue(req.Env, "AGENT_EFFORT") != "",
@@ -176,7 +326,7 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		LauncherParamAgentMemoryScope: strings.TrimSpace(req.MemoryScope),
 		LauncherParamParentAgentID:    strings.TrimSpace(req.ParentID),
 		LauncherParamBaseInstructions: strings.TrimSpace(req.Instructions),
-		LauncherParamProvider:         launchProvider(req),
+		LauncherParamProvider:         provider,
 		LauncherParamModel:            model,
 		LauncherParamEffort:           effort,
 	})
