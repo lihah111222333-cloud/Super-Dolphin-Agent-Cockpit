@@ -8,6 +8,13 @@ set -e
 unset GOFLAGS
 export GOFLAGS=
 
+# Git hook 运行时会注入 GIT_DIR/GIT_INDEX_FILE 等本仓库环境。
+# go test 中若再创建临时 git repo，这些环境会污染子 git 命令并误触发本 hook。
+run_go_without_git_env() (
+  unset $(git rev-parse --local-env-vars)
+  "$@"
+)
+
 FMT_OUT=$(mktemp -t pre-commit-fmt.XXXXXX)
 GO_LIST_ERR=$(mktemp -t pre-commit-golist.XXXXXX)
 cleanup() {
@@ -229,7 +236,7 @@ fi
 
 # ── go vet
 echo "[pre-commit] go vet..."
-if ! go vet "${PKGS[@]}"; then
+if ! run_go_without_git_env go vet "${PKGS[@]}"; then
   echo "❌ go vet 失败" >&2
   echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
   exit 1
@@ -237,7 +244,7 @@ fi
 
 # ── go test -short
 echo "[pre-commit] go test -short..."
-if ! go test -short -timeout 30s "${PKGS[@]}"; then
+if ! run_go_without_git_env go test -short -timeout 30s "${PKGS[@]}"; then
   echo "❌ 短测失败" >&2
   echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
   exit 1
