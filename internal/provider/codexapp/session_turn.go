@@ -64,6 +64,20 @@ func buildTurnSteerParams(threadID string, req dto.SteerRequest) map[string]any 
 	return params
 }
 
+func buildTurnInterruptParams(threadID, turnID, source string) map[string]any {
+	params := map[string]any{}
+	if threadID = strings.TrimSpace(threadID); threadID != "" {
+		params["threadId"] = threadID
+	}
+	if turnID = strings.TrimSpace(turnID); turnID != "" {
+		params["turnId"] = turnID
+	}
+	if source = strings.TrimSpace(source); source != "" {
+		params["source"] = source
+	}
+	return params
+}
+
 func selectedSkillNames(skills []dto.SkillRef) []string {
 	selected := make([]string, 0, len(skills))
 	for _, skill := range skills {

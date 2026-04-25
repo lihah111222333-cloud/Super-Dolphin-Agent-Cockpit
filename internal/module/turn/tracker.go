@@ -26,8 +26,9 @@ type trackedTurn struct {
 }
 
 type activeTurn struct {
-	localID string
-	handle  contract.TurnHandle
+	localID    string
+	providerID string
+	handle     contract.TurnHandle
 }
 
 func newTurnTracker() *turnTracker { return &turnTracker{turns: make(map[string]*trackedTurn)} }
@@ -185,7 +186,7 @@ func (t *turnTracker) ActiveByThread(threadID string) (activeTurn, bool) {
 	if current == nil {
 		return activeTurn{}, false
 	}
-	return activeTurn{localID: current.localID, handle: current.handle}, true
+	return activeTurn{localID: current.localID, providerID: current.providerID, handle: current.handle}, true
 }
 
 func (t *turnTracker) AbortThread(threadID, errMsg string) bool {

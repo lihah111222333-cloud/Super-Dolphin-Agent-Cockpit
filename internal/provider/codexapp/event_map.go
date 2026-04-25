@@ -23,6 +23,8 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	}
 }
 
+var outputDeltaTranslateLogSampler = pkglogger.NewEverySampler(1000)
+
 func buildAgentSessionHeader(payload map[string]any) shareddto.AgentSessionHeader {
 	agentID := payloadAgentID(payload)
 	threadID := shared.FirstNonEmpty(agentID, payloadThreadID(payload))
@@ -166,31 +168,40 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 			Reason:     stringValue(payload, "reason", "message"),
 		}, true
 	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
-		pkglogger.Get().Warn("codexapp: translateTurnEvent: outputDelta",
-			"event_type", eventType,
-			"stream", "message",
-			"thread_id", payloadThreadID(payload),
-			"agent_id", payloadAgentID(payload),
-			"delta_len", len(stringValue(payload, "delta", "content")),
-		)
+		if outputDeltaTranslateLogSampler.ShouldLog("message") {
+			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
+				"sample_rate", "0.1%",
+				"event_type", eventType,
+				"stream", "message",
+				"thread_id", payloadThreadID(payload),
+				"agent_id", payloadAgentID(payload),
+				"delta_len", len(stringValue(payload, "delta", "content")),
+			)
+		}
 		return turnOutputDelta(payload, "message"), true
 	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "reasoning.delta":
-		pkglogger.Get().Warn("codexapp: translateTurnEvent: outputDelta",
-			"event_type", eventType,
-			"stream", "reasoning",
-			"thread_id", payloadThreadID(payload),
-			"agent_id", payloadAgentID(payload),
-			"delta_len", len(stringValue(payload, "delta", "content")),
-		)
+		if outputDeltaTranslateLogSampler.ShouldLog("reasoning") {
+			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
+				"sample_rate", "0.1%",
+				"event_type", eventType,
+				"stream", "reasoning",
+				"thread_id", payloadThreadID(payload),
+				"agent_id", payloadAgentID(payload),
+				"delta_len", len(stringValue(payload, "delta", "content")),
+			)
+		}
 		return turnOutputDelta(payload, "reasoning"), true
 	case "item/commandExecution/outputDelta", "exec_output_delta":
-		pkglogger.Get().Warn("codexapp: translateTurnEvent: outputDelta",
-			"event_type", eventType,
-			"stream", "stdout",
-			"thread_id", payloadThreadID(payload),
-			"agent_id", payloadAgentID(payload),
-			"delta_len", len(stringValue(payload, "delta", "content")),
-		)
+		if outputDeltaTranslateLogSampler.ShouldLog("stdout") {
+			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
+				"sample_rate", "0.1%",
+				"event_type", eventType,
+				"stream", "stdout",
+				"thread_id", payloadThreadID(payload),
+				"agent_id", payloadAgentID(payload),
+				"delta_len", len(stringValue(payload, "delta", "content")),
+			)
+		}
 		return turnOutputDelta(payload, "stdout"), true
 	default:
 		return nil, false

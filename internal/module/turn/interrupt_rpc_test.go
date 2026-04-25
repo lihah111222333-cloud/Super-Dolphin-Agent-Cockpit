@@ -67,4 +67,7 @@ func TestTurnInterruptHandlerReturnsEnvelope(t *testing.T) {
 	if result.ActiveObserved == nil || !*result.ActiveObserved {
 		t.Fatalf("interrupt result activeObserved = %#v, want true", result.ActiveObserved)
 	}
+	if session.lastInterrupt.TurnID != "provider-1" {
+		t.Fatalf("interrupt request turn id = %q, want provider-1", session.lastInterrupt.TurnID)
+	}
 }

@@ -9,7 +9,10 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+var uiOutputDeltaLogSampler = pkglogger.NewEverySampler(1000)
 
 func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 	threadID := strings.TrimSpace(ev.ThreadID)
@@ -405,9 +408,13 @@ func (s *service) applyTurnInputReceived(ev turndto.TurnInputReceived) {
 }
 func (s *service) applyTurnOutputDelta(ev turndto.TurnOutputDelta) {
 	stream, delta := strings.TrimSpace(ev.Stream), strings.TrimSpace(ev.Delta)
-	s.logger.Warn("uistate: applyTurnOutputDelta received", "stream", stream, "thread_id", ev.ThreadID, "delta_len", len(ev.Delta))
+	if s.logger != nil && uiOutputDeltaLogSampler.ShouldLog("received:"+stream) {
+		s.logger.Debug("uistate: applyTurnOutputDelta received", "sample_rate", "0.1%", "stream", stream, "thread_id", ev.ThreadID, "delta_len", len(ev.Delta))
+	}
 	if !strings.EqualFold(stream, "message") {
-		s.logger.Warn("uistate: applyTurnOutputDelta skipped", "stream", stream, "thread_id", ev.ThreadID)
+		if s.logger != nil && uiOutputDeltaLogSampler.ShouldLog("skipped:"+stream) {
+			s.logger.Debug("uistate: applyTurnOutputDelta skipped", "sample_rate", "0.1%", "stream", stream, "thread_id", ev.ThreadID)
+		}
 		return
 	}
 	if delta == "" {

@@ -357,6 +357,7 @@ func interruptAndWait(
 ) (bool, error) {
 	if err := session.Interrupt(ctx, dto.InterruptRequest{
 		ThreadID: threadID,
+		TurnID:   activeProviderID(active),
 		Source:   strings.TrimSpace(source),
 	}); err != nil {
 		return false, err
@@ -368,6 +369,16 @@ func interruptAndWait(
 		return true, nil
 	}
 	return true, wait()
+}
+
+func activeProviderID(active activeTurn) string {
+	if providerID := strings.TrimSpace(active.providerID); providerID != "" {
+		return providerID
+	}
+	if active.handle == nil {
+		return ""
+	}
+	return strings.TrimSpace(active.handle.ProviderID())
 }
 
 func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope) turnInterruptResult {

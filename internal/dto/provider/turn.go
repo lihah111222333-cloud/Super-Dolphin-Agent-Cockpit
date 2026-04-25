@@ -21,7 +21,7 @@ type TurnRequest struct {
 	// StartTurn can register it on the tracker. It is intentionally not
 	// forwarded to the provider wire format today — codex / claudecli
 	// driver idempotency is a follow-up once the SQL persistence lands.
-	DedupeKey            string          `json:"-"`
+	DedupeKey string `json:"-"`
 }
 
 type TurnOverrides struct {
@@ -143,6 +143,7 @@ type TurnResult struct {
 
 type InterruptRequest struct {
 	ThreadID string `json:"threadId"`
+	TurnID   string `json:"turnId,omitempty"`
 	Source   string `json:"source,omitempty"`
 }
 

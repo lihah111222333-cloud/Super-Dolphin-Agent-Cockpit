@@ -293,10 +293,13 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	if err != nil {
 		return err
 	}
-	params := map[string]any{"threadId": threadID}
-	if source := strings.TrimSpace(req.Source); source != "" {
-		params["source"] = source
+	turnID := strings.TrimSpace(req.TurnID)
+	if turnID == "" {
+		s.mu.Lock()
+		turnID = strings.TrimSpace(s.activeTurnID)
+		s.mu.Unlock()
 	}
+	params := buildTurnInterruptParams(threadID, turnID, req.Source)
 	_, err = callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/interrupt", params)
 	return err
 }
