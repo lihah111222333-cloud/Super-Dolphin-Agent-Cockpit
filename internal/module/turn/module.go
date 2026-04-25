@@ -36,6 +36,9 @@ var Module = fx.Module("turn",
 			NewTrajectorySubscribers,
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`),
 		),
+		// P0b Step 3: skill evaluator. stateless / pure function; no
+		// external dependencies, so plain fx.Provide is sufficient.
+		fx.Provide(NewDefaultEvaluator),
 	),
 	fx.Invoke(registerTurnServiceLifecycle),
 	fx.Invoke(registerTurnDedupeStore),

@@ -59,8 +59,8 @@ func (e *DefaultEvaluator) Evaluate(t Trajectory) EvaluationVerdict { /* ... */ 
 3. **tool count 下限**：`len(t.ToolCalls) < MinToolCalls` → ineligible，`Reason="tool_calls_below_min"`。
 4. **tool count 上限**：`MaxToolCalls > 0 && len(t.ToolCalls) > MaxToolCalls` → ineligible，`Reason="tool_calls_above_max"`。
 5. **至少一个 tool 完成且未失败**：所有 `ToolCalls[i].Failed == true` → ineligible，`Reason="all_tool_calls_failed"`。
-6. **已知失败模式**：`TerminalState ∈ {"interrupted","aborted"}` 已被规则 1 拦下；额外检测 `Reason` 字段中的 `"recursion_limit"` / `"context_exhausted"` 子串（observation 层会写入此类 reason），命中 → ineligible，`Reason="known_failure_mode"`。
-7. 全部通过 → eligible，`Reason="ok"`。
+6. ~~已知失败模式（Reason 子串检测）~~ —— **当前不实现**：Step 2 落地的 `Trajectory` 类型不含 `Reason` 字段（observation 的 `Terminal.Reason` 未在 collector materialize 阶段下传），无法做子串检测。`TerminalState != "completed"` 在规则 1 已经覆盖 interrupted / aborted / failed / stalled 五个终态；recursion_limit / context_exhausted 通常体现为 `failed` / `stalled`，规则 1 也能拦下。如未来需要更精细的 reason 区分，应先在 Step 2 collector 把 `contract.Terminal().Reason` 传到 `Trajectory.Reason` 字段，再在本 evaluator 加规则。
+7. 全部通过（即规则 1-5 都不命中）→ eligible，`Reason="ok"`。
 
 ## 实施约束
 
@@ -81,6 +81,7 @@ func (e *DefaultEvaluator) Evaluate(t Trajectory) EvaluationVerdict { /* ... */ 
 - `TestEvaluator_AllToolCallsFailedIsIneligible`：`len > 0` 但所有 `Failed=true`。
 - `TestEvaluator_NilSuccessTreatedAsEligible`：`Success=nil` + 其他条件满足 → eligible。
 - `TestEvaluator_DeterministicAcrossRuns`：同一输入跑两遍，verdict 完全一致。
+- `TestEvaluator_DoesNotMutateInput`：`Evaluate` 不修改入参 `Trajectory.ToolCalls` 顺序或字段（防御 evaluator 误用 in-place 排序）。
 
 ### 命令
 
