@@ -1,0 +1,87 @@
+# P23.5: Cron 触发面
+
+> 创建时间：2026-04-25 | 状态：**未开动 - 依赖 P3 + p21 P1b**
+> authoritative：本文件 + [`README.md`](README.md) + [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md)
+> 本文件是 P23 子任务 stub；具体实现细节由 owner 在开工前补全。
+
+## 目标
+
+复用 `internal/module/cron` 已有 scheduler / lease 模块；在 cron job schema 上加 `target_dag_key` 字段；cron tick → `StartDAG(ctx, dagKey, triggerMeta with trigger=cron)` 桥接 actor（原表述写 `trigger=external`，cron 触发枚举值应为 `cron`；`external` 仅用于 P6 外部 RPC 触发）。p21 P1b（cron 模块本身的 runner / lease / non-interactive 契约）是硬前置。
+
+## 现状校准（事实层）
+
+- cron 模块当前实现：`internal/module/cron/scheduler.go:26-45,65-87`、`internal/module/cron/tick_actor.go:12-18,41-60`、`internal/module/cron/schedule.go:12-24`
+- cron 当前触发对象：turn / thread，**不**触发 DAG
+- cron lease：`internal/module/cron/lease_actor.go:12-16`（活 turn 续租先例）
+- DAG `schedule.trigger` 当前是自由 string：`cmd/mcp-orch/tools/task_tools.go:118-124,246-250`
+
+## 推荐架构
+
+> 待 owner 在开工前补全；约束以 [`README.md`](README.md) §"当前基线约束" / §"默认值安全原则" / §"收口口径" 为准。
+
+## 改动清单
+
+| 模块 | 文件落点 | 说明 |
+|---|---|---|
+| _待补_ | _待补_ | _待补_ |
+
+**已知关键改动方向**：
+
+> ⚠️ **跨 root 边界硬约束**：`internal/module/cron` **不能** import `cmd/mcp-orch/orchestration`（archtest `internal/archtest/dependency_direction_mcp_orch_test.go:49-53` 拦截）。当前 cron scheduler 直接调 `StartTurn`（`internal/module/cron/scheduler.go:288-305`）；扩展为 cron→DAG 必须经接口注入，不能直接函数调用。
+
+- `0066_dag_trigger_cron.sql`（**编号从 0064 改 0066**，必须晚于 P3 的 `0065_dag_owner_tenant.sql`）：cron job 表加 `target_dag_key` + `target_dag_trigger_meta JSONB`
+- **接口设计**：`internal/module/cron/contract.go` 定义 `TriggerSink` interface（`Trigger(ctx, target, meta) error`），cron scheduler 在 `target_dag_key != ''` 时调 `TriggerSink.Trigger(...)`，**不**直接调 DAG Start
+- **bridge 装配**：在 `cmd/mcp-orch/` 装配 `dagTriggerSinkAdapter` 实现 `TriggerSink`，调 `StartDAG(ctx, dagKey, triggerMeta)`；通过 `fx.Provide` 注入 cron 模块
+- **保持双轨**：`target_dag_key=''` 走旧 cron→turn 路径不变（`internal/module/cron/scheduler.go:288-305`）；`target_dag_key != ''` 走 DAG bridge
+- **deterministic idempotency key**：当前 cron run idempotency 是 UUID（`internal/module/cron/scheduler.go:318-326`），DAG 路径必须改为 `hash(cron_job_id, scheduled_at, target_dag_key)`；`cron_jobs` 表加唯一约束 `UNIQUE (job_id, scheduled_at, target_dag_key) WHERE target_dag_key <> ''`
+- **不需要新 actor**：复用 cron module 已有的 `tick_actor` + `lease_actor`（`internal/module/cron/module.go:31-32`），只在 tick 时分流
+
+## DDL / SQL
+
+**0066_dag_trigger_cron.sql** 草案：
+
+```sql
+ALTER TABLE public.cron_jobs ADD COLUMN target_dag_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.cron_jobs ADD COLUMN target_dag_trigger_meta JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- deterministic idempotency：同一 cron_job 在同一时点不能重复触发同一 DAG
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_run_dag_trigger
+    ON public.cron_job_runs (job_id, scheduled_at, target_dag_key)
+    WHERE target_dag_key <> '';
+```
+
+> 注：`cron_job_runs.target_dag_key` 列由 P21 P1b 既有 schema 决定是否需要新增；如不存在，本期同时加列。
+
+## 依赖
+
+- p21 P1b 已合入（cron 模块本身 runner / lease / submit-window 状态机）
+- P3 已合入（`dag.Start` 共享入口）
+
+## 风险
+
+- cron tick 失败重 claim 重触发 DAG：必须 idempotency 去重
+- cron job target DAG 不存在 / 已 archive：返 `ErrTargetDAGNotFound` 并标 cron job 失败而非创建空 DAG
+- cron schema 改动不能破坏现有 cron→turn 路径（双轨：`target_dag_key=''` 走旧 turn 路径）
+- **跨 root archtest**：`internal/archtest/dependency_direction_mcp_orch_test.go:49-53` 拦截 `internal/module/cron` import `cmd/mcp-orch`；P5 必须经 `TriggerSink` interface，不能绕路
+- **新增 archtest** `cron_dag_bridge_no_concrete_orch_import`：禁止 `internal/module/cron/*.go` 出现 `cmd/mcp-orch/` import
+
+## 必测项
+
+- cron tick 触发 DAG start
+- cron tick + DAG 已被外部触发（idempotency 不双跑）
+- cron job target DAG 不存在 → 失败计数 + 不创空 DAG
+- 旧 cron→turn 路径不受影响
+
+## 输入材料
+
+- README §阶段 0 ① 编号校准（`0064_dag_trigger_cron.sql`）
+- README §"风险" "cron 双触发" 条
+- p21 P1b 完整章节（必读，特别是 lease 与 idempotency 设计）
+
+## 待办
+
+- 含 a9 调研建议：`target_dag_key=''` 双轨窗口不能无限期，P5 owner 需明确废弃窗口（1 个 release 后评估转 hard fail）。
+- DST / 时区漂移（a8）：`scheduled_at` 必须 UTC 落库，idempotency hash 以 UTC 为准，避免 DST 同一本地时点重触发。
+- 跨 a4/a5 共识：`cron_job_runs` 也走 append-only；bridge 在调 `StartDAG` 前必须带 `tenant_id`（从 cron job 继承）。
+
+
