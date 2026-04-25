@@ -55,6 +55,10 @@ type launchAgentSnapshotter interface {
 	LaunchAgentSnapshot(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error)
 }
 
+type agentArchiver interface {
+	ArchiveAgent(context.Context, string) error
+}
+
 func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
 		req, err := launchRequestFromInput(in)
@@ -202,10 +206,16 @@ func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		if err := svc.StopAgent(ctx, agentID); err != nil {
+		archived := false
+		if archiver, ok := svc.(agentArchiver); ok {
+			if err := archiver.ArchiveAgent(ctx, agentID); err != nil {
+				return nil, err
+			}
+			archived = true
+		} else if err := svc.StopAgent(ctx, agentID); err != nil {
 			return nil, err
 		}
-		return successResult(map[string]any{"agent_id": agentID}), nil
+		return successResult(map[string]any{"agent_id": agentID, "archived": archived}), nil
 	})
 }
 
@@ -264,7 +274,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"agent_id": StringSchema("Target orchestration agent ID."),
 			"message":  StringSchema("Message content to submit as a text input."),
 		}, "agent_id", "message"), HandleSendMessage(svc)),
-		defineTool("orchestration_stop_agent", "Stop a running orchestration agent.", ObjectSchema(map[string]Schema{
+		defineTool("orchestration_stop_agent", "Stop and recycle an orchestration agent by archiving its persisted thread when available.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
 		}, "agent_id"), HandleStopAgent(svc)),
 		defineTool("orchestration_list_agents", "List orchestration agents and current runtime snapshots. Defaults to active agents only and omits report bodies; use orchestration_get_agent_report for full reports.", ObjectSchema(map[string]Schema{
