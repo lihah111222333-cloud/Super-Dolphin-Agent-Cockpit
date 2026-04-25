@@ -18,6 +18,12 @@ type agentReportFileRecord struct {
 	Report  string
 }
 
+type agentReportFileCandidate struct {
+	Path    string
+	Name    string
+	ModTime int64
+}
+
 func agentReportFileRecordFromRuntime(agent *agentRuntime) agentReportFileRecord {
 	if agent == nil {
 		return agentReportFileRecord{}
@@ -126,35 +132,66 @@ func newestAgentReportFilePath(record agentReportFileRecord) (string, error) {
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("%w: %s", errAgentReportNotFound, strings.TrimSpace(record.AgentID))
-		}
-		return "", fmt.Errorf("read agent report: %w", err)
+		return "", agentReportReadDirError(err, strings.TrimSpace(record.AgentID))
 	}
-	var (
-		bestPath string
-		bestName string
-		bestTime int64
-	)
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasPrefix(entry.Name(), filenamePrefix) {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return "", fmt.Errorf("read agent report: %w", err)
-		}
-		mtime := info.ModTime().UnixNano()
-		if bestPath == "" || mtime > bestTime || (mtime == bestTime && entry.Name() > bestName) {
-			bestPath = filepath.Join(dir, entry.Name())
-			bestName = entry.Name()
-			bestTime = mtime
-		}
+	best, err := newestAgentReportFileCandidate(dir, filenamePrefix, entries)
+	if err != nil {
+		return "", err
 	}
-	if bestPath == "" {
+	if best.Path == "" {
 		return "", fmt.Errorf("%w: %s", errAgentReportNotFound, strings.TrimSpace(record.AgentID))
 	}
-	return bestPath, nil
+	return best.Path, nil
+}
+
+func agentReportReadDirError(err error, agentID string) error {
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%w: %s", errAgentReportNotFound, agentID)
+	}
+	return fmt.Errorf("read agent report: %w", err)
+}
+
+func newestAgentReportFileCandidate(dir, filenamePrefix string, entries []os.DirEntry) (agentReportFileCandidate, error) {
+	var best agentReportFileCandidate
+	for _, entry := range entries {
+		candidate, ok, err := agentReportCandidateFromDirEntry(dir, filenamePrefix, entry)
+		if err != nil {
+			return agentReportFileCandidate{}, err
+		}
+		if !ok {
+			continue
+		}
+		if candidate.newerThan(best) {
+			best = candidate
+		}
+	}
+	return best, nil
+}
+
+func agentReportCandidateFromDirEntry(dir, filenamePrefix string, entry os.DirEntry) (agentReportFileCandidate, bool, error) {
+	name := entry.Name()
+	if entry.IsDir() || !strings.HasPrefix(name, filenamePrefix) {
+		return agentReportFileCandidate{}, false, nil
+	}
+	info, err := entry.Info()
+	if err != nil {
+		return agentReportFileCandidate{}, false, fmt.Errorf("read agent report: %w", err)
+	}
+	return agentReportFileCandidate{
+		Path:    filepath.Join(dir, name),
+		Name:    name,
+		ModTime: info.ModTime().UnixNano(),
+	}, true, nil
+}
+
+func (candidate agentReportFileCandidate) newerThan(other agentReportFileCandidate) bool {
+	if other.Path == "" {
+		return true
+	}
+	if candidate.ModTime != other.ModTime {
+		return candidate.ModTime > other.ModTime
+	}
+	return candidate.Name > other.Name
 }
 
 func agentReportFilePath(record agentReportFileRecord) (string, error) {
