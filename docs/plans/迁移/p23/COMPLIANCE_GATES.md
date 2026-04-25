@@ -8,7 +8,7 @@
 
 | 层 | 现状 | 关键 file |
 |---|---|---|
-| archtest | 已有 runtime ownership / 依赖方向 / sqlc 边界等多档守卫 | `internal/archtest/fx_invoke_guard_test.go:25-82`、`lifecycle_onstart_guard_test.go:13-33,93-169`、`bus_callback_guard_test.go:15-40,48-58` |
+| archtest | 已有 runtime ownership / 依赖方向 / sqlc 边界等多档守卫；**当前 `go test ./internal/archtest/... -count=1` build failed**，失败点为 `internal/module/uistate/timeline/projector_parity.go:12:2` unused import `pkglogger`，Phase0 gate PR 必须先恢复 archtest 可编译 | `internal/archtest/fx_invoke_guard_test.go:25-82`、`lifecycle_onstart_guard_test.go:13-33,93-169`、`bus_callback_guard_test.go:15-40,48-58` |
 | 本地 gate | `make test` 走 `scripts/test_with_guard.sh` 跑全仓 + code size + `TestCodeSizeGuard` | `Makefile:81-84`、`scripts/test_with_guard.sh:42-49,85-90` |
 | 本地 guard | `make guard` 只跑轻量 guard（**不**等于全 archtest） | `Makefile:120-124` |
 | CI | **无** `.github/workflows/*` | — |
@@ -23,12 +23,24 @@
 | L1 | schema / IDE | trigger enum、launch 必填、sqlc 生成；缺参 fail-fast（README §默认值安全原则） | 1 工程日 | 拦字段类违规 | ⭐ 必做 |
 | L2 | pre-commit | git hooks 跑 `make guard` + grep spawn / 裸 INSERT / 直接 LLM 调用 | 0.5 工程日 | 拦低级绕过 | 推荐 |
 | L3 | archtest（本地） | `go test ./internal/archtest/...` 必须 PASS；P23 21 项 archtest 分阶段落地 | 2-3 工程日 | 拦结构违规 | ⭐ 必做 |
-| L4 | CI 门禁 | 仓库当前无 `.github/workflows/`；目标是新建 `p23-gates.yml` 跑 `make guard` + archtest + `make ci-l1` + integration；未建前只能走可核验 manual hard fallback | 1 工程日 | merge 前硬拦 | ⭐ 必做 |
+| L4 | CI 门禁 | 仓库当前无 `.github/workflows/` 且仓库内尚无 PR template；目标是新建 `p23-gates.yml` 跑 `make guard` + archtest + `make ci-l1` + integration；Phase0 gate PR 必须新增 PR template 或等价可核验机制 | 1 工程日 | merge 前硬拦 | ⭐ 必做 |
 | L5 | merge gate | P22 H/O/M 三签机制扩展到 P23；分类 hard / soft 见下表 | 0.5 工程日/周 | 拦设计漂移 | 推荐 |
-| L6 | runtime alert | 当前只有 metrics counter 声明、无 promhttp/exporter；P7 前必须落 promhttp `/metrics` 或可执行 scheduled-audit fallback + 统一日志告警 sink | 2 工程日 | 拦运行态违规 | P7 前 hard；P0 可 fallback |
+| L6 | runtime alert | 当前只有 metrics counter 声明、无 promhttp/exporter，且无 executable scheduled-audit artifact；P7 前必须创建 promhttp `/metrics` exporter 或脚本/命令卡 artifact + 统一日志告警 sink | 2 工程日 | 拦运行态违规 | P7 前 hard；P0 可 fallback |
 | L7 | scheduled audit | daily / weekly / monthly cron 跑 archtest 趋势 + migration 编号 + 契约漂移 | 1 工程日 | 拦慢性漂移 | 可选 |
 
 **实施顺序建议**：L1 + L3 + L4 必须在 P0 合入前就位（合规底座）；L2 + L5 在 P0 期间补；L6 + L7 可在后段（P7+）开工前补。
+
+### Phase0 gate PR 最小可执行闭环（D gate skeleton）
+
+Phase0 gate PR 是 P23 的 D gate 可执行闭环，不实现完整 DAG runtime，但必须让 gate 自身可运行、可失败、可复核。最小顺序如下：
+
+1. **先恢复 archtest 可编译**：当前 `go test ./internal/archtest/... -count=1` 因 `internal/module/uistate/timeline/projector_parity.go:12:2` unused import `pkglogger` build failed；这是 Phase0 hard blocker。本文只记录事实，不在本任务修代码。
+2. **收紧 mcp-orch allowlist**：当前 `internal/archtest/dependency_direction_mcp_orch_test.go` 仍宽泛放行 `internal/store` / `internal/module`；Phase0 PR 必须真实修改该测试到 P22 modularity 名录口径，否则 P0 runtime PR blocked。
+3. **落 P23 archtest skeleton**：先提交 21 个测试函数的最小 skeleton / TODO-fail 或 fixture-fail 版本，落点按下表 `落点` 列；每个 skeleton 必须能被 `go test ./internal/archtest/... -count=1` 发现，不能只写文档。
+4. **落 manual fallback 载体**：仓库内尚无 PR template；Phase0 gate PR 必须新增 PR template 或等价可核验机制，明确 commit SHA、命令输出、reviewer 签收字段。未新增前不得声称 manual fallback 已闭环。
+5. **落 migration / metrics artifact 决策**：migration sequence guard 至少能检查已占编号；L6 若不建 promhttp，则必须创建 executable scheduled-audit 脚本或命令卡 artifact，写明命令、输入源、输出 artifact、退出码、owner。
+
+`hard_from=Phase0 gate PR` 表示 Phase0 PR 本身必须 hard fail；`soft_until=pre-Phase0 only` 只允许本文档修订阶段记录风险，不允许 P0 runtime PR 继续 soft。P0 runtime PR 在 Phase0 全部 green 前 blocked。
 
 ## P23 14 子任务 × 7 层 gate 矩阵
 
@@ -59,27 +71,27 @@ H = hard fail / S = soft warn / R = record only / `H/O` = hard 且需 O 工位�
 
 | # | archtest key | 测试函数 | 落点 | existing/planned | owner_subtask | introduced_by | hard_from | soft_until / pre-hard 行为 | 守的违规 |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | `dag_watcher_no_lifecycle_loop` | `TestDAGNoLifecycleLoop` | `internal/archtest/dag_runtime_test.go` | planned（当前未实施） | P0 | phase0/P22 ownership 扩展 | P0 前 | soft warn；PR 描述贴本地扫描结果 | DAG 长循环不在 lifecycle / bus callback |
-| 2 | `dag_runner_actors_present` | `TestDAGRunnerActorsPresent` | `internal/archtest/dag_runtime_test.go` | planned（当前未实施） | P0 | phase0/P22 ownership 扩展 | P0 前 | soft warn；缺 actor inventory 不得合 P0 | P0 4 actor + P7/P8/P11/P12/P13 后续 actor 都进 `group:"runners"` |
-| 3 | `dag_actor_no_fire_and_forget` | `TestDAGActorNoFireAndForget` | `internal/archtest/dag_runtime_test.go` | planned（当前未实施） | P0 | phase0/P22 ownership 扩展 | P0 前 | soft warn；发现裸 goroutine 必须改设计 | actor `Run(ctx)` 禁裸 goroutine / ticker |
-| 4 | `dag_status_cas_only` | `TestDAGStatusCASOnly` | `internal/archtest/dag_state_test.go` | planned（当前未实施） | P0 | phase0/state-machine | P0 前 | soft warn；裸写必须列入 blocker | status 写必带 expected prev status CAS |
+| 1 | `dag_watcher_no_lifecycle_loop` | `TestDAGNoLifecycleLoop` | `internal/archtest/dag_runtime_test.go` | planned（当前未实施） | P0 | phase0/P22 ownership 扩展 | Phase0 gate PR | pre-Phase0 only；Phase0 PR hard | DAG 长循环不在 lifecycle / bus callback |
+| 2 | `dag_runner_actors_present` | `TestDAGRunnerActorsPresent` | `internal/archtest/dag_runtime_test.go` | planned（当前未实施） | P0 | phase0/P22 ownership 扩展 | Phase0 gate PR | pre-Phase0 only；Phase0 PR hard；缺 actor inventory 不得合 P0 | P0 4 actor + P7/P8/P11/P12/P13 后续 actor 都进 `group:"runners"` |
+| 3 | `dag_actor_no_fire_and_forget` | `TestDAGActorNoFireAndForget` | `internal/archtest/dag_runtime_test.go` | planned（当前未实施） | P0 | phase0/P22 ownership 扩展 | Phase0 gate PR | pre-Phase0 only；Phase0 PR hard；发现裸 goroutine 必须改设计 | actor `Run(ctx)` 禁 fire-and-forget goroutine / 不受 ctx 管控 ticker / 未 Stop ticker；允许受 ctx 管控且 stop/drain 明确的 ticker |
+| 4 | `dag_status_cas_only` | `TestDAGStatusCASOnly` | `internal/archtest/dag_state_test.go` | planned（当前未实施） | P0 | phase0/state-machine | Phase0 gate PR | pre-Phase0 only；Phase0 PR hard；裸写必须列入 blocker | status 写必带 expected prev status CAS |
 | 5 | `dag_trigger_enum_only` | `TestDAGTriggerEnumFailFast` | `internal/archtest/dag_schema_test.go` | planned（当前未实施） | P3 | phase0/trigger enum | P3 前 | P0-P2 soft；P3 PR hard | trigger 字段 schema 必须是 enum |
 | 6 | `dag_external_rpc_guard` | `TestDAGExternalIdentityAdaptersPresent` + `TestDAGServiceAuthZEnforced` | `internal/archtest/dag_external_rpc_test.go` | planned（当前未实施） | P6 | security/a4 | P6 前 | P0-P5 soft；P6 PR hard + O 签 | 三入口注入 caller identity，service 层执行 AuthN/AuthZ/tenant/rate/quota/audit/idempotency guard |
 | 7 | `dag_launcher_shared_path_only` | `TestDAGLauncherSharedPathOnly` + `TestDAGVerifyJobsDurable` + `TestDAGVerifyJobClaimRetryDeadLetter` | `internal/archtest/dag_launcher_test.go` / `internal/archtest/dag_verify_test.go` | planned（当前未实施） | P1 / P8 | phase0 + verify/a2 | P1 前（shared path）；P8 前（verify durable） | 未到 P8 时 verify 子项 record-only；shared launcher P1 hard | dispatcher / verifier launch 都经共享 launcher；P8 verify job 必须 durable claim/retry/dead-letter |
-| 8 | `dag_hook_tap_enqueue_only` | `TestDAGHookTapEnqueueOnly` | `internal/archtest/dag_hook_test.go` | planned（当前未实施） | P2 / P13 | phase0 + output/a5 | P0 前 | soft warn；P2/P13 代码触碰 hook 时 hard | hook callback 禁重 DB / launch / LLM；P13 只 bounded parse + enqueue |
+| 8 | `dag_hook_tap_enqueue_only` | `TestDAGHookTapEnqueueOnly` | `internal/archtest/dag_hook_test.go` | planned（当前未实施） | P2 / P13 | phase0 + output/a5 | Phase0 gate PR | pre-Phase0 only；Phase0 PR hard；P2/P13 代码触碰 hook 时继续 hard | hook callback 禁重 DB / launch / LLM；P13 只 bounded parse + enqueue |
 | 9 | `dag_llm_light_boundary` | `TestDAGLLMLightBoundary` | `internal/archtest/dag_llm_boundary_test.go` | planned（当前未实施） | P8 | impl-quality | P8 前 | P0-P7 record-only；P8 PR hard | P8/P12 调 LLM 必须经 light 层，禁裸 provider |
 | 10 | `dag_growth_spawn_only` | `TestDAGSpawnChildOnlyViaService` | `internal/archtest/dag_growth_test.go` | planned（当前未实施） | P11 | growth/a3 | P11 前 | P0-P10 soft scan；P11 PR hard + O 签 | 禁绕过 `SpawnChildNodes` 直接 INSERT node |
 | 11 | `dag_swarm_quota_only` | `TestDAGSwarmUsesTokenBucket` | `internal/archtest/dag_swarm_test.go` | planned（当前未实施） | P12 | swarm/cost | P12 前 | P0-P11 record-only；P12 PR hard + O 签 | P12 swarm 共用 P9 token bucket |
 | 12 | `dag_output_validate_before_verify` | `TestDAGOutputValidationBeforeVerify` | `internal/archtest/dag_output_validation_test.go` | planned（当前未实施） | P13 | output/a5 | P13 前 | P0-P12 record-only；P13 PR hard + O 签 | P13 schema validate 早于 P8 verify |
 | 13 | `dag_template_no_cmd_import` | `TestDAGTemplateNoCmdImport` | `internal/archtest/dag_template_boundary_test.go` | planned（当前未实施） | P10 | template boundary | P10 前 | P0-P9 soft; P10 PR hard | UI/template 不反向 import cmd concrete |
-| 14 | `dag_migration_sequence_guard` | `TestDAGMigrationNumbersNoConflict` | `internal/archtest/dag_migration_test.go` | planned（当前未实施） | phase0 / all migration owners | migration/a5 | P0 前 | soft warn until phase0; each PR must paste HEAD recalibration | 当前 HEAD 下一个可用编号起排；禁止占用既有 0063/0064；no-tx concurrent index 分拆 |
+| 14 | `dag_migration_sequence_guard` | `TestDAGMigrationNumbersNoConflict` | `internal/archtest/dag_migration_test.go` | planned（当前未实施） | phase0 / all migration owners | migration/a5 | Phase0 gate PR | pre-Phase0 only；Phase0 PR hard；each migration PR must paste HEAD recalibration | 当前 HEAD 下一个可用编号起排；禁止占用既有 0063/0064；no-tx concurrent index 分拆 |
 | 15 | `cron_dag_bridge_no_concrete_orch_import` | `TestDAGCronBridgeNoOrchImport` | `internal/archtest/dag_cron_bridge_test.go` | planned（当前未实施） | P5 | cron boundary | P5 前 | P0-P4 soft；P5 PR hard | cron 模块与 mcp-orch 不得 concrete import |
 | 16 | `dag_audit_append_only` | `TestDAGAuditAppendOnly` | `internal/archtest/dag_audit_append_only_test.go` | planned（当前未实施） | P6 / P8 / P12 / P13 | security/a4 | P6 前（audit base）；P8+ touched tables hard | P0-P5 soft；new audit table PR hard | audit/arbiter/swarm/output_validation append-only + hash-chain |
-| 17 | `dag_terminal_turn_fence` | `TestDAGTerminalTurnFence` + `TestDAGVerifierTerminalUsesVerifyTurnFence` | `internal/archtest/dag_turn_fence_test.go` / `internal/archtest/dag_verify_test.go` | planned（当前未实施） | P2 / P8 | data/a5 | P0 前 for active_turn; P8 前 for verify_turn | verify_turn 子项 record-only until P8 | terminal 写必须校验 active_turn_id；verifier terminal 必须校验 verify_turn_id |
-| 18 | `dag_no_status_naked_write` | `TestDAGNoStatusNakedWrite` | `internal/archtest/dag_state_test.go` | planned（当前未实施） | P0 | data/a5 | P0 前 | soft warn；任何新增裸写阻塞 | 禁裸 status UPDATE |
+| 17 | `dag_terminal_turn_fence` | `TestDAGTerminalTurnFence` + `TestDAGVerifierTerminalUsesVerifyTurnFence` | `internal/archtest/dag_turn_fence_test.go` / `internal/archtest/dag_verify_test.go` | planned（当前未实施） | P2 / P8 | data/a5 | Phase0 gate PR for active_turn; P8 前 for verify_turn | active_turn skeleton Phase0 hard；verify_turn 子项 record-only until P8 | terminal 写必须校验 active_turn_id；verifier terminal 必须校验 verify_turn_id |
+| 18 | `dag_no_status_naked_write` | `TestDAGNoStatusNakedWrite` | `internal/archtest/dag_state_test.go` | planned（当前未实施） | P0 | data/a5 | Phase0 gate PR | pre-Phase0 only；Phase0 PR hard；任何新增裸写阻塞 | 禁裸 status UPDATE |
 | 19 | `dag_tenant_filter_required` | `TestDAGTenantFilterRequired` | `internal/archtest/dag_tenant_filter_test.go` | planned（当前未实施） | P3 / P6 / P10 | security/a4 | P6 前 | P0-P5 soft；P6/P10 PR hard | DAG/template/audit 查询 RPC 必带 tenant filter |
 | 20 | `dag_pii_redaction_present` | `TestDAGPIIRedactionPresent` | `internal/archtest/dag_pii_redaction_test.go` | planned（当前未实施） | P8 / P13 | security/a4 | P8 前 | P0-P7 record-only；P8/P13 PR hard | repair/error/arbiter/validation 落库前统一 redactor |
-| 21 | `dag_mcp_orch_dependency_allowlist_tight` | `TestMCPOrchDependencyDirection` | `internal/archtest/dependency_direction_mcp_orch_test.go` | planned（当前未实施；现有 allowlist 仍过宽） | phase0 / P0 | contract/a1 | P0 前 | soft warn until phase0; P0 PR hard | cmd/mcp-orch allowlist 不得宽泛放行未登记 internal 包 |
+| 21 | `dag_mcp_orch_dependency_allowlist_tight` | `TestMCPOrchDependencyDirection` | `internal/archtest/dependency_direction_mcp_orch_test.go` | planned（当前未实施；代码当前仍宽泛放行 `internal/store` / `internal/module`） | phase0 / P0 | contract/a1 | Phase0 gate PR | pre-Phase0 only；Phase0 PR 必须真实修改测试，P0 runtime PR blocked until green | cmd/mcp-orch allowlist 不得宽泛放行未登记 internal 包 |
 
 ## CI workflow 设计（L4）
 
@@ -103,26 +115,35 @@ jobs:
       - run: go test ./cmd/mcp-orch/... -tags integration
 ```
 
-> 当前仓库无 `.github/workflows/`，本期需要先建，且 Go 版本必须使用 `go-version-file: go.mod`（或与 `go.mod` 完全一致），不得在示例里硬写固定版本。若不能立即建 CI，退路只能是 **manual hard fallback**：PR 模板提供固定区块，逐项粘贴 `git rev-parse HEAD`、`make guard`、`go test ./internal/archtest/... -count=1`、`make sqlc-verify`、必要 integration 命令的完整输出；reviewer 必须在同一 PR 留下 `P23-manual-gate: verified` 并核对命令时间戳/commit SHA。缺输出、SHA 不匹配、或 reviewer 未签收均禁止 merge。CI 仍必须在 P7 之前补齐。
+> 当前仓库无 `.github/workflows/`，且仓库内尚无 PR template；本期需要先建 CI，Go 版本必须使用 `go-version-file: go.mod`（或与 `go.mod` 完全一致），不得在示例里硬写固定版本。若 Phase0 不能立即建 CI，Phase0 gate PR 必须新增 PR template 或等价可核验机制：固定字段逐项粘贴 `git rev-parse HEAD`、`make guard`、`go test ./internal/archtest/... -count=1`、`make sqlc-verify`、必要 integration 命令的完整输出；reviewer 必须在同一 PR 留下 `P23-manual-gate: verified` 并核对命令时间戳/commit SHA。缺载体、缺输出、SHA 不匹配、或 reviewer 未签收均禁止 merge。CI 仍必须在 P7 之前补齐。
 
 ## runtime alert 触发条件（L6）
 
 | metric | 阈值 | 路径 | 子任务 |
 |---|---|---|---|
-| `dag_spawn_budget_usage_ratio` | > 80% warn / >= 100% hard | log + alert | P11 |
-| `archtest_failure_rate` | scheduled audit 连续 2 次失败 | 自动 issue 创建 | 全 |
+| `dag_spawn_budget_usage_ratio` | > 80% warn / >= 100% hard | promhttp gauge 或 scheduled-audit artifact | P11 |
+| `archtest_failure_rate` | scheduled audit 连续 2 次失败 | scheduled-audit artifact；Phase0 前无 artifact 则不能声称 L7 已闭环 | 全 |
 | `spawn_bypass_attempt_total` | > 0（任何绕过 SpawnChildNodes 的尝试） | audit log + alert | P11 |
-| `audit_log_write_fail_total` | > 0 | log + alert（P6 要求） | P6 |
-| `dag_observe_lost_total` | 持续上升趋势 | log + alert | P0 / P2 |
-| `dag_verdict_lost_total` | 持续上升 | log + alert | P8 |
-| `dag_output_validation_fail_rate` | > 30% | log + warn | P13 |
-| `dag_hook_consumer_lag_seconds` | p99 over 10min > 5s | promhttp histogram（a6） | P2 / P9 |
-| `dag_launcher_queue_lag_seconds` + `dag_launcher_queue_depth` | depth > quota×3；lag p99 > 30s | promhttp gauge + histogram（a6） | P9 |
-| `dag_node_transition_total{from,to,result}` | result=unexpected 任意计数 > 0 | promhttp counter（a6） | P0 / P2 |
-| `dag_observe_lost_total` / `dag_verdict_lost_total` | 连续上升趋势 | promhttp counter（a6） | P0 / P2 / P8 |
-| `dag_actor_last_heartbeat_timestamp_seconds` | actor 连续 2 轮无 heartbeat | promhttp gauge + 结构化 log event `dag_actor_heartbeat`（a6） | 全 actor |
+| `audit_log_write_fail_total` | > 0 | strict/financial fail-closed；dev/read 可 durable spool + alert | P6 / P8 / P12 / P13 |
+| `dag_observe_lost_total` | 连续两个采样窗口上升且非 planned maintenance | promhttp counter 或 scheduled-audit artifact；首动作查 launcher/agent_status/lease | P0 / P2 |
+| `dag_verdict_lost_total` | 连续两个采样窗口上升，或单 DAG 超过 verify budget | promhttp counter 或 scheduled-audit artifact；首动作查 arbiter/LLM/token bucket | P8 / P12 |
+| `dag_output_validation_fail_rate` | > 30% | log + warn；financial preset 可升 hard | P13 |
+| `dag_hook_consumer_lag_seconds` | p99 over 10min > 5s | promhttp histogram 或 scheduled-audit artifact | P2 / P9 |
+| `dag_launcher_queue_lag_seconds` + `dag_launcher_queue_depth` | depth > quota×3；lag p99 > 30s | promhttp gauge + histogram 或 scheduled-audit artifact | P9 |
+| `dag_node_transition_total{from,to,result}` | `result=unexpected` 任意计数 > 0 | promhttp counter 或 structured audit row | P0 / P2 |
+| `dag_actor_last_heartbeat_timestamp_seconds` | actor 连续 2 轮无 heartbeat | promhttp gauge + lifecycle log event `dag_actor_heartbeat` | 全 actor |
 
-> 当前仓库 `internal/platform/metrics/metrics.go` 只有 counter 声明，没有 promhttp exporter / `/metrics` 暴露面。P0 合入前必须明确 promhttp PR 或本地 scheduled-audit fallback；fallback 必须可核验（固定命令、输入源为 DB/structured log、输出 artifact、运行频率、失败退出码、owner）。P7 开工前 L6 必须具备 promhttp exporter 或上述可执行 fallback，否则 P7–P13 freeze。
+> 当前仓库 `internal/platform/metrics/metrics.go` 只有 counter 声明，没有 promhttp exporter / `/metrics` 暴露面，也没有 executable scheduled-audit artifact。P0 合入前必须明确 promhttp PR 或本地 scheduled-audit fallback；fallback 必须以脚本或命令卡 artifact 落仓，声明固定命令、输入源（DB/structured log）、输出 artifact、运行频率、失败退出码、owner。P7 开工前 L6 必须具备 promhttp exporter 或上述可执行 fallback，否则 P7–P13 freeze。
+
+### actor heartbeat / lifecycle 全局契约（L6）
+
+覆盖 actor：P0 `dagWatcherActor` / `dagDispatcherActor` / `dagLeaseActor` / `dagReconcileActor`，P7 `dagActivityActor`，P8 `dagArbiterActor`，P11 `dagConvergenceActor`，P12 `dagSwarmArbiterActor`，P13 `outputValidationActor`。
+
+- **labels**：所有 metrics 至少带 `actor`、`dag_key`（无 DAG 时为 `none`）、`tenant_id`（未知为 `unknown`）、`owner_subtask`、`result`；禁止高基数 `prompt` / `error_detail` / raw agent output label。
+- **heartbeat fields**：`actor`、`instance_id`、`lease_owner`、`last_heartbeat_at`、`iteration_seq`、`inflight_count`、`queue_depth`、`last_error_class`、`drain_state`、`build_sha`。
+- **cadence**：active actor 每 30s±20% jitter 写 heartbeat；idle actor 至少每 60s 写 heartbeat；shutdown drain deadline 内每 10s 写 drain heartbeat；连续 2 个 cadence miss 触发 L6 alert。
+- **lifecycle events**：每个 actor 必须结构化记录 `actor_start`、`actor_ready`、`actor_iteration_begin`、`actor_iteration_end`、`actor_error`、`actor_backoff`、`actor_drain_start`、`actor_drain_done`、`actor_stop`；事件带 `trace_id` / `run_id` / `dag_key` / `node_key`（不适用填 `none`）。
+- **Phase0 skeleton**：Phase0 先落 metric/event name 常量与 archtest skeleton，P0 runtime PR 才接真实 actor；P0 PR blocked until heartbeat/lifecycle skeleton green。
 
 ## archtest 补充项（历史记录，已并入上方 21 项 authoritative 表）
 
@@ -141,7 +162,7 @@ jobs:
 
 | 阶段 | hard fail 集合 | 说明 |
 |---|---|---|
-| P0 前 | `dag_status_cas_only` / `dag_no_status_naked_write` / `dag_terminal_turn_fence` / `dag_hook_tap_enqueue_only` / `dag_migration_sequence_guard` / `dag_mcp_orch_dependency_allowlist_tight` | 先拦最容易污染状态机和契约的实现缺口。 |
+| Phase0 gate PR | `dag_status_cas_only` / `dag_no_status_naked_write` / `dag_terminal_turn_fence` / `dag_hook_tap_enqueue_only` / `dag_migration_sequence_guard` / `dag_mcp_orch_dependency_allowlist_tight` / `dag_actor_no_fire_and_forget` / `dag_runner_actors_present` 最小 skeleton | Phase0 PR hard；P0 runtime PR blocked until green。 |
 | P6 前 | 上述 + `dag_external_rpc_guard` / `dag_tenant_filter_required` / `dag_audit_append_only` / `dag_pii_redaction_present` | 外部 RPC 和多租户开放前必须安全闭环。 |
 | P9 前 | 全部 21 项 | 大规模、LLM、UI 后段开工前全部转 hard；不再存在中间缓冲号/允许缺号口径，migration guard 以 PR 当时 HEAD 重新校准为准。 |
 
@@ -160,7 +181,7 @@ jobs:
 
 ### metrics manifest / exporter fallback（交叉验证仲裁）
 
-P0 前必须冻结指标 manifest：每个 `dag_*` 指标写明 type、unit、labels、source actor、cardinality、PromQL 示例。若 promhttp/exporter 未落地，scheduled-audit fallback 必须是可执行脚本/命令，声明输入源（DB/structured log）、输出 artifact、运行频率、失败退出码与 owner；P7 前没有 `/metrics` 且无可执行 fallback，则 P7–P13 freeze。
+P0 前必须冻结指标 manifest：每个 `dag_*` 指标写明 type、unit、labels、source actor、cardinality、PromQL 示例。当前无 promhttp/exporter，也无 executable scheduled-audit artifact；若 promhttp/exporter 未落地，scheduled-audit fallback 必须以脚本或命令卡 artifact 落仓，声明输入源（DB/structured log）、输出 artifact、运行频率、失败退出码与 owner；P7 前没有 `/metrics` 且无可执行 fallback artifact，则 P7–P13 freeze。
 
 ### graceful shutdown / drain 顺序（交叉验证仲裁）
 
@@ -197,7 +218,7 @@ P9/P10/P11/P12/P13 共用中央成本阻断口径：若 `dag/cost_preview` 判�
 ### Daily（PR 提交前 ≤ 5 项）
 
 1. `make guard` PASS
-2. `go test ./internal/archtest/... -count=1` PASS
+2. `go test ./internal/archtest/... -count=1` PASS（当前因 `projector_parity.go` unused import build failed；Phase0 hard blocker）
 3. 确认无 callback 长跑（`hook_consumer.go` / bus subscriber 内）
 4. 确认 schema fail-fast（缺参不静默 default）
 5. 贴 migration / SQLC 校验结果（`make sqlc-verify`）
@@ -219,7 +240,7 @@ P9/P10/P11/P12/P13 共用中央成本阻断口径：若 `dag/cost_preview` 判�
 
 依据 `contract-compliance-master` 报告 + `compliance-gate-design` 报告。**三条最关键守门动作**（按优先级）：
 
-1. **先落 P23 archtest 骨架 + migration sequence guard**（L3）—— 不让 P0 之后再补规则
+1. **先恢复 archtest build + 落 P23 archtest skeleton + migration sequence guard**（L3）—— `go test ./internal/archtest/...` 当前 build failed，Phase0 必须先变绿，不让 P0 之后再补规则
 2. **修正 P3 / P5 / P8 落点漂移**（已落 README + stub 修正）—— `StartDAG` 留 mcp-orch / cron 走 bridge / `llm/light` 不放顶层 `internal/`
 3. **P8 / P9 / P12 / P13 共用 quota + sanitize + output-before-verify 三联门**（L4 merge hard gate）
 
@@ -241,4 +262,4 @@ P9/P10/P11/P12/P13 共用中央成本阻断口径：若 `dag/cost_preview` 判�
 
 ### 阶段 0 / P0 拆分 checklist（需求补全仲裁）
 
-P0 runtime PR 之前必须先合最小阶段 0 checklist：migration sequence guard（禁止复用已占用编号并要求 PR 前重新校准）、P22 allowlist tighten、CAS / terminal fence archtest skeleton、CI 或 manual hard fallback 冻结、metrics exporter/fallback 决策、P0 DDL exact schema、StartDAG 最小入口归属。阶段 0 不实现完整 watcher；P0 才落 runtime skeleton。
+P0 runtime PR 之前必须先合最小 Phase0 gate PR：修复当前 archtest build failed、migration sequence guard（禁止复用已占用编号并要求 PR 前重新校准）、真实收紧 `dependency_direction_mcp_orch_test.go` 中对 `internal/store` / `internal/module` 的宽泛放行、CAS / terminal fence / 21 项 P23 archtest skeleton、CI 或 manual hard fallback 载体（仓库内尚无 PR template，必须新增模板或等价可核验机制）、metrics exporter 或 executable scheduled-audit artifact 决策、P0 DDL exact schema、StartDAG 最小入口归属。Phase0 不实现完整 watcher；P0 才落 runtime skeleton，且 P0 runtime PR blocked until Phase0 green。

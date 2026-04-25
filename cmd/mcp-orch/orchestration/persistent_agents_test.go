@@ -9,13 +9,11 @@ import (
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func TestListAgentsIncludesPersistedAgentIDAndNameWhenRuntimeEmpty(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []threadstore.Thread{
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{
 			ThreadID:  "agent-1",
 			AgentID:   "agent-1",
@@ -48,7 +46,7 @@ func TestListAgentsIncludesPersistedAgentIDAndNameWhenRuntimeEmpty(t *testing.T)
 
 func TestListAgentsOverlaysRuntimeOnPersistedIdentity(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []threadstore.Thread{
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "renamed", Cwd: "/db", Status: "created", UpdatedAt: 1710000100},
 	}}
 	now := time.Unix(1710000200, 0)
@@ -79,7 +77,7 @@ func TestGetReportFallsBackByAgentIDOnly(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "display one", "结论：持久化\n\n修复：回读")
-	svc.agentThreads = fakeAgentThreadStore{threads: []threadstore.Thread{
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
 	}}
 
@@ -100,7 +98,7 @@ func TestGetReportFallsBackByAgentIDOnly(t *testing.T) {
 
 func TestGetReportErrorsWhenPersistedReportBodyMissing(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
-	svc.agentThreads = fakeAgentThreadStore{threads: []threadstore.Thread{
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: t.TempDir(), Status: "created"},
 	}}
 
@@ -114,7 +112,7 @@ func TestGetReportUsesAgentIDWhenPersistedNameChanges(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "old name", "结论：old filename")
-	svc.agentThreads = fakeAgentThreadStore{threads: []threadstore.Thread{
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "new name", Cwd: cwd, Status: "created"},
 	}}
 
@@ -134,7 +132,7 @@ func TestListAgentsIncludesPersistedReportBody(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	cwd := t.TempDir()
 	mustWritePersistedAgentReportFile(t, cwd, "agent-1", "display one", "结论：persisted\nbody")
-	svc.agentThreads = fakeAgentThreadStore{threads: []threadstore.Thread{
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
 	}}
 
@@ -153,7 +151,7 @@ func TestListAgentsIncludesPersistedReportBody(t *testing.T) {
 func TestSubmitTurnRehydratesPersistedAgentRuntimeAfterPeerRestart(t *testing.T) {
 	launcher := &persistedRuntimeTestLauncher{}
 	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
-	svc.agentBindings = fakeAgentBindingStore{binding: &bindingstore.Binding{
+	svc.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
 		AgentID:       "agent-1",
 		Provider:      "codex",
 		CodexThreadID: "provider-thread-1",
@@ -161,7 +159,7 @@ func TestSubmitTurnRehydratesPersistedAgentRuntimeAfterPeerRestart(t *testing.T)
 		CreatedAt:     1710000000,
 		UpdatedAt:     1710000100,
 	}}
-	svc.agentThreads = fakeAgentThreadStore{threads: []threadstore.Thread{
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{
 			ThreadID:  "provider-thread-1",
 			AgentID:   "agent-1",
@@ -203,18 +201,18 @@ func TestGetReportRejectsRemoteThreadID(t *testing.T) {
 }
 
 type fakeAgentThreadStore struct {
-	threads []threadstore.Thread
+	threads []PersistedThread
 	err     error
 }
 
-func (s fakeAgentThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) {
+func (s fakeAgentThreadStore) ListAll(context.Context) ([]PersistedThread, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	return append([]threadstore.Thread(nil), s.threads...), nil
+	return append([]PersistedThread(nil), s.threads...), nil
 }
 
-func (s fakeAgentThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+func (s fakeAgentThreadStore) GetByThreadID(_ context.Context, threadID string) (*PersistedThread, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -239,11 +237,11 @@ func mustWritePersistedAgentReportFile(t *testing.T, cwd, agentID, name, report 
 }
 
 type fakeAgentBindingStore struct {
-	binding *bindingstore.Binding
+	binding *PersistedBinding
 	err     error
 }
 
-func (s fakeAgentBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s fakeAgentBindingStore) GetByAgentID(_ context.Context, agentID string) (*PersistedBinding, error) {
 	if s.err != nil {
 		return nil, s.err
 	}

@@ -31,7 +31,7 @@ P2 只负责 durable terminal fact 与 fenced 状态推进，不依赖 P13 actor
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
 | terminal tap | `cmd/mcp-orch/orchestration/hook_consumer.go`、`cmd/mcp-orch/orchestration/dag_terminal_tap.go` | bounded parse + durable insert；禁止在 callback 内推进 node |
-| durable event DDL/SQL | `migrations/<p23>_dag_terminal_events.sql`、`cmd/mcp-orch/sql/queries/task_dag_terminal_event.sql` | 去重键 `(dag_key,node_key,active_turn_id,event_type)`，携带 `attempt_no` / `terminal_kind` |
+| durable event DDL/SQL | `migrations/0065_dag_state_machine.sql`（首选并入；拆分时仅允许 `0065a/0065b` no-conflict）+ `cmd/mcp-orch/sql/queries/task_dag_terminal_event.sql` | 去重键 `(dag_key,node_key,active_turn_id,event_type)`，携带 `attempt_no` / `terminal_kind` |
 | reconcile actor | `cmd/mcp-orch/orchestration/dag_reconcile_actor.go`、`cmd/mcp-orch/store/taskdag/*` | fenced `CompleteNode/MarkFailed/RetryNode/MarkObserveLost`，0 rows 作为 stale terminal |
 
 **已知关键改动方向**：
@@ -44,7 +44,7 @@ P2 只负责 durable terminal fact 与 fenced 状态推进，不依赖 P13 actor
 
 ## DDL / SQL
 
-- 新增/复用 P0 terminal event inbox/outbox：唯一键 `(dag_key,node_key,turn_id,event_type)`；hook `INSERT ... ON CONFLICT DO NOTHING`，actor 消费并标记 processed
+- 新增/复用 P0 `0065_dag_state_machine.sql` terminal event inbox/outbox：唯一键 `(dag_key,node_key,active_turn_id,event_type)`；hook `INSERT ... ON CONFLICT DO NOTHING`，actor 消费并标记 processed。P2 不再保留占位 migration；拆分仅允许 `0065a/0065b` no-conflict 方案。
 - `task_dag_node_runtime.sql` 加 timeout 扫描 query + retry CAS query；`CompleteNode/MarkFailed/Retry/MarkObserveLost` 全部带 `active_turn_id` + `attempt_no` fence；0 rows 必须暴露给调用方作为 stale terminal 计数
 
 ## 依赖

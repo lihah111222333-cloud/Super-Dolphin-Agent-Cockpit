@@ -9,7 +9,6 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnapshot, error) {
@@ -83,7 +82,7 @@ func (s *service) persistedAgentSnapshotByList(ctx context.Context, agentID stri
 	return AgentSnapshot{}, false, nil
 }
 
-func snapshotFromPersistedThread(thread threadstore.Thread) (AgentSnapshot, bool) {
+func snapshotFromPersistedThread(thread PersistedThread) (AgentSnapshot, bool) {
 	agentID := persistedThreadAgentID(thread)
 	if agentID == "" {
 		return AgentSnapshot{}, false
@@ -104,14 +103,14 @@ func snapshotFromPersistedThread(thread threadstore.Thread) (AgentSnapshot, bool
 	}, true
 }
 
-func persistedThreadAgentID(thread threadstore.Thread) string {
+func persistedThreadAgentID(thread PersistedThread) string {
 	if agentID := strings.TrimSpace(thread.AgentID); agentID != "" {
 		return agentID
 	}
 	return strings.TrimSpace(thread.ThreadID)
 }
 
-func persistedThreadAgentState(thread threadstore.Thread) string {
+func persistedThreadAgentState(thread PersistedThread) string {
 	switch strings.ToLower(strings.TrimSpace(thread.Status)) {
 	case "", "created", "running":
 		if thread.PendingLaunch {

@@ -22,8 +22,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -108,23 +106,6 @@ type serviceParams struct {
 type recoveryTurnStore interface {
 	ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]taskdag.Node, error)
 	GetWakeup(ctx context.Context, id int64) (*taskdag.Wakeup, error)
-}
-
-type AgentThreadStore interface {
-	ListAll(ctx context.Context) ([]threadstore.Thread, error)
-	GetByThreadID(ctx context.Context, threadID string) (*threadstore.Thread, error)
-}
-
-func ProvideAgentThreadStore(store threadstore.Store) AgentThreadStore {
-	return store
-}
-
-type AgentBindingStore interface {
-	GetByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error)
-}
-
-func ProvideAgentBindingStore(store bindingstore.Store) AgentBindingStore {
-	return store
 }
 
 type agentRuntime struct {

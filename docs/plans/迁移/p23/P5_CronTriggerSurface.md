@@ -6,7 +6,7 @@
 
 ## 目标
 
-复用 `internal/module/cron` 已有 scheduler / lease 模块；在 cron job schema 上加 `target_dag_key` 字段；cron tick → `StartDAG(ctx, dagKey, triggerMeta with trigger=cron)` 桥接 actor（原表述写 `trigger=external`，cron 触发枚举值应为 `cron`；`external` 仅用于 P6 外部 RPC 触发）。p21 P1b（cron 模块本身的 runner / lease / non-interactive 契约）是硬前置。
+复用 `internal/module/cron` 已有 scheduler / lease 模块；在 cron job schema 上加 `target_dag_key` 字段；cron tick → `StartDAG(ctx, dagKey, triggerMeta{trigger_source=cron})` 桥接 actor（原表述写 `trigger=external`，`schedule.trigger=cron` 对应运行时 `trigger_source=cron`；`external` 仅用于 P6 外部 RPC 触发）。p21 P1b（cron 模块本身的 runner / lease / non-interactive 契约）是硬前置。
 
 ## 现状校准（事实层）
 
@@ -37,7 +37,7 @@
 - **接口设计**：`internal/module/cron/contract.go` 定义 `TriggerSink` interface（`Trigger(ctx, target, meta) error`），cron scheduler 在 `target_dag_key != ''` 时调 `TriggerSink.Trigger(...)`，**不**直接调 DAG Start
 - **bridge 装配**：不得形成 `cmd/mcp-orch → internal/module/cron` concrete import；二选一：host/core 侧经 platform bus/RPC sink 通知 mcp-orch，或在 `cmd/mcp-orch` 本地化 cron trigger runtime 并只复用 platform-level interface。`TriggerSink` 只能作为抽象边界，不允许双向 concrete import
 - **保持双轨**：`target_dag_key=''` 走旧 cron→turn 路径不变（`internal/module/cron/scheduler.go:288-305`）；`target_dag_key != ''` 走 DAG bridge
-- **deterministic idempotency key**：当前 cron run idempotency 是 UUID（`internal/module/cron/scheduler.go:318-326`），DAG 路径必须改为 `hash(cron_job_id, scheduled_at_utc, target_dag_key)`；同时写入 P3 统一 `dag_start_requests(trigger_source='cron', trigger_instance_key=hash(...), params_hash=...)`。该 deterministic key 只覆盖同一 cron tick；external/host/manual 触发使用各自 `trigger_source` scope，不互相去重。若业务要求“任意来源同一时刻只允许一个 active run”，必须另加 DAG active-run lease/CAS（`dag_key` scoped），不能复用 cron tick key 假装互斥。`cron_job_runs` 表加 partial unique index `UNIQUE (job_id, scheduled_at, target_dag_key) WHERE target_dag_key <> ''`；热表已有数据时用 `CREATE UNIQUE INDEX CONCURRENTLY` 单独 no-transaction migration
+- **deterministic idempotency key**：当前 cron run idempotency 是 UUID（`internal/module/cron/scheduler.go:318-326`），DAG 路径必须改为 `hash(cron_job_id, scheduled_at_utc, target_dag_key)`；同时写入 P3 统一 `dag_start_requests(trigger_source='cron', trigger_instance_key=hash(...), params_hash=...)`。该 deterministic key 只覆盖同一 cron tick；external/host/manual 触发使用各自 `trigger_source` scope，不互相去重。v1 不做跨源 active-run 互斥；若业务要求“任意来源同一时刻只允许一个 active run”，必须另加 optional DAG active-run lease/CAS（`tenant_id, dag_key` scoped），不能复用 cron tick key 假装互斥。`cron_job_runs` 表加 partial unique index `UNIQUE (job_id, scheduled_at, target_dag_key) WHERE target_dag_key <> ''`；热表已有数据时用 `CREATE UNIQUE INDEX CONCURRENTLY` 单独 no-transaction migration
 - **不需要新 actor**：复用 cron module 已有的 `tick_actor` + `lease_actor`（`internal/module/cron/module.go:31-32`），只在 tick 时分流
 
 ## DDL / SQL
@@ -82,7 +82,7 @@ CREATE UNIQUE INDEX CONCURRENTLY uq_cron_run_dag_trigger
 ## 必测项
 
 - cron tick 触发 DAG start
-- cron tick + DAG 已被外部触发（idempotency 不双跑）
+- 同一 cron tick 重 claim 不双跑；cron 与 external 已分别触发时，默认允许跨源各自 start，除非 optional active-run lease 显式启用
 - cron job target DAG 不存在 → 失败计数 + 不创空 DAG
 - 旧 cron→turn 路径不受影响
 

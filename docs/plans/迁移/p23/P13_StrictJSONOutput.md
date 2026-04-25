@@ -47,7 +47,7 @@ DAG 级 `dag.output_schema_defaults` 提供继承默认。
 
 ### 验证时机
 
-hook consumer 接收 `TurnCompleted` → 做 bounded parse / payload size cap / enqueue；完整 **schema validate** 在 `outputValidationActor` worker 中执行，且必须早于 terminal status 写入与 P8 verify。
+hook consumer 通过 `dag_terminal_tap` / output validation provider 接收 `TurnCompleted` → 做 bounded parse / payload size cap / enqueue；完整 **schema validate** 在 `outputValidationActor` worker 中执行，且必须早于 terminal status 写入与 P8 verify。
 
 > ✅ **archtest 例外已更新为交叉验证裁决**（2026-04-25）：hook tap 只允许 bounded parse + enqueue；完整 validate 移出 hook 热路径，避免 a3 指出的 CPU/DB 热点，同时保留 a4/a5 要求的 terminal 前强校验。
 
@@ -92,22 +92,27 @@ P10 模板库提供"金融场景预设"：
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| schema | `cmd/mcp-orch/tools/task_tools.go`（扩展） | `nodes[].output_schema` + `nodes[].output_validation` + `dag.output_schema_defaults` |
+| schema provider | `cmd/mcp-orch/tools/dag_schema_registry.go` + `cmd/mcp-orch/tools/dag_schema_output.go` [NEW] | 注册 `nodes[].output_schema` + `nodes[].output_validation` + `dag.output_schema_defaults`；不直接并行改 `task_tools.go` |
 | validator | `cmd/mcp-orch/orchestration/runtime/output_validator.go` [NEW] | JSON schema validate 库（Go 建议 `github.com/santhosh-tekuri/jsonschema`）；缓存 compiled schema |
-| output validation worker | `cmd/mcp-orch/orchestration/runtime/output_validation_actor.go` [NEW] | hook enqueue 后、terminal 前 validate；invalid 走 repair / fail；挂入 `group:"runners"` |
+| output validation actor | `cmd/mcp-orch/orchestration/runtime/output_validation_actor.go` [NEW] | hook tap enqueue 后、terminal 前 validate；invalid 走 repair / fail；挂入 `group:"runners"` |
 | repair prompt 模板 | `cmd/mcp-orch/orchestration/runtime/repair_prompt.go` [NEW] | 拼装 schema + 错误信息 + 原 agent 输出，发回原 agent |
 | agent turn provider output schema 适配 | provider / launcher turn 请求路径（owner 开工前按当前 provider 代码事实补精确文件） | 将 `nodes[].output_schema` 传入 agent turn；provider native structured output 只作优化，不是 hard guarantee |
 | arbiter light JSON mode 适配 | `cmd/mcp-orch/orchestration/llm/light/codex_json_mode.go` [扩展] + `cmd/mcp-orch/orchestration/llm/light/claude_tool_mode.go` [扩展] | 仅服务 P8/P12 arbiter 的结构化 verdict 输出；不得替代 agent final answer runtime validate |
 | state machine | `task_dag_nodes` schema 扩展 | 新增独立 `output_validation_phase`（或等价独立列）；output_validation 失败不得把 `repairing` 写入主 `status`，主 `status` 只在最终 fail/done 时变更 |
 | 审计 | `0073_dag_output_validation.sql` [NEW]（编号校准） | `dag_output_validations` 表：node_key, schema_hash/version/draft, valid, error_path, hash-chain, validated_at；索引拆 no-transaction migration |
+| hook tap provider | `cmd/mcp-orch/orchestration/output_validation_tap.go` [NEW] + `hook_tap_registry.go` | 注册 output validation provider；主 hook consumer 不直接扩分发 |
 | archtest | `internal/archtest/dag_output_validation_test.go` [NEW] | output_validator 必须经统一入口；不绕路 |
+
+### schema / hook write-set 拆分
+
+P13 output schema 字段通过 `cmd/mcp-orch/tools/dag_schema_registry.go` 的 output provider 注册；不得直接并行改 `task_tools.go`。hook 集成通过 `output_validation_tap.go` 注册到 `dag_terminal_tap` / `hook_tap_registry.go`；主 hook consumer 只做 bounded parse + enqueue。长跑校验固定落 `cmd/mcp-orch/orchestration/runtime/output_validation_actor.go`。P8 的 arbiter verdict 表/列应对 `parsed_verdict` 加 CHECK（`pass|fail|verdict_lost|repair|invalid` 或 P8 冻结 enum），P13 不新增另一套 verdict enum。
 
 ## DDL / SQL
 
 **`0073_dag_output_validation.sql`** 草案：
 
 ```sql
-ALTER TABLE public.task_dag_nodes ADD COLUMN output_validation_phase TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.task_dag_nodes ADD COLUMN output_validation_phase TEXT NOT NULL DEFAULT '' CHECK (output_validation_phase IN ('','pending','validating','repairing','failed','passed'));
 ALTER TABLE public.task_dag_nodes ADD COLUMN output_validation_round INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE public.task_dag_nodes ADD COLUMN output_schema_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.task_dag_nodes ADD COLUMN output_schema_version INTEGER NOT NULL DEFAULT 0;

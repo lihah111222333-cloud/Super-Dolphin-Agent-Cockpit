@@ -24,7 +24,7 @@ DAG 每 N 分钟探测 running node 上 agent 有无新动向（工具调用、t
 
 ## 推荐架构
 
-`dagActivityActor` 只做活性观察与 relaunch 决策，不绕过 P0/P1/P2 state machine。heartbeat 写入来自 hook tap 的 canonical turn/tool/progress 事件，统一落 `last_activity_at`、`last_activity_kind`、`activity_state`、`heartbeat_seq`、`last_heartbeat_at`，并带 `active_turn_id + attempt_no` fence。默认 cadence：hook 事件实时 coalesce 写；actor probe 每 `probe_interval_sec` 扫 `next_probe_at <= now()` 的 running nodes，默认 interval 60s、jitter ±20%、batch 100（owner 可调但必须 schema 化）。
+`dagActivityActor` 只做活性观察与 relaunch 决策，不绕过 P0/P1/P2 state machine。heartbeat 写入来自 hook tap registry 的 activity provider（不是主 hook 分发内联逻辑）的 canonical turn/tool/progress 事件，统一落 `last_activity_at`、`last_activity_kind`、`activity_state`、`heartbeat_seq`、`last_heartbeat_at`，并带 `active_turn_id + attempt_no` fence。默认 cadence：hook 事件实时 coalesce 写；actor probe 每 `probe_interval_sec` 扫 `next_probe_at <= now()` 的 running nodes，默认 interval 60s、jitter ±20%、batch 100（owner 可调但必须 schema 化）。
 
 P9 backpressure 信号是前置要求：hook/launcher/DB lag 超阈值时，P7 只能延后 `next_probe_at` 并打 metric，不 relaunch、不写终态。P9 promhttp 指标未接通时，必须先提供 scheduled-audit fallback（周期性把 lag/queue depth 写 audit/health row）供 P7 判断，否则 P7 自动 relaunch feature gate 关闭。
 
@@ -33,15 +33,15 @@ P9 backpressure 信号是前置要求：hook/launcher/DB lag 超阈值时，P7 �
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
 | activity actor | `cmd/mcp-orch/orchestration/runtime/activity_actor.go` [NEW] | 第 5 个 `Runner.Run(ctx)` actor；按 `next_probe_at` 分片扫描 running nodes；遵守 P9 backpressure |
-| hook activity tap | `cmd/mcp-orch/orchestration/hook_consumer.go` / `event_relay.go`（扩展） | Turn/tool/progress heartbeat coalesce 写 `last_activity_*`，terminal 事件 durable |
+| hook activity tap provider | `cmd/mcp-orch/orchestration/hook_tap_registry.go` + `cmd/mcp-orch/orchestration/activity_tap.go` [NEW] | 注册 activity provider；Turn/tool/progress heartbeat coalesce 写 `last_activity_*`，terminal 事件 durable；不直接扩主 hook 分发 |
 | SQL runtime | `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql`（扩展） | fenced update：`last_activity_at/kind/state/tool_call_id/tool_started_at/heartbeat_seq/next_probe_at` |
-| schema | `cmd/mcp-orch/tools/task_tools.go`（扩展） | `probe_interval_sec`、`idle_timeout_sec`、`tool_idle_timeout_sec`、batch/jitter/backoff 字段 |
+| schema provider | `cmd/mcp-orch/tools/dag_schema_registry.go` + `cmd/mcp-orch/tools/dag_schema_activity.go` [NEW] | 注册 `probe_interval_sec`、`idle_timeout_sec`、`tool_idle_timeout_sec`、batch/jitter/backoff 字段；不直接并行改 `task_tools.go` |
 | metrics/backpressure | P9 promhttp metrics or scheduled-audit fallback | 读取 hook lag、launcher lag、DB p99；缺指标时关闭 relaunch |
 | archtest | `internal/archtest/dag_activity_actor_test.go` [NEW] | 确认 actor 注册、CAS fence、禁止 watcher 直接写 `observe_lost` |
 
 **已知关键改动方向**：
 - 新增 `dagActivityActor`（runner.actors 第 5 个）：定期扫 `running` 节点 `last_activity_at` 老化
-- P2 hook tap 扩展：`ToolCallBegin/End` / `TurnOutputDelta` 等事件回写 `last_activity_at` + `last_activity_kind`
+- P2 hook tap registry 扩展：由 P7 activity provider 订阅 `ToolCallBegin/End` / `TurnOutputDelta` 等事件并回写 `last_activity_at` + `last_activity_kind`；主 hook consumer 只做 registry fanout/enqueue
 - 两种 relaunch 语义：
   - (a) 同 `agent_id` 复用 thread 重投 turn（保留上下文，仅当原 agent 仍可达）
   - (b) 换 `agent_id` 重起新 agent（CAS 推进 status，复用 P23 `relaunch_on_retry`）
@@ -62,7 +62,7 @@ P9 backpressure 信号是前置要求：hook/launcher/DB lag 超阈值时，P7 �
 ## 风险
 
 - 长工具调用误杀（要靠 `tool_idle_timeout_sec` 双阈值，不能单纯 idle_timeout）
-- 与 P8 `pending_verify / verifying / repairing` 子状态共存：禁止把"等待 verifier"误判为 idle（P23 README §三子任务叠加冲突缓解契约 第 1 条）
+- 与 P8 `awaiting_verify / verifying / repairing` 子状态共存：禁止把"等待 verifier"误判为 idle（P23 README §三子任务叠加冲突缓解契约 第 1 条）
 - N=1000 全表扫描 `last_activity_at`：必须分片 + lease jitter（P23 README §三子任务叠加冲突缓解契约 第 2 条）
 - relaunch 与 reject/repair 共用 CAS fence，禁止双推进
 
@@ -71,7 +71,7 @@ P9 backpressure 信号是前置要求：hook/launcher/DB lag 超阈值时，P7 �
 - 长 `code_run` 5 min 不被误杀（fixture：`ToolCallBegin` 后 5 min 无新事件，`tool_idle_timeout_sec=600` 拒杀）
 - 普通 turn 沉默 10 min 触发 relaunch
 - 同 agent 重投 vs 换 agent 重起两种 fixture
-- `pending_verify / verifying` 节点不被误杀
+- `awaiting_verify / verifying` 节点不被误杀
 - 分片扫描 + jitter（N=1000 不形成 DB 周期性尖峰）
 
 ## 输入材料
@@ -86,7 +86,7 @@ P7 不得只凭一次 idle 超时 relaunch。最小字段/状态：`last_activit
 
 | 判定输入 | 结果 |
 |---|---|
-| `verify_phase in ('pending_verify','verifying','repairing')` 或 `output_validation_phase!=''` | 不 relaunch，由 P8/P13 owner 推进 |
+| `verify_phase in ('awaiting_verify','verifying','repairing')` 或 `output_validation_phase!=''` | 不 relaunch，由 P8/P13 owner 推进 |
 | tool running 且 `now-tool_started_at < tool_idle_timeout_sec` | 不 relaunch，只刷新 activity |
 | hook lag / DB lag 超阈值 | 不 relaunch，触发 backpressure/alert |
 | 连续 K 轮无 activity 且 agent reachable | same-agent resubmit，消耗 activity relaunch budget |

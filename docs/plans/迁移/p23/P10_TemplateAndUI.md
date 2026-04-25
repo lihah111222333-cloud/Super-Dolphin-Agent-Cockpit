@@ -87,7 +87,7 @@
 | DDL | `0070_dag_templates.sql` [NEW]（编号校准） | `dag_templates` 表 + `task_dags.template_key/template_version/schema_hash` 列 + `dag_template_revisions`（版本历史） |
 | 模板 store | `cmd/mcp-orch/store/dagtemplate/*.go` [NEW] | CRUD + 版本管理 |
 | 模板 service | `cmd/mcp-orch/orchestration/template_service.go` [NEW] | 模板 → DAG 实例化（拷贝 snapshot）+ 参数渲染 |
-| 模板 RPC | `cmd/mcp-orch/orchestration/rpc.go`（扩展） | `dag/template/*` + `dag/instantiate` + `dag/edit_node` + `dag/edit_dag` |
+| 模板 RPC registrar | `cmd/mcp-orch/orchestration/rpc_template.go` [NEW] | `registerDAGTemplateRPC` 注册 `dag/template/*` + `dag/instantiate` + `dag/edit_node` + `dag/edit_dag`；`rpc.go` 只调用 registrar |
 | 编辑权限 fence | `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql`（扩展） | CAS：`UPDATE ... WHERE status='pending'` 拒绝跳态写入 |
 | UI bridge/transport | `internal/ui/wails/http_server.go`、`internal/ui/wails/bridge.go`（扩展） | 只承载 Wails WS/bridge 调用与 P6 identity，不放主要页面实现 |
 | UI 模板库 tab | `cmd/agent-terminal/frontend/vue-app/*`（新增/扩展 DAG template components/store/routes） | 列表 / 详情 / 搜索 / fork；通过 Wails bridge 调 RPC |
@@ -98,6 +98,10 @@
 ### HEAD drift note（2026-04-25）
 
 不要再把 UI 页面落点写到 Wails 内部 dag 页面目录。当前 HEAD 的真实前端主要在 `cmd/agent-terminal/frontend/vue-app/*`；`internal/ui/wails/*` 负责 Wails bridge、HTTP/WS transport、native binding。P10 派单时按 10–15 文件拆分：前端 components/store/routes 在 vue-app，bridge/auth/transport 在 Wails，service/RPC/store 在 `cmd/mcp-orch`。
+
+### schema / RPC 拆分依赖
+
+P10 UI 表单字段不得要求 P7/P8/P11/P12/P13 并行修改 `cmd/mcp-orch/tools/task_tools.go`。字段注册表读取 `cmd/mcp-orch/tools/dag_schema_registry.go` 的 per-feature providers；未合入 provider 的字段在 UI feature gate 隐藏但保留 extension slot。模板 RPC 通过 `registerDAGTemplateRPC` 落在 `rpc_template.go`，避免与 P3/P6/P11 同时改 `rpc.go`。
 
 ## DDL / SQL
 
@@ -185,7 +189,7 @@ CREATE INDEX CONCURRENTLY idx_task_dag_template
 
 ## 输入材料
 
-- README §"P10 DAG 模板 + UI 编辑能力"（待 owner 启动前由 README 同步追加该章节，本文件先落 stub）
+- README §"P10 DAG 模板 + UI 编辑能力"
 - [`RESEARCH_VERDICT.md`](RESEARCH_VERDICT.md) §裁决 7
 - p21 P0 自学习模板（参考 modal / scope 形态）
 - 用户原话：「DAG 要有 UI，用户可以保持模版，然后编辑模版或者编辑 dag 任务」
@@ -208,7 +212,7 @@ CREATE INDEX CONCURRENTLY idx_task_dag_template
 | `draft`（派生态，不是主 status） | 未启动，可配置 | DAG/node 可编辑 | Start / Save as template |
 | `pending` | 等待依赖 | node 可编辑 | 等待或调整依赖 |
 | `running` | 执行中 | 只读 | 查看 activity |
-| `pending_verify/verifying` | 校验中（source=`verify_phase`） | 只读 | 查看 verifier |
+| `awaiting_verify/verifying` | 校验中（source=`verify_phase`） | 只读 | 查看 verifier |
 | `repairing` | 修复中（source=`verify_phase/output_validation_phase`） | 只读 | 查看反馈 |
 | `validating_output` | JSON 输出校验中（source=`output_validation_phase`） | 只读 | 查看校验详情 |
 | `validation_repairing` | JSON 输出修复中（source=`output_validation_phase`） | 只读 | 查看 schema 错误 |
