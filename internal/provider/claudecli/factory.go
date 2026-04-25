@@ -298,10 +298,13 @@ func (t *transport) ensureProcessAlive() (int, error) {
 	if t == nil || t.cmd == nil || t.cmd.Process == nil {
 		return 0, nil
 	}
-	if state := t.cmd.ProcessState; state != nil && state.Exited() {
+	select {
+	case <-t.done:
 		return 0, nil
+	default:
 	}
 	pid := t.cmd.Process.Pid
+
 	if pid <= 0 {
 		return 0, errors.New("invalid claude pid")
 	}

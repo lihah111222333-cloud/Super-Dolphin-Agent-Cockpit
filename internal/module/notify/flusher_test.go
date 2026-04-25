@@ -137,9 +137,10 @@ func TestFlusherSendsQueuedRequest(t *testing.T) {
 		mu.Lock()
 		n := len(*bodies)
 		mu.Unlock()
-		if n > 0 {
+		if n > 0 && f.Metrics().Delivered >= 1 {
 			break
 		}
+
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
@@ -200,9 +201,10 @@ func TestFlusherDeliversBulkQueue(t *testing.T) {
 		mu.Lock()
 		n := len(*bodies)
 		mu.Unlock()
-		if n >= 3 {
+		if n >= 3 && f.Metrics().Delivered >= 3 {
 			break
 		}
+
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()

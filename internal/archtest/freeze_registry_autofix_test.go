@@ -7,9 +7,8 @@ import (
 )
 
 func TestPlanFreezeRegistryAutoFixes(t *testing.T) {
-	t.Parallel()
-
 	repoRoot := t.TempDir()
+
 	for _, rel := range []string{
 		"internal/module/memory",
 		"internal/module/thread",

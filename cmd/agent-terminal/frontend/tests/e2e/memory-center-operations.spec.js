@@ -84,6 +84,7 @@ test('memory center supports durable CRUD, agent memory save, and shared-file pr
   await expect(page.getByTestId('memory-center-notice')).toContainText('durable memory 已删除');
   await expect(page.getByTestId('memory-center-private-empty')).toBeVisible();
 
+  await page.getByTestId('memory-center-agent-show-all').click();
   await page.getByTestId('memory-center-agent-create-project').click();
   await page.getByTestId('memory-center-agent-type').fill('Writer');
   await page.getByTestId('memory-center-agent-content').fill('Remember the regression checklist for UI work.');

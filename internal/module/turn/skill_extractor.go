@@ -123,95 +123,67 @@ func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*Extracte
 	if e == nil {
 		return nil, errors.New("extractor: nil receiver")
 	}
-	if !e.readyToExtract(t) {
+	verdict := e.evaluator.Evaluate(t)
+	if !verdict.Eligible {
+		e.logger.Debug("extractor: trajectory ineligible", "turn_id", t.TurnID, "reason", verdict.Reason)
 		return nil, nil
 	}
-	prompt, err := e.redactedTrajectoryPrompt(t)
+	if e.dream == nil {
+		e.Metrics.incDreamNotConfigured()
+		e.logger.Info("extractor: dream executor not configured, skipping", "turn_id", t.TurnID)
+		return nil, nil
+	}
+	if e.store == nil {
+		e.logger.Warn("extractor: skill candidate store not wired, skipping", "turn_id", t.TurnID)
+		return nil, nil
+	}
+
+	prompt, err := e.buildRedactedPrompt(t)
 	if err != nil {
+		e.Metrics.incRedactionFailed()
+		e.logger.Error("extractor: prompt redaction failed", "turn_id", t.TurnID, "error", err)
 		return nil, err
 	}
-	rawSkillMd, err := e.executeDream(ctx, t, prompt)
-	if err != nil {
-		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
-			return nil, nil
-		}
+	cleaned, hits, ok, err := e.extractRedactedSkillMD(ctx, t, prompt)
+	if err != nil || !ok {
 		return nil, err
 	}
-	cleaned, err := e.redactDreamOutput(t, rawSkillMd)
-	if err != nil {
-		return nil, err
-	}
-	extracted := newExtractedSkill(t, cleaned)
-	inserted, err := e.insertExtractedSkill(ctx, t, extracted)
+	extracted, inserted, err := e.insertExtractedSkill(ctx, t, cleaned)
 	if err != nil {
 		return extracted, err
 	}
 	if inserted {
 		e.Metrics.incPromoted()
 	}
+	_ = hits
 	return extracted, nil
 }
 
-func (e *DefaultExtractor) readyToExtract(t Trajectory) bool {
-	verdict := e.evaluator.Evaluate(t)
-	if !verdict.Eligible {
-		e.logger.Debug("extractor: trajectory ineligible", "turn_id", t.TurnID, "reason", verdict.Reason)
-		return false
-	}
-	if e.dream == nil {
-		e.Metrics.incDreamNotConfigured()
-		e.logger.Info("extractor: dream executor not configured, skipping", "turn_id", t.TurnID)
-		return false
-	}
-	if e.store == nil {
-		e.logger.Warn("extractor: skill candidate store not wired, skipping", "turn_id", t.TurnID)
-		return false
-	}
-	return true
-}
-
-func (e *DefaultExtractor) redactedTrajectoryPrompt(t Trajectory) (string, error) {
-	prompt, err := e.buildRedactedPrompt(t)
-	if err != nil {
-		e.Metrics.incRedactionFailed()
-		e.logger.Error("extractor: prompt redaction failed", "turn_id", t.TurnID, "error", err)
-		return "", err
-	}
-	return prompt, nil
-}
-
-func (e *DefaultExtractor) executeDream(ctx context.Context, t Trajectory, prompt string) (string, error) {
+func (e *DefaultExtractor) extractRedactedSkillMD(ctx context.Context, t Trajectory, prompt string) (string, []string, bool, error) {
 	callCtx, cancel := platformconfig.WithTimeout(ctx, extractTimeout)
 	defer cancel()
 	rawSkillMd, err := e.dream.ExecuteDream(callCtx, prompt)
 	if err != nil {
-		e.recordDreamError(t, err)
-		return "", err
+		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+			e.Metrics.incDreamNotConfigured()
+			e.logger.Info("extractor: dream executor not configured at call time", "turn_id", t.TurnID)
+			return "", nil, false, nil
+		}
+		e.Metrics.incDreamFailed()
+		e.logger.Warn("extractor: dream execute failed", "turn_id", t.TurnID, "error", err)
+		return "", nil, false, err
 	}
-	return rawSkillMd, nil
-}
 
-func (e *DefaultExtractor) recordDreamError(t Trajectory, err error) {
-	if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
-		e.Metrics.incDreamNotConfigured()
-		e.logger.Info("extractor: dream executor not configured at call time", "turn_id", t.TurnID)
-		return
-	}
-	e.Metrics.incDreamFailed()
-	e.logger.Warn("extractor: dream execute failed", "turn_id", t.TurnID, "error", err)
-}
-
-func (e *DefaultExtractor) redactDreamOutput(t Trajectory, rawSkillMd string) (string, error) {
-	cleaned, _, err := e.redactor.Redact(rawSkillMd)
+	cleaned, hits, err := e.redactor.Redact(rawSkillMd)
 	if err != nil {
 		e.Metrics.incRedactionFailed()
 		e.logger.Error("extractor: post-llm redaction errored, dropping", "turn_id", t.TurnID, "error", err)
-		return "", err
+		return "", nil, false, err
 	}
 	if err := e.rejectResidualSecrets(t, cleaned); err != nil {
-		return "", err
+		return "", nil, false, err
 	}
-	return cleaned, nil
+	return cleaned, hits, true, nil
 }
 
 func (e *DefaultExtractor) rejectResidualSecrets(t Trajectory, cleaned string) error {
@@ -224,32 +196,12 @@ func (e *DefaultExtractor) rejectResidualSecrets(t Trajectory, cleaned string) e
 		return nil
 	}
 	e.Metrics.incResidualSecret()
-	e.logger.Error("extractor: residual secret after first pass, dropping",
-		"turn_id", t.TurnID, "hits", residualHits)
+	e.logger.Error("extractor: residual secret after first pass, dropping", "turn_id", t.TurnID, "hits", residualHits)
 	return fmt.Errorf("extractor: residual secret hits %v", residualHits)
 }
 
-func newExtractedSkill(t Trajectory, cleaned string) *ExtractedSkill {
-	sum := sha256.Sum256([]byte(cleaned))
-	contentHash := hex.EncodeToString(sum[:])
-	return &ExtractedSkill{
-		Slug:            slugFromTrajectory(t),
-		SKILLMd:         cleaned,
-		ContentHash:     contentHash,
-		Sample:          truncateRedactedSample(cleaned),
-		Scope:           skillcandidate.ScopeProject,
-		RepoFingerprint: RepoFingerprint(t.Cwd),
-	}
-}
-
-func truncateRedactedSample(sample string) string {
-	if len(sample) > redactedSampleLimit {
-		return sample[:redactedSampleLimit]
-	}
-	return sample
-}
-
-func (e *DefaultExtractor) insertExtractedSkill(ctx context.Context, t Trajectory, extracted *ExtractedSkill) (bool, error) {
+func (e *DefaultExtractor) insertExtractedSkill(ctx context.Context, t Trajectory, cleaned string) (*ExtractedSkill, bool, error) {
+	extracted := extractedSkillFromTrajectory(t, cleaned)
 	_, err := e.store.Insert(ctx, skillcandidate.InsertParams{
 		Scope:           extracted.Scope,
 		Slug:            extracted.Slug,
@@ -259,16 +211,32 @@ func (e *DefaultExtractor) insertExtractedSkill(ctx context.Context, t Trajector
 		RedactedSample:  extracted.Sample,
 	})
 	if err == nil {
-		return true, nil
+		return extracted, true, nil
 	}
 	if isUniqueViolation(err) {
 		e.Metrics.incDedupHit()
 		e.logger.Info("extractor: candidate dedup hit, ignoring", "turn_id", t.TurnID, "slug", extracted.Slug)
-		return false, nil
+		return extracted, false, nil
 	}
 	e.Metrics.incInsertFailed()
 	e.logger.Error("extractor: candidate insert failed", "turn_id", t.TurnID, "error", err)
-	return false, err
+	return extracted, false, err
+}
+
+func extractedSkillFromTrajectory(t Trajectory, cleaned string) *ExtractedSkill {
+	sum := sha256.Sum256([]byte(cleaned))
+	sample := cleaned
+	if len(sample) > redactedSampleLimit {
+		sample = sample[:redactedSampleLimit]
+	}
+	return &ExtractedSkill{
+		Slug:            slugFromTrajectory(t),
+		SKILLMd:         cleaned,
+		ContentHash:     hex.EncodeToString(sum[:]),
+		Sample:          sample,
+		Scope:           skillcandidate.ScopeProject,
+		RepoFingerprint: RepoFingerprint(t.Cwd),
+	}
 }
 
 // isUniqueViolation accepts both the platformdb.ErrConflict sentinel that

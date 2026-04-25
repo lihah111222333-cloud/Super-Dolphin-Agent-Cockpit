@@ -40,6 +40,7 @@ export function getBridgeEventMethod(evt) {
     evt?.params?.method,
     evt?.payload?.method,
     evt?.data?.method,
+    evt?.data?.type,
     evt?.type,
   ];
   for (const value of candidates) {
