@@ -235,6 +235,10 @@ func (r *remoteLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool 
 	return agent != nil && agent.remoteThreadID != ""
 }
 
+func (r *remoteLauncher) SupportsPersistedRuntimeRehydrate() bool {
+	return true
+}
+
 func (r *remoteLauncher) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

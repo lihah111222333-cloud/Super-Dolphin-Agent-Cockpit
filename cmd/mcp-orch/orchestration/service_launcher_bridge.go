@@ -340,6 +340,7 @@ func (s *service) submitTurnViaLauncher(ctx context.Context, req TurnSubmission)
 	if err != nil {
 		return err
 	}
+	s.ensureRuntimeForPersistedAgent(ctx, agentID)
 	handled, err := s.trySubmitRemoteTurn(ctx, agentID, req)
 	if handled {
 		return err

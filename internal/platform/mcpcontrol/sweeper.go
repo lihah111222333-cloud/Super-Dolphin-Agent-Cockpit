@@ -22,6 +22,20 @@ type SweepResult struct {
 	Evicted int
 }
 
+type sweepTarget struct {
+	key           LeaseKey
+	peer          Peer
+	reason        string
+	binaryName    string
+	agentID       string
+	threadID      string
+	pid           int
+	peerKind      string
+	clientKind    string
+	status        string
+	lastHeartbeat time.Time
+}
+
 // Sweeper periodically marks stale leases and evicts expired MCP tool peers from a ToolRegistry.
 type Sweeper struct {
 	registry   *ToolRegistry
@@ -80,30 +94,26 @@ func (s *Sweeper) Sweep(now time.Time) SweepResult {
 		return SweepResult{}
 	}
 	result := SweepResult{}
-	var evicted []struct {
-		key  LeaseKey
-		peer Peer
-	}
+	var evicted []sweepTarget
 
 	s.registry.mu.Lock()
 	for key, instance := range s.registry.instances {
 		switch {
 		case instance.Status == dto.StatusDisconnected:
-			evicted = append(evicted, struct {
-				key  LeaseKey
-				peer Peer
-			}{key: key, peer: s.registry.evictLocked(key)})
+			target := newSweepTarget(key, instance, "disconnected")
+			target.peer = s.registry.evictLocked(key)
+			evicted = append(evicted, target)
 			result.Evicted++
 		case instance.LastHeartbeat.Add(s.timeout).Before(now):
 			if instance.Status != dto.StatusStale {
 				instance.Status = dto.StatusStale
 				result.Staled++
+				s.logStaled(key, instance, now)
 			}
 			if instance.LastHeartbeat.Add(s.timeout + s.staleGrace).Before(now) {
-				evicted = append(evicted, struct {
-					key  LeaseKey
-					peer Peer
-				}{key: key, peer: s.registry.evictLocked(key)})
+				target := newSweepTarget(key, instance, "heartbeat_timeout")
+				target.peer = s.registry.evictLocked(key)
+				evicted = append(evicted, target)
 				result.Evicted++
 			}
 		}
@@ -111,6 +121,7 @@ func (s *Sweeper) Sweep(now time.Time) SweepResult {
 	s.registry.mu.Unlock()
 
 	for _, target := range evicted {
+		s.logEvicted(target, now)
 		_ = s.registry.disconnectLease(target.key, disconnectLeaseOptions{
 			peer:    target.peer,
 			timeout: true,
@@ -124,6 +135,61 @@ func (s *Sweeper) logResult(result SweepResult) {
 		return
 	}
 	s.logger.Info("mcp control sweep completed", "staled", result.Staled, "evicted", result.Evicted)
+}
+
+func newSweepTarget(key LeaseKey, instance *ToolInstance, reason string) sweepTarget {
+	target := sweepTarget{key: key, reason: reason}
+	if instance == nil {
+		return target
+	}
+	target.binaryName = instance.BinaryName
+	target.agentID = instance.AgentID
+	target.threadID = instance.ThreadID
+	target.pid = instance.PID
+	target.peerKind = instance.PeerKind
+	target.clientKind = instance.ClientKind
+	target.status = instance.Status
+	target.lastHeartbeat = instance.LastHeartbeat
+	return target
+}
+
+func (s *Sweeper) logStaled(key LeaseKey, instance *ToolInstance, now time.Time) {
+	if s == nil || s.logger == nil || instance == nil {
+		return
+	}
+	s.logger.Warn("mcp control sweep marked peer stale",
+		"instance_id", key.InstanceID,
+		"generation", key.Generation,
+		"binary", instance.BinaryName,
+		"client_kind", instance.ClientKind,
+		"peer_kind", instance.PeerKind,
+		"pid", instance.PID,
+		"agent_id", instance.AgentID,
+		"thread_id", instance.ThreadID,
+		"last_heartbeat", instance.LastHeartbeat,
+		"heartbeat_age", now.Sub(instance.LastHeartbeat),
+		"timeout", s.timeout)
+}
+
+func (s *Sweeper) logEvicted(target sweepTarget, now time.Time) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	s.logger.Warn("mcp control sweep evicting peer",
+		"instance_id", target.key.InstanceID,
+		"generation", target.key.Generation,
+		"binary", target.binaryName,
+		"client_kind", target.clientKind,
+		"peer_kind", target.peerKind,
+		"pid", target.pid,
+		"agent_id", target.agentID,
+		"thread_id", target.threadID,
+		"status", target.status,
+		"reason", target.reason,
+		"last_heartbeat", target.lastHeartbeat,
+		"heartbeat_age", now.Sub(target.lastHeartbeat),
+		"timeout", s.timeout,
+		"stale_grace", s.staleGrace)
 }
 
 func (s *Sweeper) nextInterval() time.Duration {
