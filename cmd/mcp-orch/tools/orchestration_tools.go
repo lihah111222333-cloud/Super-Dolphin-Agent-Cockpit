@@ -5,16 +5,24 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 var osExecutable = os.Executable
 
+var (
+	launchAgentIDMu           sync.Mutex
+	launchAgentIDReservations map[string]struct{}
+)
+
 type LaunchAgentInput struct {
+	AgentID     string `json:"agent_id,omitempty"`
 	Name        string `json:"name"`
 	Prompt      string `json:"prompt,omitempty"`
 	ParentID    string `json:"parent_id,omitempty"`
@@ -41,11 +49,14 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
+		agentID, releaseAgentID := reserveLaunchAgentID(ctx, svc, req.AgentID)
+		req.AgentID = agentID
 		// Async launch: return immediately so the MCP tool call never blocks
 		// longer than the codex app-server's tool-call timeout. The actual
 		// launch runs in the background; callers poll orchestration_list_agents
 		// or orchestration_get_agent_report for status.
 		go func() {
+			defer releaseAgentID()
 			bgCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 			defer cancel()
 			if err := svc.LaunchAgent(bgCtx, req); err != nil {
@@ -55,6 +66,68 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 		}()
 		return successResult(map[string]any{"agent_id": req.AgentID, "status": "launching"}), nil
 	})
+}
+
+func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService, requested string) (string, func()) {
+	existing := existingLaunchAgentIDs(ctx, svc)
+	launchAgentIDMu.Lock()
+	defer launchAgentIDMu.Unlock()
+	if launchAgentIDReservations == nil {
+		launchAgentIDReservations = make(map[string]struct{})
+	}
+	candidate := strings.TrimSpace(requested)
+	if candidate == "" {
+		candidate = shared.NewAgentID()
+	}
+	for i := 0; i < 64; i++ {
+		if !launchAgentIDInUseLocked(candidate, existing) {
+			launchAgentIDReservations[candidate] = struct{}{}
+			return candidate, releaseLaunchAgentID(candidate)
+		}
+		candidate = shared.NewAgentID()
+	}
+	launchAgentIDReservations[candidate] = struct{}{}
+	return candidate, releaseLaunchAgentID(candidate)
+}
+
+func existingLaunchAgentIDs(ctx context.Context, svc contract.OrchestrationService) map[string]struct{} {
+	existing := make(map[string]struct{})
+	if svc == nil {
+		return existing
+	}
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		return existing
+	}
+	for _, agent := range agents {
+		if id := strings.TrimSpace(agent.ID); id != "" {
+			existing[id] = struct{}{}
+		}
+		if id := strings.TrimSpace(agent.AgentID); id != "" {
+			existing[id] = struct{}{}
+		}
+	}
+	return existing
+}
+
+func launchAgentIDInUseLocked(agentID string, existing map[string]struct{}) bool {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return true
+	}
+	if _, ok := existing[agentID]; ok {
+		return true
+	}
+	_, ok := launchAgentIDReservations[agentID]
+	return ok
+}
+
+func releaseLaunchAgentID(agentID string) func() {
+	return func() {
+		launchAgentIDMu.Lock()
+		delete(launchAgentIDReservations, strings.TrimSpace(agentID))
+		launchAgentIDMu.Unlock()
+	}
 }
 
 func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
@@ -102,6 +175,7 @@ func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
 func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("orchestration_launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{
+			"agent_id":     StringSchema("Optional persisted orchestration agent ID. When omitted, the launcher generates an agent_... ID; never use name as the truth source."),
 			"name":         StringSchema("User-facing agent name. Prefer a short friendly name tied to the task; avoid paths, IDs, and generic labels like worker-agent."),
 			"prompt":       StringSchema("Optional initial prompt to submit as the launched agent's first turn."),
 			"parent_id":    StringSchema("Optional parent agent ID for child-agent launches."),
@@ -119,9 +193,9 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 		defineTool("orchestration_stop_agent", "Stop a running orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
 		}, "agent_id"), HandleStopAgent(svc)),
-		defineTool("orchestration_list_agents", "List orchestration agents and their current runtime snapshots.", ObjectSchema(nil), HandleListAgents(svc)),
-		defineTool("orchestration_get_agent_report", "Read the last known report for an orchestration agent.", ObjectSchema(map[string]Schema{
-			"agent_id": StringSchema("Target orchestration agent ID."),
+		defineTool("orchestration_list_agents", "List orchestration agents and their current runtime snapshots, including persisted agent_id and display name.", ObjectSchema(nil), HandleListAgents(svc)),
+		defineTool("orchestration_get_agent_report", "Read the last known report for an orchestration agent. Pass the persisted agent_id returned by launch/list; display name is not an identifier.", ObjectSchema(map[string]Schema{
+			"agent_id": StringSchema("Persisted target orchestration agent ID returned by launch/list; do not pass name."),
 		}, "agent_id"), HandleGetAgentReport(svc)),
 	)
 }
@@ -145,6 +219,10 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
+	agentID := strings.TrimSpace(in.AgentID)
+	if agentID == "" {
+		agentID = shared.NewAgentID()
+	}
 	provider, err := validateLaunchProvider(in.Provider)
 	if err != nil {
 		return contract.LaunchRequest{}, err
@@ -154,7 +232,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		return contract.LaunchRequest{}, err
 	}
 	return contract.LaunchRequest{
-		AgentID:     name,
+		AgentID:     agentID,
 		Name:        name,
 		Prompt:      strings.TrimSpace(in.Prompt),
 		ParentID:    strings.TrimSpace(in.ParentID),

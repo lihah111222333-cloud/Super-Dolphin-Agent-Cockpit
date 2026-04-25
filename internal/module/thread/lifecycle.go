@@ -81,28 +81,24 @@ func (s *service) bindSessionGeneration(ctx context.Context, agentID string) err
 	return s.orchestration.BindSessionGeneration(ctx, strings.TrimSpace(agentID), generation)
 }
 
-func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (StartRequest, string, error) {
+func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (StartRequest, string, func(), error) {
 	callerProvidedID := strings.TrimSpace(req.AgentID) != ""
 	req, agentID, err := normalizeStartRequest(req)
 	if err != nil {
-		return req, "", err
+		return req, "", nil, err
 	}
 	req = s.injectParentCodexIdentityForStart(ctx, req)
 	req = s.injectDefaultCodexIdentityForStart(req)
-	// Collision-safe agent ID: only apply when the caller didn't provide
-	// an explicit ID. For child agents derive a sequential suffix from
-	// the parent; for root agents verify uniqueness and retry.
-	if !callerProvidedID {
-		agentID, err = s.resolveUniqueAgentID(ctx, req, agentID)
-		if err != nil {
-			return req, "", err
-		}
-		req.AgentID = agentID
+	agentID, releaseAgentID := s.reserveUniqueStartAgentID(ctx, req, agentID, callerProvidedID)
+	if releaseAgentID == nil {
+		return req, "", nil, errors.New("thread: reserve agent_id failed")
 	}
+	req.AgentID = agentID
 	if err := s.prepareTaskHandoffStart(ctx, &req); err != nil {
-		return req, "", err
+		releaseAgentID()
+		return req, "", nil, err
 	}
-	return req, agentID, nil
+	return req, agentID, releaseAgentID, nil
 }
 
 func (s *service) completeStart(ctx context.Context, req StartRequest, agentID string) (StartResult, error) {
@@ -151,10 +147,11 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 
 func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, error) {
 	ctx = shared.NonNilContext(ctx)
-	req, agentID, err := s.prepareStartRequest(ctx, req)
+	req, agentID, releaseAgentID, err := s.prepareStartRequest(ctx, req)
 	if err != nil {
 		return StartResult{}, err
 	}
+	defer releaseAgentID()
 	// C1 — when the caller has nothing to classify yet (empty composer) we
 	// defer the provider-CLI fork to the first turn. startPendingThread writes
 	// a placeholder agent_threads row with pending_launch=true and returns so

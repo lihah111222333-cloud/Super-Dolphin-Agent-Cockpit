@@ -24,6 +24,7 @@ func (p *threadIDParams) UnmarshalJSON(data []byte) error {
 }
 
 type startParams struct {
+	AgentID               string          `json:"agent_id,omitempty"`
 	Provider              string          `json:"provider,omitempty"`
 	CWD                   string          `json:"cwd,omitempty"`
 	Model                 string          `json:"model,omitempty"`
@@ -125,6 +126,7 @@ func (p *startParams) fillLegacyStringFields(payload map[string]json.RawMessage)
 	return assignCompatStrings(payload,
 		compatStringAssignment{target: &p.ModelProvider, field: "model provider", keys: []string{"model_provider", "modelProvider"}},
 		compatStringAssignment{target: &p.ApprovalPolicy, field: "approval policy", keys: []string{"approval_policy", "approvalPolicy"}},
+		compatStringAssignment{target: &p.AgentID, field: "agent id", keys: []string{"agent_id", "agentId"}},
 		compatStringAssignment{target: &p.ParentAgentID, field: "parent agent id", keys: []string{"parent_agent_id", "parentAgentId", "parentId", "parentID"}},
 		compatStringAssignment{target: &p.AgentType, field: "agent type", keys: []string{"agent_type", "agentType"}},
 		compatStringAssignment{target: &p.AgentMemoryScope, field: "agent memory scope", keys: []string{"agent_memory_scope", "agentMemoryScope", "memory_scope", "memoryScope"}},

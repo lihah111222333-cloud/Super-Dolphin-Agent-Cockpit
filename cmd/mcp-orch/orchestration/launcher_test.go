@@ -69,6 +69,9 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 	if started["name"] != "Worker UI" {
 		t.Fatalf("Launch() name = %#v, want Worker UI", started["name"])
 	}
+	if started["agent_id"] != "agent-1" {
+		t.Fatalf("Launch() agent_id = %#v, want agent-1", started["agent_id"])
+	}
 	// thread/start must not receive a separate `prompt` key: the server treats
 	// it as a legacy alias for `name` and rejects (-32602) when the two differ.
 	if _, ok := started["prompt"]; ok {
@@ -99,6 +102,9 @@ func TestRemoteLauncher_LaunchUsesExplicitNameOnly(t *testing.T) {
 	}
 	if started["name"] != "dag-runtime-audit" {
 		t.Fatalf("Launch() name = %#v, want explicit name", started["name"])
+	}
+	if started["agent_id"] != "dag-runtime-audit" {
+		t.Fatalf("Launch() agent_id = %#v, want dag-runtime-audit", started["agent_id"])
 	}
 	if _, ok := started["prompt"]; ok {
 		t.Fatalf("Launch() started contains prompt=%#v; prompt must be submitted as a turn, not as name input", started["prompt"])

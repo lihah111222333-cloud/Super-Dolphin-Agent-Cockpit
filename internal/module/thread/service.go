@@ -66,6 +66,11 @@ type service struct {
 	// first-turns of a pending thread fork exactly one CLI process.
 	pendingLaunchMu sync.Map // key: threadID(string), value: *sync.Mutex
 
+	// agentIDMu protects process-local agent_id reservations made while
+	// thread/start is still launching and has not persisted agent_threads yet.
+	agentIDMu           sync.Mutex
+	agentIDReservations map[string]struct{}
+
 	threadAgentsMu sync.RWMutex
 	threadAgents   map[string]string
 

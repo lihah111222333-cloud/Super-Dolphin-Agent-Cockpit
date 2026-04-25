@@ -36,6 +36,7 @@ const (
 
 // Request parameter keys for LauncherMethodThreadStart.
 const (
+	LauncherParamAgentID          = "agent_id"
 	LauncherParamCwd              = "cwd"
 	LauncherParamName             = "name"
 	LauncherParamAgentType        = "agent_type"
