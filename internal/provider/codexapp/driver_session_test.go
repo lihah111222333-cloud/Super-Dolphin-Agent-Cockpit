@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/gorilla/websocket"
 )
 
@@ -181,6 +182,75 @@ func TestSessionRuntimeConfigSnapshotIncludesPromptInstructions(t *testing.T) {
 	}
 	if got["developerInstructions"] != "legacy dev" {
 		t.Fatalf("developerInstructions = %#v, want legacy dev", got["developerInstructions"])
+	}
+}
+
+func TestDriverStartSessionInjectsInitializeCodexHome(t *testing.T) {
+	home := t.TempDir()
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg jsonRPCMessage
+			if err := json.Unmarshal(rawBytes, &msg); err != nil || len(msg.ID) == 0 {
+				continue
+			}
+			var result json.RawMessage
+			switch msg.Method {
+			case "initialize":
+				result = mustJSON(map[string]any{"codexHome": home})
+			case "thread/start":
+				result = mustJSON(map[string]any{
+					"thread": map[string]any{"id": "provider-thread-1", "cwd": "/repo"},
+					"model":  "gpt-5.5",
+				})
+			default:
+				result = mustJSON(map[string]any{"ok": true})
+			}
+			resp, err := json.Marshal(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+				"result":  json.RawMessage(append([]byte(nil), result...)),
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	d := &driver{
+		serverURL: "ws" + strings.TrimPrefix(server.URL, "http"),
+		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+			return nil, nil
+		},
+	}
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		Provider: "codex",
+		AgentID:  "agent-1",
+		CWD:      "/repo",
+	})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	s, ok := got.(*session)
+	if !ok {
+		t.Fatalf("StartSession() type = %T, want *session", got)
+	}
+	defer closeCodexTestSession(t, s)
+	if cfg := s.RuntimeConfigSnapshot(); cfg["codexHome"] != home {
+		t.Fatalf("runtime codexHome = %#v, want %q; cfg=%#v", cfg["codexHome"], home, cfg)
 	}
 }
 

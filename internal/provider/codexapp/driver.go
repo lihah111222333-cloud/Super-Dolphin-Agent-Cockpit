@@ -178,6 +178,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	}
 	baseInstructions, developerInstructions := startAssemblyInstructions(req)
 	s.setRuntimeConfig(req.Config)
+	s.ensureRuntimeCodexHomeFromInitialize("start")
 	if baseInstructions != "" {
 		s.setRuntimeConfigValue("baseInstructions", baseInstructions)
 	}
@@ -210,6 +211,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		return nil, err
 	}
 	s.setThreadID(threadID)
+	s.ensureRuntimeCodexHomeFromInitialize("resume")
 	if m := strings.TrimSpace(req.Model); m != "" {
 		s.setRuntimeConfigValue("model", m)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,7 @@ type transport struct {
 	nextID     atomic.Int64
 	looping    atomic.Bool
 	closed     atomic.Bool
+	codexHome  atomic.Value
 }
 
 func newTransport(ctx context.Context, serverURL string) (*transport, error) {
@@ -129,6 +131,14 @@ func (t *transport) Running() bool {
 		return false
 	}
 	return !t.local || t.processRunning()
+}
+
+func (t *transport) InitializeCodexHome() string {
+	if t == nil {
+		return ""
+	}
+	value, _ := t.codexHome.Load().(string)
+	return strings.TrimSpace(value)
 }
 
 func (t *transport) reconnect(ctx context.Context) error {

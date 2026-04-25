@@ -103,7 +103,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 	return buildToolDefinitions(
 		defineTool("orchestration_launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{
 			"name":         StringSchema("User-facing agent name. Prefer a short friendly name tied to the task; avoid paths, IDs, and generic labels like worker-agent."),
-			"prompt":       StringSchema("Optional initial prompt to persist on the launch request."),
+			"prompt":       StringSchema("Optional initial prompt to submit as the launched agent's first turn."),
 			"parent_id":    StringSchema("Optional parent agent ID for child-agent launches."),
 			"agent_type":   StringSchema("Optional stable agent identity. Required for agent memory routing; display name is not used as a fallback."),
 			"agent_key":    StringSchema("Optional router agent_key. When set, thread/start looks up the matching prompt_template and injects its prompt_text as base_instructions."),
